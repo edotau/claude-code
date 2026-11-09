@@ -126,6 +126,10 @@ func TestCleanDryRunPreviewsDeletesNothing(t *testing.T) {
 // TestCleanAppliesByDefault: with no flags, clean deletes aged debris immediately (no --apply needed).
 func TestCleanAppliesByDefault(t *testing.T) {
 	dir := seedDebris(t)
+	// The real scan keeps all memory state whenever a same-uid process has an unreadable fd table (host-dependent).
+	oldOpen := openMemoryFiles
+	openMemoryFiles = func() (map[string]bool, bool) { return map[string]bool{}, true }
+	t.Cleanup(func() { openMemoryFiles = oldOpen })
 	var out, errw bytes.Buffer
 	if code := Clean(nil, &out, &errw); code != 0 {
 		t.Fatalf("Run = %d, want 0", code)

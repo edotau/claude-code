@@ -138,21 +138,23 @@ func vaultSetTailscalePiped(apiKeyOnly, dryRun bool) int {
 	return vaultStoreTailscale(dryRun, pairs)
 }
 
-// vaultStoreTailscale validates every value before writing any of them, then stores (or dry-run reports) each.
+// vaultStoreTailscale validates every value, then stores them all or none (StoreCreds rolls back); dry-run only reports.
 func vaultStoreTailscale(dryRun bool, creds []tailscale.Cred) int {
 	if err := tailscale.CheckCreds(creds); err != nil {
 		fmt.Fprintf(os.Stderr, "vault set: %v; nothing written\n", err)
 		return 1
 	}
-	for _, c := range creds {
-		verb, err := tailscale.StoreCred(c, dryRun)
-		if err != nil {
-			return helptext.Fail("vault set: %v", err)
-		}
-		if dryRun {
+	if dryRun {
+		for _, c := range creds {
+			verb, _ := tailscale.StoreCred(c, true) // dry-run never fails
 			fmt.Printf("would %s %s (%d chars); nothing written\n", verb, c.Name, len(c.Value))
-			continue
 		}
+		return 0
+	}
+	if err := tailscale.StoreCreds(creds); err != nil {
+		return helptext.Fail("vault set: %v", err)
+	}
+	for _, c := range creds {
 		fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s)\n", c.Name, vault.Redact(c.Value))
 	}
 	return 0

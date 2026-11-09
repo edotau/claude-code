@@ -8,6 +8,52 @@ import (
 	"testing"
 )
 
+func TestMasterKeyRecoversPerKidAfterCommandFailure(t *testing.T) {
+	ring := phase1bRing(t)
+	phase1bPut(t, "TOKEN", "recoverable-value")
+	wantKid := phase1bMeta(t, "kid")
+	acct := account(currentVaultID(t))
+	ring.mu.Lock()
+	delete(ring.values, acct)
+	ring.mu.Unlock()
+	if err := Update(func(tx *Tx) error {
+		return tx.Put(Meta, "key_command", `["/bin/true"]`)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	invalidateKey()
+	key, source, err := MasterKey()
+	if err != nil {
+		t.Fatalf("MasterKey with missing pointer and empty command output: %v", err)
+	}
+	if key == nil || source != "keyring" || key.Kid != wantKid {
+		t.Fatalf("MasterKey = %v, %q; want per-kid key %q from keyring", key, source, wantKid)
+	}
+	checkPointerThenPerKid(t, ring, acct, wantKid)
+	phase1bRead(t, "TOKEN", "recoverable-value")
+}
+
+func TestRotateKeyForceAcceptsCurrentEnvKey(t *testing.T) {
+	ring := phase1bRing(t)
+	phase1bPut(t, "TOKEN", "survives-forced-rotation")
+	acct := account(currentVaultID(t))
+	t.Setenv("HARNESS_VAULT_KEY", ringValue(ring, acct))
+	before := phase1bMeta(t, "kid")
+	if _, _, err := RotateKey(); err == nil {
+		t.Fatal("unforced rotation accepted an env-held key")
+	}
+	oldKid, newKid, err := RotateKey(ForceRotate())
+	if err != nil {
+		t.Fatalf("forced rotation with current key in env: %v", err)
+	}
+	if oldKid != before || newKid == "" || newKid == before {
+		t.Fatalf("rotation kids = %q -> %q, want %q -> a new kid", oldKid, newKid, before)
+	}
+	t.Setenv("HARNESS_VAULT_KEY", ringValue(ring, acct+"."+newKid))
+	checkRecordKid(t, "TOKEN", newKid)
+	phase1bRead(t, "TOKEN", "survives-forced-rotation")
+}
+
 func TestEnsureKeyNoAnswerDoesNotGenerate(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HARNESS_VAULT_KEY", "")

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -190,6 +191,11 @@ func TestContractCleanSweeps(t *testing.T) {
 			}
 			if got := cleanSweep(t, f.Clean); strings.Contains(got, f.Clean+" ") && strings.Contains(got, "would remove") {
 				t.Fatalf("empty tree already reports a removal: %s", got)
+			}
+			if f.Clean == "dispatch-log" { // clean keeps the newest 200 records at any age: bury the fixture below them
+				for i := range 200 {
+					writeOldCleanFixture(t, filepath.Join(filepath.Dir(path), fmt.Sprintf("zz-%03d.json", i)))
+				}
 			}
 			writeOldCleanFixture(t, path)
 			got := cleanSweep(t, f.Clean)

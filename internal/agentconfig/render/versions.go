@@ -179,13 +179,13 @@ func RevertOne(label, path string, dryRun bool, out io.Writer) error {
 	src, ok := newestMirror(path)
 	consumed := true
 	if !ok {
-		var legacyOK bool
-		src, _, legacyOK = LegacyBackupSource(path)
+		var stepBack, legacyOK bool
+		src, stepBack, legacyOK = LegacyBackupSource(path)
 		if !legacyOK {
 			fmt.Fprintf(out, "%s: no backup to revert for %s\n", label, path)
 			return nil
 		}
-		consumed = false
+		consumed = stepBack // a versioned sidecar is consumed so the next revert steps back; plain .backup stays
 	}
 	if dryRun {
 		fmt.Fprintf(out, "%s: would restore %s from %s\n", label, path, src)

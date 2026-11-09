@@ -95,19 +95,26 @@ func cmdVaultGet(args []string) int {
 	if masterKey {
 		return helptext.Fail("vault get: HARNESS_VAULT_KEY is the master key; use vault get --key (refused on a terminal)")
 	}
-	printVaultValues(names, values, *export)
+	if err := printVaultValues(names, values, *export); err != nil {
+		return helptext.Fail("vault get: %v", err)
+	}
 	return 0
 }
 
-// printVaultValues prints NAME=value lines, or shell-quoted export lines with export.
-func printVaultValues(names, values []string, export bool) {
+// printVaultValues prints NAME=value lines, or shell-quoted export lines with export; the first write error is returned.
+func printVaultValues(names, values []string, export bool) error {
 	for i, name := range names {
+		var err error
 		if export {
-			fmt.Printf("export %s=%s\n", name, textutil.ShellQuote(values[i]))
+			_, err = fmt.Printf("export %s=%s\n", name, textutil.ShellQuote(values[i]))
 		} else {
-			fmt.Printf("%s=%s\n", name, values[i])
+			_, err = fmt.Printf("%s=%s\n", name, values[i])
+		}
+		if err != nil {
+			return err
 		}
 	}
+	return nil
 }
 
 // vaultGetKey prints the master key only to a pipe, never a terminal, so it never lands in scrollback.
@@ -121,7 +128,10 @@ func vaultGetKey() int {
 		fmt.Fprintln(os.Stderr, "vault get --key:", err)
 		return 1
 	}
-	fmt.Println(k.Raw())
+	if _, err := fmt.Println(k.Raw()); err != nil {
+		fmt.Fprintln(os.Stderr, "vault get --key:", err)
+		return 1
+	}
 	audit.Log(audit.KeyReveal, k.Kid, "")
 	return 0
 }
@@ -180,7 +190,7 @@ func cmdVaultImport(args []string) int {
 	if err := signin.ValidateImport(pairs); err != nil {
 		return helptext.Fail("vault import: %s: %v", name, err)
 	}
-	if !confirmImport(pairs) {
+	if !confirmImport(pairs, *yes) {
 		return 1
 	}
 	err = signin.StoreImport(pairs, func(n string) { fmt.Fprintf(os.Stderr, "stored %s in the vault\n", n) })
@@ -208,12 +218,12 @@ func openImport(name string, yes bool) (io.ReadCloser, int) {
 	return io.NopCloser(os.Stdin), 0
 }
 
-// confirmImport previews each pair (masked) and, on a terminal, asks before storing; false means nothing written.
-func confirmImport(pairs []vault.Pair) bool {
+// confirmImport previews each pair (masked) and, on a terminal without --yes, asks before storing; false means nothing written.
+func confirmImport(pairs []vault.Pair, yes bool) bool {
 	for _, p := range pairs {
 		fmt.Fprintf(os.Stderr, "  %-28s %s\n", p.Name, vault.Preview(p.Value))
 	}
-	if tui.StdinIsTerminal() && !tui.ConfirmKey(fmt.Sprintf("Store %d secret(s)?", len(pairs)), true) {
+	if !yes && tui.StdinIsTerminal() && !tui.ConfirmKey(fmt.Sprintf("Store %d secret(s)?", len(pairs)), true) {
 		fmt.Fprintln(os.Stderr, "vault import: nothing written")
 		return false
 	}

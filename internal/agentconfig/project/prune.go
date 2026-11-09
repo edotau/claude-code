@@ -35,11 +35,7 @@ func isGeneratedSkillDir(path string) bool {
 	if err != nil || !info.IsDir() {
 		return false
 	}
-	skillFile := filepath.Join(path, "SKILL.md")
-	if fi, err := os.Stat(skillFile); err != nil || fi.IsDir() {
-		return false
-	}
-	return isGeneratedText(skillFile)
+	return isGeneratedFile(filepath.Join(path, "SKILL.md"))
 }
 
 // hasGeneratedBanner reports whether a banner is the first non-empty body line after any frontmatter.
@@ -67,7 +63,11 @@ func hasGeneratedBanner(text string) bool {
 func pruneEntries(out io.Writer, dir string, match func(os.DirEntry) (string, bool), remove func(string) error, dryRun bool) syncResult {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return syncResult{}
+		if os.IsNotExist(err) {
+			return syncResult{}
+		}
+		fmt.Fprintf(os.Stderr, "  prune error: %v\n", err)
+		return syncResult{errored: 1}
 	}
 	var res syncResult
 	for _, e := range entries {
@@ -111,8 +111,17 @@ func removeGeneratedSkillDir(path, root string) error {
 	if filepath.Dir(resolved) != absRoot {
 		return fmt.Errorf("refusing to delete dir outside %s: %s", root, path)
 	}
-	// Symlinks only (os.Remove never follows one); before SKILL.md so a failed delete still reads as generated.
-	entries, _ := os.ReadDir(path)
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return err
+	}
+	// Check before deleting anything: a hand-added entry would fail the final rmdir after SKILL.md was gone.
+	for _, e := range entries {
+		if e.Type()&os.ModeSymlink == 0 && e.Name() != "SKILL.md" {
+			return fmt.Errorf("refusing to delete %s: holds %s", path, e.Name())
+		}
+	}
+	// Symlinks, then the SKILL.md marker, then the dir: the marker survives any failure before the last step.
 	for _, e := range entries {
 		if e.Type()&os.ModeSymlink == 0 {
 			continue
@@ -121,11 +130,8 @@ func removeGeneratedSkillDir(path, root string) error {
 			return err
 		}
 	}
-	skillFile := filepath.Join(path, "SKILL.md")
-	if _, err := os.Stat(skillFile); err == nil {
-		if err := os.Remove(skillFile); err != nil {
-			return err
-		}
+	if err := os.Remove(filepath.Join(path, "SKILL.md")); err != nil && !os.IsNotExist(err) {
+		return err
 	}
 	return os.Remove(path)
 }

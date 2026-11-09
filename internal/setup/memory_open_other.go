@@ -13,7 +13,7 @@ import (
 )
 
 // openMemoryFiles retains state if lsof is missing or cannot inspect open descriptors.
-func openMemoryFiles() (map[string]bool, bool) {
+func scanOpenMemoryFiles() (map[string]bool, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	data, err := exec.CommandContext(ctx, "lsof", "-Fn", "+D", memstore.StateDir()).Output()

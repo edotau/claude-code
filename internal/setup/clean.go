@@ -80,6 +80,7 @@ func stateTargets() []target {
 				return []string{s("dispatch", "*.json"), s("dispatch", "*.log"),
 					s("dispatch", "*"+paths.DispatchEventsSuffix), s("dispatch", "review-*.diff")}
 			},
+			keep: dispatchKeeper(),
 		},
 		{
 			name: "codex-audit", doc: "state/harness/codex: codex routing audit logs (routing-*.jsonl), aged by --older-than",
@@ -213,7 +214,7 @@ func Clean(args []string, out, errw io.Writer) int {
 	})
 	fs.SetOutput(errw)
 	want := fs.String("target", "", "comma-separated targets (default: every target except opt-in ones); --list names them")
-	olderThan := fs.String("older-than", "30d", "sweep only entries untouched this long (e.g. 30d, 12h)")
+	olderThan := fs.String("older-than", "30d", "sweep only entries untouched this long (e.g. 30d, 12h); dead-pid registry entries go at any age")
 	dryRun := fs.Bool("dry-run", false, "preview only — print what would be removed, delete nothing")
 	yesFlag := fs.Bool("yes", false, "skip the --target sessions confirmation prompt (required without a TTY)")
 	list := fs.Bool("list", false, "print the targets and exit")
@@ -383,6 +384,56 @@ func keepLiveSession(p string) bool {
 	return pidAlive(pid)
 }
 
+// dispatchKeepCount mirrors the dispatch package's dispatchKeep: the newest records a sweep never removes.
+const dispatchKeepCount = 200
+
+// dispatchKeeper protects the files of the newest dispatchKeepCount records; an unreadable dispatch dir protects all.
+func dispatchKeeper() func(string) bool {
+	var keep map[string]bool
+	var readable, checked bool
+	return func(p string) bool {
+		if !checked {
+			keep, readable = newestDispatches(paths.DispatchDir())
+			checked = true
+		}
+		return !readable || keep[dispatchStem(p)]
+	}
+}
+
+// newestDispatches returns the stems of the newest dispatchKeepCount records in dir; false when dir is unreadable.
+func newestDispatches(dir string) (map[string]bool, bool) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]bool{}, true
+	}
+	if err != nil {
+		return nil, false
+	}
+	var names []string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".json") {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names) // ids lead with a UTC timestamp, so name order is age order
+	keep := map[string]bool{}
+	for i := len(names) - 1; i >= 0 && len(keep) < dispatchKeepCount; i-- {
+		keep[dispatchStem(names[i])] = true
+	}
+	return keep, true
+}
+
+// dispatchStem is the record id a dispatch file belongs to: its name without the record, log or events suffix.
+func dispatchStem(p string) string {
+	name := filepath.Base(p)
+	for _, suffix := range []string{".json", ".log", paths.DispatchEventsSuffix} {
+		if stem, ok := strings.CutSuffix(name, suffix); ok {
+			return stem
+		}
+	}
+	return name
+}
+
 // pruneAgedTo removes every glob match older than cutoff (a directory whole, by its newest mtime).
 // Size is measured BEFORE removal; keep, when non-nil, vetoes a match. Failures go to errw and are counted.
 func pruneAgedTo(errw io.Writer, patterns []string, cutoff time.Time, apply bool, keep func(string) bool) (hit []string, size int64, failed int) {
@@ -493,7 +544,8 @@ func selectTargets(all []target, want string) ([]target, error) {
 }
 
 // newestMTime is the most recent mtime at or under p — "untouched for N days" must mean the whole
-// subtree, since a directory's own mtime misses in-place edits to files already inside it.
+// subtree, since a directory's own mtime misses in-place edits to files already inside it. ok is false
+// when any entry under p cannot be scanned, so the caller keeps it.
 func newestMTime(p string) (time.Time, bool) {
 	st, err := os.Stat(p)
 	if err != nil {
@@ -503,15 +555,22 @@ func newestMTime(p string) (time.Time, bool) {
 		return st.ModTime(), true
 	}
 	newest := st.ModTime()
-	_ = filepath.WalkDir(p, func(_ string, d os.DirEntry, err error) error {
+	err = filepath.WalkDir(p, func(_ string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil //nolint:nilerr // an unreadable entry must not abort the walk
+			return err
 		}
-		if info, err := d.Info(); err == nil && info.ModTime().After(newest) {
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if info.ModTime().After(newest) {
 			newest = info.ModTime()
 		}
 		return nil
 	})
+	if err != nil {
+		return time.Time{}, false
+	}
 	return newest, true
 }
 

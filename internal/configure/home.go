@@ -76,7 +76,55 @@ func CodexWired(path string) bool {
 		return false
 	}
 	start, end := codexMCPRange(raw)
-	return start >= 0 && strings.Contains(string(raw[start:end]), "claude-code") && strings.Contains(string(raw[start:end]), `args = ["network", "websearch"]`)
+	if start < 0 {
+		return false
+	}
+	body := tomlCodeOnly(string(raw[start:end]))
+	return strings.Contains(body, "claude-code") && strings.Contains(body, `args = ["network", "websearch"]`)
+}
+
+// tomlCodeOnly drops comments and multiline string content so neither counts as wired.
+func tomlCodeOnly(text string) string {
+	lines := strings.Split(text, "\n")
+	state, depth := "", 0
+	for i, line := range lines {
+		lines[i] = codeLine(line, state)
+		state, depth = agentconfig.TOMLLineState(line, state, depth)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// codeLine returns the code on line, given the multiline-string state it starts in.
+func codeLine(line, state string) string {
+	if state == "" {
+		return tomlCode(line)
+	}
+	_, after, ok := strings.Cut(line, state)
+	if !ok {
+		return ""
+	}
+	return tomlCode(after)
+}
+
+// tomlCode returns line up to a '#' that sits outside a quoted string.
+func tomlCode(line string) string {
+	var quote byte
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case quote == '"' && c == '\\':
+			i++
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '#':
+			return line[:i]
+		}
+	}
+	return line
 }
 
 func RegisterClaudeMCP(bin string) error {
@@ -97,12 +145,62 @@ func RegisterClaudeMCPContext(ctx context.Context, bin string) error {
 	}
 	out, err := mcpAddWebSearch(ctx, claude, bin)
 	if err != nil && strings.Contains(string(out), "already exists") {
-		// Replace only after add proved the CLI works and the entry exists; remove errors are reported.
-		if rerr := exec.CommandContext(ctx, claude, "mcp", "remove", "-s", "user", "web_search").Run(); rerr != nil {
-			return fmt.Errorf("claude mcp remove: %w", rerr)
-		}
-		out, err = mcpAddWebSearch(ctx, claude, bin)
+		return replaceClaudeMCP(ctx, claude, bin)
 	}
+	return claudeAddErr(ctx, out, err)
+}
+
+// replaceClaudeMCP swaps the existing web_search entry for bin; a failed re-add restores the saved entry.
+func replaceClaudeMCP(ctx context.Context, claude, bin string) error {
+	prev, err := claudeMCPEntry(paths.ClaudeJSON())
+	if err != nil {
+		return fmt.Errorf("claude mcp: existing web_search not saved, refusing to replace it: %w", err)
+	}
+	if err := exec.CommandContext(ctx, claude, "mcp", "remove", "-s", "user", "web_search").Run(); err != nil {
+		return fmt.Errorf("claude mcp remove: %w", err)
+	}
+	out, err := mcpAddWebSearch(ctx, claude, bin)
+	if err == nil {
+		return nil
+	}
+	if rerr := restoreClaudeMCP(ctx, claude, prev); rerr != nil {
+		return errors.Join(claudeAddErr(ctx, out, err), fmt.Errorf("restore web_search: %w", rerr))
+	}
+	return claudeAddErr(ctx, out, err)
+}
+
+// claudeMCPEntry returns the raw user-scope web_search entry from the Claude config file at path.
+func claudeMCPEntry(path string) (json.RawMessage, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var cfg struct {
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return nil, err
+	}
+	entry, ok := cfg.MCPServers["web_search"]
+	if !ok {
+		return nil, fmt.Errorf("no user-scope web_search entry in %s", path)
+	}
+	return entry, nil
+}
+
+// restoreClaudeMCP re-adds the saved entry with its original JSON; it runs even when ctx has expired.
+func restoreClaudeMCP(ctx context.Context, claude string, entry json.RawMessage) error {
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(rctx, claude, "mcp", "add-json", "-s", "user", "web_search", string(entry)).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// claudeAddErr maps one `claude mcp add` result to an error: context first, then the CLI's own failure.
+func claudeAddErr(ctx context.Context, out []byte, err error) error {
 	if cerr := ctxErr(ctx, "claude mcp add"); cerr != nil {
 		return cerr
 	}

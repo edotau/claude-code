@@ -22,6 +22,41 @@ func legacyVault(t *testing.T, pins map[string]string) {
 	}
 }
 
+func TestAgentRecordsNullRemainsWritable(t *testing.T) {
+	for _, pin := range []string{"", "x"} {
+		t.Run("legacy-model="+pin, func(t *testing.T) {
+			useZeroRootVault(t)
+			if err := Update(func(tx *Tx) error {
+				if err := tx.Put(Overlay, AgentRecordsKey, "null"); err != nil {
+					return err
+				}
+				return tx.Put(Pins, "CODEX_MODEL", pin)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := View(func(tx *Tx) error {
+				recs, err := tx.AgentRecords()
+				if err != nil {
+					return err
+				}
+				if recs["codex"].Model != pin {
+					t.Fatalf("AgentRecords = %+v, want codex model %q", recs, pin)
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			want := AgentRecord{Profile: "dev", Model: "new-model"}
+			if err := SetAgentRecord("claude", want); err != nil {
+				t.Fatal(err)
+			}
+			if got := GetAgentRecord("claude"); !reflect.DeepEqual(got, want) {
+				t.Fatalf("stored record = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
 func migrate(t *testing.T) map[string]AgentRecord {
 	t.Helper()
 	if err := Update(func(*Tx) error { return nil }); err != nil {

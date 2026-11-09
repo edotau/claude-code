@@ -104,6 +104,9 @@ func (t *Tx) AgentRecords() (map[string]AgentRecord, error) {
 		if err := json.Unmarshal([]byte(renameSlotsKey(raw)), &out); err != nil {
 			return nil, fmt.Errorf("vault: %s is corrupt: %w", AgentRecordsKey, err)
 		}
+		if out == nil { // a stored JSON null decodes the map to nil; writes into it would panic
+			out = map[string]AgentRecord{}
+		}
 	}
 	foldAgentPins(out, t.All(Pins)) // a read before the schema-4 migration sees the old pins, not "every agent off"
 	for n, r := range out {         // a read before the schema-6 migration sees "byok" as "discovery"

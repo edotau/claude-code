@@ -2,6 +2,7 @@ package vault
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,41 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest/gittest"
 )
+
+func TestMasterKeyStatusRejectsCorruptSecrets(t *testing.T) {
+	for _, malformed := range []bool{true, false} {
+		t.Run(fmt.Sprintf("malformed-json=%t", malformed), func(t *testing.T) {
+			phase1bRing(t)
+			phase1bPut(t, "A_GOOD", "healthy-value")
+			phase1bPut(t, "Z_BAD", "damaged-value")
+			if count, source, err := MasterKeyStatus(); count != 2 || source != "keyring" || err != nil {
+				t.Fatalf("healthy status = %d, %q, %v", count, source, err)
+			}
+			corruptHealthSecret(t, malformed)
+			count, source, err := MasterKeyStatus()
+			if count != 2 || source != "keyring" || err == nil {
+				t.Fatalf("corrupt status = %d, %q, %v; want 2, keyring, error", count, source, err)
+			}
+		})
+	}
+}
+
+func corruptHealthSecret(t *testing.T, malformed bool) {
+	t.Helper()
+	if err := Update(func(tx *Tx) error {
+		if malformed {
+			return tx.Put(Secrets, "Z_BAD", "{")
+		}
+		r, _, err := tx.Record("Z_BAD")
+		if err != nil {
+			return err
+		}
+		r.Sealed[len(r.Sealed)-1] ^= 1
+		return tx.PutRecord("Z_BAD", r)
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestLooksLikeSecret(t *testing.T) {
 	cases := map[string]bool{

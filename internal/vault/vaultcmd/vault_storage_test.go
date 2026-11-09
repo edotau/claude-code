@@ -232,8 +232,8 @@ func TestImportSettings(t *testing.T) {
 		settings json.RawMessage
 		wantErr  string // substring; empty means no error
 	}{
-		{"autoMode object", json.RawMessage(`{"autoMode":{"soft_deny":["$defaults"]}}`), ""},
-		{"scalar catalog key", json.RawMessage(`{"theme":"dark"}`), ""},
+		{"autoMode object", json.RawMessage(`{"autoMode":{"soft_deny":["$defaults"]}}`), "retired overlay"},
+		{"scalar catalog key", json.RawMessage(`{"theme":"dark"}`), "retired overlay"},
 		{"not an object", json.RawMessage(`[1]`), "settings"},
 	}
 	for _, tt := range tests {
@@ -244,13 +244,6 @@ func TestImportSettings(t *testing.T) {
 			before := vaultTestState(t)
 			edited := editTestDoc(t, orig, func(d *Doc) { d.Settings = tt.settings })
 			err := Import(orig, edited)
-			if tt.wantErr == "" {
-				if err != nil {
-					t.Fatalf("Import() = %v, want nil", err)
-				}
-				assertSettingsExported(t, tt.settings)
-				return
-			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("Import() = %v, want error containing %q", err, tt.wantErr)
 			}
@@ -261,25 +254,6 @@ func TestImportSettings(t *testing.T) {
 				t.Error("invalid settings Import changed a vault bucket")
 			}
 		})
-	}
-}
-
-// assertSettingsExported fails unless the exported settings section equals want as JSON values.
-func assertSettingsExported(t *testing.T, want json.RawMessage) {
-	t.Helper()
-	var got Doc
-	if err := json.Unmarshal(exportTestDoc(t), &got); err != nil {
-		t.Fatal(err)
-	}
-	var gotVal, wantVal any
-	if err := json.Unmarshal(got.Settings, &gotVal); err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(want, &wantVal); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(gotVal, wantVal) {
-		t.Errorf("Export settings = %s, want %s", got.Settings, want)
 	}
 }
 
