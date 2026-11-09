@@ -125,7 +125,10 @@ func agentExplore(name string, args []string) int {
 		return helptext.Fail("%s explore: usage: claude-code %s explore [--no-web] [--background] <question>", name, name)
 	}
 	cwd, _ := os.Getwd()
-	askArgs := roles.Args(name, cwd, question, !*noWeb, *background)
+	askArgs, err := roles.Args(name, cwd, question, !*noWeb, *background)
+	if err != nil {
+		return helptext.Fail("%s explore: %v", name, err)
+	}
 	if *format != "text" {
 		task := askArgs[len(askArgs)-1]
 		askArgs = append(askArgs[:len(askArgs)-1], "--format", *format, task)
