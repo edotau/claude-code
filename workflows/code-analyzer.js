@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-analyzer',
   description: 'Audit a change set: parallel scoped auditors → refute each finding → per-package implementer, then test agent → gate loop',
   whenToUse:
-    'USE: audit before a merge or after a refactor; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: fix (default true), partition (with fix:false: return the wave plan, no edits), cap (wave width, default 8), hotspots (extra single-owner files), minFix, rounds, dimensions (replaces the lenses), tests, gate (command override), maxIterations (gate loop cap), prior (earlier findings to skip), chunkChars (chunk size), refuteBatch (findings per skeptic), steps {scope, audit, refute, fix, test, gate, depscan} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins (or HARNESS_DATABRICKS_ARM), or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages). COST: about 8 agent slots per run, so one run at a time. RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed, red, decisions, report, partition} plus refuted, rounds. Details: saved-workflows.md.',
+    'USE: audit before a merge or after a refactor; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: fix (default true), partition (with fix:false: return the wave plan, no edits), cap (wave width, default 8), hotspots (extra single-owner files), minFix, rounds, dimensions (replaces the lenses), focus (appended to every auditor lens), tests, gate (command override), maxIterations (gate loop cap), prior (earlier findings to skip), chunkChars (chunk size), refuteBatch (findings per skeptic), steps {scope, audit, refute, fix, test, gate, depscan} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins (or HARNESS_DATABRICKS_ARM), or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages). COST: about 8 agent slots per run, so one run at a time. RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed, red, decisions, report, partition} plus refuted, rounds. Details: saved-workflows.md.',
   phases: [
     { title: 'Scope', detail: 'one cheap agent per package group returns per-file sizes; the script packs them into ≤50 KB chunks' },
     { title: 'Find', detail: 'one auditor per (dimension × chunk) reading its chunk in-context — agent count scales with diff size' },
@@ -384,6 +384,7 @@ let FILES_MODE = !RANGE && PATHS.length > 0
 const asDims = ds => ds.map((d, i) => typeof d === 'string' ? { key: 'lens' + i, prompt: d } : { ...d, key: d.key || 'lens' + i })
 const ARG_DIMS = Array.isArray(a.dimensions) && a.dimensions.length ? asDims(a.dimensions) : null
 let DIMENSIONS = ARG_DIMS || (FILES_MODE ? CODE_DIMENSIONS : DEFAULT_DIMENSIONS)
+const FOCUS = a.focus ? ` Caller focus: ${a.focus}.` : ''
 // Group packages/files ≤4 per auditor so one context holds the whole group.
 let GROUPS = []
 for (let i = 0; i < Math.max(1, PKGS.length); i += 4) GROUPS.push(PKGS.slice(i, i + 4))
@@ -585,7 +586,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   const findStage = u => {
     auditorCount++
     const prompt =
-      `Read-only audit of ${TARGET}${IN}. Packages: ${u.group.join(', ') || 'all touched'}. Lens: ${u.dim.prompt}.\n` +
+      `Read-only audit of ${TARGET}${IN}. Packages: ${u.group.join(', ') || 'all touched'}. Lens: ${u.dim.prompt}.${FOCUS}\n` +
       (FILES_MODE
         ? `First tool call: cat the files listed below (one call, all of them). Judge from that; open another file only to check a caller or a test (budget 8 tool calls). `
         : `First tool call: ${CD}git diff ${RANGE || 'HEAD~1..HEAD'} -- <the files listed below> (one call, all of them). Judge from that diff; open a file only to check a caller or a test named in it (budget 8 tool calls). `) +
