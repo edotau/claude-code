@@ -55,7 +55,7 @@ func TestGeminiRecordBeatsSessionProfile(t *testing.T) {
 		{"D --model beats the record model", "dev", "gw", "gemini-y", agent.RunOptions{Model: "gemini-flag"}, "gw", "gemini-flag", ""},
 		{"D --provider beats the record profile", "dev", "gw", "", agent.RunOptions{Provider: "dev"}, "dev", "", ""},
 		{"E own-login label is a valid pin", "dev", "antigravity", "", agent.RunOptions{}, "antigravity", "", ""},
-		{"E pin naming no registry row is refused", "dev", "nosuch", "", agent.RunOptions{}, "", "", `pinned profile "nosuch"`},
+		{"E pin naming no registry row is refused", "dev", "nosuch", "", agent.RunOptions{}, "", "", `pinned profile: gemini: unknown profile "nosuch"`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			pinFixture(t, c.session)
