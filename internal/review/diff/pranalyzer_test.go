@@ -69,6 +69,42 @@ func TestRunPRNotAGitRepo(t *testing.T) {
 	}
 }
 
+func TestResolveGitRepoValidatesRepository(t *testing.T) {
+	t.Run("empty dotgit is not a repository", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		var stderr bytes.Buffer
+		got, ok := resolveGitRepo([]string{dir}, &stderr)
+		if ok || got != "" {
+			t.Fatalf("fake repository resolved to %q, %v", got, ok)
+		}
+		if stderr.Len() == 0 {
+			t.Fatal("missing invalid-repository diagnostic")
+		}
+	})
+	t.Run("subdirectory resolves to repository root", func(t *testing.T) {
+		repo := gittest.Repo(t)
+		want, err := filepath.EvalSymlinks(repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		subdir := filepath.Join(repo, "nested")
+		if err := os.Mkdir(subdir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		var stderr bytes.Buffer
+		got, ok := resolveGitRepo([]string{subdir}, &stderr)
+		if !ok || got != want {
+			t.Fatalf("subdirectory resolved to %q, %v, stderr=%q; want %q", got, ok, &stderr, want)
+		}
+		if stderr.Len() != 0 {
+			t.Fatalf("unexpected diagnostic: %q", &stderr)
+		}
+	})
+}
+
 func TestRunPRBadFlag(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := RunPR([]string{"--nope"}, &stdout, &stderr)

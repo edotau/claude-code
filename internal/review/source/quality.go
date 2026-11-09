@@ -304,7 +304,7 @@ func pythonStringEnd(content string, i int) int {
 // pythonMethodCount counts method defs in a class body, skipping the bodies of nested classes.
 func pythonMethodCount(body string, methodPattern *regexp.Regexp) int {
 	count, nestedIndent := 0, -1
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue

@@ -307,7 +307,7 @@ func inOptionsObject(masked string, open []int) bool {
 	}
 	for k := 1; k < n-1; k++ {
 		q := prevNonSpace(masked, open[k])
-		if masked[open[k]] != '(' || q < 0 || !(masked[q] == ',' || (k >= 2 && q == open[k-1])) {
+		if masked[open[k]] != '(' || q < 0 || (masked[q] != ',' && (k < 2 || q != open[k-1])) {
 			return false
 		}
 	}
@@ -514,10 +514,10 @@ func isLabelColon(masked string, colon int) bool {
 	if p < 0 {
 		return true
 	}
-	switch c := masked[p]; {
-	case c == ';' || c == '}':
+	switch c := masked[p]; c {
+	case ';', '}':
 		return true
-	case c == '{':
+	case '{':
 		return !isMemberBrace(masked, p)
 	default: // a newline after an expression ends it, so the name starts a new statement
 		return strings.Contains(masked[p+1:s], "\n") && (isIdentByte(c) || c == ')' || c == ']')
