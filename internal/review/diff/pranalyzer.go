@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -546,7 +545,7 @@ func RunPR(args []string, stdout, stderr io.Writer) int {
 	return writeOutput(buf.String(), *output, stdout, stderr)
 }
 
-// resolveGitRepo returns the absolute repo path from the first positional (default "."), reporting failures to stderr.
+// resolveGitRepo returns the repo's top-level dir for the first positional (default "."), reporting failures to stderr.
 func resolveGitRepo(positional []string, stderr io.Writer) (string, bool) {
 	repoArg := "."
 	if len(positional) > 0 {
@@ -557,11 +556,12 @@ func resolveGitRepo(positional []string, stderr io.Writer) (string, bool) {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return "", false
 	}
-	if _, err := os.Stat(filepath.Join(repoPath, ".git")); err != nil {
+	top, err := runGitErr(repoPath, "rev-parse", "--show-toplevel")
+	if err != nil {
 		fmt.Fprintf(stderr, "Error: %s is not a git repository\n", repoPath)
 		return "", false
 	}
-	return repoPath, true
+	return top, true
 }
 
 // writeOutput prints text to stdout, or writes it to the output file and confirms.

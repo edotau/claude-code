@@ -24,6 +24,7 @@ var reviewTools = map[string]func(args []string, stdin io.Reader, stdout, stderr
 	"pr":          func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunPR(a, o, e) },
 	"report":      func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunReport(a, o, e) },
 	"gate":        func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunGate(a, o, e) },
+	"scope":       func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunScope(a, o, e) },
 }
 
 var reviewPage = helptext.Page{
@@ -38,6 +39,7 @@ var reviewPage = helptext.Page{
 		{"pr", "a branch's changes by category, risk and review order"},
 		{"report", "pr + quality findings as one review report"},
 		{"gate", "advisory pre-commit summary of the staged change"},
+		{"scope", "files a change or path set touches, sized in bytes"},
 		{"assumptions", "vague or hopeful steps in a plan"},
 		{"goals", "plan steps with no verifiable goal"},
 	},

@@ -79,7 +79,7 @@ func runStagedComplexity(repo string, changed []string, out io.Writer) int {
 		fmt.Fprintf(out, "mkdir temp: %v\n", err)
 		return 1
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	read := stagedBlob(repo)
 	var mirrored []string
 	for _, p := range changed {
