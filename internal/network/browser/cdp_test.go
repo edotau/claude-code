@@ -171,7 +171,7 @@ func roundTripHandler(navURL *string) func(f *fakeBrowser, id int, method string
 			var p struct{ URL string }
 			_ = json.Unmarshal(params, &p)
 			*navURL = p.URL
-			f.reply(id, `{"frameId":"F"}`)
+			f.reply(id, `{"frameId":"F","loaderId":"L"}`)
 			f.send(frame(true, opText, []byte(`{"method":"Page.loadEventFired","params":{"timestamp":1}}`)))
 		case "Runtime.evaluate":
 			full := []byte(`{"id":` + itoa(id) + `,"result":{"result":{"type":"object","value":[["a",null],["b","c"]]}}}`)
