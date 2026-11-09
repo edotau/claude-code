@@ -11,11 +11,11 @@ const MAX_DESCRIPTION = 110
 const SLASH_TOKEN = /(?:^|\s)\/([A-Za-z0-9][\w:.-]*)/g
 const AGENT_TOKEN = /(?:^|\s)@agent-([\w-]+)/g
 
-// The value of `key:` in a markdown file's frontmatter, unquoted.
+// The value of `key:` in a markdown file's frontmatter, unquoted; [ \t] keeps an empty value from eating the next line.
 function frontmatter(text: string, key: string): string | undefined {
   if (!text.startsWith('---')) return undefined
   const end = text.indexOf('\n---', 3)
-  const m = text.slice(0, end < 0 ? undefined : end).match(new RegExp(`^${key}:\\s*(.+)$`, 'm'))
+  const m = text.slice(0, end < 0 ? undefined : end).match(new RegExp(`^${key}:[ \\t]*(\\S.*)$`, 'm'))
   return m?.[1]?.trim().replace(/^["']|["']$/g, '')
 }
 
@@ -148,7 +148,7 @@ export const register: Register = on => {
 
   on('prompt.submit', async ($, e, next) => {
     await update($, active, () => [])
-    void reindex($)
+    reindex($).catch(() => undefined) // a failed refresh must not escape the hook; the next submit retries
     return next(e)
   })
 

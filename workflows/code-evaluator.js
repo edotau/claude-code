@@ -108,7 +108,10 @@ if (EXT.length) {
     { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['cwd', 'home', 'routes'], properties: { cwd: { type: 'string' }, home: { type: 'string' }, routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
   )
   for (const r of (pf && pf.routes) || []) log(`coworkers preflight ${r.agent}: ${r.candidates} route(s), first ${r.first}${r.error ? ' — ' + r.error : ''}`)
-  const dead = ((pf && pf.routes) || []).filter((r) => r.candidates === 0).map((r) => r.agent + (r.error ? ' (' + r.error + ')' : ''))
+  const routes = (pf && pf.routes) || []
+  // fail closed: a missing preflight, or no route row for an external agent, counts as no route
+  const dead = [...routes.filter((r) => r.candidates === 0).map((r) => r.agent + (r.error ? ' (' + r.error + ')' : '')),
+    ...[...new Set(EXT.map((s) => s.agent))].filter((g) => !routes.some((r) => String(r.agent).includes(g))).map((g) => g + ' (no preflight result)')]
   // copilot-bash lets a leaf reach only its own cwd and ~/worktrees; a target elsewhere blocks every copilot stage
   const tgt = a.cwd || a.base || ''
   const reach = (r) => !!r && (tgt === r || tgt.startsWith(r + '/'))
@@ -159,12 +162,16 @@ Judge by diff (SHIPPED.marker present or not) and by re-running check_config.py,
 
 const OFFLINE = `The user is offline and cannot answer questions: if you need a decision from them, state the question and your recommended assumption in your final report, and only act on your recommendation if the action is safe and reversible. Work ONLY inside the given directory. Your final message is your report to the user.`
 
-// Build RUNS from scenarios x conditions x seeds; run name '<id>-<cond[0]><seed>' (e.g. s2-c1, s2-m2).
+// Every scenario needs a task; a condition names a run dir, so it is a plain name.
+const badScen = SCENARIOS.filter((id) => !TASKS[id] || !GROUND_TRUTH[id])
+if (badScen.length) return { error: 'code-evaluator: unknown scenario(s) ' + badScen.join(', ') + ' (known: ' + Object.keys(TASKS).join(', ') + ')' }
+if (CONDITIONS.some((c) => !/^[A-Za-z0-9_-]+$/.test(String(c)))) return { error: 'code-evaluator: args.conditions must be plain names' }
+// RUNS = scenarios x conditions x seeds, named '<id>-<cond><seed>' (s2-control1): no two conditions share a dir.
 const RUNS = []
 for (const id of SCENARIOS) {
   for (const cond of CONDITIONS) {
     for (let seed = 1; seed <= SEEDS; seed++) {
-      RUNS.push({ run: `${id}-${cond[0]}${seed}`, scenario: id, condition: cond, seed })
+      RUNS.push({ run: `${id}-${cond}${seed}`, scenario: id, condition: cond, seed })
     }
   }
 }
