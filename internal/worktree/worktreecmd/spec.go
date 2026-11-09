@@ -26,5 +26,6 @@ func Spec() *completion.Node {
 			completion.BoolFlag("no-clean"), {Name: "resolve-agent", Values: resolveAgents}, completion.BoolFlag("resume"), completion.Plain("verify"), completion.BoolFlag("no-verify"), completion.BoolFlag("full-verify")}},
 		"clean":     {Args: []func() []string{names}, Flags: []completion.Flag{completion.BoolFlag("dry-run"), completion.BoolFlag("force")}},
 		"clean-all": {Flags: []completion.Flag{completion.BoolFlag("dry-run"), completion.BoolFlag("yes")}},
+		"gate":      {Flags: []completion.Flag{completion.Plain("dir"), completion.Plain("scope"), completion.BoolFlag("lint-check"), completion.FormatFlag()}},
 	}}
 }

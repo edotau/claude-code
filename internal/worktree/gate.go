@@ -10,11 +10,13 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // registryPkgs iterate the hook, setting, verb and schema registries, so any change can break them.
@@ -281,6 +283,159 @@ func hasNPMTestScript(pkgJSON string) bool {
 	}
 	_, ok := pkg.Scripts["test"]
 	return ok
+}
+
+// ScopedVerifyGate renders the gate for dir's toolchain, limited to scope dirs; source "none" when nothing fits.
+func ScopedVerifyGate(dir string, scope []string, lintCheck bool) (gate, source string) {
+	dirs := normalizeScope(scope)
+	gate, source = toolchainGate(dir, dirs)
+	lint := lintCheck && hasMakeLintCheck(filepath.Join(dir, "Makefile"))
+	switch {
+	case source == "" && lint:
+		return "make lint CHECK=1", "Makefile"
+	case source == "":
+		return "", "none"
+	case lint:
+		gate = "make lint CHECK=1 && " + gate
+	}
+	return gate, source
+}
+
+// normalizeScope cleans scope dirs to slash form without a leading ./ or trailing /; "." or "" means the whole repo.
+// A name starting with - keeps its ./ so the toolchain reads it as a path, never as an option.
+func normalizeScope(scope []string) []string {
+	var out []string
+	for _, d := range scope {
+		d = strings.TrimSuffix(strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(d)), "./"), "/")
+		if d == "" || d == "." {
+			return nil
+		}
+		if strings.HasPrefix(d, "-") {
+			d = "./" + d
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// toolchainGate returns the scoped gate of the first toolchain file in dir; "" and "" when there is none or it cannot scope.
+func toolchainGate(dir string, dirs []string) (gate, source string) {
+	switch {
+	case paths.FileExists(filepath.Join(dir, "go.mod")):
+		return goScopeGate(dirs), "go.mod"
+	case paths.FileExists(filepath.Join(dir, "pyproject.toml")) || paths.FileExists(filepath.Join(dir, "setup.cfg")):
+		return pythonScopeGate(dir, dirs), "pyproject"
+	case hasNPMTestScript(filepath.Join(dir, "package.json")):
+		return npmScopeGate(dirs), "package.json"
+	case paths.FileExists(filepath.Join(dir, "Cargo.toml")) && len(dirs) == 0:
+		// cargo test filters by test name, not directory, so a scoped run would be unscoped: refuse it
+		return "cargo build && cargo test", "Cargo.toml"
+	}
+	return "", ""
+}
+
+// npmScopeGate runs the package.json test script, passing dirs through as path arguments (jest/vitest style).
+func npmScopeGate(dirs []string) string {
+	if len(dirs) == 0 {
+		return "npm test"
+	}
+	return "npm test -- " + shellQuoteAll(dirs)
+}
+
+// goScopeGate builds, vets and tests the module-relative dirs; no dirs means the whole suite.
+func goScopeGate(dirs []string) string {
+	if len(dirs) == 0 {
+		return fullGoGate
+	}
+	p := shellQuoteAll(mapStrings(dirs, func(d string) string { return "./" + d + "/..." }))
+	return "go build ./... && go vet " + p + " && go test " + p
+}
+
+// pythonScopeGate runs pytest (and ruff when configured) over dirs, through .venv when the repo has one.
+func pythonScopeGate(dir string, dirs []string) string {
+	py := ""
+	if info, err := os.Stat(filepath.Join(dir, ".venv")); err == nil && info.IsDir() {
+		py = ".venv/bin/python -m "
+	}
+	targets := shellQuoteAll(dirs)
+	pytest := py + "pytest -q"
+	if targets != "" {
+		pytest += " " + targets
+	}
+	if !hasRuffConfig(dir) {
+		return pytest
+	}
+	if targets == "" {
+		targets = "."
+	}
+	return py + "ruff check " + targets + " && " + pytest
+}
+
+// shellQuoteAll single-quotes each item for `bash -c` and joins them with spaces.
+func shellQuoteAll(items []string) string {
+	return strings.Join(mapStrings(items, textutil.ShellQuote), " ")
+}
+
+func mapStrings(in []string, f func(string) string) []string {
+	out := make([]string, len(in))
+	for i, s := range in {
+		out[i] = f(s)
+	}
+	return out
+}
+
+// hasRuffConfig reports whether dir configures ruff via ruff.toml, .ruff.toml or a [tool.ruff] pyproject table.
+func hasRuffConfig(dir string) bool {
+	if paths.FileExists(filepath.Join(dir, "ruff.toml")) || paths.FileExists(filepath.Join(dir, ".ruff.toml")) {
+		return true
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "pyproject.toml"))
+	return err == nil && hasRuffTable(string(data))
+}
+
+// hasRuffTable reports whether a TOML line is a [tool.ruff] or [tool.ruff.*] table header.
+func hasRuffTable(toml string) bool {
+	for line := range strings.SplitSeq(toml, "\n") {
+		h := strings.TrimSpace(line)
+		if strings.HasPrefix(h, "[tool.ruff]") || strings.HasPrefix(h, "[tool.ruff.") {
+			return true
+		}
+	}
+	return false
+}
+
+// makeCheckRef matches a reference to the CHECK variable itself: $(CHECK), ${CHECK}, $CHECK or $$CHECK.
+var makeCheckRef = regexp.MustCompile(`\$(\(CHECK\)|\{CHECK\}|CHECK\b)`)
+
+// hasMakeLintCheck reports whether the lint target's recipe reads CHECK (report-only mode); comments are ignored.
+func hasMakeLintCheck(makefile string) bool {
+	data, err := os.ReadFile(makefile)
+	if err != nil {
+		return false
+	}
+	inRecipe := false
+	for line := range strings.SplitSeq(string(data), "\n") {
+		switch {
+		case strings.HasPrefix(line, "lint:"):
+			inRecipe = true
+		case strings.TrimSpace(line) == "":
+		case strings.HasPrefix(line, "\t") && inRecipe:
+			if makeCheckRef.MatchString(stripMakeComment(line)) {
+				return true
+			}
+		default:
+			inRecipe = false
+		}
+	}
+	return false
+}
+
+// stripMakeComment drops a trailing # comment from a recipe line.
+func stripMakeComment(line string) string {
+	if i := strings.IndexByte(line, '#'); i >= 0 {
+		return line[:i]
+	}
+	return line
 }
 
 // RunVerify runs cmdStr in workDir under `bash -c 'set -o pipefail; ...'` so a failing pipeline stage fails the gate;
