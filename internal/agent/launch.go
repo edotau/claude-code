@@ -29,7 +29,7 @@ func PinnedProfile(name string) (string, error) {
 		return "", err
 	}
 	if err := ValidAgentPin(reg, name, pin.Profile); err != nil {
-		return "", fmt.Errorf("%s: pinned profile %q is not a registry profile", name, pin.Profile)
+		return "", fmt.Errorf("pinned profile: %w", err)
 	}
 	if reg.Providers[pin.Profile] == nil {
 		return "", nil // an own-login or PinIDs pin (opencode-go) launches on the agent's own plan

@@ -12,7 +12,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// Flags beat the agent's profile pin; a pin fills what the flag left empty; AGENT_ACTIVE=off ignores it.
 // An opencode record pinned to opencode-go (valid via PinIDs, no registry row) resolves to its own plan, not an error.
 func TestPinnedProfileOpencodeGo(t *testing.T) {
 	vaulttest.Use(t)
@@ -27,13 +26,6 @@ func TestPinnedProfileOpencodeGo(t *testing.T) {
 	}
 }
 
-// A model pin follows the pinned profile into the target; the flag beats it; a Databricks id is dropped off Databricks.
-// A vendor the harness cannot route still launches its own CLI untouched, after one configure offer.
-// A vendor's own sign-in skips route resolution and the configure offer: the login is what makes it routable.
-// An own-login launch keeps an explicit --model whether PreRoute or Configure selects that route.
-// plainPlan must apply the vendor spec (env + prepended args) on every own-login/passthrough launch.
-// launchModel is the model the interactive launch hands the CLI (--print-env plan): codex's -c model=, else COPILOT_MODEL.
-// The interactive launch and the headless dispatch pick the same model for the same agent, profile, flag and pin.
 const (
 	testRouterBase   = "http://127.0.0.1:9999"
 	testRouterSecret = "rtr-secret-xyz"
@@ -213,6 +205,11 @@ func TestConfigureRouteUsesServesReason(t *testing.T) {
 	}
 }
 
-// Given a claude entry, an agent CLI launch ignores it; its own entry beats the agent pin, and the pin setter clears only it.
-// Given codex records, its launch reuses the repo's last profile (own-login chatgpt included) and an off codex stays off.
-// Given a gemini last-used gateway row over a different vault pin, a gemini launch resolves flag > last-used > pin.
+func TestPinnedProfileKeepsPinCause(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.SetRecord(t, "opencode", "profile", "no-such-profile")
+	_, err := PinnedProfile("opencode")
+	if err == nil || !strings.Contains(err.Error(), `unknown profile "no-such-profile"`) {
+		t.Errorf("PinnedProfile error = %v; want the ValidAgentPin cause (unknown profile)", err)
+	}
+}

@@ -25,6 +25,9 @@ func For(agent string, l Launch) (Config, error) {
 	if cfg.Profile == "" && agent == "gemini" {
 		cfg.Profile = geminiLogin
 	}
+	if l.Provider != "" && l.Provider != "databricks" {
+		return Config{}, fmt.Errorf("agent %s: --provider %s is not supported (only databricks)", agent, l.Provider)
+	}
 	reg, err := providers.Load()
 	if err != nil {
 		return Config{}, err
@@ -36,8 +39,6 @@ func For(agent string, l Launch) (Config, error) {
 		}
 	case l.Profile != "":
 		cfg.Profile = l.Profile
-	case l.Provider != "" && l.Provider != "databricks":
-		return Config{}, fmt.Errorf("agent %s: --provider %s is not supported (only databricks)", agent, l.Provider)
 	case l.Provider == "databricks":
 		if cfg.Profile, err = databricksProfile(reg); err != nil {
 			return Config{}, fmt.Errorf("agent %s: %w", agent, err)

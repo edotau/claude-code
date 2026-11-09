@@ -288,6 +288,7 @@ func TestCodexEffortResolverPinVsDefault(t *testing.T) {
 	if got, src := CodexEffort(); got != "high" || src != "pin" {
 		t.Errorf("CodexEffort(pinned) = (%q, %q), want (high, pin)", got, src)
 	}
+	t.Setenv("CODEX_EFFORT", "low")
 	if got, src := CodexEffort(); got != "high" || src != "pin" {
 		t.Errorf("CodexEffort(env set) = (%q, %q), want (high, pin): env is not a pin source", got, src)
 	}
