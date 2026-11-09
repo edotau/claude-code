@@ -34,11 +34,20 @@ func needsTools(agentName string) bool {
 	return ok && s.CLI.ReadNeedsTools
 }
 
+// enforcesReadOnly reports whether the agent's own CLI enforces --read-only (not every vendor can).
+func enforcesReadOnly(agentName string) bool {
+	s, ok := agent.LookupSchema(agentName)
+	return ok && s.CLI.Caps.ReadOnly == agent.Native
+}
+
 // Args builds the `ask` argv for an explore run: --tools only when the agent needs it to read.
 func Args(agentName, cwd, question string, web, background bool) []string {
 	args := []string{"--agent", agentName, "--workdir", cwd}
 	if needsTools(agentName) {
 		args = append(args, "--tools")
+		if enforcesReadOnly(agentName) {
+			args = append(args, "--read-only")
+		}
 	}
 	if background {
 		args = append(args, "--background")
@@ -52,6 +61,7 @@ func Options(base agent.RunOptions, question string, web bool) agent.RunOptions 
 	o.Prompt = Prompt(question, web)
 	if needsTools(o.Agent) {
 		o.Tools = true
+		o.ReadOnly = o.ReadOnly || enforcesReadOnly(o.Agent)
 	}
 	return o
 }

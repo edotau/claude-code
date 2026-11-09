@@ -178,6 +178,26 @@ func TestReadOnlyToolsApproveOnlyReads(t *testing.T) {
 	}
 }
 
+func TestReadOnlyWebSearchMCP(t *testing.T) {
+	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
+	for _, tc := range []scopedCase{
+		{"harness value", rpc.PermissionRequestMCP{ServerName: "web_search", ToolName: "web_search"}, true},
+		{"harness pointer", &rpc.PermissionRequestMCP{ServerName: "web_search", ToolName: "web_search"}, true},
+		{"other value", rpc.PermissionRequestMCP{ServerName: "github", ToolName: "web_search"}, false},
+		{"other pointer", &rpc.PermissionRequestMCP{ServerName: "github", ToolName: "web_search"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := h(tc.req, copilot.PermissionInvocation{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, approved := d.(*rpc.PermissionDecisionApproveOnce); approved != tc.want {
+				t.Errorf("approved = %v, want %v (decision %T)", approved, tc.want, d)
+			}
+		})
+	}
+}
+
 // A read-only run approves allowlisted read-only git and rejects every chained, redirected, config or write form.
 func TestReadOnlyGitShell(t *testing.T) {
 	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
