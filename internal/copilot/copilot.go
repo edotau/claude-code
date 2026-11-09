@@ -44,15 +44,15 @@ var (
 func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
 	ctx = agent.DirectCtx(ctx, req)
 	cs := copilotSchema()
-	t, own, err := cs.TargetCtx(ctx, req)
+	t, _, err := cs.TargetCtx(ctx, req) // copilot never resolves its own login: every target has a provider
 	if err != nil {
 		return wire.Result{}, err
 	}
-	res, err := initialResult(cs, t, own)
+	res, err := initialResult(cs, t)
 	if err != nil {
 		return res, err
 	}
-	opts, env, done, err := e.options(ctx, cs, req, t, own)
+	opts, env, done, err := e.options(ctx, cs, req, t)
 	defer done() // done is never nil, so an error path still releases a registry route
 	if err != nil {
 		return res, err
@@ -66,9 +66,9 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 	err = markToolRan(out, sink, err)
 	if err != nil {
 		lg.Emit("error", err.Error())
-		if quotaHandoffEligible(own, t, err) {
+		if quotaHandoffEligible(t, err) {
 			res.Usage = out.Usage // tokens the exhausted run spent still count
-			return CopilotQuotaHandoff(req, res, out.SessionID, out.Text, err, CredentialValues(env, opts.GitHubToken))
+			return CopilotQuotaHandoff(req, res, out.SessionID, out.Text, err, CredentialValues(env))
 		}
 		return copilotPartial(res, out, err, sink)
 	}
@@ -82,11 +82,8 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 }
 
 // initialResult seeds the run result with the provider and model of target t.
-func initialResult(cs agent.Schema, t providers.Target, own bool) (wire.Result, error) {
+func initialResult(cs agent.Schema, t providers.Target) (wire.Result, error) {
 	res := wire.Result{Provider: cs.OwnProfile(), Model: models.Strip1M(t.Model)}
-	if own {
-		return res, nil
-	}
 	if t.Provider == nil {
 		return res, copilotFatal(errors.New("agent target resolved to no provider"))
 	}
@@ -95,15 +92,15 @@ func initialResult(cs agent.Schema, t providers.Target, own bool) (wire.Result, 
 }
 
 // quotaHandoffEligible reports whether err is a quota failure on a copilot-billed route, so the task can hand off.
-func quotaHandoffEligible(own bool, t providers.Target, err error) bool {
-	return (own || t.Provider.Auth.Login == "copilot") && retry.Classify("copilot", err, false).Kind == retry.KindQuota
+func quotaHandoffEligible(t providers.Target, err error) bool {
+	return t.Provider.Auth.Login == "copilot" && retry.Classify("copilot", err, false).Kind == retry.KindQuota
 }
 
 // options builds the SDK options for target t; env is the BYOK route env; done (never nil) releases a registry route.
-func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.RunOptions, t providers.Target, own bool,
+func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.RunOptions, t providers.Target,
 ) (opts SDKOptions, env []string, done func(), err error) {
 	done = func() {}
-	route, env, err := e.routeEnv(ctx, cs, req, t, own)
+	route, env, err := e.routeEnv(ctx, cs, req, t)
 	if err != nil {
 		return opts, nil, done, copilotFatal(err)
 	}
@@ -114,7 +111,7 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 	if err != nil {
 		return opts, nil, done, err
 	}
-	opts = newSDKOptions(bin, env, req, t, own)
+	opts = newSDKOptions(bin, env, req, t)
 	if route != nil {
 		route.apply(&opts)
 	}
@@ -123,29 +120,25 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 		return opts, nil, done, copilotFatal(err)
 	}
 	opts.Env = append(opts.Env, req.Env...) // --env goes last so it wins
-	if err := applyCopilotToken(&opts, own, t.Provider.Login, env); err != nil {
-		return opts, nil, done, copilotFatal(err)
-	}
+	applyCopilotToken(&opts, env)
 	return opts, env, done, nil
 }
 
-// routeEnv prepares the registry route (own: none) or the BYOK route env for target t.
-func (e copilotEngine) routeEnv(ctx context.Context, cs agent.Schema, req agent.RunOptions, t providers.Target, own bool,
+// routeEnv prepares the registry route or the BYOK route env for target t.
+func (e copilotEngine) routeEnv(ctx context.Context, cs agent.Schema, req agent.RunOptions, t providers.Target,
 ) (route *copilotRegistryRoute, env []string, err error) {
-	switch {
-	case own:
-	case copilotRegistryEligible(req.Direct, t):
+	if copilotRegistryEligible(req.Direct, t) {
 		route, err = prepareCopilotRegistry(ctx, t)
-	default:
-		env, _, err = cs.Configure(ctx, t, "")
+		return route, nil, err
 	}
-	return route, env, err
+	env, _, err = cs.Configure(ctx, t, "")
+	return nil, env, err
 }
 
 // newSDKOptions builds the SDK options for one run from the CLI path, route env and request.
-func newSDKOptions(bin string, env []string, req agent.RunOptions, t providers.Target, own bool) SDKOptions {
+func newSDKOptions(bin string, env []string, req agent.RunOptions, t providers.Target) SDKOptions {
 	var model string
-	if own || (t.Provider != nil && t.Provider.Auth.Login != "") {
+	if t.Provider != nil && t.Provider.Auth.Login != "" {
 		model = copilotModelID(t.Model) // no BYOK block, so the session takes the catalog id itself ([1m] is ours)
 	}
 	// An explicit --effort overrides the pin; there is no per-call --context, so the pin alone decides it.
@@ -206,23 +199,13 @@ func copilotFatal(err error) error {
 // copilotAsk is the SDK call, a var so tests reach the agent's result handling without a copilot binary.
 var copilotAsk = SDKAsk
 
-// applyCopilotToken puts the own-login launch token, then the harness account's env token, on the SDK's token field.
-func applyCopilotToken(opts *SDKOptions, own bool, login string, env []string) error {
-	if own {
-		tok, err := CopilotLaunchTokenFor(login)
-		if err != nil {
-			return err
-		}
-		if tok != "" {
-			opts.GitHubToken, opts.UseLoggedInUser = tok, false
-		}
-	}
+// applyCopilotToken puts the harness account's env token on the SDK's token field.
+func applyCopilotToken(opts *SDKOptions, env []string) {
 	for _, kv := range env { // the harness's chosen account rides the SDK's own token field, not the stored login
 		if tok, ok := strings.CutPrefix(kv, providers.CopilotTokenEnv+"="); ok && tok != "" {
 			opts.GitHubToken, opts.UseLoggedInUser = tok, false
 		}
 	}
-	return nil
 }
 
 // copilotModelID is id as Copilot's catalog spells it (dotted versions); [1m] is dropped, an unknown id is kept.
@@ -439,9 +422,9 @@ func redactValues(s string, creds []string) string {
 	return s
 }
 
-// CredentialValues are the dispatch's resolved secrets: the SDK token plus every *_TOKEN/*_KEY/*_SECRET env value.
-func CredentialValues(env []string, token string) []string {
-	vals := []string{token}
+// CredentialValues are the dispatch's resolved secrets: every *_TOKEN/*_KEY/*_SECRET env value, the SDK token included.
+func CredentialValues(env []string) []string {
+	var vals []string
 	for _, kv := range env {
 		k, v, _ := strings.Cut(kv, "=")
 		if v != "" && (strings.HasSuffix(k, "_TOKEN") || strings.HasSuffix(k, "_KEY") || strings.HasSuffix(k, "_SECRET")) {
