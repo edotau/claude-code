@@ -111,3 +111,14 @@ func TestForIgnoresArmEnv(t *testing.T) {
 		t.Fatalf("For(gemini) with arm env = %+v, %v; want the antigravity pin", got, err)
 	}
 }
+
+// An unsupported --provider is rejected even when --profile is also given.
+func TestForRejectsBadProviderWithProfile(t *testing.T) {
+	setup(t)
+	for _, profile := range []string{"dev", "session"} {
+		_, err := For("codex", Launch{Profile: profile, Provider: "openai"})
+		if err == nil || !strings.Contains(err.Error(), "--provider openai") {
+			t.Fatalf("For(profile %s, provider openai) err = %v, want the provider rejection", profile, err)
+		}
+	}
+}
