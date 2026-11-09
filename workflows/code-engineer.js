@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-engineer',
   description: 'One size-routed entry point: analytical first when the task needs it (code-analyzer scans an audit or range, code-evaluator scores a skill), then 1-3 parallel code-workers children fix, green-keeper-loop loops on a red gate or a multi-child run; then one polish (an epic drafts a plan)',
   whenToUse:
-    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/code-engineer.js", args: {cwd, task?, packages?, paths?, range?, skill?}}) with at least one of task/packages/paths/range/skill (range = a git range like main..HEAD; a bare range is scanned by code-analyzer and its findings fixed by code-workers; with a task, paths or packages its changed Go files become paths). OPTIONAL: tier (skips sizing), fix (default true), minFix (default low: every finding is fixed, decision #54), focus, dimensions (code-analyzer lenses on a scan route), label (report file name, default code-engineer), record (default true; false skips the Record step), steps {size, intel, impl, plan, dedupe, simplify, review, record, child} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages). child = the routed child\'s own steps (simplify/review/dedupe are rejected there: code-engineer polishes once); its fix, test and gate also drive the polish Fix-all. Fan-out: the target\'s top-level dirs split into at most 3 file-disjoint groups, one code-workers child each (polish:false), all launched in parallel. gate (a shared gate command) with gateScope (dirs its fixer may edit, disjoint from the groups): one green-keeper-loop child runs beside them (none under fix:false); the shared gate is re-checked once, check-only, after every child and the polish (a clean scan included). gate without gateScope: every package\'s gate instead (passed to the code-workers children, the loop and code-engineer\'s own repairs; e.g. npm test for JS/TS). Findings a child cites outside its group come back to code-engineer, which repairs them once after the children. skill (+ base, scenarios, seeds, conditions): a skill/route comparison, routed to code-evaluator. polish (default true; false skips it) runs once after the children over the merged diff: Dedupe (2+ packages), Simplify, Review; each package with review findings gets one Fix-all, guard test and gate (no second child run). fast (default true; false disables): a LOW/MEDIUM fix task passes its files to code-workers as known, skipping Find and Rederive. A low token budget (under 150k left) skips the polish. RETURNS {exit (green|red|review|plan|error, or a child\'s blocked|stalled|incomplete|capped), tier, route, packages, merged, confirmed, dropped, unverified, fixed, red, files (sorted repo-relative files the implementer, fixers, gate fixers and polish changed), polish, decisions, report} (runs, cells on the code-evaluator route). Details: saved-workflows.md.',
+    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/code-engineer.js", args: {cwd, task?, packages?, paths?, range?, skill?}}) with at least one of task/packages/paths/range/skill (range = a git range like main..HEAD; a bare range is scanned by code-analyzer and its findings fixed by code-workers; with a task, paths or packages its changed Go files become paths). OPTIONAL: kind (feature|refactor|fix|audit; wins over the size agent and the task-verb guess; feature and refactor get an implementer, which exits incomplete when it changes no file), tier (skips sizing), fix (default true), minFix (default low: every finding is fixed, decision #54), focus, dimensions (code-analyzer lenses on a scan route), label (report file name, default code-engineer), record (default true; false skips the Record step), steps {size, intel, impl, plan, dedupe, simplify, review, record, child} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages). child = the routed child\'s own steps (simplify/review/dedupe are rejected there: code-engineer polishes once); its fix, test and gate also drive the polish Fix-all. Fan-out: the target\'s top-level dirs split into at most 3 file-disjoint groups, one code-workers child each (polish:false), all launched in parallel. gate (a shared gate command) with gateScope (dirs its fixer may edit, disjoint from the groups): one green-keeper-loop child runs beside them (none under fix:false); the shared gate is re-checked once, check-only, after every child and the polish (a clean scan included). gate without gateScope: every package\'s gate instead (passed to the code-workers children, the loop and code-engineer\'s own repairs; e.g. npm test for JS/TS). Findings a child cites outside its group come back to code-engineer, which repairs them once after the children. skill (+ base, scenarios, seeds, conditions): a skill/route comparison, routed to code-evaluator. polish (default true; false skips it) runs once after the children over the merged diff: Dedupe (2+ packages), Simplify, Review; each package with review findings gets one Fix-all, guard test and gate (no second child run). fast (default true; false disables): a LOW/MEDIUM fix task passes its files to code-workers as known, skipping Find and Rederive. A low token budget (under 150k left) skips the polish. RETURNS {exit (green|red|review|plan|error, or a child\'s blocked|stalled|incomplete|capped), tier, route, packages, merged, confirmed, dropped, unverified, fixed, red, files (sorted repo-relative files the implementer, fixers, gate fixers and polish changed), polish, decisions, report} (runs, cells on the code-evaluator route). Details: saved-workflows.md.',
   phases: [
     { title: 'Size', detail: 'one cheap agent reads the task, git status/diff and go list and returns the tier, packages and paths' },
     { title: 'Route', detail: 'MEDIUM adds an intel agent, a feature task adds an implementer, EPIC drafts a plan and stops' },
@@ -285,6 +285,7 @@ const EVAL_ONLY = EVAL && !TASK && !PATHS.length && !PKGS.length && !RANGE
 if (RANGE && !/^[A-Za-z0-9._\/~^@{}-]+(\.\.\.?[A-Za-z0-9._\/~^@{}-]+)?$/.test(RANGE)) return ERR('args.range must be a git range like main..HEAD')
 if (!CWD || !(TASK || PATHS.length || PKGS.length || RANGE || EVAL)) return ERR('args.cwd and one of args.task, args.packages, args.paths, args.range or args.skill are required')
 if (a.tier !== undefined && !TIERS.includes(a.tier)) return ERR('args.tier must be ' + TIERS.join('|'))
+if (a.kind !== undefined && !['feature', 'refactor', 'fix', 'audit'].includes(a.kind)) return ERR('args.kind must be feature|refactor|fix|audit')
 // A bare range (no task, paths or packages) is a diff audit, so code-analyzer owns it (D2).
 const ANALYZE = !!RANGE && !TASK && !PATHS.length && !PKGS.length
 // args.gate + gateScope: a shared gate a green-keeper-loop child keeps green beside the children, editing gateScope.
@@ -348,7 +349,7 @@ const CTX = { cwd: CWD, cd: '', rules: RULES, S: { ...CS, dedupe: S.dedupe, simp
 const SIZED = {
   type: 'object',
   properties: {
-    kind: { type: 'string', enum: ['fix', 'feature', 'audit', 'architecture'] },
+    kind: { type: 'string', enum: ['fix', 'feature', 'refactor', 'audit', 'architecture'] },
     packages: { type: 'array', items: { type: 'string' } }, paths: { type: 'array', items: { type: 'string' } },
     focus: { type: 'string' }, reason: { type: 'string' },
   },
@@ -373,9 +374,10 @@ const KEEP = ['blocked', 'stalled', 'incomplete', 'capped'] // child exits merge
 phase('Size')
 const decisions = []
 let IMPL_FILES = [] // declared before any record() call: touchedFiles reads it on the early returns too
+let IMPL_EMPTY = false // an implementer ran for a build task but changed no file
 let tier = a.tier
 let focus = a.focus || TASK
-let KIND = ''
+let KIND = a.kind || '' // args.kind wins over the size agent and the task-verb regex
 // A git range with a task, paths or packages becomes the changed Go files (non-test); a bare one goes to code-analyzer.
 if (RANGE && !ANALYZE) {
   const ch = S.size.done('range', await agent(
@@ -403,14 +405,14 @@ if (ANALYZE || EVAL_ONLY) {
 } else if (!tier) {
   const sz = S.size.done('size', await agent(
     S.size.task(RULES + ' Read-only: edit nothing. Do NOT pick a size; find facts. Read the code the task points at and return: kind (fix = repair ' +
-      'existing behavior, feature = add behavior, audit = review packages for bugs, architecture = a multi-session design change); the ' +
+      'existing behavior, feature = add behavior, refactor = change structure keeping existing behavior, audit = review packages for bugs, architecture = a multi-session design change); the ' +
       'non-test source FILES that must change (repo-relative, one entry per file, never a directory, tests excluded); the Go package dirs ' +
       'only for an audit; a one-line focus; and a one-line reason. Use `git status --short` and `go list ./...` only as needed.\nTask: ' + TASK +
       (PKGS.length ? '\nGiven packages: ' + PKGS.join(', ') : '') + (PATHS.length ? '\nGiven paths: ' + PATHS.join(', ') : '')),
     { phase: 'Size', label: 'size', schema: S.size.schema(SIZED), model: S.size.model, effort: S.size.effort, ...S.size.type },
   ).catch(() => null))
   if (!sz) return ERR('sizing agent returned nothing; pass args.tier to skip it')
-  KIND = sz.kind
+  KIND = a.kind || sz.kind
   if (!PKGS.length) PKGS = rels(sz.packages)
   if (!PATHS.length) PATHS = rels(sz.paths).filter((p) => !/_test\.go$/.test(p))
   tier = tierOf(sz.kind, PATHS, sz.kind === 'audit' ? PKGS : [])
@@ -474,16 +476,17 @@ if (tier === 'MEDIUM' && TASK) {
     focus = TASK + '. Intel: ' + intel.focus
   } else decisions.push('intel returned nothing; kept the sized paths')
 }
-// code-workers only fixes bugs: a feature task gets an implementer first, then code-workers audits and hardens the new code.
-const feature = KIND ? KIND === 'feature' : /^\W*(build|add|implement|create|introduce|support|write|finish)\b/i.test(TASK) // leading verb only: constraint text mentioning review must not veto
-if ((tier === 'LOW' || tier === 'MEDIUM') && TASK && target.paths.length && feature && a.fix === false) decisions.push('feature task: implementer skipped under fix=false (review only)')
-else if ((tier === 'LOW' || tier === 'MEDIUM') && TASK && target.paths.length && feature) {
+// code-workers only fixes bugs: a feature or refactor task gets an implementer first, then code-workers audits and hardens the new code.
+const builds = KIND ? KIND === 'feature' || KIND === 'refactor' : /^\W*(build|add|implement|create|introduce|support|write|finish|refactor|move|migrate|replace|rewire|fold|extract|retire|remove|delete|rename|phase)\b/i.test(TASK) // leading verb only: constraint text mentioning review must not veto
+if ((tier === 'LOW' || tier === 'MEDIUM') && TASK && target.paths.length && builds && a.fix === false) decisions.push('feature task: implementer skipped under fix=false (review only)')
+else if ((tier === 'LOW' || tier === 'MEDIUM') && TASK && target.paths.length && builds) {
   const impl = S.impl.done('impl', await agent(
     S.impl.task(RULES + ' Make this change in these files (new files in the same package ok) and nothing else; smallest correct change, functions < 50 lines, 1-line comments. ' +
       'Run gofmt and go vet on the package. Do not write tests; code-workers follows with find, fix, guard test and gate. Return `files`: every repo-relative file you changed.\nFiles: ' + target.paths.join(', ') + '\nTask: ' + TASK + '\nContext: ' + focus),
     { phase: 'Route', label: 'impl', schema: S.impl.schema(ST_WORK), model: S.impl.model, effort: S.impl.effort, ...S.impl.type },
   ).catch(() => null))
   if (impl) IMPL_FILES = strs(impl.files).map((f) => stRel(CTX, f))
+  IMPL_EMPTY = !IMPL_FILES.length
   decisions.push('implementer ran: ' + (impl ? impl.status + ' — ' + impl.summary : 'returned nothing'))
   decisions.push('feature task: code-workers below is an audit-and-harden pass over the new code, not a feature builder')
 }
@@ -529,6 +532,7 @@ else if (POLISH && pfiles.length) {
   }
 }
 if (SCAN_EXIT && res.exit === 'green') res = { ...res, exit: SCAN_EXIT, decisions: [...res.decisions, 'scan exit ' + SCAN_EXIT + ': not green'] }
+if (IMPL_EMPTY && res.exit === 'green') res = { ...res, exit: 'incomplete', decisions: [...res.decisions, 'implementer changed no file: the requested change was not made, exit incomplete'] }
 return await record(withEval(await sharedGate(res)))
 
 // sharedGate: one check-only re-run of the shared gate after every child and the polish (either may change it).
