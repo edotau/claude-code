@@ -47,7 +47,11 @@ func topicName(dir, arg string) (string, error) {
 	if reserved {
 		return "", fmt.Errorf("%q: %s, not an archivable topic", arg, k)
 	}
-	if _, err := os.Lstat(filepath.Join(dir, name)); err != nil {
+	absent, err := absentPath(filepath.Join(dir, name))
+	if err != nil {
+		return "", err
+	}
+	if absent {
 		return name, nil
 	}
 	if k := bank.ClassifyMemoryFile(dir, name); !k.Archivable() {
@@ -98,9 +102,24 @@ func newNativeBatch(dir string) *nativeBatch {
 
 // put plans writing data at rel on condition of preimage (nil = must not exist); equal bytes plan nothing.
 func (b *nativeBatch) put(rel string, data, preimage []byte) {
-	if !bytes.Equal(data, preimage) {
+	if !sameBytes(data, preimage) {
 		b.changes = append(b.changes, bank.Change{Rel: filepath.Join(b.prefix, rel), Data: data, Preimage: preimage, Checked: true})
 	}
+}
+
+// sameBytes is bytes.Equal with nil (absent) kept apart from an empty file.
+func sameBytes(a, b []byte) bool { return (a == nil) == (b == nil) && bytes.Equal(a, b) }
+
+// absentPath reports whether path does not exist; any other Lstat failure is returned, never read as absence.
+func absentPath(path string) (bool, error) {
+	_, err := os.Lstat(path)
+	switch {
+	case err == nil:
+		return false, nil
+	case os.IsNotExist(err):
+		return true, nil
+	}
+	return false, err
 }
 
 // putWithout plans rel rewritten without names' pointer lines; a malformed bank region names the file and plans nothing.
@@ -184,16 +203,18 @@ func indexLinks(index string) map[string]string {
 }
 
 // indexedLinks is every pointer dir's store holds: the injected MEMORY.md plus the recall-only SEARCHABLE.md.
-func indexedLinks(dir, index string) map[string]string {
+func indexedLinks(dir, index string) (map[string]string, error) {
 	out := indexLinks(index)
-	if raw, err := os.ReadFile(filepath.Join(dir, bank.NativeSearchableFile)); err == nil {
-		for t, line := range indexLinks(string(raw)) {
-			if _, ok := out[t]; !ok {
-				out[t] = line
-			}
+	raw, err := readIfExists(filepath.Join(dir, bank.NativeSearchableFile))
+	if err != nil {
+		return nil, err
+	}
+	for t, line := range indexLinks(string(raw)) {
+		if _, ok := out[t]; !ok {
+			out[t] = line
 		}
 	}
-	return out
+	return out, nil
 }
 
 // linkTarget pulls the `](<target>.md)` a pointer line links to.
@@ -226,11 +247,8 @@ func NativeStats(dir string) (NativeStoreStats, error) {
 			st.TopicBytes += fi.Size()
 		}
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, bank.NativeIndexFile))
+	raw, err := readIfExists(filepath.Join(dir, bank.NativeIndexFile))
 	if err != nil {
-		if os.IsNotExist(err) {
-			return st, nil
-		}
 		return st, err
 	}
 	if err := bank.CheckBankRegion(string(raw)); err != nil {
@@ -238,12 +256,12 @@ func NativeStats(dir string) (NativeStoreStats, error) {
 	}
 	st.IndexBytes = int64(len(raw))
 	st.IndexEntries = len(indexLinks(string(raw)))
-	st.Dangling, st.Orphans = indexFaults(dir, string(raw), present)
-	return st, nil
+	st.Dangling, st.Orphans, err = indexFaults(dir, string(raw), present)
+	return st, err
 }
 
 // indexFaults lists the pointers whose target is no topic or bank file (dangling) and the topics no pointer reaches (orphans).
-func indexFaults(dir, raw string, present map[string]bool) (dangling, orphans []string) {
+func indexFaults(dir, raw string, present map[string]bool) (dangling, orphans []string, err error) {
 	// A pointer to a typed bank file is valid (not dangling), though the file is never an orphan candidate.
 	linkable := maps.Clone(present)
 	for _, name := range bank.BankFiles() {
@@ -251,7 +269,10 @@ func indexFaults(dir, raw string, present map[string]bool) (dangling, orphans []
 			linkable[name] = true
 		}
 	}
-	links := indexedLinks(dir, raw)
+	links, err := indexedLinks(dir, raw)
+	if err != nil {
+		return nil, nil, err
+	}
 	for target := range links {
 		if !linkable[target] {
 			dangling = append(dangling, target)
@@ -264,7 +285,7 @@ func indexFaults(dir, raw string, present map[string]bool) (dangling, orphans []
 	}
 	sort.Strings(dangling)
 	sort.Strings(orphans)
-	return dangling, orphans
+	return dangling, orphans, nil
 }
 
 // ArchiveNative moves each named topic file out of dir into its archive and strikes its pointer line
@@ -279,7 +300,11 @@ func ArchiveNative(dir string, names []string, apply bool) (NativeResult, error)
 		if err != nil {
 			return res, err
 		}
-		if _, err := os.Lstat(filepath.Join(dir, name)); err != nil {
+		absent, err := absentPath(filepath.Join(dir, name))
+		if err != nil {
+			return res, err
+		}
+		if absent {
 			res.Skipped = append(res.Skipped, name+": not in the store")
 			continue
 		}
@@ -308,7 +333,11 @@ func archiveNativeLocked(dir string, todo []string, res *NativeResult) error {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	moves, recorded, err := planArchive(dir, todo, indexedLinks(dir, healed))
+	links, err := indexedLinks(dir, healed)
+	if err != nil {
+		return err
+	}
+	moves, recorded, err := planArchive(dir, todo, links)
 	if err != nil {
 		return err
 	}
@@ -483,8 +512,11 @@ func retargetLine(line, to string) string {
 
 // reconcileLines heals a crashed archive/restore in memory: one pointer per store topic both index files omit,
 // the verbatim archived line if recorded, else one built from the topic's own frontmatter.
-func reconcileLines(dir, index string) []string {
-	links := indexedLinks(dir, index)
+func reconcileLines(dir, index string) ([]string, error) {
+	links, err := indexedLinks(dir, index)
+	if err != nil {
+		return nil, err
+	}
 	rec, _ := os.ReadFile(filepath.Join(nativeArchiveDir(dir), bank.NativeArchiveIndexFile))
 	recorded := indexLinks(string(rec))
 	var missing []string
@@ -499,7 +531,7 @@ func reconcileLines(dir, index string) []string {
 			missing = append(missing, line)
 		}
 	}
-	return missing
+	return missing, nil
 }
 
 // healedIndex is MEMORY.md's bytes (nil when absent) and its text with reconcileLines appended in memory;
@@ -515,7 +547,11 @@ func healedIndex(dir string) (raw []byte, healed string, err error) {
 	if err := bank.CheckBankRegion(string(raw)); err != nil {
 		return nil, "", fmt.Errorf("%s: %w", bank.NativeIndexFile, err)
 	}
-	return raw, indexWithLines(string(raw), reconcileLines(dir, string(raw))), nil
+	missing, err := reconcileLines(dir, string(raw))
+	if err != nil {
+		return nil, "", err
+	}
+	return raw, indexWithLines(string(raw), missing), nil
 }
 
 // frontmatterPointer builds `- [name](file.md) — description` from a topic file's frontmatter; false without a name.
@@ -605,7 +641,11 @@ func RestoreNative(dir string, names []string, apply bool) (NativeResult, error)
 		if err != nil {
 			return res, err
 		}
-		if _, err := os.Lstat(filepath.Join(archiveDir, name)); err != nil {
+		absent, err := absentPath(filepath.Join(archiveDir, name))
+		if err != nil {
+			return res, err
+		}
+		if absent {
 			res.Skipped = append(res.Skipped, name+": not in the archive")
 			continue
 		}
@@ -642,7 +682,9 @@ func restoreNativeLocked(dir string, todo []string, res *NativeResult) error {
 	if err != nil {
 		return err
 	}
-	b.put(bank.NativeIndexFile, []byte(final), index)
+	if index != nil || final != "" { // an absent MEMORY.md stays absent when nothing is restored into it
+		b.put(bank.NativeIndexFile, []byte(final), index)
+	}
 	for _, name := range todo {
 		b.del(filepath.Join(nativeArchiveRel, name), archived[name])
 	}

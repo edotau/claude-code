@@ -80,9 +80,19 @@ func splitOverflow(path string, capLines int) (header string, keep, overflow []s
 	return header, keep, overflow, nil
 }
 
-// archiveFile prunes path to capLines, appending its oldest overflow blocks to the archive first so
-// nothing is lost if the rewrite fails.
+// archiveFile prunes path under the bank lock, so a concurrent append cannot land between its read and rewrite.
 func archiveFile(path string, capLines int, now time.Time) (int, error) {
+	var moved int
+	err := memstore.WithBankLock(memstore.BankLockWait, func() (err error) {
+		moved, err = archiveFileLocked(path, capLines, now)
+		return err
+	})
+	return moved, err
+}
+
+// archiveFileLocked is archiveFile for a caller holding the bank lock; it appends the oldest overflow to the archive
+// first so nothing is lost if the rewrite fails.
+func archiveFileLocked(path string, capLines int, now time.Time) (int, error) {
 	header, keep, overflow, err := splitOverflow(path, capLines)
 	if err != nil || len(overflow) == 0 {
 		return 0, err

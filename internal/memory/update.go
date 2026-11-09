@@ -108,8 +108,11 @@ func ReadUpdateResult(sessionID string) (UpdateResult, bool) {
 			m[k] = v
 		}
 	}
-	r := UpdateResult{Status: m["status"], Log: m["log"], BankUpdated: m["bank_updated"] == "true"}
-	r.Time, _ = time.Parse(time.RFC3339, m["time"])
+	t, err := time.Parse(time.RFC3339, m["time"])
+	if err != nil {
+		return UpdateResult{}, false
+	}
+	r := UpdateResult{Status: m["status"], Time: t, Log: m["log"], BankUpdated: m["bank_updated"] == "true"}
 	return r, r.Status != ""
 }
 
@@ -284,12 +287,11 @@ func Update(o UpdateOptions) error {
 		record(UpdateFailed, false)
 		return fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock")))
 	}
-	updated := run.finish(o, dir)
-	if err := errors.Join(lockErr, run.runErr); err != nil {
-		record(UpdateFailed, updated)
+	if err := errors.Join(lockErr, run.runErr, run.settleErr); err != nil {
+		record(UpdateFailed, run.updated)
 		return fmt.Errorf("headless update: %w", err)
 	}
-	record(UpdateOK, updated)
+	record(UpdateOK, run.updated)
 	return nil
 }
 
@@ -303,26 +305,28 @@ func updateDefaults(o UpdateOptions) UpdateOptions {
 	return o
 }
 
-// updateRun is what the locked section of Update observed: bank mtimes before the run and the run's own error.
+// updateRun is what the locked section of Update observed: bank mtimes before the run, the run's error, and settlement.
 type updateRun struct {
 	before, beforeHome time.Time
-	runErr             error
+	runErr, settleErr  error
+	updated            bool
 }
 
-func (r *updateRun) finish(o UpdateOptions, dir string) bool {
+// finish settles under the writer lock and reports whether the update wrote either bank tier.
+func (r *updateRun) finish(o UpdateOptions, dir string) (updated bool, err error) {
 	// An update may legitimately write only the shared home bank (cross-repo facts), so watch both tiers.
-	updated := bank.NewestMtime(dir).After(r.before) || bank.NewestMtime(memstore.HomeBankDir()).After(r.beforeHome)
+	updated = bank.NewestMtime(dir).After(r.before) || bank.NewestMtime(memstore.HomeBankDir()).After(r.beforeHome)
 	if _, err := bank.SettleBank(o.CWD, time.Now()); err != nil {
-		fmt.Fprintln(o.Out, "memory update: settle:", err)
+		return updated, fmt.Errorf("settle: %w", err)
 	}
 	// Refresh the cached doctor notice here (background worker), never on the SessionStart launch path.
 	if err := WriteDoctorNotice(o.CWD, DefaultStaleDays, time.Now()); err != nil {
 		fmt.Fprintln(o.Out, "memory update: doctor notice:", err)
 	}
-	return updated
+	return updated, nil
 }
 
-// locked runs the agent or claude update under the store lock, recording mtimes first; the run's error rides in runErr.
+// locked runs the agent or claude update and its settlement under the store lock; errors ride in the run struct.
 func (r *updateRun) locked(o UpdateOptions, dir string) error {
 	if o.Historical {
 		snap := snapshotFiles(dir, currentStateFiles)
@@ -333,9 +337,10 @@ func (r *updateRun) locked(o UpdateOptions, dir string) error {
 	defer cancel()
 	if o.Run != nil {
 		r.runErr = runAgentUpdate(ctx, o)
-		return nil
+	} else {
+		r.runErr = runClaudeUpdate(ctx, o)
 	}
-	r.runErr = runClaudeUpdate(ctx, o)
+	r.updated, r.settleErr = r.finish(o, dir)
 	return nil
 }
 
