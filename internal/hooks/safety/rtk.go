@@ -124,7 +124,7 @@ func rtkExitOK(err error) bool {
 }
 
 // rtkEnvAltered matches a command that assigns, exports, unsets or clears PATH or HOME (over-matching is safe).
-var rtkEnvAltered = regexp.MustCompile(`(^|[^\w$])(PATH|HOME)\+?=` +
+var rtkEnvAltered = regexp.MustCompile(`(^|[^\w$])(PATH|HOME)(\[[^\]]*\])?\+?=` +
 	`|\b(export|unset|readonly|declare|typeset|local)\s[^;&|\n]*\b(PATH|HOME)\b` +
 	`|\benv\s[^;&|\n]*(-i\b|-u\s*(PATH|HOME)\b|--ignore-environment|--unset[=\s](PATH|HOME)\b)`)
 

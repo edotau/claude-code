@@ -61,6 +61,9 @@ func ParseInput(r io.Reader) *Input {
 	if json.Unmarshal(raw, &in.doc) != nil {
 		return &Input{Raw: raw}
 	}
+	if in.doc == nil { // stdin `null` unmarshals without error and leaves the map nil
+		in.doc = map[string]any{}
+	}
 	switch name := os.Getenv(settings.AgentEnv); name {
 	case AgentClaude, AgentCodex, AgentCopilot, AgentGemini:
 		in.agent = name

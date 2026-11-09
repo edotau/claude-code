@@ -135,16 +135,58 @@ func recipeReads(recipe, name string) bool {
 	return strings.Contains(recipe, "$("+name+")") || strings.Contains(recipe, "${"+name+"}")
 }
 
-// runMakeTarget dry-runs the target and, only if the plan names this file and provisions nothing, runs
-// it for real. The plan must name the file: otherwise the variable is read somewhere that does not
-// reach it (or the target formats fixed paths) and a real run would touch the whole tree.
+// runMakeTarget dry-runs the target and, only if every planned command names this file and provisions
+// nothing, runs it for real. A line naming other paths (e.g. `gofmt -w .`) would rewrite the whole tree.
 func runMakeTarget(root, target, assignment, abs string) bool {
 	plan, ok := runMake(root, makeProbeTimeout, "-n", "-s", target, assignment)
-	if !ok || makeProvisioning().MatchString(plan) || !strings.Contains(plan, abs) {
+	if !ok || makeProvisioning().MatchString(plan) || !everyLineNames(root, plan, abs) {
 		return false
 	}
 	_, ok = runMake(root, toolTimeout, "-s", target, assignment)
 	return ok
+}
+
+// everyLineNames reports whether plan has at least one line and each non-blank line passes namesOnly.
+func everyLineNames(root, plan, abs string) bool {
+	named := false
+	for line := range strings.SplitSeq(plan, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !namesOnly(root, strings.Fields(line), abs) {
+			return false
+		}
+		named = true
+	}
+	return named
+}
+
+// namesOnly reports whether abs is a whole argument of the command and no other argument is path-like.
+func namesOnly(root string, fields []string, abs string) bool {
+	names := false
+	for i, tok := range fields {
+		tok = strings.Trim(tok, `"'`)
+		if tok == abs {
+			names = true
+			continue
+		}
+		if i == 0 || strings.HasPrefix(tok, "-") {
+			continue // the command word and flags are not paths
+		}
+		if pathLike(root, tok) {
+			return false
+		}
+	}
+	return names
+}
+
+// pathLike reports an argument that can name files beyond the target: a separator, glob, dot, or a tree entry.
+func pathLike(root, tok string) bool {
+	if strings.ContainsAny(tok, "/*.") {
+		return true
+	}
+	_, err := os.Stat(filepath.Join(root, tok))
+	return err == nil
 }
 
 // runMake executes make in root under a timeout, returning its combined output and whether it exited 0.
@@ -172,8 +214,10 @@ var toolSection = sync.OnceValue(func() *regexp.Regexp {
 // any of black/isort/autoflake, else (or when none of the declared tools is installed) the ruff chain.
 func formatPython(path string) bool {
 	root, tools := pythonProject(path)
-	if root != "" && (tools["black"] || tools["isort"] || tools["autoflake"]) && classicPythonChain(root, path, tools) {
-		return true
+	if root != "" && (tools["black"] || tools["isort"] || tools["autoflake"]) {
+		if ran, ok := classicPythonChain(root, path, tools); ran {
+			return ok
+		}
 	}
 	// ruff-only chain: check --fix covers autoflake (F401/F841) + isort (I); format is black-compatible.
 	fixed := run(root, "ruff", "check", "--fix", "--quiet", path)
@@ -181,23 +225,30 @@ func formatPython(path string) bool {
 }
 
 // classicPythonChain runs ruff check --fix, autoflake, isort, black — each only when the project declares
-// it, each from the project dir so the tool reads that pyproject. Reports whether any step ran.
-func classicPythonChain(root, path string, tools map[string]bool) bool {
-	ran := false
+// it and it is installed, each from the project dir. ran: any step ran; ok: every step that ran exited 0.
+func classicPythonChain(root, path string, tools map[string]bool) (ran, ok bool) {
+	ok = true
+	step := func(name string, args ...string) {
+		if resolveTool(root, name) == "" {
+			return
+		}
+		ran = true
+		ok = run(root, name, args...) && ok // run before the && so every step executes
+	}
 	if tools["ruff"] {
-		ran = run(root, "ruff", "check", "--fix", "--quiet", path) || ran
+		step("ruff", "check", "--fix", "--quiet", path)
 	}
 	if tools["autoflake"] {
 		// --in-place explicitly: without the project's [tool.autoflake] in reach autoflake only prints.
-		ran = run(root, "autoflake", "--in-place", "--quiet", path) || ran
+		step("autoflake", "--in-place", "--quiet", path)
 	}
 	if tools["isort"] {
-		ran = run(root, "isort", "--quiet", path) || ran
+		step("isort", "--quiet", path)
 	}
 	if tools["black"] {
-		ran = run(root, "black", "--quiet", path) || ran
+		step("black", "--quiet", path)
 	}
-	return ran
+	return ran, ok
 }
 
 // pythonProject walks up to the nearest pyproject.toml and reports its dir plus the [tool.*] sections it

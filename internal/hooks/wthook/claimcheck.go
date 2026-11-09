@@ -354,7 +354,7 @@ func (v claimView) uninspectableVerdict() core.Result {
 
 // stageVerdict checks one git invocation's staged set against the claims.
 func (v claimView) stageVerdict(target, verb string, args []string) core.Result {
-	if verb != "add" && verb != "commit" || slices.ContainsFunc(args, isPatchFlag) {
+	if verb != "add" && verb != "commit" || interactive(verb, splitStage(verb, args).flags) {
 		return core.Result{}
 	}
 	top, dirty, err := dirtySet(v.ctx, target)
@@ -441,28 +441,113 @@ func stageResult(in *core.Input, verb string, taken []string, n stageCount) core
 	return core.Result{Decision: d, Reason: core.SafetyMessage(in, d, what, "", hint)}
 }
 
-func isPatchFlag(a string) bool {
-	return a == "-p" || a == "--patch" || a == "-i" || a == "--interactive"
+// interactive reports hunk mode: add -i/-p or commit -p (commit -i is --include, not interactive).
+func interactive(verb string, flags []string) bool {
+	return slices.ContainsFunc(flags, func(f string) bool {
+		if f == "-p" || f == "--patch" {
+			return true
+		}
+		return verb == "add" && (f == "-i" || f == "--interactive")
+	})
+}
+
+// includesStaged reports commit --include (-i), which commits the index along with the operands.
+func includesStaged(verb string, flags []string) bool {
+	return verb == "commit" && slices.ContainsFunc(flags, func(f string) bool {
+		return f == "--include" || clusterHas(f, 'i')
+	})
 }
 
 // stageScopes are the absolute paths (files or directories) a git add/commit stages; top means the whole tree.
 func stageScopes(ctx context.Context, top, target, verb string, args []string) ([]string, error) {
-	ops, all := stageOperands(verb, args)
-	if len(ops) > 0 {
-		args := append([]string{"ls-files", "--cached", "--others", "--exclude-standard", "--full-name", "-z", "--"}, ops...)
-		files, err := gitPaths(ctx, top, target, args...)
-		if err != nil {
-			return nil, err
-		}
-		// Staged deletions are no longer in the index but still belong to the command's pathspec.
-		args = append([]string{"diff", "--cached", "--name-only", "-z", "--"}, ops...)
-		staged, err := gitPaths(ctx, top, target, args...)
-		return append(files, staged...), err
+	w := splitStage(verb, args)
+	fromFile, err := readPathspecFile(target, w)
+	if err != nil {
+		return nil, err
 	}
-	if all || verb == "add" {
+	ops := append(w.ops, fromFile...)
+	if len(ops) > 0 {
+		scopes, err := pathScopes(ctx, top, target, ops)
+		if err != nil || !includesStaged(verb, w.flags) {
+			return scopes, err
+		}
+		staged, err := gitPaths(ctx, top, top, "diff", "--cached", "--name-only", "-z")
+		return append(scopes, staged...), err
+	}
+	if file, _ := pathspecFile(w); file != "" && verb == "add" {
+		return nil, nil // add --pathspec-from-file stages only the file's entries; an empty file stages nothing
+	}
+	if w.stagesAll(verb) || verb == "add" {
 		return []string{top}, nil // add -A/-u with no pathspec, commit -a
 	}
 	return gitPaths(ctx, top, top, "diff", "--cached", "--name-only", "-z")
+}
+
+// pathScopes are the files (tracked, untracked or staged-deleted) matching pathspecs ops.
+func pathScopes(ctx context.Context, top, target string, ops []string) ([]string, error) {
+	args := append([]string{"ls-files", "--cached", "--others", "--exclude-standard", "--full-name", "-z", "--"}, ops...)
+	files, err := gitPaths(ctx, top, target, args...)
+	if err != nil {
+		return nil, err
+	}
+	// Staged deletions are no longer in the index but still belong to the command's pathspec.
+	args = append([]string{"diff", "--cached", "--name-only", "-z", "--"}, ops...)
+	staged, err := gitPaths(ctx, top, target, args...)
+	return append(files, staged...), err
+}
+
+// readPathspecFile reads the elements of --pathspec-from-file: LF-separated and C-quoted, or NUL-separated with -z.
+func readPathspecFile(dir string, w stageWords) ([]string, error) {
+	file, nul := pathspecFile(w)
+	if file == "" {
+		return nil, nil
+	}
+	if file == "-" {
+		return nil, errors.New("--pathspec-from-file=- reads stdin, which the hook cannot see")
+	}
+	if !filepath.IsAbs(file) {
+		file = filepath.Join(dir, file)
+	}
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	sep := "\n"
+	if nul {
+		sep = "\x00"
+	}
+	var out []string
+	for line := range strings.SplitSeq(string(raw), sep) {
+		if !nul {
+			line = unquotePathspec(strings.TrimSuffix(line, "\r"))
+		}
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return out, nil
+}
+
+// unquotePathspec undoes git's C-style quoting of one pathspec line; a line that does not parse is kept as-is.
+func unquotePathspec(line string) string {
+	if !strings.HasPrefix(line, `"`) {
+		return line
+	}
+	if s, err := strconv.Unquote(line); err == nil {
+		return s
+	}
+	return line
+}
+
+// pathspecFile is the --pathspec-from-file operand (`F` or `=F` form) and whether --pathspec-file-nul is set.
+func pathspecFile(w stageWords) (file string, nul bool) {
+	file = w.values["--pathspec-from-file"]
+	for _, f := range w.flags {
+		if v, ok := strings.CutPrefix(f, "--pathspec-from-file="); ok {
+			file = v
+		}
+	}
+	return file, slices.Contains(w.flags, "--pathspec-file-nul")
 }
 
 // gitPaths reads NUL-delimited repo-relative names without Git's display quoting or whitespace trimming.
@@ -489,8 +574,16 @@ var commitValueFlags = map[string]bool{"-m": true, "-F": true, "-C": true, "-c":
 // allTracked are the add flags that stage every tracked change when no pathspec is given (commit: -a/--all only).
 var allTracked = map[string]bool{"-A": true, "--all": true, "-u": true, "--update": true}
 
-// stageOperands splits a git add/commit's words into pathspecs and whether an all-tracked flag is present.
-func stageOperands(verb string, args []string) (ops []string, all bool) {
+// stageWords is an add/commit's words by role: pathspecs, option flags, and the value each value-taking flag took.
+type stageWords struct {
+	ops    []string
+	flags  []string
+	values map[string]string
+}
+
+// splitStage sorts an add/commit's words; `--` ends the options and a flag's value is never read as a flag.
+func splitStage(verb string, args []string) stageWords {
+	w := stageWords{values: map[string]string{}}
 	words, tail := args, []string(nil)
 	if i := slices.Index(args, "--"); i >= 0 {
 		words, tail = args[:i], args[i+1:]
@@ -498,22 +591,37 @@ func stageOperands(verb string, args []string) (ops []string, all bool) {
 	for i := 0; i < len(words); i++ {
 		a := words[i]
 		if !strings.HasPrefix(a, "-") {
-			ops = append(ops, a)
+			w.ops = append(w.ops, a)
 			continue
 		}
-		takesValue, stagesAll := stageFlag(verb, a)
-		all = all || stagesAll
-		if takesValue {
+		w.flags = append(w.flags, a)
+		if takesValue, _ := stageFlag(verb, a); takesValue && i+1 < len(words) {
+			w.values[a] = words[i+1]
 			i++
 		}
 	}
-	return append(ops, tail...), all
+	w.ops = append(w.ops, tail...)
+	return w
+}
+
+// stagesAll reports a flag that stages every tracked change when no pathspec is given.
+func (w stageWords) stagesAll(verb string) bool {
+	return slices.ContainsFunc(w.flags, func(f string) bool {
+		_, all := stageFlag(verb, f)
+		return all
+	})
+}
+
+// stageOperands splits a git add/commit's words into pathspecs and whether an all-tracked flag is present.
+func stageOperands(verb string, args []string) (ops []string, all bool) {
+	w := splitStage(verb, args)
+	return w.ops, w.stagesAll(verb)
 }
 
 // stageFlag classifies one add/commit flag: whether the next word is its value, and whether it stages all tracked.
 func stageFlag(verb, a string) (takesValue, stagesAll bool) {
 	if verb != "commit" {
-		return false, allTracked[a]
+		return a == "--pathspec-from-file", allTracked[a]
 	}
 	return commitValueFlags[a] || valueCluster(a), a == "--all" || commitAllCluster(a)
 }
@@ -536,15 +644,18 @@ func valueCluster(a string) bool {
 }
 
 // commitAllCluster reports a short-flag cluster such as -am holding -a; a value flag (-uall, -ma) ends the scan.
-func commitAllCluster(a string) bool {
+func commitAllCluster(a string) bool { return clusterHas(a, 'a') }
+
+// clusterHas reports a short-flag cluster holding letter before any value-taking letter (-u/-S/-m/-F/-C/-c/-t).
+func clusterHas(a string, letter byte) bool {
 	if len(a) < 2 || a[0] != '-' || a[1] == '-' {
 		return false
 	}
-	for _, c := range a[1:] {
-		if c == 'a' {
+	for i := 1; i < len(a); i++ {
+		if a[i] == letter {
 			return true
 		}
-		if strings.ContainsRune("uSmFCct", c) {
+		if strings.IndexByte("uSmFCct", a[i]) >= 0 {
 			return false
 		}
 	}

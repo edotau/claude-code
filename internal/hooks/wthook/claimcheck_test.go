@@ -220,6 +220,106 @@ func TestClaimCheckCommitAskNamesSafeForm(t *testing.T) {
 	}
 }
 
+func TestClaimCheckCommitInteractiveFlags(t *testing.T) {
+	for _, tc := range []struct {
+		command string
+		want    core.Decision
+	}{
+		{"git commit -i -m x -- a.txt", core.Block},
+		{"git commit -m '-p' -- a.txt", core.Block},
+		{"git commit -p -m x -- a.txt", core.Allow},
+		{"git add -i -- a.txt", core.Allow},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			repo := claimFixture(t)
+			claimEdit(t, repo, liveOwner, "A", "a.txt")
+			r := ClaimCheck(claimInput(t, map[string]any{"session_id": "B", "agent_id": "leafB", "cwd": repo,
+				"tool_name": "Bash", "tool_input": map[string]any{"command": tc.command}}))
+			if r.Decision != tc.want {
+				t.Fatalf("%s: %v %q; want %v", tc.command, r.Decision, r.Reason, tc.want)
+			}
+			if tc.want == core.Block && !strings.Contains(r.Reason, "a.txt takes") {
+				t.Fatalf("block must name claimed a.txt, got %q", r.Reason)
+			}
+		})
+	}
+}
+
+func TestClaimCheckCommitIncludeRetainsStaged(t *testing.T) {
+	for _, flag := range []string{"--include", "-i"} {
+		t.Run(flag, func(t *testing.T) {
+			repo := claimFixture(t)
+			claimEdit(t, repo, liveOwner, "A", "a.txt")
+			gittest.In(t, repo, "add", "a.txt")
+			gittest.WriteRel(t, repo, "b.txt", "B's own edit\n")
+			command := "git commit " + flag + " -m x -- b.txt"
+			r := ClaimCheck(claimInput(t, map[string]any{"session_id": "B", "agent_id": "leafB", "cwd": repo,
+				"tool_name": "Bash", "tool_input": map[string]any{"command": command}}))
+			if r.Decision != core.Block || !strings.Contains(r.Reason, "a.txt takes") {
+				t.Fatalf("%s: %v %q; want block naming staged a.txt", command, r.Decision, r.Reason)
+			}
+			if !strings.Contains(r.Reason, "takes 2 file(s), 1 of them") {
+				t.Fatalf("include must count staged a.txt and operand b.txt, got %q", r.Reason)
+			}
+		})
+	}
+}
+
+func TestClaimCheckAddPathspecFromFile(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		option  string
+		content string
+		want    core.Decision
+	}{
+		{"lines", "--pathspec-from-file paths.txt", "a.txt\n", core.Block},
+		{"equals", "--pathspec-from-file=paths.txt", "a.txt\n", core.Block},
+		{"quoted", "--pathspec-from-file paths.txt", "\"a.txt\"\r\n", core.Block},
+		{"nul", "--pathspec-from-file paths.txt --pathspec-file-nul", "a.txt\x00", core.Block},
+		{"unclaimed", "--pathspec-from-file paths.txt", "b.txt\n", core.Allow},
+		{"empty", "--pathspec-from-file paths.txt", "", core.Allow},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := claimFixture(t)
+			claimEdit(t, repo, liveOwner, "A", "a.txt")
+			gittest.WriteRel(t, repo, "b.txt", "B's own edit\n")
+			gittest.WriteRel(t, repo, "paths.txt", tc.content)
+			r := ClaimCheck(claimInput(t, map[string]any{"session_id": "B", "agent_id": "leafB", "cwd": repo,
+				"tool_name": "Bash", "tool_input": map[string]any{"command": "git add " + tc.option}}))
+			if r.Decision != tc.want {
+				t.Fatalf("%s: %v %q; want %v", tc.option, r.Decision, r.Reason, tc.want)
+			}
+			if tc.want == core.Block && !strings.Contains(r.Reason, "a.txt takes") {
+				t.Fatalf("block must name claimed a.txt, got %q", r.Reason)
+			}
+		})
+	}
+}
+
+func TestClaimCheckCommitPathspecFromFile(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		option  string
+		content string
+	}{
+		{"lines", "--pathspec-from-file paths.txt", "a.txt\n"},
+		{"equals", "--pathspec-from-file=paths.txt", "a.txt\n"},
+		{"quoted", "--pathspec-from-file paths.txt", "\"a.txt\"\r\n"},
+		{"nul", "--pathspec-from-file paths.txt --pathspec-file-nul", "a.txt\x00"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := claimFixture(t)
+			claimEdit(t, repo, liveOwner, "A", "a.txt")
+			gittest.WriteRel(t, repo, "paths.txt", tc.content)
+			r := ClaimCheck(claimInput(t, map[string]any{"session_id": "B", "agent_id": "leafB", "cwd": repo,
+				"tool_name": "Bash", "tool_input": map[string]any{"command": "git commit -m x " + tc.option}}))
+			if r.Decision != core.Block || !strings.Contains(r.Reason, "a.txt takes") {
+				t.Fatalf("%s: %v %q; want block naming unstaged a.txt", tc.option, r.Decision, r.Reason)
+			}
+		})
+	}
+}
+
 // TestStageOperandsCommitUntrackedIsNotAll: on commit -u is --untracked-files, so only -a/--all/-am stage all tracked.
 func TestStageOperandsCommitUntrackedIsNotAll(t *testing.T) {
 	cases := []struct {

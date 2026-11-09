@@ -115,11 +115,7 @@ func retireDraft(draftPath string, approvedText []byte, stderr io.Writer) {
 		return
 	}
 	record := plans.DestRecordPath(filepath.Base(draftPath))
-	removeRecord := func() {
-		if err := os.Remove(record); err != nil && !os.IsNotExist(err) {
-			fmt.Fprintf(stderr, "save-plan: %v\n", err)
-		}
-	}
+	removeRecord := func() { dropRecord(record, stderr) }
 	switch current, err := os.ReadFile(draftPath); {
 	case os.IsNotExist(err):
 		removeRecord()
@@ -131,9 +127,21 @@ func retireDraft(draftPath string, approvedText []byte, stderr io.Writer) {
 	default:
 		if err := os.Remove(draftPath); err != nil && !os.IsNotExist(err) {
 			fmt.Fprintf(stderr, "save-plan: %v\n", err)
-			return
 		}
 		removeRecord()
+	}
+}
+
+// dropRecord removes a draft's .dest record. If removal fails it truncates the record, so Mirror reads no
+// destination and cannot write a later draft over the approved dated plan.
+func dropRecord(record string, stderr io.Writer) {
+	err := os.Remove(record)
+	if err == nil || os.IsNotExist(err) {
+		return
+	}
+	fmt.Fprintf(stderr, "save-plan: %v; emptying %s so Mirror cannot reuse it\n", err, record)
+	if err := os.WriteFile(record, nil, 0o600); err != nil {
+		fmt.Fprintf(stderr, "save-plan: could not empty %s: %v\n", record, err)
 	}
 }
 

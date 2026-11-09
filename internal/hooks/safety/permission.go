@@ -31,6 +31,9 @@ func PermissionGate(in *core.Input) core.Result {
 		return core.Result{Decision: core.Block, Reason: fmt.Sprintf(
 			"permission-gate: BLOCKED — %s is unreadable (%v); every tool call is refused", agent.DispatchPermissionsEnv, err)}
 	}
+	if in.ToolName == "" && len(p.Deny) > 0 { // unparseable or truncated stdin: the call cannot be judged
+		return noToolResult(p)
+	}
 	tool, ok := gateTools[strings.ToLower(in.ToolName)]
 	if !ok {
 		return core.Result{}
@@ -52,6 +55,13 @@ func PermissionGate(in *core.Input) core.Result {
 		}
 	}
 	return core.Result{}
+}
+
+// noToolResult refuses a call whose hook input named no tool, under a policy that has Deny rules.
+func noToolResult(p agent.Permissions) core.Result {
+	return core.Result{Decision: core.Block, Reason: "permission-gate: BLOCKED — the hook input names no tool (unreadable " +
+		"or truncated payload), so the call cannot be judged\n  deny: " + strings.Join(agent.RuleStrings(p.Deny), ", ") +
+		modeNote(p) + "\nReport it instead of retrying another way."}
 }
 
 // blindDeny refuses a Read/Edit whose target is unknown (no path key, no patch header) when a scoped Deny covers it.
@@ -100,13 +110,13 @@ func gateArgs(in *core.Input, tool string) []string {
 	if patch := in.Nested("tool_input", "patchText"); patch != "" {
 		var out []string
 		for _, f := range patchFiles(patch) {
-			out = append(out, relToCWD(in.CWD, f))
+			out = append(out, pathForms(in.CWD, f)...)
 		}
 		if len(out) > 0 {
 			return out
 		}
 	}
-	return []string{gatePath(in)}
+	return pathForms(in.CWD, gatePath(in))
 }
 
 // patchFiles are the files an apply_patch body adds, updates, deletes or moves to.
@@ -127,10 +137,26 @@ var patchHeaders = []string{"*** Add File:", "*** Update File:", "*** Delete Fil
 func gatePath(in *core.Input) string {
 	for _, key := range []string{"file_path", "filePath", "path"} {
 		if p := in.Nested("tool_input", key); p != "" {
-			return relToCWD(in.CWD, p)
+			return p
 		}
 	}
 	return ""
+}
+
+// pathForms are the cwd-relative and absolute spellings of p, so a rule written either way matches; "" stays "".
+func pathForms(cwd, p string) []string {
+	if p == "" {
+		return []string{""}
+	}
+	abs := p
+	if !filepath.IsAbs(p) && cwd != "" {
+		abs = filepath.Join(cwd, p)
+	}
+	rel := relToCWD(cwd, p)
+	if rel == abs {
+		return []string{rel}
+	}
+	return []string{rel, abs}
 }
 
 // relToCWD is p relative to cwd when inside it, else p unchanged (copilot's relToWorkDir).

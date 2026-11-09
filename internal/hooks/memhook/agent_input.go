@@ -68,7 +68,10 @@ func AgentInput(in *core.Input) *core.Input {
 			at, err = loadOpencodeExport(data)
 		}
 	case in.Agent() == core.AgentCopilot && in.TranscriptPath != "":
-		at = loadCopilotEvents(in.SessionID, copilotEventsFrom(in.TranscriptPath, in.CWD))
+		// copilotEventsFrom turns an open error into no events; check the open here so it fails open instead.
+		if err = canOpen(in.TranscriptPath); err == nil {
+			at = loadCopilotEvents(in.SessionID, copilotEventsFrom(in.TranscriptPath, in.CWD))
+		}
 	default:
 		return in
 	}
@@ -82,6 +85,15 @@ func AgentInput(in *core.Input) *core.Input {
 	out := *in
 	out.TranscriptPath = path
 	return &out
+}
+
+// canOpen reports whether path opens for reading.
+func canOpen(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 // writeSynthTranscript writes one Claude-shaped Edit line per edit plus the final text; the path is stable per session.
@@ -110,29 +122,42 @@ func synthLine(kind string, block map[string]any) map[string]any {
 
 var patchFileRe = regexp.MustCompile(`(?m)^\*\*\* (?:Add|Update|Delete) File: (.+)$`)
 
+// copilotRec is the part of one events.jsonl line the loader reads.
+type copilotRec struct {
+	Type string `json:"type"`
+	Data struct {
+		ToolCallID string          `json:"toolCallId"`
+		ToolName   string          `json:"toolName"`
+		Arguments  json.RawMessage `json:"arguments"`
+		Content    string          `json:"content"`
+		Success    bool            `json:"success"`
+		FileEdits  []struct {
+			Path string `json:"path"`
+		} `json:"fileEdits"`
+	} `json:"data"`
+}
+
+// copilotStart is one tool.execution_start with its call id, so a failed completion can drop it.
+type copilotStart struct {
+	id  string
+	evs []copilotEvent
+}
+
 // copilotEventsFrom reads a Copilot events.jsonl into the loader's events. Successful tool.execution_complete
-// fileEdits are the edit source; start arguments (apply_patch text expanded per file) only when no fileEdits exist.
+// fileEdits are the edit source; start arguments (apply_patch text expanded per file) only when no fileEdits exist,
+// and never for a call whose completion reported success:false.
 func copilotEventsFrom(path, cwd string) []copilotEvent {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil
 	}
 	defer f.Close()
-	var texts, starts, done []copilotEvent
+	var texts, done []copilotEvent
+	var starts []copilotStart
+	failed := map[string]bool{}
 	var sawFileEdits bool
 	_ = transcript.EachLine(f, func(line []byte) {
-		var rec struct {
-			Type string `json:"type"`
-			Data struct {
-				ToolName  string          `json:"toolName"`
-				Arguments json.RawMessage `json:"arguments"`
-				Content   string          `json:"content"`
-				Success   bool            `json:"success"`
-				FileEdits []struct {
-					Path string `json:"path"`
-				} `json:"fileEdits"`
-			} `json:"data"`
-		}
+		var rec copilotRec
 		if json.Unmarshal(line, &rec) != nil {
 			return
 		}
@@ -140,9 +165,12 @@ func copilotEventsFrom(path, cwd string) []copilotEvent {
 		case "assistant.message":
 			texts = append(texts, copilotEvent{Type: rec.Type, Content: rec.Data.Content})
 		case "tool.execution_start":
-			starts = append(starts, copilotToolEvents(rec.Data.ToolName, rec.Data.Arguments, cwd)...)
+			starts = append(starts, copilotStart{id: rec.Data.ToolCallID, evs: copilotToolEvents(rec.Data.ToolName, rec.Data.Arguments, cwd)})
 		case "tool.execution_complete":
 			sawFileEdits = sawFileEdits || len(rec.Data.FileEdits) > 0
+			if !rec.Data.Success && rec.Data.ToolCallID != "" {
+				failed[rec.Data.ToolCallID] = true
+			}
 			for _, fe := range rec.Data.FileEdits {
 				if rec.Data.Success {
 					done = append(done, copilotEvent{Type: "tool.execution_start", ToolName: "edit", Arguments: map[string]any{"path": fe.Path}})
@@ -153,7 +181,12 @@ func copilotEventsFrom(path, cwd string) []copilotEvent {
 	if sawFileEdits {
 		return append(texts, done...)
 	}
-	return append(texts, starts...)
+	for _, s := range starts {
+		if !failed[s.id] {
+			texts = append(texts, s.evs...)
+		}
+	}
+	return texts
 }
 
 func copilotToolEvents(tool string, raw json.RawMessage, cwd string) []copilotEvent {

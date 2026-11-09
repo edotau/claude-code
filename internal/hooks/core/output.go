@@ -92,8 +92,7 @@ func marshalDoc(doc map[string]any) string {
 	return string(b)
 }
 
-// Emit writes a merged Result for an agent and returns the exit code: a block outside PreToolUse, and a Copilot or
-// Claude block with no JSON channel, is exit 2 with the reason on stderr.
+// Emit writes a merged Result and returns the exit code; a block with no JSON channel, or a failed stdout write, is exit 2.
 func Emit(name, event string, r Result, stdout, stderr io.Writer) int {
 	build := OutputClaude
 	switch name {
@@ -113,7 +112,10 @@ func Emit(name, event string, r Result, stdout, stderr io.Writer) int {
 		return ExitBlock
 	}
 	if out := build(event, r); out != "" {
-		fmt.Fprintln(stdout, out)
+		if _, err := fmt.Fprintln(stdout, out); err != nil {
+			fmt.Fprintf(stderr, "hook: write output: %v\n", err)
+			return ExitBlock
+		}
 	}
 	return ExitProceed
 }

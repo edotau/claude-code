@@ -18,6 +18,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/memstore"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -109,7 +110,7 @@ func (w *watchLoop) poll() (exit bool) {
 	}
 	fi, err := os.Stat(w.tr)
 	if err != nil {
-		return true // transcript gone: nothing left to update
+		return os.IsNotExist(err) // transcript gone ends the watcher; any other error retries next poll
 	}
 	if time.Since(fi.ModTime()) < w.idle {
 		return false // main transcript alone is still active: skip the subagent globs entirely
@@ -151,6 +152,20 @@ func newestActivity(tr string, mainMtime time.Time) time.Time {
 // spawnFailed reports a worker that should have started but did not.
 func idleUpdateOnce(tr, cwd, session string, note io.Writer) (dispatched, spawnFailed bool) {
 	cwd = memrecall.SessionRoot(session, cwd)
+	ran := false
+	err := paths.WithFileLock(stampPath(session), func() error { // same session lock as updateIfNew
+		ran = true
+		dispatched, spawnFailed = idleUpdateLocked(tr, cwd, session, note)
+		return nil
+	})
+	if err != nil && !ran {
+		return idleUpdateLocked(tr, cwd, session, note) // no lock available: unserialized beats skipping the update
+	}
+	return dispatched, spawnFailed
+}
+
+// idleUpdateLocked is idleUpdateOnce's read-dispatch-write body; the caller holds the session stamp lock.
+func idleUpdateLocked(tr, cwd, session string, note io.Writer) (dispatched, spawnFailed bool) {
 	stamp := stampPath(session)
 	covered := 0
 	if st, ok := readStamp(stamp); ok {
