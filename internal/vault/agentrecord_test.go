@@ -248,3 +248,13 @@ func TestPreMigrationReadsMapByokToDiscovery(t *testing.T) {
 		t.Fatalf("pool=%s model=%q, want the old data read as discovery", pool, recs["opencode"].Model)
 	}
 }
+
+func TestFallbackRoundTrip(t *testing.T) {
+	useZeroRootVault(t)
+	if err := SetAgentRecord("codex", AgentRecord{Fallback: "dev"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := GetAgentRecord("codex"); got.Fallback != "dev" {
+		t.Fatalf("fallback-only record dropped: %+v", got)
+	}
+}
