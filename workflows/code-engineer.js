@@ -268,8 +268,10 @@ const CWD = a.cwd || ''
 const TASK = a.task ? String(a.task) : ''
 const ERR = (m, tier, route, decisions) => ({ exit: 'error', error: 'code-engineer: ' + m, tier: tier || '', route: route || '', decisions: decisions || [], report: '' })
 const strs = (v) => (Array.isArray(v) ? v.filter(Boolean).map(String) : [])
-let PATHS = strs(a.paths)
-let PKGS = strs(a.packages)
+// rels makes every path repo-relative: an absolute and a relative spelling of one dir would become two overlapping children
+const rels = (v) => [...new Set(strs(v).map((x) => x.replace(CWD ? CWD + '/' : /^$/, '').replace(/^\.\//, '').replace(/\/+$/, '')).filter(Boolean))]
+let PATHS = rels(a.paths)
+let PKGS = rels(a.packages)
 const TIERS = ['TRIVIAL', 'LOW', 'MEDIUM', 'HIGH', 'EPIC']
 const RANGE = a.range ? String(a.range) : ''
 const EVAL = !!a.skill
@@ -400,8 +402,8 @@ if (ANALYZE || EVAL_ONLY) {
   ).catch(() => null))
   if (!sz) return ERR('sizing agent returned nothing; pass args.tier to skip it')
   KIND = sz.kind
-  if (!PKGS.length) PKGS = strs(sz.packages)
-  if (!PATHS.length) PATHS = strs(sz.paths).filter((p) => !/_test\.go$/.test(p))
+  if (!PKGS.length) PKGS = rels(sz.packages)
+  if (!PATHS.length) PATHS = rels(sz.paths).filter((p) => !/_test\.go$/.test(p))
   tier = tierOf(sz.kind, PATHS, sz.kind === 'audit' ? PKGS : [])
   log('size: kind ' + sz.kind + ', ' + PATHS.length + ' file(s), ' + PKGS.length + ' package(s) -> ' + tier)
   decisions.push('sized as ' + tier + ' (rule: ' + sz.kind + ', ' + PATHS.length + ' file(s)): ' + sz.reason)
@@ -454,10 +456,10 @@ if (tier === 'MEDIUM' && TASK) {
       (PATHS.length ? '\nStart from: ' + PATHS.join(', ') : '')),
     { phase: 'Route', label: 'intel', schema: S.intel.schema(INTEL), model: S.intel.model, effort: S.intel.effort, ...S.intel.type },
   ).catch(() => null))
-  if (intel && strs(intel.paths).length) {
+  if (intel && rels(intel.paths).length) {
     const own = new Set(dirsOf(sized))
-    const got = KIND === 'fix' && sized.length ? strs(intel.paths).filter((p) => own.has(dirsOf([p])[0])) : strs(intel.paths)
-    const dropped = strs(intel.paths).length - got.length
+    const got = KIND === 'fix' && sized.length ? rels(intel.paths).filter((p) => own.has(dirsOf([p])[0])) : rels(intel.paths)
+    const dropped = rels(intel.paths).length - got.length
     if (dropped) decisions.push('intel: kept ' + got.length + ' path(s) in the named package(s), dropped ' + dropped + ' outside them (context only)')
     target.paths = [...new Set([...sized, ...got])]
     focus = TASK + '. Intel: ' + intel.focus
