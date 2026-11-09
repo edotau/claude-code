@@ -216,6 +216,19 @@ func analyzeDiffFile(fd *diffFileEntry) []diffFinding {
 	return findings
 }
 
+// noiseLineCount counts the changed lines findings cover: a quote-style swap spans its -/+ pair (2 lines).
+func noiseLineCount(findings []diffFinding) int {
+	n := 0
+	for _, f := range findings {
+		if f.Category == "quote-style-swap" {
+			n += 2
+		} else {
+			n++
+		}
+	}
+	return n
+}
+
 func buildDiffResult(files []*diffFileEntry) diffSurgeonResult {
 	fileResults := []diffFileResult{}
 	totalNoise, totalChanges := 0, 0
@@ -223,7 +236,7 @@ func buildDiffResult(files []*diffFileEntry) diffSurgeonResult {
 		totalChanges += len(fd.changes)
 		findings := analyzeDiffFile(fd)
 		if len(findings) > 0 {
-			totalNoise += len(findings)
+			totalNoise += noiseLineCount(findings)
 			fileResults = append(fileResults, diffFileResult{File: fd.file, Findings: findings})
 		}
 	}
@@ -347,13 +360,16 @@ func splitPositional(args []string, boolFlags map[string]bool) (positional, rest
 	return positional, rest
 }
 
-// printJSON writes v as indented JSON; an encode failure goes to stderr with exit 1.
+// printJSON writes v as indented JSON; an encode or stdout write failure goes to stderr with exit 1.
 func printJSON(stdout, stderr io.Writer, v any) int {
 	js, err := indentJSON(v)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}
-	fmt.Fprintln(stdout, js)
+	if _, err := fmt.Fprintln(stdout, js); err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
 	return 0
 }

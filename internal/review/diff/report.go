@@ -266,16 +266,25 @@ func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnal
 		return Report{}, err
 	}
 
-	_, hasFiles := qualityMap["files"]
-	_, hasFile := qualityMap["file"]
-	if hasFiles || hasFile {
-		report.QualitySummary = &QualitySummary{
-			FilesAnalyzed: mInt(qualityMap, "files_analyzed"), AverageScore: pyFloat(mFloat(qualityMap, "average_score")),
-			TotalCodeSmells: mInt(qualityMap, "total_code_smells"), TotalSolidViolations: mInt(qualityMap, "total_solid_violations"),
+	report.QualitySummary = qualitySummaryOf(qualityMap)
+	return report, nil
+}
+
+// qualitySummaryOf summarizes a directory analysis ("files") or a single-file one ("file", which counts as one file).
+func qualitySummaryOf(q map[string]any) *QualitySummary {
+	if _, ok := q["files"]; ok {
+		return &QualitySummary{
+			FilesAnalyzed: mInt(q, "files_analyzed"), AverageScore: pyFloat(mFloat(q, "average_score")),
+			TotalCodeSmells: mInt(q, "total_code_smells"), TotalSolidViolations: mInt(q, "total_solid_violations"),
 		}
 	}
-
-	return report, nil
+	if _, ok := q["file"]; ok {
+		return &QualitySummary{
+			FilesAnalyzed: 1, AverageScore: pyFloat(mFloat(q, "quality_score")),
+			TotalCodeSmells: len(mSlice(q, "smells")), TotalSolidViolations: len(mSlice(q, "solid_violations")),
+		}
+	}
+	return nil
 }
 
 // RunReport ports review_report_generator.py's CLI.
@@ -352,7 +361,10 @@ func resolveExistingPath(positional []string, stderr io.Writer) (string, bool) {
 
 func writeReport(out, output string, stdout, stderr io.Writer) int {
 	if output == "" {
-		fmt.Fprintln(stdout, out)
+		if _, err := fmt.Fprintln(stdout, out); err != nil {
+			fmt.Fprintf(stderr, "Error: %v\n", err)
+			return 1
+		}
 		return 0
 	}
 	if err := paths.AtomicWrite(output, []byte(out), 0o644); err != nil {

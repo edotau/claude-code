@@ -189,12 +189,18 @@ func parseNameStatus(out string) []PRFileAnalysis {
 	return files
 }
 
+// fileDiff is patchFor with a failure read as an empty patch; AnalyzePR uses patchFor so failures surface.
 func fileDiff(repo, filepath, base, head string) string {
-	out, err := refDiff(repo, base, head, nil, filepath)
+	out, err := patchFor(repo, filepath, base, head)
 	if err != nil {
 		return ""
 	}
 	return out
+}
+
+// patchFor returns the base...head patch for one file; a git failure is an error, never an empty diff.
+func patchFor(repo, path, base, head string) (string, error) {
+	return refDiff(repo, base, head, nil, path)
 }
 
 func categorizeFile(filepath string) (string, int) {
@@ -349,7 +355,10 @@ func AnalyzePR(repo, base, head string) (PRReport, error) {
 		return PRReport{Status: "no_changes", Message: "No changes detected between branches"}, nil
 	}
 
-	allRisks := analyzeFiles(repo, base, head, files)
+	allRisks, err := analyzeFiles(repo, base, head, files)
+	if err != nil {
+		return PRReport{}, err
+	}
 	sortFilesByPriority(files)
 
 	commitCount, commitIssues := analyzeCommitMessages(repo, base, head)
@@ -385,11 +394,15 @@ func AnalyzePR(repo, base, head string) (PRReport, error) {
 }
 
 // analyzeFiles fills each file's category, weight, change counts and risks in place and returns every risk found.
-func analyzeFiles(repo, base, head string, files []PRFileAnalysis) []PRRisk {
+// A file whose patch cannot be read fails the whole analysis instead of counting as clean.
+func analyzeFiles(repo, base, head string, files []PRFileAnalysis) ([]PRRisk, error) {
 	var allRisks []PRRisk
 	for i := range files {
 		category, weight := categorizeFile(files[i].Path)
-		d := fileDiff(repo, files[i].Path, base, head)
+		d, err := patchFor(repo, files[i].Path, base, head)
+		if err != nil {
+			return nil, fmt.Errorf("diff %s: %w", files[i].Path, err)
+		}
 		additions, deletions := countChanges(d)
 		risks := analyzeDiffForRisks(d, files[i].Path)
 		allRisks = append(allRisks, risks...)
@@ -399,7 +412,7 @@ func analyzeFiles(repo, base, head string, files []PRFileAnalysis) []PRRisk {
 		files[i].Deletions = deletions
 		files[i].Risks = risks
 	}
-	return allRisks
+	return allRisks, nil
 }
 
 func sortFilesByPriority(files []PRFileAnalysis) {
@@ -554,7 +567,10 @@ func resolveGitRepo(positional []string, stderr io.Writer) (string, bool) {
 // writeOutput prints text to stdout, or writes it to the output file and confirms.
 func writeOutput(text, output string, stdout, stderr io.Writer) int {
 	if output == "" {
-		fmt.Fprint(stdout, text)
+		if _, err := fmt.Fprint(stdout, text); err != nil {
+			fmt.Fprintf(stderr, "Error: %v\n", err)
+			return 1
+		}
 		return 0
 	}
 	if err := paths.AtomicWrite(output, []byte(text), 0o644); err != nil {

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -112,16 +113,19 @@ func emitQualityJSON(report any, output string, stdout io.Writer) error {
 	if err := writeJSON(&buf, report); err != nil {
 		return err
 	}
-	if output != "" {
-		if err := os.WriteFile(output, []byte(buf.String()), 0o644); err != nil {
-			return err
-		}
-		_, err := fmt.Fprintf(stdout, "Results written to %s\n", output)
-		return err
-	} else {
+	if output == "" {
 		_, err := fmt.Fprintln(stdout, buf.String())
 		return err
 	}
+	// AtomicWrite would create a missing parent directory; fail as the plain write did.
+	if _, err := os.Stat(filepath.Dir(output)); err != nil {
+		return fmt.Errorf("write %s: %w", output, err)
+	}
+	if err := paths.AtomicWrite(output, []byte(buf.String()), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", output, err)
+	}
+	_, err := fmt.Fprintf(stdout, "Results written to %s\n", output)
+	return err
 }
 
 func printQualityReport(report any, w io.Writer) {

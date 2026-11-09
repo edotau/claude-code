@@ -181,11 +181,9 @@ func pyFuncNesting(body []pyLine) int {
 		for len(stack) > 0 && l.indent <= stack[len(stack)-1] {
 			stack = stack[:len(stack)-1]
 		}
-		if len(stack) > maxDepth {
-			maxDepth = len(stack)
-		}
 		if pyOpensNesting(strings.TrimLeft(l.text, " \t")) {
 			stack = append(stack, l.indent)
+			maxDepth = max(maxDepth, len(stack)) // counted on push so an inline suite (`for x in xs: f()`) counts
 		}
 	}
 	return maxDepth

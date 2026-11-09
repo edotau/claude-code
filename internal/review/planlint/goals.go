@@ -77,12 +77,16 @@ var (
 	finalRe   = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`(?i)\b(?:final|end-to-end|full\s+test|regression|all\s+(?:tests?\s+)?pass)\b`)
 	})
+	verifyVerbRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(?:tests?|verif\w*|checks?|runs?|pass(?:es)?|validat\w*|audit\w*)\b`)
+	})
 
 	taskLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\s*-\s*\[[ xX]\]\s+(.+)$`) })
-	fenceRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile("^\\s*(```|~~~)") })
-	// A path's first segment starts at a token start (no lookbehind in RE2), so nested segments never count.
+	// Group 1 is the fence run (3+ backticks or tildes), group 2 the rest of the line (the info string).
+	fenceRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile("^\\s*(`{3,}|~{3,})(.*)$") })
+	// First segment at a token start (no RE2 lookbehind); absolute, ~/ and .claude/ prefixes are allowed.
 	internalPkgRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile("(?:^|[\\s`(,])(?:\\./)?(internal|cmd)/([A-Za-z0-9_]+)")
+		return regexp.MustCompile("(?:^|[\\s`(,])(?:\\./|~/|/[^\\s`(,]*/)?(?:\\.claude/)?(internal|cmd)/([A-Za-z0-9_]+)")
 	})
 	topDirRe = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile("(?:^|[\\s`(,])(?:\\./)?([a-zA-Z][a-zA-Z0-9_-]*)/[A-Za-z0-9_.\\-]+")
@@ -130,19 +134,13 @@ func maxFindingsCount(line string) (int, bool) {
 // agents/Plan.md: >3 packages, >10 findings/items, or a code task with no (or an empty) `owns:`; fences skip.
 func findOversizedTasks(text string) []oversizedTask {
 	var out []oversizedTask
-	fence := ""
+	var fence fenceState
 	for _, raw := range splitLines(text) {
-		if f := fenceRe().FindStringSubmatch(raw); f != nil {
-			switch fence {
-			case "":
-				fence = f[1]
-			case f[1]:
-				fence = ""
-			}
+		if fence.skip(raw) {
 			continue
 		}
 		m := taskLineRe().FindStringSubmatch(raw)
-		if fence != "" || m == nil {
+		if m == nil {
 			continue
 		}
 		line := m[1]
@@ -210,19 +208,24 @@ func extractPhaseSteps(text string) []string {
 	return steps
 }
 
-// fenceState tracks whether the line being read is a code fence or inside one.
-type fenceState string
+// fenceState is the open code fence (its character and run length); the zero value is outside any fence.
+type fenceState struct {
+	char byte
+	n    int
+}
 
-// skip reports whether line is a fence delimiter or inside a fenced block, updating the state.
+// skip reports whether line is a fence delimiter or inside a fence; a closer matches char, length and no info.
 func (f *fenceState) skip(line string) bool {
 	m := fenceRe().FindStringSubmatch(line)
+	if m == nil {
+		return f.n > 0
+	}
+	run, rest := m[1], strings.TrimSpace(m[2])
 	switch {
-	case m == nil:
-		return *f != ""
-	case *f == "":
-		*f = fenceState(m[1])
-	case string(*f) == m[1]:
-		*f = ""
+	case f.n == 0:
+		*f = fenceState{char: run[0], n: len(run)}
+	case run[0] == f.char && len(run) >= f.n && rest == "":
+		*f = fenceState{}
 	}
 	return true
 }
@@ -283,6 +286,15 @@ type analysis struct {
 	recommendations      []string
 	noPlan               bool
 	oversizedTasks       []oversizedTask
+}
+
+// isFinalVerification reports whether a step is a final check: a final/regression keyword plus a verification signal.
+func isFinalVerification(step string) bool {
+	if !finalRe().MatchString(step) {
+		return false
+	}
+	pts, _ := scoreStep(step) // concrete or reasonable: the same classifiers every step is scored with
+	return pts >= 2 || verifyVerbRe().MatchString(step)
 }
 
 func scoreSteps(steps []string) ([]stepResult, int) {
@@ -349,7 +361,7 @@ func analyze(text, source string) analysis {
 	results, total := scoreSteps(steps)
 	maxScore := len(steps) * 3
 	pct := pyRound1(float64(total) / float64(maxScore) * 100)
-	hasFinal := finalRe().MatchString(steps[len(steps)-1])
+	hasFinal := isFinalVerification(steps[len(steps)-1])
 	verdict := goalsVerdict(pct)
 	recs := goalRecommendations(results, hasFinal)
 

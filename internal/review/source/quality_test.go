@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -36,6 +37,58 @@ func TestFindFunctionsGoExcludesFollowingRawStringConst(t *testing.T) {
 	}
 	if got[0].Complexity != baseline[0].Complexity {
 		t.Errorf("f complexity with const = %d, without const = %d", got[0].Complexity, baseline[0].Complexity)
+	}
+}
+
+func TestQualityGoGodClassUsesReceiver(t *testing.T) {
+	var src strings.Builder
+	src.WriteString("package fixture\ntype Big struct{}\ntype Small struct{}\n")
+	for i := range 21 {
+		fmt.Fprintf(&src, "func Free%d() {}\nfunc (b *Big) Method%d() {}\n", i, i)
+	}
+	report, err := QualityContent("fixture.go", src.String(), "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Smell{{
+		Type: "god_class", Severity: "high", Location: "Big",
+		Message: "Class 'Big' has 21 methods (max: 20)",
+	}}
+	if !slices.Equal(report.Smells, want) {
+		t.Fatalf("smells = %+v, want only Big flagged: %+v", report.Smells, want)
+	}
+}
+
+func TestQualityGoComplexityExcludesInterveningDeclarations(t *testing.T) {
+	keywords := strings.Repeat("if ", 11)
+	declarations := []string{
+		"const (\ntext = `" + keywords + "`\n)\n",
+		"var (\ntext = `" + keywords + "`\n)\n",
+		"type Data struct {\nText string `" + keywords + "`\n}\n",
+	}
+	for _, declaration := range declarations {
+		t.Run(strings.Fields(declaration)[0], func(t *testing.T) {
+			src := "package fixture\nfunc Simple() {}\n" + declaration +
+				"func Complex(x bool) {\n" + strings.Repeat("if x {}\n", 10) + "}\n"
+			report, err := QualityContent("fixture.go", src, "go")
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantFunctions := []FunctionInfo{
+				{Name: "Simple", Lines: 1, Complexity: 1},
+				{Name: "Complex", Parameters: 1, Lines: 12, Complexity: 11},
+			}
+			if !slices.Equal(report.FunctionDetails, wantFunctions) {
+				t.Errorf("functions = %+v, want %+v", report.FunctionDetails, wantFunctions)
+			}
+			wantSmells := []Smell{{
+				Type: "high_complexity", Severity: "medium", Location: "Complex",
+				Message: "Function 'Complex' has complexity 11 (max: 10)",
+			}}
+			if !slices.Equal(report.Smells, wantSmells) {
+				t.Errorf("smells = %+v, want %+v", report.Smells, wantSmells)
+			}
+		})
 	}
 }
 

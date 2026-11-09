@@ -138,6 +138,9 @@ func changedSimplifyFiles(base string) ([]string, error) {
 
 // changedNames is git diff --name-only against base plus untracked files, which git diff never lists.
 func changedNames(top, base string) ([]string, error) {
+	if strings.HasPrefix(base, "-") {
+		return nil, fmt.Errorf("invalid base %q: must not start with '-'", base)
+	}
 	names, err := gitLines(top, "diff", "--name-only", base)
 	if err != nil {
 		return nil, fmt.Errorf("git diff %s: %w", base, err)

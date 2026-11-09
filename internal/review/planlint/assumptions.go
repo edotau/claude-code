@@ -148,7 +148,10 @@ var signals = sync.OnceValue(func() []signalDef {
 })
 
 var (
-	stepBlockRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?:^|\n)((?:[ \t]*\d+[.)]\s+.+\n?)+)`) })
+	// A step block is numbered lines plus the indented, non-numbered continuation lines under them.
+	stepBlockRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?:^|\n)((?:[ \t]*\d+[.)]\s+.+\n?)(?:(?:[ \t]*\d+[.)]\s+.+|[ \t]+[^ \t\n\d].*)\n?)*)`)
+	})
 	verifyWordRe = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`(?i)\b(?:test|verify|check|assert|confirm|ensure|validate)\b`)
 	})

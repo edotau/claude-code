@@ -70,7 +70,10 @@ func RunWorkflowLint(args []string, stdout, stderr io.Writer) int {
 	if bad > 0 {
 		return 1
 	}
-	fmt.Fprintf(stdout, "workflow lint: %d script(s) clean\n", len(files))
+	if _, err := fmt.Fprintf(stdout, "workflow lint: %d script(s) clean\n", len(files)); err != nil {
+		fmt.Fprintf(stderr, "workflow lint: writing output: %v\n", err)
+		return 1
+	}
 	return 0
 }
 
@@ -218,7 +221,7 @@ func effortlessAgentCalls(name, src string) []string {
 	}, true)
 }
 
-// agentCallsMissingSrc returns "name:line" for each agent() call whose (string-stripped) option
+// agentCallsMissingSrc returns "name:line" for each agent() call whose option
 // window fails `pinned`. exemptMarked honors the lint:opus-ok marker; pass false for a check D1 says
 // the marker must never waive (the model/agentType pin).
 func agentCallsMissingSrc(name, src string, pinned func(window string) bool, exemptMarked bool) []string {
@@ -227,7 +230,7 @@ func agentCallsMissingSrc(name, src string, pinned func(window string) bool, exe
 		if exemptMarked && marked {
 			return
 		}
-		if !pinned(stripStrings(window)) {
+		if !pinned(window) {
 			out = append(out, fmt.Sprintf("%s:%d", name, line))
 		}
 	})
@@ -254,42 +257,103 @@ func badPinValues(name, src string) []string {
 		if marked {
 			return
 		}
-		s := stripStrings(window)
 		for _, key := range pinKeys {
-			out = append(out, badPinValuesForKey(name, line, window, s, key)...)
+			out = append(out, badPinValuesForKey(name, line, window, key)...)
 		}
 	})
 	return out
 }
 
-// topLevelKeyAt returns the offsets of `key:` in masked that sit directly in the call's options object:
-// brace depth 1 and not the tail of a longer identifier (submodel:, a.model:).
-func topLevelKeyAt(masked, key string) []int {
-	needle := key + ":"
-	var out []int
-	depth := 0
+// keyHit is one options-object key: at (its start, bare or quoted) and valStart (the byte after its colon).
+type keyHit struct {
+	at, valStart int
+}
+
+// topLevelKeyAt returns the bare or quoted `key:` hits sitting directly in the call's options object.
+func topLevelKeyAt(src, key string) []keyHit {
+	masked := stripStrings(src)
+	var out []keyHit
+	var open []int // offsets of the unclosed brackets, outermost first
 	for i := 0; i < len(masked); i++ {
-		switch masked[i] {
-		case '{':
-			depth++
-		case '}':
-			depth--
+		switch c := masked[i]; c {
+		case '(', '[', '{':
+			open = append(open, i)
+		case ')', ']', '}':
+			if len(open) > 0 {
+				open = open[:len(open)-1]
+			}
+		case '\'', '"', '`':
+			if inOptionsObject(masked, open) && atKeyPosition(masked, i) {
+				if vs, ok := quotedKeyValue(src, masked, i, key); ok {
+					out = append(out, keyHit{i, vs})
+				}
+			}
+			i = skipQuoted(masked, i, c)
+			continue
 		}
-		if depth == 1 && strings.HasPrefix(masked[i:], needle) && (i == 0 || !isIdentByte(masked[i-1])) {
-			out = append(out, i)
+		if inOptionsObject(masked, open) && strings.HasPrefix(masked[i:], key+":") && (i == 0 || !isIdentByte(masked[i-1])) && atKeyPosition(masked, i) {
+			out = append(out, keyHit{i, i + len(key) + 1})
 		}
 	}
 	return out
 }
 
-// hasTopLevelKey reports whether the string-masked call window pins key in its options object.
-func hasTopLevelKey(masked, key string) bool { return len(topLevelKeyAt(masked, key)) > 0 }
+// inOptionsObject reports whether the innermost bracket is the call's options `{`: directly inside the call's `(`,
+// or inside grouping parens after a comma, as in agent('p', ({model:'sonnet'})).
+func inOptionsObject(masked string, open []int) bool {
+	n := len(open)
+	if n < 2 || masked[open[n-1]] != '{' {
+		return false
+	}
+	for k := 1; k < n-1; k++ {
+		q := prevNonSpace(masked, open[k])
+		if masked[open[k]] != '(' || q < 0 || !(masked[q] == ',' || (k >= 2 && q == open[k-1])) {
+			return false
+		}
+	}
+	return true
+}
 
-func badPinValuesForKey(name string, line int, window, masked, key string) []string {
+// prevNonSpace returns the index of the last non-whitespace byte before at, or -1.
+func prevNonSpace(s string, at int) int {
+	for j := at - 1; j >= 0; j-- {
+		if !strings.ContainsRune(" \t\r\n", rune(s[j])) {
+			return j
+		}
+	}
+	return -1
+}
+
+// atKeyPosition reports whether the token at i follows the options object's `{` or a `,` (a key, not a value).
+func atKeyPosition(masked string, i int) bool {
+	j := i
+	for j > 0 && strings.ContainsRune(" \t\r\n", rune(masked[j-1])) {
+		j--
+	}
+	return j > 0 && (masked[j-1] == '{' || masked[j-1] == ',')
+}
+
+// quotedKeyValue reports whether the literal at i is `'key'`/`"key"` plus a colon, returning the offset after it.
+func quotedKeyValue(src, masked string, i int, key string) (int, bool) {
+	end := skipQuoted(masked, i, masked[i])
+	if end >= len(masked) || src[i+1:end] != key {
+		return 0, false
+	}
+	j := skipSpaces(masked, end+1)
+	if j < len(masked) && masked[j] == ':' {
+		return j + 1, true
+	}
+	return 0, false
+}
+
+// hasTopLevelKey reports whether the call window pins key in its options object (bare or quoted).
+func hasTopLevelKey(src, key string) bool { return len(topLevelKeyAt(src, key)) > 0 }
+
+func badPinValuesForKey(name string, line int, window, key string) []string {
 	var out []string
-	needle := key + ":"
-	for _, pos := range topLevelKeyAt(masked, key) {
-		valStart := pos + len(needle)
+	masked := stripStrings(window)
+	for _, hit := range topLevelKeyAt(window, key) {
+		valStart := hit.valStart
 		valEnd := len(masked)
 		if k := strings.IndexAny(masked[valStart:], ",}\n"); k >= 0 {
 			valEnd = valStart + k
@@ -323,12 +387,15 @@ func allowedList(key string) string {
 // marker on the line the call closes on.
 func scanAgentCalls(src string, fn func(at, line int, window string, marked bool)) {
 	masked := stripStrings(src) // same length as src: an `agent(` inside a string or comment is prose
-	for i := 0; i+6 <= len(src); i++ {
-		if masked[i:i+6] != "agent(" {
+	for i := 0; i+5 <= len(src); i++ {
+		if masked[i:i+5] != "agent" {
 			continue
 		}
 		if i > 0 && isIdentByte(src[i-1]) {
 			continue // subagent(, myagent(, x.agent( — not the workflow primitive
+		}
+		if open := skipSpaces(masked, i+5); open >= len(masked) || masked[open] != '(' {
+			continue // `agent (` with whitespace is the same call; `agentic(` is not
 		}
 		window := callWindow(src, i)
 		markerEnd := i + len(window)
@@ -343,7 +410,15 @@ func scanAgentCalls(src string, fn func(at, line int, window string, marked bool
 }
 
 func isIdentByte(c byte) bool {
-	return c == '_' || c == '.' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+	return c == '_' || c == '$' || c == '.' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+}
+
+// skipSpaces returns the index of the first non-whitespace byte at or after i (len(s) if none).
+func skipSpaces(s string, i int) int {
+	for i < len(s) && strings.ContainsRune(" \t\r\n", rune(s[i])) {
+		i++
+	}
+	return i
 }
 
 // registryHidingDefects returns "file:line: <why>" for the two shapes that make the saved-workflow
@@ -363,10 +438,13 @@ func registryHidingDefects(path string) []string {
 }
 
 var throwTokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\bfunction\b|=>|\bthrow\b`)
+	return regexp.MustCompile(`\bfunction\b|=>|\bthrow\b|\)\s*\{`)
 })
 
-// topLevelThrowLines scans module blocks but skips function and block-arrow bodies.
+// jsControlKeywords are the words that take a `(...) {` header but are not method names.
+var jsControlKeywords = map[string]bool{"if": true, "for": true, "while": true, "switch": true, "catch": true, "with": true}
+
+// topLevelThrowLines scans module blocks but skips function, arrow and method-shorthand bodies.
 func topLevelThrowLines(masked string) []int {
 	var lines []int
 	for at := 0; at < len(masked); {
@@ -376,16 +454,131 @@ func topLevelThrowLines(masked string) []int {
 		}
 		start, end := at+loc[0], at+loc[1]
 		at = end
-		if masked[start:end] != "=>" && start > 0 && (isIdentByte(masked[start-1]) || masked[start-1] == '$') {
+		tok := masked[start:end]
+		switch {
+		case strings.HasPrefix(tok, ")"):
+			at = methodBodyEnd(masked, start, end)
+		case tok == "=>":
+			at = callableBodyEnd(masked, start, end)
+		case start > 0 && isIdentByte(masked[start-1]):
 			continue
-		}
-		if masked[start:end] == "throw" {
+		case tok == "throw":
 			lines = append(lines, 1+strings.Count(masked[:start], "\n"))
-			continue
+		default: // function
+			at = callableBodyEnd(masked, start, end)
 		}
-		at = callableBodyEnd(masked, start, end)
 	}
 	return lines
+}
+
+// methodBodyEnd returns the end of a method-shorthand body (`run(x) {`) whose `)` is at close, or end otherwise.
+func methodBodyEnd(masked string, close, end int) int {
+	open := matchingOpenParen(masked, close)
+	if open < 0 || isControlHeader(masked, open) || !inMemberContainer(masked, open) {
+		return end
+	}
+	return maskedGroupEnd(masked, end-1, '{', '}')
+}
+
+// memberHeadRe matches the text before a `{` that opens a class body or an expression-valued object literal.
+var memberHeadRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?:\bclass\b[^{};]*|[=(,\[?]|\breturn|\byield)\s*$`)
+})
+
+// inMemberContainer reports whether at sits directly inside a class body or an object literal.
+func inMemberContainer(masked string, at int) bool {
+	open := enclosingBrace(masked, at)
+	return open >= 0 && isMemberBrace(masked, open)
+}
+
+// isMemberBrace reports whether the `{` at open opens a class body or object literal, not a block or label body.
+func isMemberBrace(masked string, open int) bool {
+	if memberHeadRe().MatchString(masked[:open]) {
+		return true
+	}
+	colon := prevNonSpace(masked, open)
+	return colon >= 0 && masked[colon] == ':' && !isLabelColon(masked, colon)
+}
+
+// isLabelColon reports whether the `:` at colon ends a statement label (`name:` opening a statement), not a key.
+func isLabelColon(masked string, colon int) bool {
+	e := prevNonSpace(masked, colon)
+	if e < 0 || !isIdentByte(masked[e]) {
+		return false
+	}
+	s := e
+	for s > 0 && isIdentByte(masked[s-1]) {
+		s--
+	}
+	p := prevNonSpace(masked, s)
+	if p < 0 {
+		return true
+	}
+	switch c := masked[p]; {
+	case c == ';' || c == '}':
+		return true
+	case c == '{':
+		return !isMemberBrace(masked, p)
+	default: // a newline after an expression ends it, so the name starts a new statement
+		return strings.Contains(masked[p+1:s], "\n") && (isIdentByte(c) || c == ')' || c == ']')
+	}
+}
+
+// enclosingBrace returns the index of the `{` that opens the innermost block around at, or -1.
+func enclosingBrace(masked string, at int) int {
+	depth := 0
+	for i := at - 1; i >= 0; i-- {
+		switch masked[i] {
+		case '}':
+			depth++
+		case '{':
+			if depth == 0 {
+				return i
+			}
+			depth--
+		}
+	}
+	return -1
+}
+
+// isControlHeader reports whether the `(` at open heads a control statement (`if (`, `for await (`), not a method.
+func isControlHeader(masked string, open int) bool {
+	word := identBefore(masked, open)
+	if word != "await" {
+		return jsControlKeywords[word]
+	}
+	before := strings.TrimSuffix(strings.TrimRight(masked[:open], " \t\r\n"), "await")
+	return identBefore(before, len(before)) == "for"
+}
+
+// matchingOpenParen returns the index of the `(` that closes at close, or -1.
+func matchingOpenParen(masked string, close int) int {
+	depth := 0
+	for i := close; i >= 0; i-- {
+		switch masked[i] {
+		case ')':
+			depth++
+		case '(':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// identBefore returns the identifier (dots included) that ends before at, skipping whitespace.
+func identBefore(masked string, at int) string {
+	j := at
+	for j > 0 && strings.ContainsRune(" \t\r\n", rune(masked[j-1])) {
+		j--
+	}
+	k := j
+	for k > 0 && isIdentByte(masked[k-1]) {
+		k--
+	}
+	return masked[k:j]
 }
 
 // callableBodyEnd skips a function's parameters and block body, or an arrow's block body.
@@ -436,36 +629,28 @@ func metaLiteralDefects(path, src string) []string {
 	return []string{fmt.Sprintf("%s:%d: meta is not a pure literal (no `+`, template literals or variables) — the registry cannot load it", path, 1+strings.Count(src[:start], "\n"))}
 }
 
-// callWindow returns src from the `agent(` at start through its matching close paren.
+// callWindow returns src from the `agent` word at start through its matching close paren.
 func callWindow(src string, start int) string {
-	return delimitedWindow(src, start+len("agent(")-1, '(', ')')
+	return delimitedWindow(src, start, '(', ')')
 }
 
-// delimitedWindow returns src from the opener at open through its matching closer, skipping string
-// literals (backtick/single/double, with \-escapes) so prompt text can't skew the depth. Runs out at
-// pinWindow or end of input when unbalanced.
+// delimitedWindow returns src from open through its matching closer, counting depth on the stripStrings mask.
 func delimitedWindow(src string, open int, opener, closer byte) string {
+	masked := stripStrings(src)
 	depth := 0
 	i := open
-	for ; i < len(src) && i < open+pinWindow; i++ {
-		switch c := src[i]; c {
-		case '/':
-			i = skipComment(src, i)
-		case '`', '\'', '"':
-			i = skipQuoted(src, i, c)
+	for ; i < len(masked) && i < open+pinWindow; i++ {
+		switch masked[i] {
 		case opener:
 			depth++
 		case closer:
 			depth--
 			if depth == 0 {
-				return src[open-countBack(src, open) : i+1]
+				return src[open : i+1]
 			}
 		}
 	}
-	if i > len(src) {
-		i = len(src)
-	}
-	return src[open-countBack(src, open) : i]
+	return src[open:i]
 }
 
 // skipQuoted returns the index of the quote c closing the literal opened at i (or past the end), honoring \-escapes.
@@ -503,15 +688,6 @@ func commentEnd(src string, i int) int {
 	return i + 2 + j + len(end) - 1
 }
 
-// countBack is the length of the `agent` word preceding a call's opening paren, so a call window starts
-// at the identifier; a meta window starts at its brace.
-func countBack(src string, open int) int {
-	if strings.HasSuffix(src[:open], "agent") {
-		return len("agent")
-	}
-	return 0
-}
-
 // stripStrings blanks '…', "…" and `…` literal contents so prompt prose is never read as a pin or operator.
 func stripStrings(src string) string {
 	b := []byte(src)
@@ -522,12 +698,80 @@ func stripStrings(src string) string {
 			i = maskComment(b, i)
 			continue
 		}
+		if c == '/' && regexAllowedAt(b, i) {
+			i = maskRegex(b, i)
+			continue
+		}
 		if c != '\'' && c != '"' && c != '`' {
 			continue
 		}
 		i = maskQuotedContent(b, i)
 	}
 	return string(b)
+}
+
+// regexKeywords are words after which a `/` starts a regex literal rather than dividing.
+var regexKeywords = map[string]bool{"return": true, "typeof": true, "instanceof": true, "in": true,
+	"new": true, "delete": true, "void": true, "throw": true, "case": true, "do": true, "else": true, "yield": true, "await": true}
+
+// forOfHeadRe matches the text before a for-of binding: `for (` with no `;` or `)` since.
+var forOfHeadRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bfor\s*\([^;()\n]*$`) })
+
+// regexAllowedAt reports whether the `/` at i is in expression-start position (a regex, not division).
+func regexAllowedAt(b []byte, i int) bool {
+	j := i - 1
+	for j >= 0 && (b[j] == ' ' || b[j] == '\t' || b[j] == '\n' || b[j] == '\r') {
+		j--
+	}
+	if j < 0 {
+		return true
+	}
+	if strings.IndexByte("(,=:[!&|?{;+-*%<>~^", b[j]) >= 0 {
+		return !postfixIncDec(b, j)
+	}
+	k := j
+	for k >= 0 && isIdentByte(b[k]) {
+		k--
+	}
+	if string(b[k+1:j+1]) == "of" { // `of` is a keyword only as a for-of head; `of / 2` is a variable
+		return forOfHeadRe().Match(b[:k+1])
+	}
+	return regexKeywords[string(b[k+1:j+1])]
+}
+
+// postfixIncDec reports whether the +/- at j closes a postfix ++/-- (so a following `/` divides).
+func postfixIncDec(b []byte, j int) bool {
+	return (b[j] == '+' || b[j] == '-') && j > 0 && b[j-1] == b[j]
+}
+
+// maskRegex blanks a regex body keeping its delimiters; returns the closing `/`, or i if none closes on the line.
+func maskRegex(b []byte, i int) int {
+	inClass := false
+	for j := i + 1; j < len(b) && b[j] != '\n'; j++ {
+		switch b[j] {
+		case '\\':
+			j++
+		case '[':
+			inClass = true
+		case ']':
+			inClass = false
+		case '/':
+			if !inClass {
+				blankBody(b, i+1, j)
+				return j
+			}
+		}
+	}
+	return i
+}
+
+// blankBody replaces b[from:to] with spaces, keeping newlines so line numbers survive.
+func blankBody(b []byte, from, to int) {
+	for k := from; k < to; k++ {
+		if b[k] != '\n' {
+			b[k] = ' '
+		}
+	}
 }
 
 func maskComment(b []byte, i int) int {
@@ -539,12 +783,13 @@ func maskComment(b []byte, i int) int {
 	if j < 0 {
 		j = len(b) - i - 2
 	}
-	for k := i; k < i+2+j && k < len(b); k++ {
+	last := i + 2 + j + len(end) - 1 // the comment's final byte, so the caller resumes after the terminator
+	for k := i; k <= last && k < len(b); k++ {
 		if b[k] != '\n' { // keep line structure so callers can still count lines
 			b[k] = ' '
 		}
 	}
-	return i + 1 + j
+	return last
 }
 
 func maskQuotedContent(b []byte, i int) int {
@@ -567,13 +812,15 @@ type argSpan struct {
 }
 
 // splitTopLevelArgs splits a call's argument-list text at top-level commas, skipping string/template
-// literals (with \-escapes) and ()[]{} nesting, so a comma inside a prompt or object never splits.
+// literals (with \-escapes), // and /* */ comments and ()[]{} nesting, so a comma in those never splits.
 func splitTopLevelArgs(s string) []argSpan {
 	var spans []argSpan
 	depth := 0
 	start := 0
 	for i := 0; i < len(s); i++ {
 		switch c := s[i]; c {
+		case '/':
+			i = skipComment(s, i)
 		case '`', '\'', '"':
 			for i++; i < len(s); i++ {
 				if s[i] == '\\' {
@@ -611,13 +858,13 @@ const (
 
 // planFill decides how the agent() call at i (with its call window) gets a model pin.
 func planFill(src, model string, i int, window string) (fillEdit, int) {
-	if hasTopLevelKey(stripStrings(window), "model") {
+	if hasTopLevelKey(window, "model") {
 		return fillEdit{}, fillSkip // agentType alone is not a pin — Explore runs opus
 	}
 	if len(window) < 6 || window[len(window)-1] != ')' {
 		return fillEdit{}, fillAmbiguous
 	}
-	argsStart := i + len("agent(")
+	argsStart := i + strings.IndexByte(window, '(') + 1
 	argsEnd := i + len(window) - 1
 	argsSrc := src[argsStart:argsEnd]
 	spans := splitTopLevelArgs(argsSrc)

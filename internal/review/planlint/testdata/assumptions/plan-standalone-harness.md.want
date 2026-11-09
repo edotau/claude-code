@@ -1,5 +1,5 @@
 Assumption Linter — plan-standalone-harness.md
-Findings: 8   Verdict: CLARIFY
+Findings: 7   Verdict: CLARIFY
 
   [unscoped-subject] (2)
     L3: Which user(s)? All? A specific role? Authenticated only?
@@ -19,9 +19,7 @@ Findings: 8   Verdict: CLARIFY
     L42: Minimizing language often hides complexity. What's being skipped?
       -> "just" in: (LiteLLM, OpenRouter, a corporate AI gateway) is just a provider with several `r
 
-  [missing-verification] (2)
+  [missing-verification] (1)
     Plan block has no verification step. Add a 'verify:' check to each step.
       -> "1. authenticates the client secret (`x-api-key` or bearer), validates Host is lo" in: 1. authenticates the client secret (`x-api-key` or bearer), validates Host is lo
-    Plan block has no verification step. Add a 'verify:' check to each step.
-      -> "6. streams flush per chunk; 10-minute idle cutoff; `count_tokens` answered local" in: 6. streams flush per chunk; 10-minute idle cutoff; `count_tokens` answered local
 

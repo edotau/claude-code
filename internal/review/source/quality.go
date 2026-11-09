@@ -26,13 +26,16 @@ var qualityThresholds = map[string]int{
 	"max_imports":         15,
 }
 
+// jsFunctionPattern has one (name, params) group pair per alternative: `function f(a)` or `const f = (a) =>`.
+const jsFunctionPattern = `function\s+(\w+)\s*(?:<(?:[^<>]|<[^<>]*>)*>)?\s*\(([^)]*)\)|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*=>`
+
 // Regexes compile lazily (sync.OnceValue): this binary runs once per hook/tool invocation.
 var functionPatterns = sync.OnceValue(func() map[string]*regexp.Regexp {
 	return map[string]*regexp.Regexp{
 		"python":     regexp.MustCompile(`def\s+(\w+)\s*\(([^)]*)\)`),
-		"typescript": regexp.MustCompile(`(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\([^)]*\)\s*=>)`),
-		"javascript": regexp.MustCompile(`(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\([^)]*\)\s*=>)`),
-		"go":         regexp.MustCompile(`func\s+(?:\([^)]+\)\s+)?(\w+)\s*\(([^)]*)\)`),
+		"typescript": regexp.MustCompile(jsFunctionPattern),
+		"javascript": regexp.MustCompile(jsFunctionPattern),
+		"go":         regexp.MustCompile(`func\s+(?:\([^)]+\)\s+)?(\w+)\s*(?:\[[^\]]*\])?\s*\(([^)]*)\)`),
 		"swift":      regexp.MustCompile(`func\s+(\w+)\s*\(([^)]*)\)`),
 		"kotlin":     regexp.MustCompile(`fun\s+(\w+)\s*\(([^)]*)\)`),
 	}
@@ -40,7 +43,7 @@ var functionPatterns = sync.OnceValue(func() map[string]*regexp.Regexp {
 
 var classPatterns = sync.OnceValue(func() map[string]*regexp.Regexp {
 	return map[string]*regexp.Regexp{
-		"python":     regexp.MustCompile(`class\s+(\w+)`),
+		"python":     regexp.MustCompile(`(?m)^\s*class\s+(\w+)`),
 		"typescript": regexp.MustCompile(`class\s+(\w+)`),
 		"javascript": regexp.MustCompile(`class\s+(\w+)`),
 		"go":         regexp.MustCompile(`type\s+(\w+)\s+struct`),
@@ -117,17 +120,17 @@ func calcCyclomaticComplexity(content string) int {
 	return 1 + len(cyclomaticKeywords().FindAllString(content, -1))
 }
 
-// firstNonEmpty picks match.groups()'s first truthy value, same as Python's `next(g for g in ... if g)`.
-func firstNonEmpty(groups []string) string {
-	for _, g := range groups {
-		if g != "" {
-			return g
+// functionNameParams reads a match's name and parameter text from (name, params) group pairs, first non-empty pair wins.
+func functionNameParams(groups []string) (string, string) {
+	for i := 0; i+1 < len(groups); i += 2 {
+		if groups[i] != "" {
+			return groups[i], groups[i+1]
 		}
 	}
-	return "anonymous"
+	return "anonymous", ""
 }
 
-// findFunctions ports quality_core.find_functions, including its group(2)-as-params quirk for TS/JS.
+// findFunctions ports quality_core.find_functions; each language pattern yields (name, params) group pairs.
 func findFunctions(content, language string) []FunctionInfo {
 	pattern, ok := functionPatterns()[language]
 	if !ok {
@@ -139,12 +142,7 @@ func findFunctions(content, language string) []FunctionInfo {
 	}
 	var out []FunctionInfo
 	for _, loc := range pattern.FindAllStringSubmatchIndex(content, -1) {
-		groups := submatchStrings(content, loc, pattern)
-		name := firstNonEmpty(groups)
-		paramsStr := ""
-		if len(groups) > 1 && groups[1] != "" {
-			paramsStr = groups[1]
-		}
+		name, paramsStr := functionNameParams(submatchStrings(content, loc, pattern))
 		params := splitParams(paramsStr)
 		matchEnd := loc[1]
 		body := functionBody(content, matchEnd, pattern)
@@ -203,19 +201,134 @@ func splitParams(s string) []string {
 	return out
 }
 
-// functionBody spans from matchEnd to the next match of pattern, or 2000 runes if there is none.
+// functionBody spans from matchEnd to the next match of pattern, or to the end of content when there is none.
 func functionBody(content string, matchEnd int, pattern *regexp.Regexp) string {
 	remaining := content[matchEnd:]
 	if loc := pattern.FindStringIndex(remaining); loc != nil {
 		return remaining[:loc[0]]
 	}
-	// Python slices by rune (str index), not bytes; 2000 must be a rune count too.
-	runes := []rune(remaining)
-	if len(runes) > 2000 {
-		return string(runes[:2000])
+	return remaining
+}
+
+// classBody is the text a class match owns: Python ends it by indent, other languages at the next class match.
+func classBody(content string, m []int, pattern *regexp.Regexp, language string) string {
+	if language == "python" {
+		return pythonClassBody(content, m[2], m[3])
+	}
+	remaining := content[m[1]:]
+	if loc := pattern.FindStringIndex(remaining); loc != nil {
+		return remaining[:loc[0]]
 	}
 	return remaining
 }
+
+// pythonClassBody returns the lines after the class header that are blank or indented deeper than it.
+func pythonClassBody(content string, nameStart, nameEnd int) string {
+	lineStart := strings.LastIndex(content[:nameStart], "\n") + 1
+	indent := leadingWidth(content[lineStart:])
+	headerEnd := pythonHeaderEnd(content, nameEnd)
+	if headerEnd < 0 {
+		return ""
+	}
+	_, after, ok := strings.Cut(content[headerEnd:], "\n")
+	if !ok {
+		return ""
+	}
+	lines := strings.Split(after, "\n")
+	n := 0
+	for n < len(lines) && (blankOrComment(lines[n]) || leadingWidth(lines[n]) > indent) {
+		n++
+	}
+	return strings.Join(lines[:n], "\n")
+}
+
+// blankOrComment reports a line that must not end a Python class body (a column-0 comment is not dedent).
+func blankOrComment(line string) bool {
+	s := strings.TrimSpace(line)
+	return s == "" || strings.HasPrefix(s, "#")
+}
+
+// pythonHeaderEnd returns the offset just past the ':' closing a class header (parens may span lines), or -1.
+func pythonHeaderEnd(content string, from int) int {
+	depth := 0
+	for i := from; i < len(content); i++ {
+		switch content[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case '#': // comment: skip to its newline, which the loop then handles
+			nl := strings.IndexByte(content[i:], '\n')
+			if nl < 0 {
+				return -1
+			}
+			i += nl - 1
+		case '\'', '"':
+			i = pythonStringEnd(content, i)
+		case ':':
+			if depth == 0 {
+				return i + 1
+			}
+		case '\n':
+			if depth == 0 {
+				return -1
+			}
+		}
+	}
+	return -1
+}
+
+// pythonStringEnd returns the index of the quote closing the string opened at i (len(content) if unclosed).
+func pythonStringEnd(content string, i int) int {
+	q := content[i]
+	if triple := strings.Repeat(string(q), 3); strings.HasPrefix(content[i:], triple) {
+		end := strings.Index(content[i+3:], triple)
+		if end < 0 {
+			return len(content)
+		}
+		return i + 3 + end + 2
+	}
+	for j := i + 1; j < len(content); j++ {
+		switch content[j] {
+		case '\\':
+			j++
+		case q:
+			return j
+		case '\n': // single-line string: stop before the newline so the header scan sees it
+			return j - 1
+		}
+	}
+	return len(content)
+}
+
+// pythonMethodCount counts method defs in a class body, skipping the bodies of nested classes.
+func pythonMethodCount(body string, methodPattern *regexp.Regexp) int {
+	count, nestedIndent := 0, -1
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if !strings.HasPrefix(trimmed, "#") {
+			w := leadingWidth(line)
+			if nestedIndent >= 0 && w <= nestedIndent {
+				nestedIndent = -1
+			}
+			if nestedIndent < 0 && pythonNestedClass().MatchString(line) {
+				nestedIndent = w
+				continue
+			}
+		}
+		if nestedIndent < 0 {
+			count += len(methodPattern.FindAllString(line, -1))
+		}
+	}
+	return count
+}
+
+var pythonNestedClass = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^\s*class\s+\w+`)
+})
 
 // goMethodCount counts `func (r *?Name[...]) ` receivers anywhere in content, since Go methods live outside the type.
 func goMethodCount(content, name string) int {
@@ -236,14 +349,13 @@ func findClasses(content, language string) []ClassInfo {
 	var out []ClassInfo
 	for _, m := range pattern.FindAllStringSubmatchIndex(content, -1) {
 		name := content[m[2]:m[3]]
-		remaining := content[m[1]:]
-		body := remaining
-		if loc := pattern.FindStringIndex(remaining); loc != nil {
-			body = remaining[:loc[0]]
-		}
+		body := classBody(content, m, pattern, language)
 		methods := len(methodPattern.FindAllString(body, -1))
-		if language == "go" {
+		switch language {
+		case "go":
 			methods = goMethodCount(content, name)
+		case "python":
+			methods = pythonMethodCount(body, methodPattern)
 		}
 		out = append(out, ClassInfo{
 			Name:    name,
@@ -509,22 +621,25 @@ func pathHasSkippedPart(path string) bool {
 	return false
 }
 
-// walkSourceFiles calls fn for each non-skipped file under root; skip parts are tested below root only.
-func walkSourceFiles(root string, fn func(p string)) {
+// walkSourceFiles calls fn for each non-skipped file under root and returns the paths the walk could not read.
+func walkSourceFiles(root string, fn func(p string)) []string {
+	var unreadable []string
 	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if rel, rerr := filepath.Rel(root, p); rerr != nil || pathHasSkippedPart(rel) {
+			return nil
+		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: skipping unreadable path %s: %v\n", p, err)
+			unreadable = append(unreadable, p)
 			return nil
 		}
 		if d.IsDir() {
 			return nil
 		}
-		if rel, rerr := filepath.Rel(root, p); rerr != nil || pathHasSkippedPart(rel) {
-			return nil
-		}
 		fn(p)
 		return nil
 	})
+	return unreadable
 }
 
 // analyzeDirectory ports code_quality_checker.analyze_directory.
@@ -571,7 +686,7 @@ func walkExtensions(dir string, extensions []string) (out []QualityReport, faile
 	for _, ext := range extensions {
 		byExtension[ext] = nil
 	}
-	walkSourceFiles(dir, func(p string) {
+	failed = walkSourceFiles(dir, func(p string) {
 		for ext := range byExtension {
 			if strings.HasSuffix(p, ext) {
 				byExtension[ext] = append(byExtension[ext], p)
