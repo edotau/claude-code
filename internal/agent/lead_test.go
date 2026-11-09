@@ -47,29 +47,6 @@ func TestResolveLead(t *testing.T) {
 	}
 }
 
-// HARNESS_DATABRICKS_ARM moves every non-claude agent (gemini too) onto Databricks from any session; unset keeps pins.
-func TestArmLead(t *testing.T) {
-	reg := leadRegistry(t)
-	cases := []struct{ session, arm, agent, want, err string }{
-		{"max", "", "gemini", "", ""},
-		{"max", "off", "codex", "", ""},
-		{"max", "session", "gemini", "dev", ""},
-		{"dev", "session", "codex", "dev", ""},
-		{"max", "dev", "codex", "dev", ""},
-		{"max", "dev", "claude", "", ""},
-		{"dev", "max", "codex", "", "not a databricks profile"},
-		{"max", "nosuch", "codex", "", "not in the registry"},
-	}
-	for _, c := range cases {
-		t.Setenv(providers.EnvSessionProfile, c.session)
-		t.Setenv(EnvDatabricksArm, c.arm)
-		got, err := ArmLead(reg, c.agent)
-		if got != c.want || (c.err == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), c.err)) {
-			t.Errorf("%+v: got %q, %v", c, got, err)
-		}
-	}
-}
-
 // With a lead, the wanted agent's lead row is its own route and its pin is the other route.
 func TestOtherRouteFollowsLead(t *testing.T) {
 	rc := routeCtx{want: "codex", lead: "dev", pins: map[string]router.PinSpec{"codex": {Profile: "pin"}}}
@@ -112,17 +89,17 @@ func TestLeadFor(t *testing.T) {
 	}
 }
 
-// A preview of a profile:model names its own route: the arm leads only an unflagged preview, never that one.
-func TestRouteLeadPreviewKeepsModelProfileOverArm(t *testing.T) {
+// A preview of a profile:model leads on that model's profile; an unflagged preview has no lead.
+func TestRouteLeadPreviewKeepsModelProfile(t *testing.T) {
 	leadRegistry(t)
 	t.Setenv(providers.EnvSessionProfile, "max")
-	t.Setenv(EnvDatabricksArm, "dev")
 	cases := []struct {
 		q    RouteReq
 		lead string
 	}{
-		{RouteReq{Agent: "codex", Fallback: router.FallbackAll, Preview: true}, "dev"},
-		{RouteReq{Agent: "codex", Model: "max:opus", Fallback: router.FallbackAll, Preview: true}, ""},
+		{RouteReq{Agent: "codex", Fallback: router.FallbackAll, Preview: true}, ""},
+		{RouteReq{Agent: "codex", Model: "max:opus", Fallback: router.FallbackAll, Preview: true}, "max"},
+		{RouteReq{Agent: "codex", Model: "dev:opus", Profile: "max", Fallback: router.FallbackAll, Preview: true}, "max"},
 	}
 	for _, c := range cases {
 		lead, explicit, err := routeLead(c.q)
@@ -132,20 +109,12 @@ func TestRouteLeadPreviewKeepsModelProfileOverArm(t *testing.T) {
 	}
 }
 
-// An unled routed run loads the registry only when the arm is on for a non-claude agent.
-func TestRouteLeadSkipsRegistryWhenArmOff(t *testing.T) {
-	loads := 0
-	orig := armRegistry
-	armRegistry = func() *providers.Registry { loads++; return nil }
-	t.Cleanup(func() { armRegistry = orig })
-	for _, arm := range []string{"", "off"} {
-		t.Setenv(EnvDatabricksArm, arm)
-		if lead, _, err := routeLead(RouteReq{Agent: "codex"}); lead != "" || err != nil {
-			t.Errorf("arm %q: got %q, %v", arm, lead, err)
-		}
-	}
-	t.Setenv(EnvDatabricksArm, "session")
-	if _, _, err := routeLead(RouteReq{Agent: "codex"}); err == nil || loads != 1 {
-		t.Errorf("arm on: err %v, loads %d, want no-registry error and 1 load", err, loads)
+// The retired HARNESS_DATABRICKS_ARM env no longer moves an unflagged dispatch off its pin.
+func TestRouteLeadIgnoresRetiredArmEnv(t *testing.T) {
+	leadRegistry(t)
+	t.Setenv("HARNESS_DATABRICKS_ARM", "dev")
+	lead, explicit, err := routeLead(RouteReq{Agent: "codex", Fallback: router.FallbackAll})
+	if lead != "" || explicit || err != nil {
+		t.Errorf("got %q, %v, %v; want no lead", lead, explicit, err)
 	}
 }

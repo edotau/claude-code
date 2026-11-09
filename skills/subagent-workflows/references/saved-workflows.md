@@ -17,8 +17,8 @@ decision; agents work in the shared tree.
 - A stage runs on `agent` = `claude` (in-context on the session profile, `model` = `haiku|sonnet|opus|fable`) or
   `codex|copilot|gemini|opencode`: a `sonnet` leaf of that type runs
   `claude-code <a> ask --fallback agents --format json [--profile <p>] [--provider <x>]`, and the stage reports
-  `ran on` (with hop count) or BLOCKED (`coworkers` rows in the result). The default is the agent's pin (vault env
-  `HARNESS_DATABRICKS_ARM` moves it to Databricks); `profile`/`provider` (run args or per stage) lead instead.
+  `ran on` (with hop count) or BLOCKED (`coworkers` rows in the result). The default is the agent's pin; `profile`/`provider`
+  (run args or per stage) are the Databricks-arm flag and lead instead.
   After a 429/quota/auth failure, even mid-run, the chain runs: same model on another endpoint, GitHub copilot
   gpt-6.1-sol, another agent, BLOCKED; an editing successor checks `git diff` first. gemini defaults to Google; a
   named Databricks profile or the arm runs it there. A run preflights each external route once with

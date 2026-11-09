@@ -152,3 +152,14 @@ func TestUnreadableRecordsSurfaceInPreflight(t *testing.T) {
 		t.Fatalf("StaticLine = %q", got)
 	}
 }
+
+// The launch-time arm never shows up in preflight: a pinned agent reports its pin even with a bad HARNESS_DATABRICKS_ARM.
+func TestCheckIgnoresDatabricksArm(t *testing.T) {
+	hermeticVault(t)
+	setPins(t, map[string]string{"CODEX_PROFILE": "dev"})
+	t.Setenv("HARNESS_DATABRICKS_ARM", "nosuch")
+	c := byAgent(Check(preflightRegistry(true), time.Now()))["codex"]
+	if c.ProfileSource != "pin" || c.Profile != "dev" || strings.Contains(c.Detail, "HARNESS_DATABRICKS_ARM") {
+		t.Fatalf("codex with the arm set = %+v, want the plain pin", c)
+	}
+}
