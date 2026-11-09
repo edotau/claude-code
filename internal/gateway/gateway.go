@@ -86,7 +86,7 @@ func proxyFlags() (*flag.FlagSet, *proxyOpts) {
 	fs.BoolVar(&o.restart, "restart", false, "stop the proxy if running, then start it; print its base URL")
 	fs.BoolVar(&o.status, "status", false, "proxy pid, URL and the profile fallback chain; exit 1 when not running")
 	fs.BoolVar(&o.serve, "serve", false, "run the proxy in the foreground until interrupted")
-	fs.IntVar(&o.port, "port", proxy.DefaultPort, "with --serve: loopback port (a busy port held by an older proxy is reclaimed, else an error)")
+	fs.IntVar(&o.port, "port", proxy.DefaultPort, "with --serve: loopback port (a busy port held by an older proxy is reclaimed; a foreign holder of the default port moves to a free one, recorded in proxy.json; other busy ports are an error)")
 	o.format = helptext.FormatFlag(fs)
 	return fs, o
 }

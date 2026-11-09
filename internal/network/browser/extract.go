@@ -177,7 +177,7 @@ func dedupe(rows []Row, keyIdx int) []Row {
 func (e Env) politeDelay() { e.sleep(time.Duration(500+rand.IntN(1001)) * time.Millisecond) }
 
 // Extract runs the extraction in its own CDP tab (always closed) and writes the rows to w.
-func Extract(ctx context.Context, env Env, o ExtractOptions, w io.Writer) error {
+func Extract(ctx context.Context, env Env, o ExtractOptions, w io.Writer) (err error) {
 	if err := o.Validate(); err != nil {
 		return err
 	}
@@ -200,7 +200,11 @@ func Extract(ctx context.Context, env Env, o ExtractOptions, w io.Writer) error 
 	if err != nil {
 		return err
 	}
-	defer func() { _ = c.Close() }()
+	defer func() {
+		if cerr := c.Close(); cerr != nil {
+			err = errors.Join(err, cerr)
+		}
+	}()
 	rows, runErr := paginate(ctx, env, c, gate, o, start, js)
 	if werr := writeRows(w, o, dedupe(rows, o.keyIndex())); werr != nil && runErr == nil {
 		runErr = werr

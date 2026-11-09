@@ -76,7 +76,7 @@ func claimRestart(now time.Time) bool {
 		claimed, ran = claimRestartLocked(path, now), true
 		return nil
 	})
-	if err != nil && !ran { // best effort: an unlockable state dir must not stop the restart
+	if err != nil && !ran { // an unlockable state dir falls back to the unlocked check; the stamp below still gates it
 		return claimRestartLocked(path, now)
 	}
 	return claimed
@@ -90,13 +90,11 @@ func claimRestartLocked(path string, now time.Time) bool {
 	if fi, err := os.Stat(path); err == nil && now.Sub(fi.ModTime()) < restartRetry {
 		return false
 	}
-	if os.MkdirAll(filepath.Dir(path), 0o700) == nil {
-		_ = os.WriteFile(path, nil, 0o600) // best effort: an unwritable stamp must not stop the restart
-	}
-	return true
+	// No stamp, no throttle: an unrecordable claim must not spawn, or every status-line refresh would.
+	return os.MkdirAll(filepath.Dir(path), 0o700) == nil && os.WriteFile(path, nil, 0o600) == nil
 }
 
-// SpawnStart starts `gateway proxy --start` detached; false when claimed within 15s, or the binary can't be resolved.
+// SpawnStart starts `gateway proxy --start` detached; false when held, claimed within 15s, unstampable, or unresolvable.
 func SpawnStart() bool {
 	if !claimRestart(time.Now()) {
 		return false

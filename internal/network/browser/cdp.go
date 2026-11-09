@@ -25,7 +25,7 @@ func noBrowserHint() string {
 		return "no browser answers on the CDP port; quit Chrome and run " +
 			"`open -a 'Google Chrome' --args --remote-debugging-port=9222`"
 	}
-	return "no browser answers on the CDP port; run `claude-code network browser --setup`"
+	return "no browser answers on the CDP port; start Chrome with --remote-debugging-port=9222 (on WSL, `claude-code network browser --setup` does this)"
 }
 
 // cdpConn is one CDP session bound to a tab this package opened.
@@ -78,8 +78,7 @@ func dialCDP(ctx context.Context, base string) (*cdpConn, error) {
 	c := &cdpConn{base: base, id: tab.ID, pending: map[int]chan response{},
 		waiters: map[string][]chan json.RawMessage{}, done: make(chan struct{})}
 	if c.sock, err = wsDial(ctx, tab.WebSocketDebuggerURL); err != nil {
-		c.closeTab()
-		return nil, err
+		return nil, errors.Join(err, c.closeTab())
 	}
 	go c.readLoop()
 	return c, nil
@@ -144,7 +143,7 @@ func (c *cdpConn) call(ctx context.Context, method string, params any) (json.Raw
 	c.mu.Unlock()
 	b, err := json.Marshal(map[string]any{"id": id, "method": method, "params": params})
 	if err == nil {
-		err = c.sock.writeFrame(opText, b)
+		err = c.sock.writeFrame(ctx, opText, b)
 	}
 	if err != nil {
 		c.dropPending(id)
@@ -192,10 +191,16 @@ func (c *cdpConn) Navigate(ctx context.Context, target string) error {
 		return err
 	}
 	var nav struct {
+		LoaderID  string `json:"loaderId"`
 		ErrorText string `json:"errorText"`
 	}
-	if json.Unmarshal(res, &nav) == nil && nav.ErrorText != "" {
-		return fmt.Errorf("cdp: navigate %s: %s", target, nav.ErrorText)
+	if err := json.Unmarshal(res, &nav); err == nil {
+		if nav.ErrorText != "" {
+			return fmt.Errorf("cdp: navigate %s: %s", target, nav.ErrorText)
+		}
+		if nav.LoaderID == "" { // same-document (#fragment) navigation: no load event follows
+			return nil
+		}
 	}
 	select {
 	case <-loaded:
@@ -239,21 +244,26 @@ func (c *cdpConn) Eval(ctx context.Context, expr string, out any) error {
 	return json.Unmarshal(r.Result.Value, out)
 }
 
-// Close shuts the socket and closes the tab.
+// Close shuts the socket and closes the tab; both failures are returned.
 func (c *cdpConn) Close() error {
-	err := c.sock.close()
-	c.closeTab()
-	return err
+	return errors.Join(c.sock.close(), c.closeTab())
 }
 
-func (c *cdpConn) closeTab() {
+// closeTab asks the debug endpoint to close this tab; a transport error or non-200 status is returned.
+func (c *cdpConn) closeTab() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/json/close/"+url.PathEscape(c.id), nil)
 	if err != nil {
-		return
+		return fmt.Errorf("cdp: close tab %s: %w", c.id, err)
 	}
-	if resp, err := httpClient.Do(req); err == nil {
-		_ = resp.Body.Close()
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("cdp: close tab %s: %w", c.id, err)
 	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("cdp: close tab %s: %s", c.id, resp.Status)
+	}
+	return nil
 }

@@ -427,17 +427,28 @@ var routerFormat = schemas.Register(schemas.Format{
 	Migrate: schemas.SameShape,
 })
 
-// WriteState publishes this daemon's state and returns its conditional cleanup.
+// WriteState publishes this daemon's state and returns its conditional cleanup; check and write share one lock.
 func WriteState(st State) (func(), error) {
 	st.Schema = stateSchema
-	if ownedElsewhere(st) {
-		return func() {}, nil
-	}
-	data, _ := json.Marshal(st)
-	if err := paths.AtomicWrite(stateFile(), data, 0o600); err != nil {
+	wrote := false
+	err := paths.WithFileLock(stateFile(), func() error {
+		if ownedElsewhere(st) {
+			return nil
+		}
+		data, _ := json.Marshal(st)
+		if err := paths.AtomicWrite(stateFile(), data, 0o600); err != nil {
+			return err
+		}
+		_ = os.Remove(legacyStateFile()) // this daemon now owns proxy.json
+		wrote = true
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
-	_ = os.Remove(legacyStateFile()) // this daemon now owns proxy.json
+	if !wrote {
+		return func() {}, nil
+	}
 	return func() {
 		if cur, err := ReadState(); err == nil && cur.PID == st.PID && cur.Port == st.Port {
 			_ = os.Remove(stateFile())

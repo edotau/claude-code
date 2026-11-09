@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"syscall"
 	"time"
@@ -32,7 +33,7 @@ func MintSessionToken(ctx context.Context, profile string, pid int) (string, err
 	return out.Token, nil
 }
 
-// RevokeSessionToken drops token at the daemon; nil only when no daemon runs (no state, dead pid, refused port).
+// RevokeSessionToken drops token at the daemon; nil when revoked or no daemon runs (no state, dead pid, refused port).
 func RevokeSessionToken(ctx context.Context, token string) error {
 	err := postSession(ctx, false, SessionRevokePath, SessionRequest{Token: token}, nil)
 	if errors.Is(err, ErrNotRunning) {
@@ -48,7 +49,13 @@ func postSession(ctx context.Context, start bool, path string, body SessionReque
 		}
 	}
 	st, err := ReadState()
-	if err != nil || !alive(st.PID) {
+	if errors.Is(err, os.ErrNotExist) {
+		return ErrNotRunning
+	}
+	if err != nil {
+		return fmt.Errorf("proxy: read state: %w", err)
+	}
+	if !alive(st.PID) {
 		return ErrNotRunning
 	}
 	ctx, cancel := context.WithTimeout(ctx, sessionTimeout)

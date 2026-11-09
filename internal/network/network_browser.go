@@ -1,9 +1,11 @@
 package network
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strconv"
@@ -65,6 +67,9 @@ func networkBrowserExtractMode(fs *flag.FlagSet, ex *extractArgs, setup bool, fo
 	if setup {
 		return helptext.FailUsage("network browser: --extract and --setup are mutually exclusive")
 	}
+	if bad := setupFlagsSet(fs); bad != "" {
+		return helptext.FailUsage("network browser: --%s belongs to --setup", bad)
+	}
 	return networkBrowserExtract(ex, explicitBrowserFormat(fs, format))
 }
 
@@ -86,7 +91,10 @@ func networkBrowserList(format string) int {
 		}
 		return 0
 	}
-	browser.RenderText(os.Stdout, rep)
+	if err := browser.RenderText(os.Stdout, rep); err != nil {
+		fmt.Fprintln(os.Stderr, "network browser:", err)
+		return 1
+	}
 	return 0
 }
 
@@ -187,25 +195,21 @@ func networkBrowserExtract(a *extractArgs, format string) int {
 	if err := opts.Validate(); err != nil {
 		return helptext.FailUsage("network browser: %v", err)
 	}
-	out := os.Stdout
-	var outFile *os.File
+	// -o buffers the rows and writes the file only after Extract succeeds, so a failed run keeps the old file.
+	var buf bytes.Buffer
+	var out io.Writer = os.Stdout
 	if *a.out != "" {
-		f, err := os.Create(*a.out)
-		if err != nil {
-			return helptext.Fail("network browser: %v", err)
-		}
-		outFile, out = f, f
+		out = &buf
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	err := browser.Extract(ctx, browser.NewEnv(), opts, out)
-	if outFile != nil {
-		if cerr := outFile.Close(); err == nil && cerr != nil {
-			err = cerr
-		}
-	}
-	if err != nil {
+	if err := browser.Extract(ctx, browser.NewEnv(), opts, out); err != nil {
 		return helptext.Fail("network browser --extract: %s", strings.TrimSpace(err.Error()))
+	}
+	if *a.out != "" {
+		if err := os.WriteFile(*a.out, buf.Bytes(), 0o666); err != nil {
+			return helptext.Fail("network browser: %v", err)
+		}
 	}
 	return 0
 }

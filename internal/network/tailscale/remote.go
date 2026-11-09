@@ -11,6 +11,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -149,10 +150,12 @@ func sessionName(opts RemoteOpts) (string, error) {
 // program basename.
 const fieldSep = "|"
 
-// listCommand is the ssh-side command for --list: cc-* tmux sessions, one fieldSep-separated row each.
-const listCommand = `tmux list-sessions -F '#{session_name}` + fieldSep + `#{session_created}` + fieldSep +
-	`#{session_attached}` + fieldSep + `#{pane_current_command}` + fieldSep + `#{@cc_agent}' 2>/dev/null | awk -F'` +
-	fieldSep + `' '$1 ~ /^cc-/'`
+// listCommand is the ssh-side --list command: cc-* rows; a real tmux failure exits 1 with its output on stderr.
+const listCommand = `out=$(tmux list-sessions -F '#{session_name}` + fieldSep + `#{session_created}` + fieldSep +
+	`#{session_attached}` + fieldSep + `#{pane_current_command}` + fieldSep + `#{@cc_agent}' 2>&1) || { ` +
+	`case $out in *"no server running"*|*"No such file or directory"*) out= ;; ` +
+	`*) printf '%s\n' "$out" >&2; exit 1 ;; esac; }; ` +
+	`printf '%s\n' "$out" | awk -F'` + fieldSep + `' '$1 ~ /^cc-/'`
 
 // ListCommand returns the remote command --list runs.
 func ListCommand() string { return listCommand }
@@ -179,7 +182,8 @@ func ParseSessions(output string) []RemoteSession {
 			s.Created = cols[1]
 		}
 		if len(cols) > 2 {
-			s.Attached = cols[2] == "1"
+			clients, _ := strconv.Atoi(cols[2]) // a non-numeric count reads as detached
+			s.Attached = clients >= 1
 		}
 		if len(cols) > 3 {
 			s.CurrentCmd = cols[3]

@@ -36,10 +36,10 @@ type streamer struct {
 	flush     func()
 	model     string
 	started   bool
-	next      int        // next Anthropic content block index
-	open      int        // index of the open block, -1 when none
-	openText  bool       // the open block is text
-	openTool  *toolState // the open block is this tool call
+	next      int          // next Anthropic content block index
+	open      int          // index of the open text block, -1 when none
+	openText  bool         // the open block is text
+	opened    []*toolState // started tool blocks, stopped together at stream end
 	tools     map[int]*toolState
 	last      *toolState
 	usedTools bool
@@ -203,7 +203,11 @@ func (s *streamer) upstreamError(raw json.RawMessage, payload []byte) error {
 
 // choice emits the text and tool-call deltas of one stream choice and records its finish reason.
 func (s *streamer) choice(ch streamChoice) error {
-	if text := contentText(ch.Delta.Content) + ch.Delta.Refusal; text != "" {
+	text, err := contentText(ch.Delta.Content)
+	if err != nil {
+		return s.fail(500, "malformed upstream content", err)
+	}
+	if text += ch.Delta.Refusal; text != "" {
 		if err := s.text(text); err != nil {
 			return err
 		}
@@ -221,9 +225,6 @@ func (s *streamer) choice(ch streamChoice) error {
 
 func (s *streamer) text(t string) error {
 	if !s.openText {
-		if err := s.closeBlock(); err != nil {
-			return err
-		}
 		if err := s.event("content_block_start", blockStartEvent{Type: "content_block_start", Index: s.next,
 			ContentBlock: textBlock{Type: "text", Text: ""}}); err != nil {
 			return err
@@ -231,7 +232,7 @@ func (s *streamer) text(t string) error {
 		s.open, s.openText = s.next, true
 		s.next++
 	}
-	return s.delta(textDelta{Type: "text_delta", Text: t})
+	return s.delta(s.open, textDelta{Type: "text_delta", Text: t})
 }
 
 func (s *streamer) tool(tc inToolCall) error {
@@ -250,17 +251,11 @@ func (s *streamer) tool(tc inToolCall) error {
 		if args, started, err = s.startTool(t, args); err != nil || !started {
 			return err
 		}
-	} else if s.openTool != t {
-		if args == "" {
-			return nil
-		}
-		// Anthropic blocks cannot be reopened; dropping the fragment would run the tool on truncated input.
-		return s.fail(500, "upstream interleaved tool call arguments", errUpstream)
 	}
 	if args == "" {
 		return nil
 	}
-	return s.delta(inputJSONDelta{Type: "input_json_delta", PartialJSON: args})
+	return s.delta(t.block, inputJSONDelta{Type: "input_json_delta", PartialJSON: args})
 }
 
 // toolFor finds the tool call tc continues, or registers a new one.
@@ -287,7 +282,7 @@ func (s *streamer) startTool(t *toolState, args string) (full string, started bo
 		t.pending.WriteString(args)
 		return "", false, nil
 	}
-	if err := s.closeBlock(); err != nil {
+	if err := s.closeText(); err != nil {
 		return "", false, err
 	}
 	if t.id == "" {
@@ -297,24 +292,36 @@ func (s *streamer) startTool(t *toolState, args string) (full string, started bo
 		ContentBlock: toolBlock{Type: "tool_use", ID: t.id, Name: t.name, Input: json.RawMessage("{}")}}); err != nil {
 		return "", false, err
 	}
-	t.block, s.open, s.openTool, s.usedTools = s.next, s.next, t, true
+	t.block, s.usedTools = s.next, true
+	s.opened = append(s.opened, t)
 	s.next++
 	full = t.pending.String() + args
 	t.pending.Reset()
 	return full, true, nil
 }
 
-func (s *streamer) delta(d any) error {
-	return s.event("content_block_delta", blockDeltaEvent{Type: "content_block_delta", Index: s.open, Delta: d})
+func (s *streamer) delta(index int, d any) error {
+	return s.event("content_block_delta", blockDeltaEvent{Type: "content_block_delta", Index: index, Delta: d})
 }
 
-func (s *streamer) closeBlock() error {
-	if s.open < 0 {
+func (s *streamer) closeText() error {
+	if !s.openText {
 		return nil
 	}
 	err := s.event("content_block_stop", blockStopEvent{Type: "content_block_stop", Index: s.open})
-	s.open, s.openText, s.openTool = -1, false, nil
+	s.open, s.openText = -1, false
 	return err
+}
+
+// closeTools stops every started tool block; they stay open so interleaved argument fragments route by index.
+func (s *streamer) closeTools() error {
+	for _, t := range s.opened {
+		if err := s.event("content_block_stop", blockStopEvent{Type: "content_block_stop", Index: t.block}); err != nil {
+			return err
+		}
+	}
+	s.opened = nil
+	return nil
 }
 
 func (s *streamer) start() error {
@@ -347,7 +354,10 @@ func (s *streamer) end(err error) error {
 	if err := s.start(); err != nil {
 		return err
 	}
-	if err := s.closeBlock(); err != nil {
+	if err := s.closeText(); err != nil {
+		return err
+	}
+	if err := s.closeTools(); err != nil {
 		return err
 	}
 	usage := map[string]any{"output_tokens": 0}

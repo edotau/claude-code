@@ -229,6 +229,25 @@ func TestRouterStrayArgumentIsAUsageError(t *testing.T) {
 	}
 }
 
+func TestGatewayRouteRejectsStrayArgument(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"router", []string{"router", "--model", "sonnet", "typo"}},
+		{"bare", []string{"--model", "sonnet", "typo"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run(tc.args) })
+			if code != 1 || stdout != "" || !strings.Contains(stderr, `unexpected argument "typo"`) {
+				t.Fatalf("want exit 1, no route output and stray-argument error; got exit %d stdout %q stderr %q",
+					code, stdout, stderr)
+			}
+		})
+	}
+}
+
 // parityEnv installs a signed-in Databricks session profile whose menu marks gpt-6-astra Responses-capable or not;
 // every agent binary is a stub that drops a marker if it is run on a prompt (status probes are fine).
 func parityEnv(t *testing.T, profile string, responses bool) (marker string) {

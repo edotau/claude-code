@@ -134,9 +134,16 @@ func CountTokens(body []byte) ([]byte, error) {
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("translate: count_tokens: %w", err)
 	}
-	chars := contentChars(in.System)
+	chars, err := contentChars(in.System)
+	if err != nil {
+		return nil, err
+	}
 	for _, m := range in.Messages {
-		chars += contentChars(m.Content)
+		n, err := contentChars(m.Content)
+		if err != nil {
+			return nil, err
+		}
+		chars += n
 	}
 	if string(in.Tools) != "null" {
 		chars += len(in.Tools)
@@ -144,8 +151,11 @@ func CountTokens(body []byte) ([]byte, error) {
 	return json.Marshal(map[string]int{"input_tokens": (chars + 3) / 4})
 }
 
-func contentChars(raw json.RawMessage) int {
-	blocks, _ := parseBlocks(raw)
+func contentChars(raw json.RawMessage) (int, error) {
+	blocks, err := parseBlocks(raw)
+	if err != nil {
+		return 0, fmt.Errorf("translate: count_tokens content: %w", err)
+	}
 	n := 0
 	for _, b := range blocks {
 		switch b.Type {
@@ -158,10 +168,14 @@ func contentChars(raw json.RawMessage) int {
 		case "tool_use":
 			n += len(b.Name) + len(b.Input)
 		case "tool_result":
-			n += contentChars(b.Content)
+			m, err := contentChars(b.Content)
+			if err != nil {
+				return 0, err
+			}
+			n += m
 		}
 	}
-	return n
+	return n, nil
 }
 
 const maxErrorText = 4096

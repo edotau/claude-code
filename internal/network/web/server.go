@@ -138,8 +138,14 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	dctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(dctx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
-		return err
+	if err := srv.Shutdown(dctx); err != nil {
+		s.logger.Printf("web: shutdown: %v; closing open connections", err)
+		if cerr := srv.Close(); cerr != nil {
+			s.logger.Printf("web: force close: %v", cerr)
+		}
+		if !errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
 	}
 	if err := <-errc; err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err

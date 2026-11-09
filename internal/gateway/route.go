@@ -48,6 +48,9 @@ func gatewayRoute(args []string, withProxy bool) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
+	if fs.NArg() > 0 {
+		return helptext.Fail(name+": unexpected argument %q", fs.Arg(0))
+	}
 	if code := checkRouteFlags(name, *route, *format, *fallback, *want); code != 0 {
 		return code
 	}

@@ -395,7 +395,9 @@ func Stop() error {
 		return ErrNotRunning
 	}
 	if st.Tailscale {
-		stopTailscaleMapping(st.Funnel)
+		if err := stopTailscaleMapping(st.Funnel); err != nil {
+			return fmt.Errorf("vscode serve: %w; daemon and state kept", err)
+		}
 	}
 	if err := terminate(st.PID); err != nil {
 		return err
@@ -434,10 +436,11 @@ func tailscaleCmd(ctx context.Context, timeout time.Duration, bin string, args .
 	return cmd, cancel
 }
 
-func stopTailscaleMapping(funnel bool) {
+// stopTailscaleMapping removes the serve/funnel mapping; a missing CLI is a no-op, a failed teardown is an error.
+func stopTailscaleMapping(funnel bool) error {
 	bin, err := paths.LookPathReal("tailscale")
 	if err != nil {
-		return
+		return nil
 	}
 	args := TailscaleOffArgv()
 	if funnel {
@@ -445,7 +448,11 @@ func stopTailscaleMapping(funnel bool) {
 	}
 	cmd, cancel := tailscaleCmd(context.Background(), 5*time.Second, bin, args...)
 	defer cancel()
-	_ = cmd.Run() // best-effort teardown
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("tailscale %s teardown: %w: %s", args[0], err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // TailscaleMapping re-queries `tailscale serve status --json` for port's current mapping — the
@@ -477,7 +484,14 @@ func applyTailscale(ctx context.Context, st State, opts Options) (ServeResult, e
 	}
 	if opts.NoTailscale {
 		if st.Tailscale {
-			stopTailscaleMapping(st.Funnel) // a rerun must not orphan the mapping an earlier run set
+			// A rerun must not orphan the mapping an earlier run set: on failure keep state and surface the error.
+			if err := stopTailscaleMapping(st.Funnel); err != nil {
+				res, werr := finish(st, nil)
+				if werr != nil {
+					return ServeResult{}, werr
+				}
+				return res, err
+			}
 		}
 		st.Tailscale, st.Funnel = false, false
 		st.URL = PublicURL("", "127.0.0.1", st.Port, token)
@@ -487,7 +501,7 @@ func applyTailscale(ctx context.Context, st State, opts Options) (ServeResult, e
 	if err != nil {
 		st.Tailscale, st.Funnel = false, false
 		st.URL = PublicURL("", lanHost(ctx), st.Port, token)
-		return finish(st, []string{"tailscale CLI not found on PATH; serving on the LAN only"})
+		return finish(st, []string{"tailscale CLI not found on PATH; the server listens on 127.0.0.1 only, so the URL works on this machine only"})
 	}
 	args := tailscaleServeArgv(st.Port, opts.Funnel)
 	cmd, cancel := tailscaleCmd(ctx, 5*time.Second, bin, args...)
@@ -502,7 +516,7 @@ func applyTailscale(ctx context.Context, st State, opts Options) (ServeResult, e
 	var notes []string
 	dnsName, mapped := queryTailscaleServeStatus(ctx, bin, st.Port)
 	if !mapped {
-		notes = append(notes, "tailscale serve is up, but its status didn't confirm the mapping yet; use the printed IP instead")
+		notes = append(notes, "tailscale serve is up, but its status didn't confirm the mapping yet; check `tailscale serve status`")
 		st.URL = PublicURL("", lanHost(ctx), st.Port, token)
 	} else {
 		st.URL = PublicURL(dnsName, "", st.Port, token)

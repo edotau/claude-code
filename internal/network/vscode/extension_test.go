@@ -6,8 +6,17 @@ import (
 	"testing"
 )
 
+func extensionHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "vscode", "claude-code-agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
 func TestLinkExtensionCreatesSymlink(t *testing.T) {
-	claudeHome := t.TempDir()
+	claudeHome := extensionHome(t)
 	extensionsDir := filepath.Join(t.TempDir(), "extensions")
 
 	result, err := LinkExtension(claudeHome, extensionsDir, false)
@@ -28,7 +37,7 @@ func TestLinkExtensionCreatesSymlink(t *testing.T) {
 }
 
 func TestLinkExtensionIsIdempotent(t *testing.T) {
-	claudeHome := t.TempDir()
+	claudeHome := extensionHome(t)
 	extensionsDir := filepath.Join(t.TempDir(), "extensions")
 
 	if _, err := LinkExtension(claudeHome, extensionsDir, false); err != nil {
@@ -44,7 +53,7 @@ func TestLinkExtensionIsIdempotent(t *testing.T) {
 }
 
 func TestLinkExtensionCheckReportsDriftWithoutWriting(t *testing.T) {
-	claudeHome := t.TempDir()
+	claudeHome := extensionHome(t)
 	extensionsDir := filepath.Join(t.TempDir(), "extensions")
 
 	result, err := LinkExtension(claudeHome, extensionsDir, true)
@@ -60,7 +69,7 @@ func TestLinkExtensionCheckReportsDriftWithoutWriting(t *testing.T) {
 }
 
 func TestLinkExtensionReplacesAStaleTarget(t *testing.T) {
-	claudeHome := t.TempDir()
+	claudeHome := extensionHome(t)
 	extensionsDir := filepath.Join(t.TempDir(), "extensions")
 	if err := os.MkdirAll(extensionsDir, 0o755); err != nil {
 		t.Fatal(err)

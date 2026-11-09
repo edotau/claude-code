@@ -42,8 +42,8 @@ func Sync(template, dest, claudeHome, claudeBin string, check bool) (Result, err
 		}
 		rawTemplate = b
 	}
-	rendered := strings.ReplaceAll(string(rawTemplate), "__CLAUDE_HOME__", claudeHome)
-	rendered = strings.ReplaceAll(rendered, "__CLAUDE_BIN__", claudeBin)
+	rendered := strings.ReplaceAll(string(rawTemplate), "__CLAUDE_HOME__", jsonEscape(claudeHome))
+	rendered = strings.ReplaceAll(rendered, "__CLAUDE_BIN__", jsonEscape(claudeBin))
 	var overlay map[string]any
 	if err := json.Unmarshal(textutil.StripJSONC([]byte(rendered)), &overlay); err != nil {
 		return Result{}, fmt.Errorf("template: %w", err)
@@ -96,6 +96,12 @@ func merge(dest string, overlay map[string]any, claudeWrapper string, check bool
 	return writeGuarded(dest, "settings", rawBase, body)
 }
 
+// jsonEscape returns s escaped for use inside a JSON string literal (a path may hold quotes or backslashes).
+func jsonEscape(s string) string {
+	b, _ := json.Marshal(s) // marshaling a string cannot fail
+	return string(b[1 : len(b)-1])
+}
+
 // readBase loads dest's JSONC into into (a missing or empty file leaves it untouched) and returns the raw bytes.
 func readBase(dest, label string, into any) ([]byte, error) {
 	rawBase, err := os.ReadFile(dest)
@@ -119,24 +125,36 @@ func writeGuarded(dest, label string, rawBase, body []byte) (Result, error) {
 		BeforeWrite(dest)
 	}
 	// VS Code takes no lock of ours: write only while the merged bytes are still on disk (missing reads as nil).
-	fresh, err := os.ReadFile(dest)
-	if err != nil && !os.IsNotExist(err) {
+	fresh, err := checkUnchanged(dest, label, rawBase)
+	if err != nil {
 		return Result{}, err
 	}
-	if !bytes.Equal(fresh, rawBase) {
-		return Result{}, fmt.Errorf("live %s changed under the merge (%s) — re-run to merge the newer file", label, dest)
-	}
 	backup := ""
-	if len(rawBase) > 0 {
-		var err error
-		if backup, err = paths.Backup(dest, rawBase); err != nil {
+	if len(fresh) > 0 {
+		if backup, err = paths.Backup(dest, fresh); err != nil {
 			return Result{}, err
 		}
+	}
+	// The backup write widens the window a VS Code save can land in, so re-check right before the replace.
+	if _, err := checkUnchanged(dest, label, rawBase); err != nil {
+		return Result{}, err
 	}
 	if err := paths.AtomicWrite(dest, body, 0o600); err != nil {
 		return Result{Backup: backup}, err
 	}
 	return Result{Changed: true, Backup: backup}, nil
+}
+
+// checkUnchanged returns dest's current bytes, or an error when they no longer match rawBase.
+func checkUnchanged(dest, label string, rawBase []byte) ([]byte, error) {
+	fresh, err := os.ReadFile(dest)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	if !bytes.Equal(fresh, rawBase) {
+		return nil, fmt.Errorf("live %s changed under the merge (%s) — re-run to merge the newer file", label, dest)
+	}
+	return fresh, nil
 }
 
 func cloneMap(in map[string]any) map[string]any {

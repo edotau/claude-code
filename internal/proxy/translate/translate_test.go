@@ -326,10 +326,10 @@ var toolStreamCases = []streamCase{
 			`content_block_start {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call_a","name":"ls","input":{}}}`,
 			`content_block_delta {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"pa"}}`,
 			`content_block_delta {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"th\":\"/\"}"}}`,
-			`content_block_stop {"type":"content_block_stop","index":1}`,
 			`content_block_start {"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"call_b","name":"pwd","input":{}}}`,
 			`content_block_delta {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{"}}`,
 			`content_block_delta {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"}"}}`,
+			`content_block_stop {"type":"content_block_stop","index":1}`,
 			`content_block_stop {"type":"content_block_stop","index":2}`,
 			`message_delta {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":0}}`,
 			`message_stop {"type":"message_stop"}`,
@@ -344,9 +344,9 @@ var toolStreamCases = []streamCase{
 			msgStart,
 			`content_block_start {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"g1","name":"f","input":{}}}`,
 			`content_block_delta {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"a\":1}"}}`,
-			`content_block_stop {"type":"content_block_stop","index":0}`,
 			`content_block_start {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"g2","name":"g","input":{}}}`,
 			`content_block_delta {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{}"}}`,
+			`content_block_stop {"type":"content_block_stop","index":0}`,
 			`content_block_stop {"type":"content_block_stop","index":1}`,
 			`message_delta {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":0}}`,
 			`message_stop {"type":"message_stop"}`,
@@ -652,17 +652,56 @@ func TestChatToolChoice(t *testing.T) {
 	}
 }
 
-func TestStreamChatInterleavedToolArgsFail(t *testing.T) {
+func TestStreamChatInterleavedToolArgs(t *testing.T) {
 	in := `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"a","function":{"name":"f","arguments":""}},` +
 		`{"index":1,"id":"b","function":{"name":"g","arguments":""}}]}}]}` + "\n\n" +
-		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"x\":1}"}}]},"finish_reason":"tool_calls"}]}` + "\n\n" +
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"x\":"}}]}}]}` + "\n\n" +
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{}"}}]}}]}` + "\n\n" +
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"1}"}}]},"finish_reason":"tool_calls"}]}` + "\n\n" +
 		"data: [DONE]\n\n"
 	var buf strings.Builder
-	if err := StreamChat(&buf, nil, strings.NewReader(in), "m"); !errors.Is(err, errUpstream) {
-		t.Fatalf("err = %v, want errUpstream (argument fragment for a closed block)", err)
+	if err := StreamChat(&buf, nil, strings.NewReader(in), "claude-client"); err != nil {
+		t.Fatalf("interleaved tool arguments: %v", err)
 	}
-	got := parseSSE(t, buf.String())
-	if last := got[len(got)-1]; !strings.HasPrefix(last, "error ") {
-		t.Fatalf("last event %q, want error, not a clean message_stop", last)
+	eventsEqual(t, parseSSE(t, buf.String()), []string{
+		msgStart,
+		`content_block_start {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"a","name":"f","input":{}}}`,
+		`content_block_start {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"b","name":"g","input":{}}}`,
+		`content_block_delta {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"x\":"}}`,
+		`content_block_delta {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{}"}}`,
+		`content_block_delta {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"1}"}}`,
+		`content_block_stop {"type":"content_block_stop","index":0}`,
+		`content_block_stop {"type":"content_block_stop","index":1}`,
+		`message_delta {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":0}}`,
+		`message_stop {"type":"message_stop"}`,
+	})
+}
+
+func TestFromChatResponseMalformedContent(t *testing.T) {
+	in := `{"choices":[{"message":{"content":{"text":"hello"}},"finish_reason":"stop"}]}`
+	out, err := FromChatResponse([]byte(in), "m")
+	if err == nil || !strings.Contains(err.Error(), "translate: message content:") {
+		t.Fatalf("malformed response content: got output %s, err %v; want content decode error", out, err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("malformed response content returned successful output: %s", out)
+	}
+}
+
+func TestCountTokensMalformedContent(t *testing.T) {
+	for name, in := range map[string]string{
+		"message":     `{"model":"m","messages":[{"role":"user","content":{"text":"hello"}}]}`,
+		"system":      `{"model":"m","system":{"text":"hello"},"messages":[]}`,
+		"tool result": `{"model":"m","messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":{"text":"hello"}}]}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, err := CountTokens([]byte(in))
+			if err == nil || !strings.Contains(err.Error(), "translate: count_tokens content:") {
+				t.Fatalf("malformed token-count content: got output %s, err %v; want content decode error", out, err)
+			}
+			if len(out) != 0 {
+				t.Fatalf("malformed token-count content returned successful output: %s", out)
+			}
+		})
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"slices"
 	"strconv"
@@ -39,12 +40,18 @@ func SetNames(apiKey bool) []string {
 	return []string{"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET"}
 }
 
+// maxKeyDays is the largest whole-day count a time.Duration holds (about 292 years).
+const maxKeyDays = math.MaxInt64 / int64(24*time.Hour)
+
 // ParseKeyExpiry accepts a Go duration or a bare "<N>d" day count.
 func ParseKeyExpiry(s string) (time.Duration, error) {
 	if n, ok := strings.CutSuffix(s, "d"); ok {
 		days, err := strconv.Atoi(n)
 		if err != nil {
 			return 0, err
+		}
+		if int64(days) > maxKeyDays {
+			return 0, fmt.Errorf("key expiry %q overflows: at most %dd", s, maxKeyDays)
 		}
 		return time.Duration(days) * 24 * time.Hour, nil
 	}

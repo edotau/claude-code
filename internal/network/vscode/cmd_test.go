@@ -41,6 +41,9 @@ func isolationFlags(t *testing.T) []string {
 
 func writeVSCodeFixture(t *testing.T) (tmpl, dest string) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "vscode", "claude-code-agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	dir := t.TempDir()
 	tmpl = filepath.Join(dir, "template.json")
 	dest = filepath.Join(dir, "settings.json")

@@ -170,7 +170,9 @@ func dispatchListPlain(ctx context.Context, host, format string) int {
 		return helptext.WriteJSONOrFail("network remote --list", sessions)
 	}
 	for _, s := range sessions {
-		fmt.Printf("%-24s created=%-12s attached=%-5v cmd=%s\n", s.Name, s.Created, s.Attached, s.CurrentCmd)
+		if _, err := fmt.Fprintf(os.Stdout, "%-24s created=%-12s attached=%-5v cmd=%s\n", s.Name, s.Created, s.Attached, s.CurrentCmd); err != nil {
+			return helptext.Fail("network remote --list: %v", err)
+		}
 	}
 	return 0
 }
@@ -192,7 +194,9 @@ func printPaneStatus(statuses []tailscale.PaneStatus, format string) error {
 		return helptext.WriteJSON(os.Stdout, statuses)
 	}
 	for _, p := range statuses {
-		fmt.Printf("%-24s %-6s agent=%-10s state=%-13s %s\n", p.Session, p.PaneID, p.Agent, p.State, p.Reason)
+		if _, err := fmt.Fprintf(os.Stdout, "%-24s %-6s agent=%-10s state=%-13s %s\n", p.Session, p.PaneID, p.Agent, p.State, p.Reason); err != nil {
+			return err
+		}
 	}
 	return nil
 }

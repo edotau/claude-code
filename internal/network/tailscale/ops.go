@@ -111,6 +111,10 @@ func ListRemoteSessions(ctx context.Context, host string) ([]RemoteSession, erro
 	cmd, cancel := SSHCommand(ctx, ExecArgs(ctx, host, ListCommand(), false))
 	defer cancel()
 	out, err := cmd.Output()
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+		return nil, fmt.Errorf("list tmux sessions on %s: %s: %w", host, strings.TrimSpace(string(ee.Stderr)), err)
+	}
 	if err != nil {
 		return nil, err
 	}

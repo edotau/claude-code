@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"net/http"
 	"os"
@@ -137,6 +138,68 @@ func TestArchitectureEndToEnd(t *testing.T) {
 	}
 	checkArchScanShape(t, r)
 	checkArchLayers(t, r)
+}
+
+func TestArchitectureReadDirFailureIsNotCached(t *testing.T) {
+	root := t.TempDir()
+	writeArchFile(t, root, "internal/blocked/leaf.go", "package blocked\n")
+	blocked := filepath.Join(root, "internal", "blocked")
+	if err := os.Chmod(blocked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(blocked, 0o755); err != nil {
+			t.Error(err)
+		}
+	})
+	if _, err := os.ReadDir(blocked); err == nil {
+		t.Skip("directory permissions are not enforced for this user")
+	}
+	var scan archScan
+	if err := scanArchitecture(root, &scan); !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("scanArchitecture error = %v, want permission denied", err)
+	}
+	s := newTestServer(t, Options{ClaudeDir: root}, nil)
+	w := do(s, newReq(t, http.MethodGet, "/api/architecture", "127.0.0.1:7777"))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("unreadable subtree status = %d, want 500", w.Code)
+	}
+	if s.arch.body != nil {
+		t.Fatal("partial architecture scan was cached as successful")
+	}
+	if err := os.Chmod(blocked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := getArch(t, s)
+	if _, ok := archDirByPath(r.Scan, "internal/blocked"); !ok {
+		t.Fatal("retry after restoring access did not include the recovered subtree")
+	}
+}
+
+func TestArchitectureModuleDirectivePreservesImportEdges(t *testing.T) {
+	for name, directive := range map[string]string{
+		"tab":     "module\texample.com/fx\n",
+		"comment": "module example.com/fx // c\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			writeArchFile(t, root, "go.mod", directive)
+			writeArchFile(t, root, "internal/a/a.go", "package a\nimport _ \"example.com/fx/internal/b\"\n")
+			writeArchFile(t, root, "internal/b/b.go", "package b\n")
+			var scan archScan
+			if err := scanArchitecture(root, &scan); err != nil {
+				t.Fatal(err)
+			}
+			a, _ := archDirByPath(scan, "internal/a")
+			b, _ := archDirByPath(scan, "internal/b")
+			if got := strings.Join(a.Imports, ","); got != "internal/b" {
+				t.Errorf("a imports = %q, want internal/b", got)
+			}
+			if got := strings.Join(b.ImportedBy, ","); got != "internal/a" {
+				t.Errorf("b importedBy = %q, want internal/a", got)
+			}
+		})
+	}
 }
 
 func TestArchitectureMissingInternal(t *testing.T) {
