@@ -47,6 +47,29 @@ func TestResolveLead(t *testing.T) {
 	}
 }
 
+// HARNESS_DATABRICKS_ARM moves every non-claude agent (gemini too) onto Databricks from any session; unset keeps pins.
+func TestArmLead(t *testing.T) {
+	reg := leadRegistry(t)
+	cases := []struct{ session, arm, agent, want, err string }{
+		{"max", "", "gemini", "", ""},
+		{"max", "off", "codex", "", ""},
+		{"max", "session", "gemini", "dev", ""},
+		{"dev", "session", "codex", "dev", ""},
+		{"max", "dev", "codex", "dev", ""},
+		{"max", "dev", "claude", "", ""},
+		{"dev", "max", "codex", "", "not a databricks profile"},
+		{"max", "nosuch", "codex", "", "not in the registry"},
+	}
+	for _, c := range cases {
+		t.Setenv(providers.EnvSessionProfile, c.session)
+		t.Setenv(EnvDatabricksArm, c.arm)
+		got, err := ArmLead(reg, c.agent)
+		if got != c.want || (c.err == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), c.err)) {
+			t.Errorf("%+v: got %q, %v", c, got, err)
+		}
+	}
+}
+
 // With a lead, the wanted agent's lead row is its own route and its pin is the other route.
 func TestOtherRouteFollowsLead(t *testing.T) {
 	rc := routeCtx{want: "codex", lead: "dev", pins: map[string]router.PinSpec{"codex": {Profile: "pin"}}}
