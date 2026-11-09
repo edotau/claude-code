@@ -527,14 +527,16 @@ function overlaps(x, y) { return x === y || x.startsWith(y + '/') || y.startsWit
 
 // splitJobs cuts the target's top-level dirs into ≤3 contiguous groups, one code-workers child each; groups never share a tree.
 function splitJobs(sc) {
-  const scanDirs = sc ? topDirs([...new Set(sc.known.map((x) => stDir(stRel(CTX, x.file))))]) : null
+  // every dir the scan named: code-workers applies known only to the exact packages it is given, never to nested ones
+  const exact = sc ? [...new Set(sc.known.map((x) => stDir(stRel(CTX, x.file))))].sort() : null
+  const scanDirs = exact ? topDirs(exact) : null
   const tops = (scanDirs || topDirs(target.packages || dirsOf(target.paths))).sort()
   const kn = sc ? sc.known : known
   const n = tops.some((d) => d === '' || d === '.') ? 1 : Math.min(3, tops.length) // a root package's gate spans every dir
   return Array.from({ length: n }, (_, i) => tops.slice(Math.floor((i * tops.length) / n), Math.floor(((i + 1) * tops.length) / n))).map((g) => {
     const mine = (f) => g.some((d) => overlaps(dirsOf([f])[0], d))
     const k = kn.filter((x) => mine(x.file))
-    const t = scanDirs || target.packages ? { packages: g } : { paths: target.paths.filter(mine) }
+    const t = exact ? { packages: exact.filter((x) => g.some((top) => overlaps(x, top))) } : target.packages ? { packages: g } : { paths: target.paths.filter(mine) }
     return { child: 'code-workers', group: g, args: { cwd: CWD, ...t, fix: a.fix, minFix: a.minFix, focus, steps: CHILD_STEPS, profile: a.profile, provider: a.provider, polish: false, ...(k.length ? { known: k } : {}) } }
   })
 }
@@ -643,10 +645,9 @@ async function record(res0) {
   if (a.record === false) return { ...res, coworkers: COWORKERS }
   const label = String(a.label || 'code-engineer').replace(/[^A-Za-z0-9._-]+/g, '-')
   const recordOnce = () => agent(
-    S.record.task(RULES + ' Write two files and nothing else. Run `claude-code memory path` for the store dir D and `date +%F` for DATE. ' +
-      '(1) Append (create if missing) the markdown REPORT below, followed by one blank line, to D/reports/DATE-' + label + '.md. ' +
-      '(2) Append each DECISION below as a line `- DATE · ' + label + ' · <decision>` to D/reports/DATE-decisions.md (create with a `# Decisions` title). ' +
-      'Then run `claude-code memory fmt` so both files pass the docs lint. Never edit any other file. Return the two paths.\nREPORT:\n' + res.report + '\nDECISIONS:\n' + res.decisions.map((d) => '- ' + d).join('\n')),
+    S.record.task(RULES + ' Record this run and nothing else. Write the JSON below verbatim to a NEW file from `mktemp "${TMPDIR:-/tmp}/record.XXXXXX"` ' +
+      '(Read that empty file before you Write it), then run exactly `cd ' + CWD + ' && claude-code memory report --label ' + label + ' --file <that file> --format json </dev/null` ' +
+      'and return its paths array. Edit nothing else.\nJSON:\n' + JSON.stringify({ report: res.report, decisions: res.decisions })),
     { phase: 'Record', label: 'record', schema: S.record.schema(RECORDED), model: S.record.model, effort: S.record.effort, ...S.record.type },
   ).catch(() => null)
   let w = S.record.done('record', await recordOnce())
