@@ -32,13 +32,15 @@ type AgentRecord struct {
 	Effort  string `json:"effort,omitempty"`
 	Context string `json:"context,omitempty"` // copilot only today
 	Account string `json:"account,omitempty"` // copilot GitHub user
+	// Fallback is the one profile the agent falls back to when its Profile is unavailable.
+	Fallback string `json:"fallback,omitempty"`
 	// Aliases are claude's per-alias model pins (CLAUDE_<ALIAS>_MODEL), keyed by lower-case alias.
 	Aliases map[string]string `json:"aliases,omitempty"`
 }
 
 // IsZero reports a record with nothing set.
 func (r AgentRecord) IsZero() bool {
-	return r.Profile == "" && r.Model == "" && r.Effort == "" && r.Context == "" && r.Account == "" && len(r.Aliases) == 0
+	return r.Profile == "" && r.Model == "" && r.Effort == "" && r.Context == "" && r.Account == "" && r.Fallback == "" && len(r.Aliases) == 0
 }
 
 // LegacyAgents are the roster agents whose <AGENT>_<FIELD> pins fold into records; claude is first.
