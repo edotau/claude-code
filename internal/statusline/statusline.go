@@ -303,7 +303,7 @@ func sessionProvider() (name string, routed bool) {
 			return name, true
 		}
 	}
-	if p := cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile); p != "" {
+	if p := providers.SessionLead(nil, true); p != "" {
 		return p, false
 	}
 	if reg := registry(); reg != nil {
