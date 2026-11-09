@@ -296,16 +296,20 @@ func (s *shellWords) special(rs []rune, i int) (end int, ok, handled bool) {
 	return end, end >= 0, true
 }
 
-// quoted handles one rune inside quotes: the closing quote ends them, any other rune joins the word.
+// quoted handles one rune inside quotes: the closing quote ends them; single quotes are literal, double quotes expand.
 func (s *shellWords) quoted(r rune) bool {
-	if strings.ContainsRune("`$\\\n\r", r) {
-		return false // expansion inside double quotes is not judged
-	}
 	if r == s.quote {
 		s.quote = 0
-	} else {
-		s.cur.WriteRune(r)
+		return true
 	}
+	if s.quote == '\'' {
+		if r == '\n' || r == '\r' {
+			return false
+		}
+	} else if strings.ContainsRune("`$\\\n\r", r) {
+		return false // expansion inside double quotes is not judged
+	}
+	s.cur.WriteRune(r)
 	return true
 }
 
@@ -470,11 +474,27 @@ var checks = map[string]func(args []string, workDir string) bool{
 	"printfNoVar": func(args []string, _ string) bool {
 		return !slices.ContainsFunc(args, func(a string) bool { return strings.HasPrefix(a, "-v") || printfAssign.MatchString(a) })
 	},
-	"uniqOneInput": uniqOneInput,
+	"uniqOneInput":  uniqOneInput,
+	"mktempInScope": mktempInScope,
 }
 
 // printfAssign is bash printf's %n (any flags, width or length modifier): it assigns the count to the named variable.
 var printfAssign = regexp.MustCompile(`%[-+ #'0-9.*hlLjzt]*n`)
+
+// mktempInScope admits templates under $TMPDIR, relative ones without "..", or absolute ones inside workDir.
+func mktempInScope(args []string, workDir string) bool {
+	return !slices.ContainsFunc(args, func(a string) bool {
+		switch {
+		case strings.HasPrefix(a, "-") || strings.HasPrefix(a, tmpdirMark):
+			return false
+		case filepath.IsAbs(a):
+			_, ok := relInside(a, workDir)
+			return !ok
+		default:
+			return slices.Contains(strings.Split(filepath.ToSlash(a), "/"), "..")
+		}
+	})
+}
 
 // uniqOneInput admits at most one operand (a word after -- counts): uniq writes its second operand.
 func uniqOneInput(args []string, _ string) bool {
