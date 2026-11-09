@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-analyzer',
   description: 'Audit a change set: parallel scoped auditors → refute each finding → per-package implementer, then test agent → gate loop',
   whenToUse:
-    'USE: audit before a merge or after a refactor; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: fix (default true), partition (with fix:false: return the wave plan, no edits), cap (wave width, default 8), hotspots (extra single-owner files), minFix, rounds, dimensions (replaces the lenses), tests, gate (command override), maxIterations (gate loop cap), prior (earlier findings to skip), chunkChars (chunk size), refuteBatch (findings per skeptic), steps {scope, audit, refute, fix, test, gate, depscan} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on the session\'s route, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages). COST: about 8 agent slots per run, so one run at a time. RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed, red, decisions, report, partition} plus refuted, rounds. Details: saved-workflows.md.',
+    'USE: audit before a merge or after a refactor; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: fix (default true), partition (with fix:false: return the wave plan, no edits), cap (wave width, default 8), hotspots (extra single-owner files), minFix, rounds, dimensions (replaces the lenses), tests, gate (command override), maxIterations (gate loop cap), prior (earlier findings to skip), chunkChars (chunk size), refuteBatch (findings per skeptic), steps {scope, audit, refute, fix, test, gate, depscan} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins (or HARNESS_DATABRICKS_ARM), or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages). COST: about 8 agent slots per run, so one run at a time. RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed, red, decisions, report, partition} plus refuted, rounds. Details: saved-workflows.md.',
   phases: [
     { title: 'Scope', detail: 'one cheap agent per package group returns per-file sizes; the script packs them into ≤50 KB chunks' },
     { title: 'Find', detail: 'one auditor per (dimension × chunk) reading its chunk in-context — agent count scales with diff size' },
@@ -91,12 +91,12 @@ const stepOf = (steps, name, defaults, opt) => {
     return { agent: 'claude', ext: false, model, effort, type: d.agentType ? { agentType: d.agentType } : {}, task: (p) => p, schema: (s) => s, done: same, text: same }
   }
   if (!o.external) throw new Error(`${where}.agent: ${who} is not wired in this workflow yet (claude only)`)
-  // gemini too: 'session' keeps its Google pin; a named profile or provider databricks runs it on Databricks (267d604e).
-  const profile = v.profile !== undefined ? v.profile : o.profile || 'session'
+  // no profile/provider: Go routes the agent's pin (or HARNESS_DATABRICKS_ARM); a named one leads, ladder after.
+  const profile = v.profile !== undefined ? v.profile : o.profile || ''
   const provider = v.provider !== undefined ? v.provider : o.provider || ''
   const edit = d.tools === 'edit'
   const mode = edit ? '--tools' : who === 'copilot' ? '--read-only' : '--tools'
-  const ask = `claude-code ${who} ask --fallback agents --format json ${mode} --effort ${effort} --profile ${profile}` +
+  const ask = `claude-code ${who} ask --fallback agents --format json ${mode} --effort ${effort}` + (profile ? ` --profile ${profile}` : '') +
     (provider ? ` --provider ${provider}` : '') + (v.model ? ` --model ${v.model}` : '')
   const F = { ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
   const R = ['ran_on', 'coworker']
@@ -333,7 +333,7 @@ const EXT = [...new Map(Object.values(S).filter((s) => s.ext).map((s) => [s.agen
 if (EXT.length) {
   const pf = await agent(
     'For each line, run it and report its candidate count and the first candidate as agent/account/model. Edit nothing. First run `pwd; echo $HOME` and report them as cwd and home. Also run `claude-code gateway router --format json --agent claude --fallback none --model sonnet </dev/null` and report claudeState = candidates[0].state when candidates is non-empty, else the skipped[] entry for claude and its gate value, else "unknown".\n' +
-      EXT.map((s) => `claude-code gateway router --agent ${s.agent} --fallback agents --profile ${s.profile}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
+      EXT.map((s) => `claude-code gateway router --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
     { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['cwd', 'home', 'routes'], properties: { cwd: { type: 'string' }, home: { type: 'string' }, claudeState: { type: 'string' }, routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
   )
   PF_STATE = (pf && pf.claudeState) || ''

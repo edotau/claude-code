@@ -2,7 +2,7 @@ export const meta = {
   name: 'green-keeper-loop',
   description: 'LoopAgent: run a gate command, fix what fails inside a scope, re-run — until green or maxIterations; default 3 iterations per call (verify.md\'s 5 is the whole-task cap)',
   whenToUse:
-    'USE: make a gate pass: run it, fix failures inside scope, re-run (3 iterations per call by default). CALL: Workflow({scriptPath: "~/.claude/workflows/green-keeper-loop.js", args: {cwd, scope: ["internal/x"]}}). OPTIONAL: gate (auto-detected), maxIterations, fixesPerIteration, claudeState (ok|low|exhausted|unknown, passed by a caller; omit = read it here). RETURNS {status, exit: green | stalled | capped | error, gate, iterations, filesChanged, residual}. steps {detect, fix} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on the session\'s route, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages).',
+    'USE: make a gate pass: run it, fix failures inside scope, re-run (3 iterations per call by default). CALL: Workflow({scriptPath: "~/.claude/workflows/green-keeper-loop.js", args: {cwd, scope: ["internal/x"]}}). OPTIONAL: gate (auto-detected), maxIterations, fixesPerIteration, claudeState (ok|low|exhausted|unknown, passed by a caller; omit = read it here). RETURNS {status, exit: green | stalled | capped | error, gate, iterations, filesChanged, residual}. steps {detect, fix} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins (or HARNESS_DATABRICKS_ARM), or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages).',
   phases: [
     { title: 'Detect', detail: 'haiku leaf picks the gate from Makefile/go.mod/pyproject/package.json/Cargo.toml when args.gate is absent' },
     { title: 'Gate', detail: 'one fixer per iteration: run the gate, fix root causes within scope, re-run' },
@@ -43,12 +43,12 @@ const stepOf = (steps, name, defaults, opt) => {
     return { agent: 'claude', ext: false, model, effort, type: d.agentType ? { agentType: d.agentType } : {}, task: (p) => p, schema: (s) => s, done: same, text: same }
   }
   if (!o.external) throw new Error(`${where}.agent: ${who} is not wired in this workflow yet (claude only)`)
-  // gemini too: 'session' keeps its Google pin; a named profile or provider databricks runs it on Databricks (267d604e).
-  const profile = v.profile !== undefined ? v.profile : o.profile || 'session'
+  // no profile/provider: Go routes the agent's pin (or HARNESS_DATABRICKS_ARM); a named one leads, ladder after.
+  const profile = v.profile !== undefined ? v.profile : o.profile || ''
   const provider = v.provider !== undefined ? v.provider : o.provider || ''
   const edit = d.tools === 'edit'
   const mode = edit ? '--tools' : who === 'copilot' ? '--read-only' : '--tools'
-  const ask = `claude-code ${who} ask --fallback agents --format json ${mode} --effort ${effort} --profile ${profile}` +
+  const ask = `claude-code ${who} ask --fallback agents --format json ${mode} --effort ${effort}` + (profile ? ` --profile ${profile}` : '') +
     (provider ? ` --provider ${provider}` : '') + (v.model ? ` --model ${v.model}` : '')
   const F = { ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
   const R = ['ran_on', 'coworker']
@@ -275,7 +275,7 @@ const EXT = [...new Map(Object.values(ST).filter((s) => s.ext).map((s) => [s.age
 if (EXT.length) {
   const pf = await agent(
     'For each line, run it and report its candidate count and the first candidate as agent/account/model. Edit nothing. First run `pwd; echo $HOME` and report them as cwd and home. Also run `claude-code gateway router --format json --agent claude --fallback none --model sonnet </dev/null` and report claudeState = candidates[0].state when candidates is non-empty, else the skipped[] entry for claude and its gate value, else "unknown".\n' +
-      EXT.map((s) => `claude-code gateway router --agent ${s.agent} --fallback agents --profile ${s.profile}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
+      EXT.map((s) => `claude-code gateway router --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
     { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['cwd', 'home', 'routes'], properties: { cwd: { type: 'string' }, home: { type: 'string' }, claudeState: { type: 'string' }, routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
   )
   PF_STATE = (pf && pf.claudeState) || ''
