@@ -456,6 +456,27 @@ func TestGeminiReusesLastProfile(t *testing.T) {
 	}
 }
 
+// HARNESS_DATABRICKS_ARM beats the last-used profile and the pin on an interactive launch; a --profile flag beats it.
+func TestInteractiveLaunchFollowsArm(t *testing.T) {
+	hermetic(t, "")
+	vaulttest.UseKeyring(t)
+	row := func(n string) string {
+		return `"` + n + `":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net",` +
+			`"auth":{"type":"key","command":"echo tok"},"models":{"opus":"databricks-claude-opus-5-5"}}`
+	}
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+row("gem-a")+`,`+row("gem-b")+`,`+row("arm")+`}}}`)
+	t.Chdir(t.TempDir())
+	vaulttest.SetRecord(t, "gemini", "profile", "gem-a")
+	providers.RecordLastProfile("gemini", "gem-b")
+	t.Setenv(agent.EnvDatabricksArm, "arm")
+	if got := testLaunchProfile(t, "gemini", agent.LaunchOptions{}).Provider; got != "arm" {
+		t.Errorf("arm on: got %q, want arm over last-used gem-b and pin gem-a", got)
+	}
+	if got := testLaunchProfile(t, "gemini", agent.LaunchOptions{Provider: "gem-a"}).Provider; got != "gem-a" {
+		t.Errorf("flag under the arm: got %q, want gem-a", got)
+	}
+}
+
 func testLaunchProfile(t *testing.T, name string, o agent.LaunchOptions) agent.LaunchOptions {
 	t.Helper()
 	got, err := launchplan.LaunchProfile(name, o)

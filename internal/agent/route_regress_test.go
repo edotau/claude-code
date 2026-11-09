@@ -71,13 +71,14 @@ func TestRouteChainStampsRungOnEveryDispatch(t *testing.T) {
 	}
 }
 
-// PreviewRoute leads only with an explicit lead; the session profile alone adds none (callers behave as before).
+// A preview leads only with an explicit lead; the session profile alone adds none (callers behave as before).
 func TestPreviewRouteLeadsOnlyWhenAsked(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	vaulttest.SetRecord(t, "codex", "profile", "chatgpt")
 	t.Setenv("CLAUDE_PROFILE", "no-such-row")
 	for _, lead := range []string{"", "no-such-row"} {
-		res, err := PreviewRoute("", "x", "codex", router.FallbackAll, lead, nil)
+		q := RouteReq{Agent: "codex", Task: "x", Lead: lead, Fallback: router.FallbackAll, Preview: true}
+		_, res, err := Resolve(context.Background(), q)
 		if err != nil {
 			t.Fatal(err)
 		}

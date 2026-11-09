@@ -54,12 +54,13 @@ func gatewayRoute(args []string, withProxy bool) int {
 	if code := checkRouteFlags(name, *route, *format, *fallback, *want); code != 0 {
 		return code
 	}
-	lead, err := routeLead(*want, *profile, *provider)
-	if err != nil {
+	q := agent.RouteReq{Agent: *want, Model: *model, Task: *task, Profile: *profile, Provider: *provider,
+		Fallback: *fallback, Preview: true, Refresh: ask.RouteRefresh}
+	if _, _, err := agent.LeadFor(q); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
 		return 2
 	}
-	res, err := agent.PreviewRoute(*model, *task, *want, *fallback, lead, ask.RouteRefresh)
+	_, res, err := agent.Resolve(context.Background(), q)
 	if err != nil {
 		return helptext.Fail(name+": %v", err)
 	}
@@ -269,16 +270,4 @@ func printEnds(w io.Writer, res router.PickResult) {
 		}
 	}
 	fmt.Fprintln(w, "no claude hop (--fallback agents|none)")
-}
-
-// routeLead is the profile --profile/--provider make the wanted agent lead with; "" when neither is set.
-func routeLead(want, profile, provider string) (string, error) {
-	if profile == "" && provider == "" {
-		return "", nil
-	}
-	reg, err := providers.Load()
-	if err != nil {
-		return "", err
-	}
-	return agent.ResolveLead(reg, want, profile, provider)
 }

@@ -357,23 +357,33 @@ func warnAskMemory(ag string, enableMemory bool) {
 	}
 }
 
-// resolveLead turns --profile session, --provider, or --profile with an explicit --fallback into a routed lead.
+// routesItself: a record (no route flag typed), the --host end, or no profile/provider leaves the lead to Prepare.
+func (r *askRun) routesItself() bool {
+	typed := helptext.Explicit(r.fs, "profile") || helptext.Explicit(r.fs, "provider") || helptext.Explicit(r.fs, "fallback")
+	return !typed || r.f.host != "" || (r.f.provider == "" && r.f.leadProvider == "")
+}
+
+// resolveLead turns route flags typed on this command line into a routed lead (agent.LeadFor); a pin keeps --profile.
 func (r *askRun) resolveLead() (int, bool) {
 	f := r.f
-	fallbackSet := false
-	r.fs.Visit(func(fl *flag.Flag) { fallbackSet = fallbackSet || fl.Name == "fallback" })
-	// --fallback none has nothing to fall back to, so a named --profile keeps pinning one route
-	if f.leadProvider == "" && f.provider != agent.LeadSession && (f.provider == "" || !fallbackSet || f.fallback == router.FallbackNone) {
+	if r.routesItself() {
 		return 0, false
 	}
-	reg, err := providers.Load()
-	if err != nil {
-		return r.fail(err, 1)
+	fallback := f.fallback
+	if f.session != "" { // a resumed session runs one hop
+		fallback = router.FallbackNone
 	}
-	lead, err := agent.ResolveLead(reg, r.ag, f.provider, f.leadProvider)
-	if err != nil {
+	q := agent.RouteReq{Agent: r.ag, Model: f.model, Profile: f.provider, Provider: f.leadProvider, Fallback: fallback}
+	lead, pin, err := agent.LeadFor(q)
+	if err != nil && !pin { // a bad pin fails at Prepare like any other backend error
 		return r.fail(err, 2)
 	}
-	r.lead, f.provider = lead, ""
+	switch {
+	case lead == "":
+	case r.ag == "claude" || f.live: // claude and --live holders read Provider, never Lead: pin the resolved lead
+		f.provider = lead
+	default:
+		r.lead, f.provider = lead, ""
+	}
 	return 0, false
 }

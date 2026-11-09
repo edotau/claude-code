@@ -164,7 +164,7 @@ func AgentPins() (map[string]router.PinSpec, error) {
 		}
 		spec.Model = r.Model
 		if !k.External() {
-			spec.Profile = cmp.Or(providers.SessionProfile(), spec.Profile)
+			spec.Profile = cmp.Or(providers.SessionLead(nil, false), spec.Profile)
 		}
 		out[k.Name] = spec
 	}

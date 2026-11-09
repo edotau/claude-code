@@ -15,7 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/network/remote"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -57,8 +56,9 @@ func (c *Client) Prepare(ctx context.Context, o agent.RunOptions, claim *job.Rec
 			return nil, err
 		}
 		r = NewRemoteEngine(o.Agent, o.Host, RemoteBin(o.RemoteBin), o.Fallback)
-		p.Chain, p.remote = agent.Single(r), r
-	} else if p.Chain, err = c.route(ctx, r, o); err != nil {
+		p.remote = r
+	}
+	if p.Chain, err = c.route(ctx, r, o); err != nil {
 		return nil, err
 	}
 	if err := agent.RefusePersona(r.Caps(), r.Name(), o.Persona); err != nil {
@@ -140,44 +140,12 @@ type clientUsageError struct{ error }
 
 func (clientUsageError) ExitCode() int { return 2 }
 
+// route is agent.Resolve on o: o.Provider is a pinned backend, o.Lead a resolved lead, --host one remote dispatch.
 func (c *Client) route(ctx context.Context, r agent.Engine, o agent.RunOptions) (agent.Chain, error) {
-	var reg *providers.Registry // loaded once when a provider is named; explicit reuses it
-	if o.Provider != "" {
-		var err error
-		if reg, err = providers.Load(); err != nil {
-			return agent.Chain{}, err
-		}
-		if _, err := reg.Get(o.Provider); err != nil {
-			return agent.Chain{}, err
-		}
-	}
-	if agent.ExplicitBackend(o) && o.Lead == "" {
-		return c.explicit(reg, r, o)
-	}
-	if err := ctx.Err(); err != nil {
-		return agent.Chain{}, err
-	}
-	chain, _, err := agent.RouteChainFor(ctx, o.Agent, o.Model, c.alias(o.Prompt), o.Fallback, o.Native,
-		router.PickOpts{Lead: o.Lead, Refresh: c.Refresh, WorkRepo: func() bool { return router.IsWorkRepo(o.WorkDir) }})
+	chain, _, err := agent.Resolve(ctx, agent.RouteReq{Agent: o.Agent, Model: o.Model, AliasHint: c.alias(o.Prompt),
+		Profile: o.Provider, Lead: o.Lead, Fallback: o.Fallback, WorkDir: o.WorkDir, Native: o.Native, Pinned: true,
+		Host: o.Host != "", Engine: r, Refresh: c.Refresh})
 	return chain, err
-}
-
-// explicit builds the chain for a named backend; reg is route's registry, non-nil whenever o.Provider is set.
-func (c *Client) explicit(reg *providers.Registry, r agent.Engine, o agent.RunOptions) (agent.Chain, error) {
-	if o.Provider != "" && !o.Native && agent.IsHubAgent(o.Agent) {
-		if p, err := reg.Get(o.Provider); err != nil || p.OpencodeID != "" {
-			start, err := agent.HubStart(reg, o.Agent, o.Provider)
-			if err != nil {
-				return agent.Chain{}, err
-			}
-			r = agent.NewHubDispatch(o.Agent, start, reg)
-		}
-	}
-	chain := agent.ExplicitChain(r, o)
-	if agent.IsHubAgent(o.Agent) && o.Model == "" {
-		chain = agent.WithAlias(chain, c.alias(o.Prompt))
-	}
-	return chain, nil
 }
 
 func (c *Client) alias(prompt string) string {

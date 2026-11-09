@@ -50,7 +50,8 @@ func sessionProvider(agentName string) string {
 	if err != nil {
 		return ""
 	}
-	if p := reg.Providers[providers.SessionProfile()]; p != nil && (agentName == "claude" || CanServe(agentName, p)) {
+	p := reg.Providers[providers.SessionLead(reg, false)]
+	if p != nil && (agentName == "claude" || CanServe(agentName, p)) {
 		return p.Name
 	}
 	return ""

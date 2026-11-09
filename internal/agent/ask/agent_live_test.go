@@ -32,8 +32,8 @@ func TestLiveProviderRetainedInHolderRecord(t *testing.T) {
 	if len(recs) != 1 {
 		t.Fatalf("records = %+v, want one saved holder request\n%s\n%s", recs, out, stderr)
 	}
-	if !recs[0].Live || recs[0].Request.Lead != "live-test" || recs[0].Request.Provider != "" {
-		t.Fatalf("holder request = %+v, want cleared provider and lead live-test", recs[0])
+	if !recs[0].Live || recs[0].Request.Provider != "live-test" || recs[0].Request.Lead != "" { // live Build reads Provider
+		t.Fatalf("holder request = %+v, want provider live-test and no lead", recs[0])
 	}
 }
 

@@ -60,7 +60,7 @@ func copilotDatabricksFallback(reg *providers.Registry, detail string) agent.Rou
 // fallbackProfiles is the Databricks fallback's try order: this session's (else claude's pinned) profile, then every
 // Databricks row.
 func fallbackProfiles(reg *providers.Registry) []string {
-	return append([]string{cmp.Or(providers.SessionProfile(), vault.GetAgentRecord("claude").Profile)}, providers.DatabricksProfiles(reg)...)
+	return append([]string{providers.SessionLead(nil, true)}, providers.DatabricksProfiles(reg)...)
 }
 
 // describeCopilotRoute: 1) copilot's GitHub login on a workable pin; 2) the Databricks fallback; 3) BYOK with the
@@ -270,7 +270,7 @@ func copilotHeadless(h *agent.Headless) []string {
 func ValidateCopilotPins(providerFlag string, pins []string) (warn string, err error) {
 	fallback := providerFlag
 	if fallback == "" {
-		fallback = cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile)
+		fallback = providers.SessionLead(nil, true)
 	}
 	reg, rerr := providers.Load()
 	if rerr != nil {

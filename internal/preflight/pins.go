@@ -2,6 +2,7 @@ package preflight
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -11,9 +12,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
-
-// agents are the third-party CLIs whose pins are checked.
-var agents = []string{"codex", "copilot", "gemini", "opencode"}
 
 // Status values of a Pin.
 const (
@@ -28,7 +26,7 @@ const (
 type Pin struct {
 	Agent         string `json:"agent"`
 	Profile       string `json:"profile"`
-	ProfileSource string `json:"profile_source"` // pin | follows CLAUDE_PROFILE | none
+	ProfileSource string `json:"profile_source"` // pin | route | follows CLAUDE_PROFILE | none
 	Model         string `json:"model"`
 	Served        string `json:"served"` // yes | no | unknown | n/a
 	Status        string `json:"status"`
@@ -57,20 +55,40 @@ func Check(reg *providers.Registry, now time.Time) []Pin {
 	session := pins["claude"].Profile
 	var out []Pin
 	if session != "" { // claude's session profile is always warmed
-		out = append(out, checkAgent(reg, "claude", router.PinSpec{Profile: session}, session, now))
+		out = append(out, checkAgent(reg, "claude", router.PinSpec{Profile: session}, "pin", session, now))
 	}
-	for _, a := range agents {
-		spec := pins[a]
-		if spec.Off {
-			continue
+	for _, a := range slices.Sorted(slices.Values(router.TableAgents)) {
+		if spec := pins[a]; a != "claude" && !spec.Off {
+			spec, source, err := routedSpec(a, spec)
+			if err != nil {
+				out = append(out, Pin{Agent: a, Profile: spec.Profile, ProfileSource: "route", Status: StatusError, Detail: err.Error()})
+				continue
+			}
+			out = append(out, checkAgent(reg, a, spec, source, session, now))
 		}
-		out = append(out, checkAgent(reg, a, spec, session, now))
 	}
 	return out
 }
 
-func checkAgent(reg *providers.Registry, name string, spec router.PinSpec, session string, now time.Time) Pin {
-	p := Pin{Agent: name, Profile: spec.Profile, ProfileSource: "pin", Model: spec.Model, Served: "n/a"}
+// routedSpec is the profile an unflagged dispatch of a leads on (one-hop Resolve preview, arm included), else the pin.
+func routedSpec(a string, pin router.PinSpec) (router.PinSpec, string, error) {
+	q := agent.RouteReq{Agent: a, Fallback: router.FallbackNone, Preview: true}
+	_, res, err := agent.Resolve(context.Background(), q)
+	if err != nil {
+		return pin, "route", err // a bad HARNESS_DATABRICKS_ARM fails dispatch too, so it fails the check
+	}
+	if len(res.Candidates) == 0 {
+		return pin, "pin", nil
+	}
+	c := res.Candidates[0]
+	if c.Agent != a || c.Profile == "" || c.Profile == pin.Profile {
+		return pin, "pin", nil
+	}
+	return router.PinSpec{Profile: c.Profile, Model: strings.TrimPrefix(c.Model, c.Profile+":")}, "route", nil
+}
+
+func checkAgent(reg *providers.Registry, name string, spec router.PinSpec, source, session string, now time.Time) Pin {
+	p := Pin{Agent: name, Profile: spec.Profile, ProfileSource: source, Model: spec.Model, Served: "n/a"}
 	if p.Profile == "" && name == "codex" {
 		p.Profile, p.ProfileSource = session, "follows CLAUDE_PROFILE"
 	}
@@ -99,7 +117,7 @@ func checkAgent(reg *providers.Registry, name string, spec router.PinSpec, sessi
 		p.Fix = "claude-code configure provider --list " + p.Profile
 		return p
 	}
-	if prov.Preset == providers.PresetDatabricks {
+	if prov.Preset == providers.PresetDatabricks && name != "gemini" { // agy's gateway ids are not serving endpoints
 		checkServed(&p, prov, name, now)
 	}
 	return p
