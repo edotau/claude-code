@@ -121,6 +121,7 @@ func (e codexEngine) FallbackTarget(reg *providers.Registry) (providers.Target, 
 
 // Verify runs `codex login status`; a deadline or a killed process is transient, never "not signed in".
 func (codexEngine) Verify(ctx context.Context) (providers.AuthVerdict, string) {
+	dropAuthMemo()
 	bin, err := paths.AgentBin("codex")
 	if err != nil {
 		return providers.VerdictTransient, err.Error()
@@ -172,7 +173,20 @@ var (
 	authStateMu   sync.Mutex // held across the CLI fallback so concurrent callers spawn it once
 	authStateKey  authKey
 	authStateMemo *providers.AuthState
+	authSoftMemo  *providers.AuthState // signed-in, auth.json-less result for authSoftHome, valid until authSoftUntil
+	authSoftHome  string
+	authSoftUntil time.Time
 )
+
+// authSoftTTL bounds how long a keyring-backed signed-in result is reused without an auth.json to stat.
+const authSoftTTL = 5 * time.Second
+
+// dropAuthMemo forgets every memoized AuthStatus so the next call re-reads the login.
+func dropAuthMemo() {
+	authStateMu.Lock()
+	defer authStateMu.Unlock()
+	authStateMemo, authSoftMemo = nil, nil
+}
 
 // codexTokensPresent reports whether an auth.json body holds a non-null "tokens" object (a ChatGPT login).
 func codexTokensPresent(b []byte) bool {
@@ -185,14 +199,24 @@ func codexTokensPresent(b []byte) bool {
 // AuthStatus reads auth.json or the keyring first (memoized by mtime); `codex login status` runs only as fallback.
 func (codexEngine) AuthStatus() providers.AuthState {
 	key, keyed := authFileKey()
+	home := codexHome()
 	authStateMu.Lock()
 	defer authStateMu.Unlock()
 	if keyed && authStateMemo != nil && authStateKey == key {
 		return *authStateMemo
 	}
+	if keyed {
+		authSoftMemo = nil
+	} else if authSoftMemo != nil && authSoftHome == home && time.Now().Before(authSoftUntil) {
+		return *authSoftMemo
+	}
 	st := codexAuthState()
-	if keyed && st.Err == nil {
+	switch {
+	case st.Err != nil:
+	case keyed:
 		authStateKey, authStateMemo = key, &st
+	case st.Present:
+		authSoftMemo, authSoftHome, authSoftUntil = &st, home, time.Now().Add(authSoftTTL)
 	}
 	return st
 }
@@ -305,8 +329,11 @@ func codexSchemaFile(schema string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
-	if _, err := f.Write(body); err != nil {
+	_, err = f.Write(body)
+	if cerr := f.Close(); err == nil {
+		err = cerr // delayed-allocation filesystems report write errors at close
+	}
+	if err != nil {
 		_ = os.Remove(f.Name())
 		return "", err
 	}
