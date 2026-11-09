@@ -119,23 +119,35 @@ func loadState() (State, error) {
 // Update applies fn under the file lock; unreadable/newer state stays untouched, corrupt state keeps one backup.
 func Update(fn func(State)) error {
 	path := StatePath()
-	return paths.WithFileLock(path, func() error {
-		s, err := loadState()
-		if err != nil {
-			if errors.Is(err, schemas.ErrNewer) || !isDecodeErr(err) {
-				return err
-			}
-			if err := backupCorruptState(path); err != nil {
-				return err
-			}
-		}
-		fn(s)
-		data, err := json.MarshalIndent(s, "", "  ")
-		if err != nil {
+	return paths.WithFileLock(path, func() error { return updateLocked(path, fn) })
+}
+
+// TryUpdate is Update that gives up after wait on a held lock; ran=false means fn did not run.
+func TryUpdate(wait time.Duration, fn func(State)) (bool, error) {
+	path := StatePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, err
+	}
+	return paths.TryFileLock(path+".lock", wait, func() error { return updateLocked(path, fn) })
+}
+
+// updateLocked is Update's body; the caller holds the state lock.
+func updateLocked(path string, fn func(State)) error {
+	s, err := loadState()
+	if err != nil {
+		if errors.Is(err, schemas.ErrNewer) || !isDecodeErr(err) {
 			return err
 		}
-		return paths.AtomicWrite(path, data, 0o600)
-	})
+		if err := backupCorruptState(path); err != nil {
+			return err
+		}
+	}
+	fn(s)
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return err
+	}
+	return paths.AtomicWrite(path, data, 0o600)
 }
 
 // backupCorruptState preserves the corrupt bytes and removes earlier backups under the state lock.
@@ -184,14 +196,23 @@ func Record(key string, usedPct float64, window string, resetsAt, now time.Time)
 
 // MarkExhausted remembers a quota failure on key until until.
 func MarkExhausted(key string, until, now time.Time, reason string) error {
-	return Update(func(s State) {
+	return Update(markExhausted(key, until, now, reason))
+}
+
+// TryMarkExhausted is MarkExhausted that skips the write (ran=false) when the lock stays held past wait.
+func TryMarkExhausted(key string, until, now time.Time, reason string, wait time.Duration) (bool, error) {
+	return TryUpdate(wait, markExhausted(key, until, now, reason))
+}
+
+func markExhausted(key string, until, now time.Time, reason string) func(State) {
+	return func(s State) {
 		e := s[key]
 		if until.After(e.ExhaustedUntil) || !e.ExhaustedUntil.After(now) { // a concurrent shorter default never wins
 			e.ExhaustedUntil, e.Reason = until, reason
 		}
 		e.Seen = now
 		s[key] = e
-	})
+	}
 }
 
 // GateAuth names the auth gate; AuthMarkTTL is how long a mark outlives a missed clear.
