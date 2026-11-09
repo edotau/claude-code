@@ -286,9 +286,15 @@ func routeLead(q RouteReq) (lead string, explicit bool, err error) {
 	if explicit || lead != "" || q.Native {
 		return lead, explicit, nil
 	}
-	lead, err = ArmLead(loadRegistryWarn(), q.Agent)
+	if armValue(q.Agent) == "" { // arm off or no wanted agent: skip the registry load
+		return "", false, nil
+	}
+	lead, err = ArmLead(armRegistry(), q.Agent)
 	return lead, false, err
 }
+
+// armRegistry loads the registry for routeLead's arm; a package var so a test can count loads.
+var armRegistry = loadRegistryWarn
 
 // LeadFor is the one pin-or-lead predicate: a named --profile pins (explicit) only with --fallback none or Pinned.
 func LeadFor(q RouteReq) (lead string, explicit bool, err error) {
@@ -340,10 +346,19 @@ func resolveExplicit(q RouteReq) (Chain, error) {
 // EnvDatabricksArm (vault env) defaults every non-claude lead to Databricks: off|session|<databricks profile>.
 const EnvDatabricksArm = "HARNESS_DATABRICKS_ARM"
 
+// armValue is EnvDatabricksArm's setting for agentName; "" when the arm is off or no agent besides claude is wanted.
+func armValue(agentName string) string {
+	v := strings.TrimSpace(os.Getenv(EnvDatabricksArm))
+	if v == "off" || agentName == "claude" || agentName == "" {
+		return ""
+	}
+	return v
+}
+
 // ArmLead is the lead EnvDatabricksArm gives a dispatch that names no --profile or --provider; "" when off.
 func ArmLead(reg *providers.Registry, agentName string) (string, error) {
-	v := strings.TrimSpace(os.Getenv(EnvDatabricksArm))
-	if v == "" || v == "off" || agentName == "claude" || agentName == "" { // no wanted agent: nothing leads
+	v := armValue(agentName)
+	if v == "" {
 		return "", nil
 	}
 	if reg == nil {

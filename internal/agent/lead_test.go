@@ -131,3 +131,21 @@ func TestRouteLeadPreviewKeepsModelProfileOverArm(t *testing.T) {
 		}
 	}
 }
+
+// An unled routed run loads the registry only when the arm is on for a non-claude agent.
+func TestRouteLeadSkipsRegistryWhenArmOff(t *testing.T) {
+	loads := 0
+	orig := armRegistry
+	armRegistry = func() *providers.Registry { loads++; return nil }
+	t.Cleanup(func() { armRegistry = orig })
+	for _, arm := range []string{"", "off"} {
+		t.Setenv(EnvDatabricksArm, arm)
+		if lead, _, err := routeLead(RouteReq{Agent: "codex"}); lead != "" || err != nil {
+			t.Errorf("arm %q: got %q, %v", arm, lead, err)
+		}
+	}
+	t.Setenv(EnvDatabricksArm, "session")
+	if _, _, err := routeLead(RouteReq{Agent: "codex"}); err == nil || loads != 1 {
+		t.Errorf("arm on: err %v, loads %d, want no-registry error and 1 load", err, loads)
+	}
+}
