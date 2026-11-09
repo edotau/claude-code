@@ -289,7 +289,7 @@ func chainFor(ctx context.Context, q RouteReq, hint, lead string) (Chain, router
 // routeLead is LeadFor, except a preview leads on its pin or the profile of a profile:model, never runs it explicitly.
 func routeLead(q RouteReq) (lead string, explicit bool, err error) {
 	lead, explicit, err = LeadFor(q)
-	if err != nil || !(explicit && q.Preview) {
+	if err != nil || !explicit || !q.Preview {
 		return lead, explicit, err
 	}
 	if q.Profile != "" {
