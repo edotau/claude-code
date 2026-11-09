@@ -78,7 +78,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	if err != nil {
 		return Chain{}, router.PickResult{}, err
 	}
-	o, pins, err := routePickOpts(o, mode)
+	o, pins, err := routePickOpts(o, mode, want, native)
 	if err != nil {
 		return Chain{}, router.PickResult{}, err
 	}
@@ -121,9 +121,15 @@ func loadRegistryWarn() *providers.Registry {
 	return reg
 }
 
-// routePickOpts fills the fallback mode, the account resolver and the roster in o, and loads the agent pins.
-func routePickOpts(o router.PickOpts, mode string) (router.PickOpts, map[string]router.PinSpec, error) {
+// routePickOpts fills the fallback mode, the account resolver, the roster and the arm lead in o, and loads the pins.
+func routePickOpts(o router.PickOpts, mode, want string, native bool) (router.PickOpts, map[string]router.PinSpec, error) {
 	o.Fallback = mode
+	if o.Lead == "" && !native {
+		var err error
+		if o.Lead, err = ArmLead(loadRegistryWarn(), want); err != nil {
+			return o, nil, err
+		}
+	}
 	if o.Account == nil {
 		o.Account = ResolveAccount
 	}
@@ -237,6 +243,25 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 		out.Effort = disp.Effort
 	}
 	return out
+}
+
+// EnvDatabricksArm (vault env) defaults every non-claude lead to Databricks: off|session|<databricks profile>.
+const EnvDatabricksArm = "HARNESS_DATABRICKS_ARM"
+
+// ArmLead is the lead EnvDatabricksArm gives a dispatch that names no --profile or --provider; "" when off.
+func ArmLead(reg *providers.Registry, agentName string) (string, error) {
+	v := strings.TrimSpace(os.Getenv(EnvDatabricksArm))
+	if v == "" || v == "off" || agentName == "claude" {
+		return "", nil
+	}
+	if reg == nil {
+		return "", fmt.Errorf("%s=%s: no provider registry", EnvDatabricksArm, v)
+	}
+	lead, err := ResolveLead(reg, agentName, v, "databricks")
+	if err != nil {
+		return "", fmt.Errorf("%s=%s: %w", EnvDatabricksArm, v, err)
+	}
+	return lead, nil
 }
 
 // LeadSession is the --profile value naming the session's own profile (CLAUDE_PROFILE, else claude's record).

@@ -26,6 +26,8 @@ paths:
 - Agent settings are vault-only, one record per agent (`vault list` AGENT table); `--model` beats them.
   `switch` writes claude's record too.
 - Built-in providers are `internal/providers/defaults.json`; the vault's provider overlay replaces one by name.
+- Agents run on their pins; `--profile dev|qa|prod` / `--provider databricks` runs the all-Databricks arm from any
+  session. Vault env `HARNESS_DATABRICKS_ARM=session|<profile>` makes the arm every unflagged dispatch's default.
 
 ## Model selection
 
