@@ -472,3 +472,12 @@ func TestNewRouteJSONEndsIsFirstClaudeAccount(t *testing.T) {
 		t.Fatalf("ends %q candidates %d, want free-acct and 2", got.Ends, len(got.Candidates))
 	}
 }
+
+// TestGatewayRouteUnknownProfileIsAUsageError: a --profile that cannot lead exits 2 and names it, with no route output.
+func TestGatewayRouteUnknownProfileIsAUsageError(t *testing.T) {
+	vaulttest.Use(t)
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return gatewayRoute([]string{"--profile", "nope"}, false) })
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "nope") {
+		t.Fatalf("want exit 2, no stdout, stderr naming the profile; got exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+}

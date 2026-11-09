@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -56,11 +57,12 @@ func gatewayRoute(args []string, withProxy bool) int {
 	}
 	q := agent.RouteReq{Agent: *want, Model: *model, Task: *task, Profile: *profile, Provider: *provider,
 		Fallback: *fallback, Preview: true, Refresh: ask.RouteRefresh}
-	if _, _, err := agent.LeadFor(q); err != nil {
+	_, res, err := agent.Resolve(context.Background(), q)
+	var le *agent.LeadError
+	if errors.As(err, &le) {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
 		return 2
 	}
-	_, res, err := agent.Resolve(context.Background(), q)
 	if err != nil {
 		return helptext.Fail(name+": %v", err)
 	}
