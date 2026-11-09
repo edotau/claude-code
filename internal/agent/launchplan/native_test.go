@@ -142,10 +142,12 @@ func TestMapHonorsConfigModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	all := strings.Join(got.Args, " ")
+	var b strings.Builder
+	b.WriteString(strings.Join(got.Args, " "))
 	for k, v := range got.Env {
-		all += " " + k + "=" + v
+		b.WriteString(" " + k + "=" + v)
 	}
+	all := b.String()
 	if !strings.Contains(all, "gpt-flagged") || strings.Contains(all, "gpt-pinned") {
 		t.Errorf("want Config.Model gpt-flagged only, got args %v env %v", got.Args, norm(got.Env))
 	}

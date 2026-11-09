@@ -58,8 +58,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 	q := agent.RouteReq{Agent: *want, Model: *model, Task: *task, Profile: *profile, Provider: *provider,
 		Fallback: *fallback, Preview: true, Refresh: ask.RouteRefresh}
 	_, res, err := agent.Resolve(context.Background(), q)
-	var le *agent.LeadError
-	if errors.As(err, &le) {
+	if _, ok := errors.AsType[*agent.LeadError](err); ok {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
 		return 2
 	}
