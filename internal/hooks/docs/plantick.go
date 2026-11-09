@@ -101,10 +101,7 @@ func tickCommit(in *core.Input, cmd, sha string, stderr io.Writer) []string {
 func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
 	var holders []string
 	for _, d := range commitCandidates(cwd, cmd) {
-		if strings.HasPrefix(d, "~/") {
-			d = paths.ExpandHome(d)
-		}
-		if d = resolveCWDPath(d, cwd); d == "" {
+		if d == "" {
 			continue
 		}
 		if _, err := proc.RunGit(ctx, d, "cat-file", "-e", sha+"^{commit}"); err != nil {
@@ -123,20 +120,33 @@ func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
 }
 
 // commitCandidates lists the dirs a commit command may have run in: -C args, a leading cd, then cwd.
+// A relative -C is resolved against the leading cd's target (the shell's cwd for the commit), else cwd.
 func commitCandidates(cwd, cmd string) []string {
+	base, cdFound := cwd, false
+	if m := leadingCD.FindStringSubmatch(cmd); m != nil {
+		base, cdFound = candidateDir(strings.Trim(m[1], `"'`), cwd), true
+	}
 	var cands []string
 	for _, seg := range cmdSegment.Split(cmd, -1) { // only commit invocations name a candidate repo
 		if !core.GitCommitCmd.MatchString(seg) {
 			continue
 		}
 		if m := gitDirArg.FindStringSubmatch(seg); m != nil {
-			cands = append(cands, strings.Trim(m[1], `"'`))
+			cands = append(cands, candidateDir(strings.Trim(m[1], `"'`), base))
 		}
 	}
-	if m := leadingCD.FindStringSubmatch(cmd); m != nil {
-		cands = append(cands, strings.Trim(m[1], `"'`))
+	if cdFound {
+		cands = append(cands, base)
 	}
 	return append(cands, cwd)
+}
+
+// candidateDir expands a leading ~/ and anchors a relative path to base.
+func candidateDir(p, base string) string {
+	if strings.HasPrefix(p, "~/") {
+		p = paths.ExpandHome(p)
+	}
+	return resolveCWDPath(p, base)
 }
 
 // recordPartials appends "<path>\\t<plan>: <task>" lines for the Stop reminder.

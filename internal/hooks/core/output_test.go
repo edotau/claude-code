@@ -1,10 +1,53 @@
 package core
 
 import (
+	"bytes"
+	"io"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 )
+
+type failingOutputWriter struct {
+	partial bool
+}
+
+func (w failingOutputWriter) Write(p []byte) (int, error) {
+	if w.partial {
+		return len(p) / 2, io.ErrClosedPipe
+	}
+	return 0, io.ErrClosedPipe
+}
+
+func TestEmitStdoutFailureBlocks(t *testing.T) {
+	cases := []struct {
+		name, agent, event string
+		result             Result
+	}{
+		{"claude-denial", AgentClaude, "PreToolUse", Result{Decision: Block, Reason: "denied"}},
+		{"codex-denial", AgentCodex, "PreToolUse", Result{Decision: Block, Reason: "denied"}},
+		{"copilot-denial", AgentCopilot, "PreToolUse", Result{Decision: Block, Reason: "denied"}},
+		{"claude-worktree", AgentClaude, "WorktreeCreate", Result{Stdout: "/worktrees/task"}},
+		{"codex-worktree", AgentCodex, "WorktreeCreate", Result{Stdout: "/worktrees/task"}},
+	}
+	for _, tc := range cases {
+		for _, mode := range []struct {
+			name    string
+			partial bool
+		}{{"rejected", false}, {"partial", true}} {
+			t.Run(tc.name+"/"+mode.name, func(t *testing.T) {
+				var stderr bytes.Buffer
+				code := Emit(tc.agent, tc.event, tc.result, failingOutputWriter{partial: mode.partial}, &stderr)
+				if code != ExitBlock {
+					t.Errorf("Emit exit = %d, want %d after stdout failure", code, ExitBlock)
+				}
+				if want := "hook: write output: " + io.ErrClosedPipe.Error() + "\n"; stderr.String() != want {
+					t.Errorf("stderr = %q, want %q", stderr.String(), want)
+				}
+			})
+		}
+	}
+}
 
 // Ruling 4: Codex has no ask decision — ask must render as deny. oneDoc also proves a single JSON document.
 func TestOutputCodexAskMapsToDeny(t *testing.T) {

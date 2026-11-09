@@ -231,6 +231,42 @@ func TestSavePlanKeepsDraftEditedAfterApproval(t *testing.T) {
 	}
 }
 
+func TestSavePlanFailedRecordRemovalCannotOverwriteApproval(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory deletion permissions")
+	}
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	plansDir := filepath.Join(cfg, "plans")
+	draft := writeMirrorDraft(t, plansDir, "pending-words.md", planTemplate)
+	mirrorRun(t, "initial mirror", "Write", cfg, draft)
+	dest := filepath.Join(plansDir, dateStamp()+"-widget-refactor.md")
+	edited := strings.Replace(planTemplate, "why\n", "unapproved edit\n", 1)
+	writeMirrorDraft(t, plansDir, filepath.Base(draft), edited)
+	scratch := plans.ScratchDir()
+	t.Cleanup(func() {
+		if err := os.Chmod(scratch, 0o700); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := os.Chmod(scratch, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	stderr := approvePlan(t, approvalPayload(t, cfg, draft, nil))
+	if !strings.Contains(stderr, plans.DestRecordPath(filepath.Base(draft))) {
+		t.Fatalf("expected failed record removal diagnostic, got %q", stderr)
+	}
+	wantMirrorFile(t, plans.DestRecordPath(filepath.Base(draft)), "", "surviving record must be inert")
+	wantMirrorFile(t, draft, edited, "edited draft must survive approval")
+	wantMirrorFile(t, dest, planTemplate, "approved plan")
+	if err := os.Chmod(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mirrorRun(t, "post-approval edit", "Edit", cfg, draft)
+	wantMirrorFile(t, dest, planTemplate, "later mirror must not overwrite the approved plan")
+	wantMirrorFile(t, filepath.Join(plansDir, dateStamp()+"-widget-refactor-2.md"), edited, "new draft mirror")
+}
+
 func TestSavePlanPreservesRecordWhenDraftRemovalFails(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

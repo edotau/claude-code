@@ -82,6 +82,19 @@ func TestMakeFormatSkipsWholeTreeTarget(t *testing.T) {
 	}
 }
 
+func TestMakeFormatRejectsMixedWholeTreeRecipe(t *testing.T) {
+	_, mine, other := makeRepo(t, "format:\n\techo $(FILE)\n\tgofmt -w .\n")
+	if !formatFile(mine) {
+		t.Fatal("the per-file fallback must succeed")
+	}
+	if !formatted(t, mine) {
+		t.Error("the session-written file was not formatted")
+	}
+	if formatted(t, other) {
+		t.Error("a recipe that only names the file in echo rewrote an unrelated file")
+	}
+}
+
 // A recipe that provisions an environment, or whose dry run never names the file, is never run for real.
 func TestMakeFormatRefusesProvisioningAndUnreachedVariable(t *testing.T) {
 	root, mine, _ := makeRepo(t, "format:\n\tpip install black && gofmt -w $(FILE)\n\ttouch ran-make\n")
@@ -122,6 +135,36 @@ func formatPythonFixture(t *testing.T) (root, py, trace string) {
 	_ = os.WriteFile(py, []byte("x=1\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte("[tool.black]\nline-length = 100\n[tool.autoflake]\nremove-all-unused-imports = true\n[tool.ruff.lint]\nselect = [\"E\"]\n"), 0o644)
 	return root, py, trace
+}
+
+func TestFormatPythonPartialFailureRemainsRetryable(t *testing.T) {
+	root, py, trace := formatPythonFixture(t)
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte("[tool.isort]\n[tool.black]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	black := filepath.Join(root, ".venv", "bin", "black")
+	script := "#!/bin/sh\necho black >> " + trace + "\n"
+	if err := os.WriteFile(black, []byte(script+"exit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stamps := formatAll([]string{py})
+	if len(stamps) != 0 {
+		t.Fatal("isort success followed by black failure must not stamp the file")
+	}
+	got, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "isort --quiet " + py + "\nblack\n"; string(got) != want {
+		t.Fatalf("formatter chain = %q, want %q", got, want)
+	}
+	if err := os.WriteFile(black, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	eligible, _ := selectForFormat(root, []string{filepath.Join("pkg", "m.py")}, stamps, map[string]bool{py: true})
+	if retried := formatAll(eligible); len(retried) != 1 {
+		t.Fatal("the unchanged file must be retried and stamped once black succeeds")
+	}
 }
 
 // The declared python chain runs each declared tool from the project venv, in order; an undeclared

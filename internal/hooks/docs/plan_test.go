@@ -479,6 +479,22 @@ func TestPlanTickSpanning(t *testing.T) {
 
 }
 
+func TestPlanTickRelativeDashCAfterCD(t *testing.T) {
+	planPath, sha, tick := tickFixture(t)
+	cmd := "cd " + os.Getenv("HOME") + " && git -C widgets commit -m x"
+	out := tick(cmd, "[main "+sha+"] x\n 2 files changed\n")
+	got, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "- [x] 1.1 Full task owns: a/one.go, b/two file.go ("+sha+")") {
+		t.Fatalf("relative -C after cd did not tick the committed task:\n%s", got)
+	}
+	if !strings.Contains(out, "1.1") {
+		t.Fatalf("additionalContext = %q, want the ticked task", out)
+	}
+}
+
 // The Stop reminder names a partly-landed task once, then stays quiet.
 func TestPlanTickReminderOnce(t *testing.T) {
 	_, sha, tick := tickFixture(t)

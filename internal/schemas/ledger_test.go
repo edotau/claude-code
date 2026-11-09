@@ -94,6 +94,7 @@ var writers = map[string]string{
 	"internal/hooks/docs/plantick.go:recordPartials":                  unversioned("text: partly landed plan tasks"),
 	"internal/plans/mirror.go:RecordDest":                             unversioned("text: plan draft destination pointer"),
 	"internal/hooks/docs/plan.go:claimPlanFile":                       unversioned("marker: reserved dated plan file, replaced by the plan"),
+	"internal/hooks/docs/plan.go:dropRecord":                          unversioned("marker: plan mirror record emptied when it cannot be removed"),
 	"internal/plans/tick.go:writePlan":                                unversioned("foreign: plan markdown in plans/"),
 	"internal/hooks/quality/stop_format.go:stopFormat":                "stop-format",
 	"internal/hooks/memhook/watch.go:spawnIdleWatcher":                unversioned("marker: idle watcher claim file"),

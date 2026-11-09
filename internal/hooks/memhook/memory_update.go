@@ -59,7 +59,7 @@ func sessionUpdate(in *core.Input, stderr io.Writer) (code int, failedOpen bool)
 	return core.ExitProceed, failedOpen
 }
 
-// End (SessionEnd) updates the final state when work since the last dispatch crosses the floor.
+// End (SessionEnd) updates the final state when total work crosses the floor and exceeds the last dispatch's count.
 func End(in *core.Input) core.Result {
 	in = AgentInput(sessionRootInput(in))
 	refreshEmbeddings(in.CWD)
@@ -115,7 +115,8 @@ func updateIfNewLocked(in *core.Input, trigger string, now time.Time) (blocked b
 			return false, 0, false
 		}
 		if trigger == triggerStop {
-			if writeStamp(stamp, now, "1", work) != nil {
+			// Stamp the old covered count: this work was never dispatched, so SessionEnd/PreCompact must still see it.
+			if writeStamp(stamp, now, "1", covered) != nil {
 				return false, 0, true // fail open: the block count cannot persist
 			}
 			return true, work, false
@@ -150,7 +151,8 @@ func stampedStop(in *core.Input, st updateStamp, stamp string, now time.Time) (b
 	if writeStamp(stamp, st.at, strconv.Itoa(st.blocks+1), st.edits) != nil {
 		return false, 0, true // fail open: the block count cannot persist
 	}
-	return true, st.edits, false
+	// The stamp holds the covered count, not the uncovered work, so the message counts live.
+	return true, countEdits(in.TranscriptPath, countPath(in.SessionID)), false
 }
 
 // logUpdateToLedger notes an update in the session's linked-worktree ledger; best effort, never fatal.
@@ -166,9 +168,9 @@ func updatable(in *core.Input) bool {
 	return err == nil && !fi.IsDir()
 }
 
-func blockForUpdate(stderr io.Writer, edits int) int {
-	fmt.Fprintf(stderr, "Session update (~%d file edits this session): the background worker could not be started. "+
-		"Before stopping, run `claude-code memory update` to save the session to the memory bank.\n", edits)
+func blockForUpdate(stderr io.Writer, work int) int {
+	fmt.Fprintf(stderr, "Session update (~%d work units this session): the background worker could not be started. "+
+		"Before stopping, run `claude-code memory update` to save the session to the memory bank.\n", work)
 	return core.ExitBlock
 }
 

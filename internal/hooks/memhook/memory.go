@@ -415,13 +415,15 @@ func runSweep(current string, now time.Time, out io.Writer) {
 		_ = writeStamp(stampPath(c.id), time.Now(), "catchup", c.edits)
 		fmt.Fprintf(out, "catchup %s (%s)\n", c.id, c.why)
 		ctx, cancel := context.WithTimeout(context.Background(), memory.UpdateTimeout+2*time.Minute)
+		started := time.Now()
 		cmd := exec.CommandContext(ctx, self, "memory", "update", "--historical", "--session", c.id, "--transcript", c.path)
 		cmd.Stdout, cmd.Stderr = out, out
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintf(out, "catchup %s: %v\n", c.id, err)
 		}
 		cancel()
-		if res, ok := memory.ReadUpdateResult(c.id); ok && res.Status == memory.UpdateOK {
+		// An older OK receipt from a previous update must not count as this run's save.
+		if res, ok := memory.ReadUpdateResult(c.id); ok && res.Status == memory.UpdateOK && res.Time.After(started) {
 			saved++
 		}
 	}

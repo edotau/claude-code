@@ -15,8 +15,8 @@ import (
 	"github.com/edotau/claude-code/internal/shell"
 )
 
-// rmRecursive matches `rm` with any recursive flag spelling (-r, -Rf, -r -f, --recursive) and trailing flags.
-const rmRecursive = `rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(-\S+\s+)*`
+// rmRecursive matches `rm` with any recursive flag spelling (-r, -Rf, -r -f, --recursive) and trailing operands.
+const rmRecursive = `rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(\S+\s+)*`
 
 // hardBlocks are command shapes that are almost never intentional.
 var hardBlocks = core.LazyCompile(
@@ -228,14 +228,14 @@ func gitBannedUnder(target, verb string, args []string, harness, worktrees *stri
 	return !strings.HasPrefix(tp, *worktrees+string(filepath.Separator)) // a linked worktree is its own checkout
 }
 
-// dropRemoteHeredocs removes heredoc bodies fed to ssh: they run on the remote host, not in this checkout.
+// dropRemoteHeredocs removes quoted-delimiter heredoc bodies fed to ssh: they run remotely, unexpanded locally.
 func dropRemoteHeredocs(cmd string) string {
 	lines := strings.Split(cmd, "\n")
 	var out []string
 	for i := 0; i < len(lines); i++ {
 		out = append(out, lines[i])
 		m := heredocOp.FindStringSubmatch(lines[i])
-		if m == nil || !sshHoldsHeredoc(lines[i]) {
+		if m == nil || m[4] != "" || !sshHoldsHeredoc(lines[i]) { // m[4]: bare delimiter, expanded locally
 			continue
 		}
 		if end := heredocEnd(lines, i+1, m[2]+m[3]+m[4], m[1] == "-"); end >= 0 {
