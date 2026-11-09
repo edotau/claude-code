@@ -119,6 +119,14 @@ func TestMergeReportsWorstVerdictAndDedup(t *testing.T) {
 	}
 }
 
+func TestMergeReportsFailedFirstAdversarialPart(t *testing.T) {
+	parts := []Part{{Files: []string{"a.go"}}, {Files: []string{"b.go"}}}
+	got := MergeReports(true, parts, nil)
+	if got != "VERDICT: no review completed\n" {
+		t.Fatalf("failed first part must not produce a clean review verdict: %q", got)
+	}
+}
+
 func TestMergeReportsUnjudgedPartIsNotShipIt(t *testing.T) {
 	parts := []Part{{Files: []string{"a"}}, {Files: []string{"b"}}}
 	out := MergeReports(false, parts, []string{"SHIP IT\n[LOW] a:1 — x — y", ""})

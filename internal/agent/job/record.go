@@ -299,7 +299,9 @@ func RunRecorded(ctx context.Context, rec *Record, agentName string, out wire.Si
 		res, err = run(ctx, sink)
 		logSink.Close() // flush before writing the answer, so tail -f never misses the last line
 		if o.AnswerTo != nil && res.Answer != "" {
-			_, _ = io.WriteString(o.AnswerTo, res.Answer)
+			if _, werr := io.WriteString(o.AnswerTo, res.Answer); werr != nil && err == nil {
+				err = fmt.Errorf("write final answer: %w", werr)
+			}
 		}
 		// the result event lands before the record leaves running, so a tail follower never exits without it
 		if rerr := sink.Emit(wire.ResultEvent(wire.NewEnvelope(res, err, rec.ID))); rerr != nil && err == nil {

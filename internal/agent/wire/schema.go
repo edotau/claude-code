@@ -30,7 +30,7 @@ func compactJSON(s string) string {
 }
 
 // Structured parses the answer as JSON and checks it against schema. The validator is minimal and stdlib-only:
-// type, required, properties, items and enum, recursively; any other validation keyword is returned in unchecked.
+// type, required, properties, items (or tuple), additionalItems, enum, recursively; other keywords are unchecked.
 func Structured(answer, schema string) (raw json.RawMessage, unchecked []string, err error) {
 	span := jsonSpan(answer)
 	v, err := decodeExact(span)
@@ -90,7 +90,7 @@ func jsonEqual(a, b any) bool {
 
 // schemaKnown are the keywords checkSchema enforces; schemaNotes only annotate. Every other keyword is unchecked.
 var (
-	schemaKnown = map[string]bool{"type": true, "required": true, "properties": true, "items": true, "enum": true}
+	schemaKnown = map[string]bool{"type": true, "required": true, "properties": true, "items": true, "additionalItems": true, "enum": true}
 	schemaNotes = map[string]bool{"$schema": true, "$id": true, "title": true, "description": true, "default": true, "examples": true,
 		"$comment": true, "$defs": true, "definitions": true}
 )
@@ -113,14 +113,24 @@ func checkSchema(path string, v, sch any) error {
 	case map[string]any:
 		return checkSchemaObject(path, x, m)
 	case []any:
-		return checkSchemaArray(path, x, m["items"])
+		return checkSchemaArray(path, x, m)
 	}
 	return nil
 }
 
-func checkSchemaArray(path string, values []any, items any) error {
+// checkSchemaArray checks each element against items, or against its position when items is a tuple (draft-07).
+func checkSchemaArray(path string, values []any, m map[string]any) error {
+	items := m["items"]
+	tuple, isTuple := items.([]any)
 	for i, el := range values {
-		if err := checkSchema(fmt.Sprintf("%s[%d]", path, i), el, items); err != nil {
+		sch := items
+		if isTuple { // past the tuple, additionalItems governs; absent means any
+			sch = m["additionalItems"]
+			if i < len(tuple) {
+				sch = tuple[i]
+			}
+		}
+		if err := checkSchema(fmt.Sprintf("%s[%d]", path, i), el, sch); err != nil {
 			return err
 		}
 	}
@@ -131,7 +141,7 @@ func checkSchemaArray(path string, values []any, items any) error {
 func checkSchemaObject(path string, x, m map[string]any) error {
 	if req, ok := m["required"].([]any); ok {
 		for _, k := range req {
-			if name, _ := k.(string); name != "" {
+			if name, isStr := k.(string); isStr { // "" is a valid property name, so it is checked too
 				if _, ok := x[name]; !ok {
 					return fmt.Errorf("%s: missing required key %q", path, name)
 				}
@@ -164,7 +174,14 @@ func collectUnchecked(sch any, skipped map[string]bool) {
 	for _, p := range props {
 		collectUnchecked(p, skipped)
 	}
-	collectUnchecked(m["items"], skipped)
+	if tuple, ok := m["items"].([]any); ok { // tuple form: every positional schema
+		for _, s := range tuple {
+			collectUnchecked(s, skipped)
+		}
+	} else {
+		collectUnchecked(m["items"], skipped)
+	}
+	collectUnchecked(m["additionalItems"], skipped)
 }
 
 // typeMatches checks val against a schema "type" given as a name or a list of names.

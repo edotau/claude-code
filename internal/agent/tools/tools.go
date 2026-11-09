@@ -83,11 +83,19 @@ func Install(ctx context.Context, w io.Writer, names []string, dryRun bool) erro
 			errs = append(errs, fmt.Errorf("%s: %w", t.Name, err))
 			continue
 		}
-		npmCleanupFor(ctx, w, t.Name, dir, dryRun)
+		npmCleanupFor(ctx, w, t.Name, landedDir(t, dir), dryRun)
 	}
 	cleanupGeminiCLI(ctx, w, dryRun)
 	Link(w, names, dryRun)
 	return errors.Join(errs...)
+}
+
+// landedDir is where runOne wrote t: codex always lands in BinDir (installCodex redirects).
+func landedDir(t Tool, dir string) string {
+	if t.Name == "codex" {
+		return paths.BinDir()
+	}
+	return dir
 }
 
 func resolve(names []string) ([]Tool, error) {
@@ -164,15 +172,28 @@ func localBinDir() string {
 	return filepath.Join(home, ".local", "bin")
 }
 
-// installBinary atomically writes data as an executable at dir/name.
-func installBinary(w io.Writer, dir, name string, data []byte) error {
+// installBinaryLocked atomically writes data as an executable at dir/name, under dir's bin lock.
+func installBinaryLocked(w io.Writer, dir, name string, data []byte) error {
+	return withBinLock(dir, func() error { return installBinary(w, dir, name, data) })
+}
+
+// withBinLock runs fn holding dir's bin lock, so link.go's check-then-act cannot race it.
+func withBinLock(dir string, fn func() error) error {
 	if !filepath.IsAbs(dir) {
 		return fmt.Errorf("install dir %q is not absolute (HOME unset?)", dir)
 	}
+	return paths.WithFileLock(binLockPath(dir), fn)
+}
+
+// installBinary atomically writes data as an executable at dir/name; the caller must hold dir's bin lock.
+func installBinary(w io.Writer, dir, name string, data []byte) error {
 	dest := filepath.Join(dir, name)
 	fmt.Fprintf(w, "  install  %s (%d bytes)\n", dest, len(data))
 	return paths.AtomicWrite(dest, data, 0o755)
 }
+
+// binLockPath is the lock file shared by every writer and linker of dir's agent binaries.
+func binLockPath(dir string) string { return filepath.Join(dir, ".agent-bin") }
 
 // npmPackages maps a Tool name to the npm package that also ships it, for post-install cleanup.
 var npmPackages = map[string]string{"codex": "@openai/codex", "opencode": "opencode-ai"}

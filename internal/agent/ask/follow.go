@@ -22,9 +22,10 @@ type follower struct {
 	idle    time.Duration
 	n       int // physical lines consumed so far
 	pending []byte
+	ended   bool // an end line was already in the initial lines: nothing more is followed
 }
 
-// newFollower reads the file once and returns its complete lines; a trailing partial line waits for its newline.
+// newFollower reads the file once and returns its complete lines before any end line; a partial last line waits.
 func newFollower(src string, idle time.Duration) (*follower, io.Reader, error) {
 	f, err := os.Open(src)
 	if err != nil {
@@ -35,7 +36,21 @@ func newFollower(src string, idle time.Duration) (*follower, io.Reader, error) {
 		return nil, nil, errors.Join(err, f.Close())
 	}
 	cut := bytes.LastIndexByte(data, '\n') + 1
-	return &follower{f: f, idle: idle, n: bytes.Count(data[:cut], []byte{'\n'}), pending: data[cut:]}, bytes.NewReader(data[:cut]), nil
+	body, ended := cutAtEndLine(data[:cut])
+	w := &follower{f: f, idle: idle, n: bytes.Count(body, []byte{'\n'}), pending: data[cut:], ended: ended}
+	return w, bytes.NewReader(body), nil
+}
+
+// cutAtEndLine returns the complete lines before the first {"end":true} line, and whether one was found.
+func cutAtEndLine(data []byte) ([]byte, bool) {
+	for off := 0; off < len(data); {
+		i := bytes.IndexByte(data[off:], '\n') + 1
+		if isEndLine(data[off : off+i]) {
+			return data[:off], true
+		}
+		off += i
+	}
+	return data, false
 }
 
 // isEndLine reports whether line is exactly {"end":true}.
@@ -73,6 +88,9 @@ func (w *follower) run(ctx context.Context, build func(ParsedLine) Task) <-chan 
 	go func() {
 		defer close(out)
 		defer w.f.Close()
+		if w.ended {
+			return
+		}
 		last := time.Now()
 		tick := time.NewTicker(followPoll)
 		defer tick.Stop()
@@ -94,13 +112,9 @@ func (w *follower) run(ctx context.Context, build func(ParsedLine) Task) <-chan 
 	return out
 }
 
-// poll sends the newly appended lines; more is false on {"end":true}, a read error or cancel.
+// poll sends the newly appended lines; more is false on {"end":true}, a read error (sent as a failed task) or cancel.
 func (w *follower) poll(ctx context.Context, build func(ParsedLine) Task, out chan<- Task) (sent, more bool) {
 	lines, raw, err := w.next()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "claude-code: ask: --follow: %v\n", err)
-		return false, false
-	}
 	for i, l := range lines {
 		if isEndLine(raw[i]) {
 			return sent, false
@@ -111,6 +125,13 @@ func (w *follower) poll(ctx context.Context, build func(ParsedLine) Task, out ch
 		case <-ctx.Done():
 			return sent, false
 		}
+	}
+	if err != nil {
+		select { // a Task with Err fails the batch: a read error must not look like the end of input
+		case out <- Task{Err: fmt.Errorf("--follow: %w", err)}:
+		case <-ctx.Done():
+		}
+		return sent, false
 	}
 	return sent, true
 }

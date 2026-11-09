@@ -16,6 +16,7 @@ type askState struct {
 	client.AskTarget
 	rubric *string
 	env    *envFlag
+	lead   *string // routed lead profile resolved by resolveLead; a live holder keeps it
 }
 
 // loadAskJob loads a --job record for a background run continuation; rc/done are set only on an early return.

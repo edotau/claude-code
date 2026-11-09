@@ -103,16 +103,28 @@ func dropLink(t Tool, dst, missing string, dryRun bool) (status, detail string) 
 	if _, err := paths.AgentBin(t.Name); err == nil {
 		return "keep", dst + " → " + readlink(dst) + " (existing link)"
 	}
-	if !dryRun {
-		// re-check: dst may have become a regular file since the classification above.
-		if fi, lerr := os.Lstat(dst); lerr == nil && fi.Mode().IsRegular() {
-			return "keep", dst + " (installed here)"
-		}
-		if err := os.Remove(dst); err != nil {
-			return "error", err.Error()
-		}
+	if dryRun {
+		return "remove", dst + "; " + missing
+	}
+	switch kept, err := removeUnlessFile(dst); {
+	case err != nil:
+		return "error", err.Error()
+	case kept:
+		return "keep", dst + " (installed here)"
 	}
 	return "remove", dst + "; " + missing
+}
+
+// removeUnlessFile removes dst under the bin lock; kept=true when a direct install now occupies dst.
+func removeUnlessFile(dst string) (kept bool, err error) {
+	err = paths.WithFileLock(binLockPath(filepath.Dir(dst)), func() error {
+		if fi, lerr := os.Lstat(dst); lerr == nil && fi.Mode().IsRegular() {
+			kept = true
+			return nil
+		}
+		return os.Remove(dst)
+	})
+	return kept, err
 }
 
 // linkCandidate is the agent's PATH entry (unresolved, so self-updaters are followed), else ~/.local/bin, else "".
@@ -136,14 +148,20 @@ func readlink(p string) string {
 	return target
 }
 
-// replaceLink swaps dst for a symlink to target atomically via a temp link renamed over it.
-// kept=true means dst turned into a regular file between the caller's check and this call (a
-// concurrent direct install winning the race): the temp link is discarded and dst is left alone.
+// replaceLink swaps dst for a symlink to target atomically via a temp link renamed over it, under the bin lock.
+// kept=true means dst is a regular file (a direct install, which writers take the same lock for): the temp
+// link is discarded and dst is left alone.
 func replaceLink(dst, target string) (kept bool, err error) {
+	err = paths.WithFileLock(binLockPath(filepath.Dir(dst)), func() error {
+		var serr error
+		kept, serr = swapLink(dst, target)
+		return serr
+	})
+	return kept, err
+}
+
+func swapLink(dst, target string) (kept bool, err error) {
 	dir := filepath.Dir(dst)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return false, err
-	}
 	tmp := filepath.Join(dir, fmt.Sprintf(".%s.%d.link", filepath.Base(dst), os.Getpid()))
 	_ = os.Remove(tmp)
 	if err := os.Symlink(target, tmp); err != nil {

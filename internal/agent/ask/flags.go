@@ -77,7 +77,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.StringVar(&f.host, "host", "", "run the ask on this ssh host (tailnet name or ssh alias); profiles resolve there")
 	fs.StringVar(&f.remoteBin, "remote-bin", "", "remote claude-code path for --host (default $"+client.RemoteBinEnv+", then claude-code)")
 	fs.StringVar(&f.format, "format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
-	fs.StringVar(&f.dirs, "dirs", "", "comma-separated dirs whose tracked files are inlined")
+	fs.StringVar(&f.dirs, "dirs", "", "comma-separated dirs whose tracked files are inlined (never .env*, state/, keys)")
 	fs.StringVar(&f.files, "files", "", "comma-separated file globs to inline")
 	fs.BoolVar(&f.diff, "diff", false, "inline the files changed vs HEAD")
 	fs.BoolVar(&f.index, "index", false, "prepend an index of every matched path")

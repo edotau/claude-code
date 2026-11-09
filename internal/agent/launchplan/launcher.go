@@ -82,7 +82,7 @@ func selection(o agent.LaunchOptions) (*providers.Registry, providers.Selection,
 	return SessionSelection(o, false)
 }
 
-// SessionSelection loads the registry and applies --profile/--model > pins > the workspace's last profile > defaults;
+// SessionSelection loads the registry and applies --profile/--model > the workspace's last profile > pins > defaults;
 // session marks a Claude launch.
 func SessionSelection(o agent.LaunchOptions, session bool) (*providers.Registry, providers.Selection, error) {
 	reg, err := providers.Load()

@@ -95,7 +95,7 @@ func cliLaunch(ctx context.Context, spec agent.Schema, name string, o agent.Laun
 		fmt.Fprintln(agent.NoticeOut, note)
 	}
 	if err != nil {
-		return configureFailed(ctx, spec, name, o, args, err)
+		return configureFailed(ctx, spec, name, o, args, flagModel, err)
 	}
 	return finishPlan(spec, o, args, env, prefix)
 }
@@ -109,18 +109,19 @@ func ownLoginPlan(spec agent.Schema, args []string, note string, show bool) (age
 }
 
 // configureFailed offers configure once to a human at a terminal, then retries or falls back to a passthrough launch.
-func configureFailed(ctx context.Context, spec agent.Schema, name string, o agent.LaunchOptions, args []string, err error) (agent.Plan, error) {
+func configureFailed(ctx context.Context, spec agent.Schema, name string, o agent.LaunchOptions, args []string, flagModel string, err error) (agent.Plan, error) {
 	reason := fmt.Errorf("%w; %s", err, spec.CLI.ConfigureHint)
 	var env, prefix []string
 	// A human at a terminal is offered configure once; a yes re-resolves on the new state.
 	if OfferConfigure != nil && !o.PrintEnv && OfferConfigure(name, reason) {
-		env, prefix, err = retryConfigure(ctx, name, o)
+		env, prefix, err = retryConfigure(ctx, spec, name, o, flagModel)
 	}
+	plainArgs := withFlagModel(args, flagModel) // the plain CLI takes --model itself; the routed plan does not
 	if errors.Is(err, agent.ErrOwnLogin) {
-		return plainPlan(spec, args)
+		return plainPlan(spec, plainArgs)
 	}
 	if err != nil {
-		return passthrough(spec, name, reason, args)
+		return passthrough(spec, name, reason, plainArgs)
 	}
 	return finishPlan(spec, o, args, env, prefix)
 }
@@ -216,13 +217,13 @@ func registryPlan(
 	}, nil
 }
 
-func retryConfigure(ctx context.Context, name string, o agent.LaunchOptions) ([]string, []string, error) {
+// retryConfigure re-resolves the target after configure, applying the agent's model pin as cliLaunch does.
+func retryConfigure(ctx context.Context, spec agent.Schema, name string, o agent.LaunchOptions, flagModel string) ([]string, []string, error) {
 	reg, sel, err := selection(o)
 	if err != nil {
 		return nil, nil, err
 	}
-	spec := agent.SchemaFor(name)
-	target, note, err := spec.ResolveTarget(reg, sel, o.Provider != "")
+	target, note, err := cliTarget(spec, name, reg, sel, o.Provider != "", flagModel)
 	if err != nil {
 		return nil, nil, err
 	}

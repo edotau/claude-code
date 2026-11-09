@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,12 +86,13 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 	}
 	snapshot := job.RecentRecords(scanAllRecords)
 	records, code := reapRecords(snapshot, dryRun, verb, out, errw)
-	socks := reapSockets(snapshot, dryRun, verb, out)
+	socks, sockCode := reapSockets(dryRun, verb, out, errw)
 	markers, err := reapMarkers(dryRun, verb, out)
 	if err != nil {
 		fmt.Fprintln(errw, "agents reap:", err)
 		code = 1
 	}
+	code = max(code, sockCode)
 	if records+markers+socks == 0 {
 		fmt.Fprintln(out, "agents reap: nothing to reap")
 		return code
@@ -124,26 +126,34 @@ func reapRecords(snapshot []job.Record, dryRun bool, verb string, out, errw io.W
 	return records, code
 }
 
-// reapSockets removes sockets whose holder is dead or has no dispatch record.
-func reapSockets(snapshot []job.Record, dryRun bool, verb string, out io.Writer) int {
-	records := make(map[string]job.Record, len(snapshot))
-	for _, rec := range snapshot {
-		records[rec.ID] = rec
-	}
+// reapSockets removes sockets whose holder is dead or has no dispatch record; returns the count and 1 on a failed remove.
+func reapSockets(dryRun bool, verb string, out, errw io.Writer) (int, int) {
 	socks, _ := filepath.Glob(filepath.Join(paths.DispatchDir(), "*"+wire.LiveSockSuffix))
-	n := 0
+	n, code := 0, 0
 	for _, sock := range socks {
 		id := strings.TrimSuffix(filepath.Base(sock), wire.LiveSockSuffix)
-		if rec, ok := records[id]; ok && rec.Alive() {
+		if socketHolderAlive(id) {
 			continue
 		}
-		if !dryRun && os.Remove(sock) != nil {
-			continue
+		if !dryRun {
+			if err := os.Remove(sock); err != nil {
+				if !errors.Is(err, fs.ErrNotExist) {
+					fmt.Fprintf(errw, "agents reap: socket %s: %v\n", filepath.Base(sock), err)
+					code = 1
+				}
+				continue
+			}
 		}
 		fmt.Fprintf(out, "%s socket %s\n", verb, filepath.Base(sock))
 		n++
 	}
-	return n
+	return n, code
+}
+
+// socketHolderAlive reads id's record at call time, so a session started during the reap keeps its socket.
+func socketHolderAlive(id string) bool {
+	rec, err := job.LoadRecord(id)
+	return err == nil && rec.Alive()
 }
 
 // reapMarkers removes the markers inflight.Liveness would prune; non-marker entries (the lock file) stay.
@@ -175,17 +185,21 @@ func sweepMarkers(dir string, dryRun bool, verb string, out io.Writer) (int, err
 	}
 	live := inflight.Liveness(time.Now())
 	n := 0
+	var errs []error
 	for _, e := range entries {
 		if _, ok := inflight.Owner(e.Name()); !ok || live(e.Name()) {
 			continue
 		}
 		if !dryRun {
 			if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+				if !errors.Is(err, fs.ErrNotExist) {
+					errs = append(errs, fmt.Errorf("marker %s: %w", e.Name(), err))
+				}
 				continue
 			}
 		}
 		fmt.Fprintf(out, "%s marker %s\n", verb, e.Name())
 		n++
 	}
-	return n, nil
+	return n, errors.Join(errs...)
 }

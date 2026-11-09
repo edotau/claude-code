@@ -155,7 +155,7 @@ func Build(claudeDir string, opts Options) (*Tree, error) {
 		return nil, err
 	}
 	reg := readRegistry(claudeDir)
-	if opts.Running && opts.Session == "" {
+	if opts.Session == "" { // live sessions stay listed past --days, under --background too
 		sessionFiles = appendLiveTranscripts(claudeDir, reg, sessionFiles)
 	}
 	tree := &Tree{}
@@ -244,11 +244,7 @@ const (
 // sessionTranscriptsInScope lists the projects/*/<session>.jsonl files for --session, else those within --days.
 func sessionTranscriptsInScope(claudeDir string, opts Options, now time.Time) ([]string, error) {
 	if opts.Session != "" {
-		matches, ok := plainSessionGlob(claudeDir, opts.Session)
-		if !ok {
-			return nil, fmt.Errorf("agents tree: --session %q is not a plain session id", opts.Session)
-		}
-		return matches, nil
+		return plainSessionGlob(claudeDir, opts.Session)
 	}
 	days := opts.Days
 	if days <= 0 {
@@ -317,13 +313,12 @@ func sessionStatus(updated, now time.Time) string {
 	return statusIdle
 }
 
-// plainSessionGlob globs projects/*/<id>.jsonl; ok is false when id is not a plain name (path traversal guard).
-func plainSessionGlob(claudeDir, id string) (matches []string, ok bool) {
-	if id != filepath.Base(id) || id == ".." {
-		return nil, false
+// plainSessionGlob globs projects/*/<id>.jsonl; an id with a separator or glob metacharacter is rejected, never globbed.
+func plainSessionGlob(claudeDir, id string) ([]string, error) {
+	if id != filepath.Base(id) || id == ".." || strings.ContainsAny(id, `*?[]\`) {
+		return nil, fmt.Errorf("agents tree: --session %q is not a plain session id", id)
 	}
-	matches, _ = filepath.Glob(filepath.Join(claudeDir, "projects", "*", id+".jsonl"))
-	return matches, true
+	return filepath.Glob(filepath.Join(claudeDir, "projects", "*", id+".jsonl"))
 }
 
 // buildSubagent reads an agent transcript's sidecar meta, tail and mtime; tokens come from SummarizeFile.

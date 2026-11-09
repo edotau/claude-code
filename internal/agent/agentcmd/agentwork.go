@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
@@ -84,7 +85,7 @@ func agentReview(name string, args []string) int {
 		return helptext.Fail("%s review: %v", name, err)
 	}
 	cwd, _ := os.Getwd()
-	diff, err := roles.Diff(context.Background(), cwd, scope)
+	diff, err := reviewDiff(cwd, scope)
 	if err != nil {
 		return helptext.Fail("%s review: %v", name, err)
 	}
@@ -98,6 +99,16 @@ func agentReview(name string, args []string) int {
 	}
 	defer cleanup()
 	return ask.Cmd(askArgs)
+}
+
+// reviewDiffTimeout bounds the git calls that build a review diff (a hung textconv helper would block forever).
+const reviewDiffTimeout = 2 * time.Minute
+
+// reviewDiff materializes scope's diff in cwd under reviewDiffTimeout.
+func reviewDiff(cwd string, scope roles.Scope) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), reviewDiffTimeout)
+	defer cancel()
+	return roles.Diff(ctx, cwd, scope)
 }
 
 // agentExplore is `claude-code <v> explore [--no-web] [--background] [--format f] <question>`.

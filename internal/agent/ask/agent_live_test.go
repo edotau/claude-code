@@ -5,15 +5,60 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
 	"github.com/edotau/claude-code/internal/agent/job"
 
 	"github.com/edotau/claude-code/internal/agent"
 )
+
+func TestLiveProviderRetainedInHolderRecord(t *testing.T) {
+	vaulttest.Use(t)
+	cliEnv(t)
+	cliFakes(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"live-test":{"preset":"databricks","host":"https://test.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
+	vaulttest.Secret(t, "DATABRICKS_LIVE_TEST_PAT", "dapi-test")
+	code, out, stderr := runCLI(t, "ask", "--live", "--agent", "gemini", "--provider", "databricks", "--format", "json")
+	if code != 1 {
+		t.Fatalf("exit %d, want refused test-binary spawn\n%s\n%s", code, out, stderr)
+	}
+	recs := job.RecentRecords(2)
+	if len(recs) != 1 {
+		t.Fatalf("records = %+v, want one saved holder request\n%s\n%s", recs, out, stderr)
+	}
+	if !recs[0].Live || recs[0].Request.Lead != "live-test" || recs[0].Request.Provider != "" {
+		t.Fatalf("holder request = %+v, want cleared provider and lead live-test", recs[0])
+	}
+}
+
+func TestAbandonLiveReportsCancelFailureWithoutMarkingRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := job.NewRecord("claude", agent.RunOptions{Prompt: "hi"}, time.Now())
+	rec.PID = os.Getpid() // Cancel refuses this non-holder process before sending any signal.
+	rec.Log = filepath.Join(t.TempDir(), "holder.log")
+	rec.Status = "running"
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	cause := errors.New("socket never appeared")
+	err := abandonLive(&rec, cause)
+	if !errors.Is(err, cause) || !strings.Contains(err.Error(), "stop failed") {
+		t.Fatalf("abandonLive = %v, want readiness cause and cancel failure", err)
+	}
+	got, err := job.LoadRecord(rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Status != "running" || got.Status != "running" || got.Error != "" {
+		t.Fatalf("record = %+v (in-memory status %q), want unchanged running record", got, rec.Status)
+	}
+}
 
 // A holder that never became ready leaves its record marked error with the cause, not running.
 func TestAbandonLiveMarksRecordFailed(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -114,6 +115,22 @@ func TestRoleCompareUnknownModelPreFailed(t *testing.T) {
 	}
 	if !strings.HasSuffix(out.String(), "failed: bogus\n") || !strings.Contains(out.String(), "not on the opencode menu") {
 		t.Errorf("text:\n%s", out.String())
+	}
+}
+
+type failingReportWriter struct{}
+
+func (failingReportWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+
+func TestReportTextPropagatesWriteError(t *testing.T) {
+	for _, size := range []int{16, 8192} {
+		rep := Report{Status: "ok", Legs: []LegResult{{
+			Label:    "successful dispatch",
+			Envelope: wire.Envelope{Status: "ok", Agent: "codex", Answer: strings.Repeat("x", size)},
+		}}}
+		if err := rep.Text(failingReportWriter{}); !errors.Is(err, io.ErrClosedPipe) {
+			t.Errorf("answer size %d: lost report write error: got %v, want %v", size, err, io.ErrClosedPipe)
+		}
 	}
 }
 

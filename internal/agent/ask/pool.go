@@ -373,7 +373,7 @@ func runAskBatchInput(fs *flag.FlagSet, src string, o Opts, base agent.RunOption
 	if err != nil {
 		return failAskCode("text", o.Agent, fmt.Errorf("--batch: %w", err), 2)
 	}
-	if len(lines) == 0 {
+	if len(lines) == 0 && !o.FollowInput { // a followed file may get its tasks later
 		return failAskCode("text", o.Agent, errors.New("--batch: no tasks in the input"), 2)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGPIPE) // a closed stdout cancels

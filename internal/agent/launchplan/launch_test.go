@@ -115,6 +115,66 @@ func TestVendorPassesThroughWhenUnroutable(t *testing.T) {
 	}
 }
 
+func TestConfigureDeclinedPreservesModelFlag(t *testing.T) {
+	hermetic(t, "")
+	fake := pathstest.FakeVendor(t, "agy", "")
+	const model = "gemini-3.8-flash-high"
+	o, args, err := launchplan.ParseArgs([]string{"--profile", "antigravity", "--model", model, "-p", "hi"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offers := 0
+	original := launchplan.OfferConfigure
+	launchplan.OfferConfigure = func(name string, reason error) bool {
+		offers++
+		if name != "gemini" || !strings.Contains(reason.Error(), "not signed in") {
+			t.Errorf("configure offer = %q, %v; want missing Gemini login", name, reason)
+		}
+		return false
+	}
+	t.Cleanup(func() { launchplan.OfferConfigure = original })
+	plan, err := launchplan.LaunchPlan(t.Context(), "gemini", o, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--dangerously-skip-permissions", "--model", model, "-p", "hi"}
+	if offers != 1 || plan.Binary != fake || len(plan.Set) != 0 || !slices.Equal(plan.Argv, want) {
+		t.Fatalf("offers=%d plan=%+v; want plain CLI with argv %v", offers, plan, want)
+	}
+}
+
+func TestConfigureRetryPreservesAgentModelPin(t *testing.T) {
+	hermetic(t, "")
+	fake := pathstest.FakeVendor(t, "agy", "")
+	const model = "gemini-3.8-flash-low"
+	vaulttest.SetRecord(t, "gemini", "model", model)
+	offers := 0
+	original := launchplan.OfferConfigure
+	launchplan.OfferConfigure = func(name string, reason error) bool {
+		offers++
+		if name != "gemini" || !strings.Contains(reason.Error(), "not signed in") {
+			t.Errorf("configure offer = %q, %v; want missing Gemini login", name, reason)
+		}
+		marker := filepath.Join(os.Getenv("HOME"), ".gemini", "antigravity-cli", "antigravity-oauth-token")
+		if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(marker, []byte("test-login"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return true
+	}
+	t.Cleanup(func() { launchplan.OfferConfigure = original })
+	plan, err := launchplan.LaunchPlan(t.Context(), "gemini", agent.LaunchOptions{Provider: "antigravity"}, []string{"-p", "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--model", model, "--dangerously-skip-permissions", "-p", "hi"}
+	if offers != 1 || plan.Binary != fake || !slices.Equal(plan.Argv, want) {
+		t.Fatalf("offers=%d plan=%+v; want configured CLI with pinned model in argv %v", offers, plan, want)
+	}
+}
+
 func TestVendorSignInSkipsRouting(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("CLAUDE_PROFILE", "max") // neither codex nor gemini can use it
