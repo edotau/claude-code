@@ -25,6 +25,34 @@ func TestGitCommitAllowedRefusesReuse(t *testing.T) {
 	}
 }
 
+// TestCommandSingleQuoteLiteral pins that single quotes are literal (only the closing quote is special); double quotes still expand-refuse.
+func TestCommandSingleQuoteLiteral(t *testing.T) {
+	root := t.TempDir()
+	cases := []struct {
+		cmd  string
+		want bool
+	}{
+		{"go test ./a -run '^TestX$'", true},
+		{"grep 'a$b' f", true},
+		{"grep '`id`' f", true},
+		{`grep 'a\b' f`, true},
+		{"claude-code test mutate a.go 'x' 'y' --run '^T$' ./a </dev/null", true},
+		{`echo "$(id)"`, false},
+		{"echo \"`id`\"", false},
+		{`grep "a\b" f`, false},
+		{"grep 'a\nb' f", false},
+		{"grep 'a\rb' f", false},
+		{"echo $(id)", false},
+		{`go test ./a -run "$X"`, false},
+		{"echo 'a'$(id)'b'", false},
+	}
+	for _, c := range cases {
+		if got := CommandIn(c.cmd, root, []string{root}, nil); got != c.want {
+			t.Errorf("CommandIn(%q) = %v, want %v", c.cmd, got, c.want)
+		}
+	}
+}
+
 // TestCommandGoEnvAndGitGrep pins that only the Go env names may prefix an allowed command, and git grep never opens a pager.
 func TestCommandGoEnvAndGitGrep(t *testing.T) {
 	root := t.TempDir()
@@ -359,7 +387,7 @@ func TestCommandAllowlistAdditionAbuses(t *testing.T) {
 		"printf %n PATH && go test ./...", "printf '%5n' IFS", "printf '%ln' X", "printf '%*n' 3 X", "printf -- 'a%jn' X",
 		"uniq sub/f out", "uniq -c sub/f out", "uniq -- -a -b",
 		"mktemp x && cat > /etc/y", "ls $TMPDIR", "cat ${TMPDIR:-/tmp}/x", "mktemp ${HOME}/x", "mktemp $TMPDIRX",
-		"mktemp '$TMPDIR/x'", "f=$(mktemp)", "GOOS=darwin mktemp $TMPDIR/x",
+		"f=$(mktemp)", "GOOS=darwin mktemp $TMPDIR/x",
 		"ls < /etc/passwd", "ls << /dev/null", "ls </dev/nullx",
 	} {
 		if CommandIn(cmd, root, []string{root, wt}, nil) {

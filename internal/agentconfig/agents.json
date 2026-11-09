@@ -48,7 +48,8 @@
             {"commands": ["cut", "mkdir"], "argsInside": true},
             {"commands": ["uniq"], "check": "uniqOneInput", "argsInside": true, "summary": "uniq (one input, no output file)"},
             {"commands": ["printf"], "check": "printfNoVar", "summary": "printf (no -v)"},
-            {"commands": ["tr", "basename", "dirname", "pwd", "mktemp"]},
+            {"commands": ["tr", "basename", "dirname", "pwd"]},
+            {"commands": ["mktemp"], "bannedFlags": ["-p", "--tmpdir", "-t"], "check": "mktempInScope", "summary": "mktemp (template under $TMPDIR or the roots)"},
             {
               "commands": ["find"],
               "bannedFlags": ["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"],
