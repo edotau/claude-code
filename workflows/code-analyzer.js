@@ -52,7 +52,7 @@ for (const k of Object.keys(REPLACED)) {
 }
 const SRC_RE = /\.(go|py|ts|tsx|js|jsx|mjs|rs|java)$/
 const TEST_RE = /(_test\.(go|py)$|\.(test|spec)\.[a-z]+$|(^|\/)test_[^/]*\.py$|(^|\/)(tests?|__tests__|testdata|fixtures)\/)/
-// Severity floor for the Fix phase: lows are reported, not fixed (round 1 spent 3 agents on one low). Set minFix:'low' to fix all.
+// Fix-phase severity floor: default low fixes every finding (decision #54); minFix:'medium' leaves lows unfixed.
 const ORDER = { critical: 0, high: 1, medium: 2, low: 3 }
 const MIN_FIX = ORDER[a.minFix] !== undefined ? ORDER[a.minFix] : ORDER.low
 let TARGET = RANGE ? 'the diff of ' + RANGE : 'the code under ' + PATHS.join(', ')
@@ -128,7 +128,7 @@ const stepOf = (steps, name, defaults, opt) => {
 }
 // ── end stepOf ──
 // ── stages: copied verbatim into code-analyzer, green-keeper-loop, code-workers, code-engineer ──
-// Shared stages, called in-script so workflow() nesting stays one level; ctx = {cwd, cd, rules, S, model?, gateMax?}.
+// Shared stages, run in-script so workflow() nests one level; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?}.
 const ST_NEAR = 10
 const ST_GATE_MAX = 2
 const ST_TAIL = 4000 // chars of the initial gate failure carried into every fixer iteration
@@ -168,11 +168,13 @@ const ST_DETECT = {
     source: { type: 'string' },
   },
 }
-// stageAsk runs one stage agent; a thrown call becomes null, and st.done records an external stage's ran-on.
+// stageAsk runs one stage agent; a throw becomes null (cause in ST_ERR); st.done records an external stage's ran-on.
+const ST_ERR = {}
+const stWhy = (label, msg) => (ST_ERR[label] ? msg + ': ' + ST_ERR[label] : msg)
 const stageAsk = (ctx, st, label, ph, prompt, schema, pin) => agent(st.task(prompt), {
   label, phase: ph, schema: st.schema(schema), ...st.type,
   model: (ctx.model || ((m) => m))((!st.ext && pin && pin.model) || st.model), effort: (pin && pin.effort) || st.effort,
-}).catch(() => null).then((r) => st.done(label, r))
+}).catch((e) => { ST_ERR[label] = String((e && e.message) || e); log(label + ' failed: ' + ST_ERR[label]); return null }).then((r) => st.done(label, r))
 // stageDetect reads the scoped gate from `claude-code worktree gate`; no --lint-check: repo-wide lint trips on peers' WIP.
 async function stageDetect(ctx, st, scope) {
   phase('Detect')
@@ -194,7 +196,7 @@ async function stageGate(ctx, o) {
   if (o.check) {
     const c = await check(tag)
     if (c && c.green) return out('green', 'green', [], [])
-    if (!o.max) return out('red', 'capped', [], [c ? c.output : 'gate check returned nothing'])
+    if (!o.max) return out('red', 'capped', [], [c ? c.output : stWhy(tag, 'gate check returned nothing')])
     first = c ? '\nInitial gate failure (before iteration 1):\n' + String(c.output).slice(-ST_TAIL) + '\n' : ''
   }
   const hist = []
@@ -206,16 +208,18 @@ async function stageGate(ctx, o) {
       '\nProtocol: run the whole gate (every command above, the conditional check included) and paste its tail; if every command exits 0 → status="green" and stop. Otherwise fix the FIRST failure per the Method, re-run the gate; repeat for at most ' + (o.fixes || 3) +
       ' distinct failures this iteration, then report (the rest go into residual verbatim). A failure outside scope goes into residual verbatim.' +
       ' If the gate cannot run at all (permission denied, missing command), set status="error", residual to the exact refusal, and stop.', ST_LOOP)) ||
-      { status: 'error', failuresBefore: 0, failuresAfter: 0, filesChanged: [], residual: ['agent returned no result'], summary: 'no result' }
+      { status: 'error', failuresBefore: 0, failuresAfter: 0, filesChanged: [], residual: [stWhy(tag + ':' + i, 'agent returned no result')], summary: 'no result' }
     // a fixer's green is a claim: the check re-runs the whole gate (schemas sub-check included) before it counts
     const v = raw.status === 'green' && o.check ? await check(tag + ':confirm:' + i) : null
     const r = raw.status === 'green' && o.check && !(v && v.green)
-      ? { ...raw, status: 'red', failuresAfter: Math.max(1, raw.failuresAfter), residual: [v ? String(v.output).slice(-ST_TAIL) : 'gate re-check returned nothing'] } : raw
+      ? { ...raw, status: 'red', failuresAfter: Math.max(1, raw.failuresAfter), residual: [v ? String(v.output).slice(-ST_TAIL) : stWhy(tag + ':confirm:' + i, 'gate re-check returned nothing')] } : raw
     hist.push({ iteration: i, ...r })
     log(tag + ' ' + i + '/' + o.max + ': ' + r.status + ' (' + r.failuresBefore + ' → ' + r.failuresAfter + ') changed=' + r.filesChanged.length)
     if (r.status === 'green') return out('green', 'green', hist, r.residual)
     if (r.status === 'error') return out('error', 'error', hist, r.residual) // an unrunnable gate never improves by retrying
-    if (last && last.status === r.status && r.failuresBefore === r.failuresAfter && last.failuresAfter === r.failuresAfter) {
+    // stalled only when the count held AND the same failures remain: fixing A while B surfaces is progress
+    const same = (x, y) => [...x].sort().join('\n') === [...y].sort().join('\n')
+    if (last && last.status === r.status && r.failuresBefore === r.failuresAfter && last.failuresAfter === r.failuresAfter && same(last.residual, r.residual)) {
       log('no progress across two iterations — escalating instead of burning the cap')
       return out(r.status, 'stalled', hist, r.residual)
     }
@@ -245,12 +249,12 @@ async function stageFix(ctx, o) {
     (costs.length ? '\nFor each cost fix, pin the unchanged behavior it must keep: a test that calls the real code and passes before and after the fix ' +
       '(it need not fail without it; no mutate). When existing tests already pin that behavior, name them in summary and add none.\n' + costs.map(item).join('\n') : ''), ST_WORK) : null
   const files = [...new Set([...((impl && impl.files) || []), ...((test && test.files) || [])].map((f) => stRel(ctx, f)))]
-  return { pkg: o.pkg, impl, test, done, testOk: o.tests === false || !!(test && test.status !== 'blocked'), files }
+  return { pkg: o.pkg, impl, test, done, testOk: o.tests === false || !!(test && test.status === 'done'), files }
 }
-// stageRepair: stageFix, then stageGate only when the fix finished (a green gate over unchanged code proves nothing).
+// stageRepair: stageFix, then stageGate (ctx.gate, else a Go gate) once the fix is done; unchanged code proves nothing.
 async function stageRepair(ctx, pkg, findings, o) {
   const fx = await stageFix(ctx, { pkg, findings, label: o.label })
-  const gate = fx.done ? await stageGate(ctx, { scope: [o.scope || pkg], check: ctx.S.gate, fix: ctx.S.fix, max: ctx.gateMax || 0, schemas: true, label: o.gate }) : null
+  const gate = fx.done ? await stageGate(ctx, { scope: [o.scope || pkg], check: ctx.S.gate, fix: ctx.S.fix, max: ctx.gateMax || 0, schemas: true, label: o.gate, gate: ctx.gate }) : null
   return { ...fx, gate, green: fx.done && fx.testOk && !!gate && gate.exit === 'green', files: [...fx.files, ...(gate ? gate.filesChanged : [])] }
 }
 // stagePolish: once over a merged diff: Dedupe (2+ packages), Simplify, Review, then one stageRepair per package.
@@ -301,7 +305,8 @@ async function stagePolish(ctx, o) {
   const fixall = keys.map((p) => byKey[p]).filter(Boolean)
   for (const x of fixall) lines.push('fix-all ' + x.pkg + ': ' + (x.done ? x.findings + ' fixed' : 'NOT done') + ', gate ' + (x.green ? 'green' : 'red'))
   const report = ['', '## Polish', ...lines.map((l) => '- ' + l), ...findings.map((f) => '- **' + f.severity + '** `' + f.file + ':' + f.line + '` (' + f.symbol + ') — ' + f.symptom)].join('\n')
-  const red = [...new Set([...fixall.filter((x) => !x.green).map((x) => x.pkg), ...open.map((f) => stDir(f.file))])]
+  // a review that never ran proves nothing: every polished package stays red
+  const red = [...new Set([...fixall.filter((x) => !x.green).map((x) => x.pkg), ...open.map((f) => stDir(f.file)), ...(rv ? [] : pkgs)])]
   return { dedupe, simplify, review: { findings, ran: !!rv }, fixall, incomplete, green: !red.length, red, files: [...new Set(fixall.flatMap((x) => x.files))], decisions: lines, report }
 }
 // ── end stages ──
@@ -333,7 +338,10 @@ if (EXT.length) {
   )
   PF_STATE = (pf && pf.claudeState) || ''
   for (const r of (pf && pf.routes) || []) log(`coworkers preflight ${r.agent}: ${r.candidates} route(s), first ${r.first}${r.error ? ' — ' + r.error : ''}`)
-  const dead = ((pf && pf.routes) || []).filter((r) => r.candidates === 0).map((r) => r.agent + (r.error ? ' (' + r.error + ')' : ''))
+  const routes = (pf && pf.routes) || []
+  // fail closed: a missing preflight, or no route row for an external agent, counts as no route
+  const dead = [...routes.filter((r) => r.candidates === 0).map((r) => r.agent + (r.error ? ' (' + r.error + ')' : '')),
+    ...[...new Set(EXT.map((s) => s.agent))].filter((g) => !routes.some((r) => String(r.agent).includes(g))).map((g) => g + ' (no preflight result)')]
   // copilot-bash lets a leaf reach only its own cwd and ~/worktrees; a target elsewhere blocks every copilot stage
   const tgt = a.cwd || a.base || ''
   const reach = (r) => !!r && (tgt === r || tgt.startsWith(r + '/'))
@@ -568,7 +576,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   const primaryDims = DIMENSIONS.filter(d => !d.hitsOnly)
   const hitDims = DIMENSIONS.filter(d => d.hitsOnly)
   log('auditing ' + TARGET + ' — ' + primaryDims.length + ' lens(es) × ' + chunks.length + ' chunk(s)' + (hitDims.length ? ', then ' + hitDims.map(d => d.key).join('/') + ' over flagged files' : ''))
-  const seen = [...PRIOR] // proximity-merged across chunks, lenses and rounds
+  const seen = [] // proximity-merged across this round's chunks and lenses; a PRIOR match still flows on to the stalled check
   let mergedCount = 0
   const refuted = []
   const unverified = []
@@ -652,7 +660,8 @@ for (let round = 1; round <= ROUNDS; round++) {
     STARVED = true // coverage gap: still fix what was confirmed, but never report the run clean
     if (!FIX || !toFix.length) { rounds.push({ ...base, fixed: [], gate: null, exit: 'blocked', metrics }); break }
   }
-  if ((!FIX && !PART) || !toFix.length) { rounds.push({ ...base, fixed: [], gate: null, exit: FIX ? 'dry' : 'no-fix', metrics }); break }
+  // a finding the refuter never judged is unchecked, not clean: incomplete, never dry
+  if ((!FIX && !PART) || !toFix.length) { rounds.push({ ...base, fixed: [], gate: null, exit: !toFix.length && unverified.length ? 'incomplete' : FIX ? 'dry' : 'no-fix', metrics }); break }
   // Same findings as an earlier round (PRIOR, accumulated across rounds): report, do not re-fix forever.
   if (PRIOR.length && toFix.every(f => PRIOR.some(g => same(g, f)))) { rounds.push({ ...base, fixed: [], gate: null, exit: 'stalled', metrics }); break }
 
@@ -687,7 +696,8 @@ for (let round = 1; round <= ROUNDS; round++) {
     const high = fs.some(f => ORDER[f.severity] <= ORDER.high)
     const tests = !hotspot && TESTS && fs.some(f => !f.noTest && SRC_RE.test(relPath(f.file))) // docs-only or all-noTest: no test agent
     const fx = await stageFix(FCTX, { pkg, findings: fs, owns, tests, label: round + ':' + pkg, pin: { model: FIX_MODEL || (high ? 'opus' : 'sonnet'), effort: FIX_EFFORT || (high ? 'high' : 'medium') } })
-    return { package: pkg, pkg, findings: fs.length, impl: fx.impl, tests: fx.test, test: fx.test, blocked: !fx.done, notDone: !fx.done }
+    // a test stage that did not finish (blocked or partial) blocks the task like an unfinished fix
+    return { package: pkg, pkg, findings: fs.length, impl: fx.impl, tests: fx.test, test: fx.test, blocked: !fx.done || !fx.testOk, notDone: !fx.done, testNotDone: fx.done && !fx.testOk }
   }
   const fixed = []
   for (const wave of partition.waves) {
@@ -745,7 +755,8 @@ const fixedAll = rounds.flatMap(r => r.fixed || [])
 // Red: a package whose fixer is not done, or every fixed package of a round whose gate is not green.
 const red = [...new Set(rounds.flatMap(r => (r.fixed || []).filter(x => x.notDone || x.blocked || (r.gate && r.gate.status !== 'green')).map(x => x.package)))]
 for (const r of rounds) {
-  for (const x of r.fixed || []) decisions.push(`${x.notDone ? 'fix NOT done (' + (x.impl ? x.impl.status : 'no result') + ') for ' : 'fixed '}${x.findings || 0} finding(s) in ${x.package}`)
+  for (const x of r.fixed || []) decisions.push(`${x.notDone ? 'fix NOT done (' + (x.impl ? x.impl.status : 'no result') + ') for ' : 'fixed '}${x.findings || 0} finding(s) in ${x.package}` +
+    (x.testNotDone ? ` — test stage ${x.test ? x.test.status : 'returned nothing'}` : ''))
   if (r.gate) decisions.push(`round ${r.round}: gate ${r.gate.status}`)
 }
 if (!FIX) decisions.push('review only: fix=false')
