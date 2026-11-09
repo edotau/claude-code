@@ -83,6 +83,9 @@ func (r Record) EventsPath() string {
 // dispatchKeep bounds the log after pruning once the margin is exceeded.
 var dispatchKeep = 200
 
+// DispatchKeep is how many newest dispatch records pruning keeps; `claude-code clean` never sweeps them.
+func DispatchKeep() int { return dispatchKeep }
+
 const dispatchPruneMargin = 20
 
 // NewRecord stamps an id that sorts by time and names the agent: 20261016T210512.123-codex.

@@ -12,11 +12,17 @@ import (
 
 func TestVaultGetKeyRefusesTTY(t *testing.T) {
 	vaulttest.UseFreshKey(t)
+	_, slave := vaultTestPTY(t)
+	assertGetKeyRefusesTTY(t, slave)
+}
+
+func vaultTestPTY(t *testing.T) (*os.File, *os.File) {
+	t.Helper()
 	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer master.Close()
+	t.Cleanup(func() { master.Close() })
 	if err := unix.IoctlSetPointerInt(int(master.Fd()), unix.TIOCSPTLCK, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -28,6 +34,6 @@ func TestVaultGetKeyRefusesTTY(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer slave.Close()
-	assertGetKeyRefusesTTY(t, slave)
+	t.Cleanup(func() { slave.Close() })
+	return master, slave
 }
