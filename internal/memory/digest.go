@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -30,17 +29,31 @@ const (
 		"markdown bullet lines of durable facts. Keep dates and any [id] tags. Output only the bullets.\n\n%s"
 )
 
+// archiveFiles lists dir's raw archive .md files, sorted; ReadDir (not Glob) so bracket chars in dir stay literal.
+func archiveFiles(dir string) ([]string, error) {
+	ents, err := os.ReadDir(memstore.ArchiveDir(dir))
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	var files []string
+	for _, e := range ents {
+		if strings.HasSuffix(e.Name(), ".md") && e.Name() != DigestFile {
+			files = append(files, filepath.Join(memstore.ArchiveDir(dir), e.Name()))
+		}
+	}
+	return files, nil
+}
+
 // digestInput is dir's raw archive (every archive/*.md except the digest itself), oldest file first, and its sources.
 func digestInput(dir string) (string, []string, error) {
-	files, _ := filepath.Glob(filepath.Join(memstore.ArchiveDir(dir), "*.md"))
-	sort.Strings(files)
+	files, err := archiveFiles(dir)
+	if err != nil {
+		return "", nil, err
+	}
 	var b strings.Builder
 	var used []string
 	var total int64
 	for _, f := range files {
-		if filepath.Base(f) == DigestFile {
-			continue
-		}
 		fi, err := os.Stat(f)
 		if err != nil {
 			return "", nil, err

@@ -130,7 +130,10 @@ func nativeStatsReport(w io.Writer, dir string) error {
 
 // nativeDupesReport prints near-duplicate clusters and the survivor each collapses into.
 func nativeDupesReport(w io.Writer, dir string) error {
-	clusters := NativeDupes(dir, dupeThreshold)
+	clusters, err := nativeDupes(dir, dupeThreshold)
+	if err != nil {
+		return err
+	}
 	if len(clusters) == 0 {
 		fmt.Fprintf(w, "no topic files overlap at or above %.0f%%\n", dupeThreshold*100)
 		return nil

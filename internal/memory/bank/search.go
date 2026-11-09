@@ -1,6 +1,8 @@
 package bank
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,17 +77,21 @@ func ContentQueryTerms(tokens []string) []string {
 }
 
 // CorpusBlocks loads every searchable block (Score 0): bank entries split by file grammar, a native topic whole.
-func CorpusBlocks(root string) []SearchHit {
+// A file that vanished since listing is skipped; any other read error fails the whole corpus.
+func CorpusBlocks(root string) ([]SearchHit, error) {
 	var out []SearchHit
 	for _, f := range CorpusFiles(root) {
 		data, err := os.ReadFile(f.Path)
-		if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
 			continue
+		}
+		if err != nil {
+			return nil, err
 		}
 		base := filepath.Base(f.Path)
 		for _, block := range ParseBlocks(f.Mode, base, data) {
 			out = append(out, SearchHit{Bank: f.Bank, File: base, Block: block, Dir: ownerDir(f.Bank, f.Path)})
 		}
 	}
-	return out
+	return out, nil
 }

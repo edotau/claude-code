@@ -219,9 +219,15 @@ var ErrNoBlock = errors.New("no memory block with that id")
 func ShowBlock(ref string) (string, string, error) {
 	contentRef := strings.HasPrefix(ref, contentRefPrefix) && isHex(strings.TrimPrefix(ref, contentRefPrefix))
 	var foundPath, foundBlock string
-	_ = filepath.WalkDir(memstore.StoreDir(), func(p string, d fs.DirEntry, err error) error {
-		if err != nil || foundPath != "" {
+	err := filepath.WalkDir(memstore.StoreDir(), func(p string, d fs.DirEntry, err error) error {
+		if foundPath != "" { // already matched: a later unreadable entry must not discard the match
 			return nil
+		}
+		if errors.Is(err, fs.ErrNotExist) { // no store yet: nothing to find
+			return nil
+		}
+		if err != nil {
+			return err
 		}
 		if d.IsDir() && d.Name() == ".git" {
 			return filepath.SkipDir
@@ -234,6 +240,9 @@ func ShowBlock(ref string) (string, string, error) {
 		}
 		return nil
 	})
+	if err != nil {
+		return "", "", err
+	}
 	if foundPath == "" {
 		return "", "", ErrNoBlock
 	}

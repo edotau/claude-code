@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,16 +17,26 @@ type NativeDupe struct {
 	Score  float64
 }
 
-// NativeDupes clusters dir's topic files whose bodies overlap at or above threshold. Report-only: naming
-// a survivor is a judgement call about which one carries the better evidence, so nothing moves here.
+// NativeDupes is nativeDupes with its error dropped; an unreadable topic reads as no overlap, so use nativeDupes.
 func NativeDupes(dir string, threshold float64) []NativeDupe {
+	out, _ := nativeDupes(dir, threshold)
+	return out
+}
+
+// nativeDupes clusters dir's topic files whose bodies overlap at or above threshold; an unreadable topic fails the
+// scan, since a file never read cannot be ruled out as a duplicate. Report-only: nothing moves here.
+func nativeDupes(dir string, threshold float64) ([]NativeDupe, error) {
+	topics, err := topicFiles(dir)
+	if err != nil {
+		return nil, err
+	}
 	var names []string
 	sets := map[string]map[string]bool{}
 	size := map[string]int{}
-	for _, p := range topicPaths(dir) {
+	for _, p := range topics {
 		b, err := os.ReadFile(p)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("%s: %w", filepath.Base(p), err)
 		}
 		name := filepath.Base(p)
 		names = append(names, name)
@@ -52,7 +63,7 @@ func NativeDupes(dir string, threshold float64) []NativeDupe {
 		seen[cluster.Keep] = true
 		out = append(out, cluster)
 	}
-	return out
+	return out, nil
 }
 
 // dupeCluster gathers the unseen names whose token sets overlap a's at or above threshold, marking them seen.

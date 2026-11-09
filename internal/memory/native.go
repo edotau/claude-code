@@ -19,15 +19,40 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// topicPaths lists dir's KindTopic files; indexes, the catalog and typed bank files are not topics.
-func topicPaths(dir string) []string {
-	ents, _ := os.ReadDir(dir)
+// topicFiles lists dir's KindTopic files; an absent dir is empty, any other read failure is returned.
+func topicFiles(dir string) ([]string, error) {
+	ents, err := os.ReadDir(dir)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
 	var out []string
 	for _, e := range ents {
+		if err := checkReadable(dir, e); err != nil {
+			return nil, err
+		}
 		if bank.ClassifyMemoryFile(dir, e.Name()) == bank.KindTopic {
 			out = append(out, filepath.Join(dir, e.Name()))
 		}
 	}
+	return out, nil
+}
+
+// checkReadable fails on a regular .md entry that cannot be opened: ClassifyMemoryFile reads such a file as
+// KindOther, which would drop it from the scan without an error.
+func checkReadable(dir string, e os.DirEntry) error {
+	if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".md") {
+		return nil
+	}
+	f, err := os.Open(filepath.Join(dir, e.Name()))
+	if err != nil {
+		return err
+	}
+	return f.Close()
+}
+
+// topicPaths is topicFiles with its error dropped; production callers use topicFiles.
+func topicPaths(dir string) []string {
+	out, _ := topicFiles(dir)
 	return out
 }
 
@@ -238,7 +263,10 @@ func linkTarget(line string) (string, bool) {
 // NativeStats reports dir's injected cost and the two integrity faults, counting only topic files.
 func NativeStats(dir string) (NativeStoreStats, error) {
 	var st NativeStoreStats
-	topics := topicPaths(dir)
+	topics, err := topicFiles(dir)
+	if err != nil {
+		return st, err
+	}
 	st.TopicFiles = len(topics)
 	present := map[string]bool{}
 	for _, p := range topics {
@@ -517,10 +545,14 @@ func reconcileLines(dir, index string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	topics, err := topicFiles(dir)
+	if err != nil {
+		return nil, err
+	}
 	rec, _ := os.ReadFile(filepath.Join(nativeArchiveDir(dir), bank.NativeArchiveIndexFile))
 	recorded := indexLinks(string(rec))
 	var missing []string
-	for _, p := range topicPaths(dir) {
+	for _, p := range topics {
 		name := filepath.Base(p)
 		if _, ok := links[name]; ok {
 			continue
@@ -537,10 +569,7 @@ func reconcileLines(dir, index string) ([]string, error) {
 // healedIndex is MEMORY.md's bytes (nil when absent) and its text with reconcileLines appended in memory;
 // a malformed or over-reserve bank region is the error that stops the caller's rewrite.
 func healedIndex(dir string) (raw []byte, healed string, err error) {
-	raw, err = os.ReadFile(filepath.Join(dir, bank.NativeIndexFile))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, "", nil
-	}
+	raw, err = readIfExists(filepath.Join(dir, bank.NativeIndexFile))
 	if err != nil {
 		return nil, "", err
 	}

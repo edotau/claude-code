@@ -137,7 +137,11 @@ func planAlias(opt AliasOptions, canon string) (AliasResult, *aliasPlan, error) 
 	if err := p.foldFiles(*src, tgt, &res); err != nil {
 		return res, nil, err
 	}
-	p.links = projectLinksTo(src.Dir)
+	links, err := projectLinksTo(src.Dir)
+	if err != nil {
+		return res, nil, err
+	}
+	p.links = links
 	for _, l := range p.links {
 		res.Lines = append(res.Lines, "repoint "+l+" -> "+tgt.Dir)
 	}
@@ -336,20 +340,33 @@ func sortNewestFirst(all []string) []string {
 	return sorted
 }
 
-// projectLinksTo lists <cfg>/projects/*/memory symlinks that resolve to dir.
-func projectLinksTo(dir string) []string {
+// projectLinksTo lists <cfg>/projects/*/memory symlinks that resolve to dir; an unreadable entry is an error,
+// since a link it hides would dangle once the source store is removed.
+func projectLinksTo(dir string) ([]string, error) {
 	want := paths.CanonDeep(dir)
-	m, _ := filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", "memory"))
+	projects := filepath.Join(paths.ConfigDir(), "projects")
+	ents, err := os.ReadDir(projects)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
 	var out []string
-	for _, l := range m {
-		if fi, err := os.Lstat(l); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+	for _, e := range ents {
+		l := filepath.Join(projects, e.Name(), "memory")
+		fi, err := os.Lstat(l)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if fi.Mode()&os.ModeSymlink == 0 {
 			continue
 		}
 		if paths.SamePath(memstore.NativeLinkTarget(l), want) {
 			out = append(out, l)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // apply runs under the bank lock: reversible steps first (undone on error), then the journaled commit, then cleanup.

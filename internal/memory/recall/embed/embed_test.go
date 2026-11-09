@@ -62,6 +62,16 @@ func expireEmbed(t *testing.T) {
 }
 
 // wantEmbedded fails unless the run embedded wantN entries without error and the endpoint has seen wantCalls texts.
+// mustEntryHashes is currentEntryHashes for tests: it fails the test on a corpus read error.
+func mustEntryHashes(t *testing.T, root string) map[string]string {
+	t.Helper()
+	h, err := currentEntryHashes(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
 func wantEmbedded(t *testing.T, label string, n, calls int, err error, wantN, wantCalls int) {
 	t.Helper()
 	if err != nil || n != wantN || calls != wantCalls {
@@ -111,7 +121,11 @@ func assertSemanticCloser(t *testing.T, c *EmbedClient, root string) {
 // entryCosines returns the query's cosine to entry aaaa0001 (gamma) and to the other entry (delta).
 func entryCosines(t *testing.T, sem *Semantic, root string) (gamma, delta float64) {
 	t.Helper()
-	for _, h := range bank.CorpusBlocks(root) {
+	hits, err := bank.CorpusBlocks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range hits {
 		e := bank.EntryFromHit(h)
 		cos, ok := sem.Cosine(e)
 		if !ok {
@@ -159,7 +173,7 @@ func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
 			nested = true
 			write(t, bankFile, "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n\n## 2026-10-02 — delta two <!-- id:aaaa0002 -->\n\nbody\n")
 			cur := freshEmbedCache(inner)
-			cur.Rows["aaaa0002"] = vectorRow{Root: root, Hash: currentEntryHashes(root)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
+			cur.Rows["aaaa0002"] = vectorRow{Root: root, Hash: mustEntryHashes(t, root)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
 			if err := saveEmbedCache("fake", cur); err != nil {
 				t.Error(err)
 			}
@@ -279,7 +293,7 @@ func TestEmbedMergeKeepsVectorMatchingCurrentContent(t *testing.T) {
 			nested = true
 			write(t, bankFile, v2)
 			cur := freshEmbedCache(inner)
-			cur.Rows["aaaa0001"] = vectorRow{Root: root, Hash: currentEntryHashes(root)["aaaa0001"], Vec: encodeVec([]float32{1, 0, 0})}
+			cur.Rows["aaaa0001"] = vectorRow{Root: root, Hash: mustEntryHashes(t, root)["aaaa0001"], Vec: encodeVec([]float32{1, 0, 0})}
 			if err := saveEmbedCache("fake", cur); err != nil {
 				t.Error(err)
 			}
@@ -289,7 +303,7 @@ func TestEmbedMergeKeepsVectorMatchingCurrentContent(t *testing.T) {
 	if _, _, err := EmbedEntries(context.Background(), root, outer); err != nil {
 		t.Fatal(err)
 	}
-	want := currentEntryHashes(root)["aaaa0001"]
+	want := mustEntryHashes(t, root)["aaaa0001"]
 	if got := loadEmbedCache("fake").Rows["aaaa0001"].Hash; got != want {
 		t.Errorf("cache holds the older run's vector: hash %s, current content %s", got, want)
 	}
@@ -518,7 +532,7 @@ func TestStaleEmbedRunCannotRevertDimension(t *testing.T) {
 	old := dimEmbedClient(3, func() { // the old-dimension run is mid-embed when the migration finishes
 		cur := freshEmbedCache(newer)
 		cur.Dim, cur.DimAt = 2, time.Now().UnixNano()
-		for id, h := range currentEntryHashes(root) {
+		for id, h := range mustEntryHashes(t, root) {
 			cur.Rows[id] = vectorRow{Root: root, Hash: h, Vec: encodeVec([]float32{1, 0})}
 		}
 		if err := saveEmbedCache("fake", cur); err != nil {
@@ -562,7 +576,7 @@ func TestPruneKeepsRowsOfEntriesAddedMidRun(t *testing.T) {
 			nested = true
 			write(t, bankFile, "# D\n\n"+e1+e2)
 			cur := loadEmbedCache("fake")
-			cur.Rows["aaaa0002"] = vectorRow{Root: root, Hash: currentEntryHashes(root)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
+			cur.Rows["aaaa0002"] = vectorRow{Root: root, Hash: mustEntryHashes(t, root)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
 			if err := saveEmbedCache("fake", cur); err != nil {
 				t.Error(err)
 			}

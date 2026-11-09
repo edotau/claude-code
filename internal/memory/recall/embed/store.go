@@ -34,6 +34,9 @@ func (s *boltVectorStore) Put(write VectorWrite) (stored bool, err error) {
 	err = updateEmbedDB(func(tx *bbolt.Tx) error {
 		record := write.Record
 		if write.Merge != nil {
+			if !claimOwnedBy(tx, write.Profile, write.Owner) { // taken over or expired: refuse, stored stays false
+				return nil
+			}
 			if err := dropClaim(tx, write.Profile, write.Owner); err != nil {
 				return err
 			}
@@ -263,10 +266,15 @@ func (s *boltVectorStore) Claim(profile string, owner int64, now, expiry time.Ti
 	return held, ok, err
 }
 
+// claimOwnedBy reports whether profile's claim record names owner.
+func claimOwnedBy(tx *bbolt.Tx, profile string, owner int64) bool {
+	v := tx.Bucket(embedClaimBucket).Get([]byte(profile))
+	return len(v) == 16 && int64(binary.BigEndian.Uint64(v[8:])) == owner
+}
+
 func dropClaim(tx *bbolt.Tx, profile string, owner int64) error {
-	b := tx.Bucket(embedClaimBucket)
-	if v := b.Get([]byte(profile)); len(v) == 16 && int64(binary.BigEndian.Uint64(v[8:])) == owner {
-		return b.Delete([]byte(profile))
+	if claimOwnedBy(tx, profile, owner) {
+		return tx.Bucket(embedClaimBucket).Delete([]byte(profile))
 	}
 	return nil
 }

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // canonTemp resolves symlinks so fixture paths match what the package resolves at runtime.
@@ -51,6 +53,24 @@ func readFile(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(b)
+}
+
+func TestDirUnreadableOriginNeverFallsBackToHome(t *testing.T) {
+	tempConfig(t)
+	resetVaultRetry(t)
+	repo := gitRepo(t, t.TempDir(), "project")
+	if _, err := EnsureRepoDir(repo); err != nil {
+		t.Fatal(err)
+	}
+	write(t, vault.Path(), "not a vault")
+	if entries, err := RepoDirs(); err == nil {
+		t.Fatalf("RepoDirs = %+v, nil; want an unreadable-vault error without a catalog fallback", entries)
+	}
+
+	want := filepath.Join(StateDir(), "unresolved-store")
+	if got := Dir(repo); got != want {
+		t.Fatalf("Dir(repo) = %q; want inert path %q, never home bank %q", got, want, HomeBankDir())
+	}
 }
 
 func TestStorePaths(t *testing.T) {
