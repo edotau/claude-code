@@ -1,6 +1,7 @@
 package agentcfg
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -50,7 +51,7 @@ func TestFor(t *testing.T) {
 		{"fallback carried", "codex", "", Launch{}, "dev2", "dev", ""},
 		{"opencode own login", "opencode", "", Launch{Profile: "zen-free"}, "zen-free", "", ""},
 		{"opencode sub id", "opencode", "", Launch{Profile: "opencode-go"}, "opencode-go", "", ""},
-		{"unsupported provider", "codex", "", Launch{Provider: "anthropic"}, "", "", "--provider anthropic"},
+		{"unserved provider", "codex", "", Launch{Provider: "nosuchprov"}, "", "", "no signed-in nosuchprov profile serves codex"},
 		{"unknown profile", "codex", "", Launch{Profile: "nosuch"}, "", "", "nosuch"},
 		{"stale fallback ignored", "codex", "", Launch{}, "dev2", "gone", ""},
 		{"last-used beats pin", "codex", "", Launch{LastProfile: "dev"}, "dev", "", ""},
@@ -115,13 +116,91 @@ func TestForIgnoresArmEnv(t *testing.T) {
 	}
 }
 
-// An unsupported --provider is rejected even when --profile is also given.
+// A --provider other than the profile's is rejected even when --profile is also given.
 func TestForRejectsBadProviderWithProfile(t *testing.T) {
 	setup(t)
-	for _, profile := range []string{"dev", "session"} {
-		_, err := For("codex", Launch{Profile: profile, Provider: "openai"})
-		if err == nil || !strings.Contains(err.Error(), "--provider openai") {
-			t.Fatalf("For(profile %s, provider openai) err = %v, want the provider rejection", profile, err)
+	t.Setenv(providers.EnvSessionProfile, "dev")
+	for profile, want := range map[string]string{"dev": "--profile dev is not a openai profile", "session": "no signed-in openai profile serves codex"} {
+		_, err := For("codex", Launch{Profile: profile, Provider: "openai", CanServe: databricksOnly})
+		if err == nil || err.Error() != "agent codex: "+want {
+			t.Fatalf("For(profile %s, provider openai) err = %v, want %q", profile, err, want)
 		}
+	}
+}
+
+// A non-routed unknown --profile with --provider wraps ErrUnknownProfile, like the same profile without --provider.
+func TestForUnknownProfileWithProviderWrapsSentinel(t *testing.T) {
+	setup(t)
+	for _, provider := range []string{"", "databricks"} {
+		_, err := For("codex", Launch{Profile: "nosuch", Provider: provider, CanServe: databricksOnly})
+		if !errors.Is(err, ErrUnknownProfile) {
+			t.Errorf("For(profile nosuch, provider %q) err = %v, want ErrUnknownProfile", provider, err)
+		}
+	}
+}
+
+func TestForRouted(t *testing.T) {
+	setup(t)
+	pin(t, "codex", "dev2", "")
+	cases := []struct{ env, agent, profile, provider, want, err string }{
+		{"", "codex", "", "", "", ""},
+		{"dev", "codex", "session", "", "dev", ""},
+		{"", "codex", "session", "", "max", ""},
+		{"", "codex", "dev", "databricks", "dev", ""},
+		{"", "codex", "max", "databricks", "", "not a databricks profile"},
+		{"", "codex", "session", "databricks", "dev", ""},
+		{"", "codex", "", "github", "", "no signed-in github profile serves codex"},
+		{"", "codex", "nosuch", "", "", "not in the registry"},
+		{"dev", "gemini", "session", "", "", ""},
+		{"dev", "gemini", "dev", "", "dev", ""},
+	}
+	for _, c := range cases {
+		t.Setenv(providers.EnvSessionProfile, c.env)
+		cfg, err := For(c.agent, Launch{Profile: c.profile, Provider: c.provider, Routed: true, CanServe: databricksOnly})
+		if cfg.Profile != c.want || (c.err == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), c.err)) {
+			t.Errorf("%+v: got %q, %v", c, cfg.Profile, err)
+		}
+	}
+	cfg, err := For("codex", Launch{})
+	if err != nil || cfg.Profile != "dev2" {
+		t.Errorf("non-routed pin = %q, %v, want dev2", cfg.Profile, err)
+	}
+}
+
+// A --provider github with CanServe rejecting every row reaches the registry's github profiles and still fails.
+func TestForRoutedProviderEvaluatesRegistryProfiles(t *testing.T) {
+	setup(t)
+	var seen []string
+	deny := func(_ string, p *providers.Provider) bool { seen = append(seen, p.Provider); return false }
+	_, err := For("codex", Launch{Provider: "github", Routed: true, CanServe: deny})
+	if err == nil || !strings.Contains(err.Error(), "no signed-in github profile serves codex") || len(seen) == 0 {
+		t.Fatalf("err = %v, evaluated %v; want a github row evaluated then rejected", err, seen)
+	}
+}
+
+// databricksOnly stands in for agent.CanServe: only databricks rows serve the test agents.
+func databricksOnly(_ string, p *providers.Provider) bool { return p.Provider == "databricks" }
+
+// A non-routed --provider with no CanServe never picks a signed-in non-databricks profile (openai's chatgpt login is always present).
+func TestForNonRoutedProviderWithoutCanServeRejectsNonDatabricks(t *testing.T) {
+	setup(t)
+	got, err := For("codex", Launch{Provider: "openai"})
+	if err == nil || !strings.Contains(err.Error(), "no signed-in openai profile serves codex") {
+		t.Fatalf("For(codex, provider openai) = %+v, %v; want the no-profile-serves error", got, err)
+	}
+}
+
+// A --provider with no --profile picks the same profile routed and non-routed (one rule set), not the pin.
+func TestForProviderPickMatchesRouted(t *testing.T) {
+	setup(t)
+	pin(t, "codex", "max", "")
+	t.Setenv(providers.EnvSessionProfile, "dev")
+	routed, err := For("codex", Launch{Provider: "databricks", Routed: true, CanServe: databricksOnly})
+	if err != nil || routed.Profile == "" || routed.Profile == "max" {
+		t.Fatalf("routed = %+v, %v; want a databricks pick", routed, err)
+	}
+	got, err := For("codex", Launch{Provider: "databricks"})
+	if err != nil || got.Profile != routed.Profile {
+		t.Fatalf("non-routed = %+v, %v; want %q like routed", got, err, routed.Profile)
 	}
 }

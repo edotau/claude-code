@@ -17,7 +17,12 @@ const geminiLogin = "antigravity"
 type Config struct{ Agent, Profile, Model, Effort, Fallback string }
 
 // Launch is the flags the caller typed plus the workspace's last-used profile; the zero value keeps every agent on its pin.
-type Launch struct{ Profile, Provider, LastProfile string }
+// Routed leads a router run instead (no flag means no profile, unknown profiles err); CanServe filters --provider picks.
+type Launch struct {
+	Profile, Provider, LastProfile string
+	Routed                         bool
+	CanServe                       func(agent string, p *providers.Provider) bool
+}
 
 // ErrUnknownProfile marks a profile that is no registry row; For still returns the Config it resolved.
 var ErrUnknownProfile = errors.New("not in the registry")
@@ -28,6 +33,14 @@ var lastProfileAgents = []string{"codex", "copilot", "gemini", "opencode"}
 // For is agent's pin with the launch flags, then the last-used profile, over Profile; a registry profile must exist
 // (own logins skip the check). A vault read error is returned.
 func For(agent string, l Launch) (Config, error) {
+	reg, err := providers.Load()
+	if err != nil {
+		return Config{}, err
+	}
+	if l.Routed {
+		lead, err := resolveLead(reg, agent, l)
+		return Config{Agent: agent, Profile: lead}, err
+	}
 	recs, err := vault.ReadAgentRecords([]string{agent})
 	if err != nil {
 		return Config{}, err
@@ -38,23 +51,14 @@ func For(agent string, l Launch) (Config, error) {
 	if cfg.Profile == "" && agent == "gemini" {
 		cfg.Profile = geminiLogin
 	}
-	if l.Provider != "" && l.Provider != "databricks" {
-		return Config{}, fmt.Errorf("agent %s: --provider %s is not supported (only databricks)", agent, l.Provider)
-	}
-	reg, err := providers.Load()
-	if err != nil {
-		return Config{}, err
-	}
 	switch {
-	case l.Profile == vaultSession:
-		if lead := providers.SessionLead(nil, true); lead != "" {
-			cfg.Profile = lead // an empty lead keeps the agent's pin
-		}
-	case l.Profile != "":
-		cfg.Profile = l.Profile
-	case l.Provider == "databricks":
-		if cfg.Profile, err = databricksProfile(reg); err != nil {
+	case l.Profile != "" || l.Provider != "":
+		lead, err := resolveLead(reg, agent, l)
+		if err != nil {
 			return Config{}, fmt.Errorf("agent %s: %w", agent, err)
+		}
+		if lead != "" {
+			cfg.Profile = lead // an empty lead keeps the agent's pin
 		}
 	case l.LastProfile != "" && active && slices.Contains(lastProfileAgents, agent) && reg.Providers[l.LastProfile] != nil:
 		cfg.Profile = l.LastProfile
@@ -73,16 +77,44 @@ func ownsProfile(agent, p string) bool {
 // vaultSession is the --profile value naming the session's own profile (agent.LeadSession).
 const vaultSession = "session"
 
-// databricksProfile is the session profile if a signed-in databricks one, else the first signed-in databricks profile.
-func databricksProfile(reg *providers.Registry) (string, error) {
-	s := providers.SessionLead(nil, true)
-	if p := reg.Providers[s]; p != nil && p.Provider == "databricks" && providers.CredentialPresent(p) {
-		return s, nil
+// resolveLead is the profile a launch leads with: l.Profile ("session" = the session's), narrowed to l.Provider.
+func resolveLead(reg *providers.Registry, agent string, l Launch) (string, error) {
+	profile, provider := l.Profile, l.Provider
+	fromSession := profile == vaultSession
+	if fromSession {
+		profile = providers.SessionLead(nil, true)
+		// a session-inherited lead never moves gemini off its pin; only a named profile or provider does
+		if p := reg.Providers[profile]; agent == "gemini" && provider == "" && (p == nil || p.Provider != "google") {
+			return "", nil
+		}
 	}
-	for _, n := range reg.ProfilesOf("databricks") {
-		if providers.CredentialPresent(reg.Providers[n]) {
+	if profile != "" && reg.Providers[profile] == nil && l.Routed {
+		return "", fmt.Errorf("profile %s is not in the registry", profile)
+	}
+	if provider == "" {
+		return profile, nil
+	}
+	if p := reg.Providers[profile]; p != nil && p.Provider == provider {
+		return profile, nil
+	}
+	if profile != "" && !fromSession {
+		if reg.Providers[profile] == nil && !ownsProfile(agent, profile) {
+			return "", fmt.Errorf("--profile %s is %w", profile, ErrUnknownProfile)
+		}
+		return "", fmt.Errorf("--profile %s is not a %s profile", profile, provider)
+	}
+	for _, n := range reg.ProfilesOf(provider) {
+		if p := reg.Providers[n]; serves(l, agent, p) && providers.CredentialPresent(p) {
 			return n, nil
 		}
 	}
-	return "", fmt.Errorf("no signed-in databricks profile")
+	return "", fmt.Errorf("no signed-in %s profile serves %s", provider, agent)
+}
+
+// serves is l.CanServe; with none set (a non-routed launch) only databricks rows qualify, as every agent can use them.
+func serves(l Launch, agent string, p *providers.Provider) bool {
+	if l.CanServe == nil {
+		return p.Provider == "databricks"
+	}
+	return l.CanServe(agent, p)
 }

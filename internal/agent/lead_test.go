@@ -25,28 +25,6 @@ func leadRegistry(t *testing.T) *providers.Registry {
 	return reg
 }
 
-func TestResolveLead(t *testing.T) {
-	reg := leadRegistry(t)
-	cases := []struct{ env, agent, profile, provider, want, err string }{
-		{"dev", "codex", LeadSession, "", "dev", ""},
-		{"", "codex", LeadSession, "", "max", ""},
-		{"", "codex", "dev", "databricks", "dev", ""},
-		{"", "codex", "max", "databricks", "", "not a databricks profile"},
-		{"", "codex", LeadSession, "databricks", "dev", ""},
-		{"", "codex", "", "github", "", "no signed-in github profile serves codex"},
-		{"", "codex", "nosuch", "", "", "not in the registry"},
-		{"dev", "gemini", LeadSession, "", "", ""},
-		{"dev", "gemini", "dev", "", "dev", ""},
-	}
-	for _, c := range cases {
-		t.Setenv(providers.EnvSessionProfile, c.env)
-		got, err := resolveLead(reg, c.agent, c.profile, c.provider)
-		if got != c.want || (c.err == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), c.err)) {
-			t.Errorf("%+v: got %q, %v", c, got, err)
-		}
-	}
-}
-
 // With a lead, the wanted agent's lead row is its own route and its pin is the other route.
 func TestOtherRouteFollowsLead(t *testing.T) {
 	rc := routeCtx{want: "codex", lead: "dev", pins: map[string]router.PinSpec{"codex": {Profile: "pin"}}}
