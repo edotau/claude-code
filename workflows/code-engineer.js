@@ -148,7 +148,7 @@ async function stageGate(ctx, o) {
   const tag = o.label || 'gate'
   const cmd = o.gate || o.scope.map((p) => 'go build ./' + p + '/... && go vet ./' + p + '/... && go test -count=1 ./' + p + '/...').join(' && ')
   // pipefail only matters with a pipe, and copilot's shell policy refuses the `set` prefix
-  const full = '`' + (cmd.includes('|') ? 'set -o pipefail; ' : '') + cmd + '`' + (o.schemas ? '; if ' + stDiff(o.scope) + ' changes a function that writes a file, also `go test -count=1 ./internal/schemas/`' : '')
+  const full = '`' + (cmd.includes('|') ? 'set -o pipefail; ' : '') + cmd + '`' + (o.schemas ? '; if ' + stDiff(o.scope) + ' changes a function that writes a file and ./internal/schemas exists, also `go test -count=1 ./internal/schemas/`' : '')
   const out = (status, exit, hist, residual) => {
     if (status !== 'green' && hist.length) log(tag + ' still ' + status + ' after ' + hist.length + ' iteration(s); residual: ' + residual.length)
     return { status, exit, gate: cmd, iterations: hist.length, filesChanged: [...new Set(hist.flatMap((h) => h.filesChanged))], residual, history: hist }
@@ -585,7 +585,7 @@ async function scanFirst() {
   const sc = await runChild('code-analyzer', { cwd: CWD, ...where, fix: false, minFix: a.minFix || 'low', focus, steps: stepsFor({ find: 'audit', rederive: 'refute' }), profile: a.profile, provider: a.provider })
   if (!sc || sc.exit === 'error') return { error: 'code-analyzer scan failed: ' + ((sc && sc.error) || 'returned nothing') }
   const confirmed = sc.confirmed || []
-  const known = confirmed.map((f) => ({ file: stRel(CTX, f.file), symptom: (f.title || f.symptom) + (f.scenario ? ' — ' + f.scenario : '') }))
+  const known = confirmed.map((f) => ({ file: stRel(CTX, f.file), severity: f.severity, symptom: (f.title || f.symptom) + (f.scenario ? ' — ' + f.scenario : '') }))
   decisions.push('analytical: code-analyzer scan exit ' + sc.exit + ', ' + confirmed.length + ' confirmed, ' + (sc.refuted || []).length + ' refuted → ' + (known.length ? 'code-workers fix them' : 'nothing to fix'))
   return { known, confirmed, unverified: sc.unverified || [], report: sc.report || '' }
 }
