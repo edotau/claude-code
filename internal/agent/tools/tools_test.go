@@ -357,8 +357,8 @@ func TestLocalBinDirUnsetHomeIsNotCwdRelative(t *testing.T) {
 	}
 	cwd := t.TempDir()
 	t.Chdir(cwd)
-	if err := installBinary(io.Discard, localBinDir(), "x", []byte("x")); err == nil {
-		t.Fatal("installBinary with empty dir succeeded, want error")
+	if err := installBinaryLocked(io.Discard, localBinDir(), "x", []byte("x")); err == nil {
+		t.Fatal("installBinaryLocked with empty dir succeeded, want error")
 	}
 	if _, err := os.Stat(filepath.Join(cwd, ".local")); !os.IsNotExist(err) {
 		t.Fatalf("cwd-relative .local was created: %v", err)

@@ -104,13 +104,13 @@ func Diff(ctx context.Context, cwd string, s Scope) ([]byte, error) {
 
 // untrackedBlock renders untracked text files as "new file: <path>" plus content, capped per file and overall.
 func untrackedBlock(ctx context.Context, cwd string) (string, error) {
-	listing, err := proc.RunGit(ctx, cwd, "ls-files", "--others", "--exclude-standard")
+	listing, err := proc.RunGit(ctx, cwd, "ls-files", "-z", "--others", "--exclude-standard")
 	if err != nil {
 		return "", err
 	}
 	var b strings.Builder
 	total, skipped := 0, 0
-	for rel := range strings.SplitSeq(listing, "\n") {
+	for rel := range strings.SplitSeq(listing, "\x00") { // -z: names are raw, never C-quoted
 		if rel == "" {
 			continue
 		}
@@ -130,7 +130,8 @@ func appendUntracked(b *strings.Builder, cwd, rel string) int {
 	path := filepath.Join(cwd, rel)
 	info, lerr := os.Lstat(path)
 	if lerr != nil {
-		return 0 // vanished between listing and read
+		fmt.Fprintf(b, "new file: %s (unreadable, skipped: %v)\n", rel, lerr)
+		return 0
 	}
 	if !info.Mode().IsRegular() {
 		b.WriteString(skippedSpecialNote(rel, info))
@@ -271,7 +272,7 @@ func SetReviewProgress(job *job.Record, p string) {
 
 // LastDispatchError is the newest failed dispatch's error text for agent, so a split report names the real cause.
 func LastDispatchError(name string) string {
-	for _, r := range job.RecentRecords(5) {
+	for _, r := range job.RecentRecords(1 << 20) { // every record: other agents' newer jobs must not hide this leg's failure
 		if r.Agent == name && r.Status == "error" {
 			return shapes.Preview(r.Error, 400)
 		}

@@ -154,7 +154,7 @@ func installOpencodeLocked(ctx context.Context, w io.Writer, dir, src string, dr
 		return restoreOpencodeAside(src, aside, fmt.Errorf("opencode: installed but %s unreadable: %w", src, err))
 	}
 	defer func() { _ = os.Remove(aside) }() // src now holds an accepted version; the aside copy is no longer needed
-	return installBinary(w, dir, "opencode", data)
+	return installBinaryLocked(w, dir, "opencode", data)
 }
 
 // restoreOpencodeAside undoes a refused/failed install and returns cause, joined with any restore failure.
@@ -223,7 +223,7 @@ func installClaudeScience(ctx context.Context, w io.Writer, dir string, dryRun b
 	if err != nil {
 		return err
 	}
-	return installBinary(w, dir, "claude-science", data)
+	return installBinaryLocked(w, dir, "claude-science", data)
 }
 
 // runSelfUpdate prints and runs `<bin> update`, skipping the exec on dry-run.

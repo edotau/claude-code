@@ -225,6 +225,7 @@ func (r *askRun) askState() *askState {
 		PermMode: &f.permMode, PermAllow: (*[]string)(&f.permAllow), PermAsk: (*[]string)(&f.permAsk), PermDeny: (*[]string)(&f.permDeny),
 		rubric: &f.rubric, env: &f.env}
 	st.Pack = &f.pack
+	st.lead = &r.lead
 	return st
 }
 

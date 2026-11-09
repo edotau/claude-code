@@ -3,7 +3,6 @@ package job
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -60,15 +59,17 @@ func followLog(ctx context.Context, rec Record, f *os.File, w io.Writer) (Record
 			lastOut = now
 		} else if quiet := now.Sub(lastOut); now.Sub(lastBeat) >= tailBeat && quiet >= tailBeat {
 			lastBeat = now
-			fmt.Fprintf(w, "· no output for %s (elapsed %s)\n", quiet.Round(time.Second), now.Sub(rec.Time).Round(time.Second))
+			if _, err := fmt.Fprintf(w, "· no output for %s (elapsed %s)\n", quiet.Round(time.Second), now.Sub(rec.Time).Round(time.Second)); err != nil {
+				return rec, err
+			}
 		}
 	}
 	_, err := io.Copy(w, f) // whatever landed between the last read and the record leaving running
 	return rec, err
 }
 
-// TailEvents copies rec's <id>.events.jsonl to w; with follow it waits for a result event or until the record
-// leaves running, printing a heartbeat event per tailBeat of silence. It returns the record as last seen.
+// TailEvents copies rec's <id>.events.jsonl to w; with follow it waits until the record leaves running (a
+// multi-turn session emits a result per turn), printing a heartbeat event per tailBeat of silence.
 func TailEvents(ctx context.Context, rec Record, follow bool, w io.Writer) (Record, error) {
 	rec, f, err := openTail(ctx, rec, follow, Record.EventsPath)
 	if err != nil {
@@ -97,57 +98,57 @@ func followEvents(ctx context.Context, rec Record, follow bool, w io.Writer, br 
 	var pend []byte
 	lastOut, lastBeat := time.Now(), time.Time{}
 	for {
-		n, done, err := copyEventLines(br, &pend, w)
-		if err != nil || done || !follow {
+		n, err := copyEventLines(br, &pend, w)
+		if err != nil || !follow {
 			return reloaded(rec), err
 		}
 		if n > 0 {
 			lastOut = time.Now()
 		}
 		if !rec.Alive() { // the writer is gone: one last drain, then stop
-			_, _, err = copyEventLines(br, &pend, w)
+			_, err = copyEventLines(br, &pend, w)
 			return rec, err
 		}
 		if err := sleepCtx(ctx, tailPoll); err != nil {
 			return rec, err
 		}
 		rec = reloaded(rec)
-		lastBeat = eventHeartbeat(w, rec, n, lastOut, lastBeat)
+		if lastBeat, err = eventHeartbeat(w, rec, n, lastOut, lastBeat); err != nil {
+			return rec, err
+		}
 	}
 }
 
-func eventHeartbeat(w io.Writer, rec Record, n int, lastOut, lastBeat time.Time) time.Time {
+// eventHeartbeat writes a heartbeat event when due; lastBeat advances only once the write lands.
+func eventHeartbeat(w io.Writer, rec Record, n int, lastOut, lastBeat time.Time) (time.Time, error) {
 	if now := time.Now(); n == 0 && now.Sub(lastBeat) >= tailBeat && now.Sub(lastOut) >= tailBeat {
-		fmt.Fprintf(w, "{\"schema\":%d,\"dispatch_id\":%q,\"type\":\"heartbeat\",\"t_ms\":%d}\n",
+		_, err := fmt.Fprintf(w, "{\"schema\":%d,\"dispatch_id\":%q,\"type\":\"heartbeat\",\"t_ms\":%d}\n",
 			wire.EventSchema, rec.ID, now.Sub(rec.Time).Milliseconds())
-		return now
+		if err != nil {
+			return lastBeat, err
+		}
+		return now, nil
 	}
-	return lastBeat
+	return lastBeat, nil
 }
 
-// copyEventLines writes each complete line br has to w, holding a partial tail in pend; done = a result line passed.
-func copyEventLines(br *bufio.Reader, pend *[]byte, w io.Writer) (n int, done bool, err error) {
+// copyEventLines writes each complete line br has to w, holding a partial tail in pend.
+func copyEventLines(br *bufio.Reader, pend *[]byte, w io.Writer) (int, error) {
+	n := 0
 	for {
 		chunk, rerr := br.ReadBytes('\n')
 		*pend = append(*pend, chunk...)
 		if rerr != nil { // EOF: the rest of the line has not landed yet
 			if errors.Is(rerr, io.EOF) {
-				return n, done, nil
+				return n, nil
 			}
-			return n, done, rerr
+			return n, rerr
 		}
 		if _, err := w.Write(*pend); err != nil {
-			return n, done, err
-		}
-		var ev struct{ Type string }
-		if json.Unmarshal(*pend, &ev) == nil && ev.Type == wire.EventResult {
-			done = true
+			return n, err
 		}
 		n += len(*pend)
 		*pend = (*pend)[:0]
-		if done {
-			return n, true, nil
-		}
 	}
 }
 

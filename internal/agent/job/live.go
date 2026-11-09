@@ -151,16 +151,18 @@ func (s *liveSession) finish(cause error) error {
 	s.mu.Lock()
 	res := wire.Result{Agent: s.name, Provider: s.profile, SessionID: s.session, Status: wire.StatusOK}
 	s.mu.Unlock()
-	var err error
+	var err, exitErr error
 	if !errors.Is(cause, errLiveIdle) {
 		err = cause
 		if errors.Is(cause, context.Canceled) {
 			err = errors.New("cancelled")
+		} else {
+			exitErr = cause // the child died or its stream broke: the holder exits non-zero
 		}
 		res.Status = wire.StatusError
 	}
 	s.rec.Finish(res, err, time.Since(s.rec.Time))
-	return s.rec.Save()
+	return errors.Join(exitErr, s.rec.Save())
 }
 
 // release ends the in-flight turn and restarts the idle clock.

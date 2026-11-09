@@ -119,16 +119,45 @@ func dispatchRun(ctx context.Context, role roles.Role, q roles.Request, jobs int
 		progress = nil
 	}
 	rep := roles.Run(ctx, cl, role, legs, max(1, jobs), progress)
-	if format == helptext.JSON {
-		body, _ := json.Marshal(rep)
-		fmt.Println(string(body))
-	} else {
-		rep.Text(os.Stdout)
+	if err := writeReport(rep, format); err != nil {
+		return helptext.Fail("dispatch: write report: %v", err)
 	}
 	if rep.Status == "error" {
 		return 1
 	}
 	return 0
+}
+
+// errWriter keeps the first write error, so output whose callee drops write errors still surfaces it.
+type errWriter struct {
+	w   io.Writer
+	err error
+}
+
+// Write forwards to w and records the first failure.
+func (e *errWriter) Write(p []byte) (int, error) {
+	n, err := e.w.Write(p)
+	if err != nil && e.err == nil {
+		e.err = err
+	}
+	return n, err
+}
+
+// writeReport prints rep to stdout as one JSON line or as text, returning any write failure.
+func writeReport(rep roles.Report, format string) error {
+	if format == helptext.JSON {
+		body, err := json.Marshal(rep)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(os.Stdout, string(body))
+		return err
+	}
+	out := &errWriter{w: os.Stdout}
+	if err := rep.Text(out); err != nil {
+		return err
+	}
+	return out.err
 }
 
 // dispatchDetach spawns each leg as `ask --background` does and prints its id (one JSON line per leg with --format json).

@@ -13,6 +13,19 @@ import (
 	"testing"
 )
 
+// TestMain moves TMPDIR out of /tmp: a stray /tmp/.git makes collect's fail-closed check reject every fixture.
+func TestMain(m *testing.M) {
+	root, err := os.MkdirTemp("/var/tmp", "pack-test-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "pack TestMain:", err)
+		os.Exit(1)
+	}
+	os.Setenv("TMPDIR", root)
+	code := m.Run()
+	os.RemoveAll(root)
+	os.Exit(code)
+}
+
 // write creates path (and its parent dirs) with body, mode 0644.
 func write(t *testing.T, path, body string) {
 	t.Helper()

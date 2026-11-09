@@ -37,7 +37,7 @@ func liveRequest(s *askState, perms agent.Permissions, name string) agent.RunOpt
 	return agent.RunOptions{Model: *s.Model, Provider: *s.Provider, Effort: *s.Effort, WorkDir: *s.Workdir, SessionID: *s.Session,
 		Tools: *s.Tools, ReadOnly: *s.ReadOnly, Permissions: perms, Timeout: *s.Timeout, KeepEnv: *s.KeepEnv, NoPersist: *s.NoPersist, SafeMode: *s.SafeMode,
 		DebugFile: absDebugFile(*s.DebugFile), SystemPrompt: *s.SystemPrompt, AppendSystemPrompt: *s.AppendSystemPrompt,
-		Autonomous: *s.Autonomous, Direct: *s.Direct, Agent: name, Background: true}
+		Autonomous: *s.Autonomous, Direct: *s.Direct, Lead: *s.lead, Agent: name, Background: true}
 }
 
 func startLive(s *askState, perms agent.Permissions, name, as, format string) int {
@@ -62,12 +62,10 @@ func startLive(s *askState, perms agent.Permissions, name, as, format string) in
 		return failAsk(format, name, err)
 	}
 	if err := job.Spawn(&rec, nil); err != nil {
-		abandonLive(&rec, err)
-		return failAsk(format, name, err)
+		return failAsk(format, name, abandonLive(&rec, err))
 	}
 	if err := job.WaitLiveReady(rec.ID, rec.PID); err != nil {
-		abandonLive(&rec, err)
-		return failAsk(format, name, fmt.Errorf("live session %s did not start: %w (log: %s)", rec.ID, err, rec.Log))
+		return failAsk(format, name, abandonLive(&rec, fmt.Errorf("live session %s did not start: %w (log: %s)", rec.ID, err, rec.Log)))
 	}
 	if format == helptext.JSON {
 		body, _ := json.Marshal(struct {
@@ -82,15 +80,18 @@ func startLive(s *askState, perms agent.Permissions, name, as, format string) in
 	return 0
 }
 
-// abandonLive stops a holder that never became ready and marks its saved record failed.
-func abandonLive(rec *job.Record, cause error) {
+// abandonLive stops a holder that never became ready and marks its record failed; an unstoppable holder is not marked.
+func abandonLive(rec *job.Record, cause error) error {
 	if rec.PID > 0 {
-		_ = job.Cancel(rec)
+		if err := job.Cancel(rec); err != nil {
+			return fmt.Errorf("%w; holder pid %d still running, stop failed: %w", cause, rec.PID, err)
+		}
 	}
 	if rec.Status == "running" || rec.Status == "" {
 		rec.Status, rec.Error = "error", cause.Error()
 		_ = rec.Save()
 	}
+	return cause
 }
 
 // runLiveHolder is job.RunHolder over the cli client's launcher.

@@ -1,9 +1,60 @@
 package wire
 
 import (
+	"errors"
 	"slices"
+	"strings"
 	"testing"
 )
+
+func TestStructuredRequiredEmptyPropertyName(t *testing.T) {
+	const schema = `{"type":"object","required":[""]}`
+	if _, _, err := Structured(`{}`, schema); !errors.Is(err, ErrSchema) || !strings.Contains(err.Error(), `missing required key ""`) {
+		t.Fatalf("missing empty-string key: got %v, want ErrSchema identifying the key", err)
+	}
+	const answer = `{"":null}`
+	raw, unchecked, err := Structured(answer, schema)
+	if err != nil {
+		t.Fatalf("present empty-string key rejected: %v", err)
+	}
+	if string(raw) != answer || len(unchecked) != 0 {
+		t.Errorf("raw = %s, unchecked = %v; want %s, none", raw, unchecked, answer)
+	}
+}
+
+func TestStructuredTupleItems(t *testing.T) {
+	for _, tc := range []struct {
+		name, answer, schema string
+		wantErr              bool
+		unchecked            []string
+	}{
+		{"wrong first item", `["wrong"]`, `{"type":"array","items":[{"type":"integer"}]}`, true, nil},
+		{"wrong second item", `[1,2]`, `{"items":[{"type":"integer"},{"type":"string"}]}`, true, nil},
+		{"matching positions", `[1,"ok"]`, `{"items":[{"type":"integer"},{"type":"string"}]}`, false, nil},
+		{"shorter tuple", `[1]`, `{"items":[{"type":"integer"},{"type":"string"}]}`, false, nil},
+		{"extra allowed by default", `[1,"extra"]`, `{"items":[{"type":"integer"}]}`, false, nil},
+		{"extra forbidden", `[1,"extra"]`, `{"items":[{"type":"integer"}],"additionalItems":false}`, true, nil},
+		{"wrong extra type", `[1,2]`, `{"items":[{"type":"integer"}],"additionalItems":{"type":"string"}}`, true, nil},
+		{"matching extra type", `[1,"ok"]`, `{"items":[{"type":"integer"}],"additionalItems":{"type":"string"}}`, false, nil},
+		{"unchecked nested keywords", `[1,"ok"]`, `{"items":[{"minimum":0}],"additionalItems":{"pattern":"ok"}}`, false, []string{"minimum", "pattern"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, unchecked, err := Structured(tc.answer, tc.schema)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("Structured(%s, %s): err = %v, want error = %v", tc.answer, tc.schema, err, tc.wantErr)
+			}
+			if tc.wantErr {
+				if !errors.Is(err, ErrSchema) {
+					t.Errorf("err = %v, want ErrSchema", err)
+				}
+				return
+			}
+			if string(raw) != tc.answer || !slices.Equal(unchecked, tc.unchecked) {
+				t.Errorf("raw = %s, unchecked = %v; want %s, %v", raw, unchecked, tc.answer, tc.unchecked)
+			}
+		})
+	}
+}
 
 func TestStructuredAnswerNested(t *testing.T) {
 	const schema = `{"type":"object","required":["a"],"properties":{"a":{"type":"object","required":["b"],` +

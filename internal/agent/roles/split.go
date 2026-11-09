@@ -279,13 +279,19 @@ func groupOf(p string) string {
 	}
 }
 
-const cleanVerdict = "VERDICT: no actionable findings"
+const (
+	cleanVerdict    = "VERDICT: no actionable findings"
+	noReviewVerdict = "VERDICT: no review completed"
+)
 
 // verdictRank orders the neutral review verdicts, worst highest.
 var verdictRank = map[string]int{"SHIP IT": 1, "NEEDS WORK": 2, "FIX REQUIRED": 2, "BLOCK": 3}
 
 // MergeReports folds per-part answers into one report: worst verdict first, then deduped findings per part.
 func MergeReports(adversarial bool, parts []Part, answers []string) string {
+	if adversarial && len(answers) == 0 { // no part answered: nothing was reviewed, so never a clean verdict
+		return noReviewVerdict + "\n"
+	}
 	seen := map[string]bool{}
 	var body strings.Builder
 	worst, best, unjudged, total := "", 0, false, 0

@@ -37,7 +37,7 @@ func linkTailscaleCLI(w io.Writer, dryRun bool) error {
 		return errors.New("tailscale: no home directory for ~/.local/bin")
 	}
 	dst := filepath.Join(local, "tailscale")
-	if _, err := os.Lstat(dst); err == nil {
+	if _, err := os.Stat(dst); err == nil { // Stat follows links: a dangling link is rewritten, not kept
 		fmt.Fprintln(w, "  keep     "+dst)
 		return nil
 	}
@@ -48,7 +48,7 @@ func linkTailscaleCLI(w io.Writer, dryRun bool) error {
 	if _, err := os.Stat(tailscaleAppBin); err != nil {
 		return fmt.Errorf("tailscale: app CLI missing after install: %w", err)
 	}
-	return installBinary(w, local, "tailscale", []byte("#!/bin/sh\nexec \""+tailscaleAppBin+"\" \"$@\"\n"))
+	return installBinaryLocked(w, local, "tailscale", []byte("#!/bin/sh\nexec \""+tailscaleAppBin+"\" \"$@\"\n"))
 }
 
 // installTailscale is a system install, not into dir: brew cask on macOS, the official script (sudo inside) on Linux.

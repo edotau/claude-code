@@ -9,7 +9,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/hosttest/gittest"
 )
 
@@ -87,6 +90,61 @@ func TestDiffUncommitted(t *testing.T) {
 	}
 	if !strings.Contains(s, "new file: new.txt") || !strings.Contains(s, "untracked content") {
 		t.Errorf("diff missing the untracked file block:\n%s", s)
+	}
+}
+
+func TestDiffUntrackedQuotedNames(t *testing.T) {
+	dir := initRepo(t)
+	runGit(t, dir, "config", "core.quotePath", "true")
+	for _, name := range []string{"tab\tname.txt", "double\"quote.txt", "café.txt"} {
+		t.Run(name, func(t *testing.T) {
+			const content = "untracked review content\n"
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out, err := Diff(context.Background(), dir, Scope{Kind: "uncommitted"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(out), "new file: "+name+"\n"+content) {
+				t.Fatalf("untracked file %q vanished from review:\n%s", name, out)
+			}
+		})
+	}
+	t.Run("vanished file is reported", func(t *testing.T) {
+		var out strings.Builder
+		if n := appendUntracked(&out, dir, "vanished.txt"); n != 0 {
+			t.Fatalf("missing file contributed %d content bytes", n)
+		}
+		if !strings.Contains(out.String(), "new file: vanished.txt (unreadable, skipped:") {
+			t.Fatalf("Lstat error silently dropped: %q", out.String())
+		}
+	})
+}
+
+func TestLastDispatchErrorBeyondOtherAgentsRecentJobs(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const want = "split review part 1: provider unavailable"
+	records := []job.Record{
+		{Agent: "codex", Status: "error", Error: "older failure"},
+		{Agent: "codex", Status: "error", Error: want},
+		{Agent: "gemini", Status: "error", Error: "unrelated failure"},
+		{Agent: "copilot", Status: "ok"},
+		{Agent: "gemini", Status: "ok"},
+		{Agent: "copilot", Status: "ok"},
+		{Agent: "gemini", Status: "ok"},
+		{Agent: "codex", Status: "ok"},
+	}
+	start := time.Date(2026, time.November, 8, 12, 0, 0, 0, time.UTC)
+	for i, fixture := range records {
+		rec := job.NewRecord(fixture.Agent, agent.RunOptions{}, start.Add(time.Duration(i)*time.Second))
+		rec.Status, rec.Error = fixture.Status, fixture.Error
+		if err := rec.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := LastDispatchError("codex"); got != want {
+		t.Fatalf("newest failed codex dispatch hidden by newer jobs: got %q, want %q", got, want)
 	}
 }
 

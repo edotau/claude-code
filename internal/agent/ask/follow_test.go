@@ -1,6 +1,7 @@
 package ask
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -55,6 +56,102 @@ func drain(ch <-chan Task, limit time.Duration) (got []string, closed bool, took
 		case <-timer.C:
 			return got, false, time.Since(start)
 		}
+	}
+}
+
+func TestBatchFollowWaitsForInitialTask(t *testing.T) {
+	for _, initial := range []string{"", `{"id":"a","prompt":"p"}`} {
+		t.Run(initial, func(t *testing.T) {
+			cliEnv(t)
+			cliFakes(t)
+			p := filepath.Join(t.TempDir(), "tasks.jsonl")
+			if err := os.WriteFile(p, []byte(initial), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			tail := "\n{\"end\":true}\n"
+			if initial == "" {
+				tail = `{"id":"a","prompt":"p"}` + tail
+			}
+			envs := envelopes(t, followCLIUntilAppend(t, p, tail))
+			if len(envs) != 1 || envs[0]["task_id"] != "a" || envs[0]["status"] != "ok" {
+				t.Fatalf("envelopes = %v, want appended task a to succeed", envs)
+			}
+		})
+	}
+}
+
+func followCLIUntilAppend(t *testing.T, p, tail string) string {
+	t.Helper()
+	done := make(chan int, 1)
+	var out, stderr string
+	go func() {
+		code, stdout, errout := runCLI(t, "ask", "--batch", p, "--follow", "--follow-idle", "1s")
+		out, stderr = stdout, errout
+		done <- code
+	}()
+	select {
+	case code := <-done:
+		t.Fatalf("batch exited before appended task: %d\n%s\n%s", code, out, stderr)
+	case <-time.After(followPoll):
+	}
+	appendFile(t, p, tail)
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("exit %d\n%s\n%s", code, out, stderr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("batch did not finish after end marker")
+	}
+	return out
+}
+
+func TestFollowerStartupEndMarkerStopsInitialAndAppendedTasks(t *testing.T) {
+	p := batchFile(t, `{"id":"a","prompt":"p"}`, `{"end":true}`, `{"id":"b","prompt":"p"}`)
+	w, initial, err := newFollower(p, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = w.f.Close() })
+	lines, err := ReadTaskLines(initial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 || lines[0].Err != nil || lines[0].Task.ID != "a" {
+		t.Fatalf("initial tasks = %+v, want only a before the end marker", lines)
+	}
+	appendFile(t, p, `{"id":"c","prompt":"p"}`+"\n")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	got, closed, _ := drain(w.run(ctx, ids), time.Second)
+	if !closed || len(got) != 0 {
+		t.Fatalf("followed tasks = %v, closed = %v, want no tasks and immediate close", got, closed)
+	}
+}
+
+func TestFollowerReadErrorFailsBatch(t *testing.T) {
+	cliEnv(t)
+	cliFakes(t)
+	w, _ := startFollower(t, "", time.Second)
+	if err := w.f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	lines, err := ReadTaskLines(strings.NewReader(`{"id":"a","prompt":"p"}` + "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	_, ok := RunBatch(t.Context(), lines, Opts{Agent: "claude", Follow: w.run}, agent.RunOptions{}, false, NewClient, &out)
+	if ok {
+		t.Fatalf("batch succeeded after follow read failed: %s", out.String())
+	}
+	envs := envelopes(t, out.String())
+	if len(envs) != 2 {
+		t.Fatalf("envelopes = %v, want initial task and follow error", envs)
+	}
+	byID := indexBatchEnvelopes(t, envs)
+	if byID["a"]["status"] != "ok" || !strings.Contains(out.String(), "--follow:") {
+		t.Fatalf("envelopes = %v, want initial success and contextual follow error", envs)
 	}
 }
 

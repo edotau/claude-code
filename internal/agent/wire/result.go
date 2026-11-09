@@ -31,7 +31,7 @@ type Result struct {
 	Dropped         []string        `json:"dropped,omitempty"`
 	SchemaUnchecked []string        `json:"-"`                         // schema keywords the minimal validator does not enforce
 	Emulated        []string        `json:"emulated,omitempty"`        // flags the harness shimmed because the agent has no channel
-	Fallback        string          `json:"fallback,omitempty"`        // set to the original agent's name when it ran instead
+	Fallback        string          `json:"fallback,omitempty"`        // the requested agent when another agent or route answered; Agent is the answerer
 	FallbackReason  string          `json:"fallback_reason,omitempty"` // why the original agent was unavailable
 	Handoff         string          `json:"handoff,omitempty"`         // hand-off file written when a copilot dispatch hit its quota
 	Transport       *Transport      `json:"transport,omitempty"`       // stream health; fields an agent can't report stay absent

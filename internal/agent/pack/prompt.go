@@ -89,7 +89,22 @@ func changedOrListed(ctx context.Context, s Spec, cwd string) ([]string, error) 
 	if len(changed) == 0 {
 		return nil, errors.New("--diff: nothing changed vs HEAD")
 	}
-	return append(files, changed...), nil
+	for _, p := range changed {
+		files = append(files, escapeGlob(p)) // literal paths: a `page[1].go` must match only itself
+	}
+	return files, nil
+}
+
+// escapeGlob backslash-escapes glob metacharacters so p matches only the file it names.
+func escapeGlob(p string) string {
+	var b strings.Builder
+	for _, r := range p {
+		if strings.ContainsRune(`*?[\`, r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // ChangedFiles lists tracked files changed against HEAD (staged + unstaged + untracked), which is
@@ -99,8 +114,8 @@ func ChangedFiles(ctx context.Context, root string) ([]string, error) {
 	var all []string
 	for _, args := range [][]string{
 		// --relative matches ls-files's cwd-relative output, so a subdirectory run doesn't mix bases.
-		{"-C", root, "diff", "--name-only", "--relative", "HEAD"},
-		{"-C", root, "ls-files", "--others", "--exclude-standard"},
+		{"-C", root, "diff", "--name-only", "-z", "--relative", "HEAD"},
+		{"-C", root, "ls-files", "--others", "--exclude-standard", "-z"},
 	} {
 		out, err := exec.CommandContext(ctx, "git", args...).Output()
 		if err != nil {
@@ -110,12 +125,12 @@ func ChangedFiles(ctx context.Context, root string) ([]string, error) {
 			}
 			return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, stderr)
 		}
-		all = append(all, strings.Split(strings.TrimSpace(string(out)), "\n")...)
+		all = append(all, strings.Split(string(out), "\x00")...) // -z: raw names, never quoted or newline-split
 	}
 	seen := map[string]bool{}
 	var uniq []string
 	for _, p := range all {
-		if p = strings.TrimSpace(p); p != "" && !seen[p] {
+		if p != "" && !seen[p] {
 			seen[p] = true
 			uniq = append(uniq, p)
 		}

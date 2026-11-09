@@ -240,7 +240,7 @@ func globPatterns(cwd string, patterns []string, matches map[string]bool, tracke
 	for _, pattern := range patterns {
 		glob := pattern
 		if !filepath.IsAbs(glob) {
-			glob = filepath.Join(cwd, pattern)
+			glob = filepath.Join(globEscape(cwd), pattern) // a cwd holding [, * or ? must match literally
 		}
 		hits, err := filepath.Glob(glob)
 		if err != nil {
@@ -291,19 +291,30 @@ func gitTrackedFiles(ctx context.Context, cwd string) (tracked map[string]bool, 
 	return tracked, true, nil
 }
 
-// notARepo reports a confirmed non-repo: git's exit 128 "not a git repository", or no .git above cwd at all.
+// notARepo reports a confirmed non-repo: no .git in or above cwd AND git's exit 128 "not a git repository".
 func notARepo(cwd string, rerr error) bool {
+	if gitEntryAbove(cwd) {
+		return false // a .git exists but git rejects it: a broken repo, so fail closed
+	}
 	var ee *exec.ExitError
-	if errors.As(rerr, &ee) && ee.ExitCode() == 128 && bytes.Contains(ee.Stderr, []byte("not a git repository")) {
+	return errors.As(rerr, &ee) && ee.ExitCode() == 128 && bytes.Contains(ee.Stderr, []byte("not a git repository"))
+}
+
+// gitEntryAbove reports whether a .git (directory or file) exists in dir or any parent; true on an unresolvable path.
+func gitEntryAbove(dir string) bool {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
 		return true
 	}
-	for dir := cwd; ; dir = filepath.Dir(dir) {
-		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
-			return false
-		}
-		if filepath.Dir(dir) == dir {
+	for {
+		if _, err := os.Lstat(filepath.Join(abs, ".git")); err == nil {
 			return true
 		}
+		parent := filepath.Dir(abs)
+		if parent == abs {
+			return false
+		}
+		abs = parent
 	}
 }
 
@@ -370,7 +381,7 @@ func isIgnored(rel string) bool {
 func isSecretLike(rel string) bool {
 	parts := strings.Split(rel, "/")
 	base := parts[len(parts)-1]
-	if base == ".env" || strings.HasPrefix(base, ".env.") || base == "secrets.env" {
+	if strings.HasPrefix(base, ".env") || base == "secrets.env" {
 		return true
 	}
 	if secretExtensions[strings.ToLower(filepath.Ext(base))] || isSSHKeyName(base) {
@@ -390,4 +401,9 @@ func mediaType(path string) string {
 		return mt
 	}
 	return "text/plain"
+}
+
+// globEscape backslash-escapes filepath.Match metacharacters so s matches itself.
+func globEscape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`).Replace(s)
 }

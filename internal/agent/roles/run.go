@@ -1,6 +1,7 @@
 package roles
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -117,23 +118,26 @@ func status(legs []LegResult) string {
 }
 
 // Text prints each leg as `### <label> (<agent>/<model>) [<status>]` and its answer or error, then the failed labels.
-func (rep Report) Text(w io.Writer) {
+// It returns the first write error; bufio keeps the error sticky, so Flush reports any failed write.
+func (rep Report) Text(w io.Writer) error {
+	bw := bufio.NewWriter(w)
 	var bad []string
 	for _, l := range rep.Legs {
 		e := l.Envelope
-		_, _ = fmt.Fprintf(w, "### %s (%s/%s) [%s]\n", l.Label, e.Agent, e.Model, e.Status)
+		_, _ = fmt.Fprintf(bw, "### %s (%s/%s) [%s]\n", l.Label, e.Agent, e.Model, e.Status)
 		if e.Status == "ok" {
-			_, _ = fmt.Fprintln(w, e.Answer)
+			_, _ = fmt.Fprintln(bw, e.Answer)
 			continue
 		}
 		bad = append(bad, l.Label)
 		if e.Error != nil {
-			_, _ = fmt.Fprintln(w, e.Error.Message)
+			_, _ = fmt.Fprintln(bw, e.Error.Message)
 		}
 	}
 	if len(bad) > 0 {
-		_, _ = fmt.Fprintf(w, "failed: %s\n", strings.Join(bad, ", "))
+		_, _ = fmt.Fprintf(bw, "failed: %s\n", strings.Join(bad, ", "))
 	}
+	return bw.Flush()
 }
 
 // Request is the verb's input; Parts are explore sub-questions, Models override a compare role's default set.

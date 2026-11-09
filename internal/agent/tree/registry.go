@@ -59,7 +59,10 @@ func liveTranscripts(claudeDir string, reg map[string]regEntry, have map[string]
 		if have[id] {
 			continue
 		}
-		matches, _ := plainSessionGlob(claudeDir, id)
+		matches, err := plainSessionGlob(claudeDir, id)
+		if err != nil {
+			continue // a registry name that is not a plain session id has no transcript
+		}
 		files = append(files, matches...)
 	}
 	return files
