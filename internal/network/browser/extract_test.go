@@ -24,11 +24,15 @@ type cdpFn func(method string, params json.RawMessage) (result string, loaded bo
 
 // fakeCDPFn serves a CDP endpoint whose commands are answered by fn; the URL goes in ExtractOptions.CDPBase.
 func fakeCDPFn(t *testing.T, fn cdpFn) string {
+	return fakeCDPWithClose(t, fn, func(http.ResponseWriter, *http.Request) {})
+}
+
+func fakeCDPWithClose(t *testing.T, fn cdpFn, closeTab http.HandlerFunc) string {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/json/new", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"id":"T","webSocketDebuggerUrl":"ws://`+r.Host+`/ws"}`)
 	})
-	mux.HandleFunc("/json/close/", func(http.ResponseWriter, *http.Request) {})
+	mux.HandleFunc("/json/close/", closeTab)
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		sum := sha1.Sum([]byte(r.Header.Get("Sec-WebSocket-Key") + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
 		c, brw, err := w.(http.Hijacker).Hijack()
@@ -296,7 +300,7 @@ func (s *site) handle(method string, params json.RawMessage) (string, bool) {
 		_ = json.Unmarshal(params, &p)
 		s.url = p.URL
 		s.navs = append(s.navs, p.URL)
-		return `{"frameId":"F"}`, true
+		return `{"frameId":"F","loaderId":"L"}`, true
 	case "Runtime.evaluate":
 		var p struct{ Expression string }
 		_ = json.Unmarshal(params, &p)
