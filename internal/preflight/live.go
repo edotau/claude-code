@@ -108,7 +108,7 @@ func LivePongs(ctx context.Context, bin string, ps []Pin) []Pong {
 	return pongAll(ctx, bin, live, "")
 }
 
-// pongAll pongs every pin in parallel; askProfile (else a routed pin's profile) is passed to ask as --profile.
+// pongAll pongs every pin in parallel; askProfile is passed to ask as --profile.
 func pongAll(ctx context.Context, bin string, ps []Pin, askProfile string) []Pong {
 	out := make([]Pong, len(ps))
 	var wg sync.WaitGroup
@@ -123,9 +123,6 @@ func pongAll(ctx context.Context, bin string, ps []Pin, askProfile string) []Pon
 
 func pong(ctx context.Context, bin string, p Pin, askProfile string) Pong {
 	r := Pong{Agent: p.Agent, Profile: p.Profile, Model: p.Model}
-	if askProfile == "" && p.ProfileSource == "route" { // pin the pong to the profile the route preview named
-		askProfile = p.Profile
-	}
 	env, err := runAsk(ctx, bin, p.Agent, askProfile)
 	r.Profile, r.Model = cmp.Or(env.Provider, r.Profile), cmp.Or(env.Model, r.Model)
 	switch {

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentcfg"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -148,8 +149,32 @@ func cliTarget(spec agent.Schema, name string, reg *providers.Registry, sel prov
 }
 
 // launchProfile resolves an agent CLI launch's profile: --profile > this workspace's last-used > the agent pin.
+// A --profile flag passes through untouched: selection validates it and the CLI's ProfileHint explains a miss.
 func launchProfile(name string, o agent.LaunchOptions) (agent.LaunchOptions, error) {
-	return withAgentPins(name, withLastProfile(name, o))
+	if o.Provider != "" {
+		return o, nil
+	}
+	last := lastUsedProfile(name)
+	cfg, err := agentcfg.For(name, agentcfg.Launch{LastProfile: last})
+	if err != nil {
+		return agent.LaunchOptions{}, err
+	}
+	if o.Provider = cfg.Profile; cfg.Profile != last {
+		o.Provider, err = pinRoute(name, cfg.Profile)
+	}
+	return o, err
+}
+
+// pinRoute is a profile pin as the launch routes it: "" for the agent's own login or a non-registry pin id (opencode-go).
+func pinRoute(name, pin string) (string, error) {
+	if pin == "" || agent.OwnLogin(name, pin) {
+		return "", nil
+	}
+	reg, err := providers.Load()
+	if err != nil || reg.Providers[pin] == nil {
+		return "", err
+	}
+	return pin, nil
 }
 
 // lastProfile is the profile this workspace last launched agentName with, "" unless it is registered and the agent can use it.
@@ -165,28 +190,15 @@ func lastProfile(reg *providers.Registry, agentName string) string {
 	return name
 }
 
-// withLastProfile fills an unset --profile of an agent CLI launch from this workspace's last-used profile (before its pin).
-func withLastProfile(name string, o agent.LaunchOptions) agent.LaunchOptions {
-	if o.Provider != "" || (name != "copilot" && name != "opencode" && name != "codex" && name != "gemini") || !agent.AgentActive(name) {
-		return o
+// lastUsedProfile is this workspace's last-used profile for an active agent CLI, "" when none applies.
+func lastUsedProfile(name string) string {
+	if (name != "copilot" && name != "opencode" && name != "codex" && name != "gemini") || !agent.AgentActive(name) {
+		return ""
 	}
 	if reg, err := providers.Load(); err == nil {
-		o.Provider = lastProfile(reg, name)
+		return lastProfile(reg, name)
 	}
-	return o
-}
-
-// withAgentPins fills the profile the flags left empty from the agent's vault pin: --profile > pin > default.
-// The model pin is applied after the target resolves (agentModelTarget).
-func withAgentPins(name string, o agent.LaunchOptions) (agent.LaunchOptions, error) {
-	if o.Provider == "" {
-		pin, err := agent.PinnedProfile(name)
-		if err != nil {
-			return agent.LaunchOptions{}, err
-		}
-		o.Provider = pin
-	}
-	return o, nil
+	return ""
 }
 
 // registryPlan is the interactive launch on a CLI's native model registry (copilot on Databricks). It fails closed:

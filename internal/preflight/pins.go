@@ -2,13 +2,14 @@ package preflight
 
 import (
 	"cmp"
-	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentcfg"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -26,7 +27,7 @@ const (
 type Pin struct {
 	Agent         string `json:"agent"`
 	Profile       string `json:"profile"`
-	ProfileSource string `json:"profile_source"` // pin | route | follows CLAUDE_PROFILE | none
+	ProfileSource string `json:"profile_source"` // pin | follows CLAUDE_PROFILE | none
 	Model         string `json:"model"`
 	Served        string `json:"served"` // yes | no | unknown | n/a
 	Status        string `json:"status"`
@@ -58,36 +59,20 @@ func Check(reg *providers.Registry, now time.Time) []Pin {
 		out = append(out, checkAgent(reg, "claude", router.PinSpec{Profile: session}, "pin", session, now))
 	}
 	for _, a := range slices.Sorted(slices.Values(router.TableAgents)) {
-		if spec := pins[a]; a != "claude" && !spec.Off {
-			spec, source, err := routedSpec(a, spec)
-			if err != nil {
-				out = append(out, Pin{Agent: a, Profile: spec.Profile, ProfileSource: "route", Status: StatusError, Detail: err.Error()})
+		if a != "claude" && !pins[a].Off {
+			cfg, err := agentcfg.For(a, agentcfg.Launch{})
+			if err != nil && !errors.Is(err, agentcfg.ErrUnknownProfile) { // an unknown profile is checkAgent's stale row
+				out = append(out, Pin{Agent: a, Profile: cfg.Profile, ProfileSource: "pin", Status: StatusError, Detail: err.Error()})
 				continue
 			}
-			out = append(out, checkAgent(reg, a, spec, source, session, now))
+			spec := router.PinSpec{Profile: cfg.Profile, Model: cfg.Model}
+			if agent.OwnLogin(a, spec.Profile) {
+				spec.Profile = "" // the agent's own login reads as no pin, as AgentPins does
+			}
+			out = append(out, checkAgent(reg, a, spec, "pin", session, now))
 		}
 	}
 	return out
-}
-
-// routedSpec is the profile an unflagged dispatch of a leads on (one-hop Resolve preview led by the pin), else the pin.
-func routedSpec(a string, pin router.PinSpec) (router.PinSpec, string, error) {
-	if pin.Profile == "" { // an unpinned agent runs on its own login; nothing to preview
-		return pin, "pin", nil
-	}
-	q := agent.RouteReq{Agent: a, Lead: pin.Profile, Fallback: router.FallbackNone, Preview: true}
-	_, res, err := agent.Resolve(context.Background(), q)
-	if err != nil {
-		return pin, "route", err
-	}
-	if len(res.Candidates) == 0 {
-		return pin, "pin", nil
-	}
-	c := res.Candidates[0]
-	if c.Agent != a || c.Profile == "" || c.Profile == pin.Profile {
-		return pin, "pin", nil
-	}
-	return router.PinSpec{Profile: c.Profile, Model: strings.TrimPrefix(c.Model, c.Profile+":")}, "route", nil
 }
 
 func checkAgent(reg *providers.Registry, name string, spec router.PinSpec, source, session string, now time.Time) Pin {

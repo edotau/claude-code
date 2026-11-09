@@ -171,6 +171,11 @@ func AgentPins() (map[string]router.PinSpec, error) {
 	return out, nil
 }
 
+// OwnLogin reports a profile that is agent's own sign-in, which AgentPins reads as no pin.
+func OwnLogin(agent, profile string) bool {
+	return ownLogin(func() *providers.Registry { r, _ := providers.Load(); return r }, agent, profile)
+}
+
 // ownLogin reports a profile that is agent's own sign-in: its schema's OwnLoginProfile, else a row with Auth.Login == agent.
 func ownLogin(loadReg func() *providers.Registry, agent, profile string) bool {
 	if profile == "" {
