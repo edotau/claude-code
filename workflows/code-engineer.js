@@ -1,12 +1,12 @@
 export const meta = {
   name: 'code-engineer',
-  description: 'One size-routed entry point and pipeline: 1-3 parallel code-workers children fix the target, code-analyzer audits the merged diff, green-keeper-loop gates the touched dirs, code-evaluator scores args.skill; then one polish (a bare range runs code-analyzer, a skill alone code-evaluator, an epic a plan)',
+  description: 'One size-routed entry point: analytical first when the task needs it (code-analyzer scans an audit or range, code-evaluator scores a skill), then 1-3 parallel code-workers children fix, green-keeper-loop loops on a red gate or a multi-child run; then one polish (an epic drafts a plan)',
   whenToUse:
-    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/code-engineer.js", args: {cwd, task?, packages?, paths?, range?, skill?}}) with at least one of task/packages/paths/range/skill (range = a git range like main..HEAD; a bare range runs code-analyzer, with a task, paths or packages its changed Go files become paths). OPTIONAL: tier (skips sizing), fix (default true), minFix (default low: every finding is fixed, decision #54), focus, label (report file name, default code-engineer), record (default true; false skips the Record step), steps {size, intel, impl, plan, dedupe, simplify, review, record, child} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on the session\'s route, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages). child = the routed child\'s own steps (simplify/review/dedupe are rejected there: code-engineer polishes once); its fix, test and gate also drive the polish Fix-all. Fan-out: the target\'s top-level dirs split into at most 3 file-disjoint groups, one code-workers child each (polish:false), all launched in parallel. gate (a shared gate command) with gateScope (dirs its fixer may edit, disjoint from the groups): one green-keeper-loop child runs beside them (none under fix:false); the shared gate is re-checked once, check-only, after every child and the polish. Findings a child cites outside its group come back to code-engineer, which repairs them once after the children. skill (+ base, scenarios, seeds, conditions): a skill/route comparison, routed to code-evaluator. polish (default true; false skips it) runs once after the children over the merged diff: Dedupe (2+ packages), Simplify, Review; each package with review findings gets one Fix-all, guard test and gate (no second child run). fast (default true; false disables): a LOW/MEDIUM fix task passes its files to code-workers as known, skipping Find and Rederive. A low token budget (under 150k left) skips the polish. RETURNS {exit (green|red|review|plan|error, or a child\'s blocked|stalled|incomplete|capped), tier, route, packages, merged, confirmed, dropped, unverified, fixed, red, files (sorted repo-relative files the implementer, fixers, gate fixers and polish changed), polish, decisions, report} (runs, cells on the code-evaluator route). Details: saved-workflows.md.',
+    'USE: any code job when you do not want to pick a workflow; sizes it (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) and routes. CALL: Workflow({scriptPath: "~/.claude/workflows/code-engineer.js", args: {cwd, task?, packages?, paths?, range?, skill?}}) with at least one of task/packages/paths/range/skill (range = a git range like main..HEAD; a bare range is scanned by code-analyzer and its findings fixed by code-workers; with a task, paths or packages its changed Go files become paths). OPTIONAL: tier (skips sizing), fix (default true), minFix (default low: every finding is fixed, decision #54), focus, label (report file name, default code-engineer), record (default true; false skips the Record step), steps {size, intel, impl, plan, dedupe, simplify, review, record, child} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on the session\'s route, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages). child = the routed child\'s own steps (simplify/review/dedupe are rejected there: code-engineer polishes once); its fix, test and gate also drive the polish Fix-all. Fan-out: the target\'s top-level dirs split into at most 3 file-disjoint groups, one code-workers child each (polish:false), all launched in parallel. gate (a shared gate command) with gateScope (dirs its fixer may edit, disjoint from the groups): one green-keeper-loop child runs beside them (none under fix:false); the shared gate is re-checked once, check-only, after every child and the polish. Findings a child cites outside its group come back to code-engineer, which repairs them once after the children. skill (+ base, scenarios, seeds, conditions): a skill/route comparison, routed to code-evaluator. polish (default true; false skips it) runs once after the children over the merged diff: Dedupe (2+ packages), Simplify, Review; each package with review findings gets one Fix-all, guard test and gate (no second child run). fast (default true; false disables): a LOW/MEDIUM fix task passes its files to code-workers as known, skipping Find and Rederive. A low token budget (under 150k left) skips the polish. RETURNS {exit (green|red|review|plan|error, or a child\'s blocked|stalled|incomplete|capped), tier, route, packages, merged, confirmed, dropped, unverified, fixed, red, files (sorted repo-relative files the implementer, fixers, gate fixers and polish changed), polish, decisions, report} (runs, cells on the code-evaluator route). Details: saved-workflows.md.',
   phases: [
     { title: 'Size', detail: 'one cheap agent reads the task, git status/diff and go list and returns the tier, packages and paths' },
     { title: 'Route', detail: 'MEDIUM adds an intel agent, a feature task adds an implementer, EPIC drafts a plan and stops' },
-    { title: 'Run', detail: '1-3 code-workers children on disjoint dir groups in parallel (plus green-keeper-loop on args.gate), then code-analyzer over the merged files and green-keeper-loop over their dirs (pipeline:false skips); a bare range runs code-analyzer, a skill alone code-evaluator' },
+    { title: 'Run', detail: 'code-evaluator (skill) and code-analyzer scan (audit, package list, bare range; scan:false skips) first; then 1-3 code-workers children on disjoint dir groups (known = the scan findings); green-keeper-loop when a gate stays red or 2+ children ran (loop:false skips)' },
     { title: 'Dedupe', detail: 'once over the merged diff, when 2+ packages changed (polish:false skips)' },
     { title: 'Simplify', detail: 'once over the merged diff; review simplify plus the simplify gate' },
     { title: 'Review', detail: 'once over the merged diff; review findings get one Fix-all, guard test and gate per package (no second child run)' },
@@ -416,7 +416,9 @@ if (ANALYZE || EVAL_ONLY) {
 } else if (a.tier) decisions.push('sized as ' + tier + ': args.tier given')
 
 // ── Route ──
-const route = EVAL_ONLY ? 'code-evaluator' : tier === 'EPIC' ? 'plan' : ANALYZE ? 'code-analyzer:range' : tier === 'HIGH' ? 'code-workers:packages' : 'code-workers:paths'
+// analytical first: an audit (bare range, package list with no task, or kind audit) scans with code-analyzer, then code-workers fix what it confirmed
+const SCAN = a.scan !== undefined ? !!a.scan : ANALYZE || KIND === 'audit' || (!TASK && PKGS.length > 0)
+const route = EVAL_ONLY ? 'code-evaluator' : tier === 'EPIC' ? 'plan' : (EVAL ? 'code-evaluator→' : '') + (SCAN ? 'code-analyzer→' : '') + (tier === 'HIGH' || ANALYZE ? 'code-workers:packages' : 'code-workers:paths')
 decisions.push('route: ' + route)
 log('route: ' + route + ' (tier ' + tier + ', kind ' + (KIND || 'n/a') + ')')
 const head = '# code-engineer: ' + tier + ' → ' + route
@@ -487,10 +489,14 @@ phase('Run')
 const fastFiles = (tier === 'LOW' || tier === 'MEDIUM') && KIND === 'fix' && TASK && a.fix !== false && a.fast !== false ? (sized.length ? sized : target.paths || []).filter((p) => /\.go$/.test(p) && !/_test\.go$/.test(p)) : []
 const known = fastFiles.map((file) => ({ file, symptom: TASK }))
 if (known.length) { decisions.push('fast path: ' + known.length + ' file(s) passed to code-workers as known'); log('fast path: known ' + known.length + ' file(s)') }
-const jobs = ANALYZE ? [{ child: 'code-analyzer', group: [RANGE], args: { cwd: CWD, range: RANGE, fix: a.fix, minFix: a.minFix || 'low', steps: CHILD_STEPS, profile: a.profile, provider: a.provider } }] : splitJobs()
-if (GATE && ANALYZE) decisions.push('shared gate ignored: code-analyzer gates each round in-script')
-if (GATE && !ANALYZE && a.fix === false) decisions.push('shared gate: fix=false, no green-keeper-loop child; checked once (no edits) at the end')
-if (GATE && !ANALYZE) {
+const ev = EVAL ? await runChild('code-evaluator', { base: a.base, skill: a.skill, scenarios: a.scenarios, seeds: a.seeds, conditions: a.conditions, steps: stepsFor({ run: 'run', judge: 'judge' }), profile: a.profile, provider: a.provider }) : null
+if (EVAL) decisions.push('analytical: code-evaluator ' + (ev && !ev.error ? 'scored ' + ((ev.cells || []).length) + ' cell(s)' : 'failed: ' + ((ev && ev.error) || 'returned nothing')))
+const scanned = SCAN ? await scanFirst() : null
+if (scanned && scanned.error) return ERR(scanned.error, tier, route, decisions)
+if (scanned && (!scanned.known.length || a.fix === false)) return await record(withEval({ exit: scanned.known.length ? 'review' : 'green', tier, route, packages: 0, merged: scanned.confirmed.length, confirmed: scanned.confirmed, dropped: [], unverified: scanned.unverified, fixed: [], red: [], decisions, report: head + '\n' + scanned.report }))
+const jobs = splitJobs(scanned)
+if (GATE && a.fix === false) decisions.push('shared gate: fix=false, no green-keeper-loop child; checked once (no edits) at the end')
+if (GATE) {
   const clash = GATE_SCOPE.filter((d) => jobs.some((j) => j.group.some((g) => overlaps(d, g))))
   if (clash.length) return ERR('args.gateScope ' + clash.join(', ') + ' overlaps a package group; the layers must be file-disjoint', tier, route, decisions)
   if (a.fix !== false) jobs.push({ child: 'green-keeper-loop', group: GATE_SCOPE, args: { cwd: CWD, gate: GATE, scope: GATE_SCOPE, steps: CHILD_STEPS && CHILD_STEPS.fix ? { fix: CHILD_STEPS.fix } : undefined, profile: a.profile, provider: a.provider } })
@@ -500,7 +506,7 @@ const runs = await parallel(jobs.map((j) => () => runChild(j.child, j.args)))
 let res = merge(jobs.map((j, i) => ({ ...j, r: runs[i] })))
 if (res.exit === 'error') return res
 if (a.fix !== false && res.foreign.length) res = await repairForeign(res)
-if (a.fix !== false && a.pipeline !== false && !ANALYZE) res = await auditAndGate(res)
+if (a.fix !== false && a.loop !== false) res = await loopIfNeeded(res, jobs.filter((j) => j.child === 'code-workers').length)
 const pfiles = [...new Set([...touchedFiles(res.fixed), ...res.files])].sort()
 const POLISH = a.polish !== false && a.fix !== false
 if (POLISH && pfiles.length && lowBudget()) res.decisions.push('polish skipped: budget under 150k tokens remaining')
@@ -515,28 +521,25 @@ else if (POLISH && pfiles.length) {
   }
 }
 // siblings and polish may have changed what the shared gate covers: one check-only re-run after all of them
-if (GATE && !ANALYZE) {
+if (GATE) {
   const sg = await stageGate(CTX, { gate: GATE, scope: GATE_SCOPE, check: CS.gate, max: 0, label: 'shared-gate' })
   res.decisions.push('shared gate re-check after all children and polish: ' + (sg.exit === 'green' ? 'green' : 'red: ' + sg.residual.slice(0, 1).join('; ')))
   if (sg.exit !== 'green') res = { ...res, exit: 'red', red: [...new Set([...res.red, ...GATE_SCOPE])] }
 }
-if (EVAL) {
-  const ev = await runChild('code-evaluator', { base: a.base, skill: a.skill, scenarios: a.scenarios, seeds: a.seeds, conditions: a.conditions, steps: stepsFor({ run: 'run', judge: 'judge' }), profile: a.profile, provider: a.provider })
-  const cells = (ev && ev.cells) || []
-  res = { ...res, runs: ev && ev.runs, cells, decisions: [...res.decisions, 'pipeline eval: ' + (ev && !ev.error ? 'code-evaluator scored ' + cells.length + ' cell(s)' : 'code-evaluator failed: ' + ((ev && ev.error) || 'returned nothing'))] }
-}
-return await record(res)
+return await record(withEval(res))
 
 function overlaps(x, y) { return x === y || x.startsWith(y + '/') || y.startsWith(x + '/') }
 
 // splitJobs cuts the target's top-level dirs into ≤3 contiguous groups, one code-workers child each; groups never share a tree.
-function splitJobs() {
-  const tops = topDirs(target.packages || dirsOf(target.paths)).sort()
+function splitJobs(sc) {
+  const scanDirs = sc ? topDirs([...new Set(sc.known.map((x) => stDir(stRel(CTX, x.file))))]) : null
+  const tops = (scanDirs || topDirs(target.packages || dirsOf(target.paths))).sort()
+  const kn = sc ? sc.known : known
   const n = tops.some((d) => d === '' || d === '.') ? 1 : Math.min(3, tops.length) // a root package's gate spans every dir
   return Array.from({ length: n }, (_, i) => tops.slice(Math.floor((i * tops.length) / n), Math.floor(((i + 1) * tops.length) / n))).map((g) => {
     const mine = (f) => g.some((d) => overlaps(dirsOf([f])[0], d))
-    const k = known.filter((x) => mine(x.file))
-    const t = target.packages ? { packages: g } : { paths: target.paths.filter(mine) }
+    const k = kn.filter((x) => mine(x.file))
+    const t = scanDirs || target.packages ? { packages: g } : { paths: target.paths.filter(mine) }
     return { child: 'code-workers', group: g, args: { cwd: CWD, ...t, fix: a.fix, minFix: a.minFix, focus, steps: CHILD_STEPS, profile: a.profile, provider: a.provider, polish: false, ...(k.length ? { known: k } : {}) } }
   })
 }
@@ -552,7 +555,6 @@ function merge(done) {
   const d = [...decisions, ...ok.flatMap((x) => (x.r.decisions || []).map((l) => tag(x, l)))]
   const red = cat('red')
   for (const x of code.filter((y) => bad(y.r))) { d.push(tag(x, x.child + ' failed: ' + ((x.r && x.r.error) || 'returned nothing'))); red.push(...x.group) }
-  if (ANALYZE) d.push('code-analyzer exit: ' + ok[0].r.exit)
   const files = cat('files')
   const gk = done.find((x) => x.child === 'green-keeper-loop')
   if (gk) {
@@ -577,24 +579,33 @@ function merge(done) {
   }
 }
 
-// auditAndGate: code-analyzer audits and fixes the merged non-test Go files, then green-keeper-loop keeps their dirs' gate green.
-async function auditAndGate(r0) {
-  const all = [...new Set([...touchedFiles(r0.fixed), ...r0.files])]
-  const src = all.filter((f) => /\.go$/.test(f) && !/_test\.go$/.test(f))
-  if (!src.length) return { ...r0, decisions: [...r0.decisions, 'pipeline: no changed Go source, audit and gate skipped'] }
-  const au = await runChild('code-analyzer', { cwd: CWD, paths: src, fix: true, minFix: a.minFix || 'low', steps: stepsFor({ find: 'audit', rederive: 'refute', fix: 'fix', test: 'test', gate: 'gate' }), profile: a.profile, provider: a.provider })
-  const auOk = !!au && ['green', 'dry'].includes(au.exit)
-  const files = [...new Set([...all, ...strs(au && au.files), ...touchedFiles(au && au.fixed)].map((f) => stRel(CTX, f)))]
-  const dirs = [...new Set(files.map(stDir))].sort()
-  const gk = await runChild('green-keeper-loop', { cwd: CWD, scope: dirs, steps: stepsFor({ fix: 'fix' }), profile: a.profile, provider: a.provider })
-  const gkOk = !!gk && gk.exit === 'green'
-  const red = [...r0.red, ...(auOk ? [] : [...new Set(src.map(stDir))]), ...(gkOk ? [] : dirs)]
-  const d = ['pipeline audit: code-analyzer over ' + src.length + ' file(s) exit ' + ((au && au.exit) || 'none') + ', ' + ((au && au.confirmed) || []).length + ' confirmed',
-    'pipeline gate: green-keeper-loop over ' + dirs.join(', ') + ' exit ' + ((gk && gk.exit) || 'none') + (gkOk ? '' : ': ' + strs(gk && gk.residual).slice(0, 2).join('; '))]
-  const uniq = [...new Set(red)]
-  return { ...r0, exit: uniq.length ? 'red' : r0.exit, red: uniq, confirmed: [...r0.confirmed, ...((au && au.confirmed) || [])], fixed: [...r0.fixed, ...((au && au.fixed) || [])],
-    files: [...new Set([...files, ...strs(gk && gk.filesChanged).map((f) => stRel(CTX, f))])], decisions: [...r0.decisions, ...d], report: r0.report + '\n\n## Pipeline\n- ' + d.join('\n- ') + (au && au.report ? '\n' + au.report : '') }
+// scanFirst: code-analyzer audits the target review-only; its confirmed findings become code-workers' known bugs (Find and Rederive skipped).
+async function scanFirst() {
+  const where = ANALYZE ? { range: RANGE } : { paths: target.packages || target.paths }
+  const sc = await runChild('code-analyzer', { cwd: CWD, ...where, fix: false, minFix: a.minFix || 'low', focus, steps: stepsFor({ find: 'audit', rederive: 'refute' }), profile: a.profile, provider: a.provider })
+  if (!sc || sc.exit === 'error') return { error: 'code-analyzer scan failed: ' + ((sc && sc.error) || 'returned nothing') }
+  const confirmed = sc.confirmed || []
+  const known = confirmed.map((f) => ({ file: stRel(CTX, f.file), symptom: (f.title || f.symptom) + (f.scenario ? ' — ' + f.scenario : '') }))
+  decisions.push('analytical: code-analyzer scan exit ' + sc.exit + ', ' + confirmed.length + ' confirmed, ' + (sc.refuted || []).length + ' refuted → ' + (known.length ? 'code-workers fix them' : 'nothing to fix'))
+  return { known, confirmed, unverified: sc.unverified || [], report: sc.report || '' }
 }
+
+// loopIfNeeded: green-keeper-loop over the dirs whose fix landed but gate stayed red, and over every touched dir when 2+ children ran.
+async function loopIfNeeded(r0, nChildren) {
+  const gateRed = [...new Set((r0.fixed || []).filter((f) => f.impl && f.impl.status === 'done' && f.gate && f.gate.exit !== 'green').map((f) => f.pkg))]
+  const touched = [...new Set([...touchedFiles(r0.fixed), ...r0.files].map((f) => stDir(stRel(CTX, f))))]
+  const scope = [...new Set([...gateRed, ...(nChildren > 1 ? touched : [])])].filter((d) => !GATE_SCOPE.some((g) => overlaps(d, g))).sort()
+  if (!scope.length) return r0
+  const gk = await runChild('green-keeper-loop', { cwd: CWD, scope, steps: stepsFor({ fix: 'fix' }), profile: a.profile, provider: a.provider })
+  const green = !!gk && gk.exit === 'green'
+  const red = green ? r0.red.filter((d) => !gateRed.includes(d)) : [...new Set([...r0.red, ...scope])]
+  const why = gateRed.length ? 'gate red in ' + gateRed.join(', ') : nChildren + ' children shared the run'
+  return { ...r0, exit: red.length ? 'red' : r0.exit === 'red' ? 'green' : r0.exit, red, files: [...new Set([...r0.files, ...strs(gk && gk.filesChanged).map((f) => stRel(CTX, f))])],
+    decisions: [...r0.decisions, 'loop (' + why + '): green-keeper-loop over ' + scope.join(', ') + ' exit ' + ((gk && gk.exit) || 'none') + (green ? '' : ': ' + strs(gk && gk.residual).slice(0, 2).join('; '))] }
+}
+
+// withEval attaches the analytical code-evaluator result (it ran before any code changed).
+function withEval(r) { return ev ? { ...r, runs: ev.runs, cells: ev.cells || [] } : r }
 
 // stepsFor renames steps.child's stages into another child's stage names (map: ours → theirs), dropping the rest.
 function stepsFor(map) {
