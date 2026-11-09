@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"bufio"
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -197,6 +198,25 @@ func TestAgyLiveErroredTurnKeepsUsageBaseline(t *testing.T) {
 	res, err := parse(result(1500))
 	if err != nil || res.Usage.InputTokens != 500 {
 		t.Fatalf("turn 3 InputTokens = %d, err = %v; want the 500 delta", res.Usage.InputTokens, err)
+	}
+}
+
+func TestGeminiGatewayInteractiveModelMatchesAdvertised(t *testing.T) {
+	t.Cleanup(agent.StubRouter("http://127.0.0.1:19876"))
+	origMint := agent.MintSession
+	agent.MintSession = func(context.Context, string, int) (string, error) { return "test-session", nil }
+	t.Cleanup(func() { agent.MintSession = origMint })
+	p := &providers.Provider{Name: t.Name(), Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: "pat"}}
+	env, argv, err := geminiGateway(context.Background(), p, "gemini-3.8-flash-high", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(env, "AGY_LLM_GATEWAY_MODELS=gemini-3.8-flash") {
+		t.Fatalf("gateway must advertise the base model: %v", env)
+	}
+	want := []string{"--model", "gemini-3.8-flash", "--effort", "high"}
+	if !slices.Equal(argv, want) {
+		t.Fatalf("interactive gateway argv = %v, want %v to match the advertised model", argv, want)
 	}
 }
 

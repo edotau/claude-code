@@ -174,6 +174,9 @@ func dropHarnessCredential(plan *agent.Plan) {
 	for _, k := range []string{proc.EnvAnthropicCustomHeaders, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS", oauthKey} {
 		delete(plan.Set, k)
 	}
+	if !slices.Contains(plan.Keep, oauthKey) { // an inherited token must leave the child env too, not only the plan
+		plan.Unset = append(plan.Unset, oauthKey)
+	}
 	plan.Warnings = append(plan.Warnings, "shell ANTHROPIC_BASE_URL kept: the profile credential is withheld; export HARNESS_KEEP_ENV=<name> to pass your own")
 }
 
@@ -302,7 +305,7 @@ func applyOverlay(plan *agent.Plan, passthrough bool, args []string, helper, set
 			// Remote Control refuses the inference-only setup-token; the interactive /login credential must win.
 			plan.Unset = append(plan.Unset, oauthKey)
 		} else if os.Getenv(oauthKey) == "" {
-			// A long-lived setup-token in secrets.env outlives the /login session in .credentials.json.
+			// A long-lived setup-token from the env or the vault outlives the /login session in .credentials.json.
 			if tok := providers.HeadlessOAuthToken(); tok != "" {
 				plan.Set[oauthKey] = tok
 			}

@@ -244,7 +244,7 @@ func approveToolOnce(_ copilot.PermissionRequest, inv copilot.PermissionInvocati
 func scopedFeedback() string {
 	return "This run is scoped: file reads, URL fetches, writes inside the workdir (not .git, .env*, state/, keys), " +
 		agentconfig.ShellPolicy().Commands.Summary() +
-		" are allowed. Anything else (push, reset, rm, curl, mcp, memory) is refused: report it instead."
+		" are allowed. Anything else (push, reset, rm of protected targets, curl, mcp, memory) is refused: report it instead."
 }
 
 // approveScoped is the --tools tier: reads, workdir-confined writes and an allowlisted shell; the rest is rejected.

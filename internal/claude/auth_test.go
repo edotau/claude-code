@@ -85,6 +85,7 @@ echo '{"loggedIn":true,"subscriptionType":"max"}'`)
 
 func TestClaudeLoginProbeNoBinary(t *testing.T) {
 	resetClaudeProbe()
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
 	loggedIn, plan, _ := ClaudeLoginProbe()
@@ -112,6 +113,8 @@ func TestClaudeLoginProbeTriState(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			resetClaudeProbe()
+			t.Cleanup(resetClaudeProbe)
+			t.Setenv("HOME", t.TempDir())
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			t.Setenv("PATH", t.TempDir())
 			if !c.noBin {
@@ -122,6 +125,31 @@ func TestClaudeLoginProbeTriState(t *testing.T) {
 				t.Errorf("probe = %v %q %v; want %v %q err=%v", in, plan, err, c.wantIn, c.wantPlan, c.wantErr)
 			}
 		})
+	}
+}
+
+func TestClaudeLoginProbeNativeInstall(t *testing.T) {
+	resetClaudeProbe()
+	t.Cleanup(resetClaudeProbe)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	versions := filepath.Join(os.Getenv("HOME"), ".local", "share", "claude", "versions")
+	if err := os.MkdirAll(versions, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\n" + `[ "$#" -eq 2 ] && [ "$1" = auth ] && [ "$2" = status ] || exit 1
+ echo '{"loggedIn":true,"subscriptionType":"max"}'
+`
+	if err := os.WriteFile(filepath.Join(versions, "2.0.14"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := claudeAgent.Available(); err != nil {
+		t.Fatalf("native install unavailable: %v", err)
+	}
+	loggedIn, plan, err := ClaudeLoginProbe()
+	if err != nil || !loggedIn || plan != " (max)" {
+		t.Fatalf("native auth probe = %v, %q, %v; want true, max, nil", loggedIn, plan, err)
 	}
 }
 

@@ -265,7 +265,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink 
 	if !sawResult {
 		return partial(errNoResult)
 	}
-	return res, nil
+	return partial(nil) // an empty closing result falls back to the streamed text
 }
 
 type claudeStreamState struct {

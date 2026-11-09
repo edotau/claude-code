@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // renderGeminiSettings merges the spec's exact-match guard denies into agy's
@@ -179,10 +181,48 @@ func agyHooksPath() string {
 
 // agyGateInstalled reports whether the global hooks.json, or the workspace's .agents/hooks.json, runs the permission gate.
 func agyGateInstalled(cwd string) bool {
+	command := (settings.EventSpec{Event: settings.EventPreToolUse, Name: "permission-gate"}).Command()
 	for _, p := range []string{agyHooksPath(), filepath.Join(cwd, ".agents", "hooks.json")} {
-		if b, err := os.ReadFile(p); err == nil && strings.Contains(string(b), "--permission-gate") {
+		if agyFileRunsGate(p, command) {
 			return true
 		}
 	}
 	return false
+}
+
+// agyFileRunsGate reports whether the hooks.json at path has a blocking PreToolUse group on run_command running the gate.
+func agyFileRunsGate(path, command string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var sets map[string]struct {
+		PreToolUse []settings.MatcherGroup `json:"PreToolUse"`
+	}
+	if json.Unmarshal(b, &sets) != nil {
+		return false
+	}
+	for _, set := range sets {
+		for _, group := range set.PreToolUse {
+			if agyMatchesTool(group.Matcher, "run_command") && slices.ContainsFunc(group.Hooks, func(h settings.Hook) bool { return isAgyGateHook(h, command) }) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// agyMatchesTool reports whether a hook group's matcher selects tool (empty selects all).
+func agyMatchesTool(matcher, tool string) bool {
+	if matcher == "" {
+		return true
+	}
+	re, err := regexp.Compile("^(?:" + matcher + ")$")
+	return err == nil && re.MatchString(tool)
+}
+
+// isAgyGateHook reports whether hook is the synchronous permission-gate command agy runs.
+func isAgyGateHook(hook settings.Hook, command string) bool {
+	cmd := strings.TrimSpace(hook.Command)
+	return hook.Type == "command" && !hook.Async && (cmd == command || cmd == settings.AgentEnv+"=gemini "+command)
 }

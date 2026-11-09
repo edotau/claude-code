@@ -2,6 +2,8 @@ package copilot
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,27 +62,43 @@ func copilotCapabilities(m SDKModel) string {
 // catalogRecord is the sealed vault record holding the GitHub Copilot catalog snapshot.
 const catalogRecord = "copilot-catalog"
 
-// catalogSnapshot is the sealed catalog of one GitHub auth (account and credential source).
+// catalogSnapshot is the sealed catalog of one GitHub auth (account, credential source and token digest).
 type catalogSnapshot struct {
 	Schema       int
 	Account      string
 	Source       string
+	TokenHash    string // sha256 of the token listed with; a changed token (e.g. env) must not reuse the catalog
 	DiscoveredAt time.Time
 	Models       []SDKModel
 }
 
-// readCatalogSnapshot is the sealed snapshot for auth; ok is false on a miss, another account or any vault error.
-func readCatalogSnapshot(auth CopilotAuth) (catalogSnapshot, bool) {
+// tokenHash is the hex sha256 of tok, so the sealed snapshot never holds the credential itself.
+func tokenHash(tok string) string {
+	sum := sha256.Sum256([]byte(tok))
+	return hex.EncodeToString(sum[:])
+}
+
+// readCatalogSnapshot is the sealed snapshot for auth and tok; ok is false on a miss, another account or any vault error.
+func readCatalogSnapshot(auth CopilotAuth, tok string) (catalogSnapshot, bool) {
 	raw, found, err := vault.ReadSecret(catalogRecord)
 	if err != nil || !found {
 		return catalogSnapshot{}, false
 	}
 	var s catalogSnapshot
 	if json.Unmarshal([]byte(raw), &s) != nil || s.Schema != 1 || s.DiscoveredAt.IsZero() || len(s.Models) == 0 ||
-		s.Account != auth.Account || s.Source != auth.Source {
+		s.Account != auth.Account || s.Source != auth.Source || s.TokenHash != tokenHash(tok) {
 		return catalogSnapshot{}, false
 	}
 	return s, true
+}
+
+// catalogToken is auth's token for a listing; a gh-sourced account without one is an error, never another account's catalog.
+func catalogToken(auth CopilotAuth) (string, error) {
+	tok, _ := copilotToken(auth)
+	if tok == "" && (auth.Source == srcPinned || auth.Source == srcActive) {
+		return "", fmt.Errorf("copilot: no token for GitHub account %s; refusing to list another account's catalog", auth.Account)
+	}
+	return tok, nil
 }
 
 // saveCatalogSnapshot seals the snapshot under catalogRecord.
@@ -99,11 +117,13 @@ func saveCatalogSnapshot(s catalogSnapshot) error {
 // also spawns a detached refresh), else a live listing that is sealed.
 func Catalog(ctx context.Context) ([]SDKModel, error) {
 	if auth, ok := copilotAuthSource(); ok {
-		if s, hit := readCatalogSnapshot(auth); hit {
-			if time.Since(s.DiscoveredAt) >= serving.CacheTTL() {
-				spawnCatalogRefresh()
+		if tok, err := catalogToken(auth); err == nil {
+			if s, hit := readCatalogSnapshot(auth, tok); hit {
+				if time.Since(s.DiscoveredAt) >= serving.CacheTTL() {
+					spawnCatalogRefresh()
+				}
+				return s.Models, nil
 			}
-			return s.Models, nil
 		}
 	}
 	return RefreshCatalog(ctx)
@@ -125,7 +145,11 @@ func RefreshCatalog(ctx context.Context) ([]SDKModel, error) {
 	auth, ok := copilotAuthSource() // read once, so the listing and its seal name the same account
 	tok := ""
 	if ok {
-		tok, _ = copilotToken(auth)
+		t, err := catalogToken(auth)
+		if err != nil {
+			return nil, err
+		}
+		tok = t
 	}
 	list, err := launchCatalog(ctx, tok)
 	if err != nil {
@@ -134,7 +158,8 @@ func RefreshCatalog(ctx context.Context) ([]SDKModel, error) {
 	if !ok {
 		return list, nil
 	}
-	snap := catalogSnapshot{Schema: 1, Account: auth.Account, Source: auth.Source, DiscoveredAt: time.Now().UTC(), Models: list}
+	snap := catalogSnapshot{Schema: 1, Account: auth.Account, Source: auth.Source, TokenHash: tokenHash(tok),
+		DiscoveredAt: time.Now().UTC(), Models: list}
 	if err := saveCatalogSnapshot(snap); err != nil {
 		fmt.Fprintf(os.Stderr, "copilot: catalog snapshot not saved: %v\n", err)
 	}

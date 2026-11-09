@@ -363,8 +363,8 @@ func CopilotQuotaHandoff(
 	res.SessionID = cmp.Or(partialSession, res.SessionID)
 	path, _, werr := writeCopilotHandoff(req, res, partialText, acct, cause, creds)
 	if werr != nil {
-		fmt.Fprintf(os.Stderr, "copilot: quota exhausted mid-task; handoff not written: %v\n", werr)
-		return res, cause
+		res.Answer = partialText
+		return res, errors.Join(cause, fmt.Errorf("copilot: quota exhausted mid-task; handoff not written: %w", werr))
 	}
 	res.Handoff = path
 	return res, cause

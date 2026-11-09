@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // Glob-free path denies and exact allows map to agy rules; Ask rides as allow; unmapped Allow/Ask are reported.
@@ -96,6 +97,50 @@ func TestAgyBashDenyNeedsGateHook(t *testing.T) {
 	got, _, err := agyPermissionSettings(p, true, "/w", io.Discard)
 	if err != nil || !strings.Contains(got, "command(touch x)") || strings.Contains(got, "rm *") {
 		t.Fatalf("gate installed: settings %q err %v, want the exact deny only", got, err)
+	}
+}
+
+func TestAgyBashDenyRejectsNonBlockingGate(t *testing.T) {
+	command := (settings.EventSpec{Event: settings.EventPreToolUse, Name: "permission-gate"}).Command()
+	for _, c := range []struct {
+		name, event, matcher, command string
+		async, workspace, wantGate    bool
+	}{
+		{"echo", "PreToolUse", "run_command", "echo --permission-gate", false, false, false},
+		{"post-tool", "PostToolUse", "run_command", command, false, false, false},
+		{"async", "PreToolUse", "run_command", command, true, false, false},
+		{"wrong-tool", "PreToolUse", "read_file", command, false, false, false},
+		{"partial-matcher", "PreToolUse", "run", command, false, false, false},
+		{"invalid-matcher", "PreToolUse", "[", command, false, false, false},
+		{"global", "PreToolUse", "run_command", command, false, false, true},
+		{"workspace", "PreToolUse", "run_command", command, false, true, true},
+		{"all-tools", "PreToolUse", "", command, false, false, true},
+		{"agent-env", "PreToolUse", "run_command|read_file", settings.AgentEnv + "=gemini " + command, false, false, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			cwd := t.TempDir()
+			path := agyHooksPath()
+			if c.workspace {
+				path = filepath.Join(cwd, ".agents", "hooks.json")
+			}
+			group := settings.MatcherGroup{Matcher: c.matcher, Hooks: []settings.Hook{{Type: "command", Command: c.command, Async: c.async}}}
+			b, err := json.Marshal(map[string]any{"harness": map[string]any{c.event: []settings.MatcherGroup{group}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			p := agent.Permissions{Deny: []agent.Rule{{Tool: "Bash", Arg: "touch x"}}}
+			_, _, err = agyPermissionSettings(p, true, cwd, io.Discard)
+			if (err == nil) != c.wantGate {
+				t.Fatalf("Bash deny with %s hook: err = %v, want gate accepted = %v", c.name, err, c.wantGate)
+			}
+		})
 	}
 }
 

@@ -143,6 +143,9 @@ func refreshLink(src, dst string) error {
 		}
 	}
 	if _, err := os.Stat(src); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("copilot: stat %s: %w", src, err)
+		}
 		if rerr := os.Remove(dst); rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
 			return fmt.Errorf("copilot: refresh %s: %w", dst, rerr)
 		}
@@ -162,6 +165,7 @@ func copySettings(src, dst string) error {
 		return nil
 	}
 	if err != nil {
+		_ = os.Remove(dst) // a stale copy must not outlive a failed read
 		return fmt.Errorf("copilot: settings.json not carried over: %w", err)
 	}
 	var m map[string]json.RawMessage
@@ -199,10 +203,24 @@ func checkNoGitHubLogin(file string) error {
 	return nil
 }
 
-// jsonValuePresent reports whether v is set to something other than null, [] or {}.
+// jsonValuePresent reports whether v is set to something other than null or an empty array/object (any spacing).
 func jsonValuePresent(v json.RawMessage) bool {
-	s := strings.TrimSpace(string(v))
-	return s != "" && s != "null" && s != "[]" && s != "{}"
+	if len(v) == 0 {
+		return false
+	}
+	var val any
+	if err := json.Unmarshal(v, &val); err != nil {
+		return true // unparseable but set: keep refusing, as before
+	}
+	switch t := val.(type) {
+	case nil:
+		return false
+	case []any:
+		return len(t) > 0
+	case map[string]any:
+		return len(t) > 0
+	}
+	return true
 }
 
 // Copilot hooks load from the user directory; plugin preToolUse hooks do not fire.

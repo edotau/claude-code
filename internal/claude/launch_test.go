@@ -359,6 +359,25 @@ func TestClaudeShellEndpointBeatsVault(t *testing.T) {
 	}
 }
 
+func TestClaudeShellEndpointDropsInheritedOAuth(t *testing.T) {
+	hermetic(t, "")
+	t.Setenv("ANTHROPIC_BASE_URL", "https://shell.example")
+	t.Setenv(oauthKey, "test-inherited-oauth")
+	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "max"}, []string{"-p", "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := p.Env(os.Environ())
+	if !slices.Contains(env, "ANTHROPIC_BASE_URL=https://shell.example") {
+		t.Fatal("foreign shell endpoint was not preserved")
+	}
+	for _, kv := range env {
+		if strings.HasPrefix(kv, oauthKey+"=") {
+			t.Fatal("inherited OAuth token reached the foreign endpoint child environment")
+		}
+	}
+}
+
 func TestClaudeShellEndpointGetsNoProfileCredential(t *testing.T) {
 	hermetic(t, `{"fallback": [], "providers": {"anthropic": {"gw": {"protocol": "anthropic", "base_url": "https://gw.example/anthropic",
 		"auth": {"type":"key", "env": "TEST_GW_KEY"}, "models": {"opus": "claude-opus-4-6"}}}}}`)

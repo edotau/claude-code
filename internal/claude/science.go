@@ -145,7 +145,7 @@ func scienceArgv(args []string, cfg string, port int, busy func(int) bool) ([]st
 	if cfg != "" && !hasArg(args, "--config") {
 		argv = append(argv, "--config", cfg)
 	}
-	if len(args) == 0 || args[0] != "serve" || hasArg(args, "--port") || hasArg(args, "--sandbox-port") {
+	if !isServe(args) || hasArg(args, "--port") || hasArg(args, "--sandbox-port") {
 		return argv, nil
 	}
 	for _, p := range []int{port, port + 1} {
@@ -155,6 +155,22 @@ func scienceArgv(args []string, cfg string, port int, busy func(int) bool) ([]st
 		}
 	}
 	return append(argv, "--port", strconv.Itoa(port), "--sandbox-port", strconv.Itoa(port+1)), nil
+}
+
+// scienceValueFlags are claude-science's global flags that take a separate value, skipped to find the verb.
+var scienceValueFlags = []string{"--config", "--data-dir", "--assets-root"}
+
+// isServe reports whether the verb is serve, skipping leading global flags and their values.
+func isServe(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		if !strings.HasPrefix(args[i], "-") {
+			return args[i] == "serve"
+		}
+		if slices.Contains(scienceValueFlags, args[i]) {
+			i++
+		}
+	}
+	return false
 }
 
 // hasArg reports a flag in either `--f v` or `--f=v` form.

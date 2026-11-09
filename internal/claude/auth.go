@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -107,7 +106,7 @@ func ClaudeLoginProbe() (loggedIn bool, plan string, err error) {
 
 // runClaudeProbe spawns `claude auth status` (≤8s) and parses its JSON.
 func runClaudeProbe() (loggedIn bool, plan string, err error) {
-	bin, err := paths.AgentBin("claude")
+	bin, err := ClaudeBinary()
 	if err != nil {
 		return false, "", err
 	}
