@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -173,7 +174,7 @@ func OneDoc(t *testing.T, s string) map[string]any {
 	if err := dec.Decode(&m); err != nil {
 		t.Fatalf("not JSON: %q: %v", s, err)
 	}
-	if dec.More() {
+	if _, err := dec.Token(); err != io.EOF { // a stray closer ('}' or ']') yields a token, not EOF
 		t.Fatalf("more than one JSON document: %q", s)
 	}
 	return m

@@ -31,7 +31,8 @@ func ParseFrontmatter(content string) (map[string]any, string) {
 
 	p := fmParser{fm: map[string]any{}}
 	for line := range strings.SplitSeq(yaml, "\n") {
-		if strings.TrimSpace(line) != "" {
+		// Blank and full-line comment lines carry no data and must not reset an open block list.
+		if t := strings.TrimSpace(line); t != "" && !strings.HasPrefix(t, "#") {
 			p.feed(line)
 		}
 	}
@@ -106,7 +107,7 @@ func parseScalar(value string) any {
 	}
 	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
 		items := []string{}
-		for part := range strings.SplitSeq(value[1:len(value)-1], ",") {
+		for _, part := range splitFlowItems(value[1 : len(value)-1]) {
 			if part = strings.TrimSpace(part); part != "" {
 				items = append(items, stripQuotes(part))
 			}
@@ -126,6 +127,28 @@ func parseScalar(value string) any {
 		return value
 	}
 	return stripQuotes(value)
+}
+
+// splitFlowItems splits an inline list on commas, ignoring commas inside a quoted item.
+func splitFlowItems(s string) []string {
+	var out []string
+	var quote byte
+	start := 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case (c == '"' || c == '\'') && strings.TrimSpace(s[start:i]) == "":
+			quote = c // a quote opens an item only at its start, so "don't" stays plain
+		case c == ',':
+			out = append(out, s[start:i])
+			start = i + 1
+		}
+	}
+	return append(out, s[start:])
 }
 
 // stripQuotes removes one matching pair of surrounding quotes, leaving inner and unpaired quotes intact.

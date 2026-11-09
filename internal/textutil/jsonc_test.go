@@ -5,6 +5,14 @@ import (
 	"testing"
 )
 
+func TestStripJSONCUnterminatedBlockComment(t *testing.T) {
+	in := []byte(`{"enabled":true} /* unfinished`)
+	var out map[string]any
+	if err := json.Unmarshal(StripJSONC(in), &out); err == nil {
+		t.Fatal("unterminated block comment was accepted as valid JSON")
+	}
+}
+
 func TestStripJSONCHandlesCommentsStringsAndTrailingCommas(t *testing.T) {
 	in := `{
   // a line comment

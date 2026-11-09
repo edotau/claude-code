@@ -33,6 +33,13 @@ func TestRedact(t *testing.T) {
 	}
 }
 
+func TestRedactBearerPrefixedTokenSuffix(t *testing.T) {
+	in := "Bearer sk-" + strings.Repeat("a", 40) + ".secret"
+	if got := Redact(in); got != "Bearer REDACTED" {
+		t.Errorf("Redact(%q) = %q, want full credential redacted as %q", in, got, "Bearer REDACTED")
+	}
+}
+
 // Every GitHub token family is redacted, bare and embedded in prose or JSON.
 func TestRedactGitHubTokenFamilies(t *testing.T) {
 	for _, prefix := range []string{"ghu_", "gho_", "ghs_", "ghr_", "ghp_", "github_pat_"} {

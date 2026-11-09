@@ -97,6 +97,9 @@ func peek(raw []byte) (int, error) {
 	if p.Schema == nil {
 		return 0, nil
 	}
+	if *p.Schema < 0 {
+		return 0, fmt.Errorf("negative schema version %d", *p.Schema)
+	}
 	return *p.Schema, nil
 }
 
@@ -227,7 +230,7 @@ func MigrateAll(dryRun bool) ([]Stale, error) {
 		if !f.Rewrite {
 			continue
 		}
-		files := map[int]int{} // from -> files rewritten
+		records := map[int]int{} // from -> records migrated
 		for _, s := range scan(f) {
 			if dryRun {
 				done = append(done, s)
@@ -239,11 +242,11 @@ func MigrateAll(dryRun bool) ([]Stale, error) {
 					firstErr = err
 				}
 			} else {
-				files[s.From]++
+				records[s.From] += s.Records
 			}
 			done = append(done, s)
 		}
-		for from, n := range files {
+		for from, n := range records {
 			LogMigration(f.Name, from, f.Version, n)
 		}
 	}

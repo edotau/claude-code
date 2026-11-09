@@ -43,7 +43,7 @@ func (c Claim) fits(s Snapshot, lim Limits) bool {
 	return c.Account == "" || s.Per[c.Account]+c.n() <= lim.For(c.Account)
 }
 
-// Fits prunes and counts under the lock and writes nothing; true also on any infra error (fail open).
+// Fits prunes and counts under the lock (unlocked and pruning too when the lock times out); writes nothing; fails open.
 func Fits(c Claim, lim Limits) (bool, Snapshot) {
 	dir := Dir()
 	if os.MkdirAll(dir, 0o700) != nil {
@@ -77,8 +77,8 @@ func TryClaim(c Claim, lim Limits) (bool, Snapshot) {
 	ok := true
 	ran, _ := paths.TryFileLock(filepath.Join(dir, ".lock"), lockWait, func() error {
 		snap = scan(dir, time.Now(), true)
-		if ok = c.fits(snap, lim); ok {
-			_ = writeMarkers(dir, c) // a failed write claims nothing: fail open
+		if ok = c.fits(snap, lim); ok && !writeMarkers(dir, c) {
+			Release(c.Owner, c.ID) // a failed write claims nothing: drop partial markers, fail open
 		}
 		return nil
 	})

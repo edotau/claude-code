@@ -54,11 +54,12 @@ func runUsageWorkflows(claudeDir string, out, errw io.Writer, session string, da
 		fmt.Fprintln(errw, "usage:", err)
 		return 1
 	}
+	cutoff := workflowCutoff(session, days)
 
 	var runs []*workflowRun
 	scanned := 0
 	for _, dir := range runDirs {
-		run, files := loadWorkflowRun(dir, errw)
+		run, files := loadWorkflowRun(dir, errw, cutoff)
 		if run == nil {
 			continue
 		}
@@ -73,15 +74,28 @@ func runUsageWorkflows(claudeDir string, out, errw io.Writer, session string, da
 	// Newest first: run ids are random, so recency comes from the last transcript timestamp, with the
 	// run dir's mtime as the fallback when no record carried a parseable one.
 	sort.SliceStable(runs, func(i, j int) bool { return runs[i].recency().After(runs[j].recency()) })
+	w := &errWriter{w: out}
 	for i, run := range runs {
 		if i > 0 {
-			fmt.Fprintln(out)
+			fmt.Fprintln(w)
 		}
-		printWorkflowRun(out, run)
+		printWorkflowRun(w, run)
 	}
-	printAllRunsByModel(out, runs)
-	fmt.Fprintf(out, "\nworkflow runs: %d   agent transcripts scanned: %d\n", len(runs), scanned)
+	printAllRunsByModel(w, runs)
+	fmt.Fprintf(w, "\nworkflow runs: %d   agent transcripts scanned: %d\n", len(runs), scanned)
+	if w.err != nil {
+		fmt.Fprintln(errw, "usage: write output:", w.err)
+		return 1
+	}
 	return 0
+}
+
+// workflowCutoff is the --days window's start for workflow runs; a zero time (no window) under --session.
+func workflowCutoff(session string, days int) time.Time {
+	if session != "" {
+		return time.Time{}
+	}
+	return time.Now().Add(-time.Duration(max(days, 1)) * 24 * time.Hour)
 }
 
 // recency is the run's sort key for newest-first ordering.
@@ -117,9 +131,9 @@ func workflowRunDirsForScope(claudeDir, session string, days int) ([]string, err
 	return dirs, nil
 }
 
-// loadWorkflowRun folds every agent transcript in one run dir into phase rows, returning the run and
-// the number of transcripts scanned (nil when the dir holds none).
-func loadWorkflowRun(runDir string, errw io.Writer) (*workflowRun, int) {
+// loadWorkflowRun folds the in-window responses of every agent transcript in one run dir into phase rows,
+// returning the run and the number of transcripts that contributed (nil when none did).
+func loadWorkflowRun(runDir string, errw io.Writer, cutoff time.Time) (*workflowRun, int) {
 	files := transcript.WorkflowAgentFiles(runDir)
 	if len(files) == 0 {
 		return nil, 0
@@ -135,11 +149,16 @@ func loadWorkflowRun(runDir string, errw io.Writer) (*workflowRun, int) {
 	byPhase := map[string]*workflowPhaseRow{}
 	scanned := 0
 	for _, f := range files {
-		summary, err := transcript.SummarizeFile(f)
+		resps, err := transcript.ReadResponses(f)
 		if err != nil {
 			fmt.Fprintf(errw, "usage: warning: skipping %s: %v\n", f, err)
 			continue
 		}
+		kept := inWindowResponses(resps, cutoff)
+		if len(kept) == 0 {
+			continue
+		}
+		summary := transcript.SummarizeResponses(kept)
 		scanned++
 		phase := transcript.WorkflowPhaseFromMeta(f, errw)
 		if phase == "" {
@@ -160,6 +179,17 @@ func loadWorkflowRun(runDir string, errw io.Writer) (*workflowRun, int) {
 	// Chronological, so the block reads as the run progressed; a phase with no timestamps sorts last.
 	sort.SliceStable(run.phases, func(i, j int) bool { return phaseBefore(run.phases[i], run.phases[j]) })
 	return run, scanned
+}
+
+// inWindowResponses keeps the responses stamped at or after cutoff; an unstamped response is kept, as in foldResponses.
+func inWindowResponses(resps []transcript.Response, cutoff time.Time) []transcript.Response {
+	kept := make([]transcript.Response, 0, len(resps))
+	for _, r := range resps {
+		if r.At.IsZero() || !r.At.Before(cutoff) {
+			kept = append(kept, r)
+		}
+	}
+	return kept
 }
 
 // addAgentToRow folds one agent transcript's summary into a phase (or run-total) row.

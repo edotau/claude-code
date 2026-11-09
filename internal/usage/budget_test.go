@@ -103,7 +103,7 @@ func TestBudgetQuotasMissingEndpointYieldsNoRows(t *testing.T) {
 	}
 }
 
-func TestBudgetRowsSkipUnparsableNumbers(t *testing.T) {
+func TestBudgetRowsReportUnparsableNumbers(t *testing.T) {
 	mk := func(spend, limit, pct string) budgetStatus {
 		var s budgetStatus
 		s.Alerts = append(s.Alerts, struct {
@@ -116,8 +116,9 @@ func TestBudgetRowsSkipUnparsableNumbers(t *testing.T) {
 		return s
 	}
 	for _, bad := range [][3]string{{"", "100", "5"}, {"1", "100", "NaN"}, {"1", "Inf", "5"}, {"1", "1e999", "5"}} {
-		if rows := budgetRows("dev", mk(bad[0], bad[1], bad[2])); len(rows) != 0 {
-			t.Errorf("%v produced rows %+v, want none", bad, rows)
+		rows := budgetRows("dev", mk(bad[0], bad[1], bad[2]))
+		if len(rows) != 1 || !strings.HasPrefix(rows[0].Note, budgetMalformedNote) {
+			t.Errorf("%v produced rows %+v, want one malformed-budget warning", bad, rows)
 		}
 	}
 	rows := budgetRows("dev", mk(" 1,100.5 ", "2,000", "50.2"))

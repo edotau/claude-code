@@ -13,7 +13,11 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
+
+// gitTimeout bounds one In call, so a hanging git hook fails the test instead of the whole binary.
+const gitTimeout = 60 * time.Second
 
 var (
 	seq     atomic.Int64
@@ -89,9 +93,12 @@ func buildTemplate() {
 // In runs git -C dir with a fixed identity and no global config, failing the test on error; it returns stdout only.
 func In(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.CommandContext(context.Background(), "git", append([]string{"-C", dir}, args...)...)
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	cmd.Env = append(cleanEnv(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t",
 		"GIT_COMMITTER_EMAIL=t@t", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	cmd.WaitDelay = gitTimeout // a hook child holding the pipes must not block Wait after the kill
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {

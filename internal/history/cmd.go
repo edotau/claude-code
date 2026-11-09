@@ -94,19 +94,15 @@ func historyLog(args []string) int {
 	}
 	store := &Store{Dir: Dir()}
 	lines, err := store.Log(*n, "config")
-	rc := 0
-	if err != nil {
+	if err != nil { // a failed read is not an empty history: say so, print nothing as if it were
 		fmt.Fprintf(os.Stderr, "history: config: %v\n", err)
-		rc = 1
+		return 1
 	}
 	if *format == helptext.JSON {
-		if jrc := helptext.WriteJSONOrFail("history log", map[string][]LogEntry{"config": ParseLog(lines)}); jrc != 0 {
-			return jrc
-		}
-		return rc
+		return helptext.WriteJSONOrFail("history log", map[string][]LogEntry{"config": ParseLog(lines)})
 	}
 	printLog("config", lines)
-	return rc
+	return 0
 }
 
 // printLog prints one plane's header and lines; an empty history says so rather than printing nothing.

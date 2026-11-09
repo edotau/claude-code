@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -117,8 +118,16 @@ func budgetQuotas(ctx context.Context, p *providers.Provider, now time.Time) []q
 	if err != nil {
 		return []quota{{Provider: "databricks", Account: p.Name, Note: "unavailable: budget " + commandErrorLine(nil, err)}}
 	}
+	if slices.ContainsFunc(rows, isMalformedBudget) { // a bad row is re-fetched next run, not held for 5 minutes
+		return rows
+	}
 	writeBudgetCache(path, budgetCache{FetchedAt: now, Profile: p.Name, Rows: rows})
 	return rows
+}
+
+// isMalformedBudget reports whether q is a budget row that could not be parsed.
+func isMalformedBudget(q quota) bool {
+	return strings.HasPrefix(q.Note, budgetMalformedNote)
 }
 
 // budgetStatus is one entry of GET /api/ai-gateway/v2/budget-spend-statuses; numbers arrive as JSON strings.
@@ -198,6 +207,9 @@ func parseBudgetNum(s string) (float64, bool) {
 	return v, true
 }
 
+// budgetMalformedNote marks a budget alert whose numbers did not parse: shown, never dropped, never cached.
+const budgetMalformedNote = "unavailable: malformed budget row"
+
 // budgetRows maps one budget's alert statuses to quota rows (USD), e.g. PER_USER/MONTH → "per-user", "month".
 func budgetRows(profile string, s budgetStatus) []quota {
 	var out []quota
@@ -206,6 +218,7 @@ func budgetRows(profile string, s budgetStatus) []quota {
 		spend, ok2 := parseBudgetNum(a.Spend)
 		limit, ok3 := parseBudgetNum(a.Limit)
 		if !ok1 || !ok2 || !ok3 {
+			out = append(out, quota{Provider: "databricks", Account: profile, Note: budgetMalformedNote + " (" + s.Name + ")"})
 			continue
 		}
 		scope := strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(a.Scope, "ALERT_CONFIGURATION_SCOPE_TYPE_"), "_", "-"))

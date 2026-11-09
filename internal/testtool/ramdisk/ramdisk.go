@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -19,6 +20,9 @@ import (
 const (
 	offEnv  = "TEST_RAMDISK"
 	sectors = 8388608 // 4 GiB in 512-byte sectors; RAM is only used as files are written
+
+	diskTimeout   = 2 * time.Minute // per hdiutil/diskutil call; a stalled one must not hang the run
+	diskWaitDelay = 10 * time.Second
 
 	exitUsage    = 2
 	exitNotFound = 127
@@ -79,10 +83,19 @@ func run(argv []string, tmp string) int {
 	return code
 }
 
+// diskCmd bounds a disk-management command by diskTimeout; the caller must call cancel once it has run.
+func diskCmd(name string, args ...string) (cmd *exec.Cmd, cancel context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), diskTimeout)
+	cmd = exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = diskWaitDelay // a child holding the output pipe open must not block past the deadline
+	return cmd, cancel
+}
+
 // attachDisk makes the RAM disk and returns its device and a TMPDIR on it.
 func attachDisk(volume string) (dev, tmp string, err error) {
-	ctx := context.Background()
-	out, err := exec.CommandContext(ctx, "hdiutil", "attach", "-nomount", fmt.Sprintf("ram://%d", sectors)).Output()
+	cmd, cancel := diskCmd("hdiutil", "attach", "-nomount", fmt.Sprintf("ram://%d", sectors))
+	out, err := cmd.Output()
+	cancel()
 	if err != nil {
 		return "", "", fmt.Errorf("hdiutil attach: %w", err)
 	}
@@ -91,7 +104,10 @@ func attachDisk(volume string) (dev, tmp string, err error) {
 		return "", "", errors.New("hdiutil attach: no device in its output")
 	}
 	dev = fields[0]
-	if out, err := exec.CommandContext(ctx, "diskutil", "erasevolume", "APFS", volume, dev).CombinedOutput(); err != nil {
+	cmd, cancel = diskCmd("diskutil", "erasevolume", "APFS", volume, dev)
+	out, err = cmd.CombinedOutput()
+	cancel()
+	if err != nil {
 		detachDisk(dev)
 		return "", "", fmt.Errorf("diskutil erasevolume: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -105,7 +121,9 @@ func attachDisk(volume string) (dev, tmp string, err error) {
 
 // detachDisk forces the eject: a helper a test leaked must not keep the volume, or its RAM, alive.
 func detachDisk(dev string) {
-	if out, err := exec.CommandContext(context.Background(), "hdiutil", "detach", dev, "-force").CombinedOutput(); err != nil {
+	cmd, cancel := diskCmd("hdiutil", "detach", dev, "-force")
+	defer cancel()
+	if out, err := cmd.CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "claude-code: test ramdisk: detach %s: %v: %s\n", dev, err, strings.TrimSpace(string(out)))
 	}
 }

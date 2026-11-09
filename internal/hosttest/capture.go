@@ -12,7 +12,6 @@ import (
 // CaptureOutput redirects os.Stdout/os.Stderr around fn and returns fn's exit code plus both streams.
 func CaptureOutput(t *testing.T, fn func() int) (code int, stdout, stderr string) {
 	t.Helper()
-	oldOut, oldErr := os.Stdout, os.Stderr
 	ro, wo, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -25,13 +24,19 @@ func CaptureOutput(t *testing.T, fn func() int) (code int, stdout, stderr string
 	var drained sync.WaitGroup
 	drained.Go(func() { _, _ = io.Copy(&bo, ro) }) // drain while fn runs: a full pipe would block its writes forever
 	drained.Go(func() { _, _ = io.Copy(&be, re) })
+	oldOut, oldErr := os.Stdout, os.Stderr
 	os.Stdout, os.Stderr = wo, we
+	defer func() { // runs even when fn exits via t.Fatal/t.SkipNow (runtime.Goexit), so streams never stay redirected
+		_ = wo.Close()
+		_ = we.Close()
+		os.Stdout, os.Stderr = oldOut, oldErr
+		drained.Wait()
+		_ = ro.Close()
+		_ = re.Close()
+		stdout, stderr = bo.String(), be.String()
+	}()
 	code = fn()
-	_ = wo.Close()
-	_ = we.Close()
-	os.Stdout, os.Stderr = oldOut, oldErr
-	drained.Wait()
-	return code, bo.String(), be.String()
+	return
 }
 
 // ClosedStdout points os.Stdout at a closed file so every write fails, until the test ends.

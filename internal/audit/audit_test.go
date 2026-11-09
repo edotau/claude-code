@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,6 +152,60 @@ func TestRotateKeepsPreviousGeneration(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(file + ".2"); string(got) != first {
 		t.Errorf(".2 = %q, want the first generation preserved", got)
+	}
+}
+
+func TestReadIncludesEveryKeptArchive(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(File()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	suffixes := []string{".5", ".4", ".3", ".2", ".1", ""}
+	for _, suffix := range suffixes {
+		seed := `{"schema":1,"time":"2026-11-08T23:59:59Z","action":"model_pin","resource":"expired"}` + "\n" +
+			fmt.Sprintf(`{"schema":1,"time":"2026-11-09T00:00:00Z","action":"model_pin","resource":%q}`, suffix) + "\n"
+		if err := os.WriteFile(File()+suffix, []byte(seed), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, err := Read(time.Date(2026, time.November, 9, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resources []string
+	for _, event := range events {
+		resources = append(resources, event.Resource)
+	}
+	if got, want := strings.Join(resources, ","), strings.Join(suffixes, ","); got != want {
+		t.Errorf("Read resources = %q, want %q in archive order", got, want)
+	}
+	if got := Summary(events)[ModelPin]; got != len(suffixes) {
+		t.Errorf("Summary model_pin = %d, want %d", got, len(suffixes))
+	}
+}
+
+func TestRotatePreservesHistoryOnFailure(t *testing.T) {
+	for _, suffix := range []string{".5", ".lock"} {
+		t.Run(suffix, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "audit.jsonl")
+			live := strings.Repeat("x", int(maxBytes)+1)
+			for name, data := range map[string]string{file: live, file + ".1": "previous generation", file + ".4": "older"} {
+				if err := os.WriteFile(name, []byte(data), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.Mkdir(file+suffix, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := rotate(file); err == nil {
+				t.Error("rotate succeeded despite blocked " + suffix)
+			}
+			for path, want := range map[string]string{file: live, file + ".1": "previous generation"} {
+				if got, err := os.ReadFile(path); err != nil || string(got) != want {
+					t.Errorf("rotation did not preserve %s: bytes = %d, error = %v", path, len(got), err)
+				}
+			}
+		})
 	}
 }
 

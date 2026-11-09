@@ -139,6 +139,7 @@ func serveConn(w io.Writer, in net.Conn, home string, png func(io.Writer) error)
 	if in == nil {
 		return png(w)
 	}
+	w = connWriter{in} // under launchd stdin and stdout are one socket; replies get a write deadline
 	_ = in.SetReadDeadline(time.Now().Add(serveReqWait))
 	line, err := bufio.NewReaderSize(in, 4096).ReadSlice('\n')
 	if err != nil || len(bytes.TrimSpace(line)) == 0 {
@@ -149,6 +150,14 @@ func serveConn(w io.Writer, in net.Conn, home string, png func(io.Writer) error)
 		return replyErr(w, "bad request")
 	}
 	return serveFile(w, home, req.Path)
+}
+
+// connWriter writes to c with a fresh deadline per call, so a client that stops reading cannot block the server.
+type connWriter struct{ c net.Conn }
+
+func (cw connWriter) Write(p []byte) (int, error) {
+	_ = cw.c.SetWriteDeadline(time.Now().Add(sshTimeout))
+	return cw.c.Write(p)
 }
 
 // replyErr writes the one-line failure header.
@@ -183,6 +192,9 @@ func allowedServePath(home, path string) (real string, size int64, err error) {
 	if !filepath.IsAbs(path) {
 		return "", 0, errors.New("path must be absolute")
 	}
+	if home == "" {
+		return "", 0, errors.New("home directory unknown: refusing file requests")
+	}
 	if real, err = filepath.EvalSymlinks(path); err != nil {
 		return "", 0, errors.New("no such file")
 	}
@@ -195,18 +207,58 @@ func allowedServePath(home, path string) (real string, size int64, err error) {
 	case fi.Size() > sshMaxPNG:
 		return "", 0, fmt.Errorf("file over %d MiB", sshMaxPNG>>20)
 	}
-	if home != "" {
-		if h, err := filepath.EvalSymlinks(home); err == nil {
-			home = h
-		}
-		for _, d := range []string{".ssh", ".gnupg", "Library/Keychains", ".claude/state"} {
-			deny := filepath.Join(home, filepath.FromSlash(d))
-			if real == deny || strings.HasPrefix(real, deny+string(filepath.Separator)) {
-				return "", 0, errors.New("path is not shareable")
-			}
-		}
+	if h, err := filepath.EvalSymlinks(home); err == nil {
+		home = h
+	}
+	if underSecretRoot(real, secretRoots(home)) {
+		return "", 0, errors.New("path is not shareable")
 	}
 	return real, fi.Size(), nil
+}
+
+// underSecretRoot reports whether real is a denied root or inside one, by path string or by file identity.
+func underSecretRoot(real string, roots []string) bool {
+	for _, deny := range roots {
+		if real == deny || strings.HasPrefix(real, deny+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return ancestorIsRoot(real, roots)
+}
+
+// ancestorIsRoot reports whether an ancestor of real is os.SameFile as a denied root (case-insensitive FS safe).
+func ancestorIsRoot(real string, roots []string) bool {
+	var infos []os.FileInfo
+	for _, r := range roots {
+		if fi, err := os.Stat(r); err == nil {
+			infos = append(infos, fi)
+		}
+	}
+	for p := real; ; p = filepath.Dir(p) {
+		if fi, err := os.Stat(p); err == nil {
+			for _, ri := range infos {
+				if os.SameFile(fi, ri) {
+					return true
+				}
+			}
+		}
+		if filepath.Dir(p) == p {
+			return false
+		}
+	}
+}
+
+// secretRoots lists the secret directories under home, both as named and as their symlink targets.
+func secretRoots(home string) []string {
+	var roots []string
+	for _, d := range []string{".ssh", ".gnupg", "Library/Keychains", ".claude/state"} {
+		p := filepath.Join(home, filepath.FromSlash(d))
+		roots = append(roots, p)
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			roots = append(roots, r)
+		}
+	}
+	return roots
 }
 
 // logServed appends the served path (never its bytes) to the clip-serve log, best effort.
@@ -284,11 +336,36 @@ func fetchFrom(sock, path, dropDir string) (string, error) {
 	if err := os.MkdirAll(dropDir, 0o700); err != nil {
 		return "", err
 	}
-	local := filepath.Join(dropDir, name)
+	local, err := claimDropPath(dropDir, name)
+	if err != nil {
+		return "", err
+	}
 	if err := paths.AtomicWrite(local, data, 0o600); err != nil {
+		_ = os.Remove(local)
 		return "", err
 	}
 	return local, nil
+}
+
+// claimDropPath reserves dropDir/name, or name-N.ext when taken, so an earlier fetch is never overwritten.
+func claimDropPath(dropDir, name string) (string, error) {
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	for i := range 1000 {
+		cand := filepath.Join(dropDir, name)
+		if i > 0 {
+			cand = filepath.Join(dropDir, fmt.Sprintf("%s-%d%s", stem, i, ext))
+		}
+		f, err := os.OpenFile(cand, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		switch {
+		case err == nil:
+			_ = f.Close()
+			return cand, nil
+		case !os.IsExist(err):
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("no free name for %q in %s", name, dropDir)
 }
 
 // servePNG is ServePNG without the darwin gate, for tests with a faked osascript.
@@ -390,7 +467,7 @@ func InstallLaunchAgent(w io.Writer, bin string, dryRun bool) error {
 
 // printSSHHint tells the owner the remote host's ~/.ssh/config lines the bridge needs; it never writes that file.
 func printSSHHint(w io.Writer, home string) {
-	fmt.Fprintf(w, "  %-17s add to the remote host's ~/.ssh/config (replace <remote-user> with your login there):\n", "clip bridge")
+	fmt.Fprintf(w, "  %-17s add to this Mac's ~/.ssh/config, the SSH client (replace <remote-user> with your login on the remote):\n", "clip bridge")
 	fmt.Fprintf(w, "      RemoteForward /tmp/claude-clip-<remote-user>.sock %s\n      StreamLocalBindUnlink yes\n", launchSocket(home))
 }
 

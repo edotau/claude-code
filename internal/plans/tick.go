@@ -209,10 +209,10 @@ func ClearClaim(planPath, taskID string) error {
 	})
 }
 
-// ClearClaimOwned removes a task's claim only when its text contains owner, decided under the lock.
+// ClearClaimOwned removes a task's claim only when a non-empty owner appears in its text, decided under the lock.
 func ClearClaimOwned(planPath, taskID, owner string) error {
 	return editTask(planPath, taskID, func(t Task, lines []string) []string {
-		if !strings.Contains(t.Claim, owner) {
+		if owner == "" || !strings.Contains(t.Claim, owner) {
 			return lines
 		}
 		return removeClaims(lines, t)
@@ -296,9 +296,12 @@ func TickRange(ctx context.Context, dir, worktree, rng, plan string, drafts []st
 		return err
 	}
 	base := strings.TrimSuffix(filepath.Base(plan), ".md")
-	printTicked(w, results, base, dryRun)
+	if err := printTicked(w, results, base, dryRun); err != nil {
+		return err
+	}
 	if len(results) == 0 {
-		fmt.Fprintf(w, "plans: %d commits, nothing to tick in %s\n", len(commits), base)
+		_, err = fmt.Fprintf(w, "plans: %d commits, nothing to tick in %s\n", len(commits), base)
+		return err
 	}
 	return nil
 }
@@ -315,28 +318,34 @@ func pickPlan(dir, worktree, plan string, drafts []string, commits []Commit, w i
 	if plan != "" {
 		return plan, false, nil
 	}
+	var err error
 	if len(tied) > 0 {
-		fmt.Fprintf(w, "plans: ambiguous, %d plans match equally (%s); nothing annotated\n", len(tied), baseNames(tied))
+		_, err = fmt.Fprintf(w, "plans: ambiguous, %d plans match equally (%s); nothing annotated\n", len(tied), baseNames(tied))
 	} else {
-		fmt.Fprintln(w, "plans: no plan owns these files; nothing to tick")
+		_, err = fmt.Fprintln(w, "plans: no plan owns these files; nothing to tick")
 	}
-	return "", true, nil
+	return "", true, err
 }
 
-// printTicked writes one line per commit that ticked or partly landed tasks in base.
-func printTicked(w io.Writer, results []TickResult, base string, dryRun bool) {
+// printTicked writes one line per commit that ticked or partly landed tasks in base, returning the first write error.
+func printTicked(w io.Writer, results []TickResult, base string, dryRun bool) error {
 	verb := "ticked"
 	if dryRun {
 		verb = "would tick"
 	}
 	for _, r := range results {
 		if len(r.Ticked) > 0 {
-			fmt.Fprintf(w, "plans: %s %s (%s) in %s\n", verb, strings.Join(r.Ticked, "; "), r.Sha, base)
+			if _, err := fmt.Fprintf(w, "plans: %s %s (%s) in %s\n", verb, strings.Join(r.Ticked, "; "), r.Sha, base); err != nil {
+				return err
+			}
 		}
 		if len(r.Partial) > 0 {
-			fmt.Fprintf(w, "plans: partly landed %s (%s) in %s\n", strings.Join(r.Partial, "; "), r.Sha, base)
+			if _, err := fmt.Fprintf(w, "plans: partly landed %s (%s) in %s\n", strings.Join(r.Partial, "; "), r.Sha, base); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 // baseNames joins the plan file names without their extension.

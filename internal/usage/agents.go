@@ -138,7 +138,7 @@ func buildAgentsUsage(scan *transcriptScan, session string, days int) []agentUsa
 	var codexU, opencodeU, copilotU agentUsage
 	var wg sync.WaitGroup
 	wg.Add(3)
-	go func() { defer wg.Done(); codexU = codexUsage(cutoff) }()
+	go func() { defer wg.Done(); codexU = codexUsage(ctx, cutoff) }()
 	go func() { defer wg.Done(); opencodeU = opencodeUsage(ctx, cutoff) }()
 	go func() { defer wg.Done(); copilotU = copilotUsage(ctx, cutoff) }()
 	wg.Wait()
@@ -175,7 +175,7 @@ func claudeAgentUsage(scan *transcriptScan, sessions int) agentUsage {
 
 // codexLine mirrors a codex session line; its payload: turn_context carries the model, event_msg
 // carries token_count with the cumulative total_token_usage for the session so far; Timestamp is the
-// line's own RFC3339 clock, used to date a session by its LAST token_count line.
+// line's own RFC3339 clock, used to date each token_count line to its own local day.
 type codexLine struct {
 	Type      string          `json:"type"`
 	Timestamp string          `json:"timestamp"`
@@ -206,6 +206,7 @@ type codexSessionSummary struct {
 	Turns  int
 	Mix    tokenMix
 	Days   map[string]*dayCount
+	err    error // the open or read error that cut the file short; nil when it was read whole
 }
 
 // codexCumulative is one token_count line's session-to-date totals, with Mix in disjoint kinds so it sums to Tokens.
@@ -233,19 +234,38 @@ func (c codexCumulative) minus(prev codexCumulative) codexCumulative {
 		CacheWrite: c.Mix.CacheWrite - prev.Mix.CacheWrite}}
 }
 
-// parseCodexSession streams one session jsonl. Every token_count line carries the session's cumulative totals,
+// ctxReader fails its reads once ctx is done, so an expired budget stops the scan mid-file.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (c ctxReader) Read(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return c.r.Read(p)
+}
+
+// parseCodexSession is parseCodexSessionCtx without a budget.
+func parseCodexSession(path string, cutoff time.Time, fallbackDay string) codexSessionSummary {
+	return parseCodexSessionCtx(context.Background(), path, cutoff, fallbackDay)
+}
+
+// parseCodexSessionCtx streams one session jsonl. Every token_count line carries the session's cumulative totals,
 // so a line's own usage is its growth over the previous line; only lines stamped at or after cutoff count (a zero
 // cutoff counts all), each dated to its own local day. A line with no RFC3339 stamp counts on fallbackDay. The
-// model is the last turn_context seen. Malformed lines are skipped rather than aborting the scan.
-func parseCodexSession(path string, cutoff time.Time, fallbackDay string) codexSessionSummary {
+// model is the last turn_context seen. Malformed lines are skipped rather than aborting the scan. A cancelled ctx
+// stops the read mid-file and reports ctx.Err() in s.err.
+func parseCodexSessionCtx(ctx context.Context, path string, cutoff time.Time, fallbackDay string) codexSessionSummary {
 	f, err := os.Open(path)
 	if err != nil {
-		return codexSessionSummary{}
+		return codexSessionSummary{err: err}
 	}
 	defer f.Close()
 	s := codexSessionSummary{Days: map[string]*dayCount{}}
 	var prev codexCumulative
-	textutil.EachLine(f, func(line []byte) {
+	s.err = textutil.EachLineErr(ctxReader{ctx: ctx, r: f}, func(line []byte) {
 		var l codexLine
 		if json.Unmarshal(line, &l) != nil {
 			return
@@ -303,7 +323,8 @@ func addDayCount(days map[string]*dayCount, day string, tokens, turns int) {
 
 // codexUsage walks ~/.codex/sessions for *.jsonl files modified within the window, one session per file;
 // only the token_count growth stamped inside the window is counted, and a session with none is not listed.
-func codexUsage(cutoff time.Time) agentUsage {
+// ctx is the shared usage budget; read errors or an expired budget mark the row incomplete.
+func codexUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	home, err := paths.CodexHome()
 	if err != nil {
 		return agentUsage{Agent: "codex", Note: "store not found: " + err.Error()}
@@ -313,17 +334,20 @@ func codexUsage(cutoff time.Time) agentUsage {
 		return agentUsage{Agent: "codex", Note: "store not found: " + dir}
 	}
 
-	files, mtimeDay := codexSessionFiles(dir, cutoff)
-	if len(files) == 0 {
-		return agentUsage{Agent: "codex", Note: "no sessions in window"}
-	}
-
+	files, mtimeDay, errs := codexSessionFiles(ctx, dir, cutoff)
 	byModel := map[string]*agentModel{}
 	dayCounts := map[string]*dayCount{}
 	var total, totalTurns, sessions int
 	var mix tokenMix
 	for _, f := range files {
-		s := parseCodexSession(f, cutoff, mtimeDay[f])
+		if err := ctx.Err(); err != nil {
+			errs = append(errs, err)
+			break
+		}
+		s := parseCodexSessionCtx(ctx, f, cutoff, mtimeDay[f])
+		if s.err != nil {
+			errs = append(errs, s.err)
+		}
 		if s.Model == "" || s.Turns == 0 {
 			continue
 		}
@@ -336,8 +360,9 @@ func codexUsage(cutoff time.Time) agentUsage {
 			addDayCount(dayCounts, day, d.tokens, d.turns)
 		}
 	}
+	note := codexIncomplete(errs)
 	if sessions == 0 {
-		return agentUsage{Agent: "codex", Note: "no sessions in window"}
+		return agentUsage{Agent: "codex", Note: cmp.Or(note, "no sessions in window")}
 	}
 	models := make([]agentModel, 0, len(byModel))
 	for _, m := range byModel {
@@ -346,26 +371,50 @@ func codexUsage(cutoff time.Time) agentUsage {
 	sortModelsByTokens(models)
 	daily := dailyFromCounts(dayCounts)
 	return agentUsage{Agent: "codex", Sessions: sessions, Turns: totalTurns, Tokens: total, Models: models,
-		Mix: mixPtr(mix), Daily: daily, ActiveDays: len(daily)}
+		Mix: mixPtr(mix), Daily: daily, ActiveDays: len(daily), Note: note}
+}
+
+// codexIncomplete is the note for a codex total built from partial reads: "" when no read failed.
+func codexIncomplete(errs []error) string {
+	if len(errs) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("incomplete: %d read error(s), first: %v", len(errs), errs[0])
 }
 
 // codexSessionFiles lists *.jsonl under dir modified since cutoff, with each one's mtime day (the fallback day).
-func codexSessionFiles(dir string, cutoff time.Time) ([]string, map[string]string) {
+// Walk and stat errors come back with the files; a cancelled ctx stops the walk.
+func codexSessionFiles(ctx context.Context, dir string, cutoff time.Time) ([]string, map[string]string, []error) {
 	var files []string
+	var errs []error
 	mtimeDay := map[string]string{} // fallback day for a token_count line with no usable timestamp
-	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+	werr := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if walkErr != nil {
+			errs = append(errs, walkErr)
+			return nil
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 			return nil
 		}
 		info, infoErr := d.Info()
-		if infoErr != nil || info.ModTime().Before(cutoff) {
+		if infoErr != nil {
+			errs = append(errs, infoErr)
+			return nil
+		}
+		if info.ModTime().Before(cutoff) {
 			return nil
 		}
 		files = append(files, path)
 		mtimeDay[path] = info.ModTime().Local().Format("2006-01-02")
 		return nil
 	})
-	return files, mtimeDay
+	if werr != nil {
+		errs = append(errs, werr)
+	}
+	return files, mtimeDay, errs
 }
 
 // addCodexModel folds one session into its model's running totals.
@@ -626,6 +675,9 @@ func printAgentsSection(out io.Writer, agents []agentUsage, days int) {
 		for _, m := range a.Models {
 			rows = append(rows, []string{"", rowLabel(m.Provider, m.Profile) + "/" + m.Model, r(12, humanTokens(m.Tokens)),
 				r(8, strconv.Itoa(m.Turns)), r(8, "-"), r(10, costStr(m.CostUSD))})
+		}
+		if a.Note != "" { // a total built from partial reads says so under its own row
+			rows = append(rows, []string{"", a.Note})
 		}
 	}
 	fmt.Fprint(out, table.Render(head, nil, rows, 0))

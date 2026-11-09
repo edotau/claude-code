@@ -230,8 +230,8 @@ func cmdNetworkView(args []string) int {
 		if err := helptext.WriteJSON(os.Stdout, snap); err != nil {
 			return helptext.Fail("network view: %v", err)
 		}
-	} else {
-		uitree.RenderSnapshot(os.Stdout, snap)
+	} else if err := uitree.RenderSnapshot(os.Stdout, snap); err != nil {
+		return helptext.Fail("network view: %v", err)
 	}
 	if !*follow {
 		return 0

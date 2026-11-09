@@ -139,7 +139,7 @@ func codexFixtureUsage(t *testing.T) agentUsage {
 	if err := os.WriteFile(filepath.Join(sessDir, "rollout.jsonl"), fixture, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return codexUsage(time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC))
+	return codexUsage(context.Background(), time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC))
 }
 
 // TestCodexUsageParsesFixture: one fixture session file under CODEX_HOME/sessions becomes a codex
@@ -189,7 +189,7 @@ func TestCodexUsageCutoffExcludesOldSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := codexUsage(time.Now().Add(-24 * time.Hour))
+	got := codexUsage(context.Background(), time.Now().Add(-24*time.Hour))
 	if got.Note != "no sessions in window" {
 		t.Errorf("note = %q, want %q", got.Note, "no sessions in window")
 	}
@@ -198,7 +198,7 @@ func TestCodexUsageCutoffExcludesOldSessions(t *testing.T) {
 // TestCodexUsageMissingStore: no ~/.codex/sessions directory at all reports a "store not found" note.
 func TestCodexUsageMissingStore(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
-	got := codexUsage(time.Now().Add(-24 * time.Hour))
+	got := codexUsage(context.Background(), time.Now().Add(-24*time.Hour))
 	if !strings.HasPrefix(got.Note, "store not found") {
 		t.Errorf("note = %q, want a store-not-found note", got.Note)
 	}
@@ -533,7 +533,7 @@ func TestAgentMixSumsToTokens(t *testing.T) {
 
 	agents := map[string]agentUsage{
 		"claude":   claudeAgentUsage(scan, 1),
-		"codex":    codexUsage(time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)),
+		"codex":    codexUsage(context.Background(), time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)),
 		"opencode": opencodeUsage(context.Background(), time.Now().Add(-24*time.Hour)),
 		"copilot":  copilotUsage(context.Background(), time.Now().Add(-24*time.Hour)),
 	}

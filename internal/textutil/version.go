@@ -32,10 +32,10 @@ func CompareVersions(a, b string) (int, bool) {
 }
 
 func versionParts(v string) []int {
+	core, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimSpace(v), "v"), "-") // drop prerelease before splitting
 	var out []int
-	for s := range strings.SplitSeq(strings.TrimPrefix(strings.TrimSpace(v), "v"), ".") {
-		part, _, _ := strings.Cut(s, "-")
-		n, err := strconv.Atoi(part)
+	for s := range strings.SplitSeq(core, ".") {
+		n, err := strconv.Atoi(s)
 		if err != nil {
 			return nil
 		}

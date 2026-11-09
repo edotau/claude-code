@@ -302,6 +302,7 @@ func writeClaudeCache(t *testing.T, dir string, fetchedAt time.Time, notBefore *
 		"schema":            1,
 		"fetched_at":        fetchedAt.UTC().Format(time.RFC3339),
 		"subscription_type": subscriptionType,
+		"owner":             claudeOwner(testClaudeCredentials()),
 		"body":              json.RawMessage(body),
 	}
 	if notBefore != nil {
@@ -338,6 +339,14 @@ func setClaudeCacheDir(t *testing.T) string {
 	claudeCacheDir = dir
 	t.Cleanup(func() { claudeCacheDir = orig })
 	return dir
+}
+
+func testClaudeCredentials() claudeOAuthCreds {
+	var creds claudeOAuthCreds
+	creds.ClaudeAiOauth.AccessToken = "test-token-123"
+	creds.ClaudeAiOauth.SubscriptionType = "max"
+	creds.ClaudeAiOauth.ExpiresAt = time.Now().Add(24 * time.Hour).UnixMilli()
+	return creds
 }
 
 // validClaudeCreds stubs the keychain miss + CLAUDE_CONFIG_DIR file fallback with a non-expired credential.

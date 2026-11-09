@@ -169,7 +169,7 @@ func (c proxyCall) pngLeg() int {
 		}
 		return 0
 	}
-	b, err := captureWlPaste(c.real, c.env, []string{"--type", "image/bmp"})
+	b, err := captureWlPaste(c.real, c.env, withType(c.args, "image/bmp"))
 	if err == nil {
 		err = TranscodePNG(bytes.NewReader(b), c.stdout) // decodeRaster runs before any write: no partial output
 	}
@@ -191,6 +191,21 @@ func requestsType(args []string, mime string) bool {
 		}
 	}
 	return false
+}
+
+// withType returns args minus any type selector, plus "--type mime"; every other selection flag (--primary) is kept.
+func withType(args []string, mime string) []string {
+	var out []string
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case strings.HasPrefix(a, "--type="):
+		case (a == "--type" || a == "-t") && i+1 < len(args):
+			i++
+		default:
+			out = append(out, a)
+		}
+	}
+	return append(out, "--type", mime)
 }
 
 // parentCmdline is the spawning process's argv, space-joined; empty when /proc is unreadable.

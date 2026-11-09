@@ -48,6 +48,7 @@ type quota struct {
 	// TokenExpiresAt is the Databricks auth token's expiry (RFC3339 UTC), absent when none is recorded.
 	TokenExpiresAt string `json:"token_expires_at,omitempty"`
 	AuthMethod     string `json:"auth_method,omitempty"` // the session profile's auth type: oauth, m2m or pat
+	cached         bool   // served from a prior fetch's cache; never recorded as a fresh observation
 }
 
 // googleNote: AI Studio keys have no quota API, and Antigravity's cloudcode-pa quota calls 403 for this client.
@@ -60,7 +61,7 @@ func warnThreshold() float64 {
 		return 80
 	}
 	pct, err := strconv.ParseFloat(v, 64)
-	if err != nil || pct <= 0 || pct > 100 {
+	if err != nil || math.IsNaN(pct) || pct <= 0 || pct > 100 {
 		return 80
 	}
 	return pct

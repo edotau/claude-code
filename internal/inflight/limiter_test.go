@@ -157,6 +157,35 @@ func TestTryClaimN(t *testing.T) {
 	})
 }
 
+func TestTryClaimPartialWriteReleasesMarkers(t *testing.T) {
+	setupDir(t)
+	owner := os.Getpid()
+	lim := Limits{Base: 4, Total: 4}
+	if ok, _ := TryClaim(Claim{Owner: owner, ID: "existing", Account: "a"}, lim); !ok {
+		t.Fatal("existing claim refused with room")
+	}
+	claim := Claim{Owner: owner, ID: "partial", Account: "a", N: 3}
+	mkdirAll(t, filepath.Join(Dir(), ".tmp-"+markerName(owner, claim.ID)+".2"))
+
+	ok, snap := TryClaim(claim, lim)
+	if !ok {
+		t.Fatal("partial write must fail open")
+	}
+	if snap.Total != 1 || snap.Per["a"] != 1 {
+		t.Fatalf("snapshot = %+v, want only the existing claim", snap)
+	}
+	assertNoMarker(t, "-partial", "partial write left marker %s behind")
+	if !markerExists(owner, "existing") {
+		t.Fatal("partial write cleanup removed the existing claim")
+	}
+	if got := Count(); got.Total != 1 || got.Per["a"] != 1 {
+		t.Fatalf("count after partial write = %+v, want only the existing claim", got)
+	}
+	if ok, _ := TryClaim(Claim{Owner: owner, ID: "next", Account: "a", N: 3}, lim); !ok {
+		t.Fatal("partial write left slots occupied, refusing the next N=3 claim")
+	}
+}
+
 // assertLeaves checks the N=3 claim wrote leaves .1..3 holding the account key and no base marker.
 func assertLeaves(t *testing.T, owner int) {
 	t.Helper()

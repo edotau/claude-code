@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+func TestCompareVersionsDottedPrerelease(t *testing.T) {
+	if cmp, ok := CompareVersions("1.2.3-rc.1", "1.2.3"); cmp != 0 || !ok {
+		t.Fatalf("CompareVersions(dotted prerelease, release) = (%d, %v), want (0, true)", cmp, ok)
+	}
+}
+
 func TestTruncate(t *testing.T) {
 	cases := []struct {
 		name string

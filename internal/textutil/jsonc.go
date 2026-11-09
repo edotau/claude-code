@@ -2,8 +2,13 @@ package textutil
 
 // StripJSONC removes // and /* */ comments and trailing commas so VS Code's own settings.json
 // dialect (JSONC) parses as plain JSON. String contents are left untouched either pass.
+// An unterminated /* comment returns data unchanged so the caller's JSON parser rejects it.
 func StripJSONC(data []byte) []byte {
-	return stripTrailingCommas(stripComments(data))
+	stripped, ok := stripComments(data)
+	if !ok {
+		return data
+	}
+	return stripTrailingCommas(stripped)
 }
 
 // strState tracks whether the scan is inside a JSON string literal and just past a backslash.
@@ -25,8 +30,9 @@ func (st *strState) step(c byte) bool {
 	return true
 }
 
-func stripComments(data []byte) []byte {
-	out := make([]byte, 0, len(data))
+// stripComments removes comments; ok is false when a /* comment never closes.
+func stripComments(data []byte) (out []byte, ok bool) {
+	out = make([]byte, 0, len(data))
 	var st strState
 	for i := 0; i < len(data); i++ {
 		c := data[i]
@@ -44,12 +50,16 @@ func stripComments(data []byte) []byte {
 				out = append(out, '\n')
 			}
 		case hasPair(data, i, '/', '*'):
-			i = skipBlockComment(data, i)
+			end, closed := skipBlockComment(data, i)
+			if !closed {
+				return nil, false
+			}
+			i = end
 		default:
 			out = append(out, c)
 		}
 	}
-	return out
+	return out, true
 }
 
 // hasPair reports data[i]==a and data[i+1]==b.
@@ -65,13 +75,14 @@ func skipLineComment(data []byte, i int) int {
 	return i
 }
 
-// skipBlockComment returns the index of the closing '/' of the /* comment at i (or the last byte if unterminated).
-func skipBlockComment(data []byte, i int) int {
-	i += 2
-	for i+1 < len(data) && (data[i] != '*' || data[i+1] != '/') {
-		i++
+// skipBlockComment returns the index of the closing '/' of the /* comment at i; closed is false if none.
+func skipBlockComment(data []byte, i int) (end int, closed bool) {
+	for j := i + 2; j+1 < len(data); j++ {
+		if data[j] == '*' && data[j+1] == '/' {
+			return j + 1, true
+		}
 	}
-	return i + 1
+	return len(data), false
 }
 
 func stripTrailingCommas(data []byte) []byte {

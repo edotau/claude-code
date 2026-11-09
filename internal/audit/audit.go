@@ -104,7 +104,8 @@ func Log(a Action, resource, detail string) {
 		return
 	}
 	_ = os.Chmod(dir, 0o700) // MkdirAll's mode applies only on create
-	rotate(file)
+	// A failed rotation leaves the live file growing; appending still beats dropping the event.
+	_ = rotate(file)
 	f, err := os.OpenFile(file, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return
@@ -115,10 +116,13 @@ func Log(a Action, resource, detail string) {
 }
 
 // rotate moves a full log to .1 under a lock, re-checking the size so racing writers rotate once.
-func rotate(file string) {
-	_ = paths.WithFileLock(file, func() error {
+// It renames over .1 only after the archive shift succeeded, so a failed shift never drops history.
+func rotate(file string) error {
+	return paths.WithFileLock(file, func() error {
 		if fi, err := os.Stat(file); err == nil && fi.Size() > maxBytes {
-			archiveOld(file + ".1")
+			if err := archiveOld(file + ".1"); err != nil {
+				return err
+			}
 			return os.Rename(file, file+".1")
 		}
 		return nil
@@ -129,44 +133,64 @@ func rotate(file string) {
 const keepRotated = 5
 
 // archiveOld shifts .1..(keepRotated-1) up one so a new rotation never overwrites history; the oldest falls off.
-func archiveOld(rotated string) {
+// A missing source is normal before the archive fills; any other rename failure is returned.
+func archiveOld(rotated string) error {
 	base := rotated[:len(rotated)-1]
 	for n := keepRotated; n >= 2; n-- {
-		_ = os.Rename(base+strconv.Itoa(n-1), base+strconv.Itoa(n))
+		err := os.Rename(base+strconv.Itoa(n-1), base+strconv.Itoa(n))
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
 	}
+	return nil
 }
 
 // scrub replaces every credential-shaped field so the log can never become a secret store.
 func scrub(s string) string { return shapes.Redact(s) }
 
-// Read returns events at or after since, oldest first, across the rotated and live files.
+// Read returns events at or after since, oldest first, across every kept archive and the live file.
 func Read(since time.Time) ([]Event, error) {
+	files := make([]string, 0, keepRotated+1)
+	for n := keepRotated; n >= 1; n-- {
+		files = append(files, File()+"."+strconv.Itoa(n))
+	}
+	files = append(files, File())
 	var out []Event
-	for _, f := range []string{File() + ".1", File()} {
-		fh, err := os.Open(f)
-		if os.IsNotExist(err) {
-			continue
-		}
+	for _, f := range files {
+		evs, err := readFile(f, since)
+		out = append(out, evs...)
 		if err != nil {
 			return out, err
 		}
-		reader := bufio.NewReader(fh)
-		for {
-			line, readErr := reader.ReadBytes('\n')
-			var e Event
-			if schemas.DecodeOK(format, line, &e) && e.Action.Valid() && !e.Time.Before(since) {
-				out = append(out, e)
-			}
-			if readErr != nil {
-				_ = fh.Close()
-				if readErr != io.EOF {
-					return out, readErr
-				}
-				break
-			}
-		}
 	}
 	return out, nil
+}
+
+// readFile decodes the events in one log file at or after since; a missing file yields none.
+func readFile(path string, since time.Time) ([]Event, error) {
+	fh, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = fh.Close() }()
+	var out []Event
+	reader := bufio.NewReader(fh)
+	for {
+		line, readErr := reader.ReadBytes('\n')
+		var e Event
+		if schemas.DecodeOK(format, line, &e) && e.Action.Valid() && !e.Time.Before(since) {
+			out = append(out, e)
+		}
+		if readErr == io.EOF {
+			return out, nil
+		}
+		if readErr != nil {
+			return out, readErr
+		}
+	}
 }
 
 // Summary counts events per action.
