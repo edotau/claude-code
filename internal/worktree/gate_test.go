@@ -135,6 +135,154 @@ func TestScopedGoGateNonGoFiles(t *testing.T) {
 	}
 }
 
+// TestScopedVerifyGate covers scope rendering per toolchain and that a Makefile test target is never the gate.
+func TestScopedVerifyGate(t *testing.T) {
+	const goBase = fullGoGate
+	cases := []struct {
+		name, files string
+		scope       []string
+		lint        bool
+		gate, src   string
+	}{
+		{"go empty scope", "go.mod", nil, false, goBase, "go.mod"},
+		{"go root scope", "go.mod", []string{"./"}, false, goBase, "go.mod"},
+		{"go dot scope", "go.mod", []string{"."}, false, goBase, "go.mod"},
+		{"go one dir", "go.mod", []string{"./internal/x/"}, false,
+			"go build ./... && go vet './internal/x/...' && go test './internal/x/...'", "go.mod"},
+		{"go multi dir", "go.mod", []string{"a", "./b"}, false,
+			"go build ./... && go vet './a/...' './b/...' && go test './a/...' './b/...'", "go.mod"},
+		{"no toolchain", "", nil, false, "", "none"},
+		{"makefile test only is not a gate", "Makefile", nil, false, "", "none"},
+		{"go wins over makefile test", "go.mod,Makefile", nil, false, goBase, "go.mod"},
+		{"lint-check prefixes toolchain", "go.mod,Makefile:lint", nil, true, "make lint CHECK=1 && " + goBase, "go.mod"},
+		{"lint-only without toolchain", "Makefile:lint", nil, true, "make lint CHECK=1", "Makefile"},
+		{"lint-check with makefile test only", "go.mod,Makefile", nil, true, goBase, "go.mod"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeGateFiles(t, dir, c.files)
+			gate, src := ScopedVerifyGate(dir, c.scope, c.lint)
+			if gate != c.gate || src != c.src {
+				t.Errorf("gate=%q source=%q, want %q %q", gate, src, c.gate, c.src)
+			}
+		})
+	}
+}
+
+// writeGateFiles writes toolchain markers, a CHECK-aware lint recipe, or a test-only Makefile.
+func writeGateFiles(t *testing.T, dir, spec string) {
+	t.Helper()
+	for entry := range strings.SplitSeq(spec, ",") {
+		if entry == "" {
+			continue
+		}
+		body := "module m\n"
+		if entry == "Makefile" {
+			body = "test:\n\ttrue\n"
+		}
+		if entry == "Makefile:lint" {
+			entry, body = "Makefile", "lint:\n\tgo run ./cmd/lint --check=$(CHECK)\n"
+		}
+		if err := os.WriteFile(filepath.Join(dir, entry), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestScopedVerifyGateQuotesScope(t *testing.T) {
+	scope := []string{"tests/my pkg", "dir[1]", "x; echo injected", "$(printf substituted)"}
+	goTargets := " <./tests/my pkg/...> <./dir[1]/...> <./x; echo injected/...> <./$(printf substituted)/...>\n"
+	pyTargets := " <tests/my pkg> <dir[1]> <x; echo injected> <$(printf substituted)>\n"
+	stub := "go() { printf go; printf ' <%s>' \"$@\"; printf '\\n'; }; " +
+		"pytest() { printf pytest; printf ' <%s>' \"$@\"; printf '\\n'; }; " +
+		"ruff() { printf ruff; printf ' <%s>' \"$@\"; printf '\\n'; }; "
+	for _, c := range []struct {
+		name, files, want string
+		scope             []string
+	}{
+		{"go", "go.mod", "go <build> <./...>\ngo <vet>" + goTargets + "go <test>" + goTargets, scope},
+		{"python", "pyproject.toml,ruff.toml", "ruff <check>" + pyTargets + "pytest <-q>" + pyTargets, scope},
+		{"go apostrophe", "go.mod", "go <build> <./...>\ngo <vet> <./quote's/...>\ngo <test> <./quote's/...>\n", []string{"quote's"}},
+		{"python apostrophe", "pyproject.toml,ruff.toml", "ruff <check> <quote's>\npytest <-q> <quote's>\n", []string{"quote's"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeGateFiles(t, dir, c.files)
+			if err := os.MkdirAll(filepath.Join(dir, "dir1", "..."), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			gate, _ := ScopedVerifyGate(dir, c.scope, false)
+			var out, stderr strings.Builder
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := RunVerify(ctx, dir, stub+gate, &out, &stderr); err != nil {
+				t.Fatalf("RunVerify: %v; stderr=%s", err, &stderr)
+			}
+			if got := out.String(); got != c.want {
+				t.Fatalf("scope arguments changed during shell execution:\ngot  %q\nwant %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestScopedVerifyGateRuffTable(t *testing.T) {
+	for _, c := range []struct {
+		name, toml string
+		wantRuff   bool
+	}{
+		{"no table", "[project]\nname = 'example'\n", false},
+		{"comment", "# [tool.ruff]\n", false},
+		{"other table", "[tool.ruffle]\n", false},
+		{"string value", "description = '[tool.ruff]'\n", false},
+		{"ruff table", "[tool.ruff]\n", true},
+		{"ruff subtable", "[tool.ruff.lint]\n", true},
+		{"indented table", "  [tool.ruff] # lint configuration\n", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte(c.toml), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			want := "pytest -q"
+			if c.wantRuff {
+				want = "ruff check . && " + want
+			}
+			if gate, source := ScopedVerifyGate(dir, nil, false); gate != want || source != "pyproject" {
+				t.Fatalf("gate=%q source=%q, want %q from pyproject", gate, source, want)
+			}
+		})
+	}
+}
+
+func TestScopedVerifyGateLintRecipe(t *testing.T) {
+	for _, c := range []struct {
+		name, makefile string
+		wantLint       bool
+	}{
+		{"recipe reads CHECK", "lint:\n\tif [ \"$(CHECK)\" = 1 ]; then echo check; fi\n", true},
+		{"target comment", "lint: # CHECK=1 reports\n\ttrue\n", false},
+		{"recipe comment", "lint:\n\ttrue # CHECK=1 reports\n", false},
+		{"other recipe", "lint:\n\ttrue\n\ntest:\n\techo $(CHECK)\n", false},
+		{"blank line in recipe", "lint:\n\n\techo $(CHECK)\n", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeGateFiles(t, dir, "go.mod")
+			if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(c.makefile), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			want := fullGoGate
+			if c.wantLint {
+				want = "make lint CHECK=1 && " + want
+			}
+			if gate, source := ScopedVerifyGate(dir, nil, true); gate != want || source != "go.mod" {
+				t.Fatalf("gate=%q source=%q, want %q from go.mod", gate, source, want)
+			}
+		})
+	}
+}
+
 // A cancelled ctx must kill the long-running gate promptly instead of letting it finish.
 func TestRunVerifyCancelledByContextStopsPromptly(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

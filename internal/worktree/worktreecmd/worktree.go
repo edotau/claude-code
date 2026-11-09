@@ -25,6 +25,7 @@ var worktreePage = helptext.Page{
 		{"merge", "verified fast-forward merge; --dry-run previews, --resume"},
 		{"clean", "remove one merged worktree (--force, --dry-run)"},
 		{"clean-all", "remove every eligible worktree (--dry-run|--yes)"},
+		{"gate", "print the verify gate for --dir (--scope, --lint-check)"},
 	},
 	Hint: worktreeVerifyNote + "\n\nclaude-code worktree <command> -h lists that command's flags.",
 }
@@ -46,6 +47,9 @@ func Run(args []string) int {
 		return helptext.Fail("worktree: %v", err)
 	}
 	sub, rest := args[0], args[1:]
+	if sub == "gate" { // reads a toolchain file only, so it runs outside a git repo
+		return cmdWorktreeGate(rest)
+	}
 	repo, err := worktree.ResolveRepo(cwd)
 	// a leading -h returns from the sub-verb's flag parse before repo is touched, so help works outside a repo
 	if err != nil && (len(rest) == 0 || (rest[0] != "-h" && rest[0] != "--help")) {
@@ -113,6 +117,35 @@ func printEntry(e worktree.Entry) {
 	if e.EligibleForClean() {
 		fmt.Printf("  cleanup: claude-code worktree clean %s\n", textutil.ShellQuote(name))
 	}
+}
+
+// cmdWorktreeGate prints the scoped verify gate for --dir; exits 1 when the directory has no toolchain.
+func cmdWorktreeGate(args []string) int {
+	fs := helptext.NewFlagSet("worktree gate", helptext.Page{Usage: "claude-code worktree gate [flags]"})
+	dir := fs.String("dir", ".", "repo directory to read the toolchain from")
+	scope := fs.String("scope", "", "comma-separated dirs to limit the gate to (default: whole repo)")
+	lintCheck := fs.Bool("lint-check", false, "prefix `make lint CHECK=1` when the Makefile lint target supports it")
+	format := helptext.FormatFlag(fs)
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	if err := helptext.CheckFormat(*format); err != nil {
+		return helptext.BadFormat("", err)
+	}
+	gate, source := worktree.ScopedVerifyGate(*dir, textutil.SplitCSV(*scope), *lintCheck)
+	if gate == "" {
+		return helptext.Fail("no verification gate found in %s", *dir)
+	}
+	if *format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, map[string]string{"gate": gate, "source": source}); err != nil {
+			return helptext.Fail("worktree gate: %v", err)
+		}
+		return 0
+	}
+	if _, err := fmt.Println(gate); err != nil {
+		return helptext.Fail("worktree gate: %v", err)
+	}
+	return 0
 }
 
 func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {

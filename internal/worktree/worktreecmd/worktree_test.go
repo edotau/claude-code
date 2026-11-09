@@ -61,6 +61,57 @@ func TestCmdWorktreeListEmptyTextAndJSON(t *testing.T) {
 	}
 }
 
+// TestCmdWorktreeGateOutsideRepo runs the gate verb in a non-git dir: a go.mod prints the full gate, a bare dir exits 1.
+func TestCmdWorktreeGateOutsideRepo(t *testing.T) {
+	scrubGitEnv(t)
+	t.Setenv("HOME", t.TempDir())
+	goDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(goDir, "go.mod"), []byte("module m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir()) // not a git repository
+
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"gate", "--dir", goDir}) })
+	if code != 0 || strings.TrimSpace(out) != "go build ./... && go vet ./... && go test ./..." {
+		t.Fatalf("gate on go.mod: code=%d out=%q stderr=%q", code, out, errb)
+	}
+	code, _, errb = hosttest.CaptureOutput(t, func() int { return Run([]string{"gate", "--dir", t.TempDir()}) })
+	if code != 1 || !strings.Contains(errb, "no verification gate found") {
+		t.Fatalf("gate with no toolchain: code=%d stderr=%q, want 1 and the no-gate message", code, errb)
+	}
+	code, _, _ = hosttest.CaptureOutput(t, func() int { return Run([]string{"gate", "-h"}) })
+	if code != 0 {
+		t.Fatalf("gate -h: code=%d, want 0", code)
+	}
+}
+
+func TestCmdWorktreeGateWriteFailure(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	closed, err := os.CreateTemp(t.TempDir(), "closed-stdout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, format := range []string{"text", "json"} {
+		t.Run(format, func(t *testing.T) {
+			code, _, stderr := hosttest.CaptureOutput(t, func() int {
+				stdout := os.Stdout
+				os.Stdout = closed
+				defer func() { os.Stdout = stdout }()
+				return cmdWorktreeGate([]string{"--dir", dir, "--format", format})
+			})
+			if code != 1 || !strings.Contains(stderr, "worktree gate:") || !strings.Contains(stderr, closed.Name()) {
+				t.Fatalf("write to closed stdout: code=%d stderr=%q, want exit 1 and write error", code, stderr)
+			}
+		})
+	}
+}
+
 func TestCmdWorktreeCreateThenListShowsIt(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)

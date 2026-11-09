@@ -33,6 +33,7 @@ The verbs handle everything with the harness conventions baked in:
 ```bash
 claude-code worktree create add-auth-endpoint   # → ~/worktrees/<repo>/add-auth-endpoint, branch worktree-add-auth-endpoint
 claude-code worktree list [--format json]        # all worktrees + status
+claude-code worktree gate --dir . --scope internal/worktree   # prints the gate for this scope (that dir) only; narrower than merge's
 claude-code worktree merge add-auth-endpoint     # preview, verify gate, fast-forward-only promote, clean
 claude-code worktree clean add-auth-endpoint     # safe single removal
 ```
