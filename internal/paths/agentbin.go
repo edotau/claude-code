@@ -71,7 +71,7 @@ func checkVendorExec(bin, p string) error {
 	if err != nil {
 		return err
 	}
-	if fi.IsDir() || fi.Mode()&0o111 == 0 {
+	if !fi.Mode().IsRegular() || fi.Mode()&0o111 == 0 {
 		return fmt.Errorf("%s: %s is not executable", bin, p)
 	}
 	return nil
@@ -84,7 +84,7 @@ func LookPathReal(name string) (string, error) {
 	self, _ = filepath.EvalSymlinks(self)
 	shimDir, _ := filepath.Abs(BinDir())
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
-		if abs, _ := filepath.Abs(dir); abs == shimDir || dir == "" {
+		if dir == "" || resolvedDir(dir) == resolvedDir(shimDir) {
 			continue
 		}
 		cand := filepath.Join(dir, name)
@@ -98,4 +98,10 @@ func LookPathReal(name string) (string, error) {
 		return cand, nil
 	}
 	return "", errors.New(name + ": not found on PATH (outside " + shimDir + ")")
+}
+
+// resolvedDir is the absolute form of dir with symlinks resolved, so an alias of BinDir compares equal to it.
+func resolvedDir(dir string) string {
+	abs, _ := filepath.Abs(dir)
+	return Canon(abs)
 }

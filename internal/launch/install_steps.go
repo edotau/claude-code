@@ -453,10 +453,14 @@ func linkOnPath(w io.Writer, name, target string, dryRun bool) error {
 	return paths.SwapSymlink(target, link) // the link is never missing, racers don't collide
 }
 
-// sameFile is true when target already is, or holds the same bytes as, self.
+// sameFile is true when target already is self, or holds self's bytes and is executable.
 func sameFile(self, target string) bool {
 	if real, _ := filepath.EvalSymlinks(target); real == self {
 		return true
+	}
+	fi, err := os.Stat(target)
+	if err != nil || fi.Mode()&0o111 == 0 {
+		return false
 	}
 	a, err1 := os.ReadFile(self)
 	b, err2 := os.ReadFile(target)

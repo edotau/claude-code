@@ -476,6 +476,7 @@ func crashedOperation(t *testing.T, repo *Repo, wt string, plan *MergePlan) *Ope
 		ID:                "op-crash-sim",
 		Repo:              repo.Main,
 		Worktree:          filepath.Base(wt),
+		ConflictPaths:     []string{"f.txt"},
 		TargetOID:         plan.TargetOID,
 		OriginalSourceOID: plan.SourceOID,
 		Phase:             "resolving",

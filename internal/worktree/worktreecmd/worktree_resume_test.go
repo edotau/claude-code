@@ -168,6 +168,7 @@ func resolvedMergeOperationFixture(t *testing.T, repo, id string) *worktree.Merg
 		TargetRef:         plan.TargetRef,
 		TargetOID:         plan.TargetOID,
 		OriginalSourceOID: plan.SourceOID,
+		ConflictPaths:     []string{"f.txt"},
 		Phase:             "resolving",
 		StartedAt:         time.Now(),
 		Deadline:          time.Now().Add(10 * time.Minute),

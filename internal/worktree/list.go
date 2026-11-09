@@ -31,6 +31,7 @@ type Entry struct {
 	Prunable       bool // git itself reports stale administrative registration
 	ActivityAt     time.Time
 	ActivitySource string // "reflog" | "index" | "filesystem" | "" (no evidence found)
+	Busy           string // live refusal reason from in-use, lock or operation checks ("" = free)
 	Problems       []string
 	gitDir         string // dest's git-dir when the caller already resolved it
 }
@@ -53,6 +54,7 @@ func List(repo *Repo) ([]Entry, error) {
 		Classify(&entries[i])
 		if entries[i].Exists {
 			Inspect(repo, &entries[i], target, targetErr, now)
+			_, entries[i].Busy = cleanBusyReason(entries[i].Path)
 		}
 	}
 	return entries, nil
@@ -77,7 +79,7 @@ func listPorcelain(repo *Repo) ([]Entry, error) {
 		if e.Path == repo.Main {
 			continue // the main checkout itself is not a lifecycle target
 		}
-		if rel, err := filepath.Rel(repo.Root, e.Path); err != nil || strings.HasPrefix(rel, "..") {
+		if rel, err := filepath.Rel(repo.Root, e.Path); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			continue // registered elsewhere on disk, outside the convention this package governs
 		}
 		e.Registered = true
@@ -125,8 +127,12 @@ func unionFilesystem(repo *Repo, registered []Entry) ([]Entry, error) {
 	byPath := map[string]int{}
 	for i, e := range registered {
 		byPath[e.Path] = i
-		if _, err := os.Stat(e.Path); err == nil {
+		_, err := os.Stat(e.Path)
+		switch {
+		case err == nil:
 			registered[i].Exists = true
+		case !os.IsNotExist(err):
+			return nil, fmt.Errorf("stat registered worktree %s: %w", e.Path, err)
 		}
 	}
 	dirs, err := os.ReadDir(repo.Root)
@@ -219,14 +225,18 @@ func gitDirFromPath(path string) (string, error) {
 	return dir, nil
 }
 
-// activity picks the freshest available evidence of last use: the reflog, then the index, then the
-// worktree directory's own mtime — each is a heuristic, named in ActivitySource for the caller.
+// activity picks the newer of the reflog and the index as last-use evidence, else the worktree directory's
+// mtime; each is a heuristic, named in ActivitySource for the caller.
 func activity(gitDir, worktreePath string) (time.Time, string) {
-	if fi, err := os.Stat(filepath.Join(gitDir, "logs", "HEAD")); err == nil {
-		return fi.ModTime(), "reflog"
+	var best time.Time
+	source := ""
+	for _, c := range []struct{ file, name string }{{"logs/HEAD", "reflog"}, {"index", "index"}} {
+		if fi, err := os.Stat(filepath.Join(gitDir, filepath.FromSlash(c.file))); err == nil && fi.ModTime().After(best) {
+			best, source = fi.ModTime(), c.name
+		}
 	}
-	if fi, err := os.Stat(filepath.Join(gitDir, "index")); err == nil {
-		return fi.ModTime(), "index"
+	if source != "" {
+		return best, source
 	}
 	if fi, err := os.Stat(worktreePath); err == nil {
 		return fi.ModTime(), "filesystem"
@@ -261,9 +271,10 @@ func asExitErr(err error) (int, bool) {
 	return 0, false
 }
 
-// EligibleForClean mirrors the bar Clean itself rechecks live; list only offers the command, never acts.
+// EligibleForClean mirrors the bar Clean rechecks live (lifecycle.go cleanBusyReason, cleanInspectReason);
+// list only offers the command, never acts.
 func (e Entry) EligibleForClean() bool {
-	return e.Exists && !e.Orphaned && !e.Locked && !e.Dirty && e.Merged
+	return e.Exists && !e.Orphaned && !e.Locked && !e.Dirty && e.Merged && e.Busy == "" && len(e.Problems) == 0
 }
 
 // StatusFlags lists the entry's state words for the text list; "clean" when none apply.

@@ -10,7 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -225,29 +225,56 @@ func materializeConflict(ctx context.Context, plan *MergePlan) (*MergeResult, er
 	return &MergeResult{Phase: "conflict", BeforeOID: before}, nil
 }
 
-// conflictMarkerPrefixes are the two prefixed marker lines; the bare "=======" is matched whole-line in isConflictMarker.
-var conflictMarkerPrefixes = []string{"<<<<<<< ", ">>>>>>> "}
+// defaultMarkerSize is git's conflict-marker width when a path sets no conflict-marker-size attribute.
+const defaultMarkerSize = 7
 
-// isConflictMarker matches git's marker lines; the bare "=======" must be the whole line, so "=========" rules pass.
-func isConflictMarker(line string) bool {
+// isConflictMarker matches a git marker line of width size: a run of size '=' alone, or size '<'/'>' alone
+// or followed by a space.
+func isConflictMarker(line string, size int) bool {
 	line = strings.TrimSuffix(line, "\r")
-	return line == "=======" || line == "<<<<<<<" || line == ">>>>>>>" ||
-		slices.ContainsFunc(conflictMarkerPrefixes, func(p string) bool { return strings.HasPrefix(line, p) })
+	if line == strings.Repeat("=", size) {
+		return true
+	}
+	for _, c := range []string{"<", ">"} {
+		marker := strings.Repeat(c, size)
+		if line == marker || strings.HasPrefix(line, marker+" ") {
+			return true
+		}
+	}
+	return false
 }
 
-// conflictMarkersClear reports whether every path in paths is free of leftover conflict markers, via
-// `git diff --check` (git's own leftover-marker detector) and a direct content scan. badPath names one
-// offending path when clean is false; err means the check itself could not be trusted.
-func conflictMarkersClear(ctx context.Context, worktreePath string, paths []string) (clean bool, badPath string, err error) {
-	if len(paths) == 0 {
-		return true, "", nil
+// markerSizes maps each path to its conflict-marker width: the conflict-marker-size attribute, else the default.
+func markerSizes(ctx context.Context, worktreePath string, paths []string) (map[string]int, error) {
+	sizes := make(map[string]int, len(paths))
+	for _, p := range paths {
+		sizes[p] = defaultMarkerSize
 	}
-	args := append([]string{"diff", "--check", "--"}, paths...)
-	if out, checkErr := runGit(ctx, worktreePath, nil, args...); checkErr != nil {
-		if _, isExit := asExitErr(checkErr); isExit {
-			return false, strings.TrimSpace(string(out)), nil // git diff --check found a leftover marker
+	if len(paths) == 0 {
+		return sizes, nil
+	}
+	args := append([]string{"check-attr", "-z", "conflict-marker-size", "--"}, paths...)
+	out, err := runGit(ctx, worktreePath, nil, args...)
+	if err != nil {
+		return nil, fmt.Errorf("git check-attr in %s: %w (%s)", worktreePath, err, gitErrorDetail(err))
+	}
+	// -z output is NUL-separated "path, attribute, value" triples; a non-numeric value ("unspecified") keeps the default.
+	fields := strings.Split(string(out), "\x00")
+	for i := 0; i+2 < len(fields); i += 3 {
+		if n, convErr := strconv.Atoi(fields[i+2]); convErr == nil && n > 0 {
+			sizes[fields[i]] = n
 		}
-		return false, "", fmt.Errorf("git diff --check in %s: %w", worktreePath, checkErr)
+	}
+	return sizes, nil
+}
+
+// conflictMarkersClear reports whether every path in paths is free of leftover conflict markers, by a
+// direct line scan of each file at that path's marker width (conflict-marker-size, default 7).
+// badPath names one offending path when clean is false; err means the check itself could not be trusted.
+func conflictMarkersClear(ctx context.Context, worktreePath string, paths []string) (clean bool, badPath string, err error) {
+	sizes, err := markerSizes(ctx, worktreePath, paths)
+	if err != nil {
+		return false, "", err
 	}
 	for _, p := range paths {
 		data, readErr := os.ReadFile(filepath.Join(worktreePath, p))
@@ -258,7 +285,7 @@ func conflictMarkersClear(ctx context.Context, worktreePath string, paths []stri
 			return false, "", fmt.Errorf("scan %s for conflict markers: %w", p, readErr)
 		}
 		for line := range strings.SplitSeq(string(data), "\n") {
-			if isConflictMarker(line) {
+			if isConflictMarker(line, sizes[p]) {
 				return false, p, nil
 			}
 		}
@@ -453,7 +480,27 @@ func CheckResolution(ctx context.Context, op *Operation, worktreePath string) (r
 	if head == op.OriginalSourceOID {
 		return resolutionInvalid, "HEAD is unchanged since the agent started — the merge was aborted, not resolved", nil
 	}
-	return checkPinnedAncestry(ctx, op, worktreePath, head)
+	state, reason, err := checkPinnedAncestry(ctx, op, worktreePath, head)
+	if err != nil || state != resolutionResolved {
+		return state, reason, err
+	}
+	return verifyResolvedContent(ctx, op, worktreePath)
+}
+
+// verifyResolvedContent applies finalize's content checks to the committed resolution, so a resume accepts only
+// what a fresh finalize would: no conflict markers in the conflicted paths, no tracked edits outside them.
+func verifyResolvedContent(ctx context.Context, op *Operation, worktreePath string) (resolutionState, string, error) {
+	clean, badPath, err := conflictMarkersClear(ctx, worktreePath, op.ConflictPaths)
+	if err != nil {
+		return resolutionPending, "", err
+	}
+	if !clean {
+		return resolutionInvalid, fmt.Sprintf("conflict markers remain in %q in the committed resolution", badPath), nil
+	}
+	if err := agentEditsInScope(ctx, op, worktreePath); err != nil {
+		return resolutionPending, "", err
+	}
+	return resolutionResolved, "", nil
 }
 
 // resolutionMidMerge reports whether MERGE_HEAD is still set or any path is still unmerged in worktreePath.

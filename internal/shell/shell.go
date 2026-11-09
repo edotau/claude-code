@@ -71,6 +71,10 @@ func Tokens(seg string) []string {
 	}
 	for i := 0; i < len(seg); i++ {
 		c := seg[i]
+		if c == '\\' && quote != '\'' && i+1 < len(seg) && seg[i+1] == '\n' {
+			i++ // backslash-newline is a line continuation: removed, so the words on either side join
+			continue
+		}
 		switch {
 		case quote != 0:
 			i, quote = unquoteStep(&b, seg, i, quote)

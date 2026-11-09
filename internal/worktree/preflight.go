@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/paths"
@@ -74,8 +75,12 @@ func gitEnv(extra ...string) []string {
 var runGit = func(ctx context.Context, dir string, extraEnv []string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	cmd.Env = gitEnv(extraEnv...)
+	cmd.WaitDelay = gitWaitDelay // after cancel, stop waiting on inherited pipes instead of blocking
 	return cmd.Output()
 }
+
+// gitWaitDelay bounds how long a cancelled git call may hold its output pipes open before being abandoned.
+const gitWaitDelay = 5 * time.Second
 
 // Preflight resolves name to its worktree path, rejects an unsafe starting state (steps 1), pins both
 // OIDs and simulates the merge (step 2), and returns the plan either way — a non-nil error means
@@ -168,8 +173,8 @@ func screenCheckouts(ctx context.Context, repo *Repo, plan *MergePlan, target st
 func screenTargetBranch(ctx context.Context, repo *Repo, plan *MergePlan, target string) (stop bool, err error) {
 	branch, err := requireBranch(ctx, repo.Main)
 	if err != nil {
-		if ctx.Err() != nil {
-			return false, ctx.Err()
+		if !errors.Is(err, errDetachedHead) {
+			return false, err
 		}
 		plan.Issues = append(plan.Issues, Issue{Code: IssueDetachedTarget, Paths: []string{repo.Main}, Detail: err.Error()})
 		return true, nil
@@ -478,11 +483,17 @@ func inProgressOp(ctx context.Context, path, gitDir string) (op string, found bo
 // target outright rather than silently keying off its OID the way the staleness check tolerates.
 func requireBranch(ctx context.Context, path string) (string, error) {
 	out, err := runGit(ctx, path, nil, "symbolic-ref", "--short", "-q", "HEAD")
+	if code, ok := asExitErr(err); ok && code == 1 {
+		return "", fmt.Errorf("%s: %w", path, errDetachedHead)
+	}
 	if err != nil {
-		return "", fmt.Errorf("%s: HEAD is detached, not on a branch", path)
+		return "", fmt.Errorf("symbolic-ref in %s: %w", path, err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }
+
+// errDetachedHead is requireBranch's only "not on a branch" verdict; every other git failure is a real error.
+var errDetachedHead = errors.New("HEAD is detached, not on a branch")
 
 // unrelatedHistories reports whether source and target share no common ancestor, using the same
 // exit-code contract list.go's Inspect already relies on (1 = clean "no", anything else = a failure).

@@ -13,7 +13,9 @@ import (
 
 // Parent returns pid's parent pid via ps (0 when unreadable): darwin has no /proc to read.
 func Parent(pid int) int {
-	out, err := exec.CommandContext(context.Background(), "ps", "-o", "ppid=", "-p", strconv.Itoa(pid)).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "ps", "-o", "ppid=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {
 		return 0
 	}
@@ -73,7 +75,9 @@ func walkChildren(children map[int][]int, pid int) []int {
 
 // Comm returns pid's executable name via ps ("" when unreadable); ps prints a path, so base it.
 func Comm(pid int) string {
-	out, err := exec.CommandContext(context.Background(), "ps", "-o", "comm=", "-p", strconv.Itoa(pid)).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "ps", "-o", "comm=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {
 		return ""
 	}

@@ -94,7 +94,7 @@ func RunForwarding(bin string, argv, env []string, stdin io.Reader, stdout, stde
 // Argv returns pid's argv via /proc on Linux (NUL-split), falling back to `ps -o command=` split on spaces.
 func Argv(pid int) ([]string, error) {
 	if raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)); err == nil {
-		return strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00"), nil
+		return strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00"), nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

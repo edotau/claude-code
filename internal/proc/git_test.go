@@ -3,6 +3,7 @@ package proc
 import (
 	"context"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -138,6 +139,28 @@ func TestRunGitInheritPassesGitPrefixedThrough(t *testing.T) {
 	}
 	if !strings.Contains(out, "GIT_TEST_X=1") {
 		t.Fatalf("RunGitInherit did not pass GIT_TEST_X through: %q", out)
+	}
+}
+
+func TestRunGitDeadlineWithInheritedOutput(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("requires Linux shell process behavior")
+	}
+	dir := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	// The bounded child retains captured stdout after the context kills git.
+	start := time.Now()
+	_, err := RunGit(ctx, dir, "-c", "alias.hold=!sleep 6 & echo ready > ready; wait", "hold")
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("RunGit succeeded despite the context deadline")
+	}
+	if marker, err := os.ReadFile(dir + "/ready"); err != nil || string(marker) != "ready\n" {
+		t.Fatalf("git alias did not reach its wait: marker=%q, err=%v", marker, err)
+	}
+	if elapsed < 2*time.Second || elapsed > 4500*time.Millisecond {
+		t.Fatalf("RunGit with inherited stdout returned after %v; want 2s–4.5s (WaitDelay must bound descendant output)", elapsed)
 	}
 }
 

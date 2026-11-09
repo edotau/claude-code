@@ -48,7 +48,9 @@ func gitCmd(ctx context.Context, args ...string) *exec.Cmd {
 // canonical git identity. --git-common-dir is absolute and identical from anywhere inside the repo, so
 // this is the one call that makes worktree/subdir/main all agree without reading .git pointer files.
 func ResolveRepo(cwd string) (*Repo, error) {
-	out, err := gitCmd(context.Background(), "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	out, err := gitCmd(ctx, "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
 	if err != nil {
 		return nil, fmt.Errorf("%s is not inside a git repository", cwd)
 	}
@@ -77,7 +79,10 @@ func resolveWorktree(ctx context.Context, repo *Repo, name string) (string, erro
 	}
 	info, err := os.Lstat(dest)
 	if err != nil {
-		return dest, nil // nothing there yet — the caller decides whether that's fine
+		if os.IsNotExist(err) {
+			return dest, nil // nothing there yet — the caller decides whether that's fine
+		}
+		return "", fmt.Errorf("inspect %s: %w", dest, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
 		return "", fmt.Errorf("%s is a symlink, refusing to treat it as a worktree", dest)

@@ -347,7 +347,18 @@ func pipedIntoShell(toks []string, dir string, fn gitFn, depth int) bool {
 				words = append(words, t)
 			}
 		}
+		if formatUnapplied(toks[0], words) {
+			return fn(dir, Uninspectable, nil)
+		}
 		return eachGit(strings.Join(words, " "), dir, fn, depth+1)
 	}
 	return fn(dir, Uninspectable, nil)
+}
+
+// formatUnapplied reports echo/printf output the joined text would misread: a backslash escape, or a printf % verb.
+func formatUnapplied(verb string, words []string) bool {
+	if slices.ContainsFunc(words, func(w string) bool { return strings.Contains(w, `\`) }) {
+		return true
+	}
+	return verb == "printf" && len(words) > 0 && strings.Contains(words[0], "%")
 }
