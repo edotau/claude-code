@@ -9,7 +9,7 @@ export const meta = {
   name: 'code-evaluator',
   description: 'A/B eval: mid-tier agents run trap scenarios with vs without a skill under test; judges score each run',
   whenToUse:
-    'USE: A/B-test a skill: agents run trap scenarios with and without it; judges score each run. CALL: Workflow({scriptPath: "~/.claude/workflows/code-evaluator.js", args: {base, skill}}); base/pristine/<id> and base/runs/<id>-<cond><seed> must exist first. OPTIONAL: scenarios (["s2","s9","s13","s14"]), seeds (2), conditions (["control","method"]), steps {run, judge} each {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins (or HARNESS_DATABRICKS_ARM), or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED; defaults run haiku, judge sonnet; replaces the old model arg). OPTIONAL: profile, provider (run-wide override for external stages). RETURNS {runs, cells}.',
+    'USE: A/B-test a skill: agents run trap scenarios with and without it; judges score each run. CALL: Workflow({scriptPath: "~/.claude/workflows/code-evaluator.js", args: {base, skill}}); base/pristine/<id> and base/runs/<id>-<cond><seed> must exist first. OPTIONAL: scenarios (["s2","s9","s13","s14"]), seeds (2), conditions (["control","method"]), steps {run, judge} each {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED; defaults run haiku, judge sonnet; replaces the old model arg). OPTIONAL: profile, provider (run-wide override for external stages). RETURNS {runs, cells}.',
   phases: [{ title: 'Execute' }, { title: 'Judge' }],
 }
 
@@ -53,7 +53,7 @@ const stepOf = (steps, name, defaults, opt) => {
     return { agent: 'claude', ext: false, model, effort, type: d.agentType ? { agentType: d.agentType } : {}, task: (p) => p, schema: (s) => s, done: same, text: same }
   }
   if (!o.external) throw new Error(`${where}.agent: ${who} is not wired in this workflow yet (claude only)`)
-  // no profile/provider: Go routes the agent's pin (or HARNESS_DATABRICKS_ARM); a named one leads, ladder after.
+  // no profile/provider: Go routes the agent's pin; a named one leads, ladder after.
   const profile = v.profile !== undefined ? v.profile : o.profile || ''
   const provider = v.provider !== undefined ? v.provider : o.provider || ''
   const edit = d.tools === 'edit'
@@ -176,6 +176,8 @@ for (const id of SCENARIOS) {
   }
 }
 
+if (new Set(RUNS.map((r) => r.run)).size !== RUNS.length) return { error: 'code-evaluator: run dirs collide (a condition ending in digits clashes with seeds); rename conditions' }
+
 const SCORES = {
   type: 'object',
   properties: {
@@ -231,7 +233,7 @@ phase('Execute')
 const results = await pipeline(
   RUNS,
   async item => ST.run.text(`exec:${item.run}`, await agent(ST.run.task(executorPrompt(item)), { label: `exec:${item.run}`, phase: 'Execute', ...ST.run.type, schema: ST.run.schema(), model: RUN_MODEL, effort: ST.run.effort })),
-  (report, item) => agent(ST.judge.task(judgePrompt(item, report)), { label: `judge:${item.run}`, phase: 'Judge', ...ST.judge.type, schema: ST.judge.schema(SCORES), model: JUDGE_MODEL, effort: ST.judge.effort })
+  (report, item) => report == null ? null : agent(ST.judge.task(judgePrompt(item, report)), { label: `judge:${item.run}`, phase: 'Judge', ...ST.judge.type, schema: ST.judge.schema(SCORES), model: JUDGE_MODEL, effort: ST.judge.effort })
     .then(scores => ST.judge.done(`judge:${item.run}`, scores))
     .then(scores => ({ run: item.run, scenario: item.scenario, condition: item.condition, scores })),
 )
