@@ -457,11 +457,6 @@ type sinkFunc func(wire.Event) error
 
 func (f sinkFunc) Emit(ev wire.Event) error { return f(ev) }
 
-// Hooks for the batch runner tests, which live in agent_test because batch imports agent.
-var (
-	AuthEnv = authEnv
-)
-
 // handoffRunner returns a canned Result and error per call, so a dispatch can carry a hand-off path.
 type handoffRunner struct {
 	name string

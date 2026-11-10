@@ -343,16 +343,6 @@ func TestRateLimitedHopMarksAccount(t *testing.T) {
 	}
 }
 
-// KeepCaller lets the agent_test batch tests build a dispatch that keeps the caller's own --model.
-func KeepCaller(d Dispatch) Dispatch { d.keepCaller = true; return d }
-
-// SwapLoadState replaces the router state loader with wrap(prev) and returns the restore func.
-func SwapLoadState(wrap func(prev func() router.State) func() router.State) func() {
-	prev := loadState
-	loadState = wrap(prev)
-	return func() { loadState = prev }
-}
-
 // leadRegistry has Databricks row dev (signed in) and Anthropic ultra; claude's record pins ultra.
 func leadRegistry(t *testing.T) *providers.Registry {
 	t.Helper()

@@ -114,7 +114,7 @@
         ]
       },
       {
-        "matcher": "Bash|Write|Edit|Agent|Task|Workflow",
+        "matcher": "Bash|Write|Edit|Agent|Task|Workflow|SubagentHandback",
         "hooks": [
           {
             "type": "command",
@@ -212,13 +212,11 @@
     "padding": 0
   },
   "enabledPlugins": {
-    "cowork-plugin-management@knowledge-work-plugins": false,
-    "cowork-plugin-management@synced": false,
-    "code-worker@edotau": true,
-    "coworker@edotau": true,
     "agent-design@anthropic-plugin-directory": true,
     "build-harness@anthropic-plugin-directory": true,
-    "claude-context-optimizer@anthropic-plugin-directory": true
+    "claude-context-optimizer@anthropic-plugin-directory": true,
+    "coworker@edotau": true,
+    "gopls-lsp@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "edotau": {
