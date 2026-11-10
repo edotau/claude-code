@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -71,52 +72,14 @@ func TestDoctorMissingVaultIgnoresLegacyFiles(t *testing.T) {
 	}
 }
 
-// TestMasterKeyStatus exercises MasterKeyStatus directly (the seam shared by checkMasterKey and
-// launch's "vault" row): unreadable vault, empty vault, a good key, and a key that won't open it.
-func TestMasterKeyStatus(t *testing.T) {
-	t.Run("unreadable vault", masterKeyUnreadableVault)
-	t.Run("empty vault", masterKeyEmptyVault)
-	t.Run("secrets and good key", masterKeyGoodKey)
-	t.Run("secrets and bad key", masterKeyBadKey)
-}
-
-func masterKeyUnreadableVault(t *testing.T) {
+// A vault with no sealed secrets needs no master key, so checkMasterKey adds no row; the other states are Doctor tests.
+func TestCheckMasterKeyEmptyVault(t *testing.T) {
 	doctorTestVault(t)
-	vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(currentVaultSchema(t)+1))
-	count, source, err := vault.MasterKeyStatus()
-	if count != 0 || source != "" || err == nil {
-		t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (0, \"\", err)", count, source, err)
-	}
-}
-
-func masterKeyEmptyVault(t *testing.T) {
-	doctorTestVault(t)
-	count, source, err := vault.MasterKeyStatus()
-	if count != 0 || source != "not needed" || err != nil {
-		t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (0, \"not needed\", nil)", count, source, err)
-	}
-}
-
-func masterKeyGoodKey(t *testing.T) {
-	doctorTestVault(t)
-	if err := vault.Store("STATUS_KEY", "sk-test-abcdefghijklmnopqrstuvwxyz"); err != nil {
-		t.Fatal(err)
-	}
-	count, source, err := vault.MasterKeyStatus()
-	if count != 1 || source != "env" || err != nil {
-		t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (1, \"env\", nil)", count, source, err)
-	}
-}
-
-func masterKeyBadKey(t *testing.T) {
-	doctorTestVault(t)
-	if err := vault.Store("STATUS_KEY", "sk-test-abcdefghijklmnopqrstuvwxyz"); err != nil {
-		t.Fatal(err)
-	}
-	wrongVaultKey(t)
-	count, source, err := vault.MasterKeyStatus()
-	if count != 1 || err == nil {
-		t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (1, _, err)", count, source, err)
+	noKeyring(t)
+	t.Setenv("HARNESS_VAULT_KEY", "")
+	vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "openai")
+	if rows := checkMasterKey(); len(rows) != 0 {
+		t.Fatalf("checkMasterKey = %+v, want no row for a vault without secrets", rows)
 	}
 }
 
@@ -284,8 +247,8 @@ func TestDoctorFlagsArchivePerms(t *testing.T) {
 	if rc != vault.ExitFindings {
 		t.Fatalf("Doctor = %d, want findings: %s", rc, out)
 	}
-	if !strings.Contains(out, loose+" is 0644") {
-		t.Errorf("Doctor missing loose archive finding: %s", out)
+	if !strings.Contains(out, loose+" is 0644, want 0600 — run: chmod 600 "+loose) {
+		t.Errorf("Doctor missing loose archive finding or its remediation: %s", out)
 	}
 	if strings.Contains(out, tight+" is") {
 		t.Errorf("Doctor flagged a 0600 archive: %s", out)
@@ -310,5 +273,54 @@ func TestKeyErrTextWithholdsKeyCommandStderr(t *testing.T) {
 	}
 	if got := keyErrText(errors.New("keyring: unavailable")); got != "keyring: unavailable" {
 		t.Fatalf("keyErrText = %q", got)
+	}
+}
+
+func TestConfigFixArchiveListingErrorIsFinding(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	// A regular file instead of a directory fails portably, even when tests run as root.
+	state := filepath.Join(dir, "state")
+	writeTestFile(t, state, "not a directory", 0o600)
+	for _, row := range checkArchivePerms() {
+		if row.Name == "vault archive perms" && strings.Contains(row.Detail, "could not list the vault directory") {
+			if row.OK || !row.Gate || !strings.Contains(row.Detail, state) {
+				t.Fatalf("listing error must fail the gate and identify its path: %+v", row)
+			}
+			return
+		}
+	}
+	t.Fatal("archive audit omitted the vault directory listing error")
+}
+
+func noKeyring(t *testing.T) {
+	t.Helper()
+	t.Setenv("PATH", t.TempDir())
+}
+
+func wrongVaultKey(t *testing.T) {
+	t.Helper()
+	vaulttest.Keyring(t)
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)))
+}
+
+// Doctor flags a near miss (distance <= 2) of a known key as a typo but still passes the gate; a farther name is not.
+func TestDoctorPassesOnCleanStore(t *testing.T) {
+	doctorTestVault(t)
+	vaulttest.Secret(t, "JIRA_TOKEN", "v")
+	vaulttest.Secret(t, "OPENA_API_KEY", "v")
+	vaulttest.Secret(t, "OPENXYZ_API_KEY", "v") // distance 3 from OPENAI_API_KEY
+	reg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc, detail := doctorTestResult(reg)
+	if rc != vault.ExitClean {
+		t.Fatalf("DoctorChecks rc = %d, want %d:\n%s", rc, vault.ExitClean, detail)
+	}
+	if !strings.Contains(detail, "OPENA_API_KEY (did you mean OPENAI_API_KEY?)") ||
+		strings.Contains(detail, "JIRA_TOKEN (") || strings.Contains(detail, "OPENXYZ_API_KEY (") ||
+		!strings.Contains(detail, "3 secret(s); master key from env") {
+		t.Fatalf("DoctorChecks missing typo advisory, flagged a far name, or lost key source: %s", detail)
 	}
 }

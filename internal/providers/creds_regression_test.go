@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func TestRefreshedCommandOutranksExpiredEnv(t *testing.T) {
@@ -107,5 +108,88 @@ func checkPanicFollower(t *testing.T, kind string) {
 	waitFlightSignal(t, done)
 	if got != "" || !errors.Is(err, errMintAborted) {
 		t.Fatalf("joined follower after leader panic = %q, %v; want empty token and mint-aborted error", got, err)
+	}
+}
+
+func TestCredentialPresentOAuthSPWithOnlyM2MSecret(t *testing.T) {
+	vaulttest.Use(t)
+	p := &Provider{Name: "paired-presence", Provider: GroupDatabricks, Identity: IdentitySP,
+		Auth: Auth{Type: AuthOAuth, SPClientID: "paired-client"}}
+	t.Setenv(AuthSecretName(p), "")
+	m2mName := SecretName(p.Provider, p.Name, AuthM2M)
+	t.Setenv(m2mName, "")
+	if CredentialPresent(p) {
+		t.Fatal("SP present before its M2M secret was stored")
+	}
+	vaulttest.Secret(t, m2mName, "paired-client-secret")
+	if vaultHas(t, AuthSecretName(p)) {
+		t.Fatal("test unexpectedly seeded an OAuth secret")
+	}
+	if !CredentialPresent(p) {
+		t.Fatal("OAuth SP with client ID and profile M2M secret reported absent")
+	}
+}
+
+type authFixFlightResult struct {
+	value string
+	err   error
+}
+
+func authFixStartFlight(g *flightGroup, ctx context.Context, mint func(context.Context) (string, error)) <-chan authFixFlightResult {
+	done := make(chan authFixFlightResult, 1)
+	go func() {
+		v, err := g.do(ctx, "cancel-regression", true, mint)
+		done <- authFixFlightResult{v, err}
+	}()
+	return done
+}
+
+func authFixWaitResult(t *testing.T, done <-chan authFixFlightResult) authFixFlightResult {
+	t.Helper()
+	select {
+	case result := <-done:
+		return result
+	case <-time.After(5 * time.Second):
+		t.Fatal("flight caller did not stop waiting")
+		return authFixFlightResult{}
+	}
+}
+
+func TestFlightGroupCanceledLeaderStopsWaitingWhileFollowerMints(t *testing.T) {
+	g := &flightGroup{flights: map[string]*flight{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	defer unblock()
+	mintContext := make(chan context.Context, 1)
+	leader := authFixStartFlight(g, ctx, func(ctx context.Context) (string, error) {
+		mintContext <- ctx
+		close(started)
+		<-release
+		return "shared-result", ctx.Err()
+	})
+	waitFlightSignal(t, started)
+	fctx, stopFollower := context.WithTimeout(context.Background(), 15*time.Second)
+	defer stopFollower()
+	joining := &joiningContext{Context: fctx, joined: make(chan struct{})}
+	follower := authFixStartFlight(g, joining, func(context.Context) (string, error) {
+		return "unexpected-second-mint", nil
+	})
+	waitFlightSignal(t, joining.joined)
+	cancel()
+	result := authFixWaitResult(t, leader) // The mint is still blocked on release: the leader must return first.
+	if !errors.Is(result.err, context.Canceled) || result.value != "" {
+		t.Fatalf("canceled leader returned value=%t err=%v", result.value != "", result.err)
+	}
+	mintCtx := <-mintContext
+	if mintCtx.Err() != nil || mintCtx.Done() != nil {
+		t.Fatal("leader cancellation reached the shared mint context")
+	}
+	unblock()
+	result = authFixWaitResult(t, follower)
+	if result.err != nil || result.value != "shared-result" {
+		t.Fatalf("follower did not receive the original mint: err=%v", result.err)
 	}
 }

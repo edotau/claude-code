@@ -3,17 +3,25 @@ package providers
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/databricks/oauth"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -64,15 +72,8 @@ func TestRetiredAuthSpellingsAreRejected(t *testing.T) {
 
 func TestFlatOverlayIsNotReadByTheRuntime(t *testing.T) {
 	flat := `{"providers":{"gw":{"protocol":"anthropic","base_url":"https://gw.example","auth":{"type":"none"}}}}`
-	reg, err := parseOverlay(t, flat)
-	if err == nil {
-		if reg.Providers["gw"] != nil {
-			t.Fatal("flat overlay row gw was read")
-		}
-		return
-	}
-	if !strings.Contains(err.Error(), `unknown provider "gw"`) {
-		t.Errorf("err = %v, want it to name the unknown provider", err)
+	if _, err := parseOverlay(t, flat); err == nil || !strings.Contains(err.Error(), `unknown provider "gw"`) {
+		t.Fatalf("err = %v, want the flat row refused as an unknown provider", err)
 	}
 }
 
@@ -115,20 +116,26 @@ func kindRow(kind, clientID, _ string) *Provider {
 		Auth: Auth{Type: kind, ClientID: clientID}}
 }
 
-func TestValidateKind(t *testing.T) {
-	cases := []struct {
-		name string
-		p    *Provider
-		want string
-	}{
-		{"none", kindRow("", "", AuthKey), ""},
-		{"u2m", kindRow(AuthOAuth, "", AuthKey), ""},
-		{"m2m ok", kindRow(AuthM2M, "cid", AuthKey), ""},
-		{"m2m no client", kindRow(AuthM2M, "", AuthKey), "needs auth.clientId"},
-		{"stray clientId", kindRow(AuthPAT, "cid", ""), "needs auth.type m2m"},
+// validateAuthType checks the companion fields of a sealed kind, clientId injection, and account/workspace id shapes.
+func TestValidateAuthType(t *testing.T) {
+	cases := []struct{ name, kind, clientID, acct, ws, want string }{
+		{"none", "", "", "", "", ""},
+		{"u2m", AuthOAuth, "", "", "", ""},
+		{"m2m ok", AuthM2M, "sp-client", "", "", ""},
+		{"m2m no client", AuthM2M, "", "", "", "needs auth.clientId"},
+		{"stray clientId", AuthPAT, "cid", "", "", "needs auth.type m2m"},
+		{"ids ok", "", "", "1234abcd-0000-ffff", "1234567890", ""},
+		{"short account", "", "", "short", "", "auth.accountId"},
+		{"non-hex account", "", "", "zzzzzzzzzz", "", "auth.accountId"},
+		{"non-numeric workspace", "", "", "", "12ab", "auth.workspaceId"},
+	}
+	for _, id := range []string{"a\nb", "a\rb", "a[b", "a=b"} {
+		cases = append(cases, struct{ name, kind, clientID, acct, ws, want string }{"inject " + id, AuthM2M, id, "", "", "auth.clientId must not contain"})
 	}
 	for _, c := range cases {
-		errs := strings.Join(validateAuthType("x", c.p), ";")
+		p := kindRow(c.kind, c.clientID, "")
+		p.Auth.AccountID, p.Auth.WorkspaceID = c.acct, c.ws
+		errs := strings.Join(validateAuthType("x", p), ";")
 		if c.want == "" && errs != "" || c.want != "" && !strings.Contains(errs, c.want) {
 			t.Errorf("%s: errs %q, want %q", c.name, errs, c.want)
 		}
@@ -191,41 +198,11 @@ func TestCredentialNamesIncludeSealedSecret(t *testing.T) {
 	}
 }
 
-func TestAccountAndWorkspaceIDValidation(t *testing.T) {
-	cases := []struct{ acct, ws, want string }{
-		{"", "", ""},
-		{"1234abcd-0000-ffff", "1234567890", ""},
-		{"short", "", "auth.accountId"},
-		{"zzzzzzzzzz", "", "auth.accountId"},
-		{"", "12ab", "auth.workspaceId"},
-	}
-	for _, c := range cases {
-		p := kindRow("", "", AuthKey)
-		p.Auth.AccountID, p.Auth.WorkspaceID = c.acct, c.ws
-		errs := strings.Join(validateAuthType("x", p), ";")
-		if c.want == "" && errs != "" || c.want != "" && !strings.Contains(errs, c.want) {
-			t.Errorf("acct=%q ws=%q: errs %q, want %q", c.acct, c.ws, errs, c.want)
-		}
-	}
-}
-
 func TestValidIDShape(t *testing.T) {
 	for id, want := range map[string]bool{"my-sp_1": true, "": false, "bad name": false, "a/b": false} {
 		if ValidID(id) != want {
 			t.Errorf("ValidID(%q) = %v, want %v", id, !want, want)
 		}
-	}
-}
-
-func TestClientIDInjectionRejected(t *testing.T) {
-	for _, id := range []string{"a\nb", "a\rb", "a[b", "a=b"} {
-		p := kindRow(AuthM2M, id, AuthKey)
-		if errs := strings.Join(validateAuthType("x", p), ";"); !strings.Contains(errs, "auth.clientId must not contain") {
-			t.Errorf("clientId %q: errs %q", id, errs)
-		}
-	}
-	if errs := validateAuthType("x", kindRow(AuthM2M, "sp-client", AuthKey)); len(errs) != 0 {
-		t.Errorf("clean clientId rejected: %v", errs)
 	}
 }
 
@@ -317,18 +294,8 @@ func TestVerdictTransientNeverCondemns(t *testing.T) {
 			t.Errorf("%s: Verdict = %q (condemns %v), want transient/false", name, v, v.Condemns())
 		}
 	}
-	if v := Verdict(nil); v != VerdictOK || v.Condemns() {
-		t.Errorf("nil: %q condemns %v", v, v.Condemns())
-	}
-}
-
-func TestVerdictCondemnsOnlyLoginAndRejected(t *testing.T) {
-	for v, want := range map[AuthVerdict]bool{
-		VerdictOK: false, VerdictTransient: false, VerdictNeedsLogin: true, VerdictRejected: true, "": false,
-	} {
-		if v.Condemns() != want {
-			t.Errorf("%q.Condemns() = %v, want %v", v, v.Condemns(), want)
-		}
+	if v := Verdict(nil); v != VerdictOK || v.Condemns() || AuthVerdict("").Condemns() {
+		t.Errorf("nil: %q condemns %v, or an empty verdict condemns", v, v.Condemns())
 	}
 }
 
@@ -406,11 +373,7 @@ func TestIdentityAutoFallsBackToSPOnRejection(t *testing.T) {
 // An SP mint records its expiry tagged m2m, so the statusline countdown shows on a paired oauth row.
 func TestSPMintRecordsExpiryAsM2M(t *testing.T) {
 	p, _, _, _ := spHarness(t, IdentitySP)
-	orig := mintM2M
-	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
-		return oauth.Token{Access: jwtExpIn(time.Hour, "")}, nil
-	}
-	t.Cleanup(func() { mintM2M = orig })
+	stubMintM2M(t, jwtExpIn(time.Hour, ""))
 	if _, err := Credential(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
@@ -544,24 +507,61 @@ func TestIdentityUserCannotJoinAutoSPFlight(t *testing.T) {
 	}
 }
 
+// Auto mode with no sealed user login goes straight to the paired SP: no user refresh is attempted.
+func TestIdentityAutoWithoutUserLoginSkipsRefresh(t *testing.T) {
+	p, m2m, refresh, _ := spHarness(t, "")
+	if err := vault.Delete(AuthSecretName(p)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Credential(context.Background(), p)
+	if err != nil || got != "sp-token" || *m2m != 1 || *refresh != 0 {
+		t.Fatalf("Credential = %q, %v (m2m %d, refresh %d)", got, err, *m2m, *refresh)
+	}
+	lock := filepath.Join(paths.StateDir(), "locks", "auth-"+lockNameRE.ReplaceAllString(p.Name, "_")+".lock")
+	if _, err := os.Stat(lock); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the user refresh lock was taken: %v", err)
+	}
+}
+
+// A sealed SP token is served by a new process without a mint and without the fallback note; a mint notes once.
+func TestSPNoteOnlyOnMint(t *testing.T) {
+	p, m2m, _, out := spHarness(t, IdentitySP)
+	tok := jwtExpIn(time.Hour, "")
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		*m2m++
+		return oauth.Token{Access: tok}, nil
+	}
+	var mu sync.Mutex
+	var notes []string
+	ctx := WithNotes(context.Background(), func(s string) { mu.Lock(); notes = append(notes, s); mu.Unlock() })
+	if v, err := Credential(ctx, p); err != nil || v != tok {
+		t.Fatalf("first Credential = %v", err)
+	}
+	spCache.Delete(p.Name) // a new process: only the sealed _ACCESS slot remains
+	if v, err := Credential(ctx, p); err != nil || v != tok {
+		t.Fatalf("second Credential = %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if *m2m != 1 || len(notes) != 1 || !strings.Contains(notes[0], "using the service principal sp-client") || out.Len() != 0 {
+		t.Fatalf("m2m = %d, notes = %q, stderr note = %q", *m2m, notes, out.String())
+	}
+}
+
 const dbxHost = "https://example.cloud.databricks.com"
 
 func patRow(host string) string {
 	return `{"preset":"databricks","host":"` + host + `","auth":{"type":"pat"}}`
 }
 
-func TestValidateRejectsCollidingSealedSecretNames(t *testing.T) {
-	doc := `{"providers":{"databricks":{"a-b":` + patRow(dbxHost) + `,"a_b":` + patRow(dbxHost) + `}}}`
-	err := Validate([]byte(doc))
-	if err == nil || !strings.Contains(err.Error(), "a-b") || !strings.Contains(err.Error(), "a_b") {
-		t.Fatalf("Validate = %v, want an error naming a-b and a_b", err)
-	}
-}
-
-func TestValidateAcceptsDistinctSealedSecretNames(t *testing.T) {
-	doc := `{"providers":{"databricks":{"a-b":` + patRow(dbxHost) + `,"c_d":` + patRow(dbxHost) + `}}}`
-	if err := Validate([]byte(doc)); err != nil {
-		t.Fatalf("Validate = %v", err)
+// Two rows whose sealed secret names collide (a-b, a_b) are refused, naming both; distinct names pass.
+func TestValidateSealedSecretNameCollision(t *testing.T) {
+	for second, collides := range map[string]bool{"a_b": true, "c_d": false} {
+		doc := `{"providers":{"databricks":{"a-b":` + patRow(dbxHost) + `,"` + second + `":` + patRow(dbxHost) + `}}}`
+		err := Validate([]byte(doc))
+		if collides != (err != nil) || collides && (!strings.Contains(err.Error(), "a-b") || !strings.Contains(err.Error(), second)) {
+			t.Errorf("%s: Validate = %v, want collision %v naming both rows", second, err, collides)
+		}
 	}
 }
 
@@ -570,22 +570,17 @@ func m2mBaseRow(base string) string {
 		`"auth":{"type":"m2m","clientId":"sp-client"}}`
 }
 
-func TestValidateRejectsPlainHTTPSealedHost(t *testing.T) {
-	for _, doc := range []string{
-		`{"providers":{"databricks":{"m2m-http":` + m2mBaseRow("http://example.cloud.databricks.com") + `}}}`,
-		`{"providers":{"databricks":{"pat-http":{"preset":"databricks","host":"http://example.cloud.databricks.com","auth":{"type":"pat"}}}}}`,
+// A sealed row on plain http is refused unless the host is loopback; https always passes.
+func TestValidateSealedHostScheme(t *testing.T) {
+	for doc, ok := range map[string]bool{
+		`{"m2m-http":` + m2mBaseRow("http://example.cloud.databricks.com") + `}`: false,
+		`{"pat-http":` + patRow("http://example.cloud.databricks.com") + `}`:     false,
+		`{"m2m-ok":` + m2mBaseRow(dbxHost) + `}`:                                 true,
+		`{"m2m-ok":` + m2mBaseRow("http://127.0.0.1:8080") + `}`:                 true,
+		`{"m2m-ok":` + m2mBaseRow("http://localhost:9") + `}`:                    true,
 	} {
-		if err := Validate([]byte(doc)); err == nil {
-			t.Errorf("Validate accepted plain http: %s", doc)
-		}
-	}
-}
-
-func TestValidateAcceptsHTTPSAndLoopbackHTTPSealedHost(t *testing.T) {
-	for _, base := range []string{dbxHost, "http://127.0.0.1:8080", "http://localhost:9"} {
-		doc := `{"providers":{"databricks":{"m2m-ok":` + m2mBaseRow(base) + `}}}`
-		if err := Validate([]byte(doc)); err != nil {
-			t.Errorf("Validate(%s) = %v", base, err)
+		if err := Validate([]byte(`{"providers":{"databricks":` + doc + `}}`)); ok != (err == nil) {
+			t.Errorf("Validate(%s) = %v, want accepted %v", doc, err, ok)
 		}
 	}
 }
@@ -680,11 +675,7 @@ func checkClientForcedRefresh(t *testing.T, p *Provider, calls *int) {
 func TestM2MWrongIssuerTokenNotSealed(t *testing.T) {
 	p, secretName := clientRow(t, false)
 	p.Preset, p.Host = PresetDatabricks, "https://h.example.com"
-	orig := mintM2M
-	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
-		return oauth.Token{Access: jwtExpIn(time.Hour, "https://other.example.org/oidc")}, nil
-	}
-	t.Cleanup(func() { mintM2M = orig })
+	stubMintM2M(t, jwtExpIn(time.Hour, "https://other.example.org/oidc"))
 	_, err := m2mToken(context.Background(), p, secretName, "h.example.com", "client", "secret", true)
 	if _, ok := errors.AsType[*HostMismatchError](err); !ok {
 		t.Fatalf("m2mToken err = %v; want HostMismatchError", err)
@@ -692,6 +683,16 @@ func TestM2MWrongIssuerTokenNotSealed(t *testing.T) {
 	if vaultHas(t, secretName+"_ACCESS") {
 		t.Fatal("wrong-issuer token was sealed in the vault")
 	}
+}
+
+// stubMintM2M makes every M2M mint return tok for this test.
+func stubMintM2M(t *testing.T, tok string) {
+	t.Helper()
+	orig := mintM2M
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		return oauth.Token{Access: tok}, nil
+	}
+	t.Cleanup(func() { mintM2M = orig })
 }
 
 func vaultHas(t *testing.T, name string) bool {
@@ -708,16 +709,42 @@ func TestM2MTokenCachedUnderProfileName(t *testing.T) {
 	for _, sp := range []bool{false, true} {
 		t.Run(fmt.Sprint("sp=", sp), func(t *testing.T) {
 			p, secretName := clientRow(t, sp)
-			orig := mintM2M
-			mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
-				return oauth.Token{Access: jwtExpIn(time.Hour, "")}, nil
-			}
-			t.Cleanup(func() { mintM2M = orig })
+			stubMintM2M(t, jwtExpIn(time.Hour, ""))
 			if _, err := Refresh(context.Background(), p); err != nil {
 				t.Fatal(err)
 			}
 			if !vaultHas(t, secretName+"_ACCESS") {
 				t.Fatalf("no token cache at %s_ACCESS", secretName)
+			}
+		})
+	}
+}
+
+// A mint sweeps the old hash-named DATABRICKS_M2M_<HASH>_ACCESS slot, auditing a delete only when the slot existed.
+func TestM2MMintSweepsLegacyHashSlot(t *testing.T) {
+	for _, present := range []bool{true, false} {
+		t.Run(fmt.Sprint("present=", present), func(t *testing.T) {
+			p, secretName := clientRow(t, false)
+			legacySwept.Store(false) // a fresh process; an earlier test's mint may have set it
+			sum := sha256.Sum256([]byte("h.example.com\x00client\x00secret"))
+			legacy := "DATABRICKS_M2M_" + strings.ToUpper(hex.EncodeToString(sum[:8])) + "_ACCESS"
+			if present {
+				if err := vault.Store(legacy, "stale"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			stubMintM2M(t, jwtExpIn(time.Hour, ""))
+			since := time.Now().Add(-time.Second)
+			if _, err := m2mToken(context.Background(), p, secretName, "h.example.com", "client", "secret", true); err != nil {
+				t.Fatal(err)
+			}
+			events, err := audit.Read(since)
+			if err != nil {
+				t.Fatal(err)
+			}
+			deleted := slices.ContainsFunc(events, func(e audit.Event) bool { return e.Action == audit.SecretDelete })
+			if vaultHas(t, legacy) || deleted != present {
+				t.Fatalf("legacy slot left=%v, delete audited=%v; want swept, audited only when present", vaultHas(t, legacy), deleted)
 			}
 		})
 	}

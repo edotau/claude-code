@@ -1,7 +1,9 @@
 package providers
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +11,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -118,37 +122,6 @@ func TestOAuthM2MNeverWritesAccessToken(t *testing.T) {
 	}
 	if v := sealedAccessValue(p); v != "" {
 		t.Errorf("m2m wrote %s = %q", AuthSecretName(p), v)
-	}
-}
-
-func TestLoginU2MSealsAccessToken(t *testing.T) {
-	idp := &rotatingIdP{}
-	srv := oidcServer(t, idp.handle)
-	p := mintRow(t, "ac-login", AuthOAuth, "", srv.URL)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
-	open := func(authURL string) error {
-		u, err := url.Parse(authURL)
-		if err != nil {
-			return err
-		}
-		cb := "http://127.0.0.1:" + strconv.Itoa(port) + "/?code=the-code&state=" + url.QueryEscape(u.Query().Get("state"))
-		go func() {
-			if resp, err := http.Get(cb); err == nil {
-				_ = resp.Body.Close()
-			}
-		}()
-		return nil
-	}
-	if _, err := LoginU2M(context.Background(), p, oauth.LoginOptions{Open: open, Port: port, Timeout: 20 * time.Second}); err != nil {
-		t.Fatal(err)
-	}
-	if v := sealedAccessValue(p); v != "login-access" {
-		t.Errorf("sealed access = %q, want login-access", v)
 	}
 }
 
@@ -295,17 +268,21 @@ func TestAuthU2MInvalidGrantPointsToLoginWithoutToken(t *testing.T) {
 	p := mintRow(t, "kind-u2m-dead", AuthOAuth, "", srv.URL)
 	putOAuth(t, p, oauthValue{Refresh: "refresh-dead-value"})
 	_, err := Credential(context.Background(), p)
-	if err == nil || !strings.Contains(err.Error(), "databricks login --profile kind-u2m-dead") || strings.Contains(err.Error(), "refresh-dead-value") {
+	if !errors.Is(err, ErrNeedsLogin) || !strings.Contains(err.Error(), "databricks login --profile kind-u2m-dead") ||
+		strings.Contains(err.Error(), "refresh-dead-value") {
 		t.Fatalf("err = %v", err)
 	}
 }
 
+// An unsealed row errors "no credential"; only u2m (no refresh token) is ErrNeedsLogin and names the login command.
 func TestKindMissingSecretErrors(t *testing.T) {
 	for _, kind := range []string{AuthOAuth, AuthM2M, AuthPAT} {
 		p := mintRow(t, "kind-missing-"+kind, kind, map[bool]string{true: "cid"}[kind == AuthM2M], "http://127.0.0.1:1")
 		_, err := Credential(context.Background(), p)
-		if err == nil || !strings.Contains(err.Error(), "no credential") {
-			t.Errorf("%s: err = %v", kind, err)
+		u2m := kind == AuthOAuth
+		if err == nil || !strings.Contains(err.Error(), "no credential") || errors.Is(err, ErrNeedsLogin) != u2m ||
+			u2m && !strings.Contains(err.Error(), "databricks login --profile "+p.Name) {
+			t.Errorf("%s: err = %v, want needs-login %v", kind, err, u2m)
 		}
 	}
 }
@@ -377,33 +354,6 @@ func TestAuthU2MIgnoresStaleEnvRefresh(t *testing.T) {
 	}
 	if seen != "vault-refresh" {
 		t.Errorf("token endpoint got refresh token of length %d, want the vault value", len(seen))
-	}
-}
-
-func TestU2MEmptyRefreshNeedsLogin(t *testing.T) {
-	p := mintRow(t, "kind-u2m-empty", AuthOAuth, "", "http://127.0.0.1:1")
-	_, err := Credential(context.Background(), p)
-	if !errors.Is(err, ErrNeedsLogin) || !strings.Contains(err.Error(), "databricks login --profile kind-u2m-empty") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestU2MRejectedGrantNeedsLogin(t *testing.T) {
-	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
-		return 400, map[string]any{"error": "invalid_grant"}
-	})
-	p := mintRow(t, "kind-u2m-rej", AuthOAuth, "", srv.URL)
-	putOAuth(t, p, oauthValue{Refresh: "rt"})
-	_, err := Credential(context.Background(), p)
-	if !errors.Is(err, ErrNeedsLogin) || !strings.Contains(err.Error(), "databricks login --profile kind-u2m-rej") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestM2MEmptySecretIsNotNeedsLogin(t *testing.T) {
-	p := mintRow(t, "kind-m2m-empty", AuthM2M, "cid", "http://127.0.0.1:1")
-	if _, err := Credential(context.Background(), p); err == nil || errors.Is(err, ErrNeedsLogin) {
-		t.Fatalf("err = %v", err)
 	}
 }
 
@@ -591,8 +541,8 @@ func TestLoginU2MDoesNotRefreshAfterExchange(t *testing.T) {
 	if idp.codes.Load() != 1 || idp.refreshes.Load() != 0 {
 		t.Errorf("code exchanges=%d refreshes=%d, want 1 and 0", idp.codes.Load(), idp.refreshes.Load())
 	}
-	if v, ok := cachedCommand(p.Name); !ok || v != "login-access" {
-		t.Errorf("cached = %q, %v; want login-access", v, ok)
+	if v, ok := cachedCommand(p.Name); !ok || v != "login-access" || sealedAccessValue(p) != "login-access" {
+		t.Errorf("cached = %q, %v, sealed %q; want login-access in both", v, ok, sealedAccessValue(p))
 	}
 	if ov, _ := readOAuth(p); ov.Refresh != idp.valid {
 		t.Errorf("sealed = %q, want %q", ov.Refresh, idp.valid)
@@ -615,5 +565,156 @@ func callbackOpener(port int) func(string) error {
 			}
 		}()
 		return nil
+	}
+}
+
+// lockVault seeds name in the vault, then swaps HARNESS_VAULT_KEY for a different key with an empty
+// keyring behind it, so the record exists but nothing can open it.
+func lockVault(t *testing.T, name, value string) {
+	t.Helper()
+	vaulttest.Use(t)
+	vaulttest.Keyring(t)
+	vaulttest.Secret(t, name, value)
+	if v, _, err := vault.EffectiveSecret(name); err != nil || v != value {
+		t.Fatalf("precondition: vault.EffectiveSecret(%s) = %q, %v; want %q", name, v, err, value)
+	}
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)))
+	if _, _, err := vault.EffectiveSecret(name); err == nil {
+		t.Fatalf("precondition: vault.EffectiveSecret(%s) under the wrong key must error", name)
+	}
+}
+
+// R14: a vault that holds the name but cannot open it must not block auth.file or auth.command.
+func TestCredentialLockedVaultFallsThrough(t *testing.T) {
+	lockVault(t, "LOCKED_KEY", "sealed-value")
+	t.Setenv("LOCKED_KEY", "")
+	t.Run("auth.file", lockedVaultAuthFile)
+	t.Run("auth.command", lockedVaultAuthCommand)
+	t.Run("nothing else", lockedVaultNothingElse)
+	t.Run("env over locked vault", lockedVaultEnvWins)
+}
+
+func lockedVaultAuthFile(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "tok")
+	if err := os.WriteFile(file, []byte("  from-file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := &Provider{Name: "lk", Auth: Auth{Type: AuthKey, Env: "LOCKED_KEY", File: file}}
+	if v, err := Credential(context.Background(), p); err != nil || v != "from-file" {
+		t.Errorf("Credential (locked vault, auth.file) = %q, %v; want from-file", v, err)
+	}
+}
+
+func lockedVaultAuthCommand(t *testing.T) {
+	p := &Provider{Name: "lk-cmd", Auth: Auth{Type: AuthKey, Env: "LOCKED_KEY", Command: "echo minted-locked"}}
+	if v, err := Credential(context.Background(), p); err != nil || v != "minted-locked" {
+		t.Errorf("Credential (locked vault, auth.command) = %q, %v; want minted-locked", v, err)
+	}
+}
+
+func lockedVaultNothingElse(t *testing.T) {
+	p := &Provider{Name: "lk-none", Auth: Auth{Type: AuthKey, Env: "LOCKED_KEY"}}
+	v, err := Credential(context.Background(), p)
+	if err == nil || v != "" || !strings.Contains(err.Error(), "lk-none: no credential (vault:") {
+		t.Errorf("Credential (locked vault, nothing else) = %q, %v; want a \"no credential (vault: …)\" error", v, err)
+	}
+}
+
+func lockedVaultEnvWins(t *testing.T) {
+	p := &Provider{Name: "lk-none", Auth: Auth{Type: AuthKey, Env: "LOCKED_KEY"}}
+	t.Setenv("LOCKED_KEY", "from-env")
+	if v, err := Credential(context.Background(), p); err != nil || v != "from-env" {
+		t.Errorf("Credential (env over a locked vault) = %q, %v; want from-env", v, err)
+	}
+}
+
+// A provider with nothing configured anywhere gets the set-it hint, not a vault error.
+func TestCredentialMissHint(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	t.Setenv("MISS_KEY", "")
+	p := &Provider{Name: "miss", Auth: Auth{Type: AuthKey, Env: "MISS_KEY", File: "/nonexistent/tok"}}
+	_, err := Credential(context.Background(), p)
+	if err == nil || strings.Contains(err.Error(), "vault:") ||
+		!strings.Contains(err.Error(), "set MISS_KEY with `claude-code vault set`, or /nonexistent/tok") {
+		t.Errorf("Credential(miss) err = %v; want the secrets-set hint naming MISS_KEY and auth.file", err)
+	}
+}
+
+// CredentialPresent never decrypts: a sealed record, auth.file and auth.command all count under a wrong key.
+func TestCredentialPresentWithoutDecrypting(t *testing.T) {
+	lockVault(t, "PRESENT_KEY", "sealed-value")
+	t.Setenv("PRESENT_KEY", "")
+	t.Setenv("ABSENT_KEY", "")
+
+	if !CredentialPresent(&Provider{Auth: Auth{Type: AuthKey, Env: "PRESENT_KEY"}}) {
+		t.Error("CredentialPresent must report a sealed vault record without opening it")
+	}
+	file := filepath.Join(t.TempDir(), "tok")
+	if err := os.WriteFile(file, []byte("tok\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !CredentialPresent(&Provider{Auth: Auth{Type: AuthKey, Env: "ABSENT_KEY", File: file}}) {
+		t.Error("CredentialPresent must keep auth.file as a source")
+	}
+	blank := filepath.Join(t.TempDir(), "blank")
+	if err := os.WriteFile(blank, []byte("  \n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if CredentialPresent(&Provider{Auth: Auth{Type: AuthKey, Env: "ABSENT_KEY", File: blank}}) {
+		t.Error("CredentialPresent must not count a blank auth.file")
+	}
+	if !CredentialPresent(&Provider{Auth: Auth{Type: AuthKey, Env: "ABSENT_KEY", Command: "exit 1"}}) {
+		t.Error("CredentialPresent must keep auth.command as a source (without running it)")
+	}
+	if CredentialPresent(&Provider{Auth: Auth{Type: AuthKey, Env: "ABSENT_KEY"}}) {
+		t.Error("CredentialPresent with nothing configured must be false")
+	}
+	checkCredentialFreeTypesPresent(t)
+}
+
+func checkCredentialFreeTypesPresent(t *testing.T) {
+	t.Helper()
+	for _, typ := range []string{AuthNone, AuthCLI} {
+		if !CredentialPresent(&Provider{Auth: Auth{Type: typ}}) {
+			t.Errorf("CredentialPresent(%s) must be true", typ)
+		}
+	}
+}
+
+// TestRunAuthCommandFailures: malformed output is refused, failures are classified, stderr secrets are masked.
+func TestRunAuthCommandFailures(t *testing.T) {
+	p := &Provider{Name: "row"}
+	cases := []struct{ cmd, want, absent string }{
+		{`echo null`, "printed nothing", ""},
+		{`printf 'tok1\ntok2\n'`, "more than one bare token", "tok1"},
+		{`echo "dial tcp: lookup x: no such host, token eyJabc.def.ghi" >&2; exit 1`, "(network:", "eyJabc"},
+		{`echo "invalid refresh token: dapiSECRET" >&2; exit 1`, "(auth:", "dapiSECRET"},
+		{`definitely-not-a-command-xyz`, "(cli: command not found)", ""},
+	}
+	for _, c := range cases {
+		_, err := runAuthCommand(context.Background(), p, c.cmd)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v; want it to contain %q", c.cmd, err, c.want)
+		}
+		if c.absent != "" && err != nil && strings.Contains(err.Error(), c.absent) {
+			t.Errorf("%s: err leaks %q: %v", c.cmd, c.absent, err)
+		}
+	}
+	if v, err := runAuthCommand(context.Background(), p, `echo '  tok  '`); err != nil || v != "tok" {
+		t.Errorf("good token = %q, %v; want tok, nil", v, err)
+	}
+}
+
+func TestRunAuthCommandTimeoutNotHeldByOrphanedPipe(t *testing.T) {
+	p := &Provider{Name: "orphan-pipe"}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := runAuthCommand(ctx, p, `sleep 25 | cat`)
+	if err == nil {
+		t.Fatal("expected a timeout error")
+	}
+	if d := time.Since(start); d > 12*time.Second {
+		t.Fatalf("runAuthCommand blocked %v on an orphaned pipe writer", d)
 	}
 }

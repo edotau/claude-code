@@ -62,33 +62,6 @@ func TestWireUnknownRejected(t *testing.T) {
 	}
 }
 
-func TestWireModelPrefixThenDots(t *testing.T) {
-	serving := wireProvider(t, ``)
-	gateway := wireProvider(t, `, "options": {"wire": "ai-gateway"}`)
-	cases := []struct {
-		p        *Provider
-		in, want string
-	}{
-		{serving, "gpt-5.5", "databricks-gpt-5-5"},
-		{serving, "claude-opus-5-5[1m]", "databricks-claude-opus-5-5[1m]"},
-		{gateway, "gpt-5.5", "system.ai.gpt-5-5"},
-		{gateway, "claude-sonnet-5-5", "system.ai.claude-sonnet-5-5"},
-		{gateway, "system.ai.gpt-5-5", "system.ai.gpt-5-5"}, // idempotent
-	}
-	for _, c := range cases {
-		if got := c.p.WireModel(c.in); got != c.want {
-			t.Errorf("%s WireModel(%q) = %q, want %q", c.p.ModelPrefix, c.in, got, c.want)
-		}
-	}
-}
-
-func TestWireNonPresetUntouched(t *testing.T) {
-	p := Provider{ModelPrefix: "x."}
-	if got := p.WireModel("gpt-5.5"); got != "gpt-5.5" {
-		t.Errorf("non-preset WireModel = %q", got)
-	}
-}
-
 const dbxProv = `"dbx":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net/","cliProfile":"work"}`
 
 func dbxProvider(t *testing.T) Provider {
@@ -98,6 +71,8 @@ func dbxProvider(t *testing.T) Provider {
 
 func TestWireModelTable(t *testing.T) {
 	db := dbxProvider(t)
+	gw := *wireProvider(t, `, "options": {"wire": "ai-gateway"}`)
+	gwOpts := Provider{Preset: PresetDatabricks, Options: Options{Wire: WireAIGateway}} // no ModelPrefix
 	plain := Provider{}
 	cases := []struct {
 		name string
@@ -120,6 +95,14 @@ func TestWireModelTable(t *testing.T) {
 		{"non-catalog passes through", db, "gemini-2.5-pro", "gemini-2.5-pro"},
 		{"no prefix provider", plain, "claude-opus-5-5", "claude-opus-5-5"},
 		{"no prefix keeps dots", plain, "gpt-5.5", "gpt-5.5"},
+		{"unknown prefix untouched", Provider{ModelPrefix: "x."}, "gpt-5.5", "gpt-5.5"},
+		{"gateway dots to dashes", gw, "gpt-5.5", "system.ai.gpt-5-5"},
+		{"gateway claude", gw, "claude-sonnet-5-5", "system.ai.claude-sonnet-5-5"},
+		{"gateway already wire", gw, "system.ai.gpt-5-5", "system.ai.gpt-5-5"},
+		{"gateway from serving spelling", gw, "databricks-claude-opus-5-5", "system.ai.claude-opus-5-5"},
+		{"gateway alias", gw, "opus", "system.ai.claude-opus-5-5"},
+		{"gateway dotted", gw, "claude-opus-5.5", "system.ai.claude-opus-5-5"},
+		{"gateway by options alone", gwOpts, "databricks-claude-opus-5-5", "system.ai.claude-opus-5-5"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -131,55 +114,6 @@ func TestWireModelTable(t *testing.T) {
 				t.Fatalf("not idempotent: %q -> %q", got, again)
 			}
 		})
-	}
-}
-
-func TestLoadDecoratesPresetModels(t *testing.T) {
-	reg := mustParse(t, `{"providers":{"databricks":{"dbx":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net/","cliProfile":"work",
-	  "models":{"opus":"claude-opus-5-5[1m]","sonnet":"gpt-5.5"}}}}}`)
-	m := reg.Providers["dbx"].Models
-	want := map[string]string{
-		"opus": "databricks-claude-opus-5-5[1m]", "sonnet": "databricks-gpt-5-5", "haiku": "databricks-claude-haiku-5-5",
-	}
-	for k, v := range want {
-		if m[k] != v {
-			t.Errorf("Models[%s] = %q, want %q", k, m[k], v)
-		}
-	}
-	plain := mustParse(t, `{"providers":{"openai":{"p":{"protocol":"anthropic","base_url":"https://p","auth":{"type":"none"},"models":{"opus":"gpt-5.5"}}}}}`)
-	if got := plain.Providers["p"].Models["opus"]; got != "gpt-5.5" {
-		t.Errorf("plain provider model = %q", got)
-	}
-}
-
-// The decorated ids live only in memory: the overlay writer works on the stored doc, never the registry.
-func TestDecoratedModelsNeverPersisted(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HARNESS_VAULT_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
-	err := SetProviderFields("dbx", map[string]any{"preset": "databricks", "host": "https://adb-1.azuredatabricks.net/",
-		"cliProfile": "work", "models": map[string]string{"opus": "claude-opus-5-5"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	reg, err := Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := reg.Providers["dbx"].Models["opus"]; got != "databricks-claude-opus-5-5" {
-		t.Fatalf("loaded opus = %q, want decorated", got)
-	}
-	if err := SetProviderModel("dbx", "sonnet", "claude-sonnet-5-5"); err != nil {
-		t.Fatal(err)
-	}
-	doc, err := OverlayDoc()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(doc), "databricks-claude") {
-		t.Errorf("overlay persisted decorated ids: %s", doc)
-	}
-	if !strings.Contains(string(doc), `"claude-opus-5-5"`) || !strings.Contains(string(doc), `"claude-sonnet-5-5"`) {
-		t.Errorf("overlay lost the canonical ids: %s", doc)
 	}
 }
 

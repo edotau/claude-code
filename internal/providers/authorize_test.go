@@ -2,12 +2,16 @@ package providers
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 const dbxServingBody = `{"endpoints":[
@@ -244,5 +248,71 @@ func TestCatalogStatusErrorRedactsBody(t *testing.T) {
 	}
 	if !e.rejected() {
 		t.Error("rejected() must still read the raw body")
+	}
+}
+
+// authFixBody returns a complete catalog and an error in the same Read.
+type authFixBody struct {
+	err    error
+	closed bool
+}
+
+func (b *authFixBody) Read(p []byte) (int, error) {
+	return copy(p, `{"data":[{"id":"complete-model"}]}`), b.err
+}
+
+func (b *authFixBody) Close() error { b.closed = true; return nil }
+
+type authFixTransport struct{ body io.ReadCloser }
+
+func (r authFixTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{}, Body: r.body, Request: req}, nil
+}
+
+func TestLiveModelEntriesRejectsReadErrorWithValidJSON(t *testing.T) {
+	vaulttest.Use(t)
+	readErr := errors.New("catalog stream interrupted")
+	body := &authFixBody{err: readErr}
+	old := http.DefaultClient.Transport
+	http.DefaultClient.Transport = authFixTransport{body: body}
+	t.Cleanup(func() { http.DefaultClient.Transport = old })
+	p := &Provider{Name: "read-error", Protocol: ProtocolOpenAI, BaseURL: "https://catalog.invalid", Auth: Auth{Type: AuthNone}}
+	entries, err := liveModelEntries(context.Background(), p)
+	if !errors.Is(err, readErr) || len(entries) != 0 {
+		t.Fatalf("catalog accepted an errored body: entries=%d, err=%v", len(entries), err)
+	}
+	if !body.closed {
+		t.Fatal("catalog body was not closed")
+	}
+}
+
+func TestAuthorizeStripsInboundAndSetsHeader(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cases := []struct{ name, typ, header, wantHdr, wantVal string }{
+		{"apikey", AuthKey, HeaderXAPIKey, "X-Api-Key", "minted"},
+		{"bearer", AuthKey, HeaderBearer, "Authorization", "Bearer minted"},
+		{"none", AuthNone, "", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p := &Provider{Name: "az-" + c.name, Auth: Auth{Type: c.typ, Header: c.header, Command: "echo minted"}}
+			cmdCache.Delete(p.Name)
+			h := http.Header{}
+			h.Set("Authorization", "Bearer client")
+			h.Set("X-Api-Key", "client-key")
+			h.Set("x-goog-api-key", "client-goog")
+			if err := Authorize(context.Background(), p, h); err != nil {
+				t.Fatal(err)
+			}
+			for _, k := range []string{"Authorization", "X-Api-Key", "X-Goog-Api-Key"} {
+				want := ""
+				if strings.EqualFold(k, c.wantHdr) {
+					want = c.wantVal
+				}
+				if got := h.Get(k); got != want {
+					t.Errorf("%s = %q, want %q", k, got, want)
+				}
+			}
+		})
 	}
 }

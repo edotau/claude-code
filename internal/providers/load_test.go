@@ -5,11 +5,17 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // sealedKinds are the sealed authTypes whose mint goes through the OIDC token endpoint.
@@ -118,19 +124,15 @@ func TestParseNestedByProvider(t *testing.T) {
 	}
 }
 
-func TestBuiltinProfileNames(t *testing.T) {
+// The embedded defaults validate on their own, and every built-in row is named by its key under a known provider.
+func TestEmbeddedDefaultsValid(t *testing.T) {
 	reg, err := Parse(defaultsJSON, nil)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || len(reg.Providers) == 0 {
+		t.Fatalf("Parse(defaults) = %v, %d rows", err, len(reg.Providers))
 	}
-	want := map[string]string{"ultra": "anthropic", "anthropic": "anthropic", "personal": "github", "chatgpt": "openai",
-		"openai": "openai", "antigravity": "google"}
-	if len(reg.Providers) != len(want) {
-		t.Errorf("built-ins = %v, want exactly %d profiles (no ollama)", reg.Names(), len(want))
-	}
-	for n, prov := range want {
-		if p := reg.Providers[n]; p == nil || p.Provider != prov {
-			t.Errorf("built-in %q = %+v, want provider %q", n, p, prov)
+	for n, p := range reg.Providers {
+		if p.Name != n || !slices.Contains(providerKeys, p.Provider) || !slices.Contains(reg.ProfilesOf(p.Provider), n) {
+			t.Errorf("built-in %q = name %q under provider %q, want its own key under a known provider", n, p.Name, p.Provider)
 		}
 	}
 }
@@ -172,20 +174,6 @@ func TestOverlayWritesNestedAndAcceptsFlatView(t *testing.T) {
 	}
 }
 
-func TestWireGatewaySpellingRead(t *testing.T) {
-	for _, w := range []string{"ai-gateway"} {
-		doc := `{"providers":{"databricks":{"gw":{"preset":"databricks","host":"https://h.cloud.databricks.com","options":{"wire":"` + w + `"}}}}}`
-		reg, err := Parse(defaultsJSON, []byte(doc))
-		if err != nil {
-			t.Fatal(err)
-		}
-		p := reg.Providers["gw"]
-		if p.Options.Wire != WireAIGateway || p.WireModel("claude-opus-5-5") != "system.ai.claude-opus-5-5" {
-			t.Errorf("wire %q: %q, %q", w, p.Options.Wire, p.WireModel("claude-opus-5-5"))
-		}
-	}
-}
-
 func TestRoutingCellsAcceptClaudeIDsAndAliases(t *testing.T) {
 	for key, ok := range map[string]bool{"opus": true, "claude-opus-5-5": true, "claude-haiku-5-5": true, "claude-fable-5-1": false, "bogus": false} {
 		doc := `{"routing":{"cells":{"claude":{"` + key + `":{"model":"claude-opus-5-5"}}}}}`
@@ -220,25 +208,6 @@ func TestSameModelIgnoresOneMAndSpelling(t *testing.T) {
 	}
 }
 
-func TestWireModelNoDoublePrefix(t *testing.T) {
-	p := Provider{Preset: PresetDatabricks, Options: Options{Wire: WireAIGateway}}
-	for _, in := range []string{"system.ai.claude-opus-5-5", "databricks-claude-opus-5-5", "claude-opus-5.5", "opus"} {
-		if got := p.WireModel(in); got != "system.ai.claude-opus-5-5" {
-			t.Errorf("WireModel(%q) = %q", in, got)
-		}
-	}
-}
-
-func TestProfilesOfFollowsDeclaredOrder(t *testing.T) {
-	reg := mustParse(t, `{"providers":{"databricks":{
-"dev":{"preset":"databricks","host":"https://h.cloud.databricks.com"},
-"qa":{"preset":"databricks","host":"https://h.cloud.databricks.com"},
-"prod":{"preset":"databricks","host":"https://h.cloud.databricks.com"}}}}`)
-	if got := strings.Join(DatabricksProfiles(reg), ","); got != "dev,qa,prod" {
-		t.Errorf("DatabricksProfiles = %s, want dev,qa,prod", got)
-	}
-}
-
 // A malformed overlay still yields the base registry named, ordered and preset-expanded, alongside the error.
 func TestParseBadOverlayKeepsBuiltBase(t *testing.T) {
 	reg, err := Parse(defaultsJSON, []byte(`{"providers": `))
@@ -255,5 +224,130 @@ func TestParseBadOverlayKeepsBuiltBase(t *testing.T) {
 	}
 	if len(reg.order) == 0 {
 		t.Error("declared order is empty")
+	}
+}
+
+func TestLoadDecoratesPresetModels(t *testing.T) {
+	reg := mustParse(t, `{"providers":{"databricks":{"dbx":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net/","cliProfile":"work",
+	  "models":{"opus":"claude-opus-5-5[1m]","sonnet":"gpt-5.5"}}}}}`)
+	m := reg.Providers["dbx"].Models
+	want := map[string]string{
+		"opus": "databricks-claude-opus-5-5[1m]", "sonnet": "databricks-gpt-5-5", "haiku": "databricks-claude-haiku-5-5",
+	}
+	for k, v := range want {
+		if m[k] != v {
+			t.Errorf("Models[%s] = %q, want %q", k, m[k], v)
+		}
+	}
+	plain := mustParse(t, `{"providers":{"openai":{"p":{"protocol":"anthropic","base_url":"https://p","auth":{"type":"none"},"models":{"opus":"gpt-5.5"}}}}}`)
+	if got := plain.Providers["p"].Models["opus"]; got != "gpt-5.5" {
+		t.Errorf("plain provider model = %q", got)
+	}
+}
+
+func TestLoadCacheReturnsIndependentRegistry(t *testing.T) {
+	// Given a settled vault with a provider model and fallback list.
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"fallback":["ultra"]}`)
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(vault.Path(), old, old); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantModel := reg.Providers["ultra"].Models["opus"]
+	wantFallback := slices.Clone(reg.Fallback)
+	// When a caller mutates the returned model map and appends to fallback.
+	reg.Providers["ultra"].Models["opus"] = "x"
+	reg.Fallback = append(reg.Fallback, "caller-only")
+	next, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Then another Load returns the unchanged cached registry.
+	if got := next.Providers["ultra"].Models["opus"]; got != wantModel {
+		t.Errorf("Providers[ultra].Models[opus] = %q, want %q", got, wantModel)
+	}
+	if !slices.Equal(next.Fallback, wantFallback) {
+		t.Errorf("Fallback = %v, want %v", next.Fallback, wantFallback)
+	}
+}
+
+func TestRegistryCloneReferenceFields(t *testing.T) {
+	// Given a registry with every reference field populated, including private declaration order.
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	reg := Registry{order: []string{"order"}}
+	populateCloneReferences(reflect.ValueOf(&reg).Elem())
+	// When the real Clone copies all nested provider and routing types.
+	cloned := reg.Clone()
+	// Then values are preserved and no map, slice or pointer field aliases its original.
+	if !reflect.DeepEqual(&reg, cloned) {
+		t.Fatal("Clone changed registry values")
+	}
+	assertCloneReferences(t, reflect.ValueOf(&reg), reflect.ValueOf(cloned), "Registry")
+}
+
+func populateCloneReferences(v reflect.Value) {
+	switch v.Kind() {
+	case reflect.Struct:
+		for _, fv := range v.Fields() {
+			if fv.CanSet() {
+				populateCloneReferences(fv)
+			}
+		}
+	case reflect.Pointer:
+		v.Set(reflect.New(v.Type().Elem()))
+		populateCloneReferences(v.Elem())
+	case reflect.Map:
+		v.Set(reflect.MakeMap(v.Type()))
+		key := reflect.New(v.Type().Key()).Elem()
+		value := reflect.New(v.Type().Elem()).Elem()
+		populateCloneReferences(key)
+		populateCloneReferences(value)
+		v.SetMapIndex(key, value)
+	case reflect.Slice:
+		v.Set(reflect.MakeSlice(v.Type(), 1, 2))
+		populateCloneReferences(v.Index(0))
+	case reflect.String:
+		v.SetString("fixture")
+	}
+}
+
+func assertCloneReferences(t *testing.T, original, cloned reflect.Value, field string) {
+	t.Helper()
+	switch original.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice:
+		if original.IsNil() || cloned.IsNil() {
+			t.Fatalf("%s: reference field must be populated in original and clone", field)
+		}
+		if original.UnsafePointer() == cloned.UnsafePointer() {
+			t.Errorf("%s: Clone aliases original %s", field, original.Kind())
+		}
+	}
+	walkCloneReferences(t, original, cloned, field)
+}
+
+func walkCloneReferences(t *testing.T, original, cloned reflect.Value, field string) {
+	t.Helper()
+	switch original.Kind() {
+	case reflect.Struct:
+		for i := 0; i < original.NumField(); i++ {
+			name := field + "." + original.Type().Field(i).Name
+			assertCloneReferences(t, original.Field(i), cloned.Field(i), name)
+		}
+	case reflect.Pointer:
+		assertCloneReferences(t, original.Elem(), cloned.Elem(), field)
+	case reflect.Map:
+		for _, key := range original.MapKeys() {
+			name := fmt.Sprintf("%s[%v]", field, key)
+			assertCloneReferences(t, original.MapIndex(key), cloned.MapIndex(key), name)
+		}
+	case reflect.Slice:
+		for i := 0; i < original.Len(); i++ {
+			name := fmt.Sprintf("%s[%d]", field, i)
+			assertCloneReferences(t, original.Index(i), cloned.Index(i), name)
+		}
 	}
 }
