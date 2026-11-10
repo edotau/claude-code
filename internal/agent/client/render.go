@@ -12,13 +12,14 @@ import (
 
 	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // DefaultAgents is every agent generate renders when agentrender.RenderOptions.Agents is empty.
-var DefaultAgents = []string{"codex", "opencode", "gemini", "copilot"}
+var DefaultAgents = []string{agentid.Codex, agentid.OpenCode, agentid.Gemini, agentid.Copilot}
 
 // RenderConfigs renders every selected agent's config and reports whether anything
 // differs from what is on disk (Check) or would be written (DryRun never writes either way).

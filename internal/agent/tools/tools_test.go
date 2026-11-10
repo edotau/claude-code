@@ -8,11 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -410,5 +412,15 @@ func TestFirstVersionLineHonoursTimeout(t *testing.T) {
 	fast, _ := probeFixture(t, "echo 'fake 1.0.0'\necho second")
 	if got := FirstVersionLine(t.Context(), fast, time.Second); got != "fake 1.0.0" {
 		t.Fatalf("FirstVersionLine = %q, want the first line", got)
+	}
+}
+
+// Every roster agent's executable has an install row.
+func TestToolsCoverEveryAgentBinary(t *testing.T) {
+	for _, a := range agentid.All() {
+		bin := agentid.Binary(a)
+		if !slices.ContainsFunc(Tools, func(tl Tool) bool { return tl.Binary == bin }) {
+			t.Errorf("no Tools row for %s's binary %q", a, bin)
+		}
 	}
 }

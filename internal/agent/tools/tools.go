@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/network/browser"
 
@@ -36,10 +37,10 @@ type Tool struct {
 
 // Tools is the install table in roster order; npmPackages must cover entries that also ship via npm.
 var Tools = []Tool{
-	{Name: "claude", Binary: "claude", Install: installClaude, UserLocal: true},
-	{Name: "copilot", Binary: "copilot", Install: installCopilot},
-	{Name: "codex", Binary: "codex", Install: installCodex},
-	{Name: "opencode", Binary: "opencode", Install: installOpencode},
+	{Name: agentid.Claude, Binary: agentid.Claude, Install: installClaude, UserLocal: true},
+	{Name: agentid.Copilot, Binary: agentid.Copilot, Install: installCopilot},
+	{Name: agentid.Codex, Binary: agentid.Codex, Install: installCodex},
+	{Name: agentid.OpenCode, Binary: agentid.OpenCode, Install: installOpencode},
 	{Name: "claude-science", Binary: "claude-science", Install: installClaudeScience, Update: updateClaudeScience},
 	{Name: "agy", Binary: "agy", Install: installAgy, Update: updateAgy},
 	{Name: "tailscale", Binary: "tailscale", Install: installTailscale},
@@ -92,7 +93,7 @@ func Install(ctx context.Context, w io.Writer, names []string, dryRun bool) erro
 
 // landedDir is where runOne wrote t: codex always lands in BinDir (installCodex redirects).
 func landedDir(t Tool, dir string) string {
-	if t.Name == "codex" {
+	if t.Name == agentid.Codex {
 		return paths.BinDir()
 	}
 	return dir
@@ -196,7 +197,7 @@ func installBinary(w io.Writer, dir, name string, data []byte) error {
 func binLockPath(dir string) string { return filepath.Join(dir, ".agent-bin") }
 
 // npmPackages maps a Tool name to the npm package that also ships it, for post-install cleanup.
-var npmPackages = map[string]string{"codex": "@openai/codex", "opencode": "opencode-ai"}
+var npmPackages = map[string]string{agentid.Codex: "@openai/codex", agentid.OpenCode: "opencode-ai"}
 
 // npmCleanupFor retires npm-global copies on PATH once dir/name answers --version.
 func npmCleanupFor(ctx context.Context, w io.Writer, name, dir string, dryRun bool) {
@@ -237,7 +238,7 @@ func cleanupPrefix(bin, localPath string) string {
 
 // cleanupGeminiCLI uninstalls the deprecated @google/gemini-cli on every Install, whichever tools were named.
 func cleanupGeminiCLI(ctx context.Context, w io.Writer, dryRun bool) {
-	bin, err := paths.LookPathReal("gemini")
+	bin, err := paths.LookPathReal(agentid.Gemini)
 	if err != nil {
 		return
 	}
