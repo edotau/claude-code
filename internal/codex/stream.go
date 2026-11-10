@@ -3,7 +3,6 @@ package codex
 import (
 	"bufio"
 	"cmp"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -42,19 +41,12 @@ type codexStreamState struct {
 
 // parseCodexStream emits text, tools and usage, retaining the last message as the answer.
 func parseCodexStream(br *bufio.Reader, sink wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (res wire.Result, _ error) {
-	ts := wire.TransportTracker{Start: wire.Clock()}
-	defer func() { res.Transport = ts.Result() }()
 	state := codexStreamState{log: wire.PickLog(logs), sink: sink, onMeaningful: onMeaningful}
-	err := wire.DecodeLines(br, state.log, func(raw []byte) (bool, error) {
-		var ev codexEvent
-		if err := json.Unmarshal(raw, &ev); err != nil {
-			return false, fmt.Errorf("decode codex json: %w", err)
-		}
-		ts.Event(wire.Clock())
+	tr, err := wire.DecodeEvents(br, state.log, "decode codex json", true, nil, func(ev codexEvent, _ *wire.TransportTracker) (bool, error) {
 		return false, state.apply(ev)
 	})
 	res = state.res
-	res.Answer = state.ans.Last()
+	res.Transport, res.Answer = tr, state.ans.Last()
 	if err != nil {
 		return res, err
 	}

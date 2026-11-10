@@ -440,19 +440,12 @@ func parseAgyStream(br *bufio.Reader, sink wire.Sink, onMeaningful func(), logs 
 
 // parseAgyEvents stops at the first result when once is set, preserving buffered lines for the next turn.
 func parseAgyEvents(br *bufio.Reader, sink wire.Sink, once bool, lg wire.StreamLog) (res wire.Result, _ error) {
-	ts := wire.TransportTracker{Start: wire.Clock()}
 	t := &agyTurn{sink: sink, lg: lg, once: once, res: &res}
-	defer func() { res.Transport = ts.Result() }()
-	err := wire.DecodeLines(br, lg, func(raw []byte) (bool, error) {
-		var ev agyEvent
-		if err := json.Unmarshal(raw, &ev); err != nil {
-			t.flush()
-			_ = wire.EmitError(lg, sink, "decode agy stream-json: "+err.Error()) // the decode error aborts
-			return false, fmt.Errorf("decode agy stream-json: %w", err)
-		}
-		ts.Event(wire.Clock())
+	onBad := func(err error) { t.flush(); _ = wire.EmitError(lg, sink, err.Error()) } // the decode error aborts
+	tr, err := wire.DecodeEvents(br, lg, "decode agy stream-json", true, onBad, func(ev agyEvent, _ *wire.TransportTracker) (bool, error) {
 		return t.handle(ev)
 	})
+	res.Transport = tr
 	if err != nil {
 		if t.pending.Len() > 0 { // a decode error already flushed; a sink error did not
 			t.flush()

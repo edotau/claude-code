@@ -236,19 +236,13 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink 
 	lg := wire.PickLog(logs)
 	sawResult := false
 	seen := wire.Answer{Join: "\n\n"} // top-level assistant text, the answer when no result event delivers one
-	ts := wire.TransportTracker{Start: wire.Clock()}
-	defer func() { res.Transport = ts.Result() }()
 	partial := func(err error) (wire.Result, error) {
 		if res.Answer == "" {
 			res.Answer = seen.String()
 		}
 		return res, err
 	}
-	err := wire.DecodeLines(br, lg, func(raw []byte) (bool, error) {
-		var ev claudeEvent
-		if err := json.Unmarshal(raw, &ev); err != nil {
-			return false, fmt.Errorf("decode stream-json: %w", err)
-		}
+	tr, err := wire.DecodeEvents(br, lg, "decode stream-json", false, nil, func(ev claudeEvent, ts *wire.TransportTracker) (bool, error) {
 		wd.observe(ev)
 		if ev.SessionID != "" {
 			res.SessionID = ev.SessionID
@@ -256,9 +250,10 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink 
 		if ev.Type == "result" {
 			sawResult = true
 		}
-		state := claudeStreamState{res: &res, transport: &ts, log: lg, sink: sink, seen: &seen}
+		state := claudeStreamState{res: &res, transport: ts, log: lg, sink: sink, seen: &seen}
 		return state.apply(ev, untilResult)
 	})
+	res.Transport = tr
 	if err != nil {
 		return partial(err)
 	}

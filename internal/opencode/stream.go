@@ -3,7 +3,6 @@ package opencode
 import (
 	"bufio"
 	"cmp"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -62,13 +61,11 @@ func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
 // parseOpenCodeEvents streams the root session's text parts; onMeaningful fires once on the first meaningful event,
 // onTool once per finished tool call, onStep on every step_start before that first meaningful event.
 func parseOpenCodeEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onTool func(openCodeEvent), onStep func(), logs ...wire.StreamLog) (res wire.Result, _ error) {
-	ts := wire.TransportTracker{Start: wire.Clock()}
-	defer func() { res.Transport = ts.Result() }()
 	lg := wire.PickLog(logs)
-	t := &ocTurn{sink: sink, lg: lg, res: &res, ts: &ts, ans: wire.Answer{Join: "\n"}, seenTools: map[string]bool{},
+	t := &ocTurn{sink: sink, lg: lg, res: &res, ans: wire.Answer{Join: "\n"}, seenTools: map[string]bool{},
 		onMeaningful: onMeaningful, onTool: onTool, onStep: onStep}
-	err := wire.DecodeLines(br, lg, t.handle)
-	res.Answer = t.ans.String()
+	tr, err := wire.DecodeEvents(br, lg, "decode opencode json", true, nil, t.handle)
+	res.Transport, res.Answer = tr, t.ans.String()
 	if err != nil {
 		return res, err
 	}
@@ -83,7 +80,6 @@ type ocTurn struct {
 	sink         wire.Sink
 	lg           wire.StreamLog
 	res          *wire.Result
-	ts           *wire.TransportTracker
 	ans          wire.Answer
 	errs         []string
 	seenTools    map[string]bool
@@ -93,13 +89,8 @@ type ocTurn struct {
 	onStep       func()
 }
 
-// handle decodes one line and applies it.
-func (t *ocTurn) handle(raw []byte) (bool, error) {
-	var ev openCodeEvent
-	if err := json.Unmarshal(raw, &ev); err != nil {
-		return false, fmt.Errorf("decode opencode json: %w", err)
-	}
-	t.ts.Event(wire.Clock())
+// handle applies one decoded event.
+func (t *ocTurn) handle(ev openCodeEvent, _ *wire.TransportTracker) (bool, error) {
 	if ev.SessionID != "" {
 		t.res.SessionID = ev.SessionID
 	}
