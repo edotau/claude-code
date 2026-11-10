@@ -2,13 +2,23 @@ package tree
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/job"
+	_ "github.com/edotau/claude-code/internal/claude" // the vendors register their roster rows from their own init
+	_ "github.com/edotau/claude-code/internal/codex"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
+
+// TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
 // pinNow returns Options.Now pinned to t, so running/finished/stale classification never depends on
 // wall-clock time.
@@ -486,38 +496,6 @@ func TestBuildRejectsSessionPathTraversal(t *testing.T) {
 	}
 }
 
-// buildWorkflowRuns ties two runs with identical Updated timestamps by ID ascending, so a stable
-// sort doesn't just fall back to map-iteration (nondeterministic) order.
-func TestBuildWorkflowRunsTieBreaksByID(t *testing.T) {
-	sessionDir := t.TempDir()
-	workflowsDir := filepath.Join(sessionDir, "workflows")
-	if err := os.MkdirAll(workflowsDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	ts := "2026-10-18T03:00:00Z"
-	for _, id := range []string{"run-zzz", "run-aaa"} {
-		manifest := map[string]string{"runId": id, "timestamp": ts, "status": "completed"}
-		raw, err := json.Marshal(manifest)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(workflowsDir, "wf_"+id+".json"), raw, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	now, err := time.Parse(time.RFC3339, ts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	runs := buildWorkflowRuns(sessionDir, now, "")
-	if len(runs) != 2 {
-		t.Fatalf("got %d workflow runs, want 2", len(runs))
-	}
-	if runs[0].ID != "run-aaa" || runs[1].ID != "run-zzz" {
-		t.Errorf("got order [%s, %s], want [run-aaa, run-zzz] (ID-ascending tie-break on equal Updated)", runs[0].ID, runs[1].ID)
-	}
-}
-
 // runningIDs collects every subagent id in a session, direct and inside workflow phases.
 func runningIDs(s Session) (subs, wfAgents []string, runs []string) {
 	for _, sub := range s.Subagents {
@@ -650,5 +628,399 @@ func assertPrunedJSONSession(t *testing.T, id string, subs []struct {
 	}
 	if id == "finished-session-aaaa1111" && (len(ids) != 1 || ids[0] != "fakeagentid002") {
 		t.Errorf("json subagents = %+v, want [fakeagentid002]", subs)
+	}
+}
+
+const (
+	dedupeCwd    = "/Users/fake/dedupe-repo"
+	dedupeSlug   = "-Users-fake-dedupe-repo"
+	headlessPrmt = "Summarize the flaky retry logic in the router and propose a fix"
+)
+
+type dedupeEnv struct {
+	cfg string
+	now time.Time
+}
+
+// newDedupeEnv points CLAUDE_CONFIG_DIR at a temp dir holding projects/ and state/harness/dispatch.
+func newDedupeEnv(t *testing.T) dedupeEnv {
+	t.Helper()
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	return dedupeEnv{cfg: cfg, now: time.Date(2026, 10, 18, 3, 10, 0, 0, time.UTC)}
+}
+
+// session writes an active transcript (first user prompt = prompt); withSub adds a running subagent.
+func (e dedupeEnv) session(t *testing.T, id, prompt string, withSub bool) {
+	t.Helper()
+	dir := filepath.Join(e.cfg, "projects", dedupeSlug)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line, _ := json.Marshal(map[string]any{
+		"type": "user", "cwd": dedupeCwd, "sessionId": id, "timestamp": e.now.Format(time.RFC3339),
+		"message": map[string]any{"role": "user", "content": prompt},
+	})
+	path := filepath.Join(dir, id+".jsonl")
+	if err := os.WriteFile(path, append(line, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, e.now, e.now); err != nil {
+		t.Fatal(err)
+	}
+	if !withSub {
+		return
+	}
+	sub := filepath.Join(dir, id, "subagents")
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"agent-sub1.jsonl":     `{"type":"user","timestamp":"` + e.now.Format(time.RFC3339) + `"}` + "\n",
+		"agent-sub1.meta.json": `{"finished":false}`,
+	} {
+		p := filepath.Join(sub, name)
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, e.now, e.now); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// dispatch saves a live (this pid) running record started a minute before now; returns its id.
+func (e dedupeEnv) dispatch(t *testing.T, name, prompt, workDir, repo, sessionID string) string {
+	t.Helper()
+	req := agent.RunOptions{Prompt: prompt, WorkDir: workDir}
+	rec := job.NewRecord(name, req, e.now.Add(-time.Minute))
+	rec.PID, rec.Repo, rec.SessionID = os.Getpid(), repo, sessionID
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	return rec.ID
+}
+
+func (e dedupeEnv) tree(t *testing.T) Tree {
+	t.Helper()
+	tree, err := Listing(e.cfg, Options{Days: 60, Running: true, Now: pinNow(e.now)}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return *tree
+}
+
+func hasSession(tree Tree, id string) bool {
+	for _, s := range tree.Sessions {
+		if s.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// A matching session that has subagents is real work and is never dropped.
+func TestRunningKeepsMatchedSessionWithSubagents(t *testing.T) {
+	e := newDedupeEnv(t)
+	e.session(t, "headless-dddd", headlessPrmt, true)
+	e.dispatch(t, "claude", headlessPrmt, dedupeCwd, dedupeCwd, "headless-dddd")
+	tree := e.tree(t)
+	if !hasSession(tree, "headless-dddd") || len(tree.Dispatches) != 1 {
+		t.Errorf("session with subagents must stay: sessions=%d dispatches=%d", len(tree.Sessions), len(tree.Dispatches))
+	}
+}
+
+// A non-claude dispatch never drops a session, even with a matching cwd and prompt.
+func TestRunningCodexDispatchDoesNotDropSession(t *testing.T) {
+	e := newDedupeEnv(t)
+	e.session(t, "headless-eeee", headlessPrmt, false)
+	e.dispatch(t, "codex", headlessPrmt, dedupeCwd, dedupeCwd, "headless-eeee")
+	tree := e.tree(t)
+	if !hasSession(tree, "headless-eeee") || len(tree.Dispatches) != 1 {
+		t.Errorf("codex dispatch must not dedupe: sessions=%d dispatches=%d", len(tree.Sessions), len(tree.Dispatches))
+	}
+}
+
+// A session last written before the dispatch started (but still active) cannot be its child.
+func TestRunningKeepsSessionOlderThanDispatch(t *testing.T) {
+	e := newDedupeEnv(t)
+	e.session(t, "headless-ffff", headlessPrmt, false)
+	old := e.now.Add(-100 * time.Second) // active (<2m) yet before the dispatch start (-60s)
+	if err := os.Chtimes(filepath.Join(e.cfg, "projects", dedupeSlug, "headless-ffff.jsonl"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	e.dispatch(t, "claude", headlessPrmt, dedupeCwd, dedupeCwd, "")
+	if !hasSession(e.tree(t), "headless-ffff") {
+		t.Error("session older than the dispatch start must stay")
+	}
+}
+
+// Known gap: WorkDir empty and the job ran in a linked worktree, so Repo (main checkout) != session cwd;
+// the dispatch fails safe and stays listed twice.
+func TestRunningWorktreeGapStaysListedTwice(t *testing.T) {
+	e := newDedupeEnv(t)
+	e.session(t, "headless-gggg", headlessPrmt, false)
+	e.dispatch(t, "claude", headlessPrmt, "", "/Users/fake/main-checkout", "")
+	tree := e.tree(t)
+	if !hasSession(tree, "headless-gggg") || len(tree.Dispatches) != 1 {
+		t.Errorf("gap case should list twice: sessions=%d dispatches=%d", len(tree.Sessions), len(tree.Dispatches))
+	}
+}
+
+// New coverage for the journal-backed status, activity, vendor-dispatches and drill-down work
+// (plans/2026-10-18-agents-tree-visibility.md Part 1). Written after `go build ./internal/agent`
+// succeeded against the implementer's change; dispatched concurrently as the copilot test agent.
+
+// subagentByID finds one subagent inside a session's direct Subagents or any of its Workflow phases.
+func subagentByID(s Session, id string) (Subagent, bool) {
+	for _, sub := range s.Subagents {
+		if sub.ID == id {
+			return sub, true
+		}
+	}
+	for _, run := range s.Workflows {
+		for _, phase := range run.Phases {
+			for _, sub := range phase.Agents {
+				if sub.ID == id {
+					return sub, true
+				}
+			}
+		}
+	}
+	return Subagent{}, false
+}
+
+// (1) A workflow agent with a journal "result" line is finished, and a null result line is error —
+// both regardless of the sidecar meta's own (missing/false) "finished" flag.
+func TestJournalDrivesFinishedAndErrorStatus(t *testing.T) {
+	claudeDir, now := copyTestdataTree(t)
+	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := sessionByID(t, tree, "finished-session-aaaa1111")
+
+	gate, ok := subagentByID(s, "fakewfagent002")
+	if !ok {
+		t.Fatal("fakewfagent002 not found")
+	}
+	if gate.Status != StatusFinished {
+		t.Errorf("fakewfagent002 status = %q, want finished (journal result line, meta has no finished:true)", gate.Status)
+	}
+
+	doomed, ok := subagentByID(s, "fakewfagent030")
+	if !ok {
+		t.Fatal("fakewfagent030 not found")
+	}
+	if doomed.Status != StatusError {
+		t.Errorf("fakewfagent030 status = %q, want error (journal result:null)", doomed.Status)
+	}
+}
+
+// (2) A journal "started" line with no result yet keeps today's mtime-driven running read.
+func TestJournalStartedWithoutResultStillRunning(t *testing.T) {
+	claudeDir, now := copyTestdataTree(t)
+	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := sessionByID(t, tree, "finished-session-aaaa1111")
+	busy, ok := subagentByID(s, "fakewfagent020")
+	if !ok {
+		t.Fatal("fakewfagent020 not found")
+	}
+	if busy.Status != StatusRunning {
+		t.Errorf("fakewfagent020 status = %q, want running (started, no result, fresh mtime)", busy.Status)
+	}
+	run := workflowByID(t, s.Workflows, "wf_fake0003-running")
+	if run.Status != StatusRunning {
+		t.Errorf("wf_fake0003-running run status = %q, want running", run.Status)
+	}
+}
+
+// (3) A manifest-less workflow run (no workflows/wf_*.json at all) is read entirely from its journal
+// and agent transcripts, and reports "finished" once every started agent has a result and the run
+// dir has gone quiet past subagentActiveWindow.
+func TestManifestLessWorkflowRunFinishesFromJournal(t *testing.T) {
+	claudeDir, now := copyTestdataTree(t)
+	// Push this one run's own files outside subagentActiveWindow without touching the rest of the
+	// fixture (copyTestdataTree already backdated the whole session tree to within the window).
+	runDir := filepath.Join(claudeDir, "projects", "-Users-fake-demo-repo", "finished-session-aaaa1111",
+		"subagents", "workflows", "wf_fake0002-nomanifest")
+	old := now.Add(-20 * time.Minute)
+	chtimesAll(t, runDir, old)
+
+	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := sessionByID(t, tree, "finished-session-aaaa1111")
+	run := workflowByID(t, s.Workflows, "wf_fake0002-nomanifest")
+	if run.Name != "wf_fake0002-nomanifest" {
+		t.Errorf("run.Name = %q, want the run id (no manifest to name it)", run.Name)
+	}
+	if run.Status != StatusFinished {
+		t.Errorf("wf_fake0002-nomanifest status = %q, want finished (journal started==resulted, quiet past activeWindow)", run.Status)
+	}
+}
+
+// (6) A relay subagent's Dispatches carry every vendor dispatch its transcript's exit lines named: plain
+// ok, still-running, and a fallback (Fallback+FallbackReason set, matched=="" since read directly).
+func TestVendorDispatchesDirectMatch(t *testing.T) {
+	withDispatchFixture(t)
+	claudeDir, now := copyTestdataTree(t)
+	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := sessionByID(t, tree, "finished-session-aaaa1111")
+	gate, ok := subagentByID(s, "fakewfagent002")
+	if !ok {
+		t.Fatal("fakewfagent002 not found")
+	}
+	if len(gate.Dispatches) != 3 {
+		t.Fatalf("Dispatches = %+v, want 3 (codex ok, gemini running, codex->claude fallback)", gate.Dispatches)
+	}
+	assertGateDispatches(t, gate.Dispatches)
+}
+
+func assertGateDispatches(t *testing.T, dispatches []Dispatch) {
+	t.Helper()
+	byID := map[string]Dispatch{}
+	for _, l := range dispatches {
+		byID[l.ID] = l
+	}
+	if l := byID["20261017T231131.948-codex"]; l.Status != "ok" || l.Matched != "" {
+		t.Errorf("codex dispatch = %+v, want status=ok matched=\"\"", l)
+	}
+	if l := byID["20261018T095401.709-gemini"]; l.Status != "running" || l.Duration == "" {
+		t.Errorf("gemini dispatch = %+v, want status=running with an elapsed duration", l)
+	}
+	fb := byID["20261018T150000.000-codex"]
+	if fb.Fallback != "claude" || fb.FallbackReason == "" {
+		t.Errorf("fallback dispatch = %+v, want Fallback=claude with a reason", fb)
+	}
+}
+
+// (7) A relay whose own transcript hasn't logged its `ask` exit line yet (still mid-dispatch) is
+// matched heuristically against the dispatch log's own still-running records: same WorkDir, started
+// no earlier than the subagent itself.
+func TestVendorDispatchHeuristicRunningMatch(t *testing.T) {
+	withDispatchFixture(t)
+	claudeDir, now := copyTestdataTree(t)
+	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := sessionByID(t, tree, "finished-session-aaaa1111")
+	busy, ok := subagentByID(s, "fakewfagent020")
+	if !ok {
+		t.Fatal("fakewfagent020 not found")
+	}
+	var heuristic *Dispatch
+	for i := range busy.Dispatches {
+		if busy.Dispatches[i].Matched == "heuristic" {
+			heuristic = &busy.Dispatches[i]
+		}
+	}
+	if heuristic == nil {
+		t.Fatalf("Dispatches = %+v, want one heuristically matched dispatch", busy.Dispatches)
+	}
+	if heuristic.ID != "20261018T100500.000-gemini" {
+		t.Errorf("heuristic dispatch id = %q, want the still-running gemini dispatch", heuristic.ID)
+	}
+}
+
+const deadPID = 2147483646
+
+// regFixture lays down a registry entry plus its transcript (aged by age) under claudeDir.
+func regFixture(t *testing.T, claudeDir, id string, pid int, age time.Duration, now time.Time) {
+	t.Helper()
+	entry, _ := json.Marshal(regEntry{PID: pid, SessionID: id, Cwd: "/repo", Name: "name-" + id, Status: "waiting", Kind: "interactive"})
+	reg := filepath.Join(claudeDir, "sessions", fmt.Sprintf("%d.json", pid))
+	tr := filepath.Join(claudeDir, "projects", "-repo", id+".jsonl")
+	for p, body := range map[string]string{
+		reg: string(entry),
+		tr:  `{"type":"user","cwd":"/repo","message":{"content":[{"type":"text","text":"hi"}]}}` + "\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mt := now.Add(-age)
+	if err := os.Chtimes(tr, mt, mt); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRegistryJoin: live pid beats a stale transcript under --running; a dead pid and an unparsable file add nothing.
+func TestRegistryJoin(t *testing.T) {
+	claudeDir := t.TempDir()
+	now := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	old := pidAlive
+	pidAlive = func(pid int) bool { return pid == os.Getpid() }
+	t.Cleanup(func() { pidAlive = old })
+
+	regFixture(t, claudeDir, "live-stale", os.Getpid(), 40*24*time.Hour, now)
+	regFixture(t, claudeDir, "dead-stale", deadPID, 40*24*time.Hour, now)
+	regFixture(t, claudeDir, "dead-fresh", deadPID-1, time.Minute, now)
+	for name, body := range map[string]string{"junk.json": "{not json", "noid.json": `{"pid":1,"name":"x"}`} {
+		if err := os.WriteFile(filepath.Join(claudeDir, "sessions", name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tree, err := Build(claudeDir, Options{Days: 1, Running: true, Now: pinNow(now)})
+	if err != nil {
+		t.Fatalf("Build with an unparsable registry file: %v", err)
+	}
+	got := registryJoinedSession(t, tree)
+	if !got.Live || got.PID != os.Getpid() || got.Name != "name-live-stale" || got.CLIStatus != "waiting" || got.Mode != "interactive" {
+		t.Errorf("registry fields not joined: %+v", got)
+	}
+}
+
+func registryJoinedSession(t *testing.T, tree *Tree) *Session {
+	t.Helper()
+	var got *Session
+	for i, s := range tree.Sessions {
+		switch s.ID {
+		case "dead-stale":
+			t.Errorf("dead pid with stale transcript listed under --running")
+		case "dead-fresh":
+			if s.Live || s.PID != 0 {
+				t.Errorf("dead pid marked live: %+v", s)
+			}
+		case "live-stale":
+			got = &tree.Sessions[i]
+		}
+	}
+	if got == nil {
+		t.Fatal("live pid with a 40-day-old transcript dropped by --running")
+	}
+	return got
+}
+
+// TestReadRegistrySkipsUnusableEntries: a live pid without a sessionId and an unparsable file yield no entry.
+func TestReadRegistrySkipsUnusableEntries(t *testing.T) {
+	claudeDir := t.TempDir()
+	old := pidAlive
+	pidAlive = func(int) bool { return true }
+	t.Cleanup(func() { pidAlive = old })
+	files := map[string]string{"junk.json": "{not json", "noid.json": `{"pid":7,"name":"x"}`, "ok.json": `{"pid":8,"sessionId":"s8"}`}
+	for name, body := range files {
+		p := filepath.Join(claudeDir, "sessions", name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := readRegistry(claudeDir); len(got) != 1 || got["s8"].PID != 8 {
+		t.Errorf("readRegistry = %+v, want only s8", got)
 	}
 }

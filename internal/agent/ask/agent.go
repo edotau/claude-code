@@ -16,9 +16,21 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/launchplan"
+	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/tui"
 	usagepkg "github.com/edotau/claude-code/internal/usage"
+	"github.com/edotau/claude-code/internal/vault"
+
+	// Each vendor CLI registers its roster row and driver from its package init; the program links them all through the agents package.
+	_ "github.com/edotau/claude-code/internal/claude"
+	_ "github.com/edotau/claude-code/internal/codex"
+	_ "github.com/edotau/claude-code/internal/copilot"
+	_ "github.com/edotau/claude-code/internal/gemini"
+	_ "github.com/edotau/claude-code/internal/opencode"
 )
 
 // RouteRefresh re-fetches a stale account for a pick; a var so tests stay offline.
@@ -200,4 +212,14 @@ func ApplyRoute(route string) error {
 		return fmt.Errorf("--route %q unknown (%s)", route, strings.Join(router.RouteModes, "|"))
 	}
 	return os.Setenv(router.EnvRoute, route)
+}
+
+// The terminal and sign-in UI the agent package calls but does not import.
+func init() {
+	launchplan.IsTerminal = ansi.IsTerminal
+	agent.StdinIsTerminal = tui.StdinIsTerminal
+	agent.LoginRow = databricks.LoginRow
+	agent.PromptSecret = func(name string) (string, error) {
+		return tui.Secret("Paste the value for "+name+" (input hidden, Enter when done): ", vault.Preview)
+	}
 }

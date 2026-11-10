@@ -3,47 +3,22 @@ package agent
 import (
 	"context"
 	"errors"
-	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
-
-// codex served by an OpenAI API key bills openai·openai (credits), not the ChatGPT plan's key.
-func TestResolveAccountNamesActualBackend(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	vaulttest.SetRecord(t, "claude", "profile", "openai")
-	t.Setenv("OPENAI_API_KEY", "sk-test-not-real")
-	acct, billing := resolveAccount("codex", router.Cell{Model: "gpt-6.1-sol", Account: "codex:chatgpt"})
-	if acct != "openai·openai" || billing != router.BillCredits {
-		t.Fatalf("resolveAccount = (%q, %q), want openai·openai credits", acct, billing)
-	}
-	if a, _ := resolveAccount("opencode", router.Cell{Model: "opencode-go/kimi-k3.1-pro"}); a != "" {
-		t.Errorf("opencode keeps its table account, got %q", a)
-	}
-}
-
-// The session's profile (env) beats the vault pin, and a codex login cell keeps its own account.
-func TestResolveAccountFollowsSessionProfile(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	vaulttest.SetRecord(t, "claude", "profile", "anthropic")
-	t.Setenv("OPENAI_API_KEY", "sk-test-not-real")
-	t.Setenv(providers.EnvSessionProfile, "openai")
-	if acct, _ := resolveAccount("claude", router.Cell{Model: "claude-sonnet-5-5"}); acct != "openai·openai" {
-		t.Errorf("claude account = %q, want the session profile openai·openai", acct)
-	}
-	if acct, _ := resolveAccount("codex", router.Cell{Model: "gpt-6.1-sol", Account: "openai·chatgpt"}); acct != "" {
-		t.Errorf("codex login cell account = %q, want it kept (empty override)", acct)
-	}
-}
 
 // An explicit backend stays one dispatch, records its own quota failure, and is skipped without an attempt after.
 func TestExplicitChainRecordsAndGates(t *testing.T) {
@@ -88,20 +63,6 @@ func TestRouteChainNativeOpencodeLeads(t *testing.T) {
 	none, _, _ := RouteChainFor(context.Background(), "opencode", "sonnet", "", router.FallbackNone, true, all)
 	if len(none.Dispatches) != 1 {
 		t.Errorf("fallback none = %d dispatches, want the native dispatch only", len(none.Dispatches))
-	}
-}
-
-// Skip notices name only the wanted agent's gates; other agents' reasons are not printed.
-func TestSkipNoticeOnlyForWantedAgent(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	c := Single(&fakeRunner{name: "copilot", errs: []error{nil}})
-	c.Skipped = []string{"opencode·openai: not configured", "copilot: exhausted"}
-	var got []string
-	if _, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, func(s string) { got = append(got, s) }); err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || strings.Contains(got[0], "opencode") || !strings.Contains(got[0], "copilot: exhausted") {
-		t.Errorf("notices = %q, want only the copilot skip", got)
 	}
 }
 
@@ -170,18 +131,6 @@ func TestAstraModelIdentityOwnLogin(t *testing.T) {
 	}
 	if c.Dispatches[0].Model != got {
 		t.Errorf("codex Dispatch.Model = %q but agent got %q: planned dispatch records the stale tier default, not the model run", c.Dispatches[0].Model, got)
-	}
-}
-
-func TestAstraModelIdentityZeroLegs(t *testing.T) {
-	stub := &pinFallbackRunner{name: "codex"}
-	_, err := RunWithFallback(context.Background(), Chain{Want: "codex"}, RunOptions{Prompt: "x", Model: astra}, wire.Discard, nil)
-	var e *retry.Error
-	if !errors.As(err, &e) || e.Kind != retry.KindFatal {
-		t.Errorf("err = %v, want *Error KindFatal", err)
-	}
-	if len(stub.seen) != 0 {
-		t.Errorf("agent calls = %d, want 0", len(stub.seen))
 	}
 }
 
@@ -302,27 +251,6 @@ func TestModelRow(t *testing.T) {
 	}
 }
 
-func TestClaudeCellModelIsTheAlias(t *testing.T) {
-	if got := claudeCellModel("claude-opus-5-5"); got != "opus" {
-		t.Errorf("claudeCellModel(claude-opus-5-5) = %q, want opus (so pins resolve it)", got)
-	}
-	if got := claudeCellModel("claude-opus-4-1"); got != "claude-opus-4-1" {
-		t.Errorf("an alias-less row stays canonical, got %q", got)
-	}
-}
-
-// A canonical Claude id takes the session's alias selection, so a CLAUDE_<TIER>_MODEL pin wins over the typed id.
-func TestResolveTargetCanonicalIDTakesTheTierPin(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
-		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5-5"}}}}}`)
-	vaulttest.SetRecord(t, "claude", "aliases.sonnet", "claude-sonnet-5")
-	_, got, err := resolveTarget(RunOptions{Provider: "dev", Model: "claude-sonnet-5-5"})
-	if err != nil || got.Model != "claude-sonnet-5" {
-		t.Errorf("claude-sonnet-5-5 = %+v (%v), want the pinned claude-sonnet-5", got, err)
-	}
-}
-
 // A non-Claude id keeps matching agents, with Claude last at the lowest alias serving the id.
 func TestRouteChainForNonClaudeIDIsExact(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -361,124 +289,6 @@ func TestRouteChainForCanonicalRowUsesItsCell(t *testing.T) {
 	}
 }
 
-// A run on an agent's own login reports the registry profile naming that login, never the retired "own-login".
-func TestOwnProfileNamesTheLoginRow(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if got := SchemaFor("codex").OwnProfile(); got == "own-login" || got == "" {
-		t.Errorf("OwnProfile(codex) = %q", got)
-	}
-	if got := SchemaFor("opencode").OwnProfile(); got != "opencode" {
-		t.Errorf("OwnProfile(opencode) = %q, want the agent name when no row names its login", got)
-	}
-}
-
-type markCall struct{ account, reason string }
-
-// authEnv seeds a default provider row and records route.MarkAuth calls instead of touching quota.json.
-func authEnv(t *testing.T, row string) *[]markCall {
-	t.Helper()
-	vaulttest.UseKeyring(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"agauth","providers":{"anthropic":{"agauth":`+row+`}}}`)
-	var calls []markCall
-	prev := markAuth
-	markAuth = func(a, r string) error { calls = append(calls, markCall{a, r}); return nil }
-	t.Cleanup(func() { markAuth = prev })
-	return &calls
-}
-
-const u2mNoToken = `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"oauth"},"models":{"opus":"m"}}`
-
-func twoDispatches(first, second *fakeRunner) Chain {
-	return Chain{Want: first.Name(), Dispatches: []Dispatch{{Agent: first, Account: first.Name() + ":agauth"}, {Agent: second}}}
-}
-
-// A4+B2: a sealed-auth provider gets a Recover; its login-required failure marks the dispatch's account and moves on.
-func TestSealedAuthDispatchRecoversOnceThenMovesOn(t *testing.T) {
-	calls := authEnv(t, u2mNoToken)
-	first := &fakeRunner{name: "codex", errs: []error{errors.New("HTTP 401 unauthorized"), errors.New("HTTP 401 unauthorized")}, emptyAnswer: true}
-	second := &fakeRunner{name: "gemini", errs: []error{nil}}
-
-	res, err := RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, wire.Discard, nil)
-	if err != nil || res.Answer != "a" {
-		t.Fatalf("res=%+v err=%v, want the second dispatch's answer", res, err)
-	}
-	if len(first.seen) != 1 {
-		t.Fatalf("first dispatch attempts = %d, want 1: a failed Recover must not retry", len(first.seen))
-	}
-	if len(second.seen) != 1 {
-		t.Fatalf("second dispatch attempts = %d, want it to run in the same dispatch", len(second.seen))
-	}
-	if len(*calls) != 1 || (*calls)[0].account != "codex:agauth" || (*calls)[0].reason == "" {
-		t.Fatalf("markAuth calls = %+v, want one mark on codex:agauth", *calls)
-	}
-	if res.Fallback != "codex" || !strings.Contains(res.FallbackReason, "codex") {
-		t.Errorf("fallback not reported: %+v", res)
-	}
-}
-
-// A transient Recover failure (the auth.command itself failing) never marks the account.
-func TestTransientRecoverFailureDoesNotMark(t *testing.T) {
-	calls := authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","command":"exit 1"},"models":{"opus":"m"}}`)
-	first := &fakeRunner{name: "codex", errs: []error{errors.New("HTTP 401 unauthorized")}, emptyAnswer: true}
-	second := &fakeRunner{name: "gemini", errs: []error{nil}}
-	_, _ = RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, wire.Discard, nil)
-	if len(*calls) != 0 {
-		t.Fatalf("a transient recover failure condemned an account: %+v", *calls)
-	}
-}
-
-// A first-attempt error that itself carries a login-required verdict (no Recover ran) is condemned too.
-func TestWrappedLoginRequiredOnFirstAttemptMarksAndMovesOn(t *testing.T) {
-	calls := authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
-	first := &fakeRunner{name: "claude", errs: []error{fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)}, emptyAnswer: true}
-	second := &fakeRunner{name: "gemini", errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, wire.Discard, nil)
-	if err != nil || res.Answer != "a" || len(second.seen) != 1 {
-		t.Fatalf("res=%+v err=%v: expected a move-on to the second dispatch", res, err)
-	}
-	if len(*calls) != 1 || (*calls)[0].account != "claude:agauth" {
-		t.Fatalf("markAuth calls = %+v", *calls)
-	}
-}
-
-func TestCondemnAuthRules(t *testing.T) {
-	needs := fmt.Errorf("x: %w", providers.ErrNeedsLogin)
-	for name, c := range map[string]struct {
-		e       *retry.Error
-		recover error
-		want    bool
-	}{
-		"auth + condemning recover":      {&retry.Error{Kind: retry.KindAuth, Err: errors.New("401")}, needs, true},
-		"auth + transient recover":       {&retry.Error{Kind: retry.KindAuth, Err: errors.New("401")}, errors.New("exit status 1"), false},
-		"auth + no recover run":          {&retry.Error{Kind: retry.KindAuth, Err: errors.New("401")}, nil, false},
-		"fatal error carrying the login": {&retry.Error{Kind: retry.KindFatal, Err: needs}, nil, true},
-		"fatal ordinary":                 {&retry.Error{Kind: retry.KindFatal, Err: errors.New("boom")}, needs, false},
-		"transient ordinary":             {&retry.Error{Kind: retry.KindTransient, Err: errors.New("503")}, nil, false},
-	} {
-		condemnAuth(c.e, c.recover)
-		if got := c.e.AuthReason != ""; got != c.want {
-			t.Errorf("%s: condemned = %v, want %v", name, got, c.want)
-		}
-	}
-}
-
-func TestNoteAuthNeedsAccountAndReason(t *testing.T) {
-	var calls []markCall
-	prev := markAuth
-	markAuth = func(a, r string) error { calls = append(calls, markCall{a, r}); return nil }
-	t.Cleanup(func() { markAuth = prev })
-	noteAuth(Dispatch{Account: ""}, &retry.Error{AuthReason: "r"})
-	noteAuth(Dispatch{Account: "codex:x"}, &retry.Error{})
-	noteAuth(Dispatch{Account: "codex:x"}, errors.New("plain"))
-	if len(calls) != 0 {
-		t.Fatalf("noteAuth marked without an account or reason: %+v", calls)
-	}
-	noteAuth(Dispatch{Account: "codex:x"}, &retry.Error{AuthReason: "r"})
-	if len(calls) != 1 || calls[0].account != "codex:x" {
-		t.Fatalf("calls = %+v", calls)
-	}
-}
-
 const servedRow = `{"routing":{"servedAware":%s},"providers":{"databricks":{"dev":{"preset":"databricks",` +
 	`"host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`
 
@@ -513,27 +323,6 @@ func servedEnv(t *testing.T, on string, cache map[string]string) *providers.Regi
 
 var servedCand = router.Candidate{Agent: "codex", Profile: "dev", Account: "databricks·dev"}
 
-// profileCell refuses an exact model the fresh listing has NOT_READY, with the new message.
-func TestProfileCellRejectsNotReadyExactModel(t *testing.T) {
-	reg := servedEnv(t, "true", map[string]string{"m-a": "NOT_READY", "m-b": "READY"})
-	_, why := routeCtx{reg: reg, exact: "m-a"}.profileCell(servedCand, router.Cell{})
-	if !strings.Contains(why, "m-a is not a READY endpoint on dev") {
-		t.Fatalf("skip reason = %q, want the not-READY message", why)
-	}
-	if cell, why := (routeCtx{reg: reg, exact: "m-b"}).profileCell(servedCand, router.Cell{}); why != "" || cell.Model != "m-b" {
-		t.Errorf("READY m-b = %+v, %q, want accepted", cell, why)
-	}
-}
-
-// a cold cache accepts the exact model on the static Responses check, even with the switch on.
-func TestProfileCellAcceptsStaticallyOnColdCache(t *testing.T) {
-	reg := servedEnv(t, "true", nil)
-	cell, why := routeCtx{reg: reg, exact: "m-a"}.profileCell(servedCand, router.Cell{})
-	if why != "" || cell.Model != "m-a" {
-		t.Fatalf("cold cache = %+v, %q, want m-a accepted", cell, why)
-	}
-}
-
 // A plain 429 (no quota wording) that exhausts the retries holds the account out of the picks for 10 minutes.
 func TestRateLimitedHopMarksAccount(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -555,5 +344,195 @@ func TestRateLimitedHopMarksAccount(t *testing.T) {
 	_, _ = RunWithFallback(context.Background(), explicitChain(api, paid), paid, wire.Discard, nil)
 	if e := loadState()["openai·openai"]; !e.ExhaustedUntil.IsZero() {
 		t.Fatalf("openai·openai = %+v, want no mark on a credits 429", e)
+	}
+}
+
+// KeepCaller lets the agent_test batch tests build a dispatch that keeps the caller's own --model.
+func KeepCaller(d Dispatch) Dispatch { d.keepCaller = true; return d }
+
+// SwapLoadState replaces the router state loader with wrap(prev) and returns the restore func.
+func SwapLoadState(wrap func(prev func() router.State) func() router.State) func() {
+	prev := loadState
+	loadState = wrap(prev)
+	return func() { loadState = prev }
+}
+
+// CountAccountMarkers counts live marker files in dir whose content is account.
+func CountAccountMarkers(dir, account string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range entries {
+		if _, ok := inflight.Owner(e.Name()); !ok {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(dir, e.Name())); err == nil && strings.TrimSpace(string(b)) == account {
+			n++
+		}
+	}
+	return n
+}
+
+// SamplePeak counts account markers every interval until stop closes and returns the peak.
+func SamplePeak(dir, account string, interval time.Duration, stop <-chan struct{}, peak *atomic.Int32) {
+	for {
+		select {
+		case <-stop:
+			return
+		default:
+		}
+		n := int32(CountAccountMarkers(dir, account))
+		for cur := peak.Load(); n > cur && !peak.CompareAndSwap(cur, n); cur = peak.Load() {
+		}
+		time.Sleep(interval)
+	}
+}
+
+// leadRegistry has Databricks row dev (signed in) and Anthropic max; claude's record pins max.
+func leadRegistry(t *testing.T) *providers.Registry {
+	t.Helper()
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks",`+
+		`"host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.SetRecord(t, "claude", "profile", "max")
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reg
+}
+
+// With a lead, the wanted agent's lead row is its own route and its pin is the other route.
+func TestOtherRouteFollowsLead(t *testing.T) {
+	rc := routeCtx{want: "codex", lead: "dev", pins: map[string]router.PinSpec{"codex": {Profile: "pin"}}}
+	if rc.otherRoute(router.Candidate{Agent: "codex", Profile: "dev"}) {
+		t.Error("lead row marked as another route")
+	}
+	if !rc.otherRoute(router.Candidate{Agent: "codex", Profile: "pin"}) {
+		t.Error("pin row under a lead not marked as another route")
+	}
+}
+
+// LeadFor: a named profile leads (D1) unless --fallback none or Pinned pins it; session and --provider always lead.
+func TestLeadFor(t *testing.T) {
+	leadRegistry(t)
+	t.Setenv(providers.EnvSessionProfile, "dev")
+	all, none := router.FallbackAll, router.FallbackNone
+	cases := []struct {
+		q        RouteReq
+		lead     string
+		explicit bool
+		err      string
+	}{
+		{RouteReq{Agent: "codex", Fallback: all}, "", false, ""},
+		{RouteReq{Agent: "codex", Profile: "dev", Fallback: all}, "dev", false, ""},
+		{RouteReq{Agent: "codex", Profile: "dev", Fallback: none}, "", true, ""},
+		{RouteReq{Agent: "codex", Profile: "dev", Fallback: all, Pinned: true}, "", true, ""},
+		{RouteReq{Agent: "codex", Profile: LeadSession, Fallback: none}, "dev", false, ""},
+		{RouteReq{Agent: "codex", Provider: "databricks", Fallback: none}, "dev", false, ""},
+		{RouteReq{Agent: "codex", Profile: "dev", Lead: "max", Pinned: true}, "max", false, ""},
+		{RouteReq{Agent: "codex", Model: "dev:opus", Fallback: all}, "", true, ""},
+		{RouteReq{Agent: "codex", Profile: "nosuch", Fallback: none}, "", true, "nosuch"},
+		{RouteReq{Agent: "codex", Profile: "nosuch", Fallback: all}, "", false, "nosuch"},
+	}
+	for _, c := range cases {
+		lead, explicit, err := LeadFor(c.q)
+		errOK := (c.err == "") == (err == nil) && (err == nil || strings.Contains(err.Error(), c.err))
+		if lead != c.lead || explicit != c.explicit || !errOK {
+			t.Errorf("%+v: got %q, %v, %v", c.q, lead, explicit, err)
+		}
+	}
+}
+
+// A preview of a profile:model leads on that model's profile; an unflagged preview has no lead.
+func TestRouteLeadPreviewKeepsModelProfile(t *testing.T) {
+	leadRegistry(t)
+	t.Setenv(providers.EnvSessionProfile, "max")
+	cases := []struct {
+		q    RouteReq
+		lead string
+	}{
+		{RouteReq{Agent: "codex", Fallback: router.FallbackAll, Preview: true}, ""},
+		{RouteReq{Agent: "codex", Model: "max:opus", Fallback: router.FallbackAll, Preview: true}, "max"},
+		{RouteReq{Agent: "codex", Model: "dev:opus", Profile: "max", Fallback: router.FallbackAll, Preview: true}, "max"},
+	}
+	for _, c := range cases {
+		lead, explicit, err := routeLead(c.q)
+		if lead != c.lead || explicit || err != nil {
+			t.Errorf("%+v: got %q, %v, %v; want lead %q", c.q, lead, explicit, err, c.lead)
+		}
+	}
+}
+
+// The retired HARNESS_DATABRICKS_ARM env no longer moves an unflagged dispatch off its pin.
+func TestRouteLeadIgnoresRetiredArmEnv(t *testing.T) {
+	leadRegistry(t)
+	t.Setenv("HARNESS_DATABRICKS_ARM", "dev")
+	lead, explicit, err := routeLead(RouteReq{Agent: "codex", Fallback: router.FallbackAll})
+	if lead != "" || explicit || err != nil {
+		t.Errorf("got %q, %v, %v; want no lead", lead, explicit, err)
+	}
+}
+
+// pinFirstSetup configures codex pinned to openai with opencode and claude behind it, each swapped for a stub.
+func pinFirstSetup(t *testing.T, exhausted bool) (Chain, router.PickResult, map[string]*pinFallbackRunner) {
+	t.Helper()
+	vaulttest.UseKeyring(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("OPENAI_API_KEY", "test-key") // the non-own-login openai profile needs a credential
+	vaulttest.SetRecord(t, "claude", "profile", "max")
+	vaulttest.SetRecord(t, "codex", "profile", "openai")
+	vaulttest.SetRecord(t, "opencode", "profile", "opencode-go")
+	vaulttest.SetRecord(t, "copilot", "profile", "")
+	vaulttest.SetRecord(t, "gemini", "profile", "")
+	vaulttest.SetRecord(t, "codex", "model", "gpt-6.1-sol")
+	if exhausted {
+		now := time.Now()
+		if err := router.MarkExhausted("anthropic·max", now.Add(time.Hour), now, "test quota"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c, pick, err := RouteChainFor(context.Background(), "codex", "", "sonnet", router.FallbackAll, false,
+		router.PickOpts{Configured: allConfigured})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakes := make(map[string]*pinFallbackRunner)
+	for i := range c.Dispatches {
+		f := &pinFallbackRunner{name: c.Dispatches[i].Agent.Name(), res: wire.Result{Answer: "answer from " + c.Dispatches[i].Agent.Name()}}
+		if fakes[f.name] != nil {
+			t.Fatalf("duplicate dispatch %q: %+v", f.name, c.Dispatches)
+		}
+		fakes[f.name], c.Dispatches[i].Agent = f, f
+	}
+	for _, name := range []string{"codex", "opencode"} {
+		if fakes[name] == nil {
+			t.Fatalf("missing %s dispatch: %+v; skipped %v", name, c.Dispatches, c.Skipped)
+		}
+	}
+	return c, pick, fakes
+}
+
+func TestPinFirstFallbackDispatches(t *testing.T) {
+	c, pick, _ := pinFirstSetup(t, false)
+	var got []string
+	for _, disp := range c.Dispatches {
+		got = append(got, disp.Agent.Name()+" ("+disp.Account+")")
+	}
+	want := []string{"codex (openai·openai)", "opencode (opencode·go)", "claude (anthropic·max)"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("dispatches = %v, want %v", got, want)
+	}
+	if c.Dispatches[0].Model != "openai:gpt-6.1-sol" || c.Dispatches[2].Model != "sonnet" {
+		t.Errorf("models = %q, %q; want pinned codex and claude at sonnet", c.Dispatches[0].Model, c.Dispatches[2].Model)
+	}
+	for _, name := range []string{"copilot", "gemini"} {
+		if !slices.ContainsFunc(pick.Skipped, func(s router.Skip) bool { return s.Agent == name && s.Gate == router.GateOff }) {
+			t.Errorf("%s missing off gate: %+v", name, pick.Skipped)
+		}
+		containsAll(t, strings.Join(c.Skipped, "; "), name+": deactivated ("+strings.ToUpper(name)+"_ACTIVE=off)")
 	}
 }

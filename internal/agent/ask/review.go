@@ -21,7 +21,7 @@ import (
 const reviewJobEnv = "CLAUDE_REVIEW_JOB"
 
 // reviewDiffTimeout bounds the git calls that build a review diff (a hung textconv helper would block forever).
-const reviewDiffTimeout = 2 * time.Minute
+var reviewDiffTimeout = 2 * time.Minute
 
 // ReviewOptions are `<agent> review`'s flags; Focus is the trailing words.
 type ReviewOptions struct {

@@ -2,15 +2,22 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // TestCodexUnavailable tables the fallback classifier: only an unreachable codex (missing binary, no
@@ -405,5 +412,475 @@ func TestRunWithFallbackMidRunCarriesPartialAnswerAsData(t *testing.T) {
 		if !strings.Contains(p, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, p)
 		}
+	}
+}
+
+var testPersona = &Schema{Name: "reviewer", Description: "Reviews", Prompt: "Be strict.", Tools: []string{"Read"}, Model: "sonnet", MaxTurns: 3}
+
+// A hop to an emulating agent must not run a tool-limited persona unrestricted.
+func TestFallbackHopRefusesRestrictivePersona(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	down := &fakeRunner{name: "codex", errs: []error{errors.New(`exec: "codex": executable file not found in $PATH`)}, emptyAnswer: true}
+	emu := &fakeRunner{name: "gemini", caps: Caps{Persona: Emulated, AppendSystemPrompt: Emulated}, errs: []error{nil}}
+	res, err := RunWithFallback(context.Background(), chainOf([]Engine{down, emu}), RunOptions{Prompt: "p", Persona: testPersona}, wire.Discard, nil)
+	if err == nil || len(emu.seen) != 0 || len(res.Hops) != 2 {
+		t.Fatalf("agent=%q err=%v emulating runs=%d, want a refusal on the second hop and no run", res.Agent, err, len(emu.seen))
+	}
+	if !strings.Contains(err.Error(), "cannot enforce") {
+		t.Errorf("err = %v \n%d hops, last %s/%s, want the persona refusal", err, len(res.Hops), res.Hops[len(res.Hops)-1].Agent, res.Hops[len(res.Hops)-1].ErrorKind)
+	}
+}
+
+// Each fallback hop emits exactly one retry event with the documented text.
+func TestRunWithFallbackEmitsOneRetryPerHop(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	first := &fakeRunner{name: "codex", emptyAnswer: true, errs: []error{errors.New("boom")}}
+	second := &fakeRunner{name: "gemini", errs: []error{nil}}
+	var evs []wire.Event
+	sink := sinkFunc(func(ev wire.Event) error { evs = append(evs, ev); return nil })
+	c := Chain{Want: "codex", Dispatches: []Dispatch{{Agent: first}, {Agent: second}}}
+	if _, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, sink, nil); err != nil {
+		t.Fatal(err)
+	}
+	var retries []string
+	for _, ev := range evs {
+		if ev.Type == wire.EventRetry {
+			retries = append(retries, ev.Text)
+		}
+	}
+	if len(retries) != 1 || retries[0] != "fallback codex → gemini: codex: failed: boom" {
+		t.Fatalf("retry events = %q, want one %q", retries, "fallback codex → gemini: codex: failed: boom")
+	}
+}
+
+type sinkFunc func(wire.Event) error
+
+func (f sinkFunc) Emit(ev wire.Event) error { return f(ev) }
+
+// Hooks for the batch runner tests, which live in agent_test because batch imports agent.
+var (
+	CoolDown = retry.CoolDown
+	AuthEnv  = authEnv
+)
+
+// handoffRunner returns a canned Result and error per call, so a dispatch can carry a hand-off path.
+type handoffRunner struct {
+	name string
+	res  wire.Result
+	err  error
+}
+
+func (h *handoffRunner) Name() string { return h.name }
+
+func (h *handoffRunner) Caps() Caps { return Caps{} }
+
+func (h *handoffRunner) Available() error { return nil }
+
+func (h *handoffRunner) Run(context.Context, RunOptions, wire.Sink) (wire.Result, error) {
+	return h.res, h.err
+}
+
+// A hand-off written by dispatch 1 rides the final envelope whichever way the later dispatches end.
+func TestRunWithFallbackCarriesHandoff(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	quota := errors.New("402 Payment Required: You have exceeded your monthly quota")
+	first := func() *handoffRunner {
+		return &handoffRunner{name: "copilot", res: wire.Result{Handoff: "/tmp/x.md"}, err: quota}
+	}
+
+	t.Run("dispatch 2 succeeds", func(t *testing.T) {
+		second := &handoffRunner{name: "claude", res: wire.Result{Answer: "from dispatch 2"}}
+		res, err := RunWithFallback(context.Background(), chainOf([]Engine{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, wire.Discard, nil)
+		if err != nil || res.Answer != "from dispatch 2" || res.Handoff != "/tmp/x.md" {
+			t.Fatalf("res=%+v err=%v; want dispatch 2's answer with handoff /tmp/x.md", res, err)
+		}
+	})
+
+	t.Run("dispatch 2 fails with another error", func(t *testing.T) {
+		boom := errors.New("boom: unrelated failure")
+		second := &handoffRunner{name: "claude", err: boom}
+		res, err := RunWithFallback(context.Background(), chainOf([]Engine{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, wire.Discard, nil)
+		if err == nil || !errors.Is(err, boom) || res.Handoff != "/tmp/x.md" {
+			t.Fatalf("res=%+v err=%v; want dispatch 2's error with handoff /tmp/x.md", res, err)
+		}
+	})
+
+	t.Run("a later dispatch's own handoff wins", func(t *testing.T) {
+		second := &handoffRunner{name: "claude", res: wire.Result{Answer: "ok", Handoff: "/tmp/y.md"}}
+		res, _ := RunWithFallback(context.Background(), chainOf([]Engine{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, wire.Discard, nil)
+		if res.Handoff != "/tmp/y.md" {
+			t.Errorf("handoff = %q, want the later dispatch's /tmp/y.md", res.Handoff)
+		}
+	})
+}
+
+// (4) A dispatch that wrote a hand-off hands the next dispatch the hand-off, not the bare task; an unreadable file changes nothing.
+func TestRunWithFallbackNextDispatchGetsHandoff(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	quota := errors.New("402 Payment Required: You have exceeded your monthly quota")
+	file := filepath.Join(t.TempDir(), "h.md")
+	if err := os.WriteFile(file, []byte("PARTIAL-PROGRESS-MARKER"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, path := range map[string]string{"readable": file, "unreadable": file + ".missing"} {
+		t.Run(name, func(t *testing.T) {
+			second := &fakeRunner{name: "claude", errs: []error{nil}}
+			first := &handoffRunner{name: "copilot", res: wire.Result{Handoff: path}, err: quota}
+			if _, err := RunWithFallback(context.Background(), chainOf([]Engine{first, second}, "", "sonnet"), RunOptions{Prompt: "BARE-TASK"}, wire.Discard, nil); err != nil {
+				t.Fatal(err)
+			}
+			got := second.seen[0].Prompt
+			if name == "readable" && (!strings.Contains(got, "PARTIAL-PROGRESS-MARKER") || strings.Contains(got, "BARE-TASK")) {
+				t.Errorf("next dispatch prompt = %q, want the hand-off instead of the task", got)
+			}
+			if name == "unreadable" && got != "BARE-TASK" {
+				t.Errorf("unreadable hand-off must leave the prompt alone, got %q", got)
+			}
+		})
+	}
+}
+
+// envelopeMap round-trips the envelope NewEnvelope builds, so the test pins wire names, not Go types.
+func envelopeMap(t *testing.T, res wire.Result, err error) map[string]any {
+	t.Helper()
+	b, merr := json.Marshal(wire.NewEnvelope(res, err, "d1"))
+	if merr != nil {
+		t.Fatal(merr)
+	}
+	var m map[string]any
+	if uerr := json.Unmarshal(b, &m); uerr != nil {
+		t.Fatal(uerr)
+	}
+	return m
+}
+
+// soleHop runs a one-dispatch chain and returns its envelope's only hop.
+func soleHop(t *testing.T, r *fakeRunner, req RunOptions) map[string]any {
+	t.Helper()
+	res, err := RunWithFallback(context.Background(), Single(r), req, wire.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hops, _ := envelopeMap(t, res, err)["hops"].([]any)
+	if len(hops) != 1 {
+		t.Fatalf("hops = %v, want one", hops)
+	}
+	h, _ := hops[0].(map[string]any)
+	return h
+}
+
+// Guarantee 3: an auth failure on hop 1 moves to hop 2, and the envelope names every hop tried.
+func assertTwoHops(t *testing.T, env map[string]any) {
+	t.Helper()
+	hops, _ := env["hops"].([]any)
+	if len(hops) != 2 {
+		t.Fatalf("hops = %v, want both dispatches", env["hops"])
+	}
+	h1, _ := hops[0].(map[string]any)
+	h2, _ := hops[1].(map[string]any)
+	if h1["agent"] != "claude" || h1["error_kind"] != "auth" {
+		t.Errorf("hop 1 = %v, want agent claude / error_kind auth", h1)
+	}
+	if h2["agent"] != "gemini" || (h2["error_kind"] != nil && h2["error_kind"] != "") {
+		t.Errorf("hop 2 = %v, want agent gemini with no error_kind", h2)
+	}
+}
+
+func TestEnvelopeHopsNameEveryDispatchTried(t *testing.T) {
+	authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
+	first := &fakeRunner{name: "claude", errs: []error{fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)}, emptyAnswer: true}
+	second := &fakeRunner{name: "gemini", errs: []error{nil}}
+	res, err := RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, wire.Discard, nil)
+	if err != nil || res.Answer != "a" || len(second.seen) != 1 {
+		t.Fatalf("res=%+v err=%v: want the second hop to answer", res, err)
+	}
+	env := envelopeMap(t, res, err)
+	assertTwoHops(t, env)
+	if fr, _ := env["fallback_reason"].(string); fr == "" || env["fallback"] != "claude" {
+		t.Errorf("fallback = %v reason = %q: hops must not replace the existing fallback fields", env["fallback"], fr)
+	}
+}
+
+// A single successful dispatch, claude or any other agent answering itself, names one hop and no fallback.
+func TestEnvelopeHopsSingleDispatch(t *testing.T) {
+	for name, build := range map[string]func(Engine) Chain{
+		"claude": Single,
+		"gemini": func(r Engine) Chain { return chainOf([]Engine{r}) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := &fakeRunner{name: name, errs: []error{nil}}
+			res, err := RunWithFallback(context.Background(), build(r), RunOptions{Prompt: "p"}, wire.Discard, nil)
+			if err != nil || res.Fallback != "" || res.FallbackReason != "" {
+				t.Fatalf("res=%+v err=%v, want no fallback", res, err)
+			}
+			env := envelopeMap(t, res, err)
+			if hops, _ := env["hops"].([]any); len(hops) != 1 {
+				t.Errorf("hops = %v, want one", env["hops"])
+			}
+			if env["fallback"] != nil {
+				t.Errorf("fallback = %v, want null", env["fallback"])
+			}
+		})
+	}
+}
+
+// A 429 followed by success is one hop, no error_kind, whose errors list the recovered rate_limit attempt.
+func TestHopKeepsRecoveredAttemptErrors(t *testing.T) {
+	fastDefaultBackoff(t)
+	r := &fakeRunner{name: "claude", errs: []error{&retry.Error{Kind: retry.KindRateLimit, Agent: "claude", Err: errors.New("HTTP 429")}, nil}}
+	h := soleHop(t, r, RunOptions{Prompt: "p"})
+	errs, _ := h["errors"].([]any)
+	if h["error_kind"] != nil || len(errs) != 1 || errs[0].(map[string]any)["kind"] != "rate_limit" {
+		t.Errorf("hop = %v, want no error_kind and one rate_limit error", h)
+	}
+}
+
+// A transient credential failure that a retry recovers from is listed in the answering hop's errors.
+func TestHopKeepsRecoveredGuardFailure(t *testing.T) {
+	fastDefaultBackoff(t)
+	flag := filepath.Join(t.TempDir(), "seen")
+	name := fmt.Sprintf("hmg%d", time.Now().UnixNano())
+	hmNamed(t, name, fmt.Sprintf("if [ -f %[1]s ]; then echo %[2]s; else touch %[1]s; echo 'connection reset' >&2; exit 1; fi", flag, fakeJWT("adb-1.azuredatabricks.net")))
+	r := &fakeRunner{name: "claude", caps: Caps{Provider: Native}, errs: []error{nil}}
+	h := soleHop(t, r, RunOptions{Prompt: "p", Provider: name})
+	if errs, _ := h["errors"].([]any); len(errs) != 1 {
+		t.Errorf("hop = %v, want the recovered credential failure in errors", h)
+	}
+}
+
+// An auth.command whose JWT was issued for another host fails the hop as auth, and fallback moves to the next hop.
+func TestCommandCredentialHostMismatchIsAuthAndFallsBack(t *testing.T) {
+	name := fmt.Sprintf("hmm%d", time.Now().UnixNano())
+	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"`+name+`","providers":{"databricks":{"`+name+`":{"preset":"databricks",`+
+		`"host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","command":"echo `+fakeJWT("adb-2.azuredatabricks.net")+`"},`+
+		`"models":{"opus":"m"}}}}}`)
+	t.Cleanup(func() { vaulttest.Put(t, vault.Overlay, "providers", `{}`) }) // the default must not leak to later tests
+	prev := markAuth
+	markAuth = func(string, string) error { return nil }
+	t.Cleanup(func() { markAuth = prev })
+	first := &fakeRunner{name: "claude", caps: Caps{Provider: Native}, errs: []error{nil}}
+	second := &fakeRunner{name: "gemini", errs: []error{nil}}
+	c := Chain{Want: "claude", Dispatches: []Dispatch{{Agent: first, Account: "claude:" + name, keepCaller: true}, {Agent: second}}}
+	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
+	if err != nil || res.Answer != "a" || len(first.seen) != 0 || len(second.seen) != 1 {
+		t.Fatalf("res=%+v err=%v first=%d second=%d; want hop 2 to answer", res, err, len(first.seen), len(second.seen))
+	}
+	if len(res.Hops) != 2 || res.Hops[0].ErrorKind != "auth" {
+		t.Errorf("hops = %+v, want hop 1 error_kind auth", res.Hops)
+	}
+}
+
+func failPinVendors(fakes map[string]*pinFallbackRunner) {
+	fakes["codex"].res = wire.Result{}
+	fakes["codex"].err = &retry.Error{Agent: "codex", Kind: retry.KindQuota, Status: 402, Err: errors.New("402 monthly quota exhausted")}
+	fakes["opencode"].res = wire.Result{}
+	fakes["opencode"].err = &retry.Error{Agent: "opencode", Kind: retry.KindAuth, Status: 401,
+		AuthReason: "refresh token rejected", Err: errors.New("401 refresh token rejected")}
+}
+
+func assertPinVendorsMarked(t *testing.T) {
+	t.Helper()
+	state := router.LoadState()
+	if e := state["openai·openai"]; e.Status(time.Now()) != router.StateExhausted {
+		t.Errorf("quota.json did not mark openai·openai exhausted: %+v", e)
+	}
+	if e := state["opencode·go"]; e.AuthReason != "refresh token rejected" || e.AuthAt.IsZero() {
+		t.Errorf("quota.json did not mark opencode·go auth: %+v", e)
+	}
+}
+
+func containsAll(t *testing.T, got string, wants ...string) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(got, want) {
+			t.Errorf("%q does not contain %q", got, want)
+		}
+	}
+}
+
+func TestPinFirstFallbackQuotaAuthFallback(t *testing.T) {
+	c, _, fakes := pinFirstSetup(t, false)
+	failPinVendors(fakes)
+	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "reply"}, wire.Discard, nil)
+	if err != nil || res.Agent != "claude" || res.Answer != "answer from claude" || res.Fallback != "codex" {
+		t.Fatalf("result = %+v, err = %v", res, err)
+	}
+	for _, name := range []string{"codex", "opencode", "claude"} {
+		if f := fakes[name]; f == nil || len(f.seen) != 1 {
+			t.Errorf("%s agent = %+v, want one request", name, f)
+		}
+	}
+	if got := fakes["claude"].seen[0].Model; got != "sonnet" {
+		t.Errorf("claude model = %q, want sonnet", got)
+	}
+	assertPinVendorsMarked(t)
+	containsAll(t, res.FallbackReason, "codex (openai·openai):", "opencode (opencode·go):")
+}
+
+func TestPinFirstFallbackClaudeExhausted(t *testing.T) {
+	c, _, fakes := pinFirstSetup(t, true)
+	if fakes["claude"] != nil {
+		t.Fatal("exhausted claude must be skipped")
+	}
+	failPinVendors(fakes)
+	_, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "reply"}, wire.Discard, nil)
+	if err == nil {
+		t.Fatal("all hops failed, want an error")
+	}
+	containsAll(t, err.Error(), "every hop failed", "codex (openai·openai):", "opencode: auth rejected", "claude: anthropic·max exhausted")
+}
+
+func TestPinFirstFallbackContentPolicy(t *testing.T) {
+	c, _, fakes := pinFirstSetup(t, false)
+	// A policy refusal must stop even when the auth branch would otherwise advance.
+	fault := &retry.Error{Agent: "codex", Kind: retry.KindAuth, Status: 403,
+		AuthReason: "request rejected", Err: errors.New("403 content_policy refusal")}
+	fakes["codex"].res, fakes["codex"].err = wire.Result{}, fault
+	_, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "reply"}, wire.Discard, nil)
+	if !errors.Is(err, fault) {
+		t.Errorf("err = %v, want original content-policy fault", err)
+	}
+	if len(fakes["codex"].seen) != 1 {
+		t.Errorf("codex requests = %d, want 1", len(fakes["codex"].seen))
+	}
+	for _, name := range []string{"opencode", "claude"} {
+		if f := fakes[name]; f == nil || len(f.seen) != 0 {
+			t.Errorf("%s agent = %+v, want zero requests", name, f)
+		}
+	}
+}
+
+// Skip notices name only the wanted agent's gates; other agents' reasons are not printed.
+func TestSkipNoticeOnlyForWantedAgent(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	c := Single(&fakeRunner{name: "copilot", errs: []error{nil}})
+	c.Skipped = []string{"opencode·openai: not configured", "copilot: exhausted"}
+	var got []string
+	if _, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, func(s string) { got = append(got, s) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || strings.Contains(got[0], "opencode") || !strings.Contains(got[0], "copilot: exhausted") {
+		t.Errorf("notices = %q, want only the copilot skip", got)
+	}
+}
+
+func TestAstraModelIdentityZeroLegs(t *testing.T) {
+	stub := &pinFallbackRunner{name: "codex"}
+	_, err := RunWithFallback(context.Background(), Chain{Want: "codex"}, RunOptions{Prompt: "x", Model: astra}, wire.Discard, nil)
+	var e *retry.Error
+	if !errors.As(err, &e) || e.Kind != retry.KindFatal {
+		t.Errorf("err = %v, want *Error KindFatal", err)
+	}
+	if len(stub.seen) != 0 {
+		t.Errorf("agent calls = %d, want 0", len(stub.seen))
+	}
+}
+
+// authEnv seeds a default provider row and records route.MarkAuth calls instead of touching quota.json.
+func authEnv(t *testing.T, row string) *[]markCall {
+	t.Helper()
+	vaulttest.UseKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"agauth","providers":{"anthropic":{"agauth":`+row+`}}}`)
+	var calls []markCall
+	prev := markAuth
+	markAuth = func(a, r string) error { calls = append(calls, markCall{a, r}); return nil }
+	t.Cleanup(func() { markAuth = prev })
+	return &calls
+}
+
+const u2mNoToken = `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"oauth"},"models":{"opus":"m"}}`
+
+func twoDispatches(first, second *fakeRunner) Chain {
+	return Chain{Want: first.Name(), Dispatches: []Dispatch{{Agent: first, Account: first.Name() + ":agauth"}, {Agent: second}}}
+}
+
+// A4+B2: a sealed-auth provider gets a Recover; its login-required failure marks the dispatch's account and moves on.
+func TestSealedAuthDispatchRecoversOnceThenMovesOn(t *testing.T) {
+	calls := authEnv(t, u2mNoToken)
+	first := &fakeRunner{name: "codex", errs: []error{errors.New("HTTP 401 unauthorized"), errors.New("HTTP 401 unauthorized")}, emptyAnswer: true}
+	second := &fakeRunner{name: "gemini", errs: []error{nil}}
+
+	res, err := RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, wire.Discard, nil)
+	if err != nil || res.Answer != "a" {
+		t.Fatalf("res=%+v err=%v, want the second dispatch's answer", res, err)
+	}
+	if len(first.seen) != 1 {
+		t.Fatalf("first dispatch attempts = %d, want 1: a failed Recover must not retry", len(first.seen))
+	}
+	if len(second.seen) != 1 {
+		t.Fatalf("second dispatch attempts = %d, want it to run in the same dispatch", len(second.seen))
+	}
+	if len(*calls) != 1 || (*calls)[0].account != "codex:agauth" || (*calls)[0].reason == "" {
+		t.Fatalf("markAuth calls = %+v, want one mark on codex:agauth", *calls)
+	}
+	if res.Fallback != "codex" || !strings.Contains(res.FallbackReason, "codex") {
+		t.Errorf("fallback not reported: %+v", res)
+	}
+}
+
+// A transient Recover failure (the auth.command itself failing) never marks the account.
+func TestTransientRecoverFailureDoesNotMark(t *testing.T) {
+	calls := authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","command":"exit 1"},"models":{"opus":"m"}}`)
+	first := &fakeRunner{name: "codex", errs: []error{errors.New("HTTP 401 unauthorized")}, emptyAnswer: true}
+	second := &fakeRunner{name: "gemini", errs: []error{nil}}
+	_, _ = RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, wire.Discard, nil)
+	if len(*calls) != 0 {
+		t.Fatalf("a transient recover failure condemned an account: %+v", *calls)
+	}
+}
+
+// A first-attempt error that itself carries a login-required verdict (no Recover ran) is condemned too.
+func TestWrappedLoginRequiredOnFirstAttemptMarksAndMovesOn(t *testing.T) {
+	calls := authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
+	first := &fakeRunner{name: "claude", errs: []error{fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)}, emptyAnswer: true}
+	second := &fakeRunner{name: "gemini", errs: []error{nil}}
+	res, err := RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, wire.Discard, nil)
+	if err != nil || res.Answer != "a" || len(second.seen) != 1 {
+		t.Fatalf("res=%+v err=%v: expected a move-on to the second dispatch", res, err)
+	}
+	if len(*calls) != 1 || (*calls)[0].account != "claude:agauth" {
+		t.Fatalf("markAuth calls = %+v", *calls)
+	}
+}
+
+type markCall struct{ account, reason string }
+
+func TestCondemnAuthRules(t *testing.T) {
+	needs := fmt.Errorf("x: %w", providers.ErrNeedsLogin)
+	for name, c := range map[string]struct {
+		e       *retry.Error
+		recover error
+		want    bool
+	}{
+		"auth + condemning recover":      {&retry.Error{Kind: retry.KindAuth, Err: errors.New("401")}, needs, true},
+		"auth + transient recover":       {&retry.Error{Kind: retry.KindAuth, Err: errors.New("401")}, errors.New("exit status 1"), false},
+		"auth + no recover run":          {&retry.Error{Kind: retry.KindAuth, Err: errors.New("401")}, nil, false},
+		"fatal error carrying the login": {&retry.Error{Kind: retry.KindFatal, Err: needs}, nil, true},
+		"fatal ordinary":                 {&retry.Error{Kind: retry.KindFatal, Err: errors.New("boom")}, needs, false},
+		"transient ordinary":             {&retry.Error{Kind: retry.KindTransient, Err: errors.New("503")}, nil, false},
+	} {
+		condemnAuth(c.e, c.recover)
+		if got := c.e.AuthReason != ""; got != c.want {
+			t.Errorf("%s: condemned = %v, want %v", name, got, c.want)
+		}
+	}
+}
+
+func TestNoteAuthNeedsAccountAndReason(t *testing.T) {
+	var calls []markCall
+	prev := markAuth
+	markAuth = func(a, r string) error { calls = append(calls, markCall{a, r}); return nil }
+	t.Cleanup(func() { markAuth = prev })
+	noteAuth(Dispatch{Account: ""}, &retry.Error{AuthReason: "r"})
+	noteAuth(Dispatch{Account: "codex:x"}, &retry.Error{})
+	noteAuth(Dispatch{Account: "codex:x"}, errors.New("plain"))
+	if len(calls) != 0 {
+		t.Fatalf("noteAuth marked without an account or reason: %+v", calls)
+	}
+	noteAuth(Dispatch{Account: "codex:x"}, &retry.Error{AuthReason: "r"})
+	if len(calls) != 1 || calls[0].account != "codex:x" {
+		t.Fatalf("calls = %+v", calls)
 	}
 }

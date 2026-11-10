@@ -1,7 +1,9 @@
-package launchplan_test
+package launchplan
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,13 +12,36 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/launchplan"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+const (
+	testRouterBase   = "http://127.0.0.1:9999"
+	testRouterSecret = "rtr-secret-xyz"
+)
+
+func hermetic(t *testing.T, userProviders string) {
+	t.Helper()
+	hosttest.HermeticEnv(t)
+	if userProviders != "" {
+		vaulttest.Put(t, vault.Overlay, "providers", userProviders)
+	}
+	t.Cleanup(agent.StubRouter("http://127.0.0.1:4000"))
+}
+
+// TestMain runs in the hermetic host (hosttest) with the vendor roster registered and the proxy stubbed.
+func TestMain(m *testing.M) {
+	agent.NoticeOut = io.Discard
+	agentconfig.SetCatalogWarn(io.Discard)
+	agent.StubProxyForTest(testRouterBase, testRouterSecret)
+	os.Exit(hosttest.Main(m))
+}
 
 func TestInteractiveVendorArgs(t *testing.T) {
 	cases := []struct {
@@ -34,7 +59,7 @@ func TestInteractiveVendorArgs(t *testing.T) {
 		{[]string{"chat", "--version"}, false},
 	}
 	for _, tc := range cases {
-		if got := launchplan.InteractiveArgs(tc.args); got != tc.want {
+		if got := interactiveArgs(tc.args); got != tc.want {
 			t.Errorf("interactiveVendorArgs(%q) = %v, want %v", tc.args, got, tc.want)
 		}
 	}
@@ -93,10 +118,10 @@ func TestVendorPassesThroughWhenUnroutable(t *testing.T) {
 	t.Setenv("HOME", t.TempDir()) // no vendor login state on disk
 	fake := pathstest.FakeVendor(t, "agy", "")
 	offers := 0
-	launchplan.OfferConfigure = func(vendor string, reason error) bool { offers++; return false }
-	t.Cleanup(func() { launchplan.OfferConfigure = nil })
+	OfferConfigure = func(vendor string, reason error) bool { offers++; return false }
+	t.Cleanup(func() { OfferConfigure = nil })
 
-	plan, err := launchplan.LaunchPlan(context.Background(), "gemini", agent.LaunchOptions{}, []string{"-p", "hi"})
+	plan, err := LaunchPlan(context.Background(), "gemini", agent.LaunchOptions{}, []string{"-p", "hi"})
 	if err != nil {
 		t.Fatalf("expected a passthrough plan, got %v", err)
 	}
@@ -110,7 +135,7 @@ func TestVendorPassesThroughWhenUnroutable(t *testing.T) {
 	}
 	// --print-env never prompts.
 	offers = 0
-	if _, err := launchplan.LaunchPlan(context.Background(), "gemini", agent.LaunchOptions{PrintEnv: true}, nil); err != nil || offers != 0 {
+	if _, err := LaunchPlan(context.Background(), "gemini", agent.LaunchOptions{PrintEnv: true}, nil); err != nil || offers != 0 {
 		t.Errorf("print-env: err=%v offers=%d", err, offers)
 	}
 }
@@ -119,21 +144,21 @@ func TestConfigureDeclinedPreservesModelFlag(t *testing.T) {
 	hermetic(t, "")
 	fake := pathstest.FakeVendor(t, "agy", "")
 	const model = "gemini-3.8-flash-high"
-	o, args, err := launchplan.ParseArgs([]string{"--profile", "antigravity", "--model", model, "-p", "hi"}, false)
+	o, args, err := ParseArgs([]string{"--profile", "antigravity", "--model", model, "-p", "hi"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	offers := 0
-	original := launchplan.OfferConfigure
-	launchplan.OfferConfigure = func(name string, reason error) bool {
+	original := OfferConfigure
+	OfferConfigure = func(name string, reason error) bool {
 		offers++
 		if name != "gemini" || !strings.Contains(reason.Error(), "not signed in") {
 			t.Errorf("configure offer = %q, %v; want missing Gemini login", name, reason)
 		}
 		return false
 	}
-	t.Cleanup(func() { launchplan.OfferConfigure = original })
-	plan, err := launchplan.LaunchPlan(t.Context(), "gemini", o, args)
+	t.Cleanup(func() { OfferConfigure = original })
+	plan, err := LaunchPlan(t.Context(), "gemini", o, args)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,8 +174,8 @@ func TestConfigureRetryPreservesAgentModelPin(t *testing.T) {
 	const model = "gemini-3.8-flash-low"
 	vaulttest.SetRecord(t, "gemini", "model", model)
 	offers := 0
-	original := launchplan.OfferConfigure
-	launchplan.OfferConfigure = func(name string, reason error) bool {
+	original := OfferConfigure
+	OfferConfigure = func(name string, reason error) bool {
 		offers++
 		if name != "gemini" || !strings.Contains(reason.Error(), "not signed in") {
 			t.Errorf("configure offer = %q, %v; want missing Gemini login", name, reason)
@@ -164,8 +189,8 @@ func TestConfigureRetryPreservesAgentModelPin(t *testing.T) {
 		}
 		return true
 	}
-	t.Cleanup(func() { launchplan.OfferConfigure = original })
-	plan, err := launchplan.LaunchPlan(t.Context(), "gemini", agent.LaunchOptions{Provider: "antigravity"}, []string{"-p", "hi"})
+	t.Cleanup(func() { OfferConfigure = original })
+	plan, err := LaunchPlan(t.Context(), "gemini", agent.LaunchOptions{Provider: "antigravity"}, []string{"-p", "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,8 +207,8 @@ func TestVendorSignInSkipsRouting(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("HOME", t.TempDir()) // no vendor login state on disk
 	offers := 0
-	launchplan.OfferConfigure = func(vendor string, reason error) bool { offers++; return false }
-	t.Cleanup(func() { launchplan.OfferConfigure = nil })
+	OfferConfigure = func(vendor string, reason error) bool { offers++; return false }
+	t.Cleanup(func() { OfferConfigure = nil })
 	for _, c := range []struct {
 		vendor, bin string
 		args        []string
@@ -193,7 +218,7 @@ func TestVendorSignInSkipsRouting(t *testing.T) {
 		{"gemini", "agy", []string{"auth", "login"}},
 	} {
 		fake := pathstest.FakeVendor(t, c.bin, "")
-		plan, err := launchplan.LaunchPlan(context.Background(), c.vendor, agent.LaunchOptions{}, c.args)
+		plan, err := LaunchPlan(context.Background(), c.vendor, agent.LaunchOptions{}, c.args)
 		if err != nil {
 			t.Fatalf("%s %v: err = %v, want a plain sign-in launch", c.vendor, c.args, err)
 		}
@@ -223,7 +248,7 @@ func TestOwnLoginLaunchPreservesModelFlag(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "auth.json"), []byte(tc.auth), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			plan, err := launchplan.LaunchPlan(t.Context(), "opencode", agent.LaunchOptions{
+			plan, err := LaunchPlan(t.Context(), "opencode", agent.LaunchOptions{
 				Model: model, Provider: tc.profile, PrintEnv: true,
 			}, nil)
 			if err != nil {
@@ -247,14 +272,14 @@ func TestPlainPlansResolveVendorBinNotPATH(t *testing.T) {
 			if !ok {
 				t.Fatalf("missing vendor %s", name)
 			}
-			plan, err := launchplan.PlainPlan(spec, nil)
+			plan, err := plainPlan(spec, nil)
 			if err != nil || plan.Binary != bin {
 				t.Fatalf("plainPlan = %q, %v; want %q", plan.Binary, err, bin)
 			}
 			if err := os.Remove(bin); err != nil {
 				t.Fatal(err)
 			}
-			_, err = launchplan.PlainPlan(spec, nil)
+			_, err = plainPlan(spec, nil)
 			if err == nil || !strings.Contains(err.Error(), "not installed at "+bin) {
 				t.Fatalf("missing vendor: %v; want bin-dir error despite PATH vendor", err)
 			}
@@ -273,7 +298,7 @@ func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 	}
 
 	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"opencode":{"launch":{"env":["X_TEST=1"],"args":["--flag"]}}}}`)
-	plan, err := launchplan.PlainPlan(spec, []string{"user", "arg"})
+	plan, err := plainPlan(spec, []string{"user", "arg"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +315,7 @@ func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 
 	// No overlay: the built-in default still applies.
 	vaulttest.Put(t, vault.Overlay, "agents", "")
-	plan, err = launchplan.PlainPlan(spec, []string{"user"})
+	plan, err = plainPlan(spec, []string{"user"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +355,7 @@ var codexModelArg = regexp.MustCompile(`^model="(.*)"$`)
 func launchModel(t *testing.T, name string, o agent.LaunchOptions) string {
 	t.Helper()
 	o.PrintEnv = true
-	plan, err := launchplan.LaunchPlan(context.Background(), name, o, nil)
+	plan, err := LaunchPlan(context.Background(), name, o, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,7 +491,7 @@ func TestInteractiveLaunchIgnoresRetiredArmEnv(t *testing.T) {
 
 func testLaunchProfile(t *testing.T, name string, o agent.LaunchOptions) agent.LaunchOptions {
 	t.Helper()
-	got, err := launchplan.LaunchProfile(name, o)
+	got, err := launchProfile(name, o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,7 +501,32 @@ func testLaunchProfile(t *testing.T, name string, o agent.LaunchOptions) agent.L
 func TestLaunchPlanSurfacesUnreadablePins(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, "{")
-	if _, err := launchplan.LaunchPlan(context.Background(), "codex", agent.LaunchOptions{PrintEnv: true}, nil); err == nil || !strings.Contains(err.Error(), "agent-records is corrupt") {
+	if _, err := LaunchPlan(context.Background(), "codex", agent.LaunchOptions{PrintEnv: true}, nil); err == nil || !strings.Contains(err.Error(), "agent-records is corrupt") {
 		t.Fatalf("LaunchPlan error = %v", err)
+	}
+}
+
+// Every removed flag is a parse error carrying its hint; --profile stays valid.
+func TestParseLaunchArgsRemovedFlags(t *testing.T) {
+	for flag, want := range map[string]string{
+		"--provider": "--profile", "--env": "--profile", "--tier": "--model", "--router": "removed",
+	} {
+		for _, claude := range []bool{true, false} {
+			if _, _, err := ParseLaunchArgs([]string{flag, "x"}, claude); err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("ParseLaunchArgs(%s, claude=%v) = %v, want hint %q", flag, claude, err, want)
+			}
+		}
+	}
+	o, rest, err := ParseLaunchArgs([]string{"--profile", "openai", "-p", "hi"}, true)
+	if err != nil || o.Provider != "openai" || !slices.Equal(rest, []string{"-p", "hi"}) {
+		t.Errorf("--profile control: %+v %q %v", o, rest, err)
+	}
+}
+
+// A launch refusal (*agent.UsageError, even wrapped) prints its message and exits 2, not the generic 1.
+func TestRunPlanUsageErrorExitsTwo(t *testing.T) {
+	err := fmt.Errorf("launch: %w", &UsageError{Msg: "not a harness profile"})
+	if code := Run("claude", agent.Plan{}, agent.LaunchOptions{}, err); code != 2 {
+		t.Fatalf("Run(UsageError) = %d, want 2", code)
 	}
 }

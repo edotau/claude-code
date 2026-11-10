@@ -1,13 +1,24 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/proc"
@@ -89,4 +100,142 @@ func TestChildCmdScrubsVaultKeyForVendorOnly(t *testing.T) {
 	if !hasKey(cmd.Env) {
 		t.Errorf("claude's own child must keep HARNESS_VAULT_KEY, env=%v", cmd.Env)
 	}
+}
+
+// readLog reads path, failing the test on error.
+func readLog(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", path, err)
+	}
+	return string(b)
+}
+
+// TestLogSinkStdoutByteIdentical: a sink must not change what the caller's stdout receives.
+func TestLogSinkStdoutByteIdentical(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "fake")
+	script := "#!/bin/sh\nprintf 'alpha\\nbeta\\n'\necho oops >&2\nprintf 'gamma\\nno-newline'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := func(ctx context.Context) []byte {
+		t.Helper()
+		var buf bytes.Buffer
+		cmd, _ := ChildCmd(ctx, bin, nil, nil, "", "", nil, true)
+		cmd.Stdout = wire.TeeWriter(ctx, &buf)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("run fake: %v", err)
+		}
+		return buf.Bytes()
+	}
+	plain := run(context.Background())
+	logPath := filepath.Join(dir, "job.log")
+	sink := wire.NewLogSink(logPath)
+	teed := run(wire.WithLog(context.Background(), sink))
+	sink.Close()
+
+	if !bytes.Equal(plain, teed) {
+		t.Errorf("stdout differs with a sink:\nplain %q\nteed  %q", plain, teed)
+	}
+	if want := "alpha\nbeta\ngamma\nno-newline"; string(plain) != want {
+		t.Errorf("stdout = %q, want %q", plain, want)
+	}
+	log := readLog(t, logPath)
+	for _, l := range []string{"alpha\n", "beta\n", "gamma\n", "no-newline\n", "oops\n"} {
+		if !strings.Contains(log, l) {
+			t.Errorf("log %q missing %q", log, l)
+		}
+	}
+}
+
+func TestCredentialScrubRegistryFailure(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{not json`)
+	if _, err := providers.Load(); err == nil {
+		t.Fatal("fixture must make the provider registry unreadable")
+	}
+	env := []string{"PATH=/bin", "FOREIGN_KEY=key", "FOREIGN_TOKEN=token", "FOREIGN_SECRET=secret",
+		"FOREIGN_PASSWORD=password", "FOREIGN_CREDENTIALS=credentials", "KEPT_TOKEN=kept", "OWN_KEY=own"}
+	for _, own := range []bool{false, true} {
+		want := []string{"PATH=/bin", "KEPT_TOKEN=kept"}
+		ctx := withIsolation(context.Background())
+		if own {
+			ctx = withOwnProvider(ctx, &providers.Provider{Name: "mine", Auth: providers.Auth{Env: "OWN_KEY"}})
+			want = append(want, "OWN_KEY=own")
+		}
+		if got := scrubIsolated(ctx, env, []string{"KEPT_TOKEN"}); !reflect.DeepEqual(got, want) {
+			t.Errorf("own=%v: scrubbed env = %q, want %q", own, got, want)
+		}
+	}
+}
+
+// Under batch isolation an own-login child never sees another profile's custom credential var, but keeps the
+// native var its launch sets; outside a batch nothing is scrubbed.
+func TestChildCmdOwnLoginDropsForeignCredentialsUnderIsolation(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"anthropic":{`+
+		`"pa":{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"PA_BATCH_KEY"},"models":{"opus":"m"}},`+
+		`"pb":{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"OPENCODE_API_KEY"},"models":{"opus":"m"}}}}}`)
+	t.Setenv("PA_BATCH_KEY", "foreign-secret")
+	has := func(cmd interface{ Environ() []string }, kv string) bool { return slices.Contains(cmd.Environ(), kv) }
+	iso, _ := ChildCmd(withIsolation(context.Background()), "/bin/true", nil, []string{"OPENCODE_API_KEY=native"}, "", "", nil, true)
+	if has(iso, "PA_BATCH_KEY=foreign-secret") || !has(iso, "OPENCODE_API_KEY=native") {
+		t.Errorf("isolated env leaks PA_BATCH_KEY or lost the native var: %v", iso.Env)
+	}
+	plain, _ := ChildCmd(context.Background(), "/bin/true", nil, nil, "", "", nil, true)
+	if !has(plain, "PA_BATCH_KEY=foreign-secret") {
+		t.Error("outside a batch the env must stay unchanged")
+	}
+}
+
+// A hub dispatch keeps the credential its launch supplies even when another profile declares the same env name; the
+// inherited value of that name is gone.
+func TestChildCmdLaunchValuesSurviveIsolationScrub(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"anthropic":{`+
+		`"ocgo":{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"OCGO_KEY"},"models":{"opus":"m"}},`+
+		`"other":{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"OPENCODE_API_KEY"},"models":{"opus":"m"}}}}}`)
+	t.Setenv("OPENCODE_API_KEY", "inherited-foreign")
+	reg, err := providers.Load()
+	if err != nil || reg.Providers["ocgo"] == nil {
+		t.Fatalf("registry: %v", err)
+	}
+	ctx := withOwnProvider(withIsolation(context.Background()), reg.Providers["ocgo"])
+	cmd, _ := ChildCmd(ctx, "/bin/true", nil, []string{"OPENCODE_API_KEY=launch"}, "", "", nil, true)
+	if !slices.Contains(cmd.Env, "OPENCODE_API_KEY=launch") || slices.Contains(cmd.Env, "OPENCODE_API_KEY=inherited-foreign") {
+		t.Errorf("env keeps the inherited foreign value or lost the launch's: %v", slices.DeleteFunc(slices.Clone(cmd.Env),
+			func(kv string) bool { return !strings.HasPrefix(kv, "OPENCODE_API_KEY") }))
+	}
+}
+
+// Given a real child under childCmd with a grandchild, When ctx is cancelled, Then no process stays in the group.
+func TestChildCmdCancelLeavesNoProcessGroup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("process groups are unix-only")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd, _ := ChildCmd(ctx, "sh", []string{"-c", "sleep 60 & sleep 60; wait"}, nil, t.TempDir(), "", nil, false)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pgid := cmd.Process.Pid
+	time.Sleep(100 * time.Millisecond)
+	if err := exec.Command("kill", "-0", "--", "-"+strconv.Itoa(pgid)).Run(); err != nil {
+		t.Fatalf("group %d not alive before cancel: %v", pgid, err)
+	}
+	cancel()
+	var ee *exec.ExitError
+	if err := cmd.Wait(); !errors.As(err, &ee) {
+		t.Fatalf("wait = %v, want the kill's exit error", err)
+	}
+	for end := time.Now().Add(3 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		if out, err := exec.Command("kill", "-0", "--", "-"+strconv.Itoa(pgid)).CombinedOutput(); err != nil &&
+			strings.Contains(string(out), "No such process") {
+			return
+		}
+	}
+	t.Errorf("process group %d still has members after cancel", pgid)
 }

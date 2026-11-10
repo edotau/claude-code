@@ -98,23 +98,3 @@ func TestApplyCapsNoneDropsSystemPrompt(t *testing.T) {
 		t.Errorf("out=%+v dropped=%v emulated=%v", out, dropped, emulated)
 	}
 }
-
-// gemini read-only runs with tools on and the read-only deny rules, never refused or dropped to tools-off.
-func TestCheckRunGeminiReadOnlyDenies(t *testing.T) {
-	g, err := Lookup("gemini")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := checkRun(g, RunOptions{Tools: true, ReadOnly: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range ReadOnlyDeny {
-		if !slices.Contains(got.Permissions.Deny, r) {
-			t.Errorf("deny %v lacks %s", got.Permissions.Deny, r)
-		}
-	}
-	if out, dropped, _ := applyCaps(g.Caps(), got); !out.Tools || !out.ReadOnly || len(dropped) != 0 {
-		t.Errorf("applyCaps: tools=%v read-only=%v dropped=%v, want both kept", out.Tools, out.ReadOnly, dropped)
-	}
-}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
 	"syscall"
@@ -19,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // maxSockPath is macOS's sun_path capacity (104) less the NUL; Linux allows 108.
@@ -164,4 +166,23 @@ func (s *liveSession) runTurn(ctx context.Context, prompt string, sink wire.Sink
 	}
 	s.release() // before the result goes out: a client's next send must find the session free
 	_ = sink.Emit(wire.ResultEvent(wire.NewEnvelope(res, err, s.rec.ID)))
+}
+
+// serveLive is the ServeLive seam of RunHolder.
+var serveLive = ServeLive
+
+// RunHolder is the --job child of `ask --live`: it serves rec's session until idle, cancel or the agent's exit.
+func RunHolder(rec *Record, launcher agent.Launcher) int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer stop()
+	rec.Request.Launcher = launcher // json:"-", so the record loaded from disk has none
+	if err := serveLive(ctx, rec); err != nil {
+		msg := textutil.RedactSecrets(err.Error()) // stderr is the job log: the same redaction as the record
+		rec.Status, rec.Error = "error", msg
+		rec.DurationMs = time.Since(rec.Time).Milliseconds()
+		_ = rec.Save()
+		fmt.Fprintf(os.Stderr, "claude-code: ask --live: %s\n", msg)
+		return 1
+	}
+	return 0
 }

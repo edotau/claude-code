@@ -1,9 +1,7 @@
 package tools
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -19,46 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-func TestCodexAssetName(t *testing.T) {
-	setupToolsTestEnv(t)
-	for _, tc := range []struct{ goos, goarch, want string }{
-		{"linux", "amd64", "codex-x86_64-unknown-linux-musl.tar.gz"},
-		{"linux", "arm64", "codex-aarch64-unknown-linux-musl.tar.gz"},
-		{"darwin", "arm64", "codex-aarch64-apple-darwin.tar.gz"},
-		{"windows", "amd64", ""},
-		{"linux", "386", ""},
-	} {
-		if got := codexAssetName(tc.goos, tc.goarch); got != tc.want {
-			t.Errorf("codexAssetName(%s,%s) = %q, want %q", tc.goos, tc.goarch, got, tc.want)
-		}
-	}
-}
-
-func TestSelectCodexAsset(t *testing.T) {
-	setupToolsTestEnv(t)
-	rel := ghRelease{TagName: "rust-v1.2.3"}
-	rel.Assets = append(rel.Assets,
-		struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
-		}{Name: "codex-x86_64-unknown-linux-musl.tar.gz", URL: "https://example/linux.tar.gz"},
-		struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
-		}{Name: "codex-package-x86_64-unknown-linux-musl.tar.gz", URL: "https://example/decoy.tar.gz"},
-	)
-	url, name, err := selectCodexAsset(rel, "linux", "amd64")
-	if err != nil || url != "https://example/linux.tar.gz" || name != "codex-x86_64-unknown-linux-musl.tar.gz" {
-		t.Fatalf("selectCodexAsset = %q %q %v", url, name, err)
-	}
-	if _, _, err := selectCodexAsset(rel, "darwin", "arm64"); err == nil {
-		t.Error("missing asset must error, not silently pick the linux one")
-	}
-	if _, _, err := selectCodexAsset(rel, "plan9", "amd64"); err == nil {
-		t.Error("unmapped platform must error")
-	}
-}
-
 func TestClaudeScienceAssetName(t *testing.T) {
 	setupToolsTestEnv(t)
 	for _, tc := range []struct{ goos, goarch, want string }{
@@ -70,160 +28,6 @@ func TestClaudeScienceAssetName(t *testing.T) {
 		if got := claudeScienceAssetName(tc.goos, tc.goarch); got != tc.want {
 			t.Errorf("claudeScienceAssetName(%s,%s) = %q, want %q", tc.goos, tc.goarch, got, tc.want)
 		}
-	}
-}
-
-// buildTarGz packs name=content as the sole entry, the shape every codex release asset uses.
-func buildTarGz(t *testing.T, name, content string) []byte {
-	t.Helper()
-	var tarBuf bytes.Buffer
-	tw := tar.NewWriter(&tarBuf)
-	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(content))}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tw.Write([]byte(content)); err != nil {
-		t.Fatal(err)
-	}
-	if err := tw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	var gzBuf bytes.Buffer
-	gw := gzip.NewWriter(&gzBuf)
-	if _, err := gw.Write(tarBuf.Bytes()); err != nil {
-		t.Fatal(err)
-	}
-	if err := gw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return gzBuf.Bytes()
-}
-
-func TestExtractTarGzSingleFile(t *testing.T) {
-	setupToolsTestEnv(t)
-	data := buildTarGz(t, "codex-x86_64-unknown-linux-musl", "fake-elf-bytes")
-	got, err := extractTarGzSingleFile(data)
-	if err != nil || string(got) != "fake-elf-bytes" {
-		t.Fatalf("extractTarGzSingleFile = %q %v", got, err)
-	}
-	if _, err := extractTarGzSingleFile([]byte("not gzip")); err == nil {
-		t.Error("garbage input must error")
-	}
-}
-
-func TestInstallCodexDryRunUsesAssetFromServer(t *testing.T) {
-	setupToolsTestEnv(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"tag_name":"rust-v9.9.9","assets":[
-			{"name":"codex-x86_64-unknown-linux-musl.tar.gz","browser_download_url":"http://unreachable.invalid/codex.tar.gz"}
-		]}`))
-	}))
-	defer srv.Close()
-	oldURL, oldGOOS, oldGOARCH := codexReleaseURL, goosOverride, goarchOverride
-	codexReleaseURL = srv.URL
-	goosOverride, goarchOverride = "linux", "amd64"
-	defer func() { codexReleaseURL, goosOverride, goarchOverride = oldURL, oldGOOS, oldGOARCH }()
-
-	var buf bytes.Buffer
-	if err := installCodex(context.Background(), &buf, localBinDir(), true); err != nil {
-		t.Fatalf("installCodex dry-run: %v", err)
-	}
-	out := buf.String()
-	if !strings.Contains(out, "rust-v9.9.9") || !strings.Contains(out, "codex-x86_64-unknown-linux-musl.tar.gz") {
-		t.Errorf("dry-run output missing resolved asset: %q", out)
-	}
-	if !strings.Contains(out, "dry-run") {
-		t.Errorf("dry-run output missing the dry-run marker: %q", out)
-	}
-}
-
-// TestInstallCodexDryRunNamesBinDirForNonBinDir pins the installCopilot pattern: a dir whose
-// basename isn't "bin" must be corrected to BinDir, never installed into as given.
-func TestInstallCodexDryRunNamesBinDirForNonBinDir(t *testing.T) {
-	setupToolsTestEnv(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"tag_name":"rust-v9.9.9","assets":[
-			{"name":"codex-x86_64-unknown-linux-musl.tar.gz","browser_download_url":"http://unreachable.invalid/codex.tar.gz"}
-		]}`))
-	}))
-	defer srv.Close()
-	oldURL, oldGOOS, oldGOARCH := codexReleaseURL, goosOverride, goarchOverride
-	codexReleaseURL = srv.URL
-	goosOverride, goarchOverride = "linux", "amd64"
-	defer func() { codexReleaseURL, goosOverride, goarchOverride = oldURL, oldGOOS, oldGOARCH }()
-
-	notBin := filepath.Join(t.TempDir(), "opt-homebrew-bin")
-	var out bytes.Buffer
-	if err := installCodex(context.Background(), &out, notBin, true); err != nil {
-		t.Fatalf("installCodex dry-run: %v", err)
-	}
-	if !strings.Contains(out.String(), paths.BinDir()) {
-		t.Errorf("dry-run output = %q, want it to name BinDir %s", out.String(), paths.BinDir())
-	}
-	if strings.Contains(out.String(), notBin) {
-		t.Errorf("dry-run output = %q, must not reference the non-BinDir dir %s", out.String(), notBin)
-	}
-}
-
-// TestInstallCodexInstallsBothBinariesIntoBinDir confirms codex and its companion land as real,
-// executable regular files in BinDir, even when called with a non-BinDir dir (PATH's own dir).
-func TestInstallCodexInstallsBothBinariesIntoBinDir(t *testing.T) {
-	setupToolsTestEnv(t)
-	codexTar := buildTarGz(t, "codex-x86_64-unknown-linux-musl", "fake-codex-elf")
-	hostTar := buildTarGz(t, "codex-code-mode-host-x86_64-unknown-linux-musl", "fake-host-elf")
-	assets := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "host") {
-			w.Write(hostTar)
-			return
-		}
-		w.Write(codexTar)
-	}))
-	defer assets.Close()
-
-	relSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, `{"tag_name":"rust-v9.9.9","assets":[
-			{"name":"codex-x86_64-unknown-linux-musl.tar.gz","browser_download_url":"%s/codex.tar.gz"},
-			{"name":"codex-code-mode-host-x86_64-unknown-linux-musl.tar.gz","browser_download_url":"%s/host.tar.gz"}
-		]}`, assets.URL, assets.URL)
-	}))
-	defer relSrv.Close()
-
-	oldURL, oldGOOS, oldGOARCH := codexReleaseURL, goosOverride, goarchOverride
-	codexReleaseURL = relSrv.URL
-	goosOverride, goarchOverride = "linux", "amd64"
-	defer func() { codexReleaseURL, goosOverride, goarchOverride = oldURL, oldGOOS, oldGOARCH }()
-
-	notBin := filepath.Join(t.TempDir(), "opt-homebrew-bin")
-	var out bytes.Buffer
-	if err := installCodex(context.Background(), &out, notBin, false); err != nil {
-		t.Fatalf("installCodex: %v", err)
-	}
-	for name, want := range map[string]string{"codex": "fake-codex-elf", "codex-code-mode-host": "fake-host-elf"} {
-		assertInstalledCodexBinary(t, name, want)
-	}
-	if _, err := os.Stat(filepath.Join(notBin, "codex")); !os.IsNotExist(err) {
-		t.Errorf("codex must not land in the non-BinDir dir %s", notBin)
-	}
-}
-
-func assertInstalledCodexBinary(t *testing.T, name, want string) {
-	t.Helper()
-	p := filepath.Join(paths.BinDir(), name)
-	got, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatalf("read %s: %v", p, err)
-	}
-	if string(got) != want {
-		t.Errorf("%s contents = %q, want %q", p, got, want)
-	}
-	info, err := os.Stat(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !info.Mode().IsRegular() {
-		t.Errorf("%s is not a regular file (mode %v)", p, info.Mode())
-	}
-	if info.Mode().Perm()&0o111 == 0 {
-		t.Errorf("%s not executable: mode %o", p, info.Mode().Perm())
 	}
 }
 
@@ -603,52 +407,5 @@ func TestInstallAgyDryRunPassesDir(t *testing.T) {
 	}
 	if want := agyInstallScriptURL + " [--dir " + localBinDir() + "]"; !strings.Contains(buf.String(), want) {
 		t.Errorf("output = %q, want %q", buf.String(), want)
-	}
-}
-
-func TestInstallTailscaleDryRunPerOS(t *testing.T) {
-	setupToolsTestEnv(t)
-	old := goosOverride
-	t.Cleanup(func() { goosOverride = old })
-	for goos, want := range map[string]string{
-		"darwin": "brew install --cask tailscale-app",
-		"linux":  tailscaleInstallScript,
-	} {
-		goosOverride = goos
-		var buf bytes.Buffer
-		if err := installTailscale(context.Background(), &buf, t.TempDir(), true); err != nil {
-			t.Fatalf("%s: %v", goos, err)
-		}
-		if !strings.Contains(buf.String(), want) {
-			t.Errorf("%s output = %q, want %q", goos, buf.String(), want)
-		}
-	}
-	goosOverride = "windows"
-	if err := installTailscale(context.Background(), &bytes.Buffer{}, "", true); err == nil || !strings.Contains(err.Error(), "tailscale.com/download") {
-		t.Errorf("windows err = %v, want download URL", err)
-	}
-}
-
-// The macOS app puts no tailscale on PATH: the wrapper must run the app's CLI with the caller's args, and an existing file is kept.
-func TestLinkTailscaleCLIWrapsAppBinary(t *testing.T) {
-	setupToolsTestEnv(t)
-	app := filepath.Join(t.TempDir(), "Tailscale")
-	if err := os.WriteFile(app, []byte("#!/bin/sh\necho app \"$@\"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	old := tailscaleAppBin
-	tailscaleAppBin = app
-	t.Cleanup(func() { tailscaleAppBin = old })
-	if err := linkTailscaleCLI(&bytes.Buffer{}, false); err != nil {
-		t.Fatal(err)
-	}
-	dst := filepath.Join(localBinDir(), "tailscale")
-	out, err := exec.Command(dst, "status", "--json").Output()
-	if err != nil || string(out) != "app status --json\n" {
-		t.Fatalf("wrapper ran %q err=%v, want the app CLI with the args", out, err)
-	}
-	var buf bytes.Buffer
-	if err := linkTailscaleCLI(&buf, false); err != nil || !strings.Contains(buf.String(), "keep") {
-		t.Fatalf("second run = %q err=%v, want keep", buf.String(), err)
 	}
 }

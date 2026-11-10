@@ -1,8 +1,9 @@
 package ask
 
 import (
-	"context"
 	"encoding/json"
+	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,18 +11,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hosttest"
-
-	"github.com/edotau/claude-code/internal/agent/job"
-
-	"github.com/edotau/claude-code/internal/agent/wire"
-
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/client"
+	"github.com/edotau/claude-code/internal/agent/job"
+	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/gemini"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 type askRetryCase struct {
@@ -270,37 +272,6 @@ func TestCmdAskJobLogEachLineOnce(t *testing.T) {
 	}
 	if strings.Contains(got, `{"event"`) {
 		t.Errorf("log holds raw NDJSON:\n%s", got)
-	}
-}
-
-// A batch task's own profile reaches the request and resolves to one dispatch, under the default --fallback all.
-func TestBatchTaskProfileIsOneDispatch(t *testing.T) {
-	profileFixture(t, "")
-	line := ParsedLine{N: 1, Task: TaskLine{Prompt: "p", Profile: "acme"}}
-	bt, err := BuildTask(line, Opts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, NewClient)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bt.Req.Provider != "acme" {
-		t.Fatalf("task request provider = %q, want acme", bt.Req.Provider)
-	}
-	p, err := bt.Prepare(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("PATH", t.TempDir())
-	res, err := NewClient().Exec(context.Background(), p, nil, job.RunRecordedOpts{})
-	if err == nil || len(res.Hops) != 1 {
-		t.Fatalf("Exec: %d hops, err %v; want one unavailable dispatch", len(res.Hops), err)
-	}
-	bad := ParsedLine{N: 2, Task: TaskLine{Prompt: "p", Profile: "no-such-profile"}}
-	bt, err = BuildTask(bad, Opts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, NewClient)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := bt.Prepare(context.Background()); err == nil {
-		t.Error("unknown batch profile prepared a chain, want an error before any run")
 	}
 }
 
@@ -770,43 +741,6 @@ func TestAskStdinFramedCancelsOnEOF(t *testing.T) {
 	}
 }
 
-// Given pack flags that cannot work together or alone, askPack refuses each; valid ones build the spec the request carries.
-func TestAskPackFlagCombos(t *testing.T) {
-	refused := []struct {
-		name string
-		args []string
-		want string
-	}{
-		{"index alone", []string{"--index"}, "--index needs"},
-		{"max-files alone", []string{"--max-files", "3"}, "--max-files needs"},
-		{"max-file-bytes alone", []string{"--max-file-bytes", "9"}, "--max-file-bytes needs"},
-		{"negative max-files", []string{"--dirs", ".", "--max-files", "-1"}, "negative"},
-		{"batch", []string{"--dirs", ".", "--batch", "-"}, "--batch"},
-		{"live", []string{"--files", "*.go", "--live"}, "--live"},
-		{"host", []string{"--diff", "--host", "box"}, "--host"},
-	}
-	for _, tt := range refused {
-		t.Run(tt.name, func(t *testing.T) {
-			fs, f := askFlagSet()
-			if err := fs.Parse(tt.args); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := askPack(fs, f); err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("askPack(%v) = %v, want an error containing %q", tt.args, err, tt.want)
-			}
-		})
-	}
-	fs, f := askFlagSet()
-	if err := fs.Parse([]string{"--dirs", "a,b", "--index", "--max-files", "0", "--diff"}); err != nil {
-		t.Fatal(err)
-	}
-	f.pack, _ = askPack(fs, f)
-	req := (&askRun{f: f}).request("task")
-	if p := req.Pack; p == nil || len(p.Dirs) != 2 || !p.Diff || !p.Index || !p.IndexOnly {
-		t.Fatalf("request.Pack = %+v, want dirs a,b + diff + index + index-only", p)
-	}
-}
-
 func TestCmdAskPackFlagExitsTwo(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -814,5 +748,484 @@ func TestCmdAskPackFlagExitsTwo(t *testing.T) {
 	t.Setenv("PATH", dir)
 	if code, _, _ := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--index", "x"}) }); code != 2 {
 		t.Fatalf("exit = %d, want 2", code)
+	}
+}
+
+// TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
+func TestMain(m *testing.M) {
+	agent.NoticeOut = io.Discard
+	agent.StubProxyForTest("http://127.0.0.1:9999", "rtr-secret-test") // the batch/envelope tests reach the proxy
+	agentconfig.SetCatalogWarn(io.Discard)
+	cleanup := hosttest.Setup()
+	worktree.StubProcessScanForTest()
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
+}
+
+// D1: a named --profile leads with the ladder unless --fallback none pins it to one hop.
+func TestResolveLeadNamedProfileLeads(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"qa":{"preset":"databricks",`+
+		`"host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
+	cases := []struct {
+		args               []string
+		wantLead, wantProv string
+	}{
+		{[]string{"--profile", "qa"}, "qa", ""},
+		{[]string{"--profile", "qa", "--fallback", "agents"}, "qa", ""},
+		{[]string{"--profile", "qa", "--fallback", "none"}, "", "qa"},
+	}
+	for _, c := range cases {
+		fs, f := askFlagSet()
+		if err := fs.Parse(c.args); err != nil {
+			t.Fatal(err)
+		}
+		r := &askRun{fs: fs, f: f, ag: "codex"}
+		if code, done := r.resolveLead(); done {
+			t.Fatalf("%v: resolveLead exit %d", c.args, code)
+		}
+		if r.lead != c.wantLead || f.provider != c.wantProv {
+			t.Errorf("%v: lead %q profile %q, want lead %q profile %q", c.args, r.lead, f.provider, c.wantLead, c.wantProv)
+		}
+	}
+}
+
+// personaFixture writes agents/tester.md and other.md under a temp config dir with no agent binary on PATH.
+func personaFixture(t *testing.T) (other string) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("HOME", dir)
+	t.Setenv("PATH", dir) // no agent binary: the run fails after the record is saved
+	if err := os.MkdirAll(filepath.Join(dir, "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	def := "---\nname: tester\ndescription: Tests things\ntools: Read, Grep\nmodel: sonnet\n---\nYou test.\n"
+	if err := os.WriteFile(filepath.Join(dir, "agents", "tester.md"), []byte(def), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	other = filepath.Join(dir, "other.md")
+	if err := os.WriteFile(other, []byte("---\ndescription: By path\n---\nYou are by path.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return other
+}
+
+// askLoggedRequest runs Cmd against the missing agent binary and returns the request it logged.
+func askLoggedRequest(t *testing.T, args ...string) agent.RunOptions {
+	t.Helper()
+	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(args) }); code != 1 {
+		t.Fatalf("exit = %d, want 1 for unavailable agent; stderr=%s", code, stderr)
+	}
+	return job.RecentRecords(1)[0].Request
+}
+
+func assertTesterPersona(t *testing.T, p *agent.Schema) {
+	t.Helper()
+	if p == nil || p.Name != "tester" || p.Description != "Tests things" || p.Prompt != "You test." || p.Model != "sonnet" ||
+		len(p.Tools) != 2 || p.Tools[0] != "Read" {
+		t.Fatalf("named persona = %+v", p)
+	}
+}
+
+// --agent vendor:persona loads agents/<name>.md or a path into the logged request, and --retry replays it without the flag.
+func TestAskPersonaLoadsAndRetryKeepsIt(t *testing.T) {
+	other := personaFixture(t)
+	ask := func(args ...string) agent.RunOptions { return askLoggedRequest(t, args...) }
+	base := []string{"--fallback", "none", "--format", "json"}
+	p := ask(append(base, "--agent", "claude:tester", "go")...).Persona
+	assertTesterPersona(t, p)
+	if p := ask(append(base, "--agent", "claude:"+other, "go")...).Persona; p == nil || p.Name != "other" || p.Prompt != "You are by path." {
+		t.Fatalf("path persona = %+v", p)
+	}
+	rec := job.NewRecord("claude", agent.RunOptions{Prompt: "again", Persona: p}, time.Now().Add(-time.Hour))
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if got := ask(append(base, "--retry", rec.ID)...).Persona; got == nil || got.Name != "tester" {
+		t.Fatalf("retry persona = %+v, want tester", got)
+	}
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(append(base, "--agent", "claude:nope", "go")) })
+	if code != 2 || stderr == "" {
+		t.Fatalf("unknown persona: exit %d stderr %q, want 2 with a message", code, stderr)
+	}
+}
+
+// --as is checked against the resolved agent: a claude persona passes, any other agent exits 2.
+func TestAskAsChecksResolvedAgent(t *testing.T) {
+	personaFixture(t)
+	base := []string{"--fallback", "none", "--format", "json", "--as", "sp"}
+	run := func(sel string) (int, string) {
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(append(append([]string{}, base...), "--agent", sel, "go")) })
+		return code, stderr
+	}
+	if code, stderr := run("claude:tester"); code != 1 || strings.Contains(stderr, "applies to claude only") {
+		t.Errorf("claude persona: exit %d stderr %q, want 1 (agent unavailable) with --as accepted", code, stderr)
+	}
+	for _, sel := range []string{"codex", "codex:tester"} {
+		if code, stderr := run(sel); code != 2 || !strings.Contains(stderr, "applies to claude only") {
+			t.Errorf("--agent %s --as sp: exit %d stderr %q, want 2 with \"applies to claude only\"", sel, code, stderr)
+		}
+	}
+}
+
+func TestAskRunRetryAgents(t *testing.T) {
+	r := &askRun{f: &askFlags{retryAgent: " codex, ,opencode,"}}
+	got, err := r.retryAgents()
+	if err != nil || strings.Join(got, ",") != "codex,opencode" {
+		t.Errorf("retryAgents = %v, %v, want codex,opencode", got, err)
+	}
+	r.f.retryAgent = "codex,nope-agent"
+	if _, err := r.retryAgents(); err == nil || !strings.Contains(err.Error(), "nope-agent") {
+		t.Errorf("unknown agent error = %v, want it to name nope-agent", err)
+	}
+}
+
+func TestBatchFollowFlagErrors(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{"follow", []string{"--follow", "hi"}, "--follow needs --batch"},
+		{"follow-idle", []string{"--follow-idle", "5s", "hi"}, "--follow-idle needs --batch"},
+		{"retry-agent", []string{"--retry-agent", "codex", "hi"}, "--retry-agent needs --batch"},
+		{"follow on stdin", []string{"--batch", "-", "--follow"}, "stdin cannot be followed"},
+		{"unknown retry agent", []string{"--batch", "-", "--retry-agent", "nope-agent"}, "nope-agent"},
+		{"text format", []string{"--batch", "-", "--format", "text"}, "--batch always prints JSON"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cliEnv(t)
+			code, out, stderr := runCLI(t, append([]string{"ask"}, c.argv...)...)
+			if code != 2 || !strings.Contains(out+stderr, c.want) {
+				t.Errorf("exit %d, output %q, want exit 2 naming %q", code, out+stderr, c.want)
+			}
+		})
+	}
+}
+
+// runCLI runs `claude-code agents ask <argv>` in-process (argv[0] must be "ask") and returns exit code, stdout and stderr.
+func runCLI(t *testing.T, argv ...string) (int, string, string) {
+	t.Helper()
+	outR, outW, _ := os.Pipe()
+	errR, errW, _ := os.Pipe()
+	oldOut, oldErr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = outW, errW
+	code := Cmd(argv[1:])
+	os.Stdout, os.Stderr = oldOut, oldErr
+	outW.Close()
+	errW.Close()
+	o, _ := io.ReadAll(outR)
+	e, _ := io.ReadAll(errR)
+	return code, string(o), string(e)
+}
+
+// cliEnv is a hermetic config dir + HOME with the agy login marker, so every fake CLI looks logged in.
+func cliEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("OPENCODE_API_KEY", "test-key") // an own-login route for opencode
+	for name, profile := range map[string]string{"codex": "chatgpt", "gemini": "antigravity", "opencode": "nvidia"} {
+		if err := vault.SetAgentRecord(name, vault.AgentRecord{Profile: profile}); err != nil { // an external agent with no profile is off
+			t.Fatal(err)
+		}
+	}
+	marker := gemini.AgyLoginMarker(home)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// cliFakes installs a stand-in child per CLI agent (copilot rides the SDK and is covered in copilot_gate_test.go).
+func cliFakes(t *testing.T) {
+	t.Helper()
+	pathstest.FakeVendor(t, "claude", "cat > /dev/null; sleep 0.05\n"+
+		`printf '%s\n' '{"type":"system","subtype":"init","session_id":"sc","model":"fake-claude"}'`+"\n"+
+		`printf '%s\n' '{"type":"assistant","message":{"model":"fake-claude","content":[{"type":"text","text":"hello"}]}}'`+"\n"+
+		`printf '%s\n' '{"type":"result","result":"hello","usage":{"input_tokens":3,"output_tokens":2}}'`)
+	pathstest.FakeVendor(t, "codex", `[ "$1" = login ] && { echo "Logged in using ChatGPT"; exit 0; }`+"\n"+"cat > /dev/null; sleep 0.05; echo hello")
+	pathstest.FakeVendor(t, "agy", "cat > /dev/null; sleep 0.05\n"+
+		`printf '%s\n' '{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"hello"}}'`+"\n"+
+		`printf '%s\n' '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"hello","num_turns":1,"usage":{"input_tokens":3,"output_tokens":2}}}'`)
+	pathstest.FakeVendor(t, "opencode", "sleep 0.05\n"+
+		`printf '%s\n' '{"type":"text","sessionID":"so","part":{"text":"hello"}}'`+"\n"+
+		`printf '%s\n' '{"type":"step_finish","sessionID":"so","part":{"tokens":{"Input":3,"Output":2}}}'`)
+}
+
+// cliMarker is a fake child that records its invocation (never a `login` probe) by touching a file.
+func cliMarker(t *testing.T, vendor, body string) string {
+	t.Helper()
+	marker := filepath.Join(t.TempDir(), vendor+".ran")
+	pathstest.FakeVendor(t, vendor, `[ "$1" = login ] && { echo "Logged in using ChatGPT"; exit 0; }`+"\n"+
+		"touch "+marker+"\n"+body)
+	return marker
+}
+
+var profileFor = map[string]string{"claude": "", "codex": "chatgpt", "gemini": "", "opencode": ""}
+
+func decodeEnvelope(t *testing.T, out string) map[string]any {
+	t.Helper()
+	var env map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &env); err != nil {
+		t.Fatalf("stdout is not one JSON envelope: %v\n%s", err, out)
+	}
+	return env
+}
+
+// Every agent's --format json success emits the one standard envelope.
+func TestEnvelopeContractSuccess(t *testing.T) {
+	noUsage := map[string]bool{"codex": true}
+	for _, name := range []string{"claude", "codex", "gemini", "opencode"} {
+		t.Run(name, func(t *testing.T) {
+			cliEnv(t)
+			cliFakes(t)
+			code, out, stderr := runCLI(t, "ask", "--agent", name, "--profile", profileFor[name], "--fallback", "none", "--native", "--format", "json", "say hello")
+			if code != 0 {
+				t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
+			}
+			env := decodeEnvelope(t, out)
+			checkSuccessEnvelopeFields(t, env, name)
+			checkSuccessEnvelopeUsage(t, env, name, noUsage[name])
+		})
+	}
+}
+
+func checkSuccessEnvelopeFields(t *testing.T, env map[string]any, name string) {
+	t.Helper()
+	if env["schema"] != float64(1) {
+		t.Errorf("schema = %v, want 1", env["schema"])
+	}
+	if env["status"] != "ok" {
+		t.Errorf("status = %v, want ok", env["status"])
+	}
+	if env["agent"] != name {
+		t.Errorf("agent = %v, want %s", env["agent"], name)
+	}
+	// opencode on its own login picks its own model and reports none; the key must still be present.
+	if m, ok := env["model"].(string); !ok || (m == "" && name != "opencode") {
+		t.Errorf("model = %v, want non-empty", env["model"])
+	}
+	if id, _ := env["dispatch_id"].(string); id == "" {
+		t.Errorf("dispatch_id = %v, want non-empty", env["dispatch_id"])
+	}
+}
+
+func checkSuccessEnvelopeUsage(t *testing.T, env map[string]any, name string, noUsage bool) {
+	t.Helper()
+	if v, ok := env["fallback"]; !ok || v != nil {
+		t.Errorf("fallback = %v (present=%v), want explicit null", v, ok)
+	}
+	if d, _ := env["duration_ms"].(float64); d <= 0 {
+		t.Errorf("duration_ms = %v, want > 0", env["duration_ms"])
+	}
+	if noUsage {
+		if v, ok := env["usage"]; !ok || v != nil {
+			t.Errorf("usage = %v (present=%v), want explicit null: %s reports none", v, ok, name)
+		}
+	} else if _, ok := env["usage"].(map[string]any); !ok {
+		t.Errorf("usage = %v, want an object", env["usage"])
+	}
+}
+
+// A resume whose launch fails returns an error and never runs another agent's engine.
+func TestResumeNeverFallsBack(t *testing.T) {
+	cliEnv(t)
+	codexRan := cliMarker(t, "codex", "echo 'codex: boom' >&2; exit 1")
+	others := map[string]string{
+		"claude":   cliMarker(t, "claude", "exit 1"),
+		"agy":      cliMarker(t, "agy", "exit 1"),
+		"opencode": cliMarker(t, "opencode", "exit 1"),
+	}
+	code, out, stderr := runCLI(t, "ask", "--agent", "codex", "--session", "sess-1", "continue please")
+	if code == 0 {
+		t.Errorf("exit = 0, want non-zero: the resumed session's launch failed\nstdout: %s", out)
+	}
+	if _, err := os.Stat(codexRan); err != nil {
+		t.Fatalf("the codex agent was never reached (%v); the test proves nothing\nstderr: %s", err, stderr)
+	}
+	for name, marker := range others {
+		if _, err := os.Stat(marker); err == nil {
+			t.Errorf("resume fell back and ran %s; a session belongs to one agent\nstderr: %s", name, stderr)
+		}
+	}
+}
+
+// --profile given to resume reaches the agent's target resolution instead of being dropped.
+func TestResumeForwardsProfile(t *testing.T) {
+	cliEnv(t)
+	cliMarker(t, "codex", "echo ok")
+	code, out, stderr := runCLI(t, "ask", "--agent", "codex", "--session", "sess-1", "--profile", "no-such-profile", "continue")
+	if code == 0 {
+		t.Errorf("exit = 0, want non-zero for an unknown --profile\nstdout: %s", out)
+	}
+	if !strings.Contains(stderr+out, "no-such-profile") {
+		t.Errorf("output never names the --profile given to resume:\nstdout: %s\nstderr: %s", out, stderr)
+	}
+}
+
+// Every usage failure in --format json mode prints one parseable error envelope and keeps its exit code.
+func TestJSONModeFailuresPrintEnvelope(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+		code int
+	}{
+		{"conflicting tools flags", []string{"ask", "--format", "json", "--tools", "--no-tools", "hi"}, 1},
+		{"invalid fallback", []string{"ask", "--format", "json", "--fallback", "bogus", "hi"}, 1},
+		{"missing prompt", []string{"ask", "--format", "json"}, 2},
+		{"retry of unknown id", []string{"ask", "--format", "json", "--retry", "no-such-id"}, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cliEnv(t)
+			cliFakes(t)
+			code, out, stderr := runCLI(t, c.argv...)
+			if code == 0 {
+				t.Fatalf("exit = 0, want a failure\nstdout: %s", out)
+			}
+			if c.code == 2 && code != 2 {
+				t.Errorf("exit = %d, want 2\nstderr: %s", code, stderr)
+			}
+			env := decodeEnvelope(t, out)
+			if env["status"] != "error" {
+				t.Errorf("status = %v, want error: %s", env["status"], out)
+			}
+			e, ok := env["error"].(map[string]any)
+			if !ok || e["message"] == "" {
+				t.Fatalf("error = %#v, want {kind,message}", env["error"])
+			}
+			if c.name != "retry of unknown id" && e["kind"] != "usage" {
+				t.Errorf("error.kind = %v, want usage", e["kind"])
+			}
+		})
+	}
+}
+
+// An unknown --profile is a caller error: all five agents report an error envelope of kind usage, not fatal.
+func TestUnknownProfileErrorEnvelopeIsUsageKindForAllAgents(t *testing.T) {
+	for _, name := range []string{"claude", "codex", "copilot", "gemini", "opencode"} {
+		t.Run(name, func(t *testing.T) {
+			cliEnv(t)
+			cliFakes(t)
+			code, out, stderr := runCLI(t, "ask", "--agent", name, "--profile", "nosuch", "--fallback", "none", "--format", "json", "x")
+			if code != 1 {
+				t.Errorf("exit = %d, want 1\nstderr: %s", code, stderr)
+			}
+			env := decodeEnvelope(t, out)
+			if env["status"] != "error" {
+				t.Errorf("status = %v, want error", env["status"])
+			}
+			e, _ := env["error"].(map[string]any)
+			if e["kind"] != "usage" {
+				t.Errorf("error.kind = %v, want usage: %s", e["kind"], out)
+			}
+			if m, _ := e["message"].(string); m == "" {
+				t.Errorf("error.message = %v, want non-empty", e["message"])
+			}
+		})
+	}
+}
+
+// --batch validates --provider like a single ask does: an unknown provider exits 2 before any task runs.
+func TestBatchRejectsUnknownProvider(t *testing.T) {
+	cliEnv(t)
+	cliFakes(t)
+	file := batchFile(t, taskLine(t, map[string]any{"id": "a", "agent": "claude", "prompt": "one", "workdir": t.TempDir(), "tools": true}))
+	code, out, stderr := runCLI(t, "ask", "--batch", file, "--provider", "nonexistent")
+	if code != 2 || !strings.Contains(stderr, "nonexistent") || strings.TrimSpace(out) != "" {
+		t.Fatalf("exit %d, want 2 naming the provider with no envelopes\nstdout: %s\nstderr: %s", code, out, stderr)
+	}
+}
+
+func TestAskJSONStdoutFailureExitsNonzero(t *testing.T) {
+	cliEnv(t)
+	cliFakes(t)
+	args := []string{"--agent", "claude", "--fallback", "none", "--format", "json", "say hello"}
+	if code, out := captureAskStdout(t, args...); code != 0 {
+		t.Fatalf("healthy stdout: exit %d, output %q", code, out)
+	}
+	full, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
+	if os.IsNotExist(err) {
+		t.Skip("/dev/full is unavailable")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := full.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
+		previous := os.Stdout
+		os.Stdout = full
+		defer func() { os.Stdout = previous }()
+		return Cmd(args)
+	})
+	if code != 1 || !strings.Contains(stderr, "no space left on device") {
+		t.Fatalf("full stdout: exit %d, stderr %q; want exit 1 reporting the write error", code, stderr)
+	}
+	if records := job.RecentRecords(1); len(records) != 1 || records[0].Status != "ok" {
+		t.Fatalf("dispatch must succeed independently of stdout: %+v", records)
+	}
+}
+
+// Given a background spawn that fails (the test binary is never relaunched), Then the saved record leaves running.
+func TestAskSpawnFailureFinishesRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := job.ClaimRecord("claude", agent.RunOptions{}, time.Now())
+	if code := askSpawn(flag.NewFlagSet("ask", flag.ContinueOnError), &client.Prepared{Record: rec}, false, helptext.Text, "claude"); code != 1 {
+		t.Fatalf("askSpawn = %d, want 1", code)
+	}
+	got, err := job.LoadRecord(rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "error" || got.Error == "" {
+		t.Errorf("record = %q/%q, want error with the cause", got.Status, got.Error)
+	}
+}
+
+func TestAskRetryPreservesRecordedLead(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := job.NewRecord("claude", agent.RunOptions{Prompt: "say ok", Lead: "recorded-profile"}, time.Now())
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, flag, wantLead, wantRoute string
+	}{
+		{"recorded lead", "", "recorded-profile", ""},
+		{"profile override", "--profile", "", "replacement-profile"},
+		{"provider override", "--provider", "", "replacement-profile"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := []string{"--retry", rec.ID}
+			if tc.flag != "" {
+				args = append(args, tc.flag, "replacement-profile")
+			}
+			fs, f := askFlagSet()
+			if err := fs.Parse(args); err != nil {
+				t.Fatal(err)
+			}
+			r := &askRun{fs: fs, f: f}
+			if code, done := loadAskRetry(fs, args, f.retry, f.format, r.askState(), &r.prompt); done || code != 0 {
+				t.Fatalf("loadAskRetry = %d, %v", code, done)
+			}
+			if got := r.request(r.prompt); got.Lead != tc.wantLead {
+				t.Fatalf("replayed lead = %q, want %q", got.Lead, tc.wantLead)
+			}
+			if got := f.provider + f.leadProvider; got != tc.wantRoute {
+				t.Fatalf("explicit route = %q, want %q", got, tc.wantRoute)
+			}
+		})
 	}
 }

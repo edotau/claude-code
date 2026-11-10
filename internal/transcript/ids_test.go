@@ -64,3 +64,19 @@ func joinLines(lines []string) string {
 	s += sSb59.String()
 	return s
 }
+
+// (5) transcript.DispatchIDs greps every "ask: dispatch <id>" exit line out of a relay transcript, deduped, in
+// the order they first appear.
+func TestDispatchIDsExtraction(t *testing.T) {
+	path := filepath.Join("testdata", "dispatch_relay.jsonl")
+	ids := DispatchIDs(path)
+	want := []string{"20261017T231131.948-codex", "20261018T095401.709-gemini", "20261018T150000.000-codex"}
+	if len(ids) != len(want) {
+		t.Fatalf("DispatchIDs = %v, want %v", ids, want)
+	}
+	for i := range want {
+		if ids[i] != want[i] {
+			t.Errorf("ids[%d] = %q, want %q", i, ids[i], want[i])
+		}
+	}
+}

@@ -103,3 +103,40 @@ func TestReapReportsRemovalFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestDropDispatchSessionsKeepsConflictingSessionID(t *testing.T) {
+	start := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	dispatch := Dispatch{
+		Agent: "claude", sessionID: "session-a", cwd: "/repo",
+		started: start, prompt: "Summarize the retry logic",
+	}
+	sessions := []Session{
+		{ID: "session-a", Cwd: dispatch.cwd, Title: dispatch.prompt, Updated: start.Add(time.Minute)},
+		{ID: "session-b", Cwd: dispatch.cwd, Title: dispatch.prompt, Updated: start.Add(time.Minute)},
+	}
+	got := dropDispatchSessions(sessions, []Dispatch{dispatch})
+	if len(got) != 1 || got[0].ID != "session-b" {
+		t.Fatalf("sessions = %+v, want unrelated session-b retained despite matching title", got)
+	}
+}
+
+func TestReapReportsMarkerDirectoryStatFailure(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := inflight.Dir()
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Base(dir), dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); err == nil || os.IsNotExist(err) {
+		t.Fatalf("stat self-referential marker directory = %v, want non-missing error", err)
+	}
+	var out, errw bytes.Buffer
+	if code := Reap(false, &out, &errw); code != 1 {
+		t.Fatalf("Reap = %d, want 1 for marker directory stat failure; stdout=%q stderr=%q", code, &out, &errw)
+	}
+	if !strings.Contains(errw.String(), "marker dir:") {
+		t.Fatalf("stderr = %q, want marker directory error", &errw)
+	}
+}

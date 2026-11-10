@@ -7,22 +7,27 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/job"
-
-	"github.com/edotau/claude-code/internal/agent/client"
-
-	"github.com/edotau/claude-code/internal/agent/wire"
-
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/client"
+	"github.com/edotau/claude-code/internal/agent/job"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	_ "github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // vendorHost isolates the config dir, seeds a provider and installs a fake opencode that fails on a FAILME prompt.
@@ -367,4 +372,537 @@ func TestRunWithoutHooks(t *testing.T) {
 		len(got["b"]) != 1 || got["b"][0].Status != wire.StatusOK {
 		t.Errorf("envelopes = %+v, want a failed once without retry and b ok", got)
 	}
+}
+
+// runRetryBatch runs tasks with one job and returns the ok flag and the decoded envelopes by task id.
+func runRetryBatch(t *testing.T, o PoolOptions, tasks ...Task) (bool, map[string][]wire.Envelope) {
+	t.Helper()
+	var buf bytes.Buffer
+	o.Out, o.ID, o.Jobs = &buf, "batch-r", 1
+	ok := RunTasks(t.Context(), tasks, o)
+	byID := map[string][]wire.Envelope{}
+	for _, env := range decodePoolEnvelopes(t, &buf) {
+		byID[env.TaskID] = append(byID[env.TaskID], env)
+	}
+	return ok, byID
+}
+
+// A real failure is retried once under the same task id: one envelope, the retry's, both attempts in hops.
+func TestRetryAfterFailureEmitsOneEnvelope(t *testing.T) {
+	vendorHost(t)
+	var prep, again atomic.Int32
+	_, got := runRetryBatch(t, PoolOptions{}, vendorTask(t, "a", "Phase 1.1", "FAILME", "ok", &prep, &again))
+	if len(got["a"]) != 1 || got["a"][0].Status != wire.StatusOK || len(got["a"][0].Hops) < 2 {
+		t.Fatalf("envelopes for a = %+v, want one ok envelope with >= 2 hops", got["a"])
+	}
+	if prep.Load() != 1 || again.Load() != 1 {
+		t.Errorf("prepare/retry calls = %d/%d, want 1/1", prep.Load(), again.Load())
+	}
+	var recs int
+	for _, r := range job.RecentRecords(10) {
+		recs++
+		if r.TaskID != "a" || r.BatchID != "batch-r" || r.PlanTask != "Phase 1.1" {
+			t.Errorf("record %s = task %q batch %q plan %q", r.ID, r.TaskID, r.BatchID, r.PlanTask)
+		}
+	}
+	if recs != 2 {
+		t.Errorf("%d dispatch records, want 2 (first attempt and retry)", recs)
+	}
+}
+
+// A retry that fails too is the task's one envelope, and the task never runs a third time.
+func TestRetryAlsoFailsEmitsRetryError(t *testing.T) {
+	vendorHost(t)
+	var prep, again atomic.Int32
+	ok, got := runRetryBatch(t, PoolOptions{}, vendorTask(t, "a", "", "FAILME", "FAILME", &prep, &again))
+	if ok || len(got["a"]) != 1 || got["a"][0].Status != wire.StatusError || len(got["a"][0].Hops) != 2 {
+		t.Fatalf("ok=%v envelopes for a = %+v, want one error envelope with 2 hops", ok, got["a"])
+	}
+	if prep.Load() != 1 || again.Load() != 1 {
+		t.Errorf("prepare/retry calls = %d/%d, want 1/1", prep.Load(), again.Load())
+	}
+}
+
+// With one slot a retried task keeps its slot: later tasks still run and the batch ends.
+func TestRetryJobsOneKeepsSlotAccounting(t *testing.T) {
+	vendorHost(t)
+	var n, again atomic.Int32
+	done := make(chan map[string][]wire.Envelope, 1)
+	go func() {
+		_, got := runRetryBatch(t, PoolOptions{},
+			vendorTask(t, "a", "", "FAILME", "ok", &n, &again),
+			vendorTask(t, "b", "", "ok", "", &n, &n),
+			vendorTask(t, "c", "", "ok", "", &n, &n))
+		done <- got
+	}()
+	select {
+	case got := <-done:
+		for _, id := range []string{"a", "b", "c"} {
+			if len(got[id]) != 1 || got[id][0].Status != wire.StatusOK {
+				t.Errorf("task %s envelopes = %+v, want one ok", id, got[id])
+			}
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("batch deadlocked: a retried task leaked its slot")
+	}
+}
+
+// No retry without a dispatch (no hops), after a prepare error, after cancellation, or under FailFast.
+func TestRetrySkippedWhenNotRealFailure(t *testing.T) {
+	vendorHost(t)
+	var retried atomic.Int32
+	retry := func(context.Context) (*client.Prepared, error) { retried.Add(1); return nil, errors.New("retry ran") }
+	noHops := func(context.Context) (*client.Prepared, error) {
+		return &client.Prepared{Record: job.NewRecord("opencode", agent.RunOptions{}, time.Now())}, nil
+	}
+	badPrep := func(context.Context) (*client.Prepared, error) { return nil, errors.New("prepare failed") }
+	runRetryBatch(t, PoolOptions{},
+		Task{ID: "h", Agent: "opencode", Prepare: noHops, Retry: retry},
+		Task{ID: "p", Agent: "opencode", Prepare: badPrep, Retry: retry})
+	if retried.Load() != 0 {
+		t.Errorf("Retry ran %d times for a no-hop failure and a prepare error, want 0", retried.Load())
+	}
+	var prep, again atomic.Int32
+	_, got := runRetryBatch(t, PoolOptions{FailFast: true},
+		vendorTask(t, "a", "", "FAILME", "ok", &prep, &again), vendorTask(t, "b", "", "ok", "", &prep, &prep))
+	if again.Load() != 0 || len(got["a"]) != 1 || got["a"][0].Status != wire.StatusError {
+		t.Errorf("FailFast: retry calls %d, a envelopes %+v, want 0 retries and a's own error", again.Load(), got["a"])
+	}
+}
+
+// A batch cancelled while the first attempt runs does not start the retry.
+func TestRetrySkippedWhenCancelled(t *testing.T) {
+	vendorHost(t)
+	var prep, again atomic.Int32
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	task := vendorTask(t, "a", "", "FAILME", "ok", &prep, &again)
+	inner := task.Prepare
+	task.Prepare = func(c context.Context) (*client.Prepared, error) {
+		p, err := inner(c)
+		cancel()
+		return p, err
+	}
+	var buf bytes.Buffer
+	RunTasks(ctx, []Task{task}, PoolOptions{ID: "batch-c", Jobs: 1, Out: &buf})
+	if again.Load() != 0 || len(decodePoolEnvelopes(t, &buf)) != 1 {
+		t.Errorf("retry calls = %d, want 0 and one envelope", again.Load())
+	}
+}
+
+// A batch task's own profile reaches the request and resolves to one dispatch, under the default --fallback all.
+func TestBatchTaskProfileIsOneDispatch(t *testing.T) {
+	profileFixture(t, "")
+	line := ParsedLine{N: 1, Task: TaskLine{Prompt: "p", Profile: "acme"}}
+	bt, err := BuildTask(line, Opts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, NewClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bt.Req.Provider != "acme" {
+		t.Fatalf("task request provider = %q, want acme", bt.Req.Provider)
+	}
+	p, err := bt.Prepare(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	res, err := NewClient().Exec(context.Background(), p, nil, job.RunRecordedOpts{})
+	if err == nil || len(res.Hops) != 1 {
+		t.Fatalf("Exec: %d hops, err %v; want one unavailable dispatch", len(res.Hops), err)
+	}
+	bad := ParsedLine{N: 2, Task: TaskLine{Prompt: "p", Profile: "no-such-profile"}}
+	bt, err = BuildTask(bad, Opts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, NewClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bt.Prepare(context.Background()); err == nil {
+		t.Error("unknown batch profile prepared a chain, want an error before any run")
+	}
+}
+
+// batchFile writes one JSONL task per line and returns the path.
+func batchFile(t *testing.T, lines ...string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "tasks.jsonl")
+	if err := os.WriteFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// envelopes decodes one envelope per non-empty stdout line.
+func envelopes(t *testing.T, out string) []map[string]any {
+	t.Helper()
+	var all []map[string]any
+	for ln := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		if ln == "" {
+			continue
+		}
+		var e map[string]any
+		if err := json.Unmarshal([]byte(ln), &e); err != nil {
+			t.Fatalf("stdout line is not an envelope: %v\n%s", err, ln)
+		}
+		all = append(all, e)
+	}
+	return all
+}
+
+func taskLine(t *testing.T, m map[string]any) string {
+	t.Helper()
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func errKind(e map[string]any) string {
+	if x, ok := e["error"].(map[string]any); ok {
+		s, _ := x["kind"].(string)
+		return s
+	}
+	return ""
+}
+
+// Spanning: mixed ok/error tasks stream one envelope each in completion order, tagged, with a non-zero exit.
+func TestBatchMixedStreamsEnvelopesAndExitsNonZero(t *testing.T) {
+	cliEnv(t)
+	cliFakes(t)
+	pathstest.FakeVendor(t, "claude", `p=$(cat); case "$p" in *SLOW*) sleep 0.3;; esac`+"\n"+
+		`printf '%s\n' '{"type":"system","subtype":"init","session_id":"sc","model":"fake-claude"}'`+"\n"+
+		`printf '%s\n' '{"type":"result","result":"hello","usage":{"input_tokens":3,"output_tokens":2}}'`)
+	file := batchFile(t,
+		taskLine(t, map[string]any{"id": "slow", "agent": "claude", "prompt": "SLOW task", "workdir": t.TempDir(), "tools": true}),
+		taskLine(t, map[string]any{"id": "fast", "agent": "claude", "prompt": "quick task", "workdir": t.TempDir(), "tools": true}),
+		taskLine(t, map[string]any{"id": "bad", "agent": "no-such-agent", "prompt": "x", "workdir": t.TempDir()}),
+		`{not json`,
+	)
+	code, out, stderr := runCLI(t, "ask", "--batch", file, "--jobs", "2")
+	if code == 0 {
+		t.Fatalf("exit 0 with failing tasks\nstdout: %s\nstderr: %s", out, stderr)
+	}
+	envs := envelopes(t, out)
+	if len(envs) != 4 {
+		t.Fatalf("got %d envelopes, want 4 (one per input line, bad lines included)\n%s", len(envs), out)
+	}
+	byID := indexBatchEnvelopes(t, envs)
+	checkMixedBatchResults(t, byID, envs, out)
+}
+
+func indexBatchEnvelopes(t *testing.T, envs []map[string]any) map[string]map[string]any {
+	t.Helper()
+	byID := map[string]map[string]any{}
+	batchIDs := map[string]bool{}
+	dispatchIDs := map[string]bool{}
+	for _, e := range envs {
+		if e["schema"] != float64(1) {
+			t.Errorf("schema = %v, want 1", e["schema"])
+		}
+		if b, _ := e["batch_id"].(string); b != "" {
+			batchIDs[b] = true
+		} else {
+			t.Errorf("envelope without batch_id: %v", e)
+		}
+		if id, _ := e["task_id"].(string); id != "" {
+			byID[id] = e
+		}
+		if d, _ := e["dispatch_id"].(string); d != "" {
+			if dispatchIDs[d] {
+				t.Errorf("dispatch_id %q repeated across tasks", d)
+			}
+			dispatchIDs[d] = true
+		}
+	}
+	if len(batchIDs) != 1 {
+		t.Errorf("batch_ids = %v, want exactly one shared id", batchIDs)
+	}
+	return byID
+}
+
+func checkMixedBatchResults(t *testing.T, byID map[string]map[string]any, envs []map[string]any, out string) {
+	t.Helper()
+	for _, id := range []string{"slow", "fast", "bad"} {
+		if byID[id] == nil {
+			t.Fatalf("no envelope tagged task_id %q\n%s", id, out)
+		}
+	}
+	for _, id := range []string{"slow", "fast"} {
+		if byID[id]["status"] != "ok" || byID[id]["answer"] != "hello" {
+			t.Errorf("task %s = %v, want status ok / answer hello", id, byID[id])
+		}
+	}
+	if byID["bad"]["status"] == "ok" || errKind(byID["bad"]) != "usage" {
+		t.Errorf("bad agent = %v, want a non-ok usage-kind envelope", byID["bad"])
+	}
+	// completion order: the SLOW task finishes after the fast one
+	pos := map[string]int{}
+	for i, e := range envs {
+		id, _ := e["task_id"].(string)
+		pos[id] = i
+	}
+	if pos["fast"] > pos["slow"] {
+		t.Errorf("fast task printed after the slow one: streaming must be completion order\n%s", out)
+	}
+}
+
+// All-ok batch exits 0.
+func TestBatchAllOkExitsZero(t *testing.T) {
+	cliEnv(t)
+	cliFakes(t)
+	file := batchFile(t,
+		taskLine(t, map[string]any{"id": "a", "agent": "claude", "prompt": "one", "workdir": t.TempDir(), "tools": true}),
+		taskLine(t, map[string]any{"id": "b", "agent": "claude", "prompt": "two", "workdir": t.TempDir(), "tools": true}),
+	)
+	code, out, stderr := runCLI(t, "ask", "--batch", file)
+	if code != 0 {
+		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
+	}
+	for _, e := range envelopes(t, out) {
+		if e["status"] != "ok" {
+			t.Errorf("envelope %v, want ok", e)
+		}
+	}
+}
+
+// --fail-fast: the first fatal failure cancels the batch; a queued task reports cancelled and never spawns.
+func TestBatchFailFastNeverSpawnsQueuedTask(t *testing.T) {
+	cliEnv(t)
+	cliFakes(t)
+	pathstest.FakeVendor(t, "claude", "cat > /dev/null; echo boom >&2; exit 1")
+	marker := cliMarker(t, "opencode", `printf '%s\n' '{"type":"text","sessionID":"so","part":{"text":"hello"}}'`)
+	file := batchFile(t,
+		taskLine(t, map[string]any{"id": "first", "agent": "claude", "prompt": "fail", "workdir": t.TempDir(), "tools": true}),
+		taskLine(t, map[string]any{"id": "queued", "agent": "opencode", "prompt": "never", "workdir": t.TempDir(), "tools": true}),
+	)
+	code, out, stderr := runCLI(t, "ask", "--batch", file, "--jobs", "1", "--fail-fast")
+	if code == 0 {
+		t.Fatalf("exit 0 after a fatal failure\nstdout: %s\nstderr: %s", out, stderr)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("queued task spawned its child after --fail-fast cancelled the batch")
+	}
+	var queued map[string]any
+	for _, e := range envelopes(t, out) {
+		if e["task_id"] == "queued" {
+			queued = e
+		}
+	}
+	if queued == nil {
+		t.Fatalf("queued task got no envelope\n%s", out)
+	}
+	msg, _ := queued["error"].(map[string]any)["message"].(string)
+	if queued["status"] != "error" || !strings.Contains(strings.ToLower(msg), "cancel") {
+		t.Errorf("queued = %v, want status error with a cancelled message", queued)
+	}
+}
+
+func fakeJWT(iss string) string {
+	enc := base64.RawURLEncoding.EncodeToString
+	return enc([]byte(`{"alg":"none"}`)) + "." + enc([]byte(`{"iss":"https://`+iss+`"}`)) + ".sig"
+}
+
+// Guarantee 1: concurrent tasks on two profiles; each child's env holds only its own route and token.
+func TestBatchConcurrentProfilesKeepEnvsApart(t *testing.T) {
+	cliEnv(t)
+	vaulttest.Use(t)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("PA_BATCH_KEY", "TOKEN-AAAA-1111")
+	t.Setenv("PB_BATCH_KEY", "TOKEN-BBBB-2222")
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"anthropic":{`+
+		`"pa":{"protocol":"anthropic","base_url":"http://127.0.0.1:11111","auth":{"type":"key","env":"PA_BATCH_KEY"},"models":{"opus":"m-a","sonnet":"m-a","haiku":"m-a"}},`+
+		`"pb":{"protocol":"anthropic","base_url":"http://127.0.0.1:22222","auth":{"type":"key","env":"PB_BATCH_KEY"},"models":{"opus":"m-b","sonnet":"m-b","haiku":"m-b"}}}}}`)
+	dump := t.TempDir()
+	// each child announces itself, then waits until both are running: proof the two really overlap
+	pathstest.FakeVendor(t, "claude", "cat > /dev/null\n"+
+		"env > "+dump+"/$$.env\ntouch "+dump+"/$$.up\n"+
+		"for i in $(seq 1 100); do [ $(ls "+dump+"/*.up 2>/dev/null | wc -l) -ge 2 ] && break; sleep 0.05; done\n"+
+		`printf '%s\n' '{"type":"result","result":"hello"}'`)
+	file := batchFile(t,
+		taskLine(t, map[string]any{"id": "a", "agent": "claude", "profile": "pa", "prompt": "x", "workdir": t.TempDir(), "tools": true}),
+		taskLine(t, map[string]any{"id": "b", "agent": "claude", "profile": "pb", "prompt": "y", "workdir": t.TempDir(), "tools": true}),
+	)
+	code, out, stderr := runCLI(t, "ask", "--batch", file, "--jobs", "2")
+	if code != 0 {
+		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
+	}
+	dumps, _ := filepath.Glob(filepath.Join(dump, "*.env"))
+	if len(dumps) != 2 {
+		t.Fatalf("got %d child env dumps, want 2 (the children never overlapped?)", len(dumps))
+	}
+	seen := map[string]bool{}
+	for _, f := range dumps {
+		raw, _ := os.ReadFile(f)
+		recordBatchChildProfile(t, seen, string(raw))
+	}
+	if !seen["a"] || !seen["b"] {
+		t.Errorf("children seen = %v, want one per profile", seen)
+	}
+}
+
+func recordBatchChildProfile(t *testing.T, seen map[string]bool, env string) {
+	t.Helper()
+	a, b := strings.Contains(env, "TOKEN-AAAA-1111"), strings.Contains(env, "TOKEN-BBBB-2222")
+	ra, rb := strings.Contains(env, "127.0.0.1:11111"), strings.Contains(env, "127.0.0.1:22222")
+	switch {
+	case a && !b && ra && !rb:
+		seen["a"] = true
+	case b && !a && rb && !ra:
+		seen["b"] = true
+	default:
+		t.Errorf("child env mixes profiles (token a=%v b=%v, route a=%v b=%v)", a, b, ra, rb)
+	}
+}
+
+// Guarantee 2: a credential issued for another host than the route's fails as auth before the child starts.
+func TestBatchHostMismatchFailsAuthBeforeExec(t *testing.T) {
+	cliEnv(t)
+	vaulttest.Use(t)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("HM_BATCH_KEY", fakeJWT("adb-2.azuredatabricks.net"))
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"hm":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net",`+
+		`"auth":{"type":"key","env":"HM_BATCH_KEY"},"models":{"opus":"databricks-claude-opus-5-5","sonnet":"databricks-claude-sonnet-5-5","haiku":"databricks-claude-haiku-4-5"}}}}}`)
+	marker := cliMarker(t, "claude", `printf '%s\n' '{"type":"result","result":"hello"}'`)
+	file := batchFile(t, taskLine(t, map[string]any{"id": "m", "agent": "claude", "profile": "hm", "prompt": "x", "workdir": t.TempDir(), "tools": true}))
+	code, out, stderr := runCLI(t, "ask", "--batch", file)
+	if code == 0 {
+		t.Fatalf("exit 0 on a host mismatch\nstdout: %s\nstderr: %s", out, stderr)
+	}
+	envs := envelopes(t, out)
+	if len(envs) != 1 || envs[0]["status"] == "ok" || errKind(envs[0]) != "auth" {
+		t.Fatalf("envelopes = %v, want one non-ok envelope of kind auth", envs)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the child started although the credential's host does not match the route")
+	}
+	if strings.Contains(out+stderr, "adb-2") && strings.Contains(out+stderr, ".sig") {
+		t.Error("output carries the raw credential")
+	}
+}
+
+// Every --batch task goes through RunRecorded: it leaves an <id>.events.jsonl running start to result.
+func TestBatchTasksWriteEventFiles(t *testing.T) {
+	cliEnv(t)
+	cliFakes(t)
+	file := batchFile(t,
+		taskLine(t, map[string]any{"id": "one", "agent": "claude", "prompt": "p1", "workdir": t.TempDir(), "tools": true}),
+		taskLine(t, map[string]any{"id": "two", "agent": "claude", "prompt": "p2", "workdir": t.TempDir(), "tools": true}),
+	)
+	if code, out, stderr := runCLI(t, "ask", "--batch", file, "--jobs", "2"); code != 0 {
+		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
+	}
+	files, _ := filepath.Glob(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "state", "harness", "dispatch", "*.events.jsonl"))
+	if len(files) != 2 {
+		t.Fatalf("event files = %v, want 2 (one per task)", files)
+	}
+	for _, f := range files {
+		b, _ := os.ReadFile(f)
+		lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+		if len(lines) < 2 || !strings.Contains(lines[0], `"type":"start"`) || !strings.Contains(lines[len(lines)-1], `"type":"result"`) {
+			t.Errorf("%s: want start...result, got\n%s", f, b)
+		}
+	}
+}
+
+// The vault's custom env holds every profile's vars; a batch child on pa gets pa's and never pb's credential var.
+func TestBatchChildDropsOtherProfilesCustomCredentialVar(t *testing.T) {
+	cliEnv(t)
+	vaulttest.Use(t)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("PA_BATCH_KEY", "TOKEN-AAAA-1111")
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"anthropic":{`+
+		`"pa":{"protocol":"anthropic","base_url":"http://127.0.0.1:11111","auth":{"type":"key","env":"PA_BATCH_KEY"},"models":{"opus":"m-a","sonnet":"m-a","haiku":"m-a"}},`+
+		`"pb":{"protocol":"anthropic","base_url":"http://127.0.0.1:22222","auth":{"type":"key","env":"PB_BATCH_KEY"},"models":{"opus":"m-b","sonnet":"m-b","haiku":"m-b"}}}}}`)
+	if err := providers.SetCustomEnv("PB_BATCH_KEY", "PB-CUSTOM-SECRET"); err != nil {
+		t.Fatal(err)
+	}
+	if err := providers.SetCustomEnv("PA_CUSTOM_NOTE", "pa-note"); err != nil {
+		t.Fatal(err)
+	}
+	dump := filepath.Join(t.TempDir(), "child.env")
+	pathstest.FakeVendor(t, "claude", "cat > /dev/null\nenv > "+dump+"\n"+`printf '%s\n' '{"type":"result","result":"hello"}'`)
+	file := batchFile(t, taskLine(t, map[string]any{"id": "a", "agent": "claude", "profile": "pa", "prompt": "x", "workdir": t.TempDir(), "tools": true}))
+	if code, out, stderr := runCLI(t, "ask", "--batch", file); code != 0 {
+		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
+	}
+	raw, err := os.ReadFile(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := string(raw)
+	if strings.Contains(env, "PB-CUSTOM-SECRET") {
+		t.Error("pa's child holds pb's custom credential var")
+	}
+	if !strings.Contains(env, "TOKEN-AAAA-1111") || !strings.Contains(env, "pa-note") {
+		t.Errorf("pa's child lost its own token or an unrelated custom var:\n%s", env)
+	}
+}
+
+// batchPipeHelper is the child process of TestBatchClosedStdoutCancelsAndReapsChildren: it runs a real batch whose
+// stdout reader is gone, with one slow task whose fake CLI records its pid.
+func TestBatchPipeHelper(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs unix signals and pipes")
+	}
+	pidfile := os.Getenv("BATCH_PIPE_PIDFILE")
+	if pidfile == "" {
+		t.Skip("helper process only")
+	}
+	cliEnv(t)
+	pathstest.FakeVendor(t, "claude", `p=$(cat); case "$p" in *SLOW*) echo $$ > `+pidfile+`; sleep 60;; esac`+"\n"+
+		"for i in $(seq 1 100); do [ -s "+pidfile+" ] && break; sleep 0.05; done\n"+
+		`printf '%s\n' '{"type":"result","result":"hello"}'`)
+	file := batchFile(t,
+		taskLine(t, map[string]any{"id": "slow", "agent": "claude", "prompt": "SLOW", "workdir": t.TempDir(), "tools": true}),
+		taskLine(t, map[string]any{"id": "fast", "agent": "claude", "prompt": "quick", "workdir": t.TempDir(), "tools": true}))
+	os.Exit(Cmd([]string{"--batch", file, "--jobs", "2"}))
+}
+
+// A closed stdout must not kill the process with SIGPIPE: the batch cancels, exits non-zero, and its children die.
+func TestBatchClosedStdoutCancelsAndReapsChildren(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs unix signals and pipes")
+	}
+	pidfile := filepath.Join(t.TempDir(), "child.pid")
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestBatchPipeHelper$")
+	cmd.Env = append(os.Environ(), "BATCH_PIPE_PIDFILE="+pidfile)
+	cmd.Stdout = w
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	r.Close() // nobody reads the batch's stdout any more
+	w.Close()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(40 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatal("the batch did not exit after its stdout closed")
+	}
+	if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); !ok || ws.Signaled() || ws.ExitStatus() == 0 {
+		t.Fatalf("exit status %v, want a normal non-zero exit (SIGPIPE must not kill the process)", cmd.ProcessState)
+	}
+	checkBatchChildReaped(t, pidfile)
+}
+
+func checkBatchChildReaped(t *testing.T, pidfile string) {
+	t.Helper()
+	raw, err := os.ReadFile(pidfile)
+	if err != nil {
+		t.Fatalf("the slow child never started: %v", err)
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+	for range 60 {
+		p, _ := os.FindProcess(pid)
+		if err := p.Signal(syscall.Signal(0)); errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.ESRCH) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Errorf("child %d is still running after the batch exited", pid)
 }

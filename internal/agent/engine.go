@@ -1,10 +1,13 @@
 package agent
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -13,12 +16,11 @@ import (
 
 	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-)
-
-// Driver is the per-CLI behaviour behind cliEngine and configure; a vendor registers one with Register.
+) // Driver is the per-CLI behaviour behind cliEngine and configure; a vendor registers one with Register.
 type Driver interface {
 	// Name is the roster agent the engine drives.
 	Name() string
@@ -241,3 +243,177 @@ func (b BaseEngine) Wire(context.Context, WireRoute, *Headless) ([]string, []str
 func (BaseEngine) FallbackTarget(*providers.Registry) (providers.Target, string, bool) {
 	return providers.Target{}, "", false
 }
+
+// LiveBackend is how one agent holds a session open: build the process, write a turn, parse one turn's events.
+type LiveBackend interface {
+	// Build returns the unstarted child and the provider profile it routes through.
+	Build(ctx context.Context, req RunOptions) (cmd *exec.Cmd, tail *retry.TailBuffer, provider string, err error)
+	WriteTurn(w io.Writer, prompt string) error
+	// Parse reads dec up to and including the turn's result event; usage and cost are that turn's alone.
+	Parse(dec *bufio.Reader, sink wire.Sink, lg func(kind, text string)) (wire.Result, error)
+}
+
+// LiveCapable is a CLI that can hold a session open; a fresh backend serves each session.
+type LiveCapable interface{ NewLive() LiveBackend }
+
+// Live asserts on the CLI behind the agent: the engine itself, or a cliEngine's engine.
+func (s Schema) Live() (LiveCapable, bool) {
+	r, err := Lookup(s.Name)
+	if err != nil {
+		return nil, false
+	}
+	var cli any = r
+	if v, ok := r.(cliEngine); ok {
+		cli = v.HeadlessDriver
+	}
+	lc, ok := cli.(LiveCapable)
+	return lc, ok
+}
+
+// HasLive reports whether the agent can hold a live session.
+func (s Schema) HasLive() bool {
+	_, ok := s.Live()
+	return ok
+}
+
+// WriteJSONLine writes v as one NDJSON line.
+func WriteJSONLine(w io.Writer, v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(append(b, '\n'))
+	return err
+}
+
+// The helpers below are the live package's reach into the dispatch internals.
+
+// ChildErr names a failed child by its stderr tail; a deadline surfaces as ctx.Err.
+func ChildErr(ctx context.Context, name string, err error, tail *retry.TailBuffer) error {
+	return childErr(ctx, name, err, tail)
+}
+
+// StatusOf maps a classified failure to the envelope status.
+func StatusOf(e *retry.Error) string { return statusOf(e) }
+
+// NewRunSink stamps agent's name on sink's events and counts its text bytes.
+func NewRunSink(sink wire.Sink, agent string) wire.Sink {
+	return &wire.RunSink{Sink: sink, Agent: agent}
+}
+
+// IsResultError reports a failed turn whose result event was consumed, so the stream sits at a turn boundary.
+func IsResultError(err error) bool {
+	_, ok := errors.AsType[wire.ResultError](err)
+	return ok
+}
+
+// ResolveRequestTarget is the registry and target req's provider and model resolve to.
+func ResolveRequestTarget(req RunOptions) (*providers.Registry, providers.Target, error) {
+	return resolveTarget(req)
+}
+
+// PersonaArgs is the claude argv for a persona.
+func PersonaArgs(p *Schema) []string { return personaArgs(p) }
+
+// SessionProvider is the session profile agentName runs on.
+func SessionProvider(agentName string) string { return sessionProvider(agentName) }
+
+// CustomEnv is the vault env bucket resolved, as a launch layers it.
+func CustomEnv() map[string]string { return customEnv() }
+
+// Dispatch names a RouteInfo's resolved credential path. Why: Anthropic's terms forbid subscription OAuth
+// in third-party tools, so neither chain below ever offers the Claude subscription (passthrough, no
+// login) as a dispatch.
+const (
+	RouteCopilotLogin  = "copilot-login"
+	RouteOwnLogin      = "own-login"
+	RouteByokAnthropic = "byok-anthropic"
+	RouteDatabricks    = "databricks"
+	RouteNone          = "none"
+)
+
+// RouteInfo is the agent dispatch `claude-code configure github`, `generate` and `doctor` report: which
+// credential path an agent CLI runs on today, and why. OK is false only for RouteNone.
+type RouteInfo struct {
+	Agent, Route, Provider, Model, SmallModel, Reason string
+	OK                                                bool
+}
+
+// DescribeRoute reports the fallback dispatch the agent (opencode|copilot) resolves to today, in priority
+// order. Every other agent reports RouteNone with a plain explanation — they have no fallback chain.
+func (s Schema) DescribeRoute(reg *providers.Registry) RouteInfo { return s.Eng().DescribeRoute(reg) }
+
+// RouteTarget converts a resolved RouteInfo (OK and naming a registered provider) into a Target;
+// ok is false for RouteNone or a provider DescribeRoute named that the registry no longer has.
+func RouteTarget(reg *providers.Registry, ri RouteInfo) (providers.Target, bool) {
+	if !ri.OK || ri.Provider == "" {
+		return providers.Target{}, false
+	}
+	p, ok := reg.Providers[ri.Provider]
+	if !ok {
+		return providers.Target{}, false
+	}
+	return providers.Target{Provider: p, Model: ri.Model}, true
+}
+
+// RouteErr is ri's reason as an error when ri resolved no route, else nil.
+func RouteErr(ri RouteInfo) error {
+	if !ri.OK {
+		return errors.New(ri.Reason)
+	}
+	return nil
+}
+
+// RouteDetail returns the "<agent> route" detail string DoctorChecks would emit for the agent, without
+// running the rest of the doctor sweep; ok is false for an unknown agent or a registry load error.
+func RouteDetail(name string) (detail string, ok bool) {
+	return SchemaFor(name).Eng().RouteDetail()
+}
+
+// LoadSelection is the registry and its unpinned selection; ok is false when the registry does not load.
+func LoadSelection() (reg *providers.Registry, sel providers.Selection, selErr error, ok bool) {
+	reg, err := providers.Load()
+	if err != nil || reg == nil {
+		return nil, providers.Selection{}, nil, false
+	}
+	sel, selErr = providers.Select(reg, "")
+	return reg, sel, selErr, true
+}
+
+// ResolveTarget picks the target an agent launch uses: sel's target when it can serve the agent
+// (a login provider naming it, or a route on one of its dialects), else — only when the caller named
+// no provider itself (explicit is false) — the agent's own subscription login or first keyed
+// provider with a resolvable credential. note is a one-line explanation to print on fallback.
+func (s Schema) ResolveTarget(reg *providers.Registry, sel providers.Selection, explicit bool) (target providers.Target, note string, err error) {
+	name, e := s.Name, s.Eng()
+	t, ok := sel.Aliases[models.Opus]
+	if !ok {
+		return providers.Target{}, "", fmt.Errorf("%s: no opus target resolved", name)
+	}
+	// A CLI's own login (unrelated to the session provider) is preferred
+	// whenever it is present, ahead of a session provider that could serve it; an explicit --provider still wins.
+	if pt, pnote, ok, perr := e.PreRoute(reg, explicit); ok {
+		return pt, pnote, perr
+	}
+	if explicit || (CanServe(name, t.Provider) && e.FollowsPin(t.Provider)) {
+		return e.Gate(reg, t)
+	}
+	if ft, fallbackNote, ok := e.FallbackTarget(reg); ok {
+		note = fmt.Sprintf("%s: session provider %s cannot serve %s; using %s", name, t.Provider.Name, name, fallbackNote)
+		if own, ok := e.FallbackNote(ft, fallbackNote); ok {
+			note = own
+		}
+		if ft.Provider == nil {
+			return ft, note, ErrOwnLogin // the agent's own stored login: launch it plain, nothing to inject
+		}
+		return ft, note, nil
+	}
+	// opencode and copilot have a defined fallback chain (DescribeRoute); nothing in it resolved either.
+	if err := e.NoRoute(reg, t); err != nil {
+		return providers.Target{}, "", err
+	}
+	return t, "", nil
+}
+
+// ErrOwnLogin means the agent should run on the credentials its own CLI stores (no harness route injected).
+var ErrOwnLogin = errors.New("agent runs on its own login")

@@ -252,3 +252,72 @@ func TestHubRunCarriesDenyAndPlugin(t *testing.T) {
 		}
 	}
 }
+
+const evSecret = "AKIAIOSFODNN7EXAMPLE"
+
+// emitScript is a fake vendor body that drains stdin then prints each NDJSON line on stdout.
+func emitScript(lines ...string) string {
+	var b strings.Builder
+	b.WriteString("cat > /dev/null\n")
+	for _, l := range lines {
+		b.WriteString("printf '%s\\n' '" + l + "'\n")
+	}
+	return b.String()
+}
+
+// loggedRun runs fn under a WithLog (or, for a job run, WithLogEvents) ctx and returns the closed log's content.
+func loggedRun(t *testing.T, jobMode bool, fn func(ctx context.Context)) string {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "d.log")
+	sink := wire.NewLogSink(path)
+	ctx := wire.WithLog(context.Background(), sink)
+	if jobMode {
+		ctx = wire.WithLogEvents(context.Background(), sink)
+	}
+	fn(ctx)
+	sink.Close()
+	return readLog(t, path)
+}
+
+// readLog reads path, failing the test on error.
+func readLog(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", path, err)
+	}
+	return string(b)
+}
+
+func TestLogEventOpenCodeFormatted(t *testing.T) {
+	r, err := agent.Lookup("opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OPENCODE_API_KEY", "test-key")
+	var out strings.Builder
+	log := loggedRun(t, false, func(ctx context.Context) {
+		pathstest.FakeVendor(t, "opencode", emitScript(
+			`{"type":"text","sessionID":"ses_A","part":{"text":"hello AWS_SECRET=`+evSecret+`"}}`,
+			`{"type":"step_finish","sessionID":"ses_A","part":{"tokens":{"input":3,"output":2}}}`))
+		if _, err := r.Run(ctx, agent.RunOptions{Prompt: "p", WorkDir: t.TempDir()}, wire.NewTextSink(&out)); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	})
+	if out.String() != "hello AWS_SECRET="+evSecret {
+		t.Errorf("caller stream = %q", out.String())
+	}
+	// step_finish may or may not log a result line; the assistant line is exact and any extra line is formatted.
+	lines := strings.Split(strings.TrimRight(log, "\n"), "\n")
+	if lines[0] != "▸ assistant: hello AWS_SECRET=REDACTED" || len(lines) > 2 {
+		t.Errorf("log lines = %q, want the assistant line first", lines)
+	}
+	if len(lines) == 2 && !strings.HasPrefix(lines[1], "▸ result:") {
+		t.Errorf("second log line = %q, want a '▸ result:' line", lines[1])
+	}
+	if strings.Contains(log, evSecret) || strings.Contains(log, `{"`) {
+		t.Errorf("log leaks the secret or raw JSON:\n%s", log)
+	}
+}

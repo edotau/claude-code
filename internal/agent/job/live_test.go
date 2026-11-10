@@ -2,6 +2,8 @@ package job
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -10,11 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/wire"
-
-	"github.com/edotau/claude-code/internal/gemini"
-
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -193,25 +193,6 @@ func TestLiveIdleTimeoutEndsOK(t *testing.T) {
 	}
 }
 
-// A fifth session is refused; the cap counts only live, running records.
-func TestLiveCapOfFour(t *testing.T) {
-	liveEnv(t)
-	for range MaxLiveSessions {
-		rec := ClaimRecord("claude", agent.RunOptions{}, time.Now())
-		rec.Live, rec.PID = true, os.Getpid()
-		_ = rec.Save()
-	}
-	if err := CheckLiveCap(""); err == nil {
-		t.Fatal("cap must refuse a fifth session")
-	}
-	dead := ClaimRecord("claude", agent.RunOptions{}, time.Now())
-	dead.Live, dead.Status = true, "ok"
-	_ = dead.Save()
-	if n := LiveCount(""); n != MaxLiveSessions {
-		t.Errorf("LiveCount = %d, want %d (finished sessions do not count)", n, MaxLiveSessions)
-	}
-}
-
 // fakeNoisyClaude writes 200 KB to stdout before it reads stdin, so an undrained stdout blocks claude and,
 // with a large prompt, the holder's stdin write too.
 const fakeNoisyClaude = `#!/bin/sh
@@ -252,51 +233,6 @@ func TestLiveTurnErrorNeverLeaksIntoNextTurn(t *testing.T) {
 		t.Fatalf("next send got the previous turn's answer %q", env.Answer)
 	}
 	_ = wait()
-}
-
-// With three slots held, two contenders racing for the last one: exactly one wins, the loser is refused.
-func TestLiveSlotLastSlotGoesToExactlyOne(t *testing.T) {
-	liveEnv(t)
-	for range MaxLiveSessions - 1 {
-		if _, err := AcquireLiveSlot(); err != nil {
-			t.Fatal(err)
-		}
-	}
-	errs := make(chan error, 2)
-	start := make(chan struct{})
-	for range 2 {
-		go func() { <-start; _, err := AcquireLiveSlot(); errs <- err }()
-	}
-	close(start)
-	won := 0
-	for range 2 {
-		if err := <-errs; err == nil {
-			won++
-		}
-	}
-	if won != 1 {
-		t.Errorf("%d contenders took the last slot, want exactly 1", won)
-	}
-}
-
-// A released slot is reusable; a held one is not.
-func TestLiveSlotReleaseFreesIt(t *testing.T) {
-	liveEnv(t)
-	var rel []func()
-	for range MaxLiveSessions {
-		r, err := AcquireLiveSlot()
-		if err != nil {
-			t.Fatal(err)
-		}
-		rel = append(rel, r)
-	}
-	if _, err := AcquireLiveSlot(); err == nil {
-		t.Fatal("a fifth slot must be refused")
-	}
-	rel[0]()
-	if _, err := AcquireLiveSlot(); err != nil {
-		t.Errorf("released slot not reusable: %v", err)
-	}
 }
 
 // fakeLiveAgy is a shell agy: one init, then per NDJSON turn an agent_response delta and a result whose usage is
@@ -475,14 +411,6 @@ while IFS= read -r line; do
 done
 `
 
-// A socket path over the unix limit fails with a message naming the length, not a bare "bind: invalid argument".
-func TestListenLiveRefusesOverlongSocketPath(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(t.TempDir(), strings.Repeat("d", 100)))
-	if _, err := listenLive("20261016T210512.123-claude"); err == nil || !strings.Contains(err.Error(), "unix limit") {
-		t.Fatalf("listenLive = %v, want an over-the-unix-limit error", err)
-	}
-}
-
 // fakeExitAfterResult answers the first turn with a bulky assistant line and the final result, then exits at once.
 const fakeExitAfterResult = `#!/bin/sh
 IFS= read -r line
@@ -516,5 +444,88 @@ func TestLiveCancelEndsHolderAndReapsChild(t *testing.T) {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("holder did not end after cancel: serveChild deadlocked on pump.done")
+	}
+}
+
+// A fifth session is refused; the cap counts only live, running records.
+func TestLiveCapOfFour(t *testing.T) {
+	liveEnv(t)
+	for range MaxLiveSessions {
+		rec := ClaimRecord("claude", agent.RunOptions{}, time.Now())
+		rec.Live, rec.PID = true, os.Getpid()
+		_ = rec.Save()
+	}
+	if err := CheckLiveCap(""); err == nil {
+		t.Fatal("cap must refuse a fifth session")
+	}
+	dead := ClaimRecord("claude", agent.RunOptions{}, time.Now())
+	dead.Live, dead.Status = true, "ok"
+	_ = dead.Save()
+	if n := LiveCount(""); n != MaxLiveSessions {
+		t.Errorf("LiveCount = %d, want %d (finished sessions do not count)", n, MaxLiveSessions)
+	}
+}
+
+// With three slots held, two contenders racing for the last one: exactly one wins, the loser is refused.
+func TestLiveSlotLastSlotGoesToExactlyOne(t *testing.T) {
+	liveEnv(t)
+	for range MaxLiveSessions - 1 {
+		if _, err := AcquireLiveSlot(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	errs := make(chan error, 2)
+	start := make(chan struct{})
+	for range 2 {
+		go func() { <-start; _, err := AcquireLiveSlot(); errs <- err }()
+	}
+	close(start)
+	won := 0
+	for range 2 {
+		if err := <-errs; err == nil {
+			won++
+		}
+	}
+	if won != 1 {
+		t.Errorf("%d contenders took the last slot, want exactly 1", won)
+	}
+}
+
+// A released slot is reusable; a held one is not.
+func TestLiveSlotReleaseFreesIt(t *testing.T) {
+	liveEnv(t)
+	var rel []func()
+	for range MaxLiveSessions {
+		r, err := AcquireLiveSlot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		rel = append(rel, r)
+	}
+	if _, err := AcquireLiveSlot(); err == nil {
+		t.Fatal("a fifth slot must be refused")
+	}
+	rel[0]()
+	if _, err := AcquireLiveSlot(); err != nil {
+		t.Errorf("released slot not reusable: %v", err)
+	}
+}
+
+type terminalErrorReader struct{ err error }
+
+func (r terminalErrorReader) Read([]byte) (int, error) { return 0, r.err }
+
+func TestPumpReturnsReadErrorAfterDraining(t *testing.T) {
+	want := errors.New("stdout read failed")
+	const output = "buffered stdout"
+	pump := newPumpBuf(io.MultiReader(strings.NewReader(output), terminalErrorReader{want}))
+	select {
+	case <-pump.done:
+	case <-time.After(time.Second):
+		t.Fatal("stdout pump did not finish")
+	}
+	got, err := io.ReadAll(pump)
+	if string(got) != output || !errors.Is(err, want) {
+		t.Fatalf("drained stdout = %q, %v; want %q then %v", got, err, output, want)
 	}
 }
