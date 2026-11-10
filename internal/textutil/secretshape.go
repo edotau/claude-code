@@ -13,6 +13,22 @@ var bearerToken = regexp.MustCompile(`(?i)bearer\s+\S{40,}`)
 // bearerAuth captures the scheme so RedactSecrets masks only the token after it.
 var bearerAuth = regexp.MustCompile(`(?i)(bearer\s+)\S{40,}`)
 
+// CredentialRE is the credential shape the memory commit gate and config history refuse; \b keeps sk- off kebab prose.
+var CredentialRE = regexp.MustCompile(strings.Join([]string{
+	`\bsk-[A-Za-z0-9_-]{20,}`,                     // OpenAI/Anthropic, incl. sk-proj-/sk-ant- segments
+	`\bdapi[0-9a-f]{32}`,                          // Databricks PAT
+	`\beyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}`, // JWT (header.payload)
+	`\bnvapi-[A-Za-z0-9_-]{24,}`,                  // NVIDIA
+	`\bgh[pousr]_[A-Za-z0-9]{28,}`,                // GitHub
+	`\bgithub_pat_[A-Za-z0-9_]{22,}`,              // GitHub fine-grained PAT
+	`\bAIza[0-9A-Za-z_-]{35}`,                     // Google API key
+	`\btvly-[A-Za-z0-9_-]{16,}`,                   // Tavily
+	`\bgsk_[A-Za-z0-9]{24,}`,                      // Groq
+	`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`,               // AWS access key id (long-term, STS)
+	`\bxox[abprs]-[A-Za-z0-9-]{10,}`,              // Slack
+	`-----BEGIN [A-Z ]*PRIVATE KEY`,               // private keys only, never certificates or public keys
+}, "|"))
+
 // LooksSecret reports a credential-shaped value: known token prefixes or a bearer-style value; ${ENV}
 // references, file paths, and obvious placeholders are never flagged.
 func LooksSecret(val string) bool {
