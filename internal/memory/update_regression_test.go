@@ -9,12 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestUpdateSettlementFailureRecordsFailure(t *testing.T) {
+	clearChildEnv(t)
 	isolatedConfig(t)
 	root := repoRoot(t, "settle-failure")
 	dir, err := Init(root)
@@ -47,6 +46,7 @@ func TestReadUpdateResultRejectsInvalidTime(t *testing.T) {
 }
 
 func TestUpdateSettlementHoldsWriterLock(t *testing.T) {
+	clearChildEnv(t)
 	isolatedConfig(t)
 	root := repoRoot(t, "settle-lock")
 	if _, err := Init(root); err != nil {
@@ -54,7 +54,7 @@ func TestUpdateSettlementHoldsWriterLock(t *testing.T) {
 	}
 	initStore(t)
 	ready, release := installSettlementBarrier(t)
-	history := filepath.Join(memstore.Dir(root), "sessionHistory.md")
+	history := filepath.Join(Dir(root), "sessionHistory.md")
 	done := make(chan error, 1)
 	go func() {
 		defer close(done)
@@ -64,7 +64,7 @@ func TestUpdateSettlementHoldsWriterLock(t *testing.T) {
 	}()
 	defer finishSettlement(t, release, done)
 	waitSettlementBarrier(t, ready, done)
-	lock := bank.LockPath(memstore.Dir(root)) + ".lock"
+	lock := LockPath(Dir(root)) + ".lock"
 	ran, err := paths.TryFileLock(lock, 0, func() error { return nil })
 	if err != nil {
 		t.Fatal(err)

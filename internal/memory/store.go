@@ -9,10 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-
-	"github.com/edotau/claude-code/internal/memory/bank"
-
-	"github.com/edotau/claude-code/internal/memstore"
 )
 
 //go:embed templates/*.md
@@ -29,8 +25,8 @@ var FileCaps = map[string]int{
 
 // HasBank reports whether any typed file exists in root's local bank.
 func HasBank(root string) bool {
-	for _, name := range bank.BankFiles() {
-		if _, err := os.Stat(filepath.Join(memstore.Dir(root), name)); err == nil {
+	for _, name := range BankFiles() {
+		if _, err := os.Stat(filepath.Join(Dir(root), name)); err == nil {
 			return true
 		}
 	}
@@ -39,7 +35,7 @@ func HasBank(root string) bool {
 
 // Init ensures root's bank exists and seeds missing files (never overwrites); returns the bank dir.
 func Init(root string) (string, error) {
-	dir, err := memstore.EnsureRepoDir(root) // a new repo store needs its origin record before any file lands in it
+	dir, err := EnsureRepoDir(root) // a new repo store needs its origin record before any file lands in it
 	if err != nil {
 		return "", err
 	}
@@ -96,7 +92,7 @@ func createExcl(p, body string) error {
 // IsProjectContextTemplate reports whether root's projectContext.md still equals the scaffold
 // template — unfilled, so `memory init` should still offer its enrichment procedure.
 func IsProjectContextTemplate(root string) bool {
-	data, err := os.ReadFile(filepath.Join(memstore.Dir(root), "projectContext.md"))
+	data, err := os.ReadFile(filepath.Join(Dir(root), "projectContext.md"))
 	if err != nil {
 		return false
 	}
@@ -105,8 +101,8 @@ func IsProjectContextTemplate(root string) bool {
 
 // templates seed a fresh bank's six files; `claude-code memory update` fills them from real session work.
 var templates = sync.OnceValue(func() map[string]string {
-	m := make(map[string]string, len(bank.BankFiles()))
-	for _, name := range bank.BankFiles() {
+	m := make(map[string]string, len(BankFiles()))
+	for _, name := range BankFiles() {
 		body, err := templatesFS.ReadFile("templates/" + name)
 		if err != nil {
 			panic(err) // embedded alongside bankFiles; a mismatch is a build-time bug, not a runtime one

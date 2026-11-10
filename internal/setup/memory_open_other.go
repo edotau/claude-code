@@ -5,18 +5,17 @@ package setup
 import (
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/memory"
 	"os/exec"
 	"strings"
 	"time"
-
-	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // openMemoryFiles retains state if lsof is missing or cannot inspect open descriptors.
 func scanOpenMemoryFiles() (map[string]bool, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	data, err := exec.CommandContext(ctx, "lsof", "-Fn", "+D", memstore.StateDir()).Output()
+	data, err := exec.CommandContext(ctx, "lsof", "-Fn", "+D", memory.StateDir()).Output()
 	if err != nil {
 		var exit *exec.ExitError
 		if !errors.As(err, &exit) || exit.ExitCode() != 1 || len(exit.Stderr) != 0 {

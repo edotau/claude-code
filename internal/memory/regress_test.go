@@ -9,20 +9,17 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
-
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memstore"
 )
 
 func TestRecallLoadTruncatesOnRuneBoundary(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	id, err := bank.Remember(root, "feedback", strings.Repeat("—", recallLoadCap), time.Now())
+	id, err := Remember(root, "feedback", strings.Repeat("—", recallLoadCap), time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
 	var out, errw bytes.Buffer
-	recallLoad(&out, &errw, []bank.SearchHit{{ID: id}}, 1)
+	recallLoad(&out, &errw, []SearchHit{{ID: id}}, 1)
 	if out.Len() == 0 || !utf8.Valid(out.Bytes()) {
 		t.Errorf("recallLoad output empty or invalid UTF-8 (err %q)", errw.String())
 	}
@@ -48,7 +45,7 @@ func TestExtractBlockSurfacesReadError(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _, err := extractBlock(dir, "abcd1234")
-	if err == nil || errors.Is(err, bank.ErrNoBlock) {
+	if err == nil || errors.Is(err, ErrNoBlock) {
 		t.Errorf("extractBlock err = %v, want the read error, not ErrNoBlock", err)
 	}
 }
@@ -65,7 +62,7 @@ func TestReadIfExists(t *testing.T) {
 
 func TestDigestInputBoundsBeforeReading(t *testing.T) {
 	dir := t.TempDir()
-	arch := memstore.ArchiveDir(dir)
+	arch := ArchiveDir(dir)
 	if err := os.MkdirAll(arch, 0o700); err != nil {
 		t.Fatal(err)
 	}

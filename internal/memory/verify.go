@@ -16,8 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/vault"
@@ -138,19 +136,19 @@ func verifyStores() ([]verifyStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	entries, err := os.ReadDir(memstore.StoreDir())
+	entries, err := os.ReadDir(StoreDir())
 	if err != nil {
 		return nil, err
 	}
 	var stores []verifyStore
 	for _, e := range entries {
-		if !e.IsDir() || (memstore.StoreReservedDirs[e.Name()] && e.Name() != "home") {
+		if !e.IsDir() || (StoreReservedDirs[e.Name()] && e.Name() != "home") {
 			continue
 		}
-		s := verifyStore{dir: filepath.Join(memstore.StoreDir(), e.Name())}
+		s := verifyStore{dir: filepath.Join(StoreDir(), e.Name())}
 		if e.Name() != "home" {
 			s.repo, s.aliases = origins[e.Name()].Origin, origins[e.Name()].Aliases
-			if e.Name() == memstore.HarnessStoreKey() {
+			if e.Name() == HarnessStoreKey() {
 				s.repo = paths.CanonDeep(paths.ConfigDir())
 			}
 		}
@@ -160,17 +158,17 @@ func verifyStores() ([]verifyStore, error) {
 }
 
 // verifyOrigins avoids ReadOrigin/RepoDirs, whose legacy fallback imports rows into the vault.
-func verifyOrigins() (map[string]memstore.Origin, error) {
-	out := map[string]memstore.Origin{}
-	data, err := os.ReadFile(filepath.Join(memstore.StoreDir(), memstore.CatalogFile))
+func verifyOrigins() (map[string]Origin, error) {
+	out := map[string]Origin{}
+	data, err := os.ReadFile(filepath.Join(StoreDir(), CatalogFile))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
-	maps.Copy(out, catalogOrigins(string(data)))
+	maps.Copy(out, verifyCatalogOrigins(string(data)))
 	err = vault.View(func(tx *vault.Tx) error {
 		for key, raw := range tx.All(vault.MemoryOrigins) {
-			var origin memstore.Origin
-			if json.Unmarshal([]byte(raw), &origin) == nil && origin.Key == key && origin.Version == memstore.OriginVersion {
+			var origin Origin
+			if json.Unmarshal([]byte(raw), &origin) == nil && origin.Key == key && origin.Version == OriginVersion {
 				out[key] = origin
 			}
 		}
@@ -182,14 +180,14 @@ func verifyOrigins() (map[string]memstore.Origin, error) {
 	return out, nil
 }
 
-// catalogOrigins reads the `<!-- origin: {...} -->` rows of the store catalog, keyed by store name.
-func catalogOrigins(catalog string) map[string]memstore.Origin {
-	out := map[string]memstore.Origin{}
+// verifyCatalogOrigins reads the `<!-- origin: {...} -->` rows of the store catalog, keyed by store name.
+func verifyCatalogOrigins(catalog string) map[string]Origin {
+	out := map[string]Origin{}
 	for line := range strings.SplitSeq(catalog, "\n") {
 		key, rest, ok := strings.Cut(strings.TrimPrefix(line, "- "), " — ")
 		_, raw, found := strings.CutLast(rest, "<!-- origin: ")
-		var origin memstore.Origin
-		if ok && found && bank.ValidBareName(key) == nil && json.Unmarshal([]byte(strings.TrimSuffix(raw, " -->")), &origin) == nil {
+		var origin Origin
+		if ok && found && ValidBareName(key) == nil && json.Unmarshal([]byte(strings.TrimSuffix(raw, " -->")), &origin) == nil {
 			out[key] = origin
 		}
 	}
@@ -208,11 +206,11 @@ func verifySelectStore(stores []verifyStore, cwd string) ([]verifyStore, error) 
 		return nil, err
 	}
 	cwd = paths.CanonDeep(cwd)
-	root := paths.MainCheckout(cwd, memstore.GitOut)
+	root := paths.MainCheckout(cwd, GitOut)
 	if root != "" {
 		root = paths.CanonDeep(root)
 	}
-	inStore := paths.Within(cwd, paths.CanonDeep(memstore.StoreDir()))
+	inStore := paths.Within(cwd, paths.CanonDeep(StoreDir()))
 	best, home := bestStore(stores, cwd, root, inStore)
 	if best < 0 && (root == "" || inStore) {
 		best = home
@@ -256,7 +254,7 @@ func verifyClaims(store verifyStore, archives bool) ([]verifyClaim, error) {
 			return err
 		}
 		if d.IsDir() {
-			if path != store.dir && (!archives || !paths.Within(path, memstore.ArchiveDir(store.dir))) {
+			if path != store.dir && (!archives || !paths.Within(path, ArchiveDir(store.dir))) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -273,21 +271,21 @@ func verifyClaims(store verifyStore, archives bool) ([]verifyClaim, error) {
 
 // fileClaims extracts the claims of one bank or topic markdown file; other kinds yield none.
 func fileClaims(store verifyStore, path string) ([]verifyClaim, error) {
-	kind := bank.ClassifyMemoryFile(filepath.Dir(path), filepath.Base(path))
-	if kind != bank.KindBank && kind != bank.KindTopic {
+	kind := ClassifyMemoryFile(filepath.Dir(path), filepath.Base(path))
+	if kind != KindBank && kind != KindTopic {
 		return nil, nil
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	rel, _ := filepath.Rel(memstore.StoreDir(), path)
+	rel, _ := filepath.Rel(StoreDir(), path)
 	active := filepath.Dir(path) == store.dir && verifyActive(filepath.Base(path))
 	var claims []verifyClaim
 	for _, block := range verifyBlocks(filepath.Base(path), string(data), kind) {
-		id := bank.BlockID(block)
+		id := BlockID(block)
 		if id == "" {
-			id = bank.ContentRef(block)
+			id = ContentRef(block)
 		}
 		claims = append(claims, verifyExtract(filepath.ToSlash(rel), id, block, active)...)
 	}
@@ -299,17 +297,17 @@ func verifyActive(name string) bool {
 		strings.HasPrefix(name, "feedback-") || strings.HasPrefix(name, "project-")
 }
 
-func verifyBlocks(name, body string, kind bank.FileKind) []string {
-	for _, base := range bank.BankFiles() {
+func verifyBlocks(name, body string, kind FileKind) []string {
+	for _, base := range BankFiles() {
 		if strings.HasPrefix(name, strings.TrimSuffix(base, ".md")+"-") || strings.HasSuffix(name, "-"+base) {
-			name, kind = base, bank.KindBank
+			name, kind = base, KindBank
 			break
 		}
 	}
-	if kind == bank.KindTopic {
+	if kind == KindTopic {
 		return []string{body}
 	}
-	header, blocks := bank.EntryBlocks(name, body)
+	header, blocks := EntryBlocks(name, body)
 	if strings.TrimSpace(header) != "" {
 		blocks = append([]string{header}, blocks...)
 	}
@@ -393,8 +391,8 @@ func (v *claimVerifier) loadObjects(stores []verifyStore, claims []verifyClaim) 
 			v.objects[store.repo] = verifyBatch(store.repo, tokens)
 		}
 	}
-	if v.objects[memstore.StoreDir()] == nil {
-		v.objects[memstore.StoreDir()] = verifyBatch(memstore.StoreDir(), tokens)
+	if v.objects[StoreDir()] == nil {
+		v.objects[StoreDir()] = verifyBatch(StoreDir(), tokens)
 	}
 }
 
@@ -463,7 +461,7 @@ func verifyGit(repo, input string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	base := []string{"--no-pager", "-c", "core.fsmonitor=false", "-C", repo}
-	if repo == memstore.StoreDir() {
+	if repo == StoreDir() {
 		base = append(base, "--git-dir="+filepath.Join(repo, ".git"), "--work-tree="+repo)
 	}
 	cmd := exec.CommandContext(ctx, "git", append(base, args...)...)

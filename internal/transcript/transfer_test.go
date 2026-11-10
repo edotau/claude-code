@@ -9,18 +9,17 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 // projectSessionsDir isolates CLAUDE_CONFIG_DIR and returns the <ConfigDir>/projects/<slug>/ dir
-// DefaultSource now reads directly (memstore.ProjectSlug only; no memstore.NativeDir/cutover redirect).
+// DefaultSource now reads directly (paths.ProjectSlug only; no memory.NativeDir/cutover redirect).
 func projectSessionsDir(t *testing.T, cwd string) string {
 	t.Helper()
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv("HOME", t.TempDir())
-	dir := filepath.Join(cfg, "projects", memstore.ProjectSlug(cwd))
+	dir := filepath.Join(cfg, "projects", paths.ProjectSlug(cwd))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

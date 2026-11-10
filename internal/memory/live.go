@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/memory/recall"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -17,7 +15,7 @@ const SessionIDEnv = "CLAUDE_CODE_SESSION_ID"
 
 // sessionRoot is the transcript's recorded SessionStart root, else its project's cwd; "" if neither is known.
 func sessionRoot(path string) string {
-	if root := recall.SessionRoot(strings.TrimSuffix(filepath.Base(path), ".jsonl"), ""); root != "" {
+	if root := SessionRoot(strings.TrimSuffix(filepath.Base(path), ".jsonl"), ""); root != "" {
 		return root
 	}
 	return projectCWD(path)
@@ -35,7 +33,7 @@ func projectCWD(path string) string {
 		var rec struct {
 			CWD string `json:"cwd"`
 		}
-		if found == "" && json.Unmarshal(line, &rec) == nil && rec.CWD != "" && memstore.ProjectSlug(rec.CWD) == slug {
+		if found == "" && json.Unmarshal(line, &rec) == nil && rec.CWD != "" && paths.ProjectSlug(rec.CWD) == slug {
 			found = rec.CWD
 		}
 	})
@@ -53,7 +51,7 @@ func LiveTranscript(cwd, sessionID string) string {
 		id += ".jsonl"
 	}
 	projects := filepath.Join(paths.ConfigDir(), "projects")
-	if p := filepath.Join(projects, memstore.ProjectSlug(cwd), id); paths.IsFile(p) {
+	if p := filepath.Join(projects, paths.ProjectSlug(cwd), id); paths.IsFile(p) {
 		return p
 	}
 	if m, _ := filepath.Glob(filepath.Join(projects, "*", id)); len(m) > 0 {

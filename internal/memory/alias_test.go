@@ -10,9 +10,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memstore"
 )
 
 type aliasEnv struct {
@@ -29,10 +26,10 @@ func newAliasEnv(t *testing.T) aliasEnv {
 	parent := canonTemp(t, t.TempDir())
 	e := aliasEnv{cfg: cfg, a: gitRepo(t, parent, "alpha"), b: gitRepo(t, parent, "beta")}
 	var err error
-	if e.da, err = memstore.EnsureRepoDir(e.a); err != nil {
+	if e.da, err = EnsureRepoDir(e.a); err != nil {
 		t.Fatal(err)
 	}
-	if e.db, err = memstore.EnsureRepoDir(e.b); err != nil {
+	if e.db, err = EnsureRepoDir(e.b); err != nil {
 		t.Fatal(err)
 	}
 	e.ka, e.kb = filepath.Base(e.da), filepath.Base(e.db)
@@ -104,8 +101,8 @@ func seedAliasFold(t *testing.T, e aliasEnv) (link string) {
 	write(t, filepath.Join(e.da, "same.md"), "same\n")
 	write(t, filepath.Join(e.db, "same.md"), "same\n")
 	write(t, filepath.Join(e.db, "topic.md"), "only source topic\n")
-	write(t, filepath.Join(e.da, bank.NativeIndexFile), "- [Shared](shared.md) — one\n")
-	write(t, filepath.Join(e.db, bank.NativeIndexFile), "- [Shared](shared.md) — one\n- [Extra](extra.md) — two\n")
+	write(t, filepath.Join(e.da, NativeIndexFile), "- [Shared](shared.md) — one\n")
+	write(t, filepath.Join(e.db, NativeIndexFile), "- [Shared](shared.md) — one\n- [Extra](extra.md) — two\n")
 	write(t, filepath.Join(e.db, "archive", "old.md"), "old\n")
 	write(t, filepath.Join(e.db, "handoffs", "h.md"), "handoff\n")
 	write(t, filepath.Join(e.db, "reports", "r.md"), "report\n")
@@ -161,7 +158,7 @@ func assertFoldedFiles(t *testing.T, e aliasEnv) {
 		}
 	}
 	// native pointer lines appended, deduped
-	nv := aliasRead(t, filepath.Join(e.da, bank.NativeIndexFile))
+	nv := aliasRead(t, filepath.Join(e.da, NativeIndexFile))
 	if strings.Count(nv, "[Shared]") != 1 || strings.Count(nv, "[Extra]") != 1 {
 		t.Errorf("MEMORY.md:\n%s", nv)
 	}
@@ -171,14 +168,14 @@ func assertFoldedFiles(t *testing.T, e aliasEnv) {
 func assertAliasCommit(t *testing.T, e aliasEnv, decoyHead string, before []string) {
 	t.Helper()
 	// commit landed in the memory repo, not the decoy
-	after, _ := bank.StoreRepo().Log(50)
+	after, _ := StoreRepo().Log(50)
 	if len(after) <= len(before) {
 		t.Errorf("memory repo gained no commit: before %d after %d", len(before), len(after))
 	}
 	if dh := strings.TrimSpace(rawGit(t, e.cfg, "rev-parse", "HEAD")); dh != decoyHead {
 		t.Errorf("decoy HEAD moved %s -> %s", decoyHead, dh)
 	}
-	if st, _ := bank.StoreRepo().Status(); len(st) != 0 {
+	if st, _ := StoreRepo().Status(); len(st) != 0 {
 		t.Errorf("memory repo dirty after alias: %v", st)
 	}
 	// a new commit mentions the fold in its subject
@@ -194,15 +191,15 @@ func assertSourceGoneAliasRecorded(t *testing.T, e aliasEnv) {
 	if pathExists(e.db) {
 		t.Errorf("source store %s not removed", e.db)
 	}
-	cat := aliasRead(t, filepath.Join(memstore.StoreDir(), memstore.CatalogFile))
+	cat := aliasRead(t, filepath.Join(StoreDir(), CatalogFile))
 	if strings.Contains(cat, "- "+e.kb+" ") || !strings.Contains(cat, "- "+e.ka+" ") {
 		t.Errorf("catalog rows wrong:\n%s", cat)
 	}
-	o, err := memstore.ReadOrigin(e.da)
+	o, err := ReadOrigin(e.da)
 	if err != nil || !o.Accepts(e.b) {
 		t.Fatalf("origin after alias = %+v err=%v, want alias %s", o, err, e.b)
 	}
-	if got, _ := memstore.RepoDir(e.b); got != e.da {
+	if got, _ := RepoDir(e.b); got != e.da {
 		t.Errorf("RepoDir(beta) = %s, want %s", got, e.da)
 	}
 }
@@ -211,7 +208,7 @@ func TestAliasFoldsSeparateStore(t *testing.T) {
 	e := newAliasEnv(t)
 	link := seedAliasFold(t, e)
 	decoyHead := strings.TrimSpace(rawGit(t, e.cfg, "rev-parse", "HEAD"))
-	before, _ := bank.StoreRepo().Log(50)
+	before, _ := StoreRepo().Log(50)
 
 	res, err := alias(t, e, false)
 	if err != nil {
@@ -248,7 +245,7 @@ func TestAliasDryRunWritesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	h0 := aliasTreeHash(t, e.cfg)
-	g0, _ := bank.StoreRepo().Head()
+	g0, _ := StoreRepo().Head()
 	res, err := alias(t, e, true)
 	if err != nil {
 		t.Fatal(err)
@@ -259,7 +256,7 @@ func TestAliasDryRunWritesNothing(t *testing.T) {
 	if h1 := aliasTreeHash(t, e.cfg); h0 != h1 {
 		t.Errorf("dry-run changed the tree")
 	}
-	if g1, _ := bank.StoreRepo().Head(); g0 != g1 {
+	if g1, _ := StoreRepo().Head(); g0 != g1 {
 		t.Errorf("dry-run committed")
 	}
 }
@@ -313,7 +310,7 @@ func TestAliasWithoutSeparateStoreRecordsAliasOnly(t *testing.T) {
 	if res.Source != "" {
 		t.Errorf("Source = %q, want empty", res.Source)
 	}
-	o, err := memstore.ReadOrigin(e.da)
+	o, err := ReadOrigin(e.da)
 	if err != nil || !o.Accepts(e.b) {
 		t.Errorf("alias not recorded in .origin (origin-only path): %+v err=%v", o, err)
 	}
@@ -341,7 +338,7 @@ func TestAliasFoldDeletesSourceVaultRow(t *testing.T) {
 	if _, ok := vaultGet(t, e.kb); ok {
 		t.Errorf("source key %q still has a vault row after folding into %q", e.kb, e.ka)
 	}
-	got, err := memstore.ReadOrigin(e.da)
+	got, err := ReadOrigin(e.da)
 	if err != nil || !got.Accepts(e.b) {
 		t.Errorf("target row missing the folded alias: %+v, %v", got, err)
 	}
@@ -381,7 +378,7 @@ func assertAliasLinkSwapRolledBack(t *testing.T, e aliasEnv, first string) {
 	if _, ok := vaultGet(t, e.kb); !ok {
 		t.Errorf("source row %q deleted despite the failed fold", e.kb)
 	}
-	if got, err := memstore.ReadOrigin(e.da); err != nil || got.Accepts(e.b) {
+	if got, err := ReadOrigin(e.da); err != nil || got.Accepts(e.b) {
 		t.Errorf("target origin kept the folded alias after rollback: %+v, %v", got, err)
 	}
 }
@@ -392,7 +389,7 @@ func TestRepointRollbackDropsFoldedRowWhenTargetHadNone(t *testing.T) {
 		t.Skip("root ignores directory permissions")
 	}
 	e := newAliasEnv(t)
-	target := filepath.Join(memstore.StoreDir(), "gamma")
+	target := filepath.Join(StoreDir(), "gamma")
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +404,7 @@ func TestRepointRollbackDropsFoldedRowWhenTargetHadNone(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(filepath.Dir(link), 0o755) })
-	src, err := memstore.ReadOrigin(e.db)
+	src, err := ReadOrigin(e.db)
 	if err != nil {
 		t.Fatal(err)
 	}

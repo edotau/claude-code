@@ -16,9 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory/bank"
-
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -83,7 +80,7 @@ type UpdateResult struct {
 }
 
 func resultPath(sessionID string) string {
-	return filepath.Join(memstore.StateDir(), "update-result-"+filepath.Base(sessionID))
+	return filepath.Join(StateDir(), "update-result-"+filepath.Base(sessionID))
 }
 
 // WriteUpdateResult persists r for sessionID; a blank id (manual run) records nothing.
@@ -127,7 +124,7 @@ type AgentFunc func(ctx context.Context, prompt, workdir string) (who string, er
 // agentUpdatePrompt frames `claude-code memory update`'s procedure for an agent that has no slash
 // commands; the procedure itself is one copy, embedded at prompts/update.md.
 func agentUpdatePrompt(transcript, cwd string, historical bool) (string, error) {
-	ref, err := bank.Reference("update")
+	ref, err := Reference("update")
 	if err != nil {
 		return "", err
 	}
@@ -181,9 +178,9 @@ func gitSinceBlock(transcript, cwd string) string {
 	if since.IsZero() || cwd == "" {
 		return ""
 	}
-	commits, _ := memstore.GitOut(cwd, "log", "--oneline", "--since="+since.Format(time.RFC3339))
-	touched, _ := memstore.GitOut(cwd, "log", "--since="+since.Format(time.RFC3339), "--name-only", "--format=")
-	status, _ := memstore.GitOut(cwd, "status", "--porcelain")
+	commits, _ := GitOut(cwd, "log", "--oneline", "--since="+since.Format(time.RFC3339))
+	touched, _ := GitOut(cwd, "log", "--since="+since.Format(time.RFC3339), "--name-only", "--format=")
+	status, _ := GitOut(cwd, "status", "--porcelain")
 	if commits == "" && touched == "" && status == "" {
 		return ""
 	}
@@ -238,7 +235,7 @@ func tagBlock(transcript string) string {
 		return ""
 	}
 	defer f.Close()
-	tags, err := bank.ExtractTags(f)
+	tags, err := ExtractTags(f)
 	if err != nil || len(tags) == 0 {
 		return ""
 	}
@@ -282,10 +279,10 @@ func Update(o UpdateOptions) error {
 	if o.Claude == "" && o.Run == nil {
 		return errors.Join(errors.New("claude binary not found"), record(UpdateFailed, false))
 	}
-	dir := memstore.Dir(o.CWD)
+	dir := Dir(o.CWD)
 	var run updateRun
 	// Bounded wait: a peer update/dream may hold this lock for minutes, and a Stop hook must not block on it.
-	ran, lockErr := paths.TryFileLock(bank.LockPath(dir)+".lock", updateLockWait, func() error { return run.locked(o, dir) })
+	ran, lockErr := paths.TryFileLock(LockPath(dir)+".lock", updateLockWait, func() error { return run.locked(o, dir) })
 	if !ran { // lock never taken: nothing ran, and settling unlocked would race the holder
 		return errors.Join(fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock"))), record(UpdateFailed, false))
 	}
@@ -315,8 +312,8 @@ type updateRun struct {
 // finish settles under the writer lock and reports whether the update wrote either bank tier.
 func (r *updateRun) finish(o UpdateOptions, dir string) (updated bool, err error) {
 	// An update may legitimately write only the shared home bank (cross-repo facts), so watch both tiers.
-	updated = bank.NewestMtime(dir).After(r.before) || bank.NewestMtime(memstore.HomeBankDir()).After(r.beforeHome)
-	if _, err := bank.SettleBank(o.CWD, time.Now()); err != nil {
+	updated = NewestMtime(dir).After(r.before) || NewestMtime(HomeBankDir()).After(r.beforeHome)
+	if _, err := SettleBank(o.CWD, time.Now()); err != nil {
 		return updated, fmt.Errorf("settle: %w", err)
 	}
 	// Refresh the cached doctor notice here (background worker), never on the SessionStart launch path.
@@ -332,7 +329,7 @@ func (r *updateRun) locked(o UpdateOptions, dir string) error {
 		snap := snapshotFiles(dir, currentStateFiles)
 		defer warnChanged(o.Out, dir, snap)
 	}
-	r.before, r.beforeHome = bank.NewestMtime(dir), bank.NewestMtime(memstore.HomeBankDir())
+	r.before, r.beforeHome = NewestMtime(dir), NewestMtime(HomeBankDir())
 	ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 	defer cancel()
 	if o.Run != nil {
@@ -350,7 +347,7 @@ func runAgentUpdate(ctx context.Context, o UpdateOptions) error {
 	if err != nil {
 		return err
 	}
-	_ = os.Setenv(bank.UpdateChildEnv, "1") // a Claude fallback dispatch must not re-trigger hooks; cannot fail for a fixed key
+	_ = os.Setenv(UpdateChildEnv, "1") // a Claude fallback dispatch must not re-trigger hooks; cannot fail for a fixed key
 	who, err := o.Run(ctx, prompt, o.CWD)
 	fmt.Fprintln(o.Out, "memory update: ran on", who)
 	return err
@@ -360,7 +357,7 @@ func runAgentUpdate(ctx context.Context, o UpdateOptions) error {
 func runClaudeUpdate(ctx context.Context, o UpdateOptions) error {
 	cmd := exec.CommandContext(ctx, o.Claude, "-p", fmt.Sprintf(UpdatePrompt, o.Transcript)+tagBlock(o.Transcript)+historicalBlock(o.Historical), "--max-turns", "40")
 	cmd.Dir = o.CWD
-	cmd.Env = append(os.Environ(), bank.UpdateChildEnv+"=1")
+	cmd.Env = append(os.Environ(), UpdateChildEnv+"=1")
 	// A stored setup-token keeps the unattended update working after the interactive /login session expires.
 	if os.Getenv(providers.OAuthTokenEnv) == "" {
 		if tok := providers.HeadlessOAuthToken(); tok != "" {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory"
 	"io"
 	"io/fs"
 	"os"
@@ -16,7 +17,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -143,7 +143,7 @@ func Nuke(opts NukeOpts) error {
 		return archiveAndRemove(opts, plan)
 	}
 	// The bank lock spans re-plan, archive and removal: a concurrent memory write is never deleted unarchived.
-	return memstore.WithBankLock(0, func() error {
+	return memory.WithBankLock(0, func() error {
 		fresh, err := Plan(opts.Dir, true)
 		if err != nil {
 			return err

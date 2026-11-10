@@ -2,6 +2,7 @@ package memhook
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,11 +11,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 
 	_ "github.com/edotau/claude-code/internal/claude" // registers the claude row
-	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -26,7 +25,7 @@ import (
 func servedSession(t *testing.T, on bool, fetched time.Time, updateChild string) *atomic.Int64 {
 	t.Helper()
 	vaulttest.Use(t)
-	t.Setenv(bank.UpdateChildEnv, updateChild)
+	t.Setenv(memory.UpdateChildEnv, updateChild)
 	row := `{"routing":{"servedAware":%t},"providers":{"databricks":{"dev":{"preset":"databricks",` +
 		`"host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", fmt.Sprintf(row, on))
@@ -89,7 +88,7 @@ func resumeSession(t *testing.T) (cwd, fresh string) {
 	vaulttest.Use(t)
 	StubSpawnForTest(t, true)
 	cwd = t.TempDir()
-	dir := memstore.HandoffsDir(memstore.Dir(cwd))
+	dir := memory.HandoffsDir(memory.Dir(cwd))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}

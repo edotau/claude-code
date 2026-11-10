@@ -9,9 +9,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memory/recall"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -38,11 +35,11 @@ func cmdMemoryRemember(args []string) int {
 		return helptext.Fail("memory remember: no fact text (usage: %s)", memorySubPage("remember").Usage)
 	}
 	root := repoRoot(*repo)
-	id, err := bank.Remember(root, *kind, strings.Join(terms, " "), time.Now())
+	id, err := memory.Remember(root, *kind, strings.Join(terms, " "), time.Now())
 	if err != nil {
 		return helptext.Fail("memory remember: %v", err)
 	}
-	fmt.Printf("remembered [%s] -> %s\n", id, memstore.Dir(root))
+	fmt.Printf("remembered [%s] -> %s\n", id, memory.Dir(root))
 	return 0
 }
 
@@ -77,7 +74,7 @@ func cmdMemorySearch(args []string) int {
 	return 0
 }
 
-func printMemorySearchHits(hits []bank.SearchHit) {
+func printMemorySearchHits(hits []memory.SearchHit) {
 	if len(hits) == 0 {
 		fmt.Println("no matching blocks (banks empty or query all stopwords)")
 	}
@@ -124,7 +121,7 @@ func cmdMemoryPath(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	fmt.Println(memstore.Dir(repoRoot(*repo)))
+	fmt.Println(memory.Dir(repoRoot(*repo)))
 	return 0
 }
 
@@ -152,11 +149,11 @@ func cmdMemoryReport(args []string) int {
 		return helptext.Fail("memory report: %v", err)
 	}
 	// EnsureRepoDir registers the origin under the bank lock so the next call resolves the same key.
-	dir, err := memstore.EnsureRepoDir(repoRoot(*repo))
+	dir, err := memory.EnsureRepoDir(repoRoot(*repo))
 	if err != nil {
 		return helptext.Fail("memory report: %v", err)
 	}
-	out, err := bank.AppendReport(dir, *label, in)
+	out, err := memory.AppendReport(dir, *label, in)
 	if err != nil {
 		return helptext.Fail("memory report: %v", err)
 	}
@@ -164,8 +161,8 @@ func cmdMemoryReport(args []string) int {
 }
 
 // readReportInput decodes the report JSON from file, or from stdin when stdin is set.
-func readReportInput(file string, stdin bool) (bank.ReportInput, error) {
-	var in bank.ReportInput
+func readReportInput(file string, stdin bool) (memory.ReportInput, error) {
+	var in memory.ReportInput
 	var data []byte
 	var err error
 	if stdin {
@@ -324,7 +321,7 @@ func cmdMemoryArchive(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	err = memory.ArchiveReport(os.Stdout, os.Stderr, memory.ArchiveReportOptions{Dir: memstore.NativeDir(repoRoot(*repo)),
+	err = memory.ArchiveReport(os.Stdout, os.Stderr, memory.ArchiveReportOptions{Dir: memory.NativeDir(repoRoot(*repo)),
 		Names: names, Apply: *apply, Restore: *restore, Dupes: *dupes, Split: *split})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "memory archive:", err)
@@ -362,12 +359,12 @@ func cmdMemoryRecall(args []string) int {
 	if *explain {
 		return memoryRecallExplain(*repo, strings.Join(terms, " "), *all || *format == helptext.JSON || *load != 0)
 	}
-	hits, _ := recall.SearchRepo(*repo, *all, strings.Join(terms, " "), *k)
+	hits, _ := memory.SearchRepo(*repo, *all, strings.Join(terms, " "), *k)
 	return memoryRecallEmit(hits, *format, *load)
 }
 
 // memoryRecallEmit writes hits as JSON, or as the text report with an optional body load.
-func memoryRecallEmit(hits []bank.SearchHit, format string, load int) int {
+func memoryRecallEmit(hits []memory.SearchHit, format string, load int) int {
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, hits); err != nil {
 			return helptext.Fail("memory recall: %v", err)
@@ -380,8 +377,8 @@ func memoryRecallEmit(hits []bank.SearchHit, format string, load int) int {
 
 // repoRoot resolves --repo like recall: a catalog store name maps to its origin checkout, else a path.
 func repoRoot(repo string) string {
-	if e, ok := memstore.RepoByName(repo); ok && repo != "" && e.Origin.Origin != "" {
+	if e, ok := memory.RepoByName(repo); ok && repo != "" && e.Origin.Origin != "" {
 		return e.Origin.Origin
 	}
-	return memstore.Root(repo)
+	return memory.Root(repo)
 }

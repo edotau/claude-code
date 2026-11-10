@@ -8,16 +8,13 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // Folding through a secondary checkout must not orphan the source's primary checkout.
 func TestPersistenceAliasFoldViaAliasRetainsPrimary(t *testing.T) {
 	e := newAliasEnv(t)
 	secondary := gitRepo(t, canonTemp(t, t.TempDir()), "secondary")
-	if err := memstore.AddOriginAlias(e.db, secondary); err != nil {
+	if err := AddOriginAlias(e.db, secondary); err != nil {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(e.db, "topic.md"), "source knowledge\n")
@@ -25,7 +22,7 @@ func TestPersistenceAliasFoldViaAliasRetainsPrimary(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, root := range []string{e.a, e.b, secondary} {
-		if got := memstore.Dir(root); got != e.da {
+		if got := Dir(root); got != e.da {
 			t.Errorf("Dir(%q) = %q, want folded store %q", root, got, e.da)
 		}
 	}
@@ -42,13 +39,13 @@ func TestPersistenceArchiveFileHonorsRememberLock(t *testing.T) {
 	tempConfig(t)
 	shortBankWait(t)
 	root := repoRoot(t, "proj")
-	path := filepath.Join(memstore.Dir(root), "conventions.md")
+	path := filepath.Join(Dir(root), "conventions.md")
 	body := "# Conventions\n\n- old one\n- old two\n"
 	write(t, path, body)
 	now := time.Now()
-	err := memstore.WithBankLock(memstore.BankLockWait, func() error {
+	err := WithBankLock(BankLockWait, func() error {
 		_, err := archiveFile(path, 3, now)
-		if !errors.Is(err, memstore.ErrBankBusy) {
+		if !errors.Is(err, ErrBankBusy) {
 			t.Errorf("archiveFile under Remember's bank lock = %v, want ErrBankBusy", err)
 		}
 		return nil
@@ -59,7 +56,7 @@ func TestPersistenceArchiveFileHonorsRememberLock(t *testing.T) {
 	if got := aliasRead(t, path); got != body {
 		t.Fatal("archiveFile rewrote the bank while its lock was held")
 	}
-	id, err := bank.Remember(root, "feedback", "concurrent knowledge", now)
+	id, err := Remember(root, "feedback", "concurrent knowledge", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +76,7 @@ func TestPersistenceArchiveFileHonorsRememberLock(t *testing.T) {
 // A failed run's retry deadline is independent of changes to either bank.
 func TestPersistenceFailedDreamRetriesWithOldBanks(t *testing.T) {
 	isolatedConfig(t)
-	t.Setenv(bank.UpdateChildEnv, "")
+	t.Setenv(UpdateChildEnv, "")
 	t.Setenv(DreamChildEnv, "")
 	root := repoRoot(t, "proj")
 	if _, err := Init(root); err != nil {
@@ -92,7 +89,7 @@ func TestPersistenceFailedDreamRetriesWithOldBanks(t *testing.T) {
 	}
 	now := time.Now()
 	old := now.Add(-48 * time.Hour)
-	for _, dir := range []string{memstore.Dir(root), memstore.HomeBankDir()} {
+	for _, dir := range []string{Dir(root), HomeBankDir()} {
 		for name := range templates() {
 			path := filepath.Join(dir, name)
 			write(t, path, templates()[name])
@@ -100,7 +97,7 @@ func TestPersistenceFailedDreamRetriesWithOldBanks(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if got := bank.NewestMtime(dir); got.After(old) {
+		if got := NewestMtime(dir); got.After(old) {
 			t.Fatalf("bank fixture has recent mtime: %v", got)
 		}
 	}
@@ -127,7 +124,7 @@ func TestPersistenceAliasDryRunRefusesReadErrors(t *testing.T) {
 			if err := os.MkdirAll(blocked, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			before := aliasTreeHash(t, memstore.StoreDir())
+			before := aliasTreeHash(t, StoreDir())
 			_, err := alias(t, e, true)
 			var readErr *os.PathError
 			if !errors.As(err, &readErr) {
@@ -136,7 +133,7 @@ func TestPersistenceAliasDryRunRefusesReadErrors(t *testing.T) {
 			if readErr.Path != blocked {
 				t.Errorf("error path = %q, want %q", readErr.Path, blocked)
 			}
-			if after := aliasTreeHash(t, memstore.StoreDir()); after != before {
+			if after := aliasTreeHash(t, StoreDir()); after != before {
 				t.Error("dry-run changed the store while refusing a read error")
 			}
 		})

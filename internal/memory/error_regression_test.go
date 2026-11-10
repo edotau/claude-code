@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -20,11 +18,11 @@ func TestAliasRejectsIncompleteProjectLinks(t *testing.T) {
 	if err := os.Symlink("unreadable", broken); err != nil {
 		t.Fatal(err)
 	}
-	before := aliasTreeHash(t, memstore.StoreDir())
+	before := aliasTreeHash(t, StoreDir())
 	if _, err := alias(t, e, false); err == nil {
 		t.Error("alias accepted an incomplete project link scan")
 	}
-	if got := aliasTreeHash(t, memstore.StoreDir()); got != before {
+	if got := aliasTreeHash(t, StoreDir()); got != before {
 		t.Error("failed project link scan changed or removed the source store")
 	}
 	if got, err := os.Readlink(link); err != nil || got != e.db {
@@ -34,7 +32,7 @@ func TestAliasRejectsIncompleteProjectLinks(t *testing.T) {
 
 func TestDoctorCachesUnreadableBankWarning(t *testing.T) {
 	isolatedConfig(t)
-	root := memstore.HomeBankDir()
+	root := HomeBankDir()
 	if err := os.MkdirAll(filepath.Join(root, "conventions.md"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -55,10 +53,10 @@ func TestDoctorCachesUnreadableBankWarning(t *testing.T) {
 func TestDigestInputLiteralBracketConfig(t *testing.T) {
 	isolatedConfig(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(t.TempDir(), "claude[work]"))
-	dir := memstore.HomeBankDir()
-	write(t, filepath.Join(memstore.ArchiveDir(dir), "2026-01.md"), "first archive fact")
-	write(t, filepath.Join(memstore.ArchiveDir(dir), "2026-02.md"), "second archive fact")
-	write(t, filepath.Join(memstore.ArchiveDir(dir), DigestFile), "old digest must not be summarized")
+	dir := HomeBankDir()
+	write(t, filepath.Join(ArchiveDir(dir), "2026-01.md"), "first archive fact")
+	write(t, filepath.Join(ArchiveDir(dir), "2026-02.md"), "second archive fact")
+	write(t, filepath.Join(ArchiveDir(dir), DigestFile), "old digest must not be summarized")
 	got, used, err := digestInput(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -78,12 +76,12 @@ func TestSessionSurfaceRelativeNativeLink(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
 	root := paths.CanonDeep(gitRepo(t, t.TempDir(), "relative-link")) // production keys the link by the resolved path
-	dir, err := memstore.EnsureRepoDir(root)
+	dir, err := EnsureRepoDir(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(dir, bank.NativeIndexFile), "unique native-only index marker\n")
-	link := memstore.ProjectsMemory(memstore.ProjectSlug(root))
+	write(t, filepath.Join(dir, NativeIndexFile), "unique native-only index marker\n")
+	link := ProjectsMemory(paths.ProjectSlug(root))
 	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +92,7 @@ func TestSessionSurfaceRelativeNativeLink(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
-	if got := mustRead(t, filepath.Join(link, bank.NativeIndexFile)); got != "unique native-only index marker\n" {
+	if got := mustRead(t, filepath.Join(link, NativeIndexFile)); got != "unique native-only index marker\n" {
 		t.Fatalf("relative native link is not readable: %q", got)
 	}
 	got := SessionSurface(root)

@@ -9,13 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 // AgentIDs lists subagent ids from cwd's project's most recent sessions — a bounded glob, current session first.
 func AgentIDs(cwd string) []string {
-	projectDir := filepath.Join(paths.ConfigDir(), "projects", memstore.ProjectSlug(cwd))
+	projectDir := filepath.Join(paths.ConfigDir(), "projects", paths.ProjectSlug(cwd))
 	sessions, err := filepath.Glob(filepath.Join(projectDir, "*.jsonl"))
 	if err != nil || len(sessions) == 0 {
 		return nil

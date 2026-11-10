@@ -9,8 +9,6 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-
-	"github.com/edotau/claude-code/internal/memory/bank"
 )
 
 func TestNativeRegressionZeroByteRoundTrip(t *testing.T) {
@@ -45,7 +43,7 @@ func TestNativeRegressionMissingIndexFindings(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "orphan.md"), "body\n")
 	write(t, filepath.Join(dir, "linked.md"), "body\n")
-	write(t, filepath.Join(dir, bank.NativeSearchableFile), "- [Linked](linked.md)\n- [Gone](gone.md)\n")
+	write(t, filepath.Join(dir, NativeSearchableFile), "- [Linked](linked.md)\n- [Gone](gone.md)\n")
 	st, err := NativeStats(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -72,17 +70,17 @@ func TestNativeRegressionBatchRestoreCoreCap(t *testing.T) {
 		fmt.Fprintf(&core, "- [Core](%s)\n", name)
 		write(t, filepath.Join(dir, name), "body\n")
 	}
-	write(t, filepath.Join(dir, bank.NativeIndexFile), core.String())
+	write(t, filepath.Join(dir, NativeIndexFile), core.String())
 	archive := nativeArchiveDir(dir)
 	write(t, filepath.Join(archive, "first.md"), "first body\n")
 	write(t, filepath.Join(archive, "second.md"), "second body\n")
-	write(t, filepath.Join(archive, bank.NativeArchiveIndexFile), "- [First](first.md)\n- [Second](second.md)\n")
+	write(t, filepath.Join(archive, NativeArchiveIndexFile), "- [First](first.md)\n- [Second](second.md)\n")
 	res, err := RestoreNative(dir, []string{"first", "second"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	index := readFile(t, filepath.Join(dir, bank.NativeIndexFile))
-	searchable := readFile(t, filepath.Join(dir, bank.NativeSearchableFile))
+	index := mustRead(t, filepath.Join(dir, NativeIndexFile))
+	searchable := mustRead(t, filepath.Join(dir, NativeSearchableFile))
 	if len(indexLinks(index)) != 20 || !strings.Contains(index, "(first.md)") || strings.Contains(index, "(second.md)") {
 		t.Fatalf("batch restore exceeded or underfilled core: %s", index)
 	}
@@ -98,7 +96,7 @@ func assertNativeRegressionRestoredFiles(t *testing.T, dir string, res NativeRes
 		t.Fatalf("batch did not restore both files: %+v", res)
 	}
 	for _, name := range []string{"first", "second"} {
-		if got := readFile(t, filepath.Join(dir, name+".md")); got != name+" body\n" {
+		if got := mustRead(t, filepath.Join(dir, name+".md")); got != name+" body\n" {
 			t.Errorf("restored %s bytes = %q", name, got)
 		}
 	}
@@ -119,9 +117,9 @@ func TestNativeRegressionLstatError(t *testing.T) {
 
 func TestNativeRegressionSearchableReadError(t *testing.T) {
 	dir := t.TempDir()
-	write(t, filepath.Join(dir, bank.NativeIndexFile), "# Index\n")
+	write(t, filepath.Join(dir, NativeIndexFile), "# Index\n")
 	write(t, filepath.Join(dir, "topic.md"), "body\n")
-	if err := os.Mkdir(filepath.Join(dir, bank.NativeSearchableFile), 0o700); err != nil {
+	if err := os.Mkdir(filepath.Join(dir, NativeSearchableFile), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	st, err := NativeStats(dir)

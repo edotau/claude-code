@@ -11,13 +11,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memory/recall/embed"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/transcript"
@@ -137,7 +133,7 @@ func stampedStop(in *core.Input, st updateStamp, stamp string, now time.Time) (b
 		}
 		return false, 0, false
 	}
-	if bank.NewestMtime(memstore.Dir(in.CWD)).After(st.at) {
+	if memory.NewestMtime(memory.Dir(in.CWD)).After(st.at) {
 		_ = writeStamp(stamp, now, "bg", st.edits) // ran by hand: released, re-arms; a lost stamp re-dispatches
 		return false, 0, false
 	}
@@ -161,7 +157,7 @@ func logUpdateToLedger(in *core.Input, trigger string, work int, now time.Time) 
 }
 
 func updatable(in *core.Input) bool {
-	if in.SessionID == "" || in.TranscriptPath == "" || bank.IsUpdateChild() {
+	if in.SessionID == "" || in.TranscriptPath == "" || memory.IsUpdateChild() {
 		return false
 	}
 	fi, err := os.Stat(in.TranscriptPath)
@@ -184,7 +180,7 @@ type updateStamp struct {
 }
 
 func stampPath(sessionID string) string {
-	return filepath.Join(memstore.StateDir(), "stamp-"+filepath.Base(sessionID))
+	return filepath.Join(memory.StateDir(), "stamp-"+filepath.Base(sessionID))
 }
 
 func readStamp(path string) (updateStamp, bool) {
@@ -227,7 +223,7 @@ type countState struct {
 }
 
 func countPath(sessionID string) string {
-	return filepath.Join(memstore.StateDir(), "count-"+filepath.Base(sessionID))
+	return filepath.Join(memory.StateDir(), "count-"+filepath.Base(sessionID))
 }
 
 func readCountState(path string) (countState, bool) {
@@ -429,7 +425,7 @@ func recountSubagents(matches []string, sizes map[string]int64, sidecar string, 
 
 func sessionRootInput(in *core.Input) *core.Input {
 	copy := *in
-	copy.CWD = memrecall.SessionRoot(in.SessionID, in.CWD)
+	copy.CWD = memory.SessionRoot(in.SessionID, in.CWD)
 	return &copy
 }
 
@@ -439,7 +435,7 @@ var spawnUpdate = func(transcriptPath, cwd, sessionID string) bool {
 	if err != nil {
 		return false
 	}
-	logPath := filepath.Join(memstore.StateDir(), "update-"+time.Now().Format("20060102-150405")+".log")
+	logPath := filepath.Join(memory.StateDir(), "update-"+time.Now().Format("20060102-150405")+".log")
 	if os.MkdirAll(filepath.Dir(logPath), 0o700) != nil {
 		return false
 	}
@@ -474,10 +470,10 @@ func refreshEmbeddings(cwd string) {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	if bank.IsUpdateChild() || !memory.HasBank(cwd) {
+	if memory.IsUpdateChild() || !memory.HasBank(cwd) {
 		return
 	}
-	if profile := embed.EmbedProfile(); profile != "" {
-		embed.RefreshEmbeddings(cwd, profile, time.Now())
+	if profile := memory.EmbedProfile(); profile != "" {
+		memory.RefreshEmbeddings(cwd, profile, time.Now())
 	}
 }

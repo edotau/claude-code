@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -58,7 +57,7 @@ func (v *claimVerifier) checkInRepo(c verifyClaim) verifyResult {
 }
 
 func (v *claimVerifier) hash(token string) verifyResult {
-	for _, repo := range []string{v.store.repo, memstore.StoreDir()} {
+	for _, repo := range []string{v.store.repo, StoreDir()} {
 		if sha := v.objects[repo][token]; sha != "" {
 			return verifyResult{"ok", repo + " object " + sha}
 		}

@@ -2,24 +2,24 @@ package memhook
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory"
 	"os"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 )
 
 func Recall(in *core.Input) core.Result {
 	in = sessionRootInput(in)
-	picks, trace := memrecall.RecallPicks(in.CWD, in.SessionID, in.Prompt, true, false)
+	picks, trace := memory.RecallPicks(in.CWD, in.SessionID, in.Prompt, true, false)
 	if after, ok := strings.CutPrefix(trace.Embeddings, "keyword-only: "); ok {
-		fmt.Fprintf(os.Stderr, "memory-recall: keyword-only (%s)\n", memrecall.Cut(after, 120))
+		fmt.Fprintf(os.Stderr, "memory-recall: keyword-only (%s)\n", memory.Cut(after, 120))
 	}
-	context, bodies, hits := memrecall.RecallContext(picks)
+	context, bodies, hits := memory.RecallContext(picks)
 	if context == "" {
 		return core.Result{}
 	}
-	memrecall.RecordRecall(in.CWD, in.SessionID, bodies, hits)
+	memory.RecordRecall(in.CWD, in.SessionID, bodies, hits)
 	return core.Result{Context: context}
 }
 
@@ -40,16 +40,16 @@ const agentRecallMarker = "<memory-recall>"
 // it cites, for up to 3 hits (persisted id or derived ContentRef — `memory show` loads either);
 // ("", nil) on no match.
 func AgentRecall(sessionID, cwd, task string) (block string, ids []string) {
-	cwd = memrecall.SessionRoot(sessionID, cwd)
+	cwd = memory.SessionRoot(sessionID, cwd)
 	q := strings.TrimSpace(task)
 	if q == "" || strings.Contains(q, agentRecallMarker) {
 		return "", nil
 	}
-	picks, _ := memrecall.RecallPicks(cwd, sessionID, q, false, false)
+	picks, _ := memory.RecallPicks(cwd, sessionID, q, false, false)
 
 	var lines []string
-	for _, e := range memrecall.RecallPointers(picks) {
-		lines = append(lines, "\n- "+memrecall.Cut(e.Pointer(), agentRecallPreviewRunes))
+	for _, e := range memory.RecallPointers(picks) {
+		lines = append(lines, "\n- "+memory.Cut(e.Pointer(), agentRecallPreviewRunes))
 		ids = append(ids, e.ID)
 	}
 	block, n := capRecallLines(lines)

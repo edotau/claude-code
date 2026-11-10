@@ -10,8 +10,6 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // TestMemoryRecallRanksAndFormatsUnstampedHits: `memory recall` prints each hit "<ref> — <title>";
@@ -20,7 +18,7 @@ import (
 func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if err := bank.StoreRepo().Ensure(); err != nil {
+	if err := memory.StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
@@ -30,13 +28,13 @@ func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 	if _, err := memory.Init(repo); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(memstore.Dir(repo), "conventions.md"),
+	if err := os.WriteFile(filepath.Join(memory.Dir(repo), "conventions.md"),
 		[]byte("# Conventions\n\n- stamped id-marked rule <!-- id:deadbeef -->\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// Append an unstamped line by hand, after Remember's settle pass already assigned ids above —
 	// activeContext.md is never id-assigned, so it stays unstamped (SearchBanks still indexes it).
-	if err := os.WriteFile(filepath.Join(memstore.Dir(repo), "activeContext.md"),
+	if err := os.WriteFile(filepath.Join(memory.Dir(repo), "activeContext.md"),
 		[]byte("# Active Context\n\n- rule stamped id-marked never settled here\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +57,7 @@ func checkMemoryRecallUnstampedRefs(t *testing.T, repo string) {
 	if contentRef == "" || !strings.HasPrefix(contentRef, "z") {
 		t.Fatalf("recall output missing a content-derived ref for the unstamped hit: %q", out)
 	}
-	if _, block, err := bank.ShowBlock(contentRef); err != nil || !strings.Contains(block, "never settled here") {
+	if _, block, err := memory.ShowBlock(contentRef); err != nil || !strings.Contains(block, "never settled here") {
 		t.Errorf("memory show %s = %q, %v; want the unstamped block", contentRef, block, err)
 	}
 }
@@ -79,7 +77,7 @@ func unstampedRecallRef(out string) string {
 func TestMemoryRecallLoadResolvesUnstampedHitByContentRef(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if err := bank.StoreRepo().Ensure(); err != nil {
+	if err := memory.StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
@@ -89,7 +87,7 @@ func TestMemoryRecallLoadResolvesUnstampedHitByContentRef(t *testing.T) {
 	if _, err := memory.Init(repo); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(memstore.Dir(repo), "activeContext.md"),
+	if err := os.WriteFile(filepath.Join(memory.Dir(repo), "activeContext.md"),
 		[]byte("# Active Context\n\n- never settled widget rollout detail\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +123,7 @@ func TestMemoryRecallLoadAppendsBodiesUnderByteCap(t *testing.T) {
 	if _, err := memory.Init(repo); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := bank.Remember(repo, "feedback", "loadable fact about widgets and gadgets", time.Now()); err != nil {
+	if _, err := memory.Remember(repo, "feedback", "loadable fact about widgets and gadgets", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	code, out, stderr := hosttest.CaptureOutput(t, func() int {

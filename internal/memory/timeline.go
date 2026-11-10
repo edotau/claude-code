@@ -7,10 +7,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/edotau/claude-code/internal/memory/bank"
-
-	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // TimelineEntry is one recall row from an update receipt.
@@ -43,12 +39,12 @@ func Timeline(root string, limit int) (entries []TimelineEntry, sessions []strin
 // recentSessions lists the sessionHistory headings of root's bank then the home bank, deduped, up to limit (0 = all).
 func recentSessions(root string, limit int) (sessions []string) {
 	seen := map[string]bool{}
-	dirs := []string{memstore.HomeBankDir()}
-	if !memstore.IsHomeBank(root) {
-		dirs = []string{memstore.Dir(root), memstore.HomeBankDir()}
+	dirs := []string{HomeBankDir()}
+	if !IsHomeBank(root) {
+		dirs = []string{Dir(root), HomeBankDir()}
 	}
 	for _, dir := range dirs {
-		for _, h := range bank.EntriesWithPrefix(filepath.Join(dir, "sessionHistory.md"), "## ") {
+		for _, h := range EntriesWithPrefix(filepath.Join(dir, "sessionHistory.md"), "## ") {
 			if seen[h] {
 				continue
 			}
@@ -79,7 +75,7 @@ type receipt struct {
 // readReceipts returns every parseable StateDir()/update-result-* receipt, skipping unreadable ones.
 func readReceipts() []receipt {
 	var out []receipt
-	matches, _ := filepath.Glob(filepath.Join(memstore.StateDir(), "update-result-*"))
+	matches, _ := filepath.Glob(filepath.Join(StateDir(), "update-result-*"))
 	for _, p := range matches {
 		id := strings.TrimPrefix(filepath.Base(p), "update-result-")
 		if r, ok := ReadUpdateResult(id); ok {

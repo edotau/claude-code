@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/memory"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest/gittest"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -129,7 +129,7 @@ func TestWorktreeRemoveClosesLedger(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gittest.Repo(t)
 	wt := mustCreate(t, repo, "led")
-	ledger := filepath.Join(memstore.Dir(repo), "worktrees", "led.md")
+	ledger := filepath.Join(memory.Dir(repo), "worktrees", "led.md")
 	if data, err := os.ReadFile(ledger); err != nil || !strings.Contains(string(data), "- Status: open") {
 		t.Fatalf("ledger not opened by create: %v\n%s", err, data)
 	}

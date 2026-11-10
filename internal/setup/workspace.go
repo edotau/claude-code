@@ -12,8 +12,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -58,7 +56,7 @@ func workspaceRoot(root string) (string, error) {
 	if paths.SamePath(abs, cfg) || strings.HasPrefix(abs, cfg+string(filepath.Separator)) {
 		return "", fmt.Errorf("%s is inside the harness config dir %s: a project .claude/ cannot nest there", abs, cfg)
 	}
-	top := memstore.GitToplevel(abs)
+	top := memory.GitToplevel(abs)
 	if top == "" || !paths.SamePath(top, abs) {
 		return "", fmt.Errorf("%s is not a git toplevel (run from the repo root, or git init first)", abs)
 	}
@@ -234,8 +232,8 @@ func workspaceHasIgnore(path string) (bool, error) {
 
 // workspaceMemoryAction seeds root's memory bank (~/.claude/memory/<repo>), or reports it kept.
 func workspaceMemoryAction(root string) workspaceAction {
-	dir := memstore.Dir(root)
-	present, err := workspaceExists(filepath.Join(dir, bank.BankFiles()[0]))
+	dir := memory.Dir(root)
+	present, err := workspaceExists(filepath.Join(dir, memory.BankFiles()[0]))
 	if err != nil {
 		return workspaceErrorAction(dir, err)
 	}
@@ -316,12 +314,12 @@ func WorkspaceStatus(root string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	memory, err := workspacePresent(filepath.Join(memstore.Dir(root), bank.BankFiles()[0]))
+	bankState, err := workspacePresent(filepath.Join(memory.Dir(root), memory.BankFiles()[0]))
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "settings  %s\n", settings)
-	fmt.Fprintf(out, "memory    %s  %s\n", memory, memstore.Dir(root))
+	fmt.Fprintf(out, "memory    %s  %s\n", bankState, memory.Dir(root))
 	has, err := workspaceHasIgnore(filepath.Join(root, ".gitignore"))
 	if err != nil {
 		return err

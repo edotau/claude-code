@@ -3,20 +3,19 @@ package agent
 import (
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/proc"
 	"os"
 	"slices"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/edotau/claude-code/internal/memstore"
-	"github.com/edotau/claude-code/internal/proc"
 )
 
 // Given a launching workspace in the env, Then every child env carries it exactly once, explicit Base included.
 func TestEnvironPassesMemoryOrigin(t *testing.T) {
-	t.Setenv(memstore.OriginEnv, "/work/space")
-	want := memstore.OriginEnv + "=/work/space"
+	t.Setenv(memory.OriginEnv, "/work/space")
+	want := memory.OriginEnv + "=/work/space"
 	for _, s := range []EnvSpec{{Mode: EnvClaude}, {Mode: EnvAgent}, {Mode: EnvClaude, Base: []string{"PATH=/bin"}}} {
 		env := s.Environ(context.Background())
 		if n := len(slices.DeleteFunc(slices.Clone(env), func(e string) bool { return e != want })); n != 1 {
@@ -66,7 +65,7 @@ func TestChildCmdSetsPWD(t *testing.T) {
 	}
 
 	// dir == "" (no --workdir): childCmd must append nothing past the scrubbed environ, no PWD.
-	t.Setenv(memstore.OriginEnv, "/inherited") // already inherited, so withMemoryOrigin adds nothing either
+	t.Setenv(memory.OriginEnv, "/inherited") // already inherited, so withMemoryOrigin adds nothing either
 	scrubbed, _ := proc.Scrub(os.Environ(), nil)
 	cmd, _ = ChildCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, false)
 	if n, want := len(cmd.Env), len(scrubbed); n != want {

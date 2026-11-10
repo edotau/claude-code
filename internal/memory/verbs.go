@@ -10,10 +10,6 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memory/recall"
-	embedding "github.com/edotau/claude-code/internal/memory/recall/embed"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -32,30 +28,30 @@ type SearchOptions struct {
 // SearchResult is the expanded block (Path, Block) when the query was a reference, else the ranked Hits.
 type SearchResult struct {
 	Path, Block string
-	Hits        []bank.SearchHit
+	Hits        []SearchHit
 }
 
 // Search ranks blocks for the query and logs the access; a block reference expands in place when allowed.
 func Search(o SearchOptions) SearchResult {
 	now := time.Now()
 	if o.Expand && idRef.MatchString(o.Query) {
-		if path, block, err := bank.ShowBlock(o.Query); err == nil {
-			recall.LogShown(path, o.Query, recall.AccessSearch, now)
+		if path, block, err := ShowBlock(o.Query); err == nil {
+			LogShown(path, o.Query, AccessSearch, now)
 			return SearchResult{Path: path, Block: block}
 		}
 	}
-	hits, root := recall.SearchRepo(o.Repo, o.All, o.Query, o.K)
-	recall.LogHits(root, hits, recall.AccessSearch, now)
+	hits, root := SearchRepo(o.Repo, o.All, o.Query, o.K)
+	LogHits(root, hits, AccessSearch, now)
 	return SearchResult{Hits: hits}
 }
 
 // Show returns one block by id and logs the access.
 func Show(id string) (path, block string, err error) {
-	path, block, err = bank.ShowBlock(id)
+	path, block, err = ShowBlock(id)
 	if err != nil {
 		return "", "", err
 	}
-	recall.LogShown(path, id, recall.AccessShow, time.Now())
+	LogShown(path, id, AccessShow, time.Now())
 	return path, block, nil
 }
 
@@ -65,9 +61,9 @@ func InitBank(w io.Writer, root string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background update) writes it.\n", dir, memstore.HomeBankDir())
+	fmt.Fprintf(w, "bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background update) writes it.\n", dir, HomeBankDir())
 	if IsProjectContextTemplate(root) {
-		ref, err := bank.Reference("init")
+		ref, err := Reference("init")
 		if err != nil {
 			return err
 		}
@@ -86,8 +82,8 @@ type IndexOptions struct {
 
 // Index settles the bank (unless MintOnly) and refreshes the embedding cache; errors carry their verb prefix.
 func Index(out, errw io.Writer, o IndexOptions) error {
-	root := memstore.Root(o.Repo)
-	profile := cmp.Or(embedding.EmbedProfile(), providers.SessionProfile())
+	root := Root(o.Repo)
+	profile := cmp.Or(EmbedProfile(), providers.SessionProfile())
 	if o.Reembed {
 		if err := reembedGate(profile, time.Now()); err != nil {
 			return err
@@ -97,11 +93,11 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 		embedIndex(out, errw, root, profile, o.Reembed)
 		return nil
 	}
-	s, err := bank.SettleBank(root, time.Now())
+	s, err := SettleBank(root, time.Now())
 	if err != nil {
 		return fmt.Errorf("memory index: %w", err)
 	}
-	fmt.Fprintf(out, "indexed %s", memstore.Dir(root))
+	fmt.Fprintf(out, "indexed %s", Dir(root))
 	if s.Rotated > 0 {
 		fmt.Fprintf(out, " (rotated %d sessionHistory entries to archive/)", s.Rotated)
 	}
@@ -121,7 +117,7 @@ func reembedGate(profile string, now time.Time) error {
 	if profile == "" {
 		return nil
 	}
-	at, open, err := embedding.ReembedWindow(profile, now)
+	at, open, err := ReembedWindow(profile, now)
 	if err != nil {
 		return fmt.Errorf("memory index --reembed: %w", err)
 	}
@@ -135,18 +131,18 @@ func reembedGate(profile string, now time.Time) error {
 func embedIndex(out, errw io.Writer, root, profile string, reembed bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	c, err := embedding.OpenEmbedClient(ctx, profile, "")
+	c, err := OpenEmbedClient(ctx, profile, "")
 	if err == nil {
 		var n, total int
-		embed := embedding.EmbedEntries
+		embed := EmbedEntries
 		if reembed {
-			embed = embedding.ReembedEntries
+			embed = ReembedEntries
 		}
 		if n, total, err = embed(ctx, root, c); err == nil && n > 0 {
 			fmt.Fprintf(out, "embedded %d of %d entries (%s)\n", n, total, c.Model)
 		}
 	}
-	if err != nil && !errors.Is(err, embedding.ErrEmbedValid) { // a valid cache is the normal case, not a skip
+	if err != nil && !errors.Is(err, ErrEmbedValid) { // a valid cache is the normal case, not a skip
 		fmt.Fprintf(errw, "memory index: embeddings skipped: %v\n", err)
 	}
 }
@@ -189,7 +185,7 @@ func UpdateSession(o UpdateSessionOptions) error {
 		return err
 	}
 	if transcript == "" { // no resolvable session: print the narrative procedure instead of refusing outright
-		ref, err := bank.Reference("update")
+		ref, err := Reference("update")
 		if err != nil {
 			return err
 		}
@@ -197,7 +193,7 @@ func UpdateSession(o UpdateSessionOptions) error {
 		return nil
 	}
 	if o.DryRun {
-		fmt.Fprintf(o.Out, "memory update (dry run): session %s, transcript %s, bank %s\n", session, transcript, memstore.Dir(root))
+		fmt.Fprintf(o.Out, "memory update (dry run): session %s, transcript %s, bank %s\n", session, transcript, Dir(root))
 		return nil
 	}
 	claude, err := o.ClaudeBin() // "" is fine here: Run handles the update, Claude is only its fallback
@@ -237,12 +233,12 @@ func RunDream(o DreamRunOptions) error {
 
 // DigestRepo writes the repo bank's digest and returns its path.
 func DigestRepo(ctx context.Context, repo, claude string) (string, error) {
-	return Digest(ctx, memstore.Dir(memstore.Root(repo)), claude)
+	return Digest(ctx, Dir(Root(repo)), claude)
 }
 
 // FormatReport wraps the bank files (or only lists them under check) and reports whether check found changes.
 func FormatReport(w io.Writer, check bool) (dirty bool, err error) {
-	changed, err := bank.FormatBank(check)
+	changed, err := FormatBank(check)
 	if err != nil {
 		return false, err
 	}
@@ -270,7 +266,7 @@ type ReviewOptions struct {
 
 // ReviewReport writes doctor + stats (Notice refreshes the cached session-start notice and prints nothing).
 func ReviewReport(w io.Writer, o ReviewOptions) error {
-	root := memstore.Root(o.Repo)
+	root := Root(o.Repo)
 	if o.Notice {
 		return WriteDoctorNotice(root, o.StaleDays, time.Now())
 	}
@@ -287,7 +283,7 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 	}
 	fmt.Fprint(w, CollectBankStats().Report())
 	if o.Candidates {
-		ref, err := bank.Reference("review")
+		ref, err := Reference("review")
 		if err != nil {
 			return err
 		}
@@ -299,7 +295,7 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 
 // TimelineReport writes the n most recent bank entries, then the sessionHistory lines.
 func TimelineReport(w io.Writer, repo string, n int) {
-	entries, sessions := Timeline(memstore.Root(repo), n)
+	entries, sessions := Timeline(Root(repo), n)
 	for _, e := range entries {
 		fmt.Fprintf(w, "%s  update   %s\n", e.Time.Format("2006-01-02 15:04"), e.Line)
 	}

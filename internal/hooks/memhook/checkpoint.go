@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -64,7 +64,7 @@ func handoffPrompt(in *core.Input, pct int) core.Result {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	dir := memstore.HandoffsDir(memstore.Dir(cwd))
+	dir := memory.HandoffsDir(memory.Dir(cwd))
 	return core.Result{
 		Context: fmt.Sprintf("Context at %d%% with nothing in flight: write a handoff to %s/YYYY-MM-DD-<slug>.md "+
 			"(State, In flight, Next), then ask the owner to run /compact.", pct, dir),
@@ -182,7 +182,7 @@ func resumeNote(in *core.Input, cwd string, now time.Time) string {
 			parts = append(parts, compactedText(r))
 		}
 	}
-	if h := newestHandoff(memstore.HandoffsDir(memstore.Dir(cwd)), now, 24*time.Hour); h != "" {
+	if h := newestHandoff(memory.HandoffsDir(memory.Dir(cwd)), now, 24*time.Hour); h != "" {
 		parts = append(parts, "handoff: "+h)
 	}
 	return strings.Join(parts, "; ")

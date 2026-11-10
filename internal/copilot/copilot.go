@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory"
 	"io"
 	"io/fs"
 	"os"
@@ -20,7 +21,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig/render"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -363,7 +363,7 @@ var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
 }}
 
 // Seams for the mid-dispatch quota hand-off; tests replace them.
-var handoffDir = func(root string) string { return memstore.HandoffsDir(memstore.Dir(root)) }
+var handoffDir = func(root string) string { return memory.HandoffsDir(memory.Dir(root)) }
 
 // CopilotQuotaHandoff marks the exhausted account and returns a redacted handoff for the next fallback dispatch;
 // partialSession and partialText are what the failed run got out.

@@ -3,18 +3,17 @@ package setup
 import (
 	"encoding/json"
 	"errors"
+	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/edotau/claude-code/internal/memstore"
-	"github.com/edotau/claude-code/internal/paths"
 )
 
 // orphanAccessLog allows only the two legacy names without a corresponding store.
 func orphanAccessLog(p string) bool {
-	if filepath.Dir(p) != filepath.Clean(memstore.AccessStateDir()) {
+	if filepath.Dir(p) != filepath.Clean(memory.AccessStateDir()) {
 		return false
 	}
 	name := filepath.Base(p)
@@ -24,7 +23,7 @@ func orphanAccessLog(p string) bool {
 	if fi, err := os.Lstat(p); err != nil || !fi.Mode().IsRegular() {
 		return false
 	}
-	_, err := os.Lstat(filepath.Join(memstore.StoreDir(), strings.TrimSuffix(name, ".log")))
+	_, err := os.Lstat(filepath.Join(memory.StoreDir(), strings.TrimSuffix(name, ".log")))
 	return os.IsNotExist(err)
 }
 

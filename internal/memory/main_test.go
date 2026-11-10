@@ -10,8 +10,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/hosttest/gittest"
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/proc"
@@ -53,7 +51,7 @@ func isolatedConfig(t *testing.T) (cfg, home string) {
 // initStore creates the unified store's git repo; callers must already hold an isolated CLAUDE_CONFIG_DIR.
 func initStore(t *testing.T) {
 	t.Helper()
-	if err := bank.StoreRepo().Ensure(); err != nil {
+	if err := StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -91,7 +89,49 @@ func isolatedConfig1(t *testing.T) string {
 // shortBankWait shrinks BankLockWait so a contended-lock test fails fast instead of waiting the 5s default.
 func shortBankWait(t *testing.T) {
 	t.Helper()
-	old := memstore.BankLockWait
-	memstore.BankLockWait = 100 * time.Millisecond
-	t.Cleanup(func() { memstore.BankLockWait = old })
+	old := BankLockWait
+	BankLockWait = 100 * time.Millisecond
+	t.Cleanup(func() { BankLockWait = old })
+}
+
+func tempConfig(t *testing.T) string {
+	t.Helper()
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	return cfg
+}
+
+func write(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// repoRoot makes a git work-tree root (a .git dir is enough for the stat-first check).
+func repoRoot(t *testing.T, name string) string {
+	t.Helper()
+	root := gitRepo(t, canonTemp(t, t.TempDir()), name)
+	if _, err := EnsureRepoDir(root); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func mustRead(t *testing.T, p string) string {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read %s: %v", p, err)
+	}
+	return string(b)
+}
+
+// clearChildEnv scopes the child-env vars an o.Run update or dream sets process-wide, so later tests see them unset.
+func clearChildEnv(t *testing.T) {
+	t.Setenv(UpdateChildEnv, "")
+	t.Setenv(DreamChildEnv, "")
 }

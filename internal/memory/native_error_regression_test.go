@@ -8,8 +8,6 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-
-	"github.com/edotau/claude-code/internal/memory/bank"
 )
 
 func TestNativeErrorRegressionRestoreMissingIndexIdenticalLive(t *testing.T) {
@@ -20,7 +18,7 @@ func TestNativeErrorRegressionRestoreMissingIndexIdenticalLive(t *testing.T) {
 	const pointer = "- [Recorded title](topic.md) — preserve this exact description"
 	write(t, filepath.Join(dir, "topic.md"), body)
 	write(t, filepath.Join(archive, "topic.md"), body)
-	write(t, filepath.Join(archive, bank.NativeArchiveIndexFile), pointer+"\n")
+	write(t, filepath.Join(archive, NativeArchiveIndexFile), pointer+"\n")
 
 	res, err := RestoreNative(dir, []string{"topic"}, true)
 	if err != nil {
@@ -29,16 +27,16 @@ func TestNativeErrorRegressionRestoreMissingIndexIdenticalLive(t *testing.T) {
 	if strings.Join(res.Restored, ",") != "topic.md" {
 		t.Fatalf("restore did not succeed: %+v", res)
 	}
-	if got := readFile(t, filepath.Join(dir, bank.NativeIndexFile)); strings.TrimSpace(got) != pointer {
+	if got := mustRead(t, filepath.Join(dir, NativeIndexFile)); strings.TrimSpace(got) != pointer {
 		t.Fatalf("recorded pointer lost or rewritten after identical-live restore: %q", got)
 	}
-	if got := readFile(t, filepath.Join(dir, "topic.md")); got != body {
+	if got := mustRead(t, filepath.Join(dir, "topic.md")); got != body {
 		t.Fatalf("identical live copy changed: %q", got)
 	}
 	if _, err := os.Lstat(filepath.Join(archive, "topic.md")); !os.IsNotExist(err) {
 		t.Fatalf("archived copy was not removed: %v", err)
 	}
-	if got := readFile(t, filepath.Join(archive, bank.NativeArchiveIndexFile)); strings.Contains(got, "topic.md") {
+	if got := mustRead(t, filepath.Join(archive, NativeArchiveIndexFile)); strings.Contains(got, "topic.md") {
 		t.Fatalf("restored pointer still recorded in archive: %q", got)
 	}
 }
