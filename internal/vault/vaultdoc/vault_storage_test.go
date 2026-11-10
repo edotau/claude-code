@@ -106,7 +106,7 @@ func TestImportRoundTrip(t *testing.T) {
 	seedTestDoc(t)
 	orig := exportTestDoc(t)
 	before := vaultTestState(t)
-	if err := Import(orig, orig); err != nil {
+	if _, err := Import(orig, orig); err != nil {
 		t.Fatal(err)
 	}
 	if after := vaultTestState(t); !reflect.DeepEqual(after, before) {
@@ -117,44 +117,44 @@ func TestImportRoundTrip(t *testing.T) {
 	}
 }
 
-// importValidationCase is one invalid document: edit mutates the decoded doc, raw then mangles the encoded bytes.
+// importValidationCase is one invalid part (edit the doc, then raw the bytes); path is its warning, "" = doc rejected.
 type importValidationCase struct {
-	name string
-	edit func(*Doc)
-	raw  func([]byte) []byte
+	name, path string
+	edit       func(*Doc)
+	raw        func([]byte) []byte
 }
 
 var importValidationCases = []importValidationCase{
-	{name: "bad pin name", edit: func(d *Doc) { d.Pins["foo-bar"] = "x" }},
-	{name: "bad env name", edit: func(d *Doc) { d.Env["foo-bar"] = "x" }},
-	{name: "multiline env", edit: func(d *Doc) { d.Env["X"] = "one\ntwo" }},
-	{name: "carriage return env", edit: func(d *Doc) { d.Env["X"] = "one\rtwo" }},
-	{name: "multiline pin", edit: func(d *Doc) { d.Pins["X"] = "one\ntwo" }},
-	{name: "empty env", edit: func(d *Doc) { d.Env["X"] = "" }},
-	{name: "empty pin", edit: func(d *Doc) { d.Pins["X"] = "" }},
-	{name: "unknown field", raw: func(b []byte) []byte {
+	{name: "bad pin name", path: "pins.foo-bar", edit: func(d *Doc) { d.Pins["foo-bar"] = "x" }},
+	{name: "bad env name", path: "env.foo-bar", edit: func(d *Doc) { d.Env["foo-bar"] = "x" }},
+	{name: "multiline env", path: "env.X", edit: func(d *Doc) { d.Env["X"] = "one\ntwo" }},
+	{name: "carriage return env", path: "env.X", edit: func(d *Doc) { d.Env["X"] = "one\rtwo" }},
+	{name: "multiline pin", path: "pins.X", edit: func(d *Doc) { d.Pins["X"] = "one\ntwo" }},
+	{name: "empty env", path: "env.X", edit: func(d *Doc) { d.Env["X"] = "" }},
+	{name: "empty pin", path: "pins.X", edit: func(d *Doc) { d.Pins["X"] = "" }},
+	{name: "unknown field", path: "unknown", raw: func(b []byte) []byte {
 		return bytes.Replace(b, []byte("{"), []byte(`{"unknown":true,`), 1)
 	}},
 	{name: "trailing object", raw: func(b []byte) []byte { return append(b, []byte(" {}")...) }},
 	{name: "trailing junk", raw: func(b []byte) []byte { return append(b, []byte(" junk")...) }},
 	{name: "malformed JSON", raw: func([]byte) []byte { return []byte("{") }},
-	{name: "providers", edit: func(d *Doc) {
+	{name: "providers", path: "providers", edit: func(d *Doc) {
 		d.Providers = json.RawMessage(`{"providers":{"x":{"base_url":"nope"}}}`)
 	}},
-	{name: "agents", edit: func(d *Doc) {
+	{name: "agents", path: "agents", edit: func(d *Doc) {
 		d.Agents = json.RawMessage(`{"agents":{"codex":{"launch":{"args":42}}}}`)
 	}},
-	{name: "key command not array", edit: func(d *Doc) { d.Vault.KeyCommand = `"pass show x"` }},
-	{name: "key command empty array", edit: func(d *Doc) { d.Vault.KeyCommand = `[]` }},
-	{name: "key command empty executable", edit: func(d *Doc) { d.Vault.KeyCommand = `[""]` }},
+	{name: "key command not array", path: "vault.key_command", edit: func(d *Doc) { d.Vault.KeyCommand = `"pass show x"` }},
+	{name: "key command empty array", path: "vault.key_command", edit: func(d *Doc) { d.Vault.KeyCommand = `[]` }},
+	{name: "key command empty executable", path: "vault.key_command", edit: func(d *Doc) { d.Vault.KeyCommand = `[""]` }},
 }
 
-// editedInvalid builds the edited bytes for tt: a would-be valid change plus the case's invalid part.
+// editedInvalid builds the edited bytes for tt: two valid changes plus the case's invalid part.
 func editedInvalid(t *testing.T, orig []byte, tt importValidationCase) []byte {
 	t.Helper()
 	edited := editTestDoc(t, orig, func(d *Doc) {
 		d.Pins["HARNESS_PROVIDER"] = "openai"
-		d.Env["NEW_ENV"] = "must-not-land"
+		d.Env["NEW_ENV"] = "lands"
 		if tt.edit != nil {
 			tt.edit(d)
 		}
@@ -165,23 +165,137 @@ func editedInvalid(t *testing.T, orig []byte, tt importValidationCase) []byte {
 	return edited
 }
 
+// An invalid entry is skipped with a warning naming its path while valid edits land; an unparsable doc applies none.
 func TestImportValidation(t *testing.T) {
 	for _, tt := range importValidationCases {
 		t.Run(tt.name, func(t *testing.T) {
 			vaulttest.Use(t)
 			seedTestDoc(t)
 			orig := exportTestDoc(t)
-			before := vaultTestState(t)
-			if err := Import(orig, editedInvalid(t, orig, tt)); err == nil {
-				t.Error("Import accepted invalid document")
+			want := vaultTestState(t)
+			warnings, err := Import(orig, editedInvalid(t, orig, tt))
+			if tt.path == "" {
+				if err == nil {
+					t.Error("Import accepted a document that does not parse")
+				}
+			} else {
+				assertSkippedPath(t, warnings, err, tt.path)
+				want[vault.Pins]["HARNESS_PROVIDER"], want[vault.Env]["NEW_ENV"] = "openai", "lands"
 			}
-			if got := exportTestDoc(t); !bytes.Equal(got, orig) {
-				t.Error("invalid Import changed exported config")
-			}
-			if got := vaultTestState(t); !reflect.DeepEqual(got, before) {
-				t.Error("invalid Import changed a vault bucket")
+			if got := vaultTestState(t); !reflect.DeepEqual(got, want) {
+				t.Errorf("vault = %v, want only the valid changes %v", got, want)
 			}
 		})
+	}
+}
+
+// assertSkippedPath fails unless Import succeeded with exactly one warning, naming path.
+func assertSkippedPath(t *testing.T, warnings []string, err error, path string) {
+	t.Helper()
+	if err != nil || len(warnings) != 1 || !strings.HasPrefix(warnings[0], "unable to parse "+path+": ") {
+		t.Errorf("Import = %q, %v; want one warning for %s", warnings, err, path)
+	}
+}
+
+// Mixed valid and bad entries: valid ones save, bad ones keep their stored value and warn by path, never by value.
+func TestImportPartial(t *testing.T) {
+	vaulttest.Use(t)
+	seedTestDoc(t)
+	vaulttest.SetRecord(t, "codex", "model", "keep-model")
+	orig := exportTestDoc(t)
+	const sentinel = "sk-SENTINEL-0123456789"
+	edited := editRecords(t, editTestDoc(t, orig, func(d *Doc) {
+		d.Pins["HARNESS_PROVIDER"] = "openai"
+		d.Env["NEW_ENV"] = "lands"
+		d.Env["LEAKY"] = sentinel + "\nsecond line"
+		delete(d.Env, "KEEP_ENV")
+	}), func(r map[string]any) {
+		r["codex"] = map[string]any{"model": "new-model", "colour": sentinel}
+		r["claude"] = map[string]any{"effort": "high"}
+		r["nope"] = map[string]any{"profile": sentinel}
+	})
+	edited = bytes.Replace(edited, []byte(`"env":{`),
+		[]byte(`"schema":1,"$schema":"x","extra":"`+sentinel+`","env":{"KEEP_ENV":42,`), 1)
+	var stdout, stderr bytes.Buffer
+	if retry, err := importEdited(&stdout, &stderr, orig, edited); retry || err != nil || stdout.String() != "saved\n" {
+		t.Fatalf("importEdited = %v, %v; stdout %q", retry, err, stdout.String())
+	}
+	lines := strings.Split(strings.TrimSpace(stderr.String()), "\n")
+	paths := []string{"agents.records.codex", "agents.records.nope", "env.KEEP_ENV", "env.LEAKY", "extra"}
+	for _, path := range paths {
+		if strings.Count(stderr.String(), "warning: unable to parse "+path+": ") != 1 {
+			t.Errorf("stderr lacks one warning for %s: %q", path, stderr.String())
+		}
+	}
+	if len(lines) != len(paths) || strings.Contains(stderr.String(), sentinel) {
+		t.Errorf("stderr = %q, want %d warnings and no value", stderr.String(), len(paths))
+	}
+	assertPartialState(t)
+}
+
+// assertPartialState fails unless TestImportPartial's valid edits landed and each bad entry kept its stored value.
+func assertPartialState(t *testing.T) {
+	t.Helper()
+	state := vaultTestState(t)
+	if state[vault.Pins]["HARNESS_PROVIDER"] != "openai" || state[vault.Env]["NEW_ENV"] != "lands" {
+		t.Errorf("valid edits missing: pins %v env %v", state[vault.Pins], state[vault.Env])
+	}
+	if _, ok := state[vault.Env]["LEAKY"]; ok || state[vault.Env]["KEEP_ENV"] != "keep" {
+		t.Errorf("bad env entries were not skipped: %v", state[vault.Env])
+	}
+	if got := vault.GetAgentRecord("codex"); got.Model != "keep-model" {
+		t.Errorf("codex record = %+v, want the stored one kept", got)
+	}
+	if got := vault.GetAgentRecord("claude"); got.Effort != "high" {
+		t.Errorf("claude record = %+v, want the valid edit", got)
+	}
+}
+
+// A doc's own "schema" stamp imports at or below this build's version; a newer one is refused with nothing saved.
+func TestImportSchema(t *testing.T) {
+	for _, tt := range []struct {
+		name, stamp, wantErr, wantWarn string
+	}{
+		{"current", "1", "", ""},
+		{"older", "0", "", ""},
+		{"newer", "2", "schema 2 is newer than this build", ""},
+		{"not a number", `"v2"`, "", "unable to parse schema: "},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			vaulttest.Use(t)
+			seedTestDoc(t)
+			orig := exportTestDoc(t)
+			edited := editTestDoc(t, orig, func(d *Doc) { d.Pins["HARNESS_PROVIDER"] = "openai" })
+			edited = bytes.Replace(edited, []byte("{"), []byte(`{"schema":`+tt.stamp+`,`), 1)
+			warnings, err := Import(orig, edited)
+			wantPin, gotErr := "openai", ""
+			if tt.wantErr != "" {
+				wantPin = "anthropic"
+			}
+			if err != nil {
+				gotErr = err.Error()
+			}
+			pin, got := vaultTestState(t)[vault.Pins]["HARNESS_PROVIDER"], strings.Join(warnings, "\n")
+			if pin != wantPin || !strings.Contains(gotErr, tt.wantErr) || (tt.wantErr == "") != (gotErr == "") ||
+				(tt.wantWarn == "") != (got == "") || !strings.HasPrefix(got, tt.wantWarn) {
+				t.Fatalf("Import = %q, %q, pin %q; want error %q, warning %q", got, gotErr, pin, tt.wantErr, tt.wantWarn)
+			}
+		})
+	}
+}
+
+// A document that is not JSON names the line and column of the fault and saves nothing.
+func TestImportSyntaxErrorNamesLine(t *testing.T) {
+	vaulttest.Use(t)
+	seedTestDoc(t)
+	orig := exportTestDoc(t)
+	before := vaultTestState(t)
+	_, err := Import(orig, []byte("{\n  \"pins\": {},\n  ,\n}\n"))
+	if err == nil || !strings.Contains(err.Error(), "invalid JSON at line 3, column 3") {
+		t.Errorf("Import = %v, want the line and column", err)
+	}
+	if !reflect.DeepEqual(vaultTestState(t), before) {
+		t.Error("a document that does not parse changed the vault")
 	}
 }
 
@@ -216,7 +330,7 @@ func TestImportWrites(t *testing.T) {
 			} else {
 				want[tt.bucket][tt.key] = tt.want
 			}
-			if err := Import(orig, editTestDoc(t, orig, tt.edit)); err != nil {
+			if _, err := Import(orig, editTestDoc(t, orig, tt.edit)); err != nil {
 				t.Fatal(err)
 			}
 			if got := vaultTestState(t); !reflect.DeepEqual(got, want) {
@@ -243,7 +357,7 @@ func TestImportSettings(t *testing.T) {
 			orig := exportTestDoc(t)
 			before := vaultTestState(t)
 			edited := editTestDoc(t, orig, func(d *Doc) { d.Settings = tt.settings })
-			err := Import(orig, edited)
+			_, err := Import(orig, edited)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("Import() = %v, want error containing %q", err, tt.wantErr)
 			}
@@ -263,7 +377,7 @@ func TestImportSettingsRemoval(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "settings", `{"theme":"dark"}`)
 	orig := exportTestDoc(t)
 	edited := editTestDoc(t, orig, func(d *Doc) { d.Settings = json.RawMessage("null") })
-	if err := Import(orig, edited); err != nil {
+	if _, err := Import(orig, edited); err != nil {
 		t.Fatal(err)
 	}
 	state := vaultTestState(t)
@@ -285,7 +399,7 @@ func TestImportConflict(t *testing.T) {
 	})
 	vaulttest.Put(t, vault.Pins, "HARNESS_OPUS_MODEL", "concurrent-model")
 	before := vaultTestState(t)
-	if err := Import(orig, edited); !errors.Is(err, errChanged) {
+	if _, err := Import(orig, edited); !errors.Is(err, errChanged) {
 		t.Errorf("Import conflict = %v, want errChanged", err)
 	}
 	if after := vaultTestState(t); !reflect.DeepEqual(after, before) {
@@ -320,7 +434,7 @@ func TestImportAudit(t *testing.T) {
 			if tt.key != "" {
 				edited = editClaudePin(t, orig, tt.key, tt.value)
 			}
-			if err := Import(orig, edited); err != nil {
+			if _, err := Import(orig, edited); err != nil {
 				t.Fatal(err)
 			}
 			events, err := audit.Read(time.Time{})
@@ -375,7 +489,7 @@ func editClaudePin(t *testing.T, orig []byte, key, value string) []byte {
 func assertReimportQuiet(t *testing.T, events []audit.Event) {
 	t.Helper()
 	saved := exportTestDoc(t)
-	if err := Import(saved, saved); err != nil {
+	if _, err := Import(saved, saved); err != nil {
 		t.Fatal(err)
 	}
 	after, err := audit.Read(time.Time{})
@@ -642,7 +756,7 @@ func TestImportRejectsNullDocument(t *testing.T) {
 	vaulttest.SetRecord(t, "codex", "model", "keep-model")
 	orig := exportTestDoc(t)
 	before := vaultTestState(t)
-	if err := Import(orig, []byte(" \nnull\t")); err == nil || !strings.Contains(err.Error(), "must be a JSON object") {
+	if _, err := Import(orig, []byte(" \nnull\t")); err == nil || !strings.Contains(err.Error(), "must be a JSON object") {
 		t.Errorf("Import(null) = %v, want JSON object error", err)
 	}
 	if got := exportTestDoc(t); !bytes.Equal(got, orig) {

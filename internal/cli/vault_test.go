@@ -502,21 +502,23 @@ func checkExportedFile(t *testing.T, path, value string) {
 	}
 }
 
-// import - stores every piped NAME=value with --yes; a missing --yes or any bad line writes nothing.
+// import - stores each valid piped NAME=value with --yes, warns per bad line by name; no --yes or nothing valid: none.
 func TestVaultImportDashFromPipe(t *testing.T) {
 	for _, tc := range []struct {
 		name, refusal string
 		args          []string
 		pairs         [][2]string
-		extra         string
+		extra, warn   string
 	}{
-		{"without --yes", "--yes", []string{"import", "-"}, [][2]string{{"GAMMA", "obviously-fake-gamma"}}, ""},
-		{"malformed sibling", "nothing written", []string{"import", "-", "--yes"},
-			[][2]string{{"GAMMA", "obviously-fake-gamma"}}, "not-a-pair\n"},
+		{"without --yes", "--yes", []string{"import", "-"}, [][2]string{{"GAMMA", "obviously-fake-gamma"}}, "", ""},
+		{"malformed sibling", "", []string{"import", "-", "--yes"},
+			[][2]string{{"GAMMA", "obviously-fake-gamma"}}, "not-a-pair\n", "warning: unable to parse line 2: want NAME=value"},
+		{"bad token sibling", "", []string{"import", "-", "--yes"},
+			[][2]string{{"GAMMA", "obviously-fake-gamma"}}, "GITHUB_WORK_PAT=not-a-token\n", "unable to parse GITHUB_WORK_PAT: "},
 		{"bad GitHub token", "not a GitHub token", []string{"import", "-", "--yes"},
-			[][2]string{{"GITHUB_WORK_PAT", "not-a-token"}}, ""},
+			[][2]string{{"GITHUB_WORK_PAT", "not-a-token"}}, "", "nothing written"},
 		{"with --yes", "", []string{"import", "-", "--yes"},
-			[][2]string{{"GAMMA", "obviously-fake-gamma"}, {"DELTA", "obviously-fake-delta"}}, ""},
+			[][2]string{{"GAMMA", "obviously-fake-gamma"}, {"DELTA", "obviously-fake-delta"}}, "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			vaulttest.UseFreshKey(t)
@@ -526,10 +528,13 @@ func TestVaultImportDashFromPipe(t *testing.T) {
 			}
 			withStdin(t, input.String()+tc.extra)
 			code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault(tc.args) })
-			if (code == 0) != (tc.refusal == "") || !strings.Contains(stderr, tc.refusal) {
-				t.Fatalf("vault %q: exit %d, stderr = %q, want refusal %q", tc.args, code, stderr, tc.refusal)
+			if (code == 0) != (tc.refusal == "") || !strings.Contains(stderr, tc.refusal) || !strings.Contains(stderr, tc.warn) {
+				t.Fatalf("vault %q: exit %d, stderr = %q, want refusal %q, warning %q", tc.args, code, stderr, tc.refusal, tc.warn)
 			}
 			checkImported(t, tc.pairs, tc.refusal == "", stdout+stderr)
+			if _, v, ok := strings.Cut(strings.TrimSpace(tc.extra), "="); ok && strings.Contains(stdout+stderr, v) {
+				t.Error("import printed a skipped value")
+			}
 		})
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -31,7 +32,7 @@ func TestCandidateHasNoSecretBearingField(t *testing.T) {
 }
 
 func TestSecretValuesNeverAppearInCandidatesOrPlan(t *testing.T) {
-	cs, err := Candidates(writeFixtureCfg(t))
+	cs, _, err := Candidates(writeFixtureCfg(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +57,7 @@ func TestSecretValuesNeverAppearInCandidatesOrPlan(t *testing.T) {
 }
 
 func TestDefaultAndSettingsSectionsAreNeverCandidates(t *testing.T) {
-	cs, err := Candidates(writeFixtureCfg(t))
+	cs, _, err := Candidates(writeFixtureCfg(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +77,7 @@ func candidatesOf(t *testing.T, cfg string) []Candidate {
 	if err := os.WriteFile(p, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cs, err := Candidates(p)
+	cs, _, err := Candidates(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +184,7 @@ func TestExplicitAuthTypeWinsOverInference(t *testing.T) {
 
 func TestParseMultiLineValues(t *testing.T) {
 	body := "[m]\ntoken = \"\"\"ab\ncd\"\"\"\nclient_secret = x\\\n  y\nclient_id = `p\nq`\nhost = h # c\n"
-	ps, _, err := parse(body)
+	ps, _, _, err := parse(body)
 	if err != nil || len(ps) != 1 {
 		t.Fatalf("parse = %v, %v", ps, err)
 	}
@@ -224,5 +225,43 @@ func TestPlanReplaceOfNoAuthTypeRowSkipsOnlyThatRow(t *testing.T) {
 	}
 	if _, ok := Existing(top)["fresh"]; !ok {
 		t.Error("fresh row not applied")
+	}
+}
+
+// Real cfg bytes: each skipped or merged line is a note by line and section, good profiles keep their host, no values.
+func TestCandidatesNotes(t *testing.T) {
+	const h = "https://example-ws.cloud.databricks.com"
+	for _, tt := range []struct{ name, cfg, profile, note string }{
+		{"unterminated header keeps the previous profile",
+			"[good]\nhost = " + h + "\n[broken\nhost = https://evil.cloud.databricks.com\ntoken = dapiFAKE1\n", "good",
+			"unable to parse line 3: unterminated section header"},
+		{"line without separator", "[g]\nhost = " + h + "\ndapiFAKE2 pasted alone\n", "g",
+			`unable to parse line 3 in [g]: no "=" separator`},
+		{"repeated key", "[d]\nhost = https://old.cloud.databricks.com\nhost = " + h + "\n", "d",
+			`line 3 in [d]: key "host" repeated`},
+		{"repeated section", "[d]\nhost = " + h + "\n[e]\nhost = " + h + "\n[d]\ntoken = dapiFAKE3\n", "d",
+			"line 5: section [d] repeated"},
+		{"DEFAULT beside a profile", "[DEFAULT]\nhost = " + h + "\ntoken = dapiFAKE4\n[p]\nhost = " + h + "\n", "p", "[DEFAULT] skipped"},
+		{"multi-line value counts its lines", "[m]\ntoken = \"\"\"dapiFAKE5\nmore\"\"\"\nhost = " + h + "\njunk\n", "m",
+			"unable to parse line 5 in [m]"},
+		{"CRLF, BOM, trailing slash and a value with =", "\ufeff[c]\r\nhost = " + h + "/\r\ntoken = dapiFAKE6==\r\n", "c", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "cfg")
+			if err := os.WriteFile(p, []byte(tt.cfg), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cs, notes, err := Candidates(p)
+			if err != nil || !slices.ContainsFunc(cs, func(c Candidate) bool { return c.Name == tt.profile && c.Host == h }) {
+				t.Fatalf("Candidates = %+v, %v; want [%s] with host %s", cs, err, tt.profile, h)
+			}
+			joined := strings.Join(notes, "\n")
+			if (tt.note == "") != (len(notes) == 0) || !strings.Contains(joined, tt.note) {
+				t.Errorf("notes = %q, want one containing %q", notes, tt.note)
+			}
+			if strings.Contains(joined, "FAKE") {
+				t.Error("a note carries a value")
+			}
+		})
 	}
 }

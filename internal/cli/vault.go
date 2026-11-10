@@ -404,8 +404,7 @@ func cmdVaultDelete(args []string) int {
 	return 0
 }
 
-// cmdVaultImport stores a .env's NAME=value lines; any malformed line aborts before anything is written.
-// "-" reads stdin: no confirm prompt can read the data stream, so it needs --yes and refuses a terminal.
+// cmdVaultImport stores a .env's valid NAME=value lines, warning per bad one; "-" (stdin) needs --yes, no terminal.
 func cmdVaultImport(args []string) int {
 	fs := helptext.NewFlagSet("vault import", helptext.Page{
 		Usage: "claude-code vault import FILE|- [flags]",
@@ -426,15 +425,9 @@ func cmdVaultImport(args []string) int {
 		return code
 	}
 	defer r.Close()
-	pairs, problems := vault.ParseDotenv(r)
-	if len(problems) > 0 {
-		return helptext.Fail("vault import: %s: nothing written\n  %s", name, strings.Join(problems, "\n  "))
-	}
-	if len(pairs) == 0 {
-		return helptext.Fail("vault import: %s has no NAME=value lines", name)
-	}
-	if err := configure.ValidateImport(pairs); err != nil {
-		return helptext.Fail("vault import: %s: %v", name, err)
+	pairs, code := importPairs(name, r)
+	if pairs == nil {
+		return code
 	}
 	if !confirmImport(pairs, *yes) {
 		return 1
@@ -444,6 +437,36 @@ func cmdVaultImport(args []string) int {
 		return helptext.Fail("vault import: %v", err)
 	}
 	return 0
+}
+
+// importPairs parses r and warns about each line or pair it skips; nil pairs carry the exit code (nothing importable).
+func importPairs(name string, r io.Reader) ([]vault.Pair, int) {
+	pairs, problems := importablePairs(vault.ParseDotenv(r))
+	switch {
+	case len(pairs) == 0 && len(problems) > 0:
+		return nil, helptext.Fail("vault import: %s: nothing written\n  unable to parse %s", name,
+			strings.Join(problems, "\n  unable to parse "))
+	case len(pairs) == 0:
+		return nil, helptext.Fail("vault import: %s has no NAME=value lines", name)
+	}
+	for _, p := range problems {
+		fmt.Fprintf(os.Stderr, "vault import: warning: unable to parse %s; skipped\n", p)
+	}
+	return pairs, 0
+}
+
+// importablePairs keeps the pairs that validate; each one that does not joins problems by name, never by value.
+func importablePairs(pairs []vault.Pair, problems []string) ([]vault.Pair, []string) {
+	var ok []vault.Pair
+	out := slices.Clone(problems)
+	for _, p := range pairs {
+		if err := configure.ValidateImport([]vault.Pair{p}); err != nil {
+			out = append(out, fmt.Sprintf("%s: %v", p.Name, err))
+			continue
+		}
+		ok = append(ok, p)
+	}
+	return ok, out
 }
 
 // openImport opens FILE, or piped stdin for "-" after the terminal and --yes checks; a nil reader carries the exit code.

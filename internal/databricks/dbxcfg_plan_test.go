@@ -49,7 +49,7 @@ func writeFixtureCfg(t *testing.T) string {
 }
 
 func TestCandidates(t *testing.T) {
-	cs, err := Candidates(writeFixtureCfg(t))
+	cs, _, err := Candidates(writeFixtureCfg(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestReadSecrets(t *testing.T) {
 }
 
 func TestPlan(t *testing.T) {
-	cs, _ := Candidates(writeFixtureCfg(t))
+	cs, _, _ := Candidates(writeFixtureCfg(t))
 	existing := map[string]json.RawMessage{
 		"alpha": json.RawMessage(`{"auth":{"type":"oauth"}}`),
 		"beta":  json.RawMessage(`{"auth":{"type":"pat"}}`),
@@ -162,7 +162,7 @@ func TestImportFollowsSectionOrder(t *testing.T) {
 	if err := os.WriteFile(p, []byte(orderCfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cs, err := Candidates(p)
+	cs, _, err := Candidates(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestApplyKeepsExistingRowsInPlaceAndAppendsNew(t *testing.T) {
 	if err := os.WriteFile(p, []byte(orderCfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cs, err := Candidates(p)
+	cs, _, err := Candidates(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +344,7 @@ func TestPairingExportUnpairedStaysUnpaired(t *testing.T) {
 
 // A row whose auth.spClientId is not a string is unreadable: --replace skips it instead of treating it as unpaired.
 func TestImportReplaceSkipsRowWithMalformedPairing(t *testing.T) {
-	cs, _ := Candidates(writeFixtureCfg(t))
+	cs, _, _ := Candidates(writeFixtureCfg(t))
 	existing := map[string]json.RawMessage{"alpha": json.RawMessage(`{"auth":{"type":"oauth","spClientId":5}}`)}
 	for _, r := range ImportPlan(cs, existing, ImportOptions{Replace: true}) {
 		if r.Name == "alpha" && (r.Action != "skip" || !strings.Contains(r.Reason, "no readable sealed auth.type")) {
