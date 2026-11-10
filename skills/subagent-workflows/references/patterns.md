@@ -150,7 +150,7 @@ Alias guidance: aliases or `inherit`, never dated ids on first-party use (resear
   shapes reuse it. Merge when two files differ only in task wording; a role that only picks another agent is that
   agent's leaf type (`codex`, `copilot`…), not a file. Prefer few focused leaves: each costs a brief and a fan-in read.
 - Prose instructs, hooks guarantee: a new type that requests external agents joins `ranOnGated`
-  (`internal/hooks/agents/leaves.go`) and `labelTypes`/`labelAgents` (`internal/hooks/agents/agenteffort.go`).
+  (`internal/hooks/agents/leaves.go`) and `labelAgents` (`internal/hooks/agents/agenteffort.go`).
 
 ## Agent definition template
 

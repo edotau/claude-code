@@ -25,10 +25,9 @@ import (
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
-// labelAgents are the agents a dispatch label may name; labelTypes are the subagent types that carry one.
+// labelAgents are the agents a dispatch label may name, and the subagent types that carry one.
 var (
 	labelAgents = map[string]bool{"claude": true, "codex": true, "copilot": true, "gemini": true, "opencode": true}
-	labelTypes  = map[string]bool{"claude": true, "codex": true, "copilot": true, "gemini": true, "opencode": true}
 	agentLineRe = regexp.MustCompile(`(?m)^[ \t]*Agent:[ \t]*(.+)$`)
 	agentNameRe = regexp.MustCompile(`[a-z]+`)
 )
@@ -202,7 +201,7 @@ func leafLabel(updated map[string]any, st, task, desc string, session func() str
 
 // harnessLabel names the agents a harness leaf requests; other types carry no label.
 func harnessLabel(st, task string) string {
-	if !labelTypes[st] {
+	if !labelAgents[st] {
 		return ""
 	}
 	return agentLabel(st, task)
