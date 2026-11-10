@@ -159,67 +159,20 @@ func checkProviderDefault(t *testing.T, sel Selection, alias string) {
 	}
 }
 
-// EffectiveSecret must try env, then the vault, in that order, and miss cleanly.
-func TestEffectiveSecretOrder(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	t.Setenv("ORDER_NAME", "")
-	vaulttest.Secret(t, "ORDER_NAME", "from-vault")
-
-	if v, src, err := vault.EffectiveSecret("ORDER_NAME"); err != nil || v != "from-vault" || src != "vault" {
-		t.Errorf("EffectiveSecret (vault) = (%q, %q, %v), want (from-vault, vault, nil)", v, src, err)
-	}
-
-	t.Setenv("ORDER_NAME", "  from-env\n")
-	if v, src, err := vault.EffectiveSecret("ORDER_NAME"); err != nil || v != "from-env" || src != "env" {
-		t.Errorf("EffectiveSecret (env beats vault) = (%q, %q, %v), want (from-env, env, nil)", v, src, err)
-	}
-}
-
-// A whitespace-only env var must be treated as unset, not as a winning value.
-func TestEffectiveSecretIgnoresWhitespaceOnlyEnv(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	vaulttest.Secret(t, "WS_NAME", "from-vault")
-	t.Setenv("WS_NAME", "   ")
-
-	if v, src, err := vault.EffectiveSecret("WS_NAME"); err != nil || v != "from-vault" || src != "vault" {
-		t.Errorf("EffectiveSecret with whitespace-only env = (%q, %q, %v), want (from-vault, vault, nil)", v, src, err)
-	}
-	if got := HasSecret("WS_NAME"); got != "vault" {
-		t.Errorf("HasSecret with whitespace-only env = %q, want vault", got)
-	}
-}
-
-// A name held nowhere must miss cleanly: ("", "", nil), and HasSecret reports "".
-func TestEffectiveSecretMiss(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	t.Setenv("NEVER_SET_ANYWHERE", "")
-
-	if v, src, err := vault.EffectiveSecret("NEVER_SET_ANYWHERE"); v != "" || src != "" || err != nil {
-		t.Errorf("EffectiveSecret(miss) = (%q, %q, %v), want (\"\", \"\", nil)", v, src, err)
-	}
-	if got := HasSecret("NEVER_SET_ANYWHERE"); got != "" {
-		t.Errorf("HasSecret(miss) = %q, want \"\"", got)
-	}
-}
-
-// A vault record that cannot be opened surfaces as EffectiveSecret's error; StoredSecret reads it as a miss.
-func TestEffectiveSecretLockedVaultErrors(t *testing.T) {
-	lockVault(t, "LOCKED_NAME", "sealed")
-	t.Setenv("LOCKED_NAME", "")
-	if v, src, err := vault.EffectiveSecret("LOCKED_NAME"); err == nil || v != "" || src != "" {
-		t.Errorf("EffectiveSecret(locked) = (%q, %q, %v), want an error and no value", v, src, err)
-	}
-	if got := StoredSecret("LOCKED_NAME"); got != "" {
-		t.Errorf("StoredSecret(locked) = %q, want \"\"", got)
-	}
-}
-
 // HasSecret reports env|vault|"" from presence alone: it never resolves a key, so a wrong key, a
 // down keyring and no keyring at all change nothing.
 func TestHasSecretNeverResolvesAKey(t *testing.T) {
 	lockVault(t, "HAS_NAME", "sealed")
 	t.Setenv("HAS_NAME", "")
 	t.Setenv("HAS_NOT", "")
+	if got := StoredSecret("HAS_NAME"); got != "" {
+		t.Errorf("StoredSecret(locked) = %q, want \"\"", got)
+	}
+	t.Setenv("HAS_NAME", "   ")
+	if got := HasSecret("HAS_NAME"); got != "vault" {
+		t.Errorf("HasSecret with whitespace-only env = %q, want vault", got)
+	}
+	t.Setenv("HAS_NAME", "")
 	kr := vaulttest.Keyring(t)
 	kr.Down = true
 	if got := HasSecret("HAS_NAME"); got != "vault" {

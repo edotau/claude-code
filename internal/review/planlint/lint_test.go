@@ -127,6 +127,21 @@ func TestRunWorkflowLint(t *testing.T) {
 	}
 }
 
+// A top-level throw hides the script from the registry: the verb reports it at its path and line and exits 1.
+func TestRunWorkflowLintReportsTopLevelThrow(t *testing.T) {
+	noNode(t)
+	dir := filepath.Join(t.TempDir(), "workflows")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := writeScript(t, dir, "throws.js", "export const meta = { name: 'throws' }\nthrow new Error('boom')\n")
+	var out, errb bytes.Buffer
+	rc := RunWorkflowLint([]string{filepath.Dir(dir)}, &out, &errb)
+	if rc == 0 || !strings.Contains(errb.String(), p+":2: top-level throw") || out.Len() != 0 {
+		t.Fatalf("rc=%d out=%q err=%q; want non-zero and %s:2: top-level throw", rc, out.String(), errb.String(), p)
+	}
+}
+
 // isWorkflowScript excludes a plain helper script under scripts/ — even one with an unpinned agent()
 // call — and includes one whose first non-blank line is a // comment ahead of `export const meta`.
 func TestIsWorkflowScript(t *testing.T) {
