@@ -133,10 +133,6 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink wire.Si
 	if err != nil {
 		return res, retry.Fatal(l.agent, err)
 	}
-	env, plugged, err := opencodeApplyPlugin(env, req)
-	if err != nil {
-		return res, retry.Fatal(l.agent, err)
-	}
 	cctx := ctx
 	var onFirstByte, onStep func()
 	if l.firstOutput > 0 {
@@ -144,16 +140,10 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink wire.Si
 		cctx, onFirstByte, onStep, stop = armFirstOutput(ctx, l.firstOutput)
 		defer stop()
 	}
-	host := newHookHost(req)
-	env = withHostedMarker(env, host)
-	if plugged {
-		host.dropPlugin() // the plugin blocks for real; the host's detect-only copies would double-run them
-	}
-	argv, err = host.before(argv, req.Prompt)
+	cmd, tail, host, err := opencodeChild(cctx, l.agent, bin, env, argv, req.Prompt, req)
 	if err != nil {
-		return res, retry.Fatal(l.agent, err)
+		return res, err
 	}
-	cmd, tail := agent.ChildCmd(cctx, bin, argv, env, req.WorkDir, "", req.KeepEnv, true)
 	out, runErr := agent.RunEventStream(cctx, l.agent, cmd, tail, sink, host.parser(onStep), onFirstByte)
 	defer func() { host.after(res) }()
 	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
