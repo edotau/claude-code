@@ -2,6 +2,7 @@ package router
 
 import (
 	"cmp"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -10,17 +11,42 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// EnvRoute picks the ladder for every dispatch in the session (vault env or `--route`): default or first-party.
+// EnvRoute picks the ladder for every dispatch in the session (vault env or `--route`); see RouteModes.
 const EnvRoute = "HARNESS_ROUTE"
 
-// Route modes `--route` and HARNESS_ROUTE accept; unset is default.
+// Route modes `--route` and HARNESS_ROUTE accept; unset is default. RouteDatabricks takes a profile: databricks:<p>.
 const (
 	RouteDefault    = "default"
 	routeFirstParty = "first-party"
+	RouteDatabricks = "databricks"
 )
 
 // RouteModes lists the accepted --route values.
-var RouteModes = []string{RouteDefault, routeFirstParty}
+var RouteModes = []string{RouteDefault, routeFirstParty, RouteDatabricks}
+
+// ParseRoute splits a --route value into its mode and, for databricks:<p>, the profile; "" is no route.
+func ParseRoute(v string) (mode, profile string, err error) {
+	v = strings.TrimSpace(v)
+	mode, profile, named := strings.Cut(v, ":")
+	switch {
+	case v == "":
+		return "", "", nil
+	case named && mode == RouteDatabricks && profile != "" && !strings.Contains(profile, ":"):
+		return mode, profile, nil
+	case !named && slices.Contains(RouteModes, mode):
+		return mode, "", nil
+	}
+	return "", "", fmt.Errorf("--route %q unknown (default|first-party|databricks:<profile>)", v)
+}
+
+// ArmProfile is the workspace HARNESS_ROUTE=databricks:<p> confines the pick to; "" when the route is anything else.
+func ArmProfile() string {
+	mode, profile, err := ParseRoute(os.Getenv(EnvRoute))
+	if err != nil || mode != RouteDatabricks {
+		return ""
+	}
+	return profile
+}
 
 // gateLadder drops a candidate the chosen ladder rules out (not first-party, or a rung model the account can't serve).
 const gateLadder = "ladder"
@@ -30,26 +56,35 @@ func firstPartyAccount(account string) bool {
 	return (strings.HasPrefix(account, "github·") && account != CopilotUnpinned) || slices.Contains(providers.FirstPartyAccountKeys, account)
 }
 
-// ladderName is first-party only when HARNESS_ROUTE (`--route` sets it) asks; else default (agent pins decide).
+// ladderName is first-party or databricks only when HARNESS_ROUTE (`--route` sets it) asks; else default.
 func ladderName() string {
-	if strings.TrimSpace(os.Getenv(EnvRoute)) == routeFirstParty {
+	switch {
+	case strings.TrimSpace(os.Getenv(EnvRoute)) == routeFirstParty:
 		return providers.LadderFirstParty
+	case ArmProfile() != "":
+		return providers.LadderDatabricks
 	}
 	return providers.LadderDefault
 }
 
-// pickLadder is the ladder one pick follows: its rungs, whether it admits first-party accounts only, and claude's slot.
+// pickLadder is the ladder one pick follows: its rungs, which accounts it admits, and claude's slot.
 type pickLadder struct {
 	rungs       []providers.Rung
 	firstParty  bool
-	anywhere    bool // claude scores into the first rung it beats (no rung names claude)
-	claudeRungs bool // a rung names claude, so claude is matched like any agent
+	arm         string // databricks:<arm> admits only that workspace's account and first-party ones
+	armAccount  string // ProviderAccount(arm)
+	anywhere    bool   // claude scores into the first rung it beats (no rung names claude)
+	claudeRungs bool   // a rung names claude, so claude is matched like any agent
 }
 
 // ladderFor is the table's ladder for the resolved name; an unset ladder keeps today's score-only order.
 func (t *RouteTable) ladderFor() pickLadder {
 	name := ladderName()
 	l := pickLadder{rungs: t.Ladders[name], firstParty: name == providers.LadderFirstParty}
+	if name == providers.LadderDatabricks {
+		l.arm = ArmProfile()
+		l.armAccount = ProviderAccount(l.arm)
+	}
 	l.claudeRungs = slices.ContainsFunc(l.rungs, func(g providers.Rung) bool { return g.Agent == "claude" })
 	l.anywhere = t.ClaudeAnywhere && !l.claudeRungs && len(l.rungs) > 0
 	return l
@@ -84,7 +119,7 @@ func (lp ladderPick) units(groups [][]Candidate) []rungGroup {
 	var out []rungGroup
 	for _, g := range groups {
 		split := [][]Candidate{g}
-		if g[0].Agent != "opencode" {
+		if g[0].Agent != "opencode" || lp.l.arm != "" { // the arm runs no free+backup pair
 			split = make([][]Candidate, len(g))
 			for i, c := range g {
 				split[i] = []Candidate{c}
@@ -112,18 +147,59 @@ func (lp ladderPick) admitGroups(groups [][]Candidate) [][]Candidate {
 	return out
 }
 
-// admit drops the unit's non-first-party candidates under the firstParty ladder, recording each as a Skip.
+// admit drops the unit's candidates the ladder rules out (keeps), recording each as a Skip.
 func (l pickLadder) admit(u []Candidate, res *PickResult) []Candidate {
-	if !l.firstParty {
+	if !l.firstParty && l.arm == "" {
 		return u
 	}
 	return slices.DeleteFunc(slices.Clone(u), func(c Candidate) bool {
-		if firstPartyAccount(c.Account) {
+		if l.keeps(c.Account) {
 			return false
 		}
-		res.Skipped = append(res.Skipped, Skip{skipLabel(c), gateLadder, "not first-party"})
+		res.Skipped = append(res.Skipped, Skip{skipLabel(c), gateLadder, l.dropReason()})
 		return true
 	})
+}
+
+// keeps is admit's rule for one account under a filtering ladder.
+func (l pickLadder) keeps(account string) bool {
+	if l.arm != "" {
+		return account == l.armAccount || firstPartyAccount(account)
+	}
+	return firstPartyAccount(account)
+}
+
+// dropReason is the Skip reason admit records.
+func (l pickLadder) dropReason() string {
+	if l.arm != "" {
+		return armOutside(l.arm)
+	}
+	return "not first-party"
+}
+
+// armOutside is the Skip reason for an account route databricks:<arm> sets aside.
+func armOutside(arm string) string { return "outside " + RouteDatabricks + ":" + arm }
+
+// armSplit moves the wanted agent's off-workspace candidates into the rest: its own login ranks in tier 2 (D1).
+func (l pickLadder) armSplit(first, rest [][]Candidate) ([][]Candidate, [][]Candidate) {
+	if l.arm == "" {
+		return first, rest
+	}
+	var keep, moved [][]Candidate
+	for _, g := range first {
+		var on []Candidate
+		for _, c := range g {
+			if c.Account == l.armAccount {
+				on = append(on, c)
+			} else {
+				moved = append(moved, []Candidate{c})
+			}
+		}
+		if len(on) > 0 {
+			keep = append(keep, on)
+		}
+	}
+	return keep, slices.Concat(moved, rest)
 }
 
 // placeUnit returns the first rung the unit matches and its candidates (one per rung model); len(rungs) = no rung.

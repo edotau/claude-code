@@ -34,14 +34,15 @@ type Routing struct {
 	Opencode OpencodeRouting   `json:"opencode,omitzero"`
 }
 
-// Ladder names: default unless HARNESS_ROUTE asks (router.ladderName); firstParty admits first-party accounts only.
+// Ladder names: default unless HARNESS_ROUTE asks (router.ladderName); firstParty and databricks:<p> narrow accounts.
 const (
 	LadderDefault    = "default"
 	LadderFirstParty = "firstParty"
+	LadderDatabricks = "databricks"
 )
 
 // ladderNames are the ladders routing.ladders may set.
-var ladderNames = []string{LadderDefault, LadderFirstParty}
+var ladderNames = []string{LadderDefault, LadderFirstParty, LadderDatabricks}
 
 // Rung is one ladder step: an agent, a provider or both; Models orders its vendor models (opencode: sub ids).
 type Rung struct {

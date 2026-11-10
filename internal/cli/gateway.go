@@ -206,7 +206,7 @@ func gatewayRoute(args []string) int {
 	want := fs.String("agent", "", "the agent asked for; it leads when it passes the gates")
 	task := fs.String("task", "", "task text the classifier reads when --model is absent")
 	fallback := fs.String("fallback", router.FallbackAll, "all, agents or none")
-	route := fs.String("route", "", "fallback ladder: default|first-party (default: by session profile)")
+	route := fs.String("route", "", "fallback ladder: default|first-party|databricks:<profile> (default: by session profile)")
 	profile := fs.String("profile", "", "lead profile, or session")
 	provider := fs.String("provider", "", "lead on this provider's signed-in profile")
 	format := helptext.FormatFlag(fs)
@@ -216,8 +216,11 @@ func gatewayRoute(args []string) int {
 	if fs.NArg() > 0 {
 		return helptext.Fail(name+": unexpected argument %q", fs.Arg(0))
 	}
-	if code := checkRouteFlags(name, *route, *format, *fallback, *want); code != 0 {
+	if code := checkRouteFlags(name, *route, *profile, *format, *fallback, *want); code != 0 {
 		return code
+	}
+	if err := ask.CheckArm(*want, *profile, *provider, *model, false); err != nil {
+		return helptext.FailUsage(name+": %v", err)
 	}
 	q := agent.RouteReq{Agent: *want, Model: *model, Task: *task, Profile: *profile, Provider: *provider,
 		Fallback: *fallback, Preview: true, Refresh: ask.RouteRefresh}
@@ -232,10 +235,10 @@ func gatewayRoute(args []string) int {
 	return renderGatewayRoute(name, res, *format)
 }
 
-// checkRouteFlags applies --route and validates the flags; a nonzero code is the exit status (format errors are 2).
-func checkRouteFlags(name, route, format, fallback, want string) int {
-	if err := ask.ApplyRoute(route); err != nil {
-		return helptext.Fail(name+": %v", err)
+// checkRouteFlags applies --route and validates the flags; a nonzero code is the exit status (route, format: 2).
+func checkRouteFlags(name, route, profile, format, fallback, want string) int {
+	if err := ask.ApplyRoute(route, profile); err != nil {
+		return helptext.FailUsage(name+": %v", err)
 	}
 	if err := helptext.CheckFormat(format); err != nil {
 		return helptext.BadFormat(name, err)

@@ -20,6 +20,14 @@
         {"agent": "codex", "provider": "openai"},
         {"agent": "gemini"},
         {"agent": "opencode", "models": ["opencode-go"]}
+      ],
+      "databricks": [
+        {"provider": "databricks"},
+        {"agent": "copilot", "provider": "github"},
+        {"agent": "codex", "provider": "openai"},
+        {"agent": "gemini", "provider": "google"},
+        {"agent": "opencode", "models": ["opencode-go"]},
+        {"agent": "claude", "provider": "anthropic"}
       ]
     },
     "opencode": {

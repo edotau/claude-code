@@ -210,3 +210,20 @@ func TestDefaultLadderSplitsCopilotRungByProvider(t *testing.T) {
 		}
 	}
 }
+
+// TestDatabricksLadderParses: the embedded databricks ladder loads and every rung names a roster agent or a provider.
+func TestDatabricksLadderParses(t *testing.T) {
+	reg, err := Parse(defaultsJSON, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rungs := reg.Routing.Ladders[LadderDatabricks]
+	if len(rungs) == 0 {
+		t.Fatalf("no %s ladder in defaults.json", LadderDatabricks)
+	}
+	for i, g := range rungs {
+		if errs := validateRung(reg, g.Label(), g); len(errs) > 0 {
+			t.Errorf("rung %d %s: %v", i, g.Label(), errs)
+		}
+	}
+}

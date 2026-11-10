@@ -62,7 +62,7 @@ func Run(args []string, resume bool) int {
 		return code
 	}
 	r := &askRun{f: f, fs: fs, args: args, resume: resume}
-	for _, phase := range []func() (int, bool){r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.resolveLead, r.parsePerms} {
+	for _, phase := range []func() (int, bool){r.prelude, r.selectAgent, r.checkArm, r.parsePerms, r.dispatchMode, r.resolveRecord, r.resolveLead, r.parsePerms} {
 		if code, done := phase(); done {
 			return code
 		}
@@ -77,7 +77,7 @@ func (r *askRun) fail(err error, code int) (int, bool) {
 // prelude applies the route and overlays and validates the flags.
 func (r *askRun) prelude() (int, bool) {
 	f := r.f
-	if err := ApplyRoute(f.route); err != nil {
+	if err := ApplyRoute(f.route, f.provider); err != nil {
 		return r.fail(err, 2)
 	}
 	if code := askEnableOverlays(f.overlayDebug, f.overlayPath); code != 0 {
@@ -119,6 +119,15 @@ func (r *askRun) selectAgent() (int, bool) {
 		return r.fail(err, 2)
 	}
 	if err := client.OverlayLocal(r.fileOv, f.live, f.host); err != nil {
+		return r.fail(err, 2)
+	}
+	return 0, false
+}
+
+// checkArm refuses the flags that would take the dispatch off route databricks:<p> (exit 2); a no-op outside it.
+func (r *askRun) checkArm() (int, bool) {
+	f := r.f
+	if err := CheckArm(r.ag, f.provider, f.leadProvider, f.model, f.direct); err != nil {
 		return r.fail(err, 2)
 	}
 	return 0, false

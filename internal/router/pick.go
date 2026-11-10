@@ -153,6 +153,7 @@ func (t *RouteTable) pick(
 	lp := ladderPick{t: t, reg: reg, l: t.ladderFor(), alias: alias, now: now, res: &res}
 	firstG = lp.admitGroups(firstG)
 	restG, lastG = lp.l.claim(restG, lastG)
+	firstG, restG = lp.l.armSplit(firstG, restG)
 	units := lp.units(restG)
 	restG = make([][]Candidate, len(units))
 	for i, u := range units {

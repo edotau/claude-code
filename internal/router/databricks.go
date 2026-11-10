@@ -95,6 +95,9 @@ func (t *RouteTable) gateCandidate(
 		res.Skipped = append(res.Skipped, Skip{agent, GateOff, "deactivated (no profile set)"})
 		return nil, false
 	}
+	if arm := ArmProfile(); arm != "" {
+		return t.gateArm(ctx, pg, alias, agent, arm, spec, st, o, now, configured, res)
+	}
 	var group []Candidate
 	if agent != "claude" && spec.Profile != "" {
 		group, _ = t.gatePinned(ctx, pg.reg, alias, agent, spec.Profile, spec, st, o, now, configured, res)
@@ -198,6 +201,69 @@ func (t *RouteTable) gateLead(
 		}
 	}
 	return lead
+}
+
+// gateArm gates agent inside route databricks:<arm>: on arm, then (fallback permitting) on its own first-party logins.
+func (t *RouteTable) gateArm(
+	ctx context.Context, pg *pickGate, alias, agent, arm string, spec PinSpec, st State, o PickOpts, now time.Time,
+	configured func(agent string, c Cell) error, res *PickResult,
+) ([]Candidate, bool) {
+	if pg.reg == nil {
+		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, RouteDatabricks + ":" + arm + ": no provider registry"})
+		return nil, false
+	}
+	own := firstPartyRows(pg.reg, agent)
+	armPinSkip(agent, spec.Profile, arm, own, res)
+	if agent == "claude" {
+		o.CanServe = nil // Serves covers external agents only; claude runs on the workspace and its own login
+	}
+	var group []Candidate
+	if agent != "gemini" || geminiRow(pg.reg, arm) {
+		group, _ = t.gateProfile(ctx, pg.reg, alias, agent, arm, spec.Model, "", st, o, now, configured, res)
+	} else {
+		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google or a Databricks gateway row, not " + arm})
+	}
+	if o.Fallback == FallbackNone {
+		return group, len(group) > 0
+	}
+	if agent == "opencode" {
+		g, _ := t.gateOpencodeCandidate(ctx, alias, armOpencodeSub, st, o, now, configured, res)
+		group = append(group, g...)
+	}
+	for _, row := range own {
+		g, _ := t.gateProfile(ctx, pg.reg, alias, agent, row, spec.Model, "", st, o, now, configured, res)
+		group = append(group, g...)
+	}
+	return group, len(group) > 0
+}
+
+// armOpencodeSub is opencode's own-login sub id, its one first-party hop inside the arm.
+const armOpencodeSub = "opencode-go"
+
+// armPinSkip records a pin the arm sets aside: a profile or opencode sub id that is neither arm nor agent's own login.
+func armPinSkip(agent, pin, arm string, own []string, res *PickResult) {
+	if pin == "" || pin == arm || slices.Contains(own, pin) || (agent == "opencode" && pin == armOpencodeSub) {
+		return
+	}
+	label := agent + "·" + pin // an opencode sub id is no registry row
+	if agent != "opencode" || !slices.Contains(providers.RouteOpencodeSubIDs, pin) {
+		label = skipLabel(Candidate{Agent: agent, Cell: Cell{Account: ProviderAccount(pin)}})
+	}
+	res.Skipped = append(res.Skipped, Skip{label, gateLadder, armOutside(arm)})
+}
+
+// firstPartyRows lists agent's own-login rows: loginProfiles, plus for claude the anthropic CLI-login rows.
+func firstPartyRows(reg *providers.Registry, agent string) []string {
+	rows := loginProfiles(reg, agent)
+	if agent != "claude" {
+		return rows
+	}
+	for _, n := range reg.Names() {
+		if p := reg.Providers[n]; p.Provider == "anthropic" && p.Auth.Method() == providers.AuthCLI {
+			rows = append(rows, n)
+		}
+	}
+	return rows
 }
 
 // workspaceRows lists the Databricks workspaces in declared order, minus skip.
