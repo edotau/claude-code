@@ -8,7 +8,6 @@ import (
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 )
 
 // catalogFn is the discovery seam over catalogForAlias; tests stub the served-model listing.
@@ -39,19 +38,19 @@ func offerModels(d *dialog, profile string) {
 // fresh pin shows at once.
 func modelsPage(d *dialog, sel providers.Selection, withUnpin bool) {
 	profile := sel.Provider.Name
-	d.shell().Run("models ("+profile+") — pick an alias, or Back to leave", func() []uidialog.Row {
+	d.shell().Run("models ("+profile+") — pick an alias, or Back to leave", func() []ShellRow {
 		if cur, err := providers.Select(d.reg, profile); err == nil {
 			sel = cur
 		}
-		var rows []uidialog.Row
+		var rows []ShellRow
 		for _, s := range models.AliasNames {
-			rows = append(rows, uidialog.Row{Name: s, Detail: aliasRowDetail(sel, s), Run: func() bool {
+			rows = append(rows, ShellRow{Name: s, Detail: aliasRowDetail(sel, s), Run: func() bool {
 				pickModelForAlias(d, sel, s)
 				return false
 			}})
 		}
 		if withUnpin {
-			rows = append(rows, uidialog.Row{Name: "Unpin all", Detail: "clear every model pin", Run: func() bool {
+			rows = append(rows, ShellRow{Name: "Unpin all", Detail: "clear every model pin", Run: func() bool {
 				unpinAllModels(d)
 				return false
 			}})

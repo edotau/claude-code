@@ -1,5 +1,6 @@
-// Package dialog is the shell configure pages run on: a paged menu over ui/tui with Enter/Esc handling and shared rows.
-package dialog
+// Shell is the shell configure pages run on: a paged menu over ui/tui with Enter/Esc handling and shared rows.
+
+package menu
 
 import (
 	"bufio"
@@ -23,14 +24,14 @@ type Shell struct {
 	Paint func(string) string
 }
 
-// Row is one menu row: Name, Detail, and what Enter does; Run reports true when the page is done.
-type Row struct {
+// ShellRow is one menu row: Name, Detail, and what Enter does; Run reports true when the page is done.
+type ShellRow struct {
 	Name, Detail string
 	Run          func() (done bool)
 }
 
 // Pairs lays rows out as the (name, detail) pairs the panel renders.
-func Pairs(rows []Row) [][2]string {
+func Pairs(rows []ShellRow) [][2]string {
 	out := make([][2]string, len(rows))
 	for i, r := range rows {
 		out[i] = [2]string{r.Name, r.Detail}
@@ -130,7 +131,7 @@ func ConfirmTerminal(question string, def bool) bool {
 
 // Run shows rows (rebuilt each pass, cursor kept) and runs the one Enter picks, until a row reports done (true)
 // or Esc/Back/an error dismisses the page (false).
-func (s *Shell) Run(title string, rows func() []Row) bool {
+func (s *Shell) Run(title string, rows func() []ShellRow) bool {
 	cur := 0
 	for {
 		rs := rows()

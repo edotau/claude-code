@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -342,7 +341,7 @@ func withHolders(top string, rels []string) string {
 	for i, r := range rels {
 		abs[i] = filepath.Join(root, r)
 	}
-	held := notices.Holders(proc.Alive, abs)
+	held := Holders(proc.Alive, abs)
 	out := make([]string, len(rels))
 	for i, r := range rels {
 		out[i] = r

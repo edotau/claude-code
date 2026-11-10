@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/scm"
-	"github.com/edotau/claude-code/internal/scm/bitbucket"
 )
 
 func TestOpenOriginSurfacesVaultFailure(t *testing.T) {
@@ -69,7 +68,7 @@ func TestOpenOriginDefaultsBaseToRemoteHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bb := h.(*bitbucket.Host)
+	bb := h.(*scm.BitbucketHost)
 	rt := &rewriteTransport{target: strings.TrimPrefix(srv.URL, "http://")}
 	bb.HTTP.Transport = rt
 	if _, err := bb.List(context.Background(), scm.ListOpts{State: "open", Limit: 1}); err != nil {

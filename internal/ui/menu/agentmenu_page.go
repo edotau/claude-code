@@ -20,7 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/ui/ansi"
-	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -554,9 +553,9 @@ func clearCopilotPin(d *dialog, key, cur, modelID, why string) {
 // pickCopilotPin lists "unset" plus choices (label, value); a pick pins key to that value (or clears it).
 func pickCopilotPin(d *dialog, title, key string, choices [][2]string, cur string) bool {
 	rows := make([][2]string, 0, len(choices)+1)
-	rows = append(rows, [2]string{"unset", "copilot's own default" + uidialog.Mark(cur == "")})
+	rows = append(rows, [2]string{"unset", "copilot's own default" + Mark(cur == "")})
 	for _, c := range choices {
-		rows = append(rows, [2]string{c[0], c[1] + uidialog.Mark(c[1] == cur)})
+		rows = append(rows, [2]string{c[0], c[1] + Mark(c[1] == cur)})
 	}
 	idx, err := d.shell().Pick("copilot — "+title, rows)
 	if err != nil || idx < 0 {

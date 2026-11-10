@@ -1,5 +1,6 @@
-// Package github is the scm.Host over the gh CLI.
-package github
+// GitHubHost is the Host over the gh CLI.
+
+package scm
 
 import (
 	"bytes"
@@ -13,14 +14,9 @@ import (
 	"strings"
 
 	"encoding/json"
-
-	"github.com/edotau/claude-code/internal/scm"
 )
 
-var (
-	digitsRe = regexp.MustCompile(`^[0-9]+$`)
-	hexRe    = regexp.MustCompile(`^[0-9a-fA-F]{1,64}$`)
-)
+var hexRe = regexp.MustCompile(`^[0-9a-fA-F]{1,64}$`)
 
 // maxList stands in for "unlimited", which gh's --limit rejects.
 const maxList = 100000
@@ -66,13 +62,13 @@ func ghError(err error, stderr string) error {
 	return fmt.Errorf("gh: %s (%v)", strings.TrimPrefix(first, "gh: "), err) // gh api already prefixes its errors
 }
 
-// Host is a GitHub repository.
-type Host struct{ Repo string }
+// GitHubHost is a GitHub repository.
+type GitHubHost struct{ Repo string }
 
 // New binds owner/name.
-func New(owner, name string) *Host { return &Host{Repo: owner + "/" + name} }
+func NewGitHub(owner, name string) *GitHubHost { return &GitHubHost{Repo: owner + "/" + name} }
 
-type rawPR struct {
+type ghPR struct {
 	Number      int                    `json:"number"`
 	Title       string                 `json:"title"`
 	State       string                 `json:"state"`
@@ -83,12 +79,12 @@ type rawPR struct {
 	HeadRefOid  string                 `json:"headRefOid"`
 }
 
-func (r rawPR) pr() scm.PR {
-	return scm.PR{Host: scm.GitHub, ID: strconv.Itoa(r.Number), Title: r.Title, State: strings.ToLower(r.State),
+func (r ghPR) pr() PR {
+	return PR{Host: GitHub, ID: strconv.Itoa(r.Number), Title: r.Title, State: strings.ToLower(r.State),
 		Author: r.Author.Login, Source: r.HeadRefName, Target: r.BaseRefName, URL: r.URL, HeadSHA: r.HeadRefOid}
 }
 
-func (h *Host) List(ctx context.Context, o scm.ListOpts) ([]scm.PR, error) {
+func (h *GitHubHost) List(ctx context.Context, o ListOpts) ([]PR, error) {
 	limit := o.Limit
 	if limit <= 0 {
 		limit = maxList
@@ -101,35 +97,35 @@ func (h *Host) List(ctx context.Context, o scm.ListOpts) ([]scm.PR, error) {
 	if err != nil {
 		return nil, err
 	}
-	var raws []rawPR
+	var raws []ghPR
 	if err := json.Unmarshal(out, &raws); err != nil {
 		return nil, fmt.Errorf("gh pr list: %w", err)
 	}
-	prs := make([]scm.PR, len(raws))
+	prs := make([]PR, len(raws))
 	for i, r := range raws {
 		prs[i] = r.pr()
 	}
 	return prs, nil
 }
 
-func (h *Host) View(ctx context.Context, id string) (scm.PR, error) {
+func (h *GitHubHost) View(ctx context.Context, id string) (PR, error) {
 	out, err := runGH(ctx, "pr", "view", id, "--repo", h.Repo, "--json", prFields)
 	if err != nil {
-		return scm.PR{}, err
+		return PR{}, err
 	}
-	var r rawPR
+	var r ghPR
 	if err := json.Unmarshal(out, &r); err != nil {
-		return scm.PR{}, fmt.Errorf("gh pr view: %w", err)
+		return PR{}, fmt.Errorf("gh pr view: %w", err)
 	}
 	return r.pr(), nil
 }
 
-func (h *Host) Diff(ctx context.Context, id string) (string, error) {
+func (h *GitHubHost) Diff(ctx context.Context, id string) (string, error) {
 	out, err := runGH(ctx, "pr", "diff", id, "--repo", h.Repo)
 	return string(out), err
 }
 
-func (h *Host) Create(ctx context.Context, o scm.CreateOpts) (scm.PR, error) {
+func (h *GitHubHost) Create(ctx context.Context, o CreateOpts) (PR, error) {
 	args := []string{"pr", "create", "--repo", h.Repo, "--title", o.Title, "--body-file", "-"}
 	if o.Base != "" {
 		args = append(args, "--base", o.Base)
@@ -139,7 +135,7 @@ func (h *Host) Create(ctx context.Context, o scm.CreateOpts) (scm.PR, error) {
 	}
 	out, err := runGHStdin(ctx, o.Body, args...)
 	if err != nil {
-		return scm.PR{}, err
+		return PR{}, err
 	}
 	return h.View(ctx, lastLine(string(out)))
 }
@@ -149,7 +145,7 @@ func lastLine(s string) string {
 	return s[strings.LastIndex(s, "\n")+1:]
 }
 
-func (h *Host) Checks(ctx context.Context, id, sha string) ([]scm.Check, error) {
+func (h *GitHubHost) Checks(ctx context.Context, id, sha string) ([]Check, error) {
 	if id != "" && !digitsRe.MatchString(id) {
 		return nil, fmt.Errorf("invalid PR id %q: want digits", id)
 	}
@@ -169,7 +165,7 @@ func (h *Host) Checks(ctx context.Context, id, sha string) ([]scm.Check, error) 
 	if err != nil {
 		return nil, err
 	}
-	var checks []scm.Check
+	var checks []Check
 	dec := json.NewDecoder(bytes.NewReader(out))
 	for {
 		var r struct {
@@ -182,7 +178,7 @@ func (h *Host) Checks(ctx context.Context, id, sha string) ([]scm.Check, error) 
 		} else if err != nil {
 			return nil, fmt.Errorf("gh api check-runs: %w", err)
 		}
-		checks = append(checks, scm.Check{Name: r.Name, State: conclusionState(r.Conclusion), URL: r.HTMLURL})
+		checks = append(checks, Check{Name: r.Name, State: conclusionState(r.Conclusion), URL: r.HTMLURL})
 	}
 }
 
@@ -197,7 +193,7 @@ func conclusionState(c string) string {
 	return "fail"
 }
 
-func (h *Host) Comment(ctx context.Context, id, body, replyTo string) error {
+func (h *GitHubHost) Comment(ctx context.Context, id, body, replyTo string) error {
 	if !digitsRe.MatchString(id) || (replyTo != "" && !digitsRe.MatchString(replyTo)) {
 		return fmt.Errorf("invalid PR id %q or reply-to %q: want digits", id, replyTo)
 	}

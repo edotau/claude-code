@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -508,13 +507,13 @@ func TestPlanOrResolveConflictNotifiesLedgerOwner(t *testing.T) {
 	if plan, err := PlanOrResolve(context.Background(), repo, req, true); plan != nil || err != nil {
 		t.Fatalf("dry run = %v, %v; want blocked", plan, err)
 	}
-	if got := notices.Drain("owner-S"); len(got) != 0 {
+	if got := Drain("owner-S"); len(got) != 0 {
 		t.Fatalf("dry run queued %+v, want nothing", got)
 	}
 	if plan, err := PlanOrResolve(context.Background(), repo, req, false); plan != nil || err != nil {
 		t.Fatalf("merge = %v, %v; want blocked", plan, err)
 	}
-	got := notices.Drain("owner-S")
+	got := Drain("owner-S")
 	if len(got) != 1 || got[0].Kind != "conflict" || !strings.Contains(got[0].Text, "conflict in f.txt") {
 		t.Fatalf("owner notices = %+v, want one conflict notice naming f.txt", got)
 	}
@@ -549,7 +548,7 @@ func TestPreflightDirtyTargetNamesClaimHolder(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(main, "f.txt"), []byte("uncommitted"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	claims := filepath.Join(notices.ClaimsDir(), fmt.Sprintf("%d-peer-session.jsonl", os.Getpid()))
+	claims := filepath.Join(ClaimsDir(), fmt.Sprintf("%d-peer-session.jsonl", os.Getpid()))
 	if err := os.MkdirAll(filepath.Dir(claims), 0o700); err != nil {
 		t.Fatal(err)
 	}

@@ -11,10 +11,10 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // claim is one claims-ledger line: a file this session or leaf wrote, or a commit it made.
@@ -39,7 +39,7 @@ var _ = schemas.Register(schemas.Format{
 // claimOwner is the session's Claude Code pid; a var seam so tests pick the owner.
 var claimOwner = inflight.SessionOwner
 
-func claimsDir() string { return notices.ClaimsDir() } // one home for the path: the reader lives in notices
+func claimsDir() string { return worktree.ClaimsDir() } // one home for the path: the reader lives in worktree
 
 // claimsFile is <claims>/<owner pid>-<session slug>.jsonl; a dead owner pid retires the whole file.
 func claimsFile(owner int, session string) string {

@@ -1,4 +1,4 @@
-package notices
+package worktree
 
 import (
 	"bufio"

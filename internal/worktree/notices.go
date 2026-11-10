@@ -1,5 +1,6 @@
-// Package notices is the file channel between sessions: per-session inboxes drained into hook context.
-package notices
+// Notices are the file channel between sessions: per-session inboxes drained into hook context.
+
+package worktree
 
 import (
 	"bytes"
@@ -28,7 +29,7 @@ const noticeSchema = 1
 const drainMax = 5
 
 var _ = schemas.Register(schemas.Format{
-	Name: "notices", Owner: "internal/notices", Kind: schemas.Log,
+	Name: "notices", Owner: "internal/worktree", Kind: schemas.Log,
 	Glob:    func() string { return filepath.Join(Dir(), "*.jsonl") },
 	New:     func() any { return &Notice{} },
 	Version: noticeSchema, Keep: "per-session notice inboxes; Drain removes what it delivers",

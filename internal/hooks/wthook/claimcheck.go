@@ -16,7 +16,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/shell"
@@ -44,7 +43,7 @@ func liveClaims(in *core.Input) (map[string][]claimHit, error) {
 	leaf := siblingLeaf(in)
 	labels := map[int]string{}
 	byPath := map[string]map[string]int64{}
-	err := notices.ScanClaims(claimAlive, func(pid int, slug string, c notices.Claim) {
+	err := worktree.ScanClaims(claimAlive, func(pid int, slug string, c worktree.Claim) {
 		if c.Path == "" {
 			return
 		}
@@ -67,9 +66,9 @@ func liveClaims(in *core.Input) (map[string][]claimHit, error) {
 }
 
 // siblingLeaf names another leaf's claim in this session's file while its transcript is fresh; own and main's yield "".
-func siblingLeaf(in *core.Input) func(notices.Claim) string {
+func siblingLeaf(in *core.Input) func(worktree.Claim) string {
 	live := map[string]bool{}
-	return func(c notices.Claim) string {
+	return func(c worktree.Claim) string {
 		if c.Agent == "" || c.Agent == in.AgentID {
 			return ""
 		}

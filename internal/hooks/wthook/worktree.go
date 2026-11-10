@@ -15,7 +15,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -238,7 +237,7 @@ var gitAnyCmd = regexp.MustCompile(`\bgit\b`)
 // noticeContext drains this session's inbox and adds the divergence line; warn names an infra error (fail open).
 func noticeContext(ctx context.Context, in *core.Input) (text, warn string) {
 	var lines []string
-	for _, n := range notices.Drain(in.SessionID) {
+	for _, n := range worktree.Drain(in.SessionID) {
 		lines = append(lines, fmt.Sprintf("notice (%s, from %s): %s", n.Kind, n.From, n.Text))
 	}
 	line, err := divergedLine(ctx, in)
@@ -342,9 +341,9 @@ func checkoutShared(ctx context.Context, dir string) (bool, error) {
 func (d *divergence) authors(ctx context.Context, in *core.Input) string {
 	byCommit := map[string]string{}
 	self := paths.Slug(in.SessionID, "", 80, "session")
-	_ = notices.ScanClaims(claimAlive, func(pid int, slug string, c notices.Claim) {
+	_ = worktree.ScanClaims(claimAlive, func(pid int, slug string, c worktree.Claim) {
 		if c.Commit != "" {
-			byCommit[c.Commit] = notices.Label(pid, slug, c.Agent)
+			byCommit[c.Commit] = worktree.Label(pid, slug, c.Agent)
 			if slug == self {
 				byCommit[c.Commit] = "this session"
 			}

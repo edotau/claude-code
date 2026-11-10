@@ -13,7 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/ansi"
-	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -248,11 +247,11 @@ func chooseRotateOption(d *dialog, kt configure.KeyTarget, opts []configure.Auth
 		}
 		return 1, true
 	}
-	rows := make([]uidialog.Row, len(opts))
+	rows := make([]ShellRow, len(opts))
 	for i, o := range opts {
-		rows[i] = uidialog.Row{Name: o.Action, Detail: o.Desc}
+		rows[i] = ShellRow{Name: o.Action, Detail: o.Desc}
 	}
-	idx, err := d.shell().Pick(kt.Label+" — rotate which credential?", uidialog.Pairs(rows))
+	idx, err := d.shell().Pick(kt.Label+" — rotate which credential?", Pairs(rows))
 	if err != nil || idx < 0 {
 		return 0, false
 	}
@@ -335,18 +334,18 @@ func secretsLoop(d *dialog) int {
 
 // editSecret offers mint, login, paste, and vault deletion actions for one tracked secret.
 func editSecret(d *dialog, s configure.TrackedSecret) {
-	var acts []uidialog.Row
+	var acts []ShellRow
 	kt := configure.KeyTarget{Label: s.Name, EnvVar: s.Name, FixCmd: "claude-code vault set " + s.Name}
 	if s.Name == providers.OAuthTokenEnv {
 		kt.MintArgv = []string{"claude", "setup-token"}
 	}
 	for _, o := range configure.AuthOptions(kt) {
-		acts = append(acts, uidialog.Row{Name: o.Action, Detail: o.Desc, Run: func() bool { return runAuthOption(d, kt, o) }})
+		acts = append(acts, ShellRow{Name: o.Action, Detail: o.Desc, Run: func() bool { return runAuthOption(d, kt, o) }})
 	}
 	if s.Source == "vault" {
-		acts = append(acts, uidialog.Row{Name: "Delete", Detail: "remove from the vault", Run: func() bool { return deleteSecret(d, s.Name) }})
+		acts = append(acts, ShellRow{Name: "Delete", Detail: "remove from the vault", Run: func() bool { return deleteSecret(d, s.Name) }})
 	}
-	idx, err := d.shell().Pick(s.Name+" ("+sourceLabel(s.Source, s.Shadowed)+")", uidialog.Pairs(acts))
+	idx, err := d.shell().Pick(s.Name+" ("+sourceLabel(s.Source, s.Shadowed)+")", Pairs(acts))
 	if err != nil || idx < 0 || idx >= len(acts) {
 		return
 	}

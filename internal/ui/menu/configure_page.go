@@ -22,7 +22,6 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/ansi"
-	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -87,9 +86,9 @@ func (d *dialog) printf(format string, args ...any) {
 	fmt.Fprint(d.out, ansi.Status(d.color, fmt.Sprintf(format, args...)))
 }
 
-// shell is the ui/dialog shell on d's terminal or numbered prompt, painting status lines like printf.
-func (d *dialog) shell() *uidialog.Shell {
-	return &uidialog.Shell{Out: d.out, In: d.br, TTY: isStdinTTY() && d.o.In == os.Stdin,
+// shell is the Shell on d's terminal or numbered prompt, painting status lines like printf.
+func (d *dialog) shell() *Shell {
+	return &Shell{Out: d.out, In: d.br, TTY: isStdinTTY() && d.o.In == os.Stdin,
 		Paint: func(s string) string { return ansi.Status(d.color, s) }}
 }
 
@@ -274,7 +273,7 @@ func applyNamedProvider(d *dialog, name string) bool {
 
 func pickProvider(d *dialog, names []string) bool {
 	fmt.Fprint(d.out, "pick a profile by number or name (blank = keep current): ")
-	line := strings.TrimSpace(uidialog.ReadLine(d.br))
+	line := strings.TrimSpace(ReadLine(d.br))
 	if line == "" {
 		return true
 	}
@@ -464,11 +463,11 @@ func openBrowser(url string) {
 // actionConfirmed asks [y/N] (Esc cancels) before a terminal run launches a mint CLI; a stray Enter must
 // never start a run that rewrites an agent's own auth settings. Non-terminal runs proceed. Sign-in itself
 // needs no second confirm — picking its menu row already was the confirmation.
-var actionConfirmed = func(question string) bool { return uidialog.ConfirmTerminal(question, false) }
+var actionConfirmed = func(question string) bool { return ConfirmTerminal(question, false) }
 
 // saveConfirmed is the one save prompt every configure page ends with: [Y/n], Enter or blank = yes, Esc = no.
 // Non-terminal runs save.
-var saveConfirmed = func(question string) bool { return uidialog.ConfirmTerminal(question, true) }
+var saveConfirmed = func(question string) bool { return ConfirmTerminal(question, true) }
 
 // confirmLeave asks to save n staged change(s) of what; false (nothing to save, or n/Esc) means discard them.
 func confirmLeave(n int, what string) bool {
@@ -557,7 +556,7 @@ func secretLine(d *dialog, prompt string) (string, error) {
 		return tui.Secret(prompt, pastePreview)
 	}
 	fmt.Fprint(d.out, prompt)
-	val := uidialog.ReadLine(d.br)
+	val := ReadLine(d.br)
 	fmt.Fprintln(d.out)
 	if _, v := configure.ParseAssignment(val); v != "" {
 		d.printf("  pasted  %s\n", pastePreview(val))

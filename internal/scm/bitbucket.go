@@ -1,5 +1,6 @@
-// Package bitbucket is the scm.Host over the Bitbucket Data Center REST API (1.0).
-package bitbucket
+// BitbucketHost is the Host over the Bitbucket Data Center REST API (1.0).
+
+package scm
 
 import (
 	"bytes"
@@ -16,8 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/edotau/claude-code/internal/scm"
 )
 
 const authHint = "Bitbucket rejected the token; run `claude-code vault set BITBUCKET_TOKEN`"
@@ -34,24 +33,24 @@ func checkDigits(what, v string) error {
 	return nil
 }
 
-// Host is one Data Center repository; the token is only ever sent as a bearer header.
-type Host struct {
+// BitbucketHost is one Data Center repository; the token is only ever sent as a bearer header.
+type BitbucketHost struct {
 	Base, Project, Repo, Token string
 	HTTP                       *http.Client
 }
 
 // New binds a server root (a trailing /rest/api/... is tolerated) and a repository.
-func New(baseURL, project, repo, token string) *Host {
+func NewBitbucket(baseURL, project, repo, token string) *BitbucketHost {
 	root := regexp.MustCompile(`(?i)/rest(/api/[^/]+)?$`).ReplaceAllString(strings.TrimRight(baseURL, "/"), "")
-	return &Host{Base: root, Project: project, Repo: repo, Token: token, HTTP: &http.Client{Timeout: 15 * time.Second}}
+	return &BitbucketHost{Base: root, Project: project, Repo: repo, Token: token, HTTP: &http.Client{Timeout: 15 * time.Second}}
 }
 
-func (h *Host) repoPath() string {
+func (h *BitbucketHost) repoPath() string {
 	return "/rest/api/1.0/projects/" + url.PathEscape(h.Project) + "/repos/" + url.PathEscape(h.Repo)
 }
 
 // do sends one request and returns the body; 401/403 name the vault fix without echoing the token.
-func (h *Host) do(ctx context.Context, method, path string, q url.Values, body any, accept string) ([]byte, error) {
+func (h *BitbucketHost) do(ctx context.Context, method, path string, q url.Values, body any, accept string) ([]byte, error) {
 	var rd io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -101,7 +100,7 @@ func statusErr(method, path string, code int) error {
 	return nil
 }
 
-func (h *Host) getJSON(ctx context.Context, path string, q url.Values, out any) error {
+func (h *BitbucketHost) getJSON(ctx context.Context, path string, q url.Values, out any) error {
 	data, err := h.do(ctx, http.MethodGet, path, q, nil, "application/json")
 	if err != nil {
 		return err
@@ -122,7 +121,7 @@ type ref struct {
 	}
 }
 
-type rawPR struct {
+type bbPR struct {
 	ID      int                                    `json:"id"`
 	Title   string                                 `json:"title"`
 	State   string                                 `json:"state"`
@@ -132,8 +131,8 @@ type rawPR struct {
 	Links   struct{ Self []struct{ Href string } } `json:"links"`
 }
 
-func (r rawPR) pr() scm.PR {
-	p := scm.PR{Host: scm.Bitbucket, ID: strconv.Itoa(r.ID), Title: r.Title, State: prState(r.State),
+func (r bbPR) pr() PR {
+	p := PR{Host: Bitbucket, ID: strconv.Itoa(r.ID), Title: r.Title, State: prState(r.State),
 		Author: cmp.Or(r.Author.User.DisplayName, r.Author.User.Name), Source: r.FromRef.DisplayID,
 		Target: r.ToRef.DisplayID, HeadSHA: r.FromRef.LatestCommit}
 	if len(r.Links.Self) > 0 {
@@ -153,12 +152,12 @@ func prState(s string) string {
 }
 
 // pages reads every page of a paged list into raws until limit rows (0 = all).
-func (h *Host) pages(ctx context.Context, path string, q url.Values, limit int) ([]rawPR, error) {
-	var all []rawPR
+func (h *BitbucketHost) pages(ctx context.Context, path string, q url.Values, limit int) ([]bbPR, error) {
+	var all []bbPR
 	for start := 0; ; {
 		q.Set("start", strconv.Itoa(start))
 		var page struct {
-			Values        []rawPR
+			Values        []bbPR
 			IsLastPage    bool
 			NextPageStart int
 		}
@@ -173,7 +172,7 @@ func (h *Host) pages(ctx context.Context, path string, q url.Values, limit int) 
 	}
 }
 
-func (h *Host) List(ctx context.Context, o scm.ListOpts) ([]scm.PR, error) {
+func (h *BitbucketHost) List(ctx context.Context, o ListOpts) ([]PR, error) {
 	state := strings.ToUpper(o.State)
 	path, q := h.repoPath()+"/pull-requests", url.Values{"state": {state}, "limit": {"50"}}
 	if o.Author == "@me" {
@@ -187,7 +186,7 @@ func (h *Host) List(ctx context.Context, o scm.ListOpts) ([]scm.PR, error) {
 	if err != nil {
 		return nil, err
 	}
-	prs := []scm.PR{}
+	prs := []PR{}
 	for _, r := range raws {
 		if o.Author == "@me" && !h.inRepo(r.ToRef) {
 			continue
@@ -203,22 +202,22 @@ func (h *Host) List(ctx context.Context, o scm.ListOpts) ([]scm.PR, error) {
 	return prs, nil
 }
 
-func (h *Host) inRepo(r ref) bool {
+func (h *BitbucketHost) inRepo(r ref) bool {
 	return strings.EqualFold(r.Repository.Slug, h.Repo) && strings.EqualFold(r.Repository.Project.Key, h.Project)
 }
 
-func (h *Host) View(ctx context.Context, id string) (scm.PR, error) {
+func (h *BitbucketHost) View(ctx context.Context, id string) (PR, error) {
 	if err := checkDigits("PR id", id); err != nil {
-		return scm.PR{}, err
+		return PR{}, err
 	}
-	var r rawPR
+	var r bbPR
 	if err := h.getJSON(ctx, h.repoPath()+"/pull-requests/"+url.PathEscape(id), nil, &r); err != nil {
-		return scm.PR{}, err
+		return PR{}, err
 	}
 	return r.pr(), nil
 }
 
-func (h *Host) Diff(ctx context.Context, id string) (string, error) {
+func (h *BitbucketHost) Diff(ctx context.Context, id string) (string, error) {
 	if err := checkDigits("PR id", id); err != nil {
 		return "", err
 	}
@@ -226,13 +225,13 @@ func (h *Host) Diff(ctx context.Context, id string) (string, error) {
 	return string(data), err
 }
 
-func (h *Host) Create(ctx context.Context, o scm.CreateOpts) (scm.PR, error) {
+func (h *BitbucketHost) Create(ctx context.Context, o CreateOpts) (PR, error) {
 	src, err := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD").Output()
 	if err != nil {
-		return scm.PR{}, fmt.Errorf("current branch: %w", err)
+		return PR{}, fmt.Errorf("current branch: %w", err)
 	}
 	if strings.TrimSpace(string(src)) == "HEAD" {
-		return scm.PR{}, errors.New("detached HEAD: check out and push a branch before creating a PR")
+		return PR{}, errors.New("detached HEAD: check out and push a branch before creating a PR")
 	}
 	base := o.Base
 	if base == "" {
@@ -240,7 +239,7 @@ func (h *Host) Create(ctx context.Context, o scm.CreateOpts) (scm.PR, error) {
 			DisplayID string `json:"displayId"`
 		}
 		if err := h.getJSON(ctx, h.repoPath()+"/default-branch", nil, &def); err != nil {
-			return scm.PR{}, err
+			return PR{}, err
 		}
 		base = def.DisplayID
 	}
@@ -250,16 +249,16 @@ func (h *Host) Create(ctx context.Context, o scm.CreateOpts) (scm.PR, error) {
 		"toRef":   map[string]any{"id": "refs/heads/" + base, "repository": repo}}
 	data, err := h.do(ctx, http.MethodPost, h.repoPath()+"/pull-requests", nil, body, "application/json")
 	if err != nil {
-		return scm.PR{}, err
+		return PR{}, err
 	}
-	var r rawPR
+	var r bbPR
 	if err := json.Unmarshal(data, &r); err != nil {
-		return scm.PR{}, err
+		return PR{}, err
 	}
 	return r.pr(), nil
 }
 
-func (h *Host) Checks(ctx context.Context, id, sha string) ([]scm.Check, error) {
+func (h *BitbucketHost) Checks(ctx context.Context, id, sha string) ([]Check, error) {
 	if id != "" {
 		pr, err := h.View(ctx, id)
 		if err != nil {
@@ -270,7 +269,7 @@ func (h *Host) Checks(ctx context.Context, id, sha string) ([]scm.Check, error) 
 	if sha == "" {
 		return nil, fmt.Errorf("no commit to check: PR %q has no head commit", id)
 	}
-	checks := []scm.Check{}
+	checks := []Check{}
 	for start := 0; ; {
 		var page struct {
 			Values        []struct{ State, Name, Key, URL string }
@@ -282,7 +281,7 @@ func (h *Host) Checks(ctx context.Context, id, sha string) ([]scm.Check, error) 
 			return nil, err
 		}
 		for _, v := range page.Values {
-			checks = append(checks, scm.Check{Name: cmp.Or(v.Name, v.Key), State: buildState(v.State), URL: v.URL})
+			checks = append(checks, Check{Name: cmp.Or(v.Name, v.Key), State: buildState(v.State), URL: v.URL})
 		}
 		if page.IsLastPage || len(page.Values) == 0 {
 			break
@@ -302,7 +301,7 @@ func buildState(s string) string {
 	return "pending"
 }
 
-func (h *Host) Comment(ctx context.Context, id, body, replyTo string) error {
+func (h *BitbucketHost) Comment(ctx context.Context, id, body, replyTo string) error {
 	if err := checkDigits("PR id", id); err != nil {
 		return err
 	}

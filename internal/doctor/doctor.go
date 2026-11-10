@@ -10,8 +10,6 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/completion"
-	"github.com/edotau/claude-code/internal/doctor/mcphealth"
-	"github.com/edotau/claude-code/internal/doctor/promptpath"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
@@ -22,7 +20,7 @@ import (
 // doctorChecks is a test seam over the slow, probing launch.DoctorChecks plus the soft MCP row.
 var doctorChecks = func() ([]launch.Check, bool) {
 	checks, ok := launch.DoctorChecks()
-	mcpOK, detail := mcphealth.Summary(mcpOptions(false))
+	mcpOK, detail := Summary(mcpOptions(false))
 	return append(checks, launch.Check{Name: "mcp", OK: mcpOK, Detail: detail}), ok
 }
 
@@ -97,7 +95,7 @@ func runDoctor(o *doctorOpts, targets []string) int {
 		return runPrompts(o)
 	}
 	if o.mcp {
-		return mcphealth.Doctor(os.Stdout, mcpOptions(*o.format == helptext.JSON))
+		return Doctor(os.Stdout, mcpOptions(*o.format == helptext.JSON))
 	}
 	if o.scan || o.gitScan || o.all {
 		return runDoctorAudits(o, targets)
@@ -126,7 +124,7 @@ func runDoctor(o *doctorOpts, targets []string) int {
 }
 
 func runPrompts(o *doctorOpts) int {
-	checks := promptpath.Run(paths.ConfigDir())
+	checks := PromptPath(paths.ConfigDir())
 	ok := true
 	for _, c := range checks {
 		ok = ok && c.OK
@@ -148,11 +146,11 @@ func runPrompts(o *doctorOpts) int {
 }
 
 // mcpOptions points the MCP scan at the user, project and settings scopes; every path is read-only.
-func mcpOptions(asJSON bool) mcphealth.Options {
+func mcpOptions(asJSON bool) Options {
 	home, _ := os.UserHomeDir()
 	bin, _ := claude.ClaudeBinary() // "" on error: the scan fails OPEN on a missing claude binary
 	cwd, _ := os.Getwd()
-	return mcphealth.Options{
+	return Options{
 		UserPath:     paths.ClaudeJSON(),
 		ProjectFiles: []string{filepath.Join(cwd, ".mcp.json")},
 		SettingsFiles: []string{
