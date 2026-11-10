@@ -205,7 +205,7 @@ func copilotPartial(res wire.Result, out SDKResult, err error, sink wire.Sink) (
 }
 
 func copilotFatal(err error) error {
-	return &retry.Error{Kind: retry.KindFatal, Agent: "copilot", Err: err}
+	return retry.Fatal("copilot", err)
 }
 
 // copilotAsk is the SDK call, a var so tests reach the agent's result handling without a copilot binary.
@@ -222,11 +222,7 @@ func applyCopilotToken(opts *SDKOptions, env []string) {
 
 // copilotModelID is id as Copilot's catalog spells it (dotted versions); [1m] is dropped, an unknown id is kept.
 func copilotModelID(id string) string {
-	id = models.Strip1M(id)
-	if canonical, _, ok := models.Resolve(id); ok {
-		return models.Wire("dotted", canonical)
-	}
-	return id
+	return models.WireOrOriginal("dotted", models.Strip1M(id))
 }
 
 // absPaths makes each path absolute (the SDK sends them to a runtime with its own working directory).

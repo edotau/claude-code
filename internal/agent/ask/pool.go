@@ -287,7 +287,7 @@ func (b *batchRun) run(ctx context.Context, t Task, p *client.Prepared) (env wir
 	}()
 	defer func() {
 		if r := recover(); r != nil {
-			err := &retry.Error{Kind: retry.KindFatal, Agent: t.Agent, Err: fmt.Errorf("panic: %v", r)}
+			err := retry.Fatal(t.Agent, fmt.Errorf("panic: %v", r))
 			rec.Finish(wire.Result{Agent: t.Agent, Status: wire.StatusError}, err, time.Since(start))
 			_ = rec.Save()
 			env, ok = wire.NewEnvelope(wire.Result{Agent: t.Agent, Status: wire.StatusError}, err, rec.ID), false

@@ -22,7 +22,7 @@ import (
 func CodexJSON() ([]byte, error) {
 	events := map[string][]settings.MatcherGroup{}
 	for _, s := range settings.SpecsFor("codex", "native") {
-		h := settings.Hook{Type: "command", Command: settings.AgentEnv + "=codex " + s.Command(), Timeout: s.Seconds(), Async: s.Async, StatusMessage: s.StatusMessage}
+		h := settings.Hook{Type: "command", Command: settings.AgentCommand("codex", s), Timeout: s.Seconds(), Async: s.Async, StatusMessage: s.StatusMessage}
 		groups := events[s.Event]
 		if n := len(groups); n > 0 && groups[n-1].Matcher == s.Matcher {
 			groups[n-1].Hooks = append(groups[n-1].Hooks, h)

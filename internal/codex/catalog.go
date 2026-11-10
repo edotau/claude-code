@@ -24,10 +24,7 @@ import (
 
 // codexSlug is codex's own built-in slug for a menu id: the dotted spelling (gpt-6.1-sol); an unknown id stays as typed.
 func codexSlug(id string) string {
-	if canonical, _, ok := models.Resolve(id); ok {
-		return models.Wire("dotted", canonical)
-	}
-	return id
+	return models.WireOrOriginal("dotted", id)
 }
 
 // codexCatalogArgs returns a validated Databricks model catalog override, or lets launch continue without one.

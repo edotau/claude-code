@@ -192,10 +192,10 @@ func resultFromEnvelope(env wire.Envelope, agentName string, dropped []string) w
 func (r remoteEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
 	argv, err := RemoteArgv(r.host, r.bin, r.agent, r.fallback, req)
 	if err != nil {
-		return wire.Result{Agent: r.agent, Status: wire.StatusError}, &retry.Error{Kind: retry.KindFatal, Agent: r.agent, Err: err}
+		return wire.Result{Agent: r.agent, Status: wire.StatusError}, retry.Fatal(r.agent, err)
 	}
 	if strings.ContainsRune(req.Prompt, 0) {
-		return wire.Result{Agent: r.agent, Status: wire.StatusError}, &retry.Error{Kind: retry.KindFatal, Agent: r.agent, Err: errors.New("remote ask: a NUL byte cannot cross the framed prompt")}
+		return wire.Result{Agent: r.agent, Status: wire.StatusError}, retry.Fatal(r.agent, errors.New("remote ask: a NUL byte cannot cross the framed prompt"))
 	}
 	dropped := remoteDropped(req)
 	ctx, cancel := context.WithCancelCause(ctx)
@@ -215,7 +215,7 @@ func (r remoteEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.S
 		err = cmd.Start()
 	}
 	if err != nil {
-		return wire.Result{Agent: r.agent, Status: wire.StatusError, Dropped: dropped}, &retry.Error{Kind: retry.KindFatal, Agent: r.agent, Err: fmt.Errorf("ssh: %w", err)}
+		return wire.Result{Agent: r.agent, Status: wire.StatusError, Dropped: dropped}, retry.Fatal(r.agent, fmt.Errorf("ssh: %w", err))
 	}
 	// stdin stays open after the prompt: its closing (below, or by a dead ssh) is the remote's cancel signal
 	go func() { _, _ = io.WriteString(in, req.Prompt+"\x00") }()
@@ -251,7 +251,7 @@ func (r remoteEngine) remoteOutcome(ctx context.Context, env *wire.Envelope, str
 		}
 		return res, nil
 	case sinkErr != nil:
-		return res, &retry.Error{Kind: retry.KindFatal, Agent: r.agent, Err: sinkErr}
+		return res, retry.Fatal(r.agent, sinkErr)
 	case ctx.Err() != nil:
 		return res, retry.Classify(r.agent, fmt.Errorf("ssh %s: %w", r.host, context.Cause(ctx)), streamed)
 	}

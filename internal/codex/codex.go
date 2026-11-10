@@ -60,14 +60,14 @@ func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOpt
 	}
 	argv, env, removePolicy, err := codexApplyPermissions(req, argv, env)
 	if err != nil {
-		return res, &retry.Error{Kind: retry.KindFatal, Agent: e.Name(), Err: err}
+		return res, retry.Fatal(e.Name(), err)
 	}
 	defer removePolicy()
 	extra := codexInstructionArgs(req)
 	if req.OutputSchema != "" {
 		file, err := codexSchemaFile(req.OutputSchema)
 		if err != nil {
-			return res, &retry.Error{Kind: retry.KindFatal, Agent: e.Name(), Err: err}
+			return res, retry.Fatal(e.Name(), err)
 		}
 		defer func() { _ = os.Remove(file) }()
 		extra = append(extra, "--output-schema", file)

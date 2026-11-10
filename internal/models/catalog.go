@@ -115,6 +115,14 @@ func dotVersion(id, version string) string {
 // Wire builds the wire id of canonical for a named spelling rule (anthropic, databricks-serving, ...).
 func Wire(rule, canonical string) string { return load().wire(rule, canonical) }
 
+// WireOrOriginal is id's wire spelling under rule when it resolves to a known model, else id unchanged.
+func WireOrOriginal(rule, id string) string {
+	if canonical, _, ok := Resolve(id); ok {
+		return Wire(rule, canonical)
+	}
+	return id
+}
+
 // Alias resolves an alias (opus, sonnet, haiku, fable) to the canonical id it currently backs.
 func Alias(name string) (canonical string, ok bool) {
 	canonical, ok = load().Aliases[strings.ToLower(strings.TrimSpace(name))]

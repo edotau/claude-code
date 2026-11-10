@@ -49,6 +49,11 @@ type Error struct {
 	Terminal   bool     // a state check refused the attempt: retrying cannot help
 }
 
+// Fatal is a terminal, never-retried failure of agent wrapping err.
+func Fatal(agent string, err error) error {
+	return &Error{Kind: KindFatal, Agent: agent, Err: err}
+}
+
 // Progressed is true when err is an *Error whose output already reached the stream.
 func Progressed(err error) bool {
 	e, ok := errors.AsType[*Error](err)

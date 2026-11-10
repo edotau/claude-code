@@ -124,18 +124,18 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink wire.Si
 	model := l.resolveModel(req.Model)
 	res := wire.Result{Provider: l.provider.Name, Model: model, SessionID: req.SessionID}
 	if model == "" {
-		return res, &retry.Error{Kind: retry.KindFatal, Agent: l.agent, Err: fmt.Errorf("%s: no model resolved", l.provider.Name)}
+		return res, retry.Fatal(l.agent, fmt.Errorf("%s: no model resolved", l.provider.Name))
 	}
 	if len(req.Prompt) > agent.MaxPromptBytes {
-		return res, &retry.Error{Kind: retry.KindFatal, Agent: l.agent, Err: agent.PromptTooLarge(len(req.Prompt), agent.MaxPromptBytes)}
+		return res, retry.Fatal(l.agent, agent.PromptTooLarge(len(req.Prompt), agent.MaxPromptBytes))
 	}
 	bin, env, argv, err := l.prepareLaunch(req, model)
 	if err != nil {
-		return res, &retry.Error{Kind: retry.KindFatal, Agent: l.agent, Err: err}
+		return res, retry.Fatal(l.agent, err)
 	}
 	env, plugged, err := opencodeApplyPlugin(env, req)
 	if err != nil {
-		return res, &retry.Error{Kind: retry.KindFatal, Agent: l.agent, Err: err}
+		return res, retry.Fatal(l.agent, err)
 	}
 	cctx := ctx
 	var onFirstByte, onStep func()
@@ -151,7 +151,7 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink wire.Si
 	}
 	argv, err = host.before(argv, req.Prompt)
 	if err != nil {
-		return res, &retry.Error{Kind: retry.KindFatal, Agent: l.agent, Err: err}
+		return res, retry.Fatal(l.agent, err)
 	}
 	cmd, tail := agent.ChildCmd(cctx, bin, argv, env, req.WorkDir, "", req.KeepEnv, true)
 	out, runErr := agent.RunEventStream(cctx, l.agent, cmd, tail, sink, host.parser(onStep), onFirstByte)
@@ -166,7 +166,7 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink wire.Si
 // runError is the hub run's outcome: a stall after first output, then a tools-off answer that is only tool calls.
 func (l hubDispatch) runError(cctx context.Context, req agent.RunOptions, answer string, runErr error) error {
 	if l.firstOutput > 0 && errors.Is(context.Cause(cctx), agent.ErrStalled) {
-		return &retry.Error{Kind: retry.KindFatal, Agent: l.agent, Err: agent.ErrStalled}
+		return retry.Fatal(l.agent, agent.ErrStalled)
 	}
 	if runErr != nil {
 		return runErr

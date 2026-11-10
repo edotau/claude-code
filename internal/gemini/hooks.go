@@ -19,7 +19,7 @@ func renderGeminiHooks(home string, o render.RenderOptions, out io.Writer) (bool
 	var hooks []any
 	for _, s := range settings.SpecsFor("gemini", "native") {
 		hooks = append(hooks, map[string]any{
-			"type": "command", "command": settings.AgentEnv + "=gemini " + s.Command(), "timeout": s.Seconds(),
+			"type": "command", "command": settings.AgentCommand("gemini", s), "timeout": s.Seconds(),
 		})
 	}
 	path := filepath.Join(home, ".gemini", "config", "hooks.json")

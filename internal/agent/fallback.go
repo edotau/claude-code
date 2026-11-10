@@ -32,7 +32,7 @@ func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 	reasons := slices.Clone(c.Skipped)
 	if len(c.Dispatches) == 0 {
 		return wire.Result{Agent: c.Want, Status: wire.StatusError, FallbackReason: strings.Join(reasons, "; ")},
-			&retry.Error{Kind: retry.KindFatal, Agent: c.Want, Err: fmt.Errorf("no agent available: %s%s", strings.Join(reasons, "; "), switchHint(reasons))}
+			retry.Fatal(c.Want, fmt.Errorf("no agent available: %s%s", strings.Join(reasons, "; "), switchHint(reasons)))
 	}
 	if shown := askedSkips(reasons, c.Want); len(shown) > 0 && notify != nil { // other agents' skips stay in the record
 		notify("skipped without an attempt — " + strings.Join(shown, "; "))
