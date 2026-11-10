@@ -19,25 +19,20 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// cmdGatewayRouter is `claude-code gateway router`: the pick and each skipped agent's gate; never dispatches.
-func cmdGatewayRouter(args []string) int { return gatewayRoute(args, false) }
-
-// routePage is the verb's name and help page; withProxy is bare `gateway`.
-func routePage(withProxy bool) (string, helptext.Page) {
-	about := "Show which agent and model a task routes to: gated on availability, the pinned\n" +
-		"profile and quota, then ordered by ladder rung, then account state, then weighted score."
-	if withProxy {
-		return "gateway", helptext.Page{Usage: "claude-code gateway [router|proxy] [--model M] [flags]",
-			About: about + "\nThen the loopback proxy's status; `gateway proxy` runs its lifecycle."}
-	}
-	return "gateway router", helptext.Page{
-		Usage: "claude-code gateway router [--model M] [--agent a] [--task T] [flags]", About: about}
+// gatewayPage is bare `gateway`: the route pick and why, then the proxy status; never dispatches.
+var gatewayPage = helptext.Page{
+	Usage: "claude-code gateway [--model M] [--agent a] [--task T] [flags]\n" +
+		"claude-code gateway proxy [--start|--stop|--restart|--status|--serve]",
+	About: "Show which agent and model a task routes to: gated on availability, the pinned\n" +
+		"profile and quota, then ordered by ladder rung, then account state, then weighted score; " +
+		"then the loopback proxy's status.",
+	Commands: [][2]string{{"proxy", "start, stop, restart or serve the loopback proxy"}},
 }
 
-// gatewayRoute runs the router pick; withProxy (bare `gateway`) adds the proxy status footer or the "proxy" JSON key.
-func gatewayRoute(args []string, withProxy bool) int {
-	name, page := routePage(withProxy)
-	fs := helptext.NewFlagSet(name, page)
+// gatewayRoute runs the router pick, then the proxy status (text footer or the JSON "proxy" key).
+func gatewayRoute(args []string) int {
+	const name = "gateway"
+	fs := helptext.NewFlagSet(name, gatewayPage)
 	model := fs.String("model", "", "alias (opus) or version (opus-5-5) (default: classify --task, else sonnet)")
 	want := fs.String("agent", "", "the agent asked for; it leads when it passes the gates")
 	task := fs.String("task", "", "task text the classifier reads when --model is absent")
@@ -65,7 +60,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 	if err != nil {
 		return helptext.Fail(name+": %v", err)
 	}
-	return renderGatewayRoute(name, res, *format, withProxy)
+	return renderGatewayRoute(name, res, *format)
 }
 
 // checkRouteFlags applies --route and validates the flags; a nonzero code is the exit status (format errors are 2).
@@ -85,52 +80,43 @@ func checkRouteFlags(name, route, format, fallback, want string) int {
 	return 0
 }
 
-func renderGatewayRoute(name string, res router.PickResult, format string, withProxy bool) int {
+func renderGatewayRoute(name string, res router.PickResult, format string) int {
 	src := routeSources{Weights: providers.RouteWeightsSource()}
 	pins, err := routePins()
 	if err != nil {
 		return helptext.Fail(name+": %v", err)
 	}
 	rj := newRouteJSON(res, src, pins)
-	var ps proxy.Status
-	if withProxy {
-		if ps, err = proxy.LoadStatus(context.Background()); err != nil {
-			return helptext.Fail(name+": %v", err)
-		}
+	ps, err := proxy.LoadStatus(context.Background())
+	if err != nil {
+		return helptext.Fail(name+": %v", err)
 	}
 	if format == helptext.JSON {
-		return helptext.WriteJSONOrFail("gateway router", routePayload(rj, ps, withProxy))
+		return helptext.WriteJSONOrFail(name, routePayload{rj, ps})
 	}
 	var buf bytes.Buffer
 	writeRoute(&buf, res, src, pins)
 	if _, err := os.Stdout.Write(buf.Bytes()); err != nil {
 		return helptext.Fail(name+": %v", err)
 	}
-	if withProxy {
-		if err := printProxyState(ps); err != nil {
-			return helptext.Fail(name+": %v", err)
-		}
+	if err := printProxyState(ps); err != nil {
+		return helptext.Fail(name+": %v", err)
 	}
 	return 0
 }
 
-// routePayload is the JSON document: the route alone, or {route, proxy} for bare `gateway`.
-func routePayload(rj routeJSON, ps proxy.Status, withProxy bool) any {
-	if !withProxy {
-		return rj
-	}
-	return struct {
-		Route routeJSON    `json:"route"`
-		Proxy proxy.Status `json:"proxy"`
-	}{rj, ps}
+// routePayload is `gateway --format json`: the route fields at the top level plus the proxy status.
+type routePayload struct {
+	routeJSON
+	Proxy proxy.Status `json:"proxy"`
 }
 
-// routeSources names where each routing knob printed by `gateway router` came from.
+// routeSources names where each routing knob printed by `gateway` came from.
 type routeSources struct {
 	Weights string `json:"weights"` // "default" or "vault"
 }
 
-// routeJSON is `gateway router --format json`'s payload: the pick plus where its knobs came from.
+// routeJSON is the route pick plus where its knobs came from.
 type routeJSON struct {
 	Model      string             `json:"model"`
 	Want       string             `json:"want,omitempty"`
@@ -191,9 +177,25 @@ func writeRoute(w io.Writer, res router.PickResult, src routeSources, pins map[s
 	}
 	fmt.Fprintf(w, "model %s  weights %s (%s)\n", res.Alias, strings.Join(ws, " "), src.Weights)
 	printPins(w, pins)
+	res.Candidates = displayAccounts(res.Candidates)
 	printCandidates(w, res.Candidates)
 	printEnds(w, res)
 	printSkipped(w, res.Skipped)
+}
+
+// displayAccounts copies cands with plan-aware account labels; the JSON view keeps the route keys.
+func displayAccounts(cands []router.Candidate) []router.Candidate {
+	reg, err := providers.Load()
+	if err != nil {
+		return cands
+	}
+	tier := providers.ClaudeAccount().Tier()
+	out := make([]router.Candidate, len(cands))
+	for i, c := range cands {
+		c.Account = providers.AccountLabel(reg, c.Account, tier)
+		out[i] = c
+	}
+	return out
 }
 
 // printCandidates prints the scored candidate table.

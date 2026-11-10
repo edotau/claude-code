@@ -37,7 +37,7 @@ NAME=VALUE` reaches every agent (credential-looking names refused); `--host <h>`
 
 ## Fallback
 
-- **Ladder**: `routing.ladders` (`internal/providers/defaults.json`); `claude-code gateway router [--agent a] [--model
+- **Ladder**: `routing.ladders` (`internal/providers/defaults.json`); `claude-code gateway [--agent a] [--model
   M] [--task "<t>"]` shows the pick, scores and skip gates. Default: copilot on Databricks, then copilot on GitHub
   (gpt-6.1-sol, gpt-6-astra) → Databricks → codex (openai) → opencode, Claude scored in after copilot;
   `--route first-party`: copilot → codex → gemini → opencode-go. The `--agent` asked for leads when it passes the

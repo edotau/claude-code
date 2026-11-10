@@ -8,7 +8,7 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
-// ResolveAccount is resolveAccount for callers outside the package (the gateway router view).
+// ResolveAccount is resolveAccount for callers outside the package (the gateway view).
 var ResolveAccount = resolveAccount
 
 // resolveAccount is the account an agent's dispatch actually bills: "" keeps the table's key (the agent's own login

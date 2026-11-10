@@ -278,8 +278,8 @@ let PF_STATE = '' // claude account state, read by the coworkers preflight when 
 const EXT = [...new Map(Object.values(ST).filter((s) => s.ext).map((s) => [s.agent + '|' + s.profile + '|' + s.provider, s])).values()]
 if (EXT.length) {
   const pf = await agent(
-    'For each line, run it and report its candidate count and the first candidate as agent/account/model. Edit nothing. Also run `claude-code gateway router --format json --agent claude --fallback none --model sonnet </dev/null` and report claudeState = candidates[0].state when candidates is non-empty, else the skipped[] entry for claude and its gate value, else "unknown".\n' +
-      EXT.map((s) => `claude-code gateway router --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
+    'For each line, run it and report its candidate count and the first candidate as agent/account/model. Edit nothing. Also run `claude-code gateway --format json --agent claude --fallback none --model sonnet </dev/null` and report claudeState = candidates[0].state when candidates is non-empty, else the skipped[] entry for claude and its gate value, else "unknown".\n' +
+      EXT.map((s) => `claude-code gateway --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
     { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['routes'], properties: { claudeState: { type: 'string' }, routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
   )
   PF_STATE = (pf && pf.claudeState) || ''
@@ -302,7 +302,7 @@ const RULES = a.rules ||
 
 // ── Pressure: Claude account state read once (by the caller, or here when absent); low/exhausted steps Claude down ──
 const routeState = typeof a.claudeState === 'string' ? { state: a.claudeState } : PF_STATE ? { state: PF_STATE } : await agent(
-  `Run exactly: ${a.cwd ? 'cd ' + a.cwd + ' && ' : ''}claude-code gateway router --format json --agent claude --fallback none --model sonnet. ` +
+  `Run exactly: ${a.cwd ? 'cd ' + a.cwd + ' && ' : ''}claude-code gateway --format json --agent claude --fallback none --model sonnet. ` +
     `It prints one JSON object; state = candidates[0].state when candidates is non-empty, else the skipped[] entry whose agent ` +
     `is "claude" and its gate value, else "unknown". Never run anything else.`,
   { label: 'route-state', phase: 'Detect', schema: { type: 'object', additionalProperties: false, required: ['state'], properties: { state: { type: 'string' } } }, model: 'haiku', effort: 'low' }
