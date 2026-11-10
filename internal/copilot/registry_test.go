@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // buildDevRegistry runs the real builder over eps on a non-Databricks row, where every endpoint rides anthropic.
@@ -128,4 +129,20 @@ func stubSettingsRegistry(t *testing.T) {
 	}
 	agent.EnsureRouter = func(context.Context) (string, error) { return "http://127.0.0.1:1", nil }
 	mintSession = func(context.Context, string, int) (string, error) { return "fixture-session", nil }
+}
+
+// A keyed Databricks row runs on the registry except inside a databricks:<p> route on macOS, which takes routed BYOK.
+func TestArmRegistryEligibility(t *testing.T) {
+	dbx := providers.Target{Provider: &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks,
+		Auth: providers.Auth{Type: "key", Env: "DBX_CLI_TOKEN"}}}
+	for _, c := range []struct {
+		goos, route string
+		want        bool
+	}{{"darwin", "databricks:dbx", false}, {"darwin", "", true}, {"linux", "databricks:dbx", true}} {
+		setGOOS(t, c.goos)
+		t.Setenv(router.EnvRoute, c.route)
+		if got := copilotRegistryEligible(false, dbx); got != c.want {
+			t.Errorf("%s route %q: registry eligible = %v, want %v", c.goos, c.route, got, c.want)
+		}
+	}
 }

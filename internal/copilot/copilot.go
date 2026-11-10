@@ -133,7 +133,15 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 	}
 	opts.Env = append(opts.Env, req.Env...) // --env goes last so it wins
 	applyCopilotToken(&opts, env)
+	if route == nil && t.Provider.Auth.Login == "" && router.ArmProfile() != "" {
+		armBYOK(&opts)
+	}
 	return opts, env, done, nil
+}
+
+// armBYOK keeps the GitHub login off an armed BYOK hop's model traffic; the CLI can still read its Keychain login.
+func armBYOK(o *SDKOptions) {
+	o.GitHubToken, o.UseLoggedInUser, o.ChildUnset = "", false, copilotStripEnv
 }
 
 // routeEnv prepares the registry route or the BYOK route env for target t.

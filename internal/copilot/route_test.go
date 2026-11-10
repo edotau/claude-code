@@ -320,3 +320,22 @@ func TestCopilotGateRefusesModelFallbackProfileDoesNotServe(t *testing.T) {
 		t.Fatalf("unserved glm: gate err = %v, want a refusal naming dbx and databricks-glm-5-3", err)
 	}
 }
+
+// Inside databricks:dbx a refused GitHub hop is an error naming why; it never moves the dispatch to a workspace.
+func TestArmCopilotGateRefusalIsError(t *testing.T) {
+	macFallbackScratch(t)
+	t.Setenv(router.EnvRoute, "databricks:dbx")
+	orig := CopilotUsedPct
+	CopilotUsedPct = func(context.Context, string) (float64, bool) { return 99, true }
+	t.Cleanup(func() { CopilotUsedPct = orig })
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gh := &providers.Provider{Name: "personal", Login: "free", Auth: providers.Auth{Login: "copilot"}}
+	got, notice, err := copilotGate(reg, providers.Target{Provider: gh})
+	if err == nil || got.Provider != nil || notice != "" || !strings.Contains(err.Error(), "inside databricks:dbx") {
+		t.Fatalf("armed gate = %+v, %q, %v; want an error naming databricks:dbx, no Databricks move",
+			got.Provider, notice, err)
+	}
+}

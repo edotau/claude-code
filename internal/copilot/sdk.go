@@ -86,7 +86,7 @@ func BuildClientOptions(ctx context.Context, o SDKOptions) (*copilot.ClientOptio
 		base = registryEnv(append(base, o.Env...), o.ChildEnv, o.ChildUnset, o.ChildUnsetPrefix)
 		o.Env = nil
 	}
-	env := append(base, o.Env...)
+	env := append(registryEnv(base, nil, o.ChildUnset, ""), o.Env...)
 	if o.ReadOnlyTools { // applied last so neither the parent's env nor --env can re-arm a git helper
 		env = registryEnv(env, readOnlyGitEnv, nil, "GIT_")
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -27,6 +28,9 @@ func copilotGate(reg *providers.Registry, t providers.Target) (providers.Target,
 	detail, ok := pinnedHeadroom(context.Background(), t.Provider.Login)
 	if ok {
 		return t, "", nil
+	}
+	if arm := router.ArmProfile(); arm != "" { // the route's chain picks the next hop; a silent Databricks move would leak
+		return providers.Target{}, "", fmt.Errorf("copilot: %s; GitHub hop refused inside databricks:%s", detail, arm)
 	}
 	ri := copilotDatabricksFallback(reg, detail)
 	ft, ok := agent.RouteTarget(reg, ri)
