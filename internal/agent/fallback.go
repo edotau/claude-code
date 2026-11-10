@@ -65,7 +65,8 @@ func chainOutcome(c Chain, res wire.Result, err error, reasons []string, prevDis
 		err = everyHopFailed(append(reasons, hopLabel(prevDispatch)+": "+FallbackReason(err)), err)
 	}
 	if ran > 0 || c.Dispatches[ran].otherRoute || c.Dispatches[ran].Agent.Name() != c.Want { // a different agent or route is a fallback
-		res.Fallback, res.FallbackReason = c.Want, strings.Join(reasons, "; ")
+		hopReasons := reasons[len(c.Skipped):] // the reason names the asked agent's skips and the hops that ran, never an unasked agent's skip
+		res.Fallback, res.FallbackReason = c.Want, strings.Join(append(askedSkips(reasons[:len(c.Skipped)], c.Want), hopReasons...), "; ")
 	}
 	return res, err
 }
