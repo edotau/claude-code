@@ -94,8 +94,9 @@ func tickText(planPath, text, sha string, files, seen []string) (out string, tic
 	return strings.Join(lines, "\n"), ticked, partial
 }
 
-// editTask re-reads planPath under the plans lock, applies fn and writes back only when bytes changed.
-func editTask(planPath, taskID string, fn func(Task, []string) []string) error {
+// editTask re-reads planPath under the plans lock, applies fn and writes back only when bytes changed;
+// a missing task with restore set is re-added ticked under ## Tasks, and the missing-task error still returns.
+func editTask(planPath, taskID, restore string, fn func(Task, []string) []string) error {
 	return paths.WithFileLock(filepath.Join(paths.StateDir(), "plans.lock"), func() error {
 		info, err := os.Stat(planPath)
 		if err != nil {
@@ -107,7 +108,15 @@ func editTask(planPath, taskID string, fn func(Task, []string) []string) error {
 		}
 		t, ok := findTask(ParseBytes(planPath, b), taskID)
 		if !ok {
-			return fmt.Errorf("plans: no task %q in %s", taskID, planPath)
+			missing := fmt.Errorf("plans: no task %q in %s", taskID, planPath)
+			if restore == "" {
+				return missing
+			}
+			out := strings.Join(restoreTicked(strings.Split(string(b), "\n"), restore), "\n")
+			if err := writePlan(planPath, []byte(out), info.Mode().Perm()); err != nil {
+				return errors.Join(missing, err)
+			}
+			return fmt.Errorf("%w; re-added it ticked", missing)
 		}
 		lines := strings.Split(string(b), "\n")
 		out := strings.Join(fn(t, lines), "\n")
@@ -116,6 +125,29 @@ func editTask(planPath, taskID string, fn func(Task, []string) []string) error {
 		}
 		return writePlan(planPath, []byte(out), info.Mode().Perm())
 	})
+}
+
+// restoreTicked inserts line after the last non-blank line of the ## Tasks section, appending the section when absent.
+func restoreTicked(lines []string, line string) []string {
+	start := slices.IndexFunc(lines, func(l string) bool { return strings.TrimSpace(l) == "## Tasks" })
+	if start < 0 {
+		for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+			lines = lines[:len(lines)-1]
+		}
+		return append(lines, "", "## Tasks", "", line, "")
+	}
+	end := len(lines)
+	for i := start + 1; i < len(lines); i++ {
+		if strings.HasPrefix(lines[i], "## ") {
+			end = i
+			break
+		}
+	}
+	at := end
+	for at > start+1 && strings.TrimSpace(lines[at-1]) == "" {
+		at--
+	}
+	return slices.Insert(lines, at, line)
 }
 
 // WriteFile replaces a plan under the plans lock, so a mirror or save never interleaves with a tick or claim.
@@ -192,7 +224,11 @@ func claim(planPath, taskID, text string, onlyFree bool) error {
 	if !claimWord.MatchString(text) {
 		return errors.New("plans: claim text must start with working: or finished: prefix")
 	}
-	return editTask(planPath, taskID, func(t Task, lines []string) []string {
+	restore := ""
+	if strings.HasPrefix(strings.ToLower(text), "finished:") {
+		restore = "- [x] " + taskID + " <!-- " + text + " -->"
+	}
+	return editTask(planPath, taskID, restore, func(t Task, lines []string) []string {
 		if onlyFree && t.Claim != "" {
 			return lines
 		}
@@ -204,14 +240,14 @@ func claim(planPath, taskID, text string, onlyFree bool) error {
 
 // ClearClaim removes a task's working:/finished: comment; a task without one is left untouched.
 func ClearClaim(planPath, taskID string) error {
-	return editTask(planPath, taskID, func(t Task, lines []string) []string {
+	return editTask(planPath, taskID, "", func(t Task, lines []string) []string {
 		return removeClaims(lines, t)
 	})
 }
 
 // ClearClaimOwned removes a task's claim only when a non-empty owner appears in its text, decided under the lock.
 func ClearClaimOwned(planPath, taskID, owner string) error {
-	return editTask(planPath, taskID, func(t Task, lines []string) []string {
+	return editTask(planPath, taskID, "", func(t Task, lines []string) []string {
 		if owner == "" || !strings.Contains(t.Claim, owner) {
 			return lines
 		}
