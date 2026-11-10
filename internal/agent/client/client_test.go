@@ -392,3 +392,10 @@ func TestPrepareRefusesPackWithHost(t *testing.T) {
 		t.Fatalf("Prepare() = %v, want a --host refusal", err)
 	}
 }
+
+func TestMemoryRunOptionsNeverFallBack(t *testing.T) {
+	o := memoryRunOptions("p", "/w")
+	if o.Fallback != router.FallbackNone || o.Agent != "claude" || !o.Tools || o.WorkDir != "/w" {
+		t.Fatalf("memoryRunOptions = %+v, want claude with tools and FallbackNone", o)
+	}
+}

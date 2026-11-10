@@ -334,7 +334,7 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 // askTimeout is the deadline: a fresh --tools run without an explicit --timeout gets 45m.
 func askTimeout(fs *flag.FlagSet, timeout time.Duration, retry, job string, tools bool) time.Duration {
 	if retry == "" && job == "" && tools && !helptext.Explicit(fs, "timeout") {
-		return 45 * time.Minute
+		return agent.DefaultToolsTimeout
 	}
 	return timeout
 }

@@ -381,10 +381,10 @@ type HubEngine interface {
 	WithFirstOutput(d time.Duration) Engine
 }
 
-// Hub is the opencode-routed dispatch ladder, registered by internal/opencode.
 // errNoHub is returned when a hub route is asked for but no linked vendor registered the opencode Hub.
 var errNoHub = errors.New("no opencode hub registered: the opencode agent is not linked into this binary")
 
+// Hub is the opencode-routed dispatch ladder, registered by internal/opencode.
 type Hub struct {
 	// Start resolves the provider a hub agent's first dispatch targets (explicitProvider forces one).
 	Start func(reg *providers.Registry, agentName, explicitProvider string) (*providers.Provider, error)

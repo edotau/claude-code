@@ -231,8 +231,11 @@ func (s *runState) finish(name string, start time.Time, e *retry.Error, recoverE
 // runPolicy is DefaultPolicy under req's timeout, ctx's cooldown key and ctx's permit.
 func runPolicy(ctx context.Context, req RunOptions, notify func(string)) retry.Policy {
 	p := retry.DefaultPolicy()
-	if req.Timeout > 0 {
+	switch {
+	case req.Timeout > 0:
 		p.AttemptTimeout = req.Timeout
+	case req.Tools:
+		p.AttemptTimeout = DefaultToolsTimeout
 	}
 	p.Notify = notify
 	p.Key, _ = ctx.Value(coolKey{}).(string)
@@ -241,6 +244,9 @@ func runPolicy(ctx context.Context, req RunOptions, notify func(string)) retry.P
 	}
 	return p
 }
+
+// DefaultToolsTimeout is the per-attempt deadline of a tools run without an explicit timeout.
+const DefaultToolsTimeout = 45 * time.Minute
 
 // RunOptions is one task. Model may be a model alias, a model id, or provider:model.
 type RunOptions struct {
@@ -255,7 +261,7 @@ type RunOptions struct {
 	NoPersist                                           bool        // claude, codex: no session persistence
 	SafeMode                                            bool        // claude, codex, opencode: no hooks/plugins/customizations
 	DebugFile                                           string      // claude, gemini: debug log at <path>
-	SystemPrompt, AppendSystemPrompt                    string      // claude only: replace / extend the system prompt
+	SystemPrompt, AppendSystemPrompt                    string      // replace / extend the system prompt; native on claude, codex, copilot, opencode, emulated elsewhere
 	Env                                                 []string    `json:"-"`                   // KEY=VALUE for the child, layered last; never logged
 	EnvNames                                            []string    `json:"env_names,omitempty"` // the names of Env, all the dispatch log keeps
 	Unset                                               []string    `json:"-"`                   // names dropped from the child's inherited env (an overlay's unset); never logged

@@ -19,7 +19,7 @@ const (
 	GateAccount   = "account"
 	GateExhausted = "exhausted"
 	GateFree      = "free" // a free opencode sub-candidate blocked at opus or on a work repo
-	GateOff       = "off"  // the agent is deactivated (<AGENT>_ACTIVE=off)
+	GateOff       = "off"  // the agent is deactivated (no profile set)
 )
 
 // Candidate is one runnable dispatch: the agent, its cell at the alias, its account's state and its composite score.

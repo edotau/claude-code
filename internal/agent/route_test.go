@@ -486,6 +486,6 @@ func TestPinFirstFallbackDispatches(t *testing.T) {
 		if !slices.ContainsFunc(pick.Skipped, func(s router.Skip) bool { return s.Agent == name && s.Gate == router.GateOff }) {
 			t.Errorf("%s missing off gate: %+v", name, pick.Skipped)
 		}
-		containsAll(t, strings.Join(c.Skipped, "; "), name+": deactivated ("+strings.ToUpper(name)+"_ACTIVE=off)")
+		containsAll(t, strings.Join(c.Skipped, "; "), name+": deactivated (no profile set)")
 	}
 }

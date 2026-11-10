@@ -505,3 +505,18 @@ func TestResolveTargetCanonicalIDTakesTheTierPin(t *testing.T) {
 		t.Errorf("claude-sonnet-5-5 = %+v (%v), want the pinned claude-sonnet-5", got, err)
 	}
 }
+
+func TestRunPolicyToolsTimeout(t *testing.T) {
+	for _, c := range []struct {
+		req  RunOptions
+		want time.Duration
+	}{
+		{RunOptions{Tools: true}, DefaultToolsTimeout},
+		{RunOptions{}, retry.DefaultPolicy().AttemptTimeout},
+		{RunOptions{Tools: true, Timeout: 5 * time.Minute}, 5 * time.Minute},
+	} {
+		if got := runPolicy(context.Background(), c.req, nil).AttemptTimeout; got != c.want {
+			t.Errorf("runPolicy(%+v) attempt timeout = %v, want %v", c.req, got, c.want)
+		}
+	}
+}
