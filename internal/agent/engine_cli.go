@@ -106,6 +106,9 @@ type CLIPrep struct {
 	Prompt string
 	Env    []string
 	Argv   []string
+	// Cleanup removes RenderSettings' per-run files; Emulated names the settings a shim honoured.
+	Cleanup  func()
+	Emulated []string
 }
 
 // prepare resolves req's route and headless argv; the Result comes back populated even on error.
@@ -142,11 +145,20 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 		return p, retry.Fatal(name, err)
 	}
 	v.After(&p, req)
-	if err := CheckRouteNames(p.Env, req.OverlaySet); err != nil {
+	if err := v.renderSettings(ctx, &p, req, ct); err != nil {
 		return p, retry.Fatal(name, err)
 	}
 	p.Env = append(p.Env, req.Env...) // --env goes last, after the route keys, so it wins
 	return p, nil
+}
+
+// renderSettings applies the agent's settings to a configured p, then refuses a route name an overlay sets.
+func (v cliEngine) renderSettings(ctx context.Context, p *CLIPrep, req RunOptions, t providers.Target) (err error) {
+	st := SchemaFor(v.Name()).launchSettings(req, t, true) // headless: Launch.Args stay off
+	if p.Env, p.Argv, p.Emulated, p.Cleanup, err = v.RenderSettings(ctx, st, p.Env, p.Argv); err != nil {
+		return err
+	}
+	return CheckRouteNames(p.Env, req.OverlaySet)
 }
 
 func cliHeadless(s Schema, prompt string, req RunOptions) Headless {
@@ -161,6 +173,9 @@ func cliHeadless(s Schema, prompt string, req RunOptions) Headless {
 func (v cliEngine) Run(ctx context.Context, req RunOptions, sink wire.Sink) (wire.Result, error) {
 	ctx = DirectCtx(ctx, req)
 	p, err := v.prepare(ctx, req)
+	if p.Cleanup != nil {
+		defer p.Cleanup()
+	}
 	if err != nil {
 		return p.Result, err
 	}

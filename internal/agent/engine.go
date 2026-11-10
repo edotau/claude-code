@@ -78,6 +78,8 @@ type Driver interface {
 	RegistryLaunch(ctx context.Context, reg *providers.Registry, t providers.Target, args []string, dry bool) (RegistryLaunch, error)
 	// RouteDetail is the "<agent> route" doctor detail; ok is false when there is none.
 	RouteDetail() (detail string, ok bool)
+	// RenderSettings applies s to a built launch; emulated names what a shim honoured; cleanup is never nil.
+	RenderSettings(ctx context.Context, s Settings, env, argv []string) (outEnv, outArgv, emulated []string, cleanup func(), err error)
 }
 
 // HeadlessDriver is an engine cliEngine can exec; copilotEngine is its own Engine instead.
@@ -231,6 +233,18 @@ func (b BaseEngine) RegistryLaunch(context.Context, *providers.Registry, provide
 }
 
 func (BaseEngine) RouteDetail() (string, bool) { return "", false }
+
+// RenderSettings appends the CLI's LaunchEnv and Record.Launch env (route keys win) and, interactive only, its args.
+func (b BaseEngine) RenderSettings(_ context.Context, s Settings, env, argv []string) ([]string, []string, []string, func(), error) {
+	launchEnv := SchemaFor(b.name).Eng().LaunchEnv()
+	if l := s.Record.Launch; l != nil {
+		launchEnv = append(launchEnv, l.Env...)
+		if !s.Headless {
+			argv = append(argv, l.Args...)
+		}
+	}
+	return RouteEnvLast(launchEnv, env), argv, nil, func() {}, nil
+}
 
 func (b BaseEngine) Login(*providers.Provider, string, *Headless) ([]string, []string, error) {
 	return nil, nil, errUnknownAgent(b.name)

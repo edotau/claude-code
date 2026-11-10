@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -54,17 +53,26 @@ func (s Schema) ConfigureHeadless(ctx context.Context, target providers.Target, 
 	return s.configure(ctx, target, &h)
 }
 
-// configure resolves the route for the agent, then applies its spec launch env/args — on every
-// route (own login, BYOK, gateway, router) — so no path can skip it; h != nil (a headless dispatch) never
-// gets Launch.Args, tools-off must stay tools-off and a tools-on dispatch already carries its own flags.
+// configure resolves the route for the agent, then renders its settings (launch env/args) on every route (own
+// login, BYOK, gateway, router) so no path can skip it; h != nil (a headless dispatch) renders in cliEngine.prepare.
 func (s Schema) configure(ctx context.Context, t providers.Target, h *Headless) ([]string, []string, error) {
 	env, argv, err := s.configureRoute(ctx, t, h)
-	if err != nil {
+	if err != nil || h != nil {
 		return env, argv, err
 	}
 	// Route keys go last and shadow same-named launch.env entries, so a spec overlay can never redirect an agent.
-	launchEnv, argv := s.ApplyLaunch(nil, argv, h == nil)
-	return RouteEnvLast(launchEnv, env), argv, nil
+	env, argv, _, _, err = s.Eng().RenderSettings(ctx, s.launchSettings(RunOptions{}, t, false), env, argv)
+	return env, argv, err
+}
+
+// launchSettings is the agent's Settings for req; an unreadable record is a notice and applies nothing of it.
+func (s Schema) launchSettings(req RunOptions, t providers.Target, headless bool) Settings {
+	st, err := ResolveSettings(s.Name, req, t, headless)
+	if st.Agent == "" { // the record did not load: nothing of it is applied
+		fmt.Fprintf(NoticeOut, "claude-code: %s launch.env and launch.args unreadable: %v; not applied\n", s.Name, err)
+		return Settings{Agent: s.Name, Target: t, Headless: headless}
+	}
+	return st // a bad default policy is checkRun's refusal, never a reason to drop launch.env
 }
 
 // RouteEnvLast is launchEnv minus any key the route env sets, then the route env: the route always wins.
@@ -86,18 +94,9 @@ func RouteEnvLast(launchEnv, env []string) []string {
 // ApplyLaunch appends the agent's spec Launch.Env (always) and Launch.Args (only when args is true) to
 // an already-built launch; a broken overlay is best-effort and must not break the launch.
 func (s Schema) ApplyLaunch(env, argv []string, args bool) ([]string, []string) {
-	env = append(env, s.Eng().LaunchEnv()...)
-	vc, err := agentconfig.LoadConfig()
-	if err != nil {
-		fmt.Fprintf(NoticeOut, "claude-code: %s launch.env and launch.args unreadable: %v; not applied\n", s.Name, err)
-		return env, argv
-	}
-	launch := vc.Agent(s.Name).Launch
-	env = append(env, launch.Env...)
-	if args {
-		argv = append(argv, launch.Args...)
-	}
-	return env, argv
+	st := s.launchSettings(RunOptions{}, providers.Target{}, !args)
+	launchEnv, argv, _, _, _ := s.Eng().RenderSettings(context.Background(), st, nil, argv) // the default never errs
+	return append(env, launchEnv...), argv
 }
 
 // LaunchSpec is the agent's spec env and argv prefix for an interactive launch that bypasses Configure (own login).
