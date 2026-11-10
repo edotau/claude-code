@@ -70,7 +70,9 @@ static menu: routing never touches the network.
   `DATABRICKS_<PROFILE>_M2M`; `identity` is `auto` (default) | `user` | `sp`. Unpaired rows are unchanged.
 - Precedence: `--as` (carried by `providers.WithIdentity(ctx, as)`) > the row's `identity` > `auto`.
 - Headless dispatch (`agents ask`, `--batch`, `--background`/job, `--live`, `--host`) with no `--as` runs a paired
-  row left at `auto` as its SP (`IdentityHeadless`); `--as auto|user` overrides; the proxy gets it via
-  `X-Claude-Code-Identity`. No credential path opens a browser: only `databricks login` and an interactive prompt do.
+  row left at `auto` as its SP first (`IdentityHeadless`), falling back to the user login with one stderr note when
+  the SP secret is missing or its mint is rejected; `--as auto|user` overrides; the proxy gets it via
+  `X-Claude-Code-Identity`. No credential path opens a browser: only `databricks login` (not on an `sp` row, which
+  mints) and an interactive prompt do.
 - `auto` tries the user token, then `oauth.MintM2M` on a rejection or login-required, with a one-line stderr note;
   `user` never mints the SP; `sp` mints only the SP, no browser. The SP never refreshes the user login.
