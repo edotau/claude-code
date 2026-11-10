@@ -6,7 +6,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -23,7 +22,7 @@ import (
 var page = helptext.Page{
 	Usage: "claude-code scm <pr list|view|diff|create | checks | comment> [flags]",
 	About: "Pull requests, CI checks and comments for the origin remote: GitHub via gh, " +
-		"Bitbucket Data Center via REST (BITBUCKET_URL in vault env, BITBUCKET_TOKEN in vault).",
+		"Bitbucket Data Center via REST (BITBUCKET_URL in vault env, default https://<remote host>; BITBUCKET_TOKEN in vault).",
 	Commands: [][2]string{
 		{"pr", "list (--state, --author, --limit) | view <id> | diff <id> | create"},
 		{"checks", "CI results of a PR <id>, or of --sha"},
@@ -39,12 +38,7 @@ func openOrigin(ctx context.Context) (scm.Host, error) {
 	if err != nil {
 		return nil, err
 	}
-	base := bitbucketURL()
-	var bbHost string
-	if u, err := url.Parse(base); err == nil {
-		bbHost = u.Hostname()
-	}
-	repo, err := scm.Detect(remote, bbHost)
+	repo, err := scm.Detect(remote)
 	if err != nil {
 		return nil, err
 	}
@@ -57,6 +51,10 @@ func openOrigin(ctx context.Context) (scm.Host, error) {
 	}
 	if token == "" {
 		return nil, errors.New("BITBUCKET_TOKEN is not set; run `claude-code vault set BITBUCKET_TOKEN`")
+	}
+	base := bitbucketURL()
+	if base == "" { // the ssh port (7999) is not the HTTP port, so the default is the bare host
+		base = "https://" + repo.Host
 	}
 	return bitbucket.New(base, repo.Owner, repo.Name, token), nil
 }

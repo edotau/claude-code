@@ -33,6 +33,9 @@ const (
 // errFilesOAuth: api.anthropic.com answers /v1/files with 404 not_found_error for a subscription (OAuth) bearer.
 var errFilesOAuth = errors.New("files API not available with the subscription (OAuth) login; skipped until the credential changes")
 
+// errFilesSkipped: a cached refusal skipped the upload; already logged when the refusal was recorded.
+var errFilesSkipped = fmt.Errorf("%w (cached)", errFilesOAuth)
+
 type fileEntry struct {
 	id  string
 	exp time.Time
@@ -200,6 +203,9 @@ func (fr *fileRewriter) fileID(data []byte, mediaType string) (string, bool) {
 	id, err := fr.r.uploadFile(fr.in, fr.p, fr.route, data, mediaType)
 	if err != nil {
 		fr.failed = true
+		if errors.Is(err, errFilesSkipped) {
+			return "", false
+		}
 		fmt.Fprintf(fr.r.log, "proxy: files upload failed, sending inline: %v\n", err)
 		return "", false
 	}
@@ -250,7 +256,7 @@ func (r *Router) uploadFile(in *http.Request, p *providers.Provider, route strin
 	}
 	bearer := login.Get("Authorization")
 	if r.filesRefused(bearer) {
-		return "", errFilesOAuth
+		return "", errFilesSkipped
 	}
 	quiet := in.WithContext(context.WithValue(in.Context(), attemptsKey{}, new(int))) // uploads are not routing attempts
 	resp, err := r.send(quiet, p, route+"/v1/files", form, func(h http.Header) {
