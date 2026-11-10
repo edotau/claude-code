@@ -58,7 +58,7 @@ func (claudeEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sin
 
 // claudeExec runs one stream-json claude process to completion and parses its events into sink.
 func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink wire.Sink) (wire.Result, error) {
-	args := claudeArgs([]string{"--print", "--output-format", "stream-json", "--verbose", "--include-partial-messages"}, req)
+	args := claudeArgs([]string{"--print", "--output-format", "stream-json", "--verbose", "--include-partial-messages"}, req, anthropicLaunch(req))
 	cmd, tail, cl, err := claudeCmd(ctx, req, args, prompt)
 	if err != nil {
 		return wire.Result{}, err
@@ -87,7 +87,7 @@ func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink w
 }
 
 // claudeArgs appends the request's option flags to base; shared by the one-shot and the live session.
-func claudeArgs(args []string, req agent.RunOptions) []string {
+func claudeArgs(args []string, req agent.RunOptions, anthropic bool) []string {
 	for _, f := range []struct {
 		on   bool
 		flag []string
@@ -109,7 +109,7 @@ func claudeArgs(args []string, req agent.RunOptions) []string {
 	if req.Persona != nil {
 		args = append(args, agent.PersonaArgs(req.Persona)...)
 	}
-	args = append(args, permissionArgs(req)...)
+	args = append(args, permissionArgs(req, anthropic)...)
 	if !req.Tools {
 
 		args = append(args, "--tools", "", "--setting-sources", "")
@@ -122,11 +122,25 @@ func claudeArgs(args []string, req agent.RunOptions) []string {
 // planDeny is plan mode's write boundary: deny beats the user's allow rules and defaultMode, which a bare plan mode does not.
 var planDeny = []agent.Rule{{Tool: "Edit"}, {Tool: "Write"}, {Tool: "NotebookEdit"}, {Tool: "Bash"}}
 
+// gatewayAllow is a rule-less --tools leaf's allow list off Anthropic, where dontAsk denies whatever no rule matches.
+var gatewayAllow = func() []agent.Rule {
+	rules := []agent.Rule{{Tool: "Edit"}, {Tool: "Write"}, {Tool: "Read"}, {Tool: "Grep"}, {Tool: "Glob"}}
+	for _, c := range []string{"go build *", "go vet *", "go test *", "gofmt *", "go run *", "git diff *", "git status *",
+		"git log *", "git show *", "jq *", "ls *", "cat *", "rg *", "grep *"} {
+		rules = append(rules, agent.Rule{Tool: "Bash", Arg: c})
+	}
+	return rules
+}()
+
 // permissionArgs renders the request's Permissions as claude flags; empty for none.
 // Mode plan adds planDeny and sets no --permission-mode: --permission-prompts none denies what no rule matched.
-func permissionArgs(req agent.RunOptions) []string {
+func permissionArgs(req agent.RunOptions, anthropic bool) []string {
 	p := req.Permissions
-	if p.IsZero() {
+	switch {
+	case !p.IsZero():
+	case req.Tools && !req.Autonomous && !anthropic: // settings.json's defaultMode auto would call the unserved judge
+		p.Allow = gatewayAllow
+	default:
 		return nil
 	}
 	if p.Mode == "plan" && req.Tools {
@@ -144,8 +158,12 @@ func permissionArgs(req agent.RunOptions) []string {
 			}
 		}
 	}
-	if p.Mode != "plan" { // D3 auto: Ask and unmatched calls go to claude's judge; deny stays the hard boundary
+	switch {
+	case p.Mode == "plan":
+	case anthropic: // D3 auto: Ask and unmatched calls go to claude's judge; deny stays the hard boundary
 		args = append(args, "--permission-mode", "auto")
+	default: // auto's judge calls a fixed Anthropic model other providers don't serve, so unmatched calls are denied
+		args = append(args, "--permission-mode", "dontAsk")
 	}
 	return append(args, "--permission-prompts", "none")
 }
@@ -160,12 +178,27 @@ func refuseUnmappedDeny(p agent.Permissions) error {
 	return nil
 }
 
+// launchProvider is the profile name claudeCmd launches req on.
+func launchProvider(req agent.RunOptions) string {
+	return cmp.Or(req.Provider, agent.SessionProvider("claude"))
+}
+
+// anthropicLaunch is true when req launches on an Anthropic first-party profile, the only one serving auto mode's judge.
+func anthropicLaunch(req agent.RunOptions) bool {
+	reg, err := providers.Load()
+	if err != nil {
+		return false
+	}
+	p, err := reg.Get(launchProvider(req))
+	return err == nil && p.Provider == "anthropic"
+}
+
 // claudeCmd resolves the launch plan for args and returns the unstarted child with its env layered (--env last).
 func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt string) (*exec.Cmd, *retry.TailBuffer, agent.ClaudeLaunch, error) {
 	if req.Launcher == nil {
 		return nil, nil, agent.ClaudeLaunch{}, errors.New("claude: no launcher (caller must set RunOptions.Launcher)")
 	}
-	o := agent.ClaudeOptions{Provider: cmp.Or(req.Provider, agent.SessionProvider("claude")), Model: req.Model, KeepEnv: req.KeepEnv}
+	o := agent.ClaudeOptions{Provider: launchProvider(req), Model: req.Model, KeepEnv: req.KeepEnv}
 	cl, err := req.Launcher.Claude(ctx, o, args)
 	if err != nil {
 		return nil, nil, cl, err
