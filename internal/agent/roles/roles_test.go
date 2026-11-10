@@ -206,3 +206,17 @@ func TestRunProgressTagsWholeLines(t *testing.T) {
 		t.Errorf("progress = %q", got)
 	}
 }
+
+// A role's permissions ride every leg as the role layer ResolvePermissions puts over the agent's defaults.
+func TestLegsCarryRolePermissions(t *testing.T) {
+	p, err := agent.ParsePermissions("", nil, nil, []string{"Bash(rm:*)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"explore", "fleet", "compare"} {
+		legs := Legs(Role{Name: name, Agent: "codex", Models: []string{"m"}, Permissions: p}, Request{Task: "t"})
+		if len(legs) == 0 || len(legs[0].Opts.Permissions.Deny) != 1 {
+			t.Errorf("%s legs %+v lost the role's deny", name, legs)
+		}
+	}
+}

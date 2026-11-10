@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -14,9 +15,10 @@ const rolesKey = "dispatch-roles"
 
 // Role maps a role name to the agent that runs it; Models is the default model set for compare.
 type Role struct {
-	Name   string   `json:"name"`
-	Agent  string   `json:"agent"`
-	Models []string `json:"models,omitempty"`
+	Name        string            `json:"name"`
+	Agent       string            `json:"agent"`
+	Models      []string          `json:"models,omitempty"`
+	Permissions agent.Permissions `json:"permissions,omitzero"` // the role layer, over the agent's defaults
 }
 
 // Seed is the built-in role table, replaced by the vault overlay when set.

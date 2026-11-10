@@ -16,6 +16,7 @@ type RosterRow struct {
 	Reason    string            `json:"reason,omitempty"`
 	Caps      map[string]string `json:"caps"`
 	Events    []string          `json:"events"`
+	Defaults  agent.Permissions `json:"permissions"` // the resolved default dispatch policy; {} = none, the tier flags decide
 	Levels    agent.Caps        `json:"-"`
 	shown     []string
 }
@@ -53,6 +54,10 @@ func RosterRows() []RosterRow {
 			row.Binary = s.Name
 		}
 		row.Name, row.Events, row.Levels = s.Name, s.CLI.Events, s.CLI.Caps
+		var err error
+		if row.Defaults, err = agent.DefaultPermissions(s.Name); err != nil { // checkRun refuses every dispatch on it
+			row.Available, row.Reason = false, err.Error()
+		}
 		rows = append(rows, row)
 	}
 	return rows
