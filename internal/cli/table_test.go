@@ -106,14 +106,8 @@ func TestCompletionMatchesHelpFlags(t *testing.T) {
 
 // helpFlagDriftExempt: spec paths whose help and completion differ, each with its one-line reason.
 func helpFlagDriftExempt() map[string]string {
-	outside := "genuine drift in a spec outside internal/cli; fix it there"
 	m := map[string]string{
-		"anthropic science":         "-h is forwarded to the external claude-science CLI",
-		"databricks check":          outside + " (help omits --1m --all --model --wire)",
-		"databricks login":          outside + " (completion omits --profile)",
-		"databricks mint":           outside + " (completion omits --clear-after)",
-		"databricks import":         outside + " (completion omits --dry-run --fold-legacy)",
-		"install --setup workspace": outside + " (init's --dry-run --with sit on the parent node)",
+		"anthropic science": "-h is forwarded to the external claude-science CLI",
 	}
 	for _, v := range []string{"copilot", "codex", "gemini", "opencode"} {
 		m[v] = "bare launcher: its native flags never complete before a subword (noComplete)"

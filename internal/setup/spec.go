@@ -17,6 +17,6 @@ func InstallSpec() *helptext.Node {
 	return &helptext.Node{Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("verbose"), valuedFlag("tools", tools.Names), valuedFlag("setup", Modes)}, Sub: map[string]*helptext.Node{"--setup": {Sub: map[string]*helptext.Node{
 		"adopt":     {Flags: []helptext.Flag{flag("from"), flag("into"), boolFlag("dry-run"), flag("label")}},
 		"nuke":      {Flags: []helptext.Flag{flag("dir"), boolFlag("apply"), boolFlag("keep-memory"), boolFlag("account"), boolFlag("cli")}},
-		"workspace": {Args: []func() []string{WorkspaceOps}, Flags: []helptext.Flag{flag("with"), boolFlag("dry-run")}},
+		"workspace": {Sub: map[string]*helptext.Node{"init": {Flags: []helptext.Flag{flag("with"), boolFlag("dry-run")}}, "link": {}, "status": {}}},
 	}}}}
 }

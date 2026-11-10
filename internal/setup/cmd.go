@@ -154,10 +154,6 @@ func cmdSetupWorkspace(args []string) int {
 }
 
 func runSetupWorkspace(op string, pos []string, with string, dryRun bool) int {
-	if op != "init" && (with != "" || dryRun) { // link would write despite --dry-run; refuse
-		fmt.Fprintf(os.Stderr, "claude-code: setup workspace %s: --with/--dry-run apply to init only\n", op)
-		return 2
-	}
 	if op == "init" {
 		return setupWorkspaceInit(pos, with, dryRun)
 	}
@@ -204,6 +200,3 @@ func setupWorkspaceRoot(pos []string) string {
 
 // Modes lists the install --setup modes.
 func Modes() []string { return []string{"adopt", "nuke", "workspace"} }
-
-// WorkspaceOps lists the setup workspace operations.
-func WorkspaceOps() []string { return []string{"init", "link", "status"} }
