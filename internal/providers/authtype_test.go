@@ -2,6 +2,7 @@ package providers
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -437,7 +438,7 @@ func TestIdentityHeadlessUsesSPOnAutoRowOnly(t *testing.T) {
 	if _, err := Credential(headless, u); err == nil || *m2m != 0 {
 		t.Fatalf("headless on a user row minted the SP: %v (m2m %d)", err, *m2m)
 	}
-	if got := headlessAs(&Provider{}, IdentityHeadless); got != "" {
+	if got := headlessAs(IdentityHeadless); got != "" {
 		t.Errorf("unpaired row headless = %q; want no override", got)
 	}
 }
@@ -545,6 +546,93 @@ func TestSPNoteOnlyOnMint(t *testing.T) {
 	defer mu.Unlock()
 	if *m2m != 1 || len(notes) != 1 || !strings.Contains(notes[0], "using the service principal sp-client") || out.Len() != 0 {
 		t.Fatalf("m2m = %d, notes = %q, stderr note = %q", *m2m, notes, out.String())
+	}
+}
+
+// idCreds is which credentials an identityRow stores; rejected makes the token endpoint refuse the SP (a real 401).
+type idCreds struct{ sp, user, rejected bool }
+
+// identityRow is a paired oauth row on identity with c's credentials; the user refresh and SP mint are stubbed.
+func identityRow(t *testing.T, name, identity string, c idCreds) *Provider {
+	t.Helper()
+	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
+		return http.StatusUnauthorized, map[string]any{"error": "invalid_client"}
+	})
+	p := mintRow(t, name, AuthOAuth, "", srv.URL)
+	p.Identity, p.Auth.SPClientID = identity, "sp-client"
+	t.Cleanup(func() { spCache.Delete(p.Name); spSkip.Delete(p.Name) })
+	if c.user {
+		if err := writeOAuth(p, oauthValue{Refresh: "user-refresh"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if c.sp {
+		if err := vault.Store(SecretName(GroupDatabricks, p.Name, AuthM2M), "sp-secret"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	origR, origM := refreshU2M, mintM2M
+	refreshU2M = func(context.Context, string, string) (oauth.Token, error) { return oauth.Token{Access: "user"}, nil }
+	mintM2M = func(ctx context.Context, _, id, secret string) (oauth.Token, error) {
+		if c.rejected {
+			return oauth.MintM2M(ctx, srv.URL, id, secret)
+		}
+		return oauth.Token{Access: "sp"}, nil
+	}
+	t.Cleanup(func() { refreshU2M, mintM2M = origR, origM })
+	return p
+}
+
+// resolveCell mints once on a fresh row and returns the credential used ("" on error), " fb" when a fallback was noted.
+func resolveCell(t *testing.T, ctx context.Context, name, identity string, c idCreds) string {
+	t.Helper()
+	p := identityRow(t, name, identity, c)
+	var notes strings.Builder
+	got, err := Credential(WithNotes(ctx, func(s string) { notes.WriteString(s + "\n") }), p)
+	if err != nil {
+		got = ""
+	}
+	if strings.Contains(notes.String(), "sp-secret") {
+		t.Errorf("%s: a note leaked the secret: %q", name, notes.String())
+	}
+	if strings.Contains(notes.String(), "falling back to your own login") {
+		got += " fb"
+	}
+	return got
+}
+
+// A dispatch on an auto row mints as the SP first and falls back to the user login with a note; an explicit identity
+// never falls back, and an interactive launch on the same row keeps auto's user-first order.
+func TestIdentityResolutionTable(t *testing.T) {
+	modes := []struct{ name, identity, as string }{
+		{"auto", IdentityAuto, ""}, {"sp", IdentitySP, ""}, {"user", IdentityUser, ""},
+		{"as-sp", IdentityUser, IdentitySP}, {"as-user", IdentitySP, IdentityUser},
+	}
+	creds := map[string]idCreds{"sp-only": {sp: true}, "user-only": {user: true}, "both": {sp: true, user: true},
+		"neither": {}, "both-rejected": {sp: true, user: true, rejected: true}}
+	want := map[string]map[string][5]string{ // per path and creds: auto, sp, user, --as sp, --as user
+		"dispatch": {"sp-only": {"sp", "sp", "", "sp", ""}, "user-only": {"user fb", "", "user", "", "user"},
+			"both": {"sp", "sp", "user", "sp", "user"}, "neither": {" fb", "", "", "", ""},
+			"both-rejected": {"user fb", "", "user", "", "user"}},
+		"interactive": {"sp-only": {"sp", "sp", "", "sp", ""}, "user-only": {"user", "", "user", "", "user"},
+			"both": {"user", "sp", "user", "sp", "user"}, "neither": {"", "", "", "", ""},
+			"both-rejected": {"user", "", "user", "", "user"}},
+	}
+	n := 0
+	for path, rows := range want {
+		for cname, cells := range rows {
+			for i, m := range modes {
+				n++
+				as := m.as
+				if path == "dispatch" { // what agents ask, pool and job put on a run's context
+					as = cmp.Or(as, IdentityHeadless)
+				}
+				got := resolveCell(t, WithIdentity(context.Background(), as), fmt.Sprintf("idrow-%d", n), m.identity, creds[cname])
+				if got != cells[i] {
+					t.Errorf("%s %s × %s = %q, want %q", path, cname, m.name, got, cells[i])
+				}
+			}
+		}
 	}
 }
 

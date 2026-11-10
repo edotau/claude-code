@@ -3,7 +3,11 @@ package databricks
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -236,12 +240,70 @@ func TestNoDatabricksProfileNamesImport(t *testing.T) {
 
 // Every bad flag value from checkLoginFlags is a usage error (2), --as ones included.
 func TestCheckLoginFlagsAsIsUsageError(t *testing.T) {
-	for _, as := range []string{"sp", "bogus"} {
+	for _, as := range []string{"auto", "bogus"} {
 		var code int
 		var bad bool
 		captureOutput(t, func() int { code, bad = checkLoginFlags(as, ""); return 0 })
 		if !bad || code != 2 {
 			t.Errorf("--as %s = (%d, %v), want (2, true)", as, code, bad)
+		}
+	}
+}
+
+// spLoginRow seeds row dbx-sp (spClientId when paired) on a local token endpoint counting client-credentials mints.
+func spLoginRow(t *testing.T, identity string, paired, secret bool) *atomic.Int32 {
+	t.Helper()
+	var mints atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ParseForm() == nil && r.PostForm.Get("grant_type") == "client_credentials" {
+			mints.Add(1)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"access_token":"sp-access-0001","token_type":"Bearer","expires_in":3600}`)
+	}))
+	t.Cleanup(srv.Close)
+	sp := ""
+	if paired {
+		sp = `,"spClientId":"sp-client"`
+	}
+	seedOverlay(t, fmt.Sprintf(`{"providers":{"databricks":{"dbx-sp":{"protocol":"anthropic","base_url":%q,`+
+		`"auth":{"type":"oauth"%s},"identity":%q}}}}`, srv.URL, sp, identity))
+	if secret {
+		if err := vault.Store("DATABRICKS_DBX_SP_M2M", "sp-secret-value"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return &mints
+}
+
+// login mints as the SP with no browser on identity sp or --as sp; user, --as user and auto keep the browser login.
+func TestLoginIdentitySPMintsWithoutBrowser(t *testing.T) {
+	for _, c := range []struct {
+		name, identity, as   string
+		paired, secret       bool
+		code, mints, browser int
+		out                  string
+	}{
+		{"identity sp", "sp", "", true, true, 0, 1, 0, "dbx-sp · service principal sp-client · token minted"},
+		{"--as user on an sp row", "sp", "user", true, true, 0, 0, 1, "logged in"},
+		{"auto keeps the browser", "auto", "", true, true, 0, 0, 1, "logged in"},
+		{"--as sp, unpaired", "user", "sp", false, false, 1, 0, 0, "`claude-code vault edit`"},
+		{"--as sp, no secret", "auto", "sp", true, false, 1, 0, 0, "`claude-code vault set DATABRICKS_DBX_SP_M2M`"},
+	} {
+		mints := spLoginRow(t, c.identity, c.paired, c.secret)
+		stubValid(t, false)
+		browser := 0
+		fakeLogin(t, func(*providers.Provider) (time.Duration, error) { browser++; return 30 * time.Minute, nil })
+		args := []string{"-p", "dbx-sp"}
+		if c.as != "" {
+			args = append(args, "--as", c.as)
+		}
+		code, stdout, stderr := captureOutput(t, func() int { return login(args) })
+		out := stdout + stderr
+		if code != c.code || int(mints.Load()) != c.mints || browser != c.browser || !strings.Contains(out, c.out) ||
+			strings.Contains(out, "sp-secret-value") || strings.Contains(out, "sp-access-0001") {
+			t.Errorf("%s: exit %d mints %d browser %d, output %q; want exit %d mints %d browser %d containing %q",
+				c.name, code, mints.Load(), browser, out, c.code, c.mints, c.browser, c.out)
 		}
 	}
 }

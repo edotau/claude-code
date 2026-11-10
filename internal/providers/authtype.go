@@ -239,15 +239,29 @@ func authCredential(ctx context.Context, p *Provider, force bool) (string, error
 	if p.Auth.Type != AuthOAuth {
 		return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) { return mintAndCache(ctx, p, force) })
 	}
-	mode, err := ResolveIdentity(p.Identity, headlessAs(p, IdentityFrom(ctx)))
+	as := IdentityFrom(ctx)
+	mode, err := ResolveIdentity(p.Identity, headlessAs(as))
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", p.Name, err)
 	}
-	if mode == IdentitySP || (mode == IdentityAuto && p.Auth.SPClientID != "" && !hasUserLogin(p)) {
+	switch {
+	case mode == IdentityAuto && as == IdentityHeadless:
+		return dispatchCredential(ctx, p, force)
+	case mode == IdentityAuto:
+		return autoCredential(ctx, p, force)
+	case mode == IdentitySP:
+		return spCredential(ctx, p, force)
+	}
+	return userCredential(ctx, p, force)
+}
+
+// autoCredential is auto outside a dispatch: the user login, the paired SP while none is stored or when it is refused.
+func autoCredential(ctx context.Context, p *Provider, force bool) (string, error) {
+	if p.Auth.SPClientID != "" && !hasUserLogin(p) {
 		return spCredential(ctx, p, force)
 	}
 	v, err := userCredential(ctx, p, force)
-	if err != nil && mode == IdentityAuto && p.Auth.SPClientID != "" &&
+	if err != nil && p.Auth.SPClientID != "" &&
 		(errors.Is(err, ErrNeedsLogin) || oauth.IsRejected(err) || oauth.IsLoginRequired(err)) {
 		return spCredential(ctx, p, force)
 	}
@@ -261,6 +275,30 @@ func hasUserLogin(p *Provider) bool {
 	}
 	ov, err := readOAuth(p)
 	return err != nil || ov != oauthValue{}
+}
+
+// spSkipWait is how long a dispatch goes straight to the user login after its service principal was unavailable.
+const spSkipWait = 10 * time.Minute
+
+var spSkip sync.Map // profile name -> time.Time until which dispatches skip its unavailable service principal
+
+// dispatchCredential is auto for a headless dispatch: the paired SP first; a missing secret or a rejected mint falls
+// back to the user login with one note, and later dispatches skip that SP for spSkipWait unless forced.
+func dispatchCredential(ctx context.Context, p *Provider, force bool) (string, error) {
+	if until, ok := spSkip.Load(p.Name); p.Auth.SPClientID == "" || (ok && !force && time.Now().Before(until.(time.Time))) {
+		return userCredential(ctx, p, force)
+	}
+	reason := "no service-principal secret stored"
+	if spPresent(p) {
+		v, err := spCredential(ctx, p, force)
+		if err == nil || !oauth.IsRejected(err) {
+			return v, err
+		}
+		reason = redactDetail(err.Error())
+	}
+	spSkip.Store(p.Name, time.Now().Add(spSkipWait))
+	note(ctx, fmt.Sprintf("%s: service principal unavailable (%s); falling back to your own login", p.Name, reason))
+	return userCredential(ctx, p, force)
 }
 
 // userCredential keeps user-only flights separate from automatic SP fallback.
@@ -296,19 +334,16 @@ const (
 	IdentityAuto = "auto" // user login first, the service principal when it is rejected or needs a login
 	IdentityUser = "user" // user login only
 	IdentitySP   = "sp"   // service principal only, no browser
-	// IdentityHeadless marks a headless dispatch with no --as: the paired SP when the row's identity is auto.
+	// IdentityHeadless marks a headless dispatch with no --as: on an auto row, the SP first, the user login as fallback.
 	IdentityHeadless = "headless"
 )
 
-// headlessAs maps IdentityHeadless to sp for a SP-paired row left at auto, else to no override; other values pass.
-func headlessAs(p *Provider, as string) string {
-	if as != IdentityHeadless {
-		return as
+// headlessAs maps IdentityHeadless to no override; other values pass.
+func headlessAs(as string) string {
+	if as == IdentityHeadless {
+		return ""
 	}
-	if p.Auth.SPClientID != "" && cmp.Or(p.Identity, IdentityAuto) == IdentityAuto {
-		return IdentitySP
-	}
-	return ""
+	return as
 }
 
 // ResolveIdentity picks the mode: flagAs (--as) > the profile's stored identity > auto (user when unpaired).
