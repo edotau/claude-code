@@ -20,6 +20,8 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -1227,5 +1229,41 @@ func TestAskRetryPreservesRecordedLead(t *testing.T) {
 				t.Fatalf("explicit route = %q, want %q", got, tc.wantRoute)
 			}
 		})
+	}
+}
+
+// TestArmFlagRefusals: each flag that would take a dispatch off --route databricks:<p> exits 2 naming the flag.
+func TestArmFlagRefusals(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
+		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}},`+
+		`"gw":{"preset":"databricks","host":"https://gw.cloud.databricks.com","auth":{"type":"pat"},"options":{"wire":"ai-gateway"}}}}}`)
+	cases := []struct {
+		inherited, want string
+		args            []string
+	}{
+		{"", "databricks:nope: no such profile", []string{"--route", "databricks:nope"}},
+		{"", "databricks:gw: AI Gateway row", []string{"--route", "databricks:gw"}},
+		{"", "databricks:chatgpt: not a Databricks profile", []string{"--route", "databricks:chatgpt"}},
+		{"", "--route databricks needs a workspace", []string{"--route", "databricks"}},
+		{"", "--profile chatgpt: outside", []string{"--route", "databricks:dev", "--profile", "chatgpt"}},
+		{"", "--provider openai: outside", []string{"--route", "databricks:dev", "--provider", "openai"}},
+		{"", "--model gw:m: outside", []string{"--route", "databricks:dev", "--model", "gw:m"}},
+		{"", "--direct: refused", []string{"--route", "databricks:dev", "--direct"}},
+		{"", "--model gpt-nonexistent-9: not served", []string{"--route", "databricks:dev", "--model", "gpt-nonexistent-9"}},
+		{"databricks:dev", "cannot leave databricks:dev", []string{"--route", "first-party"}},
+		{"databricks:dev", "--profile chatgpt: outside", []string{"--profile", "chatgpt"}},
+	}
+	for _, tc := range cases {
+		t.Setenv(router.EnvRoute, tc.inherited) // ApplyRoute exports into this process: restore after each case
+		t.Setenv(providers.EnvSessionProfile, "")
+		args := append([]string{"--agent", "codex", "--fallback", "none"}, append(tc.args, "go")...)
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(args) })
+		if code != 2 || !strings.Contains(stderr, tc.want) {
+			t.Errorf("%v (inherited %q): exit %d stderr %q, want 2 with %q", tc.args, tc.inherited, code, stderr, tc.want)
+		}
+		if line := strings.TrimPrefix(strings.TrimSpace(stderr), "claude-code: ask: "); len(line) > 80 {
+			t.Errorf("%v: message is %d columns, want at most 80: %q", tc.args, len(line), line)
+		}
 	}
 }

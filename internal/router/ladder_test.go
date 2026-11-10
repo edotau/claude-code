@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // TestPickFollowsLadder: the seeded ladders order the agents after want, expand copilot's rung models, place claude
@@ -114,5 +116,99 @@ func TestFirstPartyRouteWithoutLadderStillFilters(t *testing.T) {
 	}
 	if !slices.Contains(r.Skipped, Skip{"opencode·zen-free", gateLadder, "not first-party"}) {
 		t.Errorf("skips = %+v, want opencode·zen-free dropped as not first-party", r.Skipped)
+	}
+}
+
+func TestParseRoute(t *testing.T) {
+	for _, bad := range []string{"databricks:", "nope", "databricks:a:b", "default:dev", "first-party:dev", ":dev"} {
+		if _, _, err := ParseRoute(bad); err == nil {
+			t.Errorf("ParseRoute(%q) accepted", bad)
+		}
+	}
+	for in, want := range map[string][2]string{"": {}, "default": {RouteDefault}, " first-party ": {routeFirstParty},
+		"databricks": {RouteDatabricks}, "databricks:dev": {RouteDatabricks, "dev"}} {
+		mode, profile, err := ParseRoute(in)
+		if err != nil || [2]string{mode, profile} != want {
+			t.Errorf("ParseRoute(%q) = %q, %q, %v; want %q", in, mode, profile, err, want)
+		}
+	}
+}
+
+// armPick runs want's pick under route databricks:dev on a hermetic registry: dev and qa workspaces, the built-in
+// own-login rows and a keyed openai row; codex is pinned to the keyed row and copilot to qa.
+func armPick(t *testing.T, want, fallback string) PickResult {
+	t.Helper()
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
+		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}},`+
+		`"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
+	for _, n := range []string{"DATABRICKS_DEV_PAT", "DATABRICKS_QA_PAT", "OPENAI_API_KEY"} {
+		vaulttest.Secret(t, n, "test-value")
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tb, err := LoadFrom(reg, "work-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(EnvRoute, "databricks:dev")
+	return tb.Pick(context.Background(), "sonnet", want, State{}, PickOpts{Fallback: fallback, Configured: allConfigured,
+		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false },
+		Pins: map[string]PinSpec{"codex": {Profile: "openai"}, "copilot": {Profile: "qa"}}})
+}
+
+// TestArmPickOrder: tier 1 is every agent on databricks·dev, wanted first; tier 2 the first-party logins in ladder
+// order; pins elsewhere are skipped as outside the route; none keeps one candidate and agents drops claude.
+func TestArmPickOrder(t *testing.T) {
+	r := armPick(t, "codex", FallbackAll)
+	tier1, tier2 := armTiers(r)
+	if len(tier1) != 5 || tier1[0] != "codex" || !slices.Contains(tier1, "claude") {
+		t.Errorf("tier 1 = %v, want codex first then the other four agents on databricks·dev", tier1)
+	}
+	wantTier2 := []string{"copilot/github·personal", "codex/openai·chatgpt", "gemini/google·antigravity",
+		"opencode/opencode·go", "claude/anthropic·ultra"}
+	if !slices.Equal(tier2, wantTier2) {
+		t.Errorf("tier 2 = %v, want %v", tier2, wantTier2)
+	}
+	for _, label := range []string{"codex·openai·openai", "copilot·databricks·qa"} {
+		if !slices.Contains(r.Skipped, Skip{label, gateLadder, "outside databricks:dev"}) {
+			t.Errorf("skips = %+v, want %s outside databricks:dev", r.Skipped, label)
+		}
+	}
+	if none := armPick(t, "codex", FallbackNone); len(none.Candidates) != 1 || none.Candidates[0].Account != "databricks·dev" {
+		t.Errorf("fallback none = %+v, want codex on databricks·dev only", none.Candidates)
+	}
+	if ag := armPick(t, "codex", FallbackAgents); slices.ContainsFunc(ag.Candidates, func(c Candidate) bool { return c.Agent == "claude" }) {
+		t.Errorf("fallback agents ran claude: %+v", ag.Candidates)
+	}
+}
+
+// armTiers splits r's candidates at the first one off databricks·dev: tier-1 agents, then tier-2 agent/account.
+func armTiers(r PickResult) (tier1, tier2 []string) {
+	for _, c := range r.Candidates {
+		if c.Account == "databricks·dev" && len(tier2) == 0 {
+			tier1 = append(tier1, c.Agent)
+		} else {
+			tier2 = append(tier2, c.Agent+"/"+c.Account)
+		}
+	}
+	return tier1, tier2
+}
+
+// TestArmAdmitDropsOffRouteAccount: the keep rule drops an account that is neither the workspace nor first-party.
+func TestArmAdmitDropsOffRouteAccount(t *testing.T) {
+	l := pickLadder{arm: "dev", armAccount: "databricks·dev"}
+	res := &PickResult{}
+	got := l.admit([]Candidate{{Agent: "codex", Cell: Cell{Account: "databricks·dev"}},
+		{Agent: "codex", Cell: Cell{Account: "openai·chatgpt"}}, {Agent: "opencode", Cell: Cell{Account: "opencode·zen-free"}},
+		{Agent: "codex", Cell: Cell{Account: "databricks·qa"}}}, res)
+	if len(got) != 2 || got[0].Account != "databricks·dev" || got[1].Account != "openai·chatgpt" {
+		t.Errorf("admitted %+v, want dev and chatgpt", got)
+	}
+	want := []Skip{{"opencode·zen-free", gateLadder, "outside databricks:dev"}, {"codex·databricks·qa", gateLadder, "outside databricks:dev"}}
+	if !slices.Equal(res.Skipped, want) {
+		t.Errorf("skips = %+v, want %+v", res.Skipped, want)
 	}
 }
