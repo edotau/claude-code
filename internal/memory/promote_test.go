@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // seedConventionBlock plants one id-marked conventions.md bullet in root's local bank via Remember,
@@ -199,5 +201,36 @@ func TestPromoteUnknownIDErrors(t *testing.T) {
 	seedConventionBlock(t, root) // scaffold the bank; the id below is deliberately wrong
 	if _, err := Promote(root, "deadbeef", "home", false, time.Now()); err == nil {
 		t.Fatal("Promote with an unknown id = nil error, want one")
+	}
+}
+
+// TestPromoteHomeSettlesInsideItsMoveLock: no second writer can take the bank lock between the move and the settle.
+func TestPromoteHomeSettlesInsideItsMoveLock(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	id := seedConventionBlock(t, root)
+	origWait, origHook := BankLockWait, afterPromoteMove
+	t.Cleanup(func() { BankLockWait, afterPromoteMove = origWait, origHook })
+	BankLockWait = 200 * time.Millisecond
+	release := make(chan struct{})
+	intruded := false
+	afterPromoteMove = func() { // a rival writer that grabs the lock if it is free and holds it past BankLockWait
+		held, refused := make(chan struct{}), make(chan struct{})
+		go func() {
+			hold := func() error { close(held); <-release; return nil }
+			if ran, _ := paths.TryFileLock(BankLockPath(), time.Millisecond, hold); !ran {
+				close(refused)
+			}
+		}()
+		select {
+		case <-held:
+			intruded = true
+		case <-refused:
+		}
+	}
+	_, err := Promote(root, id, "home", false, time.Now())
+	close(release)
+	if intruded || err != nil {
+		t.Fatalf("Promote released the bank lock before settling: rival took it = %v, Promote err = %v", intruded, err)
 	}
 }
