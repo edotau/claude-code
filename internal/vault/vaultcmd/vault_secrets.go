@@ -2,11 +2,12 @@ package vaultcmd
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent"
 	"io"
 	"os"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/configure"

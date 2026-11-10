@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agent"
 
 	_ "github.com/edotau/claude-code/internal/codex"
 	_ "github.com/edotau/claude-code/internal/copilot"
