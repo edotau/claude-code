@@ -29,6 +29,7 @@ Launcher only. Arguments, defaults and examples: `~/.claude/commands/coworker.md
    `claude-code agents ask --agent codex --route databricks[:<p>] [flags] "<task>"`; `route=<r>` replaces the route.
 
 Pass arguments as literal CLI arguments, never shell-evaluated. Long tasks: `background=on`, then relay the job id
-(`/coworker:codex status`, `tail <id>`, `result <id>`). Relay the output, its `ran on` line included, as-is; a refusal or a verb that rejects a flag errors — relay that, don't retry.
+(`/coworker:codex status`, `tail <id>`, `result <id>`). Relay the output, its `ran on` line
+included, as-is; a refusal or a verb that rejects a flag errors — relay that, don't retry.
 
 See also: `~/.claude/commands/coworker.md` → See also (the subagent-workflows skill).
