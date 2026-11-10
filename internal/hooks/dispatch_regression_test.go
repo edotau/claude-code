@@ -450,3 +450,122 @@ func TestStopCombinesBlocksAndStillFormats(t *testing.T) {
 		t.Error("a disabled format group must leave the file unformatted")
 	}
 }
+
+// hookAgents is every agent a hook payload can name.
+var hookAgents = []string{core.AgentClaude, core.AgentCodex, core.AgentCopilot, core.AgentGemini, core.AgentOpencode}
+
+// stubNatives swaps every module's Runner for one returning verdicts[name] (unset: a silent pass); ran records calls.
+func stubNatives(t *testing.T, verdicts map[string]core.Result) map[string]bool {
+	ran := map[string]bool{}
+	for name, orig := range native {
+		native[name] = func(*core.Input) core.Result { ran[name] = true; return verdicts[name] }
+		t.Cleanup(func() { native[name] = orig })
+	}
+	orig := loadHarnessHooks
+	loadHarnessHooks = func() (map[string]bool, error) { return nil, nil }
+	t.Cleanup(func() { loadHarnessHooks = orig })
+	return ran
+}
+
+// toolPayload is agent's hook payload naming a tool s's matcher accepts (agy's toolCall shape for gemini).
+func toolPayload(agent string, s settings.EventSpec) *strings.Reader {
+	tool := strings.Trim(strings.Split(s.Matcher, "|")[0], ".*$")
+	if agent == core.AgentGemini {
+		return strings.NewReader(fmt.Sprintf(`{"toolCall":{"name":%q,"args":{}}}`, tool))
+	}
+	return strings.NewReader(fmt.Sprintf(`{"hook_event_name":%q,"session_id":"s","tool_name":%q}`, s.Event, tool))
+}
+
+// nativeRuns reports whether agent's own hook file runs module name as `hook <Event> --<name>`.
+func nativeRuns(agent, name string) bool {
+	for _, s := range settings.SpecsFor(agent, "native") {
+		if s.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// `hook <Event> --all` runs, per agent and module, exactly what that agent's hook file runs one module at a time.
+func TestEventFormAgreesWithModuleForm(t *testing.T) {
+	ran := stubNatives(t, nil)
+	for _, agent := range hookAgents {
+		t.Setenv(settings.AgentEnv, agent)
+		for _, s := range settings.Specs() {
+			clear(ran)
+			RunArgs(s.Event, []string{settings.AllFlag}, toolPayload(agent, s), io.Discard, io.Discard)
+			if want := nativeRuns(agent, s.Name); ran[s.Name] != want {
+				t.Errorf("%s · %s --%s: event form ran=%v, module form runs=%v", agent, s.Event, s.Name, ran[s.Name], want)
+			}
+		}
+	}
+}
+
+// consumerDeny is the stdout document agent's hook consumer refuses a call on, at exit 0, for decision d.
+func consumerDeny(agent string, d core.Decision, reason string) map[string]any {
+	decision := "deny"
+	if d == core.Ask && (agent == core.AgentClaude || agent == core.AgentOpencode) { // Claude asks; opencode's plugin blocks on ask
+		decision = "ask"
+	}
+	switch agent {
+	case core.AgentGemini: // agy: top-level decision, exit 0
+		return map[string]any{"decision": decision, "reason": reason}
+	case core.AgentCopilot:
+		return map[string]any{"permissionDecision": decision, "permissionDecisionReason": reason}
+	}
+	return map[string]any{"hookSpecificOutput": map[string]any{
+		"hookEventName": settings.EventPreToolUse, "permissionDecision": decision, "permissionDecisionReason": reason}}
+}
+
+// Any PreToolUse module's block or ask, in either form, renders so the agent's consumer refuses the call and sees why.
+func TestBlockRendersAsConsumerDeny(t *testing.T) {
+	verdicts := map[string]core.Result{}
+	stubNatives(t, verdicts)
+	for _, s := range settings.Specs() {
+		if s.Event != settings.EventPreToolUse {
+			continue
+		}
+		for _, d := range []core.Decision{core.Block, core.Ask} {
+			reason := fmt.Sprintf("stub %s decision %d", s.Name, d)
+			clear(verdicts)
+			verdicts[s.Name] = core.Result{Decision: d, Reason: reason}
+			for _, agent := range hookAgents {
+				checkConsumerDeny(t, agent, s, d, reason)
+			}
+		}
+	}
+}
+
+// checkConsumerDeny runs s in the module form, and the event form where agent binds it, and checks the refusal.
+func checkConsumerDeny(t *testing.T, agent string, s settings.EventSpec, d core.Decision, reason string) {
+	t.Setenv(settings.AgentEnv, agent)
+	forms := [][]string{{"--" + s.Name}}
+	if nativeRuns(agent, s.Name) {
+		forms = append(forms, []string{settings.AllFlag})
+	}
+	for _, f := range forms {
+		if why := consumerRefuses(agent, s, d, reason, f[0]); why != "" {
+			t.Errorf("%s %s decision %d: %s", agent, f[0], d, why)
+		}
+	}
+}
+
+// consumerRefuses runs `hook <Event> <flag>` and is "" when agent's consumer refuses the call and gets the reason.
+func consumerRefuses(agent string, s settings.EventSpec, d core.Decision, reason, flag string) string {
+	code, stdout, stderr := runFlags(s.Event, toolPayload(agent, s), flag)
+	if code == core.ExitBlock && agent != core.AgentGemini { // Claude, codex, copilot >= 1.0.70 and opencode's plugin
+		if !strings.Contains(stderr, reason) {
+			return fmt.Sprintf("exit 2 with stderr %q, want the reason", stderr)
+		}
+		return ""
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(stdout), &doc); code != core.ExitProceed || err != nil {
+		return fmt.Sprintf("exit %d stdout %q: neither exit 2 nor a deny document", code, stdout)
+	}
+	got, _ := json.Marshal(doc) // map keys marshal sorted, so equal documents compare equal
+	if want, _ := json.Marshal(consumerDeny(agent, d, reason)); string(got) != string(want) {
+		return fmt.Sprintf("stdout %s, want exactly %s", stdout, want)
+	}
+	return ""
+}
