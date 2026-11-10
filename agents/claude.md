@@ -13,7 +13,7 @@ description: |
 model: inherit
 color: blue
 tools: [Read, Write, Edit, Grep, Glob, Bash]
-maxTurns: 60
+maxTurns: 150
 ---
 
 # claude
