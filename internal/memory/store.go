@@ -29,8 +29,9 @@ var fileCaps = map[string]int{
 
 // HasBank reports whether any typed file exists in root's local bank.
 func HasBank(root string) bool {
+	dir := Dir(root)
 	for _, name := range BankFiles() {
-		if _, err := os.Stat(filepath.Join(Dir(root), name)); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
 			return true
 		}
 	}

@@ -2,6 +2,7 @@ package memory
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -146,6 +147,21 @@ func RecordRecall(root, session string, bodies, hits []SearchHit) {
 	MarkSeen(session, bodies)
 }
 
+// PromptRecall is the UserPromptSubmit recall block for prompt, "" when nothing clears the floor.
+func PromptRecall(sessionID, cwd, prompt string, warn io.Writer) string {
+	root := SessionRoot(sessionID, cwd)
+	picks, trace := RecallPicks(root, sessionID, prompt, true, false)
+	if after, ok := strings.CutPrefix(trace.Embeddings, "keyword-only: "); ok {
+		fmt.Fprintf(warn, "memory-recall: keyword-only (%s)\n", Cut(after, 120))
+	}
+	context, bodies, hits := RecallContext(picks)
+	if context == "" {
+		return ""
+	}
+	RecordRecall(root, sessionID, bodies, hits)
+	return context
+}
+
 // SearchBanks ranks every block of root's local, home and archive banks plus native topics; top k (0 = all).
 func SearchBanks(root, query string, k int) []SearchHit {
 	ranked, _, _ := searchBanksTerms(root, query, contentTerms(query), k)
@@ -180,4 +196,47 @@ func SearchRepo(repo string, all bool, q string, k int) ([]SearchHit, string) {
 	}
 	root := RepoRoot(repo) // a store name from the catalog, else a checkout path
 	return SearchBanks(root, q, k), root
+}
+
+// Agent recall previews stay short and the whole block stays under the spec's 1KB cap.
+const (
+	agentRecallPreviewRunes  = 160
+	agentRecallBlockCapBytes = 1024
+)
+
+// agentRecallMarker guards against appending twice if a caller already attached one.
+const agentRecallMarker = "<memory-recall>"
+
+// AgentRecall is a subagent spawn's <memory-recall> block plus its up to 3 cited ids; ("", nil) on no match.
+func AgentRecall(sessionID, cwd, task string) (block string, ids []string) {
+	cwd = SessionRoot(sessionID, cwd)
+	q := strings.TrimSpace(task)
+	if q == "" || strings.Contains(q, agentRecallMarker) {
+		return "", nil
+	}
+	picks, _ := RecallPicks(cwd, sessionID, q, false, false)
+
+	var lines []string
+	for _, e := range RecallPointers(picks) {
+		lines = append(lines, "\n- "+Cut(e.Pointer(), agentRecallPreviewRunes))
+		ids = append(ids, e.ID)
+	}
+	block, n := capRecallLines(lines)
+	if block == "" {
+		return "", nil
+	}
+	return block, ids[:n]
+}
+
+// capRecallLines drops whole trailing lines until the block fits the cap; n is how many lines survived.
+func capRecallLines(lines []string) (string, int) {
+	const footer = "\nLoad one with: claude-code memory show <id>\n</memory-recall>"
+	for len(lines) > 0 {
+		block := fmt.Sprintf("\n\n%s%s%s", agentRecallMarker, strings.Join(lines, ""), footer)
+		if len(block) <= agentRecallBlockCapBytes {
+			return block, len(lines)
+		}
+		lines = lines[:len(lines)-1]
+	}
+	return "", 0
 }

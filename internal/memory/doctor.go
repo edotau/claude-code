@@ -59,6 +59,22 @@ func DoctorNoticePath(root string) string {
 	return filepath.Join(StateDir(), "doctor-notice-"+filepath.Base(Dir(root)))
 }
 
+// DoctorNotice is the cached review line for SessionStart, "" with none; a full Doctor pass is too slow for launch.
+func DoctorNotice(root string) string {
+	data, err := os.ReadFile(DoctorNoticePath(root))
+	if err != nil {
+		return ""
+	}
+	notice := strings.TrimSpace(string(data))
+	if notice == "" {
+		return ""
+	}
+	if rs := []rune(notice); len(rs) > 200 {
+		notice = string(rs[:200])
+	}
+	return " memory review: " + notice + "."
+}
+
 // writeDoctorNotice caches root's first problem and a count (hot hints excluded); an empty file means checked and healthy.
 func writeDoctorNotice(root string, staleDays int, now time.Time) error {
 	problems := slices.DeleteFunc(doctor(root, staleDays, now), func(p string) bool {

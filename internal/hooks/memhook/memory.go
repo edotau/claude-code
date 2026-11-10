@@ -75,7 +75,7 @@ func memoryContext(cwd, sessionID string, now time.Time) string {
 // sessionSurfaceText renders the start-of-session note and (when a bank exists) its surface.
 func sessionSurfaceText(cwd, prefix, chain, sessionID string, now time.Time) string {
 	if surface := memory.SessionSurface(cwd); surface != "" {
-		note := bankLoadNote(prefix) + chainNote(chain, sessionID, now) + doctorNotice(cwd)
+		note := bankLoadNote(prefix) + chainNote(chain, sessionID, now) + memory.DoctorNotice(cwd)
 		return strings.TrimSpace(note) + "\n\n" + surface
 	}
 	// a fresh scaffold has no surface yet; still say where the bank went
@@ -126,22 +126,6 @@ func chainNote(chain, sessionID string, now time.Time) string {
 			" — run `claude-code memory update` to recover it."
 	}
 	return note
-}
-
-// doctorNotice is the cached memory-review notice line (from `memory update`'s settle path), or "" with none. A full Doctor pass tokenizes the home bank + access log, which has no place on the launch path.
-func doctorNotice(root string) string {
-	data, err := os.ReadFile(memory.DoctorNoticePath(root))
-	if err != nil {
-		return ""
-	}
-	notice := strings.TrimSpace(string(data))
-	if notice == "" {
-		return ""
-	}
-	if rs := []rune(notice); len(rs) > 200 {
-		notice = string(rs[:200])
-	}
-	return " memory review: " + notice + "."
 }
 
 // readChain reads the previous session id from the first line.
