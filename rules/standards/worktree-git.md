@@ -11,7 +11,7 @@
    asks first (`worktree-claim-check`; blocks a leaf).
 4. Atomic commits, one logical change each; never force-push a shared branch; never skip gates.
 5. Read scoped checks' exit codes before `git push`, and chain lint → commit → push with `&&`, never `;`; a docs
-   commit gates on a clean `make lint CHECK=1`.
+   commit gates on a clean `make lint`.
 
 ```bash
 feat(router): fail over on 529 before the first byte
