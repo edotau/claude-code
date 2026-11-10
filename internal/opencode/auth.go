@@ -183,7 +183,7 @@ func InvalidateOpencodeAuth() {
 	opencodeMu.Lock()
 	opencodeAuthIsSet, opencodeAuthVal, opencodeAuthErr = false, nil, nil
 	opencodeAuthGen++
-	ownLogin = ownLoginMemo{}
+	ownLogin.Drop()
 	if _, err := os.Stat(opencodeCacheFile()); err == nil {
 		updateOpencodeDiskCache(func(c *opencodeDiskCache) { c.Auth = nil })
 	}

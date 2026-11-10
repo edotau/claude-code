@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -194,6 +195,99 @@ func TestOpencodeLaunchEnvIncludesVaultCredential(t *testing.T) {
 	env := (opencodeEngine{}).LaunchEnv()
 	if !slices.Contains(env, OpencodeAPIKeyEnv+"=sk-vault-only") {
 		t.Fatalf("LaunchEnv lacks the vault credential: %v", env)
+	}
+}
+
+// TestOpencodeLaunchEnvReportsErrors: no login and no key stays quiet; an unreadable login store and a failed
+// overlay write each print one notice line.
+func TestOpencodeLaunchEnvReportsErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name, version string
+		listErr       error
+		want          []string
+	}{
+		{"missing credential is silent", "1.19.3", nil, []string{"opencode.json"}},
+		{"unreadable login store is reported", "2.0.0", errors.New("store locked"), []string{"could not be read", "opencode.json"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeOpencode(t, tc.version, "", tc.listErr)
+			vaulttest.Use(t)
+			t.Setenv(OpencodeAPIKeyEnv, "")
+			if err := os.MkdirAll(filepath.Join(paths.StateDir(), "opencode", "opencode.json"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			var notice strings.Builder
+			orig := agent.NoticeOut
+			agent.NoticeOut = &notice
+			t.Cleanup(func() { agent.NoticeOut = orig })
+			(opencodeEngine{}).LaunchEnv()
+			lines := strings.Split(strings.TrimSpace(notice.String()), "\n")
+			if len(lines) != len(tc.want) {
+				t.Fatalf("notices = %q, want %d line(s) naming %v", notice.String(), len(tc.want), tc.want)
+			}
+			for i, w := range tc.want {
+				if !strings.Contains(lines[i], w) {
+					t.Errorf("notice %d = %q, want it to name %q", i, lines[i], w)
+				}
+			}
+		})
+	}
+}
+
+// TestOpencodeOwnLoginMemoKeepsUntilInvalidate: a vault key added behind the memo stays unseen within the keep,
+// and InvalidateOpencodeAuth forces a fresh probe that sees it.
+func TestOpencodeOwnLoginMemoKeepsUntilInvalidate(t *testing.T) {
+	fakeOpencode(t, "1.19.3", "", nil)
+	vaulttest.Use(t)
+	t.Setenv(OpencodeAPIKeyEnv, "")
+	InvalidateOpencodeAuth()
+	if OpencodeOwnLoginPresent() {
+		t.Fatal("precondition: no login and no key must read as absent")
+	}
+	vaulttest.Secret(t, OpencodeAPIKeyEnv, "placeholder")
+	if OpencodeOwnLoginPresent() {
+		t.Error("a second call within the keep re-probed the vault; want the remembered answer")
+	}
+	InvalidateOpencodeAuth()
+	if !OpencodeOwnLoginPresent() {
+		t.Error("after InvalidateOpencodeAuth the stale answer was kept; want a fresh probe that finds the key")
+	}
+}
+
+// TestOpencodeRenderSettingsAppliesEffortAndPolicy: effort becomes --variant on `run` only, a policy becomes
+// --auto plus OPENCODE_PERMISSION; empty settings leave the run argv as built.
+func TestOpencodeRenderSettingsAppliesEffortAndPolicy(t *testing.T) {
+	fakeOpencode(t, "1.19.3", "", nil)
+	vaulttest.Use(t)
+	t.Setenv(OpencodeAPIKeyEnv, "")
+	perms, err := agent.ParsePermissions("", nil, nil, []string{"Bash(rm:*)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := opencodeEngine{agent.NewBaseEngine("opencode")}
+	run := []string{"run", "--format", "json", "hi"}
+	render := func(s agent.Settings, argv []string) ([]string, []string) {
+		t.Helper()
+		env, out, _, _, err := e.RenderSettings(context.Background(), s, nil, argv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return env, out
+	}
+	if _, got := render(agent.Settings{Agent: "opencode", Headless: true}, run); !slices.Equal(got, run) {
+		t.Errorf("no settings: argv = %q, want %q unchanged", got, run)
+	}
+	env, got := render(agent.Settings{Agent: "opencode", Headless: true, Effort: "high", Tools: true, Permissions: perms}, run)
+	if want := []string{"run", "--auto", "--variant", "high", "--format", "json", "hi"}; !slices.Equal(got, want) {
+		t.Errorf("argv = %q, want %q", got, want)
+	}
+	if !slices.ContainsFunc(env, func(kv string) bool {
+		return strings.HasPrefix(kv, opencodePermissionEnv+"=") && strings.Contains(kv, `"rm *":"deny"`)
+	}) {
+		t.Errorf("env = %q, want %s carrying the rm deny", env, opencodePermissionEnv)
+	}
+	if _, got := render(agent.Settings{Agent: "opencode", Effort: "high"}, nil); len(got) != 0 {
+		t.Errorf("interactive argv = %q, want no --variant (the TUI has no such flag)", got)
 	}
 }
 

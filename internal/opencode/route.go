@@ -37,13 +37,19 @@ func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selEr
 	own := OpencodeOwnLoginPresent()
 	opencodeLogin := own || OpencodeCopilotLoginPresent()
 	copilotCLILogin := agent.SchemaFor("copilot").LoginPresent()
-	if own { // opencode's own Go/Zen credential serves the routed opencode dispatches, whatever the session provider
+	pin, err := agent.PinnedProfile("opencode") // a pinned profile is what a launch uses, as engine_cli does
+	switch {
+	case err != nil:
+		selErr = err
+	case pin != "":
+		sel, selErr = providers.Select(reg, pin)
+	case own: // opencode's own Go/Zen credential serves the routed opencode dispatches, whatever the session provider
 		return fmt.Sprintf("provider=opencode-go dispatch=%s opencode_login=true copilot_cli_login=%v", agent.RouteOwnLogin, copilotCLILogin)
 	}
 	if selErr != nil {
 		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, selErr)
 	}
-	target, _, err := agent.SchemaFor("opencode").ResolveTarget(reg, sel, false)
+	target, _, err := agent.SchemaFor("opencode").ResolveTarget(reg, sel, pin != "")
 	if err != nil || target.Provider == nil {
 		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, errText(err))
 	}
