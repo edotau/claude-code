@@ -3,6 +3,7 @@ package network
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -12,11 +13,34 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest"
-
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/gateway"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/worktree"
 )
+
+// TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
+func TestMain(m *testing.M) {
+	agent.NoticeOut = io.Discard
+	agent.StubProxyForTest("http://127.0.0.1:9999", "rtr-secret-test")
+	agentconfig.SetCatalogWarn(io.Discard)
+	cleanup := hosttest.Setup()
+	worktree.StubProcessScanForTest()
+	gateway.HolderComm = func(int) string { return "claude-code" }
+	code := m.Run()
+	cleanup()
+	hosttest.Cleanup()
+	os.Exit(code)
+}
+
+// captureStdout runs fn with os.Stdout redirected and returns what it wrote.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	_, stdout, _ := hosttest.CaptureOutput(t, func() int { fn(); return 0 })
+	return stdout
+}
 
 func TestNetworkBareAndHelpPrintUsageExitZero(t *testing.T) {
 	for _, args := range [][]string{nil, {"-h"}, {"--help"}} {
@@ -48,65 +72,6 @@ func TestNetworkOldSubverbsRejected(t *testing.T) {
 		if code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{old}) }); code != 1 {
 			t.Errorf("network %s: exit %d, want 1", old, code)
 		}
-	}
-}
-
-// TestNetworkSubcommandsRejectUnknownFormat: an unknown --format is a usage error (2) before any work.
-func TestNetworkSubcommandsRejectUnknownFormat(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	cases := []struct {
-		name string
-		fn   func() int
-	}{
-		{"browser", func() int { return cmdNetworkBrowser([]string{"--format", "yaml"}) }},
-		{"browser --setup --dry-run", func() int {
-			return cmdNetworkBrowser([]string{"--setup", "--dry-run", "--format",
-				"yaml"})
-		}},
-	}
-	for _, c := range cases {
-		code, _, stderr := hosttest.CaptureOutput(t, c.fn)
-		if code != 2 {
-			t.Errorf("network %s: code = %d, want 2; stderr=%q", c.name, code, stderr)
-		}
-	}
-}
-
-// TestNetworkBrowserSetupOnlyFlags: --browser and --dry-run belong to --setup; alone they are usage errors.
-func TestNetworkBrowserSetupOnlyFlags(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, args := range [][]string{{"--browser", "chrome"}, {"--dry-run"}} {
-		code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdNetworkBrowser(args) })
-		if code != 2 || !strings.Contains(stderr, "belongs to --setup") {
-			t.Errorf("%v: code=%d stderr=%q, want 2 + belongs to --setup", args, code, stderr)
-		}
-	}
-}
-
-// TestNetworkBrowserRejectsPositional: `--setup chrome` (forgotten --browser) must not silently set up the default.
-
-// TestCmdWebSearchQueryForms: positional and --query both reach OneShot (no key → 1); both at once is usage (2).
-func TestCmdWebSearchQueryForms(t *testing.T) {
-	cases := []struct {
-		name string
-		args []string
-		want int
-	}{
-		{"positional", []string{"foo"}, 1},
-		{"positional multi-word", []string{"foo", "bar"}, 1},
-		{"flag", []string{"--query", "foo"}, 1},
-		{"flag and positional", []string{"--query", "a", "b"}, 2},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			// No key anywhere: env empty, no keyring tool on PATH, empty config dir — so no network call.
-			t.Setenv("TAVILY_API_KEY", "")
-			t.Setenv("PATH", t.TempDir())
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			if got := cmdNetworkWebsearch(tc.args); got != tc.want {
-				t.Fatalf("cmdNetworkWebsearch(%q) = %d, want %d", tc.args, got, tc.want)
-			}
-		})
 	}
 }
 

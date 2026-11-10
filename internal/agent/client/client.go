@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/job"
+	"github.com/edotau/claude-code/internal/textutil"
 
 	"github.com/edotau/claude-code/internal/agent"
 
@@ -52,7 +53,7 @@ func (c *Client) Prepare(ctx context.Context, o agent.RunOptions, claim *job.Rec
 	}
 	p := &Prepared{}
 	if o.Host != "" {
-		if err := remote.ValidHost(o.Host); err != nil {
+		if err := textutil.ValidHost(o.Host); err != nil {
 			return nil, err
 		}
 		r = NewRemoteEngine(o.Agent, o.Host, remote.Bin(o.RemoteBin), o.Fallback)

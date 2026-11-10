@@ -17,9 +17,6 @@ import (
 // sshTimeout bounds one ssh round trip (start or list); attach replaces the process and has no deadline.
 const sshTimeout = 20 * time.Second
 
-// ExecWaitDelay force-closes a timed-out command's pipes so surviving children cannot hold Wait open.
-const ExecWaitDelay = 2 * time.Second
-
 // ExecArgs runs script under sh locally when local (host is this machine), else over ssh; batch forbids ssh prompts.
 func ExecArgs(host, script string, local, batch bool) ([]string, error) {
 	if local {
@@ -48,7 +45,7 @@ func AttachCommand(host, session string, local bool) string {
 func sshCommand(ctx context.Context, argv []string) (*exec.Cmd, context.CancelFunc) {
 	cctx, cancel := context.WithTimeout(ctx, sshTimeout)
 	cmd := exec.CommandContext(cctx, argv[0], argv[1:]...)
-	cmd.WaitDelay = ExecWaitDelay
+	cmd.WaitDelay = proc.ExecWaitDelay
 	return cmd, cancel
 }
 
@@ -56,7 +53,7 @@ func sshCommand(ctx context.Context, argv []string) (*exec.Cmd, context.CancelFu
 func RunAgent(ctx context.Context, argv []string) ([]byte, error) {
 	cmd, cancel := sshCommand(ctx, argv)
 	defer cancel()
-	return combinedOutputCapped(cmd)
+	return proc.CombinedOutputCapped(cmd)
 }
 
 // ListSessions lists the cc-* tmux sessions on host.
@@ -67,7 +64,7 @@ func ListSessions(ctx context.Context, host string, local bool) ([]Session, erro
 	}
 	cmd, cancel := sshCommand(ctx, argv)
 	defer cancel()
-	out, err := OutputCapped(cmd)
+	out, err := proc.OutputCapped(cmd)
 	var ee *exec.ExitError
 	if errors.As(err, &ee) && len(ee.Stderr) > 0 {
 		return nil, fmt.Errorf("list tmux sessions on %s: %s: %w", host, strings.TrimSpace(string(ee.Stderr)), err)

@@ -28,7 +28,7 @@ func TestRenderText_DefaultMarkerAndProfileLine(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	RenderText(&buf, r)
+	renderText(&buf, r)
 	out := buf.String()
 
 	if !strings.Contains(out, "default: chrome") {
@@ -48,7 +48,7 @@ func TestRenderText_DefaultMarkerAndProfileLine(t *testing.T) {
 func TestRenderText_NoDefaultShowsDash(t *testing.T) {
 	r := Report{Default: "", Browsers: nil}
 	var buf bytes.Buffer
-	RenderText(&buf, r)
+	renderText(&buf, r)
 	if !strings.Contains(buf.String(), "default: -") {
 		t.Fatalf("output = %q, want a dash when no default resolved", buf.String())
 	}
@@ -79,7 +79,7 @@ func TestRenderTextReturnsFirstWriteError(t *testing.T) {
 		t.Run(strconv.Itoa(failAt), func(t *testing.T) {
 			first := errors.New("first write failed")
 			w := &failingRenderWriter{failAt: failAt, first: first, later: errors.New("later write failed")}
-			if err := RenderText(w, r); !errors.Is(err, first) {
+			if err := renderText(w, r); !errors.Is(err, first) {
 				t.Fatalf("write %d: error=%v, want first writer error", failAt, err)
 			}
 			if w.writes != failAt {

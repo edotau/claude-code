@@ -104,7 +104,7 @@ func TestStatusNotApprovedFixture(t *testing.T) {
 func TestStatusNotRunningFixture(t *testing.T) {
 	stubCLI(t, catScript(t, "status_stopped.json"))
 	local, err := Status(context.Background())
-	if !errors.Is(err, ErrNotRunning) {
+	if !errors.Is(err, errNotRunning) {
 		t.Fatalf("Status() err = %v, want ErrNotRunning", err)
 	}
 	if local.BackendState != "Stopped" {
@@ -193,7 +193,7 @@ func TestAdvertiseExitNodeFlags(t *testing.T) {
 		prevLook, prevExec := lookPathReal, execCommandContext
 		lookPathReal = func(string) (string, error) { return bin, nil }
 		execCommandContext = exec.CommandContext
-		if err := AdvertiseExitNode(context.Background(), tc.on); err != nil {
+		if err := advertiseExitNode(context.Background(), tc.on); err != nil {
 			t.Fatalf("AdvertiseExitNode(%v) err = %v", tc.on, err)
 		}
 		b, _ := os.ReadFile(argvFile)
@@ -237,7 +237,7 @@ func TestUseExitNodeFlags(t *testing.T) {
 		prevLook, prevExec := lookPathReal, execCommandContext
 		lookPathReal = func(string) (string, error) { return bin, nil }
 		execCommandContext = exec.CommandContext
-		if err := UseExitNode(context.Background(), tc.peer); err != nil {
+		if err := useExitNode(context.Background(), tc.peer); err != nil {
 			t.Fatalf("UseExitNode(%q) err = %v", tc.peer, err)
 		}
 		b, _ := os.ReadFile(argvFile)
@@ -267,7 +267,7 @@ func TestAdvertiseRoutesFlags(t *testing.T) {
 		prevLook, prevExec := lookPathReal, execCommandContext
 		lookPathReal = func(string) (string, error) { return bin, nil }
 		execCommandContext = exec.CommandContext
-		if err := AdvertiseRoutes(context.Background(), tc.routes); err != nil {
+		if err := advertiseRoutes(context.Background(), tc.routes); err != nil {
 			t.Fatalf("AdvertiseRoutes(%v) err = %v", tc.routes, err)
 		}
 		b, _ := os.ReadFile(argvFile)

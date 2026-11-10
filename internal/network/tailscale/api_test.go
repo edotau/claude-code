@@ -29,7 +29,7 @@ func TestCreateAuthKeyBodyShape(t *testing.T) {
 	defer ts.Close()
 	c := staticClient(ts, "tok")
 
-	key, err := c.CreateAuthKey(context.Background(), KeyOpts{
+	key, err := c.CreateAuthKey(context.Background(), keyOpts{
 		Ephemeral: true, Preauthorized: true, Reusable: false,
 		Tags: []string{"tag:ci", "tag:ephemeral"}, Expiry: 90 * 24 * time.Hour, Description: "ci runner",
 	})
@@ -214,7 +214,7 @@ func hermeticSecrets(t *testing.T) {
 
 func TestNewClientErrNoCredential(t *testing.T) {
 	hermeticSecrets(t)
-	if _, err := NewClient(); !errors.Is(err, ErrNoCredential) {
+	if _, err := NewClient(); !errors.Is(err, errNoCredential) {
 		t.Errorf("NewClient() err = %v, want ErrNoCredential", err)
 	}
 }
@@ -249,7 +249,7 @@ func TestParseKeyExpiry(t *testing.T) {
 
 func TestSelfDeviceNoCredential(t *testing.T) {
 	hermeticSecrets(t)
-	if _, _, _, err := selfDevice(context.Background()); !errors.Is(err, ErrNoCredential) {
+	if _, _, _, err := selfDevice(context.Background()); !errors.Is(err, errNoCredential) {
 		t.Errorf("selfDevice err = %v, want ErrNoCredential", err)
 	}
 }

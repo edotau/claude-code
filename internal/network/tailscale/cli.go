@@ -12,15 +12,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // errNoCLI: the `tailscale` binary is not on PATH.
 var errNoCLI = errors.New("tailscale: `tailscale` CLI not found on PATH")
 
-// ErrNotRunning: the CLI is on PATH but its backend is not Running (Local is still returned).
-var ErrNotRunning = errors.New("tailscale: backend not Running (see `tailscale status`)")
+// errNotRunning: the CLI is on PATH but its backend is not Running (Local is still returned).
+var errNotRunning = errors.New("tailscale: backend not Running (see `tailscale status`)")
 
 // Seams for tests: a PATH-stubbed fake `tailscale` or a stubbed exec.CommandContext.
 var (
@@ -119,8 +119,8 @@ func subnetRoutesOf(self rawNode) []string {
 	return out
 }
 
-// AdvertiseRoutes sets this box's advertised subnet routes (`set --advertise-routes=<csv>`); empty withdraws them.
-func AdvertiseRoutes(ctx context.Context, routes []string) error {
+// advertiseRoutes sets this box's advertised subnet routes (`set --advertise-routes=<csv>`); empty withdraws them.
+func advertiseRoutes(ctx context.Context, routes []string) error {
 	return set(ctx, "--advertise-routes="+strings.Join(routes, ","))
 }
 
@@ -158,8 +158,8 @@ func Status(ctx context.Context) (Local, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultExecTimeout)
 	defer cancel()
 	cmd := execCommandContext(ctx, bin, "status", "--json")
-	cmd.WaitDelay = remote.ExecWaitDelay // a wrapper's child holding the pipes must not outlive the timeout
-	out, err := remote.OutputCapped(cmd)
+	cmd.WaitDelay = proc.ExecWaitDelay // a wrapper's child holding the pipes must not outlive the timeout
+	out, err := proc.OutputCapped(cmd)
 	if err != nil {
 		return Local{}, fmt.Errorf("tailscale status --json: %w", err)
 	}
@@ -182,7 +182,7 @@ func Status(ctx context.Context) (Local, error) {
 		})
 	}
 	if raw.BackendState != "Running" {
-		return local, ErrNotRunning
+		return local, errNotRunning
 	}
 	return local, nil
 }
@@ -234,8 +234,8 @@ func writeAuthKeyFile(authKey string) (string, error) {
 	return f.Name(), nil
 }
 
-// AdvertiseExitNode toggles exit-node advertisement via `tailscale set --advertise-exit-node[=false]`.
-func AdvertiseExitNode(ctx context.Context, on bool) error {
+// advertiseExitNode toggles exit-node advertisement via `tailscale set --advertise-exit-node[=false]`.
+func advertiseExitNode(ctx context.Context, on bool) error {
 	flag := "--advertise-exit-node"
 	if !on {
 		flag += "=false"
@@ -243,8 +243,8 @@ func AdvertiseExitNode(ctx context.Context, on bool) error {
 	return set(ctx, flag)
 }
 
-// UseExitNode routes this box's traffic through a peer exit node via `tailscale set --exit-node=<peer>`.
-func UseExitNode(ctx context.Context, peer string) error {
+// useExitNode routes this box's traffic through a peer exit node via `tailscale set --exit-node=<peer>`.
+func useExitNode(ctx context.Context, peer string) error {
 	flags := []string{"--exit-node=" + peer}
 	if peer != "" {
 		flags = append(flags, "--exit-node-allow-lan-access=true")
@@ -282,7 +282,7 @@ func Machines(ctx context.Context) ([]Machine, error) {
 // liveMachines merges admin-API devices with CLI status (fetched concurrently); no credential means CLI only.
 func liveMachines(ctx context.Context) ([]Machine, error) {
 	client, err := NewClient()
-	if errors.Is(err, ErrNoCredential) {
+	if errors.Is(err, errNoCredential) {
 		return machinesFromStatus(ctx)
 	}
 	if err != nil {
@@ -333,7 +333,7 @@ func peersByAddr(st Local) map[string]peer {
 // machinesFromStatus is the no-credential fallback: self plus every CLI-visible peer.
 func machinesFromStatus(ctx context.Context) ([]Machine, error) {
 	st, err := Status(ctx)
-	if err != nil && !errors.Is(err, ErrNotRunning) {
+	if err != nil && !errors.Is(err, errNotRunning) {
 		return nil, err
 	}
 	out := []Machine{{Name: st.DNSName, Addresses: st.IPs, Online: st.BackendState == "Running",

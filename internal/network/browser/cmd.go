@@ -1,4 +1,4 @@
-package network
+package browser
 
 import (
 	"flag"
@@ -6,12 +6,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// cmdNetworkBrowser lists every installed browser's control paths and the system default; --setup repairs one.
-func cmdNetworkBrowser(args []string) int {
+// Cmd lists every installed browser's control paths and the system default; --setup repairs one.
+func Cmd(args []string) int {
 	fs := helptext.NewFlagSet("network browser", helptext.Page{Usage: "claude-code network browser [flags]",
 		About: "List every installed browser's control paths and the system default; --setup\n" +
 			"repairs what the harness owns for one and opens its extension page."})
@@ -54,14 +53,14 @@ func setupFlagsSet(fs *flag.FlagSet) string {
 }
 
 func networkBrowserList(format string) int {
-	rep := browser.Detect(browser.NewEnv())
+	rep := Detect(NewEnv())
 	if format == "json" {
 		if err := helptext.WriteJSON(os.Stdout, rep); err != nil {
 			return helptext.Fail("network browser: %v", err)
 		}
 		return 0
 	}
-	if err := browser.RenderText(os.Stdout, rep); err != nil {
+	if err := renderText(os.Stdout, rep); err != nil {
 		return helptext.Fail("network browser: %v", err)
 	}
 	return 0
@@ -69,9 +68,9 @@ func networkBrowserList(format string) int {
 
 // networkBrowserSetup repairs what the harness owns for one browser and opens the extension install page.
 func networkBrowserSetup(name string, dryRun bool, format string) int {
-	env := browser.NewEnv()
+	env := NewEnv()
 	env.DryRun = dryRun
-	acts, err := browser.Setup(env, name)
+	acts, err := Setup(env, name)
 	if err != nil {
 		return helptext.Fail("network browser --setup: %v", err)
 	}
