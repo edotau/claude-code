@@ -125,13 +125,7 @@ func TestIsTestFixture(t *testing.T) {
 // ScanGit must skip secret-shaped additions in test fixtures but still report real files.
 func TestScanGitSkipsTestFixtures(t *testing.T) {
 	dir := runGitScratch(t)
-	run := func(args ...string) {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v: %s", args, err, out)
-		}
-	}
+	run := gitIn(t, dir)
 	// Fixtures are assembled at runtime so push protection never sees a literal key in this file.
 	fixture := "package x\n\nconst tok = \"sk" + "-abcdefghijklmnopqrstuvwxyz0123\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "x_test.go"), []byte(fixture), 0o644); err != nil {
@@ -228,13 +222,7 @@ func checkLongLineScan(t *testing.T, dir string) {
 // not once per ReadLine fragment.
 func TestScanGitSecretInsideLongLine(t *testing.T) {
 	dir := runGitScratch(t) // seeds an initial unrelated commit so this isn't the repo's first commit
-	run := func(args ...string) {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v: %s", args, err, out)
-		}
-	}
+	run := gitIn(t, dir)
 	line := strings.Repeat("x", 15*(1<<17)) + "ghp_abcdefghij1234567890ABCD" // ~1.5 MiB prefix + token
 	if err := os.WriteFile(filepath.Join(dir, "long.txt"), []byte(line+"\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -257,13 +245,7 @@ func TestScanGitSecretInsideLongLine(t *testing.T) {
 // commands) must never execute during the scan.
 func TestScanGitNoTextconv(t *testing.T) {
 	dir := runGitScratch(t)
-	run := func(args ...string) {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v: %s", args, err, out)
-		}
-	}
+	run := gitIn(t, dir)
 	marker := filepath.Join(dir, "MARKER")
 	if err := os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte("*.txt diff=t\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -305,5 +287,49 @@ func TestScanGitRejectsOptionLikeRev(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "invalid rev") {
 		t.Errorf("output = %q, want invalid rev notice", out.String())
+	}
+}
+
+// runGitScratch initializes a throwaway repo with a committed secret-shaped line, for ScanGit tests.
+func runGitScratch(t *testing.T) string {
+	dir := hosttest.Repo(t)
+	path := filepath.Join(dir, "config.env")
+	if err := os.WriteFile(path, []byte("GITHUB_TOKEN=ghp_0123456789abcdefghij\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hosttest.In(t, dir, "add", "config.env")
+	hosttest.In(t, dir, "commit", "-q", "-m", "add config")
+	return dir
+}
+
+// ScanGit must find a secret-shaped line committed to history, without ever printing it.
+func TestScanGitFindsPlantedSecret(t *testing.T) {
+	dir := runGitScratch(t)
+	var buf bytes.Buffer
+	rc := ScanGit(&buf, dir, "", 0)
+	if rc != ExitFindings {
+		t.Fatalf("ScanGit rc = %d, want %d:\n%s", rc, ExitFindings, buf.String())
+	}
+	out := buf.String()
+	if !strings.Contains(out, "config.env") {
+		t.Errorf("output does not name the file:\n%s", out)
+	}
+	if strings.Contains(out, "ghp_0123456789abcdefghij") {
+		t.Fatal("git scan output must never echo the matched secret")
+	}
+}
+
+// A repo with no secret-shaped history must report clean.
+func TestScanGitCleanHistory(t *testing.T) {
+	dir := hosttest.Repo(t)
+	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hosttest.In(t, dir, "add", "readme.md")
+	hosttest.In(t, dir, "commit", "-q", "-m", "init")
+
+	var buf bytes.Buffer
+	if rc := ScanGit(&buf, dir, "", 0); rc != ExitClean {
+		t.Fatalf("ScanGit rc = %d, want %d:\n%s", rc, ExitClean, buf.String())
 	}
 }

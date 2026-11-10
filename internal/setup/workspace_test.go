@@ -26,20 +26,10 @@ func wsGlobal(t *testing.T) string {
 	t.Helper()
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	wsWrite(t, filepath.Join(cfg, "agents", "a.md"), "---\nname: a\n---\n")
-	wsWrite(t, filepath.Join(cfg, "commands", "ns", "c.md"), "# c\n")
-	wsWrite(t, filepath.Join(cfg, "skills", "s", "SKILL.md"), "# s\n")
+	mustWrite(t, filepath.Join(cfg, "agents", "a.md"), "---\nname: a\n---\n")
+	mustWrite(t, filepath.Join(cfg, "commands", "ns", "c.md"), "# c\n")
+	mustWrite(t, filepath.Join(cfg, "skills", "s", "SKILL.md"), "# s\n")
 	return cfg
-}
-
-func wsWrite(t *testing.T, p, body string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func wsExists(p string) bool { _, err := os.Lstat(p); return err == nil }
@@ -47,7 +37,7 @@ func wsExists(p string) bool { _, err := os.Lstat(p); return err == nil }
 func TestWorkspaceInitCreatesLayoutAndIsIdempotent(t *testing.T) {
 	wsGlobal(t)
 	root := wsRepo(t)
-	wsWrite(t, filepath.Join(root, ".claude", "settings.json"), `{"permissions":{"allow":["Bash(go test)"]}}`)
+	mustWrite(t, filepath.Join(root, ".claude", "settings.json"), `{"permissions":{"allow":["Bash(go test)"]}}`)
 	var out bytes.Buffer
 	if err := WorkspaceInit(WorkspaceInitOpts{Root: root, Out: &out}); err != nil {
 		t.Fatal(err)
@@ -177,8 +167,8 @@ func TestWorkspaceStatusClassifies(t *testing.T) {
 	if err := WorkspaceLink(root, "agents", "a", &out); err != nil {
 		t.Fatal(err)
 	}
-	wsWrite(t, filepath.Join(root, ".claude", "commands", "ns", "c.md"), "# mine\n") // same name as global
-	wsWrite(t, filepath.Join(root, ".claude", "skills", "only-here", "SKILL.md"), "# local\n")
+	mustWrite(t, filepath.Join(root, ".claude", "commands", "ns", "c.md"), "# mine\n") // same name as global
+	mustWrite(t, filepath.Join(root, ".claude", "skills", "only-here", "SKILL.md"), "# local\n")
 	out.Reset()
 	if err := WorkspaceStatus(root, &out); err != nil {
 		t.Fatal(err)
@@ -204,8 +194,8 @@ func TestWorkspaceStatusLinkedFileKeepsSiblings(t *testing.T) {
 	if err := WorkspaceLink(root, "agents", "a", &out); err != nil {
 		t.Fatal(err)
 	}
-	wsWrite(t, filepath.Join(root, ".claude", "agents", "b.md"), "b\n")
-	wsWrite(t, filepath.Join(root, ".claude", "agents", "c.md"), "c\n")
+	mustWrite(t, filepath.Join(root, ".claude", "agents", "b.md"), "b\n")
+	mustWrite(t, filepath.Join(root, ".claude", "agents", "c.md"), "c\n")
 	out.Reset()
 	if err := WorkspaceStatus(root, &out); err != nil {
 		t.Fatal(err)
@@ -225,7 +215,7 @@ func TestWorkspaceInitDryRunFailsOnErrorAction(t *testing.T) {
 	wsGlobal(t)
 	root := wsRepo(t)
 	gi := filepath.Join(root, ".gitignore")
-	wsWrite(t, gi, "x\n")
+	mustWrite(t, gi, "x\n")
 	if err := os.Chmod(gi, 0); err != nil {
 		t.Fatal(err)
 	}

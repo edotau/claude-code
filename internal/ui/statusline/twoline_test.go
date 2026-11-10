@@ -3,6 +3,8 @@ package statusline
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -108,11 +110,28 @@ func TestTwolinePaletteForeground(t *testing.T) {
 	}
 }
 
-// A ramp-only palette (gemini) backs each cell and separator with a dark shade of its ramp color; padding stays bare.
+// A ramp-only palette (gemini) backs each cell and separator with a darker shade of its ramp color; padding stays bare.
 func TestTwolineDerivedBackground(t *testing.T) {
 	stops := []ansi.RGB{{200, 100, 50}}
 	out := paintTwoRow([]twoSeg{{key: "model", text: "M"}, {key: "sep", text: twoSep}, {bare: true, text: "  "}}, nil, stops, "truecolor")
-	if want := ansi.BgSeq("truecolor", ansi.RGB{40, 20, 10}); strings.Count(out, want) != 2 || strings.Count(out, "\x1b[48;") != 2 {
-		t.Errorf("want the model cell and separator on bg %q, padding bare: %q", want, out)
+	bgs := regexp.MustCompile(`\x1b\[48;2;(\d+);(\d+);(\d+)m`).FindAllStringSubmatch(out, -1)
+	if len(bgs) != 2 || strings.Count(out, "\x1b[48;") != 2 {
+		t.Fatalf("want the model cell and separator on a background, padding bare: %q", out)
 	}
+	for _, bg := range bgs {
+		r, g, b := atoi(t, bg[1]), atoi(t, bg[2]), atoi(t, bg[3])
+		if r >= 200 || g >= 100 || b >= 50 || !(r > g && g > b) {
+			t.Errorf("bg %d;%d;%d is not a darker shade of the ramp's 200;100;50", r, g, b)
+		}
+	}
+}
+
+// atoi parses a decimal SGR field.
+func atoi(t *testing.T, s string) int {
+	t.Helper()
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
 }

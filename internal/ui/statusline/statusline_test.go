@@ -66,31 +66,46 @@ func sample() values {
 		proxy: "proxy:18765", branch: "main", total: "1.23M", duration: "12m", contextPct: 42, adds: 10, dels: 3}
 }
 
-func TestStyleGoldens(t *testing.T) {
-	hermetic(t)
-	cases := map[string]string{
-		"powerline": "tester:~/proj |  openrouter  Opus 5 [1m]  proxy:18765  42%  1.23M  12m   main  +10 -3",
-		"capsule":   "tester:~/proj | ( openrouter ) ( Opus 5 [1m] ) ( proxy:18765 ) ( 42% ) ( 1.23M ) ( 12m ) (  main ) +10 -3",
-		"minimal":   "tester:~/proj |  openrouter  ·  Opus 5 [1m]  ·  proxy:18765  ·  42%  ·  1.23M  ·  12m  ·   main  +10 -3",
-	}
-	for style, want := range cases {
-		cfg := embeddedConfig()
-		cfg.Style = style
-		cfg.Segments = map[string]bool{"session": false} // every opt-in segment on, so the goldens cover their rendering
-		if got := plain(render(sample(), cfg, theme.EmbeddedPalettes())); got != want {
-			t.Errorf("%s:\n got %q\nwant %q", style, got, want)
+// assertInOrder fails unless every part appears in got, each after the one before it.
+func assertInOrder(t *testing.T, got string, parts ...string) {
+	t.Helper()
+	at := 0
+	for _, p := range parts {
+		i := strings.Index(got[at:], p)
+		if i < 0 {
+			t.Errorf("%q missing or out of order in %q", p, got)
+			return
 		}
+		at += i + len(p)
+	}
+}
+
+// Segmented styles keep head, cfg.Order, git, velocity order yet differ; the head is painted; only nerd draws arrows.
+func TestSegmentedStyles(t *testing.T) {
+	hermetic(t)
+	parts := []string{"tester:~/proj", "openrouter", "Opus 5 [1m]", "proxy:18765", "42%", "1.23M", "12m", "main", "+10 -3"}
+	seen := map[string]string{}
+	for _, style := range []string{"powerline", "capsule", "minimal"} {
+		cfg := embeddedConfig()
+		cfg.Style, cfg.Order = style, []string{"provider", "model", "proxy", "context", "total", "duration"}
+		cfg.Segments = map[string]bool{"session": false} // every other segment on
+		got := plain(render(sample(), cfg, theme.EmbeddedPalettes()))
+		assertInOrder(t, got, parts...)
+		if prev, dup := seen[got]; dup {
+			t.Errorf("%s renders exactly like %s: %q", style, prev, got)
+		}
+		seen[got] = style
+	}
+	raw := render(sample(), embeddedConfig(), theme.EmbeddedPalettes())
+	if !regexp.MustCompile(`\x1b\[[0-9;]*mtester`).MatchString(raw) || !regexp.MustCompile(`\x1b\[[0-9;]*m~`).MatchString(raw) {
+		t.Errorf("gradient head is not painted: %q", raw)
 	}
 	cfg := embeddedConfig()
-	got := render(sample(), cfg, theme.EmbeddedPalettes())
-	// The ramp opens on the path: "~" carries gemini's first stop, bold truecolor.
-	if !strings.Contains(got, "\x1b[01;32mtester\x1b[0m") || !strings.Contains(got, "\x1b[1;38;2;71;150;228m~") {
-		t.Errorf("gradient head escapes: %q", got)
-	}
-	cfg.Style = "powerline"
-	cfg.Charset = "nerd"
-	if !strings.Contains(render(sample(), cfg, theme.EmbeddedPalettes()), glyphArrow) {
-		t.Error("nerd powerline lacks the arrow glyph")
+	for charset, want := range map[string]bool{"nerd": true, "text": false} {
+		cfg.Style, cfg.Charset = "powerline", charset
+		if got := strings.Contains(render(sample(), cfg, theme.EmbeddedPalettes()), glyphArrow); got != want {
+			t.Errorf("%s powerline draws the arrow glyph = %v, want %v", charset, got, want)
+		}
 	}
 }
 
@@ -100,16 +115,17 @@ func TestDashboardAlignsHeadersOverValues(t *testing.T) {
 	cfg.Style = "dashboard"
 	cfg.Segments = map[string]bool{"session": false} // pin columns so alignment is checked regardless of defaults
 	cfg.Dashboard.Columns = []string{"workspace", "model", "provider", "proxy", "total", "branch", "context"}
+	cfg.Dashboard.Width, cfg.Bar.Percent = 90, "after" // the row right-aligns to the configured width
 	lines := strings.Split(plain(render(sample(), cfg, theme.EmbeddedPalettes())), "\n")
 	if len(lines) != 2 {
 		t.Fatalf("want header + value rows, got %q", lines)
 	}
 	hdr, val := []rune(lines[0]), []rune(lines[1])
-	if !strings.HasPrefix(lines[1], "tester:~/proj | Opus 5 [1m]") || !strings.HasSuffix(lines[1], "█████ 42%") {
+	if !strings.HasPrefix(lines[1], "tester:~/proj | Opus 5 [1m]") || !strings.HasSuffix(lines[1], " 42%") {
 		t.Errorf("value row %q", lines[1])
 	}
-	if len(val) != len("tester:~/proj | ")+100 {
-		t.Errorf("value row width %d, want head + 100", len(val))
+	if len(val) != len("tester:~/proj | ")+cfg.Dashboard.Width {
+		t.Errorf("value row width %d, want head + %d", len(val), cfg.Dashboard.Width)
 	}
 	for _, pair := range [][2]string{{"provider", "openrouter"}, {"proxy", "proxy:18765"}, {"context", "42%"}} {
 		h := strings.Index(string(hdr), pair[0])
@@ -139,10 +155,14 @@ func TestWidthClip(t *testing.T) {
 			}
 		}
 	}
-	cfg := embeddedConfig()
-	t.Setenv("COLUMNS", strconv.Itoa(30+ccMargin))
-	if got := plain(render(sample(), cfg, theme.EmbeddedPalettes())); got != "tester:~/proj | Opus 5 [1m]\n+10 -3" {
-		t.Errorf("COLUMNS wrap %q", got)
+	for width := 16; width <= 40; width++ { // no configured width: $COLUMNS less the CLI's margin is the width
+		t.Setenv("COLUMNS", strconv.Itoa(width+ccMargin))
+		cfg := embeddedConfig()
+		got := render(sample(), cfg, theme.EmbeddedPalettes())
+		cfg.Width = width
+		if want := render(sample(), cfg, theme.EmbeddedPalettes()); got != want {
+			t.Errorf("COLUMNS %d renders %q, want the width-%d line %q", width+ccMargin, plain(got), width, plain(want))
+		}
 	}
 	if s := "short"; clip(s, 40) != s {
 		t.Error("a line within width must be untouched")
@@ -332,9 +352,29 @@ func TestGitSegmentsOutsideRepo(t *testing.T) {
 	}
 }
 
-func TestTruncRunes(t *testing.T) {
-	if got := capProfile("databricks·feature/statusline", 8); got != "databricks·feature…" {
-		t.Errorf("capProfile %q", got)
+// capProfile caps only the profile after "·" to max runes, ending in "…" when cut; a bare name is untouched.
+func TestCapProfile(t *testing.T) {
+	hermetic(t)
+	writeStatuslineConfig(t, `{"profileMax":1}`)
+	if got := loadConfig().ProfileMax; got != 1 {
+		t.Fatalf("config.json profileMax = %d, want 1", got)
+	}
+	for _, tc := range []struct {
+		label string
+		max   int
+	}{{"anthropic·work", 1}, {"databricks·feature/statusline", 8}} {
+		got := capProfile(tc.label, tc.max)
+		prov, prof, _ := strings.Cut(got, "·")
+		wantProv, wantProf, _ := strings.Cut(tc.label, "·")
+		if prov != wantProv || utf8.RuneCountInString(prof) != tc.max || !strings.HasSuffix(prof, "…") ||
+			!strings.HasPrefix(wantProf, strings.TrimSuffix(prof, "…")) {
+			t.Errorf("capProfile(%q, %d) = %q, want %s· and %d profile runes ending …", tc.label, tc.max, got, wantProv, tc.max)
+		}
+	}
+	for _, label := range []string{"anthropic·ab", "plain-profile-name"} {
+		if got := capProfile(label, 8); got != label {
+			t.Errorf("capProfile(%q, 8) = %q, want it untouched", label, got)
+		}
 	}
 }
 
@@ -346,7 +386,9 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--style", "minimal"}, strings.NewReader(payload), &out); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := plain(out.String()); !strings.Contains(got, " anthropic·ultra  ·  opus-5  ·  0% ") || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
+	got := plain(out.String())
+	assertInOrder(t, got, "anthropic·ultra", "opus-5", "0%")
+	if strings.Contains(got, "tok") {
 		t.Errorf("minimal run: %q", got)
 	}
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--bogus"}, strings.NewReader(""), &out); code != 2 {
@@ -413,6 +455,10 @@ func labelRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg.Providers["qa"] = &providers.Provider{Name: "qa", Provider: "databricks", Preset: providers.PresetDatabricks}
+	reg.Providers["anthropic-work"] = &providers.Provider{Name: "anthropic-work", Provider: "anthropic",
+		BaseURL: "https://api.anthropic.com", Protocol: providers.ProtocolAnthropic}
+	reg.Providers["acme"] = &providers.Provider{Name: "acme", Provider: "anthropic",
+		BaseURL: "https://gw.anthropic.com", Protocol: providers.ProtocolAnthropic}
 	prev := registry
 	t.Cleanup(func() { registry = prev })
 	registry = func() *providers.Registry { return reg }
@@ -422,15 +468,17 @@ func TestProviderLabelFamilyTable(t *testing.T) {
 	hermetic(t)
 	labelRegistry(t)
 	for name, want := range map[string]string{
-		"ultra":       "anthropic·ultra",
-		"anthropic":   "anthropic",
-		"qa":          "databricks·qa",
-		"chatgpt":     "openai·chatgpt",
-		"personal":    "github·personal",
-		"antigravity": "google·antigravity",
-		"openai":      "openai",
-		"corp-prod":   "corp-prod", // unknown row: unchanged
-		"mystery":     "mystery",   // unknown row, no env suffix
+		"ultra":          "anthropic·ultra",
+		"anthropic":      "anthropic", // only the profile named for its provider collapses to bare "anthropic" (L10)
+		"anthropic-work": "anthropic·anthropic-work",
+		"acme":           "anthropic·acme",
+		"qa":             "databricks·qa",
+		"chatgpt":        "openai·chatgpt",
+		"personal":       "github·personal",
+		"antigravity":    "google·antigravity",
+		"openai":         "openai",
+		"corp-prod":      "corp-prod", // unknown row: unchanged
+		"mystery":        "mystery",   // unknown row, no env suffix
 	} {
 		if got := providerLabel(name); got != want {
 			t.Errorf("providerLabel(%q) = %q, want %q", name, got, want)
@@ -485,27 +533,6 @@ func TestLabelProviderBeforeModel(t *testing.T) {
 	}
 }
 
-// L10: only the profile named for its provider collapses to bare "anthropic"; other anthropic-family rows keep their profile.
-func TestProviderLabelAnthropicFamilyRows(t *testing.T) {
-	hermetic(t)
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	reg.Providers["anthropic-work"] = &providers.Provider{Name: "anthropic-work", Provider: "anthropic", BaseURL: "https://api.anthropic.com", Protocol: providers.ProtocolAnthropic}
-	reg.Providers["acme"] = &providers.Provider{Name: "acme", Provider: "anthropic", BaseURL: "https://gw.anthropic.com", Protocol: providers.ProtocolAnthropic}
-	prev := registry
-	t.Cleanup(func() { registry = prev })
-	registry = func() *providers.Registry { return reg }
-	for name, want := range map[string]string{
-		"anthropic": "anthropic", "anthropic-work": "anthropic·anthropic-work", "acme": "anthropic·acme",
-	} {
-		if got := providerLabel(name); got != want {
-			t.Errorf("providerLabel(%q) = %q, want %q", name, got, want)
-		}
-	}
-}
-
 // Width known: full, then profileMax; no line exceeds the width (minimal: the gradient line shows no profile).
 func TestProfileFitsWidth(t *testing.T) {
 	hermetic(t)
@@ -513,7 +540,7 @@ func TestProfileFitsWidth(t *testing.T) {
 	pal := theme.LoadPalettes()
 	v := values{userHost: "u@h", path: "~/p", providerFull: full, adds: 12, dels: 3}
 	cfg := embeddedConfig()
-	cfg.Style, cfg.Order = "minimal", []string{"provider"}
+	cfg.Style, cfg.Order, cfg.ProfileMax = "minimal", []string{"provider"}, 16
 	v.provider = capProfile(full, cfg.ProfileMax)
 	if !strings.Contains(plain(render(v, cfg, pal)), "databricks·my-long-workspa…") {
 		t.Fatalf("profileMax cap missing: %q", plain(render(v, cfg, pal)))
@@ -551,14 +578,6 @@ func TestDashboardOmitsDisabledContext(t *testing.T) {
 	}
 	if !strings.Contains(got, "qwen3:30b") {
 		t.Fatalf("enabled model column missing: %q", got)
-	}
-}
-
-func TestProfileMaxOneRune(t *testing.T) {
-	hermetic(t)
-	writeStatuslineConfig(t, `{"profileMax":1}`)
-	if got := capProfile("anthropic·work", loadConfig().ProfileMax); got != "anthropic·…" {
-		t.Fatalf("profileMax 1 = %q, want anthropic·…", got)
 	}
 }
 

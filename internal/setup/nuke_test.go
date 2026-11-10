@@ -308,36 +308,31 @@ func assertArchivedVault(t *testing.T, data []byte, secretNames []string, id, ki
 	}
 }
 
-func TestNukeKeepMemoryAddsBank(t *testing.T) {
-	dir := fixtureNukeDir(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: true}); err != nil {
-		t.Fatal(err)
-	}
-	entries := tarEntries(t, findTarball(t, home))
-	if _, ok := entries["docs/memory/bank/repo/progress.md"]; !ok {
-		t.Fatalf("--keep-memory should add the bank, got %v", tarNames(entries))
-	}
-}
-
-// --keep-memory also archives plans/ and a per-bank knowledge/ when present, not just memory/ and the bank.
-func TestNukeKeepMemoryIncludesPlansAndKnowledge(t *testing.T) {
-	dir := fixtureNukeDir(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	mustWrite(t, filepath.Join(dir, "plans", "2026-10-18-x.md"), "plan\n")
-	mustWrite(t, filepath.Join(dir, "memory", "repo", "knowledge", "x.md"), "knowledge\n")
-
-	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: true}); err != nil {
-		t.Fatal(err)
-	}
-	entries := tarEntries(t, findTarball(t, home))
-	for _, want := range []string{"plans/2026-10-18-x.md", "memory/repo/knowledge/x.md"} {
-		if _, ok := entries[want]; !ok {
-			t.Fatalf("--keep-memory should archive %q, got %v", want, tarNames(entries))
-		}
+// --keep-memory archives the bank, plans/, memory/ (with knowledge/) and legacy docs/knowledge/; without it, none.
+func TestNukeKeepMemoryArchiveSet(t *testing.T) {
+	bank := "docs/memory/bank/repo/progress.md"
+	optional := []string{"plans/2026-10-18-x.md", "memory/repo/knowledge/x.md", "memory/repo/MEMORY.md", "docs/knowledge/x.md"}
+	for _, keepMemory := range []bool{true, false} {
+		t.Run(map[bool]string{true: "keep-memory", false: "default"}[keepMemory], func(t *testing.T) {
+			dir := fixtureNukeDir(t)
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			for _, rel := range optional {
+				mustWrite(t, filepath.Join(dir, rel), rel+"\n")
+			}
+			if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: keepMemory}); err != nil {
+				t.Fatal(err)
+			}
+			entries := tarEntries(t, findTarball(t, home))
+			if _, ok := entries[bank]; keepMemory && !ok {
+				t.Errorf("--keep-memory did not archive the bank %s: %v", bank, tarNames(entries))
+			}
+			for _, rel := range optional {
+				if _, ok := entries[rel]; ok != keepMemory {
+					t.Errorf("archived %s = %v, want %v: %v", rel, ok, keepMemory, tarNames(entries))
+				}
+			}
+		})
 	}
 }
 
@@ -364,58 +359,6 @@ func TestNukePreviewShowsKeepMemorySet(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "memory/.git/HEAD") {
 		t.Error("preview without --keep-memory must not list memory/")
-	}
-}
-
-// Without --keep-memory, memory/ (incl. its per-bank knowledge/) and plans/ are never archived (plan-only paths).
-func TestNukeWithoutKeepMemorySkipsMemoryPlansKnowledge(t *testing.T) {
-	dir := fixtureNukeDir(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	mustWrite(t, filepath.Join(dir, "memory", "repo", "MEMORY.md"), "- topic\n")
-	mustWrite(t, filepath.Join(dir, "plans", "2026-10-18-x.md"), "plan\n")
-	mustWrite(t, filepath.Join(dir, "memory", "repo", "knowledge", "x.md"), "knowledge\n")
-
-	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: false}); err != nil {
-		t.Fatal(err)
-	}
-	entries := tarEntries(t, findTarball(t, home))
-	for name := range entries {
-		if strings.HasPrefix(name, "memory/") || strings.HasPrefix(name, "plans/") {
-			t.Fatalf("nuke without --keep-memory must never archive %q", name)
-		}
-	}
-}
-
-// --keep-memory also archives a legacy pre-44aab60 docs/knowledge/ tree when present; its presence
-// is never an error, and without --keep-memory it is skipped like every other keep-memory candidate.
-func TestNukeKeepMemoryIncludesLegacyDocsKnowledge(t *testing.T) {
-	dir := fixtureNukeDir(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	mustWrite(t, filepath.Join(dir, "docs", "knowledge", "x.md"), "legacy knowledge\n")
-
-	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: true}); err != nil {
-		t.Fatal(err)
-	}
-	entries := tarEntries(t, findTarball(t, home))
-	if _, ok := entries["docs/knowledge/x.md"]; !ok {
-		t.Fatalf("--keep-memory should archive legacy docs/knowledge/x.md, got %v", tarNames(entries))
-	}
-}
-
-func TestNukeWithoutKeepMemorySkipsLegacyDocsKnowledge(t *testing.T) {
-	dir := fixtureNukeDir(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	mustWrite(t, filepath.Join(dir, "docs", "knowledge", "x.md"), "legacy knowledge\n")
-
-	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: false}); err != nil {
-		t.Fatal(err)
-	}
-	entries := tarEntries(t, findTarball(t, home))
-	if _, ok := entries["docs/knowledge/x.md"]; ok {
-		t.Fatalf("nuke without --keep-memory must never archive docs/knowledge/x.md, got %v", tarNames(entries))
 	}
 }
 
@@ -454,22 +397,6 @@ func tarNames(entries map[string][]byte) []string {
 		out = append(out, k)
 	}
 	return out
-}
-
-// The floor holds before any plan or prompt: "/" and $HOME are never nuked, confirmed or not.
-func TestNukeRefusesRootAndHome(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	var out bytes.Buffer
-	for _, dir := range []string{"/", home, home + "/"} {
-		err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, Out: &out})
-		if !errors.Is(err, ErrNotConfigDir) {
-			t.Errorf("Nuke(%q) = %v, want ErrNotConfigDir", dir, err)
-		}
-	}
-	if _, err := os.Stat(home); err != nil {
-		t.Fatal("home was removed")
-	}
 }
 
 // --keep-memory archives the local memory Git store whole (incl. .git) and real native dirs, but a
@@ -557,17 +484,17 @@ func TestKeepMemoryPathsPropagatesWalkError(t *testing.T) {
 	}
 }
 
-// An ancestor of $HOME (e.g. /home) is refused before any plan or RemoveAll, confirmed or not.
-func TestNukeRefusesAncestorOfHome(t *testing.T) {
+// The floor refuses "/", $HOME and its ancestors before any plan or prompt, confirmed or not; a dir under $HOME passes.
+func TestNukeRefusesRootHomeAndAncestors(t *testing.T) {
 	parent := t.TempDir()
 	home := filepath.Join(parent, "u")
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
-	for _, dir := range []string{parent, filepath.Join(home, "..")} {
-		err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir})
-		if !errors.Is(err, ErrNotConfigDir) {
+	var out bytes.Buffer
+	for _, dir := range []string{"/", home, home + "/", parent, filepath.Join(home, "..")} {
+		if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, Out: &out}); !errors.Is(err, ErrNotConfigDir) {
 			t.Errorf("Nuke(%q) = %v, want ErrNotConfigDir", dir, err)
 		}
 	}

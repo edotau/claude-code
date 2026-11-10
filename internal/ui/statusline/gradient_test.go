@@ -38,9 +38,16 @@ func gradientPayload(cwd string) string {
 		`"rate_limits":{"seven_day":{"used_percentage":15}}}`
 }
 
-// The default gradient line: id, profile, twoline's context block, no total/branch, velocity only with changes.
+// gradientSeps pins the gradient line's order and its configurable separators, so literals derive from the test.
+func gradientSeps(t *testing.T) {
+	t.Helper()
+	writeStatuslineConfig(t, `{"order":["model","context"],"separators":{"minor":" ~ ","major":" ~ "}}`)
+}
+
+// The gradient line: id, profile, twoline's context block, no total/branch, velocity only with changes.
 func TestGradientLine(t *testing.T) {
 	hermetic(t)
+	gradientSeps(t)
 	repo := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
@@ -56,7 +63,7 @@ func TestGradientLine(t *testing.T) {
 	}
 	git("add", "f")
 	git("commit", "-qm", "f")
-	const ctx = " | claude-opus-5-5 · ultra · ━━━─────── 31% · 309.5k/1M 7d:15%"
+	const ctx = " | claude-opus-5-5 ~ ultra ~ ━━━─────── 31% · 309.5k/1M 7d:15%"
 	if got := plain(Render([]byte(gradientPayload(repo)), "gradient")); !strings.HasSuffix(got, ctx) {
 		t.Errorf("clean tree: %q must end %q (profile only, id without claude-)", got, ctx)
 	}
@@ -163,6 +170,7 @@ func TestGradientEaseColorsAlongLine(t *testing.T) {
 // The gradient line carries model → profile → auth countdown, and the countdown leaves the context block.
 func TestGradientModelProfileAuthOrder(t *testing.T) {
 	hermetic(t)
+	gradientSeps(t)
 	t.Setenv("ANTHROPIC_BASE_URL", "")
 	t.Setenv("CLAUDE_PROFILE", "dbx-sp")
 	useSessions(t, &providers.Provider{Name: "dbx-sp", Provider: "databricks", Auth: providers.Auth{Type: providers.AuthOAuth}})
@@ -170,14 +178,14 @@ func TestGradientModelProfileAuthOrder(t *testing.T) {
 	payload := `{"cwd":"` + t.TempDir() + `","model":{"id":"databricks-claude-opus-5-5"},` +
 		`"context_window":{"used_percentage":31,"context_window_size":1000000,"total_input_tokens":309500}}`
 	got := plain(Render([]byte(payload), "gradient"))
-	if !strings.Contains(got, " | databricks-opus-5-5 · dbx-sp · ") || !strings.Contains(got, " 309.5k/1M · m2m:42m") {
+	if !strings.Contains(got, " | databricks-opus-5-5 ~ dbx-sp ~ ") || !strings.Contains(got, " 309.5k/1M · m2m:42m") {
 		t.Errorf("%q: want model · profile, then the countdown ending the context block", got)
 	}
 	if strings.Count(got, "m2m:") != 1 {
 		t.Errorf("%q: countdown must show once", got)
 	}
 	noCtx := plain(Render([]byte(`{"cwd":"`+t.TempDir()+`","model":{"id":"databricks-claude-opus-5-5"}}`), "gradient"))
-	if !strings.Contains(noCtx, " | databricks-opus-5-5 · dbx-sp · m2m:42m") {
+	if !strings.Contains(noCtx, " | databricks-opus-5-5 ~ dbx-sp ~ m2m:42m") {
 		t.Errorf("%q: with no context block the countdown follows the profile", noCtx)
 	}
 }

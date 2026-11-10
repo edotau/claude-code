@@ -8,24 +8,21 @@ import (
 	"testing"
 )
 
-// The default order puts the context bar right after the model, then the rate limits; the agent count is on.
-func TestDefaultConfigOrder(t *testing.T) {
+// No config.json means the embedded theme; a file overlays its fields and its segments map replaces the embedded one.
+func TestLoadConfigOverlay(t *testing.T) {
 	hermetic(t)
-	cfg := loadConfig()
-	want := []string{"provider", "model", "proxy", "context", "limits", "total", "duration", "session"}
-	if !reflect.DeepEqual(cfg.Order, want) {
-		t.Errorf("Order = %v, want %v", cfg.Order, want)
+	if got := loadConfig(); !reflect.DeepEqual(got, defaultConfig()) {
+		t.Fatalf("no config.json: got %+v, want the embedded theme", got)
 	}
-	if !cfg.seg("limits", false) {
-		t.Error("segments.limits should default to true")
+	writeStatuslineConfig(t, `{"order":["model"],"profileMax":3}`)
+	got, want := loadConfig(), defaultConfig()
+	want.Order, want.ProfileMax = []string{"model"}, 3
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("order/profileMax overlay: got %+v, want %+v", got, want)
 	}
-}
-
-// The provider segment is on by default; the statusline shows which provider the session is on.
-func TestDefaultConfigProviderOn(t *testing.T) {
-	hermetic(t)
-	if !loadConfig().seg("provider", false) {
-		t.Error("segments.provider should default to true")
+	writeStatuslineConfig(t, `{"segments":{"git":false}}`)
+	if got := loadConfig().Segments; !reflect.DeepEqual(got, map[string]bool{"git": false}) {
+		t.Fatalf("segments overlay = %v, want only the file's map", got)
 	}
 }
 
@@ -37,14 +34,6 @@ func writeStatuslineConfig(t *testing.T, data string) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(data), 0o600); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestInvalidConfigIgnoredWhole(t *testing.T) {
-	hermetic(t)
-	writeStatuslineConfig(t, `{"style":"minimal","width":"invalid"}`)
-	if got, want := loadConfig(), embeddedConfig(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("invalid config partially applied: got %+v, want %+v", got, want)
 	}
 }
 

@@ -1,14 +1,9 @@
 package vault
 
 import (
-	"bytes"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestMasterKeyStatusRejectsCorruptSecrets(t *testing.T) {
@@ -60,50 +55,6 @@ func TestLooksLikeSecret(t *testing.T) {
 		if got := LooksLikeSecret(v); got != want {
 			t.Errorf("LooksLikeSecret(%q) = %v, want %v", v, got, want)
 		}
-	}
-}
-
-// runGitScratch initializes a throwaway repo with a committed secret-shaped line, for ScanGit tests.
-func runGitScratch(t *testing.T) string {
-	dir := hosttest.Repo(t)
-	path := filepath.Join(dir, "config.env")
-	if err := os.WriteFile(path, []byte("GITHUB_TOKEN=ghp_0123456789abcdefghij\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	hosttest.In(t, dir, "add", "config.env")
-	hosttest.In(t, dir, "commit", "-q", "-m", "add config")
-	return dir
-}
-
-// ScanGit must find a secret-shaped line committed to history, without ever printing it.
-func TestScanGitFindsPlantedSecret(t *testing.T) {
-	dir := runGitScratch(t)
-	var buf bytes.Buffer
-	rc := ScanGit(&buf, dir, "", 0)
-	if rc != ExitFindings {
-		t.Fatalf("ScanGit rc = %d, want %d:\n%s", rc, ExitFindings, buf.String())
-	}
-	out := buf.String()
-	if !strings.Contains(out, "config.env") {
-		t.Errorf("output does not name the file:\n%s", out)
-	}
-	if strings.Contains(out, "ghp_0123456789abcdefghij") {
-		t.Fatal("git scan output must never echo the matched secret")
-	}
-}
-
-// A repo with no secret-shaped history must report clean.
-func TestScanGitCleanHistory(t *testing.T) {
-	dir := hosttest.Repo(t)
-	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("hello\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	hosttest.In(t, dir, "add", "readme.md")
-	hosttest.In(t, dir, "commit", "-q", "-m", "init")
-
-	var buf bytes.Buffer
-	if rc := ScanGit(&buf, dir, "", 0); rc != ExitClean {
-		t.Fatalf("ScanGit rc = %d, want %d:\n%s", rc, ExitClean, buf.String())
 	}
 }
 

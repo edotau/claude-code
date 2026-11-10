@@ -5,10 +5,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
@@ -89,6 +92,10 @@ func seedFiles(t *testing.T, dir string, rels []string, contents string, old tim
 func seedDebris(t *testing.T) string {
 	t.Helper()
 	dir := vaulttest.Use(t)
+	// The real scan keeps all memory state whenever a same-uid process has an unreadable fd table (host-dependent).
+	oldOpen := openMemoryFiles
+	openMemoryFiles = func() (map[string]bool, bool) { return map[string]bool{}, true }
+	t.Cleanup(func() { openMemoryFiles = oldOpen })
 	vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "foo")
 	vaulttest.Secret(t, "API_KEY", "test-value")
 	old := time.Now().Add(-40 * 24 * time.Hour)
@@ -123,13 +130,9 @@ func TestCleanDryRunPreviewsDeletesNothing(t *testing.T) {
 	}
 }
 
-// TestCleanAppliesByDefault: with no flags, clean deletes aged debris immediately (no --apply needed).
+// TestCleanAppliesByDefault: a bare run deletes aged debris and sizes hits before deletion (never "reclaimed 0 B").
 func TestCleanAppliesByDefault(t *testing.T) {
 	dir := seedDebris(t)
-	// The real scan keeps all memory state whenever a same-uid process has an unreadable fd table (host-dependent).
-	oldOpen := openMemoryFiles
-	openMemoryFiles = func() (map[string]bool, bool) { return map[string]bool{}, true }
-	t.Cleanup(func() { openMemoryFiles = oldOpen })
 	var out, errw bytes.Buffer
 	if code := Clean(nil, &out, &errw); code != 0 {
 		t.Fatalf("Run = %d, want 0", code)
@@ -160,18 +163,8 @@ func TestCleanAppliesByDefault(t *testing.T) {
 			t.Errorf("clean deleted live config or memory bank content: %s", keep)
 		}
 	}
-}
-
-// TestCleanApplyReportsNonZeroBytes: a default run must size hits BEFORE deletion — dirSize on an
-// already-removed path always reads 0, which would otherwise make every run print "reclaimed 0 B".
-func TestCleanApplyReportsNonZeroBytes(t *testing.T) {
-	seedDebris(t)
-	var out, errw bytes.Buffer
-	if code := Clean(nil, &out, &errw); code != 0 {
-		t.Fatalf("Run = %d, want 0", code)
-	}
-	if strings.Contains(errw.String(), "reclaimed 0 B") {
-		t.Errorf("reported 0 bytes reclaimed despite deleting seeded debris:\n%s", errw.String())
+	if !strings.Contains(errw.String(), "reclaimed ") || strings.Contains(errw.String(), "reclaimed 0 B") {
+		t.Errorf("summary does not report the bytes reclaimed from seeded debris:\n%s", errw.String())
 	}
 }
 
@@ -184,6 +177,9 @@ func TestCleanRespectsOlderThan(t *testing.T) {
 	Clean(nil, &out, &errw)
 	if !exists(t, young) {
 		t.Error("a file inside the age threshold was swept")
+	}
+	if exists(t, filepath.Join(dir, "state/harness/memory/update-20260101-000000.log")) {
+		t.Error("the aged sibling in the same target survived; the young file's survival proves nothing")
 	}
 }
 
@@ -223,9 +219,8 @@ func TestCleanWhatFlagRejected(t *testing.T) {
 	}
 }
 
-// TestPruneAgedSkipsFailedRemoval: a removal that errors must not be counted as a hit or sized —
-// only actual successes may be reported.
-func TestPruneAgedSkipsFailedRemoval(t *testing.T) {
+// TestPruneAgedToFailedRemoval: a removal that errors is counted as a failure and named on errw, never a hit or sized.
+func TestPruneAgedToFailedRemoval(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory modes; the failure premise does not hold")
 	}
@@ -233,11 +228,10 @@ func TestPruneAgedSkipsFailedRemoval(t *testing.T) {
 	blocked := filepath.Join(dir, "blocked-old")
 	write(t, filepath.Join(blocked, "x"), "data")
 	old := time.Now().Add(-40 * 24 * time.Hour)
-	if err := os.Chtimes(filepath.Join(blocked, "x"), old, old); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chtimes(blocked, old, old); err != nil {
-		t.Fatal(err)
+	for _, p := range []string{filepath.Join(blocked, "x"), blocked} {
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
 	}
 	// Deny write on dir so os.RemoveAll(blocked) cannot unlink blocked from its parent.
 	if err := os.Chmod(dir, 0o500); err != nil {
@@ -245,9 +239,13 @@ func TestPruneAgedSkipsFailedRemoval(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(dir, 0o700) })
 
-	hit, size, _ := pruneAgedTo(io.Discard, []string{filepath.Join(dir, "blocked-*")}, time.Now(), true, nil)
-	if len(hit) != 0 || size != 0 {
-		t.Errorf("pruneAgedTo counted a failed removal: hit=%v size=%d", hit, size)
+	var errw bytes.Buffer
+	hit, size, failed := pruneAgedTo(&errw, []string{filepath.Join(dir, "blocked-*")}, time.Now(), true, nil)
+	if failed != 1 || len(hit) != 0 || size != 0 {
+		t.Errorf("failed=%d hit=%v size=%d, want 1 failure, no hits, 0 bytes", failed, hit, size)
+	}
+	if !strings.Contains(errw.String(), "could not remove "+blocked) {
+		t.Errorf("errw does not name the failed removal:\n%s", errw.String())
 	}
 	if !exists(t, blocked) {
 		t.Error("blocked dir was actually removed despite the read-only parent")
@@ -368,18 +366,6 @@ func assertPinIntact(t *testing.T, name, want string) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// TestProtectedExactBoundary: protected() must not treat a differently-named sibling that merely shares
-// a prefix (e.g. "memory-other", "migrate-old") as covered — only the root itself or a true subpath.
-func TestProtectedExactBoundary(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	for _, rel := range []string{"memory-other/x", "state/harness/memory/migrate-old/manifest.json", "state/harness/memory/journal-old/txn.json", "state/harness/memory/access-log/repo.log"} {
-		if protected(filepath.Join(dir, rel)) {
-			t.Errorf("protected(%s) = true: prefix-sharing sibling must not be guarded as the real root", rel)
-		}
 	}
 }
 
@@ -590,21 +576,6 @@ func TestCleanSessionsRefusesWithoutTTYOrYes(t *testing.T) {
 	}
 }
 
-// TestCleanSessionsYesDeletes: --target sessions --yes deletes without any prompt.
-func TestCleanSessionsYesDeletes(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	transcript, sessDir := seedAgedSession(t, dir)
-
-	var out, errw bytes.Buffer
-	if code := Clean([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
-		t.Fatalf("Run --target sessions --yes = %d, want 0: %s", code, errw.String())
-	}
-	if exists(t, transcript) || exists(t, sessDir) {
-		t.Error("--target sessions --yes left the aged transcript or session dir behind")
-	}
-}
-
 // TestCleanSessionsOlderThanStillFilters: --yes bypasses the prompt, not the age filter — a young
 // transcript must survive even when sessions are confirmed.
 func TestCleanSessionsOlderThanStillFilters(t *testing.T) {
@@ -665,9 +636,13 @@ func TestProtectedMemoryStoresAndMigrationState(t *testing.T) {
 			t.Errorf("protected(%s) = false", rel)
 		}
 	}
-	for _, rel := range []string{"state/harness/memory/stamp-x", "state/harness/memory/update-1.log", "memory-other/x", "state/harness/memory/journal-old"} {
+	for _, rel := range []string{
+		"state/harness/memory/stamp-x", "state/harness/memory/update-1.log", "memory-other/x", "state/harness/memory/journal-old",
+		"state/harness/memory/migrate-old/manifest.json", "state/harness/memory/journal-old/txn.json",
+		"state/harness/memory/access-log/repo.log",
+	} {
 		if protected(filepath.Join(dir, rel)) {
-			t.Errorf("protected(%s) = true: ordinary debris must stay sweepable", rel)
+			t.Errorf("protected(%s) = true: ordinary or prefix-sharing debris must stay sweepable", rel)
 		}
 	}
 	hits, _, _ := pruneAgedTo(io.Discard, []string{filepath.Join(dir, "memory", "*"), filepath.Join(dir, "memory", ".git", "*"),
@@ -690,40 +665,120 @@ func TestSelectTargetsDedupesRepeatedNames(t *testing.T) {
 	}
 }
 
-// TestPruneAgedToReportsFailureToErrw: a failed removal is counted and named on the injected writer, not os.Stderr.
-func TestPruneAgedToReportsFailureToErrw(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root ignores directory modes; the failure premise does not hold")
-	}
-	dir := t.TempDir()
-	blocked := filepath.Join(dir, "blocked-old")
-	write(t, filepath.Join(blocked, "x"), "data")
-	old := time.Now().Add(-40 * 24 * time.Hour)
-	for _, p := range []string{filepath.Join(blocked, "x"), blocked} {
-		if err := os.Chtimes(p, old, old); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.Chmod(dir, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chmod(dir, 0o700) })
-
-	var errw bytes.Buffer
-	hit, _, failed := pruneAgedTo(&errw, []string{filepath.Join(dir, "blocked-*")}, time.Now(), true, nil)
-	if failed != 1 || len(hit) != 0 {
-		t.Errorf("failed=%d hit=%v, want 1 failure and no hits", failed, hit)
-	}
-	if !strings.Contains(errw.String(), "could not remove "+blocked) {
-		t.Errorf("errw does not name the failed removal:\n%s", errw.String())
-	}
-}
-
 // TestCleanHelpDefaultExcludesOptIn: the --target help must not claim a bare sweep runs every target.
 func TestCleanHelpDefaultExcludesOptIn(t *testing.T) {
 	var out, errw bytes.Buffer
 	Clean([]string{"-h"}, &out, &errw)
 	if !strings.Contains(out.String()+errw.String(), "opt-in ones") {
 		t.Errorf("help does not say opt-in targets are skipped:\n%s%s", out.String(), errw.String())
+	}
+}
+
+// seedRegistryEntry lays down a sessions/<pid>.json + sessions/<pid>.<hex>.key pair (or any name,
+// for the unparsable case) at the given mtime and returns both paths.
+func seedRegistryEntry(t *testing.T, dir, name string, mtime time.Time) (jsonPath, keyPath string) {
+	t.Helper()
+	jsonPath = filepath.Join(dir, "sessions", name+".json")
+	keyPath = filepath.Join(dir, "sessions", name+".deadbeef.key")
+	for _, p := range []string{jsonPath, keyPath} {
+		write(t, p, "x")
+		if err := os.Chtimes(p, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return jsonPath, keyPath
+}
+
+// stubPidAlive swaps the liveness probe for alive until the test ends.
+func stubPidAlive(t *testing.T, alive func(int) bool) {
+	t.Helper()
+	old := pidAlive
+	pidAlive = alive
+	t.Cleanup(func() { pidAlive = old })
+}
+
+// session-registry drops a dead pid's pair at any age; a live pid's pair or an unparsable name is kept even when old.
+func TestSessionsRegistryKeepsLiveOrUnparsable(t *testing.T) {
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	for _, tc := range []struct {
+		name, entry string
+		mtime       time.Time
+		alive, kept bool
+	}{
+		{"dead pid old", "4242", old, false, false},
+		{"dead pid recent", "4242", time.Now(), false, false},
+		{"live pid old", "4242", old, true, true},
+		{"unparsable name", "notapid", old, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", dir)
+			stubPidAlive(t, func(int) bool { return tc.alive })
+			jsonPath, keyPath := seedRegistryEntry(t, dir, tc.entry, tc.mtime)
+			var out, errw bytes.Buffer
+			if code := Clean([]string{"--target", "session-registry", "--yes"}, &out, &errw); code != 0 {
+				t.Fatalf("Run --target session-registry --yes = %d, want 0: %s", code, errw.String())
+			}
+			if exists(t, jsonPath) != tc.kept || exists(t, keyPath) != tc.kept {
+				t.Errorf("json kept=%v key kept=%v, want %v", exists(t, jsonPath), exists(t, keyPath), tc.kept)
+			}
+		})
+	}
+}
+
+// TestSessionsRegistrySplitFromSessionsTarget: bare clean prunes dead registry entries and keeps live
+// ones; --target sessions (transcripts only) leaves the registry alone.
+func TestSessionsRegistrySplitFromSessionsTarget(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	stubPidAlive(t, func(pid int) bool { return pid == 1111 })
+
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	deadJSON, deadKey := seedRegistryEntry(t, dir, "4242", old)
+	liveJSON, liveKey := seedRegistryEntry(t, dir, "1111", old)
+
+	var out, errw bytes.Buffer
+	if code := Clean([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
+		t.Fatalf("Run --target sessions = %d: %s", code, errw.String())
+	}
+	if !exists(t, deadJSON) || !exists(t, deadKey) {
+		t.Error("--target sessions removed registry files; they belong to session-registry")
+	}
+	if code := Clean(nil, &out, &errw); code != 0 {
+		t.Fatalf("bare Run = %d: %s", code, errw.String())
+	}
+	if exists(t, deadJSON) || exists(t, deadKey) {
+		t.Error("bare clean left a dead pid's registry entry")
+	}
+	if !exists(t, liveJSON) || !exists(t, liveKey) {
+		t.Error("bare clean removed a live pid's registry entry")
+	}
+}
+
+func TestCleanCopilotRegistryTargetKeepsLivePid(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("linux runtime dir")
+	}
+	base := "/run/user/" + strconv.Itoa(os.Getuid())
+	if fi, err := os.Stat(base); err != nil || !fi.IsDir() {
+		t.Skip("no tmpfs /run/user/<uid>")
+	}
+	t.Setenv("XDG_RUNTIME_DIR", base)
+	dir, err := copilot.CopilotRuntimeDir()
+	if err != nil {
+		t.Skipf("runtime dir unusable here: %v", err)
+	}
+	live := copilot.CopilotRegistryFile(dir, os.Getpid())
+	_ = os.WriteFile(live, []byte("{}"), 0o600)
+	t.Cleanup(func() { os.Remove(live) })
+	dead := copilot.CopilotRegistryFile(filepath.Dir(live), 1<<22+12346)
+	write(t, dead, "{}")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var out, errw bytes.Buffer
+	if code := Clean([]string{"--target", "copilot-registry"}, &out, &errw); code != 0 {
+		t.Fatalf("Run = %d: %s", code, errw.String())
+	}
+	if exists(t, dead) || !exists(t, live) {
+		t.Fatalf("dead kept=%v live kept=%v\n%s", exists(t, dead), exists(t, live), out.String())
 	}
 }

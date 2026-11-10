@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -112,16 +114,6 @@ func checkAllLanded(t *testing.T, names []string) {
 	}
 }
 
-func TestEffectiveVaultOnly(t *testing.T) {
-	vaulttest.Use(t)
-	t.Setenv("VAULT_ONLY", "")
-	vaulttest.Secret(t, "VAULT_ONLY", "vault-value")
-	v, src, shadowed, ok := vault.Effective("VAULT_ONLY")
-	if !ok || v != "vault-value" || src != "vault" || shadowed != "" {
-		t.Fatalf("Effective = (%q, %q, %q, %v), want (vault-value, vault, \"\", true)", v, src, shadowed, ok)
-	}
-}
-
 func TestEffectiveEnvOverVault(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Secret(t, "ENV_OVER_VAULT", "vault-value")
@@ -153,30 +145,32 @@ func checkGet(t *testing.T, name, value, source string, ok bool, what, want stri
 	}
 }
 
-func TestEffectiveEnvOnly(t *testing.T) {
-	vaulttest.Use(t)
-	t.Setenv("ONLY_IN_ENV", "env-value")
-	if v, src, sh, ok := vault.Effective("ONLY_IN_ENV"); !ok || v != "env-value" || src != "env" || sh != "" {
-		t.Fatalf("Effective = (%q, %q, %q, %v), want (env-value, env, \"\", true)", v, src, sh, ok)
-	}
-}
-
-func TestEffectiveMiss(t *testing.T) {
-	vaulttest.Use(t)
-	t.Setenv("NEVER_SET_XYZ", "")
-	v, src, shadowed, ok := vault.Effective("NEVER_SET_XYZ")
-	if ok || v != "" || src != "" || shadowed != "" {
-		t.Fatalf("Effective(miss) = (%q, %q, %q, %v), want all empty, ok=false", v, src, shadowed, ok)
-	}
-}
-
-func TestEffectiveLockedVault(t *testing.T) {
-	vaulttest.Use(t)
-	vaulttest.Secret(t, "LOCKED", "vault-value")
-	t.Setenv("LOCKED", "")
-	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
-	if v, src, sh, ok := vault.Effective("LOCKED"); ok || v != "" || src != "" || sh != "" {
-		t.Fatalf("Effective(locked) = (%q, %q, %q, %v), want empty, false", v, src, sh, ok)
+// Effective reads env before vault and yields nothing when neither holds a usable value.
+func TestEffective(t *testing.T) {
+	for _, tc := range []struct {
+		name, env, stored, key string
+		want                   [3]string
+		ok                     bool
+	}{
+		{name: "vault only", stored: "vault-value", want: [3]string{"vault-value", "vault", ""}, ok: true},
+		{name: "env only", env: "env-value", want: [3]string{"env-value", "env", ""}, ok: true},
+		{name: "miss"},
+		{name: "locked vault", stored: "vault-value", key: "invalid-key"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			vaulttest.Use(t)
+			if tc.stored != "" {
+				vaulttest.Secret(t, "EFFECTIVE_TEST", tc.stored)
+			}
+			t.Setenv("EFFECTIVE_TEST", tc.env)
+			if tc.key != "" {
+				t.Setenv("HARNESS_VAULT_KEY", tc.key)
+			}
+			v, src, sh, ok := vault.Effective("EFFECTIVE_TEST")
+			if got := [3]string{v, src, sh}; got != tc.want || ok != tc.ok {
+				t.Fatalf("Effective = (%q, %q, %q, %v), want %q, %v", v, src, sh, ok, tc.want, tc.ok)
+			}
+		})
 	}
 }
 
@@ -495,5 +489,253 @@ func TestStoreTrimsPasteDebris(t *testing.T) {
 	}
 	if err := vault.Store("PROVIDER_X_REFRESH_TOKEN", "tok\n123"); err == nil || !strings.Contains(err.Error(), "one line") {
 		t.Fatalf("Store with an inner newline = %v, want the one-line refusal", err)
+	}
+}
+
+func readRecord(t *testing.T, name string) vault.Record {
+	t.Helper()
+	var record vault.Record
+	if err := vault.View(func(tx *vault.Tx) error {
+		var found bool
+		var err error
+		record, found, err = tx.Record(name)
+		if err == nil && !found {
+			t.Fatalf("record %s missing", name)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return record
+}
+
+func TestLoadMetaKeylessAndCurrent(t *testing.T) {
+	vaulttest.Use(t)
+	if err := vault.Store("STORED", "sk-ant-oat01-abcdefghijklmnopqrstuvwxyz"); err != nil {
+		t.Fatal(err)
+	}
+	r := readRecord(t, "STORED")
+	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
+	t.Setenv("ONLY_IN_ENV", "not-stored")
+	for range 2 {
+		meta, err := vault.LoadMeta()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]vault.SecretMeta{"STORED": {
+			Prefix: r.Prefix, Len: r.Len, SetAt: r.SetAt,
+			VerifiedAt: r.VerifiedAt, VerifyStatus: r.VerifyStatus,
+		}}
+		if !reflect.DeepEqual(meta, want) {
+			t.Fatalf("LoadMeta = %+v, want %+v", meta, want)
+		}
+	}
+	if err := vault.Delete("STORED"); err != nil {
+		t.Fatal(err)
+	}
+	if meta, err := vault.LoadMeta(); err != nil || len(meta) != 0 {
+		t.Fatalf("LoadMeta after vault.Delete = %+v, %v", meta, err)
+	}
+}
+
+func TestLoadMetaMissingVaultDoesNotCreateIt(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
+	if meta, err := vault.LoadMeta(); err != nil || len(meta) != 0 {
+		t.Fatalf("LoadMeta = %+v, %v, want empty, nil", meta, err)
+	}
+	if _, err := os.Stat(vault.Path()); !os.IsNotExist(err) {
+		t.Fatalf("LoadMeta created a vault: %v", err)
+	}
+}
+
+func TestRecordProbeKeylessPreservesRecord(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Secret(t, "PROBE", "sk-test-abcdefghijklmnopqrstuvwxyz")
+	before := readRecord(t, "PROBE")
+	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
+	at := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	if err := vault.RecordProbe("PROBE", "verified", at, before.SetAt); err != nil {
+		t.Fatal(err)
+	}
+	want := before
+	want.VerifyStatus, want.VerifiedAt = "verified", at
+	if got := readRecord(t, "PROBE"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("RecordProbe changed fields beyond the probe: got %+v, want %+v", got, want)
+	}
+	if meta, err := vault.LoadMeta(); err != nil || meta["PROBE"].VerifyStatus != "verified" || !meta["PROBE"].VerifiedAt.Equal(at) {
+		t.Fatalf("LoadMeta probe = %+v, %v", meta, err)
+	}
+	if err := vault.RecordProbe("MISSING", "rejected", at, at); err != nil {
+		t.Fatal(err)
+	}
+	if got := vault.Names(); len(got) != 1 || got[0] != "PROBE" {
+		t.Fatalf("RecordProbe created an absent record: %v", got)
+	}
+}
+
+func TestStoreNeverLeaksRawBytesIntoMetadataOrVault(t *testing.T) {
+	vaulttest.Use(t)
+	values := []string{"aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStT12", "zZyYxXwWvVuUtTsSrRqQpPoOnNmMlLkKjJiIhHgG98"}
+	for i, name := range []string{"FIRST", "SECOND"} {
+		if err := vault.Store(name, values[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	checkNoPlaintext(t, values)
+	fi, err := os.Stat(vault.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("vault mode = %04o, want 0600", fi.Mode().Perm())
+	}
+}
+
+// checkNoPlaintext fails if any value appears in the marshaled metadata or the raw vault file.
+func checkNoPlaintext(t *testing.T, values []string) {
+	t.Helper()
+	meta, err := vault.LoadMeta()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawMeta, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawVault, err := os.ReadFile(vault.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range values {
+		if bytes.Contains(rawMeta, []byte(value)) || bytes.Contains(rawVault, []byte(value)) {
+			t.Fatal("metadata or vault contains a plaintext secret")
+		}
+	}
+}
+
+func TestStoreClearsVerifyStatusAndDeleteRemovesRow(t *testing.T) {
+	vaulttest.Use(t)
+	if err := vault.Store("VERIFY_ME", "v1"); err != nil {
+		t.Fatal(err)
+	}
+	setAt := readRecord(t, "VERIFY_ME").SetAt
+	at := time.Now()
+	if err := vault.RecordProbe("VERIFY_ME", "verified", at, setAt); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := metaRow(t, "VERIFY_ME"); got.VerifyStatus != "verified" || !got.VerifiedAt.Equal(at) {
+		t.Fatalf("probe metadata = %+v", got)
+	}
+	if err := vault.Store("VERIFY_ME", "v2"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := metaRow(t, "VERIFY_ME"); got.VerifyStatus != "" || !got.VerifiedAt.IsZero() {
+		t.Fatalf("Store must clear VerifyStatus/VerifiedAt, got %+v", got)
+	}
+	if err := vault.Delete("VERIFY_ME"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := metaRow(t, "VERIFY_ME"); ok {
+		t.Fatal("Delete must remove the row entirely")
+	}
+}
+
+// metaRow loads the vault metadata and returns name's row and whether it exists.
+func metaRow(t *testing.T, name string) (vault.SecretMeta, bool) {
+	t.Helper()
+	m, err := vault.LoadMeta()
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, ok := m[name]
+	return row, ok
+}
+
+func TestMetaPrefixNeverPersistsWholeValue(t *testing.T) {
+	vaulttest.Use(t)
+	for _, v := range []string{"abc-def-", "ab-cd-ef-gh-", "sk-ant-oat01-abcdefghijklmnopqrstuvwxyz"} {
+		if err := vault.Store("SHORT_SEG", v); err != nil {
+			t.Fatal(err)
+		}
+		m, err := vault.LoadMeta()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p := m["SHORT_SEG"].Prefix; len(p) > len(v)/3 {
+			t.Fatalf("prefix %q persisted for %q: over a third of the value", p, v)
+		}
+	}
+	if p := vault.MetaPrefix("sk-ant-oat01-abcdefghijklmnopqrstuvwxyz"); p != "sk-ant-oat01-" {
+		t.Fatalf("MetaPrefix dropped a genuine vendor prefix: %q", p)
+	}
+}
+
+func TestMetaPrefixNoSchemeShowsFirstFive(t *testing.T) {
+	for _, tc := range []struct{ v, want string }{
+		{"abcdefghijklmnopqrstuvwxyz", "abcde"}, // plain long value: 5 chars
+		{"abcdefghijkl", "abcd"},                // 12 chars: a third is 4, under the 5 cap
+		{"abcdefghijk", ""},                     // under redactMin: nothing kept
+		{"short", ""},
+	} {
+		if got := vault.MetaPrefix(tc.v); got != tc.want {
+			t.Errorf("MetaPrefix(%q) = %q, want %q", tc.v, got, tc.want)
+		}
+		if got := vault.MetaPrefix(tc.v); len(got) > len(tc.v)/3 {
+			t.Errorf("MetaPrefix(%q) = %q is over a third of the value", tc.v, got)
+		}
+	}
+}
+
+func TestCachedProbe(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	ttl := time.Hour
+
+	cases := []struct {
+		name       string
+		m          vault.SecretMeta
+		wantStatus string
+		wantAge    time.Duration
+		wantOK     bool
+	}{
+		{"verified within ttl", vault.SecretMeta{VerifyStatus: "verified", VerifiedAt: now.Add(-10 * time.Minute)}, "verified", 10 * time.Minute, true},
+		{"rejected within ttl", vault.SecretMeta{VerifyStatus: "rejected", VerifiedAt: now.Add(-10 * time.Minute)}, "rejected", 10 * time.Minute, true},
+		{"unreachable", vault.SecretMeta{VerifyStatus: "unreachable", VerifiedAt: now.Add(-10 * time.Minute)}, "", 10 * time.Minute, false},
+		{"verified older than ttl", vault.SecretMeta{VerifyStatus: "verified", VerifiedAt: now.Add(-2 * time.Hour)}, "", 2 * time.Hour, false},
+		{"verified at ttl", vault.SecretMeta{VerifyStatus: "verified", VerifiedAt: now.Add(-ttl)}, "", ttl, false},
+		{"zero VerifiedAt", vault.SecretMeta{}, "", 0, false},
+	}
+	for _, c := range cases {
+		status, age, ok := vault.CachedProbe(c.m, ttl, now)
+		if status != c.wantStatus || age != c.wantAge || ok != c.wantOK {
+			t.Errorf("%s: vault.CachedProbe = (%q, %v, %v), want (%q, %v, %v)",
+				c.name, status, age, ok, c.wantStatus, c.wantAge, c.wantOK)
+		}
+	}
+}
+
+func TestLocate(t *testing.T) {
+	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
+	for _, tc := range []struct {
+		name, env, source, shadowed string
+		stored                      bool
+	}{
+		{"env over vault", "x", "env", "vault", true},
+		{"vault only", "", "vault", "", true},
+		{"env only", "x", "env", "", false},
+		{"none", "", "", "", false},
+		{"blank env over vault", " \n", "vault", "", true},
+		{"blank env", " \n", "", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("LOCATE_TEST", tc.env)
+			meta := map[string]vault.SecretMeta{}
+			if tc.stored {
+				meta["LOCATE_TEST"] = vault.SecretMeta{}
+			}
+			if src, sh := vault.Locate("LOCATE_TEST", meta); src != tc.source || sh != tc.shadowed {
+				t.Errorf("Locate = (%q, %q), want (%q, %q)", src, sh, tc.source, tc.shadowed)
+			}
+		})
 	}
 }

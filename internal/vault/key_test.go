@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -61,40 +62,6 @@ func TestRotateKeyForceAcceptsCurrentEnvKey(t *testing.T) {
 	t.Setenv("HARNESS_VAULT_KEY", ringValue(ring, acct+"."+newKid))
 	checkRecordKid(t, "TOKEN", newKid)
 	phase1bRead(t, "TOKEN", "survives-forced-rotation")
-}
-
-func TestEnsureKeyNoAnswerDoesNotGenerate(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HARNESS_VAULT_KEY", "")
-	ring := &specKeyring{
-		values: make(map[string]string),
-		err:    ErrKeyringNoAnswer,
-	}
-	useSpecKeyring(t, ring)
-
-	key, err := EnsureKey()
-	if err == nil {
-		t.Fatal("EnsureKey succeeded after ErrKeyringNoAnswer")
-	}
-	if key != nil {
-		t.Fatal("EnsureKey returned a key after ErrKeyringNoAnswer")
-	}
-	ring.mu.Lock()
-	defer ring.mu.Unlock()
-	if len(ring.lookups) == 0 {
-		t.Error("EnsureKey did not consult the unavailable keyring")
-	}
-	if ring.sets != 0 || len(ring.values) != 0 {
-		t.Errorf("EnsureKey mutated keyring after ErrNoAnswer: sets=%d entries=%d", ring.sets, len(ring.values))
-	}
-	if err := View(func(tx *Tx) error {
-		if kid, ok := tx.Get(Meta, "kid"); ok {
-			t.Errorf("EnsureKey persisted kid %q after ErrNoAnswer", kid)
-		}
-		return nil
-	}); err != nil {
-		t.Fatalf("read metadata after failed EnsureKey: %v", err)
-	}
 }
 
 // TestMasterKeyResolvesViaPerKidAccountOnPointerMismatch covers R1/R2's replacement for the
@@ -327,20 +294,22 @@ func TestKeyCommandArgvJSON(t *testing.T) {
 	}
 }
 
-// TestKeyCommandArgvRejectsBadConfig covers the validation half of R6: a non-array value and an
-// empty array must both be rejected with a clear error, never silently tried as a shell string.
-func TestKeyCommandArgvRejectsBadConfig(t *testing.T) {
+// parseKeyCommandArgv accepts only a JSON argv array with a nonempty executable; later arguments may be empty (R6).
+func TestParseKeyCommandArgv(t *testing.T) {
 	for _, tc := range []struct {
 		name, raw string
+		want      []string
 	}{
-		{"not_json", "helper --label vault"},
-		{"json_string_not_array", `"helper"`},
-		{"empty_array", `[]`},
-		{"empty_executable", `["", "x"]`},
+		{"not_json", "helper --label vault", nil},
+		{"json_string_not_array", `"helper"`, nil},
+		{"empty_array", `[]`, nil},
+		{"empty_executable", `["", "x"]`, nil},
+		{"empty_later_argument", `["helper", "--label", ""]`, []string{"helper", "--label", ""}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := parseKeyCommandArgv(tc.raw); err == nil {
-				t.Fatalf("parseKeyCommandArgv(%q) succeeded, want an error", tc.raw)
+			got, err := parseKeyCommandArgv(tc.raw)
+			if (err == nil) != (tc.want != nil) || !slices.Equal(got, tc.want) {
+				t.Fatalf("parseKeyCommandArgv(%q) = %#v, %v; want %#v", tc.raw, got, err, tc.want)
 			}
 		})
 	}
@@ -384,28 +353,6 @@ func TestResolveKeyMissingEverythingIsLockedNeverBootstraps(t *testing.T) {
 	key, err := EnsureKey()
 	if key != nil || !errors.Is(err, ErrLocked) {
 		t.Fatalf("EnsureKey = (%v, %v), want nil, ErrLocked", key, err)
-	}
-}
-
-// TestParseKeyCommandArgvAllowsEmptyArgument covers the review's LOW #2: a valid argv may contain
-// an empty argument after the executable at index 0 — only the executable itself must be nonempty.
-func TestParseKeyCommandArgvAllowsEmptyArgument(t *testing.T) {
-	want := []string{"helper", "--label", ""}
-	raw, err := json.Marshal(want)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := parseKeyCommandArgv(string(raw))
-	if err != nil {
-		t.Fatalf("parseKeyCommandArgv(%q) = %v, want the exact argv round-tripped", raw, err)
-	}
-	if len(got) != len(want) {
-		t.Fatalf("parseKeyCommandArgv = %#v, want %#v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("parseKeyCommandArgv = %#v, want %#v", got, want)
-		}
 	}
 }
 

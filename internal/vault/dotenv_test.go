@@ -15,31 +15,27 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-func TestParseDotenvStrictFormat(t *testing.T) {
-	in := "# comment\nENVIRONMENT=dev\n\nURL=https://x?a=b\nexport FOO=bar\nQUOTED=\"kept as is\"\nEMPTY=\n9BAD=x\nno equals\n"
-	pairs, problems := vault.ParseDotenv(strings.NewReader(in))
-	want := []vault.Pair{{"ENVIRONMENT", "dev"}, {"URL", "https://x?a=b"}, {"FOO", "bar"}, {"QUOTED", "kept as is"}}
-	if !slices.Equal(pairs, want) {
-		t.Errorf("pairs = %v, want %v", pairs, want)
-	}
-	wantProblems := []string{"line 7: EMPTY has no value", "line 8: want NAME=value", "line 9: want NAME=value"}
-	if !slices.Equal(problems, wantProblems) {
-		t.Errorf("problems = %v, want %v", problems, wantProblems)
-	}
-}
-
-// R4: the legacy providers.ReadEnvFile trimmed whitespace before stripping quotes, so
-// `TOKEN= "abc"` resolved to `abc`; ParseDotenv must match or migration silently corrupts values
-// (and whitespace around `@keyring` must not block reference conversion either).
-func TestParseDotenvTrimsWhitespaceBeforeStrippingQuotes(t *testing.T) {
-	in := "TOKEN= \"abc\" \nREF= @keyring \n"
-	pairs, problems := vault.ParseDotenv(strings.NewReader(in))
-	want := []vault.Pair{{"TOKEN", "abc"}, {"REF", "@keyring"}}
-	if len(problems) != 0 {
-		t.Fatalf("problems = %v, want none", problems)
-	}
-	if !slices.Equal(pairs, want) {
-		t.Errorf("pairs = %v, want %v", pairs, want)
+// ParseDotenv keeps NAME=value lines, trims before stripping one quote pair (R4) and reports malformed lines.
+func TestParseDotenv(t *testing.T) {
+	for _, tc := range []struct {
+		name, in string
+		pairs    []vault.Pair
+		problems []string
+	}{
+		{"strict format",
+			"# comment\nENVIRONMENT=dev\n\nURL=https://x?a=b\nexport FOO=bar\nQUOTED=\"kept as is\"\nEMPTY=\n9BAD=x\nno equals\n",
+			[]vault.Pair{{"ENVIRONMENT", "dev"}, {"URL", "https://x?a=b"}, {"FOO", "bar"}, {"QUOTED", "kept as is"}},
+			[]string{"line 7: EMPTY has no value", "line 8: want NAME=value", "line 9: want NAME=value"}},
+		{"trims whitespace before stripping quotes", "TOKEN= \"abc\" \nREF= @keyring \n",
+			[]vault.Pair{{"TOKEN", "abc"}, {"REF", "@keyring"}}, nil},
+		{"indented comment", "  # note\n\t# tab\nA=1\n", []vault.Pair{{"A", "1"}}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pairs, problems := vault.ParseDotenv(strings.NewReader(tc.in))
+			if !slices.Equal(pairs, tc.pairs) || !slices.Equal(problems, tc.problems) {
+				t.Errorf("ParseDotenv = %v, %v; want %v, %v", pairs, problems, tc.pairs, tc.problems)
+			}
+		})
 	}
 }
 
@@ -280,10 +276,8 @@ func TestAppendDotenvRefusesSymlink(t *testing.T) {
 // AppendDotenv warns on stderr when it writes the default ./.env in a git work tree that does not
 // gitignore it; a non-default path, or one already ignored, must stay silent.
 func TestAppendDotenvWarnsWhenDefaultEnvNotGitignored(t *testing.T) {
-	if _, err := os.Stat("/usr/bin/git"); err != nil {
-		if _, err := os.Stat("/opt/homebrew/bin/git"); err != nil {
-			t.Skip("git not found")
-		}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
 	}
 	repo := t.TempDir()
 	t.Chdir(repo)
@@ -321,10 +315,8 @@ func TestAppendDotenvWarnsWhenDefaultEnvNotGitignored(t *testing.T) {
 // warnIfUntrackedDefault must stay silent outside a git work tree: `git check-ignore` there exits
 // 128, not 1, and only exit 1 ("tracked path, not ignored") is a real warning case.
 func TestWarnIfUntrackedDefaultOutsideRepo(t *testing.T) {
-	if _, err := os.Stat("/usr/bin/git"); err != nil {
-		if _, err := os.Stat("/opt/homebrew/bin/git"); err != nil {
-			t.Skip("git not found")
-		}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
 	}
 	dir := t.TempDir()
 	t.Chdir(dir)
@@ -336,12 +328,5 @@ func TestWarnIfUntrackedDefaultOutsideRepo(t *testing.T) {
 	})
 	if out != "" {
 		t.Fatalf("stderr = %q, want silence outside a git work tree", out)
-	}
-}
-
-func TestParseDotenvSkipsIndentedComment(t *testing.T) {
-	pairs, problems := vault.ParseDotenv(strings.NewReader("  # note\n\t# tab\nA=1\n"))
-	if len(problems) != 0 || !slices.Equal(pairs, []vault.Pair{{"A", "1"}}) {
-		t.Errorf("pairs = %v, problems = %v; want only A=1 and no problems", pairs, problems)
 	}
 }
