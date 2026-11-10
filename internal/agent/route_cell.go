@@ -31,6 +31,8 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip 
 		rc.claudeTierCell(&cell)
 	case rc.pinnedCaller(cand):
 		rc.pinnedCell(cand, &cell)
+	case rc.callerOnProfile(cand): // the wanted agent's profile row runs the caller's --model, never its pin or tier
+		return rc.callerProfileCell(cand, cell)
 	case rc.profileBacked(cand): // a Databricks dispatch serves only its own cell's model
 		return rc.profileCell(cand, cell)
 	case rc.exact != "": // a non-Claude id runs only where a cell serves it
@@ -56,6 +58,44 @@ func (rc routeCtx) pinnedCell(cand router.Candidate, cell *router.Cell) {
 	if rc.reg != nil && rc.reg.Providers[cand.Profile] != nil {
 		cell.Model = rc.reg.Providers[cand.Profile].WireModel(cell.Model)
 	}
+}
+
+// callerOnProfile reports the wanted agent on a registry profile asked for a concrete id (an alias keeps the tier).
+func (rc routeCtx) callerOnProfile(cand router.Candidate) bool {
+	concrete := rc.explicitModel && cmp.Or(rc.exact, rc.row) != "" && !slices.Contains(models.AliasNames, rc.callerModel)
+	known := cand.Profile != "" && rc.reg != nil && rc.reg.Providers[cand.Profile] != nil
+	return concrete && known && cand.Agent == rc.want && wireAgent(cand.Agent)
+}
+
+// wireAgent is an agent with dialects whose profile row takes a caller's model: not claude, a hub or codex.
+func wireAgent(name string) bool {
+	s, ok := LookupSchema(name)
+	return ok && len(s.CLI.Dialects) > 0 && name != "claude" && !IsHubAgent(name) && !speaksResponses(name)
+}
+
+// callerProfileCell runs the caller's model as cand's profile serves it, or skips the row naming why it cannot.
+func (rc routeCtx) callerProfileCell(cand router.Candidate, cell router.Cell) (router.Cell, string) {
+	model := strings.TrimPrefix(rc.callerModel, cand.Profile+":")
+	wire, why := ProfileServes(cand.Agent, rc.reg.Providers[cand.Profile], model)
+	if why != "" {
+		return cell, cand.Agent + " (" + cmp.Or(cand.Account, cand.Profile) + "): " + why
+	}
+	cell.Model = wire
+	return cell, ""
+}
+
+// ProfileServes is model as p spells it when a fresh listing does not mark it NOT_READY and agentName Serves it there.
+func ProfileServes(agentName string, p *providers.Provider, model string) (wire, why string) {
+	if wire = providers.SpellPin(p, model); wire == "" {
+		return "", "serves no " + model
+	}
+	if ready, fresh := router.ServedReady(p, wire, time.Now()); fresh && !ready {
+		return "", "serves no " + wire + " (not a READY endpoint on " + p.Name + ")"
+	}
+	if ok, why := Serves(agentName, p, wire); !ok {
+		return "", why
+	}
+	return wire, ""
 }
 
 // profileBacked reports a non-hub profile candidate facing an exact non-Claude model.

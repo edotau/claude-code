@@ -296,3 +296,27 @@ func macFallbackScratch(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A Databricks id the refused GitHub login hands to the fallback profile runs only if that profile serves it.
+func TestCopilotGateRefusesModelFallbackProfileDoesNotServe(t *testing.T) {
+	macFallbackScratch(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"routing":{"servedAware":true},"providers":{"databricks":{"dbx":`+
+		`{"preset":"databricks","host":"https://127.0.0.1:1","auth":{"type":"key","env":"DBX_CLI_TOKEN"}}}}}`)
+	if err := router.SaveServed(router.Served{Profile: "dbx", FetchedAt: time.Now(), Models: []router.ServedModel{
+		{ID: "databricks-kimi-k3", Ready: "READY"}, {ID: "databricks-glm-5-3", Ready: "NOT_READY"}}}); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gh := &providers.Provider{Name: "personal", Auth: providers.Auth{Login: "copilot"}}
+	if got, _, err := copilotGate(reg, providers.Target{Provider: gh, Model: "databricks-kimi-k3"}); err != nil ||
+		got.Provider == nil || got.Provider.Name != "dbx" {
+		t.Fatalf("served kimi: gate = %+v, %v; want the dbx fallback", got.Provider, err)
+	}
+	_, _, err = copilotGate(reg, providers.Target{Provider: gh, Model: "databricks-glm-5-3"})
+	if err == nil || !strings.Contains(err.Error(), "dbx serves no databricks-glm-5-3") {
+		t.Fatalf("unserved glm: gate err = %v, want a refusal naming dbx and databricks-glm-5-3", err)
+	}
+}
