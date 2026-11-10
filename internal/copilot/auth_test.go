@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/usage"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -145,5 +146,29 @@ func TestFetchGitHubLoginCapsBody(t *testing.T) {
 	gitHubUserURL = srv.URL + "?big=1"
 	if got := fetchGitHubLogin("fake-token"); got != "" {
 		t.Fatalf("oversized body gave a %d-byte login, want \"\" (body uncapped)", len(got))
+	}
+}
+
+// An unworkable seat's notice carries the last check's note: a Free seat says it has no premium credits plainly.
+func TestCopilotHeadroomNamesCheckNote(t *testing.T) {
+	pinsScratch(t)
+	gh := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", gh)
+	if err := os.WriteFile(filepath.Join(gh, "hosts.yml"), []byte("github.com:\n    users:\n        free:\n            oauth_token: x\n        gone:\n            oauth_token: x\n    user: free\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	orig := CopilotUsedPct
+	CopilotUsedPct = func(context.Context, string) (float64, bool) { return 0, false }
+	t.Cleanup(func() { CopilotUsedPct = orig })
+	for login, c := range map[string]struct{ note, want string }{
+		"free": {usage.NoPremiumCredits + " (Free plan)", "free has no Copilot premium credits (Free plan)"},
+		"gone": {"unavailable: no token", "gone unverified (unavailable: no token)"},
+	} {
+		if err := router.MarkChecked("github·"+login, c.note, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if got, ok := copilotHeadroom(context.Background(), login); ok || got != c.want {
+			t.Errorf("copilotHeadroom(%s) = %q, %v; want %q, unworkable", login, got, ok, c.want)
+		}
 	}
 }

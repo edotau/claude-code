@@ -31,11 +31,10 @@ func StubGOOS(goos string) (restore func()) {
 	return func() { copilotGOOS = orig }
 }
 
-// errCopilotRegistryDarwin refuses the registry on macOS, where copilot's Keychain login is not hidden by the home.
+// errCopilotRegistryDarwin refuses the registry on macOS (Keychain login unhidden); fits FallbackReason's 200 runes.
 var errCopilotRegistryDarwin = errors.New(
-	"copilot: the Databricks model registry is not supported on macOS yet (copilot reads its GitHub login from the " +
-		"Keychain, which the private home cannot hide); a Keychain check is a follow-up; " +
-		"use --direct to run copilot on Databricks with a single model")
+	"copilot: the Databricks model registry is unsupported on macOS (copilot's Keychain GitHub login is not hidden); " +
+		"use --direct")
 
 func checkCopilotRegistryOS() error {
 	if copilotGOOS == "darwin" {

@@ -146,10 +146,14 @@ func githubQuota(ctx context.Context, login string) quota {
 	return parseCopilot(login, body)
 }
 
+// NoPremiumCredits is the note for a seat GitHub says holds no premium credits; it records no reading, never 100%.
+const NoPremiumCredits = "no Copilot premium credits"
+
 // parseCopilot turns a /copilot_internal/user body into its premium-credit row.
 func parseCopilot(login string, body []byte) quota {
 	var u struct {
 		Plan  string `json:"copilot_plan"`
+		SKU   string `json:"access_type_sku"`
 		Reset string `json:"quota_reset_date"`
 		Snaps struct {
 			Premium struct {
@@ -157,6 +161,7 @@ func parseCopilot(login string, body []byte) quota {
 				Used        float64  `json:"credits_used"`
 				PctLeft     *float64 `json:"percent_remaining"`
 				Unlimited   bool     `json:"unlimited"`
+				HasQuota    *bool    `json:"has_quota"`
 			} `json:"premium_interactions"`
 		} `json:"quota_snapshots"`
 	}
@@ -173,6 +178,12 @@ func parseCopilot(login string, body []byte) quota {
 	}
 	if p.Entitlement == 0 {
 		q.Note = "no premium quota reported"
+		if p.HasQuota != nil && !*p.HasQuota { // GitHub says so outright: a definite no, still not a reading
+			q.Note = NoPremiumCredits
+			if strings.HasPrefix(u.SKU, "free") {
+				q.Note += " (Free plan)"
+			}
+		}
 		return q
 	}
 	pctLeft := 100 - 100*p.Used/p.Entitlement
