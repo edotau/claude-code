@@ -278,7 +278,7 @@ func TestSDKListModelsWrapsListerError(t *testing.T) {
 	}
 }
 
-// An empty catalog is not an error: SDKListModels returns an empty, non-nil slice.
+// An empty catalog is not an error: SDKListModels returns no models.
 func TestSDKListModelsEmptyCatalog(t *testing.T) {
 	old := listModelsFn
 	defer func() { listModelsFn = old }()

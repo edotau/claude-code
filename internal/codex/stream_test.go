@@ -21,3 +21,12 @@ not json
 }
 
 // cached_input_tokens above input_tokens must not push the summed input usage negative.
+func TestParseCodexStreamCachedInputNeverNegative(t *testing.T) {
+	stream := `{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":5}}
+{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":30,"output_tokens":2}}`
+	res, err := parseCodexStream(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil)
+	want := wire.Usage{InputTokens: 60, CacheReadTokens: 70, OutputTokens: 7}
+	if err != nil || res.Usage != want {
+		t.Fatalf("usage = %+v, err = %v; want %+v", res.Usage, err, want)
+	}
+}

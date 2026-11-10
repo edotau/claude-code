@@ -72,12 +72,12 @@ func TestPrepareCopilotRegistryEmptyModelUsesDefault(t *testing.T) {
 	}
 }
 
-// With no flag and no pin, the profile's default model is the choice; a flag or pin still wins.
+// With no flag and no pin, the profile's default model (minus [1m]) is the choice; a flag or pin still wins.
 func TestCopilotChoiceProfileDefault(t *testing.T) {
 	pinsScratch(t)
 	t.Setenv("COPILOT_MODEL", "")
-	if got := copilotChoice(nil, "claude-sonnet-5-5").Requested; !slices.Equal(got, []string{"claude-sonnet-5-5"}) {
-		t.Errorf("no flag/pin: Requested = %v, want the profile default", got)
+	if got := copilotChoice(nil, "claude-sonnet-5-5[1m]").Requested; !slices.Equal(got, []string{"claude-sonnet-5-5"}) {
+		t.Errorf("no flag/pin: Requested = %v, want the profile default without [1m]", got)
 	}
 	if got := copilotChoice([]string{"gpt-5-5"}, "claude-sonnet-5-5").Requested; !slices.Equal(got, []string{"gpt-5-5"}) {
 		t.Errorf("flag: Requested = %v, want the flag only", got)
