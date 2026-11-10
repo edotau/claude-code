@@ -299,7 +299,9 @@ func codexHasJSON() bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 	defer cancel()
-	out, runErr := exec.CommandContext(ctx, bin, "exec", "--help").CombinedOutput()
+	cmd := exec.CommandContext(ctx, bin, "exec", "--help")
+	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(agent.ProbeContext(ctx, "")) // no login or route credential
+	out, runErr := cmd.CombinedOutput()
 	has := strings.Contains(string(out), "--json")
 	if ctx.Err() == nil && (runErr == nil || has) {
 		codexJSONKnown, codexJSONValue = true, has

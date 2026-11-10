@@ -162,7 +162,7 @@ func runCodexCatalog(ctx context.Context, bin, home string, args ...string) ([]b
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	spec := agent.EnvSpec{Mode: agent.EnvAgent, Unset: []string{agentconfig.OverlayVar}, Set: []string{"CODEX_HOME=" + home}}
-	cmd.Env = spec.Environ(ctx) // no credentials for a --version probe; isolation and unset ride ctx
+	cmd.Env = spec.Environ(agent.ProbeContext(ctx, "")) // no login or route credential; unset rides ctx
 	agentconfig.RecordOverlayDebug("codex-catalog", cmd.Env)
 	cmd.Dir = home
 	out, err := cmd.Output()

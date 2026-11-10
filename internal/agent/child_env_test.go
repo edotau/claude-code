@@ -190,6 +190,30 @@ func TestChildCmdOwnLoginDropsForeignCredentialsUnderIsolation(t *testing.T) {
 	}
 }
 
+// A vendor probe holds no registry credential and no own login but the one it names; a plain ctx scrubs none of them.
+func TestProbeContextScrubsCredentials(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks",`+
+		`"host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
+	planted := []string{"DEV_WS_TOKEN", "OPENCODE_API_KEY", "GITHUB_TOKEN", "GH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
+	for _, k := range planted {
+		t.Setenv(k, "SENTINEL")
+	}
+	creds := func(ctx context.Context) []string {
+		names := EnvNames(EnvSpec{Mode: EnvAgent}.Environ(ctx))
+		return slices.DeleteFunc(names, func(n string) bool { return !slices.Contains(planted, n) })
+	}
+	wants := map[string][]string{"": nil, "opencode": {"OPENCODE_API_KEY"}, "copilot": {"GH_TOKEN", "GITHUB_TOKEN"}}
+	for login, want := range wants {
+		if got := creds(ProbeContext(context.Background(), login)); !slices.Equal(slices.Sorted(slices.Values(got)), want) {
+			t.Errorf("probe for login %q keeps %v, want %v", login, got, want)
+		}
+	}
+	if got := creds(context.Background()); len(got) != 5 {
+		t.Errorf("a plain child keeps %v, want all five planted names", got)
+	}
+}
+
 // A hub dispatch keeps the credential its launch supplies even when another profile declares the same env name; the
 // inherited value of that name is gone.
 func TestChildCmdLaunchValuesSurviveIsolationScrub(t *testing.T) {

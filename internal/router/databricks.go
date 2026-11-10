@@ -227,7 +227,7 @@ func (t *RouteTable) gateArm(
 		return group, len(group) > 0
 	}
 	if agent == "opencode" {
-		g, _ := t.gateOpencodeCandidate(ctx, alias, armOpencodeSub, st, o, now, configured, res)
+		g, _ := t.gateOpencodeCandidate(ctx, alias, ArmOpencodeSub, st, o, now, configured, res)
 		group = append(group, g...)
 	}
 	for _, row := range own {
@@ -237,12 +237,12 @@ func (t *RouteTable) gateArm(
 	return group, len(group) > 0
 }
 
-// armOpencodeSub is opencode's own-login sub id, its one first-party hop inside the arm.
-const armOpencodeSub = "opencode-go"
+// ArmOpencodeSub is opencode's own-login sub id, its one first-party hop inside the arm.
+const ArmOpencodeSub = "opencode-go"
 
 // armPinSkip records a pin the arm sets aside: a profile or opencode sub id that is neither arm nor agent's own login.
 func armPinSkip(agent, pin, arm string, own []string, res *PickResult) {
-	if pin == "" || pin == arm || slices.Contains(own, pin) || (agent == "opencode" && pin == armOpencodeSub) {
+	if pin == "" || pin == arm || slices.Contains(own, pin) || (agent == "opencode" && pin == ArmOpencodeSub) {
 		return
 	}
 	label := agent + "·" + pin // an opencode sub id is no registry row

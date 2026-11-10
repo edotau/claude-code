@@ -44,7 +44,11 @@ var opencodeOutput = func(ctx context.Context, args ...string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return agent.ProbeCLI(ctx, bin, agent.EnvSpec{Mode: agent.EnvAgent}, false, args...) // never hand it HARNESS_VAULT_KEY
+	login := "opencode" // `auth list` reports OPENCODE_API_KEY from env; `--version` needs no login
+	if len(args) > 0 && args[0] == "--version" {
+		login = ""
+	}
+	return agent.ProbeCLI(agent.ProbeContext(ctx, login), bin, agent.EnvSpec{Mode: agent.EnvAgent}, false, args...)
 }
 
 var (

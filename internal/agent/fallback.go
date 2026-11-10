@@ -240,7 +240,7 @@ func FallbackReason(err error) string {
 	return textutil.CapRunes(textutil.RedactSecrets(s), 200, "")
 }
 
-// dispatchUnavailable: a pre-answer auth failure or state refusal, or a failed external hop (else claude/api never).
+// dispatchUnavailable: a pre-answer auth failure or state refusal, or a failed hop that falls through.
 func dispatchUnavailable(r Engine, res wire.Result, err error) bool {
 	if requestFault(err) {
 		return false
@@ -249,8 +249,13 @@ func dispatchUnavailable(r Engine, res wire.Result, err error) bool {
 	if errors.As(err, &ae) && (ae.AuthReason != "" || ae.Terminal) && res.Answer == "" {
 		return true
 	}
+	return fallsThrough(r) && hopFailed(res, err)
+}
+
+// fallsThrough: an external agent's failed hop moves on; claude's only inside the databricks route (else never).
+func fallsThrough(r Engine) bool {
 	s, ok := LookupSchema(r.Name())
-	return (!ok || s.External()) && hopFailed(res, err)
+	return !ok || s.External() || (r.Name() == "claude" && router.ArmProfile() != "")
 }
 
 // hopFailed is true when a dispatch failed before giving any answer for a reason a later hop could fix.
@@ -264,13 +269,13 @@ func hopFailed(res wire.Result, err error) bool {
 	return !retry.Progressed(err)
 }
 
-// cutOffMidRun: an external dispatch that started work, then hit a 429, quota or auth wall; any Answer is partial.
+// cutOffMidRun: a fall-through dispatch that started work, then hit a 429, quota or auth wall; any Answer is partial.
 func cutOffMidRun(r Engine, err error) bool {
 	e, ok := errors.AsType[*retry.Error](err)
 	if r == nil || !ok || !e.Progressed || requestFault(err) {
 		return false
 	}
-	if s, known := LookupSchema(r.Name()); known && !s.External() {
+	if !fallsThrough(r) {
 		return false
 	}
 	return e.Kind == retry.KindRateLimit || e.Kind == retry.KindQuota || e.AuthReason != ""

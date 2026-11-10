@@ -48,6 +48,29 @@ var ScrubDeny = append(slices.Clone(AnthropicStripEnv), []string{
 	"HARNESS_CODEX_PROFILE", "HARNESS_CODEX_CATALOG",
 }...)
 
+// OwnLoginEnv is each agent's own sign-in credential env by agent name; a Databricks route hop holds none of them.
+var OwnLoginEnv = map[string][]string{
+	"claude": {"CLAUDE_CODE_OAUTH_TOKEN", EnvAnthropicAPIKey}, // ANTHROPIC_AUTH_TOKEN is route wiring, not a login
+	"codex":  {"OPENAI_API_KEY"},
+	"copilot": {"COPILOT_GITHUB_TOKEN", "COPILOT_SDK_AUTH_TOKEN", "GH_TOKEN", "GITHUB_TOKEN",
+		"GITHUB_ENTERPRISE_TOKEN", "GH_ENTERPRISE_TOKEN"},
+	"gemini":   {"GEMINI_API_KEY", "GOOGLE_API_KEY"},
+	"opencode": {"OPENCODE_API_KEY"},
+}
+
+// ForeignLogins is every agent's OwnLoginEnv except own's; keepGHToken spares GH_TOKEN, which git and gh need.
+func ForeignLogins(own string, keepGHToken bool) []string {
+	var out []string
+	for name, envs := range OwnLoginEnv {
+		if name != own {
+			out = append(out, slices.DeleteFunc(slices.Clone(envs), func(n string) bool {
+				return keepGHToken && n == "GH_TOKEN"
+			})...)
+		}
+	}
+	return out
+}
+
 // EnvKeepVar opts bare shims back into an inherited name; their argv belongs to the agent, not the harness.
 const EnvKeepVar = "HARNESS_KEEP_ENV"
 
