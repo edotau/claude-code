@@ -351,7 +351,7 @@ func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *provi
 	if id := providers.IdentityFrom(ctx); id != "" {
 		hdrs = append(hdrs, gateway.IdentityHeader+": "+id)
 	}
-	tok, err := armToken(ctx, p.Name)
+	tok, err := armToken(ctx, base, p.Name)
 	if err != nil {
 		return "", "", err
 	}
@@ -376,13 +376,13 @@ func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *provi
 // from grandchildren, so a nested launch mints its own.
 const ProxyKeyEnv = "HARNESS_PROXY_API_KEY"
 
-// armToken mints a session token confined to profile and bound to this process inside --route databricks:<p>;
+// armToken is this process's session token for profile on routerBase inside --route databricks:<p>, minted once;
 // "" when not armed, so the child keeps the router secret.
-func armToken(ctx context.Context, profile string) (string, error) {
+func armToken(ctx context.Context, routerBase, profile string) (string, error) {
 	if router.ArmProfile() == "" {
 		return "", nil
 	}
-	tok, err := agent.MintSession(ctx, profile, os.Getpid())
+	tok, err := agent.SessionToken(ctx, routerBase, profile)
 	if err != nil {
 		return "", fmt.Errorf("proxy: session token for profile %s: %w", profile, err)
 	}

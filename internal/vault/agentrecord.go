@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // AgentRecordsKey is the Overlay entry holding every agent's record: a JSON object of agent name -> AgentRecord.
@@ -346,15 +347,39 @@ func migrateAgentPins(t *Tx) (off []string, err error) {
 	return off, nil
 }
 
+// agentRecordCache holds the decoded records while the vault file's stamp holds; a write changes the stamp.
+var agentRecordCache paths.StampCache[map[string]AgentRecord]
+
+// loadAgentRecords is the one vault open behind ReadAgentRecords; a var so tests count the opens.
+var loadAgentRecords = func() (recs map[string]AgentRecord, err error) {
+	err = View(func(tx *Tx) (err error) { recs, err = tx.AgentRecords(); return err })
+	return recs, err
+}
+
 // ReadAgentRecords reads the vault once; every name is present (zero value when unset), and a read error is returned.
 func ReadAgentRecords(names []string) (map[string]AgentRecord, error) {
-	var recs map[string]AgentRecord
-	err := View(func(tx *Tx) (err error) { recs, err = tx.AgentRecords(); return err })
+	recs, err := agentRecordCache.Get(Path(), loadAgentRecords)
 	out := make(map[string]AgentRecord, len(names))
 	for _, n := range names {
-		out[n] = recs[n]
+		out[n] = recs[n].clone()
 	}
 	return out, err
+}
+
+// clone is a deep copy of r, so a caller's edit never reaches the cached record.
+func (r AgentRecord) clone() AgentRecord {
+	r.Aliases, r.Extras = maps.Clone(r.Aliases), maps.Clone(r.Extras)
+	if r.Permissions != nil {
+		p := *r.Permissions
+		p.Allow, p.Ask, p.Deny = slices.Clone(p.Allow), slices.Clone(p.Ask), slices.Clone(p.Deny)
+		r.Permissions = &p
+	}
+	if r.Launch != nil {
+		l := *r.Launch
+		l.Env, l.Args = slices.Clone(l.Env), slices.Clone(l.Args)
+		r.Launch = &l
+	}
+	return r
 }
 
 // AgentRecords is ReadAgentRecords for display callers: a read error reads as every name unset.

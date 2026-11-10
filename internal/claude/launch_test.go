@@ -541,15 +541,13 @@ func TestClaudeArmProxyCarriesSessionToken(t *testing.T) {
 	hermetic(t, armDBX)
 	const tok = "cct_ARM_TEST"
 	var minted []string
-	orig := agent.MintSession
-	agent.MintSession = func(_ context.Context, profile string, pid int) (string, error) {
+	stubMint(t, func(_ context.Context, profile string, pid int) (string, error) {
 		minted = append(minted, profile)
 		if pid != os.Getpid() {
 			t.Errorf("token bound to pid %d, want this process %d", pid, os.Getpid())
 		}
 		return tok, nil
-	}
-	t.Cleanup(func() { agent.MintSession = orig })
+	})
 	secret, err := gateway.ClientSecret()
 	if err != nil {
 		t.Fatal(err)
@@ -583,13 +581,36 @@ func TestClaudeArmProxyCarriesSessionToken(t *testing.T) {
 	}
 }
 
+// stubMint swaps agent.MintSession for mint over an empty session-token cache, restoring both after t.
+func stubMint(t *testing.T, mint func(context.Context, string, int) (string, error)) {
+	orig := agent.MintSession
+	agent.MintSession = mint
+	agent.ResetSessionTokens()
+	t.Cleanup(func() { agent.MintSession = orig; agent.ResetSessionTokens() })
+}
+
+// Armed, every claude launch in one process shares one session token per profile, so a batch never fills the cap.
+func TestClaudeArmLaunchesMintOnce(t *testing.T) {
+	hermetic(t, armDBX)
+	mints := 0
+	stubMint(t, func(context.Context, string, int) (string, error) { mints++; return "cct_ONCE", nil })
+	t.Setenv("HARNESS_ROUTE", "databricks:dev")
+	for range 3 {
+		p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "dev"}, []string{"-p", "hi"})
+		if err != nil || p.Set[ProxyKeyEnv] != "cct_ONCE" {
+			t.Fatalf("armed launch: err %v, session token set %v", err, p.Set[ProxyKeyEnv] != "")
+		}
+	}
+	if mints != 1 {
+		t.Errorf("3 armed launches minted %d session tokens, want 1", mints)
+	}
+}
+
 // Armed, a headless dev hop goes through /p/dev on the session token; interactive and unarmed launches stay direct.
 func TestClaudeArmHeadlessAlwaysProxied(t *testing.T) {
 	hermetic(t, `{"fallback":[],"providers":{"databricks":{"dev":{"preset":"databricks",
 		"host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
-	orig := agent.MintSession
-	agent.MintSession = func(context.Context, string, int) (string, error) { return "cct_ARM_dev", nil }
-	t.Cleanup(func() { agent.MintSession = orig })
+	stubMint(t, func(context.Context, string, int) (string, error) { return "cct_ARM_dev", nil })
 	launch := func(args ...string) agent.Plan {
 		p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "dev"}, args)
 		if err != nil {
@@ -630,9 +651,7 @@ func TestClaudeRefusesAIGatewayWire(t *testing.T) {
 func TestClaudeArmPassthroughHeaderIsSessionToken(t *testing.T) {
 	hermetic(t, armDBX)
 	const tok = "cct_ARM_TEST"
-	orig := agent.MintSession
-	agent.MintSession = func(context.Context, string, int) (string, error) { return tok, nil }
-	t.Cleanup(func() { agent.MintSession = orig })
+	stubMint(t, func(context.Context, string, int) (string, error) { return tok, nil })
 	t.Setenv("HARNESS_ROUTE", "databricks:dev")
 	reg, err := providers.Load()
 	if err != nil {

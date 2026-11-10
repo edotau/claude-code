@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -143,6 +144,45 @@ func TestArmClaudeHopRunsOnItsProfile(t *testing.T) {
 		}
 		if _, gerr := guardAttempt(context.Background(), claude, req); (gerr != nil) != fatal {
 			t.Errorf("%s hop: guardAttempt = %v, want fatal %v", prof, gerr, fatal)
+		}
+	}
+}
+
+// Inside databricks:dev every hop the pick admits is one guardArm allows, for every wanted agent and pin shape.
+func TestArmPickAdmitsOnlyGuardAllowedHops(t *testing.T) {
+	cases := []struct {
+		name string
+		pins map[string]string
+	}{
+		{"pinned to the workspace", map[string]string{"codex": "dev", "copilot": "dev", "gemini": "dev", "opencode": "dev"}},
+		{"pinned off the route", map[string]string{"codex": "openai", "copilot": "qa", "gemini": "qa", "opencode": "qa"}},
+		{"pinned to own logins", map[string]string{"codex": "chatgpt", "copilot": "personal", "gemini": "antigravity",
+			"opencode": "opencode-go"}},
+	}
+	configured := func(string, router.Cell) error { return nil }
+	for _, c := range cases {
+		for _, want := range agentid.All() {
+			t.Run(c.name+"/"+want, func(t *testing.T) {
+				armRegistry(t, "")
+				for a, p := range c.pins {
+					vaulttest.SetRecord(t, a, "profile", p)
+				}
+				chain, _, err := RouteChainFor(t.Context(), want, "sonnet", "", router.FallbackAll, false,
+					router.PickOpts{Configured: configured})
+				if err != nil || len(chain.Dispatches) == 0 {
+					t.Fatalf("chain = %+v, %v; want admitted hops", chain, err)
+				}
+				for i, d := range chain.Dispatches {
+					req := dispatchRequest(RunOptions{Prompt: "p"}, d, i == 0 && d.Agent.Name() == want)
+					gp, err := guardProvider(d.Agent, req)
+					if err == nil {
+						err = guardArm("dev", d.Agent, gp)
+					}
+					if err != nil {
+						t.Errorf("hop %d %s: admitted by the pick, refused by the guard: %v", i, hopTarget(d), err)
+					}
+				}
+			})
 		}
 	}
 }

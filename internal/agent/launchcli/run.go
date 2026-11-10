@@ -30,7 +30,7 @@ func Positional(prompt string) []string {
 
 // HeadlessLaunch applies name's spec Launch.Env (never Launch.Args) to argv, with the route env going last.
 func HeadlessLaunch(name string, env, argv []string) (launchedEnv, launchedArgv []string) {
-	launchEnv, argv := agent.SchemaFor(name).ApplyLaunch(nil, argv, false)
+	launchEnv, argv := agent.SchemaFor(name).ApplyLaunch(argv, false)
 	return agent.RouteEnvLast(launchEnv, env), argv
 }
 

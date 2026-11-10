@@ -13,7 +13,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/shell"
-	"github.com/edotau/claude-code/internal/vault"
 )
 
 // Decision is a permission verdict; the zero value is Deny so an unset result fails closed.
@@ -127,21 +126,12 @@ func ParsePermissions(mode string, allow, ask, deny []string) (Permissions, erro
 	return p, nil
 }
 
-// agentDefaults is name's default policy from its merged settings (agentconfig.Settings); a var so tests swap it.
-var agentDefaults = func(name string) (vault.AgentPolicy, error) {
-	r, err := agentconfig.Settings(name)
-	if r.Permissions == nil {
-		return vault.AgentPolicy{}, err
-	}
-	return *r.Permissions, err
-}
-
 // DefaultPermissions is name's default dispatch policy, the first layer ResolvePermissions applies.
 func DefaultPermissions(name string) (Permissions, error) {
-	d, err := agentDefaults(name)
+	r, err := agentconfig.Settings(name)
 	if err == nil {
 		var p Permissions
-		if p, err = ParsePermissions(d.Mode, d.Allow, d.Ask, d.Deny); err == nil {
+		if p, err = policyPermissions(r.Permissions); err == nil {
 			return p, nil
 		}
 	}

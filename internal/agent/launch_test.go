@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -89,6 +91,68 @@ func TestArmRouterRouteMintsSessionToken(t *testing.T) {
 	t.Setenv(router.EnvRoute, "")
 	if _, _, key, _ := routerRoute(t.Context(), SchemaFor("codex"), reg.Providers["dev"], ""); key != "rtr-secret-xyz" {
 		t.Errorf("unarmed routerRoute key = %q, want the router secret", key)
+	}
+}
+
+// A cached router token older than sessionTokenMaxAge is re-minted; a fresh one is reused.
+func TestSessionTokenRemintsWhenStale(t *testing.T) {
+	origMint := MintSession
+	mints := 0
+	MintSession = func(context.Context, string, int) (string, error) {
+		mints++
+		return "tok" + strconv.Itoa(mints), nil
+	}
+	t.Cleanup(func() { MintSession = origMint })
+
+	const base, profile = "http://router.test-stale", "p"
+	ctx := context.Background()
+	first, err := SessionToken(ctx, base, profile)
+	if err != nil || first != "tok1" {
+		t.Fatalf("first mint = %q, %v", first, err)
+	}
+	if again, _ := SessionToken(ctx, base, profile); again != "tok1" || mints != 1 {
+		t.Fatalf("fresh token not reused: %q after %d mints", again, mints)
+	}
+	sessionMu.Lock()
+	e := sessionTokens[base+"|"+profile]
+	sessionMu.Unlock()
+	e.mu.Lock()
+	e.minted = time.Now().Add(-2 * sessionTokenMaxAge)
+	e.mu.Unlock()
+	got, err := SessionToken(ctx, base, profile)
+	if err != nil || got != "tok2" {
+		t.Fatalf("stale token not re-minted: %q, %v", got, err)
+	}
+}
+
+// A mint held for one profile never blocks a cached lookup for another.
+func TestSessionTokenSlowMintBlocksOnlyItsProfile(t *testing.T) {
+	origMint := MintSession
+	t.Cleanup(func() { MintSession = origMint })
+	entered, release := make(chan struct{}), make(chan struct{})
+	MintSession = func(_ context.Context, profile string, _ int) (string, error) {
+		if profile == "slow" {
+			close(entered)
+			<-release
+		}
+		return "tok-" + profile, nil
+	}
+	base := "http://router." + t.Name()
+	if _, err := SessionToken(t.Context(), base, "fast"); err != nil {
+		t.Fatal(err)
+	}
+	go func() { _, _ = SessionToken(context.Background(), base, "slow") }()
+	defer close(release)
+	<-entered
+	got := make(chan string, 1)
+	go func() { tok, _ := SessionToken(context.Background(), base, "fast"); got <- tok }()
+	select {
+	case tok := <-got:
+		if tok != "tok-fast" {
+			t.Errorf("cached lookup = %q, want tok-fast", tok)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a held mint for profile slow blocked the cached lookup for profile fast")
 	}
 }
 

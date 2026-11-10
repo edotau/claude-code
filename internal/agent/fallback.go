@@ -93,7 +93,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
 	}
 	held := &retry.Permit{Account: key, Release: release,
-		Recheck: func() *retry.Error { return cmp.Or(exhaustedSince(disp), authMarkedSince(disp)) }}
+		Recheck: func() *retry.Error { return accountRefused(disp) }}
 	defer func() {
 		if r := recover(); r != nil {
 			if !retry.InBatch(ctx) {
@@ -113,7 +113,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 		held.Release()
 	}()
 	// another task may have marked this account dead while this dispatch waited for its permit
-	if skip := cmp.Or(exhaustedSince(disp), authMarkedSince(disp)); skip != nil {
+	if skip := accountRefused(disp); skip != nil {
 		skip.Terminal = true // refused before it ran: the chain moves on, whichever agent this hop was
 		res, err = wire.Result{Agent: disp.Agent.Name(), Status: statusOf(skip), Invoked: lreq.Model}, skip
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
@@ -358,7 +358,6 @@ type fallbackState struct {
 	task         string // the prompt without any mid-run note; each hop wraps this, never the previous hop's prompt
 	res          wire.Result
 	err          error
-	prev         Engine
 	prevDispatch Dispatch
 	reasons      []string
 	ran          int
@@ -379,8 +378,8 @@ func (s *fallbackState) nextPrompt(midRun bool) string {
 
 func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) (bool, error) {
 	// An answer or final failure ends the chain before any cancel check.
-	midRun := i > 0 && cutOffMidRun(s.prev, s.err) // D1 = B: every external hop falls through
-	if i > 0 && !midRun && !dispatchUnavailable(s.prev, s.res, s.err) {
+	midRun := i > 0 && cutOffMidRun(s.prevDispatch.Agent, s.err) // D1 = B: every external hop falls through
+	if i > 0 && !midRun && !dispatchUnavailable(s.prevDispatch.Agent, s.res, s.err) {
 		s.stopped = true
 		return true, nil
 	}
@@ -433,7 +432,7 @@ func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispa
 		s.req.Prompt = s.task
 	}
 	s.handoff = cmp.Or(s.res.Handoff, s.handoff)
-	s.prev, s.prevDispatch, s.ran = disp.Agent, disp, i
+	s.prevDispatch, s.ran = disp, i
 	return panicked
 }
 
@@ -460,29 +459,20 @@ func WithBatchRun(ctx context.Context, l *retry.Limiter) context.Context {
 	return retry.WithLimiter(withIsolation(ctx), l)
 }
 
-// exhaustedSince is a KindQuota error when dispatch's account is marked exhausted right now, else nil.
-func exhaustedSince(disp Dispatch) *retry.Error {
-	if disp.Account == "" || disp.Account == copilotLoginAccount() { // copilot's own gate falls back to Databricks instead
-		return nil
-	}
-	now := time.Now()
-	e := loadState()[disp.Account]
-	if e.Status(now) != router.StateExhausted {
-		return nil
-	}
-	return &retry.Error{Kind: retry.KindQuota, Agent: disp.Agent.Name(), Err: errors.New(router.ExhaustedReason(disp.Account, e, now))}
-}
-
-// authMarkedSince is a KindAuth error when dispatch's account was marked auth-dead after the chain was built, else nil.
-func authMarkedSince(disp Dispatch) *retry.Error {
+// accountRefused is KindQuota when disp's account is exhausted now, else KindAuth when marked auth-dead, else nil.
+func accountRefused(disp Dispatch) *retry.Error {
 	if disp.Account == "" {
 		return nil
 	}
-	reason, marked := loadState().AuthMarked(disp.Account, time.Now())
-	if !marked {
-		return nil
+	now, st := time.Now(), loadState()
+	// copilot's own gate falls back to Databricks instead
+	if e := st[disp.Account]; disp.Account != copilotLoginAccount() && e.Status(now) == router.StateExhausted {
+		return &retry.Error{Kind: retry.KindQuota, Agent: disp.Agent.Name(), Err: errors.New(router.ExhaustedReason(disp.Account, e, now))}
 	}
-	return &retry.Error{Kind: retry.KindAuth, Agent: disp.Agent.Name(), AuthReason: reason, Err: errors.New(disp.Account + ": " + reason)}
+	if reason, marked := st.AuthMarked(disp.Account, now); marked {
+		return &retry.Error{Kind: retry.KindAuth, Agent: disp.Agent.Name(), AuthReason: reason, Err: errors.New(disp.Account + ": " + reason)}
+	}
+	return nil
 }
 
 // rateLimitHold is how long a plain 429 on a subscription account (no parsed reset) keeps it out of the picks.
