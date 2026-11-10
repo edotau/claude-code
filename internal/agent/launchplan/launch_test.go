@@ -40,7 +40,7 @@ func TestInteractiveVendorArgs(t *testing.T) {
 	}
 }
 
-func TestWithAgentPinsPrecedence(t *testing.T) {
+func TestLaunchProfilePrecedence(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.SetRecord(t, "copilot", "profile", "max")
 	vaulttest.SetRecord(t, "copilot", "model", "kimi-k3")
