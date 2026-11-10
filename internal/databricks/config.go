@@ -344,39 +344,47 @@ func checkAll(args []string) int {
 	}
 	fmt.Printf("%-24s %-24s %s\n", "PROFILE", "SERVING", "AI-GATEWAY")
 	rc := 0
+	var why []string // full reasons, printed under the table so the fix command is never clipped
 	for _, name := range names {
-		cells := checkProfile(reg.Providers[name], name, *model, wires)
+		cells, reason := checkProfile(reg.Providers[name], name, *model, wires)
 		for _, c := range cells {
 			if c != "ok" && c != budgetDenied {
 				rc = 1
 			}
 		}
 		fmt.Printf("%-24s %-24s %s\n", name, cells[0], cells[1])
+		if reason != "" {
+			why = append(why, fmt.Sprintf("  %s: %s", name, reason))
+		}
+	}
+	if len(why) > 0 {
+		fmt.Println()
+		fmt.Println(strings.Join(why, "\n"))
 	}
 	return rc
 }
 
-// checkProfile mints the row's token once and probes every wire with it.
-func checkProfile(row *providers.Provider, name, model string, wires []string) []string {
-	cells := make([]string, len(wires))
-	fill := func(s string) []string {
+// checkProfile mints the row's token once and probes every wire with it; reason is the full cause when no wire ran.
+func checkProfile(row *providers.Provider, name, model string, wires []string) (cells []string, reason string) {
+	cells = make([]string, len(wires))
+	fill := func(s, why string) ([]string, string) {
 		for i := range cells {
 			cells[i] = s
 		}
-		return cells
+		return cells, why
 	}
 	if row == nil {
-		return fill("no row")
+		return fill("no row", "not in the registry")
 	}
 	host := providers.AuthHost(row)
 	if host == "" {
-		return fill("no https host")
+		return fill("no https host", "the profile has no https host")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*probeTimeout)
 	defer cancel()
 	tok, err := providers.Credential(ctx, row)
 	if err != nil {
-		return fill("no token: " + clip(strings.TrimPrefix(err.Error(), name+": "), 40))
+		return fill("no token", strings.TrimPrefix(err.Error(), name+": "))
 	}
 	for i, w := range wires {
 		p := row
@@ -388,7 +396,7 @@ func checkProfile(row *providers.Provider, name, model string, wires []string) [
 		}
 		cells[i] = probe(ctx, p, tok, model)
 	}
-	return cells
+	return cells, ""
 }
 
 // probe sends one max_tokens=1 message on p's Anthropic route and classifies the reply.
