@@ -39,3 +39,15 @@ func TestParseTaskPlanTask(t *testing.T) {
 		t.Errorf("rejected task = id %q plan %q, want id kept and no plan", bad.ID, bad.Plan)
 	}
 }
+
+// A line with trailing junk after its object is that line's error; Decoder.More alone accepts a stray '}'.
+func TestReadTaskLinesRejectsTrailingJunk(t *testing.T) {
+	in := "{\"prompt\":\"x\"}}\n{\"prompt\":\"a\"} {\"prompt\":\"b\"}\n{\"prompt\":\"ok\"}\n"
+	got, err := ReadTaskLines(strings.NewReader(in))
+	if err != nil || len(got) != 3 {
+		t.Fatalf("got %d lines, err %v", len(got), err)
+	}
+	if got[0].Err == nil || got[1].Err == nil || got[2].Err != nil {
+		t.Errorf("errs = %v / %v / %v, want error, error, nil", got[0].Err, got[1].Err, got[2].Err)
+	}
+}
