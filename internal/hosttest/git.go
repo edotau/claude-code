@@ -15,7 +15,7 @@ import (
 )
 
 // gitTimeout bounds one In call, so a hanging git hook fails the test instead of the whole binary.
-const gitTimeout = 60 * time.Second
+var gitTimeout = 60 * time.Second
 
 var (
 	seq     atomic.Int64
