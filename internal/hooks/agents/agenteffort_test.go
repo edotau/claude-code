@@ -14,6 +14,8 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	_ "github.com/edotau/claude-code/internal/claude" // registers the claude row an unsigned agent's pick falls through to
+	_ "github.com/edotau/claude-code/internal/codex"
 	_ "github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
@@ -380,6 +382,7 @@ func TestLabelCellPinnedModelBeatsRouteCell(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"probe":{"preset":"databricks","host":"https://example.invalid","auth":{"type":"none"}}}}}`)
 	cell := labelCell(newDispatchRun(nil), "codex", "sonnet")
+	pathstest.FakeVendor(t, "codex", "exit 0") // the label is the pick: an uninstalled codex would fall through to claude
 	vaulttest.SetRecord(t, "codex", "profile", "probe")
 	vaulttest.SetRecord(t, "codex", "model", "databricks-gpt-pin")
 	got := labelCell(newDispatchRun(nil), "codex", "sonnet")
@@ -662,21 +665,44 @@ func TestAgentEffortReadsRosterAndRegistryOnce(t *testing.T) {
 
 const armDevOverlay = `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`
 
-// TestArmLabelIsPick: under databricks:dev the label is the model the no-run pick lists first, not a table prediction.
+// TestArmLabelIsPick: armed or not, the label is the no-run pick's first model sans profile prefix, not the table's.
 func TestArmLabelIsPick(t *testing.T) {
-	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-value")
-	pathstest.FakeVendor(t, "codex", "exit 0")
-	vaulttest.SetRecord(t, "codex", "profile", "dev")
-	t.Setenv("HARNESS_ROUTE", "databricks:dev")
-	_, res, err := agentpkg.Resolve(context.Background(), agentpkg.RouteReq{Agent: "codex", Model: "sonnet", Fallback: router.FallbackAll, Preview: true})
-	if err != nil || len(res.Candidates) == 0 {
-		t.Fatalf("preview = %+v, %v; want a candidate (skipped %+v)", res.Candidates, err, res.Skipped)
+	for _, armed := range []bool{true, false} {
+		t.Run(fmt.Sprint("armed=", armed), func(t *testing.T) {
+			vaulttest.Use(t)
+			vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
+			vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-value")
+			pathstest.FakeVendor(t, "codex", "exit 0")
+			if armed {
+				vaulttest.SetRecord(t, "codex", "profile", "dev")
+				t.Setenv("HARNESS_ROUTE", "databricks:dev")
+			}
+			_, res, err := agentpkg.Resolve(context.Background(), agentpkg.RouteReq{Agent: "codex", Model: "sonnet", Fallback: router.FallbackAll, Preview: true})
+			if err != nil || len(res.Candidates) == 0 {
+				t.Fatalf("preview = %+v, %v; want a candidate (skipped %+v)", res.Candidates, err, res.Skipped)
+			}
+			first := res.Candidates[0]
+			want := strings.TrimPrefix(first.Model, first.Profile+":")
+			pins, _ := agentpkg.AgentPins()
+			if predicted := tableCellModel(newDispatchRun(nil), "codex", "sonnet", pins["codex"]); armed == (want == first.Model) || !armed && want == predicted {
+				t.Fatalf("fixture: pick %q (profile %q), prediction %q; want a prefixed pick armed, a pick unlike the prediction unarmed", first.Model, first.Profile, predicted)
+			}
+			if got := cellModelFor(newDispatchRun(nil), "codex", "sonnet"); got != want {
+				t.Errorf("label = %q, want the first candidate %s on %s: %q", got, first.Agent, first.Account, want)
+			}
+		})
 	}
-	first := res.Candidates[0]
-	if got := cellModelFor(newDispatchRun(nil), "codex", "sonnet"); got == "" || got != first.Model {
-		t.Errorf("label = %q, want the first candidate %s on %s: %q", got, first.Agent, first.Account, first.Model)
+}
+
+// A pick with nothing runnable labels with the table prediction, never an empty prefix.
+func TestLabelWithoutPickIsPrediction(t *testing.T) {
+	vaulttest.Use(t)
+	orig := labelPick
+	labelPick = func(string, string) string { return "" }
+	t.Cleanup(func() { labelPick = orig })
+	want := tableCellModel(newDispatchRun(nil), "codex", "sonnet", router.PinSpec{})
+	if got := cellModelFor(newDispatchRun(nil), "codex", "sonnet"); got == "" || got != want {
+		t.Errorf("label = %q with no pick, want the table prediction %q", got, want)
 	}
 }
 
@@ -686,6 +712,8 @@ func TestLabelWritesNoQuotaState(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
 	vaulttest.SetRecord(t, "copilot", "profile", "dev")
 	vaulttest.SetRecord(t, "copilot", "model", router.DiscoveryModel)
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-value") // with copilot installed, the pick reaches the rotation
+	pathstest.FakeVendor(t, "copilot", "exit 0")
 	before, _ := os.ReadFile(router.StatePath())
 	cellModelFor(newDispatchRun(nil), "copilot", "sonnet")
 	after, _ := os.ReadFile(router.StatePath())

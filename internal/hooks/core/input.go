@@ -232,6 +232,20 @@ func (in *Input) normalizeToolArgs() string {
 	return ""
 }
 
+// toolAliases maps an agent's tool names to Claude's; renderers map back (copilot CopilotJSON, gemini agyGateTools).
+var toolAliases = map[string]map[string]string{
+	AgentCopilot: {"create": "Write", "view": "Read"},
+	AgentGemini:  {"run_command": "Bash", "write_file": "Write", "edit_file": "Edit", "read_file": "Read"},
+}
+
+// CanonicalTool is ToolName under Claude's name, the one hookspec matchers select on; handlers still read ToolName.
+func (in *Input) CanonicalTool() string {
+	if name, ok := toolAliases[in.Agent()][in.ToolName]; ok {
+		return name
+	}
+	return in.ToolName
+}
+
 // Field is a top-level key of the raw hook document; nil when absent.
 func (in *Input) Field(key string) any { return in.doc[key] }
 

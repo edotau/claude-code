@@ -169,7 +169,7 @@ func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 			m.merged.Decision, m.merged.Reason = core.Block, unreadable(b.Spec.Name, in.Invalid)
 			continue
 		}
-		if !match.matches(b.Spec.Matcher, in.ToolName) {
+		if !match.matches(b.Spec.Matcher, in.CanonicalTool()) {
 			continue
 		}
 		longest = max(longest, b.Spec.Budget)

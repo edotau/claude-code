@@ -8,10 +8,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/codex"
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
@@ -497,8 +501,90 @@ func TestEventFormAgreesWithModuleForm(t *testing.T) {
 			if want := nativeRuns(agent, s.Name); ran[s.Name] != want {
 				t.Errorf("%s · %s --%s: event form ran=%v, module form runs=%v", agent, s.Event, s.Name, ran[s.Name], want)
 			}
+			checkRealTools(t, ran, agent, s)
 		}
 	}
+}
+
+// checkRealTools runs s's event form on agent's own tool names and checks it runs s where agent's hook file would.
+func checkRealTools(t *testing.T, ran map[string]bool, agent string, s settings.EventSpec) {
+	for _, tool := range realTools[agent] {
+		if s.Matcher == "" {
+			return
+		}
+		clear(ran)
+		RunArgs(s.Event, []string{settings.AllFlag}, realPayload(agent, s.Event, tool), io.Discard, io.Discard)
+		if want := nativeRuns(agent, s.Name) && renderedMatch(t, agent, s, tool); ran[s.Name] != want {
+			t.Errorf("%s · %s %s --%s: event form ran=%v, module form runs=%v", agent, s.Event, tool, s.Name, ran[s.Name], want)
+		}
+	}
+}
+
+// realTools are each agent's own hook tool names for a shell command and a file write.
+var realTools = map[string][]string{
+	core.AgentClaude:   {"Bash", "Write"},
+	core.AgentCodex:    {"Bash", "apply_patch"},       // codex/permissions.go matchesBash; apply_patch is its file write
+	core.AgentCopilot:  {"bash", "create"},            // copilot/home.go CopilotJSON: Write|create, lowercased names
+	core.AgentGemini:   {"run_command", "write_file"}, // gemini/hooks.go agyGateMatcher
+	core.AgentOpencode: {"Bash", "Write"},             // opencode/hooks.go claudeTool and plugin.go TOOLS rename to Claude's
+}
+
+// realPayload is agent's own PreToolUse/PostToolUse document for tool: agy's toolCall, Copilot's camelCase shape.
+func realPayload(agent, event, tool string) *strings.Reader {
+	switch agent {
+	case core.AgentGemini:
+		return strings.NewReader(fmt.Sprintf(`{"toolCall":{"name":%q,"args":{}}}`, tool))
+	case core.AgentCopilot:
+		return strings.NewReader(fmt.Sprintf(`{"sessionId":"s","toolName":%q,"toolArgs":"{}"}`, tool))
+	}
+	return strings.NewReader(fmt.Sprintf(`{"hook_event_name":%q,"session_id":"s","tool_name":%q}`, event, tool))
+}
+
+// renderedMatch reports whether the matcher agent's rendered hook file puts on module s selects tool.
+func renderedMatch(t *testing.T, agent string, s settings.EventSpec, tool string) bool {
+	m := s.Matcher
+	switch agent {
+	case core.AgentGemini:
+		m = "run_command|read_file|write_file|edit_file" // gemini/hooks.go agyGateMatcher (unexported)
+	case core.AgentCopilot:
+		m = renderedMatcher(t, copilot.CopilotJSON, s.Name)
+	case core.AgentCodex:
+		m = renderedMatcher(t, codex.CodexJSON, s.Name)
+	}
+	return m == "" || regexp.MustCompile(`^(?:`+m+`)$`).MatchString(tool)
+}
+
+// renderedMatcher is the matcher on module name's entry in a vendor's rendered hooks JSON (Copilot flat, Codex nested).
+func renderedMatcher(t *testing.T, render func() ([]byte, error), name string) string {
+	raw, err := render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Hooks map[string][]struct {
+			Matcher string
+			Bash    string
+			Hooks   []struct{ Command string }
+		}
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, entries := range doc.Hooks {
+		for _, e := range entries {
+			cmds := []string{e.Bash}
+			for _, h := range e.Hooks {
+				cmds = append(cmds, h.Command)
+			}
+			for _, c := range cmds {
+				if slices.Contains(strings.Fields(c), "--"+name) {
+					return e.Matcher
+				}
+			}
+		}
+	}
+	t.Fatalf("module %s is not in the rendered hooks", name)
+	return ""
 }
 
 // consumerDeny is the stdout document agent's hook consumer refuses a call on, at exit 0, for decision d.

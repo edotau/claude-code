@@ -404,6 +404,7 @@ func labelModel(run *dispatchRun, updated map[string]any, st, task string) strin
 var (
 	labelProfileModel = profileModelFor
 	labelCell         = cellModelFor
+	labelPick         = previewModel
 )
 
 func profileModelFor(run *dispatchRun, profile, alias string) string {
@@ -418,8 +419,8 @@ func profileModelFor(run *dispatchRun, profile, alias string) string {
 	return models.Strip1M(reg.Providers[profile].Models[alias])
 }
 
-// cellModelFor is the model a leaf is planned to run. Under a databricks route it is the first candidate of the no-run
-// route preview (what `gateway` picks); otherwise the table prediction.
+// cellModelFor is the model a leaf runs: the first candidate of the no-run route preview (what `gateway` picks), else
+// the table prediction when the preview finds nothing runnable.
 func cellModelFor(run *dispatchRun, agent, alias string) string {
 	pins, err := agentpkg.AgentPins()
 	if err != nil {
@@ -429,14 +430,20 @@ func cellModelFor(run *dispatchRun, agent, alias string) string {
 	if slices.ContainsFunc(slices.Collect(maps.Values(pins)), func(s router.PinSpec) bool { return s.Model == router.DiscoveryModel }) {
 		return "" // a discovery pick advances the rotation in quota.json; a label never writes state
 	}
-	if router.ArmProfile() == "" {
-		return tableCellModel(run, agent, alias, pins[agent])
+	if m := labelPick(agent, alias); m != "" {
+		return m
 	}
+	return tableCellModel(run, agent, alias, pins[agent])
+}
+
+// previewModel is the preview's first candidate model without its `<profile>:` prefix; "" when nothing runs.
+func previewModel(agent, alias string) string {
 	_, res, err := agentpkg.Resolve(context.Background(), agentpkg.RouteReq{Agent: agent, Model: alias, Fallback: router.FallbackAll, Preview: true})
 	if err != nil || len(res.Candidates) == 0 {
 		return ""
 	}
-	return res.Candidates[0].Model
+	c := res.Candidates[0]
+	return strings.TrimPrefix(c.Model, c.Profile+":")
 }
 
 // tableCellModel predicts the model from the route table cell and the agent's pin, without running the pick.
