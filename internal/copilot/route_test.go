@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -178,4 +179,63 @@ func TestCopilotLaunchTokenForTargetLogin(t *testing.T) {
 	if _, err := CopilotLaunchTokenFor("nobody"); err == nil {
 		t.Fatal("a target login missing from gh must fail, never fall back to the stored token")
 	}
+}
+
+// An interactive launch gets the built-in --allow-all, then --reasoning-effort/--context; a headless one neither.
+func TestRenderSettingsInteractivePins(t *testing.T) {
+	for _, c := range settingsCases {
+		t.Run(c.name, func(t *testing.T) {
+			want := []string{"run", "--allow-all"}
+			if c.effort != "" {
+				want = append(want, "--reasoning-effort", c.effort)
+			}
+			if c.context != "" {
+				want = append(want, "--context", c.context)
+			}
+			for _, headless := range []bool{false, true} {
+				s := copilotSettings(t, c.rec, c.flag, headless)
+				_, argv, _, cleanup, err := copilotAgent.RenderSettings(t.Context(), s, nil, []string{"run"})
+				cleanup()
+				w := want
+				if headless {
+					w = []string{"run"}
+				}
+				if err != nil || !slices.Equal(argv, w) {
+					t.Errorf("headless=%v: argv = %q, %v; want %q", headless, argv, err, w)
+				}
+			}
+		})
+	}
+}
+
+// The registry launch (LaunchSpec prefix, then the registry argv, as registryPlan joins them) carries each pin once.
+func TestRegistryLaunchArgvPinsOnce(t *testing.T) {
+	copilotSettings(t, &vault.AgentRecord{Effort: "high", Context: "long_context"}, "", false)
+	setGOOS(t, "linux")
+	t.Setenv("COPILOT_HOME", t.TempDir())
+	stubSettingsRegistry(t)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cr, err := ConfigureCopilotRegistry(t.Context(), reg, providers.Target{Provider: &providers.Provider{Name: "fixture"}}, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prefix := copilotSchema().LaunchSpec()
+	argv := slices.Concat(prefix, cr.Argv, cr.Args)
+	for _, flag := range []string{"--reasoning-effort", "--context", "--model"} {
+		if n := countOf(argv, flag); n != 1 {
+			t.Errorf("argv %q has %s %d times, want once", argv, flag, n)
+		}
+	}
+}
+
+func countOf(argv []string, s string) (n int) {
+	for _, a := range argv {
+		if a == s {
+			n++
+		}
+	}
+	return n
 }

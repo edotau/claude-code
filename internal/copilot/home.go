@@ -268,15 +268,18 @@ func renderCopilot(reg *providers.Registry, sel providers.Selection, home string
 	return drift, nil
 }
 
-// renderCopilotSettings merges defaultPermissionMode from the agent spec into ~/.copilot/settings.json,
+// extraDefaultPermissionMode is the record extras key copilot's settings.json takes as defaultPermissionMode.
+const extraDefaultPermissionMode = "defaultPermissionMode"
+
+// renderCopilotSettings merges the record's extras.defaultPermissionMode into ~/.copilot/settings.json,
 // keeping every other key untouched; a non-JSON existing file is skipped, never clobbered.
 func renderCopilotSettings(home string, o render.RenderOptions, out io.Writer) (bool, error) {
-	cfg, err := agentconfig.LoadConfig()
+	rec, err := agentconfig.Settings("copilot")
 	if err != nil {
 		fmt.Fprintf(out, "copilot-settings: skipped: %v\n", err)
 		return false, nil
 	}
-	mode := cfg.Agent("copilot").Permission.DefaultPermissionMode
+	mode := rec.Extras[extraDefaultPermissionMode]
 	if mode == "" {
 		return false, nil
 	}

@@ -331,3 +331,78 @@ func TestLaunchEnvCannotOverrideRouterBase(t *testing.T) {
 		t.Errorf("unrelated launch.env entry dropped: %q", env)
 	}
 }
+
+// settingsCases are copilot's stored-record × flag cases; the SDK and interactive tests share them.
+var settingsCases = []struct {
+	name, flag string
+	rec        *vault.AgentRecord
+	effort     string
+	context    string
+}{
+	{"no record", "", nil, "", ""},
+	{"record effort", "", &vault.AgentRecord{Effort: "high", Context: "long_context"}, "high", "long_context"},
+	{"flag over record", "low", &vault.AgentRecord{Effort: "high", Context: "long_context"}, "low", "long_context"},
+	{"extras mode", "", &vault.AgentRecord{Extras: map[string]string{extraDefaultPermissionMode: "plan"}}, "", ""},
+}
+
+// copilotSettings stores rec (nil = none) in a hermetic vault and resolves copilot's Settings for --effort flag.
+func copilotSettings(t *testing.T, rec *vault.AgentRecord, flag string, headless bool) agent.Settings {
+	t.Helper()
+	vaulttest.UseFreshKey(t)
+	if rec != nil {
+		if err := vault.SetAgentRecord("copilot", *rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err := agent.ResolveSettings("copilot", agent.RunOptions{Effort: flag}, providers.Target{}, headless)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// A run's SDK options take --effort over the stored effort and the stored context tier.
+func TestRunSDKOptionsReadSettings(t *testing.T) {
+	for _, c := range settingsCases {
+		t.Run(c.name, func(t *testing.T) {
+			var got SDKOptions
+			runScratch(t, func(_ context.Context, o SDKOptions, _ string, _ []string) (SDKResult, error) {
+				got = o
+				return SDKResult{Text: "ok"}, nil
+			})
+			if c.rec != nil {
+				if err := vault.SetAgentRecord("copilot", *c.rec); err != nil {
+					t.Fatal(err)
+				}
+			}
+			req := agent.RunOptions{Prompt: "do it", Provider: "personal", WorkDir: t.TempDir(), Effort: c.flag}
+			if _, err := copilotAgent.Run(t.Context(), req, wire.Discard); err != nil {
+				t.Fatal(err)
+			}
+			if got.ReasoningEffort != c.effort || got.Context != c.context {
+				t.Errorf("ReasoningEffort, Context = %q, %q; want %q, %q", got.ReasoningEffort, got.Context, c.effort, c.context)
+			}
+		})
+	}
+}
+
+// An unreadable record is one notice; the run goes on with the --effort flag and nothing of the record.
+func TestRunUnreadableRecordNoticesAndContinues(t *testing.T) {
+	var got SDKOptions
+	runScratch(t, func(_ context.Context, o SDKOptions, _ string, _ []string) (SDKResult, error) {
+		got = o
+		return SDKResult{Text: "ok"}, nil
+	})
+	vaulttest.Put(t, vault.Overlay, "agents", "{not json")
+	var notice strings.Builder
+	orig := agent.NoticeOut
+	agent.NoticeOut = &notice
+	t.Cleanup(func() { agent.NoticeOut = orig })
+	req := agent.RunOptions{Prompt: "do it", Provider: "personal", WorkDir: t.TempDir(), Effort: "low"}
+	if _, err := copilotAgent.Run(t.Context(), req, wire.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got.ReasoningEffort != "low" || strings.Count(notice.String(), "copilot settings unreadable") != 1 {
+		t.Errorf("ReasoningEffort = %q, notice = %q; want low and one unreadable-settings notice", got.ReasoningEffort, notice.String())
+	}
+}

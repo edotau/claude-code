@@ -443,7 +443,7 @@ func ConfigureCopilotRegistry(
 	// OFFLINE removes /login but needs the registry file at startup; the SDK path has none, so it stays here.
 	return agent.RegistryLaunch{
 		Env:   append([]string{"COPILOT_PROVIDERS_CONFIG=" + file, "COPILOT_OFFLINE=true"}, ph.Env...),
-		Unset: ph.Unset, Argv: append([]string{"--model", ref}, copilotPinArgv()...), Args: rest,
+		Unset: ph.Unset, Argv: []string{"--model", ref}, Args: rest,
 		Warnings: warnings, Files: files, Revoke: revoke, Banner: CopilotRegistryBanner,
 	}, nil
 }

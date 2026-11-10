@@ -154,10 +154,10 @@ func copilotLogin(model, login string, h *agent.Headless) ([]string, []string, e
 	return env, copilotArgv(h), nil
 }
 
-// copilotArgv is the headless argv for h, else the configure page's pins on an interactive launch.
+// copilotArgv is the headless argv for h; an interactive launch (nil) gets its pins from RenderSettings.
 func copilotArgv(h *agent.Headless) []string {
 	if h == nil {
-		return copilotPinArgv()
+		return nil
 	}
 	argv := []string{"--prompt", h.Prompt}
 	if h.Tools && h.Autonomous {
@@ -166,17 +166,20 @@ func copilotArgv(h *agent.Headless) []string {
 	return argv
 }
 
-// copilotPinArgv is --reasoning-effort/--context from the configure page's pins, on every interactive launch.
-func copilotPinArgv() []string {
-	var argv []string
-	rec := vault.GetAgentRecord("copilot")
-	if e := rec.Effort; e != "" {
-		argv = append(argv, "--reasoning-effort", e)
+// RenderSettings is the default launch env/args, then --reasoning-effort/--context on an interactive launch.
+func (e copilotEngine) RenderSettings(ctx context.Context, s agent.Settings, env, argv []string,
+) ([]string, []string, []string, func(), error) {
+	env, argv, emulated, cleanup, err := e.BaseEngine.RenderSettings(ctx, s, env, argv)
+	if err != nil || s.Headless {
+		return env, argv, emulated, cleanup, err
 	}
-	if c := rec.Context; c != "" {
+	if s.Effort != "" {
+		argv = append(argv, "--reasoning-effort", s.Effort)
+	}
+	if c := s.Record.Context; c != "" {
 		argv = append(argv, "--context", c)
 	}
-	return argv
+	return env, argv, emulated, cleanup, nil
 }
 
 // copilotWire wires BYOK; window is the model's context window (providers.ContextWindow), which sizes the prompt cap.
