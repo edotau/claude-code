@@ -346,14 +346,21 @@ func statusOne(t Tool) Status {
 	return s
 }
 
-// firstVersionLine runs `path --version` with a short timeout; errors are silently "" (best-effort).
-func firstVersionLine(path string) string { return firstVersionLineCtx(context.Background(), path) }
+// versionProbeTimeout bounds a `--version` call; it is not a login probe, so it is not agent.ProbeTimeout.
+const versionProbeTimeout = 5 * time.Second
 
-// firstVersionLineCtx is firstVersionLine bounded by ctx as well as the 5s probe timeout.
-func firstVersionLineCtx(ctx context.Context, path string) string {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+// firstVersionLine is FirstVersionLine under versionProbeTimeout, the probe shape ProbedVersionLine takes.
+func firstVersionLine(path string) string {
+	return FirstVersionLine(context.Background(), path, versionProbeTimeout)
+}
+
+// FirstVersionLine is the first line of `path --version`, bounded by ctx and timeout; any error is "" (best-effort).
+func FirstVersionLine(ctx context.Context, path string, timeout time.Duration) string {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path, "--version").Output()
+	cmd := exec.CommandContext(ctx, path, "--version")
+	cmd.WaitDelay = 200 * time.Millisecond // lets stdout drain under load
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}

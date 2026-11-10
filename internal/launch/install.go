@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -585,20 +584,14 @@ func executableRealPath(candidate string) string {
 	return real
 }
 
-// toolPATHVersion is the first --version line of a PATH copy, cached by path+size+mtime like the tools version cache.
-func toolPATHVersion(path string) string { return tools.ProbedVersionLine(path, spawnPATHVersion) }
+// pathCopyVersionTimeout bounds `--version` on a PATH copy, shorter than tools' probe so doctor stays quick.
+const pathCopyVersionTimeout = 2 * time.Second
 
-func spawnPATHVersion(path string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, path, "--version")
-	cmd.WaitDelay = 200 * time.Millisecond // lets stdout drain under load
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	line, _, _ := strings.Cut(string(out), "\n")
-	return strings.TrimSpace(line)
+// toolPATHVersion is the first --version line of a PATH copy, cached by path+size+mtime like the tools version cache.
+func toolPATHVersion(path string) string {
+	return tools.ProbedVersionLine(path, func(p string) string {
+		return tools.FirstVersionLine(context.Background(), p, pathCopyVersionTimeout)
+	})
 }
 
 func orErr(s string, err error) string {

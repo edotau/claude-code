@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -76,35 +77,40 @@ func opencodeBinKey() string {
 
 // OpencodeMajor is the major version from `opencode --version` (cached per binary); 0 = absent, unparseable or unprobed.
 func OpencodeMajor() int {
-	v, _ := opencodeMajor(opencodeBinKey())
+	v, _ := opencodeMajor()
 	return v
 }
 
-// opencodeMajor is OpencodeMajor plus the probe error; a failed probe is never cached, so the next call retries.
-func opencodeMajor(key string) (int, error) {
+// opencodeMajor is OpencodeMajor plus the probe error (never cached); a major-0 answer stays in memory, not on disk.
+func opencodeMajor() (int, error) {
+	key := opencodeBinKey()
 	opencodeMu.Lock()
 	if opencodeMajorSet && opencodeMajorKey == key {
 		defer opencodeMu.Unlock()
 		return opencodeMajorVal, nil
 	}
 	opencodeMu.Unlock()
-	if key != "" {
-		if c := loadOpencodeDiskCache(); c.Version != nil && c.Version.Bin == key {
-			storeOpencodeMajor(key, c.Version.Major)
-			return c.Version.Major, nil
+	path, _ := paths.AgentBin("opencode") // "" when absent: the probe reports why
+	var perr error
+	line := tools.ProbedVersionLine(path, func(string) string {
+		ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
+		defer cancel()
+		out, err := opencodeOutput(ctx, "--version")
+		if err != nil {
+			perr = fmt.Errorf("opencode --version: %s", agent.ProbeErrDetail(err))
+			return ""
 		}
+		first, _, _ := strings.Cut(string(out), "\n")
+		if first = strings.TrimSpace(first); textutil.VersionMajor(first) > 0 {
+			return first
+		}
+		return ""
+	})
+	if perr != nil {
+		return 0, perr
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
-	defer cancel()
-	out, err := opencodeOutput(ctx, "--version")
-	if err != nil {
-		return 0, fmt.Errorf("opencode --version: %s", agent.ProbeErrDetail(err))
-	}
-	v := textutil.VersionMajor(string(out))
+	v := textutil.VersionMajor(line)
 	storeOpencodeMajor(key, v)
-	if v > 0 && strings.Contains(key, "|") {
-		updateOpencodeDiskCache(func(c *opencodeDiskCache) { c.Version = &opencodeDiskVersion{Bin: key, Major: v} })
-	}
 	return v, nil
 }
 
@@ -127,7 +133,7 @@ func OpencodeAuth() ([]OpencodeIntegration, error) {
 	}
 	gen := opencodeAuthGen
 	opencodeMu.Unlock()
-	major, merr := opencodeMajor(bin)
+	major, merr := opencodeMajor()
 	var ints []OpencodeIntegration
 	var err error
 	if major >= 2 {
@@ -316,7 +322,7 @@ func OpencodeLogoutArgv(id, credID string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	major, err := opencodeMajor(opencodeBinKey())
+	major, err := opencodeMajor()
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +338,7 @@ func OpencodeSwitchArgv(id, credID string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	major, err := opencodeMajor(opencodeBinKey())
+	major, err := opencodeMajor()
 	if err != nil || major < 2 {
 		return nil, err
 	}
@@ -347,11 +353,6 @@ func opencodeCacheFile() string {
 	return filepath.Join(paths.CacheDir(), "vendors", "opencode-auth.json")
 }
 
-type opencodeDiskVersion struct {
-	Bin   string `json:"bin"`
-	Major int    `json:"major"`
-}
-
 type opencodeDiskAuth struct {
 	Bin          string                `json:"bin"`
 	DB           string                `json:"db"`
@@ -359,9 +360,8 @@ type opencodeDiskAuth struct {
 }
 
 type opencodeDiskCache struct {
-	Schema  int                  `json:"schema"`
-	Version *opencodeDiskVersion `json:"version,omitempty"`
-	Auth    *opencodeDiskAuth    `json:"auth,omitempty"`
+	Schema int               `json:"schema"`
+	Auth   *opencodeDiskAuth `json:"auth,omitempty"`
 }
 
 // loadOpencodeDiskCache reads the cache; any error yields an empty cache so callers fall through to a live probe.

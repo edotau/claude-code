@@ -176,7 +176,7 @@ func refuseOpencodeMajor(ctx context.Context, w io.Writer, bin string) error {
 	if os.Getenv(opencodeAllowMajorEnv) != "" {
 		return nil
 	}
-	version := firstVersionLineCtx(ctx, bin)
+	version := FirstVersionLine(ctx, bin, versionProbeTimeout)
 	major := textutil.VersionMajor(version)
 	if major == 0 {
 		fmt.Fprintf(w, "  refuse   opencode %q (version unknown)\n", version)

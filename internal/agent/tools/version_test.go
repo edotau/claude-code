@@ -12,9 +12,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	_ "github.com/edotau/claude-code/internal/codex" // register the codex, copilot and opencode rows
-	_ "github.com/edotau/claude-code/internal/copilot"
-	_ "github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -39,7 +36,17 @@ func TestParseVersion(t *testing.T) {
 	}
 }
 
+// vendorRows mirror the codex, copilot and opencode register rows' version bounds; importing them would be a cycle.
+var vendorRows = []agent.Schema{
+	{Name: "codex", CLI: agent.CLI{Binary: "codex"}},
+	{Name: "copilot", CLI: agent.CLI{Binary: "copilot", MinVersion: "1.0.104", MinReason: "named-provider model registry needs it"}},
+	{Name: "opencode", CLI: agent.CLI{Binary: "opencode", MaxVersion: "1.x", MaxReason: "2.x broke the harness opencode route"}},
+}
+
 func TestVersionProblemUsesRegisteredRowBounds(t *testing.T) {
+	for _, row := range vendorRows {
+		agent.RegisterRowForTest(row)
+	}
 	for _, tc := range []struct {
 		agent, version, wantPrefix string
 	}{
@@ -248,5 +255,21 @@ func assertConcurrentVersionWrites(t *testing.T) {
 		if cache[p+"|1|1"] != "v"+strconv.Itoa(i) {
 			t.Errorf("row %s missing after concurrent writes (cache has %d rows)", p, len(cache))
 		}
+	}
+}
+
+// FirstVersionLine honours the caller's timeout: a hung --version is "" well before versionProbeTimeout.
+func TestFirstVersionLineHonoursTimeout(t *testing.T) {
+	bin, _ := probeFixture(t, "sleep 3\necho 'fake 1.0.0'")
+	start := time.Now()
+	if got := FirstVersionLine(t.Context(), bin, 100*time.Millisecond); got != "" {
+		t.Fatalf("hung probe = %q, want \"\"", got)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("probe took %v, want the 100ms timeout honoured", d)
+	}
+	fast, _ := probeFixture(t, "echo 'fake 1.0.0'\necho second")
+	if got := FirstVersionLine(t.Context(), fast, time.Second); got != "fake 1.0.0" {
+		t.Fatalf("FirstVersionLine = %q, want the first line", got)
 	}
 }

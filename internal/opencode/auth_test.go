@@ -401,7 +401,7 @@ func TestOpencodeDiskCacheCorruptFallsBackToProbe(t *testing.T) {
 	if *execs != 2 {
 		t.Fatalf("execs = %d, want 2 (corrupt cache ignored)", *execs)
 	}
-	if c := loadOpencodeDiskCache(); c.Version == nil || c.Auth == nil {
+	if c := loadOpencodeDiskCache(); c.Auth == nil {
 		t.Fatalf("cache not rewritten: %+v", c)
 	}
 }
@@ -411,8 +411,8 @@ func TestOpencodeDiskCacheFailedListNotCached(t *testing.T) {
 	if _, err := OpencodeAuth(); err == nil {
 		t.Fatal("want the auth list failure")
 	}
-	if c := loadOpencodeDiskCache(); c.Auth != nil || c.Version == nil {
-		t.Fatalf("cache = %+v, want version only", c)
+	if c := loadOpencodeDiskCache(); c.Auth != nil {
+		t.Fatalf("cache = %+v, want no auth entry", c)
 	}
 	newProcess(t)
 	OpencodeAuth()
@@ -425,8 +425,8 @@ func TestOpencodeDiskCacheInvalidateDropsAuth(t *testing.T) {
 	_, _, execs := fakeOpencodeOnDisk(t, "2.0.32", v2List, nil)
 	authOnce(t)
 	InvalidateOpencodeAuth()
-	if c := loadOpencodeDiskCache(); c.Auth != nil || c.Version == nil {
-		t.Fatalf("after invalidate cache = %+v, want version only", c)
+	if c := loadOpencodeDiskCache(); c.Auth != nil {
+		t.Fatalf("after invalidate cache = %+v, want no auth entry", c)
 	}
 	newProcess(t)
 	authOnce(t)
@@ -446,8 +446,8 @@ func TestOpencodeDiskCacheV1VersionOnly(t *testing.T) {
 	if *execs != 1 {
 		t.Fatalf("execs = %d, want 1 (version from disk on the second process)", *execs)
 	}
-	if c := loadOpencodeDiskCache(); c.Auth != nil || c.Version == nil || c.Version.Major != 1 {
-		t.Fatalf("1.x cache = %+v, want version only", c)
+	if c := loadOpencodeDiskCache(); c.Auth != nil {
+		t.Fatalf("1.x cache = %+v, want no auth entry", c)
 	}
 }
 
@@ -460,5 +460,31 @@ func TestOpencodeMajorFailedProbeNotCached(t *testing.T) {
 	opencodeOutput = func(_ context.Context, args ...string) ([]byte, error) { return []byte("2.0.32\n"), nil }
 	if got := OpencodeMajor(); got != 2 {
 		t.Errorf("major after recovery = %d, want 2 (the failure was cached)", got)
+	}
+}
+
+// A major-0 --version answer is reused in-process but never persisted, so a fresh process re-probes it.
+func TestOpencodeMajorZeroNotPersisted(t *testing.T) {
+	_, _, execs := fakeOpencodeOnDisk(t, "dev-build", "[]", nil)
+	for range 2 {
+		if got := OpencodeMajor(); got != 0 {
+			t.Fatalf("major = %d, want 0", got)
+		}
+	}
+	if *execs != 1 {
+		t.Fatalf("same-process execs = %d, want 1 (0 cached in memory)", *execs)
+	}
+	newProcess(t)
+	OpencodeMajor()
+	if *execs != 2 {
+		t.Fatalf("fresh-process execs = %d, want 2 (0 never persisted)", *execs)
+	}
+}
+
+// An installed opencode whose --version fails surfaces that probe error through OpencodeAuth.
+func TestOpencodeAuthReportsVersionProbeError(t *testing.T) {
+	fakeOpencodeOnDisk(t, "", "[]", nil)
+	if _, err := OpencodeAuth(); err == nil || !strings.Contains(err.Error(), "opencode --version") {
+		t.Fatalf("OpencodeAuth err = %v, want the --version probe error", err)
 	}
 }
