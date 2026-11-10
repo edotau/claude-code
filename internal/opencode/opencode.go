@@ -189,13 +189,6 @@ func opencodeModels(p *providers.Provider, model string, h *agent.Headless) map[
 	return menu
 }
 
-// opencodeRunArgv is opencodeRun wrapped in agent.HeadlessLaunch for the hub agent: one ladder dispatch execs
-// `opencode run` directly on an opencode-native "provider/model" id, bypassing the harness-route config.
-func opencodeRunArgv(model string, h agent.Headless) (env, argv []string) {
-	env, argv = opencodeRun(model, h)
-	return launchcli.HeadlessLaunch("opencode", env, argv)
-}
-
 // opencodeToolsOff is the tools-off config: every tool denied and every MCP server the overlay configures disabled.
 func opencodeToolsOff(cfg map[string]any) {
 	cfg["permission"] = "deny" // every tool, incl. task subagents and websearch — parity with claude --tools ""

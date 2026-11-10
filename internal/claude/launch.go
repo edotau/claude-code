@@ -111,7 +111,7 @@ func renderInteractive(ctx context.Context, plan *agent.Plan, t providers.Target
 		return fmt.Errorf("claude settings: %w", err)
 	}
 	if err != nil { // a refused stored record falls back to the built-in settings; the launch says so
-		plan.Warnings = append(plan.Warnings, fmt.Sprintf("claude settings record not applied: %v", err))
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf("claude stored agent settings not applied: %v; built-in defaults used", err))
 	}
 	if typesEffort(args) {
 		st.Effort = ""
