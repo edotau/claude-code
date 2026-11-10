@@ -116,7 +116,7 @@ func TestClientPrepareWorkRepoFromWorkdirNotCwd(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpdateRouting() = %v", err)
 	}
-	personal := scratchRepo(t, "https://github.com/edotau/claude-code.git")
+	personal := scratchRepo(t, "https://github.com/tester/claude-code.git")
 	work := scratchRepo(t, "https://git.corp.example/scm/x/y.git")
 	t.Chdir(personal)
 
@@ -129,7 +129,7 @@ func TestClientPrepareWorkRepoFromWorkdirNotCwd(t *testing.T) {
 // Without --workdir, a personal process cwd still gets the free Zen dispatch.
 func TestClientPrepareWorkRepoDefaultsToCwdWhenWorkdirEmpty(t *testing.T) {
 	setupWorkdirFixture(t)
-	personal := scratchRepo(t, "https://github.com/edotau/claude-code.git")
+	personal := scratchRepo(t, "https://github.com/tester/claude-code.git")
 	t.Chdir(personal)
 
 	res := runPreparedWorkdir(t, "")
