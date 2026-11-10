@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/databricks"
@@ -183,10 +184,11 @@ func switchUsage() {
 var resolvePage = helptext.Page{
 	Usage: "claude-code resolve [flags]",
 	About: "Resolves and prints the session profile's credential: the apiKeyHelper\n" +
-		"Claude Code calls. --proxy prints the loopback proxy's client secret instead.",
+		"Claude Code calls. --proxy prints the loopback proxy's client secret instead,\n" +
+		"or the launch's session token (HARNESS_PROXY_API_KEY) inside --route databricks:<p>.",
 }
 
-// cmdResolve is the apiKeyHelper: --proxy prints the loopback proxy's client secret instead.
+// cmdResolve is the apiKeyHelper: --proxy prints the armed session token, else the loopback proxy's client secret.
 func cmdResolve(args []string) int {
 	fs := helptext.NewFlagSet("resolve", resolvePage)
 	profile := fs.String("profile", "", "profile name")
@@ -196,6 +198,10 @@ func cmdResolve(args []string) int {
 		return code
 	}
 	if *viaRouter {
+		if tok := os.Getenv(claude.ProxyKeyEnv); tok != "" { // an armed launch's session token, confined to its profile
+			fmt.Println(tok)
+			return 0
+		}
 		s, err := gateway.ClientSecret()
 		if err != nil {
 			return helptext.Fail("%v", err)
