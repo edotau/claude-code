@@ -3,7 +3,6 @@ paths:
   - "agents/**"
   - "workflows/**"
   - "commands/**"
-  - "marketplace/plugins/*/agents/*.md"
 ---
 # Agent Authoring and Commands
 

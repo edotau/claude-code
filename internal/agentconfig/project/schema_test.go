@@ -190,13 +190,13 @@ func TestNoStaleReferencesToRemovedAgents(t *testing.T) {
 	if _, err := os.Stat(agentsDir); err != nil {
 		t.Skip("no agents/ dir — not the harness checkout")
 	}
-	removed := []string{"agents/sonnet.md", "agents/documentation.md", "agents/reflection.md"}
+	removed := []string{"agents/sonnet.md", "agents/documentation.md", "agents/reflection.md", "agents/coworker.md"}
 	for _, stale := range removed {
 		if _, err := os.Stat(filepath.Join(root, stale)); err == nil {
 			t.Fatalf("%s still exists — update the removed list, not this guard", stale)
 		}
 	}
-	for _, dir := range []string{"rules", "commands", "workflows"} {
+	for _, dir := range []string{"rules", "commands", "workflows", "skills/subagent-workflows"} {
 		if err := scanForStaleRefs(t, filepath.Join(root, dir), removed); err != nil && !os.IsNotExist(err) {
 			t.Fatal(err)
 		}
@@ -251,7 +251,7 @@ func checkAgentFileSource(agent Source) []string {
 	}
 	tools := agentFileTools(agent.frontmatter["tools"])
 	external := []string{"codex", "copilot", "gemini", "opencode"}
-	leaves := []string{"claude", "codex", "copilot", "gemini", "opencode", "coworker"}
+	leaves := []string{"claude", "codex", "copilot", "gemini", "opencode"}
 	if slices.Contains(external, agent.dirName) && !slices.Contains(tools, "Bash") {
 		defects = append(defects, file+": external leaf tools must include Bash")
 	}
@@ -297,6 +297,32 @@ func TestAgentFilesTie(t *testing.T) {
 	if defects := checkAgentFiles(dir, required); len(defects) != 0 {
 		t.Fatal(strings.Join(defects, "\n"))
 	}
+	var names []string
+	for _, a := range agents {
+		names = append(names, a.dirName)
+	}
+	slices.Sort(names)
+	if want := []string{"Plan", "claude", "codex", "copilot", "gemini", "opencode"}; !slices.Equal(names, want) {
+		t.Fatalf("agents/*.md = %v, want exactly %v (the dispatchable roster)", names, want)
+	}
+}
+
+// Each /coworker:<agent> launcher runs its roster agent on the Databricks route, and that agent has a file.
+func TestCoworkerLaunchersTieToRoster(t *testing.T) {
+	root := repoRoot(t)
+	for _, name := range []string{"codex", "copilot", "gemini", "opencode"} {
+		data, err := os.ReadFile(filepath.Join(root, "commands", "coworker", name+".md"))
+		if err != nil {
+			t.Errorf("/coworker:%s: %v", name, err)
+			continue
+		}
+		if want := "claude-code agents ask --agent " + name + " --route databricks"; !strings.Contains(string(data), want) {
+			t.Errorf("/coworker:%s does not run %q", name, want)
+		}
+		if _, err := os.Stat(filepath.Join(root, "agents", name+".md")); err != nil {
+			t.Errorf("/coworker:%s names no roster agent file: %v", name, err)
+		}
+	}
 }
 
 func TestAgentFileCheckerHasTeeth(t *testing.T) {
@@ -315,7 +341,6 @@ func TestAgentFileCheckerHasTeeth(t *testing.T) {
 		{"copilot with Agent", "copilot", "copilot", "[Read, Bash, Agent]", "copilot.md"},
 		{"gemini with Agent", "gemini", "gemini", "Read, Bash, Agent", "gemini.md"},
 		{"opencode with Agent", "opencode", "opencode", "[Read, Bash, Agent]", "opencode.md"},
-		{"coworker with Agent", "coworker", "coworker", "Read, Bash, Agent", "coworker.md"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

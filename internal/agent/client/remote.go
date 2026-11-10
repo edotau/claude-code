@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -99,6 +100,7 @@ func remoteScript(bin, agentName, fallback string, req agent.RunOptions) (string
 	opt("--profile", req.Provider)
 	opt("--effort", req.Effort)
 	opt("--as", req.Identity)
+	opt("--route", os.Getenv(router.EnvRoute)) // ApplyRoute exports --route as env, which ssh does not carry
 	opt("--session", req.SessionID)
 	opt("--system-prompt", req.SystemPrompt)
 	opt("--append-system-prompt", req.AppendSystemPrompt)
@@ -134,7 +136,7 @@ func remoteScript(bin, agentName, fallback string, req agent.RunOptions) (string
 }
 
 func validateRemoteScript(bin, agentName string, req agent.RunOptions) error {
-	vals := []string{bin, agentName, req.Model, req.Provider, req.Effort, req.Identity, req.WorkDir, req.SessionID, req.SystemPrompt,
+	vals := []string{bin, agentName, req.Model, req.Provider, req.Effort, req.Identity, os.Getenv(router.EnvRoute), req.WorkDir, req.SessionID, req.SystemPrompt,
 		req.AppendSystemPrompt, req.OutputSchema}
 	vals = append(vals, req.Env...)
 	for _, rules := range [][]agent.Rule{req.Permissions.Allow, req.Permissions.Ask, req.Permissions.Deny} {
