@@ -38,11 +38,32 @@ type AgentRecord struct {
 	Fallback string `json:"fallback,omitempty"`
 	// Aliases are claude's per-alias model pins (CLAUDE_<ALIAS>_MODEL), keyed by lower-case alias.
 	Aliases map[string]string `json:"aliases,omitempty"`
+	// Permissions is the default dispatch policy in Claude Code rule grammar; nil inherits the built-in.
+	Permissions *AgentPolicy `json:"permissions,omitempty"`
+	// Launch is env and argv every launch carries; nil inherits the built-in, non-nil replaces it whole.
+	Launch *AgentLaunch `json:"launch,omitempty"`
+	// Extras are vendor-native knobs, merged key by key over the built-in; "" unsets a built-in key.
+	Extras map[string]string `json:"extras,omitempty"`
+}
+
+// AgentPolicy is a dispatch policy: mode "", default, auto or plan, and rule strings such as "Bash(rm:*)".
+type AgentPolicy struct {
+	Mode  string   `json:"mode,omitempty"`
+	Allow []string `json:"allow,omitempty"`
+	Ask   []string `json:"ask,omitempty"`
+	Deny  []string `json:"deny,omitempty"`
+}
+
+// AgentLaunch is env (KEY=VALUE) for every launch and args for interactive launches only.
+type AgentLaunch struct {
+	Env  []string `json:"env,omitempty"`
+	Args []string `json:"args,omitempty"`
 }
 
 // IsZero reports a record with nothing set.
 func (r AgentRecord) IsZero() bool {
-	return r.Profile == "" && r.Model == "" && r.Effort == "" && r.Context == "" && r.Account == "" && r.Fallback == "" && len(r.Aliases) == 0
+	return r.Profile == "" && r.Model == "" && r.Effort == "" && r.Context == "" && r.Account == "" && r.Fallback == "" && len(r.Aliases) == 0 &&
+		r.Permissions == nil && r.Launch == nil && len(r.Extras) == 0
 }
 
 // LegacyAgents are the roster agents whose <AGENT>_<FIELD> pins fold into records; claude is first.
