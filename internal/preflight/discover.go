@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -32,9 +33,9 @@ func SpawnDiscover(profile string, force bool) bool {
 // DiscoverTargets is the profiles copilot and opencode point at that have models to discover: Databricks or GitHub rows.
 func DiscoverTargets(reg *providers.Registry) []string {
 	var out []string
-	for _, agent := range []string{"copilot", "opencode"} {
+	for _, agent := range []string{agentid.Copilot, agentid.OpenCode} {
 		name := providers.AgentRecord(agent).Profile
-		if name == "" && agent == "copilot" {
+		if name == "" && agent == agentid.Copilot {
 			name = GithubProfile(reg)
 		}
 		p := reg.Providers[name]

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -368,7 +369,7 @@ func printCleanResult(r worktree.CleanResult, dryRun bool) {
 	}
 }
 
-func resolveAgents() []string { return []string{"claude", "codex"} }
+func resolveAgents() []string { return []string{agentid.Claude, agentid.Codex} }
 
 func names() []string {
 	cwd, err := os.Getwd()

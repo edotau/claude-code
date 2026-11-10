@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -111,6 +112,8 @@ func Register(a Agent) {
 		panic("agent: Register " + a.Row.Name + " with a nil Driver")
 	case a.Row.Name != a.Driver.Name():
 		panic("agent: row " + a.Row.Name + " registered with driver " + a.Driver.Name())
+	case !agentid.Known(a.Row.Name):
+		panic("agent: Register " + a.Row.Name + ", not a roster agent")
 	case a.Launcher != nil && DefaultLauncher != nil:
 		panic("agent: second Launcher registered by " + a.Row.Name)
 	case a.Hub != nil && hub != nil:
@@ -238,7 +241,7 @@ func GeminiGatewayRow(p *providers.Provider) bool {
 
 // CanServe reports whether p is usable by agent name (Serves without the reason).
 func CanServe(name string, p *providers.Provider) bool {
-	if name == "gemini" && GeminiGatewayRow(p) {
+	if name == agentid.Gemini && GeminiGatewayRow(p) {
 		return true
 	}
 	ok, _ := Serves(name, p, "")

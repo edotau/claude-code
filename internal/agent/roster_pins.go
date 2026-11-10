@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -28,9 +29,13 @@ type ModelAsk struct {
 }
 
 // agentModelEnv is each CLI agent's own model knob; claude's ANTHROPIC_MODEL is handled in Claude().
-var agentModelEnv = map[string]string{
-	"codex": "CODEX_MODEL", "copilot": "COPILOT_MODEL", "gemini": "GEMINI_MODEL", "opencode": "OPENCODE_MODEL",
-}
+var agentModelEnv = func() map[string]string {
+	m := map[string]string{}
+	for _, a := range agentid.External() {
+		m[a] = strings.ToUpper(a) + "_MODEL"
+	}
+	return m
+}()
 
 // AgentModelPin is the agent's own model: its shell model env (local config) over the vault record's model, or "".
 func AgentModelPin(agent string) string {
@@ -124,14 +129,14 @@ func ValidAgentActive(agent, v string) error {
 
 // AgentUnbillable is why copilot has no account to bill (no GitHub login under 95%, Databricks profile or key); "" else.
 func AgentUnbillable(agent string) string {
-	if agent != "copilot" {
+	if agent != agentid.Copilot {
 		return ""
 	}
 	reg, err := providers.Load()
 	if err != nil {
 		return ""
 	}
-	if SchemaFor("copilot").Eng().DescribeRoute(reg).OK {
+	if SchemaFor(agentid.Copilot).Eng().DescribeRoute(reg).OK {
 		return ""
 	}
 	return "no account to bill"
@@ -139,7 +144,7 @@ func AgentUnbillable(agent string) string {
 
 // AgentActive reports whether agent is on: claude always, else a profile is set (copilot's no-bill-off stays derived).
 func AgentActive(agent string) bool {
-	if agent == "claude" {
+	if agent == agentid.Claude {
 		return true
 	}
 	if _, ok := LookupSchema(agent); !ok {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -130,5 +131,13 @@ func TestAgentPinsRejectVaultIOError(t *testing.T) {
 	var pathErr *os.PathError
 	if pins != nil || !errors.As(err, &pathErr) {
 		t.Fatalf("AgentPins = %v, %v; want no pins and the wrapped filesystem error", pins, err)
+	}
+}
+
+// Ties agentModelEnv to the four external agents' model knobs; claude has none.
+func TestAgentModelEnvPinsTheExternalAgents(t *testing.T) {
+	want := map[string]string{"codex": "CODEX_MODEL", "copilot": "COPILOT_MODEL", "gemini": "GEMINI_MODEL", "opencode": "OPENCODE_MODEL"}
+	if !reflect.DeepEqual(agentModelEnv, want) {
+		t.Errorf("agentModelEnv = %v, want %v", agentModelEnv, want)
 	}
 }

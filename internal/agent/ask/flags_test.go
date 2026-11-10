@@ -41,3 +41,11 @@ func TestAskPackFlagCombos(t *testing.T) {
 		t.Fatalf("request.Pack = %+v, want dirs a,b + diff + index + index-only", p)
 	}
 }
+
+// Ties the --effort help to the harness scale.
+func TestEffortFlagHelpListsTheScale(t *testing.T) {
+	fs, _ := askFlagSet()
+	if got := fs.Lookup("effort").Usage; got != "reasoning effort: low|medium|high|xhigh|max" {
+		t.Errorf("--effort usage = %q", got)
+	}
+}

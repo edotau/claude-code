@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/launchcli"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -182,7 +183,7 @@ func pinRoute(name, pin string) (string, error) {
 
 // lastUsedProfile is this workspace's last-used profile for an active agent CLI, "" when none applies.
 func lastUsedProfile(name string) string {
-	if (name != "copilot" && name != "opencode" && name != "codex" && name != "gemini") || !agent.AgentActive(name) {
+	if !slices.Contains(agentid.External(), name) || !agent.AgentActive(name) {
 		return ""
 	}
 	if reg, err := providers.Load(); err == nil {

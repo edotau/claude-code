@@ -422,3 +422,10 @@ func TestDirectDispatchesHaveNoAgentTag(t *testing.T) {
 		}
 	}
 }
+
+// Ties agentid.All to the registered roster: five agents, claude included, sorted by name.
+func TestRosterNamesAreTheFiveAgents(t *testing.T) {
+	if got := agent.RosterNames(); !slices.Equal(got, []string{"claude", "codex", "copilot", "gemini", "opencode"}) {
+		t.Errorf("RosterNames() = %v, want [claude codex copilot gemini opencode]", got)
+	}
+}

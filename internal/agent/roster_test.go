@@ -266,3 +266,13 @@ func TestLookupSchemaPinIDsAreIndependent(t *testing.T) {
 }
 
 // A pinned profile read through a registry that cannot load is an error, not a silent "not an own-login pin".
+
+// Register refuses a name outside the roster, before it touches the roster.
+func TestRegisterPanicsOnUnknownAgent(t *testing.T) {
+	defer func() {
+		if r := recover(); r != "agent: Register bogus, not a roster agent" {
+			t.Errorf("recovered %v, want the not-a-roster-agent panic", r)
+		}
+	}()
+	Register(Agent{Row: Schema{Name: "bogus"}, Driver: fixtureDriver{NewBaseEngine("bogus")}})
+}
