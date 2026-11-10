@@ -22,7 +22,6 @@ const (
 var menuHeader = []string{
 	"usage: claude-code [<command>] [subcommand] [flags]",
 	"       claude-code <command> -h    per-command help",
-	"       claude-code anthropic       login, --oauth token or --x-api-key",
 }
 
 // menuRow is one line after the header: blank, a group head, or a verb (name + summary at gradient position frac).
@@ -86,13 +85,7 @@ func usage(w *os.File) error {
 	paintName := func(s string, frac float64) string { return s }
 	if ansi.Enabled(w) {
 		mode, stops, dim := theme.Theme()
-		// ANTHROPIC is first-party, so its head opens the gradient; the other heads stay dim.
-		paintHead = func(s string) string {
-			if s == groupAnthropic {
-				return ansi.Paint(mode, ansi.GradAt(stops, 0), s, true)
-			}
-			return ansi.Paint(mode, dim, s, true)
-		}
+		paintHead = func(s string) string { return ansi.Paint(mode, dim, s, true) }
 		paintName = func(s string, frac float64) string { return ansi.Paint(mode, ansi.GradAt(stops, frac), s, true) }
 	}
 	for _, r := range menuRows() {

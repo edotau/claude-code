@@ -91,7 +91,7 @@ func checkClaudeHiddenFromUsage(t *testing.T, stdout string) {
 
 // Every group is present and every row has a summary.
 func TestMenuRowsFit(t *testing.T) {
-	want := map[string]bool{groupAnthropic: false, groupAgents: false, groupAuth: false, groupSession: false, groupDiagnostics: false, groupSettings: false}
+	want := map[string]bool{groupAgents: false, groupAuth: false, groupSession: false, groupDiagnostics: false, groupSettings: false}
 	for _, c := range commands() {
 		if strings.TrimSpace(c.summary) == "" {
 			t.Errorf("%s: empty summary", c.name)
@@ -199,10 +199,7 @@ func TestHelpFormat(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	excluded := map[string]bool{
-		// These launch external CLIs and deliberately forward help unchanged.
-		"opus": true, "sonnet": true, "haiku": true, "fable": true, "science": true,
-	}
+	excluded := map[string]bool{}
 	hidden := []string{
 		"agents", "models", "review", "workflow", "hook",
 		"help-svg", "clip", "completion", "plan", "test",
@@ -228,7 +225,7 @@ func TestTopLevelCommandRowsSingleWordSingleLine(t *testing.T) {
 	for _, c := range commands() {
 		t.Run(c.name, func(t *testing.T) {
 			switch c.name {
-			case "opus", "sonnet", "haiku", "fable", "science", "claude", "wl-paste":
+			case "claude", "wl-paste":
 				t.Skip("external CLI launcher or wl-paste proxy: -h is forwarded, not a help page")
 			}
 			code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
@@ -299,7 +296,8 @@ func checkHelpFormat(t *testing.T, path []string, parents []string) {
 		t.Errorf("help has no rows under COMMANDS or FLAGS:\n%s", text)
 	}
 	// Parent-page help is intentional for some flagless actions; never dispatch its rows again.
-	if slices.Contains(parents, text) || path[0] == "hook" {
+	// `anthropic science` forwards -h to the external claude-science CLI.
+	if slices.Contains(parents, text) || path[0] == "hook" || path[0] == "anthropic" {
 		return
 	}
 	if len(path) >= 8 && len(subs) > 0 {
@@ -390,7 +388,7 @@ func (checks *helpRowChecks) checkRow(t *testing.T, section, label string) {
 func helpAllowsNoRows(path []string) bool {
 	flagless := map[string]bool{
 		"hook": true, "clip": true, "history diff": true, "workflow lint": true,
-		"vault delete": true, "vault edit": true, "gateway token": true, "test ramdisk": true,
+		"vault delete": true, "vault edit": true, "test ramdisk": true,
 	}
 	if len(path) == 2 && slices.Contains([]string{"copilot", "codex", "gemini", "opencode"}, path[0]) &&
 		slices.Contains([]string{"cancel", "catalog", "models", "resume", "on", "off"}, path[1]) {
@@ -415,8 +413,8 @@ func TestMenuGroupsAlphabetical(t *testing.T) {
 			t.Errorf("%s not alphabetical: %v", g, byGroup[g])
 		}
 	}
-	if slices.IsSorted(byGroup[groupAnthropic]) {
-		t.Errorf("ANTHROPIC must keep tier order, got sorted %v", byGroup[groupAnthropic])
+	if got := byGroup[groupAgents]; len(got) == 0 || got[0] != "anthropic" {
+		t.Errorf("AGENTS must open with anthropic, got %v", got)
 	}
 }
 

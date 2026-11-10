@@ -115,7 +115,7 @@ func TestRecordLabelsReportsUnreadableVault(t *testing.T) {
 	}
 	var labels map[string]string
 	_, _, stderr := hosttest.CaptureOutput(t, func() int { labels = recordLabels(); return 0 })
-	if len(labels) != 0 || !strings.Contains(stderr, "vault list: reading labels:") {
+	if len(labels) != 0 || !strings.Contains(stderr, "vault ls: reading labels:") {
 		t.Fatalf("labels=%v stderr=%q, want empty map and a reading-labels warning", labels, stderr)
 	}
 }

@@ -25,9 +25,9 @@ func TestCmdVault(t *testing.T) {
 		{"short help", []string{"-h"}, 0},
 		{"long help", []string{"--help"}, 0},
 		{"unknown", []string{"nope"}, 2},
-		{"list unknown section", []string{"list", "bogus"}, 2},
+		{"ls unknown section", []string{"ls", "bogus"}, 2},
 		{"edit extra arg", []string{"edit", "x"}, 2},
-		{"list", []string{"list"}, 0},
+		{"ls", []string{"ls"}, 0},
 		{"show removed", []string{"show"}, 2},
 		{"finalize is unknown", []string{"finalize"}, 2},
 		{"rollback is unknown", []string{"rollback"}, 2},
@@ -42,6 +42,23 @@ func TestCmdVault(t *testing.T) {
 				t.Errorf("Run(%q) = %d, want %d", tt.args, got, tt.want)
 			}
 		})
+	}
+}
+
+// Bare `vault` (and a leading flag) prints the ls table, not the help page; `list` is gone.
+func TestCmdVaultBareIsLs(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{{nil, `"secrets"`}, {[]string{"--format", "text"}, "AGENT"}} { // piped bare defaults to JSON
+		code, stdout, _ := hosttest.CaptureOutput(t, func() int { return Run(tc.args) })
+		if code != 0 || strings.Contains(stdout, "COMMANDS") || !strings.Contains(stdout, tc.want) {
+			t.Errorf("vault %q = %d, want the ls table:\n%s", tc.args, code, stdout)
+		}
+	}
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"list"}) }); code != 2 {
+		t.Errorf("vault list = %d, want 2 (renamed to ls)", code)
 	}
 }
 
@@ -64,7 +81,7 @@ func TestCmdVaultEditHelpPrintsOwnPage(t *testing.T) {
 
 func TestVaultVerbs(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	want := []string{"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret"}
+	want := []string{"ls", "set", "get", "delete", "import", "export", "edit", "rotate-secret"}
 	if len(vaultVerbs) != len(want) {
 		t.Errorf("vaultVerbs has %d entries, want exactly %v", len(vaultVerbs), want)
 	}
@@ -110,10 +127,10 @@ func TestCmdVaultListTailscalePresenceOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-		return Run([]string{"list", "--tailscale"})
+		return Run([]string{"ls", "--tailscale"})
 	})
 	if code != 0 {
-		t.Fatalf("vault list --tailscale = %d, stderr = %q", code, stderr)
+		t.Fatalf("vault ls --tailscale = %d, stderr = %q", code, stderr)
 	}
 	if !strings.Contains(stdout, "TAILSCALE_API_KEY  set (") {
 		t.Errorf("stdout = %q, want stored credential presence", stdout)

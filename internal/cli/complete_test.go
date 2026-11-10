@@ -179,7 +179,7 @@ func TestCompletionSkipsTypedFlags(t *testing.T) {
 // flags belong to a process this binary never inspects, so completing them must offer nothing — and,
 // since nothing here ever calls a command's run func, must never hang trying to launch one either.
 func TestLaunchersNeverOfferFlagsOrDispatch(t *testing.T) {
-	for _, name := range []string{"opus", "sonnet", "haiku", "fable", "codex", "copilot", "opencode", "gemini", "science", "claude"} {
+	for _, name := range []string{"codex", "copilot", "opencode", "gemini", "claude"} {
 		if n := specTree()[name]; n != nil && len(n.Flags) != 0 {
 			t.Errorf("specTree()[%q] must not carry its own flags (bare launcher)", name)
 		}
@@ -198,7 +198,7 @@ func TestLaunchersNeverOfferFlagsOrDispatch(t *testing.T) {
 
 // TestCompletionLaunchersAreRealVerbs guards the expected launcher names against registry drift.
 func TestCompletionLaunchersAreRealVerbs(t *testing.T) {
-	for _, name := range []string{"opus", "sonnet", "haiku", "fable", "codex", "copilot", "opencode", "gemini", "science", "claude"} {
+	for _, name := range []string{"codex", "copilot", "opencode", "gemini", "claude"} {
 		if lookup(name) == nil {
 			t.Errorf("noComplete lists %q, which is not a registered verb", name)
 		}
@@ -474,7 +474,7 @@ func TestFlagEqualsValueForm(t *testing.T) {
 // its own beyond any in-process subwords — its flags belong to a process this binary never
 // inspects, and nothing here may invoke a command's run func to find out what they are.
 func TestNoCompleteLauncherStillOffersNothing(t *testing.T) {
-	for _, name := range []string{"opus", "sonnet", "haiku", "fable", "codex", "copilot", "opencode", "gemini", "science", "claude"} {
+	for _, name := range []string{"codex", "copilot", "opencode", "gemini", "claude"} {
 		if got := completionCandidates([]string{name, "--"}); len(got) != 0 {
 			t.Errorf("%s -- = %v, want none (noComplete launcher)", name, got)
 		}
@@ -564,11 +564,11 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	cases := map[string][]string{
 		"history": {"snapshot", "log", "diff"},
-		"vault":   {"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret"},
+		"vault":   {"ls", "set", "get", "delete", "import", "export", "edit", "rotate-secret"},
 		"network": {"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode", "restart", "remote"},
 		"memory": {"recall", "remember", "init", "review", "verify", "promote", "update", "dream", "search", "show",
 			"digest", "index", "path", "catchup", "watch", "timeline", "archive", "alias", "fmt", "report"},
-		"gateway":  {"router", "proxy", "token"},
+		"gateway":  {"proxy"},
 		"agents":   {"sync", "tree", "reap", "list", "ask", "dispatch", "label"},
 		"workflow": {"skeleton", "lint"},
 		"theme":    {"apply", "statusline", "vscode"},

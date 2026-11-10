@@ -1,87 +1,73 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="699" height="803" viewBox="0 0 699 803" role="img" aria-label="claude-code help menu">
-<rect width="699" height="803" rx="10" fill="#1d1a22"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="699" height="670" viewBox="0 0 699 670" role="img" aria-label="claude-code help menu">
+<rect width="699" height="670" rx="10" fill="#1d1a22"/>
 <circle cx="20" cy="18" r="6" fill="#ff5f57"/><circle cx="40" cy="18" r="6" fill="#febc2e"/><circle cx="60" cy="18" r="6" fill="#28c840"/>
 <text x="349.5" y="22" fill="#8a7e90" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" text-anchor="middle">$ claude-code</text>
 <g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="14" xml:space="preserve">
 <text x="22.0" y="46" fill="#d7d4dc">usage: claude-code [&lt;command&gt;] [subcommand] [flags]</text>
 <text x="22.0" y="65" fill="#d7d4dc">       claude-code &lt;command&gt; -h    per-command help</text>
-<text x="22.0" y="84" fill="#d7d4dc">       claude-code anthropic       login, --oauth token or --x-api-key</text>
-<text x="22.0" y="122" fill="#8a7e90" font-weight="bold">ANTHROPIC</text>
+<text x="22.0" y="103" fill="#8a7e90" font-weight="bold">AGENTS</text>
+<text x="22.0" y="122" fill="#d7d4dc">  </text>
+<text x="38.8" y="122" fill="#4796e4" font-weight="bold">anthropic       </text>
+<text x="173.2" y="122" fill="#d7d4dc">Claude Code: --model opus|sonnet|haiku|fable; science</text>
 <text x="22.0" y="141" fill="#d7d4dc">  </text>
-<text x="38.8" y="141" fill="#4796e4" font-weight="bold">opus            </text>
-<text x="173.2" y="141" fill="#d7d4dc">high reasoning: deep architecture · $$$</text>
+<text x="38.8" y="141" fill="#4b94e3" font-weight="bold">copilot         </text>
+<text x="173.2" y="141" fill="#d7d4dc">Copilot CLI on its own login, or your Databricks profile</text>
 <text x="22.0" y="160" fill="#d7d4dc">  </text>
-<text x="38.8" y="160" fill="#4a95e3" font-weight="bold">sonnet          </text>
-<text x="173.2" y="160" fill="#d7d4dc">everyday coding, reviews, subagents · $$</text>
+<text x="38.8" y="160" fill="#558fdf" font-weight="bold">codex           </text>
+<text x="173.2" y="160" fill="#d7d4dc">Codex on your ChatGPT login; reviews</text>
 <text x="22.0" y="179" fill="#d7d4dc">  </text>
-<text x="38.8" y="179" fill="#5191e0" font-weight="bold">haiku           </text>
-<text x="173.2" y="179" fill="#d7d4dc">quick lookups, mechanical edits · $ fastest</text>
+<text x="38.8" y="179" fill="#6389da" font-weight="bold">gemini          </text>
+<text x="173.2" y="179" fill="#d7d4dc">Gemini CLI; 1M-context sweeps (ask --dirs)</text>
 <text x="22.0" y="198" fill="#d7d4dc">  </text>
-<text x="38.8" y="198" fill="#5c8cdd" font-weight="bold">fable           </text>
-<text x="173.2" y="198" fill="#d7d4dc">separate frontier family; main-session default · $$$$</text>
+<text x="38.8" y="198" fill="#7183d5" font-weight="bold">opencode        </text>
+<text x="173.2" y="198" fill="#d7d4dc">OpenCode on its own login, or your Databricks profile; docs</text>
 <text x="22.0" y="217" fill="#d7d4dc">  </text>
-<text x="38.8" y="217" fill="#6787d8" font-weight="bold">science         </text>
-<text x="173.2" y="217" fill="#d7d4dc">Claude for Life Sciences, own login (--print-env)</text>
-<text x="22.0" y="255" fill="#8a7e90" font-weight="bold">AGENTS</text>
+<text x="38.8" y="217" fill="#7d7dd1" font-weight="bold">databricks      </text>
+<text x="173.2" y="217" fill="#d7d4dc">Claude Code on Databricks; login, import/export, check --all</text>
+<text x="22.0" y="255" fill="#8a7e90" font-weight="bold">AUTH</text>
 <text x="22.0" y="274" fill="#d7d4dc">  </text>
-<text x="38.8" y="274" fill="#7382d4" font-weight="bold">copilot         </text>
-<text x="173.2" y="274" fill="#d7d4dc">Copilot CLI on its own login, or your Databricks profile</text>
+<text x="38.8" y="274" fill="#847ace" font-weight="bold">network         </text>
+<text x="173.2" y="274" fill="#d7d4dc">tailnet, browsers, web search, MCP health, agent page</text>
 <text x="22.0" y="293" fill="#d7d4dc">  </text>
-<text x="38.8" y="293" fill="#7d7dd1" font-weight="bold">codex           </text>
-<text x="173.2" y="293" fill="#d7d4dc">Codex on your ChatGPT login; reviews</text>
-<text x="22.0" y="312" fill="#d7d4dc">  </text>
-<text x="38.8" y="312" fill="#837bce" font-weight="bold">gemini          </text>
-<text x="173.2" y="312" fill="#d7d4dc">Gemini CLI; 1M-context sweeps (ask --dirs)</text>
-<text x="22.0" y="331" fill="#d7d4dc">  </text>
-<text x="38.8" y="331" fill="#847ace" font-weight="bold">opencode        </text>
-<text x="173.2" y="331" fill="#d7d4dc">OpenCode on its own login, or your Databricks profile; docs</text>
+<text x="38.8" y="293" fill="#8679cc" font-weight="bold">vault           </text>
+<text x="173.2" y="293" fill="#d7d4dc">pins, env, overlays and sealed secrets</text>
+<text x="22.0" y="331" fill="#8a7e90" font-weight="bold">SESSION</text>
 <text x="22.0" y="350" fill="#d7d4dc">  </text>
-<text x="38.8" y="350" fill="#8978c8" font-weight="bold">databricks      </text>
-<text x="173.2" y="350" fill="#d7d4dc">Claude Code on Databricks; login, import/export, check --all</text>
-<text x="22.0" y="388" fill="#8a7e90" font-weight="bold">AUTH</text>
+<text x="38.8" y="350" fill="#8f77c0" font-weight="bold">clean           </text>
+<text x="173.2" y="350" fill="#d7d4dc">sweep accumulated state; --dry-run previews</text>
+<text x="22.0" y="369" fill="#d7d4dc">  </text>
+<text x="38.8" y="369" fill="#9c73b0" font-weight="bold">history         </text>
+<text x="173.2" y="369" fill="#d7d4dc">shadow git history of the config files</text>
+<text x="22.0" y="388" fill="#d7d4dc">  </text>
+<text x="38.8" y="388" fill="#ab6e9d" font-weight="bold">memory          </text>
+<text x="173.2" y="388" fill="#d7d4dc">session memory bank: recall, save, promote</text>
 <text x="22.0" y="407" fill="#d7d4dc">  </text>
-<text x="38.8" y="407" fill="#9276bd" font-weight="bold">network         </text>
-<text x="173.2" y="407" fill="#d7d4dc">tailnet, browsers, web search, MCP health, agent page</text>
+<text x="38.8" y="407" fill="#b86a8d" font-weight="bold">scm             </text>
+<text x="173.2" y="407" fill="#d7d4dc">PRs, checks, comments on GitHub or Bitbucket DC</text>
 <text x="22.0" y="426" fill="#d7d4dc">  </text>
-<text x="38.8" y="426" fill="#9d72ae" font-weight="bold">vault           </text>
-<text x="173.2" y="426" fill="#d7d4dc">pins, env, overlays and sealed secrets</text>
-<text x="22.0" y="464" fill="#8a7e90" font-weight="bold">SESSION</text>
+<text x="38.8" y="426" fill="#c16881" font-weight="bold">worktree        </text>
+<text x="173.2" y="426" fill="#d7d4dc">manage worktrees in ~/worktrees/&lt;repo&gt;</text>
+<text x="22.0" y="464" fill="#8a7e90" font-weight="bold">DIAGNOSTICS</text>
 <text x="22.0" y="483" fill="#d7d4dc">  </text>
-<text x="38.8" y="483" fill="#aa6f9f" font-weight="bold">clean           </text>
-<text x="173.2" y="483" fill="#d7d4dc">sweep accumulated state; --dry-run previews</text>
+<text x="38.8" y="483" fill="#c3677f" font-weight="bold">describe        </text>
+<text x="173.2" y="483" fill="#d7d4dc">machine-readable map of the harness</text>
 <text x="22.0" y="502" fill="#d7d4dc">  </text>
-<text x="38.8" y="502" fill="#b56b90" font-weight="bold">history         </text>
-<text x="173.2" y="502" fill="#d7d4dc">shadow git history of the config files</text>
+<text x="38.8" y="502" fill="#ca6782" font-weight="bold">doctor          </text>
+<text x="173.2" y="502" fill="#d7d4dc">read-only health checks (--audit: action log)</text>
 <text x="22.0" y="521" fill="#d7d4dc">  </text>
-<text x="38.8" y="521" fill="#be6985" font-weight="bold">memory          </text>
-<text x="173.2" y="521" fill="#d7d4dc">session memory bank: recall, save, promote</text>
+<text x="38.8" y="521" fill="#d56888" font-weight="bold">gateway         </text>
+<text x="173.2" y="521" fill="#d7d4dc">which agent + model a task routes to; the loopback proxy</text>
 <text x="22.0" y="540" fill="#d7d4dc">  </text>
-<text x="38.8" y="540" fill="#c3677f" font-weight="bold">scm             </text>
-<text x="173.2" y="540" fill="#d7d4dc">PRs, checks, comments on GitHub or Bitbucket DC</text>
-<text x="22.0" y="559" fill="#d7d4dc">  </text>
-<text x="38.8" y="559" fill="#c46780" font-weight="bold">worktree        </text>
-<text x="173.2" y="559" fill="#d7d4dc">manage worktrees in ~/worktrees/&lt;repo&gt;</text>
-<text x="22.0" y="597" fill="#8a7e90" font-weight="bold">DIAGNOSTICS</text>
+<text x="38.8" y="540" fill="#e3698f" font-weight="bold">usage           </text>
+<text x="173.2" y="540" fill="#d7d4dc">token totals, peak rate, profile quotas</text>
+<text x="22.0" y="578" fill="#8a7e90" font-weight="bold">SETTINGS</text>
+<text x="22.0" y="597" fill="#d7d4dc">  </text>
+<text x="38.8" y="597" fill="#f16a96" font-weight="bold">configure       </text>
+<text x="173.2" y="597" fill="#d7d4dc">guided setup; --restore resets settings.json</text>
 <text x="22.0" y="616" fill="#d7d4dc">  </text>
-<text x="38.8" y="616" fill="#ca6783" font-weight="bold">describe        </text>
-<text x="173.2" y="616" fill="#d7d4dc">machine-readable map of the harness</text>
+<text x="38.8" y="616" fill="#fb6b9b" font-weight="bold">install         </text>
+<text x="173.2" y="616" fill="#d7d4dc">install Claude Code; seed settings.json if missing</text>
 <text x="22.0" y="635" fill="#d7d4dc">  </text>
-<text x="38.8" y="635" fill="#d46887" font-weight="bold">doctor          </text>
-<text x="173.2" y="635" fill="#d7d4dc">read-only health checks (--audit: action log)</text>
-<text x="22.0" y="654" fill="#d7d4dc">  </text>
-<text x="38.8" y="654" fill="#df698d" font-weight="bold">gateway         </text>
-<text x="173.2" y="654" fill="#d7d4dc">which agent + model a task routes to; the loopback proxy</text>
-<text x="22.0" y="673" fill="#d7d4dc">  </text>
-<text x="38.8" y="673" fill="#eb6a93" font-weight="bold">usage           </text>
-<text x="173.2" y="673" fill="#d7d4dc">token totals, peak rate, profile quotas</text>
-<text x="22.0" y="711" fill="#8a7e90" font-weight="bold">SETTINGS</text>
-<text x="22.0" y="730" fill="#d7d4dc">  </text>
-<text x="38.8" y="730" fill="#f56a98" font-weight="bold">configure       </text>
-<text x="173.2" y="730" fill="#d7d4dc">guided setup; --restore resets settings.json</text>
-<text x="22.0" y="749" fill="#d7d4dc">  </text>
-<text x="38.8" y="749" fill="#fc6b9c" font-weight="bold">install         </text>
-<text x="173.2" y="749" fill="#d7d4dc">install Claude Code; seed settings.json if missing</text>
-<text x="22.0" y="768" fill="#d7d4dc">  </text>
-<text x="38.8" y="768" fill="#ff6b9d" font-weight="bold">theme           </text>
-<text x="173.2" y="768" fill="#d7d4dc">palette, statusline, VS Code template, tool themes</text>
+<text x="38.8" y="635" fill="#ff6b9d" font-weight="bold">theme           </text>
+<text x="173.2" y="635" fill="#d7d4dc">palette, statusline, VS Code template, tool themes</text>
 </g></svg>

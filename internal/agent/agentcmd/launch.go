@@ -54,11 +54,6 @@ func launchClaude(alias string, args []string) int {
 // bareHelp is a lone help flag; `claude mcp --help` still goes to claude so the subcommand's help is kept.
 func bareHelp(rest []string) bool { return len(rest) == 1 && helptext.WantsHelp(rest) }
 
-// AliasVerb is `claude-code <alias>`: Claude Code on the session profile with that alias as the main model.
-func AliasVerb(alias string) func([]string) int {
-	return func(a []string) int { return launchClaude(alias, a) }
-}
-
 // parseLaunchArgs refuses a removed flag (with its hint) before agent.ParseArgs strips the harness flags.
 func parseLaunchArgs(args []string, claude bool) (agent.LaunchOptions, []string, error) {
 	if err := databricks.RemovedFlagHint(args); err != nil {
@@ -99,7 +94,7 @@ var (
 	versionWarnOut  io.Writer = os.Stderr
 )
 
-// Science takes only a leading --print-env; every other flag is claude-science's own.
+// Science is `anthropic science`: only a leading --print-env; every other flag is claude-science's own.
 func Science(args []string) int {
 	var opts agent.LaunchOptions
 	if len(args) > 0 && args[0] == "--print-env" {
@@ -171,10 +166,12 @@ func Hook(args []string) int {
 
 var anthropicPage = helptext.Page{
 	Usage: "claude-code anthropic [--oauth[=NAME]] [--x-api-key[=NAME]] [--model M]\n" +
-		"[--print-env] [--keep-env NAMES] [--overlay FILE] [claude args]",
+		"[--profile P] [--print-env] [--keep-env NAMES] [--overlay FILE] [args]\n" +
+		"claude-code anthropic science [--print-env] [claude-science args]",
 	About: "Claude Code on first-party Anthropic. No flag uses your claude.ai login. A bare flag takes no " +
-		"value; =NAME picks the vault key.",
-	Hint: "claude-code anthropic " + helptext.DocsFlag + " prints claude's own help.",
+		"value; =NAME picks the vault key. --profile runs on that registry profile instead.",
+	Commands: [][2]string{{"science", "Claude for Life Sciences, own login (--print-env)"}},
+	Hint:     "claude-code anthropic " + helptext.DocsFlag + " prints claude's own help.",
 }
 
 // anthropicHelp renders the page with its flag rows; the flags are parsed by claude.ParseAnthropicArgs.
@@ -182,7 +179,8 @@ func anthropicHelp(w io.Writer) {
 	fs := helptext.NewFlagSet("anthropic", anthropicPage)
 	fs.Bool("oauth", false, "setup-token login; =NAME picks the vault key")
 	fs.Bool("x-api-key", false, "API key login; =NAME picks the vault key")
-	fs.String("model", "", "alias (opus), version (opus-5-5) or wire id: the main model")
+	fs.String("model", "", "opus|sonnet|haiku|fable, a version (opus-5-5) or wire id")
+	fs.String("profile", "", "run on this registry profile instead")
 	fs.Bool("print-env", false, "print the resolved launch; never prompts")
 	fs.String("keep-env", "", "env names the credential scrub keeps")
 	fs.String("overlay", "", "JSON {set,unset,keep} file over the child's env")
@@ -193,6 +191,9 @@ func anthropicHelp(w io.Writer) {
 
 // Anthropic is `claude-code anthropic`: first-party Claude Code with a login, OAuth token or API key.
 func Anthropic(args []string) int {
+	if len(args) > 0 && args[0] == "science" {
+		return Science(args[1:])
+	}
 	if len(args) > 0 && helptext.WantsHelp(args[:1]) { // only a leading help flag; `anthropic mcp --help` goes to claude
 		anthropicHelp(os.Stdout)
 		return 0
@@ -206,6 +207,9 @@ func Anthropic(args []string) int {
 	o, rest, err := claude.ParseAnthropicArgs(args)
 	if err != nil {
 		return helptext.Fail("%v", err)
+	}
+	if o.Provider != "" { // a named profile launches like `claude --profile P`, on that profile's credential
+		return launchClaude("", args)
 	}
 	secret := ""
 	if o.Mode != claude.AuthLogin {

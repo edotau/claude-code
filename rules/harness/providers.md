@@ -14,7 +14,7 @@ paths:
 | Check binaries, providers, credentials, proxy | `claude-code doctor` · leaked credentials: `doctor --scan\|--git\|--secrets` |
 | See providers and credential state | `claude-code configure provider --list [<name>]` |
 | Set a credential | `claude-code vault set [NAME]` (bare on a terminal = guided dialog), or a provider's `auth.command` |
-| Inspect or edit the vault | `claude-code vault list\|get\|delete\|import\|export\|edit\|rotate-secret` |
+| Inspect or edit the vault | `claude-code vault [ls]\|get\|delete\|import\|export\|edit\|rotate-secret` |
 | Switch the session profile | `claude-code switch <profile> [--dry-run]` (relaunch) · one launch: `claude-code --profile <p>`; with no flag, an interactive claude, copilot or opencode launch reuses the profile that agent last launched in this repo (if still valid for it), else its agent record's profile (a default; `state/harness/last-profile.json`; `switch` clears all, `<agent> profile` that agent) |
 | Set claude's models | `claude-code models --pin opus=<id>` · `--pin all=<id>` · `--unpin` write claude's agent record (`--dry-run` previews) |
 | List what a provider serves | `claude-code models --live [--profile <p>]` |
@@ -23,7 +23,7 @@ paths:
 
 - Secrets only in the vault or `auth.command` (CLAUDE.md hard rule 2); `configure provider --list` shows the
   source, never the value.
-- Agent settings are vault-only, one record per agent (`vault list` AGENT table); `--model` beats them.
+- Agent settings are vault-only, one record per agent (`vault` AGENT table); `--model` beats them.
   `switch` writes claude's record too.
 - Built-in providers are `internal/providers/defaults.json`; the vault's provider overlay replaces one by name.
 - Agents run on their pins (gemini on Google); the all-Databricks arm is a launch flag only: `--profile dev|qa|prod` /
@@ -52,7 +52,7 @@ static menu: routing never touches the network.
 - **Fallback ignores the model alias:** a swap takes the first READY entry in menu order, so a sonnet dispatch can land
   on
   an opus endpoint. Menu order is the control. An explicit model in the record swaps too; the swap appears in
-  `gateway router` skips.
+  `gateway` skips.
 - **Live rescue:** a codex dispatch that gets `ENDPOINT_NOT_FOUND` marks the model unserved for 1h and retries once
   on the next READY Responses model. An exact `--model` never retries. copilot and opencode refuse unknown models
   client-side, so there is no captured failure text for them.

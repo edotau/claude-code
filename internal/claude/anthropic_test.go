@@ -77,8 +77,8 @@ func TestParseAnthropicRefusesConflicts(t *testing.T) {
 	if _, _, err := ParseAnthropicArgs([]string{"--x-api-key=A", "--oauth=B"}); err == nil {
 		t.Error("named --x-api-key with --oauth accepted")
 	}
-	if _, _, err := ParseAnthropicArgs([]string{"--profile", "anthropic"}); err == nil {
-		t.Error("--profile accepted by the anthropic verb")
+	if _, _, err := ParseAnthropicArgs([]string{"--oauth", "--profile", "anthropic"}); err == nil {
+		t.Error("--oauth with --profile accepted")
 	}
 }
 

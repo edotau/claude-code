@@ -27,7 +27,7 @@ var recordLabels = func() map[string]string {
 		return err
 	})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "vault list: reading labels:", err)
+		fmt.Fprintln(os.Stderr, "vault ls: reading labels:", err)
 	}
 	return out
 }

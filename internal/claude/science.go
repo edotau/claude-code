@@ -33,7 +33,7 @@ func scienceWiped(key string) bool {
 	return slices.ContainsFunc(scienceWipePrefixes, func(p string) bool { return strings.HasPrefix(key, p) })
 }
 
-// Science resolves `claude-code science`: the real claude-science binary, minus the harness env that
+// Science resolves `claude-code anthropic science`: the real claude-science binary, minus the harness env that
 // would send its login to the router or gateway (HTTP 401). args pass through untouched.
 func Science(env, args []string) (agent.Plan, error) {
 	bin, err := paths.LookPathReal("claude-science")
@@ -151,7 +151,7 @@ func scienceArgv(args []string, cfg string, port int, busy func(int) bool) ([]st
 	for _, p := range []int{port, port + 1} {
 		if busy(p) {
 			return nil, fmt.Errorf("port %d is already in use: `claude-science stop` an older daemon, "+
-				"or move the pin with `claude-code science --port N serve`", p)
+				"or move the pin with `claude-code anthropic science --port N serve`", p)
 		}
 	}
 	return append(argv, "--port", strconv.Itoa(port), "--sandbox-port", strconv.Itoa(port+1)), nil

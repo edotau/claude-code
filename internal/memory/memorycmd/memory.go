@@ -136,7 +136,7 @@ func cmdMemoryVerify(args []string, knownVerb func(string) bool) int {
 // memoryVerifyHelpVerb excludes launchers that forward -h after credential resolution or other side effects.
 func memoryVerifyHelpVerb(verb string, knownVerb func(string) bool) bool {
 	switch verb {
-	case "claude", "opus", "sonnet", "haiku", "fable", "science", "wl-paste":
+	case "claude", "wl-paste":
 		return false
 	}
 	return knownVerb(verb)

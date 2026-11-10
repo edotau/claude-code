@@ -16,7 +16,7 @@ func TestCmdAnthropicRefusalsDoNotEchoSecrets(t *testing.T) {
 		{"--oauth=" + cliFakeToken},
 		{"--x-api-key=" + cliFakeToken},
 		{"--oauth", "--x-api-key"},
-		{"--profile", "anthropic"},
+		{"--x-api-key", "--profile", "anthropic"},
 		{"--oauth=MISSING_KEY_FOR_TEST", "--print-env"},
 	}
 	for _, args := range cases {
