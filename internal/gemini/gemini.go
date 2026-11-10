@@ -22,6 +22,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/gateway"
@@ -220,9 +221,6 @@ func agyLoginMarkers(home string) []string {
 // AgyDefaultModel runs agy when the caller names no model: fast, and enough for headless dispatches.
 const AgyDefaultModel = "gemini-3.8-flash-high"
 
-// agyEfforts are the effort suffixes agy bakes into its model ids (gemini-3.8-flash-high).
-var agyEfforts = []string{"low", "medium", "high", "xhigh", "max"}
-
 // agyGatewayArg returns the dotted catalog id agy lists for model (effort suffix dropped) and the --model agy takes in
 // gateway mode (base plus model's effort suffix); a non-Gemini id (a Databricks Claude slot) falls back to the
 // GEMINI_MODEL pin, else AgyDefaultModel.
@@ -242,7 +240,7 @@ func agyGatewayArg(model string) (base, arg string) {
 
 // agyGatewayBase resolves id (bare, dotted, Databricks-spelled, or effort-suffixed) to a Gemini catalog id.
 func agyGatewayBase(id string) (base, effort string, ok bool) {
-	if before, suffix, cut := strings.CutLast(id, "-"); cut && slices.Contains(agyEfforts, suffix) {
+	if before, suffix, cut := strings.CutLast(id, "-"); cut && slices.Contains(agentid.NativeEfforts(agentid.Gemini), suffix) {
 		if b, _, ok := agyGatewayBase(before); ok {
 			return b, suffix, true
 		}
@@ -339,7 +337,7 @@ type agyRequest struct {
 // effortSuffixed reports a model id that already names its effort (gemini-3.8-flash-high).
 func effortSuffixed(model string) bool {
 	_, suffix, cut := strings.CutLast(model, "-")
-	return cut && slices.Contains(agyEfforts, suffix)
+	return cut && slices.Contains(agentid.NativeEfforts(agentid.Gemini), suffix)
 }
 
 // agyToolLessPreamble is agy's own verified tool-less instruction (no tools-off flag exists).
@@ -348,7 +346,7 @@ const agyToolLessPreamble = "Answer from the text below only. Do not call any to
 // agyArgv builds agy's headless argv: stream-json both ways, the prompt rides stdin behind -p=.
 func agyArgv(r agyRequest) []string {
 	argv := []string{"--model", r.Model}
-	if slices.Contains(agyEfforts, r.Effort) && !effortSuffixed(r.Model) { // agy refuses --effort beside an effort-suffixed id
+	if slices.Contains(agentid.NativeEfforts(agentid.Gemini), r.Effort) && !effortSuffixed(r.Model) { // agy refuses --effort beside an effort-suffixed id
 		argv = append(argv, "--effort", r.Effort)
 	}
 	if r.SessionID != "" { // resume a prior agy conversation rather than starting fresh

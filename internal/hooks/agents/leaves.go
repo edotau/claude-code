@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/job"
+	"github.com/edotau/claude-code/internal/agentid"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
@@ -290,10 +291,16 @@ func requestsAgent(brief string) bool {
 }
 
 // externalTypes are the leaf types named for the external agent they request; the type is the request.
-var externalTypes = map[string]bool{"codex": true, "copilot": true, "gemini": true, "opencode": true}
+var externalTypes = func() map[string]bool {
+	m := map[string]bool{}
+	for _, n := range agentid.External() {
+		m[n] = true
+	}
+	return m
+}()
 
 // labelAgent is true for an agent a dispatch label may name (claude or an external type), and a type that carries one.
-func labelAgent(name string) bool { return name == "claude" || externalTypes[name] }
+func labelAgent(name string) bool { return name == agentid.Claude || externalTypes[name] }
 
 // coworkerAgents maps each coworker leaf type to the agent it runs when its brief names none; the type is the request.
 var coworkerAgents = map[string]string{"coworker": "copilot", "coworker:copilot": "copilot",

@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -210,7 +211,7 @@ type RouteCell struct {
 }
 
 // RouteAgents are the routing table's columns, in roster order; internal/router embeds the same list.
-var RouteAgents = []string{"claude", "copilot", "codex", "opencode", "gemini"}
+var RouteAgents = []string{agentid.Claude, agentid.Copilot, agentid.Codex, agentid.OpenCode, agentid.Gemini}
 
 // RouteAliases are the routed aliases, strongest first; fable stays Claude Code's own alias.
 var RouteAliases = []string{models.Opus, models.Sonnet, models.Haiku}

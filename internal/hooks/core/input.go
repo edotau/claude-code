@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -45,10 +46,10 @@ type Input struct {
 }
 
 const (
-	AgentClaude  = "claude"
-	AgentCodex   = "codex"
-	AgentCopilot = "copilot"
-	AgentGemini  = "gemini" // agy
+	AgentClaude  = agentid.Claude
+	AgentCodex   = agentid.Codex
+	AgentCopilot = agentid.Copilot
+	AgentGemini  = agentid.Gemini // agy
 )
 
 // Agent uses the explicit hook agent or Copilot's payload shape, defaulting to Claude.

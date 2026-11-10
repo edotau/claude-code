@@ -1,9 +1,13 @@
 package vault
 
 import (
+	"maps"
 	"reflect"
+	"slices"
 	"strconv"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agentid"
 )
 
 // legacyVault is a schema-3 vault holding pins, migrated by the next Update.
@@ -256,5 +260,15 @@ func TestFallbackRoundTrip(t *testing.T) {
 	}
 	if got := GetAgentRecord("codex"); got.Fallback != "dev" {
 		t.Fatalf("fallback-only record dropped: %+v", got)
+	}
+}
+
+func TestAgentNameListsTieToAgentid(t *testing.T) {
+	if !slices.Equal(LegacyAgents, agentid.All()) {
+		t.Fatalf("LegacyAgents = %v, want agentid.All() %v", LegacyAgents, agentid.All())
+	}
+	keys := slices.Sorted(maps.Keys(OwnLoginProfiles))
+	if want := slices.Sorted(slices.Values(agentid.External())); !slices.Equal(keys, want) {
+		t.Fatalf("OwnLoginProfiles keys = %v, want agentid.External() %v", keys, want)
 	}
 }

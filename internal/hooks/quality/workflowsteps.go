@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -23,8 +24,8 @@ import (
 // The values stepOf accepts; the scripts keep only an unknown-stage/field backstop.
 var (
 	stepClaudeModels = []string{"haiku", "sonnet", "opus", "fable"}
-	stepAgents       = []string{"claude", "codex", "copilot", "gemini", "opencode"}
-	stepEfforts      = []string{"low", "medium", "high", "xhigh", "max"}
+	stepAgents       = agentid.All()
+	stepEfforts      = agentid.EffortNames()
 	stepFields       = []string{"agent", "model", "effort", "profile", "provider"}
 	stepNameRe       = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9._-]+$`) })
 	// stepStageRe finds a script's own stages: stepOf(a.steps|OWN, '<stage>', …); a child's stages are not its own.

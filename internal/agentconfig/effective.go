@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -26,9 +27,6 @@ type Launch struct {
 // ErrUnknownProfile marks a profile that is no registry row; For still returns the Effective it resolved.
 var ErrUnknownProfile = errors.New("not in the registry")
 
-// lastProfileAgents are the agents whose CLI launch reuses the workspace's last-used profile before the pin.
-var lastProfileAgents = []string{"codex", "copilot", "gemini", "opencode"}
-
 // For is agent's pin with the launch flags, then the last-used profile, over Profile; a registry profile must exist
 // (own logins skip the check). A vault read error is returned.
 func For(agent string, l Launch) (Effective, error) {
@@ -47,7 +45,7 @@ func For(agent string, l Launch) (Effective, error) {
 	rec := recs[agent]
 	cfg := Effective{Agent: agent, Profile: rec.Profile, Model: rec.Model, Effort: rec.Effort, Fallback: rec.Fallback}
 	active := rec.Profile != "" // an off agent (no profile) never turns on from the last-used cache
-	if cfg.Profile == "" && agent == "gemini" {
+	if cfg.Profile == "" && agent == agentid.Gemini {
 		cfg.Profile = geminiLogin
 	}
 	switch {
@@ -59,7 +57,7 @@ func For(agent string, l Launch) (Effective, error) {
 		if lead != "" {
 			cfg.Profile = lead // an empty lead keeps the agent's pin
 		}
-	case l.LastProfile != "" && active && slices.Contains(lastProfileAgents, agent) && reg.Providers[l.LastProfile] != nil:
+	case l.LastProfile != "" && active && slices.Contains(agentid.External(), agent) && reg.Providers[l.LastProfile] != nil:
 		cfg.Profile = l.LastProfile
 	}
 	if p := cfg.Profile; p != "" && !ownsProfile(agent, p) && reg.Providers[p] == nil {
@@ -70,7 +68,7 @@ func For(agent string, l Launch) (Effective, error) {
 
 // ownsProfile reports whether p is the agent's own login or an opencode sub id, neither a registry row.
 func ownsProfile(agent, p string) bool {
-	return p == vault.OwnLoginProfiles[agent] || agent == "opencode" && slices.Contains(providers.RouteOpencodeSubIDs, p)
+	return p == vault.OwnLoginProfiles[agent] || agent == agentid.OpenCode && slices.Contains(providers.RouteOpencodeSubIDs, p)
 }
 
 // vaultSession is the --profile value naming the session's own profile (agent.LeadSession).
@@ -83,7 +81,7 @@ func resolveLead(reg *providers.Registry, agent string, l Launch) (string, error
 	if fromSession {
 		profile = providers.SessionLead(nil, true)
 		// a session-inherited lead never moves gemini off its pin; only a named profile or provider does
-		if p := reg.Providers[profile]; agent == "gemini" && provider == "" && (p == nil || p.Provider != "google") {
+		if p := reg.Providers[profile]; agent == agentid.Gemini && provider == "" && (p == nil || p.Provider != "google") {
 			return "", nil
 		}
 	}

@@ -6,6 +6,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/agentid"
 )
 
 // AgentRecordsKey is the Overlay entry holding every agent's record: a JSON object of agent name -> AgentRecord.
@@ -44,7 +46,7 @@ func (r AgentRecord) IsZero() bool {
 }
 
 // LegacyAgents are the roster agents whose <AGENT>_<FIELD> pins fold into records; claude is first.
-var LegacyAgents = []string{"claude", "codex", "copilot", "gemini", "opencode"}
+var LegacyAgents = agentid.All()
 
 var legacyAliases = []string{"opus", "sonnet", "haiku", "fable"}
 
@@ -57,10 +59,10 @@ func parseAgentPin(key string) (agent, field string, ok bool) {
 		}
 		switch {
 		case slices.Contains([]string{"PROFILE", "MODEL", "EFFORT", "CONTEXT"}, f),
-			f == "ACTIVE" && a != "claude",
-			f == "GITHUB_USER" && a == "copilot":
+			f == "ACTIVE" && a != agentid.Claude,
+			f == "GITHUB_USER" && a == agentid.Copilot:
 			return a, f, true
-		case a == "claude" && strings.HasSuffix(f, "_MODEL") && slices.Contains(legacyAliases, strings.ToLower(strings.TrimSuffix(f, "_MODEL"))):
+		case a == agentid.Claude && strings.HasSuffix(f, "_MODEL") && slices.Contains(legacyAliases, strings.ToLower(strings.TrimSuffix(f, "_MODEL"))):
 			return a, f, true
 		}
 	}
@@ -276,7 +278,9 @@ func foldAgentPins(recs map[string]AgentRecord, pins map[string]string) (folded 
 }
 
 // OwnLoginProfiles are each external agent's own-login profile; a test pins them to defaults.json and the roster.
-var OwnLoginProfiles = map[string]string{"codex": "chatgpt", "copilot": "personal", "gemini": "antigravity", "opencode": "zen-free"}
+var OwnLoginProfiles = map[string]string{
+	agentid.Codex: "chatgpt", agentid.Copilot: "personal", agentid.Gemini: "antigravity", agentid.OpenCode: "zen-free",
+}
 
 // keepOwnLogin gives each profile-less agent that was not ACTIVE=off its own-login profile (the old unset = on);
 // it runs only while a legacy pin key remains, so once the migration deletes them a cleared profile stays cleared.

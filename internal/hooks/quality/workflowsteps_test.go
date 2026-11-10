@@ -69,3 +69,13 @@ func TestCheckWorkflowSteps(t *testing.T) {
 		}
 	}
 }
+
+// A bad agent or effort names the whole roster and the whole scale, in order.
+func TestFieldProblemListsRosterAndScale(t *testing.T) {
+	if got, want := fieldProblem("agent", "x"), " must be claude|codex|copilot|gemini|opencode"; got != want {
+		t.Errorf("agent problem %q, want %q", got, want)
+	}
+	if got, want := fieldProblem("effort", "x"), " must be low|medium|high|xhigh|max"; got != want {
+		t.Errorf("effort problem %q, want %q", got, want)
+	}
+}

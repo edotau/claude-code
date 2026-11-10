@@ -79,3 +79,12 @@ func TestParseInputStewardFields(t *testing.T) {
 		t.Fatalf("BackgroundTasks=%d Trigger=%q", in.BackgroundTasks, in.Trigger)
 	}
 }
+
+// The explicit hook agent names the settings spec and the roster use are the ones Input recognises.
+func TestParseInputForRecognisesRosterNames(t *testing.T) {
+	for _, name := range []string{"claude", "codex", "copilot", "gemini"} {
+		if got := ParseInputFor(strings.NewReader(`{}`), name).Agent(); got != name {
+			t.Errorf("agent %q parsed as %q", name, got)
+		}
+	}
+}

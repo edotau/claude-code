@@ -1,6 +1,10 @@
 package project
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/edotau/claude-code/internal/agentid"
+)
 
 // agentBanner is the first body line of every generated agent file; prune only ever touches files carrying it.
 func agentBanner(agent Source, comment func(string) string) string {
@@ -144,13 +148,11 @@ func renderCodexAgent(agent Source) string {
 
 // codexEffort maps the harness effort scale onto codex's; "max" has no codex value and becomes xhigh.
 func codexEffort(effort string) string {
-	switch effort {
-	case "low", "medium", "high", "xhigh":
-		return effort
-	case "max":
-		return "xhigh"
+	if agentid.ValidEffort(agentid.Codex, effort) != nil {
+		return ""
 	}
-	return ""
+	native, _ := agentid.NativeEffort(agentid.Codex, agentid.Effort(effort))
+	return native
 }
 
 // toolList normalizes `tools:` (comma string or YAML list) to a clean string slice.

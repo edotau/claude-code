@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agentid"
 )
 
 func TestSettingsJSON(t *testing.T) {
@@ -292,6 +294,18 @@ func TestSpecsFor(t *testing.T) {
 		}
 		if tc.lacks != "" && slices.Contains(got, tc.lacks) {
 			t.Errorf("%s/%s must not have %s", tc.agent, tc.surface, tc.lacks)
+		}
+	}
+}
+
+func TestSpecAgentsAreRoster(t *testing.T) {
+	for _, s := range Specs() {
+		for _, list := range [][]string{s.Agents, s.Hosted, s.Plugin} {
+			for _, a := range list {
+				if !agentid.Known(a) {
+					t.Errorf("%s/%s names agent %q, not in agentid.All()", s.Group, s.Name, a)
+				}
+			}
 		}
 	}
 }
