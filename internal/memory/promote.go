@@ -136,11 +136,11 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 	if memstore.IsHomeBank(root) {
 		return "", errors.New("root's bank IS the home bank — nothing to promote")
 	}
-	var file, block string
+	var file, block, src string
 	homeDir := memstore.HomeBankDir()
 	moveErr := memstore.WithBankLock(memstore.BankLockWait, func() error {
 		var err error
-		if file, block, err = extractBlock(dir, id); err != nil {
+		if file, block, src, err = findBlock(dir, id); err != nil {
 			return err
 		}
 		if dryRun {
@@ -153,12 +153,12 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 				return err
 			}
 		}
-		if err := removeBlock(dir, file, id); err != nil {
+		if err := removeBlock(src, file, id); err != nil {
 			if inHome {
 				return err
 			}
 			// roll back the home copy so the block stays in exactly one bank (the local one)
-			return errors.Join(err, removeBlock(homeDir, file, id))
+			return errors.Join(err, removeBlock(filepath.Join(homeDir, file), file, id))
 		}
 		return nil
 	})
@@ -167,7 +167,7 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 	}
 	homePath := filepath.Join(homeDir, file)
 	if dryRun {
-		return fmt.Sprintf("would move [%s] %s -> %s\n\n%s\n", id, filepath.Join(dir, file), homePath, block), nil
+		return fmt.Sprintf("would move [%s] %s -> %s\n\n%s\n", id, src, homePath, block), nil
 	}
 	if _, err := bank.SettleBank(root, now); err != nil {
 		return "", err
@@ -187,9 +187,9 @@ func promoteJudgment(root, id, to, target string) (string, error) {
 			"`memory promote %s --to rules`", id, id)
 	}
 	dir := memstore.Dir(root)
-	_, block, err := extractBlock(dir, id)
+	_, block, _, err := findBlock(dir, id)
 	if err != nil && !memstore.IsHomeBank(root) {
-		_, block, err = extractBlock(memstore.HomeBankDir(), id)
+		_, block, _, err = findBlock(memstore.HomeBankDir(), id)
 	}
 	if err != nil {
 		return "", err
@@ -225,12 +225,35 @@ func extractBlock(dir, id string) (string, string, error) {
 	return "", "", bank.ErrNoBlock
 }
 
+// findBlock is extractBlock, then dir/archive/<stem>-*.md (dream overflow); src is the file holding the block.
+func findBlock(dir, id string) (file, block, src string, err error) {
+	if file, block, err = extractBlock(dir, id); err == nil {
+		return file, block, filepath.Join(dir, file), nil
+	}
+	marker := "<!-- id:" + id + " -->"
+	for name := range bank.IdFiles {
+		matches, _ := filepath.Glob(filepath.Join(dir, "archive", strings.TrimSuffix(name, ".md")+"-*.md"))
+		for _, p := range matches {
+			data, rerr := os.ReadFile(p)
+			if rerr != nil || !strings.Contains(string(data), marker) {
+				continue
+			}
+			_, blocks := bank.EntryBlocks(name, string(data))
+			for _, b := range blocks {
+				if ownsMarker(b, id) {
+					return name, b, p, nil
+				}
+			}
+		}
+	}
+	return "", "", "", bank.ErrNoBlock
+}
+
 // ownsMarker reports whether id is b's own (oldest unfenced) marker, not a quote of it in the body.
 func ownsMarker(b, id string) bool { return bank.OwnerID(b) == id }
 
-// removeBlock drops the id-marked block from dir/name, rewriting the file without it.
-func removeBlock(dir, name, id string) error {
-	path := filepath.Join(dir, name)
+// removeBlock drops the id-marked block from path (parsed under typed file name's grammar), rewriting it without it.
+func removeBlock(path, name, id string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
