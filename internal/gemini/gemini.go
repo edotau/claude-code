@@ -21,9 +21,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
@@ -51,15 +51,10 @@ func (geminiEngine) Before(req agent.RunOptions, t providers.Target) providers.T
 }
 
 func (geminiEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
-	areq, err := newAgyRequest(p, req)
-	if err != nil {
-		return p.Result, err
-	}
+	areq := newAgyRequest(p, req)
 	res := p.Result
 	res.Model = areq.Model
-	for _, r := range areq.Unmapped {
-		res.Emulated = append(res.Emulated, "permissions:"+r)
-	}
+	res.Emulated = append(res.Emulated, p.Emulated...)
 	out, err := runAgy(ctx, areq, sink)
 	res.Answer, res.Usage, res.Transport, res.Structured = out.Answer, out.Usage, out.Transport, out.Structured
 	if out.SessionID != "" {
@@ -109,7 +104,14 @@ func (geminiEngine) Plan(context.Context, providers.AuthState) providers.Subscri
 
 // FollowsPin keeps agy on its Google login unless GEMINI_PROFILE names the session's Databricks row.
 func (geminiEngine) FollowsPin(p *providers.Provider) bool {
-	return !agent.GeminiGatewayRow(p) || geminiRecord().Profile == p.Name
+	if !agent.GeminiGatewayRow(p) {
+		return true
+	}
+	rec, err := agentconfig.Settings(agentid.Gemini)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gemini: agent settings unreadable, pins ignored: %v\n", err)
+	}
+	return rec.Profile == p.Name
 }
 
 // NoRoute refuses a Databricks gateway row that no GEMINI_PROFILE pin selected: never silently.
@@ -118,15 +120,6 @@ func (geminiEngine) NoRoute(_ *providers.Registry, t providers.Target) error {
 		return errors.New("gemini: agy needs a Google login (agy auth login) or a GEMINI_PROFILE pin")
 	}
 	return nil
-}
-
-// geminiRecord is the gemini pin record; an unreadable vault warns on stderr and reads as unset.
-func geminiRecord() vault.AgentRecord {
-	recs, err := vault.ReadAgentRecords([]string{"gemini"})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "gemini: vault unreadable, pins ignored: %v\n", err)
-	}
-	return recs["gemini"]
 }
 
 func (geminiEngine) Verify(context.Context) (providers.AuthVerdict, string) {
@@ -227,7 +220,11 @@ const AgyDefaultModel = "gemini-3.8-flash-high"
 func agyGatewayArg(model string) (base, arg string) {
 	base, effort, ok := agyGatewayBase(model)
 	if !ok {
-		base, effort, ok = agyGatewayBase(geminiRecord().Model)
+		rec, err := agentconfig.Settings(agentid.Gemini)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "gemini: agent settings unreadable, pins ignored: %v\n", err)
+		}
+		base, effort, ok = agyGatewayBase(rec.Model)
 		if !ok { // a non-Gemini or mistyped pin must not leave base empty
 			base, effort, _ = agyGatewayBase(AgyDefaultModel)
 		}
@@ -325,13 +322,13 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 // agyRequest is one headless agy run: the prompt rides stdin as a single stream-json NDJSON line.
 // Env carries extra launch vars; agy authenticates with its own cached Google sign-in, never a key.
 type agyRequest struct {
-	Prompt, Model, Effort, Cwd, SessionID string
-	Tools, Autonomous                     bool
-	DebugFile                             string   // --log-file
-	OutputSchema                          string   // --json-schema
-	Settings                              string   // --settings JSON: the dispatch's permissions
-	Unmapped                              []string // Allow/Ask rules agy can't express: reported in Result.Emulated, not enforced
-	Env, KeepEnv                          []string
+	Prompt, Model, Cwd, SessionID string
+	Effort                        string // a gateway pin's effort suffix; a --effort in SettingsArgv wins
+	Tools, Autonomous             bool
+	DebugFile                     string   // --log-file
+	OutputSchema                  string   // --json-schema
+	SettingsArgv                  []string // RenderSettings' --effort and --settings fragment, inserted before -p=
+	Env, KeepEnv                  []string
 }
 
 // effortSuffixed reports a model id that already names its effort (gemini-3.8-flash-high).
@@ -346,7 +343,8 @@ const agyToolLessPreamble = "Answer from the text below only. Do not call any to
 // agyArgv builds agy's headless argv: stream-json both ways, the prompt rides stdin behind -p=.
 func agyArgv(r agyRequest) []string {
 	argv := []string{"--model", r.Model}
-	if slices.Contains(agentid.NativeEfforts(agentid.Gemini), r.Effort) && !effortSuffixed(r.Model) { // agy refuses --effort beside an effort-suffixed id
+	// agy refuses --effort beside an effort-suffixed id; a --effort in SettingsArgv (flag or record) beats the pin suffix
+	if slices.Contains(agentid.NativeEfforts(agentid.Gemini), r.Effort) && !effortSuffixed(r.Model) && !slices.Contains(r.SettingsArgv, "--effort") {
 		argv = append(argv, "--effort", r.Effort)
 	}
 	if r.SessionID != "" { // resume a prior agy conversation rather than starting fresh
@@ -365,10 +363,7 @@ func agyArgv(r agyRequest) []string {
 	if r.DebugFile != "" {
 		argv = append(argv, "--log-file", r.DebugFile)
 	}
-	if r.Settings != "" {
-		argv = append(argv, "--settings", r.Settings)
-	}
-	return append(argv, "-p=")
+	return append(append(argv, r.SettingsArgv...), "-p=")
 }
 
 // agyStdin is the one NDJSON line agy reads behind --input-format stream-json.
@@ -638,10 +633,10 @@ func agyArgEffort(base, arg string) string {
 	return strings.TrimPrefix(strings.TrimPrefix(arg, base), "-")
 }
 
-// agyGatewayEffort is the effort a gateway run passes as --effort: the caller's, else the pinned id's suffix.
+// agyGatewayEffort is a gateway run's pinned id suffix ("" off a gateway row); RenderSettings' --effort beats it.
 func agyGatewayEffort(req agent.RunOptions, t providers.Target) string {
-	if req.Effort != "" || !agent.GeminiGatewayRow(t.Provider) {
-		return req.Effort
+	if !agent.GeminiGatewayRow(t.Provider) {
+		return ""
 	}
 	if t.Model == "" {
 		t.Model = AgyDefaultModel
@@ -652,16 +647,12 @@ func agyGatewayEffort(req agent.RunOptions, t providers.Target) string {
 }
 
 // newAgyRequest is the agy run for req: only the resolved credential env carries over; agyArgv builds the argv.
-func newAgyRequest(p agent.CLIPrep, req agent.RunOptions) (agyRequest, error) {
-	settings, unmapped, err := agyPermissionSettings(req.Permissions, req.Tools, req.WorkDir, os.Stderr)
-	if err != nil {
-		return agyRequest{}, err
-	}
+func newAgyRequest(p agent.CLIPrep, req agent.RunOptions) agyRequest {
 	return agyRequest{
 		Prompt: p.Prompt, Model: agyModel(req, p.Target), Effort: agyGatewayEffort(req, p.Target), Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
 		DebugFile: req.DebugFile, Env: p.Env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
-		Settings: settings, Unmapped: unmapped,
-	}, nil
+		SettingsArgv: p.Argv,
+	}
 }
 
 // agyLive holds `agy --input-format stream-json`: one conversation, one NDJSON line per turn.
@@ -679,10 +670,7 @@ func (b *agyLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *
 	if err != nil {
 		return nil, nil, "", err
 	}
-	areq, err := newAgyRequest(p, req)
-	if err != nil {
-		return nil, nil, "", err
-	}
+	areq := newAgyRequest(p, req)
 	bin, err := paths.AgentBin("agy")
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("gemini: %w", err)

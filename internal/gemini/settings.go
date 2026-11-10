@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -27,7 +29,12 @@ func renderGeminiSettings(home string, o render.RenderOptions, out io.Writer) (b
 		fmt.Fprintf(out, "gemini-settings: skipped: %v\n", err)
 		return false, fmt.Errorf("gemini-settings: load agentconfig: %w", err)
 	}
-	if !cfg.Agent("gemini").Permission.UseGuardRules {
+	rec, err := agentconfig.Settings(agentid.Gemini)
+	if err != nil {
+		fmt.Fprintf(out, "gemini-settings: skipped: %v\n", err)
+		return false, fmt.Errorf("gemini-settings: agent settings: %w", err)
+	}
+	if rec.Extras[extraUseGuardRules] == "false" {
 		return false, nil
 	}
 	rules := agyGuardRules(cfg.Guard().Deny, out)
@@ -87,10 +94,55 @@ func mergeAgyDeny(existing []any, rules []string) []string {
 // loadAgentConfig is the agents.json loader; a package var so tests can fail it.
 var loadAgentConfig = agentconfig.LoadConfig
 
-// agyPermissionSettings renders p as agy's per-run --settings JSON; guard denies always ride along, since a --settings
-// permissions block may replace the global one. Ask runs as Allow (agy has no headless judge). A Deny agy can't hold
-// natively or through the permission-gate hook is an error (Deny is the hard boundary); unmapped Allow/Ask go to Emulated.
-func agyPermissionSettings(p agent.Permissions, tools bool, cwd string, out io.Writer) (settings string, unmapped []string, err error) {
+// RenderSettings adds --effort and, headless, the per-run --settings after the default launch env and args.
+func (e geminiEngine) RenderSettings(ctx context.Context, s agent.Settings, env, argv []string) ([]string, []string, []string, func(), error) {
+	env, argv, emulated, cleanup, err := e.BaseEngine.RenderSettings(ctx, s, env, argv)
+	if err != nil {
+		return env, argv, emulated, cleanup, err
+	}
+	if argv, emulated, err = agyEffortArgv(s, argv, emulated); err != nil || !s.Headless {
+		return env, argv, emulated, cleanup, err
+	}
+	settings, unmapped, err := agyPermissionSettings(s.Permissions, s.Record.Extras[extraUseGuardRules] != "false", s.Tools, s.WorkDir, os.Stderr)
+	if err != nil {
+		return env, argv, emulated, cleanup, err
+	}
+	if settings != "" {
+		argv = append(argv, "--settings", settings)
+	}
+	for _, r := range unmapped {
+		emulated = append(emulated, "permissions:"+r)
+	}
+	return env, argv, emulated, cleanup, nil
+}
+
+// agyEffortArgv sets --effort to s.Effort; beside an effort-suffixed --model (agy refuses both) it is emulated.
+func agyEffortArgv(s agent.Settings, argv, emulated []string) ([]string, []string, error) {
+	if s.Effort == "" {
+		return argv, emulated, nil
+	}
+	if err := agentid.ValidEffort(agentid.Gemini, s.Effort); err != nil {
+		return argv, emulated, fmt.Errorf("gemini: %w", err)
+	}
+	model := s.Target.Model
+	if i := slices.Index(argv, "--model"); i >= 0 && i+1 < len(argv) {
+		model = argv[i+1]
+	}
+	if effortSuffixed(model) {
+		return argv, append(emulated, "effort "+s.Effort+": model "+model+" carries its own"), nil
+	}
+	if i := slices.Index(argv, "--effort"); i >= 0 && i+1 < len(argv) { // an interactive gateway pin's suffix: s.Effort wins
+		argv = slices.Clone(argv)
+		argv[i+1] = s.Effort
+		return argv, emulated, nil
+	}
+	return append(argv, "--effort", s.Effort), emulated, nil
+}
+
+// agyPermissionSettings renders p as agy's per-run --settings JSON, plus the guard denies when guard is set (it may
+// replace the global block). Ask runs as Allow (agy has no headless judge). A Deny agy can't hold natively or through
+// the permission-gate hook is an error (Deny is the hard boundary); unmapped Allow/Ask go to Emulated.
+func agyPermissionSettings(p agent.Permissions, guard, tools bool, cwd string, out io.Writer) (settings string, unmapped []string, err error) {
 	if p.IsZero() {
 		return "", nil, nil
 	}
@@ -102,7 +154,7 @@ func agyPermissionSettings(p agent.Permissions, tools bool, cwd string, out io.W
 		return "", nil, fmt.Errorf("agy: guard denies for --settings: %w", err)
 	}
 	var deny []string
-	if cfg.Agent("gemini").Permission.UseGuardRules {
+	if guard {
 		deny = agyGuardRules(cfg.Guard().Deny, io.Discard)
 	}
 	// A Bash Deny, or a Read/Write/Edit Deny agy's exact rules cannot express (a pattern, a bare tool), is the gate hook's.

@@ -24,4 +24,8 @@ var row = agent.Schema{Name: "gemini", CLI: agent.CLI{
 	Events: []string{wire.EventStart, wire.EventText, wire.EventProgress, wire.EventResult, wire.EventError}, Cost: true,
 	ResumeFormat: "agy --conversation %s", ModelsArgv: []string{"models"}, ReadNeedsTools: true,
 	ConfigureHint: "sign in with `agy` (Google login)", DisplayName: "antigravity", LoginArgv: []string{"agy"},
+	Extras: map[string][]string{extraUseGuardRules: {"true", "false"}},
 }}
+
+// extraUseGuardRules gates the guard denies in agy's settings and --settings; only "false" turns them off.
+const extraUseGuardRules = "useGuardRules"
