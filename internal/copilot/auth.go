@@ -147,8 +147,7 @@ var CopilotUsedPct = copilotUsedPct
 
 // copilotUsedPct is github·<profile>'s used share from route state, refreshed through RefreshAccount past its TTL.
 func copilotUsedPct(ctx context.Context, login string) (float64, bool) {
-	reg, _ := providers.Load()
-	key, now := "github·"+providers.GithubAccountName(reg, login), time.Now()
+	key, now := copilotStateKey(login), time.Now()
 	e := router.LoadState()[key]
 	if e.ExhaustedUntil.After(now) {
 		return router.ExhaustedPct, true
@@ -184,9 +183,27 @@ func copilotHeadroom(ctx context.Context, user string) (detail string, ok bool) 
 	}
 	pct, ok := CopilotUsedPct(ctx, user)
 	if !ok {
-		return user + " unverified", false
+		return unverifiedDetail(user), false
 	}
 	return fmt.Sprintf("%s %.1f%% of credits used", user, pct), pct < copilotWorkablePct
+}
+
+// copilotStateKey is login's route-state key, github·<profile>.
+func copilotStateKey(login string) string {
+	reg, _ := providers.Load()
+	return "github·" + providers.GithubAccountName(reg, login)
+}
+
+// unverifiedDetail names why user has no reading: a recent check's note, else plain "unverified".
+func unverifiedDetail(user string) string {
+	e := router.LoadState()[copilotStateKey(user)]
+	switch {
+	case e.Stale(time.Now()) || e.CheckNote == "":
+		return user + " unverified"
+	case strings.HasPrefix(e.CheckNote, usage.NoPremiumCredits):
+		return user + " has " + e.CheckNote
+	}
+	return user + " unverified (" + e.CheckNote + ")"
 }
 
 // pinnedHeadroom is copilotHeadroom on login, else on the pinned login; an unreadable registry is unworkable.

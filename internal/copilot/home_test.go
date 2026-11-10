@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
@@ -271,5 +273,14 @@ func TestCopilotSettingsReadsRecordExtras(t *testing.T) {
 	var got map[string]any
 	if err := json.Unmarshal(raw, &got); err != nil || got["defaultPermissionMode"] != "plan" {
 		t.Errorf("settings.json = %s (%v), want defaultPermissionMode plan", raw, err)
+	}
+}
+
+// The macOS refusal survives the fallback notice's cap with its --direct hint intact, once the dispatch wraps it.
+func TestRegistryRefusalKeepsDirectHintInFallbackReason(t *testing.T) {
+	setGOOS(t, "darwin")
+	wrapped := &retry.Error{Kind: retry.KindFatal, Agent: "copilot", Err: checkCopilotRegistryOS()}
+	if got := agent.FallbackReason(wrapped); !strings.HasSuffix(got, "use --direct") {
+		t.Errorf("FallbackReason = %q, want it to end with the --direct hint", got)
 	}
 }

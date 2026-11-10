@@ -50,6 +50,16 @@ func TestParseCopilotNoPremiumIsNotExhausted(t *testing.T) {
 	}
 }
 
+// A Free seat (entitlement 0, has_quota false) says it has no premium credits, still as a note, never 100% used.
+func TestParseCopilotFreeSeatHasNoPremiumCredits(t *testing.T) {
+	body := `{"copilot_plan":"individual","access_type_sku":"free_limited_copilot","quota_snapshots":{"premium_interactions":
+		{"entitlement":0,"credits_used":0,"percent_remaining":0.0,"has_quota":false,"unlimited":false}}}`
+	got := parseCopilot("edotau", []byte(body))
+	if got.Note != NoPremiumCredits+" (Free plan)" || got.UsedPct != 0 || got.Limit != 0 {
+		t.Errorf("free seat = %+v, want the no-premium-credits note and no numbers", got)
+	}
+}
+
 func TestParseWham(t *testing.T) {
 	body := `{"email":"a@b.c","plan_type":"plus","rate_limit":{
 		"primary_window":{"used_percent":13,"limit_window_seconds":18000,"reset_at":1792462523},

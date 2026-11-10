@@ -11,10 +11,13 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/usage"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -243,6 +246,41 @@ func countOf(argv []string, s string) (n int) {
 // On macOS a GitHub login that is not workable falls back to a registry Databricks profile, which launches there only
 // with --direct: setup's route row warns and says so, never a plain ok.
 func TestCopilotSetupRouteWarnsOnMacOSFallback(t *testing.T) {
+	macFallbackScratch(t)
+	route := agent.SchemaFor("copilot").Setup().Checks[2]
+	if route.State != "warn" || !strings.Contains(route.Detail, "--direct") {
+		t.Fatalf("route row = %s %q, want warn naming --direct", route.State, route.Detail)
+	}
+}
+
+// A Free seat on macOS: the gate's one-line notice says it has no premium credits and ends with the --direct hint.
+func TestCopilotGateNoticeFreeSeatOnMacOS(t *testing.T) {
+	macFallbackScratch(t)
+	if err := os.WriteFile(filepath.Join(os.Getenv("GH_CONFIG_DIR"), "hosts.yml"),
+		[]byte("github.com:\n    users:\n        free:\n            oauth_token: x\n    user: free\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := router.MarkChecked("github·free", usage.NoPremiumCredits+" (Free plan)", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	orig := CopilotUsedPct
+	CopilotUsedPct = func(context.Context, string) (float64, bool) { return 0, false }
+	t.Cleanup(func() { CopilotUsedPct = orig })
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gh := &providers.Provider{Name: "personal", Login: "free", Auth: providers.Auth{Login: "copilot"}}
+	_, notice, err := copilotGate(reg, providers.Target{Provider: gh})
+	if err != nil || !strings.Contains(notice, "free has no Copilot premium credits (Free plan)") ||
+		!strings.HasSuffix(notice, "--direct)") || len([]rune(notice)) > 200 {
+		t.Fatalf("gate notice = %q (err %v), want the no-credits reason ending with the --direct hint", notice, err)
+	}
+}
+
+// macFallbackScratch is a hermetic macOS host with no GitHub login and one keyed Databricks profile, dbx.
+func macFallbackScratch(t *testing.T) {
+	t.Helper()
 	pinsScratch(t)
 	vaulttest.UseKeyring(t)
 	setGOOS(t, "darwin")
@@ -256,9 +294,5 @@ func TestCopilotSetupRouteWarnsOnMacOSFallback(t *testing.T) {
 		"host": "https://127.0.0.1:1", "auth": map[string]any{"type": "key", "env": "DBX_CLI_TOKEN"}})
 	if err != nil {
 		t.Fatal(err)
-	}
-	route := agent.SchemaFor("copilot").Setup().Checks[2]
-	if route.State != "warn" || !strings.Contains(route.Detail, "--direct") {
-		t.Fatalf("route row = %s %q, want warn naming --direct", route.State, route.Detail)
 	}
 }
