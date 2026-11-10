@@ -86,6 +86,7 @@ paths:
 - **copilot SDK vs interactive.** Interactive stays `--allow-all`. `ask --agent copilot` runs through the SDK:
   per-call `Decide` on the dispatch's permissions; hooks run natively from `~/.copilot/hooks/*.json`, which the SDK
   session loads too (live, 1.0.105), so no SDK callbacks are registered (they would run each guard twice).
+- **Fake vendor binaries.** `HARNESS_AGENT_BIN_DIR` makes `paths.AgentBin` read that directory instead of `BinDir()` (no fallback to the real install); real vault pins still route.
 - **Deny and D3.** Deny is the hard boundary; Ask goes to the agent's own judge (opencode Ask = `--auto`). A Deny an
   agent cannot enforce refuses the dispatch with `agent.Error{Kind: KindFatal}` naming the rule. opencode
   `--read-only` stays tools-off.
