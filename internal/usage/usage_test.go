@@ -455,39 +455,23 @@ func TestUsageStreamsSectionsInOrder(t *testing.T) {
 	}
 }
 
-// TestStartQuotaFetchDisabledNeverCallsFetch: enabled=false must short-circuit before ever touching the
-// fetchQuotas seam — proven with a counting stub, not just a nil-result check.
-func TestStartQuotaFetchDisabledNeverCallsFetch(t *testing.T) {
-	called := false
-	orig := fetchQuotas
-	fetchQuotas = func() []quota { called = true; return []quota{{Provider: "should-not-appear"}} }
-	t.Cleanup(func() { fetchQuotas = orig })
-
-	ch := startQuotaFetch(false)
-	got := <-ch
-	if got != nil {
-		t.Errorf("startQuotaFetch(false) result = %+v, want nil", got)
-	}
-	if called {
-		t.Error("startQuotaFetch(false) must never call fetchQuotas")
-	}
-}
-
-// TestStartQuotaFetchEnabledCallsFetch: the counting-stub complement — enabled=true does call it, and
-// the returned quotas have LeftPct derived (100-UsedPct), proving setStates/LeftPct still run on this path.
-func TestStartQuotaFetchEnabledCallsFetch(t *testing.T) {
-	called := false
-	orig := fetchQuotas
-	fetchQuotas = func() []quota { called = true; return []quota{{Provider: "github", UsedPct: 30}} }
-	t.Cleanup(func() { fetchQuotas = orig })
-
-	ch := startQuotaFetch(true)
-	got := <-ch
-	if !called {
-		t.Error("startQuotaFetch(true) must call fetchQuotas")
-	}
-	if len(got) != 1 || got[0].LeftPct != 70 || got[0].State != "ok" {
-		t.Errorf("startQuotaFetch(true) result = %+v, want LeftPct=70 State=ok", got)
+// Disabled, the fetch never runs and yields nil; enabled, it runs and its rows come back with states set.
+func TestStartQuotaFetch(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		called := false
+		orig := fetchQuotas
+		fetchQuotas = func() []quota { called = true; return []quota{{Provider: "github", UsedPct: 30}} }
+		t.Cleanup(func() { fetchQuotas = orig })
+		got := <-startQuotaFetch(enabled)
+		if called != enabled {
+			t.Errorf("startQuotaFetch(%v) called fetchQuotas = %v", enabled, called)
+		}
+		if !enabled && got != nil {
+			t.Errorf("startQuotaFetch(false) result = %+v, want nil", got)
+		}
+		if enabled && (len(got) != 1 || got[0].LeftPct != 70 || got[0].State != "ok") {
+			t.Errorf("startQuotaFetch(true) result = %+v, want LeftPct=70 State=ok", got)
+		}
 	}
 }
 

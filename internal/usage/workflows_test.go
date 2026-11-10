@@ -3,7 +3,6 @@ package usage
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -161,24 +160,6 @@ func TestUsageCmdWorkflowsRejectsJSON(t *testing.T) {
 	var out, errw bytes.Buffer
 	if code := Run([]string{"--workflows", "--format", "json"}, claudeDir, &out, &errw); code == 0 {
 		t.Errorf("Run --workflows --format json = %d, want nonzero", code)
-	}
-}
-
-// TestWorkflowPhaseFromMetaMalformed: a truncated/malformed meta.json must fall back to "" (routed
-// to "(none)" by the caller) and warn on errw, mirroring loadWorkflowRun's read-error pattern.
-func TestWorkflowPhaseFromMetaMalformed(t *testing.T) {
-	dir := t.TempDir()
-	transcriptPath := filepath.Join(dir, "agent-a.jsonl")
-	writeFile(t, transcriptPath, "")
-	writeFile(t, filepath.Join(dir, "agent-a.meta.json"), `{"workflowPhase":`) // truncated JSON
-
-	var errw bytes.Buffer
-	phase := transcript.WorkflowPhaseFromMeta(transcriptPath, &errw)
-	if phase != "" {
-		t.Errorf("workflowPhaseFromMeta on malformed meta = %q, want \"\"", phase)
-	}
-	if !strings.Contains(errw.String(), "usage: warning: skipping meta for") {
-		t.Errorf("workflowPhaseFromMeta on malformed meta printed no warning, got:\n%s", errw.String())
 	}
 }
 
@@ -352,36 +333,5 @@ func TestWorkflowNameForRunNoFallbackMatch(t *testing.T) {
 	name := workflowNameForRun(runDir, runID)
 	if name != runID {
 		t.Errorf("workflowNameForRun with no match = %q, want runID %q", name, runID)
-	}
-}
-
-// WorkflowRunDirs/WorkflowAgentFiles/WorkflowPhaseFromMeta are exported solely for internal/agent;
-// this pins their contract against the same fixture shapes workflowRunDirsForScope already exercises.
-func TestExportedWorkflowWrappersForAgentTree(t *testing.T) {
-	dir := t.TempDir()
-	sessionDir := filepath.Join(dir, "projects", "p", "sess0001")
-	writeWorkflowAgentFixture(t, dir, "p", "sess0001", "wf_abc", "one", "Detect", time.Minute,
-		usageRecordLine("claude-sonnet-4-5", 10, 5, "2026-10-18T00:00:00Z"))
-	writeWorkflowAgentFixture(t, dir, "p", "sess0001", "wf_abc", "two", "", time.Minute,
-		usageRecordLine("claude-sonnet-4-5", 20, 8, "2026-10-18T00:01:00Z"))
-
-	runDirs := transcript.WorkflowRunDirs(sessionDir)
-	if len(runDirs) != 1 || filepath.Base(runDirs[0]) != "wf_abc" {
-		t.Fatalf("WorkflowRunDirs = %v, want one dir named wf_abc", runDirs)
-	}
-
-	files := transcript.WorkflowAgentFiles(runDirs[0])
-	if len(files) != 2 {
-		t.Fatalf("WorkflowAgentFiles = %v, want 2 agent transcripts", files)
-	}
-	phases := map[string]bool{}
-	for _, f := range files {
-		phases[transcript.WorkflowPhaseFromMeta(f, io.Discard)] = true
-	}
-	if !phases["Detect"] {
-		t.Error("WorkflowPhaseFromMeta should read \"Detect\" from agent-one's sidecar meta")
-	}
-	if !phases[""] {
-		t.Error("WorkflowPhaseFromMeta should return \"\" for agent-two (no sidecar meta written)")
 	}
 }

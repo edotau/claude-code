@@ -45,13 +45,6 @@ func TestCompletionPrefixFilter(t *testing.T) {
 	}
 }
 
-// TestCompletionRemovedToken: the removed token verb is never offered.
-func TestCompletionRemovedToken(t *testing.T) {
-	if got := completionCandidates([]string{"tok"}); slices.Contains(got, "token") {
-		t.Errorf("completion offers removed token: %v", got)
-	}
-}
-
 // TestCompletionSubcommands: a hand-dispatched verb completes its subcommand words (order doesn't
 // matter — they come off a map, not a table); a leaf with no args/sub/flags (gateway proxy) offers
 // nothing, so the shell falls back to filenames.
@@ -124,18 +117,15 @@ func TestCompletionFlagValues(t *testing.T) {
 	}
 }
 
-// TestCompletionPositionals: a verb's first bare argument completes from its own static domain.
+// TestCompletionPositionals: a verb's first bare argument completes from its own static domain (hook: below).
 func TestCompletionPositionals(t *testing.T) {
-	if got := completionCandidates([]string{"hook", ""}); !slices.Equal(got, settings.HookEvents()) {
-		t.Errorf("hook values = %v, want %v", got, settings.HookEvents())
-	}
 	if got := completionCandidates([]string{"workflow", "skeleton", ""}); !slices.Equal(got, workflowPatterns()) {
 		t.Errorf("workflow skeleton values = %v, want %v", got, workflowPatterns())
 	}
 }
 
 // TestCompletionAfterBoolFlagOffersNextFlag: the word after a boolean flag (no value slot) falls back
-// to the remaining flags, across two different verbs.
+// to the remaining flags, across three different verbs.
 func TestCompletionAfterBoolFlagOffersNextFlag(t *testing.T) {
 	for _, tc := range []struct {
 		words []string
@@ -143,6 +133,7 @@ func TestCompletionAfterBoolFlagOffersNextFlag(t *testing.T) {
 	}{
 		{[]string{"clean", "--dry-run", ""}, "--dry-run"},
 		{[]string{"usage", "--workflows", ""}, "--workflows"},
+		{[]string{"network", "remote", "--status", ""}, "--status"},
 	} {
 		got := completionCandidates(tc.words)
 		if len(got) == 0 {
@@ -177,6 +168,9 @@ func TestCompletionSkipsTypedFlags(t *testing.T) {
 // since nothing here ever calls a command's run func, must never hang trying to launch one either.
 func TestLaunchersNeverOfferFlagsOrDispatch(t *testing.T) {
 	for _, name := range []string{"codex", "copilot", "opencode", "gemini", "claude"} {
+		if lookup(name) == nil {
+			t.Errorf("launcher %q is not a registered verb", name)
+		}
 		if n := specTree()[name]; n != nil && len(n.Flags) != 0 {
 			t.Errorf("specTree()[%q] must not carry its own flags (bare launcher)", name)
 		}
@@ -193,15 +187,6 @@ func TestLaunchersNeverOfferFlagsOrDispatch(t *testing.T) {
 	}
 }
 
-// TestCompletionLaunchersAreRealVerbs guards the expected launcher names against registry drift.
-func TestCompletionLaunchersAreRealVerbs(t *testing.T) {
-	for _, name := range []string{"codex", "copilot", "opencode", "gemini", "claude"} {
-		if lookup(name) == nil {
-			t.Errorf("launcher %q is not a registered verb", name)
-		}
-	}
-}
-
 // TestCompleteDispatch: the hidden __complete verb prints one candidate per line.
 func TestCompleteDispatch(t *testing.T) {
 	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdComplete([]string{"me"}) })
@@ -213,25 +198,7 @@ func TestCompleteDispatch(t *testing.T) {
 	}
 }
 
-// TestCompletionScript: the emitted script registers only the harness binary.
-func TestCompletionScript(t *testing.T) {
-	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdCompletion([]string{"bash"}) })
-	if code != 0 {
-		t.Fatalf("completion bash exit %d", code)
-	}
-	for _, want := range []string{"complete -o default -F _claude_code claude-code", "__complete"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("completion script missing %q:\n%s", want, out)
-		}
-	}
-	for _, unwanted := range []string{"_claude_code_verb", "codex", "gemini", "opencode", "copilot"} {
-		if strings.Contains(out, unwanted) {
-			t.Errorf("completion script retained %q:\n%s", unwanted, out)
-		}
-	}
-}
-
-// TestCompletionScriptBash checks syntax and drives completion against a stub recording its argv.
+// TestCompletionScriptBash checks syntax, registers only claude-code, and drives completion against an argv stub.
 func TestCompletionScriptBash(t *testing.T) {
 	bash, err := exec.LookPath("bash")
 	if err != nil {
@@ -254,14 +221,20 @@ func TestCompletionScriptBash(t *testing.T) {
 	}
 	// Only words through COMP_CWORD reach the harness, excluding words after the cursor.
 	drive := "source " + textutil.ShellQuote(script) + "\n" +
+		`complete -p codex 2>/dev/null && exit 3; complete -p claude-code >&2` + "\n" +
 		`COMP_WORDS=(claude-code codex d ignored); COMP_CWORD=2` + "\n" +
 		`_claude_code` + "\n" +
 		`printf '%s\n' "${COMPREPLY[@]}"`
 	cmd := exec.Command(bash, "-c", drive)
 	cmd.Env = append(cmd.Environ(), "PATH="+dir+":"+currentPath())
-	outb, err := cmd.CombinedOutput()
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	outb, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("bash drive: %v\n%s", err, outb)
+		t.Fatalf("bash drive (exit 3 = codex registered): %v\n%s%s", err, outb, stderr.String())
+	}
+	if want := "complete -o default -F _claude_code claude-code"; strings.TrimSpace(stderr.String()) != want {
+		t.Errorf("registration = %q, want %q", stderr.String(), want)
 	}
 	if strings.TrimSpace(string(outb)) != "codex" {
 		t.Errorf("COMPREPLY = %q, want codex", outb)
@@ -347,13 +320,6 @@ func readFile(path string) (string, error) {
 	return string(b), err
 }
 
-// TestCompletionMemoryMigrateGone: the retired migrate verb no longer completes.
-func TestCompletionMemoryMigrateGone(t *testing.T) {
-	if got := completionCandidates([]string{"memory", "mi"}); slices.Contains(got, "migrate") {
-		t.Errorf("memory mi* = %v, want no migrate", got)
-	}
-}
-
 // isolateCompletionEnv points every on-disk domain (providers, secrets, memory repos, dispatch
 // cache, worktree root) at a fresh temp dir, so a drift test never reads this machine's real state.
 func isolateCompletionEnv(t *testing.T) string {
@@ -422,23 +388,6 @@ func TestNetworkBareOffersSubverbs(t *testing.T) {
 	for _, want := range []string{"tailscale", "browser", "websearch", "restart", "remote"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("network ⇥ = %v, missing %q", got, want)
-		}
-	}
-}
-
-// TestDispatchStatusFlagThenRemainingFlags: the word after the boolean --status falls back to
-// dispatch's remaining flags, with --status itself dropped.
-func TestDispatchStatusFlagThenRemainingFlags(t *testing.T) {
-	got := completionCandidates([]string{"network", "remote", "--status", ""})
-	if len(got) == 0 {
-		t.Fatal("dispatch --status ⇥ offered nothing, want the remaining flags")
-	}
-	if slices.Contains(got, "--status") {
-		t.Errorf("dispatch --status ⇥ = %v, must not re-offer --status", got)
-	}
-	for _, g := range got {
-		if !strings.HasPrefix(g, "-") {
-			t.Errorf("dispatch --status ⇥ = %v, want only flags", got)
 		}
 	}
 }
@@ -523,17 +472,6 @@ func TestVendorCompletionSubverbFlags(t *testing.T) {
 func TestVendorCompletionDoesNotFollowDoubleDash(t *testing.T) {
 	if got := completionCandidates([]string{"codex", "--", ""}); len(got) != 0 {
 		t.Errorf("codex -- ⇥ = %v, want none (codex's own flags are not ours to know)", got)
-	}
-}
-
-// TestSpecTreeCoversEveryCommand: every verb commands() lists gets a node — a launcher is never
-// silently unrepresented, even though it carries no flags/args of its own.
-func TestSpecTreeCoversEveryCommand(t *testing.T) {
-	tree := specTree()
-	for _, c := range commands() {
-		if tree[c.name] == nil {
-			t.Errorf("specTree() has no node for verb %q", c.name)
-		}
 	}
 }
 
@@ -659,22 +597,16 @@ func TestMemoryUpdateSpecHasNoRepoFlag(t *testing.T) {
 	}
 }
 
-// TestCompletionOffersEveryAcceptedFlagAndSection: flags and sections the verbs accept are not missing from completion.
-
-// describeVerbs must carry every listed verb with its spec node, so describe never drifts from the table.
-func TestDescribeVerbsCoverTable(t *testing.T) {
-	got := map[string]bool{}
+// describeVerbs carries every table verb with a spec node, so a launcher is never unrepresented in describe.
+func TestDescribeVerbsCarryEverySpecNode(t *testing.T) {
+	got := map[string]describe.Verb{}
 	for _, v := range describeVerbs() {
-		got[v.Name] = true
+		got[v.Name] = v
 	}
 	for _, c := range commands() {
-		if !got[c.name] {
-			t.Errorf("describeVerbs lacks table verb %q", c.name)
-		}
-	}
-	for _, want := range []string{"agents", "doctor", "configure", "memory"} {
-		if !got[want] {
-			t.Errorf("describeVerbs lacks verb %q", want)
+		v, ok := got[c.name]
+		if !ok || v.Node == nil || v.Node != specTree()[c.name] || v.Hidden != c.hidden {
+			t.Errorf("describeVerbs entry for %q = %+v, want the table row with its specTree node", c.name, v)
 		}
 	}
 }

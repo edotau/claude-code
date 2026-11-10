@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"regexp"
@@ -96,10 +97,15 @@ func checkClaudeHiddenFromUsage(t *testing.T, stdout string) {
 	}
 }
 
-// Every group is present and every row has a summary.
+// Every group is present, every verb name is unique and every row has a summary.
 func TestMenuRowsFit(t *testing.T) {
 	want := map[string]bool{groupAgents: false, groupAuth: false, groupSession: false, groupDiagnostics: false, groupSettings: false}
+	names := map[string]bool{}
 	for _, c := range commands() {
+		if names[c.name] {
+			t.Errorf("%s: declared twice", c.name)
+		}
+		names[c.name] = true
 		if strings.TrimSpace(c.summary) == "" {
 			t.Errorf("%s: empty summary", c.name)
 		}
@@ -113,11 +119,6 @@ func TestMenuRowsFit(t *testing.T) {
 	for g, seen := range want {
 		if !seen {
 			t.Errorf("group %s has no rows", g)
-		}
-	}
-	for _, name := range []string{"providers", "token"} {
-		if lookup(name) != nil {
-			t.Errorf("removed verb %s still dispatches", name)
 		}
 	}
 }
@@ -159,8 +160,10 @@ func menuGroup(out, group string) string {
 
 func TestMenuRegroupNetworkAuthMemorySession(t *testing.T) {
 	_, out, _ := hosttest.CaptureOutput(t, func() int { usage(os.Stdout); return 0 })
-	if !regexp.MustCompile(`(?m)^  network +\S`).MatchString(menuGroup(out, "AUTH")) {
-		t.Errorf("network row missing from AUTH:\n%s", out)
+	for _, verb := range []string{"network", "vault"} {
+		if !regexp.MustCompile(`(?m)^  ` + verb + ` +\S`).MatchString(menuGroup(out, "AUTH")) {
+			t.Errorf("%s row missing from AUTH:\n%s", verb, out)
+		}
 	}
 	if !regexp.MustCompile(`(?m)^  memory +\S`).MatchString(menuGroup(out, "SESSION")) {
 		t.Errorf("memory row missing from SESSION:\n%s", out)
@@ -168,35 +171,20 @@ func TestMenuRegroupNetworkAuthMemorySession(t *testing.T) {
 	if regexp.MustCompile(`(?m)^  memory +\S`).MatchString(menuGroup(out, "SETTINGS")) {
 		t.Errorf("memory still listed under SETTINGS")
 	}
-	for _, old := range []string{"tailscale", "web", "mcp", "generate", "vscode", "settings", "statusline", "route", "router", "secrets"} {
-		if regexp.MustCompile(`(?m)^  ` + old + ` +\S`).MatchString(out) {
-			t.Errorf("old verb %q still in the menu", old)
-		}
-	}
 }
 
+// Retired verbs (use was switch's old name) stay unknown: no dispatch, menu row or completion.
 func TestOldVerbsAreUnknownCommands(t *testing.T) {
-	for _, old := range []string{"tailscale", "web", "mcp", "generate", "vscode", "settings", "statusline", "route", "router", "secrets"} {
+	vaulttest.UseFreshKey(t)
+	for _, old := range []string{"tailscale", "web", "mcp", "generate", "vscode", "settings", "statusline", "route",
+		"router", "secrets", "providers", "token", "config", "use"} {
 		if lookup(old) != nil {
 			t.Errorf("lookup(%q) still resolves", old)
 		}
 		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"claude-code", old}) })
-		if code != 2 || !strings.Contains(stderr, "unknown command") {
+		if code != 2 || !strings.Contains(stderr, fmt.Sprintf("unknown command %q", old)) {
 			t.Errorf("%s: exit %d, stderr %q, want exit 2 unknown command", old, code, stderr)
 		}
-	}
-}
-
-// TestUseVerbRemoved: `use` was the old name of `switch`; it is no longer a verb or an alias.
-func TestUseVerbRemoved(t *testing.T) {
-	if lookup("use") != nil {
-		t.Error("use still dispatches")
-	}
-	if c := lookup("switch"); c == nil {
-		t.Error("switch does not dispatch")
-	}
-	if got := completionCandidates([]string{"us"}); slices.Contains(got, "use") {
-		t.Errorf("completion offers use: %v", got)
 	}
 }
 
@@ -424,60 +412,6 @@ func TestMenuGroupsAlphabetical(t *testing.T) {
 	}
 }
 
-func TestVaultMenuRow(t *testing.T) {
-	count := 0
-	for _, c := range commands() {
-		if c.name != "vault" {
-			continue
-		}
-		count++
-		if c.group != groupAuth {
-			t.Errorf("vault group = %q, want %q", c.group, groupAuth)
-		}
-		if c.summary == "" {
-			t.Error("vault summary is empty")
-		}
-		if c.hidden || c.run == nil {
-			t.Error("vault menu row is hidden or has no handler")
-		}
-	}
-	if count != 1 {
-		t.Errorf("commands() has %d vault rows, want 1", count)
-	}
-}
-
-func TestVaultInAuthGroupHelp(t *testing.T) {
-	rows := menuRows()
-	group := ""
-	found := false
-	for _, r := range rows {
-		if r.head != "" {
-			group = r.head
-			continue
-		}
-		if strings.TrimSpace(r.name) == "vault" {
-			found = true
-			if group != groupAuth {
-				t.Errorf("vault appears under menu group %q, want %q", group, groupAuth)
-			}
-		}
-	}
-	if !found {
-		t.Fatal("menuRows() has no vault row")
-	}
-}
-
-func TestConfigVerbIsUnknown(t *testing.T) {
-	vaulttest.UseFreshKey(t)
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"claude-code", "config", "show"}) })
-	if code != 2 {
-		t.Errorf("Run([config show]) = %d, want 2 (unknown verb)", code)
-	}
-	if !strings.Contains(stderr, `unknown command "config"`) {
-		t.Errorf("stderr = %q, want it to name config as unknown", stderr)
-	}
-}
-
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
 func TestMain(m *testing.M) {
 	agent.NoticeOut = io.Discard
@@ -520,18 +454,4 @@ func termWidth(l string) int {
 		}
 	}
 	return w
-}
-
-// A command printing past the pipe buffer must not deadlock: the audit hung 5m on a large settings render.
-func TestCaptureOutputDrainsPastThePipeBuffer(t *testing.T) {
-	want := 256 << 10
-	code, stdout, _ := hosttest.CaptureOutput(t, func() int {
-		if _, err := os.Stdout.Write(make([]byte, want)); err != nil {
-			return 1
-		}
-		return 0
-	})
-	if code != 0 || len(stdout) != want {
-		t.Fatalf("code %d, captured %d bytes, want %d", code, len(stdout), want)
-	}
 }

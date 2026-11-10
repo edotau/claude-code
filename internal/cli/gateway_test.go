@@ -168,11 +168,7 @@ func TestPrintRouteSkipHeader(t *testing.T) {
 
 // TestPrintProxyStateReportsWriteError: a failed stdout write is returned, so bare gateway cannot exit 0.
 func TestPrintProxyStateReportsWriteError(t *testing.T) {
-	full, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
-	if err != nil {
-		t.Skipf("no /dev/full: %v", err)
-	}
-	defer full.Close()
+	full := closedFile(t)
 	orig := os.Stdout
 	os.Stdout = full
 	t.Cleanup(func() { os.Stdout = orig })
@@ -184,11 +180,7 @@ func TestPrintProxyStateReportsWriteError(t *testing.T) {
 // TestProxyStatusJSONReportsWriteError: a failed JSON write prints a message instead of a silent exit 1.
 func TestProxyStatusJSONReportsWriteError(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	full, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
-	if err != nil {
-		t.Skipf("no /dev/full: %v", err)
-	}
-	defer full.Close()
+	full := closedFile(t)
 	r, w, _ := os.Pipe()
 	origOut, origErr := os.Stdout, os.Stderr
 	os.Stdout, os.Stderr = full, w
@@ -213,11 +205,7 @@ func TestGatewayHelpListsProxyRestart(t *testing.T) {
 // TestProxyStartReportsWriteError: a failed stdout write of the base URL is an exit 1, not a silent 0.
 func TestProxyStartReportsWriteError(t *testing.T) {
 	tokenDaemon(t, func(http.ResponseWriter, gateway.SessionRequest) {})
-	full, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
-	if err != nil {
-		t.Skipf("no /dev/full: %v", err)
-	}
-	defer full.Close()
+	full := closedFile(t)
 	r, w, _ := os.Pipe()
 	origOut, origErr := os.Stdout, os.Stderr
 	os.Stdout, os.Stderr = full, w
@@ -649,11 +637,7 @@ func TestCopilotUsedPctNoEntryRefreshWithoutRecordUnverified(t *testing.T) {
 // TestRenderGatewayRouteFailsWhenStdoutFull: a failed stdout write gives a nonzero exit, not 0.
 func TestRenderGatewayRouteFailsWhenStdoutFull(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	full, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
-	if err != nil {
-		t.Skipf("no /dev/full: %v", err)
-	}
-	defer full.Close()
+	full := closedFile(t)
 	orig := os.Stdout
 	os.Stdout = full
 	t.Cleanup(func() { os.Stdout = orig })
@@ -743,11 +727,7 @@ func TestGatewayTokenRejectsBadArgsAndMintFailure(t *testing.T) {
 
 // TestPrintTokenWriteFailureNamesCause: a failed stdout write exits 1 with a stderr message.
 func TestPrintTokenWriteFailureNamesCause(t *testing.T) {
-	full, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
-	if err != nil {
-		t.Skipf("no /dev/full: %v", err)
-	}
-	defer full.Close()
+	full := closedFile(t)
 	r, w, _ := os.Pipe()
 	origOut, origErr := os.Stdout, os.Stderr
 	os.Stdout, os.Stderr = full, w
@@ -794,4 +774,17 @@ func TestProxyLifecycleRejectsFailedStdout(t *testing.T) {
 			}
 		})
 	}
+}
+
+// closedFile is a file that fails every write, standing in for a full or broken stdout on every OS.
+func closedFile(t *testing.T) *os.File {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "closed-stdout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return f
 }

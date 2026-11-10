@@ -13,7 +13,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/job"
@@ -74,16 +73,11 @@ func readDispatch(t *testing.T, p string) map[string]any {
 	return m
 }
 
-func TestAgentsUsageFits80(t *testing.T) {
+// The agents page documents reap and reap -h its --dry-run (line widths: TestHelpFormat).
+func TestAgentsHelpDocumentsReap(t *testing.T) {
 	var buf bytes.Buffer
 	agentsPage.Fprint(&buf)
-	usage := buf.String()
-	for line := range strings.SplitSeq(usage, "\n") {
-		if n := utf8.RuneCountInString(line); n > 80 {
-			t.Errorf("agentsUsage row is %d runes (>80): %q", n, line)
-		}
-	}
-	if !strings.Contains(usage, "  reap") {
+	if !strings.Contains(buf.String(), "  reap") {
 		t.Error("agentsPage must document reap")
 	}
 	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgents([]string{"reap", "-h"}) })
@@ -724,18 +718,7 @@ func TestAgentsLabelStdoutFailure(t *testing.T) {
 
 func captureFailedStdout(t *testing.T, run func() int) (int, string) {
 	t.Helper()
-	full, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
-	if os.IsNotExist(err) {
-		t.Skip("requires /dev/full")
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := full.Close(); err != nil {
-			t.Error(err)
-		}
-	}()
+	full := closedFile(t)
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		original := os.Stdout
 		os.Stdout = full
@@ -747,7 +730,7 @@ func captureFailedStdout(t *testing.T, run func() int) (int, string) {
 
 func requireOutputFailure(t *testing.T, code int, stderr, diagnostic string) {
 	t.Helper()
-	if code != 1 || !strings.Contains(stderr, diagnostic) || !strings.Contains(stderr, "no space left on device") {
+	if code != 1 || !strings.Contains(stderr, diagnostic) || !strings.Contains(stderr, os.ErrClosed.Error()) {
 		t.Fatalf("lost output: exit %d, stderr %q; want exit 1 with %q and write error", code, stderr, diagnostic)
 	}
 }
@@ -779,17 +762,18 @@ func TestAgentsTreeReportsJSONWriteFailure(t *testing.T) {
 	requireOutputFailure(t, code, stderr, "agents tree:")
 }
 
+// A non-leading --help reaches claude; --print-env is the dry exec, since a real one replaces the test binary.
 func TestAnthropicPassesSubcommandHelp(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	pathstest.FakeVendor(t, "claude", `printf 'vendor argv: %s %s\n' "$1" "$2"`)
+	pathstest.FakeVendor(t, "claude", "exit 99")
 	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdAnthropic([]string{"mcp", "--help"})
+		return cmdAnthropic([]string{"mcp", "--help", "--print-env"})
 	})
-	if code != 0 || !strings.Contains(stdout, "vendor argv: mcp --help") {
+	if code != 0 || !strings.Contains(stdout, "argv     mcp --help\n") {
 		t.Fatalf("subcommand help: exit %d, stdout %q, stderr %q; want vendor MCP help", code, stdout, stderr)
 	}
 	code, stdout, stderr = hosttest.CaptureOutput(t, func() int { return cmdAnthropic([]string{"--help"}) })
-	if code != 0 || !strings.Contains(stdout, "--oauth") || strings.Contains(stdout, "vendor argv:") {
+	if code != 0 || !strings.Contains(stdout, "--oauth") || strings.Contains(stdout, "argv ") {
 		t.Fatalf("wrapper help control: exit %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
 }
@@ -924,18 +908,6 @@ func checkClaudeAndCodexProfiles(t *testing.T) {
 	code, _, errOut = hosttest.CaptureOutput(t, func() int { return agentProfile("codex", []string{"--clear"}) })
 	if code != 0 || providers.AgentRecord("codex").Profile != "chatgpt" {
 		t.Fatalf("codex profile --clear: code=%d pin=%q err=%q", code, providers.AgentRecord("codex").Profile, errOut)
-	}
-}
-
-// TestVendorUsageFits80: every rendered line stays within an 80-column terminal.
-func TestVendorUsageFits80(t *testing.T) {
-	for _, vendor := range agent.Names() {
-		usage := renderHelpPage(agentPage(vendor))
-		for line := range strings.SplitSeq(strings.TrimRight(usage, "\n"), "\n") {
-			if n := utf8.RuneCountInString(line); n > 80 {
-				t.Errorf("vendorUsage(%q) line %q is %d runes, want <= 80", vendor, line, n)
-			}
-		}
 	}
 }
 
