@@ -1,5 +1,4 @@
-// Package agentcfg resolves one agent's effective configuration from its vault pin and the launch flags.
-package agentcfg
+package agentconfig
 
 import (
 	"errors"
@@ -13,8 +12,8 @@ import (
 // geminiLogin is gemini's profile when unpinned: its own Google login, not a registry row.
 const geminiLogin = "antigravity"
 
-// Config is an agent's effective settings after the launch flags are applied.
-type Config struct{ Agent, Profile, Model, Effort, Fallback string }
+// Effective is an agent's effective settings after the launch flags are applied.
+type Effective struct{ Agent, Profile, Model, Effort, Fallback string }
 
 // Launch is the flags the caller typed plus the workspace's last-used profile; the zero value keeps every agent on its pin.
 // Routed leads a router run instead (no flag means no profile, unknown profiles err); CanServe filters --provider picks.
@@ -24,7 +23,7 @@ type Launch struct {
 	CanServe                       func(agent string, p *providers.Provider) bool
 }
 
-// ErrUnknownProfile marks a profile that is no registry row; For still returns the Config it resolved.
+// ErrUnknownProfile marks a profile that is no registry row; For still returns the Effective it resolved.
 var ErrUnknownProfile = errors.New("not in the registry")
 
 // lastProfileAgents are the agents whose CLI launch reuses the workspace's last-used profile before the pin.
@@ -32,21 +31,21 @@ var lastProfileAgents = []string{"codex", "copilot", "gemini", "opencode"}
 
 // For is agent's pin with the launch flags, then the last-used profile, over Profile; a registry profile must exist
 // (own logins skip the check). A vault read error is returned.
-func For(agent string, l Launch) (Config, error) {
+func For(agent string, l Launch) (Effective, error) {
 	reg, err := providers.Load()
 	if err != nil {
-		return Config{}, err
+		return Effective{}, err
 	}
 	if l.Routed {
 		lead, err := resolveLead(reg, agent, l)
-		return Config{Agent: agent, Profile: lead}, err
+		return Effective{Agent: agent, Profile: lead}, err
 	}
 	recs, err := vault.ReadAgentRecords([]string{agent})
 	if err != nil {
-		return Config{}, err
+		return Effective{}, err
 	}
 	rec := recs[agent]
-	cfg := Config{Agent: agent, Profile: rec.Profile, Model: rec.Model, Effort: rec.Effort, Fallback: rec.Fallback}
+	cfg := Effective{Agent: agent, Profile: rec.Profile, Model: rec.Model, Effort: rec.Effort, Fallback: rec.Fallback}
 	active := rec.Profile != "" // an off agent (no profile) never turns on from the last-used cache
 	if cfg.Profile == "" && agent == "gemini" {
 		cfg.Profile = geminiLogin
@@ -55,7 +54,7 @@ func For(agent string, l Launch) (Config, error) {
 	case l.Profile != "" || l.Provider != "":
 		lead, err := resolveLead(reg, agent, l)
 		if err != nil {
-			return Config{}, fmt.Errorf("agent %s: %w", agent, err)
+			return Effective{}, fmt.Errorf("agent %s: %w", agent, err)
 		}
 		if lead != "" {
 			cfg.Profile = lead // an empty lead keeps the agent's pin

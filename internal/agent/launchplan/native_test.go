@@ -14,7 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/launchplan"
-	"github.com/edotau/claude-code/internal/agentcfg"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
@@ -71,7 +71,7 @@ func TestMapMatchesLaunch(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				cfg, err := agentcfg.For(ag, agentcfg.Launch{Profile: flag})
+				cfg, err := agentconfig.For(ag, agentconfig.Launch{Profile: flag})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -122,7 +122,7 @@ func TestMapGemini(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, _ := agentcfg.For("gemini", agentcfg.Launch{})
+	cfg, _ := agentconfig.For("gemini", agentconfig.Launch{})
 	got, err := launchplan.Map(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +133,7 @@ func TestMapGemini(t *testing.T) {
 }
 
 func TestMapUnknownAgent(t *testing.T) {
-	if _, err := launchplan.Map(agentcfg.Config{Agent: "nope"}); err == nil {
+	if _, err := launchplan.Map(agentconfig.Effective{Agent: "nope"}); err == nil {
 		t.Fatal("want error")
 	}
 }
@@ -142,7 +142,7 @@ func TestMapUnknownAgent(t *testing.T) {
 func TestMapHonorsConfigModel(t *testing.T) {
 	setup(t, "codex")
 	vaulttest.SetRecord(t, "codex", "model", "gpt-pinned")
-	got, err := launchplan.Map(agentcfg.Config{Agent: "codex", Profile: "dev", Model: "gpt-flagged"})
+	got, err := launchplan.Map(agentconfig.Effective{Agent: "codex", Profile: "dev", Model: "gpt-flagged"})
 	if err != nil {
 		t.Fatal(err)
 	}

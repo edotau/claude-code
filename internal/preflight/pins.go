@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agentcfg"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -60,8 +60,8 @@ func Check(reg *providers.Registry, now time.Time) []Pin {
 	}
 	for _, a := range slices.Sorted(slices.Values(router.TableAgents)) {
 		if a != "claude" && !pins[a].Off {
-			cfg, err := agentcfg.For(a, agentcfg.Launch{})
-			if err != nil && !errors.Is(err, agentcfg.ErrUnknownProfile) { // an unknown profile is checkAgent's stale row
+			cfg, err := agentconfig.For(a, agentconfig.Launch{})
+			if err != nil && !errors.Is(err, agentconfig.ErrUnknownProfile) { // an unknown profile is checkAgent's stale row
 				out = append(out, Pin{Agent: a, Profile: cfg.Profile, ProfileSource: "pin", Status: StatusError, Detail: err.Error()})
 				continue
 			}
