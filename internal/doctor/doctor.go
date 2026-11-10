@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/claude"
@@ -73,16 +74,22 @@ func Run(args []string) int {
 
 // conflictingModes names the first pair of mode flags that would silently drop one another.
 func conflictingModes(o *doctorOpts) (string, bool) {
-	audits := o.scan || o.gitScan || o.all
-	switch {
-	case o.auditMode && audits:
-		return "--audit cannot combine with --scan, --git or --secrets", true
-	case o.refresh && audits:
-		return "--refresh cannot combine with --scan, --git or --secrets", true
-	case o.refresh && o.auditMode:
-		return "--refresh cannot combine with --audit", true
+	var set []string
+	for _, m := range []struct {
+		on   bool
+		name string
+	}{
+		{o.prompts, "--prompts"}, {o.mcp, "--mcp"}, {o.auditMode, "--audit"}, {o.refresh, "--refresh"},
+		{o.scan || o.gitScan || o.all, "--scan/--git/--secrets"},
+	} {
+		if m.on {
+			set = append(set, m.name)
+		}
 	}
-	return "", false
+	if len(set) < 2 {
+		return "", false
+	}
+	return set[0] + " cannot combine with " + strings.Join(set[1:], ", "), true
 }
 
 func runDoctor(o *doctorOpts, targets []string) int {
@@ -106,6 +113,11 @@ func runDoctor(o *doctorOpts, targets []string) int {
 		refreshServed()
 	}
 	checks, ok := doctorChecks()
+	return printChecks(o, checks, ok)
+}
+
+// printChecks renders checks as JSON or text and returns the exit code: 1 when !ok.
+func printChecks(o *doctorOpts, checks []launch.Check, ok bool) int {
 	if *o.format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, struct {
 			OK     bool           `json:"ok"`
@@ -128,20 +140,7 @@ func runPrompts(o *doctorOpts) int {
 	for _, c := range checks {
 		ok = ok && c.OK
 	}
-	if *o.format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, struct {
-			OK     bool           `json:"ok"`
-			Checks []launch.Check `json:"checks"`
-		}{ok, checks}); err != nil {
-			return helptext.Fail("doctor: %v", err)
-		}
-	} else {
-		launch.PrintChecks(os.Stdout, checks)
-	}
-	if !ok {
-		return 1
-	}
-	return 0
+	return printChecks(o, checks, ok)
 }
 
 // mcpOptions points the MCP scan at the user, project and settings scopes; every path is read-only.

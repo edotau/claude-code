@@ -154,45 +154,31 @@ func claimsFixture(t *testing.T) string {
 	return path
 }
 
-// TestClaimByIDAndTitleReplace covers claim by ID and by title prefix, replacing rather than stacking.
-func TestClaimByIDAndTitleReplace(t *testing.T) {
+// TestClaimByIDAndTitle covers claim lookup by ID and by title prefix, appended at the task's last line.
+func TestClaimByIDAndTitle(t *testing.T) {
 	path := claimsFixture(t)
-
-	// By ID, appended at the task's last line.
-	if err := Claim(path, "2.1", "working: dave"); err != nil {
+	if err := ClaimFree(path, "2.1", "working: dave"); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, path); !strings.Contains(got, "owns: internal/a/x.go <!-- working: dave -->") {
 		t.Fatalf("claim by id:\n%s", got)
 	}
-
-	// By title prefix, replacing the existing claim rather than stacking a second one.
-	if err := Claim(path, "2.2 Second", "finished: carol done"); err != nil {
+	if err := ClearClaimOwned(path, "2.1 First", "dave"); err != nil {
 		t.Fatal(err)
-	}
-	got := readFile(t, path)
-	line22 := ""
-	for l := range strings.SplitSeq(got, "\n") {
-		if strings.Contains(l, "2.2 Second") {
-			line22 = l
-		}
-	}
-	if strings.Count(line22, "<!--") != 1 || !strings.HasSuffix(line22, "owns: internal/b/y.go <!-- finished: carol done -->") {
-		t.Fatalf("claim replace:\n%s", got)
 	}
 }
 
-// TestClearClaimDropsCommentOnce: clearing drops the comment; clearing again leaves bytes untouched.
-func TestClearClaimDropsCommentOnce(t *testing.T) {
+// TestClearClaimOwnedDropsCommentOnce: clearing drops the comment; clearing again leaves bytes untouched.
+func TestClearClaimOwnedDropsCommentOnce(t *testing.T) {
 	path := claimsFixture(t)
-	if err := ClearClaim(path, "2.2"); err != nil {
+	if err := ClearClaimOwned(path, "2.2", "carol"); err != nil {
 		t.Fatal(err)
 	}
 	got := readFile(t, path)
 	if !strings.Contains(got, "- [ ] 2.2 Second task owns: internal/b/y.go\n") {
 		t.Fatalf("clear claim:\n%s", got)
 	}
-	if err := ClearClaim(path, "2.2"); err != nil {
+	if err := ClearClaimOwned(path, "2.2", "carol"); err != nil {
 		t.Fatal(err)
 	}
 	wantBytes(t, path, "clear without claim", got)
@@ -206,16 +192,16 @@ func TestClaimRejections(t *testing.T) {
 		clear                       bool
 	}{
 		{"comment terminator", "2.1", "working: x --> y", "-->", false},
-		{"bad verb", "2.1", "thinking: x", "must start with working: or finished:", false},
+		{"bad verb", "2.1", "thinking: x", "must start with \"working\"", false},
 		{"unknown id", "9.9", "working: x", `no task "9.9"`, false},
 		{"unknown clear", "Nope", "", `no task "Nope"`, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var err error
 			if tc.clear {
-				err = ClearClaim(path, tc.taskID)
+				err = ClearClaimOwned(path, tc.taskID, "x")
 			} else {
-				err = Claim(path, tc.taskID, tc.text)
+				err = ClaimFree(path, tc.taskID, tc.text)
 			}
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("err=%v, want %q", err, tc.wantErr)

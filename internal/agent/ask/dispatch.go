@@ -26,27 +26,19 @@ type DispatchOptions struct {
 
 // Dispatch is `agents dispatch`: resolve the role and --output-schema, then run or detach the legs.
 func Dispatch(q roles.Request, o DispatchOptions) int {
-	role, schema, err := resolveDispatch(o.Role, len(q.Parts), o.Schema)
+	if len(q.Parts) > roles.MaxParts {
+		return helptext.FailUsage("dispatch: %d --part values; the fan-out cap is %d", len(q.Parts), roles.MaxParts)
+	}
+	role, err := roles.Lookup(o.Role)
 	if err != nil {
 		return helptext.FailUsage("dispatch: %v", err)
 	}
-	q.OutputSchema = schema
+	if q.OutputSchema, err = client.ResolveOutputSchema(o.Schema); err != nil {
+		return helptext.FailUsage("dispatch: %v", err)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return dispatchRun(ctx, role, q, o.Jobs, o.Format, o.Background)
-}
-
-// resolveDispatch checks the part cap, looks up the role and loads the --output-schema, before any leg runs.
-func resolveDispatch(roleName string, nparts int, schemaArg string) (roles.Role, string, error) {
-	if nparts > roles.MaxParts {
-		return roles.Role{}, "", fmt.Errorf("%d --part values; the fan-out cap is %d", nparts, roles.MaxParts)
-	}
-	role, err := roles.Lookup(roleName)
-	if err != nil {
-		return roles.Role{}, "", err
-	}
-	schema, err := client.ResolveOutputSchema(schemaArg)
-	return role, schema, err
 }
 
 // dispatchRun builds the legs (splitting explore when no --part) and runs or detaches them.

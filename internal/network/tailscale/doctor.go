@@ -24,7 +24,7 @@ func Doctor(ctx context.Context) (ok bool, detail string) {
 	switch {
 	case errors.Is(err, errNoCLI):
 		return false, "cli not found on PATH" + note
-	case errors.Is(err, ErrNotRunning):
+	case errors.Is(err, errNotRunning):
 		return false, fmt.Sprintf("backend %s (not connected)%s", st.BackendState, note)
 	case err != nil:
 		return false, "status: " + err.Error() + note

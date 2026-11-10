@@ -199,8 +199,7 @@ func Read(scope Scope, refresh bool) (Snapshot, bool, error) {
 
 // validCachedSnapshot decodes raw into snapshot and reports whether it is a complete schema-1 snapshot for scope.
 func validCachedSnapshot(raw string, scope Scope, snapshot *Snapshot) bool {
-	return json.Unmarshal([]byte(raw), snapshot) == nil && snapshot.Schema == 1 && snapshot.Scope == scope &&
-		!snapshot.DiscoveredAt.IsZero() && (len(snapshot.Checks) == 0 || !snapshot.CheckedAt.IsZero())
+	return json.Unmarshal([]byte(raw), snapshot) == nil && snapshot.Scope == scope && completeSnapshot(*snapshot)
 }
 
 // Discover reads under a subject validated within identityTTL for the credential's own JWT sub, else validates

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 const (
@@ -91,7 +92,7 @@ func (r *Router) rewriteFiles(in *http.Request, p *providers.Provider, route str
 		return body
 	}
 	m["messages"] = msgs
-	out, err := marshalNoEscape(m)
+	out, err := textutil.MarshalNoEscape(m)
 	if err != nil {
 		return body
 	}
@@ -114,14 +115,14 @@ func (fr *fileRewriter) messages(raw json.RawMessage) (json.RawMessage, bool) {
 			continue
 		}
 		mm["content"] = content
-		if b, err := marshalNoEscape(mm); err == nil {
+		if b, err := textutil.MarshalNoEscape(mm); err == nil {
 			msgs[i], changed = b, true
 		}
 	}
 	if !changed {
 		return raw, false
 	}
-	b, err := marshalNoEscape(msgs)
+	b, err := textutil.MarshalNoEscape(msgs)
 	return b, err == nil
 }
 
@@ -140,7 +141,7 @@ func (fr *fileRewriter) blocks(raw json.RawMessage) (json.RawMessage, bool) {
 	if !changed {
 		return raw, false
 	}
-	b, err := marshalNoEscape(arr)
+	b, err := textutil.MarshalNoEscape(arr)
 	return b, err == nil
 }
 
@@ -167,7 +168,7 @@ func (fr *fileRewriter) block(raw json.RawMessage) (json.RawMessage, bool) {
 	default:
 		return raw, false
 	}
-	out, err := marshalNoEscape(b)
+	out, err := textutil.MarshalNoEscape(b)
 	return out, err == nil
 }
 
@@ -206,10 +207,9 @@ func (fr *fileRewriter) fileID(data []byte, mediaType string) (string, bool) {
 	id, err := fr.r.uploadFile(fr.in, fr.p, fr.route, data, mediaType)
 	if err != nil {
 		fr.failed = true
-		if errors.Is(err, errFilesSkipped) {
-			return "", false
+		if !errors.Is(err, errFilesSkipped) {
+			fmt.Fprintf(fr.r.log, "proxy: files upload failed, sending inline: %v\n", err)
 		}
-		fmt.Fprintf(fr.r.log, "proxy: files upload failed, sending inline: %v\n", err)
 		return "", false
 	}
 	fr.r.storeFile(key, id)
@@ -331,14 +331,4 @@ func fileForm(data []byte, mediaType string) ([]byte, string, error) {
 func hashHex(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
-}
-
-func marshalNoEscape(v any) ([]byte, error) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		return nil, err
-	}
-	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }

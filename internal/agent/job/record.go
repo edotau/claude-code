@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -223,8 +224,8 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 }
 
 func pruneDispatches(dir string) {
-	names := recordNames(dir)
-	if len(names) <= dispatchKeep+dispatchPruneMargin {
+	names, err := recordNames(dir)
+	if err != nil || len(names) <= dispatchKeep+dispatchPruneMargin { // best-effort: a failed listing skips this prune
 		return
 	}
 	excess := len(names) - dispatchKeep
@@ -262,9 +263,12 @@ func readRecord(path string) (Record, error) {
 	return r, err
 }
 
-// recordNames lists record files oldest first (ids sort by time).
-func recordNames(dir string) []string {
-	entries, _ := os.ReadDir(dir)
+// recordNames lists record files oldest first (ids sort by time); a missing dir is no records.
+func recordNames(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("dispatch dir: %w", err)
+	}
 	var names []string
 	for _, e := range entries {
 		if strings.HasSuffix(e.Name(), ".json") {
@@ -272,13 +276,17 @@ func recordNames(dir string) []string {
 		}
 	}
 	sort.Strings(names)
-	return names
+	return names, nil
 }
 
 // LoadRecord reads one record by id; a unique id prefix is accepted.
 func LoadRecord(id string) (Record, error) {
+	names, err := recordNames(paths.DispatchDir())
+	if err != nil {
+		return Record{}, fmt.Errorf("dispatch %q: %w", id, err)
+	}
 	var match []string
-	for _, n := range recordNames(paths.DispatchDir()) {
+	for _, n := range names {
 		if strings.HasPrefix(n, id) {
 			match = append(match, n)
 		}
@@ -289,17 +297,23 @@ func LoadRecord(id string) (Record, error) {
 	return readRecord(filepath.Join(paths.DispatchDir(), match[0]))
 }
 
-// RecentRecords returns up to n records, newest first.
+// RecentRecords returns up to n records, newest first; an unreadable dispatch dir lists none.
 func RecentRecords(n int) []Record {
+	out, _ := ReadRecent(n)
+	return out
+}
+
+// ReadRecent is RecentRecords that also returns an unreadable dispatch dir's error.
+func ReadRecent(n int) ([]Record, error) {
 	dir := paths.DispatchDir()
-	names := recordNames(dir)
+	names, err := recordNames(dir)
 	var out []Record
 	for i := len(names) - 1; i >= 0 && len(out) < n; i-- {
 		if r, err := readRecord(filepath.Join(dir, names[i])); err == nil {
 			out = append(out, r)
 		}
 	}
-	return out
+	return out, err
 }
 
 // RunRecordedOpts tunes RunRecorded for the caller's stdout contract.

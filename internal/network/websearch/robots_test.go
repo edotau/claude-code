@@ -138,7 +138,7 @@ func TestRobotsCacheHitWithinTTL(t *testing.T) {
 		t.Fatalf("robots.txt fetched %d times within the TTL, want 1", n)
 	}
 	robotsTTL = 0
-	if u, _ := url.Parse(srv.URL + "/private/y"); robotsAllowed(ctx, u) || robotsHits.Load() != 2 {
+	if u, _ := url.Parse(srv.URL + "/private/y"); robotsAllowed(ctx, u, nil) || robotsHits.Load() != 2 {
 		t.Errorf("past TTL: robots hits = %d, want a refetch that still disallows /private", robotsHits.Load())
 	}
 }

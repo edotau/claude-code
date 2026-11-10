@@ -126,3 +126,5 @@ func TestCaptureAnswerClosesPipe(t *testing.T) {
 		t.Fatalf("capture leaked descriptors: before=%d after=%d", len(before), len(after))
 	}
 }
+
+// Given a dispatch dir that rejects writes, Then a detached split review fails instead of spawning a child with no record.

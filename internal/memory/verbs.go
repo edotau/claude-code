@@ -93,19 +93,13 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 		embedIndex(out, errw, root, profile, o.Reembed)
 		return nil
 	}
-	s, err := settleBank(root, time.Now())
+	rotated, err := settleBank(root, time.Now())
 	if err != nil {
 		return fmt.Errorf("memory index: %w", err)
 	}
 	fmt.Fprintf(out, "indexed %s", Dir(root))
-	if s.Rotated > 0 {
-		fmt.Fprintf(out, " (rotated %d sessionHistory entries to archive/)", s.Rotated)
-	}
-	if s.Promoted > 0 {
-		fmt.Fprintf(out, " (promoted %d block(s) to home)", s.Promoted)
-	}
-	if s.Archived > 0 {
-		fmt.Fprintf(out, " (archived %d block(s))", s.Archived)
+	if rotated > 0 {
+		fmt.Fprintf(out, " (rotated %d sessionHistory entries to archive/)", rotated)
 	}
 	fmt.Fprintln(out)
 	embedIndex(out, errw, root, profile, o.Reembed)
@@ -221,7 +215,7 @@ func RunDream(o DreamRunOptions) error {
 		}
 	}
 	if o.DryRun {
-		fmt.Fprint(o.Out, previewDream(root, time.Now()).Report())
+		fmt.Fprint(o.Out, previewDream(root).Report())
 		return nil
 	}
 	if !o.Force && !DreamDue(root, time.Now()) {
@@ -295,7 +289,10 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 
 // TimelineReport writes the n most recent bank entries, then the sessionHistory lines.
 func TimelineReport(w io.Writer, repo string, n int) {
-	entries, sessions := timeline(Root(repo), n)
+	entries, sessions, err := timeline(Root(repo), n)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "memory timeline: sessionHistory: %v\n", err)
+	}
 	for _, e := range entries {
 		fmt.Fprintf(w, "%s  update   %s\n", e.Time.Format("2006-01-02 15:04"), e.Line)
 	}

@@ -121,3 +121,5 @@ func TestHasAdminCredentialRequiresCompleteCredential(t *testing.T) {
 		})
 	}
 }
+
+// Without a resolvable home the login marker would be a cwd-relative path: refuse before launching agy.

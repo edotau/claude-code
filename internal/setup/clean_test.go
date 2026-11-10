@@ -457,6 +457,9 @@ func TestNestedConfigKeepsWorktrees(t *testing.T) {
 	if !exists(t, gitFile) {
 		t.Error("--apply removed a linked worktree's .git pointer")
 	}
+	if strings.Contains(errw.String(), "by hand") {
+		t.Errorf("worktrees reported as a settings leak: %s", errw.String())
+	}
 }
 
 // TestBackupsMirrorNeverSwept: the revert mirror survives a sweep; CLI backups age out like any target.

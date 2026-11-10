@@ -66,7 +66,7 @@ func codexCatalogPath(ctx context.Context, p *providers.Provider) (string, strin
 		return "", "", fmt.Errorf("temporary home failed: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(home) }()
-	raw, err := runCodexCatalog(ctx, bin, home, 30*time.Second, "debug", "models", "--bundled")
+	raw, err := runCodexCatalog(ctx, bin, home, "debug", "models", "--bundled")
 	if err != nil {
 		return "", "", fmt.Errorf("bundled dump failed: %w", err)
 	}
@@ -126,7 +126,7 @@ func validateCodexCatalog(ctx context.Context, bin, home string, body []byte) er
 	if err := os.WriteFile(candidate, body, 0o600); err != nil {
 		return fmt.Errorf("candidate write failed: %w", err)
 	}
-	if _, err := runCodexCatalog(ctx, bin, home, 30*time.Second, "-c", "model_catalog_json="+agentconfig.TOMLQuote(candidate), "debug", "models"); err != nil {
+	if _, err := runCodexCatalog(ctx, bin, home, "-c", "model_catalog_json="+agentconfig.TOMLQuote(candidate), "debug", "models"); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 	return nil
@@ -154,8 +154,11 @@ func storeCodexCatalog(dir, path, keyPath string, body []byte, key string) error
 	})
 }
 
-func runCodexCatalog(ctx context.Context, bin, home string, timeout time.Duration, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+// catalogTimeout bounds one `codex debug models` run.
+const catalogTimeout = 30 * time.Second
+
+func runCodexCatalog(ctx context.Context, bin, home string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, catalogTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	spec := agent.EnvSpec{Mode: agent.EnvAgent, Unset: []string{agentconfig.OverlayVar}, Set: []string{"CODEX_HOME=" + home}}

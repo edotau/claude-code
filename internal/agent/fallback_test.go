@@ -33,23 +33,21 @@ func TestDispatchUnavailable(t *testing.T) {
 	cases := []struct {
 		name string
 		r    Engine
-		req  RunOptions
 		res  wire.Result
 		err  error
 		want bool
 	}{
-		{"nil error", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{}, nil, false},
-		{"claude ends the chain", &fakeRunner{name: "claude"}, RunOptions{}, wire.Result{}, genericErr, false},
-		{"any vendor dispatch", &fakeRunner{name: "gemini"}, RunOptions{}, wire.Result{}, genericErr, true},
-		{"non-empty answer", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{Answer: "partial"}, genericErr, false},
-		{"deadline exceeded", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{}, deadline, false},
-		{"canceled", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{}, canceled, false},
-		{"prompt too large", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{}, tooLarge, false},
-		{"progressed", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{}, progressed, false},
-		{"wrapped progressed", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{}, fmt.Errorf("agent: %w", progressed), false},
-		{"not progressed", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{}, &retry.Error{Kind: retry.KindFatal, Err: genericErr}, true},
-		{"binary missing", &fakeRunner{name: "codex"}, RunOptions{}, wire.Result{}, genericErr, true},
-		{"claude model alias stays eligible", &fakeRunner{name: "codex"}, RunOptions{Model: "opus"}, wire.Result{}, genericErr, true},
+		{"nil error", &fakeRunner{name: "codex"}, wire.Result{}, nil, false},
+		{"claude ends the chain", &fakeRunner{name: "claude"}, wire.Result{}, genericErr, false},
+		{"any vendor dispatch", &fakeRunner{name: "gemini"}, wire.Result{}, genericErr, true},
+		{"non-empty answer", &fakeRunner{name: "codex"}, wire.Result{Answer: "partial"}, genericErr, false},
+		{"deadline exceeded", &fakeRunner{name: "codex"}, wire.Result{}, deadline, false},
+		{"canceled", &fakeRunner{name: "codex"}, wire.Result{}, canceled, false},
+		{"prompt too large", &fakeRunner{name: "codex"}, wire.Result{}, tooLarge, false},
+		{"progressed", &fakeRunner{name: "codex"}, wire.Result{}, progressed, false},
+		{"wrapped progressed", &fakeRunner{name: "codex"}, wire.Result{}, fmt.Errorf("agent: %w", progressed), false},
+		{"not progressed", &fakeRunner{name: "codex"}, wire.Result{}, &retry.Error{Kind: retry.KindFatal, Err: genericErr}, true},
+		{"binary missing", &fakeRunner{name: "codex"}, wire.Result{}, genericErr, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -461,8 +459,7 @@ func (f sinkFunc) Emit(ev wire.Event) error { return f(ev) }
 
 // Hooks for the batch runner tests, which live in agent_test because batch imports agent.
 var (
-	CoolDown = retry.CoolDown
-	AuthEnv  = authEnv
+	AuthEnv = authEnv
 )
 
 // handoffRunner returns a canned Result and error per call, so a dispatch can carry a hand-off path.
@@ -729,7 +726,7 @@ func TestPinFirstFallbackClaudeExhausted(t *testing.T) {
 	if err == nil {
 		t.Fatal("all hops failed, want an error")
 	}
-	containsAll(t, err.Error(), "every hop failed", "codex (openai·openai):", "opencode: auth rejected", "claude: anthropic·max exhausted")
+	containsAll(t, err.Error(), "every hop failed", "codex (openai·openai):", "opencode: auth rejected", "claude: anthropic·ultra exhausted")
 }
 
 func TestPinFirstFallbackContentPolicy(t *testing.T) {

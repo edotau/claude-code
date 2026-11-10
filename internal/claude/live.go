@@ -23,7 +23,7 @@ type claudeLive struct {
 
 func (b *claudeLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer, string, error) {
 	args := claudeArgs([]string{"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-		"--include-partial-messages"}, req)
+		"--include-partial-messages"}, req, anthropicLaunch(req))
 	cmd, tail, cl, err := claudeCmd(ctx, req, args, "")
 	b.cmd = cmd
 	return cmd, tail, cl.Set[providers.EnvSessionProfile], err

@@ -87,8 +87,8 @@ func (e *Error) Retryable() bool {
 	return !e.Progressed && !e.Terminal && (e.Kind == KindRateLimit || e.Kind == KindTransient || e.Kind == KindAuth)
 }
 
-// KindForStatus maps an HTTP status to a Kind; 0 means the transport never completed.
-func KindForStatus(status int) Kind {
+// kindForStatus maps an HTTP status to a Kind; 0 means the transport never completed.
+func kindForStatus(status int) Kind {
 	switch {
 	case status >= 200 && status < 300:
 		return KindNone
@@ -125,7 +125,7 @@ func Classify(agent string, err error, progressed bool) *Error {
 	var st interface{ StatusCode() int }
 	if errors.As(err, &st) {
 		e.Status = st.StatusCode()
-		e.Kind = KindForStatus(e.Status)
+		e.Kind = kindForStatus(e.Status)
 		if e.Kind == KindRateLimit && providers.IsQuota(err.Error()) {
 			e.Kind = KindQuota
 		}
@@ -257,7 +257,7 @@ func WaitCooldown(ctx context.Context, key string, maxWait time.Duration) {
 		if wait <= 0 {
 			return
 		}
-		settle(ctx) // a cooling task holds no slot, so a task on another account can start
+		Settle(ctx) // a cooling task holds no slot, so a task on another account can start
 		t := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
@@ -392,7 +392,11 @@ func (p Policy) mayRetry(ctx context.Context, last *Error, attempt int) bool {
 		return false
 	}
 	if last.Kind == KindAuth {
-		if p.Recover == nil || p.Recover(ctx) != nil {
+		if p.Recover == nil {
+			return false
+		}
+		if rerr := p.Recover(ctx); rerr != nil {
+			last.Err = fmt.Errorf("%w (credential refresh failed: %w)", last.Err, rerr)
 			return false
 		}
 	}

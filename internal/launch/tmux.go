@@ -26,32 +26,32 @@ var tmuxConfPaths = func() []string {
 	return []string{filepath.Join(home, ".tmux.conf"), filepath.Join(xdg, "tmux", "tmux.conf")}
 }
 
-// seedTmuxConf writes the harness tmux.conf only when no tmux config exists; a present one is never touched.
-func seedTmuxConf(w io.Writer, dryRun bool) {
+// seedTmuxConf writes the harness tmux.conf only when no tmux config exists; returns "kept", "wrote" or "" (skipped).
+func seedTmuxConf(w io.Writer, dryRun bool) string {
 	paths := tmuxConfPaths()
 	if len(paths) == 0 {
 		fmt.Fprintln(w, "tmux     skip  home directory unresolved")
-		return
+		return ""
 	}
 	for _, p := range paths {
 		_, err := os.Stat(p)
 		if err == nil {
 			fmt.Fprintf(w, "tmux     %s exists (kept)\n", p)
-			return
+			return "kept"
 		}
 		if !errors.Is(err, fs.ErrNotExist) { // unknown state: never seed over a config we could not probe
 			fmt.Fprintf(w, "tmux     skip  %v\n", err)
-			return
+			return ""
 		}
 	}
 	if dryRun {
 		fmt.Fprintf(w, "tmux     would write %s (skipped: --dry-run)\n", paths[0])
-		return
+		return ""
 	}
 	f, err := os.OpenFile(paths[0], os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644) // O_EXCL: never truncate a racing writer's config
 	if errors.Is(err, fs.ErrExist) {
 		fmt.Fprintf(w, "tmux     %s exists (kept)\n", paths[0])
-		return
+		return "kept"
 	}
 	if err == nil {
 		_, err = f.Write(tmuxConf)
@@ -59,7 +59,8 @@ func seedTmuxConf(w io.Writer, dryRun bool) {
 	}
 	if err != nil {
 		fmt.Fprintf(w, "tmux     skip  %v\n", err)
-		return
+		return ""
 	}
 	fmt.Fprintf(w, "tmux     wrote %s\n", paths[0])
+	return "wrote"
 }

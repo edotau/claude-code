@@ -176,7 +176,7 @@ func simplifyTargets(paths []string) []string {
 
 // analyzeSimplifyFile runs both checks on one file; an error means the file could not be analyzed.
 func analyzeSimplifyFile(path string, th ComplexityThresholds) (simplifyFile, error) {
-	q, err := Quality(path, "")
+	q, err := Quality(path)
 	if err != nil {
 		return simplifyFile{}, err
 	}

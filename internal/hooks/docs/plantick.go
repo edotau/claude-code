@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"errors"
 
 	"github.com/edotau/claude-code/internal/memory"
 
@@ -172,49 +173,60 @@ var (
 )
 
 // ClaimPlanTask claims the active plan's task a spawn names (a `Task:` brief line, else a unique checklist title
-// the description matches); no confident match, no plan or any error claims nothing.
-func ClaimPlanTask(in *core.Input, id string) {
+// the description matches); no confident match or no plan claims nothing, a failed claim returns the error.
+func ClaimPlanTask(in *core.Input, id string) error {
 	if !core.SpawnTools[in.ToolName] || id == "" {
-		return
+		return nil
 	}
 	plan, worktreeName, ok := activePlan(in.CWD)
 	if !ok {
-		return
+		return nil
 	}
 	parsed, err := plans.Parse(plan)
 	if err != nil {
-		return
+		return fmt.Errorf("plan-claim: %w", err)
 	}
 	task, ok := matchBriefTask(parsed, in.Nested("tool_input", "prompt"), in.Nested("tool_input", "description"))
 	if !ok || task.Claim != "" { // the locked ClaimFree below re-checks
-		return
+		return nil
 	}
 	agent := cmp.Or(in.Nested("tool_input", "subagent_type"), in.ToolName)
 	text := fmt.Sprintf("working: %s %s · worktree %s · since %s", agent, id, cmp.Or(worktreeName, "main"), time.Now().Format("15:04"))
-	if plans.ClaimFree(plan, taskKey(task), text) != nil || worktreeName == "" {
-		return
+	if err := plans.ClaimFree(plan, taskKey(task), text); err != nil {
+		return fmt.Errorf("plan-claim: %w", err)
 	}
-	_, _ = worktree.SetLedgerTask(in.CWD, taskKey(task)+" in "+strings.TrimSuffix(filepath.Base(plan), ".md"), time.Now())
+	if worktreeName == "" {
+		return nil
+	}
+	if _, err := worktree.SetLedgerTask(in.CWD, taskKey(task)+" in "+strings.TrimSuffix(filepath.Base(plan), ".md"), time.Now()); err != nil {
+		return fmt.Errorf("plan-claim: ledger: %w", err)
+	}
+	return nil
 }
 
 // ClearPlanClaim removes the claim a stopping agent's spawn wrote, found by its tool_use_id in the claim text.
-func ClearPlanClaim(cwd, id string) {
+func ClearPlanClaim(cwd, id string) error {
 	if id == "" {
-		return
+		return nil
 	}
 	plan, _, ok := activePlan(cwd)
 	if !ok {
-		return
+		return nil
 	}
 	parsed, err := plans.Parse(plan)
 	if err != nil {
-		return
+		return fmt.Errorf("plan-claim: %w", err)
 	}
+	var errs []error
 	for _, t := range parsed.Tasks {
 		if strings.Contains(t.Claim, " "+id+" ") {
-			_ = plans.ClearClaimOwned(plan, taskKey(t), " "+id+" ")
+			errs = append(errs, plans.ClearClaimOwned(plan, taskKey(t), " "+id+" "))
 		}
 	}
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("plan-claim: release: %w", err)
+	}
+	return nil
 }
 
 // activePlan is cwd's repo plan with an open owned task, plus the linked worktree's name ("" in the main checkout).
@@ -275,11 +287,11 @@ func only(ts []plans.Task) (plans.Task, bool) {
 }
 
 // ClearStoppedClaim resolves the stopping agent's spawn id from its meta.json and clears that spawn's plan claim.
-func ClearStoppedClaim(in *core.Input, dirs []string, id string) {
+func ClearStoppedClaim(in *core.Input, dirs []string, id string) error {
 	for _, d := range dirs {
 		if tu := inflight.ToolUseID(d, id); tu != "" {
-			ClearPlanClaim(in.CWD, tu)
-			return
+			return ClearPlanClaim(in.CWD, tu)
 		}
 	}
+	return nil
 }

@@ -333,11 +333,6 @@ func newRouteJSON(res router.PickResult, src routeSources, pins map[string]pinJS
 	return out
 }
 
-// printRoute writes the text view to stdout, ignoring write errors (tests); the verb checks them.
-func printRoute(res router.PickResult, src routeSources, pins map[string]pinJSON) {
-	writeRoute(os.Stdout, res, src, pins)
-}
-
 // writeRoute renders weights, pins, scored candidates, the claude end and skipped gates.
 func writeRoute(w io.Writer, res router.PickResult, src routeSources, pins map[string]pinJSON) {
 	var ws []string
@@ -346,25 +341,9 @@ func writeRoute(w io.Writer, res router.PickResult, src routeSources, pins map[s
 	}
 	fmt.Fprintf(w, "model %s  weights %s (%s)\n", res.Alias, strings.Join(ws, " "), src.Weights)
 	printPins(w, pins)
-	res.Candidates = displayAccounts(res.Candidates)
 	printCandidates(w, res.Candidates)
 	printEnds(w, res)
 	printSkipped(w, res.Skipped)
-}
-
-// displayAccounts copies cands with plan-aware account labels; the JSON view keeps the route keys.
-func displayAccounts(cands []router.Candidate) []router.Candidate {
-	reg, err := providers.Load()
-	if err != nil {
-		return cands
-	}
-	tier := providers.ClaudeAccount().Tier()
-	out := make([]router.Candidate, len(cands))
-	for i, c := range cands {
-		c.Account = providers.AccountLabel(reg, c.Account, tier)
-		out[i] = c
-	}
-	return out
 }
 
 // printCandidates prints the scored candidate table.
@@ -439,7 +418,12 @@ func printEnds(w io.Writer, res router.PickResult) {
 
 // gatewaySpec describes completion for the gateway command.
 func gatewaySpec() *helptext.Node {
-	return &helptext.Node{Flags: gatewayRouteFlags(), Sub: map[string]*helptext.Node{
+	routeFlags := []helptext.Flag{{Name: "model", Values: func() []string { return router.Aliases }},
+		{Name: "agent", Values: func() []string { return router.TableAgents }}, {Name: "task"},
+		{Name: "fallback", Values: func() []string { return router.FallbackModes }},
+		{Name: "route", Values: func() []string { return router.RouteModes }},
+		{Name: "profile"}, {Name: "provider"}, helptext.CompletionFormatFlag()}
+	return &helptext.Node{Flags: routeFlags, Sub: map[string]*helptext.Node{
 		"proxy": {
 			Flags: []helptext.Flag{
 				{Name: "start", IsBool: true},
@@ -455,14 +439,6 @@ func gatewaySpec() *helptext.Node {
 			},
 		},
 	}}
-}
-
-func gatewayRouteFlags() []helptext.Flag {
-	return []helptext.Flag{{Name: "model", Values: func() []string { return router.Aliases }},
-		{Name: "agent", Values: func() []string { return router.TableAgents }},
-		{
-			Name: "task",
-		}, {Name: "fallback", Values: func() []string { return router.FallbackModes }}, helptext.CompletionFormatFlag()}
 }
 
 func cmdGatewayToken(args []string) int {

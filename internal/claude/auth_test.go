@@ -51,9 +51,9 @@ func TestClaudeLoginProbeLoggedIn(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	pathstest.FakeVendor(t, "claude", `[ "$#" -eq 2 ] && [ "$1" = auth ] && [ "$2" = status ] || exit 1
 echo '{"loggedIn":true,"subscriptionType":"max"}'`)
-	loggedIn, plan, _ := ClaudeLoginProbe()
+	loggedIn, plan, _ := claudeLoginProbe()
 	if !loggedIn || plan != " (max)" {
-		t.Errorf("ClaudeLoginProbe() = %v, %q; want true, \" (max)\"", loggedIn, plan)
+		t.Errorf("claudeLoginProbe() = %v, %q; want true, \" (max)\"", loggedIn, plan)
 	}
 }
 
@@ -70,9 +70,9 @@ func TestClaudeLoginProbeScrubsParentEnv(t *testing.T) {
 	t.Setenv("PROBE_ENV_FILE", envFile)
 	pathstest.FakeVendor(t, "claude", `printf 'CLAUDE_PROFILE=%s\nPROBE_CONTROL=%s\n' "${CLAUDE_PROFILE-unset}" "$PROBE_CONTROL" > "$PROBE_ENV_FILE"
 echo '{"loggedIn":true,"subscriptionType":"max"}'`)
-	loggedIn, plan, err := ClaudeLoginProbe()
+	loggedIn, plan, err := claudeLoginProbe()
 	if err != nil || !loggedIn || plan != " (max)" {
-		t.Fatalf("ClaudeLoginProbe() = %v, %q, %v", loggedIn, plan, err)
+		t.Fatalf("claudeLoginProbe() = %v, %q, %v", loggedIn, plan, err)
 	}
 	got, err := os.ReadFile(envFile)
 	if err != nil {
@@ -82,19 +82,6 @@ echo '{"loggedIn":true,"subscriptionType":"max"}'`)
 		t.Fatalf("probe env = %q, want %q", got, want)
 	}
 }
-
-func TestClaudeLoginProbeNoBinary(t *testing.T) {
-	resetClaudeProbe()
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir())
-	loggedIn, plan, _ := ClaudeLoginProbe()
-	if loggedIn || plan != "" {
-		t.Errorf("ClaudeLoginProbe() with no claude binary = %v, %q; want false, \"\"", loggedIn, plan)
-	}
-}
-
-// TestHeadlessOAuthToken covers the two sources in priority order: env, then the vault.
 
 // The probe is tri-state: a failed probe is an error (unknown), never "logged out".
 func TestClaudeLoginProbeTriState(t *testing.T) {
@@ -120,7 +107,7 @@ func TestClaudeLoginProbeTriState(t *testing.T) {
 			if !c.noBin {
 				pathstest.FakeVendor(t, "claude", c.body)
 			}
-			in, plan, err := ClaudeLoginProbe()
+			in, plan, err := claudeLoginProbe()
 			if in != c.wantIn || plan != c.wantPlan || (err != nil) != c.wantErr {
 				t.Errorf("probe = %v %q %v; want %v %q err=%v", in, plan, err, c.wantIn, c.wantPlan, c.wantErr)
 			}
@@ -147,13 +134,13 @@ func TestClaudeLoginProbeNativeInstall(t *testing.T) {
 	if err := claudeAgent.Available(); err != nil {
 		t.Fatalf("native install unavailable: %v", err)
 	}
-	loggedIn, plan, err := ClaudeLoginProbe()
+	loggedIn, plan, err := claudeLoginProbe()
 	if err != nil || !loggedIn || plan != " (max)" {
 		t.Fatalf("native auth probe = %v, %q, %v; want true, max, nil", loggedIn, plan, err)
 	}
 }
 
-// resetClaudeProbe drops the memo so the next ClaudeLoginProbe runs the binary again.
+// resetClaudeProbe drops the memo so the next claudeLoginProbe runs the binary again.
 func resetClaudeProbe() {
 	claudeProbeMemo.mu.Lock()
 	defer claudeProbeMemo.mu.Unlock()

@@ -268,8 +268,8 @@ func (s *server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	return scanner.Err()
 }
 
-// Run wires stdin/stdout to a default (Tavily-backed) server. Entry point for the CLI command.
-func Run(ctx context.Context) int {
+// run wires stdin/stdout to a default (Tavily-backed) server. Entry point for the CLI command.
+func run(ctx context.Context) int {
 	if _, err := resolveKey(); err != nil {
 		fmt.Fprintf(os.Stderr, "websearch: %v; web_search returns an error until fixed\n", err)
 	}
@@ -280,8 +280,8 @@ func Run(ctx context.Context) int {
 	return 0
 }
 
-// OneShot runs one Tavily search and writes the text to out (no MCP handshake); non-zero exit on error.
-func OneShot(ctx context.Context, query string, maxResults int, search searcher, out io.Writer) int {
+// oneShot runs one Tavily search and writes the text to out (no MCP handshake); non-zero exit on error.
+func oneShot(ctx context.Context, query string, maxResults int, search searcher, out io.Writer) int {
 	if strings.TrimSpace(query) == "" {
 		return helptext.FailUsage("network websearch: a query is required")
 	}
@@ -421,7 +421,13 @@ func fetchPages(ctx context.Context, apiKey string, urls []string, content, fail
 	for _, depth := range []string{"basic", "advanced"} {
 		res, err := tavilyExtract(ctx, apiKey, urls, depth)
 		if err != nil {
-			return err
+			if depth == "basic" {
+				return err
+			}
+			for _, u := range urls { // a failed retry keeps the basic pages; only the retried URLs fail
+				failed[normURL(u)] = err.Error()
+			}
+			return nil
 		}
 		urls = nil
 		for _, r := range res.Results {
@@ -460,14 +466,15 @@ func normURL(raw string) string {
 // vetExtractURLs splits urls into those safe to send to Tavily and a failure reason per refused URL.
 func vetExtractURLs(ctx context.Context, urls []string) ([]string, map[string]string) {
 	failed := map[string]string{}
+	dead := map[string]bool{} // origins whose robots.txt could not be read: one timeout per origin, not per URL
 	var send []string
 	for _, raw := range urls {
 		u, err := checkExtractURL(raw)
 		switch {
 		case err != nil:
 			failed[raw] = err.Error()
-		case !robotsAllowed(ctx, u):
-			failed[raw] = "robots.txt disallows"
+		case !robotsAllowed(ctx, u, dead):
+			failed[raw] = "robots.txt disallows or could not be read"
 		default:
 			send = append(send, raw)
 		}
@@ -624,22 +631,31 @@ var robotsCache = struct {
 	m map[string]robotsEntry
 }{m: map[string]robotsEntry{}}
 
-// robotsAllowed reports whether robots.txt permits u for claude-code or *; missing or unreadable allows.
-func robotsAllowed(ctx context.Context, u *url.URL) bool {
-	return !robotsBlocks(robotsBody(ctx, u.Scheme+"://"+u.Host), u.RequestURI())
+// robotsAllowed reports whether robots.txt permits u; missing allows, unreadable (5xx/transport) refuses and joins dead.
+func robotsAllowed(ctx context.Context, u *url.URL, dead map[string]bool) bool {
+	origin := u.Scheme + "://" + u.Host
+	if dead[origin] {
+		return false
+	}
+	body, ok := robotsBody(ctx, origin)
+	if !ok && dead != nil {
+		dead[origin] = true
+	}
+	_, blocked := robotsDisallows(parseRobots(body), u.RequestURI())
+	return ok && !blocked
 }
 
 // robotsBody is origin's robots.txt from robotsCache within robotsTTL, else freshly fetched and cached.
-func robotsBody(ctx context.Context, origin string) string {
+func robotsBody(ctx context.Context, origin string) (string, bool) {
 	robotsCache.Lock()
 	e, ok := robotsCache.m[origin]
 	robotsCache.Unlock()
 	if ok && time.Since(e.at) < robotsTTL {
-		return e.body
+		return e.body, true
 	}
 	body, ok := fetchRobots(ctx, origin)
 	if !ok {
-		return body
+		return "", false
 	}
 	robotsCache.Lock()
 	defer robotsCache.Unlock()
@@ -651,7 +667,7 @@ func robotsBody(ctx context.Context, origin string) string {
 		}
 	}
 	robotsCache.m[origin] = robotsEntry{body: body, at: time.Now()}
-	return body
+	return body, true
 }
 
 // fetchRobots returns the origin's robots.txt body ("" when missing); ok is false when it could not be read.
@@ -691,7 +707,7 @@ func fetchPageText(ctx context.Context, pageURL string) string {
 	}
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5")
 	req.Header.Set("User-Agent", "claude-code-websearch/"+serverVersion)
-	if !robotsAllowed(ctx, req.URL) {
+	if !robotsAllowed(ctx, req.URL, nil) {
 		return ""
 	}
 	client := *pageClient
@@ -709,7 +725,7 @@ func robotsRedirectCheck(next *http.Request, via []*http.Request) error {
 	if err := capRedirects(next, via); err != nil {
 		return err
 	}
-	if !robotsAllowed(next.Context(), next.URL) {
+	if !robotsAllowed(next.Context(), next.URL, nil) {
 		return fmt.Errorf("robots.txt disallows redirect to %s", next.URL)
 	}
 	return nil

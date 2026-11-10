@@ -282,8 +282,13 @@ func reportNested(errw io.Writer, apply bool, tot *sweepTotals) {
 		return
 	}
 	if len(n.Keep) > 0 {
+		keep := slices.DeleteFunc(slices.Clone(n.Keep), func(k string) bool { return k == KeepWorktrees })
+		if len(keep) == 0 {
+			fmt.Fprintf(errw, "%-16s kept %s: holds linked worktrees\n", "nested-config", n.Dir)
+			return
+		}
 		fmt.Fprintf(errw, "%-16s kept %s: move %s into ~/.claude/settings.json by hand, re-run\n",
-			"nested-config", n.Dir, strings.Join(n.Keep, ", "))
+			"nested-config", n.Dir, strings.Join(keep, ", "))
 		return
 	}
 	hits, size, failed := pruneAgedTo(errw, []string{n.Dir}, time.Now().Add(time.Hour), apply, nil)

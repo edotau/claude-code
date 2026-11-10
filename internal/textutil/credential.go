@@ -24,11 +24,11 @@ func kindFor(val string) (prefix, kind string, ok bool) {
 	return "", "", false
 }
 
-// credentialPrefixes maps each prefixed Tailscale credential to the tskey- prefix and kind name it must have.
-var credentialPrefixes = map[string]struct{ prefix, kind string }{
-	"TAILSCALE_OAUTH_CLIENT_SECRET": {"tskey-client-", "OAuth client secret"},
-	"TAILSCALE_API_KEY":             {"tskey-api-", "API key"},
-	"TAILSCALE_AUTHKEY":             {"tskey-auth-", "auth key"},
+// credentialPrefixes maps each prefixed Tailscale credential to the tskey- prefix it must have.
+var credentialPrefixes = map[string]string{
+	"TAILSCALE_OAUTH_CLIENT_SECRET": "tskey-client-",
+	"TAILSCALE_API_KEY":             "tskey-api-",
+	"TAILSCALE_AUTHKEY":             "tskey-auth-",
 }
 
 // ValidCredential reports whether value has the documented shape for the named Tailscale
@@ -42,7 +42,7 @@ func ValidCredential(name, value string) error {
 		return fmt.Errorf("%s: must not contain whitespace", name)
 	}
 	if prefixed {
-		return wantPrefix(name, value, want.prefix, want.kind)
+		return wantPrefix(name, value, want)
 	}
 	return validClientID(name, value)
 }
@@ -69,7 +69,7 @@ func isAlnum(s string) bool {
 }
 
 // wantPrefix errors unless value has the given tskey- prefix, naming the kind it looks like instead.
-func wantPrefix(name, value, prefix, kind string) error {
+func wantPrefix(name, value, prefix string) error {
 	if strings.HasPrefix(value, prefix) {
 		return nil
 	}

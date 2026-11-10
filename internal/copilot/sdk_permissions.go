@@ -16,12 +16,9 @@ import (
 	"github.com/github/copilot-sdk/go/rpc"
 )
 
-// permissionHandler wraps baseHandler to record an approval in approved (non-nil; handlers run on SDK goroutines).
+// permissionHandler wraps baseHandler to record an approval in approved (handlers run on SDK goroutines).
 func permissionHandler(o SDKOptions, approved *atomic.Bool) copilot.PermissionHandlerFunc {
 	h := baseHandler(o)
-	if approved == nil {
-		return h
-	}
 	return func(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 		d, err := h(req, inv)
 		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok && err == nil {
@@ -48,27 +45,22 @@ func withPermissions(o SDKOptions, next copilot.PermissionHandlerFunc) copilot.P
 	}
 	return func(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 		if d, handled := ruleDecision(o, req, ruleCalls(req, o.WorkingDirectory)); handled {
-			return d.decision, d.err
+			return d, nil
 		}
 		return next(req, inv)
 	}
 }
 
-type ruleOutcome struct {
-	decision rpc.PermissionDecision
-	err      error
-}
-
 // ruleDecision rejects when o.Permissions denies any of calls; handled is false when next should decide.
-func ruleDecision(o SDKOptions, req copilot.PermissionRequest, calls []agent.Rule) (ruleOutcome, bool) {
+func ruleDecision(o SDKOptions, req copilot.PermissionRequest, calls []agent.Rule) (rpc.PermissionDecision, bool) {
 	for _, call := range calls {
 		if o.Permissions.Decide(call.Tool, call.Arg) != agent.Deny || planReadThrough(o.Permissions, req, call) {
 			continue
 		}
 		feedback := "Refused by permission rule for " + call.String() + ": report it instead."
-		return ruleOutcome{decision: &rpc.PermissionDecisionReject{Feedback: &feedback}}, true
+		return &rpc.PermissionDecisionReject{Feedback: &feedback}, true
 	}
-	return ruleOutcome{}, false
+	return nil, false
 }
 
 // ruleCalls are the Claude-style Tool(arg) names a request is judged as; none for kinds no rule names (memory).

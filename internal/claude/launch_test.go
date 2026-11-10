@@ -242,7 +242,7 @@ func TestClaudeAnthropicDefaultOmitsBaseURL(t *testing.T) {
 
 func TestClaudePassthrough(t *testing.T) {
 	hermetic(t, "")
-	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "max"}, []string{"--resume"})
+	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "ultra"}, []string{"--resume"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestClaudePassthrough(t *testing.T) {
 		t.Error("interactive passthrough must withhold CLAUDE_CODE_OAUTH_TOKEN")
 	}
 	t.Setenv(oauthKey, "sk-ant-oat-test")
-	h, err := Claude(context.Background(), agent.LaunchOptions{Provider: "max"}, []string{"-p", "hi"})
+	h, err := Claude(context.Background(), agent.LaunchOptions{Provider: "ultra"}, []string{"-p", "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +377,7 @@ func TestClaudeShellEndpointDropsInheritedOAuth(t *testing.T) {
 	hermetic(t, "")
 	t.Setenv("ANTHROPIC_BASE_URL", "https://shell.example")
 	t.Setenv(oauthKey, "test-inherited-oauth")
-	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "max"}, []string{"-p", "hi"})
+	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "ultra"}, []string{"-p", "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +414,7 @@ func TestClaudeShellEndpointGetsNoProfileCredential(t *testing.T) {
 
 // TestAnthropicOAuthWithheldFromShellEndpoint: --oauth must not inject the vault token for a foreign shell base URL.
 func TestAnthropicOAuthWithheldFromShellEndpoint(t *testing.T) {
-	hermetic(t, `{"fallback": [], "providers": {"anthropic": {"max": {"protocol": "anthropic", "provider": "anthropic",
+	hermetic(t, `{"fallback": [], "providers": {"anthropic": {"ultra": {"protocol": "anthropic", "provider": "anthropic",
 		"base_url": "https://api.anthropic.com", "auth": {"type":"cli"}, "models": {"opus": "claude-opus-4-6"}}}}}`)
 	t.Setenv("ANTHROPIC_BASE_URL", "https://shell.example")
 	o, rest, err := ParseAnthropicArgs([]string{"--oauth", "-p", "hi"})
@@ -480,7 +480,7 @@ func overlayFile(p agent.Plan) agent.LaunchFile {
 	return p.Files[0]
 }
 
-// TestKeepShellEndpointSessionProxyBaseToFirstParty: from a Databricks session (/p/prod), a max launch drops the session's
+// TestKeepShellEndpointSessionProxyBaseToFirstParty: from a Databricks session (/p/prod), an ultra launch drops the session's
 // proxy base instead of keeping it and withholding its own credential.
 func TestKeepShellEndpointSessionProxyBaseToFirstParty(t *testing.T) {
 	t.Setenv("CLAUDE_PROFILE", "prod")

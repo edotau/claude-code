@@ -4,12 +4,12 @@ package remote
 import (
 	"cmp"
 	"encoding/base64"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // BinEnv names the remote claude-code binary when --remote-bin is absent; else "claude-code" on the remote PATH.
@@ -32,15 +32,6 @@ func HomePath(p string) string {
 		return filepath.Join("~", rel)
 	}
 	return p
-}
-
-// ValidHost refuses an ssh destination that ssh would parse as an option or that carries whitespace/control bytes.
-func ValidHost(host string) error {
-	bad := func(r rune) bool { return r <= ' ' || r == 0x7f }
-	if host == "" || strings.HasPrefix(host, "-") || strings.ContainsFunc(host, bad) {
-		return fmt.Errorf("invalid ssh host %q", host)
-	}
-	return nil
 }
 
 // encodeScript wraps script as `sh -c` with a base64 body, so sh, bash and fish parse it identically.
@@ -86,7 +77,7 @@ func reuseOpts() []string {
 
 // sshArgv runs script on host: keepalive, reuse, batch forbids prompts, tty allocates one, "--" ends ssh options.
 func sshArgv(host string, tty, batch bool, script string) ([]string, error) {
-	if err := ValidHost(host); err != nil {
+	if err := textutil.ValidHost(host); err != nil {
 		return nil, err
 	}
 	argv := append([]string{"ssh", "-o", "ServerAliveInterval=15"}, reuseOpts()...)

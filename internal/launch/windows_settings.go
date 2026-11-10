@@ -58,27 +58,18 @@ func windowsProfileDir() string {
 	return dir
 }
 
-// windowsSettingsFile is the Windows Claude Code settings.json under the profile, or "" when the
-// profile can't be resolved.
-func windowsSettingsFile() string {
-	dir := windowsProfileDir()
-	if dir == "" {
-		return ""
-	}
-	return filepath.Join(dir, ".claude", "settings.json")
-}
-
 // InstallWindowsSettings seeds a missing Windows settings.json with the Windows subset of the template render;
 // an existing one is never written. A no-op off WSL, or a one-line skip note when the profile can't be resolved.
 func InstallWindowsSettings(w io.Writer, dryRun bool) error {
 	if !proc.OnWSL() && os.Getenv(windowsProfileEnv) == "" {
 		return nil
 	}
-	file := windowsSettingsFile()
-	if file == "" {
+	dir := windowsProfileDir()
+	if dir == "" {
 		fmt.Fprintf(w, "settings (windows) skip  %s not resolved (cmd.exe unavailable?)\n", "%USERPROFILE%")
 		return nil
 	}
+	file := filepath.Join(dir, ".claude", "settings.json")
 	if _, err := os.Stat(file); err == nil || !errors.Is(err, fs.ErrNotExist) {
 		if err == nil {
 			fmt.Fprintln(w, "settings (windows) kept (yours)")

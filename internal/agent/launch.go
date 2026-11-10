@@ -89,6 +89,7 @@ func (s Schema) ApplyLaunch(env, argv []string, args bool) ([]string, []string) 
 	env = append(env, s.Eng().LaunchEnv()...)
 	vc, err := agentconfig.LoadConfig()
 	if err != nil {
+		fmt.Fprintf(NoticeOut, "claude-code: %s launch.env and launch.args unreadable: %v; not applied\n", s.Name, err)
 		return env, argv
 	}
 	launch := vc.Agent(s.Name).Launch

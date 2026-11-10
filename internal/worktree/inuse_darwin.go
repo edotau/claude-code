@@ -10,12 +10,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 func init() {
 	processesIn = scanIn
 	scanProcs = scanProcsDarwin
-	parentOf = parentOfDarwin
+	parentOf = func(pid int) (int, error) { return proc.Parent(pid), nil } // 0 ends ancestry
 	commName = commOfDarwin
 }
 
@@ -54,16 +56,6 @@ func scanProcsDarwin() ([]procCwd, error) {
 		}
 	}
 	return procs, scanner.Err()
-}
-
-func parentOfDarwin(pid int) (int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "ps", "-o", "ppid=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
-		return 0, err
-	}
-	return strconv.Atoi(strings.TrimSpace(string(out)))
 }
 
 func commOfDarwin(pid int) string {

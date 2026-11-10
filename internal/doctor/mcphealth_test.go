@@ -38,7 +38,7 @@ func fakeBin(t *testing.T, dir, name, script string) string {
 
 // TestCollectDefs: user, local, project, and settings scopes all land; duplicate project files dedupe.
 func TestCollectDefs(t *testing.T) {
-	dir, err := filepath.EvalSymlinks(t.TempDir()) // macOS: /var -> /private/var, and CollectDefs reports resolved paths
+	dir, err := filepath.EvalSymlinks(t.TempDir()) // macOS: /var -> /private/var, and collectDefs reports resolved paths
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestCollectDefs(t *testing.T) {
 	settings := filepath.Join(dir, "settings.json")
 	write(t, settings, `{"mcpServers": {"sentry": {"type": "http", "url": "https://sentry.example/mcp"}}}`)
 
-	defs := CollectDefs(userJSON, []string{proj, proj}, []string{settings})
+	defs, _ := collectDefs(userJSON, []string{proj, proj}, []string{settings})
 	if len(defs) != 4 {
 		t.Fatalf("defs = %d, want 4 (%+v)", len(defs), defs)
 	}
@@ -70,7 +70,7 @@ func TestCollectDefsSkipsUnreadableOrInvalid(t *testing.T) {
 	dir := t.TempDir()
 	bad := filepath.Join(dir, ".mcp.json")
 	write(t, bad, `{not json`)
-	defs := CollectDefs(filepath.Join(dir, "missing.json"), []string{bad, filepath.Join(dir, "absent.json")}, nil)
+	defs, _ := collectDefs(filepath.Join(dir, "missing.json"), []string{bad, filepath.Join(dir, "absent.json")}, nil)
 	if len(defs) != 0 {
 		t.Fatalf("defs = %+v, want none", defs)
 	}
@@ -109,7 +109,7 @@ func TestDoctorConflictSeesSecretArgDifference(t *testing.T) {
 		{"github", "user", serverDef{Command: "gh-mcp", Args: []string{"--token", "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}},
 		{"github", "project:/x/.mcp.json", serverDef{Command: "gh-mcp", Args: []string{"--token", "ghp_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}},
 	}
-	conflicts := doctorConflicts(defs, "/home/u")
+	conflicts := findConflicts(defs, "/home/u")
 	if len(conflicts) != 1 || !conflicts[0].Real {
 		t.Fatalf("secret-only difference not flagged real: %+v", conflicts)
 	}

@@ -46,7 +46,10 @@ var AgyStopGrace = 3 * time.Second
 // agy exits on its own. The caller never has to return to a menu with agy's own TUI still on screen.
 func AgySignIn() (ok bool, msg string) {
 	defer proc.Preserve()()
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false, fmt.Sprintf("agy: %v", err)
+	}
 	marker := gemini.AgyLoginMarker(home)
 	before, _ := os.ReadFile(marker)
 	beforeInfo, _ := os.Stat(marker)
@@ -128,26 +131,16 @@ func waitAgy(done <-chan struct{}, pids []int) bool {
 	}
 }
 
-func signalDescendants(pids []int, sig syscall.Signal) {
+func signalAliveDescendants(pids []int, sig syscall.Signal) {
 	self := os.Getpid()
 	for _, pid := range pids {
-		if pid <= 1 || pid == self {
+		if pid <= 1 || pid == self || !proc.Alive(pid) {
 			continue
 		}
 		if p, err := os.FindProcess(pid); err == nil {
 			_ = p.Signal(sig)
 		}
 	}
-}
-
-func signalAliveDescendants(pids []int, sig syscall.Signal) {
-	var alive []int
-	for _, pid := range pids {
-		if proc.Alive(pid) {
-			alive = append(alive, pid)
-		}
-	}
-	signalDescendants(alive, sig)
 }
 
 // ghAccountRE pulls the account name out of `gh auth status`'s "Logged in to github.com account <name>" line.

@@ -57,6 +57,8 @@ func TestReviewSimplicityEdit(t *testing.T) {
 	}
 }
 
+// A dir whose name merely starts with ".." is inside the cwd, so the header stays cwd-relative.
+
 func TestReviewSimplicityIgnoresNonSource(t *testing.T) {
 	p := rsWrite(t, "notes.md", "# t\n\n// a\n// b\n")
 	if out := rsRun(t, "Edit", p, "", "// a\n// b\n"); out != "" {

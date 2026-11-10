@@ -28,8 +28,8 @@ var (
 	credCheckTimeout = 12 * time.Second
 )
 
-// OfferLogin offers a sign-in for each provider whose check says it needs one; failures warn.
-func OfferLogin(ctx context.Context, o agent.LaunchOptions, args []string, ps []*providers.Provider, plan *agent.Plan) {
+// offerLogin offers a sign-in for each provider whose check says it needs one; failures warn.
+func offerLogin(ctx context.Context, o agent.LaunchOptions, args []string, ps []*providers.Provider, plan *agent.Plan) {
 	if o.PrintEnv || launchplan.IsHeadless(args) || !canPrompt() {
 		return
 	}
@@ -137,8 +137,10 @@ func loginSkipped(p *providers.Provider, v providers.AuthVerdict) error {
 	return fmt.Errorf("login skipped; requests will fail until `claude-code configure provider --all %s` (%s)", p.Name, v)
 }
 
-// checkSignin runs the check, giving up after credCheckTimeout (ok=false); an abandoned one dies with the exec.
+// checkSignin runs the check, giving up after credCheckTimeout (ok=false); an abandoned one is cancelled on return.
 func checkSignin(ctx context.Context, s agent.Signin) (v providers.AuthVerdict, detail string, ok bool) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	type res struct {
 		v      providers.AuthVerdict
 		detail string

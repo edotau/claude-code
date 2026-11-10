@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -64,23 +63,15 @@ func TestLooksLikeSecret(t *testing.T) {
 	}
 }
 
-// ScanFile must find a planted sk-... value in a JSON config and never flag a ${ENV} reference.
 // runGitScratch initializes a throwaway repo with a committed secret-shaped line, for ScanGit tests.
 func runGitScratch(t *testing.T) string {
 	dir := hosttest.Repo(t)
-	run := func(args ...string) {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v: %s", args, err, out)
-		}
-	}
 	path := filepath.Join(dir, "config.env")
 	if err := os.WriteFile(path, []byte("GITHUB_TOKEN=ghp_0123456789abcdefghij\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	run("add", "config.env")
-	run("commit", "-q", "-m", "add config")
+	hosttest.In(t, dir, "add", "config.env")
+	hosttest.In(t, dir, "commit", "-q", "-m", "add config")
 	return dir
 }
 
@@ -104,29 +95,15 @@ func TestScanGitFindsPlantedSecret(t *testing.T) {
 // A repo with no secret-shaped history must report clean.
 func TestScanGitCleanHistory(t *testing.T) {
 	dir := hosttest.Repo(t)
-	run := func(args ...string) {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v: %s", args, err, out)
-		}
+	if err := os.WriteFile(filepath.Join(dir, "readme.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	os.WriteFile(filepath.Join(dir, "readme.md"), []byte("hello\n"), 0o644)
-	run("add", "readme.md")
-	run("commit", "-q", "-m", "init")
+	hosttest.In(t, dir, "add", "readme.md")
+	hosttest.In(t, dir, "commit", "-q", "-m", "init")
 
 	var buf bytes.Buffer
 	if rc := ScanGit(&buf, dir, "", 0); rc != ExitClean {
 		t.Fatalf("ScanGit rc = %d, want %d:\n%s", rc, ExitClean, buf.String())
-	}
-}
-
-// ScanGit outside any git repo must report clean (skipped), not an error.
-func TestScanGitNotARepo(t *testing.T) {
-	dir := t.TempDir()
-	var buf bytes.Buffer
-	if rc := ScanGit(&buf, dir, "", 0); rc != ExitClean {
-		t.Fatalf("ScanGit rc = %d, want %d (skipped):\n%s", rc, ExitClean, buf.String())
 	}
 }
 

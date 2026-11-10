@@ -14,8 +14,8 @@ const AgentRecordsKey = "agent-records"
 // agentRecordSchema is the vault layout that folded the <AGENT>_<FIELD> pins into records.
 const agentRecordSchema = 4
 
-// discoveryRecordSchema is the layout that renamed the "byok-models" overlay key and the "byok" model pin to "discovery".
-const discoveryRecordSchema = 6
+// ultraSchema is the layout that renamed the claude.ai subscription profile "max" to "ultra".
+const ultraSchema = 7
 
 // Pre-schema-6 literals of the router's curated model pool; the one migration below is their only reader.
 const (
@@ -185,6 +185,62 @@ func migrateByokToDiscovery(t *Tx) error {
 		}
 	}
 	return nil // the "byok" model pins are stored by migrateSlotsToAliases, whose AgentRecords read maps them
+}
+
+// migrateMaxToUltra renames the "max" profile in agent records and the providers overlay (default, fallback, row).
+func migrateMaxToUltra(t *Tx) error {
+	recs, err := t.AgentRecords()
+	if err != nil {
+		return err
+	}
+	for n, r := range recs {
+		r.Profile, r.Fallback = maxToUltra(r.Profile), maxToUltra(r.Fallback)
+		if alias, ok := strings.CutPrefix(r.Model, "max:"); ok {
+			r.Model = "ultra:" + alias
+		}
+		recs[n] = r
+	}
+	if err := t.PutAgentRecords(recs); err != nil {
+		return err
+	}
+	raw, ok := t.Get(Overlay, "providers")
+	if !ok || raw == "" {
+		return nil
+	}
+	var doc map[string]json.RawMessage
+	if json.Unmarshal([]byte(strings.ReplaceAll(raw, `"anthropic·max"`, `"anthropic·ultra"`)), &doc) != nil {
+		return nil // a malformed overlay is left for providers.Load to report
+	}
+	var def string
+	var fallback []string
+	var rows map[string]map[string]json.RawMessage
+	_ = json.Unmarshal(doc["default"], &def)
+	_ = json.Unmarshal(doc["fallback"], &fallback)
+	_ = json.Unmarshal(doc["providers"], &rows)
+	if def == "max" {
+		doc["default"], _ = json.Marshal("ultra")
+	}
+	if i := slices.Index(fallback, "max"); i >= 0 {
+		fallback[i] = "ultra"
+		doc["fallback"], _ = json.Marshal(fallback)
+	}
+	if row, ok := rows["anthropic"]["max"]; ok {
+		delete(rows["anthropic"], "max")
+		rows["anthropic"]["ultra"] = row
+		doc["providers"], _ = json.Marshal(rows)
+	}
+	b, err := json.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	return t.Put(Overlay, "providers", string(b))
+}
+
+func maxToUltra(p string) string {
+	if p == "max" {
+		return "ultra"
+	}
+	return p
 }
 
 // PoolOverlay is the stored discovery pool JSON, reading a pre-schema-6 "byok-models" entry until the migration moves it.

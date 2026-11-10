@@ -153,15 +153,11 @@ func checkOverlaySchema(raw []byte) error {
 	if json.Unmarshal(raw, &v) != nil {
 		return nil // Decode reports malformed JSON
 	}
-	return Overlay{Schema: v.Schema}.checkSchema()
-}
-
-func (o Overlay) checkSchema() error {
 	switch {
-	case o.Schema < 0:
-		return fmt.Errorf("schema %d is not valid", o.Schema)
-	case o.Schema > OverlaySchema:
-		return fmt.Errorf("schema %d is newer than this build", o.Schema)
+	case v.Schema < 0:
+		return fmt.Errorf("schema %d is not valid", v.Schema)
+	case v.Schema > OverlaySchema:
+		return fmt.Errorf("schema %d is newer than this build", v.Schema)
 	}
 	return nil
 }
@@ -227,9 +223,6 @@ func ResolveOverlay(o Overlay) (Resolved, error) {
 }
 
 func (o Overlay) validate(src overlaySrc) error {
-	if err := o.checkSchema(); err != nil {
-		return err
-	}
 	if len(o.Files) > 0 {
 		return errors.New("overlay files: not supported yet")
 	}

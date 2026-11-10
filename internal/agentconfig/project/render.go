@@ -22,11 +22,7 @@ func agentBody(agent Source) string {
 // renderGeminiAgent: ~/.gemini/agents/<name>.md — strict schema: name, description, and tools translated to
 // Gemini's built-in names (an unknown name fails validation, so unmapped tools are dropped); body = system prompt.
 func renderGeminiAgent(agent Source) string {
-	return renderToolAgent(agent, geminiTools(toolList(agent.frontmatter["tools"])))
-}
-
-// renderToolAgent renders name + description + optional tools frontmatter over the banner and shared body.
-func renderToolAgent(agent Source, tools []string) string {
+	tools := geminiTools(toolList(agent.frontmatter["tools"]))
 	fields := []orderedField{{"name", agent.Name()}, {"description", skillDescription(agent)}}
 	if len(tools) > 0 {
 		fields = append(fields, orderedField{"tools", tools})

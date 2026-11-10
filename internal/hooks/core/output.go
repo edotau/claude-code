@@ -24,11 +24,6 @@ type claudeStyle struct {
 	allowWithInput bool // an updatedInput on PreToolUse is an explicit allow
 }
 
-// OutputClaude is Claude Code's hookSpecificOutput document; "" when the result says nothing.
-func OutputClaude(event string, r Result) string {
-	return claudeDoc(event, r, claudeStyle{})
-}
-
 // claudeDoc renders the hookSpecificOutput document with one agent's deviations from Claude's shape.
 func claudeDoc(event string, r Result, style claudeStyle) string {
 	if r.Stdout != "" {
@@ -94,7 +89,7 @@ func marshalDoc(doc map[string]any) string {
 
 // Emit writes a merged Result and returns the exit code; a block with no JSON channel, or a failed stdout write, is exit 2.
 func Emit(name, event string, r Result, stdout, stderr io.Writer) int {
-	build := OutputClaude
+	build := func(event string, r Result) string { return claudeDoc(event, r, claudeStyle{}) }
 	switch name {
 	case AgentCodex:
 		build = OutputCodex
@@ -160,6 +155,14 @@ func ExitResult(code int, stderr string) Result {
 		return Result{Decision: Block, Reason: stderr}
 	}
 	return Result{Stderr: stderr, ExitCode: code}
+}
+
+// WithStderr returns r with err's text appended to its stderr; a nil err returns r unchanged.
+func WithStderr(r Result, err error) Result {
+	if err != nil {
+		r.Stderr = strings.TrimSpace(r.Stderr + "\n" + err.Error())
+	}
+	return r
 }
 
 // JoinContext joins the non-empty context blocks into one additionalContext text.

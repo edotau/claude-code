@@ -115,3 +115,7 @@ func TestAppendReportRejectsDecisionsLabel(t *testing.T) {
 		})
 	}
 }
+
+// A failed store commit rolls back both appends, so a retry never duplicates the report or its decisions.
+
+// not a repo: commitStore fails

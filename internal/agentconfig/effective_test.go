@@ -10,7 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// setup has Databricks rows dev (signed in) and dev2, and claude pinned to max.
+// setup has Databricks rows dev (signed in) and dev2, and claude pinned to ultra.
 func setup(t *testing.T) {
 	t.Helper()
 	vaulttest.Use(t)
@@ -18,7 +18,7 @@ func setup(t *testing.T) {
 		`"host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}},"dev2":{"preset":"databricks",`+
 		`"host":"https://dev2.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
-	vaulttest.SetRecord(t, "claude", "profile", "max")
+	vaulttest.SetRecord(t, "claude", "profile", "ultra")
 	t.Setenv(providers.EnvSessionProfile, "")
 }
 
@@ -145,9 +145,9 @@ func TestForRouted(t *testing.T) {
 	cases := []struct{ env, agent, profile, provider, want, err string }{
 		{"", "codex", "", "", "", ""},
 		{"dev", "codex", "session", "", "dev", ""},
-		{"", "codex", "session", "", "max", ""},
+		{"", "codex", "session", "", "ultra", ""},
 		{"", "codex", "dev", "databricks", "dev", ""},
-		{"", "codex", "max", "databricks", "", "not a databricks profile"},
+		{"", "codex", "ultra", "databricks", "", "not a databricks profile"},
 		{"", "codex", "session", "databricks", "dev", ""},
 		{"", "codex", "", "github", "", "no signed-in github profile serves codex"},
 		{"", "codex", "nosuch", "", "", "not in the registry"},
@@ -193,10 +193,10 @@ func TestForNonRoutedProviderWithoutCanServeRejectsNonDatabricks(t *testing.T) {
 // A --provider with no --profile picks the same profile routed and non-routed (one rule set), not the pin.
 func TestForProviderPickMatchesRouted(t *testing.T) {
 	setup(t)
-	pin(t, "codex", "max", "")
+	pin(t, "codex", "ultra", "")
 	t.Setenv(providers.EnvSessionProfile, "dev")
 	routed, err := For("codex", Launch{Provider: "databricks", Routed: true, CanServe: databricksOnly})
-	if err != nil || routed.Profile == "" || routed.Profile == "max" {
+	if err != nil || routed.Profile == "" || routed.Profile == "ultra" {
 		t.Fatalf("routed = %+v, %v; want a databricks pick", routed, err)
 	}
 	got, err := For("codex", Launch{Provider: "databricks"})

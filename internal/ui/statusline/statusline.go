@@ -337,7 +337,7 @@ func providerLabel(name string) string {
 			if p.Name == p.Provider {
 				return p.Provider
 			}
-			return p.Provider + "·" + p.DisplayName(claudeTier())
+			return p.Provider + "·" + p.Name
 		}
 	}
 	return name
@@ -563,7 +563,7 @@ func totalSegment(in Input) string {
 		return ""
 	}
 	out := sigTokens(n)
-	if _, dispatches := runningCounts(in); dispatches > 0 {
+	if dispatches := runningDispatches(in); dispatches > 0 {
 		out += "+"
 	}
 	return out
@@ -585,18 +585,4 @@ func sigTokens(n int) string {
 		return fmt.Sprintf("%.1f%s", f, unit)
 	}
 	return fmt.Sprintf("%.2f%s", f, unit)
-}
-
-// tierTTL caps the ~/.claude.json parse at one per minute across renders.
-const tierTTL = time.Minute
-
-// claudeTier is the account's rate-limit tier from ~/.claude.json (user before org), cached for tierTTL.
-func claudeTier() string {
-	stamp := stampFile("tier", paths.ClaudeJSON())
-	if f := freshStamp(stamp, tierTTL, 1); f != nil {
-		return f[0]
-	}
-	tier := providers.ClaudeAccount().Tier()
-	writeTimedStamp(stamp, tier)
-	return tier
 }

@@ -107,6 +107,10 @@ func serveChild(ctx context.Context, cancel context.CancelCauseFunc, rec *Record
 		}
 		exited <- cmd.Wait()
 	}()
+	if err := rec.Save(); err != nil { // the pid is on disk before the first send can find the record
+		cancel(err) // kills the child; the waiter reaps it
+		return fmt.Errorf("live session %s: record not saved: %w", rec.ID, err)
+	}
 	// bound after Start: a socket on disk means a running child, so a failed start is never reported ready
 	ln, err := listenLive(rec.ID)
 	if err != nil {
@@ -118,7 +122,6 @@ func serveChild(ctx context.Context, cancel context.CancelCauseFunc, rec *Record
 	s := &liveSession{rec: rec, name: name, be: be, stdin: stdin, dec: bufio.NewReader(pump), events: events, idleFor: IdleOf(rec.Request),
 		cancel: cancel, profile: profile}
 	s.idle = time.AfterFunc(s.idleFor, func() { cancel(errLiveIdle) })
-	_ = rec.Save() // the pid is on disk before the first send can find the record
 	_ = events.Emit(wire.Event{Type: wire.EventStart, Agent: name, DispatchID: rec.ID, Status: "running"})
 
 	return s.awaitChild(ctx, ln, exited, stdin, tail)
@@ -182,20 +185,25 @@ var errLiveCap = fmt.Errorf("%d live sessions already running (max %d): agents c
 // LiveSocket is the unix socket path of live session id.
 func LiveSocket(id string) string { return filepath.Join(paths.DispatchDir(), id+wire.LiveSockSuffix) }
 
-// LiveCount counts live sessions still running, other than skip.
-func LiveCount(skip string) int {
+// liveCount counts live sessions still running.
+func liveCount() (int, error) {
+	recs, err := ReadRecent(1 << 20)
 	n := 0
-	for _, r := range RecentRecords(1 << 20) {
-		if r.Live && r.ID != skip && r.Alive() {
+	for _, r := range recs {
+		if r.Live && r.Alive() {
 			n++
 		}
 	}
-	return n
+	return n, err
 }
 
-// CheckLiveCap errors when starting another session (besides skip) would pass MaxLiveSessions.
-func CheckLiveCap(skip string) error {
-	if LiveCount(skip) >= MaxLiveSessions {
+// CheckLiveCap errors when starting another session would pass MaxLiveSessions.
+func CheckLiveCap() error {
+	n, err := liveCount()
+	if err != nil {
+		return err
+	}
+	if n >= MaxLiveSessions {
 		return errLiveCap
 	}
 	return nil
@@ -350,7 +358,7 @@ func WaitLiveReady(id string, pid int) error {
 			return nil
 		}
 		if rec, err := LoadRecord(id); err == nil && rec.Status != "running" {
-			return errors.New(rec.Error)
+			return fmt.Errorf("live holder exited before opening its socket: %s", cmp.Or(rec.Error, "status "+rec.Status))
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

@@ -38,7 +38,10 @@ func TestBuildBankRegionCapsAndPresentPointersOnly(t *testing.T) {
 	write(t, filepath.Join(dir, "decisionLog.md"), b.String())
 
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	region := buildBankRegion(dir, now)
+	region, err := buildBankRegion(dir, now)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if n := lineCount(region); n > BankRegionMaxLines {
 		t.Errorf("region has %d lines, want <= %d:\n%s", n, BankRegionMaxLines, region)
@@ -175,3 +178,7 @@ func TestBuildCatalogListsRepoRowsAndCapsGlobal(t *testing.T) {
 		t.Error("catalog missing the global overflow marker")
 	}
 }
+
+// An unreadable decisionLog.md fails the region rewrite instead of dropping its pointers silently.
+
+// An unreadable repo store fails the catalog instead of printing "last never" for a populated store.

@@ -416,16 +416,11 @@ func TestStoreValueCancelsStagedDelete(t *testing.T) {
 }
 
 func TestSourceLabel(t *testing.T) {
-	cases := map[string]string{"": "missing", "vault": "vault", "env": "env"}
-	for src, want := range cases {
-		if got := sourceLabel(src, ""); got != want {
-			t.Errorf("sourceLabel(%q, \"\") = %q, want %q", src, got, want)
-		}
+	cases := []struct{ src, shadowed, want string }{
+		{"", "", "missing"}, {"vault", "", "vault"}, {"env", "", "env"},
+		{"env", "vault", "env over vault"}, {"unreadable", "", "vault unreadable"},
 	}
-	shadowCases := []struct{ src, shadowed, want string }{
-		{"env", "vault", "env over vault"},
-	}
-	for _, c := range shadowCases {
+	for _, c := range cases {
 		if got := sourceLabel(c.src, c.shadowed); got != c.want {
 			t.Errorf("sourceLabel(%q, %q) = %q, want %q", c.src, c.shadowed, got, c.want)
 		}
@@ -682,13 +677,6 @@ func TestEditCustomEnvDeletingSecretVarDeletesSealedSecretAfterConfirm(t *testin
 				t.Error("vault env entry should have been removed either way")
 			}
 		})
-	}
-}
-
-// Given an unreadable vault, the source label says so instead of "missing".
-func TestSourceLabelUnreadableVault(t *testing.T) {
-	if got := sourceLabel("unreadable", ""); got != "vault unreadable" {
-		t.Errorf("sourceLabel = %q, want vault unreadable", got)
 	}
 }
 

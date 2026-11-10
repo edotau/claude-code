@@ -52,7 +52,10 @@ var (
 
 // Explore is `<agent> explore`: scan the code (and the web when web is set) for question and return a brief.
 func Explore(name, question string, web, background bool, format string) int {
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("%s explore: %v", name, err)
+	}
 	askArgs, err := roles.Args(name, cwd, question, web, background)
 	if err != nil {
 		return helptext.Fail("%s explore: %v", name, err)
@@ -66,7 +69,10 @@ func Explore(name, question string, web, background bool, format string) int {
 
 // Transfer is `<agent> transfer`: hand the source transcript (default: this repo's newest) to name with note.
 func Transfer(name, source, note string, wait bool) int {
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("%s transfer: %v", name, err)
+	}
 	src, err := transcript.ResolveSource(source, cwd)
 	if err != nil {
 		return helptext.Fail("%s transfer: %v", name, err)
@@ -99,17 +105,20 @@ func Catalog(name, profile, format string, models func(args []string) int) int {
 	if !ok || !s.External() {
 		return helptext.Fail("unknown agent %q", name)
 	}
+	var reg *providers.Registry
+	if name == "copilot" || s.CLI.ModelsProvider != "" {
+		var err error
+		if reg, err = providers.Load(); err != nil {
+			return helptext.Fail("%v", err)
+		}
+	}
 	if name == "copilot" {
-		if done, code := copilotSource(profile, format); done {
+		if done, code := copilotSource(reg, profile, format); done {
 			return code
 		}
 	}
 	switch {
 	case s.CLI.ModelsProvider != "":
-		reg, err := providers.Load()
-		if err != nil {
-			return helptext.Fail("%v", err)
-		}
 		n, err := s.ModelsProfile(reg)
 		if err != nil {
 			return helptext.Fail("%v", err)
@@ -123,11 +132,7 @@ func Catalog(name, profile, format string, models func(args []string) int) int {
 }
 
 // copilotSource prints a Databricks profile's catalog (done) or, in text, the GitHub model source line.
-func copilotSource(profile, format string) (bool, int) {
-	reg, err := providers.Load()
-	if err != nil {
-		return true, helptext.Fail("%v", err)
-	}
+func copilotSource(reg *providers.Registry, profile, format string) (bool, int) {
 	cat, err := copilot.CopilotModelSource(context.Background(), reg, profile)
 	if err == nil && cat.Databricks {
 		err = cat.Write(os.Stdout, format)

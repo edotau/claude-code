@@ -317,15 +317,20 @@ func pickCopilotModelFallback(d *dialog, cur string) {
 		d.printf("copilot: no model list available for %s\n", p.Name)
 		return
 	}
-	choice := make([][2]string, len(ids))
-	for i, id := range ids {
-		choice[i] = [2]string{id, map[bool]string{true: "current", false: ""}[id == cur]}
-	}
-	j, err := d.shell().Pick(modelTitle("copilot — model", "github", p.Name), choice)
+	j, err := d.shell().Pick(modelTitle("copilot — model", "github", p.Name), idRows(ids, cur))
 	if err != nil || j < 0 {
 		return
 	}
 	saveAgentModel(d, "copilot", ids[j])
+}
+
+// idRows is one picker row per model id, the one equal to cur marked "current".
+func idRows(ids []string, cur string) [][2]string {
+	rows := make([][2]string, len(ids))
+	for i, id := range ids {
+		rows[i] = [2]string{id, map[bool]string{true: "current", false: ""}[id == cur]}
+	}
+	return rows
 }
 
 // saveAgentModel stores an agent's model in its record (copilot's is independent of the github-copilot opus alias).
@@ -360,11 +365,7 @@ func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
 			return
 		}
 		cur := currentModel(d, p, claude, aliases[idx])
-		choice := make([][2]string, len(ids))
-		for i, id := range ids {
-			choice[i] = [2]string{id, map[bool]string{true: "current", false: ""}[id == cur]}
-		}
-		j, err := d.shell().Pick(modelTitle(name+" — "+aliases[idx]+" model alias", p.Provider, p.Name), choice)
+		j, err := d.shell().Pick(modelTitle(name+" — "+aliases[idx]+" model alias", p.Provider, p.Name), idRows(ids, cur))
 		if err != nil || j < 0 {
 			continue
 		}

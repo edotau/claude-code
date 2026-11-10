@@ -28,8 +28,8 @@ func TestRecordQuotas(t *testing.T) {
 		t.Fatalf("recorded %d accounts, want 2", n)
 	}
 	st := router.LoadState()
-	if e := st["anthropic·max"]; e.UsedPct != 92 || e.Window != "weekly" || e.Status(now) != router.StateLow {
-		t.Errorf("anthropic·max = %+v, want the weekly 92%% window, low", e)
+	if e := st["anthropic·ultra"]; e.UsedPct != 92 || e.Window != "weekly" || e.Status(now) != router.StateLow {
+		t.Errorf("anthropic·ultra = %+v, want the weekly 92%% window, low", e)
 	}
 	if e := st["github·work-user"]; e.Status(now) != router.StateExhausted || e.Until(now).Day() != 1 {
 		t.Errorf("copilot = %+v, want exhausted until the 1st", e)
@@ -83,7 +83,7 @@ func TestRecordQuotasSkipsCachedRows(t *testing.T) {
 	if n := recordQuotas(qs, time.Now()); n != 0 {
 		t.Fatalf("recorded %d accounts from a cached row, want 0", n)
 	}
-	if _, ok := router.LoadState()["anthropic·max"]; ok {
+	if _, ok := router.LoadState()["anthropic·ultra"]; ok {
 		t.Error("cached row reached quota.json")
 	}
 }

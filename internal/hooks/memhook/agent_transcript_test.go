@@ -17,7 +17,7 @@ func TestLoadOpencodeExportRealBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	// write + edit on one file; the read and the patch parts are not edits
-	if got.Edits != 2 || got.FinalText != "DONE" || !strings.HasPrefix(got.ID, "ses_") {
+	if got.Edits != 2 || got.FinalText != "DONE" {
 		t.Fatalf("got %+v", got)
 	}
 	if len(got.EditedPaths) != 1 || !strings.HasSuffix(got.EditedPaths[0], "/note.txt") {
@@ -32,15 +32,14 @@ func TestLoadOpencodeExportBadJSON(t *testing.T) {
 }
 
 func TestLoadCopilotEvents(t *testing.T) {
-	got := loadCopilotEvents("s1", []copilotEvent{
+	got := loadCopilotEvents([]copilotEvent{
 		{Type: "tool.execution_start", ToolName: "edit", Arguments: map[string]any{"path": "/a"}},
 		{Type: "tool.execution_start", ToolName: "view", Arguments: map[string]any{"path": "/b"}},
 		{Type: "tool.execution_start", ToolName: "create", Arguments: map[string]any{"path": "/a"}},
-		{Type: "tool.execution_start", ToolName: "edit", Arguments: map[string]any{"path": "/sub"}, AgentID: "x"},
 		{Type: "assistant.message", Content: "first"},
 		{Type: "assistant.message", Content: "last"},
 	})
-	want := agentTranscript{ID: "s1", Edits: 2, EditedPaths: []string{"/a"}, FinalText: "last"}
+	want := agentTranscript{Edits: 2, EditedPaths: []string{"/a"}, FinalText: "last"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v want %+v", got, want)
 	}
@@ -58,7 +57,7 @@ func TestLoadOpencodeExportFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := agentTranscript{ID: "ses_x", Edits: 2, EditedPaths: []string{"/a", "/z"}, FinalText: "bye"}
+	want := agentTranscript{Edits: 2, EditedPaths: []string{"/a", "/z"}, FinalText: "bye"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v want %+v", got, want)
 	}

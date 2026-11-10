@@ -161,7 +161,7 @@ func TestParseError(t *testing.T) {
 func TestOneShotSuccess(t *testing.T) {
 	var out strings.Builder
 	got := ""
-	code := OneShot(context.Background(), "golang generics", 3, func(_ context.Context, q string, n int) (string, error) {
+	code := oneShot(context.Background(), "golang generics", 3, func(_ context.Context, q string, n int) (string, error) {
 		got = q
 		if n != 3 {
 			t.Errorf("max_results = %d, want 3", n)
@@ -182,7 +182,7 @@ func TestOneShotSuccess(t *testing.T) {
 func TestOneShotEmptyQuery(t *testing.T) {
 	var out strings.Builder
 	search := func(context.Context, string, int) (string, error) { return "x", nil }
-	code := OneShot(context.Background(), "   ", 5, search, &out)
+	code := oneShot(context.Background(), "   ", 5, search, &out)
 	if code != 2 {
 		t.Errorf("empty query exit = %d, want 2", code)
 	}
@@ -193,7 +193,7 @@ func TestOneShotEmptyQuery(t *testing.T) {
 
 func TestOneShotDefaultsMaxResults(t *testing.T) {
 	var out strings.Builder
-	OneShot(context.Background(), "q", 0, func(_ context.Context, _ string, n int) (string, error) {
+	oneShot(context.Background(), "q", 0, func(_ context.Context, _ string, n int) (string, error) {
 		if n != 5 {
 			t.Errorf("default max_results = %d, want 5", n)
 		}
@@ -204,7 +204,7 @@ func TestOneShotDefaultsMaxResults(t *testing.T) {
 func TestOneShotSearcherError(t *testing.T) {
 	var out strings.Builder
 	search := func(context.Context, string, int) (string, error) { return "", errString("boom") }
-	code := OneShot(context.Background(), "q", 5, search, &out)
+	code := oneShot(context.Background(), "q", 5, search, &out)
 	if code != 1 {
 		t.Errorf("searcher error exit = %d, want 1", code)
 	}
@@ -237,7 +237,7 @@ func TestOneShotThreadsContextToSearcher(t *testing.T) {
 
 	var seen error
 	var out strings.Builder
-	if code := OneShot(ctx, "q", 5, func(c context.Context, _ string, _ int) (string, error) {
+	if code := oneShot(ctx, "q", 5, func(c context.Context, _ string, _ int) (string, error) {
 		seen = c.Err()
 		return "ok", nil
 	}, &out); code != 0 {
@@ -471,6 +471,8 @@ func TestFetchPageTextHonorsRobots(t *testing.T) {
 	}
 }
 
+// TestRobotsUnreadableFailsClosed: a 5xx robots.txt cannot be honoured, so the page is never requested.
+
 // TestFetchPageTextTruncatedBodyKeepsSnippet: a body cut off mid-read yields "" rather than a fragment.
 func TestFetchPageTextTruncatedBodyKeepsSnippet(t *testing.T) {
 	allowLoopbackFetch(t)
@@ -497,7 +499,7 @@ func TestRobotsAllowedSeveralUserAgentsShareGroup(t *testing.T) {
 	}))
 	defer srv.Close()
 	u, _ := url.Parse(srv.URL + "/page")
-	if robotsAllowed(context.Background(), u) {
+	if robotsAllowed(context.Background(), u, nil) {
 		t.Error("robotsAllowed = true, want false: Disallow / applies to the * group")
 	}
 }
@@ -614,6 +616,8 @@ func TestExtractPrintsPagesAndFailures(t *testing.T) {
 		}
 	}
 }
+
+// TestExtractKeepsPagesWhenRetryFails: an advanced-depth error keeps the basic pages and marks only the retried URL.
 
 func TestExtractRefusesInternalAddresses(t *testing.T) {
 	t.Setenv(keyName, "test-key")
@@ -838,10 +842,10 @@ func closedTestOutput(t *testing.T) *os.File {
 
 func TestOneShotRejectsOutputWriteFailure(t *testing.T) {
 	search := func(context.Context, string, int) (string, error) { return "the answer", nil }
-	if code := OneShot(context.Background(), "golang", 3, search, io.Discard); code != 0 {
+	if code := oneShot(context.Background(), "golang", 3, search, io.Discard); code != 0 {
 		t.Fatalf("successful search exit = %d, want 0", code)
 	}
-	if code := OneShot(context.Background(), "golang", 3, search, closedTestOutput(t)); code == 0 {
+	if code := oneShot(context.Background(), "golang", 3, search, closedTestOutput(t)); code == 0 {
 		t.Fatal("closed output writer must return a nonzero exit code")
 	}
 }

@@ -372,10 +372,7 @@ func (s *streamer) end(err error) error {
 
 // fail writes an Anthropic error event and returns cause wrapped.
 func (s *streamer) fail(status int, msg string, cause error) error {
-	body, _ := json.Marshal(
-		map[string]any{"type": "error", "error": map[string]string{"type": errorType(status), "message": msg}},
-	)
-	if err := s.event("error", json.RawMessage(body)); err != nil {
+	if err := s.event("error", json.RawMessage(errorBody(status, msg))); err != nil {
 		return err
 	}
 	return fmt.Errorf("translate: %s: %w", msg, cause)

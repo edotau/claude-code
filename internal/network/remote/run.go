@@ -52,7 +52,7 @@ func splitHost(args []string) (string, []string, error) {
 	} else if args[0] == "--host" {
 		host, rest = args[1], args[2:]
 	}
-	if err := ValidHost(host); err != nil {
+	if err := textutil.ValidHost(host); err != nil {
 		return "", nil, fmt.Errorf("--host: %w", err)
 	}
 	if len(rest) == 0 {

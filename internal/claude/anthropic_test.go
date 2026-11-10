@@ -27,7 +27,7 @@ func TestParseAnthropicBareFlagTakesNoValue(t *testing.T) {
 		if !slices.Equal(rest, []string{"-p", "hi"}) {
 			t.Errorf("%s swallowed a claude arg: rest %q", flag, rest)
 		}
-		want := map[string][2]string{"--oauth": {AuthOAuth, DefaultOAuthName}, "--x-api-key": {AuthAPIKey, DefaultAPIKeyName}}[flag]
+		want := map[string][2]string{"--oauth": {AuthOAuth, oauthKey}, "--x-api-key": {AuthAPIKey, defaultAPIKeyName}}[flag]
 		if o.Mode != want[0] || o.Name != want[1] {
 			t.Errorf("%s: mode %q name %q", flag, o.Mode, o.Name)
 		}
@@ -101,8 +101,8 @@ func TestAnthropicLoginPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := p.Set["CLAUDE_PROFILE"]; got != "max" {
-		t.Errorf("CLAUDE_PROFILE = %q, want max", got)
+	if got := p.Set["CLAUDE_PROFILE"]; got != "ultra" {
+		t.Errorf("CLAUDE_PROFILE = %q, want ultra", got)
 	}
 	if v, ok := p.Set[oauthKey]; ok && v != "" {
 		t.Errorf("login mode must not set %s", oauthKey)
@@ -133,12 +133,12 @@ func printed(p agent.Plan) string {
 // --oauth: the vault token rides CLAUDE_CODE_OAUTH_TOKEN, no apiKeyHelper, and Print masks it.
 func TestAnthropicOAuthLaunchPlan(t *testing.T) {
 	hermetic(t, "")
-	vaulttest.Secret(t, DefaultOAuthName, fakeToken)
-	if got := providers.StoredSecret(DefaultOAuthName); got != fakeToken {
+	vaulttest.Secret(t, oauthKey, fakeToken)
+	if got := providers.StoredSecret(oauthKey); got != fakeToken {
 		t.Fatalf("vault read %q", got)
 	}
 	p := planFor(t, fakeToken, "--oauth", "--print-env")
-	if p.Set[oauthKey] != fakeToken || p.Set[providers.EnvSessionProfile] != "max" {
+	if p.Set[oauthKey] != fakeToken || p.Set[providers.EnvSessionProfile] != "ultra" {
 		t.Errorf("set %v", p.Set)
 	}
 	if len(p.Files) != 0 || slices.Contains(p.Argv, "--settings") {

@@ -220,7 +220,7 @@ var RouteAliases = []string{models.Opus, models.Sonnet, models.Haiku}
 var routeWeightNames = []string{"price", "headroom"}
 
 // FirstPartyAccountKeys are each vendor's own CLI login on its own subscription (router's first-party ladder).
-var FirstPartyAccountKeys = []string{"anthropic·max", "openai·chatgpt", "google·antigravity", "opencode·go"}
+var FirstPartyAccountKeys = []string{"anthropic·ultra", "openai·chatgpt", "google·antigravity", "opencode·go"}
 
 // routeBillingKeys are the routing table's static account_key values; a "github·" prefix also passes (added at load).
 var routeBillingKeys = append(slices.Clone(FirstPartyAccountKeys), "github·copilot",

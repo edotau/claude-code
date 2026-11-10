@@ -135,7 +135,7 @@ func buildAgents(wire map[string]agentsDef) (map[string]*Schema, error) {
 	if wire == nil { // a top-level null decodes to a nil map without error
 		return nil, errors.New("--agents: top-level value must be a JSON object, not null")
 	}
-	names := rosterNames()
+	names := RosterNames()
 	agents := make(map[string]*Schema, len(wire))
 	for _, key := range slices.Sorted(maps.Keys(wire)) {
 		d := wire[key]
@@ -155,21 +155,12 @@ func buildAgents(wire map[string]agentsDef) (map[string]*Schema, error) {
 	return agents, nil
 }
 
-// rosterNames lists the roster agents' names in roster order.
-func rosterNames() []string {
-	var names []string
-	for _, s := range Roster() {
-		names = append(names, s.Name)
-	}
-	return names
-}
-
 // SelectAgent resolves an --agent value: a roster name, an agents key, vendor:name, or agents/<name>.md or a file.
 func SelectAgent(ref string, agents map[string]*Schema) (agent string, def *Schema, err error) {
 	if _, ok := LookupSchema(ref); ok {
 		return ref, nil, nil
 	}
-	names := rosterNames()
+	names := RosterNames()
 	if def, ok := agents[ref]; ok {
 		return cmp.Or(def.Agent, "claude"), def, nil
 	}

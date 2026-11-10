@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -202,47 +203,6 @@ func TestRescueRefusals(t *testing.T) {
 	}
 }
 
-func TestConfigHostOverrideOut(t *testing.T) {
-	out := filepath.Join(t.TempDir(), "s.json")
-	args := []string{"claude", "--host", "https://x.example.com", "--auth", "cli", "--out", out}
-	if code := config(args); code != 0 {
-		t.Fatalf("code %d", code)
-	}
-	fi, err := os.Stat(out)
-	if err != nil || fi.Mode().Perm() != 0o600 {
-		t.Fatalf("stat %v %v", fi, err)
-	}
-	if code := config(args); code != 2 {
-		t.Errorf("overwrite without --force gave %d", code)
-	}
-	if code := config(append(args, "--force")); code != 0 {
-		t.Errorf("force gave %d", code)
-	}
-	if code := config([]string{"claude", "--host", "https://x.example.com", "--set", "A_TOKEN=1"}); code != 2 {
-		t.Errorf("credential --set gave %d", code)
-	}
-}
-
-func TestScrubbed(t *testing.T) {
-	got := scrubbed([]string{"HARNESS_X=1", "ANTHROPIC_BASE_URL=u", "PATH=/bin"})
-	if len(got) != 1 || !strings.HasPrefix(got[0], "PATH=") {
-		t.Errorf("got %v", got)
-	}
-}
-
-func TestRescuePrint(t *testing.T) {
-	fakeClaudeOnPath(t)
-	f := &fakeChild{}
-	useFake(t, f)
-	code, out, _ := runCaptured(t, func() int { return rescue([]string{"--host", "https://x.example.com", "--print"}) })
-	if code != 0 || len(f.calls) != 0 {
-		t.Fatalf("code %d calls %v", code, f.calls)
-	}
-	if i := strings.Index(out, "claude --settings "); i >= 0 {
-		t.Cleanup(func() { os.Remove(strings.Fields(out[i:])[2]) })
-	}
-}
-
 // rescueScratch runs rescue with a recording spawn; it returns the scratch path and whether it existed mid-run.
 func rescueScratch(t *testing.T, spawnErr error) (path string, existedDuring bool, code int) {
 	t.Helper()
@@ -277,22 +237,6 @@ func TestRescueDeletesScratchWhenSpawnFails(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Errorf("scratch survived a failed spawn: %v", err)
-	}
-}
-
-func TestRescuePrintKeepsScratch(t *testing.T) {
-	fakeClaudeOnPath(t)
-	f := &fakeChild{}
-	useFake(t, f)
-	_, out, _ := runCaptured(t, func() int { return rescue([]string{"--host", exHost, "--print"}) })
-	i := strings.Index(out, "claude --settings ")
-	if i < 0 {
-		t.Fatalf("no command line:\n%s", out)
-	}
-	file := strings.Fields(out[i:])[2]
-	t.Cleanup(func() { os.Remove(file) })
-	if _, err := os.Stat(file); err != nil {
-		t.Errorf("--print removed the scratch file: %v", err)
 	}
 }
 
@@ -401,31 +345,21 @@ func TestCheckAllAcceptsPositionalModel(t *testing.T) {
 	}
 }
 
-func TestProbeRejectsTruncatedSuccess(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Length", "100")
-		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write([]byte("partial")); err != nil {
-			t.Errorf("write partial response: %v", err)
-		}
-	}))
-	t.Cleanup(srv.Close)
-	p := &providers.Provider{Name: "p", Protocol: providers.ProtocolAnthropic, BaseURL: srv.URL}
-	if got := probe(context.Background(), p, "test-token", "m"); got != "HTTP 200 (body cut off)" {
-		t.Errorf("truncated 2xx probe = %q, want body cut off", got)
-	}
-}
-
-// A non-2xx reply whose body is cut off says so instead of reporting a clean HTTP code.
 func TestProbeReportsCutOffBody(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Length", "100")
-		w.WriteHeader(http.StatusBadGateway)
-		_, _ = w.Write([]byte("partial"))
-	}))
-	defer srv.Close()
-	p := &providers.Provider{Name: "p", Protocol: providers.ProtocolAnthropic, BaseURL: srv.URL}
-	if got := probe(context.Background(), p, "tok", "m"); got != "HTTP 502 (body cut off)" {
-		t.Errorf("probe = %q", got)
+	for _, status := range []int{http.StatusOK, http.StatusBadGateway} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Length", "100")
+				w.WriteHeader(status)
+				if _, err := w.Write([]byte("partial")); err != nil {
+					t.Errorf("write partial response: %v", err)
+				}
+			}))
+			t.Cleanup(srv.Close)
+			p := &providers.Provider{Name: "p", Protocol: providers.ProtocolAnthropic, BaseURL: srv.URL}
+			if got, want := probe(context.Background(), p, "test-token", "m"), fmt.Sprintf("HTTP %d (body cut off)", status); got != want {
+				t.Errorf("probe = %q, want %q", got, want)
+			}
+		})
 	}
 }

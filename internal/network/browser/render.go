@@ -5,8 +5,8 @@ import (
 	"io"
 )
 
-// RenderText prints one line per known browser plus the system default; it returns the first write error.
-func RenderText(w io.Writer, r Report) error {
+// renderText prints one line per known browser plus the system default; it returns the first write error.
+func renderText(w io.Writer, r Report) error {
 	if _, err := fmt.Fprintf(w, "default: %s\n", orDash(r.Default)); err != nil {
 		return err
 	}

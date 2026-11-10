@@ -455,14 +455,14 @@ func TestLiveCapOfFour(t *testing.T) {
 		rec.Live, rec.PID = true, os.Getpid()
 		_ = rec.Save()
 	}
-	if err := CheckLiveCap(""); err == nil {
+	if err := CheckLiveCap(); err == nil {
 		t.Fatal("cap must refuse a fifth session")
 	}
 	dead := ClaimRecord("claude", agent.RunOptions{}, time.Now())
 	dead.Live, dead.Status = true, "ok"
 	_ = dead.Save()
-	if n := LiveCount(""); n != MaxLiveSessions {
-		t.Errorf("LiveCount = %d, want %d (finished sessions do not count)", n, MaxLiveSessions)
+	if n, err := liveCount(); err != nil || n != MaxLiveSessions {
+		t.Errorf("liveCount = %d, %v, want %d (finished sessions do not count)", n, err, MaxLiveSessions)
 	}
 }
 

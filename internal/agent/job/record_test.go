@@ -342,8 +342,15 @@ func TestPruneDispatchesMarginBoundaryKeepsOldestActiveRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := paths.DispatchDir()
+	list := func() []string {
+		names, err := recordNames(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return names
+	}
 	savePruneRecords(t, base.Add(time.Minute), dispatchKeep+dispatchPruneMargin-1)
-	before := recordNames(dir)
+	before := list()
 	if len(before) != dispatchKeep+dispatchPruneMargin {
 		t.Fatalf("at boundary: got %d records, want %d", len(before), dispatchKeep+dispatchPruneMargin)
 	}
@@ -351,11 +358,11 @@ func TestPruneDispatchesMarginBoundaryKeepsOldestActiveRecord(t *testing.T) {
 		t.Fatalf("oldest record = %q, want active %q", before[0], active.ID)
 	}
 	pruneDispatches(dir)
-	if after := recordNames(dir); strings.Join(after, "\n") != strings.Join(before, "\n") {
+	if after := list(); strings.Join(after, "\n") != strings.Join(before, "\n") {
 		t.Fatalf("pruning at boundary changed records: before %v, after %v", before, after)
 	}
 	savePruneRecords(t, base.Add(time.Duration(dispatchKeep+dispatchPruneMargin)*time.Minute), 1)
-	if after := recordNames(dir); len(after) != dispatchKeep {
+	if after := list(); len(after) != dispatchKeep {
 		t.Fatalf("above boundary: got %d records, want %d: %v", len(after), dispatchKeep, after)
 	}
 	got, err := LoadRecord(active.ID)

@@ -65,7 +65,7 @@ func TestHiddenClaudeVerbDispatchesButIsAbsentFromUsage(t *testing.T) {
 		t.Fatal("claude must be a registered hidden command")
 	}
 	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-		return Run([]string{"claude-code", "claude", "--profile", "max", "--print-env"})
+		return Run([]string{"claude-code", "claude", "--profile", "ultra", "--print-env"})
 	})
 	if code != 0 || stderr != "" {
 		t.Fatalf("claude --print-env exit = %d, stderr = %q", code, stderr)
@@ -118,6 +118,7 @@ func TestMenuRowsFit(t *testing.T) {
 // Every rendered usage line fits 80 columns (barring one unbreakable word) and continuations start at the description column.
 func TestUsageRowsWrapAtDescriptionColumn(t *testing.T) {
 	_, out, _ := hosttest.CaptureOutput(t, func() int { usage(os.Stdout); return 0 })
+	const menuWidth = 80
 	col := 2 + nameWidth
 	for line := range strings.SplitSeq(out, "\n") {
 		if utf8.RuneCountInString(line) > menuWidth && len(strings.Fields(line)) > 2 {
@@ -199,14 +200,13 @@ func TestHelpFormat(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	excluded := map[string]bool{}
 	hidden := []string{
 		"agents", "models", "review", "workflow", "hook",
 		"help-svg", "clip", "completion", "plan", "test",
 	}
 	var verbs []string
 	for _, c := range commands() {
-		if !c.hidden && !excluded[c.name] {
+		if !c.hidden {
 			verbs = append(verbs, c.name)
 		}
 	}
@@ -224,8 +224,7 @@ func TestTopLevelCommandRowsSingleWordSingleLine(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	for _, c := range commands() {
 		t.Run(c.name, func(t *testing.T) {
-			switch c.name {
-			case "claude", "wl-paste":
+			if c.sideEffectHelp {
 				t.Skip("external CLI launcher or wl-paste proxy: -h is forwarded, not a help page")
 			}
 			code, stdout, stderr := hosttest.CaptureOutput(t, func() int {

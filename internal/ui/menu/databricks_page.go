@@ -114,7 +114,7 @@ func databricksRow(d *dialog) homeRow {
 
 // runDatabricks is the configure section: the page on a terminal, else the token-free report.
 func runDatabricks(d *dialog) bool {
-	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
+	if d.interactive() {
 		runDatabricksPage(d)
 		return true
 	}
@@ -186,7 +186,11 @@ func dbxDo(d *dialog, env, what string, fn func(context.Context) error) {
 
 func dbxPaste(d *dialog, env string) {
 	v, err := dbxSecret("", "Personal access token: ", vault.Preview)
-	if err != nil || v == "" {
+	if err != nil {
+		d.printf("%s: paste PAT: %v\n", env, err)
+		return
+	}
+	if v == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), dbxNetTimeout)
@@ -209,10 +213,7 @@ func dbxMintNow(d *dialog, env string, copyIt bool) {
 		d.printf("%s: mint: %v\n", env, err)
 		return
 	}
-	exp := "no expiry reported"
-	if !res.Expiry.IsZero() {
-		exp = "expires in " + dbxDur(time.Until(res.Expiry))
-	}
+	exp := dbxExpiryText(res.Expiry)
 	if !copyIt {
 		d.printf("%s · %s · minted · %s\n", env, res.AuthType, exp)
 		return
@@ -256,10 +257,7 @@ func dbxSetUp(d *dialog, env string) {
 		d.printf("%s: set up stopped at token check: %v\n", env, err)
 		return
 	}
-	exp := "no expiry reported"
-	if !res.Expiry.IsZero() {
-		exp = "expires in " + dbxDur(time.Until(res.Expiry))
-	}
+	exp := dbxExpiryText(res.Expiry)
 	d.printf("%s · %s · token verified · %s\n", env, res.AuthType, exp)
 	configure.DiscoverAfterSignin()
 	cancelled, err := dbxApplyPins(d, env)
@@ -417,6 +415,9 @@ func dbxCheckPair(p *providers.Provider, spID, pair string) error {
 	return dbxCheckSP(ctx, providers.AuthHost(p), spID, pair)
 }
 
+// dbxNoteSPKept is the note when the save changed neither the SP nor the secret; saveDbxIdentity omits the SP then.
+const dbxNoteSPKept = "SP and secret kept"
+
 // dbxIdentityNote words what the save did with the stored secret; "" when it wrote a new one with nothing kept.
 func dbxIdentityNote(env, id, secret, storedSecret string) string {
 	switch {
@@ -425,7 +426,7 @@ func dbxIdentityNote(env, id, secret, storedSecret string) string {
 	case storedSecret != "" && id != "":
 		return "secret kept"
 	case storedSecret != "":
-		return "SP and secret kept"
+		return dbxNoteSPKept
 	}
 	return ""
 }
@@ -445,7 +446,7 @@ func saveDbxIdentity(d *dialog, env, mode, spID, secret, note string) {
 	}
 	d.changed = true
 	line := env + ": identity " + mode
-	if spID != "" && note != "" && note != "SP and secret kept" {
+	if spID != "" && note != "" && note != dbxNoteSPKept {
 		line += " · SP " + dbxShort(spID)
 	}
 	if note != "" {
@@ -456,7 +457,18 @@ func saveDbxIdentity(d *dialog, env, mode, spID, secret, note string) {
 
 // reload refreshes the registry after a login, PAT or apply changed it.
 func (d *dialog) reload() {
-	if reg, err := providers.Load(); err == nil {
-		d.reg = reg
+	reg, err := providers.Load()
+	if err != nil {
+		d.printf("registry reload failed, showing the previous state: %v\n", err)
+		return
 	}
+	d.reg = reg
+}
+
+// dbxExpiryText is the expiry phrase for a minted token's expiry.
+func dbxExpiryText(t time.Time) string {
+	if t.IsZero() {
+		return "no expiry reported"
+	}
+	return "expires in " + dbxDur(time.Until(t))
 }

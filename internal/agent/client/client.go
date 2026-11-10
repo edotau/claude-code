@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/job"
+	"github.com/edotau/claude-code/internal/textutil"
 
 	"github.com/edotau/claude-code/internal/agent"
 
@@ -54,7 +55,7 @@ func (c *Client) Prepare(ctx context.Context, o agent.RunOptions, claim *job.Rec
 	}
 	p := &Prepared{}
 	if o.Host != "" {
-		if err := remote.ValidHost(o.Host); err != nil {
+		if err := textutil.ValidHost(o.Host); err != nil {
 			return nil, err
 		}
 		r = NewRemoteEngine(o.Agent, o.Host, remote.Bin(o.RemoteBin), o.Fallback)
@@ -108,7 +109,7 @@ func (c *Client) resolve(o *agent.RunOptions) error {
 	if _, ok := agent.LookupSchema(o.Agent); ok && len(o.Agents) == 0 { // a plain roster agent, not a definition selector
 		return nil
 	}
-	name, err := selectAndOverlay(o.Agent, o.Agents, o)
+	name, err := SelectAndOverlay(o.Agent, o.Agents, o)
 	if err != nil {
 		return clientUsageError{err}
 	}
@@ -116,9 +117,9 @@ func (c *Client) resolve(o *agent.RunOptions) error {
 	return nil // an explicit persona (a --retry record) survives a plain roster name
 }
 
-// selectAndOverlay resolves ref to its agent and, when it names a definition, records the persona and
+// SelectAndOverlay resolves ref to its agent and, when it names a definition, records the persona and
 // fills the unset model, profile and effort under the options already in o.
-func selectAndOverlay(ref string, agents map[string]*agent.Schema, o *agent.RunOptions) (name string, err error) {
+func SelectAndOverlay(ref string, agents map[string]*agent.Schema, o *agent.RunOptions) (name string, err error) {
 	name, def, err := agent.SelectAgent(ref, agents)
 	if err != nil {
 		return "", err
@@ -213,11 +214,6 @@ func (c *Client) Run(ctx context.Context, o agent.RunOptions, out wire.Sink) (wi
 		c.Notify(fmt.Sprintf("dispatch %s record not saved before the run: %v", p.Record.ID, err))
 	}
 	return c.Exec(ctx, p, out, job.RunRecordedOpts{})
-}
-
-// SelectAndOverlay is selectAndOverlay for the batch runner.
-func SelectAndOverlay(ref string, agents map[string]*agent.Schema, o *agent.RunOptions) (string, error) {
-	return selectAndOverlay(ref, agents, o)
 }
 
 const streamBuffer = 1024

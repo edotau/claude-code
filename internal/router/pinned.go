@@ -17,7 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -43,7 +42,7 @@ func (t *RouteTable) gateProfile(
 ) ([]Candidate, bool) {
 	cell, ok := t.Cell(agent, alias)
 	if !ok {
-		res.Skipped = append(res.Skipped, Skip{agent, GateRow, "no " + alias + " row"})
+		skipNoRow(res, agent, alias)
 		return nil, false
 	}
 	var p *providers.Provider
@@ -61,7 +60,7 @@ func (t *RouteTable) gateProfile(
 	c := Cell{Model: pinnedModel(agent, alias, cell, p, o.modelPin(model), now), Effort: cmp.Or(effort, cell.Effort), Account: ProviderAccount(pin), Price: cell.Price}
 	noteNotReady(res, agent, pin, model, c.Model, p)
 	if err := configured(agent, c); err != nil {
-		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "not configured: " + textutil.FirstLine(strings.TrimSpace(err.Error()))})
+		skipNotConfigured(res, agent, err)
 		return nil, false
 	}
 	billing := cmp.Or(t.Billing[c.Account], DefaultBilling(p))
@@ -191,11 +190,7 @@ func pickPool(agent string, p *providers.Provider, pool []string, now time.Time)
 		if selected == "" {
 			return
 		}
-		e.Discovery = maps.Clone(e.Discovery)
-		if e.Discovery == nil {
-			e.Discovery = make(map[string]time.Time)
-		}
-		e.Discovery[selected] = now
+		e.Discovery = withTime(e.Discovery, selected, now)
 		s[account] = e
 	})
 	return model, err
@@ -215,6 +210,16 @@ func servedPool(p *providers.Provider, pool []string, now time.Time) []string {
 // discoverySkipTTL is how long a model that failed for an agent stays out of that agent's rotation.
 const discoverySkipTTL = 7 * 24 * time.Hour
 
+// withTime returns a copy of m with k set to t, so a shared cached map is never mutated.
+func withTime(m map[string]time.Time, k string, t time.Time) map[string]time.Time {
+	m = maps.Clone(m)
+	if m == nil {
+		m = make(map[string]time.Time)
+	}
+	m[k] = t
+	return m
+}
+
 func discoverySkipKey(agent, entry string) string { return agent + "|" + entry }
 
 func discoverySkipped(e Entry, agent, entry string, now time.Time) bool {
@@ -232,11 +237,7 @@ func SkipDiscovery(agent string, p *providers.Provider, wire string) string {
 			}
 			account := ProviderAccount(p.Name)
 			e := s[account]
-			e.DiscoverySkip = maps.Clone(e.DiscoverySkip)
-			if e.DiscoverySkip == nil {
-				e.DiscoverySkip = make(map[string]time.Time)
-			}
-			e.DiscoverySkip[discoverySkipKey(agent, entry)] = time.Now()
+			e.DiscoverySkip = withTime(e.DiscoverySkip, discoverySkipKey(agent, entry), time.Now())
 			s[account] = e
 			hit = entry
 			return

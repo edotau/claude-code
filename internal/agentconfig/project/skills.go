@@ -10,21 +10,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// linkSkills points <agentsSkills>/<name> at <skillsDir>/<dir> for every projected skill and counts the outcomes.
-func linkSkills(out io.Writer, skills []Source, skillsDir, agentsSkills string, dryRun bool) (res syncResult) {
-	mkdirUnlessDry(dryRun, agentsSkills)
-	for _, skill := range skills {
-		name := skill.Name()
-		if !paths.SafeName(name) {
-			fmt.Fprintf(os.Stderr, "  ERROR unsafe skill name %q (must be a plain path component)\n", name)
-			res.errored++
-			continue
-		}
-		res.record(ensureLink(out, filepath.Join(agentsSkills, name), filepath.Join(skillsDir, skill.dirName), skillsDir, dryRun))
-	}
-	return res
-}
-
 // ensureLink makes link → target: re-points a stale symlink under ownedRoot, keeps any other existing entry.
 func ensureLink(out io.Writer, link, target, ownedRoot string, dryRun bool) writeResult {
 	rel := paths.ShortHome(link)
@@ -33,11 +18,11 @@ func ensureLink(out io.Writer, link, target, ownedRoot string, dryRun bool) writ
 	case err == nil && info.Mode()&os.ModeSymlink != 0:
 		dest, _ := os.Readlink(link)
 		if dest == target {
-			fmt.Fprintf(out, "  OK    %s (linked)\n", rel)
+			status(out, "OK", rel, "linked")
 			return unchanged
 		}
 		if !under(dest, ownedRoot) {
-			fmt.Fprintf(out, "  KEEP  %s (hand-authored symlink)\n", rel)
+			status(out, "KEEP", rel, "hand-authored symlink")
 			return kept
 		}
 		if !dryRun {
@@ -47,18 +32,18 @@ func ensureLink(out io.Writer, link, target, ownedRoot string, dryRun bool) writ
 			}
 		}
 	case err == nil:
-		fmt.Fprintf(out, "  KEEP  %s (hand-authored skill; remove it to let the harness link its copy)\n", rel)
+		status(out, "KEEP", rel, "hand-authored skill; remove it to let the harness link its copy")
 		return kept
 	}
 	if dryRun {
-		fmt.Fprintf(out, "  DRY   %s -> %s\n", rel, paths.ShortHome(target))
+		linkStatus(out, "DRY", rel, paths.ShortHome(target))
 		return written
 	}
 	if serr := os.Symlink(target, link); serr != nil {
 		fmt.Fprintf(os.Stderr, "  ERROR %s: %v\n", rel, serr)
 		return failed
 	}
-	fmt.Fprintf(out, "  LINK  %s -> %s\n", rel, paths.ShortHome(target))
+	linkStatus(out, "LINK", rel, paths.ShortHome(target))
 	return written
 }
 
@@ -76,7 +61,7 @@ func pruneSkillLinks(out io.Writer, agentsSkills, skillsDir string, projected ma
 			return "", false
 		}
 		if under(dest, filepath.Join(skillsDir, syncedDir)) {
-			fmt.Fprintf(out, "  EXTRA %s (synced skills go to no agent; preserved)\n", paths.ShortHome(filepath.Join(agentsSkills, e.Name())))
+			status(out, "EXTRA", paths.ShortHome(filepath.Join(agentsSkills, e.Name())), "synced skills go to no agent; preserved")
 			return "", false
 		}
 		return "orphaned link -> " + paths.ShortHome(dest), true
