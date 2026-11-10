@@ -20,12 +20,9 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/providers/providerscmd"
-	"github.com/edotau/claude-code/internal/review/reviewcmd"
-	"github.com/edotau/claude-code/internal/scm/scmcmd"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/testtool"
 	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/ui/themecmd"
 	usagecmd "github.com/edotau/claude-code/internal/usage"
 	"github.com/edotau/claude-code/internal/vault/vaultcmd"
 	"github.com/edotau/claude-code/internal/worktree/worktreecmd"
@@ -74,7 +71,7 @@ func commands() []command {
 		{name: "test", group: groupSession, hidden: true, summary: "test tooling: mutate checks a test has teeth", run: testtool.Run, spec: testtool.Spec},
 		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: func(a []string) int { return memorycmd.Run(a, func(verb string) bool { return lookup(verb) != nil }) }, spec: memorycmd.Spec},
 		{name: "plan", group: groupSession, hidden: true, summary: "plan checklists: status (ticked/total, claims)", run: plans.Run, spec: plans.SpecNode},
-		{name: "scm", group: groupSession, summary: "PRs, checks, comments on GitHub or Bitbucket DC", run: scmcmd.Run, spec: scmcmd.Spec},
+		{name: "scm", group: groupSession, summary: "PRs, checks, comments on GitHub or Bitbucket DC", run: cmdScm, spec: scmSpec},
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only health checks (--audit: action log)", run: doctor.Run, spec: doctor.SpecNode},
 		{name: "gateway", group: groupDiagnostics, summary: "which agent + model a task routes to; the loopback proxy", run: gateway.Run, spec: gateway.Spec},
@@ -85,7 +82,7 @@ func commands() []command {
 		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: func(a []string) int {
 			return configurecmd.Run(a, func(name, format string) int { return providerscmd.ProviderList(name, format, describeVerbs) })
 		}, spec: configurecmd.Spec},
-		{name: "theme", group: groupSettings, summary: "palette, statusline, VS Code template, tool themes", run: themecmd.Run, spec: themecmd.Spec},
+		{name: "theme", group: groupSettings, summary: "palette, statusline, VS Code template, tool themes", run: cmdTheme, spec: themeSpec},
 	}, hiddenCommands()...)
 }
 
@@ -107,8 +104,8 @@ func hiddenCommands() []command {
 		{name: "agents", hidden: true, summary: "ask, dispatch, list, sync, tree, status: run and track agents", run: agentcmd.Run, spec: agentcmd.AgentsSpec},
 		{name: "preflight", hidden: true, summary: "pin check per agent; --live runs the post-install pong round", run: doctor.Preflight, spec: doctor.PreflightSpecNode},
 		{name: "models", hidden: true, summary: "model aliases; --pin alias=model, --live", run: providerscmd.Models, spec: providerscmd.ModelsSpec},
-		{name: "review", hidden: true, summary: "code-review detectors: quality|complexity|diff|pr|gate", run: reviewcmd.Review, spec: reviewcmd.ReviewSpec},
-		{name: "workflow", hidden: true, summary: "skeleton <pattern> | lint (model/effort pins, meta/throw)", run: reviewcmd.Workflow, spec: reviewcmd.WorkflowSpec},
+		{name: "review", hidden: true, summary: "code-review detectors: quality|complexity|diff|pr|gate", run: cmdReview, spec: reviewSpec},
+		{name: "workflow", hidden: true, summary: "skeleton <pattern> | lint (model/effort pins, meta/throw)", run: cmdWorkflow, spec: workflowSpec},
 		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: agentcmd.Hook, spec: agentcmd.HookSpec},
 		{name: "clip", hidden: true, summary: "save the Windows clipboard image as PNG; print its WSL path", run: clipboard.Clip, spec: clipboard.Spec},
 		{name: "clip-clear", hidden: true, summary: "clear the clipboard after a delay if it still holds a copied secret", run: clipboard.ClipClear},

@@ -1,5 +1,4 @@
-// Package scmcmd is the `scm` verb: PRs, checks and comments on GitHub or Bitbucket Data Center.
-package scmcmd
+package cli
 
 import (
 	"context"
@@ -67,8 +66,8 @@ func bitbucketURL() string {
 	return strings.TrimSpace(os.Getenv("BITBUCKET_URL"))
 }
 
-// Run is the `scm` verb.
-func Run(args []string) int {
+// cmdScm is the `scm` verb.
+func cmdScm(args []string) int {
 	if len(args) == 0 || helptext.WantsHelp(args[:1]) {
 		page.Fprint(os.Stderr)
 		return map[bool]int{true: 2, false: 0}[len(args) == 0]
@@ -225,8 +224,8 @@ func emit(asJSON bool, v any, err error, text func()) error {
 	return helptext.WriteJSON(os.Stdout, v)
 }
 
-// Spec is the `scm` completion spec.
-func Spec() *completion.Node {
+// scmSpec is the `scm` completion spec.
+func scmSpec() *completion.Node {
 	leaf := func(flags ...completion.Flag) *completion.Node {
 		return &completion.Node{Flags: append(flags, completion.FormatFlag())}
 	}

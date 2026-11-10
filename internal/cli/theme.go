@@ -1,4 +1,4 @@
-package themecmd
+package cli
 
 import (
 	"fmt"
@@ -33,8 +33,8 @@ var themePage = helptext.Page{
 	Hint: "claude-code theme <command> -h lists that command's flags.",
 }
 
-// Run sets the statusline palette by name, lists them with --palettes, or runs a subcommand; unknown name exits 2.
-func Run(args []string) int {
+// cmdTheme sets the statusline palette by name, lists them with --palettes, or runs a subcommand; unknown name exits 2.
+func cmdTheme(args []string) int {
 	if code, ok := themeSubcommand(args); ok {
 		return code
 	}
@@ -160,8 +160,8 @@ func themeApply(args []string) int {
 	return 0
 }
 
-// Spec is the completion node for the theme verb tree.
-func Spec() *completion.Node {
+// themeSpec is the completion node for the theme verb tree.
+func themeSpec() *completion.Node {
 	styles := func() []string { return []string{"gradient", "powerline", "capsule", "minimal", "dashboard"} }
 	return &completion.Node{Args: []func() []string{theme.GradientNames}, Flags: []completion.Flag{completion.BoolFlag("palettes"), completion.BoolFlag("reset")},
 		Sub: map[string]*completion.Node{

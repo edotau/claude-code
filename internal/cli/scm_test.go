@@ -1,4 +1,4 @@
-package scmcmd
+package cli
 
 import (
 	"context"

@@ -1,4 +1,4 @@
-package reviewcmd
+package cli
 
 import (
 	"io"
@@ -51,8 +51,8 @@ func wantsHelp(args []string) bool {
 	return len(args) > 0 && (args[0] == "-h" || args[0] == "-help" || args[0] == "--help")
 }
 
-// Review dispatches `review <tool>`.
-func Review(args []string) int {
+// cmdReview dispatches `review <tool>`.
+func cmdReview(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		reviewPage.Fprint(os.Stdout)
 		return 0
@@ -92,8 +92,8 @@ func workflowSubPage(sub string) helptext.Page {
 	}
 }
 
-// Workflow dispatches `workflow skeleton|lint`.
-func Workflow(args []string) int {
+// cmdWorkflow dispatches `workflow skeleton|lint`.
+func cmdWorkflow(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		workflowPage.Fprint(os.Stdout)
 		return 0
@@ -119,8 +119,8 @@ func workflowLint(args []string) int {
 	return planlint.RunWorkflowLint(args, os.Stdout, os.Stderr)
 }
 
-// ToolNames lists the review detectors, derived from reviewTools so a new one is completable for free.
-func ToolNames() []string {
+// reviewToolNames lists the review detectors, derived from reviewTools so a new one is completable for free.
+func reviewToolNames() []string {
 	out := make([]string, 0, len(reviewTools))
 	for n := range reviewTools {
 		out = append(out, n)
@@ -129,24 +129,24 @@ func ToolNames() []string {
 	return out
 }
 
-// ReviewSpec is the completion node for `review`: every detector, none with completable flags.
-func ReviewSpec() *completion.Node {
+// reviewSpec is the completion node for `review`: every detector, none with completable flags.
+func reviewSpec() *completion.Node {
 	sub := map[string]*completion.Node{}
-	for _, n := range ToolNames() {
+	for _, n := range reviewToolNames() {
 		sub[n] = &completion.Node{}
 	}
 	return &completion.Node{Sub: sub}
 }
 
-// WorkflowPatterns are the `workflow skeleton` pattern names.
-func WorkflowPatterns() []string {
+// workflowPatterns are the `workflow skeleton` pattern names.
+func workflowPatterns() []string {
 	return []string{"pipeline", "parallel", "evaluator", "orchestrator"}
 }
 
-// WorkflowSpec is the completion node for `workflow`.
-func WorkflowSpec() *completion.Node {
+// workflowSpec is the completion node for `workflow`.
+func workflowSpec() *completion.Node {
 	return &completion.Node{Sub: map[string]*completion.Node{
-		"skeleton": {Args: []func() []string{WorkflowPatterns}, Flags: []completion.Flag{{Name: "name"}}},
+		"skeleton": {Args: []func() []string{workflowPatterns}, Flags: []completion.Flag{{Name: "name"}}},
 		"lint":     {},
 	}}
 }

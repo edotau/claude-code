@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/describe"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/review/reviewcmd"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/theme"
@@ -132,8 +131,8 @@ func TestCompletionPositionals(t *testing.T) {
 	if got := completionCandidates([]string{"hook", ""}); !slices.Equal(got, settings.HookEvents()) {
 		t.Errorf("hook values = %v, want %v", got, settings.HookEvents())
 	}
-	if got := completionCandidates([]string{"workflow", "skeleton", ""}); !slices.Equal(got, reviewcmd.WorkflowPatterns()) {
-		t.Errorf("workflow skeleton values = %v, want %v", got, reviewcmd.WorkflowPatterns())
+	if got := completionCandidates([]string{"workflow", "skeleton", ""}); !slices.Equal(got, workflowPatterns()) {
+		t.Errorf("workflow skeleton values = %v, want %v", got, workflowPatterns())
 	}
 }
 
@@ -632,7 +631,7 @@ func checkReviewSubwordSpec(t *testing.T, tree map[string]*completion.Node) {
 		got = append(got, w)
 	}
 	slices.Sort(got)
-	want := reviewcmd.ToolNames()
+	want := reviewToolNames()
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Errorf("review subwords = %v, want %v (reviewToolNames)", got, want)
