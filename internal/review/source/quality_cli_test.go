@@ -3,14 +3,23 @@ package source
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
+// A traversal error inside an excluded directory (node_modules) is neither analyzed nor reported as a failure.
 func TestRunQualityIgnoresExcludedDirectoryTraversalError(t *testing.T) {
-	root := qualityRootWithUnreadableExcludedDirectory(t)
+	root := t.TempDir()
+	writeFx(t, root, "ok.py", "value = 1\n")
+	locked := filepath.Join(root, "node_modules")
+	if err := os.Mkdir(locked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	unreadableDir(t, locked)
 	var stdout, stderr bytes.Buffer
 	if code := RunQuality([]string{root, "--json"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", code, &stdout, &stderr)
@@ -24,26 +33,28 @@ func TestRunQualityIgnoresExcludedDirectoryTraversalError(t *testing.T) {
 	}
 }
 
-func qualityRootWithUnreadableExcludedDirectory(t *testing.T) string {
+// unreadableDir nests directories under parent past PATH_MAX (1024 darwin, 4096 linux), so ReadDir fails for any user.
+func unreadableDir(t *testing.T, parent string) string {
 	t.Helper()
-	root := t.TempDir()
-	writeFx(t, root, "ok.py", "value = 1\n")
-	locked := filepath.Join(root, "node_modules")
-	if err := os.Mkdir(locked, 0o755); err != nil {
+	r, err := os.OpenRoot(parent)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(locked, 0); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chmod(locked, 0o755); err != nil {
-			t.Error(err)
+	seg, path := strings.Repeat("d", 200), parent
+	for len(path) <= 4200 {
+		err := r.Mkdir(seg, 0o755)
+		next, oerr := r.OpenRoot(seg)
+		_ = r.Close()
+		if err = errors.Join(err, oerr); err != nil {
+			t.Fatal(err)
 		}
-	})
-	if _, err := os.ReadDir(locked); err == nil {
-		t.Skip("requires a directory that the current user cannot read")
+		r, path = next, filepath.Join(path, seg)
 	}
-	return root
+	_ = r.Close()
+	if _, err := os.ReadDir(path); err == nil {
+		t.Fatalf("ReadDir of a %d-byte path succeeded; the fixture needs a path the OS rejects", len(path))
+	}
+	return path
 }
 
 func TestEmitQualityJSONReplacesWithoutTruncating(t *testing.T) {

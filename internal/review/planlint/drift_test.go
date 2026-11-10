@@ -37,7 +37,7 @@ func writeDriftRoot(t *testing.T, scripts []string, doc *string) string {
 
 // Saved-workflows doc vs workflows/*.js: each side must name the other, else the verb exits 1.
 func TestWorkflowLintDrift(t *testing.T) {
-	useNode(t)
+	noNode(t)
 	table := func(names ...string) string {
 		s := "| Workflow | Use |\n| --- | --- |\n"
 		var sSb18 strings.Builder

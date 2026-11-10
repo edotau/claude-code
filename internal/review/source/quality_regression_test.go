@@ -92,26 +92,6 @@ func TestWalkExtensionsTracksTraversalFailures(t *testing.T) {
 	}
 }
 
-func TestQualityPythonMultilineClassHeaderGodClass(t *testing.T) {
-	var src strings.Builder
-	src.WriteString("class Service(\n    Base,\n):\n")
-	for i := range 21 {
-		fmt.Fprintf(&src, "    def method%d(self):\n        pass\n", i)
-	}
-	src.WriteString("\ndef standalone():\n    pass\n")
-	report, err := QualityContent("service.py", src.String(), "python")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []Smell{{
-		Type: "god_class", Severity: "high", Location: "Service",
-		Message: "Class 'Service' has 21 methods (max: 20)",
-	}}
-	if !slices.Equal(report.Smells, want) {
-		t.Fatalf("smells = %+v, want %+v for a multiline class header", report.Smells, want)
-	}
-}
-
 func TestQualityTypeScriptNestedGenericDeclaration(t *testing.T) {
 	src := "function f<T extends Record<string, unknown>>(x: T) { return x; }"
 	report, err := QualityContent("fixture.ts", src, "typescript")
@@ -155,26 +135,31 @@ func TestQualityPythonNestedClassesOwnTheirMethods(t *testing.T) {
 	}
 }
 
-func TestQualityPythonHeaderIgnoresQuotedAndCommentParentheses(t *testing.T) {
-	for _, header := range []string{
-		`class Service(make_base(")")):`,
-		`class Service(make_base(')')):`,
-		`class Service(make_base("""(""")):`,
-		`class Service(make_base("\")")):`,
-		"class Service(\n    Base, # )\n):",
+// Header shape (multiline, quoted or commented parens, a dedented comment) never changes Service's 21-method count.
+func TestQualityPythonGodClassAcrossHeaderShapes(t *testing.T) {
+	const standalone = "\ndef standalone():\n    pass\n"
+	for _, tc := range []struct{ name, header, tail string }{
+		{"multiline header", "class Service(\n    Base,\n):", standalone},
+		{"double-quoted paren", `class Service(make_base(")")):`, ""},
+		{"single-quoted paren", `class Service(make_base(')')):`, ""},
+		{"triple-quoted paren", `class Service(make_base("""(""")):`, ""},
+		{"escaped quote before paren", `class Service(make_base("\")")):`, ""},
+		{"commented paren", "class Service(\n    Base, # )\n):", ""},
+		{"dedented comment", "class Service:\n\n# Section heading", standalone},
 	} {
-		t.Run(header, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			var src strings.Builder
-			src.WriteString(header + "\n")
+			src.WriteString(tc.header + "\n")
 			for i := range 21 {
 				fmt.Fprintf(&src, "    def method%d(self):\n        pass\n", i)
 			}
+			src.WriteString(tc.tail)
 			report, err := QualityContent("fixture.py", src.String(), "python")
 			if err != nil {
 				t.Fatal(err)
 			}
 			if len(report.ClassDetails) != 1 || report.ClassDetails[0].Methods != 21 {
-				t.Fatalf("classes = %+v, want Service with 21 methods", report.ClassDetails)
+				t.Fatalf("classes = %+v, want Service with exactly 21 methods", report.ClassDetails)
 			}
 			want := []Smell{{
 				Type: "god_class", Severity: "high", Location: "Service",
@@ -184,28 +169,5 @@ func TestQualityPythonHeaderIgnoresQuotedAndCommentParentheses(t *testing.T) {
 				t.Fatalf("smells = %+v, want %+v", report.Smells, want)
 			}
 		})
-	}
-}
-
-func TestQualityPythonDedentedCommentPreservesGodClass(t *testing.T) {
-	var src strings.Builder
-	src.WriteString("class Service:\n\n# Section heading\n")
-	for i := range 21 {
-		fmt.Fprintf(&src, "    def method%d(self):\n        pass\n", i)
-	}
-	src.WriteString("\ndef standalone():\n    pass\n")
-	report, err := QualityContent("service.py", src.String(), "python")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(report.ClassDetails) != 1 || report.ClassDetails[0].Methods != 21 {
-		t.Fatalf("classes = %+v, want Service with exactly 21 methods", report.ClassDetails)
-	}
-	want := []Smell{{
-		Type: "god_class", Severity: "high", Location: "Service",
-		Message: "Class 'Service' has 21 methods (max: 20)",
-	}}
-	if !slices.Equal(report.Smells, want) {
-		t.Fatalf("smells = %+v, want %+v after a dedented comment", report.Smells, want)
 	}
 }

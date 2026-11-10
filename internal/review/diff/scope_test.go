@@ -69,21 +69,6 @@ func TestRunScopeEndToEnd(t *testing.T) {
 	}
 }
 
-func TestScopeImportersWithSpaceInRepoPath(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "my repo")
-	writeScopeFile(t, dir, "go.mod", "module example.com/m\n")
-	writeScopeFile(t, dir, "a/a.go", "package a\n")
-	writeScopeFile(t, dir, "b/b.go", "package b\nimport _ \"example.com/m/a\"\n")
-	got, err := goImporters(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := map[string][]string{"a": {"b"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("importers = %v, want %v", got, want)
-	}
-}
-
 func TestScopeExplicitExcludedRoot(t *testing.T) {
 	for _, excluded := range []string{"vendor", "node_modules", ".venv", "testdata"} {
 		t.Run(excluded, func(t *testing.T) {
@@ -192,41 +177,48 @@ func TestRunScopeEdges(t *testing.T) {
 	})
 }
 
-func TestGoImportersCheckoutPathWithSpaces(t *testing.T) {
+// goImporters maps each package to its importers whether the root path has a space or is reached through a symlink.
+func TestGoImportersRootPaths(t *testing.T) {
 	t.Setenv("GOWORK", "off")
-	root := filepath.Join(t.TempDir(), "my repo")
-	writeScopeFile(t, root, "go.mod", "module example.com/m\n")
-	writeScopeFile(t, root, "internal/a/a.go", "package a\n")
-	writeScopeFile(t, root, "internal/b/b.go", "package b\nimport _ \"example.com/m/internal/a\"\n")
-
-	got, err := goImporters(root)
-	if err != nil {
-		t.Fatal(err)
+	module := func(root, pkgDir string) {
+		writeScopeFile(t, root, "go.mod", "module example.com/m\n")
+		writeScopeFile(t, root, pkgDir+"a/a.go", "package a\n")
+		writeScopeFile(t, root, pkgDir+"b/b.go", "package b\nimport _ \"example.com/m/"+pkgDir+"a\"\n")
 	}
-	want := map[string][]string{"internal/a": {"internal/b"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("importers in checkout with spaces = %#v, want %#v", got, want)
-	}
-}
-
-func TestGoImportersSymlinkedRoot(t *testing.T) {
-	t.Setenv("GOWORK", "off")
-	real := filepath.Join(t.TempDir(), "real")
-	writeScopeFile(t, real, "go.mod", "module example.com/m\n")
-	writeScopeFile(t, real, "internal/a/a.go", "package a\n")
-	writeScopeFile(t, real, "internal/b/b.go", "package b\nimport _ \"example.com/m/internal/a\"\n")
-	link := filepath.Join(t.TempDir(), "link")
-	if err := os.Symlink(real, link); err != nil {
-		t.Skipf("symlink unavailable: %v", err)
-	}
-
-	got, err := goImporters(link)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := map[string][]string{"internal/a": {"internal/b"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("importers via symlinked root = %#v, want %#v", got, want)
+	for _, tc := range []struct {
+		name, pkgDir string
+		root         func(t *testing.T, pkgDir string) string
+	}{
+		{"space in path", "", func(t *testing.T, pkgDir string) string {
+			root := filepath.Join(t.TempDir(), "my repo")
+			module(root, pkgDir)
+			return root
+		}},
+		{"space in path, nested packages", "internal/", func(t *testing.T, pkgDir string) string {
+			root := filepath.Join(t.TempDir(), "my repo")
+			module(root, pkgDir)
+			return root
+		}},
+		{"symlinked root", "internal/", func(t *testing.T, pkgDir string) string {
+			real := filepath.Join(t.TempDir(), "real")
+			module(real, pkgDir)
+			link := filepath.Join(t.TempDir(), "link")
+			if err := os.Symlink(real, link); err != nil {
+				t.Fatal(err)
+			}
+			return link
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := goImporters(tc.root(t, tc.pkgDir))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := map[string][]string{tc.pkgDir + "a": {tc.pkgDir + "b"}}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("importers = %#v, want %#v", got, want)
+			}
+		})
 	}
 }
 

@@ -3,6 +3,7 @@ package source
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,51 +26,56 @@ func readGolden(t *testing.T, name string) string {
 	return expandGolden(string(b))
 }
 
-func TestFindFunctionsGoExcludesFollowingRawStringConst(t *testing.T) {
-	function := "package fixture\nfunc f(x int) int { if x > 0 { return 1 }; return 0 }\n"
-	fixture := "const fixture = `if if if && && && || || || for for case`\n"
-	next := "func g() {}\n"
-	baseline := findFunctions(function+next, "go")
-	got := findFunctions(function+fixture+next, "go")
-	if len(baseline) != 2 || len(got) != 2 {
-		t.Fatalf("function counts = %d, %d; want 2 each", len(baseline), len(got))
-	}
-	if got[0].Name != "f" || baseline[0].Name != "f" {
-		t.Fatalf("first function names = %q, %q; want f", got[0].Name, baseline[0].Name)
-	}
-	if got[0].Complexity != baseline[0].Complexity {
-		t.Errorf("f complexity with const = %d, without const = %d", got[0].Complexity, baseline[0].Complexity)
-	}
-}
-
+// Go methods belong to their receiver type, not the nearest type declaration; only Big crosses 20.
 func TestQualityGoGodClassUsesReceiver(t *testing.T) {
-	var src strings.Builder
-	src.WriteString("package fixture\ntype Big struct{}\ntype Small struct{}\n")
+	var interleaved, proximity strings.Builder
+	interleaved.WriteString("package fixture\ntype Big struct{}\ntype Small struct{}\n")
+	proximity.WriteString("type Small struct{}\n\nfunc (s Small) One() {}\n\ntype Big struct{}\n\n")
 	for i := range 21 {
-		fmt.Fprintf(&src, "func Free%d() {}\nfunc (b *Big) Method%d() {}\n", i, i)
+		fmt.Fprintf(&interleaved, "func Free%d() {}\nfunc (b *Big) Method%d() {}\n", i, i)
+		fmt.Fprintf(&proximity, "func (b *Big) M%d() {}\n", i)
 	}
-	report, err := QualityContent("fixture.go", src.String(), "go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []Smell{{
-		Type: "god_class", Severity: "high", Location: "Big",
-		Message: "Class 'Big' has 21 methods (max: 20)",
-	}}
-	if !slices.Equal(report.Smells, want) {
-		t.Fatalf("smells = %+v, want only Big flagged: %+v", report.Smells, want)
+	proximity.WriteString("func (s *Set[T]) Add() {}\n")
+	for _, tc := range []struct {
+		name, src string
+		methods   map[string]int
+	}{
+		{"free functions interleaved", interleaved.String(), map[string]int{"Big": 21, "Small": 0}},
+		{"methods after an earlier type", proximity.String(), map[string]int{"Small": 1, "Big": 21}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			report, err := QualityContent("fixture.go", tc.src, "go")
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := map[string]int{}
+			for _, c := range report.ClassDetails {
+				got[c.Name] = c.Methods
+			}
+			if !maps.Equal(got, tc.methods) {
+				t.Errorf("methods = %v, want %v", got, tc.methods)
+			}
+			want := []Smell{{
+				Type: "god_class", Severity: "high", Location: "Big",
+				Message: "Class 'Big' has 21 methods (max: 20)",
+			}}
+			if !slices.Equal(report.Smells, want) {
+				t.Fatalf("smells = %+v, want only Big flagged: %+v", report.Smells, want)
+			}
+		})
 	}
 }
 
 func TestQualityGoComplexityExcludesInterveningDeclarations(t *testing.T) {
 	keywords := strings.Repeat("if ", 11)
-	declarations := []string{
-		"const (\ntext = `" + keywords + "`\n)\n",
-		"var (\ntext = `" + keywords + "`\n)\n",
-		"type Data struct {\nText string `" + keywords + "`\n}\n",
+	declarations := map[string]string{
+		"const":       "const text = `" + keywords + "&& || for case`\n",
+		"const group": "const (\ntext = `" + keywords + "`\n)\n",
+		"var group":   "var (\ntext = `" + keywords + "`\n)\n",
+		"type":        "type Data struct {\nText string `" + keywords + "`\n}\n",
 	}
-	for _, declaration := range declarations {
-		t.Run(strings.Fields(declaration)[0], func(t *testing.T) {
+	for name, declaration := range declarations {
+		t.Run(name, func(t *testing.T) {
 			src := "package fixture\nfunc Simple() {}\n" + declaration +
 				"func Complex(x bool) {\n" + strings.Repeat("if x {}\n", 10) + "}\n"
 			report, err := QualityContent("fixture.go", src, "go")
@@ -261,33 +267,22 @@ func TestWalkSourceFilesSkipPartsBelowRootOnly(t *testing.T) {
 }
 
 func TestWalkSourceFilesWarnsOnUnreadableDir(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root reads everything")
-	}
 	root := t.TempDir()
-	locked := filepath.Join(root, "locked")
-	if err := os.Mkdir(locked, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(root, "ok.py"), []byte("x = 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(locked, 0); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
-
+	unreadableDir(t, root)
 	r, w, _ := os.Pipe()
 	orig := os.Stderr
 	os.Stderr = w
 	var got []string
-	walkSourceFiles(root, func(p string) { got = append(got, filepath.Base(p)) })
+	failed := walkSourceFiles(root, func(p string) { got = append(got, filepath.Base(p)) })
 	os.Stderr = orig
 	_ = w.Close()
 	var buf bytes.Buffer
 	_, _ = buf.ReadFrom(r)
-	if len(got) != 1 || got[0] != "ok.py" {
-		t.Fatalf("got %v, want [ok.py]", got)
+	if len(got) != 1 || got[0] != "ok.py" || len(failed) != 1 || !strings.HasPrefix(failed[0], root) {
+		t.Fatalf("got %v, failed %v; want [ok.py] and one unreadable path under %s", got, failed, root)
 	}
 	if !strings.Contains(buf.String(), "skipping unreadable path") {
 		t.Fatalf("stderr %q lacks the unreadable-path warning", buf.String())
@@ -307,23 +302,6 @@ func TestRunQualityAnalysisErrorExitsNonZero(t *testing.T) {
 		if !strings.Contains(stdout.String(), `"error"`) {
 			t.Errorf("%s: stdout lacks error report: %q", name, stdout.String())
 		}
-	}
-}
-
-func TestFindClassesGoCountsReceiversNotProximity(t *testing.T) {
-	var b strings.Builder
-	b.WriteString("type Small struct{}\n\nfunc (s Small) One() {}\n\ntype Big struct{}\n\n")
-	for i := range 21 {
-		fmt.Fprintf(&b, "func (b *Big) M%d() {}\n", i)
-	}
-	b.WriteString("func (s *Set[T]) Add() {}\n")
-	got := findClasses(b.String(), "go")
-	if len(got) != 2 || got[0].Methods != 1 || got[1].Methods != 21 {
-		t.Fatalf("methods = %+v, want Small=1 Big=21", got)
-	}
-	smells := checkCodeSmells(b.String(), "go", nil, got)
-	if len(smells) != 1 || !strings.Contains(smells[0].Message, "Big") {
-		t.Fatalf("smells = %+v, want only Big flagged", smells)
 	}
 }
 

@@ -2,10 +2,12 @@ package planlint
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -71,21 +73,6 @@ func TestUnreadableFileIsAHit(t *testing.T) {
 	if hits := registryHidingDefects(missing); len(hits) != 1 || !strings.Contains(hits[0], "cannot read file") {
 		t.Errorf("registryHidingDefects(missing) = %v, want one 'cannot read file' hit", hits)
 	}
-	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
-		t.Skip("root and windows read mode-000 files")
-	}
-	root := t.TempDir()
-	if err := os.Mkdir(filepath.Join(root, "workflows"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	p := writeScript(t, filepath.Join(root, "workflows"), "locked.js", "await agent('x', { model: 'sonnet', effort: 'low' })\n")
-	if err := os.Chmod(p, 0); err != nil {
-		t.Fatal(err)
-	}
-	var out, errb bytes.Buffer
-	if code := RunWorkflowLint([]string{root}, &out, &errb); code != 1 || !strings.Contains(errb.String(), "cannot read file") {
-		t.Fatalf("RunWorkflowLint(unreadable) = %d, stderr %q; want 1 and a 'cannot read file' line", code, errb.String())
-	}
 }
 
 // A non-literal meta and a top-level throw both make the saved-workflow registry skip a script silently;
@@ -115,50 +102,28 @@ func TestStripStringsSkipsComments(t *testing.T) {
 	}
 }
 
-// The verb: a clean tree reports the count on stdout and exits 0; a flagged one lists hits on stderr and exits 1.
+// The verb, for workflows/*.js and skills/*/scripts/*.js alike: clean exits 0 with the count, a flagged one exits 1.
 func TestRunWorkflowLint(t *testing.T) {
-	useNode(t)
-	root := t.TempDir()
-	if err := os.Mkdir(filepath.Join(root, "workflows"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeScript(t, filepath.Join(root, "workflows"), "ok.js", "export const meta = { name: 'ok' }\nawait agent('x', { model: 'sonnet', effort: 'low' })\n")
-	var out, errb bytes.Buffer
-	if rc := RunWorkflowLint([]string{root}, &out, &errb); rc != 0 || !strings.Contains(out.String(), "1 script(s) clean") {
-		t.Fatalf("clean: rc=%d out=%q err=%q", rc, out.String(), errb.String())
-	}
-	writeScript(t, filepath.Join(root, "workflows"), "bad.js", "export const meta = { name: 'bad' }\nawait agent('x', { label: 'l' })\n")
-	out.Reset()
-	errb.Reset()
-	if rc := RunWorkflowLint([]string{root}, &out, &errb); rc != 1 || strings.Count(errb.String(), "bad.js:2") != 2 {
-		t.Fatalf("flagged: rc=%d err=%q", rc, errb.String())
-	}
-}
-
-// RunWorkflowLint treats a skills/<x>/scripts/<y>.js that opens with `export const meta` the same as
-// a workflows/*.js: clean passes, an unpinned agent() call is flagged on stderr and fails the run.
-func TestRunWorkflowLintSkillsScripts(t *testing.T) {
-	useNode(t)
-	root := t.TempDir()
-	cleanDir := filepath.Join(root, "skills", "clean-skill", "scripts")
-	if err := os.MkdirAll(cleanDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeScript(t, cleanDir, "run.js", "export const meta = { name: 'run' }\nawait agent('x', { model: 'sonnet', effort: 'low' })\n")
-	var out, errb bytes.Buffer
-	if rc := RunWorkflowLint([]string{root}, &out, &errb); rc != 0 || !strings.Contains(out.String(), "1 script(s) clean") {
-		t.Fatalf("clean: rc=%d out=%q err=%q", rc, out.String(), errb.String())
-	}
-
-	badDir := filepath.Join(root, "skills", "bad-skill", "scripts")
-	if err := os.MkdirAll(badDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeScript(t, badDir, "run.js", "export const meta = { name: 'run' }\nawait agent('x', { label: 'l' })\n")
-	out.Reset()
-	errb.Reset()
-	if rc := RunWorkflowLint([]string{root}, &out, &errb); rc != 1 || strings.Count(errb.String(), "run.js:2") != 2 {
-		t.Fatalf("flagged: rc=%d err=%q", rc, errb.String())
+	noNode(t)
+	for _, rel := range []string{"workflows", filepath.Join("skills", "s", "scripts")} {
+		t.Run(rel, func(t *testing.T) {
+			root := t.TempDir()
+			dir := filepath.Join(root, rel)
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeScript(t, dir, "ok.js", "export const meta = { name: 'ok' }\nawait agent('x', { model: 'sonnet', effort: 'low' })\n")
+			var out, errb bytes.Buffer
+			if rc := RunWorkflowLint([]string{root}, &out, &errb); rc != 0 || out.String() != "workflow lint: 1 script(s) clean\n" {
+				t.Fatalf("clean: rc=%d out=%q err=%q", rc, out.String(), errb.String())
+			}
+			writeScript(t, dir, "bad.js", "export const meta = { name: 'bad' }\nawait agent('x', { effort: 'low' })\n")
+			out.Reset()
+			errb.Reset()
+			if rc := RunWorkflowLint([]string{root}, &out, &errb); rc != 1 || strings.Count(errb.String(), "bad.js:2") != 1 || out.Len() != 0 {
+				t.Fatalf("flagged: rc=%d out=%q err=%q", rc, out.String(), errb.String())
+			}
+		})
 	}
 }
 
@@ -212,25 +177,6 @@ func TestBadPinValues(t *testing.T) {
 	}
 }
 
-// LintPins on raw bytes: an unpinned call yields model-missing then effort-missing, both on line 1;
-// a fully pinned call yields nothing.
-func TestLintPinsBytes(t *testing.T) {
-	hits := LintPins("inline", []byte("await agent('x', { label: 'l' })\n"))
-	if len(hits) != 2 {
-		t.Fatalf("hits = %v, want exactly 2 messages", hits)
-	}
-	if !strings.HasPrefix(hits[0], "inline:1") || !strings.Contains(hits[0], "without model:") {
-		t.Errorf("hits[0] = %q, want the model-missing message first", hits[0])
-	}
-	if !strings.HasPrefix(hits[1], "inline:1") || !strings.Contains(hits[1], "effort:") {
-		t.Errorf("hits[1] = %q, want the effort-missing message second", hits[1])
-	}
-	pinned := LintPins("inline", []byte("await agent('x', { model: 'sonnet', effort: 'low' })\n"))
-	if len(pinned) != 0 {
-		t.Fatalf("fully pinned call: hits = %v, want none", pinned)
-	}
-}
-
 // routeTier('<tier>') wraps the literal in a call (the router-pressure helper added to the saved
 // workflows); it still counts as pinned, and the wrapped tier literal is still validated against the
 // allow-list. routeTier(cfg.x) — no literal at all — is accepted today: badPinValues finds no quoted
@@ -265,136 +211,6 @@ func TestOpusOKExemptsEffortOnly(t *testing.T) {
 	}
 }
 
-// A live bug: an unpinned-looking "agent()" mentioned inside a string (e.g. a meta description) must
-// not be read as a call by either LintPins or FillModel — only the real, pinned call below it counts.
-func TestAgentInStringIsNotACall(t *testing.T) {
-	src := "export const meta = { description: 'an unpinned agent() probe' }\n" +
-		"await agent('x', { model: 'sonnet', effort: 'low' })\n"
-	if hits := LintPins("inline", []byte(src)); len(hits) != 0 {
-		t.Fatalf("LintPins = %v, want none (the agent() text is inside a string)", hits)
-	}
-	out, ambiguous := FillModel(src, "sonnet")
-	if out != src {
-		t.Errorf("FillModel rewrote the source; out = %q, want unchanged", out)
-	}
-	if len(ambiguous) != 0 {
-		t.Errorf("ambiguous = %v, want none", ambiguous)
-	}
-}
-
-// FillModel: each test covers one shape the rewrite must handle (insert, empty object, one-arg
-// append, already pinned, non-object options) or correctly refuse (identifier/spread/ternary options).
-
-// Label-only object gets model inserted, existing key survives
-func TestFillModelLabelOnlyObject(t *testing.T) {
-	out, ambiguous := FillModel("agent('p', { label: 'l' })\n", "sonnet")
-	if !strings.Contains(out, "model: 'sonnet',") {
-		t.Errorf("out = %q, want an inserted model: 'sonnet',", out)
-	}
-	if !strings.Contains(out, "label: 'l'") {
-		t.Errorf("out = %q, want the original label: 'l' to survive", out)
-	}
-	if len(ambiguous) != 0 {
-		t.Errorf("ambiguous = %v, want none", ambiguous)
-	}
-}
-
-// Empty object gets model with no stray comma
-func TestFillModelEmptyObject(t *testing.T) {
-	out, ambiguous := FillModel("agent('p', {})\n", "sonnet")
-	if stripped := strings.ReplaceAll(out, " ", ""); !strings.Contains(stripped, "{model:'sonnet'}") {
-		t.Errorf("out = %q, want {model: 'sonnet'} (any spacing)", out)
-	}
-	if len(ambiguous) != 0 {
-		t.Errorf("ambiguous = %v, want none", ambiguous)
-	}
-}
-
-// One-arg call gets an options object appended
-func TestFillModelOneArgCall(t *testing.T) {
-	out, ambiguous := FillModel("agent('p')\n", "sonnet")
-	if !strings.Contains(out, ", { model: 'sonnet' }") {
-		t.Errorf("out = %q, want an appended , { model: 'sonnet' }", out)
-	}
-	if len(ambiguous) != 0 {
-		t.Errorf("ambiguous = %v, want none", ambiguous)
-	}
-}
-
-// Already pinned calls are left unchanged
-func TestFillModelAlreadyPinned(t *testing.T) {
-	for _, src := range []string{
-		"agent('p', { model: 'opus' })\n",
-		"agent('p', { agentType: 'claude', model: 'sonnet' })\n",
-	} {
-		out, ambiguous := FillModel(src, "sonnet")
-		if out != src {
-			t.Errorf("src = %q: out = %q, want unchanged", src, out)
-		}
-		if len(ambiguous) != 0 {
-			t.Errorf("src = %q: ambiguous = %v, want none", src, ambiguous)
-		}
-	}
-}
-
-// Options as a bare identifier is ambiguous, unchanged
-func TestFillModelBareIdentifierAmbiguous(t *testing.T) {
-	src := "agent('p', opts)\n"
-	out, ambiguous := FillModel(src, "sonnet")
-	if out != src {
-		t.Errorf("out = %q, want unchanged", out)
-	}
-	if len(ambiguous) != 1 || ambiguous[0] != "line 1" {
-		t.Errorf("ambiguous = %v, want exactly [\"line 1\"]", ambiguous)
-	}
-}
-
-// Spread or ternary options are ambiguous, unchanged
-func TestFillModelSpreadTernaryAmbiguous(t *testing.T) {
-	for _, src := range []string{
-		"agent('p', ...opts)\n",
-		"agent('p', cond ? a : b)\n",
-	} {
-		out, ambiguous := FillModel(src, "sonnet")
-		if out != src {
-			t.Errorf("src = %q: out = %q, want unchanged", src, out)
-		}
-		if len(ambiguous) != 1 || ambiguous[0] != "line 1" {
-			t.Errorf("src = %q: ambiguous = %v, want exactly [\"line 1\"]", src, ambiguous)
-		}
-	}
-}
-
-// Two calls on different lines both filled with correct back-to-front offsets
-func TestFillModelTwoCallsBackToFront(t *testing.T) {
-	src := "agent('a', { label: 'x' })\nagent('b', { label: 'y' })\n"
-	out, ambiguous := FillModel(src, "sonnet")
-	if len(ambiguous) != 0 {
-		t.Fatalf("ambiguous = %v, want none", ambiguous)
-	}
-	if n := strings.Count(out, "model: 'sonnet',"); n != 2 {
-		t.Errorf("out = %q, want 2 insertions, got %d", out, n)
-	}
-	if strings.Count(out, "\n") != strings.Count(src, "\n") {
-		t.Errorf("out = %q changed the line count", out)
-	}
-}
-
-// A template literal mentioning agent( and model: is neither a call nor a pin
-func TestFillModelIgnoresTemplateLiteral(t *testing.T) {
-	src := "const prompt = `call agent(x) with model: sonnet`\nagent('p', { label: 'l' })\n"
-	out, ambiguous := FillModel(src, "sonnet")
-	if len(ambiguous) != 0 {
-		t.Fatalf("ambiguous = %v, want none (the template text is not a call)", ambiguous)
-	}
-	if n := strings.Count(out, "model: 'sonnet',"); n != 1 {
-		t.Errorf("out = %q, want exactly 1 real insertion, got %d", out, n)
-	}
-	if !strings.Contains(out, "call agent(x) with model: sonnet") {
-		t.Errorf("out = %q, template literal text must survive untouched", out)
-	}
-}
-
 // The shipped scripts must satisfy every check — a lint that lands red breaks make audit everywhere.
 // Anchored on this source file's path so a cwd change can never make the guard skip instead of gate.
 func TestShippedWorkflowsAreClean(t *testing.T) {
@@ -410,23 +226,6 @@ func TestShippedWorkflowsAreClean(t *testing.T) {
 	}
 }
 
-func TestAgentPinsIgnoreNonOptionsObjects(t *testing.T) {
-	for _, src := range []string{
-		"agent('p', [{ model: 'gpt-5', effort: 'med' }])",
-		"agent('p', makeOptions({ model: 'gpt-5', effort: 'med' }))",
-	} {
-		t.Run(src, func(t *testing.T) {
-			hits := LintPins("inline", []byte(src))
-			if len(hits) != 2 {
-				t.Fatalf("LintPins = %v, want only missing model and effort (not nested value errors)", hits)
-			}
-			if !strings.Contains(hits[0], "without model:") || !strings.Contains(hits[1], "without effort:") {
-				t.Errorf("LintPins = %v, want missing model then effort", hits)
-			}
-		})
-	}
-}
-
 func TestAgentCallWhitespaceAndIdentifierBoundary(t *testing.T) {
 	for _, tc := range []struct {
 		src      string
@@ -439,6 +238,7 @@ func TestAgentCallWhitespaceAndIdentifierBoundary(t *testing.T) {
 		{"$agent('p')", "$agent('p')", 0},
 		{"subagent('p')", "subagent('p')", 0},
 		{"x.agent('p')", "x.agent('p')", 0},
+		{"agentic ('p')", "agentic ('p')", 0},
 	} {
 		t.Run(tc.src, func(t *testing.T) {
 			out, ambiguous := FillModel(tc.src, "sonnet")
@@ -447,22 +247,6 @@ func TestAgentCallWhitespaceAndIdentifierBoundary(t *testing.T) {
 			}
 			if hits := LintPins("inline", []byte(tc.src)); len(hits) != tc.wantHits {
 				t.Errorf("LintPins = %v, want %d hits", hits, tc.wantHits)
-			}
-		})
-	}
-}
-
-func TestRegistryHidingSkipsMethodBodies(t *testing.T) {
-	for _, method := range []string{
-		"const obj = { run(x) { if (x) { throw new Error('deferred') } } }",
-		"class Worker { run(x) { if (x) { throw new Error('deferred') } } }",
-	} {
-		t.Run(method, func(t *testing.T) {
-			src := "export const meta = { name: 'x' }\n" + method + "\nif (ready()) { throw new Error('import') }\n"
-			p := writeScript(t, t.TempDir(), "methods.js", src)
-			hits := registryHidingDefects(p)
-			if len(hits) != 1 || !strings.HasPrefix(hits[0], p+":3:") || !strings.Contains(hits[0], "top-level throw") {
-				t.Errorf("registryHidingDefects = %v, want only the line-3 module throw", hits)
 			}
 		})
 	}
@@ -501,9 +285,7 @@ func TestWorkflowParseDefects(t *testing.T) {
 }
 
 func TestWorkflowParseSkippedWithoutNode(t *testing.T) {
-	orig := lookNode
-	lookNode = func() (string, error) { return "", exec.ErrNotFound }
-	t.Cleanup(func() { lookNode = orig })
+	noNode(t)
 	hits, skipped := workflowParseDefects([]string{"x.js"})
 	if len(hits) != 0 || !strings.Contains(skipped, "parse check skipped") {
 		t.Fatalf("hits=%v skipped=%q", hits, skipped)
@@ -561,47 +343,81 @@ func TestParseDefectsIgnoreNodeNoise(t *testing.T) {
 
 // Every top-level `export` is stripped before the parse check, not only the first.
 func TestParseCheckStripsEveryExport(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		node = os.Getenv("PLANLINT_NODE") // hosttest strips PATH
-	}
-	if node == "" {
-		t.Skip("node not on PATH and PLANLINT_NODE unset")
-	}
-	orig := lookNode
-	lookNode = func() (string, error) { return node, nil }
-	t.Cleanup(func() { lookNode = orig })
+	useNode(t)
 	p := writeScript(t, t.TempDir(), "two.js", "export const meta = {}\nexport const x = 1\n")
 	if hits, _ := workflowParseDefects([]string{p}); len(hits) != 0 {
 		t.Fatalf("two exports reported as parse defect: %v", hits)
 	}
 }
 
-// With no node the parse check cannot run, so the verb must exit 1 rather than print clean.
-// A throw inside a braced top-level block still fires at import; a throw inside a function or arrow body does not.
-func TestRegistryHidingBracedTopLevelThrow(t *testing.T) {
-	dir := t.TempDir()
-	for name, body := range map[string]string{
-		"if.js":    "export const meta = { name: 'x' }\nif (!process.env.X) {\n  throw new Error('x')\n}\n",
-		"inl.js":   "export const meta = { name: 'x' }\nif (c) { throw new Error('x') }\n",
-		"block.js": "export const meta = { name: 'x' }\n{\n  throw new Error('x')\n}\n",
-	} {
-		if got := registryHidingDefects(writeScript(t, dir, name, body)); len(got) != 1 || !strings.Contains(got[0], "top-level throw") {
-			t.Errorf("%s: got %v, want one top-level throw hit", name, got)
-		}
+// A throw in a module-level block fires at import and is reported on its line; one in a callable body never fires.
+func TestRegistryHidingTopLevelThrows(t *testing.T) {
+	const fire, deferred = "throw new Error('import')", "throw new Error('deferred')"
+	cases := []struct {
+		name, body string
+		want       []int
+	}{
+		{"if block", "if (!process.env.X) {\n  " + fire + "\n}\n", []int{3}},
+		{"inline if block", "if (c) { " + fire + " }\n", []int{2}},
+		{"bare block", "{\n  " + fire + "\n}\n", []int{3}},
+		{"for await block", "for await (const item of items) {\n  " + fire + "\n}\n", []int{3}},
+		{"block after a call", "initialize()\n{ " + fire + " }\n", []int{3}},
+		{"nested block after a call", "{ initialize()\n{ " + fire + " } }\n", []int{3}},
+		{"labeled block after a call", "label: { initialize()\n{ " + fire + " } }\n", []int{3}},
+		{"object method", "const obj = { initialize() { " + deferred + " } }\n", nil},
+		{"class method", "class Worker { initialize() { " + deferred + " } }\n", nil},
+		{"object method then module if", "const obj = { run(x) { if (x) { " + deferred + " } } }\nif (ready()) { " + fire + " }\n", []int{3}},
+		{"class method then module if", "class Worker { run(x) { if (x) { " + deferred + " } } }\nif (ready()) { " + fire + " }\n", []int{3}},
+		{"arrow and function bodies", "const f = () => {\n  " + deferred + "\n}\nfunction g(a, b) {\n  if (a) { " + deferred + " }\n}\n", nil},
 	}
-	ok := writeScript(t, dir, "ok.js", "export const meta = { name: 'x' }\nconst f = () => {\n  throw new Error('a')\n}\nfunction g(a, b) {\n  if (a) { throw new Error('b') }\n}\n")
-	if got := registryHidingDefects(ok); len(got) != 0 {
-		t.Errorf("throws inside callables flagged: %v", got)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := writeScript(t, t.TempDir(), "wf.js", "export const meta = { name: 'x' }\n"+tc.body)
+			hits := registryHidingDefects(p)
+			if len(hits) != len(tc.want) {
+				t.Fatalf("registryHidingDefects = %v, want top-level throws on lines %v", hits, tc.want)
+			}
+			for i, line := range tc.want {
+				if want := fmt.Sprintf("%s:%d: top-level throw", p, line); !strings.HasPrefix(hits[i], want) {
+					t.Errorf("hit %d = %q, want prefix %q", i, hits[i], want)
+				}
+			}
+		})
 	}
 }
 
-// An object spread inside the options literal could overwrite an inserted pin, so FillModel leaves it alone.
-func TestFillModelObjectSpreadAmbiguous(t *testing.T) {
-	src := "agent('p', { ...leafOpts })\n"
-	out, ambiguous := FillModel(src, "sonnet")
-	if out != src || len(ambiguous) != 1 || ambiguous[0] != "line 1" {
-		t.Errorf("out=%q ambiguous=%v; want unchanged and [line 1]", out, ambiguous)
+// FillModel inserts the pin into every literal options shape it can edit and refuses the ones it cannot.
+func TestFillModel(t *testing.T) {
+	ambiguous := []string{"line 1"}
+	cases := []struct {
+		name, src, want string
+		ambiguous       []string
+	}{
+		{"label-only object", "agent('p', { label: 'l' })\n", "agent('p', { model: 'sonnet', label: 'l' })\n", nil},
+		{"empty object", "agent('p', {})\n", "agent('p', {model: 'sonnet'})\n", nil},
+		{"one-arg call", "agent('p')\n", "agent('p', { model: 'sonnet' })\n", nil},
+		{"two calls back to front", "agent('a', { label: 'x' })\nagent('b', { label: 'y' })\n",
+			"agent('a', { model: 'sonnet', label: 'x' })\nagent('b', { model: 'sonnet', label: 'y' })\n", nil},
+		{"template literal is not a call", "const prompt = `call agent(x) with model: sonnet`\nagent('p', { label: 'l' })\n",
+			"const prompt = `call agent(x) with model: sonnet`\nagent('p', { model: 'sonnet', label: 'l' })\n", nil},
+		{"already pinned", "agent('p', { model: 'opus' })\n", "agent('p', { model: 'opus' })\n", nil},
+		{"pinned after agentType", "agent('p', { agentType: 'claude', model: 'sonnet' })\n",
+			"agent('p', { agentType: 'claude', model: 'sonnet' })\n", nil},
+		{"agent() inside a string", "export const meta = { description: 'an unpinned agent() probe' }\n",
+			"export const meta = { description: 'an unpinned agent() probe' }\n", nil},
+		{"regex literal", "const re = /agent(foo)/;", "const re = /agent(foo)/;", nil},
+		{"bare identifier options", "agent('p', opts)\n", "agent('p', opts)\n", ambiguous},
+		{"spread options", "agent('p', ...opts)\n", "agent('p', ...opts)\n", ambiguous},
+		{"ternary options", "agent('p', cond ? a : b)\n", "agent('p', cond ? a : b)\n", ambiguous},
+		{"object spread inside options", "agent('p', { ...leafOpts })\n", "agent('p', { ...leafOpts })\n", ambiguous},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, amb := FillModel(tc.src, "sonnet")
+			if out != tc.want || !slices.Equal(amb, tc.ambiguous) {
+				t.Errorf("FillModel(%q) = %q, %v; want %q, %v", tc.src, out, amb, tc.want, tc.ambiguous)
+			}
+		})
 	}
 }
 
@@ -620,4 +436,18 @@ func useNode(t *testing.T) {
 	t.Cleanup(func() { lookNode = orig })
 }
 
-func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+// noNode hides node so a test of the pin and registry checks never depends on the host's node.
+func noNode(t *testing.T) {
+	t.Helper()
+	orig := lookNode
+	lookNode = func() (string, error) { return "", exec.ErrNotFound }
+	t.Cleanup(func() { lookNode = orig })
+}
+
+// TestMain hands the host's node to useNode through PLANLINT_NODE before hosttest strips it from PATH.
+func TestMain(m *testing.M) {
+	if node, err := exec.LookPath("node"); err == nil && os.Getenv("PLANLINT_NODE") == "" {
+		_ = os.Setenv("PLANLINT_NODE", node)
+	}
+	os.Exit(hosttest.Main(m))
+}

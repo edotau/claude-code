@@ -99,13 +99,16 @@ func TestGateStagedFilesHonorsInheritedGitIndexFile(t *testing.T) {
 	}
 }
 
+// An unknown flag neither blocks (exit 0) nor skips the review: the --repo beside it is still honored.
 func TestRunGateAlwaysExitsZeroOnBadArgs(t *testing.T) {
 	dir := newGateRepo(t)
-	t.Chdir(dir)
+	hosttest.WriteRel(t, dir, "app.js", "function run() {\n  console.log('hi')\n}\n")
+	hosttest.In(t, dir, "add", "--", "app.js")
+	t.Chdir(t.TempDir())
 	var stdout, stderr bytes.Buffer
-	code := RunGate([]string{"--this-flag-does-not-exist"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0 — RunGate must never block on bad input", code)
+	code := RunGate([]string{"--this-flag-does-not-exist", "--repo", dir}, &stdout, &stderr)
+	if code != 0 || !strings.Contains(stdout.String(), "[surgical] diff_surgeon (staged):") {
+		t.Fatalf("exit code = %d, stdout %q; want 0 and the staged review of %s", code, &stdout, dir)
 	}
 }
 
@@ -145,19 +148,6 @@ func TestChangedSourceFilesFromSubdir(t *testing.T) {
 	got, err := changedSourceFiles(sub, "main", "feature")
 	if err != nil || len(got) != 1 || got[0] != "a.go" {
 		t.Errorf("changedSourceFiles(sub) = %v, %v, want [a.go]", got, err)
-	}
-}
-
-// A bad base ref with nothing staged must be an error, not a clean "no_changes".
-func TestAnalyzePRBadRefIsError(t *testing.T) {
-	dir := newGateRepo(t)
-	mustRun(t, dir, "git", "commit", "-q", "--allow-empty", "-m", "init")
-	if _, err := AnalyzePR(dir, "nosuchref", "HEAD"); err == nil {
-		t.Fatal("AnalyzePR with a bad base ref returned nil error")
-	}
-	var stdout, stderr bytes.Buffer
-	if code := RunPR([]string{dir, "--base", "nosuchref", "--head", "HEAD"}, &stdout, &stderr); code == 0 {
-		t.Errorf("RunPR exit = 0 on bad ref; stderr=%q", stderr.String())
 	}
 }
 

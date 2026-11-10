@@ -84,34 +84,28 @@ func TestRunSkeletonWriteErrors(t *testing.T) {
 	}
 }
 
-// TestRunSkeletonBadPattern only checks exit code + key substance: argparse's usage-line wrapping
-// and quote style aren't a byte-for-byte contract here, unlike the analysis tools' report bodies.
-func TestRunSkeletonBadPattern(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := RunSkeleton([]string{"bogus"}, &stdout, &stderr)
-	if code != 2 {
-		t.Fatalf("exit code = %d, want 2 (matches argparse's error exit code)", code)
-	}
-	if !strings.Contains(stderr.String(), "invalid choice") || !strings.Contains(stderr.String(), "bogus") {
-		t.Errorf("stderr = %q, want it to mention the invalid choice", stderr.String())
-	}
-}
-
-func TestRunSkeletonNoPattern(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := RunSkeleton([]string{}, &stdout, &stderr)
-	if code != 2 {
-		t.Fatalf("exit code = %d, want 2", code)
-	}
-}
-
-func TestRunSkeletonBadFlag(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := RunSkeleton([]string{"pipeline", "--nope"}, &stdout, &stderr)
-	// workflow_skeleton.py's argparse rejects unknown flags; the port's positionals-catch-all
-	// currently swallows "--nope" as a bogus pattern instead — assert on whichever it does, not 0.
-	if code == 0 {
-		t.Fatalf("exit code = 0 for a bad flag, want nonzero (got stdout=%q)", stdout.String())
+// Each usage error exits 2 (argparse's code) with nothing on stdout and argparse's own error line last on stderr.
+func TestRunSkeletonUsageErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"no pattern", nil, "the following arguments are required: pattern"},
+		{"bad pattern", []string{"bogus"}, `argument pattern: invalid choice: "bogus"`},
+		{"unknown flag", []string{"pipeline", "--nope"}, "unrecognized arguments: --nope"},
+		{"name without value", []string{"pipeline", "--name"}, "argument --name: expected one argument"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := RunSkeleton(tc.args, &stdout, &stderr)
+			lines := strings.Split(strings.TrimSpace(stderr.String()), "\n")
+			last := lines[len(lines)-1]
+			if code != 2 || stdout.Len() != 0 || !strings.HasPrefix(last, "workflow_skeleton.py: error: "+tc.want) {
+				t.Fatalf("RunSkeleton(%q) = %d, stdout %q, last stderr line %q; want 2, empty, error %q",
+					tc.args, code, stdout.String(), last, tc.want)
+			}
+		})
 	}
 }
 
