@@ -19,3 +19,5 @@ not json
 		t.Fatalf("res = %+v, err = %v; want the decode error with answer and session kept", res, err)
 	}
 }
+
+// cached_input_tokens above input_tokens must not push the summed input usage negative.

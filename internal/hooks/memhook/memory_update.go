@@ -123,7 +123,7 @@ func updateIfNewLocked(in *core.Input, trigger string, now time.Time) (blocked b
 
 // stampedStop is the Stop gate for a session that already has a stamp: re-arm, release, or block up to the cap.
 func stampedStop(in *core.Input, st updateStamp, stamp string, now time.Time) (blocked bool, work int, failedOpen bool) {
-	if st.bg || st.state == "catchup" {
+	if st.state == "bg" || st.state == "catchup" {
 		if now.Sub(st.at) < updateRearmCooldown {
 			return false, 0, false // cheap gate before the whole-transcript count
 		}
@@ -173,7 +173,6 @@ func blockForUpdate(stderr io.Writer, work int) int {
 // updateStamp is "<RFC3339>|<bg|block count|catchup>|<edits covered>".
 type updateStamp struct {
 	at     time.Time
-	bg     bool
 	blocks int
 	edits  int
 	state  string // raw second field: "bg", "catchup", or a block count
@@ -196,7 +195,7 @@ func readStamp(path string) (updateStamp, bool) {
 	if err != nil {
 		return updateStamp{}, false
 	}
-	st := updateStamp{at: at, bg: parts[1] == "bg", state: parts[1]}
+	st := updateStamp{at: at, state: parts[1]}
 	// parts[1] is "bg", "catchup", or a block count: only the numeric form is a real block count, so a non-numeric state leaves st.blocks at its zero value instead of masquerading as one.
 	if n, err := strconv.Atoi(parts[1]); err == nil {
 		st.blocks = n
@@ -232,11 +231,7 @@ func readCountState(path string) (countState, bool) {
 		return countState{}, false
 	}
 	parts := strings.Split(strings.TrimSpace(string(b)), "|")
-	switch len(parts) {
-	case 2, 3:
-		// Pre-upgrade formats: offset sits past lines the old binary never weighted or turns never counted.
-		return countState{}, true
-	case 4:
+	if len(parts) == 4 {
 		return parseCountFields(parts)
 	}
 	return countState{}, false

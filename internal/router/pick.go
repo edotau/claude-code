@@ -141,7 +141,10 @@ func (t *RouteTable) pick(
 ) PickResult {
 	res := PickResult{Alias: alias, Want: want, Weights: t.Weights}
 	pins := o.Pins
-	reg, _ := providers.Load()
+	reg, err := providers.Load()
+	if err != nil {
+		res.Skipped = append(res.Skipped, Skip{"registry", GateRow, "provider registry did not load, profile pins unchecked: " + err.Error()})
+	}
 	pg := &pickGate{reg: reg, held: map[string]bool{}}
 	gate := func(agent string) ([]Candidate, bool) {
 		return t.gateCandidate(ctx, pg, alias, agent, pins, st, o, now, configured, &res)
@@ -155,7 +158,7 @@ func (t *RouteTable) pick(
 	for i, u := range units {
 		restG[i] = u.cs
 	}
-	flatFirst, flatRest, flatLast := flattenGroups(firstG), flattenGroups(restG), flattenGroups(lastG)
+	flatFirst, flatRest, flatLast := slices.Concat(firstG...), slices.Concat(restG...), slices.Concat(lastG...)
 	all := t.score(slices.Concat(flatFirst, flatRest, flatLast), st)
 	nf, nr := len(flatFirst), len(flatRest)
 	firstG = regroup(firstG, all[:nf])
@@ -166,11 +169,11 @@ func (t *RouteTable) pick(
 	// units sort whole (not their individual candidates), so a free winner keeps its paid backup adjacent.
 	lp.l.placeClaude(units)
 	sortUnits(units)
-	res.Candidates = flattenGroups(firstG)
+	res.Candidates = slices.Concat(firstG...)
 	for _, u := range units {
 		res.Candidates = append(res.Candidates, u.cs...)
 	}
-	res.Candidates = append(res.Candidates, flattenGroups(lastG)...)
+	res.Candidates = append(res.Candidates, slices.Concat(lastG...)...)
 	res.Candidates = dedupeCandidates(res.Candidates)
 	return res
 }
@@ -229,9 +232,14 @@ func dedupeCandidates(cs []Candidate) []Candidate {
 	})
 }
 
-// flattenGroups concatenates each gate's candidate group, in group order.
-func flattenGroups(groups [][]Candidate) []Candidate {
-	return slices.Concat(groups...)
+// skipNoRow records that agent has no row at alias.
+func skipNoRow(res *PickResult, agent, alias string) {
+	res.Skipped = append(res.Skipped, Skip{agent, GateRow, "no " + alias + " row"})
+}
+
+// skipNotConfigured records that agent failed its configured check with err.
+func skipNotConfigured(res *PickResult, agent string, err error) {
+	res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "not configured: " + textutil.FirstLine(strings.TrimSpace(err.Error()))})
 }
 
 // regroup reslices a flat, scored candidate list back into groups sized like the originals.
@@ -254,11 +262,11 @@ func (t *RouteTable) gateAgent(
 	}
 	c, ok := t.Cell(agent, alias)
 	if !ok {
-		res.Skipped = append(res.Skipped, Skip{agent, GateRow, "no " + alias + " row"})
+		skipNoRow(res, agent, alias)
 		return nil, false
 	}
 	if err := configured(agent, c); err != nil {
-		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "not configured: " + textutil.FirstLine(strings.TrimSpace(err.Error()))})
+		skipNotConfigured(res, agent, err)
 		return nil, false
 	}
 	billing := t.Billing[c.Account]
@@ -369,7 +377,7 @@ func (t *RouteTable) gateOpencodeSub(
 		res.Skipped = append(res.Skipped, Skip{name, GateRow, "unknown opencode ladder id"})
 		return opencodeSub{}, false
 	}
-	c, has := t.opencodeSubCell(id, alias)
+	c, has := t.OpencodeSub[id][alias]
 	if !has {
 		return opencodeSub{}, false // e.g. zen-free carries no "opus" row — that is how it stays out of opus, not an alias check
 	}
@@ -383,7 +391,7 @@ func (t *RouteTable) gateOpencodeSub(
 		return opencodeSub{}, false
 	}
 	if err := configured("opencode", c); err != nil {
-		res.Skipped = append(res.Skipped, Skip{name, GateAvailable, "not configured: " + textutil.FirstLine(strings.TrimSpace(err.Error()))})
+		skipNotConfigured(res, name, err)
 		return opencodeSub{}, false
 	}
 	cand, pass := t.gateAccount(ctx, name, c, billing, st, o, now, res)

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"time"
 	"unicode/utf8"
@@ -45,14 +46,7 @@ var Actions = []Action{ProviderSwitch, ModelPin, SecretSet, SecretDelete, HookBl
 	KeyRotate, KeyReveal, PlanSaved}
 
 func (a Action) Valid() bool {
-	switch a {
-	case ProviderSwitch, ModelPin, SecretSet, SecretDelete, HookBlocked, RouterFallback,
-		TailscaleKeyMint, TailscaleExitNode, TailscaleConnect, TailscaleSubnet, SetupAdopt, SetupNuke, SetupWorkspace, CopilotAuth,
-		KeyRotate, KeyReveal, PlanSaved:
-		return true
-	default:
-		return false
-	}
+	return slices.Contains(Actions, a)
 }
 
 type Event struct {

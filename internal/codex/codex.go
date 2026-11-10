@@ -567,12 +567,7 @@ func codexAuthJSON() (data []byte, keyringNote string) {
 	if b, ok := codexAuthFile(); ok {
 		return b, ""
 	}
-	if b, note := codexKeyringAuthJSON(); b != nil {
-		return b, ""
-	} else if note != "" {
-		return nil, note
-	}
-	return nil, ""
+	return codexKeyringAuthJSON()
 }
 
 // codexAuthFile is auth.json's body, re-read only when its path, mtime or size changes.

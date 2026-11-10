@@ -32,7 +32,7 @@ func fakeTailscaleOnPATH(t *testing.T, dnsName string) {
 }
 
 // runRemoteOut runs the remote section into a buffer with every tailscale admin credential cleared.
-func runRemoteOut(t *testing.T) (string, bool) {
+func runRemoteOut(t *testing.T) string {
 	t.Helper()
 	t.Setenv("TAILSCALE_OAUTH_CLIENT_ID", "")
 	t.Setenv("TAILSCALE_OAUTH_CLIENT_SECRET", "")
@@ -40,8 +40,8 @@ func runRemoteOut(t *testing.T) (string, bool) {
 	resetTailscaleStatus(t)
 	var out bytes.Buffer
 	d := &dialog{o: Options{}, out: &out}
-	ok := runRemote(d)
-	return out.String(), ok
+	runRemote(d)
+	return out.String()
 }
 
 // Tailscale connected: the remote section reports it running, by DNS name, and never fails.
@@ -49,10 +49,7 @@ func TestRunRemoteConnectedReportsStatus(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	fakeTailscaleOnPATH(t, "test-mac.tailxxxxx.ts.net.")
 
-	got, ok := runRemoteOut(t)
-	if !ok {
-		t.Fatal("runRemote = false, want true (read-only; never fails)")
-	}
+	got := runRemoteOut(t)
 	if !strings.Contains(got, "tailscale   running (test-mac.tailxxxxx.ts.net)") {
 		t.Errorf("output missing the running line:\n%s", got)
 	}
@@ -68,10 +65,7 @@ func TestRunRemoteNotConnectedNeverFails(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // no `tailscale` CLI at all
 	t.Cleanup(tailscale.StubMacAppCLI(""))
 
-	got, ok := runRemoteOut(t)
-	if !ok {
-		t.Fatal("runRemote = false, want true even when tailscale is absent")
-	}
+	got := runRemoteOut(t)
 	if !strings.Contains(got, "tailscale   not connected → claude-code network tailscale --connect") {
 		t.Errorf("output missing the not-connected line:\n%s", got)
 	}
@@ -94,9 +88,7 @@ func TestRunRemoteNotesConfiguredAdminCredential(t *testing.T) {
 
 	var out bytes.Buffer
 	d := &dialog{o: Options{}, out: &out}
-	if !runRemote(d) {
-		t.Fatal("runRemote = false, want true")
-	}
+	runRemote(d)
 	got := out.String()
 	if !strings.Contains(got, "admin api   credential present") {
 		t.Errorf("output should report the admin credential present:\n%s", got)

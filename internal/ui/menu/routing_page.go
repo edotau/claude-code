@@ -58,7 +58,7 @@ func runRouting(d *dialog) bool {
 		d.printf("routing: %v\n", err)
 		return false
 	}
-	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
+	if d.interactive() {
 		return runRoutingMenu(d, reg.Routing, overlay)
 	}
 	return reportRouting(d, reg.Routing, overlay)

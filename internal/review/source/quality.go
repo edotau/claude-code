@@ -215,11 +215,7 @@ func classBody(content string, m []int, pattern *regexp.Regexp, language string)
 	if language == "python" {
 		return pythonClassBody(content, m[2], m[3])
 	}
-	remaining := content[m[1]:]
-	if loc := pattern.FindStringIndex(remaining); loc != nil {
-		return remaining[:loc[0]]
-	}
-	return remaining
+	return functionBody(content, m[1], pattern)
 }
 
 // pythonClassBody returns the lines after the class header that are blank or indented deeper than it.
@@ -544,14 +540,11 @@ func round1(f float64) float64 {
 	return v
 }
 
-// Quality is the analysis behind RunQuality / analyze_file. language == "" autodetects from the extension.
-func Quality(path, language string) (QualityReport, error) {
-	lang := language
+// Quality is the analysis behind RunQuality / analyze_file; the language is detected from the extension.
+func Quality(path string) (QualityReport, error) {
+	lang := detectLanguage(path)
 	if lang == "" {
-		lang = detectLanguage(path)
-		if lang == "" {
-			return QualityReport{}, fmt.Errorf("unsupported file type: %s", filepath.Ext(path))
-		}
+		return QualityReport{}, fmt.Errorf("unsupported file type: %s", filepath.Ext(path))
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -697,7 +690,7 @@ func walkExtensions(dir string, extensions []string) (out []QualityReport, faile
 		matches := byExtension[ext]
 		sort.Strings(matches)
 		for _, m := range matches {
-			r, err := Quality(m, "")
+			r, err := Quality(m)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "warning: analysis failed: %v\n", err)
 				failed = append(failed, m)

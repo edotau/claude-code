@@ -92,9 +92,3 @@ func TestUnpinAllModelsMarksDialogChanged(t *testing.T) {
 		t.Fatal("unpin all must trigger config regeneration")
 	}
 }
-
-// discardWriter is an io.Writer that throws away everything written to it (dialog.out needs one when
-// a test never asserts on dialog output).
-type discardWriter struct{}
-
-func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }

@@ -1,6 +1,7 @@
 package job
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -95,7 +96,7 @@ func WaitLiveReady(id string, pid int) error {
 			return nil
 		}
 		if rec, err := LoadRecord(id); err == nil && rec.Status != "running" {
-			return errors.New(rec.Error)
+			return fmt.Errorf("live holder exited before opening its socket: %s", cmp.Or(rec.Error, "status "+rec.Status))
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

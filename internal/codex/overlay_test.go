@@ -277,9 +277,9 @@ func TestInsertTopLevelTOMLSkipsMultilineStrings(t *testing.T) {
 			got := agentconfig.InsertTopLevelTOML(in, section)
 
 			wantString := "note = " + c.quote + "\nsome text\n[looks like a table]\nmore text\n" + c.quote + "\n"
-			idxString := indexOf(got, wantString)
-			idxInserted := indexOf(got, "[inserted]")
-			idxRealTable := indexOf(got, "[real.table]")
+			idxString := strings.Index(got, wantString)
+			idxInserted := strings.Index(got, "[inserted]")
+			idxRealTable := strings.Index(got, "[real.table]")
 
 			if idxString == -1 {
 				t.Fatalf("multiline string content not byte-for-byte unchanged, got:\n%s", got)
@@ -302,9 +302,9 @@ func TestInsertTopLevelTOMLSkipsNestedArrays(t *testing.T) {
 	got := agentconfig.InsertTopLevelTOML(in, section)
 
 	wantArray := "matrix = [\n  [1, 2],\n  [3, 4],\n]\n"
-	idxArray := indexOf(got, wantArray)
-	idxInserted := indexOf(got, "[inserted]")
-	idxReal := indexOf(got, "[real]")
+	idxArray := strings.Index(got, wantArray)
+	idxInserted := strings.Index(got, "[inserted]")
+	idxReal := strings.Index(got, "[real]")
 
 	if idxArray == -1 {
 		t.Fatalf("array bytes not byte-for-byte unchanged, got:\n%s", got)
@@ -315,13 +315,4 @@ func TestInsertTopLevelTOMLSkipsNestedArrays(t *testing.T) {
 	if idxArray >= idxInserted || idxInserted >= idxReal {
 		t.Errorf("want order: array, then [inserted], then [real]; got:\n%s", got)
 	}
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }

@@ -48,14 +48,18 @@ func Store(name, value string) error {
 	return nil
 }
 
-// Delete removes name's vault record without resolving a key and audits it; an absent name is a no-op.
+// Delete removes name's vault record without resolving a key and audits it; an absent name is a silent no-op.
 func Delete(name string) error {
+	var existed bool
 	if err := Update(func(tx *Tx) error {
+		_, existed = tx.Get(Secrets, name)
 		return tx.Put(Secrets, name, "")
 	}); err != nil {
 		return err
 	}
-	audit.Log(audit.SecretDelete, name, "")
+	if existed {
+		audit.Log(audit.SecretDelete, name, "")
+	}
 	return nil
 }
 

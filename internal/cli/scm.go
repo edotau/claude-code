@@ -63,18 +63,25 @@ func bitbucketURL() string {
 	return strings.TrimSpace(os.Getenv("BITBUCKET_URL"))
 }
 
+// scmUsage prints the page to stderr: exit 2 when nothing was asked for, 0 for -h.
+func scmUsage(bare bool) int {
+	page.Fprint(os.Stderr)
+	if bare {
+		return 2
+	}
+	return 0
+}
+
 // cmdScm is the `scm` verb.
 func cmdScm(args []string) int {
 	if len(args) == 0 || helptext.WantsHelp(args[:1]) {
-		page.Fprint(os.Stderr)
-		return map[bool]int{true: 2, false: 0}[len(args) == 0]
+		return scmUsage(len(args) == 0)
 	}
 	verb, rest := args[0], args[1:]
 	switch verb {
 	case "pr":
 		if len(rest) == 0 || helptext.WantsHelp(rest[:1]) {
-			page.Fprint(os.Stderr)
-			return map[bool]int{true: 2, false: 0}[len(rest) == 0]
+			return scmUsage(len(rest) == 0)
 		}
 		return dispatch(rest[0], rest[1:])
 	case "checks", "comment":
@@ -205,6 +212,9 @@ func runVerb(ctx context.Context, h scm.Host, name string, pos []string, o *opts
 	body, err := readBody(*o.bodyFile)
 	if err != nil {
 		return err
+	}
+	if strings.TrimSpace(body) == "" {
+		return fmt.Errorf("--body-file %s is empty", *o.bodyFile)
 	}
 	return h.Comment(ctx, pos[0], body, *o.replyTo)
 }

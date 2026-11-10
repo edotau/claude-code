@@ -122,27 +122,31 @@ func Mode(in *core.Input) core.Result {
 func Busy(in *core.Input) core.Result {
 	ctx, cancel := core.HookContext("worktree-busy")
 	defer cancel()
-	busy := ""
+	busy, busyWarn := "", ""
 	if !worktreeModeOff() {
-		busy = busyLine(ctx, in)
+		var err error
+		busy, err = busyLine(ctx, in)
+		if err != nil {
+			busyWarn = fmt.Sprintf("worktree-busy: WARNING — %v", err)
+		}
 	}
 	notes, warn := noticeContext(ctx, in)
-	return core.Result{Context: core.JoinContext(busy, notes), Stderr: warn}
+	return core.Result{Context: core.JoinContext(busy, notes), Stderr: core.JoinContext(busyWarn, warn)}
 }
 
-// busyLine returns the busy line for the peers sharing in.CWD's checkout; "" on no peers, an error, or no change.
-func busyLine(ctx context.Context, in *core.Input) string {
+// busyLine returns the peer notice and any process-scan or dedupe-state error.
+func busyLine(ctx context.Context, in *core.Input) (string, error) {
 	cwd := in.CWD
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
 	top, branch, nested := CheckoutOf(ctx, cwd)
 	if top == "" {
-		return ""
+		return "", nil
 	}
 	peers, err := PeersOf(ctx, top, nested)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("scan peers in %s: %w", top, err)
 	}
 	ids := make([]string, 0, len(peers))
 	for _, p := range peers {
@@ -152,16 +156,16 @@ func busyLine(ctx context.Context, in *core.Input) string {
 	key := strings.Join(ids, ",")
 	file := filepath.Join(paths.StateDir(), "worktree-busy", paths.Slug(in.SessionID, "", 80, "session"))
 	if prev, _ := os.ReadFile(file); string(prev) == key {
-		return ""
+		return "", nil
 	}
-	if os.MkdirAll(filepath.Dir(file), 0o755) == nil {
-		_ = os.WriteFile(file, []byte(key), 0o600)
+	if err = paths.AtomicWrite(file, []byte(key), 0o600); err != nil {
+		err = fmt.Errorf("write peer state %s: %w", file, err)
 	}
 	if len(peers) == 0 {
-		return ""
+		return "", err
 	}
 	return fmt.Sprintf("Another session (%s pid %d) is working in this checkout on %s; before editing, "+
-		"ask the user whether to work in a linked worktree; without a yes, keep working here.", peers[0].Comm, peers[0].PID, branch)
+		"ask the user whether to work in a linked worktree; without a yes, keep working here.", peers[0].Comm, peers[0].PID, branch), err
 }
 
 // CheckoutOf returns cwd's toplevel, its branch, and the repo's worktrees nested inside top; "" top when not a repo.

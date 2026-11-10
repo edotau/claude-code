@@ -116,8 +116,8 @@ func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
 	for i, n := range names {
 		m := menus[i] // the page re-renders after every pick, so this build is fresh enough to open
 		rows[i] = homeRow{Name: displayLabel(n), State: modeLabel(d, n, m.state), Check: m.state.check(), Run: func(d *dialog) {
-			if page, ok := agentPages[n]; ok {
-				page(d)
+			if n == "opencode" { // opencode opens a tui.List page instead of runAgentMenu
+				runOpencodePage(d)
 				return
 			}
 			runAgentMenu(d, displayLabel(n), m)
@@ -126,13 +126,23 @@ func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
 	return RowsOf(rows)
 }
 
-// agentPages are the agents whose row opens a tui.List page instead of runAgentMenu (opencode first).
-var agentPages = map[string]func(*dialog){"opencode": runOpencodePage}
-
 // stagedKey is one menu-entered key: the value Submit will store and the env it shadows until then.
 type stagedKey struct {
 	val, prev string
 	had       bool
+}
+
+// restore puts back the env value k shadowed, reporting a failure to d.
+func (k stagedKey) restore(d *dialog, name string) {
+	var err error
+	if k.had {
+		err = os.Setenv(name, k.prev)
+	} else {
+		err = os.Unsetenv(name)
+	}
+	if err != nil {
+		d.printf("%s: env not restored: %v\n", name, err)
+	}
 }
 
 // stage records name for Submit and exports it so status rows and probes in this run already see it.
@@ -171,12 +181,7 @@ func saveKeys(d *dialog) bool {
 		stored = append(stored, name)
 	}
 	for _, name := range stored {
-		k := d.pending[name]
-		if k.had {
-			_ = os.Setenv(name, k.prev)
-		} else {
-			_ = os.Unsetenv(name)
-		}
+		d.pending[name].restore(d, name)
 		delete(d.pending, name)
 	}
 	return ok
@@ -185,11 +190,7 @@ func saveKeys(d *dialog) bool {
 // discardKeys drops staged keys and restores the env each one shadowed (n / Esc leave nothing behind).
 func discardKeys(d *dialog) {
 	for name, k := range d.pending {
-		if k.had {
-			_ = os.Setenv(name, k.prev)
-		} else {
-			_ = os.Unsetenv(name)
-		}
+		k.restore(d, name)
 	}
 	d.pending = nil
 }

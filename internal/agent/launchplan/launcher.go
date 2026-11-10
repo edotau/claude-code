@@ -77,11 +77,6 @@ func envMap(env []string) map[string]string {
 // lookPath is the seam for resolving an agent binary.
 var lookPath = paths.AgentBin
 
-// selection loads the registry and applies the per-launch profile/model flags.
-func selection(o agent.LaunchOptions) (*providers.Registry, providers.Selection, error) {
-	return SessionSelection(o, false)
-}
-
 // SessionSelection loads the registry and applies --profile/--model > the workspace's last profile > pins > defaults;
 // session marks a Claude launch.
 func SessionSelection(o agent.LaunchOptions, session bool) (*providers.Registry, providers.Selection, error) {

@@ -46,16 +46,17 @@ func JWTExp(v string) (int64, bool) {
 type tokenExpiryRecord struct {
 	Schema int    `json:"schema"`
 	Exp    *int64 `json:"exp"`
+	Method string `json:"method,omitempty"` // statusline vocabulary of the minting credential: u2m, m2m, pat, ...
 }
 
-// recordTokenExpiry stores only the exp claim of a JWT credential; every error is ignored.
-func recordTokenExpiry(name, v string) {
+// recordTokenExpiry stores only the exp claim of a JWT credential and the method that minted it; errors are ignored.
+func recordTokenExpiry(name, v, method string) {
 	exp, ok := JWTExp(v)
 	path := tokenExpiryPath(name)
 	if !ok || path == "" {
 		return
 	}
-	b, err := json.Marshal(tokenExpiryRecord{Schema: tokenExpirySchema, Exp: &exp})
+	b, err := json.Marshal(tokenExpiryRecord{Schema: tokenExpirySchema, Exp: &exp, Method: method})
 	if err != nil {
 		return
 	}
@@ -67,23 +68,37 @@ func recordTokenExpiry(name, v string) {
 
 // TokenExpiry is the expiry a provider's JWT credential last reported; false when none is recorded.
 func TokenExpiry(name string) (time.Time, bool) {
+	exp, _, ok := TokenExpiryMethod(name)
+	return exp, ok
+}
+
+// TokenExpiryMethod is TokenExpiry plus the recorded minting method ("" when the record names none), in one read.
+func TokenExpiryMethod(name string) (time.Time, string, bool) {
 	path := tokenExpiryPath(name)
 	if path == "" {
-		return time.Time{}, false
+		return time.Time{}, "", false
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return time.Time{}, false
+		return time.Time{}, "", false
 	}
 	var rec tokenExpiryRecord
 	if !schemas.DecodeOK(tokenExpiryFormat, b, &rec) || rec.Exp == nil {
-		return time.Time{}, false
+		return time.Time{}, "", false
 	}
-	return time.Unix(*rec.Exp, 0), true
+	return time.Unix(*rec.Exp, 0), rec.Method, true
+}
+
+// expiryMethod maps an auth method to the statusline's credential label: a user OAuth login is u2m.
+func expiryMethod(m string) string {
+	if m == AuthOAuth {
+		return "u2m"
+	}
+	return m
 }
 
 // tokenExpirySchema is the token-expiry record's schema version; a mismatch is a cache miss.
-const tokenExpirySchema = 1
+const tokenExpirySchema = 2
 
 var tokenExpiryFormat = schemas.Register(schemas.Format{
 	Name: "token-expiry", Owner: "internal/providers", Kind: schemas.Cache,

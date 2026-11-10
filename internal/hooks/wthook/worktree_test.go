@@ -310,7 +310,10 @@ func TestBusyLineAbandonsHungScan(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	done := make(chan string, 1)
-	go func() { done <- busyLine(ctx, &core.Input{SessionID: "s1", CWD: cwd}) }()
+	go func() {
+		line, _ := busyLine(ctx, &core.Input{SessionID: "s1", CWD: cwd})
+		done <- line
+	}()
 	select {
 	case got := <-done:
 		if got != "" {

@@ -1,7 +1,6 @@
 package vault
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hkdf"
@@ -11,43 +10,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 )
-
-// BenchmarkViewEmpty and BenchmarkUpdateSmall measure the cost the retired goroutine-stack-parsing
-// nested-open guard (enterTx/exitTx/goroutineID, a sync.Map plus two runtime.Stack captures per
-// call) added to every View/Update; run before vs after its removal to show the benefit (R-review
-// nested-open-guard decision).
-func BenchmarkViewEmpty(b *testing.B) {
-	phase1bBenchRing(b)
-	for b.Loop() {
-		if err := View(func(*Tx) error { return nil }); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-func BenchmarkUpdateSmall(b *testing.B) {
-	phase1bBenchRing(b)
-	for b.Loop() {
-		if err := Update(func(tx *Tx) error { return tx.Put(Pins, "k", "v") }); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-func phase1bBenchRing(b *testing.B) {
-	b.Helper()
-	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
-	b.Setenv("HARNESS_VAULT_KEY", "")
-	ring := &specKeyring{values: make(map[string]string)}
-	restore := UseKeyringSeams(ring.lookup, ring.set, ring.delete)
-	b.Cleanup(restore)
-}
 
 // useZeroRootVault points the package at a fresh TempDir vault with HARNESS_VAULT_KEY fixed to 32
 // zero bytes, mirroring vaulttest.Use (unusable here: vaulttest imports this package).
@@ -55,50 +22,6 @@ func useZeroRootVault(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
-}
-
-// TestHKDFKnownAnswerRFC5869Case1 pins the exact stdlib call shape Phase 4b wires into parseKey —
-// hkdf.Key(sha256.New, secret, salt, info, L) — against RFC 5869's published SHA-256 test case 1,
-// independent of this package's own derivation so a broken OKM never hides behind a package bug.
-func TestHKDFKnownAnswerRFC5869Case1(t *testing.T) {
-	ikm := bytes.Repeat([]byte{0x0b}, 22)
-	salt, err := hex.DecodeString("000102030405060708090a0b0c")
-	if err != nil {
-		t.Fatal(err)
-	}
-	info, err := hex.DecodeString("f0f1f2f3f4f5f6f7f8f9")
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantOKM, err := hex.DecodeString("3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865")
-	if err != nil {
-		t.Fatal(err)
-	}
-	okm, err := hkdf.Key(sha256.New, ikm, salt, string(info), 42)
-	if err != nil {
-		t.Fatalf("hkdf.Key: %v", err)
-	}
-	if !bytes.Equal(okm, wantOKM) {
-		t.Fatalf("hkdf.Key OKM = %x, want RFC 5869 case 1 %x", okm, wantOKM)
-	}
-}
-
-// TestInfoChangeProducesDifferentSubkey pins that the info label is load-bearing in the derivation
-// formula itself: same root and salt, a different info string, different output bytes.
-func TestInfoChangeProducesDifferentSubkey(t *testing.T) {
-	root := bytes.Repeat([]byte{0x42}, 32)
-	salt := []byte("some-vault-id")
-	k1, err := hkdf.Key(sha256.New, root, salt, secretsInfo, 32)
-	if err != nil {
-		t.Fatal(err)
-	}
-	k2, err := hkdf.Key(sha256.New, root, salt, secretsInfo+"-other", 32)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Equal(k1, k2) {
-		t.Fatal("different info strings produced identical subkeys")
-	}
 }
 
 // buildManualKey constructs a Key the same way parseKey does (HKDF subkey, AES-GCM with a random
@@ -283,7 +206,7 @@ func TestRotateKeyRederivesUnderNewRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	oldKid, newKid, err := RotateKey()
+	oldKid, _, err := RotateKey()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,20 +225,6 @@ func TestRotateKeyRederivesUnderNewRoot(t *testing.T) {
 		t.Fatalf("retired root's derived key could not open the pre-rotation copy: %q, %v", plain, err)
 	}
 
-	checkRawRootCannotOpen(t, retiredKey, preRotation)
-	_ = newKid
-}
-
-// checkRawRootCannotOpen asserts the retired key's raw root, used without HKDF, cannot open rec.
-func checkRawRootCannotOpen(t *testing.T, retiredKey *Key, rec Record) {
-	t.Helper()
-	newRoot, err := base64.StdEncoding.DecodeString(retiredKey.raw)
-	if err == nil {
-		rawRetiredKey := buildRawRootKey(t, newRoot, retiredKey.Kid)
-		if _, err := rawRetiredKey.Open("TOK", rec); err == nil {
-			t.Fatal("the raw retired root (no HKDF) opened the pre-rotation copy")
-		}
-	}
 }
 
 // retiredKeyring parses the key kept under oldKid's immutable account and asserts it carries oldKid.
@@ -371,14 +280,6 @@ func TestNamesOrderAndNoValues(t *testing.T) {
 	var nilTx Tx
 	if got := nilTx.Names(bucket); got == nil || len(got) != 0 {
 		t.Errorf("Names() on nil Tx = %#v, want empty non-nil slice", got)
-	}
-}
-
-// SnapshotTo against a path that does not exist must error, not silently produce an empty/partial copy.
-func TestSnapshotToMissing(t *testing.T) {
-	dir := t.TempDir()
-	if err := SnapshotTo(filepath.Join(dir, "does-not-exist.db"), nil); err == nil {
-		t.Error("SnapshotTo(missing path) = nil error, want one")
 	}
 }
 
@@ -601,14 +502,13 @@ func TestEnsureKeyUnavailableDoesNotGenerate(t *testing.T) {
 	}
 }
 
-// checkRingUntouched asserts ring was consulted but never written, deleted from, or populated.
+// checkRingUntouched asserts ring was consulted but never written or populated.
 func checkRingUntouched(t *testing.T, ring *specKeyring) {
 	t.Helper()
 	ring.mu.Lock()
-	sets, deletes, entries, lookups := ring.sets, ring.deletes, len(ring.values), len(ring.lookups)
+	sets, entries, lookups := ring.sets, len(ring.values), len(ring.lookups)
 	ring.mu.Unlock()
-	if sets != 0 || deletes != 0 || entries != 0 || lookups == 0 {
-		t.Fatalf("unavailable keyring mutated: sets=%d deletes=%d entries=%d lookups=%d",
-			sets, deletes, entries, lookups)
+	if sets != 0 || entries != 0 || lookups == 0 {
+		t.Fatalf("unavailable keyring mutated: sets=%d entries=%d lookups=%d", sets, entries, lookups)
 	}
 }

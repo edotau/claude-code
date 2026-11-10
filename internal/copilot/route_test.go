@@ -148,7 +148,7 @@ func TestValidateCopilotPinsChecksPinsAfterUnverifiableOne(t *testing.T) {
 }
 
 func TestHeadlessAutonomousFlags(t *testing.T) {
-	if auto := copilotHeadless(&agent.Headless{Tools: true, Autonomous: true}); !slices.Contains(auto, "--allow-all-tools") {
+	if auto := copilotArgv(&agent.Headless{Tools: true, Autonomous: true}); !slices.Contains(auto, "--allow-all-tools") {
 		t.Errorf("autonomous argv = %v", auto)
 	}
 }

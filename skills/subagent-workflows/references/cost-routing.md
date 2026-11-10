@@ -11,6 +11,7 @@ cheaper or wider; integration and final checks stay Claude's.
 | wide edits, scans, audits | `copilot` fleet | `claude-code agents dispatch fleet "<task>"` or `ask --agent copilot --fleet`; check `git diff --stat` after |
 | compare or find a model | `opencode` | `claude-code agents dispatch compare --models a,b "<task>"`; pool: `opencode catalog list`; `--model discovery` = router picks a rare Databricks model |
 | diff review | `codex` · `gemini` | `claude-code codex review --adversarial [--base <b>]` · `claude-code gemini review --model gemini-4-argon-high` |
+| low-severity audit fixes | `opencode` | `coworker:databricks`, `Model: databricks-claude-sonnet-5-5`, `Profile: qa`/`prod` (not `dev`: 429s) |
 | standard / mechanical edits | router pick | `claude-code agents ask --agent <a> --tools --fallback none --format json "<brief>"` |
 | hard reasoning, integration | Claude | stays in session |
 

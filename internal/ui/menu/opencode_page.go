@@ -4,6 +4,7 @@
 package menu
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -262,29 +263,30 @@ func ocLogout(d *dialog, r ocRow) {
 		d.printf("%s: %v\n", r.row.Label, err)
 		return
 	}
-	cancelled, err := runAttached(argv)
-	invalidateOpencodeAuth()
-	switch {
-	case cancelled:
-		d.printf("%s: logout cancelled\n", r.row.Label)
-	case err != nil:
-		d.printf("%s: %v\n", r.row.Label, err)
-	default:
+	if ocRunAttached(d, r.row.Label, "logout", argv) {
 		d.changed = true // routing may follow a different login now: configs re-render on exit
 		d.printf("Removed account from %s\n", r.row.Label)
 	}
 }
 
-// ocSwitch makes r's credential the integration's active one (opencode 2.x).
-func ocSwitch(d *dialog, r ocRow, argv []string) {
+// ocRunAttached runs argv on the terminal, then drops the cached auth; it reports a cancel or failure under label.
+func ocRunAttached(d *dialog, label, verb string, argv []string) (ok bool) {
 	cancelled, err := runAttached(argv)
 	invalidateOpencodeAuth()
 	switch {
 	case cancelled:
-		d.printf("%s: switch cancelled\n", r.row.Label)
+		d.printf("%s: %s cancelled\n", label, verb)
 	case err != nil:
-		d.printf("%s: %v\n", r.row.Label, err)
+		d.printf("%s: %v\n", label, err)
 	default:
+		return true
+	}
+	return false
+}
+
+// ocSwitch makes r's credential the integration's active one (opencode 2.x).
+func ocSwitch(d *dialog, r ocRow, argv []string) {
+	if ocRunAttached(d, r.row.Label, "switch", argv) {
 		d.changed = true
 		configure.DiscoverAfterSignin()
 		d.printf("%s: %s is now active\n", r.row.Label, r.row.Detail)
@@ -293,31 +295,35 @@ func ocSwitch(d *dialog, r ocRow, argv []string) {
 
 // ocAddAccount delegates sign-in to bin/opencode and reports the new account count.
 func ocAddAccount(d *dialog) {
-	bin, err := lookOpencode("opencode")
-	if err != nil {
+	if err := opencodeSignIn(); err != nil {
 		d.printf("opencode: %v\n", err)
 		return
 	}
+	d.changed = true
+	configure.DiscoverAfterSignin()
+	ints, err := opencodeAuth()
+	if err != nil {
+		d.printf("opencode: %v\n", err)
+	} else {
+		n := 0
+		for _, in := range ints {
+			n += len(in.Conns)
+		}
+		d.printf("opencode: %d %s\n", n, textutil.PluralWord(n, "account", "accounts"))
+	}
+	agentActiveOn(d, "opencode")
+}
+
+// opencodeSignIn runs `opencode auth login` on the terminal and drops the cached auth; a cancel is an error.
+func opencodeSignIn() error {
+	bin, err := lookOpencode("opencode")
+	if err != nil {
+		return err
+	}
 	cancelled, err := runAttached([]string{bin, "auth", "login"})
 	invalidateOpencodeAuth()
-	switch {
-	case cancelled:
-		d.printf("opencode: sign-in cancelled\n")
-	case err != nil:
-		d.printf("opencode: %v\n", err)
-	default:
-		d.changed = true
-		configure.DiscoverAfterSignin()
-		ints, err := opencodeAuth()
-		if err != nil {
-			d.printf("opencode: %v\n", err)
-		} else {
-			n := 0
-			for _, in := range ints {
-				n += len(in.Conns)
-			}
-			d.printf("opencode: %d %s\n", n, textutil.PluralWord(n, "account", "accounts"))
-		}
-		agentActiveOn(d, "opencode")
+	if cancelled {
+		return errors.New("sign-in cancelled")
 	}
+	return err
 }

@@ -157,7 +157,14 @@ func PeerAgents(checkout string, linked []string) ([]Proc, error) {
 	}
 	skip := pidsWithin(all, append([]string{filepath.Join(checkout, ".git")}, linked...))
 	mine := ancestry(os.Getpid())
-	own := knownAgents(mine)
+	own := map[int]bool{} // the caller's ancestors that are themselves agents by name
+	if commName != nil {
+		for pid := range mine {
+			if agentComms[commName(pid)] {
+				own[pid] = true
+			}
+		}
+	}
 	var out []Proc
 	for _, p := range filterProcs(all, checkout) {
 		if !agentComms[p.Comm] || skip[p.PID] || mine[p.PID] || descendsFrom(p.PID, own) || isDaemon(p.PID) {
@@ -166,17 +173,6 @@ func PeerAgents(checkout string, linked []string) ([]Proc, error) {
 		out = append(out, p)
 	}
 	return out, nil
-}
-
-// knownAgents keeps the pids of pids that are themselves agent processes by name.
-func knownAgents(pids map[int]bool) map[int]bool {
-	own := map[int]bool{}
-	for pid := range pids {
-		if commKnown(pid) {
-			own[pid] = true
-		}
-	}
-	return own
 }
 
 // pidsWithin returns the pids of all whose cwd is inside any of dirs.
@@ -196,22 +192,13 @@ func isDaemon(pid int) bool {
 	return err == nil && slices.ContainsFunc(strings.Fields(out), func(a string) bool { return strings.HasPrefix(a, "--hub") })
 }
 
-// procArgs reads a pid's command line; a seam so tests never shell out.
+// procArgs reads a pid's command line (linux's init swaps in /proc to avoid forking); a seam so tests never shell out.
 var procArgs = func(pid int) (string, error) {
-	if procCmdline != nil {
-		return procCmdline(pid)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "ps", "-o", "args=", "-p", strconv.Itoa(pid)).Output()
 	return string(out), err
 }
-
-// procCmdline reads a pid's command line without forking; assigned where the OS exposes it (linux /proc).
-var procCmdline func(pid int) (string, error)
-
-// commKnown reports whether pid is itself an agent process by name.
-func commKnown(pid int) bool { return commName != nil && agentComms[commName(pid)] }
 
 // commName reads a pid's process name; each platform's init() assigns it where available.
 var commName func(pid int) string

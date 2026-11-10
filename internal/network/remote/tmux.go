@@ -18,8 +18,8 @@ import (
 // Agents lists the allowed --agent values, in the order they're tried/offered.
 var Agents = []string{"claude", "codex", "opencode", "gemini", "copilot"}
 
-// ValidAgent reports whether name is one of Agents.
-func ValidAgent(name string) bool {
+// validAgent reports whether name is one of Agents.
+func validAgent(name string) bool {
 	return slices.Contains(Agents, name)
 }
 
@@ -46,7 +46,7 @@ func randID() string {
 type Opts struct {
 	Dir   string // remote working directory; "" means the login home (~)
 	Agent string // one of Agents
-	Name  string // tmux session name; "" generates one from DefaultName
+	Name  string // tmux session name; "" generates one from defaultName
 	Task  string // the initial prompt handed to the agent
 }
 
@@ -89,7 +89,7 @@ func dirFlag(dir string) string {
 
 // BuildCommand returns the sh script that starts a detached tmux session running the agent in a login shell.
 func BuildCommand(opts Opts) (string, string, error) {
-	if !ValidAgent(opts.Agent) {
+	if !validAgent(opts.Agent) {
 		return "", "", fmt.Errorf("--agent %q must be one of %s", opts.Agent, strings.Join(Agents, "|"))
 	}
 	name, err := sessionName(opts)

@@ -137,10 +137,12 @@ func promptFromHandoff(path, prompt string) string {
 	if path == "" {
 		return prompt
 	}
-	if doc, err := os.ReadFile(path); err == nil { // later dispatches pick up the progress, not the bare task
-		return handoffPrompt(string(doc))
+	doc, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(NoticeOut, "claude-code: hand-off %s unreadable: %v; the next dispatch restarts from the bare task\n", path, err)
+		return prompt
 	}
-	return prompt
+	return handoffPrompt(string(doc)) // later dispatches pick up the progress, not the bare task
 }
 
 // hopOf records one tried dispatch: who ran, on which account and profile, and the error token if it failed.

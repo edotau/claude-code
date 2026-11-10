@@ -22,9 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaultdoc"
 )
 
-func vaultSections() []string {
-	return []string{"secrets", "pins", "env", "providers", "agents", "settings", "vault", "all"}
-}
+func vaultSections() []string { return append(slices.Clone(vaultdoc.Sections), "all") }
 
 // vaultSpec is the completion node for the vault verb.
 func vaultSpec() *helptext.Node {
@@ -66,7 +64,7 @@ var vaultVerbs = map[string]func(args []string) int{
 	"import": cmdVaultImport, "export": cmdVaultExport, "edit": configEdit, "rotate-secret": configRotateKey,
 }
 
-// cmdVault reads and edits the vault's non-secret config through one JSON document.
+// cmdVault dispatches the vault subcommands; bare `vault` lists.
 func cmdVault(args []string) int {
 	if len(args) == 0 || (strings.HasPrefix(args[0], "-") && !helptext.WantsHelp(args[:1])) {
 		return vaultList(args) // bare `vault` (or a leading flag) is `vault ls`
@@ -130,33 +128,32 @@ func cmdVaultSet(args []string) int {
 // vaultSetTailscaleInteractive asks which credential kind, then reads each value hidden.
 func vaultSetTailscaleInteractive(dryRun bool) int {
 	fmt.Fprint(os.Stdout, "OAuth client (o) or API key (a)? ")
-	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-	names := tailscale.SetNames(strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "a"))
-	pairs := make([]tailscale.Cred, len(names))
-	for i, name := range names {
-		v, err := readSecretValue(name)
-		if err != nil {
-			return helptext.Fail("vault set: %v", err)
-		}
-		pairs[i] = tailscale.Cred{Name: name, Value: v}
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil && (err != io.EOF || line == "") {
+		return helptext.Fail("vault set: read credential kind: %v", err)
 	}
-	return vaultStoreTailscale(dryRun, pairs)
+	return readTailscaleCreds(tailscale.SetNames(strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "a")),
+		readSecretValue, dryRun)
 }
 
 // vaultSetTailscalePiped reads one line per expected value: --api-key wants one, otherwise id then secret.
 func vaultSetTailscalePiped(apiKeyOnly, dryRun bool) int {
 	r := bufio.NewReader(os.Stdin)
-	readLine := func() (string, error) {
+	readLine := func(string) (string, error) {
 		line, err := r.ReadString('\n')
 		if err != nil && err != io.EOF {
 			return "", err
 		}
 		return strings.TrimSpace(line), nil
 	}
-	names := tailscale.SetNames(apiKeyOnly)
+	return readTailscaleCreds(tailscale.SetNames(apiKeyOnly), readLine, dryRun)
+}
+
+// readTailscaleCreds reads each named value with read, then validates and stores them.
+func readTailscaleCreds(names []string, read func(name string) (string, error), dryRun bool) int {
 	pairs := make([]tailscale.Cred, len(names))
 	for i, name := range names {
-		v, err := readLine()
+		v, err := read(name)
 		if err != nil {
 			return helptext.Fail("vault set: %v", err)
 		}
@@ -221,14 +218,8 @@ func configRotateKey(args []string) int {
 	if *force {
 		opts = append(opts, vault.ForceRotate())
 	}
-	return configRun("rotate-secret", vaultdoc.RotateKey(os.Stdout, opts...))
-}
-
-// configRun maps a subcommand's error to its exit code.
-func configRun(sub string, err error) int {
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "vault %s: %v\n", sub, err)
-		return 1
+	if err := vaultdoc.RotateKey(os.Stdout, opts...); err != nil {
+		return helptext.Fail("vault rotate-secret: %v", err)
 	}
 	return 0
 }
@@ -343,16 +334,12 @@ func cmdVaultGet(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	lookup, masterKey := names, slices.Contains(names, "HARNESS_VAULT_KEY")
-	if masterKey {
-		lookup = names[:slices.Index(names, "HARNESS_VAULT_KEY")]
+	if slices.Contains(names, "HARNESS_VAULT_KEY") {
+		return helptext.Fail("vault get: HARNESS_VAULT_KEY is the master key; use vault get --key (refused on a terminal)")
 	}
-	values, err := vault.LookupAll(lookup)
+	values, err := vault.LookupAll(names)
 	if err != nil {
 		return helptext.Fail("vault get: %v", err)
-	}
-	if masterKey {
-		return helptext.Fail("vault get: HARNESS_VAULT_KEY is the master key; use vault get --key (refused on a terminal)")
 	}
 	if err := printVaultValues(names, values, *export); err != nil {
 		return helptext.Fail("vault get: %v", err)

@@ -11,16 +11,11 @@ func stubGH(t *testing.T, fn func(args ...string) ([]byte, error)) *[][]string {
 	t.Helper()
 	var calls [][]string
 	orig := runGH
-	runGH = func(_ context.Context, args ...string) ([]byte, error) {
+	runGH = func(_ context.Context, _ string, args ...string) ([]byte, error) {
 		calls = append(calls, args)
 		return fn(args...)
 	}
-	origIn := runGHStdin
-	runGHStdin = func(_ context.Context, _ string, args ...string) ([]byte, error) {
-		calls = append(calls, args)
-		return fn(args...)
-	}
-	t.Cleanup(func() { runGH = orig; runGHStdin = origIn })
+	t.Cleanup(func() { runGH = orig })
 	return &calls
 }
 

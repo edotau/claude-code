@@ -45,13 +45,7 @@ const (
 	SrcStoredToken = providers.CopilotTokenEnv + " (stored)"
 )
 
-// copilotPinLogin is the pinned copilot profile's GitHub login ("" = unpinned: gh's active account).
-func copilotPinLogin() string {
-	login, _ := copilotPinLoginErr()
-	return login
-}
-
-// copilotPinLoginErr is copilotPinLogin plus the providers.Load error it would swallow.
+// copilotPinLoginErr is the pinned copilot profile's GitHub login ("" = unpinned) and the providers.Load error.
 func copilotPinLoginErr() (string, error) {
 	reg, err := providers.Load()
 	login, _ := providers.CopilotLogin(reg)
@@ -192,6 +186,18 @@ func copilotHeadroom(ctx context.Context, user string) (detail string, ok bool) 
 		return user + " unverified", false
 	}
 	return fmt.Sprintf("%s %.1f%% of credits used", user, pct), pct < copilotWorkablePct
+}
+
+// pinnedHeadroom is copilotHeadroom on login, else on the pinned login; an unreadable registry is unworkable.
+func pinnedHeadroom(ctx context.Context, login string) (detail string, ok bool) {
+	if login != "" {
+		return copilotHeadroom(ctx, login)
+	}
+	pin, err := copilotPinLoginErr()
+	if err != nil {
+		return "cannot read the provider registry to check the pinned GitHub account: " + err.Error(), false
+	}
+	return copilotHeadroom(ctx, pin)
 }
 
 // commentRE strips the // comment lines copilot writes at the top of config.json.

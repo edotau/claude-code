@@ -54,12 +54,6 @@ func addRobotsRule(groups map[string][]robotsRule, agents []string, allow bool, 
 	}
 }
 
-// robotsBlocks reports whether the robots.txt body txt disallows path (with query) for claude-code.
-func robotsBlocks(txt, path string) bool {
-	_, blocked := robotsDisallows(parseRobots(txt), path)
-	return blocked
-}
-
 // robotsDisallows applies longest-match semantics (Allow wins ties) and returns the deciding Disallow rule.
 func robotsDisallows(rules []robotsRule, path string) (robotsRule, bool) {
 	var best robotsRule

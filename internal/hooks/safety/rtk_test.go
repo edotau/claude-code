@@ -94,18 +94,17 @@ func TestRTKMachineReadableFlagsMatchTokens(t *testing.T) {
 		}
 	}
 	for _, flag := range rtkMachineReadable {
-		variants := []string{flag, strings.ToUpper(flag)}
-		if flag != "-o json" {
-			variants = append(variants, flag+"=value")
-		}
+		variants := []string{flag, strings.ToUpper(flag), flag + "=value"}
 		for _, suffix := range variants {
 			if got, ok := rtkOut(t, rtkBashIn("git log "+suffix)); ok {
 				t.Errorf("real flag %q was wrapped to %q", suffix, got)
 			}
 		}
 	}
-	if got, ok := rtkOut(t, rtkBashIn(`kubectl get pods -o "json"`)); ok {
-		t.Errorf("quoted JSON output was wrapped to %q", got)
+	for _, flag := range []string{"-o json", "-O JSON", `-o "json"`} {
+		if got, ok := rtkOut(t, rtkBashIn("kubectl get pods "+flag)); ok {
+			t.Errorf("JSON output flag %q was wrapped to %q", flag, got)
+		}
 	}
 }
 

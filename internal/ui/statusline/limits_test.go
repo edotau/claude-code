@@ -164,11 +164,17 @@ func TestLimitsSegmentTokenVsPassthrough(t *testing.T) {
 // writeTokenExpiry plants the {"exp":N} record providers.TokenExpiry reads, without minting a credential.
 func writeTokenExpiry(t *testing.T, name string, exp time.Time) {
 	t.Helper()
+	writeTokenExpiryMethod(t, name, exp, "")
+}
+
+// writeTokenExpiryMethod plants an expiry record tagged with the method that minted it ("" omits the tag).
+func writeTokenExpiryMethod(t *testing.T, name string, exp time.Time, method string) {
+	t.Helper()
 	dir := filepath.Join(paths.StateDir(), "cache", "token-expiry")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, name+".json"), []byte(fmt.Sprintf(`{"schema":1,"exp":%d}`, exp.Unix())), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, name+".json"), []byte(fmt.Sprintf(`{"schema":2,"exp":%d,"method":%q}`, exp.Unix(), method)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -217,5 +223,15 @@ func TestLimitsSegmentAnthropicCacheFreshVsStale(t *testing.T) {
 	writeLimitsCache(t, time.Now().Add(-7*time.Hour), 23, 41, future, future)
 	if got := limitsSegment(Input{}, "maxx"); got != "" {
 		t.Errorf("stale cache: %q, want empty", got)
+	}
+}
+
+// An oauth row served by its paired SP labels the countdown from the record's method, not the row's auth.
+func TestLimitsSegmentLabelsFromRecordedMethod(t *testing.T) {
+	hermetic(t)
+	useSessions(t, &providers.Provider{Name: "dbx-sp", Provider: "databricks", Auth: providers.Auth{Type: providers.AuthOAuth}})
+	writeTokenExpiryMethod(t, "dbx-sp", time.Now().Add(42*time.Minute+30*time.Second), "m2m")
+	if got := limitsSegment(Input{}, "dbx-sp"); got != "m2m:42m" {
+		t.Errorf("SP-minted record on an oauth row: %q, want m2m:42m", got)
 	}
 }

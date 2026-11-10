@@ -19,8 +19,12 @@ func cmdNetworkBrowser(args []string) int {
 	name := fs.String("browser", "default", "chrome|edge|brave|arc|vivaldi|chromium|default (with --setup)")
 	dryRun := fs.Bool("dry-run", false, "describe the actions without running them (with --setup)")
 	format := helptext.FormatFlag(fs)
-	if _, err := helptext.ParseArgs(fs, args); err != nil {
+	rest, err := helptext.ParseArgs(fs, args)
+	if err != nil {
 		return helptext.ExitCode(err)
+	}
+	if len(rest) > 0 {
+		return helptext.FailUsage("network browser: unexpected argument %q (use --browser)", rest[0])
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
 		return helptext.BadFormat("network browser", err)

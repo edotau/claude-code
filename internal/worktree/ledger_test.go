@@ -15,16 +15,12 @@ import (
 
 func ledgerFile(t *testing.T, main, name string) string {
 	t.Helper()
-	path := filepath.Join(memory.Dir(main), "worktrees", name+".md")
+	path := ledgerPath(memory.Dir(main), name)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read ledger %s: %v", path, err)
 	}
 	return string(data)
-}
-
-func ledgerPath(main, name string) string {
-	return filepath.Join(memory.Dir(main), "worktrees", name+".md")
 }
 
 // requireContains fails when text lacks any of wants; what names the text in the message.
@@ -166,7 +162,7 @@ func TestAppendLedgerOutsideManagedWorktree(t *testing.T) {
 	if err != nil || ok {
 		t.Fatalf("AppendLedger(unmanaged repo) = %v, %v; want false, nil", ok, err)
 	}
-	if _, err := os.Stat(ledgerPath(main, "anything")); !os.IsNotExist(err) {
+	if _, err := os.Stat(ledgerPath(memory.Dir(main), "anything")); !os.IsNotExist(err) {
 		t.Fatalf("a ledger file appeared for an unmanaged append: %v", err)
 	}
 }
@@ -215,7 +211,7 @@ func TestLedgerResumeAfterMergeKept(t *testing.T) {
 	requireContains(t, "resumed ledger", text, "\n## Opened\n", "- Session: s2\n")
 	commitIn(t, main, "merge", "-q", "--no-edit", "worktree-fx")
 	var warn bytes.Buffer
-	res, err := CleanWithLog(repo, "fx", false, &warn)
+	res, err := cleanWithLog(repo, "fx", false, &warn)
 	if err != nil || !res.Removed || warn.Len() != 0 {
 		t.Fatalf("clean: %+v %v %s", res, err, warn.String())
 	}
@@ -246,7 +242,7 @@ func TestLedgerAppendReopensClosed(t *testing.T) {
 func TestLedgerMergeThenCleanBranchState(t *testing.T) {
 	repo, main, dest := ledgerSetup(t, "fb")
 	mergeKept(t, main, dest, "fb", "work")
-	if res, err := CleanWithLog(repo, "fb", false, nil); err != nil || !res.BranchDeleted {
+	if res, err := cleanWithLog(repo, "fb", false, nil); err != nil || !res.BranchDeleted {
 		t.Fatalf("clean: %+v %v", res, err)
 	}
 	if text := ledgerFile(t, main, "fb"); strings.Contains(text, "- Branch: kept\n") || !strings.Contains(text, "- Branch: deleted\n") {
@@ -257,13 +253,13 @@ func TestLedgerMergeThenCleanBranchState(t *testing.T) {
 // Finding 4: a ledger failure during clean is written to the supplied writer.
 func TestLedgerCleanWarningsUseWriter(t *testing.T) {
 	repo, main, _ := ledgerSetup(t, "fc")
-	path := ledgerPath(main, "fc")
+	path := ledgerPath(memory.Dir(main), "fc")
 	data, _ := os.ReadFile(path)
 	if err := os.WriteFile(path, []byte(strings.Replace(string(data), "- Base: ", "- Basis: ", 1)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var warn bytes.Buffer
-	if _, err := CleanWithLog(repo, "fc", false, &warn); err != nil {
+	if _, err := cleanWithLog(repo, "fc", false, &warn); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(warn.String(), "warning: ledger") {

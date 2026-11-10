@@ -206,9 +206,12 @@ func openaiQuotas(ctx context.Context) []quota {
 		return []quota{{Provider: "openai", Note: "unavailable: network error"}}
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
 		return []quota{{Provider: "openai", Note: fmt.Sprintf("unavailable: HTTP %d (run codex to refresh login)", resp.StatusCode)}}
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return []quota{{Provider: "openai", Note: "unavailable: read error: " + textutil.FirstLine(err.Error())}}
 	}
 	return parseWham(body)
 }
@@ -417,12 +420,13 @@ func agyUsageRows(res agyUsageResult) []quota {
 			if b.Disabled {
 				continue
 			}
+			resets, resetsAt := claudeResets(b.ResetTime)
 			out = append(out, quota{
 				Provider: "google", Plan: "Antigravity", Account: "-",
 				Window:   b.Window,
 				UsedPct:  math.Round((1 - b.RemainingFrac) * 100),
-				Resets:   formatAgyReset(b.ResetTime),
-				ResetsAt: agyResetUTC(b.ResetTime),
+				Resets:   resets,
+				ResetsAt: resetsAt,
 				Group:    g.Name,
 			})
 		}
@@ -464,22 +468,4 @@ func commandErrorLine(out []byte, err error) string {
 		s = s[:80]
 	}
 	return s
-}
-
-// formatAgyReset parses agy's RFC3339 reset_time and renders it local, matching the openai rows' format.
-func formatAgyReset(s string) string {
-	t, err := time.Parse(time.RFC3339, s)
-	if err != nil {
-		return ""
-	}
-	return t.Local().Format("2006-01-02 15:04")
-}
-
-// agyResetUTC parses agy's RFC3339 reset_time and normalizes it to a UTC instant for ResetsAt.
-func agyResetUTC(s string) string {
-	t, err := time.Parse(time.RFC3339, s)
-	if err != nil {
-		return ""
-	}
-	return t.UTC().Format(time.RFC3339)
 }

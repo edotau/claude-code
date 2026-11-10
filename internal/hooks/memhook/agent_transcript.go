@@ -9,7 +9,6 @@ import (
 
 // agentTranscript is what memory-update/memory-end/format-stop need from a non-Claude session.
 type agentTranscript struct {
-	ID          string
 	Edits       int
 	EditedPaths []string // unique, sorted
 	FinalText   string
@@ -42,9 +41,6 @@ func (b *pathBuilder) done() agentTranscript {
 // loadOpencodeExport parses `opencode export <id>` JSON; final text is the last assistant text part.
 func loadOpencodeExport(data []byte) (agentTranscript, error) {
 	var doc struct {
-		Info struct {
-			ID string `json:"id"`
-		} `json:"info"`
 		Messages []struct {
 			Info struct {
 				Role string `json:"role"`
@@ -66,7 +62,6 @@ func loadOpencodeExport(data []byte) (agentTranscript, error) {
 		return agentTranscript{}, fmt.Errorf("opencode export: %w", err)
 	}
 	b := &pathBuilder{seen: map[string]bool{}}
-	b.out.ID = doc.Info.ID
 	for _, m := range doc.Messages {
 		if m.Info.Role != "assistant" {
 			continue
@@ -83,23 +78,18 @@ func loadOpencodeExport(data []byte) (agentTranscript, error) {
 	return b.done(), nil
 }
 
-// copilotEvent is the slice of an SDK session event the loader reads; the engine fills it from rpc.SessionEvent.
+// copilotEvent is the normalized event read from a Copilot events.jsonl.
 type copilotEvent struct {
 	Type      string // "tool.execution_start" or "assistant.message"
 	ToolName  string
 	Arguments map[string]any
 	Content   string
-	AgentID   string // non-empty for sub-agent events, which are skipped
 }
 
-// loadCopilotEvents folds an in-memory Copilot event list; copilot has no on-disk transcript.
-func loadCopilotEvents(sessionID string, events []copilotEvent) agentTranscript {
+// loadCopilotEvents folds normalized Copilot events into transcript data.
+func loadCopilotEvents(events []copilotEvent) agentTranscript {
 	b := &pathBuilder{seen: map[string]bool{}}
-	b.out.ID = sessionID
 	for _, e := range events {
-		if e.AgentID != "" {
-			continue
-		}
 		switch {
 		case e.Type == "tool.execution_start" && copilotEditTools[strings.ToLower(e.ToolName)]:
 			b.edit(copilotArgPath(e.Arguments))

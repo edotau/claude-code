@@ -84,7 +84,9 @@ type values struct {
 	total        string
 	duration     string
 	session      string
-	limits       string
+	limits       string // a first-party subscription's 7d:N%
+	auth         string // any other session's credential countdown: m2m:42m
+	profile      string // the profile part of provider ("dev"); "" when the row bears its provider's name
 	contextPct   int
 	adds         int
 	dels         int
@@ -109,7 +111,7 @@ func (v values) text(key string) string {
 	case "session":
 		return v.session
 	case "limits":
-		return v.limits
+		return cmp.Or(v.limits, v.auth)
 	}
 	return ""
 }
@@ -225,7 +227,7 @@ func collect(in Input, cfg Config) values {
 	}
 	if cfg.Style == "twoline" {
 		v.path = filepath.Base(cwd) // twoline's head names only the current directory
-		v.two = collectTwoline(in, provider)
+		v.two = collectTwoline(in, v.auth)
 	}
 	return v
 }
@@ -259,6 +261,7 @@ func (v *values) collectRouting(in Input, cfg Config, provider string, routed bo
 	if cfg.seg("provider", true) {
 		v.providerFull = providerLabel(cmp.Or(provider, modelFamily(in.Model.ID)))
 		v.provider = capProfile(v.providerFull, cfg.ProfileMax)
+		_, v.profile, _ = strings.Cut(v.provider, "·")
 	}
 	if cfg.seg("model", true) {
 		v.model = modelSegment(in, provider)
@@ -272,8 +275,12 @@ func (v *values) collectRouting(in Input, cfg Config, provider string, routed bo
 
 // collectUsage fills the limits, context, total, duration, session and code-velocity segments.
 func (v *values) collectUsage(in Input, cfg Config, cwd, provider string) {
-	if cfg.seg("limits", true) {
+	sub, limits := onSubscription(provider), cfg.seg("limits", true)
+	if limits && sub {
 		v.limits = limitsSegment(in, provider)
+	}
+	if (limits || cfg.Style == "twoline") && !sub { // twoline shows the countdown whatever the limits switch
+		v.auth = authSegment(provider)
 	}
 	if cfg.seg("context", true) {
 		v.contextPct = contextPct(in)
@@ -556,7 +563,7 @@ func totalSegment(in Input) string {
 		return ""
 	}
 	out := sigTokens(n)
-	if _, dispatches := runningCounts(in); dispatches > 0 {
+	if dispatches := runningDispatches(in); dispatches > 0 {
 		out += "+"
 	}
 	return out

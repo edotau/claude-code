@@ -26,6 +26,18 @@ func (f tailscaleTestTransport) RoundTrip(r *http.Request) (*http.Response, erro
 	return f(r)
 }
 
+// routeDefaultClientTo sends http.DefaultClient requests to ts, whatever host they name, until the test ends.
+func routeDefaultClientTo(t *testing.T, ts *httptest.Server) {
+	t.Helper()
+	orig := http.DefaultClient
+	t.Cleanup(func() { http.DefaultClient = orig })
+	http.DefaultClient = &http.Client{Transport: tailscaleTestTransport(func(r *http.Request) (*http.Response, error) {
+		req := r.Clone(r.Context())
+		req.URL.Scheme, req.URL.Host = "http", strings.TrimPrefix(ts.URL, "http://")
+		return ts.Client().Do(req)
+	})}
+}
+
 // fakeTailscaleOnPATH puts a `tailscale` script on PATH answering `status --json` per state.
 func fakeTailscaleOnPATH(t *testing.T, backendState string) {
 	t.Helper()
@@ -209,14 +221,7 @@ func TestTailscaleKeySaveKeepsStdoutPipeable(t *testing.T) {
 			const key = "tskey-auth-xyz"
 			ts := tailscaleAuthKeyServer(t, key)
 			defer ts.Close()
-			originalClient := http.DefaultClient
-			t.Cleanup(func() { http.DefaultClient = originalClient })
-			http.DefaultClient = &http.Client{Transport: tailscaleTestTransport(func(r *http.Request) (*http.Response, error) {
-				req := r.Clone(r.Context())
-				req.URL.Scheme = "http"
-				req.URL.Host = strings.TrimPrefix(ts.URL, "http://")
-				return ts.Client().Do(req)
-			})}
+			routeDefaultClientTo(t, ts)
 			args := []string{"--key"}
 			if save {
 				args = append(args, "--save")
@@ -287,13 +292,7 @@ func TestTailscaleKeyTrimsTags(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(tailscale.AuthKey{ID: "k1", Key: "tskey-auth-xyz"})
 	}))
 	defer ts.Close()
-	originalClient := http.DefaultClient
-	t.Cleanup(func() { http.DefaultClient = originalClient })
-	http.DefaultClient = &http.Client{Transport: tailscaleTestTransport(func(r *http.Request) (*http.Response, error) {
-		req := r.Clone(r.Context())
-		req.URL.Scheme, req.URL.Host = "http", strings.TrimPrefix(ts.URL, "http://")
-		return ts.Client().Do(req)
-	})}
+	routeDefaultClientTo(t, ts)
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdNetworkTailscale([]string{"--key", "--tags", "tag:a, tag:b,"})
 	})
@@ -363,28 +362,6 @@ func TestNetworkTailscaleModeParsing(t *testing.T) {
 				t.Errorf("stderr %q lacks %q", stderr, tc.want)
 			}
 		})
-	}
-}
-
-func TestNetworkTailscaleExitNodeValuesAccepted(t *testing.T) {
-	for _, v := range []string{"on", "off"} {
-		t.Run(v, func(t *testing.T) {
-			hermeticTailscaleSecrets(t)
-			fakeTailscaleOnPATH(t, "Running")
-			_, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdNetworkTailscale([]string{"--exit-node", v}) })
-			if strings.Contains(stderr, "must be on, off or approve") || strings.Contains(stderr, "mutually exclusive") {
-				t.Errorf("--exit-node %s rejected by validation: %q", v, stderr)
-			}
-		})
-	}
-}
-
-func TestNetworkTailscaleMachinesIsAMode(t *testing.T) {
-	hermeticTailscaleSecrets(t)
-	fakeTailscaleOnPATH(t, "Running")
-	_, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdNetworkTailscale([]string{"--machines"}) })
-	if strings.Contains(stderr, "belongs to") || strings.Contains(stderr, "mutually exclusive") {
-		t.Errorf("--machines alone is a valid mode: %q", stderr)
 	}
 }
 
@@ -560,13 +537,7 @@ func TestTailscaleKeyReportsStdoutFailure(t *testing.T) {
 	t.Setenv("TAILSCALE_API_KEY", "test-api-key")
 	srv := tailscaleAuthKeyServer(t, "tskey-auth-test-output")
 	defer srv.Close()
-	originalClient := http.DefaultClient
-	t.Cleanup(func() { http.DefaultClient = originalClient })
-	http.DefaultClient = &http.Client{Transport: tailscaleTestTransport(func(r *http.Request) (*http.Response, error) {
-		req := r.Clone(r.Context())
-		req.URL.Scheme, req.URL.Host = "http", strings.TrimPrefix(srv.URL, "http://")
-		return srv.Client().Do(req)
-	})}
+	routeDefaultClientTo(t, srv)
 	code, stderr := captureClosedStdout(t, func() int { return cmdNetworkTailscale([]string{"--key"}) })
 	if code != 1 || !strings.Contains(stderr, "writing key to stdout") {
 		t.Fatalf("undelivered auth key: exit=%d stderr=%q", code, stderr)

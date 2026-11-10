@@ -78,6 +78,9 @@ func ApproveSelfSubnets(ctx context.Context) (dns string, want, enabled []string
 // ParseSubnets splits a comma-separated CIDR list; ok is false when any entry is not a prefix.
 func ParseSubnets(value string) (routes []string, ok bool) {
 	routes = strings.Split(value, ",")
+	for i := range routes {
+		routes[i] = strings.TrimSpace(routes[i])
+	}
 	bad := slices.ContainsFunc(routes, func(r string) bool { _, err := netip.ParsePrefix(r); return err != nil })
 	return routes, !bad
 }

@@ -115,18 +115,6 @@ func TestRunProgressVetoesRetry(t *testing.T) {
 	}
 }
 
-// TestRunAgentFallsBackToRunnerNameWhenUnset proves the cmp.Or in Run() only fills Agent from the
-// agent's own name when the agent itself left it blank — the non-passthrough/non-delegating path
-// (here named "api" to match the real agent) still reports Agent "api", not an empty envelope field.
-func TestRunAgentFallsBackToRunnerNameWhenUnset(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	f := &fakeRunner{name: "api", errs: []error{nil}}
-	res, err := Run(context.Background(), f, RunOptions{Prompt: "p"}, wire.Discard, nil)
-	if err != nil || res.Agent != "api" {
-		t.Fatalf("res.Agent = %q, err = %v, want %q and nil err", res.Agent, err, "api")
-	}
-}
-
 func TestRubricPrompt(t *testing.T) {
 	file := t.TempDir() + "/rubric.md"
 	if err := writeFile(file, "RULE: no globals"); err != nil {

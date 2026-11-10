@@ -372,23 +372,15 @@ func writeEditorScratch(orig []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
-	if err := writeScratchBody(f, orig); err != nil {
+	err = f.Chmod(0600)
+	if err == nil {
+		_, err = f.Write(orig)
+	}
+	if err = errors.Join(err, f.Close()); err != nil {
 		_ = os.Remove(f.Name())
 		return "", err
 	}
 	return f.Name(), nil
-}
-
-// writeScratchBody restricts f to its owner, writes body and closes it.
-func writeScratchBody(f *os.File, body []byte) error {
-	if err := f.Chmod(0600); err != nil {
-		return err
-	}
-	if _, err := f.Write(body); err != nil {
-		return err
-	}
-	return f.Close()
 }
 
 // editorArgv is $VISUAL, else $EDITOR, else the platform's default editor.

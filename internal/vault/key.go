@@ -20,14 +20,13 @@ import (
 
 var keyringLookup = KeyringLookup
 var keyringSet = osKeyringSet
-var keyringDelete = osKeyringDelete
 
-// UseKeyringSeams swaps the lookup/set/delete functions this package shells out to for the OS
+// UseKeyringSeams swaps the lookup/set functions this package shells out to for the OS
 // keyring, returning a restore func; exported solely for vaulttest's FakeKeyring.
-func UseKeyringSeams(lookup func(string) (string, bool, error), set func(string, string) error, del func(string) error) (restore func()) {
-	savedLookup, savedSet, savedDelete := keyringLookup, keyringSet, keyringDelete
-	keyringLookup, keyringSet, keyringDelete = lookup, set, del
-	return func() { keyringLookup, keyringSet, keyringDelete = savedLookup, savedSet, savedDelete }
+func UseKeyringSeams(lookup func(string) (string, bool, error), set func(string, string) error) (restore func()) {
+	savedLookup, savedSet := keyringLookup, keyringSet
+	keyringLookup, keyringSet = lookup, set
+	return func() { keyringLookup, keyringSet = savedLookup, savedSet }
 }
 
 // testHookAfterKey runs right after UpdateSealed selects a key and before it opens the sealing

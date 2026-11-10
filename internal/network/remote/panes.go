@@ -259,6 +259,17 @@ func OutputCapped(cmd *exec.Cmd) ([]byte, error) {
 	return stdout.buf.Bytes(), err
 }
 
+// combinedOutputCapped is cmd.CombinedOutput() with the output held to maxCaptureBytes, like OutputCapped.
+func combinedOutputCapped(cmd *exec.Cmd) ([]byte, error) {
+	out := &capBuffer{max: maxCaptureBytes}
+	cmd.Stdout, cmd.Stderr = out, out // one writer, so exec feeds both streams through a single copier
+	err := cmd.Run()
+	if out.over {
+		return out.buf.Bytes(), fmt.Errorf("output over %d bytes", out.max)
+	}
+	return out.buf.Bytes(), err
+}
+
 // capturePanes captures every cc-* pane on host via run; over captureTimeout, maxCaptureBytes or maxPanes errors.
 func capturePanes(ctx context.Context, host string, local, batch bool, run paneRunner) ([]paneCapture, error) {
 	cctx, cancel := context.WithTimeout(ctx, captureTimeout)

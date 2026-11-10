@@ -5,10 +5,11 @@ package setup
 import (
 	"context"
 	"errors"
-	"github.com/edotau/claude-code/internal/memory"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memory"
 )
 
 // openMemoryFiles retains state if lsof is missing or cannot inspect open descriptors.

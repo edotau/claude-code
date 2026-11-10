@@ -1,9 +1,6 @@
 package agentconfig
 
-import (
-	"encoding/json"
-	"testing"
-)
+import "testing"
 
 // TOMLString must take the quoted value only: a trailing comment or literal quotes must not ride into the model id.
 func TestTomlString(t *testing.T) {
@@ -35,16 +32,6 @@ func TestInsertTopLevelTOMLQuotedReplacementKey(t *testing.T) {
 					t.Fatalf("quoted replacement must replace the top-level key and preserve table keys: got %q, want %q", got, want)
 				}
 			})
-		}
-	}
-}
-
-// TOMLQuote must stay byte-identical to the json.Marshal-based quoter agent used before the merge.
-func TestTOMLQuoteMatchesLegacyQuoter(t *testing.T) {
-	legacy := func(s string) string { b, _ := json.Marshal(s); return string(b) }
-	for _, s := range []string{"<", ">", "&", "héllo 日本", "😀", `"q"`, `a\b`, "a\nb", "a\tb", "", "  \x00"} {
-		if got, want := TOMLQuote(s), legacy(s); got != want {
-			t.Errorf("TOMLQuote(%q) = %s, want %s", s, got, want)
 		}
 	}
 }

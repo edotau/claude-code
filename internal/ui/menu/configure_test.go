@@ -19,10 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// runKeysCheck drives runKeysChanged directly the way Run's Sections walk used to before `keys` was
-// removed from Sections: --check/piped is still read-only here (resolveKey/runAuthOption never fire
-// for an absent key when o.Check or !o.Interactive), so this reproduces the old `Run(opts, "keys")`
-// behavior without going through the removed section name. !allOK maps to the CLI's old rc 1.
+// runKeysCheck drives the read-only (--check/piped) keys report; !allOK maps to rc 1.
 func runKeysCheck(t *testing.T, o Options) (out bytes.Buffer, rc int) {
 	t.Helper()
 	reg, err := providers.Load()
@@ -146,6 +143,12 @@ func TestResolveKeyOffersLoginAndKeyThenStoresPastedKey(t *testing.T) {
 	}
 	assertContainsAll(t, out.String(), []string{"Browser login — openai login? [Y/n]", "Paste API key — create at platform.openai.com/api-keys"})
 }
+
+// discardWriter is an io.Writer that throws away everything written to it (dialog.out needs one when
+// a test never asserts on dialog output).
+type discardWriter struct{}
+
+func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
 
 // assertContainsAll requires every want to appear in the dialog output got.
 func assertContainsAll(t *testing.T, got string, wants []string) {
@@ -393,6 +396,8 @@ func TestHomeExtraRowsFitEightyColumns(t *testing.T) {
 		{Name: "tailscale", State: "not connected", Check: "a-long-hostname-01 · no admin key", Run: nil},
 		{Name: "web search", State: "no key", Check: "mcp: claude,codex", Run: nil},
 		{Name: "browsers", State: "default chrome", Check: "12 installed", Run: nil},
+		{Name: "databricks", State: "prod · oauth-m2m", Check: "expires in 119m", Run: nil},
+		{Name: "databricks", State: "prod · oauth-m2m", Check: "expires in 23h59m", Run: nil},
 	}
 	rows = append(rows, settingsRows(&dialog{})...)
 	laid, _ := RowsOf(rows)
@@ -441,17 +446,9 @@ func TestTierRowsFitEightyColumns(t *testing.T) {
 	}
 }
 
-// TestDatabricksRowsFitEightyColumns: the home row at its worst state text and every page/env/apply row stay <=80 cols.
+// TestDatabricksRowsFitEightyColumns: the live home row and every page/env/apply row stay <=80 cols.
 func TestDatabricksRowsFitEightyColumns(t *testing.T) {
 	menuTestEnv(t)
-	rows := []homeRow{{Name: "databricks", State: "prod · oauth-m2m", Check: "expires in 119m", Run: nil}, {Name: "databricks", State: "prod · oauth-m2m", Check: "expires in 23h59m", Run: nil}}
-	rows = append(rows, settingsRows(&dialog{})...)
-	laid, _ := RowsOf(rows)
-	for _, r := range laid {
-		if w := 2 + len([]rune("environment")) + 2 + len([]rune(r[1])); w > 80 {
-			t.Errorf("%s row is %d columns: %q", r[0], w, r[1])
-		}
-	}
 	d := dbxEnv(t)
 	if row := databricksRow(d); 2+len([]rune("environment"))+2+len([]rune(row.State))+2+len([]rune(row.Check)) > 80 {
 		t.Errorf("live databricks row too wide: %+v", row)

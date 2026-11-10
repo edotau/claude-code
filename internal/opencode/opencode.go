@@ -358,9 +358,9 @@ const OwnLogin = "zen-free"
 // opencodeConfigEnv is the env var carrying opencode's inline JSON config.
 const opencodeConfigEnv = "OPENCODE_CONFIG_CONTENT"
 
-// opencodeNoModelsFetch skips opencode's startup models.dev fetch; set only when the inline config defines the models.
 const opencodePermissionEnv = "OPENCODE_PERMISSION"
 
+// opencodeNoModelsFetch skips opencode's startup models.dev fetch; set only when the inline config defines the models.
 const opencodeNoModelsFetch = "OPENCODE_DISABLE_MODELS_FETCH"
 
 // modelsDefined adds opencodeNoModelsFetch=1 unless the user's shell already sets it (their value wins).

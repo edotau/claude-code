@@ -247,11 +247,6 @@ func (c ctxReader) Read(p []byte) (int, error) {
 	return c.r.Read(p)
 }
 
-// parseCodexSession is parseCodexSessionCtx without a budget.
-func parseCodexSession(path string, cutoff time.Time, fallbackDay string) codexSessionSummary {
-	return parseCodexSessionCtx(context.Background(), path, cutoff, fallbackDay)
-}
-
 // parseCodexSessionCtx streams one session jsonl. Every token_count line carries the session's cumulative totals,
 // so a line's own usage is its growth over the previous line; only lines stamped at or after cutoff count (a zero
 // cutoff counts all), each dated to its own local day. A line with no RFC3339 stamp counts on fallbackDay. The
@@ -525,12 +520,12 @@ func opencodeUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	}
 	sortModelsByTokens(models)
 
-	daily := fetchDailyBuckets(ctx, dbPath, dailyQ, opencodeSqliteCmd)
+	daily, note := fetchDailyBuckets(ctx, dbPath, dailyQ, opencodeSqliteCmd)
 
 	t := totals[0]
 	mix := tokenMix{Input: t.Input, Output: t.Output, CacheRead: t.CacheRead, CacheWrite: t.CacheWrite}
 	return agentUsage{Agent: "opencode", Sessions: t.Session, Turns: t.Turns, Tokens: t.Tokens, CostUSD: t.CostUSD, Models: models,
-		Mix: mixPtr(mix), Daily: daily, ActiveDays: len(daily)}
+		Mix: mixPtr(mix), Daily: daily, ActiveDays: len(daily), Note: note}
 }
 
 // opencodeQueries builds the totals, per-model and per-day queries over assistant messages created at or after cutoffMs.
@@ -554,20 +549,15 @@ func opencodeQueries(cutoffMs int64) (totalsQ, modelsQ, dailyQ string) {
 	return totalsQ, modelsQ, dailyQ
 }
 
-// fetchDailyBuckets runs a GROUP BY date query shaped exactly like []dailyBucket ({date,tokens,turns})
-// and returns it sorted ascending; any failure (sqlite3 error, bad JSON) yields an empty, not a panic.
-func fetchDailyBuckets(ctx context.Context, dbPath, query string, run func(context.Context, string, string) ([]byte, error)) []dailyBucket {
-	out, err := run(ctx, dbPath, query)
-	if err != nil {
-		return nil
-	}
-	var daily []dailyBucket
-	if json.Unmarshal(out, &daily) != nil {
-		return nil
+// fetchDailyBuckets runs a GROUP BY date query into ascending []dailyBucket; a failure returns a note instead.
+func fetchDailyBuckets(ctx context.Context, dbPath, query string, run func(context.Context, string, string) ([]byte, error)) ([]dailyBucket, string) {
+	daily, note := sqliteRows[dailyBucket](ctx, run, dbPath, query, true)
+	if note != "" {
+		return nil, "daily series: " + note
 	}
 	daily = slices.DeleteFunc(daily, func(d dailyBucket) bool { return d.Date == "" })
 	slices.SortFunc(daily, func(a, b dailyBucket) int { return cmp.Compare(a.Date, b.Date) })
-	return daily
+	return daily, ""
 }
 
 // copilotDBPath honors COPILOT_HOME, else ~/.copilot/session-store.db.
@@ -651,12 +641,12 @@ func copilotUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	}
 	sortModelsByTokens(byModel)
 
-	daily := fetchDailyBuckets(ctx, dbPath, dailyQ, copilotSqliteCmd)
+	daily, note := fetchDailyBuckets(ctx, dbPath, dailyQ, copilotSqliteCmd)
 
 	t := totals[0]
 	mix := tokenMix{Input: t.Input, Output: t.Output, CacheRead: t.CacheRead, CacheWrite: t.CacheWrite}
 	return agentUsage{Agent: "copilot", Sessions: t.Session, Turns: t.Turns, Tokens: t.Tokens, Models: byModel,
-		Mix: mixPtr(mix), Daily: daily, ActiveDays: len(daily)}
+		Mix: mixPtr(mix), Daily: daily, ActiveDays: len(daily), Note: note}
 }
 
 // printAgentsSection renders one total row per agent plus an indented row per model it used.

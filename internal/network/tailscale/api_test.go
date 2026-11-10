@@ -13,7 +13,7 @@ import (
 // staticClient wires a Client at ts.URL with a fixed bearer, bypassing credential resolution.
 func staticClient(ts *httptest.Server, bearer string) *Client {
 	return &Client{
-		BaseURL: ts.URL, Tailnet: "-", HTTP: ts.Client(),
+		BaseURL: ts.URL, HTTP: ts.Client(),
 		token: func(context.Context) (string, error) { return bearer, nil },
 	}
 }
@@ -125,7 +125,7 @@ func TestRequestRemintsOnceOn401(t *testing.T) {
 	}))
 	defer ts.Close()
 	mints := 0
-	c := &Client{BaseURL: ts.URL, Tailnet: "-", HTTP: ts.Client(), token: func(ctx context.Context) (string, error) {
+	c := &Client{BaseURL: ts.URL, HTTP: ts.Client(), token: func(ctx context.Context) (string, error) {
 		mints++
 		if force, _ := ctx.Value(forceRefreshKey{}).(bool); force {
 			return "fresh", nil
@@ -240,7 +240,7 @@ func TestParseKeyExpiry(t *testing.T) {
 			t.Errorf("ParseKeyExpiry(%q) = (%v, %v), want %v", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"xd", "soon", ""} {
+	for _, bad := range []string{"xd", "soon", "", "-5d", "-1h"} {
 		if _, err := parseKeyExpiry(bad); err == nil {
 			t.Errorf("ParseKeyExpiry(%q) accepted", bad)
 		}

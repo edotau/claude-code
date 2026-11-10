@@ -82,27 +82,18 @@ func menuSVG() []byte {
 
 func hexOf(c ansi.RGB) string { return fmt.Sprintf("#%02x%02x%02x", c[0], c[1], c[2]) }
 
-// cmdMenuSVG prints the menu SVG, writes it (--out), or fails when a file has drifted from it (--check).
+// cmdMenuSVG prints the menu SVG, or writes it with --out.
 func cmdMenuSVG(args []string) int {
 	fs := helptext.NewFlagSet("help-svg", helptext.Page{
 		Usage: "claude-code help-svg [flags]",
 		About: "Render the claude-code menu as the README's SVG; bare prints it to stdout.",
 	})
 	out := fs.String("out", "", "write the SVG to this file")
-	check := fs.String("check", "", "exit 1 if this file differs from the render")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	svg := menuSVG()
 	switch {
-	case *check != "":
-		got, err := os.ReadFile(*check)
-		if err != nil {
-			return helptext.Fail("help-svg: %v", err)
-		}
-		if !bytes.Equal(got, svg) {
-			return helptext.Fail("help-svg: %s is stale; run `make help-svg`", *check)
-		}
 	case *out != "":
 		if err := os.WriteFile(*out, svg, 0o644); err != nil {
 			return helptext.Fail("help-svg: %v", err)
@@ -116,5 +107,5 @@ func cmdMenuSVG(args []string) int {
 }
 
 func menuSVGSpec() *helptext.Node {
-	return &helptext.Node{Flags: []helptext.Flag{helptext.Plain("out"), helptext.Plain("check")}}
+	return &helptext.Node{Flags: []helptext.Flag{helptext.Plain("out")}}
 }

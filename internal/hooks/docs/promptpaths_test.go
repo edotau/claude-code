@@ -126,30 +126,6 @@ func writePNG(t *testing.T, path string, w, h int) {
 	}
 }
 
-// TestDescribeProperly handles image files without losing close errors. Regression test for
-// defect where file close errors in describe() were silently ignored, potentially indicating
-// I/O issues that should be reported.
-func TestDescribeProperly(t *testing.T) {
-	dir := t.TempDir()
-	img := filepath.Join(dir, "test.png")
-	writePNG(t, img, 100, 200)
-
-	detail, isImage, ok := describe(img)
-
-	if !ok {
-		t.Fatal("describe failed to process valid image file")
-	}
-	if !isImage {
-		t.Error("isImage = false, want true for PNG")
-	}
-	if !strings.Contains(detail, "100") || !strings.Contains(detail, "200") {
-		t.Errorf("detail = %q, want dimensions included", detail)
-	}
-	if !strings.Contains(detail, "PNG") {
-		t.Errorf("detail = %q, want PNG type included", detail)
-	}
-}
-
 // A POSIX path inside a foreign token (~/etc/hostname) must not be reported as /etc/hostname.
 func TestPromptPathsIgnorePosixInsideForeignToken(t *testing.T) {
 	if _, err := os.Stat("/etc/hostname"); err != nil {

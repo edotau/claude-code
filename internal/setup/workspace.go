@@ -196,7 +196,7 @@ func workspaceIgnoreAction(root string) workspaceAction {
 	path := filepath.Join(root, ".gitignore")
 	has, err := workspaceHasIgnore(path)
 	if err != nil {
-		return workspaceAction{verb: "error", path: path, apply: func() error { return err }}
+		return workspaceErrorAction(path, err)
 	}
 	if has {
 		return workspaceAction{verb: "keep", path: path}
@@ -359,8 +359,11 @@ func workspaceStatusKind(dot, kind string, out io.Writer) error {
 // workspaceEntryState classifies one entry: a symlink is linked; a local copy whose name also exists
 // globally shadows it; anything else is local.
 func workspaceEntryState(kind, rel, p string) (state, target string, err error) {
-	if fi, err := os.Lstat(p); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-		t, _ := os.Readlink(p)
+	if fi, lerr := os.Lstat(p); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+		t, rerr := os.Readlink(p)
+		if rerr != nil {
+			return "", "", rerr
+		}
 		return "linked", "  → " + t, nil
 	}
 	shadows, err := workspaceExists(filepath.Join(paths.ConfigDir(), kind, rel))

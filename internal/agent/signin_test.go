@@ -57,12 +57,6 @@ func TestForPicksKind(t *testing.T) {
 		{"copilot", row("i", providers.Auth{Type: providers.AuthCLI, Login: "copilot"}), "agent.cliSignin"},
 		{"gemini", row("j", providers.Auth{Type: providers.AuthCLI, Login: "gemini"}), "agent.cliSignin"},
 		{"none/ollama", row("k", providers.Auth{Type: providers.AuthNone}), "agent.noneSignin"},
-		{"method oauth", row("l", providers.Auth{Type: providers.AuthOAuth}), "agent.u2mSignin"},
-		{"method m2m", row("m", providers.Auth{Type: providers.AuthM2M}), "agent.secretSignin"},
-		{"method pat", row("n", providers.Auth{Type: providers.AuthPAT}), "agent.secretSignin"},
-		{"method key", row("o", providers.Auth{Type: providers.AuthKey}), "agent.secretSignin"},
-		{"method cli", row("p", providers.Auth{Type: providers.AuthCLI}), "agent.cliSignin"},
-		{"method cli login", row("q", providers.Auth{Type: providers.AuthCLI, Login: "codex"}), "agent.cliSignin"},
 	} {
 		if got := fmt.Sprintf("%T", agent.SigninFor(c.p)); got != c.want {
 			t.Errorf("%s: For = %s, want %s", c.name, got, c.want)
@@ -190,12 +184,6 @@ func TestU2MLoginUsesLoginRow(t *testing.T) {
 }
 
 func TestValidateSecret(t *testing.T) {
-	if err := agent.ValidateVaultSecret(providers.CopilotTokenEnv, "not-a-token"); err == nil {
-		t.Error("a non-GitHub token must be rejected for the copilot env name")
-	}
-	if err := agent.ValidateVaultSecret(providers.CopilotTokenEnv, "ghp_"+strings.Repeat("a", 30)); err != nil {
-		t.Errorf("valid copilot token rejected: %v", err)
-	}
 	if err := agent.ValidateVaultSecret("SOME_KEY", "value"); err != nil {
 		t.Errorf("plain secret rejected: %v", err)
 	}

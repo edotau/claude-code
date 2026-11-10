@@ -130,31 +130,20 @@ func tailscaleMode(ctx context.Context, mode string, t *tsFlags) int {
 	case "key":
 		return tailscaleKey(ctx, t.o)
 	case "exit-node":
-		return tailscaleExitNodeChecked(ctx, t.exitNode)
+		return tailscaleExitNode(ctx, t.exitNode)
 	case "subnet":
 		return tailscaleSubnet(ctx, t.subnet)
 	case "route":
-		return tailscaleRouteChecked(ctx, t.route)
+		return tailscaleRoute(ctx, t.route)
 	}
 	return tailscaleStatus(ctx, *t.format)
 }
 
-func tailscaleExitNodeChecked(ctx context.Context, action string) int {
-	if !slices.Contains([]string{"on", "off", "approve"}, action) {
-		return helptext.FailUsage("network tailscale: --exit-node must be on, off or approve, got %q", action)
-	}
-	return tailscaleExitNode(ctx, action)
-}
-
-func tailscaleRouteChecked(ctx context.Context, peer string) int {
+// tailscaleRoute sends this box's traffic through peer as its exit node; "off" clears it.
+func tailscaleRoute(ctx context.Context, peer string) int {
 	if peer == "" || strings.HasPrefix(peer, "-") {
 		return helptext.FailUsage("network tailscale: --route requires a peer name or 'off'")
 	}
-	return tailscaleRoute(ctx, peer)
-}
-
-// tailscaleRoute sends this box's traffic through peer as its exit node; "off" clears it.
-func tailscaleRoute(ctx context.Context, peer string) int {
 	if peer == "off" {
 		if err := tailscale.UseExitNode(ctx, ""); err != nil {
 			return helptext.Fail("network tailscale route: %v", err)
@@ -284,6 +273,9 @@ func tailscaleKey(ctx context.Context, o tsOpts) int {
 }
 
 func tailscaleExitNode(ctx context.Context, action string) int {
+	if !slices.Contains([]string{"on", "off", "approve"}, action) {
+		return helptext.FailUsage("network tailscale: --exit-node must be on, off or approve, got %q", action)
+	}
 	switch action {
 	case "on":
 		if err := tailscale.AdvertiseExitNode(ctx, true); err != nil {

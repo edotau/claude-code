@@ -181,24 +181,29 @@ func RosterNames() []string {
 func Roster() []Schema {
 	rs := rows()
 	for i := range rs {
-		s := &rs[i]
-		s.Tools = slices.Clone(s.Tools)
-		s.CLI.Dialects = slices.Clone(s.CLI.Dialects)
-		s.CLI.RouterSuffix = maps.Clone(s.CLI.RouterSuffix)
-		s.CLI.Events = slices.Clone(s.CLI.Events)
-		s.CLI.ModelsArgv = slices.Clone(s.CLI.ModelsArgv)
-		s.CLI.PinIDs = slices.Clone(s.CLI.PinIDs)
-		s.CLI.LoginArgv = slices.Clone(s.CLI.LoginArgv)
-		s.CLI.ExtraUsage = slices.Clone(s.CLI.ExtraUsage)
+		rs[i] = cloneSchema(rs[i])
 	}
 	return rs
 }
 
+// cloneSchema returns s with its slice and map fields copied, so a caller cannot mutate the registry.
+func cloneSchema(s Schema) Schema {
+	s.Tools = slices.Clone(s.Tools)
+	s.CLI.Dialects = slices.Clone(s.CLI.Dialects)
+	s.CLI.RouterSuffix = maps.Clone(s.CLI.RouterSuffix)
+	s.CLI.Events = slices.Clone(s.CLI.Events)
+	s.CLI.ModelsArgv = slices.Clone(s.CLI.ModelsArgv)
+	s.CLI.PinIDs = slices.Clone(s.CLI.PinIDs)
+	s.CLI.LoginArgv = slices.Clone(s.CLI.LoginArgv)
+	s.CLI.ExtraUsage = slices.Clone(s.CLI.ExtraUsage)
+	return s
+}
+
 // LookupSchema returns a roster row by name, claude included.
 func LookupSchema(name string) (Schema, bool) {
-	for _, s := range Roster() {
+	for _, s := range rows() {
 		if s.Name == name {
-			return s, true
+			return cloneSchema(s), true
 		}
 	}
 	return Schema{}, false

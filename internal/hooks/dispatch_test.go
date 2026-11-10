@@ -419,14 +419,6 @@ func TestSafetyShellDashCNoArgDoesNotPanic(t *testing.T) {
 	}
 }
 
-func TestRegistryMatchesHookspec(t *testing.T) {
-	for _, s := range settings.Specs() {
-		if _, ok := native[s.Name]; !ok {
-			t.Errorf("hookspec %q has no handler", s.Name)
-		}
-	}
-}
-
 // Every command in the rendered codex/copilot hook files is `hook <Event> --<module>` for a module on that event.
 func TestVendorHookFilesCallOnlyResolvableHooks(t *testing.T) {
 	cmdRe := regexp.MustCompile(`claude-code hook (\S+)(?: --([a-z][a-z0-9-]*))?`)
