@@ -16,7 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/history"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/memory/memorycmd"
-	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
@@ -44,7 +43,6 @@ type command struct {
 
 // Menu groups; declaration order in commands() is the display order.
 const (
-	groupAnthropic   = "ANTHROPIC"
 	groupAgents      = "AGENTS"
 	groupAuth        = "AUTH"
 	groupSession     = "SESSION"
@@ -52,18 +50,13 @@ const (
 	groupSettings    = "SETTINGS"
 )
 
-// alphabetical groups list their verbs A→Z; ANTHROPIC (alias order) and AGENTS keep declaration order.
+// alphabetical groups list their verbs A→Z; AGENTS keeps declaration order.
 var alphabetical = map[string]bool{groupAuth: true, groupSession: true, groupDiagnostics: true, groupSettings: true}
 
 func commands() []command {
 	return append([]command{
 		// AGENTS — launch an agent CLI; `ask` runs one task headlessly.
-		{name: "opus", group: groupAnthropic, summary: "high reasoning: deep architecture · $$$", run: agentcmd.AliasVerb(models.Opus)},
-		{name: "sonnet", group: groupAnthropic, summary: "everyday coding, reviews, subagents · $$", run: agentcmd.AliasVerb(models.Sonnet)},
-		{name: "haiku", group: groupAnthropic, summary: "quick lookups, mechanical edits · $ fastest", run: agentcmd.AliasVerb(models.Haiku)},
-		{name: "fable", group: groupAnthropic, summary: "separate frontier family; main-session default · $$$$", run: agentcmd.AliasVerb(models.Fable)},
-		{name: "anthropic", group: groupAnthropic, hidden: true, summary: "first-party Claude: login, --oauth token or --x-api-key", run: agentcmd.Anthropic, spec: agentcmd.AnthropicSpec},
-		{name: "science", group: groupAnthropic, summary: "Claude for Life Sciences, own login (--print-env)", run: agentcmd.Science},
+		{name: "anthropic", group: groupAgents, summary: "Claude Code: --model opus|sonnet|haiku|fable; science", run: agentcmd.Anthropic, spec: agentcmd.AnthropicSpec},
 		{name: "copilot", group: groupAgents, summary: "Copilot CLI on its own login, or your Databricks profile", run: func(a []string) int { return agentcmd.AgentVerb("copilot", a) }, spec: agentcmd.AgentSpec},
 		{name: "codex", group: groupAgents, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return agentcmd.AgentVerb("codex", a) }, spec: agentcmd.AgentSpec},
 		{name: "gemini", group: groupAgents, summary: "Gemini CLI; 1M-context sweeps (ask --dirs)", run: func(a []string) int { return agentcmd.AgentVerb("gemini", a) }, spec: agentcmd.AgentSpec},

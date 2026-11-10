@@ -35,7 +35,7 @@ func TestVaultListSections(t *testing.T) {
 		})
 	}
 	for _, names := range [][]string{{"bogus"}, {"all", "bogus"}, {"bogus", "all"}} {
-		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run(append([]string{"list"}, names...)) })
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run(append([]string{"ls"}, names...)) })
 		if code != 2 || !strings.Contains(stderr, "bogus") {
 			t.Errorf("unknown section %v: exit %d, missing invalid-name hint=%v",
 				names, code, !strings.Contains(stderr, "bogus"))
@@ -43,11 +43,11 @@ func TestVaultListSections(t *testing.T) {
 	}
 }
 
-// listRunner runs `vault list --format format <names>`, failing on a non-zero exit or a leaked raw value.
+// listRunner runs `vault ls --format format <names>`, failing on a non-zero exit or a leaked raw value.
 func listRunner(t *testing.T, format string) func(names ...string) string {
 	return func(names ...string) string {
 		t.Helper()
-		args := append([]string{"list", "--format", format}, names...)
+		args := append([]string{"ls", "--format", format}, names...)
 		code, stdout, _ := hosttest.CaptureOutput(t, func() int { return Run(args) })
 		if code != 0 {
 			t.Fatalf("list sections %v exit %d", names, code)
@@ -111,7 +111,7 @@ func TestVaultListProviderAndVendorTables(t *testing.T) {
 		"_comment":"omit-this-comment","launch":{"env":{"FAKE_ENV":"enabled"},"args":["--fake"]},
 		"future":{"enabled":true}}}}`)
 	code, stdout, _ := hosttest.CaptureOutput(t, func() int {
-		return Run([]string{"list", "providers", "routing", "agents", "--format", "text"})
+		return Run([]string{"ls", "providers", "routing", "agents", "--format", "text"})
 	})
 	if code != 0 {
 		t.Fatalf("list tables exit %d", code)
@@ -139,7 +139,7 @@ func TestVaultListNestedOverlayRowsPerProfileNoPlans(t *testing.T) {
 		"databricks":{"dev":{"auth":{"type":"none"},"models":{"opus":"o1"}},"qa":{"auth":{"type":"none"}}},
 		"local":{"ollama":null}, "github":{"empty":{}}},
 		"agentPlans":{"copilot":[{"tier":"standard","id":"fake-plan"}]}}`)
-	code, stdout, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"list", "providers", "--format", "text"}) })
+	code, stdout, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"ls", "providers", "--format", "text"}) })
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -153,22 +153,22 @@ func TestVaultListNestedOverlayRowsPerProfileNoPlans(t *testing.T) {
 		t.Errorf("PLANS, KIND and all-empty columns must be hidden:\n%s", stdout)
 	}
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"local":{"ollama":null},"github":{"empty":{}}}}`)
-	_, stdout, _ = hosttest.CaptureOutput(t, func() int { return Run([]string{"list", "--format", "text"}) })
+	_, stdout, _ = hosttest.CaptureOutput(t, func() int { return Run([]string{"ls", "--format", "text"}) })
 	if strings.Contains(stdout, "PROVIDERS") {
 		t.Errorf("a section with only empty/removed rows must not render:\n%s", stdout)
 	}
 }
 
-// A secret written by vault.Store (what `vault set` uses) shows in `vault list` masked, with its length.
+// A secret written by vault.Store (what `vault set` uses) shows in `vault ls` masked, with its length.
 func TestVaultListShowsStoredSecretMasked(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	const val = "abcdefghijklmnopqrstuvwxyz0123"
 	if err := vault.Store("ZZ_STORE_SECRET", val); err != nil {
 		t.Fatal(err)
 	}
-	code, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"list", "secrets", "--format", "json"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"ls", "secrets", "--format", "json"}) })
 	if code != 0 || strings.Contains(out, val) {
-		t.Fatalf("vault list: %d (raw value leaked: %v)", code, strings.Contains(out, val))
+		t.Fatalf("vault ls: %d (raw value leaked: %v)", code, strings.Contains(out, val))
 	}
 	var doc struct {
 		Secrets []struct {
@@ -177,7 +177,7 @@ func TestVaultListShowsStoredSecretMasked(t *testing.T) {
 		} `json:"secrets"`
 	}
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
-		t.Fatalf("vault list output not JSON: %v\n%s", err, out)
+		t.Fatalf("vault ls output not JSON: %v\n%s", err, out)
 	}
 	for _, e := range doc.Secrets {
 		if e.Name == "ZZ_STORE_SECRET" {
@@ -187,7 +187,7 @@ func TestVaultListShowsStoredSecretMasked(t *testing.T) {
 			return
 		}
 	}
-	t.Fatalf("ZZ_STORE_SECRET missing from vault list: %s", out)
+	t.Fatalf("ZZ_STORE_SECRET missing from vault ls: %s", out)
 }
 
 // Captured output defaults to JSON with masked secrets alongside Export's sections.
@@ -198,9 +198,9 @@ func TestVaultListDefaultIsJSONUnderCaptureOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"list"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"ls"}) })
 	if code != 0 {
-		t.Fatalf("vault list = %d, stderr = %q", code, stderr)
+		t.Fatalf("vault ls = %d, stderr = %q", code, stderr)
 	}
 	checkVaultListJSON(t, stdout, want)
 }
@@ -213,9 +213,9 @@ func TestVaultListFormatJSONMatchesExport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"list", "--format", "json"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"ls", "--format", "json"}) })
 	if code != 0 {
-		t.Fatalf("vault list --format json = %d, stderr = %q", code, stderr)
+		t.Fatalf("vault ls --format json = %d, stderr = %q", code, stderr)
 	}
 	checkVaultListJSON(t, stdout, want)
 }
@@ -280,9 +280,9 @@ func checkSecretRow(t *testing.T, row map[string]json.RawMessage) {
 // or a silent fallback.
 func TestVaultListFormatBogusExitsTwo(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"list", "--format", "bogus"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"ls", "--format", "bogus"}) })
 	if code != 2 {
-		t.Fatalf("vault list --format bogus = %d, want 2; stderr = %q", code, stderr)
+		t.Fatalf("vault ls --format bogus = %d, want 2; stderr = %q", code, stderr)
 	}
 	if !strings.Contains(stderr, `"bogus"`) {
 		t.Errorf("stderr = %q, want it to name the bad --format value", stderr)
@@ -306,12 +306,12 @@ func seedVaultListFixture(t *testing.T) {
 func TestVaultListTextFixtureFlattensEverySection(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	seedVaultListFixture(t)
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"list", "--format", "text"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"ls", "--format", "text"}) })
 	if strings.Contains(stdout+stderr, "tvly-dev-secret-leak-me-not") {
-		t.Fatal("vault list leaked a raw secret value")
+		t.Fatal("vault ls leaked a raw secret value")
 	}
 	if code != 0 {
-		t.Fatalf("vault list --format text = %d, stderr = %q", code, stderr)
+		t.Fatalf("vault ls --format text = %d, stderr = %q", code, stderr)
 	}
 	for _, head := range []string{"PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"} {
 		if !strings.Contains(stdout, head+"\n") {
@@ -360,23 +360,23 @@ func vaultTextHasRow(stdout, key, value string) bool {
 // A bare list hides empty sections; named sections still render (none), including absent overlay documents.
 func TestVaultListTextEmptyVaultAllSectionsNone(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"list", "--format", "text"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"ls", "--format", "text"}) })
 	if code != 0 || !strings.HasPrefix(stdout, "  AGENT\n  claude\n") {
-		t.Fatalf("bare vault list = %d %q (stderr %q), want 0 and only the AGENT table", code, stdout, stderr)
+		t.Fatalf("bare vault ls = %d %q (stderr %q), want 0 and only the AGENT table", code, stdout, stderr)
 	}
-	named := append([]string{"list"}, Sections...)
+	named := append([]string{"ls"}, Sections...)
 	code, stdout, stderr = hosttest.CaptureOutput(t, func() int { return Run(append(named[:len(named)-1], "--format", "text")) })
 	if code != 0 {
-		t.Fatalf("vault list <sections> = %d, stderr = %q", code, stderr)
+		t.Fatalf("vault ls <sections> = %d, stderr = %q", code, stderr)
 	}
 	for _, head := range []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "SETTINGS"} {
 		if !strings.Contains(stdout, head+"\n  (none)\n") {
 			t.Errorf("stdout = %q, want %s rendered as (none)", stdout, head)
 		}
 	}
-	code, stdout, _ = hosttest.CaptureOutput(t, func() int { return Run([]string{"list", "vault", "--format", "text"}) })
+	code, stdout, _ = hosttest.CaptureOutput(t, func() int { return Run([]string{"ls", "vault", "--format", "text"}) })
 	if code != 0 || stdout != "VAULT\n  (none)\n" {
-		t.Errorf("vault list vault = %d %q, want VAULT rendered as (none) when key_command is unset", code, stdout)
+		t.Errorf("vault ls vault = %d %q, want VAULT rendered as (none) when key_command is unset", code, stdout)
 	}
 }
 
@@ -386,9 +386,9 @@ func TestVaultListTextTruncatesToWidth(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	vaulttest.Put(t, vault.Env, "LONG_ENV_NAME_FOR_WIDTH_TEST", strings.Repeat("x", 200))
 	t.Setenv("COLUMNS", "40")
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"list", "--format", "text"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"ls", "--format", "text"}) })
 	if code != 0 {
-		t.Fatalf("vault list --format text = %d, stderr = %q", code, stderr)
+		t.Fatalf("vault ls --format text = %d, stderr = %q", code, stderr)
 	}
 	for line := range strings.SplitSeq(stdout, "\n") {
 		if n := utf8.RuneCountInString(line); n > 40 {

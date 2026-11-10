@@ -15,11 +15,11 @@ import (
 )
 
 var vaultPage = helptext.Page{
-	Usage: "claude-code vault <command> [flags]",
+	Usage: "claude-code vault [<command>] [flags]",
 	About: "The encrypted store (state/vault.db): sealed secrets, pins, env, and the\n" +
 		"profile and agent overlays. Values print only through get.",
 	Commands: [][2]string{
-		{"list", "everything stored, secrets first (masked); --format json"},
+		{"ls", "everything stored, secrets first (masked); bare vault runs it"},
 		{"set", "store a secret; bare opens a guided dialog; --tailscale"},
 		{"get", "print secret values; --export for shell, --key for master"},
 		{"delete", "remove a secret"},
@@ -33,19 +33,17 @@ var vaultPage = helptext.Page{
 
 // vaultVerbs is the vault subcommand table.
 var vaultVerbs = map[string]func(args []string) int{
-	"list": vaultList, "set": cmdVaultSet, "get": cmdVaultGet, "delete": cmdVaultDelete,
+	"ls": vaultList, "set": cmdVaultSet, "get": cmdVaultGet, "delete": cmdVaultDelete,
 	"import": cmdVaultImport, "export": cmdVaultExport, "edit": configEdit, "rotate-secret": configRotateKey,
 }
 
 // Run reads and edits the vault's non-secret config through one JSON document.
 func Run(args []string) int {
-	sub := ""
-	if len(args) > 0 {
-		sub = args[0]
-		args = args[1:]
+	if len(args) == 0 || (strings.HasPrefix(args[0], "-") && !helptext.WantsHelp(args[:1])) {
+		return vaultList(args) // bare `vault` (or a leading flag) is `vault ls`
 	}
-	switch sub {
-	case "", "-h", "--help", "help":
+	sub, args := args[0], args[1:]
+	if sub == "-h" || sub == "--help" || sub == "help" {
 		vaultPage.Fprint(os.Stdout)
 		return 0
 	}

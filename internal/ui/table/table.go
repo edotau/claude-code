@@ -1,4 +1,4 @@
-// Package table renders plain-text, column-aligned tables for list views (vault list, usage, quotas).
+// Package table renders plain-text, column-aligned tables for list views (vault ls, usage, quotas).
 package table
 
 import (

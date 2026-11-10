@@ -70,8 +70,8 @@ func ParseAnthropicArgs(args []string) (AnthropicOptions, []string, error) {
 	if err != nil {
 		return o, nil, err
 	}
-	if base.Provider != "" {
-		return o, nil, errors.New("anthropic picks its own profile; drop --profile (or use claude-code opus --profile ...)")
+	if base.Provider != "" && o.Mode != AuthLogin {
+		return o, nil, errors.New("--profile picks the profile's own credential; drop --oauth/--x-api-key")
 	}
 	o.LaunchOptions = base
 	return o, rest, nil

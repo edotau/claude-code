@@ -1,4 +1,4 @@
-// Package vaultcmd renders `vault list`: the text sections, provider and agent tables, and the JSON document.
+// Package vaultcmd renders `vault ls`: the text sections, provider and agent tables, and the JSON document.
 package vaultcmd
 
 import (
@@ -364,7 +364,7 @@ func vaultRoutingText(raw json.RawMessage, width int) string {
 	return b.String()
 }
 
-// vaultRoutingJSON is `vault list --format json`'s "routing" value: the providers overlay's nested
+// vaultRoutingJSON is `vault ls --format json`'s "routing" value: the providers overlay's nested
 // routing object, or null when the overlay carries none.
 func vaultRoutingJSON(providersRaw json.RawMessage) (json.RawMessage, error) {
 	if s := strings.TrimSpace(string(providersRaw)); s == "" || s == "null" {

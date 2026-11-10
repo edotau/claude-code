@@ -14,7 +14,7 @@ func Spec() *completion.Node {
 	flag, boolFlag, formatFlag := completion.Plain, completion.BoolFlag, completion.FormatFlag
 	secretNames := providers.SecretNames
 	return &completion.Node{Sub: map[string]*completion.Node{
-		"list": {Args: []func() []string{vaultSections}, Flags: []completion.Flag{boolFlag("tailscale"), formatFlag()}},
+		"ls": {Args: []func() []string{vaultSections}, Flags: []completion.Flag{boolFlag("tailscale"), formatFlag()}},
 		"set": {Args: []func() []string{secretNames}, Flags: []completion.Flag{boolFlag("tailscale"), boolFlag("api-key"),
 			boolFlag("dry-run")}},
 		"get":           {Args: []func() []string{secretNames}, Flags: []completion.Flag{boolFlag("export"), boolFlag("key")}},

@@ -24,8 +24,8 @@ func captureStderr(t *testing.T, f func() int) (string, int) {
 
 // BadFormat must print the prefixed one-line error and exit 2; Fail exits 1.
 func TestFailExitCodes(t *testing.T) {
-	out, code := captureStderr(t, func() int { return BadFormat("vault list", errors.New("bad")) })
-	if out != "claude-code: vault list: bad\n" || code != 2 {
+	out, code := captureStderr(t, func() int { return BadFormat("vault ls", errors.New("bad")) })
+	if out != "claude-code: vault ls: bad\n" || code != 2 {
 		t.Errorf("BadFormat = %q, %d", out, code)
 	}
 	out, code = captureStderr(t, func() int { return Fail("x %d", 1) })

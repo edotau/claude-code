@@ -53,8 +53,9 @@ func AgentsSpec() *completion.Node {
 // AnthropicSpec is the completion node for the anthropic verb.
 func AnthropicSpec() *completion.Node {
 	flag, boolFlag := completion.Plain, completion.BoolFlag
-	return &completion.Node{Flags: []completion.Flag{boolFlag("oauth"), boolFlag("x-api-key"), flag("model"),
-		boolFlag("print-env"), flag("keep-env"), flag("overlay")}}
+	return &completion.Node{Sub: map[string]*completion.Node{"science": {}},
+		Flags: []completion.Flag{boolFlag("oauth"), boolFlag("x-api-key"), flag("model"), flag("profile"),
+			boolFlag("print-env"), flag("keep-env"), flag("overlay")}}
 }
 
 // HookSpec is the completion node for the hook verb.

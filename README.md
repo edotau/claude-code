@@ -38,7 +38,7 @@ claude-code doctor            # check binaries, providers, credentials, proxy
 ![claude-code help menu](docs/images/cli-menu.svg)
 
 ```bash
-claude-code opus        # Claude Code with opus as the main model (also sonnet | haiku | fable)
+claude-code anthropic --model opus   # Claude Code, first-party (also sonnet | haiku | fable; --profile X; science)
 claude-code codex       # an agent CLI through the registry (also gemini | opencode | copilot)
 claude-code qa          # Claude Code on that registry profile
 claude-code --resume    # a leading flag passes to claude, on the session provider
@@ -127,7 +127,7 @@ a credential in the same configuration retains history.
 ### Vault
 
 `state/vault.db` holds custom launch env, provider/agent overlays and `key_command` as one JSON document, plus
-sealed secrets. `vault edit` opens it in `$EDITOR` and saves atomically; secrets never appear in it. `vault list`
+sealed secrets. `vault edit` opens it in `$EDITOR` and saves atomically; secrets never appear in it. `vault ls`
 shows secrets as `<prefix>***  N chars` and marks failing entries ✗ first (`--format json` keeps empty sections).
 
 ```jsonc
@@ -196,7 +196,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | profile | an account on a provider; carries billing | unique across all providers, `[a-z0-9-]`, opaque to code |
 | auth | how a profile proves who it is | `oauth` (user login) `m2m` (service principal) `pat` `key` `cli` (agent's own login) `none` |
 | model | what `--model` takes | an alias (`opus`, follows the table), a version (`opus-5-5`, pinned) or a full wire id |
-| proxy · router | the loopback daemon · the agent + model pick | `gateway proxy` · `gateway router` |
+| proxy · router | the loopback daemon · the agent + model pick | `gateway proxy` · `gateway` |
 | wire | the protocol a model rides (`providers.WireFor`): Claude → `anthropic`, Responses-only → `responses`, else `openai` | `anthropic` `openai` `responses` |
 | default · agent record | what the harness picks when nothing is set · the user's own choice, saved in the vault | flag beats repo last-used beats agent record beats default; no profile = off, claude always on |
 
@@ -207,7 +207,7 @@ namespace only; the Databricks wire is `ai-gateway`.
 | Surface | Form | Example |
 | --- | --- | --- |
 | Label (display) | `<agent> → <provider>·<profile>/<model>` | `copilot → databricks·dev/databricks-claude-opus-5-5` |
-| Agent record (vault) | one per agent: profile, model, effort, context, account, aliases | `vault list` AGENT table, `vault edit` → `agents.records` |
+| Agent record (vault) | one per agent: profile, model, effort, context, account, aliases | `vault ls` AGENT table, `vault edit` → `agents.records` |
 | Vault secret | the tree path flattened, stopping at auth; a profile named after its provider is written once | `DATABRICKS_PROD_OAUTH`, `ANTHROPIC_KEY` |
 
 Agent records are read from the vault, never inherited env; vendor-read env (`ANTHROPIC_*`, `CLAUDE_CODE_*`,
@@ -249,7 +249,7 @@ adds upstream headers; invalid lines are dropped, and auth, attribution and fram
 ```bash
 claude-code gateway proxy [--start|--stop|--status]   # bare = --status
 claude-code gateway proxy --serve --port 18765        # foreground
-claude-code gateway router [--model M] [--task "<text>"]   # agent + model pick
+claude-code gateway [--model M] [--task "<text>"]   # agent + model pick
 ```
 
 ## Agents

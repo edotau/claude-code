@@ -17,7 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// Sections is every `vault list` section, in print order.
+// Sections is every `vault ls` section, in print order.
 var Sections = []string{"secrets", "pins", "env", "agents", "providers", "routing", "settings", "vault"}
 
 // List writes the selected sections to out in format (helptext.JSON or helptext.Text); secrets stay masked.
@@ -75,7 +75,7 @@ func Select(names []string) ([]string, error) {
 	return sel, nil
 }
 
-// secretJSON is one masked secret in `vault list --format json`; the value never appears.
+// secretJSON is one masked secret in `vault ls --format json`; the value never appears.
 type secretJSON struct {
 	Name   string `json:"name"`
 	Masked string `json:"masked"`
@@ -175,8 +175,8 @@ func tailscaleAPIVerdict(cs []tailscale.CredState) string {
 
 // vaultList prints the selected sections (default all): secrets masked, then the vault's non-secret config.
 func vaultList(args []string) int {
-	fs := helptext.NewFlagSet("vault list", helptext.Page{
-		Usage: "claude-code vault list [<section>...|all]\n[--format text|json] [--tailscale]",
+	fs := helptext.NewFlagSet("vault ls", helptext.Page{
+		Usage: "claude-code vault ls [<section>...|all]\n[--format text|json] [--tailscale]",
 		About: "Print what the vault stores, secrets masked. Sections: " +
 			strings.Join(Sections, ", ") + "; bare or all prints every one.",
 	})
@@ -188,14 +188,14 @@ func vaultList(args []string) int {
 	}
 	if *ts {
 		if len(names) > 0 {
-			return vaultUsageErr("list", names)
+			return vaultUsageErr("ls", names)
 		}
 		Tailscale(os.Stdout)
 		return 0
 	}
 	sel, err := Select(names)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "vault list:", err)
+		fmt.Fprintln(os.Stderr, "vault ls:", err)
 		return 2
 	}
 	f := *format
@@ -206,11 +206,11 @@ func vaultList(args []string) int {
 		}
 	}
 	if err := helptext.CheckFormat(f); err != nil {
-		helptext.Fail("vault list: %v", err)
+		helptext.Fail("vault ls: %v", err)
 		return 2
 	}
 	if err := List(os.Stdout, f, sel); err != nil {
-		return helptext.Fail("vault list: %v", err)
+		return helptext.Fail("vault ls: %v", err)
 	}
 	return 0
 }
