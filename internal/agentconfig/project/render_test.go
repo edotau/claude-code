@@ -2,9 +2,12 @@ package project
 
 import (
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -137,5 +140,14 @@ func TestRenderOpenCodeAgentPermissions(t *testing.T) {
 	fm, _ := textutil.ParseFrontmatter(renderOpenCodeAgent(mk("Read")))
 	if fm["mode"] != "subagent" || fm["description"] != "d" {
 		t.Errorf("opencode frontmatter = %v, want description + mode: subagent", fm)
+	}
+}
+
+// The projection targets are exactly the roster's external agents.
+func TestTargetsAreTheExternalAgents(t *testing.T) {
+	want := append([]string(nil), agentid.External()...)
+	sort.Strings(want)
+	if got := Names(); !slices.Equal(got, want) {
+		t.Errorf("Names() = %v, want agentid.External() = %v", got, want)
 	}
 }

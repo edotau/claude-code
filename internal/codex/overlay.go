@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -24,7 +25,7 @@ type CodexField struct {
 
 func CodexFields() []CodexField {
 	return []CodexField{
-		{"model_reasoning_effort", []string{"minimal", "low", "medium", "high", "xhigh"}},
+		{"model_reasoning_effort", agentid.NativeEfforts(agentid.Codex)},
 		{"model_verbosity", []string{"low", "medium", "high"}},
 	}
 }

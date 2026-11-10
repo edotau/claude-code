@@ -16,10 +16,10 @@ import (
 
 	_ "github.com/edotau/claude-code/internal/codex" // registers the codex row the label-cell pin tests resolve
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hooks/memhook/memhooktest"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/memory/memorytest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/settings"
@@ -734,7 +734,7 @@ func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()
 	tb := &hosttest.MainTB{}
-	memhooktest.StubSpawn(tb, true)
+	memorytest.StubSpawn(tb, true)
 	wthook.PeerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
 	code := m.Run()
 	for _, f := range tb.Cleanups {

@@ -3,6 +3,8 @@ package project
 import (
 	"path/filepath"
 	"sort"
+
+	"github.com/edotau/claude-code/internal/agentid"
 )
 
 // projectionTarget is one agent CLI's native subagent surface: where it reads agents and how one is rendered.
@@ -15,10 +17,10 @@ type projectionTarget struct {
 
 // targets is every agent the sync projects agents into; skills need no per-agent table (see skills.go).
 var targets = map[string]projectionTarget{
-	"gemini":   {ext: ".md", home: sub(".gemini", "agents"), render: renderGeminiAgent, skills: GeminiSkillsDir},
-	"codex":    {ext: ".toml", home: sub(".codex", "agents"), render: renderCodexAgent},
-	"copilot":  {ext: ".md", home: sub(".copilot", "agents"), render: renderCopilotAgent, skills: CopilotSkillsDir},
-	"opencode": {ext: ".md", home: sub(".config", "opencode", "agents"), render: renderOpenCodeAgent},
+	agentid.Gemini:   {ext: ".md", home: sub(".gemini", "agents"), render: renderGeminiAgent, skills: GeminiSkillsDir},
+	agentid.Codex:    {ext: ".toml", home: sub(".codex", "agents"), render: renderCodexAgent},
+	agentid.Copilot:  {ext: ".md", home: sub(".copilot", "agents"), render: renderCopilotAgent, skills: CopilotSkillsDir},
+	agentid.OpenCode: {ext: ".md", home: sub(".config", "opencode", "agents"), render: renderOpenCodeAgent},
 }
 
 // Names lists the sync targets, sorted.

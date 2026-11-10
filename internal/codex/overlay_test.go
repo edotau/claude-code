@@ -258,3 +258,12 @@ trusted_hash = "last"
 		t.Fatal("merge mutated input entries")
 	}
 }
+
+func TestOverlayEffortAcceptsMinimalAndRejectsMax(t *testing.T) {
+	if err := codex.ValidateCodexOverlay(map[string]string{"model_reasoning_effort": "minimal"}); err != nil {
+		t.Errorf("minimal rejected: %v", err)
+	}
+	if err := codex.ValidateCodexOverlay(map[string]string{"model_reasoning_effort": "max"}); err == nil {
+		t.Error("max accepted")
+	}
+}

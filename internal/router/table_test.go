@@ -1,9 +1,11 @@
 package router
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -217,5 +219,28 @@ func TestAliasOfColonBearingModelIDTriesFullID(t *testing.T) {
 	}
 	if got := tb.AliasOf("claude-opus-5-5:0"); got != "opus" {
 		t.Errorf("AliasOf(claude-opus-5-5:0) = %q, want opus (colon is part of the id)", got)
+	}
+}
+
+// TestTableColumnsAndEffortsMatchAgentid checks table.json column keys are agentid names with efforts valid for them.
+func TestTableColumnsAndEffortsMatchAgentid(t *testing.T) {
+	var doc struct {
+		Rows map[string]map[string]struct {
+			Effort string `json:"effort"`
+		} `json:"rows"`
+	}
+	if err := json.Unmarshal(tableJSON, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for row, cols := range doc.Rows {
+		for agent, cell := range cols {
+			if !agentid.Known(agent) {
+				t.Errorf("row %s: column %q is not an agentid name", row, agent)
+				continue
+			}
+			if err := agentid.ValidEffort(agent, cell.Effort); err != nil {
+				t.Errorf("row %s, column %s: %v", row, agent, err)
+			}
+		}
 	}
 }

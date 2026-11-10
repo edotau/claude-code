@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -512,3 +514,36 @@ func TestSealAccessKeepsUnreadableOAuthValue(t *testing.T) {
 const wireHost = "https://example.cloud.databricks.com"
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+// TestRouteAgentsAreTheCanonicalRoster checks RouteAgents is agentid.All() in route order.
+func TestRouteAgentsAreTheCanonicalRoster(t *testing.T) {
+	got, want := slices.Sorted(slices.Values(RouteAgents)), slices.Sorted(slices.Values(agentid.All()))
+	if !slices.Equal(got, want) {
+		t.Errorf("sorted RouteAgents = %v, want agentid.All() %v", got, want)
+	}
+}
+
+// TestDefaultsAgentNamesAreKnown checks every "agent" and auth "login" value in defaults.json is an agentid name.
+func TestDefaultsAgentNamesAreKnown(t *testing.T) {
+	var doc any
+	if err := json.Unmarshal(defaultsJSON, &doc); err != nil {
+		t.Fatal(err)
+	}
+	var walk func(v any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case map[string]any:
+			for k, e := range x {
+				if name, ok := e.(string); ok && (k == "agent" || k == "login") && !agentid.Known(name) {
+					t.Errorf("defaults.json %q = %q is not an agentid name", k, name)
+				}
+				walk(e)
+			}
+		case []any:
+			for _, e := range x {
+				walk(e)
+			}
+		}
+	}
+	walk(doc)
+}
