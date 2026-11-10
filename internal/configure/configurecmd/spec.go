@@ -18,6 +18,15 @@ func providerNames() []string {
 // agentNames are the agent CLIs `configure --agent` can scope to: the agents plus claude itself.
 func agentNames() []string { return []string{"claude", "codex", "gemini", "opencode", "copilot"} }
 
+// authNames are the github profiles with a login, plus "follow", for `configure github --auth`.
+func authNames() []string {
+	reg, err := providers.Load()
+	if err != nil {
+		return []string{"follow"}
+	}
+	return append([]string{"follow"}, menu.GitHubAuthProfiles(reg)...)
+}
+
 // sections derives from menu.SectionNames, the package's own run order.
 func sections() []string {
 	return append(append([]string{}, menu.SectionNames...), "desktop")
@@ -27,7 +36,7 @@ func sections() []string {
 func Spec() *completion.Node {
 	formatFlag := completion.ValuedFlag("format", func() []string { return []string{helptext.Text, helptext.JSON} })
 	return &completion.Node{Args: []func() []string{sections, providerNames}, Flags: []completion.Flag{
-		completion.ValuedFlag("profile", providerNames), completion.ValuedFlag("agent", agentNames), completion.BoolFlag("dry-run"), completion.BoolFlag("check"),
+		completion.ValuedFlag("profile", providerNames), completion.ValuedFlag("agent", agentNames), completion.ValuedFlag("auth", authNames), completion.BoolFlag("dry-run"), completion.BoolFlag("check"),
 		completion.BoolFlag("restore"), completion.BoolFlag("revert"), completion.Plain("out"), completion.BoolFlag("agents"), completion.BoolFlag("list"), completion.BoolFlag("all"),
 		completion.BoolFlag("no-agents"), formatFlag}}
 }

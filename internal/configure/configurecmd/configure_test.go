@@ -287,3 +287,39 @@ func TestConfigureDesktopProxyFailureLeavesDesktopUntouched(t *testing.T) {
 		t.Fatalf("proxy failure wrote Desktop files: %v, %v", entries, err)
 	}
 }
+
+// TestConfigureAuthRejectedOutsideGithubPage: --auth is refused before the restore and list branches can drop it.
+func TestConfigureAuthRejectedOutsideGithubPage(t *testing.T) {
+	resetEnv(t)
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"restore", []string{"--restore", "--auth", "follow"}},
+		{"revert", []string{"--revert", "--auth", "follow"}},
+		{"json list", []string{"provider", "--auth", "follow", "--format", "json"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			code, _, stderr := hosttest.CaptureOutput(t, func() int { return run(tc.args) })
+			if code != 1 || !strings.Contains(stderr, "--auth needs the github page") {
+				t.Errorf("exit %d, stderr %q; want 1 and the --auth refusal", code, stderr)
+			}
+		})
+	}
+}
+
+// TestConfigureAuthRejectedWithRestore: on the github page --auth with --restore or --revert fails instead of being dropped.
+func TestConfigureAuthRejectedWithRestore(t *testing.T) {
+	resetEnv(t)
+	for _, flagName := range []string{"--restore", "--revert"} {
+		t.Run(flagName, func(t *testing.T) {
+			code, _, stderr := hosttest.CaptureOutput(t, func() int {
+				return run([]string{"github", "--auth", "follow", flagName})
+			})
+			if code != 1 || !strings.Contains(stderr, "--auth cannot be combined with --restore or --revert") {
+				t.Errorf("exit %d, stderr %q; want 1 and the combination refusal", code, stderr)
+			}
+		})
+	}
+}
