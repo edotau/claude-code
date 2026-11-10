@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentid"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -38,6 +39,10 @@ func claudeOneShot(ctx context.Context, req agent.RunOptions, sink wire.Sink) (r
 	if len(req.Env) > 0 {
 		res.Dropped = []string{"--env"} // the HTTP one-shot spawns no process to carry it
 	}
+	effort, err := oneShotEffort(req, t)
+	if err != nil {
+		return res, true, retry.Fatal("claude", err)
+	}
 	prompt, err := claudeAttach(req.Prompt, req.Attach, false)
 	if err != nil {
 		return wire.Result{}, true, err
@@ -46,7 +51,7 @@ func claudeOneShot(ctx context.Context, req agent.RunOptions, sink wire.Sink) (r
 	w := io.MultiWriter(wire.SinkWriter(sink), &answer)
 	if base, ok := providers.AnthropicRoute(p, t.Model); ok {
 		out, err := streamMessages(ctx, apiRequest{
-			BaseURL: base, Model: t.Model, Prompt: prompt, Effort: req.Effort, MaxTokens: apiMaxTokens,
+			BaseURL: base, Model: t.Model, Prompt: prompt, Effort: effort, MaxTokens: apiMaxTokens,
 			Authorize: func(ctx context.Context, h http.Header) error { return providers.Authorize(ctx, p, h) },
 		}, w)
 		if out.Model != "" {
@@ -64,13 +69,22 @@ func claudeOneShot(ctx context.Context, req agent.RunOptions, sink wire.Sink) (r
 		return res, true, retry.Fatal("claude", errors.New(why))
 	}
 	base, _ := p.Route(providers.ProtocolOpenAI)
-	usage, model, err := chatStream(ctx, base, p, t.Model, prompt, req.Effort, w)
+	usage, model, err := chatStream(ctx, base, p, t.Model, prompt, effort, w)
 	if model != "" {
 		res.Model = model
 	}
 	res.Answer, res.Usage = answer.String(), usage
 	logAPIRun(ctx, res, err)
 	return res, true, err
+}
+
+// oneShotEffort is the flag's effort, else the stored record's, spelled as the CLI path spells it.
+func oneShotEffort(req agent.RunOptions, t providers.Target) (string, error) {
+	st, err := agent.ResolveSettings(agentid.Claude, req, t, true)
+	if err != nil {
+		return "", err
+	}
+	return claudeEffort(st.Effort)
 }
 
 // logAPIRun writes the one-shot's answer, usage or error to the dispatch log (the stream has no event boundaries).

@@ -139,9 +139,12 @@ func (e claudeEngine) RenderSettings(ctx context.Context, s agent.Settings, env,
 	if err != nil {
 		return env, argv, emulated, cleanup, err
 	}
-	if s.Effort != "" {
-		native, _ := agentid.NativeEffort(agentid.Claude, agentid.Effort(s.Effort))
-		argv = append(argv, "--effort", cmp.Or(native, s.Effort)) // an off-scale value passes through as before
+	effort, err := claudeEffort(s.Effort)
+	if err != nil {
+		return env, argv, emulated, cleanup, err
+	}
+	if effort != "" {
+		argv = append(argv, "--effort", effort)
 	}
 	if !s.Headless { // an interactive launch keeps the user's own permission settings
 		return env, argv, emulated, cleanup, nil
@@ -151,6 +154,15 @@ func (e claudeEngine) RenderSettings(ctx context.Context, s agent.Settings, env,
 	}
 	anthropic := s.Target.Provider != nil && s.Target.Provider.Provider == "anthropic"
 	return env, append(argv, permissionArgs(s.Permissions, s.Tools, s.Autonomous, anthropic)...), emulated, cleanup, nil
+}
+
+// claudeEffort spells e for claude's CLI and Messages API; "" stays "" and an unknown effort is refused.
+func claudeEffort(e string) (string, error) {
+	if err := agentid.ValidEffort(agentid.Claude, e); err != nil {
+		return "", err
+	}
+	native, _ := agentid.NativeEffort(agentid.Claude, agentid.Effort(e))
+	return native, nil
 }
 
 // permissionArgs renders the request's Permissions as claude flags; empty for none.

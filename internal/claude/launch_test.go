@@ -452,31 +452,54 @@ func TestKeepShellEndpointSessionProxyBaseToFirstParty(t *testing.T) {
 }
 
 // An interactive plan carries the record's effort, launch.args and launch.env (never a wiped name) before the typed
-// args, so a typed --effort comes last and wins; with no record nothing is added; headless leaves it to claudeCmd.
+// args; a typed --effort replaces the record's; no record adds nothing; headless leaves it to claudeCmd.
 func TestClaudeInteractiveRendersRecord(t *testing.T) {
 	const dbx = `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`
 	rec := vault.AgentRecord{Effort: "high", Launch: &vault.AgentLaunch{Env: []string{"FOO_LAUNCH=1",
-		"ANTHROPIC_BASE_URL=https://elsewhere.example"}, Args: []string{"--launch-arg"}}}
+		"ANTHROPIC_SMALL_FAST_MODEL=elsewhere"}, Args: []string{"--launch-arg"}}}
 	for _, prof := range []string{"ultra", "qa"} {
 		hermetic(t, dbx)
-		p, err := Claude(context.Background(), agent.LaunchOptions{Provider: prof}, nil)
-		if err != nil {
-			t.Fatal(err)
+		plan := func(args ...string) agent.Plan {
+			p, err := Claude(context.Background(), agent.LaunchOptions{Provider: prof}, args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return p
 		}
-		checkArgv(t, prof+" no record", p.Argv, nil, []string{"--effort", "--launch-arg"})
+		checkArgv(t, prof+" no record", plan().Argv, nil, []string{"--effort", "--launch-arg"})
 		if err := vault.SetAgentRecord("claude", rec); err != nil {
 			t.Fatal(err)
 		}
-		if p, err = Claude(context.Background(), agent.LaunchOptions{Provider: prof}, []string{"--effort", "low"}); err != nil {
-			t.Fatal(err)
+		p := plan()
+		checkArgv(t, prof+" record", p.Argv, []string{"--launch-arg --effort high"}, []string{"--permission"})
+		if p.Set["FOO_LAUNCH"] != "1" || p.Set["ANTHROPIC_SMALL_FAST_MODEL"] != "" {
+			t.Errorf("%s: set %v, want FOO_LAUNCH=1 and no wiped launch.env name", prof, p.Set)
 		}
-		checkArgv(t, prof+" record", p.Argv, []string{"--launch-arg --effort high --effort low"}, []string{"--permission"})
-		if p.Set["FOO_LAUNCH"] != "1" || p.Set["ANTHROPIC_BASE_URL"] == "https://elsewhere.example" {
-			t.Errorf("%s: set %v, want FOO_LAUNCH=1 and no launch.env base URL", prof, p.Set)
-		}
-		if p, err = Claude(context.Background(), agent.LaunchOptions{Provider: prof}, []string{"--print"}); err != nil {
-			t.Fatal(err)
-		}
-		checkArgv(t, prof+" headless", p.Argv, nil, []string{"--effort", "--launch-arg"})
+		checkArgv(t, prof+" typed", plan("--effort=low").Argv, []string{"--launch-arg --effort=low"}, []string{"--effort high"})
+		checkArgv(t, prof+" prompt", plan("--", "--effort").Argv, []string{"--effort high -- --effort"}, nil)
+		checkArgv(t, prof+" headless", plan("--print").Argv, nil, []string{"--effort", "--launch-arg"})
+	}
+}
+
+// Bare `anthropic` (no --profile) goes through Claude(), so it renders the record too; a refused record is a warning.
+func TestAnthropicRendersRecord(t *testing.T) {
+	hermetic(t, "")
+	if err := vault.SetAgentRecord("claude", vault.AgentRecord{Effort: "high"}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Anthropic(context.Background(), AnthropicOptions{}, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkArgv(t, "anthropic", p.Argv, []string{"--effort high"}, nil)
+	if err := vault.SetAgentRecord("claude", vault.AgentRecord{Effort: "turbo"}); err != nil {
+		t.Fatal(err)
+	}
+	if p, err = Anthropic(context.Background(), AnthropicOptions{}, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	checkArgv(t, "refused record", p.Argv, nil, []string{"--effort"})
+	if !slices.ContainsFunc(p.Warnings, func(w string) bool { return strings.Contains(w, "record not applied") }) {
+		t.Errorf("refused record: warnings %q, want a not-applied notice", p.Warnings)
 	}
 }

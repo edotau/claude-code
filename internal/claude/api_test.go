@@ -262,3 +262,42 @@ func TestClaudeNoToolsSessionSkipsOneShot(t *testing.T) {
 		t.Fatalf("hits=%d err=%v; want the claude process path (no launcher), never the API", hits, err)
 	}
 }
+
+// The tool-less one-shot takes the stored effort like the CLI path on both wires: flag over record, none without
+// either, and an effort off claude's scale is refused before any request leaves.
+func TestClaudeNoToolsRecordEffort(t *testing.T) {
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(b))
+		w.Header().Set("Content-Type", "text/event-stream")
+		if r.URL.Path == "/v1/messages" {
+			io.WriteString(w, anthropicSSE)
+			return
+		}
+		io.WriteString(w, "data: {\"model\":\"gpt-x\",\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	registry(t, srv)
+	run := func(prov, rec, flag string) error {
+		bodies = nil
+		if err := vault.SetAgentRecord("claude", vault.AgentRecord{Effort: rec}); err != nil {
+			t.Fatal(err)
+		}
+		_, err := claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "hi", Provider: prov, Effort: flag, NoTools: true}, wire.Discard)
+		return err
+	}
+	for prov, field := range map[string]string{"tanth": `"output_config":{"effort":"%s"}`, "toai": `"reasoning_effort":"%s"`} {
+		for _, c := range []struct{ rec, flag, want string }{{"", "", ""}, {"high", "", "high"}, {"high", "low", "low"}} {
+			if err := run(prov, c.rec, c.flag); err != nil || len(bodies) != 1 {
+				t.Fatalf("%s record %q flag %q: err %v, %d requests", prov, c.rec, c.flag, err, len(bodies))
+			}
+			if c.want == "" && strings.Contains(bodies[0], "effort") || c.want != "" && !strings.Contains(bodies[0], fmt.Sprintf(field, c.want)) {
+				t.Errorf("%s record %q flag %q: body %s, want effort %q", prov, c.rec, c.flag, bodies[0], c.want)
+			}
+		}
+		if err := run(prov, "", "turbo"); err == nil || len(bodies) != 0 || retry.Classify("claude", err, false).Kind != retry.KindFatal {
+			t.Errorf("%s unknown effort: err %v, %d requests; want a fatal refusal and no request", prov, err, len(bodies))
+		}
+	}
+}
