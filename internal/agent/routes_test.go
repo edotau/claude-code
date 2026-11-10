@@ -24,7 +24,7 @@ func fallbackTargetFixture(t *testing.T) (string, *providers.Registry, providers
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub, err := reg.Get("max")
+	sub, err := reg.Get("ultra")
 	if err != nil {
 		t.Fatal(err)
 	}

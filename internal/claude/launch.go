@@ -102,8 +102,8 @@ func keepShellEndpoint(plan *agent.Plan, o agent.LaunchOptions) {
 		own = defaultAnthropicBase // an unset plan base means the default route
 	}
 	base := strings.TrimSpace(os.Getenv(proc.EnvAnthropicBaseURL))
-	// the live proxy's own base: same proxy as this launch's, or this harness session's /p/<profile> (a max dispatch from a
-	// Databricks session must not keep the session's proxy base and lose its own credential)
+	// the live proxy's own base: same proxy as this launch's, or this harness session's /p/<profile> (an ultra dispatch
+	// from a Databricks session must not keep the session's proxy base and lose its own credential)
 	inherited := isProxySessionBase(base) && (isProxySessionBase(own) && sameHostPort(base, own) || sessionProxyBase(base))
 	if base != "" && !inherited && !sameEndpoint(base, own) {
 		plan.ForeignBase = true

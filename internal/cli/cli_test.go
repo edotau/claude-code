@@ -65,7 +65,7 @@ func TestHiddenClaudeVerbDispatchesButIsAbsentFromUsage(t *testing.T) {
 		t.Fatal("claude must be a registered hidden command")
 	}
 	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-		return Run([]string{"claude-code", "claude", "--profile", "max", "--print-env"})
+		return Run([]string{"claude-code", "claude", "--profile", "ultra", "--print-env"})
 	})
 	if code != 0 || stderr != "" {
 		t.Fatalf("claude --print-env exit = %d, stderr = %q", code, stderr)

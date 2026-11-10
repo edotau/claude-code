@@ -101,8 +101,8 @@ func TestAnthropicLoginPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := p.Set["CLAUDE_PROFILE"]; got != "max" {
-		t.Errorf("CLAUDE_PROFILE = %q, want max", got)
+	if got := p.Set["CLAUDE_PROFILE"]; got != "ultra" {
+		t.Errorf("CLAUDE_PROFILE = %q, want ultra", got)
 	}
 	if v, ok := p.Set[oauthKey]; ok && v != "" {
 		t.Errorf("login mode must not set %s", oauthKey)
@@ -138,7 +138,7 @@ func TestAnthropicOAuthLaunchPlan(t *testing.T) {
 		t.Fatalf("vault read %q", got)
 	}
 	p := planFor(t, fakeToken, "--oauth", "--print-env")
-	if p.Set[oauthKey] != fakeToken || p.Set[providers.EnvSessionProfile] != "max" {
+	if p.Set[oauthKey] != fakeToken || p.Set[providers.EnvSessionProfile] != "ultra" {
 		t.Errorf("set %v", p.Set)
 	}
 	if len(p.Files) != 0 || slices.Contains(p.Argv, "--settings") {

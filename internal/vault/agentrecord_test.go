@@ -72,7 +72,7 @@ func migrate(t *testing.T) map[string]AgentRecord {
 // Given every pin shape in a schema-3 vault, the first Update folds them into records and deletes the old keys.
 func TestMigrationFoldsEveryPinShapeIntoRecords(t *testing.T) {
 	legacyVault(t, map[string]string{
-		"CLAUDE_PROFILE": "max", "CLAUDE_OPUS_MODEL": "o-1", "CLAUDE_SONNET_MODEL": "s-1",
+		"CLAUDE_PROFILE": "ultra", "CLAUDE_OPUS_MODEL": "o-1", "CLAUDE_SONNET_MODEL": "s-1",
 		"CODEX_PROFILE": "chatgpt", "CODEX_MODEL": "m1", "CODEX_EFFORT": "high",
 		"COPILOT_PROFILE": "personal", "COPILOT_ACTIVE": "off", "COPILOT_GITHUB_USER": "alice", "COPILOT_CONTEXT": "1m",
 		"GEMINI_PROFILE": "antigravity", "GEMINI_ACTIVE": "on",
@@ -80,7 +80,7 @@ func TestMigrationFoldsEveryPinShapeIntoRecords(t *testing.T) {
 	})
 	got := migrate(t)
 	want := map[string]AgentRecord{
-		"claude":   {Profile: "max", Aliases: map[string]string{"opus": "o-1", "sonnet": "s-1"}},
+		"claude":   {Profile: "ultra", Aliases: map[string]string{"opus": "o-1", "sonnet": "s-1"}},
 		"codex":    {Profile: "chatgpt", Model: "m1", Effort: "high"},
 		"copilot":  {Account: "alice", Context: "1m"}, // ACTIVE=off beats the PROFILE pin
 		"gemini":   {Profile: "antigravity"},
@@ -180,8 +180,8 @@ func TestMigrationRenamesSlotsToAliases(t *testing.T) {
 		schema, _ = tx.Get(Meta, "schema")
 		return nil
 	})
-	if raw != `{"claude":{"aliases":{"opus":"x"}}}` || schema != "6" {
-		t.Errorf("stored = %s schema %s, want aliases key at schema 6", raw, schema)
+	if raw != `{"claude":{"aliases":{"opus":"x"}}}` || schema != strconv.Itoa(schemaVersion) {
+		t.Errorf("stored = %s schema %s, want aliases key at the current schema", raw, schema)
 	}
 }
 
@@ -212,7 +212,7 @@ func TestMigrationRenamesByokToDiscovery(t *testing.T) {
 	}
 	migrate(t)
 	pool, old, recs, schema := read()
-	if pool != `["m-a","m-b"]` || old != "" || schema != "6" ||
+	if pool != `["m-a","m-b"]` || old != "" || schema != strconv.Itoa(schemaVersion) ||
 		recs != `{"codex":{"model":"gpt-x"},"opencode":{"profile":"p","model":"discovery"}}` {
 		t.Fatalf("after migration: pool=%s old=%q recs=%s schema=%s", pool, old, recs, schema)
 	}

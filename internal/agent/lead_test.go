@@ -10,14 +10,14 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// leadRegistry has Databricks row dev (signed in) and Anthropic max; claude's record pins max.
+// leadRegistry has Databricks row dev (signed in) and Anthropic ultra; claude's record pins ultra.
 func leadRegistry(t *testing.T) *providers.Registry {
 	t.Helper()
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks",`+
 		`"host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
-	vaulttest.SetRecord(t, "claude", "profile", "max")
+	vaulttest.SetRecord(t, "claude", "profile", "ultra")
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +63,7 @@ func TestLeadFor(t *testing.T) {
 		{RouteReq{Agent: "codex", Profile: "dev", Fallback: all, Pinned: true}, "", true, ""},
 		{RouteReq{Agent: "codex", Profile: LeadSession, Fallback: none}, "dev", false, ""},
 		{RouteReq{Agent: "codex", Provider: "databricks", Fallback: none}, "dev", false, ""},
-		{RouteReq{Agent: "codex", Profile: "dev", Lead: "max", Pinned: true}, "max", false, ""},
+		{RouteReq{Agent: "codex", Profile: "dev", Lead: "ultra", Pinned: true}, "ultra", false, ""},
 		{RouteReq{Agent: "codex", Model: "dev:opus", Fallback: all}, "", true, ""},
 		{RouteReq{Agent: "codex", Profile: "nosuch", Fallback: none}, "", true, "nosuch"},
 		{RouteReq{Agent: "codex", Profile: "nosuch", Fallback: all}, "", false, "nosuch"},
@@ -80,14 +80,14 @@ func TestLeadFor(t *testing.T) {
 // A preview of a profile:model leads on that model's profile; an unflagged preview has no lead.
 func TestRouteLeadPreviewKeepsModelProfile(t *testing.T) {
 	leadRegistry(t)
-	t.Setenv(providers.EnvSessionProfile, "max")
+	t.Setenv(providers.EnvSessionProfile, "ultra")
 	cases := []struct {
 		q    RouteReq
 		lead string
 	}{
 		{RouteReq{Agent: "codex", Fallback: router.FallbackAll, Preview: true}, ""},
-		{RouteReq{Agent: "codex", Model: "max:opus", Fallback: router.FallbackAll, Preview: true}, "max"},
-		{RouteReq{Agent: "codex", Model: "dev:opus", Profile: "max", Fallback: router.FallbackAll, Preview: true}, "max"},
+		{RouteReq{Agent: "codex", Model: "ultra:opus", Fallback: router.FallbackAll, Preview: true}, "ultra"},
+		{RouteReq{Agent: "codex", Model: "dev:opus", Profile: "ultra", Fallback: router.FallbackAll, Preview: true}, "ultra"},
 	}
 	for _, c := range cases {
 		lead, explicit, err := routeLead(c.q)

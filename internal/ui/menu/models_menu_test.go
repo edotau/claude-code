@@ -23,7 +23,7 @@ func subscriptionSelection(t *testing.T) (*providers.Registry, providers.Selecti
 	t.Helper()
 	vaulttest.Use(t)
 	t.Setenv("HOME", t.TempDir())
-	putRec(t, "claude", "PROFILE", "max")
+	putRec(t, "claude", "PROFILE", "ultra")
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 	reg, err := providers.Load()
 	if err != nil {
@@ -53,7 +53,7 @@ func TestOfferModelsPinsServedModelAudited(t *testing.T) {
 	stubCatalogFn(t, []providers.ModelInfo{{ID: "m-one", Name: "One"}, {ID: "m-two", Name: "Two", UseCase: "chat"}})
 	other := ""
 	for _, n := range reg.Names() {
-		if n != "max" {
+		if n != "ultra" {
 			other = n
 			break
 		}
@@ -63,7 +63,7 @@ func TestOfferModelsPinsServedModelAudited(t *testing.T) {
 		d := &dialog{reg: reg, o: Options{In: in}, br: bufio.NewReader(in), out: discardWriter{}}
 		offerModels(d, profile)
 	}
-	offer("max", "1\n2\n\n")
+	offer("ultra", "1\n2\n\n")
 	if got := vault.GetAgentRecord("claude").Aliases["opus"]; got != "m-two" {
 		t.Fatalf("session-profile opus pin = %q, want m-two", got)
 	}
@@ -85,7 +85,7 @@ func TestUnpinAllModelsMarksDialogChanged(t *testing.T) {
 	}
 	d := &dialog{reg: reg, out: discardWriter{}}
 	unpinAllModels(d)
-	if got := vault.GetAgentRecord("claude"); len(got.Aliases) != 0 || got.Profile != "max" {
+	if got := vault.GetAgentRecord("claude"); len(got.Aliases) != 0 || got.Profile != "ultra" {
 		t.Fatalf("unpin all must clear aliases and retain the profile: %+v", got)
 	}
 	if !d.changed {

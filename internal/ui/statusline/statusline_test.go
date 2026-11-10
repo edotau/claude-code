@@ -344,7 +344,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--style", "minimal"}, strings.NewReader(payload), &out); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := plain(out.String()); !strings.Contains(got, " anthropic·max  ·  opus-5  ·  0% ") || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
+	if got := plain(out.String()); !strings.Contains(got, " anthropic·ultra  ·  opus-5  ·  0% ") || strings.Contains(got, "tok") || strings.Contains(got, "1h02m") {
 		t.Errorf("minimal run: %q", got)
 	}
 	if code := Run(flag.NewFlagSet("t", flag.ContinueOnError), []string{"--bogus"}, strings.NewReader(""), &out); code != 2 {
@@ -358,7 +358,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "state", "statusline", "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	want := "tester:/nowhere/proj | ( anthropic·max ) ( opus-5 ) ( 0% ) ( 51.4k ) ( 1h02m ) ( abcdef01 )"
+	want := "tester:/nowhere/proj | ( anthropic·ultra ) ( opus-5 ) ( 0% ) ( 51.4k ) ( 1h02m ) ( abcdef01 )"
 	if got := plain(Render([]byte(payload), "")); got != want {
 		t.Errorf("config override:\n got %q\nwant %q", got, want)
 	}
@@ -420,7 +420,7 @@ func TestProviderLabelFamilyTable(t *testing.T) {
 	hermetic(t)
 	labelRegistry(t)
 	for name, want := range map[string]string{
-		"max":         "anthropic·max",
+		"ultra":       "anthropic·ultra",
 		"anthropic":   "anthropic",
 		"qa":          "databricks·qa",
 		"chatgpt":     "openai·chatgpt",
@@ -432,26 +432,6 @@ func TestProviderLabelFamilyTable(t *testing.T) {
 	} {
 		if got := providerLabel(name); got != want {
 			t.Errorf("providerLabel(%q) = %q, want %q", name, got, want)
-		}
-	}
-}
-
-func TestProviderLabelUltra(t *testing.T) {
-	for tier, want := range map[string]string{
-		"default_claude_max_20x": "anthropic·ultra",
-		"default_claude_max_5x":  "anthropic·max",
-		"":                       "anthropic·max",
-	} {
-		dir := hermetic(t)
-		labelRegistry(t)
-		if tier != "" {
-			body := `{"oauthAccount":{"organizationRateLimitTier":"` + tier + `"}}`
-			if err := os.WriteFile(filepath.Join(dir, ".claude.json"), []byte(body), 0o600); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if got := providerLabel("max"); got != want {
-			t.Errorf("tier %q: providerLabel(max) = %q, want %q", tier, got, want)
 		}
 	}
 }

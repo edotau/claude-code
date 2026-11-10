@@ -26,7 +26,7 @@ const copilotPickerTitle = "copilot — model (github · copilot catalog)"
 
 func TestPickerChoicesSavedErrorUsesDialogOutput(t *testing.T) {
 	reg := menuTestEnv(t)
-	p := reg.Providers["max"]
+	p := reg.Providers["ultra"]
 	if _, err := providers.AppendPickerModels(p, []providers.ModelInfo{{ID: "saved-model"}}); err != nil {
 		t.Fatal(err)
 	}
