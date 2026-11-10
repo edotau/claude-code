@@ -47,7 +47,7 @@ func RecallPicks(root, session, query string, semantic, explain bool) ([]recallP
 }
 
 func skipRecallQuery(query string, tokens []string, semantic bool) bool {
-	return query == "" || (semantic && (strings.HasPrefix(query, "/") || IsUpdateChild())) || distinctTokenCount(tokens) < recallMinTerms
+	return query == "" || (semantic && (strings.HasPrefix(query, "/") || IsUpdateChild())) || distinctCount(tokens, 3) < recallMinTerms
 }
 
 func recallRoot(root string) string {
@@ -148,12 +148,7 @@ func RecordRecall(root, session string, bodies, hits []SearchHit) {
 
 // SearchBanks ranks every block of root's local, home and archive banks plus native topics; top k (0 = all).
 func SearchBanks(root, query string, k int) []SearchHit {
-	return SearchBanksTerms(root, query, contentTerms(query), k)
-}
-
-// SearchBanksTerms ranks banks using the caller's pretokenized content terms.
-func SearchBanksTerms(root, query string, terms []string, k int) []SearchHit {
-	ranked, _, _ := searchBanksTerms(root, query, terms, k)
+	ranked, _, _ := searchBanksTerms(root, query, contentTerms(query), k)
 	return ranked
 }
 
@@ -179,14 +174,10 @@ func searchAll(query string, k int) []SearchHit {
 
 // SearchRepo ranks blocks for q: every store with all, else the named store or checkout (default: cwd's).
 func SearchRepo(repo string, all bool, q string, k int) ([]SearchHit, string) {
-	root := Root(repo)
-	switch {
-	case all:
+	if all {
+		root := Root(repo)
 		return searchAll(q, k), root
-	case repo != "": // a store name from the catalog, else a checkout path
-		if e, ok := RepoByName(repo); ok && e.Origin.Origin != "" {
-			root = e.Origin.Origin
-		}
 	}
+	root := RepoRoot(repo) // a store name from the catalog, else a checkout path
 	return SearchBanks(root, q, k), root
 }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Repo is the nested memory repository rooted at Dir (its work tree); .git lives directly inside it.
@@ -388,3 +389,7 @@ func splitLines(out string) []string {
 	}
 	return lines
 }
+
+// credentialPattern is a coarse credential-shaped tripwire, not a full secrets scanner.
+var credentialPattern = regexp.MustCompile(
+	`sk-[A-Za-z0-9]{10,}|` + textutil.GitHubPattern(10) + `|dapi[0-9a-f]{10,}|AKIA[A-Z0-9]{10,}|-----BEGIN`)

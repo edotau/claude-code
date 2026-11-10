@@ -1,47 +1,13 @@
 package memory
 
 import (
-	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
-
-// Given both stores rotated a same-named monthly archive with different entries, When folding, Then entries merge.
-func TestAliasFoldsSameNamedSessionArchives(t *testing.T) {
-	e := newAliasEnv(t)
-	rel := filepath.Join("archive", "sessionHistory-2026-11.md")
-	write(t, filepath.Join(e.da, rel), "# Hist\n\n## 2026-11-01 — t <!-- id:33333333 -->\nx\n")
-	write(t, filepath.Join(e.db, rel), "# Hist\n\n## 2026-11-02 — s <!-- id:44444444 -->\ny\n")
-
-	if _, err := alias(t, e, false); err != nil {
-		t.Fatalf("AliasRepo: %v", err)
-	}
-	got := aliasRead(t, filepath.Join(e.da, rel))
-	if !strings.Contains(got, "id:33333333") || !strings.Contains(got, "id:44444444") {
-		t.Errorf("archive not merged:\n%s", got)
-	}
-}
-
-// Given the final receipt write fails, When Update otherwise succeeds, Then the write error is returned.
-func TestUpdateReturnsReceiptWriteError(t *testing.T) {
-	clearChildEnv(t)
-	isolatedConfig(t)
-	root := repoRoot(t, "receipt-failure")
-	if _, err := Init(root); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(resultPath("receipt-failure"), "x"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	run := func(context.Context, string, string) (string, error) { return "fixture", nil }
-	err := update(updateOptions{CWD: root, Session: "receipt-failure", Run: run})
-	if err == nil || !strings.Contains(err.Error(), "record update result") {
-		t.Fatalf("Update = %v, want receipt write error", err)
-	}
-}
 
 // Given the home bank already holds the id and the local removal fails, When promoting, Then the home copy survives.
 func TestPromoteHomeKeepsExistingCopyOnLocalFailure(t *testing.T) {
@@ -108,5 +74,69 @@ func TestPromoteFindsWrappedStackedMarker(t *testing.T) {
 	home, _ := os.ReadFile(filepath.Join(HomeBankDir(), "conventions.md"))
 	if !strings.Contains(string(home), "onto a second line") {
 		t.Errorf("home missing the wrapped block:\n%s", home)
+	}
+}
+
+// Contention must stop archiveFile before any read/rewrite, not merely lock its final write.
+func TestPersistenceArchiveFileHonorsRememberLock(t *testing.T) {
+	tempConfig(t)
+	shortBankWait(t)
+	root := repoRoot(t, "proj")
+	path := filepath.Join(Dir(root), "conventions.md")
+	body := "# Conventions\n\n- old one\n- old two\n"
+	write(t, path, body)
+	now := time.Now()
+	err := WithBankLock(BankLockWait, func() error {
+		_, err := archiveFile(path, 3, now)
+		if !errors.Is(err, ErrBankBusy) {
+			t.Errorf("archiveFile under Remember's bank lock = %v, want ErrBankBusy", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := aliasRead(t, path); got != body {
+		t.Fatal("archiveFile rewrote the bank while its lock was held")
+	}
+	id, err := Remember(root, "feedback", "concurrent knowledge", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := archiveFile(path, 3, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n == 0 {
+		t.Fatal("fixture did not exercise the archive rewrite")
+	}
+	combined := aliasRead(t, path) + aliasRead(t, archivePath(filepath.Dir(path), filepath.Base(path), now))
+	if !strings.Contains(combined, "id:"+id) {
+		t.Error("Remember's entry was lost during archiving")
+	}
+}
+
+func TestSplitOverflowSurfacesReadErrorNotAbsence(t *testing.T) {
+	dir := t.TempDir()
+	if _, _, _, err := splitOverflow(filepath.Join(dir, "absent.md"), 5); err != nil {
+		t.Errorf("absent file: err = %v, want nil", err)
+	}
+	bad := filepath.Join(dir, "decisionLog.md")
+	if err := os.Mkdir(bad, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := archiveFile(bad, 5, time.Now()); err == nil {
+		t.Error("archiveFile on an unreadable file returned nil, want the read error")
+	}
+}
+
+func TestExtractBlockSurfacesReadError(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "decisionLog.md"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := extractBlock(dir, "abcd1234")
+	if err == nil || errors.Is(err, errNoBlock) {
+		t.Errorf("extractBlock err = %v, want the read error, not errNoBlock", err)
 	}
 }

@@ -48,17 +48,13 @@ func TestMemorySubcommandsWithoutRepoRejectBareRepoFlag(t *testing.T) {
 	}
 }
 
-// TestMemoryPathHonorsRepoFlag: `memory path --repo <dir>` does take --repo, and exits 0 with the
-// bank dir under that repo.
+// TestMemoryPathHonorsRepoFlag: `memory path --repo <dir>` prints that checkout's bank, not cwd's.
 func TestMemoryPathHonorsRepoFlag(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	repo := t.TempDir()
+	repo := hosttest.Repo(t)
 	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemory([]string{"path", "--repo", repo}, nil) })
-	if code != 0 {
-		t.Fatalf("memory path --repo %s: code = %d, want 0; stderr=%q", repo, code, stderr)
-	}
-	if strings.TrimSpace(out) == "" {
-		t.Error("memory path --repo: empty output, want a bank dir")
+	if want := memory.Dir(repo); code != 0 || strings.TrimSpace(out) != want {
+		t.Fatalf("memory path --repo %s = %d %q (stderr %q), want %q", repo, code, out, stderr, want)
 	}
 }
 
@@ -168,13 +164,7 @@ func checkMemoryFmtWrapAndClean(t *testing.T, target string) {
 func TestMemoryRememberCLIRoundTripsThroughRecall(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := memory.Init(repo); err != nil {
-		t.Fatal(err)
-	}
+	repo := memoryBankRepo(t)
 	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdMemory([]string{"remember", "--repo", repo, "--type", "project", "ship the recall verb"}, nil)
 	})
@@ -202,13 +192,7 @@ func TestMemoryRememberUnknownTypeFails(t *testing.T) {
 // both the problem-report line and the "memory stats" receipts block must be present.
 func TestMemoryReviewContainsDoctorAndStatsBlocks(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := memory.Init(repo); err != nil {
-		t.Fatal(err)
-	}
+	repo := memoryBankRepo(t)
 	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemory([]string{"review", "--repo", repo}, nil) })
 	if code != 0 {
 		t.Fatalf("memory review: code=%d stderr=%q", code, stderr)
@@ -225,13 +209,7 @@ func TestMemoryReviewContainsDoctorAndStatsBlocks(t *testing.T) {
 // the stats block still prints.
 func TestMemoryReviewBriefPrintsOnlyCount(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := memory.Init(repo); err != nil {
-		t.Fatal(err)
-	}
+	repo := memoryBankRepo(t)
 	decisionLogOverCLI(t, filepath.Join(memory.Dir(repo), "decisionLog.md"), 80)
 	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemory([]string{"review", "--repo", repo, "--brief"}, nil) })
 	if code != 0 {
@@ -249,13 +227,7 @@ func TestMemoryReviewBriefPrintsOnlyCount(t *testing.T) {
 // procedure after the doctor/stats blocks — the ranking pass a human/agent applies by hand.
 func TestMemoryReviewCandidatesPrintsProcedureAfterStats(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := memory.Init(repo); err != nil {
-		t.Fatal(err)
-	}
+	repo := memoryBankRepo(t)
 	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemory([]string{"review", "--repo", repo, "--candidates"}, nil) })
 	if code != 0 {
 		t.Fatalf("memory review --candidates: code=%d stderr=%q", code, stderr)
@@ -281,13 +253,7 @@ func TestMemoryReviewCandidatesPrintsProcedureAfterStats(t *testing.T) {
 // never touches the bank — checksummed before/after, no DreamDue gate consulted, no agent run.
 func TestMemoryDreamDryRunWritesNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := memory.Init(repo); err != nil {
-		t.Fatal(err)
-	}
+	repo := memoryBankRepo(t)
 	before := dirChecksum(t, memory.Dir(repo))
 
 	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemory([]string{"dream", "--cwd", repo, "--dry-run"}, nil) })
@@ -342,6 +308,19 @@ func TestMemoryInitPrintsProcedureOnFreshBank(t *testing.T) {
 	if !strings.Contains(out, ref) {
 		t.Errorf("output missing the embedded init procedure: %q", out)
 	}
+}
+
+// memoryBankRepo is a fresh repo-shaped dir with its bank scaffolded under the test's config dir.
+func memoryBankRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memory.Init(repo); err != nil {
+		t.Fatal(err)
+	}
+	return repo
 }
 
 // decisionLogOverCLI writes n decisionLog.md entries so `memory review` has a cap problem to report.
@@ -653,45 +632,17 @@ func TestMemorySearchJSONWriteError(t *testing.T) {
 	}
 }
 
-// TestMemorySearchFormatValidation ensures memory search exits with an error
-// when an invalid format is specified (regression for internal/cli/memory.go error handling).
-func TestMemorySearchFormatValidation(t *testing.T) {
+// TestMemoryDreamDefaultsToCwd: without --cwd, `memory dream --dry-run` previews the bank of the dir it runs in.
+func TestMemoryDreamDefaultsToCwd(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdMemorySearch([]string{"test", "--format", "invalid"})
-	})
-	if code == 0 {
-		t.Errorf("memory search with invalid format: exit %d, want non-zero; stderr=%q", code, stderr)
+	repo := hosttest.Repo(t) // a real checkout: an empty .git dir is no repo to git, so it would share the home bank
+	if _, err := memory.Init(repo); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(stderr, "format") {
-		t.Errorf("memory search invalid format: stderr %q, want format error message", stderr)
-	}
-}
-
-// TestMemoryDreamGetWdError ensures memory dream handles os.Getwd() errors gracefully
-// (regression for internal/cli/memory.go:358).
-func TestMemoryDreamGetWdError(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	// Test memory dream without --cwd to exercise the Getwd() path
-	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdMemoryDream([]string{"--dry-run"})
-	})
-	// Should succeed with --dry-run even in an empty bank
-	if code != 0 {
-		t.Errorf("memory dream --dry-run: exit %d, want 0; stderr=%q", code, stderr)
-	}
-}
-
-// TestMemorySearchFailReturnValue ensures memory search returns a non-zero code
-// (regression for internal/cli/memory.go:245 where helptext.Fail() return value not used).
-func TestMemorySearchFailReturnValue(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdMemorySearch([]string{})
-	})
-	// Should return non-zero when no arguments given
-	if code == 0 {
-		t.Errorf("memory search (no args) exit %d, want non-zero; stderr=%q", code, stderr)
+	t.Chdir(repo)
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemoryDream([]string{"--dry-run"}) })
+	if code != 0 || !strings.Contains(out, "bank: "+memory.Dir(repo)) {
+		t.Errorf("memory dream --dry-run in %s: code=%d out=%q stderr=%q, want its bank", repo, code, out, stderr)
 	}
 }
 
@@ -728,13 +679,7 @@ func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 	if err := memory.StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := memory.Init(repo); err != nil {
-		t.Fatal(err)
-	}
+	repo := memoryBankRepo(t)
 	if err := os.WriteFile(filepath.Join(memory.Dir(repo), "conventions.md"),
 		[]byte("# Conventions\n\n- stamped id-marked rule <!-- id:deadbeef -->\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -787,13 +732,7 @@ func TestMemoryRecallLoadResolvesUnstampedHitByContentRef(t *testing.T) {
 	if err := memory.StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := memory.Init(repo); err != nil {
-		t.Fatal(err)
-	}
+	repo := memoryBankRepo(t)
 	if err := os.WriteFile(filepath.Join(memory.Dir(repo), "activeContext.md"),
 		[]byte("# Active Context\n\n- never settled widget rollout detail\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -809,12 +748,18 @@ func TestMemoryRecallLoadResolvesUnstampedHitByContentRef(t *testing.T) {
 	}
 }
 
-// TestMemoryRecallNoQueryFails: an empty query is refused (exit 1), naming memoryUsage.
-func TestMemoryRecallNoQueryFails(t *testing.T) {
+// TestMemoryQueryVerbsRefuseBadInput: recall and search refuse an empty query (exit 1) and a bad --format (exit 2).
+func TestMemoryQueryVerbsRefuseBadInput(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemory([]string{"recall"}, nil) })
-	if code != 1 || !strings.Contains(stderr, "no query") {
-		t.Errorf("memory recall with no terms: code=%d stderr=%q", code, stderr)
+	for _, sub := range []string{"recall", "search"} {
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemory([]string{sub}, nil) })
+		if code != 1 || !strings.Contains(stderr, "memory "+sub+": no query (usage: claude-code memory "+sub) {
+			t.Errorf("memory %s with no terms: code=%d stderr=%q", sub, code, stderr)
+		}
+		code, _, stderr = hosttest.CaptureOutput(t, func() int { return cmdMemory([]string{sub, "x", "--format", "xml"}, nil) })
+		if code != 2 || !strings.Contains(stderr, "memory "+sub+": ") || !strings.Contains(stderr, "format") {
+			t.Errorf("memory %s --format xml: code=%d stderr=%q", sub, code, stderr)
+		}
 	}
 }
 
@@ -823,13 +768,7 @@ func TestMemoryRecallNoQueryFails(t *testing.T) {
 func TestMemoryRecallLoadAppendsBodiesUnderByteCap(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := memory.Init(repo); err != nil {
-		t.Fatal(err)
-	}
+	repo := memoryBankRepo(t)
 	if _, err := memory.Remember(repo, "feedback", "loadable fact about widgets and gadgets", time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -844,34 +783,6 @@ func TestMemoryRecallLoadAppendsBodiesUnderByteCap(t *testing.T) {
 	}
 	if len(out) > 20000 { // generous ceiling: just confirms --load didn't dump the whole bank unbounded
 		t.Errorf("recall --load output suspiciously large (%d bytes), want it capped near recallLoadCap", len(out))
-	}
-}
-
-// TestMemoryRecallFormatValidation ensures memory recall exits with an error
-// when an invalid format is specified (regression for internal/cli/memory.go error handling).
-func TestMemoryRecallFormatValidation(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdMemoryRecall([]string{"test", "--format", "invalid"})
-	})
-	if code == 0 {
-		t.Errorf("memory recall with invalid format: exit %d, want non-zero; stderr=%q", code, stderr)
-	}
-	if !strings.Contains(stderr, "format") {
-		t.Errorf("memory recall invalid format: stderr %q, want format error message", stderr)
-	}
-}
-
-// TestMemoryRecallFailReturnValue ensures memory recall returns a non-zero code
-// (regression for internal/cli/memory.go:150 where helptext.Fail() return value not used).
-func TestMemoryRecallFailReturnValue(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdMemoryRecall([]string{})
-	})
-	// Should return non-zero when no arguments given
-	if code == 0 {
-		t.Errorf("memory recall (no args) exit %d, want non-zero; stderr=%q", code, stderr)
 	}
 }
 
@@ -945,6 +856,8 @@ func TestMemoryCompletionSupportedCommandsAndFlags(t *testing.T) {
 		{"update flags", []string{"memory", "update", "--"}, []string{"--dry-run", "--historical"}},
 		{"dream flags", []string{"memory", "dream", "--"}, []string{"--dry-run"}},
 		{"catchup flags", []string{"memory", "catchup", "--"}, []string{"--dry-run", "--skip"}},
+		{"index flags", []string{"memory", "index", "--"}, []string{"--reembed", "--mint-only"}},
+		{"recall flags", []string{"memory", "recall", "--"}, []string{"--explain"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -969,21 +882,6 @@ func TestMemoryPathRepoFlagResolvesStoreName(t *testing.T) {
 	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemory([]string{"path", "--repo", name}, nil) })
 	if code != 0 || strings.TrimSpace(out) != dir {
 		t.Errorf("memory path --repo %s = %d %q (stderr %q), want %q", name, code, out, stderr, dir)
-	}
-}
-
-func TestMemoryCompletionOffersIndexAndRecallFlags(t *testing.T) {
-	engine := helptext.Engine{
-		Tree:    func() map[string]*helptext.Node { return map[string]*helptext.Node{"memory": memorySpec()} },
-		Resolve: func(verb string) (string, bool) { return verb, verb == "memory" },
-	}
-	for verb, want := range map[string][]string{"index": {"--reembed", "--mint-only"}, "recall": {"--explain"}} {
-		got := engine.Candidates([]string{"memory", verb, "--"})
-		for _, w := range want {
-			if !slices.Contains(got, w) {
-				t.Errorf("memory %s completion missing %q: %v", verb, w, got)
-			}
-		}
 	}
 }
 

@@ -2,9 +2,11 @@
 package memory
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -12,35 +14,38 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// bankStat is one bank's roll-up: newest mtime, per-file cap offenders, and files that could not be read.
+// bankStat is one bank's roll-up from a single read per typed file: newest mtime, cap offenders, unreadable files,
+// credential findings, and the bytes read (so a caller never re-reads them).
 type bankStat struct {
-	Dir        string
-	Updated    time.Time
-	Oversized  []string
-	Unreadable []string // "name: error" for each file whose read failed for a reason other than absence
+	Dir         string
+	Updated     time.Time
+	Oversized   []string
+	Unreadable  []string // "name: error" for each file whose read failed for a reason other than absence
+	Credentials []string // "name: ..." for each file holding a credential-shaped value
+	data        map[string][]byte
 }
 
-// homeBankStat rolls up the shared home bank.
-func homeBankStat() bankStat { return statBank(HomeBankDir()) }
-
-// stat rolls up root's local bank.
-func stat(root string) bankStat { return statBank(Dir(root)) }
-
 func statBank(dir string) bankStat {
-	s := bankStat{Dir: dir}
-	for _, name := range BankFiles() {
-		data, err := os.ReadFile(filepath.Join(dir, name))
+	s := bankStat{Dir: dir, data: map[string][]byte{}}
+	for _, name := range bankFiles {
+		path := filepath.Join(dir, name)
+		data, err := readFile(path)
 		if err != nil {
 			if !os.IsNotExist(err) {
 				s.Unreadable = append(s.Unreadable, name+": "+err.Error())
 			}
 			continue
 		}
+		s.data[name] = data
 		if capLines, ok := fileCaps[name]; ok && logicalLineCount(string(data)) > capLines {
 			s.Oversized = append(s.Oversized, name)
 		}
-		if fi, err := os.Stat(filepath.Join(dir, name)); err == nil && fi.ModTime().After(s.Updated) {
+		if fi, err := os.Stat(path); err == nil && fi.ModTime().After(s.Updated) {
 			s.Updated = fi.ModTime()
+		}
+		// The visible surface for commitStore's refusal to stage credential-shaped values.
+		if credentialPattern.Match(data) {
+			s.Credentials = append(s.Credentials, name+": possible credential-shaped value — scrub before promoting")
 		}
 	}
 	return s
@@ -74,9 +79,9 @@ func writeDoctorNotice(root string, staleDays int, now time.Time) error {
 func doctor(root string, staleDays int, now time.Time) []string {
 	var problems []string
 	if !isHomeBank(root) {
-		problems = append(problems, bankProblems("local", stat(root), staleDays, now)...)
+		problems = append(problems, bankProblems("local", statBank(Dir(root)), staleDays, now)...)
 	}
-	problems = append(problems, bankProblems("home", homeBankStat(), staleDays, now)...)
+	problems = append(problems, bankProblems("home", statBank(HomeBankDir()), staleDays, now)...)
 	problems = append(problems, updateProblems(now)...)
 	problems = append(problems, journalProblems(now)...)
 	problems = append(problems, nativeLinkProblems(root)...)
@@ -133,24 +138,158 @@ func bankProblems(tier string, s bankStat, staleDays int, now time.Time) []strin
 		problems = append(problems, tier+" bank untouched since "+s.Updated.Format("2006-01-02")+
 			" (>"+strconv.Itoa(staleDays)+"d) — stale")
 	}
-	for _, p := range bankCredentialFindings(s.Dir) {
+	for _, p := range s.Credentials {
 		problems = append(problems, tier+" "+p)
 	}
 	return problems
 }
 
-// bankCredentialFindings scans typed files for credential-shaped values — the visible surface for
-// commitStore's refusal to stage them.
-func bankCredentialFindings(dir string) []string {
-	var problems []string
-	for _, name := range BankFiles() {
-		data, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			continue
+// Bank stats: aggregate the update receipts already on disk into the "is the bank actually
+// working" numbers — update success rate and bank-updated rate.
+// bankStats aggregates every update receipt under StateDir().
+type bankStats struct {
+	Updates     int // receipt files parsed
+	OK          int
+	Failed      int
+	Pending     int
+	BankUpdated int // ok updates that changed the bank
+	Oldest      time.Time
+	Newest      time.Time
+}
+
+// collectBankStats scans StateDir()/update-result-*. Unreadable or statusless receipts are skipped.
+func collectBankStats() bankStats {
+	var s bankStats
+	for _, rc := range readReceipts() {
+		r := rc.r
+		s.Updates++
+		switch r.Status {
+		case UpdateOK:
+			s.OK++
+			if r.BankUpdated {
+				s.BankUpdated++
+			}
+		case UpdateFailed:
+			s.Failed++
+		case UpdatePending:
+			s.Pending++
 		}
-		if credentialPattern.MatchString(string(data)) {
-			problems = append(problems, name+": possible credential-shaped value — scrub before promoting")
+		if !r.Time.IsZero() {
+			if s.Oldest.IsZero() || r.Time.Before(s.Oldest) {
+				s.Oldest = r.Time
+			}
+			if r.Time.After(s.Newest) {
+				s.Newest = r.Time
+			}
 		}
 	}
-	return problems
+	return s
+}
+
+// Report renders the aggregate as the human `memory stats` block.
+func (s bankStats) Report() string {
+	var b strings.Builder
+	b.WriteString("== memory stats (receipts on disk) ==\n")
+	if s.Updates == 0 {
+		b.WriteString("updates: no receipts yet (state/harness/memory/update-result-*)\n")
+		return b.String()
+	}
+	fmt.Fprintf(&b, "updates: %d receipt(s)", s.Updates)
+	if !s.Oldest.IsZero() {
+		fmt.Fprintf(&b, "  %s → %s", s.Oldest.Format("2006-01-02"), s.Newest.Format("2006-01-02"))
+	}
+	b.WriteByte('\n')
+	if terminal := s.OK + s.Failed; terminal > 0 {
+		fmt.Fprintf(&b, "  success rate: %d/%d ok (%.0f%%)\n", s.OK, terminal, 100*float64(s.OK)/float64(terminal))
+	}
+	if s.OK > 0 {
+		fmt.Fprintf(&b, "  bank updated: %d/%d ok updates (%.0f%%)\n", s.BankUpdated, s.OK, 100*float64(s.BankUpdated)/float64(s.OK))
+	}
+	if s.Pending > 0 {
+		fmt.Fprintf(&b, "  unreported:   %d pending\n", s.Pending)
+	}
+	return b.String()
+}
+
+// Session timeline: the recent-sessions recall strategy rendered from update receipts and
+// sessionHistory entries already on disk. Read-only; no new state.
+// timelineEntry is one recall row from an update receipt.
+type timelineEntry struct {
+	Time time.Time
+	Line string
+}
+
+// timeline returns the newest-first update-receipt trail (bounded by limit) plus the most recent
+// sessionHistory headings from the local then home bank (their files are newest-first already).
+func timeline(root string, limit int) (entries []timelineEntry, sessions []string, err error) {
+	for _, rc := range readReceipts() {
+		id, r := rc.id, rc.r
+		if r.Time.IsZero() {
+			continue
+		}
+		line := r.Status
+		if r.BankUpdated {
+			line += ", bank updated"
+		}
+		entries = append(entries, timelineEntry{Time: r.Time, Line: line + "  (session " + headID(id) + ")"})
+	}
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Time.After(entries[j].Time) })
+	if limit > 0 && len(entries) > limit {
+		entries = entries[:limit]
+	}
+	sessions, err = recentSessions(root, limit)
+	return entries, sessions, err
+}
+
+// recentSessions lists the sessionHistory headings of root's bank then the home bank, deduped, up to limit (0 = all).
+func recentSessions(root string, limit int) (sessions []string, err error) {
+	seen := map[string]bool{}
+	dirs := []string{HomeBankDir()}
+	if !isHomeBank(root) {
+		dirs = []string{Dir(root), HomeBankDir()}
+	}
+	for _, dir := range dirs {
+		heads, err := entriesWithPrefix(filepath.Join(dir, "sessionHistory.md"), "## ")
+		if err != nil {
+			return sessions, err
+		}
+		for _, h := range heads {
+			if seen[h] {
+				continue
+			}
+			seen[h] = true
+			sessions = append(sessions, h)
+			if limit > 0 && len(sessions) >= limit {
+				return sessions, nil
+			}
+		}
+	}
+	return sessions, nil
+}
+
+// headID shortens a session id for the timeline's "(session ...)" suffix.
+func headID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
+// receipt is one readable update-result file: its session id and parsed result.
+type receipt struct {
+	id string
+	r  UpdateResult
+}
+
+// readReceipts returns every parseable StateDir()/update-result-* receipt, skipping unreadable ones.
+func readReceipts() []receipt {
+	var out []receipt
+	matches, _ := filepath.Glob(filepath.Join(StateDir(), "update-result-*"))
+	for _, p := range matches {
+		id := strings.TrimPrefix(filepath.Base(p), "update-result-")
+		if r, ok := ReadUpdateResult(id); ok {
+			out = append(out, receipt{id, r})
+		}
+	}
+	return out
 }

@@ -43,7 +43,7 @@ func (p dreamPreview) Report() string {
 		fmt.Fprintf(&b, "would archive %d block(s)\n", p.Archivable)
 	}
 	if p.SessionRotate > 0 {
-		fmt.Fprintf(&b, "would rotate %d sessionHistory entrie(s) to archive/\n", p.SessionRotate)
+		fmt.Fprintf(&b, "would rotate %d sessionHistory entr(ies) to archive/\n", p.SessionRotate)
 	}
 	if !p.Any() {
 		b.WriteString("nothing to consolidate mechanically — a real run still applies the judgment pass (dedup, merge, cross-pollinate)\n")
@@ -55,29 +55,18 @@ func (p dreamPreview) Report() string {
 // never needs to run itself.
 func previewDream(root string) dreamPreview {
 	dir := Dir(root)
-	p := dreamPreview{Dir: dir, Oversized: stat(root).Oversized}
+	local := statBank(dir) // one read per typed file feeds the cap, archive and rotation checks below
+	p := dreamPreview{Dir: dir, Oversized: local.Oversized}
 	if !isHomeBank(root) {
-		p.HomeOversized = homeBankStat().Oversized
+		p.HomeOversized = statBank(HomeBankDir()).Oversized
 	}
 	for name, capLines := range archiveCaps {
-		_, _, overflow, _ := splitOverflow(filepath.Join(dir, name), capLines) // archiveFile's split, read-only
+		_, _, overflow := overflowSplit(name, string(local.data[name]), capLines) // archiveFile's split, read-only
 		p.Archivable += len(overflow)
 	}
-	p.SessionRotate = previewSessionRotate(dir)
+	_, _, rotate := sessionOverflow(string(local.data["sessionHistory.md"]))
+	p.SessionRotate = len(rotate)
 	return p
-}
-
-// previewSessionRotate is rotateSessionHistory's cap check, read-only.
-func previewSessionRotate(dir string) int {
-	data, err := os.ReadFile(filepath.Join(dir, "sessionHistory.md"))
-	if err != nil {
-		return 0
-	}
-	_, entries := splitHeadingBlocks(string(data))
-	if len(entries) <= sessionHistoryMaxEntries {
-		return 0
-	}
-	return len(entries) - sessionHistoryMaxEntries
 }
 
 const dreamInterval = 24 * time.Hour

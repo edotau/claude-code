@@ -1,9 +1,12 @@
 package memory
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -437,28 +440,26 @@ func assertBankFmtNoOp(t *testing.T, headAfterFirst string) {
 	}
 }
 
-// TestFormatBankNativeAndCatalogUntouched: MEMORY.md and the store catalog (index.md) are never rewritten,
-// even with an over-width line, because formatBank never targets them.
+// A real fmt pass that rewrites a dirty typed file leaves an over-width MEMORY.md and catalog byte-identical.
 func TestFormatBankNativeAndCatalogUntouched(t *testing.T) {
 	global, _ := bankFmtRepoStore(t)
 	longLine := strings.Join(repeatWords(15), " ")
-	nativePath := filepath.Join(global, NativeIndexFile)
-	catalogPath := filepath.Join(StoreDir(), CatalogFile)
-	write(t, nativePath, "native MEMORY.md\n"+longLine+"\n")
-	write(t, catalogPath, "catalog\n"+longLine+"\n")
-	nativeBefore, _ := os.ReadFile(nativePath)
-	catalogBefore, _ := os.ReadFile(catalogPath)
-
-	if _, err := formatBank(false); err != nil {
-		t.Fatal(err)
+	typed := filepath.Join(global, "decisionLog.md")
+	write(t, typed, "# decisionLog\n\n"+longLine+"\n")
+	untouched := map[string]string{
+		filepath.Join(global, NativeIndexFile): "native MEMORY.md\n" + longLine + "\n",
+		filepath.Join(StoreDir(), CatalogFile): "catalog\n" + longLine + "\n",
 	}
-	nativeAfter, _ := os.ReadFile(nativePath)
-	catalogAfter, _ := os.ReadFile(catalogPath)
-	if string(nativeBefore) != string(nativeAfter) {
-		t.Error("MEMORY.md was rewritten by memory fmt")
+	for p, body := range untouched {
+		write(t, p, body)
 	}
-	if string(catalogBefore) != string(catalogAfter) {
-		t.Error("index.md was rewritten by memory fmt")
+	if changed, err := formatBank(false); err != nil || len(changed) != 1 || changed[0] != typed {
+		t.Fatalf("formatBank = %v, %v; want only %s rewritten", changed, err, typed)
+	}
+	for p, body := range untouched {
+		if got := mustRead(t, p); got != body {
+			t.Errorf("memory fmt rewrote %s: %q", p, got)
+		}
 	}
 }
 
@@ -479,4 +480,35 @@ func wordsSubsequence(want, got []string) bool {
 		}
 	}
 	return i == len(want)
+}
+
+func TestFormatBankCheckReturnsDiscoveryErrors(t *testing.T) {
+	for _, sub := range []string{"stat", "", "archive"} {
+		t.Run(sub, func(t *testing.T) {
+			isolatedConfig1(t)
+			want := fmtDiscoveryFailure(t, sub)
+			_, err := formatBank(true)
+			if !errors.Is(err, want) {
+				t.Fatalf("fmt --check = %v, want discovery error %v", err, want)
+			}
+		})
+	}
+}
+
+func fmtDiscoveryFailure(t *testing.T, sub string) error {
+	t.Helper()
+	if sub == "stat" {
+		file := filepath.Join(HomeBankDir(), "decisionLog.md")
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(file, file); err != nil {
+			t.Fatal(err)
+		}
+		return syscall.ELOOP
+	}
+	dir := filepath.Join(HomeBankDir(), sub)
+	write(t, filepath.Join(dir, "decisionLog.md"), "## Hidden\nbody\n")
+	denyBankAccess(t, dir)
+	return fs.ErrPermission
 }

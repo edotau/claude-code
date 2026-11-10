@@ -72,9 +72,6 @@ func recallNeed(terms []string) int {
 	return min(max(recallMinMatched, (distinctCount(terms, 0)+3)/4), recallMaxMatched)
 }
 
-// distinctTokenCount gates searches on distinct tokens of at least 3 bytes, without affecting ranking.
-func distinctTokenCount(tokens []string) int { return distinctCount(tokens, 3) }
-
 // distinctCount counts the distinct tokens of at least minLen bytes.
 func distinctCount(tokens []string, minLen int) int {
 	seen := map[string]bool{}

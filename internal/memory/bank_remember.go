@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -37,20 +36,22 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, file)
 	var id string
 	err = WithBankLock(BankLockWait, func() error {
-		line, werr := writeRememberFact(path, file, kind, fact, now)
-		if werr != nil {
+		var werr error
+		if id, werr = writeRememberFact(dir, file, kind, fact, now); werr != nil {
 			return werr
 		}
-		// Stamp the id directly: settleBank only runs assignIDs on the unified-store path,
-		// and a fresh bank must still get an id back to round-trip through `memory recall`.
-		if _, werr = assignIDs(dir, now); werr != nil {
-			return werr
+		// Stamp ids directly: a fresh bank must get its id back to round-trip through `memory recall`.
+		for name, prefix := range idFiles {
+			if name == file { // already stamped in memory before its one write
+				continue
+			}
+			if _, werr = assignFileIDs(dir, name, prefix, now); werr != nil {
+				return werr
+			}
 		}
-		id, werr = lastStampedID(path, line, file == "decisionLog.md")
-		return werr
+		return nil
 	})
 	if err != nil {
 		return "", err
@@ -61,36 +62,45 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 	return id, nil
 }
 
-func writeRememberFact(path, file, kind, fact string, now time.Time) (string, error) {
-	if file == "decisionLog.md" {
-		line := "## " + now.Format("2006-01-02") + " — " + fact
-		return line, prependBlock(path, file, line)
-	}
-	label := strings.ToUpper(kind[:1]) + kind[1:]
-	line := "- " + label + ": " + fact
-	return line, appendBlocks(path, []string{line})
-}
-
-// prependBlock inserts block at the top of path's entries — decisionLog.md is newest-first.
-func prependBlock(path, base, block string) error {
-	data, err := os.ReadFile(path)
+// writeRememberFact adds fact to dir's file, stamps its id in memory, writes the file once, and returns the id.
+func writeRememberFact(dir, file, kind, fact string, now time.Time) (string, error) {
+	path := filepath.Join(dir, file)
+	data, err := readFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err // never rewrite the log from an unread file
+		return "", err // never rewrite the file from an unread one
 	}
-	header, blocks := entryBlocks(base, string(data))
-	blocks = append([]string{block}, blocks...)
-	return paths.AtomicWrite(path, []byte(rejoin(header, blocks)), 0o600)
-}
-
-// lastStampedID finds the id stamped on line's first line: the first exact match in a newest-first file, else the last.
-func lastStampedID(path, line string, newestFirst bool) (string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
+	line, text := rememberedText(path, file, kind, fact, string(data), now)
+	text, _ = stampIDs(dir, file, idFiles[file], text, now)
+	if err := paths.AtomicWrite(path, []byte(text), 0o600); err != nil {
 		return "", err
 	}
+	return lastStampedID(text, line, file == "decisionLog.md")
+}
+
+// rememberedText is body with fact added: a dated heading on top of decisionLog.md, else a labeled bullet at the end.
+func rememberedText(path, file, kind, fact, body string, now time.Time) (line, text string) {
+	if strings.TrimSpace(body) == "" { // a missing typed file starts from its scaffold, never appendBlocks' archive header
+		body = templates()[file]
+	}
+	if file == "decisionLog.md" {
+		line = "## " + now.Format("2006-01-02") + " — " + fact
+		return line, prependedText(file, body, line)
+	}
+	line = "- " + strings.ToUpper(kind[:1]) + kind[1:] + ": " + fact
+	return line, appendedText(path, body, []string{line})
+}
+
+// prependedText is body with block inserted at the top of its entries — decisionLog.md is newest-first.
+func prependedText(base, body, block string) string {
+	header, blocks := entryBlocks(base, body)
+	return rejoin(header, append([]string{block}, blocks...))
+}
+
+// lastStampedID finds the id stamped on line's first line in text: the first exact match in a newest-first file, else the last.
+func lastStampedID(text, line string, newestFirst bool) (string, error) {
 	want, _, _ := strings.Cut(line, "\n")
 	want = strings.TrimRight(want, " \t")
-	lines := strings.Split(string(data), "\n")
+	lines := strings.Split(text, "\n")
 	if !newestFirst {
 		slices.Reverse(lines)
 	}

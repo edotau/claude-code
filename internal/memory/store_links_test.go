@@ -113,3 +113,18 @@ func TestEnsureLinkPreservesCorrectRelativeTarget(t *testing.T) {
 		t.Fatalf("correct relative link was rewritten: %q, %v", got, err)
 	}
 }
+
+// TestLinkNativeForProbesGitOnce: LinkNativeFor hands its main-checkout probe to RepoDir instead of running it twice.
+func TestLinkNativeForProbesGitOnce(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	identities.Delete(filepath.Clean(root)) // the store's creation memoized it; LinkNativeFor must resolve afresh
+	probes := countGitProbes(t, "--git-common-dir")
+	res, ok := LinkNativeFor(root)
+	if !ok || res.Target != mustRepoDir(t, root) || res.Action != "linked" {
+		t.Fatalf("LinkNativeFor = %+v, %v, want a link to the repo's store", res, ok)
+	}
+	if *probes != 1 {
+		t.Errorf("LinkNativeFor ran the main-checkout probe %d times, want 1", *probes)
+	}
+}

@@ -33,7 +33,7 @@ func recallLoad(out, errw io.Writer, hits []SearchHit, n int) {
 	budget := recallLoadCap
 	for _, h := range hits[:n] {
 		if budget <= 0 {
-			continue
+			return
 		}
 		_, block, err := ShowBlock(h.ID)
 		if err != nil {
@@ -42,6 +42,9 @@ func recallLoad(out, errw io.Writer, hits []SearchHit, n int) {
 		}
 		block = strings.TrimSpace(block)
 		if len(block) > budget {
+			if budget < recallLoadCap {
+				return // only the first block is cut: its rune-boundary cut leaves 1-3 bytes, a fragment
+			}
 			cut := budget
 			for cut > 0 && !utf8.RuneStart(block[cut]) {
 				cut--
@@ -55,11 +58,7 @@ func recallLoad(out, errw io.Writer, hits []SearchHit, n int) {
 
 // RecallExplain writes the hook-recall selection trace for query: terms, cache state and every candidate's scores.
 func RecallExplain(w io.Writer, repo, query string) {
-	root := Root(repo)
-	if e, ok := RepoByName(repo); repo != "" && ok && e.Origin.Origin != "" {
-		root = e.Origin.Origin
-	}
-	_, trace := RecallPicks(root, os.Getenv(SessionIDEnv), query, true, true)
+	_, trace := RecallPicks(RepoRoot(repo), os.Getenv(SessionIDEnv), query, true, true)
 	fmt.Fprintf(w, "query terms: %s\nembeddings: %s\ncache age: %s; rows: %d\nwould stay silent: %t\n",
 		strings.Join(trace.Terms, " "), trace.Embeddings, trace.CacheAge, trace.CacheRows, trace.Silent)
 	files := explainFiles(w, trace.Rows)

@@ -129,12 +129,13 @@ func TestRememberNonProjectTypesWriteConventionsBullet(t *testing.T) {
 // TestPrependBlockUnreadableLogIsNotRewritten: a read error other than not-exist leaves decisionLog.md alone.
 func TestPrependBlockUnreadableLogIsNotRewritten(t *testing.T) {
 	t.Parallel()
-	p := filepath.Join(t.TempDir(), "decisionLog.md") // a directory: ReadFile fails with EISDIR
+	dir := t.TempDir()
+	p := filepath.Join(dir, "decisionLog.md") // a directory: ReadFile fails with EISDIR
 	if err := os.Mkdir(p, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := prependBlock(p, "decisionLog", "## 2026-11-01 — x"); err == nil {
-		t.Fatal("prependBlock on an unreadable log = nil error, want the read error")
+	if _, err := writeRememberFact(dir, "decisionLog.md", "project", "x", time.Now()); err == nil {
+		t.Fatal("writeRememberFact on an unreadable log = nil error, want the read error")
 	}
 	if fi, err := os.Stat(p); err != nil || !fi.IsDir() {
 		t.Fatalf("unreadable log was replaced: %v", err)
@@ -145,11 +146,7 @@ func TestPrependBlockUnreadableLogIsNotRewritten(t *testing.T) {
 // fact matches on its first line, and an appended file resolves to the last match.
 func TestLastStampedIDExactMatchAndDirection(t *testing.T) {
 	t.Parallel()
-	p := filepath.Join(t.TempDir(), "conventions.md")
-	body := "# c\n\n- User: foo bar <!-- id:aaaa1111 -->\n- User: foo <!-- id:bbbb2222 -->\n- User: foo <!-- id:cccc3333 -->\n"
-	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	p := "# c\n\n- User: foo bar <!-- id:aaaa1111 -->\n- User: foo <!-- id:bbbb2222 -->\n- User: foo <!-- id:cccc3333 -->\n"
 	if got, err := lastStampedID(p, "- User: foo", false); err != nil || got != "cccc3333" {
 		t.Fatalf("appended file: got %q, %v, want cccc3333", got, err)
 	}
@@ -158,5 +155,39 @@ func TestLastStampedIDExactMatchAndDirection(t *testing.T) {
 	}
 	if got, err := lastStampedID(p, "- User: foo bar\ncontinued", false); err != nil || got != "aaaa1111" {
 		t.Fatalf("multi-line fact: got %q, %v, want aaaa1111", got, err)
+	}
+}
+
+// TestRememberReadsItsFileOnceBeforeSettle: the fact is stamped in memory and written once; only settle reads it again.
+func TestRememberReadsItsFileOnceBeforeSettle(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	now := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
+	reads := countBankReads(t)
+	id, err := Remember(root, "project", "read the log once", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(Dir(root), "decisionLog.md")
+	if n := reads[path]; n != 2 {
+		t.Errorf("Remember read decisionLog.md %d times, want 2 (its write, then settle)", n)
+	}
+	if body := mustRead(t, path); !strings.Contains(body, "## 2026-10-23 — read the log once <!-- id:"+id+" -->") {
+		t.Errorf("decisionLog.md lacks the stamped fact with returned id %q: %q", id, body)
+	}
+}
+
+// TestRememberSeedsMissingFileFromScaffold: a fact into an absent conventions.md lands under the scaffold header,
+// not appendBlocks' "(archived)" one.
+func TestRememberSeedsMissingFileFromScaffold(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	if _, err := Remember(root, "user", "likes tea", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	body := mustRead(t, filepath.Join(Dir(root), "conventions.md"))
+	scaffold := strings.TrimRight(templates()["conventions.md"], "\n")
+	if strings.Contains(body, "(archived)") || !strings.HasPrefix(body, scaffold) {
+		t.Errorf("conventions.md = %q, want it to start with the scaffold %q", body, scaffold)
 	}
 }

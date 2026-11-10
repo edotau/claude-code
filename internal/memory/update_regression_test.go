@@ -127,3 +127,21 @@ func finishSettlement(t *testing.T, release string, done <-chan error) {
 		t.Error("update did not finish after releasing settlement")
 	}
 }
+
+// Given the final receipt write fails, When Update otherwise succeeds, Then the write error is returned.
+func TestUpdateReturnsReceiptWriteError(t *testing.T) {
+	clearChildEnv(t)
+	isolatedConfig(t)
+	root := repoRoot(t, "receipt-failure")
+	if _, err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(resultPath("receipt-failure"), "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	run := func(context.Context, string, string) (string, error) { return "fixture", nil }
+	err := update(updateOptions{CWD: root, Session: "receipt-failure", Run: run})
+	if err == nil || !strings.Contains(err.Error(), "record update result") {
+		t.Fatalf("Update = %v, want receipt write error", err)
+	}
+}

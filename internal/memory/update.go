@@ -9,9 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -48,8 +50,8 @@ func snapshotFiles(dir string, names []string) map[string][]byte {
 
 // warnChanged names every file whose bytes differ from snap; it never restores (a live session may own the write).
 func warnChanged(out io.Writer, dir string, snap map[string][]byte) {
-	for n, was := range snap {
-		if now, _ := os.ReadFile(filepath.Join(dir, n)); !bytes.Equal(now, was) {
+	for _, n := range slices.Sorted(maps.Keys(snap)) {
+		if now, _ := os.ReadFile(filepath.Join(dir, n)); !bytes.Equal(now, snap[n]) {
 			fmt.Fprintf(out, "memory update: WARNING: historical run changed %s (not restored)\n", n)
 		}
 	}
@@ -205,6 +207,9 @@ func mergeFileLists(nameOnly, porcelain string) []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(p string) {
+		if u, err := strconv.Unquote(p); strings.HasPrefix(p, `"`) && err == nil {
+			p = u // git C-quotes odd names; Go's octal escapes are bytes, so UTF-8 survives
+		}
 		if p != "" && !seen[p] {
 			seen[p] = true
 			out = append(out, p)
@@ -366,4 +371,105 @@ func runClaudeUpdate(ctx context.Context, o updateOptions) error {
 	}
 	cmd.Stdout, cmd.Stderr = o.Out, o.Out
 	return cmd.Run()
+}
+
+// UpdateChildEnv marks a spawned update worker so its own session hooks never schedule another.
+const UpdateChildEnv = "CLAUDE_SESSION_UPDATE_CHILD"
+
+// IsUpdateChild reports whether this process runs inside an update worker.
+func IsUpdateChild() bool {
+	v := os.Getenv(UpdateChildEnv)
+	return v != "" && v != "0"
+}
+
+// tag is one DECISION/BUG/NEXT/NOTE line the assistant wrote in a reply.
+type tag struct {
+	Kind string
+	Text string
+}
+
+// tagMaxLen caps a single tag; tagMaxCount keeps only the newest tags (dedup preserves first-seen order).
+const (
+	tagMaxLen   = 300
+	tagMaxCount = 40
+)
+
+var tagKinds = []string{"DECISION:", "BUG:", "NEXT:", "NOTE:"}
+
+// extractTags streams transcript JSONL and returns every DECISION/BUG/NEXT/NOTE line from ASSISTANT
+// text blocks only — user, tool_result and system content never contribute a tag.
+func extractTags(r io.Reader) ([]tag, error) {
+	var tags []tag
+	seen := map[string]bool{}
+	br := bufio.NewReader(r)
+	for {
+		line, err := br.ReadBytes('\n')
+		if len(line) > 0 {
+			for _, t := range tagsFromLine(line) {
+				key := t.Kind + "\x00" + t.Text
+				if !seen[key] {
+					seen[key] = true
+					tags = append(tags, t)
+				}
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+	}
+	if len(tags) > tagMaxCount {
+		tags = tags[len(tags)-tagMaxCount:]
+	}
+	return tags, nil
+}
+
+// tagsFromLine parses one JSONL record and extracts tags from its assistant text blocks, if any.
+func tagsFromLine(line []byte) []tag {
+	var rec struct {
+		Type    string `json:"type"`
+		Message struct {
+			Role    string `json:"role"`
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(line), &rec) != nil {
+		return nil
+	}
+	if rec.Type != "assistant" || rec.Message.Role != "assistant" {
+		return nil
+	}
+	var tags []tag
+	for _, block := range rec.Message.Content {
+		if block.Type != "text" {
+			continue
+		}
+		for ln := range strings.SplitSeq(block.Text, "\n") {
+			if t, ok := parseTagLine(ln); ok {
+				tags = append(tags, t)
+			}
+		}
+	}
+	return tags
+}
+
+// parseTagLine matches an optional "- "/"* " bullet then a DECISION:/BUG:/NEXT:/NOTE: prefix.
+func parseTagLine(ln string) (tag, bool) {
+	ln = strings.TrimSpace(ln)
+	ln = strings.TrimPrefix(strings.TrimPrefix(ln, "- "), "* ")
+	for _, kind := range tagKinds {
+		if after, ok := strings.CutPrefix(ln, kind); ok {
+			text := strings.TrimSpace(after)
+			if len(text) > tagMaxLen {
+				text = strings.ToValidUTF8(text[:tagMaxLen], "") // a cut mid-rune leaves a partial one
+			}
+			return tag{Kind: strings.TrimSuffix(kind, ":"), Text: text}, true
+		}
+	}
+	return tag{}, false
 }

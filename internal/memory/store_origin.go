@@ -73,7 +73,7 @@ const vaultRetryDelay = 30 * time.Second
 var errVaultSkipped = errors.New("vault read skipped after a recent failure")
 
 // originRows reads every origin row in one View, skipped while a recent read failed.
-func originRows() (map[string]string, error) {
+var originRows = func() (map[string]string, error) {
 	if time.Now().UnixNano() < vaultRetryAt.Load() {
 		return nil, errVaultSkipped
 	}

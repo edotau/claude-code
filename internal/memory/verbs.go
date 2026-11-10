@@ -3,11 +3,13 @@ package memory
 import (
 	"cmp"
 	"context"
+	"embed"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -53,6 +55,15 @@ func Show(id string) (path, block string, err error) {
 	}
 	logShown(path, id, AccessShow, time.Now())
 	return path, block, nil
+}
+
+// ReportRepo appends a report to repo's store, its origin registered under the bank lock so later calls find it.
+func ReportRepo(repo, label string, in ReportInput) ([]string, error) {
+	dir, err := EnsureRepoDir(RepoRoot(repo))
+	if err != nil {
+		return nil, err
+	}
+	return AppendReport(dir, label, in)
 }
 
 // InitBank creates the repo's bank and reports where it landed, with the init procedure on a fresh template.
@@ -302,4 +313,22 @@ func TimelineReport(w io.Writer, repo string, n int) {
 			fmt.Fprintln(w, "- "+s)
 		}
 	}
+}
+
+//go:embed prompts/*.md
+var promptsFS embed.FS
+
+// Reference loads the model-residue prompt for verb from the embedded prompts/<verb>.md — the one
+// copy of each procedure; a background job and its CLI verb print the same text.
+// A missing or empty file is an error: a job must never run on a silently empty prompt.
+func Reference(verb string) (string, error) {
+	data, err := promptsFS.ReadFile("prompts/" + verb + ".md")
+	if err != nil {
+		return "", fmt.Errorf("memory reference %s: %w", verb, err)
+	}
+	text := strings.TrimSpace(string(data))
+	if text == "" {
+		return "", fmt.Errorf("memory reference %s: prompts/%s.md is empty", verb, verb)
+	}
+	return text, nil
 }

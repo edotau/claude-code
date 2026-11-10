@@ -11,9 +11,11 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // fixtureGit runs git on dir minus inherited GIT_* (GIT_DIR beats -C), user/system config, hooks and signing.
@@ -185,7 +187,7 @@ func TestRepoDirReadOnly(t *testing.T) {
 	if _, err := os.Stat(StoreDir()); !errors.Is(err, os.ErrNotExist) {
 		t.Error("RepoDir must not create the store")
 	}
-	if plain := t.TempDir(); mustRepoDir(t, plain) != homeStoreDir() {
+	if plain := t.TempDir(); mustRepoDir(t, plain) != HomeBankDir() {
 		t.Error("non-repo must map to the global store dir")
 	}
 }
@@ -212,10 +214,10 @@ func TestEnsureRepoDirIdempotent(t *testing.T) {
 
 func TestEnsureRepoDirGlobalTierHasNoOrigin(t *testing.T) {
 	tempConfig(t)
-	if g, err := EnsureRepoDir(t.TempDir()); err != nil || g != homeStoreDir() {
+	if g, err := EnsureRepoDir(t.TempDir()); err != nil || g != HomeBankDir() {
 		t.Errorf("global EnsureRepoDir = %s, %v", g, err)
 	}
-	if _, err := ReadOrigin(homeStoreDir()); err == nil {
+	if _, err := ReadOrigin(HomeBankDir()); err == nil {
 		t.Error("no origin record for the global tier")
 	}
 }
@@ -490,6 +492,37 @@ func TestRepoDirsSkipsJunk(t *testing.T) {
 	}
 }
 
+// TestRepoDirsReadsOriginsOncePerStamp: a settled catalog reads the vault once; a new store is never stale.
+func TestRepoDirsReadsOriginsOncePerStamp(t *testing.T) {
+	cfg := tempConfig(t)
+	seedJunkStores(t, filepath.Join(cfg, "memory"))
+	want, err := RepoDirs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(vault.Path(), time.Time{}, time.Now().Add(-time.Hour)); err != nil { // past racyWindow
+		t.Fatal(err)
+	}
+	reads, orig := 0, originRows
+	originRows = func() (map[string]string, error) { reads++; return orig() }
+	t.Cleanup(func() { originRows = orig; repoDirsMemo.reset() })
+	for range 3 {
+		if got, err := RepoDirs(); err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("RepoDirs = %+v, %v, want %+v", got, err, want)
+		}
+	}
+	if reads != 1 {
+		t.Errorf("three RepoDirs on a settled catalog read the vault %d times, want 1", reads)
+	}
+	beta := filepath.Join(cfg, "memory", "beta")
+	if err := errors.Join(os.Mkdir(beta, 0o755), WriteOrigin(beta, Origin{Version: OriginVersion, Key: "beta", Origin: "/src/beta"})); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := RepoDirs(); len(got) != len(want)+1 {
+		t.Errorf("a store added mid-process was served stale: %+v", got)
+	}
+}
+
 // countRemoteLookups puts a git shim on PATH that logs each `remote get-url` call, and returns the count func.
 func countRemoteLookups(t *testing.T) func() int {
 	t.Helper()
@@ -591,10 +624,11 @@ func TestRepoKeyUsesOriginRemote(t *testing.T) {
 	}
 }
 
-// TestRepoKeyFallsBackToDirBasenameWithoutRemote: no origin remote keeps the pre-spec behaviour.
+// An origin remote that names no repo (a bare "/") keys the store by the checkout's dir name, never by "".
 func TestRepoKeyFallsBackToDirBasenameWithoutRemote(t *testing.T) {
 	cfg := tempConfig(t)
 	repo := gitRepo(t, t.TempDir(), "no-remote-repo")
+	fixtureGit(t, repo, "remote", "add", "origin", "/")
 	dir, err := EnsureRepoDir(repo)
 	if err != nil {
 		t.Fatal(err)
@@ -661,5 +695,105 @@ func assertBothStoresFindable(t *testing.T, a, b, da, db string) {
 	ob, err := ReadOrigin(db)
 	if err != nil || ob.Origin != paths.CanonDeep(b) {
 		t.Fatalf("second store's origin = %+v, %v, want %s", ob, err, paths.CanonDeep(b))
+	}
+}
+
+// A git repo in a scratch folder never becomes its own store: it takes the launching workspace, else home.
+func TestThrowawayRepoUsesLaunchingWorkspace(t *testing.T) {
+	tempConfig(t)
+	orig := throwawayInTests
+	throwawayInTests = true
+	t.Cleanup(func() { throwawayInTests = orig })
+	scratch := gitRepo(t, t.TempDir(), "p4-opencode-fix1")
+
+	t.Setenv(OriginEnv, "")
+	if id := Resolve(scratch); !id.HomeBank {
+		t.Errorf("no %s: Resolve = %+v, want the home tier", OriginEnv, id)
+	}
+	ws := paths.CanonDeep(t.TempDir())
+	t.Setenv(OriginEnv, ws)
+	if id := Resolve(scratch); id.HomeBank || id.Origin != ws {
+		t.Errorf("%s=%s: Resolve = %+v, want that workspace", OriginEnv, ws, id)
+	}
+	if got := LaunchOrigin(scratch); got != ws {
+		t.Errorf("LaunchOrigin = %q, want the inherited %q", got, ws)
+	}
+}
+
+func seedRouteStore(t *testing.T, key, origin string) string {
+	t.Helper()
+	dir := filepath.Join(StoreDir(), key)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: key, Origin: origin}); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestRepoByNamePrefersExactKey(t *testing.T) {
+	tempConfig(t)
+	resetVaultRetry(t)
+	seedRouteStore(t, "alpha", "/src/bravo")
+	want := seedRouteStore(t, "bravo", "/other/checkout")
+
+	got, ok := RepoByName("bravo")
+	if !ok || got.Key != "bravo" || got.Dir != want || got.Origin.Origin != "/other/checkout" {
+		t.Fatalf("RepoByName(bravo) = %+v, %v; want exact key bravo at %s, not alpha's origin basename", got, ok, want)
+	}
+}
+
+func TestRoutedReposMatchesDottedName(t *testing.T) {
+	tempConfig(t)
+	resetVaultRetry(t)
+	want := seedRouteStore(t, ".project", "/src/.project")
+
+	got := routedRepos("check .project")
+	if len(got) != 1 {
+		t.Fatalf("routedRepos(check .project) = %+v; want exactly the dotted store", got)
+	}
+	if got[0].Key != ".project" || got[0].Dir != want {
+		t.Fatalf("routedRepos(check .project) = %+v; want .project at %s", got, want)
+	}
+}
+
+// TestRoutedReposWholeWordMatchAndShortKeysIgnored: a routed name must appear in the query as a whole
+// word; a bare substring of it, or a key under 4 chars, never matches.
+func TestRoutedReposWholeWordMatchAndShortKeysIgnored(t *testing.T) {
+	isolatedConfig1(t)
+	initStore(t)
+	repo := gitRepo(t, t.TempDir(), "tester.github.io")
+	if _, err := EnsureRepoDir(repo); err != nil {
+		t.Fatal(err)
+	}
+	short := gitRepo(t, t.TempDir(), "abc")
+	if _, err := EnsureRepoDir(short); err != nil {
+		t.Fatal(err)
+	}
+
+	got := routedRepos("check Tester.GitHub.io, then deploy")
+	if len(got) != 1 || filepath.Base(got[0].Origin.Origin) != "tester.github.io" {
+		t.Fatalf("got = %+v, want exactly the tester.github.io entry", got)
+	}
+	for _, q := range []string{"my-tester.github.io", "tester.github.ion", "just github alone", "abc is here"} {
+		if got := routedRepos(q); len(got) != 0 {
+			t.Errorf("routedRepos(%q) = %+v; want no match (name inside a longer word, or a key under 4 chars)", q, got)
+		}
+	}
+}
+
+// RepoByName folds case on the store key and, for a key that differs, on the origin's basename.
+func TestRepoByNameMatchesKeyOrOriginBasename(t *testing.T) {
+	tempConfig(t)
+	resetVaultRetry(t)
+	dir := seedRouteStore(t, "alpha", "/src/Checkout-Name")
+	for _, name := range []string{"ALPHA", "checkout-name"} {
+		if e, ok := RepoByName(name); !ok || e.Dir != dir {
+			t.Errorf("RepoByName(%q) = %+v, %v; want the alpha store at %s", name, e, ok, dir)
+		}
+	}
+	if e, ok := RepoByName("src"); ok {
+		t.Errorf("RepoByName(src) matched %+v; only the origin's basename routes", e)
 	}
 }
