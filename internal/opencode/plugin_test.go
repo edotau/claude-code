@@ -175,6 +175,39 @@ try {
 	}
 }
 
+// TestPluginHookAnsweringBeforeStdinIsNotEPIPEBlocked: a fail-closed hook that exits 0 unread (EPIPE) keeps its verdict.
+func TestPluginHookAnsweringBeforeStdinIsNotEPIPEBlocked(t *testing.T) {
+	for name, c := range map[string]struct{ echo, want string }{
+		"silent allow": {"", "RAN"},
+		"ask":          {`{"hookSpecificOutput":{"permissionDecision":"ask"}}`, "BLOCKED approval required; blocked"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			bin := filepath.Join(dir, "fakecc")
+			if err := os.WriteFile(bin, []byte("#!/bin/sh\necho '"+c.echo+"'\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			body, err := renderPlugin(bin, []pluginModule{{Name: "permission-gate", Matcher: "Bash", BudgetMs: 5000, FailClosed: true}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// a 4 MiB command overflows the pipe buffer, so the write always fails after the hook exits
+			driver := `import { ClaudeCodeHarness } from "./plugin.mjs"
+const h = await ClaudeCodeHarness({ directory: "/tmp" })
+try {
+  await h["tool.execute.before"]({ tool: "bash", sessionID: "s1" }, { args: { command: "x".repeat(4 << 20) } })
+  console.log("RAN")
+} catch (e) {
+  console.log("BLOCKED " + e.message)
+}
+`
+			if out := runPluginNode(t, dir, body, driver, os.Environ()); !strings.Contains(out, c.want) {
+				t.Errorf("want %q, got:\n%s", c.want, out)
+			}
+		})
+	}
+}
+
 // TestPluginIdleKeepsOneMemoryUpdateInFlight: a session.idle while that session's memory-update still runs starts no second.
 func TestPluginIdleKeepsOneMemoryUpdateInFlight(t *testing.T) {
 	// strip an inherited hosted marker: a shell that exports it would silence the plugin and pass vacuously
