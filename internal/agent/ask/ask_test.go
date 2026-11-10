@@ -1,12 +1,14 @@
 package ask
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
@@ -1265,5 +1268,169 @@ func TestArmFlagRefusals(t *testing.T) {
 		if line := strings.TrimPrefix(strings.TrimSpace(stderr), "claude-code: ask: "); len(line) > 80 {
 			t.Errorf("%v: message is %d columns, want at most 80: %q", tc.args, len(line), line)
 		}
+	}
+}
+
+// armPlanted are parent-env credentials no Databricks hop's child may hold (GH_TOKEN is kept for git and gh: I10).
+var armPlanted = map[string]string{"ANTHROPIC_API_KEY": "SENTINEL-anthropic", "OPENAI_API_KEY": "SENTINEL-openai",
+	"QA_WS_TOKEN": "SENTINEL-qa-ws", "DEV_WS_TOKEN": "SENTINEL-dev-ws", "COPILOT_GITHUB_TOKEN": "SENTINEL-gh"}
+
+// armDevHop is what each agent's databricks:dev child must hold: its key variable and where its /p/dev route shows.
+var armDevHop = map[string]struct{ bin, key, route string }{
+	"claude":   {"claude", "", "ANTHROPIC_BASE_URL=https://dev.cloud.databricks.com/serving-endpoints/anthropic"},
+	"codex":    {"codex", "HARNESS_CODEX_API_KEY", `base_url = "http://127.0.0.1:9999/p/dev/responses"`},
+	"gemini":   {"agy", "AGY_LLM_GATEWAY_API_KEY", "AGY_LLM_GATEWAY_URL=http://127.0.0.1:9999/p/dev/gemini"},
+	"opencode": {"opencode", "HARNESS_OPENCODE_API_KEY", `"baseURL":"http://127.0.0.1:9999/p/dev`},
+	"copilot":  {"copilot", "COPILOT_PROVIDER_BEARER_TOKEN", "COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:9999/p/dev"},
+}
+
+// armChildEnvFixture: dev/qa rows, planted env, a stubbed mint, fakes that dump argv+env to <dir>/<seq>-<bin> and 402.
+func armChildEnvFixture(t *testing.T) string {
+	t.Helper()
+	cliEnv(t)
+	dump := t.TempDir()
+	for _, h := range armDevHop {
+		pathstest.FakeVendor(t, h.bin, `case "$1 $2" in login*) echo "Logged in using ChatGPT"; exit 0;; `+
+			`--version*|*--help*|debug*) echo 1.0.0; exit 0;; esac`+"\n"+`n=$(ls `+dump+` | wc -l | tr -d ' ')`+"\n"+
+			`{ echo "ARGV $*"; env; } > `+dump+`/$n-`+h.bin+"\n"+
+			`echo '402 Payment Required: monthly quota exceeded' >&2; exit 1`)
+	}
+	row := func(name string) string {
+		return `"` + name + `":{"preset":"databricks","host":"https://` + name + `.cloud.databricks.com",` +
+			`"auth":{"type":"key","env":"` + strings.ToUpper(name) + `_WS_TOKEN"}}`
+	}
+	gh := `"github":{"personal":{"protocol":"openai","base_url":"https://api.githubcopilot.com","login":"octo",` +
+		`"auth":{"type":"cli","login":"copilot"},"models":{"sonnet":"auto"}}}`
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+row("dev")+`,`+row("qa")+`},`+gh+`}}`)
+	for k, v := range armPlanted {
+		t.Setenv(k, v)
+	}
+	t.Setenv("GH_TOKEN", "SENTINEL-gh")
+	t.Setenv(providers.EnvSessionProfile, "qa")
+	t.Setenv(router.EnvRoute, "") // ApplyRoute exports into this process: restore after the run
+	armCopilotLogin(t)
+	orig := agent.MintSession
+	agent.MintSession = func(_ context.Context, p string, _ int) (string, error) { return "cct_ARM_" + p, nil }
+	t.Cleanup(func() { agent.MintSession = orig })
+	return dump
+}
+
+// armCopilotLogin pins copilot to a gh login "octo" with verified credits, gh itself a fake that prints a token.
+func armCopilotLogin(t *testing.T) {
+	t.Helper()
+	if err := vault.SetAgentRecord("copilot", vault.AgentRecord{Profile: "personal"}); err != nil {
+		t.Fatal(err)
+	}
+	gh, bin := t.TempDir(), t.TempDir()
+	hosts := "github.com:\n    users:\n        octo:\n    user: octo\n"
+	if err := os.WriteFile(filepath.Join(gh, "hosts.yml"), []byte(hosts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\necho gho-own-login\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GH_CONFIG_DIR", gh)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	orig := copilot.CopilotUsedPct
+	copilot.CopilotUsedPct = func(context.Context, string) (float64, bool) { return 10, true }
+	t.Cleanup(func() { copilot.CopilotUsedPct = orig })
+}
+
+// armDumps reads the fake vendors' dumps in launch order: the binary and its argv line plus env entries.
+func armDumps(t *testing.T, dir string) (bins []string, envs [][]string) {
+	t.Helper()
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.SortFunc(ents, func(a, b os.DirEntry) int { return seqOf(a.Name()) - seqOf(b.Name()) })
+	for _, e := range ents {
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, bin, _ := strings.Cut(e.Name(), "-")
+		bins, envs = append(bins, bin), append(envs, strings.Split(string(b), "\n"))
+	}
+	return bins, envs
+}
+
+func seqOf(name string) int { n, _ := strconv.Atoi(strings.SplitN(name, "-", 2)[0]); return n }
+
+// envValue is name's value in a dump; ok is false when name is absent.
+func envValue(dump []string, name string) (string, bool) {
+	for _, kv := range dump {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == name {
+			return v, true
+		}
+	}
+	return "", false
+}
+
+// assertArmDevHop: the child is on dev's route, its key the dev session token, inside the route, leaking nothing.
+func assertArmDevHop(t *testing.T, name string, dump []string) {
+	t.Helper()
+	h := armDevHop[name]
+	if !slices.ContainsFunc(dump, func(l string) bool { return strings.Contains(l, h.route) }) {
+		t.Errorf("%s dev hop: no %s route", name, h.route)
+	}
+	if v, _ := envValue(dump, h.key); h.key != "" && v != "cct_ARM_dev" {
+		t.Errorf("%s dev hop: %s is not the dev session token", name, h.key)
+	}
+	if v, _ := envValue(dump, router.EnvRoute); v != "databricks:dev" {
+		t.Errorf("%s dev hop: %s is not databricks:dev", name, router.EnvRoute)
+	}
+	assertArmNoLeak(t, name, dump)
+}
+
+// assertArmNoLeak: no planted credential (claude runs direct: its apiKeyHelper reads DEV_WS_TOKEN) or router secret.
+func assertArmNoLeak(t *testing.T, name string, dump []string) {
+	t.Helper()
+	for k := range armPlanted {
+		if _, ok := envValue(dump, k); ok && (name != "claude" || k != "DEV_WS_TOKEN") {
+			t.Errorf("%s dev hop: inherited %s", name, k)
+		}
+	}
+	for _, kv := range dump {
+		if k, v, _ := strings.Cut(kv, "="); v == "rtr-secret-test" || (k == providers.EnvSessionProfile && v != "dev") {
+			t.Errorf("%s dev hop: %s holds the router secret or another profile", name, k)
+		}
+	}
+}
+
+// assertArmFirstParty: a first-party hop holds no Databricks credential, session token or /p/ route.
+func assertArmFirstParty(t *testing.T, label string, dump []string) {
+	t.Helper()
+	for _, kv := range dump {
+		k, v, _ := strings.Cut(kv, "=")
+		if k == "DEV_WS_TOKEN" || k == "QA_WS_TOKEN" || strings.HasPrefix(k, "DATABRICKS_") ||
+			strings.Contains(v, "cct_ARM") || strings.Contains(kv, "/p/dev") || strings.Contains(kv, "databricks.com") {
+			t.Errorf("%s first-party hop: %s carries a Databricks credential or route", label, k)
+		}
+	}
+}
+
+// In databricks:dev each dev hop holds only dev's route and session token; after a dev 402 first-party hops hold none.
+func TestArmChildEnvPerAgent(t *testing.T) {
+	for name := range armDevHop {
+		t.Run(name, func(t *testing.T) {
+			dump := armChildEnvFixture(t)
+			code, _, stderr := runCLI(t, "ask", "--agent", name, "--route", "databricks:dev", "--fallback", "all", "go")
+			bins, envs := armDumps(t, dump)
+			if code == 0 || len(bins) == 0 || bins[0] != armDevHop[name].bin {
+				t.Fatalf("exit %d launches %v, want %s's dev hop first\n%s", code, bins, name, stderr)
+			}
+			assertArmDevHop(t, name, envs[0])
+			for i := 1; i < len(bins); i++ {
+				assertArmFirstParty(t, bins[i], envs[i])
+			}
+			want := []string{"copilot", "codex", "agy", "opencode", "claude"} // the ladder's first-party order
+			if name == "claude" {
+				want = nil // claude's own failure ends the chain: it is not an external agent
+			}
+			if !slices.Equal(bins[1:], want) {
+				t.Errorf("launches after the dev hop %v, want every first-party login %v\n%s", bins[1:], want, stderr)
+			}
+		})
 	}
 }

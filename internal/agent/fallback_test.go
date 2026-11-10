@@ -472,7 +472,7 @@ func TestArmHopToFirstParty(t *testing.T) {
 	if err != nil || len(own.seen) != 1 || len(res.Hops) != 2 || res.Hops[1].Account != "openai·chatgpt" {
 		t.Fatalf("res=%+v err=%v own ran %d; want the openai·chatgpt hop to answer", res, err, len(own.seen))
 	}
-	const want = "fallback codex (databricks·dev) → codex (openai·chatgpt): codex: quota exhausted: 402 Payment Required: monthly quota exceeded"
+	const want = "fallback codex (databricks·dev) → codex (openai·chatgpt, gpt-6.1-sol): codex: quota exhausted: 402 Payment Required: monthly quota exceeded"
 	if !slices.Contains(notes, want) {
 		t.Errorf("notices = %q, want %q", notes, want)
 	}
