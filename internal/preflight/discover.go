@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -62,4 +63,17 @@ func DiscoverAfterAuth(reg *providers.Registry) {
 	for _, t := range DiscoverTargets(reg) {
 		SpawnDiscover(t, true)
 	}
+}
+
+// RecallOrSpawn is p's sealed snapshot, no network, if usable accepts it; an expired one is served and spawn refreshes it.
+func RecallOrSpawn(p *providers.Provider, usable func([]providers.ModelInfo) bool,
+	spawn func(profile string) bool) ([]providers.ModelInfo, bool) {
+	snap, ok := serving.Recall(p)
+	if !ok || !usable(snap.Models) {
+		return nil, false
+	}
+	if time.Since(snap.DiscoveredAt) >= serving.CacheTTL() {
+		spawn(p.Name)
+	}
+	return snap.Models, true
 }

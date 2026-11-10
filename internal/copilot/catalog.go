@@ -248,23 +248,15 @@ var (
 // else the identity-checked read. An expired snapshot is served and refreshed by a detached process.
 func copilotModelInfos(ctx context.Context, reg *providers.Registry, p *providers.Provider,
 ) (infos []providers.ModelInfo, snapshot bool, err error) {
-	if infos, ok := copilotCachedModels(p); ok {
+	if infos, ok := preflight.RecallOrSpawn(p, copilotUsable, copilotSpawnRefresh); ok {
 		return infos, true, nil
 	}
 	return copilotCheckedModelInfos(ctx, reg, p)
 }
 
-// copilotCachedModels reads p's snapshot under its remembered subject, locally; ok is false on any miss or vault error.
-func copilotCachedModels(p *providers.Provider) (infos []providers.ModelInfo, ok bool) {
-	old, found := serving.Recall(p)
-	if !found || len(copilotServingChatRows(old.Models, nil)) == 0 {
-		return nil, false
-	}
-	expired := time.Since(old.DiscoveredAt) >= serving.CacheTTL()
-	if expired {
-		copilotSpawnRefresh(p.Name)
-	}
-	return old.Models, true
+// copilotUsable accepts a snapshot holding at least one chat row copilot can serve.
+func copilotUsable(infos []providers.ModelInfo) bool {
+	return len(copilotServingChatRows(infos, nil)) > 0
 }
 
 // RefreshCopilotModels is the detached refresh: validate profile's identity, relist and seal; the launch never waits.
