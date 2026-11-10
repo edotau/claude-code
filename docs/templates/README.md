@@ -32,5 +32,5 @@ Two more memory outputs are generated (not seeded from `templates/*.md`) and are
 
 | Output | Built by | Example |
 | --- | --- | --- |
-| Store catalog (`memory/index.md`) | `BuildCatalog` (`internal/memory/bank/region.go`), run by `claude-code memory index` | [memory/index.md](examples/memory/index.md) |
-| A repo's `MEMORY.md` bank region | `buildBankRegion` (`internal/memory/bank/region.go`), run by `claude-code memory index` | [memory/MEMORY.md](examples/memory/MEMORY.md) |
+| Store catalog (`memory/index.md`) | `BuildCatalog` (`internal/memory/bank_region.go`), run by `claude-code memory index` | [memory/index.md](examples/memory/index.md) |
+| A repo's `MEMORY.md` bank region | `buildBankRegion` (`internal/memory/bank_region.go`), run by `claude-code memory index` | [memory/MEMORY.md](examples/memory/MEMORY.md) |

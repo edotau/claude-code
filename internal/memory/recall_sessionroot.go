@@ -30,7 +30,7 @@ func SessionRoot(sessionID, cwd string) string {
 	return filepath.Clean(root)
 }
 
-// sessionRootFor is cwd's git toplevel, else its memstore origin, else its absolute path.
+// sessionRootFor is cwd's git toplevel, else its store origin, else its absolute path.
 func sessionRootFor(cwd string) string {
 	root := GitToplevel(cwd)
 	if root == "" || paths.SamePath(root, StoreDir()) {

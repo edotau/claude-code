@@ -1,7 +1,6 @@
 ---
 paths:
   - "internal/memory/**"
-  - "internal/memstore/**"
   - "skills/reflection/**"
 ---
 # Memory Bank — Session-to-Session Store (`~/.claude/memory/<repo>/`)
@@ -14,7 +13,7 @@ durable facts belong in `rules/` or `CLAUDE.md` — point at them, never copy.
 
 Scratch and fixture folders (`$TMPDIR`, `/tmp`, `~/.claude/state`, `~/worktrees/wf-fixtures`) never get a store of
 their own, git repo or not: they use the launching workspace's store, which every harness launch passes as
-`HARNESS_MEMORY_ORIGIN`, else `memory/home/` (`internal/memstore/throwaway.go`).
+`HARNESS_MEMORY_ORIGIN`, else `memory/home/` (`internal/memory/store_throwaway.go`).
 
 ## Commands
 
