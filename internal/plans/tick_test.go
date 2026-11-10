@@ -157,3 +157,19 @@ func TestTickRangeSkipsDraftMirror(t *testing.T) {
 		t.Error("--plan naming a draft mirror must be refused")
 	}
 }
+
+// A finished claim on a task the plan lost re-adds it ticked under ## Tasks and still returns the missing-task error.
+func TestClaimFinishedRestoresMissingTask(t *testing.T) {
+	p := userTickPlan(t, "# P\n\n## Tasks\n\n- [ ] 1.1 Alpha\n\n## Verification\n\ngo test\n")
+	err := Claim(p, "1.2", "finished: goal done")
+	if err == nil || !strings.Contains(err.Error(), `no task "1.2"`) {
+		t.Fatalf("err = %v, want the missing-task error", err)
+	}
+	want := "# P\n\n## Tasks\n\n- [ ] 1.1 Alpha\n- [x] 1.2 <!-- finished: goal done -->\n\n## Verification\n\ngo test\n"
+	if got := readPlan(t, p); got != want {
+		t.Fatalf("plan =\n%s\nwant\n%s", got, want)
+	}
+	if err := Claim(p, "1.3", "working: bob"); err == nil || strings.Contains(readPlan(t, p), "1.3") {
+		t.Fatalf("a working claim must not re-add a missing task: err=%v", err)
+	}
+}

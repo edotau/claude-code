@@ -82,6 +82,7 @@ func Doctor(root string, staleDays int, now time.Time) []string {
 	}
 	problems = append(problems, bankProblems("home", HomeBankStat(), staleDays, now)...)
 	problems = append(problems, updateProblems(now)...)
+	problems = append(problems, journalProblems(now)...)
 	problems = append(problems, memstore.NativeLinkProblems(root)...)
 	return append(problems, recall.AccessNominations(now)...)
 }
@@ -98,6 +99,27 @@ func updateProblems(now time.Time) []string {
 		}
 		problems = append(problems, "update "+headID(id)+" "+r.Status+" since "+r.Time.Format("2006-01-02")+
 			" — see "+r.Log+" (claude-code memory update --session "+id+")")
+	}
+	return problems
+}
+
+// journalGrace leaves an in-flight commit's journal alone; older ones are ones recovery keeps skipping.
+const journalGrace = 10 * time.Minute
+
+// journalProblems names each bank journal left on disk past the grace window, so a stuck one is seen, not retried silently.
+func journalProblems(now time.Time) []string {
+	entries, err := os.ReadDir(memstore.JournalDir())
+	if err != nil {
+		return nil // a missing dir means no journals; any other read error is the next commit's to report
+	}
+	var problems []string
+	for _, e := range entries {
+		fi, err := e.Info()
+		if err != nil || !strings.HasSuffix(e.Name(), ".json") || now.Sub(fi.ModTime()) <= journalGrace {
+			continue
+		}
+		problems = append(problems, "bank journal "+filepath.Join(memstore.JournalDir(), e.Name())+" left on disk for "+
+			now.Sub(fi.ModTime()).Round(time.Minute).String()+" — recovery keeps skipping it; inspect, then delete or fix")
 	}
 	return problems
 }

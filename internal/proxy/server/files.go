@@ -26,7 +26,11 @@ const (
 	fileCacheTTL   = 20 * time.Hour // shorter than fileExpiry so a cached id never outlives its file
 	fileCacheMax   = 4096           // cached ids kept; expired ones go first, then the lot
 	filesVersion   = "2026-10-21"   // anthropic-version of the GA Files API
+	filesOffTTL    = 30 * time.Minute
 )
+
+// errFilesOAuth: api.anthropic.com answers /v1/files with 404 not_found_error for a subscription (OAuth) bearer.
+var errFilesOAuth = errors.New("files API not available with the subscription (OAuth) login; skipped until the credential changes")
 
 type fileEntry struct {
 	id  string
@@ -239,12 +243,20 @@ func (r *Router) uploadFile(in *http.Request, p *providers.Provider, route strin
 	if err != nil {
 		return "", err
 	}
+	login := http.Header{}
+	if p.Auth.Method() == providers.AuthCLI {
+		r.passthroughAuth(login, in, route)
+	}
+	bearer := login.Get("Authorization")
+	if r.filesRefused(bearer) {
+		return "", errFilesOAuth
+	}
 	quiet := in.WithContext(context.WithValue(in.Context(), attemptsKey{}, new(int))) // uploads are not routing attempts
 	resp, err := r.send(quiet, p, route+"/v1/files", form, func(h http.Header) {
 		h.Set("Content-Type", contentType)
 		h.Set("Anthropic-Version", filesVersion)
-		if p.Auth.Method() == providers.AuthCLI {
-			r.passthroughAuth(h, in, route)
+		for k, v := range login {
+			h[k] = v
 		}
 	})
 	if err != nil {
@@ -255,11 +267,31 @@ func (r *Router) uploadFile(in *http.Request, p *providers.Provider, route strin
 	if err != nil {
 		return "", err
 	}
+	if bearer != "" && (resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden) {
+		r.refuseFiles(bearer)
+		return "", fmt.Errorf("status %d: %w", resp.StatusCode, errFilesOAuth)
+	}
 	var out struct{ ID string }
 	if resp.StatusCode/100 != 2 || json.Unmarshal(b, &out) != nil || out.ID == "" {
 		return "", fmt.Errorf("status %d", resp.StatusCode)
 	}
 	return out.ID, nil
+}
+
+// filesRefused reports whether the Files API refused this bearer within filesOffTTL.
+func (r *Router) filesRefused(bearer string) bool {
+	if bearer == "" {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.filesOff == hashHex([]byte(bearer)) && r.now().Before(r.filesTill)
+}
+
+func (r *Router) refuseFiles(bearer string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.filesOff, r.filesTill = hashHex([]byte(bearer)), r.now().Add(filesOffTTL)
 }
 
 // fileForm builds the multipart body for /v1/files and returns it with its Content-Type.
