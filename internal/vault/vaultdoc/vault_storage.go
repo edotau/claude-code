@@ -7,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"os/signal"
+	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -80,61 +83,168 @@ func Export() ([]byte, error) {
 	return render(d)
 }
 
-// decodeDoc strictly decodes edited as a single Doc object, rejecting non-objects (null would wipe config), unknown fields and trailing data.
-func decodeDoc(edited []byte) (Doc, error) {
-	var d Doc
-	if t := bytes.TrimSpace(edited); len(t) == 0 || t[0] != '{' {
-		return Doc{}, sectionError("config", errors.New("must be a JSON object"))
-	}
-	dec := json.NewDecoder(bytes.NewReader(edited))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&d); err != nil {
-		return Doc{}, sectionError("config", err)
-	}
-	var extra any
-	if err := dec.Decode(&extra); err != io.EOF {
-		if err == nil {
-			return Doc{}, errors.New("config: trailing data")
-		}
-		return Doc{}, sectionError("config", err)
-	}
-	return d, nil
+// docSchema is the newest doc shape this build reads; Export does not stamp it, a hand-added "schema" is checked.
+const docSchema = 1
+
+// docKeys are the top-level keys Import reads; "$schema" is an editor hint, any other key is reported and ignored.
+var docKeys = []string{"schema", "$schema", "pins", "env", "providers", "agents", "settings", "vault"}
+
+// parsed is an edited doc decoded entry by entry: what applies, the paths that keep their stored value, the warnings.
+type parsed struct {
+	doc      Doc
+	recs     map[string]vault.AgentRecord
+	keep     map[string]bool // "pins", "pins.NAME", "agents.records.codex", "vault", ...
+	warnings []string
 }
 
-// validatePinsEnv enforces the shell-identifier name rule and single-line, non-empty values.
-func validatePinsEnv(d Doc) error {
-	for section, values := range map[string]map[string]string{"pins": d.Pins, "env": d.Env} {
-		for name, value := range values {
-			if !vault.EnvName.MatchString(name) {
-				return sectionError(section+"."+strings.NewReplacer("\n", " ", "\r", " ").Replace(name), fmt.Errorf("name must match %s", vault.EnvName))
-			}
-			if value == "" || strings.ContainsAny(value, "\n\r") {
-				return fmt.Errorf("%s.%s: value must be non-empty and single-line", section, name)
-			}
+// skip keeps path's stored value and records why the edited one was not imported; values never appear.
+func (p *parsed) skip(path string, err error) {
+	p.keep[path] = true
+	p.warnings = append(p.warnings, fmt.Sprintf("unable to parse %s: %s", oneLine(path), oneLine(err.Error())))
+}
+
+// decodeTop decodes edited as one JSON object, rejecting non-objects (null would wipe config) and trailing data.
+func decodeTop(edited []byte) (map[string]json.RawMessage, error) {
+	if t := bytes.TrimSpace(edited); len(t) == 0 || t[0] != '{' {
+		return nil, sectionError("config", errors.New("must be a JSON object"))
+	}
+	var top map[string]json.RawMessage
+	dec := json.NewDecoder(bytes.NewReader(edited))
+	if err := dec.Decode(&top); err != nil {
+		return nil, syntaxError(edited, err)
+	}
+	if err := dec.Decode(new(any)); err != io.EOF {
+		if err == nil {
+			return nil, errors.New("config: trailing data")
 		}
+		return nil, syntaxError(edited, err)
+	}
+	return top, nil
+}
+
+// syntaxError names the line and column of a JSON syntax error; other decode errors keep their own text.
+func syntaxError(doc []byte, err error) error {
+	se, ok := errors.AsType[*json.SyntaxError](err)
+	if !ok {
+		return sectionError("config", err)
+	}
+	before := doc[:min(int(se.Offset), len(doc))]
+	line, col := bytes.Count(before, []byte("\n"))+1, len(before)-1-bytes.LastIndexByte(before, '\n')
+	return sectionError("config", fmt.Errorf("invalid JSON at line %d, column %d: %w", line, col, se))
+}
+
+// parseDoc decodes each section and entry on its own, so one bad entry is reported instead of failing the whole doc.
+func parseDoc(top map[string]json.RawMessage) (*parsed, error) {
+	p := &parsed{keep: map[string]bool{}}
+	if err := p.schema(top["schema"]); err != nil {
+		return nil, err
+	}
+	for _, k := range slices.Sorted(maps.Keys(top)) {
+		if !slices.Contains(docKeys, k) {
+			p.warnings = append(p.warnings, fmt.Sprintf("unable to parse %s: unknown field, ignored", oneLine(k)))
+		}
+	}
+	p.doc.Pins = p.stringMap("pins", top["pins"])
+	p.doc.Env = p.stringMap("env", top["env"])
+	p.vaultSection(top["vault"])
+	p.overlays(top)
+	return p, nil
+}
+
+// schema accepts a doc stamped at or below docSchema and refuses a newer one, which this build cannot read.
+func (p *parsed) schema(raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	var n int
+	if err := json.Unmarshal(raw, &n); err != nil {
+		p.skip("schema", err)
+		return nil
+	}
+	if n > docSchema {
+		return fmt.Errorf("config: schema %d is newer than this build reads (%d); nothing saved", n, docSchema)
 	}
 	return nil
 }
 
-// validateOverlaySections normalizes null overlay sections to absent and validates each one present.
-func validateOverlaySections(d *Doc) error {
-	d.Providers = presentJSON(d.Providers)
-	d.Agents = presentJSON(d.Agents)
-	d.Settings = presentJSON(d.Settings)
-	if len(d.Providers) != 0 {
-		if err := providers.Validate(d.Providers); err != nil {
-			return sectionError("providers", err)
+// stringMap decodes a pins/env section entry by entry: a bad name or value keeps that entry's stored value.
+func (p *parsed) stringMap(section string, raw json.RawMessage) map[string]string {
+	var entries map[string]json.RawMessage
+	if len(raw) != 0 {
+		if err := json.Unmarshal(raw, &entries); err != nil {
+			p.skip(section, err)
+			return nil
 		}
 	}
-	if len(d.Agents) != 0 {
-		if _, err := agentconfig.ParseConfig(nil, d.Agents); err != nil {
-			return sectionError("agents", err)
+	out := make(map[string]string, len(entries))
+	for _, name := range slices.Sorted(maps.Keys(entries)) {
+		var v string
+		err := json.Unmarshal(entries[name], &v)
+		switch {
+		case err != nil:
+		case !vault.EnvName.MatchString(name):
+			err = fmt.Errorf("name must match %s", vault.EnvName)
+		case v == "" || strings.ContainsAny(v, "\n\r"):
+			err = errors.New("value must be non-empty and single-line")
 		}
+		if err != nil {
+			p.skip(section+"."+name, err)
+			continue
+		}
+		out[name] = v
 	}
-	if len(d.Settings) != 0 { // retired: nothing reads it, so saving it would report success with no effect
-		return sectionError("settings", errors.New("retired overlay has no effect; delete the section"))
+	return out
+}
+
+// vaultSection decodes the vault section strictly; a bad one keeps the stored key_command.
+func (p *parsed) vaultSection(raw json.RawMessage) {
+	if len(presentJSON(raw)) == 0 {
+		return
 	}
-	return validateKeyCommand(d.Vault.KeyCommand)
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&p.doc.Vault); err != nil {
+		p.skip("vault", err)
+	} else if err := validateKeyCommand(p.doc.Vault.KeyCommand); err != nil {
+		p.skip("vault.key_command", err)
+	}
+}
+
+// overlays splits agent records out of agents, decodes them per agent, and validates each overlay section whole.
+func (p *parsed) overlays(top map[string]json.RawMessage) {
+	if agents, recs, err := cutRecords(top["agents"]); err != nil {
+		p.skip("agents", err)
+		p.keep["agents."+recordsKey] = true
+	} else {
+		p.recs = p.agentRecords(recs)
+		p.doc.Agents = p.overlay("agents", agents)
+	}
+	p.doc.Providers = p.overlay("providers", top["providers"])
+	p.doc.Settings = p.overlay("settings", top["settings"])
+}
+
+// overlay returns the present section when it validates; an invalid one keeps the stored section.
+func (p *parsed) overlay(name string, raw json.RawMessage) json.RawMessage {
+	raw = presentJSON(raw)
+	if err := validateOverlay(name, raw); err != nil {
+		p.skip(name, err)
+		return nil
+	}
+	return raw
+}
+
+// validateOverlay checks one present overlay section; settings is retired, so any content would save with no effect.
+func validateOverlay(name string, raw json.RawMessage) error {
+	switch {
+	case len(raw) == 0:
+		return nil
+	case name == "providers":
+		return providers.Validate(raw)
+	case name == "agents":
+		_, err := agentconfig.ParseConfig(nil, raw)
+		return err
+	}
+	return errors.New("retired overlay has no effect; delete the section")
 }
 
 // validateKeyCommand checks vault.key_command, when set, is a JSON argv array with a non-empty argv[0].
@@ -144,10 +254,10 @@ func validateKeyCommand(keyCommand string) error {
 	}
 	var argv []string
 	if err := json.Unmarshal([]byte(keyCommand), &argv); err != nil {
-		return sectionError("vault.key_command", err)
+		return err
 	}
 	if len(argv) == 0 || argv[0] == "" {
-		return errors.New("vault.key_command: must be a JSON array of strings with non-empty argv[0]")
+		return errors.New("must be a JSON array of strings with non-empty argv[0]")
 	}
 	return nil
 }
@@ -238,21 +348,23 @@ func applyOverlaySection(t *vault.Tx, name string, oldRaw, nextRaw json.RawMessa
 	return t.Put(vault.Overlay, name, stored)
 }
 
-// Import validates edited, then compares against orig and writes the changed sections in one transaction (R11).
-func Import(orig, edited []byte) error {
-	d, err := decodeDoc(edited)
+// Import applies each entry that parses (R11: one tx, vault equal to orig), warning per bad one; none applied errs.
+func Import(orig, edited []byte) (warnings []string, err error) {
+	top, err := decodeTop(edited)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := validatePinsEnv(d); err != nil {
-		return err
+	p, err := parseDoc(top)
+	if err != nil {
+		return nil, err
 	}
-	var recs map[string]vault.AgentRecord
-	if d.Agents, recs, err = splitAgentRecords(d.Agents); err != nil {
-		return err
+	base, baseRecs, err := origDoc(orig)
+	if err != nil {
+		return nil, err
 	}
-	if err := validateOverlaySections(&d); err != nil {
-		return err
+	d, recs := p.merge(base, baseRecs)
+	if len(p.warnings) > 0 && !docChanged(base, d, baseRecs, recs) {
+		return nil, fmt.Errorf("nothing saved:\n  %s", strings.Join(p.warnings, "\n  "))
 	}
 	var curRecs map[string]vault.AgentRecord
 	err = vault.Update(func(t *vault.Tx) error {
@@ -261,10 +373,76 @@ func Import(orig, edited []byte) error {
 		return txErr
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	providers.AuditRecords(curRecs, recs)
-	return nil
+	return p.warnings, nil
+}
+
+// origDoc decodes the exported doc orig with its records split out; importTx proves the vault still equals it.
+func origDoc(orig []byte) (Doc, map[string]vault.AgentRecord, error) {
+	var d Doc
+	if err := json.Unmarshal(orig, &d); err != nil {
+		return Doc{}, nil, sectionError("original config", err)
+	}
+	d.Providers, d.Settings = presentJSON(d.Providers), presentJSON(d.Settings)
+	agents, recs, err := splitAgentRecords(d.Agents)
+	d.Agents = agents
+	return d, recs, err
+}
+
+// merge is p's doc with every kept section or entry restored from base, the stored config.
+func (p *parsed) merge(base Doc, baseRecs map[string]vault.AgentRecord) (Doc, map[string]vault.AgentRecord) {
+	d := p.doc
+	d.Pins, d.Env = p.keptMap("pins", base.Pins, d.Pins), p.keptMap("env", base.Env, d.Env)
+	if p.keep["providers"] {
+		d.Providers = base.Providers
+	}
+	if p.keep["agents"] {
+		d.Agents = base.Agents
+	}
+	if p.keep["settings"] {
+		d.Settings = base.Settings
+	}
+	if p.keep["vault"] || p.keep["vault.key_command"] {
+		d.Vault = base.Vault
+	}
+	return d, keptRecords(p, baseRecs)
+}
+
+// keptMap is next with each kept entry of section restored from base; a kept section is base whole.
+func (p *parsed) keptMap(section string, base, next map[string]string) map[string]string {
+	if p.keep[section] {
+		return base
+	}
+	out := maps.Clone(next)
+	for k, v := range base {
+		if p.keep[section+"."+k] {
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// docChanged reports whether applying next over old would write anything, by the apply functions' own comparisons.
+func docChanged(old, next Doc, oldRecs, nextRecs map[string]vault.AgentRecord) bool {
+	if !maps.Equal(old.Pins, next.Pins) || !maps.Equal(old.Env, next.Env) || old.Vault != next.Vault {
+		return true
+	}
+	if (len(oldRecs) != 0 || len(nextRecs) != 0) && !reflect.DeepEqual(oldRecs, nextRecs) {
+		return true
+	}
+	return !sameJSON(old.Providers, next.Providers) || !sameJSON(old.Agents, next.Agents) || !sameJSON(old.Settings, next.Settings)
+}
+
+// sameJSON reports whether two overlay sections compact to the same bytes (null and absent are the same).
+func sameJSON(a, b json.RawMessage) bool {
+	ca, errA := compactJSON(presentJSON(a))
+	cb, errB := compactJSON(presentJSON(b))
+	return errA == nil && errB == nil && bytes.Equal(ca, cb)
 }
 
 // importTx applies the validated doc d inside the vault transaction when the stored config still equals orig;
@@ -309,8 +487,11 @@ func presentJSON(raw json.RawMessage) json.RawMessage {
 
 // sectionError prefixes err with its doc section and keeps it on one line.
 func sectionError(section string, err error) error {
-	return fmt.Errorf("%s: %s", section, strings.NewReplacer("\n", " ", "\r", " ").Replace(err.Error()))
+	return fmt.Errorf("%s: %s", section, oneLine(err.Error()))
 }
+
+// oneLine folds line breaks to spaces so a key or message cannot forge an extra output line.
+func oneLine(s string) string { return strings.NewReplacer("\n", " ", "\r", " ").Replace(s) }
 
 // RotateKey retains the old key so archived copies of this vault remain readable.
 func RotateKey(w io.Writer, opts ...vault.RotateKeyOption) error {
@@ -414,8 +595,11 @@ func runEditor(argv []string, file string) error {
 
 // importEdited imports the edited doc; retry is true only when the import failed and the user chose to re-edit.
 func importEdited(stdout, stderr io.Writer, orig, edited []byte) (retry bool, err error) {
-	err = Import(orig, edited)
+	warnings, err := Import(orig, edited)
 	if err == nil {
+		for _, w := range warnings {
+			fmt.Fprintln(stderr, "warning:", w)
+		}
 		fmt.Fprintln(stdout, "saved")
 		return false, nil
 	}

@@ -52,17 +52,37 @@ func isReserved(name string) bool {
 	return strings.EqualFold(name, defaultSection) || name == settingsSection
 }
 
-// iniState is the running state of parseSections: sections so far, the current one, and a pending pairing comment.
+// iniState is parseSections' running state: sections, the current one, a pending pairing comment, and line notes.
 type iniState struct {
-	out     []*section
-	byName  map[string]*section
-	cur     *section
-	pair    string
-	pairSet bool
+	out      []*section
+	byName   map[string]*section
+	cur      *section
+	pair     string
+	pairSet  bool
+	skipping bool // inside an unterminated header's block: its keys belong to no section
+	notes    []string
+	sc       *lineScanner
+}
+
+// lineScanner counts the lines it scans so notes can name them.
+type lineScanner struct {
+	*bufio.Scanner
+	n int
+}
+
+func (l *lineScanner) Scan() bool {
+	l.n++
+	return l.Scanner.Scan()
+}
+
+// note records one skipped or merged line as prefix + "line N" + the formatted rest.
+func (st *iniState) note(prefix, format string, a ...any) {
+	st.notes = append(st.notes, fmt.Sprintf("%sline %d", prefix, st.sc.n)+fmt.Sprintf(format, a...))
 }
 
 // enter makes name the current section, creating it on first appearance.
 func (st *iniState) enter(name string) {
+	st.skipping = false
 	if st.cur = st.byName[name]; st.cur == nil {
 		st.cur = &section{name: name, keys: map[string]string{}}
 		st.byName[name] = st.cur
@@ -72,6 +92,9 @@ func (st *iniState) enter(name string) {
 
 // header handles a "[name]" line: the pending pairing comment attaches to that section.
 func (st *iniState) header(name string) {
+	if st.byName[name] != nil {
+		st.note("", ": section [%s] repeated; its keys merge into the first, the last value wins", name)
+	}
 	st.enter(name)
 	if st.pairSet {
 		st.cur.pair, st.cur.pairSet = st.pair, true
@@ -80,25 +103,34 @@ func (st *iniState) header(name string) {
 }
 
 // keyLine handles a "k = v" line; keys above the first header belong to DEFAULT.
-func (st *iniState) keyLine(line string, sc *bufio.Scanner) {
+func (st *iniState) keyLine(line string) {
 	st.pair, st.pairSet = "", false
+	if st.skipping {
+		return
+	}
 	if st.cur == nil {
 		st.enter(defaultSection)
 	}
-	if i := strings.IndexAny(line, "=:"); i > 0 {
-		st.cur.keys[strings.TrimSpace(line[:i])] = readValue(line[i+1:], sc)
+	i := strings.IndexAny(line, "=:")
+	if i <= 0 {
+		st.note("unable to parse ", " in [%s]: no \"=\" separator; line skipped", st.cur.name)
+		return
 	}
+	k := strings.TrimSpace(line[:i])
+	if _, dup := st.cur.keys[k]; dup {
+		st.note("", " in [%s]: key %q repeated; the last value wins", st.cur.name, k)
+	}
+	st.cur.keys[k] = readValue(line[i+1:], st.sc)
 }
 
-// parseSections scans INI text into sections in first-appearance order; keys before any header belong to DEFAULT.
-// A scan error (a line over 1MB) is returned with the sections read so far.
-func parseSections(text string) ([]*section, error) {
-	st := &iniState{byName: map[string]*section{}}
+// parseSections scans INI text into sections (headerless keys go to DEFAULT) plus a note per skipped or merged line.
+func parseSections(text string) ([]*section, []string, error) {
 	sc := bufio.NewScanner(strings.NewReader(text))
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	for first := true; sc.Scan(); first = false {
+	st := &iniState{byName: map[string]*section{}, sc: &lineScanner{Scanner: sc}}
+	for st.sc.Scan() {
 		line := sc.Text()
-		if first {
+		if st.sc.n == 1 {
 			line = strings.TrimPrefix(line, "\ufeff") // a UTF-8 BOM would hide the first header
 		}
 		line = strings.TrimSpace(line)
@@ -111,11 +143,14 @@ func parseSections(text string) ([]*section, error) {
 		}
 		if name, ok := headerName(line); ok {
 			st.header(name)
-			continue
+		} else if line[0] == '[' {
+			st.note("unable to parse ", ": unterminated section header; its keys up to the next header are skipped")
+			st.skipping, st.pair, st.pairSet = true, "", false
+		} else {
+			st.keyLine(line)
 		}
-		st.keyLine(line, sc)
 	}
-	return st.out, sc.Err()
+	return st.out, st.notes, sc.Err()
 }
 
 // headerName returns the name of a "[name]" line, tolerating a trailing comment.
@@ -135,7 +170,7 @@ func headerName(line string) (string, bool) {
 }
 
 // readValue reads a value that may span lines: a triple-quoted or backtick block, or lines ending in a backslash.
-func readValue(raw string, sc *bufio.Scanner) string {
+func readValue(raw string, sc *lineScanner) string {
 	v := strings.TrimSpace(raw)
 	for _, d := range []string{`"""`, `'''`, "`"} {
 		if !strings.HasPrefix(v, d) {
@@ -178,13 +213,13 @@ func toProfile(s *section) profile {
 		clientSecret: k["client_secret"], token: k["token"], accountID: k["account_id"], workspaceID: k["workspace_id"], pair: s.pair, pairSet: s.pairSet, env: k["env"]}
 }
 
-// parse returns the named profiles (DEFAULT and __settings__ excluded) and whether a DEFAULT section exists.
-func parse(text string) ([]profile, bool, error) {
+// parse returns the named profiles (DEFAULT and __settings__ excluded), whether DEFAULT has keys, and line notes.
+func parse(text string) ([]profile, bool, []string, error) {
 	var ps []profile
 	hasDefault := false
-	secs, err := parseSections(text)
+	secs, notes, err := parseSections(text)
 	if err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
 	for _, s := range secs {
 		switch {
@@ -195,13 +230,13 @@ func parse(text string) ([]profile, bool, error) {
 			ps = append(ps, toProfile(s))
 		}
 	}
-	return ps, hasDefault, nil
+	return ps, hasDefault, notes, nil
 }
 
-func load(path string) ([]profile, bool, error) {
+func load(path string) ([]profile, bool, []string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
 	return parse(string(b))
 }
@@ -244,20 +279,23 @@ type Candidate struct {
 // defaultOnlySkip explains why a file holding only [DEFAULT] imports nothing.
 const defaultOnlySkip = "[DEFAULT] is the CLI's fallback, never imported; copy it into a named profile"
 
-// Candidates enumerates the profiles of the config at path; a DEFAULT-only file lists DEFAULT as skipped.
-func Candidates(path string) ([]Candidate, error) {
-	ps, hasDefault, err := load(path)
+// Candidates lists path's profiles plus parser notes; DEFAULT is a skip row when alone, else a note.
+func Candidates(path string) ([]Candidate, []string, error) {
+	ps, hasDefault, notes, err := load(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	out := make([]Candidate, 0, len(ps))
 	for _, p := range ps {
 		out = append(out, classifyProfile(p))
 	}
-	if len(out) == 0 && hasDefault {
+	switch {
+	case len(out) == 0 && hasDefault:
 		out = append(out, Candidate{Name: defaultSection, Skip: defaultOnlySkip})
+	case hasDefault:
+		notes = append(notes, "[DEFAULT] skipped: the CLI's fallback, never imported; copy it into a named profile")
 	}
-	return out, nil
+	return out, notes, nil
 }
 
 // classifyProfile maps a profile to a row authType; an explicit auth_type wins over inference from the keys present.
@@ -323,7 +361,7 @@ type Secrets struct{ ClientSecret, Token string }
 
 // ReadSecrets returns the named profile's secrets from path; DEFAULT and __settings__ are never readable.
 func ReadSecrets(path, name string) (Secrets, error) {
-	ps, _, err := load(path)
+	ps, _, _, err := load(path)
 	if err != nil {
 		return Secrets{}, err
 	}

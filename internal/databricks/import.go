@@ -77,11 +77,14 @@ func importCfg(args []string) int {
 	return runImport(path, cands, options, *apply && !*dryRun, *fold, *seal)
 }
 
-// importCandidates lists the profiles at path, narrowed by the picker when pick is set.
+// importCandidates lists the profiles at path, narrowed by the picker when pick is set; each parser note is a warning.
 func importCandidates(path string, pick bool) ([]Candidate, error) {
-	cands, err := Candidates(path)
+	cands, notes, err := Candidates(path)
 	if err != nil {
 		return nil, err
+	}
+	for _, n := range notes {
+		fmt.Fprintf(os.Stderr, "claude-code databricks import: warning: %s\n", n)
 	}
 	if len(cands) == 0 {
 		return nil, fmt.Errorf("no profiles in %s", path)

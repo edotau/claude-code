@@ -106,7 +106,7 @@ func mergeInto(out string, rows []ExportRow, force bool) (string, error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
-	if _, err := parseSections(string(old)); err != nil {
+	if _, _, err := parseSections(string(old)); err != nil {
 		return "", fmt.Errorf("%s: %w", out, err)
 	}
 	text, notes := Merge(string(old), rows, force)

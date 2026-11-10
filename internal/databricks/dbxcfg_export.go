@@ -224,7 +224,7 @@ func splitBlocks(text string) []block {
 // section of the same name is replaced only with force, and an auth_type = databricks-cli one never is.
 func Merge(existing string, rows []ExportRow, force bool) (string, []string) {
 	have := map[string]*section{}
-	secs, err := parseSections(existing)
+	secs, _, err := parseSections(existing)
 	if err != nil {
 		return existing, []string{"keep everything: the existing file does not parse: " + err.Error()}
 	}
