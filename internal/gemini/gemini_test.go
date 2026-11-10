@@ -14,6 +14,8 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // agyArgv maps Autonomous onto "--mode auto"; --dangerously-skip-permissions rides on Tools alone, so
@@ -57,6 +59,79 @@ func TestAgyArgvConversation(t *testing.T) {
 				t.Errorf("argv = %q, --conversation value = %q, want %q", argv, argv[idx+1], c.session)
 			}
 		})
+	}
+}
+
+// agyFixture is a hermetic vault and HOME with agy's Google login marker; rec, when set, is the stored gemini record.
+func agyFixture(t *testing.T, rec *vault.AgentRecord) {
+	t.Helper()
+	vaulttest.Use(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("CLAUDE_PROFILE", "")
+	t.Setenv("HARNESS_PROVIDER", "")
+	t.Cleanup(agent.StubRouter("http://127.0.0.1:9999"))
+	marker := AgyLoginMarker(home)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("tok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if rec != nil {
+		if err := vault.SetAgentRecord("gemini", *rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// Effort and --settings ride just before -p=; a flag beats the record; a suffixed model's effort is emulated.
+func TestAgyArgvSettings(t *testing.T) {
+	stream := []string{"--input-format", "stream-json", "--output-format", "stream-json"}
+	settings := `{"permissions":{"deny":["command(rm -rf /)","command(rm -rf /*)","command(rm -rf ~)","write_file(/w/x.txt)"]}}`
+	deny := agent.Permissions{Deny: []agent.Rule{{Tool: "Write", Arg: "x.txt"}}}
+	high := &vault.AgentRecord{Effort: "high"}
+	for _, c := range []struct {
+		name         string
+		rec          *vault.AgentRecord
+		req          agent.RunOptions
+		want         []string
+		wantEmulated []string
+	}{
+		{"no record", nil, agent.RunOptions{}, slices.Concat([]string{"--model", AgyDefaultModel}, stream, []string{"-p="}), nil},
+		{"record effort", high, agent.RunOptions{Model: "gemini-3.8-flash"},
+			slices.Concat([]string{"--model", "gemini-3.8-flash"}, stream, []string{"--effort", "high", "-p="}), nil},
+		{"flag over record", high, agent.RunOptions{Model: "gemini-3.8-flash", Effort: "low"},
+			slices.Concat([]string{"--model", "gemini-3.8-flash"}, stream, []string{"--effort", "low", "-p="}), nil},
+		{"suffixed model", high, agent.RunOptions{}, slices.Concat([]string{"--model", AgyDefaultModel}, stream, []string{"-p="}),
+			[]string{"effort high: model " + AgyDefaultModel + " carries its own"}},
+		{"settings before -p=", high, agent.RunOptions{Model: "gemini-3.8-flash", Tools: true, WorkDir: "/w", Permissions: deny},
+			slices.Concat([]string{"--model", "gemini-3.8-flash"}, stream,
+				[]string{"--dangerously-skip-permissions", "--effort", "high", "--settings", settings, "-p="}), nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			agyFixture(t, c.rec)
+			c.req.Prompt = "hi"
+			p, err := agent.PrepareCLI(context.Background(), "gemini", c.req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := agyArgv(newAgyRequest(p, c.req)); !slices.Equal(got, c.want) {
+				t.Errorf("argv = %q\nwant   %q", got, c.want)
+			}
+			if !slices.Equal(p.Emulated, c.wantEmulated) {
+				t.Errorf("emulated = %q, want %q", p.Emulated, c.wantEmulated)
+			}
+		})
+	}
+}
+
+// A stored effort outside gemini's list refuses the dispatch instead of being dropped.
+func TestAgyUnknownRecordEffortIsRefused(t *testing.T) {
+	agyFixture(t, &vault.AgentRecord{Effort: "bogus"})
+	if _, err := agent.PrepareCLI(context.Background(), "gemini", agent.RunOptions{Prompt: "hi"}); err == nil || !strings.Contains(err.Error(), `"bogus"`) {
+		t.Fatalf("err = %v, want the unknown effort refused", err)
 	}
 }
 
