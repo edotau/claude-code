@@ -48,15 +48,6 @@ const testIndex = `# Memory Index
 
 func fileExists(path string) bool { _, err := os.Stat(path); return err == nil }
 
-func readFile(t *testing.T, path string) string {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	return string(b)
-}
-
 // nativeStore seeds a native auto-memory dir (MEMORY.md + topic files) and returns it.
 func nativeStore(t *testing.T) string {
 	t.Helper()
