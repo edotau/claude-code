@@ -173,3 +173,55 @@ func TestMemoSweepKeepsRunInFlight(t *testing.T) {
 		t.Errorf("answers %d, %d with rerun %d; want 1, 1, 0 (the open run was swept)", a, b, reruns.Load())
 	}
 }
+
+func TestMemoCapsSettledEntries(t *testing.T) {
+	fakeMemoClock(t)
+	var m Memo[int, int]
+	var runs atomic.Int32
+	fn := func() (int, error) { return int(runs.Add(1)), nil }
+	peak := 0
+	for i := range 1000 {
+		m.Do(i, keepFor(0), fn)
+		peak = max(peak, memoLen(&m))
+	}
+	t.Logf("peak map size after 1000 keep-forever keys: %d", peak)
+	if peak > memoCap {
+		t.Errorf("map peaked at %d entries after 1000 keep-forever keys; want at most %d", peak, memoCap)
+	}
+}
+
+func TestMemoEvictsOldestKeepsNewest(t *testing.T) {
+	fakeMemoClock(t)
+	var m Memo[int, int]
+	var runs atomic.Int32
+	fn := func() (int, error) { return int(runs.Add(1)), nil }
+	for i := range memoCap + 10 {
+		m.Do(i, keepFor(0), fn)
+	}
+	before := runs.Load()
+	if v, _ := m.Do(memoCap+9, keepFor(0), fn); v != int(before) || runs.Load() != before {
+		t.Errorf("newest key = %d with %d runs; want kept (%d runs)", v, runs.Load(), before)
+	}
+	if v, _ := m.Do(0, keepFor(0), fn); v != int(before)+1 || runs.Load() != before+1 {
+		t.Errorf("oldest key = %d with %d runs; want evicted and rerun (value %d)", v, runs.Load(), before+1)
+	}
+}
+
+func TestMemoCapNeverEvictsRunInFlight(t *testing.T) {
+	fakeMemoClock(t)
+	var m Memo[string, int]
+	release, got := holdOpen(&m, "open", 1)
+	for i := range 3 * memoCap {
+		m.Do(strconv.Itoa(i), keepFor(0), func() (int, error) { return 0, nil })
+	}
+	var reruns atomic.Int32
+	joined := make(chan int, 1)
+	go func() {
+		v, _ := m.Do("open", keepFor(0), func() (int, error) { reruns.Add(1); return 2, nil })
+		joined <- v
+	}()
+	close(release)
+	if a, b := <-got, <-joined; a != 1 || b != 1 || reruns.Load() != 0 {
+		t.Errorf("answers %d, %d with rerun %d; want 1, 1, 0 (the open run was evicted)", a, b, reruns.Load())
+	}
+}

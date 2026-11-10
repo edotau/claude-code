@@ -8,15 +8,19 @@ import (
 // memoNow is Memo's clock; tests advance it.
 var memoNow = time.Now
 
-// Memo remembers fn's answer per key (keep: 0 = until Drop, <0 = not at all); one fn per key runs at a time.
+// Memo remembers fn's answer per key (keep: 0 = until Drop or evicted past the cap, <0 = not at all); one fn per key runs at a time.
 type Memo[K comparable, V any] struct {
 	mu      sync.Mutex
 	m       map[K]*memoEntry[V]
-	sweepAt int // map size that triggers the next sweep of expired entries
+	sweepAt int    // map size that triggers the next sweep of expired entries
+	seq     uint64 // settle counter: orders entries by when they settled
 }
 
 // memoSweepMin is the slack added after each sweep: a map never sweeps before it holds this many more entries.
 const memoSweepMin = 8
+
+// memoCap bounds the settled entries a Memo holds; the oldest settled go first, keep-forever ones included.
+const memoCap = 64
 
 // memoEntry is one key's run: in flight until done closes, then its answer, kept until `until` (zero = forever).
 type memoEntry[V any] struct {
@@ -25,6 +29,7 @@ type memoEntry[V any] struct {
 	v       V
 	err     error
 	until   time.Time
+	order   uint64 // m.seq when it settled
 }
 
 // Do returns key's kept answer, joins the run in flight for key, or runs fn and keeps its answer per keep.
@@ -47,6 +52,9 @@ func (m *Memo[K, V]) Do(key K, keep func(V, error) time.Duration, fn func() (V, 
 	if len(m.m) >= m.sweepAt {
 		m.sweep()
 	}
+	if m.m[key] == nil {
+		m.evict()
+	}
 	e := &memoEntry[V]{done: make(chan struct{})}
 	m.m[key] = e
 	m.mu.Unlock()
@@ -55,7 +63,8 @@ func (m *Memo[K, V]) Do(key K, keep func(V, error) time.Duration, fn func() (V, 
 	d := keep(v, err)
 
 	m.mu.Lock()
-	e.v, e.err, e.settled = v, err, true
+	m.seq++
+	e.v, e.err, e.settled, e.order = v, err, true, m.seq
 	if d > 0 {
 		e.until = memoNow().Add(d)
 	}
@@ -76,6 +85,23 @@ func (m *Memo[K, V]) sweep() {
 		}
 	}
 	m.sweepAt = 2*len(m.m) + memoSweepMin
+}
+
+// evict makes room for one more entry: it drops the oldest settled entries until the map is under memoCap.
+func (m *Memo[K, V]) evict() {
+	for len(m.m) >= memoCap {
+		var oldest K
+		var found *memoEntry[V]
+		for k, e := range m.m {
+			if e.settled && (found == nil || e.order < found.order) {
+				oldest, found = k, e
+			}
+		}
+		if found == nil {
+			return // every entry is a run in flight
+		}
+		delete(m.m, oldest)
+	}
 }
 
 // Drop forgets every kept answer; runs in flight still answer their waiters but are not kept.
