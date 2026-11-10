@@ -451,6 +451,18 @@ func TestKeepShellEndpointSessionProxyBaseToFirstParty(t *testing.T) {
 	}
 }
 
+// From a direct Databricks session (serving route, no proxy) an ultra launch drops that base and keeps its own login.
+func TestKeepShellEndpointSessionRouteBaseToFirstParty(t *testing.T) {
+	hermetic(t, `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
+	t.Setenv("CLAUDE_PROFILE", "qa")
+	t.Setenv("ANTHROPIC_BASE_URL", "https://qa.cloud.databricks.com/serving-endpoints/anthropic/")
+	plan := agent.Plan{Set: map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "tok"}}
+	keepShellEndpoint(&plan, agent.LaunchOptions{})
+	if plan.ForeignBase || plan.Set["CLAUDE_CODE_OAUTH_TOKEN"] == "" || slices.Contains(plan.Keep, "ANTHROPIC_BASE_URL") {
+		t.Errorf("session route base kept: foreign=%v token=%v keep=%v", plan.ForeignBase, plan.Set["CLAUDE_CODE_OAUTH_TOKEN"] != "", plan.Keep)
+	}
+}
+
 // An interactive plan carries the record's effort, launch.args and launch.env (never a wiped name) before the typed
 // args; a typed --effort replaces the record's; no record adds nothing; headless leaves it to claudeCmd.
 func TestClaudeInteractiveRendersRecord(t *testing.T) {

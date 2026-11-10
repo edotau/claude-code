@@ -170,9 +170,7 @@ func keepShellEndpoint(plan *agent.Plan, o agent.LaunchOptions) {
 		own = defaultAnthropicBase // an unset plan base means the default route
 	}
 	base := strings.TrimSpace(os.Getenv(proc.EnvAnthropicBaseURL))
-	// the live proxy's own base: same proxy as this launch's, or this harness session's /p/<profile> (an ultra dispatch
-	// from a Databricks session must not keep the session's proxy base and lose its own credential)
-	inherited := isProxySessionBase(base) && (isProxySessionBase(own) && sameHostPort(base, own) || sessionProxyBase(base))
+	inherited := inheritedBase(base, own)
 	if base != "" && !inherited && !sameEndpoint(base, own) {
 		plan.ForeignBase = true
 		dropHarnessCredential(plan)
@@ -200,6 +198,32 @@ func sessionProxyBase(raw string) bool {
 	}
 	st, err := readProxyState() // a /p/<profile> base on another port is the user's own override, not this session's
 	return err == nil && st.Port != 0 && u.Port() == strconv.Itoa(st.Port)
+}
+
+// inheritedBase: the shell base is this session's (proxy, /p/<profile>, direct route); a hop drops it, keeps its login.
+func inheritedBase(base, own string) bool {
+	if isProxySessionBase(base) && (isProxySessionBase(own) && sameHostPort(base, own) || sessionProxyBase(base)) {
+		return true
+	}
+	return sessionRouteBase(base)
+}
+
+// sessionRouteBase reports raw is the session profile's own Anthropic route: a direct, unproxied Databricks session.
+func sessionRouteBase(raw string) bool {
+	sp := providers.SessionProfile()
+	if raw == "" || sp == "" {
+		return false
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return false
+	}
+	p, err := reg.Get(sp)
+	if err != nil {
+		return false
+	}
+	route, ok := p.Route(providers.ProtocolAnthropic)
+	return ok && sameEndpoint(raw, route)
 }
 
 // readProxyState is the live proxy's state; tests swap it so no real daemon is read.

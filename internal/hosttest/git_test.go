@@ -73,6 +73,9 @@ func TestInReturnsStdoutOnly(t *testing.T) {
 }
 
 func TestInTimesOutHangingHook(t *testing.T) {
+	orig := gitTimeout
+	gitTimeout = 2 * time.Second
+	t.Cleanup(func() { gitTimeout = orig })
 	repo := Repo(t)
 	hook := fmt.Sprintf("#!/bin/sh\nexec sleep %d\n", int(gitTimeout/time.Second)+15)
 	if err := os.WriteFile(filepath.Join(repo, ".git", "hooks", "pre-commit"), []byte(hook), 0o755); err != nil {
