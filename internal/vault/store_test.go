@@ -145,17 +145,19 @@ func checkGet(t *testing.T, name, value, source string, ok bool, what, want stri
 	}
 }
 
-// Effective reads env before vault and yields nothing when neither holds a usable value.
+// Effective and EffectiveSecret read env before vault; EffectiveSecret alone surfaces a locked vault's error.
 func TestEffective(t *testing.T) {
 	for _, tc := range []struct {
 		name, env, stored, key string
 		want                   [3]string
-		ok                     bool
+		ok, secretErr          bool
 	}{
 		{name: "vault only", stored: "vault-value", want: [3]string{"vault-value", "vault", ""}, ok: true},
 		{name: "env only", env: "env-value", want: [3]string{"env-value", "env", ""}, ok: true},
+		{name: "env beats vault", env: "  env-value\n", stored: "vault-value", want: [3]string{"env-value", "env", "vault"}, ok: true},
+		{name: "whitespace-only env", env: "   ", stored: "vault-value", want: [3]string{"vault-value", "vault", ""}, ok: true},
 		{name: "miss"},
-		{name: "locked vault", stored: "vault-value", key: "invalid-key"},
+		{name: "locked vault", stored: "vault-value", key: "invalid-key", secretErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			vaulttest.Use(t)
@@ -169,6 +171,10 @@ func TestEffective(t *testing.T) {
 			v, src, sh, ok := vault.Effective("EFFECTIVE_TEST")
 			if got := [3]string{v, src, sh}; got != tc.want || ok != tc.ok {
 				t.Fatalf("Effective = (%q, %q, %q, %v), want %q, %v", v, src, sh, ok, tc.want, tc.ok)
+			}
+			v, src, err := vault.EffectiveSecret("EFFECTIVE_TEST")
+			if v != tc.want[0] || src != tc.want[1] || (err != nil) != tc.secretErr {
+				t.Fatalf("EffectiveSecret = (%q, %q, %v), want (%q, %q, err=%v)", v, src, err, tc.want[0], tc.want[1], tc.secretErr)
 			}
 		})
 	}

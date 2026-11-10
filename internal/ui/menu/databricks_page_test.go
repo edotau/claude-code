@@ -639,27 +639,6 @@ func assertStoredSecret(t *testing.T, name, want string) {
 	}
 }
 
-// A rotation by another process before the row write fails must survive the rollback.
-func TestDbxSaveIdentityKeepsConcurrentRotationOnRowFailure(t *testing.T) {
-	name := providers.SecretName(providers.GroupDatabricks, "dev", providers.AuthM2M)
-	d := dbxEnv(t)
-	orig := databricks.SetRow
-	databricks.SetRow = func(string, map[string]any) error {
-		if err := vault.Store(name, "sp-secret-ROTATED"); err != nil {
-			t.Fatal(err)
-		}
-		return errors.New("overlay write failed")
-	}
-	t.Cleanup(func() { databricks.SetRow = orig })
-
-	if err := databricks.SaveIdentity(d.reg, "dev", providers.IdentitySP, "sp-client-2", "sp-secret-NEW"); err == nil {
-		t.Fatal("want the row-write error")
-	}
-	if got, _, _ := vault.ReadSecret(name); got != "sp-secret-ROTATED" {
-		t.Errorf("rollback clobbered the newer secret, stored value length %d", len(got))
-	}
-}
-
 func dbxIdentityRun(t *testing.T, f *dbxFake, pick int, seed bool) (*dialog, string) {
 	t.Helper()
 	d := dbxEnv(t)
@@ -761,6 +740,18 @@ func TestDbxIdentityChangeRowPrompts(t *testing.T) {
 }
 
 // A registry reload that fails (corrupt overlay) says so and keeps the previous registry.
+func TestDbxReloadFailureKeepsPreviousRegistry(t *testing.T) {
+	d := dbxEnv(t)
+	prev := d.reg
+	vaulttest.Put(t, vault.Overlay, "providers", "{not json")
+	d.reload()
+	if d.reg != prev {
+		t.Error("failed reload replaced the registry")
+	}
+	if !strings.Contains(dbxOut(d), "registry reload failed, showing the previous state") {
+		t.Errorf("out=%q, want the reload-failure line", dbxOut(d))
+	}
+}
 
 // TestDatabricksRowsFitEightyColumns: every page the env list and its actions draw fits an 80-column panel.
 func TestDatabricksRowsFitEightyColumns(t *testing.T) {

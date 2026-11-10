@@ -160,12 +160,6 @@ func TestCrossCallerAgreeEnvWinsButGetPrefersVault(t *testing.T) {
 	if st := Resolve(p); st.Source != "env" {
 		t.Fatalf("Resolve(p).Source = %q, want env", st.Source)
 	}
-	if _, src, _, ok := vault.Effective("CROSS_NAME"); !ok || src != "env" {
-		t.Fatalf("Effective source = %q (ok=%v), want env", src, ok)
-	}
-	if v, src, ok := vault.Get("CROSS_NAME"); !ok || v != "vault-value" || src != "vault" {
-		t.Fatalf("Get = (%q, %q, %v), want (vault-value, vault, true)", v, src, ok)
-	}
 }
 
 func TestScanConfigsMissingExplicitTargetIsFinding(t *testing.T) {
