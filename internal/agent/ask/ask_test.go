@@ -1275,9 +1275,14 @@ func TestArmFlagRefusals(t *testing.T) {
 var armPlanted = map[string]string{"ANTHROPIC_API_KEY": "SENTINEL-anthropic", "OPENAI_API_KEY": "SENTINEL-openai",
 	"QA_WS_TOKEN": "SENTINEL-qa-ws", "DEV_WS_TOKEN": "SENTINEL-dev-ws", "COPILOT_GITHUB_TOKEN": "SENTINEL-gh"}
 
+// armLogins are agents' own-login credentials planted in the parent: a Databricks hop holds none, a first-party hop
+// only its own agent's (keyed by the dumped binary).
+var armLogins = map[string]string{"OPENCODE_API_KEY": "opencode", "COPILOT_SDK_AUTH_TOKEN": "copilot",
+	"GITHUB_TOKEN": "copilot", "CLAUDE_CODE_OAUTH_TOKEN": "claude"}
+
 // armDevHop is what each agent's databricks:dev child must hold: its key variable and where its /p/dev route shows.
 var armDevHop = map[string]struct{ bin, key, route string }{
-	"claude":   {"claude", "", "ANTHROPIC_BASE_URL=https://dev.cloud.databricks.com/serving-endpoints/anthropic"},
+	"claude":   {"claude", "HARNESS_PROXY_API_KEY", "ANTHROPIC_BASE_URL=http://127.0.0.1:9999/p/dev"},
 	"codex":    {"codex", "HARNESS_CODEX_API_KEY", `base_url = "http://127.0.0.1:9999/p/dev/responses"`},
 	"gemini":   {"agy", "AGY_LLM_GATEWAY_API_KEY", "AGY_LLM_GATEWAY_URL=http://127.0.0.1:9999/p/dev/gemini"},
 	"opencode": {"opencode", "HARNESS_OPENCODE_API_KEY", `"baseURL":"http://127.0.0.1:9999/p/dev`},
@@ -1304,6 +1309,9 @@ func armChildEnvFixture(t *testing.T) string {
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+row("dev")+`,`+row("qa")+`},`+gh+`}}`)
 	for k, v := range armPlanted {
 		t.Setenv(k, v)
+	}
+	for k := range armLogins {
+		t.Setenv(k, "SENTINEL-login")
 	}
 	t.Setenv("GH_TOKEN", "SENTINEL-gh")
 	t.Setenv(providers.EnvSessionProfile, "qa")
@@ -1383,13 +1391,21 @@ func assertArmDevHop(t *testing.T, name string, dump []string) {
 	assertArmNoLeak(t, name, dump)
 }
 
-// assertArmNoLeak: no planted credential (claude runs direct: its apiKeyHelper reads DEV_WS_TOKEN) or router secret.
+// assertArmNoLeak: no planted credential or router secret.
 func assertArmNoLeak(t *testing.T, name string, dump []string) {
 	t.Helper()
 	for k := range armPlanted {
-		if _, ok := envValue(dump, k); ok && (name != "claude" || k != "DEV_WS_TOKEN") {
+		if _, ok := envValue(dump, k); ok {
 			t.Errorf("%s dev hop: inherited %s", name, k)
 		}
+	}
+	for k := range armLogins {
+		if _, ok := envValue(dump, k); ok {
+			t.Errorf("%s dev hop: inherited own-login %s", name, k)
+		}
+	}
+	if _, ok := envValue(dump, "GH_TOKEN"); !ok && name != "copilot" {
+		t.Errorf("%s dev hop: lost GH_TOKEN, which git and gh need", name)
 	}
 	for _, kv := range dump {
 		if k, v, _ := strings.Cut(kv, "="); v == "rtr-secret-test" || (k == providers.EnvSessionProfile && v != "dev") {
@@ -1407,6 +1423,12 @@ func assertArmFirstParty(t *testing.T, label string, dump []string) {
 			strings.Contains(v, "cct_ARM") || strings.Contains(kv, "/p/dev") || strings.Contains(kv, "databricks.com") {
 			t.Errorf("%s first-party hop: %s carries a Databricks credential or route", label, k)
 		}
+		if owner, ok := armLogins[k]; ok && owner != label {
+			t.Errorf("%s first-party hop: inherited %s's own login %s", label, owner, k)
+		}
+	}
+	if _, ok := envValue(dump, "OPENCODE_API_KEY"); label == "opencode" && !ok {
+		t.Errorf("opencode first-party hop: lost its own login OPENCODE_API_KEY")
 	}
 }
 
@@ -1426,7 +1448,7 @@ func TestArmChildEnvPerAgent(t *testing.T) {
 			}
 			want := []string{"copilot", "codex", "agy", "opencode", "claude"} // the ladder's first-party order
 			if name == "claude" {
-				want = nil // claude's own failure ends the chain: it is not an external agent
+				want = []string{"claude"} // a failed claude dev hop moves on; its pick holds only claude rows today
 			}
 			if !slices.Equal(bins[1:], want) {
 				t.Errorf("launches after the dev hop %v, want every first-party login %v\n%s", bins[1:], want, stderr)

@@ -97,7 +97,7 @@ func TestArmGuard(t *testing.T) {
 		{name: "another workspace", prof: "qa", fatal: "profile qa is outside databricks:dev"},
 		{name: "another agent's login", prof: "chatgpt", fatal: "profile chatgpt is outside databricks:dev"},
 		{name: "AI Gateway dev", devExtra: `,"options":{"wire":"ai-gateway"}`, prof: "dev", fatal: "AI Gateway wire"},
-		{name: "dev", prof: "dev", creds: []string{"DEV_TOKEN"}},
+		{name: "dev", prof: "dev"}, // proxied on the session token: no workspace token
 		{name: "own login", prof: "ultra"},
 		{name: "unarmed qa", prof: "qa", route: "default", creds: []string{"DEV_TOKEN", "QA_TOKEN"}},
 	}

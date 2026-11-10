@@ -148,5 +148,6 @@ func codexRouteDetail() string {
 
 // codexStatus runs `codex login status` on the scrubbed agent env; tests replace it so none of it reaches the real CLI.
 var codexStatus = func(ctx context.Context, bin string) ([]byte, error) {
+	ctx = agent.ProbeContext(ctx, "codex") // the login status reads codex's own sign-in only
 	return agent.ProbeCLI(ctx, bin, agent.EnvSpec{Mode: agent.EnvAgent}, true, "login", "status")
 }

@@ -50,7 +50,8 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 	}
 	base, _ = s.Mode.scrub(base, s.Keep)
 	env := slices.DeleteFunc(slices.Clone(scrubIsolated(ctx, base, s.Keep)), s.dropper(ctx))
-	env = append(append(env, s.Set...), s.Extra...)
+	// a route hop or probe drops a launch-set foreign login too (opencode's LaunchEnv adds OPENCODE_API_KEY everywhere)
+	env = append(append(env, dropForeignLogins(ctx, s.Set, s.Keep)...), s.Extra...)
 	if kv, ok := ctx.Value(permissionsKey{}).(string); ok { // the dispatch's policy wins over any inherited copy
 		env = append(slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, DispatchPermissionsEnv+"=") }), kv)
 	}
@@ -149,15 +150,40 @@ func (s EnvSpec) dropper(ctx context.Context) func(string) bool {
 }
 
 // scrubIsolated drops other profiles' credentials from the INHERITED env under batch isolation; an own-login hop (no
-// profile) keeps no profile's credentials. Launch-owned values are appended after this, so they are never scrubbed.
+// profile) keeps no profile's credentials. Launch-owned values come after this; only foreign logins leave them.
 func scrubIsolated(ctx context.Context, inherited, keepEnv []string) []string {
+	inherited = dropForeignLogins(ctx, inherited, keepEnv)
 	if p := ownProviderFrom(ctx); p != nil {
 		return scrubExcept(inherited, p.Name, append(providers.CredentialNames(p), keepEnv...), keepEnv)
 	}
 	if ctx.Value(isolateKey{}) == nil {
 		return inherited
 	}
-	return scrubExcept(inherited, "", keepEnv, keepEnv)
+	ls, _ := ctx.Value(loginScrubKey{}).(loginScrub)
+	return scrubExcept(inherited, "", append(slices.Clone(proc.OwnLoginEnv[ls.own]), keepEnv...), keepEnv)
+}
+
+// dropForeignLogins drops the own-login env ctx's loginScrub forbids (a route hop, a probe); else env as is.
+func dropForeignLogins(ctx context.Context, env, keepEnv []string) []string {
+	ls, ok := ctx.Value(loginScrubKey{}).(loginScrub)
+	if !ok {
+		return env
+	}
+	return proc.Drop(env, proc.EnvKeepSet(keepEnv), proc.ForeignLogins(ls.own, ls.keepGHToken))
+}
+
+type loginScrubKey struct{}
+
+// loginScrub drops every agent's own-login env but own's ("" = none); keepGHToken spares GH_TOKEN for git and gh.
+type loginScrub struct {
+	own         string
+	keepGHToken bool
+}
+
+// ProbeContext is ctx for a vendor CLI probe: no registry credential, and no own-login env but login's ("" = none).
+func ProbeContext(ctx context.Context, login string) context.Context {
+	ctx = context.WithValue(withIsolation(ctx), ownProviderKey{}, (*providers.Provider)(nil))
+	return context.WithValue(ctx, loginScrubKey{}, loginScrub{own: login})
 }
 
 // credentialPatterns are the credential-shaped names dropped when the registry cannot say whose they are.

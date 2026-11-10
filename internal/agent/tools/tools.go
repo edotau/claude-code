@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/network/browser"
@@ -360,6 +361,8 @@ func FirstVersionLine(ctx context.Context, path string, timeout time.Duration) s
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "--version")
+	// a version probe gets no login or route credential
+	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(agent.ProbeContext(ctx, ""))
 	cmd.WaitDelay = 200 * time.Millisecond // lets stdout drain under load
 	out, err := cmd.Output()
 	if err != nil {
