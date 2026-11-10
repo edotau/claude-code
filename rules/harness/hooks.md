@@ -89,5 +89,7 @@ Prose is the instruction; the hook is the guarantee. Every gate:
    deny-one-call gate (e.g. `docs-placement`) rejects the input and lets the model retry. Infra errors fail open;
    a blocking (`Blocks`) hook that panics or times out blocks.
 
-Test the block path, the evidence-release path and the fail-open cap. Permission guardrails live in the defaults'
+Test the block path, the evidence-release path and the fail-open cap. Probe a live guard with a script that reads
+payloads from a data file (quoted payloads in the probe command trip the guard itself) and tally allow, ask and
+block separately. Permission guardrails live in the defaults'
 `permissions` block (`ask` beats `allow`).
