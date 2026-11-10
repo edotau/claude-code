@@ -54,6 +54,31 @@ func TestPromoteHomeMovesExactlyOneBlock(t *testing.T) {
 	}
 }
 
+// TestPromoteHomeMovesArchivedBlock: an archived block promotes; the archive keeps its other blocks.
+func TestPromoteHomeMovesArchivedBlock(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	arch := filepath.Join(memstore.Dir(root), "archive", "conventions-2026-11.md")
+	if err := os.MkdirAll(filepath.Dir(arch), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "# Conventions\n\n- keep me <!-- id:aaaa0001 -->\n\n- promote me <!-- id:aaaa0002 -->\n"
+	if err := os.WriteFile(arch, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Promote(root, "aaaa0002", "home", false, time.Now()); err != nil {
+		t.Fatalf("Promote archived block: %v", err)
+	}
+	after, _ := os.ReadFile(arch)
+	if strings.Contains(string(after), "id:aaaa0002") || !strings.Contains(string(after), "id:aaaa0001") {
+		t.Errorf("archive should drop only the promoted block: %q", after)
+	}
+	home, _ := os.ReadFile(filepath.Join(memstore.HomeBankDir(), "conventions.md"))
+	if strings.Count(string(home), "id:aaaa0002") != 1 {
+		t.Errorf("home conventions.md should hold the block once: %q", home)
+	}
+}
+
 // TestPromoteHomeDryRunWritesNothing: --dry-run prints the move without touching either file.
 func TestPromoteHomeDryRunWritesNothing(t *testing.T) {
 	tempConfig(t)
