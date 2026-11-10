@@ -521,3 +521,14 @@ func TestNewSemanticSuccessKeepsFreshBackoffMarker(t *testing.T) {
 		t.Fatalf("a marker written during the query was deleted: %v", err)
 	}
 }
+
+// Given an unopenable embeddings.db, When Release runs, Then the failure that left the claim behind is returned.
+func TestReleaseReturnsUpdateFailure(t *testing.T) {
+	isolatedConfig1(t)
+	if err := os.MkdirAll(embedDBPath(), 0o700); err != nil { // a directory where the bbolt file belongs
+		t.Fatal(err)
+	}
+	if err := vectorStore.Release("fake", 42); err == nil {
+		t.Fatal("Release swallowed the failure that left the claim behind")
+	}
+}

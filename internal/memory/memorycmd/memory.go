@@ -253,7 +253,7 @@ func Run(args []string, knownVerb func(string) bool) int {
 func Spec() *completion.Node {
 	return &completion.Node{Sub: map[string]*completion.Node{
 		"recall": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.BoolFlag("all"), completion.Plain("k"),
-			completion.Plain("load"), completion.FormatFlag()}},
+			completion.Plain("load"), completion.BoolFlag("explain"), completion.FormatFlag()}},
 		"remember": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.ValuedFlag("type", memoryRememberTypes)}},
 		"init":     {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames)}},
 		"review": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.Plain("stale-days"), completion.BoolFlag("notice"),
@@ -267,7 +267,7 @@ func Spec() *completion.Node {
 		"search":   {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.BoolFlag("all"), completion.Plain("k"), completion.FormatFlag()}},
 		"show":     {},
 		"digest":   {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames)}},
-		"index":    {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames)}},
+		"index":    {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.BoolFlag("reembed"), completion.BoolFlag("mint-only")}},
 		"path":     {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames)}},
 		"report":   {Flags: []completion.Flag{completion.Plain("label"), completion.Plain("file"), completion.BoolFlag("stdin"), completion.FormatFlag(), completion.ValuedFlag("repo", memoryRepoNames)}},
 		"fmt":      {Flags: []completion.Flag{completion.BoolFlag("check")}},

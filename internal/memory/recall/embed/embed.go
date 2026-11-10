@@ -204,8 +204,8 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 	embedded, embedErr := run.embed(ctx, c, ids, texts, hashes, blocks)
 	current, cerr := currentEntryHashes(root)
 	if cerr != nil {
-		vectorStore.Release(c.Profile, owner) // nothing was stored, so the claim is still ours to drop
-		return embedded, total, errors.Join(embedErr, cerr)
+		rerr := vectorStore.Release(c.Profile, owner) // nothing was stored, so the claim is still ours to drop
+		return embedded, total, errors.Join(embedErr, cerr, rerr)
 	}
 	run.current = current
 	stored, cerr := run.store(owner, embedErr == nil)
@@ -226,7 +226,7 @@ func (r *embedRun) store(owner int64, complete bool) (stored bool, err error) {
 		return out
 	}})
 	if err != nil {
-		vectorStore.Release(r.c.Profile, owner) // the tx rolled back, so the claim is still ours
+		err = errors.Join(err, vectorStore.Release(r.c.Profile, owner)) // the tx rolled back, so the claim is still ours
 	}
 	return stored, err
 }

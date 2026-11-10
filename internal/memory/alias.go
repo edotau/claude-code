@@ -187,6 +187,19 @@ func foldSkips(rel string) bool {
 	return rel == memstore.LegacyOriginFile || rel == bank.BankIndexFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate"
 }
 
+// isSessionArchive reports whether rel is a rotated monthly archive/sessionHistory-<yyyy-mm>.md.
+func isSessionArchive(rel string) bool {
+	return filepath.Dir(rel) == "archive" && strings.HasPrefix(filepath.Base(rel), "sessionHistory-") && strings.HasSuffix(rel, ".md")
+}
+
+// logName maps an archive path to the log grammar its blocks follow; other names pass through.
+func logName(rel string) string {
+	if isSessionArchive(rel) {
+		return "sessionHistory.md"
+	}
+	return rel
+}
+
 // foldOne plans one source file against its target counterpart.
 func (p *aliasPlan) foldOne(path, rel string, data []byte, src, tgt memstore.RepoEntry, res *AliasResult) error {
 	if foldSkips(rel) {
@@ -205,8 +218,8 @@ func (p *aliasPlan) foldOne(path, rel string, data []byte, src, tgt memstore.Rep
 		return nil
 	}
 	switch {
-	case appendOnly[rel]:
-		merged, n := mergeLog(rel, string(cur), string(data))
+	case appendOnly[rel] || isSessionArchive(rel):
+		merged, n := mergeLog(logName(rel), string(cur), string(data))
 		if n > 0 {
 			p.addWrite(tgt.Dir, rel, []byte(merged), res, fmt.Sprintf("%s: merge %d entr(ies)", rel, n))
 		}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/memstore"
 )
 
@@ -92,5 +93,34 @@ func TestMemoryCompletionSupportedCommandsAndFlags(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMemoryPathRepoFlagResolvesStoreName(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := gittest.Repo(t)
+	dir, err := memstore.EnsureRepoDir(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := filepath.Base(repo)
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"path", "--repo", name}, nil) })
+	if code != 0 || strings.TrimSpace(out) != dir {
+		t.Errorf("memory path --repo %s = %d %q (stderr %q), want %q", name, code, out, stderr, dir)
+	}
+}
+
+func TestMemoryCompletionOffersIndexAndRecallFlags(t *testing.T) {
+	engine := completion.Engine{
+		Tree:    func() map[string]*completion.Node { return map[string]*completion.Node{"memory": Spec()} },
+		Resolve: func(verb string) (string, bool) { return verb, verb == "memory" },
+	}
+	for verb, want := range map[string][]string{"index": {"--reembed", "--mint-only"}, "recall": {"--explain"}} {
+		got := engine.Candidates([]string{"memory", verb, "--"})
+		for _, w := range want {
+			if !slices.Contains(got, w) {
+				t.Errorf("memory %s completion missing %q: %v", verb, w, got)
+			}
+		}
 	}
 }

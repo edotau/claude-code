@@ -100,7 +100,7 @@ func pruneSeen(dir string) {
 	for _, path := range []string{dir, memstore.StateDir()} {
 		ents, _ := os.ReadDir(path)
 		for _, e := range ents {
-			if !e.Type().IsRegular() || path != dir && !prunableSessionState(e.Name()) {
+			if !e.Type().IsRegular() || path != dir && !prunableSessionState(e.Name()) && !staleSessionRoot(path, e.Name(), cutoff) {
 				continue
 			}
 			if fi, err := e.Info(); err == nil && fi.ModTime().Before(cutoff) {
@@ -122,4 +122,19 @@ func prunableSessionState(name string) bool {
 		}
 	}
 	return false
+}
+
+// staleSessionRoot reports a root-<id>[.lock] file whose session has no count-/stamp-/watch- file newer than cutoff.
+func staleSessionRoot(dir, name string, cutoff time.Time) bool {
+	id, ok := strings.CutPrefix(name, "root-")
+	if !ok {
+		return false
+	}
+	id = strings.TrimSuffix(id, ".lock")
+	for _, prefix := range []string{"count-", "stamp-", "watch-"} {
+		if fi, err := os.Stat(filepath.Join(dir, prefix+id)); err == nil && !fi.ModTime().Before(cutoff) {
+			return false
+		}
+	}
+	return true
 }
