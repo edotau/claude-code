@@ -41,15 +41,6 @@ var winProgID = map[string]string{"MSEdgeHTM": "edge", "ChromeHTML": "chrome", "
 // Chrome, Brave and Vivaldi all report "Chrome/" there, so CDP alone cannot tell them apart; only Edge is exact.
 var cdpBrowserTag = map[string]string{"edge": "Edg/", "chrome": "Chrome/", "brave": "Chrome/", "vivaldi": "Chrome/"}
 
-// isWSL reports a WSL distro: the env var WSL sets, or its interop binfmt entry.
-func isWSL() bool {
-	if os.Getenv("WSL_DISTRO_NAME") != "" {
-		return true
-	}
-	_, err := os.Stat("/proc/sys/fs/binfmt_misc/WSLInterop")
-	return err == nil
-}
-
 // winExePath is the browser's Windows executable as seen from WSL, or "".
 func winExePath(env Env, name string) string {
 	for _, rel := range winExe[name] {

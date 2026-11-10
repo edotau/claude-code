@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/proc"
+
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -21,7 +23,7 @@ func NewEnv() Env {
 		Run:        runReal,
 		Now:        time.Now,
 		GOOS:       runtime.GOOS,
-		WSL:        runtime.GOOS == "linux" && isWSL(),
+		WSL:        runtime.GOOS == "linux" && proc.OnWSL(),
 		WinRoot:    winRoot(),
 		Probe:      probeCDP,
 		Sleep:      time.Sleep,
