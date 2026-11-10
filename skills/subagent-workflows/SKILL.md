@@ -122,6 +122,13 @@ outside the leaf's files, confirm a new test can fail, re-run scoped checks your
 - When parallel leaves built both sides of a seam (flag/argv builder ↔ consumer, JSON shape ↔ reader, hook key ↔ brief
   writer), read producer and consumer together; `go build ./...` misses a broken consumer.
 - Disagreeing reviewers: keep both findings with their sources. Simplify once over the merged diff, then review.
+- **Saved workflow output** is a claim too: diff it against the brief's file list (revert or park edits outside it),
+  rerun the gate of its last-touched package, and compare confirmed findings to fixed ones (a gap = dropped findings,
+  rerun). A red run whose only cause is a `blocked` stage (classifier down) is not a code failure; a stage that refuses
+  a change because behavior would differ is right — accept the partial landing.
+- **While a workflow runs:** hand it package-scoped gates only (a repo-wide check trips on peers' WIP), keep the main
+  shell at the repo root, never let it edit the `workflows/*.js` it runs from (fix those with a leaf afterwards), and
+  rename a condition in its runbook (`eval.md`) and fixture dirs in the same pass.
 
 ### Phase 4: finish
 
