@@ -522,38 +522,26 @@ func TestRegistryProbeBelowMinimum(t *testing.T) {
 	}
 }
 
-// The fake CLI answers a send with an assistant message and records the session config it was created with.
-func TestFakeCLISendEmitsReply(t *testing.T) {
+// One SDKAsk round trip returns the trimmed answer, usage net of cache tokens, and detaches the session.
+func TestSDKAskCollectsReplyAndDisconnects(t *testing.T) {
 	log := t.TempDir() + "/log"
-	s, err := openSession(t, registryOpts(t, "1.0.104", log, registryPick))
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	res, err := SDKAsk(ctx, registryOpts(t, "1.0.104", log, registryPick), "hi", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	idle := make(chan struct{})
-	var reply string
-	s.On(func(ev copilot.SessionEvent) {
-		switch d := ev.Data.(type) {
-		case *copilot.AssistantMessageData:
-			reply = d.Content
-		case *copilot.SessionIdleData:
-			close(idle)
-		}
-	})
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if _, err := s.Send(ctx, copilot.MessageOptions{Prompt: "hi"}); err != nil {
-		t.Fatal(err)
+	if res.Text != "fake reply" || res.Model != "gpt-5-5" || res.SessionID == "" {
+		t.Errorf("result = %q/%q/%q, want fake reply/gpt-5-5/a session id", res.Text, res.Model, res.SessionID)
 	}
-	select {
-	case <-idle:
-	case <-ctx.Done():
-		t.Fatal("no idle event")
+	want := wire.Usage{InputTokens: 300, OutputTokens: 50, CacheReadTokens: 600, CacheCreationTokens: 100}
+	if res.Usage != want {
+		t.Errorf("usage = %+v, want %+v", res.Usage, want)
 	}
-	if reply != "fake reply" {
-		t.Errorf("reply = %q, want %q", reply, "fake reply")
-	}
-	if got := strings.Join(calls(t, log), "\n"); !strings.Contains(got, "session.create ") {
-		t.Errorf("record = %q, want session.create params", got)
+	// client.Stop detaches every session too, so SDKAsk's own Disconnect is the second detach.
+	detach := `session.detach {"sessionId":"` + res.SessionID + `"}`
+	if got := strings.Join(calls(t, log), "\n"); strings.Count(got, detach) != 2 {
+		t.Errorf("record = %q, want %s from SDKAsk and from client.Stop", got, detach)
 	}
 }
 

@@ -46,30 +46,35 @@ func serve(in io.Reader, out io.Writer) {
 			send(map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32000, "message": errMsg}})
 			continue
 		}
-		send(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": res})
-		if req.Method == "session.send" {
-			sendTurn(send, req.Params)
+		if req.Method == "session.sendAndWait" { // the turn's events precede the result naming its idle event
+			res["completionEventId"] = sendTurn(send, req.Params)
 		}
+		send(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": res})
 	}
 }
 
-// sendTurn emits the deterministic assistant message then idle events for a session.send.
-func sendTurn(send func(any), params json.RawMessage) {
+// sendTurn emits the deterministic assistant message, usage and idle events; it returns the idle event's id.
+func sendTurn(send func(any), params json.RawMessage) string {
 	var p struct {
 		SessionID string `json:"sessionId"`
 	}
 	_ = json.Unmarshal(params, &p)
-	event := func(n int, typ string, ephemeral bool, data map[string]any) {
+	event := func(n int, typ string, ephemeral bool, data map[string]any) string {
+		id := fmt.Sprintf("00000000-0000-4000-8000-%012d", n)
 		send(map[string]any{"jsonrpc": "2.0", "method": "session.event", "params": map[string]any{
 			"sessionId": p.SessionID,
 			"event": map[string]any{
-				"id": fmt.Sprintf("00000000-0000-4000-8000-%012d", n), "parentId": nil,
+				"id": id, "parentId": nil,
 				"timestamp": "2026-01-01T00:00:00Z", "type": typ, "ephemeral": ephemeral, "data": data,
 			},
 		}})
+		return id
 	}
-	event(1, "assistant.message", false, map[string]any{"messageId": "fake-msg", "content": "fake reply"})
-	event(2, "session.idle", true, map[string]any{})
+	event(1, "assistant.message", false, map[string]any{"messageId": "fake-msg", "content": " fake reply\n",
+		"model": "gpt-5-5"})
+	event(2, "assistant.usage", true, map[string]any{"model": "gpt-5-5", "inputTokens": 1000, "outputTokens": 50,
+		"cacheReadTokens": 600, "cacheWriteTokens": 100})
+	return event(3, "session.idle", true, map[string]any{})
 }
 
 // readBody reads one Content-Length framed message body; ok is false at EOF or a short read.
@@ -114,8 +119,10 @@ func reply(method string, params json.RawMessage, known []string) (res map[strin
 			id = "fake-session"
 		}
 		res = map[string]any{"sessionId": id}
-	case "session.send":
+	case "session.sendAndWait":
 		res = map[string]any{"messageId": "fake-msg"}
+	case "session.detach":
+		res = map[string]any{"success": true}
 	case "session.model.switchTo":
 		if !slices.Contains(known, p.ModelID) {
 			return nil, "unknown model " + p.ModelID

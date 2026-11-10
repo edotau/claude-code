@@ -548,11 +548,14 @@ const codexNetworkEnv = "HARNESS_CODEX_NETWORK"
 // config.toml sets cli_auth_credentials_store = "keyring" (the whole auth.json body as the secret value).
 const codexKeychainService = "Codex Auth"
 
+// codexGOOS is the OS whose keyring plane the lookups below use; a seam for tests.
+var codexGOOS = runtime.GOOS
+
 // codexKeychainCmd runs the OS secret-store lookup (security on macOS, secret-tool on Linux); tests
 // replace it so none of this reaches the real keychain.
 var codexKeychainCmd = func(ctx context.Context, args ...string) ([]byte, error) {
 	name := "security"
-	if runtime.GOOS == "linux" {
+	if codexGOOS == "linux" {
 		name = "secret-tool"
 	}
 	return exec.CommandContext(ctx, name, args...).Output()
@@ -593,7 +596,7 @@ func codexAuthFile() ([]byte, bool) {
 // with the first, which is fine since codex only ever stores one ChatGPT login at a time.
 func codexKeyringAuthJSON() (data []byte, note string) {
 	var args []string
-	switch runtime.GOOS {
+	switch codexGOOS {
 	case "darwin":
 		args = []string{"find-generic-password", "-s", codexKeychainService, "-w"}
 	case "linux":
@@ -758,7 +761,7 @@ func codexLoginVerdict(ctx context.Context, out []byte, err error) (error, bool)
 }
 
 func codexKeyringNotFound(exit *exec.ExitError) bool {
-	switch runtime.GOOS {
+	switch codexGOOS {
 	case "darwin":
 		return exit.ExitCode() == 44 // errSecItemNotFound
 	case "linux":
