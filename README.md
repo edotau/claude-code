@@ -42,6 +42,7 @@ claude-code anthropic --model opus   # Claude Code, first-party (also sonnet | h
 claude-code codex       # an agent CLI through the registry (also gemini | opencode | copilot)
 claude-code qa          # Claude Code on that registry profile
 claude-code --resume    # a leading flag passes to claude, on the session provider
+claude-code --host <h> doctor   # any verb on a tailnet host over ssh (a login's browser opens there)
 ```
 
 ## Setup

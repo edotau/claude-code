@@ -55,7 +55,7 @@ func (c *Client) Prepare(ctx context.Context, o agent.RunOptions, claim *job.Rec
 		if err := remote.ValidHost(o.Host); err != nil {
 			return nil, err
 		}
-		r = NewRemoteEngine(o.Agent, o.Host, RemoteBin(o.RemoteBin), o.Fallback)
+		r = NewRemoteEngine(o.Agent, o.Host, remote.Bin(o.RemoteBin), o.Fallback)
 		p.remote = r
 	}
 	if p.Chain, err = c.route(ctx, r, o); err != nil {
@@ -165,7 +165,7 @@ func (c *Client) record(ctx context.Context, o agent.RunOptions, claim *job.Reco
 	if claim == nil {
 		rec.FallbackPolicy = o.Fallback
 		if o.Host != "" {
-			rec.Host, rec.RemoteBin = o.Host, RemoteBin(o.RemoteBin)
+			rec.Host, rec.RemoteBin = o.Host, remote.Bin(o.RemoteBin)
 		}
 	}
 	return rec
