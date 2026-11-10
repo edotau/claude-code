@@ -211,6 +211,26 @@ func TestCopilotUserFollowsProfilePin(t *testing.T) {
 	}
 }
 
+// By design: providers keeps an overlay cell whole (no model); the router merges it field by field over table.json.
+func TestEffortOnlyOverlayCellHasNoModelInRegistryButKeepsModelInRouter(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"routing":{"cells":{"codex":{"sonnet":{"effort":"low"}}}}}`)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := reg.Routing.Cells["codex"]["sonnet"]; c.Model != "" || c.Effort != "low" {
+		t.Errorf("registry cell = %+v, want effort low and no model (the overlay cell replaced whole)", c)
+	}
+	tb, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := tb.Rows["codex"]["sonnet"]; c.Model == "" || c.Effort != "low" {
+		t.Errorf("router cell = %+v, want effort low and table.json's model kept (merged field by field)", c)
+	}
+}
+
 func TestAliasOfColonBearingModelIDTriesFullID(t *testing.T) {
 	vaulttest.Use(t)
 	tb, err := Load()

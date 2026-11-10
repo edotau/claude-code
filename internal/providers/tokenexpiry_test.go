@@ -3,12 +3,40 @@ package providers
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/paths"
 )
+
+// A user mint then an SP mint on one paired row keep separate expiry records; the status line shows the latest.
+func TestSPMintKeepsUserExpiryRecord(t *testing.T) {
+	p, _, _, _ := spHarness(t, "")
+	userExp, spExp := time.Now().Add(2*time.Hour).Unix(), time.Now().Add(time.Hour).Unix()
+	refreshU2M = func(context.Context, string, string) (oauth.Token, error) {
+		return oauth.Token{Access: fakeJWT(fmt.Sprintf(`{"exp":%d}`, userExp))}, nil
+	}
+	stubMintM2M(t, fakeJWT(fmt.Sprintf(`{"exp":%d}`, spExp)))
+	for _, as := range []string{IdentityUser, IdentitySP} {
+		if _, err := Credential(WithIdentity(context.Background(), as), p); err != nil {
+			t.Fatalf("%s mint: %v", as, err)
+		}
+	}
+	if got, ok := TokenExpiry(p.Name); !ok || got.Unix() != userExp {
+		t.Errorf("user expiry = %d (%v), want the user token's %d, not the SP's %d", got.Unix(), ok, userExp, spExp)
+	}
+	old := time.Now().Add(-time.Minute) // the user record predates the SP mint past any mtime granularity
+	if err := os.Chtimes(tokenExpiryPath(p.Name), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if got, method, ok := TokenExpiryMethod(p.Name); !ok || got.Unix() != spExp || method != AuthM2M {
+		t.Errorf("status line expiry = %d %q (%v), want the latest mint: SP %d m2m", got.Unix(), method, ok, spExp)
+	}
+}
 
 // fakeJWT is an unsigned three-part token whose payload is the given JSON claims.
 func fakeJWT(claims string) string {

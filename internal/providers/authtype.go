@@ -418,7 +418,7 @@ func finishSPCredential(p *Provider, v string, exp time.Time) error {
 	if err := checkIssuer(p, v); err != nil {
 		return err
 	}
-	recordTokenExpiry(p.Name, v, AuthM2M)
+	recordTokenExpiry(p.Name+SPExpirySuffix, v, AuthM2M)
 	ttl := time.Duration(p.Auth.TTL) * time.Second
 	if ttl <= 0 {
 		ttl = 5 * time.Minute

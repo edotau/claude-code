@@ -66,27 +66,43 @@ func recordTokenExpiry(name, v, method string) {
 	_ = paths.AtomicWrite(path, b, 0o600) // temp+rename: a concurrent TokenExpiry never reads a truncated file
 }
 
-// TokenExpiry is the expiry a provider's JWT credential last reported; false when none is recorded.
+// SPExpirySuffix keys a paired row's service-principal expiry record apart from its user login's (name + suffix).
+const SPExpirySuffix = ".sp"
+
+// TokenExpiry is the expiry the record name holds (a row's user or own credential; name+SPExpirySuffix its SP's).
 func TokenExpiry(name string) (time.Time, bool) {
-	exp, _, ok := TokenExpiryMethod(name)
+	exp, _, _, ok := readTokenExpiry(name)
 	return exp, ok
 }
 
-// TokenExpiryMethod is TokenExpiry plus the recorded minting method ("" when the record names none), in one read.
+// TokenExpiryMethod is the row's latest-minted expiry, user or SP record, plus its method ("" when it names none).
 func TokenExpiryMethod(name string) (time.Time, string, bool) {
+	exp, method, at, ok := readTokenExpiry(name)
+	if spExp, spMethod, spAt, spOK := readTokenExpiry(name + SPExpirySuffix); spOK && (!ok || spAt.After(at)) {
+		return spExp, spMethod, true
+	}
+	return exp, method, ok
+}
+
+// readTokenExpiry reads one expiry record and when it was written; false when absent or unreadable.
+func readTokenExpiry(name string) (exp time.Time, method string, written time.Time, ok bool) {
 	path := tokenExpiryPath(name)
 	if path == "" {
-		return time.Time{}, "", false
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return time.Time{}, "", false
+		return
 	}
 	var rec tokenExpiryRecord
 	if !schemas.DecodeOK(tokenExpiryFormat, b, &rec) || rec.Exp == nil {
-		return time.Time{}, "", false
+		return
 	}
-	return time.Unix(*rec.Exp, 0), rec.Method, true
+	return time.Unix(*rec.Exp, 0), rec.Method, info.ModTime(), true
 }
 
 // expiryMethod maps an auth method to the statusline's credential label: a user OAuth login is u2m.
