@@ -9,9 +9,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/proxy"
 )
 
 // PinnedProfile is agent name's vault-pinned registry profile; "" when unpinned or off, an error when the pin names no row.
@@ -154,9 +154,9 @@ func (s Schema) firstRoute(p *providers.Provider) (string, string) {
 
 // Router seams (tests stub these so no daemon is spawned); EnsureRouter starts or finds the loopback router.
 var (
-	EnsureRouter = proxy.Ensure
-	RouterSecret = proxy.ClientSecret
-	MintSession  = proxy.MintSessionToken // mints a router session token for profile and pid
+	EnsureRouter = gateway.Ensure
+	RouterSecret = gateway.ClientSecret
+	MintSession  = gateway.MintSessionToken // mints a router session token for profile and pid
 )
 
 type directKey struct{}
@@ -178,11 +178,11 @@ func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect s
 	if err != nil {
 		return nil, "", "", fmt.Errorf("%s: router secret: %w", s.Name, err)
 	}
-	base := proxy.SessionBase(rb, p.Name) + s.CLI.RouterSuffix[dialect]
+	base := gateway.SessionBase(rb, p.Name) + s.CLI.RouterSuffix[dialect]
 	rp := *p
-	rp.Headers = map[string]string{proxy.AgentHeader: s.Name} // the router adds the provider's own headers upstream
+	rp.Headers = map[string]string{gateway.AgentHeader: s.Name} // the router adds the provider's own headers upstream
 	if id := providers.IdentityFrom(ctx); id != "" {
-		rp.Headers[proxy.IdentityHeader] = id
+		rp.Headers[gateway.IdentityHeader] = id
 	}
 	return &rp, base, secret, nil
 }

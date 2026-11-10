@@ -9,9 +9,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -84,7 +84,7 @@ func Resolve(args []string) int {
 		return code
 	}
 	if *viaRouter {
-		s, err := proxy.ClientSecret()
+		s, err := gateway.ClientSecret()
 		if err != nil {
 			return helptext.Fail("%v", err)
 		}

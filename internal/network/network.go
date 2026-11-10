@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/network/websearch"
-	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -122,9 +122,9 @@ func cmdRestart(args []string) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	row := proxy.RestartReport(ctx, *dry, *force)
+	row := gateway.RestartReport(ctx, *dry, *force)
 	if *format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, map[string]any{"daemons": []proxy.RestartRow{row}}); err != nil {
+		if err := helptext.WriteJSON(os.Stdout, map[string]any{"daemons": []gateway.RestartRow{row}}); err != nil {
 			return helptext.Fail("restart: %v", err)
 		}
 	} else {
@@ -136,7 +136,7 @@ func cmdRestart(args []string) int {
 	return 0
 }
 
-func printRestartRow(r proxy.RestartRow) {
+func printRestartRow(r gateway.RestartRow) {
 	switch r.Status {
 	case "restarted":
 		fmt.Printf("%-8s restarted  pid %d → %d\n", r.Daemon, r.OldPID, r.NewPID)

@@ -8,9 +8,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/proxy"
 )
 
 var gatewayModels = providers.GatewayModels
@@ -97,16 +97,16 @@ func BuildOptions(ctx context.Context, reg *providers.Registry, profile string, 
 	if err != nil {
 		return opts, err
 	}
-	opts.Headers = proxy.HarnessHeaders()
-	opts.Headers[proxy.AgentHeader] = "desktop"
-	base := proxy.Base(proxy.DefaultPort)
+	opts.Headers = gateway.HarnessHeaders()
+	opts.Headers[gateway.AgentHeader] = "desktop"
+	base := gateway.Base(gateway.DefaultPort)
 	if dryRun {
-		if st, ok := proxy.Running(ctx); ok {
-			base = proxy.Base(st.Port)
+		if st, ok := gateway.Running(ctx); ok {
+			base = gateway.Base(st.Port)
 		}
 	} else if base, err = ensure(ctx); err != nil {
 		return opts, errors.New("proxy unavailable; run gateway proxy --start")
 	}
-	opts.BaseURL = proxy.SessionBase(base, p.Name)
+	opts.BaseURL = gateway.SessionBase(base, p.Name)
 	return opts, nil
 }

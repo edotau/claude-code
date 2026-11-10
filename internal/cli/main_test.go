@@ -9,10 +9,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/desktop"
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -24,8 +24,8 @@ func TestMain(m *testing.M) {
 	agentconfig.SetCatalogWarn(io.Discard)
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()
-	proxy.StubHolderCommForTest()                // router-state tests record this test binary's pid as the proxy
-	desktop.OnWSL = func() bool { return false } // the host's WSL-ness must not decide the desktop tests
+	gateway.HolderComm = func(int) string { return "claude-code" } // router-state tests record this test binary's pid as the proxy
+	desktop.OnWSL = func() bool { return false }                   // the host's WSL-ness must not decide the desktop tests
 	code := m.Run()
 	cleanup()
 	gittest.Cleanup()

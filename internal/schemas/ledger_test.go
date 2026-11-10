@@ -14,11 +14,11 @@ import (
 	_ "github.com/edotau/claude-code/internal/agent"
 	_ "github.com/edotau/claude-code/internal/audit"
 	_ "github.com/edotau/claude-code/internal/cli"
+	_ "github.com/edotau/claude-code/internal/gateway"
 	_ "github.com/edotau/claude-code/internal/hooks"
 	_ "github.com/edotau/claude-code/internal/launch"
 	_ "github.com/edotau/claude-code/internal/memory"
 	_ "github.com/edotau/claude-code/internal/providers"
-	_ "github.com/edotau/claude-code/internal/proxy"
 	_ "github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
 	_ "github.com/edotau/claude-code/internal/setup"
@@ -138,13 +138,13 @@ var writers = map[string]string{
 	"internal/testtool/mutate/mutate.go:writeOverlay":                 unversioned("foreign: mutation-test scratch copy"),
 	"internal/preflight/live.go:ClaimNamed":                           unversioned("marker: detached refresh attempt stamp"),
 	"internal/preflight/discover.go:SpawnDiscover":                    unversioned("foreign: /dev/null opened for a detached refresh"),
-	"internal/proxy/restart.go:claimRestartLocked":                    unversioned("marker: watchdog proxy restart stamp"),
-	"internal/proxy/restart.go:Hold":                                  unversioned("marker: deliberate proxy stop, watchdog stays off"),
+	"internal/gateway/restart.go:claimRestartLocked":                  unversioned("marker: watchdog proxy restart stamp"),
+	"internal/gateway/restart.go:Hold":                                unversioned("marker: deliberate proxy stop, watchdog stays off"),
 	"internal/router/served.go:SaveServed":                            "served-models",
 	"internal/opencode/check.go:SaveCheckCache":                       "opencode-models-check",
 	"internal/providers/tokenexpiry.go:recordTokenExpiry":             "token-expiry",
-	"internal/proxy/daemon.go:WriteState":                             "router-runtime",
-	"internal/proxy/server/sessions.go:saveLocked":                    "router-sessions",
+	"internal/gateway/daemon.go:WriteState":                           "router-runtime",
+	"internal/gateway/server/sessions.go:saveLocked":                  "router-sessions",
 	"internal/review/diff/pranalyzer.go:writeOutput":                  unversioned("foreign: -o output"),
 	"internal/review/diff/report.go:writeReport":                      unversioned("foreign: -o output"),
 	"internal/review/diff/gate.go:runStagedComplexity":                unversioned("foreign: staged-blob scratch copy, removed after the gate"),

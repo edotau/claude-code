@@ -58,9 +58,9 @@ profile; without one it falls back to the alias (Claude Sonnet on copilot), so g
 model=gpt-6.1-sol (its default is Claude Sonnet); opencode defaults to opencode-go (claude-code <agent> catalog).
 
 Examples:
-  /coworker review internal/proxy for races                           copilot, single
+  /coworker review internal/gateway for races                         copilot, single
   /coworker agents=copilot,opencode compare is this diff safe to ship? both answers side by side
-  /coworker agents=databricks agent=codex review internal/proxy         codex on a Databricks profile
+  /coworker agents=databricks agent=codex review internal/gateway       codex on a Databricks profile
   /coworker agents=opencode model=kimi-k3 summarize docs/             one discovered model
   /coworker agents=copilot,opencode model=discovery compare refactor X     router-picked rare models
   /coworker profile=prod model=opus fix the flaky watchdog test        billed to prod

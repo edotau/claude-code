@@ -16,10 +16,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/proc"
 
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -134,7 +134,7 @@ func sessionProxyBase(raw string) bool {
 }
 
 // readProxyState is the live proxy's state; tests swap it so no real daemon is read.
-var readProxyState = proxy.ReadState
+var readProxyState = gateway.ReadState
 
 // isProxySessionBase reports whether raw is a loopback proxy session base (http://127.0.0.1:<port>/p/<profile>).
 func isProxySessionBase(raw string) bool {
@@ -271,18 +271,18 @@ func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *provi
 	if err != nil {
 		return "", "", fmt.Errorf("proxy: %w", err)
 	}
-	plan.Set[proc.EnvAnthropicBaseURL] = proxy.SessionBase(base, p.Name)
-	hdrs := []string{proxy.AgentHeader + ": claude"} // Claude Code adds the session id itself.
+	plan.Set[proc.EnvAnthropicBaseURL] = gateway.SessionBase(base, p.Name)
+	hdrs := []string{gateway.AgentHeader + ": claude"} // Claude Code adds the session id itself.
 	if id := providers.IdentityFrom(ctx); id != "" {
-		hdrs = append(hdrs, proxy.IdentityHeader+": "+id)
+		hdrs = append(hdrs, gateway.IdentityHeader+": "+id)
 	}
 	if passthrough {
 		// The login stays in Authorization, so the router secret rides in its own header.
-		secret, err := proxy.ClientSecret()
+		secret, err := gateway.ClientSecret()
 		if err != nil {
 			return "", "", fmt.Errorf("proxy secret: %w", err)
 		}
-		hdrs = append(hdrs, proxy.ClientHeader+": "+secret)
+		hdrs = append(hdrs, gateway.ClientHeader+": "+secret)
 	}
 	plan.Set[proc.EnvAnthropicCustomHeaders] = strings.Join(hdrs, "\n")
 	return shellQuote(helperBin(self)) + " resolve --proxy", filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json"), nil

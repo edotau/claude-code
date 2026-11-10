@@ -21,6 +21,7 @@
 # legacy-layout: projections
 # legacy-layout: quota
 # legacy-layout: router-runtime
+# legacy-layout: router-sessions
 # legacy-layout: served-models
 # legacy-layout: settings-overlay
 # legacy-layout: setup-state
@@ -57,8 +58,8 @@ opencode-overlay | derived | 1 | state/harness/opencode/*.json | internal/agentc
 picker-additions | store | 1 | state/vault.db | internal/providers | keep
 projections | derived | 1 | state/projections/* | internal/agentconfig/project | clean:projections
 quota | derived | 0 | state/harness/quota.json | internal/router | keep
-router-runtime | record | 1 | state/harness/proxy.json | internal/proxy | keep
-router-sessions | record | 1 | state/harness/proxy/sessions.json | internal/proxy | keep
+router-runtime | record | 1 | state/harness/proxy.json | internal/gateway | keep
+router-sessions | record | 1 | state/harness/proxy/sessions.json | internal/gateway | keep
 served-models | cache | 1 | state/harness/preflight/*.json | internal/router | keep
 settings-overlay | derived | 1 | state/harness/overlay-*.json | internal/agent | keep
 setup-state | record | 1 | state/harness/setup.json | internal/setup | keep
