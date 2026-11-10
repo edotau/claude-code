@@ -21,7 +21,7 @@ const overlay = `{
       "routes": {"openai": "/v1", "responses": "https://other.example.com/r/"},
       "auth": {"type":"key", "env": "GW_KEY"}, "headers": {"X-Team": "a"},
       "models": {"opus": "claude-opus-5", "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4-5"}}},
-    "nvidia": {"nvidia": null}
+    "google": {"antigravity": null}
   }
 }`
 
@@ -66,7 +66,7 @@ func TestEmbeddedDefaultsValid(t *testing.T) {
 
 func TestOverlayAndRoutes(t *testing.T) {
 	reg := load(t)
-	if _, ok := reg.Providers["nvidia"]; ok {
+	if _, ok := reg.Providers["antigravity"]; ok {
 		t.Error("null overlay entry should remove the built-in")
 	}
 	gw, _ := reg.Get("gw")
@@ -601,7 +601,6 @@ func TestSecretName(t *testing.T) {
 		{"databricks", "dbx-dev.1", AuthM2M, "DATABRICKS_DBX_DEV_1_M2M"},
 		{"databricks", "qa", AuthPAT, "DATABRICKS_QA_PAT"},
 		{"anthropic", "anthropic", AuthKey, "ANTHROPIC_KEY"}, // collapse: profile == provider
-		{"nvidia", "nvidia", AuthKey, "NVIDIA_KEY"},          // collapse
 		{"anthropic", "work", AuthKey, "ANTHROPIC_WORK_KEY"}, // no collapse
 		{"openai", "openai", AuthKey, "OPENAI_KEY"},          // collapse
 		{"github", "personal", AuthOAuth, "GITHUB_PERSONAL_OAUTH"},

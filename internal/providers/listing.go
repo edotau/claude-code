@@ -12,7 +12,7 @@ import (
 )
 
 // providerGroups is the family order `configure provider --list` prints; local takes every other host.
-var providerGroups = []string{"anthropic", "openai", "github", "google", GroupDatabricks, "nvidia", "local"}
+var providerGroups = []string{"anthropic", "openai", "github", "google", GroupDatabricks, "local"}
 
 // AgentServer is an agent CLI and whether it can run a profile; ListTable files one row per agent.
 type AgentServer struct {

@@ -6,7 +6,7 @@ one Go binary, `claude-code`, plus the agents, commands, rules, skills and Workf
 What it adds to a stock install:
 
 - **Provider registry** — Anthropic (Claude login or API key), Databricks, OpenAI (ChatGPT login or API key),
-  GitHub Copilot, Google (Antigravity), NVIDIA or any custom endpoint; model aliases (opus/sonnet/haiku/fable) map to
+  GitHub Copilot, Google (Antigravity) or any custom endpoint; model aliases (opus/sonnet/haiku/fable) map to
   model ids per profile.
 - **Loopback proxy** — OpenAI-dialect translation, per-model-alias provider mixing, failover on 429/5xx.
 - **Agents** — one-shot tasks on Claude, Codex, Gemini, OpenCode or Copilot (`ask`), or their interactive CLIs
@@ -193,7 +193,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | Term | Means | Values |
 | --- | --- | --- |
 | agent | the CLI doing the work | `claude` `codex` `copilot` `opencode` `gemini` |
-| provider | the platform hosting the endpoint | `anthropic` `databricks` `github` `openai` `google` `nvidia` |
+| provider | the platform hosting the endpoint | `anthropic` `databricks` `github` `openai` `google` |
 | profile | an account on a provider; carries billing | unique across all providers, `[a-z0-9-]`, opaque to code |
 | auth | how a profile proves who it is | `oauth` (user login) `m2m` (service principal) `pat` `key` `cli` (agent's own login) `none` |
 | model | what `--model` takes | an alias (`opus`, follows the table), a version (`opus-5-5`, pinned) or a full wire id |
@@ -223,7 +223,6 @@ parses a profile name.
 | github | `personal`, `work` | `cli` (gh / `copilot login`) | `COPILOT_GITHUB_TOKEN` (optional; beats gh's active account) |
 | openai | `chatgpt` · `openai` | `cli` · `key` | none · `OPENAI_KEY` |
 | google | `antigravity` | `cli` | none |
-| nvidia | `nvidia` | `key` | `NVIDIA_KEY` |
 
 opencode's go/zen accounts stay outside the tree for now (`OPENCODE_API_KEY`).
 

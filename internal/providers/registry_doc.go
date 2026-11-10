@@ -11,7 +11,7 @@ import (
 )
 
 // providerKeys are the registry's provider keys, the parents of every profile.
-var providerKeys = []string{"anthropic", "databricks", "github", "openai", "google", "nvidia"}
+var providerKeys = []string{"anthropic", "databricks", "github", "openai", "google"}
 
 // rawRow is one profile's raw JSON under its provider; raw == nil removes the built-in.
 type rawRow struct {

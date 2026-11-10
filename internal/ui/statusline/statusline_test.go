@@ -426,7 +426,6 @@ func TestProviderLabelFamilyTable(t *testing.T) {
 		"chatgpt":     "openai·chatgpt",
 		"personal":    "github·personal",
 		"antigravity": "google·antigravity",
-		"nvidia":      "nvidia",
 		"openai":      "openai",
 		"corp-prod":   "corp-prod", // unknown row: unchanged
 		"mystery":     "mystery",   // unknown row, no env suffix

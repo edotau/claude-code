@@ -260,7 +260,7 @@ func TestDoctorFlagsLoosePerms(t *testing.T) {
 func TestDoctorPassesOnCleanStore(t *testing.T) {
 	doctorTestVault(t)
 	vaulttest.Secret(t, "JIRA_TOKEN", "v")
-	vaulttest.Secret(t, "NVIDA_API_KEY", "v")
+	vaulttest.Secret(t, "OPENA_API_KEY", "v")
 	reg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -269,7 +269,7 @@ func TestDoctorPassesOnCleanStore(t *testing.T) {
 	if rc != vault.ExitClean {
 		t.Fatalf("DoctorChecks rc = %d, want %d:\n%s", rc, vault.ExitClean, detail)
 	}
-	if !strings.Contains(detail, "NVIDA_API_KEY (did you mean NVIDIA_API_KEY?)") ||
+	if !strings.Contains(detail, "OPENA_API_KEY (did you mean OPENAI_API_KEY?)") ||
 		strings.Contains(detail, "JIRA_TOKEN (") || !strings.Contains(detail, "2 secret(s); master key from env") {
 		t.Fatalf("DoctorChecks missing typo advisory, flagged JIRA_TOKEN, or lost key source: %s", detail)
 	}

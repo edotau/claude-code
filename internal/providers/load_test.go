@@ -124,7 +124,7 @@ func TestBuiltinProfileNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{"max": "anthropic", "anthropic": "anthropic", "personal": "github", "chatgpt": "openai",
-		"openai": "openai", "antigravity": "google", "nvidia": "nvidia"}
+		"openai": "openai", "antigravity": "google"}
 	if len(reg.Providers) != len(want) {
 		t.Errorf("built-ins = %v, want exactly %d profiles (no ollama)", reg.Names(), len(want))
 	}

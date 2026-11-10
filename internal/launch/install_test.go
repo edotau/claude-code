@@ -494,12 +494,12 @@ func TestDoctorCopilotRouteSourceEffortContextPinned(t *testing.T) {
 // soft "opencode auth.json" check, naming the integration id and the logout command, never a value.
 func TestDoctorOpenCodeAuthJSONStaleKeyFires(t *testing.T) {
 	xdgData := doctorScratch(t)
-	t.Setenv("NVIDIA_API_KEY", "nvapi-doctorFAKEkey1234567890")
+	t.Setenv("OPENAI_API_KEY", "nvapi-doctorFAKEkey1234567890")
 	authDir := filepath.Join(xdgData, "opencode")
 	if err := os.MkdirAll(authDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(authDir, "auth.json"), []byte(`{"nvidia":{"type":"api","key":"nvapi-realFAKEsecretvalue"}}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(authDir, "auth.json"), []byte(`{"openai":{"type":"api","key":"nvapi-realFAKEsecretvalue"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	checks, _ := DoctorChecks()
@@ -513,8 +513,8 @@ func TestDoctorOpenCodeAuthJSONStaleKeyFires(t *testing.T) {
 	if c.Hard {
 		t.Error("the check must be soft, never hard")
 	}
-	if !strings.Contains(c.Detail, "nvidia key") || !strings.Contains(c.Detail, "opencode auth logout nvidia") {
-		t.Errorf("detail = %q, want it to name nvidia and the logout command", c.Detail)
+	if !strings.Contains(c.Detail, "openai key") || !strings.Contains(c.Detail, "opencode auth logout openai") {
+		t.Errorf("detail = %q, want it to name openai and the logout command", c.Detail)
 	}
 	if strings.Contains(c.Detail, "nvapi-realFAKEsecretvalue") {
 		t.Fatalf("detail leaked the stored credential value: %q", c.Detail)
@@ -537,12 +537,12 @@ func TestDoctorOpenCodeAuthJSONCleanWhenNoStaleKey(t *testing.T) {
 // An oauth connection (not a static "key" method) never counts as stale, even for a vault-covered provider.
 func TestDoctorOpenCodeAuthJSONIgnoresOAuthConnections(t *testing.T) {
 	xdgData := doctorScratch(t)
-	t.Setenv("NVIDIA_API_KEY", "nvapi-doctorFAKEkey1234567890")
+	t.Setenv("OPENAI_API_KEY", "nvapi-doctorFAKEkey1234567890")
 	authDir := filepath.Join(xdgData, "opencode")
 	if err := os.MkdirAll(authDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(authDir, "auth.json"), []byte(`{"nvidia":{"type":"oauth"}}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(authDir, "auth.json"), []byte(`{"openai":{"type":"oauth"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	checks, _ := DoctorChecks()
