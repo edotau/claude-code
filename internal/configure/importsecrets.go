@@ -2,6 +2,7 @@ package configure
 
 import (
 	"fmt"
+
 	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/vault"
