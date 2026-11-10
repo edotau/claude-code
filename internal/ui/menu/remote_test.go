@@ -68,6 +68,7 @@ func TestRunRemoteConnectedReportsStatus(t *testing.T) {
 func TestRunRemoteNotConnectedNeverFails(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", t.TempDir()) // no `tailscale` CLI at all
+	t.Cleanup(tailscale.StubMacAppCLI(""))
 
 	got, ok := runRemoteOut(t)
 	if !ok {

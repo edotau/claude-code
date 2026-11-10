@@ -74,6 +74,7 @@ func hermeticTailscaleSecrets(t *testing.T) {
 func TestTailscaleStatusNoCLI(t *testing.T) {
 	hermeticTailscaleSecrets(t)
 	t.Setenv("PATH", t.TempDir())
+	t.Cleanup(tailscale.StubMacAppCLI("")) // a Mac with Tailscale.app would otherwise answer
 	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdNetworkTailscale(nil) })
 	if code == 0 {
 		t.Errorf("status with no CLI on PATH: code = 0, want nonzero; stderr=%q", stderr)

@@ -24,6 +24,13 @@ import (
 // copilotGOOS is the OS the registry guard checks; a seam for tests.
 var copilotGOOS = runtime.GOOS
 
+// StubGOOS makes the registry guard see goos, for tests in other packages; restore undoes it.
+func StubGOOS(goos string) (restore func()) {
+	orig := copilotGOOS
+	copilotGOOS = goos
+	return func() { copilotGOOS = orig }
+}
+
 // errCopilotRegistryDarwin refuses the registry on macOS, where copilot's Keychain login is not hidden by the home.
 var errCopilotRegistryDarwin = errors.New(
 	"copilot: the Databricks model registry is not supported on macOS yet (copilot reads its GitHub login from the " +

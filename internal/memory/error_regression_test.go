@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestAliasRejectsIncompleteProjectLinks(t *testing.T) {
@@ -76,7 +77,7 @@ func TestDigestInputLiteralBracketConfig(t *testing.T) {
 func TestSessionSurfaceRelativeNativeLink(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
-	root := gitRepo(t, t.TempDir(), "relative-link")
+	root := paths.CanonDeep(gitRepo(t, t.TempDir(), "relative-link")) // production keys the link by the resolved path
 	dir, err := memstore.EnsureRepoDir(root)
 	if err != nil {
 		t.Fatal(err)
