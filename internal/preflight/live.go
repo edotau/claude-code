@@ -30,6 +30,14 @@ const profileTimeout = 20 * time.Second
 // Budget is the wall-clock cap on the whole install step (refresh and pongs); a var for tests.
 var Budget = 45 * time.Second
 
+// pongCap is how long after the step starts agent's install pong may run: opencode's cold start needs twice Budget.
+func pongCap(agent string) time.Duration {
+	if agent == "opencode" {
+		return 2 * Budget
+	}
+	return Budget
+}
+
 // RefreshStale re-lists Databricks profiles in use with a missing or stale cache (all when force); errors skip.
 func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now time.Time, force bool) []error {
 	var (
@@ -99,22 +107,33 @@ func defaultRunAsk(ctx context.Context, bin, agentName, profile string) (wire.En
 
 // LivePongs asks every pinned agent (profile resolved, credential present) for "pong" in parallel within ctx.
 func LivePongs(ctx context.Context, bin string, ps []Pin) []Pong {
+	return pongAll(ctx, bin, livePins(ps), "", nil)
+}
+
+// livePins keeps the pins a pong can reach: pinned, served and with a credential.
+func livePins(ps []Pin) []Pin {
 	var live []Pin
 	for _, p := range ps {
 		if p.Status != StatusUnpinned && p.Served != "no" && !strings.HasPrefix(p.Detail, "no credential") {
 			live = append(live, p)
 		}
 	}
-	return pongAll(ctx, bin, live, "")
+	return live
 }
 
-// pongAll pongs every pin in parallel; askProfile is passed to ask as --profile.
-func pongAll(ctx context.Context, bin string, ps []Pin, askProfile string) []Pong {
+// pongAll pongs every pin in parallel; askProfile is passed to ask as --profile; deadline, when set, caps each pong.
+func pongAll(ctx context.Context, bin string, ps []Pin, askProfile string, deadline func(agent string) time.Time) []Pong {
 	out := make([]Pong, len(ps))
 	var wg sync.WaitGroup
 	for i, p := range ps {
 		wg.Go(func() {
-			out[i] = pong(ctx, bin, p, askProfile)
+			pctx := ctx
+			if deadline != nil {
+				var cancel context.CancelFunc
+				pctx, cancel = context.WithDeadline(ctx, deadline(p.Agent))
+				defer cancel()
+			}
+			out[i] = pong(pctx, bin, p, askProfile)
 		})
 	}
 	wg.Wait()
@@ -170,11 +189,14 @@ func RunInstallStep(ctx context.Context, w io.Writer, reg *providers.Registry, b
 	if !anyCredential(reg, ps) {
 		return nil // no credential anywhere: nothing to ping
 	}
-	ctx, cancel := context.WithTimeout(ctx, Budget)
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(ctx, pongCap("opencode")) // the longest pong bounds the step
 	defer cancel()
-	printRefreshErrors(w, RefreshStale(ctx, reg, ps, now, false))
+	rctx, rcancel := context.WithDeadline(ctx, start.Add(Budget))
+	printRefreshErrors(w, RefreshStale(rctx, reg, ps, now, false))
+	rcancel()
 	ps = Check(reg, now)
-	pongs := LivePongs(ctx, bin, ps)
+	pongs := pongAll(ctx, bin, livePins(ps), "", func(a string) time.Time { return start.Add(pongCap(a)) })
 	for _, r := range pongs {
 		fmt.Fprintln(w, r.Line())
 	}
@@ -217,7 +239,7 @@ func RunProfilePongs(ctx context.Context, w io.Writer, reg *providers.Registry, 
 		for _, a := range slices.Sorted(slices.Values(router.TableAgents)) {
 			ps = append(ps, Pin{Agent: a, Profile: n})
 		}
-		for _, r := range pongAll(pctx, bin, ps, n) {
+		for _, r := range pongAll(pctx, bin, ps, n, nil) {
 			fmt.Fprintln(w, r.Line())
 			all = append(all, r)
 		}

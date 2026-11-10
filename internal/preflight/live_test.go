@@ -156,6 +156,30 @@ func TestInstallStepSharesBudget(t *testing.T) {
 	}
 }
 
+// opencode's install pong may outlast Budget (cold start); the other agents still stop at Budget.
+func TestInstallStepOpencodePongOutlastsBudget(t *testing.T) {
+	hermeticVault(t)
+	stubListing(t)
+	pinAll(t)
+	old := Budget
+	Budget = 200 * time.Millisecond
+	t.Cleanup(func() { Budget = old })
+	runAsk = func(ctx context.Context, _, a, _ string) (wire.Envelope, error) {
+		select {
+		case <-time.After(3 * Budget / 2): // past Budget, inside opencode's 2x cap
+			return wire.Envelope{Status: "ok", Provider: "dev", Model: "m"}, nil
+		case <-ctx.Done():
+			return wire.Envelope{}, ctx.Err()
+		}
+	}
+	var buf bytes.Buffer
+	RunInstallStep(context.Background(), &buf, preflightRegistry(true), "claude-code", time.Now())
+	out := buf.String()
+	if !strings.Contains(out, "pong opencode · dev · m · ok") || !strings.Contains(out, "pong codex    · dev · default · fail · timeout") {
+		t.Fatalf("want opencode ok and codex timeout:\n%s", out)
+	}
+}
+
 // --profile all pongs claude, codex, copilot, gemini and opencode on each usable Databricks profile, passing --profile.
 func TestRunProfilePongsAllExpandsProfiles(t *testing.T) {
 	reg := preflightRegistry(true)
