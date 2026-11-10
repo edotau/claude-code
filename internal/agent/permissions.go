@@ -47,6 +47,19 @@ func (p Permissions) Each(fn func(decision Decision, r Rule)) {
 // IsZero reports a request with no policy: no mode and no rules.
 func (p Permissions) IsZero() bool { return p.Mode == "" && len(p.Allow)+len(p.Ask)+len(p.Deny) == 0 }
 
+// SafeModeDeny is the first Deny rule unenforceable flags under --safe-mode; ok is false outside safe mode.
+func SafeModeDeny(req RunOptions, unenforceable func(Rule) bool) (Rule, bool) {
+	if !req.SafeMode {
+		return Rule{}, false
+	}
+	for _, r := range req.Permissions.Deny {
+		if unenforceable(r) {
+			return r, true
+		}
+	}
+	return Rule{}, false
+}
+
 // String is the rule in ParseRule's syntax.
 func (r Rule) String() string {
 	if r.Arg == "" {

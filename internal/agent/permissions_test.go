@@ -197,3 +197,18 @@ func TestDecideBareSubstitutionKeepsDeny(t *testing.T) {
 		}
 	}
 }
+
+// TestSafeModeDenyFindsFirstUnenforceable: only under --safe-mode, and only a Deny rule the predicate flags.
+func TestSafeModeDenyFindsFirstUnenforceable(t *testing.T) {
+	bash := func(r Rule) bool { return r.Tool == "Bash" }
+	perms := Permissions{Allow: []Rule{{Tool: "Bash"}}, Deny: []Rule{{Tool: "Read"}, {Tool: "Bash", Arg: "rm:*"}}}
+	if r, ok := SafeModeDeny(RunOptions{SafeMode: true, Permissions: perms}, bash); !ok || r.String() != "Bash(rm:*)" {
+		t.Errorf("safe mode = %v %v, want Bash(rm:*)", r, ok)
+	}
+	if _, ok := SafeModeDeny(RunOptions{Permissions: perms}, bash); ok {
+		t.Error("outside safe mode a Deny must not be refused")
+	}
+	if _, ok := SafeModeDeny(RunOptions{SafeMode: true, Permissions: Permissions{Allow: perms.Allow}}, bash); ok {
+		t.Error("an Allow rule must not count as an unenforceable Deny")
+	}
+}

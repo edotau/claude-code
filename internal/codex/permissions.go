@@ -287,7 +287,7 @@ func requireFileAuth(env []string) error {
 
 // codexCheckSafeMode rejects Deny rules under --safe-mode and logs the rules codex cannot enforce.
 func codexCheckSafeMode(req agent.RunOptions, pol codexPolicy) error {
-	if req.SafeMode && len(req.Permissions.Deny) > 0 && pol.rules != "" {
+	if _, ok := agent.SafeModeDeny(req, func(agent.Rule) bool { return pol.rules != "" }); ok {
 		return errors.New("codex: --safe-mode disables permission rules and hooks; remove --safe-mode to enforce --deny")
 	}
 	for _, r := range pol.unmapped {
