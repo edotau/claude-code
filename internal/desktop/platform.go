@@ -12,22 +12,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/proc"
+
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 // OnWSL reports whether this is WSL; a var so tests pin either answer regardless of the host.
-var OnWSL = hostOnWSL
-
-func hostOnWSL() bool {
-	if runtime.GOOS != "linux" {
-		return false
-	}
-	if os.Getenv("WSL_DISTRO_NAME") != "" || os.Getenv("WSL_INTEROP") != "" {
-		return true
-	}
-	b, _ := os.ReadFile("/proc/version")
-	return strings.Contains(strings.ToLower(string(b)), "microsoft")
-}
+var OnWSL = func() bool { return runtime.GOOS == "linux" && proc.OnWSL() }
 
 // Root resolves Desktop's data location without creating it; WSL always targets Windows Desktop.
 func Root() (string, error) {

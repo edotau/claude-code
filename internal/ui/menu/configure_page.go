@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/proc"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/client"
@@ -456,17 +456,9 @@ func runAuthOption(d *dialog, kt configure.KeyTarget, o configure.AuthOption) bo
 
 // openBrowser hands url to the desktop opener; best-effort, the paste prompt follows either way.
 func openBrowser(url string) {
-	bin := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		bin = "open"
+	if err := proc.OpenURL(url); err != nil {
+		fmt.Fprintf(os.Stderr, "configure: warning: browser opener failed: %v\n", err)
 	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := exec.CommandContext(ctx, bin, url).Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "configure: warning: browser opener failed: %v\n", err)
-		}
-	}()
 }
 
 // actionConfirmed asks [y/N] (Esc cancels) before a terminal run launches a mint CLI; a stray Enter must

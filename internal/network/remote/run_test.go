@@ -47,17 +47,3 @@ func TestSplitHostErrors(t *testing.T) {
 		}
 	}
 }
-
-func TestOpenerOnWSLUsesWindowsBrowser(t *testing.T) {
-	origOS, origWSL := goos, isWSL
-	goos, isWSL = "linux", func() bool { return true }
-	t.Cleanup(func() { goos, isWSL = origOS, origWSL })
-	t.Setenv("PATH", t.TempDir()) // no wslview
-	if got := opener(); got != wslExplorer {
-		t.Errorf("opener on WSL = %q, want %q", got, wslExplorer)
-	}
-	isWSL = func() bool { return false }
-	if got := opener(); got != "xdg-open" {
-		t.Errorf("opener off WSL = %q, want xdg-open", got)
-	}
-}

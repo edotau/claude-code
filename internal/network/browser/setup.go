@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // Action is one repair step Setup took (or, with Env.DryRun, planned).
@@ -92,13 +94,11 @@ func enableExtensionAction(b Browser) Action {
 	}
 }
 
-// installExtensionAction opens the Web Store page in the target browser (macOS: `open -b <bundle>`,
-// so it launches in that specific browser rather than the system default; Linux: `xdg-open`, which
-// has no per-browser targeting equivalent).
+// installExtensionAction opens the Web Store page: macOS `open -b <bundle>` targets that browser; elsewhere the default.
 func installExtensionAction(env Env, b Browser) Action {
 	cmd := []string{"open", "-b", b.BundleID, webStoreURL}
 	if env.goos() != "darwin" {
-		cmd = []string{"xdg-open", webStoreURL}
+		cmd = []string{proc.Opener(), webStoreURL}
 	}
 	a := Action{
 		Kind: "install-extension",

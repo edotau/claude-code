@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/textutil"
@@ -72,35 +70,4 @@ func hostArgv(host string, args []string, tty bool) []string {
 		argv = append(argv, "-t")
 	}
 	return append(argv, "--", host, encodeScript(script))
-}
-
-// wslExplorer opens a URL in the Windows default browser; absolute because ssh sessions lack the Windows PATH.
-const wslExplorer = "/mnt/c/Windows/explorer.exe"
-
-// goos is runtime.GOOS; a test swaps it to reach the Linux and WSL openers from macOS.
-var goos = runtime.GOOS
-
-// isWSL reports a WSL guest with Windows interop; a test swaps it.
-var isWSL = func() bool {
-	m, _ := filepath.Glob("/proc/sys/fs/binfmt_misc/WSLInterop*")
-	return len(m) > 0
-}
-
-// OpenURL starts the desktop opener without waiting: explorer.exe exits 1 even when it opens the page.
-func OpenURL(url string) error {
-	return exec.CommandContext(context.Background(), opener(), url).Start() // the opener outlives this call
-}
-
-// opener is the URL-opening binary for this machine: wslview when installed on WSL, else explorer.exe there.
-func opener() string {
-	switch {
-	case goos == "darwin":
-		return "open"
-	case isWSL():
-		if p, err := exec.LookPath("wslview"); err == nil {
-			return p
-		}
-		return wslExplorer
-	}
-	return "xdg-open"
 }

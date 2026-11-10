@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/proc"
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/providers"
@@ -176,7 +176,7 @@ func LoginRow(ctx context.Context, name string, out io.Writer) error {
 }
 
 // openLoginURL hands the authorize URL to the desktop opener (the Windows browser on WSL); the URL is printed too.
-func openLoginURL(url string) error { return remote.OpenURL(url) }
+func openLoginURL(url string) error { return proc.OpenURL(url) }
 
 // loginHost is the workspace a login would talk to, for display.
 func loginHost(p *providers.Provider) string {
