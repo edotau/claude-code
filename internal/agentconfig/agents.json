@@ -8,11 +8,7 @@
       "launch": {}
     },
     "opencode": {
-      "launch": {
-        "env": [
-          "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1"
-        ]
-      }
+      "launch": {}
     },
     "copilot": {
       "permission": {
