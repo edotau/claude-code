@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropics/anthropic-sdk-go"
+
 	"github.com/edotau/claude-code/internal/agent/retry"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -19,8 +21,9 @@ type stallWatch struct {
 	kill    func()
 	mu      sync.Mutex
 	timer   *time.Timer
-	gen     int // bumps on every reset, so a timer that fired late cannot trip a newer window
-	pending int // tool_use blocks emitted and not yet answered by a tool_result
+	armed   bool      // false while a tool runs
+	due     time.Time // the current window's end, so a fire that raced a Reset cannot trip the newer window
+	pending int       // tool_use blocks emitted and not yet answered by a tool_result
 	last    string
 	tripped bool
 	done    bool
@@ -30,24 +33,21 @@ type stallWatch struct {
 func newStallWatch(d time.Duration, kill func()) *stallWatch {
 	w := &stallWatch{d: d, kill: kill, last: "none"}
 	w.mu.Lock()
-	w.reset()
+	w.timer = time.AfterFunc(d, w.trip)
+	w.armed, w.due = true, time.Now().Add(d)
 	w.mu.Unlock()
 	return w
 }
 
-// reset restarts the idle window; the caller holds mu.
+// reset restarts the idle window on the one timer; the caller holds mu.
 func (w *stallWatch) reset() {
-	if w.timer != nil {
-		w.timer.Stop()
-	}
-	w.gen++
-	gen := w.gen
-	w.timer = time.AfterFunc(w.d, func() { w.trip(gen) })
+	w.armed, w.due = true, time.Now().Add(w.d)
+	w.timer.Reset(w.d)
 }
 
-func (w *stallWatch) trip(gen int) {
+func (w *stallWatch) trip() {
 	w.mu.Lock()
-	if gen != w.gen || w.done || w.tripped {
+	if !w.armed || time.Now().Before(w.due) || w.done || w.tripped {
 		w.mu.Unlock()
 		return
 	}
@@ -57,7 +57,7 @@ func (w *stallWatch) trip(gen int) {
 }
 
 // observe records an event: it resets the window unless a tool is running, which disarms it.
-func (w *stallWatch) observe(ev claudeEvent) {
+func (w *stallWatch) observe(ev claudeEvent, msg anthropic.Message) {
 	if w == nil {
 		return
 	}
@@ -70,22 +70,22 @@ func (w *stallWatch) observe(ev claudeEvent) {
 	if ev.ParentToolUseID == "" {
 		switch ev.Type {
 		case "assistant":
-			w.pending += countBlocks(ev, "tool_use")
+			w.pending += countBlocks(msg, "tool_use")
 		case "user":
-			w.pending = max(w.pending-max(countBlocks(ev, "tool_result"), 1), 0)
+			w.pending = max(w.pending-max(countBlocks(msg, "tool_result"), 1), 0)
 		}
 	}
 	if w.pending > 0 { // a result keeps the window armed: a hang before EOF is still a stall
 		w.timer.Stop()
-		w.gen++
+		w.armed = false
 		return
 	}
 	w.reset()
 }
 
-// countBlocks counts ev's message content blocks of the given type.
-func countBlocks(ev claudeEvent, typ string) (n int) {
-	for _, b := range ev.object().Content {
+// countBlocks counts msg's content blocks of the given type.
+func countBlocks(msg anthropic.Message, typ string) (n int) {
+	for _, b := range msg.Content {
 		if b.Type == typ {
 			n++
 		}

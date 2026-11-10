@@ -206,14 +206,22 @@ type claudeEvent struct {
 	} `json:"usage"`
 }
 
-// object decodes ev.Message as an anthropic.Message; a string or absent message yields the zero value.
-func (ev claudeEvent) object() anthropic.Message {
+// decodeMessage decodes a raw message as an anthropic.Message (string or absent = zero); a var so tests count calls.
+var decodeMessage = func(raw json.RawMessage) anthropic.Message {
 	var m anthropic.Message
-	if len(ev.Message) == 0 || ev.Message[0] != '{' {
+	if len(raw) == 0 || raw[0] != '{' {
 		return m
 	}
-	_ = json.Unmarshal(ev.Message, &m) // best-effort: an odd shape must never fail the stream
+	_ = json.Unmarshal(raw, &m) // best-effort: an odd shape must never fail the stream
 	return m
+}
+
+// topMessage decodes a top-level assistant or user message, the only ones the stream state and stall watch read.
+func (ev claudeEvent) topMessage() anthropic.Message {
+	if ev.ParentToolUseID != "" || (ev.Type != "assistant" && ev.Type != "user") {
+		return anthropic.Message{}
+	}
+	return decodeMessage(ev.Message)
 }
 
 // text returns ev.Message when the event carries it as a plain string instead of an object.
@@ -243,7 +251,8 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink 
 		return res, err
 	}
 	tr, err := wire.DecodeEvents(br, lg, "decode stream-json", false, nil, func(ev claudeEvent, ts *wire.TransportTracker) (bool, error) {
-		wd.observe(ev)
+		msg := ev.topMessage()
+		wd.observe(ev, msg)
 		if ev.SessionID != "" {
 			res.SessionID = ev.SessionID
 		}
@@ -251,7 +260,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink 
 			sawResult = true
 		}
 		state := claudeStreamState{res: &res, transport: ts, log: lg, sink: sink, seen: &seen}
-		return state.apply(ev, untilResult)
+		return state.apply(ev, msg, untilResult)
 	})
 	res.Transport = tr
 	if err != nil {
@@ -271,14 +280,14 @@ type claudeStreamState struct {
 	seen      *wire.Answer
 }
 
-func (s claudeStreamState) apply(ev claudeEvent, untilResult bool) (bool, error) {
+func (s claudeStreamState) apply(ev claudeEvent, msg anthropic.Message, untilResult bool) (bool, error) {
 	switch ev.Type {
 	case "stream_event":
 		s.transport.Event(wire.Clock())
 	case "system":
 		return false, applyClaudeSystem(ev, s.res, s.transport, s.log, s.sink)
 	case "assistant":
-		return false, applyClaudeAssistantEvent(ev, s.res, s.log, s.sink, s.seen)
+		return false, applyClaudeAssistantEvent(ev, msg, s.res, s.log, s.sink, s.seen)
 	case "result":
 		if err := applyClaudeResult(s.res, ev); err != nil {
 			_ = wire.EmitError(s.log, s.sink, err.Error())
@@ -315,11 +324,10 @@ func applyClaudeSystem(ev claudeEvent, res *wire.Result, ts *wire.TransportTrack
 }
 
 // applyClaudeAssistantEvent logs and emits a top-level assistant message; a subagent's is ignored.
-func applyClaudeAssistantEvent(ev claudeEvent, res *wire.Result, lg wire.StreamLog, sink wire.Sink, seen *wire.Answer) error {
+func applyClaudeAssistantEvent(ev claudeEvent, msg anthropic.Message, res *wire.Result, lg wire.StreamLog, sink wire.Sink, seen *wire.Answer) error {
 	if ev.ParentToolUseID != "" {
 		return nil
 	}
-	msg := ev.object()
 	if msg.Model != "" {
 		res.Model = string(msg.Model)
 	}
