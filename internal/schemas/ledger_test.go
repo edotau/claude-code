@@ -72,7 +72,7 @@ var writers = map[string]string{
 	"internal/agentconfig/render/versions.go:writeBaseline":           "vendor-baseline",
 	"internal/history/history.go:stageFile":                           unversioned("text: session history snapshot of a transcript"),
 	"internal/hosttest/capture.go:ClosedStdout":                       unversioned("test helper: an empty temp file standing in for a closed stdout"),
-	"internal/hosttest/gittest/gittest.go:WriteRel":                   unversioned("test fixture: a file in a test's temp repo"),
+	"internal/hosttest/git.go:WriteRel":                               unversioned("test fixture: a file in a test's temp repo"),
 	"internal/hooks/memhook/checkpoint.go:contextCheckpoint":          unversioned("marker: context-checkpoint flag file"),
 	"internal/hooks/memhook/checkpoint.go:writeCompactRecord":         unversioned("marker: per-session PreCompact record (trigger, pct, at) read once by SessionStart"),
 	"internal/hooks/agents/codex.go:appendCodexRoute":                 "codex-routing",
