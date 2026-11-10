@@ -30,6 +30,8 @@ prevents: a hook, rule or agent change that never reaches the sessions and agent
    and get approval before writing.
 8. **Saved workflow added/changed** — `claude-code workflow lint` (table row in
    `skills/subagent-workflows/references/saved-workflows.md`, `stepOf` verbatim, every script parses under node).
+9. **Instruction path changed** (`CLAUDE.md`, a rule, a skill, the plan template, a saved workflow, an agent, or a
+   session-start/recall hook) — `claude-code doctor --prompts` (hops H1–H7); fix the finding at its origin.
 
 Files generated from a template: no placeholder leaked through —
 

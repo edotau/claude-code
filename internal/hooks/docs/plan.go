@@ -235,7 +235,8 @@ func claimPlanFile(p string) bool {
 	if err != nil {
 		return !os.IsExist(err)
 	}
-	return f.Close() == nil
+	_ = f.Close() // the O_EXCL create already won the claim; a close error must not lose it
+	return true
 }
 
 // taskHeadingWord picks the plan headings that become checklist items: phases, steps, parts and tasks.
@@ -308,6 +309,15 @@ type templateHeading struct {
 	level  int
 	prefix string
 	label  string // original "#"-prefixed spelling, for the denial message
+}
+
+// PlanTemplateHeadings returns the "#"-prefixed headings the plan template requires.
+func PlanTemplateHeadings() []string {
+	out := make([]string, len(planTemplateHeadings))
+	for i, h := range planTemplateHeadings {
+		out[i] = h.label
+	}
+	return out
 }
 
 // planTemplateHeadings are the sections the plan template's requires before a draft is treated as a plan.
@@ -387,7 +397,7 @@ func Mirror(in *core.Input, stderr io.Writer) int {
 	if !ok {
 		dest, _ = planDestination(in.CWD, planTitle(content), content, false)
 		if err := plans.RecordDest(base, dest); err != nil {
-			fmt.Fprintf(stderr, "plan-mirror: %v\n", err)
+			fmt.Fprintf(stderr, "plan-mirror: %v\n", err) // still mirror once; the copy is the file of record
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
@@ -451,6 +461,7 @@ func Skeleton(in *core.Input) core.Result {
 	}
 	sk, err := plans.Skeleton(paths.ConfigDir())
 	if err != nil {
+		fmt.Fprintf(&stderr, "plan-skeleton: %v\n", err)
 		return core.ExitResult(core.ExitProceed, stderr.String()) // no template: fail open
 	}
 	err = os.MkdirAll(plans.ScratchDir(), 0o700)
