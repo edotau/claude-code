@@ -1,12 +1,16 @@
 package project
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agentid"
 )
 
 // scriptRefPattern finds a scripts/<name>.sh reference anywhere in a command file's text.
@@ -217,4 +221,155 @@ func scanForStaleRefs(t *testing.T, scanDir string, removed []string) error {
 		}
 		return nil
 	})
+}
+
+// checkAgentFiles checks the file contract against an explicitly supplied required roster.
+func checkAgentFiles(dir string, required []string) []string {
+	agents, err := DiscoverAgents(dir)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	var defects []string
+	seen := make(map[string]bool, len(agents))
+	for _, agent := range agents {
+		seen[agent.dirName] = true
+		defects = append(defects, checkAgentFileSource(agent)...)
+	}
+	for _, name := range required {
+		if !seen[name] {
+			defects = append(defects, name+".md: required leaf missing")
+		}
+	}
+	return defects
+}
+
+func checkAgentFileSource(agent Source) []string {
+	var defects []string
+	file := agent.dirName + ".md"
+	if agent.frontmatter["name"] != agent.dirName {
+		defects = append(defects, fmt.Sprintf("%s: name = %v, want %q", file, agent.frontmatter["name"], agent.dirName))
+	}
+	tools := agentFileTools(agent.frontmatter["tools"])
+	external := []string{"codex", "copilot", "gemini", "opencode"}
+	leaves := []string{"claude", "codex", "copilot", "gemini", "opencode", "coworker"}
+	if slices.Contains(external, agent.dirName) && !slices.Contains(tools, "Bash") {
+		defects = append(defects, file+": external leaf tools must include Bash")
+	}
+	if slices.Contains(leaves, agent.dirName) && slices.Contains(tools, "Agent") {
+		defects = append(defects, file+": leaf tools must not include Agent")
+	}
+	return defects
+}
+
+func agentFileTools(value any) []string {
+	if values, ok := value.([]any); ok {
+		var tools []string
+		for _, item := range values {
+			if name, ok := item.(string); ok {
+				tools = append(tools, name)
+			}
+		}
+		value = tools
+	}
+	return toolList(value)
+}
+
+func TestAgentIDsMatchLiteralLeaves(t *testing.T) {
+	got := agentid.All()
+	want := []string{"claude", "codex", "copilot", "gemini", "opencode"}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("agentid.All() = %v, want %v", got, want)
+	}
+}
+
+func TestAgentFilesTie(t *testing.T) {
+	dir := filepath.Join(repoRoot(t), "agents")
+	agents, err := DiscoverAgents(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) == 0 {
+		t.Fatal("no agent files found in " + dir)
+	}
+	required := []string{"claude", "codex", "copilot", "gemini", "opencode"}
+	if defects := checkAgentFiles(dir, required); len(defects) != 0 {
+		t.Fatal(strings.Join(defects, "\n"))
+	}
+}
+
+func TestAgentFileCheckerHasTeeth(t *testing.T) {
+	cases := []struct {
+		name, file, declared, tools, want string
+	}{
+		{name: "good"},
+		{"name mismatch", "claude", "wrong", "[Read, Bash]", "claude.md"},
+		{"missing required", "copilot", "", "", "copilot.md"},
+		{"codex without Bash", "codex", "codex", "[Read]", "codex.md"},
+		{"copilot without Bash", "copilot", "copilot", "Read", "copilot.md"},
+		{"gemini without Bash", "gemini", "gemini", "[Read]", "gemini.md"},
+		{"opencode without Bash", "opencode", "opencode", "Read", "opencode.md"},
+		{"claude with Agent", "claude", "claude", "[Read, Bash, Agent]", "claude.md"},
+		{"codex with Agent", "codex", "codex", "Read, Bash, Agent", "codex.md"},
+		{"copilot with Agent", "copilot", "copilot", "[Read, Bash, Agent]", "copilot.md"},
+		{"gemini with Agent", "gemini", "gemini", "Read, Bash, Agent", "gemini.md"},
+		{"opencode with Agent", "opencode", "opencode", "[Read, Bash, Agent]", "opencode.md"},
+		{"coworker with Agent", "coworker", "coworker", "Read, Bash, Agent", "coworker.md"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeAgentFileFixtures(t, dir)
+			if tc.file != "" {
+				path := filepath.Join(dir, tc.file+".md")
+				if tc.declared == "" {
+					if err := os.Remove(path); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					writeAgentFileFixture(t, path, tc.declared, tc.tools)
+				}
+			}
+			required := []string{"claude", "codex", "copilot", "gemini", "opencode"}
+			assertAgentFileDefects(t, checkAgentFiles(dir, required), tc.want)
+		})
+	}
+}
+
+func writeAgentFileFixtures(t *testing.T, dir string) {
+	t.Helper()
+	for _, name := range []string{"claude", "codex", "copilot", "gemini", "opencode"} {
+		writeAgentFileFixture(t, filepath.Join(dir, name+".md"), name, "[Read, Bash]")
+	}
+}
+
+func writeAgentFileFixture(t *testing.T, path, name, tools string) {
+	t.Helper()
+	projectWriteFile(t, path, fmt.Sprintf("---\nname: %s\ndescription: test leaf\ntools: %s\n---\n", name, tools))
+}
+
+func assertAgentFileDefects(t *testing.T, defects []string, want string) {
+	t.Helper()
+	if want == "" {
+		if len(defects) != 0 {
+			t.Fatalf("good agent files have defects: %v", defects)
+		}
+		return
+	}
+	if !strings.Contains(strings.Join(defects, "\n"), want) {
+		t.Fatalf("defects = %v, want a defect naming %s", defects, want)
+	}
+}
+
+func TestAgentFileToolsRepresentations(t *testing.T) {
+	for _, value := range []any{
+		"Read, Bash",
+		[]string{"Read", " Bash "},
+		[]any{"Read", " Bash "},
+	} {
+		if got := agentFileTools(value); !slices.Equal(got, []string{"Read", "Bash"}) {
+			t.Errorf("agentFileTools(%#v) = %v, want [Read Bash]", value, got)
+		}
+	}
 }
