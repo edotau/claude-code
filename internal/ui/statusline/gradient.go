@@ -170,7 +170,7 @@ func (b *cellBuf) pushContext(v values) {
 	filled := strings.TrimRight(bar, "─")
 	b.push(filled, "filled")
 	b.push(bar[len(filled):], "empty")
-	b.push(fmt.Sprintf(" %.1f%%", d.ctxPct), "g")
+	b.push(fmt.Sprintf(" %d%%", int(math.Round(d.ctxPct))), "g")
 	b.pushBreakable(twoSep, "g")
 	b.push(compactTokens(d.tokens)+"/"+compactTokens(d.size), "g")
 	if v.limits != "" {
