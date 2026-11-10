@@ -13,7 +13,7 @@ func TestDescribeVerbsCoverTable(t *testing.T) {
 			t.Errorf("describeVerbs lacks table verb %q", c.name)
 		}
 	}
-	for _, want := range []string{"agents", "doctor", "describe", "configure", "memory"} {
+	for _, want := range []string{"agents", "doctor", "configure", "memory"} {
 		if !got[want] {
 			t.Errorf("describeVerbs lacks verb %q", want)
 		}

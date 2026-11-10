@@ -13,7 +13,7 @@ What it adds to a stock install:
   (`claude-code <agent>`).
 - **Hooks, memory, status line** — a Bash safety gate, a per-repo memory bank, format-on-stop, context checkpoint.
 
-Every verb takes `--help`; `claude-code describe` maps the whole harness. Agent-facing commands and gotchas live
+Every verb takes `--help`; `claude-code -h` lists them all. Agent-facing commands and gotchas live
 per area under `rules/harness/` and `rules/workflows/` (index: `CLAUDE.md` → How-to).
 
 ## Install

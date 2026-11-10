@@ -21,7 +21,6 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/providers/providerscmd"
 	"github.com/edotau/claude-code/internal/setup"
-	"github.com/edotau/claude-code/internal/testtool"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	usagecmd "github.com/edotau/claude-code/internal/usage"
 	"github.com/edotau/claude-code/internal/vault/vaultcmd"
@@ -68,7 +67,7 @@ func commands() []command {
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: func(args []string) int { return setup.Clean(args, os.Stdout, os.Stderr) }, spec: setup.CleanSpec},
 		{name: "history", group: groupSession, summary: "shadow git history of the config files", run: history.Run, spec: history.SpecNode},
 		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: worktreecmd.Run, spec: worktreecmd.Spec},
-		{name: "test", group: groupSession, hidden: true, summary: "test tooling: mutate checks a test has teeth", run: testtool.Run, spec: testtool.Spec},
+		{name: "test", group: groupSession, hidden: true, summary: "test tooling: mutate checks a test has teeth", run: cmdTest, spec: testSpec},
 		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: func(a []string) int { return memorycmd.Run(a, func(verb string) bool { return lookup(verb) != nil }) }, spec: memorycmd.Spec},
 		{name: "plan", group: groupSession, hidden: true, summary: "plan checklists: status (ticked/total, claims)", run: plans.Run, spec: plans.SpecNode},
 		{name: "scm", group: groupSession, summary: "PRs, checks, comments on GitHub or Bitbucket DC", run: cmdScm, spec: scmSpec},
@@ -76,7 +75,6 @@ func commands() []command {
 		{name: "doctor", group: groupDiagnostics, summary: "read-only health checks (--audit: action log)", run: doctor.Run, spec: doctor.SpecNode},
 		{name: "gateway", group: groupDiagnostics, summary: "which agent + model a task routes to; the loopback proxy", run: gateway.Run, spec: gateway.Spec},
 		{name: "usage", group: groupDiagnostics, summary: "token totals, peak rate, profile quotas", run: func(a []string) int { return usagecmd.Run(a, paths.ConfigDir(), os.Stdout, os.Stderr) }, spec: usagecmd.Spec},
-		{name: "describe", group: groupDiagnostics, summary: "machine-readable map of the harness", run: func(a []string) int { return describe.Run(a, describeVerbs()) }, spec: describe.Spec},
 		// SETTINGS
 		{name: "install", group: groupSettings, summary: "install Claude Code; seed settings.json if missing", run: func(a []string) int { return launch.RunInstall(a, setup.Run) }, spec: setup.InstallSpec},
 		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: func(a []string) int {

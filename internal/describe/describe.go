@@ -1,8 +1,7 @@
-// Package describe builds the machine-readable map of the harness behind `describe`.
+// Package describe builds the machine-readable map of the harness behind `configure provider --list --format json`.
 package describe
 
 import (
-	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -14,7 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // Describe is the one machine-readable map of the harness: an agent constructing commands reads this
@@ -73,37 +71,6 @@ type Verb struct {
 	Name, Group, Summary string
 	Hidden               bool
 	Node                 *completion.Node
-}
-
-// Run is the `describe` verb over the cli table's verbs.
-func Run(args []string, verbs []Verb) int {
-	fs := helptext.NewFlagSet("describe", helptext.Page{
-		Usage: "claude-code describe [flags]",
-		About: "One map of the whole harness for an agent: verbs, providers, agents, model aliases and hooks. " +
-			"Credentials never appear, only whether one resolves.",
-	})
-	format := fs.String("format", "json", "json (the full map) or text (a short listing)")
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	reg, err := providers.Load()
-	if err != nil {
-		return helptext.Fail("describe: %v", err)
-	}
-	d, err := Build(reg, verbs)
-	if err != nil {
-		return helptext.Fail("describe: %v", err)
-	}
-	switch *format {
-	case "json":
-		return helptext.WriteJSONOrFail("describe", d)
-	case "text":
-		printDescribe(d)
-	default:
-		fs.Usage()
-		return 2
-	}
-	return 0
 }
 
 // Build builds the describe view from an already-loaded registry, so a caller that loaded one
@@ -181,27 +148,4 @@ func ownFlagNames(node *completion.Node) []string {
 	}
 	slices.Sort(out)
 	return out
-}
-
-func printDescribe(d Describe) {
-	fmt.Printf("claude-code %s\ncommands:\n", d.Version)
-	for _, c := range d.Commands {
-		if !c.Hidden {
-			fmt.Printf("  %-12s %s\n", c.Name, c.Summary)
-		}
-	}
-	fmt.Printf("providers (session=%s default=%s):\n", d.Providers.Session, d.Providers.Default)
-	for _, p := range d.Providers.List {
-		fmt.Printf("  %-15s %-10s cred=%-5v %s\n", p.Name, p.Auth, p.Credential, strings.Join(p.Dialects, ","))
-	}
-	fmt.Println("agents:")
-	for _, r := range d.Agents {
-		fmt.Printf("  %-10s available=%v %s\n", r.Name, r.Available, r.Reason)
-	}
-	fmt.Printf("hooks: %d registered\n", len(d.Hooks))
-}
-
-// Spec is the completion node for the describe verb.
-func Spec() *completion.Node {
-	return &completion.Node{Flags: []completion.Flag{completion.FormatFlag()}}
 }

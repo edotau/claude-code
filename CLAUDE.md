@@ -66,7 +66,7 @@ Simplicity, comments, verification order and testing: `rules/standards/` (always
 ## How-to — by area
 
 One command to reach for first per area; the area file holds the rest of its commands and gotchas (and
-auto-loads while you work in that code). Anything unlisted: `claude-code describe`.
+auto-loads while you work in that code). Anything unlisted: `claude-code -h`.
 
 | Area | First command | Commands + gotchas |
 | --- | --- | --- |

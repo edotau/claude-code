@@ -1,5 +1,6 @@
-// Package testtool is the `test` verb: test tooling that checks a test has teeth.
-package testtool
+// The `test` verb: test tooling that checks a test has teeth.
+
+package cli
 
 import (
 	"os"
@@ -10,8 +11,8 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// Run dispatches `test <sub>`.
-func Run(args []string) int {
+// cmdTest dispatches `test <sub>`.
+func cmdTest(args []string) int {
 	if len(args) > 0 && args[0] == "mutate" {
 		return mutate.Run(args[1:])
 	}
@@ -36,8 +37,8 @@ var testPage = helptext.Page{
 	Hint: "claude-code test mutate -h lists that command's flags.",
 }
 
-// Spec is the completion node for the test verb tree.
-func Spec() *completion.Node {
+// testSpec is the completion node for the test verb tree.
+func testSpec() *completion.Node {
 	return &completion.Node{Sub: map[string]*completion.Node{
 		"mutate":  {Flags: []completion.Flag{{Name: "run"}}},
 		"ramdisk": {},
