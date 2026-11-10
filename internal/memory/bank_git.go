@@ -18,7 +18,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Repo is the nested memory repository rooted at Dir (its work tree); .git lives directly inside it.
@@ -27,8 +26,19 @@ type Repo struct{ Dir string }
 // StoreRepo is the live memory store's repo.
 func StoreRepo() Repo { return Repo{Dir: StoreDir()} }
 
-// stageSecretRE matches credential-shaped values; \b-anchored like history.secretRE so `sk-` never eats kebab prose.
-var stageSecretRE = regexp.MustCompile(`\bdapi[0-9a-f]{32}|\beyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}|\bsk-[A-Za-z0-9_-]{24,}|\bnvapi-[A-Za-z0-9_-]{24,}|\bgh[pousr]_[A-Za-z0-9]{28,}|\bAKIA[A-Z0-9]{16}\b|-----BEGIN [A-Z ]*PRIVATE KEY`)
+// credentialPattern is the one secret shape for doctor, access log and commit gate; \b keeps `sk-` off kebab prose.
+var credentialPattern = regexp.MustCompile(
+	`\bsk-[A-Za-z0-9_-]{20,}` + // OpenAI/Anthropic, incl. sk-proj-/sk-ant- segments
+		`|\bdapi[0-9a-f]{32}` + // Databricks PAT
+		`|\beyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}` + // JWT (header.payload)
+		`|\bnvapi-[A-Za-z0-9_-]{24,}` + // NVIDIA
+		`|\bgh[pousr]_[A-Za-z0-9]{28,}` + // GitHub
+		`|\bgithub_pat_[A-Za-z0-9_]{22,}` + // GitHub fine-grained PAT
+		`|\bAKIA[A-Z0-9]{16}\b` + // AWS access key id
+		`|-----BEGIN [A-Z ]*PRIVATE KEY`) // private keys only, never certificates or public keys
+
+// stageSecretRE is the commit gate's name for credentialPattern.
+var stageSecretRE = credentialPattern
 
 // prePushHook refuses every push: a guard against accidents, not an access-control boundary.
 const prePushHook = "#!/bin/sh\n# memory is local-only (plan C.3): refuse every push; a guard against accidents, not access control.\n" +
@@ -389,7 +399,3 @@ func splitLines(out string) []string {
 	}
 	return lines
 }
-
-// credentialPattern is a coarse credential-shaped tripwire, not a full secrets scanner.
-var credentialPattern = regexp.MustCompile(
-	`sk-[A-Za-z0-9]{10,}|` + textutil.GitHubPattern(10) + `|dapi[0-9a-f]{10,}|AKIA[A-Z0-9]{10,}|-----BEGIN`)

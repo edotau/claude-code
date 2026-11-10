@@ -386,3 +386,70 @@ func TestHeadDistinguishesUnbornFromFailure(t *testing.T) {
 		t.Fatal("Head on a non-repo = nil error, want the git failure")
 	}
 }
+
+// credentialPositives are real secret shapes, assembled from parts so no secret-shaped literal sits in the source.
+func credentialPositives() map[string]string {
+	return map[string]string{
+		"sk-proj":      "sk-" + "proj-" + strings.Repeat("a1B2", 10),
+		"sk-ant":       "sk-" + "ant-api03-" + strings.Repeat("x9Y_", 6),
+		"sk classic":   "sk-" + strings.Repeat("a1B2c", 4),
+		"dapi":         "dapi" + strings.Repeat("0f", 16),
+		"jwt":          "ey" + "J" + strings.Repeat("hbGciOi", 3) + "." + strings.Repeat("eyJzdWIi", 3),
+		"nvapi":        "nvapi-" + strings.Repeat("Ab1-", 7),
+		"ghp":          "gh" + "p_" + strings.Repeat("A1b2", 9),
+		"github_pat":   "github" + "_pat_" + strings.Repeat("11AB", 6) + "_" + strings.Repeat("cd34", 15),
+		"akia":         "AK" + "IA" + strings.Repeat("Q7", 8),
+		"rsa private":  "-----BEGIN " + "RSA PRIVATE KEY-----",
+		"bare private": "-----BEGIN " + "PRIVATE KEY-----",
+	}
+}
+
+// credentialNegatives were the loose pattern's false positives: kebab prose, public material, too-short fragments.
+func credentialNegatives() map[string]string {
+	return map[string]string{
+		"kebab task":  "task-abcdefghij12",
+		"kebab mask":  "mask-0123456789ab",
+		"certificate": "-----BEGIN " + "CERTIFICATE-----",
+		"pgp public":  "-----BEGIN " + "PGP PUBLIC KEY BLOCK-----",
+		"short dapi":  "dapi" + "0123456789ab",
+		"short sk":    "sk-" + "short12345",
+		"akia inside": "SLOV" + "AKIA" + strings.Repeat("BC", 8),
+	}
+}
+
+func TestCredentialPatternMatchesSecretShapes(t *testing.T) {
+	for name, v := range credentialPositives() {
+		if !credentialPattern.MatchString("note: " + v + " here") {
+			t.Errorf("%s: secret shape not matched", name)
+		}
+	}
+}
+
+func TestCredentialPatternSkipsFalsePositives(t *testing.T) {
+	for name, v := range credentialNegatives() {
+		if credentialPattern.MatchString("note: " + v + " here") {
+			t.Errorf("%s: %q flagged as a credential", name, v)
+		}
+	}
+}
+
+// TestDoctorAndCommitGateAgree drives doctor's statBank and the commit gate's checkStageContent on one file each.
+func TestDoctorAndCommitGateAgree(t *testing.T) {
+	cases := map[string]bool{}
+	for _, v := range credentialPositives() {
+		cases[v] = true
+	}
+	for _, v := range credentialNegatives() {
+		cases[v] = false
+	}
+	for v, want := range cases {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "progress.md")
+		write(t, path, "- note "+v+"\n")
+		doctorFlags := len(statBank(dir).Credentials) > 0
+		gateRefuses := checkStageContent(path, "progress.md") != nil
+		if doctorFlags != want || gateRefuses != want {
+			t.Errorf("%q: doctor flags %v, gate refuses %v, want both %v", v, doctorFlags, gateRefuses, want)
+		}
+	}
+}
