@@ -72,9 +72,6 @@ func SessionBase(base, provider string) string { return base + "/p/" + provider 
 // ClientHeader carries the proxy secret when Authorization holds the client's own login (subscription OAuth).
 const ClientHeader = "X-Claude-Code-Proxy"
 
-// LegacyClientHeader is the pre-rename secret header live sessions launched by an older build still send.
-const LegacyClientHeader = "X-Claude-Code-Router"
-
 // ReadState reads proxy.json, else the legacy router.json.
 func ReadState() (State, error) {
 	var st State
