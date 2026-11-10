@@ -46,6 +46,7 @@ func (e e2eEnv) run(t *testing.T, stdin string, args ...string) (stdout, stderr 
 		"XDG_CONFIG_HOME=" + filepath.Join(e.home, ".config"),
 		"CLAUDE_CONFIG_DIR=" + e.cfg,
 		"CLAUDE_PROJECT_DIR=" + e.repo,
+		"HARNESS_MEMORY_ORIGIN=" + e.repo, // the repo sits under /tmp: launched-from-workspace, as a harness launch passes
 		"TMPDIR=" + e.home,
 		"GIT_AUTHOR_NAME=e2e", "GIT_AUTHOR_EMAIL=e2e@example.com",
 		"GIT_COMMITTER_NAME=e2e", "GIT_COMMITTER_EMAIL=e2e@example.com",

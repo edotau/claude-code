@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -130,6 +131,7 @@ func TestChildCmdSetsPWD(t *testing.T) {
 	}
 
 	// dir == "" (no --workdir): childCmd must append nothing past the scrubbed environ, no PWD.
+	t.Setenv(memstore.OriginEnv, "/inherited") // already inherited, so withMemoryOrigin adds nothing either
 	scrubbed, _ := proc.Scrub(os.Environ(), nil)
 	cmd, _ = ChildCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, false)
 	if n, want := len(cmd.Env), len(scrubbed); n != want {
