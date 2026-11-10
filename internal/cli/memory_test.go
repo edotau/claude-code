@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -976,7 +975,7 @@ func TestMemoryCompletionSupportedCommandsAndFlags(t *testing.T) {
 
 func TestMemoryPathRepoFlagResolvesStoreName(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	repo := gittest.Repo(t)
+	repo := hosttest.Repo(t)
 	dir, err := memory.EnsureRepoDir(repo)
 	if err != nil {
 		t.Fatal(err)
@@ -1068,7 +1067,7 @@ func reflectionRepoRoot(t *testing.T) string {
 
 func TestMemoryReportRegistersFreshRepoOrigin(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	repo := gittest.Repo(t)
+	repo := hosttest.Repo(t)
 	dir := memory.Dir(repo)
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("fresh repo store must not exist: %v", err)

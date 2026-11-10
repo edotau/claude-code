@@ -4,11 +4,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestMain(m *testing.M) {
 	code := m.Run()
-	gittest.Cleanup()
+	hosttest.Cleanup()
 	os.Exit(code)
 }

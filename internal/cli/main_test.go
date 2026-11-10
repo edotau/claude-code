@@ -10,7 +10,6 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -26,7 +25,7 @@ func TestMain(m *testing.M) {
 	gateway.HolderComm = func(int) string { return "claude-code" } // router-state tests record this test binary's pid as the proxy
 	code := m.Run()
 	cleanup()
-	gittest.Cleanup()
+	hosttest.Cleanup()
 	os.Exit(code)
 }
 

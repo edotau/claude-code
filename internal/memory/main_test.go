@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/proc"
@@ -59,14 +58,14 @@ func initStore(t *testing.T) {
 // gitRepo makes a real disposable repository with one commit at <parent>/<name>.
 func gitRepo(t *testing.T, parent, name string) string {
 	t.Helper()
-	return gittest.RepoAt(t, filepath.Join(parent, name))
+	return hosttest.RepoAt(t, filepath.Join(parent, name))
 }
 
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	code := m.Run()
 	cleanup()
-	gittest.Cleanup()
+	hosttest.Cleanup()
 	os.Exit(code)
 }
 

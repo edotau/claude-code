@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 // gitRepo makes a fresh git repo with one commit, env wired so every git invocation has an identity.
 func gitRepo(t *testing.T) string {
 	t.Helper()
-	dir := paths.Canon(gittest.Repo(t))
+	dir := paths.Canon(hosttest.Repo(t))
 	return dir
 }
 

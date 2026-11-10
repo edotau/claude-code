@@ -13,13 +13,13 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/job"
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // initRepo creates a git repo at t.TempDir() with one commit on main;
 func initRepo(t *testing.T) string {
 	t.Helper()
-	dir := gittest.Repo(t)
+	dir := hosttest.Repo(t)
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

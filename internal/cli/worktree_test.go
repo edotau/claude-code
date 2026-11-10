@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -1137,5 +1136,5 @@ func scrubGitEnv(t *testing.T) {
 func gitRepoCLI(t *testing.T) string {
 	t.Helper()
 	scrubGitEnv(t)
-	return gittest.Repo(t)
+	return hosttest.Repo(t)
 }
