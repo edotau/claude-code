@@ -609,6 +609,21 @@ func RepoRoot(repo string) string {
 	return Root(repo)
 }
 
+// ResolveRepo is RepoRoot that refuses a guess: "" is the current repo, else a catalog store name or an existing path.
+func ResolveRepo(repo string) (string, error) {
+	if repo == "" {
+		return Root(""), nil
+	}
+	if e, ok := RepoByName(repo); ok && e.Origin.Origin != "" {
+		return e.Origin.Origin, nil
+	}
+	if _, err := os.Stat(repo); err == nil {
+		return Root(repo), nil
+	}
+	return "", fmt.Errorf("--repo %q is neither an existing path nor a known store (known stores: %s)",
+		repo, strings.Join(RepoKeys(), ", "))
+}
+
 // RepoKeys lists the catalog's repo keys (dirs under memory/ with a valid origin record).
 func RepoKeys() []string {
 	ents, err := RepoDirs()
