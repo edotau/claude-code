@@ -45,7 +45,7 @@ func HeaderLines(h map[string]string) string {
 // Provider is one upstream: a direct API or a gateway exposing several dialects under one host.
 type Provider struct {
 	Name string `json:"-"`
-	// Provider is the parent key of the registry row (anthropic, databricks, github, openai, google, nvidia).
+	// Provider is the parent key of the registry row (anthropic, databricks, github, openai, google).
 	Provider string `json:"provider,omitempty"`
 	// Login is the account login on the provider (a GitHub user for a github profile); not a secret.
 	Login string `json:"login,omitempty"`

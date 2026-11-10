@@ -129,22 +129,6 @@
           "haiku": "gemini-3.8-flash-low"
         }
       }
-    },
-    "nvidia": {
-      "nvidia": {
-        "protocol": "openai",
-        "base_url": "https://integrate.api.nvidia.com/v1",
-        "auth": {
-          "type": "key",
-          "env": "NVIDIA_API_KEY"
-        },
-        "models": {
-          "opus": "z-ai/glm-5.3",
-          "sonnet": "z-ai/glm-5.3",
-          "haiku": "z-ai/glm-5.3"
-        },
-        "opencodeID": "nvidia"
-      }
     }
   }
 }

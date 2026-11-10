@@ -385,25 +385,25 @@ func TestLaunchAndAgentAgreeOnModel(t *testing.T) {
 func TestAgentLastProfileIsPerAgent(t *testing.T) {
 	hermetic(t, "")
 	t.Chdir(t.TempDir())
-	vaulttest.SetRecord(t, "opencode", "profile", "nvidia")
-	vaulttest.SetRecord(t, "copilot", "profile", "nvidia")
+	vaulttest.SetRecord(t, "opencode", "profile", "antigravity")
+	vaulttest.SetRecord(t, "copilot", "profile", "antigravity")
 	resolved := func(name string) string { return testLaunchProfile(t, name, agent.LaunchOptions{}).Provider }
 	providers.RecordLastProfile("claude", "anthropic")
 	providers.RecordLastProfile("opencode", "openai")
 	if got := resolved("opencode"); got != "openai" {
-		t.Errorf("opencode entry: got %q, want openai (beats the nvidia pin)", got)
+		t.Errorf("opencode entry: got %q, want openai (beats the antigravity pin)", got)
 	}
-	if got := resolved("copilot"); got != "nvidia" {
-		t.Errorf("copilot read another agent's entry: got %q, want its nvidia pin", got)
+	if got := resolved("copilot"); got != "antigravity" {
+		t.Errorf("copilot read another agent's entry: got %q, want its antigravity pin", got)
 	}
-	if got := testLaunchProfile(t, "opencode", agent.LaunchOptions{Provider: "nvidia"}).Provider; got != "nvidia" {
-		t.Errorf("flag: got %q, want nvidia", got)
+	if got := testLaunchProfile(t, "opencode", agent.LaunchOptions{Provider: "antigravity"}).Provider; got != "antigravity" {
+		t.Errorf("flag: got %q, want antigravity", got)
 	}
 	if err := providers.ClearLastProfilesFor("opencode"); err != nil {
 		t.Fatal(err)
 	}
-	if got := resolved("opencode"); got != "nvidia" {
-		t.Errorf("after the opencode pin setter: got %q, want the nvidia pin", got)
+	if got := resolved("opencode"); got != "antigravity" {
+		t.Errorf("after the opencode pin setter: got %q, want the antigravity pin", got)
 	}
 	if got := providers.LastProfile("claude"); got != "anthropic" {
 		t.Errorf("claude entry lost by the opencode setter: %q", got)
