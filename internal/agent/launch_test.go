@@ -3,10 +3,12 @@ package agent
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -21,6 +23,22 @@ func TestPinnedProfileOpencodeGo(t *testing.T) {
 	vaulttest.SetRecord(t, "opencode", "profile", "no-such-profile")
 	if _, err := PinnedProfile("opencode"); err == nil || !strings.Contains(err.Error(), `unknown profile "no-such-profile"`) {
 		t.Errorf("an invalid pin must still be an error with the ValidAgentPin cause, got %v", err)
+	}
+}
+
+// An unreadable stored records blob still launches copilot with its built-in --allow-all, and says so.
+func TestLaunchSpecCorruptStoreKeepsBuiltins(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, "{not json")
+	var notice strings.Builder
+	orig := NoticeOut
+	NoticeOut = &notice
+	t.Cleanup(func() { NoticeOut = orig })
+	if _, argv := SchemaFor("copilot").LaunchSpec(); !slices.Equal(argv, []string{"--allow-all"}) {
+		t.Errorf("argv = %v, want the built-in [--allow-all]", argv)
+	}
+	if !strings.Contains(notice.String(), "agent-records is corrupt") {
+		t.Errorf("notice = %q, want the corrupt-store notice", notice.String())
 	}
 }
 

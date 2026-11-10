@@ -272,7 +272,7 @@ func mergeExtras(base, over map[string]string) map[string]string {
 
 // Settings is name's merged record: built-in defaults, then the legacy overlay entry, then the stored vault record.
 func Settings(name string) (vault.AgentRecord, error) {
-	cfg, err := LoadConfig()
+	base, err := BuiltinSettings(name)
 	if err != nil {
 		return vault.AgentRecord{}, err
 	}
@@ -280,7 +280,16 @@ func Settings(name string) (vault.AgentRecord, error) {
 	if err != nil {
 		return vault.AgentRecord{}, err
 	}
-	return mergeRecord(cfg.records[name], recs[name]), nil
+	return mergeRecord(base, recs[name]), nil
+}
+
+// BuiltinSettings is Settings without the stored vault record: built-in defaults, then the legacy overlay entry.
+func BuiltinSettings(name string) (vault.AgentRecord, error) {
+	cfg, err := LoadConfig()
+	if err != nil {
+		return vault.AgentRecord{}, err
+	}
+	return cfg.records[name], nil
 }
 
 // templateGuardRules reads the embedded settings template's permissions.ask/deny verbatim.

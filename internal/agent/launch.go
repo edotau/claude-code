@@ -65,14 +65,18 @@ func (s Schema) configure(ctx context.Context, t providers.Target, h *Headless) 
 	return env, argv, err
 }
 
-// launchSettings is the agent's Settings for req; an unreadable record is a notice and applies nothing of it.
+// launchSettings is Settings for a launch that goes on anyway: a bad stored record is a notice, the built-ins apply.
 func (s Schema) launchSettings(req RunOptions, t providers.Target, headless bool) Settings {
 	st, err := ResolveSettings(s.Name, req, t, headless)
-	if st.Agent == "" { // the record did not load: nothing of it is applied
-		fmt.Fprintf(NoticeOut, "claude-code: %s launch.env and launch.args unreadable: %v; not applied\n", s.Name, err)
+	if err == nil {
+		return st
+	}
+	if st.Agent == "" { // not even the built-in record loaded: nothing is applied
+		fmt.Fprintf(NoticeOut, "claude-code: %s agent settings unreadable: %v; not applied\n", s.Name, err)
 		return Settings{Agent: s.Name, Target: t, Headless: headless}
 	}
-	return st // a bad default policy is checkRun's refusal, never a reason to drop launch.env
+	fmt.Fprintf(NoticeOut, "claude-code: %s stored agent settings not applied: %v; built-in defaults used\n", s.Name, err)
+	return st
 }
 
 // RouteEnvLast is launchEnv minus any key the route env sets, then the route env: the route always wins.

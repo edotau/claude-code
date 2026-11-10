@@ -154,7 +154,10 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 
 // renderSettings applies the agent's settings to a configured p, then refuses a route name an overlay sets.
 func (v cliEngine) renderSettings(ctx context.Context, p *CLIPrep, req RunOptions, t providers.Target) (err error) {
-	st := SchemaFor(v.Name()).launchSettings(req, t, true) // headless: Launch.Args stay off
+	st, err := ResolveSettings(v.Name(), req, t, true) // headless: Launch.Args stay off; a bad record fails the run
+	if err != nil {
+		return err
+	}
 	if p.Env, p.Argv, p.Emulated, p.Cleanup, err = v.RenderSettings(ctx, st, p.Env, p.Argv); err != nil {
 		return err
 	}
