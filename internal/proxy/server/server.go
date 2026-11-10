@@ -57,6 +57,8 @@ type Router struct {
 	authGen   int                                                // bumped by condemn: a load begun before its mark is not cached
 	marked    map[string]bool                                    // provider names this process marked auth-dead: cleared on their next success
 	files     map[string]fileEntry                               // scope|sha256 → uploaded file id (fileCacheTTL), guarded by mu
+	filesOff  string                                             // sha256 of the bearer the Files API refused; a new credential clears it
+	filesTill time.Time                                          // filesOff holds until then (filesOffTTL)
 	oauthTok  string                                             // cached vault CLAUDE_CODE_OAUTH_TOKEN (present results only), for the passthrough fallback
 	oauthAt   time.Time                                          // oauthTok is valid until oauthAt+credTTL
 	oauth     func() string                                      // reads the sealed subscription token; a seam for tests
