@@ -152,22 +152,24 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 			return nil
 		}
 		_, _, homeErr := extractBlock(homeDir, id)
-		inHome := homeErr == nil // an existing home copy is kept, never appended twice or rolled back
-		if !inHome {
-			if err := appendBlocks(filepath.Join(homeDir, file), []string{block}); err != nil {
+		inHome := homeErr == nil // an existing home copy is kept, never appended twice
+		snap, err := snapshotPaths(src, filepath.Join(homeDir, file))
+		if err != nil {
+			return err
+		}
+		// Any failure restores both files, so the block stays in exactly one bank (the local one).
+		return restoreOnError(func() error {
+			if !inHome {
+				if err := appendBlocks(filepath.Join(homeDir, file), []string{block}); err != nil {
+					return err
+				}
+			}
+			if err := removeBlock(src, file, id); err != nil {
 				return err
 			}
-		}
-		if err := removeBlock(src, file, id); err != nil {
-			if inHome {
-				return err
-			}
-			// roll back the home copy so the block stays in exactly one bank (the local one)
-			return errors.Join(err, removeBlock(filepath.Join(homeDir, file), file, id))
-		}
-		afterPromoteMove()
-		_, err = settleBankLocked(root, now) // one critical section: no writer slips in, no busy error after the move
-		return err
+			afterPromoteMove()
+			return settleLocked(root, now) // same critical section: no writer slips in
+		}(), snap)
 	})
 	if moveErr != nil {
 		return "", moveErr

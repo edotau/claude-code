@@ -10,9 +10,13 @@ var memoNow = time.Now
 
 // Memo remembers fn's answer per key (keep: 0 = until Drop, <0 = not at all); one fn per key runs at a time.
 type Memo[K comparable, V any] struct {
-	mu sync.Mutex
-	m  map[K]*memoEntry[V]
+	mu      sync.Mutex
+	m       map[K]*memoEntry[V]
+	sweepAt int // map size that triggers the next sweep of expired entries
 }
+
+// memoSweepMin is the slack added after each sweep: a map never sweeps before it holds this many more entries.
+const memoSweepMin = 8
 
 // memoEntry is one key's run: in flight until done closes, then its answer, kept until `until` (zero = forever).
 type memoEntry[V any] struct {
@@ -40,6 +44,9 @@ func (m *Memo[K, V]) Do(key K, keep func(V, error) time.Duration, fn func() (V, 
 	if m.m == nil {
 		m.m = map[K]*memoEntry[V]{}
 	}
+	if len(m.m) >= m.sweepAt {
+		m.sweep()
+	}
 	e := &memoEntry[V]{done: make(chan struct{})}
 	m.m[key] = e
 	m.mu.Unlock()
@@ -58,6 +65,17 @@ func (m *Memo[K, V]) Do(key K, keep func(V, error) time.Duration, fn func() (V, 
 	m.mu.Unlock()
 	close(e.done)
 	return v, err
+}
+
+// sweep drops expired entries (zero until = in flight or keep 0, never swept), then waits for the map to double.
+func (m *Memo[K, V]) sweep() {
+	now := memoNow()
+	for k, e := range m.m {
+		if !e.until.IsZero() && !now.Before(e.until) {
+			delete(m.m, k)
+		}
+	}
+	m.sweepAt = 2*len(m.m) + memoSweepMin
 }
 
 // Drop forgets every kept answer; runs in flight still answer their waiters but are not kept.

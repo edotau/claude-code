@@ -242,3 +242,48 @@ func TestRememberSettlesInsideItsWriteLock(t *testing.T) {
 		t.Fatalf("Remember released the bank lock before settling: rival took it = %v, Remember err = %v", intruded, err)
 	}
 }
+
+// lockStoreIndex returns a hook that plants .git/index.lock in a git-backed store, so settle's commit fails.
+func lockStoreIndex(t *testing.T) func() {
+	t.Helper()
+	if err := StoreRepo().Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	lock := filepath.Join(StoreDir(), ".git", "index.lock")
+	t.Cleanup(func() { _ = os.Remove(lock) })
+	return func() {
+		if err := os.WriteFile(lock, nil, 0o600); err != nil {
+			t.Error(err)
+		}
+	}
+}
+
+// TestRememberSettleFailureRollsBackTheWrite: a failed settle leaves the bank file as it was, so a retry is not a duplicate.
+func TestRememberSettleFailureRollsBackTheWrite(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	seedConventionBlock(t, root)
+	path := filepath.Join(Dir(root), "conventions.md")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := afterRememberWrite
+	t.Cleanup(func() { afterRememberWrite = orig })
+	afterRememberWrite = lockStoreIndex(t)
+	const fact = "retry after a failed settle"
+	if _, err := Remember(root, "feedback", fact, time.Now()); err == nil || !strings.Contains(err.Error(), "settle: ") {
+		t.Fatalf("Remember with a failing settle = %v, want an error naming the settle", err)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Fatalf("failed Remember left the bank changed:\nbefore %q\nafter  %q", before, after)
+	}
+	afterRememberWrite = orig
+	_ = os.Remove(filepath.Join(StoreDir(), ".git", "index.lock"))
+	if _, err := Remember(root, "feedback", fact, time.Now()); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if after, _ := os.ReadFile(path); strings.Count(string(after), fact) != 1 {
+		t.Fatalf("retry left the fact %d times, want 1: %q", strings.Count(string(after), fact), after)
+	}
+}

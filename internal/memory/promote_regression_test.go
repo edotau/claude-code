@@ -140,3 +140,36 @@ func TestExtractBlockSurfacesReadError(t *testing.T) {
 		t.Errorf("extractBlock err = %v, want the read error, not errNoBlock", err)
 	}
 }
+
+// TestPromoteSettleFailureRollsBackBothBanks: a failed settle restores the local and home files; the retry moves once.
+func TestPromoteSettleFailureRollsBackBothBanks(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	id := seedConventionBlock(t, root)
+	local, home := filepath.Join(Dir(root), "conventions.md"), filepath.Join(HomeBankDir(), "conventions.md")
+	localBefore, _ := os.ReadFile(local)
+	homeBefore, homeErr := os.ReadFile(home)
+	orig := afterPromoteMove
+	t.Cleanup(func() { afterPromoteMove = orig })
+	afterPromoteMove = lockStoreIndex(t)
+	if _, err := Promote(root, id, "home", false, time.Now()); err == nil || !strings.Contains(err.Error(), "settle: ") {
+		t.Fatalf("Promote with a failing settle = %v, want an error naming the settle", err)
+	}
+	localAfter, _ := os.ReadFile(local)
+	homeAfter, homeAfterErr := os.ReadFile(home)
+	if string(localAfter) != string(localBefore) || string(homeAfter) != string(homeBefore) || (homeErr == nil) != (homeAfterErr == nil) {
+		t.Fatalf("failed Promote left the banks changed: local %q -> %q, home %q -> %q", localBefore, localAfter, homeBefore, homeAfter)
+	}
+	afterPromoteMove = orig
+	_ = os.Remove(filepath.Join(StoreDir(), ".git", "index.lock"))
+	if _, err := Promote(root, id, "home", false, time.Now()); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	marker := "<!-- id:" + id + " -->"
+	localAfter, _ = os.ReadFile(local)
+	homeAfter, _ = os.ReadFile(home)
+	if strings.Contains(string(localAfter), marker) || strings.Count(string(homeAfter), marker) != 1 {
+		t.Fatalf("retry: local holds the block = %v, home holds it %d times, want false and 1",
+			strings.Contains(string(localAfter), marker), strings.Count(string(homeAfter), marker))
+	}
+}

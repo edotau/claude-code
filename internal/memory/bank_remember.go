@@ -41,27 +41,34 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 	}
 	var id string
 	err = WithBankLock(BankLockWait, func() error {
-		var werr error
+		snap, werr := snapshotPaths(filepath.Join(dir, file))
+		if werr != nil {
+			return werr
+		}
 		if id, werr = writeRememberFact(dir, file, kind, fact, now); werr != nil {
 			return werr
 		}
-		// Stamp ids directly: a fresh bank must get its id back to round-trip through `memory recall`.
-		for name, prefix := range idFiles {
-			if name == file { // already stamped in memory before its one write
-				continue
-			}
-			if _, werr = assignFileIDs(dir, name, prefix, now); werr != nil {
-				return werr
-			}
-		}
-		afterRememberWrite()
-		_, werr = settleBankLocked(root, now) // one critical section: no writer slips in, no busy error after the write
-		return werr
+		return restoreOnError(stampAndSettle(root, dir, file, now), snap)
 	})
 	if err != nil {
 		return "", err
 	}
 	return id, nil
+}
+
+// stampAndSettle stamps the other id files and settles, inside Remember's critical section: no writer slips in.
+func stampAndSettle(root, dir, file string, now time.Time) error {
+	// Stamp ids directly: a fresh bank must get its id back to round-trip through `memory recall`.
+	for name, prefix := range idFiles {
+		if name == file { // already stamped in memory before its one write
+			continue
+		}
+		if _, err := assignFileIDs(dir, name, prefix, now); err != nil {
+			return err
+		}
+	}
+	afterRememberWrite()
+	return settleLocked(root, now)
 }
 
 // writeRememberFact adds fact to dir's file, stamps its id in memory, writes the file once, and returns the id.

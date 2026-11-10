@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -133,6 +134,42 @@ func settleBankLocked(root string, now time.Time) (rotated int, err error) {
 		return rotated, err
 	}
 	return rotated, commitStore("settle: " + filepath.Base(dirs[0]))
+}
+
+// settleLocked is settleBankLocked for a writer that rolls back on its error, which names the settle.
+func settleLocked(root string, now time.Time) error {
+	if _, err := settleBankLocked(root, now); err != nil {
+		return fmt.Errorf("settle: %w", err)
+	}
+	return nil
+}
+
+// snapshotPaths snapshots each path before a locked write (bank_report.go's fileSnapshot); unreadable refuses it.
+func snapshotPaths(files ...string) ([]fileSnapshot, error) {
+	snaps := make([]fileSnapshot, 0, len(files))
+	for _, p := range files {
+		s, err := snapshotFile(p)
+		if err != nil {
+			return nil, err
+		}
+		snaps = append(snaps, s)
+	}
+	return snaps, nil
+}
+
+// restoreOnError restores snaps when err is set, so a retry never duplicates the write; both errors are returned.
+func restoreOnError(err error, snaps []fileSnapshot) error {
+	if err == nil {
+		return nil
+	}
+	var rerr error
+	for _, s := range snaps {
+		rerr = errors.Join(rerr, s.restore())
+	}
+	if rerr != nil {
+		return errors.Join(err, fmt.Errorf("roll back the write: %w", rerr))
+	}
+	return fmt.Errorf("%w (write rolled back)", err)
 }
 
 // NewestMtime is the newest mtime across dir's six typed files — the "did the update write?" probe.
