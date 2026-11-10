@@ -31,8 +31,9 @@ For each `~/.claude/memory/<repo>/MEMORY.md` (index) + its topic files:
 2. **Remove contradictions**: If older entry is contradicted by newer, keep only newer
 3. **Remove stale entries**: Items referencing files, APIs, or patterns that no longer exist
 4. **Merge related items**: Fold overlapping topic files together; keep TOC entries coherent
-5. **Keep `MEMORY.md` a lean index**: only its first ~200 lines auto-load, so detail lives in topic files — trim the
-   index to one-line TOC entries, prioritizing:
+5. **Keep `MEMORY.md` a lean index**: it is capped at 200 lines / 25 KB and its generated bank region at 40
+   lines (`rules/workflows/memory-bank.md` → Caps), so detail lives in topic files — trim the index to one-line TOC
+   entries, prioritizing:
    - Keep: Gotchas, active conventions, recent patterns
    - Remove: Generic observations, one-time context, resolved issues
 6. **Never edit the RULES region** (`<!-- RULES:BEGIN -->`…`<!-- RULES:END -->`) without explicit approval
@@ -51,12 +52,14 @@ Hand a subagent every touched `~/.claude/memory/<repo>/MEMORY.md` (+
 topic files). Ask it to:
 
 1. Detect rules that recur across **3+ project memories** and are hard prohibitions.
-2. Only those rules qualify for promotion to `CLAUDE.md` under "Known Gotchas" (or the
-   equivalent always-on section) — and only if visible every session is genuinely required.
+2. Only those rules qualify for promotion to `CLAUDE.md` → Hard rules (always-on tier) — and only if visible
+   every session is genuinely required. Run `claude-code memory promote <id> --to claude-md`: it works only in this
+   run, prints the block and edits nothing, so you apply the edit by hand.
 3. After promotion, remove the promoted entry from the individual project memories
    (project-level supersedes).
-4. Rules that recur but aren't hard prohibitions get appended straight to the matching
-   `rules/standards/` or `rules/software/<lang>/` file instead (via `claude-code memory promote`).
+4. Rules that recur but aren't hard prohibitions go in the report as `rules/standards/` or
+   `rules/software/<lang>/` candidates (`claude-code memory promote <id> --to rules` prints the target); this run
+   never edits `rules/**`.
 
 Never move entries to the home bank: list candidates in the report (`claude-code memory review
 --candidates`); only the owner runs `memory promote <id> --to home`.
@@ -86,8 +89,8 @@ Total changes: N files modified, N files unchanged
 
 > The daily, unattended run (no human watching the edits) — the same phases, with a tighter leash.
 
-- **Edit only the memory root** (`~/.claude/memory/`). Never touch `CLAUDE.md` or `rules/**`
-  unattended — list promotion candidates in the report instead of writing them.
+- **Edit only the memory root** (`~/.claude/memory/`), plus `CLAUDE.md` for a block the Phase 6 gate printed. Never
+  touch `rules/**` unattended — list promotion candidates in the report instead of writing them.
 - **Keep every `<!-- id:... -->` marker.** Archiving or rewriting an entry must carry its marker
   forward; a dropped id breaks every cross-reference to it.
 - **Archive superseded decisions, never delete them** — strike the title line, point at the
@@ -102,7 +105,7 @@ Total changes: N files modified, N files unchanged
 After all updates:
 
 1. Confirm all updated memory files are well-formed markdown
-2. Confirm `sessionHistory.md` has <= 30 entries
+2. Confirm `sessionHistory.md` has <= 30 entries and each typed file is within its cap
 3. Confirm the project `MEMORY.md` is a lean index (detail pushed to topic files; RULES region untouched)
 
 ## When to run

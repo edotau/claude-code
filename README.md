@@ -385,13 +385,10 @@ Per-hook matrix and which agent runs what (block, detect-only or advisory):
 
 ## Memory bank
 
-One store, `~/.claude/memory/`: a local-only git repo (every settle commits, never pushed). `index.md` is the
-generated catalog (never hand-edit), `home/` the cross-repo bank, `claude-code/` the harness's own, `<repo>/` one per
-repo keyed by origin remote basename. Each bank dir holds Claude Code's native memory (`MEMORY.md` + topics) and six
-typed files (`projectContext`, `activeContext`, `progress`, `decisionLog`, `conventions`, `sessionHistory`);
-`~/.claude/projects/<slug>/memory` symlinks into it. A session gets the catalog plus this repo's active context; the
-rest loads on demand. `memory dream` consolidates daily in the background.
-File contracts: `rules/workflows/memory-bank.md`; verbs and the promotion ladder: `skills/reflection/SKILL.md`.
+One store, `~/.claude/memory/`: a local-only git repo, never pushed. A session gets the catalog plus this repo's active
+context; the rest loads on demand, and `memory dream` consolidates daily in the background. Store layout, file
+contracts, caps, precedence and every `memory` verb: `rules/workflows/memory-bank.md`; the promotion ladder:
+`skills/reflection/SKILL.md`.
 
 ## Status line
 
@@ -419,7 +416,6 @@ every embedded (`//go:embed`) template.
 | Run an agent on another tailnet box | `claude-code agents ask --host <h> --agent <a> "<task>"` · `network remote --host <h> --list --status` |
 | Browsers, web search | `claude-code network browser [--setup --browser <b>]` · `network websearch --query q` |
 | Tailnet | `claude-code network tailscale [--machines\|--connect\|--key\|--exit-node …\|--subnet <cidr> …]` (`TAILSCALE_OAUTH_CLIENT_ID`/`_SECRET` or `TAILSCALE_API_KEY` in the vault; `make tailscale-cli` installs it) |
-| Keep MEMORY.md small | `claude-code memory archive [--split 20 --apply]` |
 | Lint a workflow script | `claude-code workflow lint` · `workflow skeleton <pattern>` |
 | Housekeeping | `claude-code clean [--list\|--dry-run]` · `doctor --audit [--days 7]` · `history snapshot\|log\|diff` · `doctor --mcp` |
 | Theme, VS Code | `claude-code theme [--palettes\|--reset] [<palette>]` · `theme apply` · `theme vscode [--check\|--dry-run]` |
