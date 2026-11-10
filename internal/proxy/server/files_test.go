@@ -213,3 +213,21 @@ func TestFilesOAuthRefusalCachedPerCredential(t *testing.T) {
 		t.Fatalf("uploads = %d, want 2: a refused bearer is not retried, a new credential is", u.uploads)
 	}
 }
+
+// TestFilesOAuthRefusalLoggedOncePerWindow: cached skips stay quiet; only the recorded refusal logs.
+func TestFilesOAuthRefusalLoggedOncePerWindow(t *testing.T) {
+	u := newFilesUp(t)
+	u.status = http.StatusNotFound
+	logs := &lockedBuf{}
+	srv := setupRouter(t, `{"default":"sub","providers":{"anthropic":{"sub":{"protocol":"anthropic","base_url":"`+u.URL+
+		`","auth":{"type":"cli"},"models":{"opus":"m"}}}}}`, func(r *Router) { r.client, r.log = u.Client(), logs })
+	data := bigB64(300 << 10)
+	for i := range 3 {
+		if resp := post(t, srv.URL+"/p/sub/v1/messages", filesBody(data), clientLogin); resp.StatusCode != 200 {
+			t.Fatalf("request %d: status %d", i, resp.StatusCode)
+		}
+	}
+	if n := strings.Count(logs.String(), errFilesOAuth.Error()); n != 1 {
+		t.Fatalf("refusal logged %d times, want 1 per cache window:\n%s", n, logs.String())
+	}
+}
