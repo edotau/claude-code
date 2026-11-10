@@ -36,6 +36,9 @@ var httpClient = &http.Client{Timeout: 3 * time.Minute}
 // goosOverride/goarchOverride pick the codex asset; vars so tests can select another platform.
 var goosOverride, goarchOverride = runtime.GOOS, runtime.GOARCH
 
+// maxDownload caps one installer download; a var so tests can lower it.
+var maxDownload int64 = 512 << 20
+
 // httpGet fetches url and returns the body; non-2xx is an error.
 func httpGet(ctx context.Context, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -51,7 +54,11 @@ func httpGet(ctx context.Context, url string) ([]byte, error) {
 	if resp.StatusCode/100 != 2 {
 		return nil, fmt.Errorf("%s: %s", url, resp.Status)
 	}
-	return io.ReadAll(resp.Body)
+	b, err := io.ReadAll(io.LimitReader(resp.Body, maxDownload+1))
+	if err == nil && int64(len(b)) > maxDownload {
+		return nil, fmt.Errorf("%s: response exceeds %d bytes", url, maxDownload)
+	}
+	return b, err
 }
 
 // runInstallScript downloads url to a temp file and runs `bash <file> [args...]` with env added, never piped to sh.

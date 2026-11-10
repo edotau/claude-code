@@ -169,7 +169,7 @@ func agyRule(r agent.Rule, cwd string) (string, bool) {
 
 // agyHooksPath is agy's global hooks.json, where renderGeminiHooks installs the permission gate.
 func agyHooksPath() string {
-	home, _ := os.UserHomeDir()
+	home, _ := render.HomeOr("")
 	return filepath.Join(home, ".gemini", "config", "hooks.json")
 }
 
@@ -182,7 +182,11 @@ func agyGateCovers(cwd string, tools ...string) bool {
 		return false
 	}
 	command := (settings.EventSpec{Event: settings.EventPreToolUse, Name: "permission-gate"}).Command()
-	for _, p := range []string{agyHooksPath(), filepath.Join(cwd, ".agents", "hooks.json")} {
+	files := []string{agyHooksPath()}
+	if cwd != "" {
+		files = append(files, filepath.Join(cwd, ".agents", "hooks.json"))
+	}
+	for _, p := range files {
 		if !slices.ContainsFunc(tools, func(tool string) bool { return !agyFileRunsGate(p, command, tool) }) {
 			return true
 		}

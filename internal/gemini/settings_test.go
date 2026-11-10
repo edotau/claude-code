@@ -161,3 +161,28 @@ func TestAgyReadOnlyDenyNeedsGateHook(t *testing.T) {
 		t.Fatalf("gate installed: settings %q err %v, want accepted with no native rule for a bare tool", got, err)
 	}
 }
+
+// An empty cwd must not resolve the workspace hooks.json against the process directory.
+func TestAgyGateCoversIgnoresWorkspaceFileForEmptyCwd(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	command := (settings.EventSpec{Event: settings.EventPreToolUse, Name: "permission-gate"}).Command()
+	group := settings.MatcherGroup{Hooks: []settings.Hook{{Type: "command", Command: command}}}
+	b, err := json.Marshal(map[string]any{"harness": map[string]any{"PreToolUse": []settings.MatcherGroup{group}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".agents"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".agents", "hooks.json"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	if agyGateCovers("", "run_command") {
+		t.Fatal("empty cwd read ./.agents/hooks.json from the process directory")
+	}
+	if !agyGateCovers(dir, "run_command") {
+		t.Fatal("control: the workspace file with the gate was not honored")
+	}
+}

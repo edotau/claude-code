@@ -216,6 +216,14 @@ func TestRemoteScriptRelaysEachPermissionRule(t *testing.T) {
 	}
 }
 
+// --as must cross to the remote: dropping it silently runs the ask under the wrong identity.
+func TestRemoteScriptRelaysIdentity(t *testing.T) {
+	script, err := remoteScript("claude-code", "claude", "", agent.RunOptions{Identity: "sp"})
+	if err != nil || !strings.Contains(script, " --as 'sp'") {
+		t.Fatalf("script = %s, err = %v; want --as 'sp' relayed", script, err)
+	}
+}
+
 // --read-only must cross to the remote: bare --tools there would run with every tool enabled.
 func TestRemoteScriptRelaysReadOnly(t *testing.T) {
 	script, err := remoteScript("claude-code", "copilot", "", agent.RunOptions{Tools: true, ReadOnly: true, Fleet: true})

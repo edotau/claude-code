@@ -98,6 +98,7 @@ func remoteScript(bin, agentName, fallback string, req agent.RunOptions) (string
 	opt("--model", req.Model)
 	opt("--profile", req.Provider)
 	opt("--effort", req.Effort)
+	opt("--as", req.Identity)
 	opt("--session", req.SessionID)
 	opt("--system-prompt", req.SystemPrompt)
 	opt("--append-system-prompt", req.AppendSystemPrompt)
@@ -133,7 +134,7 @@ func remoteScript(bin, agentName, fallback string, req agent.RunOptions) (string
 }
 
 func validateRemoteScript(bin, agentName string, req agent.RunOptions) error {
-	vals := []string{bin, agentName, req.Model, req.Provider, req.Effort, req.WorkDir, req.SessionID, req.SystemPrompt,
+	vals := []string{bin, agentName, req.Model, req.Provider, req.Effort, req.Identity, req.WorkDir, req.SessionID, req.SystemPrompt,
 		req.AppendSystemPrompt, req.OutputSchema}
 	vals = append(vals, req.Env...)
 	for _, rules := range [][]agent.Rule{req.Permissions.Allow, req.Permissions.Ask, req.Permissions.Deny} {

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -77,5 +78,16 @@ func TestOAuthTokenMintFailureSurfaces(t *testing.T) {
 	defer ts2.Close()
 	if _, err := oauthToken(ts2.URL, "id", "secret", ts2.Client())(context.Background()); err == nil {
 		t.Error("want an error on an empty access_token")
+	}
+}
+
+// A token response over the 64 KiB cap is truncated and fails to decode instead of being read whole.
+func TestMintTokenCapsResponseBody(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"access_token":"` + strings.Repeat("a", 200<<10) + `"}`))
+	}))
+	defer ts.Close()
+	if _, err := mintToken(context.Background(), ts.URL, "id", "secret", ts.Client()); err == nil {
+		t.Fatal("mintToken accepted a 200 KiB body, want a decode error")
 	}
 }

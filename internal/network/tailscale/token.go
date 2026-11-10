@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -72,7 +73,7 @@ func mintToken(
 	if resp.StatusCode != http.StatusOK {
 		return out, fmt.Errorf("tailscale: oauth token mint: HTTP %d", resp.StatusCode)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&out); err != nil {
 		return out, err
 	}
 	if out.AccessToken == "" {
