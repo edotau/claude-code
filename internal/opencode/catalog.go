@@ -40,7 +40,8 @@ func OpencodeServed(name string) (map[string]providers.ModelInfo, *providers.Pro
 	if err != nil {
 		return nil, nil, err
 	}
-	infos, ok := servedSnapshot(p)
+	infos, ok := preflight.RecallOrSpawn(p, func(m []providers.ModelInfo) bool { return len(m) > 0 },
+		func(profile string) bool { return preflight.SpawnDiscover(profile, false) })
 	if !ok {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
@@ -53,18 +54,6 @@ func OpencodeServed(name string) (map[string]providers.ModelInfo, *providers.Pro
 		out[m.ID] = m
 	}
 	return out, p, nil
-}
-
-// servedSnapshot is p's sealed model snapshot with no network; an expired one is served and refreshed detached.
-func servedSnapshot(p *providers.Provider) ([]providers.ModelInfo, bool) {
-	snap, ok := serving.Recall(p)
-	if !ok || len(snap.Models) == 0 {
-		return nil, false
-	}
-	if time.Since(snap.DiscoveredAt) >= serving.CacheTTL() {
-		preflight.SpawnDiscover(p.Name, false)
-	}
-	return snap.Models, true
 }
 
 func ServedInfo(served map[string]providers.ModelInfo, p *providers.Provider, id string) (providers.ModelInfo, bool) {
