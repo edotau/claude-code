@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agentconfig/render"
-
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -49,7 +47,7 @@ func codexMatcher(m string) string {
 // rendered ones; mirrors internal/settings mergeHooks, adapted to the top-level {"hooks": {...}} file
 // Codex reads directly.
 func mergeCodexHooks(existingRaw, body []byte) ([]byte, error) {
-	next, _, err := render.MergeHooksTop(existingRaw, body, classifyCodexGroup)
+	next, _, err := agentconfig.MergeHooksTop(existingRaw, body, classifyCodexGroup)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +93,7 @@ func classifyCodexGroup(raw json.RawMessage) (*json.RawMessage, bool) {
 // rebuildCodexGroup replaces a partially-filtered group's "hooks" array, preserving every other key
 // (matcher, or anything unknown) as raw bytes.
 func rebuildCodexGroup(raw json.RawMessage, foreign []json.RawMessage) (json.RawMessage, error) {
-	obj, err := render.DecodeRawObject(raw)
+	obj, err := agentconfig.DecodeRawObject(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +105,7 @@ func rebuildCodexGroup(raw json.RawMessage, foreign []json.RawMessage) (json.Raw
 	return textutil.MarshalNoEscape(obj)
 }
 
-func renderCodex(reg *providers.Registry, sel providers.Selection, o render.RenderOptions, out io.Writer) (bool, error) {
+func renderCodex(reg *providers.Registry, sel providers.Selection, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	body, err := CodexJSON()
 	if err != nil {
 		return false, err
@@ -141,12 +139,12 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o render.Rend
 
 // commitCodexFiles writes hooks.json first, so a failed hooks write leaves config.toml without trust hashes for it.
 func commitCodexFiles(hooksPath string, hooksRaw, mergedHooks []byte, hooksExisted bool,
-	path string, raw []byte, next string, existed bool, o render.RenderOptions, out io.Writer) (bool, error) {
-	drift, err := render.CommitFile(hooksPath, hooksRaw, append(mergedHooks, '\n'), hooksExisted, o, out, "codex-hooks")
+	path string, raw []byte, next string, existed bool, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
+	drift, err := agentconfig.CommitFile(hooksPath, hooksRaw, append(mergedHooks, '\n'), hooksExisted, o, out, "codex-hooks")
 	if err != nil {
 		return drift, err
 	}
-	d, err := render.CommitFile(path, raw, []byte(next), existed, o, out, "codex")
+	d, err := agentconfig.CommitFile(path, raw, []byte(next), existed, o, out, "codex")
 	return drift || d, err
 }
 

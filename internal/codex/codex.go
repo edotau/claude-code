@@ -24,7 +24,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/agentid"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -252,16 +251,16 @@ func (codexEngine) Plan(_ context.Context, st providers.AuthState) providers.Sub
 	return providers.Subscription{Raw: st.PlanHint, Name: textutil.Title(st.PlanHint)}
 }
 
-func (codexEngine) Render(reg *providers.Registry, sel providers.Selection, _ string, o render.RenderOptions, out io.Writer) (bool, error) {
+func (codexEngine) Render(reg *providers.Registry, sel providers.Selection, _ string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	return renderCodex(reg, sel, o, out)
 }
 
-func (codexEngine) ConfigPaths(home string) ([]render.LabelPath, error) {
+func (codexEngine) ConfigPaths(home string) ([]agentconfig.LabelPath, error) {
 	path, err := paths.CodexConfigPath(home)
 	if err != nil {
 		return nil, err
 	}
-	return []render.LabelPath{{Label: "codex", Path: path}}, nil
+	return []agentconfig.LabelPath{{Label: "codex", Path: path}}, nil
 }
 
 // LaunchArgs prepends the -f file's codex overrides (after the harness prefix, so the file's keys win).

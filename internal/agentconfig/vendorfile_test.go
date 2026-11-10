@@ -1,7 +1,8 @@
-package render
+package agentconfig
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,101 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 )
+
+// A failed later write must restore every file the plan already changed (hooks.json + config.toml pairs).
+func TestApplyRollsBackOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	existing := filepath.Join(dir, "hooks.json")
+	created := filepath.Join(dir, "new.json")
+	if err := os.WriteFile(existing, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	boom := errors.New("boom")
+	p := &RenderPlan{writes: []stagedWrite{
+		{existing, func() error { return os.WriteFile(existing, []byte("new"), 0o600) }},
+		{created, func() error { return os.WriteFile(created, []byte("x"), 0o600) }},
+		{filepath.Join(dir, "config.toml"), func() error { return boom }},
+	}}
+	if err := p.Apply(); !errors.Is(err, boom) {
+		t.Fatalf("Apply = %v, want boom", err)
+	}
+	if got, _ := os.ReadFile(existing); string(got) != "old" {
+		t.Fatalf("hooks.json = %q, want restored %q", got, "old")
+	}
+	if _, err := os.Stat(created); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("new.json should be removed after rollback, stat err = %v", err)
+	}
+}
+
+// stageFile queues a CommitFile write for path (existing content raw) and returns the plan.
+func stageFile(t *testing.T, plan *RenderPlan, path, raw, next string) {
+	t.Helper()
+	if _, err := CommitFile(path, []byte(raw), []byte(next), true, RenderOptions{}.Stage(plan), io.Discard, "x"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A later write failing must roll back the baseline an earlier write already refreshed, not just its config file.
+func TestApplyRollsBackBaselineOnFailure(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a.toml"), filepath.Join(dir, "b.toml")
+	for _, p := range []string{a, b} {
+		if err := os.WriteFile(p, []byte("old"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writeBaseline("x", a, []byte("old")); err != nil {
+		t.Fatal(err)
+	}
+	var plan RenderPlan
+	stageFile(t, &plan, a, "old", "new")
+	stageFile(t, &plan, b, "old", "new")
+	if err := os.WriteFile(b, []byte("edited meanwhile"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Apply(); err == nil {
+		t.Fatal("Apply succeeded, want the changed-since-read conflict on b")
+	}
+	if got, _ := os.ReadFile(baselinePath("x", a)); string(got) != "old" {
+		t.Errorf("baseline = %q, want rolled back to %q", got, "old")
+	}
+}
+
+// Seeding a missing baseline for an unchanged file is a staged write: nothing lands at render time, it lands on Apply.
+func TestUnchangedBaselineSeedIsStaged(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	path := filepath.Join(t.TempDir(), "a.toml")
+	if err := os.WriteFile(path, []byte("same"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var plan RenderPlan
+	stageFile(t, &plan, path, "same", "same")
+	if _, err := os.Stat(baselinePath("x", path)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("baseline exists before Apply, stat err = %v", err)
+	}
+	if err := plan.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(baselinePath("x", path)); string(got) != "same" {
+		t.Errorf("baseline = %q, want %q after Apply", got, "same")
+	}
+}
+
+// Without Stage an unchanged file with no baseline must seed it at once, not panic on a nil write queue.
+func TestUnchangedBaselineSeedWithoutStage(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	path := filepath.Join(t.TempDir(), "a.toml")
+	if err := os.WriteFile(path, []byte("same"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CommitFile(path, []byte("same"), []byte("same"), true, RenderOptions{}, io.Discard, "x"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(baselinePath("x", path)); string(got) != "same" {
+		t.Errorf("baseline = %q, want %q seeded immediately", got, "same")
+	}
+}
 
 // backupEnv isolates HOME and CLAUDE_CONFIG_DIR and returns a vendor config path under HOME.
 func backupEnv(t *testing.T) (path, mirrorGlob string) {

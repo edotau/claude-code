@@ -20,7 +20,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	render "github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -584,7 +583,7 @@ func (opencodeEngine) OwnLogin(h agent.Headless) (env, argv []string, err error)
 	return env, argv, nil // prepare's RenderSettings adds the launch env
 }
 
-func (opencodeEngine) Render(_ *providers.Registry, _ providers.Selection, _ string, o render.RenderOptions, out io.Writer) (bool, error) {
+func (opencodeEngine) Render(_ *providers.Registry, _ providers.Selection, _ string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	return renderOpenCodeOverlay(o, out)
 }
 

@@ -8,7 +8,7 @@ paths:
 ---
 # Harness Change Protocol
 
-**A change to `internal/hooks/`, `internal/settings/`, `internal/agentconfig/render_*.go`, `agents/`, `commands/`,
+**A change to `internal/hooks/`, `internal/settings/`, `internal/agentconfig/*.go`, `agents/`, `commands/`,
 `rules/`, `skills/` or `workflows/` is not done until every applicable box below is acted on.** The failure it
 prevents: a hook, rule or agent change that never reaches the sessions and agents that load it.
 

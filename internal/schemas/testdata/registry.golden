@@ -63,5 +63,5 @@ token-expiry | cache | 2 | state/harness/cache/token-expiry/*.json | internal/pr
 transcript-summary | cache | 2 | state/harness/transcript/summary.json | internal/transcript | keep
 usage-ledger | log | 1 | state/usage/ledger.jsonl | internal/tokenledger | keep
 vault | store | 7 | state/vault.db | vault | keep
-vendor-baseline | derived | 1 | state/harness/vendor-baseline/* | internal/agentconfig/render | keep
+vendor-baseline | derived | 1 | state/harness/vendor-baseline/* | internal/agentconfig | keep
 worktree-merge-op | record | 1 | state/harness/worktree-merge-ops/*.json | internal/worktree | keep

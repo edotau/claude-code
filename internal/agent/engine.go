@@ -13,8 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-
-	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/agentconfig"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -65,9 +64,9 @@ type Driver interface {
 	// OwnLogin is the headless form of the CLI running on its own stored login.
 	OwnLogin(h Headless) (env, argv []string, err error)
 	// Render writes the CLI's config files and reports drift.
-	Render(reg *providers.Registry, sel providers.Selection, home string, o agentrender.RenderOptions, out io.Writer) (bool, error)
+	Render(reg *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error)
 	// ConfigPaths lists the files render writes, for revert.
-	ConfigPaths(home string) ([]agentrender.LabelPath, error)
+	ConfigPaths(home string) ([]agentconfig.LabelPath, error)
 	// LaunchArgs applies the -f file to the launch argv.
 	LaunchArgs(file string, args []string) ([]string, error)
 	// ProfileHint is the error a failed selection resolves to when the CLI knows the cause.
@@ -211,11 +210,11 @@ func CheckPrompt(h Headless) error {
 	return nil
 }
 
-func (BaseEngine) Render(*providers.Registry, providers.Selection, string, agentrender.RenderOptions, io.Writer) (bool, error) {
+func (BaseEngine) Render(*providers.Registry, providers.Selection, string, agentconfig.RenderOptions, io.Writer) (bool, error) {
 	return false, nil
 }
 
-func (BaseEngine) ConfigPaths(string) ([]agentrender.LabelPath, error) { return nil, nil }
+func (BaseEngine) ConfigPaths(string) ([]agentconfig.LabelPath, error) { return nil, nil }
 
 func (b BaseEngine) LaunchArgs(file string, args []string) ([]string, error) {
 	if file != "" {

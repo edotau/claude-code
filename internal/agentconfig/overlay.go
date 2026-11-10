@@ -288,8 +288,7 @@ func unsetRule(name string) error {
 
 // credentialName is the credential shape --env has always refused, widened by the redaction segments (HEADERS, PAT, ...).
 func credentialName(up string) bool {
-	return strings.HasSuffix(up, "_API_KEY") || strings.HasSuffix(up, "_TOKEN") || strings.HasSuffix(up, "_SECRET") ||
-		strings.Contains(up, "AUTH") || secretKeyRE.MatchString(up)
+	return strings.Contains(up, "AUTH") || secretKeyRE.MatchString(up) // KEY/TOKEN/SECRET segments cover the old suffixes
 }
 
 // rule is one refusal: the first whose match holds decides the result, even when its err returns nil.
@@ -335,7 +334,7 @@ var flagSetRules = []rule{
 		refuse(errors.New("want NAME=VALUE"))},
 	{func(c *ruleCtx) bool { return routeRedirectName(c.up) }, refuse(errBaseURL)}, // before the scrub check
 	{func(c *ruleCtx) bool { return configLocationName(c.up) }, refuse(errConfigLocation)},
-	{func(c *ruleCtx) bool { return proc.EnvBlocked(c.name) || proc.EnvBlocked(c.up) },
+	{func(c *ruleCtx) bool { return envReserved(c.name, c.up) },
 		refuse(errors.New("reserved by the harness credential scrub: use `claude-code vault set` or a provider's auth.command"))},
 	{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, OverlayVar) }, // a flag must not point at another overlay
 		refuse(errors.New("harness-owned"))},
@@ -373,13 +372,13 @@ func routeRedirectName(up string) bool {
 		"NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR", "AGY_LLM_GATEWAY_HEADERS":
 		return true
 	}
-	for _, s := range []string{"_BASE_URL", "_API_BASE", "_ENDPOINT", "_GATEWAY_URL", "_PROXY_URL", "_CA_CERT"} {
-		if strings.HasSuffix(up, s) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(redirectSuffixes, func(s string) bool { return strings.HasSuffix(up, s) })
 }
+
+var redirectSuffixes = []string{"_BASE_URL", "_API_BASE", "_ENDPOINT", "_GATEWAY_URL", "_PROXY_URL", "_CA_CERT"}
+
+// envReserved reports a name (as typed or upper-cased) the harness credential scrub withholds.
+func envReserved(name, up string) bool { return proc.EnvBlocked(name) || proc.EnvBlocked(up) }
 
 var setRules = []rule{
 	{func(c *ruleCtx) bool { return !vault.EnvName.MatchString(c.name) }, refuse(errors.New("want NAME=VALUE"))},
@@ -409,7 +408,7 @@ func setRule(name, val string, keep map[string]bool, flag bool, route func(strin
 	up := strings.ToUpper(name)
 	ref, isRef := providers.SecretRefName(name, val)
 	c := &ruleCtx{name: name, up: up, val: val, ref: ref, isRef: isRef, keep: keep, route: route,
-		reserved: proc.EnvBlocked(name) || proc.EnvBlocked(up)}
+		reserved: envReserved(name, up)}
 	return runRules(setRules, c)
 }
 

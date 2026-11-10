@@ -9,10 +9,29 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/client"
-	"github.com/edotau/claude-code/internal/agentconfig/render"
-	"github.com/edotau/claude-code/internal/agentconfig/render/rendertest"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+// scratch points CLAUDE_CONFIG_DIR at a temp dir with a keyed default provider and returns the vendor-config home.
+func scratch(t *testing.T) string {
+	t.Helper()
+	configDir := vaulttest.Use(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HARNESS_PROVIDER", "")
+	t.Setenv("OPENAI_API_KEY", "sk-test-openai")
+	t.Cleanup(agent.StubRouter("http://127.0.0.1:9999"))
+	vaulttest.Put(t, vault.Overlay, "providers", `{"default": "openai"}`)
+	if err := os.MkdirAll(filepath.Join(configDir, "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
 
 func TestCodexCredStoreKeyIgnoresMultilineInstructions(t *testing.T) {
 	for _, quote := range []string{`"""`, `'''`} {
@@ -48,7 +67,7 @@ func TestSplitTopLevelInlineEscapedQuote(t *testing.T) {
 
 // Approval/sandbox top-level keys land before the first [table] header and a second render is byte-identical.
 func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
-	home := rendertest.Scratch(t)
+	home := scratch(t)
 	path := filepath.Join(home, ".codex", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -59,7 +78,7 @@ func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := client.RenderConfigs(render.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := client.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -71,7 +90,7 @@ func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
 	assertCodexApprovalBeforeForeignTables(t, content)
 
 	var out2 bytes.Buffer
-	if _, err := client.RenderConfigs(render.RenderOptions{Home: home, ForceHomes: true, Out: &out2, Agents: []string{"codex"}}); err != nil {
+	if _, err := client.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out2, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("second client.RenderConfigs: %v\n%s", err, out2.String())
 	}
 	raw2, err := os.ReadFile(path)
@@ -124,7 +143,7 @@ func topLevelKeyCount(content, key string) int {
 
 // The banner replaces a top-level approval_policy (no duplicate) and leaves one inside [profiles.x] alone.
 func TestCodexBannerReplacesExistingTopLevelPermissionKeys(t *testing.T) {
-	home := rendertest.Scratch(t)
+	home := scratch(t)
 	path := filepath.Join(home, ".codex", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -135,7 +154,7 @@ func TestCodexBannerReplacesExistingTopLevelPermissionKeys(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := client.RenderConfigs(render.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := client.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 

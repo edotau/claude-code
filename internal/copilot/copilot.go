@@ -21,7 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -314,16 +314,16 @@ func (copilotEngine) Verify(context.Context) (providers.AuthVerdict, string) {
 	return providers.VerdictNeedsLogin, ""
 }
 
-func (copilotEngine) Render(reg *providers.Registry, sel providers.Selection, home string, o render.RenderOptions, out io.Writer) (bool, error) {
+func (copilotEngine) Render(reg *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	return renderCopilot(reg, sel, home, o, out)
 }
 
-func (copilotEngine) ConfigPaths(home string) ([]render.LabelPath, error) {
-	home, err := render.HomeOr(home)
+func (copilotEngine) ConfigPaths(home string) ([]agentconfig.LabelPath, error) {
+	home, err := agentconfig.HomeOr(home)
 	if err != nil {
 		return nil, err
 	}
-	return []render.LabelPath{
+	return []agentconfig.LabelPath{
 		{Label: "copilot-hooks", Path: hooksPath(home)},
 		{Label: "copilot-settings", Path: settingsPath(home)},
 	}, nil

@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -236,12 +235,12 @@ func hooksPath(home string) string {
 func settingsPath(home string) string { return filepath.Join(home, ".copilot", "settings.json") }
 
 // Copilot hooks load from the user directory; plugin preToolUse hooks do not fire.
-func renderCopilot(reg *providers.Registry, sel providers.Selection, home string, o render.RenderOptions, out io.Writer) (bool, error) {
+func renderCopilot(reg *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	body, err := CopilotJSON()
 	if err != nil {
 		return false, err
 	}
-	drift, err := render.RenderHooksFile(hooksPath(home), body, mergeCopilotHooks, o, out, "copilot-hooks")
+	drift, err := agentconfig.RenderHooksFile(hooksPath(home), body, mergeCopilotHooks, o, out, "copilot-hooks")
 	if err != nil {
 		return drift, err
 	}
@@ -272,7 +271,7 @@ const extraDefaultPermissionMode = "defaultPermissionMode"
 
 // renderCopilotSettings merges the record's extras.defaultPermissionMode into ~/.copilot/settings.json,
 // keeping every other key untouched; a non-JSON existing file is skipped, never clobbered.
-func renderCopilotSettings(home string, o render.RenderOptions, out io.Writer) (bool, error) {
+func renderCopilotSettings(home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	rec, err := agentconfig.Settings("copilot")
 	if err != nil {
 		fmt.Fprintf(out, "copilot-settings: skipped: %v\n", err)
@@ -282,7 +281,7 @@ func renderCopilotSettings(home string, o render.RenderOptions, out io.Writer) (
 	if mode == "" {
 		return false, nil
 	}
-	return render.CommitJSONObject(settingsPath(home), o, out, "copilot-settings", func(obj map[string]any, _ bool) bool {
+	return agentconfig.CommitJSONObject(settingsPath(home), o, out, "copilot-settings", func(obj map[string]any, _ bool) bool {
 		obj["defaultPermissionMode"] = mode
 		return true
 	})
@@ -345,7 +344,7 @@ func copilotMatcher(m string) string {
 // {"version", "hooks"} shape: each entry is either kept whole, byte-identical (foreign) or dropped whole
 // (harness-owned, by its "bash" command prefix); every other top-level key survives untouched.
 func mergeCopilotHooks(existingRaw, body []byte) ([]byte, error) {
-	next, renderedTop, err := render.MergeHooksTop(existingRaw, body, classifyCopilotEntry)
+	next, renderedTop, err := agentconfig.MergeHooksTop(existingRaw, body, classifyCopilotEntry)
 	if err != nil {
 		return nil, err
 	}

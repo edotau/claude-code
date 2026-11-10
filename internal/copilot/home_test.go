@@ -13,7 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
-	"github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
@@ -93,7 +93,7 @@ func TestRenderCopilotSettingsUnreadableIsSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	changed, err := renderCopilotSettings(home, render.RenderOptions{}, &out)
+	changed, err := renderCopilotSettings(home, agentconfig.RenderOptions{}, &out)
 	if err != nil || changed {
 		t.Fatalf("changed=%v err=%v, want false,nil", changed, err)
 	}
@@ -116,8 +116,8 @@ func TestCopilotSettingsMergesDefaultPermissionModeKeepingOtherKeys(t *testing.T
 	if err := os.WriteFile(path, []byte(`{"theme":"default","allowedUrls":["https://example.com"]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	var plan render.RenderPlan
-	if _, err := renderCopilotSettings(home, render.RenderOptions{}.Stage(&plan), &bytes.Buffer{}); err != nil {
+	var plan agentconfig.RenderPlan
+	if _, err := renderCopilotSettings(home, agentconfig.RenderOptions{}.Stage(&plan), &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := plan.Apply(); err != nil {
@@ -259,8 +259,8 @@ func TestCopilotSettingsReadsRecordExtras(t *testing.T) {
 		t.Fatal(err)
 	}
 	home := t.TempDir()
-	var plan render.RenderPlan
-	if _, err := renderCopilotSettings(home, render.RenderOptions{}.Stage(&plan), &bytes.Buffer{}); err != nil {
+	var plan agentconfig.RenderPlan
+	if _, err := renderCopilotSettings(home, agentconfig.RenderOptions{}.Stage(&plan), &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := plan.Apply(); err != nil {

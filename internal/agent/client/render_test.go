@@ -9,10 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
-	"github.com/edotau/claude-code/internal/codex"
-
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -80,7 +79,7 @@ func TestRunMalformedCopilotHooksWritesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	_, err := RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
+	_, err := RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
 	if err == nil || !strings.Contains(err.Error(), "copilot-hooks: existing file:") {
 		t.Fatalf("expected malformed Copilot hooks error, got %v\n%s", err, out.String())
 	}
@@ -105,7 +104,7 @@ func TestPrepareDefersOpencodeOverlayWrite(t *testing.T) {
 	home := scratch(t)
 	overlayPath := filepath.Join(paths.StateDir(), "opencode", "opencode.json")
 	var out bytes.Buffer
-	p, drift, err := PrepareConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"opencode"}})
+	p, drift, err := PrepareConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"opencode"}})
 	if err != nil || !drift || p == nil {
 		t.Fatalf("Prepare = %v, %v, %v", p, drift, err)
 	}
@@ -167,7 +166,7 @@ func assertOpencodeOverlayOnly(t *testing.T, home string) {
 func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
 	home := scratch(t)
 	var out bytes.Buffer
-	opts := agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}}
+	opts := agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}}
 	drift, err := RenderConfigs(opts)
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
@@ -254,7 +253,7 @@ func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 	writeForeign(t, ocPath, foreignOC)
 
 	var out bytes.Buffer
-	if _, err := RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex", "opencode"}}); err != nil {
+	if _, err := RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex", "opencode"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -288,7 +287,7 @@ func TestCodexCredStoreKeyUserValueKept(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 	got, err := os.ReadFile(codexPath)
@@ -311,7 +310,7 @@ func TestCodexCredStoreKeyUserValueKept(t *testing.T) {
 func TestVendorBaselineSeededOnFirstWrite(t *testing.T) {
 	home := scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
-	if _, err := RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
+	if _, err := RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(codexPath)
@@ -332,8 +331,8 @@ func TestVendorBaselineSeededOnFirstWrite(t *testing.T) {
 func TestVendorBaselineSeededWhenUnchanged(t *testing.T) {
 	home := scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
-	opts := func() agentrender.RenderOptions {
-		return agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}
+	opts := func() agentconfig.RenderOptions {
+		return agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}
 	}
 	if _, err := RenderConfigs(opts()); err != nil {
 		t.Fatal(err)
@@ -368,7 +367,7 @@ func TestVendorBaselineSeededWhenUnchanged(t *testing.T) {
 func TestLostLineNonInteractiveOverwritesWithWarning(t *testing.T) {
 	home := scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
-	if _, err := RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
+	if _, err := RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(codexPath)
@@ -383,7 +382,7 @@ func TestLostLineNonInteractiveOverwritesWithWarning(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "hand-edited line") || !strings.Contains(out.String(), `model = "gpt-5-custom"`) {
@@ -403,7 +402,7 @@ func TestLostLineNonInteractiveOverwritesWithWarning(t *testing.T) {
 func TestConfirmFalseKeepsFile(t *testing.T) {
 	home := scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
-	if _, err := RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
+	if _, err := RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(codexPath)
@@ -412,7 +411,7 @@ func TestConfirmFalseKeepsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	opts := agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}
+	opts := agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}
 	opts.Confirm = func(path string, lost []string) bool { return false }
 	if _, err := RenderConfigs(opts); err != nil {
 		t.Fatal(err)
@@ -431,7 +430,7 @@ func TestConfirmFalseKeepsFile(t *testing.T) {
 func TestConfirmTrueWrites(t *testing.T) {
 	home := scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
-	if _, err := RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
+	if _, err := RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(codexPath)
@@ -439,7 +438,7 @@ func TestConfirmTrueWrites(t *testing.T) {
 	if err := os.WriteFile(codexPath, []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	opts := agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}
+	opts := agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}
 	opts.Confirm = func(path string, lost []string) bool { return true }
 	if _, err := RenderConfigs(opts); err != nil {
 		t.Fatal(err)
@@ -454,7 +453,7 @@ func TestConfirmTrueWrites(t *testing.T) {
 func TestCheckListsLostLinesWritesNothing(t *testing.T) {
 	home := scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
-	if _, err := RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
+	if _, err := RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(codexPath)
@@ -463,7 +462,7 @@ func TestCheckListsLostLinesWritesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Check: true, Agents: []string{"codex"}}); err != nil {
+	if _, err := RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Check: true, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), `model = "gpt-5-custom"`) {
@@ -477,7 +476,7 @@ func TestCheckListsLostLinesWritesNothing(t *testing.T) {
 
 func revertCodex(t *testing.T, home, codexPath string) string {
 	t.Helper()
-	if err := RevertConfigs(agentrender.RenderOptions{Home: home, Agents: []string{"codex"}, Out: &bytes.Buffer{}}); err != nil {
+	if err := RevertConfigs(agentconfig.RenderOptions{Home: home, Agents: []string{"codex"}, Out: &bytes.Buffer{}}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(codexPath)
@@ -549,7 +548,7 @@ func tamperCodexConfig(t *testing.T, path string) string {
 func TestCheckExitsOnDriftAndWritesNothing(t *testing.T) {
 	home := scratch(t)
 	var out bytes.Buffer
-	if drift, err := RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Check: true, Agents: []string{"codex"}}); err != nil {
+	if drift, err := RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Check: true, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v", err)
 	} else if !drift {
 		t.Fatal("expected drift=true against an empty home")
@@ -558,12 +557,12 @@ func TestCheckExitsOnDriftAndWritesNothing(t *testing.T) {
 	assertNotExist(t, "--check must write nothing", path)
 
 	// Write it for real, then hand-edit the managed block and confirm --check reports drift again.
-	if _, err := RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	edited := tamperCodexConfig(t, path)
 	var out2 bytes.Buffer
-	drift, err := RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out2, Check: true, Agents: []string{"codex"}})
+	drift, err := RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out2, Check: true, Agents: []string{"codex"}})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -582,7 +581,7 @@ func TestCheckExitsOnDriftAndWritesNothing(t *testing.T) {
 func TestDryRunWritesNothing(t *testing.T) {
 	home := scratch(t)
 	var out bytes.Buffer
-	drift, err := RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, DryRun: true, Agents: []string{"codex", "opencode", "gemini"}})
+	drift, err := RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, DryRun: true, Agents: []string{"codex", "opencode", "gemini"}})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -603,7 +602,7 @@ func TestDryRunWritesNothing(t *testing.T) {
 func TestOpenCodeTUISeedsSystemThemeAndKeepsUserTheme(t *testing.T) {
 	home := scratch(t)
 	path := filepath.Join(paths.StateDir(), "opencode", "tui.json")
-	if _, err := RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"opencode"}}); err != nil {
+	if _, err := RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"opencode"}}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	var cfg map[string]any
@@ -623,7 +622,7 @@ func TestOpenCodeTUISeedsSystemThemeAndKeepsUserTheme(t *testing.T) {
 	if err := os.WriteFile(path, []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	drift, err := RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Check: true, Agents: []string{"opencode"}})
+	drift, err := RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Check: true, Agents: []string{"opencode"}})
 	if err != nil {
 		t.Fatalf("Run --check: %v", err)
 	}
@@ -646,7 +645,7 @@ func TestCodexOnOwnLoginSkipsInsteadOfFailing(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := RenderConfigs(agentrender.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 	// Own login no longer fully "skips": the model_providers block is skipped, but approval/sandbox
@@ -672,7 +671,7 @@ func TestCodexOnOwnLoginSkipsInsteadOfFailing(t *testing.T) {
 }
 
 // TestScratchConfigDirSkipsVendorWritesWithoutFlag reproduces the P0: CLAUDE_CONFIG_DIR pointed at a
-// worktree while vendor destinations stay $HOME-rooted (agentrender.RenderOptions.Home left unset, matching production,
+// worktree while vendor destinations stay $HOME-rooted (agentconfig.RenderOptions.Home left unset, matching production,
 // where os.UserHomeDir() resolves the real process HOME). Without --vendors nothing is written under
 // that HOME's vendor dirs; with it, writes land exactly as before.
 func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
@@ -682,7 +681,7 @@ func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
 	t.Setenv("CODEX_HOME", filepath.Join(vendorHome, ".codex"))
 
 	var out bytes.Buffer
-	drift, err := RenderConfigs(agentrender.RenderOptions{Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
+	drift, err := RenderConfigs(agentconfig.RenderOptions{Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
 	if err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
@@ -697,7 +696,7 @@ func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
 		filepath.Join(paths.StateDir(), "opencode"), filepath.Join(vendorHome, ".copilot"))
 
 	var out2 bytes.Buffer
-	if _, err := RenderConfigs(agentrender.RenderOptions{Out: &out2, ForceHomes: true, Agents: []string{"codex", "opencode", "copilot"}}); err != nil {
+	if _, err := RenderConfigs(agentconfig.RenderOptions{Out: &out2, ForceHomes: true, Agents: []string{"codex", "opencode", "copilot"}}); err != nil {
 		t.Fatalf("Run with --vendors: %v\n%s", err, out2.String())
 	}
 	assertExists(t, "--vendors must still write the vendor configs",

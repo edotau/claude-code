@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	render "github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -16,7 +16,7 @@ func TestRenderOpenCodeOverlayReturnsReadError(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(paths.StateDir(), "opencode", "opencode.json"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := renderOpenCodeOverlay(render.RenderOptions{Check: true}, io.Discard)
+	changed, err := renderOpenCodeOverlay(agentconfig.RenderOptions{Check: true}, io.Discard)
 	if err == nil {
 		t.Fatalf("a directory in place of opencode.json read as absent: changed=%v, want an error", changed)
 	}
