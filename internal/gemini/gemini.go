@@ -336,9 +336,6 @@ type agyRequest struct {
 	Env, KeepEnv                          []string
 }
 
-// agyEffort maps the harness's own effort vocabulary onto agy's (identity today; unknown values drop).
-var agyEffort = map[string]string{"low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max"}
-
 // effortSuffixed reports a model id that already names its effort (gemini-3.8-flash-high).
 func effortSuffixed(model string) bool {
 	_, suffix, cut := strings.CutLast(model, "-")
@@ -351,8 +348,8 @@ const agyToolLessPreamble = "Answer from the text below only. Do not call any to
 // agyArgv builds agy's headless argv: stream-json both ways, the prompt rides stdin behind -p=.
 func agyArgv(r agyRequest) []string {
 	argv := []string{"--model", r.Model}
-	if e := agyEffort[r.Effort]; e != "" && !effortSuffixed(r.Model) { // agy refuses --effort beside an effort-suffixed id
-		argv = append(argv, "--effort", e)
+	if slices.Contains(agyEfforts, r.Effort) && !effortSuffixed(r.Model) { // agy refuses --effort beside an effort-suffixed id
+		argv = append(argv, "--effort", r.Effort)
 	}
 	if r.SessionID != "" { // resume a prior agy conversation rather than starting fresh
 		argv = append(argv, "--conversation", r.SessionID)

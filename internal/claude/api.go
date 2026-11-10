@@ -57,10 +57,10 @@ func claudeOneShot(ctx context.Context, req agent.RunOptions, sink wire.Sink) (r
 		return res, true, err
 	}
 	if err := providers.ClaudeCodeError(p, t.Model); err != nil { // Responses-only: the one-shot has no such wire
-		return res, true, &retry.Error{Kind: retry.KindFatal, Agent: "claude", Err: err}
+		return res, true, retry.Fatal("claude", err)
 	}
 	if _, servable, why := providers.WireFor(p, t.Model); !servable {
-		return res, true, &retry.Error{Kind: retry.KindFatal, Agent: "claude", Err: errors.New(why)}
+		return res, true, retry.Fatal("claude", errors.New(why))
 	}
 	base, _ := p.Route(providers.ProtocolOpenAI)
 	usage, model, err := chatStream(ctx, base, p, t.Model, prompt, req.Effort, w)

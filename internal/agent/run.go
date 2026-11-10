@@ -99,7 +99,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink wire.Sink, notify f
 	}
 	req, err := checkRun(r, req)
 	if err != nil {
-		return wire.Result{Agent: r.Name(), Status: wire.StatusError}, &retry.Error{Kind: retry.KindFatal, Agent: r.Name(), Err: err}
+		return wire.Result{Agent: r.Name(), Status: wire.StatusError}, retry.Fatal(r.Name(), err)
 	}
 	req, dropped, emulated := applyCaps(r.Caps(), req)
 	ctx = withPermissionsEnv(ctx, req.Permissions)
@@ -107,7 +107,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink wire.Sink, notify f
 	// a no-tools one-shot answers from the provider's API, so it needs no agent binary up front
 	if !req.NoTools {
 		if err := r.Available(); err != nil {
-			return res, &retry.Error{Kind: retry.KindFatal, Agent: r.Name(), Err: err}
+			return res, retry.Fatal(r.Name(), err)
 		}
 	}
 	p := runPolicy(ctx, req, notify)

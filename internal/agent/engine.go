@@ -151,7 +151,7 @@ func (b BaseEngine) Bin() (string, error) {
 	s, _ := LookupSchema(b.name)
 	bin, err := paths.AgentBin(s.CLI.Binary)
 	if err != nil {
-		return "", &retry.Error{Kind: retry.KindFatal, Agent: b.name, Err: err}
+		return "", retry.Fatal(b.name, err)
 	}
 	return bin, nil
 }

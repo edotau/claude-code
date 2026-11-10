@@ -119,18 +119,18 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 	p := CLIPrep{Target: t, Result: wire.Result{Provider: s.OwnProfile(), Model: t.Model, SessionID: req.SessionID}}
 	if !own {
 		if t.Provider == nil { // agentTargetNote can report a non-own target with no provider resolved
-			return p, &retry.Error{Kind: retry.KindFatal, Agent: name, Err: errors.New("agent target resolved to no provider")}
+			return p, retry.Fatal(name, errors.New("agent target resolved to no provider"))
 		}
 		p.Result.Provider = t.Provider.Name
 		p.Result.Model = v.RanModel(t)
 	}
 	p.Prompt, err = v.Attach(req.Prompt, req.Attach, req.Tools)
 	if err != nil {
-		return p, &retry.Error{Kind: retry.KindFatal, Agent: name, Err: err}
+		return p, retry.Fatal(name, err)
 	}
 	ct := v.Before(req, t)
 	if n := cmp.Or(s.CLI.PromptMaxBytes, s.CLI.PromptVia.MaxBytes()); n > 0 && len(p.Prompt) > n {
-		return p, &retry.Error{Kind: retry.KindFatal, Agent: name, Err: PromptTooLarge(len(p.Prompt), n)}
+		return p, retry.Fatal(name, PromptTooLarge(len(p.Prompt), n))
 	}
 	h := cliHeadless(s, p.Prompt, req)
 	if own {
@@ -139,11 +139,11 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 		p.Env, p.Argv, err = s.configureHeadless(ctx, ct, h)
 	}
 	if err != nil {
-		return p, &retry.Error{Kind: retry.KindFatal, Agent: name, Err: err}
+		return p, retry.Fatal(name, err)
 	}
 	v.After(&p, req)
 	if err := CheckRouteNames(p.Env, req.OverlaySet); err != nil {
-		return p, &retry.Error{Kind: retry.KindFatal, Agent: name, Err: err}
+		return p, retry.Fatal(name, err)
 	}
 	p.Env = append(p.Env, req.Env...) // --env goes last, after the route keys, so it wins
 	return p, nil
@@ -169,8 +169,7 @@ func (v cliEngine) Run(ctx context.Context, req RunOptions, sink wire.Sink) (wir
 
 // EmptyAnswer: a clean exit with no text is a failure the caller must see, not a blank success.
 func EmptyAnswer(name string) error {
-	return &retry.Error{Kind: retry.KindFatal, Agent: name,
-		Err: errors.New("the CLI exited 0 with an empty answer (model returned no text)")}
+	return retry.Fatal(name, errors.New("the CLI exited 0 with an empty answer (model returned no text)"))
 }
 
 // RunStream reads a CLI's JSON event stream: the answer, session id, usage and errors ride in it.

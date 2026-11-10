@@ -154,7 +154,7 @@ func permissionArgs(req agent.RunOptions) []string {
 func refuseUnmappedDeny(p agent.Permissions) error {
 	for _, r := range p.Deny {
 		if r.Tool == "" {
-			return &retry.Error{Kind: retry.KindFatal, Agent: "claude", Err: fmt.Errorf("cannot enforce deny rule %q: no tool name", r.String())}
+			return retry.Fatal("claude", fmt.Errorf("cannot enforce deny rule %q: no tool name", r.String()))
 		}
 	}
 	return nil

@@ -112,5 +112,5 @@ func (w *stallWatch) stalled() error {
 		return nil
 	}
 	err := fmt.Errorf("%w: claude was silent for %s (last event: %s)", agent.ErrStalled, w.d, w.last)
-	return &retry.Error{Kind: retry.KindFatal, Agent: "claude", Err: err}
+	return retry.Fatal("claude", err)
 }

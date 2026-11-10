@@ -185,8 +185,8 @@ func refusePureBashDeny(req agent.RunOptions) error {
 	}
 	for _, r := range req.Permissions.Deny {
 		if r.Tool == "Bash" {
-			return &retry.Error{Agent: "opencode", Kind: retry.KindFatal,
-				Err: fmt.Errorf("cannot enforce deny %s under --safe-mode (--pure loads no plugin; bash -c bypasses its matcher)", r)}
+			return retry.Fatal("opencode",
+				fmt.Errorf("cannot enforce deny %s under --safe-mode (--pure loads no plugin; bash -c bypasses its matcher)", r))
 		}
 	}
 	return nil

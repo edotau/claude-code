@@ -60,6 +60,11 @@ func (s EventSpec) Seconds() int { return int((s.Budget + time.Second - 1) / tim
 // Command is the shell command settings.json carries for this module alone.
 func (s EventSpec) Command() string { return HookBin + " hook " + s.Event + " --" + s.Name }
 
+// AgentCommand is s.Command() prefixed with AgentEnv=agent, as a non-Claude agent's rendered config carries it.
+func AgentCommand(agent string, s EventSpec) string {
+	return AgentEnv + "=" + agent + " " + s.Command()
+}
+
 // Group is a module of hook handlers. Gate keeps it in its own process, so no other group can hang or crash it.
 type Group struct {
 	Name      string

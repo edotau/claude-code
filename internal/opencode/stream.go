@@ -199,6 +199,6 @@ func refuseToolCallText(name string, req agent.RunOptions, answer string) error 
 	if rest := strings.TrimSpace(toolCallMarkupRE.ReplaceAllString(answer, "")); len(rest) > 40 {
 		return nil // prose around the markup is a real answer that quotes it
 	}
-	return &retry.Error{Kind: retry.KindFatal, Agent: name, Err: errors.New(
-		"the model answered with tool calls, but tools are off so none ran; re-run with --tools or use another agent")}
+	return retry.Fatal(name, errors.New(
+		"the model answered with tool calls, but tools are off so none ran; re-run with --tools or use another agent"))
 }
