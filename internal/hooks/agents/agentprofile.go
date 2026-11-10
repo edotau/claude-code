@@ -2,13 +2,17 @@
 package agents
 
 import (
+	"cmp"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -53,7 +57,7 @@ func briefAgents(task string) []string {
 }
 
 // readOnlyTypes are subagent types without write tools; a Profile: line does not apply to them.
-var readOnlyTypes = map[string]bool{"Plan": true, "Explore": true, "gemini": true, "claude-code-guide": true}
+var readOnlyTypes = map[string]bool{"Plan": true, "Explore": true, "gemini": true}
 
 // inContextBrief is true when the brief's Agent: line says in-context.
 func inContextBrief(task string) bool {
@@ -110,4 +114,73 @@ func profileSuffix(label, task string) string {
 		return label
 	}
 	return label + "·" + p
+}
+
+var routeLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]*Route:[ \t]*(\S+)`) })
+
+// briefRoute is the `Route:` line's value, or "".
+func briefRoute(task string) string {
+	if m := routeLineRe().FindStringSubmatch(task); m != nil {
+		return strings.TrimRight(m[1], ".")
+	}
+	return ""
+}
+
+// routeApplies is true when a brief's Route: reaches a leaf of type st: Explore, Plan and in-context leaves ignore it.
+func routeApplies(st, task string) bool {
+	return briefRoute(task) != "" && !(readOnlyTypes[st] && !externalTypes[st]) && !inContextBrief(task)
+}
+
+// routeWorkspace is the workspace a brief's Route: line names (bare: the armed route's, else the session's profile).
+func routeWorkspace(task string) (string, error) {
+	mode, p, err := router.ParseRoute(briefRoute(task))
+	switch {
+	case err != nil:
+		return "", err
+	case mode != router.RouteDatabricks:
+		return "", fmt.Errorf("Route: %s: only databricks[:<profile>] is a brief route", mode)
+	case p == "":
+		p = cmp.Or(router.ArmProfile(), providers.SessionProfile())
+	}
+	if p == "" {
+		return "", errors.New("Route: databricks needs a workspace: databricks:<profile>")
+	}
+	return p, nil
+}
+
+// applyRoute prepends `agents ask --route databricks:<p>` to a Route: dispatch; deny blocks a bad, unknown or
+// conflicting route (another Profile:, or leaving the session's armed route). Inside the same route it is a no-op.
+func applyRoute(run *dispatchRun, updated map[string]any, promptField, task string) (note string, deny *core.Result) {
+	st, _ := updated["subagent_type"].(string)
+	if !routeApplies(st, task) {
+		return "", nil
+	}
+	p, err := routeWorkspace(task)
+	block := func(msg string) (string, *core.Result) {
+		return "", &core.Result{Decision: core.Block, Reason: "agent-effort: " + msg}
+	}
+	switch arm := router.ArmProfile(); {
+	case err != nil:
+		return block(err.Error())
+	case arm != "" && p != arm:
+		return block("Route: databricks:" + p + " conflicts with databricks:" + arm)
+	case briefProfile(task) != "" && briefProfile(task) != p:
+		return block("Route: databricks:" + p + " conflicts with Profile: " + briefProfile(task))
+	case arm == p:
+		return "", nil
+	}
+	if names, ok := profileNames(run); ok && !slices.Contains(names, p) {
+		return block(fmt.Sprintf("--route databricks:%s: no such profile", p))
+	}
+	cmd := fmt.Sprintf("claude-code agents ask --agent %s --route databricks:%s", routeAgent(st, task), p)
+	if prompt, _ := updated[promptField].(string); !strings.Contains(prompt, "--route databricks:"+p) {
+		updated[promptField] = "Run: " + cmd + " (route databricks:" + p + "; ask resolves host and auth)\n\n" + prompt
+		note = "agent-effort: Route: databricks:" + p + " — leaf must run `" + cmd + "`."
+	}
+	return note, nil
+}
+
+// routeAgent is the agent a Route: dispatch asks for: the work agent, else claude.
+func routeAgent(st, task string) string {
+	return cmp.Or(workAgent(st, task), agentid.Claude)
 }

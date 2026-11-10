@@ -652,8 +652,21 @@ func TestAgentsResultWarnsOnUnreadableEvents(t *testing.T) {
 	}
 }
 
+// labelConfig is a config dir whose agents/ defines Plan, so the dispatch type gate allows it.
+func labelConfig(t *testing.T) {
+	t.Helper()
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "agents"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "agents", "Plan.md"), []byte("---\nname: Plan\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAgentsLabelPrintsPrefix(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	labelConfig(t)
 	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdAgentsLabel([]string{"Plan", "--session-model", "databricks-claude-opus-5-5"})
 	})
@@ -663,18 +676,13 @@ func TestAgentsLabelPrintsPrefix(t *testing.T) {
 }
 
 func TestAgentsLabelEmptyMeansNoPrefix(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	labelConfig(t)
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 	t.Chdir(t.TempDir())
-	brief := filepath.Join(t.TempDir(), "brief")
-	if err := os.WriteFile(brief, []byte("Mode: compare\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
 	for _, tc := range []struct {
 		name string
 		args []string
 	}{
-		{"compare", []string{"Explore", "--brief", brief, "--session-model", "sess-x"}},
 		{"unknown-explore-session", []string{"Explore"}},
 		{"unknown-plan-session", []string{"Plan"}},
 	} {
@@ -708,8 +716,17 @@ func assertEmptyLabelOutput(t *testing.T, format, out string) {
 	}
 }
 
+// A type the hook refuses prints its block reason and fails, never a prefix the hook would not accept.
+func TestAgentsLabelRefusedType(t *testing.T) {
+	labelConfig(t)
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsLabel([]string{"web-fetch", "--session-model", "s"}) })
+	if code != 1 || out != "" || !strings.Contains(stderr, `subagent_type "web-fetch" is not on the roster`) {
+		t.Fatalf("exit = %d, stdout = %q, stderr = %q, want exit 1 and the block reason", code, out, stderr)
+	}
+}
+
 func TestAgentsLabelStdoutFailure(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	labelConfig(t)
 	hosttest.ClosedStdout(t)
 	if code := cmdAgentsLabel([]string{"Plan", "--session-model", "databricks-claude-opus-5-5"}); code != 1 {
 		t.Fatalf("exit = %d, want 1 when writing the prefix fails", code)

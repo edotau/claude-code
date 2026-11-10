@@ -307,6 +307,9 @@ func cmdAgentsLabel(args []string) int {
 	if *format == helptext.JSON {
 		return helptext.WriteJSONOrFail("agents label", row)
 	}
+	if row.Blocked != "" { // the hook refuses this type: say so instead of printing a prefix it never accepts
+		return helptext.Fail("agents label: %s", row.Blocked)
+	}
 	if row.Label != "" { // an empty label is no prefix, as the hook writes none
 		if _, err := fmt.Println(row.Label + ": "); err != nil {
 			return helptext.Fail("agents label: %v", err)

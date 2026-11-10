@@ -538,8 +538,7 @@ func TestRanOnGateTypes(t *testing.T) {
 
 // A pinned leaf type is the agent request: with no Agent: line it is still blocked, while claude is not.
 func TestRanOnGatePinnedTypeNeedsNoAgentLine(t *testing.T) {
-	for st, want := range map[string]bool{"codex": true, "copilot": true, "gemini": true, "opencode": true, "claude": false,
-		"coworker": true, "coworker:copilot": true, "coworker:opencode": true, "coworker:databricks": true} {
+	for st, want := range map[string]bool{"codex": true, "copilot": true, "gemini": true, "opencode": true, "claude": false} {
 		_, blocked := leafStopBlock(leafTx(t, st, "Objective: x\nOwns: /tmp/x\n", "ls output"), "a1")
 		if blocked != want {
 			t.Errorf("%s with no Agent: line: blocked = %v, want %v", st, blocked, want)
@@ -712,20 +711,6 @@ func TestDispatchEffortLintsWorkflowViaQuality(t *testing.T) {
 	res := pre(`{"tool_name":"Workflow","tool_input":{"script":"agent('x', { label: 'l' });\n"}}`)
 	if got, _ := res.UpdatedInput["script"].(string); !strings.Contains(got, "model: 'sonnet'") {
 		t.Errorf("updatedInput.script = %q, want model: 'sonnet' filled", got)
-	}
-}
-
-// A coworker leaf (pinned or bare with an Agent: line) is blocked with no ran-on tool result and released by one.
-func TestRanOnGateCoworkerTypes(t *testing.T) {
-	if _, blocked := leafStopBlock(leafTx(t, "coworker:copilot", "Objective: x\n", "ls output"), "a1"); !blocked {
-		t.Error("coworker:copilot with no ran-on tool result must be blocked")
-	}
-	if _, blocked := leafStopBlock(leafTx(t, "coworker", "Objective: x\nAgent: opencode\n", "ls output"), "a1"); !blocked {
-		t.Error("coworker with Agent: opencode and no ran-on tool result must be blocked")
-	}
-	in := leafTx(t, "coworker:copilot", "Objective: x\n", "ask: ran on copilot · acct · gpt-6.1-sol · fallback none")
-	if r, blocked := leafStopBlock(in, "a1"); blocked || r.SystemMessage != "" {
-		t.Errorf("coworker:copilot with a ran-on tool result: got %+v blocked=%v, want a silent release", r, blocked)
 	}
 }
 

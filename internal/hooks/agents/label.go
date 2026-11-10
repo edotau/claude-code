@@ -17,14 +17,14 @@ type LabelInput struct {
 	Type, Model, Brief, SessionModel string
 }
 
-// labelDescription stands in for the description: leafLabel needs a non-empty one, the prefix does not depend on it.
-const labelDescription = "task"
-
-// dispatchLabel runs the dispatch-effort pin and label path on a synthetic spawn: the prefix and the model the dispatch
-// carries after the pin.
-func dispatchLabel(in LabelInput) (label, model string) {
+// dispatchLabel runs the dispatch-effort type gate, pin and label on a synthetic spawn: the prefix, the model the
+// dispatch carries after the pin, and the block reason when the hook would deny the type.
+func dispatchLabel(in LabelInput) (label, model, blocked string) {
+	if deny := typeBlock(in.Type, in.Brief); deny != nil {
+		return "", "", deny.Reason
+	}
 	payload, _ := json.Marshal(map[string]any{"tool_name": "Agent", "tool_input": map[string]any{
-		"subagent_type": in.Type, "model": in.Model, "prompt": in.Brief, "description": labelDescription}})
+		"subagent_type": in.Type, "model": in.Model, "prompt": in.Brief}})
 	ci := core.ParseInputFor(bytes.NewReader(payload), "") // a Claude spawn: gemini's parser would empty tool_input
 	updated := ci.CloneToolInput()
 	_, task := spawnTask(ci)
@@ -32,9 +32,9 @@ func dispatchLabel(in LabelInput) (label, model string) {
 	if in.Brief != "" { // the hook classifies the brief; the stand-in description is not one
 		pinModel(run, ci, updated, task)
 	}
-	label, _ = leafLabel(run, updated, in.Type, task, labelDescription)
+	label = labelModel(run, updated, in.Type, task) // applyLabel's prefix, whatever the description
 	model, _ = updated["model"].(string)
-	return label, model
+	return label, model, ""
 }
 
 // LabelRow is `agents label`'s result: the leaf type, the model it carries, its prefix and where the model came from.
@@ -43,13 +43,15 @@ type LabelRow struct {
 	Model  string `json:"model"`
 	Label  string `json:"label"`
 	Source string `json:"source"`
+	// Blocked is the hook's deny reason for a type it refuses ("" = allowed).
+	Blocked string `json:"blocked,omitempty"`
 }
 
 // Label labels in; an empty SessionModel is read from session sid's transcript in cwd's project.
 func Label(in LabelInput, cwd, sid string) LabelRow {
 	in.SessionModel = cmp.Or(in.SessionModel, sessionModelOf(cwd, sid))
-	label, pinned := dispatchLabel(in)
-	return LabelRow{Type: in.Type, Model: pinned, Label: label, Source: labelSource(in.Model, label, in.SessionModel)}
+	label, pinned, blocked := dispatchLabel(in)
+	return LabelRow{Type: in.Type, Model: pinned, Label: label, Source: labelSource(in.Model, label, in.SessionModel), Blocked: blocked}
 }
 
 // labelSource names where the label's model came from: the dispatch's --model, the session, or the pin and route.
