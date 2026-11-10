@@ -35,7 +35,12 @@
       "Bash(python3 *)",
       "Bash(npx *)",
       "Bash(git grep:*)",
-      "Bash(sed -i *)"
+      "Bash(sed -i *)",
+      "Bash(rtk read *)",
+      "Bash(rtk wc *)",
+      "Bash(rtk ls *)",
+      "Bash(cat package.json)",
+      "Bash(rtk grep *)"
     ],
     "deny": [
       "Bash(rm -rf /)",
