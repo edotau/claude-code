@@ -85,7 +85,8 @@ func runClaudeProbe() (loggedIn bool, plan string, err error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 	defer cancel()
-	out, runErr := agent.ProbeCLI(ctx, bin, agent.EnvSpec{Mode: agent.EnvAgent}, false, "auth", "status")
+	probe := agent.ProbeContext(ctx, "claude") // claude's own login only
+	out, runErr := agent.ProbeCLI(probe, bin, agent.EnvSpec{Mode: agent.EnvAgent}, false, "auth", "status")
 	var st struct {
 		LoggedIn         bool   `json:"loggedIn"`
 		SubscriptionType string `json:"subscriptionType"`

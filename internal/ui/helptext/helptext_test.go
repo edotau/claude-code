@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -268,6 +269,39 @@ func TestWrappedDocsRunsBinaryHelp(t *testing.T) {
 	}
 	if code := WrappedDocs("no-such-cli"); code != 1 {
 		t.Fatalf("missing binary exit = %d, want 1", code)
+	}
+}
+
+// `<bin> --help` holds no login or credential-shaped var, but keeps PATH and the proxy/CA settings.
+func TestWrappedDocsScrubsCredentials(t *testing.T) {
+	dir := t.TempDir()
+	dump := filepath.Join(dir, "env")
+	script := "#!/bin/sh\n/usr/bin/env > " + dump + "\nexit 3\n"
+	if err := os.WriteFile(filepath.Join(dir, "fakecli"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	gone := []string{"DEV_WS_TOKEN", "OPENCODE_API_KEY", "GH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "DATABRICKS_TOKEN"}
+	kept := []string{"HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE"}
+	for _, k := range append(slices.Clone(gone), kept...) {
+		t.Setenv(k, "SENTINEL")
+	}
+	if code := WrappedDocs("fakecli"); code != 3 {
+		t.Fatalf("exit = %d, want the binary's 3", code)
+	}
+	env, err := os.ReadFile(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range gone {
+		if strings.Contains("\n"+string(env), "\n"+k+"=") {
+			t.Errorf("--help inherited %s", k)
+		}
+	}
+	for _, k := range append(kept, "PATH") {
+		if !strings.Contains("\n"+string(env), "\n"+k+"=") {
+			t.Errorf("--help lost %s", k)
+		}
 	}
 }
 

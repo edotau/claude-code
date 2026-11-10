@@ -385,3 +385,30 @@ func TestPickSkipTextForDeactivatedAgent(t *testing.T) {
 		t.Errorf("skips = %+v, want codex deactivated (no profile set)", r.Skipped)
 	}
 }
+
+// TestArmPickWantedClaudeFallsThrough: inside the route a wanted claude leads tier 1, the other agents follow on
+// databricks·dev, then the first-party logins in ladder order (its own subscription last, under all and agents).
+func TestArmPickWantedClaudeFallsThrough(t *testing.T) {
+	wantTier2 := []string{"copilot/github·personal", "codex/openai·chatgpt", "gemini/google·antigravity",
+		"opencode/opencode·go", "claude/anthropic·ultra"}
+	for _, fb := range []string{FallbackAll, FallbackAgents} {
+		tier1, tier2 := armTiers(armPick(t, "claude", fb))
+		if len(tier1) != 5 || tier1[0] != "claude" {
+			t.Errorf("%s: tier 1 = %v, want claude first then the other four agents on databricks·dev", fb, tier1)
+		}
+		if !slices.Equal(tier2, wantTier2) {
+			t.Errorf("%s: tier 2 = %v, want %v", fb, tier2, wantTier2)
+		}
+	}
+	if c := armPick(t, "claude", FallbackNone).Candidates; len(c) != 1 || c[0].Account != "databricks·dev" {
+		t.Errorf("fallback none = %+v, want claude on databricks·dev only", c)
+	}
+	calls := map[string]int{}
+	(&RouteTable{}).gatherCandidates("claude", PickOpts{Fallback: FallbackAll}, func(a string) ([]Candidate, bool) {
+		calls[a]++
+		return nil, false
+	})
+	if calls["claude"] != 1 || calls["codex"] != 1 {
+		t.Errorf("gate calls = %v, want claude once (no claudeLast pass) and each other agent once", calls)
+	}
+}

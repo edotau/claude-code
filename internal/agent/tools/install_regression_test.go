@@ -9,8 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func TestOpencodeRefusalReportsRemovalFailure(t *testing.T) {
@@ -79,5 +83,47 @@ func TestHTTPGetRefusesOversizedBody(t *testing.T) {
 
 	if _, err := httpGet(context.Background(), srv.URL); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("2 KiB body over a 1 KiB cap: err = %v, want an exceeds error", err)
+	}
+}
+
+// The installer script and `<bin> update` get no registry credential and no login, but keep proxy and CA settings.
+func TestInstallChildrenScrubCredentials(t *testing.T) {
+	setupToolsTestEnv(t)
+	vaulttest.UseKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks",`+
+		`"host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
+	gone := []string{"DEV_WS_TOKEN", "OPENCODE_API_KEY", "GH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
+	kept := []string{"HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE"}
+	for _, k := range append(slices.Clone(gone), kept...) {
+		t.Setenv(k, "SENTINEL")
+	}
+	dir := t.TempDir()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "/usr/bin/env > "+filepath.Join(dir, "script")+"\n")
+	}))
+	t.Cleanup(srv.Close)
+	if err := runInstallScript(context.Background(), io.Discard, false, srv.URL, nil, nil); err != nil {
+		t.Fatalf("installer script: %v", err)
+	}
+	bin := filepath.Join(dir, "fakecli")
+	writeToolsFixture(t, bin, "#!/bin/sh\n/usr/bin/env > "+filepath.Join(dir, "update")+"\n", 0o755)
+	if err := runSelfUpdate(context.Background(), io.Discard, bin, false); err != nil {
+		t.Fatalf("self update: %v", err)
+	}
+	for _, site := range []string{"script", "update"} {
+		env, err := os.ReadFile(filepath.Join(dir, site))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, k := range gone {
+			if strings.Contains("\n"+string(env), "\n"+k+"=") {
+				t.Errorf("%s inherited %s", site, k)
+			}
+		}
+		for _, k := range kept {
+			if !strings.Contains("\n"+string(env), "\n"+k+"=SENTINEL") {
+				t.Errorf("%s lost %s", site, k)
+			}
+		}
 	}
 }

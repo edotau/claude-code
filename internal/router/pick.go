@@ -411,18 +411,27 @@ func (t *RouteTable) gatherCandidates(want string, o PickOpts, gate func(string)
 			first = append(first, cs)
 		}
 	}
-	if want != "claude" && o.Fallback != FallbackNone {
-		for _, r := range TableAgents {
-			if r == want || r == "claude" {
-				continue
-			}
-			if cs, ok := gate(r); ok {
-				rest = append(rest, cs)
-			}
-		}
+	if o.Fallback == FallbackNone || (want == "claude" && ArmProfile() == "") { // the route falls a wanted claude through
+		return first, nil, nil
+	}
+	rest = gateOthers(want, gate)
+	if want != "claude" {
 		last = claudeLast(o, gate)
 	}
 	return first, rest, last
+}
+
+// gateOthers gates every table agent but want and claude, in table order.
+func gateOthers(want string, gate func(string) ([]Candidate, bool)) (rest [][]Candidate) {
+	for _, r := range TableAgents {
+		if r == want || r == "claude" {
+			continue
+		}
+		if cs, ok := gate(r); ok {
+			rest = append(rest, cs)
+		}
+	}
+	return rest
 }
 
 // claudeLast gates claude as the final fallback under FallbackAll (or the unset default).
