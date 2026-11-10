@@ -100,6 +100,25 @@ func TestRunDropsFlagsAgentLacks(t *testing.T) {
 	}
 }
 
+// noteRunner returns a vendor note in Result.Emulated, as codex does for an effort clamp.
+type noteRunner struct{ fakeRunner }
+
+func (f *noteRunner) Run(ctx context.Context, req RunOptions, w wire.Sink) (wire.Result, error) {
+	res, err := f.fakeRunner.Run(ctx, req, w)
+	res.Emulated = []string{"vendor-note"}
+	return res, err
+}
+
+// The envelope keeps the run's own emulated entries and the vendor's note, run-level first.
+func TestRunKeepsVendorEmulatedNotes(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	f := &noteRunner{fakeRunner{caps: Caps{Model: Native, SystemPrompt: Emulated}, errs: []error{nil}}}
+	res, err := Run(context.Background(), f, RunOptions{Prompt: "p", SystemPrompt: "sys"}, wire.Discard, nil)
+	if want := []string{"--system-prompt", "vendor-note"}; err != nil || !reflect.DeepEqual(res.Emulated, want) {
+		t.Fatalf("Emulated=%v want %v err=%v", res.Emulated, want, err)
+	}
+}
+
 // Streamed text or a tool call that may have had effects vetoes the retry: one attempt, Progressed set.
 func TestRunProgressVetoesRetry(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

@@ -196,7 +196,7 @@ func (s *runState) attempt(ctx, actx context.Context, r Engine, sink wire.Sink, 
 	cw := &wire.RunSink{Sink: sink, Agent: r.Name()}
 	out, err := r.Run(actx, s.req, cw)
 	// Preserve the actual agent named by a delegating engine.
-	out.Agent, out.Dropped, out.Emulated = cmp.Or(out.Agent, s.res.Agent), append(slices.Clone(s.dropped), out.Dropped...), s.emulated
+	out.Agent, out.Dropped, out.Emulated = cmp.Or(out.Agent, s.res.Agent), append(slices.Clone(s.dropped), out.Dropped...), append(slices.Clone(s.emulated), out.Emulated...)
 	s.res = out
 	e := retry.Classify(r.Name(), err, cw.Progressed)
 	fallToNextAlias(r, &s.req, e, notify)
