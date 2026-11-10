@@ -51,12 +51,7 @@ func codexCatalogPath(ctx context.Context, p *providers.Provider) (string, strin
 	if err != nil {
 		return "", "", fmt.Errorf("binary lookup failed: %w", err)
 	}
-	home, err := os.MkdirTemp("", "codex-catalog-")
-	if err != nil {
-		return "", "", fmt.Errorf("temporary home failed: %w", err)
-	}
-	defer func() { _ = os.RemoveAll(home) }()
-	menu, key, err := catalogInputs(ctx, bin, home, p)
+	menu, key, err := catalogInputs(bin, p)
 	if err != nil {
 		return "", "", err
 	}
@@ -66,6 +61,11 @@ func codexCatalogPath(ctx context.Context, p *providers.Provider) (string, strin
 	if catalogCached(path, keyPath, key) {
 		return path, "", nil
 	}
+	home, err := catalogTempDir()
+	if err != nil {
+		return "", "", fmt.Errorf("temporary home failed: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(home) }()
 	raw, err := runCodexCatalog(ctx, bin, home, 30*time.Second, "debug", "models", "--bundled")
 	if err != nil {
 		return "", "", fmt.Errorf("bundled dump failed: %w", err)
@@ -86,17 +86,20 @@ func codexCatalogPath(ctx context.Context, p *providers.Provider) (string, strin
 	return path, missing, nil
 }
 
-// catalogInputs is the provider's menu and the cache key over codex's version and that menu.
-func catalogInputs(ctx context.Context, bin, home string, p *providers.Provider) ([]providers.OpencodeModel, string, error) {
-	version, err := runCodexCatalog(ctx, bin, home, agent.ProbeTimeout, "--version")
-	if err != nil {
-		return nil, "", fmt.Errorf("version failed: %w", err)
+// catalogTempDir makes the scratch CODEX_HOME only a catalog cache miss needs; a var so tests catch a stray one.
+var catalogTempDir = func() (string, error) { return os.MkdirTemp("", "codex-catalog-") }
+
+// catalogInputs is the provider's menu and the cache key over codex's binary stamp (no --version spawn) and that menu.
+func catalogInputs(bin string, p *providers.Provider) ([]providers.OpencodeModel, string, error) {
+	stamp, ok := paths.BinKey(bin)
+	if !ok {
+		return nil, "", fmt.Errorf("binary stamp failed: %s", bin)
 	}
 	menu, err := providers.OpencodeMenuFor(p)
 	if err != nil {
 		return nil, "", err
 	}
-	parts := []string{string(version), p.Name}
+	parts := []string{stamp, p.Name}
 	for _, m := range menu {
 		parts = append(parts, agentconfig.MenuWire(p, m.ID), m.Label, strconv.FormatBool(m.Responses))
 	}
