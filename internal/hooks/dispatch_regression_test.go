@@ -177,17 +177,20 @@ func TestPermissionGateAgyDenyIsJSON(t *testing.T) {
 	}
 }
 
-func TestWorktreeCreateDispatchFailureExitsNonzero(t *testing.T) {
-	for _, failure := range []string{"panic", "timeout"} {
-		t.Run(failure, func(t *testing.T) {
+// A worktree create or remove that panics or overruns exits 1: exit 0 would report a worktree made or removed.
+func TestWorktreeDispatchFailureExitsNonzero(t *testing.T) {
+	for _, tc := range []struct{ module, failure string }{
+		{"worktree-create", "panic"}, {"worktree-create", "timeout"}, {"worktree-remove", "panic"}, {"worktree-remove", "timeout"},
+	} {
+		t.Run(tc.module+"/"+tc.failure, func(t *testing.T) {
 			release, finished := make(chan struct{}), make(chan struct{})
 			t.Cleanup(func() { close(release); <-finished })
-			spec := specOf("worktree-create")
+			spec := specOf(tc.module)
 			spec.Budget = time.Millisecond
 			run := func(*core.Input) core.Result {
 				defer close(finished)
-				if failure == "panic" {
-					panic("worktree creation failed")
+				if tc.failure == "panic" {
+					panic(tc.module + " failed")
 				}
 				<-release
 				return core.Result{Stdout: "/unusable/worktree"}
@@ -199,12 +202,55 @@ func TestWorktreeCreateDispatchFailureExitsNonzero(t *testing.T) {
 			}
 			code := core.Emit(core.AgentClaude, spec.Event, res, &out, &errb)
 			if code != 1 || out.Len() != 0 {
-				t.Fatalf("%s: exit=%d stdout=%q; want exit 1 without a worktree path", failure, code, out.String())
+				t.Fatalf("exit=%d stdout=%q; want exit 1 without a worktree path", code, out.String())
 			}
-			if !strings.Contains(errb.String(), "worktree-create") {
+			if !strings.Contains(errb.String(), tc.module) {
 				t.Fatalf("missing failed handler diagnostic: %q", errb.String())
 			}
 		})
+	}
+}
+
+// A declared module on the wrong event exits by its Blocks flag, and a blocking one names the event it runs on.
+func TestDeclaredModuleOnWrongEventDecidesByBlocks(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, s := range settings.Specs() {
+		event := settings.EventStop
+		if s.Event == event {
+			event = settings.EventSessionEnd
+		}
+		want := map[bool]int{false: 1, true: core.ExitBlock}[s.Blocks]
+		var out, errb bytes.Buffer
+		code := RunArgs(event, []string{"--" + s.Name}, strings.NewReader(`{}`), &out, &errb)
+		if code != want || s.Blocks != strings.Contains(errb.String(), "runs on "+s.Event) {
+			t.Errorf("hook %s --%s: exit %d stderr %q; want exit %d, naming %s only when Blocks", event, s.Name, code, errb.String(), want, s.Event)
+		}
+	}
+}
+
+// A gate whose blocking call outlasts its HookContext fails open before the dispatcher's timer calls it an overrun.
+func TestHookContextExpiresBeforeDispatcherBudget(t *testing.T) {
+	spec := specOf("docs-plan-gate") // Blocks: an overrun would block the call
+	orig := core.HookMargin
+	t.Cleanup(func() { core.HookMargin = orig })
+	core.HookMargin = spec.Budget - 30*time.Millisecond // HookContext reads the registry budget: its deadline is 30ms in
+	spec.Budget = 80 * time.Millisecond
+	run := func(*core.Input) core.Result {
+		ctx, cancel := core.HookContext(spec.Name)
+		defer cancel()
+		<-ctx.Done()
+		return core.Result{Stderr: fmt.Sprintf("failed open: %v", ctx.Err())}
+	}
+	var log bytes.Buffer
+	res, err := Dispatch([]Bound{{Group: "docs", Spec: spec, Run: run}}, spec.Event, &core.Input{ToolName: "Write"}, &log)
+	if err != nil || res.Decision == core.Block || !strings.Contains(res.Stderr, "failed open: context deadline exceeded") {
+		t.Fatalf("got %+v err %v log %q; want the handler's own fail-open, no overrun", res, err, log.String())
+	}
+	core.HookMargin = specOf(spec.Name).Budget // a margin that eats the budget leaves half of it, never zero
+	ctx, cancel := core.HookContext(spec.Name)
+	defer cancel()
+	if dl, _ := ctx.Deadline(); time.Until(dl) < specOf(spec.Name).Budget/4 {
+		t.Fatalf("deadline %s away; want about half the %s budget", time.Until(dl), specOf(spec.Name).Budget)
 	}
 }
 
