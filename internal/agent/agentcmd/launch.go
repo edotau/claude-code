@@ -20,7 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/vault/vaultcmd"
 )
 
 // Claude is `claude-code claude`: Claude Code on the selected profile.
@@ -221,5 +220,8 @@ func Anthropic(args []string) int {
 	return runPlan("claude", plan, o.LaunchOptions, err)
 }
 
+// VaultVerb is the vault verb (internal/cli wires it); vaultSet stores a missing secret through it.
+var VaultVerb func(args []string) int
+
 // vaultSet stores a missing secret through the vault verb; claude.AnthropicSecret calls it after the user confirms.
-func vaultSet(name string) int { return vaultcmd.Run([]string{"set", name}) }
+func vaultSet(name string) int { return VaultVerb([]string{"set", name}) }

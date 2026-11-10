@@ -1,5 +1,5 @@
-// Package vaultcmd renders `vault ls`: the text sections, provider and agent tables, and the JSON document.
-package vaultcmd
+// Package vaultdoc is the vault's non-secret document: `vault ls` sections, tables and JSON, and the edit round trip.
+package vaultdoc
 
 import (
 	"cmp"

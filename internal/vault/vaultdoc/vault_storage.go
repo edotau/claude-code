@@ -1,4 +1,4 @@
-package vaultcmd
+package vaultdoc
 
 import (
 	"bytes"
@@ -312,8 +312,8 @@ func sectionError(section string, err error) error {
 	return fmt.Errorf("%s: %s", section, strings.NewReplacer("\n", " ", "\r", " ").Replace(err.Error()))
 }
 
-// rotateKey retains the old key so archived copies of this vault remain readable.
-func rotateKey(w io.Writer, opts ...vault.RotateKeyOption) error {
+// RotateKey retains the old key so archived copies of this vault remain readable.
+func RotateKey(w io.Writer, opts ...vault.RotateKeyOption) error {
 	old, next, err := vault.RotateKey(opts...)
 	if err != nil {
 		return err

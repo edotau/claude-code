@@ -1,4 +1,4 @@
-package vaultcmd
+package vaultdoc
 
 import (
 	"bytes"

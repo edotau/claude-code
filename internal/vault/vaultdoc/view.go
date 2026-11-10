@@ -1,4 +1,4 @@
-package vaultcmd
+package vaultdoc
 
 import (
 	"bytes"
@@ -13,7 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/theme"
-	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -171,46 +170,4 @@ func tailscaleAPIVerdict(cs []tailscale.CredState) string {
 	default:
 		return "none"
 	}
-}
-
-// vaultList prints the selected sections (default all): secrets masked, then the vault's non-secret config.
-func vaultList(args []string) int {
-	fs := helptext.NewFlagSet("vault ls", helptext.Page{
-		Usage: "claude-code vault ls [<section>...|all]\n[--format text|json] [--tailscale]",
-		About: "Print what the vault stores, secrets masked. Sections: " +
-			strings.Join(Sections, ", ") + "; bare or all prints every one.",
-	})
-	ts := fs.Bool("tailscale", false, "show Tailscale credential presence, not JSON")
-	format := fs.String("format", "", "text or json (default: text on a terminal, json otherwise)")
-	names, err := helptext.ParseArgs(fs, args)
-	if err != nil {
-		return helptext.ExitCode(err)
-	}
-	if *ts {
-		if len(names) > 0 {
-			return vaultUsageErr("ls", names)
-		}
-		Tailscale(os.Stdout)
-		return 0
-	}
-	sel, err := Select(names)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "vault ls:", err)
-		return 2
-	}
-	f := *format
-	if f == "" {
-		f = helptext.JSON
-		if tui.StdoutIsTerminal() {
-			f = helptext.Text
-		}
-	}
-	if err := helptext.CheckFormat(f); err != nil {
-		helptext.Fail("vault ls: %v", err)
-		return 2
-	}
-	if err := List(os.Stdout, f, sel); err != nil {
-		return helptext.Fail("vault ls: %v", err)
-	}
-	return 0
 }
