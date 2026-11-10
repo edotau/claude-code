@@ -220,3 +220,29 @@ func TestToolsTierDenyRejectsFormerlyScoped(t *testing.T) {
 		}
 	}
 }
+
+// Plan mode rejects MCP calls except the harness web_search server, unless a Deny names that server.
+func TestPlanModeWebSearchMCP(t *testing.T) {
+	search := rpc.PermissionRequestMCP{ServerName: webSearchServer, ToolName: "web_search"}
+	for _, tc := range []struct {
+		name string
+		req  copilot.PermissionRequest
+		deny []agent.Rule
+		want bool
+	}{
+		{"web search approved", search, nil, true},
+		{"web search pointer approved", &search, nil, true},
+		{"other server rejected", rpc.PermissionRequestMCP{ServerName: "github", ToolName: "web_search"}, nil, false},
+		{"denied web search rejected", search, []agent.Rule{{Tool: "mcp__" + webSearchServer}}, false},
+	} {
+		perms := agent.Permissions{Mode: "plan", Deny: tc.deny}
+		h := BuildSessionConfig(SDKOptions{AllowAllTools: true, Permissions: perms}).OnPermissionRequest
+		d, err := h(tc.req, copilot.PermissionInvocation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok != tc.want {
+			t.Errorf("%s: approved = %v, want %v (decision %T)", tc.name, ok, tc.want, d)
+		}
+	}
+}
