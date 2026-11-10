@@ -3,6 +3,7 @@ package providers
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -399,6 +400,51 @@ func TestIdentityAutoFallsBackToSPOnRejection(t *testing.T) {
 	}
 	if n := note.String(); !strings.Contains(n, "service principal") || strings.Contains(n, "sp-secret") || strings.Count(n, "\n") != 1 {
 		t.Errorf("note = %q", n)
+	}
+}
+
+// An SP mint records its expiry tagged m2m, so the statusline countdown shows on a paired oauth row.
+func TestSPMintRecordsExpiryAsM2M(t *testing.T) {
+	p, _, _, _ := spHarness(t, IdentitySP)
+	orig := mintM2M
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		return oauth.Token{Access: jwtExpIn(time.Hour, "")}, nil
+	}
+	t.Cleanup(func() { mintM2M = orig })
+	if _, err := Credential(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	exp, method, ok := TokenExpiryMethod(p.Name)
+	if !ok || method != AuthM2M || time.Until(exp) < 50*time.Minute {
+		t.Fatalf("record = %v, %q, %v; want ~1h, m2m", exp, method, ok)
+	}
+}
+
+// A transient SP mint failure rides out on the sealed _ACCESS token, but never for force or under 1 minute.
+func TestTransientSPMintFallsBackToSealedAccess(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct {
+		name  string
+		left  time.Duration
+		force bool
+		want  bool
+	}{{"stale-ok", 5 * time.Minute, false, true}, {"force", 5 * time.Minute, true, false}, {"short", 30 * time.Second, false, false}} {
+		p, _, _, _ := spHarness(t, IdentitySP)
+		old := jwtExpIn(c.left, "")
+		bind := clientBind(AuthHost(p), "sp-client", "sp-secret")
+		b, _ := json.Marshal(clientAccess{Access: old, Bind: bind})
+		if err := vault.Store(SecretName(GroupDatabricks, p.Name, AuthM2M)+"_ACCESS", string(b)); err != nil {
+			t.Fatal(err)
+		}
+		orig := mintM2M
+		mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+			return oauth.Token{}, errors.New("connection refused")
+		}
+		got, err := mintSP(ctx, p, c.force)
+		mintM2M = orig
+		if served := err == nil && got == old; served != c.want {
+			t.Errorf("%s: served the sealed token = %v (err %v), want %v", c.name, served, err, c.want)
+		}
 	}
 }
 

@@ -25,7 +25,7 @@ func writeStatuslineConfig(t *testing.T, data string) {
 
 func TestGradientPreservesOllamaTag(t *testing.T) {
 	hermetic(t)
-	writeStatuslineConfig(t, `{"segments":{"path":false,"git":false,"velocity":false,"proxy":false,"limits":false,"total":false}}`)
+	writeStatuslineConfig(t, `{"segments":{"path":false,"git":false,"velocity":false,"proxy":false,"provider":false,"limits":false,"total":false}}`)
 	got := plain(Render([]byte(`{"model":{"id":"qwen3:30b"}}`), "gradient"))
 	if got != "qwen3:30b" {
 		t.Fatalf("gradient model = %q, want qwen3:30b", got)
