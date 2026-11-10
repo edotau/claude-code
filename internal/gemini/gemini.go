@@ -14,8 +14,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -249,44 +247,6 @@ func agyGatewayBase(id string) (base, effort string, ok bool) {
 	return models.Wire("dotted", canonical), "", true
 }
 
-// gatewayEntry is one router+profile token slot; its own lock keeps a slow mint from stalling other profiles.
-type gatewayEntry struct {
-	mu     sync.Mutex
-	tok    string
-	minted time.Time
-}
-
-// gatewayTokenMaxAge re-mints well inside the router's 12h idle lifetime so a long-lived process never holds a dead token.
-const gatewayTokenMaxAge = time.Hour
-
-// gatewayTokens holds one router session token per router base and profile; a new router gets a fresh mint.
-var (
-	gatewayMu     sync.Mutex
-	gatewayTokens = map[string]*gatewayEntry{}
-)
-
-// gatewayToken mints profile's token once per router (concurrent --batch jobs share it), under the router's token cap.
-func gatewayToken(ctx context.Context, routerBase, profile string) (string, error) {
-	gatewayMu.Lock()
-	e := gatewayTokens[routerBase+"|"+profile]
-	if e == nil {
-		e = &gatewayEntry{}
-		gatewayTokens[routerBase+"|"+profile] = e
-	}
-	gatewayMu.Unlock()
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.tok != "" && time.Since(e.minted) < gatewayTokenMaxAge {
-		return e.tok, nil
-	}
-	tok, err := agent.MintSession(ctx, profile, os.Getpid())
-	if err != nil {
-		return "", err
-	}
-	e.tok, e.minted = tok, time.Now()
-	return tok, nil
-}
-
 // geminiGateway runs agy in its env-only gateway mode against the router's /p/<profile>/gemini route, which swaps
 // in a fresh Databricks token per request; the key agy holds is a session token scoped to this profile.
 func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
@@ -294,7 +254,7 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 	if err != nil {
 		return nil, nil, fmt.Errorf("gemini: router: %w", err)
 	}
-	tok, err := gatewayToken(ctx, rb, p.Name)
+	tok, err := agent.SessionToken(ctx, rb, p.Name)
 	if err != nil {
 		return nil, nil, fmt.Errorf("gemini: session token for profile %s: %w", p.Name, err)
 	}

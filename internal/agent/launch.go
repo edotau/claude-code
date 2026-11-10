@@ -67,21 +67,20 @@ func (s Schema) ConfigureHeadless(ctx context.Context, target providers.Target, 
 	return s.configure(ctx, target, &h)
 }
 
-// configure resolves the route for the agent, then renders its settings (launch env/args) on every route (own
-// login, BYOK, gateway, router) so no path can skip it; h != nil (a headless dispatch) renders in cliEngine.prepare.
+// configure resolves the route, then renders the settings on every route; a headless h renders in cliEngine.prepare.
 func (s Schema) configure(ctx context.Context, t providers.Target, h *Headless) ([]string, []string, error) {
 	env, argv, err := s.configureRoute(ctx, t, h)
 	if err != nil || h != nil {
 		return env, argv, err
 	}
 	// Route keys go last and shadow same-named launch.env entries, so a spec overlay can never redirect an agent.
-	env, argv, _, _, err = s.Eng().RenderSettings(ctx, s.launchSettings(RunOptions{}, t, false), env, argv)
+	env, argv, _, _, err = s.Eng().RenderSettings(ctx, s.launchSettings(t, false), env, argv)
 	return env, argv, err
 }
 
 // launchSettings is Settings for a launch that goes on anyway: a bad stored record is a notice, the built-ins apply.
-func (s Schema) launchSettings(req RunOptions, t providers.Target, headless bool) Settings {
-	st, err := ResolveSettings(s.Name, req, t, headless)
+func (s Schema) launchSettings(t providers.Target, headless bool) Settings {
+	st, err := ResolveSettings(s.Name, RunOptions{}, t, headless)
 	if err == nil {
 		return st
 	}
@@ -111,14 +110,14 @@ func RouteEnvLast(launchEnv, env []string) []string {
 
 // ApplyLaunch appends the agent's spec Launch.Env (always) and Launch.Args (only when args is true) to
 // an already-built launch; a broken overlay is best-effort and must not break the launch.
-func (s Schema) ApplyLaunch(env, argv []string, args bool) ([]string, []string) {
-	st := s.launchSettings(RunOptions{}, providers.Target{}, !args)
-	launchEnv, argv, _, _, _ := s.Eng().RenderSettings(context.Background(), st, nil, argv) // the default never errs
-	return append(env, launchEnv...), argv
+func (s Schema) ApplyLaunch(argv []string, args bool) ([]string, []string) {
+	st := s.launchSettings(providers.Target{}, !args)
+	env, argv, _, _, _ := s.Eng().RenderSettings(context.Background(), st, nil, argv) // the default never errs
+	return env, argv
 }
 
 // LaunchSpec is the agent's spec env and argv prefix for an interactive launch that bypasses Configure (own login).
-func (s Schema) LaunchSpec() (env, argv []string) { return s.ApplyLaunch(nil, nil, true) }
+func (s Schema) LaunchSpec() (env, argv []string) { return s.ApplyLaunch(nil, true) }
 
 func (s Schema) configureRoute(ctx context.Context, t providers.Target, h *Headless) ([]string, []string, error) {
 	name := s.Name
@@ -217,41 +216,56 @@ func routerKey(ctx context.Context, routerBase, profile string) (string, error) 
 		}
 		return secret, nil
 	}
-	tok, err := armSessionToken(ctx, routerBase, profile)
+	tok, err := SessionToken(ctx, routerBase, profile)
 	if err != nil {
 		return "", fmt.Errorf("session token for profile %s: %w", profile, err)
 	}
 	return tok, nil
 }
 
-// armTokens holds one session token per router base and profile, bound to this ask's pid (it dies with the process).
-var (
-	armMu     sync.Mutex
-	armTokens = map[string]armToken{}
-)
-
-type armToken struct {
+// sessionToken is one router+profile token slot; its own lock keeps a slow mint from stalling other profiles.
+type sessionToken struct {
+	mu     sync.Mutex
 	tok    string
 	minted time.Time
 }
 
-// armTokenMaxAge re-mints well inside the router's 12h idle lifetime, as gemini's gatewayToken does.
-const armTokenMaxAge = time.Hour
+// sessionTokenMaxAge re-mints well inside the router's 12h idle lifetime: a long-lived process never holds a dead one.
+const sessionTokenMaxAge = time.Hour
 
-// armSessionToken mints profile's token once per router (batch hops share it), so retries never fill the token cap.
-func armSessionToken(ctx context.Context, routerBase, profile string) (string, error) {
-	armMu.Lock()
-	defer armMu.Unlock()
-	key := routerBase + "|" + profile
-	if t := armTokens[key]; t.tok != "" && time.Since(t.minted) < armTokenMaxAge {
-		return t.tok, nil
+// sessionTokens holds one session token per router base and profile, bound to this pid (it dies with the process).
+var (
+	sessionMu     sync.Mutex
+	sessionTokens = map[string]*sessionToken{}
+)
+
+// SessionToken mints profile's token once per router (batch hops share it), so retries never fill the token cap.
+func SessionToken(ctx context.Context, routerBase, profile string) (string, error) {
+	sessionMu.Lock()
+	e := sessionTokens[routerBase+"|"+profile]
+	if e == nil {
+		e = &sessionToken{}
+		sessionTokens[routerBase+"|"+profile] = e
+	}
+	sessionMu.Unlock()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.tok != "" && time.Since(e.minted) < sessionTokenMaxAge {
+		return e.tok, nil
 	}
 	tok, err := MintSession(ctx, profile, os.Getpid())
 	if err != nil {
 		return "", err
 	}
-	armTokens[key] = armToken{tok, time.Now()}
+	e.tok, e.minted = tok, time.Now()
 	return tok, nil
+}
+
+// ResetSessionTokens forgets every cached session token; a test that swaps MintSession calls it.
+func ResetSessionTokens() {
+	sessionMu.Lock()
+	defer sessionMu.Unlock()
+	clear(sessionTokens)
 }
 
 // login runs the agent on its own subscription sign-in; a login provider serves only the CLI it names.
