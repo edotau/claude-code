@@ -133,6 +133,24 @@ func TestHarnessGateGroupIgnoresSwitchOff(t *testing.T) {
 	}
 }
 
+// A Gate module never reads the group switches; a non-Gate module still proceeds when its group is switched off.
+func TestRunModuleGateSkipsSwitchRead(t *testing.T) {
+	flagHarness(t)
+	reads := 0
+	orig := loadHarnessHooks
+	loadHarnessHooks = func() (map[string]bool, error) { reads++; return map[string]bool{"safety": false, "docs": false}, nil }
+	t.Cleanup(func() { loadHarnessHooks = orig })
+	if code, _, _ := runFlags("PreToolUse", bashPayload("rm -rf /"), "--safety-scan"); code != core.ExitBlock || reads != 0 {
+		t.Errorf("--safety-scan: exit %d, switch reads %d; want ExitBlock and 0 reads", code, reads)
+	}
+	repo := hosttest.Repo(t)
+	payload, _ := json.Marshal(map[string]any{"tool_name": "Write", "cwd": repo,
+		"tool_input": map[string]string{"file_path": filepath.Join(repo, "NOTES.md"), "content": "# n\n"}})
+	if code, _, errb := runFlags("PreToolUse", bytes.NewReader(payload), "--docs-placement"); code != core.ExitProceed || reads != 1 {
+		t.Errorf("--docs-placement with docs off: exit %d, switch reads %d (%s); want proceed after 1 read", code, reads, errb)
+	}
+}
+
 func bindStub(group, name string, budget time.Duration, run core.Runner) Bound {
 	return Bound{Group: group, Spec: settings.EventSpec{Name: name, Event: "UserPromptSubmit", Budget: budget}, Run: run}
 }
@@ -416,6 +434,22 @@ func TestSafetyShellDashCNoArgDoesNotPanic(t *testing.T) {
 	payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": t.TempDir(), "tool_input": map[string]string{"command": "sh -c"}})
 	if got := runDirect("safety-scan", bytes.NewReader(payload), io.Discard, &bytes.Buffer{}); got != core.ExitProceed {
 		t.Errorf("bare `sh -c` with no command string: got %d want %d", got, core.ExitProceed)
+	}
+}
+
+// Every hookspec module has a native handler and every native handler is declared in hookspec.
+func TestRegistryMatchesHookspec(t *testing.T) {
+	declared := map[string]bool{}
+	for _, s := range settings.Specs() {
+		declared[s.Name] = true
+		if native[s.Name] == nil {
+			t.Errorf("hookspec %q has no handler", s.Name)
+		}
+	}
+	for name := range native {
+		if !declared[name] {
+			t.Errorf("native handler %q has no hookspec entry", name)
+		}
 	}
 }
 

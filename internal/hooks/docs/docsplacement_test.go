@@ -12,7 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // placementRepo makes a temp git repo with one tracked root doc, so the gate has real git state.
@@ -37,82 +37,6 @@ func placementPayload(t *testing.T, tool, path string) string {
 		t.Fatal(err)
 	}
 	return string(b)
-}
-
-type planGateCase struct {
-	name     string
-	tool     string
-	path     string
-	content  string
-	existing bool
-	want     int
-}
-
-func planGateCases() []planGateCase {
-	return []planGateCase{
-		{"freeform Write", "Write", "plans/draft.md", "freeform", false, core.ExitBlock},
-		{"freeform create", "create", "plans/draft.md", "freeform", false, core.ExitBlock},
-		{"legacy empty tool", "", "plans/draft.md", "freeform", false, core.ExitBlock},
-		{"missing content", "Write", "plans/draft.md", "", false, core.ExitBlock},
-		{"templated Write", "Write", "plans/draft.md", planTemplate, false, core.ExitProceed},
-		{"existing draft", "Write", "plans/draft.md", "freeform", true, core.ExitProceed},
-		{"Edit bypass", "Edit", "plans/draft.md", "freeform", false, core.ExitProceed},
-		{"patch bypass", "apply_patch", "plans/draft.md", "freeform", false, core.ExitProceed},
-		{"other tool", "Bash", "plans/draft.md", "freeform", false, core.ExitProceed},
-		{"dated plan", "Write", "plans/2026-10-20-draft.md", "freeform", false, core.ExitProceed},
-		{"nested plan", "Write", "plans/project/draft.md", "freeform", false, core.ExitProceed},
-		{"outside plans", "Write", "other/draft.md", "freeform", false, core.ExitProceed},
-	}
-}
-
-// seedPlanGateDraft creates an empty draft at cfg/rel so the gate sees an existing file.
-func seedPlanGateDraft(t *testing.T, cfg, rel string) {
-	t.Helper()
-	path := filepath.Join(cfg, rel)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// requirePlanGateDenied asserts the block diagnostic and that the denied draft stays absent.
-func requirePlanGateDenied(t *testing.T, cfg, rel string, stderr *bytes.Buffer) {
-	t.Helper()
-	if !strings.HasPrefix(stderr.String(), "plan-template: BLOCKED") ||
-		!strings.Contains(stderr.String(), `missing "# Plan:"`) ||
-		!strings.Contains(stderr.String(), plans.TemplatePath(cfg)) {
-		t.Errorf("missing first heading/template diagnostic: %s", stderr)
-	}
-	if _, err := os.Stat(filepath.Join(cfg, rel)); !os.IsNotExist(err) {
-		t.Errorf("denied draft must remain absent: %v", err)
-	}
-}
-
-func TestPlanGateTemplate(t *testing.T) {
-	for _, knob := range []string{"1", "0"} {
-		for _, c := range planGateCases() {
-			t.Run("docs="+knob+"/"+c.name, func(t *testing.T) {
-				cfg := t.TempDir()
-				t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-				t.Setenv(docsPlacementDisableEnv, knob)
-				if c.existing {
-					seedPlanGateDraft(t, cfg, c.path)
-				}
-				var stderr bytes.Buffer
-				code := Gate(core.ParseInput(strings.NewReader(writePayload(t, c.tool, cfg, c.path, c.content))), &stderr)
-				if code != c.want {
-					t.Fatalf("code = %d, want %d; stderr=%s", code, c.want, &stderr)
-				}
-				if c.want == core.ExitBlock {
-					requirePlanGateDenied(t, cfg, c.path, &stderr)
-				} else if stderr.Len() != 0 {
-					t.Errorf("allowed write emitted a diagnostic: %s", &stderr)
-				}
-			})
-		}
-	}
 }
 
 func TestDocsPlacementFirstDenial(t *testing.T) {
@@ -486,4 +410,14 @@ func TestDocsPlacementPlanHomeUnderMemoryRepo(t *testing.T) {
 			t.Errorf("%s inside the store = %d, want proceed (%s)", sub, code, e.String())
 		}
 	}
+}
+
+// TestMain stubs the live-process scan so no docs test reads the real machine.
+func TestMain(m *testing.M) {
+	cleanup := hosttest.Setup()
+	worktree.StubProcessScanForTest()
+	code := m.Run()
+	hosttest.Cleanup()
+	cleanup()
+	os.Exit(code)
 }

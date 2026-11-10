@@ -6,7 +6,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
+
+// TestMain isolates the host (HOME, config dir, PATH tools) so no quality test reads or writes the real machine.
+func TestMain(m *testing.M) {
+	cleanup := hosttest.Setup()
+	code := m.Run()
+	hosttest.Cleanup()
+	cleanup()
+	os.Exit(code)
+}
 
 func TestMakeRecipeAndTargetLine(t *testing.T) {
 	body := "FMT := gofmt\nformat := no\n\n.PHONY: format\nformat: deps ## help\n\t@echo one\n\n# a comment does not end the recipe\n\t$(FMT) -w $(FILE)\nX := 1\n\tnot a recipe line\nfmt:\n\tgo fmt ./...\n"
@@ -194,5 +205,18 @@ func TestFormatPythonDeclaredChain(t *testing.T) {
 	got, _ = os.ReadFile(trace)
 	if s := string(got); !strings.Contains(s, "ruff check --fix") || !strings.Contains(s, "ruff format --quiet") || strings.Contains(s, "black") {
 		t.Errorf("ruff chain ran %q", s)
+	}
+}
+
+func TestMakeFormatRejectsFileAndWholeTreeArguments(t *testing.T) {
+	_, mine, other := makeRepo(t, "format:\n\tgofmt -w $(FILE) .\n")
+	if makeFormat(mine) {
+		t.Fatal("a command naming both the target file and the whole tree must not run")
+	}
+	if formatted(t, mine) || formatted(t, other) {
+		t.Fatal("rejecting the whole-tree command must leave both files untouched")
+	}
+	if !formatFile(mine) || !formatted(t, mine) || formatted(t, other) {
+		t.Fatal("the fallback must format only the target file")
 	}
 }

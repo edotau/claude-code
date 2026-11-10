@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -207,13 +208,15 @@ func shareReasons(ctx context.Context, in *core.Input, top string, linked bool, 
 }
 
 // runsWrittenFile matches a command that executes a file (a shell, source, ., exec, an interpreter or chmod +x).
-var runsWrittenFile = regexp.MustCompile(`(?m)(^|[;&|\s])(bash|sh|zsh|source|exec|python3?|node|perl|ruby)\s|(^|[;&|])\s*\.\s|chmod\s+\+?[0-7]*x`)
+var runsWrittenFile = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?m)(^|[;&|\s])(bash|sh|zsh|source|exec|python3?|node|perl|ruby)\s|(^|[;&|])\s*\.\s|chmod\s+\+?[0-7]*x`)
+})
 
 // dropDataHeredocs removes quoted-delimiter `cat > f`/`tee f` heredoc bodies so hard rule 4 never asks on text written
 // to a file; a command that also runs a file keeps every body (`cat <<'EOF' > f.sh … EOF && bash f.sh`).
 func dropDataHeredocs(cmd string) string {
 	lines := strings.Split(cmd, "\n")
-	if runsWrittenFile.MatchString(lines[0]) || heredocTail(lines) {
+	if runsWrittenFile().MatchString(lines[0]) || heredocTail(lines) {
 		return cmd
 	}
 	var out []string
@@ -243,7 +246,7 @@ func heredocTail(lines []string) bool {
 				continue
 			}
 		}
-		if i > 0 && runsWrittenFile.MatchString(lines[i]) {
+		if i > 0 && runsWrittenFile().MatchString(lines[i]) {
 			return true
 		}
 	}
@@ -253,15 +256,15 @@ func heredocTail(lines []string) bool {
 // dataHeredocStart finds one quoted `<<'DELIM'` on a segment that is `cat > f` or `tee f`; other segments on the line
 // (`mkdir -p d && cat > d/f <<'EOF'`) are checked as usual.
 func dataHeredocStart(line string) (string, bool) {
-	ms := heredocOp.FindAllStringSubmatch(line, -1)
+	ms := heredocOp().FindAllStringSubmatch(line, -1)
 	if len(ms) != 1 || ms[0][1] == "-" || ms[0][4] != "" {
 		return "", false
 	}
 	for _, seg := range shell.Segments(line) {
-		if !heredocOp.MatchString(seg) {
+		if !heredocOp().MatchString(seg) {
 			continue
 		}
-		toks := shell.Tokens(heredocOp.ReplaceAllString(seg, " "))
+		toks := shell.Tokens(heredocOp().ReplaceAllString(seg, " "))
 		return ms[0][2] + ms[0][3], len(toks) > 0 && writesFile(toks)
 	}
 	return "", false

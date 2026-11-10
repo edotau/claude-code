@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -24,11 +25,15 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-var (
-	gitDirArg  = regexp.MustCompile(`\bgit\s+(?:-\S+\s+)*?-C\s+("[^"]+"|'[^']+'|\S+)`)
-	cmdSegment = regexp.MustCompile(`&&|\|\||[;|\n]`)
-	leadingCD  = regexp.MustCompile(`^\s*cd\s+("[^"]+"|'[^']+'|[^\s&;]+)\s*&&`)
-)
+var gitDirArg = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\bgit\s+(?:-\S+\s+)*?-C\s+("[^"]+"|'[^']+'|\S+)`)
+})
+
+var cmdSegment = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`&&|\|\||[;|\n]`) })
+
+var leadingCD = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^\s*cd\s+("[^"]+"|'[^']+'|[^\s&;]+)\s*&&`)
+})
 
 // Tick is the PostToolUse(Bash) plan-tick hook: a landed `git commit` ticks the active plan's covered tasks.
 func Tick(in *core.Input) core.Result {
@@ -125,15 +130,15 @@ func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
 // A relative -C is resolved against the leading cd's target (the shell's cwd for the commit), else cwd.
 func commitCandidates(cwd, cmd string) []string {
 	base, cdFound := cwd, false
-	if m := leadingCD.FindStringSubmatch(cmd); m != nil {
+	if m := leadingCD().FindStringSubmatch(cmd); m != nil {
 		base, cdFound = candidateDir(strings.Trim(m[1], `"'`), cwd), true
 	}
 	var cands []string
-	for _, seg := range cmdSegment.Split(cmd, -1) { // only commit invocations name a candidate repo
+	for _, seg := range cmdSegment().Split(cmd, -1) { // only commit invocations name a candidate repo
 		if !core.GitCommitCmd.MatchString(seg) {
 			continue
 		}
-		if m := gitDirArg.FindStringSubmatch(seg); m != nil {
+		if m := gitDirArg().FindStringSubmatch(seg); m != nil {
 			cands = append(cands, candidateDir(strings.Trim(m[1], `"'`), base))
 		}
 	}
@@ -167,10 +172,11 @@ func recordPartials(session, plan, planPath string, tasks []string, stderr io.Wr
 	}
 }
 
-var (
-	briefTaskRe = regexp.MustCompile(`(?mi)^[\s>*-]*Task:\s*(\S.*?)\s*$`)
-	nonWordRe   = regexp.MustCompile(`[^\p{L}\p{N}.]+`)
-)
+var briefTaskRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?mi)^[\s>*-]*Task:\s*(\S.*?)\s*$`)
+})
+
+var nonWordRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[^\p{L}\p{N}.]+`) })
 
 // ClaimPlanTask claims the active plan's task a spawn names (a `Task:` brief line, else a unique checklist title
 // the description matches); no confident match or no plan claims nothing, a failed claim returns the error.
@@ -245,12 +251,12 @@ func taskKey(t plans.Task) string { return cmp.Or(t.ID, t.Title) }
 func normTask(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = strings.TrimPrefix(s, "phase ")
-	return strings.Trim(nonWordRe.ReplaceAllString(s, " "), " .")
+	return strings.Trim(nonWordRe().ReplaceAllString(s, " "), " .")
 }
 
 // matchBriefTask returns the one open task a `Task:` line names by id, else the one a description matches by title.
 func matchBriefTask(p plans.Plan, brief, description string) (plans.Task, bool) {
-	if m := briefTaskRe.FindStringSubmatch(brief); m != nil {
+	if m := briefTaskRe().FindStringSubmatch(brief); m != nil {
 		return matchTaskByID(p, normTask(m[1]))
 	}
 	return matchTaskByTitle(p, normTask(description))

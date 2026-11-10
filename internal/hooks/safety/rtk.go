@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
@@ -63,7 +64,7 @@ func RTKRewrite(in *core.Input) core.Result {
 	}
 	found, onPath := shell.RTKOnPath(bin)
 	word := textutil.QuoteSH(bin) // the command moves PATH or HOME, so bare rtk or "$HOME/…" could run another rtk
-	if !rtkEnvAltered.MatchString(cmd) {
+	if !rtkEnvAltered().MatchString(cmd) {
 		word = rtkWord(bin, os.Getenv("HOME"), onPath)
 	}
 	updated["command"] = rtkAbsolute(rewritten, word)
@@ -124,16 +125,20 @@ func rtkExitOK(err error) bool {
 }
 
 // rtkEnvAltered matches a command that assigns, exports, unsets or clears PATH or HOME (over-matching is safe).
-var rtkEnvAltered = regexp.MustCompile(`(^|[^\w$])(PATH|HOME)(\[[^\]]*\])?\+?=` +
-	`|\b(export|unset|readonly|declare|typeset|local)\s[^;&|\n]*\b(PATH|HOME)\b` +
-	`|\benv\s[^;&|\n]*(-i\b|-u\s*(PATH|HOME)\b|--ignore-environment|--unset[=\s](PATH|HOME)\b)`)
+var rtkEnvAltered = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(^|[^\w$])(PATH|HOME)(\[[^\]]*\])?\+?=` +
+		`|\b(export|unset|readonly|declare|typeset|local)\s[^;&|\n]*\b(PATH|HOME)\b` +
+		`|\benv\s[^;&|\n]*(-i\b|-u\s*(PATH|HOME)\b|--ignore-environment|--unset[=\s](PATH|HOME)\b)`)
+})
 
 // rtkCommandWord matches a bare `rtk` at command position: the start, or after `&&`, `||`, `;`, `|` or a newline.
-var rtkCommandWord = regexp.MustCompile(`(^|&&|\|\||[;|\n])(\s*)rtk(\s|$)`)
+var rtkCommandWord = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(^|&&|\|\||[;|\n])(\s*)rtk(\s|$)`)
+})
 
 // rtkAbsolute points every command-position `rtk` at word (rtkWord's spelling), so the pinned binary always runs.
 func rtkAbsolute(cmd, word string) string {
-	return rtkCommandWord.ReplaceAllString(cmd, "${1}${2}"+strings.ReplaceAll(word, "$", "$$")+"${3}")
+	return rtkCommandWord().ReplaceAllString(cmd, "${1}${2}"+strings.ReplaceAll(word, "$", "$$")+"${3}")
 }
 
 // rtkWord spells bin for the shell so allow rules stay machine-independent: bare rtk when PATH finds bin (onPath),

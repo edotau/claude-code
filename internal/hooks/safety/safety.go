@@ -1,4 +1,4 @@
-// Package safety is the command-safety hook area: safety-scan, and the rtk rewrite.
+// Package safety is the command-safety hook area: safety-scan, permission-gate and the rtk rewrite.
 package safety
 
 import (
@@ -234,7 +234,7 @@ func dropRemoteHeredocs(cmd string) string {
 	var out []string
 	for i := 0; i < len(lines); i++ {
 		out = append(out, lines[i])
-		m := heredocOp.FindStringSubmatch(lines[i])
+		m := heredocOp().FindStringSubmatch(lines[i])
 		if m == nil || m[4] != "" || !sshHoldsHeredoc(lines[i]) { // m[4]: bare delimiter, expanded locally
 			continue
 		}
@@ -254,7 +254,7 @@ func sshHoldsHeredoc(line string) bool {
 			i++
 			seg, sep = seg+"&"+segs[i], seps[i]
 		}
-		if heredocOp.MatchString(seg) {
+		if heredocOp().MatchString(seg) {
 			toks := shell.Tokens(seg)
 			return len(toks) > 0 && toks[0] == "ssh" && sep != "|" && sep != "|&"
 		}
@@ -268,15 +268,17 @@ func redirectJoin(left, right string) bool {
 }
 
 // heredocOp matches one `<<[-]DELIM` operator; groups: dash, single-quoted, double-quoted, bare delimiter.
-var heredocOp = regexp.MustCompile(`<<(-?)\s*(?:'([^']*)'|"([^"]*)"|([A-Za-z_][A-Za-z0-9_]*))`)
+var heredocOp = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`<<(-?)\s*(?:'([^']*)'|"([^"]*)"|([A-Za-z_][A-Za-z0-9_]*))`)
+})
 
 // fdToSubst matches a redirect to fd 3+, which `exec 3> >(sh)` can point at an interpreter.
-var fdToSubst = regexp.MustCompile(`[<>]&[3-9]`)
+var fdToSubst = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[<>]&[3-9]`) })
 
 // inertStripped blanks text that is only data (message values, echo/grep arguments, file-only heredoc bodies)
 // but keeps every command substitution; pipeBlocks, exfilPatterns and sqlDestructive match this view.
 func inertStripped(cmd string) string {
-	if strings.Contains(cmd, ">(") || strings.Contains(cmd, "<(") || fdToSubst.MatchString(cmd) {
+	if strings.Contains(cmd, ">(") || strings.Contains(cmd, "<(") || fdToSubst().MatchString(cmd) {
 		return cmd
 	}
 	segs, seps := shell.SegmentsSep(dropInertHeredocs(cmd))
@@ -347,7 +349,7 @@ func inertScm(toks []string) bool {
 // dropInertHeredocs removes file-only heredoc bodies unless the command also runs a file.
 func dropInertHeredocs(cmd string) string {
 	lines := strings.Split(cmd, "\n")
-	if runsWrittenFile.MatchString(lines[0]) || heredocTail(lines) {
+	if runsWrittenFile().MatchString(lines[0]) || heredocTail(lines) {
 		return cmd
 	}
 	var out []string
@@ -388,11 +390,11 @@ func inertHeredocStart(line string) (delim string, quoted, dash, ok bool) {
 	if strings.ContainsAny(line, "#|`&(;") || strings.Contains(line, "<<<") || strings.HasSuffix(line, `\`) {
 		return
 	}
-	ms := heredocOp.FindAllStringSubmatch(line, -1)
+	ms := heredocOp().FindAllStringSubmatch(line, -1)
 	if len(ms) != 1 {
 		return
 	}
-	toks := shell.Tokens(heredocOp.ReplaceAllString(line, " "))
+	toks := shell.Tokens(heredocOp().ReplaceAllString(line, " "))
 	if len(toks) == 0 || !strings.HasPrefix(strings.TrimLeft(line, " \t"), toks[0]+" ") || !writesFile(toks) {
 		return
 	}

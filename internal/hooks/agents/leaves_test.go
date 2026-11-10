@@ -13,11 +13,16 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/edotau/claude-code/internal/codex" // registers the codex row the label-cell pin tests resolve
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/memhook/memhooktest"
+	"github.com/edotau/claude-code/internal/hooks/wthook"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // writeMeta lays down <transcript dir>/<session>/subagents/agent-<agent>.meta.json mapping agent → toolUseId.
@@ -173,119 +178,12 @@ func TestDispatchFailureReleasesExactAgentID(t *testing.T) {
 	}
 }
 
-func labelOf(t *testing.T, subagentType, prompt, desc string) string {
-	t.Helper()
-	stubLabelModels(t, "", "")
-	payload := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"model":"sonnet","prompt":%q,"description":%q}}`,
-		subagentType, prompt, desc)
-	r := agentEffortResult(core.ParseInput(strings.NewReader(payload)))
-	if r.UpdatedInput == nil {
-		return desc
-	}
-	d, _ := r.UpdatedInput["description"].(string)
-	return d
-}
-
-// stubLabelModels makes every vendor leaf's planned model cell (route table) or prof (profile), never live lookups.
-func stubLabelModels(t *testing.T, cell, prof string) {
-	t.Helper()
-	oc, op := labelCell, labelProfileModel
-	t.Cleanup(func() { labelCell, labelProfileModel = oc, op })
-	labelCell = func(string, string) string { return cell }
-	labelProfileModel = func(string, string) string { return prof }
-}
-
-func TestDispatchAgentLabels(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	prompt := "Agent: gemini → codex\nreview the thing"
-	got := labelOf(t, "claude", prompt, "review thing")
-	if got != "gemini → codex: review thing" {
-		t.Fatalf("label = %q, want %q", got, "gemini → codex: review thing")
-	}
-	// Running twice (the labelled description fed back in) does not double-prefix.
-	if again := labelOf(t, "claude", prompt, got); again != got {
-		t.Errorf("second run = %q, want unchanged %q", again, got)
-	}
-	if got := labelOf(t, "Explore", prompt, "review thing"); got != "sonnet: review thing" {
-		t.Errorf("Explore label = %q, want its own model prefix", got)
-	}
-	cases := []struct{ st, agent, want string }{
-		{"claude", "copilot", "copilot: task"},
-		{"copilot", "claude", "sonnet: task"},
-		{"claude", "claude (in-context)", "sonnet: task"},
-		{"claude", "claude", "sonnet: task"},
-		{"codex", "codex → gemini", "gemini: task"},
-	}
-	// Mode: compare joins with ", "; relay (explicit or absent) keeps the arrow.
-	for _, c := range []struct{ prompt, want string }{
-		{"Mode: compare\nAgent: codex, gemini", "codex, gemini: task"},
-		{"Agent: codex, gemini\nMode: Compare", "codex, gemini: task"},
-		{"Mode: relay\nAgent: codex → gemini", "codex → gemini: task"},
-		{"Agent: codex → gemini", "codex → gemini: task"},
-	} {
-		if got := labelOf(t, "claude", c.prompt, "task"); got != c.want {
-			t.Errorf("prompt %q = %q, want %q", c.prompt, got, c.want)
-		}
-	}
-	for _, c := range cases {
-		if got := labelOf(t, c.st, "do it\nAgent: "+c.agent, "task"); got != c.want {
-			t.Errorf("%s + Agent: %s = %q, want %q", c.st, c.agent, got, c.want)
-		}
-	}
-}
-
-// Descriptions start lowercase and drop a hand-typed prefix that repeats the row's own type, for any subagent type.
-func TestDispatchLabelLowercase(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	lower := []struct{ st, agent, desc, want string }{
-		{"claude", "copilot", "Fix bug", "copilot: fix bug"},
-		{"claude", "copilot", "copilot: Fix bug", "copilot: fix bug"},
-		{"claude", "none", "Exercising live-session cap", "sonnet: exercising live-session cap"},
-		{"claude", "none", "HTTP retry", "sonnet: HTTP retry"},
-		{"claude", "copilot", "CLAUDE.md rewrite", "copilot: CLAUDE.md rewrite"},
-		{"claude", "none", "internal_x fix", "sonnet: internal_x fix"},
-		{"claude", "none", "Fix v2 bug", "sonnet: fix v2 bug"},
-		{"claude", "none", "V2 bug", "sonnet: V2 bug"},
-		{"claude", "none", "Done. Next", "sonnet: done. Next"},
-		{"claude", "none", "claude: RTK hook", "sonnet: RTK hook"},
-		{"copilot", "none", "copilot: repair tests", "sonnet: repair tests"},
-		{"Plan", "none", "Plan: Repo-wide package consolidation", "sonnet: repo-wide package consolidation"},
-	}
-	for _, c := range lower {
-		if got := labelOf(t, c.st, "do it\nAgent: "+c.agent, c.desc); got != c.want {
-			t.Errorf("%s + Agent: %s on %q = %q, want %q", c.st, c.agent, c.desc, got, c.want)
-		}
-	}
-}
-
 // A spaced call `agent (…)` is a leaf too; a method `x.agent(` and a name `subagent(` are not.
 func TestWorkflowLeavesCountsSpacedCalls(t *testing.T) {
 	script := "await agent ('a', {model:'sonnet'})\nawait agent('b', {model:'sonnet'})\nx.agent('c')\nsubagent('d')"
 	in := core.ParseInput(strings.NewReader(`{"tool_name":"Workflow","tool_input":{"script":` + strconv.Quote(script) + `}}`))
 	if n := workflowLeaves(in, core.Result{}); n != 2 {
 		t.Fatalf("workflowLeaves = %d, want 2", n)
-	}
-}
-
-// A routed leaf's label names the agent and the model it is planned to run; a Profile: line uses that profile's model.
-func TestDispatchLabelNamesRoutedModel(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	payload := func(prompt string) string {
-		return fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":"codex","model":"sonnet","prompt":%q,"description":"review diff"}}`, prompt)
-	}
-	stubLabelModels(t, "gpt-6.1-sol", "databricks-gpt-6-astra")
-	for prompt, want := range map[string]string{
-		"Agent: codex\nreview":               "gpt-6.1-sol: review diff",
-		"Agent: claude (in-context)\nreview": "sonnet: review diff",
-	} {
-		r := agentEffortResult(core.ParseInput(strings.NewReader(payload(prompt))))
-		if got, _ := r.UpdatedInput["description"].(string); got != want && (want != "review diff" || r.UpdatedInput != nil) {
-			t.Errorf("%q: label = %q, want %q", prompt, got, want)
-		}
-	}
-	// A known profile is validated upstream by applyProfile; the model comes from that profile's alias map.
-	if got := labelModel(map[string]any{"model": "sonnet"}, "claude", "Agent: codex\nProfile: qa"); got != "databricks-gpt-6-astra" {
-		t.Errorf("profile model = %q, want the profile's sonnet row", got)
 	}
 }
 
@@ -798,4 +696,45 @@ func TestRanOnIgnoresDocAndSourceMentions(t *testing.T) {
 	if r, blocked := leafStopBlock(in, "a1"); !blocked || r.Decision != core.Block {
 		t.Fatalf("got %+v blocked=%v, want a Block: prose mentions are not a ran-on line nor a prior gate block", r, blocked)
 	}
+}
+
+// A coworker leaf (pinned or bare with an Agent: line) is blocked with no ran-on tool result and released by one.
+func TestRanOnGateCoworkerTypes(t *testing.T) {
+	if _, blocked := leafStopBlock(leafTx(t, "coworker:copilot", "Objective: x\n", "ls output"), "a1"); !blocked {
+		t.Error("coworker:copilot with no ran-on tool result must be blocked")
+	}
+	if _, blocked := leafStopBlock(leafTx(t, "coworker", "Objective: x\nAgent: opencode\n", "ls output"), "a1"); !blocked {
+		t.Error("coworker with Agent: opencode and no ran-on tool result must be blocked")
+	}
+	in := leafTx(t, "coworker:copilot", "Objective: x\n", "ask: ran on copilot · acct · gpt-6.1-sol · fallback none")
+	if r, blocked := leafStopBlock(in, "a1"); blocked || r.SystemMessage != "" {
+		t.Errorf("coworker:copilot with a ran-on tool result: got %+v blocked=%v, want a silent release", r, blocked)
+	}
+}
+
+// TestMain stubs the live-process scans and detached spawns so no test reads the machine.
+func TestMain(m *testing.M) {
+	cleanup := hosttest.Setup()
+	worktree.StubProcessScanForTest()
+	tb := &hosttest.MainTB{}
+	memhooktest.StubSpawn(tb, true)
+	wthook.PeerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
+	code := m.Run()
+	for _, f := range tb.Cleanups {
+		f()
+	}
+	hosttest.Cleanup()
+	cleanup()
+	os.Exit(code)
+}
+
+// runEvent runs the dispatch runner a payload's event is declared on.
+func runEvent(t *testing.T, event, payload string) string {
+	t.Helper()
+	runners := map[string]core.Runner{settings.EventPreToolUse: Effort, settings.EventPostToolUseFailure: Release,
+		settings.EventSubagentStop: Stop}
+	in := core.ParseInput(strings.NewReader(payload))
+	var out, errb bytes.Buffer
+	core.Emit(in.Agent(), event, runners[event](in), &out, &errb)
+	return out.String()
 }

@@ -6,16 +6,18 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/providers"
 )
 
-var profileLineRe = regexp.MustCompile(`(?m)^[ \t]*Profile:[ \t]*([A-Za-z0-9._-]+)`)
+var profileLineRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^[ \t]*Profile:[ \t]*([A-Za-z0-9._-]+)`)
+})
 
 // profileNames lists the registered profile names; ok is false when the registry cannot load (fail open).
-var profileNames = func() ([]string, bool) {
-	reg, err := providers.Load()
+var profileNames = func(run *dispatchRun) ([]string, bool) {
+	reg, err := run.registry()
 	if err != nil {
 		return nil, false
 	}
@@ -24,7 +26,7 @@ var profileNames = func() ([]string, bool) {
 
 // briefProfile is the profile the brief's `Profile:` line names, or "".
 func briefProfile(task string) string {
-	if m := profileLineRe.FindStringSubmatch(task); m != nil {
+	if m := profileLineRe().FindStringSubmatch(task); m != nil {
 		return strings.TrimRight(m[1], ".") // "Profile: dev." ends a sentence, not the name
 	}
 	return ""
@@ -32,7 +34,7 @@ func briefProfile(task string) string {
 
 // briefAgents are the agents the `Agent:` line names, claude when the line is absent; nil for in-context.
 func briefAgents(task string) []string {
-	m := agentLineRe.FindStringSubmatch(task)
+	m := agentLineRe().FindStringSubmatch(task)
 	if m == nil {
 		return []string{"claude"}
 	}
@@ -41,8 +43,8 @@ func briefAgents(task string) []string {
 		return nil
 	}
 	var names []string
-	for _, w := range agentNameRe.FindAllString(line, -1) {
-		if labelAgents[w] && !slices.Contains(names, w) {
+	for _, w := range agentNameRe().FindAllString(line, -1) {
+		if labelAgent(w) && !slices.Contains(names, w) {
 			names = append(names, w)
 		}
 	}
@@ -54,18 +56,18 @@ var readOnlyTypes = map[string]bool{"Plan": true, "Explore": true, "gemini": tru
 
 // inContextBrief is true when the brief's Agent: line says in-context.
 func inContextBrief(task string) bool {
-	m := agentLineRe.FindStringSubmatch(task)
+	m := agentLineRe().FindStringSubmatch(task)
 	return m != nil && strings.Contains(strings.ToLower(m[1]), "in-context")
 }
 
 // applyProfile prepends the exact ask command to a Profile: dispatch. deny is a Block
 // for an unknown profile; note is "" when the brief names no profile or the dispatch is already routed.
-func applyProfile(updated map[string]any, promptField, task string) (note string, deny *core.Result) {
+func applyProfile(run *dispatchRun, updated map[string]any, promptField, task string) (note string, deny *core.Result) {
 	p := briefProfile(task)
 	if p == "" {
 		return "", nil
 	}
-	if names, ok := profileNames(); ok && !slices.Contains(names, p) {
+	if names, ok := profileNames(run); ok && !slices.Contains(names, p) {
 		return "", &core.Result{Decision: core.Block, Reason: fmt.Sprintf(
 			"agent-effort: unknown Profile: %q — valid profiles: %s.", p, strings.Join(names, ", "))}
 	}

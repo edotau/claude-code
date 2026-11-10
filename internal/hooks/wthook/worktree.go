@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
@@ -122,29 +123,56 @@ func Mode(in *core.Input) core.Result {
 func Busy(in *core.Input) core.Result {
 	ctx, cancel := core.HookContext("worktree-busy")
 	defer cancel()
+	run := newRun(ctx, in)
 	busy, busyWarn := "", ""
 	if !worktreeModeOff() {
 		var err error
-		busy, err = busyLine(ctx, in)
+		busy, err = busyLine(in, run)
 		if err != nil {
 			busyWarn = fmt.Sprintf("worktree-busy: WARNING — %v", err)
 		}
 	}
-	notes, warn := noticeContext(ctx, in)
+	notes, warn := noticeContext(ctx, in, run)
 	return core.Result{Context: core.JoinContext(busy, notes), Stderr: core.JoinContext(busyWarn, warn)}
 }
 
-// busyLine returns the peer notice and any process-scan or dedupe-state error.
-func busyLine(ctx context.Context, in *core.Input) (string, error) {
-	cwd := in.CWD
-	if cwd == "" {
-		cwd, _ = os.Getwd()
+// checkoutInfo is CheckoutOf's result.
+type checkoutInfo struct {
+	top, branch string
+	nested      []string
+}
+
+// hookRun memoizes one hook run's CheckoutOf and PeersOf for the payload's directory (cwd, else the process's).
+type hookRun struct {
+	dir      string
+	checkout func() checkoutInfo
+	peers    func() ([]worktree.Proc, error)
+}
+
+func newRun(ctx context.Context, in *core.Input) *hookRun {
+	r := &hookRun{dir: in.CWD}
+	if r.dir == "" {
+		r.dir, _ = os.Getwd()
 	}
-	top, branch, nested := CheckoutOf(ctx, cwd)
+	r.checkout = sync.OnceValue(func() checkoutInfo {
+		top, branch, nested := CheckoutOf(ctx, r.dir)
+		return checkoutInfo{top, branch, nested}
+	})
+	r.peers = sync.OnceValues(func() ([]worktree.Proc, error) {
+		c := r.checkout()
+		return PeersOf(ctx, c.top, c.nested)
+	})
+	return r
+}
+
+// busyLine returns the peer notice and any process-scan or dedupe-state error.
+func busyLine(in *core.Input, run *hookRun) (string, error) {
+	c := run.checkout()
+	top, branch := c.top, c.branch
 	if top == "" {
 		return "", nil
 	}
-	peers, err := PeersOf(ctx, top, nested)
+	peers, err := run.peers()
 	if err != nil {
 		return "", fmt.Errorf("scan peers in %s: %w", top, err)
 	}
@@ -154,7 +182,7 @@ func busyLine(ctx context.Context, in *core.Input) (string, error) {
 	}
 	sort.Strings(ids)
 	key := strings.Join(ids, ",")
-	file := filepath.Join(paths.StateDir(), "worktree-busy", paths.Slug(in.SessionID, "", 80, "session"))
+	file := filepath.Join(paths.StateDir(), "worktree-busy", sessionSlug(in.SessionID))
 	if prev, _ := os.ReadFile(file); string(prev) == key {
 		return "", nil
 	}
@@ -236,15 +264,15 @@ func SessionLabel(p worktree.Proc) string {
 }
 
 // gitAnyCmd pre-screens a Bash command for any git invocation: the moment a drained notice matters most.
-var gitAnyCmd = regexp.MustCompile(`\bgit\b`)
+var gitAnyCmd = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bgit\b`) })
 
 // noticeContext drains this session's inbox and adds the divergence line; warn names an infra error (fail open).
-func noticeContext(ctx context.Context, in *core.Input) (text, warn string) {
+func noticeContext(ctx context.Context, in *core.Input, run *hookRun) (text, warn string) {
 	var lines []string
 	for _, n := range worktree.Drain(in.SessionID) {
 		lines = append(lines, fmt.Sprintf("notice (%s, from %s): %s", n.Kind, n.From, n.Text))
 	}
-	line, err := divergedLine(ctx, in)
+	line, err := divergedLine(ctx, in, run)
 	if err != nil {
 		warn = fmt.Sprintf("notices: WARNING — could not check branch divergence (%v); skipped", err)
 	}
@@ -262,16 +290,12 @@ type divergence struct {
 }
 
 // divergedLine names a shared checkout's local/upstream divergence once per (HEAD, upstream) pair; "" otherwise.
-func divergedLine(ctx context.Context, in *core.Input) (string, error) {
-	dir := in.CWD
-	if dir == "" {
-		dir, _ = os.Getwd()
-	}
-	d, err := divergedAt(ctx, dir)
+func divergedLine(ctx context.Context, in *core.Input, run *hookRun) (string, error) {
+	d, err := divergedAt(ctx, run.dir)
 	if d == nil || err != nil {
 		return "", err
 	}
-	shared, err := checkoutShared(ctx, dir)
+	shared, err := checkoutShared(run)
 	if !shared || err != nil {
 		return "", err
 	}
@@ -329,22 +353,22 @@ func bothSides(line string) (ahead, behind int) {
 }
 
 // checkoutShared is true for the live config tree or a checkout a peer session works in.
-func checkoutShared(ctx context.Context, dir string) (bool, error) {
-	top, _, nested := CheckoutOf(ctx, dir)
+func checkoutShared(run *hookRun) (bool, error) {
+	top := run.checkout().top
 	if top == "" {
 		return false, nil
 	}
 	if top == core.CanonPath(paths.ConfigDir()) {
 		return true, nil
 	}
-	peers, err := PeersOf(ctx, top, nested)
+	peers, err := run.peers()
 	return len(peers) > 0, err
 }
 
 // authors names, from the claims ledger, whose commits sit on each side; "" when the ledger knows none.
 func (d *divergence) authors(ctx context.Context, in *core.Input) string {
 	byCommit := map[string]string{}
-	self := paths.Slug(in.SessionID, "", 80, "session")
+	self := sessionSlug(in.SessionID)
 	_ = worktree.ScanClaims(claimAlive, func(pid int, slug string, c worktree.Claim) {
 		if c.Commit != "" {
 			byCommit[c.Commit] = worktree.Label(pid, slug, c.Agent)

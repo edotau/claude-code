@@ -11,7 +11,7 @@ import (
 func stubProfiles(t *testing.T, names []string, ok bool) {
 	t.Helper()
 	old := profileNames
-	profileNames = func() ([]string, bool) { return names, ok }
+	profileNames = func(*dispatchRun) ([]string, bool) { return names, ok }
 	t.Cleanup(func() { profileNames = old })
 }
 
@@ -52,7 +52,7 @@ func TestProfileBriefKeepsTypeIdempotently(t *testing.T) {
 func TestProfileBriefDefaultsToClaudeAsk(t *testing.T) {
 	updated := map[string]any{"subagent_type": "general-purpose", "prompt": "Profile: dbx\ndo it"}
 	stubProfiles(t, []string{"dbx"}, true)
-	note, deny := applyProfile(updated, "prompt", "Profile: dbx\ndo it")
+	note, deny := applyProfile(newDispatchRun(nil), updated, "prompt", "Profile: dbx\ndo it")
 	if deny != nil || strings.Contains(note, "moved to") || updated["subagent_type"] != "general-purpose" || !strings.HasPrefix(updated["prompt"].(string), "Run: claude-code agents ask --agent claude --profile dbx") {
 		t.Fatalf("note=%q deny=%v updated=%v", note, deny, updated)
 	}
@@ -62,7 +62,7 @@ func TestProfileBriefDefaultsToClaudeAsk(t *testing.T) {
 func TestProfileTrailingPeriodIsNotPartOfName(t *testing.T) {
 	stubProfiles(t, []string{"dbx"}, true)
 	updated := map[string]any{"subagent_type": "claude", "prompt": "Profile: dbx.\ndo it"}
-	if note, deny := applyProfile(updated, "prompt", "Profile: dbx.\ndo it"); deny != nil || !strings.Contains(note, "--profile dbx`") {
+	if note, deny := applyProfile(newDispatchRun(nil), updated, "prompt", "Profile: dbx.\ndo it"); deny != nil || !strings.Contains(note, "--profile dbx`") {
 		t.Fatalf("note=%q deny=%v", note, deny)
 	}
 }
@@ -122,7 +122,7 @@ func TestProfileIgnoredForReadOnlyAndInContext(t *testing.T) {
 		"claude-code-guide": "Profile: dbx\nask", "general-purpose": "Agent: in-context\nProfile: dbx\ndo it",
 	} {
 		updated := map[string]any{"subagent_type": kind, "prompt": brief}
-		note, deny := applyProfile(updated, "prompt", brief)
+		note, deny := applyProfile(newDispatchRun(nil), updated, "prompt", brief)
 		if deny != nil || !strings.Contains(note, "ignored") || updated["subagent_type"] != kind || updated["prompt"] != brief {
 			t.Errorf("%s: note=%q deny=%v updated=%v, want type and prompt untouched", kind, note, deny, updated)
 		}

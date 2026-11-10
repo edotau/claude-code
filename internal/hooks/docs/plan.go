@@ -169,11 +169,13 @@ func planHeadings(body []byte) []planHeading {
 }
 
 // planSlugLine matches the template's "Suggested slug: `name`" line (backticks optional).
-var planSlugLine = regexp.MustCompile("(?im)^(?:suggested )?slug:\\s*`?([a-z0-9][a-z0-9-]*)`?\\s*$")
+var planSlugLine = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile("(?im)^(?:suggested )?slug:\\s*`?([a-z0-9][a-z0-9-]*)`?\\s*$")
+})
 
 // planTitle prefers an explicit slug line, else slugs the first heading minus a redundant "Plan:" lead-in.
 func planTitle(plan []byte) string {
-	if m := planSlugLine.FindSubmatch(plan); m != nil {
+	if m := planSlugLine().FindSubmatch(plan); m != nil {
 		return paths.Slug(string(m[1]), "-", 60, "plan")
 	}
 	headings := planHeadings(plan)
@@ -193,6 +195,12 @@ func resolveCWDPath(path, cwd string) string {
 		return filepath.Join(cwd, path)
 	}
 	return path
+}
+
+// draftTarget is tool_input.file_path anchored to cwd; ok reports it names an undated draft.
+func draftTarget(in *core.Input) (path string, ok bool) {
+	path = resolveCWDPath(in.Nested("tool_input", "file_path"), in.CWD)
+	return path, isUndatedDraft(path)
 }
 
 // planDestination picks <date>-<title>.md, then -2.md, … under the repo's plans dir; adopt reuses a
@@ -346,12 +354,8 @@ func Gate(in *core.Input, stderr io.Writer) int {
 	if tool != "" && tool != "write" && tool != "create" {
 		return core.ExitProceed
 	}
-	path := in.Nested("tool_input", "file_path")
-	if path == "" {
-		return core.ExitProceed
-	}
-	path = resolveCWDPath(path, in.CWD)
-	if !isUndatedDraft(path) {
+	path, ok := draftTarget(in)
+	if !ok {
 		return core.ExitProceed
 	}
 	if _, err := os.Stat(path); err == nil {
@@ -419,12 +423,8 @@ func mirrorSource(in *core.Input) (path string, content []byte, ok bool) {
 	if tool != "" && tool != "write" && tool != "edit" && tool != "create" {
 		return "", nil, false
 	}
-	path = in.Nested("tool_input", "file_path")
-	if path == "" {
-		return "", nil, false
-	}
-	path = resolveCWDPath(path, in.CWD)
-	if !isUndatedDraft(path) {
+	path, ok = draftTarget(in)
+	if !ok {
 		return "", nil, false
 	}
 	content, err := os.ReadFile(path)

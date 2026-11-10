@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -43,7 +44,7 @@ func editContents(in *core.Input) (path, before, after string, ok bool) {
 	if path != "" && !filepath.IsAbs(path) && in.CWD != "" {
 		path = filepath.Join(in.CWD, path)
 	}
-	if path == "" || (in.ToolName != "Write" && in.ToolName != "Edit") {
+	if path == "" || (in.ToolName != "Write" && in.ToolName != "Edit") || !reviewableSource(path) {
 		return "", "", "", false
 	}
 	after, ok = readSmallFile(path)
@@ -75,6 +76,17 @@ func editBefore(in *core.Input, after string) (string, bool) {
 	return strings.Replace(after, newStr, oldStr, n), true
 }
 
+// reviewableSource mirrors source.SimplicityFindings's language gate, so other files skip the read and git call.
+func reviewableSource(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	for _, exts := range source.Extensions {
+		if slices.Contains(exts, ext) {
+			return true
+		}
+	}
+	return false
+}
+
 // readSmallFile returns the file's content unless it is unreadable or over simplicityMaxFile.
 func readSmallFile(path string) (string, bool) {
 	if info, err := os.Stat(path); err != nil || info.Size() > simplicityMaxFile {
@@ -87,11 +99,14 @@ func readSmallFile(path string) (string, bool) {
 	return string(data), true
 }
 
+// gitShowHead runs git for gitHeadContent; a test swaps it to count calls.
+var gitShowHead = proc.RunGitRaw
+
 // gitHeadContent is the file at HEAD ("" when untracked or outside a repo); false when git failed for another reason.
 func gitHeadContent(path string) (string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	out, err := proc.RunGitRaw(ctx, filepath.Dir(path), "show", "HEAD:./"+filepath.Base(path))
+	out, err := gitShowHead(ctx, filepath.Dir(path), "show", "HEAD:./"+filepath.Base(path))
 	if err == nil {
 		return out, true
 	}

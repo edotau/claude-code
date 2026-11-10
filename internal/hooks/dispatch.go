@@ -25,10 +25,11 @@ import (
 
 // Bound pairs a declared handler with its Runner.
 type Bound struct {
-	Group string
-	Gate  bool
-	Spec  settings.EventSpec
-	Run   core.Runner
+	Group     string
+	Gate      bool
+	AgentOnly bool
+	Spec      settings.EventSpec
+	Run       core.Runner
 }
 
 // Bind pairs every hookspec handler with its native Runner.
@@ -36,7 +37,7 @@ func Bind() []Bound {
 	var out []Bound
 	for _, g := range settings.Registry {
 		for _, s := range g.Events {
-			out = append(out, Bound{Group: g.Name, Gate: g.Gate, Spec: s, Run: native[s.Name]})
+			out = append(out, Bound{Group: g.Name, Gate: g.Gate, AgentOnly: g.AgentOnly, Spec: s, Run: native[s.Name]})
 		}
 	}
 	return out
@@ -51,13 +52,20 @@ func viaStderr(f func(*core.Input, io.Writer) int) core.Runner {
 	}
 }
 
+// matchers caches each handler matcher compiled once per Dispatch; a matcher that does not compile is nil.
+type matchers map[string]*regexp.Regexp
+
 // matches applies a handler matcher to a tool name; empty matches everything, anchored and case-insensitive.
-func matches(matcher, tool string) bool {
+func (c matchers) matches(matcher, tool string) bool {
 	if matcher == "" {
 		return true
 	}
-	re, err := regexp.Compile(`(?i)^(?:` + matcher + `)$`)
-	return err == nil && tool != "" && re.MatchString(tool)
+	re, seen := c[matcher]
+	if !seen {
+		re, _ = regexp.Compile(`(?i)^(?:` + matcher + `)$`)
+		c[matcher] = re
+	}
+	return re != nil && tool != "" && re.MatchString(tool)
 }
 
 // runBudgeted runs one Runner under its deadline with panic recovery; a panic or overrun is an error.
@@ -152,8 +160,9 @@ func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 	m := &dispatchMerge{log: log}
 	var wg sync.WaitGroup
 	var longest time.Duration
+	match := matchers{}
 	for _, b := range bound {
-		if b.Spec.Event != event || !matches(b.Spec.Matcher, in.ToolName) {
+		if b.Spec.Event != event || !match.matches(b.Spec.Matcher, in.ToolName) {
 			continue
 		}
 		longest = max(longest, b.Spec.Budget)
@@ -196,9 +205,12 @@ func isEvent(name string) bool {
 	return false
 }
 
+// loadHarnessHooks is the vault read behind enabledGroups; a test seam.
+var loadHarnessHooks = settings.LoadHarnessHooks
+
 // enabledGroups reads the user's harnessHooks switches; gate groups are never switched off, errors mean all on.
 func enabledGroups() func(group string, gate bool) bool {
-	sw, err := settings.LoadHarnessHooks()
+	sw, err := loadHarnessHooks()
 	if err != nil {
 		sw = nil
 	}
@@ -214,9 +226,8 @@ func runEvent(event string, all bool, stdin io.Reader, stdout, stderr io.Writer)
 	enabled := enabledGroups()
 	var bound []Bound
 	for _, b := range Bind() {
-		g, _ := settings.GroupOf(b.Spec.Name)
 		switch {
-		case g.AgentOnly, !enabled(b.Group, b.Gate):
+		case b.AgentOnly, !enabled(b.Group, b.Gate):
 		case !all && (b.Gate || b.Spec.Async):
 		case in.Agent() != core.AgentClaude && !slices.Contains(b.Spec.Agents, in.Agent()):
 		default:
@@ -320,12 +331,8 @@ var bareStdout = map[string]bool{
 
 // specOf is the hookspec entry for a module; the zero spec when unknown.
 func specOf(name string) settings.EventSpec {
-	for _, s := range settings.Specs() {
-		if s.Name == name {
-			return s
-		}
-	}
-	return settings.EventSpec{}
+	s, _ := core.SpecOf(name)
+	return s
 }
 
 // eventOf names the hookspec event a handler is declared on.
@@ -353,7 +360,7 @@ func runModule(event, name string, stdin io.Reader, stdout, stderr io.Writer) in
 	if _, ok := native[name]; !ok || eventOf(name) != event {
 		return unknownHook(name, "no module on "+event+" named", stderr)
 	}
-	if g, found := settings.GroupOf(name); found && !enabledGroups()(g.Name, g.Gate) {
+	if g, found := settings.GroupOf(name); found && !g.Gate && !enabledGroups()(g.Name, g.Gate) {
 		return core.ExitProceed
 	}
 	return runDirect(name, stdin, stdout, stderr)

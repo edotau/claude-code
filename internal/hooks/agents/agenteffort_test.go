@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -373,10 +374,10 @@ func runEffortHook(r io.Reader, stdout io.Writer) int {
 func TestLabelCellPinnedModelBeatsRouteCell(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"probe":{"preset":"databricks","host":"https://example.invalid","auth":{"type":"none"}}}}}`)
-	cell := labelCell("codex", "sonnet")
+	cell := labelCell(newDispatchRun(nil), "codex", "sonnet")
 	vaulttest.SetRecord(t, "codex", "profile", "probe")
 	vaulttest.SetRecord(t, "codex", "model", "databricks-gpt-pin")
-	got := labelCell("codex", "sonnet")
+	got := labelCell(newDispatchRun(nil), "codex", "sonnet")
 	if got != "databricks-gpt-pin" {
 		t.Errorf("labelCell(codex) = %q with the pin set (unpinned cell %q), want the pinned model", got, cell)
 	}
@@ -394,5 +395,262 @@ func TestAgentEffortAutoModeRecallRidesContextNotUpdatedInput(t *testing.T) {
 	}
 	if !strings.Contains(res.Context, "memory-recall for this dispatch") {
 		t.Errorf("context = %q, want the recall block", res.Context)
+	}
+}
+
+func labelOf(t *testing.T, subagentType, prompt, desc string) string {
+	t.Helper()
+	stubLabelModels(t, "", "")
+	payload := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"model":"sonnet","prompt":%q,"description":%q}}`,
+		subagentType, prompt, desc)
+	r := agentEffortResult(core.ParseInput(strings.NewReader(payload)))
+	if r.UpdatedInput == nil {
+		return desc
+	}
+	d, _ := r.UpdatedInput["description"].(string)
+	return d
+}
+
+// stubLabelModels makes every vendor leaf's planned model cell (route table) or prof (profile), never live lookups.
+func stubLabelModels(t *testing.T, cell, prof string) {
+	t.Helper()
+	oc, op := labelCell, labelProfileModel
+	t.Cleanup(func() { labelCell, labelProfileModel = oc, op })
+	labelCell = func(*dispatchRun, string, string) string { return cell }
+	labelProfileModel = func(*dispatchRun, string, string) string { return prof }
+}
+
+func TestDispatchAgentLabels(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	prompt := "Agent: gemini → codex\nreview the thing"
+	got := labelOf(t, "claude", prompt, "review thing")
+	if got != "gemini → codex: review thing" {
+		t.Fatalf("label = %q, want %q", got, "gemini → codex: review thing")
+	}
+	// Running twice (the labelled description fed back in) does not double-prefix.
+	if again := labelOf(t, "claude", prompt, got); again != got {
+		t.Errorf("second run = %q, want unchanged %q", again, got)
+	}
+	if got := labelOf(t, "Explore", prompt, "review thing"); got != "sonnet: review thing" {
+		t.Errorf("Explore label = %q, want its own model prefix", got)
+	}
+	cases := []struct{ st, agent, want string }{
+		{"claude", "copilot", "copilot: task"},
+		{"copilot", "claude", "sonnet: task"},
+		{"claude", "claude (in-context)", "sonnet: task"},
+		{"claude", "claude", "sonnet: task"},
+		{"codex", "codex → gemini", "gemini: task"},
+	}
+	// Mode: compare joins with ", "; relay (explicit or absent) keeps the arrow.
+	for _, c := range []struct{ prompt, want string }{
+		{"Mode: compare\nAgent: codex, gemini", "codex, gemini: task"},
+		{"Agent: codex, gemini\nMode: Compare", "codex, gemini: task"},
+		{"Mode: relay\nAgent: codex → gemini", "codex → gemini: task"},
+		{"Agent: codex → gemini", "codex → gemini: task"},
+	} {
+		if got := labelOf(t, "claude", c.prompt, "task"); got != c.want {
+			t.Errorf("prompt %q = %q, want %q", c.prompt, got, c.want)
+		}
+	}
+	for _, c := range cases {
+		if got := labelOf(t, c.st, "do it\nAgent: "+c.agent, "task"); got != c.want {
+			t.Errorf("%s + Agent: %s = %q, want %q", c.st, c.agent, got, c.want)
+		}
+	}
+}
+
+// Descriptions start lowercase and drop a hand-typed prefix that repeats the row's own type, for any subagent type.
+func TestDispatchLabelLowercase(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	lower := []struct{ st, agent, desc, want string }{
+		{"claude", "copilot", "Fix bug", "copilot: fix bug"},
+		{"claude", "copilot", "copilot: Fix bug", "copilot: fix bug"},
+		{"claude", "none", "Exercising live-session cap", "sonnet: exercising live-session cap"},
+		{"claude", "none", "HTTP retry", "sonnet: HTTP retry"},
+		{"claude", "copilot", "CLAUDE.md rewrite", "copilot: CLAUDE.md rewrite"},
+		{"claude", "none", "internal_x fix", "sonnet: internal_x fix"},
+		{"claude", "none", "Fix v2 bug", "sonnet: fix v2 bug"},
+		{"claude", "none", "V2 bug", "sonnet: V2 bug"},
+		{"claude", "none", "Done. Next", "sonnet: done. Next"},
+		{"claude", "none", "claude: RTK hook", "sonnet: RTK hook"},
+		{"copilot", "none", "copilot: repair tests", "sonnet: repair tests"},
+		{"Plan", "none", "Plan: Repo-wide package consolidation", "sonnet: repo-wide package consolidation"},
+	}
+	for _, c := range lower {
+		if got := labelOf(t, c.st, "do it\nAgent: "+c.agent, c.desc); got != c.want {
+			t.Errorf("%s + Agent: %s on %q = %q, want %q", c.st, c.agent, c.desc, got, c.want)
+		}
+	}
+}
+
+// A routed leaf's label names the agent and the model it is planned to run; a Profile: line uses that profile's model.
+func TestDispatchLabelNamesRoutedModel(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	payload := func(prompt string) string {
+		return fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":"codex","model":"sonnet","prompt":%q,"description":"review diff"}}`, prompt)
+	}
+	stubLabelModels(t, "gpt-6.1-sol", "databricks-gpt-6-astra")
+	for prompt, want := range map[string]string{
+		"Agent: codex\nreview":               "gpt-6.1-sol: review diff",
+		"Agent: claude (in-context)\nreview": "sonnet: review diff",
+	} {
+		r := agentEffortResult(core.ParseInput(strings.NewReader(payload(prompt))))
+		if got, _ := r.UpdatedInput["description"].(string); got != want && (want != "review diff" || r.UpdatedInput != nil) {
+			t.Errorf("%q: label = %q, want %q", prompt, got, want)
+		}
+	}
+	// A known profile is validated upstream by applyProfile; the model comes from that profile's alias map.
+	if got := labelModel(newDispatchRun(nil), map[string]any{"model": "sonnet"}, "claude", "Agent: codex\nProfile: qa"); got != "databricks-gpt-6-astra" {
+		t.Errorf("profile model = %q, want the profile's sonnet row", got)
+	}
+}
+
+func TestCoworkerLabels(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stubProfiles(t, []string{"dbx"}, true)
+	stubLabelModels(t, "", "dbx-model")
+	labelCell = func(_ *dispatchRun, agent, alias string) string { return agent + "-" + alias }
+	for _, c := range []struct{ st, prompt, want string }{
+		{"coworker:copilot", "fix x", "copilot-sonnet: task"},
+		{"coworker:copilot", "Agent: codex\nfix x", "copilot-sonnet: task"},
+		{"coworker:opencode", "fix x", "opencode-sonnet: task"},
+		{"coworker", "fix x", "copilot-sonnet: task"},
+		{"coworker", "Agent: opencode\nfix x", "opencode-sonnet: task"},
+		{"coworker:databricks", "Agent: codex\nProfile: dbx\nfix x", "dbx-model: task"},
+	} {
+		payload := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"model":"sonnet","prompt":%q,"description":"task"}}`,
+			c.st, c.prompt)
+		r := agentEffortResult(core.ParseInput(strings.NewReader(payload)))
+		if got, _ := r.UpdatedInput["description"].(string); got != c.want {
+			t.Errorf("%s %q: label = %q, want %q", c.st, c.prompt, got, c.want)
+		}
+	}
+}
+
+func TestDiscoveryHintPredicate(t *testing.T) {
+	old := discoveryPoolSize
+	discoveryPoolSize = func() int { return 6 }
+	t.Cleanup(func() { discoveryPoolSize = old })
+	cases := []struct {
+		name, st, task string
+		want           bool
+	}{
+		{"coworker", "coworker", "do a thing", true},
+		{"coworker:copilot", "coworker:copilot", "do a thing", true},
+		{"coworker:opencode", "coworker:opencode", "do a thing", true},
+		{"coworker:databricks", "coworker:databricks", "do a thing", false},
+		{"copilot", "copilot", "do a thing", true},
+		{"opencode", "opencode", "do a thing", true},
+		{"codex", "codex", "do a thing", false},
+		{"agent opencode", "general-purpose", "Agent: opencode\nedit x", true},
+		{"agent copilot", "general-purpose", "Agent: copilot\nrun tests", true},
+		{"explicit model", "copilot", "run with --model gpt-6 now", false},
+		{"other agent", "general-purpose", "Agent: codex\nreview", false},
+		{"no agent line", "Explore", "look around", false},
+	}
+	for _, c := range cases {
+		got := discoveryHint(c.st, c.task)
+		if (got != "") != c.want {
+			t.Errorf("%s: hint = %q, want hint=%v", c.name, got, c.want)
+		}
+		if got != "" && !strings.Contains(got, "(6 models)") {
+			t.Errorf("%s: hint %q lacks the pool size", c.name, got)
+		}
+	}
+}
+
+// autoDispatch is an auto-mode Agent payload for type st with a pinned model and description desc.
+func autoDispatch(st, desc string) string {
+	return fmt.Sprintf(`{"tool_name":"Agent","permission_mode":"auto","tool_input":{"subagent_type":%q,"model":"sonnet",`+
+		`"prompt":"do it","description":%q}}`, st, desc)
+}
+
+// In auto mode a missing model prefix is denied once with the exact description to resend (tool input is never
+// rewritten there); the resend passes, and outside auto mode the hook rewrites as before.
+func TestDispatchLabelAutoModeDeniesOnce(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stubLabelModels(t, "", "")
+	r := agentEffortResult(core.ParseInput(strings.NewReader(autoDispatch("claude", "fix bug"))))
+	if r.Decision != core.Block || r.UpdatedInput != nil || !strings.Contains(r.Reason, `"sonnet: fix bug"`) {
+		t.Fatalf("unprefixed auto dispatch = %+v, want a Block naming \"sonnet: fix bug\" and no rewrite", r)
+	}
+	r = agentEffortResult(core.ParseInput(strings.NewReader(autoDispatch("claude", "sonnet: fix bug"))))
+	if r.Decision == core.Block {
+		t.Fatalf("resend with the right prefix was blocked: %+v", r)
+	}
+	manual := strings.Replace(autoDispatch("claude", "fix bug"), `"permission_mode":"auto",`, "", 1)
+	r = agentEffortResult(core.ParseInput(strings.NewReader(manual)))
+	if d, _ := r.UpdatedInput["description"].(string); r.Decision == core.Block || d != "sonnet: fix bug" {
+		t.Fatalf("outside auto mode = %+v, want the rewrite", r)
+	}
+}
+
+// An agent-named external leaf is labelled with the model its cell resolves to; a Profile: brief on claude with its profile's.
+func TestDispatchLabelExternalTypeAndProfile(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stubProfiles(t, []string{"qa"}, true)
+	stubLabelModels(t, "gpt-6.1-sol", "databricks-qa-model")
+	for st, c := range map[string]struct{ prompt, want string }{
+		"copilot": {"do it", "gpt-6.1-sol: fix bug"}, "claude": {"Profile: qa\ndo it", "databricks-qa-model: fix bug"},
+	} {
+		payload := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"model":"sonnet","prompt":%q,"description":"fix bug"}}`, st, c.prompt)
+		r := agentEffortResult(core.ParseInput(strings.NewReader(payload)))
+		if d, _ := r.UpdatedInput["description"].(string); d != c.want {
+			t.Errorf("%s label = %q, want %q", st, d, c.want)
+		}
+	}
+}
+
+// An `inherit` agent file labels with the session's model, read from the transcript.
+func TestDispatchLabelInheritUsesSessionModel(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	stubLabelModels(t, "", "")
+	if err := os.MkdirAll(filepath.Join(cfg, "agents"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "agents", "claude.md"), []byte("---\nname: claude\nmodel: inherit\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tx := filepath.Join(t.TempDir(), "session.jsonl")
+	line := `{"type":"assistant","message":{"model":"claude-opus-4-7","usage":{"input_tokens":1,"output_tokens":1}}}` + "\n"
+	if err := os.WriteFile(tx, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	payload := fmt.Sprintf(`{"tool_name":"Agent","transcript_path":%q,"tool_input":{"subagent_type":"claude","prompt":"do it","description":"fix bug"}}`, tx)
+	r := agentEffortResult(core.ParseInput(strings.NewReader(payload)))
+	if d, _ := r.UpdatedInput["description"].(string); d != "claude-opus-4-7: fix bug" {
+		t.Fatalf("description = %q (result %+v), want the session model prefix", d, r)
+	}
+}
+
+// One dispatch-effort run reads the leaf's agent file once and loads the provider registry once, labelling as before.
+func TestAgentEffortReadsRosterAndRegistryOnce(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	file := filepath.Join(cfg, "agents", "worker.md")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("---\nname: worker\nmodel: haiku\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reads, loads := 0, 0
+	origRead, origLoad := readAgentFile, loadRegistry
+	t.Cleanup(func() { readAgentFile, loadRegistry = origRead, origLoad })
+	readAgentFile = func(p string) ([]byte, error) {
+		if p == file {
+			reads++
+		}
+		return origRead(p)
+	}
+	loadRegistry = func() (*providers.Registry, error) {
+		loads++
+		return &providers.Registry{Providers: map[string]*providers.Provider{"dbx": {Models: map[string]string{"haiku": "dbx-haiku"}}}}, nil
+	}
+	payload := `{"tool_name":"Agent","tool_input":{"subagent_type":"worker","prompt":"Profile: dbx\nfix x","description":"fix x"}}`
+	r := agentEffortResult(core.ParseInput(strings.NewReader(payload)))
+	if d, _ := r.UpdatedInput["description"].(string); d != "dbx-haiku: fix x" || reads != 1 || loads != 1 {
+		t.Fatalf("description %q, agent-file reads %d, registry loads %d; want \"dbx-haiku: fix x\", 1, 1", d, reads, loads)
 	}
 }

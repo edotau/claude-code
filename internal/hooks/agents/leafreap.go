@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,7 +24,9 @@ import (
 )
 
 // bgOutputPattern matches the Bash run_in_background result; Monitor results name no output path, so they are not reaped.
-var bgOutputPattern = regexp.MustCompile(`Command running in background with ID: [A-Za-z0-9]+\. Output is being written to: (/[^\s"]+?/tasks/[A-Za-z0-9]+\.output)\.`)
+var bgOutputPattern = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`Command running in background with ID: [A-Za-z0-9]+\. Output is being written to: (/[^\s"]+?/tasks/[A-Za-z0-9]+\.output)\.`)
+})
 
 const reapGrace = 2 * time.Second
 
@@ -51,7 +54,7 @@ func leafOutputFiles(transcript string) []string {
 		if !strings.Contains(line, `"tool_result"`) {
 			return
 		}
-		for _, m := range bgOutputPattern.FindAllStringSubmatch(line, -1) {
+		for _, m := range bgOutputPattern().FindAllStringSubmatch(line, -1) {
 			if !seen[m[1]] {
 				seen[m[1]] = true
 				files = append(files, m[1])

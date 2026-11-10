@@ -1,14 +1,18 @@
 package core
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -18,6 +22,21 @@ var (
 	// CommitLine matches the `[branch sha] subject` line git prints for a landed commit.
 	CommitLine = regexp.MustCompile(`(?m)^\[(?:detached HEAD|[^\]\s]+)(?: \(root-commit\))? ([0-9a-f]{7,40})\] `)
 )
+
+// Git runs git in dir with GIT_* scrubbed: ok=false when git itself refused; err for a missing binary or a timeout.
+func Git(ctx context.Context, dir string, args ...string) (lines []string, ok bool, err error) {
+	out, err := proc.RunGit(ctx, dir, args...)
+	var exit *exec.ExitError
+	switch {
+	case ctx.Err() != nil:
+		return nil, false, ctx.Err()
+	case errors.As(err, &exit):
+		return nil, false, nil
+	case err != nil:
+		return nil, false, err
+	}
+	return strings.Split(strings.TrimSpace(out), "\n"), true, nil
+}
 
 // RepoRootOf climbs from dir's nearest existing ancestor to the first dir holding a `.git` entry, or "".
 func RepoRootOf(dir string) string {

@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"unicode"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
@@ -25,12 +26,38 @@ import (
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
-// labelAgents are the agents a dispatch label may name, and the subagent types that carry one.
+// agentLineRe matches a brief's `Agent:` line; agentNameRe the words in it.
 var (
-	labelAgents = map[string]bool{"claude": true, "codex": true, "copilot": true, "gemini": true, "opencode": true}
-	agentLineRe = regexp.MustCompile(`(?m)^[ \t]*Agent:[ \t]*(.+)$`)
-	agentNameRe = regexp.MustCompile(`[a-z]+`)
+	agentLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]*Agent:[ \t]*(.+)$`) })
+	agentNameRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[a-z]+`) })
 )
+
+// dispatchRun memoizes one hook run's agent-file and provider-registry reads; session is the session's model id.
+type dispatchRun struct {
+	session  func() string
+	roster   map[string]string
+	registry func() (*providers.Registry, error)
+}
+
+// Per-run read seams: tests count them; production reads the roster file and the provider registry.
+var (
+	readAgentFile = os.ReadFile
+	loadRegistry  = providers.Load
+)
+
+func newDispatchRun(session func() string) *dispatchRun {
+	return &dispatchRun{session: session, roster: map[string]string{}, registry: sync.OnceValues(loadRegistry)}
+}
+
+// rosterModel is rosterModel(name), read once per run.
+func (r *dispatchRun) rosterModel(name string) string {
+	m, ok := r.roster[name]
+	if !ok {
+		m = rosterModel(name)
+		r.roster[name] = m
+	}
+	return m
+}
 
 // agentEffortResult is the pin step as a Result: a spawn gets one UpdatedInput (model pin, recall block, label);
 // a Workflow gets the former workflow-lint rewrite or a Block.
@@ -52,14 +79,15 @@ func agentEffortResult(in *core.Input) core.Result {
 
 	// auto mode's classifier returns no verdict on a rewritten call, so non-functional edits ride additionalContext
 	auto := in.Nested("permission_mode") == "auto"
-	e := &effortPlan{updated: updated}
+	session := func() string { u, _ := transcript.LastUsage(in.TranscriptPath); return u.Model }
+	e := &effortPlan{updated: updated, run: newDispatchRun(session)}
 	recallNote := e.recall(in, promptField, task, auto)
-	e.note, e.systemMessage = pinModel(in, updated, task)
+	e.note, e.systemMessage = pinModel(e.run, in, updated, task)
 	e.changed = e.changed || e.note != ""
 	if deny := e.profile(promptField, task); deny != nil {
 		return *deny
 	}
-	if deny := e.label(in, task, auto); deny != nil {
+	if deny := e.label(task, auto); deny != nil {
 		return *deny
 	}
 	e.discovery(in, task, auto)
@@ -77,6 +105,7 @@ func spawnTask(in *core.Input) (field, task string) {
 
 // effortPlan accumulates agentEffortResult's rewrite of one spawn: the new tool_input and the notes to surface.
 type effortPlan struct {
+	run           *dispatchRun
 	updated       map[string]any
 	note          string
 	systemMessage string
@@ -99,7 +128,7 @@ func (e *effortPlan) recall(in *core.Input, promptField, task string, auto bool)
 
 // profile applies a brief's Profile: line; a non-nil result denies the dispatch.
 func (e *effortPlan) profile(promptField, task string) *core.Result {
-	profileNote, deny := applyProfile(e.updated, promptField, task)
+	profileNote, deny := applyProfile(e.run, e.updated, promptField, task)
 	if deny != nil {
 		return deny
 	}
@@ -111,14 +140,13 @@ func (e *effortPlan) profile(promptField, task string) *core.Result {
 
 // label puts the model the dispatch runs on first in its description: a rewrite normally, a one-time deny in auto
 // mode, where a rewritten tool input is rejected by the classifier.
-func (e *effortPlan) label(in *core.Input, task string, auto bool) *core.Result {
-	session := func() string { u, _ := transcript.LastUsage(in.TranscriptPath); return u.Model }
+func (e *effortPlan) label(task string, auto bool) *core.Result {
 	if !auto {
-		e.changed = applyLabel(e.updated, task, session) || e.changed
+		e.changed = applyLabel(e.run, e.updated, task) || e.changed
 		return nil
 	}
 	probe := maps.Clone(e.updated)
-	if !applyLabel(probe, task, session) {
+	if !applyLabel(e.run, probe, task) {
 		return nil
 	}
 	return &core.Result{Decision: core.Block, Reason: fmt.Sprintf("agent-effort: the description must start with the model the "+
@@ -143,14 +171,14 @@ func (e *effortPlan) result() core.Result {
 }
 
 // applyLabel prefixes the description with the agents doing the work, minus the leaf's own type.
-func applyLabel(updated map[string]any, task string, session func() string) bool {
+func applyLabel(run *dispatchRun, updated map[string]any, task string) bool {
 	st, _ := updated["subagent_type"].(string)
 	orig, _ := updated["description"].(string)
 	desc := orig
 	if rest, ok := strings.CutPrefix(desc, st+":"); ok { // a hand-typed own-type prefix ("Plan: …") repeats the row
 		desc = strings.TrimSpace(rest)
 	}
-	label, desc := leafLabel(updated, st, task, desc, session)
+	label, desc := leafLabel(run, updated, st, task, desc)
 	out, ok := labelled(label, desc)
 	if !ok || out == orig {
 		return false
@@ -160,19 +188,19 @@ func applyLabel(updated map[string]any, task string, session func() string) bool
 }
 
 // leafLabel picks the prefix: a harness leaf's agents resolved to their model, else the leaf's own model.
-func leafLabel(updated map[string]any, st, task, desc string, session func() string) (string, string) {
-	label, compare := harnessLabel(st, task), modeCompareRe.MatchString(task)
+func leafLabel(run *dispatchRun, updated map[string]any, st, task, desc string) (string, string) {
+	label, compare := harnessLabel(st, task), modeCompareRe().MatchString(task)
 	if label != "" && !compare {
-		desc = cutLabel(desc, label)                     // a hand-typed or earlier unsuffixed label
-		if m := labelModel(updated, st, task); m != "" { // the model id alone says where the work runs
+		desc = cutLabel(desc, label)                          // a hand-typed or earlier unsuffixed label
+		if m := labelModel(run, updated, st, task); m != "" { // the model id alone says where the work runs
 			return m, cutLabel(desc, m)
 		}
 		return label, desc
 	}
 	if label == "" && !compare && strings.TrimSpace(desc) != "" { // every other leaf leads with its own model
-		m := ownModel(updated, st, session)
+		m := ownModel(run, updated, st)
 		if routedOwn(st, task) { // an external agent or a Profile: runs on its own cell, not the dispatch alias
-			m = labelModel(updated, st, task)
+			m = labelModel(run, updated, st, task)
 		}
 		if m != "" {
 			return m, cutLabel(desc, m)
@@ -212,25 +240,25 @@ func labelled(label, desc string) (string, bool) {
 }
 
 // ownModel is the dispatch's model, else the agent file's, else (also for `inherit`) the session's; "" labels nothing.
-func ownModel(updated map[string]any, st string, session func() string) string {
+func ownModel(run *dispatchRun, updated map[string]any, st string) string {
 	m, _ := updated["model"].(string)
 	if m == "" || m == "inherit" {
-		m = rosterModel(st)
+		m = run.rosterModel(st)
 	}
 	if m == "" || m == "inherit" {
-		return session()
+		return run.session()
 	}
 	return m
 }
 
 // routedOwn is true when the leaf runs on an external agent by its own type or on a Profile: the brief applies.
 func routedOwn(st, task string) bool {
-	return externalTypes[st] || coworkerAgents[st] != "" || profileApplies(st, task)
+	return pinnedAgentType(st) || profileApplies(st, task)
 }
 
 // typeAgent is the agent a leaf type runs on when its brief names none: an agent-named type, else a coworker's default.
 func typeAgent(st string) string {
-	if labelAgents[st] {
+	if labelAgent(st) {
 		return st
 	}
 	return coworkerAgents[st]
@@ -242,11 +270,11 @@ func profileApplies(st, task string) bool {
 }
 
 // modeCompareRe matches a `Mode: compare` line in a brief.
-var modeCompareRe = regexp.MustCompile(`(?im)^\s*Mode:\s*compare\b`)
+var modeCompareRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?im)^\s*Mode:\s*compare\b`) })
 
 // agentLabel is the "a → b" (relay) or "a, b" (`Mode: compare`) label the `Agent:` line earns, or "" when there is none.
 func agentLabel(st, task string) string {
-	m := agentLineRe.FindStringSubmatch(task)
+	m := agentLineRe().FindStringSubmatch(task)
 	if m == nil && briefProfile(task) == "" {
 		return ""
 	}
@@ -256,7 +284,7 @@ func agentLabel(st, task string) string {
 			names = append(names, w)
 		}
 	}
-	if modeCompareRe.MatchString(task) { // a compare fans out in parallel: names, not a chain
+	if modeCompareRe().MatchString(task) { // a compare fans out in parallel: names, not a chain
 		return profileSuffix(strings.Join(names, ", "), task)
 	}
 	return profileSuffix(strings.Join(names, " → "), task)
@@ -282,12 +310,12 @@ func lowerFirst(desc string) string {
 
 // pinModel fills updated["model"] from the classifier when the dispatch left it unset,
 // and returns the model note and visible reason ("" when nothing was pinned).
-func pinModel(in *core.Input, updated map[string]any, task string) (note, systemMessage string) {
+func pinModel(run *dispatchRun, in *core.Input, updated map[string]any, task string) (note, systemMessage string) {
 	// An explicit model is a deliberate choice by whoever dispatched — never second-guess it.
 	// `inherit` is not one of those: it is the default spelling for "unset", and honoring it ran
 	// every unpinned spawn on the parent session's model. The roster's own pin outranks every
 	// decision too: a model-pinned agent already carries its tier.
-	if explicitModel(in) || task == "" || agentPinsModel(in.Nested("tool_input", "subagent_type")) {
+	if explicitModel(in) || task == "" || agentPinsModel(run, in.Nested("tool_input", "subagent_type")) {
 		return "", ""
 	}
 	tier, signal := router.EffortTierSignal(task)
@@ -324,7 +352,7 @@ func rosterModel(name string) string {
 	if !ok {
 		return ""
 	}
-	raw, err := os.ReadFile(file)
+	raw, err := readAgentFile(file)
 	if err != nil {
 		return ""
 	}
@@ -335,28 +363,28 @@ func rosterModel(name string) string {
 
 // agentPinsModel reports whether the named subagent's frontmatter sets any model, `inherit` included (it
 // asks for the session model). No roster file = a built-in, the classifier applies; a path-shaped name is refused.
-func agentPinsModel(name string) bool {
+func agentPinsModel(run *dispatchRun, name string) bool {
 	if name == "" {
 		return false // no subagent_type = a fresh general-purpose agent, nothing to defer to
 	}
 	if _, ok := agentFile(name); !ok {
 		return true // path-shaped input is not a roster name; refuse to touch the dispatch
 	}
-	return rosterModel(name) != "" // no roster file = a built-in (Explore/Plan), the classifier may apply
+	return run.rosterModel(name) != "" // no roster file = a built-in (Explore/Plan), the classifier may apply
 }
 
 // labelModel is the model id a leaf is planned to run: the Claude pin in-context, else the profile's or route table's
 // model for its last agent at the leaf's tier; "" when unknown (the label falls back to the agent name).
-func labelModel(updated map[string]any, st, task string) string {
+func labelModel(run *dispatchRun, updated map[string]any, st, task string) string {
 	alias, _ := updated["model"].(string)
 	if alias == "" {
-		alias = rosterModel(st)
+		alias = run.rosterModel(st)
 	}
 	names, p := briefAgents(task), ""
 	if profileApplies(st, task) {
 		p = briefProfile(task)
 	}
-	if own := typeAgent(st); own != "" && (agentLineRe.FindString(task) == "" || coworkerPin(st) != "") {
+	if own := typeAgent(st); own != "" && (agentLineRe().FindString(task) == "" || coworkerPin(st) != "") {
 		names = []string{own} // no Agent: line (or a pinned coworker) runs on the type's own agent
 	}
 	if len(names) == 0 || names[len(names)-1] == "claude" && p == "" {
@@ -366,9 +394,9 @@ func labelModel(updated map[string]any, st, task string) string {
 		alias = models.Sonnet
 	}
 	if p != "" {
-		return labelProfileModel(p, alias)
+		return labelProfileModel(run, p, alias)
 	}
-	return labelCell(names[len(names)-1], alias)
+	return labelCell(run, names[len(names)-1], alias)
 }
 
 // Label lookups are seams: tests stub them so a dispatch label never reads the live vault or route table.
@@ -377,8 +405,8 @@ var (
 	labelCell         = cellModelFor
 )
 
-func profileModelFor(profile, alias string) string {
-	reg, err := providers.Load()
+func profileModelFor(run *dispatchRun, profile, alias string) string {
+	reg, err := run.registry()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "agent-effort label: %v\n", err)
 		return ""
@@ -389,7 +417,7 @@ func profileModelFor(profile, alias string) string {
 	return models.Strip1M(reg.Providers[profile].Models[alias])
 }
 
-func cellModelFor(agent, alias string) string {
+func cellModelFor(run *dispatchRun, agent, alias string) string {
 	t, err := router.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "agent-effort label: %v\n", err)
@@ -405,7 +433,7 @@ func cellModelFor(agent, alias string) string {
 	if pin.Profile == "" && pin.Model == "" {
 		return c.Model
 	}
-	reg, err := providers.Load()
+	reg, err := run.registry()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "agent-effort label: %v\n", err)
 		return c.Model
@@ -424,7 +452,7 @@ func discoveryHint(st, task string) string {
 		return ""
 	}
 	hit := st == "copilot" || st == "opencode" || st == "coworker" || coworkerPin(st) != ""
-	for _, w := range agentNameRe.FindAllString(agentLabel(st, task), -1) {
+	for _, w := range agentNameRe().FindAllString(agentLabel(st, task), -1) {
 		hit = hit || w == "copilot" || w == "opencode"
 	}
 	if !hit {
