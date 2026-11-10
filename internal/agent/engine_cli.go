@@ -136,7 +136,7 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 	if own {
 		p.Env, p.Argv, err = v.OwnLogin(h)
 	} else {
-		p.Env, p.Argv, err = s.configureHeadless(ctx, ct, h)
+		p.Env, p.Argv, err = s.ConfigureHeadless(ctx, ct, h)
 	}
 	if err != nil {
 		return p, retry.Fatal(name, err)

@@ -78,7 +78,7 @@ func ownLoginAccount(agentName, account string) bool {
 func explicitAccount(r Engine, req RunOptions) (string, string) {
 	if l, ok := r.(HubEngine); ok {
 		p := l.HubProvider()
-		if hub.OwnPlan(p.OpencodeID) {
+		if hub != nil && hub.OwnPlan(p.OpencodeID) {
 			return "opencode·go", router.BillSubscription
 		}
 		return p.Account(), router.DefaultBilling(p)
@@ -114,6 +114,9 @@ func hubDispatchFor(reg *providers.Registry, cell string) (Engine, string, error
 	id, model, ok := strings.Cut(cell, "/")
 	if !ok || reg == nil {
 		return nil, "", fmt.Errorf("cell %q is not <opencodeID>/<model>", cell)
+	}
+	if hub == nil {
+		return nil, "", errNoHub
 	}
 	var first *providers.Provider
 	for _, name := range reg.Names() {

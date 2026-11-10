@@ -15,6 +15,7 @@ import (
 
 // A registry that fails to load is announced on stderr instead of silently dropping wire-model and hub handling.
 func TestRouteChainWarnsWhenRegistryFailsToLoad(t *testing.T) {
+	registryWarnOnce = sync.Once{} // the warning prints once per process; reset so -count>1 sees it again
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", "{not json")
 	r, w, err := os.Pipe()
