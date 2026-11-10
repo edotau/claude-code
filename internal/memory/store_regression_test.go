@@ -68,3 +68,27 @@ func TestInitLeavesNoTempFile(t *testing.T) {
 		t.Errorf("Init left temp files behind: %v", m)
 	}
 }
+
+// HasBank resolves root's bank dir once, not per typed file; an unreadable origin read is never memoised.
+func TestHasBankResolvesDirOnce(t *testing.T) {
+	tempConfig(t)
+	resetVaultRetry(t)
+	repo := gitRepo(t, t.TempDir(), "project")
+	if _, err := EnsureRepoDir(repo); err != nil {
+		t.Fatal(err)
+	}
+	orig, reads := originRows, 0
+	originRows = func() (map[string]string, error) { reads++; return nil, errors.New("vault unreadable") }
+	t.Cleanup(func() { originRows = orig; repoDirsMemo.reset() })
+	repoDirsMemo.reset()
+	if HasBank(repo) {
+		t.Fatal("HasBank = true on a bank-less root")
+	}
+	if reads != 1 {
+		t.Errorf("HasBank read origins %d times, want 1 (one Dir resolution)", reads)
+	}
+	write(t, filepath.Join(Dir(repo), "progress.md"), "# Progress\n")
+	if !HasBank(repo) {
+		t.Error("HasBank = false with a typed file in the bank")
+	}
+}

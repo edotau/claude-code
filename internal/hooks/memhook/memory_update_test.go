@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
@@ -501,47 +500,6 @@ func TestCountSubagentEditsHandlesGlobError(t *testing.T) {
 	edits2, _ := subagentEdits(tr, 0, 0, true)
 	if edits2 != 3 {
 		t.Errorf("subagentEdits after adding agent files = %d, want 3", edits2)
-	}
-}
-
-// TestDoctorNoticeTruncationPreservesUTF8: doctorNotice must truncate by rune count,
-// not byte count, to avoid splitting multi-byte UTF-8 characters. Regression test for
-// defect where truncation at notice[:200] could produce invalid UTF-8.
-func TestDoctorNoticeTruncationPreservesUTF8(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	stateDir := memory.StateDir()
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	noticePath := memory.DoctorNoticePath("")
-
-	// Build a notice with multi-byte UTF-8 chars that will span the 200-byte boundary.
-	// Each "Aé中国" iteration = 11 bytes, 4 runes. To hit a boundary in the middle,
-	// we craft a string that lands a multi-byte char right at byte 200.
-	// Input: 140 bytes of mostly ASCII, then characters with varying byte lengths.
-	notice := strings.Repeat("A", 196) + "中" // "中" is 3 bytes, so 196+3 = 199; still valid
-	notice = notice + "国"                    // "国" is 3 bytes, so 199+3 = 202; truncation at 200 would split it
-	if err := os.WriteFile(noticePath, []byte(notice), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	// Call doctorNotice and verify the result is valid UTF-8.
-	got := doctorNotice("")
-	if !strings.HasPrefix(got, " memory review: ") {
-		t.Fatalf("doctorNotice prefix not found: %q", got)
-	}
-
-	// Strip the prefix and suffix to get just the truncated notice.
-	truncated := strings.TrimPrefix(strings.TrimSuffix(got, "."), " memory review: ")
-
-	// Verify the truncated notice is valid UTF-8.
-	if !utf8.ValidString(truncated) {
-		t.Errorf("truncated notice is invalid UTF-8: %q (bytes: %v)", truncated, []byte(truncated))
-	}
-
-	// Verify truncation happened and result is roughly 200 chars or less (when counted as runes).
-	if len(truncated) > 300 {
-		t.Errorf("truncation did not work: result is %d bytes", len(truncated))
 	}
 }
 

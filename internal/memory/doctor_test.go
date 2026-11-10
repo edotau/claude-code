@@ -15,6 +15,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -512,9 +513,9 @@ func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 
 func TestLogAccessRedactsCredentialShapedReason(t *testing.T) {
 	dir := t.TempDir()
-	logAccess(dir, time.Now(), "aa11bb22", "leaked sk-abcdefghijklmnop in reason")
+	logAccess(dir, time.Now(), "aa11bb22", "leaked sk-abcdefghijklmnopqrstuvwx in reason")
 	data := mustRead(t, filepath.Join(dir, accessLogFile))
-	if strings.Contains(data, "sk-abcdefghijklmnop") {
+	if strings.Contains(data, "sk-abcdefghijklmnopqrstuvwx") {
 		t.Error("a credential-shaped reason must be redacted, not logged verbatim")
 	}
 	if !strings.Contains(data, "redacted") {
@@ -631,5 +632,28 @@ func TestDoctorReadsEachBankFileOnce(t *testing.T) {
 		if n != 1 {
 			t.Errorf("doctor read %s %d times, want once", p, n)
 		}
+	}
+}
+
+// DoctorNotice truncates by rune, never splitting a multi-byte character at the 200 boundary.
+func TestDoctorNoticeTruncationPreservesUTF8(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := os.MkdirAll(StateDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	notice := strings.Repeat("A", 196) + "中" + "国" // 202 bytes: a byte cut at 200 splits "国"
+	if err := os.WriteFile(DoctorNoticePath(""), []byte(notice), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := DoctorNotice("")
+	if !strings.HasPrefix(got, " memory review: ") {
+		t.Fatalf("DoctorNotice prefix not found: %q", got)
+	}
+	truncated := strings.TrimPrefix(strings.TrimSuffix(got, "."), " memory review: ")
+	if !utf8.ValidString(truncated) {
+		t.Errorf("truncated notice is invalid UTF-8: %q (bytes: %v)", truncated, []byte(truncated))
+	}
+	if len(truncated) > 300 {
+		t.Errorf("truncation did not work: result is %d bytes", len(truncated))
 	}
 }

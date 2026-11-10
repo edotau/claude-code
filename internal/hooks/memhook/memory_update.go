@@ -44,7 +44,7 @@ var sidecarLockWait = 2 * time.Second
 // sessionUpdate (Stop) dispatches a detached `memory update` once a session has substantive work; with no spawn possible it blocks at most updateMaxBlocks times asking for `claude-code memory update`.
 func sessionUpdate(in *core.Input, stderr io.Writer) (code int, failedOpen bool) {
 	in = AgentInput(sessionRootInput(in))
-	refreshEmbeddings(in.CWD)
+	memory.RefreshStaleEmbeddings(in.CWD)
 	if !updatable(in) {
 		return core.ExitProceed, false
 	}
@@ -58,7 +58,7 @@ func sessionUpdate(in *core.Input, stderr io.Writer) (code int, failedOpen bool)
 // End (SessionEnd) updates the final state when total work crosses the floor and exceeds the last dispatch's count.
 func End(in *core.Input) core.Result {
 	in = AgentInput(sessionRootInput(in))
-	refreshEmbeddings(in.CWD)
+	memory.RefreshStaleEmbeddings(in.CWD)
 	if !updatable(in) {
 		return core.Result{}
 	}
@@ -458,17 +458,4 @@ func dispatchUpdate(in *core.Input, trigger string, work int, now time.Time) boo
 		spawnIdleWatcher(in)
 	}
 	return true
-}
-
-// refreshEmbeddings schedules only stale vector mints; no endpoint work runs in the hook.
-func refreshEmbeddings(cwd string) {
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-	if memory.IsUpdateChild() || !memory.HasBank(cwd) {
-		return
-	}
-	if profile := memory.EmbedProfile(); profile != "" {
-		memory.RefreshEmbeddings(cwd, profile, time.Now())
-	}
 }

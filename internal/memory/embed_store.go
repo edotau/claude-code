@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"go.etcd.io/bbolt"
@@ -369,12 +368,21 @@ func embedBackedOff(profile string, now time.Time) bool {
 
 // spawnEmbedRefresh uses the mint-only index path so automatic refresh never settles the bank.
 func spawnEmbedRefresh(root, profile string) bool {
-	self, err := os.Executable()
-	if err != nil {
-		return false
-	}
 	args := []string{"memory", "index", "--mint-only", "--repo", root}
-	return proc.SpawnDetached(self, args, root, nil, providers.EnvSessionProfile+"="+profile, UpdateChildEnv+"=1")
+	return spawnSelf(args, root, "", providers.EnvSessionProfile+"="+profile, UpdateChildEnv+"=1")
+}
+
+// RefreshStaleEmbeddings schedules only stale vector mints; no endpoint work runs in the hook.
+func RefreshStaleEmbeddings(cwd string) {
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	if IsUpdateChild() || !HasBank(cwd) {
+		return
+	}
+	if profile := EmbedProfile(); profile != "" {
+		RefreshEmbeddings(cwd, profile, time.Now())
+	}
 }
 
 func hitHash(h SearchHit) string { return textHash(h.File + "\x00" + h.Block) }

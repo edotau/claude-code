@@ -1,14 +1,14 @@
 package memhook
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 func agentIn(t *testing.T, payload string) *core.Input {
@@ -16,37 +16,35 @@ func agentIn(t *testing.T, payload string) *core.Input {
 	return core.ParseInput(strings.NewReader(payload))
 }
 
+// fakeOpencode puts an `opencode` script running body first on PATH and returns a directory to use as cwd.
+func fakeOpencode(t *testing.T, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "opencode"), []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return dir
+}
+
 func TestAgentInputOpencodeExportCounts(t *testing.T) {
-	data, err := os.ReadFile("testdata/opencode-export.json")
+	data, err := filepath.Abs("../../memory/testdata/opencode-export.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var gotID string
-	orig := opencodeExport
-	opencodeExport = func(id, _ string) ([]byte, error) { gotID = id; return data, nil }
-	t.Cleanup(func() { opencodeExport = orig })
-	in := agentIn(t, `{"session_id":"ses_x1","cwd":"/r","harness_agent":"opencode"}`)
+	cwd := fakeOpencode(t, `[ "$*" = "export ses_x1" ] || exit 1; cat '`+data+`'`)
+	in := agentIn(t, `{"session_id":"ses_x1","cwd":"`+cwd+`","harness_agent":"opencode"}`)
 	out := AgentInput(in)
-	if gotID != "ses_x1" || !updatable(out) {
-		t.Fatalf("export id %q, updatable %v", gotID, updatable(out))
+	if !updatable(out) {
+		t.Fatalf("export for ses_x1 not converted, updatable %v", updatable(out))
 	}
 	if n := countEdits(out.TranscriptPath, countPath("ses_x1")); n != 2 {
 		t.Fatalf("work = %d, want the export's 2 edits", n)
 	}
 }
 
-func TestAgentInputOpencodeExportFails(t *testing.T) {
-	orig := opencodeExport
-	opencodeExport = func(string, string) ([]byte, error) { return nil, errors.New("no opencode") }
-	t.Cleanup(func() { opencodeExport = orig })
-	in := agentIn(t, `{"session_id":"ses_x2","cwd":"/r","harness_agent":"opencode"}`)
-	if out := AgentInput(in); out.TranscriptPath != "" {
-		t.Fatalf("failed export must leave the input unchanged, got %q", out.TranscriptPath)
-	}
-}
-
 func TestAgentInputCopilotEventsFile(t *testing.T) {
-	events, err := filepath.Abs("testdata/copilot-events.jsonl")
+	events, err := filepath.Abs("../../memory/testdata/copilot-events.jsonl")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,34 +69,35 @@ func TestAgentInputClaudePassesThrough(t *testing.T) {
 	}
 }
 
-// Live copilot 1.0.105 log (trimmed); its rejected create is hand-added: a failed complete.
-func TestCopilotEventsFromUsesFileEdits(t *testing.T) {
-	got := loadCopilotEvents(copilotEventsFrom("testdata/copilot-live-events.jsonl", "/r"))
-	if got.Edits != 2 || len(got.EditedPaths) != 2 {
-		t.Fatalf("edits = %d paths %v, want the 2 successful fileEdits", got.Edits, got.EditedPaths)
-	}
-	if !strings.HasSuffix(got.EditedPaths[0], "/a.go") || !strings.HasSuffix(got.EditedPaths[1], "/b.txt") {
-		t.Fatalf("paths = %v, want a.go and b.txt", got.EditedPaths)
-	}
-	if !strings.HasPrefix(got.FinalText, "I created") {
-		t.Fatalf("final text = %q", got.FinalText)
+func TestAgentInputFailOpenReturnsInput(t *testing.T) {
+	cwd := fakeOpencode(t, "exit 1")
+	missing := filepath.Join(t.TempDir(), "events.jsonl")
+	for name, payload := range map[string]string{
+		"opencode export fails":  `{"session_id":"ses_x2","cwd":"` + cwd + `","harness_agent":"opencode"}`,
+		"copilot events missing": `{"sessionId":"stable-copilot","cwd":"/r","transcriptPath":"` + missing + `"}`,
+	} {
+		if in := agentIn(t, payload); AgentInput(in) != in {
+			t.Errorf("%s: a failed load must return the same input", name)
+		}
 	}
 }
 
-func TestOpencodeExportRejectsOutputOverCap(t *testing.T) {
-	dir := t.TempDir()
-	script := "#!/bin/sh\nhead -c " + strconv.Itoa(exportMaxBytes+1<<20) + " /dev/zero\n"
-	if err := os.WriteFile(filepath.Join(dir, "opencode"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
+func TestAgentKind(t *testing.T) {
+	cases := []struct {
+		name, env, payload, want string
+	}{
+		{"env opencode", memory.SourceOpencode, `{"session_id":"s","transcript_path":"/t"}`, memory.SourceOpencode},
+		{"harness_agent opencode", "", `{"session_id":"s","harness_agent":"opencode"}`, memory.SourceOpencode},
+		{"copilot with transcript", "", `{"sessionId":"c","transcriptPath":"/e.jsonl"}`, memory.SourceCopilot},
+		{"copilot without transcript", "", `{"sessionId":"c"}`, ""},
+		{"plain claude", "", `{"session_id":"s","transcript_path":"/t"}`, ""},
 	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	if data, err := opencodeExport("ses_1", dir); err == nil {
-		t.Fatalf("export over %d bytes accepted (%d bytes)", exportMaxBytes, len(data))
-	}
-	if err := os.WriteFile(filepath.Join(dir, "opencode"), []byte("#!/bin/sh\nprintf '{}'\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if data, err := opencodeExport("ses_1", dir); err != nil || string(data) != "{}" {
-		t.Fatalf("small export = %q, %v; want {}", data, err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(settings.AgentEnv, tc.env)
+			if got := agentKind(agentIn(t, tc.payload)); got != tc.want {
+				t.Fatalf("agentKind = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

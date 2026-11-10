@@ -1,4 +1,4 @@
-package memhook
+package memory
 
 import (
 	"encoding/json"
