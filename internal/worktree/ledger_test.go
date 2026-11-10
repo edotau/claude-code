@@ -3,13 +3,14 @@ package worktree
 import (
 	"bytes"
 	"errors"
-	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func ledgerFile(t *testing.T, main, name string) string {

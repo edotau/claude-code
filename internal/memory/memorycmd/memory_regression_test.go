@@ -1,12 +1,13 @@
 package memorycmd
 
 import (
-	"github.com/edotau/claude-code/internal/memory"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/memory"
 
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/hosttest"

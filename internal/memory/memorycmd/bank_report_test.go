@@ -2,10 +2,11 @@ package memorycmd
 
 import (
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/memory"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/memory"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/hosttest/gittest"

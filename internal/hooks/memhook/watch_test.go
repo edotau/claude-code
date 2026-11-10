@@ -2,7 +2,6 @@ package memhook
 
 import (
 	"bytes"
-	"github.com/edotau/claude-code/internal/memory"
 	"io"
 	"os"
 	"os/exec"
@@ -10,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memory"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 )

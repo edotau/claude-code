@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"github.com/edotau/claude-code/internal/memory"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memory"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"

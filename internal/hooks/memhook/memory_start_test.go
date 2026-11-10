@@ -2,13 +2,14 @@ package memhook
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/memory"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memory"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"

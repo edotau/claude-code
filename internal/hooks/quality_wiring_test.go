@@ -3,13 +3,14 @@ package hooks
 import (
 	"bytes"
 	"fmt"
-	"github.com/edotau/claude-code/internal/memory"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/memory"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/memhook/memhooktest"

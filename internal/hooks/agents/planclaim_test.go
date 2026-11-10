@@ -2,13 +2,14 @@ package agents
 
 import (
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/memory"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/memory"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/plans"
