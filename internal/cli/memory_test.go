@@ -1126,16 +1126,8 @@ func TestMemoryReviewRepoStoreName(t *testing.T) {
 	if want := "local bank untouched since " + stale.Format("2006-01-02"); code != 0 || !strings.Contains(out, want) {
 		t.Fatalf("memory review --repo %s: code=%d stdout=%q stderr=%q, want %q", name, code, out, stderr, want)
 	}
-	before := treeNames(t, cfg)
 	for _, args := range [][]string{{"review", "--repo", "nosuch"}, {"review", "--repo", "nosuch", "--notice"}} {
-		code, out, stderr = hosttest.CaptureOutput(t, func() int { return cmdMemory(args, nil) })
-		if code != 1 || out != "" || !strings.Contains(stderr, `"nosuch"`) ||
-			!strings.Contains(stderr, "known stores: "+name+", "+filepath.Base(memory.Dir(b))) {
-			t.Errorf("memory %v: code=%d stdout=%q stderr=%q, want exit 1 naming known stores", args, code, out, stderr)
-		}
-	}
-	if after := treeNames(t, cfg); !slices.Equal(before, after) {
-		t.Errorf("an unknown --repo wrote files: before=%v after=%v", before, after)
+		checkMemoryUnknownRepo(t, cfg, args, name, filepath.Base(memory.Dir(b)))
 	}
 }
 
@@ -1159,11 +1151,16 @@ func TestMemoryTimelineRepoStoreName(t *testing.T) {
 	if code != 0 || out != want || stderr != "" {
 		t.Fatalf("memory timeline --repo %s: code=%d stdout=%q stderr=%q, want %q", name, code, out, stderr, want)
 	}
+	checkMemoryUnknownRepo(t, cfg, []string{"timeline", "--repo", "nosuch"}, name, filepath.Base(memory.Dir(b)))
+}
+
+func checkMemoryUnknownRepo(t *testing.T, cfg string, args []string, knownStores ...string) {
+	t.Helper()
 	before := treeNames(t, cfg)
-	code, out, stderr = hosttest.CaptureOutput(t, func() int { return cmdMemory([]string{"timeline", "--repo", "nosuch"}, nil) })
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemory(args, nil) })
 	if code != 1 || out != "" || !strings.Contains(stderr, `"nosuch"`) ||
-		!strings.Contains(stderr, "known stores: "+name+", "+filepath.Base(memory.Dir(b))) {
-		t.Errorf("memory timeline --repo nosuch: code=%d stdout=%q stderr=%q, want exit 1 naming known stores", code, out, stderr)
+		!strings.Contains(stderr, "known stores: "+strings.Join(knownStores, ", ")) {
+		t.Errorf("memory %v: code=%d stdout=%q stderr=%q, want exit 1 naming known stores", args, code, out, stderr)
 	}
 	if after := treeNames(t, cfg); !slices.Equal(before, after) {
 		t.Errorf("an unknown --repo wrote files: before=%v after=%v", before, after)

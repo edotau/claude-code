@@ -8,7 +8,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// ValidateImport checks every pair so a bad one aborts before anything is written.
+// ValidateImport validates the supplied pairs; vault import calls it per pair and warns while skipping invalid pairs.
 func ValidateImport(pairs []vault.Pair) error {
 	for _, p := range pairs {
 		if err := agent.ValidateVaultSecret(p.Name, p.Value); err != nil {
