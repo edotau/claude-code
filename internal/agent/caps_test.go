@@ -3,7 +3,6 @@ package agent
 import (
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 )
 
@@ -100,17 +99,22 @@ func TestApplyCapsNoneDropsSystemPrompt(t *testing.T) {
 	}
 }
 
-// gemini has no read-only mode: --read-only is refused with a one-line error, not run tool-less.
-func TestRefuseReadOnlyGemini(t *testing.T) {
+// gemini read-only runs with tools on and the read-only deny rules, never refused or dropped to tools-off.
+func TestCheckRunGeminiReadOnlyDenies(t *testing.T) {
 	g, err := Lookup("gemini")
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = RefuseReadOnly(g.Caps(), "gemini", true)
-	if err == nil || !strings.Contains(err.Error(), "use --tools or another agent") || strings.Contains(err.Error(), "\n") {
-		t.Fatalf("err = %v, want one line naming --tools", err)
+	got, err := checkRun(g, RunOptions{Tools: true, ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if RefuseReadOnly(g.Caps(), "gemini", false) != nil || RefuseReadOnly(Caps{}, "codex", true) != nil {
-		t.Error("only gemini with --read-only is refused")
+	for _, r := range ReadOnlyDeny {
+		if !slices.Contains(got.Permissions.Deny, r) {
+			t.Errorf("deny %v lacks %s", got.Permissions.Deny, r)
+		}
+	}
+	if out, dropped, _ := applyCaps(g.Caps(), got); !out.Tools || !out.ReadOnly || len(dropped) != 0 {
+		t.Errorf("applyCaps: tools=%v read-only=%v dropped=%v, want both kept", out.Tools, out.ReadOnly, dropped)
 	}
 }

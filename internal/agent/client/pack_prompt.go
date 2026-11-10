@@ -68,9 +68,6 @@ func (c *Client) packPrompt(ctx context.Context, p *Prepared) error {
 	}
 	lead := p.Chain.Dispatches[0]
 	viaFile := agent.SchemaFor(lead.Agent.Name()).CLI.PackVia == agent.PackFile
-	if viaFile && o.ReadOnly {
-		return clientUsageError{fmt.Errorf("%s reads a pack from a file with tools on: --read-only cannot be combined with --dirs/--files/--diff here", lead.Agent.Name())}
-	}
 	budget, note := packBudget(lead, o, viaFile)
 	packed, err := pack.Build(ctx, *o.Pack, o.Prompt, cwd, budget)
 	if err != nil {

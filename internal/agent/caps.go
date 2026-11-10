@@ -113,14 +113,8 @@ func applyCaps(c Caps, req RunOptions) (out RunOptions, dropped, emulated []stri
 	return req, dropped, emulated
 }
 
-// RefuseReadOnly fails closed for an agent whose schema sets RefusesReadOnly: tools-off is no answer for it.
-func RefuseReadOnly(c Caps, agentName string, readOnly bool) error {
-	s, ok := LookupSchema(agentName)
-	if !readOnly || c.ReadOnly != None || !ok || !s.CLI.RefusesReadOnly {
-		return nil
-	}
-	return errors.New(agentName + " has no read-only mode (" + s.CLI.Binary + " cannot restrict tools); use --tools or another agent")
-}
+// ReadOnlyDeny is --read-only as deny rules for an agent whose CLI has no read-only mode (ReadOnly: Emulated).
+var ReadOnlyDeny = []Rule{{Tool: "Bash"}, {Tool: "Write"}, {Tool: "Edit"}}
 
 // RefusePermissions fails closed when req carries Deny rules (or plan mode) and the agent cannot read Permissions.
 func RefusePermissions(c Caps, agentName string, p Permissions) error {
