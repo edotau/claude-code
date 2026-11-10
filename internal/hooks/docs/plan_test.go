@@ -715,3 +715,45 @@ func TestPlanGateTemplate(t *testing.T) {
 		}
 	}
 }
+
+// codexPatchPayload is Codex's PreToolUse document for an apply_patch call: the patch body under tool_input.command.
+func codexPatchPayload(t *testing.T, cwd string, hunks ...string) string {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "apply_patch", "cwd": cwd,
+		"tool_input": map[string]string{"command": "*** Begin Patch\n" + strings.Join(hunks, "") + "*** End Patch\n"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// addHunk is an apply_patch Add File hunk writing content to path.
+func addHunk(path, content string) string {
+	return "*** Add File: " + path + "\n+" + strings.ReplaceAll(strings.TrimSuffix(content, "\n"), "\n", "\n+") + "\n"
+}
+
+// A Codex Add File hunk is a first write: judged like Claude's Write to the same draft, every added file on its own.
+func TestPlanGateCodexPatch(t *testing.T) {
+	for name, c := range map[string]struct {
+		hunks []string
+		want  int
+	}{
+		"freeform add":         {[]string{addHunk("plans/draft.md", "freeform")}, core.ExitBlock},
+		"templated add":        {[]string{addHunk("plans/draft.md", planTemplate)}, core.ExitProceed},
+		"update is an edit":    {[]string{"*** Update File: plans/draft.md\n@@\n+freeform\n"}, core.ExitProceed},
+		"second file freeform": {[]string{addHunk("notes/a.md", "x"), addHunk("plans/draft.md", "freeform")}, core.ExitBlock},
+		"templated then other": {[]string{addHunk("plans/draft.md", planTemplate), addHunk("other/b.md", "x")}, core.ExitProceed},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+			var stderr bytes.Buffer
+			if code := Gate(core.ParseInput(strings.NewReader(codexPatchPayload(t, cfg, c.hunks...))), &stderr); code != c.want {
+				t.Fatalf("code = %d, want %d; stderr=%s", code, c.want, &stderr)
+			}
+			if c.want == core.ExitBlock {
+				requirePlanGateDenied(t, cfg, "plans/draft.md", &stderr)
+			}
+		})
+	}
+}

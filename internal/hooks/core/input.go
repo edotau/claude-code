@@ -232,8 +232,9 @@ func (in *Input) normalizeToolArgs() string {
 	return ""
 }
 
-// toolAliases maps an agent's tool names to Claude's; renderers map back (copilot CopilotJSON, gemini agyGateTools).
+// toolAliases maps an agent's tool names to Claude's; renderers map back (CopilotJSON, agyGateTools, codexMatcher).
 var toolAliases = map[string]map[string]string{
+	AgentCodex:   {"apply_patch": "Edit"},
 	AgentCopilot: {"create": "Write", "view": "Read"},
 	AgentGemini:  {"run_command": "Bash", "write_file": "Write", "edit_file": "Edit", "read_file": "Read"},
 }

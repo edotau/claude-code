@@ -655,3 +655,57 @@ func consumerRefuses(agent string, s settings.EventSpec, d core.Decision, reason
 	}
 	return ""
 }
+
+// writePayloads are agent's PreToolUse documents writing "hi" to files: one Claude Write each, or one Codex apply_patch.
+func writePayloads(agent, cwd string, files []string) []string {
+	if agent == core.AgentCodex {
+		var patch strings.Builder
+		for _, f := range files {
+			patch.WriteString("*** Add File: " + f + "\n+hi\n")
+		}
+		b, _ := json.Marshal(map[string]any{"hook_event_name": settings.EventPreToolUse, "session_id": "s", "cwd": cwd,
+			"tool_name": "apply_patch", "tool_input": map[string]string{"command": "*** Begin Patch\n" + patch.String() + "*** End Patch\n"}})
+		return []string{string(b)}
+	}
+	var out []string
+	for _, f := range files {
+		b, _ := json.Marshal(map[string]any{"hook_event_name": settings.EventPreToolUse, "session_id": "s", "cwd": cwd,
+			"tool_name": "Write", "tool_input": map[string]string{"file_path": f, "content": "hi"}})
+		out = append(out, string(b))
+	}
+	return out
+}
+
+// A Codex file write reaches the docs gates through its rendered matcher and the event form, decided as Claude's Write.
+func TestCodexFileWriteRunsDocGates(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	repo, _ := filepath.EvalSymlinks(hosttest.Repo(t))
+	for _, c := range []struct {
+		gate  string
+		files []string
+		block bool
+	}{
+		{"docs-placement", []string{"NOTES.md"}, true},
+		{"docs-placement", []string{"README.md"}, false},
+		{"docs-placement", []string{"src/a.go", "STRAY.md"}, true},
+		{"docs-plan-gate", []string{filepath.Join(cfg, "plans", "draft.md")}, true},
+	} {
+		if m := renderedMatcher(t, codex.CodexJSON, c.gate); !regexp.MustCompile(`^(?:` + m + `)$`).MatchString("apply_patch") {
+			t.Errorf("%s: Codex's rendered matcher %q never selects apply_patch", c.gate, m)
+		}
+		for _, agent := range []string{core.AgentClaude, core.AgentCodex} {
+			t.Setenv(settings.AgentEnv, agent)
+			for _, flag := range []string{"--" + c.gate, settings.AllFlag} {
+				got := false
+				for _, p := range writePayloads(agent, repo, c.files) {
+					code, stdout, _ := runFlags(settings.EventPreToolUse, strings.NewReader(p), flag)
+					got = got || denied(code, stdout)
+				}
+				if got != c.block {
+					t.Errorf("%s %s %s %v: denied=%v, want %v", agent, flag, c.gate, c.files, got, c.block)
+				}
+			}
+		}
+	}
+}
