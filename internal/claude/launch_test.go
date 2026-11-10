@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/launchplan"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/gateway"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -486,7 +486,7 @@ func TestKeepShellEndpointSessionProxyBaseToFirstParty(t *testing.T) {
 	t.Setenv("CLAUDE_PROFILE", "prod")
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:18765/p/prod")
 	orig := readProxyState
-	readProxyState = func() (proxy.State, error) { return proxy.State{Port: 18765}, nil }
+	readProxyState = func() (gateway.State, error) { return gateway.State{Port: 18765}, nil }
 	t.Cleanup(func() { readProxyState = orig })
 	plan := agent.Plan{Set: map[string]string{}, Files: []agent.LaunchFile{{Path: "/tmp/ov.json"}}, Argv: []string{"--settings", "/tmp/ov.json"}}
 	keepShellEndpoint(&plan, agent.LaunchOptions{})

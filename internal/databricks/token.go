@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -18,7 +18,7 @@ func MintProxyToken(profile, cfgDir string) (string, int) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	token, err := proxy.Token(ctx, profile)
+	token, err := gateway.Token(ctx, profile)
 	if err != nil {
 		return "", helptext.Fail("gateway token: %v", err)
 	}

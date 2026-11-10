@@ -1,38 +1,24 @@
 package gateway
 
 import (
-	"fmt"
-	"os"
-
-	"github.com/edotau/claude-code/internal/databricks"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"context"
+	"errors"
 )
 
-func cmdGatewayToken(args []string) int {
-	fs := helptext.NewFlagSet("gateway token", helptext.Page{
-		Usage: "claude-code gateway token --profile p",
-		About: "Print a proxy session token for a credential helper (stdout only).\n" +
-			"The token is bound to the proxy daemon and scoped to one profile.",
-	})
-	profile := fs.String("profile", "", "profile the token is scoped to (required)")
-	cfg := fs.String("config-dir", "", "CLAUDE_CONFIG_DIR to use (native Windows helper)")
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	if fs.NArg() != 0 || *profile == "" {
-		return helptext.Fail("gateway token: want --profile <name> and no other arguments")
-	}
-	token, code := databricks.MintProxyToken(*profile, *cfg)
-	if code != 0 {
-		return code
-	}
-	return printToken(token)
-}
+var (
+	tokenEnsure = Ensure
+	tokenState  = Running
+	tokenMint   = MintSessionToken
+)
 
-func printToken(token string) int {
-	if _, err := fmt.Fprintln(os.Stdout, token); err != nil {
-		fmt.Fprintf(os.Stderr, "gateway token: write stdout: %v\n", err)
-		return 1
+// Token ensures the daemon is running and mints a profile-scoped token bound to its PID.
+func Token(ctx context.Context, profile string) (string, error) {
+	if _, err := tokenEnsure(ctx); err != nil {
+		return "", errors.New("proxy unavailable; run gateway proxy --start")
 	}
-	return 0
+	st, ok := tokenState(ctx)
+	if !ok {
+		return "", errors.New("proxy not running")
+	}
+	return tokenMint(ctx, profile, st.PID)
 }

@@ -24,10 +24,10 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/vault"
 
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/proxy"
 )
 
 type geminiEngine struct{ agent.BaseEngine }
@@ -305,7 +305,7 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 	}
 	base, arg := agyGatewayArg(model)
 	env := []string{
-		"AGY_LLM_GATEWAY_URL=" + proxy.SessionBase(rb, p.Name) + "/" + providers.ProtocolGemini,
+		"AGY_LLM_GATEWAY_URL=" + gateway.SessionBase(rb, p.Name) + "/" + providers.ProtocolGemini,
 		"AGY_LLM_GATEWAY_API_KEY=" + tok,
 		"AGY_LLM_GATEWAY_WIRE_PROTOCOL=genai",
 		"AGY_LLM_GATEWAY_MODELS=" + base,

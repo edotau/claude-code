@@ -22,11 +22,11 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/clipboard"
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/shell"
@@ -380,14 +380,14 @@ func opencodeProviderByID(reg *providers.Registry, id string) *providers.Provide
 
 // proxyStatus is the running proxy's port, pid and build; stale is true when it runs an older binary than this one.
 func proxyStatus() (detail string, stale bool) {
-	st, err := proxy.ReadState()
+	st, err := gateway.ReadState()
 	if errors.Is(err, os.ErrNotExist) {
 		return "not running", false
 	}
 	if err != nil || st.Port == 0 {
 		return "proxy.json unreadable", false
 	}
-	h, ok := proxy.Holder(context.Background(), st.Port)
+	h, ok := gateway.Holder(context.Background(), st.Port)
 	if !ok {
 		return "stale proxy.json (port " + strconv.Itoa(st.Port) + " not answering)", false
 	}

@@ -16,18 +16,18 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/databricks/serving"
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/proxy"
 )
 
 // Seams for tests: model discovery, the running router and the router's session tokens.
 var (
 	discoverModels = discoverCopilotEndpoints
-	mintSession    = proxy.MintSessionToken
-	revokeSession  = proxy.RevokeSessionToken
-	runningRouter  = proxy.Running
+	mintSession    = gateway.MintSessionToken
+	revokeSession  = gateway.RevokeSessionToken
+	runningRouter  = gateway.Running
 )
 
 // copilotRegistryRoute is the multi-provider SDK wiring for one run: in-memory providers, a session token, no file.
@@ -457,9 +457,9 @@ func copilotRouterBase(ctx context.Context, dry bool) (string, error) {
 		return agent.EnsureRouter(ctx)
 	}
 	if st, ok := runningRouter(ctx); ok {
-		return proxy.Base(st.Port), nil
+		return gateway.Base(st.Port), nil
 	}
-	return proxy.Base(proxy.DefaultPort), nil
+	return gateway.Base(gateway.DefaultPort), nil
 }
 
 // prepareRegistry mints the token and renders the registry as a launch file in the verified runtime dir; Exec writes it.
@@ -520,9 +520,9 @@ func copilotSelect(ctx context.Context, reg *providers.Registry, p *providers.Pr
 	base string, c CopilotChoice,
 ) (CopilotRegistry, string, error) {
 	routed := *p
-	routed.Headers = map[string]string{proxy.AgentHeader: "copilot"} // the router adds the provider's own headers upstream
+	routed.Headers = map[string]string{gateway.AgentHeader: "copilot"} // the router adds the provider's own headers upstream
 	if id := providers.IdentityFrom(ctx); id != "" {
-		routed.Headers[proxy.IdentityHeader] = id
+		routed.Headers[gateway.IdentityHeader] = id
 	}
 	r := copilotBuildRegistry(p.Name, &routed, eps, base)
 	ref, err := r.Select(c)

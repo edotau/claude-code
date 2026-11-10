@@ -1,25 +1,29 @@
 package gateway
 
 import (
-	"io"
 	"os"
+	"path/filepath"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
-	"github.com/edotau/claude-code/internal/proxy"
 )
 
-func TestMain(m *testing.M) {
-	agent.NoticeOut = io.Discard
-	agent.StubProxyForTest("http://127.0.0.1:9999", "rtr-secret-test")
-	agentconfig.SetCatalogWarn(io.Discard)
-	cleanup := hosttest.Setup()
-	proxy.StubHolderCommForTest()
-	code := m.Run()
-	cleanup()
-	gittest.Cleanup()
-	os.Exit(code)
+// TestMain runs in the hermetic host (hosttest), so no test touches the live vault or secret.
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func writeProxyFixture(t *testing.T, path, data string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func removeProxyFixture(t *testing.T, path string) {
+	t.Helper()
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
 }

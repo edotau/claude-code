@@ -12,8 +12,8 @@ import (
 	"github.com/edotau/claude-code/internal/agent/launchplan"
 
 	"github.com/edotau/claude-code/internal/desktop"
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/menu"
@@ -200,7 +200,7 @@ var desktopPage = helptext.Page{
 var (
 	desktopRoot   = desktop.Root
 	desktopHelper = desktop.HelperSpec
-	desktopEnsure = proxy.Ensure
+	desktopEnsure = gateway.Ensure
 )
 
 func configureDesktop(args []string) int {

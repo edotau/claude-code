@@ -6,18 +6,18 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/proxy"
 )
 
 // routerLink reads the running loopback router address and client secret without starting it.
 var routerLink = func(ctx context.Context) (base, secret string, ok bool) {
-	st, up := proxy.Running(ctx)
+	st, up := gateway.Running(ctx)
 	if !up {
 		return "", "", false
 	}
-	secret, err := proxy.ClientSecret()
-	return proxy.Base(st.Port), secret, err == nil
+	secret, err := gateway.ClientSecret()
+	return gateway.Base(st.Port), secret, err == nil
 }
 
 // embeddingModelFor picks p's embeddings endpoint from the models it serves.
@@ -62,7 +62,7 @@ func embedDatabricks(ctx context.Context, p *providers.Provider, model string, t
 	url := strings.TrimRight(p.Host, "/") + "/serving-endpoints/" + model + "/invocations"
 	if base, secret, ok := routerLink(ctx); ok { // the daemon holds the warm credential and upstream connections
 		via := base + "/p/" + p.Name + "/" + providers.ProtocolOpenAI + "/" + model + "/invocations"
-		vecs, err := PostEmbeddings(ctx, via, texts, func(h http.Header) error { h.Set(proxy.ClientHeader, secret); return nil })
+		vecs, err := PostEmbeddings(ctx, via, texts, func(h http.Header) error { h.Set(gateway.ClientHeader, secret); return nil })
 		if err == nil || ctx.Err() != nil {
 			return vecs, err
 		}
