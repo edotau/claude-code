@@ -224,6 +224,15 @@ func TestRemoteScriptRelaysIdentity(t *testing.T) {
 	}
 }
 
+// --route must cross to the remote: ApplyRoute exports it as HARNESS_ROUTE, which ssh drops, so it ran unrouted.
+func TestRemoteScriptRelaysRoute(t *testing.T) {
+	t.Setenv("HARNESS_ROUTE", "databricks:dev")
+	script, err := remoteScript("claude-code", "codex", "", agent.RunOptions{})
+	if err != nil || !strings.Contains(script, " --route 'databricks:dev'") {
+		t.Fatalf("script = %s, err = %v; want --route 'databricks:dev' relayed", script, err)
+	}
+}
+
 // --read-only must cross to the remote: bare --tools there would run with every tool enabled.
 func TestRemoteScriptRelaysReadOnly(t *testing.T) {
 	script, err := remoteScript("claude-code", "copilot", "", agent.RunOptions{Tools: true, ReadOnly: true, Fleet: true})

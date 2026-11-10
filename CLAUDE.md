@@ -19,7 +19,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | `internal/providers/defaults.json` | Built-in providers; the vault's provider overlay replaces them by name |
 | `state/vault.db` | The vault (untracked): pins, custom env, provider/agent overlays (`vault ls\|edit`), sealed secrets (`vault set\|get`) |
 | `agents/<name>.md` | Subagents, flat; `name:` **must equal the file stem** |
-| `commands/<command>.md` | Slash commands, flat — thin launchers into an agent or skill |
+| `commands/<command>.md` | Slash commands, flat (except `coworker/<agent>.md` → `/coworker:<agent>`) — thin launchers into an agent or skill |
 | `workflows/*.js` | Workflow tool scripts (`skills/subagent-workflows/references/saved-workflows.md`) |
 | `rules/` | `standards/` (always-on) · `workflows/` · `harness/` · `software/<lang>/`; scoping contract → `rules/README.md` |
 | `skills/<name>/SKILL.md` | On-demand references. Untracked skill dirs are the user's own (symlinks into `~/.agents`) — leave them. `skills/synced/` = claude.ai account skills, re-downloaded each sync; edit them on claude.ai |
@@ -72,7 +72,7 @@ auto-loads while you work in that code). Anything unlisted: `claude-code -h`.
 | --- | --- | --- |
 | Install, settings, hooks | `make install` (`claude-code install --dry-run` previews) | `rules/harness/settings-management.md` · `rules/harness/hooks.md` |
 | Providers, models, credentials, proxy | `claude-code doctor` · `claude-code vault set [NAME]` | `rules/harness/providers.md` |
-| Agents and dispatch | `claude-code agents ask --agent <agent> "<task>"` · `/coworker agents=<a,b> <task>` · `claude` ‖ `copilot` (features and bug fixes only: `rules/standards/testing-guidelines.md`) | `rules/workflows/agents.md` · `rules/workflows/master-workflow.md` |
+| Agents and dispatch | `claude-code agents ask --agent <agent> "<task>"` · `/coworker <agent> <task>` or `/coworker:<agent> <task>` (an agent on the Databricks arm, `--route databricks:<profile>`: Databricks first, first-party login as the fallback) · `claude` ‖ `copilot` (features and bug fixes only: `rules/standards/testing-guidelines.md`) | `rules/workflows/agents.md` · `rules/workflows/master-workflow.md` |
 | Memory | `claude-code memory recall <terms>` | `rules/workflows/memory-bank.md` |
 | Git and worktrees | `claude-code worktree create\|merge <name>` | `rules/standards/worktree-git.md` |
 | Network, web, MCP, cleanup | `claude-code doctor --mcp` · `claude-code network websearch --query "<q>"` | `rules/harness/network.md` |
