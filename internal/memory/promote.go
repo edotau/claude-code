@@ -131,6 +131,9 @@ func Promote(root, id, to string, dryRun bool, now time.Time) (string, error) {
 	return promoteBlockToHome(root, id, dryRun, now)
 }
 
+// afterPromoteMove runs between promote's move and its settle; tests race a rival bank-lock taker there.
+var afterPromoteMove = func() {}
+
 // promoteBlockToHome moves one id-marked block from root's local bank into the matching home-bank
 // file, preserving its id, and settles both.
 func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, error) {
@@ -162,7 +165,9 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 			// roll back the home copy so the block stays in exactly one bank (the local one)
 			return errors.Join(err, removeBlock(filepath.Join(homeDir, file), file, id))
 		}
-		return nil
+		afterPromoteMove()
+		_, err = settleBankLocked(root, now) // one critical section: no writer slips in, no busy error after the move
+		return err
 	})
 	if moveErr != nil {
 		return "", moveErr
@@ -170,9 +175,6 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 	homePath := filepath.Join(homeDir, file)
 	if dryRun {
 		return fmt.Sprintf("would move [%s] %s -> %s\n\n%s\n", id, src, homePath, block), nil
-	}
-	if _, err := settleBank(root, now); err != nil {
-		return "", err
 	}
 	return fmt.Sprintf("promoted [%s] local -> home (%s)\n", id, homePath), nil
 }
