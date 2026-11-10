@@ -9,8 +9,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// NativeLinkTarget resolves relative symlink text even when its destination no longer exists.
-func NativeLinkTarget(link string) string {
+// nativeLinkTarget resolves relative symlink text even when its destination no longer exists.
+func nativeLinkTarget(link string) string {
 	target, err := os.Readlink(link)
 	if err != nil {
 		return ""
@@ -38,7 +38,7 @@ func nativeLinkTargets(root string) map[string]string {
 	if target, err := RepoDir(root); root != "" && err == nil {
 		add(root, target)
 	}
-	add(paths.ConfigDir(), HarnessStoreDir())
+	add(paths.ConfigDir(), harnessStoreDir())
 	add(StoreDir(), HomeBankDir())
 	if home, err := os.UserHomeDir(); err == nil {
 		add(home, HomeBankDir())
@@ -55,12 +55,12 @@ func nativeLinkTargets(root string) map[string]string {
 }
 
 // brokenNativeLinks reports only dangling links and links targeting the store root.
-func brokenNativeLinks(root string) []LinkResult {
+func brokenNativeLinks(root string) []linkResult {
 	targets := nativeLinkTargets(root)
 	matches, _ := filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", "memory"))
-	var out []LinkResult
+	var out []linkResult
 	for _, link := range matches {
-		target := NativeLinkTarget(link)
+		target := nativeLinkTarget(link)
 		if target == "" {
 			continue
 		}
@@ -68,7 +68,7 @@ func brokenNativeLinks(root string) []LinkResult {
 		if !errors.Is(err, fs.ErrNotExist) && !paths.SamePath(target, StoreDir()) {
 			continue
 		}
-		r := LinkResult{Link: link, Action: "blocked", Detail: "cwd cannot be derived from recorded paths"}
+		r := linkResult{Link: link, Action: "blocked", Detail: "cwd cannot be derived from recorded paths"}
 		if r.Target = targets[filepath.Base(filepath.Dir(link))]; r.Target != "" {
 			if fi, statErr := os.Stat(r.Target); statErr != nil || !fi.IsDir() {
 				r.Detail = "resolved store directory is unavailable"
@@ -90,7 +90,7 @@ func repairNativeLinks(root string) {
 	}
 }
 
-func NativeLinkProblems(root string) []string {
+func nativeLinkProblems(root string) []string {
 	var problems []string
 	for _, r := range brokenNativeLinks(root) {
 		problems = append(problems, "native memory link "+r.Link+": "+r.Detail)

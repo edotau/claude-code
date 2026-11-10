@@ -145,7 +145,7 @@ func TestPromoteJudgmentTargetsWriteNothingAndPrintTheProcedure(t *testing.T) {
 // TestPromoteClaudeMDRefusedOutsideDream: --to claude-md outside a dream run is refused with the
 // reason, naming the --to rules alternative, and writes nothing.
 func TestPromoteClaudeMDRefusedOutsideDream(t *testing.T) {
-	t.Setenv(DreamChildEnv, "")
+	t.Setenv(dreamChildEnv, "")
 	tempConfig(t)
 	root := repoRoot(t, "proj")
 	id := seedConventionBlock(t, root)
@@ -165,10 +165,10 @@ func TestPromoteClaudeMDRefusedOutsideDream(t *testing.T) {
 	}
 }
 
-// TestPromoteClaudeMDAllowedInsideDream: inside a dream run (DreamChildEnv set) --to claude-md
+// TestPromoteClaudeMDAllowedInsideDream: inside a dream run (dreamChildEnv set) --to claude-md
 // prints the block, target, and procedure instead of refusing.
 func TestPromoteClaudeMDAllowedInsideDream(t *testing.T) {
-	t.Setenv(DreamChildEnv, "1")
+	t.Setenv(dreamChildEnv, "1")
 	tempConfig(t)
 	root := repoRoot(t, "proj")
 	id := seedConventionBlock(t, root)

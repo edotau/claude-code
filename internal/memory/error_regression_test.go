@@ -37,11 +37,11 @@ func TestDoctorCachesUnreadableBankWarning(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	problems := strings.Join(Doctor(root, DefaultStaleDays, now), "\n")
+	problems := strings.Join(doctor(root, DefaultStaleDays, now), "\n")
 	if !strings.Contains(problems, "conventions.md:") || !strings.Contains(problems, "unreadable") {
 		t.Fatalf("doctor silently skipped an unreadable bank file: %q", problems)
 	}
-	if err := WriteDoctorNotice(root, DefaultStaleDays, now); err != nil {
+	if err := writeDoctorNotice(root, DefaultStaleDays, now); err != nil {
 		t.Fatal(err)
 	}
 	notice := mustRead(t, DoctorNoticePath(root))
@@ -54,9 +54,9 @@ func TestDigestInputLiteralBracketConfig(t *testing.T) {
 	isolatedConfig(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(t.TempDir(), "claude[work]"))
 	dir := HomeBankDir()
-	write(t, filepath.Join(ArchiveDir(dir), "2026-01.md"), "first archive fact")
-	write(t, filepath.Join(ArchiveDir(dir), "2026-02.md"), "second archive fact")
-	write(t, filepath.Join(ArchiveDir(dir), DigestFile), "old digest must not be summarized")
+	write(t, filepath.Join(archiveDir(dir), "2026-01.md"), "first archive fact")
+	write(t, filepath.Join(archiveDir(dir), "2026-02.md"), "second archive fact")
+	write(t, filepath.Join(archiveDir(dir), DigestFile), "old digest must not be summarized")
 	got, used, err := digestInput(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +81,7 @@ func TestSessionSurfaceRelativeNativeLink(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(dir, NativeIndexFile), "unique native-only index marker\n")
-	link := ProjectsMemory(paths.ProjectSlug(root))
+	link := projectsMemory(paths.ProjectSlug(root))
 	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
 		t.Fatal(err)
 	}

@@ -133,5 +133,5 @@ func mustRead(t *testing.T, p string) string {
 // clearChildEnv scopes the child-env vars an o.Run update or dream sets process-wide, so later tests see them unset.
 func clearChildEnv(t *testing.T) {
 	t.Setenv(UpdateChildEnv, "")
-	t.Setenv(DreamChildEnv, "")
+	t.Setenv(dreamChildEnv, "")
 }

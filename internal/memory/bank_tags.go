@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-// Tag is one DECISION/BUG/NEXT/NOTE line the assistant wrote in a reply.
-type Tag struct {
+// tag is one DECISION/BUG/NEXT/NOTE line the assistant wrote in a reply.
+type tag struct {
 	Kind string
 	Text string
 }
@@ -22,10 +22,10 @@ const (
 
 var tagKinds = []string{"DECISION:", "BUG:", "NEXT:", "NOTE:"}
 
-// ExtractTags streams transcript JSONL and returns every DECISION/BUG/NEXT/NOTE line from ASSISTANT
+// extractTags streams transcript JSONL and returns every DECISION/BUG/NEXT/NOTE line from ASSISTANT
 // text blocks only — user, tool_result and system content never contribute a tag.
-func ExtractTags(r io.Reader) ([]Tag, error) {
-	var tags []Tag
+func extractTags(r io.Reader) ([]tag, error) {
+	var tags []tag
 	seen := map[string]bool{}
 	br := bufio.NewReader(r)
 	for {
@@ -53,7 +53,7 @@ func ExtractTags(r io.Reader) ([]Tag, error) {
 }
 
 // tagsFromLine parses one JSONL record and extracts tags from its assistant text blocks, if any.
-func tagsFromLine(line []byte) []Tag {
+func tagsFromLine(line []byte) []tag {
 	var rec struct {
 		Type    string `json:"type"`
 		Message struct {
@@ -70,7 +70,7 @@ func tagsFromLine(line []byte) []Tag {
 	if rec.Type != "assistant" || rec.Message.Role != "assistant" {
 		return nil
 	}
-	var tags []Tag
+	var tags []tag
 	for _, block := range rec.Message.Content {
 		if block.Type != "text" {
 			continue
@@ -85,7 +85,7 @@ func tagsFromLine(line []byte) []Tag {
 }
 
 // parseTagLine matches an optional "- "/"* " bullet then a DECISION:/BUG:/NEXT:/NOTE: prefix.
-func parseTagLine(ln string) (Tag, bool) {
+func parseTagLine(ln string) (tag, bool) {
 	ln = strings.TrimSpace(ln)
 	ln = strings.TrimPrefix(strings.TrimPrefix(ln, "- "), "* ")
 	for _, kind := range tagKinds {
@@ -94,8 +94,8 @@ func parseTagLine(ln string) (Tag, bool) {
 			if len(text) > tagMaxLen {
 				text = strings.ToValidUTF8(text[:tagMaxLen], "") // a cut mid-rune leaves a partial one
 			}
-			return Tag{Kind: strings.TrimSuffix(kind, ":"), Text: text}, true
+			return tag{Kind: strings.TrimSuffix(kind, ":"), Text: text}, true
 		}
 	}
-	return Tag{}, false
+	return tag{}, false
 }

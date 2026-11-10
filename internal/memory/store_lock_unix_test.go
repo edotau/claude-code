@@ -82,7 +82,7 @@ func seedLockedCatalog(t *testing.T) Origin {
 		t.Fatal(err)
 	}
 	want := Origin{Version: OriginVersion, Key: "locked", Origin: "/src/locked"}
-	row := "- locked — hook · last 2024-01-01 → locked/MEMORY.md" + CatalogOriginComment(want) + "\n"
+	row := "- locked — hook · last 2024-01-01 → locked/MEMORY.md" + catalogOriginComment(want) + "\n"
 	write(t, filepath.Join(cfg, "memory", CatalogFile), "# Memory catalog\n\n## Repos\n\n"+row)
 	return want
 }

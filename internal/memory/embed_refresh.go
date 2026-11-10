@@ -26,7 +26,7 @@ func EmbedProfile() string {
 
 // RefreshEmbeddings starts a detached mint at most once per claim TTL; failed launches release the slot.
 func RefreshEmbeddings(root, profile string, now time.Time) bool {
-	if IsUpdateChild() || !SafeProfile(profile) {
+	if IsUpdateChild() || !safeProfile.MatchString(profile) {
 		return false
 	}
 	if err := os.MkdirAll(StateDir(), 0o700); err != nil {

@@ -37,7 +37,7 @@ func TestUpdateReturnsReceiptWriteError(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := func(context.Context, string, string) (string, error) { return "fixture", nil }
-	err := Update(UpdateOptions{CWD: root, Session: "receipt-failure", Run: run})
+	err := update(updateOptions{CWD: root, Session: "receipt-failure", Run: run})
 	if err == nil || !strings.Contains(err.Error(), "record update result") {
 		t.Fatalf("Update = %v, want receipt write error", err)
 	}

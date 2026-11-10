@@ -44,12 +44,12 @@ func TestRememberFreshRepoKeepsItsStore(t *testing.T) {
 	if err != nil || !origin.Accepts(root) {
 		t.Fatalf("Remember did not record the repository origin: %+v, %v", origin, err)
 	}
-	hits, err := CorpusBlocks(root)
+	hits, err := corpusBlocks(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, hit := range hits {
-		if BlockID(hit.Block) == id {
+		if blockID(hit.Block) == id {
 			return
 		}
 	}

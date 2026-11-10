@@ -183,7 +183,7 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 	r := &e2eRun{e: e2eEnv{bin: bin, cfg: cfg, home: home, repo: repo, pathDir: pathDir}, cfg: cfg, repo: repo}
 
 	initStore(t)                                                          // completed journal + store git repo, written under cfg by the same helper the unit tests use
-	write(t, DreamStampPath(repo), time.Now().UTC().Format(time.RFC3339)) // dream not due: session-start spawns nothing
+	write(t, dreamStampPath(repo), time.Now().UTC().Format(time.RFC3339)) // dream not due: session-start spawns nothing
 
 	for _, step := range []struct {
 		name string
@@ -445,13 +445,13 @@ func TestArchiveOverflowKeepsOldestInArchive(t *testing.T) {
 	homePath := filepath.Join(HomeBankDir(), "decisionLog.md")
 	homeBefore, _ := os.ReadFile(homePath)
 
-	n, err := ArchiveOverflow(root, time.Now())
+	n, err := archiveOverflow(root, time.Now())
 	if err != nil || n == 0 {
 		t.Fatalf("archived %d err %v", n, err)
 	}
 	kept, _ := os.ReadFile(filepath.Join(local, "decisionLog.md"))
-	if LineCount(string(kept)) > FileCaps["decisionLog.md"] {
-		t.Errorf("local decisionLog still over cap: %d lines", LineCount(string(kept)))
+	if lineCount(string(kept)) > fileCaps["decisionLog.md"] {
+		t.Errorf("local decisionLog still over cap: %d lines", lineCount(string(kept)))
 	}
 	arch, err := os.ReadFile(archivePath(local, "decisionLog.md", time.Now()))
 	if err != nil || !strings.Contains(string(arch), "decision 01") {
@@ -460,7 +460,7 @@ func TestArchiveOverflowKeepsOldestInArchive(t *testing.T) {
 	if homeAfter, _ := os.ReadFile(homePath); string(homeAfter) != string(homeBefore) {
 		t.Error("archiving must not touch the home bank")
 	}
-	if n2, err := ArchiveOverflow(root, time.Now()); err != nil || n2 != 0 {
+	if n2, err := archiveOverflow(root, time.Now()); err != nil || n2 != 0 {
 		t.Errorf("second archive: n=%d err=%v, want a no-op", n2, err)
 	}
 }
@@ -472,7 +472,7 @@ func TestDoctorFlagsOversizedAndStale(t *testing.T) {
 	if err := os.Chtimes(filepath.Join(HomeBankDir(), "decisionLog.md"), old, old); err != nil {
 		t.Fatal(err)
 	}
-	problems := Doctor(HomeBankDir(), DefaultStaleDays, time.Now())
+	problems := doctor(HomeBankDir(), DefaultStaleDays, time.Now())
 	joined := strings.Join(problems, "\n")
 	if !strings.Contains(joined, "decisionLog.md: over") {
 		t.Errorf("want an over-cap finding, got %v", problems)
@@ -485,7 +485,7 @@ func TestDoctorFlagsOversizedAndStale(t *testing.T) {
 func TestDoctorFlagsCredentialShapedValue(t *testing.T) {
 	tempConfig(t)
 	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# C\n\n- token AKIAABCDEFGHIJKLMNOP in here\n")
-	problems := Doctor(HomeBankDir(), DefaultStaleDays, time.Now())
+	problems := doctor(HomeBankDir(), DefaultStaleDays, time.Now())
 	if !strings.Contains(strings.Join(problems, "\n"), "possible credential") {
 		t.Errorf("want a credential finding, got %v", problems)
 	}
@@ -494,7 +494,7 @@ func TestDoctorFlagsCredentialShapedValue(t *testing.T) {
 func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 	tempConfig(t)
 	decisionLogOver(t, filepath.Join(HomeBankDir(), "decisionLog.md"), 80)
-	if err := WriteDoctorNotice(HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
+	if err := writeDoctorNotice(HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	notice := mustRead(t, DoctorNoticePath(HomeBankDir()))
@@ -503,7 +503,7 @@ func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 	}
 	// A clean bank caches an EMPTY notice — distinct from no file at all.
 	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"), "# D\n")
-	if err := WriteDoctorNotice(HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
+	if err := writeDoctorNotice(HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if notice := mustRead(t, DoctorNoticePath(HomeBankDir())); notice != "" {
@@ -513,8 +513,8 @@ func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 
 func TestLogAccessRedactsCredentialShapedReason(t *testing.T) {
 	dir := t.TempDir()
-	LogAccess(dir, time.Now(), "aa11bb22", "leaked sk-abcdefghijklmnop in reason")
-	data := mustRead(t, filepath.Join(dir, AccessLogFile))
+	logAccess(dir, time.Now(), "aa11bb22", "leaked sk-abcdefghijklmnop in reason")
+	data := mustRead(t, filepath.Join(dir, accessLogFile))
 	if strings.Contains(data, "sk-abcdefghijklmnop") {
 		t.Error("a credential-shaped reason must be redacted, not logged verbatim")
 	}
@@ -530,7 +530,7 @@ func TestCollectBankStatsAndTimeline(t *testing.T) {
 	_ = WriteUpdateResult("s2", UpdateResult{Status: UpdateFailed, Time: time.Now()})
 	write(t, filepath.Join(Dir(root), "sessionHistory.md"), "# H\n\n## 2026-01-02 — did work\n")
 
-	s := CollectBankStats()
+	s := collectBankStats()
 	if s.Updates != 2 || s.OK != 1 || s.Failed != 1 || s.BankUpdated != 1 {
 		t.Errorf("stats %+v", s)
 	}
@@ -539,7 +539,7 @@ func TestCollectBankStatsAndTimeline(t *testing.T) {
 		t.Errorf("report %q", report)
 	}
 
-	entries, sessions := Timeline(root, 10)
+	entries, sessions := timeline(root, 10)
 	if len(entries) != 2 {
 		t.Errorf("timeline entries %+v", entries)
 	}
@@ -556,7 +556,7 @@ func TestDoctorFlagsLocalBankOverCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	decisionLogOver(t, filepath.Join(Dir(root), "decisionLog.md"), 80)
-	joined := strings.Join(Doctor(root, DefaultStaleDays, time.Now()), "\n")
+	joined := strings.Join(doctor(root, DefaultStaleDays, time.Now()), "\n")
 	if !strings.Contains(joined, "local decisionLog.md: over") {
 		t.Errorf("want a local over-cap finding, got %q", joined)
 	}

@@ -73,7 +73,7 @@ func RecallExplain(w io.Writer, repo, query string) {
 	}
 }
 
-func explainFiles(w io.Writer, rows []RecallCandidate) map[string]int {
+func explainFiles(w io.Writer, rows []recallCandidate) map[string]int {
 	files := make(map[string]int)
 	for _, row := range rows {
 		if _, ok := files[row.File]; !ok {
@@ -85,7 +85,7 @@ func explainFiles(w io.Writer, rows []RecallCandidate) map[string]int {
 	return files
 }
 
-func explainRow(w io.Writer, row RecallCandidate, file int) {
+func explainRow(w io.Writer, row recallCandidate, file int) {
 	cosine := "no vector"
 	if row.Cosine != nil {
 		cosine = explainNumber(*row.Cosine)

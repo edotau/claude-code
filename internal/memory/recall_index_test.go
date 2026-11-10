@@ -44,7 +44,7 @@ func newRecallIndexFixture(t testing.TB) recallIndexFixture {
 			"description: router context\n---\nNative recall preserves retry details.\n",
 		filepath.Join(Dir(root), "bank-topic.md"): "---\nname: excludedbanktoken\n" +
 			"description: excludedbanktoken\nharness_kind: bank\n---\nexcludedbanktoken\n",
-		filepath.Join(KnowledgeDir(HomeBankDir()), "invariant.md"): "---\nname: strippedmetadata\n---\n" +
+		filepath.Join(knowledgeDir(HomeBankDir()), "invariant.md"): "---\nname: strippedmetadata\n---\n" +
 			"# knowledge invariant\nRouter retry requires bounded latency.\n",
 	}
 	for path, body := range files {
@@ -68,7 +68,7 @@ func recallIndexWrite(t testing.TB, path, body string, mtime time.Time) {
 
 func (f recallIndexFixture) search(t testing.TB, query string) []SearchHit {
 	t.Helper()
-	return SearchBanksTerms(f.root, query, ContentTerms(query), 0)
+	return SearchBanksTerms(f.root, query, contentTerms(query), 0)
 }
 
 func (f recallIndexFixture) index(t testing.TB) map[fileKey]indexed {
@@ -83,13 +83,13 @@ func (f recallIndexFixture) index(t testing.TB) map[fileKey]indexed {
 func (f recallIndexFixture) persisted(t testing.TB) map[fileKey]indexed {
 	t.Helper()
 	index := f.index(t)
-	for _, file := range CorpusFiles(f.root) {
+	for _, file := range corpusFiles(f.root) {
 		assertPersistedRecallFile(t, file, index)
 	}
 	return index
 }
 
-func assertPersistedRecallFile(t testing.TB, file CorpusFile, index map[fileKey]indexed) {
+func assertPersistedRecallFile(t testing.TB, file corpusFile, index map[fileKey]indexed) {
 	t.Helper()
 	info, err := os.Stat(file.Path)
 	if os.IsNotExist(err) {
@@ -185,7 +185,7 @@ func TestRecallIndexStampMismatchIgnored(t *testing.T) {
 	f.search(t, "router retry")
 	index := f.persisted(t)
 	for key, entry := range index {
-		entry.seg = EncodeSegment([]string{"## poisoned router\nrouter router retry"})
+		entry.seg = encodeSegment([]string{"## poisoned router\nrouter router retry"})
 		index[key] = entry
 	}
 	wrong := exeStamp{f.stamp.size + 1, f.stamp.mtimeNs + 1}
@@ -264,7 +264,7 @@ func BenchmarkSearchBanksTermsWarm(b *testing.B) {
 	const query = "router router retry native recall archive storm"
 	f.search(b, query)
 	f.persisted(b)
-	terms := ContentTerms(query)
+	terms := contentTerms(query)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {

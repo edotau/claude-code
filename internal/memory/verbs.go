@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// idRef is a block reference: a persisted 8-hex id (or id-alias) or a z-prefixed ContentRef.
+// idRef is a block reference: a persisted 8-hex id (or id-alias) or a z-prefixed contentRef.
 var idRef = regexp.MustCompile(`^(z[0-9a-f]{8}|[0-9a-f]{8}(-[a-z0-9-]+)?)$`)
 
 // SearchOptions is one `memory search`; Expand lets a lone block reference resolve to its block.
@@ -25,24 +25,24 @@ type SearchOptions struct {
 	Expand bool
 }
 
-// SearchResult is the expanded block (Path, Block) when the query was a reference, else the ranked Hits.
-type SearchResult struct {
+// searchResult is the expanded block (Path, Block) when the query was a reference, else the ranked Hits.
+type searchResult struct {
 	Path, Block string
 	Hits        []SearchHit
 }
 
 // Search ranks blocks for the query and logs the access; a block reference expands in place when allowed.
-func Search(o SearchOptions) SearchResult {
+func Search(o SearchOptions) searchResult {
 	now := time.Now()
 	if o.Expand && idRef.MatchString(o.Query) {
 		if path, block, err := ShowBlock(o.Query); err == nil {
-			LogShown(path, o.Query, AccessSearch, now)
-			return SearchResult{Path: path, Block: block}
+			logShown(path, o.Query, AccessSearch, now)
+			return searchResult{Path: path, Block: block}
 		}
 	}
 	hits, root := SearchRepo(o.Repo, o.All, o.Query, o.K)
-	LogHits(root, hits, AccessSearch, now)
-	return SearchResult{Hits: hits}
+	logHits(root, hits, AccessSearch, now)
+	return searchResult{Hits: hits}
 }
 
 // Show returns one block by id and logs the access.
@@ -51,7 +51,7 @@ func Show(id string) (path, block string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	LogShown(path, id, AccessShow, time.Now())
+	logShown(path, id, AccessShow, time.Now())
 	return path, block, nil
 }
 
@@ -62,7 +62,7 @@ func InitBank(w io.Writer, root string) error {
 		return err
 	}
 	fmt.Fprintf(w, "bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background update) writes it.\n", dir, HomeBankDir())
-	if IsProjectContextTemplate(root) {
+	if isProjectContextTemplate(root) {
 		ref, err := Reference("init")
 		if err != nil {
 			return err
@@ -93,7 +93,7 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 		embedIndex(out, errw, root, profile, o.Reembed)
 		return nil
 	}
-	s, err := SettleBank(root, time.Now())
+	s, err := settleBank(root, time.Now())
 	if err != nil {
 		return fmt.Errorf("memory index: %w", err)
 	}
@@ -117,7 +117,7 @@ func reembedGate(profile string, now time.Time) error {
 	if profile == "" {
 		return nil
 	}
-	at, open, err := ReembedWindow(profile, now)
+	at, open, err := reembedWindow(profile, now)
 	if err != nil {
 		return fmt.Errorf("memory index --reembed: %w", err)
 	}
@@ -136,7 +136,7 @@ func embedIndex(out, errw io.Writer, root, profile string, reembed bool) {
 		var n, total int
 		embed := EmbedEntries
 		if reembed {
-			embed = ReembedEntries
+			embed = reembedEntries
 		}
 		if n, total, err = embed(ctx, root, c); err == nil && n > 0 {
 			fmt.Fprintf(out, "embedded %d of %d entries (%s)\n", n, total, c.Model)
@@ -200,7 +200,7 @@ func UpdateSession(o UpdateSessionOptions) error {
 	if err != nil {
 		fmt.Fprintln(o.Err, "claude-code: memory update:", err)
 	}
-	return Update(UpdateOptions{Claude: claude, Run: o.Run, Transcript: transcript, CWD: root, Session: session, Historical: o.Historical, Out: o.Out})
+	return update(updateOptions{Claude: claude, Run: o.Run, Transcript: transcript, CWD: root, Session: session, Historical: o.Historical, Out: o.Out})
 }
 
 // DreamRunOptions is one `memory dream`.
@@ -221,14 +221,14 @@ func RunDream(o DreamRunOptions) error {
 		}
 	}
 	if o.DryRun {
-		fmt.Fprint(o.Out, PreviewDream(root, time.Now()).Report())
+		fmt.Fprint(o.Out, previewDream(root, time.Now()).Report())
 		return nil
 	}
 	if !o.Force && !DreamDue(root, time.Now()) {
 		fmt.Fprintln(o.Out, "memory dream: not due")
 		return nil
 	}
-	return Dream(DreamOptions{CWD: root, Run: o.Run, Out: o.Out})
+	return dream(dreamOptions{CWD: root, Run: o.Run, Out: o.Out})
 }
 
 // DigestRepo writes the repo bank's digest and returns its path.
@@ -238,7 +238,7 @@ func DigestRepo(ctx context.Context, repo, claude string) (string, error) {
 
 // FormatReport wraps the bank files (or only lists them under check) and reports whether check found changes.
 func FormatReport(w io.Writer, check bool) (dirty bool, err error) {
-	changed, err := FormatBank(check)
+	changed, err := formatBank(check)
 	if err != nil {
 		return false, err
 	}
@@ -268,9 +268,9 @@ type ReviewOptions struct {
 func ReviewReport(w io.Writer, o ReviewOptions) error {
 	root := Root(o.Repo)
 	if o.Notice {
-		return WriteDoctorNotice(root, o.StaleDays, time.Now())
+		return writeDoctorNotice(root, o.StaleDays, time.Now())
 	}
-	problems := Doctor(root, o.StaleDays, time.Now())
+	problems := doctor(root, o.StaleDays, time.Now())
 	switch {
 	case len(problems) == 0:
 		fmt.Fprintln(w, "memory doctor: no problems found")
@@ -281,7 +281,7 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 			fmt.Fprintln(w, "- "+p)
 		}
 	}
-	fmt.Fprint(w, CollectBankStats().Report())
+	fmt.Fprint(w, collectBankStats().Report())
 	if o.Candidates {
 		ref, err := Reference("review")
 		if err != nil {
@@ -295,7 +295,7 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 
 // TimelineReport writes the n most recent bank entries, then the sessionHistory lines.
 func TimelineReport(w io.Writer, repo string, n int) {
-	entries, sessions := Timeline(Root(repo), n)
+	entries, sessions := timeline(Root(repo), n)
 	for _, e := range entries {
 		fmt.Fprintf(w, "%s  update   %s\n", e.Time.Format("2006-01-02 15:04"), e.Line)
 	}

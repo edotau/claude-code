@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// BankStats aggregates every update receipt under StateDir().
-type BankStats struct {
+// bankStats aggregates every update receipt under StateDir().
+type bankStats struct {
 	Updates     int // receipt files parsed
 	OK          int
 	Failed      int
@@ -19,9 +19,9 @@ type BankStats struct {
 	Newest      time.Time
 }
 
-// CollectBankStats scans StateDir()/update-result-*. Unreadable or statusless receipts are skipped.
-func CollectBankStats() BankStats {
-	var s BankStats
+// collectBankStats scans StateDir()/update-result-*. Unreadable or statusless receipts are skipped.
+func collectBankStats() bankStats {
+	var s bankStats
 	for _, rc := range readReceipts() {
 		r := rc.r
 		s.Updates++
@@ -49,7 +49,7 @@ func CollectBankStats() BankStats {
 }
 
 // Report renders the aggregate as the human `memory stats` block.
-func (s BankStats) Report() string {
+func (s bankStats) Report() string {
 	var b strings.Builder
 	b.WriteString("== memory stats (receipts on disk) ==\n")
 	if s.Updates == 0 {

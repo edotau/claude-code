@@ -11,8 +11,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// AccessLogFile is the append-only access trace; it never enters the injected bank.
-const AccessLogFile = "access.log"
+// accessLogFile is the append-only access trace; it never enters the injected bank.
+const accessLogFile = "access.log"
 
 // Access reasons distinguishing recall injections from explicit CLI returns.
 const (
@@ -31,8 +31,8 @@ const (
 	accessLockWait    = 500 * time.Millisecond
 )
 
-// LogAccess appends one read to dir's log, failing open and redacting credential-shaped reasons.
-func LogAccess(dir string, now time.Time, entry, reason string) {
+// logAccess appends one read to dir's log, failing open and redacting credential-shaped reasons.
+func logAccess(dir string, now time.Time, entry, reason string) {
 	logAccessBatch(dir, now, []string{entry}, reason)
 }
 
@@ -52,7 +52,7 @@ func accessLogWritable(path string) bool {
 	if fi, err := os.Lstat(path); err == nil && !fi.Mode().IsRegular() {
 		return false // symlink/oddity planted at the log name — never write through it
 	}
-	// A dir that cannot be created means the log is not scaffolded yet — fail-open, like every other LogAccess error path.
+	// A dir that cannot be created means the log is not scaffolded yet — fail-open, like every other logAccess error path.
 	return os.MkdirAll(filepath.Dir(path), 0o755) == nil
 }
 
@@ -61,7 +61,7 @@ func logAccessBatch(dir string, now time.Time, entries []string, reason string) 
 	if dir == "" || len(entries) == 0 {
 		return
 	}
-	if CredentialPattern.MatchString(reason) {
+	if credentialPattern.MatchString(reason) {
 		reason = "(reason redacted — credential-shaped)"
 	}
 	lines := accessLines(now, entries, reason)
@@ -218,8 +218,8 @@ func eachAccessLine(path string, fn func(ts time.Time, entry, reason string)) {
 	}
 }
 
-// ReturnCounts counts per entry the searches and shows of the last 30 days in dirs' logs; recall injections excluded.
-func ReturnCounts(dirs []string, now time.Time) map[string]int {
+// returnCounts counts per entry the searches and shows of the last 30 days in dirs' logs; recall injections excluded.
+func returnCounts(dirs []string, now time.Time) map[string]int {
 	counts := map[string]int{}
 	cutoff := now.AddDate(0, 0, -accessRotateDays)
 	seen := map[string]bool{}
@@ -238,8 +238,8 @@ func ReturnCounts(dirs []string, now time.Time) map[string]int {
 	return counts
 }
 
-// LogHits logs access for matching search hits grouped by each hit's owning bank directory.
-func LogHits(root string, hits []SearchHit, reason string, now time.Time) {
+// logHits logs access for matching search hits grouped by each hit's owning bank directory.
+func logHits(root string, hits []SearchHit, reason string, now time.Time) {
 	if len(hits) == 0 {
 		return
 	}
@@ -247,7 +247,7 @@ func LogHits(root string, hits []SearchHit, reason string, now time.Time) {
 	for _, h := range hits {
 		key := h.ID
 		if key == "" {
-			key = EntryFromHit(h).ID
+			key = entryFromHit(h).ID
 		}
 		if key == "" {
 			continue
@@ -270,28 +270,28 @@ func LogHits(root string, hits []SearchHit, reason string, now time.Time) {
 	}
 }
 
-// LogShown logs access for a single shown block.
-func LogShown(path, id, reason string, now time.Time) {
+// logShown logs access for a single shown block.
+func logShown(path, id, reason string, now time.Time) {
 	if id == "" {
 		return
 	}
 	dir := HomeBankDir()
-	if rel, ok := InsideStore(path); ok {
+	if rel, ok := insideStore(path); ok {
 		if first, _, _ := strings.Cut(rel, "/"); first != "" && first != "." {
 			dir = filepath.Join(StoreDir(), first)
 		}
 	}
-	LogAccess(dir, now, id, reason)
+	logAccess(dir, now, id, reason)
 }
 
 // AccessLogPath puts store traces in state/harness/memory/access, otherwise beside the bank.
 func AccessLogPath(dir string) string {
-	if rel, ok := InsideStore(dir); ok {
+	if rel, ok := insideStore(dir); ok {
 		key := strings.ReplaceAll(rel, string(filepath.Separator), "_")
 		if key == "" || key == "." {
 			key = "home"
 		}
 		return filepath.Join(AccessStateDir(), key+".log")
 	}
-	return filepath.Join(dir, AccessLogFile)
+	return filepath.Join(dir, accessLogFile)
 }

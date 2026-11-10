@@ -39,7 +39,7 @@ func TestShowBlockReturnsWalkErrors(t *testing.T) {
 			denyBankAccess(t, dir)
 			_, _, err := ShowBlock("deadbeef")
 			if !errors.Is(err, fs.ErrPermission) {
-				t.Fatalf("ShowBlock = %v, want walk permission error, not ErrNoBlock", err)
+				t.Fatalf("ShowBlock = %v, want walk permission error, not errNoBlock", err)
 			}
 		})
 	}
@@ -50,7 +50,7 @@ func TestFormatBankCheckReturnsDiscoveryErrors(t *testing.T) {
 		t.Run(sub, func(t *testing.T) {
 			isolatedConfig1(t)
 			want := fmtDiscoveryFailure(t, sub)
-			_, err := FormatBank(true)
+			_, err := formatBank(true)
 			if !errors.Is(err, want) {
 				t.Fatalf("fmt --check = %v, want discovery error %v", err, want)
 			}
@@ -81,9 +81,9 @@ func TestCorpusBlocksReturnsReadErrors(t *testing.T) {
 	file := filepath.Join(HomeBankDir(), "decisionLog.md")
 	write(t, file, "## Hidden\nbody\n")
 	denyBankAccess(t, file)
-	hits, err := CorpusBlocks(root)
+	hits, err := corpusBlocks(root)
 	if !errors.Is(err, fs.ErrPermission) {
-		t.Fatalf("CorpusBlocks = %v, %v; want file permission error", hits, err)
+		t.Fatalf("corpusBlocks = %v, %v; want file permission error", hits, err)
 	}
 }
 
@@ -130,7 +130,7 @@ func TestDeleteTransactionRecoversFailedCommit(t *testing.T) {
 	lock := filepath.Join(store, ".git", "refs", "heads", "main.lock")
 	write(t, lock, "")
 	failed, err := batchLocked("delete", []Change{{Rel: "r/fact.md", Delete: true}})
-	if err == nil || errors.Is(err, ErrDivergent) {
+	if err == nil || errors.Is(err, errDivergent) {
 		t.Fatalf("held ref lock must fail the deletion commit: %v", err)
 	}
 	if len(journals(t)) != 1 {

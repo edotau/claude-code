@@ -35,9 +35,9 @@ func TestExtractTags_AssistantAllFourKinds(t *testing.T) {
 	transcript := strings.Join([]string{
 		assistantLine("DECISION: use bbolt — rejected sqlite because no cgo\nBUG: update hangs → missing timeout\nNEXT: add retry\nNOTE: vault key lives in keyring"),
 	}, "\n")
-	tags, err := ExtractTags(strings.NewReader(transcript))
+	tags, err := extractTags(strings.NewReader(transcript))
 	if err != nil {
-		t.Fatalf("ExtractTags: %v", err)
+		t.Fatalf("extractTags: %v", err)
 	}
 	wantKinds := []string{"DECISION", "BUG", "NEXT", "NOTE"}
 	if len(tags) != 4 {
@@ -57,9 +57,9 @@ func TestExtractTags_UserToolSystemExcluded(t *testing.T) {
 		toolResultLine("DECISION: this came from a tool result and must not be filed"),
 		systemLine("DECISION: this came from a system message and must not be filed"),
 	}, "\n")
-	tags, err := ExtractTags(strings.NewReader(transcript))
+	tags, err := extractTags(strings.NewReader(transcript))
 	if err != nil {
-		t.Fatalf("ExtractTags: %v", err)
+		t.Fatalf("extractTags: %v", err)
 	}
 	if len(tags) != 0 {
 		t.Fatalf("got %d tags from non-assistant lines, want 0: %+v", len(tags), tags)
@@ -69,9 +69,9 @@ func TestExtractTags_UserToolSystemExcluded(t *testing.T) {
 func TestExtractTags_OptionalBulletPrefix(t *testing.T) {
 	t.Parallel()
 	transcript := assistantLine("- DECISION: bulleted tag still counts")
-	tags, err := ExtractTags(strings.NewReader(transcript))
+	tags, err := extractTags(strings.NewReader(transcript))
 	if err != nil {
-		t.Fatalf("ExtractTags: %v", err)
+		t.Fatalf("extractTags: %v", err)
 	}
 	if len(tags) != 1 || tags[0].Kind != "DECISION" || tags[0].Text != "bulleted tag still counts" {
 		t.Fatalf("got %+v", tags)
@@ -84,9 +84,9 @@ func TestExtractTags_ExactRepeatsDeduped(t *testing.T) {
 		assistantLine("NOTE: same fact twice"),
 		assistantLine("NOTE: same fact twice"),
 	}, "\n")
-	tags, err := ExtractTags(strings.NewReader(transcript))
+	tags, err := extractTags(strings.NewReader(transcript))
 	if err != nil {
-		t.Fatalf("ExtractTags: %v", err)
+		t.Fatalf("extractTags: %v", err)
 	}
 	if len(tags) != 1 {
 		t.Fatalf("got %d tags, want 1 after dedup: %+v", len(tags), tags)
@@ -97,9 +97,9 @@ func TestExtractTags_OverLongCapped(t *testing.T) {
 	t.Parallel()
 	long := strings.Repeat("x", 500)
 	transcript := assistantLine("NOTE: " + long)
-	tags, err := ExtractTags(strings.NewReader(transcript))
+	tags, err := extractTags(strings.NewReader(transcript))
 	if err != nil {
-		t.Fatalf("ExtractTags: %v", err)
+		t.Fatalf("extractTags: %v", err)
 	}
 	if len(tags) != 1 {
 		t.Fatalf("got %d tags, want 1: %+v", len(tags), tags)
@@ -116,9 +116,9 @@ func TestExtractTags_OverCountKeepsNewest(t *testing.T) {
 		lines = append(lines, assistantLine("NOTE: fact "+string(rune('a'+i))))
 	}
 	transcript := strings.Join(lines, "\n")
-	tags, err := ExtractTags(strings.NewReader(transcript))
+	tags, err := extractTags(strings.NewReader(transcript))
 	if err != nil {
-		t.Fatalf("ExtractTags: %v", err)
+		t.Fatalf("extractTags: %v", err)
 	}
 	if len(tags) != tagMaxCount {
 		t.Fatalf("got %d tags, want %d", len(tags), tagMaxCount)
@@ -135,9 +135,9 @@ func TestExtractTags_MalformedLineSkipped(t *testing.T) {
 		"{not valid json",
 		assistantLine("NOTE: survives the bad line before it"),
 	}, "\n")
-	tags, err := ExtractTags(strings.NewReader(transcript))
+	tags, err := extractTags(strings.NewReader(transcript))
 	if err != nil {
-		t.Fatalf("ExtractTags: %v", err)
+		t.Fatalf("extractTags: %v", err)
 	}
 	if len(tags) != 1 || tags[0].Text != "survives the bad line before it" {
 		t.Fatalf("got %+v", tags)
@@ -146,9 +146,9 @@ func TestExtractTags_MalformedLineSkipped(t *testing.T) {
 
 func TestExtractTags_EmptyTranscript(t *testing.T) {
 	t.Parallel()
-	tags, err := ExtractTags(strings.NewReader(""))
+	tags, err := extractTags(strings.NewReader(""))
 	if err != nil {
-		t.Fatalf("ExtractTags: %v", err)
+		t.Fatalf("extractTags: %v", err)
 	}
 	if len(tags) != 0 {
 		t.Fatalf("got %d tags from an empty transcript, want 0", len(tags))

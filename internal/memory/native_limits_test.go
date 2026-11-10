@@ -14,7 +14,7 @@ func TestSplitReportsNativeProseOverLimit(t *testing.T) {
 	indexPath := filepath.Join(dir, NativeIndexFile)
 	prose := strings.Repeat("prose that is not a pointer\n", NativeIndexMaxLines)
 	write(t, indexPath, prose+testIndex)
-	moved, err := SplitNativeIndex(dir, 1)
+	moved, err := splitNativeIndex(dir, 1)
 	if moved != 2 {
 		t.Errorf("moved = %d, want 2", moved)
 	}
@@ -25,7 +25,7 @@ func TestSplitReportsNativeProseOverLimit(t *testing.T) {
 	if !strings.HasPrefix(got, prose) || strings.Contains(got, "stale-fact.md") || !strings.Contains(got, "also-keep.md") {
 		t.Errorf("split rewrote prose or kept the wrong pointers:\n%s", got[len(got)-200:])
 	}
-	if _, err := SplitNativeIndex(dir, 1); err == nil || !strings.Contains(err.Error(), "native load limit") {
+	if _, err := splitNativeIndex(dir, 1); err == nil || !strings.Contains(err.Error(), "native load limit") {
 		t.Errorf("no-op re-run err = %v, want the same diagnostic", err)
 	}
 }
@@ -34,21 +34,21 @@ func TestSplitReportsNativeProseOverLimit(t *testing.T) {
 // limit still lands, and the error names the limit so the overflow is never silent.
 func TestRestoreNativeReportsIndexOverLimit(t *testing.T) {
 	dir := nativeStore(t)
-	if _, err := ArchiveNative(dir, []string{"stale-fact"}, true); err != nil {
+	if _, err := archiveNative(dir, []string{"stale-fact"}, true); err != nil {
 		t.Fatal(err)
 	}
 	idxPath := filepath.Join(dir, NativeIndexFile)
 	idx := mustRead(t, idxPath)
-	write(t, idxPath, idx+strings.Repeat("prose\n", NativeIndexMaxLines-LineCount(idx)))
-	res, err := RestoreNative(dir, []string{"stale-fact"}, true)
+	write(t, idxPath, idx+strings.Repeat("prose\n", NativeIndexMaxLines-lineCount(idx)))
+	res, err := restoreNative(dir, []string{"stale-fact"}, true)
 	if err == nil || !strings.Contains(err.Error(), "exceed the native load limit") {
-		t.Fatalf("RestoreNative err = %v, want the load-limit diagnostic", err)
+		t.Fatalf("restoreNative err = %v, want the load-limit diagnostic", err)
 	}
 	if len(res.Restored) != 1 || !fileExists(filepath.Join(dir, "stale-fact.md")) {
 		t.Errorf("restore did not land: Restored = %v", res.Restored)
 	}
-	if got := mustRead(t, idxPath); !strings.Contains(got, "(stale-fact.md)") || LineCount(got) != NativeIndexMaxLines+1 {
-		t.Errorf("index has %d lines, want %d with the restored pointer", LineCount(got), NativeIndexMaxLines+1)
+	if got := mustRead(t, idxPath); !strings.Contains(got, "(stale-fact.md)") || lineCount(got) != NativeIndexMaxLines+1 {
+		t.Errorf("index has %d lines, want %d with the restored pointer", lineCount(got), NativeIndexMaxLines+1)
 	}
 }
 
@@ -60,10 +60,10 @@ func TestArchiveNativeReportsHealedIndexOverLimit(t *testing.T) {
 		write(t, filepath.Join(dir, n), "---\nname: "+strings.TrimSuffix(n, ".md")+"\n---\n\nbody\n")
 	}
 	idxPath := filepath.Join(dir, NativeIndexFile)
-	write(t, idxPath, testIndex+strings.Repeat("prose\n", NativeIndexMaxLines-LineCount(testIndex)))
-	res, err := ArchiveNative(dir, []string{"stale-fact"}, true)
+	write(t, idxPath, testIndex+strings.Repeat("prose\n", NativeIndexMaxLines-lineCount(testIndex)))
+	res, err := archiveNative(dir, []string{"stale-fact"}, true)
 	if err == nil || !strings.Contains(err.Error(), "exceed the native load limit") {
-		t.Fatalf("ArchiveNative err = %v, want the load-limit diagnostic", err)
+		t.Fatalf("archiveNative err = %v, want the load-limit diagnostic", err)
 	}
 	if len(res.Archived) != 1 || fileExists(filepath.Join(dir, "stale-fact.md")) {
 		t.Errorf("archive did not land: Archived = %v", res.Archived)
@@ -77,8 +77,8 @@ func assertHealedArchiveIndexOverLimit(t *testing.T, idxPath string) {
 	if strings.Contains(got, "(stale-fact.md)") || !strings.Contains(got, "(orphan-one.md)") || !strings.Contains(got, "(orphan-two.md)") {
 		t.Errorf("index not struck and healed:\n%s", got)
 	}
-	if LineCount(got) != NativeIndexMaxLines+1 {
-		t.Errorf("index has %d lines, want %d", LineCount(got), NativeIndexMaxLines+1)
+	if lineCount(got) != NativeIndexMaxLines+1 {
+		t.Errorf("index has %d lines, want %d", lineCount(got), NativeIndexMaxLines+1)
 	}
 }
 

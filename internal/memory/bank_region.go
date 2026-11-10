@@ -26,7 +26,7 @@ func buildBankRegion(dir string, now time.Time) string {
 	}
 	var entries []string
 	for _, s := range []struct{ file, prefix string }{{"decisionLog.md", "## "}, {"sessionHistory.md", "## "}} {
-		for _, e := range EntriesWithPrefix(filepath.Join(dir, s.file), s.prefix) {
+		for _, e := range entriesWithPrefix(filepath.Join(dir, s.file), s.prefix) {
 			entries = append(entries, "- "+strings.TrimSuffix(s.file, ".md")+": "+e)
 		}
 	}
@@ -60,12 +60,12 @@ func writeBankRegion(dir string, now time.Time) (bool, error) {
 		return false, err
 	}
 	text := string(raw)
-	if _, _, err := ScanBankRegion(text); err != nil { // a malformed region is a diagnostic, never a guess
+	if _, _, err := scanBankRegion(text); err != nil { // a malformed region is a diagnostic, never a guess
 		return false, fmt.Errorf("%s: %w", path, err)
 	}
 	region := buildBankRegion(dir, now)
 	var next string
-	if start, end := BankRegionBounds(text); start >= 0 {
+	if start, end := bankRegionBounds(text); start >= 0 {
 		next = text[:start] + region + text[end:]
 	} else {
 		next = region + text
@@ -90,7 +90,7 @@ func BuildCatalog(now time.Time) (string, error) {
 		if !last.IsZero() {
 			when = last.Format("2006-01-02")
 		}
-		fmt.Fprintf(&b, "- %s — %s · last %s → %s/MEMORY.md%s\n", e.Key, storeHook(e), when, e.Key, CatalogOriginComment(e.Origin))
+		fmt.Fprintf(&b, "- %s — %s · last %s → %s/MEMORY.md%s\n", e.Key, storeHook(e), when, e.Key, catalogOriginComment(e.Origin))
 	}
 	writeKnowledgeRows(&b, entries)
 	writeHomeRows(&b, now)
@@ -98,7 +98,7 @@ func BuildCatalog(now time.Time) (string, error) {
 }
 
 // writeKnowledgeRows lists the home and per-repo knowledge notes under their own heading.
-func writeKnowledgeRows(b *strings.Builder, entries []RepoEntry) {
+func writeKnowledgeRows(b *strings.Builder, entries []repoEntry) {
 	var rows []string
 	// collectKnowledge lists dir's own knowledge/*.md.
 	collectKnowledge := func(label, dir string) {
@@ -140,7 +140,7 @@ func writeHomeRows(b *strings.Builder, now time.Time) {
 }
 
 // storeHook is a store's one-line routing description: projectContext's first prose line, else its origin.
-func storeHook(e RepoEntry) string {
+func storeHook(e repoEntry) string {
 	if data, err := os.ReadFile(filepath.Join(e.Dir, "projectContext.md")); err == nil {
 		hook, ok := firstProseLine(stripFrontmatter(string(data)), func(l string) bool {
 			return strings.HasPrefix(l, "#") || strings.HasPrefix(l, ">") || strings.HasPrefix(l, "(")
@@ -162,12 +162,12 @@ func stripFrontmatter(s string) string {
 	return string(content)
 }
 
-// SettleDir stamps block IDs, rotates sessionHistory, regenerates dir's MEMORY.md region and wraps its files.
-func SettleDir(d string, now time.Time, s *BankSettlement) error {
+// settleDir stamps block IDs, rotates sessionHistory, regenerates dir's MEMORY.md region and wraps its files.
+func settleDir(d string, now time.Time, s *bankSettlement) error {
 	if _, err := assignIDs(d, now); err != nil {
 		return err
 	}
-	n, err := RotateSessionHistory(d, now)
+	n, err := rotateSessionHistory(d, now)
 	s.Rotated += n
 	if err != nil {
 		return err
@@ -183,7 +183,7 @@ func SettleDir(d string, now time.Time, s *BankSettlement) error {
 	return err
 }
 
-func WriteCatalog(now time.Time) error {
+func writeCatalog(now time.Time) error {
 	c, err := BuildCatalog(now)
 	if err != nil {
 		return err
@@ -191,8 +191,8 @@ func WriteCatalog(now time.Time) error {
 	return paths.AtomicWrite(filepath.Join(StoreDir(), CatalogFile), []byte(c), 0o644)
 }
 
-// CommitStore commits every dirty path in the store (update writes + settle output) as one settle commit.
-func CommitStore(subject string) error {
+// commitStore commits every dirty path in the store (update writes + settle output) as one settle commit.
+func commitStore(subject string) error {
 	repo := StoreRepo()
 	if !repo.Exists() {
 		return nil
@@ -231,7 +231,7 @@ func newestMarkdown(dir string) time.Time {
 // (repo-specific); README.md is the tier's own doc.
 func knowledgeFiles(root string) []string {
 	dirs := []string{HomeBankDir()}
-	if !IsHomeBank(root) {
+	if !isHomeBank(root) {
 		dirs = append(dirs, Dir(root))
 	}
 	var out []string
@@ -243,7 +243,7 @@ func knowledgeFiles(root string) []string {
 
 // knowledgeNotes lists bank dir's knowledge/*.md, minus the tier's own README.md.
 func knowledgeNotes(dir string) []string {
-	m, _ := filepath.Glob(filepath.Join(KnowledgeDir(dir), "*.md"))
+	m, _ := filepath.Glob(filepath.Join(knowledgeDir(dir), "*.md"))
 	var out []string
 	for _, f := range m {
 		if filepath.Base(f) != "README.md" {

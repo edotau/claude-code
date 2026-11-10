@@ -14,7 +14,7 @@ import (
 func TestPersistenceAliasFoldViaAliasRetainsPrimary(t *testing.T) {
 	e := newAliasEnv(t)
 	secondary := gitRepo(t, canonTemp(t, t.TempDir()), "secondary")
-	if err := AddOriginAlias(e.db, secondary); err != nil {
+	if err := addOriginAlias(e.db, secondary); err != nil {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(e.db, "topic.md"), "source knowledge\n")
@@ -77,14 +77,14 @@ func TestPersistenceArchiveFileHonorsRememberLock(t *testing.T) {
 func TestPersistenceFailedDreamRetriesWithOldBanks(t *testing.T) {
 	isolatedConfig(t)
 	t.Setenv(UpdateChildEnv, "")
-	t.Setenv(DreamChildEnv, "")
+	t.Setenv(dreamChildEnv, "")
 	root := repoRoot(t, "proj")
 	if _, err := Init(root); err != nil {
 		t.Fatal(err)
 	}
 	failure := errors.New("agent unavailable")
 	run := func(context.Context, string, string) (string, error) { return "stub", failure }
-	if err := Dream(DreamOptions{CWD: root, Run: run}); !errors.Is(err, failure) {
+	if err := dream(dreamOptions{CWD: root, Run: run}); !errors.Is(err, failure) {
 		t.Fatalf("Dream = %v, want agent failure", err)
 	}
 	now := time.Now()

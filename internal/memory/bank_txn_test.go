@@ -37,7 +37,7 @@ func commitLocked(t *testing.T, subject string, changes []Change) (Receipt, erro
 	var rec Receipt
 	err := WithBankLock(BankLockWait, func() error {
 		var err error
-		rec, err = CommitChangesLocked(subject, changes)
+		rec, err = commitChangesLocked(subject, changes)
 		return err
 	})
 	return rec, err
@@ -123,8 +123,8 @@ func settleWithDivergence(t *testing.T) (store string, rec Receipt, err error) {
 
 func TestCommitChangesLockedPreimageRules(t *testing.T) {
 	_, rec, err := settleWithDivergence(t)
-	if !errors.Is(err, ErrDivergent) {
-		t.Fatalf("err = %v, want ErrDivergent", err)
+	if !errors.Is(err, errDivergent) {
+		t.Fatalf("err = %v, want errDivergent", err)
 	}
 	if strings.Join(rec.Applied, ",") != "r/a.md,r/new.md,r/also-new.md" || strings.Join(rec.Divergent, ",") != "r/b.md" {
 		t.Fatalf("receipt = %+v", rec)
@@ -217,7 +217,7 @@ func TestCommitChangesLockedSkipsSymlinkPreexisting(t *testing.T) {
 func batchLocked(subject string, changes []Change) (rec Receipt, err error) {
 	err = WithBankLock(BankLockWait, func() error {
 		var err error
-		rec, err = CommitChangesLocked(subject, changes)
+		rec, err = commitChangesLocked(subject, changes)
 		return err
 	})
 	return rec, err
@@ -255,7 +255,7 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 	refLock := filepath.Join(store, ".git", "refs", "heads", "main.lock")
 	write(t, refLock, "")
 	_, err := batchLocked("batch", []Change{{Rel: "r/x.md", Data: []byte("x\n"), Checked: true}})
-	if err == nil || errors.Is(err, ErrDivergent) {
+	if err == nil || errors.Is(err, errDivergent) {
 		t.Fatalf("commit must fail under the held ref lock: %v", err)
 	}
 	assertJournalSurvives(t)
@@ -301,7 +301,7 @@ func assertRecovered(t *testing.T, rec Receipt) {
 func TestApplyRechecksLiveBytesBeforeWrite(t *testing.T) {
 	store, _ := storeFixture(t)
 	if err := WithBankLock(BankLockWait, func() error {
-		_, err := CommitChangesLocked("seed", []Change{{Rel: "r/a.md", Data: []byte("v1\n")}})
+		_, err := commitChangesLocked("seed", []Change{{Rel: "r/a.md", Data: []byte("v1\n")}})
 		return err
 	}); err != nil {
 		t.Fatal(err)

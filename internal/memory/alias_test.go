@@ -81,7 +81,7 @@ func aliasTreeHash(t *testing.T, dir string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func alias(t *testing.T, e aliasEnv, dry bool) (AliasResult, error) {
+func alias(t *testing.T, e aliasEnv, dry bool) (aliasResult, error) {
 	return AliasRepo(AliasOptions{Repo: e.b, Into: e.ka, DryRun: dry, Now: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)})
 }
 
@@ -327,7 +327,7 @@ func TestAliasSecondRunAfterOriginOnlyIsError(t *testing.T) {
 	}
 }
 
-// TestAliasFoldDeletesSourceVaultRow: AddOriginAlias-style folding (FoldOrigin's drop path) must
+// TestAliasFoldDeletesSourceVaultRow: addOriginAlias-style folding (foldOrigin's drop path) must
 // delete the source store's own vault row in the same transaction that gives the target the alias —
 // never leave a stale row behind for a dir that no longer exists.
 func TestAliasFoldDeletesSourceVaultRow(t *testing.T) {

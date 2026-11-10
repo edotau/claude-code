@@ -47,26 +47,26 @@ type SearchHit struct {
 // Title is the hit's first line, marker-stripped and truncated.
 func (h SearchHit) Title() string {
 	first, _, _ := strings.Cut(h.Block, "\n")
-	return truncateLine(strings.TrimLeft(StripID(first), "#- "))
+	return truncateLine(strings.TrimLeft(stripID(first), "#- "))
 }
 
 // Plain is the whole block on one line, id markers and heading/bullet marks stripped, for compact previews.
 func (h SearchHit) Plain() string {
 	var parts []string
 	for l := range strings.SplitSeq(h.Block, "\n") {
-		if l = strings.TrimSpace(strings.TrimLeft(StripID(l), "#- ")); l != "" {
+		if l = strings.TrimSpace(strings.TrimLeft(stripID(l), "#- ")); l != "" {
 			parts = append(parts, l)
 		}
 	}
 	return strings.Join(strings.Fields(strings.Join(parts, " ")), " ")
 }
 
-func ContentTerms(s string) []string {
-	return ContentQueryTerms(textutil.Tokenize(s))
+func contentTerms(s string) []string {
+	return contentQueryTerms(textutil.Tokenize(s))
 }
 
-// ContentQueryTerms filters already tokenized query terms without changing their order or multiplicity.
-func ContentQueryTerms(tokens []string) []string {
+// contentQueryTerms filters already tokenized query terms without changing their order or multiplicity.
+func contentQueryTerms(tokens []string) []string {
 	var out []string
 	for _, t := range tokens {
 		if !stopwords[t] {
@@ -76,11 +76,11 @@ func ContentQueryTerms(tokens []string) []string {
 	return out
 }
 
-// CorpusBlocks loads every searchable block (Score 0): bank entries split by file grammar, a native topic whole.
+// corpusBlocks loads every searchable block (Score 0): bank entries split by file grammar, a native topic whole.
 // A file that vanished since listing is skipped; any other read error fails the whole corpus.
-func CorpusBlocks(root string) ([]SearchHit, error) {
+func corpusBlocks(root string) ([]SearchHit, error) {
 	var out []SearchHit
-	for _, f := range CorpusFiles(root) {
+	for _, f := range corpusFiles(root) {
 		data, err := os.ReadFile(f.Path)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
@@ -89,7 +89,7 @@ func CorpusBlocks(root string) ([]SearchHit, error) {
 			return nil, err
 		}
 		base := filepath.Base(f.Path)
-		for _, block := range ParseBlocks(f.Mode, base, data) {
+		for _, block := range parseBlocks(f.Mode, base, data) {
 			out = append(out, SearchHit{Bank: f.Bank, File: base, Block: block, Dir: ownerDir(f.Bank, f.Path)})
 		}
 	}

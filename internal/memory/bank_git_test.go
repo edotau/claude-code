@@ -45,7 +45,7 @@ func assertDecoyUntouched(t *testing.T, decoy Repo) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(st) != 2 || st[0] != (StatusEntry{"A ", ".gitignore"}) || st[1] != (StatusEntry{"A ", "staged.md"}) {
+	if len(st) != 2 || st[0] != (statusEntry{"A ", ".gitignore"}) || st[1] != (statusEntry{"A ", "staged.md"}) {
 		t.Fatalf("decoy index changed: %+v", st)
 	}
 }
@@ -282,7 +282,7 @@ func TestStatusParsesRenamesAndUntrackedInDirs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []StatusEntry{{"R ", "b.md"}, {"D ", "a.md"}, {"??", "deep/dir/c.md"}}
+	want := []statusEntry{{"R ", "b.md"}, {"D ", "a.md"}, {"??", "deep/dir/c.md"}}
 	if !slices.Equal(st, want) {
 		t.Fatalf("Status = %+v, want %+v", st, want)
 	}
@@ -297,14 +297,14 @@ func TestGitOutSanitizesEnv(t *testing.T) {
 	if err := (Repo{Dir: other}).Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	top, err := GitOut(other, "rev-parse", "--show-toplevel")
+	top, err := gitOut(other, "rev-parse", "--show-toplevel")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := filepath.EvalSymlinks(top); got != mustEval(t, other) {
 		t.Fatalf("gitOut followed the inherited GIT_DIR: %q", top)
 	}
-	if _, err := GitOut(t.TempDir(), "rev-parse", "--show-toplevel"); err == nil {
+	if _, err := gitOut(t.TempDir(), "rev-parse", "--show-toplevel"); err == nil {
 		t.Fatal("gitOut outside a repo must fail, not fall through to GIT_DIR")
 	}
 	assertDecoyUntouched(t, decoy)
@@ -357,9 +357,9 @@ func TestStoreGitProbesBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
-	oldTimeout := GitTimeout
-	GitTimeout = 50 * time.Millisecond
-	t.Cleanup(func() { GitTimeout = oldTimeout })
+	oldTimeout := gitTimeout
+	gitTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { gitTimeout = oldTimeout })
 
 	t.Run("git toplevel", func(t *testing.T) {
 		started := time.Now()
@@ -367,7 +367,7 @@ func TestStoreGitProbesBounded(t *testing.T) {
 			t.Errorf("timed-out toplevel probe = %q, want empty", got)
 		}
 		if elapsed := time.Since(started); elapsed >= time.Second {
-			t.Errorf("toplevel probe took %v with timeout %v", elapsed, GitTimeout)
+			t.Errorf("toplevel probe took %v with timeout %v", elapsed, gitTimeout)
 		}
 	})
 }

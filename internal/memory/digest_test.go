@@ -53,7 +53,7 @@ func TestDigestCommitFailureRestoresPreviousDigest(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
 	dir := HomeBankDir()
-	archive := ArchiveDir(dir)
+	archive := archiveDir(dir)
 	write(t, filepath.Join(archive, "sessionHistory-2026-10.md"), "- a durable archived fact\n")
 	digest := filepath.Join(archive, DigestFile)
 	write(t, digest, "PREVIOUS\n")

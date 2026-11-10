@@ -321,7 +321,7 @@ func cmdMemoryArchive(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	err = memory.ArchiveReport(os.Stdout, os.Stderr, memory.ArchiveReportOptions{Dir: memory.NativeDir(repoRoot(*repo)),
+	err = memory.ArchiveReport(os.Stdout, os.Stderr, memory.ArchiveReportOptions{Dir: memory.Dir(repoRoot(*repo)),
 		Names: names, Apply: *apply, Restore: *restore, Dupes: *dupes, Split: *split})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "memory archive:", err)

@@ -13,10 +13,10 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// DreamPreview is `memory dream --dry-run`'s deterministic report: what the mechanical steps would
+// dreamPreview is `memory dream --dry-run`'s deterministic report: what the mechanical steps would
 // change, with no model call and no write. The judgment steps (dedup, merge, cross-pollinate) are
 // never previewed here — they need a live read, not a count.
-type DreamPreview struct {
+type dreamPreview struct {
 	Dir           string
 	Oversized     []string // local bank files over cap
 	HomeOversized []string // home bank files over cap (only when local isn't already the home bank)
@@ -25,12 +25,12 @@ type DreamPreview struct {
 }
 
 // Any reports whether the preview found anything a real dream run would change mechanically.
-func (p DreamPreview) Any() bool {
+func (p dreamPreview) Any() bool {
 	return len(p.Oversized) > 0 || len(p.HomeOversized) > 0 || p.Archivable > 0 || p.SessionRotate > 0
 }
 
 // Report renders the preview as `memory dream --dry-run`'s stdout.
-func (p DreamPreview) Report() string {
+func (p dreamPreview) Report() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "bank: %s\n", p.Dir)
 	if len(p.Oversized) > 0 {
@@ -51,13 +51,13 @@ func (p DreamPreview) Report() string {
 	return b.String()
 }
 
-// PreviewDream computes DreamPreview for root without writing anything — the preview a live model
+// previewDream computes dreamPreview for root without writing anything — the preview a live model
 // never needs to run itself.
-func PreviewDream(root string, now time.Time) DreamPreview {
+func previewDream(root string, now time.Time) dreamPreview {
 	dir := Dir(root)
-	p := DreamPreview{Dir: dir, Oversized: Stat(root).Oversized}
-	if !IsHomeBank(root) {
-		p.HomeOversized = HomeBankStat().Oversized
+	p := dreamPreview{Dir: dir, Oversized: stat(root).Oversized}
+	if !isHomeBank(root) {
+		p.HomeOversized = homeBankStat().Oversized
 	}
 	for name, capLines := range archiveCaps {
 		p.Archivable += previewOverflowCount(filepath.Join(dir, name), capLines)
@@ -73,17 +73,17 @@ func previewOverflowCount(path string, capLines int) int {
 	return len(overflow)
 }
 
-// previewSessionRotate is RotateSessionHistory's cap check, read-only.
+// previewSessionRotate is rotateSessionHistory's cap check, read-only.
 func previewSessionRotate(dir string) int {
 	data, err := os.ReadFile(filepath.Join(dir, "sessionHistory.md"))
 	if err != nil {
 		return 0
 	}
-	_, entries := SplitHeadingBlocks(string(data))
-	if len(entries) <= SessionHistoryMaxEntries {
+	_, entries := splitHeadingBlocks(string(data))
+	if len(entries) <= sessionHistoryMaxEntries {
 		return 0
 	}
-	return len(entries) - SessionHistoryMaxEntries
+	return len(entries) - sessionHistoryMaxEntries
 }
 
 const dreamInterval = 24 * time.Hour
@@ -91,24 +91,24 @@ const dreamInterval = 24 * time.Hour
 // dreamRetry is how long a failed dream waits before DreamDue offers it again.
 const dreamRetry = 6 * time.Hour
 
-// DreamChildEnv marks a process spawned by `memory dream`'s agent run — the one context where
+// dreamChildEnv marks a process spawned by `memory dream`'s agent run — the one context where
 // `memory promote --to claude-md` is allowed to print its gated procedure.
-const DreamChildEnv = "CLAUDE_MEMORY_DREAM_CHILD"
+const dreamChildEnv = "CLAUDE_MEMORY_DREAM_CHILD"
 
-// IsDreamChild reports whether this process runs inside a dream worker (or one of its children).
-func IsDreamChild() bool {
-	v := os.Getenv(DreamChildEnv)
+// isDreamChild reports whether this process runs inside a dream worker (or one of its children).
+func isDreamChild() bool {
+	v := os.Getenv(dreamChildEnv)
 	return v != "" && v != "0"
 }
 
-// DreamStampPath records the last consolidation time.
-func DreamStampPath(root string) string {
+// dreamStampPath records the last consolidation time.
+func dreamStampPath(root string) string {
 	return filepath.Join(StateDir(), "last-dream-"+filepath.Base(Dir(root)))
 }
 
 // dreamStamp reads the stamp: its time (line 1) and whether that run failed (line 2 = "failed").
 func dreamStamp(root string) (t time.Time, failed, ok bool) {
-	data, err := os.ReadFile(DreamStampPath(root))
+	data, err := os.ReadFile(dreamStampPath(root))
 	if err != nil {
 		return time.Time{}, false, false
 	}
@@ -129,8 +129,8 @@ func DreamDue(cwd string, now time.Time) bool {
 	return NewestMtime(Dir(cwd)).After(stamp) || NewestMtime(HomeBankDir()).After(stamp)
 }
 
-// DreamOptions drive one consolidation.
-type DreamOptions struct {
+// dreamOptions drive one consolidation.
+type dreamOptions struct {
 	CWD     string
 	Run     AgentFunc
 	Out     io.Writer
@@ -148,8 +148,8 @@ func agentDreamPrompt() (string, error) {
 		"the home bank is the memory root. Be surgical.\n\n" + ref, nil
 }
 
-// Dream archives durable-file overflow, consolidates both banks on the agent, settles, and stamps.
-func Dream(o DreamOptions) error {
+// dream archives durable-file overflow, consolidates both banks on the agent, settles, and stamps.
+func dream(o dreamOptions) error {
 	if o.Out == nil {
 		o.Out = io.Discard
 	}
@@ -157,9 +157,9 @@ func Dream(o DreamOptions) error {
 		o.Timeout = UpdateTimeout
 	}
 	var runErr, archiveErr error
-	lockErr := paths.WithFileLock(LockPath(Dir(o.CWD)), func() error {
+	lockErr := paths.WithFileLock(lockPath(Dir(o.CWD)), func() error {
 		now := time.Now()
-		n, err := ArchiveOverflow(o.CWD, now)
+		n, err := archiveOverflow(o.CWD, now)
 		if err != nil {
 			archiveErr = fmt.Errorf("archive: %w", err)
 			fmt.Fprintln(o.Out, "memory dream:", archiveErr)
@@ -172,8 +172,8 @@ func Dream(o DreamOptions) error {
 			} else {
 				ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 				defer cancel()
-				_ = os.Setenv(UpdateChildEnv, "1") // a Claude fallback dispatch must not re-trigger hooks; cannot fail for a fixed key
-				_ = os.Setenv(DreamChildEnv, "1")  // lets this run's own `memory promote --to claude-md` through the gate
+				_ = os.Setenv(UpdateChildEnv, "1") // a Claude fallback dispatch must not re-trigger hooks
+				_ = os.Setenv(dreamChildEnv, "1")  // lets this run's own `memory promote --to claude-md` through the gate
 				who, err := o.Run(ctx, prompt, o.CWD)
 				runErr = err
 				fmt.Fprintln(o.Out, "memory dream: ran on", who)
@@ -183,7 +183,7 @@ func Dream(o DreamOptions) error {
 	})
 	// Settle after the lock is released.
 	var settleErr error
-	if _, err := SettleBank(o.CWD, time.Now()); err != nil {
+	if _, err := settleBank(o.CWD, time.Now()); err != nil {
 		settleErr = fmt.Errorf("settle: %w", err)
 		fmt.Fprintln(o.Out, "memory dream:", settleErr)
 	}
@@ -199,5 +199,5 @@ func stampDream(root string, at time.Time, failed bool) error {
 	if failed {
 		body += "failed\n"
 	}
-	return paths.AtomicWrite(DreamStampPath(root), []byte(body), 0o600)
+	return paths.AtomicWrite(dreamStampPath(root), []byte(body), 0o600)
 }

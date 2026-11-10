@@ -20,8 +20,8 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// UpdatePrompt is the headless update instruction; the tail bound keeps a multi-MB transcript from eating the turns.
-const UpdatePrompt = "Background update of a finished session (transcript: %s). " +
+// updatePrompt is the headless update instruction; the tail bound keeps a multi-MB transcript from eating the turns.
+const updatePrompt = "Background update of a finished session (transcript: %s). " +
 	"Read ONLY the last ~1500 lines of that transcript — it may be many MB and reading it whole will " +
 	"exhaust your turn budget before you can write anything. " +
 	"Then run `claude-code memory update` with no --transcript to print the narrative procedure, and follow it " +
@@ -178,9 +178,9 @@ func gitSinceBlock(transcript, cwd string) string {
 	if since.IsZero() || cwd == "" {
 		return ""
 	}
-	commits, _ := GitOut(cwd, "log", "--oneline", "--since="+since.Format(time.RFC3339))
-	touched, _ := GitOut(cwd, "log", "--since="+since.Format(time.RFC3339), "--name-only", "--format=")
-	status, _ := GitOut(cwd, "status", "--porcelain")
+	commits, _ := gitOut(cwd, "log", "--oneline", "--since="+since.Format(time.RFC3339))
+	touched, _ := gitOut(cwd, "log", "--since="+since.Format(time.RFC3339), "--name-only", "--format=")
+	status, _ := gitOut(cwd, "status", "--porcelain")
 	if commits == "" && touched == "" && status == "" {
 		return ""
 	}
@@ -235,7 +235,7 @@ func tagBlock(transcript string) string {
 		return ""
 	}
 	defer f.Close()
-	tags, err := ExtractTags(f)
+	tags, err := extractTags(f)
 	if err != nil || len(tags) == 0 {
 		return ""
 	}
@@ -253,8 +253,8 @@ func tagBlock(transcript string) string {
 	return b.String()
 }
 
-// UpdateOptions drive one background update.
-type UpdateOptions struct {
+// updateOptions drive one background update.
+type updateOptions struct {
 	Claude     string    // real claude binary; "" records a failure unless Run is set
 	Run        AgentFunc // preferred agent; nil = claude -p
 	Transcript string
@@ -265,8 +265,8 @@ type UpdateOptions struct {
 	Out        io.Writer
 }
 
-// Update runs the headless narrative pass under the bank lock, settles the bank, and records the outcome.
-func Update(o UpdateOptions) error {
+// update runs the headless narrative pass under the bank lock, settles the bank, and records the outcome.
+func update(o updateOptions) error {
 	o = updateDefaults(o)
 	prior, _ := ReadUpdateResult(o.Session)
 	record := func(status string, updated bool) error {
@@ -282,7 +282,7 @@ func Update(o UpdateOptions) error {
 	dir := Dir(o.CWD)
 	var run updateRun
 	// Bounded wait: a peer update/dream may hold this lock for minutes, and a Stop hook must not block on it.
-	ran, lockErr := paths.TryFileLock(LockPath(dir)+".lock", updateLockWait, func() error { return run.locked(o, dir) })
+	ran, lockErr := paths.TryFileLock(lockPath(dir)+".lock", updateLockWait, func() error { return run.locked(o, dir) })
 	if !ran { // lock never taken: nothing ran, and settling unlocked would race the holder
 		return errors.Join(fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock"))), record(UpdateFailed, false))
 	}
@@ -292,7 +292,7 @@ func Update(o UpdateOptions) error {
 	return record(UpdateOK, run.updated)
 }
 
-func updateDefaults(o UpdateOptions) UpdateOptions {
+func updateDefaults(o updateOptions) updateOptions {
 	if o.Out == nil {
 		o.Out = io.Discard
 	}
@@ -310,21 +310,21 @@ type updateRun struct {
 }
 
 // finish settles under the writer lock and reports whether the update wrote either bank tier.
-func (r *updateRun) finish(o UpdateOptions, dir string) (updated bool, err error) {
+func (r *updateRun) finish(o updateOptions, dir string) (updated bool, err error) {
 	// An update may legitimately write only the shared home bank (cross-repo facts), so watch both tiers.
 	updated = NewestMtime(dir).After(r.before) || NewestMtime(HomeBankDir()).After(r.beforeHome)
-	if _, err := SettleBank(o.CWD, time.Now()); err != nil {
+	if _, err := settleBank(o.CWD, time.Now()); err != nil {
 		return updated, fmt.Errorf("settle: %w", err)
 	}
 	// Refresh the cached doctor notice here (background worker), never on the SessionStart launch path.
-	if err := WriteDoctorNotice(o.CWD, DefaultStaleDays, time.Now()); err != nil {
+	if err := writeDoctorNotice(o.CWD, DefaultStaleDays, time.Now()); err != nil {
 		fmt.Fprintln(o.Out, "memory update: doctor notice:", err)
 	}
 	return updated, nil
 }
 
 // locked runs the agent or claude update and its settlement under the store lock; errors ride in the run struct.
-func (r *updateRun) locked(o UpdateOptions, dir string) error {
+func (r *updateRun) locked(o updateOptions, dir string) error {
 	if o.Historical {
 		snap := snapshotFiles(dir, currentStateFiles)
 		defer warnChanged(o.Out, dir, snap)
@@ -342,7 +342,7 @@ func (r *updateRun) locked(o UpdateOptions, dir string) error {
 }
 
 // runAgentUpdate hands the update prompt to o.Run and reports which agent ran it.
-func runAgentUpdate(ctx context.Context, o UpdateOptions) error {
+func runAgentUpdate(ctx context.Context, o updateOptions) error {
 	prompt, err := agentUpdatePrompt(o.Transcript, o.CWD, o.Historical)
 	if err != nil {
 		return err
@@ -354,8 +354,8 @@ func runAgentUpdate(ctx context.Context, o UpdateOptions) error {
 }
 
 // runClaudeUpdate runs `claude -p` with the update prompt, streaming to o.Out.
-func runClaudeUpdate(ctx context.Context, o UpdateOptions) error {
-	cmd := exec.CommandContext(ctx, o.Claude, "-p", fmt.Sprintf(UpdatePrompt, o.Transcript)+tagBlock(o.Transcript)+historicalBlock(o.Historical), "--max-turns", "40")
+func runClaudeUpdate(ctx context.Context, o updateOptions) error {
+	cmd := exec.CommandContext(ctx, o.Claude, "-p", fmt.Sprintf(updatePrompt, o.Transcript)+tagBlock(o.Transcript)+historicalBlock(o.Historical), "--max-turns", "40")
 	cmd.Dir = o.CWD
 	cmd.Env = append(os.Environ(), UpdateChildEnv+"=1")
 	// A stored setup-token keeps the unattended update working after the interactive /login session expires.

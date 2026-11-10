@@ -29,9 +29,9 @@ func ArchiveReport(out, errw io.Writer, o ArchiveReportOptions) error {
 	case len(o.Names) == 0:
 		return nativeStatsReport(out, o.Dir)
 	}
-	verb, run := "archive", ArchiveNative
+	verb, run := "archive", archiveNative
 	if o.Restore {
-		verb, run = "restore", RestoreNative
+		verb, run = "restore", restoreNative
 	}
 	res, err := run(o.Dir, o.Names, o.Apply)
 	if err != nil {
@@ -74,7 +74,7 @@ func reportMoved(out io.Writer, o ArchiveReportOptions, verb string, moved []str
 // splitNativeReport trims MEMORY.md to keepLines pointer lines; dry run reports the count only.
 func splitNativeReport(w io.Writer, dir string, keepLines int, apply bool) error {
 	if !apply {
-		st, err := NativeStats(dir)
+		st, err := nativeStats(dir)
 		if err != nil {
 			return err
 		}
@@ -88,7 +88,7 @@ func splitNativeReport(w io.Writer, dir string, keepLines int, apply bool) error
 		fmt.Fprintln(w, "re-run with --apply to move them")
 		return nil
 	}
-	moved, err := SplitNativeIndex(dir, keepLines)
+	moved, err := splitNativeIndex(dir, keepLines)
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func splitNativeReport(w io.Writer, dir string, keepLines int, apply bool) error
 
 // nativeStatsReport prints what the native store costs every session, plus its integrity faults.
 func nativeStatsReport(w io.Writer, dir string) error {
-	st, err := NativeStats(dir)
+	st, err := nativeStats(dir)
 	if err != nil {
 		return err
 	}

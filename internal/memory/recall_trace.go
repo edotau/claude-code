@@ -8,8 +8,8 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// RecallCandidate records each selection gate without changing the selection.
-type RecallCandidate struct {
+// recallCandidate records each selection gate without changing the selection.
+type recallCandidate struct {
 	ID, File, Tier              string
 	BM25                        float64
 	Matched, Needed             int
@@ -19,16 +19,16 @@ type RecallCandidate struct {
 	key                         string
 }
 
-// RecallTrace is populated only when explaining a recall.
-type RecallTrace struct {
+// recallTrace is populated only when explaining a recall.
+type recallTrace struct {
 	Terms                []string
 	Embeddings, CacheAge string
 	CacheRows            int
 	Silent               bool
-	Rows                 []RecallCandidate
+	Rows                 []recallCandidate
 }
 
-func (t *RecallTrace) outcome(key, outcome string) {
+func (t *recallTrace) outcome(key, outcome string) {
 	if t == nil {
 		return
 	}
@@ -39,11 +39,11 @@ func (t *RecallTrace) outcome(key, outcome string) {
 	}
 }
 
-func (t *RecallTrace) candidate(c RecallPick, need int, sem *Semantic) {
+func (t *recallTrace) candidate(c recallPick, need int, sem *Semantic) {
 	if t == nil {
 		return
 	}
-	key := BlockKey(c.Hit.Block)
+	key := blockKey(c.Hit.Block)
 	for _, row := range t.Rows {
 		if row.key == key {
 			return
@@ -53,7 +53,7 @@ func (t *RecallTrace) candidate(c RecallPick, need int, sem *Semantic) {
 	if c.Entry.Archived {
 		tier = "archive"
 	}
-	r := RecallCandidate{ID: c.Entry.ID, File: c.Entry.Bank + "/" + c.Entry.File, Tier: tier,
+	r := recallCandidate{ID: c.Entry.ID, File: c.Entry.Bank + "/" + c.Entry.File, Tier: tier,
 		BM25: c.Hit.Score, Matched: c.Hit.Matched, Needed: need, Blended: c.Score,
 		Final: c.Score, Outcome: "over cap", key: key}
 	if c.Entry.Superseded {
@@ -67,12 +67,12 @@ func (t *RecallTrace) candidate(c RecallPick, need int, sem *Semantic) {
 	t.Rows = append(t.Rows, r)
 }
 
-func (t *RecallTrace) scores(c RecallPick, boost float64) {
+func (t *recallTrace) scores(c recallPick, boost float64) {
 	if t == nil {
 		return
 	}
 	for i := range t.Rows {
-		if t.Rows[i].key == BlockKey(c.Hit.Block) {
+		if t.Rows[i].key == blockKey(c.Hit.Block) {
 			t.Rows[i].Blended = c.Score
 			t.Rows[i].AccessBoost = boost
 			t.Rows[i].Final = c.Score + boost
@@ -81,13 +81,13 @@ func (t *RecallTrace) scores(c RecallPick, boost float64) {
 }
 
 // recallCacheInfo is diagnostic I/O, never used by the hook's normal path.
-func recallCacheInfo(t *RecallTrace) {
+func recallCacheInfo(t *recallTrace) {
 	t.CacheAge = "missing"
 	for _, name := range []string{providers.SessionProfile(), providers.AgentRecord("claude").Profile} {
-		if name == "" || !SafeProfile(name) {
+		if name == "" || !safeProfile.MatchString(name) {
 			continue
 		}
-		cache, err := ReadProfileCache(name)
+		cache, err := readProfileCache(name)
 		if err != nil {
 			t.CacheAge = "unreadable"
 			continue
@@ -97,7 +97,7 @@ func recallCacheInfo(t *RecallTrace) {
 		}
 		t.CacheRows = len(cache.Rows)
 		if cache.MintedAt > 0 {
-			t.CacheAge = fmt.Sprint(time.Since(MintedTime(cache)).Round(time.Second))
+			t.CacheAge = fmt.Sprint(time.Since(mintedTime(cache)).Round(time.Second))
 		} else {
 			t.CacheAge = "unminted"
 		}
@@ -105,7 +105,7 @@ func recallCacheInfo(t *RecallTrace) {
 	}
 }
 
-func (t *RecallTrace) selected(picks []RecallPick) {
+func (t *recallTrace) selected(picks []recallPick) {
 	if t == nil {
 		return
 	}
@@ -122,11 +122,11 @@ func (t *RecallTrace) selected(picks []RecallPick) {
 				outcome = "body"
 			}
 		}
-		t.outcome(BlockKey(p.Hit.Block), outcome)
+		t.outcome(blockKey(p.Hit.Block), outcome)
 	}
 }
 
-func (t *RecallTrace) candidates(ranked []SearchHit, need int, sem *Semantic) {
+func (t *recallTrace) candidates(ranked []SearchHit, need int, sem *Semantic) {
 	for _, archived := range []bool{false, true} {
 		_, top := recallTier(ranked, archived, need)
 		tierSem := sem
@@ -144,9 +144,9 @@ func (t *RecallTrace) candidates(ranked []SearchHit, need int, sem *Semantic) {
 	}
 }
 
-func recallTracePick(h SearchHit) RecallPick {
+func recallTracePick(h SearchHit) recallPick {
 	first, _, _ := strings.Cut(h.Block, "\n")
 	entry := Entry{ID: h.ID, Bank: h.Bank, File: h.File, Archived: h.Bank == "archive",
 		Superseded: strings.Contains(first, "~~") || strings.Contains(first, "SUPERSEDED")}
-	return RecallPick{Entry: entry, Hit: h}
+	return recallPick{Entry: entry, Hit: h}
 }

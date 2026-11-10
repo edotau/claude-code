@@ -27,7 +27,7 @@ func TestUpdateSettlementFailureRecordsFailure(t *testing.T) {
 		}
 		return "fixture", os.Mkdir(path, 0o700)
 	}
-	err = Update(UpdateOptions{CWD: root, Session: "settle-failure", Run: run})
+	err = update(updateOptions{CWD: root, Session: "settle-failure", Run: run})
 	if err == nil || !strings.Contains(err.Error(), "settle:") {
 		t.Fatalf("successful agent with failed settlement returned %v, want settlement error", err)
 	}
@@ -58,13 +58,13 @@ func TestUpdateSettlementHoldsWriterLock(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		defer close(done)
-		done <- Update(UpdateOptions{CWD: root, Run: func(context.Context, string, string) (string, error) {
+		done <- update(updateOptions{CWD: root, Run: func(context.Context, string, string) (string, error) {
 			return "fixture", os.WriteFile(history, []byte("# History\n\n## New session\n\n- Updated the bank.\n"), 0o600)
 		}})
 	}()
 	defer finishSettlement(t, release, done)
 	waitSettlementBarrier(t, ready, done)
-	lock := LockPath(Dir(root)) + ".lock"
+	lock := lockPath(Dir(root)) + ".lock"
 	ran, err := paths.TryFileLock(lock, 0, func() error { return nil })
 	if err != nil {
 		t.Fatal(err)

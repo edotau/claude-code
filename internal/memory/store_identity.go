@@ -20,7 +20,7 @@ type Identity struct {
 	Origin   string // canonical main checkout ("" when HomeBank)
 	Base     string // filepath.Base(Origin)
 	HomeBank bool   // non-repo cwd → memory/home/ (home tier)
-	Harness  bool   // the config checkout itself → Key HarnessStoreKey()
+	Harness  bool   // the config checkout itself → Key harnessStoreKey()
 }
 
 // identities memoizes the git fork per cleaned root: a flip mid-process would split a store.
@@ -37,7 +37,7 @@ func Resolve(root string) Identity {
 	}
 	origin, ok := identities.Load(root)
 	if !ok {
-		o := paths.MainCheckout(root, GitOut)
+		o := paths.MainCheckout(root, gitOut)
 		if o != "" {
 			o = paths.CanonDeep(o)
 		}
@@ -67,7 +67,7 @@ func storeIdentity(root string) (Identity, bool) {
 	if !paths.Within(canon, store) {
 		return Identity{}, false
 	}
-	if paths.Within(canon, paths.CanonDeep(HarnessStoreDir())) {
+	if paths.Within(canon, paths.CanonDeep(harnessStoreDir())) {
 		return harnessIdentity(), true
 	}
 	entries, err := RepoDirs()
@@ -108,9 +108,9 @@ func harnessIdentity() Identity {
 	return Identity{Origin: o, Base: filepath.Base(o), Harness: true}
 }
 
-// HarnessStoreKey is the store key for paths.ConfigDir() itself: the same origin-remote rule as any
+// harnessStoreKey is the store key for paths.ConfigDir() itself: the same origin-remote rule as any
 // other repo, else its basename — the harness is not special-cased for its key (spec §2).
-func HarnessStoreKey() string {
+func harnessStoreKey() string {
 	cfg := paths.ConfigDir()
 	if rb := repoKeyFromRemote(originRemoteURL(cfg)); rb != "" {
 		return rb
@@ -129,7 +129,7 @@ func RepoDir(root string) (string, error) {
 	case id.HomeBank:
 		return homeStoreDir(), nil
 	case id.Harness:
-		return HarnessStoreDir(), nil
+		return harnessStoreDir(), nil
 	}
 	if e := FindEntry(entries, id.Origin); e != nil {
 		return e.Dir, nil
@@ -146,7 +146,7 @@ func RepoDir(root string) (string, error) {
 }
 
 // FindEntry is the entry whose Origin or an explicit alias names origin, or nil.
-func FindEntry(entries []RepoEntry, origin string) *RepoEntry {
+func FindEntry(entries []repoEntry, origin string) *repoEntry {
 	for i := range entries {
 		if entries[i].Origin.Accepts(origin) {
 			return &entries[i]
@@ -170,9 +170,9 @@ func (o Origin) Accepts(origin string) bool {
 
 // takenKeys reports a key as taken when it is reserved, the harness key, a known repo, or any existing
 // entry (a dir without a valid origin record is never claimed — extend the hash instead of clobbering).
-func takenKeys(entries []RepoEntry) func(string) (Origin, bool) {
+func takenKeys(entries []repoEntry) func(string) (Origin, bool) {
 	return func(key string) (Origin, bool) {
-		if key == HarnessStoreKey() || StoreReservedDirs[key] {
+		if key == harnessStoreKey() || storeReservedDirs[key] {
 			return Origin{}, true
 		}
 		for _, e := range entries {
@@ -195,7 +195,7 @@ func originRemoteURL(checkout string) string {
 	if v, ok := remoteCache.Load(checkout); ok {
 		return v.(string)
 	}
-	out, err := GitOut(checkout, "remote", "get-url", "origin")
+	out, err := gitOut(checkout, "remote", "get-url", "origin")
 	if err != nil {
 		out = ""
 	}
@@ -274,9 +274,9 @@ func ensureOriginDir(dir string, id Identity) error {
 	return err
 }
 
-// AddOriginAlias records origin (an existing checkout) as an alias of the store at dir; the only path
+// addOriginAlias records origin (an existing checkout) as an alias of the store at dir; the only path
 // that rewrites an origin record, and only with the same Key+Origin.
-func AddOriginAlias(dir, origin string) error {
+func addOriginAlias(dir, origin string) error {
 	return WithBankLock(BankLockWait, func() error {
 		origin, err := filepath.EvalSymlinks(filepath.Clean(origin))
 		if err != nil {
@@ -294,15 +294,15 @@ func AddOriginAlias(dir, origin string) error {
 			return err
 		}
 		if e := FindEntry(entries, origin); e != nil && !paths.SamePath(e.Dir, dir) {
-			return errors.Join(ErrOriginConflict, errors.New(origin+" already belongs to "+e.Dir))
+			return errors.Join(errOriginConflict, errors.New(origin+" already belongs to "+e.Dir))
 		}
 		cur.Aliases = append(slices.Clone(cur.Aliases), origin)
-		return FoldOrigin(dir, cur, "")
+		return foldOrigin(dir, cur, "")
 	})
 }
 
-// RepoEntry is one repo store under StoreDir() with its validated identity.
-type RepoEntry struct {
+// repoEntry is one repo store under StoreDir() with its validated identity.
+type repoEntry struct {
 	Key, Dir string
 	Origin   Origin
 }
@@ -311,7 +311,7 @@ type RepoEntry struct {
 func storeKeys(ents []fs.DirEntry) []string {
 	var keys []string
 	for _, e := range ents {
-		if e.IsDir() && e.Type()&fs.ModeSymlink == 0 && !StoreReservedDirs[e.Name()] {
+		if e.IsDir() && e.Type()&fs.ModeSymlink == 0 && !storeReservedDirs[e.Name()] {
 			keys = append(keys, e.Name())
 		}
 	}
@@ -319,7 +319,7 @@ func storeKeys(ents []fs.DirEntry) []string {
 }
 
 // RepoDirs lists the repo stores: real directories with a valid origin record, reserved names and symlinks skipped.
-func RepoDirs() ([]RepoEntry, error) {
+func RepoDirs() ([]repoEntry, error) {
 	ents, err := os.ReadDir(StoreDir())
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -332,13 +332,13 @@ func RepoDirs() ([]RepoEntry, error) {
 	if err != nil && len(found) < len(keys) {
 		return nil, err // unreadable vault with unresolved stores: callers must not mint a duplicate
 	}
-	var out []RepoEntry
+	var out []repoEntry
 	for _, k := range keys {
 		if o, ok := found[k]; ok {
-			out = append(out, RepoEntry{Key: k, Dir: filepath.Join(StoreDir(), k), Origin: o})
+			out = append(out, repoEntry{Key: k, Dir: filepath.Join(StoreDir(), k), Origin: o})
 		}
 	}
-	slices.SortFunc(out, func(a, b RepoEntry) int { return strings.Compare(a.Key, b.Key) })
+	slices.SortFunc(out, func(a, b repoEntry) int { return strings.Compare(a.Key, b.Key) })
 	return out, nil
 }
 
@@ -363,8 +363,8 @@ func storeLockKey(dir string) string {
 	return filepath.Base(dir)
 }
 
-// StoreLockDir is state's per-key lock directory for dir's bank, created 0700 on first use.
-func StoreLockDir(dir string) string {
+// storeLockDir is state's per-key lock directory for dir's bank, created 0700 on first use.
+func storeLockDir(dir string) string {
 	d := filepath.Join(StateDir(), "locks", storeLockKey(dir))
 	_ = os.MkdirAll(d, 0o700)
 	return d

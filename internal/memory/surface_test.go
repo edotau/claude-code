@@ -118,7 +118,7 @@ func TestSectionBodyRespectsFence(t *testing.T) {
 func TestAccessLogPathMovesToStateAfterCutover(t *testing.T) {
 	isolatedConfig(t)
 	legacy := filepath.Join(t.TempDir(), "bank")
-	if got := AccessLogPath(legacy); got != filepath.Join(legacy, AccessLogFile) {
+	if got := AccessLogPath(legacy); got != filepath.Join(legacy, accessLogFile) {
 		t.Fatalf("pre-cutover path = %s, want beside the bank", got)
 	}
 	initStore(t)
@@ -131,8 +131,8 @@ func TestAccessLogPathMovesToStateAfterCutover(t *testing.T) {
 			t.Errorf("AccessLogPath(%s) = %s, want %s", dir, got, want)
 		}
 	}
-	LogAccess(filepath.Join(StoreDir(), "repo-a"), time.Now(), "aa11bb22", "read")
-	if _, err := os.Stat(filepath.Join(StoreDir(), "repo-a", AccessLogFile)); !os.IsNotExist(err) {
+	logAccess(filepath.Join(StoreDir(), "repo-a"), time.Now(), "aa11bb22", "read")
+	if _, err := os.Stat(filepath.Join(StoreDir(), "repo-a", accessLogFile)); !os.IsNotExist(err) {
 		t.Errorf("access.log written inside the store: %v", err)
 	}
 	if data, _ := os.ReadFile(filepath.Join(AccessStateDir(), "repo-a.log")); !strings.Contains(string(data), "aa11bb22") {
@@ -144,8 +144,8 @@ func TestAccessLogPathMovesToStateAfterCutover(t *testing.T) {
 func TestKnowledgeIsSearchedAndCataloged(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
-	write(t, filepath.Join(KnowledgeDir(HomeBankDir()), "README.md"), "# Knowledge\nzebracorn readme\n")
-	write(t, filepath.Join(KnowledgeDir(HomeBankDir()), "zebra.md"), "# Zebra\nZebracorn invariant: probes never ship.\n")
+	write(t, filepath.Join(knowledgeDir(HomeBankDir()), "README.md"), "# Knowledge\nzebracorn readme\n")
+	write(t, filepath.Join(knowledgeDir(HomeBankDir()), "zebra.md"), "# Zebra\nZebracorn invariant: probes never ship.\n")
 	hits := SearchBanks(t.TempDir(), "zebracorn invariant probes", 5)
 	if len(hits) == 0 || hits[0].Bank != "knowledge" || hits[0].File != "zebra.md" {
 		t.Fatalf("knowledge not ranked first: %+v", hits)
@@ -171,8 +171,8 @@ func TestRepoBankKnowledgeIsCatalogedAndSearched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(KnowledgeDir(Dir(root)), "README.md"), "# Knowledge\nnarwhal readme\n")
-	write(t, filepath.Join(KnowledgeDir(Dir(root)), "narwhal.md"), "# Narwhal\nNarwhalcorn invariant: tusks never ship.\n")
+	write(t, filepath.Join(knowledgeDir(Dir(root)), "README.md"), "# Knowledge\nnarwhal readme\n")
+	write(t, filepath.Join(knowledgeDir(Dir(root)), "narwhal.md"), "# Narwhal\nNarwhalcorn invariant: tusks never ship.\n")
 	hits := SearchBanks(root, "narwhalcorn invariant tusks", 5)
 	if len(hits) == 0 || hits[0].Bank != "knowledge" || hits[0].File != "narwhal.md" {
 		t.Fatalf("repo bank knowledge not ranked first: %+v", hits)

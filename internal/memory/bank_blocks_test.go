@@ -14,7 +14,7 @@ type splitCase struct {
 	want       []string
 }
 
-// splitEdgeCases is the SplitHeadingBlocks edge-case table.
+// splitEdgeCases is the splitHeadingBlocks edge-case table.
 func splitEdgeCases() []splitCase {
 	return []splitCase{
 		{
@@ -61,7 +61,7 @@ func TestSplitHeadingBlocksEdgeCases(t *testing.T) {
 	t.Parallel()
 	for _, tt := range splitEdgeCases() {
 		t.Run(tt.name, func(t *testing.T) {
-			header, blocks := SplitHeadingBlocks(tt.in)
+			header, blocks := splitHeadingBlocks(tt.in)
 			if header != tt.wantHeader {
 				t.Errorf("header = %q, want %q", header, tt.wantHeader)
 			}
@@ -76,9 +76,9 @@ func TestSplitHeadingBlocksEdgeCases(t *testing.T) {
 func TestRejoinSplitHeadingBlocksRoundTrip(t *testing.T) {
 	t.Parallel()
 	in := "header\n\n## real\nbody\n```\n## fake\n```\nmore\n\n## real2\nbody2\n"
-	header, blocks := SplitHeadingBlocks(in)
-	if got := Rejoin(header, blocks); got != in {
-		t.Errorf("rejoin(SplitHeadingBlocks(x)) = %q, want %q", got, in)
+	header, blocks := splitHeadingBlocks(in)
+	if got := rejoin(header, blocks); got != in {
+		t.Errorf("rejoin(splitHeadingBlocks(x)) = %q, want %q", got, in)
 	}
 }
 
@@ -119,7 +119,7 @@ func TestAppendBlocksPreservesBytes(t *testing.T) {
 			if tt.create {
 				write(t, path, tt.existing)
 			}
-			if err := AppendBlocks(path, tt.blocks); err != nil {
+			if err := appendBlocks(path, tt.blocks); err != nil {
 				t.Fatal(err)
 			}
 			got, err := os.ReadFile(path)
@@ -140,7 +140,7 @@ func TestAppendBlocksUnreadableArchiveIsNotOverwritten(t *testing.T) {
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := AppendBlocks(dir, []string{"## new\nbody"}); err == nil {
+	if err := appendBlocks(dir, []string{"## new\nbody"}); err == nil {
 		t.Fatal("AppendBlocks on an unreadable archive = nil error, want the read error")
 	}
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {

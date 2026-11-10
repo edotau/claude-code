@@ -112,17 +112,17 @@ func (e *leaseEnv) overrideWindow() {
 	e.t.Helper()
 	backdate(e.t, 51*time.Minute)
 	before := e.calls
-	if _, _, err := ReembedEntries(e.ctx, e.root, e.c); !errors.Is(err, ErrReembedEarly) || e.calls != before {
+	if _, _, err := reembedEntries(e.ctx, e.root, e.c); !errors.Is(err, ErrReembedEarly) || e.calls != before {
 		e.t.Fatalf("51m override must be refused without a call: calls=%d err=%v", e.calls-before, err)
 	}
-	if _, open, _ := ReembedWindow("fake", time.Now()); open {
-		e.t.Error("ReembedWindow open at 51m")
+	if _, open, _ := reembedWindow("fake", time.Now()); open {
+		e.t.Error("reembedWindow open at 51m")
 	}
 	backdate(e.t, 52*time.Minute+time.Second)
-	if _, open, _ := ReembedWindow("fake", time.Now()); !open {
-		e.t.Error("ReembedWindow closed at 52m")
+	if _, open, _ := reembedWindow("fake", time.Now()); !open {
+		e.t.Error("reembedWindow closed at 52m")
 	}
-	if n, total, err := ReembedEntries(e.ctx, e.root, e.c); err != nil || n != 3 || total != 3 || e.calls != before+3 {
+	if n, total, err := reembedEntries(e.ctx, e.root, e.c); err != nil || n != 3 || total != 3 || e.calls != before+3 {
 		e.t.Fatalf("52m override must re-embed all rows: n=%d total=%d calls=%d err=%v", n, total, e.calls-before, err)
 	}
 }
@@ -141,7 +141,7 @@ func (e *leaseEnv) raceKeepsWinner() {
 			e.t.Error(err)
 		}
 	})
-	_, _, _ = ReembedEntries(e.ctx, e.root, racer)
+	_, _, _ = reembedEntries(e.ctx, e.root, racer)
 	got := loadEmbedCache("fake")
 	if got.MintedAt != winner || len(got.Rows) != 1 || got.Rows["winner"].Hash != "w" {
 		e.t.Fatalf("the other process's record was overwritten: minted=%d want %d rows=%d", got.MintedAt, winner, len(got.Rows))
@@ -335,7 +335,7 @@ func TestEmbedFutureMintedAtIsNotValid(t *testing.T) {
 		t.Fatal(err)
 	}
 	backdate(t, -time.Hour)
-	if _, open, err := ReembedWindow("fake", time.Now()); err != nil || !open {
+	if _, open, err := reembedWindow("fake", time.Now()); err != nil || !open {
 		t.Fatalf("future record must open the override: open=%v err=%v", open, err)
 	}
 	if _, _, err := EmbedEntries(context.Background(), root, c); errors.Is(err, ErrEmbedValid) || err != nil {
@@ -409,7 +409,7 @@ func TestEmbedPutRejectsTakenOverClaim(t *testing.T) {
 		t.Fatalf("take over expired claim: ok=%v err=%v", ok, err)
 	}
 	merged := false
-	stale := VectorWrite{Profile: "fake", Owner: 11, Started: now.UnixNano(), Merge: func(vectorRecord) vectorRecord {
+	stale := vectorWrite{Profile: "fake", Owner: 11, Started: now.UnixNano(), Merge: func(vectorRecord) vectorRecord {
 		merged = true
 		return vectorRecord{MintedAt: time.Now().UnixNano(), Rows: map[string]vectorRow{"stale": {Hash: "old"}}}
 	}}
@@ -428,7 +428,7 @@ func assertTakenOverClaimCommits(t *testing.T, started time.Time) {
 	if rec := loadEmbedCache("fake"); rec.MintedAt != 0 || len(rec.Rows) != 0 {
 		t.Fatalf("displaced owner wrote a cache record: %+v", rec)
 	}
-	stored, err := vectorStore.Put(VectorWrite{Profile: "fake", Owner: 22, Started: started.UnixNano(), Merge: func(vectorRecord) vectorRecord {
+	stored, err := vectorStore.Put(vectorWrite{Profile: "fake", Owner: 22, Started: started.UnixNano(), Merge: func(vectorRecord) vectorRecord {
 		return vectorRecord{Namespace: "winner", MintedAt: time.Now().UnixNano(), Rows: map[string]vectorRow{"winner": {Hash: "new"}}}
 	}})
 	if err != nil || !stored {
@@ -441,7 +441,7 @@ func assertTakenOverClaimCommits(t *testing.T, started time.Time) {
 
 func TestReembedWindowRejectsUnsafeProfile(t *testing.T) {
 	isolatedConfig1(t)
-	if _, open, err := ReembedWindow("../escape", time.Now()); err == nil || open || !strings.Contains(err.Error(), "unsafe") {
+	if _, open, err := reembedWindow("../escape", time.Now()); err == nil || open || !strings.Contains(err.Error(), "unsafe") {
 		t.Fatalf("unsafe profile: open=%v err=%v", open, err)
 	}
 }
@@ -456,9 +456,9 @@ func TestNewSemanticReadErrorFallsBackToPin(t *testing.T) {
 	if err := saveEmbedCache("dev", f); err != nil {
 		t.Fatal(err)
 	}
-	prevRead, prevOpen := ReadProfileCache, OpenEmbedClient
-	t.Cleanup(func() { ReadProfileCache, OpenEmbedClient = prevRead, prevOpen })
-	ReadProfileCache = func(profile string) (vectorRecord, error) {
+	prevRead, prevOpen := readProfileCache, OpenEmbedClient
+	t.Cleanup(func() { readProfileCache, OpenEmbedClient = prevRead, prevOpen })
+	readProfileCache = func(profile string) (vectorRecord, error) {
 		if profile == "qa" {
 			return vectorRecord{}, errors.New("timeout")
 		}
@@ -474,7 +474,7 @@ func TestNewSemanticReadErrorFallsBackToPin(t *testing.T) {
 	if _, err := NewSemantic("q"); err != nil || opened != "dev" {
 		t.Fatalf("qa unreadable: opened %q err %v, want the pinned dev profile", opened, err)
 	}
-	ReadProfileCache = func(string) (vectorRecord, error) { return vectorRecord{}, errors.New("timeout") }
+	readProfileCache = func(string) (vectorRecord, error) { return vectorRecord{}, errors.New("timeout") }
 	if _, err := NewSemantic("q"); err == nil || !strings.Contains(err.Error(), "unreadable") {
 		t.Fatalf("every profile unreadable: err %v, want 'unreadable'", err)
 	}

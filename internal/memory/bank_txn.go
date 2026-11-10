@@ -52,8 +52,8 @@ type Receipt struct {
 // tombstoneDir is where a deleted tracked fact's last committed bytes are copied: <tombstoneDir>/<journal id>/<rel>.
 const tombstoneDir = "archive/tombstones"
 
-// ErrDivergent accompanies a receipt when some checked changes found other bytes; what applied is committed.
-var ErrDivergent = errors.New("memory transaction: live bytes diverged from the journaled preimage")
+// errDivergent accompanies a receipt when some checked changes found other bytes; what applied is committed.
+var errDivergent = errors.New("memory transaction: live bytes diverged from the journaled preimage")
 
 // journal is the durable pre-write record of a batch; state is "pending" → "applied" → removed when complete.
 type journal struct {
@@ -81,8 +81,8 @@ const (
 	outDiverge                // other bytes: leave untouched, report
 )
 
-// CommitChangesLocked applies changes while callers hold the writable bank lock.
-func CommitChangesLocked(subject string, changes []Change) (Receipt, error) {
+// commitChangesLocked applies changes while callers hold the writable bank lock.
+func commitChangesLocked(subject string, changes []Change) (Receipt, error) {
 	skipped, err := recoverEach() // a journal that cannot be finished must not wedge new batches
 	if err != nil {
 		return Receipt{}, err
@@ -154,7 +154,7 @@ func recoverJournal(f string) error {
 		}
 		return nil
 	}
-	if _, err := j.run(StoreRepo()); err != nil && !errors.Is(err, ErrDivergent) {
+	if _, err := j.run(StoreRepo()); err != nil && !errors.Is(err, errDivergent) {
 		return err
 	}
 	return nil
@@ -223,7 +223,7 @@ func (j *journal) run(repo Repo) (Receipt, error) {
 		return rec, err
 	}
 	if len(rec.Divergent) > 0 {
-		return rec, ErrDivergent
+		return rec, errDivergent
 	}
 	return rec, nil
 }

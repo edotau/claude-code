@@ -22,13 +22,13 @@ const (
 	NativeIndexFile        = "MEMORY.md"     // the injected index of `- [Title](topic.md) — hook` lines
 	NativeSearchableFile   = "SEARCHABLE.md" // pointer lines kept OUT of the injected index; recall finds the topics
 	NativeArchiveIndexFile = "INDEX.md"      // struck pointer lines, recorded verbatim so restore is exact
-	NativeCoreCap          = 20              // max pointer lines SplitNativeIndex leaves injected in MEMORY.md
+	NativeCoreCap          = 20              // max pointer lines splitNativeIndex leaves injected in MEMORY.md
 )
 
-// TopicFrontmatter splits a topic file into its name, description and body; false without a closed block and a name.
+// topicFrontmatter splits a topic file into its name, description and body; false without a closed block and a name.
 // The closing fence must start its own line (markdown.StripFrontMatter), so a name/description value that merely
 // contains the literal bytes "---" can't be mistaken for it.
-func TopicFrontmatter(raw string) (name, desc, body string, ok bool) {
+func topicFrontmatter(raw string) (name, desc, body string, ok bool) {
 	prefix, content := markdown.StripFrontMatter([]byte(raw))
 	if prefix == nil {
 		return "", "", "", false // an absent or unclosed block is body text, not frontmatter

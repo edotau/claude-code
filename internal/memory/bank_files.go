@@ -12,5 +12,5 @@ var bankFiles = []string{
 // that must watch them without duplicating the list.
 func BankFiles() []string { return slices.Clone(bankFiles) }
 
-// SessionHistoryMaxEntries rotates the oldest sessionHistory entries to <bank>/archive/.
-const SessionHistoryMaxEntries = 30
+// sessionHistoryMaxEntries rotates the oldest sessionHistory entries to <bank>/archive/.
+const sessionHistoryMaxEntries = 30

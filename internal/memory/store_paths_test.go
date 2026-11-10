@@ -29,13 +29,13 @@ func TestDirUnreadableOriginNeverFallsBackToHome(t *testing.T) {
 func TestStorePaths(t *testing.T) {
 	cfg := tempConfig(t)
 	// No origin remote here, so the harness key falls back to the config dir's own basename, not ".claude".
-	if StoreDir() != filepath.Join(cfg, "memory") || HarnessStoreDir() != filepath.Join(cfg, "memory", filepath.Base(cfg)) {
+	if StoreDir() != filepath.Join(cfg, "memory") || harnessStoreDir() != filepath.Join(cfg, "memory", filepath.Base(cfg)) {
 		t.Fatal("store paths moved")
 	}
-	if JournalDir() != filepath.Join(StateDir(), "journal") || KnowledgeDir("/x") != "/x/knowledge" {
+	if JournalDir() != filepath.Join(StateDir(), "journal") || knowledgeDir("/x") != "/x/knowledge" {
 		t.Fatal("journal/knowledge paths moved")
 	}
-	if ArchiveDir("/x") != "/x/archive" || HandoffsDir("/x") != "/x/handoffs" {
+	if archiveDir("/x") != "/x/archive" || HandoffsDir("/x") != "/x/handoffs" {
 		t.Fatal("archive/handoffs paths moved")
 	}
 }
@@ -54,8 +54,8 @@ func TestInsideStore(t *testing.T) {
 		StoreDir():                                     {".", true},
 	}
 	for p, want := range cases {
-		if rel, ok := InsideStore(p); rel != want.rel || ok != want.ok {
-			t.Errorf("InsideStore(%q) = %q, %v; want %q, %v", p, rel, ok, want.rel, want.ok)
+		if rel, ok := insideStore(p); rel != want.rel || ok != want.ok {
+			t.Errorf("insideStore(%q) = %q, %v; want %q, %v", p, rel, ok, want.rel, want.ok)
 		}
 	}
 }
@@ -71,7 +71,7 @@ func TestInsideStoreRejectsEscapingSymlink(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(StoreDir(), "escape.md")); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := InsideStore(filepath.Join(StoreDir(), "escape.md")); ok {
-		t.Error("InsideStore accepted a symlink escaping the store")
+	if _, ok := insideStore(filepath.Join(StoreDir(), "escape.md")); ok {
+		t.Error("insideStore accepted a symlink escaping the store")
 	}
 }

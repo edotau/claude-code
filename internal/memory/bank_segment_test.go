@@ -17,7 +17,7 @@ func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
 	write(t, topic, "---\nname: global-topic\n---\n\nglobal fact\n")
 
 	var found bool
-	for _, f := range CorpusFiles(root) {
+	for _, f := range corpusFiles(root) {
 		if f.Path == topic {
 			found = true
 			if f.Bank != "native" {
