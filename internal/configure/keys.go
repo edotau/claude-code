@@ -472,7 +472,7 @@ func ParseAssignment(raw string) (name, value string) {
 
 // ValidateSecret checks menu-entered credentials before staging; environment edits retain vault-only validation.
 func ValidateSecret(name, value string) error {
-	if name == providers.CopilotTokenEnv && !ValidCopilotToken(value) {
+	if name == providers.CopilotTokenEnv && !agent.ValidCopilotToken(value) {
 		return fmt.Errorf("%s: not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)", name)
 	}
 	return shapes.ValidCredential(name, value)

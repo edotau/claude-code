@@ -6,20 +6,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent"
 	"os"
 	"slices"
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/ansi"
-	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 )
 
 // Seams for --all; tests replace the sign-in factory, its cap and the TTY gates.
 var (
-	allSigninFor    = configure.SigninFor
+	allSigninFor    = agent.SigninFor
 	allCheckTimeout = 12 * time.Second
 	allStdinTTY     = isStdinTTY
 	allStderrTTY    = func() bool { return ansi.IsTerminal(os.Stderr) }
@@ -173,7 +172,7 @@ func allLoginRow(d *dialog, s allRowStatus) allRowStatus {
 		return allRowStatus{Row: s.Row, Status: allError, Detail: "provider no longer registered"}
 	}
 	fmt.Fprintf(os.Stderr, "%s: login required. Log in now? [Y/n] ", s.Row)
-	if !uidialog.Yes(d.br) {
+	if !Yes(d.br) {
 		return s
 	}
 	ctx := context.Background()
@@ -189,7 +188,7 @@ func allLoginRow(d *dialog, s allRowStatus) allRowStatus {
 	st := allCheckOne(ctx, namedProvider(s.Row, cur))
 	if st.Status == allOK {
 		fmt.Fprintf(os.Stderr, "%s: pick models now? [Y/n] ", s.Row)
-		if uidialog.Yes(d.br) {
+		if Yes(d.br) {
 			offerModels(d, s.Row)
 		}
 	}
