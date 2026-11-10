@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,8 +16,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/agentid"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 const codexSettingsBegin = "# >>> claude-code:codex-settings:begin >>>"
@@ -243,12 +246,97 @@ func settingsPatch(home string) (path string, old []byte, next string, existed b
 	if old, existed, err = render.ReadExisting(path); err != nil {
 		return "", nil, "", false, err
 	}
-	overlay, err := LoadCodexOverlay()
+	prefs, err := LoadCodexPreferences()
 	if err != nil {
 		return "", nil, "", false, err
 	}
-	next, err = patchCodexSettings(string(old), overlay)
+	next, err = patchCodexSettings(string(old), prefs)
 	return path, old, next, existed, err
+}
+
+// codexEffortKey is config.toml's effort key; the record keeps the effort in its own field.
+const codexEffortKey = "model_reasoning_effort"
+
+// codexPreferences is the legacy codex-settings overlay with the record's effort and model_verbosity laid over it.
+func codexPreferences(rec vault.AgentRecord, overlay map[string]string) (map[string]string, error) {
+	prefs := maps.Clone(overlay)
+	if prefs == nil {
+		prefs = map[string]string{}
+	}
+	if rec.Effort != "" {
+		native, _ := agentid.NativeEffort(agentid.Codex, agentid.Effort(rec.Effort))
+		if native == "" {
+			return nil, fmt.Errorf("codex: record %w", agentid.ValidEffort(agentid.Codex, rec.Effort))
+		}
+		prefs[codexEffortKey] = native
+	}
+	if v := rec.Extras[extraVerbosity]; v != "" {
+		prefs[extraVerbosity] = v
+	}
+	return prefs, nil
+}
+
+// LoadCodexPreferences is the config.toml preferences: the codex record over the legacy codex-settings overlay.
+func LoadCodexPreferences() (map[string]string, error) {
+	rec, err := agentconfig.Settings(agentid.Codex)
+	if err != nil {
+		return nil, err
+	}
+	overlay, err := LoadCodexOverlay()
+	if err != nil {
+		return nil, err
+	}
+	return codexPreferences(rec, overlay)
+}
+
+// UpdateCodexPreferences edits the preferences in one transaction, writing them to the codex record and emptying
+// the legacy overlay; an effort whose codex spelling is unchanged keeps the record's own value (max stays max).
+func UpdateCodexPreferences(edit func(map[string]string) map[string]string) error {
+	return vault.Update(func(tx *vault.Tx) error {
+		overlay, err := loadCodexOverlay(tx)
+		if err != nil {
+			return err
+		}
+		recs, err := tx.AgentRecords()
+		if err != nil {
+			return err
+		}
+		rec := recs[agentid.Codex]
+		prefs, err := codexPreferences(rec, overlay)
+		if err != nil {
+			return err
+		}
+		next := edit(prefs)
+		if err := ValidateCodexOverlay(next); err != nil {
+			return err
+		}
+		if recEffort, _ := agentid.NativeEffort(agentid.Codex, agentid.Effort(rec.Effort)); next[codexEffortKey] != recEffort {
+			rec.Effort = next[codexEffortKey]
+		}
+		rec.Extras = withExtra(rec.Extras, extraVerbosity, next[extraVerbosity])
+		recs[agentid.Codex] = rec
+		if err := tx.PutAgentRecords(recs); err != nil {
+			return err
+		}
+		return tx.Put(vault.Overlay, codexOverlayKey, "")
+	})
+}
+
+// withExtra is extras with key set to v, or removed when v is "".
+func withExtra(extras map[string]string, key, v string) map[string]string {
+	out := maps.Clone(extras)
+	if v == "" {
+		delete(out, key)
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	}
+	if out == nil {
+		out = map[string]string{}
+	}
+	out[key] = v
+	return out
 }
 
 // CodexSettingsDrift includes stale managed keys whose override was removed from the vault.
@@ -427,7 +515,7 @@ func applyCodexRestore(path string, backup CodexConfigBackup, overlay map[string
 	} else if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if err := SaveCodexOverlay(overlay); err != nil {
+	if err := UpdateCodexPreferences(func(map[string]string) map[string]string { return overlay }); err != nil {
 		return fmt.Errorf("codex: file restored but preferences could not be synchronized: %w", err)
 	}
 	if err := SaveCodexBaseline(path, backup.Data); err != nil {

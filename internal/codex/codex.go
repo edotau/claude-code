@@ -25,7 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/render"
-	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/agentid"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -47,15 +47,11 @@ func (codexEngine) RanModel(t providers.Target) string { return codexRanModel(t)
 
 func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
 	res, prompt, env, argv := p.Result, p.Prompt, p.Env, p.Argv
+	res.Emulated = append(res.Emulated, p.Emulated...)
 	bin, err := e.Bin()
 	if err != nil {
 		return res, err
 	}
-	argv, env, removePolicy, err := codexApplyPermissions(req, argv, env)
-	if err != nil {
-		return res, retry.Fatal(e.Name(), err)
-	}
-	defer removePolicy()
 	extra := codexInstructionArgs(req)
 	if req.OutputSchema != "" {
 		file, err := codexSchemaFile(req.OutputSchema)
@@ -88,6 +84,41 @@ func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOpt
 		return res, agent.EmptyAnswer(e.Name())
 	}
 	return res, agent.ChildErr(ctx, e.Name(), err, tail)
+}
+
+// RenderSettings sets the effort on a routed launch, then the default launch env and args, then (headless) the policy.
+func (e codexEngine) RenderSettings(ctx context.Context, s agent.Settings, env, argv []string) ([]string, []string, []string, func(), error) {
+	argv, emulated, err := codexEffortArgv(s, argv)
+	if err != nil {
+		return env, argv, emulated, func() {}, err
+	}
+	env, argv, base, cleanup, err := e.BaseEngine.RenderSettings(ctx, s, env, argv)
+	if emulated = append(emulated, base...); err != nil || !s.Headless {
+		return env, argv, emulated, cleanup, err
+	}
+	req := agent.RunOptions{Permissions: s.Permissions, Tools: s.Tools, SafeMode: s.SafeMode}
+	argv, env, remove, err := codexApplyPermissions(req, argv, env)
+	return env, argv, emulated, func() { remove(); cleanup() }, err
+}
+
+// codexEffortArgv adds s.Effort, in codex's spelling, before exec's own flags; a plain launch has no route to tune.
+func codexEffortArgv(s agent.Settings, argv []string) ([]string, []string, error) {
+	if s.Effort == "" || !slices.ContainsFunc(argv, func(a string) bool { return strings.HasPrefix(a, "model_provider=") }) {
+		return argv, nil, nil
+	}
+	native, _ := agentid.NativeEffort(agentid.Codex, agentid.Effort(s.Effort))
+	if native == "" {
+		return argv, nil, fmt.Errorf("codex: %w", agentid.ValidEffort(agentid.Codex, s.Effort))
+	}
+	var emulated []string
+	if note := agent.EffortClamp(agentid.Codex, s.Effort); note != "" {
+		emulated = append(emulated, note)
+	}
+	at := len(argv)
+	if i := slices.Index(argv, "--skip-git-repo-check"); i >= 0 {
+		at = i
+	}
+	return slices.Insert(slices.Clone(argv), at, "-c", "model_reasoning_effort="+agentconfig.TOMLQuote(native)), emulated, nil
 }
 
 func (codexEngine) Login(_ *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
@@ -474,13 +505,6 @@ func codexChatGPTLogin() error {
 
 // codexHeadless appends the `codex exec` form when h is set; nil h is the interactive launch.
 func codexHeadless(argv []string, h *agent.Headless) []string {
-	var effort string
-	if h != nil {
-		effort = h.Effort
-	}
-	if effort = cmp.Or(effort, vault.GetAgentRecord("codex").Effort); effort != "" {
-		argv = append(argv, "-c", "model_reasoning_effort="+agentconfig.TOMLQuote(effort))
-	}
 	if h == nil {
 		return argv
 	}

@@ -26,7 +26,7 @@ type CodexField struct {
 func CodexFields() []CodexField {
 	return []CodexField{
 		{"model_reasoning_effort", agentid.NativeEfforts(agentid.Codex)},
-		{"model_verbosity", []string{"low", "medium", "high"}},
+		{extraVerbosity, codexVerbosities},
 	}
 }
 

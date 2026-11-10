@@ -34,9 +34,9 @@ func SaveRouting(staged map[string]string, resetKeys map[string]bool) error {
 	})
 }
 
-// SaveCodexSettings writes the changed codex preferences; saved reports whether the overlay write succeeded.
+// SaveCodexSettings writes the changed codex preferences to its record; saved reports whether the vault write worked.
 func SaveCodexSettings(home string, old, next map[string]string) (saved bool, err error) {
-	err = codex.UpdateCodexOverlay(func(current map[string]string) map[string]string {
+	err = codex.UpdateCodexPreferences(func(current map[string]string) map[string]string {
 		for _, f := range codex.CodexFields() {
 			before, hadBefore := old[f.Key]
 			after, hasAfter := next[f.Key]

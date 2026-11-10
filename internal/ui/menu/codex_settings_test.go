@@ -28,6 +28,13 @@ func codexSettingsFixture(t *testing.T) (string, string) {
 	return home, path
 }
 
+// putCodexRecord stores rec as the codex agent record.
+func putCodexRecord(rec vault.AgentRecord) error {
+	return vault.Update(func(tx *vault.Tx) error {
+		return tx.PutAgentRecords(map[string]vault.AgentRecord{"codex": rec})
+	})
+}
+
 func codexSettingsDialog(home, input string) (*dialog, *bytes.Buffer) {
 	in := strings.NewReader(input)
 	out := &bytes.Buffer{}
@@ -99,7 +106,7 @@ func TestCodexSettingsMenuStagesUntilSave(t *testing.T) {
 			if !runCodexSettingsMenu(d, map[string]string{}, map[string]string{"model_verbosity": "high"}) {
 				t.Fatalf("menu failed: %s", out.String())
 			}
-			ov, err := codex.LoadCodexOverlay()
+			ov, err := codex.LoadCodexPreferences()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -121,7 +128,7 @@ func TestCodexSettingsReportsNeverWrite(t *testing.T) {
 	for _, mode := range []string{"report", "check", "dry-run", "piped"} {
 		t.Run(mode, func(t *testing.T) {
 			home, path := codexSettingsFixture(t)
-			if err := codex.SaveCodexOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
+			if err := putCodexRecord(vault.AgentRecord{Extras: map[string]string{"model_verbosity": "low"}}); err != nil {
 				t.Fatal(err)
 			}
 			nativeBefore, vaultBefore := readBytes(t, path), readBytes(t, vault.Path())
@@ -159,7 +166,7 @@ func TestCodexSettingsApplyFailureIsReported(t *testing.T) {
 	if !strings.Contains(out.String(), "preferences saved; native apply failed") {
 		t.Fatalf("missing partial-save explanation: %s", out.String())
 	}
-	ov, err := codex.LoadCodexOverlay()
+	ov, err := codex.LoadCodexPreferences()
 	if err != nil || ov["model_verbosity"] != "low" {
 		t.Fatalf("saved preference unavailable after apply failure: %v, %v", ov, err)
 	}
@@ -171,14 +178,14 @@ func TestCodexSettingsApplyFailureIsReported(t *testing.T) {
 
 func TestCodexSettingsCheckDetectsUnappliedReset(t *testing.T) {
 	home, path := codexSettingsFixture(t)
-	if err := codex.SaveCodexOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
+	if err := putCodexRecord(vault.AgentRecord{Extras: map[string]string{"model_verbosity": "low"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := codex.ApplyCodexSettings(home); err != nil {
 		t.Fatal(err)
 	}
 	// A failed native reset leaves the new empty overlay saved and the old owned preference on disk.
-	if err := codex.SaveCodexOverlay(map[string]string{}); err != nil {
+	if err := putCodexRecord(vault.AgentRecord{}); err != nil {
 		t.Fatal(err)
 	}
 	nativeBefore, vaultBefore := readBytes(t, path), readBytes(t, vault.Path())
