@@ -38,3 +38,41 @@ func TestCodexHeadlessNetworkOptIn(t *testing.T) {
 		t.Fatalf("read-only run must stay sealed even when opted in: %q", got)
 	}
 }
+
+func TestCodexFileOverridesQuotedClosingBracket(t *testing.T) {
+	for _, table := range []string{`model_providers."prod]blue"`, `model_providers.'prod]blue'`} {
+		t.Run(table, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			body := "[" + table + "] # provider\nname = \"blue\"\n"
+			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := codexFileOverrides(path)
+			if err != nil {
+				t.Fatalf("valid quoted table header rejected: %v", err)
+			}
+			want := []string{"-c", table + `.name="blue"`}
+			if !slices.Equal(got, want) {
+				t.Fatalf("quoted table override: got %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestCodexFileOverridesLongLine(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	value := `"` + strings.Repeat("x", 80<<10) + `"`
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("[model_provider]\ninstructions = "+value+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := codexFileOverrides(path)
+	if err != nil {
+		t.Fatalf("valid config line over 64 KiB: %v", err)
+	}
+	want := []string{"-c", "model_provider.instructions=" + value}
+	if !slices.Equal(got, want) {
+		t.Fatalf("long config value did not round-trip as a table-qualified -c override (got %d args)", len(got))
+	}
+}

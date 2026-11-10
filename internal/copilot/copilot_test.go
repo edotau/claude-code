@@ -8,11 +8,13 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -207,4 +209,59 @@ func TestInitialResult(t *testing.T) {
 func isFatal(err error) bool {
 	re, ok := errors.AsType[*retry.Error](err)
 	return ok && re.Kind == retry.KindFatal
+}
+
+// TestMain runs in the hermetic host (hosttest), so no test touches the live config or vault.
+func TestMain(m *testing.M) {
+	code := hosttest.Main(m)
+	removeFakeCLI() // the fake CLI is built once per package (sdk_test.go), so it outlives every test
+	os.Exit(code)
+}
+
+// The quota hand-off masks --env values and the registry token, not only the route env.
+func TestRunCredentialsCoverEnvAndRegistryToken(t *testing.T) {
+	opts := SDKOptions{Token: func() (string, error) { return "sess-token-123456", nil }}
+	req := agent.RunOptions{Env: []string{"INTERNAL_SECRET=plain-value-12345", "EMPTY="}}
+	got := runCredentials(opts, []string{"DBX_TOKEN=route-secret-1"}, req)
+	for _, want := range []string{"route-secret-1", "plain-value-12345", "sess-token-123456"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("credentials %v miss %q", got, want)
+		}
+	}
+	if slices.Contains(got, "") {
+		t.Errorf("credentials %v hold an empty value", got)
+	}
+}
+
+// A plain --env value (a path) must stay out of the redaction list; secret-named ones are masked.
+func TestRunCredentialsIgnoresNonSecretEnv(t *testing.T) {
+	req := agent.RunOptions{Env: []string{"WORKDIR=/home/user/long/project/dir", "API_TOKEN=s3cr3t-value-123"}}
+	got := runCredentials(SDKOptions{}, nil, req)
+	if !slices.Equal(got, []string{"s3cr3t-value-123"}) {
+		t.Fatalf("runCredentials = %q; want only the secret-named value", got)
+	}
+}
+
+func TestQuotaHandoffWriteFailureKeepsPartialAnswer(t *testing.T) {
+	pinsScratch(t)
+	blocked := filepath.Join(t.TempDir(), "not-a-directory")
+	regressionWrite(t, blocked, "blocked")
+	old := handoffDir
+	handoffDir = func(string) string { return filepath.Join(blocked, "handoffs") }
+	t.Cleanup(func() { handoffDir = old })
+	cause := errors.New("402 payment required")
+	res, err := CopilotQuotaHandoff(agent.RunOptions{WorkDir: t.TempDir()}, wire.Result{}, "partial-session", "partial answer", cause, nil)
+	if res.Answer != "partial answer" || res.SessionID != "partial-session" || res.Handoff != "" {
+		t.Fatalf("result = %+v; want partial answer and session without handoff", res)
+	}
+	if !errors.Is(err, cause) || !errors.Is(err, syscall.ENOTDIR) || !strings.Contains(err.Error(), "handoff not written") {
+		t.Fatalf("err = %v; want quota and handoff write errors", err)
+	}
+}
+
+func regressionWrite(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }

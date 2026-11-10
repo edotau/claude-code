@@ -114,3 +114,16 @@ func TestRunSkeletonBadFlag(t *testing.T) {
 		t.Fatalf("exit code = 0 for a bad flag, want nonzero (got stdout=%q)", stdout.String())
 	}
 }
+
+func TestSkeletonEscapesWorkflowName(t *testing.T) {
+	var out, errb bytes.Buffer
+	if rc := RunSkeleton([]string{"--name", "team's-flow", "pipeline"}, &out, &errb); rc != 0 {
+		t.Fatalf("RunSkeleton rc=%d err=%q", rc, errb.String())
+	}
+	if !strings.Contains(out.String(), `name: 'team\'s-flow',`) {
+		t.Errorf("skeleton meta = %q, want name: 'team\\'s-flow'", out.String())
+	}
+	if got := metaBlock("a\\b\nc", "d", ""); !strings.Contains(got, `name: 'a\\b\nc',`) {
+		t.Errorf("metaBlock backslash/newline = %q", got)
+	}
+}

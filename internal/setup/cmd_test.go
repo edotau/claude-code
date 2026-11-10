@@ -8,7 +8,13 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/worktree"
 )
+
+func TestMain(m *testing.M) {
+	worktree.StubProcessScanForTest()
+	os.Exit(hosttest.Main(m))
+}
 
 func TestCmdSetupNoArgs(t *testing.T) {
 	if got := Run(nil); got != 0 {

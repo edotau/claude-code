@@ -6,9 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/retry"
-
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
 )
 
 func rules(t *testing.T, ss ...string) []agent.Rule {
@@ -124,5 +123,22 @@ func TestOpencodePolicyArgvKeepsPromptLast(t *testing.T) {
 		"-f", "notes.txt", "--", "-draft"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("policy argv = %v, want %v with the prompt last", got, want)
+	}
+}
+
+func TestOpencodePolicyArgvAutoPrompt(t *testing.T) {
+	req := agent.RunOptions{Tools: true, Permissions: agent.Permissions{Deny: rules(t, "Read(.env)")}}
+	argv := opencodeArgv("p/m", agent.Headless{Prompt: "--auto", Tools: true, Autonomous: false})
+	before := slices.Clone(argv)
+	got := opencodePolicyArgv(argv, req)
+	want := append([]string{"run", "--auto"}, before[1:]...)
+	if !slices.Equal(got, want) {
+		t.Fatalf("prompt --auto must not suppress the policy flag: got %q, want %q", got, want)
+	}
+	if !slices.Equal(argv, before) {
+		t.Fatalf("policy mutated input argv: got %q, want %q", argv, before)
+	}
+	if again := opencodePolicyArgv(got, req); !slices.Equal(again, got) {
+		t.Fatalf("real --auto flag duplicated: %q", again)
 	}
 }

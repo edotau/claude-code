@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -157,5 +158,78 @@ func TestAnalyzePRBadRefIsError(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := RunPR([]string{dir, "--base", "nosuchref", "--head", "HEAD"}, &stdout, &stderr); code == 0 {
 		t.Errorf("RunPR exit = 0 on bad ref; stderr=%q", stderr.String())
+	}
+}
+
+func TestRunGateUsesIndexContents(t *testing.T) {
+	repo := newGateRepo(t)
+	hosttest.WriteRel(t, repo, "app.py", "def run(x):\n"+strings.Repeat("    x += 1\n", 150))
+	hosttest.In(t, repo, "add", "--", "app.py")
+	var want, stderr bytes.Buffer
+	if code := RunGate([]string{"--repo", repo}, &want, &stderr); code != 0 || !strings.Contains(want.String(), "[WARN]") {
+		t.Fatalf("staged complexity warning missing: exit %d, %s, %s", code, &want, &stderr)
+	}
+	hosttest.WriteRel(t, repo, "app.py", "def run(x):\n    return x\n")
+	var got bytes.Buffer
+	if code := RunGate([]string{"--repo", repo}, &got, &stderr); code != 0 || got.String() != want.String() {
+		t.Fatalf("unstaged edit changed gate: exit %d, got %s; want %s", code, &got, &want)
+	}
+}
+
+func TestGateComplexityIncludesGo(t *testing.T) {
+	repo := newGateRepo(t)
+	hosttest.WriteRel(t, repo, "app.go", "package app\n")
+	hosttest.In(t, repo, "add", "--", "app.go")
+	want := []string{filepath.Join(repo, "app.go")}
+	if got := gateComplexityFiles(repo); !reflect.DeepEqual(got, want) {
+		t.Fatalf("staged complexity files = %v, want %v", got, want)
+	}
+}
+
+func TestRunGateHonorsAlternateIndexBlob(t *testing.T) {
+	repo := newGateRepo(t)
+	hosttest.WriteRel(t, repo, "app.py", "def run(x):\n    return x\n")
+	hosttest.In(t, repo, "add", "--", "app.py")
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(repo, ".git", "index"))
+	var stdout, stderr bytes.Buffer
+	if code := RunGate([]string{"--repo", repo}, &stdout, &stderr); code != 0 || strings.Contains(stdout.String(), "[WARN]") {
+		t.Fatalf("simple default index: exit %d, stdout %s, stderr %s", code, &stdout, &stderr)
+	}
+	content := "\ndef run(x):\n" + strings.Repeat("    x += 1\n", 150) + "\n\t \n"
+	hosttest.WriteRel(t, repo, "app.py", content)
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(t.TempDir(), "alternate-index"))
+	mustRun(t, repo, "git", "add", "--", "app.py")
+	hosttest.WriteRel(t, repo, "app.py", "def run(x):\n    return x\n")
+	stdout.Reset()
+	stderr.Reset()
+	if code := RunGate([]string{"--repo", repo}, &stdout, &stderr); code != 0 {
+		t.Fatalf("alternate index gate: exit %d, stderr %s", code, &stderr)
+	}
+	if out := stdout.String(); !strings.Contains(out, "[WARN]") || strings.Contains(out, "detector failed") {
+		t.Fatalf("missing complexity warning for alternate-index blob:\n%s", out)
+	}
+	got, err := stagedBlob(repo)(filepath.Join(repo, "app.py"))
+	if err != nil || !bytes.Equal(got, []byte(content)) {
+		t.Fatalf("alternate-index blob = %q, %v; want unchanged bytes %q", got, err, content)
+	}
+}
+
+func TestRunGateReviewsLocallyRemovedStagedFile(t *testing.T) {
+	repo := newGateRepo(t)
+	hosttest.WriteRel(t, repo, "app.py", "def run(x):\n"+strings.Repeat("    x += 1\n", 150))
+	hosttest.In(t, repo, "add", "--", "app.py")
+	if err := os.Remove(filepath.Join(repo, "app.py")); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := RunGate([]string{"--repo", repo}, &stdout, &stderr); code != 0 {
+		t.Fatalf("gate exit = %d, stderr = %q; want advisory exit 0", code, &stderr)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "[simplicity] complexity_checker (medium):") || !strings.Contains(out, "[WARN]") {
+		t.Fatalf("missing staged complexity warning after local removal:\n%s", out)
+	}
+	if strings.Contains(out, "detector failed") {
+		t.Fatalf("staged file must be analyzed, not reported as a detector failure:\n%s", out)
 	}
 }

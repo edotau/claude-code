@@ -8,13 +8,17 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/schemas"
+	"go.etcd.io/bbolt"
 )
 
 // txOpeners are this package's own transaction-opening functions: a func literal passed as their
@@ -212,4 +216,129 @@ func TestUpdateErrorLeavesNoLedgerLine(t *testing.T) {
 	if len(l) != base+1 || l[base]["from"] != float64(2) || l[base]["to"] != float64(schemaVersion) {
 		t.Fatalf("ledger = %v, want exactly one new 2->current line", l)
 	}
+}
+
+func TestSnapshotToConsistent(t *testing.T) {
+	phase1bRing(t)
+	const base = 64
+	if err := Update(func(tx *Tx) error {
+		for i := range base {
+			if err := tx.PutRecord(fmt.Sprintf("TOKEN_%03d", i), Record{Prefix: fmt.Sprintf("value-%d", i), Len: i + 1}); err != nil {
+				return err
+			}
+		}
+		return tx.Put(Meta, "record_count", strconv.Itoa(base))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	started, stop, done, writes := startRecordWriter(base)
+	<-started
+	snapshot := filepath.Join(t.TempDir(), "snapshot.db")
+	f, err := os.OpenFile(snapshot, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		close(stop)
+		<-done
+		t.Fatal(err)
+	}
+	err = SnapshotTo(Path(), f)
+	closeErr := f.Close()
+	close(stop)
+	writerErr := <-done
+	if err != nil || closeErr != nil || writerErr != nil {
+		t.Fatalf("snapshot=%v close=%v concurrent writer=%v", err, closeErr, writerErr)
+	}
+	if writes.Load() == 0 {
+		t.Fatal("concurrent writer never committed; snapshot fixture was vacuous")
+	}
+	checkSnapshotGeneration(t, snapshot, base)
+	checkSnapshotMissingSource(t)
+}
+
+// checkSnapshotMissingSource asserts SnapshotTo from an absent vault fails with fs.ErrNotExist.
+func checkSnapshotMissingSource(t *testing.T) {
+	t.Helper()
+	missing, err := os.CreateTemp(t.TempDir(), "missing-snapshot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer missing.Close()
+	if err := SnapshotTo(filepath.Join(t.TempDir(), "absent.db"), missing); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("missing snapshot source = %v, want fs.ErrNotExist", err)
+	}
+}
+
+// startRecordWriter keeps committing TOKEN_n plus meta/record_count from base until stop; started closes after the first.
+func startRecordWriter(base int) (started, stop chan struct{}, done chan error, writes *atomic.Int32) {
+	started, stop, done, writes = make(chan struct{}), make(chan struct{}), make(chan error, 1), new(atomic.Int32)
+	go func() {
+		for n := base; ; n++ {
+			select {
+			case <-stop:
+				done <- nil
+				return
+			default:
+			}
+			if err := Update(func(tx *Tx) error {
+				if err := tx.PutRecord(fmt.Sprintf("TOKEN_%03d", n), Record{Prefix: fmt.Sprintf("value-%d", n), Len: n + 1}); err != nil {
+					return err
+				}
+				return tx.Put(Meta, "record_count", strconv.Itoa(n+1))
+			}); err != nil {
+				if n == base {
+					close(started)
+				}
+				done <- err
+				return
+			}
+			writes.Add(1)
+			if n == base {
+				close(started)
+			}
+			// bbolt polls a blocked flock every 50ms; a gapless writer starves the snapshot's shared lock.
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	return started, stop, done, writes
+}
+
+// checkSnapshotGeneration opens snapshot read-only and asserts it holds one committed generation of at least base.
+func checkSnapshotGeneration(t *testing.T, snapshot string, base int) {
+	t.Helper()
+	db, err := bbolt.Open(snapshot, 0600, &bbolt.Options{ReadOnly: true, Timeout: time.Second})
+	if err != nil {
+		t.Fatalf("snapshot does not open read-only: %v", err)
+	}
+	defer db.Close()
+	if err := db.View(func(tx *bbolt.Tx) error { return snapshotGenerationErr(tx, base) }); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// snapshotGenerationErr reports a snapshot whose record_count, record count or record contents disagree.
+func snapshotGenerationErr(tx *bbolt.Tx, base int) error {
+	records := tx.Bucket([]byte(Secrets))
+	meta := tx.Bucket([]byte(Meta))
+	if records == nil || meta == nil {
+		return errors.New("snapshot missing records or metadata bucket")
+	}
+	count, err := strconv.Atoi(string(meta.Get([]byte("record_count"))))
+	if err != nil || count < base || records.Stats().KeyN != count {
+		return fmt.Errorf("snapshot is not a committed generation: count=%d records=%d err=%v",
+			count, records.Stats().KeyN, err)
+	}
+	return snapshotRecordsErr(&Tx{tx}, count)
+}
+
+// snapshotRecordsErr reports the first of TOKEN_000..count-1 that is missing or holds the wrong prefix/len.
+func snapshotRecordsErr(tx *Tx, count int) error {
+	for i := range count {
+		r, ok, rerr := tx.Record(fmt.Sprintf("TOKEN_%03d", i))
+		if rerr != nil {
+			return rerr
+		}
+		if !ok || r.Prefix != fmt.Sprintf("value-%d", i) || r.Len != i+1 {
+			return fmt.Errorf("snapshot lost/corrupted record %d: %+v found=%t", i, r, ok)
+		}
+	}
+	return nil
 }

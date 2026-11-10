@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -130,5 +131,76 @@ func TestDiffMenu(t *testing.T) {
 	}
 	if len(DiffMenu(old, old)) != 0 {
 		t.Error("identical menus must diff empty")
+	}
+}
+
+func TestParseMenuImportProviderRouting(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, tc := range []struct {
+		name      string
+		doc       string
+		responses bool
+	}{
+		{"responses npm without suffix", `{"provider":{"databricks":{"npm":"@ai-sdk/openai","models":{"databricks-gpt-6-1-sol":{"name":"GPT 6.1 Sol"}}}}}`, true},
+		{"legacy gpt suffix", `{"provider":{"databricks-gpt":{"models":{"databricks-gpt-6-1-sol":{"name":"GPT 6.1 Sol"}}}}}`, true},
+		{"chat npm overrides suffix", `{"provider":{"databricks-gpt":{"npm":"@ai-sdk/openai-compatible","models":{"databricks-gpt-6-1-sol":{"name":"GPT 6.1 Sol"}}}}}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ParseMenuImport([]byte(tc.doc))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []providers.OpencodeModel{{ID: "gpt-6-1-sol", Label: "GPT 6.1 Sol", Responses: tc.responses}}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("provider routing: got %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+func TestParseMenuImportLongLine(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	label := strings.Repeat("long-label", 8<<10)
+	got, err := ParseMenuImport([]byte("databricks-kimi-k3," + label + ",responses\n"))
+	if err != nil {
+		t.Fatalf("valid menu line over 64 KiB: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("parsed %d models, want 1", len(got))
+	}
+	if got[0].ID != "kimi-k3" || got[0].Label != label || !got[0].Responses {
+		t.Fatalf("parsed ID=%q, label matches=%t, responses=%t", got[0].ID, got[0].Label == label, got[0].Responses)
+	}
+}
+
+func TestParseMenuImportHyphenatedProfile(t *testing.T) {
+	want := []providers.OpencodeModel{{ID: "glm-5-2", Label: "GLM 5.2", Responses: true}}
+	p := regressionDatabricksProfile(t, "qa-prod", want)
+	body := regressionGeneratedMenu(t, p, "glm-5-2")
+	if !strings.Contains(string(body), `"harness-qa-prod-gpt"`) {
+		t.Fatalf("fixture lacks hyphenated provider ID: %s", body)
+	}
+	got, err := ParseMenuImport(body)
+	if err != nil {
+		t.Fatalf("import generated hyphenated profile: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("imported menu = %+v, want %+v", got, want)
+	}
+}
+
+func TestParseMenuImportPreservesExplicitRouting(t *testing.T) {
+	menu := []providers.OpencodeModel{
+		{ID: "glm-5-2", Label: "GLM 5.2", Responses: true},
+		{ID: "gpt-6-1-sol", Label: "GPT 6.1 Sol", Responses: false},
+	}
+	p := regressionDatabricksProfile(t, "databricks-test", menu)
+	got, err := ParseMenuImport(regressionGeneratedMenu(t, p, "glm-5-2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []providers.OpencodeModel{menu[1], menu[0]}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("import must retain explicit Responses and chat overrides: got %+v, want %+v", got, want)
 	}
 }

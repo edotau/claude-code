@@ -10,18 +10,16 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/memory"
-
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
-
 	"github.com/edotau/claude-code/internal/describe"
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/theme"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // TestCompletionTopLevel: an empty partial offers every visible command (+help), never a hidden one.
@@ -662,3 +660,21 @@ func TestMemoryUpdateSpecHasNoRepoFlag(t *testing.T) {
 }
 
 // TestCompletionOffersEveryAcceptedFlagAndSection: flags and sections the verbs accept are not missing from completion.
+
+// describeVerbs must carry every listed verb with its spec node, so describe never drifts from the table.
+func TestDescribeVerbsCoverTable(t *testing.T) {
+	got := map[string]bool{}
+	for _, v := range describeVerbs() {
+		got[v.Name] = true
+	}
+	for _, c := range commands() {
+		if !got[c.name] {
+			t.Errorf("describeVerbs lacks table verb %q", c.name)
+		}
+	}
+	for _, want := range []string{"agents", "doctor", "configure", "memory"} {
+		if !got[want] {
+			t.Errorf("describeVerbs lacks verb %q", want)
+		}
+	}
+}

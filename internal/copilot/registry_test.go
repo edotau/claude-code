@@ -1,9 +1,16 @@
 package copilot
 
 import (
+	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -51,4 +58,74 @@ func TestRegistrySelectErrors(t *testing.T) {
 			t.Errorf("%s: err = %v, want %v", c.name, err, c.want)
 		}
 	}
+}
+
+// An empty target model lets the default apply instead of failing as the unknown model "".
+func TestPrepareCopilotRegistryEmptyModelUsesDefault(t *testing.T) {
+	pinsScratch(t)
+	setGOOS(t, "linux")
+	t.Setenv("COPILOT_HOME", t.TempDir())
+	stubSettingsRegistry(t)
+	route, err := prepareCopilotRegistry(context.Background(), providers.Target{Provider: &providers.Provider{Name: "fixture"}})
+	if err != nil || route == nil || route.ref == "" {
+		t.Fatalf("prepareCopilotRegistry(empty model) = %+v, %v; want the default model selected", route, err)
+	}
+}
+
+// With no flag and no pin, the profile's default model is the choice; a flag or pin still wins.
+func TestCopilotChoiceProfileDefault(t *testing.T) {
+	pinsScratch(t)
+	t.Setenv("COPILOT_MODEL", "")
+	if got := copilotChoice(nil, "claude-sonnet-5-5").Requested; !slices.Equal(got, []string{"claude-sonnet-5-5"}) {
+		t.Errorf("no flag/pin: Requested = %v, want the profile default", got)
+	}
+	if got := copilotChoice([]string{"gpt-5-5"}, "claude-sonnet-5-5").Requested; !slices.Equal(got, []string{"gpt-5-5"}) {
+		t.Errorf("flag: Requested = %v, want the flag only", got)
+	}
+	t.Setenv("COPILOT_MODEL", "kimi-k3")
+	if c := copilotChoice(nil, "claude-sonnet-5-5"); len(c.Requested) != 0 || c.Pin != "kimi-k3" {
+		t.Errorf("pin: choice = %+v, want the pin and no profile default", c)
+	}
+}
+
+func TestSDKRegistryWarnsAndDropsUnreadableSettings(t *testing.T) {
+	pinsScratch(t)
+	setGOOS(t, "linux")
+	t.Setenv("COPILOT_HOME", t.TempDir())
+	if err := os.Mkdir(filepath.Join(os.Getenv("COPILOT_HOME"), "settings.json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(copilotRegistryHome(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(copilotRegistryHome(), "settings.json")
+	regressionWrite(t, stale, `{"defaultPermissionMode":"allow-all"}`)
+	stubSettingsRegistry(t)
+	logPath := filepath.Join(t.TempDir(), "dispatch.log")
+	sink := wire.NewLogSink(logPath)
+	t.Cleanup(sink.Close)
+	ctx := wire.WithLog(context.Background(), sink)
+	route, err := prepareCopilotRegistry(ctx, providers.Target{Provider: &providers.Provider{Name: "fixture"}, Model: "claude-sonnet-5-5"})
+	if err != nil || route == nil {
+		t.Fatalf("prepareCopilotRegistry = %v, %v", route, err)
+	}
+	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("stale private settings still usable: %v", err)
+	}
+	sink.Close()
+	raw, err := os.ReadFile(logPath)
+	if err != nil || !strings.Contains(string(raw), "note: copilot: settings.json not carried over") {
+		t.Fatalf("SDK warning log = %q, %v; want settings read warning", raw, err)
+	}
+}
+
+func stubSettingsRegistry(t *testing.T) {
+	t.Helper()
+	oldDiscover, oldRouter, oldMint := discoverModels, agent.EnsureRouter, mintSession
+	t.Cleanup(func() { discoverModels, agent.EnsureRouter, mintSession = oldDiscover, oldRouter, oldMint })
+	discoverModels = func(context.Context, *providers.Registry, *providers.Provider) ([]CopilotEndpoint, error) {
+		return []CopilotEndpoint{{ID: "claude-sonnet-5-5"}}, nil
+	}
+	agent.EnsureRouter = func(context.Context) (string, error) { return "http://127.0.0.1:1", nil }
+	mintSession = func(context.Context, string, int) (string, error) { return "fixture-session", nil }
 }

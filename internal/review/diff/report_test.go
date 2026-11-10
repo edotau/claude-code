@@ -2,12 +2,17 @@ package diff
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // golden commands (captured from testdata/report, python3 on PATH):
@@ -200,3 +205,48 @@ func TestGenerateReportFailsWhenQualityDiffFails(t *testing.T) {
 		t.Fatalf("generateReport() error = %v, want a git diff failure, not a clean quality pass", err)
 	}
 }
+
+func TestGenerateReportSingleFileQualitySummary(t *testing.T) {
+	quality := map[string]any{
+		"file": "app.py", "quality_score": 72.5,
+		"smells":           []any{map[string]any{"type": "long_method"}, map[string]any{"type": "magic_number"}},
+		"solid_violations": []any{map[string]any{"principle": "SRP"}},
+	}
+	got, err := generateReport("", "", "", map[string]any{"status": "no_changes"}, quality)
+	want := &QualitySummary{FilesAnalyzed: 1, AverageScore: 72.5, TotalCodeSmells: 2, TotalSolidViolations: 1}
+	if err != nil || !reflect.DeepEqual(got.QualitySummary, want) {
+		t.Fatalf("single-file summary = %+v, %v; want %+v", got.QualitySummary, err, want)
+	}
+}
+
+type failedStdout struct{}
+
+func (failedStdout) Write([]byte) (int, error) { return 0, errors.New("stdout unavailable") }
+
+func TestReviewCommandsPropagateStdoutFailure(t *testing.T) {
+	base := []string{
+		filepath.Join("testdata", "report", "repo"),
+		"--pr-analysis", filepath.Join("testdata", "report", "pr-fixture.json"),
+		"--quality-analysis", filepath.Join("testdata", "report", "quality-fixture.json"),
+	}
+	repo := buildPRFixtureRepo(t)
+	for _, tc := range []struct {
+		name string
+		run  func([]string, io.Writer, io.Writer) int
+		args []string
+	}{
+		{"report text", RunReport, base},
+		{"report json", RunReport, append(append([]string{}, base...), "--json")},
+		{"pr text", RunPR, []string{repo, "--base", "main", "--head", "feature"}},
+		{"diff json", RunDiff, []string{"--file", filepath.Join("testdata", "diff", "synthetic-noise.diff"), "--json"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			if code := tc.run(tc.args, failedStdout{}, &stderr); code != 1 || !strings.Contains(stderr.String(), "stdout unavailable") {
+				t.Fatalf("exit %d, stderr %q; want exit 1 with stdout failure", code, &stderr)
+			}
+		})
+	}
+}
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

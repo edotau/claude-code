@@ -1,9 +1,11 @@
 package router
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -103,5 +105,25 @@ func TestSkipDiscoveryReportsNothingWhenSkipNotPersisted(t *testing.T) {
 	}
 	if m := SkipDiscovery("opencode", poolProvider(), "m-a"); m != "" {
 		t.Fatalf("SkipDiscovery with an unwritable quota.json = %q, want empty", m)
+	}
+}
+
+func TestSkipDiscoveryReportsPersistenceFailure(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := os.MkdirAll(StatePath(), 0o700); err != nil { // a directory where quota.json belongs: reads fail
+		t.Fatal(err)
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	got := SkipDiscovery("opencode", poolProvider(), "m-a")
+	os.Stderr = orig
+	w.Close()
+	out, _ := io.ReadAll(r)
+	if got != "" || !strings.Contains(string(out), "could not persist model skip") {
+		t.Errorf("got %q, stderr %q; want empty result and a persistence message", got, out)
 	}
 }

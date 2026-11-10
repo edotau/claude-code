@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // golden commands (captured against this exact testdata dir, python3 on PATH):
@@ -324,3 +326,5 @@ func TestFindClassesGoCountsReceiversNotProximity(t *testing.T) {
 		t.Fatalf("smells = %+v, want only Big flagged", smells)
 	}
 }
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

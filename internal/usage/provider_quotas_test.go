@@ -579,3 +579,12 @@ func TestFetchedCachedRowGetsLeftAndState(t *testing.T) {
 		t.Errorf("table lacks the value or note:\n%s", b.String())
 	}
 }
+
+func TestNaNWarningThresholdFallsBack(t *testing.T) {
+	t.Setenv("HARNESS_USAGE_WARN_PCT", "NaN")
+	rows := []quota{{Provider: "anthropic", Window: "5h", UsedPct: 90}}
+	setStates(rows, warnThreshold())
+	if rows[0].State != "warn" || warnThreshold() != 80 {
+		t.Fatalf("NaN disabled quota warnings: threshold=%v rows=%+v", warnThreshold(), rows)
+	}
+}

@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -224,5 +225,59 @@ func TestHostedDispatchSilencesPluginMemoryHooks(t *testing.T) {
 	}
 	if env := withHostedMarker([]string{"A=1"}, nil); len(env) != 1 {
 		t.Errorf("no host must leave the env alone (the TUI plugin owns the memory hooks), got %v", env)
+	}
+}
+
+func regressionPluginTool(t *testing.T, tool, stdout string, mods []pluginModule) string {
+	t.Helper()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "fakecc")
+	script := "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '" + stdout + "'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body, err := renderPlugin(bin, mods)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driver := fmt.Sprintf(`import { ClaudeCodeHarness } from "./plugin.mjs"
+const h = await ClaudeCodeHarness({ directory: %q })
+try {
+  await h["tool.execute.before"]({ tool: %q, sessionID: "s1" }, { args: { filePath: "file.go", edits: [] } })
+  console.log("RAN")
+} catch (e) {
+  console.log("BLOCKED " + e.message)
+}
+`, dir, tool)
+	return runPluginNode(t, dir, body, driver, os.Environ())
+}
+
+func TestPluginMultieditRunsEditGuards(t *testing.T) {
+	deny := `{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"edit denied"}}`
+	out := regressionPluginTool(t, "multiedit", deny, pluginModules())
+	if strings.TrimSpace(out) != "BLOCKED edit denied" {
+		t.Fatalf("multiedit must reach registered edit guards, got:\n%s", out)
+	}
+}
+
+func TestPluginMalformedGuardOutput(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		stdout     string
+		failClosed bool
+		want       string
+	}{
+		{"closed", "{broken", true, "BLOCKED permission-gate did not complete (malformed output); blocked"},
+		{"open", "{broken", false, "claude-code plugin: permission-gate did not complete (malformed output); allowed\nRAN"},
+		{"silent allow", "", true, "RAN"},
+		{"explicit allow", `{"hookSpecificOutput":{"permissionDecision":"allow"}}`, true, "RAN"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mods := []pluginModule{{Name: "permission-gate", Matcher: "Edit", BudgetMs: 5000, FailClosed: tc.failClosed}}
+			out := regressionPluginTool(t, "edit", tc.stdout, mods)
+			if strings.TrimSpace(out) != tc.want {
+				t.Fatalf("guard verdict = %q, want %q", out, tc.want)
+			}
+		})
 	}
 }

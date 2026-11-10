@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -599,5 +601,126 @@ func TestClaudeQuotasCacheTTLFromEnv(t *testing.T) {
 	claudeQuotas(context.Background())
 	if hits != 1 {
 		t.Fatalf("network hits with TTL=1s on a 5s-old cache = %d, want 1 (stale)", hits)
+	}
+}
+
+func TestClaudeUsageRejectsMissingWindows(t *testing.T) {
+	for _, body := range []string{`{}`, `{"five_hour":null,"seven_day":null}`, `{"five_hour":{"utilization":0}}`} {
+		t.Run(body, func(t *testing.T) {
+			validClaudeCreds(t)
+			setClaudeCacheDir(t)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, body)
+			}))
+			defer srv.Close()
+			stubClaudeOAuthURL(t, srv.URL)
+			rows := claudeQuotas(context.Background())
+			if len(rows) != 1 || rows[0].Note != "usage unavailable: unreadable response" {
+				t.Fatalf("missing windows fabricated successful quota rows: %+v", rows)
+			}
+			if cache := readClaudeUsageCache(claudeUsageCachePath()); cache != nil {
+				t.Fatalf("missing windows were cached: %+v", cache)
+			}
+		})
+	}
+}
+
+func TestClaudeCacheSeparatesCredentials(t *testing.T) {
+	cases := []struct {
+		name, owner string
+		age         time.Duration
+		status      int
+		wantNote    bool
+	}{
+		{"fresh other account", "account-a", 0, http.StatusOK, false},
+		{"legacy unowned", "", 0, http.StatusOK, false},
+		{"stale rate limited", "account-a", time.Hour, http.StatusTooManyRequests, true},
+		{"stale server error", "account-a", time.Hour, http.StatusInternalServerError, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			validClaudeCreds(t)
+			setClaudeCacheDir(t)
+			writeClaudeUsageCache(claudeUsageCachePath(), claudeUsageCache{
+				FetchedAt: time.Now().Add(-tc.age), Owner: tc.owner, SubscriptionType: "max",
+				Body: []byte(`{"five_hour":{"utilization":95},"seven_day":{"utilization":95}}`),
+			})
+			var hits atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				hits.Add(1)
+				w.WriteHeader(tc.status)
+				_, _ = io.WriteString(w, `{"five_hour":{"utilization":10},"seven_day":{"utilization":20}}`)
+			}))
+			defer srv.Close()
+			stubClaudeOAuthURL(t, srv.URL)
+			rows := claudeQuotas(context.Background())
+			if hits.Load() != 1 {
+				t.Fatalf("current credentials reused another account's cache: hits=%d rows=%+v", hits.Load(), rows)
+			}
+			if tc.wantNote {
+				if len(rows) != 1 || !strings.HasPrefix(rows[0].Note, "usage unavailable: HTTP") {
+					t.Fatalf("another account's stale quota leaked into fallback: %+v", rows)
+				}
+				return
+			}
+			if len(rows) != 2 || rows[0].UsedPct != 10 || rows[1].UsedPct != 20 {
+				t.Fatalf("expected the current account's live quota: %+v", rows)
+			}
+		})
+	}
+}
+
+func TestClaudeFallbackMarksEveryWindowCached(t *testing.T) {
+	for _, status := range []int{0, http.StatusTooManyRequests, http.StatusInternalServerError} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			validClaudeCreds(t)
+			dir := setClaudeCacheDir(t)
+			writeClaudeCache(t, dir, time.Now().Add(-time.Hour), nil, "max", readClaudeFixture(t))
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+			}))
+			defer srv.Close()
+			stubClaudeOAuthURL(t, srv.URL)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if status == 0 {
+				cancel()
+			}
+			rows := claudeQuotas(ctx)
+			if len(rows) != 3 {
+				t.Fatalf("lost fallback windows: %+v", rows)
+			}
+			for _, row := range rows {
+				if !row.cached {
+					t.Errorf("stale %s/%s quota is not marked cached: %+v", row.Window, row.Group, row)
+				}
+			}
+			if n := recordQuotas(rows, time.Now()); n != 0 {
+				t.Errorf("stale fallback refreshed %d router accounts", n)
+			}
+		})
+	}
+}
+
+func TestClaudeLockFailureDoesNotFetch(t *testing.T) {
+	validClaudeCreds(t)
+	dir := setClaudeCacheDir(t)
+	writeClaudeCache(t, dir, time.Now().Add(-time.Hour), nil, "max", readClaudeFixture(t))
+	if err := os.Mkdir(claudeUsageCachePath()+".lock", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write(readClaudeFixture(t))
+	}))
+	defer srv.Close()
+	stubClaudeOAuthURL(t, srv.URL)
+	rows := claudeQuotas(context.Background())
+	if hits.Load() != 0 {
+		t.Fatalf("lock failure bypassed serialization: %d HTTP requests", hits.Load())
+	}
+	if len(rows) != 3 || !strings.Contains(rows[0].Note, "cache lock unavailable") {
+		t.Fatalf("expected an explicitly stale cache fallback on lock failure: %+v", rows)
 	}
 }

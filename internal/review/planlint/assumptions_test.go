@@ -124,3 +124,21 @@ func TestRunAssumptionsStdoutWriteError(t *testing.T) {
 		}
 	}
 }
+
+func TestContinuationLineVerificationCounts(t *testing.T) {
+	missing := func(text string) int {
+		n := 0
+		for _, f := range lintText(text) {
+			if f.Category == "missing-verification" {
+				n++
+			}
+		}
+		return n
+	}
+	if got := missing("1. Create the endpoint.\n   verify: check HTTP status 200.\n"); got != 0 {
+		t.Errorf("indented verify line: %d missing-verification findings, want 0", got)
+	}
+	if got := missing("1. Create the endpoint.\n   Then wire it.\n"); got != 1 {
+		t.Errorf("no verification: %d missing-verification findings, want 1", got)
+	}
+}
