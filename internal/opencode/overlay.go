@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -18,8 +19,14 @@ func renderOpenCodeOverlay(o render.RenderOptions, out io.Writer) (bool, error) 
 	if err != nil {
 		return false, fmt.Errorf("opencode: %w", err)
 	}
-	cfgRaw, _ := os.ReadFile(cfgPath)
-	tuiRaw, _ := os.ReadFile(tuiPath)
+	cfgRaw, err := readOverlay(cfgPath)
+	if err != nil {
+		return false, err
+	}
+	tuiRaw, err := readOverlay(tuiPath)
+	if err != nil {
+		return false, err
+	}
 	cfgChanged, err := render.CommitOverlayFile(cfgPath, cfgRaw, cfgBody, o, out, "opencode")
 	if err != nil {
 		return false, err
@@ -29,4 +36,13 @@ func renderOpenCodeOverlay(o render.RenderOptions, out io.Writer) (bool, error) 
 		return false, err
 	}
 	return cfgChanged || tuiChanged, nil
+}
+
+// readOverlay is path's bytes, nil when absent; any other read error is returned so drift is never silent.
+func readOverlay(path string) ([]byte, error) {
+	b, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("opencode: %w", err)
+	}
+	return b, nil
 }

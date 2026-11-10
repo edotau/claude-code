@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	render "github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -70,33 +71,20 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 }
 
 func opencodeProviderOptions(p *providers.Provider, dialect, base, cred string) (string, map[string]any, []string) {
-	options := map[string]any{"baseURL": base}
-	npm := "@ai-sdk/openai-compatible"
-	headers := map[string]any{}
-	for k, v := range p.Headers {
-		headers[k] = v
-	}
-	ref := "{env:" + launchcli.OpenCodeKeyEnv + "}"
+	npm, url := "@ai-sdk/openai-compatible", base
 	// Native SDKs keep provider-specific state (Gemini 3 thought signatures) the openai-compatible shim drops.
 	switch dialect {
 	case providers.ProtocolAnthropic:
-		npm, options["baseURL"] = "@ai-sdk/anthropic", base+"/v1"
+		npm, url = "@ai-sdk/anthropic", base+"/v1"
 	case providers.ProtocolGemini:
-		npm, options["baseURL"] = "@ai-sdk/google", base+"/v1beta"
+		npm, url = "@ai-sdk/google", base+"/v1beta"
 	}
 	var env []string
 	if cred != "" {
 		env = append(env, launchcli.OpenCodeKeyEnv+"="+cred)
-		options["apiKey"] = ref
-		native := dialect == providers.ProtocolAnthropic || (dialect == providers.ProtocolGemini && agent.IsGateway(base))
-		if native && p.Auth.HeaderStyle() == providers.HeaderBearer {
-			headers["Authorization"] = "Bearer " + ref
-		}
 	}
-	if len(headers) > 0 {
-		options["headers"] = headers
-	}
-	return npm, options, env
+	native := dialect == providers.ProtocolAnthropic || (dialect == providers.ProtocolGemini && agent.IsGateway(base))
+	return npm, providerOptions(p, cred, url, native), env
 }
 
 func opencodeDisableToolStreaming(menu map[string]any) {
@@ -442,11 +430,7 @@ func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.Run
 	if err != nil {
 		return p.Result, err
 	}
-	env, err := opencodeApplyPermissions(p.Env, req)
-	if err != nil {
-		return p.Result, retry.Fatal(e.Name(), err)
-	}
-	cmd, tail, host, err := opencodeChild(ctx, e.Name(), bin, env, opencodePolicyArgv(p.Argv, req), p.Prompt, req)
+	cmd, tail, host, err := opencodeChild(ctx, e.Name(), bin, p.Env, p.Argv, p.Prompt, req)
 	if err != nil {
 		return p.Result, err
 	}
@@ -456,6 +440,23 @@ func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.Run
 		err = refuseToolCallText(e.Name(), req, res.Answer)
 	}
 	return res, err
+}
+
+// RenderSettings is the base launch env, then the effort as --variant on `opencode run` (the TUI has no such flag)
+// and the permission policy as config plus OPENCODE_PERMISSION, with --auto.
+func (e opencodeEngine) RenderSettings(ctx context.Context, s agent.Settings, env, argv []string) ([]string, []string, []string, func(), error) {
+	env, argv, emulated, cleanup, err := e.BaseEngine.RenderSettings(ctx, s, env, argv)
+	if err != nil {
+		return env, argv, emulated, cleanup, err
+	}
+	if s.Effort != "" && len(argv) > 0 && argv[0] == "run" && !slices.Contains(flagsOnly(argv), "--variant") {
+		argv = slices.Insert(slices.Clone(argv), 1, "--variant", s.Effort)
+	}
+	req := agent.RunOptions{Tools: s.Tools, SafeMode: s.SafeMode, Permissions: s.Permissions}
+	if env, err = opencodeApplyPermissions(env, req); err != nil {
+		return nil, nil, emulated, cleanup, err
+	}
+	return env, opencodePolicyArgv(argv, req), emulated, cleanup, nil
 }
 
 // opencodeChild loads the plugin and hook host over env/argv and builds the child; its errors are Fatal for name.
@@ -551,13 +552,19 @@ func (e opencodeEngine) NoRoute(reg *providers.Registry, _ providers.Target) err
 	return agent.RouteErr(e.DescribeRoute(reg))
 }
 
-// LaunchEnv points every opencode launch at the tracked overlay; a failed write is best-effort, opencode runs without it.
+// LaunchEnv points every opencode launch at the tracked overlay; each error is a notice and opencode runs without it.
 func (opencodeEngine) LaunchEnv() []string {
-	env, _ := opencodeCredential("opencode")
-	if cfg, tui, err := agentconfig.WriteOpencodeOverlay(); err == nil {
-		return append(env, "OPENCODE_CONFIG="+cfg, "OPENCODE_TUI_CONFIG="+tui)
+	env, err := opencodeCredential("opencode")
+	var missing missingCredError
+	if err != nil && !errors.As(err, &missing) { // no login and no key is the Databricks-pinned norm, not news
+		fmt.Fprintln(agent.NoticeOut, "opencode:", err)
 	}
-	return env
+	cfg, tui, err := agentconfig.WriteOpencodeOverlay()
+	if err != nil {
+		fmt.Fprintln(agent.NoticeOut, "opencode: overlay:", err)
+		return env
+	}
+	return append(env, "OPENCODE_CONFIG="+cfg, "OPENCODE_TUI_CONFIG="+tui)
 }
 
 func (opencodeEngine) Presence(c router.Cell) error {
@@ -570,7 +577,7 @@ func (opencodeEngine) Presence(c router.Cell) error {
 
 // OwnLogin is opencode on its own stored login/config: argv only, no harness route injected.
 // Tools off still rides OPENCODE_CONFIG_CONTENT, which opencode merges over its config.
-func (e opencodeEngine) OwnLogin(h agent.Headless) (env, argv []string, err error) {
+func (opencodeEngine) OwnLogin(h agent.Headless) (env, argv []string, err error) {
 	if err := agent.CheckPrompt(h); err != nil {
 		return nil, nil, err
 	}
@@ -578,8 +585,7 @@ func (e opencodeEngine) OwnLogin(h agent.Headless) (env, argv []string, err erro
 	if cred, err := opencodeCredential("opencode"); err == nil {
 		env = append(env, cred...) // the vault key when opencode stores no login of its own
 	}
-	env, argv = launchcli.HeadlessLaunch(e.Name(), env, argv)
-	return env, argv, nil
+	return env, argv, nil // prepare's RenderSettings adds the launch env
 }
 
 func (opencodeEngine) Render(_ *providers.Registry, _ providers.Selection, _ string, o render.RenderOptions, out io.Writer) (bool, error) {
@@ -640,10 +646,15 @@ func opencodeCredential(prefix string) (env []string, err error) {
 		return nil, fmt.Errorf("opencode logins could not be read: %w", lerr)
 	}
 	if id == "opencode" {
-		return nil, fmt.Errorf("opencode has no opencode login (opencode auth login) and no %s in the vault", OpencodeAPIKeyEnv)
+		return nil, missingCredError(fmt.Sprintf("opencode has no opencode login (opencode auth login) and no %s in the vault", OpencodeAPIKeyEnv))
 	}
-	return nil, fmt.Errorf("opencode has no %s login (opencode auth login)", id)
+	return nil, missingCredError(fmt.Sprintf("opencode has no %s login (opencode auth login)", id))
 }
+
+// missingCredError is opencodeCredential's plain no-login, no-key answer, as opposed to a failed read.
+type missingCredError string
+
+func (e missingCredError) Error() string { return string(e) }
 
 // opencodeVaultKey is the vault's opencode API key for the `opencode` credential id, else "".
 func opencodeVaultKey(id string) string {
@@ -657,32 +668,19 @@ func opencodeVaultKey(id string) string {
 // ownLoginTTL bounds how long OpencodeOwnLoginPresent reuses an answer: one launch's route calls, not a later vault edit.
 const ownLoginTTL = 2 * time.Second
 
-// ownLoginMemo is the last OpencodeOwnLoginPresent answer, valid for the auth state and key env it was computed under.
-type ownLoginMemo struct {
-	key, env string
-	at       time.Time
-	val      bool
-}
+// ownLoginKey is the auth state and key env an OpencodeOwnLoginPresent answer was computed under.
+type ownLoginKey struct{ key, env string }
 
-var ownLogin ownLoginMemo // guarded by opencodeMu
+var ownLogin paths.Memo[ownLoginKey, bool] // InvalidateOpencodeAuth drops it; a probe in flight then is not kept
 
 // OpencodeOwnLoginPresent reports a usable `opencode` credential (Go/Zen plans): a stored login or the vault key.
 // The answer is reused for ownLoginTTL, so a launch's route calls read the vault once.
 func OpencodeOwnLoginPresent() bool {
 	_, _, key := opencodeAuthKeys()
-	env := os.Getenv(OpencodeAPIKeyEnv)
-	opencodeMu.Lock()
-	m, gen := ownLogin, opencodeAuthGen
-	opencodeMu.Unlock()
-	if !m.at.IsZero() && m.key == key && m.env == env && time.Since(m.at) < ownLoginTTL {
-		return m.val
-	}
-	_, err := opencodeCredential("opencode-go")
-	m = ownLoginMemo{key: key, env: env, at: time.Now(), val: err == nil}
-	opencodeMu.Lock()
-	if gen == opencodeAuthGen { // an Invalidate during the vault read must not be overwritten by a stale answer
-		ownLogin = m
-	}
-	opencodeMu.Unlock()
-	return m.val
+	ok, _ := ownLogin.Do(ownLoginKey{key, os.Getenv(OpencodeAPIKeyEnv)}, func(bool, error) time.Duration { return ownLoginTTL },
+		func() (bool, error) {
+			_, err := opencodeCredential("opencode-go")
+			return err == nil, nil
+		})
+	return ok
 }
