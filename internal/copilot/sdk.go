@@ -372,7 +372,12 @@ func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
 	defer c.mu.Unlock()
 	switch d := ev.Data.(type) {
 	case *copilot.AssistantMessageData:
-		c.text.WriteString(d.Content)
+		if strings.TrimSpace(d.Content) != "" { // each event is a whole message, not a delta: keep turns apart
+			if c.text.Len() > 0 {
+				c.text.WriteString("\n\n")
+			}
+			c.text.WriteString(d.Content)
+		}
 		if d.Model != nil {
 			c.model = *d.Model
 		}

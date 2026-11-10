@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,7 +16,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -250,9 +251,7 @@ var SwitchGH = func(login string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "gh", "auth", "switch", "--hostname", "github.com", "--user", login).CombinedOutput()
-	ghActiveTokenCache.Lock()
-	ghActiveTokenCache.key = ghActiveTokenKey{}
-	ghActiveTokenCache.Unlock()
+	ghActiveTokenMemo.Drop()
 	if err != nil {
 		return fmt.Errorf("gh auth switch --user %s: %w: %s", login, err, strings.TrimSpace(string(out)))
 	}
@@ -266,12 +265,14 @@ type ghActiveTokenKey struct {
 	modTime time.Time
 }
 
-var ghActiveTokenCache struct {
-	sync.Mutex
-	key            ghActiveTokenKey
-	account, token string
-	failedAt       time.Time // when `gh auth token` last failed under key; skips a retry for authMemoNegativeTTL
-}
+// ghActive is gh's active account and, unless env overrides gh's default, that account's token.
+type ghActive struct{ account, token string }
+
+// ghActiveTokenMemo keeps a found account until SwitchGH, a `gh auth token` failure for authMemoNegativeTTL.
+var ghActiveTokenMemo paths.Memo[ghActiveTokenKey, ghActive]
+
+// errGHTokenFailed is a `gh auth token` failure that is not a timeout, so it is worth remembering.
+var errGHTokenFailed = errors.New("gh auth token failed")
 
 // authMemoNegativeTTL is how long a failed gh lookup is remembered, so a later `gh auth login` is still seen.
 const authMemoNegativeTTL = 30 * time.Second
@@ -287,41 +288,41 @@ func ghActiveAccountToken() (account, token string) {
 			os.Getenv("GH_HOST"), os.Getenv("PATH")},
 		path: path, size: info.Size(), modTime: info.ModTime(),
 	}
-	return ghLookupCached(key)
+	v, _ := ghActiveTokenMemo.Do(key, keepGHActive, func() (ghActive, error) { return ghLookup(path) })
+	return v.account, v.token
 }
 
-// ghLookupCached serves the memoized account/token for key, else reads hosts.yml, runs gh and memoizes.
-func ghLookupCached(key ghActiveTokenKey) (account, token string) {
-	path := key.path
-	ghActiveTokenCache.Lock()
-	defer ghActiveTokenCache.Unlock()
-	if ghActiveTokenCache.key == key && ghActiveTokenCache.account != "" {
-		return ghActiveTokenCache.account, ghActiveTokenCache.token
+// keepGHActive keeps a found account until Drop, a gh failure for authMemoNegativeTTL, anything else not at all.
+func keepGHActive(v ghActive, err error) time.Duration {
+	switch {
+	case v.account != "":
+		return 0
+	case errors.Is(err, errGHTokenFailed):
+		return authMemoNegativeTTL
 	}
-	if ghActiveTokenCache.key == key && time.Since(ghActiveTokenCache.failedAt) < authMemoNegativeTTL {
-		return "", ""
-	}
+	return -1
+}
+
+// ghLookup reads hosts.yml's active user and runs gh for its token.
+func ghLookup(path string) (ghActive, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return "", ""
+		return ghActive{}, nil
 	}
 	m := ghUserRE.FindSubmatch(raw)
 	if m == nil {
-		return "", ""
+		return ghActive{}, nil
 	}
-	out, ok := ghAuthToken(key)
-	if !ok {
-		return "", "" // hosts.yml names a user but gh has no usable token for it
+	out, err := ghAuthToken()
+	if err != nil {
+		return ghActive{}, err // hosts.yml names a user but gh has no usable token for it
 	}
 	// Overrides can make the default token differ from the named account's token; retain the original lookup.
-	account = string(m[1])
+	a := ghActive{account: string(m[1])}
 	if !ghEnvOverridesToken() {
-		token = strings.TrimSpace(string(out))
+		a.token = strings.TrimSpace(string(out))
 	}
-	ghActiveTokenCache.key = key
-	ghActiveTokenCache.account, ghActiveTokenCache.token = account, token
-	ghActiveTokenCache.failedAt = time.Time{}
-	return account, token
+	return a, nil
 }
 
 // ghEnvOverridesToken reports whether GH_TOKEN, GITHUB_TOKEN or a non-default GH_HOST can change gh's default token.
@@ -330,62 +331,48 @@ func ghEnvOverridesToken() bool {
 	return os.Getenv("GH_TOKEN") != "" || os.Getenv("GITHUB_TOKEN") != "" || (host != "" && host != "github.com")
 }
 
-// ghAuthToken runs plain `gh auth token` under ghActiveTokenCache's lock; a failure, not a timeout, is remembered.
-func ghAuthToken(key ghActiveTokenKey) ([]byte, bool) {
+// ghAuthToken runs plain `gh auth token`; a failure, not a timeout, is errGHTokenFailed.
+func ghAuthToken() ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
-	if err == nil {
-		return out, true
+	if err != nil && ctx.Err() == nil {
+		return nil, errGHTokenFailed
 	}
-	if ctx.Err() == nil {
-		ghActiveTokenCache.key, ghActiveTokenCache.account, ghActiveTokenCache.token = key, "", ""
-		ghActiveTokenCache.failedAt = time.Now()
-	}
-	return nil, false
+	return out, err
 }
 
-type authMemoEntry struct {
-	val string
-	at  time.Time
-}
-
-// authMemo remembers lookups for the process; an empty (failed) result is retried after authMemoNegativeTTL.
-type authMemo struct {
-	sync.Mutex
-	m map[string]authMemoEntry
-}
-
-// do returns key's remembered value or runs fn; the lock is held across fn so parallel callers look up once.
-func (c *authMemo) do(key string, fn func() string) string {
-	c.Lock()
-	defer c.Unlock()
-	if e, ok := c.m[key]; ok && (e.val != "" || time.Since(e.at) < authMemoNegativeTTL) {
-		return e.val
+// keepAuth keeps a found value until Drop and an empty (failed) one for authMemoNegativeTTL.
+func keepAuth(v string, _ error) time.Duration {
+	if v != "" {
+		return 0
 	}
-	if c.m == nil {
-		c.m = map[string]authMemoEntry{}
-	}
-	v := fn()
-	c.m[key] = authMemoEntry{val: v, at: time.Now()}
-	return v
+	return authMemoNegativeTTL
 }
 
 var (
-	gitHubLoginMemo authMemo // keyed by the token's sha256, never the token
-	ghTokenMemo     authMemo // keyed by account plus gh's environment and hosts.yml stamp
+	gitHubLoginMemo paths.Memo[string, string] // keyed by the token's sha256, never the token
+	ghTokenMemo     paths.Memo[string, string] // keyed by account plus gh's environment and hosts.yml stamp
 )
 
 // GitHubLogin asks api.github.com/user who token belongs to (memoized per token); "" on any failure.
 func GitHubLogin(token string) string {
 	sum := sha256.Sum256([]byte(token))
-	return gitHubLoginMemo.do(hex.EncodeToString(sum[:]), func() string { return fetchGitHubLogin(token) })
+	key := hex.EncodeToString(sum[:])
+	v, _ := gitHubLoginMemo.Do(key, keepAuth, func() (string, error) { return fetchGitHubLogin(token), nil })
+	return v
 }
+
+// gitHubUserURL is GitHub's who-am-I endpoint; a var so tests aim it at an httptest server.
+var gitHubUserURL = "https://api.github.com/user"
+
+// maxGitHubUserBody caps the /user read; a longer body truncates, fails to decode and reads as no login.
+const maxGitHubUserBody = 64 << 10
 
 func fetchGitHubLogin(token string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, gitHubUserURL, nil)
 	if err != nil {
 		return ""
 	}
@@ -398,7 +385,8 @@ func fetchGitHubLogin(token string) string {
 	var u struct {
 		Login string `json:"login"`
 	}
-	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&u) != nil {
+	body := io.LimitReader(resp.Body, maxGitHubUserBody)
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(body).Decode(&u) != nil {
 		return ""
 	}
 	return u.Login
@@ -435,7 +423,8 @@ func GHToken(account string) string {
 		stamp = fmt.Sprint(info.Size(), info.ModTime().UnixNano())
 	}
 	key := strings.Join([]string{account, dir, os.Getenv("GH_HOST"), os.Getenv("PATH"), stamp}, "\x00")
-	return ghTokenMemo.do(key, func() string { return fetchGHToken(account) })
+	v, _ := ghTokenMemo.Do(key, keepAuth, func() (string, error) { return fetchGHToken(account), nil })
+	return v
 }
 
 func fetchGHToken(account string) string {
@@ -533,11 +522,11 @@ var copilotTierCmd = func(ctx context.Context, token string) ([]byte, error) {
 }
 
 // copilotPlanMemo holds one lookup per account, so a sign-in or account switch mid-menu re-asks.
-var copilotPlanMemo authMemo
+var copilotPlanMemo paths.Memo[string, string]
 
 // CopilotRawPlan asks GitHub which Copilot plan account holds ("individual_pro"; 3 s cap); "" when offline.
 func CopilotRawPlan(account, token string) string {
-	return copilotPlanMemo.do(cmp.Or(account, GHActiveAccount()), func() string {
+	v, _ := copilotPlanMemo.Do(cmp.Or(account, GHActiveAccount()), keepAuth, func() (string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		var u struct {
@@ -546,6 +535,7 @@ func CopilotRawPlan(account, token string) string {
 		if out, err := copilotTierCmd(ctx, token); err == nil {
 			_ = json.Unmarshal(out, &u)
 		}
-		return u.Plan
+		return u.Plan, nil
 	})
+	return v
 }
