@@ -29,7 +29,10 @@ var (
 
 // guardedDial exempts configured proxy hosts and literal local addresses before DNS resolution.
 func guardedDial(ctx context.Context, network, addr string) (net.Conn, error) {
-	host, _, err := net.SplitHostPort(addr)
+	host, port, err := net.SplitHostPort(addr)
+	if err == nil && literalLocal(host) && net.ParseIP(strings.Trim(host, "[]")) == nil {
+		addr = net.JoinHostPort("127.0.0.1", port) // RFC 6761: *.localhost is loopback; never ask this machine's DNS
+	}
 	if err == nil && (literalLocal(host) || proxyHosts[strings.ToLower(host)]) {
 		return plainDialer.DialContext(ctx, network, addr)
 	}
