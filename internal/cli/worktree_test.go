@@ -364,6 +364,7 @@ type worktreeMergeCase struct {
 	conflict bool      // main also edits f.txt, so the plan predicts a conflict
 	args     []string
 	ok       bool
+	exit     int      // exact exit code wanted when set; otherwise any nonzero for !ok
 	out      []string // stdout must contain each
 	notOut   []string // stdout must contain none
 	stderr   string
@@ -402,7 +403,7 @@ var worktreeMergeCases = []worktreeMergeCase{
 	{name: "unknown resolve-agent value", args: []string{"--resolve-agent", "gpt5"}, stderr: "unknown", kept: true},
 	{name: "target mismatch", args: []string{"--target", "some-other-branch"}, out: []string{"target-mismatch"}, kept: true},
 	{name: "resume with no saved operation", args: []string{"--resume"}, stderr: "no in-progress", kept: true},
-	{name: "dry-run resume needs an operation", args: []string{"--dry-run", "--resume"},
+	{name: "dry-run resume needs an operation", args: []string{"--dry-run", "--resume"}, exit: 1,
 		notOut: []string{"clean"}, stderr: "no in-progress --resolve-agent operation", kept: true},
 }
 
@@ -433,7 +434,7 @@ func runWorktreeMergeCase(t *testing.T, tc worktreeMergeCase) {
 		args = append(args, strings.ReplaceAll(a, "{wt}", wt))
 	}
 	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree(append(args, "feature")) })
-	if (code == 0) != tc.ok || !strings.Contains(errb, tc.stderr) {
+	if (code == 0) != tc.ok || (tc.exit != 0 && code != tc.exit) || !strings.Contains(errb, tc.stderr) {
 		t.Fatalf("worktree %q: code=%d stdout=%q stderr=%q, want ok=%v naming %q", args, code, out, errb, tc.ok, tc.stderr)
 	}
 	for _, want := range tc.out {

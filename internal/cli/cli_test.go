@@ -186,6 +186,14 @@ func TestOldVerbsAreUnknownCommands(t *testing.T) {
 			t.Errorf("%s: exit %d, stderr %q, want exit 2 unknown command", old, code, stderr)
 		}
 	}
+	if lookup("switch") == nil {
+		t.Error("switch (use's replacement) does not resolve")
+	}
+	for prefix, retired := range map[string]string{"us": "use", "tok": "token"} {
+		if got := completionCandidates([]string{prefix}); slices.Contains(got, retired) {
+			t.Errorf("completing %q offers retired %q: %v", prefix, retired, got)
+		}
+	}
 }
 
 var helpFormatRow = regexp.MustCompile(`^  (\S(?:.*?\S)?) {2,}(\S.*)$`)
