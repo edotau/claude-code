@@ -535,6 +535,24 @@ func TestRunWithFallbackNextDispatchGetsHandoff(t *testing.T) {
 	}
 }
 
+// A hand-off from codex names codex to the next dispatch, never copilot's GitHub credits.
+func TestHandoffPromptNamesWritingAgent(t *testing.T) {
+	fallbackConfigDir(t)
+	file := filepath.Join(t.TempDir(), "h.md")
+	if err := os.WriteFile(file, []byte("progress"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first := &handoffRunner{name: "codex", res: wire.Result{Handoff: file}, err: errors.New("insufficient_quota: you exceeded your current quota")}
+	second := &fakeRunner{name: "claude", errs: []error{nil}}
+	if _, err := RunWithFallback(context.Background(), chainOf([]Engine{first, second}, "", "sonnet"), RunOptions{Prompt: "p"}, wire.Discard, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := second.seen[0].Prompt
+	if !strings.Contains(got, "previous codex dispatch") || strings.Contains(got, "copilot") || strings.Contains(got, "GitHub") {
+		t.Errorf("hand-off prompt = %q, want codex named and no copilot or GitHub", got)
+	}
+}
+
 // envelopeMap round-trips the envelope NewEnvelope builds, so the test pins wire names, not Go types.
 func envelopeMap(t *testing.T, res wire.Result, err error) map[string]any {
 	t.Helper()
