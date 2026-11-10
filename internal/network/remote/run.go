@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // Seams: tests swap the process runner and the terminal check.
@@ -22,13 +23,11 @@ var (
 func Run(args []string) int {
 	host, rest, err := splitHost(args)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "claude-code:", err)
-		return 2
+		return helptext.FailUsage("%v", err)
 	}
 	argv, err := hostArgv(host, rest, stdinTTY())
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "claude-code: --host:", err)
-		return 2
+		return helptext.FailUsage("--host: %v", err)
 	}
 	cmd := exec.CommandContext(context.Background(), "ssh", argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
@@ -37,8 +36,7 @@ func Run(args []string) int {
 		return exit.ExitCode()
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "claude-code: --host:", err)
-		return 1
+		return helptext.Fail("--host: %v", err)
 	}
 	return 0
 }
@@ -70,5 +68,5 @@ func hostArgv(host string, args []string, tty bool) ([]string, error) {
 		quoted[i] = textutil.ShellQuote(a)
 	}
 	script := PathPrefix + " exec " + textutil.QuotePath(HomePath(Bin(""))) + " " + strings.Join(quoted, " ")
-	return Argv(host, tty, false, script)
+	return sshArgv(host, tty, false, script)
 }

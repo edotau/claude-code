@@ -74,7 +74,7 @@ func TestDevicesParsesList(t *testing.T) {
 			t.Errorf("path = %q", r.URL.Path)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"devices": []Device{{ID: "d1", Name: "box.tailnet.ts.net", OS: "linux", Addresses: []string{"100.1.2.3"}}},
+			"devices": []device{{ID: "d1", Name: "box.tailnet.ts.net", OS: "linux", Addresses: []string{"100.1.2.3"}}},
 		})
 	}))
 	defer ts.Close()
@@ -118,7 +118,7 @@ func TestRequestRemintsOnceOn401(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		if r.Header.Get("Authorization") == "Bearer fresh" {
-			_ = json.NewEncoder(w).Encode(map[string]any{"devices": []Device{}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"devices": []device{}})
 			return
 		}
 		w.WriteHeader(http.StatusUnauthorized)
@@ -185,16 +185,18 @@ func enableRoutesHandler(t *testing.T, gotBody *map[string]any) http.HandlerFunc
 		}
 		switch r.Method {
 		case http.MethodGet:
-			_, _ = w.Write([]byte(`{"advertisedRoutes":["0.0.0.0/0","::/0","192.168.1.0/24"],"enabledRoutes":["0.0.0.0/0","::/0"]}`))
+			_, _ = w.Write([]byte(`{"advertisedRoutes":["0.0.0.0/0","::/0","192.168.1.0/24"],` +
+				`"enabledRoutes":["0.0.0.0/0","::/0"]}`))
 		case http.MethodPost:
 			_ = json.NewDecoder(r.Body).Decode(gotBody)
-			_, _ = w.Write([]byte(`{"advertisedRoutes":["0.0.0.0/0","::/0","192.168.1.0/24"],"enabledRoutes":["0.0.0.0/0","::/0","192.168.1.0/24"]}`))
+			_, _ = w.Write([]byte(`{"advertisedRoutes":["0.0.0.0/0","::/0","192.168.1.0/24"],` +
+				`"enabledRoutes":["0.0.0.0/0","::/0","192.168.1.0/24"]}`))
 		}
 	}
 }
 
 func TestSubnetRoutesDropsDefaults(t *testing.T) {
-	got := SubnetRoutes([]string{"0.0.0.0/0", "192.168.1.0/24", "::/0", "10.9.0.0/16"})
+	got := subnetRoutes([]string{"0.0.0.0/0", "192.168.1.0/24", "::/0", "10.9.0.0/16"})
 	if len(got) != 2 || got[0] != "192.168.1.0/24" || got[1] != "10.9.0.0/16" {
 		t.Errorf("SubnetRoutes = %v", got)
 	}
@@ -217,8 +219,7 @@ func TestNewClientErrNoCredential(t *testing.T) {
 	}
 }
 
-// NewClient's OAuth-vs-API-key preference is not exercised here: calling the returned token func
-// for the OAuth branch would POST to the real defaultBaseURL, which tests must never do.
+// NewClient's OAuth branch is untested here: its token func would POST to the real defaultBaseURL.
 
 func TestNewClientFallsBackToAPIKey(t *testing.T) {
 	hermeticSecrets(t)
@@ -235,12 +236,12 @@ func TestNewClientFallsBackToAPIKey(t *testing.T) {
 
 func TestParseKeyExpiry(t *testing.T) {
 	for in, want := range map[string]time.Duration{"90d": 90 * 24 * time.Hour, "36h": 36 * time.Hour} {
-		if got, err := ParseKeyExpiry(in); err != nil || got != want {
+		if got, err := parseKeyExpiry(in); err != nil || got != want {
 			t.Errorf("ParseKeyExpiry(%q) = (%v, %v), want %v", in, got, err, want)
 		}
 	}
 	for _, bad := range []string{"xd", "soon", ""} {
-		if _, err := ParseKeyExpiry(bad); err == nil {
+		if _, err := parseKeyExpiry(bad); err == nil {
 			t.Errorf("ParseKeyExpiry(%q) accepted", bad)
 		}
 	}
@@ -257,7 +258,8 @@ func TestSetNames(t *testing.T) {
 	if got := SetNames(true); len(got) != 1 || got[0] != "TAILSCALE_API_KEY" {
 		t.Errorf("SetNames(true) = %v", got)
 	}
-	if got := SetNames(false); len(got) != 2 || got[0] != "TAILSCALE_OAUTH_CLIENT_ID" || got[1] != "TAILSCALE_OAUTH_CLIENT_SECRET" {
+	if got := SetNames(false); len(got) != 2 || got[0] != "TAILSCALE_OAUTH_CLIENT_ID" ||
+		got[1] != "TAILSCALE_OAUTH_CLIENT_SECRET" {
 		t.Errorf("SetNames(false) = %v", got)
 	}
 }

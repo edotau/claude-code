@@ -1,13 +1,4 @@
-// Package browser detects, per installed browser, which control path reaches it: the Claude Code
-// Chrome-extension native-messaging host, Chrome DevTools Protocol (CDP), WebDriver, or GUI
-// automation — and resolves the OS's default https handler to one of them.
-//
-// Control-path selection guidance:
-//   - need the user's real, signed-in session (tabs, cookies, extensions already installed) -> extension,
-//     else gui when no browser has the extension ready.
-//   - automation/testing of the caller's own site, no signed-in session needed, Chromium family -> cdp.
-//   - same, but Firefox or Safari -> webdriver.
-//   - default resolves through LaunchServices/xdg-settings and recommends the best path for that browser.
+// Package browser finds, per installed browser, its control path (extension, CDP, WebDriver, GUI) and the OS default.
 package browser
 
 import (
@@ -23,12 +14,10 @@ import (
 // errNoRunner is returned by Env.run when a caller built an Env without setting Run.
 var errNoRunner = errors.New("browser: no command runner configured on Env")
 
-// extensionID is Claude Code's Chrome extension id; the host manifest's allowed_origins and every
-// profile's Extensions/<id> directory are keyed off it.
+// extensionID is Claude Code's Chrome extension id; the host manifest and profile Extensions/<id> dirs key off it.
 const extensionID = "fcoeoabgfenejglbffodgkkbkcdhcgfn"
 
-// hostManifestName is the native-messaging host manifest Claude Code registers per browser; this
-// package only ever reads it — Claude Code itself is the only writer (see Setup's doc comment).
+// hostManifestName is the native-messaging host manifest Claude Code registers; this package only reads it.
 const hostManifestName = "com.anthropic.claude_code_browser_extension.json"
 
 // webStoreURL is the Chrome Web Store page for the extension, opened (never fetched) by Setup.
@@ -58,15 +47,14 @@ type hostManifest struct {
 	AllowedOrigins []string `json:"allowed_origins"`
 }
 
-// Profile is one browser profile's extension-install state.
-type Profile struct {
+// profile is one browser profile's extension-install state.
+type profile struct {
 	Name      string `json:"name"`
 	Extension string `json:"extension"` // ready|disabled|no-extension
 }
 
-// Paths is every control path this browser could offer, one state each ("" fields never happen —
-// every browser gets all four, "unsupported" standing in for a path its family can't use).
-type Paths struct {
+// controlPaths holds one state per control path; every browser gets all four, "unsupported" where its family can't.
+type controlPaths struct {
 	Extension string `json:"extension"` // ready|no-extension|no-host|not-installed|unsupported
 	CDP       string `json:"cdp"`       // available|not-installed|unsupported
 	WebDriver string `json:"webdriver"` // available|disabled|not-installed|unsupported
@@ -75,15 +63,15 @@ type Paths struct {
 
 // Browser is one known browser's full detection result.
 type Browser struct {
-	Name        string    `json:"name"` // chrome|edge|brave|arc|vivaldi|chromium|safari|firefox
-	DisplayName string    `json:"displayName"`
-	Family      string    `json:"family"` // chromium|safari|firefox
-	Installed   bool      `json:"installed"`
-	BundleID    string    `json:"bundleId,omitempty"`
-	Default     bool      `json:"default,omitempty"` // this browser is the resolved system default
-	Host        string    `json:"host"`              // native-messaging host manifest: ready|no-host|unsupported|not-installed
-	Profiles    []Profile `json:"profiles,omitempty"`
-	Paths       Paths     `json:"paths"`
+	Name        string       `json:"name"` // chrome|edge|brave|arc|vivaldi|chromium|safari|firefox
+	DisplayName string       `json:"displayName"`
+	Family      string       `json:"family"` // chromium|safari|firefox
+	Installed   bool         `json:"installed"`
+	BundleID    string       `json:"bundleId,omitempty"`
+	Default     bool         `json:"default,omitempty"` // this browser is the resolved system default
+	Host        string       `json:"host"`              // host manifest: ready|no-host|unsupported|not-installed
+	Profiles    []profile    `json:"profiles,omitempty"`
+	Paths       controlPaths `json:"paths"`
 }
 
 // Report is the full `web browsers` result.
@@ -93,9 +81,7 @@ type Report struct {
 	GeneratedAt time.Time `json:"generatedAt"`
 }
 
-// Env is the injectable seam: real home/Application-Support roots and a command runner in
-// production, a fixture tree and a stub runner in tests. GOOS defaults to runtime.GOOS; DryRun, when
-// true, makes Setup describe its actions without calling Run.
+// Env is the seam: real roots and command runner in production, fixtures in tests; DryRun makes Setup only describe.
 type Env struct {
 	Home       string
 	AppSupport string // macOS: ~/Library/Application Support; Linux: ~/.config

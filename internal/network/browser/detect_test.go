@@ -56,8 +56,7 @@ func markInstalled(f *fakeRun, s spec) {
 	f.answers[key] = fakeAnswer{out: "/Applications/" + s.displayName + ".app"}
 }
 
-// writeHostManifest writes a NativeMessagingHosts manifest for supportDir; hostBinary must exist on
-// disk (checkHost os.Stat's it) and origin lets a test inject a mismatched allowed_origins.
+// writeHostManifest writes a host manifest; hostBinary must exist (checkHost stats it), origin can be mismatched.
 func writeHostManifest(t *testing.T, supportDir, hostBinary, origin string) {
 	t.Helper()
 	dir := filepath.Join(supportDir, "NativeMessagingHosts")
@@ -85,8 +84,7 @@ func touchFile(t *testing.T, path string) {
 	}
 }
 
-// writeProfile creates supportDir/<profile>/Extensions/<id> (when hasExtension) and a Preferences
-// file marking it disabled when disabled is true.
+// writeProfile creates supportDir/<profile>/Extensions/<id> when hasExtension, and Preferences marking it disabled.
 func writeProfile(t *testing.T, supportDir, profile string, hasExtension, disabled bool) {
 	t.Helper()
 	profileDir := filepath.Join(supportDir, profile)
@@ -288,7 +286,8 @@ func TestDetect_NotInstalled(t *testing.T) {
 	if b.Host != stateNotInstalled {
 		t.Fatalf("Host = %q, want not-installed", b.Host)
 	}
-	if b.Paths != (Paths{Extension: stateNotInstalled, CDP: stateNotInstalled, WebDriver: stateNotInstalled, GUI: stateNotInstalled}) {
+	if b.Paths != (controlPaths{Extension: stateNotInstalled, CDP: stateNotInstalled, WebDriver: stateNotInstalled,
+		GUI: stateNotInstalled}) {
 		t.Fatalf("Paths = %+v, want all not-installed", b.Paths)
 	}
 }
@@ -347,7 +346,8 @@ func TestDetect_UnsupportedGOOS(t *testing.T) {
 	if b.Host != stateUnsupported {
 		t.Fatalf("Host = %q, want unsupported on an unhandled GOOS", b.Host)
 	}
-	if b.Paths != (Paths{Extension: stateUnsupported, CDP: stateUnsupported, WebDriver: stateUnsupported, GUI: stateUnsupported}) {
+	if b.Paths != (controlPaths{Extension: stateUnsupported, CDP: stateUnsupported, WebDriver: stateUnsupported,
+		GUI: stateUnsupported}) {
 		t.Fatalf("Paths = %+v, want all unsupported", b.Paths)
 	}
 }

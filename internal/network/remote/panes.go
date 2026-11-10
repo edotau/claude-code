@@ -16,19 +16,17 @@ import (
 	"time"
 )
 
-// State values a pane can be classified into. "unknown" covers static ambiguous output: this
-// package never reports "idle" — a pane that merely isn't changing is unknown, not confirmed idle.
+// Pane states; a static pane is unknown, never idle: this package does not claim a pane is idle.
 const (
-	StateWorking     = "working"      // output changing, or an explicit working indicator present
-	StateInputNeeded = "input-needed" // an explicit prompt (yes/no, composer box) is waiting on the human
-	StateReady       = "ready"        // a settled, recognized prompt with unchanged output
-	StateUnknown     = "unknown"      // static output with no recognizable prompt; never called idle
-	StateGone        = "gone"         // the pane no longer exists in a successful capture
-	StateError       = "error"        // the host-wide capture failed (ssh/tmux error)
+	stateWorking     = "working"      // output changing, or an explicit working indicator present
+	stateInputNeeded = "input-needed" // an explicit prompt (yes/no, composer box) is waiting on the human
+	stateReady       = "ready"        // a settled, recognized prompt with unchanged output
+	stateUnknown     = "unknown"      // static output with no recognizable prompt; never called idle
+	stateGone        = "gone"         // the pane no longer exists in a successful capture
+	stateError       = "error"        // the host-wide capture failed (ssh/tmux error)
 )
 
-// PaneStatus is one observed tmux pane's classified state. fingerprint is carried internally across
-// ObservePanes calls (bounded, never the captured text) and is deliberately not exported/serialized.
+// PaneStatus is one pane's classified state; fingerprint (bounded, never the text) carries across samples unexported.
 type PaneStatus struct {
 	Host       string    `json:"host"`
 	Session    string    `json:"session"`
@@ -42,34 +40,38 @@ type PaneStatus struct {
 	fingerprint string
 }
 
-// ansiRE strips cursor/SGR escape sequences and bare carriage returns, in case capture-pane output
-// ever includes them (the default -p omits SGR, but -e or a future caller might not).
-var ansiRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\r`) })
+// ansiRE strips cursor/SGR escapes and bare CRs, in case a capture includes them (-e or a future caller).
+var ansiRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\r`)
+})
 
-// spinnerRE normalizes per-frame noise that changes every sample without reflecting new output:
-// braille spinner glyphs and ticking elapsed-seconds counters like "(12s · esc to interrupt)".
-var spinnerRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[\x{2800}-\x{28FF}]|\(\d+s[^)]*\)|\b\d+s\b`) })
+// spinnerRE removes per-frame noise: braille spinner glyphs and elapsed-seconds counters like "(12s · esc …)".
+var spinnerRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`[\x{2800}-\x{28FF}]|\(\d+s[^)]*\)|\b\d+s\b`)
+})
 
-// inputPatterns match an explicit request for the human: a yes/no or numbered choice prompt, a
-// bordered TUI composer box (bubbletea/ink style box-drawing), or a blocking "press enter" notice.
+// inputPatterns match a request for the human: a yes/no or numbered prompt, a boxed TUI composer, "press enter".
 var inputPatterns = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?mi)\(y/n\)|\[y/n\]|do you want to proceed|press enter to continue|waiting for (your )?input|^\s*1\.\s*yes|[╭╮╰╯]|│\s*>`)
+	return regexp.MustCompile(`(?mi)\(y/n\)|\[y/n\]|do you want to proceed|press enter to continue|` +
+		`waiting for (your )?input|^\s*1\.\s*yes|[╭╮╰╯]|│\s*>`)
 })
 
 // workingPatterns match text an agent CLI prints while actively generating or running a tool.
 var workingPatterns = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)esc to interrupt|thinking…|thinking\.\.\.|generating|tokens/s|running tool|ctrl-c to stop`)
+	return regexp.MustCompile(
+		`(?i)esc to interrupt|thinking…|thinking\.\.\.|generating|tokens/s|running tool|ctrl-c to stop`)
 })
 
 // readyPatterns match a settled, idle prompt: the agent's bare composer caret or a plain shell prompt.
 var readyPatterns = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(>|\$|%|❯)\s*$`) })
 
-// loginShells are the shell names BuildRemoteCommand execs into after the dispatched agent exits.
-var loginShells = map[string]bool{"sh": true, "bash": true, "zsh": true, "fish": true, "dash": true, "ksh": true, "tcsh": true, "csh": true}
+// loginShells are the shell names BuildCommand execs into after the dispatched agent exits.
+var loginShells = map[string]bool{
+	"sh": true, "bash": true, "zsh": true, "fish": true, "dash": true, "ksh": true, "tcsh": true, "csh": true,
+}
 
-// isShellAfterExit reports a pane whose foreground process fell back to a login shell after the
-// agent it was launched for exited (BuildRemoteCommand always execs "${SHELL:-/bin/sh}" -l on exit).
-func isShellAfterExit(c PaneCapture) bool {
+// isShellAfterExit reports a pane back at a login shell after its agent exited (BuildCommand execs $SHELL -l).
+func isShellAfterExit(c paneCapture) bool {
 	return c.Agent != "" && loginShells[strings.TrimPrefix(c.CurrentCmd, "-")]
 }
 
@@ -84,8 +86,7 @@ func lastNonEmptyLine(s string) string {
 	return ""
 }
 
-// normalizePane strips ANSI escapes and known animation noise so two samples of unchanged substantive
-// content fingerprint identically even if a spinner or elapsed-time counter ticked between them.
+// normalizePane strips ANSI and animation noise so unchanged content fingerprints the same across samples.
 func normalizePane(raw string) string {
 	s := ansiRE().ReplaceAllString(raw, "")
 	s = spinnerRE().ReplaceAllString(s, "·")
@@ -102,32 +103,30 @@ func fingerprintPane(normalized string) string {
 	return hex.EncodeToString(sum[:])[:16]
 }
 
-// classifyPane maps one pane capture against its previous fingerprint to a state, a human-readable
-// reason, and the capture's own bounded fingerprint (fed back into the next ObservePanes call).
-func classifyPane(prevFingerprint string, c PaneCapture) (state, reason, fingerprint string) {
+// classifyPane maps a capture and its previous fingerprint to a state, a reason and the new fingerprint.
+func classifyPane(prevFingerprint string, c paneCapture) (state, reason, fingerprint string) {
 	norm := normalizePane(c.Text)
 	fingerprint = fingerprintPane(norm)
 	switch {
 	case isShellAfterExit(c):
-		return StateReady, "agent exited; login shell idle at prompt", fingerprint
+		return stateReady, "agent exited; login shell idle at prompt", fingerprint
 	case inputPatterns().MatchString(norm):
-		return StateInputNeeded, "explicit input prompt detected", fingerprint
+		return stateInputNeeded, "explicit input prompt detected", fingerprint
 	case workingPatterns().MatchString(norm):
-		return StateWorking, "working indicator detected", fingerprint
+		return stateWorking, "working indicator detected", fingerprint
 	case prevFingerprint == "":
-		return StateUnknown, "first observation; no baseline yet", fingerprint
+		return stateUnknown, "first observation; no baseline yet", fingerprint
 	case fingerprint != prevFingerprint:
-		return StateWorking, "pane output changed since last sample", fingerprint
+		return stateWorking, "pane output changed since last sample", fingerprint
 	case readyPatterns().MatchString(lastNonEmptyLine(norm)):
-		return StateReady, "settled prompt, output unchanged", fingerprint
+		return stateReady, "settled prompt, output unchanged", fingerprint
 	default:
-		return StateUnknown, "static ambiguous output, not a recognized prompt", fingerprint
+		return stateUnknown, "static ambiguous output, not a recognized prompt", fingerprint
 	}
 }
 
-// observeOne classifies one fresh capture against its previous status (zero value if new), carrying
-// ChangedAt forward only while the classified state stays the same across samples.
-func observeOne(old PaneStatus, c PaneCapture, now time.Time) PaneStatus {
+// observeOne classifies a fresh capture against its previous status, keeping ChangedAt while the state holds.
+func observeOne(old PaneStatus, c paneCapture, now time.Time) PaneStatus {
 	state, reason, fp := classifyPane(old.fingerprint, c)
 	changedAt := now
 	if old.PaneID == c.PaneID && old.State == state && !old.ChangedAt.IsZero() {
@@ -142,36 +141,31 @@ func observeOne(old PaneStatus, c PaneCapture, now time.Time) PaneStatus {
 
 // markGone reports a previously observed pane that no longer appears in a successful capture.
 func markGone(p PaneStatus, now time.Time) PaneStatus {
-	if p.State != StateGone {
+	if p.State != stateGone {
 		p.ChangedAt = now
 	}
-	p.State, p.Reason, p.ObservedAt, p.fingerprint = StateGone, "pane no longer exists", now, ""
+	p.State, p.Reason, p.ObservedAt, p.fingerprint = stateGone, "pane no longer exists", now, ""
 	return p
 }
 
-// degradeToError reports every previously known pane as unobservable rather than discarding it, so
-// one transient ssh/tmux failure during repeated sampling doesn't blank out the caller's view.
+// degradeToError marks every known pane unobservable rather than dropping it, so one ssh blip keeps the view.
 func degradeToError(prev []PaneStatus, err error, now time.Time) []PaneStatus {
 	out := make([]PaneStatus, 0, len(prev))
 	for _, p := range prev {
-		if p.State == StateGone { // already reported gone: dropped, never revived as an error entry
+		if p.State == stateGone { // already reported gone: dropped, never revived as an error entry
 			continue
 		}
-		if p.State != StateError {
+		if p.State != stateError {
 			p.ChangedAt = now
 		}
-		p.State, p.Reason, p.ObservedAt = StateError, err.Error(), now
+		p.State, p.Reason, p.ObservedAt = stateError, err.Error(), now
 		out = append(out, p)
 	}
 	return out
 }
 
-// ObservePanes advances prev (one host's last-known pane statuses) using a fresh capture pass: new panes
-// are classified against their matching previous entry (by PaneID), vanished panes report gone, and
-// a host-wide capture failure (captureErr != nil) degrades every previously known pane to error
-// instead of dropping it. now and the capture/error inputs are both caller-supplied, so tests can
-// fake tmux/ssh and the clock without exercising a real pane.
-func ObservePanes(prev []PaneStatus, captures []PaneCapture, captureErr error, now time.Time) []PaneStatus {
+// observePanes advances prev with a capture pass: match by PaneID, vanished = gone, capture failure = error.
+func observePanes(prev []PaneStatus, captures []paneCapture, captureErr error, now time.Time) []PaneStatus {
 	if captureErr != nil {
 		return degradeToError(prev, captureErr, now)
 	}
@@ -186,15 +180,14 @@ func ObservePanes(prev []PaneStatus, captures []PaneCapture, captureErr error, n
 		out = append(out, observeOne(byID[c.PaneID], c, now))
 	}
 	for id, p := range byID {
-		if !seen[id] && p.State != StateGone { // a pane already reported gone is dropped on the next pass
+		if !seen[id] && p.State != stateGone { // a pane already reported gone is dropped on the next pass
 			out = append(out, markGone(p, now))
 		}
 	}
 	return out
 }
 
-// paneRecordStart/paneRecordEnd frame one pane's capture in captureCommand's output; SOH/STX are
-// control bytes vanishingly unlikely to appear in rendered terminal text, so splitting is exact.
+// paneRecordStart/End frame each pane's capture with SOH/STX, bytes rendered terminal text never holds.
 const (
 	paneRecordStart = "\x01"
 	paneRecordEnd   = "\x02"
@@ -207,42 +200,32 @@ const (
 	captureTimeout   = 20 * time.Second // bounds one host's whole list+capture round trip
 )
 
-// captureCommand is the ssh-side script: list cc-* panes, then capture-pane -p -S -N each one,
-// framed by control bytes so parseCaptureBlob can split the output back into per-pane records. It
-// reuses tmux.go's fieldSep ("|") for the header columns: tmux's format engine replaces a real
-// tab byte with "_" in its own -F output (see fieldSep's comment), so tab cannot separate these.
-//
-// list-panes's own exit status is checked explicitly, outside any pipe, before filtering/looping:
-// piped straight into awk/while, a list-panes failure (exit nonzero, empty stdout) is indistinguishable
-// from "no cc-* panes exist" (both yield zero loop iterations, and a while loop that never ran its
-// body exits 0) — the ssh round trip reports success with an empty capture, and CapturePanes/ObservePanes
-// then has no way to tell a transient tmux failure apart from every tracked pane having vanished. A
-// capture-pane failure inside the loop instead `exit`s the loop (its subshell, piped as the script's
-// last statement) immediately, which is still the pipeline's — and so the whole script's — exit status.
+// captureCommand lists cc-* panes and captures each, control-byte framed; fieldSep is "|" since tmux mangles tabs.
+// Gotcha: list-panes' exit is checked before the pipe, else a tmux failure reads as no panes and all look gone.
 var captureCommand = `list_out="$(tmux list-panes -a -F '#{session_name}` + fieldSep + `#{pane_id}` + fieldSep +
 	`#{@cc_agent}` + fieldSep + `#{pane_current_command}' 2>/dev/null)"; list_rc=$?` +
 	`; if [ "$list_rc" -ne 0 ]; then echo 'network remote: tmux list-panes failed' >&2; exit 1; fi` +
 	`; printf '%s\n' "$list_out"` +
 	` | awk -F'` + fieldSep + `' '$1 ~ /^cc-/'` +
 	` | while IFS='` + fieldSep + `' read -r sess pid agent cmd; do` +
-	` printf '` + paneRecordStart + `%s` + fieldSep + `%s` + fieldSep + `%s` + fieldSep + `%s\n' "$sess" "$pid" "$agent" "$cmd";` +
+	` printf '` + paneRecordStart + `%s` + fieldSep + `%s` + fieldSep + `%s` + fieldSep +
+	`%s\n' "$sess" "$pid" "$agent" "$cmd";` +
 	` if ! tmux capture-pane -p -t "$pid" -S -` + strconv.Itoa(paneCaptureLines) + ` 2>/dev/null; then exit 1; fi;` +
 	` printf '` + paneRecordEnd + `\n'; done`
 
-// PaneCapture is one pane's raw sample: tmux-reported identity plus its last captured lines.
-type PaneCapture struct {
+// paneCapture is one pane's raw sample: tmux-reported identity plus its last captured lines.
+type paneCapture struct {
 	Host, Session, PaneID, Agent, CurrentCmd string
 	Text                                     string
 }
 
-// RemoteRunner executes argv (as built by ExecArgs) and returns its output; production code wraps
-// exec.CommandContext, tests substitute a fake with no real ssh/tmux involved.
-type RemoteRunner func(ctx context.Context, argv []string) ([]byte, error)
+// paneRunner runs an ExecArgs argv and returns its output; tests swap in a fake with no ssh or tmux.
+type paneRunner func(ctx context.Context, argv []string) ([]byte, error)
 
-// ExecRunner is the production RemoteRunner.
-func ExecRunner(ctx context.Context, argv []string) ([]byte, error) {
+// execRunner is the production paneRunner.
+func execRunner(ctx context.Context, argv []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.WaitDelay = execWaitDelay
+	cmd.WaitDelay = ExecWaitDelay
 	return OutputCapped(cmd)
 }
 
@@ -276,9 +259,8 @@ func OutputCapped(cmd *exec.Cmd) ([]byte, error) {
 	return stdout.buf.Bytes(), err
 }
 
-// CapturePanes lists and captures every cc-* tmux pane on host via run, bounding the round trip to
-// captureTimeout and the result to maxCaptureBytes/maxPanes (over either is an error, never a silent cut); batch forbids ssh password prompts.
-func CapturePanes(ctx context.Context, host string, local, batch bool, run RemoteRunner) ([]PaneCapture, error) {
+// capturePanes captures every cc-* pane on host via run; over captureTimeout, maxCaptureBytes or maxPanes errors.
+func capturePanes(ctx context.Context, host string, local, batch bool, run paneRunner) ([]paneCapture, error) {
 	cctx, cancel := context.WithTimeout(ctx, captureTimeout)
 	defer cancel()
 	argv, err := ExecArgs(host, captureCommand, local, batch)
@@ -299,11 +281,10 @@ func CapturePanes(ctx context.Context, host string, local, batch bool, run Remot
 	return caps, nil
 }
 
-// parseCaptureBlob splits captureCommand's framed output into PaneCapture records, best-effort: a
-// malformed or truncated record is skipped rather than misparsed.
-func parseCaptureBlob(host, blob string) []PaneCapture {
+// parseCaptureBlob splits captureCommand's framed output into records, skipping malformed ones.
+func parseCaptureBlob(host, blob string) []paneCapture {
 	parts := strings.Split(blob, paneRecordStart)
-	caps := make([]PaneCapture, 0, len(parts))
+	caps := make([]paneCapture, 0, len(parts))
 	for _, rec := range parts {
 		if rec == "" {
 			continue
@@ -323,7 +304,7 @@ func parseCaptureBlob(host, blob string) []PaneCapture {
 		if len(cols) < 4 {
 			continue
 		}
-		caps = append(caps, PaneCapture{
+		caps = append(caps, paneCapture{
 			Host: host, Session: cols[0], PaneID: cols[1], Agent: cols[2], CurrentCmd: cols[3],
 			Text: strings.TrimRight(text, "\n"),
 		})

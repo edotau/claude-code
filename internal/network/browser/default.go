@@ -8,12 +8,11 @@ import (
 	"strings"
 )
 
-// ErrDefaultUnsupported wraps a resolved system default with no extension/cdp path — Safari or
-// Firefox, tier 3 in the plan (safaridriver/geckodriver, a separate control transport).
-var ErrDefaultUnsupported = errors.New("browser: system default has no extension/cdp control path (tier 3: safaridriver/geckodriver)")
+// errDefaultUnsupported marks a system default with no extension/cdp path (Safari or Firefox, tier 3).
+var errDefaultUnsupported = errors.New(
+	"browser: system default has no extension/cdp control path (tier 3: safaridriver/geckodriver)")
 
-// Default resolves the system's https handler to one of the known browsers. The Browser is always
-// populated when the handler is recognized, even when the error reports it as tier-3 unsupported.
+// Default resolves the https handler to a known browser; the Browser is filled even when the error says unsupported.
 func Default(env Env) (Browser, error) {
 	switch env.goos() {
 	case "darwin":
@@ -35,7 +34,8 @@ type lsHandler struct {
 
 // defaultDarwin reads LaunchServices' secure plist (via plutil -convert json) for the https handler.
 func defaultDarwin(env Env) (Browser, error) {
-	path := filepath.Join(env.Home, "Library", "Preferences", "com.apple.LaunchServices", "com.apple.launchservices.secure.plist")
+	path := filepath.Join(env.Home, "Library", "Preferences", "com.apple.LaunchServices",
+		"com.apple.launchservices.secure.plist")
 	out, err := env.run("plutil", "-convert", "json", "-o", "-", path)
 	if err != nil {
 		return Browser{}, fmt.Errorf("browser: reading LSHandlers: %w", err)
@@ -66,16 +66,15 @@ func defaultLinux(env Env) (Browser, error) {
 	return resolveDefault(env, s, ok, desktop)
 }
 
-// resolveDefault detects the matched spec (or reports it as unrecognized), flagging a non-Chromium
-// result as ErrDefaultUnsupported without discarding the Browser value — callers still get its identity.
+// resolveDefault detects the matched spec; a non-Chromium result is errDefaultUnsupported but keeps its identity.
 func resolveDefault(env Env, s spec, ok bool, raw string) (Browser, error) {
 	if !ok {
-		return Browser{}, fmt.Errorf("browser: system default %q is not a recognized browser: %w", raw, ErrDefaultUnsupported)
+		return Browser{}, fmt.Errorf("browser: system default %q is not a recognized browser: %w", raw, errDefaultUnsupported)
 	}
 	b := detectOne(env, s)
 	b.Default = true
 	if s.family != familyChromium {
-		return b, fmt.Errorf("browser: system default is %s (%s): %w", b.DisplayName, b.Family, ErrDefaultUnsupported)
+		return b, fmt.Errorf("browser: system default is %s (%s): %w", b.DisplayName, b.Family, errDefaultUnsupported)
 	}
 	return b, nil
 }

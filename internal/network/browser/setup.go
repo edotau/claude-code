@@ -8,8 +8,8 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// Action is one repair step Setup took (or, with Env.DryRun, planned).
-type Action struct {
+// action is one repair step Setup took (or, with Env.DryRun, planned).
+type action struct {
 	Kind        string   `json:"kind"` // missing-host|enable-extension|install-extension|noop
 	Description string   `json:"description"`
 	Command     []string `json:"command,omitempty"`
@@ -20,15 +20,10 @@ type Action struct {
 // Actions is Setup's result for one browser.
 type Actions struct {
 	Browser string   `json:"browser"`
-	Items   []Action `json:"items"`
+	Items   []action `json:"items"`
 }
 
-// Setup repairs only what the harness may own for the named browser (or "default", resolved via
-// Default): it never writes Claude Code's own native-messaging host manifest — Claude Code is the
-// only writer of that file, so a missing one gets a "run `claude --chrome`" action instead. The one
-// thing it does execute (through Env.run, skipped when Env.DryRun) is opening the Chrome Web Store
-// install page in the target browser; installing/enabling the extension itself still needs the
-// user's click and sign-in.
+// Setup repairs only what the harness owns (never Claude Code's host manifest) and opens the extension install page.
 func Setup(env Env, name string) (Actions, error) {
 	resolved, err := resolveSetupName(env, name)
 	if err != nil {
@@ -39,7 +34,8 @@ func Setup(env Env, name string) (Actions, error) {
 		return Actions{}, fmt.Errorf("browser: unknown browser %q", name)
 	}
 	if s.family != familyChromium {
-		return Actions{}, fmt.Errorf("browser: %s has no extension control path — see tier 3 (safaridriver/geckodriver)", s.displayName)
+		return Actions{}, fmt.Errorf("browser: %s has no extension control path — see tier 3 (safaridriver/geckodriver)",
+			s.displayName)
 	}
 	b := detectOne(env, s)
 	if !b.Installed {
@@ -54,7 +50,8 @@ func Setup(env Env, name string) (Actions, error) {
 	case stateNoHost:
 		actions.Items = append(actions.Items, missingHostAction(b))
 	case stateReady:
-		actions.Items = append(actions.Items, Action{Kind: "noop", Description: b.DisplayName + " is already ready.", Executed: true})
+		ready := action{Kind: "noop", Description: b.DisplayName + " is already ready.", Executed: true}
+		actions.Items = append(actions.Items, ready)
 	case stateDisabled:
 		actions.Items = append(actions.Items, enableExtensionAction(b))
 	default: // no-extension
@@ -69,7 +66,7 @@ func resolveSetupName(env Env, name string) (string, error) {
 		return name, nil
 	}
 	b, err := Default(env)
-	if err != nil && !errors.Is(err, ErrDefaultUnsupported) {
+	if err != nil && !errors.Is(err, errDefaultUnsupported) {
 		return "", err
 	}
 	if b.Name == "" {
@@ -78,32 +75,35 @@ func resolveSetupName(env Env, name string) (string, error) {
 	return b.Name, nil
 }
 
-func missingHostAction(b Browser) Action {
-	return Action{
+func missingHostAction(b Browser) action {
+	return action{
 		Kind: "missing-host",
 		Description: fmt.Sprintf(
-			"Claude Code owns the native-messaging host for %s; run `claude --chrome` (or reinstall Claude Code) to register it.",
+			"Claude Code owns the native-messaging host for %s; "+
+				"run `claude --chrome` (or reinstall Claude Code) to register it.",
 			b.DisplayName),
 	}
 }
 
-func enableExtensionAction(b Browser) Action {
-	return Action{
-		Kind:        "enable-extension",
-		Description: fmt.Sprintf("The extension is installed but disabled in %s — enable it from its extensions page.", b.DisplayName),
+func enableExtensionAction(b Browser) action {
+	return action{
+		Kind: "enable-extension",
+		Description: fmt.Sprintf("The extension is installed but disabled in %s — enable it from its extensions page.",
+			b.DisplayName),
 	}
 }
 
-// installExtensionAction opens the Web Store page: macOS `open -b <bundle>` targets that browser; elsewhere the default.
-func installExtensionAction(env Env, b Browser) Action {
+// installExtensionAction opens the Web Store page: macOS `open -b <bundle>` targets the browser, else the default.
+func installExtensionAction(env Env, b Browser) action {
 	cmd := []string{"open", "-b", b.BundleID, webStoreURL}
 	if env.goos() != "darwin" {
 		cmd = []string{proc.Opener(), webStoreURL}
 	}
-	a := Action{
+	a := action{
 		Kind: "install-extension",
 		Description: fmt.Sprintf(
-			"Opening the Chrome Web Store install page in %s — sign in and click \"Add to %s\".", b.DisplayName, b.DisplayName),
+			"Opening the Chrome Web Store install page in %s — sign in and click \"Add to %s\".",
+			b.DisplayName, b.DisplayName),
 		Command: cmd,
 	}
 	if env.DryRun {

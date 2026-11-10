@@ -121,7 +121,8 @@ func TestIsLocalHost_SlowLookupDoesNotBlock(t *testing.T) {
 	dir := t.TempDir()
 	started := filepath.Join(dir, "started")
 	release := filepath.Join(dir, "release")
-	script := "#!/bin/sh\necho started > " + textutil.ShellQuote(started) + "\nwhile [ ! -e " + textutil.ShellQuote(release) + " ]; do sleep 0.02; done\nexit 1\n"
+	script := "#!/bin/sh\necho started > " + textutil.ShellQuote(started) + "\nwhile [ ! -e " +
+		textutil.ShellQuote(release) + " ]; do sleep 0.02; done\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(dir, "tailscale"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -169,13 +170,14 @@ func TestResolveHost_RejectsOptionShapedHost(t *testing.T) {
 
 func TestMatchMachine(t *testing.T) {
 	names := []string{"", "wks.tail.ts.net", "WKS.other.ts.net", "bare"}
-	for host, want := range map[string]string{"wks": "wks.tail.ts.net", "WKS.OTHER.TS.NET": "WKS.other.ts.net", "Bare": "bare"} {
-		if got, ok := MatchMachine(names, host); !ok || got != want {
+	for host, want := range map[string]string{"wks": "wks.tail.ts.net", "WKS.OTHER.TS.NET": "WKS.other.ts.net",
+		"Bare": "bare"} {
+		if got, ok := matchMachine(names, host); !ok || got != want {
 			t.Errorf("MatchMachine(%q) = %q, %v; want %q", host, got, ok, want)
 		}
 	}
 	for _, host := range []string{"tail", "wks.tail", "other"} {
-		if got, ok := MatchMachine(names, host); ok {
+		if got, ok := matchMachine(names, host); ok {
 			t.Errorf("MatchMachine(%q) = %q, want no match", host, got)
 		}
 	}

@@ -58,8 +58,7 @@ func networkBrowserList(format string) int {
 		return 0
 	}
 	if err := browser.RenderText(os.Stdout, rep); err != nil {
-		fmt.Fprintln(os.Stderr, "network browser:", err)
-		return 1
+		return helptext.Fail("network browser: %v", err)
 	}
 	return 0
 }

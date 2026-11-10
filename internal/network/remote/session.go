@@ -17,23 +17,23 @@ import (
 // sshTimeout bounds one ssh round trip (start or list); attach replaces the process and has no deadline.
 const sshTimeout = 20 * time.Second
 
-// execWaitDelay force-closes a timed-out command's pipes so surviving children cannot hold Wait open.
-const execWaitDelay = 2 * time.Second
+// ExecWaitDelay force-closes a timed-out command's pipes so surviving children cannot hold Wait open.
+const ExecWaitDelay = 2 * time.Second
 
 // ExecArgs runs script under sh locally when local (host is this machine), else over ssh; batch forbids ssh prompts.
 func ExecArgs(host, script string, local, batch bool) ([]string, error) {
 	if local {
 		return []string{"sh", "-c", script}, nil
 	}
-	return Argv(host, false, batch, script)
+	return sshArgv(host, false, batch, script)
 }
 
-// AttachArgs is the argv attaching to a tmux session on host; it replaces the caller's process so tmux owns the TTY.
-func AttachArgs(host, session string, local bool) ([]string, error) {
+// attachArgs is the argv attaching to a tmux session on host; it replaces the caller's process so tmux owns the TTY.
+func attachArgs(host, session string, local bool) ([]string, error) {
 	if local {
 		return []string{"tmux", "attach", "-t", session}, nil
 	}
-	return Argv(host, true, false, "tmux attach -t "+textutil.ShellQuote(session))
+	return sshArgv(host, true, false, "tmux attach -t "+textutil.ShellQuote(session))
 }
 
 // AttachCommand is the attach hint printed after a dispatch: AttachArgs in the readable form a person types.
@@ -48,19 +48,19 @@ func AttachCommand(host, session string, local bool) string {
 func sshCommand(ctx context.Context, argv []string) (*exec.Cmd, context.CancelFunc) {
 	cctx, cancel := context.WithTimeout(ctx, sshTimeout)
 	cmd := exec.CommandContext(cctx, argv[0], argv[1:]...)
-	cmd.WaitDelay = execWaitDelay
+	cmd.WaitDelay = ExecWaitDelay
 	return cmd, cancel
 }
 
-// RunRemote runs argv over ssh under sshTimeout and returns the combined output even on error.
-func RunRemote(ctx context.Context, argv []string) ([]byte, error) {
+// RunAgent runs an agent start argv over ssh under sshTimeout and returns the combined output even on error.
+func RunAgent(ctx context.Context, argv []string) ([]byte, error) {
 	cmd, cancel := sshCommand(ctx, argv)
 	defer cancel()
 	return cmd.CombinedOutput()
 }
 
-// ListRemoteSessions lists the cc-* tmux sessions on host.
-func ListRemoteSessions(ctx context.Context, host string, local bool) ([]RemoteSession, error) {
+// ListSessions lists the cc-* tmux sessions on host.
+func ListSessions(ctx context.Context, host string, local bool) ([]Session, error) {
 	argv, err := ExecArgs(host, listCommand, local, false)
 	if err != nil {
 		return nil, err
@@ -75,17 +75,19 @@ func ListRemoteSessions(ctx context.Context, host string, local bool) ([]RemoteS
 	if err != nil {
 		return nil, err
 	}
-	return ParseSessions(string(out)), nil
+	return parseSessions(string(out)), nil
 }
 
 // PollPaneStatus samples pane status once (interval <= 0) or repeatedly until Ctrl-C, calling emit per sample.
-func PollPaneStatus(ctx context.Context, host string, local bool, interval time.Duration, emit func([]PaneStatus) error) error {
+func PollPaneStatus(
+	ctx context.Context, host string, local bool, interval time.Duration, emit func([]PaneStatus) error,
+) error {
 	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 	var prev []PaneStatus
 	for {
-		caps, capErr := CapturePanes(sigCtx, host, local, false, ExecRunner)
-		prev = ObservePanes(prev, caps, capErr, time.Now())
+		caps, capErr := capturePanes(sigCtx, host, local, false, execRunner)
+		prev = observePanes(prev, caps, capErr, time.Now())
 		if capErr != nil && len(prev) == 0 {
 			return capErr
 		}
@@ -105,10 +107,10 @@ func PollPaneStatus(ctx context.Context, host string, local bool, interval time.
 
 // AttachSession replaces this process with an ssh attach to a tmux session on host.
 func AttachSession(host, session string, local bool) error {
-	if !ValidName(session) {
+	if !validName(session) {
 		return fmt.Errorf("session %q must match ^[A-Za-z0-9._-]{1,64}$", session)
 	}
-	argv, err := AttachArgs(host, session, local)
+	argv, err := attachArgs(host, session, local)
 	if err != nil {
 		return err
 	}

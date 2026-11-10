@@ -174,7 +174,8 @@ func TestWSLDetectMissingWindowsExe(t *testing.T) {
 }
 
 func TestWSLDefault(t *testing.T) {
-	const userChoice = `powershell.exe -NoProfile -Command (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice').ProgId`
+	const userChoice = `powershell.exe -NoProfile -Command (Get-ItemProperty ` +
+		`'HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice').ProgId`
 	tests := []struct {
 		name    string
 		progID  string
@@ -183,7 +184,7 @@ func TestWSLDefault(t *testing.T) {
 	}{
 		{name: "edge_prefix", progID: "MSEdgeHTM.something", browser: "edge"},
 		{name: "chrome", progID: "ChromeHTML", browser: "chrome"},
-		{name: "unknown", progID: "UnknownBrowserHTML", wantErr: ErrDefaultUnsupported},
+		{name: "unknown", progID: "UnknownBrowserHTML", wantErr: errDefaultUnsupported},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -248,7 +249,7 @@ func runWSLSetupCDP(t *testing.T, tt wslCDPCase, f *fakeRun) (acts Actions, prob
 }
 
 // checkStartCDPCommand asserts the PowerShell argv of a start-cdp action.
-func checkStartCDPCommand(t *testing.T, a Action) {
+func checkStartCDPCommand(t *testing.T, a action) {
 	t.Helper()
 	if len(a.Command) != 4 || !reflect.DeepEqual(a.Command[:3], []string{"powershell.exe", "-NoProfile", "-Command"}) {
 		t.Fatalf("Command = %q, want PowerShell script argv", a.Command)
@@ -282,7 +283,7 @@ func wantWSLCDPCalls(t *testing.T, tt wslCDPCase, acts Actions, f *fakeRun) []st
 }
 
 // checkCDPAction asserts the CDP action's kind, executed flag and error text against tt.
-func checkCDPAction(t *testing.T, tt wslCDPCase, a Action) {
+func checkCDPAction(t *testing.T, tt wslCDPCase, a action) {
 	t.Helper()
 	if a.Kind != tt.wantKind || a.Executed != tt.wantExecuted {
 		t.Errorf("CDP action = %+v, want Kind=%q Executed=%v", a, tt.wantKind, tt.wantExecuted)
@@ -360,7 +361,7 @@ func writeRegisteredMCPConfig(t *testing.T, env Env) {
 }
 
 // checkMCPRegistration asserts the registration command ran exactly when the server was not yet registered.
-func checkMCPRegistration(t *testing.T, registered bool, a Action, f *fakeRun) {
+func checkMCPRegistration(t *testing.T, registered bool, a action, f *fakeRun) {
 	t.Helper()
 	if registered {
 		if len(f.calls) != 0 || len(a.Command) != 0 {

@@ -13,11 +13,13 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// CDPPort is the remote-debugging port the WSL path starts a Windows browser on.
-const CDPPort = 9222
+// cdpPort is the remote-debugging port the WSL path starts a Windows browser on.
+const cdpPort = 9222
 
 // devtoolsMCP is the browser MCP Claude Code gets on WSL (pinned: a moving @latest is a supply-chain hole).
-var devtoolsMCP = []string{"npx", "-y", "chrome-devtools-mcp@1.11.0", "--browserUrl", "http://localhost:" + strconv.Itoa(CDPPort)}
+var devtoolsMCP = []string{
+	"npx", "-y", "chrome-devtools-mcp@1.11.0", "--browserUrl", "http://localhost:" + strconv.Itoa(cdpPort),
+}
 
 // devtoolsMCPName is the MCP server name registered in Claude Code's user scope.
 const devtoolsMCPName = "chrome-devtools"
@@ -27,18 +29,23 @@ const stateUnsupportedWSL = "unsupported-wsl"
 
 // winExe is each browser's Windows executable under the C: drive, first match wins.
 var winExe = map[string][]string{
-	"edge":    {"Program Files (x86)/Microsoft/Edge/Application/msedge.exe", "Program Files/Microsoft/Edge/Application/msedge.exe"},
-	"chrome":  {"Program Files/Google/Chrome/Application/chrome.exe", "Program Files (x86)/Google/Chrome/Application/chrome.exe"},
+	"edge": {
+		"Program Files (x86)/Microsoft/Edge/Application/msedge.exe", "Program Files/Microsoft/Edge/Application/msedge.exe",
+	},
+	"chrome": {
+		"Program Files/Google/Chrome/Application/chrome.exe", "Program Files (x86)/Google/Chrome/Application/chrome.exe",
+	},
 	"brave":   {"Program Files/BraveSoftware/Brave-Browser/Application/brave.exe"},
 	"vivaldi": {"Program Files/Vivaldi/Application/vivaldi.exe"},
 	"firefox": {"Program Files/Mozilla Firefox/firefox.exe"},
 }
 
 // winProgID maps the Windows https UserChoice ProgId prefix to a browser.
-var winProgID = map[string]string{"MSEdgeHTM": "edge", "ChromeHTML": "chrome", "BraveHTML": "brave", "VivaldiHTM": "vivaldi", "FirefoxURL": "firefox"}
+var winProgID = map[string]string{
+	"MSEdgeHTM": "edge", "ChromeHTML": "chrome", "BraveHTML": "brave", "VivaldiHTM": "vivaldi", "FirefoxURL": "firefox",
+}
 
-// cdpBrowserTag is the substring of /json/version's "Browser" field that names who owns the port.
-// Chrome, Brave and Vivaldi all report "Chrome/" there, so CDP alone cannot tell them apart; only Edge is exact.
+// cdpBrowserTag is the /json/version "Browser" substring per browser; only Edge's is unique among Chromium ones.
 var cdpBrowserTag = map[string]string{"edge": "Edg/", "chrome": "Chrome/", "brave": "Chrome/", "vivaldi": "Chrome/"}
 
 // winExePath is the browser's Windows executable as seen from WSL, or "".
@@ -52,12 +59,13 @@ func winExePath(env Env, name string) string {
 	return ""
 }
 
-// detectWindows fills a browser installed on the Windows host: the extension path is unsupported from WSL,
-// and the CDP path is ready when this browser already answers on CDPPort, else available.
+// detectWindows fills a Windows-host browser from WSL: extension unsupported, CDP ready when cdpPort answers.
 func detectWindows(env Env, s spec, b *Browser) {
 	b.Installed = true
 	b.Host = stateUnsupportedWSL
-	b.Paths = Paths{Extension: stateUnsupportedWSL, WebDriver: stateUnsupported, GUI: stateUnsupported, CDP: stateUnsupported}
+	b.Paths = controlPaths{
+		Extension: stateUnsupportedWSL, WebDriver: stateUnsupported, GUI: stateUnsupported, CDP: stateUnsupported,
+	}
 	if s.family != familyChromium {
 		return
 	}
@@ -86,7 +94,8 @@ func probeCDP() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	c := http.Client{Timeout: 2 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost:"+strconv.Itoa(CDPPort)+"/json/version", nil)
+	versionURL := "http://localhost:" + strconv.Itoa(cdpPort) + "/json/version"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, versionURL, nil)
 	if err != nil {
 		return ""
 	}
@@ -121,31 +130,31 @@ func defaultWSL(env Env) (Browser, error) {
 	return resolveDefault(env, spec{}, false, progID)
 }
 
-// setupWSL starts the Windows browser with CDP on a dedicated profile when nothing answers yet, then registers
-// chrome-devtools-mcp in Claude Code so sessions in WSL can drive it.
+// setupWSL starts the Windows browser with CDP when nothing answers, then registers chrome-devtools-mcp.
 func setupWSL(env Env, b Browser) Actions {
 	acts := Actions{Browser: b.Name}
-	acts.Items = append(acts.Items, Action{Kind: "noop", Executed: true,
+	acts.Items = append(acts.Items, action{Kind: "noop", Executed: true,
 		Description: "Claude in Chrome is unsupported from WSL (code.claude.com/docs/en/chrome); using CDP instead."})
 	acts.Items = append(acts.Items, startCDPAction(env, b))
 	acts.Items = append(acts.Items, registerMCPAction(env))
 	return acts
 }
 
-// startCDPAction launches the browser via PowerShell Start-Process with the debug port and a dedicated
-// profile (%LOCALAPPDATA%\claude-code\<name>-cdp), then waits for the port to answer from WSL.
-func startCDPAction(env Env, b Browser) Action {
+// startCDPAction launches the browser with the debug port and a dedicated profile, then waits for the port.
+func startCDPAction(env Env, b Browser) action {
 	if cdpOwned(env.cdpOwner(), b.Name) {
-		return Action{Kind: "noop", Executed: true, Description: fmt.Sprintf("%s already answers on localhost:%d.", b.DisplayName, CDPPort)}
+		return action{Kind: "noop", Executed: true,
+			Description: fmt.Sprintf("%s already answers on localhost:%d.", b.DisplayName, cdpPort)}
 	}
 	exe := winExePath(env, b.Name)
 	drive := paths.NewResolver([]paths.Mount{{Point: env.WinRoot, Kind: paths.KindDrvFS, Drive: "C"}})
 	winExe, _ := drive.ViewFrom(exe, paths.Target{Style: paths.StyleWindows})
 	ps := fmt.Sprintf(`Start-Process -FilePath '%s' -ArgumentList '--remote-debugging-port=%d',`+
 		`"--user-data-dir=$env:LOCALAPPDATA\claude-code\%s-cdp",'--no-first-run','--no-default-browser-check'`,
-		winExe, CDPPort, b.Name)
-	a := Action{Kind: "start-cdp", Command: []string{"powershell.exe", "-NoProfile", "-Command", ps},
-		Description: fmt.Sprintf("Starting %s with --remote-debugging-port=%d on a dedicated profile.", b.DisplayName, CDPPort)}
+		winExe, cdpPort, b.Name)
+	a := action{Kind: "start-cdp", Command: []string{"powershell.exe", "-NoProfile", "-Command", ps},
+		Description: fmt.Sprintf("Starting %s with --remote-debugging-port=%d on a dedicated profile.",
+			b.DisplayName, cdpPort)}
 	if env.DryRun {
 		return a
 	}
@@ -166,7 +175,7 @@ func startCDPAction(env Env, b Browser) Action {
 
 // cdpFailure explains a dead CDP port: stale processes on the profile first, then a missing mirrored networking.
 func cdpFailure(env Env, b Browser) string {
-	msg := fmt.Sprintf("started, but localhost:%d does not answer from WSL", CDPPort)
+	msg := fmt.Sprintf("started, but localhost:%d does not answer from WSL", cdpPort)
 	if pids := staleProfilePIDs(env, b.Name); len(pids) > 0 {
 		return fmt.Sprintf("%s; %s process(es) %s already own the %s-cdp profile and ignored the debug flag: run "+
 			"powershell.exe -NoProfile -Command \"Stop-Process -Id %s\", then rerun setup", msg, b.DisplayName,
@@ -181,8 +190,8 @@ func cdpFailure(env Env, b Browser) string {
 // staleProfilePIDs lists msedge-style processes whose command line names the <name>-cdp profile.
 func staleProfilePIDs(env Env, name string) []string {
 	exe := filepath.Base(winExe[name][0])
-	ps := fmt.Sprintf(`Get-CimInstance Win32_Process -Filter "Name='%s'" | Where-Object { $_.CommandLine -like '*%s-cdp*' } `+
-		`| ForEach-Object { $_.ProcessId }`, exe, name)
+	ps := fmt.Sprintf(`Get-CimInstance Win32_Process -Filter "Name='%s'" `+
+		`| Where-Object { $_.CommandLine -like '*%s-cdp*' } | ForEach-Object { $_.ProcessId }`, exe, name)
 	out, err := env.run("powershell.exe", "-NoProfile", "-Command", ps)
 	if err != nil {
 		return nil
@@ -212,7 +221,8 @@ func mirroredIn(text string) bool {
 			continue
 		}
 		k, v, ok := strings.Cut(line, "=")
-		if ok && inWSL2 && strings.TrimSpace(k) == "networkingmode" && strings.TrimSpace(strings.SplitN(v, "#", 2)[0]) == "mirrored" {
+		mode := strings.TrimSpace(strings.SplitN(v, "#", 2)[0])
+		if ok && inWSL2 && strings.TrimSpace(k) == "networkingmode" && mode == "mirrored" {
 			return true
 		}
 	}
@@ -220,12 +230,14 @@ func mirroredIn(text string) bool {
 }
 
 // registerMCPAction adds chrome-devtools-mcp at user scope unless ~/.claude.json already has it.
-func registerMCPAction(env Env) Action {
+func registerMCPAction(env Env) action {
 	cmd := append([]string{env.claudeBin(), "mcp", "add", "-s", "user", devtoolsMCPName, "--"}, devtoolsMCP...)
-	a := Action{Kind: "register-mcp", Command: cmd,
-		Description: "Registering chrome-devtools-mcp in Claude Code (user scope) against localhost:" + strconv.Itoa(CDPPort) + "."}
+	a := action{Kind: "register-mcp", Command: cmd,
+		Description: "Registering chrome-devtools-mcp in Claude Code (user scope) against localhost:" +
+			strconv.Itoa(cdpPort) + "."}
 	if mcpRegistered(env.Home) {
-		return Action{Kind: "noop", Executed: true, Description: devtoolsMCPName + " MCP is already registered in Claude Code."}
+		return action{Kind: "noop", Executed: true,
+			Description: devtoolsMCPName + " MCP is already registered in Claude Code."}
 	}
 	if !env.HasNPX {
 		a.Error = "npx not found: install Node.js 20+ (the MCP runs via npx), then rerun claude-code network browser --setup"

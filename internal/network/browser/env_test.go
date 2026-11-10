@@ -69,7 +69,8 @@ func TestRunCommandPowerShellOffPathUsesWindowsRoot(t *testing.T) {
 		t.Fatalf("powershell.exe was not redirected to the Windows root: %v", err)
 	}
 	var pe *fs.PathError
-	if err != nil && errors.As(err, &pe) && !strings.HasSuffix(pe.Path, "/Windows/System32/WindowsPowerShell/v1.0/powershell.exe") {
+	if err != nil && errors.As(err, &pe) && !strings.HasSuffix(pe.Path,
+		"/Windows/System32/WindowsPowerShell/v1.0/powershell.exe") {
 		t.Errorf("exec'd %q", pe.Path)
 	}
 }
