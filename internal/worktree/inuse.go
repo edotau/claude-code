@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -109,7 +110,13 @@ func ancestry(pid int) map[int]bool {
 }
 
 // agentComms are the process names that count as a live agent session in PeerAgents.
-var agentComms = map[string]bool{"claude": true, "codex": true, "copilot": true, "opencode": true, "agy": true}
+var agentComms = func() map[string]bool {
+	set := map[string]bool{}
+	for _, a := range agentid.All() {
+		set[agentid.Binary(a)] = true
+	}
+	return set
+}()
 
 // procCwd is one live process and its resolved cwd; Comm is empty when the scan did not read it.
 type procCwd struct {

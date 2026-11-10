@@ -394,3 +394,10 @@ func TestDefaultName_MatchesValidName(t *testing.T) {
 		}
 	}
 }
+
+// Agents keeps its pinned order; an agentid rename fails here.
+func TestAgentsTieToAgentid(t *testing.T) {
+	if want := []string{"claude", "codex", "opencode", "gemini", "copilot"}; !slices.Equal(Agents, want) {
+		t.Errorf("Agents = %v, want %v", Agents, want)
+	}
+}

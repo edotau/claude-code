@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -244,7 +245,16 @@ var pinKeys = []string{"model", "effort"}
 // back to the session tier rather than erroring).
 var pinAllowed = map[string]map[string]bool{
 	"model":  {"haiku": true, "sonnet": true, "opus": true, "fable": true},
-	"effort": {"low": true, "medium": true, "high": true, "xhigh": true, "max": true},
+	"effort": effortAllowed(),
+}
+
+// effortAllowed is the harness effort scale as a set.
+func effortAllowed() map[string]bool {
+	set := map[string]bool{}
+	for _, e := range agentid.EffortNames() {
+		set[e] = true
+	}
+	return set
 }
 
 var quotedLit = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`'([^']*)'|"([^"]*)"`) })
