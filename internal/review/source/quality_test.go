@@ -3,6 +3,7 @@ package source
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -286,6 +287,35 @@ func TestWalkSourceFilesWarnsOnUnreadableDir(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "skipping unreadable path") {
 		t.Fatalf("stderr %q lacks the unreadable-path warning", buf.String())
+	}
+}
+
+// A skipped dir is pruned, not walked and discarded; a file named like one (build) prunes nothing after it.
+func TestWalkSourceFilesPrunesSkippedDirs(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{"a.py", "build", "node_modules/pkg/c.py", "sub/b.py", "zz.py"} {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeFx(t, filepath.Dir(p), filepath.Base(p), "x = 1\n")
+	}
+	unreadableDir(t, filepath.Join(root, "node_modules"))
+	orig := walkDir
+	var visited []string
+	walkDir = func(r string, fn fs.WalkDirFunc) error {
+		return orig(r, func(p string, d fs.DirEntry, err error) error { visited = append(visited, p); return fn(p, d, err) })
+	}
+	t.Cleanup(func() { walkDir = orig })
+	var got []string
+	failed := walkSourceFiles(root, func(p string) { got = append(got, filepath.Base(p)) })
+	if !slices.Equal(got, []string{"a.py", "b.py", "zz.py"}) || len(failed) != 0 {
+		t.Fatalf("got %v, failed %v; want [a.py b.py zz.py] and no unreadable path", got, failed)
+	}
+	for _, p := range visited {
+		if strings.HasPrefix(p, filepath.Join(root, "node_modules")+string(filepath.Separator)) {
+			t.Fatalf("walk descended into node_modules: visited %s", p)
+		}
 	}
 }
 

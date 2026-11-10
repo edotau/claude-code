@@ -43,6 +43,17 @@ func SpawnDetached(bin string, args []string, dir string, out *os.File, extraEnv
 	return true
 }
 
+// ErrExecUnderTest: under `go test`, Exec would replace the test binary and end the run with the child's status.
+var ErrExecUnderTest = errors.New("proc: refusing to replace the go test binary; stub the exec seam")
+
+// Exec hands this process to bin (execve on unix, child + exit elsewhere); returns only on failure.
+func Exec(bin string, argv, env []string) error {
+	if testing.Testing() {
+		return fmt.Errorf("%w: %s", ErrExecUnderTest, bin)
+	}
+	return execImage(bin, argv, env)
+}
+
 // IsSelfUnderTest: under `go test`, os.Executable is the test binary; relaunching it re-runs every test (fork bomb).
 func IsSelfUnderTest(bin string) bool {
 	if !testing.Testing() {

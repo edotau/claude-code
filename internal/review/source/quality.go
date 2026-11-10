@@ -46,7 +46,7 @@ var classPatterns = sync.OnceValue(func() map[string]*regexp.Regexp {
 		"python":     regexp.MustCompile(`(?m)^\s*class\s+(\w+)`),
 		"typescript": regexp.MustCompile(`class\s+(\w+)`),
 		"javascript": regexp.MustCompile(`class\s+(\w+)`),
-		"go":         regexp.MustCompile(`type\s+(\w+)\s+struct`),
+		"go":         regexp.MustCompile(`type\s+(\w+)(?:\s*\[(?:[^\[\]]|\[[^\[\]]*\])*\])?\s+struct`),
 		"swift":      regexp.MustCompile(`class\s+(\w+)`),
 		"kotlin":     regexp.MustCompile(`class\s+(\w+)`),
 	}
@@ -614,11 +614,17 @@ func pathHasSkippedPart(path string) bool {
 	return false
 }
 
+// walkDir is the traversal seam; tests wrap it to count the paths a walk visits.
+var walkDir = filepath.WalkDir
+
 // walkSourceFiles calls fn for each non-skipped file under root and returns the paths the walk could not read.
 func walkSourceFiles(root string, fn func(p string)) []string {
 	var unreadable []string
-	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+	_ = walkDir(root, func(p string, d os.DirEntry, err error) error {
 		if rel, rerr := filepath.Rel(root, p); rerr != nil || pathHasSkippedPart(rel) {
+			if d != nil && d.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if err != nil {

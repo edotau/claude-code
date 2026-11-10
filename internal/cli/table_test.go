@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -87,14 +88,90 @@ func TestCompletionFlags(t *testing.T) {
 	}
 }
 
-// TestCompletionOffersHelpOnlyFlags: flags each verb's -h lists but the spec tree once omitted still complete.
-func TestCompletionOffersHelpOnlyFlags(t *testing.T) {
-	for verb, want := range map[string]string{"completion": "--install", "usage": "--show", "preflight": "--live",
-		"configure": "--no-agents", "databricks": "--profile", "clip": "--serve"} {
-		if got := completionCandidates([]string{verb, "--"}); !slices.Contains(got, want) {
-			t.Errorf("%s -- = %v, want it to offer %s", verb, got, want)
+// helpFlagRE pulls each long flag out of a FLAGS row label ("  -n, --name string  desc").
+var helpFlagRE = regexp.MustCompile(`^  (?:-[A-Za-z0-9], )?--([A-Za-z0-9][A-Za-z0-9_-]*)`)
+
+// TestCompletionMatchesHelpFlags: every spec node completes exactly the long flags its own -h lists.
+func TestCompletionMatchesHelpFlags(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	vaulttest.UseFreshKey(t)
+	t.Setenv("HOME", t.TempDir())
+	tree, exempt := specTree(), helpFlagDriftExempt()
+	for _, c := range commands() {
+		if !c.sideEffectHelp {
+			checkSpecMatchesHelp(t, []string{c.name}, tree[c.name], exempt)
 		}
 	}
+}
+
+// helpFlagDriftExempt: spec paths whose help and completion differ, each with its one-line reason.
+func helpFlagDriftExempt() map[string]string {
+	outside := "genuine drift in a spec outside internal/cli; fix it there"
+	m := map[string]string{
+		"anthropic science":         "-h is forwarded to the external claude-science CLI",
+		"databricks check":          outside + " (help omits --1m --all --model --wire)",
+		"databricks login":          outside + " (completion omits --profile)",
+		"databricks mint":           outside + " (completion omits --clear-after)",
+		"databricks import":         outside + " (completion omits --dry-run --fold-legacy)",
+		"install --setup workspace": outside + " (init's --dry-run --with sit on the parent node)",
+	}
+	for _, v := range []string{"copilot", "codex", "gemini", "opencode"} {
+		m[v] = "bare launcher: its native flags never complete before a subword (noComplete)"
+	}
+	for _, n := range reviewToolNames() {
+		m["review "+n] = "detectors keep their former scripts' flags; reviewSpec offers none on purpose"
+	}
+	for _, s := range []string{"pr list", "pr view", "pr diff", "pr create", "checks", "comment"} {
+		m["scm "+s] = "help prints the shared scm flag set; completion offers each subverb's own"
+	}
+	return m
+}
+
+func checkSpecMatchesHelp(t *testing.T, path []string, node *helptext.Node, exempt map[string]string) {
+	t.Helper()
+	for word, sub := range node.Sub {
+		checkSpecMatchesHelp(t, append(slices.Clone(path), word), sub, exempt)
+	}
+	label := strings.Join(path, " ")
+	if exempt[label] != "" {
+		return
+	}
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
+		return Run(append(append([]string{"claude-code"}, path...), "-h"))
+	})
+	if code != 0 {
+		t.Errorf("%s -h: exit %d\n%s", label, code, stdout+stderr)
+		return
+	}
+	var spec []string
+	for _, f := range node.Flags {
+		if len(f.Name) > 1 { // help renders one-letter flags as -n, outside helpFlagRE
+			spec = append(spec, f.Name)
+		}
+	}
+	slices.Sort(spec)
+	if help := helpLongFlags(stdout + stderr); !slices.Equal(help, spec) {
+		t.Errorf("%s: -h documents %v, completion offers %v", label, help, spec)
+	}
+}
+
+func helpLongFlags(text string) []string {
+	var out []string
+	inFlags := false
+	for line := range strings.SplitSeq(text, "\n") {
+		if line == "FLAGS" {
+			inFlags = true
+			continue
+		}
+		if line == "" || !strings.HasPrefix(line, "  ") {
+			inFlags = false
+		}
+		if m := helpFlagRE.FindStringSubmatch(line); inFlags && m != nil && !slices.Contains(out, m[1]) {
+			out = append(out, m[1])
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // TestCompletionFlagValues: the word after a value flag completes from its domain; a flag with no
