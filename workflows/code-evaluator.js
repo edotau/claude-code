@@ -25,12 +25,9 @@ const CONDITIONS = Array.isArray(a.conditions) && a.conditions.length ? a.condit
 // ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, code-workers, code-engineer ──
 // stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others via `agents ask`.
 const COWORKERS = []
+// Unknown stage/field backstop only; value and route checks run in the dispatch-effort hook (workflowsteps.go).
 const stepOf = (steps, name, defaults, opt) => {
-  const S_CLAUDE = ['haiku', 'sonnet', 'opus', 'fable']
-  const S_AGENTS = ['claude', 'codex', 'copilot', 'gemini', 'opencode']
-  const S_EFFORT = ['low', 'medium', 'high', 'xhigh', 'max']
   const S_FIELDS = ['agent', 'model', 'effort', 'profile', 'provider']
-  const S_NAME = /^[A-Za-z0-9._-]+$/
   const o = opt || {}
   const allowed = o.allowed || []
   const d = defaults || {}
@@ -40,15 +37,10 @@ const stepOf = (steps, name, defaults, opt) => {
   const v = (steps || {})[name] === undefined ? {} : steps[name]
   if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error(`${where} must be an object`)
   for (const k of Object.keys(v)) if (!S_FIELDS.includes(k)) throw new Error(`${where}.${k}: unknown field (allowed: ${S_FIELDS.join('|')})`)
-  if (v.effort !== undefined && !S_EFFORT.includes(v.effort)) throw new Error(`${where}.effort must be ${S_EFFORT.join('|')}`)
-  for (const k of ['model', 'profile', 'provider']) if (v[k] !== undefined && !S_NAME.test(String(v[k]))) throw new Error(`${where}.${k} must be a plain name (no provider: prefix)`)
   const who = v.agent !== undefined ? v.agent : 'claude'
-  if (!S_AGENTS.includes(who)) throw new Error(`${where}.agent must be ${S_AGENTS.join('|')}`)
   const effort = v.effort !== undefined ? v.effort : d.effort || 'medium'
   if (who === 'claude') {
-    if (v.profile !== undefined || v.provider !== undefined) throw new Error(`${where}: claude stages run in-context on the session profile; profile/provider need agent codex|copilot|gemini|opencode`)
     const model = v.model !== undefined ? v.model : d.model || 'sonnet'
-    if (!S_CLAUDE.includes(model)) throw new Error(`${where}.model must be ${S_CLAUDE.join('|')}`)
     const same = (_label, r) => r
     return { agent: 'claude', ext: false, model, effort, type: d.agentType ? { agentType: d.agentType } : {}, task: (p) => p, schema: (s) => s, done: same, text: same }
   }

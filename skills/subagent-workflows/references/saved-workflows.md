@@ -6,7 +6,7 @@ path (`Workflow({scriptPath: "~/.claude/workflows/<name>.js", args})`; a by-name
 redirects it to the `scriptPath`) or nested via `workflow(name, args)` (one level). Control flow is code, never a model
 decision; agents work in the shared tree.
 
-| Workflow | Shape | Key args (`steps` = `{agent?, model?, effort?, profile?, provider?}`; args `profile?`, `provider?`) |
+| Workflow | Shape | Key args (`steps` = `{agent?, model?, effort?, profile?, provider?}`, checked and route-previewed by the `dispatch-effort` hook before the run; args `profile?`, `provider?`) |
 | --- | --- | --- |
 | `green-keeper-loop` | the gate: detect (or `gate`) → fix in scope → re-run, ≤3 per call (whole task ≤5); wraps `stageDetect`/`stageGate`; exits `green\|stalled\|capped\|error` | `{scope, gate?, maxIterations?, fixesPerIteration?, claudeState?, steps: {detect, fix}}` |
 | `code-analyzer` | scoped auditors → proximity merge (±10 lines or same symbol) → refute → dependency scan + wave plan → fix + test per package, wave by wave (hotspot files last) → gate (in-script `stageGate`, no nested workflow) → re-audit (≤rounds); the range audit entry, no polish; returns the shared code-workers shape (no `polish`/`files`) plus refuted, rounds | `{range\|paths\|findings, fix?, partition?, cap?, hotspots?, minFix?, rounds?, dimensions?, focus?, tests?, gate?, maxIterations?, prior?, chunkChars?, refuteBatch?, steps: {scope, audit, refute, fix, test, gate, depscan}}` |
