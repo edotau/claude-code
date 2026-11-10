@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/agentcmd"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/databricks"
@@ -422,5 +421,4 @@ func resolveSpec() *helptext.Node {
 func init() {
 	databricks.Pick = tui.Pick
 	databricks.Interactive = tui.StdinIsTerminal
-	agentcmd.ModelsVerb = cmdModels // agentcmd cannot import cli: `<agent> catalog` lists through this verb
 }

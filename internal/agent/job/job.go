@@ -262,6 +262,18 @@ type Row struct {
 	Progress string `json:",omitempty"` // "part 2/3" while a split review runs
 }
 
+// Detail is a status row's tail: progress and preview, or the preview plus the one-line error text.
+func (r Row) Detail() string {
+	d := r.Preview
+	if r.Progress != "" {
+		d = "[" + r.Progress + "] " + d
+	}
+	if r.Error != "" {
+		d += " -- " + textutil.PreviewRedacted(r.Error, 300)
+	}
+	return d
+}
+
 // Status lists rows for name's jobs in cwd's repo (all repos when all is set), newest first; ref narrows via Resolve.
 func Status(ctx context.Context, name, cwd, ref string, all bool) ([]Row, error) {
 	if err := checkAgent(name); err != nil {

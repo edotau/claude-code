@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // defaultWidth is the fallback render width when COLUMNS isn't set (or isn't a usable int) — widest
@@ -354,4 +355,41 @@ func (e *errWriter) Write(p []byte) (int, error) {
 	n, err := e.w.Write(p)
 	e.err = err
 	return n, err
+}
+
+// View is how `agents tree` shows the listing: JSON or text, every entry or only running work, once or redrawn.
+type View struct {
+	JSON, All, Watch bool
+	Interval         time.Duration
+}
+
+// Show renders the tree once, or with v.Watch clears and redraws every v.Interval until a render fails.
+func Show(claudeDir string, opts Options, v View) int {
+	for {
+		if v.Watch {
+			fmt.Print("\x1b[H\x1b[2J") // re-home the cursor and wipe the terminal between redraws
+		}
+		if code := show(claudeDir, opts, v); code != 0 || !v.Watch {
+			return code
+		}
+		time.Sleep(v.Interval)
+	}
+}
+
+// show lists the tree once and writes it as JSON or text.
+func show(claudeDir string, opts Options, v View) int {
+	listing, err := Listing(claudeDir, opts, v.All)
+	if err == nil && v.JSON {
+		err = helptext.WriteJSON(os.Stdout, listing)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "agents tree:", err)
+		return 1
+	}
+	if !v.JSON {
+		if err := RenderText(os.Stdout, listing, time.Now()); err != nil {
+			return helptext.Fail("agents tree: %v", err)
+		}
+	}
+	return 0
 }

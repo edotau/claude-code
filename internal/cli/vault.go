@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/agentcmd"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/network/tailscale"
@@ -22,10 +21,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaultdoc"
 )
-
-func init() {
-	agentcmd.VaultVerb = cmdVault // agentcmd cannot import cli: a launch stores a missing secret through this verb
-}
 
 func vaultSections() []string {
 	return []string{"secrets", "pins", "env", "providers", "agents", "settings", "vault", "all"}
