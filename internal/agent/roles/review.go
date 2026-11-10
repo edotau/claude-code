@@ -127,11 +127,6 @@ func untrackedBlock(ctx context.Context, cwd string) (string, error) {
 	return b.String(), nil
 }
 
-// appendUntracked renders one untracked file under the per-file cap.
-func appendUntracked(b *strings.Builder, cwd, rel string) int {
-	return appendUntrackedWithin(b, cwd, rel, untrackedCap)
-}
-
 // appendUntrackedWithin renders one untracked file, inlining at most limit bytes of its content.
 func appendUntrackedWithin(b *strings.Builder, cwd, rel string, limit int) int {
 	path := filepath.Join(cwd, rel)

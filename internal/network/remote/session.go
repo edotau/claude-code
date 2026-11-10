@@ -36,7 +36,7 @@ func attachArgs(host, session string, local bool) ([]string, error) {
 	return sshArgv(host, true, false, "tmux attach -t "+textutil.ShellQuote(session))
 }
 
-// AttachCommand is the attach hint printed after a dispatch: AttachArgs in the readable form a person types.
+// AttachCommand is the attach hint printed after a dispatch: attachArgs in the readable form a person types.
 func AttachCommand(host, session string, local bool) string {
 	if local {
 		return "tmux attach -t " + session
@@ -56,7 +56,7 @@ func sshCommand(ctx context.Context, argv []string) (*exec.Cmd, context.CancelFu
 func RunAgent(ctx context.Context, argv []string) ([]byte, error) {
 	cmd, cancel := sshCommand(ctx, argv)
 	defer cancel()
-	return cmd.CombinedOutput()
+	return combinedOutputCapped(cmd)
 }
 
 // ListSessions lists the cc-* tmux sessions on host.
@@ -67,13 +67,13 @@ func ListSessions(ctx context.Context, host string, local bool) ([]Session, erro
 	}
 	cmd, cancel := sshCommand(ctx, argv)
 	defer cancel()
-	out, err := cmd.Output()
+	out, err := OutputCapped(cmd)
 	var ee *exec.ExitError
 	if errors.As(err, &ee) && len(ee.Stderr) > 0 {
 		return nil, fmt.Errorf("list tmux sessions on %s: %s: %w", host, strings.TrimSpace(string(ee.Stderr)), err)
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list tmux sessions on %s: %w", host, err)
 	}
 	return parseSessions(string(out)), nil
 }

@@ -230,14 +230,19 @@ func jsonValuePresent(v json.RawMessage) bool {
 	return true
 }
 
+func hooksPath(home string) string {
+	return filepath.Join(home, ".copilot", "hooks", "claude-code-harness.json")
+}
+
+func settingsPath(home string) string { return filepath.Join(home, ".copilot", "settings.json") }
+
 // Copilot hooks load from the user directory; plugin preToolUse hooks do not fire.
 func renderCopilot(reg *providers.Registry, sel providers.Selection, home string, o render.RenderOptions, out io.Writer) (bool, error) {
 	body, err := CopilotJSON()
 	if err != nil {
 		return false, err
 	}
-	path := filepath.Join(home, ".copilot", "hooks", "claude-code-harness.json")
-	drift, err := render.RenderHooksFile(path, body, mergeCopilotHooks, o, out, "copilot-hooks")
+	drift, err := render.RenderHooksFile(hooksPath(home), body, mergeCopilotHooks, o, out, "copilot-hooks")
 	if err != nil {
 		return drift, err
 	}
@@ -275,8 +280,7 @@ func renderCopilotSettings(home string, o render.RenderOptions, out io.Writer) (
 	if mode == "" {
 		return false, nil
 	}
-	path := filepath.Join(home, ".copilot", "settings.json")
-	return render.CommitJSONObject(path, o, out, "copilot-settings", func(obj map[string]any, _ bool) bool {
+	return render.CommitJSONObject(settingsPath(home), o, out, "copilot-settings", func(obj map[string]any, _ bool) bool {
 		obj["defaultPermissionMode"] = mode
 		return true
 	})

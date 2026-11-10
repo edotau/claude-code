@@ -188,15 +188,6 @@ func parseNameStatus(out string) []PRFileAnalysis {
 	return files
 }
 
-// fileDiff is patchFor with a failure read as an empty patch; AnalyzePR uses patchFor so failures surface.
-func fileDiff(repo, filepath, base, head string) string {
-	out, err := patchFor(repo, filepath, base, head)
-	if err != nil {
-		return ""
-	}
-	return out
-}
-
 // patchFor returns the base...head patch for one file; a git failure is an error, never an empty diff.
 func patchFor(repo, path, base, head string) (string, error) {
 	return refDiff(repo, base, head, nil, path)

@@ -156,16 +156,7 @@ func (b *cellBuf) pushContextBlock(v values, sepMajor string) bool {
 		return false
 	}
 	b.pushSep(sepMajor)
-	b.pushContext(v)
-	return true
-}
-
-// pushContext pushes twoline's "<bar> NN.N% · used/size" block; the bar's filled and empty runs keep their tones.
-func (b *cellBuf) pushContext(v values) {
 	d := v.two
-	if !d.hasCtx {
-		return
-	}
 	bar := twoBar(d.ctxPct, 10)
 	filled := strings.TrimRight(bar, "─")
 	b.push(filled, "filled")
@@ -177,6 +168,7 @@ func (b *cellBuf) pushContext(v values) {
 		b.pushBreakable(" ", "g")
 		b.push(v.limits, "g") // 7d:N% on a subscription, else the token countdown
 	}
+	return true
 }
 
 func gradientCells(v values, cfg Config) cellBuf {

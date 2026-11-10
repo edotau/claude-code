@@ -46,7 +46,7 @@ func startLive(s *askState, perms agent.Permissions, name, as, format string) in
 		err = r.Available()
 	}
 	if err == nil {
-		err = job.CheckLiveCap("")
+		err = job.CheckLiveCap()
 	}
 	if err != nil {
 		return failAsk(format, name, err)
@@ -93,6 +93,3 @@ func abandonLive(rec *job.Record, cause error) error {
 	}
 	return cause
 }
-
-// runLiveHolder is job.RunHolder over the cli client's launcher.
-func runLiveHolder(rec *job.Record) int { return job.RunHolder(rec, NewClient().Launcher) }

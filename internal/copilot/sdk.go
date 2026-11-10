@@ -112,7 +112,7 @@ func BuildSessionConfig(o SDKOptions) *copilot.SessionConfig {
 		ContextTier:         copilot.ContextTier(o.Context),
 		WorkingDirectory:    o.WorkingDirectory,
 		Provider:            providerFromEnv(o.Env),
-		OnPermissionRequest: permissionHandler(o, nil),
+		OnPermissionRequest: baseHandler(o),
 	}
 	if o.EnableMemory {
 		cfg.Memory = &copilot.MemoryConfiguration{Enabled: true}

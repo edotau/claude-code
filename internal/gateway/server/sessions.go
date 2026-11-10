@@ -290,7 +290,7 @@ func (s *sessionStore) pruneExpiredLocked(now time.Time) bool {
 func (s *sessionStore) unbound(probe map[string]*session) map[string]*session {
 	dead := map[string]*session{}
 	for hash, ses := range probe {
-		if !s.stillBound(ses) {
+		if bound, _ := s.identity(ses); !bound {
 			dead[hash] = ses
 		}
 	}
@@ -307,11 +307,6 @@ func (s *sessionStore) dropLocked(dead map[string]*session) bool {
 		}
 	}
 	return dropped
-}
-
-func (s *sessionStore) stillBound(ses *session) bool {
-	bound, _ := s.identity(ses)
-	return bound
 }
 
 // identity probes ses's pid; verified is false when the probe itself failed, so bound is only a guess then.

@@ -509,9 +509,9 @@ func TestArchiveAndRestoreRefuseReservedAndBankNames(t *testing.T) {
 	}
 }
 
-// TestTopicPathsExcludeMetadataBankAndSymlink: a harness_kind:bank topic and a symlinked .md are
-// not topics — topicPaths, nativeStats.TopicFiles and nativeDupes must all exclude them.
-func TestTopicPathsExcludeMetadataBankAndSymlink(t *testing.T) {
+// TestTopicFilesExcludeMetadataBankAndSymlink: a harness_kind:bank topic and a symlinked .md are
+// not topics — topicFiles, nativeStats.TopicFiles and nativeDupes must all exclude them.
+func TestTopicFilesExcludeMetadataBankAndSymlink(t *testing.T) {
 	t.Parallel()
 	dir := plainNativeStore(t)
 	write(t, filepath.Join(dir, "typed-notes.md"), "---\nname: typed-notes\nharness_kind: bank\n---\n\n"+
@@ -524,10 +524,14 @@ func TestTopicPathsExcludeMetadataBankAndSymlink(t *testing.T) {
 
 	excluded := []string{"typed-notes.md", "link.md"}
 	var topicNames []string
-	for _, p := range topicPaths(dir) {
+	topics, err := topicFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range topics {
 		topicNames = append(topicNames, filepath.Base(p))
 	}
-	assertExcludesNames(t, topicNames, excluded, "topicPaths")
+	assertExcludesNames(t, topicNames, excluded, "topicFiles")
 
 	st, err := nativeStats(dir)
 	if err != nil {

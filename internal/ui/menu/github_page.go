@@ -29,7 +29,7 @@ func printRoute(d *dialog, ri agent.RouteInfo) {
 
 // githubStatusRows prints every github section status line and reports which are OK, for both the
 // interactive menu (re-run each loop) and the piped report (run once).
-func githubStatusRows(d *dialog) (ghOK, copilotOK bool) {
+func githubStatusRows(d *dialog) (ghOK, copilotOK, routesOK bool) {
 	gh := configure.GHAuthCheck()
 	switch {
 	case !gh.Found:
@@ -58,37 +58,29 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK bool) {
 
 	oc, _ := agent.LookupSchema("opencode")
 	cp, _ := agent.LookupSchema("copilot")
-	printRoute(d, oc.DescribeRoute(d.reg))
-	printRoute(d, cp.DescribeRoute(d.reg))
-	return
-}
-
-// githubProfile is the named github profile, or nil when absent or of another provider.
-func (d *dialog) githubProfile(name string) *providers.Provider {
-	if d.reg == nil {
-		return nil
-	}
-	if p := d.reg.Providers[name]; p != nil && p.Provider == "github" {
-		return p
-	}
-	return nil
+	ocRoute, cpRoute := oc.DescribeRoute(d.reg), cp.DescribeRoute(d.reg)
+	printRoute(d, ocRoute)
+	printRoute(d, cpRoute)
+	return ghOK, copilotOK, ocRoute.OK && cpRoute.OK
 }
 
 // githubAuthLine is the GitHub auth pin and whether gh's active account matches it.
 func githubAuthLine(d *dialog) string {
-	profile, login := providers.GitHubAuthLogin(d.reg)
-	if profile == "" {
-		profile = vault.GitHubAuth()
-	}
+	profile := vault.GitHubAuth()
 	if profile == "" {
 		return "follows gh's active account"
 	}
-	if login == "" {
-		if p := d.githubProfile(profile); p == nil {
-			return profile + " · drift: pin names no github profile, gh follows its active account"
-		}
+	var p *providers.Provider
+	if d.reg != nil {
+		p = d.reg.Providers[profile]
+	}
+	switch {
+	case p == nil || p.Provider != "github":
+		return profile + " · drift: pin names no github profile, gh follows its active account"
+	case p.Login == "":
 		return profile + " · drift: profile has no login, gh follows its active account"
 	}
+	login := p.Login
 	if active := copilot.GHActiveAccount(); active != login {
 		return profile + " (" + login + ") · drift: gh active is " + cmp.Or(active, "none")
 	}
@@ -179,22 +171,17 @@ func runGithub(d *dialog) bool {
 	if d.o.AuthSet {
 		return runGithubAuthFlag(d)
 	}
-	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
+	if d.interactive() {
 		return githubMenu(d)
 	}
-	ghOK, copilotOK := githubStatusRows(d)
+	ghOK, copilotOK, routesOK := githubStatusRows(d)
 	if !ghOK {
 		d.println("fix: gh auth login")
 	}
 	if !copilotOK {
 		d.println("fix: copilot login")
 	}
-	if d.o.Check {
-		oc, _ := agent.LookupSchema("opencode")
-		cp, _ := agent.LookupSchema("copilot")
-		return oc.DescribeRoute(d.reg).OK && cp.DescribeRoute(d.reg).OK
-	}
-	return true
+	return !d.o.Check || routesOK
 }
 
 // githubMenu loops a status report + action picker until Back/Esc; each action re-checks live state

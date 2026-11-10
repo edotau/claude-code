@@ -35,7 +35,7 @@ func hermetic(t *testing.T) {
 	t.Cleanup(func() { down.Store(false) })
 }
 
-// Get/Set/Delete on a box with no keyring tool on PATH must degrade, never panic or hang, and
+// Get/Set on a box with no keyring tool on PATH must degrade, never panic or hang, and
 // never touch the real OS keychain regardless of what runs this test.
 func TestDegradesWithoutTool(t *testing.T) {
 	hermetic(t)
@@ -47,9 +47,6 @@ func TestDegradesWithoutTool(t *testing.T) {
 	}
 	if err := osKeyringSet("ANYTHING", "v"); err == nil {
 		t.Fatal("Set must error when no keyring tool is available")
-	}
-	if err := osKeyringDelete("ANYTHING"); err != nil {
-		t.Fatalf("Delete must be a no-op, not an error, when no keyring tool is available: %v", err)
 	}
 }
 
@@ -70,7 +67,7 @@ func TestLookupTimesOutReturnsErrNoAnswer(t *testing.T) {
 	}
 }
 
-func TestConcurrentLookupSetDeleteTimeout(t *testing.T) {
+func TestConcurrentLookupSetTimeout(t *testing.T) {
 	hermetic(t)
 	slowSecretTool(t)
 	saved := timeout
@@ -90,12 +87,6 @@ func TestConcurrentLookupSetDeleteTimeout(t *testing.T) {
 			<-start
 			if err := osKeyringSet("CONCURRENT", "value"); err == nil {
 				t.Error("Set must fail when the tool times out")
-			}
-		})
-		wg.Go(func() {
-			<-start
-			if err := osKeyringDelete("CONCURRENT"); err == nil {
-				t.Error("Delete must fail when the tool times out")
 			}
 		})
 	}
@@ -155,7 +146,7 @@ func TestSetRejectsEmptyAndMultiline(t *testing.T) {
 	}
 }
 
-func TestSetDeleteLatchedDownErrors(t *testing.T) {
+func TestSetLatchedDownErrors(t *testing.T) {
 	hermetic(t)
 	if KeyringTool() == "" {
 		t.Skip("no keyring tool is implemented for this OS")
@@ -167,19 +158,9 @@ func TestSetDeleteLatchedDownErrors(t *testing.T) {
 	t.Setenv("PATH", dir)
 	down.Store(true)
 
-	for _, tt := range []struct {
-		name string
-		run  func() error
-		want string
-	}{
-		{"Set", func() error { return osKeyringSet("NAME", "value") }, "keyring: the keyring did not answer earlier this run — set HARNESS_VAULT_KEY or meta/key_command instead"},
-		{"Delete", func() error { return osKeyringDelete("NAME") }, "keyring: the keyring did not answer earlier this run"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.run(); err == nil || err.Error() != tt.want {
-				t.Fatalf("%s with a latched-down keyring = %v, want %q", tt.name, err, tt.want)
-			}
-		})
+	want := "keyring: the keyring did not answer earlier this run — set HARNESS_VAULT_KEY or meta/key_command instead"
+	if err := osKeyringSet("NAME", "value"); err == nil || err.Error() != want {
+		t.Fatalf("Set with a latched-down keyring = %v, want %q", err, want)
 	}
 }
 
@@ -244,36 +225,5 @@ func TestLookupNoToolIsUnavailable(t *testing.T) {
 	value, found, err := KeyringLookup("PHASE1B")
 	if value != "" || found || !errors.Is(err, ErrKeyringUnavailable) {
 		t.Fatalf("Lookup without tool = (%q, %t, %v), want empty, false, ErrKeyringUnavailable", value, found, err)
-	}
-}
-
-// A clear that exits 1 because the keyring is failing (lookup errors too) must not read as "already absent".
-func TestDeleteFailingKeyringIsNotAbsent(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("stub only implements the linux secret-tool CLI")
-	}
-	for _, tc := range []struct {
-		name, lookup string
-		wantErr      bool
-	}{
-		{"lookup_fails", "echo 'locked keyring' >&2\nexit 1", true},
-		{"lookup_absent", "exit 1", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			hermetic(t)
-			dir := t.TempDir()
-			script := "#!/bin/sh\nif [ \"$1\" = clear ]; then exit 1; fi\n" + tc.lookup + "\n"
-			if err := os.WriteFile(filepath.Join(dir, "secret-tool"), []byte(script), 0700); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("PATH", dir)
-			err := osKeyringDelete("PHASE1B")
-			if tc.wantErr && !errors.Is(err, ErrKeyringUnavailable) {
-				t.Fatalf("Delete = %v, want ErrKeyringUnavailable", err)
-			}
-			if !tc.wantErr && err != nil {
-				t.Fatalf("Delete of an absent item = %v, want nil", err)
-			}
-		})
 	}
 }

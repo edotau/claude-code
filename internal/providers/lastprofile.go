@@ -85,12 +85,6 @@ func gitTopOr(cwd string) string {
 	return cwd
 }
 
-// readLastProfiles is the stored state, empty when the file is missing or undecodable.
-func readLastProfiles() lastProfiles {
-	st, _ := loadLastProfiles()
-	return st
-}
-
 // loadLastProfiles is the stored state plus any decode error; a corrupt file is copied to .corrupt-<unix>, a newer one refused.
 func loadLastProfiles() (lastProfiles, error) {
 	var st lastProfiles
@@ -165,7 +159,11 @@ func writeLastProfiles(ws map[string]map[string]lastProfileAt) error {
 
 // LastProfile is the profile this workspace last launched agentName with; "" when none is stored.
 func LastProfile(agentName string) string {
-	return readLastProfiles().Workspaces[workspaceKey()][agentName].Profile
+	st, err := loadLastProfiles()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: last profile for %s unreadable: %v\n", agentName, err)
+	}
+	return st.Workspaces[workspaceKey()][agentName].Profile
 }
 
 // RecordLastProfile stores profile as this workspace's default for agentName; callers skip headless runs.

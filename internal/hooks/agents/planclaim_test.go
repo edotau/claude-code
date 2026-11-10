@@ -74,6 +74,8 @@ func TestPlanClaimNeedsConfidentMatch(t *testing.T) {
 	}
 }
 
+// A claim the plan write refuses is reported on stderr, not dropped silently; the spawn still proceeds.
+
 // A spawn that fails never reaches SubagentStop: PostToolUseFailure must release its plan claim too.
 func TestPlanClaimClearedOnSpawnFailure(t *testing.T) {
 	dispatchEnv(t)

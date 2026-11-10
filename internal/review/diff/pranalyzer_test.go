@@ -196,8 +196,8 @@ func TestFileDiffSharesTwoDotFallback(t *testing.T) {
 	if err != nil || len(files) != 1 || files[0].Path != "o.go" {
 		t.Fatalf("files %v err %v, want [o.go]", files, err)
 	}
-	if d := fileDiff(repo, "o.go", "main", "orphan"); d == "" {
-		t.Fatal("fileDiff empty for a file changedFiles listed")
+	if d, err := patchFor(repo, "o.go", "main", "orphan"); err != nil || d == "" {
+		t.Fatalf("patchFor = %q, %v for a file changedFiles listed", d, err)
 	}
 }
 
@@ -210,7 +210,7 @@ func TestChangedFilesNonASCIIPath(t *testing.T) {
 	if err != nil || len(files) != 1 || files[0].Path != "caf\u00e9.go" {
 		t.Fatalf("files %v err %v, want [café.go]", files, err)
 	}
-	if d := fileDiff(repo, files[0].Path, "main", "feature"); d == "" {
-		t.Fatal("fileDiff empty for non-ASCII path")
+	if d, err := patchFor(repo, files[0].Path, "main", "feature"); err != nil || d == "" {
+		t.Fatalf("patchFor = %q, %v for non-ASCII path", d, err)
 	}
 }

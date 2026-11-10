@@ -128,35 +128,30 @@ func runImport(path string, cands []Candidate, options ImportOptions, apply, fol
 func previewImport(cands []Candidate, options ImportOptions, fold bool) (
 	rows []Row, plan foldPlan, oldDoc, newDoc []byte, err error,
 ) {
-	oldDoc, newDoc, err = providers.UpdateOverlayDoc(false, func(top map[string]json.RawMessage, tx *vault.Tx) error {
+	return planImport(cands, options, fold, false, nil)
+}
+
+func commitImport(cands []Candidate, options ImportOptions, fold bool, key *vault.Key) ([]Row, error) {
+	rows, _, _, _, err := planImport(cands, options, fold, true, key)
+	return rows, err
+}
+
+func planImport(cands []Candidate, options ImportOptions, fold, write bool, key *vault.Key) (
+	rows []Row, plan foldPlan, oldDoc, newDoc []byte, err error,
+) {
+	oldDoc, newDoc, err = providers.UpdateOverlayDoc(write, func(top map[string]json.RawMessage, tx *vault.Tx) error {
 		rows = ImportPlan(cands, Existing(top), options)
 		if err := Apply(top, rows); err != nil {
 			return err
 		}
 		if fold {
 			var err error
-			plan, err = foldLegacy(top, tx, nil, false)
+			plan, err = foldLegacy(top, tx, key, write)
 			return err
 		}
 		return nil
 	})
 	return rows, plan, oldDoc, newDoc, err
-}
-
-func commitImport(cands []Candidate, options ImportOptions, fold bool, key *vault.Key) ([]Row, error) {
-	var rows []Row
-	_, _, err := providers.UpdateOverlayDoc(true, func(top map[string]json.RawMessage, tx *vault.Tx) error {
-		rows = ImportPlan(cands, Existing(top), options)
-		if err := Apply(top, rows); err != nil {
-			return err
-		}
-		if fold {
-			_, err := foldLegacy(top, tx, key, true)
-			return err
-		}
-		return nil
-	})
-	return rows, err
 }
 
 // sealImported stores each written row's client secret / PAT; the only place secrets are read.

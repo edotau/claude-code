@@ -19,7 +19,7 @@ func LooksSecret(val string) bool {
 	if val == "" || notCredentialShaped(val) {
 		return false
 	}
-	return HasGitHubPrefix(val) || matchSlack(val) || hasAnyPrefix(val, "AKIA", "dapi", "sk-") || bearerToken.MatchString(val)
+	return HasGitHubPrefix(val) || IsSlackToken(val) || hasAnyPrefix(val, "AKIA", "dapi", "sk-") || bearerToken.MatchString(val)
 }
 
 // placeholderWindow is how far into a value a placeholder marker counts; later hits are random token bytes.
@@ -55,12 +55,12 @@ func GitHubPattern(minLen int) string {
 	return "(?:" + strings.Join(alts, "|") + ")"
 }
 
-// matchSlack matches a Slack bot/user token (xoxb-/xoxp-).
-func matchSlack(v string) bool {
-	if !strings.HasPrefix(v, "xox") || len(v) < 5 || v[4] != '-' {
+// IsSlackToken matches a Slack bot/user/app/legacy token (xox[baprs]-...).
+func IsSlackToken(v string) bool {
+	if len(v) < 5 || !strings.HasPrefix(v, "xox") || v[4] != '-' {
 		return false
 	}
-	return v[3] == 'b' || v[3] == 'p'
+	return strings.ContainsRune("baprs", rune(v[3]))
 }
 
 // RedactSecretMap returns a copy of m with every credential-shaped value replaced by "REDACTED".

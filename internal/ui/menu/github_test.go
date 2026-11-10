@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"maps"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -206,24 +207,12 @@ func TestGithubSectionNonTTYOutputNamesNoSecret(t *testing.T) {
 	if strings.Contains(got, "ghp_FAKEtokenlookingvalue1234567890") {
 		t.Errorf("github section leaked a credential:\n%s", got)
 	}
+	if !regexp.MustCompile(`copilot CLI +present`).MatchString(got) {
+		t.Errorf("want copilot CLI to read present via GH_TOKEN:\n%s", got)
+	}
 	for _, want := range []string{"gh CLI", "copilot CLI", "route("} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output lacks %q:\n%s", want, got)
 		}
-	}
-}
-
-// Confirms the "present" row never prints the credential itself, only the booleans/names github.go uses.
-func TestGithubSectionReportsBooleansNotCredentials(t *testing.T) {
-	githubScratch(t)
-	t.Setenv("GH_TOKEN", "super-secret-gh-token-value")
-	var out bytes.Buffer
-	_ = Run(Options{Check: true, In: strings.NewReader(""), Out: &out}, "github")
-	got := out.String()
-	if !strings.Contains(got, "copilot CLI") || !strings.Contains(got, "present") {
-		t.Errorf("want copilot CLI to read present via GH_TOKEN:\n%s", got)
-	}
-	if strings.Contains(got, "super-secret-gh-token-value") {
-		t.Errorf("leaked GH_TOKEN value:\n%s", got)
 	}
 }

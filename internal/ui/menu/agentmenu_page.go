@@ -77,8 +77,6 @@ var pickAgent = func(d *dialog, title string, rows [][2]string, start int) (int,
 		for i := range rows {
 			rows[i][1] = ansi.Strip(rows[i][1])
 		}
-	}
-	if !d.shell().TTY {
 		return d.shell().Pick(title, rows, start)
 	}
 	secs, order := agentSections(rows)
@@ -448,11 +446,6 @@ var copilotEffortChoices = [][2]string{
 	{"Low", "low"}, {"Medium", "medium"}, {"High", "high"}, {"Extra High", "xhigh"}, {"Max", "max"},
 }
 
-// copilotEffortLabels maps a catalog reasoning-effort id to its menu label; an unknown id passes through raw.
-var copilotEffortLabels = map[string]string{
-	"low": "Low", "medium": "Medium", "high": "High", "xhigh": "Extra High", "max": "Max",
-}
-
 // copilotContextChoices: menu label → the --context tier value.
 var copilotContextChoices = [][2]string{{"200K", "default"}, {"1M", "long_context"}}
 
@@ -482,7 +475,7 @@ func copilotEffortRow(d *dialog, modelID string) *billingRow {
 	desc := "reasoning effort on every launch " + Bracket(cur != "", cur, def)
 	choices := make([][2]string, len(m.Efforts))
 	for i, e := range m.Efforts {
-		label := cmp.Or(copilotEffortLabels[e], e)
+		label := choiceLabel(copilotEffortChoices, e)
 		if e != "" && e == m.DefaultEffort {
 			label += " (default)"
 		}
@@ -510,16 +503,16 @@ func copilotContextRow(d *dialog, modelID string) *billingRow {
 		return nil
 	}
 	cur := vault.GetAgentRecord("copilot").Context
-	desc := "context window on every launch " + Bracket(cur != "", copilotContextLabel(cur), "auto")
+	desc := "context window on every launch " + Bracket(cur != "", choiceLabel(copilotContextChoices, cur), "auto")
 	r := billingRow{"Context", desc, "", func() bool {
 		return pickCopilotPin(d, "context", "CONTEXT", copilotContextChoices, cur)
 	}}
 	return &r
 }
 
-// copilotContextLabel is val's menu label from copilotContextChoices ("200K"/"1M"); val itself if unknown.
-func copilotContextLabel(val string) string {
-	for _, c := range copilotContextChoices {
+// choiceLabel is val's menu label from choices (label, value pairs); val itself if unknown.
+func choiceLabel(choices [][2]string, val string) string {
+	for _, c := range choices {
 		if c[1] == val {
 			return c[0]
 		}
@@ -590,7 +583,7 @@ func copilotKeyRow(d *dialog) billingRow {
 // only the name, COPILOT_PROFILE — launches fetch the token with `gh auth token --user`.
 func pickGitHubUser(d *dialog, cur providers.AuthState) bool {
 	gh := copilot.GHAccounts()
-	if !isStdinTTY() || d.o.In != os.Stdin {
+	if !d.onTerminal() {
 		d.printf("copilot: runs as %s; gh accounts: %s\n", cur.Label(), strings.Join(gh, ", "))
 		return false
 	}
@@ -708,19 +701,8 @@ var setupLogins = map[string]func(d *dialog) error{
 		}
 		return nil
 	},
-	"opencode": func(*dialog) error {
-		bin, err := lookOpencode("opencode")
-		if err != nil {
-			return err
-		}
-		cancelled, err := runAttached([]string{bin, "auth", "login"})
-		invalidateOpencodeAuth()
-		if cancelled {
-			return errors.New("sign-in cancelled")
-		}
-		return err
-	},
-	"copilot": func(*dialog) error { return configure.RunLogin([]string{"copilot", "login"}) },
+	"opencode": func(*dialog) error { return opencodeSignIn() },
+	"copilot":  func(*dialog) error { return configure.RunLogin([]string{"copilot", "login"}) },
 }
 
 var (
@@ -728,7 +710,9 @@ var (
 
 	setupVerify = configure.VerifyAgent
 
-	setupRoute = routeAgent
+	setupRoute = func(d *dialog, agent string) (bool, error) {
+		return pickAgentProfile(d, agent, vault.GetAgentRecord(agent).Profile)
+	}
 )
 
 // setupRow is the page's first row.
@@ -770,9 +754,4 @@ func agentSetUp(d *dialog, agent string) {
 	case !changed:
 		d.printf("%s: signed in; the route was not changed\n", name)
 	}
-}
-
-// routeAgent runs the agent's profile picker; changed is false (err nil) when it was dismissed or left the profile as is.
-func routeAgent(d *dialog, agent string) (changed bool, err error) {
-	return pickAgentProfile(d, agent, vault.GetAgentRecord(agent).Profile)
 }

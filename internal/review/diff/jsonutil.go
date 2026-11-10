@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/review/source"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // pyFloat marshals like Python's json.dumps: shortest round-trip decimal, ".0" for integral values.
@@ -31,30 +32,18 @@ func pyPercent(x float64) string {
 	return fmt.Sprintf("%.0f%%", x*100)
 }
 
-// mustIndentJSON matches Python's json.dumps(v, indent=2): 2-space indent, ": " key separator,
+// indentJSON matches Python's json.dumps(v, indent=2): 2-space indent, ": " key separator,
 // ensure_ascii escaping of every non-ASCII rune to \uXXXX, and no HTML-escaping of <, >, &.
-func mustIndentJSON(v any) string {
-	s, err := indentJSON(v)
-	if err != nil {
-		return fmt.Sprintf("{\"error\": %q}", err.Error())
-	}
-	return s
-}
-
-// indentJSON is mustIndentJSON that returns the encode error instead of an error-shaped document.
 func indentJSON(v any) (string, error) {
-	var enc bytes.Buffer
-	e := json.NewEncoder(&enc)
-	e.SetEscapeHTML(false)
-	if err := e.Encode(v); err != nil {
+	compact, err := textutil.MarshalNoEscape(v)
+	if err != nil {
 		return "", err
 	}
-	compact := bytes.TrimRight(enc.Bytes(), "\n")
 	ascii := source.PyEscapeNonASCII(compact)
 	spaced := insertColonSpace(ascii)
 	var buf bytes.Buffer
 	if err := json.Indent(&buf, spaced, "", "  "); err != nil {
-		return string(spaced), nil
+		return "", fmt.Errorf("indent json: %w", err)
 	}
 	return buf.String(), nil
 }

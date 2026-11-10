@@ -1,7 +1,6 @@
 package paths
 
 import (
-	"errors"
 	"net/url"
 	"os"
 	"os/user"
@@ -11,26 +10,6 @@ import (
 	"sort"
 	"strings"
 )
-
-// ErrNotReachable means no known mount gives the requested view; the path is never guessed.
-var ErrNotReachable = errors.New("pathview: no known view of the path from that target")
-
-// Style is the notation ViewFrom renders.
-type Style int
-
-// View styles.
-const (
-	StyleWindows Style = iota + 1 // C:\dir\file, falling back to a UNC form
-	StyleUNC                      // \\server\share\file or \\wsl.localhost\<distro>\file
-	StyleURL                      // smb://, nfs:// or file://
-)
-
-// Target is who the path is rendered for: Host "" is this machine's Windows side; a named Host is a remote
-// machine, reachable only when it is the server of one of our mounts.
-type Target struct {
-	Style Style
-	Host  string
-}
 
 // Resolver maps paths against an explicit mount list, so tests inject one.
 type Resolver struct {
@@ -48,9 +27,6 @@ func NewResolver(mounts []Mount) *Resolver {
 
 // Resolve maps p to this machine's view using the live mounts.
 func Resolve(p string) (string, bool) { return Default().Resolve(p) }
-
-// ViewFrom renders local for target using the live mounts.
-func ViewFrom(local string, target Target) (string, error) { return Default().ViewFrom(local, target) }
 
 // Resolve maps p (Windows, UNC, URL, ~, remote-host or POSIX form) to a local absolute path.
 func (r *Resolver) Resolve(p string) (string, bool) {
@@ -300,32 +276,15 @@ func trimPrefixPath(p, prefix string, fold bool) (string, bool) {
 	return strings.TrimPrefix(rest, "/"), true
 }
 
-// ViewFrom renders the local path for target; ErrNotReachable when no known mount supports it.
-func (r *Resolver) ViewFrom(local string, target Target) (string, error) {
+// WindowsPath renders local as a Windows drive path (C:\dir\file); false when no drvfs mount holds it.
+func (r *Resolver) WindowsPath(local string) (string, bool) {
 	local = cleanLocal(local) // keeps `..` through symlinks, like Resolve
-	if !filepath.IsAbs(local) {
-		return "", ErrNotReachable
-	}
 	m, rest := r.mountFor(local)
-	if target.Host != "" {
-		if m == nil || !isRemote(m.Kind) || !strings.EqualFold(m.Host, target.Host) {
-			return "", ErrNotReachable
-		}
-		return r.render(m, rest, local, target.Style)
+	if !filepath.IsAbs(local) || m == nil || m.Kind != KindDrvFS {
+		return "", false
 	}
-	switch target.Style {
-	case StyleWindows:
-		if m != nil && m.Kind == KindDrvFS {
-			return m.Drive + `:\` + strings.ReplaceAll(strings.TrimPrefix(path.Join(m.Root, rest), "/"), "/", `\`), nil
-		}
-		return r.render(m, rest, local, StyleUNC)
-	case StyleUNC, StyleURL:
-		return r.render(m, rest, local, target.Style)
-	}
-	return "", ErrNotReachable
+	return m.Drive + `:\` + strings.ReplaceAll(strings.TrimPrefix(path.Join(m.Root, rest), "/"), "/", `\`), true
 }
-
-func isRemote(k Kind) bool { return k == KindSMB || k == KindNFS || k == KindSSHFS }
 
 // mountFor is the longest classified mount containing local, and local relative to it.
 func (r *Resolver) mountFor(local string) (*Mount, string) {
@@ -338,44 +297,6 @@ func (r *Resolver) mountFor(local string) (*Mount, string) {
 		}
 	}
 	return best, bestRest
-}
-
-func (r *Resolver) render(m *Mount, rest, local string, style Style) (string, error) {
-	if m != nil && isRemote(m.Kind) {
-		return renderRemote(m, rest, style)
-	}
-	if style == StyleURL {
-		if m != nil && m.Kind == KindDrvFS {
-			return (&url.URL{Scheme: "file", Path: "/" + m.Drive + ":/" + strings.TrimPrefix(path.Join(m.Root, rest), "/")}).String(), nil
-		}
-		return (&url.URL{Scheme: "file", Path: local}).String(), nil
-	}
-	if r.Distro != "" {
-		return `\\wsl.localhost\` + r.Distro + strings.ReplaceAll(local, "/", `\`), nil
-	}
-	return "", ErrNotReachable
-}
-
-// renderRemote renders a path on a remote-kind mount: SMB in any style, NFS only as a URL, SSHFS never.
-func renderRemote(m *Mount, rest string, style Style) (string, error) {
-	switch {
-	case m.Kind == KindSMB:
-		if style == StyleURL {
-			return (&url.URL{Scheme: "smb", Host: urlHost(m.Host), Path: "/" + path.Join(m.RemotePath, rest)}).String(), nil
-		}
-		return `\\` + m.Host + `\` + strings.ReplaceAll(path.Join(m.RemotePath, rest), "/", `\`), nil
-	case m.Kind == KindNFS && style == StyleURL:
-		return (&url.URL{Scheme: "nfs", Host: urlHost(m.Host), Path: path.Join(m.RemotePath, rest)}).String(), nil
-	}
-	return "", ErrNotReachable
-}
-
-// urlHost brackets an IPv6 literal so it stays a host in a URL.
-func urlHost(h string) string {
-	if strings.Contains(h, ":") && !strings.HasPrefix(h, "[") {
-		return "[" + h + "]"
-	}
-	return h
 }
 
 // cleanLocal cleans p lexically, except a ".." path is resolved through symlinks (existing paths) so

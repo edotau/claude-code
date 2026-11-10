@@ -59,6 +59,8 @@ func TestH2RulesPathsAndSymbols(t *testing.T) {
 	wantOne(t, rules(root), "rules/harness/a.md:5:", "`gone` not found in `internal/x/bar.go`", "(fix at rules/harness/a.md)")
 }
 
+// TestH2FailsClosed: a cited .go file that exists nowhere, or an unreadable rule, is a finding, not ok.
+
 func TestH3SkillNameMatchesDir(t *testing.T) {
 	root := t.TempDir()
 	writeRel(t, root, "skills/foo/SKILL.md", "---\nname: foo\ndescription: x\n---\n")

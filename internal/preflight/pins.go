@@ -66,7 +66,12 @@ func Check(reg *providers.Registry, now time.Time) []Pin {
 				continue
 			}
 			spec := router.PinSpec{Profile: cfg.Profile, Model: cfg.Model}
-			if agent.OwnLogin(a, spec.Profile) {
+			own, err := agent.OwnLogin(a, spec.Profile)
+			if err != nil {
+				out = append(out, Pin{Agent: a, Profile: cfg.Profile, ProfileSource: "pin", Status: StatusError, Detail: err.Error()})
+				continue
+			}
+			if own {
 				spec.Profile = "" // the agent's own login reads as no pin, as AgentPins does
 			}
 			out = append(out, checkAgent(reg, a, spec, "pin", session, now))

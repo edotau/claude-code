@@ -52,8 +52,7 @@ func Effort(in *core.Input) core.Result {
 	if ok, snap := inflight.TryClaim(claim, lim); !ok {
 		return blockAtCap(snap, account, lim)
 	}
-	docs.ClaimPlanTask(in, claim.ID)
-	return res
+	return core.WithStderr(res, docs.ClaimPlanTask(in, claim.ID))
 }
 
 func blockAtCap(snap inflight.Snapshot, account string, lim inflight.Limits) core.Result {
@@ -84,7 +83,7 @@ func workflowLeaves(in *core.Input, res core.Result) int {
 func Release(in *core.Input) core.Result {
 	if owner, id := inflight.SessionOwner(), in.Nested("tool_use_id"); owner != 0 && id != "" {
 		inflight.Release(owner, id)
-		docs.ClearPlanClaim(in.CWD, id) // a failed spawn never reaches SubagentStop
+		return core.WithStderr(core.Result{}, docs.ClearPlanClaim(in.CWD, id)) // a failed spawn never reaches SubagentStop
 	}
 	return core.Result{}
 }
@@ -107,13 +106,13 @@ func Stop(in *core.Input) core.Result {
 		return note // a blocked stop retires nothing: the leaf is still running
 	}
 	reapLeaf(in)
-	docs.ClearStoppedClaim(in, dirs, id) // before the retire: it reads the same meta.json
+	clearErr := docs.ClearStoppedClaim(in, dirs, id) // before the retire: it reads the same meta.json
 	for _, d := range dirs {
 		if d != "" {
 			inflight.RetireAgent(owner, d, id)
 		}
 	}
-	return note
+	return core.WithStderr(note, clearErr)
 }
 
 // The leaf-stop gate: a leaf may not stop while its background dispatch runs; an external-agent leaf needs a ran-on line from a tool result.
@@ -314,11 +313,12 @@ func ranOnGated(t string) bool {
 
 // ranOnVerdict blocks a gated leaf's stop or hand-back up to ranOnMaxBlocks times when no ran-on line was seen.
 func ranOnVerdict(in *core.Input, agentID string) (core.Result, bool) {
-	if !ranOnGated(leafAgentType(in)) {
+	t := leafAgentType(in)
+	if !ranOnGated(t) {
 		return core.Result{}, false
 	}
 	s, err := leafBrief(in.AgentTranscriptPath)
-	if err != nil || s.ranOn || (!requestsAgent(s.brief) && !pinnedAgentType(leafAgentType(in))) {
+	if err != nil || s.ranOn || (!requestsAgent(s.brief) && !pinnedAgentType(t)) {
 		return core.Result{}, false
 	}
 	if in.StopHookActive && s.gates == 0 { // a prior block the scan cannot read: fail open rather than trap the leaf

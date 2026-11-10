@@ -274,3 +274,5 @@ func TestDoctorPassesOnCleanStore(t *testing.T) {
 		t.Fatalf("DoctorChecks missing typo advisory, flagged JIRA_TOKEN, or lost key source: %s", detail)
 	}
 }
+
+// A .json file that fails to parse must be a finding, never "clean".

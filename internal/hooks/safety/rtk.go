@@ -21,7 +21,7 @@ import (
 // breaks every downstream parser — this harness's own gates read `git status --porcelain`, and
 // a diff stat drives transcript tooling. A command carrying one of these bypasses rtk.
 var rtkMachineReadable = []string{
-	"--porcelain", "--json", "-o json", "--format", "--pretty", "--name-only", "--name-status",
+	"--porcelain", "--json", "--format", "--pretty", "--name-only", "--name-status",
 	"--numstat", "--shortstat", "--raw", "-z", "--null", "--format-version", "--parseable", "--parse",
 	"--show-current",
 }
@@ -204,14 +204,8 @@ func rtkMachineReadableFlag(cmd string) bool {
 	tokens := shell.Tokens(strings.ToLower(cmd))
 	for i, token := range tokens {
 		name, _, _ := strings.Cut(token, "=")
-		for _, flag := range rtkMachineReadable {
-			if flag == "-o json" {
-				if name == "-o" && i+1 < len(tokens) && tokens[i+1] == "json" {
-					return true
-				}
-			} else if name == flag {
-				return true
-			}
+		if slices.Contains(rtkMachineReadable, name) || name == "-o" && i+1 < len(tokens) && tokens[i+1] == "json" {
+			return true
 		}
 	}
 	return false

@@ -364,34 +364,9 @@ func TestAgentEffortRecallEngineFailureFallsBackToTodaysBehavior(t *testing.T) {
 	}
 }
 
-// runEffortHook renders the pin step in the process hook shape these assertions read (exit 2 + stderr for a block).
+// runEffortHook renders the pin step through the production PreToolUse emitter.
 func runEffortHook(r io.Reader, stdout io.Writer) int {
-	return renderEffort(agentEffortResult(core.ParseInput(r)), stdout, os.Stderr)
-}
-
-// renderEffort writes res as PreToolUse JSON on stdout, or its block reason on errw.
-func renderEffort(res core.Result, stdout, errw io.Writer) int {
-	if res.Decision == core.Block {
-		fmt.Fprintln(errw, res.Reason)
-		return core.ExitBlock
-	}
-	if res.UpdatedInput == nil {
-		return core.ExitProceed
-	}
-	inner := map[string]any{"hookEventName": "PreToolUse", "updatedInput": res.UpdatedInput}
-	if res.Context != "" {
-		inner["additionalContext"] = res.Context
-	}
-	payload := map[string]any{"hookSpecificOutput": inner}
-	if res.SystemMessage != "" {
-		payload["systemMessage"] = res.SystemMessage
-	}
-	out, err := json.Marshal(payload)
-	if err != nil {
-		return core.ExitProceed
-	}
-	fmt.Fprintln(stdout, string(out))
-	return core.ExitProceed
+	return core.Emit(core.AgentClaude, "PreToolUse", agentEffortResult(core.ParseInput(r)), stdout, os.Stderr)
 }
 
 // A pinned agent's label names the pinned model, not the route table's cell (real labelCell, hermetic vault).

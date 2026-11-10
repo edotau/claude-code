@@ -305,12 +305,12 @@ func parseOpencodeJSON(data []byte) ([]providers.OpencodeModel, error) {
 	}
 	var out []providers.OpencodeModel
 	profiles := databricksProfileNames()
-	for _, pid := range slices.Sorted(mapKeys(doc.Provider)) {
+	for _, pid := range slices.Sorted(maps.Keys(doc.Provider)) {
 		if !strings.Contains(pid, "databricks") && !namesProfile(pid, profiles) {
 			continue
 		}
 		prov := doc.Provider[pid]
-		for _, wire := range slices.Sorted(mapKeys(prov.Models)) {
+		for _, wire := range slices.Sorted(maps.Keys(prov.Models)) {
 			id := MenuID(wire)
 			label := strings.TrimSpace(strings.SplitN(prov.Models[wire].Name, " · ", 2)[0])
 			if label == "" {
@@ -346,16 +346,6 @@ func databricksProfileNames() []string {
 func namesProfile(pid string, profiles []string) bool {
 	seg := "-" + pid + "-"
 	return slices.ContainsFunc(profiles, func(p string) bool { return strings.Contains(seg, "-"+p+"-") })
-}
-
-func mapKeys[V any](m map[string]V) func(func(string) bool) {
-	return func(yield func(string) bool) {
-		for k := range m {
-			if !yield(k) {
-				return
-			}
-		}
-	}
 }
 
 // dedupeMenu keeps the last entry per id, in first-seen order.

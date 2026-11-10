@@ -7,24 +7,19 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"os"
 
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// RenderHooksFile writes body to path, merging it over whatever is already there when merge is
-// non-nil: a nil merge overwrites outright (nothing currently needs that for a hooks file).
+// RenderHooksFile writes body to path, merged over whatever is already there.
 func RenderHooksFile(path string, body []byte, merge func(existing, body []byte) ([]byte, error), o RenderOptions, out io.Writer, label string) (bool, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	raw, existed, err := ReadExisting(path)
+	if err != nil {
 		return false, fmt.Errorf("%s: %w", label, err)
 	}
-	existed := err == nil
-	next := body
-	if merge != nil {
-		if next, err = merge(raw, body); err != nil {
-			return false, fmt.Errorf("%s: %w", label, err)
-		}
+	next, err := merge(raw, body)
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", label, err)
 	}
 	return CommitFile(path, raw, append(next, '\n'), existed, o, out, label)
 }

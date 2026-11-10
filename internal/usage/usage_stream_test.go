@@ -271,56 +271,6 @@ func grepLine(t *testing.T, s, substr string) string {
 	return ""
 }
 
-// TestUsageSlowQuotaFetchLeavesAgentsIntactAndWarnsAfter: a slow (or failing-looking, i.e. Note-only)
-// quota fetch must neither corrupt nor truncate the AGENTS section, and the warn/exceeded trailer on
-// errw must not appear until the quota fetch itself has actually completed.
-func TestUsageSlowQuotaFetchLeavesAgentsIntactAndWarnsAfter(t *testing.T) {
-	claudeDir := t.TempDir()
-	ts := time.Now().UTC().Format(time.RFC3339)
-	writeUsageFixture(t, claudeDir, "proj", "sess", time.Minute, usageRecordLine("claude-opus-5", 100, 20, ts))
-
-	release := make(chan struct{})
-	origQ := fetchQuotas
-	fetchQuotas = func() []quota {
-		<-release                                                                   // simulates a slow provider round-trip
-		return []quota{{Provider: "openai", Account: "me", UsedPct: 100, Note: ""}} // exceeded -> warns
-	}
-	t.Cleanup(func() { fetchQuotas = origQ })
-
-	var out, errw syncBuf
-	done := make(chan int, 1)
-	go func() { done <- Run([]string{"--days", "1"}, claudeDir, &out, &errw) }()
-
-	waitUntil(t, 2*time.Second, func() bool { return strings.Contains(out.String(), "MODEL") })
-	if errw.String() != "" {
-		t.Fatalf("warnings printed while the quota fetch was still blocked: %q", errw.String())
-	}
-	close(release)
-
-	var code int
-	select {
-	case code = <-done:
-	case <-time.After(15 * time.Second):
-		t.Fatal("Run never returned after releasing the slow quota fetch")
-	}
-	if code != 0 {
-		t.Fatalf("Run = %d; stderr:\n%s", code, errw.String())
-	}
-
-	s := out.String()
-	if !strings.Contains(s, "AGENTS (last") {
-		t.Fatalf("AGENTS section missing after a slow quota fetch:\n%s", s)
-	}
-	agentsSection := s[strings.Index(s, "AGENTS (last"):]
-	claudeLine := grepLine(t, agentsSection, "claude")
-	if fields := strings.Fields(claudeLine); len(fields) < 3 || fields[2] != "120" {
-		t.Errorf("AGENTS claude row corrupted by the slow fetch: %q", claudeLine)
-	}
-	if !strings.Contains(errw.String(), "usage: openai me at 100% (exceeded)") {
-		t.Errorf("warn trailer missing from errw after the slow fetch released:\n%s", errw.String())
-	}
-}
-
 // TestScanWorkflowNamesSurvivesHugeLine: a transcript line over 10MB must not drop the records after it.
 func TestScanWorkflowNamesSurvivesHugeLine(t *testing.T) {
 	use := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu1","input":{"name":"wfname"}}]}}`

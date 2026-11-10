@@ -286,7 +286,11 @@ func (copilotEngine) FallbackNote(ft providers.Target, note string) (string, boo
 }
 
 func (copilotEngine) Presence(router.Cell) error {
-	if u := copilotPinLogin(); u != "" && !slices.Contains(GHAccounts(), u) {
+	u, err := copilotPinLoginErr()
+	if err != nil {
+		return fmt.Errorf("cannot read the provider registry to check the pinned gh user: %w", err)
+	}
+	if u != "" && !slices.Contains(GHAccounts(), u) {
 		return fmt.Errorf("pinned gh user %s is not logged in (gh auth login); no other account is used", u)
 	}
 	return nil
@@ -310,8 +314,8 @@ func (copilotEngine) ConfigPaths(home string) ([]render.LabelPath, error) {
 		return nil, err
 	}
 	return []render.LabelPath{
-		{Label: "copilot-hooks", Path: filepath.Join(home, ".copilot", "hooks", "claude-code-harness.json")},
-		{Label: "copilot-settings", Path: filepath.Join(home, ".copilot", "settings.json")},
+		{Label: "copilot-hooks", Path: hooksPath(home)},
+		{Label: "copilot-settings", Path: settingsPath(home)},
 	}, nil
 }
 
@@ -369,7 +373,7 @@ func CopilotQuotaHandoff(
 ) (wire.Result, error) {
 	acct := agent.NoteCopilotQuota(cause)
 	res.SessionID = cmp.Or(partialSession, res.SessionID)
-	path, _, werr := writeCopilotHandoff(req, res, partialText, acct, cause, creds)
+	path, werr := writeCopilotHandoff(req, res, partialText, acct, cause, creds)
 	if werr != nil {
 		res.Answer = partialText
 		return res, errors.Join(cause, fmt.Errorf("copilot: quota exhausted mid-task; handoff not written: %w", werr))
@@ -390,10 +394,10 @@ func ResumeAlias(model string) string {
 	return models.FamilyOf(canon)
 }
 
-// writeCopilotHandoff writes memory/<repo>/handoffs/<date>-copilot-<shortid>[-N].md, redacted, and returns path + body.
+// writeCopilotHandoff writes memory/<repo>/handoffs/<date>-copilot-<shortid>[-N].md, redacted, and returns its path.
 func writeCopilotHandoff(
 	req agent.RunOptions, res wire.Result, partial, acct string, cause error, creds []string,
-) (string, string, error) {
+) (string, error) {
 	root := req.WorkDir
 	if root == "" {
 		root, _ = os.Getwd()
@@ -411,13 +415,9 @@ func writeCopilotHandoff(
 	doc = textutil.RedactSecrets(redactValues(doc, creds))
 	dir := handoffDir(root)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", "", err
+		return "", err
 	}
-	path, err := createExclusive(dir, time.Now().Format("2006-01-02")+"-copilot-"+shortID(res.SessionID), []byte(doc))
-	if err != nil {
-		return "", "", err
-	}
-	return path, doc, nil
+	return createExclusive(dir, time.Now().Format("2006-01-02")+"-copilot-"+shortID(res.SessionID), []byte(doc))
 }
 
 // redactValues masks every resolved credential value (8+ chars) in s, whatever its shape.

@@ -98,9 +98,14 @@ func TestCodexWiredIgnoresCommentedArgs(t *testing.T) {
 	}{
 		{"commented", "args = []\n# args = [\"network\", \"websearch\"]\n", false},
 		{"active", "args = [\"network\", \"websearch\"] # enabled\n", true},
+		{"other binary", "args = [\"network\", \"websearch\"]\n", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			body := "[mcp_servers.web_search]\ncommand = \"/opt/claude-code\"\n" + tc.args
+			cmd := "/opt/claude-code"
+			if tc.name == "other binary" {
+				cmd = "/x/other-claude-code-wrapper"
+			}
+			body := "[mcp_servers.web_search]\ncommand = \"" + cmd + "\"\n" + tc.args
 			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 				t.Fatal(err)
 			}

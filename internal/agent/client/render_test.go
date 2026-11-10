@@ -703,3 +703,5 @@ func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
 		filepath.Join(vendorHome, ".codex", "config.toml"), filepath.Join(paths.StateDir(), "opencode", "opencode.json"),
 		filepath.Join(vendorHome, ".copilot", "hooks", "claude-code-harness.json"))
 }
+
+// Given a typo'd agent name, When render or revert runs, Then each fails naming it instead of skipping it silently.

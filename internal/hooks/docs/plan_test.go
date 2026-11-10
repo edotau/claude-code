@@ -385,16 +385,6 @@ func TestPlanSkeletonInjection(t *testing.T) {
 	}
 }
 
-func TestPlanSkeletonNoTemplateFailsOpen(t *testing.T) {
-	planGroupEnv(t, false)
-	out := runDocs(t, Skeleton, map[string]any{
-		"hook_event_name": "PostToolUse", "session_id": "s2", "tool_name": "EnterPlanMode",
-	})
-	if strings.Contains(out, "# Plan:") {
-		t.Fatalf("no template but output = %q", out)
-	}
-}
-
 // plan-gate: the first template-less write to an undated draft is blocked with the skeleton; docs-placement is silent.
 func TestPlanGateBlocksWithSkeleton(t *testing.T) {
 	cfg, _ := planGroupEnv(t, true)

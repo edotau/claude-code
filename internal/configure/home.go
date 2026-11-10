@@ -2,6 +2,7 @@
 package configure
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -80,7 +82,19 @@ func CodexWired(path string) bool {
 		return false
 	}
 	body := tomlCodeOnly(string(raw[start:end]))
-	return strings.Contains(body, "claude-code") && strings.Contains(body, `args = ["network", "websearch"]`)
+	m := codexCommandRE.FindStringSubmatch(body)
+	return m != nil && filepath.Base(cmp.Or(m[2], unquoteTOML(m[1]))) == "claude-code" &&
+		strings.Contains(body, `args = ["network", "websearch"]`)
+}
+
+// codexCommandRE captures the web_search table's command value, basic string in group 1 or literal in group 2.
+var codexCommandRE = regexp.MustCompile(`(?m)^\s*command\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'([^']*)')`)
+
+func unquoteTOML(s string) string {
+	if u, err := strconv.Unquote(`"` + s + `"`); err == nil {
+		return u
+	}
+	return s
 }
 
 // tomlCodeOnly drops comments and multiline string content so neither counts as wired.

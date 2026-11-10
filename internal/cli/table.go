@@ -27,6 +27,8 @@ type command struct {
 	hidden  bool
 	run     func(args []string) int
 	spec    func() *helptext.Node
+	// sideEffectHelp marks a verb whose -h still acts (resolves credentials, runs a real binary): memory verify skips it.
+	sideEffectHelp bool
 }
 
 // Menu groups; declaration order in commands() is the display order.
@@ -60,7 +62,7 @@ func commands() []command {
 		{name: "history", group: groupSession, summary: "shadow git history of the config files", run: history.Run, spec: history.SpecNode},
 		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: cmdWorktree, spec: worktreeSpec},
 		{name: "test", group: groupSession, hidden: true, summary: "test tooling: mutate checks a test has teeth", run: cmdTest, spec: testSpec},
-		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: func(a []string) int { return cmdMemory(a, func(verb string) bool { return lookup(verb) != nil }) }, spec: memorySpec},
+		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: func(a []string) int { return cmdMemory(a, readOnlyHelp) }, spec: memorySpec},
 		{name: "plan", group: groupSession, hidden: true, summary: "plan checklists: status (ticked/total, claims)", run: plans.Run, spec: plans.SpecNode},
 		{name: "scm", group: groupSession, summary: "PRs, checks, comments on GitHub or Bitbucket DC", run: cmdScm, spec: scmSpec},
 		// DIAGNOSTICS
@@ -76,6 +78,12 @@ func commands() []command {
 	}, hiddenCommands()...)
 }
 
+// readOnlyHelp reports whether verb is a registered command whose -h only prints help.
+func readOnlyHelp(verb string) bool {
+	c := lookup(verb)
+	return c != nil && !c.sideEffectHelp
+}
+
 // describeVerbs lists the table's verbs with their completion specs, for describe.
 func describeVerbs() []describe.Verb {
 	tree := specTree()
@@ -89,8 +97,8 @@ func describeVerbs() []describe.Verb {
 func hiddenCommands() []command {
 	return []command{
 		// Hidden: dispatchable, named in the trailing note, off the menu.
-		{name: "claude", hidden: true, summary: "launch Claude Code on the selected profile", run: cmdClaude},
-		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f, --check f)", run: cmdMenuSVG, spec: menuSVGSpec},
+		{name: "claude", hidden: true, summary: "launch Claude Code on the selected profile", run: cmdClaude, sideEffectHelp: true},
+		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f)", run: cmdMenuSVG, spec: menuSVGSpec},
 		{name: "agents", hidden: true, summary: "ask, dispatch, list, sync, tree, status: run and track agents", run: cmdAgents, spec: agentsSpec},
 		{name: "preflight", hidden: true, summary: "pin check per agent; --live runs the post-install pong round", run: doctor.Preflight, spec: doctor.PreflightSpecNode},
 		{name: "models", hidden: true, summary: "model aliases; --pin alias=model, --live", run: cmdModels, spec: modelsSpec},
@@ -99,7 +107,7 @@ func hiddenCommands() []command {
 		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: cmdHook, spec: hookSpec},
 		{name: "clip", hidden: true, summary: "save the Windows clipboard image as PNG; print its WSL path", run: clipboard.Clip, spec: clipboard.Spec},
 		{name: "clip-clear", hidden: true, summary: "clear the clipboard after a delay if it still holds a copied secret", run: clipboard.ClipClear},
-		{name: "wl-paste", hidden: true, summary: "WSL wl-paste proxy: answer agent image paste, else run real wl-paste", run: clipboard.WLPaste},
+		{name: "wl-paste", hidden: true, summary: "WSL wl-paste proxy: answer agent image paste, else run real wl-paste", run: clipboard.WLPaste, sideEffectHelp: true},
 		{name: "version", hidden: true, summary: "print the build version", run: cmdVersion},
 		{name: "completion", hidden: true, summary: "bash tab-completion script (--install to write it)", run: cmdCompletion, spec: completionSpec},
 		{name: "__complete", hidden: true, summary: "machine: compute tab-completion candidates", run: cmdComplete},

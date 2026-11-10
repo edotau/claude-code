@@ -125,19 +125,6 @@ func TestPermissionsDecideInHandler(t *testing.T) {
 	}
 }
 
-func TestEmptyPermissionsKeepHandlers(t *testing.T) {
-	for _, o := range []SDKOptions{{}, {AllowAllTools: true}, {AllowAllTools: true, Autonomous: true}, {AllowAllTools: true, ReadOnlyTools: true}} {
-		with := o
-		with.Permissions = agent.Permissions{}
-		if funcName(baseHandler(o)) != funcName(baseHandler(with)) {
-			t.Errorf("%+v: handler changed", o)
-		}
-	}
-	if got := funcName(baseHandler(SDKOptions{AllowAllTools: true, Autonomous: true})); got != funcName(approveToolOnce) {
-		t.Errorf("autonomous handler = %s, want approveToolOnce", got)
-	}
-}
-
 func TestPlanModeLetsReadsThrough(t *testing.T) {
 	wd := t.TempDir()
 	perms := agent.Permissions{Mode: "plan", Deny: []agent.Rule{{Tool: "Read", Arg: "secret/**"}}}

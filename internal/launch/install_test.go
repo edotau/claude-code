@@ -334,7 +334,7 @@ func TestFormatsDoctorAndInstallStepSpan(t *testing.T) {
 	quota := seedHarness(t, "quota.json", `{"acct":{"until":"2099-01-01T00:00:00Z"}}`)
 	seedHarness(t, "agentversion.json", `{"claude":"1.0.0"}`) // unversioned cache: a miss, never stale
 
-	formats := findCheck(formatsDoctorChecks(), "formats")
+	formats := findCheck([]Check{formatsCheck()}, "formats")
 	if formats == nil || !formats.OK || strings.Contains(formats.Detail, "stale") { // quota stays a bare map: an old daemon reads it
 		t.Fatalf("formats row = %+v, want current", formats)
 	}
@@ -604,14 +604,14 @@ func altAuthScratch(t *testing.T) (home string) {
 func TestAltAuthAnthropicHeadlessToken(t *testing.T) {
 	altAuthScratch(t)
 	t.Setenv(providers.OAuthTokenEnv, "sk-ant-oat-test")
-	if got := altAuth(nil, "anthropic"); got != "claude uses the OAuth token instead" {
+	if got := altAuth("anthropic"); got != "claude uses the OAuth token instead" {
 		t.Errorf("altAuth(anthropic) with a headless token = %q", got)
 	}
 }
 
 func TestAltAuthAnthropicNone(t *testing.T) {
 	altAuthScratch(t) // no headless token, no claude binary to report a login
-	if got := altAuth(nil, "anthropic"); got != "" {
+	if got := altAuth("anthropic"); got != "" {
 		t.Errorf("altAuth(anthropic) with neither = %q, want \"\"", got)
 	}
 }
@@ -619,7 +619,7 @@ func TestAltAuthAnthropicNone(t *testing.T) {
 // gemini has no altAuth case: GeminiLoginPresent (not altAuth) now reports the agy Google login.
 func TestAltAuthGemini(t *testing.T) {
 	home := altAuthScratch(t)
-	if got := altAuth(nil, "gemini"); got != "" {
+	if got := altAuth("gemini"); got != "" {
 		t.Errorf("altAuth(gemini) without the agy marker = %q, want \"\"", got)
 	}
 	if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0o755); err != nil {
@@ -628,14 +628,14 @@ func TestAltAuthGemini(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, ".gemini", "jetski-standalone-oauth-token"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := altAuth(nil, "gemini"); got != "" {
+	if got := altAuth("gemini"); got != "" {
 		t.Errorf("altAuth(gemini) with the agy marker = %q, want \"\" (altAuth has no gemini case)", got)
 	}
 }
 
 func TestAltAuthUnknownProvider(t *testing.T) {
 	altAuthScratch(t)
-	if got := altAuth(nil, "openai"); got != "" {
+	if got := altAuth("openai"); got != "" {
 		t.Errorf("altAuth(openai) = %q, want \"\" (no alt auth path for this provider)", got)
 	}
 }

@@ -83,27 +83,6 @@ func TestParseTargetWirePrefix(t *testing.T) {
 	}
 }
 
-// TestTargetClientModel pins Target.ClientModel: only a typed OneM marks [1m].
-func TestTargetClientModel(t *testing.T) {
-	std := &Provider{Name: "s"}
-	tests := []struct {
-		name string
-		t    Target
-		want string
-	}{
-		{"typed 1m", Target{Provider: std, Model: "claude-opus-5-5", OneM: true}, "claude-opus-5-5[1m]"},
-		{"standard", Target{Provider: std, Model: "claude-opus-5-5"}, "claude-opus-5-5"},
-		{"nil provider", Target{Model: "x"}, "x"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.t.ClientModel(); got != tt.want {
-				t.Errorf("ClientModel = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestParseTargetAliasOnDatabricksRow(t *testing.T) {
 	dev := &Provider{Name: "dev", Preset: PresetDatabricks}
 	reg := &Registry{Providers: map[string]*Provider{"dev": dev}}

@@ -118,9 +118,6 @@ func dispatchRemoteMode(ctx context.Context, host, mode string, f *remoteFlags, 
 		}
 		return dispatchAttach(host, rest[0])
 	default:
-		if !remote.ValidAgent(f.agent) {
-			return helptext.Fail("network remote: --agent %q must be one of %s", f.agent, strings.Join(remote.Agents, "|"))
-		}
 		return dispatchStart(ctx, host, f.dir, f.agent, f.name, strings.Join(rest, " "), f.dryRun)
 	}
 }

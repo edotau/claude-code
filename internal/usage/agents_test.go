@@ -93,7 +93,7 @@ func writeCopilotStore(t *testing.T) {
 // the mix splits input_tokens (which already contains cached_input_tokens) into disjoint kinds.
 func TestParseCodexSessionFixture(t *testing.T) {
 	path := filepath.Join("testdata", "codex-session-fixture.jsonl")
-	got := parseCodexSession(path, time.Time{}, "")
+	got := parseCodexSessionCtx(context.Background(), path, time.Time{}, "")
 	if got.Model != "gpt-6-astra" {
 		t.Errorf("model = %q, want gpt-6-astra", got.Model)
 	}
@@ -117,7 +117,7 @@ func TestParseCodexSessionFixture(t *testing.T) {
 // second line's growth (1350 = 2200-850) counts, and its mix is the delta, still summing to its tokens.
 func TestParseCodexSessionCountsOnlyGrowthInsideWindow(t *testing.T) {
 	cutoff := time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)
-	got := parseCodexSession(filepath.Join("testdata", "codex-session-fixture.jsonl"), cutoff, "")
+	got := parseCodexSessionCtx(context.Background(), filepath.Join("testdata", "codex-session-fixture.jsonl"), cutoff, "")
 	if got.Tokens != 1350 || got.Turns != 1 {
 		t.Fatalf("tokens/turns = %d/%d, want 1350/1 (the earlier 850 predates the window)", got.Tokens, got.Turns)
 	}
@@ -278,6 +278,8 @@ func TestOpencodeUsageSqlite3Missing(t *testing.T) {
 		t.Errorf("note = %q, want %q", got.Note, "sqlite3 not installed")
 	}
 }
+
+// A failed daily-series query keeps the totals but says so in the row's Note, instead of a silently empty series.
 
 // --- copilot: copilotUsage ---
 

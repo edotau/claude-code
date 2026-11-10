@@ -60,9 +60,8 @@ func (l *Limiter) wait(ctx context.Context, ok func() bool) error {
 	}
 }
 
-// reserve waits, holding nothing, for a global slot no prepared task is owed, so a task is prepared only when it can
-// start; the claim ends at settle.
-func (l *Limiter) reserve(ctx context.Context) (*Slot, error) {
+// Reserve waits for a global slot no prepared task is owed: a task is prepared only once it can start; Settle ends it.
+func (l *Limiter) Reserve(ctx context.Context) (*Slot, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if err := l.wait(ctx, func() bool { return l.running+l.pending < l.jobs }); err != nil {
@@ -80,8 +79,8 @@ func (l *Limiter) settleLocked(s *Slot) {
 	}
 }
 
-// settle ends ctx's slot claim; idempotent, and a no-op outside a batch.
-func settle(ctx context.Context) {
+// Settle ends ctx's slot claim; idempotent, and a no-op outside a batch.
+func Settle(ctx context.Context) {
 	if l, _ := ctx.Value(limiterKey{}).(*Limiter); l != nil {
 		s, _ := ctx.Value(slotKey{}).(*Slot)
 		l.mu.Lock()
@@ -209,9 +208,6 @@ func NewBatchLimiter(jobs int) *Limiter {
 	return l
 }
 
-// Reserve waits for a global slot no prepared task is owed; the claim ends at Settle.
-func (l *Limiter) Reserve(ctx context.Context) (*Slot, error) { return l.reserve(ctx) }
-
 // WithBatchSlot carries l and s in ctx so Settle and the dispatches under it find them.
 func WithBatchSlot(ctx context.Context, l *Limiter, s *Slot) context.Context {
 	return context.WithValue(WithLimiter(ctx, l), slotKey{}, s)
@@ -221,6 +217,3 @@ func WithBatchSlot(ctx context.Context, l *Limiter, s *Slot) context.Context {
 func WithFailFast(ctx context.Context, stop func()) context.Context {
 	return context.WithValue(ctx, failFastKey{}, stop)
 }
-
-// Settle ends ctx's slot claim; idempotent, and a no-op outside a batch.
-func Settle(ctx context.Context) { settle(ctx) }

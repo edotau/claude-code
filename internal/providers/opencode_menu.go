@@ -185,11 +185,7 @@ func MergePickerModels(existing, additions []ModelInfo) []ModelInfo {
 	return out
 }
 
-// pickerNew excludes configured aliases and the legacy menu using known wire equivalence.
-func pickerNew(p *Provider, saved, live []ModelInfo) []ModelInfo {
-	return pickerNewWithBaseline(p, saved, live, OpencodeMenu())
-}
-
+// pickerNewWithBaseline excludes configured aliases and the baseline menu using known wire equivalence.
 func pickerNewWithBaseline(p *Provider, saved, live []ModelInfo, baseline []OpencodeModel) []ModelInfo {
 	seen := pickerSeen(p, saved, baseline)
 	var out []ModelInfo
@@ -231,7 +227,7 @@ func PreviewPickerModels(p *Provider, live []ModelInfo) ([]ModelInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return pickerNew(p, saved, live), nil
+	return pickerNewWithBaseline(p, saved, live, OpencodeMenu()), nil
 }
 
 // AppendPickerModels atomically appends sealed additions without losing concurrent updates.

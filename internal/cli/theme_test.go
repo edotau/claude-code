@@ -209,21 +209,6 @@ func TestThemeVSCodeDispatchesToVSCode(t *testing.T) {
 	}
 }
 
-// TestThemeGetGradientSafety ensures that theme gradient loading handles errors
-// safely without panicking or returning garbage values (regression test for
-// internal/cli/theme.go:111 json.Unmarshal error handling).
-func TestThemeGetGradientSafety(t *testing.T) {
-	_ = hermeticTheme(t) // initialize theme directory
-
-	// Test that setting and getting a theme works without error
-	code, _, _ := hosttest.CaptureOutput(t, func() int {
-		return cmdTheme([]string{"nord"})
-	})
-	if code != 0 {
-		t.Errorf("theme nord: exit %d, want 0", code)
-	}
-}
-
 func TestThemeResetDeletesOverrideAndIsIdempotent(t *testing.T) {
 	dir := hermeticTheme(t)
 	if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdTheme([]string{"nord"}) }); code != 0 {

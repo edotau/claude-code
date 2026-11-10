@@ -87,7 +87,7 @@ func worktreeAddArgs(main, dest, branch string, log io.Writer) (args []string, b
 }
 
 func resumeLedger(repo *Repo, name, dest, session string) error {
-	path := filepath.Join(memory.Dir(repo.Main), "worktrees", name+".md")
+	path := ledgerPath(memory.Dir(repo.Main), name)
 	if data, err := os.ReadFile(path); err == nil {
 		if ledgerField(string(data), "Status") != "closed" {
 			return nil
@@ -163,49 +163,31 @@ type CleanResult struct {
 // whole recheck-and-remove runs under the per-worktree lease (WithWorktreeLease), so it can never
 // interleave with an active resolve or merge on the same worktree.
 func Clean(repo *Repo, name string, dryRun bool) (CleanResult, error) {
-	return CleanWithLog(repo, name, dryRun, os.Stderr)
+	return cleanWithLog(repo, name, dryRun, os.Stderr)
 }
 
-// CleanWithLog is Clean with ledger warnings written to log (nil discards them).
-func CleanWithLog(repo *Repo, name string, dryRun bool, log io.Writer) (CleanResult, error) {
+// cleanWithLog is Clean with ledger warnings written to log (nil discards them).
+func cleanWithLog(repo *Repo, name string, dryRun bool, log io.Writer) (CleanResult, error) {
 	var result CleanResult
 	err := WithWorktreeLease(repo, name, func() error {
-		r, cleanErr := cleanInLease(repo, name, dryRun, log)
-		result = r
-		return cleanErr
+		dest, err := ResolveWorktree(repo, name)
+		if err != nil {
+			return err
+		}
+		result, err = cleanAtWith(repo, name, dest, dryRun, log, LedgerClose{Via: "clean"})
+		return err
 	})
 	return result, err
 }
 
-// cleanInLease is Clean's recheck-and-remove body, run with the per-worktree lease already held.
-func cleanInLease(repo *Repo, name string, dryRun bool, log io.Writer) (CleanResult, error) {
-	dest, err := ResolveWorktree(repo, name)
-	if err != nil {
-		return CleanResult{}, err
-	}
-	return cleanAt(repo, name, dest, dryRun, log)
-}
-
-// cleanAt is cleanInLease's body for a dest the caller already validated under the same lease.
-func cleanAt(repo *Repo, name, dest string, dryRun bool, log io.Writer) (CleanResult, error) {
-	return cleanAtWith(repo, name, dest, dryRun, log, LedgerClose{Via: "clean"})
-}
-
-// cleanAtWith is cleanAt whose ledger close on removal is closing (Head defaults to the worktree HEAD).
+// cleanAtWith rechecks and removes a dest validated under the lease, closing its ledger (Head defaults to HEAD).
 func cleanAtWith(repo *Repo, name, dest string, dryRun bool, log io.Writer, closing LedgerClose) (CleanResult, error) {
 	if log == nil {
 		log = io.Discard
 	}
-	if _, err := os.Stat(dest); err != nil {
-		return CleanResult{}, fmt.Errorf("worktree %q not found at %s", name, dest)
-	}
-	if info, err := os.Lstat(dest); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return CleanResult{}, fmt.Errorf("%s is a symlink, refusing to treat it as a worktree", dest)
-	}
-	branch, branchErr := currentWorktreeBranch(dest)
-	result := CleanResult{Path: dest, Branch: branch}
-	if branchErr != nil {
-		fmt.Fprintf(log, "worktree-clean: warning: branch not detected, it will not be deleted: %v\n", branchErr)
+	result, err := beginClean(name, dest, log)
+	if err != nil {
+		return CleanResult{}, err
 	}
 
 	gitDir, reason := cleanBusyReason(dest)
@@ -224,6 +206,21 @@ func cleanAtWith(repo *Repo, name, dest string, dryRun bool, log io.Writer, clos
 		return result, nil
 	}
 	return removeMerged(repo, name, dest, entry, result, log, closing), nil
+}
+
+// beginClean checks dest exists and is no symlink, then seeds a CleanResult with its branch (warning on log if undetected).
+func beginClean(name, dest string, log io.Writer) (CleanResult, error) {
+	if _, err := os.Stat(dest); err != nil {
+		return CleanResult{}, fmt.Errorf("worktree %q not found at %s", name, dest)
+	}
+	if info, err := os.Lstat(dest); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return CleanResult{}, fmt.Errorf("%s is a symlink, refusing to treat it as a worktree", dest)
+	}
+	branch, branchErr := currentWorktreeBranch(dest)
+	if branchErr != nil {
+		fmt.Fprintf(log, "worktree-clean: warning: branch not detected, it will not be deleted: %v\n", branchErr)
+	}
+	return CleanResult{Path: dest, Branch: branch}, nil
 }
 
 // inUseReason is the refusal reason for a worktree some process is using ("" = free).
@@ -363,20 +360,9 @@ func headOfContext(ctx context.Context, dest string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// isLocked stats the linked worktree's private "locked" marker directly, so Clean needs no full
+// isLockedAt stats the linked worktree's private "locked" marker directly, so Clean needs no full
 // `worktree list` round trip just to recheck one entry's lock state. Only a confirmed os.IsNotExist
 // counts as unlocked; any other stat error is an unknown state and must propagate.
-func isLocked(dest string) (bool, error) {
-	ctx, cancel := gitTimeoutCtx()
-	defer cancel()
-	gitDir, err := gitDirOf(ctx, dest)
-	if err != nil {
-		return false, err
-	}
-	return isLockedAt(dest, gitDir)
-}
-
-// isLockedAt is isLocked with dest's git-dir already known.
 func isLockedAt(dest, gitDir string) (bool, error) {
 	_, statErr := os.Stat(filepath.Join(gitDir, "locked"))
 	switch {
@@ -422,20 +408,16 @@ func cleanForceInLease(repo *Repo, name string, dryRun bool, report func(Discard
 	if err != nil {
 		return CleanResult{}, err
 	}
-	if _, err := os.Stat(dest); err != nil {
-		return CleanResult{}, fmt.Errorf("worktree %q not found at %s", name, dest)
-	}
-	branch, branchErr := currentWorktreeBranch(dest)
-	result := CleanResult{Path: dest, Branch: branch}
-	if branchErr != nil {
-		fmt.Fprintf(log, "worktree-clean: warning: branch not detected, it will not be deleted: %v\n", branchErr)
+	result, err := beginClean(name, dest, log)
+	if err != nil {
+		return CleanResult{}, err
 	}
 
 	if reason := forceBusyReason(repo, dest); reason != "" {
 		result.Reason = reason
 		return result, nil
 	}
-	summary, reason := discardSummary(repo, dest, branch)
+	summary, reason := discardSummary(repo, dest, result.Branch)
 	if reason != "" {
 		result.Reason = reason
 		return result, nil
@@ -459,8 +441,13 @@ func forceBusyReason(repo *Repo, dest string) string {
 	if reason := inUseReason(dest); reason != "" {
 		return reason
 	}
-	locked, err := isLocked(dest)
-	return lockReason(locked, err)
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	gitDir, err := gitDirOf(ctx, dest)
+	if err != nil {
+		return lockReason(false, err)
+	}
+	return lockReason(isLockedAt(dest, gitDir))
 }
 
 // discardSummary counts what a forced clean would throw away; a non-empty reason refuses it.

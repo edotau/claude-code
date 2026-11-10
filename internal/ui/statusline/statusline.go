@@ -556,7 +556,7 @@ func totalSegment(in Input) string {
 		return ""
 	}
 	out := sigTokens(n)
-	if _, dispatches := runningCounts(in); dispatches > 0 {
+	if dispatches := runningDispatches(in); dispatches > 0 {
 		out += "+"
 	}
 	return out

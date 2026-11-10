@@ -75,15 +75,12 @@ func runAskAndReport(ctx context.Context, client *client.Client, p *client.Prepa
 	return 0
 }
 
-// The ask --format values.
-const formatStreamJSON = client.FormatStreamJSON
-
 // StdoutSink is the sink behind stdout for format: streamed text, nothing (json prints one envelope), or NDJSON.
 func StdoutSink(format, dispatchID string) wire.Sink {
 	switch format {
 	case helptext.JSON:
 		return wire.Discard
-	case formatStreamJSON:
+	case client.FormatStreamJSON:
 		return wire.NewJSONLSink(os.Stdout, dispatchID)
 	}
 	return wire.NewTextSink(os.Stdout)

@@ -47,12 +47,6 @@ func checkReadable(dir string, e os.DirEntry) error {
 	return f.Close()
 }
 
-// topicPaths is topicFiles with its error dropped; production callers use topicFiles.
-func topicPaths(dir string) []string {
-	out, _ := topicFiles(dir)
-	return out
-}
-
 // topicName normalizes a user-supplied name to "<slug>.md" and classifies it against dir: a reserved name
 // is refused outright, an absent file passes (callers skip it as not there), and anything present that is
 // not an archivable topic is refused, since callers pass the result straight to a move.
@@ -363,8 +357,8 @@ func archiveNativeLocked(dir string, todo []string, res *nativeResult) error {
 	if err != nil {
 		return err
 	}
-	searchable, err := os.ReadFile(filepath.Join(dir, NativeSearchableFile))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+	searchable, err := readIfExists(filepath.Join(dir, NativeSearchableFile))
+	if err != nil {
 		return err
 	}
 	links, err := indexedLinks(dir, healed)
@@ -484,7 +478,10 @@ func planArchive(dir string, todo []string, links map[string]string) (moves []ar
 func archiveLanding(data []byte, dst string) (final string, dedupe bool, err error) {
 	archiveDir, stem := filepath.Dir(dst), strings.TrimSuffix(dst, ".md")
 	revisions := []string{dst}
-	ents, _ := os.ReadDir(archiveDir)
+	ents, err := os.ReadDir(archiveDir)
+	if err != nil && !os.IsNotExist(err) {
+		return "", false, err
+	}
 	for _, e := range ents {
 		if strings.HasPrefix(e.Name(), filepath.Base(stem)+"@") && strings.HasSuffix(e.Name(), ".md") {
 			revisions = append(revisions, filepath.Join(archiveDir, e.Name()))
@@ -555,7 +552,10 @@ func reconcileLines(dir, index string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	rec, _ := os.ReadFile(filepath.Join(nativeArchiveDir(dir), NativeArchiveIndexFile))
+	rec, err := readIfExists(filepath.Join(nativeArchiveDir(dir), NativeArchiveIndexFile))
+	if err != nil {
+		return nil, err
+	}
 	recorded := indexLinks(string(rec))
 	var missing []string
 	for _, p := range topics {

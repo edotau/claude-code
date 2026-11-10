@@ -31,19 +31,15 @@ const (
 	stopFormatWorkers  = 4
 )
 
-// StopFormat is the `format-stop` runner (Stop, format group): formats files dirty in git and written by this session.
-func StopFormat(in *core.Input) core.Result { stopFormat(in); return core.Result{} }
-
-// stopFormat formats files that are dirty in git AND that this session's transcript shows it writing;
-// a dirty file Claude never wrote is the user's hand edit and is left alone.
-func stopFormat(in *core.Input) int {
+// StopFormat formats git-dirty files this session wrote; a dirty file it never wrote is the user's and left alone.
+func StopFormat(in *core.Input) core.Result {
 	in = memhook.AgentInput(in) // copilot and opencode have no Claude-shaped transcript of their own
 	cwd := in.CWD
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
 	if cwd == "" {
-		return core.ExitProceed
+		return core.Result{}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), stopFormatTimeout)
 	defer cancel()
@@ -51,7 +47,7 @@ func stopFormat(in *core.Input) int {
 	changed := changedFiles(ctx, cwd)
 	if len(changed) == 0 {
 		_ = os.Remove(stampPath) // clean tree: drop stale stamps and skip the transcript scan
-		return core.ExitProceed
+		return core.Result{}
 	}
 	allow := map[string]bool{}
 	edited, err := transcript.EditedFiles(in.TranscriptPath, stopFormatMaxFiles)
@@ -67,14 +63,14 @@ func stopFormat(in *core.Input) int {
 		}
 	}
 	if len(allow) == 0 {
-		return core.ExitProceed
+		return core.Result{}
 	}
 	eligible, carry := selectForFormat(cwd, changed, loadStamps(stampPath), allow)
 	maps.Copy(carry, formatAll(eligible))
 	if data, err := json.Marshal(stampFile{Schema: stopFormatSchema, Stamps: carry}); err == nil {
 		_ = paths.AtomicWrite(stampPath, data, 0o600)
 	}
-	return core.ExitProceed
+	return core.Result{}
 }
 
 // selectForFormat returns dirty session-written files whose stamp changed, plus stamps to carry forward.

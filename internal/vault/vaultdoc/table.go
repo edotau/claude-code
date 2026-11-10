@@ -132,27 +132,18 @@ func vaultFlattenValue(prefix string, v any) [][2]string {
 	return rows
 }
 
-// vaultSection renders one heading plus its aligned, width-truncated rows (or "(none)" when empty).
-func vaultSection(heading string, rows [][2]string, width int) string {
-	return vaultSectionMax(heading, rows, width, kvKeyMax, kvValueMax)
-}
-
 // Key/value sections (PINS, ENV, ROUTING, SETTINGS, AGENTS, VAULT) clip a longer key or value with "…".
 const (
 	kvKeyMax   = 24
 	kvValueMax = 48
 )
 
-// vaultSectionMax is vaultSection with explicit key/value caps (0 = no cap); SECRETS lays out its own columns.
-func vaultSectionMax(heading string, rows [][2]string, width, keyMax, valueMax int) string {
+// vaultSection renders one heading plus its aligned, width-truncated rows (or "(none)" when empty).
+func vaultSection(heading string, rows [][2]string, width int) string {
 	rows = slices.Clone(rows)
 	for i, r := range rows {
-		if keyMax > 0 {
-			r[0] = table.TruncateMiddle(r[0], keyMax) // keys differ at the end ("…Markers[0]" vs "…Markers[1]")
-		}
-		if valueMax > 0 {
-			r[1] = table.Truncate(r[1], valueMax)
-		}
+		r[0] = table.TruncateMiddle(r[0], kvKeyMax) // keys differ at the end ("…Markers[0]" vs "…Markers[1]")
+		r[1] = table.Truncate(r[1], kvValueMax)
 		rows[i] = r
 	}
 	rows = clipValues(rows, width)
@@ -313,7 +304,10 @@ func presetEnvs(names []string) string {
 	}
 	slices.SortStableFunc(names, func(a, b string) int { // failures first so a clipped cell still shows them
 		if ok[a] != ok[b] {
-			return cmp.Compare(boolRank(ok[a]), boolRank(ok[b]))
+			if ok[a] {
+				return 1
+			}
+			return -1
 		}
 		return cmp.Compare(a, b)
 	})
@@ -325,13 +319,6 @@ func presetEnvs(names []string) string {
 		}
 	}
 	return strings.Join(parts, " ")
-}
-
-func boolRank(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }
 
 // vaultRoutingText renders the providers overlay's nested routing object (weights, cells, subagents,
@@ -378,9 +365,7 @@ func vaultRoutingJSON(providersRaw json.RawMessage) (json.RawMessage, error) {
 }
 
 // Per-column max widths for the PROVIDERS table; a longer cell is clipped with "…" (0 = no cap).
-var (
-	providerColMax = []int{20, 10, 20, 14, 14, 16, 16, 18}
-)
+var providerColMax = []int{20, 10, 20, 14, 14, 16, 16, 18}
 
 // vaultAgentCols are the leading agent-table columns; other pin suffixes follow alphabetically.
 var vaultAgentCols = []string{"PROFILE", "MODEL", "EFFORT", "CONTEXT"}

@@ -875,21 +875,6 @@ func TestMemoryRecallFailReturnValue(t *testing.T) {
 	}
 }
 
-// TestMemoryRecallLoadBlockErrorSilent documents the behavior where ShowBlock() errors
-// are silently ignored in recallLoad() (regression for internal/cli/memory.go:188).
-// The fix should log or report errors instead of silently continuing.
-func TestMemoryRecallLoadBlockErrorSilent(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	// Use --load with an invalid block ID to trigger ShowBlock() error
-	code, out, _ := hosttest.CaptureOutput(t, func() int {
-		return cmdMemoryRecall([]string{"nonexistent", "--load", "1"})
-	})
-	// Should succeed (exit 0) but only print the title, not the body
-	// After the fix, errors should be logged or reported
-	_ = code
-	_ = out
-}
-
 func TestMemoryDreamRejectsStrayBeforeDryRun(t *testing.T) {
 	cfg := filepath.Join(t.TempDir(), "not-a-directory")
 	if err := os.WriteFile(cfg, []byte("blocked"), 0o600); err != nil {

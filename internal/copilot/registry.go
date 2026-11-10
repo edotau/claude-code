@@ -242,10 +242,9 @@ var (
 )
 
 // CopilotChoice is every place a model can come from, highest priority first: Requested (each --model given),
-// Saved (a resumed session's provider/id), Pin (the vault pin value); none set picks the default.
+// Pin (the vault pin value); none set picks the default.
 type CopilotChoice struct {
 	Requested []string
-	Saved     string
 	Pin       string
 }
 
@@ -259,8 +258,6 @@ func (r CopilotRegistry) Select(c CopilotChoice) (string, error) {
 		return "", fmt.Errorf("%w: %s", ErrRepeatedSelection, strings.Join(c.Requested, ", "))
 	case len(c.Requested) == 1:
 		return r.find(c.Requested[0], ErrUnknownModel)
-	case c.Saved != "":
-		return r.find(c.Saved, ErrSavedModelGone)
 	case c.Pin != "":
 		return r.find(c.Pin, ErrSavedModelGone)
 	}

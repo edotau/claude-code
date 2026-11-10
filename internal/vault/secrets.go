@@ -52,7 +52,7 @@ func neverSecret(val string) bool {
 // knownSecretShape reports a known token prefix or a JWT shape.
 func knownSecretShape(val string) bool {
 	switch {
-	case textutil.HasGitHubPrefix(val), matchSlack(val):
+	case textutil.HasGitHubPrefix(val), textutil.IsSlackToken(val):
 		return true
 	case strings.HasPrefix(val, "AKIA"): // AWS
 		return true
@@ -60,14 +60,6 @@ func knownSecretShape(val string) bool {
 		return true
 	}
 	return strings.HasPrefix(val, "eyJ") && strings.Count(val, ".") >= 2 // JWT
-}
-
-// matchSlack matches a Slack bot/user/app/legacy token (xox[baprs]-...).
-func matchSlack(v string) bool {
-	if len(v) < 5 || !strings.HasPrefix(v, "xox") || v[4] != '-' {
-		return false
-	}
-	return strings.ContainsRune("baprs", rune(v[3]))
 }
 
 // secretPattern is the substring regex used over raw text (git diff lines) where a value cannot be

@@ -234,11 +234,6 @@ func (ev claudeEvent) text() string {
 	return s
 }
 
-// parseClaudeStream emits top-level assistant text and tool calls to sink and returns the result event's envelope.
-func parseClaudeStream(br *bufio.Reader, sink wire.Sink, logs ...wire.StreamLog) (res wire.Result, _ error) {
-	return parseClaudeEvents(br, false, nil, sink, logs...)
-}
-
 // parseClaudeEvents stops at the first result when untilResult is set, preserving buffered lines for the next turn.
 func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink wire.Sink, logs ...wire.StreamLog) (res wire.Result, _ error) {
 	lg := wire.PickLog(logs)

@@ -104,6 +104,10 @@ func serveChild(ctx context.Context, cancel context.CancelCauseFunc, rec *Record
 		}
 		exited <- cmd.Wait()
 	}()
+	if err := rec.Save(); err != nil { // the pid is on disk before the first send can find the record
+		cancel(err) // kills the child; the waiter reaps it
+		return fmt.Errorf("live session %s: record not saved: %w", rec.ID, err)
+	}
 	// bound after Start: a socket on disk means a running child, so a failed start is never reported ready
 	ln, err := listenLive(rec.ID)
 	if err != nil {
@@ -115,7 +119,6 @@ func serveChild(ctx context.Context, cancel context.CancelCauseFunc, rec *Record
 	s := &liveSession{rec: rec, name: name, be: be, stdin: stdin, dec: bufio.NewReader(pump), events: events, idleFor: IdleOf(rec.Request),
 		cancel: cancel, profile: profile}
 	s.idle = time.AfterFunc(s.idleFor, func() { cancel(errLiveIdle) })
-	_ = rec.Save() // the pid is on disk before the first send can find the record
 	_ = events.Emit(wire.Event{Type: wire.EventStart, Agent: name, DispatchID: rec.ID, Status: "running"})
 
 	return s.awaitChild(ctx, ln, exited, stdin, tail)

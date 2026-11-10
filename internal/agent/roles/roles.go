@@ -31,7 +31,11 @@ var Seed = []Role{
 // Lookup finds name in the vault overlay table if set and valid, else in Seed.
 func Lookup(name string) (Role, error) {
 	table := Seed
-	if t, ok := vaultRoles(); ok {
+	t, err := vaultRoles()
+	if err != nil {
+		return Role{}, err
+	}
+	if len(t) > 0 {
 		table = t
 	}
 	names := make([]string, 0, len(table))
@@ -44,21 +48,24 @@ func Lookup(name string) (Role, error) {
 	return Role{}, fmt.Errorf("unknown role %q (%s)", name, strings.Join(names, "|"))
 }
 
-func vaultRoles() ([]Role, bool) {
+// vaultRoles is the overlay table, or nil when none is set or the vault is unreadable; malformed JSON is an error.
+func vaultRoles() ([]Role, error) {
 	var out []Role
-	var found bool
+	var perr error
 	err := vault.View(func(t *vault.Tx) error {
 		raw, ok := t.Get(vault.Overlay, rolesKey)
 		if !ok || raw == "" {
 			return nil
 		}
-		found = json.Unmarshal([]byte(raw), &out) == nil && len(out) > 0
+		if jerr := json.Unmarshal([]byte(raw), &out); jerr != nil {
+			perr = fmt.Errorf("vault overlay %s is not a JSON array of roles: %w", rolesKey, jerr)
+		}
 		return nil
 	})
-	if err != nil || !found {
-		return nil, false
+	if err != nil || perr != nil {
+		return nil, perr
 	}
-	return out, true
+	return out, nil
 }
 
 // SplitModels returns the non-empty, trimmed entries of a comma-separated --models value.
