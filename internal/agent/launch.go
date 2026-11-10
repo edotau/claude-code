@@ -130,6 +130,9 @@ func (s Schema) configureRoute(ctx context.Context, t providers.Target, h *Headl
 	if p == nil || t.Model == "" {
 		return nil, nil, fmt.Errorf("%s: no provider/model resolved", name)
 	}
+	if p.IsAIGateway() {
+		return nil, nil, fmt.Errorf("profile %s uses the AI Gateway wire; agents run on /serving-endpoints only", p.Name)
+	}
 	if p.Auth.Login != "" {
 		return login(e, p, models.Strip1M(t.Model), h)
 	}

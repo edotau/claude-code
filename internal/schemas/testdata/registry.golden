@@ -47,7 +47,7 @@ migrations | log | 1 | state/harness/migrations.jsonl | schemas | keep
 notices | log | 1 | state/harness/notices/*.jsonl | internal/worktree | keep
 oauth-usage-cache | cache | 1 | state/harness/cache/claude-oauth-usage.json | internal/usage | keep
 opencode-auth-cache | cache | 1 | state/harness/vendors/opencode-auth.json | internal/opencode | keep
-opencode-models-check | cache | 1 | state/harness/opencode-models-check.json | internal/opencode | keep
+opencode-models-check | cache | 1 | state/harness/opencode-models-check.json | internal/catalog | keep
 opencode-overlay | derived | 1 | state/harness/opencode/*.json | internal/agentconfig | keep
 picker-additions | store | 1 | state/vault.db | internal/providers | keep
 projections | derived | 1 | state/projections/* | internal/agentconfig/project | clean:projections

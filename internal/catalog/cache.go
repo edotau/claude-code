@@ -56,9 +56,9 @@ func LoadCheckCache(provider string) (map[string]serving.CheckResult, bool) {
 // checkCacheSchema is the cache's current schema version; a mismatch is a cache miss, never migrated.
 const checkCacheSchema = 1
 
-// checkCacheFormat keeps Owner internal/opencode: internal/schemas/testdata/registry.golden pins it.
+// checkCacheFormat registers the shared model check cache's on-disk format.
 var checkCacheFormat = schemas.Register(schemas.Format{
-	Name: "opencode-models-check", Owner: "internal/opencode", Kind: schemas.Cache,
+	Name: "opencode-models-check", Owner: "internal/catalog", Kind: schemas.Cache,
 	Glob:    func() string { return CheckCachePath() },
 	New:     func() any { return &CheckCache{} },
 	Version: checkCacheSchema, Keep: "rebuildable cache; a version mismatch is a miss",

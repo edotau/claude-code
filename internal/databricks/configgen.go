@@ -318,8 +318,8 @@ func renderCodex(o Options) (Result, error) {
 		model = o.Model
 	}
 	head = replaceLine(head, "model", p.WireModel(bareModel(model)))
-	if p.Options.Wire != WireAIGateway {
-		head = replaceLine(head, "name", "Databricks serving")
+	if p.Options.Wire == WireAIGateway {
+		head = replaceLine(head, "name", "Databricks AI Gateway")
 	}
 	auth := fmt.Sprintf("command = \"sh\"\nargs = [\"-c\", %s]\n", strconv.Quote(cliTokenCmd(o.Host)))
 	if o.Auth == AuthHarness {

@@ -1,6 +1,8 @@
 package providers
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -52,5 +54,29 @@ func TestModelTableLinesAligns(t *testing.T) {
 		if col != idx {
 			t.Errorf("line %q: Use case column at %d, want %d (header's)", lines[i], col, idx)
 		}
+	}
+}
+
+// A serving-wire Databricks row lists only /api/2.0/serving-endpoints; only an AI Gateway-wire row reads the gateway.
+func TestLoadCatalogReadsGatewayOnlyOnGatewayWire(t *testing.T) {
+	rec := &pathRecorder{}
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/ai-gateway/anthropic/v1/models" {
+			rec.hit(r)
+			writeJSON(w, 200, `{"data":[{"id":"system.ai.claude-opus-5","display_name":"Claude Opus 5"}],"has_more":false}`)
+			return
+		}
+		servingHandler(rec)(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	trustTestTLS(t, srv)
+	p := liveDbxProvider(t, srv.URL, "tok")
+	c, err := LoadCatalog(nil, p, nil)
+	if err != nil || rec.saw("/ai-gateway/anthropic/v1/models") || len(c.Gateway) != 0 || c.GatewayErr != nil {
+		t.Fatalf("serving row: paths %v, err %v, catalog:\n%s", rec.paths, err, strings.Join(c.TableLines(), "\n"))
+	}
+	p.Options.Wire = WireAIGateway
+	if _, err := LoadCatalog(nil, p, nil); err != nil || !rec.saw("/ai-gateway/anthropic/v1/models") {
+		t.Errorf("gateway-wire row: paths %v, err %v; want the gateway listing read", rec.paths, err)
 	}
 }

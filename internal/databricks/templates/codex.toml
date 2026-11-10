@@ -1,9 +1,9 @@
 model_provider = "databricks"
-model = "system.ai.gpt-6-1-sol"
+model = "databricks-gpt-6-1-sol"
 
 [model_providers.databricks]
-name = "Databricks AI Gateway"
-base_url = "https://example.cloud.databricks.com/ai-gateway/codex/v1"
+name = "Databricks serving"
+base_url = "https://example.cloud.databricks.com/serving-endpoints"
 wire_api = "responses"
 
 [model_providers.databricks.auth]
