@@ -883,7 +883,7 @@ func planFill(src, model string, i int, window string) (fillEdit, int) {
 // fillOptions inserts the pin into an existing options-object second argument.
 func fillOptions(src, model string, argsStart, argsEnd int, span argSpan) (fillEdit, int) {
 	opt := src[argsStart+span.start : argsStart+span.end]
-	trimmed := strings.TrimLeft(opt, " \t\n")
+	trimmed := skipLeadingComments(opt)
 	if trimmed == "" || trimmed[0] != '{' || strings.Contains(stripStrings(trimmed), "...") {
 		return fillEdit{}, fillAmbiguous
 	}
@@ -893,6 +893,29 @@ func fillOptions(src, model string, argsStart, argsEnd int, span argSpan) (fillE
 		return fillEdit{braceAt + 1, fmt.Sprintf("model: '%s'", model)}, fillEditing
 	}
 	return fillEdit{braceAt + 1, fmt.Sprintf(" model: '%s',", model)}, fillEditing
+}
+
+// skipLeadingComments drops leading whitespace and /* */ or // comments, e.g. "/* c */ { ... }" → "{ ... }".
+func skipLeadingComments(s string) string {
+	for {
+		s = strings.TrimLeft(s, " \t\r\n")
+		switch {
+		case strings.HasPrefix(s, "/*"):
+			end := strings.Index(s, "*/")
+			if end < 0 {
+				return s
+			}
+			s = s[end+2:]
+		case strings.HasPrefix(s, "//"):
+			end := strings.IndexByte(s, '\n')
+			if end < 0 {
+				return ""
+			}
+			s = s[end+1:]
+		default:
+			return s
+		}
+	}
 }
 
 // FillModel rewrites every agent() call in src missing a model: pin (agentType alone is not one; opus-ok does NOT

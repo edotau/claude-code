@@ -65,9 +65,14 @@ func TestCommentCommaDoesNotSplitArgs(t *testing.T) {
 	if out, amb := FillModel(src, "sonnet"); out != want || len(amb) != 0 {
 		t.Errorf("FillModel = %q, %v; want %q", out, amb, want)
 	}
-	src = "agent('p', /* a, b */ { effort: 'low' })" // a leading comment is conservatively ambiguous, never mangled
+	src = "agent('p', /* a, b */ { effort: 'low' })" // a leading comment is skipped, the object still gets the pin
+	want = "agent('p', /* a, b */ { model: 'sonnet', effort: 'low' })"
+	if out, amb := FillModel(src, "sonnet"); out != want || len(amb) != 0 {
+		t.Errorf("FillModel (comment before options) = %q, %v; want %q", out, amb, want)
+	}
+	src = "agent('p', /* a */ opts)" // a non-literal after the comment stays ambiguous
 	if out, amb := FillModel(src, "sonnet"); out != src || len(amb) != 1 {
-		t.Errorf("FillModel (comment before options) = %q, %v; want unchanged and one ambiguous line", out, amb)
+		t.Errorf("FillModel (comment before identifier) = %q, %v; want unchanged and one ambiguous line", out, amb)
 	}
 }
 
