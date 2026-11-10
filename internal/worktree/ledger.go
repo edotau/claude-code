@@ -3,12 +3,13 @@ package worktree
 import (
 	"context"
 	"fmt"
-	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // LedgerInfo describes the checkout and starting commit recorded when a ledger opens.

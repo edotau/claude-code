@@ -3,12 +3,13 @@ package setup
 import (
 	"encoding/json"
 	"errors"
-	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/paths"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // orphanAccessLog allows only the two legacy names without a corresponding store.

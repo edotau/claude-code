@@ -3,7 +3,6 @@ package memhook
 import (
 	"bytes"
 	"fmt"
-	"github.com/edotau/claude-code/internal/memory"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memory"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+
 	"github.com/edotau/claude-code/internal/memory"
 
 	"fmt"

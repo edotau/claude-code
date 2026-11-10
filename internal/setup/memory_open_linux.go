@@ -2,13 +2,14 @@ package setup
 
 import (
 	"errors"
-	"github.com/edotau/claude-code/internal/memory"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/edotau/claude-code/internal/memory"
 )
 
 // openMemoryFiles lists state files held open by same-user processes, lock descriptors included.

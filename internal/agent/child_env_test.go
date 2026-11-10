@@ -3,13 +3,14 @@ package agent
 import (
 	"context"
 	"errors"
-	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/proc"
 	"os"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // Given a launching workspace in the env, Then every child env carries it exactly once, explicit Base included.

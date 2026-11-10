@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/edotau/claude-code/internal/paths"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -15,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // e2eEnv is one isolated world: the built binary, a temp config/home, and a temp git repo as project and cwd.
