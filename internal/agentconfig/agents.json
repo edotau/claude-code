@@ -1,34 +1,31 @@
 {
   "agents": {
     "codex": {
-      "permission": {
+      "extras": {
         "approvalPolicy": "never",
         "sandboxMode": "danger-full-access"
-      },
-      "launch": {}
-    },
-    "opencode": {
-      "launch": {}
+      }
     },
     "copilot": {
-      "permission": {
-        "defaultPermissionMode": "allow-all"
-      },
       "launch": {
         "args": [
           "--allow-all"
         ]
+      },
+      "extras": {
+        "defaultPermissionMode": "allow-all"
       }
     },
     "gemini": {
-      "permission": {
-        "useGuardRules": true
-      },
       "launch": {
         "args": [
           "--dangerously-skip-permissions"
         ]
+      },
+      "extras": {
+        "useGuardRules": "true"
       }
-    }
+    },
+    "opencode": {}
   }
 }

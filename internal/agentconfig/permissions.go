@@ -22,6 +22,14 @@ type Permission struct {
 	Defaults              Policy `json:"defaults,omitzero"` // the agent's default dispatch policy (agent.DefaultPermissions)
 }
 
+// Extras keys the legacy Permission knobs map to in a vault.AgentRecord.
+const (
+	extraApprovalPolicy        = "approvalPolicy"
+	extraSandboxMode           = "sandboxMode"
+	extraDefaultPermissionMode = "defaultPermissionMode"
+	extraUseGuardRules         = "useGuardRules"
+)
+
 // Policy is a dispatch policy in Claude Code's rule grammar, e.g. deny ["Bash(rm:*)"]; mode default, auto or plan.
 type Policy struct {
 	Mode  string   `json:"mode,omitempty"`
