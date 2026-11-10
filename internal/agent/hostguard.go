@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -136,21 +137,30 @@ func guardProvider(r Engine, req RunOptions) (*providers.Provider, error) {
 	return t.Provider, nil
 }
 
+// hopProvider is guardProvider, except a frozen copilot target is used as is (nil on its own login).
+func hopProvider(ctx context.Context, r Engine, req RunOptions) (*providers.Provider, error) {
+	f, ok := ctx.Value(frozenKey{}).(frozenTarget)
+	if !ok || r.Name() != "copilot" {
+		return guardProvider(r, req)
+	}
+	if f.own {
+		return nil, nil
+	}
+	return f.t.Provider, nil
+}
+
 // guardAttempt runs inside a timed attempt: it validates the hop's credential and marks its one own profile on ctx.
 func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Context, *retry.Error) {
-	var gp *providers.Provider
-	var err error
-	if f, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && r.Name() == "copilot" {
-		if !f.own {
-			gp = f.t.Provider
-		}
-	} else {
-		gp, err = guardProvider(r, req)
+	arm := router.ArmProfile()
+	if arm != "" { // inside databricks:<p> every hop keeps only its own credential names
+		ctx = withIsolation(ctx)
 	}
+	gp, err := hopProvider(ctx, r, req)
 	if err != nil {
 		return ctx, retry.Classify(r.Name(), err, false)
 	}
-	if err := checkIsolation(ctx); err != nil { // before the own-login return: that hop is scrubbed too
+	// before the own-login return: that hop is scrubbed and route-checked too
+	if err := cmp.Or(checkIsolation(ctx), guardArm(arm, r, gp)); err != nil {
 		return ctx, &retry.Error{Kind: retry.KindFatal, Agent: r.Name(), Err: err}
 	}
 	if gp == nil {
@@ -166,6 +176,29 @@ func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Contex
 		return ctx, retry.Classify(r.Name(), err, false) // a transient auth.command/OAuth failure stays retryable
 	}
 	return withOwnProvider(ctx, gp), nil
+}
+
+// guardArm refuses a hop outside databricks:<arm>: only that workspace (not AI Gateway) or the agent's own login runs.
+func guardArm(arm string, r Engine, gp *providers.Provider) error {
+	if arm == "" || gp == nil { // gp nil: the agent's own sign-in, scrubbed of every registry credential
+		return nil
+	}
+	switch {
+	case gp.IsAIGateway():
+		return fmt.Errorf("%s: profile %s is on the AI Gateway wire, outside databricks:%s", r.Name(), gp.Name, arm)
+	case gp.Name == arm && gp.Preset == providers.PresetDatabricks, armOwnLogin(r.Name(), gp):
+		return nil
+	}
+	return fmt.Errorf("%s: profile %s is outside databricks:%s", r.Name(), gp.Name, arm)
+}
+
+// armOwnLogin reports gp as agentName's own sign-in (ownLogin), or for claude an Anthropic subscription row.
+func armOwnLogin(agentName string, gp *providers.Provider) bool {
+	if agentName == "claude" {
+		return gp.Provider == "anthropic" && gp.Auth.Method() == providers.AuthCLI
+	}
+	// an unreadable registry reads as no own login: the hop is refused, never run unchecked
+	return ownLogin(func() *providers.Registry { reg, _ := providers.Load(); return reg }, agentName, gp.Name)
 }
 
 // checkIsolation fails an isolated hop up front when the registry cannot load, since the scrub would then be skipped.

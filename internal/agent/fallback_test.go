@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -451,6 +452,29 @@ func TestRunWithFallbackEmitsOneRetryPerHop(t *testing.T) {
 	}
 	if len(retries) != 1 || retries[0] != "fallback codex → gemini: codex: failed: boom" {
 		t.Fatalf("retry events = %q, want one %q", retries, "fallback codex → gemini: codex: failed: boom")
+	}
+}
+
+// Inside databricks:dev a quota failure on dev hands the task to codex's own login, announced with both accounts.
+func TestArmHopToFirstParty(t *testing.T) {
+	armRegistry(t, "")
+	retry.ResetCooldowns()
+	t.Cleanup(retry.ResetCooldowns)
+	quota := &retry.Error{Kind: retry.KindQuota, Err: errors.New("402 Payment Required: monthly quota exceeded")}
+	dev := &fakeRunner{name: "codex", caps: Caps{Model: Native}, emptyAnswer: true, errs: []error{quota}}
+	own := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{nil}}
+	c := Chain{Want: "codex", Dispatches: []Dispatch{
+		{Agent: dev, Model: "dev:opus", Account: "databricks·dev"},
+		{Agent: own, Model: "chatgpt:gpt-6.1-sol", Account: "openai·chatgpt"},
+	}}
+	var notes []string
+	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, func(s string) { notes = append(notes, s) })
+	if err != nil || len(own.seen) != 1 || len(res.Hops) != 2 || res.Hops[1].Account != "openai·chatgpt" {
+		t.Fatalf("res=%+v err=%v own ran %d; want the openai·chatgpt hop to answer", res, err, len(own.seen))
+	}
+	const want = "fallback codex (databricks·dev) → codex (openai·chatgpt): codex: quota exhausted: 402 Payment Required: monthly quota exceeded"
+	if !slices.Contains(notes, want) {
+		t.Errorf("notices = %q, want %q", notes, want)
 	}
 }
 

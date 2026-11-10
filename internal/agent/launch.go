@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // PinnedProfile is agent name's vault-pinned registry profile; "" when unpinned or off, an error when the pin names no row.
@@ -178,9 +181,9 @@ func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect s
 	if err != nil {
 		return nil, "", "", fmt.Errorf("%s: router: %w", s.Name, err)
 	}
-	secret, err := RouterSecret()
+	secret, err := routerKey(ctx, rb, p.Name)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("%s: router secret: %w", s.Name, err)
+		return nil, "", "", fmt.Errorf("%s: %w", s.Name, err)
 	}
 	base := gateway.SessionBase(rb, p.Name) + s.CLI.RouterSuffix[dialect]
 	rp := *p
@@ -189,6 +192,52 @@ func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect s
 		rp.Headers[gateway.IdentityHeader] = id
 	}
 	return &rp, base, secret, nil
+}
+
+// routerKey is the key a routed child holds: the router secret, or inside databricks:<p> a session token for profile.
+func routerKey(ctx context.Context, routerBase, profile string) (string, error) {
+	if router.ArmProfile() == "" {
+		secret, err := RouterSecret()
+		if err != nil {
+			return "", fmt.Errorf("router secret: %w", err)
+		}
+		return secret, nil
+	}
+	tok, err := armSessionToken(ctx, routerBase, profile)
+	if err != nil {
+		return "", fmt.Errorf("session token for profile %s: %w", profile, err)
+	}
+	return tok, nil
+}
+
+// armTokens holds one session token per router base and profile, bound to this ask's pid (it dies with the process).
+var (
+	armMu     sync.Mutex
+	armTokens = map[string]armToken{}
+)
+
+type armToken struct {
+	tok    string
+	minted time.Time
+}
+
+// armTokenMaxAge re-mints well inside the router's 12h idle lifetime, as gemini's gatewayToken does.
+const armTokenMaxAge = time.Hour
+
+// armSessionToken mints profile's token once per router (batch hops share it), so retries never fill the token cap.
+func armSessionToken(ctx context.Context, routerBase, profile string) (string, error) {
+	armMu.Lock()
+	defer armMu.Unlock()
+	key := routerBase + "|" + profile
+	if t := armTokens[key]; t.tok != "" && time.Since(t.minted) < armTokenMaxAge {
+		return t.tok, nil
+	}
+	tok, err := MintSession(ctx, profile, os.Getpid())
+	if err != nil {
+		return "", err
+	}
+	armTokens[key] = armToken{tok, time.Now()}
+	return tok, nil
 }
 
 // login runs the agent on its own subscription sign-in; a login provider serves only the CLI it names.
