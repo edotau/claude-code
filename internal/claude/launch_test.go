@@ -450,3 +450,33 @@ func TestKeepShellEndpointSessionProxyBaseToFirstParty(t *testing.T) {
 		t.Errorf("session proxy base kept: foreign=%v files=%v keep=%v", plan.ForeignBase, plan.Files, plan.Keep)
 	}
 }
+
+// An interactive plan carries the record's effort, launch.args and launch.env (never a wiped name) before the typed
+// args, so a typed --effort comes last and wins; with no record nothing is added; headless leaves it to claudeCmd.
+func TestClaudeInteractiveRendersRecord(t *testing.T) {
+	const dbx = `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`
+	rec := vault.AgentRecord{Effort: "high", Launch: &vault.AgentLaunch{Env: []string{"FOO_LAUNCH=1",
+		"ANTHROPIC_BASE_URL=https://elsewhere.example"}, Args: []string{"--launch-arg"}}}
+	for _, prof := range []string{"ultra", "qa"} {
+		hermetic(t, dbx)
+		p, err := Claude(context.Background(), agent.LaunchOptions{Provider: prof}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		checkArgv(t, prof+" no record", p.Argv, nil, []string{"--effort", "--launch-arg"})
+		if err := vault.SetAgentRecord("claude", rec); err != nil {
+			t.Fatal(err)
+		}
+		if p, err = Claude(context.Background(), agent.LaunchOptions{Provider: prof}, []string{"--effort", "low"}); err != nil {
+			t.Fatal(err)
+		}
+		checkArgv(t, prof+" record", p.Argv, []string{"--launch-arg --effort high --effort low"}, []string{"--permission"})
+		if p.Set["FOO_LAUNCH"] != "1" || p.Set["ANTHROPIC_BASE_URL"] == "https://elsewhere.example" {
+			t.Errorf("%s: set %v, want FOO_LAUNCH=1 and no launch.env base URL", prof, p.Set)
+		}
+		if p, err = Claude(context.Background(), agent.LaunchOptions{Provider: prof}, []string{"--print"}); err != nil {
+			t.Fatal(err)
+		}
+		checkArgv(t, prof+" headless", p.Argv, nil, []string{"--effort", "--launch-arg"})
+	}
+}
