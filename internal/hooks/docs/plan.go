@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"fmt"
 	"io"
+	"iter"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -351,17 +352,50 @@ func hasPlanHeading(headings []planHeading, want templateHeading) bool {
 // template's required headings (deny-one-call); the message pastes the skeleton so the retry is right.
 func Gate(in *core.Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
+	if tool == "apply_patch" { // an Add File hunk is a first write; Update is an Edit, which the gate leaves alone
+		for path, content := range patchAdds(applyPatchText(in)) {
+			if code := gateDraft(resolveCWDPath(path, in.CWD), content, stderr); code != core.ExitProceed {
+				return code
+			}
+		}
+		return core.ExitProceed
+	}
 	if tool != "" && tool != "write" && tool != "create" {
 		return core.ExitProceed
 	}
-	path, ok := draftTarget(in)
-	if !ok {
+	return gateDraft(resolveCWDPath(in.Nested("tool_input", "file_path"), in.CWD), in.Nested("tool_input", "content"), stderr)
+}
+
+// patchAdds yields each file an apply_patch body adds, with its content (the hunk's "+" lines).
+func patchAdds(patch string) iter.Seq2[string, string] {
+	return func(yield func(string, string) bool) {
+		path, lines := "", []string(nil)
+		for line := range strings.SplitSeq(patch+"\n*** ", "\n") {
+			if !strings.HasPrefix(line, "*** ") {
+				if body, ok := strings.CutPrefix(line, "+"); ok && path != "" {
+					lines = append(lines, body)
+				}
+				continue
+			}
+			if path != "" && !yield(path, strings.Join(lines, "\n")) {
+				return
+			}
+			path, lines = "", nil
+			if p, ok := strings.CutPrefix(line, "*** Add File: "); ok {
+				path = strings.TrimSpace(p)
+			}
+		}
+	}
+}
+
+// gateDraft blocks the first write of content to an undated draft missing a plan-template heading.
+func gateDraft(path, content string, stderr io.Writer) int {
+	if !isUndatedDraft(path) {
 		return core.ExitProceed
 	}
 	if _, err := os.Stat(path); err == nil {
 		return core.ExitProceed // not the first write; the template was already checked
 	}
-	content := in.Nested("tool_input", "content")
 	headings := planHeadings([]byte(content))
 	for _, want := range planTemplateHeadings {
 		if hasPlanHeading(headings, want) {

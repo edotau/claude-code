@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/agentconfig/render"
 
@@ -23,14 +24,24 @@ func CodexJSON() ([]byte, error) {
 	events := map[string][]settings.MatcherGroup{}
 	for _, s := range settings.SpecsFor("codex", "native") {
 		h := settings.Hook{Type: "command", Command: settings.AgentCommand("codex", s), Timeout: s.Seconds(), Async: s.Async, StatusMessage: s.StatusMessage}
-		groups := events[s.Event]
-		if n := len(groups); n > 0 && groups[n-1].Matcher == s.Matcher {
+		groups, matcher := events[s.Event], codexMatcher(s.Matcher)
+		if n := len(groups); n > 0 && groups[n-1].Matcher == matcher {
 			groups[n-1].Hooks = append(groups[n-1].Hooks, h)
 		} else {
-			events[s.Event] = append(groups, settings.MatcherGroup{Matcher: s.Matcher, Hooks: []settings.Hook{h}})
+			events[s.Event] = append(groups, settings.MatcherGroup{Matcher: matcher, Hooks: []settings.Hook{h}})
 		}
 	}
 	return json.MarshalIndent(map[string]any{"hooks": events}, "", "  ")
+}
+
+// codexMatcher adds apply_patch, Codex's file-write tool, to a matcher selecting Claude's Write or Edit.
+func codexMatcher(m string) string {
+	for alt := range strings.SplitSeq(m, "|") {
+		if alt == "Write" || alt == "Edit" {
+			return m + "|apply_patch"
+		}
+	}
+	return m
 }
 
 // mergeCodexHooks keeps every foreign top-level key, event and hook already in a Codex hooks.json,

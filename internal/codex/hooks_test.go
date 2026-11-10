@@ -2,14 +2,17 @@ package codex
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/agentconfig/render/rendertest"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // insertCodexSection puts the banner before the first real table, never at a "["-led line in a string or array.
@@ -132,5 +135,39 @@ func TestRenderCodexHooksWriteConflictLeavesConfigTomlUntouched(t *testing.T) {
 		if got, _ := os.ReadFile(path); !bytes.Equal(got, want) {
 			t.Errorf("%s changed after the failed hooks write:\nwant:\n%s\ngot:\n%s", filepath.Base(path), want, got)
 		}
+	}
+}
+
+// Codex's hook file adds apply_patch exactly where a spec selects Write or Edit; every other matcher is the spec's own.
+func TestCodexJSONAddsApplyPatchToFileWriteMatchers(t *testing.T) {
+	raw, err := CodexJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Hooks map[string][]settings.MatcherGroup `json:"hooks"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	rendered := map[string]string{}
+	for _, groups := range doc.Hooks {
+		for _, g := range groups {
+			for _, h := range g.Hooks {
+				rendered[h.Command] = g.Matcher
+			}
+		}
+	}
+	for _, s := range settings.SpecsFor("codex", "native") {
+		want := s.Matcher
+		if slices.ContainsFunc(strings.Split(s.Matcher, "|"), func(a string) bool { return a == "Write" || a == "Edit" }) {
+			want += "|apply_patch"
+		}
+		if got, ok := rendered[settings.AgentCommand("codex", s)]; !ok || got != want {
+			t.Errorf("%s: rendered matcher = %q (present %v), want %q", s.Name, got, ok, want)
+		}
+	}
+	if !strings.Contains(string(raw), `"Write|Edit|apply_patch"`) { // docs-placement and docs-plan-gate
+		t.Errorf("no file-write gate selects Codex's apply_patch:\n%s", raw)
 	}
 }
