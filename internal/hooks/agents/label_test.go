@@ -46,3 +46,18 @@ func TestDispatchLabelPreservesModelUnderGemini(t *testing.T) {
 		t.Errorf("ambient agent after labeling = %q, want %q", got, core.AgentGemini)
 	}
 }
+
+// Source names where the label's model came from: the dispatch's --model, the session, or the pin and route.
+func TestLabelSource(t *testing.T) {
+	for _, c := range []struct{ dispatch, label, session, want string }{
+		{"opus", "opus", "s", "dispatch"}, {"inherit", "s", "s", "session"},
+		{"", "s", "s", "session"}, {"", "sonnet", "s", "derived"}, {"", "", "", "derived"},
+		{"opus", "databricks-gpt-6-1-sol", "sess-x", "derived"},
+		{"opus", "sess-x", "sess-x", "session"},
+		{"opus", "", "sess-x", "derived"},
+	} {
+		if got := labelSource(c.dispatch, c.label, c.session); got != c.want {
+			t.Errorf("labelSource(%q,%q,%q) = %q, want %q", c.dispatch, c.label, c.session, got, c.want)
+		}
+	}
+}

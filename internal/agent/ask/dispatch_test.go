@@ -1,18 +1,38 @@
-package agentcmd
+package ask
 
 import (
+	"context"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/client"
+	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+// Given a detached leg whose spawn fails (the test binary is never relaunched), Then its record leaves running.
+func TestDispatchDetachSpawnFailureFinishesRecord(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	legs := []roles.Leg{{Label: "a", Opts: agent.RunOptions{Agent: "claude", Prompt: "p"}}}
+	var code int
+	hosttest.CaptureOutput(t, func() int {
+		code = dispatchDetach(context.Background(), client.NewClient(nil, nil, nil), legs, helptext.Text)
+		return code
+	})
+	if code != 1 {
+		t.Fatalf("dispatchDetach = %d, want 1", code)
+	}
+	recs := job.RecentRecords(5)
+	if len(recs) != 1 || recs[0].Status != "error" || recs[0].Error == "" {
+		t.Errorf("records = %+v, want one errored record with the cause", recs)
+	}
+}
 
 func TestDispatchReportWriteFailureExitsOne(t *testing.T) {
 	vaulttest.UseFreshKey(t)
@@ -55,27 +75,5 @@ func checkDispatchReportWriteFailure(t *testing.T, full *os.File, format string)
 	})
 	if code != 1 || !strings.Contains(stderr, "dispatch: write report:") || !strings.Contains(stderr, "no space left on device") {
 		t.Fatalf("lost report: exit %d, stderr %q; want exit 1 naming report write failure", code, stderr)
-	}
-}
-
-func TestAgentReviewBoundsDiffPreparation(t *testing.T) {
-	bin := t.TempDir()
-	git := filepath.Join(bin, "git")
-	// exec keeps the hung git at one PID, so cancellation cannot leave a child holding its output pipes open.
-	if err := os.WriteFile(git, []byte("#!/bin/sh\ncase \"$3\" in diff) exec sleep 125;; esac\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Chdir(t.TempDir())
-	start := time.Now()
-	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		return agentReview("codex", []string{"--uncommitted"})
-	})
-	elapsed := time.Since(start)
-	if code != 1 || !strings.Contains(stderr, "diff HEAD: signal: killed") {
-		t.Fatalf("hung diff: exit %d after %v, stderr %q; want cancelled git diff", code, elapsed, stderr)
-	}
-	if elapsed < reviewDiffTimeout || elapsed > reviewDiffTimeout+3*time.Second {
-		t.Fatalf("hung diff took %v; want cancellation within 3s of %v", elapsed, reviewDiffTimeout)
 	}
 }

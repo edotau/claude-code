@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // RosterRow is one agent in `agents`: its binary, availability, capability levels and event kinds.
@@ -24,6 +25,18 @@ type RosterRow struct {
 // rosterShown are the capabilities the text roster lists beside each agent.
 var rosterShown = []string{"model", "profile", "effort", "workdir", "session", "tools", "system-prompt",
 	"append-system-prompt", "env", "output-schema"}
+
+// PrintRoster prints RosterRows as the JSON array of rows, or one text line each.
+func PrintRoster(format string) int {
+	rows := RosterRows()
+	if format == helptext.JSON {
+		return helptext.WriteJSONOrFail("agents", rows)
+	}
+	for _, r := range rows {
+		fmt.Println(r.Line())
+	}
+	return 0
+}
 
 // RosterRows describes every registered agent, probing each one's availability.
 func RosterRows() []RosterRow {

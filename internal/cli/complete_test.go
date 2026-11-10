@@ -14,7 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
-	"github.com/edotau/claude-code/internal/agent/agentcmd"
 	"github.com/edotau/claude-code/internal/describe"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
@@ -118,8 +117,8 @@ func TestCompletionFlagValues(t *testing.T) {
 			t.Errorf("theme values = %v, missing %q", themeGot, want)
 		}
 	}
-	if got := completionCandidates([]string{"agents", "ask", "--agent", ""}); !slices.Equal(got, agentcmd.EngineNames()) {
-		t.Errorf("ask --agent values = %v, want %v", got, agentcmd.EngineNames())
+	if got := completionCandidates([]string{"agents", "ask", "--agent", ""}); !slices.Equal(got, engineNames()) {
+		t.Errorf("ask --agent values = %v, want %v", got, engineNames())
 	}
 	if got := completionCandidates([]string{"agents", "ask", "--model", ""}); len(got) != 0 {
 		t.Errorf("ask --model values = %v, want none (no registered domain)", got)
@@ -507,11 +506,11 @@ func TestCompletionNeverInvokesARunFunc(t *testing.T) {
 // future addition (e.g. explore) is picked up without a second hand-copied list to keep in lockstep.
 func TestVendorCompletionOffersEverySubverb(t *testing.T) {
 	want := []string{"ask"}
-	for sub := range agentcmd.Subverbs {
+	for sub := range agentSubPages {
 		want = append(want, sub)
 	}
 	slices.Sort(want)
-	for _, vendor := range agentcmd.VendorNames() {
+	for _, vendor := range vendorNames() {
 		got := completionCandidates([]string{vendor, ""})
 		slices.Sort(got)
 		if !slices.Equal(got, want) {
@@ -570,7 +569,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	// gemini's subwords are "ask" (handled by vendorVerb's own if, not vendorSubverbs) plus every
 	// vendor subverb — derived from vendorSubverbs, not hand-copied, so a future subverb never drifts.
 	geminiWant := []string{"ask"}
-	for sub := range agentcmd.Subverbs {
+	for sub := range agentSubPages {
 		geminiWant = append(geminiWant, sub)
 	}
 	cases["gemini"] = geminiWant

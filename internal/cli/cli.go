@@ -8,8 +8,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/network/remote"
 
-	"github.com/edotau/claude-code/internal/agent/agentcmd"
-
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -44,12 +42,12 @@ func Run(argv []string) int {
 	}
 	// A leading flag with no verb is a claude flag: `claude-code --resume` launches Claude Code.
 	if strings.HasPrefix(name, "-") {
-		return agentcmd.Claude(argv[1:])
+		return cmdClaude(argv[1:])
 	}
 	// A profile name no verb shadows launches Claude Code on it: `claude-code ollama`.
 	if reg, err := providers.Load(); err == nil {
 		if _, ok := reg.Providers[name]; ok {
-			return agentcmd.Claude(append([]string{"--profile", name}, args...))
+			return cmdClaude(append([]string{"--profile", name}, args...))
 		}
 	}
 	fmt.Fprintf(os.Stderr, "claude-code: unknown command %q (see `claude-code help`)\n", name)

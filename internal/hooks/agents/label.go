@@ -2,9 +2,14 @@ package agents
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
+	"io"
+	"os"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // LabelInput is one dispatch to label: its leaf type, model pin ("" = unset), brief and the session's model id.
@@ -29,4 +34,49 @@ func DispatchLabel(in LabelInput) (label, model string) {
 	label, _ = leafLabel(updated, in.Type, task, labelDescription, func() string { return in.SessionModel })
 	model, _ = updated["model"].(string)
 	return label, model
+}
+
+// LabelRow is `agents label`'s result: the leaf type, the model it carries, its prefix and where the model came from.
+type LabelRow struct {
+	Type   string `json:"type"`
+	Model  string `json:"model"`
+	Label  string `json:"label"`
+	Source string `json:"source"`
+}
+
+// Label labels in; an empty SessionModel is read from session sid's transcript in cwd's project.
+func Label(in LabelInput, cwd, sid string) LabelRow {
+	in.SessionModel = cmp.Or(in.SessionModel, sessionModelOf(cwd, sid))
+	label, pinned := DispatchLabel(in)
+	return LabelRow{Type: in.Type, Model: pinned, Label: label, Source: labelSource(in.Model, label, in.SessionModel)}
+}
+
+// labelSource names where the label's model came from: the dispatch's --model, the session, or the pin and route.
+func labelSource(dispatchModel, label, sessionModel string) string {
+	switch {
+	case dispatchModel != "" && dispatchModel != "inherit" && label == dispatchModel:
+		return "dispatch"
+	case sessionModel != "" && label == sessionModel:
+		return "session"
+	}
+	return "derived"
+}
+
+// sessionModelOf is the model of the last turn in session sid's transcript in cwd's project; "" when unreadable.
+func sessionModelOf(cwd, sid string) string {
+	u, _ := transcript.LastUsage(memory.LiveTranscript(cwd, sid))
+	return u.Model
+}
+
+// ReadBrief returns the brief file's text; "" is an empty brief and "-" reads stdin.
+func ReadBrief(path string) (string, error) {
+	switch path {
+	case "":
+		return "", nil
+	case "-":
+		b, err := io.ReadAll(os.Stdin)
+		return string(b), err
+	}
+	b, err := os.ReadFile(path)
+	return string(b), err
 }

@@ -3,8 +3,11 @@ package configure
 
 import (
 	"fmt"
+	"io"
+	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -118,4 +121,60 @@ func KeyVerified(p *providers.Provider) bool {
 	}
 	status, _, _ := ProbeCached(KeyTarget{Provider: p})
 	return status == "verified"
+}
+
+// AgentProfile is `<agent> profile`: clear the pin (an external agent's own login, not off), show it, or set it.
+func AgentProfile(w io.Writer, name, profile string, clear bool) error {
+	switch {
+	case clear:
+		if _, err := ApplyProfile([]string{name}, vault.OwnLoginProfiles[name]); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "%s: profile cleared (own login)\n", name)
+	case profile == "":
+		fmt.Fprintln(w, ProfileStatus(name))
+	default:
+		return SetAgentProfile(w, name, profile)
+	}
+	return nil
+}
+
+// SetAgentProfile pins name to profile and prints what changed; copilot on a login-less github row gets a note.
+func SetAgentProfile(w io.Writer, name, profile string) error {
+	reg, err := providers.Load()
+	if err != nil {
+		return err
+	}
+	if _, err := ApplyProfile([]string{name}, profile); err != nil {
+		return fmt.Errorf("%w (see claude-code configure provider --list)", err)
+	}
+	if p := reg.Providers[profile]; name == "copilot" && p != nil && p.Provider == "github" && p.Login == "" {
+		fmt.Fprintf(w, "copilot: %s has no login; billing follows gh's active account (set one with `vault edit`)\n", profile)
+	}
+	fmt.Fprintf(w, "%s: now on %s; relaunch `claude-code %s` to apply\n", name, profile, name)
+	preflight.Warm(w, reg, time.Now())
+	if name == "codex" {
+		fmt.Fprintln(w, "plain codex: run `claude-code configure --restore --agents` to re-render config.toml")
+	}
+	return nil
+}
+
+// SetAgentActive is `<agent> on|off`: off clears the record's profile, on sets the own login; claude is always on.
+func SetAgentActive(name string, on bool) error {
+	value := agentpkg.AgentOff
+	if on {
+		value = agentpkg.AgentOn
+	}
+	if agentpkg.VaultAgentIsClaude(name) {
+		return fmt.Errorf("%s is always on", name)
+	}
+	if err := agentpkg.ValidAgentActive(name, value); err != nil {
+		return err
+	}
+	profile := ""
+	if on {
+		profile = vault.OwnLoginProfiles[name]
+	}
+	_, err := ApplyProfile([]string{name}, profile)
+	return err
 }

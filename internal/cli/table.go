@@ -5,7 +5,6 @@ import (
 	"os"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/agent/agentcmd"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/describe"
@@ -45,11 +44,11 @@ var alphabetical = map[string]bool{groupAuth: true, groupSession: true, groupDia
 func commands() []command {
 	return append([]command{
 		// AGENTS — launch an agent CLI; `ask` runs one task headlessly.
-		{name: "anthropic", group: groupAgents, summary: "Claude Code: --model opus|sonnet|haiku|fable; science", run: agentcmd.Anthropic, spec: agentcmd.AnthropicSpec},
-		{name: "copilot", group: groupAgents, summary: "Copilot CLI on its own login, or your Databricks profile", run: func(a []string) int { return agentcmd.AgentVerb("copilot", a) }, spec: agentcmd.AgentSpec},
-		{name: "codex", group: groupAgents, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return agentcmd.AgentVerb("codex", a) }, spec: agentcmd.AgentSpec},
-		{name: "gemini", group: groupAgents, summary: "Gemini CLI; 1M-context sweeps (ask --dirs)", run: func(a []string) int { return agentcmd.AgentVerb("gemini", a) }, spec: agentcmd.AgentSpec},
-		{name: "opencode", group: groupAgents, summary: "OpenCode on its own login, or your Databricks profile; docs", run: func(a []string) int { return agentcmd.AgentVerb("opencode", a) }, spec: agentcmd.AgentSpec},
+		{name: "anthropic", group: groupAgents, summary: "Claude Code: --model opus|sonnet|haiku|fable; science", run: cmdAnthropic, spec: anthropicSpec},
+		{name: "copilot", group: groupAgents, summary: "Copilot CLI on its own login, or your Databricks profile", run: func(a []string) int { return cmdAgentVerb("copilot", a) }, spec: agentSpec},
+		{name: "codex", group: groupAgents, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return cmdAgentVerb("codex", a) }, spec: agentSpec},
+		{name: "gemini", group: groupAgents, summary: "Gemini CLI; 1M-context sweeps (ask --dirs)", run: func(a []string) int { return cmdAgentVerb("gemini", a) }, spec: agentSpec},
+		{name: "opencode", group: groupAgents, summary: "OpenCode on its own login, or your Databricks profile; docs", run: func(a []string) int { return cmdAgentVerb("opencode", a) }, spec: agentSpec},
 		{name: "databricks", group: groupAgents, summary: "Claude Code on Databricks; login, import/export, check --all", run: databricks.Run, spec: databricks.Spec},
 		// AUTH
 		{name: "resolve", group: groupAuth, hidden: true, summary: "resolve + print a profile's credential (apiKeyHelper)", run: cmdResolve, spec: resolveSpec},
@@ -90,14 +89,14 @@ func describeVerbs() []describe.Verb {
 func hiddenCommands() []command {
 	return []command{
 		// Hidden: dispatchable, named in the trailing note, off the menu.
-		{name: "claude", hidden: true, summary: "launch Claude Code on the selected profile", run: agentcmd.Claude},
+		{name: "claude", hidden: true, summary: "launch Claude Code on the selected profile", run: cmdClaude},
 		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f, --check f)", run: cmdMenuSVG, spec: menuSVGSpec},
-		{name: "agents", hidden: true, summary: "ask, dispatch, list, sync, tree, status: run and track agents", run: agentcmd.Run, spec: agentcmd.AgentsSpec},
+		{name: "agents", hidden: true, summary: "ask, dispatch, list, sync, tree, status: run and track agents", run: cmdAgents, spec: agentsSpec},
 		{name: "preflight", hidden: true, summary: "pin check per agent; --live runs the post-install pong round", run: doctor.Preflight, spec: doctor.PreflightSpecNode},
 		{name: "models", hidden: true, summary: "model aliases; --pin alias=model, --live", run: cmdModels, spec: modelsSpec},
 		{name: "review", hidden: true, summary: "code-review detectors: quality|complexity|diff|pr|gate", run: cmdReview, spec: reviewSpec},
 		{name: "workflow", hidden: true, summary: "skeleton <pattern> | lint (model/effort pins, meta/throw)", run: cmdWorkflow, spec: workflowSpec},
-		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: agentcmd.Hook, spec: agentcmd.HookSpec},
+		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: cmdHook, spec: hookSpec},
 		{name: "clip", hidden: true, summary: "save the Windows clipboard image as PNG; print its WSL path", run: clipboard.Clip, spec: clipboard.Spec},
 		{name: "clip-clear", hidden: true, summary: "clear the clipboard after a delay if it still holds a copied secret", run: clipboard.ClipClear},
 		{name: "wl-paste", hidden: true, summary: "WSL wl-paste proxy: answer agent image paste, else run real wl-paste", run: clipboard.WLPaste},
