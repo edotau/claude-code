@@ -103,6 +103,9 @@ func stampIDs(dir, name, prefix, text string, now time.Time) (string, int) {
 			end = starts[k+1]
 		}
 		block, stamped := settleBlockID(dir, name, i, lines[i:end], now)
+		for salt := len(lines); stamped == 1 && strings.Contains(text, block[0][len(lines[i])+1:]); salt++ {
+			block, _ = settleBlockID(dir, name, salt, lines[i:end], now) // an id text already carries: redraw past its end
+		}
 		n += stamped
 		out = append(out, block...)
 	}

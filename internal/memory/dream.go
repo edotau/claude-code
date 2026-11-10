@@ -22,6 +22,7 @@ type dreamPreview struct {
 	HomeOversized []string // home bank files over cap (only when local isn't already the home bank)
 	Archivable    int      // durable-file overflow blocks that would move to this store's archive/
 	SessionRotate int      // sessionHistory entries that would rotate to archive/
+	Unreadable    []string // "local|home name: error" for each bank file that could not be read, so was not checked
 }
 
 // Any reports whether the preview found anything a real dream run would change mechanically.
@@ -45,7 +46,10 @@ func (p dreamPreview) Report() string {
 	if p.SessionRotate > 0 {
 		fmt.Fprintf(&b, "would rotate %d sessionHistory entr(ies) to archive/\n", p.SessionRotate)
 	}
-	if !p.Any() {
+	for _, u := range p.Unreadable {
+		fmt.Fprintf(&b, "%s — unreadable, so not checked\n", u)
+	}
+	if !p.Any() && len(p.Unreadable) == 0 {
 		b.WriteString("nothing to consolidate mechanically — a real run still applies the judgment pass (dedup, merge, cross-pollinate)\n")
 	}
 	return b.String()
@@ -56,9 +60,10 @@ func (p dreamPreview) Report() string {
 func previewDream(root string) dreamPreview {
 	dir := Dir(root)
 	local := statBank(dir) // one read per typed file feeds the cap, archive and rotation checks below
-	p := dreamPreview{Dir: dir, Oversized: local.Oversized}
+	p := dreamPreview{Dir: dir, Oversized: local.Oversized, Unreadable: tiered("local", local.Unreadable)}
 	if !isHomeBank(root) {
-		p.HomeOversized = statBank(HomeBankDir()).Oversized
+		home := statBank(HomeBankDir())
+		p.HomeOversized, p.Unreadable = home.Oversized, append(p.Unreadable, tiered("home", home.Unreadable)...)
 	}
 	for name, capLines := range archiveCaps {
 		_, _, overflow := overflowSplit(name, string(local.data[name]), capLines) // archiveFile's split, read-only
@@ -67,6 +72,15 @@ func previewDream(root string) dreamPreview {
 	_, _, rotate := sessionOverflow(string(local.data["sessionHistory.md"]))
 	p.SessionRotate = len(rotate)
 	return p
+}
+
+// tiered prefixes each of statBank's unreadable entries with its bank tier, the doctor's wording.
+func tiered(tier string, unreadable []string) []string {
+	out := make([]string, 0, len(unreadable))
+	for _, u := range unreadable {
+		out = append(out, tier+" "+u)
+	}
+	return out
 }
 
 const dreamInterval = 24 * time.Hour

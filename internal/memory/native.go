@@ -312,8 +312,8 @@ func indexFaults(dir, raw string, present map[string]bool) (dangling, orphans []
 	return dangling, orphans, nil
 }
 
-// resolveTopics splits names into those present in base (todo) and "<name>: <absentMsg>" skips; skipped is kept on error.
-func resolveTopics(base string, names []string, absentMsg string) (todo, skipped []string, err error) {
+// resolveTopics splits names into present (todo) and "<name>: <absentMsg>" skips, kept on error; a var for tests.
+var resolveTopics = func(base string, names []string, absentMsg string) (todo, skipped []string, err error) {
 	for _, arg := range names {
 		name, err := topicName(base, arg)
 		if err != nil {
@@ -338,17 +338,27 @@ func resolveTopics(base string, names []string, absentMsg string) (todo, skipped
 // A symlink, directory, typed bank file or index name is refused outright (topicName classifies).
 func archiveNative(dir string, names []string, apply bool) (nativeResult, error) {
 	res := nativeResult{Applied: apply}
-	todo, skipped, err := resolveTopics(dir, names, "not in the store")
-	res.Skipped = skipped
-	if err != nil {
-		return res, err
-	}
-	if len(todo) == 0 || !apply {
-		res.Archived = todo
-		return res, nil
-	}
-	err = WithBankLock(BankLockWait, func() error { return archiveNativeLocked(dir, todo, &res) })
+	err := lockedIf(apply, func() error {
+		todo, skipped, err := resolveTopics(dir, names, "not in the store")
+		res.Skipped = skipped
+		if err != nil {
+			return err
+		}
+		if len(todo) == 0 || !apply {
+			res.Archived = todo
+			return nil
+		}
+		return archiveNativeLocked(dir, todo, &res)
+	})
 	return res, err
+}
+
+// lockedIf runs fn under the bank lock when apply, so names resolve under the lock that acts on them.
+func lockedIf(apply bool, fn func() error) error {
+	if !apply {
+		return fn()
+	}
+	return WithBankLock(BankLockWait, fn)
 }
 
 // nativeArchiveRel is nativeArchiveDir relative to its dir, the form the batch takes.

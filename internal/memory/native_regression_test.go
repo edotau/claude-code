@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func TestNativeRegressionZeroByteRoundTrip(t *testing.T) {
@@ -169,6 +170,33 @@ func TestArchiveRestoreSkipMissingTopics(t *testing.T) {
 	}
 	if len(res.Restored) != 1 || len(res.Skipped) != 1 || res.Skipped[0] != "ghost.md: not in the archive" {
 		t.Errorf("restore = %+v, want stale-fact planned and ghost.md skipped as not in the archive", res)
+	}
+}
+
+// TestArchiveRestoreResolveUnderLock: a writer racing in right after name resolution must wait for the bank lock.
+func TestArchiveRestoreResolveUnderLock(t *testing.T) {
+	tempConfig(t)
+	orig := resolveTopics
+	t.Cleanup(func() { resolveTopics = orig })
+	for _, c := range []struct {
+		verb string
+		base func(dir string) string
+		run  func(dir string, names []string, apply bool) (nativeResult, error)
+	}{
+		{"archive", func(dir string) string { return dir }, archiveNative},
+		{"restore", nativeArchiveDir, restoreNative},
+	} {
+		dir := t.TempDir()
+		write(t, filepath.Join(c.base(dir), "topic.md"), "body\n")
+		var raced error
+		resolveTopics = func(base string, names []string, msg string) ([]string, []string, error) {
+			todo, skipped, err := orig(base, names, msg)
+			raced = WithBankLock(10*time.Millisecond, func() error { return os.Remove(filepath.Join(base, "topic.md")) })
+			return todo, skipped, err
+		}
+		if _, err := c.run(dir, []string{"topic"}, true); err != nil || !errors.Is(raced, ErrBankBusy) {
+			t.Errorf("%s: err %v, racing writer %v; want success and the writer held off with ErrBankBusy", c.verb, err, raced)
+		}
 	}
 }
 

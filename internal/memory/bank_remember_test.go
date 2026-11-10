@@ -191,3 +191,22 @@ func TestRememberSeedsMissingFileFromScaffold(t *testing.T) {
 		t.Errorf("conventions.md = %q, want it to start with the scaffold %q", body, scaffold)
 	}
 }
+
+// TestRememberRefusesFactItCannotStamp: a fact that would get no id of its own errors and leaves the file untouched.
+func TestRememberRefusesFactItCannotStamp(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	path := filepath.Join(Dir(root), "conventions.md")
+	for _, c := range []struct{ name, body, fact string }{
+		{"unclosed fence above", "# Conventions\n\n- a rule\n\n```go\nx := 1\n", "fact after the fence"},
+		{"id marker in the fact", "# Conventions\n\n- a rule\n", "quote <!-- id:deadbeef --> here"},
+	} {
+		write(t, path, c.body)
+		if _, err := Remember(root, "feedback", c.fact, time.Now()); err == nil {
+			t.Errorf("%s: Remember = nil error, want a refusal", c.name)
+		}
+		if got := mustRead(t, path); got != c.body {
+			t.Errorf("%s: conventions.md rewritten despite the error:\n%s", c.name, got)
+		}
+	}
+}

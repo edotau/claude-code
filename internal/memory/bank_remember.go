@@ -71,10 +71,14 @@ func writeRememberFact(dir, file, kind, fact string, now time.Time) (string, err
 	}
 	line, text := rememberedText(path, file, kind, fact, string(data), now)
 	text, _ = stampIDs(dir, file, idFiles[file], text, now)
+	id, err := lastStampedID(text, line, file == "decisionLog.md")
+	if err != nil { // an unclosed fence above it or an id marker inside the fact: refuse before writing
+		return "", fmt.Errorf("%s: the fact would get no id of its own: %w", file, err)
+	}
 	if err := paths.AtomicWrite(path, []byte(text), 0o600); err != nil {
 		return "", err
 	}
-	return lastStampedID(text, line, file == "decisionLog.md")
+	return id, nil
 }
 
 // rememberedText is body with fact added: a dated heading on top of decisionLog.md, else a labeled bullet at the end.

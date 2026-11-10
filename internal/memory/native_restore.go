@@ -27,17 +27,18 @@ func restoredIndex(b *nativeBatch, ix archiveIndexes, lines []string) string {
 // over a live one; a live file with different bytes aborts the whole pass before anything moves.
 func restoreNative(dir string, names []string, apply bool) (nativeResult, error) {
 	res := nativeResult{Applied: apply}
-	archiveDir := nativeArchiveDir(dir)
-	todo, skipped, err := resolveTopics(archiveDir, names, "not in the archive")
-	res.Skipped = skipped
-	if err != nil {
-		return res, err
-	}
-	if len(todo) == 0 || !apply {
-		res.Restored = todo
-		return res, nil
-	}
-	err = WithBankLock(BankLockWait, func() error { return restoreNativeLocked(dir, todo, &res) })
+	err := lockedIf(apply, func() error {
+		todo, skipped, err := resolveTopics(nativeArchiveDir(dir), names, "not in the archive")
+		res.Skipped = skipped
+		if err != nil {
+			return err
+		}
+		if len(todo) == 0 || !apply {
+			res.Restored = todo
+			return nil
+		}
+		return restoreNativeLocked(dir, todo, &res)
+	})
 	return res, err
 }
 

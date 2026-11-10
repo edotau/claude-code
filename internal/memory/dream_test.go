@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -88,5 +89,24 @@ func TestDreamReportPluralizesRotatedEntries(t *testing.T) {
 	got := dreamPreview{Dir: "d", SessionRotate: 3}.Report()
 	if !strings.Contains(got, "would rotate 3 sessionHistory entr(ies) to archive/\n") {
 		t.Fatalf("Report() = %q, want the entr(ies) rotation line", got)
+	}
+}
+
+// TestPreviewDreamReportsUnreadableBankFile: a bank file that cannot be read is named, never "nothing to consolidate".
+func TestPreviewDreamReportsUnreadableBankFile(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	locked := filepath.Join(Dir(root), "decisionLog.md")
+	orig := readFile
+	readFile = func(p string) ([]byte, error) {
+		if p == locked {
+			return nil, fs.ErrPermission
+		}
+		return orig(p)
+	}
+	t.Cleanup(func() { readFile = orig })
+	got := previewDream(root).Report()
+	if !strings.Contains(got, "local decisionLog.md: permission denied — unreadable") || strings.Contains(got, "nothing to consolidate") {
+		t.Errorf("dry run hid the unreadable bank file:\n%s", got)
 	}
 }
