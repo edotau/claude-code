@@ -43,13 +43,6 @@ func (codexEngine) Attach(prompt string, paths []string, _ bool) (string, error)
 	return agent.AttachInline(prompt, rest)
 }
 
-func (codexEngine) Before(req agent.RunOptions, t providers.Target) providers.Target {
-	if req.Autonomous {
-		fmt.Fprintln(os.Stderr, "ask: codex exec has no ask-step to disable; --tools already grants workspace-write")
-	}
-	return t
-}
-
 func (codexEngine) RanModel(t providers.Target) string { return codexRanModel(t) }
 
 func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
@@ -148,38 +141,26 @@ type authKey struct {
 	size  int64
 }
 
-// authFileKey stats $CODEX_HOME/auth.json; ok is false when it is absent (keyring-backed logins have no key).
+// authFileKey stats $CODEX_HOME/auth.json; ok is false when it is absent, and the key is then the bare path.
 func authFileKey() (authKey, bool) {
 	path := filepath.Join(codexHome(), "auth.json")
 	fi, err := os.Stat(path)
 	if err != nil {
-		return authKey{}, false
+		return authKey{path: path}, false
 	}
 	return authKey{path, fi.ModTime(), fi.Size()}, true
 }
 
 var (
-	authDataMu   sync.Mutex
-	authDataKey  authKey
-	authDataMemo []byte
-
-	authStateMu   sync.Mutex // held across the CLI fallback so concurrent callers spawn it once
-	authStateKey  authKey
-	authStateMemo *providers.AuthState
-	authSoftMemo  *providers.AuthState // signed-in, auth.json-less result for authSoftHome, valid until authSoftUntil
-	authSoftHome  string
-	authSoftUntil time.Time
+	authData  paths.Memo[authKey, []byte]
+	authState paths.Memo[authKey, providers.AuthState] // one probe per key at a time; a bare-path key is the soft entry
 )
 
 // authSoftTTL bounds how long a keyring-backed signed-in result is reused without an auth.json to stat.
 const authSoftTTL = 5 * time.Second
 
 // dropAuthMemo forgets every memoized AuthStatus so the next call re-reads the login.
-func dropAuthMemo() {
-	authStateMu.Lock()
-	defer authStateMu.Unlock()
-	authStateMemo, authSoftMemo = nil, nil
-}
+func dropAuthMemo() { authState.Drop() }
 
 // codexTokensPresent reports whether an auth.json body holds a non-null "tokens" object (a ChatGPT login).
 func codexTokensPresent(b []byte) bool {
@@ -192,25 +173,17 @@ func codexTokensPresent(b []byte) bool {
 // AuthStatus reads auth.json or the keyring first (memoized by mtime); `codex login status` runs only as fallback.
 func (codexEngine) AuthStatus() providers.AuthState {
 	key, keyed := authFileKey()
-	home := codexHome()
-	authStateMu.Lock()
-	defer authStateMu.Unlock()
-	if keyed && authStateMemo != nil && authStateKey == key {
-		return *authStateMemo
-	}
-	if keyed {
-		authSoftMemo = nil
-	} else if authSoftMemo != nil && authSoftHome == home && time.Now().Before(authSoftUntil) {
-		return *authSoftMemo
-	}
-	st := codexAuthState()
-	switch {
-	case st.Err != nil:
-	case keyed:
-		authStateKey, authStateMemo = key, &st
-	case st.Present:
-		authSoftMemo, authSoftHome, authSoftUntil = &st, home, time.Now().Add(authSoftTTL)
-	}
+	st, _ := authState.Do(key, func(st providers.AuthState, _ error) time.Duration {
+		switch {
+		case st.Err != nil:
+			return -1
+		case keyed:
+			return 0
+		case st.Present:
+			return authSoftTTL
+		}
+		return -1
+	}, func() (providers.AuthState, error) { return codexAuthState(), nil })
 	return st
 }
 
@@ -458,26 +431,17 @@ func codexHome() string {
 	return home
 }
 
-// codexOwnModel is the top-level `model = "..."` in codex's config.toml, or "" (a flat scan; sections are skipped).
+// codexOwnModel is the top-level `model = "..."` in codex's config.toml, or "" when absent or unreadable.
 func codexOwnModel() string {
 	data, err := os.ReadFile(filepath.Join(codexHome(), "config.toml"))
 	if err != nil {
 		return ""
 	}
-	multiline, depth := "", 0
-	for _, raw := range strings.SplitAfter(string(data), "\n") {
-		line := strings.TrimSpace(raw)
-		if multiline == "" && depth == 0 {
-			if strings.HasPrefix(line, "[") {
-				return "" // top-level keys end at the first table header
-			}
-			if k, v, ok := strings.Cut(line, "="); ok && strings.Trim(strings.TrimSpace(k), `"'`) == "model" {
-				return agentconfig.TOMLString(v)
-			}
-		}
-		multiline, depth = agentconfig.TOMLLineState(raw, multiline, depth)
+	model, err := codexTopLevelString(string(data), "model")
+	if err != nil {
+		return ""
 	}
-	return ""
+	return model
 }
 
 // codexChatGPTLogin checks the installed CLI's login status, falling back to $CODEX_HOME/auth.json if unavailable.
@@ -579,17 +543,13 @@ func codexAuthFile() ([]byte, bool) {
 	if !ok {
 		return nil, false
 	}
-	authDataMu.Lock()
-	defer authDataMu.Unlock()
-	if authDataMemo != nil && authDataKey == key {
-		return authDataMemo, true
-	}
-	b, err := os.ReadFile(key.path)
-	if err != nil {
-		return nil, false
-	}
-	authDataKey, authDataMemo = key, b
-	return b, true
+	b, err := authData.Do(key, func(_ []byte, err error) time.Duration {
+		if err != nil {
+			return -1
+		}
+		return 0
+	}, func() ([]byte, error) { return os.ReadFile(key.path) })
+	return b, err == nil
 }
 
 // codexKeyringAuthJSON looks up the "Codex Auth" keyring item; an item with several accounts answers

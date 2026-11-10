@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -97,7 +98,20 @@ func ReadCodexSettings(home string) (map[string]string, error) {
 }
 
 func readCodexSettings(raw string) (map[string]string, error) {
-	scan := &codexScan{values: map[string]string{}}
+	return readCodexStrings(raw, func(key string) bool {
+		return slices.ContainsFunc(CodexFields(), func(f CodexField) bool { return f.Key == key })
+	})
+}
+
+// codexTopLevelString strictly reads one top-level string key of config.toml; "" when it is absent.
+func codexTopLevelString(raw, key string) (string, error) {
+	values, err := readCodexStrings(raw, func(k string) bool { return k == key })
+	return values[key], err
+}
+
+// readCodexStrings parses the top-level string values of the keys want accepts.
+func readCodexStrings(raw string, want func(string) bool) (map[string]string, error) {
+	scan := &codexScan{values: map[string]string{}, want: want}
 	lines := strings.SplitAfter(raw, "\n")
 	if index := agentconfig.FirstTopLevelHeaderIndex(lines); index >= 0 {
 		lines = lines[:index]
@@ -128,14 +142,16 @@ func readCodexSettings(raw string) (map[string]string, error) {
 type codexScan struct {
 	values              map[string]string
 	pendingKey, pending string
+	want                func(string) bool
 }
 
 // field records a top-level "key = value" line, or starts a pending multiline string.
 func (c *codexScan) field(line string) error {
-	key, value, ok := codexFieldLine(line)
-	if !ok {
+	key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+	if key = agentconfig.TOMLKeyName(key); !ok || !c.want(key) {
 		return nil
 	}
+	value = strings.TrimSpace(value)
 	parsed, err := codexSettingString(value)
 	switch {
 	case errors.Is(err, errOpenString):
@@ -156,21 +172,6 @@ func (c *codexScan) finish() error {
 	}
 	c.values[c.pendingKey], c.pendingKey = parsed, ""
 	return nil
-}
-
-// codexFieldLine splits a "key = value" line whose key is a supported preference.
-func codexFieldLine(line string) (key, value string, ok bool) {
-	key, value, ok = strings.Cut(strings.TrimSpace(line), "=")
-	if !ok {
-		return "", "", false
-	}
-	key = agentconfig.TOMLKeyName(key)
-	for _, field := range CodexFields() {
-		if field.Key == key {
-			return key, strings.TrimSpace(value), true
-		}
-	}
-	return "", "", false
 }
 
 var errOpenString = errors.New("unterminated multiline string")
