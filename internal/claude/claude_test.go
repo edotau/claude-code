@@ -267,7 +267,7 @@ func TestClaudeArgsPermissions(t *testing.T) {
 			append([]string{"--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
 	}
 	for _, c := range cases {
-		if got := claudeArgs(nil, c.req); !slices.Equal(got, c.want) {
+		if got := claudeArgs(nil, c.req, true); !slices.Equal(got, c.want) {
 			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
 		}
 	}
@@ -275,5 +275,36 @@ func TestClaudeArgsPermissions(t *testing.T) {
 	var ae *retry.Error
 	if !errors.As(err, &ae) || ae.Kind != retry.KindFatal || !strings.Contains(err.Error(), "(x)") {
 		t.Errorf("nameless deny rule must be refused naming it, got %v", err)
+	}
+}
+
+// Auto mode's judge calls a fixed Anthropic model a Databricks endpoint does not serve: off Anthropic the rules
+// decide alone (dontAsk), so a leaf's Bash/Edit is not refused as "cannot determine the safety".
+func TestClaudeArgsPermissionModeByProvider(t *testing.T) {
+	hermetic(t, `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
+	allow := agent.Permissions{Allow: []agent.Rule{{Tool: "Bash"}}}
+	for _, c := range []struct{ profile, want, not string }{{"qa", "dontAsk", "auto"}, {"max", "auto", "dontAsk"}} {
+		req := agent.RunOptions{Tools: true, Provider: c.profile, Permissions: allow}
+		got := strings.Join(claudeArgs(nil, req, anthropicLaunch(req)), " ")
+		if !strings.Contains(got, "--permission-mode "+c.want) || strings.Contains(got, "--permission-mode "+c.not) {
+			t.Errorf("profile %s: args %q, want --permission-mode %s", c.profile, got, c.want)
+		}
+	}
+	// No rules: off Anthropic the leaf allow list replaces settings.json's defaultMode auto; on Anthropic nothing is added.
+	tail := []string{"--exclude-dynamic-system-prompt-sections"}
+	if got := claudeArgs(nil, agent.RunOptions{Tools: true, Provider: "max"}, true); !slices.Equal(got, tail) {
+		t.Errorf("max, no rules: args %q, want %q", got, tail)
+	}
+	req := agent.RunOptions{Tools: true, Provider: "qa"}
+	got := strings.Join(claudeArgs(nil, req, anthropicLaunch(req)), " ")
+	for _, want := range []string{"--allowedTools Edit Write Read Grep Glob Bash(go build *)", "Bash(go test *)", "Bash(git diff *)",
+		"Bash(grep *) --permission-mode dontAsk --permission-prompts none"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("qa, no rules: args %q, want %q", got, want)
+		}
+	}
+	bypass := agent.RunOptions{Tools: true, Autonomous: true, Provider: "qa"}
+	if got := claudeArgs(nil, bypass, false); slices.Contains(got, "dontAsk") || !slices.Contains(got, "bypassPermissions") {
+		t.Errorf("qa autonomous, no rules: args %q, want bypassPermissions only", got)
 	}
 }
