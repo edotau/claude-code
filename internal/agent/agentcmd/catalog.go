@@ -10,9 +10,11 @@ import (
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/providers/providerscmd"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
+
+// ModelsVerb is the models verb (internal/cli wires it); a catalog lists a ModelsProvider agent's models through it.
+var ModelsVerb func(args []string) int
 
 func agentCatalog(name string, args []string) int {
 	if opencode.IsMenuVerb(name, args) {
@@ -87,7 +89,7 @@ func launchAgentCatalog(name string, s agent.Schema, format string) int {
 		if err != nil {
 			return helptext.Fail("%v", err)
 		}
-		return providerscmd.Models([]string{"--live", "--profile", n, "--format", format})
+		return ModelsVerb([]string{"--live", "--profile", n, "--format", format})
 	case len(s.CLI.ModelsArgv) > 0:
 		return LaunchAgent(name, s.CLI.ModelsArgv)
 	default:

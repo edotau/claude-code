@@ -84,3 +84,19 @@ var operationFormat = schemas.Register(schemas.Format{
 	Keep:    "resume record for an interrupted agent merge",
 	Migrate: schemas.SameShape,
 })
+
+// CheckResumable mirrors the pre-agent checks of the real --resume so a dry run fails where that would.
+func CheckResumable(repo *Repo, name string) error {
+	op, err := LoadOperation(repo, name)
+	if err != nil {
+		return fmt.Errorf("no in-progress --resolve-agent operation found for %q: %w", name, err)
+	}
+	if op.Repo != repo.Main {
+		return fmt.Errorf("operation %s belongs to %s, not %s", op.ID, op.Repo, repo.Main)
+	}
+	wtPath := filepath.Join(repo.Root, op.Worktree)
+	if _, err := os.Stat(wtPath); err != nil {
+		return fmt.Errorf("worktree %q not found at %s: %w", op.Worktree, wtPath, err)
+	}
+	return nil
+}

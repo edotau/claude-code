@@ -7,22 +7,18 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/agentcmd"
 	"github.com/edotau/claude-code/internal/clipboard"
-	"github.com/edotau/claude-code/internal/configure/configurecmd"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/describe"
 	"github.com/edotau/claude-code/internal/doctor"
 	"github.com/edotau/claude-code/internal/history"
 	"github.com/edotau/claude-code/internal/launch"
-	"github.com/edotau/claude-code/internal/memory/memorycmd"
 	"github.com/edotau/claude-code/internal/network"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/providers/providerscmd"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	usagecmd "github.com/edotau/claude-code/internal/usage"
 	"github.com/edotau/claude-code/internal/vault/vaultcmd"
-	"github.com/edotau/claude-code/internal/worktree/worktreecmd"
 )
 
 // command is one top-level verb; group places it on the menu, hidden keeps it dispatchable but off the menu.
@@ -57,16 +53,16 @@ func commands() []command {
 		{name: "opencode", group: groupAgents, summary: "OpenCode on its own login, or your Databricks profile; docs", run: func(a []string) int { return agentcmd.AgentVerb("opencode", a) }, spec: agentcmd.AgentSpec},
 		{name: "databricks", group: groupAgents, summary: "Claude Code on Databricks; login, import/export, check --all", run: databricks.Run, spec: databricks.Spec},
 		// AUTH
-		{name: "resolve", group: groupAuth, hidden: true, summary: "resolve + print a profile's credential (apiKeyHelper)", run: providerscmd.Resolve, spec: providerscmd.ResolveSpec},
+		{name: "resolve", group: groupAuth, hidden: true, summary: "resolve + print a profile's credential (apiKeyHelper)", run: cmdResolve, spec: resolveSpec},
 		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: vaultcmd.Run, spec: vaultcmd.Spec},
 		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, remote agents", run: network.Run, spec: network.Spec},
 		// SESSION
-		{name: "switch", group: groupSession, hidden: true, summary: "pin the session profile (vault pins)", run: providerscmd.Switch, spec: providerscmd.SwitchSpec},
+		{name: "switch", group: groupSession, hidden: true, summary: "pin the session profile (vault pins)", run: cmdSwitch, spec: switchSpec},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: func(args []string) int { return setup.Clean(args, os.Stdout, os.Stderr) }, spec: setup.CleanSpec},
 		{name: "history", group: groupSession, summary: "shadow git history of the config files", run: history.Run, spec: history.SpecNode},
-		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: worktreecmd.Run, spec: worktreecmd.Spec},
+		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: cmdWorktree, spec: worktreeSpec},
 		{name: "test", group: groupSession, hidden: true, summary: "test tooling: mutate checks a test has teeth", run: cmdTest, spec: testSpec},
-		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: func(a []string) int { return memorycmd.Run(a, func(verb string) bool { return lookup(verb) != nil }) }, spec: memorycmd.Spec},
+		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: func(a []string) int { return cmdMemory(a, func(verb string) bool { return lookup(verb) != nil }) }, spec: memorySpec},
 		{name: "plan", group: groupSession, hidden: true, summary: "plan checklists: status (ticked/total, claims)", run: plans.Run, spec: plans.SpecNode},
 		{name: "scm", group: groupSession, summary: "PRs, checks, comments on GitHub or Bitbucket DC", run: cmdScm, spec: scmSpec},
 		// DIAGNOSTICS
@@ -76,8 +72,8 @@ func commands() []command {
 		// SETTINGS
 		{name: "install", group: groupSettings, summary: "install Claude Code; seed settings.json if missing", run: func(a []string) int { return launch.RunInstall(a, setup.Run) }, spec: setup.InstallSpec},
 		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: func(a []string) int {
-			return configurecmd.Run(a, func(name, format string) int { return providerscmd.ProviderList(name, format, describeVerbs) })
-		}, spec: configurecmd.Spec},
+			return cmdConfigure(a, func(name, format string) int { return providerList(name, format, describeVerbs) })
+		}, spec: configureSpec},
 		{name: "theme", group: groupSettings, summary: "palette, statusline, VS Code template, tool themes", run: cmdTheme, spec: themeSpec},
 	}, hiddenCommands()...)
 }
@@ -99,7 +95,7 @@ func hiddenCommands() []command {
 		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f, --check f)", run: cmdMenuSVG, spec: menuSVGSpec},
 		{name: "agents", hidden: true, summary: "ask, dispatch, list, sync, tree, status: run and track agents", run: agentcmd.Run, spec: agentcmd.AgentsSpec},
 		{name: "preflight", hidden: true, summary: "pin check per agent; --live runs the post-install pong round", run: doctor.Preflight, spec: doctor.PreflightSpecNode},
-		{name: "models", hidden: true, summary: "model aliases; --pin alias=model, --live", run: providerscmd.Models, spec: providerscmd.ModelsSpec},
+		{name: "models", hidden: true, summary: "model aliases; --pin alias=model, --live", run: cmdModels, spec: modelsSpec},
 		{name: "review", hidden: true, summary: "code-review detectors: quality|complexity|diff|pr|gate", run: cmdReview, spec: reviewSpec},
 		{name: "workflow", hidden: true, summary: "skeleton <pattern> | lint (model/effort pins, meta/throw)", run: cmdWorkflow, spec: workflowSpec},
 		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: agentcmd.Hook, spec: agentcmd.HookSpec},

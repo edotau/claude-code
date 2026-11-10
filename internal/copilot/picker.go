@@ -70,3 +70,22 @@ func discoverDestinations(p *providers.Provider) []string {
 	}
 	return d
 }
+
+// DiscoverPickerProfiles runs DiscoverPickerProfile over names; ok is false when one errored or none completed.
+func DiscoverPickerProfiles(reg *providers.Registry, names []string, apply bool) (results []DiscoverResult, ok bool) {
+	results = make([]DiscoverResult, 0, len(names))
+	ok = true
+	completed := 0
+	for _, name := range names {
+		p, _ := reg.Get(name)
+		r := DiscoverPickerProfile(p, apply)
+		if r.Status == "error" {
+			ok = false
+		}
+		if r.Status == "applied" || r.Status == "preview" {
+			completed++
+		}
+		results = append(results, r)
+	}
+	return results, ok && completed > 0
+}

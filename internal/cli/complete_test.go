@@ -657,7 +657,7 @@ func TestHookDomainMatchesRegistry(t *testing.T) {
 }
 
 // TestWorktreeMergeFlagsMatchItsOwnFlagSet pins worktree merge's completable flags against the
-// literal flag sets in the merge verb (internal/worktree/worktreecmd/worktree.go) — catching exactly
+// literal flag sets in the merge verb (internal/cli/worktree.go) — catching exactly
 // the kind of drift Part 3 replaced three hand tables to prevent.
 func TestWorktreeMergeFlagsMatchItsOwnFlagSet(t *testing.T) {
 	node := specTree()["worktree"].Sub["merge"]
@@ -676,12 +676,12 @@ func TestWorktreeMergeFlagsMatchItsOwnFlagSet(t *testing.T) {
 }
 
 // TestGenerateProfileDoctorModelsFlagsMatchTheirOwnFlagSets pins four more verbs' completable flags
-// against the literal helptext.NewFlagSet calls in their own handlers (internal/configure/configurecmd/configure.go, internal/doctor/doctor.go,
+// against the literal helptext.NewFlagSet calls in their own handlers (internal/cli/configure.go, internal/doctor/doctor.go,
 // providers.go) — every flag the handler defines must have a specTree candidate, or
 // tab-completion silently falls behind the handler the way askFlags once did.
 func TestConfigureDoctorModelsFlagsMatchTheirOwnFlagSets(t *testing.T) {
 	cases := map[string][]string{
-		"configure": {"restore", "revert", "out", "agents", "agent", "profile", "dry-run", "check", "list", "format"}, // configurecmd.Run
+		"configure": {"restore", "revert", "out", "agents", "agent", "profile", "dry-run", "check", "list", "format"}, // cmdConfigure
 		"doctor":    {"audit", "days", "format"},                                                                      // doctor.Run
 		"models":    {"profile", "unpin", "live", "dry-run", "format", "pin"},                                         // cmdModels
 	}

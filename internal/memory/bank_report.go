@@ -1,7 +1,10 @@
 package memory
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -109,4 +112,23 @@ func appendText(path, header, text string) error {
 		cur = append(cur, '\n') // keep the new text on its own line
 	}
 	return paths.AtomicWrite(path, append(cur, text...), 0o600)
+}
+
+// ReadReportInput decodes the report JSON from file, or from stdin when stdin is set.
+func ReadReportInput(file string, stdin bool) (ReportInput, error) {
+	var in ReportInput
+	var data []byte
+	var err error
+	if stdin {
+		data, err = io.ReadAll(os.Stdin)
+	} else {
+		data, err = os.ReadFile(file)
+	}
+	if err != nil {
+		return in, err
+	}
+	if err := json.Unmarshal(data, &in); err != nil {
+		return in, fmt.Errorf("bad input JSON: %w", err)
+	}
+	return in, nil
 }

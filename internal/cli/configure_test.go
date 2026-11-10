@@ -1,4 +1,4 @@
-package configurecmd
+package cli
 
 import (
 	"context"
@@ -11,9 +11,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/hosttest"
-
 	"github.com/edotau/claude-code/internal/desktop"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -31,12 +30,12 @@ func TestConfigureHelpFitsEightyColumns(t *testing.T) {
 	}
 }
 
-func run(args []string) int { return Run(args, func(string, string) int { return 0 }) }
+func run(args []string) int { return cmdConfigure(args, func(string, string) int { return 0 }) }
 
 // TestSpecArgsOfferSectionsThenProfiles: the first bare argument completes from the menu sections plus desktop.
 func TestSpecArgsOfferSectionsThenProfiles(t *testing.T) {
 	want := append(append([]string{}, menu.SectionNames...), "desktop")
-	if got := Spec().Args[0](); !slices.Equal(got, want) {
+	if got := configureSpec().Args[0](); !slices.Equal(got, want) {
 		t.Errorf("sections = %v, want %v", got, want)
 	}
 }
