@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"maps"
 	"os"
@@ -72,7 +73,7 @@ func ParseInputFor(r io.Reader, agent string) *Input {
 		return unparsed(raw, agent, err)
 	}
 	if in.doc == nil { // stdin `null` unmarshals without error and leaves the map nil
-		in.doc = map[string]any{}
+		return unparsed(raw, agent, errNotObject)
 	}
 	in.agent = knownAgent(agent)
 	in.SessionID = in.Nested("session_id")
@@ -103,13 +104,50 @@ func ParseInputFor(r io.Reader, agent string) *Input {
 	if in.TranscriptPath == "" {
 		in.TranscriptPath = in.Nested("transcriptPath")
 	}
-	if in.Agent() == AgentCopilot {
-		in.normalizeToolArgs()
-	}
-	if in.Agent() == AgentGemini {
-		in.normalizeAgy()
-	}
+	in.Invalid = in.normalizeTool()
 	return in
+}
+
+var errNotObject = errors.New("payload is not a JSON object")
+
+// normalizeTool maps the host's tool arguments onto tool_input; non-empty is why present arguments are misshapen.
+func (in *Input) normalizeTool() string {
+	switch in.Agent() {
+	case AgentCopilot:
+		return in.normalizeToolArgs()
+	case AgentGemini:
+		return in.normalizeAgy()
+	}
+	return shapeError(in.doc, "tool_input")
+}
+
+// shapeError names field when doc holds it as something other than an object or null.
+func shapeError(doc map[string]any, field string) string {
+	switch doc[field].(type) {
+	case nil, map[string]any:
+		return ""
+	}
+	return field + ": not a JSON object"
+}
+
+// copilotArgs decodes toolArgs (an object, or a string holding one); blank, absent or null is no arguments.
+func copilotArgs(v any) (map[string]any, string) {
+	switch v := v.(type) {
+	case nil:
+		return nil, ""
+	case map[string]any:
+		return v, ""
+	case string:
+		var args map[string]any
+		if strings.TrimSpace(v) == "" {
+			return nil, ""
+		}
+		if err := json.Unmarshal([]byte(v), &args); err != nil {
+			return nil, "toolArgs: " + err.Error()
+		}
+		return args, ""
+	}
+	return nil, "toolArgs: not a JSON object"
 }
 
 // knownAgent is agent when it names a supported hook agent, else "" (detect from the payload).
@@ -130,8 +168,14 @@ func unparsed(raw []byte, agent string, err error) *Input {
 }
 
 // normalizeAgy reads agy's {toolCall:{name,args}, workspacePaths} payload as tool_name/tool_input/cwd.
-func (in *Input) normalizeAgy() {
+func (in *Input) normalizeAgy() string {
+	if bad := shapeError(in.doc, "toolCall"); bad != "" {
+		return bad
+	}
 	call, _ := in.doc["toolCall"].(map[string]any)
+	if bad := shapeError(call, "args"); bad != "" {
+		return "toolCall." + bad
+	}
 	args, _ := call["args"].(map[string]any)
 	input := maps.Clone(args)
 	if input == nil {
@@ -148,20 +192,24 @@ func (in *Input) normalizeAgy() {
 	if paths, _ := in.doc["workspacePaths"].([]any); len(paths) > 0 && in.CWD == "" {
 		in.CWD, _ = paths[0].(string)
 	}
+	return ""
 }
 
 // normalizeToolArgs lets every existing tool_input consumer read Copilot's string or object arguments.
-func (in *Input) normalizeToolArgs() {
-	args, _ := in.doc["toolArgs"].(map[string]any)
-	if text, ok := in.doc["toolArgs"].(string); ok {
-		_ = json.Unmarshal([]byte(text), &args)
+func (in *Input) normalizeToolArgs() string {
+	args, bad := copilotArgs(in.doc["toolArgs"])
+	if bad == "" {
+		bad = shapeError(in.doc, "tool_input")
+	}
+	if bad != "" {
+		return bad
 	}
 	input, _ := in.doc["tool_input"].(map[string]any)
 	if input == nil {
 		input = args
 	}
 	if input == nil {
-		return
+		return ""
 	}
 	for _, key := range []string{"file_path", "filePath", "path"} {
 		if path, _ := input[key].(string); path != "" {
@@ -173,6 +221,7 @@ func (in *Input) normalizeToolArgs() {
 		}
 	}
 	in.doc["tool_input"] = input
+	return ""
 }
 
 // Field is a top-level key of the raw hook document; nil when absent.
