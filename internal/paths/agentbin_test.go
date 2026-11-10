@@ -259,3 +259,22 @@ func (tb *fatalTB) Fatalf(format string, args ...any) {
 	tb.message = fmt.Sprintf(format, args...)
 	runtime.Goexit()
 }
+
+func TestAgentBinAbsolutizesRelativeEnvDir(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	if err := os.Mkdir(filepath.Join(cwd, "fakebin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeScript(t, filepath.Join(cwd, "fakebin", "codex"))
+	t.Setenv(paths.AgentBinDirEnv, "fakebin")
+
+	got, err := paths.AgentBin("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(got) {
+		t.Errorf("AgentBin(codex) = %q, want an absolute path", got)
+	}
+}

@@ -93,10 +93,16 @@ const dispatchPruneMargin = 20
 // NewRecord stamps an id that sorts by time and names the agent: 20261016T210512.123-codex.
 func NewRecord(name string, req agent.RunOptions, now time.Time) Record {
 	req.EnvNames = agent.EnvNames(req.Env)
-	def, _ := agent.DefaultPermissions(name) // an unreadable default fails the run itself; the record only notes widening
-	_, widened := agent.ResolvePermissions(def, req.Permissions)
+	widened, _ := widenedChecked(name, req.Permissions) // a bad default fails the run itself
 	return Record{Schema: DispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
 		Widened: widened}
+}
+
+// widenedChecked is what p grants beyond name's default permissions; an unreadable default is returned, not hidden.
+func widenedChecked(name string, p agent.Permissions) ([]string, error) {
+	def, err := agent.DefaultPermissions(name)
+	_, widened := agent.ResolvePermissions(def, p)
+	return widened, err
 }
 
 // ClaimRecord is NewRecord with its id reserved on disk: the allocator for every new dispatch (ask, batch, job).
@@ -204,6 +210,11 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	r.Fallback, r.FallbackReason = res.Fallback, shapes.Redact(res.FallbackReason)
 	if res.Fallback != "" {
 		r.RanAs = res.Agent
+		if res.Agent != "" && res.Agent != r.Agent { // widening is judged against the agent that answered
+			if w, err := widenedChecked(res.Agent, r.Request.Permissions); err == nil { // keep the original on a bad default
+				r.Widened = w
+			}
+		}
 	}
 	r.DurationMs = took.Milliseconds()
 	if err != nil {

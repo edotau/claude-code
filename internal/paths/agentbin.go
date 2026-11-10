@@ -25,13 +25,24 @@ func AgentName(name string) (string, bool) {
 	return "", false
 }
 
-// AgentBin returns BinDir()/<bin> when it is a usable vendor executable, never its resolved target.
+// AgentBinDirEnv names a directory AgentBin reads instead of BinDir, so a hermetic run can use fake vendor binaries.
+const AgentBinDirEnv = "HARNESS_AGENT_BIN_DIR"
+
+// AgentBin returns <AgentBinDirEnv dir or BinDir()>/<bin> when it is a usable vendor executable, never its target.
 func AgentBin(name string) (string, error) {
 	bin, ok := AgentName(name)
 	if !ok {
 		return "", fmt.Errorf("unknown vendor %q", name)
 	}
-	p := filepath.Join(BinDir(), bin)
+	dir := os.Getenv(AgentBinDirEnv)
+	if dir == "" {
+		dir = BinDir()
+	}
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	p := filepath.Join(dir, bin)
 	if err := checkVendorLink(bin, p); err != nil {
 		return "", err
 	}

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 )
 
@@ -44,5 +45,22 @@ func TestClaudeBinaryDoesNotSearchPATH(t *testing.T) {
 	t.Setenv("PATH", filepath.Dir(source))
 	if bin, err := ClaudeBinary(); err == nil || !strings.Contains(err.Error(), "not found in") || bin != "" {
 		t.Fatalf("ClaudeBinary = %q, %v; want not found despite PATH vendor", bin, err)
+	}
+}
+
+func TestClaudeBinaryBinDirOverrideSkipsInstalledVersions(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	versions := filepath.Join(os.Getenv("HOME"), ".local", "share", "claude", "versions")
+	if err := os.MkdirAll(versions, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(versions, "2.0.14"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(paths.AgentBinDirEnv, t.TempDir())
+	if got, err := ClaudeBinary(); err == nil || got != "" {
+		t.Fatalf("ClaudeBinary = %q, %v; want error, no fallback to the installed claude", got, err)
 	}
 }

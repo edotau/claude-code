@@ -10,10 +10,14 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// ClaudeBinary finds the real claude: BinDir/claude, else the native installer's newest version.
+// ClaudeBinary finds claude: BinDir/claude, else the native installer's newest (not under the bin-dir override).
 func ClaudeBinary() (string, error) {
-	if bin, err := paths.AgentBin("claude"); err == nil {
+	bin, err := paths.AgentBin("claude")
+	if err == nil {
 		return bin, nil
+	}
+	if os.Getenv(paths.AgentBinDirEnv) != "" {
+		return "", err // the override is hermetic: never fall back to the real install
 	}
 	if bin := newestInstalledClaude(); bin != "" {
 		return bin, nil
