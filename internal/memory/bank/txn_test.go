@@ -524,3 +524,62 @@ func mustRead(t *testing.T, p string) string {
 	}
 	return string(b)
 }
+
+// Regression: a journal that can never finish must not wedge later batches or the journals behind it.
+func TestCommitChangesLockedNotWedgedByPermanentlyFailingJournal(t *testing.T) {
+	storeFixture(t)
+	if err := StoreRepo().Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	stuck := "20260101-000000.000-aaaa"
+	writeJournal(t, stuck, map[string]any{"schema": 2})
+	writeJournal(t, "20260101-000001.000-bbbb", nil)
+
+	if err := nextBatch(t); err != nil {
+		t.Fatalf("stuck journal wedged the next batch: %v", err)
+	}
+	if got := readStore(t, "r/next.md"); got != "n\n" {
+		t.Fatalf("new batch not committed: %q", got)
+	}
+	if got := readStore(t, "r/seeded.md"); got != "seeded\n" {
+		t.Fatalf("journal behind the stuck one not recovered: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(memstore.JournalDir(), stuck+".json")); err != nil {
+		t.Fatalf("stuck journal should stay on disk: %v", err)
+	}
+}
+
+// Regression: a skipped journal must surface on the receipt of the batch that succeeded behind it.
+func TestCommitChangesLockedReportsUnrecoveredOnSuccess(t *testing.T) {
+	storeFixture(t)
+	if err := StoreRepo().Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	writeJournal(t, "20260101-000000.000-aaaa", map[string]any{"schema": 2})
+
+	if _, err := commitLocked(t, "next", []Change{{Rel: "r/next.md", Data: []byte("n\n")}}); err != nil {
+		t.Fatalf("batch behind a stuck journal failed: %v", err)
+	}
+}
+
+// A skipped older journal that replays after a newer commit to the same file diverges instead of clobbering.
+func TestSkippedJournalReplayDivergesOnSameFile(t *testing.T) {
+	storeFixture(t)
+	if err := StoreRepo().Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := commitLocked(t, "newer", []Change{{Rel: "r/seeded.md", Data: []byte("newer\n")}}); err != nil {
+		t.Fatal(err)
+	}
+	writeJournal(t, "20260101-000000.000-aaaa", map[string]any{"changes": []map[string]any{{
+		"rel": "r/seeded.md", "hasPreimage": true, "preimageSha256": sha256Hex([]byte("old\n")), "data": []byte("stale\n"),
+	}}})
+
+	_, err := commitLocked(t, "after", []Change{{Rel: "r/other.md", Data: []byte("o\n")}})
+	if err != nil {
+		t.Fatalf("diverging journal must not wedge: %v", err)
+	}
+	if got := readStore(t, "r/seeded.md"); got != "newer\n" {
+		t.Fatalf("stale journal clobbered the newer commit: %q", got)
+	}
+}
