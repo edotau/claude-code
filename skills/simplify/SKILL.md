@@ -43,7 +43,7 @@ quality.md → Simplify; if they differ, quality.md wins):
    whose impossible state you cannot prove. A nil-guard that looks redundant usually protects a path you have not
    traced; trace callers first.
 3. **No covering test: flag, do not cut.** Scoped tests and a live check of the changed surface must pass before AND
-   after. A cut near a test's subject re-runs `claude-code test mutate <file> <old> <new> <pkg>`.
+   after.
 4. **Reuse first**: grep the call sequence and sibling files, and use `git log -S`. Compare a near-duplicate with its
    original for behavior the copy lost (isolation, error handling), then consolidate at the original and say so.
 5. **Altitude**: fix the root cause, not another special case. Bugs found are reported (to `/code-review`), never
@@ -64,4 +64,4 @@ Per touched function: Δ lines and Δ complexity (before → after). Then three 
 - **Bugs reported**: `file:line`, symptom, suggested `/code-review` follow-up. Not fixed.
 - **Skipped**: reviewed and left alone on purpose (e.g. gotcha comment kept), with why.
 
-State which gate steps ran (lint, scoped tests, live check, mutate) and which did not.
+State which gate steps ran (lint, scoped tests, live check) and which did not.

@@ -109,7 +109,7 @@ its cap (3 cycles per test, 5 per task) reports and stops.
 | One failing test or package | the loop yourself, or one `copilot` leaf |
 | Failures across packages | one `copilot` leaf per package in ONE message, each owning only its `_test.go` files |
 | A change being implemented | `claude` ‖ `copilot` in one message; copilot repairs now, writes new tests after "landed" |
-| A fixed bug | after your live before/after, one leaf writes the regression test + `test mutate` proof |
+| A fixed bug | after your live before/after, one leaf writes the regression test |
 | Suite must go green, bounded | `Workflow green-keeper-loop` — only when the user asks |
 
 ### Phase 3: integrate

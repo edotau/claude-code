@@ -28,8 +28,7 @@ paragraph belongs in the repo's own docs (`docs/`, `ARCHITECTURE.md`, `README.md
 1. **Name the assumption before each cut** ("unreachable because ___"); can't finish the sentence → flag, don't cut.
 2. **Never cut** semantic or gotcha comments, distinct test scenarios, error context (`%w`, messages), or a guard whose
    impossible state you can't prove.
-3. **No covering test → flag, don't cut.** Gate: the scoped tests and live check pass before AND after; a cut near a
-   test's subject re-runs `claude-code test mutate`.
+3. **No covering test → flag, don't cut.** Gate: the scoped tests and live check pass before AND after.
 4. **Reuse first**: grep the call sequence, sibling files and `git log -S`; a near-duplicate is compared with its
    original for behavior the copy lost (isolation, error handling), then consolidated at the source (say so).
 5. **Altitude**: fix the root cause, not one more special case. Bugs found are reported, not fixed (`/code-review`).
