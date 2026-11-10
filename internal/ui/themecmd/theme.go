@@ -10,9 +10,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/network/vscode"
-	"github.com/edotau/claude-code/internal/statusline"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/statusline"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
