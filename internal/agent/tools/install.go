@@ -87,7 +87,7 @@ func runInstallScript(ctx context.Context, w io.Writer, dryRun bool, url string,
 	ctx, cancel := context.WithTimeout(ctx, installCmdTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "bash", append([]string{f.Name()}, args...)...)
-	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent, Set: env}.Environ(ctx) // a downloaded script gets no provider credential
+	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent, Set: env}.Environ(agent.ProbeContext(ctx, "")) // no credential or login
 	cmd.Stdout, cmd.Stderr = w, w
 	return cmd.Run()
 }
@@ -244,7 +244,7 @@ func runSelfUpdate(ctx context.Context, w io.Writer, bin string, dryRun bool) er
 	ctx, cancel := context.WithTimeout(ctx, installCmdTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "update")
-	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(ctx) // the updater gets no provider credential
+	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(agent.ProbeContext(ctx, "")) // no credential or login
 	cmd.Stdout, cmd.Stderr = w, w
 	return cmd.Run()
 }

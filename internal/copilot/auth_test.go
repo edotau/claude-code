@@ -126,6 +126,40 @@ func TestCopilotTierCmdScrubsInheritedSecrets(t *testing.T) {
 	}
 }
 
+// The plan lookup keeps copilot's own GitHub login but no registry credential and no other agent's login.
+func TestCopilotTierCmdKeepsOnlyCopilotLogin(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks",`+
+		`"host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	for _, k := range []string{"DEV_WS_TOKEN", "OPENCODE_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
+		t.Setenv(k, "SENTINEL")
+	}
+	dump := filepath.Join(dir, "env")
+	script := "#!/bin/sh\n/usr/bin/env > " + dump + "\necho '{\"copilot_plan\":\"individual_pro\"}'\n"
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := copilotTierCmd(context.Background(), ""); err != nil || string(got) != "{\"copilot_plan\":\"individual_pro\"}\n" {
+		t.Fatalf("gh api = %q, %v; want the plan JSON", got, err)
+	}
+	env, err := os.ReadFile(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"DEV_WS_TOKEN", "OPENCODE_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"} {
+		if strings.Contains("\n"+string(env), "\n"+k+"=") {
+			t.Errorf("gh api inherited %s", k)
+		}
+	}
+	for _, k := range []string{"GH_TOKEN", "GITHUB_TOKEN"} {
+		if !strings.Contains("\n"+string(env), "\n"+k+"=SENTINEL") {
+			t.Errorf("gh api lost copilot's own login %s", k)
+		}
+	}
+}
+
 // A /user body past the 64 KiB cap reads as a failed lookup, never a login decoded from an unbounded read.
 func TestFetchGitHubLoginCapsBody(t *testing.T) {
 	big := `{"login":"` + strings.Repeat("a", 128<<10) + `"}`

@@ -9,6 +9,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func writeClaudeJSON(t *testing.T, body string) {
@@ -136,6 +138,37 @@ func TestClaudeLoginProbeNativeInstall(t *testing.T) {
 	loggedIn, plan, err := claudeLoginProbe()
 	if err != nil || !loggedIn || plan != " (max)" {
 		t.Fatalf("native auth probe = %v, %q, %v; want true, max, nil", loggedIn, plan, err)
+	}
+}
+
+// `claude auth status` keeps claude's own login but no registry credential and no other agent's login.
+func TestClaudeLoginProbeScrubsCredentials(t *testing.T) {
+	resetClaudeProbe()
+	t.Cleanup(resetClaudeProbe)
+	vaulttest.UseKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks",`+
+		`"host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	for _, k := range []string{"DEV_WS_TOKEN", "OPENCODE_API_KEY", "GH_TOKEN", "OPENAI_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"} {
+		t.Setenv(k, "SENTINEL")
+	}
+	dump := filepath.Join(t.TempDir(), "env")
+	pathstest.FakeVendor(t, "claude", "/usr/bin/env > "+dump+"\necho '{\"loggedIn\":true,\"subscriptionType\":\"max\"}'")
+	if in, plan, err := claudeLoginProbe(); !in || plan != " (max)" || err != nil {
+		t.Fatalf("probe = %v %q %v; want logged in (max)", in, plan, err)
+	}
+	env, err := os.ReadFile(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"DEV_WS_TOKEN", "OPENCODE_API_KEY", "GH_TOKEN", "OPENAI_API_KEY"} {
+		if strings.Contains("\n"+string(env), "\n"+k+"=") {
+			t.Errorf("claude auth status inherited %s", k)
+		}
+	}
+	if !strings.Contains(string(env), "CLAUDE_CODE_OAUTH_TOKEN=SENTINEL") {
+		t.Error("claude auth status lost its own login CLAUDE_CODE_OAUTH_TOKEN")
 	}
 }
 

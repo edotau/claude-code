@@ -535,7 +535,7 @@ var copilotTierCmd = func(ctx context.Context, token string) ([]byte, error) {
 	if token != "" {
 		spec.Set = []string{"GH_TOKEN=" + token}
 	}
-	return agent.ProbeCLI(ctx, "gh", spec, false, "api", "/copilot_internal/user")
+	return agent.ProbeCLI(agent.ProbeContext(ctx, "copilot"), "gh", spec, false, "api", "/copilot_internal/user")
 }
 
 // copilotPlanMemo holds one lookup per account, so a sign-in or account switch mid-menu re-asks.

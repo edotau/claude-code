@@ -1447,9 +1447,6 @@ func TestArmChildEnvPerAgent(t *testing.T) {
 				assertArmFirstParty(t, bins[i], envs[i])
 			}
 			want := []string{"copilot", "codex", "agy", "opencode", "claude"} // the ladder's first-party order
-			if name == "claude" {
-				want = []string{"claude"} // a failed claude dev hop moves on; its pick holds only claude rows today
-			}
 			if !slices.Equal(bins[1:], want) {
 				t.Errorf("launches after the dev hop %v, want every first-party login %v\n%s", bins[1:], want, stderr)
 			}
