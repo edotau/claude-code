@@ -208,3 +208,69 @@ func isFatal(err error) bool {
 	re, ok := errors.AsType[*retry.Error](err)
 	return ok && re.Kind == retry.KindFatal
 }
+
+const testRouterBase = "http://127.0.0.1:9999"
+
+// stubProxy stubs the router, its secret and session mints for the test.
+func stubProxy(t *testing.T) {
+	t.Helper()
+	oe, os_, om := agent.EnsureRouter, agent.RouterSecret, agent.MintSession
+	t.Cleanup(func() { agent.EnsureRouter, agent.RouterSecret, agent.MintSession = oe, os_, om })
+	agent.StubProxyForTest(testRouterBase, "rtr-secret-xyz")
+}
+
+// loadTarget is provider's built-in row with every provider key set, under a fresh config dir.
+func loadTarget(t *testing.T, provider, model string) providers.Target {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "GATEWAY_API_KEY", "ANTHROPIC_API_KEY"} {
+		t.Setenv(k, "sk-SECRET-123")
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := reg.Get(provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return providers.Target{Provider: p, Model: model}
+}
+
+func TestRoutedStrips1MSuffix(t *testing.T) {
+	stubProxy(t)
+	env, _, err := agent.SchemaFor("copilot").Configure(context.Background(), loadTarget(t, "anthropic", "claude-opus-5[1m]"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(env, "COPILOT_MODEL=claude-opus-5") {
+		t.Errorf("COPILOT_MODEL not claude-opus-5 in %q", env)
+	}
+}
+
+func TestLaunchEnvCannotOverrideRouterBase(t *testing.T) {
+	stubProxy(t)
+	tg := loadTarget(t, "openai", "gpt-5")
+	vaulttest.Put(t, vault.Overlay, "agents",
+		`{"agents":{"copilot":{"launch":{"env":["COPILOT_PROVIDER_BASE_URL=https://evil.example.com","KEEP_ME=1"]}}}}`)
+	env, _, err := agent.SchemaFor("copilot").Configure(context.Background(), tg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "COPILOT_PROVIDER_BASE_URL=") {
+			n++
+			if !strings.HasPrefix(kv, "COPILOT_PROVIDER_BASE_URL="+testRouterBase) {
+				t.Errorf("base overridden: %s", kv)
+			}
+		}
+	}
+	if n != 1 {
+		t.Errorf("base var appears %d times: %q", n, env)
+	}
+	if !slices.Contains(env, "KEEP_ME=1") {
+		t.Errorf("unrelated launch.env entry dropped: %q", env)
+	}
+}

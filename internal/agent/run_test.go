@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -229,6 +228,10 @@ func TestMain(m *testing.M) {
 	NoticeOut = io.Discard
 	agentconfig.SetCatalogWarn(io.Discard)
 	StubProxyForTest("http://127.0.0.1:9999", "rtr-secret-xyz")
+	if err := registerFixtureRoster(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	os.Exit(hosttest.Main(m))
 }
 
@@ -298,19 +301,6 @@ func hermetic(t *testing.T, userProviders string) {
 }
 
 func writeFile(path, body string) error { return os.WriteFile(path, []byte(body), 0o600) }
-
-// registry points two test providers (one per dialect) at srv.
-func registry(t *testing.T, srv *httptest.Server) {
-	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	t.Setenv("TEST_ANTH_KEY", "anth-key")
-	t.Setenv("TEST_OAI_KEY", "oai-key")
-	body := fmt.Sprintf(`{"providers":{
-	  "anthropic":{"tanth":{"protocol":"anthropic","base_url":%q,"auth":{"type":"key","header":"x-api-key","env":"TEST_ANTH_KEY"},"models":{"opus":"claude-opus-5","haiku":"claude-haiku-4-5"}}},
-	  "openai":{"toai":{"protocol":"openai","base_url":%q,"auth":{"type":"key","env":"TEST_OAI_KEY"},"models":{"opus":"gpt-x"}}}}}`, srv.URL, srv.URL+"/v1")
-	vaulttest.Put(t, vault.Overlay, "providers", body)
-}
 
 func target(t *testing.T, provider, model string) providers.Target {
 	t.Helper()
