@@ -173,3 +173,16 @@ func TestClaimFinishedRestoresMissingTask(t *testing.T) {
 		t.Fatalf("a working claim must not re-add a missing task: err=%v", err)
 	}
 }
+
+func TestClaimFinishedAddsTasksSectionWhenAbsent(t *testing.T) {
+	body := "# P\n\nGoal.\n\n\n"
+	p := userTickPlan(t, body)
+	err := Claim(p, "1.2", "finished: goal done")
+	if err == nil || !strings.HasSuffix(err.Error(), "; re-added it ticked") {
+		t.Fatalf("err = %v, want the missing-task error ending in re-added it ticked", err)
+	}
+	want := strings.TrimRight(body, "\n") + "\n\n## Tasks\n\n- [x] 1.2 <!-- finished: goal done -->\n"
+	if got := readPlan(t, p); got != want {
+		t.Fatalf("plan =\n%q\nwant\n%q", got, want)
+	}
+}
