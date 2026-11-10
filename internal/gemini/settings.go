@@ -22,7 +22,7 @@ import (
 // renderGeminiSettings merges the spec's exact-match guard denies into agy's
 // ~/.gemini/antigravity-cli/settings.json permissions.deny, preserving every other key.
 func renderGeminiSettings(home string, o render.RenderOptions, out io.Writer) (bool, error) {
-	cfg, err := agentconfig.LoadConfig()
+	cfg, err := loadAgentConfig()
 	if err != nil {
 		fmt.Fprintf(out, "gemini-settings: skipped: %v\n", err)
 		return false, fmt.Errorf("gemini-settings: load agentconfig: %w", err)

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -65,14 +66,7 @@ func preflightFixtureSetup(t *testing.T) (repo *Repo, main, wt string) {
 	return r, main, dest
 }
 
-// mergeFixtureSetup makes a fresh main repo with a base file commit, plus a worktree named "feature"
-// branched from it — the shared starting point for every divergence scenario below.
-func mergeFixtureSetup(t *testing.T) (repo *Repo, main, wt string) {
-	t.Helper()
-	return preflightFixtureSetup(t)
-}
-
-// mergeFixtureHooksVia checks that the main checkout's HEAD/index are untouched and no MERGE_HEAD
+// mergeFixtureAssertMainUntouched checks that the main checkout's HEAD/index are untouched and no MERGE_HEAD
 // exists there — the invariant Preflight/Merge must hold before promotion ever runs.
 func mergeFixtureAssertMainUntouched(t *testing.T, main, wantHEAD string) {
 	t.Helper()
@@ -165,7 +159,7 @@ func TestPreflightTextConflict(t *testing.T) {
 	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueConflict {
 		t.Fatalf("Issues = %v, want one IssueConflict", plan.Issues)
 	}
-	if !containsPath(plan.Issues[0].Paths, "f.txt") {
+	if !slices.Contains(plan.Issues[0].Paths, "f.txt") {
 		t.Fatalf("conflict paths = %v, want f.txt", plan.Issues[0].Paths)
 	}
 	mergeFixtureAssertMainUntouched(t, main, mainHEAD)
@@ -184,7 +178,7 @@ func TestPreflightBinaryConflict(t *testing.T) {
 	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueConflict {
 		t.Fatalf("Issues = %v, want one IssueConflict", plan.Issues)
 	}
-	if !containsPath(plan.Issues[0].Paths, "f.txt") {
+	if !slices.Contains(plan.Issues[0].Paths, "f.txt") {
 		t.Fatalf("conflict paths = %v, want f.txt", plan.Issues[0].Paths)
 	}
 }
@@ -202,7 +196,7 @@ func TestPreflightDeleteConflict(t *testing.T) {
 	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueConflict {
 		t.Fatalf("Issues = %v, want one IssueConflict", plan.Issues)
 	}
-	if !containsPath(plan.Issues[0].Paths, "f.txt") {
+	if !slices.Contains(plan.Issues[0].Paths, "f.txt") {
 		t.Fatalf("conflict paths = %v, want f.txt", plan.Issues[0].Paths)
 	}
 }
@@ -448,7 +442,7 @@ func TestPreflightMissingWorktree(t *testing.T) {
 // (git < 2.38) as git itself would: a nonzero exit code outside {0,1}. Preflight must block, never
 // mistake it for a clean or conflicted result.
 func TestSimulateMergeUnsupportedGit(t *testing.T) {
-	repo, _, wt := mergeFixtureSetup(t)
+	repo, _, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 
 	orig := runGit
@@ -472,32 +466,9 @@ func TestSimulateMergeUnsupportedGit(t *testing.T) {
 // mergeFixtureFakeExitState runs a trivial subprocess to obtain a real *os.ProcessState with the
 // wanted exit code — exec.ExitError requires one, and this is the only way to fabricate it honestly.
 func mergeFixtureFakeExitState(code int) *os.ProcessState {
-	cmd := exec.Command("sh", "-c", "exit "+itoa(code))
+	cmd := exec.Command("sh", "-c", "exit "+strconv.Itoa(code))
 	_ = cmd.Run()
 	return cmd.ProcessState
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var b []byte
-	for n > 0 {
-		b = append([]byte{byte('0' + n%10)}, b...)
-		n /= 10
-	}
-	if neg {
-		b = append([]byte{'-'}, b...)
-	}
-	return string(b)
-}
-
-func containsPath(paths []string, want string) bool {
-	return slices.Contains(paths, want)
 }
 
 // TestPlanOrResolveConflictNotifiesLedgerOwner: a blocked merge queues one conflict notice for the owning session.

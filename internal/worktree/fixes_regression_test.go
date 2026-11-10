@@ -301,3 +301,5 @@ func regressionWriteFile(t *testing.T, path, contents string) {
 		t.Fatal(err)
 	}
 }
+
+// a directory at the op path makes every save fail

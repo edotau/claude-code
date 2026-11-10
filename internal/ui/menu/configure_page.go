@@ -86,9 +86,17 @@ func (d *dialog) printf(format string, args ...any) {
 	fmt.Fprint(d.out, ansi.Status(d.color, fmt.Sprintf(format, args...)))
 }
 
+// onTerminal reports whether the dialog reads the real terminal (a piped or injected stdin is not one).
+func (d *dialog) onTerminal() bool { return isStdinTTY() && d.o.In == os.Stdin }
+
+// interactive reports whether the dialog may open pickers: --interactive on a terminal, not --check/--dry-run.
+func (d *dialog) interactive() bool {
+	return d.o.Interactive && !d.o.Check && !d.o.DryRun && d.onTerminal()
+}
+
 // shell is the Shell on d's terminal or numbered prompt, painting status lines like printf.
 func (d *dialog) shell() *Shell {
-	return &Shell{Out: d.out, In: d.br, TTY: isStdinTTY() && d.o.In == os.Stdin,
+	return &Shell{Out: d.out, In: d.br, TTY: d.onTerminal(),
 		Paint: func(s string) string { return ansi.Status(d.color, s) }}
 }
 
@@ -120,7 +128,7 @@ func Run(o Options, section string) int {
 	}
 	defer configure.WarmServedOnChange(out, o.Check || o.DryRun, pins, providers.ServedRoutingOn())
 	seedOnFirstRun(d, section)
-	if section == "" && o.Interactive && !o.Check && !o.DryRun && isStdinTTY() {
+	if section == "" && d.interactive() {
 		return runMenu(d)
 	}
 	return runSections(d, want)
@@ -180,7 +188,8 @@ func runSection(d *dialog, s string) bool {
 	case "github":
 		return runGithub(d)
 	case "remote":
-		return runRemote(d)
+		runRemote(d)
+		return true
 	case "codex":
 		return runCodexSettings(d)
 	case "routing":
@@ -219,7 +228,7 @@ func runProvider(d *dialog) bool {
 	}
 	// `configure provider` on a terminal opens the same claude sub-picker the top-level menu's claude
 	// row does; --check/--dry-run report only, so they never open a picker that would sit waiting for a key.
-	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
+	if d.interactive() {
 		return runAgentMenu(d, "claude", claudeMenu(d))
 	}
 	names := d.reg.Names()
@@ -300,7 +309,7 @@ func applyProvider(d *dialog, name string) bool {
 }
 
 func runKeysChanged(d *dialog) (allOK, changed bool) {
-	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
+	if d.interactive() {
 		return keysMenu(d) // a terminal gets the pick-one menu; piped runs keep the line-by-line pass below
 	}
 	targets, err := configure.KeyTargets(d.reg, d.o.Agent)
@@ -378,7 +387,7 @@ func resolveKey(d *dialog, kt configure.KeyTarget) bool {
 		return false
 	}
 	chosen, skipped := -1, false
-	if isStdinTTY() && d.o.In == os.Stdin {
+	if d.onTerminal() {
 		chosen, skipped = pickAuthOption(d, kt, opts)
 	}
 	if skipped {
@@ -479,7 +488,7 @@ func isStdinTTY() bool { return ansi.IsTerminal(os.Stdin) }
 // runModels is the `configure models` / "Models" row entry: a pick-one menu on a terminal, the plain
 // report otherwise (--check/--dry-run/piped never open a picker that would sit waiting for a choice).
 func runModels(d *dialog) bool {
-	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
+	if d.interactive() {
 		return modelsMenu(d)
 	}
 	return modelsReport(d)
@@ -552,7 +561,7 @@ func runAgents(d *dialog) bool {
 // secretLine reads a hidden value: tui.Secret (echo off) on the terminal, the dialogue reader otherwise.
 // Every paste shows as a masked preview (live on the terminal), so a wrong or doubled paste shows before it is saved.
 func secretLine(d *dialog, prompt string) (string, error) {
-	if isStdinTTY() && d.o.In == os.Stdin {
+	if d.onTerminal() {
 		return tui.Secret(prompt, pastePreview)
 	}
 	fmt.Fprint(d.out, prompt)

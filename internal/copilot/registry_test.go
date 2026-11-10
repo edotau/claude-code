@@ -43,7 +43,6 @@ func TestRegistrySelectErrors(t *testing.T) {
 	}{
 		{"repeated", r, CopilotChoice{Requested: []string{"sonnet", "gpt-5-5"}}, ErrRepeatedSelection},
 		{"unknown", r, CopilotChoice{Requested: []string{"kimi-k3"}}, ErrUnknownModel},
-		{"saved gone", r, CopilotChoice{Saved: "dev-anthropic/kimi-k3"}, ErrSavedModelGone},
 		{"pin gone", r, CopilotChoice{Pin: "kimi-k3"}, ErrSavedModelGone},
 		{"empty", CopilotRegistry{}, CopilotChoice{}, ErrNoModels},
 		{"ambiguous", ambiguous, CopilotChoice{Requested: []string{"w"}}, ErrAmbiguousModel},

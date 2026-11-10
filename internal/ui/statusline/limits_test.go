@@ -107,7 +107,7 @@ func TestTokenLeftBoundaries(t *testing.T) {
 	}
 }
 
-// Only the anthropic cli (max) session shows 5h/7d; every other one shows its token time left or nothing.
+// Only the anthropic cli (ultra) session shows 5h/7d; every other one shows its token time left or nothing.
 func TestLimitsSegmentTokenVsPassthrough(t *testing.T) {
 	hermetic(t)
 	future := time.Now().Add(24 * time.Hour).Unix()
@@ -136,7 +136,7 @@ func TestLimitsSegmentTokenVsPassthrough(t *testing.T) {
 	reg.Providers["dbx-key"] = &providers.Provider{Name: "dbx-key", Provider: "databricks",
 		Auth: providers.Auth{Type: providers.AuthKey, Command: "x"}}
 	writeTokenExpiry(t, "dbx-key", time.Now().Add(42*time.Minute+30*time.Second))
-	writeTokenExpiry(t, "max", time.Now().Add(42*time.Minute))
+	writeTokenExpiry(t, "ultra", time.Now().Add(42*time.Minute))
 
 	if got := limitsSegment(in, "dbx-u2m"); got != "u2m:42m" {
 		t.Errorf("oauth profile with a record: %q, want u2m:42m", got)
@@ -153,7 +153,7 @@ func TestLimitsSegmentTokenVsPassthrough(t *testing.T) {
 	if got := limitsSegment(in, "openai"); got != "" {
 		t.Errorf("non-subscription profile without a record: %q, want empty", got)
 	}
-	if got := limitsSegment(in, "max"); got != "7d:41%" {
+	if got := limitsSegment(in, "ultra"); got != "7d:41%" {
 		t.Errorf("subscription session: %q, want 5h/7d only, even with an expiry record", got)
 	}
 	if got := limitsSegment(in, "no-such-provider"); got != "" {
@@ -211,7 +211,7 @@ func TestLimitsSegmentKeyCommandIgnoresSubscriptionCache(t *testing.T) {
 	}
 }
 
-// An anthropic cli (max) session shows 7d from a fresh cache and nothing from a stale one.
+// An anthropic cli (ultra) session shows 7d from a fresh cache and nothing from a stale one.
 func TestLimitsSegmentAnthropicCacheFreshVsStale(t *testing.T) {
 	hermetic(t)
 	future := time.Now().Add(24 * time.Hour)

@@ -181,7 +181,8 @@ func RefreshProfile(ctx context.Context, name string) error {
 		_, err = RefreshCatalog(ctx)
 		return err
 	case p != nil && p.Preset == providers.PresetDatabricks:
-		return RefreshCopilotModels(ctx, name)
+		_, err = relistCopilotEndpoints(ctx, reg, p)
+		return err
 	}
 	return fmt.Errorf("%q is not a Databricks or github profile", name)
 }
@@ -190,30 +191,25 @@ func RefreshProfile(ctx context.Context, name string) error {
 func DiscoverySource(p *providers.Provider) (source, skip string) {
 	source, skip = providers.DiscoverySource(p)
 	if isGithubProfile(p) {
-		skip = ProfileCatalogSupport(p)
+		skip = profileCatalogSupport(p)
 	}
 	return source, skip
 }
 
-// DiscoverProfileModels lists p's live models: the Copilot catalog for github rows, the gateway otherwise.
-func DiscoverProfileModels(ctx context.Context, p *providers.Provider) ([]providers.ModelInfo, error) {
-	if isGithubProfile(p) {
-		return ListProfileModels(ctx, p)
-	}
-	return providers.DiscoverModels(ctx, p)
-}
-
-// ProfileCatalogSupport requires an explicit account for discovery without launch-account fallback.
-func ProfileCatalogSupport(p *providers.Provider) string {
+// profileCatalogSupport requires an explicit account for discovery without launch-account fallback.
+func profileCatalogSupport(p *providers.Provider) string {
 	if strings.TrimSpace(p.Login) == "" {
 		return "Copilot discovery requires an explicit profile login; implicit launch-account fallback is disabled"
 	}
 	return ""
 }
 
-// ListProfileModels uses only the requested account, never global pin switching.
-func ListProfileModels(ctx context.Context, p *providers.Provider) ([]providers.ModelInfo, error) {
-	if note := ProfileCatalogSupport(p); note != "" {
+// DiscoverProfileModels lists p's live models: the Copilot catalog for github rows (no pin switch), else the gateway.
+func DiscoverProfileModels(ctx context.Context, p *providers.Provider) ([]providers.ModelInfo, error) {
+	if !isGithubProfile(p) {
+		return providers.DiscoverModels(ctx, p)
+	}
+	if note := profileCatalogSupport(p); note != "" {
 		return nil, errors.New(note)
 	}
 	bin, err := paths.AgentBin("copilot")
@@ -257,20 +253,6 @@ func copilotModelInfos(ctx context.Context, reg *providers.Registry, p *provider
 // copilotUsable accepts a snapshot holding at least one chat row copilot can serve.
 func copilotUsable(infos []providers.ModelInfo) bool {
 	return len(copilotServingChatRows(infos, nil)) > 0
-}
-
-// RefreshCopilotModels is the detached refresh: validate profile's identity, relist and seal; the launch never waits.
-func RefreshCopilotModels(ctx context.Context, profile string) error {
-	reg, err := providers.Load()
-	if err != nil {
-		return err
-	}
-	p := reg.Providers[profile]
-	if p == nil || p.Preset != providers.PresetDatabricks {
-		return fmt.Errorf("copilot: %q is not a Databricks profile", profile)
-	}
-	_, err = relistCopilotEndpoints(ctx, reg, p)
-	return err
 }
 
 // copilotCheckedModelInfos reads p's models snapshot-first with the identity validated; a scope, identity or vault

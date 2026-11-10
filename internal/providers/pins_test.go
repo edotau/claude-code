@@ -470,8 +470,8 @@ func TestPinProfileIsNotTheSessionMarker(t *testing.T) {
 
 func TestValidRouteAccountKey(t *testing.T) {
 	for key, want := range map[string]bool{
-		"anthropic·max": true, "github·copilot": true, "github·someuser": true, "opencode·go": true,
-		"copilot:x": false, "copilot": false, "anthropic:max": false, "": false,
+		"anthropic·ultra": true, "github·copilot": true, "github·someuser": true, "opencode·go": true,
+		"copilot:x": false, "copilot": false, "anthropic:ultra": false, "": false,
 	} {
 		if got := validRouteAccountKey(key); got != want {
 			t.Errorf("validRouteAccountKey(%q) = %v, want %v", key, got, want)

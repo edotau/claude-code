@@ -73,7 +73,7 @@ func TestAgentInputClaudePassesThrough(t *testing.T) {
 
 // Live copilot 1.0.105 log (trimmed); its rejected create is hand-added: a failed complete.
 func TestCopilotEventsFromUsesFileEdits(t *testing.T) {
-	got := loadCopilotEvents("cop-live", copilotEventsFrom("testdata/copilot-live-events.jsonl", "/r"))
+	got := loadCopilotEvents(copilotEventsFrom("testdata/copilot-live-events.jsonl", "/r"))
 	if got.Edits != 2 || len(got.EditedPaths) != 2 {
 		t.Fatalf("edits = %d paths %v, want the 2 successful fileEdits", got.Edits, got.EditedPaths)
 	}

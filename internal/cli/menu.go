@@ -12,11 +12,8 @@ import (
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
-// Menu layout widths.
-const (
-	menuWidth = 80
-	nameWidth = 16
-)
+// nameWidth is the menu's command-name column.
+const nameWidth = 16
 
 // menuHeader is the menu's fixed opening; it opens on `usage:` — no banner.
 var menuHeader = []string{

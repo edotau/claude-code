@@ -171,7 +171,7 @@ func fakeFailingClaude(t *testing.T) string {
 // A CLI-auth profile runs the fake claude binary with or without NoTools and preserves its error without fallback.
 func TestClaudeNoToolsCLIAuthRunsTheCLI(t *testing.T) {
 	bin := fakeFailingClaude(t)
-	req := agent.RunOptions{Prompt: "x", Provider: "max", Launcher: fakeLauncher{bin: bin}}
+	req := agent.RunOptions{Prompt: "x", Provider: "ultra", Launcher: fakeLauncher{bin: bin}}
 
 	_, directErr := claudeAgent.Run(context.Background(), req, wire.Discard)
 	if directErr == nil || !strings.Contains(directErr.Error(), "fake claude failure") {

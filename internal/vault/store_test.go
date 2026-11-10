@@ -266,11 +266,20 @@ func TestDeleteAuditsSecretDelete(t *testing.T) {
 	t.Fatalf("no secret_delete event for AUDITED_KEY in %d events", len(events))
 }
 
-// Delete on a name stored nowhere must be a no-op, not an error.
+// Delete on a name stored nowhere must be a no-op, not an error, and must not audit a deletion that never happened.
 func TestDeleteMissingIsNoop(t *testing.T) {
 	vaulttest.Use(t)
 	if err := vault.Delete("NEVER_SET"); err != nil {
 		t.Fatalf("Delete on an unset name must not error: %v", err)
+	}
+	events, err := audit.Read(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Action == audit.SecretDelete && e.Resource == "NEVER_SET" {
+			t.Fatalf("Delete of an unset name audited a secret_delete: %+v", e)
+		}
 	}
 }
 

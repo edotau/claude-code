@@ -33,9 +33,9 @@ func scienceWiped(key string) bool {
 	return slices.ContainsFunc(scienceWipePrefixes, func(p string) bool { return strings.HasPrefix(key, p) })
 }
 
-// Science resolves `claude-code anthropic science`: the real claude-science binary, minus the harness env that
+// science resolves `claude-code anthropic science`: the real claude-science binary, minus the harness env that
 // would send its login to the router or gateway (HTTP 401). args pass through untouched.
-func Science(env, args []string) (agent.Plan, error) {
+func science(env, args []string) (agent.Plan, error) {
 	bin, err := paths.LookPathReal("claude-science")
 	if err != nil {
 		return agent.Plan{}, errors.New("claude-science not found on PATH; run: claude-code install --tools=claude-science")
@@ -54,7 +54,7 @@ func Science(env, args []string) (agent.Plan, error) {
 	return plan, nil
 }
 
-// ScienceEnv is Science over the live environment, with the site config and pinned serve ports applied.
+// ScienceEnv is science over the live environment, with the site config and pinned serve ports applied.
 func ScienceEnv(args []string) (agent.Plan, error) {
 	port, rest, err := scienceArgs(args, scienceConfigPort(scienceTOML))
 	if err != nil {
@@ -68,7 +68,7 @@ func ScienceEnv(args []string) (agent.Plan, error) {
 	if err != nil {
 		return agent.Plan{}, err
 	}
-	return Science(os.Environ(), argv)
+	return science(os.Environ(), argv)
 }
 
 // scienceTOML is the generic claude-science config shipped in the binary; company/HPC detail stays out of it.

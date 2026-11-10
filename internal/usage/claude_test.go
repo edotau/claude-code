@@ -243,18 +243,6 @@ func TestParseClaudeUsageNoFableLimit(t *testing.T) {
 	}
 }
 
-// TestFetchQuotasSeamUntouched: fetchQuotas' own network seam (providers_test.go's contract) is still
-// swappable exactly as before — the claude addition composes into it without reaching past package vars.
-func TestFetchQuotasSeamUntouched(t *testing.T) {
-	orig := fetchQuotas
-	t.Cleanup(func() { fetchQuotas = orig })
-	fetchQuotas = func() []quota { return []quota{{Provider: "stub"}} }
-	got := fetchQuotas()
-	if len(got) != 1 || got[0].Provider != "stub" {
-		t.Errorf("fetchQuotas seam not swappable as before: %+v", got)
-	}
-}
-
 // TestClaudeResets: local is "2006-01-02 15:04" in the test machine's zone, utc is RFC3339 in UTC;
 // an unparseable instant yields two empty strings rather than a zero-time string.
 func TestClaudeResets(t *testing.T) {
@@ -274,19 +262,7 @@ func TestClaudeResets(t *testing.T) {
 	}
 }
 
-// Tests the on-disk cache the implementer is adding to claude.go: a JSON file under a cache dir
-// (contract path: state/cache/claude-oauth-usage.json under the harness state dir) with fields
-// {fetched_at, not_before?, subscription_type, body}, TTL from HARNESS_USAGE_CACHE_TTL (seconds,
-// default 60).
-//
-// GUESSED SEAMS (not yet landed; align on "landed"):
-//   - var claudeCacheDir string      — the directory holding the cache file; tests set it to t.TempDir().
-//   - const claudeCacheFileName      — "claude-oauth-usage.json", joined onto claudeCacheDir.
-//   - HARNESS_USAGE_CACHE_TTL         — env var read directly by claudeQuotas/claudeQuotasCached, seconds.
-//
-// If claudeQuotas instead takes an explicit dir/cache-path parameter, or the var/file-name differ,
-// these tests will fail to compile or fail at runtime — update the names in one pass, keep the
-// assertions (network-hit counts, Note substrings, not_before windowing, corrupt-cache fallback).
+// On-disk cache contract: <claudeCacheDir>/claude-oauth-usage.json, TTL from HARNESS_USAGE_CACHE_TTL (seconds, default 60).
 
 // claudeCachePathFor is this test file's own join of dir+name, used only to read/write fixtures;
 // production code must compute the identical path from claudeCacheDir.

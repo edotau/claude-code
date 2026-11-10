@@ -178,35 +178,15 @@ func resolveConflict(ctx context.Context, repo *Repo, plan *MergePlan, req Merge
 		return nil, fmt.Errorf("resolve: %w", err)
 	}
 	req.ShowResolved(result)
-
-	plan, err = PreflightAfterResolution(ctx, repo, req.Name, req.Target) // the resolution is committed now
-	if err != nil {
-		return nil, err
-	}
-	if len(plan.Issues) > 0 {
-		req.ShowPlan(plan)
-		return nil, fmt.Errorf("still blocked after agent resolution (%s)", issueCodes(plan.Issues))
-	}
-	if plan.TargetRef != origTargetRef || plan.TargetOID != origTargetOID {
-		return nil, fmt.Errorf("target moved from %s (%s) to %s (%s) during resolution — re-run worktree merge explicitly to retry against the new target",
-			origTargetRef, ShortOID(origTargetOID), plan.TargetRef, ShortOID(plan.TargetOID))
-	}
-	return plan, nil
+	return replanPinned(ctx, repo, req, origTargetRef, origTargetOID, "agent resolution", "during resolution")
 }
 
 // resumeMerge reattaches to the --resolve-agent operation saved for req.Name without re-invoking the agent, then
 // returns a fresh Preflight plan; both the saved target branch and OID must still match.
 func resumeMerge(ctx context.Context, repo *Repo, req MergeRequest) (*MergePlan, error) {
-	op, err := LoadOperation(repo, req.Name)
+	op, worktreePath, err := loadResumable(repo, req.Name)
 	if err != nil {
-		return nil, fmt.Errorf("no in-progress --resolve-agent operation found for %q: %w", req.Name, err)
-	}
-	if op.Repo != repo.Main {
-		return nil, fmt.Errorf("operation %s belongs to %s, not %s", op.ID, op.Repo, repo.Main)
-	}
-	worktreePath := filepath.Join(repo.Root, op.Worktree)
-	if _, err := os.Stat(worktreePath); err != nil {
-		return nil, fmt.Errorf("worktree %q not found at %s: %w", op.Worktree, worktreePath, err)
+		return nil, err
 	}
 	plan := &MergePlan{WorktreePath: worktreePath}
 	_, result, err := ResolveWithAgent(ctx, repo, plan, op.Agent, op)
@@ -214,17 +194,22 @@ func resumeMerge(ctx context.Context, repo *Repo, req MergeRequest) (*MergePlan,
 		return nil, err
 	}
 	req.ShowResolved(result)
+	return replanPinned(ctx, repo, req, op.TargetRef, op.TargetOID, "resuming resolution", "since the operation started")
+}
+
+// replanPinned re-plans a committed resolution, requiring it unblocked and the target still at the pinned ref and OID.
+func replanPinned(ctx context.Context, repo *Repo, req MergeRequest, ref, oid, blockedAfter, movedWhen string) (*MergePlan, error) {
 	fresh, err := PreflightAfterResolution(ctx, repo, req.Name, req.Target)
 	if err != nil {
 		return nil, err
 	}
 	if len(fresh.Issues) > 0 {
 		req.ShowPlan(fresh)
-		return nil, fmt.Errorf("still blocked after resuming resolution (%s)", issueCodes(fresh.Issues))
+		return nil, fmt.Errorf("still blocked after %s (%s)", blockedAfter, issueCodes(fresh.Issues))
 	}
-	if fresh.TargetRef != op.TargetRef || fresh.TargetOID != op.TargetOID {
-		return nil, fmt.Errorf("target moved from %s (%s) to %s (%s) since the operation started — re-run worktree merge explicitly to retry against the new target",
-			op.TargetRef, ShortOID(op.TargetOID), fresh.TargetRef, ShortOID(fresh.TargetOID))
+	if fresh.TargetRef != ref || fresh.TargetOID != oid {
+		return nil, fmt.Errorf("target moved from %s (%s) to %s (%s) %s — re-run worktree merge explicitly to retry against the new target",
+			ref, ShortOID(oid), fresh.TargetRef, ShortOID(fresh.TargetOID), movedWhen)
 	}
 	return fresh, nil
 }
@@ -269,23 +254,17 @@ func issueCodes(issues []Issue) string {
 	return strings.Join(codes, ", ")
 }
 
-// MergeLockFile is the one harness lock serializing the fast-forward promote step across concurrent
+// mergeLockFile is the one harness lock serializing the fast-forward promote step across concurrent
 // `worktree merge` runs. It coordinates this harness's own operations only, never an external writer.
-const MergeLockFile = "worktree-merge.lock"
+const mergeLockFile = "worktree-merge.lock"
 
-// MergeLockWait bounds how long Acquire waits for the lock before giving up with ErrMergeBusy.
-const MergeLockWait = 5 * time.Second
-
-// mergeLockWait is the wait<=0 default; a var so tests need not sit out the full MergeLockWait.
-var mergeLockWait = MergeLockWait
+// mergeLockWait is how long Acquire waits for the lock (when wait<=0) before ErrMergeBusy; a var so tests need not sit it out.
+var mergeLockWait = 5 * time.Second
 
 // ErrMergeBusy is returned when the merge lock is not granted within the wait.
 var ErrMergeBusy = errors.New("worktree merge: another promote holds the merge lock")
 
-// MergeLockPath is the physical lock file under paths.StateDir().
-func MergeLockPath() string { return filepath.Join(paths.StateDir(), MergeLockFile) }
-
-// Acquire runs fn holding the one merge lock; wait<=0 means MergeLockWait. Not reentrant: fn must
+// Acquire runs fn holding the one merge lock; wait<=0 means mergeLockWait. Not reentrant: fn must
 // never call Acquire itself, or a single caller would deadlock on its own held lock.
 func Acquire(wait time.Duration, fn func() error) error {
 	dir := paths.StateDir()
@@ -295,7 +274,7 @@ func Acquire(wait time.Duration, fn func() error) error {
 	if wait <= 0 {
 		wait = mergeLockWait
 	}
-	ran, err := paths.TryFileLock(MergeLockPath(), wait, fn)
+	ran, err := paths.TryFileLock(filepath.Join(dir, mergeLockFile), wait, fn)
 	if err == nil && !ran {
 		return ErrMergeBusy
 	}

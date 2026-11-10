@@ -364,7 +364,7 @@ func TestOrderedDatabricksKeepsRegistryOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg.Providers["max"] = &Provider{Name: "max", Provider: "anthropic"}
+	reg.Providers["ultra"] = &Provider{Name: "ultra", Provider: "anthropic"}
 	want := []string{"prod", "zeta", "dev", "qa", "alpha"}
 	if got := DatabricksProfiles(reg); !slices.Equal(got, want) {
 		t.Errorf("DatabricksProfiles = %v, want %v", got, want)

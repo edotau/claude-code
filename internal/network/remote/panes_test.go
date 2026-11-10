@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 func paneCap(text string) paneCapture {
@@ -336,12 +338,12 @@ func TestCapturePanes_ExactlyMaxPanesIsOK(t *testing.T) {
 }
 
 func TestCapturePanes_OversizeBlobIsError(t *testing.T) {
-	huge := strings.Repeat("x", maxCaptureBytes*2)
+	huge := strings.Repeat("x", proc.MaxCaptureBytes*2)
 	blob := frame("cc-claude-a", "%1", "claude", "claude", huge)
 	run, _ := fakeRunner([]byte(blob), nil)
 	caps, err := capturePanes(context.Background(), "myhost", false, true, run)
 	if err == nil {
-		t.Fatalf("want error over %d bytes, got %d captures", maxCaptureBytes, len(caps))
+		t.Fatalf("want error over %d bytes, got %d captures", proc.MaxCaptureBytes, len(caps))
 	}
 }
 
@@ -464,8 +466,10 @@ func TestExecRunnerCapsOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := execRunner(context.Background(), []string{bin})
-	if err == nil || len(out) > maxCaptureBytes {
+	if err == nil || len(out) > proc.MaxCaptureBytes {
 		t.Errorf("ExecRunner over cap: err = %v, len(out) = %d, want an error and <= %d bytes", err, len(out),
-			maxCaptureBytes)
+			proc.MaxCaptureBytes)
 	}
 }
+
+// RunAgent's merged stdout+stderr is capped like the pane capture, so a runaway remote cannot grow memory unbounded.

@@ -339,17 +339,10 @@ func agentPinsModel(name string) bool {
 	if name == "" {
 		return false // no subagent_type = a fresh general-purpose agent, nothing to defer to
 	}
-	file, ok := agentFile(name)
-	if !ok {
+	if _, ok := agentFile(name); !ok {
 		return true // path-shaped input is not a roster name; refuse to touch the dispatch
 	}
-	raw, err := os.ReadFile(file)
-	if err != nil {
-		return false // not a harness agent (built-in like Explore/Plan) — classifier may apply
-	}
-	fm, _ := textutil.ParseFrontmatter(string(raw))
-	model, _ := fm["model"].(string)
-	return model != ""
+	return rosterModel(name) != "" // no roster file = a built-in (Explore/Plan), the classifier may apply
 }
 
 // labelModel is the model id a leaf is planned to run: the Claude pin in-context, else the profile's or route table's
@@ -386,7 +379,11 @@ var (
 
 func profileModelFor(profile, alias string) string {
 	reg, err := providers.Load()
-	if err != nil || reg.Providers[profile] == nil {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "agent-effort label: %v\n", err)
+		return ""
+	}
+	if reg.Providers[profile] == nil {
 		return ""
 	}
 	return models.Strip1M(reg.Providers[profile].Models[alias])
@@ -395,6 +392,7 @@ func profileModelFor(profile, alias string) string {
 func cellModelFor(agent, alias string) string {
 	t, err := router.Load()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "agent-effort label: %v\n", err)
 		return ""
 	}
 	c, _ := t.Cell(agent, alias)
@@ -409,6 +407,7 @@ func cellModelFor(agent, alias string) string {
 	}
 	reg, err := providers.Load()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "agent-effort label: %v\n", err)
 		return c.Model
 	}
 	m, _ := router.PinnedModel(agent, alias, c, reg.Providers[pin.Profile], pin.Model)

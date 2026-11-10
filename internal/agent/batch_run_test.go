@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -264,7 +265,7 @@ func TestBatchFailFastPanickingDispatchStopsQueuedTask(t *testing.T) {
 // A task waiting out its account's cooldown holds nothing: a task on another account runs and finishes first.
 func TestBatchCoolingAccountDoesNotBlockOthers(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	agent.CoolDown("cool·A", 250*time.Millisecond)
+	retry.CoolDown("cool·A", 250*time.Millisecond)
 	tasks := []batch.Task{
 		acctTask(t, "cooling", "cool·A", slowRunner{name: "cooling"}),
 		acctTask(t, "free", "free·B", slowRunner{name: "free"}),
@@ -387,7 +388,7 @@ func TestBatchFirstAttemptCooldownReleasesDispatchPermit(t *testing.T) {
 	var once sync.Once
 	t.Cleanup(agent.SwapLoadState(func(prev func() router.State) func() router.State {
 		return func() router.State {
-			once.Do(func() { agent.CoolDown("late·A", 200*time.Millisecond) })
+			once.Do(func() { retry.CoolDown("late·A", 200*time.Millisecond) })
 			return prev()
 		}
 	}))
@@ -481,7 +482,7 @@ func TestFirstAttemptRechecksAccountAfterCooldownIdle(t *testing.T) {
 	var once sync.Once
 	t.Cleanup(agent.SwapLoadState(func(prev func() router.State) func() router.State {
 		return func() router.State {
-			once.Do(func() { agent.CoolDown("late·A", 200*time.Millisecond) })
+			once.Do(func() { retry.CoolDown("late·A", 200*time.Millisecond) })
 			return prev()
 		}
 	}))
@@ -534,7 +535,7 @@ func TestRunBatchMarkersAppearAndClear(t *testing.T) {
 	}
 	stop := make(chan struct{})
 	var peak atomic.Int32
-	go agent.SamplePeak(inflight.Dir(), account, 2*time.Millisecond, stop, &peak)
+	go samplePeak(inflight.Dir(), account, 2*time.Millisecond, stop, &peak)
 
 	if !batch.RunTasks(context.Background(), tasks, batch.PoolOptions{Jobs: 3}) {
 		t.Fatal("batch failed")
@@ -543,7 +544,7 @@ func TestRunBatchMarkersAppearAndClear(t *testing.T) {
 	if got := peak.Load(); got == 0 {
 		t.Error("no inflight markers observed while the batch ran")
 	}
-	if n := agent.CountAccountMarkers(inflight.Dir(), account); n != 0 {
+	if n := countAccountMarkers(inflight.Dir(), account); n != 0 {
 		t.Errorf("%d markers remain after batch.RunTasks returned, want 0", n)
 	}
 }
@@ -557,5 +558,38 @@ func TestSuccessSurvivesCancelRightAfterIt(t *testing.T) {
 	res, err := agent.RunWithFallback(ctx, c, agent.RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if err != nil || res.Answer != "a" || runs.Load() != 0 || len(res.Hops) != 1 {
 		t.Fatalf("res=%+v err=%v second ran %d times; want the first dispatch's answer alone", res, err, runs.Load())
+	}
+}
+
+// countAccountMarkers counts live marker files in dir whose content is account.
+func countAccountMarkers(dir, account string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range entries {
+		if _, ok := inflight.Owner(e.Name()); !ok {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(dir, e.Name())); err == nil && strings.TrimSpace(string(b)) == account {
+			n++
+		}
+	}
+	return n
+}
+
+// samplePeak counts account markers every interval until stop closes and returns the peak.
+func samplePeak(dir, account string, interval time.Duration, stop <-chan struct{}, peak *atomic.Int32) {
+	for {
+		select {
+		case <-stop:
+			return
+		default:
+		}
+		n := int32(countAccountMarkers(dir, account))
+		for cur := peak.Load(); n > cur && !peak.CompareAndSwap(cur, n); cur = peak.Load() {
+		}
+		time.Sleep(interval)
 	}
 }

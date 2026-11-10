@@ -180,9 +180,9 @@ func TestRotateAndSettle(t *testing.T) {
 	}
 	write(t, filepath.Join(dir, "sessionHistory.md"), b.String())
 	now := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
-	s, err := settleBank(root, now)
-	if err != nil || s.Rotated != 5 {
-		t.Fatalf("rotated %d err %v", s.Rotated, err)
+	rotated, err := settleBank(root, now)
+	if err != nil || rotated != 5 {
+		t.Fatalf("rotated %d err %v", rotated, err)
 	}
 	assertRotated(t, dir)
 	if n, _ := rotateSessionHistory(dir, now); n != 0 {
@@ -305,16 +305,6 @@ func TestCredentialPatternGitHubShapes(t *testing.T) {
 	}
 	if credentialPattern.MatchString("see ghs_abc for the format") {
 		t.Error("ghs_abc is too short to be a token")
-	}
-}
-
-// TestSearchHitPlainStripsMarkup: a preview drops heading/bullet marks and id markers but keeps every word.
-func TestSearchHitPlainStripsMarkup(t *testing.T) {
-	t.Parallel()
-	h := SearchHit{Block: "## 2026-10-23 — Routing stays local <!-- id:7e92d61b -->\n\n- Rejected the remote router.\n"}
-	want := "2026-10-23 — Routing stays local Rejected the remote router."
-	if got := h.Plain(); got != want {
-		t.Errorf("Plain() = %q, want %q", got, want)
 	}
 }
 

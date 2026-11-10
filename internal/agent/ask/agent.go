@@ -169,14 +169,18 @@ func failAskCode(format, agentName string, err error, code int) int {
 	return code
 }
 
-// printAskFailure prints the typed failure envelope on stdout when format is json.
+// printAskFailure prints the typed failure envelope on stdout when format is json; a lost write is noted on stderr.
 func printAskFailure(format, agentName string, err error) {
+	var werr error
 	switch format {
 	case helptext.JSON:
 		body, _ := json.Marshal(wire.FailureEnvelope(agentName, err))
-		fmt.Println(string(body))
-	case formatStreamJSON:
-		_ = StdoutSink(format, "").Emit(wire.ResultEvent(wire.FailureEnvelope(agentName, err)))
+		_, werr = fmt.Println(string(body))
+	case client.FormatStreamJSON:
+		werr = StdoutSink(format, "").Emit(wire.ResultEvent(wire.FailureEnvelope(agentName, err)))
+	}
+	if werr != nil {
+		fmt.Fprintf(os.Stderr, "ask: failure envelope not written to stdout: %v\n", werr)
 	}
 }
 
@@ -194,7 +198,7 @@ func reportAskResult(format string, res wire.Result, err error, dispatchID strin
 		_, werr := fmt.Println(string(body))
 		return werr
 	}
-	if format == formatStreamJSON {
+	if format == client.FormatStreamJSON {
 		return nil // the result event already carried the envelope
 	}
 	if res.Answer != "" && !strings.HasSuffix(res.Answer, "\n") {

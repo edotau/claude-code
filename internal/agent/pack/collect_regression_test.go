@@ -111,7 +111,7 @@ func TestGlobPatternsEscapesCwd(t *testing.T) {
 		t.Fatal(err)
 	}
 	matches := map[string]bool{}
-	if skipped := globPatterns(cwd, []string{"*.go"}, matches, nil, false); len(skipped) != 0 {
+	if skipped := globPattern(cwd, "*.go", matches, nil, false); len(skipped) != 0 {
 		t.Fatalf("skipped = %v", skipped)
 	}
 	if len(matches) != 1 {

@@ -335,6 +335,12 @@ func assertApply(t *testing.T, c journalChange, repo Repo, planned outcome, want
 	}
 }
 
+// recoverJournals finishes every unfinished journal and returns the scan error and per-journal failures joined.
+func recoverJournals() error {
+	skipped, err := recoverEach()
+	return errors.Join(err, skipped)
+}
+
 // Regression: replayed journals are validated before anything is read or written.
 func TestRecoverJournalsRefusesEscapingPaths(t *testing.T) {
 	store, decoy := storeFixture(t)

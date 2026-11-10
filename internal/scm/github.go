@@ -23,13 +23,8 @@ const maxList = 100000
 
 const prFields = "number,title,state,author,headRefName,baseRefName,url,headRefOid"
 
-// runGH is the seam over the gh binary.
-var runGH = func(ctx context.Context, args ...string) ([]byte, error) {
-	return execGH(ctx, "", args...)
-}
-
-// runGHStdin is the seam for gh calls that read a body from stdin.
-var runGHStdin = execGH
+// runGH is the seam over the gh binary; a non-empty stdin is fed to it as the body.
+var runGH = execGH
 
 func execGH(ctx context.Context, stdin string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "gh", args...)
@@ -93,7 +88,7 @@ func (h *GitHubHost) List(ctx context.Context, o ListOpts) ([]PR, error) {
 	if o.Author != "" {
 		args = append(args, "--author", o.Author)
 	}
-	out, err := runGH(ctx, args...)
+	out, err := runGH(ctx, "", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +104,7 @@ func (h *GitHubHost) List(ctx context.Context, o ListOpts) ([]PR, error) {
 }
 
 func (h *GitHubHost) View(ctx context.Context, id string) (PR, error) {
-	out, err := runGH(ctx, "pr", "view", id, "--repo", h.Repo, "--json", prFields)
+	out, err := runGH(ctx, "", "pr", "view", id, "--repo", h.Repo, "--json", prFields)
 	if err != nil {
 		return PR{}, err
 	}
@@ -121,7 +116,7 @@ func (h *GitHubHost) View(ctx context.Context, id string) (PR, error) {
 }
 
 func (h *GitHubHost) Diff(ctx context.Context, id string) (string, error) {
-	out, err := runGH(ctx, "pr", "diff", id, "--repo", h.Repo)
+	out, err := runGH(ctx, "", "pr", "diff", id, "--repo", h.Repo)
 	return string(out), err
 }
 
@@ -133,7 +128,7 @@ func (h *GitHubHost) Create(ctx context.Context, o CreateOpts) (PR, error) {
 	if o.Draft {
 		args = append(args, "--draft")
 	}
-	out, err := runGHStdin(ctx, o.Body, args...)
+	out, err := runGH(ctx, o.Body, args...)
 	if err != nil {
 		return PR{}, err
 	}
@@ -161,7 +156,7 @@ func (h *GitHubHost) Checks(ctx context.Context, id, sha string) ([]Check, error
 			return nil, fmt.Errorf("PR %s has no head commit", id)
 		}
 	}
-	out, err := runGH(ctx, "api", "repos/"+h.Repo+"/commits/"+sha+"/check-runs?per_page=100", "--paginate", "--jq", ".check_runs[]")
+	out, err := runGH(ctx, "", "api", "repos/"+h.Repo+"/commits/"+sha+"/check-runs?per_page=100", "--paginate", "--jq", ".check_runs[]")
 	if err != nil {
 		return nil, err
 	}
@@ -198,9 +193,9 @@ func (h *GitHubHost) Comment(ctx context.Context, id, body, replyTo string) erro
 		return fmt.Errorf("invalid PR id %q or reply-to %q: want digits", id, replyTo)
 	}
 	if replyTo != "" {
-		_, err := runGHStdin(ctx, body, "api", "repos/"+h.Repo+"/pulls/"+id+"/comments/"+replyTo+"/replies", "-F", "body=@-")
+		_, err := runGH(ctx, body, "api", "repos/"+h.Repo+"/pulls/"+id+"/comments/"+replyTo+"/replies", "-F", "body=@-")
 		return err
 	}
-	_, err := runGHStdin(ctx, body, "pr", "comment", id, "--repo", h.Repo, "--body-file", "-")
+	_, err := runGH(ctx, body, "pr", "comment", id, "--repo", h.Repo, "--body-file", "-")
 	return err
 }

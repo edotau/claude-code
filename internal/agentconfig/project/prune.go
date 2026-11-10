@@ -83,7 +83,7 @@ func pruneEntries(out io.Writer, dir string, match func(os.DirEntry) (string, bo
 				continue
 			}
 		}
-		fmt.Fprintf(out, "  PRUNE %s (%s)\n", paths.ShortHome(path), reason)
+		status(out, "PRUNE", paths.ShortHome(path), reason)
 		res.pruned++
 	}
 	return res

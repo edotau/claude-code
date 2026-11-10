@@ -2,7 +2,6 @@ package menu
 
 import (
 	"context"
-	"os"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
@@ -104,11 +103,7 @@ func claudeState(d *dialog, fp *firstParty, cur string, tier providers.Subscript
 
 // keepOrPin pins name unless it is already the session provider.
 func keepOrPin(d *dialog, cur, name string) bool {
-	if name == cur {
-		d.printf("provider   pinned %s (kept)\n", cur)
-		return true
-	}
-	if !switchConfirmed(d, cur, name) {
+	if name == cur || !switchConfirmed(d, cur, name) {
 		d.printf("provider   pinned %s (kept)\n", cur)
 		return true
 	}
@@ -118,7 +113,7 @@ func keepOrPin(d *dialog, cur, name string) bool {
 // switchConfirmed asks before a terminal pick re-points every new Claude Code launch (default No): browsing the
 // backend list must never switch it silently. Scripted and piped runs keep their explicit pick.
 func switchConfirmed(d *dialog, cur, name string) bool {
-	if !d.o.Interactive || !isStdinTTY() || d.o.In != os.Stdin {
+	if !d.o.Interactive || !d.onTerminal() {
 		return true
 	}
 	return tui.Confirm("Run every new Claude Code launch on "+name+" instead of "+cur+"?", false)

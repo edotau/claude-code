@@ -28,16 +28,8 @@ func TakeAs(args []string) (string, []string, error) {
 			return "", nil, errors.New("--as needs user or sp")
 		}
 	}
-	if err := checkAs(as, seen); err != nil {
-		return "", nil, err
+	if seen && as != IdentityUser && as != IdentitySP {
+		return "", nil, fmt.Errorf("--as %q must be user or sp", as)
 	}
 	return as, rest, nil
-}
-
-// checkAs rejects a given --as value other than user or sp.
-func checkAs(as string, seen bool) error {
-	if seen && as != IdentityUser && as != IdentitySP {
-		return fmt.Errorf("--as %q must be user or sp", as)
-	}
-	return nil
 }

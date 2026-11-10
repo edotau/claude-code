@@ -94,3 +94,9 @@ func TestNativeErrorRegressionUnreadableTopicDupes(t *testing.T) {
 		t.Errorf("dupes report claimed success after incomplete scan: %q", &out)
 	}
 }
+
+// An unreadable archive record fails the heal instead of silently rebuilding pointers from frontmatter.
+
+// An unlistable archive dir fails the landing instead of skipping the <stem>@*.md revision dedupe.
+
+// writable and searchable, not listable

@@ -17,7 +17,7 @@ type timelineEntry struct {
 
 // timeline returns the newest-first update-receipt trail (bounded by limit) plus the most recent
 // sessionHistory headings from the local then home bank (their files are newest-first already).
-func timeline(root string, limit int) (entries []timelineEntry, sessions []string) {
+func timeline(root string, limit int) (entries []timelineEntry, sessions []string, err error) {
 	for _, rc := range readReceipts() {
 		id, r := rc.id, rc.r
 		if r.Time.IsZero() {
@@ -33,29 +33,34 @@ func timeline(root string, limit int) (entries []timelineEntry, sessions []strin
 	if limit > 0 && len(entries) > limit {
 		entries = entries[:limit]
 	}
-	return entries, recentSessions(root, limit)
+	sessions, err = recentSessions(root, limit)
+	return entries, sessions, err
 }
 
 // recentSessions lists the sessionHistory headings of root's bank then the home bank, deduped, up to limit (0 = all).
-func recentSessions(root string, limit int) (sessions []string) {
+func recentSessions(root string, limit int) (sessions []string, err error) {
 	seen := map[string]bool{}
 	dirs := []string{HomeBankDir()}
 	if !isHomeBank(root) {
 		dirs = []string{Dir(root), HomeBankDir()}
 	}
 	for _, dir := range dirs {
-		for _, h := range entriesWithPrefix(filepath.Join(dir, "sessionHistory.md"), "## ") {
+		heads, err := entriesWithPrefix(filepath.Join(dir, "sessionHistory.md"), "## ")
+		if err != nil {
+			return sessions, err
+		}
+		for _, h := range heads {
 			if seen[h] {
 				continue
 			}
 			seen[h] = true
 			sessions = append(sessions, h)
 			if limit > 0 && len(sessions) >= limit {
-				return sessions
+				return sessions, nil
 			}
 		}
 	}
-	return sessions
+	return sessions, nil
 }
 
 // headID shortens a session id for the timeline's "(session ...)" suffix.

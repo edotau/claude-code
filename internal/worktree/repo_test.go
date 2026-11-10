@@ -165,7 +165,7 @@ func TestCleanAtRefusesSymlinkedDest(t *testing.T) {
 	if err := os.Symlink(target, dest); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := cleanAt(repo, "swapped", dest, false, nil); err == nil || !strings.Contains(err.Error(), "symlink") {
+	if _, err := cleanAtWith(repo, "swapped", dest, false, nil, LedgerClose{Via: "clean"}); err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("cleanAt on a symlinked dest: err = %v, want a symlink refusal", err)
 	}
 	if _, err := os.Stat(filepath.Join(target, "keep")); err != nil {
@@ -325,7 +325,7 @@ func TestCleanAtWarnsWhenBranchNotDetected(t *testing.T) {
 	repo := testRepo(t)
 	dest := t.TempDir() // not a git worktree, so `git branch --show-current` fails
 	var log strings.Builder
-	_, _ = cleanAt(repo, "nobranch", dest, true, &log)
+	_, _ = cleanAtWith(repo, "nobranch", dest, true, &log, LedgerClose{Via: "clean"})
 	if !strings.Contains(log.String(), "branch not detected") {
 		t.Fatalf("log = %q, want a branch-not-detected warning", log.String())
 	}

@@ -234,33 +234,6 @@ func TestToolPATHVersionProbesUnchangedBinaryOnce(t *testing.T) {
 	}
 }
 
-func TestUserBinDirNotEmpty(t *testing.T) {
-	got := userBinDir()
-	if got == "" {
-		t.Error("userBinDir returned empty string")
-	}
-	if got == "/.local/bin" {
-		t.Errorf("userBinDir returned %q (indicates UserHomeDir error was ignored)", got)
-	}
-	t.Logf("userBinDir = %q (regression check: should be valid path after fix)", got)
-}
-
-// A symlink primary must resolve for comparison; errors must not leave a false empty-path duplicate.
-func TestExtraPATHCopiesHandlesEvalSymlinksErrors(t *testing.T) {
-	scratch := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", scratch)
-	realPath := filepath.Join(scratch, "real-tool")
-	if err := os.WriteFile(realPath, []byte("tool"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	linkPath := filepath.Join(scratch, "link-tool")
-	if err := os.Symlink(realPath, linkPath); err != nil {
-		t.Fatal(err)
-	}
-	detail := extraPATHCopies("tool", linkPath)
-	t.Logf("extraPATHCopies returned (detail=%q) for symlink primary; no crash means errors handled", detail)
-}
-
 func TestStrayClaudeJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

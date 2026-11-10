@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,17 +33,12 @@ func resolveTarget(w http.ResponseWriter, in *http.Request, reg *providers.Regis
 		return providers.Target{}, false
 	}
 	target := providers.ParseTarget(reg, model, sess)
-	return target, scopeAllows(w, in, target)
-}
-
-// scopeAllows rejects with 403 a resolved target outside a session token's profile.
-func scopeAllows(w http.ResponseWriter, in *http.Request, t providers.Target) bool {
-	scope, scoped := sessionScope(in)
-	if scoped && t.Provider.Name != scope {
+	// a resolved target outside a session token's profile is a 403
+	if scope, scoped := sessionScope(in); scoped && target.Provider.Name != scope {
 		writeError(w, http.StatusForbidden, "proxy: session token is limited to profile "+scope)
-		return false
+		return target, false
 	}
-	return true
+	return target, true
 }
 
 // confineLadder drops fallback providers outside a session token's profile; they hold other credentials.
@@ -95,13 +89,7 @@ func withModel(body []byte, model string) ([]byte, error) {
 		return body, nil
 	}
 	m["model"], _ = json.Marshal(model)
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(m); err != nil {
-		return nil, err
-	}
-	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
+	return textutil.MarshalNoEscape(m)
 }
 
 // copyRequestHeaders forwards only wire-relevant headers; client auth is added back for passthrough providers only.

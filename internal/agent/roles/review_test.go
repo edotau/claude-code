@@ -113,7 +113,7 @@ func TestDiffUntrackedQuotedNames(t *testing.T) {
 	}
 	t.Run("vanished file is reported", func(t *testing.T) {
 		var out strings.Builder
-		if n := appendUntracked(&out, dir, "vanished.txt"); n != 0 {
+		if n := appendUntrackedWithin(&out, dir, "vanished.txt", untrackedCap); n != 0 {
 			t.Fatalf("missing file contributed %d content bytes", n)
 		}
 		if !strings.Contains(out.String(), "new file: vanished.txt (unreadable, skipped:") {

@@ -75,15 +75,11 @@ func skipConfigHomes(o agentrender.RenderOptions) bool {
 }
 
 func prepareSelectedConfigs(agents []string, reg *providers.Registry, sel providers.Selection, home string, o agentrender.RenderOptions, out io.Writer) (bool, error) {
-	var drift bool
-	want := map[string]bool{}
-	for _, a := range agents {
-		want[a] = true
+	if err := knownAgents(agents); err != nil {
+		return false, err
 	}
-	for _, name := range DefaultAgents {
-		if !want[name] {
-			continue
-		}
+	var drift bool
+	for _, name := range agents {
 		d, err := agent.SchemaFor(name).Eng().Render(reg, sel, home, o, out)
 		if err != nil {
 			return drift, err
@@ -93,11 +89,24 @@ func prepareSelectedConfigs(agents []string, reg *providers.Registry, sel provid
 	return drift, nil
 }
 
+// knownAgents rejects a name outside DefaultAgents, which render and revert would otherwise skip or no-op silently.
+func knownAgents(agents []string) error {
+	for _, a := range agents {
+		if !slices.Contains(DefaultAgents, a) {
+			return fmt.Errorf("generate: unknown agent %q (%s)", a, strings.Join(DefaultAgents, "|"))
+		}
+	}
+	return nil
+}
+
 // RevertConfigs restores each selected agent's files to their newest backup version, removing the restored version so a second revert steps one version further back.
 func RevertConfigs(o agentrender.RenderOptions) error {
 	agents := o.Agents
 	if len(agents) == 0 {
 		agents = DefaultAgents
+	}
+	if err := knownAgents(agents); err != nil {
+		return err
 	}
 	out := o.Out
 	if out == nil {

@@ -45,7 +45,7 @@ func recordable(q quota) bool {
 func accountKey(q quota) string {
 	switch q.Provider {
 	case "anthropic":
-		return "anthropic·max"
+		return "anthropic·ultra"
 	case "openai":
 		return "openai·chatgpt"
 	case "github":
@@ -80,7 +80,7 @@ func RefreshAccount(parent context.Context, key string) bool {
 	defer cancel()
 	var qs []quota
 	switch {
-	case key == "anthropic·max":
+	case key == "anthropic·ultra":
 		qs = claudeQuotas(ctx)
 	case key == "openai·chatgpt":
 		qs = openaiQuotas(ctx)

@@ -28,12 +28,6 @@ func splitHeadingBlocks(body string) (header string, blocks []string) {
 	return splitOn(body, func(ln string) bool { return strings.HasPrefix(ln, "## ") })
 }
 
-// fenceToggle reports whether ln opens or closes a ``` / ~~~ fence.
-func fenceToggle(ln string) bool {
-	t := strings.TrimSpace(ln)
-	return strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~")
-}
-
 // nextFence returns the open fence's marker run after ln: an opener sets it, only a bare run of its character closes.
 func nextFence(open, ln string) string {
 	t := strings.TrimSpace(ln)
@@ -116,10 +110,10 @@ func appendBlocks(path string, blocks []string) error {
 }
 
 // entriesWithPrefix returns every line starting with prefix, prefix stripped and truncated, in file order.
-func entriesWithPrefix(path, prefix string) []string {
-	data, err := os.ReadFile(path)
+func entriesWithPrefix(path, prefix string) ([]string, error) {
+	data, err := readIfExists(path)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var out []string
 	for line := range strings.SplitSeq(string(data), "\n") {
@@ -131,7 +125,7 @@ func entriesWithPrefix(path, prefix string) []string {
 			out = append(out, e)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // truncateLine caps s at indexLineMax bytes, cutting at a word boundary, rune-safe.

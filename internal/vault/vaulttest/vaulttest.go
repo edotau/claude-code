@@ -125,25 +125,12 @@ func (f *FakeKeyring) set(name, value string) error {
 	return nil
 }
 
-func (f *FakeKeyring) delete(name string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.Down {
-		return vault.ErrKeyringUnavailable
-	}
-	if f.Slow {
-		return vault.ErrKeyringNoAnswer
-	}
-	delete(f.values, name)
-	return nil
-}
-
 // Keyring swaps the vault package's keyring seams for an in-memory FakeKeyring, restoring the
 // originals on cleanup.
 func Keyring(t testing.TB) *FakeKeyring {
 	t.Helper()
 	f := &FakeKeyring{values: make(map[string]string)}
-	t.Cleanup(vault.UseKeyringSeams(f.lookup, f.set, f.delete))
+	t.Cleanup(vault.UseKeyringSeams(f.lookup, f.set))
 	return f
 }
 

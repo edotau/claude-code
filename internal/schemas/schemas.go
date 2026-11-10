@@ -15,8 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// Package schemas is the registry of versioned on-disk and wire formats; owners register their own rows.
-
 // Kind classifies a format by how it is stored.
 type Kind string
 

@@ -372,8 +372,6 @@ func TestVaultUsageRowsMatchHelptextRowRegex(t *testing.T) {
 	}
 }
 
-// TestConfigVerbIsUnknown is also the only coverage of Run's unknown-command path (provider lookup → exit 2).
-
 func TestVaultSetCopilotTokenRefusesShortValue(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	withStdin(t, "ok\n")
@@ -1236,3 +1234,5 @@ func TestVaultGetKeyRefusesTTY(t *testing.T) {
 	_, slave := vaulttest.PTY(t)
 	assertGetKeyRefusesTTY(t, slave)
 }
+
+// The master-key refusal comes first: an unset earlier name must not mask it, nor trigger a vault read.

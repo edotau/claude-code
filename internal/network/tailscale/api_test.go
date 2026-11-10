@@ -13,7 +13,7 @@ import (
 // staticClient wires a Client at ts.URL with a fixed bearer, bypassing credential resolution.
 func staticClient(ts *httptest.Server, bearer string) *Client {
 	return &Client{
-		BaseURL: ts.URL, Tailnet: "-", HTTP: ts.Client(),
+		BaseURL: ts.URL, HTTP: ts.Client(),
 		token: func(context.Context) (string, error) { return bearer, nil },
 	}
 }
@@ -29,7 +29,7 @@ func TestCreateAuthKeyBodyShape(t *testing.T) {
 	defer ts.Close()
 	c := staticClient(ts, "tok")
 
-	key, err := c.CreateAuthKey(context.Background(), KeyOpts{
+	key, err := c.CreateAuthKey(context.Background(), keyOpts{
 		Ephemeral: true, Preauthorized: true, Reusable: false,
 		Tags: []string{"tag:ci", "tag:ephemeral"}, Expiry: 90 * 24 * time.Hour, Description: "ci runner",
 	})
@@ -125,7 +125,7 @@ func TestRequestRemintsOnceOn401(t *testing.T) {
 	}))
 	defer ts.Close()
 	mints := 0
-	c := &Client{BaseURL: ts.URL, Tailnet: "-", HTTP: ts.Client(), token: func(ctx context.Context) (string, error) {
+	c := &Client{BaseURL: ts.URL, HTTP: ts.Client(), token: func(ctx context.Context) (string, error) {
 		mints++
 		if force, _ := ctx.Value(forceRefreshKey{}).(bool); force {
 			return "fresh", nil
@@ -214,7 +214,7 @@ func hermeticSecrets(t *testing.T) {
 
 func TestNewClientErrNoCredential(t *testing.T) {
 	hermeticSecrets(t)
-	if _, err := NewClient(); !errors.Is(err, ErrNoCredential) {
+	if _, err := NewClient(); !errors.Is(err, errNoCredential) {
 		t.Errorf("NewClient() err = %v, want ErrNoCredential", err)
 	}
 }
@@ -240,7 +240,7 @@ func TestParseKeyExpiry(t *testing.T) {
 			t.Errorf("ParseKeyExpiry(%q) = (%v, %v), want %v", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"xd", "soon", ""} {
+	for _, bad := range []string{"xd", "soon", "", "-5d", "-1h"} {
 		if _, err := parseKeyExpiry(bad); err == nil {
 			t.Errorf("ParseKeyExpiry(%q) accepted", bad)
 		}
@@ -249,7 +249,7 @@ func TestParseKeyExpiry(t *testing.T) {
 
 func TestSelfDeviceNoCredential(t *testing.T) {
 	hermeticSecrets(t)
-	if _, _, _, err := selfDevice(context.Background()); !errors.Is(err, ErrNoCredential) {
+	if _, _, _, err := selfDevice(context.Background()); !errors.Is(err, errNoCredential) {
 		t.Errorf("selfDevice err = %v, want ErrNoCredential", err)
 	}
 }

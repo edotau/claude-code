@@ -17,7 +17,7 @@ func TestPickFollowsLadder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st := State{"anthropic·max": {UsedPct: 5, Seen: now0}} // claude outscores copilot (0.75) yet must still follow it
+	st := State{"anthropic·ultra": {UsedPct: 5, Seen: now0}} // claude outscores copilot (0.75) yet must still follow it
 	pickAt := func(route string) PickResult {
 		t.Setenv(EnvRoute, route)
 		return tb.Pick(context.Background(), "sonnet", "", st, PickOpts{Fallback: FallbackAll, Configured: allConfigured,
@@ -31,13 +31,13 @@ func TestPickFollowsLadder(t *testing.T) {
 		return out
 	}
 	def := []string{"copilot/github·work-user/gpt-6.1-sol", "copilot/github·work-user/gpt-6-astra",
-		"claude/anthropic·max/claude-sonnet-5-5", "codex/openai·chatgpt/gpt-6.1-sol",
+		"claude/anthropic·ultra/claude-sonnet-5-5", "codex/openai·chatgpt/gpt-6.1-sol",
 		"opencode/opencode·zen-free/opencode/deepseek-v4.1-flash-free", "opencode/opencode·go/opencode-go/kimi-k3.1-pro",
 		"gemini/google·antigravity/gemini-3.8-flash"}
 	if got := order(pickAt(RouteDefault)); !slices.Equal(got, def) {
 		t.Errorf("default ladder order =\n%v\nwant\n%v", got, def)
 	}
-	fp := []string{"copilot/github·work-user/claude-sonnet-5.5", "claude/anthropic·max/claude-sonnet-5-5",
+	fp := []string{"copilot/github·work-user/claude-sonnet-5.5", "claude/anthropic·ultra/claude-sonnet-5-5",
 		"codex/openai·chatgpt/gpt-6.1-sol", "gemini/google·antigravity/gemini-3.8-flash",
 		"opencode/opencode·go/opencode-go/kimi-k3.1-pro"}
 	r := pickAt(routeFirstParty)

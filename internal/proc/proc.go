@@ -2,6 +2,7 @@
 package proc
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -103,4 +104,51 @@ func Argv(pid int) ([]string, error) {
 		return nil, err
 	}
 	return strings.Fields(string(out)), nil
+}
+
+// MaxCaptureBytes bounds what OutputCapped and CombinedOutputCapped keep of a command's output.
+const MaxCaptureBytes = 1 << 20
+
+// ExecWaitDelay force-closes a timed-out command's pipes so surviving children cannot hold Wait open.
+const ExecWaitDelay = 2 * time.Second
+
+// capBuffer collects writes up to max, then fails the write so the child is cut off with memory bounded.
+type capBuffer struct {
+	buf  bytes.Buffer
+	max  int
+	over bool
+}
+
+func (w *capBuffer) Write(p []byte) (int, error) {
+	if w.buf.Len()+len(p) > w.max {
+		w.over = true
+		return 0, fmt.Errorf("output over %d bytes", w.max)
+	}
+	return w.buf.Write(p)
+}
+
+// OutputCapped is cmd.Output() with stdout held to MaxCaptureBytes: over it, the command fails with an over-cap error.
+func OutputCapped(cmd *exec.Cmd) ([]byte, error) {
+	stdout := &capBuffer{max: MaxCaptureBytes}
+	var stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = stdout, &stderr
+	err := cmd.Run()
+	if stdout.over { // the child's SIGPIPE exit would otherwise mask the cap
+		return stdout.buf.Bytes(), fmt.Errorf("output over %d bytes", stdout.max)
+	}
+	if ee := (*exec.ExitError)(nil); errors.As(err, &ee) && ee.Stderr == nil {
+		ee.Stderr = stderr.Bytes()
+	}
+	return stdout.buf.Bytes(), err
+}
+
+// CombinedOutputCapped is cmd.CombinedOutput() with the output held to MaxCaptureBytes, like OutputCapped.
+func CombinedOutputCapped(cmd *exec.Cmd) ([]byte, error) {
+	out := &capBuffer{max: MaxCaptureBytes}
+	cmd.Stdout, cmd.Stderr = out, out // one writer, so exec feeds both streams through a single copier
+	err := cmd.Run()
+	if out.over {
+		return out.buf.Bytes(), fmt.Errorf("output over %d bytes", out.max)
+	}
+	return out.buf.Bytes(), err
 }

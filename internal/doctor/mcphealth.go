@@ -40,15 +40,19 @@ type serverDef struct {
 // verb) only with credential-shaped env/header values scrubbed and a has_secrets flag in their place.
 func (d serverDef) MarshalJSON() ([]byte, error) {
 	type plain serverDef // no MarshalJSON, so the alias cannot recurse
-	v := plain(d)
-	v.Env, v.Headers, v.Args = textutil.RedactSecretMap(d.Env), textutil.RedactSecretMap(d.Headers), redactArgs(d.Args)
-	if v.URL != "" {
-		v.URL = queryParamSecret.ReplaceAllString(v.URL, "${1}REDACTED")
-	}
 	return json.Marshal(struct {
 		plain
 		HasSecrets bool `json:"has_secrets,omitempty"`
-	}{v, textutil.AnySecret(d.Env) || textutil.AnySecret(d.Headers) || (d.URL != "" && queryParamSecret.MatchString(d.URL))})
+	}{plain(d.redacted()), textutil.AnySecret(d.Env) || textutil.AnySecret(d.Headers) || (d.URL != "" && queryParamSecret.MatchString(d.URL))})
+}
+
+// redacted returns a copy of d with every secret-shaped env, header, arg and URL query value replaced.
+func (d serverDef) redacted() serverDef {
+	d.Env, d.Headers, d.Args = textutil.RedactSecretMap(d.Env), textutil.RedactSecretMap(d.Headers), redactArgs(d.Args)
+	if d.URL != "" {
+		d.URL = queryParamSecret.ReplaceAllString(d.URL, "${1}REDACTED")
+	}
+	return d
 }
 
 // display renders the "command args" / url / type / "?" column.
@@ -76,16 +80,7 @@ type Def struct {
 	D      serverDef `json:"def"`
 }
 
-// CollectDefs reads the user config (top-level mcpServers + per-project blocks under "projects"),
-// every project .mcp.json, and every settings file (settings.json/settings.local.json) that carries
-// a top-level mcpServers block. Unreadable/invalid files are skipped — an absent config is a clean
-// state, not an error.
-func CollectDefs(userPath string, projectFiles, settingsFiles []string) []Def {
-	out, _ := collectDefs(userPath, projectFiles, settingsFiles)
-	return out
-}
-
-// collectDefs is CollectDefs plus a note per file that exists but could not be read or parsed.
+// collectDefs reads mcpServers from the user config, project .mcp.json and settings files; bad files are noted.
 func collectDefs(userPath string, projectFiles, settingsFiles []string) ([]Def, []string) {
 	var out []Def
 	var bad []string
@@ -225,8 +220,7 @@ type Conflict struct {
 	Real   bool   `json:"real"`
 }
 
-// findConflicts groups defs by server name and flags the ones with disagreeing resolved commands.
-// home expands ${HOME}; a leading ~/ expands to the real home, so equivalent targets compare equal.
+// findConflicts flags same-name defs that disagree; the comparison runs on the originals so a secret-only diff counts.
 func findConflicts(defs []Def, home string) []Conflict {
 	byName := map[string][]Def{}
 	var names []string
@@ -249,16 +243,7 @@ func findConflicts(defs []Def, home string) []Conflict {
 			cmd = expandArgsHome(cmd)
 			resolved[cmd] = true
 		}
-		out = append(out, Conflict{Server: name, Rows: rows, Real: len(resolved) > 1})
-	}
-	return out
-}
-
-// doctorConflicts compares the original defs, so a secret-only difference counts, then redacts every row for output.
-func doctorConflicts(defs []Def, home string) []Conflict {
-	out := findConflicts(defs, home)
-	for i := range out {
-		out[i].Rows = redact(out[i].Rows)
+		out = append(out, Conflict{Server: name, Rows: redact(rows), Real: len(resolved) > 1})
 	}
 	return out
 }
@@ -303,12 +288,7 @@ func findSecrets(defs []Def) []SecretFinding {
 func redact(defs []Def) []Def {
 	out := make([]Def, len(defs))
 	for i, d := range defs {
-		d.D.Env = textutil.RedactSecretMap(d.D.Env)
-		d.D.Headers = textutil.RedactSecretMap(d.D.Headers)
-		d.D.Args = redactArgs(d.D.Args)
-		if d.D.URL != "" {
-			d.D.URL = queryParamSecret.ReplaceAllString(d.D.URL, "${1}REDACTED")
-		}
+		d.D = d.D.redacted()
 		out[i] = d
 	}
 	return out
@@ -506,7 +486,7 @@ func configReport(o Options) Report {
 	secrets := findSecrets(defs) // must run before redact() — a scrubbed value no longer looks like one
 	return Report{
 		Defs:      redact(defs),
-		Conflicts: doctorConflicts(defs, o.Home),
+		Conflicts: findConflicts(defs, o.Home),
 		Secrets:   secrets,
 		Unscanned: unscanned,
 	}

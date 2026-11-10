@@ -1,7 +1,6 @@
 package paths
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -84,46 +83,21 @@ func TestResolve(t *testing.T) {
 	}
 }
 
-func TestViewFrom(t *testing.T) {
+func TestWindowsPath(t *testing.T) {
 	r := testResolver()
 	for _, tc := range []struct {
-		name, local string
-		target      Target
-		want        string
-		err         error
+		local, want string
+		ok          bool
 	}{
-		{"drive", "/mnt/c/Windows/win.ini", Target{Style: StyleWindows}, `C:\Windows\win.ini`, nil},
-		{"drive root", "/mnt/c", Target{Style: StyleWindows}, `C:\`, nil},
-		{"wsl-local to windows", "/etc/hostname", Target{Style: StyleWindows}, `\\wsl.localhost\Ubuntu\etc\hostname`, nil},
-		{"unc wsl", "/etc/hostname", Target{Style: StyleUNC}, `\\wsl.localhost\Ubuntu\etc\hostname`, nil},
-		{"smb unc", "/srv/share one/a/b.txt", Target{Style: StyleUNC}, `\\fileserver\team\docs\a\b.txt`, nil},
-		{"smb to windows", "/srv/share one/a", Target{Style: StyleWindows}, `\\fileserver\team\docs\a`, nil},
-		{"smb url", "/srv/share one/a b", Target{Style: StyleURL}, "smb://fileserver/team/docs/a%20b", nil},
-		{"nfs url", "/srv/nfs/d", Target{Style: StyleURL}, "nfs://nas/export/data/d", nil},
-		{"sshfs url", "/home/u/remote/x", Target{Style: StyleURL}, "", ErrNotReachable},
-		{"file url", "/etc/hostname", Target{Style: StyleURL}, "file:///etc/hostname", nil},
-		{"drive url", "/mnt/c/a", Target{Style: StyleURL}, "file:///C:/a", nil},
-		{"server's own view", "/srv/share one/a", Target{Style: StyleUNC, Host: "fileserver"}, `\\fileserver\team\docs\a`, nil},
-		{"unknown remote host", "/etc/hostname", Target{Style: StyleWindows, Host: "devbox2"}, "", ErrNotReachable},
-		{"host not mount server", "/srv/share one/a", Target{Style: StyleUNC, Host: "other"}, "", ErrNotReachable},
-		{"relative", "a/b", Target{Style: StyleWindows}, "", ErrNotReachable},
+		{"/mnt/c/Windows/win.ini", `C:\Windows\win.ini`, true},
+		{"/mnt/c", `C:\`, true},
+		{"/etc/hostname", "", false},
+		{"/srv/share one/a", "", false},
+		{"mnt/c/a", "", false},
 	} {
-		got, err := r.ViewFrom(tc.local, tc.target)
-		if got != tc.want || !errors.Is(err, tc.err) {
-			t.Errorf("%s: ViewFrom = %q, %v; want %q, %v", tc.name, got, err, tc.want, tc.err)
+		if got, ok := r.WindowsPath(tc.local); got != tc.want || ok != tc.ok {
+			t.Errorf("WindowsPath(%q) = %q, %v; want %q, %v", tc.local, got, ok, tc.want, tc.ok)
 		}
-	}
-	if _, err := (&Resolver{}).ViewFrom("/etc/x", Target{Style: StyleWindows}); !errors.Is(err, ErrNotReachable) {
-		t.Errorf("no distro, no mounts: err = %v, want ErrNotReachable", err)
-	}
-}
-
-func TestViewFromNFSIPv6URL(t *testing.T) {
-	mounts := parseMountinfo("50 22 0:50 / /srv/nfs rw - nfs4 [2001:db8::1]:/export rw\n")
-	r := &Resolver{Mounts: mounts}
-	got, err := r.ViewFrom("/srv/nfs/file", Target{Style: StyleURL})
-	if want := "nfs://[2001:db8::1]/export/file"; err != nil || got != want {
-		t.Fatalf("ViewFrom IPv6 NFS = %q, %v; want %q", got, err, want)
 	}
 }
 
@@ -150,30 +124,6 @@ func TestResolveUnknownSlashUNC(t *testing.T) {
 	}
 	if got, ok := r.Resolve("//fileserver/team/docs/a"); !ok || got != "/srv/share one/a" {
 		t.Fatalf("known UNC = %q, %v", got, ok)
-	}
-}
-
-func TestRoundTrip(t *testing.T) {
-	r := testResolver()
-	for _, tc := range []struct {
-		in    string
-		style Style
-	}{
-		{`C:\Windows\win.ini`, StyleWindows},
-		{`\\wsl.localhost\Ubuntu\etc\hostname`, StyleUNC},
-		{`\\wsl.localhost\Ubuntu\etc\hostname`, StyleWindows},
-		{`\\fileserver\team\docs\a\b.txt`, StyleUNC},
-		{"smb://fileserver/team/docs/a.txt", StyleURL},
-		{"nfs://nas/export/data/d/f", StyleURL},
-	} {
-		local, ok := r.Resolve(tc.in)
-		if !ok {
-			t.Fatalf("Resolve(%q) failed", tc.in)
-		}
-		back, err := r.ViewFrom(local, Target{Style: tc.style})
-		if err != nil || back != tc.in {
-			t.Errorf("round trip %q -> %q -> %q, %v", tc.in, local, back, err)
-		}
 	}
 }
 
@@ -259,8 +209,8 @@ func TestBindMountRoot(t *testing.T) {
 	m := parseMountinfo(`50 22 0:30 /Users/u /work rw - 9p C:\134 rw,aname=drvfs` + "\n" +
 		`51 22 0:31 /export/sub /srv/sub rw - nfs4 nas:/export/data rw`)
 	r := &Resolver{Mounts: m, Distro: "Ubuntu"}
-	if got, err := r.ViewFrom("/work/a", Target{Style: StyleWindows}); err != nil || got != `C:\Users\u\a` {
-		t.Errorf("ViewFrom bind = %q, %v; want C:\\Users\\u\\a", got, err)
+	if got, ok := r.WindowsPath("/work/a"); !ok || got != `C:\Users\u\a` {
+		t.Errorf("WindowsPath bind = %q, %v; want C:\\Users\\u\\a", got, ok)
 	}
 	if got, ok := r.Resolve(`C:\Users\u\a`); !ok || got != "/work/a" {
 		t.Errorf("Resolve bind = %q, %v; want /work/a", got, ok)
@@ -310,8 +260,8 @@ func TestOpaqueMountFencesDrive(t *testing.T) {
 	if got, ok := r.Resolve(`C:\other\a`); !ok || got != "/mnt/c/other/a" {
 		t.Errorf("sibling path = %q, %v", got, ok)
 	}
-	if got, err := r.ViewFrom("/mnt/c/cache/a", Target{Style: StyleWindows}); err == nil && got == `C:\cache\a` {
-		t.Errorf("ViewFrom through tmpfs claimed %q", got)
+	if got, ok := r.WindowsPath("/mnt/c/cache/a"); ok {
+		t.Errorf("WindowsPath through tmpfs claimed %q", got)
 	}
 }
 
@@ -348,23 +298,6 @@ func TestLearnDistroSurvivesStdoutHoldingChild(t *testing.T) {
 		t.Errorf("probe took %s, want < 1.5s", d)
 	}
 	_ = out
-}
-
-func TestViewFromKeepsDotDotThroughSymlinks(t *testing.T) {
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "real", "sub"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(root, "real", "sub"), filepath.Join(root, "link")); err != nil {
-		t.Skip("symlinks unavailable")
-	}
-	got, err := (&Resolver{}).ViewFrom(root+"/link/..", Target{Style: StyleURL})
-	if want := "file://" + root + "/real"; err != nil || got != want {
-		t.Errorf("ViewFrom = %q, %v; want %q", got, err, want)
-	}
 }
 
 // An obscured first match must not hide another mount that exposes the same content.

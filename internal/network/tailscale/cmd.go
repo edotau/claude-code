@@ -1,4 +1,4 @@
-package network
+package tailscale
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
@@ -102,8 +101,8 @@ func tsWrongFlag(fs *flag.FlagSet, mode string) error {
 	return wrong
 }
 
-// cmdNetworkTailscale: one flag set; a mode flag picks the action and bare means status.
-func cmdNetworkTailscale(args []string) int {
+// Cmd: one flag set; a mode flag picks the action and bare means status.
+func Cmd(args []string) int {
 	fs, t := tailscaleFlags()
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -130,40 +129,29 @@ func tailscaleMode(ctx context.Context, mode string, t *tsFlags) int {
 	case "key":
 		return tailscaleKey(ctx, t.o)
 	case "exit-node":
-		return tailscaleExitNodeChecked(ctx, t.exitNode)
+		return tailscaleExitNode(ctx, t.exitNode)
 	case "subnet":
 		return tailscaleSubnet(ctx, t.subnet)
 	case "route":
-		return tailscaleRouteChecked(ctx, t.route)
+		return tailscaleRoute(ctx, t.route)
 	}
 	return tailscaleStatus(ctx, *t.format)
 }
 
-func tailscaleExitNodeChecked(ctx context.Context, action string) int {
-	if !slices.Contains([]string{"on", "off", "approve"}, action) {
-		return helptext.FailUsage("network tailscale: --exit-node must be on, off or approve, got %q", action)
-	}
-	return tailscaleExitNode(ctx, action)
-}
-
-func tailscaleRouteChecked(ctx context.Context, peer string) int {
+// tailscaleRoute sends this box's traffic through peer as its exit node; "off" clears it.
+func tailscaleRoute(ctx context.Context, peer string) int {
 	if peer == "" || strings.HasPrefix(peer, "-") {
 		return helptext.FailUsage("network tailscale: --route requires a peer name or 'off'")
 	}
-	return tailscaleRoute(ctx, peer)
-}
-
-// tailscaleRoute sends this box's traffic through peer as its exit node; "off" clears it.
-func tailscaleRoute(ctx context.Context, peer string) int {
 	if peer == "off" {
-		if err := tailscale.UseExitNode(ctx, ""); err != nil {
+		if err := useExitNode(ctx, ""); err != nil {
 			return helptext.Fail("network tailscale route: %v", err)
 		}
 		audit.Log(audit.TailscaleExitNode, "self", "clear")
 		fmt.Println("tailscale: exit node cleared")
 		return 0
 	}
-	if err := tailscale.UseExitNode(ctx, peer); err != nil {
+	if err := useExitNode(ctx, peer); err != nil {
 		return helptext.Fail("network tailscale route: %v", err)
 	}
 	audit.Log(audit.TailscaleExitNode, peer, "use")
@@ -182,8 +170,8 @@ func tailscaleStatus(ctx context.Context, format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
 		return helptext.BadFormat("network tailscale status", err)
 	}
-	st, err := tailscale.Status(ctx)
-	if err != nil && !errors.Is(err, tailscale.ErrNotRunning) {
+	st, err := Status(ctx)
+	if err != nil && !errors.Is(err, errNotRunning) {
 		return helptext.Fail("network tailscale status: %v", err)
 	}
 	if format == helptext.JSON {
@@ -209,7 +197,7 @@ func tailscaleMachines(ctx context.Context, format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
 		return helptext.BadFormat("network tailscale machines", err)
 	}
-	machines, err := tailscale.Machines(ctx)
+	machines, err := Machines(ctx)
 	if err != nil {
 		return helptext.Fail("network tailscale machines: %v", err)
 	}
@@ -230,14 +218,14 @@ func tailscaleConnect(ctx context.Context, o tsOpts) int {
 		fmt.Fprintln(os.Stderr, "claude-code: network tailscale connect: a literal --auth-key is visible in shell "+
 			"history and `ps`; prefer --auth-key - (stdin) or --key-env")
 	}
-	key, err := tailscale.ResolveAuthKey(o.authKey, o.keyEnv, os.Stdin)
+	key, err := resolveAuthKey(o.authKey, o.keyEnv, os.Stdin)
 	if err != nil {
 		return helptext.Fail("network tailscale connect: reading --auth-key from stdin: %v", err)
 	}
 	if key == "" {
 		return tailscaleConnectKeyless(ctx, o.advertise)
 	}
-	if err := tailscale.ConnectAudited(ctx, key, o.advertise); err != nil {
+	if err := connectAudited(ctx, key, o.advertise); err != nil {
 		return helptext.Fail("network tailscale connect: %v", err)
 	}
 	fmt.Println("tailscale: connected")
@@ -246,7 +234,7 @@ func tailscaleConnect(ctx context.Context, o tsOpts) int {
 
 // tailscaleConnectKeyless succeeds only when the node is already connected; advertise then applies via `tailscale set`.
 func tailscaleConnectKeyless(ctx context.Context, advertise bool) int {
-	st, ok := tailscale.Connected(ctx)
+	st, ok := connected(ctx)
 	if !ok {
 		return helptext.FailUsage("network tailscale connect: not connected; " +
 			"pass --auth-key or run `network tailscale --key --save`")
@@ -255,7 +243,7 @@ func tailscaleConnectKeyless(ctx context.Context, advertise bool) int {
 	if !advertise {
 		return 0
 	}
-	if err := tailscale.AdvertiseConnected(ctx, st.DNSName); err != nil {
+	if err := advertiseConnected(ctx, st.DNSName); err != nil {
 		return helptext.Fail("network tailscale connect: --advertise-exit: %v", err)
 	}
 	fmt.Println("tailscale: advertising as an exit node")
@@ -263,7 +251,7 @@ func tailscaleConnectKeyless(ctx context.Context, advertise bool) int {
 }
 
 func tailscaleKey(ctx context.Context, o tsOpts) int {
-	key, err := tailscale.MintKeyAudited(ctx, o.expiry, tailscale.KeyOpts{
+	key, err := mintKeyAudited(ctx, o.expiry, keyOpts{
 		Ephemeral: o.ephemeral, Preauthorized: o.preauth, Reusable: o.reusable,
 		Tags: textutil.SplitCSV(o.tags), Description: o.desc,
 	})
@@ -275,7 +263,7 @@ func tailscaleKey(ctx context.Context, o tsOpts) int {
 		return helptext.Fail("network tailscale key: writing key to stdout: %v", err)
 	}
 	if o.save {
-		if err := tailscale.SaveAuthKey(key.Key); err != nil {
+		if err := saveAuthKey(key.Key); err != nil {
 			return helptext.Fail("network tailscale key: --save: %v", err)
 		}
 		fmt.Fprintf(os.Stderr, "saved TAILSCALE_AUTHKEY to the vault (%s)\n", vault.Redact(key.Key))
@@ -284,15 +272,18 @@ func tailscaleKey(ctx context.Context, o tsOpts) int {
 }
 
 func tailscaleExitNode(ctx context.Context, action string) int {
+	if !slices.Contains([]string{"on", "off", "approve"}, action) {
+		return helptext.FailUsage("network tailscale: --exit-node must be on, off or approve, got %q", action)
+	}
 	switch action {
 	case "on":
-		if err := tailscale.AdvertiseExitNode(ctx, true); err != nil {
+		if err := advertiseExitNode(ctx, true); err != nil {
 			return helptext.Fail("network tailscale exit-node: %v", err)
 		}
 		audit.Log(audit.TailscaleExitNode, "self", "enable")
 		fmt.Println("tailscale: advertising as an exit node")
 	case "off":
-		if err := tailscale.AdvertiseExitNode(ctx, false); err != nil {
+		if err := advertiseExitNode(ctx, false); err != nil {
 			return helptext.Fail("network tailscale exit-node: %v", err)
 		}
 		audit.Log(audit.TailscaleExitNode, "self", "disable")
@@ -304,7 +295,7 @@ func tailscaleExitNode(ctx context.Context, action string) int {
 }
 
 func tailscaleApproveExitNode(ctx context.Context) int {
-	dns, err := tailscale.ApproveSelfExitNode(ctx)
+	dns, err := approveSelfExitNode(ctx)
 	if err != nil {
 		return failSelfDevice("exit-node", err)
 	}
@@ -315,7 +306,7 @@ func tailscaleApproveExitNode(ctx context.Context) int {
 
 // failSelfDevice reports an admin-API failure; a missing credential prints the console hint and exits 2.
 func failSelfDevice(mode string, err error) int {
-	if errors.Is(err, tailscale.ErrNoCredential) {
+	if errors.Is(err, errNoCredential) {
 		fmt.Println("tailscale: no admin credential; approve at https://login.tailscale.com/admin/machines")
 		return 2
 	}
@@ -334,7 +325,7 @@ func tailscaleSubnet(ctx context.Context, value string) int {
 }
 
 func tailscaleSubnetWithdraw(ctx context.Context) int {
-	if err := tailscale.AdvertiseRoutes(ctx, nil); err != nil {
+	if err := advertiseRoutes(ctx, nil); err != nil {
 		return helptext.Fail("network tailscale subnet: %v", err)
 	}
 	audit.Log(audit.TailscaleSubnet, "self", "withdraw")
@@ -344,7 +335,7 @@ func tailscaleSubnetWithdraw(ctx context.Context) int {
 
 // tailscaleSubnetApprove enables every subnet route this box advertises, keeping routes already enabled.
 func tailscaleSubnetApprove(ctx context.Context) int {
-	dns, want, enabled, err := tailscale.ApproveSelfSubnets(ctx)
+	dns, want, enabled, err := approveSelfSubnets(ctx)
 	if err != nil {
 		return failSelfDevice("subnet", err)
 	}
@@ -354,11 +345,11 @@ func tailscaleSubnetApprove(ctx context.Context) int {
 }
 
 func tailscaleSubnetAdvertise(ctx context.Context, value string) int {
-	routes, ok := tailscale.ParseSubnets(value)
+	routes, ok := parseSubnets(value)
 	if !ok {
 		return helptext.FailUsage("network tailscale: --subnet must be a CIDR list, approve or off, got %q", value)
 	}
-	if err := tailscale.AdvertiseRoutes(ctx, routes); err != nil {
+	if err := advertiseRoutes(ctx, routes); err != nil {
 		return helptext.Fail("network tailscale subnet: %v", err)
 	}
 	audit.Log(audit.TailscaleSubnet, "self", "advertise:"+value)

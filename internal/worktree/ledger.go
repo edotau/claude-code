@@ -25,6 +25,9 @@ type LedgerClose struct {
 	Now                 time.Time
 }
 
+// ledgerPath is worktree name's ledger file under the repo's memory dir.
+func ledgerPath(dir, name string) string { return filepath.Join(dir, "worktrees", name+".md") }
+
 // OpenLedger creates a ledger, leaves an open ledger unchanged, or reopens a closed ledger.
 func OpenLedger(main, name string, info LedgerInfo) error {
 	if err := ledgerName(name); err != nil {
@@ -34,7 +37,7 @@ func OpenLedger(main, name string, info LedgerInfo) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(dir, "worktrees", name+".md")
+	path := ledgerPath(dir, name)
 	return withLedgerLock(path, func() error {
 		data, err := os.ReadFile(path)
 		if err == nil {
@@ -56,6 +59,12 @@ func OpenLedger(main, name string, info LedgerInfo) error {
 
 // bestEffortLedgerWait bounds the bank-lock wait of hook-side ledger edits, which run inside a hook budget.
 const bestEffortLedgerWait = 750 * time.Millisecond
+
+// ledgerLocateTimeout bounds the hook-path git rev-parse in locateLedger so a stalled git cannot outlive the hook.
+const ledgerLocateTimeout = 2 * time.Second
+
+// ledgerGitTimeout bounds the git calls made while callers hold the bank lock.
+const ledgerGitTimeout = 10 * time.Second
 
 // AppendLedger appends a timestamped entry only for a managed linked worktree with an existing ledger.
 func AppendLedger(cwd, text string, now time.Time) (bool, error) {
@@ -106,7 +115,9 @@ func locateLedger(cwd string) (repo *Repo, top, path string, found bool, err err
 	if err != nil {
 		return nil, "", "", false, nil
 	}
-	out, err := gitCmd(context.Background(), "-C", cwd, "rev-parse", "--show-toplevel").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), ledgerLocateTimeout)
+	defer cancel()
+	out, err := gitCmd(ctx, "-C", cwd, "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		return nil, "", "", false, err
 	}
@@ -115,13 +126,13 @@ func locateLedger(cwd string) (repo *Repo, top, path string, found bool, err err
 		return nil, "", "", false, nil
 	}
 	name := filepath.Base(top)
-	if _, err := ResolveWorktree(repo, name); err != nil {
-		return nil, "", "", false, err
-	}
-	path = filepath.Join(memory.Dir(repo.Main), "worktrees", name+".md")
+	path = ledgerPath(memory.Dir(repo.Main), name)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, "", "", false, nil
 	} else if err != nil {
+		return nil, "", "", false, err
+	}
+	if _, err := resolveWorktree(ctx, repo, name); err != nil {
 		return nil, "", "", false, err
 	}
 	return repo, top, path, true, nil
@@ -154,7 +165,7 @@ func CloseLedger(main, name string, c LedgerClose) error {
 	if err := ledgerName(name); err != nil {
 		return err
 	}
-	path := filepath.Join(memory.Dir(main), "worktrees", name+".md")
+	path := ledgerPath(memory.Dir(main), name)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil
 	} else if err != nil {
@@ -193,7 +204,9 @@ func closedLedgerText(main, name, text string, c LedgerClose) (string, error) {
 	if len(base) == 0 || c.Head == "" {
 		return "", fmt.Errorf("ledger %s: base and closing HEAD are required", name)
 	}
-	out, err := gitCmd(context.Background(), "-C", main, "log", "--format=%h %s", base[0]+".."+c.Head, "--").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), ledgerGitTimeout)
+	defer cancel()
+	out, err := gitCmd(ctx, "-C", main, "log", "--format=%h %s", base[0]+".."+c.Head, "--").Output()
 	if err != nil {
 		return "", fmt.Errorf("ledger %s: list commits: %w", name, err)
 	}
@@ -250,7 +263,7 @@ func reopenedText(text string, info LedgerInfo) string {
 
 // reopenInfo describes work resuming in a kept worktree: base is the merge-base with the main checkout's HEAD.
 func reopenInfo(repo *Repo, dest, session string) (LedgerInfo, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // callers hold the bank lock
+	ctx, cancel := context.WithTimeout(context.Background(), ledgerGitTimeout)
 	defer cancel()
 	head, err := headOfContext(ctx, dest)
 	if err != nil {

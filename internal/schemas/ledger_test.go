@@ -94,7 +94,7 @@ var writers = map[string]string{
 	"internal/hooks/docs/plan.go:claimPlanFile":                       unversioned("marker: reserved dated plan file, replaced by the plan"),
 	"internal/hooks/docs/plan.go:dropRecord":                          unversioned("marker: plan mirror record emptied when it cannot be removed"),
 	"internal/plans/tick.go:writePlan":                                unversioned("foreign: plan markdown in plans/"),
-	"internal/hooks/quality/stop_format.go:stopFormat":                "stop-format",
+	"internal/hooks/quality/stop_format.go:StopFormat":                "stop-format",
 	"internal/hooks/memhook/watch.go:spawnIdleWatcher":                unversioned("marker: idle watcher claim file"),
 	"internal/launch/install_steps.go:copyBinary":                     unversioned("foreign: installed binary"),
 	"internal/agent/launcher.go:WriteFiles":                           unversioned("per-launch 0600 files: settings-overlay row; copilot's foreign registry"),
@@ -129,7 +129,7 @@ var writers = map[string]string{
 	"internal/memory/store.go:seedFile":                               unversioned("memory-bank: bank seed files"),
 	"internal/memory/store.go:createExcl":                             unversioned("memory-bank: bank seed files (no-hard-link fallback)"),
 	"internal/memory/bank_report.go:appendText":                       unversioned("memory-bank: report and decisions append"),
-	"internal/memory/bank_report.go:restoreReport":                    unversioned("memory-bank: previous report restored after a failed decisions append"),
+	"internal/memory/bank_report.go:restore":                          unversioned("memory-bank: previous report restored after a failed decisions append"),
 	"internal/memory/bank_txn.go:apply":                               unversioned("memory-bank: txn applied bank file"),
 	"internal/memory/bank_txn.go:captureNative":                       unversioned("memory-bank: txn native copy"),
 	"internal/memory/bank_txn.go:commit":                              unversioned("memory-bank: txn receipt in the memory repo"),
@@ -315,7 +315,7 @@ func registeredWriterIssues(found map[string]bool, registry map[string]string, n
 	for _, k := range keys {
 		v, ok := registry[k]
 		if !ok {
-			issues = append(issues, k+" writes a file: register it in internal/schemas or classify it in writers_test.go")
+			issues = append(issues, k+" writes a file: register it in internal/schemas or classify it in ledger_test.go")
 			continue
 		}
 		if !names[v] && !strings.HasPrefix(v, "unversioned: ") {
@@ -349,8 +349,8 @@ func TestWriterRegistryRejectsUnregisteredAndStale(t *testing.T) {
 	t.Run("unregistered", func(t *testing.T) {
 		issues := registeredWriterIssues(found, map[string]string{}, map[string]bool{})
 		want := []string{
-			"fixture.go:appendFile writes a file: register it in internal/schemas or classify it in writers_test.go",
-			"fixture.go:write writes a file: register it in internal/schemas or classify it in writers_test.go",
+			"fixture.go:appendFile writes a file: register it in internal/schemas or classify it in ledger_test.go",
+			"fixture.go:write writes a file: register it in internal/schemas or classify it in ledger_test.go",
 		}
 		if strings.Join(issues, "\n") != strings.Join(want, "\n") {
 			t.Fatalf("unregistered writer issues = %v, want %v", issues, want)

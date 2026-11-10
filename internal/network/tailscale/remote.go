@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 var (
@@ -75,7 +75,7 @@ func recordSelf(st Local, err error) {
 
 // ResolveHost maps a short tailnet name to its MagicDNS name (cache first, then live); others pass through to ssh.
 func ResolveHost(ctx context.Context, host string) (string, error) {
-	if err := remote.ValidHost(host); err != nil {
+	if err := textutil.ValidHost(host); err != nil {
 		return "", err
 	}
 	if host == "localhost" || strings.Contains(host, ".") || net.ParseIP(host) != nil {

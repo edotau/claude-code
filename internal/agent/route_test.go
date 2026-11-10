@@ -3,17 +3,13 @@ package agent
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -357,47 +353,14 @@ func SwapLoadState(wrap func(prev func() router.State) func() router.State) func
 	return func() { loadState = prev }
 }
 
-// CountAccountMarkers counts live marker files in dir whose content is account.
-func CountAccountMarkers(dir, account string) int {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return 0
-	}
-	n := 0
-	for _, e := range entries {
-		if _, ok := inflight.Owner(e.Name()); !ok {
-			continue
-		}
-		if b, err := os.ReadFile(filepath.Join(dir, e.Name())); err == nil && strings.TrimSpace(string(b)) == account {
-			n++
-		}
-	}
-	return n
-}
-
-// SamplePeak counts account markers every interval until stop closes and returns the peak.
-func SamplePeak(dir, account string, interval time.Duration, stop <-chan struct{}, peak *atomic.Int32) {
-	for {
-		select {
-		case <-stop:
-			return
-		default:
-		}
-		n := int32(CountAccountMarkers(dir, account))
-		for cur := peak.Load(); n > cur && !peak.CompareAndSwap(cur, n); cur = peak.Load() {
-		}
-		time.Sleep(interval)
-	}
-}
-
-// leadRegistry has Databricks row dev (signed in) and Anthropic max; claude's record pins max.
+// leadRegistry has Databricks row dev (signed in) and Anthropic ultra; claude's record pins ultra.
 func leadRegistry(t *testing.T) *providers.Registry {
 	t.Helper()
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks",`+
 		`"host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
-	vaulttest.SetRecord(t, "claude", "profile", "max")
+	vaulttest.SetRecord(t, "claude", "profile", "ultra")
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -433,7 +396,7 @@ func TestLeadFor(t *testing.T) {
 		{RouteReq{Agent: "codex", Profile: "dev", Fallback: all, Pinned: true}, "", true, ""},
 		{RouteReq{Agent: "codex", Profile: LeadSession, Fallback: none}, "dev", false, ""},
 		{RouteReq{Agent: "codex", Provider: "databricks", Fallback: none}, "dev", false, ""},
-		{RouteReq{Agent: "codex", Profile: "dev", Lead: "max", Pinned: true}, "max", false, ""},
+		{RouteReq{Agent: "codex", Profile: "dev", Lead: "ultra", Pinned: true}, "ultra", false, ""},
 		{RouteReq{Agent: "codex", Model: "dev:opus", Fallback: all}, "", true, ""},
 		{RouteReq{Agent: "codex", Profile: "nosuch", Fallback: none}, "", true, "nosuch"},
 		{RouteReq{Agent: "codex", Profile: "nosuch", Fallback: all}, "", false, "nosuch"},
@@ -450,14 +413,14 @@ func TestLeadFor(t *testing.T) {
 // A preview of a profile:model leads on that model's profile; an unflagged preview has no lead.
 func TestRouteLeadPreviewKeepsModelProfile(t *testing.T) {
 	leadRegistry(t)
-	t.Setenv(providers.EnvSessionProfile, "max")
+	t.Setenv(providers.EnvSessionProfile, "ultra")
 	cases := []struct {
 		q    RouteReq
 		lead string
 	}{
 		{RouteReq{Agent: "codex", Fallback: router.FallbackAll, Preview: true}, ""},
-		{RouteReq{Agent: "codex", Model: "max:opus", Fallback: router.FallbackAll, Preview: true}, "max"},
-		{RouteReq{Agent: "codex", Model: "dev:opus", Profile: "max", Fallback: router.FallbackAll, Preview: true}, "max"},
+		{RouteReq{Agent: "codex", Model: "ultra:opus", Fallback: router.FallbackAll, Preview: true}, "ultra"},
+		{RouteReq{Agent: "codex", Model: "dev:opus", Profile: "ultra", Fallback: router.FallbackAll, Preview: true}, "ultra"},
 	}
 	for _, c := range cases {
 		lead, explicit, err := routeLead(c.q)
@@ -483,7 +446,7 @@ func pinFirstSetup(t *testing.T, exhausted bool) (Chain, router.PickResult, map[
 	vaulttest.UseKeyring(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("OPENAI_API_KEY", "test-key") // the non-own-login openai profile needs a credential
-	vaulttest.SetRecord(t, "claude", "profile", "max")
+	vaulttest.SetRecord(t, "claude", "profile", "ultra")
 	vaulttest.SetRecord(t, "codex", "profile", "openai")
 	vaulttest.SetRecord(t, "opencode", "profile", "opencode-go")
 	vaulttest.SetRecord(t, "copilot", "profile", "")
@@ -491,7 +454,7 @@ func pinFirstSetup(t *testing.T, exhausted bool) (Chain, router.PickResult, map[
 	vaulttest.SetRecord(t, "codex", "model", "gpt-6.1-sol")
 	if exhausted {
 		now := time.Now()
-		if err := router.MarkExhausted("anthropic·max", now.Add(time.Hour), now, "test quota"); err != nil {
+		if err := router.MarkExhausted("anthropic·ultra", now.Add(time.Hour), now, "test quota"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -522,7 +485,7 @@ func TestPinFirstFallbackDispatches(t *testing.T) {
 	for _, disp := range c.Dispatches {
 		got = append(got, disp.Agent.Name()+" ("+disp.Account+")")
 	}
-	want := []string{"codex (openai·openai)", "opencode (opencode·go)", "claude (anthropic·max)"}
+	want := []string{"codex (openai·openai)", "opencode (opencode·go)", "claude (anthropic·ultra)"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("dispatches = %v, want %v", got, want)
 	}

@@ -23,6 +23,7 @@ func TestRedact(t *testing.T) {
 		// replacement is positional (only the matched run), not a global substring ReplaceAll:
 		// "risk-free" contains the literal substring "sk-" but must survive untouched.
 		{"replacement is positional not substring-global", "sk- risk-free", "REDACTED risk-free"},
+		{"slack app and legacy tokens", "xoxa-2-abc xoxs-123-def xoxb-1 xoxq-1", "REDACTED REDACTED REDACTED xoxq-1"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -126,7 +126,12 @@ func allLine(s allRowStatus) string {
 func runProviderAll(d *dialog) bool {
 	rows := allRows(d.reg, d.o.Profile)
 	if len(rows) == 0 {
-		return reportNoProviders(d)
+		if d.o.JSON {
+			fmt.Fprintln(d.out, "[]")
+		} else {
+			d.println("no providers configured")
+		}
+		return true // nothing configured is not a failure
 	}
 	res := allCheckAll(context.Background(), d.reg, rows)
 	if !d.o.JSON {
@@ -138,20 +143,14 @@ func runProviderAll(d *dialog) bool {
 		offerAllLogins(d, res)
 	}
 	if d.o.JSON {
-		b, _ := json.MarshalIndent(res, "", "  ")
+		b, err := json.MarshalIndent(res, "", "  ")
+		if err != nil {
+			d.printf("provider: encode results: %v\n", err)
+			return false
+		}
 		fmt.Fprintln(d.out, string(b))
 	}
 	return slices.IndexFunc(res, func(s allRowStatus) bool { return s.Status != allOK }) < 0
-}
-
-// reportNoProviders says nothing is configured ("[]" in JSON mode); that is not a failure.
-func reportNoProviders(d *dialog) bool {
-	if d.o.JSON {
-		fmt.Fprintln(d.out, "[]")
-	} else {
-		d.println("no providers configured")
-	}
-	return true
 }
 
 // offerAllLogins offers login to each needs-login or rejected row in res, replacing it with the final verdict.

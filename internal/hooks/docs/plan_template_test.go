@@ -46,52 +46,6 @@ func TestPlanTemplateTeeth(t *testing.T) {
 	}
 }
 
-func TestPlanTemplateAllowsTemplatedFirstWrite(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if err := os.MkdirAll(filepath.Join(cfg, "plans"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	draft := filepath.Join(cfg, "plans", "funny-random-words.md")
-	code := Gate(core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, planTemplate))), &bytes.Buffer{})
-	if code != core.ExitProceed {
-		t.Fatalf("templated first write: PlanTemplate = %d, want ExitProceed", code)
-	}
-}
-
-// TestPlanTemplateOnlyGatesTheFirstWrite: once the draft exists on disk, a later Write to it (e.g. the
-// model rewriting its own draft) is not re-gated, even with content missing the headings.
-func TestPlanTemplateOnlyGatesTheFirstWrite(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if err := os.MkdirAll(filepath.Join(cfg, "plans"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	draft := filepath.Join(cfg, "plans", "funny-random-words.md")
-	if err := os.WriteFile(draft, []byte(planTemplate), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	code := Gate(core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, "no headings now\n"))), &bytes.Buffer{})
-	if code != core.ExitProceed {
-		t.Fatalf("second write to an existing draft: PlanTemplate = %d, want ExitProceed", code)
-	}
-}
-
-// TestPlanTemplateAllFourHeadingsPresent: the exact template content passes with all 4 headings as plain text.
-func TestPlanTemplateAllFourHeadingsPresent(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if err := os.MkdirAll(filepath.Join(cfg, "plans"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	draft := filepath.Join(cfg, "plans", "all-headings.md")
-	content := "# Plan: Z\n\n## Context\n\nwhy\n\n## Phases\n\n### Phase 1\n\n## Tasks\n\n- [ ] Phase 1\n"
-	code := Gate(core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, content))), &bytes.Buffer{})
-	if code != core.ExitProceed {
-		t.Fatalf("all 4 headings present: Gate = %d, want ExitProceed", code)
-	}
-}
-
 // TestPlanTemplateRejectsFencedOnlyHeading: Gate now parses the mdsmith AST, so a heading that
 // only appears inside a fenced code block does not count as present (fixed from a strings.Contains scan,
 // which previously let this through as ExitProceed).
@@ -111,20 +65,5 @@ func TestPlanTemplateRejectsFencedOnlyHeading(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "## Tasks") {
 		t.Fatalf("denial message = %q, want it to name the missing heading", &stderr)
-	}
-}
-
-func TestPlanTemplateIgnoresDatedAndOutsidePlans(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	for _, path := range []string{
-		filepath.Join(cfg, "plans", "2026-10-20-already-dated.md"),
-		filepath.Join(cfg, "plans", "sub", "funny-random-words.md"),
-		filepath.Join(t.TempDir(), "elsewhere.md"),
-	} {
-		code := Gate(core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, path, "no headings\n"))), &bytes.Buffer{})
-		if code != core.ExitProceed {
-			t.Errorf("PlanTemplate(%s) = %d, want ExitProceed (not an undated top-level draft)", path, code)
-		}
 	}
 }

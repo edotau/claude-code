@@ -186,7 +186,7 @@ func TestCommitDropsUntrackedAndStagesDeletion(t *testing.T) {
 	assertDecoyUntouched(t, decoy)
 }
 
-func TestCommitRejectsBadPathsAndSecretsByNameOnly(t *testing.T) {
+func TestCommitRejectsBadPathsAndSymlinks(t *testing.T) {
 	store, decoy := storeFixture(t)
 	r := StoreRepo()
 	if err := r.Ensure(); err != nil {

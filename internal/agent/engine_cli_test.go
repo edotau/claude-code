@@ -79,7 +79,7 @@ func TestVendorEngineAttachPromptMissingPath(t *testing.T) {
 
 // codex and gemini ride stdin (codexHeadless's `-` operand, agy's stream-json), so an oversized prompt
 // never hits MAX_ARG_STRLEN and must not be refused before launch; opencode still puts the prompt in
-// argv (opencodeRun), so it alone keeps the refusal. Provider: "max" (the built-in
+// argv (opencodeRun), so it alone keeps the refusal. Provider: "ultra" (the built-in
 // default) makes vendorTargetNote return immediately (req.Provider != "" short-circuits the vendor's own
 // fallback resolution), so every case fails or refuses before any real CLI exec — no bin/codex, bin/agy
 // or bin/opencode needed, and no network call.
@@ -90,7 +90,7 @@ func TestVendorEngineOversizedPromptRefusalScopedToArgv(t *testing.T) {
 
 	for _, name := range []string{"codex", "gemini"} {
 		t.Run(name+"/not-refused", func(t *testing.T) {
-			_, err := newCLIEngine(name).Run(context.Background(), RunOptions{Prompt: big, Provider: "max"}, wire.Discard)
+			_, err := newCLIEngine(name).Run(context.Background(), RunOptions{Prompt: big, Provider: "ultra"}, wire.Discard)
 			if err == nil {
 				t.Fatalf("%s: want a non-nil error (no route for a fake provider), got nil", name)
 			}
@@ -101,7 +101,7 @@ func TestVendorEngineOversizedPromptRefusalScopedToArgv(t *testing.T) {
 	}
 
 	t.Run("opencode/still-refused", func(t *testing.T) {
-		_, err := newCLIEngine("opencode").Run(context.Background(), RunOptions{Prompt: big, Provider: "max"}, wire.Discard)
+		_, err := newCLIEngine("opencode").Run(context.Background(), RunOptions{Prompt: big, Provider: "ultra"}, wire.Discard)
 		var e *retry.Error
 		if !errors.As(err, &e) || !errors.Is(e, ErrPromptTooLarge) {
 			t.Fatalf("opencode: err = %v, want *Error wrapping ErrPromptTooLarge (prompt rides argv)", err)

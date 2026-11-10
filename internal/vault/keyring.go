@@ -216,65 +216,6 @@ func storeFailure(name, msg string, err error) error {
 	return nil
 }
 
-// osKeyringDelete removes name from the keyring; a name that is not stored is not an error, a refused delete is.
-func osKeyringDelete(name string) error {
-	if name == "" || !KeyringAvailable() {
-		return nil
-	}
-	if down.Load() {
-		return errors.New("keyring: the keyring did not answer earlier this run")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	cmd := deleteCommand(ctx, name)
-	cmd.WaitDelay = 250 * time.Millisecond
-	err := cmd.Run()
-	if deleteNotFound(err) {
-		return nil
-	}
-	if linuxClearMiss(ctx, err) {
-		if absent, lerr := absentAfterClear(name); absent || lerr != nil {
-			return lerr
-		}
-	}
-	if ctx.Err() != nil {
-		down.Store(true)
-	}
-	return fmt.Errorf("keyring: delete %s: %w", name, err)
-}
-
-// deleteCommand is this OS's keyring removal of name.
-func deleteCommand(ctx context.Context, name string) *exec.Cmd {
-	switch runtime.GOOS {
-	case "linux":
-		return exec.CommandContext(ctx, "secret-tool", "clear", "service", service, "account", name)
-	case "darwin":
-		return exec.CommandContext(ctx, "security", "delete-generic-password", "-a", name, "-s", service)
-	}
-	return nil
-}
-
-// deleteNotFound reports a delete that succeeded or found nothing to remove.
-func deleteNotFound(err error) bool {
-	var exit *exec.ExitError
-	return err == nil || (errors.As(err, &exit) && exit.ExitCode() == 44) // 44 = errSecItemNotFound
-}
-
-// linuxClearMiss reports secret-tool clear's untimed exit 1, which is either an absent item or a failing keyring.
-func linuxClearMiss(ctx context.Context, err error) bool {
-	var exit *exec.ExitError
-	return runtime.GOOS == "linux" && errors.As(err, &exit) && exit.ExitCode() == 1 && ctx.Err() == nil
-}
-
-// absentAfterClear tells an absent item (clear exits 1) from a failing keyring, whose lookup error is returned.
-func absentAfterClear(name string) (bool, error) {
-	_, found, err := KeyringLookup(name)
-	if err != nil {
-		return false, fmt.Errorf("keyring: delete %s: %w", name, err)
-	}
-	return !found, nil
-}
-
 // quote wraps s for the `security -i` tokenizer: double quotes, with backslash and quote escaped.
 func quote(s string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`

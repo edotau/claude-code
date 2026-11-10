@@ -137,7 +137,7 @@ func writeCompactRecord(in *core.Input, now time.Time) {
 	if err == nil {
 		path := compactRecordPath(in.SessionID)
 		if err = os.MkdirAll(filepath.Dir(path), 0o700); err == nil {
-			err = os.WriteFile(path, b, 0o600)
+			err = paths.AtomicWrite(path, b, 0o600)
 		}
 	}
 	if err != nil {

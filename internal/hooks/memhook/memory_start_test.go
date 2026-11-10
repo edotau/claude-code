@@ -64,7 +64,7 @@ func TestSessionStartRelistsServedOnlyForStaleSessionProfile(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			calls := servedSession(t, c.on, c.fetched, c.updateChild)
-			memoryContext(t.TempDir(), "s1", "", now)
+			memoryContext(t.TempDir(), "s1", now)
 			if got := calls.Load(); got != c.want {
 				t.Fatalf("spawnServed calls = %d, want %d", got, c.want)
 			}
@@ -76,8 +76,8 @@ func TestSessionStartRelistsServedOnlyForStaleSessionProfile(t *testing.T) {
 func TestSessionStartClaimsServedRefreshOncePerRetryWindow(t *testing.T) {
 	now := time.Now()
 	calls := servedSession(t, true, time.Time{}, "")
-	memoryContext(t.TempDir(), "s1", "", now)
-	memoryContext(t.TempDir(), "s2", "", now.Add(time.Minute))
+	memoryContext(t.TempDir(), "s1", now)
+	memoryContext(t.TempDir(), "s2", now.Add(time.Minute))
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("spawnServed calls = %d, want 1", got)
 	}

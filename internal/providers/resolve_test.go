@@ -61,7 +61,7 @@ func TestClientModelKeepsTypedOneM(t *testing.T) {
 func TestParseTargetWirePrefix(t *testing.T) {
 	reg := load(t)
 	qa := &Provider{Name: "databricks-qa", Provider: "databricks", ModelPrefix: "databricks-"}
-	sub := &Provider{Name: "max", Provider: "anthropic"}
+	sub := &Provider{Name: "ultra", Provider: "anthropic"}
 	cases := []struct {
 		spec  string
 		prov  *Provider
@@ -80,27 +80,6 @@ func TestParseTargetWirePrefix(t *testing.T) {
 		if got.Model != c.model || got.OneM != c.oneM {
 			t.Errorf("%s ParseTarget(%q) = %q/%v; want %q/%v", c.prov.Name, c.spec, got.Model, got.OneM, c.model, c.oneM)
 		}
-	}
-}
-
-// TestTargetClientModel pins Target.ClientModel: only a typed OneM marks [1m].
-func TestTargetClientModel(t *testing.T) {
-	std := &Provider{Name: "s"}
-	tests := []struct {
-		name string
-		t    Target
-		want string
-	}{
-		{"typed 1m", Target{Provider: std, Model: "claude-opus-5-5", OneM: true}, "claude-opus-5-5[1m]"},
-		{"standard", Target{Provider: std, Model: "claude-opus-5-5"}, "claude-opus-5-5"},
-		{"nil provider", Target{Model: "x"}, "x"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.t.ClientModel(); got != tt.want {
-				t.Errorf("ClientModel = %q, want %q", got, tt.want)
-			}
-		})
 	}
 }
 

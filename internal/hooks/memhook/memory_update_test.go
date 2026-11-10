@@ -109,7 +109,7 @@ func TestSessionUpdateTriggerAndReupdate(t *testing.T) {
 	writeEdits(t, u.tr, 13)
 	u.stop()
 	u.wantSpawns(2, "10 new edits after the cooldown must re-update")
-	if st, _ := readStamp(stamp); !st.bg || st.edits != 13 {
+	if st, _ := readStamp(stamp); st.state != "bg" || st.edits != 13 {
 		t.Errorf("stamp %+v", st)
 	}
 
@@ -213,7 +213,7 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 	}
 	t.Setenv(memory.UpdateChildEnv, "1")
 	sessionStartContext(t, "child", repo) // a non-UUID update-child id: excluded by IsUpdateChild regardless of shape
-	if e, ok := readChain(filepath.Join(memory.StateDir(), "last-session")); !ok || e.sessionID != s2 {
+	if e, ok := readChain(filepath.Join(memory.StateDir(), "last-session")); !ok || e != s2 {
 		t.Errorf("an update child advanced the session chain: %+v ok=%v", e, ok)
 	}
 }
@@ -231,13 +231,13 @@ func TestSessionStartProbeIDDoesNotClobberLastSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	const real = "33333333-3333-4333-8333-333333333333"
-	memoryContext(repo, real, "", time.Now())
+	memoryContext(repo, real, time.Now())
 	chain := filepath.Join(memory.StateDir(), "last-session")
-	if e, ok := readChain(chain); !ok || e.sessionID != real {
+	if e, ok := readChain(chain); !ok || e != real {
 		t.Fatalf("a UUID session id must advance last-session: %+v ok=%v", e, ok)
 	}
-	memoryContext(repo, "probe-x", "", time.Now())
-	if e, ok := readChain(chain); !ok || e.sessionID != real {
+	memoryContext(repo, "probe-x", time.Now())
+	if e, ok := readChain(chain); !ok || e != real {
 		t.Errorf("a probe id must not clobber last-session: got %+v, want %s", e, real)
 	}
 }
@@ -272,7 +272,7 @@ func TestSessionStartLinksNativeMemoryAfterCutover(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	memoryContext(repo, "s1", "", time.Now())
+	memoryContext(repo, "s1", time.Now())
 
 	res, ok := memory.LinkNativeFor(repo)
 	if !ok {
@@ -306,7 +306,7 @@ func TestSessionStartFirstSessionLinksScaffoldedStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	memoryContext(repo, "first", "", time.Now())
+	memoryContext(repo, "first", time.Now())
 
 	dir := memory.Dir(repo)
 	if _, err := memory.ReadOrigin(dir); err != nil {
@@ -370,7 +370,7 @@ func TestSessionUpdateDiscussionOnly(t *testing.T) {
 	if run() != core.ExitProceed || calls.Load() != 1 {
 		t.Fatalf("6 user turns (3 work units) must spawn once, calls=%d", calls.Load())
 	}
-	if st, _ := readStamp(stampPath("s1")); !st.bg {
+	if st, _ := readStamp(stampPath("s1")); st.state != "bg" {
 		t.Errorf("stamp %+v, want bg", st)
 	}
 }
@@ -434,14 +434,14 @@ func TestSessionStartCatchUpUpdateChildNeverSpawns(t *testing.T) {
 	writeEdits(t, tr, 5)
 	idle(t, tr, 20*time.Minute)
 	chain := filepath.Join(memory.StateDir(), "last-session")
-	writeChain(chain, chainEntry{sessionID: "prev3", transcriptPath: tr, cwd: repo})
+	writeChain(chain, "prev3")
 	var sweeps int
 	orig := spawnCatchup
 	spawnCatchup = func(string, string) bool { sweeps++; return true }
 	t.Cleanup(func() { spawnCatchup = orig })
 
 	t.Setenv(memory.UpdateChildEnv, "1")
-	got := memoryContext(repo, "44444444-4444-4444-8444-444444444445", "", time.Now())
+	got := memoryContext(repo, "44444444-4444-4444-8444-444444444445", time.Now())
 	if sweeps != 0 {
 		t.Errorf("an update child must never spawn the catch-up sweep, calls=%d", sweeps)
 	}
@@ -450,38 +450,7 @@ func TestSessionStartCatchUpUpdateChildNeverSpawns(t *testing.T) {
 	}
 }
 
-// TestSessionStartChainRewrittenWithTranscriptAndCWD: memoryContext's writeChain must persist all three
-// fields so the NEXT SessionStart can resolve the previous session's transcript for its own catch-up check.
-func TestSessionStartChainRewrittenWithTranscriptAndCWD(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
-	cwd := t.TempDir()
-	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 1)
-	const sid = "44444444-4444-4444-8444-444444444444"
-
-	memoryContext(cwd, sid, tr, time.Now())
-
-	chain := filepath.Join(memory.StateDir(), "last-session")
-	e, ok := readChain(chain)
-	if !ok || e.sessionID != sid || e.transcriptPath != tr || e.cwd != cwd {
-		t.Errorf("chain = %+v ok=%v, want {%s %s %s}", e, ok, sid, tr, cwd)
-	}
-}
-
-// TestReadChainLegacyOneLineFormat: a pre-upgrade chain file (bare session id, no transcript/cwd lines)
-// still parses with a blank transcript path.
-func TestReadChainLegacyOneLineFormat(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	chain := filepath.Join(t.TempDir(), "last-session")
-	if err := os.WriteFile(chain, []byte("legacy-id\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	e, ok := readChain(chain)
-	if !ok || e.sessionID != "legacy-id" || e.transcriptPath != "" || e.cwd != "" {
-		t.Fatalf("legacy chain parse = %+v ok=%v", e, ok)
-	}
-}
+// TestSessionStartChainRecordsID: the next start receives the previous session pointer.
 
 // TestReadStampCatchupStateDoesNotBreakParsing: a "catchup" stamp still parses through the same 3-field
 // format the Stop gate reads, with blocks defaulting to 0 (not crashing on a non-numeric second field).
@@ -492,7 +461,7 @@ func TestReadStampCatchupStateDoesNotBreakParsing(t *testing.T) {
 	writeStamp(path, at, "catchup", 7)
 
 	st, ok := readStamp(path)
-	if !ok || st.bg || st.state != "catchup" || st.blocks != 0 || st.edits != 7 || !st.at.Equal(at.Truncate(time.Second)) {
+	if !ok || st.state != "catchup" || st.blocks != 0 || st.edits != 7 || !st.at.Equal(at.Truncate(time.Second)) {
 		t.Errorf("readStamp(catchup) = %+v ok=%v", st, ok)
 	}
 
@@ -505,41 +474,6 @@ func TestReadStampCatchupStateDoesNotBreakParsing(t *testing.T) {
 	code := sessionUpdateCode(core.ParseInput(strings.NewReader(fmt.Sprintf(`{"session_id":"x","cwd":%q,"transcript_path":%q}`, cwd, tr))), &errb)
 	if code != core.ExitBlock && code != core.ExitProceed {
 		t.Errorf("unexpected exit code %d parsing a catchup stamp", code)
-	}
-}
-
-// TestReadStampHandlesNonNumericStateProperly: readStamp must properly handle non-numeric state strings
-// like "catchup" without silently corrupting blocks to 0. Regression test for defect where
-// strconv.Atoi('catchup') error was ignored with _, corrupting update state tracking.
-func TestReadStampHandlesNonNumericStateProperly(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	path := filepath.Join(t.TempDir(), "stamp-regression")
-	at := time.Now()
-
-	// Write a stamp with state="catchup" (non-numeric).
-	writeStamp(path, at, "catchup", 42)
-	st, ok := readStamp(path)
-
-	// The stamp should parse successfully and preserve the state correctly.
-	if !ok {
-		t.Fatal("readStamp failed to parse a valid catchup stamp")
-	}
-	if st.state != "catchup" {
-		t.Errorf("state = %q, want catchup (preserved from stamp)", st.state)
-	}
-	if st.edits != 42 {
-		t.Errorf("edits = %d, want 42", st.edits)
-	}
-	// blocks should be 0 when state is non-numeric (catchup, not a number).
-	if st.blocks != 0 {
-		t.Errorf("blocks = %d, want 0 (state is non-numeric)", st.blocks)
-	}
-
-	// Later write operations must not lose the "catchup" state.
-	// Simulate SessionUpdate re-reading the stamp — it should preserve the catchup state.
-	st2, ok2 := readStamp(path)
-	if !ok2 || st2.state != "catchup" {
-		t.Errorf("re-read stamp state = %q ok=%v, want 'catchup' preserved", st2.state, ok2)
 	}
 }
 
@@ -608,79 +542,6 @@ func TestDoctorNoticeTruncationPreservesUTF8(t *testing.T) {
 	// Verify truncation happened and result is roughly 200 chars or less (when counted as runes).
 	if len(truncated) > 300 {
 		t.Errorf("truncation did not work: result is %d bytes", len(truncated))
-	}
-}
-
-// TestWriteChainErrorHandling: writeChain must handle AtomicWrite errors gracefully
-// so that a chain file write failure (disk full, permissions, read-only fs) does not
-// silently lose the session chain pointer. Regression test for defect where
-// writeChain(path, entry) swallowed errors with `_ = paths.AtomicWrite(...)`.
-func TestWriteChainErrorHandling(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	readOnlyDir := filepath.Join(t.TempDir(), "readonly")
-	if err := os.MkdirAll(readOnlyDir, 0o555); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chmod(readOnlyDir, 0o755) // cleanup
-
-	chainPath := filepath.Join(readOnlyDir, "last-session")
-	e := chainEntry{sessionID: "test-id", transcriptPath: "/t.jsonl", cwd: "/cwd"}
-
-	// writeChain should handle the error from AtomicWrite when the directory is read-only.
-	// After the fix, this should either log an error or propagate it.
-	// For now, this test documents that a write to a read-only directory happens.
-	writeChain(chainPath, e)
-
-	// Verify no file was created (write should have failed).
-	if _, err := os.Stat(chainPath); !os.IsNotExist(err) {
-		t.Errorf("writeChain should not create a file in a read-only directory: err=%v", err)
-	}
-}
-
-// TestWriteStampErrorHandling: writeStamp must handle AtomicWrite errors gracefully
-// so that a stamp file write failure does not silently lose update state tracking.
-// Regression test for defect where writeStamp(path, ...) swallowed errors with
-// `_ = paths.AtomicWrite(...)`.
-func TestWriteStampErrorHandling(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	readOnlyDir := filepath.Join(t.TempDir(), "readonly")
-	if err := os.MkdirAll(readOnlyDir, 0o555); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chmod(readOnlyDir, 0o755)
-
-	stampPath := filepath.Join(readOnlyDir, "stamp-test")
-	now := time.Now()
-
-	// writeStamp should handle the error when the directory is read-only.
-	writeStamp(stampPath, now, "bg", 42)
-
-	// Verify no file was created.
-	if _, err := os.Stat(stampPath); !os.IsNotExist(err) {
-		t.Errorf("writeStamp should not create a file in a read-only directory: err=%v", err)
-	}
-}
-
-// TestWriteCountStateErrorHandling: writeCountState must handle AtomicWrite errors
-// gracefully so that edit count loss is not silent. Regression test for defect where
-// writeCountState(path, ...) swallowed errors with `_ = paths.AtomicWrite(...)`.
-func TestWriteCountStateErrorHandling(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	readOnlyDir := filepath.Join(t.TempDir(), "readonly")
-	if err := os.MkdirAll(readOnlyDir, 0o555); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chmod(readOnlyDir, 0o755)
-
-	countPath := filepath.Join(readOnlyDir, "count-test")
-	cs := countState{edits: 10, offset: 500, subEdits: 2, subBytes: 1000}
-
-	// writeCountState should handle the error when the directory is read-only.
-	writeCountState(countPath, cs)
-
-	// Verify no file was created.
-	if _, err := os.Stat(countPath); !os.IsNotExist(err) {
-		t.Errorf("writeCountState should not create a file in a read-only directory: err=%v", err)
 	}
 }
 

@@ -51,7 +51,7 @@ func List(repo *Repo) ([]Entry, error) {
 	target, targetErr := currentBranch(repo.Main)
 	now := time.Now()
 	for i := range entries {
-		Classify(&entries[i])
+		entries[i].Orphaned = entries[i].Registered != entries[i].Exists // Prunable/Locked come from git's porcelain
 		if entries[i].Exists {
 			Inspect(repo, &entries[i], target, targetErr, now)
 			_, entries[i].Busy = cleanBusyReason(entries[i].Path)
@@ -135,28 +135,18 @@ func unionFilesystem(repo *Repo, registered []Entry) ([]Entry, error) {
 			return nil, fmt.Errorf("stat registered worktree %s: %w", e.Path, err)
 		}
 	}
-	dirs, err := os.ReadDir(repo.Root)
-	if err != nil && !os.IsNotExist(err) {
+	dirs, err := worktreeDirNames(repo.Root)
+	if err != nil {
 		return nil, err
 	}
-	for _, d := range dirs {
-		if !d.IsDir() {
-			continue
-		}
-		path := filepath.Join(repo.Root, d.Name())
-		path = paths.Canon(path)
+	for _, name := range dirs {
+		path := paths.Canon(filepath.Join(repo.Root, name))
 		if _, ok := byPath[path]; ok {
 			continue
 		}
 		registered = append(registered, Entry{Path: path, Exists: true})
 	}
 	return registered, nil
-}
-
-// Classify derives Orphaned from a registration/filesystem mismatch; Prunable/Locked already come
-// straight from git's own porcelain output and need no further derivation here.
-func Classify(e *Entry) {
-	e.Orphaned = e.Registered != e.Exists
 }
 
 // Inspect fills Dirty, Merged, Stale and activity evidence on e, which must already exist on disk.
@@ -166,12 +156,10 @@ func Inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time
 	e.Dirty = true
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
-	out, err := gitCmd(ctx, "-C", e.Path, "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=all").Output()
-	switch {
-	case err != nil:
+	if dirty, err := isDirty(ctx, e.Path); err != nil {
 		e.Problems = append(e.Problems, "dirty check failed: "+err.Error())
-	default:
-		e.Dirty = len(strings.TrimSpace(string(out))) > 0
+	} else {
+		e.Dirty = dirty
 	}
 
 	switch {
@@ -304,21 +292,27 @@ func (e Entry) StatusFlags() []string {
 	return status
 }
 
+// worktreeDirNames lists the directory names directly under root; a missing root is an empty list.
+func worktreeDirNames(root string) ([]string, error) {
+	ents, err := os.ReadDir(root)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	var names []string
+	for _, e := range ents {
+		if e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	return names, nil
+}
+
 // Names lists the worktree dirs under cwd's repo root (~/worktrees/<repo>) — a plain listing, fast for Tab.
 func Names(cwd string) []string {
 	repo, err := ResolveRepo(cwd)
 	if err != nil {
 		return nil
 	}
-	ents, err := os.ReadDir(repo.Root)
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, e := range ents {
-		if e.IsDir() {
-			out = append(out, e.Name())
-		}
-	}
-	return out
+	names, _ := worktreeDirNames(repo.Root) // Tab completion: any error means no candidates
+	return names
 }

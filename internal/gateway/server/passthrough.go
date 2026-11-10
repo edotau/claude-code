@@ -380,12 +380,12 @@ func passthroughDiag(resp *http.Response) string {
 	var b strings.Builder
 	for _, k := range []string{"X-Request-Id", "X-Databricks-Request-Id", "X-Databricks-Requestid", "Request-Id"} {
 		if v := resp.Header.Get(k); v != "" {
-			b.WriteString(" req=" + diagToken(v))
+			b.WriteString(" req=" + agentToken(v))
 			break
 		}
 	}
 	if v := resp.Header.Get("Retry-After"); v != "" {
-		b.WriteString(" retry_after=" + diagToken(v))
+		b.WriteString(" retry_after=" + agentToken(v))
 	}
 	if resp.StatusCode >= 400 {
 		peek := peekBody(resp, 64<<10)
@@ -398,21 +398,10 @@ func passthroughDiag(resp *http.Response) string {
 		}
 		_ = json.Unmarshal(peek, &e)
 		if c := cmp.Or(e.Code, e.Error.Code, e.Error.Type); c != "" {
-			b.WriteString(" err=" + diagToken(c))
+			b.WriteString(" err=" + agentToken(c))
 		}
 	}
 	return b.String()
-}
-
-// diagToken keeps a log value to [A-Za-z0-9._-], at most 64 chars, so a header can't inject text into the log.
-func diagToken(s string) string {
-	s = strings.Map(func(r rune) rune {
-		if r == '.' || r == '_' || r == '-' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' {
-			return r
-		}
-		return -1
-	}, s)
-	return s[:min(len(s), 64)]
 }
 
 // databricksGemini is a Databricks row's native Gemini base: its anthropic base with /gemini in place of /anthropic.

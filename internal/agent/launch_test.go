@@ -21,8 +21,8 @@ func TestPinnedProfileOpencodeGo(t *testing.T) {
 		t.Errorf("pinnedProfile(opencode) = %q, %v; want empty profile and no error", got, err)
 	}
 	vaulttest.SetRecord(t, "opencode", "profile", "no-such-profile")
-	if _, err := PinnedProfile("opencode"); err == nil {
-		t.Error("an invalid pin must still be an error")
+	if _, err := PinnedProfile("opencode"); err == nil || !strings.Contains(err.Error(), `unknown profile "no-such-profile"`) {
+		t.Errorf("an invalid pin must still be an error with the ValidAgentPin cause, got %v", err)
 	}
 }
 
@@ -202,14 +202,5 @@ func TestConfigureRouteUsesServesReason(t *testing.T) {
 		if err == nil || err.Error() != c.agent+": "+why {
 			t.Errorf("%s/%s: err = %v, want %q", c.agent, c.p.Name, err, c.agent+": "+why)
 		}
-	}
-}
-
-func TestPinnedProfileKeepsPinCause(t *testing.T) {
-	vaulttest.Use(t)
-	vaulttest.SetRecord(t, "opencode", "profile", "no-such-profile")
-	_, err := PinnedProfile("opencode")
-	if err == nil || !strings.Contains(err.Error(), `unknown profile "no-such-profile"`) {
-		t.Errorf("PinnedProfile error = %v; want the ValidAgentPin cause (unknown profile)", err)
 	}
 }

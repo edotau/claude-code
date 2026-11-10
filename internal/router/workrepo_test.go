@@ -39,7 +39,9 @@ func TestIsWorkRepoMarkers(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			gitRemoteURLs = func(string) ([]string, error) { return c.urls, c.err }
-			if got := isWorkRepoAt(t.TempDir()); got != c.want {
+			dir := t.TempDir() // a real repo, so rev-parse --git-dir succeeds and the seam stub above is reached
+			routeRunGit(t, dir, "init", "-q")
+			if got := IsWorkRepo(dir); got != c.want {
 				t.Errorf("IsWorkRepo() = %v, want %v (urls=%v, err=%v)", got, c.want, c.urls, c.err)
 			}
 		})
@@ -76,20 +78,10 @@ func TestIsWorkRepoEmptyMarkersIsPersonal(t *testing.T) {
 	}
 }
 
-// isWorkRepoAt is IsWorkRepo over a dir that is itself a real git repo (so rev-parse --git-dir succeeds
-// and the seam stub above is actually reached), isolating the stub cases from the real-git cases below.
-func isWorkRepoAt(dir string) bool {
-	routeRunGit(nil, dir, "init", "-q")
-	return IsWorkRepo(dir)
-}
-
 // routeRunGit runs git -C dir <args...>, failing the test on error.
 func routeRunGit(t *testing.T, dir string, args ...string) {
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		if t == nil {
-			panic(string(out) + ": " + err.Error())
-		}
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }
@@ -175,25 +167,15 @@ func opencodeCand(t *testing.T, r PickResult) Candidate {
 	return Candidate{}
 }
 
-func TestOpencodeSubPickFreeFirstOnPersonalRepo(t *testing.T) {
-	c := opencodeCand(t, pickRepo(testTable(t), "sonnet", State{}, false))
-	if c.Account != "opencode·zen-free" || c.Billing != BillFree {
-		t.Errorf("personal sonnet pick = %s (%s), want the free Zen dispatch", c.Account, c.Billing)
-	}
-}
-
 func TestOpencodeSubPickNeverFreeAtOpusOrOnWorkRepo(t *testing.T) {
 	tb := testTable(t)
 	for name, r := range map[string]PickResult{
 		"opus":      pickRepo(tb, "opus", State{}, false),
 		"work-repo": pickRepo(tb, "sonnet", State{}, true),
 	} {
-		c := opencodeCand(t, r)
-		if c.Billing == BillFree {
-			t.Errorf("%s: picked free dispatch %s", name, c.Account)
-		}
-		if c.Account != "opencode·go" {
-			t.Errorf("%s: pick = %s, want the owner's first paid dispatch opencode·go", name, c.Account)
+		oc := opencodeCands(r)
+		if len(oc) != 1 || oc[0].Billing == BillFree || oc[0].Account != "opencode·go" {
+			t.Errorf("%s: opencode candidates = %+v, want exactly one paid opencode·go (no free pick, no backup)", name, oc)
 		}
 	}
 }
@@ -224,21 +206,6 @@ func TestOpencodeSubPickAdjacentBackupOnPersonalRepo(t *testing.T) {
 				t.Fatalf("free+backup must sit adjacent, got %s", runners(r))
 			}
 			break
-		}
-	}
-}
-
-// TestOpencodeSubPickNoBackupDuplicateOffWorkRepoOrOpus: a paid-only pick (opus, or a work repo) carries
-// exactly one opencode candidate — no backup riding along a winner that was never free.
-func TestOpencodeSubPickNoBackupDuplicateOffWorkRepoOrOpus(t *testing.T) {
-	tb := testTable(t)
-	for name, r := range map[string]PickResult{
-		"opus":      pickRepo(tb, "opus", State{}, false),
-		"work-repo": pickRepo(tb, "sonnet", State{}, true),
-	} {
-		oc := opencodeCands(r)
-		if len(oc) != 1 || oc[0].Account != "opencode·go" {
-			t.Errorf("%s: opencode candidates = %+v, want exactly one (go, no backup)", name, oc)
 		}
 	}
 }

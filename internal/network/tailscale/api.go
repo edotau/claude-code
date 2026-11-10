@@ -24,8 +24,8 @@ const defaultBaseURL = "https://api.tailscale.com/api/v2"
 // apiBaseURL is where NewClient and Doctor mint tokens; a var so tests can point it at an httptest server.
 var apiBaseURL = defaultBaseURL
 
-// ErrNoCredential: neither an OAuth client nor an API key resolves via the secrets ladder.
-var ErrNoCredential = errors.New(
+// errNoCredential: neither an OAuth client nor an API key resolves via the secrets ladder.
+var errNoCredential = errors.New(
 	"tailscale: no credential (set TAILSCALE_OAUTH_CLIENT_ID/_SECRET or TAILSCALE_API_KEY)")
 
 // errNoDevice: no admin-API device carries any of this node's tailnet addresses.
@@ -52,9 +52,21 @@ func parseKeyExpiry(s string) (time.Duration, error) {
 		if int64(days) > maxKeyDays {
 			return 0, fmt.Errorf("key expiry %q overflows: at most %dd", s, maxKeyDays)
 		}
-		return time.Duration(days) * 24 * time.Hour, nil
+		return nonNegative(s, time.Duration(days)*24*time.Hour)
 	}
-	return time.ParseDuration(s)
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, err
+	}
+	return nonNegative(s, d)
+}
+
+// nonNegative refuses a negative expiry, which CreateAuthKey would otherwise drop for the server default.
+func nonNegative(s string, d time.Duration) (time.Duration, error) {
+	if d < 0 {
+		return 0, fmt.Errorf("key expiry %q is negative", s)
+	}
+	return d, nil
 }
 
 // selfDevice resolves this box to its admin-API device; ErrNoCredential means no client could be built.
@@ -82,7 +94,6 @@ func selfDevice(ctx context.Context) (*Client, Local, string, error) {
 // Client talks to the admin API; token mints (and caches) the bearer, re-minted once on a 401.
 type Client struct {
 	BaseURL string
-	Tailnet string
 	HTTP    *http.Client
 	token   func(ctx context.Context) (string, error)
 }
@@ -94,7 +105,7 @@ const apiTimeout = 30 * time.Second
 func NewClient() (*Client, error) {
 	// DefaultClient's transport stays the seam tests swap; only the timeout is added.
 	hc := &http.Client{Transport: http.DefaultClient.Transport, Timeout: apiTimeout}
-	c := &Client{BaseURL: apiBaseURL, Tailnet: "-", HTTP: hc}
+	c := &Client{BaseURL: apiBaseURL, HTTP: hc}
 	if id, _, ok := vault.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
 		if secret, _, ok2 := vault.Get("TAILSCALE_OAUTH_CLIENT_SECRET"); ok2 {
 			c.token = oauthToken(c.BaseURL, id, secret, c.HTTP)
@@ -105,7 +116,7 @@ func NewClient() (*Client, error) {
 		c.token = func(context.Context) (string, error) { return key, nil }
 		return c, nil
 	}
-	return nil, ErrNoCredential
+	return nil, errNoCredential
 }
 
 // request sends an authenticated JSON request, decodes a 2xx body into out, and re-mints once on a 401.
@@ -123,8 +134,9 @@ func (c *Client) request(ctx context.Context, method, path string, body, out any
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		return fmt.Errorf("tailscale: %s %s: HTTP %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(b)))
+		b, rerr := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return errors.Join(fmt.Errorf("tailscale: %s %s: HTTP %d: %s", method, path, resp.StatusCode,
+			strings.TrimSpace(string(b))), rerr)
 	}
 	if out == nil {
 		return nil
@@ -159,8 +171,8 @@ func (c *Client) send(ctx context.Context, method, path string, body any, forceR
 	return c.HTTP.Do(req)
 }
 
-// KeyOpts configures a minted auth key.
-type KeyOpts struct {
+// keyOpts configures a minted auth key.
+type keyOpts struct {
 	Ephemeral     bool
 	Preauthorized bool
 	Reusable      bool
@@ -176,8 +188,8 @@ type AuthKey struct {
 	Expires time.Time `json:"expires"`
 }
 
-// CreateAuthKey mints a tskey-auth-… key via POST /tailnet/{tailnet}/keys.
-func (c *Client) CreateAuthKey(ctx context.Context, opts KeyOpts) (AuthKey, error) {
+// CreateAuthKey mints a tskey-auth-… key via POST /tailnet/-/keys.
+func (c *Client) CreateAuthKey(ctx context.Context, opts keyOpts) (AuthKey, error) {
 	type create struct {
 		Reusable      bool     `json:"reusable"`
 		Ephemeral     bool     `json:"ephemeral"`
@@ -202,7 +214,7 @@ func (c *Client) CreateAuthKey(ctx context.Context, opts KeyOpts) (AuthKey, erro
 	body.Description = opts.Description
 
 	var out AuthKey
-	if err := c.request(ctx, http.MethodPost, "/tailnet/"+c.Tailnet+"/keys", body, &out); err != nil {
+	if err := c.request(ctx, http.MethodPost, "/tailnet/-/keys", body, &out); err != nil {
 		return AuthKey{}, err
 	}
 	return out, nil
@@ -228,7 +240,7 @@ func (c *Client) Devices(ctx context.Context) ([]device, error) {
 	var out struct {
 		Devices []device `json:"devices"`
 	}
-	if err := c.request(ctx, http.MethodGet, "/tailnet/"+c.Tailnet+"/devices", nil, &out); err != nil {
+	if err := c.request(ctx, http.MethodGet, "/tailnet/-/devices", nil, &out); err != nil {
 		return nil, err
 	}
 	return out.Devices, nil

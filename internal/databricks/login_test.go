@@ -50,7 +50,8 @@ func TestVaultLoginRefusesRowWithAnotherAuthType(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, _, stderr := captureOutput(t, func() int { return login([]string{"--profile", "dbx-pat", "--dry-run"}) })
-	if code == 0 || !strings.Contains(stderr, "--auth-type oauth") {
+	if code == 0 || !strings.Contains(stderr, "--auth-type oauth") ||
+		!strings.Contains(stderr, "without a browser") || !strings.Contains(stderr, "login -p <oauth profile>") {
 		t.Errorf("exit %d, stderr %q", code, stderr)
 	}
 }
@@ -182,18 +183,6 @@ func TestLoginShorthandT(t *testing.T) {
 	}
 }
 
-func seedOAuthRow(t *testing.T) {
-	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	err := providers.SetProviderFields("dbx-oauth", map[string]any{
-		"protocol": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
-		"auth": map[string]any{"type": "oauth"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
 func stubValid(t *testing.T, ok bool) {
 	t.Helper()
 	old := validU2M
@@ -202,33 +191,33 @@ func stubValid(t *testing.T, ok bool) {
 }
 
 func TestLoginReusesValidCachedToken(t *testing.T) {
-	seedOAuthRow(t)
+	seedU2MRow(t)
 	stubValid(t, true)
 	calls := 0
 	fakeLogin(t, func(*providers.Provider) (time.Duration, error) { calls++; return time.Minute, nil })
-	code, stdout, stderr := captureOutput(t, func() int { return login([]string{"--profile", "dbx-oauth"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return login([]string{"--profile", "dbx-u2m"}) })
 	if code != 0 || calls != 0 || !strings.Contains(stdout, "already logged in · expires in 40m") {
 		t.Fatalf("exit %d calls %d stdout %q stderr %q", code, calls, stdout, stderr)
 	}
 }
 
 func TestLoginExpiredTokenOpensLogin(t *testing.T) {
-	seedOAuthRow(t)
+	seedU2MRow(t)
 	stubValid(t, false)
 	calls := 0
 	fakeLogin(t, func(*providers.Provider) (time.Duration, error) { calls++; return 30 * time.Minute, nil })
-	code, stdout, _ := captureOutput(t, func() int { return login([]string{"--profile", "dbx-oauth"}) })
+	code, stdout, _ := captureOutput(t, func() int { return login([]string{"--profile", "dbx-u2m"}) })
 	if code != 0 || calls != 1 || !strings.Contains(stdout, "logged in · token expires in 30m") {
 		t.Fatalf("exit %d calls %d stdout %q", code, calls, stdout)
 	}
 }
 
 func TestLoginForceSkipsReuse(t *testing.T) {
-	seedOAuthRow(t)
+	seedU2MRow(t)
 	stubValid(t, true)
 	calls := 0
 	fakeLogin(t, func(*providers.Provider) (time.Duration, error) { calls++; return 30 * time.Minute, nil })
-	code, stdout, _ := captureOutput(t, func() int { return login([]string{"--profile", "dbx-oauth", "--force"}) })
+	code, stdout, _ := captureOutput(t, func() int { return login([]string{"--profile", "dbx-u2m", "--force"}) })
 	if code != 0 || calls != 1 || strings.Contains(stdout, "already") {
 		t.Fatalf("exit %d calls %d stdout %q", code, calls, stdout)
 	}
@@ -242,22 +231,6 @@ func TestNoDatabricksProfileNamesImport(t *testing.T) {
 		if code != 1 || !strings.Contains(stderr, "databricks import --apply") || strings.Contains(stderr, `unknown provider ""`) {
 			t.Errorf("%s: exit %d, stderr %q, want the no-profile message", name, code, stderr)
 		}
-	}
-}
-
-// A defaulted m2m/pat row's refusal says it already signs in without a browser and names the oauth-profile login.
-func TestLoginRefusalNamesNonBrowserSignIn(t *testing.T) {
-	useVaultTest(t)
-	err := providers.SetProviderFields("dbx-pat2", map[string]any{
-		"protocol": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
-		"auth": map[string]any{"type": "pat"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _, stderr := captureOutput(t, func() int { return login([]string{"--profile", "dbx-pat2", "--dry-run"}) })
-	if !strings.Contains(stderr, "without a browser") || !strings.Contains(stderr, "login -p <oauth profile>") {
-		t.Errorf("stderr %q, want the no-browser note and the oauth-profile hint", stderr)
 	}
 }
 

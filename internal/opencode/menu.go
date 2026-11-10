@@ -311,7 +311,7 @@ func CheckMenu(w, errw io.Writer, ids []string, all bool, provider string, timeo
 		}
 		tools := cmp.Or(r.Tools, "-")
 		fmt.Fprintf(w, "%-*s  %-9s  %-4s  %-10s  %s", idW, r.ID, r.Status, code, lat, tools)
-		if (r.Status == "fail" || r.Status == "transient") && r.Error != "" {
+		if (r.Status == "fail" || r.Status == serving.StatusTransient) && r.Error != "" {
 			fmt.Fprint(w, "  "+r.Error)
 		}
 		fmt.Fprintln(w)

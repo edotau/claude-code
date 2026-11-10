@@ -15,7 +15,7 @@ import (
 func TestLoadCacheReturnsIndependentRegistry(t *testing.T) {
 	// Given a settled vault with a provider model and fallback list.
 	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"fallback":["max"]}`)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"fallback":["ultra"]}`)
 	old := time.Now().Add(-time.Hour)
 	if err := os.Chtimes(vault.Path(), old, old); err != nil {
 		t.Fatal(err)
@@ -24,18 +24,18 @@ func TestLoadCacheReturnsIndependentRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantModel := reg.Providers["max"].Models["opus"]
+	wantModel := reg.Providers["ultra"].Models["opus"]
 	wantFallback := slices.Clone(reg.Fallback)
 	// When a caller mutates the returned model map and appends to fallback.
-	reg.Providers["max"].Models["opus"] = "x"
+	reg.Providers["ultra"].Models["opus"] = "x"
 	reg.Fallback = append(reg.Fallback, "caller-only")
 	next, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Then another Load returns the unchanged cached registry.
-	if got := next.Providers["max"].Models["opus"]; got != wantModel {
-		t.Errorf("Providers[max].Models[opus] = %q, want %q", got, wantModel)
+	if got := next.Providers["ultra"].Models["opus"]; got != wantModel {
+		t.Errorf("Providers[ultra].Models[opus] = %q, want %q", got, wantModel)
 	}
 	if !slices.Equal(next.Fallback, wantFallback) {
 		t.Errorf("Fallback = %v, want %v", next.Fallback, wantFallback)

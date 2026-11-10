@@ -22,24 +22,14 @@ var idMarker = regexp.MustCompile(`\s*<!-- id:([0-9a-f]{8}) -->`)
 // never collide with a real id marker — `show`/`recall --load` tell the two apart by this prefix.
 const contentRefPrefix = "z"
 
+// derivedRef matches a contentRef: the prefix and a non-empty run of lowercase hex digits.
+var derivedRef = regexp.MustCompile("^" + contentRefPrefix + "[0-9a-f]+$")
+
 // contentRef derives a stable, show-able reference for a block with no persisted id marker:
 // the prefix plus the first 4 bytes of sha256 over its whitespace-normalized text.
 func contentRef(block string) string {
 	sum := sha256.Sum256([]byte(strings.Join(strings.Fields(block), " ")))
 	return contentRefPrefix + hex.EncodeToString(sum[:4])
-}
-
-// isHex reports whether s is a non-empty run of lowercase hex digits.
-func isHex(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
-			return false
-		}
-	}
-	return true
 }
 
 // idFiles are the typed files whose blocks get IDs, with the prefix that starts a block.
@@ -116,14 +106,12 @@ func assignFileIDs(dir, name, prefix string, now time.Time) (int, error) {
 // blockStarts returns the index of each non-empty prefix line outside code fences.
 func blockStarts(lines []string, prefix string) []int {
 	var starts []int
-	inFence := false
+	fence := ""
 	for i, l := range lines {
-		if !inFence && strings.HasPrefix(l, prefix) && strings.TrimSpace(strings.TrimPrefix(l, prefix)) != "" {
+		if fence == "" && strings.HasPrefix(l, prefix) && strings.TrimSpace(strings.TrimPrefix(l, prefix)) != "" {
 			starts = append(starts, i)
 		}
-		if fenceToggle(l) {
-			inFence = !inFence
-		}
+		fence = nextFence(fence, l)
 	}
 	return starts
 }
@@ -138,13 +126,11 @@ func first(xs []int, def int) int {
 // fencedLines flags each line that is a code fence or sits inside one; markers there are examples, not ids.
 func fencedLines(block []string) []bool {
 	out := make([]bool, len(block))
-	in := false
+	fence := ""
 	for i, l := range block {
-		toggle := fenceToggle(l)
-		out[i] = in || toggle
-		if toggle {
-			in = !in
-		}
+		next := nextFence(fence, l)
+		out[i] = fence != "" || next != ""
+		fence = next
 	}
 	return out
 }
@@ -226,7 +212,7 @@ var errNoBlock = errors.New("no memory block with that id")
 // ShowBlock finds the block carrying ref anywhere in the store (archives included); ref is either a
 // persisted `<!-- id:xxxx -->` marker or a contentRef for a block that never got one. Returns path and text.
 func ShowBlock(ref string) (string, string, error) {
-	derived := strings.HasPrefix(ref, contentRefPrefix) && isHex(strings.TrimPrefix(ref, contentRefPrefix))
+	derived := derivedRef.MatchString(ref)
 	var foundPath, foundBlock string
 	err := filepath.WalkDir(StoreDir(), func(p string, d fs.DirEntry, err error) error {
 		if foundPath != "" { // already matched: a later unreadable entry must not discard the match

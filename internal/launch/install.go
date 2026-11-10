@@ -60,7 +60,7 @@ type doctorSection func() ([]Check, bool)
 var doctorSections = []doctorSection{
 	collect(checkBinaryHealth), collect(checkProviderHealth), collect(checkToolHealth), collect(checkHostHealth),
 	func() ([]Check, bool) { return vaultDoctorChecks(), true },
-	func() ([]Check, bool) { return formatsDoctorChecks(), true },
+	func() ([]Check, bool) { return []Check{formatsCheck()}, true },
 }
 
 // doctorWorkers caps the doctor sections probing at once.
@@ -211,7 +211,7 @@ func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, s
 		present, label = probeCredentialLabel(p, label)
 	}
 	if !present {
-		present, label = alternativeCredentialLabel(reg, name, label)
+		present, label = alternativeCredentialLabel(name, label)
 	}
 	if !present && !session && !profileInUse(reg, name) {
 		present, label = true, label+" · unused"
@@ -219,8 +219,8 @@ func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, s
 	return Check{Name: "credential " + name, OK: present, Hard: session, Detail: label}
 }
 
-func alternativeCredentialLabel(reg *providers.Registry, name, label string) (bool, string) {
-	alt := altAuth(reg, name)
+func alternativeCredentialLabel(name, label string) (bool, string) {
+	alt := altAuth(name)
 	if alt == "" {
 		return false, label
 	}
@@ -271,19 +271,19 @@ func profileInUse(reg *providers.Registry, name string) bool {
 
 // altAuth names the sign-in that covers a provider whose own key is absent or rejected, or "" when none does:
 // claude runs on its OAuth login (or headless token) without ANTHROPIC_API_KEY.
-func altAuth(reg *providers.Registry, name string) string {
-	switch name {
-	case "anthropic":
-		if providers.HeadlessOAuthToken() != "" {
-			return "claude uses the OAuth token instead"
+func altAuth(name string) string {
+	if name != "anthropic" {
+		return ""
+	}
+	if providers.HeadlessOAuthToken() != "" {
+		return "claude uses the OAuth token instead"
+	}
+	if st := agent.AuthStatus("claude"); st.Present {
+		plan := ""
+		if st.PlanHint != "" {
+			plan = " (" + st.PlanHint + ")"
 		}
-		if st := agent.AuthStatus("claude"); st.Present {
-			plan := ""
-			if st.PlanHint != "" {
-				plan = " (" + st.PlanHint + ")"
-			}
-			return "claude uses the OAuth login" + plan + " instead"
-		}
+		return "claude uses the OAuth login" + plan + " instead"
 	}
 	return ""
 }

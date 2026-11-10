@@ -257,7 +257,7 @@ func TestCredentialLadderAndAuthorize(t *testing.T) {
 	if v, _ := Credential(context.Background(), gw); v != "minted" {
 		t.Errorf("command cred %q", v)
 	}
-	sub, _ := reg.Get("max")
+	sub, _ := reg.Get("ultra")
 	h := http.Header{"Authorization": {"Bearer client"}}
 	if err := Authorize(context.Background(), sub, h); err != nil || h.Get("Authorization") != "Bearer client" {
 		t.Errorf("passthrough must keep client auth: %v %v", err, h)
@@ -316,17 +316,7 @@ func TestStoredSecretAndCredentialOrder(t *testing.T) {
 	}
 }
 
-func TestIsQuotaAndDemote(t *testing.T) {
-	for text, want := range map[string]bool{
-		`{"error":{"code":429,"message":"You exceeded your current quota ... limit: 0, model: gemini-4-argon"}}`: true,
-		`insufficient_quota`:                 true,
-		`429 Too Many Requests, retry in 2s`: false,
-		`rate limit exceeded`:                false,
-	} {
-		if got := IsQuota(text); got != want {
-			t.Errorf("IsQuota(%q) = %v, want %v", text, got, want)
-		}
-	}
+func TestDemote(t *testing.T) {
 	p := &Provider{Name: "g", Models: map[string]string{"opus": "big", "sonnet": "mid", "haiku": "small", "fable": "other"}}
 	if d, ok := Demote(p, "big"); !ok || d.Model != "mid" {
 		t.Errorf("Demote(big) = %v %v, want mid", d.Model, ok)
@@ -604,7 +594,7 @@ func TestSecretName(t *testing.T) {
 		{"anthropic", "work", AuthKey, "ANTHROPIC_WORK_KEY"}, // no collapse
 		{"openai", "openai", AuthKey, "OPENAI_KEY"},          // collapse
 		{"github", "personal", AuthOAuth, "GITHUB_PERSONAL_OAUTH"},
-		{"anthropic", "max", AuthCLI, ""},
+		{"anthropic", "ultra", AuthCLI, ""},
 		{"", "x", AuthKey, ""},
 	}
 	for _, c := range cases {
