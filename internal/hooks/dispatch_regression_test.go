@@ -68,6 +68,67 @@ func TestDispatchBlockingGateFailsClosedOnPanic(t *testing.T) {
 	}
 }
 
+// unparseable are a garbled and a truncated hook payload.
+var unparseable = []string{`{not json`, `{"tool_name":"Bash","tool_input":{"command":"rm -rf /ho`}
+
+// `hook PreToolUse --<gate>` blocks a payload that does not parse; a non-gate module still runs and proceeds.
+func TestRunModuleGateBlocksUnparseablePayload(t *testing.T) {
+	flagHarness(t)
+	ran := 0
+	orig := native["rtk-rewrite"]
+	native["rtk-rewrite"] = func(in *core.Input) core.Result { ran++; return orig(in) }
+	t.Cleanup(func() { native["rtk-rewrite"] = orig })
+	for _, payload := range unparseable {
+		code, _, errb := runFlags("PreToolUse", strings.NewReader(payload), "--safety-scan")
+		if code != core.ExitBlock || !strings.Contains(errb, "safety-scan: unreadable hook payload (") {
+			t.Errorf("--safety-scan on %q: exit %d stderr %q; want ExitBlock naming the hook and payload", payload, code, errb)
+		}
+		if code, out, errb := runFlags("PreToolUse", strings.NewReader(payload), "--rtk-rewrite"); denied(code, out) {
+			t.Errorf("--rtk-rewrite on %q: exit %d stdout %q stderr %q; a non-gate must not block", payload, code, out, errb)
+		}
+	}
+	if ran != len(unparseable) {
+		t.Errorf("rtk-rewrite ran %d times, want %d", ran, len(unparseable))
+	}
+	if code, _, errb := runFlags("PreToolUse", bashPayload("ls -la"), "--safety-scan"); code != core.ExitProceed {
+		t.Errorf("valid ls: exit %d stderr %q, want proceed", code, errb)
+	}
+	if code, _, errb := runFlags("PreToolUse", bashPayload("rm -rf /"), "--safety-scan"); code != core.ExitBlock || strings.Contains(errb, "unreadable") {
+		t.Errorf("valid rm -rf /: exit %d stderr %q, want the scan's own block", code, errb)
+	}
+}
+
+// The event form blocks an unparseable payload for every gate on the event, matcher or not; non-gates still run.
+func TestDispatchGateBlocksUnparseablePayload(t *testing.T) {
+	gateRan, otherRan := 0, 0
+	gate := bound("gate", "Bash", time.Second, func(*core.Input) core.Result { gateRan++; return core.Result{} })
+	gate.Spec.Blocks = true
+	other := bound("other", "", time.Second, func(*core.Input) core.Result { otherRan++; return core.Result{Context: "ran"} })
+	for _, payload := range unparseable {
+		res, _ := Dispatch([]Bound{gate, other}, "PreToolUse", core.ParseInput(strings.NewReader(payload)), io.Discard)
+		if res.Decision != core.Block || !strings.Contains(res.Reason, "gate: unreadable hook payload (") || res.Context != "ran" {
+			t.Errorf("%q: got %+v; want a block naming the gate plus the non-gate's context", payload, res)
+		}
+	}
+	if gateRan != 0 || otherRan != len(unparseable) {
+		t.Errorf("gate ran %d, non-gate ran %d; want 0 and %d", gateRan, otherRan, len(unparseable))
+	}
+	if res, _ := Dispatch([]Bound{gate, other}, "PreToolUse", bashInput(), io.Discard); res.Decision != core.Allow || gateRan != 1 {
+		t.Errorf("valid payload: got %+v, gate ran %d; want allow after the gate ran once", res, gateRan)
+	}
+}
+
+// `hook PreToolUse` renders the unparseable-payload block as Claude's deny document; a valid payload is not denied.
+func TestRunEventGateBlocksUnparseablePayload(t *testing.T) {
+	flagHarness(t)
+	if code, out, _ := runFlags("PreToolUse", strings.NewReader(unparseable[0])); !denied(code, out) || !strings.Contains(out, "unreadable hook payload") {
+		t.Errorf("hook PreToolUse on a garbled payload: exit %d stdout %q; want a deny naming the payload", code, out)
+	}
+	if code, out, errb := runFlags("PreToolUse", bashPayload("ls -la")); denied(code, out) {
+		t.Errorf("hook PreToolUse on valid ls: exit %d stdout %q stderr %q; want no deny", code, out, errb)
+	}
+}
+
 // A retired name is a loud no-op, never a silent exit 1; an unknown guard name fails closed.
 func TestRetiredAndUnknownGuardHookNames(t *testing.T) {
 	var out, errw bytes.Buffer

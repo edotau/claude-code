@@ -1,5 +1,5 @@
 // Package hooks implements `claude-code hook <Event> [--<module>|--all]`: JSON on stdin, exit 0 = proceed, 2 = block.
-// Hooks fail OPEN — an infra glitch never blocks, except a Blocks gate whose panic or overrun fails CLOSED.
+// Hooks fail OPEN — an infra glitch never blocks, except a Blocks gate's panic, overrun or unparseable payload.
 package hooks
 
 import (
@@ -162,7 +162,14 @@ func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 	var longest time.Duration
 	match := matchers{}
 	for _, b := range bound {
-		if b.Spec.Event != event || !match.matches(b.Spec.Matcher, in.ToolName) {
+		if b.Spec.Event != event {
+			continue
+		}
+		if in.Invalid != "" && b.Spec.Blocks { // the tool is unknown, so every gate on the event fails closed
+			m.merged.Decision, m.merged.Reason = core.Block, unreadable(b.Spec.Name, in.Invalid)
+			continue
+		}
+		if !match.matches(b.Spec.Matcher, in.ToolName) {
 			continue
 		}
 		longest = max(longest, b.Spec.Budget)
@@ -184,6 +191,11 @@ func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 	m.merged.SystemMessage = strings.Join(m.sys, "; ")
 	m.merged.Stderr = strings.Join(m.errs, "\n")
 	return m.merged, m.firstErr
+}
+
+// unreadable is a gate's fail-closed reason when its hook payload could not be read or parsed.
+func unreadable(name, problem string) string {
+	return fmt.Sprintf("%s: unreadable hook payload (%s); blocked", name, problem)
 }
 
 func appendNonEmpty(list []string, s string) []string {
@@ -298,7 +310,7 @@ func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return core.ExitProceed
 	}
 	in := core.ParseInput(stdin)
-	res := run(in)
+	res := runGated(name, run, in)
 	if res.Decision == core.Block && specOf(name).Blocks {
 		if name == "safety-scan" && in.Agent() == core.AgentCopilot {
 			fmt.Fprintln(stdout, core.OutputCopilot(settings.EventPreToolUse, res))
@@ -321,6 +333,14 @@ func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	code := core.Emit(in.Agent(), eventOf(name), res, &out, stderr)
 	_, _ = io.WriteString(stdout, strings.TrimSuffix(out.String(), "\n"))
 	return code
+}
+
+// runGated runs one module, except a Blocks gate on a payload that did not parse: that blocks without running.
+func runGated(name string, run core.Runner, in *core.Input) core.Result {
+	if in.Invalid != "" && specOf(name).Blocks {
+		return core.Result{Decision: core.Block, Reason: unreadable(name, in.Invalid)}
+	}
+	return run(in)
 }
 
 // bareStdout lists the modules whose own-process stdout never carried a trailing newline.
