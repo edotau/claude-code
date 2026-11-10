@@ -519,6 +519,10 @@ var confirmEdit = func(q string) bool { return tui.ConfirmKey(q, true) }
 
 // Edit opens the non-secret config in $VISUAL/$EDITOR via a 0600 temp file and imports it; the file is always removed.
 func Edit(stdout, stderr io.Writer) error {
+	// Migrate first: Import's write migrates, so an unmigrated export would always read as "vault changed".
+	if err := vault.Update(func(*vault.Tx) error { return nil }); err != nil {
+		return err
+	}
 	orig, err := Export()
 	if err != nil {
 		return err

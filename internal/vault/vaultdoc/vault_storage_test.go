@@ -766,3 +766,23 @@ func TestImportRejectsNullDocument(t *testing.T) {
 		t.Error("null document changed a vault bucket")
 	}
 }
+
+// An unmigrated vault (schema 6, fallback "max") must save: Import's migrating write once read as "vault changed".
+func TestEditMigratesBeforeExport(t *testing.T) {
+	setupTestEditor(t, "pin", "VISUAL", false, false)
+	if err := vault.Update(func(tx *vault.Tx) error {
+		if err := tx.Put(vault.Overlay, "providers", `{"fallback":["max"]}`); err != nil {
+			return err
+		}
+		return tx.SetSchema(6)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Edit(&stdout, &stderr); err != nil {
+		t.Fatalf("Edit() on an unmigrated vault = %v, want saved", err)
+	}
+	if got := vaultTestState(t)[vault.Meta]["schema"]; got != "7" {
+		t.Errorf("schema after Edit = %q, want 7", got)
+	}
+}
