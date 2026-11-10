@@ -1,4 +1,4 @@
-package dialog
+package menu
 
 import (
 	"bufio"
@@ -16,8 +16,8 @@ func shellOn(script string) (*Shell, *bytes.Buffer) {
 func TestRunKeepsPageUntilRowDone(t *testing.T) {
 	s, out := shellOn("1\n1\n2\n")
 	n := 0
-	done := s.Run("T", func() []Row {
-		return []Row{{Name: "a", Detail: "x", Run: func() bool { n++; return false }}, {Name: "Done", Run: func() bool { return true }}}
+	done := s.Run("T", func() []ShellRow {
+		return []ShellRow{{Name: "a", Detail: "x", Run: func() bool { n++; return false }}, {Name: "Done", Run: func() bool { return true }}}
 	})
 	if !done || n != 2 || !strings.Contains(out.String(), "1) a") {
 		t.Fatalf("done=%v n=%d out=%q", done, n, out.String())
@@ -28,7 +28,7 @@ func TestRunKeepsPageUntilRowDone(t *testing.T) {
 func TestRunDismissed(t *testing.T) {
 	for _, in := range []string{"\n", "9\n", ""} {
 		s, _ := shellOn(in)
-		if s.Run("T", func() []Row { return []Row{{Name: "a", Run: func() bool { t.Fatal("ran"); return true }}} }) {
+		if s.Run("T", func() []ShellRow { return []ShellRow{{Name: "a", Run: func() bool { t.Fatal("ran"); return true }}} }) {
 			t.Fatalf("%q reported done", in)
 		}
 	}

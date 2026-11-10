@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -240,7 +239,7 @@ func notifyConflict(plan *MergePlan, errOut io.Writer) {
 	for _, iss := range plan.Issues {
 		files = append(files, iss.Paths...)
 	}
-	err := notices.Append(s, notices.Notice{TS: time.Now().Unix(), Kind: "conflict", From: "worktree merge",
+	err := Append(s, Notice{TS: time.Now().Unix(), Kind: "conflict", From: "worktree merge",
 		Text: fmt.Sprintf("merge of %s into %s predicts a conflict in %s; rebase it or run "+
 			"`claude-code worktree merge --resolve-agent codex %s`", plan.WorktreePath, plan.TargetRef,
 			strings.Join(files, ", "), filepath.Base(plan.WorktreePath))})

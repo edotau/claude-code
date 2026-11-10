@@ -13,7 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/providers"
-	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -25,7 +24,7 @@ var (
 
 	dbxSetPAT = databricks.SetPAT
 
-	dbxShell = func(d *dialog) *uidialog.Shell { return d.shell() }
+	dbxShell = func(d *dialog) *Shell { return d.shell() }
 
 	dbxSecret = tui.SecretHint
 
@@ -131,8 +130,8 @@ func runDatabricks(d *dialog) bool {
 
 // runDatabricksPage loops the env list until Back.
 func runDatabricksPage(d *dialog) {
-	dbxShell(d).Run("databricks", func() []uidialog.Row {
-		var rows []uidialog.Row
+	dbxShell(d).Run("databricks", func() []ShellRow {
+		var rows []ShellRow
 		names := dbxProfileNames(d.reg)
 		atW := 0
 		for _, e := range names {
@@ -141,7 +140,7 @@ func runDatabricksPage(d *dialog) {
 		}
 		for _, e := range names {
 			at, text, _ := dbxState(d.reg, e)
-			rows = append(rows, uidialog.Row{Name: e, Detail: fmt.Sprintf("%-*s  %s", atW, cmp.Or(at, "-"), text), Run: func() bool {
+			rows = append(rows, ShellRow{Name: e, Detail: fmt.Sprintf("%-*s  %s", atW, cmp.Or(at, "-"), text), Run: func() bool {
 				runDatabricksEnv(d, e)
 				return false
 			}})
@@ -152,15 +151,15 @@ func runDatabricksPage(d *dialog) {
 
 // runDatabricksEnv is one env's action list.
 func runDatabricksEnv(d *dialog, env string) {
-	act := func(name, detail string, run func()) uidialog.Row {
-		return uidialog.Row{Name: name, Detail: detail, Run: func() bool {
+	act := func(name, detail string, run func()) ShellRow {
+		return ShellRow{Name: name, Detail: detail, Run: func() bool {
 			run()
 			d.reload()
 			return false
 		}}
 	}
-	dbxShell(d).Run("databricks · "+env, func() []uidialog.Row {
-		return []uidialog.Row{
+	dbxShell(d).Run("databricks · "+env, func() []ShellRow {
+		return []ShellRow{
 			act("Set up", "sign in, verify a token, apply to agents", func() { dbxSetUp(d, env) }),
 			act("Login", "browser sign-in (u2m)", func() { dbxDo(d, env, "login", func(c context.Context) error { return dbxLogin(c, env, d.out) }) }),
 			act("Paste PAT", "hidden input", func() { dbxPaste(d, env) }),
@@ -335,7 +334,7 @@ func dbxIdentityMode(d *dialog, env string, p *providers.Provider, kept bool) (m
 	cur, _ := providers.ResolveIdentity(p.Identity, "")
 	rows := make([][2]string, len(modes), len(modes)+1)
 	for i, m := range modes {
-		rows[i] = [2]string{m, uidialog.Mark(m == cur)}
+		rows[i] = [2]string{m, Mark(m == cur)}
 	}
 	if kept {
 		rows = append(rows, [2]string{"change service principal", "new client id and secret"})

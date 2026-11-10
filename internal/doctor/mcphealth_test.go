@@ -1,4 +1,4 @@
-package mcphealth
+package doctor
 
 import (
 	"bytes"
@@ -382,4 +382,17 @@ func TestDoctorTextNeverEchoesSecretsFromArgsOrHealthLines(t *testing.T) {
 			t.Errorf("text report echoed %q:\n%s", leak, out.String())
 		}
 	}
+}
+
+// closedTestOutput is an already-closed file, so every write to it fails.
+func closedTestOutput(t *testing.T) *os.File {
+	t.Helper()
+	out, err := os.CreateTemp(t.TempDir(), "output")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return out
 }

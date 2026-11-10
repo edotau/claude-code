@@ -8,7 +8,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest/gittest"
-	"github.com/edotau/claude-code/internal/notices"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -54,7 +53,7 @@ func TestNoticesAndDivergenceReachContextOnce(t *testing.T) {
 	if again := Busy(in); again.Context != "" {
 		t.Fatalf("second prompt = %q, want the divergence line only once", again.Context)
 	}
-	if err := notices.Append("sB", notices.Notice{Kind: "conflict", From: "worktree merge", Text: "x.go"}); err != nil {
+	if err := worktree.Append("sB", worktree.Notice{Kind: "conflict", From: "worktree merge", Text: "x.go"}); err != nil {
 		t.Fatal(err)
 	}
 	git := func() core.Result {

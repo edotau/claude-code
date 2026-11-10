@@ -1,7 +1,8 @@
-// Package mcphealth is a read-only diagnostic for Claude Code's MCP config surface: it lists every
+// mcphealth is a read-only diagnostic for Claude Code's MCP config surface: it lists every
 // defined server, runs `claude mcp list` for live connect health, flags a server name defined with
 // different commands/urls across scopes, and flags inline plaintext secrets.
-package mcphealth
+
+package doctor
 
 import (
 	"context"

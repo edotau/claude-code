@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	agenttree "github.com/edotau/claude-code/internal/agent/tree"
 )
 
 func TestCompactNumberBoundaries(t *testing.T) {
@@ -39,7 +37,7 @@ func TestCompactNumberBoundaries(t *testing.T) {
 func TestRenderTextLineWidth(t *testing.T) {
 	now := time.Date(2026, 10, 18, 3, 10, 0, 0, time.UTC)
 	fixture := filepath.Join("..", "..", "agent", "tree", "testdata")
-	tree, err := agenttree.Build(fixture, agenttree.Options{Days: 99999, Now: func() time.Time { return now }})
+	tree, err := Build(fixture, Options{Days: 99999, Now: func() time.Time { return now }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +65,7 @@ func TestRenderWriteErrors(t *testing.T) {
 		run  func(io.Writer) error
 	}{
 		{"text", func(w io.Writer) error {
-			tr := &agenttree.Tree{Sessions: []agenttree.Session{{Cwd: "/repo"}}}
+			tr := &Tree{Sessions: []Session{{Cwd: "/repo"}}}
 			return RenderText(w, tr, time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC))
 		}},
 	}
@@ -98,16 +96,16 @@ func TestRenderWriteErrors(t *testing.T) {
 }
 
 func TestFormatDispatchFlagsFallback(t *testing.T) {
-	fb := agenttree.Dispatch{Agent: "codex", Fallback: "claude"}
+	fb := Dispatch{Agent: "codex", Fallback: "claude"}
 	if !strings.Contains(formatDispatch(fb), "⚠ fallback") {
 		t.Errorf("formatDispatch(fallback) = %q, want it to flag the fallback", formatDispatch(fb))
 	}
 }
 
 func TestComputeColumnWidthsCountsRunes(t *testing.T) {
-	tr := &agenttree.Tree{Sessions: []agenttree.Session{{
-		Status:    "ééééééé",                                                    // 7 runes, 14 bytes
-		Subagents: []agenttree.Subagent{{Type: "日本語日本語日本", Status: "完了完了完了完了"}}, // 8 runes each
+	tr := &Tree{Sessions: []Session{{
+		Status:    "ééééééé",                                          // 7 runes, 14 bytes
+		Subagents: []Subagent{{Type: "日本語日本語日本", Status: "完了完了完了完了"}}, // 8 runes each
 	}}}
 	got := computeColumnWidths(tr)
 	if got.subType != 8 || got.subStatus != 8 || got.sessStatus != 7 {

@@ -12,6 +12,7 @@
 # legacy-layout: dispatch-record
 # legacy-layout: last-profile
 # legacy-layout: migrations
+# legacy-layout: notices
 # legacy-layout: oauth-usage-cache
 # legacy-layout: opencode-auth-cache
 # legacy-layout: opencode-models-check
@@ -48,7 +49,7 @@ live-request | wire | 1 | - | internal/agent/wire | keep
 memory-embeddings | store | 2 | state/harness/memory/embeddings.db | internal/memory | keep
 memory-journal | record | 1 | state/harness/memory/journal/*.json | internal/memory | keep
 migrations | log | 1 | state/harness/migrations.jsonl | schemas | keep
-notices | log | 1 | state/harness/notices/*.jsonl | internal/notices | keep
+notices | log | 1 | state/harness/notices/*.jsonl | internal/worktree | keep
 oauth-usage-cache | cache | 1 | state/harness/cache/claude-oauth-usage.json | internal/usage | keep
 opencode-auth-cache | cache | 1 | state/harness/vendors/opencode-auth.json | internal/opencode | keep
 opencode-models-check | cache | 1 | state/harness/opencode-models-check.json | internal/opencode | keep

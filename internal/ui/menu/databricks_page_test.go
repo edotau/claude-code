@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -105,9 +104,9 @@ func installDbxFake(t *testing.T, f *dbxFake) {
 		f.calls = append(f.calls, "pat:"+name+":"+v)
 		return "probe ok", nil
 	}
-	dbxShell = func(*dialog) *uidialog.Shell {
+	dbxShell = func(*dialog) *Shell {
 		scr := &dbxScreen{f: f}
-		return &uidialog.Shell{Out: scr, In: bufio.NewReader(scr)}
+		return &Shell{Out: scr, In: bufio.NewReader(scr)}
 	}
 	dbxSecret = func(string, string, func(string) string) (string, error) { return f.secret, nil }
 	dbxCheckSP = func(_ context.Context, _, id, secret string) error {

@@ -12,8 +12,6 @@ import (
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/scm"
-	"github.com/edotau/claude-code/internal/scm/bitbucket"
-	"github.com/edotau/claude-code/internal/scm/github"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -42,7 +40,7 @@ func openOrigin(ctx context.Context) (scm.Host, error) {
 		return nil, err
 	}
 	if repo.Kind == scm.GitHub {
-		return github.New(repo.Owner, repo.Name), nil
+		return scm.NewGitHub(repo.Owner, repo.Name), nil
 	}
 	token, _, err := vault.Lookup("BITBUCKET_TOKEN")
 	if err != nil {
@@ -55,7 +53,7 @@ func openOrigin(ctx context.Context) (scm.Host, error) {
 	if base == "" { // the ssh port (7999) is not the HTTP port, so the default is the bare host
 		base = "https://" + repo.Host
 	}
-	return bitbucket.New(base, repo.Owner, repo.Name, token), nil
+	return scm.NewBitbucket(base, repo.Owner, repo.Name, token), nil
 }
 
 // bitbucketURL is the Data Center server root from vault env, then the process env.

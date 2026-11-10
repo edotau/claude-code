@@ -17,7 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/ui/helptext"
-	uitree "github.com/edotau/claude-code/internal/ui/tree"
 )
 
 // agentsListPage is `agents list -h`.
@@ -180,7 +179,7 @@ func renderAgentsTree(opts tree.Options, format string, showAll bool) int {
 		}
 		return 0
 	}
-	if err := uitree.RenderText(os.Stdout, listing, time.Now()); err != nil {
+	if err := tree.RenderText(os.Stdout, listing, time.Now()); err != nil {
 		return helptext.Fail("agents tree: %v", err)
 	}
 	return 0

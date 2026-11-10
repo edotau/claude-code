@@ -1,4 +1,5 @@
-// Package tree renders agent/tree data for the terminal; the data and its scanning stay in agent/tree.
+// render.go renders the tree data for the terminal.
+
 package tree
 
 import (
@@ -9,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	agenttree "github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
@@ -32,9 +32,9 @@ type columnWidths struct {
 }
 
 // computeColumnWidths walks every subagent in the tree (direct and nested inside workflow runs).
-func computeColumnWidths(tree *agenttree.Tree) columnWidths {
+func computeColumnWidths(tree *Tree) columnWidths {
 	c := columnWidths{subType: 4, subStatus: 6, sessStatus: 6} // "type"/"status"-ish floors
-	grow := func(sub agenttree.Subagent) {
+	grow := func(sub Subagent) {
 		c.subType = max(c.subType, textutil.RuneLen(sub.Type))
 		c.subStatus = max(c.subStatus, textutil.RuneLen(sub.Status))
 	}
@@ -61,14 +61,14 @@ func computeColumnWidths(tree *agenttree.Tree) columnWidths {
 // each session's subagents indented by spawnDepth, with Workflow runs shown as phases -> agents.
 // Every row is fit to terminalWidth() by truncating its description (its tool segment is dropped
 // first) rather than wrapping. It returns the first write error, if any.
-func RenderText(w io.Writer, tree *agenttree.Tree, now time.Time) error {
+func RenderText(w io.Writer, tree *Tree, now time.Time) error {
 	ew := &errWriter{w: w}
 	renderTree(ew, tree, now)
 	return ew.err
 }
 
 // renderTree writes the grouped listing to w; write errors are collected by the errWriter it is given.
-func renderTree(w io.Writer, tree *agenttree.Tree, now time.Time) {
+func renderTree(w io.Writer, tree *Tree, now time.Time) {
 	if len(tree.Sessions) == 0 && len(tree.Dispatches) == 0 {
 		fmt.Fprintln(w, "agents tree: no sessions in scope")
 		return
@@ -87,7 +87,7 @@ func renderTree(w io.Writer, tree *agenttree.Tree, now time.Time) {
 }
 
 // renderDispatches prints the machine-wide running dispatch jobs, one row each, under a "dispatches" header.
-func renderDispatches(w io.Writer, dispatches []agenttree.Dispatch, width int) {
+func renderDispatches(w io.Writer, dispatches []Dispatch, width int) {
 	if len(dispatches) == 0 {
 		return
 	}
@@ -101,15 +101,15 @@ func renderDispatches(w io.Writer, dispatches []agenttree.Dispatch, width int) {
 // repoGroup is one cwd's sessions, newest first.
 type repoGroup struct {
 	cwd      string
-	sessions []agenttree.Session
+	sessions []Session
 }
 
 // groupByRepo buckets sessions by cwd ("(unknown)" when the transcript never recorded one),
 // preserving the overall newest-first order within each bucket and ordering buckets by their
 // newest session.
-func groupByRepo(sessions []agenttree.Session) []repoGroup {
+func groupByRepo(sessions []Session) []repoGroup {
 	order := []string{}
-	byCwd := map[string][]agenttree.Session{}
+	byCwd := map[string][]Session{}
 	for _, s := range sessions {
 		cwd := s.Cwd
 		if cwd == "" {
@@ -128,7 +128,7 @@ func groupByRepo(sessions []agenttree.Session) []repoGroup {
 }
 
 // renderSession prints one session line plus its branch/age, then its subagents and workflow runs.
-func renderSession(w io.Writer, s agenttree.Session, now time.Time, cols columnWidths, width int, home string) {
+func renderSession(w io.Writer, s Session, now time.Time, cols columnWidths, width int, home string) {
 	title := s.Title
 	if title == "" {
 		title = "(no prompt yet)"
@@ -148,7 +148,7 @@ func renderSession(w io.Writer, s agenttree.Session, now time.Time, cols columnW
 const maxSessionLabel = 24
 
 // sessionLabel is the row's lead column: the registry name when set, else treeShortID, padded to width runes.
-func sessionLabel(s agenttree.Session, width int) string {
+func sessionLabel(s Session, width int) string {
 	label := treeShortID(s.ID)
 	if width == 0 {
 		return label
@@ -163,7 +163,7 @@ func sessionLabel(s agenttree.Session, width int) string {
 }
 
 // sessionStatusText shows the CLI's own idle|busy|waiting for a live session, else the transcript status.
-func sessionStatusText(s agenttree.Session) string {
+func sessionStatusText(s Session) string {
 	if s.Live && s.CLIStatus != "" {
 		return s.CLIStatus
 	}
@@ -173,13 +173,13 @@ func sessionStatusText(s agenttree.Session) string {
 // statusGlyph renders a Subagent.Status as a single-character marker for a --watch-sized glance.
 func statusGlyph(status string) string {
 	switch status {
-	case agenttree.StatusRunning:
+	case StatusRunning:
 		return "●"
-	case agenttree.StatusFinished:
+	case StatusFinished:
 		return "✓"
-	case agenttree.StatusError:
+	case StatusError:
 		return "✗"
-	case agenttree.StatusStale:
+	case StatusStale:
 		return "·"
 	default:
 		return " "
@@ -188,7 +188,7 @@ func statusGlyph(status string) string {
 
 // idleSince renders how long since a subagent last did anything: its newest activity timestamp when
 // known, else its transcript's own mtime; "-" when neither is available.
-func idleSince(sub agenttree.Subagent, now time.Time) string {
+func idleSince(sub Subagent, now time.Time) string {
 	t := sub.Updated
 	if sub.Activity != nil && !sub.Activity.At.IsZero() {
 		t = sub.Activity.At
@@ -202,7 +202,7 @@ func idleSince(sub agenttree.Subagent, now time.Time) string {
 // renderSubagent prints one subagent line (status glyph, idle time), indented two columns per spawn
 // depth beyond the session, then one indented row per agent dispatch it launched. On overflow fitRow drops
 // the trailing tool field before it shrinks the description.
-func renderSubagent(w io.Writer, sub agenttree.Subagent, now time.Time, cols columnWidths, width int, home, cwd string) {
+func renderSubagent(w io.Writer, sub Subagent, now time.Time, cols columnWidths, width int, home, cwd string) {
 	indent := strings.Repeat("  ", max(sub.Depth, 1)+1)
 	tool := sub.LastTool
 	if tool == "" {
@@ -211,8 +211,8 @@ func renderSubagent(w io.Writer, sub agenttree.Subagent, now time.Time, cols col
 	prefix := fmt.Sprintf("%s%s %-*s %-*s depth=%d  %s  %s  idle=%s",
 		indent, statusGlyph(sub.Status), cols.subType, sub.Type, cols.subStatus, sub.Status, sub.Depth,
 		tokenCompact(sub.Tokens), age(sub.Updated, now), idleSince(sub, now))
-	label := agenttree.StripPaths(sub.Description, home, cwd)
-	fmt.Fprintln(w, fitRow(prefix, agenttree.Truncate(label, 60), tool, width))
+	label := StripPaths(sub.Description, home, cwd)
+	fmt.Fprintln(w, fitRow(prefix, Truncate(label, 60), tool, width))
 	for _, disp := range sub.Dispatches {
 		fmt.Fprintf(w, "%s  %s\n", indent, formatDispatch(disp))
 	}
@@ -220,7 +220,7 @@ func renderSubagent(w io.Writer, sub agenttree.Subagent, now time.Time, cols col
 
 // formatDispatch renders one agent dispatch: "↳ codex gpt-6-astra running 2m14s", or with a fallback,
 // "↳ codex→claude ok 1m40s ⚠ fallback".
-func formatDispatch(l agenttree.Dispatch) string {
+func formatDispatch(l Dispatch) string {
 	name := l.Agent
 	if l.Fallback != "" {
 		name = l.Fallback + "→" + l.Agent
@@ -233,10 +233,10 @@ func formatDispatch(l agenttree.Dispatch) string {
 }
 
 // phaseDone counts a phase's agents that have a journal/meta result in, against its total.
-func phaseDone(agents []agenttree.Subagent) (done, total int) {
+func phaseDone(agents []Subagent) (done, total int) {
 	for _, a := range agents {
 		total++
-		if a.Status == agenttree.StatusFinished || a.Status == agenttree.StatusError {
+		if a.Status == StatusFinished || a.Status == StatusError {
 			done++
 		}
 	}
@@ -244,7 +244,7 @@ func phaseDone(agents []agenttree.Subagent) (done, total int) {
 }
 
 // renderWorkflowRun prints a run header then its phases -> agents, each phase showing done/total.
-func renderWorkflowRun(w io.Writer, run agenttree.WorkflowRun, now time.Time, cols columnWidths, width int, home, cwd string) {
+func renderWorkflowRun(w io.Writer, run WorkflowRun, now time.Time, cols columnWidths, width int, home, cwd string) {
 	indent := strings.Repeat("  ", 2)
 	prefix := fmt.Sprintf("%sworkflow %s  %-9s %-6s", indent, run.Name, run.Status, age(run.Updated, now))
 	fmt.Fprintln(w, fitRow(prefix, run.ID, "", width))
@@ -297,7 +297,7 @@ func shrink(s string, n int) string {
 }
 
 // tokenCompact renders in/out tokens as "in=12.3k out=4.1k".
-func tokenCompact(t agenttree.Tokens) string {
+func tokenCompact(t Tokens) string {
 	return fmt.Sprintf("in=%s out=%s", compactNumber(t.In), compactNumber(t.Out))
 }
 

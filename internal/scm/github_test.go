@@ -1,12 +1,10 @@
-package github
+package scm
 
 import (
 	"context"
 	"errors"
 	"strings"
 	"testing"
-
-	"github.com/edotau/claude-code/internal/scm"
 )
 
 func stubGH(t *testing.T, fn func(args ...string) ([]byte, error)) *[][]string {
@@ -34,7 +32,7 @@ func TestChecksPRReadsHeadCommitRuns(t *testing.T) {
 		}
 		return []byte(`{"name":"a","conclusion":"failure"}`), nil
 	})
-	got, err := New("o", "r").Checks(context.Background(), "7", "")
+	got, err := NewGitHub("o", "r").Checks(context.Background(), "7", "")
 	if err != nil || len(got) != 1 || got[0].State != "fail" {
 		t.Fatalf("got %+v, %v", got, err)
 	}
@@ -50,7 +48,7 @@ func TestChecksPRReadsHeadCommitRuns(t *testing.T) {
 
 func TestChecksPRViewErrorSurfaces(t *testing.T) {
 	stubGH(t, func(...string) ([]byte, error) { return nil, errors.New("boom") })
-	if _, err := New("o", "r").Checks(context.Background(), "7", ""); err == nil || err.Error() != "boom" {
+	if _, err := NewGitHub("o", "r").Checks(context.Background(), "7", ""); err == nil || err.Error() != "boom" {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -59,7 +57,7 @@ func TestChecksShaPaginatedStream(t *testing.T) {
 	calls := stubGH(t, func(...string) ([]byte, error) {
 		return []byte(`{"name":"a","conclusion":"success"}` + "\n" + `{"name":"b","conclusion":"failure"}` + "\n" + `{"name":"c","conclusion":""}`), nil
 	})
-	got, err := New("o", "r").Checks(context.Background(), "", "abc")
+	got, err := NewGitHub("o", "r").Checks(context.Background(), "", "abc")
 	if err != nil || len(got) != 3 || got[1].State != "fail" || got[2].State != "pending" {
 		t.Fatalf("got %+v, %v", got, err)
 	}
@@ -70,7 +68,7 @@ func TestChecksShaPaginatedStream(t *testing.T) {
 
 func TestCommentRejectsNonDigitIDs(t *testing.T) {
 	calls := stubGH(t, func(...string) ([]byte, error) { return nil, nil })
-	h := New("o", "r")
+	h := NewGitHub("o", "r")
 	for _, c := range [][2]string{{"5", "1/../../issues/9/comments"}, {"--web", ""}, {"5", "--x"}} {
 		if err := h.Comment(context.Background(), c[0], "b", c[1]); err == nil {
 			t.Fatalf("id %q reply %q accepted", c[0], c[1])
@@ -83,7 +81,7 @@ func TestCommentRejectsNonDigitIDs(t *testing.T) {
 
 func TestChecksRejectsBadShaAndID(t *testing.T) {
 	calls := stubGH(t, func(...string) ([]byte, error) { return nil, nil })
-	h := New("o", "r")
+	h := NewGitHub("o", "r")
 	if _, err := h.Checks(context.Background(), "", "x/../../.."); err == nil {
 		t.Fatal("bad sha accepted")
 	}
@@ -97,7 +95,7 @@ func TestChecksRejectsBadShaAndID(t *testing.T) {
 
 func TestListLimitZeroMeansUnlimited(t *testing.T) {
 	calls := stubGH(t, func(...string) ([]byte, error) { return []byte(`[]`), nil })
-	if _, err := New("o", "r").List(context.Background(), scm.ListOpts{State: "open", Limit: 0}); err != nil {
+	if _, err := NewGitHub("o", "r").List(context.Background(), ListOpts{State: "open", Limit: 0}); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join((*calls)[0], " "); !strings.Contains(got, "--limit 100000") {
