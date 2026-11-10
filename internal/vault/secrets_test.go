@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestMasterKeyStatusRejectsCorruptSecrets(t *testing.T) {
@@ -67,7 +67,7 @@ func TestLooksLikeSecret(t *testing.T) {
 // ScanFile must find a planted sk-... value in a JSON config and never flag a ${ENV} reference.
 // runGitScratch initializes a throwaway repo with a committed secret-shaped line, for ScanGit tests.
 func runGitScratch(t *testing.T) string {
-	dir := gittest.Repo(t)
+	dir := hosttest.Repo(t)
 	run := func(args ...string) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
@@ -103,7 +103,7 @@ func TestScanGitFindsPlantedSecret(t *testing.T) {
 
 // A repo with no secret-shaped history must report clean.
 func TestScanGitCleanHistory(t *testing.T) {
-	dir := gittest.Repo(t)
+	dir := hosttest.Repo(t)
 	run := func(args ...string) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir

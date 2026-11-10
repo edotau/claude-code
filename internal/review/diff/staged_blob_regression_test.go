@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestQualityCheckerPropagatesBlobReadFailure(t *testing.T) {
 	repo := newGateRepo(t)
-	gittest.In(t, repo, "checkout", "-b", "feature")
+	hosttest.In(t, repo, "checkout", "-b", "feature")
 	commitFile(t, repo, "app.py", "def run():\n    return 1\n", "feat: add app")
 	failQualityBlobRead(t)
 	changed, err := changedSourceFiles(repo, "main", "feature")
@@ -48,18 +48,18 @@ func failQualityBlobRead(t *testing.T) {
 
 func TestRunGateHonorsAlternateIndexBlob(t *testing.T) {
 	repo := newGateRepo(t)
-	gittest.WriteRel(t, repo, "app.py", "def run(x):\n    return x\n")
-	gittest.In(t, repo, "add", "--", "app.py")
+	hosttest.WriteRel(t, repo, "app.py", "def run(x):\n    return x\n")
+	hosttest.In(t, repo, "add", "--", "app.py")
 	t.Setenv("GIT_INDEX_FILE", filepath.Join(repo, ".git", "index"))
 	var stdout, stderr bytes.Buffer
 	if code := RunGate([]string{"--repo", repo}, &stdout, &stderr); code != 0 || strings.Contains(stdout.String(), "[WARN]") {
 		t.Fatalf("simple default index: exit %d, stdout %s, stderr %s", code, &stdout, &stderr)
 	}
 	content := "\ndef run(x):\n" + strings.Repeat("    x += 1\n", 150) + "\n\t \n"
-	gittest.WriteRel(t, repo, "app.py", content)
+	hosttest.WriteRel(t, repo, "app.py", content)
 	t.Setenv("GIT_INDEX_FILE", filepath.Join(t.TempDir(), "alternate-index"))
 	mustRun(t, repo, "git", "add", "--", "app.py")
-	gittest.WriteRel(t, repo, "app.py", "def run(x):\n    return x\n")
+	hosttest.WriteRel(t, repo, "app.py", "def run(x):\n    return x\n")
 	stdout.Reset()
 	stderr.Reset()
 	if code := RunGate([]string{"--repo", repo}, &stdout, &stderr); code != 0 {
@@ -76,8 +76,8 @@ func TestRunGateHonorsAlternateIndexBlob(t *testing.T) {
 
 func TestRunGateReviewsLocallyRemovedStagedFile(t *testing.T) {
 	repo := newGateRepo(t)
-	gittest.WriteRel(t, repo, "app.py", "def run(x):\n"+strings.Repeat("    x += 1\n", 150))
-	gittest.In(t, repo, "add", "--", "app.py")
+	hosttest.WriteRel(t, repo, "app.py", "def run(x):\n"+strings.Repeat("    x += 1\n", 150))
+	hosttest.In(t, repo, "add", "--", "app.py")
 	if err := os.Remove(filepath.Join(repo, "app.py")); err != nil {
 		t.Fatal(err)
 	}

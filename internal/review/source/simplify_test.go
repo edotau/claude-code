@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 const cleanGo = "package fx\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n"
@@ -32,7 +32,7 @@ func gitFixture(t *testing.T) string {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
-	dir := gittest.Repo(t)
+	dir := hosttest.Repo(t)
 	writeFx(t, dir, "fx.go", cleanGo)
 	writeFx(t, dir, "notes.txt", "a\n")
 	for _, a := range [][]string{{"add", "."}, {"commit", "-q", "-m", "init"}} {

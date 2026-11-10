@@ -8,13 +8,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // wsRepo makes a git toplevel with one commit so GitToplevel answers.
 func wsRepo(t *testing.T) string {
 	t.Helper()
-	root := gittest.Repo(t)
+	root := hosttest.Repo(t)
 	if real, err := filepath.EvalSymlinks(root); err == nil {
 		root = real
 	}

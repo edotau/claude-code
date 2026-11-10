@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/plans"
 )
 
@@ -97,7 +97,7 @@ func TestPlanMirrorTopLevelWhenCWDIsConfigDir(t *testing.T) {
 func TestPlanMirrorUntaggedWhenCWDIsMemoryStoreRepo(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	store := gittest.RepoAt(t, filepath.Join(cfg, "memory", "claude-code"))
+	store := hosttest.RepoAt(t, filepath.Join(cfg, "memory", "claude-code"))
 	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "store-words.md", planTemplate)
 	mirrorRun(t, "Mirror", "Write", store, draft)
 	wantMirrorFile(t, filepath.Join(cfg, "plans", dateStamp()+"-widget-refactor.md"), planTemplate, "mirrored file at")
@@ -106,7 +106,7 @@ func TestPlanMirrorUntaggedWhenCWDIsMemoryStoreRepo(t *testing.T) {
 func TestPlanMirrorRepoTaggedWhenCWDIsAnotherRepo(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	repo := gittest.Repo(t)
+	repo := hosttest.Repo(t)
 	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "other-words.md", planTemplate)
 	mirrorRun(t, "Mirror", "Write", repo, draft)
 	want := filepath.Join(cfg, "plans", filepath.Base(repo), dateStamp()+"-widget-refactor.md")
@@ -198,7 +198,7 @@ func TestPlanMirrorNeverAdoptsAnIdenticalDatedFile(t *testing.T) {
 func TestSavePlanReusesMirroredDestAndCleansUpDraft(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	repo := gittest.Repo(t)
+	repo := hosttest.Repo(t)
 	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "other-words.md", planTemplate)
 	mirrorRun(t, "Mirror", "Write", repo, draft)
 	dest := filepath.Join(cfg, "plans", filepath.Base(repo), dateStamp()+"-widget-refactor.md")

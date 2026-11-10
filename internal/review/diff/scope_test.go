@@ -10,24 +10,24 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // buildScopeRepo commits a two-package module, then a change: a modified file, a rename, and a binary file.
 func buildScopeRepo(t *testing.T) string {
 	t.Helper()
-	dir := gittest.Repo(t)
+	dir := hosttest.Repo(t)
 	writeScopeFile(t, dir, "go.mod", "module example.com/m\n")
 	writeScopeFile(t, dir, "a/a.go", "package a\n\nfunc A() int { return 1 }\n")
 	writeScopeFile(t, dir, "b/b.go", "package b\n\nimport \"example.com/m/a\"\n\nvar _ = a.A\n")
-	gittest.In(t, dir, "add", "-A")
-	gittest.In(t, dir, "commit", "-q", "-m", "base")
+	hosttest.In(t, dir, "add", "-A")
+	hosttest.In(t, dir, "commit", "-q", "-m", "base")
 
 	writeScopeFile(t, dir, "a/a.go", "package a\n\nfunc A() int { return 1 }\n\nfunc B() int { return 2 }\n")
-	gittest.In(t, dir, "mv", "b/b.go", "b/bb.go")
+	hosttest.In(t, dir, "mv", "b/b.go", "b/bb.go")
 	writeScopeFile(t, dir, "data/blob.bin", "\x00\x01\x02")
-	gittest.In(t, dir, "add", "-A")
-	gittest.In(t, dir, "commit", "-q", "-m", "change")
+	hosttest.In(t, dir, "add", "-A")
+	hosttest.In(t, dir, "commit", "-q", "-m", "change")
 	return dir
 }
 

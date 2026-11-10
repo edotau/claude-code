@@ -1,0 +1,118 @@
+package hosttest
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+// gitTimeout bounds one In call, so a hanging git hook fails the test instead of the whole binary.
+const gitTimeout = 60 * time.Second
+
+var (
+	seq     atomic.Int64
+	once    sync.Once
+	tmpl    string
+	tmplErr error
+)
+
+// Cleanup removes the template repo; call it from TestMain after m.Run.
+func Cleanup() {
+	if tmpl != "" {
+		_ = os.RemoveAll(tmpl)
+	}
+}
+
+// Repo returns a fresh repo on branch main with one empty commit, in a globally unique directory name.
+func Repo(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), fmt.Sprintf("repo%d", seq.Add(1)))
+	RepoAt(t, dir)
+	return dir
+}
+
+// RepoAt makes dir (and parents) a repo like Repo's, for callers that need a chosen directory name.
+func RepoAt(t *testing.T, dir string) string {
+	t.Helper()
+	once.Do(buildTemplate)
+	if tmplErr != nil {
+		t.Fatal(tmplErr)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.CommandContext(context.Background(), "cp", "-a", tmpl+"/.", dir).CombinedOutput(); err != nil {
+		t.Fatalf("copy template repo %s to %s: %v %s", tmpl, dir, err, out)
+	}
+	return dir
+}
+
+// cleanEnv returns os.Environ() without the git variables that override repository discovery.
+func cleanEnv() []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		k, _, _ := strings.Cut(kv, "=")
+		switch k {
+		case "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_PREFIX":
+			continue
+		}
+		env = append(env, kv)
+	}
+	return env
+}
+
+func buildTemplate() {
+	if tmpl, tmplErr = os.MkdirTemp("", "gittest-"); tmplErr != nil {
+		return
+	}
+	env := append(cleanEnv(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.com",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	steps := [][]string{{"init", "-q", "-b", "main"}, {"config", "user.name", "t"}, {"config", "user.email", "t@t.com"},
+		{"commit", "--allow-empty", "-q", "-m", "init"}}
+	for _, args := range steps {
+		cmd := exec.CommandContext(context.Background(), "git", args...)
+		cmd.Dir = tmpl
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			tmplErr = fmt.Errorf("git %v: %v: %s", args, err, out)
+			return
+		}
+	}
+}
+
+// In runs git -C dir with a fixed identity and no global config, failing the test on error; it returns stdout only.
+func In(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(cleanEnv(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t",
+		"GIT_COMMITTER_EMAIL=t@t", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	cmd.WaitDelay = gitTimeout // a hook child holding the pipes must not block Wait after the kill
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git %v: %v\n%s%s", args, err, stdout.String(), stderr.String())
+	}
+	return stdout.String()
+}
+
+// WriteRel writes body at root/rel, creating parent directories.
+func WriteRel(t *testing.T, root, rel, body string) {
+	t.Helper()
+	p := filepath.Join(root, rel)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

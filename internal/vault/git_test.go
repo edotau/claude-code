@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestScanGitRepoProbeFailuresAreNotClean(t *testing.T) {
@@ -168,7 +168,7 @@ func TestScanGitSkipsTestFixtures(t *testing.T) {
 func TestScanGitLongLine(t *testing.T) {
 	for _, order := range []string{"leak-then-long", "long-then-leak"} {
 		t.Run(order, func(t *testing.T) {
-			dir := gittest.Repo(t)
+			dir := hosttest.Repo(t)
 			run := gitIn(t, dir)
 			long := strings.Repeat("x", 1<<20+1) // one line, just past scanGitLogOutput's 1 MiB reader
 			leak := "k=ghp_abcdefghij1234567890ABCD\n"
