@@ -46,8 +46,8 @@ func (s Schema) Configure(ctx context.Context, target providers.Target, headless
 	return s.configure(ctx, target, &Headless{Prompt: headlessPrompt})
 }
 
-// configureHeadless is Configure's agent form with the per-run options each CLI can carry.
-func (s Schema) configureHeadless(ctx context.Context, target providers.Target, h Headless) (env, argv []string, err error) {
+// ConfigureHeadless is Configure's agent form with the per-run options each CLI can carry.
+func (s Schema) ConfigureHeadless(ctx context.Context, target providers.Target, h Headless) (env, argv []string, err error) {
 	if err := CheckPrompt(h); err != nil {
 		return nil, nil, err
 	}
