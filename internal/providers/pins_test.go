@@ -238,10 +238,10 @@ func TestHasSecretNeverResolvesAKey(t *testing.T) {
 	}
 }
 
-// CopilotModel resolves the COPILOT_MODEL pin first; with no pin, it falls back to the
-// github-copilot provider's own opus alias — and names which source won in both cases.
+// CopilotModel resolves the copilot record's model first, else the github-copilot opus alias; COPILOT_MODEL env is ignored.
 func TestCopilotModelPinBeatsFallback(t *testing.T) {
 	reg := load(t)
+	t.Setenv("COPILOT_MODEL", "from-env")
 	vaulttest.SetRecord(t, "copilot", "model", "")
 
 	wantFallback := reg.Providers["personal"].Models[models.Opus]
@@ -255,55 +255,26 @@ func TestCopilotModelPinBeatsFallback(t *testing.T) {
 	}
 }
 
-// A process env var for COPILOT_MODEL is ignored: pins are vault-only.
-func TestCopilotModelIgnoresEnv(t *testing.T) {
-	reg := load(t)
-	vaulttest.SetRecord(t, "copilot", "model", "from-vault")
-	if got, src := CopilotModel(reg); got != "from-vault" || src != "pin" {
-		t.Errorf("CopilotModel(env set) = (%q, %q), want (from-vault, pin): env is not a pin source", got, src)
-	}
-}
-
-// CodexModel resolves CODEX_MODEL: the pin if set, else "" (codex's own default decides, not the registry).
-func TestCodexModelResolverPinVsDefault(t *testing.T) {
+// Codex model/effort and gemini model resolve from the vault record only: the pin, else "" and "default".
+func TestAgentPinResolversIgnoreEnv(t *testing.T) {
 	load(t)
-	vaulttest.SetRecord(t, "codex", "model", "")
-	if got, src := CodexModel(); got != "" || src != "default" {
-		t.Errorf("CodexModel(unset) = (%q, %q), want (\"\", default)", got, src)
-	}
-	vaulttest.SetRecord(t, "codex", "model", "gpt-6.1-sol")
-	if got, src := CodexModel(); got != "gpt-6.1-sol" || src != "pin" {
-		t.Errorf("CodexModel(pinned) = (%q, %q), want (gpt-6.1-sol, pin)", got, src)
-	}
-}
-
-// CodexEffort resolves CODEX_EFFORT the same way; a process env var is not a pin source.
-func TestCodexEffortResolverPinVsDefault(t *testing.T) {
-	load(t)
-	vaulttest.SetRecord(t, "codex", "effort", "")
-	if got, src := CodexEffort(); got != "" || src != "default" {
-		t.Errorf("CodexEffort(unset) = (%q, %q), want (\"\", default)", got, src)
-	}
-	vaulttest.SetRecord(t, "codex", "effort", "high")
-	if got, src := CodexEffort(); got != "high" || src != "pin" {
-		t.Errorf("CodexEffort(pinned) = (%q, %q), want (high, pin)", got, src)
-	}
-	t.Setenv("CODEX_EFFORT", "low")
-	if got, src := CodexEffort(); got != "high" || src != "pin" {
-		t.Errorf("CodexEffort(env set) = (%q, %q), want (high, pin): env is not a pin source", got, src)
-	}
-}
-
-// GeminiModel resolves GEMINI_MODEL from the vault only: the pin if set, else "" (agy's own default decides).
-func TestGeminiModelResolverPinVsDefaultIgnoresEnv(t *testing.T) {
-	load(t)
-	vaulttest.SetRecord(t, "gemini", "model", "")
-	if got, src := GeminiModel(); got != "" || src != "default" {
-		t.Errorf("GeminiModel(unset) = (%q, %q), want (\"\", default): env must not leak in", got, src)
-	}
-	vaulttest.SetRecord(t, "gemini", "model", "gemini-3.8-flash-high")
-	if got, src := GeminiModel(); got != "gemini-3.8-flash-high" || src != "pin" {
-		t.Errorf("GeminiModel(pinned) = (%q, %q), want (gemini-3.8-flash-high, pin)", got, src)
+	for _, c := range []struct {
+		agent, field, env, pin string
+		get                    func() (string, string)
+	}{
+		{"codex", "model", "CODEX_MODEL", "gpt-6.1-sol", CodexModel},
+		{"codex", "effort", "CODEX_EFFORT", "high", CodexEffort},
+		{"gemini", "model", "GEMINI_MODEL", "gemini-3.8-flash-high", GeminiModel},
+	} {
+		t.Setenv(c.env, "from-env")
+		vaulttest.SetRecord(t, c.agent, c.field, "")
+		if got, src := c.get(); got != "" || src != "default" {
+			t.Errorf("%s %s unset = (%q, %q), want (\"\", default)", c.agent, c.field, got, src)
+		}
+		vaulttest.SetRecord(t, c.agent, c.field, c.pin)
+		if got, src := c.get(); got != c.pin || src != "pin" {
+			t.Errorf("%s %s pinned = (%q, %q), want (%q, pin)", c.agent, c.field, got, src, c.pin)
+		}
 	}
 }
 
@@ -446,25 +417,20 @@ func TestProfilesOfOverlayRowsFollowDefaults(t *testing.T) {
 	}
 }
 
-func TestPinIgnoresProcessEnv(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	if got := AgentRecord("copilot").Model; got != "" {
-		t.Errorf("Pin(env only) = %q, want empty: pins are vault-only", got)
-	}
-	vaulttest.SetRecord(t, "copilot", "model", "from-vault")
-	if got := AgentRecord("copilot").Model; got != "from-vault" {
-		t.Errorf("Pin(vault+env) = %q, want from-vault", got)
-	}
-}
-
+// The session marker (env, trimmed) and the claude record's profile pin never read each other.
 func TestPinProfileIsNotTheSessionMarker(t *testing.T) {
 	vaulttest.UseKeyring(t)
-	t.Setenv(EnvSessionProfile, "qa")
+	t.Setenv(EnvSessionProfile, " qa ")
 	if got := AgentRecord("claude").Profile; got != "" {
 		t.Errorf("claude record profile = %q, want empty: the session marker is read by SessionProfile only", got)
 	}
 	if got := SessionProfile(); got != "qa" {
 		t.Errorf("SessionProfile = %q, want qa", got)
+	}
+	t.Setenv(EnvSessionProfile, "")
+	vaulttest.SetRecord(t, "claude", "profile", "dev")
+	if got := SessionProfile(); got != "" {
+		t.Errorf("SessionProfile = %q, want empty: the vault pin leaked into it", got)
 	}
 }
 
@@ -610,6 +576,7 @@ func TestSetProviderFieldsRefusesInvalidOverlay(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
 func TestLoadMalformedVaultOverlay(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Put(t, vault.Overlay, "providers", "{not json")
@@ -646,5 +613,50 @@ func TestCopilotLoginIgnoresGitHubAuthPin(t *testing.T) {
 	}
 	if login, profile := CopilotLogin(reg); login != "" || profile != "" {
 		t.Errorf("CopilotLogin = (%q, %q), want (\"\", \"\"): github-auth never feeds copilot", login, profile)
+	}
+}
+
+func TestConfigFixEmptyPinClearsAcrossProfiles(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(EnvSessionProfile, "current")
+	vaulttest.UseKeyring(t)
+	reg := &Registry{Default: "current", Providers: map[string]*Provider{
+		"current": {Name: "current"}, "other": {Name: "other"},
+	}}
+	before := vault.AgentRecord{Profile: "current", Model: "all-model", Aliases: map[string]string{
+		"opus": "old-opus", "sonnet": "keep-sonnet",
+	}}
+	want := vault.AgentRecord{Profile: "current", Model: "all-model", Aliases: map[string]string{"sonnet": "keep-sonnet"}}
+	for _, profile := range []string{"", "current", "other"} {
+		t.Run("profile="+profile, func(t *testing.T) {
+			set, err := ParseModelPins(reg, profile, false, []string{"opus="})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if spec, ok := set["opus"]; !ok || spec != "" {
+				t.Fatalf("parsed opus pin = %q, present %v; want empty unpin", spec, ok)
+			}
+			if got := WithClaudeModels(before, set); !reflect.DeepEqual(got, want) {
+				t.Errorf("record after opus= = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+func TestHeadlessOAuthToken(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	t.Setenv(OAuthTokenEnv, "")
+	if got := HeadlessOAuthToken(); got != "" {
+		t.Errorf("HeadlessOAuthToken() with nothing set = %q, want \"\"", got)
+	}
+
+	vaulttest.Secret(t, OAuthTokenEnv, "from-vault")
+	if got := HeadlessOAuthToken(); got != "from-vault" {
+		t.Errorf("HeadlessOAuthToken() (vault) = %q, want from-vault", got)
+	}
+
+	t.Setenv(OAuthTokenEnv, "from-env")
+	if got := HeadlessOAuthToken(); got != "from-env" {
+		t.Errorf("HeadlessOAuthToken() (env beats vault) = %q, want from-env", got)
 	}
 }

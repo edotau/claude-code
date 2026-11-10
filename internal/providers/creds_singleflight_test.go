@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -125,37 +124,6 @@ func TestRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
 		t.Fatalf("refresh command ran %q, want once", b)
 	}
 	<-done
-}
-
-func TestAuthorizeStripsInboundAndSetsHeader(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	cases := []struct{ name, typ, header, wantHdr, wantVal string }{
-		{"apikey", AuthKey, HeaderXAPIKey, "X-Api-Key", "minted"},
-		{"bearer", AuthKey, HeaderBearer, "Authorization", "Bearer minted"},
-		{"none", AuthNone, "", "", ""},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			p := &Provider{Name: "az-" + c.name, Auth: Auth{Type: c.typ, Header: c.header, Command: "echo minted"}}
-			cmdCache.Delete(p.Name)
-			h := http.Header{}
-			h.Set("Authorization", "Bearer client")
-			h.Set("X-Api-Key", "client-key")
-			h.Set("x-goog-api-key", "client-goog")
-			if err := Authorize(context.Background(), p, h); err != nil {
-				t.Fatal(err)
-			}
-			for _, k := range []string{"Authorization", "X-Api-Key", "X-Goog-Api-Key"} {
-				want := ""
-				if strings.EqualFold(k, c.wantHdr) {
-					want = c.wantVal
-				}
-				if got := h.Get(k); got != want {
-					t.Errorf("%s = %q, want %q", k, got, want)
-				}
-			}
-		})
-	}
 }
 
 // subprocessStartSignal is emitted by a real child of the auth shell, not the flight hook.

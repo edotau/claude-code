@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -166,14 +165,14 @@ func TestValidatePresetAndEnvRejections(t *testing.T) {
 	}
 }
 
-// Expansion is load-only: writing one field of a preset overlay entry must not persist derived fields.
+// Expansion and decoration are load-only: a field write persists the canonical id, never a derived field.
 func TestExpansionNeverLeaksIntoOverlay(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.UseKeyring(t)
 	if err := SetProviderFields("dbx", map[string]any{"preset": "databricks", "host": "https://h.example.com", "cliProfile": "w"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetProviderModel("dbx", "opus", "my-opus"); err != nil {
+	if err := SetProviderModel("dbx", "opus", "claude-opus-5-5"); err != nil {
 		t.Fatal(err)
 	}
 	doc, err := OverlayDoc()
@@ -185,12 +184,15 @@ func TestExpansionNeverLeaksIntoOverlay(t *testing.T) {
 			t.Errorf("overlay leaked derived %q:\n%s", leaked, doc)
 		}
 	}
+	if !strings.Contains(string(doc), `"claude-opus-5-5"`) {
+		t.Errorf("overlay lost the canonical id: %s", doc)
+	}
 	reg, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p := reg.Providers["dbx"]; p == nil || p.BaseURL == "" || p.Models["opus"] != "my-opus" {
-		t.Errorf("reloaded provider = %+v", p)
+	if p := reg.Providers["dbx"]; p == nil || p.BaseURL == "" || p.Models["opus"] != "databricks-claude-opus-5-5" {
+		t.Errorf("reloaded provider = %+v, want it expanded and decorated", p)
 	}
 }
 
@@ -219,49 +221,27 @@ func runs(log string) string {
 	return strings.Join(strings.Fields(string(b)), ",")
 }
 
-func TestNearExpiryRunsRefreshCommand(t *testing.T) {
+// The command runs alone unless its JWT is near expiry (then refresh follows) or the call is forced (refresh alone).
+func TestCommandCredentialRefreshDecision(t *testing.T) {
 	near, fresh := jwtExpIn(5*time.Minute, "https://h.example.com/oidc"), jwtExpIn(time.Hour, "https://h.example.com/oidc")
-	p, log := credProvider(t, "dbx-near", near, fresh, 1800)
-	got, err := commandCredential(context.Background(), p, false)
-	if err != nil || got != fresh {
-		t.Fatalf("got %q, %v; want refreshed token", got, err)
-	}
-	if r := runs(log); r != "cmd,refresh" {
-		t.Errorf("runs = %s", r)
-	}
-}
-
-func TestFarFromExpiryDoesNotRefresh(t *testing.T) {
-	far := jwtExpIn(time.Hour, "https://h.example.com/oidc")
-	p, log := credProvider(t, "dbx-far", far, jwtExpIn(2*time.Hour, "https://h.example.com/oidc"), 1800)
-	got, err := commandCredential(context.Background(), p, false)
-	if err != nil || got != far {
-		t.Fatalf("got %q, %v", got, err)
-	}
-	if r := runs(log); r != "cmd" {
-		t.Errorf("runs = %s", r)
-	}
-}
-
-func TestNonJWTCredentialUnchanged(t *testing.T) {
-	p, log := credProvider(t, "dbx-opaque", "opaque-token", "other", 1800)
-	got, err := commandCredential(context.Background(), p, false)
-	if err != nil || got != "opaque-token" {
-		t.Fatalf("got %q, %v", got, err)
-	}
-	if r := runs(log); r != "cmd" {
-		t.Errorf("runs = %s", r)
-	}
-}
-
-func TestForceUsesRefreshCommand(t *testing.T) {
-	p, log := credProvider(t, "dbx-force", jwtExpIn(time.Hour, "https://h.example.com"), "forced", 1800)
-	got, err := commandCredential(context.Background(), p, true)
-	if err != nil || got != "forced" {
-		t.Fatalf("got %q, %v", got, err)
-	}
-	if r := runs(log); r != "refresh" {
-		t.Errorf("runs = %s", r)
+	for _, c := range []struct {
+		name, cmdTok, refreshTok string
+		force                    bool
+		want, runs               string
+	}{
+		{"near expiry", near, fresh, false, fresh, "cmd,refresh"},
+		{"far from expiry", fresh, "unused", false, fresh, "cmd"},
+		{"non-JWT unchanged", "opaque-token", "other", false, "opaque-token", "cmd"},
+		{"force", fresh, "forced", true, "forced", "refresh"},
+		{"force near expiry runs refresh once", fresh, near, true, near, "refresh"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p, log := credProvider(t, "dbx-"+strings.ReplaceAll(c.name, " ", "-"), c.cmdTok, c.refreshTok, 1800)
+			got, err := commandCredential(context.Background(), p, c.force)
+			if err != nil || got != c.want || runs(log) != c.runs {
+				t.Fatalf("got %q, %v, runs %s; want %q, runs %s", got, err, runs(log), c.want, c.runs)
+			}
+		})
 	}
 }
 
@@ -327,46 +307,21 @@ func envOverlay(key string) string {
 	return `{"providers":{"anthropic":{"e":{"protocol":"anthropic","base_url":"https://e","auth":{"type":"none"},"env":{"` + key + `":"v"}}}}}`
 }
 
-func TestValidateRejectsHarnessOwnedEnvKeys(t *testing.T) {
-	for _, k := range []string{"ANTHROPIC_BASE_URL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "HARNESS_PROVIDER",
+// Harness-owned and credential-shaped env keys are refused, naming the key; benign look-alikes pass.
+func TestValidateEnvKeys(t *testing.T) {
+	refused := []string{"ANTHROPIC_BASE_URL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "HARNESS_PROVIDER",
 		"CLAUDE_CODE_API_KEY_HELPER_TTL_MS", "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING",
-		"CLAUDE_PROFILE", "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_FABLE_MODEL"} {
+		"CLAUDE_PROFILE", "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_FABLE_MODEL",
+		"FOO_HEADERS", "MY_AUTH", "DB_CREDENTIALS", "DB_CREDENTIAL", "DATABRICKS_PAT", "X_BEARER", "X_AUTH_Y"}
+	allowed := []string{"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS", "GW_REGION", "DATA_PATH", "CLAUDE_PROFILE_X", "CLAUDE_CODE_FOO_MODEL"}
+	for _, k := range refused {
 		if _, err := parseOverlay(t, envOverlay(k)); err == nil || !strings.Contains(err.Error(), k) {
 			t.Errorf("env key %s accepted (err %v)", k, err)
 		}
 	}
-}
-
-func TestValidateAllowsBenignEnvKeys(t *testing.T) {
-	for _, k := range []string{"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS", "GW_REGION", "DATA_PATH", "CLAUDE_PROFILE_X", "CLAUDE_CODE_FOO_MODEL"} {
+	for _, k := range allowed {
 		if _, err := parseOverlay(t, envOverlay(k)); err != nil {
 			t.Errorf("env key %s rejected: %v", k, err)
 		}
-	}
-}
-
-func TestValidateRejectsCredentialSegmentEnvKeys(t *testing.T) {
-	for _, k := range []string{"FOO_HEADERS", "MY_AUTH", "DB_CREDENTIALS", "DB_CREDENTIAL", "DATABRICKS_PAT", "X_BEARER", "X_AUTH_Y"} {
-		if _, err := parseOverlay(t, envOverlay(k)); err == nil || !strings.Contains(err.Error(), k) {
-			t.Errorf("credential-shaped env key %s accepted (err %v)", k, err)
-		}
-	}
-}
-
-// The copilot fallback keeps the registry's declared Databricks profile order.
-func TestOrderedDatabricksKeepsRegistryOrder(t *testing.T) {
-	reg, err := Parse([]byte(`{"providers":{"databricks":{
-		"prod":{"preset":"databricks","host":"https://h.cloud.databricks.com"},
-		"zeta":{"preset":"databricks","host":"https://h.cloud.databricks.com"},
-		"dev":{"preset":"databricks","host":"https://h.cloud.databricks.com"},
-		"qa":{"preset":"databricks","host":"https://h.cloud.databricks.com"},
-		"alpha":{"preset":"databricks","host":"https://h.cloud.databricks.com"}}}}`), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reg.Providers["ultra"] = &Provider{Name: "ultra", Provider: "anthropic"}
-	want := []string{"prod", "zeta", "dev", "qa", "alpha"}
-	if got := DatabricksProfiles(reg); !slices.Equal(got, want) {
-		t.Errorf("DatabricksProfiles = %v, want %v", got, want)
 	}
 }

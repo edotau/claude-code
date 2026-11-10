@@ -2,6 +2,8 @@ package providers
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,4 +46,35 @@ func TestClearLastProfilesTakesFileLock(t *testing.T) {
 	if _, err := os.Stat(lastProfileFile()); !os.IsNotExist(err) {
 		t.Errorf("last-profile.json still present after clear: %v", err)
 	}
+}
+
+func TestConfigFixRecordLastProfileWarnsOnPersistenceFailure(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	state := filepath.Join(dir, "state")
+	writeTestFile(t, state, "not a directory", 0o600)
+	stderr := captureConfigFixStderr(t, func() { RecordLastProfile("claude", "work") })
+	for _, want := range []string{"warning: last profile for claude not saved:", state, "not a directory"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr = %q, want containing %q", stderr, want)
+		}
+	}
+}
+
+func captureConfigFixStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	file, err := os.CreateTemp(t.TempDir(), "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	old := os.Stderr
+	os.Stderr = file
+	defer func() { os.Stderr = old }()
+	fn()
+	data, err := os.ReadFile(file.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }

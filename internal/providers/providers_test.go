@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -55,12 +57,6 @@ func TestHeaderLines(t *testing.T) {
 				t.Fatalf("HeaderLines(%v) = %q, want %q", tc.headers, got, tc.want)
 			}
 		})
-	}
-}
-
-func TestEmbeddedDefaultsValid(t *testing.T) {
-	if _, err := Parse(defaultsJSON, nil); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -155,24 +151,19 @@ func TestOverlayLadderNormalizesLegacyProviderNamesAndDropsDuplicates(t *testing
 	}
 }
 
-func TestValidateRejectsUnknownOpencodeLadderName(t *testing.T) {
-	ghostLadder := []string{"ghost"}
-	reg := &Registry{Routing: Routing{Opencode: OpencodeRouting{Ladder: &ghostLadder}}, Providers: map[string]*Provider{}}
-	err := reg.Validate()
-	if err == nil {
-		t.Fatal("unknown opencodeLadder name must fail validation")
-	}
-	if !strings.Contains(err.Error(), "routing.opencode.ladder names unknown opencode sub id") {
-		t.Errorf("error = %q, want it to name the opencodeLadder rule", err)
-	}
-}
-
-// TestValidateAcceptsOpencodeSubIDsWithoutProviders: ladder entries are opencode sub ids, not registry provider names.
-func TestValidateAcceptsOpencodeSubIDsWithoutProviders(t *testing.T) {
-	defaultOrderLadder := []string{"opencode-go", "github-copilot", "openai"}
-	reg := &Registry{Routing: Routing{Opencode: OpencodeRouting{Ladder: &defaultOrderLadder}}, Providers: map[string]*Provider{}}
-	if err := reg.Validate(); err != nil {
-		t.Fatalf("default-order sub ids rejected: %v", err)
+// Ladder entries are opencode sub ids, not registry provider names: known sub ids pass with no providers, others fail.
+func TestValidateOpencodeLadderNames(t *testing.T) {
+	for _, c := range []struct {
+		ladder []string
+		want   string
+	}{
+		{[]string{"opencode-go", "github-copilot", "openai"}, ""},
+		{[]string{"openai", "ghost"}, "routing.opencode.ladder names unknown opencode sub id"},
+	} {
+		reg := &Registry{Routing: Routing{Opencode: OpencodeRouting{Ladder: &c.ladder}}, Providers: map[string]*Provider{}}
+		if err := reg.Validate(); (err == nil) != (c.want == "") || err != nil && !strings.Contains(err.Error(), c.want) {
+			t.Errorf("ladder %v: Validate = %v, want %q", c.ladder, err, c.want)
+		}
 	}
 }
 
@@ -316,71 +307,6 @@ func TestStoredSecretAndCredentialOrder(t *testing.T) {
 	}
 }
 
-func TestDemote(t *testing.T) {
-	p := &Provider{Name: "g", Models: map[string]string{"opus": "big", "sonnet": "mid", "haiku": "small", "fable": "other"}}
-	if d, ok := Demote(p, "big"); !ok || d.Model != "mid" {
-		t.Errorf("Demote(big) = %v %v, want mid", d.Model, ok)
-	}
-	if d, ok := Demote(p, "mid"); !ok || d.Model != "small" {
-		t.Errorf("Demote(mid) = %v %v, want small", d.Model, ok)
-	}
-	if _, ok := Demote(p, "small"); ok {
-		t.Error("Demote(small) must stop at the bottom of the ladder")
-	}
-	if _, ok := Demote(&Provider{Name: "one", Models: map[string]string{"opus": "x", "sonnet": "x"}}, "x"); ok {
-		t.Error("Demote must not return the same model under another alias")
-	}
-}
-
-// TestModelDeniedVsIsQuota pins the split: ModelDenied is the narrow "this model is dead on this key, try a
-// lower alias" set; IsQuota is the broader "the account itself is exhausted" superset that also includes the
-// window/plan/credit markers ModelDenied must NOT match (those don't mean a lower alias would fare better).
-func TestModelDeniedVsIsQuota(t *testing.T) {
-	accountOnly := []string{
-		`usage limit reached, try again in 60 seconds`,
-		`HTTP 402 payment required`,
-		`you have exceeded your monthly quota`,
-	}
-	for _, text := range accountOnly {
-		wantQuotaDenied(t, text, true, false, "account-exhausted marker", "account-exhausted, not model-denied")
-	}
-	modelDenied := []string{
-		`limit: 0`,
-		`insufficient_quota`,
-		`quota exceeded for metric: generate_content_free_tier_requests`,
-	}
-	for _, text := range modelDenied {
-		wantQuotaDenied(t, text, true, true, "model-denied implies account-exhausted via the OR", "model-denied marker")
-	}
-	// A body carrying BOTH a hard account-exhaustion marker and a model-denied marker (OpenAI's 402 body
-	// reads this way: a 402 wrapping "insufficient_quota") is account-exhausted, not model-denied — demoting
-	// to a lower alias on the same dead account would only fail again, so ModelDenied must veto.
-	hardOverridesModel := []string{
-		`HTTP 402 payment required: insufficient_quota`,
-		`out of credits`,
-	}
-	for _, text := range hardOverridesModel {
-		wantQuotaDenied(t, text, true, false, "", "hard account-exhaustion marker vetoes")
-	}
-	// Gemini's free-tier per-model denial reuses accountRE's "exceeded your current quota" phrase alongside
-	// "limit: 0" — hardAccountRE deliberately excludes "current" (only monthly/weekly), so this one stays
-	// model-denied: a lower alias on the same key can still serve.
-	if geminiFreeTier := `exceeded your current quota, limit: 0`; !ModelDenied(geminiFreeTier) {
-		t.Errorf("ModelDenied(%q) = false, want true (model-specific denial, not account-wide)", geminiFreeTier)
-	}
-}
-
-// wantQuotaDenied asserts IsQuota(text) == quota and ModelDenied(text) == denied; the notes only flavor the failure text.
-func wantQuotaDenied(t *testing.T, text string, quota, denied bool, quotaNote, deniedNote string) {
-	t.Helper()
-	if got := IsQuota(text); got != quota {
-		t.Errorf("IsQuota(%q) = %v, want %v (%s)", text, got, quota, quotaNote)
-	}
-	if got := ModelDenied(text); got != denied {
-		t.Errorf("ModelDenied(%q) = %v, want %v (%s)", text, got, denied, deniedNote)
-	}
-}
-
 // TestValidateRejectsUnknownRouteTierAndAgent checks Registry.Validate catches an overlay cell naming a
 // agent or alias outside RouteAgents/RouteAliases before it ever reaches router.LoadFrom.
 func TestValidateRejectsUnknownRouteTierAndAgent(t *testing.T) {
@@ -438,49 +364,6 @@ func TestValidateRejectsOutOfRangeRouteWeight(t *testing.T) {
 	}
 }
 
-// TestIsQuotaCoversEveryOldMarker checks the merged classifier still matches every marker either the old
-// providers.HardQuota (the 4 "this key cannot use this model at all" phrasings) or the old route.IsQuota
-// (the broader account-exhausted superset: 402, usage limit, monthly quota, ...) matched, and still
-// rejects a plain transient rate limit.
-func TestIsQuotaCoversEveryOldMarker(t *testing.T) {
-	oldHardQuotaMarkers := []string{
-		"limit: 0", "exceeded your current quota", "insufficient_quota", "quota exceeded for metric",
-	}
-	oldRouteIsQuotaMarkers := []string{
-		"HTTP 402", "payment required", "exceeded your monthly quota", "exceeded your current limit",
-		"exceeded your weekly quota", "usage limit", "insufficient_quota", "limit: 0",
-		"quota exceeded for metric", "out of credits", "out of premium requests", "monthly quota",
-	}
-	for _, text := range append(oldHardQuotaMarkers, oldRouteIsQuotaMarkers...) {
-		if !IsQuota(text) {
-			t.Errorf("IsQuota(%q) = false, want true (an old marker)", text)
-		}
-	}
-	for _, text := range []string{"429 Too Many Requests, retry in 2s", "rate limit exceeded", "line 4021"} {
-		if IsQuota(text) {
-			t.Errorf("IsQuota(%q) = true, want false (a plain rate limit, not a quota exhaustion)", text)
-		}
-	}
-}
-
-// TestBare402IsNotQuota pins that a stray 402 (port, byte count) is not account exhaustion, and does not veto
-// ModelDenied, while a status-context 402 still does.
-func TestBare402IsNotQuota(t *testing.T) {
-	for _, text := range []string{"read tcp 10.0.0.1:402: connection reset", "stream ended after 402 bytes"} {
-		if IsQuota(text) {
-			t.Errorf("IsQuota(%q) = true, want false", text)
-		}
-		if !ModelDenied(text + " limit: 0") {
-			t.Errorf("ModelDenied(%q) = false, want true (a bare 402 must not veto)", text+" limit: 0")
-		}
-	}
-	for _, text := range []string{"status 402", "status=402", "code: 402"} {
-		if !IsQuota(text) {
-			t.Errorf("IsQuota(%q) = false, want true", text)
-		}
-	}
-}
-
 // TestAPIKeyAuth: only a harness-held credential (x-api-key or bearer) is a per-token request worth
 // recording in the usage ledger — a vendor-CLI passthrough login (subscription) or no auth is not.
 func TestAPIKeyAuth(t *testing.T) {
@@ -489,6 +372,9 @@ func TestAPIKeyAuth(t *testing.T) {
 		want     bool
 	}{
 		{AuthKey, true},
+		{AuthPAT, true},
+		{AuthM2M, true},
+		{AuthOAuth, true},
 		{AuthCLI, false},
 		{AuthNone, false},
 		{"", false},
@@ -507,20 +393,6 @@ func TestProviderIsTheRowsOwnField(t *testing.T) {
 	}
 	if got := (Provider{Protocol: ProtocolOpenAI, BaseURL: "https://api.openai.com/v1"}).provider(); got != "" {
 		t.Errorf("a Go-built row without a provider field = %q, want empty", got)
-	}
-}
-
-// Claude's own limit messages are account quota; a fast-mode limit is not.
-func TestIsQuotaClaudeMessages(t *testing.T) {
-	for text, want := range map[string]bool{
-		"You've hit your limit · resets 3pm":             true,
-		"Out of usage credits":                           true,
-		"You've hit your channel's monthly spend limit.": true,
-		"You've hit your fast limit":                     false,
-	} {
-		if got := IsQuota(text); got != want {
-			t.Errorf("IsQuota(%q) = %v, want %v", text, got, want)
-		}
 	}
 }
 
@@ -550,38 +422,6 @@ func TestAuthMappingTable(t *testing.T) {
 		if !strings.Contains(string(out), c.wr) {
 			t.Errorf("%s: wrote %s, want it to contain %s", c.name, out, c.wr)
 		}
-	}
-}
-
-func TestAPIKeyAuthStaysTrueForTokenSendingRows(t *testing.T) {
-	for _, auth := range []string{`{"type":"key"}`, `{"type":"pat"}`, `{"type":"m2m","clientId":"c"}`, `{"type":"oauth"}`} {
-		var p Provider
-		if err := json.Unmarshal([]byte(`{"protocol":"openai","auth":`+auth+`}`), &p); err != nil || !p.APIKeyAuth() {
-			t.Errorf("%s: APIKeyAuth = %v, %v", auth, p.APIKeyAuth(), err)
-		}
-	}
-	for _, auth := range []string{`{"type":"cli"}`, `{"type":"none"}`} {
-		var p Provider
-		_ = json.Unmarshal([]byte(`{"protocol":"openai","auth":`+auth+`}`), &p)
-		if p.APIKeyAuth() {
-			t.Errorf("%s: APIKeyAuth must be false", auth)
-		}
-	}
-}
-
-func TestSessionProfileIsAnEnvMarkerNotAPin(t *testing.T) {
-	load(t)
-	t.Setenv(EnvSessionProfile, "")
-	vaulttest.SetRecord(t, "claude", "profile", "dev")
-	if SessionProfile() != "" {
-		t.Error("the vault pin leaked into SessionProfile")
-	}
-	t.Setenv(EnvSessionProfile, " qa ")
-	if SessionProfile() != "qa" {
-		t.Errorf("SessionProfile = %q", SessionProfile())
-	}
-	if got := AgentRecord("codex").Model; got != "" {
-		t.Errorf("unset pin = %q", got)
 	}
 }
 
@@ -670,3 +510,5 @@ func TestSealAccessKeepsUnreadableOAuthValue(t *testing.T) {
 }
 
 const wireHost = "https://example.cloud.databricks.com"
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

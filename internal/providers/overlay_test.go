@@ -109,66 +109,30 @@ func storedProfiles(t *testing.T) []string {
 	return profileOrder(top["providers"])
 }
 
-func touch(name string) func(map[string]json.RawMessage, *vault.Tx) error {
-	return func(top map[string]json.RawMessage, _ *vault.Tx) error {
-		var rows map[string]json.RawMessage
-		if err := json.Unmarshal(top["providers"], &rows); err != nil {
-			return err
-		}
-		var f map[string]json.RawMessage
-		_ = json.Unmarshal(rows[name], &f)
-		f["note"] = json.RawMessage(`"x"`)
-		b, _ := json.Marshal(f)
-		rows[name] = b
-		// keep flat key order by re-marshalling in the current order
-		keys := ObjectKeys(top["providers"])
-		nb, err := MarshalOrdered(keys, rows)
-		top["providers"] = nb
-		return err
-	}
-}
-
-func TestOverlayRoundTripKeepsDeclaredOrder(t *testing.T) {
-	seedOrder(t, "dev", "qa", "prod")
-	if got, want := storedProfiles(t), []string{"dev", "qa", "prod"}; !slices.Equal(got, want) {
-		t.Fatalf("stored order = %v, want %v", got, want)
-	}
-	if _, _, err := UpdateOverlayDoc(true, func(map[string]json.RawMessage, *vault.Tx) error { return nil }); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := storedProfiles(t), []string{"dev", "qa", "prod"}; !slices.Equal(got, want) {
-		t.Errorf("after no-op update = %v, want %v", got, want)
-	}
-}
-
-func TestOverlayUnrelatedUpdateDoesNotResort(t *testing.T) {
+// Writes through the real edit paths keep the stored declared order: no re-sort on a no-op or row edit, a new row last.
+func TestOverlayWritesKeepDeclaredOrder(t *testing.T) {
 	seedOrder(t, "prod", "dev", "qa")
-	if _, _, err := UpdateOverlayDoc(true, touch("dev")); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := storedProfiles(t), []string{"prod", "dev", "qa"}; !slices.Equal(got, want) {
-		t.Errorf("after row update = %v, want declared %v (not sorted)", got, want)
-	}
-}
-
-func TestOverlayNewRowAppendsLast(t *testing.T) {
-	seedOrder(t, "prod", "dev", "qa")
-	_, _, err := UpdateOverlayDoc(true, func(top map[string]json.RawMessage, _ *vault.Tx) error {
-		var rows map[string]json.RawMessage
-		if err := json.Unmarshal(top["providers"], &rows); err != nil {
+	steps := []struct {
+		name  string
+		write func() error
+		want  []string
+	}{
+		{"no-op update", func() error {
+			_, _, err := UpdateOverlayDoc(true, func(map[string]json.RawMessage, *vault.Tx) error { return nil })
 			return err
-		}
-		rows["aaa"] = orderRow("aaa")
-		keys := append(ObjectKeys(top["providers"]), "aaa")
-		b, err := MarshalOrdered(keys, rows)
-		top["providers"] = b
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
+		}, []string{"prod", "dev", "qa"}},
+		{"row edit", func() error { return SetProviderModel("dev", "opus", "my-opus") }, []string{"prod", "dev", "qa"}},
+		{"new row", func() error {
+			return SetProviderFields("aaa", map[string]any{"preset": "databricks", "host": "https://aaa.cloud.databricks.com"})
+		}, []string{"prod", "dev", "qa", "aaa"}},
 	}
-	if got, want := storedProfiles(t), []string{"prod", "dev", "qa", "aaa"}; !slices.Equal(got, want) {
-		t.Errorf("after add = %v, want new row last %v", got, want)
+	for _, st := range steps {
+		if err := st.write(); err != nil {
+			t.Fatalf("%s: %v", st.name, err)
+		}
+		if got := storedProfiles(t); !slices.Equal(got, st.want) {
+			t.Fatalf("after %s: stored order = %v, want %v", st.name, got, st.want)
+		}
 	}
 }
 

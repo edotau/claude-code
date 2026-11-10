@@ -2,13 +2,64 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/databricks/oauth"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+func TestSealLoginWrongIssuerPreservesStoredTokens(t *testing.T) {
+	vaulttest.Use(t)
+	p := &Provider{Name: "login-issuer", Provider: GroupDatabricks, Preset: PresetDatabricks,
+		Host: "https://expected.example.com", Auth: Auth{Type: AuthOAuth}}
+	const previous = `{"refresh":"previous-refresh","access":"previous-access"}`
+	vaulttest.Secret(t, AuthSecretName(p), previous)
+	cmdCache.Delete(p.Name)
+	t.Cleanup(func() { cmdCache.Delete(p.Name) })
+	_, err := sealLogin(p, oauth.Token{Refresh: "wrong-refresh",
+		Access: jwtExpIn(time.Hour, "https://wrong.example.com/oidc"), Expiry: time.Now().Add(time.Hour)})
+	if _, ok := errors.AsType[*HostMismatchError](err); !ok {
+		t.Fatalf("sealLogin error = %v, want HostMismatchError", err)
+	}
+	stored, found, readErr := vault.ReadSecret(AuthSecretName(p))
+	if readErr != nil || !found || stored != previous {
+		t.Fatalf("wrong issuer replaced stored tokens: found=%t unchanged=%t err=%v", found, stored == previous, readErr)
+	}
+	if _, found := cmdCache.Load(p.Name); found {
+		t.Fatal("wrong issuer populated the command cache")
+	}
+}
+
+// The legacy sweep deletes an unreadable hash slot without decrypting it, marks the vault and keeps other names.
+func TestDropLegacyAccessSweepsUnreadableSlotOnce(t *testing.T) {
+	vaulttest.Use(t)
+	legacySwept.Store(false)
+	t.Cleanup(func() { legacySwept.Store(false) })
+	const slot, keep = "DATABRICKS_M2M_0123456789ABCDEF_ACCESS", "DATABRICKS_DEV_M2M_ACCESS"
+	vaulttest.Put(t, vault.Secrets, slot, "{malformed-record")
+	if err := vault.Store(keep, "kept"); err != nil {
+		t.Fatal(err)
+	}
+	dropLegacyAccess()
+	names, err := vault.NamesErr()
+	if err != nil || slices.Contains(names, slot) || !slices.Contains(names, keep) {
+		t.Fatalf("sweep: names = %v, err = %v", names, err)
+	}
+	legacySwept.Store(false) // a new process: the vault marker alone must stop a second sweep
+	vaulttest.Put(t, vault.Secrets, slot, "{malformed-record")
+	dropLegacyAccess()
+	if names, _ := vault.NamesErr(); !slices.Contains(names, slot) {
+		t.Fatal("a marked vault was swept again")
+	}
+}
 
 // rotRow is a u2m row whose token endpoint rotates to refresh-2 and breaks the vault dir after the first refresh.
 func rotRow(t *testing.T) (*Provider, *[]string, string) {
