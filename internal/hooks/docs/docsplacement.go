@@ -90,19 +90,17 @@ func docsPlacementPath(ctx context.Context, in *core.Input, path string, stderr 
 	if path == "" || !isMarkdownPath(path) {
 		return core.ExitProceed
 	}
-	if !filepath.IsAbs(path) && in.CWD != "" {
-		path = filepath.Join(in.CWD, path)
-	}
+	path = resolveCWDPath(path, in.CWD)
 	// Canonicalize, don't just absolutize: a write spelled through a symlink would never compare
 	// equal to the realpath git reports, and would walk straight past the gate.
-	abs := canonDeep(path)
+	abs := core.CanonPath(path)
 	dir, base := filepath.Dir(abs), filepath.Base(abs)
 	if rootAnchors[strings.ToLower(base)] {
 		return core.ExitProceed
 	}
 	// The harness's own docs/ holds only images and templates; anything else there is a retired home.
-	config := canonDeep(paths.ConfigDir())
-	if harnessDocs := canonDeep(filepath.Join(config, "docs")); core.UnderDir(harnessDocs, abs) {
+	config := core.CanonPath(paths.ConfigDir())
+	if harnessDocs := core.CanonPath(filepath.Join(config, "docs")); core.UnderDir(harnessDocs, abs) {
 		return harnessDocsPlacement(ctx, stderr, config, harnessDocs, abs, base)
 	}
 	return repoDocsPlacement(ctx, stderr, dir, base, abs)
@@ -171,7 +169,7 @@ func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 func blockPlacement(stderr io.Writer, base, where, root string) int {
 	plansDir := filepath.Join(paths.ConfigDir(), "plans")
 	store := memory.Dir(root)
-	if core.UnderDir(canonDeep(memory.StoreDir()), canonDeep(root)) {
+	if core.UnderDir(core.CanonPath(memory.StoreDir()), core.CanonPath(root)) {
 		store = root // a repo inside the memory store is its own bank, not the home one
 	}
 	plansHome := plans.Home(planRepoRoot(root))
@@ -197,15 +195,6 @@ func blockPlacement(stderr io.Writer, base, where, root string) int {
 func isMarkdownPath(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == ".md" || ext == ".markdown"
-}
-
-// canonDeep resolves p's deepest existing ancestor and re-joins the missing tail, so a nested target
-// under a dir that does not exist yet (docs/reports/x/) still compares equal to the realpath git reports.
-func canonDeep(p string) string {
-	if a, err := filepath.Abs(p); err == nil {
-		p = a
-	}
-	return paths.CanonDeep(p)
 }
 
 // isTracked reports whether git lists rel (repo-RELATIVE, slash-separated) at root; err is git's failure.

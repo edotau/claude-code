@@ -39,24 +39,35 @@ var _ = schemas.Register(schemas.Format{
 // claimOwner is the session's Claude Code pid; a var seam so tests pick the owner.
 var claimOwner = inflight.SessionOwner
 
+// sessionSlug is the session id as the file-name slug every per-session state file uses.
+func sessionSlug(session string) string { return paths.Slug(session, "", 80, "session") }
+
 func claimsDir() string { return worktree.ClaimsDir() } // one home for the path: the reader lives in worktree
 
 // claimsFile is <claims>/<owner pid>-<session slug>.jsonl; a dead owner pid retires the whole file.
 func claimsFile(owner int, session string) string {
-	return filepath.Join(claimsDir(), fmt.Sprintf("%d-%s.jsonl", owner, paths.Slug(session, "", 80, "session")))
+	return filepath.Join(claimsDir(), fmt.Sprintf("%d-%s.jsonl", owner, sessionSlug(session)))
 }
 
 // Claim records the written path, each sha a landed `git commit` printed, and each path `git add` staged.
 func Claim(in *core.Input) core.Result {
+	if in.SessionID == "" {
+		return core.Result{}
+	}
+	p, cmd := editPath(in), in.ToolCommand()
+	bash := in.ToolName == "Bash" && (core.GitCommitCmd.MatchString(cmd) || gitStageCmd().MatchString(cmd))
+	if p == "" && !bash {
+		return core.Result{} // records nothing: skip the owner lookup, which spawns ps on macOS
+	}
 	owner := claimOwner()
-	if owner == 0 || in.SessionID == "" {
+	if owner == 0 {
 		return core.Result{}
 	}
 	now := time.Now().Unix()
 	var lines []claim
-	if p := editPath(in); p != "" {
+	if p != "" {
 		lines = append(lines, claim{Path: p, Agent: in.AgentID, TS: now})
-	} else if in.ToolName == "Bash" {
+	} else {
 		lines = bashClaims(in, now)
 	}
 	appendClaims(claimsFile(owner, in.SessionID), lines)
@@ -72,7 +83,7 @@ func bashClaims(in *core.Input, now int64) []claim {
 			lines = append(lines, claim{Commit: m[1], Agent: in.AgentID, TS: now})
 		}
 	}
-	if gitStageCmd.MatchString(in.ToolCommand()) {
+	if gitStageCmd().MatchString(in.ToolCommand()) {
 		lines = append(lines, stagedClaims(in, now)...) // Bash and external-agent edits are claimed when staged
 	}
 	return lines

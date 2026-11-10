@@ -1,5 +1,5 @@
 // The dispatch group's PreToolUse runner: cap → pin → claim on one Agent/Task/Workflow spawn, so a blocked
-// dispatch claims nothing; the post-side runners live in inflight.go.
+// dispatch claims nothing; the post-side runners (Release, Stop) follow Effort below.
 package agents
 
 import (
@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/job"
@@ -23,7 +24,7 @@ import (
 )
 
 // agentCallRe finds `agent(` call sites in a Workflow script.
-var agentCallRe = regexp.MustCompile(`(?:^|[^\w$.])agent\s*\(`)
+var agentCallRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?:^|[^\w$.])agent\s*\(`) })
 
 // Effort: the cap check, then the pin step, then the claim (a Workflow claims one slot per agent() site).
 func Effort(in *core.Input) core.Result {
@@ -73,11 +74,11 @@ func workflowLeaves(in *core.Input, res core.Result) int {
 			}
 		}
 	}
-	return len(agentCallRe.FindAllStringIndex(script, -1))
+	return len(agentCallRe().FindAllStringIndex(script, -1))
 }
 
 // The release side of the dispatch cap: PostToolUseFailure, PostToolUse(Workflow) and SubagentStop retire the
-// markers `agent-effort` claimed in internal/proc/inflight; back-pressure, not a mutex.
+// markers `agent-effort` claimed in internal/inflight; back-pressure, not a mutex.
 
 // Release retires the exact tool_use_id a spawn or Workflow claimed; a blocked dispatch wrote none, so it is a no-op.
 func Release(in *core.Input) core.Result {
@@ -184,7 +185,9 @@ func leafStopVerdict(agentID string, rec job.Record) (core.Result, bool) {
 }
 
 // ranOnPattern matches the `ask: ran on <agent> · ` stderr line or the json "ran_on" field; docs quoting it do not match.
-var ranOnPattern = regexp.MustCompile(`ask: ran on [\w.-]+ · |"ran_on":\s*"ran on [\w.-]+ · `)
+var ranOnPattern = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`ask: ran on [\w.-]+ · |"ran_on":\s*"ran on [\w.-]+ · `)
+})
 
 // ranOnGateMark opens the ran-on gate's reason; a hook block carrying it counts as one prior gate.
 const ranOnGateMark = "No tool result of yours carries an `ask: ran on` line"
@@ -249,7 +252,7 @@ func leafBrief(path string) (s leafScan, err error) {
 // scanResult reads one tool result: a ran-on line, a delivered hand-back, or a denied hand-back (a PreToolUse hook error).
 func (s *leafScan) scanResult(it leafToolResult) {
 	text := transcript.ContentText(it.Content)
-	s.ranOn = s.ranOn || ranOnPattern.MatchString(text)
+	s.ranOn = s.ranOn || ranOnPattern().MatchString(text)
 	if it.IsError {
 		if strings.Contains(text, " hook error: ") && strings.Contains(text, ranOnGateMark) {
 			s.gates++
@@ -283,11 +286,14 @@ func requestsAgent(brief string) bool {
 	case strings.Contains(brief, "Routed by agent-effort"):
 		return true
 	}
-	return agentLineRe.MatchString(brief) || briefProfile(brief) != ""
+	return agentLineRe().MatchString(brief) || briefProfile(brief) != ""
 }
 
 // externalTypes are the leaf types named for the external agent they request; the type is the request.
 var externalTypes = map[string]bool{"codex": true, "copilot": true, "gemini": true, "opencode": true}
+
+// labelAgent is true for an agent a dispatch label may name (claude or an external type), and a type that carries one.
+func labelAgent(name string) bool { return name == "claude" || externalTypes[name] }
 
 // coworkerAgents maps each coworker leaf type to the agent it runs when its brief names none; the type is the request.
 var coworkerAgents = map[string]string{"coworker": "copilot", "coworker:copilot": "copilot",
@@ -306,15 +312,10 @@ func pinnedAgentType(t string) bool {
 	return externalTypes[t] || coworkerAgents[t] != ""
 }
 
-// ranOnGated is true for the leaves that can call an external agent: codex|copilot|gemini|opencode and coworker[:*].
-func ranOnGated(t string) bool {
-	return pinnedAgentType(t)
-}
-
 // ranOnVerdict blocks a gated leaf's stop or hand-back up to ranOnMaxBlocks times when no ran-on line was seen.
 func ranOnVerdict(in *core.Input, agentID string) (core.Result, bool) {
 	t := leafAgentType(in)
-	if !ranOnGated(t) {
+	if !pinnedAgentType(t) { // only leaves that can call an external agent: codex|copilot|gemini|opencode, coworker[:*]
 		return core.Result{}, false
 	}
 	s, err := leafBrief(in.AgentTranscriptPath)

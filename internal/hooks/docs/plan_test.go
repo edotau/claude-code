@@ -2,7 +2,6 @@ package docs
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -165,25 +164,6 @@ func TestSavePlanRelativeFallback(t *testing.T) {
 	}
 }
 
-func TestSavePlanWriteFailureDoesNotAudit(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if err := os.WriteFile(filepath.Join(cfg, "plans"), []byte("not a directory"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var stderr bytes.Buffer
-	if code := Save(core.ParseInput(strings.NewReader(planPayload(t, cfg, "# Probe\n", ""))), &stderr); code != core.ExitProceed {
-		t.Fatalf("write failure must fail open, got %d", code)
-	}
-	if !strings.Contains(stderr.String(), "save-plan:") {
-		t.Fatalf("write failure was not reported: %s", &stderr)
-	}
-	events, err := audit.Read(time.Time{})
-	if err != nil || len(events) != 0 {
-		t.Fatalf("failed save audit events = %v, err = %v", events, err)
-	}
-}
-
 func TestSavePlanFilesTaggedOnceAndVersionsEdits(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -230,15 +210,6 @@ func TestWithTasks(t *testing.T) {
 	}
 }
 
-// TestPlanTitleSkipsFrontMatter: planTitle parses via the mdsmith AST, so a "#"-prefixed line inside the
-// "---" front-matter fences is never mistaken for the real H1 below it (fixed from a raw line scan).
-func TestPlanTitleSkipsFrontMatter(t *testing.T) {
-	plan := "---\n# title: Real Title\ntitle: Something\n---\n\n# Actual Heading\n\nbody\n"
-	if got, want := planTitle([]byte(plan)), "actual-heading"; got != want {
-		t.Errorf("planTitle(frontmatter) = %q, want %q", got, want)
-	}
-}
-
 // TestPlanTitlePrefersSlugLine: the template's "Suggested slug:" line names the file; the long H1 is only the
 // fallback (a 70-char title-derived name was the complaint).
 func TestPlanTitlePrefersSlugLine(t *testing.T) {
@@ -250,15 +221,6 @@ func TestPlanTitlePrefersSlugLine(t *testing.T) {
 	bare := "# Plan: X\n\nslug: Fable Refine\n"
 	if got, want := planTitle([]byte(bare)), "x"; got != want {
 		t.Errorf("planTitle(non-slug value) must fall back to the H1, got %q, want %q", got, want)
-	}
-}
-
-// TestPlanTitleSkipsFencedHeading: a "#" line inside a fenced code block is not an AST heading, so planTitle
-// correctly falls through to the real heading after the fence (fixed from a raw line scan).
-func TestPlanTitleSkipsFencedHeading(t *testing.T) {
-	plan := "```\n# Not A Title\n```\n\n# Real Title\n\nbody\n"
-	if got, want := planTitle([]byte(plan)), "real-title"; got != want {
-		t.Errorf("planTitle(fenced) = %q, want %q", got, want)
 	}
 }
 
@@ -406,85 +368,6 @@ func TestPlanGateBlocksWithSkeleton(t *testing.T) {
 	}
 }
 
-// tickFixture commits a/one.go and "b/two file.go" in a fresh repo with a two-task plan; tick feeds a Bash commit result.
-func tickFixture(t *testing.T) (planPath, sha string, tick func(command, out string) string) {
-	t.Helper()
-	_, home := planGroupEnv(t, false)
-	repo := filepath.Join(home, "widgets")
-	if err := os.MkdirAll(repo, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	hosttest.In(t, repo, "init", "-q")
-	hosttest.In(t, repo, "config", "commit.gpgsign", "false")
-	hosttest.WriteRel(t, repo, "a/one.go", "package a\n")
-	hosttest.WriteRel(t, repo, "b/two file.go", "package b\n")
-	hosttest.In(t, repo, "add", "a/one.go", "b/two file.go")
-	hosttest.In(t, repo, "commit", "-q", "-m", "x", "--no-gpg-sign")
-	sha = strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "--short=7", "HEAD"))
-
-	dir := plans.Home(repo)
-	planPath = filepath.Join(dir, "2026-10-29-widgets.md")
-	hosttest.WriteRel(t, dir, "2026-10-29-widgets.md", "# Plan: w\n\n## Tasks\n\n"+
-		"- [ ] 1.1 Full task owns: a/one.go, b/two file.go\n"+
-		"- [ ] 1.2 Partial task owns: a/one.go, c/never.go\n")
-	t.Setenv("HOME", home)
-
-	tick = func(command, out string) string {
-		return runDocs(t, Tick, map[string]any{
-			"hook_event_name": "PostToolUse", "session_id": "tick1", "tool_name": "Bash", "cwd": t.TempDir(),
-			"tool_input":    map[string]string{"command": command},
-			"tool_response": map[string]string{"stdout": out},
-		})
-	}
-	return planPath, sha, tick
-}
-
-const tickCmd = "git -C ~/widgets commit -m x"
-
-// Tick spanning: real commit -> PostToolUse Bash -> full tick + partial note + context.
-func TestPlanTickSpanning(t *testing.T) {
-	planPath, sha, tick := tickFixture(t)
-	cmd := tickCmd
-
-	before, _ := os.ReadFile(planPath)
-	// corners: no commit line / unknown sha change nothing
-	tick(cmd, "nothing to commit\n")
-	tick(cmd, "[main deadbee] x\n 1 file changed\n")
-	if after, _ := os.ReadFile(planPath); !bytes.Equal(before, after) {
-		t.Fatalf("plan changed on a non-landing commit:\n%s", after)
-	}
-
-	out := tick(cmd, "[main "+sha+"] x\n 2 files changed\n")
-	got, _ := os.ReadFile(planPath)
-	text := string(got)
-	if !strings.Contains(text, "- [x] 1.1 Full task owns: a/one.go, b/two file.go ("+sha+")") {
-		t.Fatalf("task 1.1 not ticked (space filename should match):\n%s", text)
-	}
-	if !strings.Contains(text, "- [ ] 1.2") || !strings.Contains(strings.ToLower(text), "partly landed") {
-		t.Fatalf("task 1.2 should stay open with a partly-landed note:\n%s", text)
-	}
-	if !strings.Contains(out, "1.1") || !strings.Contains(out, "1.2") {
-		t.Fatalf("additionalContext = %q, want both tasks named", out)
-	}
-
-}
-
-func TestPlanTickRelativeDashCAfterCD(t *testing.T) {
-	planPath, sha, tick := tickFixture(t)
-	cmd := "cd " + os.Getenv("HOME") + " && git -C widgets commit -m x"
-	out := tick(cmd, "[main "+sha+"] x\n 2 files changed\n")
-	got, err := os.ReadFile(planPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(got), "- [x] 1.1 Full task owns: a/one.go, b/two file.go ("+sha+")") {
-		t.Fatalf("relative -C after cd did not tick the committed task:\n%s", got)
-	}
-	if !strings.Contains(out, "1.1") {
-		t.Fatalf("additionalContext = %q, want the ticked task", out)
-	}
-}
-
 // The Stop reminder names a partly-landed task once, then stays quiet.
 func TestPlanTickReminderOnce(t *testing.T) {
 	_, sha, tick := tickFixture(t)
@@ -497,43 +380,6 @@ func TestPlanTickReminderOnce(t *testing.T) {
 	}
 	if second := stop(); second != "" {
 		t.Fatalf("second Stop = %q, want nothing", second)
-	}
-}
-
-// One Bash call with two commits (one detached, one with a quoted filename) ticks both; a fenced checkbox is untouched.
-func TestPlanTickMultiCommitDetachedQuoted(t *testing.T) {
-	_, home := planGroupEnv(t, false)
-	repo := filepath.Join(home, "gadgets")
-	if err := os.MkdirAll(repo, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	hosttest.In(t, repo, "init", "-q")
-	hosttest.In(t, repo, "config", "commit.gpgsign", "false")
-	commit := func(rel string) string {
-		hosttest.WriteRel(t, repo, rel, "x\n")
-		hosttest.In(t, repo, "add", rel)
-		hosttest.In(t, repo, "commit", "-q", "-m", "x", "--no-gpg-sign")
-		return strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "--short=7", "HEAD"))
-	}
-	s1 := commit("a/one.go")
-	s2 := commit("b/café two.go")
-
-	dir := plans.Home(repo)
-	planPath := filepath.Join(dir, "2026-10-29-gadgets.md")
-	hosttest.WriteRel(t, dir, "2026-10-29-gadgets.md", "# Plan: g\n\n- [ ] 1.1 First owns: a/one.go\n"+
-		"- [ ] 1.2 Second owns: b/café two.go\n\n```md\n- [ ] 1.3 Fenced owns: a/one.go\n```\n")
-	runDocs(t, Tick, map[string]any{
-		"hook_event_name": "PostToolUse", "session_id": "mc1", "tool_name": "Bash", "cwd": repo,
-		"tool_input":    map[string]string{"command": "git commit -m a && git commit -m b"},
-		"tool_response": map[string]string{"stdout": "[main " + s1 + "] a\n 1 file changed\n[detached HEAD " + s2 + "] b\n 1 file changed\n"},
-	})
-	got, _ := os.ReadFile(planPath)
-	text := string(got)
-	for _, want := range []string{"- [x] 1.1 First owns: a/one.go (" + s1 + ")",
-		"- [x] 1.2 Second owns: b/café two.go (" + s2 + ")", "\n- [ ] 1.3 Fenced owns: a/one.go\n"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("missing %q in:\n%s", want, text)
-		}
 	}
 }
 
@@ -560,92 +406,312 @@ func readPartial(t *testing.T, session string) string {
 	return string(b)
 }
 
-// commitRepoFixture builds a command and the (sha, cwd, want) lookups commitRepoDir must answer for it.
-type commitLookup struct{ sha, cwd, want string }
-
-func commitRepoFixture(t *testing.T, root string, worktrees bool) (string, []commitLookup) {
-	t.Helper()
-	g := func(dir string, args ...string) string {
-		return strings.TrimSpace(hosttest.In(t, dir, append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...))
-	}
-	a, b := filepath.Join(root, "a"), filepath.Join(root, "b")
-	g(root, "init", "-q", a)
-	g(a, "commit", "-q", "--allow-empty", "-m", "base")
-	if worktrees {
-		g(a, "worktree", "add", "-q", "-b", "wt", b)
-	} else {
-		g(root, "init", "-q", b)
-	}
-	g(a, "commit", "-q", "--allow-empty", "-m", "a")
-	g(b, "commit", "-q", "--allow-empty", "-m", "b")
-	cmd := "git -C " + a + " commit -m a && git -C " + b + " commit -m b"
-	shaA, shaB := g(a, "rev-parse", "HEAD"), g(b, "rev-parse", "HEAD")
-	lookups := []commitLookup{{shaA, root, a}, {shaB, root, b}}
-	if worktrees { // a non-commit -C is no candidate, so cwd wins
-		lookups = append(lookups, commitLookup{shaB, b, b})
-	}
-	return cmd, lookups
-}
-
-// Each sha of a chained `git -C A commit && git -C B commit` resolves to the repo (or linked worktree) that made it.
-func TestCommitRepoDirTriesEveryDashC(t *testing.T) {
-	for _, worktrees := range []bool{false, true} {
-		root := t.TempDir()
-		cmd, lookups := commitRepoFixture(t, root, worktrees)
-		for _, l := range lookups {
-			c := cmd
-			if l.cwd != root {
-				c = "git -C " + filepath.Join(root, "a") + " status && git commit -m b"
-			}
-			if got := commitRepoDir(context.Background(), l.cwd, c, l.sha); got != l.want {
-				t.Errorf("worktrees=%v cwd=%s: commitRepoDir = %q, want %q", worktrees, l.cwd, got, l.want)
-			}
-		}
-	}
-}
-
 func dateStamp() string { return time.Now().Format("2006-01-02") }
 
 const planTemplate = "# Plan: Widget Refactor\n\n## Context\n\nwhy\n\n## Phases\n\n### Phase 1 — do thing\n\n" +
 	"**Files:** x\n\n## Tasks\n\n- [ ] Phase 1\n"
 
-func TestWriteVerifiedPlanDropsEmptyClaimOnFailure(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if err := os.WriteFile(filepath.Join(cfg, "state"), []byte("x"), 0o600); err != nil { // plans.lock cannot be created
+func mirrorPayload(t *testing.T, tool, cwd, path string) string {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{
+		"hook_event_name": "PostToolUse", "tool_name": tool, "cwd": cwd,
+		"tool_input": map[string]string{"file_path": path},
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	dest := filepath.Join(t.TempDir(), "plans", "2026-11-05-probe.md")
-	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(dest, nil, 0o600); err != nil { // the claim planDestination makes
-		t.Fatal(err)
-	}
-	var stderr bytes.Buffer
-	if writeVerifiedPlan(dest, []byte("# Probe\n"), &stderr) {
-		t.Fatal("write with an unusable state dir succeeded")
-	}
-	if _, err := os.Stat(dest); !os.IsNotExist(err) {
-		t.Fatalf("empty claim left behind after failed write: stat err = %v", err)
+	return string(b)
+}
+
+// mirrorRun feeds one docs-plan-mirror PostToolUse for tool/path and requires the hook to fail open.
+func mirrorRun(t *testing.T, label, tool, cwd, path string) {
+	t.Helper()
+	if code := Mirror(core.ParseInput(strings.NewReader(mirrorPayload(t, tool, cwd, path))), &bytes.Buffer{}); code != core.ExitProceed {
+		t.Fatalf("%s = %d", label, code)
 	}
 }
 
-// TestSavePlanFromNestedConfigRepoFilesUntagged: a cwd in a git repo nested in the config dir (memory/<repo>) is
-// the harness itself, so the plan lands untagged under plans/, not under plans/memory/.
-func TestSavePlanFromNestedConfigRepoFilesUntagged(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	nested := hosttest.RepoAt(t, filepath.Join(cfg, "memory"))
-	cwd := filepath.Join(nested, "claude-code")
-	if err := os.MkdirAll(cwd, 0o700); err != nil {
+// writeMirrorDraft writes content to dir/name (creating dir) and returns the file's path.
+func writeMirrorDraft(t *testing.T, dir, name, content string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if code := Save(core.ParseInput(strings.NewReader(planPayload(t, cwd, "# Plan: Nested\n\nsteps\n", ""))), &bytes.Buffer{}); code != core.ExitProceed {
-		t.Fatalf("Save must never block, got %d", code)
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	want := []string{time.Now().Format("2006-01-02") + "-nested.md"}
-	if got := savedPlans(t, cfg); strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Fatalf("saved = %v, want %v", got, want)
+	return path
+}
+
+// wantMirrorFile fails unless path exists and holds exactly want.
+func wantMirrorFile(t *testing.T, path, want, what string) {
+	t.Helper()
+	if got, err := os.ReadFile(path); err != nil || string(got) != want {
+		t.Fatalf("%s %s: err=%v content=%q", what, path, err, got)
+	}
+}
+
+// approvalPayload is an ExitPlanMode PostToolUse whose tool_response carries planTemplate + the draft's filePath.
+// A nil toolInput omits the tool_input key entirely.
+func approvalPayload(t *testing.T, cwd, draft string, toolInput map[string]any) []byte {
+	t.Helper()
+	m := map[string]any{
+		"hook_event_name": "PostToolUse", "tool_name": "ExitPlanMode", "cwd": cwd,
+		"tool_response": map[string]any{"plan": planTemplate, "filePath": draft},
+	}
+	if toolInput != nil {
+		m["tool_input"] = toolInput
+	}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// approvePlan runs docs-plan-save on raw, requires it to fail open, and returns what it wrote to stderr.
+func approvePlan(t *testing.T, raw []byte) string {
+	t.Helper()
+	var stderr bytes.Buffer
+	if code := Save(core.ParseInput(bytes.NewReader(raw)), &stderr); code != core.ExitProceed {
+		t.Fatalf("Save = %d", code)
+	}
+	return stderr.String()
+}
+
+func TestPlanMirrorTopLevelWhenCWDIsConfigDir(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "funny-random-words.md", planTemplate)
+	mirrorRun(t, "Mirror", "Write", cfg, draft)
+	wantMirrorFile(t, filepath.Join(cfg, "plans", dateStamp()+"-widget-refactor.md"), planTemplate, "mirrored file at")
+	if _, err := os.Stat(filepath.Join(cfg, "state", "harness", "plans-scratch", "funny-random-words.md.dest")); err != nil {
+		t.Fatalf("expected a recorded dest: %v", err)
+	}
+}
+
+func TestPlanMirrorRepoTaggedWhenCWDIsAnotherRepo(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	repo := hosttest.Repo(t)
+	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "other-words.md", planTemplate)
+	mirrorRun(t, "Mirror", "Write", repo, draft)
+	want := filepath.Join(cfg, "plans", filepath.Base(repo), dateStamp()+"-widget-refactor.md")
+	if _, err := os.ReadFile(want); err != nil {
+		t.Fatalf("mirrored repo-tagged file missing at %s: %v", want, err)
+	}
+}
+
+// countPlanFiles counts the non-directory entries directly under dir.
+func countPlanFiles(t *testing.T, dir string) int {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	for _, e := range entries {
+		if !e.IsDir() {
+			count++
+		}
+	}
+	return count
+}
+
+// TestPlanMirrorEditReusesDestAndSurvivesH1Change: an Edit updates the same dated file, and renaming the
+// H1 afterward still lands in that same file rather than forking a second one.
+func TestPlanMirrorEditReusesDestAndSurvivesH1Change(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	plansDir := filepath.Join(cfg, "plans")
+	draft := writeMirrorDraft(t, plansDir, "funny-random-words.md", planTemplate)
+	mirrorRun(t, "first mirror", "Write", cfg, draft)
+	dest := filepath.Join(plansDir, dateStamp()+"-widget-refactor.md")
+
+	edited := strings.Replace(planTemplate, "why\n", "why more\n", 1)
+	writeMirrorDraft(t, plansDir, "funny-random-words.md", edited)
+	mirrorRun(t, "edit mirror", "Edit", cfg, draft)
+	wantMirrorFile(t, dest, edited, "edit did not update")
+
+	renamed := strings.Replace(edited, "# Plan: Widget Refactor", "# Plan: Renamed Title", 1)
+	writeMirrorDraft(t, plansDir, "funny-random-words.md", renamed)
+	mirrorRun(t, "H1-change mirror", "Edit", cfg, draft)
+	wantMirrorFile(t, dest, renamed, "H1 change must keep the same dest")
+	if count := countPlanFiles(t, plansDir); count != 2 { // the dated file + the still-live undated draft
+		t.Fatalf("plans/ holds %d files, want exactly the dated file and the draft", count)
+	}
+}
+
+// TestPlanMirrorNeverClobbersAnUnrelatedDatedFile: a dated file that already exists under the computed name
+// (and isn't the one this mirror created) is left untouched; the mirror versions around it instead.
+func TestPlanMirrorNeverClobbersAnUnrelatedDatedFile(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	plansDir := filepath.Join(cfg, "plans")
+	unrelated := "# Plan: Widget Refactor\n\nsome other plan, not ours\n"
+	preexisting := writeMirrorDraft(t, plansDir, dateStamp()+"-widget-refactor.md", unrelated)
+	draft := writeMirrorDraft(t, plansDir, "funny-random-words.md", planTemplate)
+	mirrorRun(t, "Mirror", "Write", cfg, draft)
+	wantMirrorFile(t, preexisting, unrelated, "the unrelated dated file was touched:")
+	wantMirrorFile(t, filepath.Join(plansDir, dateStamp()+"-widget-refactor-2.md"), planTemplate, "mirror should have versioned to")
+}
+
+// TestSavePlanReusesMirroredDestAndCleansUpDraft: approval with EMPTY tool_input and tool_response{plan,
+// filePath} reuses the dest plan-mirror already recorded, verifies the dated file, then removes the draft
+// and its .dest record.
+func TestSavePlanReusesMirroredDestAndCleansUpDraft(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	repo := hosttest.Repo(t)
+	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "other-words.md", planTemplate)
+	mirrorRun(t, "Mirror", "Write", repo, draft)
+	dest := filepath.Join(cfg, "plans", filepath.Base(repo), dateStamp()+"-widget-refactor.md")
+	if _, err := os.ReadFile(dest); err != nil {
+		t.Fatalf("mirror did not create %s: %v", dest, err)
+	}
+
+	approvePlan(t, approvalPayload(t, repo, draft, map[string]any{}))
+	wantMirrorFile(t, dest, planTemplate, "final dest")
+	if _, err := os.Stat(draft); !os.IsNotExist(err) {
+		t.Fatalf("the undated draft must be removed, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg, "state", "harness", "plans-scratch", "other-words.md.dest")); !os.IsNotExist(err) {
+		t.Fatalf("the .dest record must be removed, stat err = %v", err)
+	}
+}
+
+// TestPlanMirrorFailedRecordStillWritesCopy: when the dest cannot be recorded, the dated copy is still written.
+func TestPlanMirrorFailedRecordStillWritesCopy(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	writeMirrorDraft(t, filepath.Join(cfg, "state", "harness"), "plans-scratch", "x") // the scratch dir cannot be created
+	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "funny-random-words.md", planTemplate)
+	mirrorRun(t, "unrecordable mirror", "Write", cfg, draft)
+	dated, err := filepath.Glob(filepath.Join(cfg, "plans", "2*.md"))
+	if err != nil || len(dated) != 1 {
+		t.Fatalf("dated copies = %v (err %v), want exactly one", dated, err)
+	}
+	wantMirrorFile(t, dated[0], planTemplate, "dated copy after an unrecordable mirror")
+}
+
+// TestPlanSkeletonMissingTemplateReportsOnStderr: a missing template fails open but names the cause.
+func TestPlanSkeletonMissingTemplateReportsOnStderr(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	in := core.ParseInput(hookJSON(t, map[string]any{"hook_event_name": "PreToolUse", "tool_name": "EnterPlanMode"}))
+	res := Skeleton(in)
+	if res.Context != "" || !strings.Contains(res.Stderr, "plan-skeleton: ") {
+		t.Fatalf("result = %+v, want no context and a plan-skeleton diagnostic", res)
+	}
+}
+
+func writePayload(t *testing.T, tool, cwd, path, content string) string {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{
+		"hook_event_name": "PreToolUse", "tool_name": tool, "cwd": cwd,
+		"tool_input": map[string]string{"file_path": path, "content": content},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// TestPlanTemplateTeeth proves the gate actually fires: today (no gate consulted) a free-form first write to
+// an undated draft passes; with PlanTemplate wired in, the same write is denied, and the message names plan.md.
+func TestPlanTemplateTeeth(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "plans"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	draft := filepath.Join(cfg, "plans", "funny-random-words.md")
+
+	var stderr bytes.Buffer
+	code := Gate(core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, "just some free-form draft text\n"))), &stderr)
+	if code != core.ExitBlock {
+		t.Fatalf("free-form first write: PlanTemplate = %d, want ExitBlock", code)
+	}
+	if !strings.Contains(stderr.String(), "plan-template") || !strings.Contains(stderr.String(), "plan.md") {
+		t.Fatalf("denial message = %q, want it to name plan-template and plan.md", &stderr)
+	}
+	if _, err := os.Stat(draft); err == nil {
+		t.Fatalf("a denied write must not have landed on disk")
+	}
+}
+
+type planGateCase struct {
+	name     string
+	tool     string
+	path     string
+	content  string
+	existing bool
+	want     int
+}
+
+func planGateCases() []planGateCase {
+	return []planGateCase{
+		{"freeform Write", "Write", "plans/draft.md", "freeform", false, core.ExitBlock},
+		{"freeform create", "create", "plans/draft.md", "freeform", false, core.ExitBlock},
+		{"legacy empty tool", "", "plans/draft.md", "freeform", false, core.ExitBlock},
+		{"missing content", "Write", "plans/draft.md", "", false, core.ExitBlock},
+		{"templated Write", "Write", "plans/draft.md", planTemplate, false, core.ExitProceed},
+		{"existing draft", "Write", "plans/draft.md", "freeform", true, core.ExitProceed},
+		{"Edit bypass", "Edit", "plans/draft.md", "freeform", false, core.ExitProceed},
+		{"patch bypass", "apply_patch", "plans/draft.md", "freeform", false, core.ExitProceed},
+		{"other tool", "Bash", "plans/draft.md", "freeform", false, core.ExitProceed},
+		{"dated plan", "Write", "plans/2026-10-20-draft.md", "freeform", false, core.ExitProceed},
+		{"nested plan", "Write", "plans/project/draft.md", "freeform", false, core.ExitProceed},
+		{"outside plans", "Write", "other/draft.md", "freeform", false, core.ExitProceed},
+	}
+}
+
+// seedPlanGateDraft creates an empty draft at cfg/rel so the gate sees an existing file.
+func seedPlanGateDraft(t *testing.T, cfg, rel string) {
+	t.Helper()
+	path := filepath.Join(cfg, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// requirePlanGateDenied asserts the block diagnostic and that the denied draft stays absent.
+func requirePlanGateDenied(t *testing.T, cfg, rel string, stderr *bytes.Buffer) {
+	t.Helper()
+	if !strings.HasPrefix(stderr.String(), "plan-template: BLOCKED") ||
+		!strings.Contains(stderr.String(), `missing "# Plan:"`) ||
+		!strings.Contains(stderr.String(), plans.TemplatePath(cfg)) {
+		t.Errorf("missing first heading/template diagnostic: %s", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(cfg, rel)); !os.IsNotExist(err) {
+		t.Errorf("denied draft must remain absent: %v", err)
+	}
+}
+
+func TestPlanGateTemplate(t *testing.T) {
+	for _, knob := range []string{"1", "0"} {
+		for _, c := range planGateCases() {
+			t.Run("docs="+knob+"/"+c.name, func(t *testing.T) {
+				cfg := t.TempDir()
+				t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+				t.Setenv(docsPlacementDisableEnv, knob)
+				if c.existing {
+					seedPlanGateDraft(t, cfg, c.path)
+				}
+				var stderr bytes.Buffer
+				code := Gate(core.ParseInput(strings.NewReader(writePayload(t, c.tool, cfg, c.path, c.content))), &stderr)
+				if code != c.want {
+					t.Fatalf("code = %d, want %d; stderr=%s", code, c.want, &stderr)
+				}
+				if c.want == core.ExitBlock {
+					requirePlanGateDenied(t, cfg, c.path, &stderr)
+				} else if stderr.Len() != 0 {
+					t.Errorf("allowed write emitted a diagnostic: %s", &stderr)
+				}
+			})
+		}
 	}
 }

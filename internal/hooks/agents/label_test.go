@@ -12,14 +12,14 @@ import (
 func TestDispatchLabelPlanUsesSessionModel(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	stubLabelModels(t, "", "")
-	label, model := DispatchLabel(LabelInput{Type: "Plan", SessionModel: "databricks-claude-opus-5-5"})
+	label, model := dispatchLabel(LabelInput{Type: "Plan", SessionModel: "databricks-claude-opus-5-5"})
 	if label != "databricks-claude-opus-5-5" || model != "" {
 		t.Fatalf("Plan without a brief = (%q, %q), want the session id, no pin", label, model)
 	}
-	if label, _ := DispatchLabel(LabelInput{Type: "Plan", Model: "opus", SessionModel: "s"}); label != "opus" {
+	if label, _ := dispatchLabel(LabelInput{Type: "Plan", Model: "opus", SessionModel: "s"}); label != "opus" {
 		t.Errorf("pinned Plan label = %q, want the pin opus", label)
 	}
-	if label, _ := DispatchLabel(LabelInput{Type: "Plan"}); label != "" {
+	if label, _ := dispatchLabel(LabelInput{Type: "Plan"}); label != "" {
 		t.Errorf("Plan with no session = %q, want no label", label)
 	}
 }
@@ -28,7 +28,7 @@ func TestDispatchLabelPlanUsesSessionModel(t *testing.T) {
 func TestDispatchLabelClassifiesBrief(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	stubLabelModels(t, "", "")
-	label, model := DispatchLabel(LabelInput{Type: "Plan", SessionModel: "s", Brief: "rename one variable"})
+	label, model := dispatchLabel(LabelInput{Type: "Plan", SessionModel: "s", Brief: "rename one variable"})
 	if model == "" || label != model {
 		t.Errorf("classified brief = (label %q, model %q), want the pinned model as the label", label, model)
 	}
@@ -38,7 +38,7 @@ func TestDispatchLabelPreservesModelUnderGemini(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(settings.AgentEnv, core.AgentGemini)
 	stubLabelModels(t, "", "")
-	label, model := DispatchLabel(LabelInput{Type: "Plan", Model: "opus", Brief: "rename one variable"})
+	label, model := dispatchLabel(LabelInput{Type: "Plan", Model: "opus", Brief: "rename one variable"})
 	if label != "opus" || model != "opus" {
 		t.Fatalf("Gemini ambient agent = (%q, %q), want (opus, opus)", label, model)
 	}

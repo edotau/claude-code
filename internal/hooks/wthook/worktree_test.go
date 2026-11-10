@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +19,17 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/worktree"
 )
+
+// TestMain stubs the live-process scans so no wthook test reads the machine's agents or worktree users.
+func TestMain(m *testing.M) {
+	cleanup := hosttest.Setup()
+	worktree.StubProcessScanForTest()
+	PeerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
+	code := m.Run()
+	hosttest.Cleanup()
+	cleanup()
+	os.Exit(code)
+}
 
 // createPayload is the real WorktreeCreate shape Claude Code sends: only cwd + name.
 func createPayload(cwd, name string) *core.Input {
@@ -311,7 +323,8 @@ func TestBusyLineAbandonsHungScan(t *testing.T) {
 	defer cancel()
 	done := make(chan string, 1)
 	go func() {
-		line, _ := busyLine(ctx, &core.Input{SessionID: "s1", CWD: cwd})
+		in := &core.Input{SessionID: "s1", CWD: cwd}
+		line, _ := busyLine(in, newRun(ctx, in))
 		done <- line
 	}()
 	select {
@@ -376,5 +389,115 @@ func TestDivergedAtEmptyCommitsAreNotARewrite(t *testing.T) {
 	}
 	if d.rewritten {
 		t.Errorf("rewritten = true for two empty sibling commits (ahead %d, behind %d)", d.ahead, d.behind)
+	}
+}
+
+// divergedClone is a clone whose main has one local commit (claimed by session peerS) and one new upstream commit.
+func divergedClone(t *testing.T) string {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(worktreeModeEnv, "off")
+	origin := hosttest.Repo(t)
+	work := filepath.Join(t.TempDir(), "work")
+	hosttest.In(t, origin, "clone", "-q", origin, work)
+	work = core.CanonPath(work)
+	hosttest.WriteRel(t, origin, "up.txt", "up\n")
+	hosttest.In(t, origin, "add", ".")
+	hosttest.In(t, origin, "commit", "-qm", "upstream")
+	hosttest.WriteRel(t, work, "mine.txt", "mine\n")
+	hosttest.In(t, work, "add", ".")
+	hosttest.In(t, work, "commit", "-qm", "local")
+	hosttest.In(t, work, "fetch", "-q")
+	short := strings.TrimSpace(hosttest.In(t, work, "rev-parse", "--short=7", "HEAD"))
+	if err := os.MkdirAll(claimsDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	hosttest.WriteRel(t, claimsDir(), filepath.Base(claimsFile(liveOwner, "peerS")), `{"schema":1,"commit":"`+short+`","ts":1}`+"\n")
+	orig, origPeers := claimAlive, PeerAgents
+	claimAlive = func(pid int) bool { return pid == liveOwner }
+	PeerAgents = func(string, []string) ([]worktree.Proc, error) {
+		return []worktree.Proc{{PID: 4242, Comm: "claude"}}, nil
+	}
+	t.Cleanup(func() { claimAlive, PeerAgents = orig, origPeers })
+	return work
+}
+
+// TestNoticesAndDivergenceReachContextOnce: a shared diverged checkout and a queued notice each surface once.
+func TestNoticesAndDivergenceReachContextOnce(t *testing.T) {
+	work := divergedClone(t)
+	in := &core.Input{SessionID: "sB", CWD: work}
+	got := Busy(in)
+	if !strings.Contains(got.Context, "local main diverged from origin/main (ahead 1, behind 1)") ||
+		!strings.Contains(got.Context, "ahead: session peers (pid 100)") || got.Stderr != "" {
+		t.Fatalf("first prompt = %+v, want the divergence line naming the ahead commit's session", got)
+	}
+	if again := Busy(in); again.Context != "" {
+		t.Fatalf("second prompt = %q, want the divergence line only once", again.Context)
+	}
+	if err := worktree.Append("sB", worktree.Notice{Kind: "conflict", From: "worktree merge", Text: "x.go"}); err != nil {
+		t.Fatal(err)
+	}
+	git := func() core.Result {
+		return ClaimCheck(claimInput(t, map[string]any{"session_id": "sB", "cwd": work, "tool_name": "Bash",
+			"tool_input": map[string]any{"command": "git status"}}))
+	}
+	if r := git(); r.Context != "notice (conflict, from worktree merge): x.go" || r.Decision != core.Allow {
+		t.Fatalf("git status = %+v, want the drained notice and no decision", r)
+	}
+	if r := git(); r.Context != "" {
+		t.Fatalf("second git status = %q, want the notice gone", r.Context)
+	}
+}
+
+// TestDivergenceInfraErrorWarnsAndAllows: git missing from PATH allows with a warning.
+func TestDivergenceInfraErrorWarnsAndAllows(t *testing.T) {
+	work := divergedClone(t)
+	t.Setenv("PATH", "/nonexistent")
+	got := Busy(&core.Input{SessionID: "sB", CWD: work})
+	if got.Context != "" || got.Decision != core.Allow || !strings.Contains(got.Stderr, "could not check branch divergence") {
+		t.Fatalf("no git = %+v, want allow + warning", got)
+	}
+}
+
+// TestBusyScansPeersOnce: a diverged checkout with a peer needs the peer set twice per prompt; the scan runs once.
+func TestBusyScansPeersOnce(t *testing.T) {
+	work := divergedClone(t)
+	t.Setenv(worktreeModeEnv, "")
+	scans, stub := 0, PeerAgents
+	PeerAgents = func(top string, nested []string) ([]worktree.Proc, error) { scans++; return stub(top, nested) }
+	got := Busy(&core.Input{SessionID: "sB", CWD: work})
+	if scans != 1 || !strings.Contains(got.Context, "claude pid 4242") || !strings.Contains(got.Context, "diverged") {
+		t.Fatalf("scans = %d, context %q; want one scan feeding both the busy and the divergence line", scans, got.Context)
+	}
+}
+
+// TestBusyReportsScanAndStateErrors: a peer-scan or state-write error warns on stderr and the prompt still proceeds.
+func TestBusyReportsScanAndStateErrors(t *testing.T) {
+	for _, failure := range []string{"scan peers", "write peer state"} {
+		t.Run(failure, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			t.Setenv(worktreeModeEnv, "")
+			cwd := hosttest.Repo(t)
+			orig := PeerAgents
+			PeerAgents = func(string, []string) ([]worktree.Proc, error) {
+				if failure == "scan peers" {
+					return nil, errors.New("scan unavailable")
+				}
+				return []worktree.Proc{{PID: 4242, Comm: "claude"}}, nil
+			}
+			t.Cleanup(func() { PeerAgents = orig })
+			if failure == "write peer state" { // a directory where the state file goes fails the atomic rename
+				if err := os.MkdirAll(filepath.Join(paths.StateDir(), "worktree-busy", "s1"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got := Busy(&core.Input{SessionID: "s1", CWD: cwd})
+			if !strings.Contains(got.Stderr, "worktree-busy: WARNING") || !strings.Contains(got.Stderr, failure) {
+				t.Fatalf("missing %s warning: %+v", failure, got)
+			}
+			if got.Decision != core.Allow || failure == "write peer state" && !strings.Contains(got.Context, "claude pid 4242") {
+				t.Fatalf("diagnostic must fail open and preserve the peer notice: %+v", got)
+			}
+		})
 	}
 }

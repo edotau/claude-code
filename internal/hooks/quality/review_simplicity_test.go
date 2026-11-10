@@ -2,6 +2,7 @@ package quality
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -56,8 +57,6 @@ func TestReviewSimplicityEdit(t *testing.T) {
 		t.Errorf("unchanged findings produced output: %q", out)
 	}
 }
-
-// A dir whose name merely starts with ".." is inside the cwd, so the header stays cwd-relative.
 
 func TestReviewSimplicityIgnoresNonSource(t *testing.T) {
 	p := rsWrite(t, "notes.md", "# t\n\n// a\n// b\n")
@@ -139,5 +138,20 @@ func TestReviewSimplicityGitFailureReportsNothing(t *testing.T) {
 	}
 	if out := rsRun(t, "Write", p, "", ""); out != "" {
 		t.Errorf("git failure output = %q, want no advisory (old debt must not be blamed on the edit)", out)
+	}
+}
+
+// A Write to a file no source language claims never shells out to git; a Go file still does and reports.
+func TestReviewSimplicityUnsupportedSkipsGit(t *testing.T) {
+	calls := 0
+	orig := gitShowHead
+	gitShowHead = func(context.Context, string, ...string) (string, error) { calls++; return "", nil }
+	t.Cleanup(func() { gitShowHead = orig })
+	noisy := rsClean + "\n// old one\n// old two\nfunc Old() {}\n"
+	if out := rsRun(t, "Write", rsWrite(t, "notes.md", noisy), "", ""); out != "" || calls != 0 {
+		t.Errorf(".md Write: output %q, git calls %d; want no output and no git call", out, calls)
+	}
+	if out := rsRun(t, "Write", rsWrite(t, "a.go", noisy), "", ""); !strings.Contains(out, "1 new finding") || calls != 1 {
+		t.Errorf(".go Write: output %q, git calls %d; want 1 new finding after 1 git call", out, calls)
 	}
 }

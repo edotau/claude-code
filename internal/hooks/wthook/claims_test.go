@@ -72,3 +72,25 @@ func readClaims(t *testing.T, file string) []claim {
 	}
 	return out
 }
+
+// TestClaimSkipsOwnerLookupWhenNothingToRecord: only an edit path or a git add/commit looks up the session owner.
+func TestClaimSkipsOwnerLookupWhenNothingToRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	lookups, orig := 0, claimOwner
+	claimOwner = func() int { lookups++; return liveOwner }
+	t.Cleanup(func() { claimOwner = orig })
+	dir := core.CanonPath(t.TempDir())
+	for _, cmd := range []string{"ls", "git status", "grep add x"} {
+		Claim(claimInput(t, map[string]any{"session_id": "S1", "cwd": dir, "tool_name": "Bash",
+			"tool_input": map[string]any{"command": cmd}}))
+	}
+	if lookups != 0 {
+		t.Fatalf("owner looked up %d times for calls that record nothing; want 0", lookups)
+	}
+	Claim(claimInput(t, map[string]any{"session_id": "S1", "cwd": dir, "tool_name": "Edit",
+		"tool_input": map[string]any{"file_path": "a.txt"}}))
+	got := readClaims(t, claimsFile(liveOwner, "S1"))
+	if lookups != 1 || len(got) != 1 || got[0].Path != filepath.Join(dir, "a.txt") {
+		t.Fatalf("edit: %d lookups, claims %+v; want one lookup and the a.txt claim", lookups, got)
+	}
+}

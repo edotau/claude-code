@@ -12,6 +12,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooks/wthook"
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // inertMentions only talk about a dangerous shape; none of them runs it.
@@ -604,4 +607,92 @@ func TestHarnessGitBlocked(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMain stubs the live-process scans so no safety test reads the machine's agents or worktree users.
+func TestMain(m *testing.M) {
+	cleanup := hosttest.Setup()
+	worktree.StubProcessScanForTest()
+	wthook.PeerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
+	code := m.Run()
+	hosttest.Cleanup()
+	cleanup()
+	os.Exit(code)
+}
+
+type attributionScanCase struct {
+	name string
+	cmd  string
+	want core.Decision
+}
+
+// attributionScanCases lists footer commits (Ask) and look-alikes (Allow); otherRepo is not the harness tree.
+func attributionScanCases(otherRepo string) []attributionScanCase {
+	return []attributionScanCase{
+		{
+			"inline -m footer",
+			`git commit -m "feat: x" -m "Co-Authored-By: Claude <noreply@anthropic.com>"`,
+			core.Ask,
+		},
+		{
+			"heredoc -m footer",
+			"git commit -m \"$(cat <<'EOF'\nfeat: x\n\nCo-Authored-By: Claude Opus <noreply@anthropic.com>\nEOF\n)\"",
+			core.Ask,
+		},
+		{
+			"-C other repo, -F heredoc, generated-with footer",
+			"git -C " + otherRepo + " commit -F - <<'EOF'\nfeat: x\n\nGenerated with [Claude Code](https://claude.com/claude-code)\nEOF",
+			core.Ask,
+		},
+		{
+			"cd into other repo first",
+			"cd " + otherRepo + " && git commit -m \"feat: x\" -m \"Co-Authored-By: Claude\"",
+			core.Ask,
+		},
+		{
+			"plain commit proceeds",
+			`git commit -m "feat: x"`,
+			core.Allow,
+		},
+		{
+			"grep for the phrase proceeds (not a commit)",
+			`git log --grep "Co-Authored-By: Claude"`,
+			core.Allow,
+		},
+		{
+			"echo with no commit proceeds",
+			`echo "Co-Authored-By: Claude"`,
+			core.Allow,
+		},
+		{
+			"footer naming a human proceeds",
+			`git commit -m "feat: x" -m "Co-Authored-By: Ada <a@x>"`,
+			core.Allow,
+		},
+	}
+}
+
+// A footer commit in any repo asks with a reason; the rest proceeds.
+func TestSafetyScanBlocksAttributionFooterCommit(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	otherRepo := t.TempDir() // not the harness tree: the contract is "in any repo"
+	for _, c := range attributionScanCases(otherRepo) {
+		t.Run(c.name, func(t *testing.T) {
+			res := scanPayload(bashPayload(c.cmd))
+			if res.Decision != c.want {
+				t.Errorf("%q: got %d want %d (reason=%s)", c.cmd, res.Decision, c.want, res.Reason)
+			}
+			if c.want == core.Ask && !strings.Contains(strings.ToLower(res.Reason), "attribution") {
+				t.Errorf("%q: ask reason missing 'attribution': %s", c.cmd, res.Reason)
+			}
+		})
+	}
+}
+
+// copilotBashPayload mirrors the Copilot shape used by TestSafetyScanChecksExecutedHeredocBodiesCopilot.
+func copilotBashPayload(cmd string) io.Reader {
+	b, _ := json.Marshal(map[string]any{
+		"sessionId": "x", "toolName": "Bash", "toolArgs": map[string]string{"command": cmd},
+	})
+	return strings.NewReader(string(b))
 }

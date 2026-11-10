@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -504,4 +505,22 @@ func readCodexRoutes(path string) ([]codexRouteRecord, error) {
 		return nil, err
 	}
 	return parseCodexRoutes(data), nil
+}
+
+// codexHooks are the codex-* modules by name, with the hookspec event each renders for.
+var codexHooks = map[string]struct {
+	event string
+	run   core.Runner
+}{
+	"codex-agent-route":    {settings.EventPreToolUse, CodexAgentRoute},
+	"codex-routing-start":  {settings.EventSessionStart, CodexRoutingStart},
+	"codex-routing-result": {settings.EventPostToolUse, CodexRoutingResult},
+	"codex-subagent-start": {settings.EventSubagentStart, CodexSubagentStart},
+}
+
+// runCodex runs one codex module on stdin and renders its Result as the vendor wire output, as the hook verb does.
+func runCodex(name string, stdin io.Reader, stdout, stderr io.Writer) int {
+	h := codexHooks[name]
+	in := core.ParseInput(stdin)
+	return core.Emit(in.Agent(), h.event, h.run(in), stdout, stderr)
 }

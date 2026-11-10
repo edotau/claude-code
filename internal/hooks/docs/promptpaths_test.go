@@ -267,3 +267,23 @@ func TestCollectReportsClientFetchFailureAndGates(t *testing.T) {
 		t.Errorf("non-Mac prefix: reps=%+v calls=%d, want none", reps, calls)
 	}
 }
+
+// TestResolvePathsReadsMountsOnlyForPathTokens: a path-free prompt never builds the resolver; a path prompt still does.
+func TestResolvePathsReadsMountsOnlyForPathTokens(t *testing.T) {
+	calls := 0
+	orig := defaultResolver
+	defaultResolver = func() *paths.Resolver { calls++; return paths.NewResolver(nil) }
+	t.Cleanup(func() { defaultResolver = orig })
+	if res := ResolvePaths(&core.Input{Prompt: "just prose, no path at all"}); res.Context != "" || calls != 0 {
+		t.Fatalf("path-free prompt: context=%q resolver calls=%d, want none", res.Context, calls)
+	}
+	f := filepath.Join(t.TempDir(), "notes.md")
+	if err := os.WriteFile(f, []byte("hello\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res := ResolvePaths(&core.Input{Prompt: "read " + f + "."})
+	want := "File paths resolved from the prompt (use these for reads and @-references):\n  " + f + " (6 B)"
+	if calls != 1 || res.Context != want || !strings.Contains(res.SystemMessage, "notes.md — 6 B") {
+		t.Fatalf("path prompt: calls=%d context=%q message=%q, want context %q", calls, res.Context, res.SystemMessage, want)
+	}
+}

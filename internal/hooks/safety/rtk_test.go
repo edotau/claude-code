@@ -557,3 +557,17 @@ func TestRTKPinnedPathWhenCommandAltersPathOrHome(t *testing.T) {
 		}
 	}
 }
+
+func TestRTKArrayAssignmentPinsBinary(t *testing.T) {
+	homeRTK(t)
+	bin := os.Getenv(shell.RTKBinaryEnv)
+	for _, path := range []string{filepath.Dir(bin), t.TempDir()} {
+		t.Setenv("PATH", path)
+		for _, cmd := range []string{"PATH[0]=/nonexistent; ls", "HOME[0]=/nonexistent; ls"} {
+			got, ok := rtkOut(t, rtkBashIn(cmd))
+			if want := textutil.QuoteSH(bin) + " " + cmd; !ok || got != want {
+				t.Errorf("%q: rewritten %q (emitted=%v), want absolute pin %q", cmd, got, ok, want)
+			}
+		}
+	}
+}

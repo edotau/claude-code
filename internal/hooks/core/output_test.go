@@ -52,7 +52,7 @@ func TestEmitStdoutFailureBlocks(t *testing.T) {
 
 // Ruling 4: Codex has no ask decision — ask must render as deny. oneDoc also proves a single JSON document.
 func TestOutputCodexAskMapsToDeny(t *testing.T) {
-	m := hosttest.OneDoc(t, OutputCodex("PreToolUse", Result{Decision: Ask, Reason: "needs review"}))
+	m := hosttest.OneDoc(t, outputCodex("PreToolUse", Result{Decision: Ask, Reason: "needs review"}))
 	h, _ := m["hookSpecificOutput"].(map[string]any)
 	if h["permissionDecision"] != "deny" || h["permissionDecisionReason"] != "needs review" {
 		t.Errorf("ask must map to deny: %v", m)
@@ -61,7 +61,7 @@ func TestOutputCodexAskMapsToDeny(t *testing.T) {
 
 // The wire shape codex-agent-route emits today: an updatedInput on PreToolUse is an explicit allow.
 func TestOutputCodexAllowCarriesUpdatedInput(t *testing.T) {
-	m := hosttest.OneDoc(t, OutputCodex("PreToolUse", Result{UpdatedInput: map[string]any{"model": "m", "reasoning_effort": "high"}}))
+	m := hosttest.OneDoc(t, outputCodex("PreToolUse", Result{UpdatedInput: map[string]any{"model": "m", "reasoning_effort": "high"}}))
 	h, _ := m["hookSpecificOutput"].(map[string]any)
 	if h["permissionDecision"] != "allow" {
 		t.Errorf("updatedInput on PreToolUse must be an explicit allow: %v", m)
@@ -73,7 +73,7 @@ func TestOutputCodexAllowCarriesUpdatedInput(t *testing.T) {
 }
 
 func TestOutputCodexBlockDeniesWithReason(t *testing.T) {
-	m := hosttest.OneDoc(t, OutputCodex("PreToolUse", Result{Decision: Block, Reason: "no"}))
+	m := hosttest.OneDoc(t, outputCodex("PreToolUse", Result{Decision: Block, Reason: "no"}))
 	h, _ := m["hookSpecificOutput"].(map[string]any)
 	if h["permissionDecision"] != "deny" || h["permissionDecisionReason"] != "no" {
 		t.Errorf("block must deny with reason: %v", m)
@@ -82,16 +82,25 @@ func TestOutputCodexBlockDeniesWithReason(t *testing.T) {
 
 // updatedInput is a PreToolUse-only concept: outside that event it must not leak a permissionDecision.
 func TestOutputCodexUpdatedInputIgnoredOutsidePreToolUse(t *testing.T) {
-	if out := OutputCodex("PostToolUse", Result{UpdatedInput: map[string]any{"model": "m"}}); out != "" {
+	if out := outputCodex("PostToolUse", Result{UpdatedInput: map[string]any{"model": "m"}}); out != "" {
 		t.Errorf("non-PreToolUse updatedInput must render nothing, got %q", out)
 	}
-	m := hosttest.OneDoc(t, OutputCodex("PostToolUse", Result{UpdatedInput: map[string]any{"model": "m"}, Context: "c"}))
+	m := hosttest.OneDoc(t, outputCodex("PostToolUse", Result{UpdatedInput: map[string]any{"model": "m"}, Context: "c"}))
 	h, _ := m["hookSpecificOutput"].(map[string]any)
 	if _, ok := h["permissionDecision"]; ok {
 		t.Errorf("permissionDecision outside PreToolUse: %v", m)
 	}
 	if _, ok := h["updatedInput"]; ok {
 		t.Errorf("updatedInput outside PreToolUse: %v", m)
+	}
+}
+
+// Codex reads exactly one Claude-schema document even when context and system message are multi-part.
+func TestOutputCodexSingleDocument(t *testing.T) {
+	m := hosttest.OneDoc(t, outputCodex("PreToolUse", Result{Decision: Ask, Reason: "r", Context: "c1\n\nc2", SystemMessage: "a; b"}))
+	h, _ := m["hookSpecificOutput"].(map[string]any)
+	if h["additionalContext"] != "c1\n\nc2" || m["systemMessage"] != "a; b" {
+		t.Errorf("codex uses the claude-compatible schema in one document: %v", m)
 	}
 }
 

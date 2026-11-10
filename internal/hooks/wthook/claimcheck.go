@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -29,7 +30,9 @@ var claimAlive = proc.Alive
 const claimShown = 5
 
 // gitStageCmd pre-screens a Bash command for a git add/commit before any claims file is read.
-var gitStageCmd = regexp.MustCompile(`\bgit\b[^;&|\n]*\b(?:add|commit)\b`)
+var gitStageCmd = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\bgit\b[^;&|\n]*\b(?:add|commit)\b`)
+})
 
 // claimHit is one live claim on a path by someone other than the caller: who, and their newest edit's time.
 type claimHit struct {
@@ -39,7 +42,7 @@ type claimHit struct {
 
 // liveClaims maps each path other live parties claim to its claimants; a dead owner pid's file is removed.
 func liveClaims(in *core.Input) (map[string][]claimHit, error) {
-	self := paths.Slug(in.SessionID, "", 80, "session")
+	self := sessionSlug(in.SessionID)
 	leaf := siblingLeaf(in)
 	labels := map[int]string{}
 	byPath := map[string]map[string]int64{}
@@ -162,7 +165,7 @@ type claimView struct {
 // Any git command also drains this session's notices and the divergence line into its context.
 func ClaimCheck(in *core.Input) core.Result {
 	cmd := in.ToolCommand()
-	if in.SessionID == "" || in.ToolName == "Bash" && !gitAnyCmd.MatchString(cmd) {
+	if in.SessionID == "" || in.ToolName == "Bash" && !gitAnyCmd().MatchString(cmd) {
 		return core.Result{}
 	}
 	ctx, cancel := core.HookContext("worktree-claim-check")
@@ -170,9 +173,9 @@ func ClaimCheck(in *core.Input) core.Result {
 	if in.ToolName != "Bash" {
 		return claimResult(ctx, in)
 	}
-	notes, warn := noticeContext(ctx, in)
+	notes, warn := noticeContext(ctx, in, newRun(ctx, in))
 	res := core.Result{}
-	if gitStageCmd.MatchString(cmd) {
+	if gitStageCmd().MatchString(cmd) {
 		res = claimResult(ctx, in)
 	}
 	res.Context = core.JoinContext(notes, res.Context)
@@ -282,7 +285,7 @@ const claimsSeenWait = time.Second
 
 // firstSighting records key in this session's claims-seen file; false when it was already shown.
 func firstSighting(session, key string) bool {
-	file := filepath.Join(paths.StateDir(), "hooks", "claims-seen", paths.Slug(session, "", 80, "session"))
+	file := filepath.Join(paths.StateDir(), "hooks", "claims-seen", sessionSlug(session))
 	first := true
 	err := os.MkdirAll(filepath.Dir(file), 0o700)
 	if err == nil { // the seen file doubles as its own lock: no stray .lock sibling

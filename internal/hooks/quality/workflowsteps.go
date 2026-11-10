@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -25,11 +26,13 @@ var (
 	stepAgents       = []string{"claude", "codex", "copilot", "gemini", "opencode"}
 	stepEfforts      = []string{"low", "medium", "high", "xhigh", "max"}
 	stepFields       = []string{"agent", "model", "effort", "profile", "provider"}
-	stepNameRe       = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	stepNameRe       = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9._-]+$`) })
 	// stepStageRe finds a script's own stages: stepOf(a.steps|OWN, '<stage>', …); a child's stages are not its own.
-	stepStageRe = regexp.MustCompile(`stepOf\(\s*(?:a\.steps|OWN)\s*,\s*'([A-Za-z0-9_-]+)'`)
+	stepStageRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`stepOf\(\s*(?:a\.steps|OWN)\s*,\s*'([A-Za-z0-9_-]+)'`)
+	})
 	// stepChildRe marks a script whose steps.child is a routed child's own steps (code-engineer → code-workers).
-	stepChildRe = regexp.MustCompile(`\{\s*child:\s*CHILD_RAW\b`)
+	stepChildRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\{\s*child:\s*CHILD_RAW\b`) })
 )
 
 // stepChildScript is the workflow whose stages steps.child names.
@@ -59,7 +62,7 @@ func checkWorkflowSteps(src []byte, dir string, args any) []string {
 		return []string{"args must be a JSON object (or a JSON-encoded object string)"}
 	}
 	run := stepRun{profile: plainString(a["profile"]), provider: plainString(a["provider"])}
-	if stepChildRe.Match(src) {
+	if stepChildRe().Match(src) {
 		if child, err := os.ReadFile(filepath.Join(dir, stepChildScript)); err == nil {
 			run.child = scriptStages(string(child))
 			stages = append(stages, "child")
@@ -80,7 +83,7 @@ func blockSteps(what string, problems []string) *core.Result {
 // scriptStages is the sorted, de-duplicated stage names a script passes to stepOf for its own steps.
 func scriptStages(src string) []string {
 	var out []string
-	for _, m := range stepStageRe.FindAllStringSubmatch(src, -1) {
+	for _, m := range stepStageRe().FindAllStringSubmatch(src, -1) {
 		if !slices.Contains(out, m[1]) {
 			out = append(out, m[1])
 		}
@@ -177,7 +180,7 @@ func fieldProblem(k string, v any) string {
 		return " must be " + strings.Join(stepAgents, "|")
 	case k == "effort" && !slices.Contains(stepEfforts, s):
 		return " must be " + strings.Join(stepEfforts, "|")
-	case k != "agent" && k != "effort" && !stepNameRe.MatchString(s):
+	case k != "agent" && k != "effort" && !stepNameRe().MatchString(s):
 		return " must be a plain name (no provider: prefix)"
 	}
 	return ""

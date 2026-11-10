@@ -20,18 +20,19 @@ type LabelInput struct {
 // labelDescription stands in for the description: leafLabel needs a non-empty one, the prefix does not depend on it.
 const labelDescription = "task"
 
-// DispatchLabel runs the dispatch-effort pin and label path on a synthetic spawn: the prefix and the model the dispatch
+// dispatchLabel runs the dispatch-effort pin and label path on a synthetic spawn: the prefix and the model the dispatch
 // carries after the pin.
-func DispatchLabel(in LabelInput) (label, model string) {
+func dispatchLabel(in LabelInput) (label, model string) {
 	payload, _ := json.Marshal(map[string]any{"tool_name": "Agent", "tool_input": map[string]any{
 		"subagent_type": in.Type, "model": in.Model, "prompt": in.Brief, "description": labelDescription}})
 	ci := core.ParseInputFor(bytes.NewReader(payload), "") // a Claude spawn: gemini's parser would empty tool_input
 	updated := ci.CloneToolInput()
 	_, task := spawnTask(ci)
+	run := newDispatchRun(func() string { return in.SessionModel })
 	if in.Brief != "" { // the hook classifies the brief; the stand-in description is not one
-		pinModel(ci, updated, task)
+		pinModel(run, ci, updated, task)
 	}
-	label, _ = leafLabel(updated, in.Type, task, labelDescription, func() string { return in.SessionModel })
+	label, _ = leafLabel(run, updated, in.Type, task, labelDescription)
 	model, _ = updated["model"].(string)
 	return label, model
 }
@@ -47,7 +48,7 @@ type LabelRow struct {
 // Label labels in; an empty SessionModel is read from session sid's transcript in cwd's project.
 func Label(in LabelInput, cwd, sid string) LabelRow {
 	in.SessionModel = cmp.Or(in.SessionModel, sessionModelOf(cwd, sid))
-	label, pinned := DispatchLabel(in)
+	label, pinned := dispatchLabel(in)
 	return LabelRow{Type: in.Type, Model: pinned, Label: label, Source: labelSource(in.Model, label, in.SessionModel)}
 }
 

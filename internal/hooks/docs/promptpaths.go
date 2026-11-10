@@ -256,8 +256,16 @@ func pathResolverResult(in *core.Input, res *paths.Resolver) core.Result {
 	return core.Result{Context: modelContext(reps), SystemMessage: feedbackMessage(reps)}
 }
 
-// ResolvePaths binds pathResolverResult to the host's mount view.
-func ResolvePaths(in *core.Input) core.Result { return pathResolverResult(in, paths.Default()) }
+// defaultResolver reads the host's mount table (macOS runs `mount`); swapped in tests.
+var defaultResolver = paths.Default
+
+// ResolvePaths binds pathResolverResult to the host's mount view, read only when the prompt holds a path token.
+func ResolvePaths(in *core.Input) core.Result {
+	if len(scanWinTokens(in.Prompt)) == 0 && len(scanPosixTokens(in.Prompt)) == 0 {
+		return core.Result{}
+	}
+	return pathResolverResult(in, defaultResolver())
+}
 
 // foreignHead opens a non-POSIX path token: drive letter, UNC, scheme URL, ~ / ~user, or host:/path.
 const foreignHead = `(?:\b[A-Za-z]:[\\/]|\\\\|(?:file|smb|nfs)://|~[A-Za-z0-9_.-]*/|\b(?:[\w.-]+@)?[\w.-]{2,}:/)`

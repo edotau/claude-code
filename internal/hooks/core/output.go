@@ -92,7 +92,7 @@ func Emit(name, event string, r Result, stdout, stderr io.Writer) int {
 	build := func(event string, r Result) string { return claudeDoc(event, r, claudeStyle{}) }
 	switch name {
 	case AgentCodex:
-		build = OutputCodex
+		build = outputCodex
 	case AgentCopilot:
 		build = OutputCopilot
 	}
@@ -115,9 +115,9 @@ func Emit(name, event string, r Result, stdout, stderr io.Writer) int {
 	return ExitProceed
 }
 
-// OutputCodex is exactly one JSON document in Codex's Claude-compatible schema: no ask decision (deny), and an
+// outputCodex is exactly one JSON document in Codex's Claude-compatible schema: no ask decision (deny), and an
 // updatedInput on PreToolUse is an explicit allow (ruling 4).
-func OutputCodex(event string, r Result) string {
+func outputCodex(event string, r Result) string {
 	return claudeDoc(event, r, claudeStyle{askAsDeny: true, allowWithInput: true})
 }
 

@@ -119,3 +119,35 @@ func TestPermissionGateUnknownTargetFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+func TestPermissionGateAbsoluteDenyPath(t *testing.T) {
+	t.Setenv(agent.DispatchPermissionsEnv, `{"deny":[{"Tool":"Read","Arg":"/repo/secret.txt"}]}`)
+	for _, path := range []string{"/repo/secret.txt", "secret.txt"} {
+		payload := `{"tool_name":"Read","cwd":"/repo","tool_input":{"file_path":"` + path + `"}}`
+		res := PermissionGate(core.ParseInput(strings.NewReader(payload)))
+		if res.Decision != core.Block || !strings.Contains(res.Reason, "deny Read(/repo/secret.txt)") {
+			t.Errorf("path %q: decision %v reason %q, want absolute-path deny", path, res.Decision, res.Reason)
+		}
+	}
+	payload := `{"tool_name":"Read","cwd":"/repo","tool_input":{"file_path":"/repo/public.txt"}}`
+	if res := PermissionGate(core.ParseInput(strings.NewReader(payload))); res.Decision == core.Block {
+		t.Errorf("unrelated path blocked: %s", res.Reason)
+	}
+}
+
+func TestPermissionGateTruncatedInputFailsClosed(t *testing.T) {
+	const payload = `{"tool_name":"Read","cwd":"/repo","tool_input":{"file_path":"/repo/secret.txt"`
+	for _, tc := range []struct {
+		policy string
+		want   core.Decision
+	}{
+		{`{"deny":[{"Tool":"Read","Arg":"/repo/secret.txt"}]}`, core.Block},
+		{"", core.Allow},
+	} {
+		t.Setenv(agent.DispatchPermissionsEnv, tc.policy)
+		res := PermissionGate(core.ParseInput(strings.NewReader(payload)))
+		if res.Decision != tc.want {
+			t.Errorf("policy %q: decision %v reason %q, want %v", tc.policy, res.Decision, res.Reason, tc.want)
+		}
+	}
+}

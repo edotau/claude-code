@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/settings"
 )
@@ -225,14 +226,30 @@ func (in *Input) ToolResponseText() string {
 // ContextCapChars stays under Claude Code's 10,000-char additionalContext ceiling (larger payloads are dropped).
 const ContextCapChars = 9500
 
-// HookContext gives subprocesses the registered hook budget without changing process signal handling.
-func HookContext(name string) (context.Context, context.CancelFunc) {
-	for _, spec := range settings.Specs() {
-		if spec.Name == name {
-			return context.WithTimeout(context.Background(), spec.Budget)
+// specsByName indexes the static hookspec registry once per process, keeping the first entry per name.
+var specsByName = sync.OnceValue(func() map[string]settings.EventSpec {
+	m := map[string]settings.EventSpec{}
+	for _, s := range settings.Specs() {
+		if _, dup := m[s.Name]; !dup {
+			m[s.Name] = s
 		}
 	}
-	panic("unknown hook: " + name)
+	return m
+})
+
+// SpecOf is the hookspec entry for a module, stamped with its group; false when unknown.
+func SpecOf(name string) (settings.EventSpec, bool) {
+	s, ok := specsByName()[name]
+	return s, ok
+}
+
+// HookContext gives subprocesses the registered hook budget without changing process signal handling.
+func HookContext(name string) (context.Context, context.CancelFunc) {
+	spec, ok := SpecOf(name)
+	if !ok {
+		panic("unknown hook: " + name)
+	}
+	return context.WithTimeout(context.Background(), spec.Budget)
 }
 
 // SpawnTools are Claude Code's subagent-spawn tool names (Agent; Task on older builds).
