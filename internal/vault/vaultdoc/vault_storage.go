@@ -362,6 +362,7 @@ func Import(orig, edited []byte) (warnings []string, err error) {
 	if err != nil {
 		return nil, err
 	}
+	p.refuseInvalidRecords(baseRecs)
 	d, recs := p.merge(base, baseRecs)
 	if len(p.warnings) > 0 && !docChanged(base, d, baseRecs, recs) {
 		return nil, fmt.Errorf("nothing saved:\n  %s", strings.Join(p.warnings, "\n  "))

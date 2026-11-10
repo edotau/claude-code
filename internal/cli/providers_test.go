@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -171,10 +172,6 @@ func dbxCLIServer(t *testing.T) (*httptest.Server, *[]string) {
 	var got []string
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = append(got, r.URL.Path+"|"+r.Header.Get("Authorization"))
-		if r.URL.Path == "/ai-gateway/anthropic/v1/models" {
-			_, _ = w.Write([]byte(`{"data":[{"id":"system.ai.claude-opus-5","display_name":"Claude Opus 5"}],"has_more":false}`))
-			return
-		}
 		_, _ = w.Write([]byte(providersDbxListing))
 	}))
 	useTLSTransport(t, srv)
@@ -204,8 +201,8 @@ func TestListLiveDatabricksText(t *testing.T) {
 		t.Fatalf("exit %d, stderr=%s", code, stderr)
 	}
 	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
-	if len(lines) != 8 || lines[5] != "AI GATEWAY (anthropic)" || !strings.Contains(lines[7], "Claude Opus 5") {
-		t.Fatalf("want header + 3 rows + gateway section:\n%s", stdout)
+	if len(lines) != 4 || strings.Contains(stdout, "AI GATEWAY") {
+		t.Fatalf("want header + 3 rows and no AI Gateway section for a serving row:\n%s", stdout)
 	}
 	wantFields := []string{"NAME TASK READY", "chat-a llm/v1/chat READY", "embed-b llm/v1/embeddings READY", "chat-c llm/v1/chat NOT_READY"}
 	for i, w := range wantFields {
@@ -213,7 +210,7 @@ func TestListLiveDatabricksText(t *testing.T) {
 			t.Errorf("line %d = %q, want %q", i, f, w)
 		}
 	}
-	if len(*got) != 2 || (*got)[0] != "/api/2.0/serving-endpoints|Bearer "+dbxCLIToken {
+	if len(*got) != 1 || (*got)[0] != "/api/2.0/serving-endpoints|Bearer "+dbxCLIToken {
 		t.Errorf("requests = %v", *got)
 	}
 	assertNoDbxTokenLeak(t, stdout, stderr)
@@ -221,7 +218,7 @@ func TestListLiveDatabricksText(t *testing.T) {
 
 func assertDbxJSONRows(t *testing.T, raw []map[string]any) {
 	t.Helper()
-	if len(raw) != 4 || raw[3]["gateway"] != true || raw[0]["gateway"] != nil {
+	if len(raw) != 3 || slices.ContainsFunc(raw, func(r map[string]any) bool { return r["gateway"] != nil }) {
 		t.Errorf("rows = %v", raw)
 		return
 	}

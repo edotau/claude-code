@@ -205,7 +205,9 @@ func LoadCatalog(reg *Registry, p *Provider, listOwn func(context.Context) ([]Mo
 			return Catalog{}, err
 		}
 	}
-	c.Gateway, c.GatewayErr = GatewayModels(ctx, p)
+	if p.IsAIGateway() { // a serving row's traffic stays on /serving-endpoints: never read the AI Gateway
+		c.Gateway, c.GatewayErr = GatewayModels(ctx, p)
+	}
 	return c, nil
 }
 

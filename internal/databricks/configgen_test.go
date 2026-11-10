@@ -160,8 +160,8 @@ func TestTemplatesOnlyPlaceholderHost(t *testing.T) {
 				t.Errorf("%s: unexpected host %q", n, h)
 			}
 		}
-		if strings.Contains(string(b), "eyJ") {
-			t.Errorf("%s: jwt-like string", n)
+		if strings.Contains(string(b), "eyJ") || strings.Contains(string(b), "/ai-gateway/") {
+			t.Errorf("%s: jwt-like string or an AI Gateway path", n)
 		}
 	}
 }
@@ -203,6 +203,8 @@ func checkMatrixCommon(t *testing.T, name, text, wire string) {
 	wantURL := matrixHost + "/serving-endpoints"
 	if wire == "ai-gateway" {
 		wantURL = matrixHost + "/ai-gateway"
+	} else if strings.Contains(text, "/ai-gateway/") {
+		t.Errorf("%s: a serving row renders an AI Gateway path:\n%s", name, text)
 	}
 	if !strings.Contains(text, wantURL) {
 		t.Errorf("%s: missing %s", name, wantURL)

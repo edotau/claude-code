@@ -254,3 +254,25 @@ func TestPrintRedactsCredentialSegmentNames(t *testing.T) {
 		t.Errorf("benign DATA_PATH was redacted:\n%s", out)
 	}
 }
+
+// An AI Gateway-wire row is refused for every shared-path agent before any route is built; a serving row is not.
+func TestConfigureRouteRefusesAIGatewayWire(t *testing.T) {
+	vaulttest.Use(t)
+	stubRouter(t, func(context.Context) (string, error) { return "", errors.New("router stubbed") })
+	t.Setenv("DBX_GW_TEST_TOKEN", "tok")
+	const doc = `{"providers":{"databricks":{"gw":{"preset":"databricks","host":"https://x.example.com",` +
+		`"options":{"wire":"%s"},"auth":{"type":"key","env":"DBX_GW_TEST_TOKEN"}}}}}`
+	const refusal = "profile gw uses the AI Gateway wire; agents run on /serving-endpoints only"
+	for _, wire := range []string{providers.WireAIGateway, "serving"} {
+		reg, err := providers.Parse([]byte("{}"), []byte(fmt.Sprintf(doc, wire)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"codex", "copilot", "gemini", "opencode"} {
+			_, _, err := SchemaFor(name).configureRoute(t.Context(), providers.Target{Provider: reg.Providers["gw"], Model: "m"}, nil)
+			if refused := err != nil && err.Error() == refusal; refused != (wire == providers.WireAIGateway) {
+				t.Errorf("%s on %s: err = %v; refused = %v", name, wire, err, refused)
+			}
+		}
+	}
+}

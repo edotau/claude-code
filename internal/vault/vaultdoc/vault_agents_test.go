@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	_ "github.com/edotau/claude-code/internal/codex" // registers codex's declared extras for ValidateRecord
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -103,5 +104,46 @@ func TestImportAgentRecordsValidation(t *testing.T) {
 		if !reflect.DeepEqual(vaultTestState(t), before) {
 			t.Errorf("%s: a rejected Import wrote to the vault", name)
 		}
+	}
+}
+
+// A record agent.ValidateRecord refuses warns by path without its value, keeps the stored record; valid edits apply.
+func TestImportRefusesInvalidAgentRecord(t *testing.T) {
+	key := "sk-" + strings.Repeat("a", 24)
+	for name, c := range map[string]struct {
+		agent string
+		rec   map[string]any
+	}{
+		"effort":         {"codex", map[string]any{"effort": "turbo"}},
+		"wrong agent":    {"codex", map[string]any{"account": "octo"}},
+		"extras key":     {"codex", map[string]any{"extras": map[string]any{"nope": "x"}}},
+		"extras value":   {"codex", map[string]any{"extras": map[string]any{"model_verbosity": "loud"}}},
+		"launch.env":     {"codex", map[string]any{"launch": map[string]any{"env": []string{"OPENAI_API_KEY=" + key}}}},
+		"launch.args":    {"codex", map[string]any{"launch": map[string]any{"args": []string{"--api-key", key}}}},
+		"new bad record": {"gemini", map[string]any{"effort": "turbo"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			vaulttest.Use(t)
+			stored := vault.AgentRecord{Profile: "chatgpt", Model: "m1"}
+			if err := vault.SetAgentRecord("codex", stored); err != nil {
+				t.Fatal(err)
+			}
+			orig := exportTestDoc(t)
+			warnings, err := Import(orig, editRecords(t, orig, func(recs map[string]any) {
+				recs[c.agent] = c.rec
+				recs["copilot"] = map[string]any{"effort": "high"}
+			}))
+			want := "unable to parse agents.records." + c.agent + ": "
+			if err != nil || len(warnings) != 1 || !strings.HasPrefix(warnings[0], want) || strings.Contains(warnings[0], key) {
+				t.Fatalf("Import = %q, %v; want one %q warning without the value", warnings, err, want)
+			}
+			var got map[string]vault.AgentRecord
+			if err := vault.View(func(tx *vault.Tx) (err error) { got, err = tx.AgentRecords(); return err }); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, map[string]vault.AgentRecord{"codex": stored, "copilot": {Effort: "high"}}) {
+				t.Errorf("records = %+v, want codex kept as stored and copilot added", got)
+			}
+		})
 	}
 }

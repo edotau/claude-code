@@ -131,6 +131,25 @@ func (p *parsed) agentRecords(raw json.RawMessage) map[string]vault.AgentRecord 
 	return recs
 }
 
+// refuseInvalidRecords drops each changed record agent.ValidateRecord refuses, warning by path; stored ones pass.
+func (p *parsed) refuseInvalidRecords(stored map[string]vault.AgentRecord) {
+	if p.recs == nil {
+		return
+	}
+	valid := make(map[string]vault.AgentRecord, len(p.recs))
+	for _, name := range slices.Sorted(maps.Keys(p.recs)) {
+		rec := p.recs[name]
+		if old, ok := stored[name]; !ok || !reflect.DeepEqual(old, rec) {
+			if err := agent.ValidateRecord(name, rec); err != nil {
+				p.skip("agents."+recordsKey+"."+name, err)
+				continue
+			}
+		}
+		valid[name] = rec
+	}
+	p.recs = valid
+}
+
 // keptRecords is p's records with the stored record restored for every agent (or the whole map) p keeps.
 func keptRecords(p *parsed, cur map[string]vault.AgentRecord) map[string]vault.AgentRecord {
 	if p.keep["agents."+recordsKey] {
