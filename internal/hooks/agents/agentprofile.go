@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 var profileLineRe = sync.OnceValue(func() *regexp.Regexp {
@@ -66,6 +67,9 @@ func applyProfile(run *dispatchRun, updated map[string]any, promptField, task st
 	p := briefProfile(task)
 	if p == "" {
 		return "", nil
+	}
+	if arm := router.ArmProfile(); arm != "" && p != arm {
+		return "", &core.Result{Decision: core.Block, Reason: "agent-effort: Profile: " + p + " conflicts with databricks:" + arm}
 	}
 	if names, ok := profileNames(run); ok && !slices.Contains(names, p) {
 		return "", &core.Result{Decision: core.Block, Reason: fmt.Sprintf(

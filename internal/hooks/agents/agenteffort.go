@@ -4,6 +4,7 @@
 package agents
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"os"
@@ -417,19 +418,35 @@ func profileModelFor(run *dispatchRun, profile, alias string) string {
 	return models.Strip1M(reg.Providers[profile].Models[alias])
 }
 
+// cellModelFor is the model a leaf is planned to run. Under a databricks route it is the first candidate of the no-run
+// route preview (what `gateway` picks); otherwise the table prediction.
 func cellModelFor(run *dispatchRun, agent, alias string) string {
+	pins, err := agentpkg.AgentPins()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "agent-effort label: %v\n", err)
+		return ""
+	}
+	if slices.ContainsFunc(slices.Collect(maps.Values(pins)), func(s router.PinSpec) bool { return s.Model == router.DiscoveryModel }) {
+		return "" // a discovery pick advances the rotation in quota.json; a label never writes state
+	}
+	if router.ArmProfile() == "" {
+		return tableCellModel(run, agent, alias, pins[agent])
+	}
+	_, res, err := agentpkg.Resolve(context.Background(), agentpkg.RouteReq{Agent: agent, Model: alias, Fallback: router.FallbackAll, Preview: true})
+	if err != nil || len(res.Candidates) == 0 {
+		return ""
+	}
+	return res.Candidates[0].Model
+}
+
+// tableCellModel predicts the model from the route table cell and the agent's pin, without running the pick.
+func tableCellModel(run *dispatchRun, agent, alias string, pin router.PinSpec) string {
 	t, err := router.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "agent-effort label: %v\n", err)
 		return ""
 	}
 	c, _ := t.Cell(agent, alias)
-	pins, err := agentpkg.AgentPins()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "agent-effort label: %v\n", err)
-		return ""
-	}
-	pin := pins[agent]
 	if pin.Profile == "" && pin.Model == "" {
 		return c.Model
 	}

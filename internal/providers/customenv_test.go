@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/vault"
@@ -81,5 +82,19 @@ func TestResolveCustomEnvReadError(t *testing.T) {
 	vals, missing, err := ResolveCustomEnv(func(string) (string, bool) { return "", false })
 	if err == nil || len(vals) != 0 || len(missing) != 0 {
 		t.Errorf("ResolveCustomEnv(corrupt vault) = %v, %v, %v; want an error and nothing resolved", vals, missing, err)
+	}
+}
+
+func TestSetCustomEnvRefusesStoredDatabricksRoute(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	err := SetCustomEnv("HARNESS_ROUTE", "databricks:dev")
+	if err == nil || !strings.Contains(err.Error(), "HARNESS_ROUTE") || !strings.Contains(err.Error(), "launch flag") {
+		t.Fatalf("err = %v, want a refusal naming HARNESS_ROUTE and the flag", err)
+	}
+	if _, ok := CustomEnv()["HARNESS_ROUTE"]; ok {
+		t.Error("the refused route was stored")
+	}
+	if err := SetCustomEnv("HARNESS_ROUTE", "first-party"); err != nil {
+		t.Errorf("a non-databricks route is refused: %v", err)
 	}
 }
