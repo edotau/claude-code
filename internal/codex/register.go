@@ -26,4 +26,15 @@ var row = agent.Schema{Name: "codex", CLI: agent.CLI{
 	Events:       []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventToolResult, wire.EventResult, wire.EventError},
 	ResumeFormat: "codex resume %s", ModelsProvider: "openai", LoginArgv: []string{"codex", "login"},
 	ConfigureHint: "run `codex login` (ChatGPT) or `claude-code configure` → codex → API key",
+	Extras:        map[string][]string{extraApprovalPolicy: nil, extraSandboxMode: nil, extraVerbosity: codexVerbosities},
 }}
+
+// The record extras codex reads: approval_policy and sandbox_mode (free-form) and model_verbosity in config.toml.
+const (
+	extraApprovalPolicy = "approvalPolicy"
+	extraSandboxMode    = "sandboxMode"
+	extraVerbosity      = "model_verbosity"
+)
+
+// codexVerbosities is the model_verbosity values codex accepts.
+var codexVerbosities = []string{"low", "medium", "high"}

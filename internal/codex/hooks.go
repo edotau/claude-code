@@ -188,11 +188,11 @@ func codexTrustAndSettings(next, hooksPath string, mergedHooks []byte) (string, 
 		return "", err
 	}
 	next = MergeCodexTrust(next, entries)
-	overlay, err := LoadCodexOverlay()
+	prefs, err := LoadCodexPreferences()
 	if err != nil {
 		return "", err
 	}
-	return patchCodexSettings(next, overlay)
+	return patchCodexSettings(next, prefs)
 }
 
 // writeCodexHooks writes hooks.json under a file lock, refusing when it changed since the merge read it.

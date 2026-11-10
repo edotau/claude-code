@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -97,19 +98,18 @@ func codexCredStoreKey(existing string, out io.Writer) string {
 }
 
 // codexPermissionKeys renders approval_policy/sandbox_mode/cli_auth_credentials_store as top-level TOML keys;
-// approval/sandbox skip when unset. A failed agent config load is an error, so the render never drops them.
+// approval/sandbox skip when unset. A failed settings load is an error, so the render never drops them.
 func codexPermissionKeys(existing string, out io.Writer) (string, error) {
-	cfg, err := agentconfig.LoadConfig()
+	rec, err := agentconfig.Settings(agentid.Codex)
 	if err != nil {
-		return "", fmt.Errorf("codex: vendorconfig: %w", err)
+		return "", fmt.Errorf("codex: agent settings: %w", err)
 	}
-	perm := cfg.Agent("codex").Permission
 	var b strings.Builder
-	if perm.ApprovalPolicy != "" {
-		fmt.Fprintf(&b, "approval_policy = %q\n", perm.ApprovalPolicy)
+	if v := rec.Extras[extraApprovalPolicy]; v != "" {
+		fmt.Fprintf(&b, "approval_policy = %q\n", v)
 	}
-	if perm.SandboxMode != "" {
-		fmt.Fprintf(&b, "sandbox_mode = %q\n", perm.SandboxMode)
+	if v := rec.Extras[extraSandboxMode]; v != "" {
+		fmt.Fprintf(&b, "sandbox_mode = %q\n", v)
 	}
 	b.WriteString(codexCredStoreKey(existing, out))
 	return b.String(), nil

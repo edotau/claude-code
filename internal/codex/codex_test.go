@@ -250,12 +250,94 @@ func TestCodexInteractiveCarriesEffortPin(t *testing.T) {
 	if !slices.Contains(argv, `model_reasoning_effort="medium"`) {
 		t.Errorf("interactive argv = %q, want the effort pin", argv)
 	}
-	_, argv, err = agent.SchemaFor("codex").ConfigureHeadless(context.Background(), tg, agent.Headless{Prompt: "hi", Effort: "low"})
+	_, argv, _ = renderCodexHeadless(t, tg, agent.RunOptions{Prompt: "hi", Effort: "low"})
+	if !slices.Contains(argv, `model_reasoning_effort="low"`) || slices.Contains(argv, `model_reasoning_effort="medium"`) {
+		t.Errorf("headless argv = %q, want explicit low over the pin", argv)
+	}
+}
+
+// renderCodexHeadless is req's headless codex launch on tg as prepare builds it: route argv, then RenderSettings.
+func renderCodexHeadless(t *testing.T, tg providers.Target, req agent.RunOptions) (env, argv, emulated []string) {
+	t.Helper()
+	h := agent.Headless{Prompt: req.Prompt, Tools: req.Tools}
+	env, argv, err := agent.SchemaFor("codex").ConfigureHeadless(context.Background(), tg, h)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(argv, `model_reasoning_effort="low"`) || slices.Contains(argv, `model_reasoning_effort="medium"`) {
-		t.Errorf("headless argv = %q, want explicit low over the pin", argv)
+	s, err := agent.ResolveSettings("codex", req, tg, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, argv, emulated, cleanup, err := agent.SchemaFor("codex").Eng().RenderSettings(context.Background(), s, env, argv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanup)
+	return env, argv, emulated
+}
+
+// putCodexRecord stores rec as the codex agent record.
+func putCodexRecord(t *testing.T, rec vault.AgentRecord) {
+	t.Helper()
+	err := vault.Update(func(tx *vault.Tx) error {
+		return tx.PutAgentRecords(map[string]vault.AgentRecord{"codex": rec})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The codex record's effort, policy and launch settings reach the headless launch; a flag beats the record.
+func TestCodexRenderSettingsFromRecord(t *testing.T) {
+	effort := func(v string) string { return `model_reasoning_effort="` + v + `"` }
+	cases := []struct {
+		name         string
+		rec          vault.AgentRecord
+		req          agent.RunOptions
+		want, absent []string // argv entries, then env entries via wantEnv
+		wantEnv      string
+		wantEmulated []string
+	}{
+		{name: "no record", absent: []string{"-c model_reasoning_effort"}},
+		{name: "record effort", rec: vault.AgentRecord{Effort: "high"}, want: []string{effort("high")}},
+		{name: "max clamps", rec: vault.AgentRecord{Effort: "max"}, want: []string{effort("xhigh")},
+			wantEmulated: []string{"effort max→xhigh"}},
+		{name: "flag over record", rec: vault.AgentRecord{Effort: "high"}, req: agent.RunOptions{Effort: "low"},
+			want: []string{effort("low")}, absent: []string{effort("high")}},
+		{name: "permissions block", rec: vault.AgentRecord{Permissions: &vault.AgentPolicy{Mode: "auto"}},
+			req: agent.RunOptions{Tools: true}, want: []string{"--approve-for-me"}, absent: []string{"--sandbox"}},
+		{name: "launch env, no args headless", rec: vault.AgentRecord{Launch: &vault.AgentLaunch{Env: []string{"X_TEAM=1"},
+			Args: []string{"--search"}}}, wantEnv: "X_TEAM=1", absent: []string{"--search"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			stubProxy(t, nil)
+			tg := loadTarget(t, "openai", "gpt-5")
+			putCodexRecord(t, c.rec)
+			c.req.Prompt = "hi"
+			env, argv, emulated := renderCodexHeadless(t, tg, c.req)
+			joined := strings.Join(argv, " ")
+			for _, w := range c.want {
+				if !slices.Contains(argv, w) {
+					t.Errorf("argv %q lacks %q", argv, w)
+				}
+			}
+			for _, a := range c.absent {
+				if strings.Contains(joined, a) {
+					t.Errorf("argv %q carries %q", argv, a)
+				}
+			}
+			if c.wantEnv != "" && !slices.Contains(env, c.wantEnv) {
+				t.Errorf("env lacks %q", c.wantEnv)
+			}
+			if !slices.Equal(emulated, c.wantEmulated) {
+				t.Errorf("emulated = %q, want %q", emulated, c.wantEmulated)
+			}
+			if i := slices.Index(argv, "--skip-git-repo-check"); len(c.want) > 0 && strings.HasPrefix(c.want[0], "model_") &&
+				slices.Index(argv, c.want[0]) > i {
+				t.Errorf("effort %q lands after exec's own flags: %q", c.want[0], argv)
+			}
+		})
 	}
 }
 
@@ -440,5 +522,30 @@ func TestCodexOwnModelTripleQuotedAndTableScoped(t *testing.T) {
 		if got := codexOwnModel(); got != want {
 			t.Errorf("codexOwnModel(%q) = %q, want %q", raw, got, want)
 		}
+	}
+}
+
+// A stored effort codex lacks (max) runs as xhigh and the run's result names the clamp.
+func TestCodexRunReportsEffortClamp(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	stubProxy(t, nil)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Put(t, vault.Overlay, "providers", fmt.Sprintf(`{"providers":{"openai":{"toai":{"protocol":"responses","base_url":%q,"auth":{"type":"none"},"models":{"opus":"gpt-x"}}}}}`, srv.URL+"/v1"))
+	putCodexRecord(t, vault.AgentRecord{Effort: "max"})
+	argvFile := filepath.Join(t.TempDir(), "codex.argv")
+	// help prints no --json: codexHasJSON is cached per process and must not flip for other tests
+	pathstest.FakeVendor(t, "codex", "cat >/dev/null\nif [ \"$2\" = --help ]; then exit 0; fi\nprintf '%s\\n' \"$@\" > '"+argvFile+"'\necho ok\n")
+	e, err := agent.Lookup("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := e.Run(context.Background(), agent.RunOptions{Prompt: "task", Provider: "toai"}, wire.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv, _ := os.ReadFile(argvFile)
+	if !slices.Contains(res.Emulated, "effort max→xhigh") || !strings.Contains(string(argv), `model_reasoning_effort="xhigh"`) {
+		t.Errorf("emulated = %q, argv = %q; want the max→xhigh clamp named and applied", res.Emulated, argv)
 	}
 }

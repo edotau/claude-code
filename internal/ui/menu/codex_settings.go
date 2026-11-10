@@ -31,9 +31,9 @@ func runCodexSettings(d *dialog) bool {
 	return reportCodexSettings(d, ov, live)
 }
 
-// loadCodexSettings reads the vault overlay, the native settings under home, and the native config path.
+// loadCodexSettings reads the codex record's preferences, the native settings under home, and the native config path.
 func loadCodexSettings(home string) (ov, live map[string]string, path string, err error) {
-	if ov, err = codex.LoadCodexOverlay(); err != nil {
+	if ov, err = codex.LoadCodexPreferences(); err != nil {
 		return nil, nil, "", err
 	}
 	if live, err = codex.ReadCodexSettings(home); err != nil {
