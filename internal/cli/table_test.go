@@ -88,6 +88,16 @@ func TestCompletionFlags(t *testing.T) {
 	}
 }
 
+// TestCompletionOffersHelpOnlyFlags: real flags of verbs whose spec once omitted them still complete.
+func TestCompletionOffersHelpOnlyFlags(t *testing.T) {
+	for verb, want := range map[string]string{"completion": "--install", "usage": "--show", "preflight": "--live",
+		"configure": "--no-agents", "databricks": "--profile", "clip": "--serve"} {
+		if got := completionCandidates([]string{verb, "--"}); !slices.Contains(got, want) {
+			t.Errorf("%s -- = %v, want it to offer %s", verb, got, want)
+		}
+	}
+}
+
 // helpFlagRE pulls each long flag out of a FLAGS row label ("  -n, --name string  desc").
 var helpFlagRE = regexp.MustCompile(`^  (?:-[A-Za-z0-9], )?--([A-Za-z0-9][A-Za-z0-9_-]*)`)
 
@@ -277,7 +287,10 @@ func TestCompletionScriptBash(t *testing.T) {
 	}
 	dir := t.TempDir()
 	script := filepath.Join(dir, "completion.bash")
-	_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdCompletion([]string{"bash"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdCompletion([]string{"bash"}) })
+	if code != 0 {
+		t.Fatalf("completion bash exit %d", code)
+	}
 	if err := writeFile(script, out, 0o644); err != nil {
 		t.Fatal(err)
 	}
