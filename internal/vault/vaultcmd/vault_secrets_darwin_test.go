@@ -1,11 +1,12 @@
 package vaultcmd
 
 import (
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"os"
 	"strings"
 	"testing"
 	"unsafe"
+
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
 	"golang.org/x/sys/unix"
 )
