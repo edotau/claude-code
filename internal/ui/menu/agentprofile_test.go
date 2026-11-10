@@ -204,19 +204,16 @@ func TestSeedFromSignInForgetsLastProfileAndSetsRecord(t *testing.T) {
 	}
 }
 
-func TestPinCopilotProfileGhActiveClearsPin(t *testing.T) {
+func TestPinCopilotProfileEmptyRefusedKeepsPin(t *testing.T) {
 	reg := menuTestEnv(t)
 	putRec(t, "copilot", "PROFILE", "personal")
 	putRec(t, "copilot", "MODEL", "keep-model")
 	d := &dialog{reg: reg, out: &bytes.Buffer{}}
-	if !pinCopilotProfile(d, "") {
-		t.Fatalf("unpin failed: %s", d.out)
+	if pinCopilotProfile(d, "") {
+		t.Fatalf("empty pin must be refused: %s", d.out)
 	}
-	if got := vault.GetAgentRecord("copilot"); got.Profile != "" || got.Model != "keep-model" {
-		t.Fatalf("gh active must clear only the profile: %+v", got)
-	}
-	if login, profile := providers.CopilotLogin(d.reg); login != "" || profile != "" {
-		t.Errorf("gh active resolved login=%q profile=%q, want both empty", login, profile)
+	if got := vault.GetAgentRecord("copilot"); got.Profile != "personal" || got.Model != "keep-model" {
+		t.Fatalf("refused pin must keep the record: %+v", got)
 	}
 }
 

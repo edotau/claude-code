@@ -12,7 +12,9 @@ import (
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // printRoute prints one agent.DescribeRoute result: provider/model/small_model and why, never a credential.
@@ -43,6 +45,8 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK bool) {
 		d.printf("%-16s ABSENT: not logged in\n", "gh CLI")
 	}
 
+	d.printf("%-16s %s\n", "GitHub auth", githubAuthLine(d))
+
 	auth := agent.AuthStatus("copilot")
 	copilotOK = auth.Present
 	if copilotOK {
@@ -57,6 +61,72 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK bool) {
 	printRoute(d, oc.DescribeRoute(d.reg))
 	printRoute(d, cp.DescribeRoute(d.reg))
 	return
+}
+
+// githubProfile is the named github profile, or nil when absent or of another provider.
+func (d *dialog) githubProfile(name string) *providers.Provider {
+	if d.reg == nil {
+		return nil
+	}
+	if p := d.reg.Providers[name]; p != nil && p.Provider == "github" {
+		return p
+	}
+	return nil
+}
+
+// githubAuthLine is the GitHub auth pin and whether gh's active account matches it.
+func githubAuthLine(d *dialog) string {
+	profile, login := providers.GitHubAuthLogin(d.reg)
+	if profile == "" {
+		profile = vault.GitHubAuth()
+	}
+	if profile == "" {
+		return "follows gh's active account"
+	}
+	if login == "" {
+		if p := d.githubProfile(profile); p == nil {
+			return profile + " · drift: pin names no github profile, gh follows its active account"
+		}
+		return profile + " · drift: profile has no login, gh follows its active account"
+	}
+	if active := copilot.GHActiveAccount(); active != login {
+		return profile + " (" + login + ") · drift: gh active is " + cmp.Or(active, "none")
+	}
+	return profile + " (" + login + ")"
+}
+
+// pickGitHubAuth lists github profiles with a login plus "follow gh active"; a pick switches gh, then stores it.
+func pickGitHubAuth(d *dialog) {
+	names := []string{""}
+	rows := [][2]string{{"follow gh active", "no switch; use whichever account gh has active"}}
+	for _, n := range d.reg.ProfilesOf("github") {
+		if l := d.reg.Providers[n].Login; l != "" {
+			names = append(names, n)
+			rows = append(rows, [2]string{n, "gh account " + l})
+		}
+	}
+	idx, err := d.shell().Pick("GitHub auth — gh's active account", rows)
+	if err != nil || idx < 0 {
+		return
+	}
+	prev := copilot.GHActiveAccount()
+	if names[idx] != "" {
+		if err := copilot.SwitchGH(d.reg.Providers[names[idx]].Login); err != nil {
+			d.printf("github auth: %v\n", err)
+			return
+		}
+	}
+	if err := vault.SetGitHubAuth(names[idx]); err != nil {
+		d.printf("github auth: %v\n", err)
+		if names[idx] != "" && prev != "" && prev != d.reg.Providers[names[idx]].Login {
+			if rerr := copilot.SwitchGH(prev); rerr != nil { // roll gh back so it matches the stale pin
+				d.printf("github auth: rollback to %s failed: %v\n", prev, rerr)
+			}
+		}
+		return
+	}
+	d.changed = true
+	d.printf("github auth: %s\n", cmp.Or(names[idx], "follows gh's active account"))
 }
 
 // runGithub is the `configure github` / `configure` "github" section: opencode's GitHub Copilot
@@ -94,6 +164,8 @@ func githubMenu(d *dialog) bool {
 			login("Log in to GitHub CLI", "gh auth login", "gh CLI", "gh", "auth", "login"),
 			login("Log in to Copilot", "copilot login", "copilot", "copilot", "login"),
 			login("Log in to OpenCode", "opencode auth login (choose GitHub Copilot)", "opencode", "opencode", "auth", "login"),
+			{Name: "GitHub auth", Detail: "gh's active account: pick a profile or follow gh",
+				Run: func() bool { pickGitHubAuth(d); return false }},
 			{Name: "Pick fallback models", Detail: "opus/sonnet/haiku github-copilot serves to opencode",
 				Run: func() bool { pickCopilotModels(d); return false }},
 		}

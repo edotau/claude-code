@@ -617,3 +617,34 @@ func TestLoadMalformedVaultOverlay(t *testing.T) {
 		t.Fatalf("Load() error = %v, want vault overlay/providers", err)
 	}
 }
+
+func TestGitHubAuthLogin(t *testing.T) {
+	for _, tc := range []struct{ name, pin, profile, login string }{
+		{"profile pin resolves to its login", "personal", "personal", "edotau"},
+		{"unset pin is gh's active account", "", "", ""},
+		{"profile without a login reports none, not a bare pin", "bare", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := copilotLoginReg(t, "")
+			if tc.pin != "" {
+				if err := vault.SetGitHubAuth(tc.pin); err != nil {
+					t.Fatal(err)
+				}
+			}
+			profile, login := GitHubAuthLogin(reg)
+			if profile != tc.profile || login != tc.login {
+				t.Errorf("GitHubAuthLogin = (%q, %q), want (%q, %q)", profile, login, tc.profile, tc.login)
+			}
+		})
+	}
+}
+
+func TestCopilotLoginIgnoresGitHubAuthPin(t *testing.T) {
+	reg := copilotLoginReg(t, "")
+	if err := vault.SetGitHubAuth("personal"); err != nil {
+		t.Fatal(err)
+	}
+	if login, profile := CopilotLogin(reg); login != "" || profile != "" {
+		t.Errorf("CopilotLogin = (%q, %q), want (\"\", \"\"): github-auth never feeds copilot", login, profile)
+	}
+}
