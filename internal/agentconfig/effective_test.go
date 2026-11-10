@@ -1,4 +1,4 @@
-package agentcfg
+package agentconfig
 
 import (
 	"errors"

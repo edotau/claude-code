@@ -119,7 +119,6 @@ func (o Routing) clone() Routing {
 	out := o
 	out.Weights = maps.Clone(o.Weights)
 	out.Cells = cloneMap(o.Cells, maps.Clone[map[string]RouteCell])
-	out.Subagents = clonePtr(o.Subagents)
 	out.ServedAware = clonePtr(o.ServedAware)
 	out.ClaudeAnywhere = clonePtr(o.ClaudeAnywhere)
 	out.Ladders = cloneMap(o.Ladders, cloneRungs)
@@ -325,9 +324,6 @@ func applyRoutingOverlay(base, o *Routing) {
 	mergeCells(base, o)
 	if o.Weights != nil {
 		base.Weights = o.Weights // an overlay replaces the weights whole, per its docstring
-	}
-	if o.Subagents != nil {
-		base.Subagents = o.Subagents
 	}
 	if o.ServedAware != nil {
 		base.ServedAware = o.ServedAware

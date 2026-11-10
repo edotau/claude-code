@@ -164,7 +164,7 @@ a sibling's half-finished edit); check writes with `git diff --stat`; stage name
 | Reviewers disagree | Keep both findings with their sources |
 | A leaf touched a file it didn't own | Revert that hunk, re-dispatch with the `Owns:` line sharpened |
 | External agent unavailable (credential or route missing, e.g. a Databricks profile without its M2M secret) | Report BLOCKED with the fix command; never silently do it in-context |
-| Quota pressure | `dispatch-effort` moves work to `copilot` ([cost-routing.md](references/cost-routing.md)) |
+| Quota pressure | Dispatches keep their model; route the work to another agent yourself ([cost-routing.md](references/cost-routing.md)) |
 
 ## Test scenarios
 

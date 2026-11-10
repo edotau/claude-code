@@ -458,3 +458,6 @@ func WriteState(st State) (func(), error) {
 
 // AgentHeader is the optional launcher-set request header (claude, agent, copilot, desktop) that attributes a ledger entry.
 const AgentHeader = "X-Claude-Code-Agent"
+
+// IdentityHeader carries a launch's Databricks identity (providers.WithIdentity) to the proxy's credential mint.
+const IdentityHeader = "X-Claude-Code-Identity"

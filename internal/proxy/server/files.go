@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -255,9 +256,7 @@ func (r *Router) uploadFile(in *http.Request, p *providers.Provider, route strin
 	resp, err := r.send(quiet, p, route+"/v1/files", form, func(h http.Header) {
 		h.Set("Content-Type", contentType)
 		h.Set("Anthropic-Version", filesVersion)
-		for k, v := range login {
-			h[k] = v
-		}
+		maps.Copy(h, login)
 	})
 	if err != nil {
 		return "", err

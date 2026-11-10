@@ -43,7 +43,7 @@ type SDKOptions struct {
 	WorkingDirectory string
 	AllowAllTools    bool
 	ReadOnlyTools    bool              // with AllowAllTools: approve only file reads and URL fetches
-	Permissions      agent.Permissions // with AllowAllTools: Deny rejects, Allow approves, Ask and unmatched fall to the tier
+	Permissions      agent.Permissions // with AllowAllTools: Deny rejects; anything else falls to the tier
 	UseLoggedInUser  bool              // always explicit: unset, the SDK silently falls back to the GitHub subscription
 	GitHubToken      string
 	Autonomous       bool   // MessageOptions.AgentMode = AgentModeAutopilot

@@ -106,11 +106,7 @@ func TestRouteVerbJSON(t *testing.T) {
 
 type routeSourcesJSON struct {
 	Sources struct {
-		Weights   string `json:"weights"`
-		Subagents struct {
-			On     bool
-			Source string
-		} `json:"subagents"`
+		Weights string `json:"weights"`
 	} `json:"sources"`
 }
 
@@ -129,16 +125,15 @@ func fetchRouteSources(t *testing.T) routeSourcesJSON {
 
 func assertDefaultSources(t *testing.T, got routeSourcesJSON) {
 	t.Helper()
-	if got.Sources.Weights != "default" || got.Sources.Subagents.Source != "default" || !got.Sources.Subagents.On {
-		t.Errorf("sources (no overlay) = %+v, want weights/subagents default, subagents on", got.Sources)
+	if got.Sources.Weights != "default" {
+		t.Errorf("sources (no overlay) = %+v, want weights default", got.Sources)
 	}
 }
 
-// TestRouteVerbSourcesNameWhereEachKnobCameFrom checks `route`'s header names weights' and subagents'
-// provenance: default when the vault overlay never set them, vault/env once it does.
+// TestRouteVerbSourcesNameWhereEachKnobCameFrom checks `route`'s header names the weights' provenance: default
+// when the vault overlay never set them, vault once it does.
 func TestRouteVerbSourcesNameWhereEachKnobCameFrom(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(providers.EnvRouteSubagents, "")
 
 	assertDefaultSources(t, fetchRouteSources(t))
 
@@ -148,22 +143,18 @@ func TestRouteVerbSourcesNameWhereEachKnobCameFrom(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(providers.EnvRouteSubagents, "0")
 
 	withOverlay := fetchRouteSources(t)
 	if withOverlay.Sources.Weights != "vault" {
 		t.Errorf("weights source = %q, want vault even though the value equals the default", withOverlay.Sources.Weights)
-	}
-	if withOverlay.Sources.Subagents.Source != "env" || withOverlay.Sources.Subagents.On {
-		t.Errorf("subagents = %+v, want off/env (the process env beats the vault)", withOverlay.Sources.Subagents)
 	}
 
 	textOut, code := captureRouteStdout(t, func() int { return cmdGatewayRouter([]string{"--model", "sonnet"}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, textOut)
 	}
-	if !strings.Contains(textOut, "(vault)") || !strings.Contains(textOut, "subagents off (env)") {
-		t.Errorf("text output = %q, want it to name the vault weights source and env subagents source", textOut)
+	if !strings.Contains(textOut, "(vault)") {
+		t.Errorf("text output = %q, want it to name the vault weights source", textOut)
 	}
 }
 

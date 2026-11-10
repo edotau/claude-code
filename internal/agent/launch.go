@@ -181,6 +181,9 @@ func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect s
 	base := proxy.SessionBase(rb, p.Name) + s.CLI.RouterSuffix[dialect]
 	rp := *p
 	rp.Headers = map[string]string{proxy.AgentHeader: s.Name} // the router adds the provider's own headers upstream
+	if id := providers.IdentityFrom(ctx); id != "" {
+		rp.Headers[proxy.IdentityHeader] = id
+	}
 	return &rp, base, secret, nil
 }
 

@@ -28,9 +28,8 @@ paths:
   (claude, codex, opencode), `--debug-file <path>` (claude, gemini). Without `--tools`, agents are read-only.
   `--read-only` (implies `--tools`): copilot approves file reads, URL fetches and read-only git; gemini refuses
   (agy has no read-only mode: use `--tools` or another agent); any other agent drops its tools (fail closed).
-  copilot `--tools` is scoped (reads, URL fetches, writes inside `--workdir` outside `.git`/`.env*`/`state/`/keys, an
-  allowlisted shell from `internal/agentconfig/agents.json`, indexed in `internal/agentconfig/permissions.go`);
-  refused calls return feedback and the run continues. `--tools --autonomous` approves every request.
+  copilot `--tools` approves every request like the other agents' `--tools`, still subject to the dispatch's
+  permission rules (a Deny returns feedback and the run continues) and the native hooks.
 - `agents ask --agents <json|file>` defines agents inline: `name`, `description`, `prompt`, `tools`, `model`,
   `max_turns`, `agent`, `profile`, `effort`. `--agent` also takes an `--agents` key, and a definition's `model` applies
   on every agent. With `--batch`, `--agents` covers the whole file and a line's `agent` takes the same selector; the

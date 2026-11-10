@@ -649,3 +649,18 @@ func TestSessionTokenCannotReachOtherProfiles(t *testing.T) {
 		t.Errorf("up2 hits = %d, want 0", up2.hits.Load())
 	}
 }
+
+func TestLaunchIdentityReachesMintNotUpstream(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/p/prod/v1/messages", nil)
+	req.Header.Set(proxy.IdentityHeader, providers.IdentitySP)
+	if got := providers.IdentityFrom(withLaunchIdentity(req).Context()); got != providers.IdentitySP {
+		t.Fatalf("identity on ctx = %q; want sp", got)
+	}
+	if got := providers.IdentityFrom(withLaunchIdentity(httptest.NewRequest(http.MethodPost, "/", nil)).Context()); got != "" {
+		t.Errorf("no header set identity %q", got)
+	}
+	proxy.StripLauncherHeaders(req.Header)
+	if v := req.Header.Get(proxy.IdentityHeader); v != "" {
+		t.Errorf("identity header %q would go upstream", v)
+	}
+}

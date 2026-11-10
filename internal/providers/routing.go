@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -14,24 +13,18 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// EnvRouteSubagents opts subagent routing out for the session ("0" = off, anything else = on); it beats
-// the vault routing.subagents field, which beats the default (on).
-const EnvRouteSubagents = "HARNESS_ROUTE_SUBAGENTS"
-
 // firstOutputFloor is FirstOutput's last-resort value when FreeFirstOutput is empty or fails to parse;
 // every other field reads the merged routing object directly — defaults.json seeds the real defaults.
 const firstOutputFloor = 90 * time.Second
 
-// Routing is the one `routing` object in the providers overlay: weights, cell overrides, the subagent
-// offload switch and opencode's own sub-pick knobs. It replaces the registry's former top-level
+// Routing is the one `routing` object in the providers overlay: weights, cell overrides, routing switches and
+// opencode's own sub-pick knobs. It replaces the registry's former top-level
 // RouteWeights, Route and OpencodeLadder fields.
 type Routing struct {
 	// Weights replaces internal/route's composite-score weights whole (was top-level routeWeights).
 	Weights map[string]float64 `json:"weights,omitempty"`
 	// Cells overrides internal/router's table cells, keyed agent → alias (was top-level route).
 	Cells map[string]map[string]RouteCell `json:"cells,omitempty"`
-	// Subagents toggles the agent-effort pressure hook's copilot offload; nil = on.
-	Subagents *bool `json:"subagents,omitempty"`
 	// ServedAware lets the router pick Databricks models the workspace lists READY; nil = off (static menu).
 	ServedAware *bool `json:"servedAware,omitempty"`
 	// ClaudeAnywhere scores claude into the first ladder rung it beats instead of last; nil = off.
@@ -112,11 +105,6 @@ func (o OpencodeRouting) FirstOutput() time.Duration {
 	return firstOutputFloor
 }
 
-// SubagentsOn reports whether subagent offload routing is on: nil (unset) defaults to on.
-func (r Routing) SubagentsOn() bool {
-	return r.Subagents == nil || *r.Subagents
-}
-
 // ClaudeAnywhereOn reports whether claude scores into the ladder: nil (unset) defaults to off.
 func (r Routing) ClaudeAnywhereOn() bool {
 	return r.ClaudeAnywhere != nil && *r.ClaudeAnywhere
@@ -141,23 +129,6 @@ func DefaultRouting() Routing {
 		return Routing{} // defaults.json always parses; a failure here is a build break, not a runtime one
 	}
 	return base.Routing
-}
-
-// RouteSubagentsOn resolves whether subagent offload routing is on: env HARNESS_ROUTE_SUBAGENTS ("0" = off,
-// anything else = on) beats the vault overlay's own routing.subagents field, which beats the default (on).
-// source is "env" when the env var is set, "vault" when the overlay itself sets subagents, else "default".
-func RouteSubagentsOn() (on bool, source string) {
-	if v := strings.TrimSpace(os.Getenv(EnvRouteSubagents)); v != "" {
-		return v != "0", "env"
-	}
-	reg, err := Load()
-	if err != nil {
-		return true, "default"
-	}
-	if ov, err := RoutingOverlay(); err == nil && ov.Subagents != nil {
-		return reg.Routing.SubagentsOn(), "vault"
-	}
-	return reg.Routing.SubagentsOn(), "default"
 }
 
 // validateRouting checks a routing object's shape: weight names/sum, cell agent/alias/account names, and
