@@ -282,7 +282,7 @@ lint-agent: compile mdsmith  # (folded into `lint`) AGENT fixes what auto-fix le
 		echo "- Do not run git commands."; echo; echo "Lint output (truncated):"; \
 		awk 'NR<=150{print substr($$0,1,300)}' "$$o" | head -c 12000 || [ $$? = 141 ]; } > "$$b"; \
 		echo "lint: pass $$pass/$(MAX): dispatching $(LINT_AGENT)"; \
-		$(BIN) ask --agent $(LINT_AGENT) $(if $(filter claude,$(LINT_AGENT)),--model sonnet --effort medium) --tools --fallback none --workdir $(CURDIR) - < "$$b" || echo -e "$(C_NOTE)$(LINT_AGENT) dispatch failed"; \
+		$(BIN) agents ask --agent $(LINT_AGENT) $(if $(filter claude,$(LINT_AGENT)),--model sonnet --effort medium) --tools --fallback none --workdir $(CURDIR) - < "$$b" || echo -e "$(C_NOTE)$(LINT_AGENT) dispatch failed"; \
 		prev=$$left; left=$$(chk); opfail; echo "lint: $$left issue(s) left"; \
 		[ "$$left" -lt "$$prev" ] || break; pass=$$((pass+1)); done; \
 	if [ "$$left" = 0 ]; then echo -e "$(C_OK)lint: clean"; exit 0; fi; \
