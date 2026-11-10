@@ -3,6 +3,9 @@ package copilot
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,7 +54,7 @@ func TestCopilotTier(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			clear(copilotPlanMemo.m)
+			copilotPlanMemo.Drop()
 			copilotTierCmd = func(context.Context, string) ([]byte, error) { return []byte(c.out), c.err }
 			if got := providers.CopilotPlanName(CopilotRawPlan("", "")); got != c.want {
 				t.Errorf("copilotTier = %q, want %q", got, c.want)
@@ -119,5 +122,28 @@ func TestCopilotTierCmdScrubsInheritedSecrets(t *testing.T) {
 	}
 	if string(got) != "fake-explicit-github-token\n\n" {
 		t.Fatalf("gh child environment = %q; want explicit GH_TOKEN and ANTHROPIC_API_KEY unset", got)
+	}
+}
+
+// A /user body past the 64 KiB cap reads as a failed lookup, never a login decoded from an unbounded read.
+func TestFetchGitHubLoginCapsBody(t *testing.T) {
+	big := `{"login":"` + strings.Repeat("a", 128<<10) + `"}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("big") != "" {
+			_, _ = io.WriteString(w, big)
+			return
+		}
+		_, _ = io.WriteString(w, `{"login":"octocat"}`)
+	}))
+	t.Cleanup(srv.Close)
+	orig := gitHubUserURL
+	t.Cleanup(func() { gitHubUserURL = orig })
+	gitHubUserURL = srv.URL
+	if got := fetchGitHubLogin("fake-token"); got != "octocat" {
+		t.Fatalf("small body login = %q, want octocat", got)
+	}
+	gitHubUserURL = srv.URL + "?big=1"
+	if got := fetchGitHubLogin("fake-token"); got != "" {
+		t.Fatalf("oversized body gave a %d-byte login, want \"\" (body uncapped)", len(got))
 	}
 }

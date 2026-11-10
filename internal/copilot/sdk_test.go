@@ -346,6 +346,17 @@ func TestAssistantCollectorSumsUsage(t *testing.T) {
 	}
 }
 
+// Each assistant.message is a whole message: two turns stay apart, and an empty tool-only message adds no gap.
+func TestAssistantCollectorSeparatesMessages(t *testing.T) {
+	var col assistantCollector
+	for _, s := range []string{"Let me check the file.", "", "The answer is 4."} {
+		col.onEvent(copilot.SessionEvent{Data: &copilot.AssistantMessageData{Content: s}})
+	}
+	if text, _, _ := col.snapshot(); text != "Let me check the file.\n\nThe answer is 4." {
+		t.Fatalf("text = %q, want the two messages separated by a blank line", text)
+	}
+}
+
 // Create and resume send the same append-mode system message and discovery roots; replace mode is never used.
 func TestCreateAndResumeCarryInstructions(t *testing.T) {
 	dir := t.TempDir()
