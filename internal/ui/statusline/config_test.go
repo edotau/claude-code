@@ -1,11 +1,12 @@
 package statusline
 
 import (
-	"github.com/edotau/claude-code/internal/ui/theme"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
 // No config.json means the embedded theme; a file overlays its fields and its segments map replaces the embedded one.

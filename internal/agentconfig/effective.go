@@ -39,7 +39,7 @@ func For(agent string, l Launch) (Effective, error) {
 	}
 	if l.Routed {
 		lead, err := resolveLead(reg, agent, l)
-		return Effective{Agent: agent, AgentRecord: vault.AgentRecord{Profile: lead}}, err
+		return Effective{Agent: agent, Profile: lead}, err
 	}
 	recs, err := vault.ReadAgentRecords([]string{agent})
 	if err != nil {

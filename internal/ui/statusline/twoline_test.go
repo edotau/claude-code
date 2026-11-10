@@ -42,7 +42,7 @@ func TestTwolineRendersBothRows(t *testing.T) {
 	if want := promptUser() + ":proj | databricks·dbx-u2m · u2m:42m · Fable 5.1:high"; rows[0] != want {
 		t.Errorf("row 1 = %q, want %q", rows[0], want)
 	}
-	want := "━━━━━━━━━─────────── 47% · 94.4k/200k · 7d ━━──────── 18%"
+	want := "ctx ━━━━━━━━━─────────── 47% · 94.4k/200k · 7d ━━──────── 18%"
 	if rows[1] != want {
 		t.Errorf("row 2 = %q, want %q", rows[1], want)
 	}
@@ -57,7 +57,7 @@ func TestTwolineCornerCases(t *testing.T) {
 	if strings.Contains(rows[1], "7d") || strings.Contains(rows[0], "u2m:") || strings.HasPrefix(rows[1], " ·") {
 		t.Errorf("rows = %q, want no 7d, no auth, no leading separator", rows)
 	}
-	if !strings.HasPrefix(rows[1], "━") {
+	if !strings.HasPrefix(rows[1], "ctx ━") {
 		t.Errorf("row 2 should open with the context bar: %q", rows[1])
 	}
 }
@@ -96,7 +96,7 @@ func TestTwolineNoBranchLeftPacked(t *testing.T) {
 	if !strings.HasSuffix(lines[0], ":proj | databricks·dbx-u2m · u2m:9min · M") {
 		t.Errorf("row 1 = %q, want head | provider · auth · model, no branch, no gap", lines[0])
 	}
-	if lines[1] != twoBar(0, 20)+" 0% · 0/0" {
+	if lines[1] != "ctx "+twoBar(0, 20)+" 0% · 0/0" {
 		t.Errorf("row 2 = %q, want it left-packed", lines[1])
 	}
 }
@@ -120,7 +120,7 @@ func TestTwolineDerivedBackground(t *testing.T) {
 	}
 	for _, bg := range bgs {
 		r, g, b := atoi(t, bg[1]), atoi(t, bg[2]), atoi(t, bg[3])
-		if r >= 200 || g >= 100 || b >= 50 || !(r > g && g > b) {
+		if r >= 200 || g >= 100 || b >= 50 || (r <= g || g <= b) {
 			t.Errorf("bg %d;%d;%d is not a darker shade of the ramp's 200;100;50", r, g, b)
 		}
 	}

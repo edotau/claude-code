@@ -80,7 +80,7 @@ func TestRepickedRateLimitStillMarksAccount(t *testing.T) {
 	for name, repickErr := range map[string]error{"repick answers": nil, "repick fails": errors.New("boom: unrelated failure")} {
 		t.Run(name, func(t *testing.T) {
 			fallbackConfigDir(t)
-			r := &modelRunner{fakeRunner: fakeRunner{name: "fake", caps: Caps{Model: Native}}, errs: map[string]error{"dev:m-a": rl, "dev:m-b": repickErr}}
+			r := &modelRunner{name: "fake", caps: Caps{Model: Native}, errs: map[string]error{"dev:m-a": rl, "dev:m-b": repickErr}}
 			c := chainOf([]Engine{r}, "dev:m-a")
 			c.Dispatches[0].keepCaller, c.Dispatches[0].Account, c.Dispatches[0].Billing = false, "openai·chatgpt", router.BillSubscription
 			c.Dispatches[0].repick = func(string) string { return "dev:m-b" }
