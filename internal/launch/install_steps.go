@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/clipboard"
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/history"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
@@ -27,6 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // Install copies the binary into BinDir, links the agent CLIs, and seeds a missing settings.json
@@ -300,7 +300,7 @@ func extrasCompact(w io.Writer) string {
 	if tok := formatsCompact(w); tok != "" {
 		tokens = append(tokens, tok)
 	}
-	if _, err := completion.Install("claude-code"); err != nil {
+	if _, err := helptext.Install("claude-code"); err != nil {
 		fmt.Fprintf(w, "completion skip  %v\n", err)
 	} else {
 		tokens = append(tokens, "completion ok")
@@ -361,7 +361,7 @@ func installCompletion(w io.Writer, dryRun bool) {
 	case dryRun:
 		fmt.Fprintln(w, "completion would install bash tab-completion (skipped: --dry-run)")
 	default:
-		if path, err := completion.Install("claude-code"); err != nil {
+		if path, err := helptext.Install("claude-code"); err != nil {
 			fmt.Fprintf(w, "completion skip  %v\n", err)
 		} else {
 			fmt.Fprintf(w, "completion %s\n", path)

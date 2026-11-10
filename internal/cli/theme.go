@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/statusline"
@@ -161,12 +160,12 @@ func themeApply(args []string) int {
 }
 
 // themeSpec is the completion node for the theme verb tree.
-func themeSpec() *completion.Node {
+func themeSpec() *helptext.Node {
 	styles := func() []string { return []string{"gradient", "powerline", "capsule", "minimal", "dashboard"} }
-	return &completion.Node{Args: []func() []string{theme.GradientNames}, Flags: []completion.Flag{completion.BoolFlag("palettes"), completion.BoolFlag("reset")},
-		Sub: map[string]*completion.Node{
-			"apply":      {Flags: []completion.Flag{completion.BoolFlag("dry-run")}},
-			"statusline": {Flags: []completion.Flag{{Name: "style", Values: styles}}},
+	return &helptext.Node{Args: []func() []string{theme.GradientNames}, Flags: []helptext.Flag{helptext.BoolFlag("palettes"), helptext.BoolFlag("reset")},
+		Sub: map[string]*helptext.Node{
+			"apply":      {Flags: []helptext.Flag{helptext.BoolFlag("dry-run")}},
+			"statusline": {Flags: []helptext.Flag{{Name: "style", Values: styles}}},
 			"vscode":     vscode.Spec(),
 		}}
 }

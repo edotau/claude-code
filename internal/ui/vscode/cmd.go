@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -131,7 +130,7 @@ func reportDryRun(label, dest string, changed bool) {
 }
 
 // Spec is the completion node for `theme vscode`.
-func Spec() *completion.Node {
-	return &completion.Node{Flags: []completion.Flag{completion.Plain("template"), completion.Plain("dest"), completion.Plain("extensions-dir"),
-		completion.Plain("keybindings-template"), completion.Plain("keybindings-dest"), completion.BoolFlag("check"), completion.BoolFlag("dry-run")}}
+func Spec() *helptext.Node {
+	return &helptext.Node{Flags: []helptext.Flag{helptext.Plain("template"), helptext.Plain("dest"), helptext.Plain("extensions-dir"),
+		helptext.Plain("keybindings-template"), helptext.Plain("keybindings-dest"), helptext.BoolFlag("check"), helptext.BoolFlag("dry-run")}}
 }

@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 func fixtureVerbs() []Verb {
-	memory := &completion.Node{Sub: map[string]*completion.Node{
-		"update": {Flags: []completion.Flag{{Name: "session"}, {Name: "notice", IsBool: true}}},
-		"recall": {Flags: []completion.Flag{{Name: "repo"}}},
+	memory := &helptext.Node{Sub: map[string]*helptext.Node{
+		"update": {Flags: []helptext.Flag{{Name: "session"}, {Name: "notice", IsBool: true}}},
+		"recall": {Flags: []helptext.Flag{{Name: "repo"}}},
 	}}
 	return []Verb{
 		{Name: "memory", Group: "SESSION", Summary: "bank", Node: memory},

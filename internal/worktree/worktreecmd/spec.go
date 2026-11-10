@@ -3,7 +3,7 @@ package worktreecmd
 import (
 	"os"
 
-	"github.com/edotau/claude-code/internal/completion"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -18,14 +18,14 @@ func names() []string {
 }
 
 // Spec is the completion node for the worktree verb tree.
-func Spec() *completion.Node {
-	return &completion.Node{Sub: map[string]*completion.Node{
-		"list":   {Flags: []completion.Flag{completion.FormatFlag()}},
-		"create": {Flags: []completion.Flag{completion.Plain("branch")}},
-		"merge": {Args: []func() []string{names}, Flags: []completion.Flag{completion.BoolFlag("dry-run"), completion.Plain("target"),
-			completion.BoolFlag("no-clean"), {Name: "resolve-agent", Values: resolveAgents}, completion.BoolFlag("resume"), completion.Plain("verify"), completion.BoolFlag("no-verify"), completion.BoolFlag("full-verify")}},
-		"clean":     {Args: []func() []string{names}, Flags: []completion.Flag{completion.BoolFlag("dry-run"), completion.BoolFlag("force")}},
-		"clean-all": {Flags: []completion.Flag{completion.BoolFlag("dry-run"), completion.BoolFlag("yes")}},
-		"gate":      {Flags: []completion.Flag{completion.Plain("dir"), completion.Plain("scope"), completion.BoolFlag("lint-check"), completion.FormatFlag()}},
+func Spec() *helptext.Node {
+	return &helptext.Node{Sub: map[string]*helptext.Node{
+		"list":   {Flags: []helptext.Flag{helptext.CompletionFormatFlag()}},
+		"create": {Flags: []helptext.Flag{helptext.Plain("branch")}},
+		"merge": {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("target"),
+			helptext.BoolFlag("no-clean"), {Name: "resolve-agent", Values: resolveAgents}, helptext.BoolFlag("resume"), helptext.Plain("verify"), helptext.BoolFlag("no-verify"), helptext.BoolFlag("full-verify")}},
+		"clean":     {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("force")}},
+		"clean-all": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("yes")}},
+		"gate":      {Flags: []helptext.Flag{helptext.Plain("dir"), helptext.Plain("scope"), helptext.BoolFlag("lint-check"), helptext.CompletionFormatFlag()}},
 	}}
 }

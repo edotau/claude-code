@@ -51,7 +51,7 @@ var writers = map[string]string{
 	"internal/clipboard/clipboard.go:savePNG":                         unversioned("foreign: clipboard PNG in the temp dir"),
 	"internal/clipboard/ssh_bridge.go:installLaunchAgentAt":           unversioned("foreign: launchd plist (Apple format)"),
 	"internal/clipboard/wlproxy.go:installProxyAt":                    unversioned("foreign: wl-paste shim binary"),
-	"internal/completion/completion.go:Install":                       unversioned("foreign: shell completion script in the user's shell dirs"),
+	"internal/ui/helptext/completion.go:Install":                      unversioned("foreign: shell completion script in the user's shell dirs"),
 	"internal/vault/vaultcmd/vault_storage.go:writeEditorScratch":     unversioned("foreign: editor scratch temp file"),
 	"internal/configure/home.go:RegisterCodexMCP":                     unversioned("foreign: codex config.toml in the vendor home"),
 	"internal/agentconfig/project/sync.go:writeProjection":            "projections",

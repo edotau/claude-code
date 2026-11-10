@@ -7,7 +7,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/agentcmd"
 	"github.com/edotau/claude-code/internal/clipboard"
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/configure/configurecmd"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/describe"
@@ -34,7 +33,7 @@ type command struct {
 	group   string
 	hidden  bool
 	run     func(args []string) int
-	spec    func() *completion.Node
+	spec    func() *helptext.Node
 }
 
 // Menu groups; declaration order in commands() is the display order.
@@ -117,8 +116,8 @@ func hiddenCommands() []command {
 // completionBin is the installed binary name the completion script registers against.
 const completionBin = "claude-code"
 
-func completionEngine() completion.Engine {
-	return completion.Engine{
+func completionEngine() helptext.Engine {
+	return helptext.Engine{
 		Tree: specTree,
 		Resolve: func(word string) (string, bool) {
 			if c := lookup(word); c != nil {
@@ -126,10 +125,10 @@ func completionEngine() completion.Engine {
 			}
 			return "", false
 		},
-		Verbs: func() []completion.Verb {
-			var verbs []completion.Verb
+		Verbs: func() []helptext.Verb {
+			var verbs []helptext.Verb
 			for _, c := range commands() {
-				verbs = append(verbs, completion.Verb{Name: c.name, Hidden: c.hidden})
+				verbs = append(verbs, helptext.Verb{Name: c.name, Hidden: c.hidden})
 			}
 			return verbs
 		},
@@ -178,17 +177,17 @@ func completionHelp() {
 }
 
 // cmdCompletion prints the bash completion script (default) or, with --install, writes it to the
-// bash-completion user dir (internal/completion.Install).
+// bash-completion user dir (internal/helptext.Install).
 func cmdCompletion(args []string) int {
 	install, code, done := parseCompletionArgs(args)
 	if done {
 		return code
 	}
 	if !install {
-		fmt.Print(completion.Script(completionBin))
+		fmt.Print(helptext.Script(completionBin))
 		return 0
 	}
-	path, err := completion.Install(completionBin)
+	path, err := helptext.Install(completionBin)
 	if err != nil {
 		return helptext.Fail("completion: %v", err)
 	}
@@ -199,21 +198,21 @@ func cmdCompletion(args []string) int {
 
 // specTree returns the one completion spec tree, keyed by each verb's canonical name (command.name —
 // see knownPath). Built once per process since tab completion is hot and commands() is fixed at startup.
-func specTree() map[string]*completion.Node {
+func specTree() map[string]*helptext.Node {
 	specTreeInit.Do(func() { specTreeCache = buildSpecTree() })
 	return specTreeCache
 }
 
 var (
 	specTreeInit  sync.Once
-	specTreeCache map[string]*completion.Node
+	specTreeCache map[string]*helptext.Node
 )
 
 // buildSpecTree gives every verb in commands() a node, an empty one when it has no spec, so a launcher is never unrepresented.
-func buildSpecTree() map[string]*completion.Node {
-	tree := map[string]*completion.Node{}
+func buildSpecTree() map[string]*helptext.Node {
+	tree := map[string]*helptext.Node{}
 	for _, c := range commands() {
-		tree[c.name] = &completion.Node{}
+		tree[c.name] = &helptext.Node{}
 		if c.spec != nil {
 			tree[c.name] = c.spec()
 		}
@@ -221,6 +220,6 @@ func buildSpecTree() map[string]*completion.Node {
 	return tree
 }
 
-func completionSpec() *completion.Node {
-	return &completion.Node{Flags: []completion.Flag{completion.BoolFlag("install")}}
+func completionSpec() *helptext.Node {
+	return &helptext.Node{Flags: []helptext.Flag{helptext.BoolFlag("install")}}
 }

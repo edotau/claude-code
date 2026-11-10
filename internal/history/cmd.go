@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -139,10 +138,10 @@ func historyDiff(args []string) int {
 }
 
 // SpecNode returns the history completion tree.
-func SpecNode() *completion.Node {
-	return &completion.Node{Sub: map[string]*completion.Node{
-		"snapshot": {Flags: []completion.Flag{{Name: "note"}}},
-		"log": {Flags: []completion.Flag{{Name: "n"},
+func SpecNode() *helptext.Node {
+	return &helptext.Node{Sub: map[string]*helptext.Node{
+		"snapshot": {Flags: []helptext.Flag{{Name: "note"}}},
+		"log": {Flags: []helptext.Flag{{Name: "n"},
 			{Name: "format", Values: func() []string { return []string{helptext.Text, helptext.JSON} }}}},
 		"diff": {},
 	}}

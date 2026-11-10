@@ -1,5 +1,6 @@
-// Package completion computes candidates and renders and installs bash tab completion for claude-code.
-package completion
+// Bash tab completion for claude-code: candidates, script render and install.
+
+package helptext
 
 import (
 	"fmt"
