@@ -219,6 +219,7 @@ func TestClashes(t *testing.T) {
 	mustWrite(t, filepath.Join(dir, "CLAUDE.md"), "user claude\n")
 	mustWrite(t, filepath.Join(dir, "agents", "a.md"), "agent a\n")
 	mustWrite(t, filepath.Join(dir, "skills", "mine", "SKILL.md"), "mine\n")
+	mustWrite(t, filepath.Join(dir, "settings.local.json"), "{}\n")
 
 	clashes, err := Clashes(repo, dir)
 	if err != nil {

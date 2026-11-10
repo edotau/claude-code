@@ -67,11 +67,17 @@ func TestRegisterCodexMCPPreservesOtherTables(t *testing.T) {
 
 func TestRegisterClaudeMCPWrapsExitError(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	pathstest.FakeVendor(t, "claude", "printf 'registration failed\\n'; exit 7")
-	err := RegisterClaudeMCPContext(context.Background(), "/bin/claude-code")
+	log := filepath.Join(t.TempDir(), "calls")
+	pathstest.FakeVendor(t, "claude", `printf '%s|' "$@" >> `+log+`; echo >> `+log+`; printf 'registration failed\n'; exit 7`)
+	err := RegisterClaudeMCPContext(context.Background(), "/custom path/claude-code")
 	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 || !strings.Contains(err.Error(), "registration failed") {
-		t.Fatalf("registration error = %v; want wrapped exit status 7 and command output", err)
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 || !strings.Contains(err.Error(), "registration failed") ||
+		!strings.Contains(err.Error(), "claude mcp add") {
+		t.Fatalf("registration error = %v; want wrapped exit status 7, claude mcp add and command output", err)
+	}
+	got, _ := os.ReadFile(log)
+	if want := "mcp|add|-s|user|web_search|--|/custom path/claude-code|network|websearch|\n"; string(got) != want {
+		t.Fatalf("claude calls = %q, want exactly one add %q (no remove, no retry)", got, want)
 	}
 }
 

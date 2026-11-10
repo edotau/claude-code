@@ -731,15 +731,22 @@ func TestSessionsRegistryKeepsLiveOrUnparsable(t *testing.T) {
 func TestSessionsRegistrySplitFromSessionsTarget(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	stubPidAlive(t, func(pid int) bool { return pid == 1111 })
+	stubPidAlive(t, func(pid int) bool { return pid == 4242 })
 
 	old := time.Now().Add(-40 * 24 * time.Hour)
-	deadJSON, deadKey := seedRegistryEntry(t, dir, "4242", old)
-	liveJSON, liveKey := seedRegistryEntry(t, dir, "1111", old)
+	deadJSON, deadKey := seedRegistryEntry(t, dir, "1111", old)
+	liveJSON, liveKey := seedRegistryEntry(t, dir, "4242", old)
+	transcript, sessDir := seedAgedSession(t, dir)
 
 	var out, errw bytes.Buffer
 	if code := Clean([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
 		t.Fatalf("Run --target sessions = %d: %s", code, errw.String())
+	}
+	if exists(t, transcript) || exists(t, sessDir) {
+		t.Error("--target sessions kept an aged transcript or session dir next to registry entries")
+	}
+	if !exists(t, liveJSON) || !exists(t, liveKey) {
+		t.Error("--target sessions removed a live pid's registry entry")
 	}
 	if !exists(t, deadJSON) || !exists(t, deadKey) {
 		t.Error("--target sessions removed registry files; they belong to session-registry")
