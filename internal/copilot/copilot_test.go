@@ -388,24 +388,33 @@ func TestRunSDKOptionsReadSettings(t *testing.T) {
 	}
 }
 
-// An unreadable record is one notice; the run goes on with the --effort flag and nothing of the record.
-func TestRunUnreadableRecordNoticesAndContinues(t *testing.T) {
-	var got SDKOptions
-	runScratch(t, func(_ context.Context, o SDKOptions, _ string, _ []string) (SDKResult, error) {
-		got = o
-		return SDKResult{Text: "ok"}, nil
-	})
-	vaulttest.Put(t, vault.Overlay, "agents", "{not json")
-	var notice strings.Builder
-	orig := agent.NoticeOut
-	agent.NoticeOut = &notice
-	t.Cleanup(func() { agent.NoticeOut = orig })
-	req := agent.RunOptions{Prompt: "do it", Provider: "personal", WorkDir: t.TempDir(), Effort: "low"}
-	if _, err := copilotAgent.Run(t.Context(), req, wire.Discard); err != nil {
-		t.Fatal(err)
-	}
-	if got.ReasoningEffort != "low" || strings.Count(notice.String(), "copilot settings unreadable") != 1 {
-		t.Errorf("ReasoningEffort = %q, notice = %q; want low and one unreadable-settings notice", got.ReasoningEffort, notice.String())
+// A headless run fails before any session on an unreadable or invalid stored record, naming the field, never a value.
+func TestRunBadRecordFailsHeadless(t *testing.T) {
+	for name, put := range map[string]func(*testing.T){
+		"unreadable": func(t *testing.T) { vaulttest.Put(t, vault.Overlay, "agents", "{not json") },
+		"credential launch.env": func(t *testing.T) {
+			rec := vault.AgentRecord{Launch: &vault.AgentLaunch{Env: []string{"GITHUB_TOKEN=ghp-record-secret"}}}
+			if err := vault.SetAgentRecord("copilot", rec); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			asked := false
+			runScratch(t, func(context.Context, SDKOptions, string, []string) (SDKResult, error) {
+				asked = true
+				return SDKResult{Text: "ok"}, nil
+			})
+			put(t)
+			req := agent.RunOptions{Prompt: "do it", Provider: "personal", WorkDir: t.TempDir(), Effort: "low"}
+			_, err := copilotAgent.Run(t.Context(), req, wire.Discard)
+			if err == nil || asked || !strings.Contains(err.Error(), "copilot") || strings.Contains(err.Error(), "ghp-record-secret") {
+				t.Errorf("err = %v, session started = %v; want a copilot error before any session, no value", err, asked)
+			}
+			if err != nil && name == "credential launch.env" && !strings.Contains(err.Error(), "launch.env") {
+				t.Errorf("err = %v, want it to name launch.env", err)
+			}
+		})
 	}
 }
 

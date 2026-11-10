@@ -583,6 +583,49 @@ func TestClaudeArmProxyCarriesSessionToken(t *testing.T) {
 	}
 }
 
+// Armed, a headless dev hop goes through /p/dev on the session token; interactive and unarmed launches stay direct.
+func TestClaudeArmHeadlessAlwaysProxied(t *testing.T) {
+	hermetic(t, `{"fallback":[],"providers":{"databricks":{"dev":{"preset":"databricks",
+		"host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
+	orig := agent.MintSession
+	agent.MintSession = func(context.Context, string, int) (string, error) { return "cct_ARM_dev", nil }
+	t.Cleanup(func() { agent.MintSession = orig })
+	launch := func(args ...string) agent.Plan {
+		p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "dev"}, args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	const direct = "https://dev.cloud.databricks.com/serving-endpoints/anthropic"
+	if p := launch("-p", "hi"); p.Set["ANTHROPIC_BASE_URL"] != direct {
+		t.Errorf("unarmed headless base = %q, want direct %s", p.Set["ANTHROPIC_BASE_URL"], direct)
+	}
+	t.Setenv("HARNESS_ROUTE", "databricks:dev")
+	p := launch("-p", "hi")
+	if p.Set["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:4000/p/dev" || p.Set[ProxyKeyEnv] != "cct_ARM_dev" {
+		t.Errorf("armed headless: base %q, session token set %v; want /p/dev and the token", p.Set["ANTHROPIC_BASE_URL"], p.Set[ProxyKeyEnv] != "")
+	}
+	if !strings.Contains(string(overlayFile(p).Data), "resolve --proxy") {
+		t.Errorf("armed headless helper %s, want resolve --proxy", overlayFile(p).Data)
+	}
+	if p := launch(); p.Set["ANTHROPIC_BASE_URL"] != direct || p.Set[ProxyKeyEnv] != "" {
+		t.Errorf("armed interactive base = %q, want direct %s with no session token", p.Set["ANTHROPIC_BASE_URL"], direct)
+	}
+}
+
+// A profile on the AI Gateway wire never launches, headless or interactive; Databricks runs on /serving-endpoints only.
+func TestClaudeRefusesAIGatewayWire(t *testing.T) {
+	hermetic(t, `{"fallback":[],"providers":{"databricks":{"gw":{"preset":"databricks","host":"https://gw.cloud.databricks.com",
+		"auth":{"type":"pat"},"options":{"wire":"ai-gateway"}}}}}`)
+	for _, args := range [][]string{{"-p", "hi"}, nil} {
+		_, err := Claude(context.Background(), agent.LaunchOptions{Provider: "gw"}, args)
+		if want := "profile gw uses the AI Gateway wire; agents run on /serving-endpoints only"; err == nil || err.Error() != want {
+			t.Errorf("args %q: err = %v, want %q", args, err, want)
+		}
+	}
+}
+
 // An armed login session routed through the proxy sends the session token, not the router secret, in its own header.
 func TestClaudeArmPassthroughHeaderIsSessionToken(t *testing.T) {
 	hermetic(t, armDBX)

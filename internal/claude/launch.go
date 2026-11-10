@@ -70,8 +70,8 @@ func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Pl
 	}
 	p := sel.Provider
 	passthrough := p.Auth.Method() == providers.AuthCLI
-	if p.Auth.Login != "" {
-		return agent.Plan{}, fmt.Errorf("profile %s is the %s sign-in and cannot back Claude Code; use claude-code %s --profile %s", p.Name, p.Auth.Login, p.Auth.Login, p.Name)
+	if err := refuseProvider(sel); err != nil {
+		return agent.Plan{}, err
 	}
 	plan := agent.Plan{Binary: bin, Set: map[string]string{}, Unset: append([]string(nil), wipeKeys...)}
 	if !passthrough {
@@ -87,7 +87,8 @@ func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Pl
 	set1MOff(&plan, sel, p)
 	plan.Set[providers.EnvSessionProfile] = p.Name
 	offerLogin(ctx, o, args, sessionProviders(sel), &plan)
-	helper, settings, err := configureRouting(ctx, o, reg, sel, p, passthrough, self, &plan)
+	proxied := sel.NeedsRouter(reg) || armedHop(p, args)
+	helper, settings, err := configureRouting(ctx, sel, p, passthrough, proxied, self, &plan)
 	if err != nil {
 		return agent.Plan{}, err
 	}
@@ -103,6 +104,19 @@ func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Pl
 	plan.Keep = o.KeepEnv
 	keepShellEndpoint(&plan, o)
 	return plan, nil
+}
+
+// refuseProvider refuses a vendor sign-in and any AI Gateway-wire row; the proxy keeps that wire, launches never use it.
+func refuseProvider(sel providers.Selection) error {
+	if p := sel.Provider; p.Auth.Login != "" {
+		return fmt.Errorf("profile %s is the %s sign-in and cannot back Claude Code; use claude-code %s --profile %s", p.Name, p.Auth.Login, p.Auth.Login, p.Name)
+	}
+	for _, p := range sessionProviders(sel) {
+		if p.IsAIGateway() {
+			return fmt.Errorf("profile %s uses the AI Gateway wire; agents run on /serving-endpoints only", p.Name)
+		}
+	}
+	return nil
 }
 
 // renderInteractive adds the record's effort (unless args type one) and launch.env/launch.args; route keys win.
@@ -289,9 +303,15 @@ func sessionProviders(sel providers.Selection) []*providers.Provider {
 	return out
 }
 
-// configureRouting wires the router base URL/headers when needed, else the provider's own route, and
+// armedHop: a headless launch on the armed workspace uses /p/<p>; interactive stays direct (keeps Remote Control).
+func armedHop(p *providers.Provider, args []string) bool {
+	arm := router.ArmProfile()
+	return arm != "" && p.Name == arm && launchcli.IsHeadless(args)
+}
+
+// configureRouting wires the router base URL/headers when proxied, else the provider's own route, and
 // returns the apiKeyHelper command for the overlay.
-func configureRouting(ctx context.Context, o agent.LaunchOptions, reg *providers.Registry, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *agent.Plan) (helper, settings string, err error) {
+func configureRouting(ctx context.Context, sel providers.Selection, p *providers.Provider, passthrough, proxied bool, self string, plan *agent.Plan) (helper, settings string, err error) {
 	helper = textutil.QuoteSH(helperBin(self)) + " resolve --profile " + textutil.QuoteSH(p.Name)
 	if id := providers.IdentityFrom(ctx); id != "" {
 		helper += " --as " + textutil.QuoteSH(id)
@@ -301,7 +321,7 @@ func configureRouting(ctx context.Context, o agent.LaunchOptions, reg *providers
 			return "", "", err
 		}
 	}
-	if sel.NeedsRouter(reg) {
+	if proxied {
 		return configureClaudeProxy(ctx, sel, p, passthrough, self, plan)
 	}
 	if route, ok := p.Route(providers.ProtocolAnthropic); ok && route != defaultAnthropicBase {
