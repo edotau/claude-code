@@ -65,6 +65,8 @@ type Record struct {
 	TaskID         string           `json:"task_id,omitempty"`         // ask --batch: the task line's id
 	BatchID        string           `json:"batch_id,omitempty"`        // ask --batch: the id shared by every task of the run
 	PlanTask       string           `json:"plan_task,omitempty"`       // ask --batch: the task line's optional plan_task
+
+	Widened []string `json:"permissions_widened,omitempty"` // what the request grants beyond the agent's default permissions
 }
 
 // Alive reports whether this dispatch is still running, by the shared inflight.DispatchAlive rule.
@@ -91,7 +93,10 @@ const dispatchPruneMargin = 20
 // NewRecord stamps an id that sorts by time and names the agent: 20261016T210512.123-codex.
 func NewRecord(name string, req agent.RunOptions, now time.Time) Record {
 	req.EnvNames = agent.EnvNames(req.Env)
-	return Record{Schema: DispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running"}
+	def, _ := agent.DefaultPermissions(name) // an unreadable default fails the run itself; the record only notes widening
+	_, widened := agent.ResolvePermissions(def, req.Permissions)
+	return Record{Schema: DispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
+		Widened: widened}
 }
 
 // ClaimRecord is NewRecord with its id reserved on disk: the allocator for every new dispatch (ask, batch, job).

@@ -1,14 +1,17 @@
 package agent
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"net/url"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/shell"
 )
 
@@ -108,6 +111,63 @@ func ParsePermissions(mode string, allow, ask, deny []string) (Permissions, erro
 		}
 	}
 	return p, nil
+}
+
+// agentDefaults is name's default policy from agents.json and the vault overlay; a package var so tests swap it.
+var agentDefaults = func(name string) (agentconfig.Policy, error) {
+	cfg, err := agentconfig.LoadConfig()
+	return cfg.Agent(name).Permission.Defaults, err
+}
+
+// DefaultPermissions is name's default dispatch policy, the first layer ResolvePermissions applies.
+func DefaultPermissions(name string) (Permissions, error) {
+	d, err := agentDefaults(name)
+	if err == nil {
+		var p Permissions
+		if p, err = ParsePermissions(d.Mode, d.Allow, d.Ask, d.Deny); err == nil {
+			return p, nil
+		}
+	}
+	return Permissions{}, fmt.Errorf("%s default permissions: %w", name, err)
+}
+
+// ResolvePermissions layers defaults → role → request: rules add up, the last mode set wins, and widened names what a
+// later layer grants beyond the earlier ones (D3: auto-granted unless a Deny matches, recorded). Deny never loosens.
+func ResolvePermissions(layers ...Permissions) (out Permissions, widened []string) {
+	for i, l := range layers {
+		if i > 0 { // the first layer is the baseline the others widen
+			widened = append(widened, widening(out, l)...)
+		}
+		ask := slices.DeleteFunc(slices.Clone(out.Ask), func(r Rule) bool { return slices.Contains(l.Allow, r) })
+		out = Permissions{Mode: cmp.Or(l.Mode, out.Mode), Allow: union(out.Allow, l.Allow), Ask: union(ask, l.Ask),
+			Deny: union(out.Deny, l.Deny)}
+	}
+	return out, widened
+}
+
+// widening is what l grants beyond base: an allow neither layer denies, or a mode that leaves plan.
+func widening(base, l Permissions) []string {
+	var out []string
+	for _, r := range l.Allow {
+		if !slices.Contains(base.Allow, r) && !slices.Contains(base.Deny, r) && !slices.Contains(l.Deny, r) {
+			out = append(out, "allow "+r.String())
+		}
+	}
+	if base.Mode == "plan" && l.Mode != "" && l.Mode != "plan" {
+		out = append(out, "mode "+l.Mode)
+	}
+	return out
+}
+
+// union is a followed by b's rules not already in a.
+func union(a, b []Rule) []Rule {
+	out := slices.Clone(a)
+	for _, r := range b {
+		if !slices.Contains(out, r) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // Decide applies Deny > Ask > Allow, then the mode fallback: plan denies, every other mode asks (auto: the agent's judge).
