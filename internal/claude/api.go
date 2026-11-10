@@ -52,7 +52,8 @@ func claudeOneShot(ctx context.Context, req agent.RunOptions, sink wire.Sink) (r
 		if out.Model != "" {
 			res.Model = out.Model
 		}
-		res.Answer, res.Usage = answer.String(), wire.Usage{InputTokens: int(out.InputTokens), OutputTokens: int(out.OutputTokens)}
+		res.Answer, res.Usage = answer.String(), wire.Usage{InputTokens: int(out.InputTokens), OutputTokens: int(out.OutputTokens),
+			CacheCreationTokens: int(out.CacheCreationTokens), CacheReadTokens: int(out.CacheReadTokens)}
 		logAPIRun(ctx, res, err)
 		return res, true, err
 	}
