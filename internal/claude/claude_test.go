@@ -324,7 +324,7 @@ func TestClaudeArgsPermissionModeByProvider(t *testing.T) {
 // stored effort, and off Anthropic (Databricks included) the mode stays dontAsk because the auto judge is not served.
 func TestClaudeCmdRendersRecord(t *testing.T) {
 	const dbx = `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`
-	launch := &vault.AgentLaunch{Env: []string{"FOO_LAUNCH=1", "ANTHROPIC_BASE_URL=https://elsewhere.example"}, Args: []string{"--launch-arg"}}
+	launch := &vault.AgentLaunch{Env: []string{"FOO_LAUNCH=1", "ANTHROPIC_SMALL_FAST_MODEL=elsewhere"}, Args: []string{"--launch-arg"}}
 	cases := []struct {
 		name      string
 		rec       vault.AgentRecord
@@ -358,8 +358,8 @@ func TestClaudeCmdRendersRecord(t *testing.T) {
 				t.Fatalf("%s/%s: %v", c.name, prof, err)
 			}
 			checkArgv(t, c.name+"/"+prof, cmd.Args, c.want[prof], c.not[prof])
-			if c.rec.Launch != nil && (!slices.Contains(cmd.Env, "FOO_LAUNCH=1") || slices.Contains(cmd.Env, "ANTHROPIC_BASE_URL=https://elsewhere.example")) {
-				t.Errorf("%s/%s: env must carry launch.env minus the wiped base URL, got %q", c.name, prof, cmd.Env)
+			if c.rec.Launch != nil && (!slices.Contains(cmd.Env, "FOO_LAUNCH=1") || slices.Contains(cmd.Env, "ANTHROPIC_SMALL_FAST_MODEL=elsewhere")) {
+				t.Errorf("%s/%s: env must carry launch.env minus the wiped model name, got %q", c.name, prof, cmd.Env)
 			}
 		}
 	}

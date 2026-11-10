@@ -94,21 +94,27 @@ func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Pl
 		return agent.Plan{}, err
 	}
 	if !launchcli.IsHeadless(args) { // a headless launch renders in claudeCmd, where the request is known
-		if err := renderInteractive(ctx, &plan, providers.Target{Provider: p, Model: o.Model}); err != nil {
+		if err := renderInteractive(ctx, &plan, providers.Target{Provider: p, Model: o.Model}, args); err != nil {
 			return agent.Plan{}, err
 		}
 	}
-	plan.Argv = append(plan.Argv, args...) // after the record's flags, so a typed --effort wins
+	plan.Argv = append(plan.Argv, args...)
 	plan.Keep = o.KeepEnv
 	keepShellEndpoint(&plan, o)
 	return plan, nil
 }
 
-// renderInteractive adds the record's effort and launch.env/launch.args to plan; the route's own keys win.
-func renderInteractive(ctx context.Context, plan *agent.Plan, t providers.Target) error {
+// renderInteractive adds the record's effort (unless args type one) and launch.env/launch.args; route keys win.
+func renderInteractive(ctx context.Context, plan *agent.Plan, t providers.Target, args []string) error {
 	st, err := agent.ResolveSettings(agentid.Claude, agent.RunOptions{}, t, false)
-	if st.Agent == "" { // the record did not load; a bad policy alone is headless-only, so it does not stop this launch
+	if st.Agent == "" { // not even the built-in settings resolved
 		return fmt.Errorf("claude settings: %w", err)
+	}
+	if err != nil { // a refused stored record falls back to the built-in settings; the launch says so
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf("claude settings record not applied: %v", err))
+	}
+	if typesEffort(args) {
+		st.Effort = ""
 	}
 	env, argv, _, _, err := claudeAgent.RenderSettings(ctx, st, nil, nil) // the cleanup is the base's no-op
 	if err != nil {
@@ -122,6 +128,19 @@ func renderInteractive(ctx context.Context, plan *agent.Plan, t providers.Target
 	}
 	plan.Argv = append(plan.Argv, argv...)
 	return nil
+}
+
+// typesEffort reports a --effort flag in args before any "--", where the prompt starts.
+func typesEffort(args []string) bool {
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		if a == "--effort" || strings.HasPrefix(a, "--effort=") {
+			return true
+		}
+	}
+	return false
 }
 
 // keepShellEndpoint lets a shell ANTHROPIC_MODEL (no --model flag) or ANTHROPIC_BASE_URL win over the vault resolution;
