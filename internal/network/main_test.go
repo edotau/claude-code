@@ -7,10 +7,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/desktop"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -22,10 +20,9 @@ func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()
 	gateway.HolderComm = func(int) string { return "claude-code" }
-	desktop.OnWSL = func() bool { return false }
 	code := m.Run()
 	cleanup()
-	gittest.Cleanup()
+	hosttest.Cleanup()
 	os.Exit(code)
 }
 

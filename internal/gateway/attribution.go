@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"net/textproto"
-	"os"
 	"strings"
 )
 
@@ -81,9 +80,6 @@ func parseHeaderLine(line string, protected map[string]bool) (key, val string, o
 	}
 	return key, val, true
 }
-
-// HarnessHeaders is the validated HARNESS_HEADERS set from the environment (warnings go to stderr).
-func HarnessHeaders() map[string]string { return ParseHeaders(os.Getenv(HeadersEnv), os.Stderr) }
 
 // validHeaderName reports whether s is a non-empty RFC 7230 token.
 func validHeaderName(s string) bool {

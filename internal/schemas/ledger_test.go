@@ -58,7 +58,6 @@ var writers = map[string]string{
 	"internal/databricks/config.go:writeScratch":                      unversioned("foreign: temp rescue config"),
 	"internal/databricks/export.go:mergeInto":                         unversioned("foreign: export --merge into ~/.databrickscfg"),
 	"internal/databricks/export.go:writeFile0600":                     unversioned("foreign: -o export output"),
-	"internal/desktop/transaction.go:restoreFile":                     "desktop-state",
 	"internal/codex/permissions.go:writeRetargetedConfig":             unversioned("foreign: per-dispatch CODEX_HOME config.toml retargeted from the user's, removed after the run"),
 	"internal/codex/permissions.go:saveRefreshedAuth":                 unversioned("foreign: codex auth.json refreshed during a dispatch, copied back to the real CODEX_HOME"),
 	"internal/clipboard/ssh_bridge.go:logServed":                      unversioned("log: one line per Mac file served over the clip bridge (path, never bytes)"),
