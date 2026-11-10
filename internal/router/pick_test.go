@@ -376,3 +376,12 @@ func TestDryPickDropsDiscoveryPin(t *testing.T) {
 		t.Errorf("real modelPin(discovery) = %q, want the pin", got)
 	}
 }
+
+func TestPickSkipTextForDeactivatedAgent(t *testing.T) {
+	tb := testTable(t)
+	r := tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Fallback: FallbackAll, Configured: allConfigured,
+		Now: func() time.Time { return now0 }, Pins: map[string]PinSpec{"codex": {Off: true}}})
+	if !slices.Contains(r.Skipped, Skip{"codex", GateOff, "deactivated (no profile set)"}) {
+		t.Errorf("skips = %+v, want codex deactivated (no profile set)", r.Skipped)
+	}
+}

@@ -92,7 +92,7 @@ func (t *RouteTable) gateCandidate(
 ) ([]Candidate, bool) {
 	spec := pins[agent]
 	if spec.Off {
-		res.Skipped = append(res.Skipped, Skip{agent, GateOff, "deactivated (" + strings.ToUpper(agent) + "_ACTIVE=off)"})
+		res.Skipped = append(res.Skipped, Skip{agent, GateOff, "deactivated (no profile set)"})
 		return nil, false
 	}
 	var group []Candidate

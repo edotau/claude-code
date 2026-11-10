@@ -313,14 +313,19 @@ func (c *Client) streamWith(
 	return sink.ch
 }
 
+// memoryRunOptions pins the memory job to claude: it holds write tools, so it never falls back to another vendor.
+func memoryRunOptions(prompt, workdir string) agent.RunOptions {
+	return agent.RunOptions{Agent: "claude", Prompt: prompt, Effort: "medium", Tools: true, WorkDir: workdir,
+		Fallback: router.FallbackNone}
+}
+
 // MemoryRunner runs background memory jobs on Claude as the logged-in user, on their pin (medium effort).
 func MemoryRunner(newClient func() *Client) memory.AgentFunc {
 	return func(ctx context.Context, prompt, workdir string) (string, error) {
 		client := newClient()
 		client.Refresh = nil
 		client.Notify = func(m string) { fmt.Fprintln(os.Stderr, m) }
-		res, err := client.Run(ctx, agent.RunOptions{Agent: "claude", Prompt: prompt,
-			Effort: "medium", Tools: true, WorkDir: workdir}, wire.NewTextSink(os.Stdout))
+		res, err := client.Run(ctx, memoryRunOptions(prompt, workdir), wire.NewTextSink(os.Stdout))
 		who := res.Agent
 		if res.Fallback != "" {
 			who += "<-" + res.Fallback

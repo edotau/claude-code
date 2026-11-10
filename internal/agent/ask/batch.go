@@ -22,9 +22,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 )
 
-// DefaultToolsTimeout is the deadline of a fresh --tools run without an explicit timeout.
-const DefaultToolsTimeout = 45 * time.Minute
-
 // TaskLine is one `ask --batch` JSONL task; Tools stays nil when absent so the flag default applies.
 type TaskLine struct {
 	ID      string `json:"id"`
@@ -155,7 +152,7 @@ func batchTaskLocation(l ParsedLine, req agent.RunOptions, timeoutSet bool, base
 		}
 		req.Timeout = d
 	case req.Tools && !timeoutSet:
-		req.Timeout = DefaultToolsTimeout
+		req.Timeout = agent.DefaultToolsTimeout
 	}
 	req.WorkDir = cmp.Or(l.Task.Workdir, baseWorkdir, cwd)
 	abs, err := filepath.Abs(req.WorkDir)
