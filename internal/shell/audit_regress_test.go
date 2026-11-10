@@ -35,25 +35,6 @@ func TestTokensGroupOpenerAfterControlWord(t *testing.T) {
 	}
 }
 
-// TestCommitAttachedMessageEndingInM pins that -mfoom is a whole message so a following --amend is still refused.
-func TestCommitAttachedMessageEndingInM(t *testing.T) {
-	for _, c := range []struct {
-		args []string
-		want bool
-	}{
-		{[]string{"-mfoom", "--amend"}, false},
-		{[]string{"-m", "x", "--amend"}, false},
-		{[]string{"-am", "x"}, true},
-		{[]string{"--reuse-message=HEAD~3"}, false},
-		{[]string{"--reu=HEAD"}, false},
-		{[]string{"--reedit-message", "HEAD"}, false},
-	} {
-		if got := gitCommitAllowed(c.args, "."); got != c.want {
-			t.Errorf("gitCommitAllowed(%q) = %v, want %v", c.args, got, c.want)
-		}
-	}
-}
-
 // TestUnwrapClusteredValueFlag pins that a short cluster ending in a value flag (-nu root) consumes its value.
 func TestUnwrapClusteredValueFlag(t *testing.T) {
 	for _, in := range [][]string{
@@ -73,19 +54,6 @@ func TestReadOnlyGitRefusesNoIndex(t *testing.T) {
 	} {
 		if ReadOnlyGit(cmd) {
 			t.Errorf("ReadOnlyGit(%q) = true", cmd)
-		}
-	}
-}
-
-// TestGitAddPathRejectsPathspecAndGlob pins that pathspec magic and globs are not admitted as named files.
-func TestGitAddPathRejectsPathspecAndGlob(t *testing.T) {
-	w := t.TempDir()
-	if !gitAddPathAllowed("a.go", w) {
-		t.Fatal("plain named file refused")
-	}
-	for _, p := range []string{"*", ".env*", ":/", ":(top)x", ":!x", "a?.go", "[a-z]*"} {
-		if gitAddPathAllowed(p, w) {
-			t.Errorf("gitAddPathAllowed(%q) = true, want false", p)
 		}
 	}
 }

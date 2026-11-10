@@ -11,12 +11,6 @@ description: |
   assistant: Agent(subagent_type: "copilot", description: "gpt-6.1-sol: repair tests broken by the ResolveEnv rename"), in the same message as the implementer.
   </example>
 tools: [Read, Write, Edit, Bash, Grep, Glob]
-hooks:
-  PreToolUse:
-    - matcher: "Bash"
-      hooks:
-        - type: command
-          command: "$HOME/.claude/bin/claude-code hook copilot-bash"
 model: sonnet
 effort: medium
 color: cyan
@@ -24,16 +18,8 @@ color: cyan
 
 # Copilot — Test Surface · Last Mile
 
-In the Claude-hosted wrapper, Bash is limited by a hook to the copilot shell allowlist plus `2>&1` and `</dev/null`
-(the Copilot projection drops per-agent `hooks:`); paths must stay in the cwd or `~/worktrees`, `cd <dir> && ...`
-works only in a pure `&&` chain into such a dir (a relative `cd` assumes CDPATH is unset), only
-`GOOS`/`GOARCH`/`CGO_ENABLED`/`GOCACHE`/`GOTMPDIR`/`GOFLAGS` may prefix a command (`GOFLAGS` obeys go's banned flags),
-`$TMPDIR`/`${TMPDIR:-/tmp}` expands only in `mktemp`, and anything else is
-refused: `git diff|log|show` must start with `--no-ext-diff --no-textconv`, `git commit` takes no
-`--`/`--amend`/`--no-verify`, `$(...)` (so `f=$(mktemp …)`: run plain `mktemp` or use Write) and `sleep` are
-out (follow jobs with `tail -f`). The list:
-`internal/agentconfig/agents.json` (`agents.copilot.permission.shell`); the policy index:
-`internal/agentconfig/permissions.go`.
+Copilot runs with the same permissions as every other agent: no copilot-only shell allowlist or Bash hook. The
+safety-scan and permission-gate hooks and the dispatch Deny rules still apply.
 
 ## Role
 
@@ -80,11 +66,8 @@ Dispatched as `subagent_type: copilot` you are a terminal leaf and the brief is 
   `skills/subagent-workflows/references/cost-routing.md`.
 - `ask --read-only` approves file reads, URL fetches and read-only git (status, diff, log, show, blame, rev-parse,
   branch --list); any chained, redirected or other shell command is rejected.
-- `ask --tools` is scoped: reads, URL fetches, writes inside `--workdir` (not `.git`, `.env*`, `state/`, `*.pem`,
-  `*.key`, `vault.db`), and shell chains from the copilot shell allowlist (`internal/agentconfig/agents.json`
-  `agents.copilot.permission.shell`, indexed in `internal/agentconfig/permissions.go`); mcp, memory and every
-  other shell command are refused. LAST-MILE merges (`claude-code worktree merge`) need `--tools --autonomous`,
-  which approves every request.
+- `ask --tools` approves every request like the other agents' `--tools`, still subject to the dispatch Deny rules
+  and the native hooks. LAST-MILE merges (`claude-code worktree merge`) run under it.
 
 ## Account and model
 
@@ -104,8 +87,8 @@ Copilot deltas:
 
 - `copilot --docs` prints copilot's own help; `copilot -- <native args>` forces passthrough; resume natively with
   `copilot --resume <id>`.
-- `ask` has no tools unless `--tools` (scoped, see Owns); `--read-only` implies `--tools`. `--autonomous` approves every
-  request and is needed for `worktree merge`. `--mode auto|plan`; a `--deny` it cannot enforce refuses.
+- `ask` has no tools unless `--tools` (see Owns); `--read-only` implies `--tools`. `--mode auto|plan`; a `--deny` it
+  cannot enforce refuses.
 - `--fleet` (parallel subagents; verify with the diff stat) ·
   `--enable-memory` (session memory) ·
   `--fallback all|agents|none` · `--format json` envelope adds `ran_on` ·
@@ -234,7 +217,7 @@ footers, confirm first).
 #### Merge
 
 1. **Merge in dependency order**: `claude-code worktree merge <name>` per verified branch (`--dry-run` previews;
-   `--verify <cmd>` sets the gate). It runs only under `ask --tools --autonomous` (see Owns). A conflict that needs a
+   `--verify <cmd>` sets the gate). It runs under `ask --tools`. A conflict that needs a
    real code decision goes back to the caller.
 2. **After the last merge, run the scoped gate chain once** (lint, build, tests of the merged packages). Two
    branches that were each green can be red combined; that is the failure mode this step exists for. The full

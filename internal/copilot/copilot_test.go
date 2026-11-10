@@ -36,9 +36,9 @@ func (s *recSink) Emit(ev wire.Event) error { s.types = append(s.types, ev.Type)
 
 // An approved tool then a 503 leaves the sink with a progress mark before any text; a denied-only run emits none.
 func TestToolApprovalMarksProgressOnFailure(t *testing.T) {
-	run := func(req copilot.PermissionRequest) []string {
+	run := func(o SDKOptions, req copilot.PermissionRequest) []string {
 		var ok atomic.Bool
-		h := permissionHandler(SDKOptions{AllowAllTools: true, WorkingDirectory: t.TempDir()}, &ok)
+		h := permissionHandler(o, &ok)
 		if _, err := h(req, copilot.PermissionInvocation{}); err != nil {
 			t.Fatal(err)
 		}
@@ -48,10 +48,10 @@ func TestToolApprovalMarksProgressOnFailure(t *testing.T) {
 		_, _ = copilotPartial(wire.Result{}, out, err, sink)
 		return sink.types
 	}
-	if got := run(rpc.PermissionRequestRead{}); !slices.Equal(got, []string{wire.EventProgress, wire.EventText}) {
+	if got := run(SDKOptions{AllowAllTools: true}, rpc.PermissionRequestRead{}); !slices.Equal(got, []string{wire.EventProgress, wire.EventText}) {
 		t.Errorf("approved read: events = %v, want [progress text]", got)
 	}
-	if got := run(rpc.PermissionRequestMCP{}); !slices.Equal(got, []string{wire.EventText}) {
+	if got := run(SDKOptions{AllowAllTools: true, ReadOnlyTools: true}, rpc.PermissionRequestMCP{}); !slices.Equal(got, []string{wire.EventText}) {
 		t.Errorf("denied mcp: events = %v, want [text]", got)
 	}
 }

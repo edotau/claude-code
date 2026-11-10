@@ -156,7 +156,7 @@ func newSDKOptions(bin string, env []string, req agent.RunOptions, t providers.T
 	rec := vault.GetAgentRecord("copilot")
 	workDir := req.WorkDir
 	if workDir == "" {
-		workDir, _ = os.Getwd() // an empty root would make every scoped write fail RelInside
+		workDir, _ = os.Getwd() // relToWorkDir needs a non-empty root
 	}
 	o := SDKOptions{
 		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model,

@@ -99,27 +99,9 @@ func (g GuardRules) clone() GuardRules {
 	return GuardRules{Ask: slices.Clone(g.Ask), Deny: slices.Clone(g.Deny)}
 }
 
-// cloneShellRules deep-copies each rule's string lists; the scalar fields copy by value.
-func cloneShellRules(rs ShellRules) ShellRules {
-	out := slices.Clone(rs)
-	for i, r := range out {
-		r.Commands = slices.Clone(r.Commands)
-		r.Subcommands = slices.Clone(r.Subcommands)
-		r.Exact = slices.Clone(r.Exact)
-		r.Targets = slices.Clone(r.Targets)
-		r.BannedFlags = slices.Clone(r.BannedFlags)
-		out[i] = r
-	}
-	return out
-}
-
-// clone returns a deep copy of a: permission shell scope and defaults, MCP allowlist and launch env/args.
+// clone returns a deep copy of a: permission defaults, MCP allowlist and launch env/args.
 func (a AgentConfig) clone() AgentConfig {
 	out := a
-	if a.Permission.Shell != nil {
-		shell := ShellScope{Commands: cloneShellRules(a.Permission.Shell.Commands), HookExtras: cloneShellRules(a.Permission.Shell.HookExtras)}
-		out.Permission.Shell = &shell
-	}
 	d := a.Permission.Defaults
 	out.Permission.Defaults = Policy{Mode: d.Mode, Allow: slices.Clone(d.Allow), Ask: slices.Clone(d.Ask), Deny: slices.Clone(d.Deny)}
 	out.MCP.Allow = slices.Clone(a.MCP.Allow)
