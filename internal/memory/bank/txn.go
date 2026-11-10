@@ -84,7 +84,8 @@ const (
 
 // CommitChangesLocked applies changes while callers hold the writable bank lock.
 func CommitChangesLocked(subject string, changes []Change) (Receipt, error) {
-	if err := recoverJournals(); err != nil {
+	skipped, err := recoverEach() // a journal that cannot be finished must not wedge new batches
+	if err != nil {
 		return Receipt{}, err
 	}
 	repo := StoreRepo()
@@ -100,27 +101,39 @@ func CommitChangesLocked(subject string, changes []Change) (Receipt, error) {
 	if err := j.save(); err != nil {
 		return Receipt{}, err
 	}
-	return j.run(repo)
+	rec, err := j.run(repo)
+	if err != nil && skipped != nil { // a stuck journal stays on disk and is retried by the next commit
+		err = errors.Join(err, skipped)
+	}
+	return rec, err
 }
 
-// recoverJournals finishes every unfinished journal, oldest first, each as its own commit.
+// recoverJournals finishes every unfinished journal and returns the scan error and per-journal failures joined.
 func recoverJournals() error {
+	skipped, err := recoverEach()
+	return errors.Join(err, skipped)
+}
+
+// recoverEach finishes every unfinished journal, oldest first, each as its own commit; a failing one is left on
+// disk (skipped) so later ones still run, and a skipped one may replay after newer commits, where its preimage
+// hashes make it diverge instead of clobber. err is a failed directory scan; skipped joins the per-journal failures.
+func recoverEach() (skipped, err error) {
 	entries, err := os.ReadDir(memstore.JournalDir())
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, e := range entries { // ReadDir sorts by name: the id's timestamp prefix makes that oldest first
 		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
 		if err := recoverJournal(filepath.Join(memstore.JournalDir(), e.Name())); err != nil {
-			return err
+			skipped = errors.Join(skipped, err)
 		}
 	}
-	return nil
+	return skipped, nil
 }
 
 // recoverJournal replays the journal in file f, or just retires it when already complete.
