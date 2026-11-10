@@ -375,6 +375,33 @@ const FOCUS = a.focus ? ` Caller focus: ${a.focus}.` : ''
 // Group packages/files ≤4 per auditor so one context holds the whole group.
 let GROUPS = []
 for (let i = 0; i < Math.max(1, PKGS.length); i += 4) GROUPS.push(PKGS.slice(i, i + 4))
+// Files mode: a whole tree (internal/: 1378 files, 112 KB) overflowed a scope leaf's Bash output and came back empty.
+const SCOPE_MAX = 200 // files per scope leaf, ~10 KB of compact JSON
+let SPLIT = false // GROUPS hold exact package dirs; the scope command filters the PATHS listing to them
+const SPLIT_SCHEMA = { type: 'object', additionalProperties: false, required: ['dirs'], properties: { dirs: { type: 'array', items: {
+  type: 'object', additionalProperties: false, required: ['dir', 'files'], properties: { dir: { type: 'string' }, files: { type: 'integer' } } } } } }
+if (FILES_MODE && !PRE && !(Array.isArray(a.packages) && a.packages.length)) {
+  const split = await agent(
+    `Run exactly: ${CD}claude-code review scope --repo ${CWD || '.'} --paths ${PATHS.join(',')} --format json </dev/null | ` +
+      `jq -c '[.files[].path | sub("/[^/]*$"; "")] | group_by(.) | map({dir: .[0], files: length})' — and return its array verbatim as dirs. Never run anything else.`,
+    { label: 'scope-split', phase: 'Scope', schema: SPLIT_SCHEMA, model: 'haiku', effort: 'low' }
+  ).catch(() => null)
+  const dirs = split && split.dirs || []
+  if (dirs.reduce((n, d) => n + d.files, 0) > SCOPE_MAX) {
+    GROUPS = []
+    let cur = [], n = 0
+    for (const d of dirs) {
+      if (cur.length && n + d.files > SCOPE_MAX) { GROUPS.push(cur); cur = []; n = 0 }
+      cur.push(d.dir); n += d.files
+    }
+    if (cur.length) GROUPS.push(cur)
+    SPLIT = true
+    log(`scope split: ${dirs.length} dir(s) → ${GROUPS.length} scope group(s) of ≤${SCOPE_MAX} files`)
+  }
+}
+const scopeCmd = g => SPLIT
+  ? `claude-code review scope --repo ${CWD || '.'} --paths ${PATHS.join(',')} --format json </dev/null | jq -c --argjson d '${JSON.stringify(g)}' '{files: [.files[] | select(.path | sub("/[^/]*$"; "") | IN($d[]))]}'`
+  : `claude-code review scope --repo ${CWD || '.'} ${FILES_MODE ? '' : '--range ' + (RANGE || 'HEAD~1..HEAD') + ' '}--paths ${g.join(',') || '.'} --format json </dev/null`
 
 const FINDINGS_SCHEMA = {
   type: 'object',
@@ -532,7 +559,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   phase('Scope')
   const scopes = PRE ? [] : await parallel(GROUPS.map((g, gi) => () =>
     agent(S.scope.task(
-      `${CD}run ONE command: claude-code review scope --repo ${CWD || '.'} ${FILES_MODE ? '' : '--range ' + (RANGE || 'HEAD~1..HEAD') + ' '}--paths ${g.join(',') || '.'} --format json </dev/null — and return its files array verbatim ({path, bytes}). Do not read the files; the auditors cat their own chunk. At most 2 tool calls.`),
+      `${CD}run ONE command: ${scopeCmd(g)} — and return its files array verbatim ({path, bytes}). Do not read the files; the auditors cat their own chunk. At most 2 tool calls.`),
       { label: `scope:${round}:${gi}`, phase: 'Scope', schema: S.scope.schema(SCOPE_SCHEMA), ...S.scope.type, model: routeModel(S.scope.model), effort: S.scope.effort } // file listing: schema-checked, haiku is enough
     ).then(r => S.scope.done(`scope:${round}:${gi}`, r))
   ))
@@ -729,6 +756,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   PATHS = touched
   PKGS = touched
   FILES_MODE = true
+  SPLIT = false
   GROUPS = []
   for (let i = 0; i < Math.max(1, PKGS.length); i += 4) GROUPS.push(PKGS.slice(i, i + 4))
   DIMENSIONS = ARG_DIMS || CODE_DIMENSIONS
