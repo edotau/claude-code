@@ -529,3 +529,78 @@ func TestClaudeInteractiveRefusedRecordOneNotice(t *testing.T) {
 		t.Errorf("warnings %q, want one launchSettings-shaped notice", p.Warnings)
 	}
 }
+
+// armDBX is two workspaces behind a fallback ladder, so a dev launch goes through the loopback proxy.
+const armDBX = `{"fallback":["qa"],"providers":{"databricks":{
+	"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}},
+	"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`
+
+// Inside --route databricks:<p> the proxied child carries a session token minted for <p> and this pid, never the
+// router secret; unarmed it carries none and the helper falls back to the secret.
+func TestClaudeArmProxyCarriesSessionToken(t *testing.T) {
+	hermetic(t, armDBX)
+	const tok = "cct_ARM_TEST"
+	var minted []string
+	orig := agent.MintSession
+	agent.MintSession = func(_ context.Context, profile string, pid int) (string, error) {
+		minted = append(minted, profile)
+		if pid != os.Getpid() {
+			t.Errorf("token bound to pid %d, want this process %d", pid, os.Getpid())
+		}
+		return tok, nil
+	}
+	t.Cleanup(func() { agent.MintSession = orig })
+	secret, err := gateway.ClientSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	launch := func() agent.Plan {
+		p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "dev"}, []string{"-p", "hi"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	p := launch()
+	if _, set := p.Set[ProxyKeyEnv]; set || len(minted) != 0 {
+		t.Errorf("unarmed: %s set = %v, mints %v", ProxyKeyEnv, set, minted)
+	}
+	t.Setenv("HARNESS_ROUTE", "databricks:dev")
+	p = launch()
+	if got := p.Set[ProxyKeyEnv]; got != tok || !slices.Equal(minted, []string{"dev"}) {
+		t.Errorf("armed: %s is the minted token = %v (len %d), mints %v", ProxyKeyEnv, got == tok, len(got), minted)
+	}
+	if got := p.Set["ANTHROPIC_BASE_URL"]; got != "http://127.0.0.1:4000/p/dev" {
+		t.Errorf("armed base = %q, want /p/dev", got)
+	}
+	for k, v := range p.Set {
+		if strings.Contains(v, secret) {
+			t.Errorf("armed: %s carries the router secret", k)
+		}
+	}
+	if !strings.Contains(string(overlayFile(p).Data), "resolve --proxy") {
+		t.Errorf("armed overlay %s, want the resolve --proxy helper", overlayFile(p).Data)
+	}
+}
+
+// An armed login session routed through the proxy sends the session token, not the router secret, in its own header.
+func TestClaudeArmPassthroughHeaderIsSessionToken(t *testing.T) {
+	hermetic(t, armDBX)
+	const tok = "cct_ARM_TEST"
+	orig := agent.MintSession
+	agent.MintSession = func(context.Context, string, int) (string, error) { return tok, nil }
+	t.Cleanup(func() { agent.MintSession = orig })
+	t.Setenv("HARNESS_ROUTE", "databricks:dev")
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ultra := reg.Providers["ultra"]
+	plan := agent.Plan{Set: map[string]string{}}
+	if _, _, err := configureClaudeProxy(context.Background(), providers.Selection{Provider: ultra}, ultra, true, "/opt/bin/claude-code", &plan); err != nil {
+		t.Fatal(err)
+	}
+	if hdrs := plan.Set["ANTHROPIC_CUSTOM_HEADERS"]; !strings.Contains(hdrs, gateway.ClientHeader+": "+tok) {
+		t.Errorf("armed passthrough: the client header carries the session token = false (headers len %d)", len(hdrs))
+	}
+}

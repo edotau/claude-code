@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -330,16 +331,42 @@ func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *provi
 	if id := providers.IdentityFrom(ctx); id != "" {
 		hdrs = append(hdrs, gateway.IdentityHeader+": "+id)
 	}
+	tok, err := armToken(ctx, p.Name)
+	if err != nil {
+		return "", "", err
+	}
+	if tok != "" {
+		plan.Set[ProxyKeyEnv] = tok
+	}
 	if passthrough {
-		// The login stays in Authorization, so the router secret rides in its own header.
-		secret, err := gateway.ClientSecret()
-		if err != nil {
-			return "", "", fmt.Errorf("proxy secret: %w", err)
+		// The login stays in Authorization, so the router secret (armed: the session token) rides in its own header.
+		secret := tok
+		if secret == "" {
+			if secret, err = gateway.ClientSecret(); err != nil {
+				return "", "", fmt.Errorf("proxy secret: %w", err)
+			}
 		}
 		hdrs = append(hdrs, gateway.ClientHeader+": "+secret)
 	}
 	plan.Set[proc.EnvAnthropicCustomHeaders] = strings.Join(hdrs, "\n")
 	return textutil.QuoteSH(helperBin(self)) + " resolve --proxy", filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json"), nil
+}
+
+// ProxyKeyEnv carries an armed launch's session token to `resolve --proxy`; ScrubDeny's HARNESS_*_API_KEY drops it
+// from grandchildren, so a nested launch mints its own.
+const ProxyKeyEnv = "HARNESS_PROXY_API_KEY"
+
+// armToken mints a session token confined to profile and bound to this process inside --route databricks:<p>;
+// "" when not armed, so the child keeps the router secret.
+func armToken(ctx context.Context, profile string) (string, error) {
+	if router.ArmProfile() == "" {
+		return "", nil
+	}
+	tok, err := agent.MintSession(ctx, profile, os.Getpid())
+	if err != nil {
+		return "", fmt.Errorf("proxy: session token for profile %s: %w", profile, err)
+	}
+	return tok, nil
 }
 
 func claudeLaunchBinaries() (string, string, error) {

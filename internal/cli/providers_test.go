@@ -11,8 +11,10 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/describe"
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -709,4 +711,24 @@ func useTLSTransport(t *testing.T, srv *httptest.Server) {
 	old := http.DefaultClient.Transport
 	http.DefaultClient.Transport = srv.Client().Transport
 	t.Cleanup(func() { http.DefaultClient.Transport = old; srv.Close() })
+}
+
+// resolve --proxy prints an armed launch's session token when the env carries one, else the router secret.
+func TestResolveProxyPrintsArmSessionToken(t *testing.T) {
+	cliScratch(t)
+	secret, err := gateway.ClientSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(claude.ProxyKeyEnv, "")
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--proxy"}) })
+	if code != 0 || strings.TrimSpace(out) != secret {
+		t.Errorf("unarmed: exit %d, printed the router secret = %v", code, strings.TrimSpace(out) == secret)
+	}
+	const tok = "cct_ARM_TEST"
+	t.Setenv(claude.ProxyKeyEnv, tok)
+	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--proxy"}) })
+	if got := strings.TrimSpace(out); code != 0 || got != tok {
+		t.Errorf("armed: exit %d, printed the token = %v, the router secret = %v (len %d)", code, got == tok, got == secret, len(got))
+	}
 }
