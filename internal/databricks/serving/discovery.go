@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -202,11 +203,12 @@ func validCachedSnapshot(raw string, scope Scope, snapshot *Snapshot) bool {
 		!snapshot.DiscoveredAt.IsZero() && (len(snapshot.Checks) == 0 || !snapshot.CheckedAt.IsZero())
 }
 
-// Discover authenticates every read; a forced refresh never falls back to stale discovery.
+// Discover reads under a subject validated within identityTTL for the credential's own JWT sub, else validates
+// first; a forced refresh always validates and never falls back to stale discovery.
 func Discover(ctx context.Context, p *providers.Provider, refresh bool) (Snapshot, error) {
 	ctx, cancel := context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()
-	subject, err := ValidateIdentity(ctx, p)
+	subject, err := currentSubject(ctx, p, refresh)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -228,6 +230,74 @@ func Discover(ctx context.Context, p *providers.Provider, refresh bool) (Snapsho
 	}
 	return Snapshot{Schema: 1, Scope: scope, DiscoveredAt: time.Now().UTC(), Models: infos,
 		CheckedAt: old.CheckedAt, Checks: old.Checks}, nil
+}
+
+// identityTTL bounds how long a validated subject stands in for a SCIM /Me call.
+const identityTTL = 15 * time.Minute
+
+// validated is the sealed sidecar: the SCIM subject validated for the credential whose JWT sub is TokenSub.
+type validated struct {
+	Subject  string    `json:"subject"`
+	TokenSub string    `json:"token_sub"`
+	At       time.Time `json:"at"`
+}
+
+// currentSubject is the remembered subject when the live credential's JWT sub matches a fresh sidecar, else /Me's.
+func currentSubject(ctx context.Context, p *providers.Provider, refresh bool) (string, error) {
+	sub := credentialSub(ctx, p)
+	name, kerr := validatedKey(p)
+	if !refresh && sub != "" && kerr == nil {
+		if v, ok := readValidated(name); ok && v.TokenSub == sub {
+			return v.Subject, nil
+		}
+	}
+	subject, err := ValidateIdentity(ctx, p)
+	if err != nil || sub == "" || kerr != nil || credentialSub(ctx, p) != sub { // remember only a stable identity
+		return subject, err
+	}
+	rememberValidated(p, name, validated{Subject: subject, TokenSub: sub, At: time.Now().UTC()})
+	return subject, nil
+}
+
+// rememberValidated seals the sidecar like Save seals a snapshot; a lost write costs one /Me call later.
+func rememberValidated(p *providers.Provider, name string, v validated) {
+	b, _ := json.Marshal(v) // only strings and a time
+	_ = vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
+		return tx.PutRecord(name, vault.Record{Sealed: key.Seal(name, string(b)), Kid: key.Kid, Len: len(b),
+			Label: "databricks/" + p.Name, SetAt: v.At})
+	})
+}
+
+// credentialSub is the JWT sub claim of p's credential, "" for an opaque token or a credential error.
+func credentialSub(ctx context.Context, p *providers.Provider) string {
+	v, err := providers.Credential(ctx, p)
+	var claims struct {
+		Sub string `json:"sub"`
+	}
+	if err != nil || !textutil.JWTClaims(v, &claims) {
+		return ""
+	}
+	return strings.TrimSpace(claims.Sub)
+}
+
+// validatedKey names p's sidecar beside its remembered subject, under the same scope and auth identity.
+func validatedKey(p *providers.Provider) (string, error) {
+	name, err := subjectKey(p)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(SubjectKeyPrefix+"%x", sha256.Sum256([]byte("validated\x00"+name))), nil
+}
+
+// readValidated returns the sidecar under name when it is complete and younger than identityTTL.
+func readValidated(name string) (validated, bool) {
+	var v validated
+	raw, found, err := vault.ReadSecret(name)
+	if err != nil || !found || json.Unmarshal([]byte(raw), &v) != nil || v.Subject == "" || v.TokenSub == "" {
+		return validated{}, false
+	}
+	age := time.Since(v.At)
+	return v, age >= 0 && age < identityTTL
 }
 
 // SanitizeChecks retains only probe measurements, never error bodies or credential diagnostics.

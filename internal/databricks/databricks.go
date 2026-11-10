@@ -306,7 +306,7 @@ var page = helptext.Page{
 	About: "Launch Claude Code on a Databricks profile. MODEL defaults to the opus alias at 1M context. " +
 		"check runs a smoke reply.",
 	Commands: [][2]string{
-		{"check", "--all: one tiny call per profile x wire"},
+		{"check", "--all: one tiny call per profile (serving; --wire all)"},
 		{"login", "browser sign-in for an oauth profile"},
 		{"mint", "fresh token, never printed; --copy to clipboard"},
 		{"import", "import a .databrickscfg (dry-run unless --apply)"},
@@ -320,9 +320,9 @@ var page = helptext.Page{
 
 // checkPage is `databricks check -h`.
 var checkPage = helptext.Page{
-	Usage: "claude-code databricks check [MODEL] [--all] [--profile NAME]",
-	About: "Smoke-test a Databricks profile with one tiny reply; --all tries every profile x wire " +
-		"(serving/ai-gateway).",
+	Usage: "claude-code databricks check [MODEL] [--all [--wire W]] [--profile NAME]",
+	About: "Smoke-test a Databricks profile with one tiny reply; --all tries every profile on the " +
+		"serving wire (--wire ai-gateway|all for AI Gateway).",
 }
 
 // usage prints the verb's help; the FlagSet only documents flags, plan does the parsing.

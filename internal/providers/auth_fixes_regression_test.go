@@ -5,10 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -112,40 +109,26 @@ func TestSealLoginWrongIssuerPreservesStoredTokens(t *testing.T) {
 	}
 }
 
-func authFixCaptureStderr(t *testing.T, call func()) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "stderr")
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	old := os.Stderr
-	os.Stderr = f
-	defer func() { os.Stderr = old }()
-	call()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
-}
-
-func TestDropLegacyAccessReportsReadErrorAndDeletes(t *testing.T) {
+// The legacy sweep deletes an unreadable hash slot without decrypting it, marks the vault and keeps other names.
+func TestDropLegacyAccessSweepsUnreadableSlotOnce(t *testing.T) {
 	vaulttest.Use(t)
-	const slot = "DATABRICKS_M2M_REGRESSION_ACCESS"
+	legacySwept.Store(false)
+	t.Cleanup(func() { legacySwept.Store(false) })
+	const slot, keep = "DATABRICKS_M2M_0123456789ABCDEF_ACCESS", "DATABRICKS_DEV_M2M_ACCESS"
 	vaulttest.Put(t, vault.Secrets, slot, "{malformed-record")
-	_, _, readErr := vault.ReadSecret(slot)
-	if readErr == nil {
-		t.Fatal("fixture must fail ReadSecret")
+	if err := vault.Store(keep, "kept"); err != nil {
+		t.Fatal(err)
 	}
-	output := authFixCaptureStderr(t, func() { dropLegacyAccess(slot) })
-	if !strings.Contains(output, "read legacy access token slot "+slot+" failed: ") || !strings.Contains(output, readErr.Error()) {
-		t.Fatal("legacy read failure was not reported with its cause")
-	}
+	dropLegacyAccess()
 	names, err := vault.NamesErr()
-	if err != nil || slices.Contains(names, slot) {
-		t.Fatalf("unreadable legacy slot survived cleanup: err=%v", err)
+	if err != nil || slices.Contains(names, slot) || !slices.Contains(names, keep) {
+		t.Fatalf("sweep: names = %v, err = %v", names, err)
+	}
+	legacySwept.Store(false) // a new process: the vault marker alone must stop a second sweep
+	vaulttest.Put(t, vault.Secrets, slot, "{malformed-record")
+	dropLegacyAccess()
+	if names, _ := vault.NamesErr(); !slices.Contains(names, slot) {
+		t.Fatal("a marked vault was swept again")
 	}
 }
 

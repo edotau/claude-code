@@ -6,11 +6,11 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -310,20 +310,18 @@ func rowAuth(p profile, auth string, hostOK bool) (row, skip string) {
 	return "", fmt.Sprintf("unsupported auth_type %q", p.authType)
 }
 
-// normalizeHost reduces a workspace host to https://host; a bare host gets the scheme.
+// normalizeHost is oauth.NormalizeHost after dropping any path, query or fragment a cfg host carries.
 func normalizeHost(h string) (string, bool) {
 	h = strings.TrimSpace(h)
-	if h == "" {
-		return "", false
+	_, rest, scheme := strings.Cut(h, "://")
+	if !scheme {
+		rest = h
 	}
-	if !strings.Contains(h, "://") {
-		h = "https://" + h
+	if i := strings.IndexAny(rest, "/?#"); i >= 0 {
+		h = h[:len(h)-len(rest)+i]
 	}
-	u, err := url.Parse(h)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return "", false
-	}
-	return "https://" + strings.ToLower(u.Host), true
+	out := oauth.NormalizeHost(h)
+	return out, out != ""
 }
 
 // Secrets are the credential values of one profile; read only on an explicit --seal-secrets.

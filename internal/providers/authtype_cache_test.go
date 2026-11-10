@@ -16,6 +16,7 @@ import (
 // A mint drops the old hash-named DATABRICKS_M2M_<HASH>_ACCESS slot so it is not left sealed in the vault.
 func TestM2MMintDeletesLegacyHashSlot(t *testing.T) {
 	p, secretName := clientRow(t, false)
+	legacySwept.Store(false) // a fresh process; an earlier test's mint may have set it
 	sum := sha256.Sum256([]byte("h.example.com\x00client\x00secret"))
 	legacy := "DATABRICKS_M2M_" + strings.ToUpper(hex.EncodeToString(sum[:8])) + "_ACCESS"
 	if err := vault.Store(legacy, "stale"); err != nil {

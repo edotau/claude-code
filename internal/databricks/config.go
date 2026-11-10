@@ -17,8 +17,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -78,10 +80,12 @@ func resolve(f cfgFlags) (*providers.Provider, string, error) {
 	if f.wire != "" && f.wire != providers.WireServing && f.wire != providers.WireAIGateway {
 		return nil, "", fmt.Errorf("--wire must be ai-gateway or serving (got %q)", f.wire)
 	}
-	host := strings.TrimRight(f.host, "/")
+	host, err := flagHost(f.host)
+	if err != nil {
+		return nil, "", err
+	}
 	var row *providers.Provider
 	if host == "" {
-		var err error
 		if row, host, err = registryHost(reg, lerr, name); err != nil {
 			return nil, "", err
 		}
@@ -90,6 +94,17 @@ func resolve(f cfgFlags) (*providers.Provider, string, error) {
 		return row, host, nil
 	}
 	return synth(name, host, f.wire)
+}
+
+// flagHost normalizes a --host value; "" stays "" (use the registry).
+func flagHost(h string) (string, error) {
+	if h == "" {
+		return "", nil
+	}
+	if n := oauth.NormalizeHost(h); n != "" {
+		return n, nil
+	}
+	return "", fmt.Errorf("host %q is not a valid https workspace URL", h)
 }
 
 // registryHost returns the registry row for name and its https workspace host.
@@ -302,24 +317,46 @@ func rescueUsage() {
 }
 
 const (
-	probeTimeout = 45 * time.Second
-	budgetDenied = "budget denied"
+	probeTimeout   = 15 * time.Second // one max_tokens=1 ping
+	profileTimeout = 20 * time.Second // one profile's token plus its pings
+	checkWorkers   = 3                // profiles probed at once
+	budgetDenied   = "budget denied"
 )
 
 var checkAllPage = helptext.Page{
 	Usage: "claude-code databricks check --all [flags]",
-	About: "One tiny Anthropic call per profile and wire (serving, ai-gateway);\n" +
-		"prints a status per cell, never a token. Exit 1 when a cell fails\n" +
-		"for any reason other than a budget denial.",
+	About: "One tiny Anthropic call per profile on the serving wire (--wire all adds\n" +
+		"ai-gateway); prints a status per cell, never a token. Exit 1 when a cell\n" +
+		"fails for any reason other than a budget denial.",
 }
 
 // probeClient is the HTTP client for probes.
 var probeClient = &http.Client{Timeout: probeTimeout}
 
+// checkWires maps --wire to the wires probed and their column headers.
+func checkWires(wire string) ([]string, []string, error) {
+	switch wire {
+	case providers.WireServing:
+		return []string{providers.WireServing}, []string{"SERVING"}, nil
+	case providers.WireAIGateway:
+		return []string{providers.WireAIGateway}, []string{"AI-GATEWAY"}, nil
+	case "all":
+		return []string{providers.WireServing, providers.WireAIGateway}, []string{"SERVING", "AI-GATEWAY"}, nil
+	}
+	return nil, nil, fmt.Errorf("--wire must be serving, ai-gateway or all (got %q)", wire)
+}
+
+// checkRow is one profile's probe outcome.
+type checkRow struct {
+	cells         []string
+	reason, notes string
+}
+
 // checkAll is `databricks check --all`: the profile x wire matrix (one profile with --profile).
 func checkAll(args []string) int {
 	fs := helptext.NewFlagSet("databricks check --all", checkAllPage)
 	model := fs.String("model", aliasID(models.Haiku), "canonical model id to probe")
+	wire := fs.String("wire", providers.WireServing, "serving, ai-gateway or all")
 	only := new(string)
 	profileFlagVar(fs, only, "probe only this Databricks profile (default: all)")
 	rest, err := helptext.ParseArgs(fs, args)
@@ -333,28 +370,39 @@ func checkAll(args []string) int {
 	if len(rest) == 1 { // positional MODEL overrides --model
 		*model = rest[0]
 	}
+	wires, heads, err := checkWires(*wire)
+	if err != nil {
+		return fail("check: %v", err)
+	}
 	reg, err := providers.Load()
 	if err != nil {
 		return fail("check: %v", err)
 	}
-	wires := []string{providers.WireServing, providers.WireAIGateway}
 	names := providers.DatabricksProfiles(reg)
 	if *only != "" {
 		names = []string{*only}
 	}
-	fmt.Printf("%-24s %-24s %s\n", "PROFILE", "SERVING", "AI-GATEWAY")
+	return printCheck(names, heads, checkProfiles(reg, names, *model, wires))
+}
+
+// printCheck prints the table, then reasons and SP notes under it; 1 when a cell failed other than a budget denial.
+func printCheck(names, heads []string, rows []checkRow) int {
+	fmt.Println(checkLine("PROFILE", heads))
 	rc := 0
-	var why []string // full reasons, printed under the table so the fix command is never clipped
-	for _, name := range names {
-		cells, reason := checkProfile(reg.Providers[name], name, *model, wires)
-		for _, c := range cells {
+	var why []string
+	for i, name := range names {
+		r := rows[i]
+		for _, c := range r.cells {
 			if c != "ok" && c != budgetDenied {
 				rc = 1
 			}
 		}
-		fmt.Printf("%-24s %-24s %s\n", name, cells[0], cells[1])
-		if reason != "" {
-			why = append(why, fmt.Sprintf("  %s: %s", name, reason))
+		fmt.Println(checkLine(name, r.cells))
+		if r.reason != "" {
+			why = append(why, fmt.Sprintf("  %s: %s", name, r.reason))
+		}
+		if r.notes != "" {
+			why = append(why, "  "+strings.ReplaceAll(strings.TrimSpace(r.notes), "\n", "\n  "))
 		}
 	}
 	if len(why) > 0 {
@@ -364,14 +412,40 @@ func checkAll(args []string) int {
 	return rc
 }
 
+// checkLine is one table row: the label then each cell in a 24-wide column, the last unpadded.
+func checkLine(label string, cells []string) string {
+	cols := append([]string{label}, cells...)
+	for i := range len(cols) - 1 {
+		cols[i] = fmt.Sprintf("%-24s", cols[i])
+	}
+	return strings.Join(cols, " ")
+}
+
+// checkProfiles probes names concurrently, checkWorkers at a time; rows keep the names' order.
+func checkProfiles(reg *providers.Registry, names []string, model string, wires []string) []checkRow {
+	rows := make([]checkRow, len(names))
+	sem := make(chan struct{}, checkWorkers)
+	var wg sync.WaitGroup
+	for i, name := range names {
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			rows[i] = checkProfile(reg.Providers[name], name, model, wires)
+		})
+	}
+	wg.Wait()
+	return rows
+}
+
 // checkProfile mints the row's token once and probes every wire with it; reason is the full cause when no wire ran.
-func checkProfile(row *providers.Provider, name, model string, wires []string) (cells []string, reason string) {
-	cells = make([]string, len(wires))
-	fill := func(s, why string) ([]string, string) {
-		for i := range cells {
-			cells[i] = s
+func checkProfile(row *providers.Provider, name, model string, wires []string) checkRow {
+	r := checkRow{cells: make([]string, len(wires))}
+	fill := func(s, why string) checkRow {
+		for i := range r.cells {
+			r.cells[i] = s
 		}
-		return cells, why
+		r.reason = why
+		return r
 	}
 	if row == nil {
 		return fill("no row", "not in the registry")
@@ -380,23 +454,51 @@ func checkProfile(row *providers.Provider, name, model string, wires []string) (
 	if host == "" {
 		return fill("no https host", "the profile has no https host")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*probeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), profileTimeout)
 	defer cancel()
+	var notes noteBuf
+	ctx = oauth.WithoutRetry(providers.WithNotes(ctx, notes.add)) // a check reports a 429, it never waits one out
 	tok, err := providers.Credential(ctx, row)
+	r.notes = notes.String()
 	if err != nil {
 		return fill("no token", strings.TrimPrefix(err.Error(), name+": "))
 	}
+	var wg sync.WaitGroup
 	for i, w := range wires {
-		p := row
-		if w != row.Options.Wire && (w != providers.WireServing || row.Options.Wire != "") {
-			if p, _, err = synth(name, host, w); err != nil {
-				cells[i] = clip(err.Error(), 40)
-				continue
-			}
-		}
-		cells[i] = probe(ctx, p, tok, model)
+		wg.Go(func() { r.cells[i] = probeWire(ctx, row, name, host, w, tok, model) })
 	}
-	return cells, ""
+	wg.Wait()
+	return r
+}
+
+// noteBuf collects credential notes; a detached mint may add from another goroutine.
+type noteBuf struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (n *noteBuf) add(s string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.buf.WriteString(s + "\n")
+}
+
+func (n *noteBuf) String() string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.buf.String()
+}
+
+// probeWire probes row on wire w, synthesizing the row for a wire other than its own.
+func probeWire(ctx context.Context, row *providers.Provider, name, host, w, tok, model string) string {
+	p := row
+	if w != row.Options.Wire && (w != providers.WireServing || row.Options.Wire != "") {
+		var err error
+		if p, _, err = synth(name, host, w); err != nil {
+			return clip(err.Error(), 40)
+		}
+	}
+	return probe(ctx, p, tok, model)
 }
 
 // probe sends one max_tokens=1 message on p's Anthropic route and classifies the reply.
