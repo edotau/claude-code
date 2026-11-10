@@ -193,13 +193,22 @@ func TestPickLeadGeminiLeadsOnNamedDatabricksRow(t *testing.T) {
 }
 
 func TestGeminiRow(t *testing.T) {
+	dbx := func(a providers.Auth) *providers.Provider {
+		return &providers.Provider{Preset: providers.PresetDatabricks, Auth: a}
+	}
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{
-		"chatgpt": {Name: "chatgpt", Provider: "openai", Auth: providers.Auth{Login: "codex", Type: "cli"}},
-		"g":       {Name: "g", Provider: "google"},
-		"dev":     {Name: "dev", Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: "pat"}},
+		"chatgpt":  {Name: "chatgpt", Provider: "openai", Auth: providers.Auth{Login: "codex", Type: "cli"}},
+		"g":        {Name: "g", Provider: "google"},
+		"dev":      dbx(providers.Auth{Type: providers.AuthPAT}),
+		"dbxlogin": dbx(providers.Auth{Type: providers.AuthPAT, Login: "databricks"}),
+		"dbxnone":  dbx(providers.Auth{Type: providers.AuthNone}),
+		"dbxcli":   dbx(providers.Auth{Type: providers.AuthCLI}),
 	}}
-	if !geminiRow(reg, "g") || !geminiRow(reg, "dev") || geminiRow(reg, "chatgpt") || geminiRow(reg, "missing") {
-		t.Error("geminiRow must accept Google and Databricks gateway rows only")
+	for name, want := range map[string]bool{"g": true, "dev": true, "chatgpt": false, "missing": false,
+		"dbxlogin": false, "dbxnone": false, "dbxcli": false} {
+		if got := geminiRow(reg, name); got != want {
+			t.Errorf("geminiRow(%q) = %v, want %v: Google rows and credentialed Databricks gateway rows only", name, got, want)
+		}
 	}
 }
 

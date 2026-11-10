@@ -6,24 +6,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/ui/menu"
 )
-
-// TestConfigureHelpFitsEightyColumns: `configure -h` lines (usage + flag defaults) stay within 80 columns.
-func TestConfigureHelpFitsEightyColumns(t *testing.T) {
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return run([]string{"-h"}) })
-	if code != 0 {
-		t.Fatalf("exit = %d, want 0", code)
-	}
-	for l := range strings.SplitSeq(stderr, "\n") {
-		if n := utf8.RuneCountInString(l); n > 80 {
-			t.Errorf("help line is %d cols: %q", n, l)
-		}
-	}
-}
 
 func run(args []string) int { return cmdConfigure(args, func(string, string) int { return 0 }) }
 

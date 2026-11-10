@@ -145,9 +145,14 @@ func TestThemeUnknownNameExitsTwoAndListsValid(t *testing.T) {
 func TestThemeHelpExitsZeroWithoutRunning(t *testing.T) {
 	dir := hermeticTheme(t)
 	for _, flagArg := range []string{"-h", "--help"} {
-		code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdTheme([]string{flagArg}) })
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdTheme([]string{flagArg}) })
 		if code != 0 {
 			t.Errorf("theme %s exit %d, want 0 — asking for help is not an error", flagArg, code)
+		}
+		for _, want := range []string{"apply", "statusline", "vscode"} {
+			if !strings.Contains(stderr, "\n  "+want+" ") {
+				t.Errorf("theme %s lacks %q: %q", flagArg, want, stderr)
+			}
 		}
 	}
 	if _, err := os.Stat(configPath(dir)); !os.IsNotExist(err) {
@@ -182,19 +187,6 @@ func TestThemeStatuslineBadFlagExitsTwo(t *testing.T) {
 	code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdTheme([]string{"statusline", "--nope"}) })
 	if code != 2 {
 		t.Errorf("exit %d, want 2", code)
-	}
-}
-
-func TestThemeHelpListsNewSubVerbs(t *testing.T) {
-	hermeticTheme(t)
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdTheme([]string{"-h"}) })
-	if code != 0 {
-		t.Fatalf("exit %d", code)
-	}
-	for _, want := range []string{"apply", "statusline", "vscode"} {
-		if !strings.Contains(stderr, "\n  "+want+" ") {
-			t.Errorf("theme -h lacks %q: %q", want, stderr)
-		}
 	}
 }
 

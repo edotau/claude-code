@@ -14,15 +14,19 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
+// Bare worktree lists (exit 0); an unknown verb, a wrong arity or an unknown name fails.
 func TestCmdWorktreeNoArgsAndUnknownSub(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	repo := gitRepoCLI(t)
-	t.Chdir(repo)
-	if got := cmdWorktree(nil); got != 0 {
-		t.Fatalf("no args: got %d, want 0", got)
-	}
-	if got := cmdWorktree([]string{"bogus"}); got != 2 {
-		t.Fatalf("unknown sub: got %d, want 2", got)
+	t.Chdir(gitRepoCLI(t))
+	for _, tc := range []struct {
+		args []string
+		want int
+	}{{nil, 0}, {[]string{"bogus"}, 2}, {[]string{"create"}, 1}, {[]string{"create", "a", "b"}, 1},
+		{[]string{"clean", "does-not-exist"}, 1}} {
+		code, _, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree(tc.args) })
+		if (code == 0) != (tc.want == 0) || (tc.want == 2 && code != 2) {
+			t.Errorf("worktree %q: exit %d, want %d; stderr=%q", tc.args, code, tc.want, errb)
+		}
 	}
 }
 
@@ -113,160 +117,61 @@ func TestCmdWorktreeGateWriteFailure(t *testing.T) {
 	}
 }
 
+// create prints the new worktree's path on its branch (default worktree-<name>) and list then shows it.
 func TestCmdWorktreeCreateThenListShowsIt(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	repo := gitRepoCLI(t)
-	t.Chdir(repo)
-
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "feature"}) })
-	if code != 0 {
-		t.Fatalf("create: code=%d stderr=%q", code, errb)
-	}
-	dest := strings.TrimSpace(out)
-	if _, err := os.Stat(dest); err != nil {
-		t.Fatalf("created worktree missing at %s: %v", dest, err)
-	}
-
-	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"list", "--format", "json"}) })
-	if code != 0 {
-		t.Fatalf("list: code=%d", code)
-	}
-	var entries []map[string]any
-	if err := json.Unmarshal([]byte(out), &entries); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("got %d entries, want 1: %v", len(entries), entries)
-	}
-}
-
-func TestCmdWorktreeCreateWithCustomBranch(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	repo := gitRepoCLI(t)
-	t.Chdir(repo)
-
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "--branch", "wt/custom", "feature"}) })
-	if code != 0 {
-		t.Fatalf("create: code=%d stderr=%q", code, errb)
-	}
-	dest := strings.TrimSpace(out)
-	branchOut, err := exec.Command("git", "-C", dest, "branch", "--show-current").Output()
-	if err != nil || strings.TrimSpace(string(branchOut)) != "wt/custom" {
-		t.Fatalf("branch = %q, err %v, want wt/custom", branchOut, err)
+	for _, tc := range []struct {
+		args   []string
+		branch string
+	}{
+		{[]string{"create", "feature"}, "worktree-feature"},
+		{[]string{"create", "--branch", "wt/custom", "feature"}, "wt/custom"},
+		{[]string{"create", "dots.and-dashes_123"}, "worktree-dots.and-dashes_123"},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Chdir(gitRepoCLI(t))
+			code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree(tc.args) })
+			if code != 0 {
+				t.Fatalf("create: code=%d stderr=%q", code, errb)
+			}
+			branch, err := exec.Command("git", "-C", strings.TrimSpace(out), "branch", "--show-current").Output()
+			if err != nil || strings.TrimSpace(string(branch)) != tc.branch {
+				t.Fatalf("branch = %q, err %v, want %s", branch, err, tc.branch)
+			}
+			_, out, _ = hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"list", "--format", "json"}) })
+			var entries []map[string]any
+			if err := json.Unmarshal([]byte(out), &entries); err != nil || len(entries) != 1 {
+				t.Fatalf("list = %q (err %v), want one entry", out, err)
+			}
+		})
 	}
 }
 
-func TestCmdWorktreeCreateWrongArity(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	repo := gitRepoCLI(t)
-	t.Chdir(repo)
-	for _, args := range [][]string{{"create"}, {"create", "a", "b"}} {
-		code, _, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree(append([]string{}, args...)) })
-		if code == 0 {
-			t.Errorf("args %v: want non-zero exit, stderr=%q", args, errb)
-		}
-	}
-}
-
-func TestCmdWorktreeCleanMissingName(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	repo := gitRepoCLI(t)
-	t.Chdir(repo)
-	code, _, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean", "does-not-exist"}) })
-	if code == 0 {
-		t.Fatalf("want non-zero exit for a missing worktree, stderr=%q", errb)
-	}
-}
-
-func TestCmdWorktreeCleanDryRunDoesNotRemove(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	repo := gitRepoCLI(t)
-	t.Chdir(repo)
-	_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "mergeable"}) })
-	dest := strings.TrimSpace(out)
-
-	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean", "--dry-run", "mergeable"}) })
-	if code != 0 || !strings.Contains(out, "eligible:") {
-		t.Fatalf("dry-run clean: code=%d out=%q", code, out)
-	}
-	if _, err := os.Stat(dest); err != nil {
-		t.Fatal("--dry-run must never remove the worktree")
-	}
-}
-
-func TestCmdWorktreeCleanRealRemovesEligible(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	repo := gitRepoCLI(t)
-	t.Chdir(repo)
-	_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "mergeable"}) })
-	dest := strings.TrimSpace(out)
-
-	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean", "mergeable"}) })
-	if code != 0 || !strings.Contains(out, "removed:") {
-		t.Fatalf("real clean: code=%d out=%q", code, out)
-	}
-	if _, err := os.Stat(dest); !os.IsNotExist(err) {
-		t.Fatalf("worktree should be gone, stat err=%v", err)
-	}
-}
-
-func TestCmdWorktreeCleanDirtyRefusedExitsNonZero(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	repo := gitRepoCLI(t)
-	t.Chdir(repo)
-	_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "dirty"}) })
-	dest := strings.TrimSpace(out)
-	if err := os.WriteFile(filepath.Join(dest, "scratch.txt"), []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean", "dirty"}) })
-	if code == 0 {
-		t.Fatalf("want non-zero exit for a refused dirty clean, out=%q", out)
-	}
-	if !strings.Contains(out, "refused:") {
-		t.Fatalf("out=%q, want a refused: line", out)
-	}
-}
-
-// TestCmdWorktreeCleanAllOverlappingFlagsPreviewWins asserts --dry-run and --yes together must still
-// preview, never remove — the safer of two conflicting flags has to win when both are given.
-func TestCmdWorktreeCleanAllOverlappingFlagsPreviewWins(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	repo := gitRepoCLI(t)
-	t.Chdir(repo)
-	_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "mergeable"}) })
-	dest := strings.TrimSpace(out)
-
-	code, out, _ := hosttest.CaptureOutput(t, func() int {
-		return cmdWorktree([]string{"clean-all", "--dry-run", "--yes"})
-	})
-	if code != 0 {
-		t.Fatalf("clean-all --dry-run --yes: code=%d out=%q", code, out)
-	}
-	if !strings.Contains(out, "preview only") {
-		t.Fatalf("out=%q, want the preview-only summary even with --yes also set", out)
-	}
-	if _, err := os.Stat(dest); err != nil {
-		t.Fatal("--dry-run combined with --yes must still never remove anything")
-	}
-}
-
-func TestCmdWorktreeCleanAllRequiresYesToApply(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	repo := gitRepoCLI(t)
-	t.Chdir(repo)
-	_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "mergeable"}) })
-	dest := strings.TrimSpace(out)
-
-	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean-all"}) })
-	if code != 0 {
-		t.Fatalf("clean-all (no flags): code=%d out=%q", code, out)
-	}
-	if !strings.Contains(out, "preview only") {
-		t.Fatalf("out=%q, want a preview-only summary without --yes", out)
-	}
-	if _, err := os.Stat(dest); err != nil {
-		t.Fatal("clean-all without --yes must never remove anything")
+// Only a plain clean of an eligible worktree removes it; --dry-run and clean-all without --yes only preview.
+func TestCmdWorktreeCleanEligible(t *testing.T) {
+	for _, tc := range []struct {
+		args    []string
+		want    string
+		removed bool
+	}{
+		{[]string{"clean", "--dry-run", "mergeable"}, "eligible:", false},
+		{[]string{"clean", "mergeable"}, "removed:", true},
+		{[]string{"clean-all"}, "preview only", false},
+		{[]string{"clean-all", "--dry-run", "--yes"}, "preview only", false}, // the safer flag wins
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Chdir(gitRepoCLI(t))
+			_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "mergeable"}) })
+			dest := strings.TrimSpace(out)
+			code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree(tc.args) })
+			if code != 0 || !strings.Contains(out, tc.want) {
+				t.Fatalf("code=%d out=%q, want 0 and %q", code, out, tc.want)
+			}
+			if _, err := os.Stat(dest); os.IsNotExist(err) != tc.removed {
+				t.Fatalf("worktree removed = %v, want %v", os.IsNotExist(err), tc.removed)
+			}
+		})
 	}
 }
 
@@ -315,19 +220,6 @@ func TestCmdWorktreeListReopenCommandIsShellSafe(t *testing.T) {
 	}
 }
 
-func TestCmdWorktreeCreateUnusualName(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	repo := gitRepoCLI(t)
-	t.Chdir(repo)
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "dots.and-dashes_123"}) })
-	if code != 0 {
-		t.Fatalf("create: code=%d stderr=%q", code, errb)
-	}
-	if _, err := os.Stat(strings.TrimSpace(out)); err != nil {
-		t.Fatalf("worktree missing: %v", err)
-	}
-}
-
 // forceFixtureDirty makes the "feature" worktree dirty (untracked file) and one commit ahead of main.
 func forceFixtureDirty(t *testing.T) (repo, wt string) {
 	t.Helper()
@@ -349,17 +241,25 @@ func forceBranchList(t *testing.T, repo, branch string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// A plain clean refuses a dirty worktree, merged or not, and keeps it and its branch.
 func TestCmdWorktreeCleanForceRefusedWithoutFlag(t *testing.T) {
-	repo, wt := forceFixtureDirty(t)
-	code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean", "feature"}) })
-	if code == 0 {
-		t.Fatal("plain clean of a dirty+unmerged worktree must fail")
-	}
-	if _, err := os.Stat(wt); err != nil {
-		t.Fatalf("worktree must survive a refused clean: %v", err)
-	}
-	if forceBranchList(t, repo, "worktree-feature") == "" {
-		t.Fatal("branch must survive a refused clean")
+	for _, unmerged := range []bool{false, true} {
+		t.Run(map[bool]string{false: "dirty", true: "dirty+unmerged"}[unmerged], func(t *testing.T) {
+			repo, wt := forceFixtureDirty(t)
+			if !unmerged {
+				mergeFixtureCLIRun(t, repo, "merge", "-q", "--ff-only", "worktree-feature")
+			}
+			code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean", "feature"}) })
+			if code == 0 || !strings.Contains(out, "refused:") {
+				t.Fatalf("plain clean of a dirty worktree: code=%d out=%q, want a refused: line", code, out)
+			}
+			if _, err := os.Stat(wt); err != nil {
+				t.Fatalf("worktree must survive a refused clean: %v", err)
+			}
+			if forceBranchList(t, repo, "worktree-feature") == "" {
+				t.Fatal("branch must survive a refused clean")
+			}
+		})
 	}
 }
 
@@ -457,343 +357,100 @@ func cliHeadOf(t *testing.T, dir string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func TestCmdWorktreeMergeDryRunCleanShowsPlanWithoutMutating(t *testing.T) {
+// worktreeMergeCase is one `worktree merge` run on the "feature" fixture; {wt} in args is the worktree path.
+type worktreeMergeCase struct {
+	name     string
+	commit   [2]string // file, content committed in the worktree first; empty = none
+	conflict bool      // main also edits f.txt, so the plan predicts a conflict
+	args     []string
+	ok       bool
+	out      []string // stdout must contain each
+	notOut   []string // stdout must contain none
+	stderr   string
+	promoted bool // main fast-forwards to the worktree's head; otherwise main never moves
+	kept     bool // the worktree is still on disk afterwards
+}
+
+var featureEdit = [2]string{"g.txt", "feature only\n"}
+
+var worktreeMergeCases = []worktreeMergeCase{
+	{name: "dry-run shows the clean plan", commit: featureEdit, args: []string{"--dry-run"}, ok: true,
+		out: []string{"clean"}, kept: true},
+	{name: "no-verify promotes, auto-cleans, marks unverified", commit: featureEdit, args: []string{"--no-verify"},
+		ok: true, out: []string{"promoted", "unverified"}, promoted: true},
+	{name: "no-clean leaves the worktree", commit: featureEdit, args: []string{"--no-verify", "--no-clean"}, ok: true,
+		out: []string{"promoted"}, promoted: true, kept: true},
+	{name: "failing verify skips promotion", commit: featureEdit, args: []string{"--verify", "exit 1"},
+		notOut: []string{"promoted"}, kept: true},
+	{name: "passing verify runs inside the worktree", commit: featureEdit,
+		args: []string{"--verify", `test -f g.txt && [ "$(pwd -P)" = "{wt}" ]`}, ok: true,
+		out: []string{"verify: passed", "promoted"}, promoted: true},
+	{name: "pipefail fails a failing first stage", commit: featureEdit, args: []string{"--verify", "false | cat"},
+		notOut: []string{"promoted"}, stderr: "verify failed", kept: true},
+	{name: "predicted conflict blocks", commit: [2]string{"f.txt", "feature line\n"}, conflict: true,
+		out: []string{"conflict"}, kept: true},
+	{name: "no detectable gate refuses", commit: featureEdit, notOut: []string{"integrated", "promoted"},
+		stderr: "no verification gate found", kept: true},
+	{name: "auto-detected failing gate", commit: [2]string{"Makefile", "test:\n\texit 1\n"},
+		notOut: []string{"promoted"}, stderr: "verify failed", kept: true},
+	{name: "auto-detected passing gate", commit: [2]string{"Makefile", "test:\n\ttrue\n"}, ok: true,
+		out: []string{"verify: passed (Makefile)", "promoted"}, promoted: true},
+	{name: "explicit verify overrides detection", commit: [2]string{"Makefile", "test:\n\texit 1\n"},
+		args: []string{"--verify", "true"}, ok: true, out: []string{"verify: passed (flag)", "promoted"}, promoted: true},
+	{name: "resolve-agent unused on a clean plan", commit: featureEdit,
+		args: []string{"--no-verify", "--resolve-agent", "claude"}, ok: true, out: []string{"promoted"}, promoted: true},
+	{name: "unknown resolve-agent value", args: []string{"--resolve-agent", "gpt5"}, stderr: "unknown", kept: true},
+	{name: "target mismatch", args: []string{"--target", "some-other-branch"}, out: []string{"target-mismatch"}, kept: true},
+	{name: "resume with no saved operation", args: []string{"--resume"}, stderr: "no in-progress", kept: true},
+	{name: "dry-run resume needs an operation", args: []string{"--dry-run", "--resume"},
+		notOut: []string{"clean"}, stderr: "no in-progress --resolve-agent operation", kept: true},
+}
+
+func TestCmdWorktreeMerge(t *testing.T) {
+	for _, tc := range worktreeMergeCases {
+		t.Run(tc.name, func(t *testing.T) { runWorktreeMergeCase(t, tc) })
+	}
+	for _, args := range [][]string{{"merge"}, {"merge", "does-not-exist"}} {
+		mergeFixtureCLISetup(t)
+		if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree(args) }); code == 0 {
+			t.Errorf("worktree %q: exit 0, want a failure", args)
+		}
+	}
+}
+
+func runWorktreeMergeCase(t *testing.T, tc worktreeMergeCase) {
 	repo := mergeFixtureCLISetup(t)
 	wt := mergeFixtureCLIWorktreePath(t, repo)
-	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
-	mainBefore := cliHeadOf(t, repo)
-
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "--dry-run", "feature"}) })
-	if code != 0 {
-		t.Fatalf("merge --dry-run: code=%d stderr=%q", code, errb)
+	if tc.commit[0] != "" {
+		mergeFixtureCLIWrite(t, wt, tc.commit[0], tc.commit[1], "feature advances")
 	}
-	if !strings.Contains(out, "clean") {
-		t.Fatalf("output = %q, want a clean-plan message", out)
+	if tc.conflict {
+		mergeFixtureCLIWrite(t, repo, "f.txt", "main line\n", "main edits f")
 	}
-	if cliHeadOf(t, repo) != mainBefore {
-		t.Fatalf("main HEAD changed under --dry-run")
+	mainBefore, source := cliHeadOf(t, repo), cliHeadOf(t, wt)
+	args := []string{"merge"}
+	for _, a := range tc.args {
+		args = append(args, strings.ReplaceAll(a, "{wt}", wt))
 	}
-	if _, err := os.Stat(wt); err != nil {
-		t.Fatalf("dry-run must not remove the worktree: %v", err)
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree(append(args, "feature")) })
+	if (code == 0) != tc.ok || !strings.Contains(errb, tc.stderr) {
+		t.Fatalf("worktree %q: code=%d stdout=%q stderr=%q, want ok=%v naming %q", args, code, out, errb, tc.ok, tc.stderr)
 	}
-}
-
-func TestCmdWorktreeMergeApplyPromotesAndAutoCleans(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	wt := mergeFixtureCLIWorktreePath(t, repo)
-	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
-	sourceOID := cliHeadOf(t, wt)
-
-	// The fixture repo has no detectable gate (no Makefile/go.mod/etc) — --no-verify isolates this
-	// test's intent (promote + auto-clean) from the separate verify-by-default behavior.
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "--no-verify", "feature"}) })
-	if code != 0 {
-		t.Fatalf("merge apply: code=%d stderr=%q", code, errb)
+	for _, want := range tc.out {
+		if !strings.Contains(out, want) {
+			t.Errorf("stdout = %q, want %q", out, want)
+		}
 	}
-	if !strings.Contains(out, "promoted") {
-		t.Fatalf("output = %q, want a promoted line", out)
+	for _, unwanted := range tc.notOut {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("stdout = %q, must not contain %q", out, unwanted)
+		}
 	}
-	if cliHeadOf(t, repo) != sourceOID {
-		t.Fatalf("main HEAD = %s, want fast-forwarded to %s", cliHeadOf(t, repo), sourceOID)
+	if want := map[bool]string{false: mainBefore, true: source}[tc.promoted]; cliHeadOf(t, repo) != want {
+		t.Errorf("main HEAD = %s, want %s (promoted=%v)", cliHeadOf(t, repo), want, tc.promoted)
 	}
-	if _, err := os.Stat(wt); err == nil {
-		t.Fatal("worktree still on disk after a successful merge without --no-clean")
-	}
-}
-
-func TestCmdWorktreeMergeApplyNoCleanLeavesWorktree(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	wt := mergeFixtureCLIWorktreePath(t, repo)
-	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
-
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "--no-verify", "--no-clean", "feature"}) })
-	if code != 0 {
-		t.Fatalf("merge --no-clean: code=%d stderr=%q", code, errb)
-	}
-	if !strings.Contains(out, "promoted") {
-		t.Fatalf("output = %q, want a promoted line", out)
-	}
-	if _, err := os.Stat(wt); err != nil {
-		t.Fatalf("--no-clean must leave the worktree on disk: %v", err)
-	}
-}
-
-// TestCmdWorktreeMergeVerifyFailurePreservesWorktreeAndSkipsPromotion is the regression test for
-// Appendix A codex-review finding #1 (internal/cli/worktree.go:191): promotion and automatic cleanup
-// must not happen without a scoped verification step — a failing --verify command must stop before
-// Promote ever runs and leave the worktree on disk for inspection.
-func TestCmdWorktreeMergeVerifyFailurePreservesWorktreeAndSkipsPromotion(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	wt := mergeFixtureCLIWorktreePath(t, repo)
-	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
-	mainBefore := cliHeadOf(t, repo)
-
-	code, out, errb := hosttest.CaptureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--verify", "exit 1", "feature"})
-	})
-	if code == 0 {
-		t.Fatalf("want non-zero exit when --verify fails, stdout=%q stderr=%q", out, errb)
-	}
-	if strings.Contains(out, "promoted") {
-		t.Fatalf("output = %q, must never reach promotion after a failed verify", out)
-	}
-	if cliHeadOf(t, repo) != mainBefore {
-		t.Fatal("main HEAD changed despite a failed --verify — promotion must be skipped entirely")
-	}
-	if _, err := os.Stat(wt); err != nil {
-		t.Fatalf("worktree must be preserved after a failed --verify, for inspection: %v", err)
-	}
-}
-
-// TestCmdWorktreeMergeVerifySuccessRunsInsideWorktreeThenPromotes covers the success half: --verify
-// runs inside the worktree (not main) after integration, and a zero exit lets promotion proceed.
-func TestCmdWorktreeMergeVerifySuccessRunsInsideWorktreeThenPromotes(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	wt := mergeFixtureCLIWorktreePath(t, repo)
-	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
-	sourceOID := cliHeadOf(t, wt)
-
-	verifyCmd := `test -f g.txt && [ "$(pwd -P)" = "` + wt + `" ]`
-	code, out, errb := hosttest.CaptureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--verify", verifyCmd, "feature"})
-	})
-	if code != 0 {
-		t.Fatalf("merge --verify (passing): code=%d stdout=%q stderr=%q", code, out, errb)
-	}
-	if !strings.Contains(out, "verify: passed") {
-		t.Fatalf("output = %q, want a verify-passed line", out)
-	}
-	if !strings.Contains(out, "promoted") {
-		t.Fatalf("output = %q, want a promoted line after a passing verify", out)
-	}
-	if cliHeadOf(t, repo) != sourceOID {
-		t.Fatalf("main HEAD = %s, want fast-forwarded to %s", cliHeadOf(t, repo), sourceOID)
-	}
-}
-
-func TestCmdWorktreeMergeConflictBlocksAndLeavesMainUntouched(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	wt := mergeFixtureCLIWorktreePath(t, repo)
-	mergeFixtureCLIWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
-	mergeFixtureCLIWrite(t, repo, "f.txt", "main line\n", "main edits f")
-	mainBefore := cliHeadOf(t, repo)
-
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "feature"}) })
-	if code == 0 {
-		t.Fatalf("merge on predicted conflict: want non-zero exit, stdout=%q stderr=%q", out, errb)
-	}
-	if !strings.Contains(out, "conflict") {
-		t.Fatalf("output = %q, want the conflict issue reported", out)
-	}
-	if cliHeadOf(t, repo) != mainBefore {
-		t.Fatal("main HEAD changed despite a blocked merge")
-	}
-	if _, err := os.Stat(wt); err != nil {
-		t.Fatalf("worktree must survive a blocked merge: %v", err)
-	}
-}
-
-func TestCmdWorktreeMergeUnknownNameFails(t *testing.T) {
-	mergeFixtureCLISetup(t)
-	code, _, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "does-not-exist"}) })
-	if code == 0 {
-		t.Fatalf("want non-zero exit for an unknown worktree name, stderr=%q", errb)
-	}
-}
-
-func TestCmdWorktreeMergeTargetMismatchFails(t *testing.T) {
-	mergeFixtureCLISetup(t)
-	code, out, errb := hosttest.CaptureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--target", "some-other-branch", "feature"})
-	})
-	if code == 0 {
-		t.Fatalf("want non-zero exit on target mismatch, stdout=%q stderr=%q", out, errb)
-	}
-	if !strings.Contains(out, "target-mismatch") {
-		t.Fatalf("output = %q, want target-mismatch reported", out)
-	}
-}
-
-func TestCmdWorktreeMergeNoArgsFails(t *testing.T) {
-	mergeFixtureCLISetup(t)
-	code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge"}) })
-	if code == 0 {
-		t.Fatal("want non-zero exit for merge with no name")
-	}
-}
-
-// TestCmdWorktreeMergeResolveAgentUnknownValueRejected covers --resolve-agent flag validation before
-// anything else runs — no Preflight, no git mutation, no agent invocation.
-func TestCmdWorktreeMergeResolveAgentUnknownValueRejected(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	mainBefore := cliHeadOf(t, repo)
-	code, _, errb := hosttest.CaptureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--resolve-agent", "gpt5", "feature"})
-	})
-	if code == 0 {
-		t.Fatalf("want non-zero exit for an unknown --resolve-agent value, stderr=%q", errb)
-	}
-	if !strings.Contains(errb, "unknown") {
-		t.Fatalf("stderr = %q, want it to report the unknown value", errb)
-	}
-	if cliHeadOf(t, repo) != mainBefore {
-		t.Fatal("main HEAD changed despite a rejected flag value")
-	}
-}
-
-// TestCmdWorktreeMergeNoDetectableGateRefusesWithoutNoVerify covers the default (no --verify, no
-// --no-verify) with nothing to auto-detect in the worktree: `worktree merge` must refuse outright
-// before integrating anything, leaving both main and the worktree untouched — --no-verify is the
-// only way around it.
-func TestCmdWorktreeMergeNoDetectableGateRefusesWithoutNoVerify(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	wt := mergeFixtureCLIWorktreePath(t, repo)
-	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
-	mainBefore := cliHeadOf(t, repo)
-
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "feature"}) })
-	if code == 0 {
-		t.Fatalf("want non-zero exit with no detectable gate and no --verify/--no-verify, stdout=%q", out)
-	}
-	if !strings.Contains(errb, "no verification gate found") {
-		t.Fatalf("stderr = %q, want the no-gate message", errb)
-	}
-	if strings.Contains(out, "integrated") || strings.Contains(out, "promoted") {
-		t.Fatalf("output = %q, must never integrate or promote when refused for lack of a gate", out)
-	}
-	if cliHeadOf(t, repo) != mainBefore {
-		t.Fatal("main HEAD changed despite the no-gate refusal")
-	}
-	if _, err := os.Stat(wt); err != nil {
-		t.Fatalf("worktree must survive a no-gate refusal: %v", err)
-	}
-}
-
-// TestCmdWorktreeMergeNoVerifyPromotesWithoutRunningAnythingAndMarksUnverified covers --no-verify:
-// the only way to promote with no gate at all, and its output must mark the merge as unverified
-// rather than silently looking the same as a passing gate.
-func TestCmdWorktreeMergeNoVerifyPromotesWithoutRunningAnythingAndMarksUnverified(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	wt := mergeFixtureCLIWorktreePath(t, repo)
-	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
-	sourceOID := cliHeadOf(t, wt)
-
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "--no-verify", "feature"}) })
-	if code != 0 {
-		t.Fatalf("merge --no-verify: code=%d stderr=%q", code, errb)
-	}
-	if !strings.Contains(out, "unverified") {
-		t.Fatalf("output = %q, want it to mark the merge as unverified", out)
-	}
-	if !strings.Contains(out, "promoted") {
-		t.Fatalf("output = %q, want a promoted line", out)
-	}
-	if cliHeadOf(t, repo) != sourceOID {
-		t.Fatalf("main HEAD = %s, want fast-forwarded to %s", cliHeadOf(t, repo), sourceOID)
-	}
-}
-
-// TestCmdWorktreeMergeAutoDetectedFailingGateRefusesAndPreservesWorktree covers detection picking up
-// a project gate (a Makefile `test:` target, inside the worktree) that fails: promotion must never
-// run, and the worktree is left on disk for inspection, exactly like an explicit --verify failure.
-func TestCmdWorktreeMergeAutoDetectedFailingGateRefusesAndPreservesWorktree(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	wt := mergeFixtureCLIWorktreePath(t, repo)
-	mergeFixtureCLIWrite(t, wt, "Makefile", "test:\n\texit 1\n", "add failing gate")
-	mainBefore := cliHeadOf(t, repo)
-
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "feature"}) })
-	if code == 0 {
-		t.Fatalf("want non-zero exit when the auto-detected gate fails, stdout=%q", out)
-	}
-	if strings.Contains(out, "promoted") {
-		t.Fatalf("output = %q, must never promote after a failing auto-detected gate", out)
-	}
-	if !strings.Contains(errb, "verify failed") {
-		t.Fatalf("stderr = %q, want the verify-failed message", errb)
-	}
-	if cliHeadOf(t, repo) != mainBefore {
-		t.Fatal("main HEAD changed despite the failing auto-detected gate")
-	}
-	if _, err := os.Stat(wt); err != nil {
-		t.Fatalf("worktree must survive a failing auto-detected gate: %v", err)
-	}
-}
-
-// TestCmdWorktreeMergeAutoDetectedPassingGatePromotes covers the success half: a Makefile `test:`
-// target that passes is auto-detected and run, and promotion proceeds, naming the Makefile as source.
-func TestCmdWorktreeMergeAutoDetectedPassingGatePromotes(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	wt := mergeFixtureCLIWorktreePath(t, repo)
-	mergeFixtureCLIWrite(t, wt, "Makefile", "test:\n\ttrue\n", "add passing gate")
-	sourceOID := cliHeadOf(t, wt)
-
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "feature"}) })
-	if code != 0 {
-		t.Fatalf("merge with a passing auto-detected gate: code=%d stderr=%q", code, errb)
-	}
-	if !strings.Contains(out, "verify: passed (Makefile)") {
-		t.Fatalf("output = %q, want a verify-passed line naming the Makefile", out)
-	}
-	if !strings.Contains(out, "promoted") {
-		t.Fatalf("output = %q, want a promoted line", out)
-	}
-	if cliHeadOf(t, repo) != sourceOID {
-		t.Fatalf("main HEAD = %s, want fast-forwarded to %s", cliHeadOf(t, repo), sourceOID)
-	}
-}
-
-// TestCmdWorktreeMergeExplicitVerifyOverridesDetection covers --verify winning over a Makefile gate
-// that would otherwise be auto-detected (and would fail): the explicit command is the only one run.
-func TestCmdWorktreeMergeExplicitVerifyOverridesDetection(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	wt := mergeFixtureCLIWorktreePath(t, repo)
-	mergeFixtureCLIWrite(t, wt, "Makefile", "test:\n\texit 1\n", "add a failing gate that must be skipped")
-	sourceOID := cliHeadOf(t, wt)
-
-	code, out, errb := hosttest.CaptureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--verify", "true", "feature"})
-	})
-	if code != 0 {
-		t.Fatalf("merge --verify overriding detection: code=%d stderr=%q", code, errb)
-	}
-	if !strings.Contains(out, "verify: passed (flag)") {
-		t.Fatalf("output = %q, want a verify-passed line naming the flag as the source", out)
-	}
-	if !strings.Contains(out, "promoted") {
-		t.Fatalf("output = %q, want a promoted line", out)
-	}
-	if cliHeadOf(t, repo) != sourceOID {
-		t.Fatalf("main HEAD = %s, want fast-forwarded to %s", cliHeadOf(t, repo), sourceOID)
-	}
-}
-
-// TestCmdWorktreeMergeVerifyPipelineFailureFailsGate is the regression test for worktree.RunVerify's
-// `set -o pipefail`: a pipeline whose first stage fails (`false | cat`) must fail the gate — without
-// pipefail, the pipeline's exit status would be `cat`'s (0), silently reading as a passing gate.
-func TestCmdWorktreeMergeVerifyPipelineFailureFailsGate(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	wt := mergeFixtureCLIWorktreePath(t, repo)
-	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
-	mainBefore := cliHeadOf(t, repo)
-
-	code, out, errb := hosttest.CaptureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--verify", "false | cat", "feature"})
-	})
-	if code == 0 {
-		t.Fatalf("want non-zero exit for a failing pipeline stage under pipefail, stdout=%q", out)
-	}
-	if strings.Contains(out, "promoted") {
-		t.Fatalf("output = %q, must never promote after a failed pipeline verify", out)
-	}
-	if !strings.Contains(errb, "verify failed") {
-		t.Fatalf("stderr = %q, want the verify-failed message", errb)
-	}
-	if cliHeadOf(t, repo) != mainBefore {
-		t.Fatal("main HEAD changed despite the failed pipeline verify")
-	}
-	if _, err := os.Stat(wt); err != nil {
-		t.Fatalf("worktree must survive a failed pipeline verify: %v", err)
+	if _, err := os.Stat(wt); (err == nil) != tc.kept {
+		t.Errorf("worktree on disk = %v, want %v", err == nil, tc.kept)
 	}
 }
 
@@ -813,46 +470,6 @@ func TestWorktreeListJSONWriteError(t *testing.T) {
 	code = cmdWorktree([]string{"list", "--format", "json"})
 	if code == 0 {
 		t.Errorf("worktree list --format json on closed stdout: exit %d, want non-zero", code)
-	}
-}
-
-// A clean plan must promote without dispatching --resolve-agent, even without an agent seam.
-func TestCmdWorktreeMergeResolveAgentIgnoredOnCleanPlan(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	wt := mergeFixtureCLIWorktreePath(t, repo)
-	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
-	sourceOID := cliHeadOf(t, wt)
-
-	// --no-verify isolates agent dispatch from verification in a fixture without a detectable gate.
-	code, out, errb := hosttest.CaptureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--no-verify", "--resolve-agent", "claude", "feature"})
-	})
-	if code != 0 {
-		t.Fatalf("merge --resolve-agent on a clean plan: code=%d stderr=%q", code, errb)
-	}
-	if !strings.Contains(out, "promoted") {
-		t.Fatalf("output = %q, want a promoted line", out)
-	}
-	if cliHeadOf(t, repo) != sourceOID {
-		t.Fatalf("main HEAD = %s, want fast-forwarded to %s", cliHeadOf(t, repo), sourceOID)
-	}
-}
-
-// --resume without a saved operation must report LoadOperation's error and leave main untouched.
-func TestCmdWorktreeMergeResumeWithNoSavedOperationFails(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	mainBefore := cliHeadOf(t, repo)
-	code, _, errb := hosttest.CaptureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--resume", "feature"})
-	})
-	if code == 0 {
-		t.Fatalf("want non-zero exit for --resume with no saved operation, stderr=%q", errb)
-	}
-	if !strings.Contains(errb, "no in-progress") {
-		t.Fatalf("stderr = %q, want the no-in-progress-operation message", errb)
-	}
-	if cliHeadOf(t, repo) != mainBefore {
-		t.Fatal("main HEAD changed despite nothing to resume")
 	}
 }
 
@@ -1016,26 +633,6 @@ func TestCmdWorktreeMergeResumeMissingWorktreeFails(t *testing.T) {
 	}
 	if cliHeadOf(t, repo) != mainBefore {
 		t.Fatal("main HEAD changed despite a missing worktree")
-	}
-}
-
-func TestCmdWorktreeMergeDryRunResumeRequiresOperation(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	before := cliHeadOf(t, repo)
-	code, out, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdWorktree([]string{"merge", "--dry-run", "--resume", "feature"})
-	})
-	if code != 1 || !strings.Contains(stderr, "no in-progress --resolve-agent operation") {
-		t.Fatalf("dry-run resume without operation: code=%d stdout=%q stderr=%q", code, out, stderr)
-	}
-	if strings.Contains(out, "clean") {
-		t.Fatalf("invalid resume printed a clean plan: %q", out)
-	}
-	if cliHeadOf(t, repo) != before {
-		t.Fatal("dry-run resume changed main HEAD")
-	}
-	if _, err := os.Stat(mergeFixtureCLIWorktreePath(t, repo)); err != nil {
-		t.Fatalf("dry-run resume removed worktree: %v", err)
 	}
 }
 

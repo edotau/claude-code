@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -162,5 +163,64 @@ func TestSummarizeFileOversizedLineDoesNotAbortScan(t *testing.T) {
 	}
 	if want := int64(5 + 11 + 9); sonnet.InputTokens != want {
 		t.Errorf("InputTokens = %d, want %d (before + huge + after all counted)", sonnet.InputTokens, want)
+	}
+}
+
+// writeTree creates each path under root (parents included) with content.
+func writeTree(t *testing.T, root string, files map[string]string) {
+	t.Helper()
+	for rel, content := range files {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A session's run dirs skip stray files; a run's agent files skip the .meta.json sidecars.
+func TestWorkflowRunDirsAndAgentFiles(t *testing.T) {
+	session := t.TempDir()
+	writeTree(t, session, map[string]string{
+		"subagents/workflows/wf_abc/agent-one.jsonl":     "",
+		"subagents/workflows/wf_abc/agent-one.meta.json": `{"workflowPhase":"Detect"}`,
+		"subagents/workflows/wf_abc/agent-two.jsonl":     "",
+		"subagents/workflows/stray.txt":                  "",
+	})
+	run := filepath.Join(session, "subagents", "workflows", "wf_abc")
+	if dirs := WorkflowRunDirs(session); !slices.Equal(dirs, []string{run}) {
+		t.Fatalf("WorkflowRunDirs = %v, want [%s]", dirs, run)
+	}
+	want := []string{filepath.Join(run, "agent-one.jsonl"), filepath.Join(run, "agent-two.jsonl")}
+	if files := WorkflowAgentFiles(run); !slices.Equal(files, want) {
+		t.Errorf("WorkflowAgentFiles = %v, want %v", files, want)
+	}
+}
+
+// The sidecar's phase is read; a missing sidecar is a silent "", a malformed one "" with a warning.
+func TestWorkflowPhaseFromMeta(t *testing.T) {
+	for _, tc := range []struct {
+		name, meta, want string
+		warn             bool
+	}{
+		{"phase", `{"workflowPhase":"Detect"}`, "Detect", false},
+		{"no sidecar", "", "", false},
+		{"malformed", `{"workflowPhase":`, "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			files := map[string]string{"agent-a.jsonl": ""}
+			if tc.meta != "" {
+				files["agent-a.meta.json"] = tc.meta
+			}
+			writeTree(t, dir, files)
+			var errw strings.Builder
+			got := WorkflowPhaseFromMeta(filepath.Join(dir, "agent-a.jsonl"), &errw)
+			if warned := strings.Contains(errw.String(), "usage: warning: skipping meta for"); got != tc.want || warned != tc.warn {
+				t.Errorf("phase = %q, warning %q; want %q, warning=%v", got, errw.String(), tc.want, tc.warn)
+			}
+		})
 	}
 }

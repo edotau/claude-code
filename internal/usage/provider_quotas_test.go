@@ -173,26 +173,21 @@ func TestSetStatesSkipsNoteRows(t *testing.T) {
 	}
 }
 
-// TestWarnThresholdEnvOverride: HARNESS_USAGE_WARN_PCT moves the warn boundary, both directions.
-func TestWarnThresholdEnvOverride(t *testing.T) {
-	t.Setenv("HARNESS_USAGE_WARN_PCT", "50")
-	if got := warnThreshold(); got != 50 {
-		t.Fatalf("warnThreshold() = %v, want 50", got)
-	}
-	qs := []quota{{Provider: "github", UsedPct: 60}}
-	setStates(qs, warnThreshold())
-	if qs[0].State != "warn" {
-		t.Errorf("State at 60%% with threshold 50 = %q, want warn", qs[0].State)
-	}
-}
-
-// TestWarnThresholdInvalidFallsBackToDefault: a non-numeric or out-of-range env value is treated as unset.
-func TestWarnThresholdInvalidFallsBackToDefault(t *testing.T) {
-	for _, v := range []string{"not-a-number", "-5", "0", "150"} {
-		t.Run(v, func(t *testing.T) {
-			t.Setenv("HARNESS_USAGE_WARN_PCT", v)
-			if got := warnThreshold(); got != 80 {
-				t.Errorf("warnThreshold() with env %q = %v, want fallback 80", v, got)
+// HARNESS_USAGE_WARN_PCT sets the warn threshold; anything outside (0,100) or unparsable falls back to 80.
+func TestWarnThreshold(t *testing.T) {
+	for _, tc := range []struct {
+		env  string
+		want float64
+	}{{"50", 50}, {"not-a-number", 80}, {"-5", 80}, {"0", 80}, {"150", 80}, {"NaN", 80}} {
+		t.Run(tc.env, func(t *testing.T) {
+			t.Setenv("HARNESS_USAGE_WARN_PCT", tc.env)
+			if got := warnThreshold(); got != tc.want {
+				t.Fatalf("warnThreshold() with env %q = %v, want %v", tc.env, got, tc.want)
+			}
+			qs := []quota{{Provider: "github", UsedPct: tc.want + 10}}
+			setStates(qs, warnThreshold())
+			if qs[0].State != "warn" {
+				t.Errorf("State at %v%% with threshold %v = %q, want warn", tc.want+10, tc.want, qs[0].State)
 			}
 		})
 	}
@@ -577,14 +572,5 @@ func TestFetchedCachedRowGetsLeftAndState(t *testing.T) {
 	printSubscriptionQuotas(&b, qs, "left")
 	if !strings.Contains(b.String(), "cached; HTTP 500") || !strings.Contains(b.String(), "15%") {
 		t.Errorf("table lacks the value or note:\n%s", b.String())
-	}
-}
-
-func TestNaNWarningThresholdFallsBack(t *testing.T) {
-	t.Setenv("HARNESS_USAGE_WARN_PCT", "NaN")
-	rows := []quota{{Provider: "anthropic", Window: "5h", UsedPct: 90}}
-	setStates(rows, warnThreshold())
-	if rows[0].State != "warn" || warnThreshold() != 80 {
-		t.Fatalf("NaN disabled quota warnings: threshold=%v rows=%+v", warnThreshold(), rows)
 	}
 }
