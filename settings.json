@@ -58,7 +58,7 @@
     ],
     "defaultMode": "auto"
   },
-  "model": "opusplan",
+  "model": "opus",
   "disableClaudeAiConnectors": true,
   "hooks": {
     "PostToolUse": [
@@ -232,17 +232,17 @@
       "effortLevel": "medium"
     }
   },
-  "autoConnectIde": false,
   "awaySummaryEnabled": false,
   "askUserQuestionTimeout": "never",
+  "tui": "fullscreen",
   "prefersReducedMotion": true,
   "skipWorkflowUsageWarning": true,
+  "theme": "auto",
   "preferredNotifChannel": "auto",
   "switchModelsOnFlag": true,
   "remoteControlAtStartup": true,
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
   "useAutoModeDuringPlan": true,
-  "tui": "fullscreen",
-  "theme": "auto"
+  "autoConnectIde": false
 }

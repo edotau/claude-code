@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -231,7 +232,7 @@ func (h *Host) Create(ctx context.Context, o scm.CreateOpts) (scm.PR, error) {
 		return scm.PR{}, fmt.Errorf("current branch: %w", err)
 	}
 	if strings.TrimSpace(string(src)) == "HEAD" {
-		return scm.PR{}, fmt.Errorf("detached HEAD: check out and push a branch before creating a PR")
+		return scm.PR{}, errors.New("detached HEAD: check out and push a branch before creating a PR")
 	}
 	base := o.Base
 	if base == "" {

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"encoding/json"
@@ -83,7 +84,7 @@ type rawPR struct {
 }
 
 func (r rawPR) pr() scm.PR {
-	return scm.PR{Host: scm.GitHub, ID: fmt.Sprint(r.Number), Title: r.Title, State: strings.ToLower(r.State),
+	return scm.PR{Host: scm.GitHub, ID: strconv.Itoa(r.Number), Title: r.Title, State: strings.ToLower(r.State),
 		Author: r.Author.Login, Source: r.HeadRefName, Target: r.BaseRefName, URL: r.URL, HeadSHA: r.HeadRefOid}
 }
 
@@ -92,7 +93,7 @@ func (h *Host) List(ctx context.Context, o scm.ListOpts) ([]scm.PR, error) {
 	if limit <= 0 {
 		limit = maxList
 	}
-	args := []string{"pr", "list", "--repo", h.Repo, "--state", o.State, "--limit", fmt.Sprint(limit), "--json", prFields}
+	args := []string{"pr", "list", "--repo", h.Repo, "--state", o.State, "--limit", strconv.Itoa(limit), "--json", prFields}
 	if o.Author != "" {
 		args = append(args, "--author", o.Author)
 	}
