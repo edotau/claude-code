@@ -128,3 +128,10 @@ func TestRunGitDiffRejectsOptionRange(t *testing.T) {
 		t.Fatal("git ran with --output and created the file")
 	}
 }
+
+func TestBuildDiffResultQuoteSwapCountsBothLines(t *testing.T) {
+	got := buildDiffResult([]*diffFileEntry{{file: "app.py", changes: []string{`-value = "hello"`, `+value = 'hello'`}}})
+	if got.TotalChangeLine != 2 || got.NoiseLines != 2 || got.NoiseRatio != 1 || got.Verdict != "VERY_NOISY" {
+		t.Fatalf("quote swap = %+v; want 2 changes, 2 noise lines, ratio 1, VERY_NOISY", got)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -15,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"unicode/utf8"
 
@@ -530,3 +532,103 @@ func TestProfileFitsWidth(t *testing.T) {
 		}
 	}
 }
+
+func TestGradientPreservesOllamaTag(t *testing.T) {
+	hermetic(t)
+	writeStatuslineConfig(t, `{"segments":{"path":false,"git":false,"velocity":false,"proxy":false,"provider":false,"limits":false,"total":false}}`)
+	got := plain(Render([]byte(`{"model":{"id":"qwen3:30b"}}`), "gradient"))
+	if got != "qwen3:30b" {
+		t.Fatalf("gradient model = %q, want qwen3:30b", got)
+	}
+}
+
+func TestDashboardOmitsDisabledContext(t *testing.T) {
+	hermetic(t)
+	writeStatuslineConfig(t, `{"style":"dashboard","segments":{"context":false,"path":false,"git":false,"velocity":false,"proxy":false,"limits":false,"total":false}}`)
+	got := plain(Render([]byte(`{"model":{"id":"qwen3:30b"},"context_window":{"used_percentage":75}}`), ""))
+	if strings.Contains(got, "context") || strings.Contains(got, "%") {
+		t.Fatalf("disabled context column rendered: %q", got)
+	}
+	if !strings.Contains(got, "qwen3:30b") {
+		t.Fatalf("enabled model column missing: %q", got)
+	}
+}
+
+func TestProfileMaxOneRune(t *testing.T) {
+	hermetic(t)
+	writeStatuslineConfig(t, `{"profileMax":1}`)
+	if got := capProfile("anthropic·work", loadConfig().ProfileMax); got != "anthropic·…" {
+		t.Fatalf("profileMax 1 = %q, want anthropic·…", got)
+	}
+}
+
+type fullDiskWriter struct{}
+
+func (fullDiskWriter) Write([]byte) (int, error) { return 0, syscall.ENOSPC }
+
+func TestRunReportsWriteFailure(t *testing.T) {
+	hermetic(t)
+	writeStatuslineConfig(t, `{"segments":{"path":false,"git":false,"velocity":false,"proxy":false,"limits":false,"total":false}}`)
+	fs := flag.NewFlagSet("statusline", flag.ContinueOnError)
+	if code := Run(fs, nil, strings.NewReader(`{"model":{"id":"qwen3:30b"}}`), fullDiskWriter{}); code != 1 {
+		t.Fatalf("Run with ENOSPC = %d, want 1", code)
+	}
+}
+
+func TestConfiguredGitRendersOnce(t *testing.T) {
+	hermetic(t)
+	cfg := embeddedConfig()
+	cfg.Style, cfg.Order = "minimal", []string{"model", "git"}
+	cfg.Segments = map[string]bool{"path": false}
+	got := plain(render(values{model: "qwen3:30b", branch: "feature-once"}, cfg, theme.EmbeddedPalettes()))
+	if count := strings.Count(got, "feature-once"); count != 1 {
+		t.Fatalf("branch rendered %d times, want 1: %q", count, got)
+	}
+}
+
+func TestDashboardPercentBeforeBar(t *testing.T) {
+	hermetic(t)
+	writeStatuslineConfig(t, `{"style":"dashboard","segments":{"path":false},"dashboard":{"headers":false},"bar":{"width":4,"filledGlyph":"#","emptyGlyph":".","percent":"before"}}`)
+	cfg := loadConfig()
+	cfg.Dashboard.Columns = []string{"context"}
+	got := strings.TrimSpace(plain(render(values{contextPct: 75}, cfg, theme.EmbeddedPalettes())))
+	if got != "75% ###." {
+		t.Fatalf("dashboard percent before bar = %q, want 75%% ###.", got)
+	}
+}
+
+func TestGradientClipsOversizedSegment(t *testing.T) {
+	hermetic(t)
+	cfg := embeddedConfig()
+	cfg.Style, cfg.Width, cfg.Order = "gradient", 12, []string{"model"}
+	cfg.Segments = map[string]bool{"path": false}
+	got := plain(renderFit(values{model: strings.Repeat("m", 30)}, cfg, theme.EmbeddedPalettes(), cfg.Width))
+	if got != strings.Repeat("m", 11)+"…" {
+		t.Fatalf("gradient width 12 = %q, want 11 model cells and ellipsis", got)
+	}
+}
+
+func TestRenderFitWrapsWideSegments(t *testing.T) {
+	hermetic(t)
+	for _, tc := range []struct {
+		name  string
+		v     values
+		width int
+		want  string
+	}{
+		{"path", values{userHost: "u", path: "界界", model: "tail"}, 11, "u:界界\ntail"},
+		{"hostname", values{userHost: "界界", path: "p", model: "tail"}, 11, "界界:p\ntail"},
+		{"next segment", values{userHost: "u", path: "p", model: "界界"}, 9, "u:p\n界界"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := defaultConfig()
+			cfg.Style, cfg.Width, cfg.Order = "gradient", tc.width, []string{"model"}
+			got := plain(renderFit(tc.v, cfg, theme.EmbeddedPalettes(), tc.width))
+			if got != tc.want {
+				t.Fatalf("wide segment wrapping = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

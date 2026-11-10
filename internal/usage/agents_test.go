@@ -5,6 +5,7 @@ package usage
 // -json exec seams, keyed on dbPath+query), and codexUsage's plain filesystem walk under
 // CODEX_HOME/sessions (no exec seam — paths.CodexHome() honors the env var directly).
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -572,5 +573,116 @@ func TestOpencodeTotalsQueryFoldsReasoningIntoOutput(t *testing.T) {
 	opencodeUsage(context.Background(), time.Now().Add(-24*time.Hour))
 	if !strings.Contains(totalsQuery, "$.tokens.reasoning") {
 		t.Errorf("totals query does not sum tokens.reasoning into output:\n%s", totalsQuery)
+	}
+}
+
+func TestCodexFilesystemFailuresWarn(t *testing.T) {
+	for _, kind := range []string{"directory", "rollout", "dangling rollout"} {
+		t.Run(kind, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("CODEX_HOME", home)
+			dir := filepath.Join(home, "sessions")
+			writeFile(t, filepath.Join(dir, "good.jsonl"), string(readFixture(t, "codex-session-fixture.jsonl")))
+			makeUnreadableCodexFixture(t, dir, kind)
+			row := codexUsage(context.Background(), time.Time{})
+			if row.Tokens != 2200 || row.Sessions != 1 {
+				t.Fatalf("read failure discarded the readable session: %+v", row)
+			}
+			if !strings.HasPrefix(row.Note, "incomplete:") {
+				t.Fatalf("filesystem failure silently produced complete-looking totals: %+v", row)
+			}
+			var out bytes.Buffer
+			printAgentsSection(&out, []agentUsage{row}, 1)
+			if !strings.Contains(out.String(), row.Note) {
+				t.Fatalf("partial totals warning missing from text report: %s", out.String())
+			}
+		})
+	}
+}
+
+func makeUnreadableCodexFixture(t *testing.T, dir, kind string) {
+	t.Helper()
+	bad := filepath.Join(dir, "bad.jsonl")
+	if kind == "dangling rollout" {
+		if err := os.Symlink(filepath.Join(dir, "missing"), bad); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		return
+	}
+	if kind == "directory" {
+		bad = filepath.Join(dir, "unreadable")
+		writeFile(t, filepath.Join(bad, "rollout.jsonl"), "{}")
+	} else {
+		writeFile(t, bad, "{}")
+	}
+	if err := os.Chmod(bad, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(bad, 0o700); err != nil {
+			t.Error(err)
+		}
+	})
+	f, err := os.Open(bad)
+	if err == nil {
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+		t.Skip("filesystem permits opening mode-000 entries")
+	}
+	if !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("expected a permission error, got %v", err)
+	}
+}
+
+func TestCodexUsageHonorsExpiredBudget(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	writeFile(t, filepath.Join(home, "sessions", "rollout.jsonl"), string(readFixture(t, "codex-session-fixture.jsonl")))
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	row := codexUsage(ctx, time.Time{})
+	if row.Tokens != 0 || row.Sessions != 0 {
+		t.Fatalf("Codex scanned sessions after the shared budget expired: %+v", row)
+	}
+	if !strings.Contains(row.Note, context.DeadlineExceeded.Error()) {
+		t.Fatalf("expired budget did not mark totals incomplete: %+v", row)
+	}
+}
+
+type cancelAfterChecksContext struct {
+	context.Context
+	cancel context.CancelFunc
+	checks int
+}
+
+func (c *cancelAfterChecksContext) Err() error {
+	c.checks--
+	if c.checks == 0 {
+		c.cancel()
+	}
+	return c.Context.Err()
+}
+
+func TestCodexUsageCancelsMidTranscript(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	fixture := string(readFixture(t, "codex-session-fixture.jsonl"))
+	const repetitions = 8192
+	writeFile(t, filepath.Join(home, "sessions", "rollout.jsonl"), strings.Repeat(fixture, repetitions))
+	base, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Six checks allow traversal and two 1MiB parser reads before cancelling inside the only transcript.
+	ctx := &cancelAfterChecksContext{Context: base, cancel: cancel, checks: 6}
+	row := codexUsage(ctx, time.Time{})
+	fullTurns := strings.Count(fixture, `"type":"token_count"`) * repetitions
+	if row.Sessions != 1 || row.Turns <= 0 || row.Turns >= fullTurns {
+		t.Fatalf("expected a partially read final transcript, got %+v", row)
+	}
+	if !errors.Is(base.Err(), context.Canceled) {
+		t.Fatalf("context did not cancel during transcript parsing: %v", base.Err())
+	}
+	if !strings.Contains(row.Note, "incomplete:") || !strings.Contains(row.Note, context.Canceled.Error()) {
+		t.Fatalf("mid-transcript cancellation produced complete-looking totals: %+v", row)
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func writeScript(t *testing.T, dir, name, body string) string {
@@ -617,3 +619,5 @@ func useNode(t *testing.T) {
 	lookNode = func() (string, error) { return node, nil }
 	t.Cleanup(func() { lookNode = orig })
 }
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

@@ -3,6 +3,7 @@ package usage
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -157,5 +158,25 @@ func TestWithTokenExpiryStampsRecordedExpiryAndOmitsWhenAbsent(t *testing.T) {
 	}
 	if other := withTokenExpiry(rows(), "other"); other[0].TokenExpiresAt != "" {
 		t.Errorf("a profile with no record was stamped %q", other[0].TokenExpiresAt)
+	}
+}
+
+func TestMalformedBudgetWarnsAndRefetches(t *testing.T) {
+	var hits atomic.Int32
+	p := budgetServer(t, &hits, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"budget_spend_statuses":[{"name":"exceeded","alert_spend_statuses":[{"scope_type":"PER_USER","time_period":"MONTH","spend":"","threshold":"100","percent_consumed":"110"}]}]}`)
+	})
+	now := time.Now()
+	for _, at := range []time.Time{now, now.Add(time.Minute)} {
+		rows := budgetQuotas(context.Background(), p, at)
+		if len(rows) != 1 || !strings.Contains(rows[0].Note, "malformed budget row (exceeded)") {
+			t.Fatalf("malformed exceeded budget silently disappeared: %+v", rows)
+		}
+	}
+	if hits.Load() != 2 {
+		t.Fatalf("malformed budget cached instead of retried: requests=%d", hits.Load())
+	}
+	if cache := readBudgetCache(budgetCachePath()); cache != nil {
+		t.Fatalf("malformed budget was cached: %+v", cache)
 	}
 }

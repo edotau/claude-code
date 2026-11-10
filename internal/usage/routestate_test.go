@@ -116,3 +116,17 @@ func TestRefreshAccountStampsNotedSeat(t *testing.T) {
 		t.Errorf("github·personal = %+v, want a fresh unlimited check that reads unknown", e)
 	}
 }
+
+func TestRecordQuotasRejectsCachedWeeklyWindow(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rows := []quota{
+		{Provider: "anthropic", Window: "5h", UsedPct: 100, Note: "cached; HTTP 429", cached: true},
+		{Provider: "anthropic", Window: "weekly", UsedPct: 40, cached: true},
+	}
+	if n := recordQuotas(rows, time.Now()); n != 0 {
+		t.Fatalf("recorded %d accounts from stale weekly quota with no note", n)
+	}
+	if state := router.LoadState(); len(state) != 0 {
+		t.Fatalf("cached weekly quota became a fresh router observation: %+v", state)
+	}
+}

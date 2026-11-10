@@ -510,3 +510,56 @@ func TestLoadStateCacheReturnsIndependentDiscovery(t *testing.T) {
 		t.Error("Discovery contains caller-only mutation")
 	}
 }
+
+// An unreadable quota.json (a directory here) must fail Update and stay untouched, not read as empty.
+func TestUpdateRefusesUnreadableState(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	path := StatePath()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	if err := Update(func(State) { called = true }); err == nil || called {
+		t.Fatalf("Update must fail before applying fn on an unreadable file: err=%v called=%v", err, called)
+	}
+	if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
+		t.Fatalf("state path changed: %v %v", fi, err)
+	}
+}
+
+func TestStatusExhaustedWithoutResetGoesStaleToUnknown(t *testing.T) {
+	now := time.Now()
+	stale := Entry{UsedPct: 100, Seen: now.Add(-2 * StaleAfter)}
+	if got := stale.Status(now); got != StateUnknown {
+		t.Errorf("stale 100%% with no reset = %q, want %q so gateAccount refreshes it", got, StateUnknown)
+	}
+	fresh := Entry{UsedPct: 100, Seen: now}
+	if got := fresh.Status(now); got != StateExhausted {
+		t.Errorf("fresh 100%% with no reset = %q, want exhausted", got)
+	}
+}
+
+func TestUpdateKeepsOnlyOneCorruptBackup(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	path := StatePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := path + ".corrupt-1"
+	if err := os.WriteFile(old, []byte("older"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Update(func(State) {}); err != nil {
+		t.Fatal(err)
+	}
+	backups, _ := filepath.Glob(path + ".corrupt-*")
+	if len(backups) != 1 {
+		t.Fatalf("backups = %v, want exactly the newest one", backups)
+	}
+	if got, _ := os.ReadFile(backups[0]); string(got) != "{not json" {
+		t.Errorf("backup holds %q, want the corrupt bytes", got)
+	}
+}

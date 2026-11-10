@@ -191,3 +191,58 @@ func TestRunScopeEdges(t *testing.T) {
 		}
 	})
 }
+
+func TestGoImportersCheckoutPathWithSpaces(t *testing.T) {
+	t.Setenv("GOWORK", "off")
+	root := filepath.Join(t.TempDir(), "my repo")
+	writeScopeFile(t, root, "go.mod", "module example.com/m\n")
+	writeScopeFile(t, root, "internal/a/a.go", "package a\n")
+	writeScopeFile(t, root, "internal/b/b.go", "package b\nimport _ \"example.com/m/internal/a\"\n")
+
+	got, err := goImporters(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{"internal/a": {"internal/b"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("importers in checkout with spaces = %#v, want %#v", got, want)
+	}
+}
+
+func TestGoImportersSymlinkedRoot(t *testing.T) {
+	t.Setenv("GOWORK", "off")
+	real := filepath.Join(t.TempDir(), "real")
+	writeScopeFile(t, real, "go.mod", "module example.com/m\n")
+	writeScopeFile(t, real, "internal/a/a.go", "package a\n")
+	writeScopeFile(t, real, "internal/b/b.go", "package b\nimport _ \"example.com/m/internal/a\"\n")
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	got, err := goImporters(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{"internal/a": {"internal/b"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("importers via symlinked root = %#v, want %#v", got, want)
+	}
+}
+
+func TestRunScopeTextIncludesImporters(t *testing.T) {
+	t.Setenv("GOWORK", "off")
+	dir := buildScopeRepo(t)
+	var stdout, stderr bytes.Buffer
+	args := []string{"--repo", dir, "--range", "HEAD~1..HEAD", "--importers", "--format", "text"}
+	if code := RunScope(args, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, stderr.String())
+	}
+	want := "160 a/a.go\n0 b/bb.go\n0 data/blob.bin\npkg a importers: b\npkg b importers: -\n"
+	if got := stdout.String(); got != want {
+		t.Fatalf("stdout = %q, want file listing and package importers %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+}

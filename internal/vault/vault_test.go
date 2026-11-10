@@ -9,11 +9,17 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	bolterrors "go.etcd.io/bbolt/errors"
 )
 
 // useZeroRootVault points the package at a fresh TempDir vault with HARNESS_VAULT_KEY fixed to 32
@@ -510,5 +516,171 @@ func checkRingUntouched(t *testing.T, ring *specKeyring) {
 	ring.mu.Unlock()
 	if sets != 0 || entries != 0 || lookups == 0 {
 		t.Fatalf("unavailable keyring mutated: sets=%d entries=%d lookups=%d", sets, entries, lookups)
+	}
+}
+
+// TestNestedOpenErrors documents the architectural contract (View/Update are transaction
+// boundaries; never call one from inside another's callback) with its actual, now-unguarded
+// consequence: a same-goroutine nested open blocks on the outer transaction's own bbolt file
+// lock until the INNER open's own Timeout elapses (2s for View/MasterKey, 5s for Update), then
+// fails with bbolt.ErrTimeout. There is no process-wide or goroutine-keyed guard (deleted per the
+// Phase 1/1b review: runtime.Stack parsing is not a supported synchronization API and missed a
+// callback that hands off to another goroutine); the cost of a real violation is a bounded stall
+// and a clear error, not a silent deadlock or data race.
+func TestNestedOpenErrors(t *testing.T) {
+	phase1bRing(t)
+	const shortTimeout = 150 * time.Millisecond
+	oldRead, oldWrite := readLockTimeout, writeLockTimeout
+	readLockTimeout, writeLockTimeout = shortTimeout, shortTimeout
+	t.Cleanup(func() { readLockTimeout, writeLockTimeout = oldRead, oldWrite })
+	for _, operation := range []string{"View", "Update", "MasterKey"} {
+		t.Run(operation, func(t *testing.T) {
+			elapsed, nested := nestedOpen(t, operation)
+			if !errors.Is(nested, bolterrors.ErrTimeout) || elapsed < shortTimeout/2 || elapsed >= 3*time.Second {
+				t.Fatalf("nested %s = %v after %s, want bbolt.ErrTimeout bounded by its own Timeout", operation, nested, elapsed)
+			}
+		})
+	}
+}
+
+// nestedOpen runs operation inside an Update callback and returns its error and how long it blocked.
+func nestedOpen(t *testing.T, operation string) (elapsed time.Duration, nested error) {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() {
+		done <- Update(func(tx *Tx) error {
+			start := time.Now()
+			switch operation {
+			case "View":
+				nested = View(func(*Tx) error { return nil })
+			case "Update":
+				nested = Update(func(*Tx) error { return nil })
+			case "MasterKey":
+				_, _, nested = MasterKey()
+			}
+			elapsed = time.Since(start)
+			return nil
+		})
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("nested open hung well beyond bbolt's own timeout")
+	}
+	return elapsed, nested
+}
+
+func TestVaultReaderHelper(t *testing.T) {
+	if os.Getenv("PHASE1B_READER_HELPER") != "1" {
+		return
+	}
+	ready := os.Getenv("PHASE1B_READER_READY")
+	if err := os.WriteFile(ready, []byte("ready"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stop := os.Getenv("PHASE1B_READER_STOP")
+	deadline := time.Now().Add(10 * time.Second)
+	reads := 0
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(stop); err == nil {
+			break
+		}
+		if err := View(func(tx *Tx) error {
+			_, _ = tx.Get(Pins, "progress")
+			return nil
+		}); err != nil {
+			t.Fatalf("reader failed after %d reads: %v", reads, err)
+		}
+		reads++
+		time.Sleep(time.Millisecond)
+	}
+	if reads == 0 {
+		t.Fatal("reader did not make progress")
+	}
+}
+
+func TestMultiProcessProgress(t *testing.T) {
+	phase1bRing(t)
+	if err := Update(func(tx *Tx) error { return tx.Put(Pins, "progress", "initial") }); err != nil {
+		t.Fatal(err)
+	}
+	stop := filepath.Join(t.TempDir(), "stop")
+	children := startReaders(t, 4, stop)
+	latencies := make([]time.Duration, 0, 30)
+	for i := range 30 {
+		start := time.Now()
+		err := Update(func(tx *Tx) error { return tx.Put(Pins, "progress", strconv.Itoa(i)) })
+		latencies = append(latencies, time.Since(start))
+		if err != nil {
+			t.Errorf("writer %d: %v", i, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := os.WriteFile(stop, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range children {
+		if err := c.cmd.Wait(); err != nil {
+			t.Errorf("reader subprocess: %v\n%s", err, c.output.String())
+		}
+	}
+	slices.Sort(latencies)
+	p95 := latencies[(95*len(latencies)+99)/100-1]
+	t.Logf("30 writer latencies: %v; p95=%s", latencies, p95)
+	if p95 >= 500*time.Millisecond {
+		t.Fatalf("writer p95 %s exceeds spec limit 500ms", p95)
+	}
+}
+
+// readerChild is one TestVaultReaderHelper subprocess and the file it creates once reading.
+type readerChild struct {
+	cmd    *exec.Cmd
+	output strings.Builder
+	ready  string
+}
+
+// startReaders starts n TestVaultReaderHelper subprocesses that read until stop exists, and waits until all are ready.
+func startReaders(t *testing.T, n int, stop string) []*readerChild {
+	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	children := make([]*readerChild, n)
+	for i := range children {
+		c := &readerChild{
+			cmd:   exec.Command(executable, "-test.run=^TestVaultReaderHelper$", "-test.timeout=15s"),
+			ready: filepath.Join(t.TempDir(), "ready"),
+		}
+		c.cmd.Env = append(os.Environ(), "PHASE1B_READER_HELPER=1", "PHASE1B_READER_READY="+c.ready, "PHASE1B_READER_STOP="+stop)
+		c.cmd.Stdout, c.cmd.Stderr = &c.output, &c.output
+		if err := c.cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		children[i] = c
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for _, c := range children {
+		awaitFile(t, c.ready, deadline)
+	}
+	return children
+}
+
+// awaitFile polls until path exists, failing on any other stat error or once deadline passes.
+func awaitFile(t *testing.T, path string, deadline time.Time) {
+	t.Helper()
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("reader subprocess never became ready")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

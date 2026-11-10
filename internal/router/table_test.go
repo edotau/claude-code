@@ -208,3 +208,14 @@ func TestCopilotUserFollowsProfilePin(t *testing.T) {
 		}
 	}
 }
+
+func TestAliasOfColonBearingModelIDTriesFullID(t *testing.T) {
+	vaulttest.Use(t)
+	tb, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := tb.AliasOf("claude-opus-5-5:0"); got != "opus" {
+		t.Errorf("AliasOf(claude-opus-5-5:0) = %q, want opus (colon is part of the id)", got)
+	}
+}

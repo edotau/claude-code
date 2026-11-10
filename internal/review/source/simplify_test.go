@@ -203,3 +203,14 @@ func TestRunSimplifyReportsUnreadableFile(t *testing.T) {
 		t.Fatalf("code %d stdout %q stderr %q, want 1 with the failure reported", code, stdout.String(), stderr.String())
 	}
 }
+
+func TestChangedNamesRejectsOptionBase(t *testing.T) {
+	// Validation must happen before invoking git, even outside a repository.
+	names, err := changedNames(t.TempDir(), "--output=unexpected")
+	if err == nil || !strings.Contains(err.Error(), "invalid base") {
+		t.Fatalf("names = %v, error = %v; want invalid base error before running git", names, err)
+	}
+	if len(names) != 0 {
+		t.Fatalf("names = %v, want none for an option-like base", names)
+	}
+}

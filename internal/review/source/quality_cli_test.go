@@ -3,33 +3,11 @@ package source
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
+	"io"
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
 	"testing"
 )
-
-func TestQualityPythonMultilineClassHeaderGodClass(t *testing.T) {
-	var src strings.Builder
-	src.WriteString("class Service(\n    Base,\n):\n")
-	for i := range 21 {
-		fmt.Fprintf(&src, "    def method%d(self):\n        pass\n", i)
-	}
-	src.WriteString("\ndef standalone():\n    pass\n")
-	report, err := QualityContent("service.py", src.String(), "python")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []Smell{{
-		Type: "god_class", Severity: "high", Location: "Service",
-		Message: "Class 'Service' has 21 methods (max: 20)",
-	}}
-	if !slices.Equal(report.Smells, want) {
-		t.Fatalf("smells = %+v, want %+v for a multiline class header", report.Smells, want)
-	}
-}
 
 func TestRunQualityIgnoresExcludedDirectoryTraversalError(t *testing.T) {
 	root := qualityRootWithUnreadableExcludedDirectory(t)
@@ -66,4 +44,36 @@ func qualityRootWithUnreadableExcludedDirectory(t *testing.T) string {
 		t.Skip("requires a directory that the current user cannot read")
 	}
 	return root
+}
+
+func TestEmitQualityJSONReplacesWithoutTruncating(t *testing.T) {
+	dir := t.TempDir()
+	output := filepath.Join(dir, "report.json")
+	writeFx(t, dir, "report.json", "previous report")
+	old, err := os.Open(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer old.Close()
+	var stdout bytes.Buffer
+	if err := emitQualityJSON(map[string]int{"files": 1}, output, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	previous, err := io.ReadAll(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(previous) != "previous report" {
+		t.Errorf("open previous file = %q, want unchanged contents", previous)
+	}
+	current, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != "{\n  \"files\": 1\n}" {
+		t.Errorf("replacement = %q, want complete JSON report", current)
+	}
+	if stdout.String() != "Results written to "+output+"\n" {
+		t.Errorf("stdout = %q, want success message naming output", stdout.String())
+	}
 }

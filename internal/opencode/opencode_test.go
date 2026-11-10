@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -9,16 +10,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-
 	"github.com/edotau/claude-code/internal/agentconfig"
-
+	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
-
-	"github.com/edotau/claude-code/internal/agent"
 )
 
 func TestMutateOpencodeConfigEnvPolicies(t *testing.T) {
@@ -229,5 +229,112 @@ func TestOpencodeToolsOffPinsPermission(t *testing.T) {
 	}
 	if !slices.Contains(env, opencodePermissionEnv+`="deny"`) {
 		t.Fatalf("tools-off env lacks the deny pin: %v", env)
+	}
+}
+
+// TestOpencodeChildMarksHostedRuns: a hook host adds the hosted marker; none (memory child) leaves env and argv alone.
+func TestOpencodeChildMarksHostedRuns(t *testing.T) {
+	bin, argv, dir := "/bin/echo", []string{"run", "hi"}, t.TempDir()
+	req := agent.RunOptions{WorkDir: dir, SafeMode: true}
+	cmd, _, host, err := opencodeChild(context.Background(), "opencode", bin, []string{"A=1"}, argv, "hi", req)
+	if err != nil || host == nil {
+		t.Fatalf("opencodeChild = host %v, err %v; want a safety-gate host", host, err)
+	}
+	if !slices.Contains(cmd.Env, hostedEnv+"=1") || cmd.Dir != dir {
+		t.Errorf("hosted child env %v dir %q, want the hosted marker and WorkDir", cmd.Env, cmd.Dir)
+	}
+	t.Setenv(memory.UpdateChildEnv, "1")
+	cmd, _, host, err = opencodeChild(context.Background(), "opencode", bin, []string{"A=1"}, argv, "hi", req)
+	if err != nil || host != nil || slices.Contains(cmd.Env, hostedEnv+"=1") || !slices.Equal(cmd.Args[1:], argv) {
+		t.Errorf("memory child: host %v err %v env %v args %v; want no host, no marker, argv as given", host, err, cmd.Env, cmd.Args)
+	}
+}
+
+// isolateOpencodeRouteEnv clears every credential/login surface DescribeRoute's opencode/copilot chain
+// reads, so a test controls precisely which dispatch (if any) resolves, never a real machine's own key.
+func isolateOpencodeRouteEnv(t *testing.T) (dataHome, cfgHome string) {
+	t.Helper()
+	dataHome, cfgHome = t.TempDir(), t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("PATH", t.TempDir())          // no real `gh`: CopilotLoginPresent's shell-out dispatch can't fire by accident
+	t.Setenv("COPILOT_HOME", t.TempDir())  // no real copilot config.json: CopilotStoredLogin reads nothing
+	t.Setenv("GH_CONFIG_DIR", t.TempDir()) // no real gh hosts.yml: GHActiveAccount reads nothing
+	for _, k := range []string{"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN"} {
+		t.Setenv(k, "")
+	}
+	return dataHome, cfgHome
+}
+
+// OpencodeCopilotModelIDs swaps the registry's "auto" haiku default for the provider's OpencodeFallback,
+// while the sonnet alias's own (non-"auto") id passes through unchanged. The production registry's
+// github-copilot entry no longer defaults haiku to "auto" (it now pins a concrete id), so this overlays
+// a synthetic one to keep exercising the swap itself, independent of that literal.
+func TestOpencodeCopilotModelIDsSwapsAutoForFallback(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	for _, k := range []string{"HARNESS_MODEL", "HARNESS_SONNET_MODEL", "HARNESS_HAIKU_MODEL"} {
+		t.Setenv(k, "")
+	}
+	overlay := `{"providers":{"github":{"personal":{"protocol":"openai","base_url":"https://api.githubcopilot.com",` +
+		`"auth":{"type":"cli","login":"copilot"},` +
+		`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"},` +
+		`"opencode_fallback":"mai-code-1.1-flash"}}}}`
+	vaulttest.Put(t, vault.Overlay, "providers", overlay)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	main, small, ok := OpencodeCopilotModelIDs(reg)
+	if !ok {
+		t.Fatal("OpencodeCopilotModelIDs: ok = false")
+	}
+	if main != "claude-sonnet-5.5" {
+		t.Errorf("main = %q, want the registry's own sonnet id unchanged", main)
+	}
+	if small != "mai-code-1.1-flash" {
+		t.Errorf("small = %q, want the haiku alias's \"auto\" swapped for OpencodeFallback", small)
+	}
+}
+
+// A pin that resolves the haiku alias to a real (non-"auto") id passes through untouched, even though
+// the registry's own haiku default is "auto".
+func TestOpencodeCopilotModelIDsLeavesNonAutoPinUnchanged(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.SetRecord(t, "claude", "aliases.haiku", "claude-haiku-4.5")
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, small, ok := OpencodeCopilotModelIDs(reg)
+	if !ok {
+		t.Fatal("OpencodeCopilotModelIDs: ok = false")
+	}
+	if small != "claude-haiku-4.5" {
+		t.Errorf("small = %q, want the pinned id unchanged (not swapped for OpencodeFallback)", small)
+	}
+}
+
+func TestInteractiveLaunchRejectsPluginWriteFailure(t *testing.T) {
+	menu := []providers.OpencodeModel{{ID: "glm-5-2", Label: "GLM 5.2"}}
+	db := regressionDatabricksProfile(t, "databricks-test", menu)
+	blocked := filepath.Join(paths.StateDir(), "opencode")
+	if err := os.MkdirAll(filepath.Dir(blocked), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(blocked, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []*providers.Provider{{Name: "generic", Provider: "github"}, db} {
+		t.Run(p.Name, func(t *testing.T) {
+			env, argv, err := opencode(p, providers.ProtocolOpenAI, "https://workspace.example.test", agentconfig.MenuWire(p, "glm-5-2"), "", false, nil)
+			if err == nil || !strings.Contains(err.Error(), "opencode plugin:") {
+				t.Fatalf("interactive launch must report plugin write failure: env=%v argv=%v err=%v", env, argv, err)
+			}
+			if env != nil || argv != nil {
+				t.Fatalf("failed launch returned usable config: env=%v argv=%v", env, argv)
+			}
+		})
 	}
 }

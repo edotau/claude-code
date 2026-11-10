@@ -97,3 +97,17 @@ func TestCheckoutOf(t *testing.T) {
 		}
 	}
 }
+
+func TestTreeDiffDeadlineFallsBack(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("STATUSLINE_GIT_MARKER", filepath.Join(dir, "listed"))
+	script := "#!/bin/sh\nif test -f \"$STATUSLINE_GIT_MARKER\"; then\n exec sleep 5\nfi\n: > \"$STATUSLINE_GIT_MARKER\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	adds, dels, ok := treeDiffStat(dir)
+	if ok || adds != 0 || dels != 0 {
+		t.Fatalf("deadline expired: treeDiffStat = (%d, %d, %v), want (0, 0, false)", adds, dels, ok)
+	}
+}
