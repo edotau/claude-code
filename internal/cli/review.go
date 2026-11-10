@@ -5,7 +5,6 @@ import (
 	"os"
 	"slices"
 
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/review/diff"
 	"github.com/edotau/claude-code/internal/review/planlint"
@@ -130,12 +129,12 @@ func reviewToolNames() []string {
 }
 
 // reviewSpec is the completion node for `review`: every detector, none with completable flags.
-func reviewSpec() *completion.Node {
-	sub := map[string]*completion.Node{}
+func reviewSpec() *helptext.Node {
+	sub := map[string]*helptext.Node{}
 	for _, n := range reviewToolNames() {
-		sub[n] = &completion.Node{}
+		sub[n] = &helptext.Node{}
 	}
-	return &completion.Node{Sub: sub}
+	return &helptext.Node{Sub: sub}
 }
 
 // workflowPatterns are the `workflow skeleton` pattern names.
@@ -144,9 +143,9 @@ func workflowPatterns() []string {
 }
 
 // workflowSpec is the completion node for `workflow`.
-func workflowSpec() *completion.Node {
-	return &completion.Node{Sub: map[string]*completion.Node{
-		"skeleton": {Args: []func() []string{workflowPatterns}, Flags: []completion.Flag{{Name: "name"}}},
+func workflowSpec() *helptext.Node {
+	return &helptext.Node{Sub: map[string]*helptext.Node{
+		"skeleton": {Args: []func() []string{workflowPatterns}, Flags: []helptext.Flag{{Name: "name"}}},
 		"lint":     {},
 	}}
 }

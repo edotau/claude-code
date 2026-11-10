@@ -13,7 +13,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/claude"
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -249,33 +248,33 @@ func Run(args []string, knownVerb func(string) bool) int {
 }
 
 // Spec describes memory subcommands and their completion domains.
-func Spec() *completion.Node {
-	return &completion.Node{Sub: map[string]*completion.Node{
-		"recall": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.BoolFlag("all"), completion.Plain("k"),
-			completion.Plain("load"), completion.BoolFlag("explain"), completion.FormatFlag()}},
-		"remember": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.ValuedFlag("type", memoryRememberTypes)}},
-		"init":     {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames)}},
-		"review": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.Plain("stale-days"), completion.BoolFlag("notice"),
-			completion.BoolFlag("brief"), completion.BoolFlag("candidates")}},
-		"verify": {Flags: []completion.Flag{completion.Plain("cwd"), completion.BoolFlag("archives"), completion.BoolFlag("all-stores")}},
-		"promote": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames),
-			completion.ValuedFlag("to", memoryPromoteTargets), completion.BoolFlag("dry-run")}},
-		"update": {Flags: []completion.Flag{completion.Plain("transcript"), completion.Plain("cwd"), completion.Plain("session"),
-			completion.BoolFlag("dry-run"), completion.BoolFlag("historical")}},
-		"dream":    {Flags: []completion.Flag{completion.Plain("cwd"), completion.BoolFlag("force"), completion.BoolFlag("dry-run")}},
-		"search":   {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.BoolFlag("all"), completion.Plain("k"), completion.FormatFlag()}},
+func Spec() *helptext.Node {
+	return &helptext.Node{Sub: map[string]*helptext.Node{
+		"recall": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memoryRepoNames), helptext.BoolFlag("all"), helptext.Plain("k"),
+			helptext.Plain("load"), helptext.BoolFlag("explain"), helptext.CompletionFormatFlag()}},
+		"remember": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memoryRepoNames), helptext.ValuedFlag("type", memoryRememberTypes)}},
+		"init":     {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memoryRepoNames)}},
+		"review": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memoryRepoNames), helptext.Plain("stale-days"), helptext.BoolFlag("notice"),
+			helptext.BoolFlag("brief"), helptext.BoolFlag("candidates")}},
+		"verify": {Flags: []helptext.Flag{helptext.Plain("cwd"), helptext.BoolFlag("archives"), helptext.BoolFlag("all-stores")}},
+		"promote": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memoryRepoNames),
+			helptext.ValuedFlag("to", memoryPromoteTargets), helptext.BoolFlag("dry-run")}},
+		"update": {Flags: []helptext.Flag{helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("session"),
+			helptext.BoolFlag("dry-run"), helptext.BoolFlag("historical")}},
+		"dream":    {Flags: []helptext.Flag{helptext.Plain("cwd"), helptext.BoolFlag("force"), helptext.BoolFlag("dry-run")}},
+		"search":   {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memoryRepoNames), helptext.BoolFlag("all"), helptext.Plain("k"), helptext.CompletionFormatFlag()}},
 		"show":     {},
-		"digest":   {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames)}},
-		"index":    {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.BoolFlag("reembed"), completion.BoolFlag("mint-only")}},
-		"path":     {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames)}},
-		"report":   {Flags: []completion.Flag{completion.Plain("label"), completion.Plain("file"), completion.BoolFlag("stdin"), completion.FormatFlag(), completion.ValuedFlag("repo", memoryRepoNames)}},
-		"fmt":      {Flags: []completion.Flag{completion.BoolFlag("check")}},
-		"catchup":  {Flags: []completion.Flag{completion.BoolFlag("dry-run"), completion.Plain("skip")}},
-		"watch":    {Flags: []completion.Flag{completion.Plain("session"), completion.Plain("transcript"), completion.Plain("cwd"), completion.Plain("owner"), completion.Plain("idle")}},
-		"timeline": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.Plain("n")}},
-		"archive": {Flags: []completion.Flag{completion.ValuedFlag("repo", memoryRepoNames), completion.BoolFlag("dupes"), completion.Plain("split"),
-			completion.BoolFlag("apply"), completion.BoolFlag("restore")}},
-		"alias": {Flags: []completion.Flag{completion.Plain("repo"), completion.ValuedFlag("into", memoryRepoNames), completion.BoolFlag("dry-run")}},
+		"digest":   {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memoryRepoNames)}},
+		"index":    {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memoryRepoNames), helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only")}},
+		"path":     {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memoryRepoNames)}},
+		"report":   {Flags: []helptext.Flag{helptext.Plain("label"), helptext.Plain("file"), helptext.BoolFlag("stdin"), helptext.CompletionFormatFlag(), helptext.ValuedFlag("repo", memoryRepoNames)}},
+		"fmt":      {Flags: []helptext.Flag{helptext.BoolFlag("check")}},
+		"catchup":  {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("skip")}},
+		"watch":    {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
+		"timeline": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memoryRepoNames), helptext.Plain("n")}},
+		"archive": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memoryRepoNames), helptext.BoolFlag("dupes"), helptext.Plain("split"),
+			helptext.BoolFlag("apply"), helptext.BoolFlag("restore")}},
+		"alias": {Flags: []helptext.Flag{helptext.Plain("repo"), helptext.ValuedFlag("into", memoryRepoNames), helptext.BoolFlag("dry-run")}},
 	}}
 }
 

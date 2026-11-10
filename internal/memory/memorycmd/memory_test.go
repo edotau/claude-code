@@ -14,8 +14,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 func TestMemoryRootHonorsHarnessWorktreePointer(t *testing.T) {
@@ -680,8 +680,8 @@ func TestMemoryAliasDryRunThenApply(t *testing.T) {
 }
 
 func TestMemoryAliasDispatchedAndCompleted(t *testing.T) {
-	engine := completion.Engine{
-		Tree:    func() map[string]*completion.Node { return map[string]*completion.Node{"memory": Spec()} },
+	engine := helptext.Engine{
+		Tree:    func() map[string]*helptext.Node { return map[string]*helptext.Node{"memory": Spec()} },
 		Resolve: func(verb string) (string, bool) { return verb, verb == "memory" },
 	}
 	if got := engine.Candidates([]string{"memory", "al"}); !slices.Equal(got, []string{"alias"}) {

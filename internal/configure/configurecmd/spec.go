@@ -1,7 +1,6 @@
 package configurecmd
 
 import (
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/menu"
@@ -33,10 +32,10 @@ func sections() []string {
 }
 
 // Spec is the completion node for the configure verb.
-func Spec() *completion.Node {
-	formatFlag := completion.ValuedFlag("format", func() []string { return []string{helptext.Text, helptext.JSON} })
-	return &completion.Node{Args: []func() []string{sections, providerNames}, Flags: []completion.Flag{
-		completion.ValuedFlag("profile", providerNames), completion.ValuedFlag("agent", agentNames), completion.ValuedFlag("auth", authNames), completion.BoolFlag("dry-run"), completion.BoolFlag("check"),
-		completion.BoolFlag("restore"), completion.BoolFlag("revert"), completion.Plain("out"), completion.BoolFlag("agents"), completion.BoolFlag("list"), completion.BoolFlag("all"),
-		completion.BoolFlag("no-agents"), formatFlag}}
+func Spec() *helptext.Node {
+	formatFlag := helptext.ValuedFlag("format", func() []string { return []string{helptext.Text, helptext.JSON} })
+	return &helptext.Node{Args: []func() []string{sections, providerNames}, Flags: []helptext.Flag{
+		helptext.ValuedFlag("profile", providerNames), helptext.ValuedFlag("agent", agentNames), helptext.ValuedFlag("auth", authNames), helptext.BoolFlag("dry-run"), helptext.BoolFlag("check"),
+		helptext.BoolFlag("restore"), helptext.BoolFlag("revert"), helptext.Plain("out"), helptext.BoolFlag("agents"), helptext.BoolFlag("list"), helptext.BoolFlag("all"),
+		helptext.BoolFlag("no-agents"), formatFlag}}
 }

@@ -15,12 +15,12 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
 	"github.com/edotau/claude-code/internal/agent/agentcmd"
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/describe"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
@@ -521,7 +521,7 @@ func TestVendorCompletionOffersEverySubverb(t *testing.T) {
 }
 
 // TestVendorCompletionSubverbFlags: a vendor subverb's own flags complete past it, pinning two
-// representative cases (status's --all and setup's --format) against their completion.Flag wiring.
+// representative cases (status's --all and setup's --format) against their helptext.Flag wiring.
 func TestVendorCompletionSubverbFlags(t *testing.T) {
 	if got := completionCandidates([]string{"codex", "status", "--"}); !slices.Contains(got, "--all") {
 		t.Errorf("codex status -- = %v, missing --all", got)
@@ -595,7 +595,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	checkReviewSubwordSpec(t, tree)
 }
 
-func checkInstallSetupSpec(t *testing.T, tree map[string]*completion.Node) {
+func checkInstallSetupSpec(t *testing.T, tree map[string]*helptext.Node) {
 	t.Helper()
 	// install --setup <mode> is its own sub-dispatch, nested under install's "--setup" node.
 	installNode := tree["install"]
@@ -618,7 +618,7 @@ func checkInstallSetupSpec(t *testing.T, tree map[string]*completion.Node) {
 	}
 }
 
-func checkReviewSubwordSpec(t *testing.T, tree map[string]*completion.Node) {
+func checkReviewSubwordSpec(t *testing.T, tree map[string]*helptext.Node) {
 	t.Helper()
 	// review derives its subwords from reviewTools itself (same source its dispatch switch reads),
 	// so there is no separate hand list to drift — assert the derivation is wired, not duplicate it.

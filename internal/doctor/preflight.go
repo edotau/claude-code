@@ -7,7 +7,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
@@ -118,6 +117,6 @@ func preflightReport(reg *providers.Registry, refresh, live bool, profile string
 }
 
 // PreflightSpecNode is the `preflight` completion spec.
-func PreflightSpecNode() *completion.Node {
-	return &completion.Node{Flags: []completion.Flag{{Name: "discover"}, {Name: "live", IsBool: true}, {Name: "profile"}, {Name: "refresh", IsBool: true}}}
+func PreflightSpecNode() *helptext.Node {
+	return &helptext.Node{Flags: []helptext.Flag{{Name: "discover"}, {Name: "live", IsBool: true}, {Name: "profile"}, {Name: "refresh", IsBool: true}}}
 }

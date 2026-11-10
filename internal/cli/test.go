@@ -5,7 +5,6 @@ package cli
 import (
 	"os"
 
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/testtool/mutate"
 	"github.com/edotau/claude-code/internal/testtool/ramdisk"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -38,9 +37,9 @@ var testPage = helptext.Page{
 }
 
 // testSpec is the completion node for the test verb tree.
-func testSpec() *completion.Node {
-	return &completion.Node{Sub: map[string]*completion.Node{
-		"mutate":  {Flags: []completion.Flag{{Name: "run"}}},
+func testSpec() *helptext.Node {
+	return &helptext.Node{Sub: map[string]*helptext.Node{
+		"mutate":  {Flags: []helptext.Flag{{Name: "run"}}},
 		"ramdisk": {},
 	}}
 }

@@ -1,13 +1,13 @@
 package providerscmd
 
 import (
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-func profileFlag() completion.Flag {
-	return completion.Flag{Name: "profile", Values: providers.ProfileNames}
+func profileFlag() helptext.Flag {
+	return helptext.Flag{Name: "profile", Values: providers.ProfileNames}
 }
 
 // modelPinAliases offers "alias=" stems for --pin; the user types the model id after the "=" themselves.
@@ -20,17 +20,17 @@ func modelPinAliases() []string {
 }
 
 // ModelsSpec is the completion node for the models verb.
-func ModelsSpec() *completion.Node {
-	return &completion.Node{Flags: []completion.Flag{profileFlag(), completion.BoolFlag("unpin"), completion.BoolFlag("live"),
-		{Name: "pin", Values: modelPinAliases}, completion.BoolFlag("dry-run"), completion.FormatFlag()}}
+func ModelsSpec() *helptext.Node {
+	return &helptext.Node{Flags: []helptext.Flag{profileFlag(), helptext.BoolFlag("unpin"), helptext.BoolFlag("live"),
+		{Name: "pin", Values: modelPinAliases}, helptext.BoolFlag("dry-run"), helptext.CompletionFormatFlag()}}
 }
 
 // SwitchSpec is the completion node for the switch verb.
-func SwitchSpec() *completion.Node {
-	return &completion.Node{Args: []func() []string{providers.ProfileNames}, Flags: []completion.Flag{completion.BoolFlag("dry-run")}}
+func SwitchSpec() *helptext.Node {
+	return &helptext.Node{Args: []func() []string{providers.ProfileNames}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run")}}
 }
 
 // ResolveSpec is the completion node for the resolve verb.
-func ResolveSpec() *completion.Node {
-	return &completion.Node{Flags: []completion.Flag{profileFlag(), completion.BoolFlag("proxy")}}
+func ResolveSpec() *helptext.Node {
+	return &helptext.Node{Flags: []helptext.Flag{profileFlag(), helptext.BoolFlag("proxy")}}
 }

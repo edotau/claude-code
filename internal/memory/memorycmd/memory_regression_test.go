@@ -9,9 +9,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/memory"
 
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 func TestMemoryDreamRejectsStrayBeforeDryRun(t *testing.T) {
@@ -69,8 +69,8 @@ func TestMemoryFmtRejectsStrayBeforeCheck(t *testing.T) {
 }
 
 func TestMemoryCompletionSupportedCommandsAndFlags(t *testing.T) {
-	engine := completion.Engine{
-		Tree:    func() map[string]*completion.Node { return map[string]*completion.Node{"memory": Spec()} },
+	engine := helptext.Engine{
+		Tree:    func() map[string]*helptext.Node { return map[string]*helptext.Node{"memory": Spec()} },
 		Resolve: func(verb string) (string, bool) { return verb, verb == "memory" },
 	}
 	cases := []struct {
@@ -112,8 +112,8 @@ func TestMemoryPathRepoFlagResolvesStoreName(t *testing.T) {
 }
 
 func TestMemoryCompletionOffersIndexAndRecallFlags(t *testing.T) {
-	engine := completion.Engine{
-		Tree:    func() map[string]*completion.Node { return map[string]*completion.Node{"memory": Spec()} },
+	engine := helptext.Engine{
+		Tree:    func() map[string]*helptext.Node { return map[string]*helptext.Node{"memory": Spec()} },
 		Resolve: func(verb string) (string, bool) { return verb, verb == "memory" },
 	}
 	for verb, want := range map[string][]string{"index": {"--reembed", "--mint-only"}, "recall": {"--explain"}} {

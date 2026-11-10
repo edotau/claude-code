@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -114,10 +113,10 @@ func cmdPlanTick(args []string) int {
 }
 
 // SpecNode returns the plan completion tree.
-func SpecNode() *completion.Node {
-	return &completion.Node{Sub: map[string]*completion.Node{
-		"status": {Flags: []completion.Flag{{Name: "all", IsBool: true},
+func SpecNode() *helptext.Node {
+	return &helptext.Node{Sub: map[string]*helptext.Node{
+		"status": {Flags: []helptext.Flag{{Name: "all", IsBool: true},
 			{Name: "format", Values: func() []string { return []string{helptext.Text, helptext.JSON} }}}},
-		"tick": {Flags: []completion.Flag{{Name: "range"}, {Name: "plan"}, {Name: "dry-run", IsBool: true}}},
+		"tick": {Flags: []helptext.Flag{{Name: "range"}, {Name: "plan"}, {Name: "dry-run", IsBool: true}}},
 	}}
 }

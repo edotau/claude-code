@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/scm"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -223,18 +222,18 @@ func emit(asJSON bool, v any, err error, text func()) error {
 }
 
 // scmSpec is the `scm` completion spec.
-func scmSpec() *completion.Node {
-	leaf := func(flags ...completion.Flag) *completion.Node {
-		return &completion.Node{Flags: append(flags, completion.FormatFlag())}
+func scmSpec() *helptext.Node {
+	leaf := func(flags ...helptext.Flag) *helptext.Node {
+		return &helptext.Node{Flags: append(flags, helptext.CompletionFormatFlag())}
 	}
-	return &completion.Node{Sub: map[string]*completion.Node{
-		"pr": {Sub: map[string]*completion.Node{
-			"list":   leaf(completion.Plain("state"), completion.Plain("author"), completion.Plain("limit")),
+	return &helptext.Node{Sub: map[string]*helptext.Node{
+		"pr": {Sub: map[string]*helptext.Node{
+			"list":   leaf(helptext.Plain("state"), helptext.Plain("author"), helptext.Plain("limit")),
 			"view":   leaf(),
 			"diff":   leaf(),
-			"create": leaf(completion.Plain("title"), completion.Plain("body-file"), completion.Plain("base"), completion.BoolFlag("draft")),
+			"create": leaf(helptext.Plain("title"), helptext.Plain("body-file"), helptext.Plain("base"), helptext.BoolFlag("draft")),
 		}},
-		"checks":  leaf(completion.Plain("sha")),
-		"comment": leaf(completion.Plain("body-file"), completion.Plain("reply-to")),
+		"checks":  leaf(helptext.Plain("sha")),
+		"comment": leaf(helptext.Plain("body-file"), helptext.Plain("reply-to")),
 	}}
 }

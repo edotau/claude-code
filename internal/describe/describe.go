@@ -8,11 +8,11 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/client"
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // Describe is the one machine-readable map of the harness: an agent constructing commands reads this
@@ -70,7 +70,7 @@ type DescribeHook struct {
 type Verb struct {
 	Name, Group, Summary string
 	Hidden               bool
-	Node                 *completion.Node
+	Node                 *helptext.Node
 }
 
 // Build builds the describe view from an already-loaded registry, so a caller that loaded one
@@ -108,7 +108,7 @@ func Build(reg *providers.Registry, verbs []Verb) (Describe, error) {
 }
 
 // subwordNames lists node's own subcommand words, sorted; nil for a leaf/launcher node.
-func subwordNames(node *completion.Node) []string {
+func subwordNames(node *helptext.Node) []string {
 	if node == nil || node.Sub == nil {
 		return nil
 	}
@@ -117,7 +117,7 @@ func subwordNames(node *completion.Node) []string {
 
 // FlagNames lists a verb's completable flags across its own node and every subverb, "--flag" or
 // "--flag <value>", sorted.
-func FlagNames(node *completion.Node) []string {
+func FlagNames(node *helptext.Node) []string {
 	if node == nil {
 		return nil
 	}
@@ -134,7 +134,7 @@ func FlagNames(node *completion.Node) []string {
 }
 
 // ownFlagNames lists only node's own flags ("--flag" or "--flag <value>"), sorted.
-func ownFlagNames(node *completion.Node) []string {
+func ownFlagNames(node *helptext.Node) []string {
 	if node == nil {
 		return nil
 	}

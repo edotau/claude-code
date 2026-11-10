@@ -9,7 +9,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/theme"
@@ -116,6 +115,6 @@ func cmdMenuSVG(args []string) int {
 	return 0
 }
 
-func menuSVGSpec() *completion.Node {
-	return &completion.Node{Flags: []completion.Flag{completion.Plain("out"), completion.Plain("check")}}
+func menuSVGSpec() *helptext.Node {
+	return &helptext.Node{Flags: []helptext.Flag{helptext.Plain("out"), helptext.Plain("check")}}
 }

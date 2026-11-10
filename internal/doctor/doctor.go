@@ -9,7 +9,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/claude"
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
@@ -180,7 +179,7 @@ func refreshServed() {
 }
 
 // SpecNode is the `doctor` completion spec.
-func SpecNode() *completion.Node {
-	return &completion.Node{Flags: []completion.Flag{completion.BoolFlag("audit"), completion.Plain("days"), completion.BoolFlag("scan"), completion.BoolFlag("git"), completion.Plain("since"),
-		completion.Plain("range"), completion.BoolFlag("secrets"), completion.BoolFlag("refresh"), completion.BoolFlag("prompts"), completion.BoolFlag("mcp"), completion.FormatFlag()}}
+func SpecNode() *helptext.Node {
+	return &helptext.Node{Flags: []helptext.Flag{helptext.BoolFlag("audit"), helptext.Plain("days"), helptext.BoolFlag("scan"), helptext.BoolFlag("git"), helptext.Plain("since"),
+		helptext.Plain("range"), helptext.BoolFlag("secrets"), helptext.BoolFlag("refresh"), helptext.BoolFlag("prompts"), helptext.BoolFlag("mcp"), helptext.CompletionFormatFlag()}}
 }

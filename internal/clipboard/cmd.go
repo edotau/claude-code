@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -69,6 +68,6 @@ func ClipClear(args []string) int {
 }
 
 // Spec is the completion node for `clip`.
-func Spec() *completion.Node {
-	return &completion.Node{Flags: []completion.Flag{{Name: "serve", IsBool: true}}}
+func Spec() *helptext.Node {
+	return &helptext.Node{Flags: []helptext.Flag{{Name: "serve", IsBool: true}}}
 }

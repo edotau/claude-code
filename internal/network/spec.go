@@ -1,27 +1,27 @@
 package network
 
 import (
-	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/network/tailscale"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // Spec is the completion node for the network verb.
-func Spec() *completion.Node {
-	flag, boolFlag := completion.Plain, completion.BoolFlag
-	valuedFlag, formatFlag := completion.ValuedFlag, completion.FormatFlag
-	return &completion.Node{Sub: map[string]*completion.Node{
-		"restart": {Flags: []completion.Flag{boolFlag("dry-run"), boolFlag("force"), formatFlag()}},
-		"tailscale": {Flags: []completion.Flag{formatFlag(), boolFlag("machines"), boolFlag("connect"), boolFlag("key"),
+func Spec() *helptext.Node {
+	flag, boolFlag := helptext.Plain, helptext.BoolFlag
+	valuedFlag, formatFlag := helptext.ValuedFlag, helptext.CompletionFormatFlag
+	return &helptext.Node{Sub: map[string]*helptext.Node{
+		"restart": {Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("force"), formatFlag()}},
+		"tailscale": {Flags: []helptext.Flag{formatFlag(), boolFlag("machines"), boolFlag("connect"), boolFlag("key"),
 			valuedFlag("exit-node", exitNodeActions), valuedFlag("subnet", subnetActions),
 			valuedFlag("route", routeTargets), flag("auth-key"),
 			flag("key-env"), boolFlag("advertise-exit"),
 			flag("expiry"), flag("tags"), boolFlag("save"), boolFlag("reusable"), boolFlag("ephemeral"),
 			boolFlag("preauthorized"), flag("description")}},
-		"browser": {Flags: []completion.Flag{formatFlag(), boolFlag("setup"), valuedFlag("browser", browserNames),
+		"browser": {Flags: []helptext.Flag{formatFlag(), boolFlag("setup"), valuedFlag("browser", browserNames),
 			boolFlag("dry-run")}},
-		"websearch": {Flags: []completion.Flag{flag("query"), flag("max-results"), flag("extract")}},
-		"remote": {Flags: []completion.Flag{valuedFlag("host", tailscale.CachedMachineNames), flag("dir"),
+		"websearch": {Flags: []helptext.Flag{flag("query"), flag("max-results"), flag("extract")}},
+		"remote": {Flags: []helptext.Flag{valuedFlag("host", tailscale.CachedMachineNames), flag("dir"),
 			valuedFlag("agent", func() []string { return remote.Agents }), flag("name"), boolFlag("dry-run"),
 			boolFlag("list"), boolFlag("attach"), boolFlag("status"), flag("interval"), formatFlag()}},
 	}}
