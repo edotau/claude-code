@@ -25,10 +25,19 @@ const workflowLintName = "inline workflow"
 // the session's cwd is refused by the tool) and linted the same way; a name with no matching file (a
 // built-in, or a bogus name) proceeds untouched.
 func WorkflowResult(in *core.Input) core.Result {
+	args := in.ToolInput()["args"]
 	if script := in.Nested("tool_input", "script"); script != "" {
+		if b := blockSteps("the inline script", checkWorkflowSteps([]byte(script), workflowsDir(), args)); b != nil {
+			return *b
+		}
 		return workflowInline(in, script)
 	}
-	if path := in.Nested("tool_input", "scriptPath"); path != "" {
+	if path := paths.ExpandHome(in.Nested("tool_input", "scriptPath")); path != "" {
+		if data, err := os.ReadFile(path); err == nil {
+			if b := blockSteps(path, checkWorkflowSteps(data, filepath.Dir(path), args)); b != nil {
+				return *b
+			}
+		}
 		return workflowSaved(path)
 	}
 	if name := in.Nested("tool_input", "name"); name != "" {
@@ -93,6 +102,11 @@ func workflowByName(in *core.Input, name string) core.Result {
 	if hits := lintSavedFile(path); len(hits) > 0 {
 		return blockSavedLint(path, hits)
 	}
+	if data, err := os.ReadFile(path); err == nil {
+		if b := blockSteps(path, checkWorkflowSteps(data, filepath.Dir(path), in.ToolInput()["args"])); b != nil {
+			return *b
+		}
+	}
 	if in.Nested("permission_mode") == "auto" && inCWD(path, in.CWD) {
 		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("workflow-lint: auto mode can't review a rewritten call; "+
 			"re-issue as Workflow({scriptPath: %q, args: <same args>})", path)}
@@ -110,6 +124,14 @@ func workflowByName(in *core.Input, name string) core.Result {
 	note := fmt.Sprintf("workflow-lint: name → inline script from %s (the by-name registry is read at session"+
 		" start; the file on disk is current)", path)
 	return core.Result{UpdatedInput: updated, Context: note}
+}
+
+// workflowsDir is where saved workflow scripts live ("" when the config dir is unknown).
+func workflowsDir() string {
+	if dir := paths.ConfigDir(); dir != "" {
+		return filepath.Join(dir, "workflows")
+	}
+	return ""
 }
 
 // inCWD reports whether path lies inside cwd, comparing cleaned absolute paths.
