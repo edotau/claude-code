@@ -65,8 +65,8 @@ type Repo struct {
 	Kind, Host, Owner, Name string
 }
 
-// Detect classifies a git remote URL; any non-GitHub remote is Bitbucket when bitbucketHost (from BITBUCKET_URL) is set.
-func Detect(remote, bitbucketHost string) (Repo, error) {
+// Detect classifies a git remote URL; any non-GitHub remote is Bitbucket.
+func Detect(remote string) (Repo, error) {
 	host, path, ok := splitRemote(strings.TrimSpace(remote))
 	if !ok {
 		return Repo{}, fmt.Errorf("cannot parse git remote %q", redact(remote))
@@ -81,10 +81,8 @@ func Detect(remote, bitbucketHost string) (Repo, error) {
 			return Repo{}, fmt.Errorf("remote %q is not owner/repo", shown)
 		}
 		return Repo{GitHub, host, parts[0], parts[1]}, nil
-	case bitbucketHost != "": // the API base is independent of the remote host (DC ssh and http hosts differ)
-		return bitbucketRepo(host, parts, isHTTP, shown)
 	}
-	return Repo{}, fmt.Errorf("remote host %q is not github.com and BITBUCKET_URL is unset", host)
+	return bitbucketRepo(host, parts, isHTTP, shown)
 }
 
 // bitbucketRepo reads {project}/{repo} behind /scm/ (https) or an ssh port segment.
