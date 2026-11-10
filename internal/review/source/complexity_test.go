@@ -3,6 +3,8 @@ package source
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -157,9 +159,10 @@ func TestRunComplexityWarnsAndSkipsUnreadableFile(t *testing.T) {
 }
 
 func TestAnalyzeFileComplexityReturnsReadError(t *testing.T) {
-	_, err := analyzeFileComplexity(filepath.Join(t.TempDir(), "missing.go"), complexityThresholds["medium"])
-	if err == nil {
-		t.Fatal("analyzeFileComplexity did not report a read error")
+	missing := filepath.Join(t.TempDir(), "missing.go")
+	r, err := analyzeFileComplexity(missing, complexityThresholds["medium"])
+	if !errors.Is(err, fs.ErrNotExist) || !strings.Contains(err.Error(), missing) || r != nil {
+		t.Fatalf("analyzeFileComplexity = %v, %v; want no result and a not-exist error naming %s", r, err, missing)
 	}
 }
 

@@ -34,15 +34,6 @@ func TestShorterFenceDoesNotCloseLongerFence(t *testing.T) {
 	}
 }
 
-func TestFinalWordAloneIsNotFinalVerification(t *testing.T) {
-	if a := analyze("1. Create it.\n2. Ship the final artifact.\n", "x"); a.hasFinalVerification {
-		t.Errorf("'Ship the final artifact' set hasFinalVerification")
-	}
-	if a := analyze("1. Create it.\n2. Run the final regression tests.\n", "x"); !a.hasFinalVerification {
-		t.Errorf("'Run the final regression tests' did not set hasFinalVerification")
-	}
-}
-
 func TestFinalVerificationUsesStepClassifiers(t *testing.T) {
 	for _, tc := range []struct {
 		step string
@@ -52,6 +43,8 @@ func TestFinalVerificationUsesStepClassifiers(t *testing.T) {
 		{"Final: check the response", true},
 		{"Final: verify the response", true},
 		{"Final: test the response", true},
+		{"Run the final regression tests", true},
+		{"Check the response", false},
 		{"final", false},
 		{"Ship the final artifact", false},
 	} {

@@ -66,8 +66,8 @@ func TestRunPRNotAGitRepo(t *testing.T) {
 	dir := t.TempDir()
 	var stdout, stderr bytes.Buffer
 	code := RunPR([]string{dir}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
+	if want := "Error: " + dir + " is not a git repository\n"; code != 1 || stdout.Len() != 0 || stderr.String() != want {
+		t.Fatalf("RunPR = %d, stdout %q, stderr %q; want 1, empty, %q", code, &stdout, &stderr, want)
 	}
 }
 
@@ -105,14 +105,6 @@ func TestResolveGitRepoValidatesRepository(t *testing.T) {
 			t.Fatalf("unexpected diagnostic: %q", &stderr)
 		}
 	})
-}
-
-func TestRunPRBadFlag(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := RunPR([]string{"--nope"}, &stdout, &stderr)
-	if code == 0 {
-		t.Fatalf("exit code = 0 for a bad flag, want nonzero")
-	}
 }
 
 func TestWriteOutputAtomic(t *testing.T) {
@@ -179,13 +171,30 @@ func TestAnalyzePRIgnoresStagedIndex(t *testing.T) {
 	}
 }
 
-// A misspelled head surfaces the ref error instead of analyzing the staged index.
-func TestAnalyzePRBadRefNotMaskedByStaged(t *testing.T) {
-	repo := hosttest.Repo(t)
-	hosttest.WriteRel(t, repo, "staged.go", "package s\n")
-	hosttest.In(t, repo, "add", "--", "staged.go")
-	if _, err := AnalyzePR(repo, "main", "nosuchbranch"); err == nil {
-		t.Fatal("want an error for an unknown head")
+// A bad base or head ref is an error, never a clean "no_changes" nor an analysis of the staged index.
+func TestAnalyzePRBadRefIsError(t *testing.T) {
+	for _, tc := range []struct {
+		name, base, head string
+		staged           bool
+	}{
+		{"bad base, nothing staged", "nosuchref", "HEAD", false},
+		{"bad head, staged edit", "main", "nosuchbranch", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := hosttest.Repo(t)
+			hosttest.In(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
+			if tc.staged {
+				hosttest.WriteRel(t, repo, "staged.go", "package s\n")
+				hosttest.In(t, repo, "add", "--", "staged.go")
+			}
+			if rep, err := AnalyzePR(repo, tc.base, tc.head); err == nil {
+				t.Fatalf("AnalyzePR(%s, %s) = status %q, nil error; want a ref error", tc.base, tc.head, rep.Status)
+			}
+			var stdout, stderr bytes.Buffer
+			if code := RunPR([]string{repo, "--base", tc.base, "--head", tc.head}, &stdout, &stderr); code != 1 || stderr.Len() == 0 {
+				t.Errorf("RunPR exit = %d, stderr %q; want 1 with the ref error", code, &stderr)
+			}
+		})
 	}
 }
 

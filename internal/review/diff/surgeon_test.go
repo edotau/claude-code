@@ -66,14 +66,6 @@ func TestRunDiffMissingFile(t *testing.T) {
 	}
 }
 
-func TestRunDiffBadFlag(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := RunDiff([]string{"--nope"}, &stdout, &stderr)
-	if code != 2 {
-		t.Fatalf("exit code = %d, want 2 (argparse unrecognized arguments)", code)
-	}
-}
-
 // A5: findings truncate by rune, so a multibyte line crossing the 60/120 cut stays valid UTF-8.
 func TestAnalyzeDiffFileTruncatesOnRuneBoundary(t *testing.T) {
 	long := strings.Repeat("é", 100)

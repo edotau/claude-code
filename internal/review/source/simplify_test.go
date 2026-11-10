@@ -190,12 +190,8 @@ func TestSimplicityFindings(t *testing.T) {
 // An unreadable file must be reported with a non-zero exit, never dropped as clean.
 func TestRunSimplifyReportsUnreadableFile(t *testing.T) {
 	dir := t.TempDir()
-	bad := filepath.Join(dir, "b.go")
-	if err := os.WriteFile(bad, []byte(cleanGo), 0o000); err != nil {
+	if err := os.Symlink(filepath.Join(dir, "gone.go"), filepath.Join(dir, "b.go")); err != nil {
 		t.Fatal(err)
-	}
-	if _, err := os.ReadFile(bad); err == nil {
-		t.Skip("file mode not enforced (root)")
 	}
 	var stdout, stderr bytes.Buffer
 	code := RunSimplify([]string{dir}, &stdout, &stderr)

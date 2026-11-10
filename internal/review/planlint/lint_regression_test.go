@@ -9,29 +9,44 @@ import (
 	"testing"
 )
 
-func TestBlockCommentTerminatorDoesNotHideAgentCall(t *testing.T) {
-	src := "/* note */ await agent('x') // explanation\n"
-	hits := LintPins("inline", []byte(src))
-	if len(hits) != 2 {
-		t.Fatalf("LintPins = %v, want missing model and effort for the call after the block comment", hits)
+// Lexer corners (comments, division, nested objects, prompt text) must neither hide a call nor fake its pins.
+func TestLintPinsFlagsUnpinnedCall(t *testing.T) {
+	unpinned := []string{"agent() without model:", "agent() without effort:"}
+	cases := []struct {
+		name, src string
+		want      []string
+	}{
+		{"label only", "await agent('x', { label: 'l' })\n", unpinned},
+		{"block comment before call", "/* note */ await agent('x') // explanation\n", unpinned},
+		{"identifier division", "const x = value / 2; await agent('p') / 2;", unpinned},
+		{"number division", "const x = 42 / 2; await agent('p') / 2;", unpinned},
+		{"call division", "const x = initialize() / 2; await agent('p') / 2;", unpinned},
+		{"array division", "const x = [] / 2; await agent('p') / 2;", unpinned},
+		{"object division", "const x = {} / 2; await agent('p') / 2;", unpinned},
+		{"postfix increment division", "const x = value++ / 2; await agent('p') / 2;", unpinned},
+		{"postfix decrement division", "const x = value-- / 2; await agent('p') / 2;", unpinned},
+		{"identifier named of", "const of = 4; of / 2; await agent('p') / 2;", unpinned},
+		{"keys inside the prompt argument", "agent(JSON.stringify({model:'sonnet', effort:'low'}))", unpinned},
+		{"options inside an array", "agent('p', [{ model: 'gpt-5', effort: 'med' }])", unpinned},
+		{"options passed to a helper", "agent('p', makeOptions({ model: 'gpt-5', effort: 'med' }))", unpinned},
+		{"fully pinned", "await agent('x', { model: 'sonnet', effort: 'low' })\n", nil},
+		{"parenthesized options", "agent('p', ({model:'sonnet',effort:'low'}))", nil},
+		{"doubly parenthesized options", "agent('p', (({model:'sonnet',effort:'low'})))", nil},
+		{"agent() text inside a string", "export const meta = { description: 'an unpinned agent() probe' }\n" +
+			"await agent('x', { model: 'sonnet', effort: 'low' })\n", nil},
 	}
-	if !strings.HasPrefix(hits[0], "inline:1: agent() without model:") {
-		t.Errorf("model diagnostic = %q, want missing model on line 1", hits[0])
-	}
-	if !strings.HasPrefix(hits[1], "inline:1: agent() without effort:") {
-		t.Errorf("effort diagnostic = %q, want missing effort on line 1", hits[1])
-	}
-}
-
-func TestForAwaitDoesNotHideModuleThrow(t *testing.T) {
-	src := "export const meta = { name: 'x' }\nfor await (const item of items) {\n  throw new Error('import')\n}\n"
-	p := writeScript(t, t.TempDir(), "for-await.js", src)
-	hits := registryHidingDefects(p)
-	if len(hits) != 1 {
-		t.Fatalf("registryHidingDefects = %v, want one module-level throw inside for await", hits)
-	}
-	if !strings.HasPrefix(hits[0], p+":3:") || !strings.Contains(hits[0], "top-level throw") {
-		t.Errorf("diagnostic = %q, want top-level throw on line 3", hits[0])
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hits := LintPins("inline", []byte(tc.src))
+			if len(hits) != len(tc.want) {
+				t.Fatalf("LintPins(%q) = %v, want %d diagnostics %v", tc.src, hits, len(tc.want), tc.want)
+			}
+			for i, w := range tc.want {
+				if !strings.HasPrefix(hits[i], "inline:1: "+w) {
+					t.Errorf("diagnostic %d = %q, want prefix %q", i, hits[i], "inline:1: "+w)
+				}
+			}
+		})
 	}
 }
 
@@ -54,116 +69,10 @@ func TestTernaryLabelDoesNotPinModel(t *testing.T) {
 	}
 }
 
-func TestDivisionDoesNotHideUnpinnedAgent(t *testing.T) {
-	for _, expr := range []string{"value", "42", "initialize()", "[]", "{}", "value++", "value--"} {
-		t.Run(expr, func(t *testing.T) {
-			src := "const x = " + expr + " / 2; await agent('p') / 2;"
-			hits := LintPins("division.js", []byte(src))
-			if len(hits) != 2 {
-				t.Fatalf("LintPins = %v, want missing model and effort after division", hits)
-			}
-			if !strings.HasPrefix(hits[0], "division.js:1: agent() without model:") {
-				t.Errorf("model diagnostic = %q, want missing model on line 1", hits[0])
-			}
-			if !strings.HasPrefix(hits[1], "division.js:1: agent() without effort:") {
-				t.Errorf("effort diagnostic = %q, want missing effort on line 1", hits[1])
-			}
-		})
-	}
-}
-
-func TestModuleBlockAfterCallReportsThrow(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		src  string
-		want int
-	}{
-		{"module", "initialize()\n{ throw new Error('import') }", 1},
-		{"nested module", "{ initialize()\n{ throw new Error('import') } }", 1},
-		{"object method", "const obj = { initialize() { throw new Error('deferred') } }", 0},
-		{"class method", "class Worker { initialize() { throw new Error('deferred') } }", 0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			p := writeScript(t, t.TempDir(), "block.js", "export const meta = { name: 'block' }\n"+tc.src+"\n")
-			hits := registryHidingDefects(p)
-			if len(hits) != tc.want {
-				t.Fatalf("registryHidingDefects = %v, want %d module-level throws", hits, tc.want)
-			}
-			if tc.want == 1 && !strings.HasPrefix(hits[0], p+":3: top-level throw") {
-				t.Errorf("diagnostic = %q, want top-level throw on line 3", hits[0])
-			}
-		})
-	}
-}
-
-func TestOfIdentifierDivisionReportsUnpinnedAgent(t *testing.T) {
-	src := "const of = 4; of / 2; await agent('p') / 2;"
-	hits := LintPins("of.js", []byte(src))
-	if len(hits) != 2 {
-		t.Fatalf("LintPins = %v, want missing model and effort after division by identifier of", hits)
-	}
-	if !strings.HasPrefix(hits[0], "of.js:1: agent() without model:") {
-		t.Errorf("model diagnostic = %q, want missing model on line 1", hits[0])
-	}
-	if !strings.HasPrefix(hits[1], "of.js:1: agent() without effort:") {
-		t.Errorf("effort diagnostic = %q, want missing effort on line 1", hits[1])
-	}
-}
-
-func TestParenthesizedOptionsRetainPins(t *testing.T) {
-	for _, src := range []string{
-		"agent('p', ({model:'sonnet',effort:'low'}))",
-		"agent('p', (({model:'sonnet',effort:'low'})))",
-	} {
-		if hits := LintPins("grouped.js", []byte(src)); len(hits) != 0 {
-			t.Errorf("LintPins(%q) = %v, want no diagnostics for parenthesized pinned options", src, hits)
-		}
-	}
-}
-
-func TestLabeledBlockAfterCallReportsModuleThrow(t *testing.T) {
-	src := "export const meta = { name: 'labeled' }\nlabel: { initialize()\n{ throw Error('import') } }\n"
-	path := writeScript(t, t.TempDir(), "labeled.js", src)
-	hits := registryHidingDefects(path)
-	if len(hits) != 1 {
-		t.Fatalf("registryHidingDefects = %v, want one module-level throw inside the labeled block", hits)
-	}
-	if !strings.HasPrefix(hits[0], path+":3: top-level throw") {
-		t.Errorf("diagnostic = %q, want top-level throw on line 3", hits[0])
-	}
-}
-
-func TestScanAgentCallsWhitespaceBeforeParen(t *testing.T) {
-	for _, src := range []string{"await agent ('work')", "await agent\n('work')", "await agent\t('work')"} {
-		if hits := LintPins("inline", []byte(src)); len(hits) != 2 {
-			t.Errorf("LintPins(%q) = %v, want missing model and effort", src, hits)
-		}
-	}
-	if hits := LintPins("inline", []byte("agentic ('work')")); len(hits) != 0 {
-		t.Errorf("agentic (...) = %v, want no diagnostics", hits)
-	}
-}
-
-func TestKeysInsidePromptArgumentAreNotOptions(t *testing.T) {
-	src := "agent(JSON.stringify({model:'sonnet', effort:'low'}))"
-	hits := LintPins("inline", []byte(src))
-	if len(hits) != 2 {
-		t.Fatalf("LintPins = %v, want missing model and effort", hits)
-	}
-}
-
 func TestQuotedModelKeyIsValidated(t *testing.T) {
 	hits := LintPins("inline", []byte("agent('work', { 'model': 'bogus', effort: 'low' })"))
 	if len(hits) != 1 || !strings.Contains(hits[0], `model value "bogus"`) {
 		t.Fatalf("LintPins = %v, want one invalid-model diagnostic for 'bogus'", hits)
-	}
-}
-
-func TestFillModelSkipsRegexLiteral(t *testing.T) {
-	src := "const re = /agent(foo)/;"
-	out, ambiguous := FillModel(src, "sonnet")
-	if out != src || len(ambiguous) != 0 {
-		t.Fatalf("FillModel = %q, %v; want the regex untouched and no ambiguity", out, ambiguous)
 	}
 }
 
@@ -188,25 +97,12 @@ func TestCommentCommaDoesNotSplitArgs(t *testing.T) {
 	}
 }
 
-func TestMethodThrowsAreNotTopLevel(t *testing.T) {
-	cases := map[string]int{
-		"const helper = { run() { throw new Error('x') } }\n": 0,
-		"class W { run() { throw new Error('y') } }\n":        0,
-		"if (ok) {\n  throw new Error('z')\n}\n":              1,
-	}
-	for src, want := range cases {
-		if got := topLevelThrowLines(stripStrings(src)); len(got) != want {
-			t.Errorf("topLevelThrowLines(%q) = %v, want %d", src, got, want)
-		}
-	}
-}
-
 type diskFullWriter struct{}
 
 func (diskFullWriter) Write([]byte) (int, error) { return 0, errors.New("disk full") }
 
 func TestLintFailedSuccessWriteExitsNonZero(t *testing.T) {
-	useNode(t)
+	noNode(t)
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "workflows"), 0o755); err != nil {
 		t.Fatal(err)

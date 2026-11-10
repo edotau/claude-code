@@ -89,10 +89,15 @@ func TestRunReportMatchesGolden(t *testing.T) {
 }
 
 func TestRunReportMissingRepo(t *testing.T) {
+	missing := filepath.Join("testdata", "report", "nosuchdir")
+	abs, err := filepath.Abs(missing)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var stdout, stderr bytes.Buffer
-	code := RunReport([]string{filepath.Join("testdata", "report", "nosuchdir")}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
+	code := RunReport([]string{missing}, &stdout, &stderr)
+	if want := "Error: Path does not exist: " + abs + "\n"; code != 1 || stdout.Len() != 0 || stderr.String() != want {
+		t.Fatalf("RunReport = %d, stdout %q, stderr %q; want 1, empty, %q", code, &stdout, &stderr, want)
 	}
 }
 
@@ -162,11 +167,20 @@ func TestMarkdownReportSectionLimits(t *testing.T) {
 	}
 }
 
-func TestRunReportBadFlag(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := RunReport([]string{"--nope"}, &stdout, &stderr)
-	if code == 0 {
-		t.Fatalf("exit code = 0 for a bad flag, want nonzero")
+// An unknown flag exits 2 with the flag error and the verb's own usage page on stderr, nothing on stdout.
+func TestReviewCommandsRejectUnknownFlag(t *testing.T) {
+	for _, tc := range []struct {
+		verb string
+		run  func([]string, io.Writer, io.Writer) int
+	}{{"pr", RunPR}, {"report", RunReport}, {"diff", RunDiff}} {
+		t.Run(tc.verb, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := tc.run([]string{"--nope"}, &stdout, &stderr)
+			want := "flag provided but not defined: -nope\nusage: claude-code review " + tc.verb + " "
+			if code != 2 || stdout.Len() != 0 || !strings.HasPrefix(stderr.String(), want) {
+				t.Fatalf("exit %d, stdout %q, stderr %q; want 2, empty, prefix %q", code, &stdout, &stderr, want)
+			}
+		})
 	}
 }
 
