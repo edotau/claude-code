@@ -17,6 +17,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // rawUp is an upstream that records raw requests (the shared newUpstream insists on a JSON body).
@@ -106,6 +108,43 @@ func TestPassthroughForwardsVerbatim(t *testing.T) {
 			}
 			if g[0].method != http.MethodPost || g[0].body != body {
 				t.Fatalf("method %q body %q, want verbatim POST", g[0].method, g[0].body)
+			}
+		})
+	}
+}
+
+// A transient passthrough 429 is relayed and cools the provider in this proxy; a model-denied 429 does not.
+func TestPassthrough429CoolsOnlyOnTransientLimits(t *testing.T) {
+	cases := []struct {
+		name, body string
+		cools      bool
+	}{
+		{"transient", `{"error":{"message":"slow down"}}`, true},
+		{"model denied", `{"error":{"message":"Quota exceeded for metric: x, limit: 0, model: m"}}`, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			up := newRawUp(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+				w.Header().Set("Retry-After", "60")
+				w.WriteHeader(http.StatusTooManyRequests)
+				io.WriteString(w, c.body)
+			})
+			t.Setenv("PT_KEY", "prov-cred")
+			vaulttest.Use(t)
+			vaulttest.Put(t, vault.Overlay, "providers", ptOverlay(up.URL))
+			r := newRouter(secret)
+			r.log = io.Discard
+			srv := httptest.NewServer(r)
+			t.Cleanup(srv.Close)
+			resp := ptDo(t, http.MethodPost, srv.URL+"/p/pt/openai/chat/completions", `{"model":"m"}`, nil)
+			if b, _ := io.ReadAll(resp.Body); resp.StatusCode != 429 || string(b) != c.body {
+				t.Fatalf("relayed %d %q, want the upstream 429 untouched", resp.StatusCode, b)
+			}
+			r.mu.Lock()
+			until, cooling := r.cool["pt"]
+			r.mu.Unlock()
+			if cooling != c.cools || cooling && !until.After(time.Now().Add(30*time.Second)) {
+				t.Fatalf("cooling=%v until %v, want cooling=%v honoring Retry-After 60", cooling, until, c.cools)
 			}
 		})
 	}

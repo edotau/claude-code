@@ -85,10 +85,7 @@ func (r *Router) failover(resp *http.Response, t providers.Target, last bool) (m
 				return true, true
 			}
 		} else {
-			d := retryAfter(resp.Header.Get("Retry-After"), r.now())
-			r.mu.Lock()
-			r.cool[p.Name] = r.now().Add(d)
-			r.mu.Unlock()
+			r.coolDown(p, resp)
 		}
 	}
 	if last || !retryable[resp.StatusCode] {
@@ -96,6 +93,14 @@ func (r *Router) failover(resp *http.Response, t providers.Target, last bool) (m
 	}
 	drain(resp)
 	return true, hard
+}
+
+// coolDown sinks p in this process's ladders for resp's Retry-After (clamped), after a transient 429.
+func (r *Router) coolDown(p *providers.Provider, resp *http.Response) {
+	d := retryAfter(resp.Header.Get("Retry-After"), r.now())
+	r.mu.Lock()
+	r.cool[p.Name] = r.now().Add(d)
+	r.mu.Unlock()
 }
 
 // promptTooLong matches the upstream limit text, e.g. "prompt is too long: 1177204 tokens > 1000000 maximum".
