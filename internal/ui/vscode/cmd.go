@@ -39,7 +39,7 @@ func Run(args []string) int {
 		return code
 	}
 	if fs.NArg() > 0 { // a stray word (the retired `serve`) must not fall through to a merge
-		return helptext.Fail("theme vscode: unexpected argument %q (serving moved to `network vscode`)", fs.Arg(0))
+		return helptext.Fail("theme vscode: unexpected argument %q", fs.Arg(0))
 	}
 	return vscodeSync(o, *check, *dryRun)
 }

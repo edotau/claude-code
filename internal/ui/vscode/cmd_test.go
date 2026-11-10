@@ -14,7 +14,7 @@ func TestThemeVSCodeServeNoLongerRoutes(t *testing.T) {
 	if code != 1 {
 		t.Errorf("theme vscode serve: exit %d, want 1", code)
 	}
-	if !strings.Contains(stderr, `unexpected argument "serve"`) || !strings.Contains(stderr, "network vscode") {
+	if !strings.Contains(stderr, `unexpected argument "serve"`) {
 		t.Errorf("stderr = %q", stderr)
 	}
 }

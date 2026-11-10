@@ -2,6 +2,7 @@ package browser
 
 import (
 	"errors"
+	"strconv"
 	"testing"
 )
 
@@ -27,7 +28,7 @@ func TestRenderTextReturnsFirstWriteError(t *testing.T) {
 		{Name: "firefox"},
 	}}
 	for _, failAt := range []int{1, 2, 3, 4, 5} {
-		t.Run(itoa(failAt), func(t *testing.T) {
+		t.Run(strconv.Itoa(failAt), func(t *testing.T) {
 			first := errors.New("first write failed")
 			w := &failingRenderWriter{failAt: failAt, first: first, later: errors.New("later write failed")}
 			if err := RenderText(w, r); !errors.Is(err, first) {

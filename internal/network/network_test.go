@@ -20,11 +20,11 @@ import (
 
 func TestNetworkBareAndHelpPrintUsageExitZero(t *testing.T) {
 	for _, args := range [][]string{nil, {"-h"}, {"--help"}} {
-		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run(args, nil) })
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run(args) })
 		if code != 0 {
 			t.Errorf("network %v: exit %d, want 0", args, code)
 		}
-		for _, sub := range []string{"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode"} {
+		for _, sub := range []string{"tailscale", "browser", "websearch", "restart", "remote"} {
 			if !strings.Contains(stderr, sub) {
 				t.Errorf("network %v: help lacks %q: %q", args, sub, stderr)
 			}
@@ -33,24 +33,24 @@ func TestNetworkBareAndHelpPrintUsageExitZero(t *testing.T) {
 }
 
 func TestNetworkUnknownSubverb(t *testing.T) {
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"bogus"}, nil) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"bogus"}) })
 	if code != 1 {
 		t.Errorf("exit %d, want 1", code)
 	}
-	if !strings.Contains(stderr, `unknown subcommand "bogus"`) || !strings.Contains(stderr, "tailscale|browser|websearch|mcp|page|view|vscode") {
+	if !strings.Contains(stderr, `unknown subcommand "bogus"`) || !strings.Contains(stderr, "tailscale|browser|websearch|restart|remote") {
 		t.Errorf("stderr = %q", stderr)
 	}
 }
 
 func TestNetworkOldSubverbsRejected(t *testing.T) {
 	for _, old := range []string{"web", "doctor", "status", "connect", "browsers"} {
-		if code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{old}, nil) }); code != 1 {
+		if code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{old}) }); code != 1 {
 			t.Errorf("network %s: exit %d, want 1", old, code)
 		}
 	}
 }
 
-// TestNetworkSubcommandsRejectUnknownFormat: browsers/setup/view all validate --format through
+// TestNetworkSubcommandsRejectUnknownFormat: browsers and setup validate --format through
 // helptext.CheckFormat before doing any work — an unknown value is a usage error (2).
 func TestNetworkSubcommandsRejectUnknownFormat(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -60,7 +60,6 @@ func TestNetworkSubcommandsRejectUnknownFormat(t *testing.T) {
 	}{
 		{"browser", func() int { return cmdNetworkBrowser([]string{"--format", "yaml"}) }},
 		{"browser --setup --dry-run", func() int { return cmdNetworkBrowser([]string{"--setup", "--dry-run", "--format", "yaml"}) }},
-		{"view", func() int { return cmdNetworkView([]string{"agent-id", "--format", "yaml"}) }},
 	}
 	for _, c := range cases {
 		code, _, stderr := hosttest.CaptureOutput(t, c.fn)

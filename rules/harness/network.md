@@ -8,14 +8,13 @@ paths:
 | To… | Run |
 | --- | --- |
 | Search the web or read a page (any agent) | `claude-code network websearch --query "<query>"` · `--extract <url>` (`skills/web-explorer/SKILL.md`) |
-| Scrape repeated records | `claude-code network browser --extract <url> --container <sel> --field name=sel[@attr]` (`--next\|--pages\|--scroll\|--load-more`, `--format jsonl\|csv\|json`) |
-| Check MCP health, scope drift, inline secrets | `claude-code network mcp [--format json]` |
+| Check MCP health, scope drift, inline secrets | `claude-code doctor --mcp [--format json]` |
 | Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list\|--dry-run]` · opt-in `--target projections\|sessions` |
 | Map the whole harness | `claude-code describe [--format json\|text]` |
 | Run any harness verb on a tailnet host | `claude-code --host <host> <verb …>` (ssh, `-t` on a terminal); a browser login opens on the host (WSL: the Windows default browser via `wslview` or `explorer.exe`) |
 
 - Browser automation only on authorized sites; robots.txt is checked; no detection evasion
   (`rules/standards/security.md` → 5).
-- `network mcp` is read-only: propose the fix (`claude mcp remove <name> -s <scope>`, or move a token to `${ENV}`
+- `doctor --mcp` is read-only: propose the fix (`claude mcp remove <name> -s <scope>`, or move a token to `${ENV}`
   via `vault set`); never remove or rotate without the user's confirmation.
 - `clean` applies by default (`--dry-run` previews) and never sweeps credentials or settings.

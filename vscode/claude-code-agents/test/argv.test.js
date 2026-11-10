@@ -5,7 +5,6 @@ const {
   dispatchStartArgv,
   attachShellArgs,
   attachCommandLine,
-  vscodeServeArgv,
   AGENTS,
 } = require('../lib/argv');
 
@@ -56,23 +55,5 @@ test('attachCommandLine: full "ssh -t host tmux attach -t session" text', () => 
   assert.equal(
     attachCommandLine('myhost', 'cc-claude-abcd'),
     'ssh -t myhost tmux attach -t cc-claude-abcd'
-  );
-});
-
-test('vscodeServeArgv: "<binary> network vscode"', () => {
-  assert.deepEqual(vscodeServeArgv('claude-code'), ['claude-code', 'network', 'vscode']);
-});
-
-test('vscodeServeArgv: {stop: true} appends --stop', () => {
-  assert.deepEqual(
-    vscodeServeArgv('claude-code', { stop: true }),
-    ['claude-code', 'network', 'vscode', '--stop']
-  );
-});
-
-test('vscodeServeArgv: {stop: false} omits --stop entirely', () => {
-  assert.deepEqual(
-    vscodeServeArgv('claude-code', { stop: false }),
-    ['claude-code', 'network', 'vscode']
   );
 });

@@ -416,16 +416,13 @@ every embedded (`//go:embed`) template.
 | Bash tab completion | `claude-code completion --install` |
 | OpenCode reasoning effort | TUI `ctrl+t` · `opencode run --variant high` · `claude-code agents ask --effort high` |
 | Worktrees under `~/worktrees/<repo>/` | `claude-code worktree list\|create <n>\|merge <n>\|clean <n>\|clean-all` |
-| Subagent status and dispatches | `claude-code agents tree [--watch\|--background]` · `agents reap [--dry-run]` · `network view <id> [--follow]` |
+| Subagent status and dispatches | `claude-code agents tree [--watch\|--background]` · `agents reap [--dry-run]` |
 | Run an agent on another tailnet box | `claude-code agents ask --host <h> --agent <a> "<task>"` · `network remote --host <h> --list --status` |
-| Watch agents from a phone | `claude-code network page [--addr ip:port]` |
-| See packages, dependencies, the CLI map and the open audit | `claude-code network page` → Architecture tab |
-| Browsers, scraping, web search | `claude-code network browser [--setup --browser <b>]` · `--extract <url> …` · `network websearch --query q` |
+| Browsers, web search | `claude-code network browser [--setup --browser <b>]` · `network websearch --query q` |
 | Tailnet | `claude-code network tailscale [--machines\|--connect\|--key\|--exit-node …\|--subnet <cidr> …]` (`TAILSCALE_OAUTH_CLIENT_ID`/`_SECRET` or `TAILSCALE_API_KEY` in the vault; `make tailscale-cli` installs it) |
-| VS Code on your phone | `claude-code network vscode [--stop\|--status] [--funnel]` (token-gated URL + QR) |
 | Keep MEMORY.md small | `claude-code memory archive [--split 20 --apply]` |
 | Lint a workflow script | `claude-code workflow lint` · `workflow skeleton <pattern>` |
-| Housekeeping | `claude-code clean [--list\|--dry-run]` · `doctor --audit [--days 7]` · `history snapshot\|log\|diff` · `network mcp` |
+| Housekeeping | `claude-code clean [--list\|--dry-run]` · `doctor --audit [--days 7]` · `history snapshot\|log\|diff` · `doctor --mcp` |
 | Theme, VS Code | `claude-code theme [--palettes\|--reset] [<palette>]` · `theme apply` · `theme vscode [--check\|--dry-run]` |
 
 ## Development

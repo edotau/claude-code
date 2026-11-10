@@ -33,7 +33,7 @@ const FIX = a.fix !== false
 // partition:true with fix:false returns the wave plan (Scan + Plan) without editing anything.
 const PART = a.partition === true
 // Hotspot files are edited by one final single-owner task, not in the waves; '**/D/**' matches a directory.
-const HOTSPOTS = ['internal/schemas/ledger_test.go', 'internal/network/web/assets/architecture.json', 'skills/subagent-workflows/references/saved-workflows.md', 'settings.json', 'go.mod', 'go.sum', 'Makefile', '**/testdata/**']
+const HOTSPOTS = ['internal/schemas/ledger_test.go', 'skills/subagent-workflows/references/saved-workflows.md', 'settings.json', 'go.mod', 'go.sum', 'Makefile', '**/testdata/**']
 const HOT = [...HOTSPOTS, ...(Array.isArray(a.hotspots) ? a.hotspots.filter(Boolean) : [])]
 // Wave width: args.cap, bounded by the dispatch hook's 24 per account.
 const CAP = Math.min(Number.isInteger(a.cap) && a.cap > 0 ? a.cap : 8, 24)

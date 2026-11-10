@@ -324,3 +324,34 @@ func pendingDispatch(transcriptPath, cwd string, matched map[string]bool, now ti
 	}
 	return nil
 }
+
+// Event is one assistant transcript block: a tool call or a text blurb.
+type Event struct {
+	At   time.Time `json:"at"`
+	Kind string    `json:"kind"` // tool|text
+	Tool string    `json:"tool,omitempty"`
+	Arg  string    `json:"arg,omitempty"`
+	Text string    `json:"text,omitempty"`
+}
+
+// eventsFromLine turns one assistant transcript record into 0+ Events, one per tool_use/text block.
+func eventsFromLine(raw []byte, home, cwd string) []Event {
+	if !bytes.Contains(raw, toolUseMarker) && !bytes.Contains(raw, []byte(`"text"`)) {
+		return nil
+	}
+	var rec assistantContentLine
+	if json.Unmarshal(raw, &rec) != nil || rec.Type != "assistant" {
+		return nil
+	}
+	at := parseRFC3339(rec.Timestamp)
+	var out []Event
+	for _, c := range rec.Message.Content {
+		switch {
+		case c.Type == "tool_use" && c.Name != "":
+			out = append(out, Event{At: at, Kind: "tool", Tool: c.Name, Arg: StripPaths(toolArg(c.Input), home, cwd)})
+		case c.Type == "text" && c.Text != "":
+			out = append(out, Event{At: at, Kind: "text", Text: Truncate(c.Text, 80)})
+		}
+	}
+	return out
+}

@@ -1,12 +1,9 @@
 package network
 
 import (
-	"os"
-
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/network/tailscale"
-	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // Spec is the completion node for the network verb.
@@ -19,18 +16,10 @@ func Spec() *completion.Node {
 			flag("key-env"), boolFlag("advertise-exit"),
 			flag("expiry"), flag("tags"), boolFlag("save"), boolFlag("reusable"), boolFlag("ephemeral"),
 			boolFlag("preauthorized"), flag("description")}},
-		"browser": {Flags: []completion.Flag{formatFlag(), boolFlag("setup"), valuedFlag("browser", browserNames), boolFlag("dry-run"),
-			flag("extract"), flag("container"), flag("field"), flag("next"), flag("pages"), boolFlag("scroll"),
-			flag("load-more"), flag("max-pages"), flag("key"), flag("o"), boolFlag("ignore-robots")}},
+		"browser":   {Flags: []completion.Flag{formatFlag(), boolFlag("setup"), valuedFlag("browser", browserNames), boolFlag("dry-run")}},
 		"websearch": {Flags: []completion.Flag{flag("query"), flag("max-results"), flag("extract")}},
-		"mcp":       {Flags: []completion.Flag{formatFlag()}},
-		"page":      {Flags: []completion.Flag{flag("addr"), flag("hosts"), flag("days"), boolFlag("dry-run-dispatch")}},
-		"view": {Args: []func() []string{webViewAgentIDs}, Flags: []completion.Flag{flag("session"), flag("days"),
-			flag("n"), boolFlag("follow"), formatFlag()}},
 		"remote": {Flags: []completion.Flag{valuedFlag("host", tailscale.CachedMachineNames), flag("dir"), valuedFlag("agent", func() []string { return remote.RemoteAgents }),
 			flag("name"), boolFlag("dry-run"), boolFlag("list"), boolFlag("attach"), boolFlag("status"), flag("interval"), formatFlag()}},
-		"vscode": {Flags: []completion.Flag{flag("port"), boolFlag("stop"), boolFlag("status"), boolFlag("no-tailscale"),
-			boolFlag("funnel"), flag("folder"), formatFlag()}},
 	}}
 }
 
@@ -46,12 +35,4 @@ func routeTargets() []string { return append(tailscale.CachedMachineNames(), "of
 // browserNames mirrors `network browser --setup --browser`'s accepted values.
 func browserNames() []string {
 	return []string{"chrome", "edge", "brave", "arc", "vivaldi", "chromium", "default"}
-}
-
-func webViewAgentIDs() []string {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil
-	}
-	return transcript.AgentIDs(cwd)
 }

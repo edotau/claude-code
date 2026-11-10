@@ -92,8 +92,8 @@ func TestCompletionFlags(t *testing.T) {
 	if got := completionCandidates([]string{"theme", "--"}); !slices.Equal(got, []string{"--palettes", "--reset"}) {
 		t.Errorf("theme -- = %v, want [--palettes --reset]", got)
 	}
-	if got := completionCandidates([]string{"doctor", "--"}); !slices.Equal(got, []string{"--audit", "--days", "--format", "--git", "--prompts", "--range", "--refresh", "--scan", "--secrets", "--since"}) {
-		t.Errorf("doctor -- = %v, want [--audit --days --format --git --prompts --range --refresh --scan --secrets --since]", got)
+	if got := completionCandidates([]string{"doctor", "--"}); !slices.Equal(got, []string{"--audit", "--days", "--format", "--git", "--mcp", "--prompts", "--range", "--refresh", "--scan", "--secrets", "--since"}) {
+		t.Errorf("doctor -- = %v, want [--audit --days --format --git --mcp --prompts --range --refresh --scan --secrets --since]", got)
 	}
 }
 
@@ -419,18 +419,12 @@ func TestWorktreeMergeResolveAgentCompletes(t *testing.T) {
 	}
 }
 
-// TestNetworkBareOffersSubverbs pins `network ⇥`: all six sub-verbs; the page flags live on `network page`.
+// TestNetworkBareOffersSubverbs pins `network ⇥`: all five sub-verbs.
 func TestNetworkBareOffersSubverbs(t *testing.T) {
 	got := completionCandidates([]string{"network", ""})
-	for _, want := range []string{"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode", "restart", "remote"} {
+	for _, want := range []string{"tailscale", "browser", "websearch", "restart", "remote"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("network ⇥ = %v, missing %q", got, want)
-		}
-	}
-	page := completionCandidates([]string{"network", "page", ""})
-	for _, want := range []string{"--addr", "--hosts"} {
-		if !slices.Contains(page, want) {
-			t.Errorf("network page ⇥ = %v, missing %q", page, want)
 		}
 	}
 }
@@ -565,7 +559,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	cases := map[string][]string{
 		"history": {"snapshot", "log", "diff"},
 		"vault":   {"ls", "set", "get", "delete", "import", "export", "edit", "rotate-secret"},
-		"network": {"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode", "restart", "remote"},
+		"network": {"tailscale", "browser", "websearch", "restart", "remote"},
 		"memory": {"recall", "remember", "init", "review", "verify", "promote", "update", "dream", "search", "show",
 			"digest", "index", "path", "catchup", "watch", "timeline", "archive", "alias", "fmt", "report"},
 		"gateway":  {"proxy"},

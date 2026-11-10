@@ -1,86 +1,13 @@
-package browser
+package mcp
 
-import (
-	"context"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"strings"
-	"time"
-)
+import "strings"
 
+// robotsAgent is the user-agent group robots.txt rules are read for.
 const robotsAgent = "claude-code"
 
 type robotsRule struct {
 	allow   bool
 	pattern string
-}
-
-// robotsGate fetches and caches robots.txt per origin and judges URLs against it.
-type robotsGate struct {
-	ignore bool
-	client *http.Client
-	rules  map[string][]robotsRule
-}
-
-func newRobotsGate(ignore bool) *robotsGate {
-	return &robotsGate{ignore: ignore, client: &http.Client{Timeout: 10 * time.Second}, rules: map[string][]robotsRule{}}
-}
-
-// check refuses a URL robots.txt disallows for claude-code; a non-200 status or unreachable origin allows it.
-func (g *robotsGate) check(ctx context.Context, raw string) error {
-	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return fmt.Errorf("only http and https URLs are supported: %q", raw)
-	}
-	if g.ignore {
-		return nil
-	}
-	origin := u.Scheme + "://" + u.Host
-	rules, ok := g.rules[origin]
-	if !ok {
-		rules = g.fetch(ctx, origin)
-		g.rules[origin] = rules
-	}
-	path := robotsPath(u)
-	if r, blocked := robotsDisallows(rules, path); blocked {
-		return fmt.Errorf("robots.txt at %s disallows %s (rule \"Disallow: %s\"); --ignore-robots overrides", origin, path, r.pattern)
-	}
-	return nil
-}
-
-// robotsPath is the escaped path plus query that robots rules match against.
-func robotsPath(u *url.URL) string {
-	path := u.EscapedPath()
-	if path == "" {
-		path = "/"
-	}
-	if u.RawQuery != "" {
-		path += "?" + u.RawQuery
-	}
-	return path
-}
-
-func (g *robotsGate) fetch(ctx context.Context, origin string) []robotsRule {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, origin+"/robots.txt", nil)
-	if err != nil {
-		return nil
-	}
-	req.Header.Set("User-Agent", robotsAgent)
-	resp, err := g.client.Do(req)
-	if err != nil {
-		return nil
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil
-	}
-	return parseRobots(string(body))
 }
 
 // parseRobots returns the rules of the claude-code group, else the * group.
@@ -127,8 +54,8 @@ func addRobotsRule(groups map[string][]robotsRule, agents []string, allow bool, 
 	}
 }
 
-// RobotsBlocks reports whether the robots.txt body txt disallows path (with query) for claude-code.
-func RobotsBlocks(txt, path string) bool {
+// robotsBlocks reports whether the robots.txt body txt disallows path (with query) for claude-code.
+func robotsBlocks(txt, path string) bool {
 	_, blocked := robotsDisallows(parseRobots(txt), path)
 	return blocked
 }

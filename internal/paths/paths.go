@@ -3,11 +3,8 @@ package paths
 
 import (
 	"bytes"
-	cryptorand "crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/fs"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -321,48 +318,6 @@ func Backup(src string, data []byte) (string, error) {
 		return "", fmt.Errorf("backup dir %s: %w", filepath.Dir(base), err)
 	}
 	return writeBackup(base, data)
-}
-
-// ClientSecret returns the 32-byte hex secret in file, minting it 0600 under a file lock on first use.
-func ClientSecret(file string) (string, error) {
-	s, err := readSecret(file)
-	if err == nil {
-		return s, nil
-	}
-	if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, errEmptySecret) {
-		return "", err
-	}
-	var out string
-	err = WithFileLock(file, func() error {
-		s, err := readSecret(file)
-		if err == nil {
-			out = s
-			return nil
-		}
-		if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, errEmptySecret) {
-			return err
-		}
-		b := make([]byte, 32)
-		if _, err := cryptorand.Read(b); err != nil {
-			return err
-		}
-		out = hex.EncodeToString(b)
-		return AtomicWrite(file, []byte(out+"\n"), 0o600)
-	})
-	return out, err
-}
-
-var errEmptySecret = errors.New("empty secret file")
-
-func readSecret(file string) (string, error) {
-	b, err := os.ReadFile(file)
-	if err != nil {
-		return "", err
-	}
-	if s := strings.TrimSpace(string(b)); s != "" {
-		return s, nil
-	}
-	return "", fmt.Errorf("%w: %s", errEmptySecret, file)
 }
 
 // VSCodeSettings is the platform's VS Code Machine settings path; outside a vscode-server it is the User scope.

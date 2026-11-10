@@ -214,13 +214,6 @@ host, from GitHub when it is on github.com — as `#123 ✓ · 1/2` (checks · r
 hides itself when the branch has no PR; `claudeCodeAgents.tasksStatusBar` (default `true`) turns it off.
 Clicking it runs "Show Tasks".
 
-## Phone access
-
-"Claude Code Agents: Serve for Phone (Tailscale)" runs `claude-code network vscode` in a terminal
-named "Agents Dashboard", publishing this VS Code's web UI to your tailnet (or the public internet
-with `--funnel`) with a token-gated URL and a terminal QR code; "Stop Serving for Phone" runs
-`claude-code network vscode --stop`.
-
 ## Tests
 
 `node --test <dir>` fails to discover files on this box (mise node 24); use a glob instead:

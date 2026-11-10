@@ -31,14 +31,6 @@ function profileArgv(binary) {
   return [binary, 'configure', 'provider', '--list', '--format', 'json'];
 }
 
-/** argv for `<binary> network vscode` or, with opts.stop, `<binary> network vscode --stop`. */
-function vscodeServeArgv(binary, opts) {
-  const { stop } = opts || {};
-  const argv = [binary, 'network', 'vscode'];
-  if (stop) argv.push('--stop');
-  return argv;
-}
-
 /** shellArgs for an `ssh -t host tmux attach -t session` terminal. */
 function attachShellArgs(host, session) {
   return ['-t', host, 'tmux', 'attach', '-t', session];
@@ -54,7 +46,6 @@ module.exports = {
   dispatchStartArgv,
   usageArgv,
   profileArgv,
-  vscodeServeArgv,
   attachShellArgs,
   attachCommandLine,
 };

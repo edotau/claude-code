@@ -70,9 +70,6 @@ func TestRenderWriteErrors(t *testing.T) {
 			tr := &agenttree.Tree{Sessions: []agenttree.Session{{Cwd: "/repo"}}}
 			return RenderText(w, tr, time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC))
 		}},
-		{"snapshot", func(w io.Writer) error {
-			return RenderSnapshot(w, agenttree.Snapshot{ID: "agent", Workflow: "workflow"})
-		}},
 	}
 	failures := []struct {
 		name       string
