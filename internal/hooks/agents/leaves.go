@@ -290,14 +290,26 @@ func requestsAgent(brief string) bool {
 // externalTypes are the leaf types named for the external agent they request; the type is the request.
 var externalTypes = map[string]bool{"codex": true, "copilot": true, "gemini": true, "opencode": true}
 
-// pinnedAgentType is true for a leaf type fixed to one external agent; its type is the request, whatever the brief says.
-func pinnedAgentType(t string) bool {
-	return externalTypes[t]
+// coworkerAgents maps each coworker leaf type to the agent it runs when its brief names none; the type is the request.
+var coworkerAgents = map[string]string{"coworker": "copilot", "coworker:copilot": "copilot",
+	"coworker:opencode": "opencode", "coworker:databricks": "claude"}
+
+// coworkerPin is the agent a pinned coworker type always runs, whatever its brief's Agent: line says ("" if unpinned).
+func coworkerPin(t string) string {
+	if t == "coworker:copilot" || t == "coworker:opencode" {
+		return coworkerAgents[t]
+	}
+	return ""
 }
 
-// ranOnGated is true for the leaves that can call an external agent: codex|copilot|gemini|opencode.
+// pinnedAgentType is true for a leaf type whose type is the request (an external agent or a coworker), whatever the brief says.
+func pinnedAgentType(t string) bool {
+	return externalTypes[t] || coworkerAgents[t] != ""
+}
+
+// ranOnGated is true for the leaves that can call an external agent: codex|copilot|gemini|opencode and coworker[:*].
 func ranOnGated(t string) bool {
-	return externalTypes[t]
+	return pinnedAgentType(t)
 }
 
 // ranOnVerdict blocks a gated leaf's stop or hand-back up to ranOnMaxBlocks times when no ran-on line was seen.

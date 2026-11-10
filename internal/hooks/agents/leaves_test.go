@@ -655,7 +655,8 @@ func TestRanOnGateTypes(t *testing.T) {
 
 // A pinned leaf type is the agent request: with no Agent: line it is still blocked, while claude is not.
 func TestRanOnGatePinnedTypeNeedsNoAgentLine(t *testing.T) {
-	for st, want := range map[string]bool{"codex": true, "copilot": true, "gemini": true, "opencode": true, "claude": false} {
+	for st, want := range map[string]bool{"codex": true, "copilot": true, "gemini": true, "opencode": true, "claude": false,
+		"coworker": true, "coworker:copilot": true, "coworker:opencode": true, "coworker:databricks": true} {
 		_, blocked := leafStopBlock(leafTx(t, st, "Objective: x\nOwns: /tmp/x\n", "ls output"), "a1")
 		if blocked != want {
 			t.Errorf("%s with no Agent: line: blocked = %v, want %v", st, blocked, want)
