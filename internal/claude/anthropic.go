@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/launchplan"
+	"github.com/edotau/claude-code/internal/agent/launchcli"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -63,7 +63,7 @@ func ParseAnthropicArgs(args []string) (AnthropicOptions, []string, error) {
 			return o, nil, err
 		}
 	}
-	base, rest, err := launchplan.ParseArgs(kept, true)
+	base, rest, err := launchcli.ParseArgs(kept, true)
 	if err != nil {
 		return o, nil, err
 	}

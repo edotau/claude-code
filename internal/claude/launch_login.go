@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/launchplan"
+	"github.com/edotau/claude-code/internal/agent/launchcli"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/preflight"
@@ -21,7 +21,7 @@ import (
 // Test seams: the sign-in factory, the TTY gate, and the prompt's input and output.
 var (
 	signinFor           = agent.SigninFor
-	canPrompt           = func() bool { return launchplan.IsTerminal(os.Stdin) && launchplan.IsTerminal(os.Stderr) }
+	canPrompt           = func() bool { return launchcli.IsTerminal(os.Stdin) && launchcli.IsTerminal(os.Stderr) }
 	loginIn   io.Reader = os.Stdin
 	loginOut  io.Writer = os.Stderr
 	// credCheckTimeout bounds the pre-launch sign-in check; a var so tests stay fast.
@@ -30,7 +30,7 @@ var (
 
 // offerLogin offers a sign-in for each provider whose check says it needs one; failures warn.
 func offerLogin(ctx context.Context, o agent.LaunchOptions, args []string, ps []*providers.Provider, plan *agent.Plan) {
-	if o.PrintEnv || launchplan.IsHeadless(args) || !canPrompt() {
+	if o.PrintEnv || launchcli.IsHeadless(args) || !canPrompt() {
 		return
 	}
 	todo := loginCandidates(ps)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/job"
+	"github.com/edotau/claude-code/internal/agent/launchcli"
 	"github.com/edotau/claude-code/internal/agent/launchplan"
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/tools"
@@ -20,18 +21,18 @@ import (
 
 // Launch launches the named agent CLI and returns the exit code.
 func Launch(name string, args []string) int {
-	opts, rest, err := launchplan.ParseLaunchArgs(args, false)
+	opts, rest, err := launchcli.ParseLaunchArgs(args, false)
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
 	plan, err := launchplan.LaunchPlan(context.Background(), name, opts, rest)
 	if err == nil {
 		warnVersion(name, plan.Binary, opts, rest)
-		if !opts.PrintEnv && !launchplan.IsHeadless(rest) {
+		if !opts.PrintEnv && !launchcli.IsHeadless(rest) {
 			providers.RecordLastProfile(name, plan.Profile)
 		}
 	}
-	return launchplan.Run(name, plan, opts, err)
+	return launchcli.Run(name, plan, opts, err)
 }
 
 // warnVersion prints the one-line out-of-bounds warning for an interactive launch of the agent binary at path.

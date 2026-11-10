@@ -10,8 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/launchplan"
-
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/gateway"
 
@@ -35,24 +33,6 @@ func vendorPATHFixture(t *testing.T, name, body string) string {
 		bin = dst
 	}
 	return bin
-}
-
-// headless is the only launch that carries the setup-token: -p and --print, in any position.
-func TestHeadless(t *testing.T) {
-	for _, tc := range []struct {
-		args []string
-		want bool
-	}{
-		{[]string{"-p", "hi"}, true},
-		{[]string{"hi", "--print"}, true},
-		{nil, false},
-		{[]string{"-c"}, false},
-		{[]string{"--settings", "x"}, false},
-	} {
-		if got := launchplan.IsHeadless(tc.args); got != tc.want {
-			t.Errorf("agent.IsHeadless(%v) = %v, want %v", tc.args, got, tc.want)
-		}
-	}
 }
 
 // hermetic isolates config, pins and seams; userProviders is an optional vault overlay/providers document.
@@ -81,30 +61,6 @@ func hermetic(t *testing.T, userProviders string) {
 	selfBinary = func() (string, error) { return "/opt/bin/claude-code", nil }
 	t.Cleanup(agent.StubRouter("http://127.0.0.1:4000"))
 	t.Cleanup(func() { findClaude, selfBinary = oldFind, oldSelf })
-}
-
-func TestParseArgs(t *testing.T) {
-	o, rest, err := launchplan.ParseArgs([]string{"--profile=openai", "-p", "hi", "--model", "gpt-5", "--print-env", "--", "--model", "x"}, true)
-	if err != nil || o.Provider != "openai" || o.Model != "gpt-5" || !o.PrintEnv {
-		t.Fatalf("%+v %v", o, err)
-	}
-	if !slices.Equal(rest, []string{"-p", "hi", "--model", "x"}) {
-		t.Errorf("rest %q", rest)
-	}
-	if _, _, err := launchplan.ParseArgs([]string{"--profile"}, true); err == nil {
-		t.Error("missing value accepted")
-	}
-}
-
-// --keep-env takes a comma list, repeatable, and accepts both the "--name value" and "--name=value" shapes.
-func TestParseArgsKeepEnv(t *testing.T) {
-	o, _, err := launchplan.ParseArgs([]string{"--keep-env", "LANG,LC_ALL", "--keep-env=HOME"}, true)
-	if err != nil || !slices.Equal(o.KeepEnv, []string{"LANG", "LC_ALL", "HOME"}) {
-		t.Fatalf("KeepEnv = %q, err %v", o.KeepEnv, err)
-	}
-	if _, _, err := launchplan.ParseArgs([]string{"--keep-env"}, true); err == nil {
-		t.Error("missing value accepted")
-	}
 }
 
 func TestConfigDirEnvIsDefault(t *testing.T) {
