@@ -678,7 +678,7 @@ func TestRanOnNoRanOnBlocks(t *testing.T) {
 
 // A tool result carrying the ask line or the json ran_on field releases the stop.
 func TestRanOnRanOnReleases(t *testing.T) {
-	for _, evidence := range []string{"ask: ran on codex · acct · gpt · fallback none", `{"ran_on":"ran on codex","fallback":false}`} {
+	for _, evidence := range []string{"ask: ran on codex · acct · gpt · fallback none", `{"ran_on": "ran on codex · acct · gpt · fallback none","fallback":""}`} {
 		in := gatedLeafTx(t, "Objective: x\nProfile: dev\n", evidence)
 		if r, blocked := leafStopBlock(in, "a1"); blocked || r.SystemMessage != "" {
 			t.Fatalf("evidence %q: got %+v blocked=%v, want a silent release", evidence, r, blocked)
@@ -738,8 +738,8 @@ func TestRanOnBriefContentRepresentations(t *testing.T) {
 	}
 }
 
-// A gated leaf hand-back with no ran-on line is denied once; after a denial or a delivered hand-back the gates pass.
-func TestHandbackGatesRanOnOnce(t *testing.T) {
+// A gated leaf hand-back with no ran-on line is denied; a delivered hand-back lets the later stop pass.
+func TestHandbackGatesRanOn(t *testing.T) {
 	src := gatedLeafTx(t, "Objective: x\nProfile: dev\n", "ls output")
 	parent := filepath.Join(t.TempDir(), "session.jsonl")
 	sub := inflight.SubagentDir(parent)
@@ -756,10 +756,61 @@ func TestHandbackGatesRanOnOnce(t *testing.T) {
 	if r := Handback(core.ParseInput(strings.NewReader(payload))); r.Decision != core.Block || !strings.Contains(r.Reason, ranOnGateMark) {
 		t.Fatalf("first hand-back must be denied with the gate reason, got %+v", r)
 	}
-	for _, prior := range []string{ranOnGateMark + " ...", `{"success":true,"message":"` + handedBackMark + `."}`} {
-		in := gatedLeafTx(t, "Objective: x\nProfile: dev\n", prior)
-		if r, blocked := leafStopBlock(in, "a1"); blocked {
-			t.Errorf("after %q the gate must pass, got %+v", prior, r)
+	in := gatedLeafTx(t, "Objective: x\nProfile: dev\n", `{"success":true,"message":"`+handedBackMark+`."}`)
+	if r, blocked := leafStopBlock(in, "a1"); blocked {
+		t.Errorf("after a delivered hand-back the gate must pass, got %+v", r)
+	}
+}
+
+// appendLines appends raw transcript lines to the leaf transcript at path.
+func appendLines(t *testing.T, path string, lines ...string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	for _, l := range lines {
+		if _, err := f.WriteString(l + "\n"); err != nil {
+			t.Fatal(err)
 		}
+	}
+}
+
+// gateBlockLines is one prior ran-on block as Claude Code records it: a denied hand-back, or SubagentStop feedback.
+func gateBlockLines(reason string) []string {
+	denied, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{{"type": "tool_result",
+		"is_error": true, "content": "PreToolUse:SubagentHandback hook error: [$HOME/.claude/bin/claude-code hook PreToolUse]: " + reason}}}})
+	feedback, _ := json.Marshal(map[string]any{"type": "user", "isMeta": true, "message": map[string]any{"content": "SubagentStop hook feedback:\n" + reason}})
+	return []string{string(denied), string(feedback)}
+}
+
+// A gemini leaf with no ran-on line is blocked on its 1st, 2nd and 3rd stop and passes the 4th with the visible note.
+func TestRanOnGateBlocksThreeTimes(t *testing.T) {
+	for form := range 2 {
+		in := leafTx(t, "gemini", "Objective: review internal/gemini, read-only\n", "ls output")
+		for n := 1; n <= 3; n++ { // literal: the 4th stop passes
+			r, blocked := leafStopBlock(in, "a1")
+			if !blocked || !strings.Contains(r.Reason, "--read-only") {
+				t.Fatalf("form %d stop %d: got %+v blocked=%v, want a Block naming --read-only", form, n, r, blocked)
+			}
+			appendLines(t, in.AgentTranscriptPath, gateBlockLines(r.Reason)[form])
+			in.StopHookActive = form == 1
+		}
+		r, blocked := leafStopBlock(in, "a1")
+		if blocked || !strings.Contains(r.SystemMessage, "a1: finished with no ran-on line") {
+			t.Fatalf("form %d stop %d: got %+v blocked=%v, want a pass with the ran-on note", form, 4, r, blocked)
+		}
+	}
+}
+
+// Regression (2026-11-10): a gemini leaf that only read docs or this gate's source handed back ungated; mentions of the
+// ran-on line or the gate text in a successful tool result are not evidence.
+func TestRanOnIgnoresDocAndSourceMentions(t *testing.T) {
+	doc := "Envelope (quote the `ask: ran on …` line, outcome first)\nThen `Ran on:` (the `ask: ran on …` line)"
+	src := "const ranOnGateMark = \"" + ranOnGateMark + "\"\nvar ranOnPattern = regexp.MustCompile(`ask: ran on |\\\\\"ran_on\\\\\":`)"
+	in := leafTx(t, "gemini", "Objective: review internal/hooks/agents\n", doc, src)
+	if r, blocked := leafStopBlock(in, "a1"); !blocked || r.Decision != core.Block {
+		t.Fatalf("got %+v blocked=%v, want a Block: prose mentions are not a ran-on line nor a prior gate block", r, blocked)
 	}
 }

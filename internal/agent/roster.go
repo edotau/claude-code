@@ -54,7 +54,6 @@ type CLI struct {
 	ExtraUsage            [][2]string     // extra help rows
 	CatalogUsage          string          // override for the catalog help row
 	CatalogHint           string          // extra hint on the catalog page
-	RefusesReadOnly       bool            // no read-only mode and no tools-off substitute: --read-only is refused
 	OwnLoginProfile       string          // the pin naming the agent's own sign-in when no registry row does; "" = none
 	PinIDs                []string        // extra ids accepted as this agent's profile pin besides registry rows
 }

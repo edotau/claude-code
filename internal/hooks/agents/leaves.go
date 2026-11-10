@@ -184,22 +184,33 @@ func leafStopVerdict(agentID string, rec job.Record) (core.Result, bool) {
 		"with a 600000ms Bash timeout, repeating until it finishes, then report its result; do not stop before it reaches a terminal status.", rec.ID, rec.ID)}, true
 }
 
-// ranOnPattern matches the `ask: ran on` stderr line or the --format json "ran_on" field, as a tool result printed it.
-var ranOnPattern = regexp.MustCompile(`ask: ran on |\\"ran_on\\":`)
+// ranOnPattern matches the `ask: ran on <agent> · ` stderr line or the json "ran_on" field; docs quoting it do not match.
+var ranOnPattern = regexp.MustCompile(`ask: ran on [\w.-]+ · |"ran_on":\s*"ran on [\w.-]+ · `)
 
-// ranOnGateMark opens the ran-on gate's reason; a tool result carrying it means the leaf was already gated once.
+// ranOnGateMark opens the ran-on gate's reason; a hook block carrying it counts as one prior gate.
 const ranOnGateMark = "No tool result of yours carries an `ask: ran on` line"
+
+// ranOnMaxBlocks is how many times the gate blocks one leaf before it fails open with a visible note.
+const ranOnMaxBlocks = 3
 
 // handedBackMark is SubagentHandback's success result: the run is over, so a later stop block cannot reopen it.
 const handedBackMark = "Report delivered to your caller"
 
-// leafScan is what the gates read from a leaf transcript: its brief and which tool results it has seen.
+// leafScan is what the gates read from a leaf transcript: its brief, the ran-on and hand-back results, and prior gate blocks.
 type leafScan struct {
-	brief                    string
-	ranOn, gated, handedBack bool
+	brief             string
+	ranOn, handedBack bool
+	gates             int
 }
 
-// leafBrief scans a leaf transcript for its first user message and the ran-on, gate and hand-back tool results.
+// leafToolResult is one tool_result item of a user message.
+type leafToolResult struct {
+	Type    string          `json:"type"`
+	IsError bool            `json:"is_error"`
+	Content json.RawMessage `json:"content"`
+}
+
+// leafBrief scans a leaf transcript for its first user message, tool results and hook blocks; assistant text never counts.
 func leafBrief(path string) (s leafScan, err error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -213,21 +224,40 @@ func leafBrief(path string) (s leafScan, err error) {
 				Content json.RawMessage `json:"content"`
 			} `json:"message"`
 		}
-		if json.Unmarshal(b, &m) != nil {
+		if json.Unmarshal(b, &m) != nil || m.Type != "user" {
 			return
 		}
-		if s.brief == "" && m.Type == "user" {
+		if s.brief == "" {
 			s.brief = transcript.ContentText(m.Message.Content)
-		}
-		line := string(b)
-		if !strings.Contains(line, `"tool_result"`) {
 			return
 		}
-		s.ranOn = s.ranOn || ranOnPattern.MatchString(line)
-		s.gated = s.gated || strings.Contains(line, ranOnGateMark)
-		s.handedBack = s.handedBack || strings.Contains(line, handedBackMark)
+		var items []leafToolResult
+		if json.Unmarshal(m.Message.Content, &items) != nil { // a plain-text user turn: Stop/SubagentStop hook feedback
+			if text := transcript.ContentText(m.Message.Content); strings.Contains(text, "hook feedback:") && strings.Contains(text, ranOnGateMark) {
+				s.gates++
+			}
+			return
+		}
+		for _, it := range items {
+			if it.Type == "tool_result" {
+				s.scanResult(it)
+			}
+		}
 	})
 	return s, err
+}
+
+// scanResult reads one tool result: a ran-on line, a delivered hand-back, or a denied hand-back (a PreToolUse hook error).
+func (s *leafScan) scanResult(it leafToolResult) {
+	text := transcript.ContentText(it.Content)
+	s.ranOn = s.ranOn || ranOnPattern.MatchString(text)
+	if it.IsError {
+		if strings.Contains(text, " hook error: ") && strings.Contains(text, ranOnGateMark) {
+			s.gates++
+		}
+		return
+	}
+	s.handedBack = s.handedBack || strings.Contains(text, handedBackMark)
 }
 
 // leafAgentType is the stopping leaf's type: the payload's agent_type, else the meta.json beside its transcript.
@@ -270,7 +300,7 @@ func ranOnGated(t string) bool {
 	return externalTypes[t]
 }
 
-// ranOnVerdict blocks a gated leaf's stop or hand-back once when no ran-on line was seen; a repeat passes.
+// ranOnVerdict blocks a gated leaf's stop or hand-back up to ranOnMaxBlocks times when no ran-on line was seen.
 func ranOnVerdict(in *core.Input, agentID string) (core.Result, bool) {
 	if !ranOnGated(leafAgentType(in)) {
 		return core.Result{}, false
@@ -279,11 +309,15 @@ func ranOnVerdict(in *core.Input, agentID string) (core.Result, bool) {
 	if err != nil || s.ranOn || (!requestsAgent(s.brief) && !pinnedAgentType(leafAgentType(in))) {
 		return core.Result{}, false
 	}
-	if in.StopHookActive || s.gated || s.handedBack {
+	if in.StopHookActive && s.gates == 0 { // a prior block the scan cannot read: fail open rather than trap the leaf
+		s.gates = ranOnMaxBlocks
+	}
+	if s.handedBack || s.gates >= ranOnMaxBlocks {
 		return core.Result{SystemMessage: fmt.Sprintf("leaf %s: finished with no ran-on line", agentID)}, false
 	}
-	return core.Result{Decision: core.Block, Reason: ranOnGateMark + " (or a `ran_on` field), so the external agent was never " +
-		"called. Run the `claude-code agents ask` the brief requests, or report BLOCKED with the reason; do not do the work in-context."}, true
+	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("%s (or a `ran_on` field), so the external agent was never called "+
+		"(block %d of %d). Run the `claude-code agents ask` the brief requests, or report BLOCKED with the reason; read-only work "+
+		"still runs on the external agent (`--read-only`); never do it in-context.", ranOnGateMark, s.gates+1, ranOnMaxBlocks)}, true
 }
 
 // Handback runs the stop gates on SubagentHandback, which ends a background leaf before SubagentStop can block it.

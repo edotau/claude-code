@@ -89,7 +89,7 @@ var loadAgentConfig = agentconfig.LoadConfig
 
 // agyPermissionSettings renders p as agy's per-run --settings JSON; guard denies always ride along, since a --settings
 // permissions block may replace the global one. Ask runs as Allow (agy has no headless judge). A Deny agy can't hold
-// natively is an error (Deny is the hard boundary); unmapped Allow/Ask rules are returned for Result.Emulated.
+// natively or through the permission-gate hook is an error (Deny is the hard boundary); unmapped Allow/Ask go to Emulated.
 func agyPermissionSettings(p agent.Permissions, tools bool, cwd string, out io.Writer) (settings string, unmapped []string, err error) {
 	if p.IsZero() {
 		return "", nil, nil
@@ -105,23 +105,17 @@ func agyPermissionSettings(p agent.Permissions, tools bool, cwd string, out io.W
 	if cfg.Agent("gemini").Permission.UseGuardRules {
 		deny = agyGuardRules(cfg.Guard().Deny, io.Discard)
 	}
-	// Bash Deny rules agy's exact command(x) cannot express (patterns, `a && x`) are judged by the permission-gate hook.
-	var bashDeny, pathDeny []agent.Rule
+	// A Bash Deny, or a Read/Write/Edit Deny agy's exact rules cannot express (a pattern, a bare tool), is the gate hook's.
+	deny, unDeny := appendAgyRules(deny, p.Deny, cwd)
+	var unenforced []agent.Rule
 	for _, r := range p.Deny {
-		if r.Tool == "Bash" {
-			bashDeny = append(bashDeny, r)
-		} else {
-			pathDeny = append(pathDeny, r)
+		if (r.Tool == "Bash" || slices.Contains(unDeny, r)) && !agyGateCovers(cwd, agyGateTools[r.Tool]...) {
+			unenforced = append(unenforced, r)
 		}
 	}
-	if len(bashDeny) > 0 && !agyGateInstalled(cwd) {
-		return "", nil, fmt.Errorf("agy cannot enforce deny rule(s) %s: the permission-gate hook is not in %s; run `claude-code configure --restore --agents --agent gemini`: dispatch refused",
-			strings.Join(agent.RuleStrings(bashDeny), ", "), agyHooksPath())
-	}
-	deny, _ = appendAgyRules(deny, bashDeny, cwd) // an inexact rule is the hook's alone; the exact ones also ride natively
-	deny, unDeny := appendAgyRules(deny, pathDeny, cwd)
-	if len(unDeny) > 0 {
-		return "", nil, fmt.Errorf("agy cannot enforce deny rule(s) %s: dispatch refused", strings.Join(agent.RuleStrings(unDeny), ", "))
+	if len(unenforced) > 0 {
+		return "", nil, fmt.Errorf("agy cannot enforce deny rule(s) %s: the permission-gate hook does not cover them in %s; run `claude-code configure --restore --agents --agent gemini`: dispatch refused",
+			strings.Join(agent.RuleStrings(unenforced), ", "), agyHooksPath())
 	}
 	allow, unAllow := appendAgyRules(nil, slices.Concat(p.Allow, p.Ask), cwd)
 	for _, r := range p.Ask {
@@ -179,19 +173,25 @@ func agyHooksPath() string {
 	return filepath.Join(home, ".gemini", "config", "hooks.json")
 }
 
-// agyGateInstalled reports whether the global hooks.json, or the workspace's .agents/hooks.json, runs the permission gate.
-func agyGateInstalled(cwd string) bool {
+// agyGateTools are the agy tools the permission gate must judge to enforce a Deny on each rule tool (none: unenforceable).
+var agyGateTools = map[string][]string{"Bash": {"run_command"}, "Read": {"read_file"}, "Write": {"write_file", "edit_file"}, "Edit": {"write_file", "edit_file"}}
+
+// agyGateCovers reports whether the global or the workspace's .agents/hooks.json runs the permission gate on every tool.
+func agyGateCovers(cwd string, tools ...string) bool {
+	if len(tools) == 0 {
+		return false
+	}
 	command := (settings.EventSpec{Event: settings.EventPreToolUse, Name: "permission-gate"}).Command()
 	for _, p := range []string{agyHooksPath(), filepath.Join(cwd, ".agents", "hooks.json")} {
-		if agyFileRunsGate(p, command) {
+		if !slices.ContainsFunc(tools, func(tool string) bool { return !agyFileRunsGate(p, command, tool) }) {
 			return true
 		}
 	}
 	return false
 }
 
-// agyFileRunsGate reports whether the hooks.json at path has a blocking PreToolUse group on run_command running the gate.
-func agyFileRunsGate(path, command string) bool {
+// agyFileRunsGate reports whether the hooks.json at path has a blocking PreToolUse group on tool running the gate.
+func agyFileRunsGate(path, command, tool string) bool {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return false
@@ -204,7 +204,7 @@ func agyFileRunsGate(path, command string) bool {
 	}
 	for _, set := range sets {
 		for _, group := range set.PreToolUse {
-			if agyMatchesTool(group.Matcher, "run_command") && slices.ContainsFunc(group.Hooks, func(h settings.Hook) bool { return isAgyGateHook(h, command) }) {
+			if agyMatchesTool(group.Matcher, tool) && slices.ContainsFunc(group.Hooks, func(h settings.Hook) bool { return isAgyGateHook(h, command) }) {
 				return true
 			}
 		}

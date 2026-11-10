@@ -126,14 +126,17 @@ func TestPackPromptFileTransport(t *testing.T) {
 	}
 }
 
-// Given a gemini lead (pack read from a file with tools), --read-only is refused before any launch.
-func TestPackPromptRefusesReadOnlyOnFileRoute(t *testing.T) {
+// Given a gemini lead (pack read from a file with tools), --read-only keeps the run: agy enforces it with deny rules.
+func TestPackPromptKeepsReadOnlyOnFileRoute(t *testing.T) {
 	dir := gitRepoWith(t, map[string]string{"a.go": "package a"})
 	o := agent.RunOptions{Prompt: "p", WorkDir: dir, ReadOnly: true, Pack: &pack.Spec{Dirs: []string{"."}}}
 	p := &Prepared{Opts: o, Chain: agent.Chain{Dispatches: []agent.Dispatch{{Agent: stubEngine("gemini")}}}}
-	err := NewClient(router.RuleClassifier{}.Alias, nil, nil).packPrompt(context.Background(), p)
-	if err == nil || !strings.Contains(err.Error(), "--read-only") {
-		t.Fatalf("packPrompt() = %v, want a --read-only refusal", err)
+	if err := NewClient(router.RuleClassifier{}.Alias, nil, nil).packPrompt(context.Background(), p); err != nil {
+		t.Fatalf("packPrompt() = %v, want the read-only file route accepted", err)
+	}
+	defer p.pack.remove()
+	if !p.Opts.Tools || !p.Opts.ReadOnly {
+		t.Fatalf("opts tools=%v read-only=%v, want both on", p.Opts.Tools, p.Opts.ReadOnly)
 	}
 }
 

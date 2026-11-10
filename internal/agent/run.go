@@ -137,8 +137,8 @@ func recoveryTarget(r Engine, req RunOptions) (providers.Target, bool) {
 	return t, err == nil && t.Provider != nil
 }
 
-// checkRun layers r's default permissions under the request and the outer dispatch's over it, then refuses a persona,
-// read-only or permission set r cannot honor.
+// checkRun layers r's default permissions under the request and the outer dispatch's over it, then refuses a persona or
+// permission set r cannot honor; an emulated read-only becomes deny rules.
 func checkRun(r Engine, req RunOptions) (RunOptions, error) {
 	def, err := DefaultPermissions(r.Name())
 	if err != nil {
@@ -151,8 +151,8 @@ func checkRun(r Engine, req RunOptions) (RunOptions, error) {
 	if err = RefusePersona(r.Caps(), r.Name(), req.Persona); err != nil {
 		return req, err
 	}
-	if err = RefuseReadOnly(r.Caps(), r.Name(), req.ReadOnly); err != nil {
-		return req, err
+	if req.ReadOnly && r.Caps().ReadOnly == Emulated { // the agent enforces the read-only deny rules itself
+		req.Permissions.Deny = append(slices.Clone(req.Permissions.Deny), ReadOnlyDeny...)
 	}
 	return req, RefusePermissions(r.Caps(), r.Name(), req.Permissions)
 }

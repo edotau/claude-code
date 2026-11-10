@@ -174,3 +174,23 @@ func stagedHooks(home string) (bool, error) {
 	}
 	return changed, plan.Apply()
 }
+
+// --read-only on agy is the bare Bash/Write/Edit denies: refused without the gate hook, the hook's alone once it is installed.
+func TestAgyReadOnlyDenyNeedsGateHook(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	p := agent.Permissions{Deny: agent.ReadOnlyDeny}
+	_, _, err := agyPermissionSettings(p, true, "/w", io.Discard)
+	for _, r := range []string{"Bash", "Write", "Edit"} { // literal: the read-only set itself is under test
+		if err == nil || !strings.Contains(err.Error(), r) {
+			t.Errorf("no gate installed: err = %v, want a refusal naming %s", err, r)
+		}
+	}
+	if _, err := stagedHooks(home); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := agyPermissionSettings(p, true, "/w", io.Discard)
+	if err != nil || strings.Contains(got, "()") || strings.Contains(got, "write_file") {
+		t.Fatalf("gate installed: settings %q err %v, want accepted with no native rule for a bare tool", got, err)
+	}
+}

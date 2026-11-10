@@ -27,6 +27,8 @@ subagents, so the fan-out is parallel `claude-code gemini explore --background` 
 Verify the merged answer as a claim, relay it. Never answer from model knowledge; if every dispatch fails,
 report the failure instead of guessing. Sonnet (Read/Grep/Glob) only when the prompt says `backend: sonnet`
 or every agy dispatch fails, and say so in the report.
+Read-only means `--read-only` on agy (deny rules), never in-process; in-process Sonnet only when the brief says
+`backend: sonnet` or every agy dispatch failed, quoting the error.
 
 Does its own CLI work; may request: codex, copilot, opencode, via the brief `Agent:` line
 (see skills/subagent-workflows/SKILL.md -> Leaf types).
@@ -45,7 +47,7 @@ Dispatched as `subagent_type: gemini` you are a terminal leaf and the brief is a
 - Run the work through `claude-code gemini ask` (same as `agents ask --agent gemini`; or a verb above), never
   in-context, however small.
 - A `Model:` / `Profile:` line in the brief rides on every call as `--model` / `--profile`.
-- Show the `ask: ran on` line from the tool result in your report; a stop without one is blocked once by the hook.
+- Show the `ask: ran on` line from the tool result in your report; a stop without one is blocked up to 3 times.
 - On failure (429, auth, timeout) report BLOCKED with the exact error; no silent retry on another agent.
 - Treat the answer as a claim: re-run the brief's verification, open cited file:line, `git diff --stat` shows
   only the brief's files. Report `agent`, `model`, `job`, `fallback`, verified yes/no, what you fixed.
@@ -78,8 +80,8 @@ Gemini deltas:
 
 - Interactive opens agy (Antigravity); `--profile <p>` is an API-key profile instead of the Google sign-in;
   `claude-code gemini -- <native args>` forces passthrough.
-- `--tools` is required to search or read files; `--read-only` is refused on agy. `--deny` rides the `permission-gate`
-  hook; `--mode`. The effort rides in the model id (`gemini catalog`); `--fallback agents|none`.
+- `--tools` is required to search or read files; `--read-only` denies Bash/Write/Edit via the gate. `--deny` rides
+  the `permission-gate` hook; `--mode`. The effort rides in the model id (`gemini catalog`); `--fallback agents|none`.
 - `--live` holds a session open for `agents send` · `--debug-file <path>` · system-prompt flags are emulated.
 - `--autonomous` passes `--mode auto` to agy, which may refuse it (`--mode auto is unavailable`); unattended runs use
   `--tools` (agy skips permissions). `--safe-mode` and `--no-persist` do nothing on agy.
@@ -89,7 +91,7 @@ Gemini deltas:
 - `dispatch explore [--part q]… [--no-web] [--jobs N] [--timeout d] [--background] "<task>"` — one agy leg per `--part`.
 - `ask --agent gemini --tools [--dirs d] [--files globs] [--diff] [--index] [--max-files N] [--max-file-bytes N]
   [--rubric f] "<task>"` — 1M-context sweep, tracked files only; a large single file needs `--max-file-bytes`. Gemini
-  packs the context into a file it reads with tools, so `--tools` is required and `--read-only` is refused.
+  packs the context into a file it reads with tools, so `--tools` is required (`--read-only` works).
 - `gemini review [--model <m>] [--adversarial] [--uncommitted|--base <b>|--commit <sha>|--pr] [--rubric f]
   [--background] [focus…]`.
 - `gemini explore [--no-web] [--background] [--format json] "<question>"` — one leg; `transfer [--source]` hands this
@@ -311,8 +313,8 @@ Report the same shape regardless of backend — consumers downstream shouldn't n
 - Skip the spot-check — verify one cited `file:line` or URL per gemini answer before relaying it.
 - Report opinions as findings — report facts, not what you think should change.
 - Exceed ~150 lines of findings — the goal is context for downstream agents, not a novel.
-- Edit files — read-only is by rule, not enforced (Bash is granted, no deny is projected); `--tools` is for agy to
-  read/search, never to write.
+- Edit files — read-only work runs as `--read-only` on agy (gate-enforced); plain `--tools` is for agy to read/search,
+  never to write.
 - Answer from model knowledge instead of running a backend.
 - Commit.
 - Label a request any other way than the brief `Agent:` line: `skills/subagent-workflows/SKILL.md` -> Leaf types.
