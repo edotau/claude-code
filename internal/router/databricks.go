@@ -98,6 +98,7 @@ func (t *RouteTable) gateCandidate(
 	var group []Candidate
 	if agent != "claude" && spec.Profile != "" {
 		group, _ = t.gatePinned(ctx, pg.reg, alias, agent, spec.Profile, spec, st, o, now, configured, res)
+		group = append(group, t.gateWorkspaces(ctx, pg, alias, agent, spec, group, st, o, now, configured, res)...)
 		group = append(group, t.gateVendor(ctx, pg, alias, agent, group, st, o, now, configured, res)...)
 	} else {
 		group, _ = t.gateAgent(ctx, alias, agent, st, o, now, configured, res)
@@ -159,7 +160,7 @@ func (t *RouteTable) gateRow(
 	return g
 }
 
-// gateLead puts the wanted agent on o.Lead, then each of its login rows, ahead of base (deduped, base wins).
+// gateLead puts the agent on o.Lead, then (fallback permitting) sibling workspaces, then login rows, ahead of base (base wins).
 // gemini never runs on a non-Google row (owner rule R1).
 func (t *RouteTable) gateLead(
 	ctx context.Context, pg *pickGate, alias, agent string, spec PinSpec, base []Candidate, st State, o PickOpts, now time.Time,
@@ -170,8 +171,13 @@ func (t *RouteTable) gateLead(
 		return base
 	}
 	var lead []Candidate
-	for i, prof := range append([]string{o.Lead}, loginProfiles(pg.reg, agent)...) {
-		if prof == "" || (i > 0 && prof == o.Lead) {
+	rows := []string{o.Lead}
+	if agent != "gemini" && o.Fallback != FallbackNone && slices.Contains(providers.DatabricksProfiles(pg.reg), o.Lead) {
+		rows = append(rows, workspaceRows(pg.reg, o.Lead)...)
+	}
+	rows = append(rows, loginProfiles(pg.reg, agent)...)
+	for i, prof := range rows {
+		if prof == "" || (i > 0 && slices.Contains(rows[:i], prof)) {
 			continue
 		}
 		if agent == "gemini" && !geminiRow(pg.reg, prof) {
@@ -192,6 +198,27 @@ func (t *RouteTable) gateLead(
 		}
 	}
 	return lead
+}
+
+// workspaceRows lists the Databricks workspaces in declared order, minus skip.
+func workspaceRows(reg *providers.Registry, skip string) []string {
+	return slices.DeleteFunc(slices.Clone(providers.DatabricksProfiles(reg)), func(n string) bool { return n == skip })
+}
+
+// gateWorkspaces adds quiet sibling-workspace rows after the wanted Databricks-pinned agent's pin when no lead reorders it.
+func (t *RouteTable) gateWorkspaces(
+	ctx context.Context, pg *pickGate, alias, agent string, spec PinSpec, own []Candidate, st State, o PickOpts, now time.Time,
+	configured func(agent string, c Cell) error, res *PickResult,
+) []Candidate {
+	if pg.reg == nil || len(own) == 0 || agent != res.Want || o.Lead != "" || agent == "gemini" || o.Fallback == FallbackNone ||
+		!slices.Contains(providers.DatabricksProfiles(pg.reg), spec.Profile) {
+		return nil
+	}
+	var rows []Candidate
+	for _, ws := range workspaceRows(pg.reg, spec.Profile) {
+		rows = append(rows, t.gateRow(ctx, pg, alias, agent, ws, spec.Model, true, st, o, now, configured, res)...)
+	}
+	return rows
 }
 
 // loginProfiles lists every registry row carrying agent's own CLI login, in name order.

@@ -217,3 +217,53 @@ func TestPickPinnedVendorOffersEveryLoginRow(t *testing.T) {
 		t.Fatalf("copilot accounts = %v, want every login row (skipped %+v)", got, r.Skipped)
 	}
 }
+
+const routeDbx3Rows = `{"providers":{"databricks":{` +
+	`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}},` +
+	`"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}},` +
+	`"prod":{"preset":"databricks","host":"https://prod.cloud.databricks.com","auth":{"type":"pat"}}}}}`
+
+func workspacePick(t *testing.T, want, lead, pin, fb string) []string {
+	t.Helper()
+	tb := testTable(t)
+	vaulttest.Use(t)
+	t.Setenv("CLAUDE_PROFILE", "")
+	vaulttest.Put(t, vault.Overlay, "providers", routeDbx3Rows)
+	for _, n := range []string{"DEV", "QA", "PROD"} {
+		vaulttest.Secret(t, "DATABRICKS_"+n+"_PAT", "dapi-test")
+	}
+	r := tb.Pick(context.Background(), "sonnet", want, State{}, PickOpts{
+		Configured: allConfigured, Now: func() time.Time { return now0 }, Lead: lead, Fallback: fb,
+		Pins: map[string]PinSpec{want: {Profile: pin}}})
+	var accts []string
+	for _, c := range r.Candidates {
+		if c.Agent == want {
+			accts = append(accts, c.Account)
+		}
+	}
+	return accts
+}
+
+func TestPickLeadOrdersWorkspacesThenOwnLogin(t *testing.T) {
+	got := workspacePick(t, "codex", "prod", "dev", FallbackAll)
+	want := []string{"databricks·prod", "databricks·dev", "databricks·qa", "openai·chatgpt"}
+	if len(got) < len(want) || !slices.Equal(got[:len(want)], want) {
+		t.Fatalf("codex accounts = %v, want prefix %v", got, want)
+	}
+}
+
+func TestPickPinnedWithoutLeadAddsSiblingWorkspaces(t *testing.T) {
+	got := workspacePick(t, "codex", "", "dev", FallbackAll)
+	want := []string{"databricks·dev", "databricks·qa", "databricks·prod"}
+	if len(got) < len(want) || !slices.Equal(got[:len(want)], want) {
+		t.Fatalf("codex accounts = %v, want prefix %v", got, want)
+	}
+}
+
+// Under --fallback none a lead adds no sibling workspace; its own-login row stays, as before the sweep.
+func TestPickLeadFallbackNoneSkipsSiblingWorkspaces(t *testing.T) {
+	got := workspacePick(t, "codex", "prod", "prod", FallbackNone)
+	if want := []string{"databricks·prod", "openai·chatgpt"}; !slices.Equal(got, want) {
+		t.Fatalf("codex accounts = %v, want %v", got, want)
+	}
+}
