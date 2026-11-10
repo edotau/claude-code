@@ -34,6 +34,8 @@ var SectionNames = []string{"provider", "models", "agents", "github", "remote", 
 type Options struct {
 	Provider    string    // --profile: pick this one non-interactively (provider section)
 	Agent       string    // --agent: scope keys/agents to one agent CLI
+	Auth        string    // --auth (github page): pin this github profile; "" or "follow" clears the pin
+	AuthSet     bool      // --auth was passed (an empty Auth is meaningful)
 	DryRun      bool      // print what would change; write nothing
 	Check       bool      // report only; never writes; Run exits 1 if anything is unset
 	All         bool      // --all (provider page): check every provider's sign-in and log in where needed
@@ -136,7 +138,7 @@ func wantSections(section string) (want []string, ok bool) {
 	return []string{section}, true
 }
 
-// runSections runs each section in order and returns the exit code (a failed codex section aborts with 1).
+// runSections runs each section in order and returns the exit code (a failed codex or --auth section aborts with 1).
 func runSections(d *dialog, want []string) int {
 	allOK := true
 	for _, s := range want {
@@ -144,7 +146,7 @@ func runSections(d *dialog, want []string) int {
 			d.header(s)
 		}
 		ok := runSection(d, s)
-		if s == "codex" && !ok {
+		if (s == "codex" || d.o.AuthSet) && !ok {
 			return 1
 		}
 		if !ok {

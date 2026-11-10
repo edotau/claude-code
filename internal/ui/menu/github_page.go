@@ -5,6 +5,7 @@ import (
 	"context"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -99,34 +100,76 @@ func githubAuthLine(d *dialog) string {
 func pickGitHubAuth(d *dialog) {
 	names := []string{""}
 	rows := [][2]string{{"follow gh active", "no switch; use whichever account gh has active"}}
-	for _, n := range d.reg.ProfilesOf("github") {
-		if l := d.reg.Providers[n].Login; l != "" {
-			names = append(names, n)
-			rows = append(rows, [2]string{n, "gh account " + l})
-		}
+	for _, n := range GitHubAuthProfiles(d.reg) {
+		names = append(names, n)
+		rows = append(rows, [2]string{n, "gh account " + d.reg.Providers[n].Login})
 	}
 	idx, err := d.shell().Pick("GitHub auth — gh's active account", rows)
 	if err != nil || idx < 0 {
 		return
 	}
-	prev := copilot.GHActiveAccount()
-	if names[idx] != "" {
-		if err := copilot.SwitchGH(d.reg.Providers[names[idx]].Login); err != nil {
-			d.printf("github auth: %v\n", err)
-			return
+	applyGitHubAuth(d, names[idx])
+}
+
+// GitHubAuthProfiles are the github profiles with a login: the names `--auth` and the auth picker accept.
+func GitHubAuthProfiles(reg *providers.Registry) []string {
+	var out []string
+	for _, n := range reg.ProfilesOf("github") {
+		if reg.Providers[n].Login != "" {
+			out = append(out, n)
 		}
 	}
-	if err := vault.SetGitHubAuth(names[idx]); err != nil {
+	return out
+}
+
+// applyGitHubAuth switches gh to name's login and stores the pin, rolling gh back if the vault write fails.
+func applyGitHubAuth(d *dialog, name string) bool {
+	login := ""
+	if name != "" {
+		login = d.reg.Providers[name].Login
+	}
+	prev := copilot.GHActiveAccount()
+	if name != "" {
+		if err := copilot.SwitchGH(login); err != nil {
+			d.printf("github auth: %v\n", err)
+			return false
+		}
+	}
+	if err := vault.SetGitHubAuth(name); err != nil {
 		d.printf("github auth: %v\n", err)
-		if names[idx] != "" && prev != "" && prev != d.reg.Providers[names[idx]].Login {
+		if name != "" && prev != "" && prev != login {
 			if rerr := copilot.SwitchGH(prev); rerr != nil { // roll gh back so it matches the stale pin
 				d.printf("github auth: rollback to %s failed: %v\n", prev, rerr)
 			}
 		}
-		return
+		return false
 	}
 	d.changed = true
-	d.printf("github auth: %s\n", cmp.Or(names[idx], "follows gh's active account"))
+	d.printf("github auth: %s\n", cmp.Or(name, "follows gh's active account"))
+	return true
+}
+
+// runGithubAuthFlag is `configure github --auth NAME`: "" or "follow" clears the pin; --check verifies, --dry-run is a no-op.
+func runGithubAuthFlag(d *dialog) bool {
+	name := d.o.Auth
+	valid := GitHubAuthProfiles(d.reg)
+	if name == "follow" && !slices.Contains(valid, name) { // a real profile named "follow" wins over the keyword
+		name = ""
+	}
+	if name != "" && !slices.Contains(valid, name) {
+		d.printf("github auth: %q is not a github profile with a login; valid: follow, %s\n", name, strings.Join(valid, ", "))
+		return false
+	}
+	if d.o.Check { // verification: pass only when the stored pin already equals name
+		cur := vault.GitHubAuth()
+		d.printf("github auth: pin is %q, want %q\n", cur, name)
+		return cur == name
+	}
+	if d.o.DryRun {
+		d.printf("github auth: would set %s\n", cmp.Or(name, "follow gh's active account"))
+		return true
+	}
+	return applyGitHubAuth(d, name)
 }
 
 // runGithub is the `configure github` / `configure` "github" section: opencode's GitHub Copilot
@@ -134,6 +177,9 @@ func pickGitHubAuth(d *dialog) {
 // gh/copilot/opencode login state, the opencode and copilot routes, and — on a terminal — a menu to
 // fix any of it or pick the github-copilot provider's opus/sonnet/haiku aliases.
 func runGithub(d *dialog) bool {
+	if d.o.AuthSet {
+		return runGithubAuthFlag(d)
+	}
 	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
 		return githubMenu(d)
 	}

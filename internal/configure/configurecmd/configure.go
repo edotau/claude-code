@@ -44,7 +44,8 @@ var configurePage = helptext.Page{
 
 // configureOpts are cmdConfigure's flag values.
 type configureOpts struct {
-	provider, agent, out                             string
+	provider, agent, out, auth                       string
+	authSet                                          bool
 	dryRun, check, restore, revert, agents, noAgents bool
 	list, all                                        bool
 	format                                           *string
@@ -56,6 +57,7 @@ func configureFlags() (*flag.FlagSet, *configureOpts) {
 	o := &configureOpts{}
 	fs.StringVar(&o.provider, "profile", "", "select the session profile non-interactively")
 	fs.StringVar(&o.agent, "agent", "", "set up one CLI: claude|codex|copilot|opencode|gemini")
+	fs.StringVar(&o.auth, "auth", "", "with github: pin gh account by profile name, or follow")
 	fs.BoolVar(&o.dryRun, "dry-run", false, "print what would change; write nothing")
 	fs.BoolVar(&o.check, "check", false, "report only; exit 1 if anything is unset")
 	fs.BoolVar(&o.restore, "restore", false, "reset settings.json to the template (backup first)")
@@ -88,7 +90,22 @@ func Run(args []string, providerList func(name, format string) int) int {
 	if section == "" && len(pos) > 0 {
 		section, pos = pos[0], pos[1:]
 	}
+	if err := checkAuthFlag(fs, o, section); err != nil {
+		return helptext.Fail("configure: %v", err)
+	}
 	return configureRun(o, section, pos)
+}
+
+// checkAuthFlag records whether --auth was passed (an empty value is meaningful) and refuses it off the github page.
+func checkAuthFlag(fs *flag.FlagSet, o *configureOpts, section string) error {
+	fs.Visit(func(f *flag.Flag) { o.authSet = o.authSet || f.Name == "auth" })
+	if o.authSet && section != "github" {
+		return errors.New("--auth needs the github page")
+	}
+	if o.authSet && (o.restore || o.revert) {
+		return errors.New("--auth cannot be combined with --restore or --revert")
+	}
+	return nil
 }
 
 // configureAllProfile validates --all's combinations and returns its optional <profile>.
@@ -148,7 +165,7 @@ func configureRun(o *configureOpts, section string, pos []string) int {
 
 func configureMenu(o *configureOpts, section, profile string) int {
 	return menu.Run(menu.Options{
-		Provider: o.provider, Agent: o.agent, DryRun: o.dryRun, Check: o.check, All: o.all, Profile: profile,
+		Provider: o.provider, Agent: o.agent, Auth: o.auth, AuthSet: o.authSet, DryRun: o.dryRun, Check: o.check, All: o.all, Profile: profile,
 		JSON: *o.format == helptext.JSON, Interactive: ansi.IsTerminal(os.Stdin) && ansi.IsTerminal(os.Stderr),
 	}, section)
 }

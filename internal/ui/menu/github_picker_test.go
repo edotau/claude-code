@@ -112,3 +112,55 @@ func TestPickGitHubAuthRollsGHBackWhenVaultWriteFails(t *testing.T) {
 		t.Errorf("SwitchGH calls = %q, want new,old (switch then rollback); output:\n%s", got, out.String())
 	}
 }
+
+func authFlagDialog(t *testing.T, auth string, o Options) (*dialog, *[]string, *bytes.Buffer) {
+	t.Helper()
+	githubScratch(t)
+	vaulttest.UseKeyring(t)
+	var switched []string
+	orig := copilot.SwitchGH
+	copilot.SwitchGH = func(login string) error { switched = append(switched, login); return nil }
+	t.Cleanup(func() { copilot.SwitchGH = orig })
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{
+		"work": {Provider: "github", Login: "wl"}, "follow": {Provider: "github", Login: "fl"}}}
+	o.Auth, o.AuthSet = auth, true
+	var out bytes.Buffer
+	return &dialog{reg: reg, out: &out, o: o}, &switched, &out
+}
+
+func TestRunGithubAuthFlagPinsAndSwitches(t *testing.T) {
+	d, switched, out := authFlagDialog(t, "work", Options{})
+	if !runGithubAuthFlag(d) || vault.GitHubAuth() != "work" || strings.Join(*switched, ",") != "wl" {
+		t.Errorf("pin=%q switched=%v out=%s", vault.GitHubAuth(), *switched, out)
+	}
+}
+
+func TestRunGithubAuthFlagFollowClearsPinWithoutSwitch(t *testing.T) {
+	d, switched, _ := authFlagDialog(t, "", Options{})
+	d.reg.Providers["follow"].Login = ""
+	if err := vault.SetGitHubAuth("work"); err != nil {
+		t.Fatal(err)
+	}
+	d.o.Auth = "follow"
+	if !runGithubAuthFlag(d) || vault.GitHubAuth() != "" || len(*switched) != 0 {
+		t.Errorf("pin=%q switched=%v", vault.GitHubAuth(), *switched)
+	}
+}
+
+func TestRunGithubAuthFlagProfileNamedFollowIsPinned(t *testing.T) {
+	d, switched, _ := authFlagDialog(t, "follow", Options{})
+	if !runGithubAuthFlag(d) || vault.GitHubAuth() != "follow" || strings.Join(*switched, ",") != "fl" {
+		t.Errorf("pin=%q switched=%v", vault.GitHubAuth(), *switched)
+	}
+}
+
+func TestRunGithubAuthFlagUnknownAndDryRun(t *testing.T) {
+	d, _, out := authFlagDialog(t, "nope", Options{})
+	if runGithubAuthFlag(d) || !strings.Contains(out.String(), "valid: follow") {
+		t.Errorf("unknown name must fail listing valid names: %s", out)
+	}
+	d, switched, _ := authFlagDialog(t, "work", Options{DryRun: true})
+	if !runGithubAuthFlag(d) || vault.GitHubAuth() != "" || len(*switched) != 0 {
+		t.Errorf("dry-run touched state: pin=%q switched=%v", vault.GitHubAuth(), *switched)
+	}
+}
