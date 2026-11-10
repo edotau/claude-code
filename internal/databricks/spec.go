@@ -11,12 +11,12 @@ func Spec() *helptext.Node {
 	profileNames := providers.ProfileNames
 	identities := func() []string { return []string{"user", "sp"} }
 	return &helptext.Node{Flags: []helptext.Flag{valuedFlag("profile", profileNames)}, Sub: map[string]*helptext.Node{
-		"check": {Flags: []helptext.Flag{boolFlag("all"), valuedFlag("profile", profileNames), boolFlag("1m"), flag("model"),
-			valuedFlag("wire", func() []string { return []string{"serving", "ai-gateway", "all"} })}},
-		"login": {Args: []func() []string{profileNames}, Flags: []helptext.Flag{flag("auth-type"), boolFlag("dry-run"), boolFlag("force"), valuedFlag("as", identities)}},
-		"mint":  {Flags: []helptext.Flag{valuedFlag("profile", profileNames), boolFlag("dry-run"), boolFlag("copy"), valuedFlag("as", identities)}},
+		"check": {Flags: []helptext.Flag{boolFlag("all"), valuedFlag("profile", profileNames), flag("model")}},
+		"login": {Flags: []helptext.Flag{valuedFlag("profile", profileNames), flag("auth-type"), boolFlag("dry-run"), boolFlag("force"), valuedFlag("as", identities)}},
+		"mint": {Flags: []helptext.Flag{valuedFlag("profile", profileNames), boolFlag("dry-run"), boolFlag("copy"), flag("clear-after"),
+			valuedFlag("as", identities)}},
 		"import": {Flags: []helptext.Flag{flag("dbxcfg"), boolFlag("pick"), flag("rename"), boolFlag("replace"),
-			boolFlag("seal-secrets"), boolFlag("apply")}},
+			boolFlag("seal-secrets"), boolFlag("apply"), boolFlag("dry-run"), boolFlag("fold-legacy")}},
 		"export": {Flags: []helptext.Flag{boolFlag("pick"), flag("rename"), flag("out"), boolFlag("merge"), boolFlag("force")}},
 		"config": {Args: []func() []string{func() []string { return []string{"claude", "codex"} }}, Flags: dbxCfgFlags(true)},
 		"rescue": {Flags: append(dbxCfgFlags(false), boolFlag("print"))},

@@ -333,6 +333,10 @@ func usage(check bool) {
 	}
 	fs := helptext.NewFlagSet("claude-code databricks", pg)
 	profileFlag(fs)
+	if check {
+		fs.Bool("all", false, "probe every Databricks profile, one tiny call each")
+		fs.String("model", aliasID(models.Haiku), "with --all: canonical model id to probe")
+	}
 	fs.Usage()
 }
 
