@@ -36,6 +36,16 @@ func TestOtherRouteFollowsLead(t *testing.T) {
 	}
 }
 
+// A pinned caller's own profile:model runs the bare model in its cell; buildDispatch adds the profile once.
+func TestPinnedCellStripsOwnProfile(t *testing.T) {
+	rc := routeCtx{want: "codex", explicitModel: true, callerModel: "dev:databricks-gpt-6-1-sol",
+		pins: map[string]router.PinSpec{"codex": {Profile: "dev"}}}
+	cell, skip := rc.candidateCell(router.Candidate{Agent: "codex", Profile: "dev"})
+	if skip != "" || cell.Model != "databricks-gpt-6-1-sol" {
+		t.Errorf("cell model %q skip %q, want databricks-gpt-6-1-sol", cell.Model, skip)
+	}
+}
+
 // LeadFor: a named profile leads (D1) unless --fallback none or Pinned pins it; session and --provider always lead.
 func TestLeadFor(t *testing.T) {
 	leadRegistry(t)
