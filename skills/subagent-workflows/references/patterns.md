@@ -72,7 +72,7 @@ task -> size(TRIVIAL|LOW|MEDIUM|HIGH|EPIC) -> code-workers x<=3 | code-analyzer 
 - Code: `code-engineer.js` (Size, Route, then Simplify and Review once over the children's merged fixes, Record).
   Tiers follow `rules/workflows/master-workflow.md` Phase 0; `tier` skips sizing.
 - Specialists by model alias: Haiku sizes, gates and records; Sonnet finds, fixes and tests; `opus`/`fable` only by a
-  `steps` pin. Under Claude quota pressure the hook downshifts one alias (`dispatch-effort`).
+  `steps` pin.
 - Failure: untested routes (LOW/MEDIUM, implementer, EPIC) at R11; LOW route first run `2026-11-07-route-test-low.md`.
 
 ### Producer-reviewer

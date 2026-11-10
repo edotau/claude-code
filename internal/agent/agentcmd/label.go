@@ -22,11 +22,10 @@ var agentsLabelPage = helptext.Page{
 
 // labelRow is `agents label --format json`.
 type labelRow struct {
-	Type     string `json:"type"`
-	Model    string `json:"model"`
-	Label    string `json:"label"`
-	Source   string `json:"source"`
-	Pressure bool   `json:"pressure,omitempty"`
+	Type   string `json:"type"`
+	Model  string `json:"model"`
+	Label  string `json:"label"`
+	Source string `json:"source"`
 }
 
 // cmdAgentsLabel is `agents label <type>`: the description prefix the hook would write for this dispatch.
@@ -50,8 +49,8 @@ func cmdAgentsLabel(args []string) int {
 	}
 	cwd, _ := os.Getwd()
 	sm := cmp.Or(*sessionModel, sessionModelOf(cwd, os.Getenv(memory.SessionIDEnv)))
-	label, pinned, pressure := agents.DispatchLabel(agents.LabelInput{Type: pos[0], Model: *model, Brief: task, SessionModel: sm})
-	row := labelRow{Type: pos[0], Model: pinned, Label: label, Source: labelSource(*model, label, sm), Pressure: pressure}
+	label, pinned := agents.DispatchLabel(agents.LabelInput{Type: pos[0], Model: *model, Brief: task, SessionModel: sm})
+	row := labelRow{Type: pos[0], Model: pinned, Label: label, Source: labelSource(*model, label, sm)}
 	if *format == helptext.JSON {
 		return helptext.WriteJSONOrFail("agents label", row)
 	}

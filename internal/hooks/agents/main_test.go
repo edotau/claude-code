@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	_ "github.com/edotau/claude-code/internal/codex" // registers the codex row the label-cell pin tests resolve
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/memhook/memhooktest"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
@@ -16,14 +17,12 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-// TestMain stubs the live-process scans, detached spawns, the usage cache and the route pick so no test reads the machine.
+// TestMain stubs the live-process scans and detached spawns so no test reads the machine.
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()
 	tb := &hosttest.MainTB{}
 	memhooktest.StubSpawn(tb, true)
-	ClaudePressure = func() (float64, string, bool) { return 0, "", false } // the real usage cache never steers a test
-	RouteHint = func(string) (string, string) { return "codex", "gpt-6.1-sol" }
 	wthook.PeerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
 	code := m.Run()
 	for _, f := range tb.Cleanups {

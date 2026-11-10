@@ -34,11 +34,10 @@ type RoutingField struct {
 	IsSet func(providers.Routing) bool
 }
 
-// Module is one agent's routing fields plus the env it contributes at launch.
+// Module is one agent's routing fields.
 type Module interface {
 	Name() string
 	Fields() []RoutingField
-	Env(r providers.Routing) map[string]string
 }
 
 // Modules lists every registered module, in display/merge order: the core routing knobs first, then
@@ -47,22 +46,13 @@ func Modules() []Module {
 	return []Module{routingModule{}, opencodeModule{}}
 }
 
-// routingModule is the core module: the composite-score weight and the subagent offload switch.
+// routingModule is the core module: the composite-score weight and the served-model switch.
 type routingModule struct{}
 
 func (routingModule) Name() string { return "routing" }
 
 func (routingModule) Fields() []RoutingField {
-	return []RoutingField{weightsPriceField(), subagentsField(), servedAwareField()}
-}
-
-// Env exports HARNESS_ROUTE_SUBAGENTS=0 when subagent offload is off; on (the default) exports nothing,
-// since the hook path's own default is already on.
-func (routingModule) Env(r providers.Routing) map[string]string {
-	if r.SubagentsOn() {
-		return nil
-	}
-	return map[string]string{providers.EnvRouteSubagents: "0"}
+	return []RoutingField{weightsPriceField(), servedAwareField()}
 }
 
 func weightsPriceField() RoutingField {
@@ -89,11 +79,6 @@ func weightsPriceField() RoutingField {
 			return nil
 		},
 	}
-}
-
-func subagentsField() RoutingField {
-	return boolField("subagents",
-		providers.Routing.SubagentsOn, func(r *providers.Routing) **bool { return &r.Subagents })
 }
 
 func servedAwareField() RoutingField {
@@ -132,10 +117,6 @@ func (opencodeModule) Name() string { return "opencode" }
 func (opencodeModule) Fields() []RoutingField {
 	return []RoutingField{ladderField(), workRepoMarkersField(), freeTiersField(), freeFirstOutputField()}
 }
-
-// Env contributes nothing: opencode reads routing.opencode straight from the registry (internal/route,
-// internal/agent), not through the environment.
-func (opencodeModule) Env(providers.Routing) map[string]string { return nil }
 
 func splitList(input string) []string {
 	if strings.TrimSpace(input) == "" {

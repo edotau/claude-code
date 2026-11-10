@@ -15,7 +15,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/copilot"
-	"github.com/edotau/claude-code/internal/hooks/agents"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/memhook/memhooktest"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
@@ -559,14 +558,12 @@ func TestHookDocsPlacementBlocksThroughDispatcher(t *testing.T) {
 	}
 }
 
-// TestMain stubs the live-process scans, detached spawns and the usage cache so no hook test reads the machine or spawns.
+// TestMain stubs the live-process scans and detached spawns so no hook test reads the machine or spawns.
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()
 	tb := &hosttest.MainTB{}
 	memhooktest.StubSpawn(tb, true)
-	agents.ClaudePressure = func() (float64, string, bool) { return 0, "", false } // the real usage cache never steers a test
-	agents.RouteHint = func(string) (string, string) { return "codex", "gpt-6.1-sol" }
 	wthook.PeerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
 	code := m.Run()
 	for _, f := range tb.Cleanups {
