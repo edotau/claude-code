@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -225,11 +226,17 @@ func dispatchLabel(r Engine) string {
 	return r.Name()
 }
 
-// FallbackReason keeps the last line of the failure (an agent CLI prints its own ERROR line last), capped at 200 runes.
+// FallbackReason is the failure's last line with a letter or digit (not a JSON brace), credentials masked, ≤200 runes.
 func FallbackReason(err error) string {
 	lines := strings.Split(strings.TrimSpace(err.Error()), "\n")
 	s := strings.TrimSpace(lines[len(lines)-1])
-	return textutil.CapRunes(s, 200, "")
+	for _, l := range slices.Backward(lines) {
+		if strings.ContainsFunc(l, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) {
+			s = strings.TrimSpace(l)
+			break
+		}
+	}
+	return textutil.CapRunes(textutil.RedactSecrets(s), 200, "")
 }
 
 // dispatchUnavailable: a pre-answer auth failure, or a failed hop of an external engine (otherwise claude/api never).

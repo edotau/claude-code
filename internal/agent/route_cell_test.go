@@ -1,10 +1,14 @@
 package agent
 
 import (
+	"context"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // A pinned caller's own profile:model runs the bare model in its cell; buildDispatch adds the profile once.
@@ -46,3 +50,53 @@ func TestProfileCellAcceptsStaticallyOnColdCache(t *testing.T) {
 		t.Fatalf("cold cache = %+v, %q, want m-a accepted", cell, why)
 	}
 }
+
+// copilotOnDev routes copilot (GitHub-pinned, model pin gpt-6.1-sol) on lead dev, a signed-in served-aware
+// Databricks row whose fresh listing has glm-5-3 NOT_READY; it returns the dev dispatches and the skips.
+func copilotOnDev(t *testing.T, model string) (dev []string, skipped []string) {
+	t.Helper()
+	reg := servedEnv(t, "true", nil)
+	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+		{ID: "databricks-claude-opus-5-5", Ready: "READY"}, {ID: "databricks-gpt-6-1-sol", Ready: "READY"},
+		{ID: "databricks-kimi-k3", Ready: "READY"}, {ID: "databricks-glm-5-3", Ready: "NOT_READY"}}}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", t.TempDir())
+	activateAgents(t, "copilot")
+	vaulttest.SetRecord(t, "copilot", "model", "gpt-6.1-sol")
+	c, _, err := RouteChainFor(context.Background(), "copilot", model, "sonnet", router.FallbackAll, false,
+		router.PickOpts{Configured: allConfigured, Lead: "dev"})
+	if err != nil || reg.Providers["dev"] == nil {
+		t.Fatal(err)
+	}
+	for _, d := range c.Dispatches {
+		if d.Agent.Name() == "copilot" && strings.HasPrefix(d.Model, "dev:") {
+			dev = append(dev, d.Model)
+		}
+	}
+	return dev, c.Skipped
+}
+
+// An explicit Claude id runs on the lead profile as asked, not swapped for the agent's model pin.
+func TestCallerClaudeIDBeatsModelPinOnLeadProfile(t *testing.T) {
+	dev, skipped := copilotOnDev(t, "databricks-claude-opus-5-5")
+	if len(dev) != 1 || dev[0] != "dev:databricks-claude-opus-5-5" {
+		t.Fatalf("dev dispatches = %v (skipped %v), want dev:databricks-claude-opus-5-5", dev, skipped)
+	}
+}
+
+// A served non-Claude id is a direct hit on the lead profile; an unserved one is skipped under its own spelling.
+func TestCallerExactIDServedOnLeadProfile(t *testing.T) {
+	dev, skipped := copilotOnDev(t, "databricks-kimi-k3")
+	if len(dev) != 1 || dev[0] != "dev:databricks-kimi-k3" || slices.ContainsFunc(skipped, isCopilotDevSkip) {
+		t.Fatalf("kimi: dev dispatches = %v, skipped %v; want one direct dispatch, no dev skip", dev, skipped)
+	}
+	dev, skipped = copilotOnDev(t, "databricks-glm-5-3")
+	if len(dev) != 0 || !slices.ContainsFunc(skipped, func(s string) bool {
+		return isCopilotDevSkip(s) && strings.Contains(s, "serves no databricks-glm-5-3")
+	}) {
+		t.Fatalf("glm: dev dispatches = %v, skipped %v; want a dev skip naming databricks-glm-5-3", dev, skipped)
+	}
+}
+
+func isCopilotDevSkip(s string) bool { return strings.HasPrefix(s, "copilot (databricks·dev):") }

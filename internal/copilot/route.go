@@ -33,6 +33,11 @@ func copilotGate(reg *providers.Registry, t providers.Target) (providers.Target,
 	if !ok {
 		return providers.Target{}, "", errors.New(ri.Reason)
 	}
+	if strings.HasPrefix(t.Model, models.DatabricksPrefix) { // a Databricks id moves only to a profile serving it
+		if _, why := agent.ProfileServes("copilot", ft.Provider, t.Model); why != "" {
+			return providers.Target{}, "", fmt.Errorf("copilot: %s; databricks profile %s %s", detail, ft.Provider.Name, why)
+		}
+	}
 	return ft, ri.Reason, nil
 }
 

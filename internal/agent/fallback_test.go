@@ -936,3 +936,14 @@ func TestSuccessSurvivesCancelRightAfterIt(t *testing.T) {
 		t.Fatalf("res=%+v err=%v second ran %d times; want the first dispatch's answer alone", res, err, runs.Load())
 	}
 }
+
+// A vendor error ending in a multi-line JSON body keeps its message line, credential masked, not the closing brace.
+func TestFallbackReasonSkipsBareJSONClosers(t *testing.T) {
+	token := "dapi" + strings.Repeat("0123456789abcdef", 2) // built at run time: a literal trips secret scanners
+	err := errors.New("copilot: 400 Bad Request\n{\n  \"error_code\": \"BAD_REQUEST\",\n" +
+		"  \"message\": \"model rejected the request (token " + token + ")\"\n}\n")
+	got := FallbackReason(err)
+	if !strings.Contains(got, "model rejected the request") || strings.Contains(got, token[:20]) {
+		t.Fatalf("FallbackReason = %q, want the message line with the credential masked", got)
+	}
+}
