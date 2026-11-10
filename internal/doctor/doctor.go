@@ -8,7 +8,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/completion"
+	"github.com/edotau/claude-code/internal/doctor/promptpath"
 	"github.com/edotau/claude-code/internal/launch"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -18,10 +20,10 @@ import (
 var doctorChecks = launch.DoctorChecks
 
 type doctorOpts struct {
-	format                                 *string
-	auditMode, scan, gitScan, refresh, all bool
-	days, since                            int
-	rev                                    string
+	format                                          *string
+	auditMode, scan, gitScan, refresh, all, prompts bool
+	days, since                                     int
+	rev                                             string
 }
 
 var doctorPage = helptext.Page{
@@ -43,6 +45,7 @@ func doctorFlags() (*flag.FlagSet, *doctorOpts) {
 	fs.StringVar(&o.rev, "range", "", "with --git or --secrets: only this revision range, e.g. @{u}..HEAD")
 	fs.BoolVar(&o.refresh, "refresh", false, "re-list each pinned Databricks workspace's served models before the checks")
 	fs.BoolVar(&o.all, "secrets", false, "--scan, --git and the vault checks together; worst exit wins")
+	fs.BoolVar(&o.prompts, "prompts", false, "audit the CLAUDE.md, rules, skills and agents instruction path")
 	return fs, o
 }
 
@@ -62,7 +65,28 @@ func Run(args []string) int {
 	return runDoctor(o, fs.Args())
 }
 
+// conflictingModes names the first pair of mode flags that would silently drop one another.
+func conflictingModes(o *doctorOpts) (string, bool) {
+	audits := o.scan || o.gitScan || o.all
+	switch {
+	case o.auditMode && audits:
+		return "--audit cannot combine with --scan, --git or --secrets", true
+	case o.refresh && audits:
+		return "--refresh cannot combine with --scan, --git or --secrets", true
+	case o.refresh && o.auditMode:
+		return "--refresh cannot combine with --audit", true
+	}
+	return "", false
+}
+
 func runDoctor(o *doctorOpts, targets []string) int {
+	if msg, bad := conflictingModes(o); bad {
+		helptext.Fail("doctor: %s", msg)
+		return 2
+	}
+	if o.prompts {
+		return runPrompts(o)
+	}
 	if o.scan || o.gitScan || o.all {
 		return runDoctorAudits(o, targets)
 	}
@@ -73,6 +97,28 @@ func runDoctor(o *doctorOpts, targets []string) int {
 		refreshServed()
 	}
 	checks, ok := doctorChecks()
+	if *o.format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, struct {
+			OK     bool           `json:"ok"`
+			Checks []launch.Check `json:"checks"`
+		}{ok, checks}); err != nil {
+			return helptext.Fail("doctor: %v", err)
+		}
+	} else {
+		launch.PrintChecks(os.Stdout, checks)
+	}
+	if !ok {
+		return 1
+	}
+	return 0
+}
+
+func runPrompts(o *doctorOpts) int {
+	checks := promptpath.Run(paths.ConfigDir())
+	ok := true
+	for _, c := range checks {
+		ok = ok && c.OK
+	}
 	if *o.format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, struct {
 			OK     bool           `json:"ok"`
@@ -108,5 +154,5 @@ func refreshServed() {
 // SpecNode is the `doctor` completion spec.
 func SpecNode() *completion.Node {
 	return &completion.Node{Flags: []completion.Flag{completion.BoolFlag("audit"), completion.Plain("days"), completion.BoolFlag("scan"), completion.BoolFlag("git"), completion.Plain("since"),
-		completion.Plain("range"), completion.BoolFlag("secrets"), completion.BoolFlag("refresh"), completion.FormatFlag()}}
+		completion.Plain("range"), completion.BoolFlag("secrets"), completion.BoolFlag("refresh"), completion.BoolFlag("prompts"), completion.FormatFlag()}}
 }

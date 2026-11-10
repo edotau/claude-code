@@ -306,3 +306,27 @@ func TestPlanMirrorFailedWriteDropsEmptyClaim(t *testing.T) {
 		t.Fatalf("empty claim left behind after failed mirror: stat err = %v", err)
 	}
 }
+
+// TestPlanMirrorFailedRecordStillWritesCopy: when the dest cannot be recorded, the dated copy is still written.
+func TestPlanMirrorFailedRecordStillWritesCopy(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	writeMirrorDraft(t, filepath.Join(cfg, "state", "harness"), "plans-scratch", "x") // the scratch dir cannot be created
+	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "funny-random-words.md", planTemplate)
+	mirrorRun(t, "unrecordable mirror", "Write", cfg, draft)
+	dated, err := filepath.Glob(filepath.Join(cfg, "plans", "2*.md"))
+	if err != nil || len(dated) != 1 {
+		t.Fatalf("dated copies = %v (err %v), want exactly one", dated, err)
+	}
+	wantMirrorFile(t, dated[0], planTemplate, "dated copy after an unrecordable mirror")
+}
+
+// TestPlanSkeletonMissingTemplateReportsOnStderr: a missing template fails open but names the cause.
+func TestPlanSkeletonMissingTemplateReportsOnStderr(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	in := core.ParseInput(hookJSON(t, map[string]any{"hook_event_name": "PreToolUse", "tool_name": "EnterPlanMode"}))
+	res := Skeleton(in)
+	if res.Context != "" || !strings.Contains(res.Stderr, "plan-skeleton: ") {
+		t.Fatalf("result = %+v, want no context and a plan-skeleton diagnostic", res)
+	}
+}

@@ -137,3 +137,8 @@ func usesAny(src string, uses []string) bool {
 	}
 	return false
 }
+
+// WorkflowDrift returns the saved-workflow doc and helper-block drift under root; empty when both are in sync.
+func WorkflowDrift(root string) []string {
+	return append(workflowDocDrift(root), workflowHelperDrift(root)...)
+}

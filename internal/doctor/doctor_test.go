@@ -306,3 +306,19 @@ func TestDoctorAuditJSONWriteError(t *testing.T) {
 		t.Errorf("doctor --audit --format json on closed stdout: exit %d, want non-zero", code)
 	}
 }
+
+func TestDoctorRejectsConflictingModes(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	for _, args := range [][]string{
+		{"--scan", "--audit"}, {"--secrets", "--refresh"},
+		{"--git", "--audit"}, {"--audit", "--refresh"},
+	} {
+		code, _, errOut := hosttest.CaptureOutput(t, func() int { return Run(args) })
+		if code != 2 {
+			t.Errorf("doctor %v exit %d, want 2", args, code)
+		}
+		if !strings.Contains(errOut, "cannot combine") {
+			t.Errorf("doctor %v stderr %q does not name the conflict", args, errOut)
+		}
+	}
+}
