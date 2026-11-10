@@ -106,27 +106,33 @@ func lockPath(dir string) string { return filepath.Join(storeLockDir(dir), ".pos
 // the region and catalog, and commits — all under the bank lock. Deletes nothing.
 func settleBank(root string, now time.Time) (rotated int, err error) {
 	err = WithBankLock(BankLockWait, func() error {
-		var dirs []string
-		own := Dir(root)
-		if _, err := os.Stat(own); err == nil { // an unscaffolded repo gets its store from Init (with its origin), never here
-			dirs = append(dirs, own)
-		}
-		if g := HomeBankDir(); len(dirs) == 0 || !paths.SamePath(dirs[0], g) {
-			dirs = append(dirs, g)
-		}
-		for _, d := range dirs {
-			n, err := settleDir(d, now)
-			rotated += n
-			if err != nil {
-				return err
-			}
-		}
-		if err := writeCatalog(now); err != nil {
-			return err
-		}
-		return commitStore("settle: " + filepath.Base(dirs[0]))
+		rotated, err = settleBankLocked(root, now)
+		return err
 	})
 	return rotated, err
+}
+
+// settleBankLocked is settleBank for a caller already holding the bank lock.
+func settleBankLocked(root string, now time.Time) (rotated int, err error) {
+	var dirs []string
+	own := Dir(root)
+	if _, err := os.Stat(own); err == nil { // an unscaffolded repo gets its store from Init (with its origin), never here
+		dirs = append(dirs, own)
+	}
+	if g := HomeBankDir(); len(dirs) == 0 || !paths.SamePath(dirs[0], g) {
+		dirs = append(dirs, g)
+	}
+	for _, d := range dirs {
+		n, err := settleDir(d, now)
+		rotated += n
+		if err != nil {
+			return rotated, err
+		}
+	}
+	if err := writeCatalog(now); err != nil {
+		return rotated, err
+	}
+	return rotated, commitStore("settle: " + filepath.Base(dirs[0]))
 }
 
 // NewestMtime is the newest mtime across dir's six typed files — the "did the update write?" probe.

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // TestRememberUnknownTypeErrors: an unmapped --type is refused, naming the valid set.
@@ -208,5 +210,35 @@ func TestRememberRefusesFactItCannotStamp(t *testing.T) {
 		if got := mustRead(t, path); got != c.body {
 			t.Errorf("%s: conventions.md rewritten despite the error:\n%s", c.name, got)
 		}
+	}
+}
+
+// TestRememberSettlesInsideItsWriteLock: no second writer can take the bank lock between the fact write and the settle.
+func TestRememberSettlesInsideItsWriteLock(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	origWait, origHook := BankLockWait, afterRememberWrite
+	t.Cleanup(func() { BankLockWait, afterRememberWrite = origWait, origHook })
+	BankLockWait = 200 * time.Millisecond
+	release := make(chan struct{})
+	intruded := false
+	afterRememberWrite = func() { // a rival writer that grabs the lock if it is free and holds it past BankLockWait
+		held, refused := make(chan struct{}), make(chan struct{})
+		go func() {
+			hold := func() error { close(held); <-release; return nil }
+			if ran, _ := paths.TryFileLock(BankLockPath(), time.Millisecond, hold); !ran {
+				close(refused)
+			}
+		}()
+		select {
+		case <-held:
+			intruded = true
+		case <-refused:
+		}
+	}
+	_, err := Remember(root, "feedback", "settle in the same critical section", time.Now())
+	close(release)
+	if intruded || err != nil {
+		t.Fatalf("Remember released the bank lock before settling: rival took it = %v, Remember err = %v", intruded, err)
 	}
 }

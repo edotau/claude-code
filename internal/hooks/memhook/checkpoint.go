@@ -73,8 +73,8 @@ func handoffPrompt(in *core.Input, pct int) core.Result {
 }
 
 // contextCheckpoint: once per threshold crossing with nothing in flight, spawn an update and prompt a handoff.
+// in already carries the session root (Stop resolves it once).
 func contextCheckpoint(in *core.Input) core.Result {
-	in = sessionRootInput(in)
 	if in.StopHookActive || !memory.Updatable(in.SessionID, in.TranscriptPath) {
 		return core.Result{}
 	}
@@ -122,6 +122,7 @@ func contextCheckpoint(in *core.Input) core.Result {
 // Stop runs the context checkpoint and memory update; only the memory update can block the stop.
 func Stop(in *core.Input) core.Result {
 	var hv bytes.Buffer
+	in = sessionRootInput(in) // once per Stop: the checkpoint and the update share it
 	steward := contextCheckpoint(in)
 	code, failedOpen := sessionUpdate(in, &hv)
 	r := core.ExitResult(code, hv.String())
