@@ -13,8 +13,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 )
+
+// TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
 type toolsTestEnv struct {
 	home   string
@@ -362,5 +366,49 @@ func TestLocalBinDirUnsetHomeIsNotCwdRelative(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cwd, ".local")); !os.IsNotExist(err) {
 		t.Fatalf("cwd-relative .local was created: %v", err)
+	}
+}
+
+func TestStatusOneTargetIsLinkTargetOnly(t *testing.T) {
+	env := setupToolsTestEnv(t)
+	candidate := filepath.Join(env.path1, "codex")
+	writeToolsFixture(t, candidate, "#!/bin/sh\nprintf '1.0.0\\n'\n", 0o755)
+	tool, ok := Lookup("codex")
+	if !ok {
+		t.Fatal("codex tool is missing")
+	}
+
+	Link(&bytes.Buffer{}, []string{"codex"}, false)
+	dst := filepath.Join(paths.BinDir(), "codex")
+	wantTarget, err := os.Readlink(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := statusOne(tool).Target; got != wantTarget {
+		t.Errorf("linked Target = %q, want Readlink %q", got, wantTarget)
+	}
+
+	if err := os.Remove(dst); err != nil {
+		t.Fatal(err)
+	}
+	writeToolsFixture(t, dst, "#!/bin/sh\nprintf '1.0.0\\n'\n", 0o755)
+	if got := statusOne(tool).Target; got != "" {
+		t.Errorf("regular-file Target = %q, want empty", got)
+	}
+}
+
+// FirstVersionLine honours the caller's timeout: a hung --version is "" well before versionProbeTimeout.
+func TestFirstVersionLineHonoursTimeout(t *testing.T) {
+	bin, _ := probeFixture(t, "sleep 3\necho 'fake 1.0.0'")
+	start := time.Now()
+	if got := FirstVersionLine(t.Context(), bin, 100*time.Millisecond); got != "" {
+		t.Fatalf("hung probe = %q, want \"\"", got)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("probe took %v, want the 100ms timeout honoured", d)
+	}
+	fast, _ := probeFixture(t, "echo 'fake 1.0.0'\necho second")
+	if got := FirstVersionLine(t.Context(), fast, time.Second); got != "fake 1.0.0" {
+		t.Fatalf("FirstVersionLine = %q, want the first line", got)
 	}
 }

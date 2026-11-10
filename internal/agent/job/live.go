@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -168,4 +171,188 @@ func (s *liveSession) finish(cause error) error {
 func (s *liveSession) release() {
 	s.idle.Reset(s.idleFor)
 	s.busy.Store(false)
+}
+
+// ErrLiveBusy is the refusal of a second turn while one is in flight.
+var ErrLiveBusy = errors.New("a turn is already in flight on this live session")
+
+// errLiveCap is the refusal when every live slot is taken.
+var errLiveCap = fmt.Errorf("%d live sessions already running (max %d): agents cancel one first", MaxLiveSessions, MaxLiveSessions)
+
+// LiveSocket is the unix socket path of live session id.
+func LiveSocket(id string) string { return filepath.Join(paths.DispatchDir(), id+wire.LiveSockSuffix) }
+
+// LiveCount counts live sessions still running, other than skip.
+func LiveCount(skip string) int {
+	n := 0
+	for _, r := range RecentRecords(1 << 20) {
+		if r.Live && r.ID != skip && r.Alive() {
+			n++
+		}
+	}
+	return n
+}
+
+// CheckLiveCap errors when starting another session (besides skip) would pass MaxLiveSessions.
+func CheckLiveCap(skip string) error {
+	if LiveCount(skip) >= MaxLiveSessions {
+		return errLiveCap
+	}
+	return nil
+}
+
+// ensureDispatchDir creates the 0700 dispatch dir.
+func ensureDispatchDir() error { return os.MkdirAll(paths.DispatchDir(), 0o700) }
+
+// AcquireLiveSlot takes one of MaxLiveSessions flock'd slot files (freed when the holder dies); the func releases it.
+func AcquireLiveSlot() (func(), error) {
+	if err := ensureDispatchDir(); err != nil {
+		return nil, err
+	}
+	for i := range MaxLiveSessions {
+		f, err := os.OpenFile(filepath.Join(paths.DispatchDir(), fmt.Sprintf("live-slot-%d", i)), os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			return nil, err
+		}
+		if paths.TryLock(f) {
+			return func() { _ = f.Close() }, nil
+		}
+		_ = f.Close()
+	}
+	return nil, errLiveCap
+}
+
+// pumpBuf is an unbounded in-memory pipe draining claude stdout, so a stdin write never blocks behind unread output.
+type pumpBuf struct {
+	mu     sync.Mutex
+	cond   *sync.Cond
+	buf    []byte
+	closed bool
+	err    error         // the reader's terminal error (io.EOF on a clean end), returned once buf drains
+	done   chan struct{} // closed once the reader hit EOF or an error: all of stdout is in buf
+}
+
+func newPumpBuf(src io.Reader) *pumpBuf {
+	b := &pumpBuf{done: make(chan struct{})}
+	b.cond = sync.NewCond(&b.mu)
+	go func() {
+		chunk := make([]byte, 32<<10)
+		for {
+			n, err := src.Read(chunk)
+			b.mu.Lock()
+			b.buf = append(b.buf, chunk[:n]...)
+			b.closed, b.err = err != nil, err
+			b.cond.Broadcast()
+			b.mu.Unlock()
+			if err != nil {
+				close(b.done)
+				return
+			}
+		}
+	}()
+	return b
+}
+
+// Read blocks until data or the end of claude's stdout; the reader's real error follows the drained buffer.
+func (b *pumpBuf) Read(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for len(b.buf) == 0 && !b.closed {
+		b.cond.Wait()
+	}
+	if len(b.buf) == 0 {
+		return 0, b.err
+	}
+	n := copy(p, b.buf)
+	b.buf = b.buf[n:]
+	return n, nil
+}
+
+// SendLive sends one turn to live session id and streams that turn's events to sink until its result.
+func SendLive(ctx context.Context, id, prompt string, sink wire.Sink) (wire.Envelope, error) {
+	rec, err := LoadRecord(id)
+	if err != nil {
+		return wire.Envelope{}, err
+	}
+	if !rec.Live {
+		return wire.Envelope{}, fmt.Errorf("dispatch %s is not a live session (start one: ask --agent claude|gemini --live)", rec.ID)
+	}
+	if !rec.Alive() {
+		return wire.Envelope{}, fmt.Errorf("live session %s has ended (%s); start a new one", rec.ID, rec.Status)
+	}
+	conn, err := (&net.Dialer{Timeout: liveIOTimeout}).DialContext(ctx, "unix", LiveSocket(rec.ID))
+	if err != nil {
+		return wire.Envelope{}, fmt.Errorf("live session %s: %w (claude-code agents reap clears dead sessions)", rec.ID, err)
+	}
+	defer conn.Close()
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+	_ = conn.SetWriteDeadline(time.Now().Add(liveIOTimeout))
+	if err := json.NewEncoder(conn).Encode(wire.LiveRequest{Schema: wire.LiveSchema, Prompt: prompt}); err != nil {
+		return wire.Envelope{}, err
+	}
+	return receiveTurn(ctx, rec.ID, json.NewDecoder(conn), sink)
+}
+
+func receiveTurn(ctx context.Context, id string, dec *json.Decoder, sink wire.Sink) (wire.Envelope, error) {
+	for {
+		var ev wire.Event
+		if err := dec.Decode(&ev); err != nil {
+			if ctx.Err() != nil {
+				return wire.Envelope{}, ctx.Err()
+			}
+			return wire.Envelope{}, fmt.Errorf("live session %s closed before the turn's result: %w", id, err)
+		}
+		if err := refusalError(ev); err != nil {
+			return wire.Envelope{}, err
+		}
+		if err := sink.Emit(ev); err != nil {
+			return wire.Envelope{}, err
+		}
+		if ev.Type == wire.EventResult {
+			if ev.Envelope == nil {
+				return wire.Envelope{}, errors.New("result event without an envelope")
+			}
+			return *ev.Envelope, nil
+		}
+	}
+}
+
+func refusalError(ev wire.Event) error {
+	if ev.Type != wire.EventError {
+		return nil
+	}
+	switch ev.Status {
+	case statusBusy:
+		return ErrLiveBusy
+	case statusRefused:
+		return errors.New(ev.Text)
+	}
+	return nil
+}
+
+// liveReadyWait bounds how long `ask --live` waits for the holder to open its socket.
+const liveReadyWait = 20 * time.Second
+
+// IdleOf is the idle limit a live session runs under: the request's timeout, else the default.
+func IdleOf(req agent.RunOptions) time.Duration {
+	if req.Timeout > 0 {
+		return req.Timeout
+	}
+	return DefaultLiveIdle
+}
+
+// WaitLiveReady polls for the holder's socket; it gives up early when the holder's record leaves running.
+func WaitLiveReady(id string, pid int) error {
+	deadline := time.Now().Add(liveReadyWait)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(LiveSocket(id)); err == nil {
+			return nil
+		}
+		if rec, err := LoadRecord(id); err == nil && rec.Status != "running" {
+			return errors.New(rec.Error)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("no socket after %s (holder pid %d)", liveReadyWait, pid)
 }

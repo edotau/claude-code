@@ -1,15 +1,14 @@
 package job
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -17,15 +16,13 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/agent"
-
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-
 	"github.com/edotau/claude-code/internal/paths"
-
-	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // A record saves as running, finishes with its outcome, loads by prefix, and the log prunes the oldest.
@@ -546,243 +543,6 @@ func TestReservedRecordSurvivesPrune(t *testing.T) {
 	}
 }
 
-const evSecret = "AKIAIOSFODNN7EXAMPLE"
-
-// emitScript is a fake vendor body that drains stdin then prints each NDJSON line on stdout.
-func emitScript(lines ...string) string {
-	var b strings.Builder
-	b.WriteString("cat > /dev/null\n")
-	for _, l := range lines {
-		b.WriteString("printf '%s\\n' '" + l + "'\n")
-	}
-	return b.String()
-}
-
-// loggedRun runs fn under a WithLog (or, for a job run, WithLogEvents) ctx and returns the closed log's content.
-func loggedRun(t *testing.T, jobMode bool, fn func(ctx context.Context)) string {
-	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
-	path := filepath.Join(t.TempDir(), "d.log")
-	sink := wire.NewLogSink(path)
-	ctx := wire.WithLog(context.Background(), sink)
-	if jobMode {
-		ctx = wire.WithLogEvents(context.Background(), sink)
-	}
-	fn(ctx)
-	sink.Close()
-	return readLog(t, path)
-}
-
-func TestLogEventOpenCodeFormatted(t *testing.T) {
-	r, err := agent.Lookup("opencode")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("OPENCODE_API_KEY", "test-key")
-	var out strings.Builder
-	log := loggedRun(t, false, func(ctx context.Context) {
-		pathstest.FakeVendor(t, "opencode", emitScript(
-			`{"type":"text","sessionID":"ses_A","part":{"text":"hello AWS_SECRET=`+evSecret+`"}}`,
-			`{"type":"step_finish","sessionID":"ses_A","part":{"tokens":{"input":3,"output":2}}}`))
-		if _, err := r.Run(ctx, agent.RunOptions{Prompt: "p", WorkDir: t.TempDir()}, wire.NewTextSink(&out)); err != nil {
-			t.Fatalf("Run: %v", err)
-		}
-	})
-	if out.String() != "hello AWS_SECRET="+evSecret {
-		t.Errorf("caller stream = %q", out.String())
-	}
-	// step_finish may or may not log a result line; the assistant line is exact and any extra line is formatted.
-	lines := strings.Split(strings.TrimRight(log, "\n"), "\n")
-	if lines[0] != "▸ assistant: hello AWS_SECRET=REDACTED" || len(lines) > 2 {
-		t.Errorf("log lines = %q, want the assistant line first", lines)
-	}
-	if len(lines) == 2 && !strings.HasPrefix(lines[1], "▸ result:") {
-		t.Errorf("second log line = %q, want a '▸ result:' line", lines[1])
-	}
-	if strings.Contains(log, evSecret) || strings.Contains(log, `{"`) {
-		t.Errorf("log leaks the secret or raw JSON:\n%s", log)
-	}
-}
-
-// The plain-text vendor path (codex etc.) tees stdout via teeWriter: a job carrier must not tee it, a plain
-// WithLog still must, and both keep feeding stderr/event lines.
-func TestLogEventJobModeNoRawStdoutTee(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		job     bool
-		wantRaw bool
-	}{{"job carrier", true, false}, {"plain WithLog", false, true}} {
-		t.Run(tc.name, func(t *testing.T) {
-			var caller strings.Builder
-			log := loggedRun(t, tc.job, func(ctx context.Context) {
-				if wire.StderrLogFrom(ctx) == nil {
-					t.Fatal("stderrLogFrom lost the sink")
-				}
-				w := wire.TeeWriter(ctx, &caller)
-				_, _ = io.WriteString(w, "raw-stdout-answer\n")
-				wire.LogEvent(ctx, "result", "ev-line")
-			})
-			if caller.String() != "raw-stdout-answer\n" {
-				t.Errorf("caller stream = %q", caller.String())
-			}
-			if got := strings.Contains(log, "raw-stdout-answer"); got != tc.wantRaw {
-				t.Errorf("raw stdout in log = %v, want %v:\n%s", got, tc.wantRaw, log)
-			}
-			if !strings.Contains(log, "▸ result: ev-line") {
-				t.Errorf("event line missing:\n%s", log)
-			}
-		})
-	}
-}
-
-// readLog reads path, failing the test on error.
-func readLog(t *testing.T, path string) string {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile(%s): %v", path, err)
-	}
-	return string(b)
-}
-
-// TestLogSinkModeAppendRedact: the log is 0600, a second sink appends, and a secret split across Writes is redacted.
-func TestLogSinkModeAppendRedact(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "job.log")
-	s1 := wire.NewLogSink(path)
-	_, _ = s1.Stream().Write([]byte("first\n"))
-	s1.Close()
-
-	fi, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat: %v", err)
-	}
-	if mode := fi.Mode().Perm(); mode != 0o600 {
-		t.Errorf("log mode = %o, want 600", mode)
-	}
-
-	token := "ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"
-	line := "key=sk-" + token + "\n"
-	if textutil.RedactSecrets(line) == line {
-		t.Fatalf("textutil.RedactSecrets(%q) left it unchanged; test has no teeth", line)
-	}
-	s2 := wire.NewLogSink(path)
-	w := s2.Stream()
-	_, _ = w.Write([]byte("key=sk-"))
-	_, _ = w.Write([]byte(token))
-	_, _ = w.Write([]byte("\n"))
-	s2.Close()
-
-	got := readLog(t, path)
-	if strings.Contains(got, token) {
-		t.Errorf("log leaks the raw token: %q", got)
-	}
-	if want := "first\n" + textutil.RedactSecrets(line); got != want {
-		t.Errorf("log = %q, want %q", got, want)
-	}
-}
-
-// TestLogSinkStdoutByteIdentical: a sink must not change what the caller's stdout receives.
-func TestLogSinkStdoutByteIdentical(t *testing.T) {
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "fake")
-	script := "#!/bin/sh\nprintf 'alpha\\nbeta\\n'\necho oops >&2\nprintf 'gamma\\nno-newline'\n"
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	run := func(ctx context.Context) []byte {
-		t.Helper()
-		var buf bytes.Buffer
-		cmd, _ := agent.ChildCmd(ctx, bin, nil, nil, "", "", nil, true)
-		cmd.Stdout = wire.TeeWriter(ctx, &buf)
-		if err := cmd.Run(); err != nil {
-			t.Fatalf("run fake: %v", err)
-		}
-		return buf.Bytes()
-	}
-	plain := run(context.Background())
-	logPath := filepath.Join(dir, "job.log")
-	sink := wire.NewLogSink(logPath)
-	teed := run(wire.WithLog(context.Background(), sink))
-	sink.Close()
-
-	if !bytes.Equal(plain, teed) {
-		t.Errorf("stdout differs with a sink:\nplain %q\nteed  %q", plain, teed)
-	}
-	if want := "alpha\nbeta\ngamma\nno-newline"; string(plain) != want {
-		t.Errorf("stdout = %q, want %q", plain, want)
-	}
-	log := readLog(t, logPath)
-	for _, l := range []string{"alpha\n", "beta\n", "gamma\n", "no-newline\n", "oops\n"} {
-		if !strings.Contains(log, l) {
-			t.Errorf("log %q missing %q", log, l)
-		}
-	}
-}
-
-// TestLogSinkPartialLineFlushedOnClose: an unterminated last line waits for Close, which adds the newline.
-func TestLogSinkPartialLineFlushedOnClose(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "job.log")
-	s := wire.NewLogSink(path)
-	_, _ = s.Stream().Write([]byte("whole\npartial"))
-	if got := readLog(t, path); got != "whole\n" {
-		t.Errorf("log before Close = %q, want %q", got, "whole\n")
-	}
-	s.Close()
-	if got := readLog(t, path); got != "whole\npartial\n" {
-		t.Errorf("log after Close = %q, want %q", got, "whole\npartial\n")
-	}
-}
-
-// TestLogSinkLazyCreate: NewLogSink alone creates no file; the first Stream does.
-func TestLogSinkLazyCreate(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "job.log")
-	s := wire.NewLogSink(path)
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("Stat before Stream err = %v, want not-exist", err)
-	}
-	s.Stream()
-	if _, err := os.Stat(path); err != nil {
-		t.Errorf("Stat after Stream: %v", err)
-	}
-	s.Close()
-}
-
-// TestLogSinkConcurrentStreamsNoInterleave: two streams written concurrently keep every log line whole.
-func TestLogSinkConcurrentStreamsNoInterleave(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "job.log")
-	s := wire.NewLogSink(path)
-	const n = 500
-	want := map[string]bool{}
-	var wg sync.WaitGroup
-	for _, name := range []string{"stdout", "stderr"} {
-		w := s.Stream()
-		for i := range n {
-			want[fmt.Sprintf("%s line %d %s", name, i, strings.Repeat(name[3:], 20))] = true
-		}
-		wg.Go(func() {
-			for i := range n {
-				l := fmt.Sprintf("%s line %d %s\n", name, i, strings.Repeat(name[3:], 20))
-				_, _ = w.Write([]byte(l[:len(l)/2])) // split each line across two Writes
-				_, _ = w.Write([]byte(l[len(l)/2:]))
-			}
-		})
-	}
-	wg.Wait()
-	s.Close()
-
-	lines := strings.Split(strings.TrimSuffix(readLog(t, path), "\n"), "\n")
-	if len(lines) != 2*n {
-		t.Fatalf("log has %d lines, want %d", len(lines), 2*n)
-	}
-	for _, l := range lines {
-		if !want[l] {
-			t.Fatalf("log line %q is not a whole expected line", l)
-		}
-		delete(want, l)
-	}
-}
-
 // task_id, batch_id and plan_task survive Save and Load; a record without them still loads.
 func TestRecordTaskBatchPlanRoundTrip(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -869,10 +629,13 @@ type recordRunner struct {
 }
 
 func (f *recordRunner) Name() string { return f.name }
+
 func (f *recordRunner) Caps() agent.Caps {
 	return agent.Caps{Model: agent.Native, Effort: agent.Native}
 }
+
 func (f *recordRunner) Available() error { return nil }
+
 func (f *recordRunner) Run(context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
 	return f.res, f.err
 }
@@ -897,5 +660,103 @@ func TestRunRecordedFailedStartEmitFinishesRecord(t *testing.T) {
 	}
 	if got.Status != "error" || got.Error == "" {
 		t.Errorf("record = %q/%q, want error with the cause", got.Status, got.Error)
+	}
+}
+
+func TestRecordSavePersistsOwnProcessIdentity(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := ClaimRecord("codex", agent.RunOptions{}, time.Now())
+	rec.PID = os.Getpid()
+	want, err := proc.StartTime(rec.PID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want == "" {
+		t.Fatal("current process has no start time")
+	}
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := LoadRecord(rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.PIDStart != want {
+		t.Fatalf("reloaded PIDStart = %q, want current process start time %q", saved.PIDStart, want)
+	}
+	if !sameStart(&saved) {
+		t.Fatal("Cancel's process-identity check rejected the reloaded job's own process")
+	}
+}
+
+// The dispatch record logs what the request grants beyond the agent's defaults (D3), not what the defaults grant.
+func TestNewRecordLogsWidening(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"codex":{"permission":{"defaults":{"allow":["Read"]}}}}}`)
+	p, err := agent.ParsePermissions("", []string{"Read", "Bash(touch:*)"}, nil, []string{"Bash(rm:*)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := NewRecord("codex", agent.RunOptions{Prompt: "p", Permissions: p}, time.Now())
+	if want := []string{"allow Bash(touch:*)"}; !slices.Equal(rec.Widened, want) {
+		t.Errorf("Widened = %q, want %q", rec.Widened, want)
+	}
+}
+
+// A fallback run is judged against the agent that answered; an unreadable fallback default keeps the original list.
+func TestFinishRecomputesWideningForFallbackAgent(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Put(t, vault.Overlay, "agents",
+		`{"agents":{"codex":{"permission":{"defaults":{"allow":["Read"]}}},"gemini":{"permission":{"defaults":{"deny":["Bash("]}}}}}`)
+	p, err := agent.ParsePermissions("", []string{"Read"}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := NewRecord("codex", agent.RunOptions{Prompt: "p", Permissions: p}, time.Now())
+	rec.Finish(wire.Result{Agent: "copilot", Fallback: "codex 429"}, nil, time.Second)
+	if want := []string{"allow Read"}; !slices.Equal(rec.Widened, want) {
+		t.Errorf("Widened after fallback = %q, want %q", rec.Widened, want)
+	}
+	rec2 := NewRecord("codex", agent.RunOptions{Prompt: "p", Permissions: p}, time.Now())
+	rec2.Finish(wire.Result{Agent: "gemini", Fallback: "codex 429"}, nil, time.Second)
+	if len(rec2.Widened) != 0 {
+		t.Errorf("bad fallback default overwrote Widened: %q", rec2.Widened)
+	}
+}
+
+func TestRunRecordedFinalAnswerWriteError(t *testing.T) {
+	for _, want := range []error{io.ErrClosedPipe, io.ErrShortWrite} {
+		t.Run(want.Error(), func(t *testing.T) {
+			setConfigDir(t)
+			rec := ClaimRecord("codex", agent.RunOptions{}, time.Now())
+			var events collect
+			_, err := RunRecorded(context.Background(), &rec, "codex", &events,
+				RunRecordedOpts{AnswerTo: partialErrorWriter{want}},
+				func(context.Context, wire.Sink) (wire.Result, error) {
+					return wire.Result{Agent: "codex", Status: wire.StatusOK, Answer: "final answer"}, nil
+				})
+			if !errors.Is(err, want) || !strings.Contains(err.Error(), "write final answer") {
+				t.Fatalf("answer write error = %v, want wrapped %v", err, want)
+			}
+			assertAnswerWriteFailure(t, rec.ID, events.got)
+		})
+	}
+}
+
+func assertAnswerWriteFailure(t *testing.T, id string, events []wire.Event) {
+	t.Helper()
+	got, err := LoadRecord(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "error" || !strings.Contains(got.Error, "write final answer") {
+		t.Fatalf("saved answer failure = %s/%q", got.Status, got.Error)
+	}
+	last := events[len(events)-1]
+	if last.Type != wire.EventResult || last.Envelope == nil || last.Envelope.Error == nil {
+		t.Fatalf("result event = %+v, want the answer write error in its envelope", last)
+	}
+	if !strings.Contains(last.Envelope.Error.Message, "write final answer") {
+		t.Fatalf("result error = %q, want the answer write failure", last.Envelope.Error.Message)
 	}
 }

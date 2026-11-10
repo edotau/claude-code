@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/launchplan"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -387,4 +389,162 @@ func (r *askRun) resolveLead() (int, bool) {
 		r.lead, f.provider = lead, ""
 	}
 	return 0, false
+}
+
+// prepareExitCode is the code a Prepare error names, else 1.
+func prepareExitCode(err error) int {
+	if usage, ok := errors.AsType[interface {
+		error
+		ExitCode() int
+	}](err); ok {
+		return usage.ExitCode()
+	}
+	return 1
+}
+
+// askSpawn detaches a prepared dispatch as a background job.
+func askSpawn(fs *flag.FlagSet, prepared *client.Prepared, native bool, format, name string) int {
+	if err := job.Spawn(&prepared.Record, backgroundExtraFlags(fs, prepared.Opts.Fallback, native)); err != nil {
+		prepared.Record.Finish(wire.Result{}, err, time.Since(prepared.Record.Time))
+		if saveErr := prepared.Record.Save(); saveErr != nil {
+			err = errors.Join(err, fmt.Errorf("save failed dispatch %s: %w", prepared.Record.ID, saveErr))
+		}
+		return failAsk(format, name, err)
+	}
+	if err := ReportBackgroundStart(format, prepared.Record); err != nil {
+		return helptext.Fail("%s: job %s started; write job id: %v", name, prepared.Record.ID, err)
+	}
+	return 0
+}
+
+// absDebugFile pins the path now: --workdir moves the child's cwd.
+func absDebugFile(p string) string {
+	if p == "" {
+		return p
+	}
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
+}
+
+// runAskAndReport executes one prepared foreground dispatch and reports its outcome.
+func runAskAndReport(ctx context.Context, client *client.Client, p *client.Prepared, isJob bool, format string) int {
+	opts := job.RunRecordedOpts{Job: isJob}
+	if isJob && format == helptext.Text {
+		opts.AnswerTo = os.Stdout // a --job child's stdout is the log: the full answer lands once at the end
+	}
+	res, err := client.Exec(ctx, p, StdoutSink(format, p.Record.ID), opts)
+	writeErr := reportAskResult(format, res, err, res.DispatchID)
+	for _, line := range []string{wire.RanOn(res), wire.DidNotRun(res)} {
+		if line != "" {
+			fmt.Fprintln(os.Stderr, "ask:", line)
+		}
+	}
+	fmt.Fprintln(os.Stderr, "ask: dispatch", res.DispatchID, "(agents result <id> reprints it; agents ask --retry <id> replays it)")
+	if err == nil {
+		err = writeErr
+	}
+	if err != nil {
+		return helptext.Fail("ask: %v", err)
+	}
+	return 0
+}
+
+// The ask --format values.
+const formatStreamJSON = client.FormatStreamJSON
+
+// StdoutSink is the sink behind stdout for format: streamed text, nothing (json prints one envelope), or NDJSON.
+func StdoutSink(format, dispatchID string) wire.Sink {
+	switch format {
+	case helptext.JSON:
+		return wire.Discard
+	case formatStreamJSON:
+		return wire.NewJSONLSink(os.Stdout, dispatchID)
+	}
+	return wire.NewTextSink(os.Stdout)
+}
+
+// askState is the agent.AskTarget plus the flag pointers --retry resets or --job clears.
+type askState struct {
+	client.AskTarget
+	rubric *string
+	env    *envFlag
+	lead   *string // routed lead profile resolved by resolveLead; a live holder keeps it
+}
+
+// loadAskJob loads a --job record for a background run continuation; rc/done are set only on an early return.
+func loadAskJob(job, format string, s *askState, prompt *string) (rec *job.Record, rc int, done bool) {
+	if job == "" {
+		return nil, 0, false
+	}
+	r, err := client.LoadJobRecord(job)
+	if errors.Is(err, client.ErrJobNotFresh) {
+		return nil, failAskCode(format, *s.Name, err, 2), true
+	}
+	if err != nil {
+		return nil, failAsk(format, *s.Name, err), true
+	}
+	s.Apply(r, os.Stderr)
+	*prompt, *s.rubric = r.Request.Prompt, ""
+	return &r, 0, false
+}
+
+// loadAskRetry loads a --retry record, then re-applies any flags explicitly typed on this command line.
+func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askState, prompt *string) (rc int, done bool) {
+	if retry == "" {
+		return 0, false
+	}
+	rec, err := job.LoadRecord(retry)
+	if err != nil {
+		return failAsk(format, *s.Name, err), true
+	}
+	// The logged request wins; only flags typed on this command line override it.
+	s.Apply(rec, os.Stderr)
+	*s.lead = rec.Request.Lead // the routed lead is not a flag: the replay leads with the profile the run used
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "profile" || f.Name == "provider" { // an explicit route on this command line replaces the logged lead
+			*s.lead = ""
+		}
+		if f.Name == "attach" {
+			*s.Attach = nil
+		}
+		if f.Name == "keep-env" {
+			*s.KeepEnv = nil
+		}
+		if f.Name == "allow" {
+			*s.PermAllow = nil
+		}
+		if f.Name == "ask" {
+			*s.PermAsk = nil
+		}
+		if f.Name == "deny" {
+			*s.PermDeny = nil
+		}
+		if f.Name == "env" {
+			*s.env = nil
+		}
+	})
+	if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
+		return failAskCode(format, *s.Name, err, 2), true
+	}
+	*prompt, *s.rubric = rec.Request.Prompt, ""
+	fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
+	return 0, false
+}
+
+// printDispatchLog lists recent dispatches; the prompt preview is scrubbed of credential shapes.
+func printDispatchLog(format string) int {
+	recs := job.RecentRecords(20)
+	if format == helptext.JSON {
+		return helptext.WriteJSONOrFail("ask", recs)
+	}
+	if len(recs) == 0 {
+		fmt.Println("no dispatches logged yet")
+		return 0
+	}
+	for _, r := range recs {
+		fmt.Print(r.LogLine())
+	}
+	return 0
 }

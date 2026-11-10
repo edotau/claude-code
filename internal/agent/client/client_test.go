@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,13 +19,30 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 
+	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	_ "github.com/edotau/claude-code/internal/claude"
+	_ "github.com/edotau/claude-code/internal/codex"
+	_ "github.com/edotau/claude-code/internal/copilot"
+	_ "github.com/edotau/claude-code/internal/gemini"
+	"github.com/edotau/claude-code/internal/hosttest"
+	_ "github.com/edotau/claude-code/internal/opencode"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+// TestMain runs in the hermetic host (hosttest) with the vendor roster registered and the proxy stubbed.
+func TestMain(m *testing.M) {
+	agent.NoticeOut = io.Discard
+	agentconfig.SetCatalogWarn(io.Discard)
+	agent.StubProxyForTest("http://127.0.0.1:9999", "test-router-secret")
+	os.Exit(hosttest.Main(m))
+}
 
 // Explicit Model/Provider/Effort beat the definition's.
 func TestResolveOverlayAndAgentsPrecedence(t *testing.T) {
@@ -311,5 +329,66 @@ func TestChanSinkDropsProgressMark(t *testing.T) {
 	_ = cs.Emit(wire.Event{Type: wire.EventProgress})
 	if len(cs.ch) != 0 {
 		t.Errorf("stream queued %d events; want none", len(cs.ch))
+	}
+}
+
+// RunOptions.Lead must reach the router pick: a lead naming no registry row is skipped by name.
+func TestClientRouteCarriesLeadToThePick(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	vaulttest.SetRecord(t, "codex", "profile", "chatgpt")
+	c := NewClient(router.RuleClassifier{}.Alias, nil, nil)
+	chain, err := c.route(t.Context(), nil, agent.RunOptions{Agent: "codex", Prompt: "x", Lead: "no-such-row", Fallback: router.FallbackAll})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(chain.Skipped, "\n"), "no-such-row") {
+		t.Fatalf("skipped = %q, want a skip naming the lead row no-such-row", chain.Skipped)
+	}
+}
+
+// Given a pack file that cannot be written, Then Exec fails and the claimed record leaves running.
+func TestExecPackWriteFailureFinishesRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := job.ClaimRecord("claude", agent.RunOptions{}, time.Now())
+	p := &Prepared{Record: rec, pack: &packFile{path: filepath.Join(t.TempDir(), "missing", "pack.md"), body: "x"}}
+	res, err := (&Client{}).Exec(context.Background(), p, wire.Discard, job.RunRecordedOpts{})
+	if err == nil || res.Status != wire.StatusError {
+		t.Fatalf("Exec = %v/%v, want the write error", res.Status, err)
+	}
+	got, lerr := job.LoadRecord(rec.ID)
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	if got.Status != "error" {
+		t.Errorf("record status = %q, want error", got.Status)
+	}
+}
+
+// Given a tracked file and a tracked .env, Prepare packs the file only and records the task, not the bytes.
+func TestPreparePacksAndKeepsRecordCompact(t *testing.T) {
+	setupWorkdirFixture(t)
+	dir := gitRepoWith(t, map[string]string{"main.go": "package main // NEEDLE-1", ".env": "TOKEN=hunter2"})
+	var notes []string
+	client := NewClient(router.RuleClassifier{}.Alias, nil, func(s string) { notes = append(notes, s) })
+	p, err := client.Prepare(context.Background(), agent.RunOptions{Agent: "opencode", Prompt: "explain", WorkDir: dir,
+		Fallback: router.FallbackNone, Pack: &pack.Spec{Dirs: []string{"."}}}, nil)
+	if err != nil {
+		t.Fatalf("Prepare() = %v", err)
+	}
+	if !strings.Contains(p.Opts.Prompt, "NEEDLE-1") || strings.Contains(p.Opts.Prompt, "hunter2") {
+		t.Errorf("prompt must hold main.go and not .env:\n%s", p.Opts.Prompt)
+	}
+	if p.Record.Request.Prompt != "explain" || p.Record.Request.Pack == nil {
+		t.Errorf("record = %q pack=%v, want the bare task and the pack spec", p.Record.Request.Prompt, p.Record.Request.Pack)
+	}
+}
+
+func TestPrepareRefusesPackWithHost(t *testing.T) {
+	setupWorkdirFixture(t)
+	client := NewClient(router.RuleClassifier{}.Alias, nil, nil)
+	_, err := client.Prepare(context.Background(), agent.RunOptions{Agent: "opencode", Prompt: "p", Host: "box",
+		Pack: &pack.Spec{Dirs: []string{"."}}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "--host") {
+		t.Fatalf("Prepare() = %v, want a --host refusal", err)
 	}
 }

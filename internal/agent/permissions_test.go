@@ -212,3 +212,53 @@ func TestSafeModeDenyFindsFirstUnenforceable(t *testing.T) {
 		t.Error("an Allow rule must not count as an unenforceable Deny")
 	}
 }
+
+func TestPermissionUnicodePathDeny(t *testing.T) {
+	for _, path := range []string{"café.txt", "資料.txt", "🔒.txt"} {
+		p := mustPerms(t, "auto", []string{"Read"}, nil, []string{"Read(" + path + ")"})
+		if got := p.Decide("Read", path); got != Deny {
+			t.Errorf("Read(%q) = %v, want Deny", path, got)
+		}
+		if got := p.Decide("Read", "public.txt"); got != Allow {
+			t.Errorf("Read(public.txt) = %v, want Allow", got)
+		}
+	}
+}
+
+func permsJSON(t *testing.T, p Permissions) string {
+	t.Helper()
+	b, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// Layers add up; widened lists only what a later layer grants beyond the earlier ones, never a denied rule.
+func TestResolvePermissionsWidening(t *testing.T) {
+	def := mustPerms(t, "plan", []string{"Read"}, []string{"Bash(git push:*)"}, []string{"Bash(rm:*)"})
+	cases := []struct {
+		name    string
+		req     Permissions
+		want    string
+		widened string
+	}{
+		{"no request keeps the default", Permissions{}, permsJSON(t, def), ""},
+		{"narrowing is free", mustPerms(t, "plan", nil, []string{"Edit"}, []string{"WebFetch"}),
+			`{"mode":"plan","allow":[{"Tool":"Read","Arg":""}],"ask":[{"Tool":"Bash","Arg":"git push:*"},{"Tool":"Edit","Arg":""}],"deny":[{"Tool":"Bash","Arg":"rm:*"},{"Tool":"WebFetch","Arg":""}]}`, ""},
+		{"allowing a default ask widens it", mustPerms(t, "", []string{"Bash(git push:*)"}, nil, nil),
+			`{"mode":"plan","allow":[{"Tool":"Read","Arg":""},{"Tool":"Bash","Arg":"git push:*"}],"deny":[{"Tool":"Bash","Arg":"rm:*"}]}`, "allow Bash(git push:*)"},
+		{"a denied allow is no widening", mustPerms(t, "", []string{"Bash(rm:*)"}, nil, nil),
+			`{"mode":"plan","allow":[{"Tool":"Read","Arg":""},{"Tool":"Bash","Arg":"rm:*"}],"ask":[{"Tool":"Bash","Arg":"git push:*"}],"deny":[{"Tool":"Bash","Arg":"rm:*"}]}`, ""},
+		{"leaving plan widens the mode", mustPerms(t, "auto", nil, nil, nil),
+			`{"mode":"auto","allow":[{"Tool":"Read","Arg":""}],"ask":[{"Tool":"Bash","Arg":"git push:*"}],"deny":[{"Tool":"Bash","Arg":"rm:*"}]}`, "mode auto"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, widened := ResolvePermissions(def, c.req)
+			if permsJSON(t, got) != c.want || strings.Join(widened, "; ") != c.widened {
+				t.Errorf("got %s widened %q\nwant %s widened %q", permsJSON(t, got), widened, c.want, c.widened)
+			}
+		})
+	}
+}

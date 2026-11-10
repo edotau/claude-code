@@ -290,37 +290,22 @@ func TestRetryForPicksFirstOtherAgent(t *testing.T) {
 	}
 }
 
-func TestAskRunRetryAgents(t *testing.T) {
-	r := &askRun{f: &askFlags{retryAgent: " codex, ,opencode,"}}
-	got, err := r.retryAgents()
-	if err != nil || strings.Join(got, ",") != "codex,opencode" {
-		t.Errorf("retryAgents = %v, %v, want codex,opencode", got, err)
-	}
-	r.f.retryAgent = "codex,nope-agent"
-	if _, err := r.retryAgents(); err == nil || !strings.Contains(err.Error(), "nope-agent") {
-		t.Errorf("unknown agent error = %v, want it to name nope-agent", err)
-	}
-}
-
-func TestBatchFollowFlagErrors(t *testing.T) {
-	cases := []struct {
-		name string
-		argv []string
-		want string
-	}{
-		{"follow", []string{"--follow", "hi"}, "--follow needs --batch"},
-		{"follow-idle", []string{"--follow-idle", "5s", "hi"}, "--follow-idle needs --batch"},
-		{"retry-agent", []string{"--retry-agent", "codex", "hi"}, "--retry-agent needs --batch"},
-		{"follow on stdin", []string{"--batch", "-", "--follow"}, "stdin cannot be followed"},
-		{"unknown retry agent", []string{"--batch", "-", "--retry-agent", "nope-agent"}, "nope-agent"},
-		{"text format", []string{"--batch", "-", "--format", "text"}, "--batch always prints JSON"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			cliEnv(t)
-			code, out, stderr := runCLI(t, append([]string{"ask"}, c.argv...)...)
-			if code != 2 || !strings.Contains(out+stderr, c.want) {
-				t.Errorf("exit %d, output %q, want exit 2 naming %q", code, out+stderr, c.want)
+func TestFollowerParseErrorUsesPhysicalLine(t *testing.T) {
+	for _, bad := range []string{`{not json`, `{"unknown":true}`, `{"id":"a"} }`} {
+		t.Run(bad, func(t *testing.T) {
+			w, path := startFollower(t, strings.Repeat("\n", 17), time.Minute)
+			t.Cleanup(func() {
+				if err := w.f.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			appendFile(t, path, "\n\n"+bad+"\n")
+			lines, _, err := w.next()
+			if err != nil || len(lines) != 1 {
+				t.Fatalf("next = %+v, %v; want one malformed appended line", lines, err)
+			}
+			if got := lines[0]; got.N != 20 || got.Err == nil || !strings.HasPrefix(got.Err.Error(), "line 20: ") {
+				t.Fatalf("appended line = %+v; want physical line 20 in both N and the parse error", got)
 			}
 		})
 	}

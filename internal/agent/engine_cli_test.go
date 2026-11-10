@@ -20,11 +20,11 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-
-	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
+
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 )
 
 // attach per engine: codex folds the file inline (stdin has no live-read channel). gemini (agy)
@@ -298,5 +298,16 @@ func TestRunStreamKeepsStructured(t *testing.T) {
 	res, err := RunStream(context.Background(), "x", cmd, tail, wire.Result{}, wire.Discard, parse)
 	if err != nil || string(res.Structured) != `{"ok":true}` {
 		t.Fatalf("res=%+v err=%v; want Structured kept and no empty-answer error", res, err)
+	}
+}
+
+// A run on an agent's own login reports the registry profile naming that login, never the retired "own-login".
+func TestOwnProfileNamesTheLoginRow(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if got := SchemaFor("codex").OwnProfile(); got == "own-login" || got == "" {
+		t.Errorf("OwnProfile(codex) = %q", got)
+	}
+	if got := SchemaFor("opencode").OwnProfile(); got != "opencode" {
+		t.Errorf("OwnProfile(opencode) = %q, want the agent name when no row names its login", got)
 	}
 }

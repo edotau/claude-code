@@ -35,35 +35,6 @@ func gitRepoWith(t *testing.T, files map[string]string) string {
 	return dir
 }
 
-// Given a tracked file and a tracked .env, Prepare packs the file only and records the task, not the bytes.
-func TestPreparePacksAndKeepsRecordCompact(t *testing.T) {
-	setupWorkdirFixture(t)
-	dir := gitRepoWith(t, map[string]string{"main.go": "package main // NEEDLE-1", ".env": "TOKEN=hunter2"})
-	var notes []string
-	client := NewClient(router.RuleClassifier{}.Alias, nil, func(s string) { notes = append(notes, s) })
-	p, err := client.Prepare(context.Background(), agent.RunOptions{Agent: "opencode", Prompt: "explain", WorkDir: dir,
-		Fallback: router.FallbackNone, Pack: &pack.Spec{Dirs: []string{"."}}}, nil)
-	if err != nil {
-		t.Fatalf("Prepare() = %v", err)
-	}
-	if !strings.Contains(p.Opts.Prompt, "NEEDLE-1") || strings.Contains(p.Opts.Prompt, "hunter2") {
-		t.Errorf("prompt must hold main.go and not .env:\n%s", p.Opts.Prompt)
-	}
-	if p.Record.Request.Prompt != "explain" || p.Record.Request.Pack == nil {
-		t.Errorf("record = %q pack=%v, want the bare task and the pack spec", p.Record.Request.Prompt, p.Record.Request.Pack)
-	}
-}
-
-func TestPrepareRefusesPackWithHost(t *testing.T) {
-	setupWorkdirFixture(t)
-	client := NewClient(router.RuleClassifier{}.Alias, nil, nil)
-	_, err := client.Prepare(context.Background(), agent.RunOptions{Agent: "opencode", Prompt: "p", Host: "box",
-		Pack: &pack.Spec{Dirs: []string{"."}}}, nil)
-	if err == nil || !strings.Contains(err.Error(), "--host") {
-		t.Fatalf("Prepare() = %v, want a --host refusal", err)
-	}
-}
-
 // Given a lead with a 1M window and a stub on a 200K model, an n between their budgets drops only the stub.
 func TestFitChainSkipsSmallWindows(t *testing.T) {
 	lead := agent.Dispatch{Agent: stubEngine("claude"), Model: "claude-sonnet-5-5[1m]"}

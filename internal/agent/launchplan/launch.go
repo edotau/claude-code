@@ -4,14 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // IsTerminal is the TTY check internal/cli wires at startup; the zero value says no terminal.
@@ -309,4 +313,84 @@ func Positional(prompt string) []string {
 func HeadlessLaunch(name string, env, argv []string) (launchedEnv, launchedArgv []string) {
 	launchEnv, argv := agent.SchemaFor(name).ApplyLaunch(nil, argv, false)
 	return agent.RouteEnvLast(launchEnv, env), argv
+}
+
+// ApplyOverlay layers r under req's --env (the shorthand wins) and unsets $COWORKER_OVERLAY in the child (one hop).
+func ApplyOverlay(req agent.RunOptions, r agentconfig.Resolved) agent.RunOptions {
+	if agent.OverlayIdle(r) {
+		return req
+	}
+	env := make([]string, 0, len(r.Set)+len(req.Env))
+	for _, k := range slices.Sorted(maps.Keys(r.Set)) {
+		env = append(env, k+"="+r.Set[k])
+	}
+	req.Env = append(env, req.Env...)
+	req.KeepEnv = slices.Concat(req.KeepEnv, r.Keep)
+	req.Unset = slices.Concat(req.Unset, r.Unset, []string{agentconfig.OverlayVar})
+	req.OverlaySet = slices.Sorted(maps.Keys(r.Set))
+	return req
+}
+
+// EnableOverlay checks path and points this process and its --job relaunches at it (absolute).
+func EnableOverlay(path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	if _, err := agentconfig.LoadOverlay(abs); err != nil {
+		return err
+	}
+	return os.Setenv(agentconfig.OverlayVar, abs)
+}
+
+// ParseLaunchArgs refuses a removed flag (with its hint) before ParseArgs strips the harness flags.
+func ParseLaunchArgs(args []string, claude bool) (agent.LaunchOptions, []string, error) {
+	if err := databricks.RemovedFlagHint(args); err != nil {
+		return agent.LaunchOptions{}, nil, err
+	}
+	return ParseArgs(args, claude)
+}
+
+// Run applies the launch overlay to plan, then prints it (--print-env) or execs it; a *UsageError exits 2.
+func Run(name string, plan agent.Plan, opts agent.LaunchOptions, err error) int {
+	plan.Agent = name
+	if usage, ok := errors.AsType[*UsageError](err); ok {
+		fmt.Fprintln(os.Stderr, usage)
+		return 2
+	}
+	if err != nil {
+		return helptext.Fail("%v", err)
+	}
+	ov, oerr := launchOverlay(opts)
+	if oerr == nil {
+		oerr = plan.CheckOverlay(ov) // a launch-owned route name is refused, not silently overridden
+	}
+	if oerr != nil {
+		if plan.OnExecFail != nil {
+			plan.OnExecFail() // a minted session token dies with the refused launch
+		}
+		fmt.Fprintln(os.Stderr, "claude-code:", oerr)
+		return 2
+	}
+	plan = plan.WithOverlay(ov)
+	if opts.PrintEnv {
+		plan.Print(os.Stdout)
+		if agentconfig.OverlayDebugOn() {
+			plan.RecordEnv() // dry exec: the env Exec would hand the child
+		}
+		return 0
+	}
+	return helptext.Fail("exec %s: %v", plan.Binary, plan.Exec())
+}
+
+// launchOverlay is --overlay, else $COWORKER_OVERLAY; --print-env keeps vault refs unresolved (names, never values).
+func launchOverlay(opts agent.LaunchOptions) (agentconfig.Resolved, error) {
+	o, err := agentconfig.LoadOverlay(opts.Overlay)
+	if err != nil {
+		return agentconfig.Resolved{}, err
+	}
+	if opts.PrintEnv {
+		return agentconfig.Resolved{Set: o.Set, Unset: o.Unset, Keep: o.Keep}, nil
+	}
+	return agentconfig.ResolveOverlay(o)
 }

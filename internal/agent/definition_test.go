@@ -1,19 +1,13 @@
 package agent
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/edotau/claude-code/internal/agent/wire"
 )
-
-var testPersona = &Schema{Name: "reviewer", Description: "Reviews", Prompt: "Be strict.", Tools: []string{"Read"}, Model: "sonnet", MaxTurns: 3}
 
 func TestLoadSchemaUnknown(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -117,20 +111,6 @@ func TestRefusePersona(t *testing.T) {
 	}
 	if err := RefusePersona(emu, "codex", nil); err != nil {
 		t.Errorf("nil persona: %v", err)
-	}
-}
-
-// A hop to an emulating agent must not run a tool-limited persona unrestricted.
-func TestFallbackHopRefusesRestrictivePersona(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	down := &fakeRunner{name: "codex", errs: []error{errors.New(`exec: "codex": executable file not found in $PATH`)}, emptyAnswer: true}
-	emu := &fakeRunner{name: "gemini", caps: Caps{Persona: Emulated, AppendSystemPrompt: Emulated}, errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), chainOf([]Engine{down, emu}), RunOptions{Prompt: "p", Persona: testPersona}, wire.Discard, nil)
-	if err == nil || len(emu.seen) != 0 || len(res.Hops) != 2 {
-		t.Fatalf("agent=%q err=%v emulating runs=%d, want a refusal on the second hop and no run", res.Agent, err, len(emu.seen))
-	}
-	if !strings.Contains(err.Error(), "cannot enforce") {
-		t.Errorf("err = %v \n%d hops, last %s/%s, want the persona refusal", err, len(res.Hops), res.Hops[len(res.Hops)-1].Agent, res.Hops[len(res.Hops)-1].ErrorKind)
 	}
 }
 

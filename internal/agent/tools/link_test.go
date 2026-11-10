@@ -2,6 +2,7 @@ package tools
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -254,30 +255,20 @@ func TestLinkVendorsLinksOnlyNamedTools(t *testing.T) {
 	}
 }
 
-func TestStatusOneTargetIsLinkTargetOnly(t *testing.T) {
-	env := setupToolsTestEnv(t)
-	candidate := filepath.Join(env.path1, "codex")
-	writeToolsFixture(t, candidate, "#!/bin/sh\nprintf '1.0.0\\n'\n", 0o755)
-	tool, ok := Lookup("codex")
-	if !ok {
-		t.Fatal("codex tool is missing")
-	}
+func TestLinkRelativePathEntryRemainsUsable(t *testing.T) {
+	setupToolsTestEnv(t)
+	root := t.TempDir()
+	candidate := filepath.Join(root, "vendor", "bin", "codex")
+	writeToolsFixture(t, candidate, "#!/bin/sh\nexit 0\n", 0o755)
+	t.Chdir(root)
+	setToolsPath(t, filepath.Join("vendor", "bin"))
 
-	Link(&bytes.Buffer{}, []string{"codex"}, false)
+	Link(io.Discard, []string{"codex"}, false)
 	dst := filepath.Join(paths.BinDir(), "codex")
-	wantTarget, err := os.Readlink(dst)
-	if err != nil {
-		t.Fatal(err)
+	if got := readlink(dst); got != candidate {
+		t.Fatalf("relative PATH link target = %q, want absolute %q", got, candidate)
 	}
-	if got := statusOne(tool).Target; got != wantTarget {
-		t.Errorf("linked Target = %q, want Readlink %q", got, wantTarget)
-	}
-
-	if err := os.Remove(dst); err != nil {
-		t.Fatal(err)
-	}
-	writeToolsFixture(t, dst, "#!/bin/sh\nprintf '1.0.0\\n'\n", 0o755)
-	if got := statusOne(tool).Target; got != "" {
-		t.Errorf("regular-file Target = %q, want empty", got)
+	if _, err := os.Stat(dst); err != nil {
+		t.Fatalf("installed link is unusable: %v", err)
 	}
 }
