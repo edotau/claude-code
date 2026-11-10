@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -310,6 +311,16 @@ func TestPeerAgentsScansOnceWithLinkedDirs(t *testing.T) {
 	}
 	if len(pids) != 2 || pids[0] != 101 || pids[1] != 105 {
 		t.Errorf("peers = %v, want [101 105] (linked and .git dirs skipped)", pids)
+	}
+}
+
+// darwin's scan parses `lsof -Fpcn`: a pid line resets the comm, and a cwd path with spaces survives intact.
+func TestParseLsofCwd(t *testing.T) {
+	out := "p101\ncclaude\nn/co/my repo\np202\nn/elsewhere\n\np303\nccodex\nn/co/wt\n"
+	got, err := parseLsofCwd(out)
+	want := []procCwd{{101, "/co/my repo", "claude"}, {202, "/elsewhere", ""}, {303, "/co/wt", "codex"}}
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("parseLsofCwd = %+v, %v; want %+v", got, err, want)
 	}
 }
 

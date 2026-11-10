@@ -31,6 +31,21 @@ var (
 	runningRouter  = gateway.Running
 )
 
+// StubRegistry makes registry launches discover ids and mint tok offline, for tests in other packages.
+func StubRegistry(tok string, ids ...string) (restore func()) {
+	oldDiscover, oldMint, oldRevoke := discoverModels, mintSession, revokeSession
+	eps := make([]CopilotEndpoint, len(ids))
+	for i, id := range ids {
+		eps[i] = CopilotEndpoint{ID: id}
+	}
+	discoverModels = func(context.Context, *providers.Registry, *providers.Provider) ([]CopilotEndpoint, error) {
+		return eps, nil
+	}
+	mintSession = func(context.Context, string, int) (string, error) { return tok, nil }
+	revokeSession = func(context.Context, string) error { return nil }
+	return func() { discoverModels, mintSession, revokeSession = oldDiscover, oldMint, oldRevoke }
+}
+
 // copilotRegistryRoute is the multi-provider SDK wiring for one run: in-memory providers, a session token, no file.
 type copilotRegistryRoute struct {
 	providers []CopilotRegistryProvider

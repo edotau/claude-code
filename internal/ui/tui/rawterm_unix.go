@@ -3,10 +3,8 @@
 package tui
 
 import (
-	"errors"
 	"io"
 	"syscall"
-	"unicode/utf8"
 	"unsafe"
 )
 
@@ -53,9 +51,6 @@ func restore(fd int, st *termState) error {
 	return ioctlTermios(fd, ioctlSet, &st.t)
 }
 
-// errCanceled is what readPassword returns when Esc, Ctrl-C or Ctrl-D ends the read before Enter.
-var errCanceled = errors.New("tui: input canceled")
-
 // readPassword reads one line from fd with echo off, calling onChange (if set) after every read so a paste shows
 // as it lands; Backspace and Ctrl-U edit, Esc/Ctrl-C/Ctrl-D cancel. The terminal is restored before returning.
 func readPassword(fd int, onChange func([]byte)) ([]byte, error) {
@@ -93,43 +88,6 @@ func readPassword(fd int, onChange func([]byte)) ([]byte, error) {
 	}
 }
 
-// feedPassword applies one read's bytes to line, skipping escape sequences; done once Enter or a cancel ends it.
-func feedPassword(line, in []byte, esc *escState) (_ []byte, done bool, err error) {
-	for _, c := range in {
-		if esc.skip(c) {
-			continue
-		}
-		l, done, kerr := editLine(line, c)
-		if line = l; done {
-			return line, true, kerr
-		}
-	}
-	return line, false, nil
-}
-
-// editLine applies one typed byte to line; done is true on Enter (err nil) or Ctrl-C/Ctrl-D (errCanceled).
-func editLine(line []byte, c byte) (_ []byte, done bool, err error) {
-	switch {
-	case c == '\n' || c == '\r':
-		return line, true, nil
-	case c == 0x03 || c == 0x04:
-		return nil, true, errCanceled
-	case c == 0x7f || c == 0x08:
-		return dropLastRune(line), false, nil
-	case c == 0x15:
-		return line[:0], false, nil
-	case c >= 0x20:
-		return append(line, c), false, nil
-	}
-	return line, false, nil
-}
-
-// dropLastRune trims the line's last whole UTF-8 rune, so Backspace over a multibyte character removes all of it.
-func dropLastRune(line []byte) []byte {
-	_, size := utf8.DecodeLastRune(line)
-	return line[:len(line)-size]
-}
-
 // readFD reads fd with read(2) directly: an os.NewFile wrapper is closed by its finalizer, which would close stdin.
 func readFD(fd int, buf []byte) (int, error) {
 	for {
@@ -144,45 +102,4 @@ func readFD(fd int, buf []byte) (int, error) {
 		}
 		return n, nil
 	}
-}
-
-// escState tracks an ANSI escape sequence across reads so a bracketed-paste marker (ESC[200~, ESC[201~) or an
-// arrow key is dropped instead of leaking "[200~" into the secret.
-type escState int
-
-const (
-	escNone escState = iota
-	escSeen
-	escCSI
-	escSS3
-)
-
-// skip reports whether c belongs to an escape sequence and is to be ignored.
-func (s *escState) skip(c byte) bool {
-	switch *s {
-	case escSeen:
-		*s = escNone
-		if c == '[' {
-			*s = escCSI
-			return true
-		}
-		if c == 'O' {
-			*s = escSS3
-			return true
-		}
-	case escSS3: // ESC O x: application-mode arrow or function key, one final byte
-		*s = escNone
-		return true
-	case escCSI:
-		if c >= 0x40 && c <= 0x7e {
-			*s = escNone
-		}
-		return true
-	default:
-		if c == 0x1b {
-			*s = escSeen
-			return true
-		}
-	}
-	return false
 }

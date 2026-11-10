@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -33,6 +34,12 @@ func DoctorChecks(reg *Registry) []Check {
 	return append(out, checkKeyringTool())
 }
 
+// permsGOOS decides whether mode bits mean anything; a seam so tests run the Windows branch on any host.
+var permsGOOS = runtime.GOOS
+
+// loosePerm reports a file open beyond its owner; Windows has no such bits (Stat reports 0666), as vault's looseMode.
+func loosePerm(fi os.FileInfo) bool { return permsGOOS != "windows" && fi.Mode().Perm()&0o077 != 0 }
+
 // checkVaultPerms flags a vault.db readable/writable by anyone but its owner.
 func checkVaultPerms() []Check {
 	file := vault.Path()
@@ -43,7 +50,7 @@ func checkVaultPerms() []Check {
 		row.Detail = "no vault yet (nothing to check)"
 	case err != nil:
 		row.OK, row.Detail = false, fmt.Sprintf("could not stat %s: %v", file, err)
-	case fi.Mode().Perm()&0o077 != 0:
+	case loosePerm(fi):
 		row.OK, row.Detail = false, fmt.Sprintf("%s is %04o, want 0600 — run: chmod 600 %s", file, fi.Mode().Perm(), file)
 	default:
 		row.Detail = file + " is 0600"
@@ -103,7 +110,7 @@ func flagPerm(file string) (Check, bool) {
 	if err != nil {
 		return Check{Name: "vault archive perms", Gate: true, Detail: fmt.Sprintf("could not stat %s: %v", file, err)}, true
 	}
-	if fi.Mode().Perm()&0o077 == 0 {
+	if !loosePerm(fi) {
 		return Check{}, false
 	}
 	return Check{Name: "vault archive perms", Gate: true,

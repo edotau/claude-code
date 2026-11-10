@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -27,9 +28,6 @@ func hermeticDispatch(t *testing.T) {
 // emptyPATH points PATH at an empty directory: no ssh, no tailscale, no tmux resolvable.
 func emptyPATH(t *testing.T) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("requires a POSIX shell")
-	}
 	t.Setenv("PATH", t.TempDir())
 }
 
@@ -132,8 +130,8 @@ func TestDispatchDryRunSpawnsNoSSH(t *testing.T) {
 	if !strings.Contains(out, "argv[0]: ssh") {
 		t.Errorf("dry-run output missing argv[0] line:\n%s", out)
 	}
-	if !strings.Contains(out, "argv[4]: myhost") {
-		t.Errorf("dry-run output missing resolved host in argv[4]:\n%s", out)
+	if !regexp.MustCompile(`argv\[\d+\]: --\n\s*argv\[\d+\]: myhost\n`).MatchString(out) {
+		t.Errorf("dry-run output missing resolved host right after --:\n%s", out)
 	}
 	if !strings.Contains(out, "attach: ssh -t -- myhost tmux attach -t cc-claude-abcd") {
 		t.Errorf("dry-run output missing attach hint:\n%s", out)

@@ -1,5 +1,3 @@
-//go:build unix
-
 // The leaf-stop reaper: after a stop the gate lets through, kill the leaf's own leftover background shells.
 package agents
 
@@ -30,15 +28,17 @@ var bgOutputPattern = sync.OnceValue(func() *regexp.Regexp {
 
 const reapGrace = 2 * time.Second
 
-// Seams for tests: the process finder, the group probe/killer and the sleep.
+// Seams for tests: the process finder and the sleep; the group probe/killer live in leafreap_{unix,other}.go.
 var (
 	reapHolders = outputHolders
-	reapGroupOf = syscall.Getpgid
-	reapSignal  = func(pgid int, sig syscall.Signal) error { return syscall.Kill(-pgid, sig) }
 	reapSleep   = time.Sleep
 )
 
-func init() { reapLeaf = reapLeafBackground }
+func init() {
+	if reapSupported {
+		reapLeaf = reapLeafBackground
+	}
+}
 
 // leafOutputFiles lists the task output files the leaf's own Bash tool results named, from its transcript.
 func leafOutputFiles(transcript string) []string {
@@ -104,7 +104,7 @@ func parsePids(out []byte) []int {
 
 // reapGroups maps holder pids to distinct process groups, never our own or the parent's (the Claude session's).
 func reapGroups(pids []int) []int {
-	protected := map[int]bool{syscall.Getpgrp(): true}
+	protected := map[int]bool{reapOwnGroup(): true}
 	if g, err := reapGroupOf(os.Getppid()); err == nil {
 		protected[g] = true
 	}

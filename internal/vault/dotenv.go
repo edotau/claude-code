@@ -177,6 +177,9 @@ func readDotenvNames(path string) ([]byte, map[string]bool, error) {
 	return existing, have, nil
 }
 
+// dotenvWrite is writeDotenv's append; a seam so tests can force a partial write on any OS.
+var dotenvWrite = (*os.File).WriteString
+
 // writeDotenv appends text to path without following a symlink, tightening it to 0600 first.
 func writeDotenv(path, text string) error {
 	f, err := openAppendNoFollow(path)
@@ -190,7 +193,7 @@ func writeDotenv(path, text string) error {
 	if err := f.Chmod(0o600); err != nil { // an existing .env keeps its old mode until now: tighten before writing
 		return errors.Join(err, f.Close())
 	}
-	if _, err := f.WriteString(text); err != nil { // a partial append would read back as set: roll it back
+	if _, err := dotenvWrite(f, text); err != nil { // a partial append would read back as set: roll it back
 		return errors.Join(err, f.Truncate(fi.Size()), f.Close())
 	}
 	return f.Close()

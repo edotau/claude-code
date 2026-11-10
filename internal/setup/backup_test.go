@@ -1,21 +1,25 @@
-//go:build unix
-
 package setup
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"testing"
 	"time"
 )
 
 func TestCopyTreeSkipsFIFO(t *testing.T) {
+	mkfifo := "/usr/bin/mkfifo" // hosttest's PATH allowlist leaves mkfifo out; coreutils and macOS both ship it here
+	if _, err := os.Stat(mkfifo); runtime.GOOS == "windows" || err != nil {
+		t.Skip("needs a unix FIFO (mkfifo)")
+	}
 	src, dst := t.TempDir(), filepath.Join(t.TempDir(), "backup")
 	mustWrite(t, filepath.Join(src, "nested", "z-file"), "preserved\n")
 	fifo := filepath.Join(src, "nested", "a-pipe")
-	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
-		t.Fatal(err)
+	if out, err := exec.Command(mkfifo, "-m", "600", fifo).CombinedOutput(); err != nil {
+		t.Fatalf("mkfifo: %v: %s", err, out)
 	}
 	copyTreeWithFIFODeadline(t, src, dst, fifo)
 	if _, err := os.Lstat(filepath.Join(dst, "nested", "a-pipe")); !os.IsNotExist(err) {

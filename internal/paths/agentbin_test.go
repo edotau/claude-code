@@ -3,6 +3,7 @@ package paths_test
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"runtime"
@@ -298,4 +299,23 @@ func TestBinKeyTracksSizeAndMtime(t *testing.T) {
 	if k2, _ := paths.BinKey(bin); k2 == k1 {
 		t.Errorf("BinKey unchanged after an upgrade: %q", k2)
 	}
+}
+
+func TestAgentBinRejectsExecutableFIFO(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("named pipes via mkfifo need unix")
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	fifo := filepath.Join(binDirReady(t), "codex")
+	mkfifo := "/usr/bin/mkfifo" // hosttest's PATH allowlist leaves mkfifo out; coreutils and macOS both ship it here
+	if _, err := os.Stat(mkfifo); err != nil {
+		t.Skipf("no mkfifo: %v", err)
+	}
+	if out, err := exec.Command(mkfifo, "-m", "755", fifo).CombinedOutput(); err != nil {
+		t.Fatalf("mkfifo: %v: %s", err, out)
+	}
+	if err := os.Chmod(fifo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	codexErrContains(t, "not executable", fifo)
 }

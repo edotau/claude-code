@@ -227,6 +227,9 @@ func TestDoctorUnreadableVaultIsFailure(t *testing.T) {
 // TestDoctorFlagsArchivePerms: a .rolledback-* vault archive and a manifest-listed .bak file
 // readable/writable by anyone but their owner must each be flagged, a 0600 one must not.
 func TestDoctorFlagsArchivePerms(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs POSIX mode bits: Windows reports 0666 for every writable file")
+	}
 	dir := doctorTestVault(t)
 	if err := os.MkdirAll(filepath.Dir(vault.Path()), 0o700); err != nil {
 		t.Fatal(err)
@@ -255,6 +258,32 @@ func TestDoctorFlagsArchivePerms(t *testing.T) {
 	}
 	if !strings.Contains(out, bak+" is 0644") {
 		t.Errorf("Doctor missing loose manifest backup finding: %s", out)
+	}
+}
+
+// On Windows mode bits are meaningless (Stat reports 0666), so neither the vault nor an archive is a perms finding.
+func TestDoctorPermsIgnoreWindowsModeBits(t *testing.T) {
+	doctorTestVault(t)
+	if err := vault.Update(func(*vault.Tx) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(vault.Path(), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	archive := vault.Path() + ".rolledback-20260101-000000"
+	writeTestFile(t, archive, "archive", 0o666)
+	if err := os.Chmod(archive, 0o666); err != nil { // umask may have narrowed WriteFile's mode
+		t.Fatal(err)
+	}
+	orig := permsGOOS
+	t.Cleanup(func() { permsGOOS = orig })
+	for goos, wantFlagged := range map[string]bool{"windows": false, "linux": runtime.GOOS != "windows"} {
+		permsGOOS = goos
+		rows := checkVaultPerms()
+		flagged := !rows[0].OK || len(rows) > 1
+		if flagged != wantFlagged {
+			t.Errorf("permsGOOS=%s: checkVaultPerms = %+v, want flagged=%v", goos, rows, wantFlagged)
+		}
 	}
 }
 

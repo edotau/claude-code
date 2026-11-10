@@ -2,9 +2,11 @@ package vault
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -12,20 +14,33 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 )
 
+// fakeKeyringTool runs the keyring plane as goos with a /bin/sh stub of that OS's tool as the only binary on PATH.
+func fakeKeyringTool(t *testing.T, goos, script string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the stub keyring tool is a POSIX shell script")
+	}
+	stubKeyringGOOS(t, goos)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, KeyringTool()), []byte("#!/bin/sh\n"+script+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+}
+
+// stubKeyringGOOS makes the keyring plane take goos's branch for the rest of the test.
+func stubKeyringGOOS(t *testing.T, goos string) {
+	t.Helper()
+	orig := keyringGOOS
+	keyringGOOS = goos
+	t.Cleanup(func() { keyringGOOS = orig })
+}
+
 // slowSecretTool points PATH at a stub secret-tool that sleeps past a shortened timeout, so a
 // Lookup call times out instead of answering.
 func slowSecretTool(t *testing.T) {
 	t.Helper()
-	t.Setenv("HARNESS_KEYRING", "")
-	if runtime.GOOS != "linux" {
-		t.Skip("stub only implements the linux secret-tool CLI")
-	}
-	dir := t.TempDir()
-	script := "#!/bin/sh\n/bin/sleep 2\n"
-	if err := os.WriteFile(filepath.Join(dir, "secret-tool"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
+	fakeKeyringTool(t, "linux", "/bin/sleep 2")
 }
 
 // hermetic points PATH at an empty dir so no real `security`/`secret-tool` is ever reachable.
@@ -102,14 +117,7 @@ func TestConcurrentLookupSetTimeout(t *testing.T) {
 // Lookup must short-circuit to ErrKeyringNoAnswer, without even running the tool, once down is already set.
 func TestLookupLatchedDownReturnsErrNoAnswer(t *testing.T) {
 	hermetic(t)
-	if runtime.GOOS != "linux" {
-		t.Skip("stub only implements the linux secret-tool CLI")
-	}
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "secret-tool"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
+	fakeKeyringTool(t, "linux", "exit 1")
 	down.Store(true)
 	v, found, err := KeyringLookup("ANYTHING")
 	if v != "" || found || err != ErrKeyringNoAnswer {
@@ -120,14 +128,7 @@ func TestLookupLatchedDownReturnsErrNoAnswer(t *testing.T) {
 // A plain miss (tool answers, account not stored) must read as ("", false, nil), not ErrKeyringNoAnswer.
 func TestLookupPlainMiss(t *testing.T) {
 	hermetic(t)
-	if runtime.GOOS != "linux" {
-		t.Skip("stub only implements the linux secret-tool CLI")
-	}
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "secret-tool"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
+	fakeKeyringTool(t, "linux", "exit 1")
 
 	v, found, err := KeyringLookup("ANYTHING")
 	if v != "" || found || err != nil {
@@ -149,21 +150,57 @@ func TestSetRejectsEmptyAndMultiline(t *testing.T) {
 }
 
 func TestSetLatchedDownErrors(t *testing.T) {
-	hermetic(t)
-	if KeyringTool() == "" {
-		t.Skip("no keyring tool is implemented for this OS")
-	}
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, KeyringTool()), []byte("#!/bin/sh\nexit 99\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
-	down.Store(true)
+	for _, goos := range []string{"linux", "darwin"} {
+		t.Run(goos, func(t *testing.T) {
+			hermetic(t)
+			fakeKeyringTool(t, goos, "exit 99")
+			down.Store(true)
 
-	want := "keyring: the keyring did not answer earlier this run — set HARNESS_VAULT_KEY or meta/key_command instead"
-	if err := osKeyringSet("NAME", "value"); err == nil || err.Error() != want {
-		t.Fatalf("Set with a latched-down keyring = %v, want %q", err, want)
+			want := "keyring: the keyring did not answer earlier this run — set HARNESS_VAULT_KEY or meta/key_command instead"
+			if err := osKeyringSet("NAME", "value"); err == nil || err.Error() != want {
+				t.Fatalf("Set with a latched-down keyring = %v, want %q", err, want)
+			}
+		})
 	}
+}
+
+// Each OS branch names its own tool and keeps the secret off argv; an OS with no tool degrades to errKeyringNoTool.
+func TestKeyringCommandsPerOS(t *testing.T) {
+	for _, tc := range []struct {
+		goos, tool, lookup, store, stdin string
+	}{
+		{"linux", "secret-tool", "secret-tool lookup service claude-code account NAME",
+			"secret-tool store --label=claude-code service claude-code account NAME", "s3cret"},
+		{"darwin", "security", "security find-generic-password -a NAME -s claude-code -w",
+			"security -i", "add-generic-password -U -a \"NAME\" -s claude-code -w \"s3cret\"\n"},
+	} {
+		t.Run(tc.goos, func(t *testing.T) {
+			stubKeyringGOOS(t, tc.goos)
+			if got := KeyringTool(); got != tc.tool {
+				t.Fatalf("KeyringTool() = %q, want %q", got, tc.tool)
+			}
+			if got := strings.Join(lookupCommand(t.Context(), "NAME").Args, " "); got != tc.lookup {
+				t.Errorf("lookup argv = %q, want %q", got, tc.lookup)
+			}
+			cmd := storeCommand(t.Context(), "NAME", "s3cret")
+			if got := strings.Join(cmd.Args, " "); got != tc.store {
+				t.Errorf("store argv = %q, want %q", got, tc.store)
+			}
+			if stdin, _ := io.ReadAll(cmd.Stdin); string(stdin) != tc.stdin {
+				t.Errorf("store stdin = %q, want %q", stdin, tc.stdin)
+			}
+		})
+	}
+	t.Run("windows", func(t *testing.T) {
+		hermetic(t)
+		stubKeyringGOOS(t, "windows")
+		if KeyringTool() != "" || KeyringAvailable() {
+			t.Fatalf("KeyringTool() = %q, KeyringAvailable() = %v; want none on windows", KeyringTool(), KeyringAvailable())
+		}
+		if _, _, err := KeyringLookup("NAME"); !errors.Is(err, errKeyringNoTool) {
+			t.Fatalf("Lookup = %v, want errKeyringNoTool", err)
+		}
+	})
 }
 
 // quote must escape a backslash and a double quote so the `security -i` tokenizer sees one argument.
@@ -176,13 +213,12 @@ func TestQuoteEscapesBackslashAndDoubleQuote(t *testing.T) {
 }
 
 func TestLookupToolFailureIsUnavailable(t *testing.T) {
-	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
-		t.Skip("requires a supported keyring CLI")
+	for goos, missCode := range map[string]string{"linux": "1", "darwin": "44"} {
+		t.Run(goos, func(t *testing.T) { lookupToolFailureCases(t, goos, missCode) })
 	}
-	missCode := "1"
-	if runtime.GOOS == "darwin" {
-		missCode = "44"
-	}
+}
+
+func lookupToolFailureCases(t *testing.T, goos, missCode string) {
 	for _, tc := range []struct {
 		name, script string
 		value        string
@@ -197,11 +233,7 @@ func TestLookupToolFailureIsUnavailable(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			hermetic(t)
-			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, KeyringTool()), []byte("#!/bin/sh\n"+tc.script+"\n"), 0700); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("PATH", dir)
+			fakeKeyringTool(t, goos, tc.script)
 			saved := timeout
 			// 1s, not 50ms: under load, forking /bin/sh for the fixture script itself can take
 			// tens to hundreds of ms, and a too-tight timeout flakes the fast-path subtests

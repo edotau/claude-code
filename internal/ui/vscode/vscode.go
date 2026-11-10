@@ -148,9 +148,12 @@ func writeGuarded(dest, label string, rawBase, body []byte) (Result, error) {
 	return Result{Changed: true, Backup: backup}, nil
 }
 
+// readLive is os.ReadFile for checkUnchanged; tests swap it to land a VS Code save between the two checks.
+var readLive = os.ReadFile
+
 // checkUnchanged returns dest's current bytes, or an error when they no longer match rawBase.
 func checkUnchanged(dest, label string, rawBase []byte) ([]byte, error) {
-	fresh, err := os.ReadFile(dest)
+	fresh, err := readLive(dest)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}

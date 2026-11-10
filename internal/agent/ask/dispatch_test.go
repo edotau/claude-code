@@ -36,9 +36,8 @@ func TestDispatchDetachSpawnFailureFinishesRecord(t *testing.T) {
 
 func TestDispatchReportWriteFailureExitsOne(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	vaulttest.SetRecord(t, "opencode", "profile", "zen-free")
-	t.Setenv("OPENCODE_API_KEY", "test-key")
-	pathstest.FakeVendor(t, "opencode", `printf '%s\n' '{"type":"text","part":{"text":"successful leg"}}'`)
+	vaulttest.SetRecord(t, "codex", "profile", "chatgpt")
+	pathstest.FakeVendor(t, "codex", `[ "$1" = login ] && { echo "Logged in using ChatGPT"; exit 0; }`+"\ncat >/dev/null; echo successful leg")
 	full, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
 	if os.IsNotExist(err) {
 		t.Skip("requires /dev/full")
@@ -60,7 +59,7 @@ func TestDispatchReportWriteFailureExitsOne(t *testing.T) {
 
 func checkDispatchReportWriteFailure(t *testing.T, full *os.File, format string) {
 	t.Helper()
-	role := roles.Role{Name: "explore", Agent: "opencode"}
+	role := roles.Role{Name: "explore", Agent: "codex"} // explore refuses opencode and gemini (prompt-only read-only)
 	request := roles.Request{Task: "test report", Parts: []string{"test leg"}, WorkDir: t.TempDir()}
 	run := func() int { return dispatchRun(t.Context(), role, request, 1, format, false) }
 	code, stdout, stderr := hosttest.CaptureOutput(t, run)

@@ -1,23 +1,31 @@
-//go:build unix
-
 package job
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
-// A leader process (its own process group via Setpgid) that ignores SIGINT itself, with a second,
-// independent process placed into that same group and trapping SIGINT, proves interrupt(leaderPid)
-// reaches the whole group — not just the leader pid passed in. The child is started directly by this
-// test (SysProcAttr{Setpgid:true, Pgid:leaderPid}), not via the leader shell's own "&": a POSIX shell
-// auto-ignores INT/QUIT for its own asynchronous ("&") children (so their own traps for INT never fire,
-// regardless of an empty trap body for INT anywhere), which would make that route defeat this test's premise.
+// skipOffUnix skips tests that need real POSIX process groups and signals.
+func skipOffUnix(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("process-group signals need unix")
+	}
+}
+
+// A leader in its own process group runs a second process in the foreground (same group, different pid) that traps
+// SIGINT; the marker proves interrupt(leaderPid) reaches the whole group, not just the leader pid passed in. The
+// leader's INT trap is a no-op handler, not ” (ignore): an ignored signal is inherited across exec, a handler is not.
 func TestInterruptReachesWholeProcessGroup(t *testing.T) {
+	skipOffUnix(t)
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "child-got-sigint")
 	childScript := filepath.Join(dir, "child.sh")
@@ -27,30 +35,23 @@ func TestInterruptReachesWholeProcessGroup(t *testing.T) {
 	if err := os.WriteFile(childScript, []byte(childBody), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	leaderBody := "#!/bin/sh\ntrap '' INT\nsleep 30 &\nwait\n"
+	leaderBody := "#!/bin/sh\ntrap ':' INT\n\"" + childScript + "\"\n"
 	if err := os.WriteFile(leaderScript, []byte(leaderBody), 0o700); err != nil {
 		t.Fatal(err)
 	}
 
-	leader := exec.Command(leaderScript)
-	leader.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	leader := exec.CommandContext(context.Background(), leaderScript)
+	proc.OwnGroup(leader)
 	if err := leader.Start(); err != nil {
 		t.Fatalf("start leader: %v", err)
 	}
 	leaderPid := leader.Process.Pid
 	t.Cleanup(func() {
-		_ = syscall.Kill(-leaderPid, syscall.SIGKILL)
+		_ = kill(leaderPid)
 		_ = leader.Wait()
 	})
 
-	child := exec.Command(childScript)
-	child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: leaderPid}
-	if err := child.Start(); err != nil {
-		t.Fatalf("start child into leader's group: %v", err)
-	}
-
-	// give both processes time to install their traps before signalling, else SIGINT can race trap
-	// installation (same reasoning as TestCancelEscalatesToSIGKILL in adapter_jobs_test.go).
+	// give both processes time to install their traps before signalling, else SIGINT can race trap installation.
 	time.Sleep(200 * time.Millisecond)
 
 	if err := interrupt(leaderPid); err != nil {
@@ -69,6 +70,7 @@ func TestInterruptReachesWholeProcessGroup(t *testing.T) {
 
 // A pid that has already exited (ESRCH) is success, not an error — the caller never needs to special-case it.
 func TestInterruptOnExitedPIDReturnsNil(t *testing.T) {
+	skipOffUnix(t)
 	cmd := exec.Command("true")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("run: %v", err)

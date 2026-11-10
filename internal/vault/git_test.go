@@ -15,13 +15,7 @@ import (
 )
 
 func TestScanGitRepoProbeFailuresAreNotClean(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("requires a POSIX shell")
-	}
-	sleep, err := exec.LookPath("sleep")
-	if err != nil {
-		t.Fatal(err)
-	}
+	sleep, _ := exec.LookPath("sleep")
 	for _, tt := range []struct {
 		name   string
 		script string
@@ -30,6 +24,9 @@ func TestScanGitRepoProbeFailuresAreNotClean(t *testing.T) {
 		{name: "timeout", script: "#!/bin/sh\nexec \"" + sleep + "\" 2\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.script != "" && (runtime.GOOS == "windows" || sleep == "") {
+				t.Skip("the fake git is a POSIX shell script")
+			}
 			bin := t.TempDir()
 			if tt.script != "" {
 				if err := os.WriteFile(filepath.Join(bin, "git"), []byte(tt.script), 0o755); err != nil {

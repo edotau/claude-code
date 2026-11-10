@@ -797,3 +797,107 @@ func TestRepoByNameMatchesKeyOrOriginBasename(t *testing.T) {
 		t.Errorf("RepoByName(src) matched %+v; only the origin's basename routes", e)
 	}
 }
+
+const (
+	lockedReadTimeout = 100 * time.Millisecond  // shrinks vault.View's lock wait for the test
+	lockedReadBound   = 2500 * time.Millisecond // the ~2s vault.View timeout plus scheduling slack
+)
+
+// TestBankLockPathLocation pins the physical lock file and guards against an accidental ".lock.lock" variant.
+func TestBankLockPathLocation(t *testing.T) {
+	cfg := tempConfig(t)
+	p := BankLockPath()
+	want := filepath.Join(cfg, "state", "harness", "memory", "bank.lock")
+	if p != want {
+		t.Fatalf("BankLockPath() = %q, want %q", p, want)
+	}
+	if strings.HasSuffix(p, ".lock.lock") {
+		t.Fatalf("BankLockPath() produced a .lock.lock variant: %q", p)
+	}
+	if err := WithBankLock(10*time.Millisecond, func() error { return nil }); err != nil {
+		t.Fatalf("WithBankLock: %v", err)
+	}
+	if _, err := os.Stat(p + ".lock"); err == nil {
+		t.Fatalf("a %s.lock file must never appear", p)
+	}
+}
+
+// TestWithBankLockContention: another handle holding the OS file lock blocks WithBankLock out with ErrBankBusy and
+// never runs fn, then lets it through once released (flock on unix, LockFileEx on Windows).
+func TestWithBankLockContention(t *testing.T) {
+	tempConfig(t)
+	path := BankLockPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	ran := false
+	held, err := paths.TryFileLock(path, 0, func() error {
+		return WithBankLock(10*time.Millisecond, func() error { ran = true; return nil })
+	})
+	if !held {
+		t.Fatalf("could not take the bank lock for the holder: %v", err)
+	}
+	if err != ErrBankBusy {
+		t.Fatalf("WithBankLock while held = %v, want ErrBankBusy", err)
+	}
+	if ran {
+		t.Fatal("fn must not run while the bank lock is held elsewhere")
+	}
+
+	if err := WithBankLock(10*time.Millisecond, func() error { ran = true; return nil }); err != nil {
+		t.Fatalf("WithBankLock after release: %v", err)
+	}
+	if !ran {
+		t.Fatal("fn must run once the bank lock is released")
+	}
+}
+
+// seedLockedCatalog writes an index.md row whose origin only the catalog can supply.
+func seedLockedCatalog(t *testing.T) Origin {
+	t.Helper()
+	cfg := tempConfig(t)
+	if err := os.MkdirAll(filepath.Join(cfg, "memory", "locked"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := Origin{Version: OriginVersion, Key: "locked", Origin: "/src/locked"}
+	row := "- locked — hook · last 2024-01-01 → locked/MEMORY.md" + catalogOriginComment(want) + "\n"
+	write(t, filepath.Join(cfg, "memory", CatalogFile), "# Memory catalog\n\n## Repos\n\n"+row)
+	return want
+}
+
+// TestVaultLockedFallsBackToCatalogThenSkipsRetryFor30s: while an open vault write txn holds bbolt's real OS lock,
+// RepoDirs reads index.md, then backs off.
+func TestVaultLockedFallsBackToCatalogThenSkipsRetryFor30s(t *testing.T) {
+	resetVaultRetry(t)
+	t.Cleanup(vault.SetReadLockTimeoutForTest(lockedReadTimeout))
+	want := seedLockedCatalog(t)
+
+	err := vault.Update(func(*vault.Tx) error {
+		start := time.Now()
+		entries, err := RepoDirs()
+		elapsed := time.Since(start)
+		if err != nil || len(entries) != 1 || entries[0].Origin.Origin != want.Origin {
+			t.Fatalf("RepoDirs under an external lock = %+v, %v, want the locked entry", entries, err)
+		}
+		if elapsed > lockedReadBound {
+			t.Errorf("RepoDirs under lock took %v, want bounded by the ~2s vault.View timeout", elapsed)
+		}
+
+		start = time.Now()
+		if _, err := RepoDirs(); err != nil {
+			t.Fatal(err)
+		}
+		if again := time.Since(start); again > time.Second {
+			t.Errorf("second call within the 30s backoff took %v, want near-instant (no repeat wait)", again)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// vault.View would block while locked, so the no-write check has to follow the release
+	if _, ok := vaultGet(t, "locked"); ok {
+		t.Error("a locked vault.View must never be followed by a write attempt")
+	}
+}

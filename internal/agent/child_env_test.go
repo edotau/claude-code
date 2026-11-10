@@ -57,6 +57,9 @@ func TestInheritPermissionsKeepsOuterDeny(t *testing.T) {
 }
 
 func TestChildDeadlineKillsProcessGroup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("process groups and /bin/sh are unix-only")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	cmd, tail := ChildCmd(ctx, "/bin/sh", []string{"-c", "sleep 30 & sleep 30"}, nil, "", "", nil, false)
@@ -114,6 +117,9 @@ func readLog(t *testing.T, path string) string {
 
 // TestLogSinkStdoutByteIdentical: a sink must not change what the caller's stdout receives.
 func TestLogSinkStdoutByteIdentical(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake child is an sh script")
+	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "fake")
 	script := "#!/bin/sh\nprintf 'alpha\\nbeta\\n'\necho oops >&2\nprintf 'gamma\\nno-newline'\n"

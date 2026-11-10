@@ -3,7 +3,6 @@
 package worktree
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os/exec"
@@ -36,26 +35,7 @@ func scanProcsDarwin() ([]procCwd, error) {
 			return nil, fmt.Errorf("lsof -d cwd: %w (%s)", err, stderr) // fail closed: no proc list means in use
 		}
 	}
-	var procs []procCwd
-	var pid int
-	var comm string
-	scanner := bufio.NewScanner(strings.NewReader(string(out)))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-		switch line[0] {
-		case 'p':
-			pid, _ = strconv.Atoi(line[1:])
-			comm = ""
-		case 'c':
-			comm = line[1:]
-		case 'n':
-			procs = append(procs, procCwd{PID: pid, Cwd: line[1:], Comm: comm})
-		}
-	}
-	return procs, scanner.Err()
+	return parseLsofCwd(string(out))
 }
 
 func commOfDarwin(pid int) string {

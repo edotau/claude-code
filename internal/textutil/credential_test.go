@@ -2,7 +2,9 @@ package textutil
 
 import (
 	"strings"
-	"testing"
+	"testing" // tests refuse real DNS: mock API calls
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 // validCredentialCases: each credential name's documented shape, plus the two real failures seen live.

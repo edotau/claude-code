@@ -32,13 +32,16 @@ var windowsOnlyTopKeys = []string{"hooks", "statusLine"}
 // linuxPathMarkers flag a string value as WSL-only.
 var linuxPathMarkers = []string{"/home/", "/usr/", "$HOME", "~/.claude/bin"}
 
+// onWSL reports a WSL host; a seam so tests run the WSL and non-WSL branches on any machine.
+var onWSL = proc.OnWSL
+
 // windowsProfileDir is the WSL path of the Windows user profile (%USERPROFILE%), or "" when it can't
 // be resolved (off WSL, cmd.exe unavailable, or the profile does not exist).
 func windowsProfileDir() string {
 	if v := strings.TrimSpace(os.Getenv(windowsProfileEnv)); v != "" {
 		return v
 	}
-	if !proc.OnWSL() {
+	if !onWSL() {
 		return ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cmdExeTimeout)
@@ -61,7 +64,7 @@ func windowsProfileDir() string {
 // InstallWindowsSettings seeds a missing Windows settings.json with the Windows subset of the template render;
 // an existing one is never written. A no-op off WSL, or a one-line skip note when the profile can't be resolved.
 func InstallWindowsSettings(w io.Writer, dryRun bool) error {
-	if !proc.OnWSL() && os.Getenv(windowsProfileEnv) == "" {
+	if !onWSL() && os.Getenv(windowsProfileEnv) == "" {
 		return nil
 	}
 	dir := windowsProfileDir()

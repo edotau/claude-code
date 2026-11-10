@@ -3,7 +3,9 @@ package proc
 import (
 	"slices"
 	"strings"
-	"testing"
+	"testing" // tests refuse real DNS: mock API calls
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 // Each deny-table family drops every member unless it is kept by name.

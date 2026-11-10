@@ -1,7 +1,10 @@
 package tui
 
 import (
+	"errors"
 	"os"
+	"runtime"
+	"syscall"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -118,3 +121,18 @@ func TestDecodeRightArrow(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func TestTerminalCloseReportsRestoreError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("restore is a no-op without termios")
+	}
+	out, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	term := Terminal{fd: -1, prev: &termState{}, out: out}
+	if err := term.Close(); !errors.Is(err, syscall.EBADF) {
+		t.Fatalf("Close = %v; want terminal restore EBADF", err)
+	}
+}

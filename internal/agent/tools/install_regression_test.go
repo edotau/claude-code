@@ -88,6 +88,7 @@ func TestHTTPGetRefusesOversizedBody(t *testing.T) {
 
 // The installer script and `<bin> update` get no registry credential and no login, but keep proxy and CA settings.
 func TestInstallChildrenScrubCredentials(t *testing.T) {
+	skipWithoutPOSIXShell(t)
 	setupToolsTestEnv(t)
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks",`+

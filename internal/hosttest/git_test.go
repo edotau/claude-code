@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
+	"time" // tests refuse real DNS: mock API calls
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 func TestRepoCopyInheritsLocalIdentity(t *testing.T) {

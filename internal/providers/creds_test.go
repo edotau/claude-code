@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -718,3 +719,16 @@ func TestRunAuthCommandTimeoutNotHeldByOrphanedPipe(t *testing.T) {
 		t.Fatalf("runAuthCommand blocked %v on an orphaned pipe writer", d)
 	}
 }
+
+// io.Copy into a capBuffer keeps at most max bytes, however much the helper writes.
+func TestCapBufferBoundsIOCopy(t *testing.T) {
+	c := &capBuffer{max: 1024}
+	n, err := io.Copy(c, io.LimitReader(zeroReader{}, 1<<20))
+	if err != nil || n != 1<<20 || len(c.Bytes()) != 1024 {
+		t.Fatalf("copied %d (err %v), kept %d bytes; want all consumed and 1024 kept", n, err, len(c.Bytes()))
+	}
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) { clear(p); return len(p), nil }

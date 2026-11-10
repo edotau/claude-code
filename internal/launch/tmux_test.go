@@ -4,14 +4,14 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestSeedTmuxConfSkipsNonENOENTProbeFailure(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Setenv("HOME", home)        // os.UserHomeDir on unix
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on windows
 	xdg := filepath.Join(home, "xdg-loop")
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	probeSymlinkLoop(t, xdg)
@@ -26,10 +26,8 @@ func TestSeedTmuxConfSkipsNonENOENTProbeFailure(t *testing.T) {
 }
 
 func TestTmuxConfPathsEmptyWithoutHomeAndSeedSkips(t *testing.T) {
-	t.Setenv("HOME", "")
-	if runtime.GOOS == "windows" {
-		t.Skip("UserHomeDir reads USERPROFILE")
-	}
+	t.Setenv("HOME", "")        // os.UserHomeDir on unix
+	t.Setenv("USERPROFILE", "") // os.UserHomeDir on windows
 	if got := tmuxConfPaths(); len(got) != 0 {
 		t.Fatalf("tmuxConfPaths() = %v, want none when HOME is unresolved", got)
 	}

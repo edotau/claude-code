@@ -64,7 +64,7 @@ func TestEnsureInitsNestedRepoWithGuards(t *testing.T) {
 	}
 	hookPath := filepath.Join(store, ".git", "hooks", "pre-push")
 	hook, err := os.Stat(hookPath)
-	if err != nil || hook.Mode()&0o100 == 0 {
+	if err != nil || runtime.GOOS != "windows" && hook.Mode()&0o100 == 0 { // Windows has no exec bit
 		t.Fatalf("pre-push hook missing or not executable: %v", err)
 	}
 	assertGitignoreSeeded(t, store)
@@ -110,6 +110,9 @@ func assertFreshRepoEmpty(t *testing.T, r Repo) {
 // assertPrePushRefuses runs the hook and requires exit status 1.
 func assertPrePushRefuses(t *testing.T, hookPath string) {
 	t.Helper()
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("running the pre-push hook needs sh on PATH")
+	}
 	cmd := exec.Command("sh", hookPath)
 	if err := cmd.Run(); err == nil {
 		t.Fatal("pre-push hook must exit nonzero (refuses every push)")
@@ -197,7 +200,10 @@ func TestCommitRejectsBadPathsAndSymlinks(t *testing.T) {
 			t.Errorf("Commit accepted %q", rel)
 		}
 	}
-	os.Symlink(filepath.Join(t.TempDir(), "outside"), filepath.Join(store, "link.md"))
+	if err := os.Symlink(filepath.Join(t.TempDir(), "outside"), filepath.Join(store, "link.md")); err != nil {
+		assertDecoyUntouched(t, decoy)
+		t.Skipf("symlinks unavailable here: %v", err)
+	}
 	if _, _, err := r.Commit([]string{"link.md"}, "s", ""); err == nil {
 		t.Error("Commit accepted a symlink")
 	}

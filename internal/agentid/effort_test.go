@@ -3,7 +3,9 @@ package agentid
 import (
 	"slices"
 	"strings"
-	"testing"
+	"testing" // tests refuse real DNS: mock API calls
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 func TestNativeEffort(t *testing.T) {

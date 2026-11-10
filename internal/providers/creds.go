@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"errors"
@@ -264,6 +265,9 @@ const expiryMargin = 10 * time.Minute
 // authCommandTimeout bounds one auth command; a var so tests can shorten it.
 var authCommandTimeout = 30 * time.Second
 
+// authDrainLimit bounds draining after the group is killed; a child that escaped the group (setsid) can't hang us.
+var authDrainLimit = 5 * time.Second
+
 // runAuthCommand runs one auth shell command and returns its trimmed output; errors never carry the value.
 func runAuthCommand(ctx context.Context, p *Provider, cmd string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, authCommandTimeout)
@@ -283,6 +287,38 @@ func runAuthCommand(ctx context.Context, p *Provider, cmd string) (string, error
 	}
 	return v, nil
 }
+
+// capBuffer bounds what a helper's output can cost: it keeps the first max bytes (or, with tail, the last max) and
+// records whether anything was dropped.
+type capBuffer struct {
+	buf  bytes.Buffer // named, not embedded: an embedded Buffer's ReadFrom would let io.Copy bypass the cap
+	max  int
+	tail bool
+	over bool
+}
+
+func (c *capBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	if c.tail {
+		c.buf.Write(p)
+		if extra := c.buf.Len() - c.max; extra > 0 {
+			c.over = true
+			kept := append([]byte(nil), c.buf.Bytes()[extra:]...)
+			c.buf.Reset()
+			c.buf.Write(kept)
+		}
+		return n, nil
+	}
+	room := c.max - c.buf.Len()
+	if len(p) > room {
+		c.over = true
+		p = p[:max(room, 0)]
+	}
+	c.buf.Write(p)
+	return n, nil
+}
+
+func (c *capBuffer) Bytes() []byte { return c.buf.Bytes() }
 
 // networkMarkers in a failed auth command's stderr mean the issuer was unreachable, not that the login expired.
 var networkMarkers = []string{"timed out", "timeout", "connection refused", "connection reset", "no such host",

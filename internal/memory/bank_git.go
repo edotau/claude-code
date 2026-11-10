@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -310,8 +311,11 @@ func (r Repo) validateRel(rel string) error {
 	return nil
 }
 
+// invalidRelSyntax judges rel in slash form: git reports "a/b.md" on every OS, so Windows must not demand "a\\b.md".
 func invalidRelSyntax(rel string) bool {
-	return rel == "" || rel == "." || rel == ".." || filepath.IsAbs(rel) || filepath.Clean(rel) != rel
+	s := filepath.ToSlash(rel)
+	return s == "" || s == "." || s == ".." || filepath.IsAbs(rel) || filepath.VolumeName(rel) != "" || path.IsAbs(s) ||
+		path.Clean(s) != s
 }
 
 // checkRelPart requires the i-th path element at abs to be absent, a plain directory, or (the leaf) a regular file.

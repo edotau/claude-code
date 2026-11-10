@@ -82,9 +82,12 @@ func symlinkOrSame(src, dst string) error {
 	return err
 }
 
+// chtimes is os.Chtimes; tests swap it to inject a filesystem failure.
+var chtimes = os.Chtimes
+
 // bumpManifestScan touches the extension dir: VS Code caches scanned manifests by the directory's mtime, which an
 // in-place package.json edit through the symlink never changes, so titles and commands would stay stale.
 func bumpManifestScan(dir string) error {
 	now := time.Now()
-	return os.Chtimes(dir, now, now)
+	return chtimes(dir, now, now)
 }

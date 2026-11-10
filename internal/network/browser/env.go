@@ -14,17 +14,23 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
+// envGOOS and onWSL are NewEnv's platform probes; tests swap them to build every platform's Env on any host.
+var (
+	envGOOS = runtime.GOOS
+	onWSL   = proc.OnWSL
+)
+
 // NewEnv builds the real Env with actual paths, bounded commands, and time.Now.
 func NewEnv() Env {
 	home, _ := os.UserHomeDir()
 	return Env{
 		Home:       home,
-		AppSupport: appSupportRoot(home, runtime.GOOS),
+		AppSupport: appSupportRoot(home, envGOOS),
 		Run:        runReal,
 		ProbeRun:   runProbe,
 		Now:        time.Now,
-		GOOS:       runtime.GOOS,
-		WSL:        runtime.GOOS == "linux" && proc.OnWSL(),
+		GOOS:       envGOOS,
+		WSL:        envGOOS == "linux" && onWSL(),
 		WinRoot:    winRoot(),
 		Probe:      probeCDP,
 		Sleep:      time.Sleep,

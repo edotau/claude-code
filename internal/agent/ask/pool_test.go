@@ -37,6 +37,7 @@ import (
 // vendorHost isolates the config dir, seeds a provider and installs a fake opencode that fails on a FAILME prompt.
 func vendorHost(t *testing.T) {
 	t.Helper()
+	skipWithoutSh(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
@@ -708,6 +709,7 @@ func fakeJWT(iss string) string {
 
 // Guarantee 1: concurrent tasks on two profiles; each child's env holds only its own route and token.
 func TestBatchConcurrentProfilesKeepEnvsApart(t *testing.T) {
+	skipWithoutSh(t)
 	cliEnv(t)
 	vaulttest.Use(t)
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
@@ -810,6 +812,7 @@ func TestBatchTasksWriteEventFiles(t *testing.T) {
 
 // The vault's custom env holds every profile's vars; a batch child on pa gets pa's and never pb's credential var.
 func TestBatchChildDropsOtherProfilesCustomCredentialVar(t *testing.T) {
+	skipWithoutSh(t)
 	cliEnv(t)
 	vaulttest.Use(t)
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
