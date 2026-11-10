@@ -73,7 +73,7 @@ func chainOutcome(c Chain, res wire.Result, err error, reasons []string, prevDis
 
 // announceFallback tells notify and the sink in one line, both accounts named, that disp takes over from prev.
 func announceFallback(sink wire.Sink, notify func(string), prev, disp Dispatch, err error) *retry.Error {
-	line := fmt.Sprintf("fallback %s → %s: %s", hopLabel(prev), hopLabel(disp), FallbackReason(err))
+	line := fmt.Sprintf("fallback %s → %s: %s", hopLabel(prev), hopTarget(disp), FallbackReason(err))
 	if notify != nil {
 		notify(line)
 	}
@@ -114,6 +114,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	}()
 	// another task may have marked this account dead while this dispatch waited for its permit
 	if skip := cmp.Or(exhaustedSince(disp), authMarkedSince(disp)); skip != nil {
+		skip.Terminal = true // refused before it ran: the chain moves on, whichever agent this hop was
 		res, err = wire.Result{Agent: disp.Agent.Name(), Status: statusOf(skip), Invoked: lreq.Model}, skip
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
 	}
@@ -186,6 +187,17 @@ func hopLabel(l Dispatch) string {
 	return dispatchLabel(l.Agent) + " (" + l.Account + ")"
 }
 
+// hopTarget is hopLabel plus the hop's model without its "<profile>:", "codex (openai·chatgpt, gpt-6.1-sol)".
+func hopTarget(l Dispatch) string {
+	_, prof, _ := strings.Cut(l.Account, "·")
+	model := strings.TrimPrefix(l.Model, prof+":")
+	parts := slices.DeleteFunc([]string{l.Account, model}, func(s string) bool { return s == "" })
+	if len(parts) == 0 {
+		return dispatchLabel(l.Agent)
+	}
+	return dispatchLabel(l.Agent) + " (" + strings.Join(parts, ", ") + ")"
+}
+
 // everyHopFailed wraps the last failure with every skip and failed hop, keeping its Kind.
 func everyHopFailed(reasons []string, last error) error {
 	e, ok := errors.AsType[*retry.Error](last)
@@ -228,13 +240,13 @@ func FallbackReason(err error) string {
 	return textutil.CapRunes(textutil.RedactSecrets(s), 200, "")
 }
 
-// dispatchUnavailable: a pre-answer auth failure, or a failed hop of an external engine (otherwise claude/api never).
+// dispatchUnavailable: a pre-answer auth failure or state refusal, or a failed external hop (else claude/api never).
 func dispatchUnavailable(r Engine, res wire.Result, err error) bool {
 	if requestFault(err) {
 		return false
 	}
 	var ae *retry.Error
-	if errors.As(err, &ae) && ae.AuthReason != "" && res.Answer == "" {
+	if errors.As(err, &ae) && (ae.AuthReason != "" || ae.Terminal) && res.Answer == "" {
 		return true
 	}
 	s, ok := LookupSchema(r.Name())

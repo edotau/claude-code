@@ -175,7 +175,15 @@ func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Contex
 		}
 		return ctx, retry.Classify(r.Name(), err, false) // a transient auth.command/OAuth failure stays retryable
 	}
-	return withOwnProvider(ctx, gp), nil
+	return ownCredentials(ctx, arm, r, gp), nil
+}
+
+// ownCredentials marks gp the hop's own profile; in the route a proxied non-claude hop inherits no workspace token.
+func ownCredentials(ctx context.Context, arm string, r Engine, gp *providers.Provider) context.Context {
+	if arm != "" && r.Name() != "claude" {
+		return ctx
+	}
+	return withOwnProvider(ctx, gp)
 }
 
 // guardArm refuses a hop outside databricks:<arm>: only that workspace (not AI Gateway) or the agent's own login runs.
@@ -192,10 +200,13 @@ func guardArm(arm string, r Engine, gp *providers.Provider) error {
 	return fmt.Errorf("%s: profile %s is outside databricks:%s", r.Name(), gp.Name, arm)
 }
 
-// armOwnLogin reports gp as agentName's own sign-in (ownLogin), or for claude an Anthropic subscription row.
+// armOwnLogin: gp is agentName's own sign-in, claude's Anthropic subscription or opencode's Go plan (armOpencodeSub).
 func armOwnLogin(agentName string, gp *providers.Provider) bool {
 	if agentName == "claude" {
 		return gp.Provider == "anthropic" && gp.Auth.Method() == providers.AuthCLI
+	}
+	if agentName == "opencode" && gp.Name == "opencode-go" { // the hub's synthetic Go-plan provider: no registry row
+		return true
 	}
 	// an unreadable registry reads as no own login: the hop is refused, never run unchecked
 	return ownLogin(func() *providers.Registry { reg, _ := providers.Load(); return reg }, agentName, gp.Name)

@@ -791,3 +791,54 @@ func TestMain(m *testing.M) {
 	gateway.HolderComm = func(int) string { return "claude-code" }
 	os.Exit(hosttest.Main(m))
 }
+
+// A dev session token is refused on /p/qa with 401 before any upstream call (authorized fails, so resolveTarget's
+// 403 is never reached); on dev it reaches /serving-endpoints on the Messages, chat and Responses wires.
+func TestSessionTokenConfinedToItsProfile(t *testing.T) {
+	useGate(t)
+	up := newRawUp(t, okRaw)
+	t.Setenv("DEV_TOKEN", "dev-workspace-token")
+	t.Setenv("QA_TOKEN", "qa-workspace-token")
+	row := func(env string) string {
+		serving := up.URL + "/serving-endpoints"
+		return `{"preset":"databricks","host":"https://example.cloud.databricks.com","base_url":"` + serving +
+			`/anthropic","routes":{"openai":"` + serving + `","responses":"` + serving + `"},` +
+			`"auth":{"type":"key","env":"` + env + `"},"models":{"opus":"databricks-claude-opus-5-5"}}`
+	}
+	var routed *Router
+	srv := setupRouter(t, `{"default":"dev","providers":{"databricks":{"dev":`+row("DEV_TOKEN")+`,"qa":`+
+		row("QA_TOKEN")+`}}}`, func(r *Router) { routed = r })
+	token, err := routed.sessions.mint("dev", os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const msg = `{"model":"databricks-claude-opus-5-5","max_tokens":5}`
+	for _, path := range []string{"/p/qa/v1/messages", "/p/qa/openai/chat/completions", "/p/qa/responses/responses"} {
+		hdr := map[string]string{"X-Api-Key": "", "Authorization": "Bearer " + token}
+		resp := ptDo(t, http.MethodPost, srv.URL+path, msg, hdr)
+		if got := body(t, resp); resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("dev token on %s = %d %s, want 401", path, resp.StatusCode, got)
+		}
+	}
+	if n := len(up.got()); n != 0 {
+		t.Fatalf("dev token on qa reached the upstream %d times, want 0", n)
+	}
+	cases := []struct{ path, hdr, val, want string }{
+		{"/p/dev/v1/messages", "X-Api-Key", token, "/serving-endpoints/anthropic/v1/messages"},
+		{"/p/dev/openai/chat/completions", "Authorization", "Bearer " + token, "/serving-endpoints/chat/completions"},
+		{"/p/dev/responses/responses", "Authorization", "Bearer " + token, "/serving-endpoints/responses"},
+	}
+	for i, c := range cases {
+		hdr := map[string]string{"X-Api-Key": "", c.hdr: c.val}
+		if resp := ptDo(t, http.MethodPost, srv.URL+c.path, msg, hdr); resp.StatusCode != http.StatusOK {
+			t.Fatalf("dev token on %s = %d %s, want 200", c.path, resp.StatusCode, body(t, resp))
+		}
+		got := up.got()
+		if len(got) != i+1 || got[i].uri != c.want {
+			t.Fatalf("%s reached upstream %d times, last %+v; want %s", c.path, len(got), got[len(got)-1].uri, c.want)
+		}
+		if a := got[i].hdr.Get("Authorization"); a != "Bearer dev-workspace-token" {
+			t.Errorf("%s: upstream Authorization is not dev's workspace credential", c.path)
+		}
+	}
+}
