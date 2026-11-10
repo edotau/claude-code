@@ -237,7 +237,7 @@ func applyArm(p, profile string) error {
 	if arm := router.ArmProfile(); arm != "" && p != arm {
 		return errLeaveArm(arm)
 	}
-	if err := armRow(p); err != nil {
+	if err := providers.ServingRow(p); err != nil {
 		return err
 	}
 	if err := os.Setenv(router.EnvRoute, router.RouteDatabricks+":"+p); err != nil {
@@ -254,28 +254,11 @@ func errLeaveArm(arm string) error {
 // bareArm is the first of profile and CLAUDE_PROFILE that names a Databricks row, else "".
 func bareArm(profile string) string {
 	for _, name := range []string{profile, os.Getenv(providers.EnvSessionProfile)} {
-		if name != "" && armRow(name) == nil {
+		if name != "" && providers.ServingRow(name) == nil {
 			return name
 		}
 	}
 	return ""
-}
-
-// armRow checks that name is a Databricks serving-endpoints row, the only kind route databricks:<p> runs on.
-func armRow(name string) error {
-	reg, err := providers.Load()
-	if err != nil {
-		return fmt.Errorf("--route databricks:%s: %w", name, err)
-	}
-	switch p := reg.Providers[name]; {
-	case p == nil:
-		return fmt.Errorf("--route databricks:%s: no such profile", name)
-	case p.Preset != providers.PresetDatabricks:
-		return fmt.Errorf("--route databricks:%s: not a Databricks profile", name)
-	case p.IsAIGateway():
-		return fmt.Errorf("--route databricks:%s: AI Gateway row; use a serving row", name)
-	}
-	return nil
 }
 
 // CheckArm refuses a flag that would take the dispatch off route databricks:<p>; nil outside the route.
