@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
@@ -242,7 +243,7 @@ func authCredential(ctx context.Context, p *Provider, force bool) (string, error
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", p.Name, err)
 	}
-	if mode == IdentitySP {
+	if mode == IdentitySP || (mode == IdentityAuto && p.Auth.SPClientID != "" && !hasUserLogin(p)) {
 		return spCredential(ctx, p, force)
 	}
 	v, err := userCredential(ctx, p, force)
@@ -251,6 +252,15 @@ func authCredential(ctx context.Context, p *Provider, force bool) (string, error
 		return spCredential(ctx, p, force)
 	}
 	return v, err
+}
+
+// hasUserLogin reports a sealed (or carried) user login; a vault read error counts as one so the user path reports it.
+func hasUserLogin(p *Provider) bool {
+	if _, carried := unsealedRefresh.Load(p.Name); carried {
+		return true
+	}
+	ov, err := readOAuth(p)
+	return err != nil || ov != oauthValue{}
 }
 
 // userCredential keeps user-only flights separate from automatic SP fallback.
@@ -324,6 +334,22 @@ func IdentityFrom(ctx context.Context) string {
 	return as
 }
 
+type notesKey struct{}
+
+// WithNotes routes ctx's credential notes (the service-principal fallback line) to sink instead of stderr.
+func WithNotes(ctx context.Context, sink func(string)) context.Context {
+	return context.WithValue(ctx, notesKey{}, sink)
+}
+
+// note prints msg to ctx's WithNotes sink, else to spNoteOut.
+func note(ctx context.Context, msg string) {
+	if sink, ok := ctx.Value(notesKey{}).(func(string)); ok {
+		sink(msg)
+		return
+	}
+	fmt.Fprintln(spNoteOut, msg)
+}
+
 // Seams for the token endpoint calls and the fallback note.
 var (
 	refreshU2M           = oauth.RefreshU2M
@@ -349,22 +375,36 @@ func mintSP(ctx context.Context, p *Provider, force bool) (string, error) {
 		return "", fmt.Errorf("%s: identity sp needs a paired service principal (auth.spClientId)", p.Name)
 	}
 	name := SecretName(p.provider(), p.Name, AuthM2M)
-	secret, _, err := vault.EffectiveSecret(name)
+	secret, access, err := clientSecrets(name)
 	if err != nil {
 		return "", fmt.Errorf("%s: vault: %w", p.Name, err)
 	}
 	if secret == "" {
 		return "", fmt.Errorf("%s: no service-principal credential (set %s with `claude-code vault set`)", p.Name, name)
 	}
-	tok, err := m2mToken(ctx, p, name, AuthHost(p), p.Auth.SPClientID, secret, force)
+	host := AuthHost(p)
+	if v, ok := clientAccessHit(access, clientBind(host, p.Auth.SPClientID, secret)); ok && !force {
+		return v, finishSPCredential(p, v, time.Time{}) // a served token is no news: the note marks a mint only
+	}
+	tok, err := m2mToken(ctx, p, name, host, p.Auth.SPClientID, secret, true) // the sealed slot was checked above
 	if err != nil {
 		return "", fmt.Errorf("%s: service principal: %w", p.Name, err)
 	}
 	if err := finishSPCredential(p, tok.Access, tok.Expiry); err != nil {
 		return "", err
 	}
-	fmt.Fprintf(spNoteOut, "%s: using the service principal %s\n", p.Name, p.Auth.SPClientID)
+	note(ctx, fmt.Sprintf("%s: using the service principal %s", p.Name, p.Auth.SPClientID))
 	return tok.Access, nil
+}
+
+// clientSecrets reads a client secret (env first, like vault.EffectiveSecret) and its sealed _ACCESS slot in one read.
+func clientSecrets(name string) (secret, access string, err error) {
+	vals, err := vault.ReadSecrets([]string{name, name + "_ACCESS"})
+	if err != nil { // an unreadable cache slot must not block the mint: read the secret alone
+		secret, _, err = vault.EffectiveSecret(name)
+		return secret, "", err
+	}
+	return cmp.Or(strings.TrimSpace(os.Getenv(name)), vals[name]), vals[name+"_ACCESS"], nil
 }
 
 // finishSPCredential caches the SP token apart from the user profile's cache.
@@ -470,8 +510,7 @@ type clientAccess struct {
 
 // m2mToken serves an m2m/sp token sealed by any process while it is valid past expiryMargin; force mints anew.
 func m2mToken(ctx context.Context, p *Provider, secretName, host, clientID, secret string, force bool) (oauth.Token, error) {
-	sum := sha256.Sum256([]byte(host + "\x00" + clientID + "\x00" + secret))
-	bind := hex.EncodeToString(sum[:8])
+	bind := clientBind(host, clientID, secret)
 	name := secretName + "_ACCESS" // per row on purpose: a forced mint rotates only that row's slot
 	if !force {
 		if v, ok := sealedClientAccess(name, bind); ok {
@@ -489,30 +528,68 @@ func m2mToken(ctx context.Context, p *Provider, secretName, host, clientID, secr
 		if err := vault.Store(name, string(b)); err != nil {
 			fmt.Fprintf(os.Stderr, "cache access token (%s) failed\n", name)
 		} else {
-			dropLegacyAccess("DATABRICKS_M2M_" + strings.ToUpper(bind) + "_ACCESS")
+			dropLegacyAccess()
 		}
 	}
 	return tok, nil
 }
 
-// dropLegacyAccess deletes the pre-per-row hash-named cache slot; a read error is reported, the delete still runs.
-func dropLegacyAccess(slot string) {
-	_, found, err := vault.ReadSecret(slot)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "read legacy access token slot %s failed: %v\n", slot, err)
-	} else if !found {
+// clientBind ties a sealed client token to its host, client id and secret without storing the secret.
+func clientBind(host, clientID, secret string) string {
+	sum := sha256.Sum256([]byte(host + "\x00" + clientID + "\x00" + secret))
+	return hex.EncodeToString(sum[:8])
+}
+
+// Legacy pre-per-row cache slots, swept once per vault (Meta marker) and checked once per process.
+const legacySweptKey = "m2m_legacy_access_swept"
+
+var (
+	legacySlotRE = regexp.MustCompile(`^DATABRICKS_M2M_[0-9A-F]{16}_ACCESS$`)
+	legacySwept  atomic.Bool
+)
+
+// dropLegacyAccess deletes every hash-named DATABRICKS_M2M_<HASH>_ACCESS slot once, then marks the vault swept.
+func dropLegacyAccess() {
+	if legacySwept.Load() {
 		return
 	}
-	if err := vault.Delete(slot); err != nil {
-		fmt.Fprintf(os.Stderr, "drop legacy access token slot %s failed: %v\n", slot, err)
+	var swept bool
+	var names []string
+	if err := vault.View(func(tx *vault.Tx) error {
+		_, swept = tx.Get(vault.Meta, legacySweptKey)
+		names = tx.Names(vault.Secrets)
+		return nil
+	}); err != nil || swept {
+		legacySwept.Store(swept)
+		return
+	}
+	for _, n := range names {
+		if !legacySlotRE.MatchString(n) {
+			continue
+		}
+		if err := vault.Delete(n); err != nil { // unmarked: the next mint retries the sweep
+			fmt.Fprintf(os.Stderr, "drop legacy access token slot %s failed: %v\n", n, err)
+			return
+		}
+	}
+	if vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Meta, legacySweptKey, "1") }) == nil {
+		legacySwept.Store(true)
 	}
 }
 
 // sealedClientAccess returns the sealed token under name when bind matches and it stays valid past expiryMargin.
 func sealedClientAccess(name, bind string) (string, bool) {
-	raw, found, err := vault.ReadSecret(name)
+	raw, _, err := vault.ReadSecret(name)
+	if err != nil {
+		return "", false
+	}
+	return clientAccessHit(raw, bind)
+}
+
+// clientAccessHit returns the token in a sealed clientAccess when bind matches and it stays valid past expiryMargin.
+func clientAccessHit(raw, bind string) (string, bool) {
 	var ca clientAccess
-	if err != nil || !found || json.Unmarshal([]byte(raw), &ca) != nil || ca.Bind != bind {
+	if raw == "" || json.Unmarshal([]byte(raw), &ca) != nil || ca.Bind != bind {
 		return "", false
 	}
 	exp, ok := JWTExp(ca.Access)
@@ -535,7 +612,7 @@ func noSecretError(p *Provider, name string) error {
 func mintU2M(ctx context.Context, p *Provider, host, name, secret string) (oauth.Token, error) {
 	tok, err := refreshU2M(ctx, host, secret)
 	if err != nil {
-		wrapped := fmt.Errorf("%s: %w (run `claude-code databricks login --profile %s`)", p.Name, err, p.Name)
+		wrapped := fmt.Errorf("%s: %w (%s)", p.Name, err, authHint(p, name))
 		if oauth.IsLoginRequired(err) {
 			wrapped = &LoginRequiredError{err: wrapped}
 		}
@@ -585,6 +662,7 @@ func mintSecret(p *Provider) (string, error) {
 	return v, err
 }
 
+// authHint is the one fix-it phrase for a missing or rejected credential: a login for oauth, else the vault secret.
 func authHint(p *Provider, name string) string {
 	if p.Auth.Type == AuthOAuth {
 		return "run `claude-code databricks login --profile " + p.Name + "`, or `claude-code configure` and pick Set up"

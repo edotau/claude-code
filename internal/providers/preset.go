@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -56,13 +57,12 @@ func decorateModels(r *Registry) {
 	}
 }
 
-// PresetHost returns the https://host of an absolute https host URL with no path, else "".
+// PresetHost is oauth.NormalizeHost for an absolute https URL only: a bare host is "".
 func PresetHost(host string) string {
-	u, err := url.Parse(host)
-	if err != nil || u.Scheme != "https" || u.Host == "" || (u.Path != "" && u.Path != "/") || u.RawQuery != "" {
+	if !strings.Contains(host, "://") {
 		return ""
 	}
-	return "https://" + u.Host
+	return oauth.NormalizeHost(host)
 }
 
 func expandDatabricks(p *Provider) {

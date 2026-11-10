@@ -389,15 +389,15 @@ func TestCheckAllAcceptsPositionalModel(t *testing.T) {
 	}
 	model := "claude-opus-5-5"
 	code, out, stderr := runCaptured(t, func() int {
-		return Run([]string{"check", model, "--all", "--profile", "test-probe", "--model", "claude-haiku-4-5"})
+		return Run([]string{"check", model, "--all", "--wire", "all", "--profile", "test-probe", "--model", "claude-haiku-4-5"})
 	})
 	if code != 0 || len(seen) != 2 {
 		t.Fatalf("exit = %d, probes = %d, stdout = %q, stderr = %q", code, len(seen), out, stderr)
 	}
-	for _, want := range []string{"databricks-" + model, "system.ai." + model} {
-		if got := <-seen; got != want {
-			t.Errorf("probe model = %q, want positional model %q", got, want)
-		}
+	got := []string{<-seen, <-seen} // the wires probe concurrently
+	slices.Sort(got)
+	if want := []string{"databricks-" + model, "system.ai." + model}; !slices.Equal(got, want) {
+		t.Errorf("probe models = %q, want positional model %q", got, want)
 	}
 }
 

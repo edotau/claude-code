@@ -11,7 +11,8 @@ func Spec() *helptext.Node {
 	profileNames := providers.ProfileNames
 	identities := func() []string { return []string{"user", "sp"} }
 	return &helptext.Node{Flags: []helptext.Flag{valuedFlag("profile", profileNames)}, Sub: map[string]*helptext.Node{
-		"check": {Flags: []helptext.Flag{boolFlag("all"), valuedFlag("profile", profileNames), boolFlag("1m"), flag("model")}},
+		"check": {Flags: []helptext.Flag{boolFlag("all"), valuedFlag("profile", profileNames), boolFlag("1m"), flag("model"),
+			valuedFlag("wire", func() []string { return []string{"serving", "ai-gateway", "all"} })}},
 		"login": {Args: []func() []string{profileNames}, Flags: []helptext.Flag{flag("auth-type"), boolFlag("dry-run"), boolFlag("force"), valuedFlag("as", identities)}},
 		"mint":  {Flags: []helptext.Flag{valuedFlag("profile", profileNames), boolFlag("dry-run"), boolFlag("copy"), valuedFlag("as", identities)}},
 		"import": {Flags: []helptext.Flag{flag("dbxcfg"), boolFlag("pick"), flag("rename"), boolFlag("replace"),

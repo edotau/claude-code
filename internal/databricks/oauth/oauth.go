@@ -2,6 +2,7 @@
 package oauth
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -84,7 +85,23 @@ func IsRejected(err error) bool {
 	return errors.As(err, &oe) && (oe.Status == http.StatusUnauthorized || (oe.Status == http.StatusForbidden && oe.Code != ""))
 }
 
-// normHost trims host to scheme://authority[/path]; plain http is accepted only for loopback hosts.
+// NormalizeHost is the canonical workspace host: bare host or path-less https URL in, lower-case https://host out.
+func NormalizeHost(s string) string {
+	s = strings.TrimRight(strings.TrimSpace(s), "/")
+	if s == "" || strings.ContainsAny(s, "?#") {
+		return ""
+	}
+	if !strings.Contains(s, "://") {
+		s = "https://" + s
+	}
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Path != "" {
+		return ""
+	}
+	return "https://" + strings.ToLower(u.Host)
+}
+
+// normHost is NormalizeHost for token calls, which also take loopback http and a path (test servers); no bare host.
 func normHost(host string) (string, error) {
 	host = strings.TrimRight(strings.TrimSpace(host), "/")
 	u, err := url.Parse(host)
@@ -97,7 +114,7 @@ func normHost(host string) (string, error) {
 	if u.Scheme == "http" && !textutil.IsLoopbackHost(u.Hostname()) {
 		return "", fmt.Errorf("oauth: host %s uses scheme http; credentials need https (loopback excepted)", u.Hostname())
 	}
-	return host, nil
+	return cmp.Or(NormalizeHost(host), host), nil
 }
 
 // tokenReply is the success body of the token endpoint.
@@ -129,6 +146,15 @@ func (r tokenRequest) retryable(status int, written bool) bool {
 	return r.replay && (status == 0 || status >= 500)
 }
 
+type noRetryKey struct{}
+
+// WithoutRetry makes token requests on ctx single-shot: a probe reports a 429 or 503, it never waits one out.
+func WithoutRetry(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noRetryKey{}, true)
+}
+
+func noRetry(ctx context.Context) bool { v, _ := ctx.Value(noRetryKey{}).(bool); return v }
+
 // postToken sends the grant, retrying transient failures up to maxAttempts with an attempt × RetryBackoff pause.
 func postToken(ctx context.Context, r tokenRequest) (tokenReply, error) {
 	var (
@@ -139,7 +165,7 @@ func postToken(ctx context.Context, r tokenRequest) (tokenReply, error) {
 	)
 	for attempt := 1; ; attempt++ {
 		reply, status, sent, err = postOnce(ctx, r)
-		if err == nil || !r.retryable(status, sent) || attempt == maxAttempts {
+		if err == nil || !r.retryable(status, sent) || attempt == maxAttempts || noRetry(ctx) {
 			return reply, err
 		}
 		select {
