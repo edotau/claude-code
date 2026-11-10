@@ -1,8 +1,11 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -65,5 +68,22 @@ func TestGuardProviderResolvesModelPrefixForVendorAgent(t *testing.T) {
 	p, err := guardProvider(&fakeRunner{name: "codex"}, RunOptions{Model: "hm:opus"})
 	if err != nil || p == nil || p.Name != "hm" {
 		t.Fatalf("guardProvider = %v, %v; want the hm profile", p, err)
+	}
+}
+
+// A frozen copilot target's gate note prints once through NoticeOut, however many attempts resolve the target.
+func TestTargetCtxPrintsGateNoteOnce(t *testing.T) {
+	var buf bytes.Buffer
+	orig := NoticeOut
+	NoticeOut = &buf
+	t.Cleanup(func() { NoticeOut = orig })
+	ctx := context.WithValue(context.Background(), frozenKey{}, frozenTarget{own: true, note: "gate moved copilot", once: &sync.Once{}})
+	for range 2 {
+		if _, _, err := SchemaFor("copilot").TargetCtx(ctx, RunOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := strings.Count(buf.String(), "gate moved copilot\n"); got != 1 {
+		t.Errorf("NoticeOut = %q, want the gate note exactly once", buf.String())
 	}
 }

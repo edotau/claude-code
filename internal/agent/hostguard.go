@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 
@@ -44,6 +44,7 @@ type frozenTarget struct {
 	t    providers.Target
 	own  bool
 	note string
+	once *sync.Once // the gate note prints once per dispatch, not on every retry
 }
 
 // freezeCopilot resolves copilot's real target once, so the permit, cooldown key, guard and agent all use the same
@@ -59,7 +60,7 @@ func freezeCopilot(ctx context.Context, disp Dispatch, req RunOptions) (context.
 	if !own && t.Provider != nil && t.Provider.Auth.Login != "copilot" {
 		disp = withBilling(disp, t.Provider)
 	}
-	return context.WithValue(ctx, frozenKey{}, frozenTarget{t, own, note}), disp
+	return context.WithValue(ctx, frozenKey{}, frozenTarget{t, own, note, &sync.Once{}}), disp
 }
 
 // ownLoginActual re-keys a dispatch put on the agent's own login when the agent really resolves another profile.
@@ -79,7 +80,7 @@ func ownLoginActual(disp Dispatch, req RunOptions) Dispatch {
 func (s Schema) TargetCtx(ctx context.Context, req RunOptions) (providers.Target, bool, error) {
 	if f, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && s.Name == "copilot" {
 		if f.note != "" {
-			fmt.Fprintln(os.Stderr, f.note)
+			f.once.Do(func() { fmt.Fprintln(NoticeOut, f.note) })
 		}
 		t := f.t // the provider and account are frozen; the model follows this attempt's request (a quota downgrade)
 		if m := t.Provider; m != nil && slices.Contains(models.AliasNames, req.Model) && m.Models[req.Model] != "" {
