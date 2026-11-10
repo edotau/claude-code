@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -310,3 +311,17 @@ func EnableOverlay(path string) error {
 	}
 	return os.Setenv(agentconfig.OverlayVar, abs)
 }
+
+// envMap turns a KEY=VALUE env list into a map, dropping malformed entries.
+func envMap(env []string) map[string]string {
+	out := map[string]string{}
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// lookPath is the seam for resolving an agent binary.
+var lookPath = paths.AgentBin

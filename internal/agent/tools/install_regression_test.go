@@ -66,3 +66,18 @@ func TestHTTPGetAcceptsNonAuthoritativeSuccess(t *testing.T) {
 		t.Fatalf("203 download = %q, %v; want valid body without error", got, err)
 	}
 }
+
+// A download over maxDownload is an error, not an unbounded read.
+func TestHTTPGetRefusesOversizedBody(t *testing.T) {
+	orig := maxDownload
+	maxDownload = 1024
+	t.Cleanup(func() { maxDownload = orig })
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, strings.Repeat("x", 2048))
+	}))
+	t.Cleanup(srv.Close)
+
+	if _, err := httpGet(context.Background(), srv.URL); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("2 KiB body over a 1 KiB cap: err = %v, want an exceeds error", err)
+	}
+}
