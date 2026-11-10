@@ -24,8 +24,8 @@ const defaultBaseURL = "https://api.tailscale.com/api/v2"
 // apiBaseURL is where NewClient and Doctor mint tokens; a var so tests can point it at an httptest server.
 var apiBaseURL = defaultBaseURL
 
-// ErrNoCredential: neither an OAuth client nor an API key resolves via the secrets ladder.
-var ErrNoCredential = errors.New(
+// errNoCredential: neither an OAuth client nor an API key resolves via the secrets ladder.
+var errNoCredential = errors.New(
 	"tailscale: no credential (set TAILSCALE_OAUTH_CLIENT_ID/_SECRET or TAILSCALE_API_KEY)")
 
 // errNoDevice: no admin-API device carries any of this node's tailnet addresses.
@@ -116,7 +116,7 @@ func NewClient() (*Client, error) {
 		c.token = func(context.Context) (string, error) { return key, nil }
 		return c, nil
 	}
-	return nil, ErrNoCredential
+	return nil, errNoCredential
 }
 
 // request sends an authenticated JSON request, decodes a 2xx body into out, and re-mints once on a 401.
@@ -171,8 +171,8 @@ func (c *Client) send(ctx context.Context, method, path string, body any, forceR
 	return c.HTTP.Do(req)
 }
 
-// KeyOpts configures a minted auth key.
-type KeyOpts struct {
+// keyOpts configures a minted auth key.
+type keyOpts struct {
 	Ephemeral     bool
 	Preauthorized bool
 	Reusable      bool
@@ -189,7 +189,7 @@ type AuthKey struct {
 }
 
 // CreateAuthKey mints a tskey-auth-… key via POST /tailnet/-/keys.
-func (c *Client) CreateAuthKey(ctx context.Context, opts KeyOpts) (AuthKey, error) {
+func (c *Client) CreateAuthKey(ctx context.Context, opts keyOpts) (AuthKey, error) {
 	type create struct {
 		Reusable      bool     `json:"reusable"`
 		Ephemeral     bool     `json:"ephemeral"`

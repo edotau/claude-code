@@ -17,8 +17,8 @@ import (
 // errNoSubnetRoutes means this box advertises no subnet routes to approve.
 var errNoSubnetRoutes = errors.New("this box advertises no subnet routes; run --subnet <cidr> first")
 
-// ResolveAuthKey picks the auth key: literal ("-" reads stdin), then the keyEnv variable, then the vault.
-func ResolveAuthKey(authKey, keyEnv string, stdin io.Reader) (string, error) {
+// resolveAuthKey picks the auth key: literal ("-" reads stdin), then the keyEnv variable, then the vault.
+func resolveAuthKey(authKey, keyEnv string, stdin io.Reader) (string, error) {
 	key := authKey
 	if key == "-" {
 		in, err := io.ReadAll(stdin)
@@ -36,14 +36,14 @@ func ResolveAuthKey(authKey, keyEnv string, stdin io.Reader) (string, error) {
 	return key, nil
 }
 
-// Connected reports the local status when the backend is already Running.
-func Connected(ctx context.Context) (Local, bool) {
+// connected reports the local status when the backend is already Running.
+func connected(ctx context.Context) (Local, bool) {
 	st, err := Status(ctx)
 	return st, err == nil && st.BackendState == "Running"
 }
 
-// ApproveSelfExitNode approves this box's exit-node routes and returns its DNS name.
-func ApproveSelfExitNode(ctx context.Context) (string, error) {
+// approveSelfExitNode approves this box's exit-node routes and returns its DNS name.
+func approveSelfExitNode(ctx context.Context) (string, error) {
 	client, st, id, err := selfDevice(ctx)
 	if err != nil {
 		return "", err
@@ -54,8 +54,8 @@ func ApproveSelfExitNode(ctx context.Context) (string, error) {
 	return st.DNSName, nil
 }
 
-// ApproveSelfSubnets enables every subnet route this box advertises, keeping routes already enabled.
-func ApproveSelfSubnets(ctx context.Context) (dns string, want, enabled []string, err error) {
+// approveSelfSubnets enables every subnet route this box advertises, keeping routes already enabled.
+func approveSelfSubnets(ctx context.Context) (dns string, want, enabled []string, err error) {
 	client, st, id, err := selfDevice(ctx)
 	if err != nil {
 		return "", nil, nil, err
@@ -75,8 +75,8 @@ func ApproveSelfSubnets(ctx context.Context) (dns string, want, enabled []string
 	return st.DNSName, want, subnetRoutes(en), nil
 }
 
-// ParseSubnets splits a comma-separated CIDR list; ok is false when any entry is not a prefix.
-func ParseSubnets(value string) (routes []string, ok bool) {
+// parseSubnets splits a comma-separated CIDR list; ok is false when any entry is not a prefix.
+func parseSubnets(value string) (routes []string, ok bool) {
 	routes = strings.Split(value, ",")
 	for i := range routes {
 		routes[i] = strings.TrimSpace(routes[i])
@@ -86,7 +86,7 @@ func ParseSubnets(value string) (routes []string, ok bool) {
 }
 
 // mintKey parses expiry, mints an auth key through the admin API and hints at the usual 404 cause.
-func mintKey(ctx context.Context, expiry string, opts KeyOpts) (AuthKey, error) {
+func mintKey(ctx context.Context, expiry string, opts keyOpts) (AuthKey, error) {
 	exp, err := parseKeyExpiry(expiry)
 	if err != nil {
 		return AuthKey{}, fmt.Errorf("--expiry: %w", err)
@@ -105,8 +105,8 @@ func mintKey(ctx context.Context, expiry string, opts KeyOpts) (AuthKey, error) 
 	return key, err
 }
 
-// ConnectAudited joins the tailnet with key and audits the connect under this node's name.
-func ConnectAudited(ctx context.Context, key string, advertise bool) error {
+// connectAudited joins the tailnet with key and audits the connect under this node's name.
+func connectAudited(ctx context.Context, key string, advertise bool) error {
 	if err := connect(ctx, key, advertise); err != nil {
 		return err
 	}
@@ -124,17 +124,17 @@ func auditConnect(ctx context.Context) {
 	audit.Log(audit.TailscaleConnect, st.DNSName, "connect")
 }
 
-// AdvertiseConnected advertises the already-connected node dns as an exit node and audits it.
-func AdvertiseConnected(ctx context.Context, dns string) error {
-	if err := AdvertiseExitNode(ctx, true); err != nil {
+// advertiseConnected advertises the already-connected node dns as an exit node and audits it.
+func advertiseConnected(ctx context.Context, dns string) error {
+	if err := advertiseExitNode(ctx, true); err != nil {
 		return err
 	}
 	audit.Log(audit.TailscaleExitNode, dns, "enable")
 	return nil
 }
 
-// MintKeyAudited mints an auth key (MintKey) and audits the mint with its tags.
-func MintKeyAudited(ctx context.Context, expiry string, opts KeyOpts) (AuthKey, error) {
+// mintKeyAudited mints an auth key (MintKey) and audits the mint with its tags.
+func mintKeyAudited(ctx context.Context, expiry string, opts keyOpts) (AuthKey, error) {
 	key, err := mintKey(ctx, expiry, opts)
 	if err != nil {
 		return AuthKey{}, err
@@ -143,5 +143,5 @@ func MintKeyAudited(ctx context.Context, expiry string, opts KeyOpts) (AuthKey, 
 	return key, nil
 }
 
-// SaveAuthKey seals key as TAILSCALE_AUTHKEY, the vault entry ResolveAuthKey falls back to.
-func SaveAuthKey(key string) error { return vault.Store("TAILSCALE_AUTHKEY", key) }
+// saveAuthKey seals key as TAILSCALE_AUTHKEY, the vault entry ResolveAuthKey falls back to.
+func saveAuthKey(key string) error { return vault.Store("TAILSCALE_AUTHKEY", key) }

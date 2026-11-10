@@ -268,8 +268,8 @@ func (s *server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	return scanner.Err()
 }
 
-// Run wires stdin/stdout to a default (Tavily-backed) server. Entry point for the CLI command.
-func Run(ctx context.Context) int {
+// run wires stdin/stdout to a default (Tavily-backed) server. Entry point for the CLI command.
+func run(ctx context.Context) int {
 	if _, err := resolveKey(); err != nil {
 		fmt.Fprintf(os.Stderr, "websearch: %v; web_search returns an error until fixed\n", err)
 	}
@@ -280,8 +280,8 @@ func Run(ctx context.Context) int {
 	return 0
 }
 
-// OneShot runs one Tavily search and writes the text to out (no MCP handshake); non-zero exit on error.
-func OneShot(ctx context.Context, query string, maxResults int, search searcher, out io.Writer) int {
+// oneShot runs one Tavily search and writes the text to out (no MCP handshake); non-zero exit on error.
+func oneShot(ctx context.Context, query string, maxResults int, search searcher, out io.Writer) int {
 	if strings.TrimSpace(query) == "" {
 		return helptext.FailUsage("network websearch: a query is required")
 	}

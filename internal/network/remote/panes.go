@@ -1,11 +1,9 @@
 package remote
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -14,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // Pane states; a static pane is unknown, never idle: this package does not claim a pane is idle.
@@ -195,7 +195,6 @@ const (
 
 const (
 	paneCaptureLines = 50               // trailing lines tmux captures per pane
-	maxCaptureBytes  = 1 << 20          // bounds one host's whole capture blob
 	maxPanes         = 64               // bounds how many panes one call parses
 	captureTimeout   = 20 * time.Second // bounds one host's whole list+capture round trip
 )
@@ -225,52 +224,11 @@ type paneRunner func(ctx context.Context, argv []string) ([]byte, error)
 // execRunner is the production paneRunner.
 func execRunner(ctx context.Context, argv []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.WaitDelay = ExecWaitDelay
-	return OutputCapped(cmd)
+	cmd.WaitDelay = proc.ExecWaitDelay
+	return proc.OutputCapped(cmd)
 }
 
-// capBuffer collects writes up to max, then fails the write so the child is cut off with memory bounded.
-type capBuffer struct {
-	buf  bytes.Buffer
-	max  int
-	over bool
-}
-
-func (w *capBuffer) Write(p []byte) (int, error) {
-	if w.buf.Len()+len(p) > w.max {
-		w.over = true
-		return 0, fmt.Errorf("output over %d bytes", w.max)
-	}
-	return w.buf.Write(p)
-}
-
-// OutputCapped is cmd.Output() with stdout held to maxCaptureBytes: over it, the command fails with an over-cap error.
-func OutputCapped(cmd *exec.Cmd) ([]byte, error) {
-	stdout := &capBuffer{max: maxCaptureBytes}
-	var stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = stdout, &stderr
-	err := cmd.Run()
-	if stdout.over { // the child's SIGPIPE exit would otherwise mask the cap
-		return stdout.buf.Bytes(), fmt.Errorf("output over %d bytes", stdout.max)
-	}
-	if ee := (*exec.ExitError)(nil); errors.As(err, &ee) && ee.Stderr == nil {
-		ee.Stderr = stderr.Bytes()
-	}
-	return stdout.buf.Bytes(), err
-}
-
-// combinedOutputCapped is cmd.CombinedOutput() with the output held to maxCaptureBytes, like OutputCapped.
-func combinedOutputCapped(cmd *exec.Cmd) ([]byte, error) {
-	out := &capBuffer{max: maxCaptureBytes}
-	cmd.Stdout, cmd.Stderr = out, out // one writer, so exec feeds both streams through a single copier
-	err := cmd.Run()
-	if out.over {
-		return out.buf.Bytes(), fmt.Errorf("output over %d bytes", out.max)
-	}
-	return out.buf.Bytes(), err
-}
-
-// capturePanes captures every cc-* pane on host via run; over captureTimeout, maxCaptureBytes or maxPanes errors.
+// capturePanes captures every cc-* pane on host via run; over captureTimeout, proc.MaxCaptureBytes or maxPanes errors.
 func capturePanes(ctx context.Context, host string, local, batch bool, run paneRunner) ([]paneCapture, error) {
 	cctx, cancel := context.WithTimeout(ctx, captureTimeout)
 	defer cancel()
@@ -282,8 +240,8 @@ func capturePanes(ctx context.Context, host string, local, batch bool, run paneR
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: capture panes on %s: %w", host, err)
 	}
-	if len(out) > maxCaptureBytes {
-		return nil, fmt.Errorf("dispatch: capture panes on %s: output over %d bytes", host, maxCaptureBytes)
+	if len(out) > proc.MaxCaptureBytes {
+		return nil, fmt.Errorf("dispatch: capture panes on %s: output over %d bytes", host, proc.MaxCaptureBytes)
 	}
 	caps := parseCaptureBlob(host, string(out))
 	if len(caps) > maxPanes {
