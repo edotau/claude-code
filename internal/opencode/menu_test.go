@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -343,7 +344,7 @@ func assertProbeJSONShape(t *testing.T, stdout string) {
 
 func assertProbeCache(t *testing.T, dir string) {
 	t.Helper()
-	cache := CheckCachePath()
+	cache := catalog.CheckCachePath()
 	if !strings.HasPrefix(cache, dir) {
 		t.Fatalf("cache %s escaped temp dir %s", cache, dir)
 	}
@@ -355,10 +356,10 @@ func assertProbeCache(t *testing.T, dir string) {
 	if strings.Contains(string(raw), ocCheckToken) {
 		t.Error("token in cache")
 	}
-	if m, ok := LoadCheckCache("ocfake"); !ok || len(m) != 5 {
+	if m, ok := catalog.LoadCheckCache("ocfake"); !ok || len(m) != 5 {
 		t.Errorf("cache load = %v %v", m, ok)
 	}
-	if _, ok := LoadCheckCache("other"); ok {
+	if _, ok := catalog.LoadCheckCache("other"); ok {
 		t.Error("cache must be scoped to its provider")
 	}
 }
@@ -516,7 +517,7 @@ func TestOpencodeListLiveCheckColumn(t *testing.T) {
 		}
 	}
 	// a cache for another provider must not show
-	if err := SaveCheckCache(CheckCache{Provider: "other",
+	if err := catalog.SaveCheckCache(catalog.CheckCache{Provider: "other",
 		Results: []serving.CheckResult{{ID: "glm-5-2", Status: "ok", Tools: "yes"}}}); err != nil {
 		t.Fatal(err)
 	}

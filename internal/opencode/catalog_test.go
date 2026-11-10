@@ -8,16 +8,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-func TestMenuIDCanonical(t *testing.T) {
-	for in, want := range map[string]string{
-		"databricks-glm-5-2": "glm-5-2", "glm-5-2": "glm-5-2", "databricks-gpt-6-1-sol": "gpt-6-1-sol", "kimi-k3": "kimi-k3",
-	} {
-		if got := MenuID(in); got != want {
-			t.Errorf("MenuID(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestDefaultMenuLabel(t *testing.T) {
 	for in, want := range map[string]string{
 		"glm-5-2": "GLM 5.2", "claude-opus-5-5": "Claude Opus 5.5", "gpt-6-1-sol": "GPT 6.1 Sol", "gpt-oss-120b": "GPT OSS 120b",

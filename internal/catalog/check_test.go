@@ -1,4 +1,4 @@
-package opencode
+package catalog
 
 import (
 	"strings"
@@ -7,7 +7,17 @@ import (
 	"github.com/edotau/claude-code/internal/databricks/serving"
 )
 
-func TestOpencodeCheckSortOrder(t *testing.T) {
+func TestIDCanonical(t *testing.T) {
+	for in, want := range map[string]string{
+		"databricks-glm-5-2": "glm-5-2", "glm-5-2": "glm-5-2", "databricks-gpt-6-1-sol": "gpt-6-1-sol", "kimi-k3": "kimi-k3",
+	} {
+		if got := ID(in); got != want {
+			t.Errorf("ID(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestCheckSortOrder(t *testing.T) {
 	rs := []serving.CheckResult{
 		{ID: "kimi-k3", Status: "ok", LatencyMS: 5}, {ID: "glm-5-2", Status: "fail", LatencyMS: 1},
 		{ID: "glm-5-3", Status: "ok", LatencyMS: 900}, {ID: "glm-5-1", Status: "ok", LatencyMS: 100},
@@ -23,7 +33,7 @@ func TestOpencodeCheckSortOrder(t *testing.T) {
 	}
 }
 
-func TestOpencodeCheckFamily(t *testing.T) {
+func TestCheckFamily(t *testing.T) {
 	for in, want := range map[string]string{"claude-opus-5-5": "claude", "databricks-glm-5-2": "glm", "gpt-oss-120b": "gpt", "inkling": "inkling"} {
 		if got := CheckFamily(in); got != want {
 			t.Errorf("CheckFamily(%q) = %q, want %q", in, got, want)

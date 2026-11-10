@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"time"
@@ -17,7 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -402,27 +400,6 @@ type CopilotCatalog struct {
 	Profile    string
 	Databricks bool
 	Rows       []CopilotEndpoint
-}
-
-// Write renders a Databricks row's chat endpoints as a NAME / TESTED table, or JSON.
-func (c CopilotCatalog) Write(w io.Writer, format string) error {
-	if format == helptext.JSON {
-		return helptext.WriteJSON(w, c)
-	}
-	fmt.Fprintln(w, c.Source)
-	nameW := len("NAME")
-	for _, r := range c.Rows {
-		nameW = max(nameW, len(r.ID))
-	}
-	fmt.Fprintf(w, "%-*s  %s\n", nameW, "NAME", "TESTED")
-	for _, r := range c.Rows {
-		mark := ""
-		if r.Tested {
-			mark = "tested"
-		}
-		fmt.Fprintln(w, strings.TrimRight(fmt.Sprintf("%-*s  %s", nameW, r.ID, mark), " "))
-	}
-	return nil
 }
 
 // CopilotModelSource resolves profile (default: the session profile) and lists its chat endpoints if Databricks.

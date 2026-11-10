@@ -1,19 +1,15 @@
 package opencode
 
 import (
-	"cmp"
-	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
-	"slices"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -44,17 +40,17 @@ func MenuRows(live bool, provider string) ([]MenuRow, error) {
 		if served, p, err = OpencodeServed(provider); err != nil {
 			return nil, err
 		}
-		cache, _ = LoadCheckCache(p.Name)
+		cache, _ = catalog.LoadCheckCache(p.Name)
 	}
 	var rows []MenuRow
 	for _, m := range providers.OpencodeMenu() {
 		r := MenuRow{ID: m.ID, Label: m.Label, Responses: m.Responses, Source: src}
 		if live {
 			r.Live = "missing"
-			if info, ok := ServedInfo(served, p, m.ID); ok {
+			if info, ok := catalog.ServedInfo(served, p, m.ID); ok {
 				r.Live, r.Ready = "served", info.Ready
 			}
-			r.Check = CheckCell(cache, m.ID)
+			r.Check = catalog.CheckCell(cache, m.ID)
 		}
 		rows = append(rows, r)
 	}
@@ -64,7 +60,7 @@ func MenuRows(live bool, provider string) ([]MenuRow, error) {
 // MenuAddServed is the menu with arg (`id[=Label]`) added; unless force, the workspace must serve the id.
 func MenuAddServed(arg string, responses, responsesSet, force bool, provider string) (id string, next []providers.OpencodeModel, err error) {
 	id, label, _ := strings.Cut(arg, "=")
-	id = MenuID(id)
+	id = catalog.ID(id)
 	if id == "" {
 		return "", nil, errors.New("empty model id")
 	}
@@ -73,7 +69,7 @@ func MenuAddServed(arg string, responses, responsesSet, force bool, provider str
 		if err != nil {
 			return "", nil, fmt.Errorf("cannot check %s against the workspace (--force skips): %v", id, err)
 		}
-		if _, ok := ServedInfo(served, p, id); !ok {
+		if _, ok := catalog.ServedInfo(served, p, id); !ok {
 			return "", nil, fmt.Errorf("%s%s is not served by %s (--force skips the check)", p.ModelPrefix, id, p.Name)
 		}
 	}
@@ -97,38 +93,18 @@ func MenuImportDiff(file string) (next []providers.OpencodeModel, changes []Menu
 	return next, DiffMenu(providers.OpencodeMenu(), next), nil
 }
 
-// CheckCell renders a cached probe as "ok tools", "ok no-tools", "fail 400", "missing" or "-".
-func CheckCell(cache map[string]serving.CheckResult, id string) string {
-	r, ok := cache[id]
-	switch {
-	case !ok:
-		return "-"
-	case r.Status == "ok" && r.Tools == "no":
-		return "ok no-tools"
-	case r.Status == "ok":
-		return "ok tools"
-	case (r.Status == "fail" || r.Status == serving.StatusTransient) && r.HTTP > 0:
-		return fmt.Sprintf("%s %d", r.Status, r.HTTP)
-	}
-	return r.Status
-}
-
 // MenuCheck probes the chosen endpoints and caches the results; cacheErr is a cache write failure, not a probe one.
 func MenuCheck(ids []string, all bool, provider string, timeout time.Duration) (results []serving.CheckResult, cacheErr, err error) {
 	served, p, err := OpencodeServed(provider)
 	if err != nil {
 		return nil, nil, err
 	}
-	targets := OpencodeCheckTargets(ids, all, served, p)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	results, err = serving.Probe(ctx, p, targets, serving.CheckOptions{Concurrency: 4, Timeout: timeout})
-	if err != nil { // an interrupted run is neither cached nor reported as success
-		return nil, nil, err
+	var menu []string
+	for _, m := range providers.OpencodeMenu() {
+		menu = append(menu, m.ID)
 	}
-	SortCheckResults(results)
-	cacheErr = SaveCheckCache(CheckCache{CheckedAt: time.Now().UTC(), Provider: p.Name, Results: serving.SanitizeChecks(results)}) // never persist raw error bodies
-	return results, cacheErr, nil
+	targets := catalog.Targets(ids, all, served, p, menu)
+	return catalog.Check(p, targets, serving.CheckOptions{Concurrency: 4, Timeout: timeout})
 }
 
 // SyncOptions are `opencode catalog sync`'s switches.
@@ -170,45 +146,7 @@ func MenuSync(profile string, opts SyncOptions) (SyncPlan, error) {
 
 // Seal stores the discovery snapshot in the vault when it is new or freshly verified; sealed is false when skipped.
 func (pl SyncPlan) Seal() (sealed bool, err error) {
-	if pl.Snapshot.CacheHit && !pl.Verified {
-		return false, nil
-	}
-	if err := serving.Save(pl.Provider, pl.Snapshot); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-// SyncSummaryLines are the discovery and verification lines that head a sync report.
-func SyncSummaryLines(snapshot serving.Snapshot, verified bool) []string {
-	source := "live discovery"
-	if snapshot.CacheHit {
-		source = "encrypted cache hit"
-	}
-	lines := []string{fmt.Sprintf("Valid identity (not endpoint permissions); %s, discovered %s",
-		source, snapshot.DiscoveredAt.Format(time.RFC3339))}
-	label := "historical probes"
-	if verified {
-		label = "fresh probes"
-	}
-	ok, failed, tools := 0, 0, 0
-	for _, c := range snapshot.Checks {
-		if c.Status == "ok" {
-			ok++
-		} else {
-			failed++
-		}
-		if c.Tools == "yes" {
-			tools++
-		}
-	}
-	if snapshot.CheckedAt.IsZero() {
-		return append(lines, "Verification: listing only; models are discovered/unverified")
-	}
-	return append(lines,
-		fmt.Sprintf("Verification (%s, %s): %d HTTP accepted, %d failed, %d tool definitions accepted",
-			label, snapshot.CheckedAt.Format(time.RFC3339), ok, failed, tools),
-		"Probes test HTTP acceptance, not generated answers or actual tool calls; untested models remain unverified.")
+	return catalog.Seal(pl.Provider, pl.Snapshot, pl.Verified)
 }
 
 // WriteMenu stores next; launches rebuild their config from the menu, so nothing else is refreshed.
@@ -232,7 +170,7 @@ func ListMenu(w io.Writer, live bool, provider, format string) error {
 	for _, r := range rows {
 		labW = max(labW, len(r.Label))
 	}
-	idW := idWidth(len(rows), func(i int) string { return rows[i].ID })
+	idW := catalog.IDWidth(len(rows), func(i int) string { return rows[i].ID })
 	head := fmt.Sprintf("%-*s  %-*s  %-9s  %s", idW, "ID", labW, "LABEL", "RESPONSES", "SOURCE")
 	if live {
 		head += "  LIVE                  CHECK"
@@ -246,15 +184,6 @@ func ListMenu(w io.Writer, live bool, provider, format string) error {
 		fmt.Fprintln(w, line)
 	}
 	return nil
-}
-
-// idWidth is the widest of the "ID" header and the n ids.
-func idWidth(n int, id func(int) string) int {
-	w := len("ID")
-	for i := range n {
-		w = max(w, len(id(i)))
-	}
-	return w
 }
 
 func AddMenu(w io.Writer, arg string, responses, responsesSet, force bool, provider string) error {
@@ -296,27 +225,7 @@ func CheckMenu(w, errw io.Writer, ids []string, all bool, provider string, timeo
 	if cacheErr != nil {
 		fmt.Fprintf(errw, "opencode catalog check: cache not written: %v\n", cacheErr)
 	}
-	if format == helptext.JSON {
-		return helptext.WriteJSON(w, results)
-	}
-	idW := idWidth(len(results), func(i int) string { return results[i].ID })
-	fmt.Fprintf(w, "%-*s  %-9s  %-4s  %-10s  %s\n", idW, "ID", "STATUS", "HTTP", "LATENCY", "TOOLS")
-	for _, r := range results {
-		code, lat := "-", "-"
-		if r.HTTP > 0 {
-			code = strconv.Itoa(r.HTTP)
-		}
-		if r.Status != "missing" {
-			lat = fmt.Sprintf("%dms", r.LatencyMS)
-		}
-		tools := cmp.Or(r.Tools, "-")
-		fmt.Fprintf(w, "%-*s  %-9s  %-4s  %-10s  %s", idW, r.ID, r.Status, code, lat, tools)
-		if (r.Status == "fail" || r.Status == serving.StatusTransient) && r.Error != "" {
-			fmt.Fprint(w, "  "+r.Error)
-		}
-		fmt.Fprintln(w)
-	}
-	return nil
+	return catalog.WriteCheck(w, results, format)
 }
 
 func SyncMenu(w io.Writer, profile string, opts SyncOptions) error {
@@ -324,7 +233,7 @@ func SyncMenu(w io.Writer, profile string, opts SyncOptions) error {
 	if err != nil {
 		return err
 	}
-	for _, line := range SyncSummaryLines(pl.Snapshot, opts.Verify) {
+	for _, line := range catalog.SyncSummaryLines(pl.Snapshot, opts.Verify) {
 		fmt.Fprintln(w, line)
 	}
 	fmt.Fprintf(w, "opencode catalog sync: %d listed, %d eligible, %d additions, %d failed additions skipped, %d retained, %d total\n",
@@ -356,13 +265,8 @@ func SyncMenu(w io.Writer, profile string, opts SyncOptions) error {
 	return nil
 }
 
-// menuVerbs are the `opencode catalog` subverbs this file owns; bare `catalog` stays the CLI's own catalog.
+// menuVerbs are the `opencode catalog` subverbs RunMenu handles.
 var menuVerbs = []string{"list", "add", "remove", "import", "reset", "check", "sync"}
-
-// IsMenuVerb reports whether `<name> catalog <args>` is one of the opencode menu verbs RunMenu handles.
-func IsMenuVerb(name string, args []string) bool {
-	return name == "opencode" && len(args) > 0 && slices.Contains(menuVerbs, args[0])
-}
 
 func menuPage(verb string) helptext.Page {
 	usage := map[string][2]string{
@@ -478,6 +382,9 @@ func (m *menuOpts) run(pos []string) int {
 	case "sync":
 		return m.sync(pos)
 	case "list":
+		if len(pos) > 0 {
+			return helptext.FailUsage("opencode catalog list: unexpected argument %q", pos[0])
+		}
 		return m.done(ListMenu(os.Stdout, m.live, m.provider, *m.format))
 	case "check":
 		return m.check(pos)
@@ -526,7 +433,7 @@ func (m *menuOpts) remove(pos []string) int {
 	}
 	next, ok := MenuRemove(providers.OpencodeMenu(), pos[0])
 	if !ok {
-		return m.fail("%s is not in the menu", MenuID(pos[0]))
+		return m.fail("%s is not in the menu", catalog.ID(pos[0]))
 	}
-	return m.done(WriteMenu(os.Stdout, next, "removed "+MenuID(pos[0])))
+	return m.done(WriteMenu(os.Stdout, next, "removed "+catalog.ID(pos[0])))
 }

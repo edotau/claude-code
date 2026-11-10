@@ -263,3 +263,31 @@ func TestReadBodyDeadlineReportsTimeout(t *testing.T) {
 		t.Errorf("err = %v, want timeout after 5s", err)
 	}
 }
+
+// A reasoning model spends a tiny probe budget before its first output token; a healthy endpoint must not read as failed.
+func TestProbeRetriesTokenBudgetExhausted(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("CLIENT_ROUTE_TOKEN", "synthetic-route-token")
+	var calls atomic.Int32
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if n, _ := body["max_tokens"].(float64); n < 512 {
+			http.Error(w, `{"error_code":"BAD_REQUEST","message":"Could not finish the message because max_tokens or model output limit was reached. Please try again with higher max_tokens."}`, http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(srv.Close)
+	p := &providers.Provider{Name: "budget", Preset: providers.PresetDatabricks, Host: srv.URL,
+		Auth: providers.Auth{Type: providers.AuthKey, Env: "CLIENT_ROUTE_TOKEN"}}
+	targets := []CheckTarget{{ID: "gpt-5-1", Wire: "databricks-gpt-5-1"}}
+	got, err := Probe(context.Background(), p, targets, CheckOptions{Client: srv.Client()})
+	if err != nil || len(got) != 1 || got[0].Status != "ok" || got[0].Tools != "yes" || got[0].HTTP != 200 {
+		t.Fatalf("budget-exhausted probe = %+v, %v; want ok with tools after one larger-budget retry", got, err)
+	}
+	if n := calls.Load(); n != 2 {
+		t.Errorf("requests = %d, want the probe and one larger-budget retry", n)
+	}
+}

@@ -1,47 +1,17 @@
-package opencode
+package catalog
 
 import (
-	"cmp"
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
 	"time"
-	"unicode"
 
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
-// CheckFamily is the id's leading letters, e.g. claude, gpt, gemini, glm, qwen.
-func CheckFamily(id string) string {
-	id = stripSpellingPrefix(id)
-	if i := strings.IndexFunc(id, func(r rune) bool { return !unicode.IsLetter(r) }); i > 0 {
-		return id[:i]
-	}
-	return id
-}
-
-// SortCheckResults orders by family, then latency (non-ok last in family), then id.
-func SortCheckResults(rs []serving.CheckResult) {
-	slices.SortStableFunc(rs, func(a, b serving.CheckResult) int {
-		if c := cmp.Compare(CheckFamily(a.ID), CheckFamily(b.ID)); c != 0 {
-			return c
-		}
-		la, lb := a.LatencyMS, b.LatencyMS
-		if a.Status != "ok" {
-			la = 1 << 60
-		}
-		if b.Status != "ok" {
-			lb = 1 << 60
-		}
-		return cmp.Or(cmp.Compare(la, lb), cmp.Compare(a.ID, b.ID))
-	})
-}
-
-// CheckCache is the persisted result set, scoped to one provider.
+// CheckCache is the last check run's results, scoped to one profile and shared by every agent's catalog.
 type CheckCache struct {
 	Schema    int                   `json:"schema"`
 	CheckedAt time.Time             `json:"checked_at"`
@@ -49,7 +19,7 @@ type CheckCache struct {
 	Results   []serving.CheckResult `json:"results"`
 }
 
-// CheckCachePath is state/harness/opencode-models-check.json.
+// CheckCachePath is state/harness/opencode-models-check.json (the name predates its sharing by every agent).
 func CheckCachePath() string { return filepath.Join(paths.StateDir(), "opencode-models-check.json") }
 
 // SaveCheckCache writes c (no secrets) with mode 0600.
@@ -86,6 +56,7 @@ func LoadCheckCache(provider string) (map[string]serving.CheckResult, bool) {
 // checkCacheSchema is the cache's current schema version; a mismatch is a cache miss, never migrated.
 const checkCacheSchema = 1
 
+// checkCacheFormat keeps Owner internal/opencode: internal/schemas/testdata/registry.golden pins it.
 var checkCacheFormat = schemas.Register(schemas.Format{
 	Name: "opencode-models-check", Owner: "internal/opencode", Kind: schemas.Cache,
 	Glob:    func() string { return CheckCachePath() },

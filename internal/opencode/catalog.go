@@ -11,96 +11,37 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/vault"
-
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// opencodeProvider resolves the workspace profile: --profile, else the opencode agent's vault profile.
-func opencodeProvider(name string) (*providers.Registry, *providers.Provider, error) {
-	reg, err := providers.Load()
-	if err != nil {
-		return nil, nil, err
+// opencodeProvider resolves the workspace profile: --profile, else the opencode pin, else the session profile.
+func opencodeProvider(name string) (*providers.Provider, error) {
+	p, err := catalog.Profile("opencode", name)
+	if err == nil && p == nil {
+		err = errors.New("no profile pinned for opencode; pass --profile")
 	}
-	if name == "" {
-		if name = vault.GetAgentRecord("opencode").Profile; name == "" {
-			return nil, nil, errors.New("no profile pinned for opencode; pass --profile")
-		}
-	}
-	p, err := reg.Get(name)
-	return reg, p, err
+	return p, err
 }
 
 // OpencodeServed lists the workspace's endpoints by name.
 func OpencodeServed(name string) (map[string]providers.ModelInfo, *providers.Provider, error) {
-	reg, p, err := opencodeProvider(name)
+	p, err := opencodeProvider(name)
 	if err != nil {
 		return nil, nil, err
 	}
-	infos, ok := preflight.RecallOrSpawn(p, func(m []providers.ModelInfo) bool { return len(m) > 0 },
-		func(profile string) bool { return preflight.SpawnDiscover(profile, false) })
-	if !ok {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		if infos, err = providers.ListModels(ctx, reg, p); err != nil {
-			return nil, p, err
-		}
-	}
-	out := make(map[string]providers.ModelInfo, len(infos))
-	for _, m := range infos {
-		out[m.ID] = m
-	}
-	return out, p, nil
-}
-
-func ServedInfo(served map[string]providers.ModelInfo, p *providers.Provider, id string) (providers.ModelInfo, bool) {
-	if m, ok := served[p.ModelPrefix+id]; ok {
-		return m, true
-	}
-	m, ok := served[id]
-	return m, ok
-}
-
-// OpencodeCheckTargets resolves the probe set: explicit ids, every served chat endpoint, or the menu.
-func OpencodeCheckTargets(ids []string, all bool, served map[string]providers.ModelInfo, p *providers.Provider) []serving.CheckTarget {
-	var out []serving.CheckTarget
-	if all {
-		for _, name := range slices.Sorted(maps.Keys(served)) {
-			info := served[name]
-			if info.Task != "llm/v1/chat" {
-				continue
-			}
-			id := MenuID(name)
-			out = append(out, serving.CheckTarget{ID: id, Wire: name, Responses: providers.ResponsesID(id)})
-		}
-		return out
-	}
-	if len(ids) == 0 {
-		for _, m := range providers.OpencodeMenu() {
-			ids = append(ids, m.ID)
-		}
-	}
-	for _, raw := range ids {
-		id := MenuID(raw)
-		t := serving.CheckTarget{ID: id, Responses: providers.ResponsesID(id)}
-		if _, ok := served[p.ModelPrefix+id]; ok {
-			t.Wire = p.ModelPrefix + id
-		} else if _, ok := served[id]; ok {
-			t.Wire = id
-		} else {
-			t.Missing = true
-		}
-		out = append(out, t)
-	}
-	return out
+	served, err := catalog.Served(p)
+	return served, p, err
 }
 
 // OpencodeSyncModels resolves the profile; discovery validates identity before reading the sealed cache.
 func OpencodeSyncModels(profile string, refresh bool) (*providers.Provider, serving.Snapshot, error) {
-	_, p, err := opencodeProvider(profile)
+	p, err := opencodeProvider(profile)
+	if errors.Is(err, catalog.ErrGateway) {
+		return nil, serving.Snapshot{}, err
+	}
 	if err != nil {
 		return nil, serving.Snapshot{}, errors.New("cannot resolve profile; check the provider configuration")
 	}
@@ -116,7 +57,7 @@ func OpencodeSyncIDs(infos []providers.ModelInfo) []string {
 			!strings.HasPrefix(info.ID, models.DatabricksPrefix) {
 			continue
 		}
-		id := MenuID(info.ID)
+		id := catalog.ID(info.ID)
 		if id != "" && models.Wire("databricks-serving", id) == info.ID {
 			ids = append(ids, id)
 		}
@@ -170,28 +111,6 @@ func OpencodeSyncVerify(p *providers.Provider, snapshot *serving.Snapshot, ids [
 	return nil
 }
 
-// MenuID canonicalizes a typed model id to a menu id: a catalog id (any wire spelling) via models.Resolve, else
-// the id with any catalog spelling prefix removed.
-func MenuID(id string) string {
-	id = strings.TrimSpace(models.Strip1M(id))
-	if canonical, _, ok := models.Resolve(id); ok {
-		return canonical
-	}
-	return stripSpellingPrefix(id)
-}
-
-// stripSpellingPrefix removes the id prefix a catalog spelling rule adds (derived from models.Wire, not listed here).
-func stripSpellingPrefix(id string) string {
-	for _, rule := range []string{"databricks-serving", "databricks-ai-gateway"} {
-		if prefix := strings.TrimSuffix(models.Wire(rule, "x"), "x"); prefix != "" {
-			if rest, ok := strings.CutPrefix(id, prefix); ok {
-				return rest
-			}
-		}
-	}
-	return id
-}
-
 // DefaultMenuLabel is the label an added id gets when none is given.
 func DefaultMenuLabel(id string) string {
 	var words []string
@@ -217,7 +136,7 @@ var menuAcronyms = map[string]bool{"glm": true, "gpt": true, "oss": true, "bge":
 // MenuAdd returns menu with id added, or updated in place when present; catalog Responses-only ids default to Responses.
 // responses is nil when the caller did not say. A blank label keeps the existing one, else the derived default.
 func MenuAdd(menu []providers.OpencodeModel, id, label string, responses *bool) []providers.OpencodeModel {
-	id = MenuID(id)
+	id = catalog.ID(id)
 	out := slices.Clone(menu)
 	i := slices.IndexFunc(out, func(m providers.OpencodeModel) bool { return m.ID == id })
 	cur := providers.OpencodeModel{ID: id, Responses: models.ResponsesOnly(id)}
@@ -241,7 +160,7 @@ func MenuAdd(menu []providers.OpencodeModel, id, label string, responses *bool) 
 
 // MenuRemove returns menu without id; ok is false when it was not there.
 func MenuRemove(menu []providers.OpencodeModel, id string) (out []providers.OpencodeModel, ok bool) {
-	id = MenuID(id)
+	id = catalog.ID(id)
 	out = slices.DeleteFunc(slices.Clone(menu), func(m providers.OpencodeModel) bool { return m.ID == id })
 	return out, len(out) != len(menu)
 }
@@ -273,7 +192,7 @@ func parseMenuLine(line string, n int) (providers.OpencodeModel, error) {
 	for i := range f {
 		f[i] = strings.TrimSpace(f[i])
 	}
-	id := MenuID(f[0])
+	id := catalog.ID(f[0])
 	if id == "" {
 		return providers.OpencodeModel{}, fmt.Errorf("line %d: empty id", n)
 	}
@@ -311,7 +230,7 @@ func parseOpencodeJSON(data []byte) ([]providers.OpencodeModel, error) {
 		}
 		prov := doc.Provider[pid]
 		for _, wire := range slices.Sorted(maps.Keys(prov.Models)) {
-			id := MenuID(wire)
+			id := catalog.ID(wire)
 			label := strings.TrimSpace(strings.SplitN(prov.Models[wire].Name, " · ", 2)[0])
 			if label == "" {
 				label = DefaultMenuLabel(id)

@@ -141,7 +141,7 @@ var writers = map[string]string{
 	"internal/gateway/restart.go:claimRestartLocked":                  unversioned("marker: watchdog proxy restart stamp"),
 	"internal/gateway/restart.go:Hold":                                unversioned("marker: deliberate proxy stop, watchdog stays off"),
 	"internal/router/served.go:SaveServed":                            "served-models",
-	"internal/opencode/check.go:SaveCheckCache":                       "opencode-models-check",
+	"internal/catalog/cache.go:SaveCheckCache":                        "opencode-models-check",
 	"internal/providers/tokenexpiry.go:recordTokenExpiry":             "token-expiry",
 	"internal/gateway/daemon.go:WriteState":                           "router-runtime",
 	"internal/gateway/server/sessions.go:saveLocked":                  "router-sessions",
