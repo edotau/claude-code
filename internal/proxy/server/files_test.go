@@ -193,3 +193,23 @@ func TestFilesCacheScopedToUpstreamCredential(t *testing.T) {
 		t.Fatalf("uploads = %d, want 2: account b must not reuse account a's file id", u.uploads)
 	}
 }
+
+// TestFilesOAuthRefusalCachedPerCredential: live, /v1/files answers a subscription bearer 404; stop re-uploading it.
+func TestFilesOAuthRefusalCachedPerCredential(t *testing.T) {
+	u := newFilesUp(t)
+	u.status = http.StatusNotFound
+	srv := filesRouter(t, u, "")
+	data := bigB64(300 << 10)
+	for i, auth := range []string{"Bearer tok", "Bearer tok", "Bearer tok2"} {
+		login := map[string]string{proxy.ClientHeader: secret, "Authorization": auth}
+		if resp := post(t, srv.URL+"/p/sub/v1/messages", filesBody(data), login); resp.StatusCode != 200 {
+			t.Fatalf("request %d: status %d", i, resp.StatusCode)
+		}
+		if strings.Count(u.lastBody(), data) != 2 {
+			t.Fatalf("request %d: refused upload must leave base64 inline", i)
+		}
+	}
+	if u.uploads != 2 {
+		t.Fatalf("uploads = %d, want 2: a refused bearer is not retried, a new credential is", u.uploads)
+	}
+}
