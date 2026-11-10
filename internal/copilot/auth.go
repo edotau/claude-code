@@ -231,6 +231,20 @@ func GHActiveAccount() string {
 	return account
 }
 
+// SwitchGH makes login gh's active account (`gh auth switch`); a seam so tests never touch the real gh.
+var SwitchGH = func(login string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "gh", "auth", "switch", "--hostname", "github.com", "--user", login).CombinedOutput()
+	ghActiveTokenCache.Lock()
+	ghActiveTokenCache.key = ghActiveTokenKey{}
+	ghActiveTokenCache.Unlock()
+	if err != nil {
+		return fmt.Errorf("gh auth switch --user %s: %w: %s", login, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 type ghActiveTokenKey struct {
 	env     [5]string
 	path    string

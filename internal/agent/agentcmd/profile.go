@@ -50,6 +50,9 @@ func setAgentProfile(name, profile string) int {
 	if _, err := configure.ApplyProfile([]string{name}, profile); err != nil {
 		return helptext.Fail("%s profile: %v (see claude-code configure provider --list)", name, err)
 	}
+	if p := reg.Providers[profile]; name == "copilot" && p != nil && p.Provider == "github" && p.Login == "" {
+		fmt.Printf("copilot: %s has no login; billing follows gh's active account (set one with `vault edit`)\n", profile)
+	}
 	fmt.Printf("%s: now on %s; relaunch `claude-code %s` to apply\n", name, profile, name)
 	preflight.Warm(os.Stdout, reg, time.Now())
 	if name == "codex" {

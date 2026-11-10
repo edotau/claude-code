@@ -75,7 +75,8 @@ func CopilotModel(reg *Registry) (model, source string) {
 }
 
 // CopilotLogin resolves the copilot record's profile: that github profile's Login ("" when it has none), and the profile.
-// Off, or a profile naming no github profile, yields ("", "") = gh's active account.
+// No record profile (copilot off), or a name that is no github profile, yields ("", "") = gh's active account;
+// the vault's github-auth pin is a separate setting (GitHubAuthLogin) and never feeds copilot's login.
 func CopilotLogin(reg *Registry) (login, profile string) {
 	pin := AgentRecord("copilot").Profile
 	if pin == "" {
@@ -85,6 +86,19 @@ func CopilotLogin(reg *Registry) (login, profile string) {
 		if p := reg.Providers[pin]; p != nil && p.Provider == "github" {
 			return p.Login, pin
 		}
+	}
+	return "", ""
+}
+
+// GitHubAuthLogin resolves the vault's github-auth profile: that github profile's Login and the profile.
+// Unset, or a profile naming no github profile or one without a Login, yields ("", "") = gh's active account.
+func GitHubAuthLogin(reg *Registry) (profile, login string) {
+	pin := vault.GitHubAuth()
+	if pin == "" || reg == nil {
+		return "", ""
+	}
+	if p := reg.Providers[pin]; p != nil && p.Provider == "github" && p.Login != "" {
+		return pin, p.Login
 	}
 	return "", ""
 }
