@@ -20,7 +20,7 @@ var row = agent.Schema{Name: "codex", CLI: agent.CLI{
 	Binary:    "codex", Dialects: []string{providers.ProtocolResponses},
 	RouterSuffix: map[string]string{providers.ProtocolResponses: "/" + providers.ProtocolResponses},
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
-		Tools: agent.Native, Autonomous: agent.Native, NoPersist: agent.Native, SafeMode: agent.Native, Direct: agent.Native, Env: agent.Native,
+		Tools: agent.Native, Autonomous: agent.None, NoPersist: agent.Native, SafeMode: agent.Native, Direct: agent.Native, Env: agent.Native,
 		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, OutputSchema: agent.Native, Persona: agent.Emulated,
 		Permissions: agent.Native},
 	Events:       []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventToolResult, wire.EventResult, wire.EventError},

@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -297,13 +296,8 @@ const tokensJSON = `{"tokens":{"id_token":"x"}}`
 
 func resetAuthMemos(t *testing.T) {
 	t.Helper()
-	clear := func() {
-		authStateMu.Lock()
-		authStateMemo, authSoftMemo, authSoftUntil = nil, nil, time.Time{}
-		authStateMu.Unlock()
-	}
-	clear()
-	t.Cleanup(clear)
+	authState.Drop()
+	t.Cleanup(authState.Drop)
 }
 
 // A keyring-held ChatGPT login reads as present on every call, with or without auth.json to stat.
@@ -430,4 +424,21 @@ func TestVerifyDropsAuthMemo(t *testing.T) {
 			t.Fatalf("memo survived Verify: %+v", st)
 		}
 	})
+}
+
+// A triple-quoted top-level model reads as its body; a model inside a later table is not top-level.
+func TestCodexOwnModelTripleQuotedAndTableScoped(t *testing.T) {
+	for raw, want := range map[string]string{
+		"model = \"\"\"gpt-x\"\"\"\n":                       "gpt-x",
+		"approval_policy = \"never\"\n[p]\nmodel = \"y\"\n": "",
+	} {
+		dir := t.TempDir()
+		t.Setenv("CODEX_HOME", dir)
+		if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(raw), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := codexOwnModel(); got != want {
+			t.Errorf("codexOwnModel(%q) = %q, want %q", raw, got, want)
+		}
+	}
 }
