@@ -1,9 +1,6 @@
 package cli
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,10 +8,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/desktop"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/ui/menu"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // TestConfigureHelpFitsEightyColumns: `configure -h` lines (usage + flag defaults) stay within 80 columns.
@@ -32,9 +27,9 @@ func TestConfigureHelpFitsEightyColumns(t *testing.T) {
 
 func run(args []string) int { return cmdConfigure(args, func(string, string) int { return 0 }) }
 
-// TestSpecArgsOfferSectionsThenProfiles: the first bare argument completes from the menu sections plus desktop.
+// TestSpecArgsOfferSectionsThenProfiles: the first bare argument completes from the menu sections.
 func TestSpecArgsOfferSectionsThenProfiles(t *testing.T) {
-	want := append(append([]string{}, menu.SectionNames...), "desktop")
+	want := append([]string{}, menu.SectionNames...)
 	if got := configureSpec().Args[0](); !slices.Equal(got, want) {
 		t.Errorf("sections = %v, want %v", got, want)
 	}
@@ -184,106 +179,6 @@ func TestConfigureAllArgumentLimits(t *testing.T) {
 				t.Errorf("exit %d, stderr %q lacks %q", code, stderr, tc.want)
 			}
 		})
-	}
-}
-
-func desktopCLIEnv(t *testing.T) string {
-	t.Helper()
-	vaulttest.Use(t)
-	root := t.TempDir()
-	oldRoot, oldHelper, oldEnsure := desktopRoot, desktopHelper, desktopEnsure
-	desktopRoot = func() (string, error) { return root, nil }
-	desktopHelper = func(p string) (string, []string, bool, error) {
-		return "/opt/claude-code", []string{"gateway", "token", "--profile", p}, false, nil
-	}
-	desktopEnsure = func(context.Context) (string, error) { return "http://127.0.0.1:19999", nil }
-	t.Cleanup(func() { desktopRoot, desktopHelper, desktopEnsure = oldRoot, oldHelper, oldEnsure })
-	return root
-}
-
-func TestConfigureDesktopWritesAndReverts(t *testing.T) {
-	root := desktopCLIEnv(t)
-	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		return run([]string{"desktop", "--profile", "anthropic"})
-	})
-	if code != 0 {
-		t.Fatalf("configure exit %d: %s", code, stderr)
-	}
-	raw, err := os.ReadFile(filepath.Join(root, "configLibrary", desktop.ProfileID+".json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var profile map[string]any
-	if err := json.Unmarshal(raw, &profile); err != nil {
-		t.Fatal(err)
-	}
-	if profile["inferenceGatewayBaseUrl"] != "http://127.0.0.1:19999/p/anthropic" {
-		t.Fatalf("wrong base URL: %s", raw)
-	}
-	if headers, ok := profile["inferenceCustomHeaders"].(map[string]any); !ok || headers["X-Claude-Code-Agent"] != "desktop" {
-		t.Fatalf("missing attribution: %s", raw)
-	}
-	code, _, stderr = hosttest.CaptureOutput(t, func() int { return run([]string{"desktop", "--revert"}) })
-	if code != 0 {
-		t.Fatalf("revert exit %d: %s", code, stderr)
-	}
-	if _, err := os.Stat(filepath.Join(root, "configLibrary", desktop.ProfileID+".json")); !os.IsNotExist(err) {
-		t.Fatalf("revert retained profile: %v", err)
-	}
-}
-
-func TestConfigureDesktopDryRunDoesNotStartProxy(t *testing.T) {
-	root := desktopCLIEnv(t)
-	desktopEnsure = func(context.Context) (string, error) { t.Fatal("dry-run started proxy"); return "", nil }
-	t.Setenv("HARNESS_HEADERS", "X-Private: sensitive-header")
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-		return run([]string{"desktop", "--profile", "anthropic", "--dry-run"})
-	})
-	if code != 0 || strings.Contains(stdout+stderr, "sensitive-header") {
-		t.Fatalf("dry-run exit %d stdout %q stderr %q", code, stdout, stderr)
-	}
-	if !strings.Contains(stdout, desktop.ProfileID+".json") || !strings.Contains(stdout, "_meta.json") {
-		t.Fatalf("dry-run missing target paths: %s", stdout)
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil || len(entries) != 0 {
-		t.Fatalf("dry-run wrote files: %v, %v", entries, err)
-	}
-}
-
-func TestConfigureDesktopValidation(t *testing.T) {
-	root := desktopCLIEnv(t)
-	for _, args := range [][]string{
-		{"desktop", "--profile", "no-such-profile"},
-		{"desktop", "--revert", "--profile", "anthropic"},
-		{"desktop", "extra"},
-		{"desktop", "--restore"},
-		{"desktop", "--profile", "max"},
-	} {
-		code, stdout, _ := hosttest.CaptureOutput(t, func() int { return run(args) })
-		if code == 0 || stdout != "" {
-			t.Errorf("%v: exit %d stdout %q", args, code, stdout)
-		}
-	}
-	desktopRoot = func() (string, error) { return filepath.Join(root, "never-opened"), nil }
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return run([]string{"desktop", "--dry-run"}) })
-	if code == 0 || !strings.Contains(stderr, "open Claude Desktop once") {
-		t.Fatalf("missing root: exit %d stderr %q", code, stderr)
-	}
-}
-
-func TestConfigureDesktopProxyFailureLeavesDesktopUntouched(t *testing.T) {
-	root := desktopCLIEnv(t)
-	desktopEnsure = func(context.Context) (string, error) { return "", errors.New("private diagnostic") }
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-		return run([]string{"desktop", "--profile", "anthropic"})
-	})
-	if code == 0 || stdout != "" || strings.Contains(stderr, "private diagnostic") {
-		t.Fatalf("exit %d stdout %q stderr %q", code, stdout, stderr)
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil || len(entries) != 0 {
-		t.Fatalf("proxy failure wrote Desktop files: %v, %v", entries, err)
 	}
 }
 
