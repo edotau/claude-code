@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/settings"
 )
@@ -243,13 +244,20 @@ func SpecOf(name string) (settings.EventSpec, bool) {
 	return s, ok
 }
 
-// HookContext gives subprocesses the registered hook budget without changing process signal handling.
+// HookMargin is how long before the dispatcher's budget timer a handler's own deadline expires; a test seam.
+var HookMargin = time.Second
+
+// HookContext gives subprocesses the budget less HookMargin (or half it), so a handler fails open before an overrun.
 func HookContext(name string) (context.Context, context.CancelFunc) {
 	spec, ok := SpecOf(name)
 	if !ok {
 		panic("unknown hook: " + name)
 	}
-	return context.WithTimeout(context.Background(), spec.Budget)
+	budget := spec.Budget - HookMargin
+	if budget <= 0 {
+		budget = spec.Budget / 2
+	}
+	return context.WithTimeout(context.Background(), budget)
 }
 
 // SpawnTools are Claude Code's subagent-spawn tool names (Agent; Task on older builds).

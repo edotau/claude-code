@@ -98,8 +98,8 @@ func runBudgeted(b Bound, in *core.Input, wg *sync.WaitGroup) (core.Result, erro
 // skipOrBlock names what a failed handler's log line reports, keyed by Spec.Blocks.
 var skipOrBlock = map[bool]string{false: "skipped", true: "blocked"}
 
-// failClosedModules exit non-zero when they fail: worktree-create must never exit 0 without its path on stdout.
-var failClosedModules = map[string]bool{"worktree-create": true}
+// failClosedModules exit non-zero when they fail: a worktree not made or not removed must never exit 0.
+var failClosedModules = map[string]bool{"worktree-create": true, "worktree-remove": true}
 
 // dispatchMerge accumulates the handlers' results for one Dispatch call.
 type dispatchMerge struct {
@@ -172,7 +172,7 @@ func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 			if b.Spec.Blocks { // a gate that could not run fails closed
 				m.merged.Decision, m.merged.Reason = core.Block, fmt.Sprintf("%s did not complete (%v); blocked", b.Spec.Name, err)
 			}
-			if failClosedModules[b.Spec.Name] { // exit 1, not 2: a worktree that was not made reports no path
+			if failClosedModules[b.Spec.Name] { // exit 1, not 2: a worktree not made or not removed reports failure
 				m.merged.ExitCode = 1
 			}
 			continue
@@ -358,12 +358,27 @@ func RunArgs(event string, flags []string, stdin io.Reader, stdout, stderr io.Wr
 // runModule runs one module on its declared event; a group switched off in harnessHooks proceeds.
 func runModule(event, name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if _, ok := native[name]; !ok || eventOf(name) != event {
-		return unknownHook(name, "no module on "+event+" named", stderr)
+		return unknownModule(event, name, stderr)
 	}
 	if g, found := settings.GroupOf(name); found && !g.Gate && !enabledGroups()(g.Name, g.Gate) {
 		return core.ExitProceed
 	}
 	return runDirect(name, stdin, stdout, stderr)
+}
+
+// unknownModule decides a declared module on the wrong event by its Blocks flag; an undeclared name by unknownHook.
+func unknownModule(event, name string, stderr io.Writer) int {
+	what := "no module on " + event + " named"
+	spec, declared := core.SpecOf(name)
+	if !declared {
+		return unknownHook(name, what, stderr)
+	}
+	if !spec.Blocks {
+		fmt.Fprintf(stderr, "claude-code hook: %s %q\n", what, name)
+		return 1
+	}
+	fmt.Fprintf(stderr, "claude-code hook: %s %q; it runs on %s\n", what, name, spec.Event)
+	return core.ExitBlock
 }
 
 // unknownHook fails closed when the unknown name reads as a guard; a stale agent hook file must not drop its gate.

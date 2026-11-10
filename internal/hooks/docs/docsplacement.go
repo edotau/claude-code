@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
 
@@ -45,11 +44,6 @@ func Placement(in *core.Input, stderr io.Writer) int {
 	}
 	ctx, cancel := core.HookContext("docs-placement")
 	defer cancel()
-	// Expire ~1s before the dispatcher's budget timer so the handler fails open instead of the overrun blocking.
-	if dl, ok := ctx.Deadline(); ok {
-		ctx, cancel = context.WithDeadline(ctx, dl.Add(-time.Second))
-		defer cancel()
-	}
 	if tool == "apply_patch" {
 		return docsPlacementPatch(ctx, in, stderr)
 	}
