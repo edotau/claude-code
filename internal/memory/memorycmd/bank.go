@@ -20,7 +20,7 @@ func cmdMemoryInit(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := memory.InitBank(os.Stdout, memstore.Root(*repo)); err != nil {
+	if err := memory.InitBank(os.Stdout, repoRoot(*repo)); err != nil {
 		return helptext.Fail("memory init: %v", err)
 	}
 	return 0
@@ -37,7 +37,7 @@ func cmdMemoryRemember(args []string) int {
 	if len(terms) == 0 {
 		return helptext.Fail("memory remember: no fact text (usage: %s)", memorySubPage("remember").Usage)
 	}
-	root := memstore.Root(*repo)
+	root := repoRoot(*repo)
 	id, err := bank.Remember(root, *kind, strings.Join(terms, " "), time.Now())
 	if err != nil {
 		return helptext.Fail("memory remember: %v", err)
@@ -124,7 +124,7 @@ func cmdMemoryPath(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	fmt.Println(memstore.Dir(memstore.Root(*repo)))
+	fmt.Println(memstore.Dir(repoRoot(*repo)))
 	return 0
 }
 
@@ -152,7 +152,7 @@ func cmdMemoryReport(args []string) int {
 		return helptext.Fail("memory report: %v", err)
 	}
 	// EnsureRepoDir registers the origin under the bank lock so the next call resolves the same key.
-	dir, err := memstore.EnsureRepoDir(memstore.Root(*repo))
+	dir, err := memstore.EnsureRepoDir(repoRoot(*repo))
 	if err != nil {
 		return helptext.Fail("memory report: %v", err)
 	}
@@ -257,7 +257,7 @@ func cmdMemoryPromote(args []string) int {
 		helptext.Fail("memory promote: usage: %s", memorySubPage("promote").Usage)
 		return 2
 	}
-	out, err := memory.Promote(memstore.Root(*repo), pos[0], *to, *dryRun, time.Now())
+	out, err := memory.Promote(repoRoot(*repo), pos[0], *to, *dryRun, time.Now())
 	if err != nil {
 		return helptext.Fail("memory promote: %v", err)
 	}
@@ -324,7 +324,7 @@ func cmdMemoryArchive(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	err = memory.ArchiveReport(os.Stdout, os.Stderr, memory.ArchiveReportOptions{Dir: memstore.NativeDir(memstore.Root(*repo)),
+	err = memory.ArchiveReport(os.Stdout, os.Stderr, memory.ArchiveReportOptions{Dir: memstore.NativeDir(repoRoot(*repo)),
 		Names: names, Apply: *apply, Restore: *restore, Dupes: *dupes, Split: *split})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "memory archive:", err)
@@ -376,4 +376,12 @@ func memoryRecallEmit(hits []bank.SearchHit, format string, load int) int {
 	}
 	memory.RecallReport(os.Stdout, os.Stderr, hits, load)
 	return 0
+}
+
+// repoRoot resolves --repo like recall: a catalog store name maps to its origin checkout, else a path.
+func repoRoot(repo string) string {
+	if e, ok := memstore.RepoByName(repo); ok && repo != "" && e.Origin.Origin != "" {
+		return e.Origin.Origin
+	}
+	return memstore.Root(repo)
 }

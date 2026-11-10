@@ -279,9 +279,9 @@ func dropClaim(tx *bbolt.Tx, profile string, owner int64) error {
 	return nil
 }
 
-// Release drops owner's claim on profile; a claim another owner took over is left alone.
-func (s *boltVectorStore) Release(profile string, owner int64) {
-	_ = updateEmbedDB(func(tx *bbolt.Tx) error { return dropClaim(tx, profile, owner) })
+// Release drops owner's claim on profile and returns the failure that left it behind; a taken-over claim is left alone.
+func (s *boltVectorStore) Release(profile string, owner int64) error {
+	return updateEmbedDB(func(tx *bbolt.Tx) error { return dropClaim(tx, profile, owner) })
 }
 
 // RefreshDue reads the mint lease and claim without taking a write lock or opening an endpoint.

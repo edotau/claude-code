@@ -272,27 +272,27 @@ type UpdateOptions struct {
 func Update(o UpdateOptions) error {
 	o = updateDefaults(o)
 	prior, _ := ReadUpdateResult(o.Session)
-	record := func(status string, updated bool) {
-		_ = WriteUpdateResult(o.Session, UpdateResult{Status: status, Time: time.Now(), BankUpdated: updated, Log: prior.Log})
+	record := func(status string, updated bool) error {
+		err := WriteUpdateResult(o.Session, UpdateResult{Status: status, Time: time.Now(), BankUpdated: updated, Log: prior.Log})
+		if err != nil {
+			return fmt.Errorf("record update result: %w", err)
+		}
+		return nil
 	}
 	if o.Claude == "" && o.Run == nil {
-		record(UpdateFailed, false)
-		return errors.New("claude binary not found")
+		return errors.Join(errors.New("claude binary not found"), record(UpdateFailed, false))
 	}
 	dir := memstore.Dir(o.CWD)
 	var run updateRun
 	// Bounded wait: a peer update/dream may hold this lock for minutes, and a Stop hook must not block on it.
 	ran, lockErr := paths.TryFileLock(bank.LockPath(dir)+".lock", updateLockWait, func() error { return run.locked(o, dir) })
 	if !ran { // lock never taken: nothing ran, and settling unlocked would race the holder
-		record(UpdateFailed, false)
-		return fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock")))
+		return errors.Join(fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock"))), record(UpdateFailed, false))
 	}
 	if err := errors.Join(lockErr, run.runErr, run.settleErr); err != nil {
-		record(UpdateFailed, run.updated)
-		return fmt.Errorf("headless update: %w", err)
+		return errors.Join(fmt.Errorf("headless update: %w", err), record(UpdateFailed, run.updated))
 	}
-	record(UpdateOK, run.updated)
-	return nil
+	return record(UpdateOK, run.updated)
 }
 
 func updateDefaults(o UpdateOptions) UpdateOptions {

@@ -54,6 +54,16 @@ func BlockID(line string) string {
 	return ""
 }
 
+// OwnerID is the id a block answers to: its last unfenced marker, which may be wrapped or stacked below the first line.
+func OwnerID(block string) string {
+	lines := strings.Split(block, "\n")
+	line, span, total := lastMarker(lines, fencedLines(lines))
+	if total == 0 {
+		return ""
+	}
+	return BlockID(lines[line][span[0]:span[1]])
+}
+
 // StripID removes the ID marker for display.
 func StripID(s string) string { return idMarker.ReplaceAllString(s, "") }
 

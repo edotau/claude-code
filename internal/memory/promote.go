@@ -146,10 +146,17 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 		if dryRun {
 			return nil
 		}
-		if err := bank.AppendBlocks(filepath.Join(homeDir, file), []string{block}); err != nil {
-			return err
+		_, _, homeErr := extractBlock(homeDir, id)
+		inHome := homeErr == nil // an existing home copy is kept, never appended twice or rolled back
+		if !inHome {
+			if err := bank.AppendBlocks(filepath.Join(homeDir, file), []string{block}); err != nil {
+				return err
+			}
 		}
 		if err := removeBlock(dir, file, id); err != nil {
+			if inHome {
+				return err
+			}
 			// roll back the home copy so the block stays in exactly one bank (the local one)
 			return errors.Join(err, removeBlock(homeDir, file, id))
 		}
@@ -210,7 +217,7 @@ func extractBlock(dir, id string) (string, string, error) {
 		}
 		_, blocks := bank.EntryBlocks(name, string(data))
 		for _, b := range blocks {
-			if strings.Contains(b, marker) {
+			if ownsMarker(b, id) {
 				return name, b, nil
 			}
 		}
@@ -218,9 +225,11 @@ func extractBlock(dir, id string) (string, string, error) {
 	return "", "", bank.ErrNoBlock
 }
 
+// ownsMarker reports whether id is b's own (oldest unfenced) marker, not a quote of it in the body.
+func ownsMarker(b, id string) bool { return bank.OwnerID(b) == id }
+
 // removeBlock drops the id-marked block from dir/name, rewriting the file without it.
 func removeBlock(dir, name, id string) error {
-	marker := "<!-- id:" + id + " -->"
 	path := filepath.Join(dir, name)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -229,7 +238,7 @@ func removeBlock(dir, name, id string) error {
 	header, blocks := bank.EntryBlocks(name, string(data))
 	var kept []string
 	for _, b := range blocks {
-		if !strings.Contains(b, marker) {
+		if !ownsMarker(b, id) {
 			kept = append(kept, b)
 		}
 	}
