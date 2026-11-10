@@ -382,6 +382,9 @@ type HubEngine interface {
 }
 
 // Hub is the opencode-routed dispatch ladder, registered by internal/opencode.
+// errNoHub is returned when a hub route is asked for but no linked vendor registered the opencode Hub.
+var errNoHub = errors.New("no opencode hub registered: the opencode agent is not linked into this binary")
+
 type Hub struct {
 	// Start resolves the provider a hub agent's first dispatch targets (explicitProvider forces one).
 	Start func(reg *providers.Registry, agentName, explicitProvider string) (*providers.Provider, error)
@@ -399,8 +402,14 @@ func IsHubAgent(name string) bool {
 	return slices.ContainsFunc(rows(), func(s Schema) bool { return s.Name == name && s.CLI.Hub })
 }
 
+// hubLinked reports whether a linked vendor registered the opencode Hub.
+func hubLinked() bool { return hub != nil }
+
 // HubStart resolves the provider a hub agent's first dispatch targets.
 func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*providers.Provider, error) {
+	if hub == nil {
+		return nil, errNoHub
+	}
 	return hub.Start(reg, agentName, explicitProvider)
 }
 

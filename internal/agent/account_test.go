@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -72,5 +73,18 @@ func TestClassifyProbeTransient(t *testing.T) {
 	_, err = ProbeCLI(ctx, "/nonexistent/probe-bin", spec, false)
 	if v, _ := ClassifyProbe(ctx, err); v != providers.VerdictTransient {
 		t.Errorf("missing bin = %s, want transient", v)
+	}
+}
+
+// A hub cell with no opencode Hub linked into the binary is a dispatch error, not a nil-pointer panic.
+func TestHubDispatchWithoutHubIsAnError(t *testing.T) {
+	orig := hub
+	hub = nil
+	t.Cleanup(func() { hub = orig })
+	if _, _, err := hubDispatchFor(&providers.Registry{}, "opencode-go/kimi"); !errors.Is(err, errNoHub) {
+		t.Fatalf("hubDispatchFor err = %v, want errNoHub", err)
+	}
+	if _, err := HubStart(&providers.Registry{}, "claude", ""); !errors.Is(err, errNoHub) {
+		t.Fatalf("HubStart err = %v, want errNoHub", err)
 	}
 }

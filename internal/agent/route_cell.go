@@ -147,7 +147,7 @@ func (rc routeCtx) hubOpencode(cand router.Candidate) bool {
 func (rc routeCtx) dispatchAgent(cand router.Candidate, cell router.Cell, disp Dispatch) (Dispatch, string, error) {
 	hub := rc.hubOpencode(cand)
 	switch {
-	case hub && cand.Profile != "" && rc.reg != nil && rc.reg.Providers[cand.Profile] != nil:
+	case hub && hubLinked() && cand.Profile != "" && rc.reg != nil && rc.reg.Providers[cand.Profile] != nil:
 		// a pinned registry row runs the hub dispatch on that profile, bare model
 		_, bare, ok := strings.Cut(cell.Model, "/")
 		if !ok {
