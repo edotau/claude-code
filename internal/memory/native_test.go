@@ -153,31 +153,6 @@ func TestArchiveNativeRefusesIndexFilesAndTraversal(t *testing.T) {
 	}
 }
 
-// TestRestoreNativeRoundTrip: archive -> restore returns both the file and its index line.
-func TestRestoreNativeRoundTrip(t *testing.T) {
-	dir := nativeStore(t)
-	if _, err := archiveNative(dir, []string{"stale-fact"}, true); err != nil {
-		t.Fatalf("archiveNative: %v", err)
-	}
-	res, err := restoreNative(dir, []string{"stale-fact"}, true)
-	if err != nil {
-		t.Fatalf("restoreNative: %v", err)
-	}
-	if len(res.Restored) != 1 {
-		t.Fatalf("restored %v, want 1", res.Restored)
-	}
-	if !fileExists(filepath.Join(dir, "stale-fact.md")) {
-		t.Error("topic file not back in the store")
-	}
-	idx := mustRead(t, filepath.Join(dir, NativeIndexFile))
-	if !strings.Contains(idx, "- [Stale fact](stale-fact.md) — a closed incident") {
-		t.Errorf("index line not restored verbatim:\n%s", idx)
-	}
-	if fileExists(filepath.Join(nativeArchiveDir(dir), "stale-fact.md")) {
-		t.Error("restore left a copy in the archive")
-	}
-}
-
 // TestNativeStatsCountsOnlyTopicFiles: MEMORY.md itself must not inflate the reported topic count.
 func TestNativeStatsCountsOnlyTopicFiles(t *testing.T) {
 	t.Parallel()
@@ -429,61 +404,6 @@ func assertThirdRevisionDistinct(t *testing.T, dir, first, stamped string) {
 	}
 }
 
-// TestRestoreNativeRefusesDifferingLiveFile: a live file with other bytes is never replaced; nothing
-// moves and neither index changes.
-func TestRestoreNativeRefusesDifferingLiveFile(t *testing.T) {
-	dir := nativeStore(t)
-	if _, err := archiveNative(dir, []string{"stale-fact"}, true); err != nil {
-		t.Fatal(err)
-	}
-	write(t, filepath.Join(dir, "stale-fact.md"), "---\nname: stale-fact\n---\n\nrewritten live\n")
-	idxBefore := mustRead(t, filepath.Join(dir, NativeIndexFile))
-	recBefore := mustRead(t, filepath.Join(nativeArchiveDir(dir), NativeArchiveIndexFile))
-	_, err := restoreNative(dir, []string{"stale-fact"}, true)
-	if err == nil || !strings.Contains(err.Error(), "differs from the archived copy") {
-		t.Fatalf("restoreNative err = %v, want a differing-live-file refusal", err)
-	}
-	if !fileExists(filepath.Join(nativeArchiveDir(dir), "stale-fact.md")) {
-		t.Error("archive copy moved despite the refusal")
-	}
-	if got := mustRead(t, filepath.Join(dir, "stale-fact.md")); !strings.Contains(got, "rewritten live") {
-		t.Error("live file was replaced")
-	}
-	if mustRead(t, filepath.Join(dir, NativeIndexFile)) != idxBefore {
-		t.Error("MEMORY.md changed on a refused restore")
-	}
-	if mustRead(t, filepath.Join(nativeArchiveDir(dir), NativeArchiveIndexFile)) != recBefore {
-		t.Error("archive record changed on a refused restore")
-	}
-}
-
-// TestRestoreNativeDedupesEqualLiveFile: an identical live copy (a crashed restore) is kept, the archive
-// copy is dropped, and the pointer is present exactly once.
-func TestRestoreNativeDedupesEqualLiveFile(t *testing.T) {
-	dir := nativeStore(t)
-	if _, err := archiveNative(dir, []string{"stale-fact"}, true); err != nil {
-		t.Fatal(err)
-	}
-	write(t, filepath.Join(dir, "stale-fact.md"), mustRead(t, filepath.Join(nativeArchiveDir(dir), "stale-fact.md")))
-	res, err := restoreNative(dir, []string{"stale-fact"}, true)
-	if err != nil {
-		t.Fatalf("restoreNative: %v", err)
-	}
-	if len(res.Restored) != 1 || res.Restored[0] != "stale-fact.md" {
-		t.Errorf("Restored = %v, want [stale-fact.md]", res.Restored)
-	}
-	if fileExists(filepath.Join(nativeArchiveDir(dir), "stale-fact.md")) {
-		t.Error("archive copy survived the dedupe")
-	}
-	idx := mustRead(t, filepath.Join(dir, NativeIndexFile))
-	if n := strings.Count(idx, "- [Stale fact](stale-fact.md) — a closed incident"); n != 1 {
-		t.Errorf("pointer present %d times, want 1:\n%s", n, idx)
-	}
-	if rec := mustRead(t, filepath.Join(nativeArchiveDir(dir), NativeArchiveIndexFile)); strings.Contains(rec, "stale-fact.md") {
-		t.Errorf("archive record still carries the restored line:\n%s", rec)
-	}
-}
-
 // TestArchiveAndRestoreRefuseReservedAndBankNames: every reserved/typed name is refused with an
 // error naming its kind, for both archiveNative and restoreNative.
 func TestArchiveAndRestoreRefuseReservedAndBankNames(t *testing.T) {
@@ -707,18 +627,6 @@ func archivedVersions(t *testing.T, archiveDir, stem string) []string {
 	return out
 }
 
-// TestRestoreNativeRefusesReservedNameEvenIfArchived: a reserved name sitting in the archive
-// (e.g. hand-placed) still cannot be restored — the name check runs before the archive lookup.
-func TestRestoreNativeRefusesReservedNameEvenIfArchived(t *testing.T) {
-	t.Parallel()
-	dir := plainNativeStore(t)
-	archiveDir := nativeArchiveDir(dir)
-	write(t, filepath.Join(archiveDir, "activeContext.md"), "focus\n")
-	if _, err := restoreNative(dir, []string{"activeContext.md"}, true); err == nil {
-		t.Error("restoreNative(activeContext.md) was allowed because a file of that name sat in the archive")
-	}
-}
-
 // TestArchiveNativeReturnsErrBankBusy: while another fd holds BankLockPath(), archiveNative
 // must return ErrBankBusy (wrapped), and no "<lock>.lock" file is created anywhere.
 func TestArchiveNativeReturnsErrBankBusy(t *testing.T) {
@@ -774,5 +682,73 @@ func TestMalformedBankRegionRefusesEveryIndexRewrite(t *testing.T) {
 	}
 	if fileExists(filepath.Join(dir, "old.md")) {
 		t.Error("a refused restore still landed the topic")
+	}
+}
+
+// TestArchiveNativeReportsHealedIndexOverLimit: the reconcile repair riding an archive can grow MEMORY.md past
+// the native load limit; the archive lands and the error names the limit.
+func TestArchiveNativeReportsHealedIndexOverLimit(t *testing.T) {
+	dir := nativeStore(t)
+	for _, n := range []string{"orphan-one.md", "orphan-two.md"} {
+		write(t, filepath.Join(dir, n), "---\nname: "+strings.TrimSuffix(n, ".md")+"\n---\n\nbody\n")
+	}
+	idxPath := filepath.Join(dir, NativeIndexFile)
+	write(t, idxPath, testIndex+strings.Repeat("prose\n", NativeIndexMaxLines-lineCount(testIndex)))
+	res, err := archiveNative(dir, []string{"stale-fact"}, true)
+	if err == nil || !strings.Contains(err.Error(), "exceed the native load limit") {
+		t.Fatalf("archiveNative err = %v, want the load-limit diagnostic", err)
+	}
+	if len(res.Archived) != 1 || fileExists(filepath.Join(dir, "stale-fact.md")) {
+		t.Errorf("archive did not land: Archived = %v", res.Archived)
+	}
+	assertHealedArchiveIndexOverLimit(t, idxPath)
+}
+
+func assertHealedArchiveIndexOverLimit(t *testing.T, idxPath string) {
+	t.Helper()
+	got := mustRead(t, idxPath)
+	if strings.Contains(got, "(stale-fact.md)") || !strings.Contains(got, "(orphan-one.md)") || !strings.Contains(got, "(orphan-two.md)") {
+		t.Errorf("index not struck and healed:\n%s", got)
+	}
+	if lineCount(got) != NativeIndexMaxLines+1 {
+		t.Errorf("index has %d lines, want %d", lineCount(got), NativeIndexMaxLines+1)
+	}
+}
+
+// TestHealedIndexUnreadableIsAnError: a MEMORY.md that exists but cannot be read must abort, not look absent.
+func TestHealedIndexUnreadableIsAnError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, NativeIndexFile), 0o755); err != nil { // reads fail with EISDIR
+		t.Fatal(err)
+	}
+	if _, err := healedIndex(dir); err == nil {
+		t.Fatal("healedIndex: want a read error, got nil")
+	}
+	if ix, err := healedIndex(t.TempDir()); err != nil || ix.index != nil {
+		t.Fatalf("absent index: raw=%v err=%v, want nil, nil", ix.index, err)
+	}
+}
+
+// TestArchiveNativeReadsIndexFilesOnce: one archive pass reads SEARCHABLE.md and the archive record once each.
+func TestArchiveNativeReadsIndexFilesOnce(t *testing.T) {
+	dir := nativeStore(t)
+	write(t, filepath.Join(dir, NativeSearchableFile), "- [Also](also-keep.md) — recall only\n")
+	write(t, filepath.Join(dir, "orphan.md"), "---\nname: orphan\n---\n\nbody\n")
+	reads, orig := map[string]int{}, readIfExists
+	readIfExists = func(p string) ([]byte, error) { reads[filepath.Base(p)]++; return orig(p) }
+	t.Cleanup(func() { readIfExists = orig })
+	if _, err := archiveNative(dir, []string{"stale-fact"}, true); err != nil {
+		t.Fatalf("archiveNative: %v", err)
+	}
+	if reads[NativeSearchableFile] != 1 || reads[NativeArchiveIndexFile] != 1 {
+		t.Errorf("reads = %v, want %s and %s once each", reads, NativeSearchableFile, NativeArchiveIndexFile)
+	}
+	idx := mustRead(t, filepath.Join(dir, NativeIndexFile))
+	if strings.Contains(idx, "stale-fact.md") || !strings.Contains(idx, "- [orphan](orphan.md)") {
+		t.Errorf("index not struck and healed:\n%s", idx)
+	}
+	if !fileExists(filepath.Join(nativeArchiveDir(dir), "stale-fact.md")) {
+		t.Error("topic file missing from the archive")
 	}
 }

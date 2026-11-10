@@ -170,20 +170,6 @@ type bankScan struct {
 	inRules       bool
 }
 
-// fenceRun is the leading run of fence characters in a trimmed fence line ("```" for "```go").
-func fenceRun(trimmed string) string {
-	n := 0
-	for n < len(trimmed) && trimmed[n] == trimmed[0] {
-		n++
-	}
-	return trimmed[:n]
-}
-
-// fenceCloses reports whether trimmed is a bare run of open's character at least as long as open.
-func fenceCloses(trimmed, open string) bool {
-	return len(trimmed) >= len(open) && strings.Trim(trimmed, open[:1]) == ""
-}
-
 // special handles fence/front-matter/rules/heading/comment/blank/table lines; false means a content line.
 func (s *bankScan) special(i int, line string) bool {
 	trimmed := strings.TrimSpace(line)

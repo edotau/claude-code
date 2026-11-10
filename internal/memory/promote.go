@@ -61,20 +61,25 @@ func archivePath(dir, base string, now time.Time) string {
 
 // splitOverflow reads path and splits off its oldest blocks beyond capLines; an absent or in-cap file has none.
 func splitOverflow(path string, capLines int) (header string, keep, overflow []string, err error) {
-	data, err := os.ReadFile(path)
+	data, err := readFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			err = nil
 		}
 		return "", nil, nil, err
 	}
-	if logicalLineCount(string(data)) <= capLines {
-		return "", nil, nil, nil
-	}
-	base := filepath.Base(path)
-	header, blocks := entryBlocks(base, string(data))
-	keep, overflow = settledSplit(base, header, blocks, capLines)
+	header, keep, overflow = overflowSplit(filepath.Base(path), string(data), capLines)
 	return header, keep, overflow, nil
+}
+
+// overflowSplit is splitOverflow on typed file base's bytes already read; an in-cap body has no overflow.
+func overflowSplit(base, body string, capLines int) (header string, keep, overflow []string) {
+	if logicalLineCount(body) <= capLines {
+		return "", nil, nil
+	}
+	header, blocks := entryBlocks(base, body)
+	keep, overflow = settledSplit(base, header, blocks, capLines)
+	return header, keep, overflow
 }
 
 // archiveFile prunes path under the bank lock, so a concurrent append cannot land between its read and rewrite.
@@ -209,7 +214,7 @@ func blockIn(path, name, id string) (string, error) {
 	}
 	_, blocks := entryBlocks(name, string(data))
 	for _, b := range blocks {
-		if ownsMarker(b, id) {
+		if ownerID(b) == id { // its own marker, not a quote of it in the body
 			return b, nil
 		}
 	}
@@ -246,9 +251,6 @@ func findBlock(dir, id string) (file, block, src string, err error) {
 	return "", "", "", errNoBlock
 }
 
-// ownsMarker reports whether id is b's own (oldest unfenced) marker, not a quote of it in the body.
-func ownsMarker(b, id string) bool { return ownerID(b) == id }
-
 // removeBlock drops the id-marked block from path (parsed under typed file name's grammar), rewriting it without it.
 func removeBlock(path, name, id string) error {
 	data, err := os.ReadFile(path)
@@ -258,7 +260,7 @@ func removeBlock(path, name, id string) error {
 	header, blocks := entryBlocks(name, string(data))
 	var kept []string
 	for _, b := range blocks {
-		if !ownsMarker(b, id) {
+		if ownerID(b) != id {
 			kept = append(kept, b)
 		}
 	}

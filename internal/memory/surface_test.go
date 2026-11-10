@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // The catalog leaves the surface (one pointer stays); the Parked section leaves the injected surface (with a count), the other sections stay, and recall can still find it.
@@ -228,5 +230,34 @@ func TestUnifiedSurfaceFallsBackWhenNativeUnlinked(t *testing.T) {
 func TestSectionBodyBareHeadingDoesNotPanic(t *testing.T) {
 	if got := sectionBody("## \nfoo\n## Current Focus\nbar\n", "Current Focus"); got != "bar" {
 		t.Errorf("sectionBody = %q, want %q", got, "bar")
+	}
+}
+
+func TestSessionSurfaceRelativeNativeLink(t *testing.T) {
+	isolatedConfig(t)
+	initStore(t)
+	root := paths.CanonDeep(gitRepo(t, t.TempDir(), "relative-link")) // production keys the link by the resolved path
+	dir, err := EnsureRepoDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, NativeIndexFile), "unique native-only index marker\n")
+	link := projectsMemory(paths.ProjectSlug(root))
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target, err := filepath.Rel(filepath.Dir(link), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustRead(t, filepath.Join(link, NativeIndexFile)); got != "unique native-only index marker\n" {
+		t.Fatalf("relative native link is not readable: %q", got)
+	}
+	got := SessionSurface(root)
+	if strings.Contains(got, "unique native-only index marker") || strings.Contains(got, "native link missing or blocked") {
+		t.Fatalf("surface duplicated the index despite a valid relative native link: %q", got)
 	}
 }

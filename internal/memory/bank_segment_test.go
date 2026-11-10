@@ -29,3 +29,27 @@ func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
 		t.Errorf("corpusFiles(%s) missing global topic %s", root, topic)
 	}
 }
+
+// routedFiles lists only the named stores other than root's own: never root's, never an unnamed one.
+func TestRoutedFilesExcludesOwnStore(t *testing.T) {
+	isolatedConfig1(t)
+	initStore(t)
+	roots, dirs := map[string]string{}, map[string]string{}
+	for _, name := range []string{"proja", "projb", "projc"} {
+		roots[name] = gitRepo(t, t.TempDir(), name)
+		dir, err := EnsureRepoDir(roots[name])
+		if err != nil {
+			t.Fatal(err)
+		}
+		dirs[name] = dir
+	}
+	files := routedFiles(roots["proja"], "proja projb")
+	if len(files) == 0 {
+		t.Fatal("routedFiles listed nothing for the named projb")
+	}
+	for _, f := range files {
+		if f.Bank != "projb" || filepath.Dir(f.Path) != dirs["projb"] {
+			t.Errorf("routedFiles listed %+v, want only projb's files under %s", f, dirs["projb"])
+		}
+	}
+}

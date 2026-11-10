@@ -7,13 +7,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
-	"go.etcd.io/bbolt"
-
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
+	"go.etcd.io/bbolt"
 )
 
 type boltVectorStore struct{}
@@ -308,4 +313,150 @@ func (s *boltVectorStore) RefreshDue(profile string, now time.Time) bool {
 		return nil
 	})
 	return err == nil && due
+}
+
+// EmbedProfile is the first of the session and claude-record profiles that can embed, matching NewSemantic's order.
+func EmbedProfile() string {
+	reg, err := providers.Load()
+	if err != nil {
+		return ""
+	}
+	for _, name := range []string{providers.SessionProfile(), providers.AgentRecord("claude").Profile} {
+		if p := reg.Providers[name]; p != nil && p.Preset == providers.PresetDatabricks {
+			return name
+		}
+	}
+	return ""
+}
+
+// RefreshEmbeddings starts a detached mint at most once per claim TTL; failed launches release the slot.
+func RefreshEmbeddings(root, profile string, now time.Time) bool {
+	if IsUpdateChild() || !safeProfile.MatchString(profile) {
+		return false
+	}
+	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
+		return false
+	}
+	if embedBackedOff(profile, now) {
+		return false
+	}
+	stamp := filepath.Join(StateDir(), "embeddings-"+profile+".refresh")
+	spawned := false
+	_, _ = paths.TryFileLock(stamp+".lock", 0, func() error {
+		if st, err := os.Stat(stamp); err == nil && now.Sub(st.ModTime()) < embedClaimTTL {
+			return nil
+		}
+		if !vectorStore.RefreshDue(profile, now) {
+			return nil
+		}
+		if err := paths.AtomicWrite(stamp, nil, 0o600); err != nil {
+			return err
+		}
+		spawned = spawnEmbedRefresh(root, profile)
+		if !spawned {
+			_ = os.Remove(stamp)
+		}
+		return nil
+	})
+	return spawned
+}
+
+// embedBackedOff reports a recent endpoint failure, when a mint would only fail and retry.
+func embedBackedOff(profile string, now time.Time) bool {
+	st, err := os.Stat(filepath.Join(StateDir(), embedCachePre+profile+".backoff"))
+	return err == nil && now.Sub(st.ModTime()) < embedBackoff
+}
+
+// spawnEmbedRefresh uses the mint-only index path so automatic refresh never settles the bank.
+func spawnEmbedRefresh(root, profile string) bool {
+	self, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	args := []string{"memory", "index", "--mint-only", "--repo", root}
+	return proc.SpawnDetached(self, args, root, nil, providers.EnvSessionProfile+"="+profile, UpdateChildEnv+"=1")
+}
+
+func hitHash(h SearchHit) string { return textHash(h.File + "\x00" + h.Block) }
+
+func newSemantic(query []float32, rows map[string]vectorRow) *Semantic {
+	s := &Semantic{query: query, rows: rows, blocks: make(map[string]string, len(rows))}
+	for id, row := range rows {
+		if row.BlockHash != "" {
+			s.blocks[row.BlockHash] = id
+		}
+	}
+	return s
+}
+
+// CosineHit reuses the minted block hash and ID without constructing an Entry.
+func (s *Semantic) CosineHit(h SearchHit) (float64, bool) {
+	id, ok := s.blocks[hitHash(h)]
+	if !ok || h.ID != "" && h.ID != id {
+		return 0, false
+	}
+	return s.cosineRow(s.rows[id])
+}
+
+func (s *Semantic) cosineRow(row vectorRow) (float64, bool) {
+	if len(row.Vec) != 4*len(s.query) {
+		return 0, false
+	}
+	var dot float64
+	for i, q := range s.query {
+		v := math.Float32frombits(binary.LittleEndian.Uint32([]byte(row.Vec[4*i : 4*i+4])))
+		dot += float64(v) * float64(q)
+	}
+	return dot, true
+}
+
+// Candidates scores the already loaded corpus segments without parsing bank files or constructing entries.
+func (s *Semantic) Candidates(files []corpusFile, segs []segView, k int, floor float64, skip func(SearchHit) bool) (hits []SearchHit, skipped bool) {
+	var all []scoredHit
+	for i, seg := range segs {
+		if seg == nil || files[i].Bank == "archive" {
+			continue
+		}
+		for doc := range seg.Docs() {
+			block, _ := seg.Doc(doc)
+			h, cos, ok := s.hitFor(files[i], block, floor)
+			if !ok {
+				continue
+			}
+			if skip != nil && skip(h) {
+				skipped = true
+				continue
+			}
+			all = append(all, scoredHit{h, cos})
+		}
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].cos > all[j].cos })
+	for _, a := range all[:min(k, len(all))] {
+		hits = append(hits, a.hit)
+	}
+	return hits, skipped
+}
+
+type scoredHit struct {
+	hit SearchHit
+	cos float64
+}
+
+// hitFor builds the hit for block of file f and its cosine; false for a struck-out block or one with no embedding at floor.
+func (s *Semantic) hitFor(f corpusFile, block string, floor float64) (SearchHit, float64, bool) {
+	first, _, _ := strings.Cut(block, "\n")
+	if strings.Contains(first, "~~") || strings.Contains(first, "SUPERSEDED") {
+		return SearchHit{}, 0, false
+	}
+	h := SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block}
+	h.ID = s.blocks[hitHash(h)]
+	cos, ok := s.cosineRow(s.rows[h.ID])
+	if h.ID == "" || !ok || cos < floor {
+		return h, 0, false
+	}
+	h.Dir = filepath.Dir(f.Path)
+	if h.Bank == "knowledge" {
+		h.Dir = filepath.Dir(h.Dir)
+	}
+	return h, cos, true
 }

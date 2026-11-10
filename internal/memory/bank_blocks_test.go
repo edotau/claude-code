@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -134,4 +135,19 @@ func TestAppendBlocksUnreadableArchiveIsNotOverwritten(t *testing.T) {
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		t.Fatalf("unreadable archive was replaced: %v", err)
 	}
+}
+
+// countBankReads swaps the readFile seam for one that counts reads of each typed bank file by path.
+func countBankReads(t *testing.T) map[string]int {
+	t.Helper()
+	reads := map[string]int{}
+	orig := readFile
+	readFile = func(p string) ([]byte, error) {
+		if slices.Contains(bankFiles, filepath.Base(p)) {
+			reads[p]++
+		}
+		return orig(p)
+	}
+	t.Cleanup(func() { readFile = orig })
+	return reads
 }

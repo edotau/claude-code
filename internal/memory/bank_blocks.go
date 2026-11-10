@@ -10,6 +10,9 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
+// readFile is os.ReadFile for typed bank files; a var so tests can count how often one file is read.
+var readFile = os.ReadFile
+
 // indexLineMax keeps routing lines scannable; detail lives in the entry itself.
 const indexLineMax = 120
 
@@ -41,6 +44,20 @@ func nextFence(open, ln string) string {
 		return fenceRun(t)
 	}
 	return ""
+}
+
+// fenceRun is the leading run of fence characters in a trimmed fence line ("```" for "```go").
+func fenceRun(trimmed string) string {
+	n := 0
+	for n < len(trimmed) && trimmed[n] == trimmed[0] {
+		n++
+	}
+	return trimmed[:n]
+}
+
+// fenceCloses reports whether trimmed is a bare run of open's character at least as long as open.
+func fenceCloses(trimmed, open string) bool {
+	return len(trimmed) >= len(open) && strings.Trim(trimmed, open[:1]) == ""
 }
 
 // splitOn is the fence-aware splitter: a marker-shaped line inside a fence never starts a block.
@@ -88,11 +105,15 @@ func rejoin(header string, blocks []string) string {
 
 // appendBlocks appends blocks to path, creating it with a minimal header when absent.
 func appendBlocks(path string, blocks []string) error {
-	existing, err := os.ReadFile(path)
+	existing, err := readFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err // never overwrite an archive we could not read
 	}
-	body := string(existing)
+	return paths.AtomicWrite(path, []byte(appendedText(path, string(existing), blocks)), 0o600)
+}
+
+// appendedText is body with blocks appended, under a minimal header when body is blank.
+func appendedText(path, body string, blocks []string) string {
 	if strings.TrimSpace(body) == "" {
 		body = "# " + strings.TrimSuffix(filepath.Base(path), ".md") + " (archived)\n"
 	}
@@ -106,7 +127,7 @@ func appendBlocks(path string, blocks []string) error {
 		b.WriteString(block)
 		b.WriteByte('\n')
 	}
-	return paths.AtomicWrite(path, []byte(b.String()), 0o600)
+	return b.String()
 }
 
 // entriesWithPrefix returns every line starting with prefix, prefix stripped and truncated, in file order.

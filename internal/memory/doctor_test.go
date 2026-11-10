@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -213,9 +214,6 @@ func (x *e2eRun) init(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(x.bankDir, name)); err != nil {
 			t.Errorf("bank file %s missing: %v", name, err)
 		}
-	}
-	if got := len(BankFiles()); got != 6 {
-		t.Errorf("BankFiles = %d, want 6", got)
 	}
 }
 
@@ -589,5 +587,49 @@ func TestJournalProblemsNamesStaleJournal(t *testing.T) {
 	got := journalProblems(now)
 	if len(got) != 1 || !strings.Contains(got[0], stale) || !strings.Contains(got[0], "2h0m0s") {
 		t.Fatalf("got %q, want one line naming %s and its 2h0m0s age", got, stale)
+	}
+}
+
+func TestDoctorCachesUnreadableBankWarning(t *testing.T) {
+	isolatedConfig(t)
+	root := HomeBankDir()
+	if err := os.MkdirAll(filepath.Join(root, "conventions.md"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	problems := strings.Join(doctor(root, DefaultStaleDays, now), "\n")
+	if !strings.Contains(problems, "conventions.md:") || !strings.Contains(problems, "unreadable") {
+		t.Fatalf("doctor silently skipped an unreadable bank file: %q", problems)
+	}
+	if err := writeDoctorNotice(root, DefaultStaleDays, now); err != nil {
+		t.Fatal(err)
+	}
+	notice := mustRead(t, DoctorNoticePath(root))
+	if !strings.Contains(notice, "conventions.md:") || !strings.Contains(notice, "unreadable") {
+		t.Fatalf("cached healthy notice for an unreadable bank: %q", notice)
+	}
+}
+
+// TestDoctorReadsEachBankFileOnce: one read per typed file feeds the cap, staleness and credential findings.
+func TestDoctorReadsEachBankFileOnce(t *testing.T) {
+	isolatedConfig(t)
+	root := repoRoot(t, "proj")
+	if _, err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(Dir(root), "progress.md"), "# Progress\n\n- token sk-ABCDEFGHIJKLMNOPQRSTUV\n")
+	reads := countBankReads(t)
+	got := doctor(root, DefaultStaleDays, time.Now())
+	want := "local progress.md: possible credential-shaped value — scrub before promoting"
+	if !slices.Contains(got, want) {
+		t.Errorf("doctor = %q, want it to hold %q", got, want)
+	}
+	if len(reads) < 2*len(bankFiles) {
+		t.Fatalf("doctor read %d typed files, want both banks' %d each: %v", len(reads), len(bankFiles), reads)
+	}
+	for p, n := range reads {
+		if n != 1 {
+			t.Errorf("doctor read %s %d times, want once", p, n)
+		}
 	}
 }

@@ -74,15 +74,26 @@ func assignIDs(dir string, now time.Time) (int, error) {
 // assignFileIDs is assignIDs for one typed file; a missing file is skipped.
 func assignFileIDs(dir, name, prefix string, now time.Time) (int, error) {
 	path := filepath.Join(dir, name)
-	data, err := os.ReadFile(path)
+	data, err := readFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return 0, nil
 	}
 	if err != nil {
 		return 0, err
 	}
+	res, n := stampIDs(dir, name, prefix, string(data), now)
+	if res != string(data) {
+		if err := paths.AtomicWrite(path, []byte(res), 0o600); err != nil {
+			return n, err
+		}
+	}
+	return n, nil
+}
+
+// stampIDs is assignFileIDs on text in memory: the settled text and how many blocks it stamped.
+func stampIDs(dir, name, prefix, text string, now time.Time) (string, int) {
 	n := 0
-	lines := strings.Split(string(data), "\n")
+	lines := strings.Split(text, "\n")
 	starts := blockStarts(lines, prefix)
 	out := make([]string, 0, len(lines))
 	out = append(out, lines[:min(len(lines), first(starts, len(lines)))]...)
@@ -95,12 +106,7 @@ func assignFileIDs(dir, name, prefix string, now time.Time) (int, error) {
 		n += stamped
 		out = append(out, block...)
 	}
-	if res := strings.Join(out, "\n"); res != string(data) {
-		if err := paths.AtomicWrite(path, []byte(res), 0o600); err != nil {
-			return n, err
-		}
-	}
-	return n, nil
+	return strings.Join(out, "\n"), n
 }
 
 // blockStarts returns the index of each non-empty prefix line outside code fences.

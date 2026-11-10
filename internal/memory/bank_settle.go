@@ -45,18 +45,17 @@ func buildBankIndex(dir string, now time.Time) (string, error) {
 // rotateSessionHistory moves entries past the cap to <dir>/archive/sessionHistory-<yyyy-mm>.md, archive first.
 func rotateSessionHistory(dir string, now time.Time) (int, error) {
 	path := filepath.Join(dir, "sessionHistory.md")
-	data, err := os.ReadFile(path)
+	data, err := readFile(path)
 	if os.IsNotExist(err) {
 		return 0, nil
 	}
 	if err != nil {
 		return 0, fmt.Errorf("rotate session history: %w", err)
 	}
-	header, entries := splitHeadingBlocks(string(data))
-	if len(entries) <= sessionHistoryMaxEntries {
+	header, keep, overflow := sessionOverflow(string(data))
+	if len(overflow) == 0 {
 		return 0, nil
 	}
-	keep, overflow := entries[:sessionHistoryMaxEntries], entries[sessionHistoryMaxEntries:]
 	archive := filepath.Join(dir, "archive", "sessionHistory-"+now.Format("2006-01")+".md")
 	if err := appendUnarchived(archive, overflow); err != nil {
 		return 0, err // never truncate unarchived entries
@@ -65,6 +64,15 @@ func rotateSessionHistory(dir string, now time.Time) (int, error) {
 		return 0, err
 	}
 	return len(overflow), nil
+}
+
+// sessionOverflow is the sessionHistory cap check rotateSessionHistory and `dream --dry-run` share: entries past the cap.
+func sessionOverflow(body string) (header string, keep, overflow []string) {
+	header, entries := splitHeadingBlocks(body)
+	if len(entries) <= sessionHistoryMaxEntries {
+		return header, entries, nil
+	}
+	return header, entries[:sessionHistoryMaxEntries], entries[sessionHistoryMaxEntries:]
 }
 
 // appendUnarchived appends the blocks archive does not already hold, so a retried rotation never duplicates them.

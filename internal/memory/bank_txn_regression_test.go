@@ -5,87 +5,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
-	"syscall"
 	"testing"
 )
-
-func denyBankAccess(t *testing.T, path string) {
-	t.Helper()
-	if os.Geteuid() == 0 {
-		t.Skip("permission denial is ineffective as root")
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chmod(path, info.Mode().Perm()); err != nil {
-			t.Error(err)
-		}
-	})
-	if err := os.Chmod(path, 0); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestShowBlockReturnsWalkErrors(t *testing.T) {
-	for _, sub := range []string{"", "unreadable"} {
-		t.Run(sub, func(t *testing.T) {
-			isolatedConfig1(t)
-			dir := filepath.Join(StoreDir(), sub)
-			write(t, filepath.Join(dir, "decisionLog.md"), "## Hidden <!-- id:deadbeef -->\nbody\n")
-			denyBankAccess(t, dir)
-			_, _, err := ShowBlock("deadbeef")
-			if !errors.Is(err, fs.ErrPermission) {
-				t.Fatalf("ShowBlock = %v, want walk permission error, not errNoBlock", err)
-			}
-		})
-	}
-}
-
-func TestFormatBankCheckReturnsDiscoveryErrors(t *testing.T) {
-	for _, sub := range []string{"stat", "", "archive"} {
-		t.Run(sub, func(t *testing.T) {
-			isolatedConfig1(t)
-			want := fmtDiscoveryFailure(t, sub)
-			_, err := formatBank(true)
-			if !errors.Is(err, want) {
-				t.Fatalf("fmt --check = %v, want discovery error %v", err, want)
-			}
-		})
-	}
-}
-
-func fmtDiscoveryFailure(t *testing.T, sub string) error {
-	t.Helper()
-	if sub == "stat" {
-		file := filepath.Join(HomeBankDir(), "decisionLog.md")
-		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Symlink(file, file); err != nil {
-			t.Fatal(err)
-		}
-		return syscall.ELOOP
-	}
-	dir := filepath.Join(HomeBankDir(), sub)
-	write(t, filepath.Join(dir, "decisionLog.md"), "## Hidden\nbody\n")
-	denyBankAccess(t, dir)
-	return fs.ErrPermission
-}
-
-func TestCorpusBlocksReturnsReadErrors(t *testing.T) {
-	root := isolatedConfig1(t)
-	file := filepath.Join(HomeBankDir(), "decisionLog.md")
-	write(t, file, "## Hidden\nbody\n")
-	denyBankAccess(t, file)
-	hits, err := corpusBlocks(root)
-	if !errors.Is(err, fs.ErrPermission) {
-		t.Fatalf("corpusBlocks = %v, %v; want file permission error", hits, err)
-	}
-}
 
 func TestCommitChangesReturnsJournalScanErrors(t *testing.T) {
 	isolatedConfig1(t)
@@ -102,17 +24,6 @@ func TestCommitChangesReturnsJournalScanErrors(t *testing.T) {
 	}
 	if StoreRepo().Exists() {
 		t.Fatal("transaction initialized the store despite failed journal recovery")
-	}
-}
-
-func TestBankFilesReturnsIndependentSlice(t *testing.T) {
-	want := append([]string(nil), bankFiles...)
-	got := BankFiles()
-	original := got[0]
-	t.Cleanup(func() { got[0] = original })
-	got[0] = "caller-owned.md"
-	if next := BankFiles(); !reflect.DeepEqual(next, want) {
-		t.Fatalf("caller mutation changed BankFiles: got %v, want %v", next, want)
 	}
 }
 

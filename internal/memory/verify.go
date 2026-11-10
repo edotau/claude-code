@@ -298,7 +298,7 @@ func verifyActive(name string) bool {
 }
 
 func verifyBlocks(name, body string, kind fileKind) []string {
-	for _, base := range BankFiles() {
+	for _, base := range bankFiles {
 		if strings.HasPrefix(name, strings.TrimSuffix(base, ".md")+"-") || strings.HasSuffix(name, "-"+base) {
 			name, kind = base, KindBank
 			break
@@ -457,8 +457,11 @@ func (v *claimVerifier) markSymbolsIn(file string) {
 	}
 }
 
+// verifyGitTimeout bounds one verifyGit call; a package var so tests can shorten it.
+var verifyGitTimeout = 30 * time.Second
+
 func verifyGit(repo, input string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), verifyGitTimeout)
 	defer cancel()
 	base := []string{"--no-pager", "-c", "core.fsmonitor=false", "-C", repo}
 	if repo == StoreDir() {
@@ -467,6 +470,7 @@ func verifyGit(repo, input string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append(base, args...)...)
 	cmd.Env = append(proc.GitEnv(), "GIT_NO_LAZY_FETCH=1", "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0")
 	cmd.Stdin = strings.NewReader(input)
+	cmd.WaitDelay = proc.ExecWaitDelay
 	out, err := cmd.Output()
 	return strings.TrimSpace(string(out)), err
 }

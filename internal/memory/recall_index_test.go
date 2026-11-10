@@ -68,7 +68,7 @@ func recallIndexWrite(t testing.TB, path, body string, mtime time.Time) {
 
 func (f recallIndexFixture) search(t testing.TB, query string) []SearchHit {
 	t.Helper()
-	return SearchBanksTerms(f.root, query, contentTerms(query), 0)
+	return SearchBanks(f.root, query, 0)
 }
 
 func (f recallIndexFixture) index(t testing.TB) map[fileKey]indexed {
@@ -268,6 +268,6 @@ func BenchmarkSearchBanksTermsWarm(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		SearchBanksTerms(f.root, query, terms, 0)
+		searchBanksTerms(f.root, query, terms, 0)
 	}
 }
