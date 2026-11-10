@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agentcfg"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -155,7 +155,7 @@ func launchProfile(name string, o agent.LaunchOptions) (agent.LaunchOptions, err
 		return o, nil
 	}
 	last := lastUsedProfile(name)
-	cfg, err := agentcfg.For(name, agentcfg.Launch{LastProfile: last})
+	cfg, err := agentconfig.For(name, agentconfig.Launch{LastProfile: last})
 	if err != nil {
 		return agent.LaunchOptions{}, err
 	}

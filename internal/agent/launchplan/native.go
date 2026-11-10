@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agentcfg"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -19,7 +19,7 @@ type Native struct {
 
 // Map turns c into the native launch the agent's interactive path builds for c.Profile.
 // Only copilot is a dry preview; codex, gemini and opencode run Schema.Configure with its launch side effects.
-func Map(c agentcfg.Config) (Native, error) {
+func Map(c agentconfig.Effective) (Native, error) {
 	switch c.Agent {
 	case "codex":
 		return mapCodex(c)
@@ -43,7 +43,7 @@ type resolved struct {
 }
 
 // resolve runs the launch path's selection: profile, then the agent's target, then its model pin.
-func resolve(c agentcfg.Config) (resolved, error) {
+func resolve(c agentconfig.Effective) (resolved, error) {
 	spec, ok := agent.LookupSchema(c.Agent)
 	if !ok || !spec.External() {
 		return resolved{}, fmt.Errorf("launchplan: agent %q is not registered", c.Agent)
@@ -66,7 +66,7 @@ func resolve(c agentcfg.Config) (resolved, error) {
 }
 
 // viaConfigure is the launch built by Schema.Configure (no dry flag: may start the router, mint a token, write config).
-func viaConfigure(c agentcfg.Config) (Native, error) {
+func viaConfigure(c agentconfig.Effective) (Native, error) {
 	r, err := resolve(c)
 	if err != nil {
 		return Native{}, err
@@ -88,7 +88,7 @@ func ownLoginOr(spec agent.Schema, err error) (Native, error) {
 }
 
 // mapClaude is the session selection only (profile and main model); the ANTHROPIC_* routing env stays in claude.Claude.
-func mapClaude(c agentcfg.Config) (Native, error) {
+func mapClaude(c agentconfig.Effective) (Native, error) {
 	env := map[string]string{}
 	if c.Profile != "" {
 		env[providers.EnvSessionProfile] = c.Profile
@@ -100,10 +100,10 @@ func mapClaude(c agentcfg.Config) (Native, error) {
 }
 
 // mapCodex is codex's launch: Schema.Configure over the profile's target.
-func mapCodex(c agentcfg.Config) (Native, error) { return viaConfigure(c) }
+func mapCodex(c agentconfig.Effective) (Native, error) { return viaConfigure(c) }
 
 // mapCopilot is copilot's launch: its native registry (BYOK env and --model), dry so nothing is minted or written.
-func mapCopilot(c agentcfg.Config) (Native, error) {
+func mapCopilot(c agentconfig.Effective) (Native, error) {
 	r, err := resolve(c)
 	if err != nil {
 		return Native{}, err
@@ -122,7 +122,7 @@ func mapCopilot(c agentcfg.Config) (Native, error) {
 }
 
 // mapGemini is gemini's launch: Schema.Configure over the profile's target.
-func mapGemini(c agentcfg.Config) (Native, error) { return viaConfigure(c) }
+func mapGemini(c agentconfig.Effective) (Native, error) { return viaConfigure(c) }
 
 // mapOpencode is opencode's launch: Schema.Configure over the profile's target.
-func mapOpencode(c agentcfg.Config) (Native, error) { return viaConfigure(c) }
+func mapOpencode(c agentconfig.Effective) (Native, error) { return viaConfigure(c) }
