@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -86,6 +87,18 @@ func TestCopilotUsedPctBacksOffAndCapsRefresh(t *testing.T) {
 }
 
 // An unreadable registry may hide a GitHub pin: the presence gate and route headroom must say so, not read it as unpinned.
+func TestUnreadableRegistryIsNotReadAsUnpinned(t *testing.T) {
+	pinsScratch(t)
+	t.Setenv("GH_CONFIG_DIR", t.TempDir())
+	t.Setenv("GH_TOKEN", "other-account-token")
+	vaulttest.Put(t, vault.Overlay, "providers", "{not json")
+	if st := (copilotEngine{}).AuthStatus(); st.Err == nil {
+		t.Errorf("AuthStatus = %+v, want the registry load error reported", st)
+	}
+	if detail, ok := pinnedHeadroom(context.Background(), ""); ok || !strings.Contains(detail, "cannot read the provider registry") {
+		t.Errorf("pinnedHeadroom = %q, %v; want unworkable naming the unreadable registry", detail, ok)
+	}
+}
 
 func TestCopilotTierCmdScrubsInheritedSecrets(t *testing.T) {
 	dir := t.TempDir()

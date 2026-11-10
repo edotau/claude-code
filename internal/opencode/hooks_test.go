@@ -1,6 +1,14 @@
 package opencode
 
-import "testing"
+import (
+	"slices"
+	"testing"
+
+	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
+)
 
 // TestProvisionalSessionIsUniquePerDispatch pins that two dispatches in the same second never share hook state.
 func TestProvisionalSessionIsUniquePerDispatch(t *testing.T) {
@@ -10,18 +18,34 @@ func TestProvisionalSessionIsUniquePerDispatch(t *testing.T) {
 	}
 }
 
-// TestHostedSetComesFromRegistry pins the registry's opencode hosted set to the modules the host was built around.
-func TestHostedSetComesFromRegistry(t *testing.T) {
-	want := []string{"memory-start", "worktree-mode", "memory-recall", "paths-resolve", "docs-plan-skeleton-prompt",
-		"worktree-busy", "safety-scan", "docs-placement", "docs-plan-gate", "docs-plan-mirror", "review-simplicity",
-		"docs-plan-tick", "memory-update", "format-stop", "docs-plan-reminder", "memory-end"}
-	got := hostedSet()
-	if len(got) != len(want) {
-		t.Fatalf("hosted set has %d modules, want %d: %v", len(got), len(want), got)
+// hostedBound keeps only registry-hosted modules whose group is on; safe mode keeps the gates alone.
+func TestHostedBoundFiltersByRegistrySwitchAndSafeMode(t *testing.T) {
+	vaulttest.Use(t)
+	var hosted string
+	for name := range hostedHooks {
+		hosted = name
 	}
-	for _, name := range want {
-		if !got[name] {
-			t.Errorf("hosted set is missing %s", name)
+	if hosted == "" {
+		t.Fatal("the registry hosts no opencode hook module")
+	}
+	orig := bindHooks
+	t.Cleanup(func() { bindHooks = orig })
+	bindHooks = func() []hooks.Bound {
+		return []hooks.Bound{
+			{Group: "on", Spec: settings.EventSpec{Name: hosted}},
+			{Group: "off", Spec: settings.EventSpec{Name: hosted}},
+			{Group: "off-gate", Gate: true, Spec: settings.EventSpec{Name: hosted}},
+			{Group: "foreign-gate", Gate: true, Spec: settings.EventSpec{Name: "not-hosted"}},
+		}
+	}
+	vaulttest.Put(t, vault.Overlay, "harnessHooks", `{"off":false,"off-gate":false}`)
+	for safe, want := range map[bool][]string{false: {"on", "off-gate"}, true: {"off-gate"}} {
+		var got []string
+		for _, b := range hostedBound(safe) {
+			got = append(got, b.Group)
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("safeMode=%v: bound groups %v, want %v", safe, got, want)
 		}
 	}
 }

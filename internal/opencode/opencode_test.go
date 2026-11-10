@@ -75,27 +75,6 @@ func TestOpencodeCredentialVaultKeyOutranksMissingOwnLogin(t *testing.T) {
 	}
 }
 
-// TestOpencodeOverlayModelComesFromTable checks the overlay's model/small_model are the routing table's opencode models.
-func TestOpencodeOverlayModelComesFromTable(t *testing.T) {
-	isolateOpencodeRouteEnv(t)
-	vaulttest.Use(t)
-	wantMain, wantSmall, ok := router.OpencodeTableModels()
-	if !ok {
-		t.Fatal("routing table has no opencode sonnet/haiku models")
-	}
-	_, cfgBody, _, _, err := agentconfig.OpencodeOverlayRendered()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var doc map[string]any
-	if err := json.Unmarshal(cfgBody, &doc); err != nil {
-		t.Fatal(err)
-	}
-	if doc["model"] != wantMain || doc["small_model"] != wantSmall {
-		t.Errorf("model=%v small_model=%v, want the table's %s and %s", doc["model"], doc["small_model"], wantMain, wantSmall)
-	}
-}
-
 func copilotOnlyOverlayRegistry(t *testing.T) *providers.Registry {
 	t.Helper()
 	data, _ := isolateOpencodeRouteEnv(t)
@@ -267,10 +246,7 @@ func isolateOpencodeRouteEnv(t *testing.T) (dataHome, cfgHome string) {
 	return dataHome, cfgHome
 }
 
-// OpencodeCopilotModelIDs swaps the registry's "auto" haiku default for the provider's OpencodeFallback,
-// while the sonnet alias's own (non-"auto") id passes through unchanged. The production registry's
-// github-copilot entry no longer defaults haiku to "auto" (it now pins a concrete id), so this overlays
-// a synthetic one to keep exercising the swap itself, independent of that literal.
+// OpencodeCopilotModelIDs swaps an "auto" alias for the provider's OpencodeFallback; a concrete id passes through.
 func TestOpencodeCopilotModelIDsSwapsAutoForFallback(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

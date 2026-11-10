@@ -101,6 +101,38 @@ func TestRenderCopilotSettingsUnreadableIsSkipped(t *testing.T) {
 	}
 }
 
+// renderCopilotSettings merges defaultPermissionMode into ~/.copilot/settings.json, keeping every other key.
+func TestCopilotSettingsMergesDefaultPermissionModeKeepingOtherKeys(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	home := t.TempDir()
+	path := settingsPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"theme":"default","allowedUrls":["https://example.com"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var plan render.RenderPlan
+	if _, err := renderCopilotSettings(home, render.RenderOptions{}.Stage(&plan), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("settings.json not valid JSON: %v\n%s", err, raw)
+	}
+	if got["defaultPermissionMode"] != "allow-all" {
+		t.Errorf("defaultPermissionMode = %v, want allow-all: %s", got["defaultPermissionMode"], raw)
+	}
+	urls, ok := got["allowedUrls"].([]any)
+	if got["theme"] != "default" || !ok || len(urls) != 1 || urls[0] != "https://example.com" {
+		t.Errorf("foreign keys dropped or altered: %s", raw)
+	}
+}
+
 // A registry home already holding a GitHub login is refused by seedCopilotHome; an empty login is allowed.
 func TestSeedCopilotHomeRefusesGitHubLogin(t *testing.T) {
 	logins := []string{

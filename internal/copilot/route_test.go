@@ -79,29 +79,14 @@ func TestValidateCopilotPinsSkipsOtherProviders(t *testing.T) {
 	}
 }
 
-// A github-copilot pin warns (never fails) when the live catalog itself cannot be reached: the pin
-// is still written by the caller, not blocked, since this is an availability signal, not validation.
+// A github-copilot pin (provider:model or --provider fallback) only warns when the live catalog is unreachable.
 func TestValidateCopilotPinsWarnsWhenCatalogUnreachable(t *testing.T) {
 	pinsScratch(t)
-	warn, err := ValidateCopilotPins("", []string{"opus=personal:claude-opus-5.5"})
-	if err != nil {
-		t.Fatalf("validateCopilotPins: %v, want a warning not an error", err)
-	}
-	if !strings.Contains(warn, "could not verify") {
-		t.Errorf("warn = %q, want it to name the unreachable catalog", warn)
-	}
-}
-
-// The provider prefix form (alias=provider:model) and the --provider flag fallback form (alias=model)
-// both key off githubCopilotProvider the same way.
-func TestValidateCopilotPinsProviderFlagFallback(t *testing.T) {
-	pinsScratch(t)
-	warn, err := ValidateCopilotPins("personal", []string{"opus=claude-opus-5.5"})
-	if err != nil {
-		t.Fatalf("validateCopilotPins: %v", err)
-	}
-	if !strings.Contains(warn, "could not verify") {
-		t.Errorf("warn = %q, want the github-copilot catalog check to fire via --provider", warn)
+	for flag, pin := range map[string]string{"": "opus=personal:claude-opus-5.5", "personal": "opus=claude-opus-5.5"} {
+		warn, err := ValidateCopilotPins(flag, []string{pin})
+		if err != nil || !strings.Contains(warn, "could not verify") {
+			t.Errorf("ValidateCopilotPins(%q, %s) = %q, %v; want the unreachable-catalog warning", flag, pin, warn, err)
+		}
 	}
 }
 
@@ -147,9 +132,13 @@ func TestValidateCopilotPinsChecksPinsAfterUnverifiableOne(t *testing.T) {
 	}
 }
 
+// Only a tools-enabled autonomous run passes --allow-all-tools; either flag alone keeps copilot's own approvals.
 func TestHeadlessAutonomousFlags(t *testing.T) {
-	if auto := copilotArgv(&agent.Headless{Tools: true, Autonomous: true}); !slices.Contains(auto, "--allow-all-tools") {
-		t.Errorf("autonomous argv = %v", auto)
+	for _, c := range []struct{ tools, autonomous, want bool }{{true, true, true}, {true, false, false}, {false, true, false}} {
+		argv := copilotArgv(&agent.Headless{Tools: c.tools, Autonomous: c.autonomous})
+		if slices.Contains(argv, "--allow-all-tools") != c.want {
+			t.Errorf("Tools=%v Autonomous=%v: argv = %v, want --allow-all-tools %v", c.tools, c.autonomous, argv, c.want)
+		}
 	}
 }
 

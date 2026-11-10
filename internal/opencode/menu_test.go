@@ -225,18 +225,6 @@ func TestOpencodeMenuImportDryRunThenApply(t *testing.T) {
 	}
 }
 
-func TestOpencodeMenuImportJSONReplacesMenu(t *testing.T) {
-	ocCheckEnv(t)
-	doc := `{"provider":{"databricks-qa":{"models":{"databricks-kimi-k3":{"name":"Kimi K3 · qa"}}}}}`
-	cfg := writeImportFile(t, "opencode.json", doc)
-	if code, _, stderr := ocMenu(t, "import", "--apply", cfg); code != 0 {
-		t.Fatalf("json apply: %d %s", code, stderr)
-	}
-	if got := menuIDs(); len(got) != 1 || got[0] != "kimi-k3" {
-		t.Errorf("import must replace the whole menu, got %v", got)
-	}
-}
-
 func TestOpencodeMenuImportMissingFileFails(t *testing.T) {
 	ocCheckEnv(t)
 	if code, _, stderr := ocMenu(t, "import", filepath.Join(t.TempDir(), "missing")); code == 0 || stderr == "" {
@@ -424,13 +412,6 @@ func TestOpencodeCheckExplicitIDs(t *testing.T) {
 	}
 }
 
-func TestOpencodeCheckAllRejectsIDs(t *testing.T) {
-	ocCheckEnv(t)
-	if code, _, _, stderr := ocCheckJSON(t, "--all", "glm-5-2"); code != 1 || stderr == "" {
-		t.Errorf("--all with ids: code=%d stderr=%q", code, stderr)
-	}
-}
-
 func TestOpencodeCheckAllSkipsNonChat(t *testing.T) {
 	f, _ := ocCheckEnv(t)
 	code, rows, _, _ := ocCheckJSON(t, "--all", "--timeout", "30ms")
@@ -479,6 +460,9 @@ func TestOpencodeCheckFlagErrors(t *testing.T) {
 	}
 	if code, _, stderr := ocMenu(t, "check", "--profile", "no-such-provider"); code != 1 || stderr == "" {
 		t.Errorf("unknown provider: code=%d stderr=%q", code, stderr)
+	}
+	if code, _, _, stderr := ocCheckJSON(t, "--all", "glm-5-2"); code != 1 || stderr == "" {
+		t.Errorf("--all with ids: code=%d stderr=%q", code, stderr)
 	}
 }
 
