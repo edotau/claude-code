@@ -139,7 +139,7 @@ func TestWidthClip(t *testing.T) {
 	}
 	cfg := embeddedConfig()
 	t.Setenv("COLUMNS", strconv.Itoa(30+ccMargin))
-	if got := plain(render(sample(), cfg, theme.EmbeddedPalettes())); got != "tester:~/proj | Opus 5 [1m]\n+10/-3" {
+	if got := plain(render(sample(), cfg, theme.EmbeddedPalettes())); got != "tester:~/proj | Opus 5 [1m]\n+10 -3" {
 		t.Errorf("COLUMNS wrap %q", got)
 	}
 	if s := "short"; clip(s, 40) != s {
@@ -221,9 +221,9 @@ func TestModelSegment(t *testing.T) {
 		{"claude-sonnet-5-20260101", "", "sonnet-5"},
 		{"claude-opus-5-5[1m]", "Opus 5.5 (1M context)", "opus-5-5"},
 		{"", "Opus 5 (1M context)", "Opus 5"},
-		{"databricks-claude-opus-5-5[1m]", "databricks-claude-opus-5-5", "databricks-claude-opus-5-5"},
-		{"databricks-claude-opus-5-5[1m]", "", "databricks-claude-opus-5-5"},
-		{"databricks-claude-opus-5-5", "databricks-claude-opus-5-5", "databricks-claude-opus-5-5"},
+		{"databricks-claude-opus-5-5[1m]", "databricks-claude-opus-5-5", "databricks-opus-5-5"},
+		{"databricks-claude-opus-5-5[1m]", "", "databricks-opus-5-5"},
+		{"databricks-claude-opus-5-5", "databricks-claude-opus-5-5", "databricks-opus-5-5"},
 	} {
 		if got := model(c[0], c[1]); got != c[2] {
 			t.Errorf("model(%q, %q) = %q, want %q", c[0], c[1], got, c[2])
