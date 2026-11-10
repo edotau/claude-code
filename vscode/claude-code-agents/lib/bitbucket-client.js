@@ -94,11 +94,13 @@ function mapPullRequest(raw, build) {
     name: (r.user && (r.user.displayName || r.user.name)) || '',
     status: r.status || (r.approved ? 'APPROVED' : 'UNAPPROVED'),
   }));
+  const author = (raw.author && raw.author.user) || {};
   return {
     id: raw.id,
     title: raw.title || '',
     state: mapPullRequestState(raw.state),
-    author: (raw.author && raw.author.user && (raw.author.user.displayName || raw.author.user.name)) || '',
+    author: author.displayName || author.name || '',
+    author_login: author.name || '', // the username the doctor reports
     from_branch: (raw.fromRef && raw.fromRef.displayId) || '',
     to_branch: (raw.toRef && raw.toRef.displayId) || '',
     url: (raw.links && raw.links.self && raw.links.self[0] && raw.links.self[0].href) || '',

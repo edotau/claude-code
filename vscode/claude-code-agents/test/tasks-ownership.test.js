@@ -20,6 +20,16 @@ test('isMine / canWrite: assignee or author match per source; unknown login cann
   assert.match(o.readOnlyReason({ source: 'jira', assignee: { displayName: 'Sam' } }), /assigned to Sam/);
 });
 
+test('bitbucket: a PR is mine by the raw username the doctor reports, not the display name', () => {
+  const { mapPullRequest } = require('../lib/bitbucket-client');
+  const { mapRow } = require('../lib/tasks-bitbucket');
+  const raw = { id: 7, author: { user: { name: 'eric.au@corp.com', displayName: 'Au,Eric (DR) EXTERNAL' } } };
+  const item = mapRow(mapPullRequest(raw));
+  assert.equal(item.author, 'Au,Eric (DR) EXTERNAL', 'the row still shows the display name');
+  assert.equal(o.canWrite(item, { bitbucket: 'eric.au@corp.com' }, 'mine'), true);
+  assert.equal(o.canWrite(item, { bitbucket: 'Au,Eric (DR) EXTERNAL' }, 'mine'), false);
+});
+
 const base = { sources: [{ id: 'github' }], source: 'github', query: '', scope: 'all', state: 'open', presets: [], repos: [], repoCount: 0, loading: false, errors: [], page: 1, totalPages: 1, now: 0, view: 'list', viewMode: 'list', rowErrors: {}, mergeMethods: {}, settings: { jira: {}, github: {}, bitbucket: {}, tailscale: {} } };
 const pr = { source: 'github', id: 'g:1', type: 'pr', number: 1, title: 't', state: 'open', url: 'https://x/1', repo: { owner: 'o', name: 'r', label: 'o/r' }, author: 'simon', updatedAt: '', labels: [], reviewers: [{ name: 'eric', status: 'PENDING' }], assignees: [], checks: { state: 'success', label: '1 passed', counts: { success: 1, failed: 0, pending: 0 } }, merge: { state: 'ready', label: 'Ready' }, hydrated: true };
 

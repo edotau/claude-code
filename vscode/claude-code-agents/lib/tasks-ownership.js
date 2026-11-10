@@ -15,7 +15,7 @@ function isMine(item, logins) {
     return same(a && a.name, l.jira) || same(a && a.displayName, l.jiraDisplay) || (!a && same(item.author, l.jiraDisplay));
   }
   if (item.source === 'github') return same(item.author, l.github) || (item.assignees || []).some((x) => same(x, l.github));
-  if (item.source === 'bitbucket') return same(item.author, l.bitbucket);
+  if (item.source === 'bitbucket') return same(item.authorLogin, l.bitbucket);
   return false;
 }
 

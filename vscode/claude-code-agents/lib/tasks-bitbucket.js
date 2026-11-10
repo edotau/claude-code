@@ -53,6 +53,7 @@ function mapRow(row, opts) {
     url: row.url || '',
     repo: { owner: repo.project, name: repo.repo, label: `${repo.project}/${repo.repo}` },
     author: row.author || null,
+    authorLogin: row.author_login,
     updatedAt: row.updated || '',
     labels: [],
     branch: row.from_branch || '',
