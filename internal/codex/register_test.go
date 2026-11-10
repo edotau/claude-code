@@ -36,3 +36,22 @@ func TestCodexRunDropsAutonomous(t *testing.T) {
 		t.Errorf("Dropped = %q, want --autonomous", res.Dropped)
 	}
 }
+
+// The effort clamp note survives agent.Run into the envelope, not only the engine's own Run.
+func TestCodexAgentRunEnvelopeReportsEffortClamp(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	stubProxy(t, nil)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Put(t, vault.Overlay, "providers", fmt.Sprintf(`{"providers":{"openai":{"toai":{"protocol":"responses","base_url":%q,"auth":{"type":"none"},"models":{"opus":"gpt-x"}}}}}`, srv.URL+"/v1"))
+	putCodexRecord(t, vault.AgentRecord{Effort: "max"})
+	pathstest.FakeVendor(t, "codex", "cat >/dev/null\nif [ \"$2\" = --help ]; then exit 0; fi\necho ok\n")
+	e, err := agent.Lookup("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := agent.Run(context.Background(), e, agent.RunOptions{Prompt: "task", Provider: "toai"}, wire.Discard, nil)
+	if err != nil || !slices.Contains(res.Emulated, "effort max→xhigh") {
+		t.Errorf("Emulated = %q err=%v, want the max→xhigh clamp", res.Emulated, err)
+	}
+}
