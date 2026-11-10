@@ -58,7 +58,7 @@ func (t *RouteTable) gateProfile(
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "pinned profile " + pin + " cannot serve " + agent + " (no route or credential)"})
 		return nil, false
 	}
-	c := Cell{Model: pinnedModel(agent, alias, cell, p, model, now), Effort: cmp.Or(effort, cell.Effort), Account: ProviderAccount(pin), Price: cell.Price}
+	c := Cell{Model: pinnedModel(agent, alias, cell, p, o.modelPin(model), now), Effort: cmp.Or(effort, cell.Effort), Account: ProviderAccount(pin), Price: cell.Price}
 	noteNotReady(res, agent, pin, model, c.Model, p)
 	if err := configured(agent, c); err != nil {
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "not configured: " + textutil.FirstLine(strings.TrimSpace(err.Error()))})

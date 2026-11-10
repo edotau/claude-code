@@ -5,6 +5,7 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -70,6 +71,7 @@ type PickOpts struct {
 	CodexModel func(providers.Target) providers.Target
 	// Lead is the profile the wanted agent leads with (coworkers: the session's or an override); "" = its pin leads.
 	Lead string
+	dry  bool // refreshStale's collecting pass: must write nothing (no Discovery rotation)
 }
 
 // canServe is CanServe, or true for every pair when unset.
@@ -83,6 +85,14 @@ func (o PickOpts) codexModel(t providers.Target) providers.Target {
 		return t
 	}
 	return o.CodexModel(t)
+}
+
+// modelPin is model, except a dry pass drops a Discovery pin: same account, and only the real pick advances the rotation.
+func (o PickOpts) modelPin(model string) string {
+	if o.dry && model == DiscoveryModel {
+		return ""
+	}
+	return model
 }
 
 // PinSpec is one agent's routing pins: its profile, its model pin, and whether it is switched off.
@@ -119,6 +129,16 @@ func (t *RouteTable) Pick(ctx context.Context, alias, want string, st State, o P
 	if st == nil {
 		st = State{}
 	}
+	if o.Refresh != nil {
+		o.Refresh = t.refreshStale(ctx, alias, want, st, o, now, configured)
+	}
+	return t.pick(ctx, alias, want, st, o, now, configured)
+}
+
+// pick is Pick after the stale accounts are refreshed.
+func (t *RouteTable) pick(
+	ctx context.Context, alias, want string, st State, o PickOpts, now time.Time, configured func(agent string, c Cell) error,
+) PickResult {
 	res := PickResult{Alias: alias, Want: want, Weights: t.Weights}
 	pins := o.Pins
 	reg, _ := providers.Load()
@@ -153,6 +173,47 @@ func (t *RouteTable) Pick(ctx context.Context, alias, want string, st State, o P
 	res.Candidates = append(res.Candidates, flattenGroups(lastG)...)
 	res.Candidates = dedupeCandidates(res.Candidates)
 	return res
+}
+
+// refreshConcurrency bounds the stale-account refreshes one pick runs at once.
+const refreshConcurrency = 4
+
+// refreshStale dry-runs the pick to collect the stale accounts it would refresh, refreshes them concurrently into st,
+// and returns a Refresh that skips those so the real pick never re-fetches one serially.
+func (t *RouteTable) refreshStale(
+	ctx context.Context, alias, want string, st State, o PickOpts, now time.Time, configured func(agent string, c Cell) error,
+) func(context.Context, string) bool {
+	refresh := o.Refresh
+	var stale []string
+	o.dry = true
+	o.Refresh = func(_ context.Context, account string) bool {
+		if !slices.Contains(stale, account) {
+			stale = append(stale, account)
+		}
+		return false
+	}
+	t.pick(ctx, alias, want, st.clone(), o, now, configured)
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, refreshConcurrency)
+	for _, account := range stale {
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			refresh(ctx, account)
+		})
+	}
+	wg.Wait()
+	if len(stale) > 0 {
+		fresh := LoadState()
+		for _, account := range stale {
+			if e, ok := fresh[account]; ok {
+				st[account] = e
+			}
+		}
+	}
+	return func(ctx context.Context, account string) bool {
+		return !slices.Contains(stale, account) && refresh(ctx, account)
+	}
 }
 
 // dedupeCandidates drops later repeats of the same agent, account and model, keeping order.
@@ -226,7 +287,7 @@ func (t *RouteTable) gateAccount(
 		return Candidate{}, false
 	}
 	e := st[c.Account]
-	if o.Refresh != nil && now.Sub(e.Seen) > StaleAfter && e.Status(now) != StateExhausted && o.Refresh(ctx, c.Account) {
+	if o.Refresh != nil && e.Stale(now) && e.Status(now) != StateExhausted && o.Refresh(ctx, c.Account) {
 		e = LoadState()[c.Account]
 		st[c.Account] = e
 	}

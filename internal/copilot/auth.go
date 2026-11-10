@@ -158,14 +158,22 @@ func copilotUsedPct(ctx context.Context, login string) (float64, bool) {
 	if e.ExhaustedUntil.After(now) {
 		return router.ExhaustedPct, true
 	}
-	if now.Sub(e.Seen) > router.StaleAfter {
+	if e.Stale(now) {
+		ctx, cancel := context.WithTimeout(ctx, refreshCap)
+		defer cancel()
 		if !RefreshAccount(ctx, key) {
 			return 0, false
 		}
 		e = router.LoadState()[key]
 	}
-	return e.UsedPct, !e.Seen.IsZero()
+	if now.Sub(e.Seen) > router.StaleAfter {
+		return 0, false // a recent check found no reading: unverified, as when that refresh failed
+	}
+	return e.UsedPct, true
 }
+
+// refreshCap bounds the launch-time refresh; past it the launch runs unverified rather than wait.
+const refreshCap = time.Second
 
 // copilotWorkablePct is the used credit share at which a copilot GitHub-login dispatch is no longer started.
 const copilotWorkablePct = 95.0

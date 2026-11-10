@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -52,5 +54,31 @@ func TestCopilotTier(t *testing.T) {
 				t.Errorf("copilotTier = %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+// A seat checked inside StaleAfter reads unverified without a refresh; an unchecked one refreshes under the 1 s cap.
+func TestCopilotUsedPctBacksOffAndCapsRefresh(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := router.MarkChecked("github·checked", "unlimited", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	orig := RefreshAccount
+	t.Cleanup(func() { RefreshAccount = orig })
+	var calls []string
+	RefreshAccount = func(ctx context.Context, key string) bool {
+		calls = append(calls, key)
+		if d, ok := ctx.Deadline(); !ok || time.Until(d) > refreshCap {
+			t.Errorf("refresh of %s ran without the %v cap", key, refreshCap)
+		}
+		return false
+	}
+	for _, login := range []string{"checked", "fresh"} {
+		if pct, ok := copilotUsedPct(context.Background(), login); ok {
+			t.Errorf("copilotUsedPct(%s) = %v, verified; want unverified", login, pct)
+		}
+	}
+	if len(calls) != 1 || calls[0] != "github·fresh" {
+		t.Errorf("refreshed %v, want only github·fresh", calls)
 	}
 }

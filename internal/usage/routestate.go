@@ -74,8 +74,9 @@ func resetTime(q quota) time.Time {
 }
 
 // RefreshAccount re-fetches one account (3 s; Anthropic's 60 s cache reused) and records it; false on no data.
-func RefreshAccount(ctx context.Context, key string) bool {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+// A fetch that records nothing stamps the account checked, so picks back off for StaleAfter instead of re-fetching.
+func RefreshAccount(parent context.Context, key string) bool {
+	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 	var qs []quota
 	switch {
@@ -93,5 +94,22 @@ func RefreshAccount(ctx context.Context, key string) bool {
 		return false
 	}
 	setStates(qs, warnThreshold())
-	return recordQuotas(qs, time.Now()) > 0
+	now := time.Now()
+	if recordQuotas(qs, now) > 0 {
+		return true
+	}
+	if parent.Err() == nil { // the caller's own deadline cut the fetch short: no verdict to back off on
+		_ = router.MarkChecked(key, checkNote(qs), now)
+	}
+	return false
+}
+
+// checkNote is the first row's note, else why nothing recordable came back.
+func checkNote(qs []quota) string {
+	for _, q := range qs {
+		if q.Note != "" {
+			return q.Note
+		}
+	}
+	return "no recordable window"
 }
