@@ -21,11 +21,14 @@ const (
 	offEnv  = "TEST_RAMDISK"
 	sectors = 8388608 // 4 GiB in 512-byte sectors; RAM is only used as files are written
 
-	diskTimeout   = 2 * time.Minute // per hdiutil/diskutil call; a stalled one must not hang the run
-	diskWaitDelay = 10 * time.Second
-
 	exitUsage    = 2
 	exitNotFound = 127
+)
+
+// Package vars so the stalled-call test can shrink them.
+var (
+	diskTimeout   = 2 * time.Minute // per hdiutil/diskutil call; a stalled one must not hang the run
+	diskWaitDelay = 10 * time.Second
 )
 
 // page is the help for `claude-code test ramdisk`.

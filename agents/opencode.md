@@ -82,7 +82,7 @@ Model menu: `opencode catalog list`, `catalog add|remove|import|reset|check`, `c
   (`OPENCODE_CONFIG`); sync writes no `AGENTS.md`, which would replace `CLAUDE.md`.
 - Skills: `~/.agents/skills` (and `~/.config/opencode/skills`); agents: `~/.config/opencode/agents/*.md`.
 - Commands: the overlay projects `~/.claude/commands/*.md` that lack `Agent` in `allowed-tools` — today
-  `/discover-models` and `/lint-fix`.
+  `/discover-models`.
   `/coworker` is projected too; the nested `/coworker:<agent>` launchers (`commands/coworker/`) are not.
 - Plugin (`tool.execute.before`, headless and TUI): `safety-scan`, `docs-placement`, `docs-plan-gate`,
   `worktree-claim-check` block; `permission-gate` applies the dispatch's Bash deny; the other hooks are advisory

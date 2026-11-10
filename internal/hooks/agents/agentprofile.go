@@ -128,7 +128,7 @@ func briefRoute(task string) string {
 
 // routeApplies is true when a brief's Route: reaches a leaf of type st: Explore, Plan and in-context leaves ignore it.
 func routeApplies(st, task string) bool {
-	return briefRoute(task) != "" && !(readOnlyTypes[st] && !externalTypes[st]) && !inContextBrief(task)
+	return briefRoute(task) != "" && (!readOnlyTypes[st] || externalTypes[st]) && !inContextBrief(task)
 }
 
 // routeWorkspace is the workspace a brief's Route: line names (bare: the armed route's, else the session's profile).
@@ -138,12 +138,12 @@ func routeWorkspace(task string) (string, error) {
 	case err != nil:
 		return "", err
 	case mode != router.RouteDatabricks:
-		return "", fmt.Errorf("Route: %s: only databricks[:<profile>] is a brief route", mode)
+		return "", fmt.Errorf("brief Route: %s: only databricks[:<profile>] is a brief route", mode)
 	case p == "":
 		p = cmp.Or(router.ArmProfile(), providers.SessionProfile())
 	}
 	if p == "" {
-		return "", errors.New("Route: databricks needs a workspace: databricks:<profile>")
+		return "", errors.New("brief Route: databricks needs a workspace: databricks:<profile>")
 	}
 	return p, nil
 }

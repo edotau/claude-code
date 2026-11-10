@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent"
 	_ "github.com/edotau/claude-code/internal/claude" // registers the claude row the menu tests apply to
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -297,13 +296,4 @@ func TestRunProviderPinChangeWarmsUnlessDryRun(t *testing.T) {
 	if vault.GetAgentRecord("claude").Profile != "qa" || *n == 0 || !cached(t) {
 		t.Fatalf("pin=%q requests=%d cached=%v out=%s", vault.GetAgentRecord("claude").Profile, *n, cached(t), out.String())
 	}
-}
-
-func testRoutingPins(t *testing.T) map[string]router.PinSpec {
-	t.Helper()
-	pins, err := agent.AgentPins()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return pins
 }

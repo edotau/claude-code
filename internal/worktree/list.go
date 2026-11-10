@@ -233,7 +233,7 @@ func activity(gitDir, worktreePath string) (time.Time, string) {
 }
 
 // probeTimeout bounds each read-only git/lsof/ps probe so a hung filesystem cannot block List, Inspect or Clean.
-const probeTimeout = 30 * time.Second
+var probeTimeout = 30 * time.Second
 
 // currentBranch is main's checked-out branch (the merge target); detached HEAD uses the OID.
 func currentBranch(main string) (string, error) {

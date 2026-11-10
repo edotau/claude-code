@@ -103,6 +103,9 @@ else
 printf '%s' "$2" > "$RAMDISK_DETACH_LOG"
 fi
 `)
+	origTimeout, origWait := diskTimeout, diskWaitDelay
+	diskTimeout, diskWaitDelay = time.Second, time.Second
+	t.Cleanup(func() { diskTimeout, diskWaitDelay = origTimeout, origWait })
 	stall := diskTimeout + diskWaitDelay + 5*time.Second
 	writeDiskTool(t, bin, "diskutil", fmt.Sprintf("exec sleep %d\n", int(stall/time.Second)))
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))

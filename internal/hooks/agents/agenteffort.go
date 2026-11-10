@@ -267,7 +267,7 @@ func stripLabels(desc, st, label string) string {
 	for {
 		head, rest, ok := strings.Cut(desc, ":")
 		head = strings.TrimSpace(head)
-		if !ok || head == "" || !(head == st || label != "" && labelShaped(head, label)) {
+		if !ok || head == "" || (head != st && (label == "" || !labelShaped(head, label))) {
 			return strings.TrimSpace(desc)
 		}
 		desc = rest
