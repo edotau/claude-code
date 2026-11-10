@@ -1,4 +1,3 @@
-// Package memstore locates a memory store and locks it: identity, origin, paths, routing, bank lock, native links.
 package memory
 
 // The unified store tree (plan §1): ~/.claude/memory/ is one local Git repo holding the home bank under
