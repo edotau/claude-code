@@ -9,13 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/vault"
-
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -60,15 +59,14 @@ func TestProfileRowOpencodeListsZenFree(t *testing.T) {
 	}
 }
 
-// Every agent's Profile row stays one line within 80 columns, claude's reading automatic.
-func TestProfileRowFitsEightyColumns(t *testing.T) {
+// Every agent's Profile row is one line (its page width: TestMenuRowWidthsFitEightyColumns), claude's automatic.
+func TestProfileRowIsOneLineClaudeAutomatic(t *testing.T) {
 	reg := menuTestEnv(t)
 	vaulttest.SetRecord(t, "claude", "profile", "") // menuTestEnv's legacy pin would keep re-seeding own logins
 	d := &dialog{reg: reg, out: &bytes.Buffer{}}
 	for _, a := range seedAgents() {
-		r := agentPinRows(d, a)[0]
-		if w := rowRenderedWidth([]string{r.label}, r.desc); w > 80 || strings.Contains(r.desc, "\n") {
-			t.Errorf("%s profile row = %d cols: %q", a, w, r.desc)
+		if r := agentPinRows(d, a)[0]; r.label != "Profile" || strings.Contains(r.desc, "\n") {
+			t.Errorf("%s profile row = %q %q, want one Profile line", a, r.label, r.desc)
 		}
 	}
 	if desc := agentPinRows(d, "claude")[0].desc; !strings.Contains(desc, "automatic") {
@@ -170,16 +168,6 @@ func TestSeedFirstRunNonInteractivePointsAtRow(t *testing.T) {
 	}
 }
 
-func TestSeedRowFitsEightyColumns(t *testing.T) {
-	menuTestEnv(t)
-	laid, _ := RowsOf(settingsRows(&dialog{}))
-	for _, r := range laid {
-		if w := 2 + len([]rune("environment")) + 2 + len([]rune(r[1])); w > 80 {
-			t.Errorf("%s row is %d columns: %q", r[0], w, r[1])
-		}
-	}
-}
-
 // Given a remembered last-used profile, seeding a registered profile after sign-in forgets it and sets the record.
 func TestSeedFromSignInForgetsLastProfileAndSetsRecord(t *testing.T) {
 	d, out := seedDialog(t, "")
@@ -240,5 +228,13 @@ func TestSaveSeedInvalidProfileWritesNothing(t *testing.T) {
 		if r.Profile != "" {
 			t.Errorf("%s persisted profile %q after a failed save", a, r.Profile)
 		}
+	}
+}
+
+// putRec sets one field of agent's vault record (a vault.AgentRecord.WithPin field name).
+func putRec(t *testing.T, agent, field, val string) {
+	t.Helper()
+	if err := vault.SetAgentRecord(agent, vault.GetAgentRecord(agent).WithPin(field, val)); err != nil {
+		t.Fatal(err)
 	}
 }

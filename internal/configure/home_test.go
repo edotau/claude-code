@@ -200,3 +200,58 @@ func assertMCPRestored(t *testing.T, original string) {
 		t.Fatalf("restored registration = %s, want %s", raw, original)
 	}
 }
+
+const mcpBin = "/custom path/claude-code"
+
+var (
+	mcpRemoveArgv = []string{"mcp", "remove", "-s", "user", "web_search"}
+	mcpAddArgv    = []string{"mcp", "add", "-s", "user", "web_search", "--", mcpBin, "network", "websearch"}
+)
+
+func registerMCPMode(t *testing.T, mode string) (string, error) {
+	t.Helper()
+	_, log, _ := configureCommandEnv(t, mode)
+	if strings.HasPrefix(mode, "exists") {
+		doc := `{"mcpServers":{"web_search":{"command":"old-search","args":[]}}}`
+		if err := os.WriteFile(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), ".claude.json"), []byte(doc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return log, RegisterClaudeMCPContext(context.Background(), mcpBin)
+}
+
+// TestRegisterClaudeMCPContextFresh: a first registration runs add only, never remove.
+func TestRegisterClaudeMCPContextFresh(t *testing.T) {
+	log, err := registerMCPMode(t, "normal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertConfigureArgv(t, log, mcpAddArgv)
+}
+
+// TestRegisterClaudeMCPContextReplacesExisting: "already exists" from add triggers remove, then add again.
+func TestRegisterClaudeMCPContextReplacesExisting(t *testing.T) {
+	log, err := registerMCPMode(t, "exists")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertConfigureArgv(t, log, mcpAddArgv, mcpRemoveArgv, mcpAddArgv)
+}
+
+// TestRegisterClaudeMCPContextRemoveFails: a failed remove is reported and add is not retried.
+func TestRegisterClaudeMCPContextRemoveFails(t *testing.T) {
+	log, err := registerMCPMode(t, "exists-remove-fail")
+	if err == nil || !strings.Contains(err.Error(), "claude mcp remove") {
+		t.Errorf("remove failure = %v, want claude mcp remove error", err)
+	}
+	assertConfigureArgv(t, log, mcpAddArgv, mcpRemoveArgv)
+}
+
+// TestRegisterClaudeMCPContextCancelAdd: cancelling during add returns the context error promptly.
+func TestRegisterClaudeMCPContextCancelAdd(t *testing.T) {
+	_, log, ready := configureCommandEnv(t, "cancel-add")
+	assertConfigureCancellation(t, ready, func(ctx context.Context) error {
+		return RegisterClaudeMCPContext(ctx, mcpBin)
+	})
+	assertConfigureArgv(t, log, mcpAddArgv)
+}
