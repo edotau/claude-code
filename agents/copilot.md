@@ -40,7 +40,7 @@ Label rule: `skills/subagent-workflows/SKILL.md#leaf-types`.
 
 `@agent-copilot <request>` or a brief. `test` (default) and `commit` run the modes below; any other verb
 (`claude-code copilot -h`) runs `claude-code copilot <verb> <rest>`, relayed (`--background`: relay the job id).
-`--profile`/`--model` ride on every call. `/copilot` runs the CLI directly, no subagent.
+`--profile`/`--model` ride on every call. `/coworker:copilot` runs the CLI directly, no subagent.
 
 ### Leaf contract
 

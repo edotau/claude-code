@@ -38,7 +38,7 @@ Does its own CLI work; may request: codex, copilot, opencode, via the brief `Age
 `@agent-gemini <request>` or a brief. `sweep-review` is the whole-module second opinion (Sweep-review below); another
 verb (`claude-code gemini -h`, `review` = diff review) runs `claude-code gemini <verb> <rest>`; a bare task runs the
 fan-out explore (Procedure below), and `ask --agent gemini --tools --dirs …` only for a whole-repo sweep.
-`--profile`/`--model` ride on every call. `/gemini`: no subagent.
+`--profile`/`--model` ride on every call. `/coworker:gemini`: no subagent.
 
 ### Leaf contract
 
