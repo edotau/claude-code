@@ -87,7 +87,6 @@ func checkRouteFlags(name, route, format, fallback, want string) int {
 
 func renderGatewayRoute(name string, res router.PickResult, format string, withProxy bool) int {
 	src := routeSources{Weights: providers.RouteWeightsSource()}
-	src.Subagents.On, src.Subagents.Source = providers.RouteSubagentsOn()
 	pins, err := routePins()
 	if err != nil {
 		return helptext.Fail(name+": %v", err)
@@ -128,11 +127,7 @@ func routePayload(rj routeJSON, ps proxy.Status, withProxy bool) any {
 
 // routeSources names where each routing knob printed by `gateway router` came from.
 type routeSources struct {
-	Weights   string `json:"weights"` // "default" or "vault"
-	Subagents struct {
-		On     bool   `json:"on"`
-		Source string `json:"source"` // "env", "vault" or "default"
-	} `json:"subagents"`
+	Weights string `json:"weights"` // "default" or "vault"
 }
 
 // routeJSON is `gateway router --format json`'s payload: the pick plus where its knobs came from.
@@ -188,15 +183,13 @@ func printRoute(res router.PickResult, src routeSources, pins map[string]pinJSON
 	writeRoute(os.Stdout, res, src, pins)
 }
 
-// writeRoute renders weights, subagents switch, pins, scored candidates, the claude end and skipped gates.
+// writeRoute renders weights, pins, scored candidates, the claude end and skipped gates.
 func writeRoute(w io.Writer, res router.PickResult, src routeSources, pins map[string]pinJSON) {
 	var ws []string
 	for _, d := range router.Dimensions {
 		ws = append(ws, fmt.Sprintf("%s=%.2f", d.Name(), res.Weights[d.Name()]))
 	}
 	fmt.Fprintf(w, "model %s  weights %s (%s)\n", res.Alias, strings.Join(ws, " "), src.Weights)
-	onOff := map[bool]string{true: "on", false: "off"}[src.Subagents.On]
-	fmt.Fprintf(w, "subagents %s (%s)\n", onOff, src.Subagents.Source)
 	printPins(w, pins)
 	printCandidates(w, res.Candidates)
 	printEnds(w, res)
