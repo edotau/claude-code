@@ -147,7 +147,7 @@
   "terminal.integrated.defaultLocation": "editor",
   "terminal.integrated.rightClickBehavior": "copyPaste",
   "workbench.colorTheme": "Monokai",
-  "editor.fontSize": 13,
+  "editor.fontSize": 12.5,
   "editor.wordWrap": "off",
   "[markdown]": {
     "editor.wordWrap": "off"
