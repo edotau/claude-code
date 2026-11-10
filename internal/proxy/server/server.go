@@ -145,12 +145,11 @@ func (r *Router) sessionRoute(w http.ResponseWriter, req *http.Request) {
 
 // stripClientAuth drops the proxy secret headers; Authorization survives only as the client's own credential.
 func stripClientAuth(req *http.Request) {
-	if req.Header.Get(proxy.ClientHeader) == "" && req.Header.Get(proxy.LegacyClientHeader) == "" {
+	if req.Header.Get(proxy.ClientHeader) == "" {
 		req.Header.Del("Authorization")
 		req.Header.Del("X-Api-Key")
 	}
 	req.Header.Del(proxy.ClientHeader)
-	req.Header.Del(proxy.LegacyClientHeader)
 }
 
 // fallbackError keeps audit metadata separate from upstream error text, which may contain credentials.
