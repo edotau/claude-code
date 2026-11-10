@@ -16,21 +16,17 @@ func TestMain(m *testing.M) {
 	os.Exit(hosttest.Main(m))
 }
 
-func TestCmdSetupNoArgs(t *testing.T) {
-	if got := Run(nil); got != 0 {
-		t.Fatalf("no-args exit = %d, want 0", got)
-	}
-}
-
-func TestCmdSetupUnknownMode(t *testing.T) {
-	if got := Run([]string{"bogus"}); got != 1 {
-		t.Fatalf("unknown mode exit = %d, want 1", got)
-	}
-}
-
-func TestCmdSetupAdoptRequiresFrom(t *testing.T) {
-	if got := cmdSetupAdopt(nil); got != 2 {
-		t.Fatalf("missing --from exit = %d, want 2", got)
+// Run's bare help exits 0, an unknown mode 1, and adopt without --from is a usage error (2) that names --from.
+func TestCmdSetupRunExits(t *testing.T) {
+	for _, c := range []struct {
+		args       []string
+		want       int
+		wantStderr string
+	}{{nil, 0, ""}, {[]string{"bogus"}, 1, "bogus"}, {[]string{"adopt"}, 2, "--from"}} {
+		got, _, stderr := hosttest.CaptureOutput(t, func() int { return Run(c.args) })
+		if got != c.want || !strings.Contains(stderr, c.wantStderr) {
+			t.Errorf("Run(%v) = %d, stderr %q; want %d naming %q", c.args, got, stderr, c.want, c.wantStderr)
+		}
 	}
 }
 
@@ -73,22 +69,7 @@ func TestCmdSetupNukeRejectsPartialConfirmation(t *testing.T) {
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	input := filepath.Join(home, "confirmation")
-	if err := os.WriteFile(input, []byte(dir+" extra-token\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	f, err := os.Open(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := f.Close(); err != nil {
-			t.Error(err)
-		}
-	})
-	old := os.Stdin
-	os.Stdin = f
-	t.Cleanup(func() { os.Stdin = old })
+	stdinFrom(t, dir+" extra-token\n")
 
 	code, _, _ := hosttest.CaptureOutput(t, func() int {
 		return cmdSetupNuke([]string{"--dir", dir, "--apply"})
@@ -117,7 +98,9 @@ func TestSetupWorkspaceUsageExits(t *testing.T) {
 		{[]string{"link", "agents"}, 2},
 		{[]string{"init", "a", "b"}, 2},
 		{[]string{"init", "--with", "x"}, 2},
-		{[]string{"status", t.TempDir()}, 1}, // not a git toplevel
+		{[]string{"status", "--with", "x", t.TempDir()}, 2}, // --with is init's
+		{[]string{"status", t.TempDir(), t.TempDir()}, 2},   // at most one <root>
+		{[]string{"status", t.TempDir()}, 1},                // not a git toplevel
 	}
 	for _, c := range cases {
 		if got := cmdSetupWorkspace(c.args); got != c.want {
@@ -153,21 +136,8 @@ func TestSetupWorkspaceLinkRejectsDryRunWithoutLinking(t *testing.T) {
 	}
 }
 
-// TestSetupWorkspaceStatusRejectsWith: --with only applies to init; on status it is a usage error (2).
-func TestSetupWorkspaceStatusRejectsWith(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	root := setupWorkspaceGitRoot(t)
-	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdSetupWorkspace([]string{"status", "--with", "x", root})
-	})
-	if code != 2 {
-		t.Fatalf("status --with x: code = %d, want 2; stderr=%q", code, stderr)
-	}
-}
-
-// TestSetupWorkspaceInitDryRunSucceeds: init --dry-run on a real git toplevel outside the config dir
-// exits 0 and only previews — the full write path is covered at the internal/setup layer.
-func TestSetupWorkspaceInitDryRunSucceeds(t *testing.T) {
+// TestSetupWorkspaceInitDryRunWritesNothing: init --dry-run reaches the engine as a dry run: exit 0, nothing written.
+func TestSetupWorkspaceInitDryRunWritesNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := setupWorkspaceGitRoot(t)
 	t.Chdir(root)
@@ -176,6 +146,9 @@ func TestSetupWorkspaceInitDryRunSucceeds(t *testing.T) {
 	})
 	if code != 0 {
 		t.Fatalf("init --dry-run: code = %d, want 0; stderr=%q", code, stderr)
+	}
+	if _, err := os.Lstat(filepath.Join(root, ".claude")); !os.IsNotExist(err) {
+		t.Errorf("init --dry-run wrote %s, stat err=%v", filepath.Join(root, ".claude"), err)
 	}
 }
 
@@ -187,18 +160,7 @@ func TestCmdSetupNukeAcceptsConfirmationWithSpaces(t *testing.T) {
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	input := filepath.Join(home, "confirmation")
-	if err := os.WriteFile(input, []byte(dir+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	f, err := os.Open(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { f.Close() })
-	old := os.Stdin
-	os.Stdin = f
-	t.Cleanup(func() { os.Stdin = old })
+	stdinFrom(t, dir+"\n")
 
 	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdSetupNuke([]string{"--dir", dir, "--apply"})
@@ -208,18 +170,6 @@ func TestCmdSetupNukeAcceptsConfirmationWithSpaces(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Errorf("confirmed nuke left %s behind, stat err=%v", dir, err)
-	}
-}
-
-// TestSetupWorkspaceStatusRejectsExtraPositionals: status takes at most one <root>; a second is a usage error (2).
-func TestSetupWorkspaceStatusRejectsExtraPositionals(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	root := setupWorkspaceGitRoot(t)
-	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdSetupWorkspace([]string{"status", root, t.TempDir()})
-	})
-	if code != 2 {
-		t.Fatalf("status with two roots: code = %d, want 2; stderr=%q", code, stderr)
 	}
 }
 
@@ -235,4 +185,20 @@ func TestSetupWorkspaceHelpListsInitFlagsOnly(t *testing.T) {
 			}
 		}
 	}
+}
+
+// stdinFrom points os.Stdin at a file holding text until the test ends.
+func stdinFrom(t *testing.T, text string) {
+	t.Helper()
+	input := filepath.Join(t.TempDir(), "stdin")
+	if err := os.WriteFile(input, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdin
+	os.Stdin = f
+	t.Cleanup(func() { os.Stdin = old; f.Close() })
 }

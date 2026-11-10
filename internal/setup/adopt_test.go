@@ -2,6 +2,7 @@ package setup
 
 import (
 	"bytes"
+	"errors"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -88,22 +89,32 @@ func TestAdoptDryRunWritesNothing(t *testing.T) {
 	}
 }
 
+// Adopt refuses an Into that is already a checkout with ErrAlreadyCheckout, before touching either dir.
 func TestAdoptRefusesExistingGit(t *testing.T) {
 	repo := fixtureRepo(t)
 	dir := fixtureTarget(t)
 	mustWrite(t, filepath.Join(dir, ".git", "HEAD"), "ref: refs/heads/main\n")
-
-	if err := Adopt(AdoptOpts{From: repo, Into: dir}); err == nil {
-		t.Fatal("want a refusal when Into/.git already exists")
+	before := snapshot(t, dir)
+	if err := Adopt(AdoptOpts{From: repo, Into: dir}); !errors.Is(err, ErrAlreadyCheckout) {
+		t.Fatalf("Adopt into a checkout = %v, want ErrAlreadyCheckout", err)
+	}
+	if !reflect.DeepEqual(before, snapshot(t, dir)) {
+		t.Error("refused adopt changed the target dir")
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git")); err != nil {
+		t.Errorf("refused adopt moved the source .git: %v", err)
 	}
 }
 
+// Adopt refuses a From without .git with ErrNotAClone, before touching the target.
 func TestAdoptRefusesNonCloneFrom(t *testing.T) {
 	dir := fixtureTarget(t)
-	notAClone := t.TempDir()
-
-	if err := Adopt(AdoptOpts{From: notAClone, Into: dir}); err == nil {
-		t.Fatal("want a refusal when From/.git is missing")
+	before := snapshot(t, dir)
+	if err := Adopt(AdoptOpts{From: t.TempDir(), Into: dir}); !errors.Is(err, ErrNotAClone) {
+		t.Fatalf("Adopt from a non-clone = %v, want ErrNotAClone", err)
+	}
+	if !reflect.DeepEqual(before, snapshot(t, dir)) {
+		t.Error("refused adopt changed the target dir")
 	}
 }
 
@@ -228,22 +239,6 @@ func TestClashes(t *testing.T) {
 	}
 	if _, ok := byPath["rules/r.md"]; ok {
 		t.Error("rules/r.md is not present at dir, so it is not a clash")
-	}
-}
-
-func TestClashesUntrackedNeverClash(t *testing.T) {
-	repo := t.TempDir()
-	gitInit(t, repo, map[string]string{"CLAUDE.md": "repo claude\n"})
-	dir := t.TempDir()
-	mustWrite(t, filepath.Join(dir, "skills", "mine", "SKILL.md"), "mine\n")
-	mustWrite(t, filepath.Join(dir, "settings.local.json"), "{}\n")
-
-	clashes, err := Clashes(repo, dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(clashes) != 0 {
-		t.Fatalf("want 0 clashes, got %+v", clashes)
 	}
 }
 

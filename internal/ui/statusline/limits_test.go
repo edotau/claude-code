@@ -28,59 +28,35 @@ func writeLimitsCache(t *testing.T, fetchedAt time.Time, fiveUtil, sevenUtil flo
 	}
 }
 
-// The payload's own rate_limits wins and renders only "7d:N%".
-func TestLimitsSegmentFromPayload(t *testing.T) {
-	hermetic(t)
-	future := time.Now().Add(time.Hour).Unix()
-	payload := fmt.Sprintf(`{"model":{"display_name":"Opus"},"workspace":{"current_dir":"/tmp"},
-		"rate_limits":{"five_hour":{"used_percentage":23.4,"resets_at":%d},"seven_day":{"used_percentage":41.2,"resets_at":%d}}}`,
-		future, future)
-	got := plain(Render([]byte(payload), "minimal"))
-	if want := "7d:41%"; !strings.Contains(got, want) || strings.Contains(got, "5h:") {
-		t.Errorf("want only %q in %q", want, got)
+// Live payload rate_limits, else a fresh usage cache, render only "7d:N%"; expired, stale or no source renders nothing.
+func TestLimitsSegmentSources(t *testing.T) {
+	future, past := time.Now().Add(time.Hour).Unix(), time.Now().Add(-time.Hour).Unix()
+	limits := func(reset int64) string {
+		return fmt.Sprintf(`,"rate_limits":{"five_hour":{"used_percentage":23.4,"resets_at":%d},`+
+			`"seven_day":{"used_percentage":41.2,"resets_at":%d}}`, reset, reset)
 	}
-}
-
-// A payload 7d window whose reset already passed is omitted.
-func TestLimitsSegmentPayloadWindowExpired(t *testing.T) {
-	hermetic(t)
-	past := time.Now().Add(-time.Hour).Unix()
-	payload := fmt.Sprintf(`{"model":{"display_name":"Opus"},"workspace":{"current_dir":"/tmp"},
-		"rate_limits":{"seven_day":{"used_percentage":41.2,"resets_at":%d}}}`, past)
-	got := plain(Render([]byte(payload), "minimal"))
-	if strings.Contains(got, "7d:") {
-		t.Errorf("expired window rendered: %q", got)
-	}
-}
-
-// No rate_limits on the payload falls back to the read-only usage cache.
-func TestLimitsSegmentFromCache(t *testing.T) {
-	hermetic(t)
-	future := time.Now().Add(24 * time.Hour)
-	writeLimitsCache(t, time.Now(), 23, 41, future, future)
-	got := plain(Render([]byte(runningPayload), "minimal"))
-	if want := "7d:41%"; !strings.Contains(got, want) || strings.Contains(got, "5h:") {
-		t.Errorf("want only %q in %q", want, got)
-	}
-}
-
-// A cache older than 6h is ignored outright, even though its windows have not reset.
-func TestLimitsSegmentStaleCacheIgnored(t *testing.T) {
-	hermetic(t)
-	future := time.Now().Add(24 * time.Hour)
-	writeLimitsCache(t, time.Now().Add(-7*time.Hour), 23, 41, future, future)
-	got := plain(Render([]byte(runningPayload), "minimal"))
-	if strings.Contains(got, "5h:") || strings.Contains(got, "7d:") {
-		t.Errorf("stale cache used: %q", got)
-	}
-}
-
-// Neither the payload nor a usable cache leaves the segment empty, not a stray separator.
-func TestLimitsSegmentEmptyWhenNeitherSource(t *testing.T) {
-	hermetic(t)
-	got := plain(Render([]byte(runningPayload), "minimal"))
-	if strings.Contains(got, "5h:") || strings.Contains(got, "7d:") {
-		t.Errorf("limits rendered with no source: %q", got)
+	for _, tc := range []struct {
+		name, extra string
+		cacheAge    time.Duration // < 0: no cache
+		want        string
+	}{
+		{"payload", limits(future), -1, "7d:41%"},
+		{"payload window expired", limits(past), -1, ""},
+		{"cache", "", 0, "7d:41%"},
+		{"stale cache", "", 7 * time.Hour, ""},
+		{"neither", "", -1, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hermetic(t)
+			if tc.cacheAge >= 0 {
+				reset := time.Now().Add(24 * time.Hour)
+				writeLimitsCache(t, time.Now().Add(-tc.cacheAge), 23, 41, reset, reset)
+			}
+			got := plain(Render([]byte(`{"model":{"display_name":"Opus"},"workspace":{"current_dir":"/tmp"}`+tc.extra+`}`), "minimal"))
+			if strings.Contains(got, "5h:") || strings.Contains(got, "7d:") != (tc.want != "") || !strings.Contains(got, tc.want) {
+				t.Errorf("limits = %q, want only %q", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -138,26 +114,14 @@ func TestLimitsSegmentTokenVsPassthrough(t *testing.T) {
 	writeTokenExpiry(t, "dbx-key", time.Now().Add(42*time.Minute+30*time.Second))
 	writeTokenExpiry(t, "ultra", time.Now().Add(42*time.Minute))
 
-	if got := limitsSegment(in, "dbx-u2m"); got != "u2m:42m" {
-		t.Errorf("oauth profile with a record: %q, want u2m:42m", got)
-	}
-	if got := limitsSegment(in, "dbx-m2m"); got != "m2m:1h05m" {
-		t.Errorf("m2m profile with a record: %q, want m2m:1h05m", got)
-	}
-	if got := limitsSegment(in, "dbx-pat"); got != "pat:30m" {
-		t.Errorf("pat profile with a record: %q, want pat:30m", got)
-	}
-	if got := limitsSegment(in, "dbx-key"); got != "u2m:42m" {
-		t.Errorf("key+command profile with a record: %q, want u2m:42m", got)
-	}
-	if got := limitsSegment(in, "openai"); got != "" {
-		t.Errorf("non-subscription profile without a record: %q, want empty", got)
-	}
-	if got := limitsSegment(in, "ultra"); got != "7d:41%" {
-		t.Errorf("subscription session: %q, want 5h/7d only, even with an expiry record", got)
-	}
-	if got := limitsSegment(in, "no-such-provider"); got != "" {
-		t.Errorf("unknown provider: %q, want empty", got)
+	for session, want := range map[string]string{
+		"dbx-u2m": "u2m:42m", "dbx-m2m": "m2m:1h05m", "dbx-pat": "pat:30m", "dbx-key": "u2m:42m", // token time left
+		"openai": "", "no-such-provider": "", // no record, no subscription
+		"ultra": "7d:41%", // a subscription shows 5h/7d only, even with an expiry record
+	} {
+		if got := limitsSegment(in, session); got != want {
+			t.Errorf("limitsSegment(%s) = %q, want %q", session, got, want)
+		}
 	}
 }
 
