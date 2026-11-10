@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
 func rules(t *testing.T, ss ...string) []agent.Rule {
@@ -140,5 +142,35 @@ func TestOpencodePolicyArgvAutoPrompt(t *testing.T) {
 	}
 	if again := opencodePolicyArgv(got, req); !slices.Equal(again, got) {
 		t.Fatalf("real --auto flag duplicated: %q", again)
+	}
+}
+
+// TestOpencodeExecRefusesPolicyEnv: under a policy, --env may not set the names the policy pins (it would win, being
+// last); with tools on and no policy --env passes through as before.
+func TestOpencodeExecRefusesPolicyEnv(t *testing.T) {
+	deny, err := agent.ParsePermissions("", nil, nil, []string{"Bash(rm:*)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		req  agent.RunOptions
+		want string
+	}{
+		{"deny rule", agent.RunOptions{Tools: true, Permissions: deny, Env: []string{opencodePermissionEnv + `="allow"`}}, opencodePermissionEnv},
+		{"tools off", agent.RunOptions{Env: []string{opencodeConfigEnv + `={"permission":"allow"}`}}, opencodeConfigEnv},
+		{"safe mode", agent.RunOptions{Tools: true, SafeMode: true, Env: []string{opencodePermissionEnv + "=x"}}, opencodePermissionEnv},
+		{"no policy", agent.RunOptions{Tools: true, Env: []string{opencodePermissionEnv + `="allow"`}}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // no opencode installed: a run that gets past the check stops at Bin
+			_, err := (opencodeEngine{agent.NewBaseEngine("opencode")}).Exec(context.Background(), agent.CLIPrep{}, tc.req, wire.Discard)
+			switch {
+			case tc.want == "" && (err == nil || strings.Contains(err.Error(), "permission policy")):
+				t.Fatalf("no policy: err = %v, want --env to pass the check (and the run to stop at the missing binary)", err)
+			case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "allow")):
+				t.Fatalf("err = %v, want a refusal naming %s and not its value", err, tc.want)
+			}
+		})
 	}
 }

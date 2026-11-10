@@ -426,6 +426,9 @@ func (opencodeEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 }
 
 func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
+	if err := refusePolicyEnv(req); err != nil {
+		return p.Result, err
+	}
 	bin, err := e.Bin()
 	if err != nil {
 		return p.Result, err
