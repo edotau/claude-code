@@ -164,9 +164,11 @@ type apiRequest struct {
 
 // apiResponse is the served model and token usage.
 type apiResponse struct {
-	Model        string
-	InputTokens  int64
-	OutputTokens int64
+	Model               string
+	InputTokens         int64
+	CacheCreationTokens int64
+	CacheReadTokens     int64
+	OutputTokens        int64
 }
 
 // streamMessages sends r and writes text deltas to w as they arrive.
@@ -192,7 +194,9 @@ func streamMessages(ctx context.Context, r apiRequest, w io.Writer) (apiResponse
 		switch ev := stream.Current().AsAny().(type) {
 		case anthropic.MessageStartEvent:
 			res.Model = string(ev.Message.Model)
-			res.InputTokens, res.OutputTokens = ev.Message.Usage.InputTokens, ev.Message.Usage.OutputTokens
+			u := ev.Message.Usage
+			res.InputTokens, res.OutputTokens = u.InputTokens, u.OutputTokens
+			res.CacheCreationTokens, res.CacheReadTokens = u.CacheCreationInputTokens, u.CacheReadInputTokens
 		case anthropic.ContentBlockDeltaEvent:
 			if t, ok := ev.Delta.AsAny().(anthropic.TextDelta); ok {
 				if _, err := io.WriteString(w, t.Text); err != nil {
@@ -202,6 +206,12 @@ func streamMessages(ctx context.Context, r apiRequest, w io.Writer) (apiResponse
 		case anthropic.MessageDeltaEvent:
 			if ev.Usage.InputTokens > 0 { // cumulative; input may be absent mid-stream
 				res.InputTokens = ev.Usage.InputTokens
+			}
+			if ev.Usage.CacheCreationInputTokens > 0 {
+				res.CacheCreationTokens = ev.Usage.CacheCreationInputTokens
+			}
+			if ev.Usage.CacheReadInputTokens > 0 {
+				res.CacheReadTokens = ev.Usage.CacheReadInputTokens
 			}
 			res.OutputTokens = ev.Usage.OutputTokens
 		}
