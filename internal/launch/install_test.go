@@ -3,6 +3,7 @@ package launch
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -19,7 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/copilot"
 	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini route engine the prod binary links
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
@@ -125,9 +125,9 @@ func shortTempDir(t *testing.T) string {
 // them in full. The config dir and HOME are re-rooted under a short path (hermetic's own t.TempDir()
 // embeds the test name, which makes every path artificially long for the 80-column check) and real
 // git stays reachable after the vendor fixtures (installGitHooks/history need it; it's absent from a
-// bare vendor-only PATH). HARNESS_WINDOWS_PROFILE is pointed at a resolvable dir when the host is
-// really WSL (so the "settings (windows)" line is deterministic either way), empty otherwise.
-func setupCompactFixture(t *testing.T, linked []string) (wantWindowsLine bool) {
+// bare vendor-only PATH). The host reads as non-WSL with HARNESS_WINDOWS_PROFILE empty, so no "settings (windows)"
+// line prints on any machine unless a test sets the env.
+func setupCompactFixture(t *testing.T, linked []string) {
 	t.Helper()
 	hermetic(t, "")
 	root := shortTempDir(t)
@@ -166,34 +166,45 @@ func setupCompactFixture(t *testing.T, linked []string) (wantWindowsLine bool) {
 	// warning fires on every run here and this wouldn't be an all-ok fixture anymore.
 	dirs = append(dirs, filepath.Join(root, "localbin"))
 	t.Setenv("PATH", strings.Join(dirs, string(os.PathListSeparator)))
-	if proc.OnWSL() {
-		t.Setenv(windowsProfileEnv, shortTempDir(t))
-		return true
-	}
+	noWindowsProfile(t)
+}
+
+// noWindowsProfile makes the host read as non-WSL with no Windows profile, so no "settings (windows)" step runs.
+func noWindowsProfile(t *testing.T) {
+	t.Helper()
+	orig := onWSL
+	onWSL = func() bool { return false } // never shell out to cmd.exe; a test opts into the windows line via the env
+	t.Cleanup(func() { onWSL = orig })
 	t.Setenv(windowsProfileEnv, "")
-	return false
 }
 
 // TestInstallCompactDefaultOutputHasExactlyTheStepLines: an all-ok real run prints exactly one line
 // per step (install, vendors, settings, settings (windows) only when applicable, agents, extras) —
 // never a per-vendor or per-sub-step line, since nothing here failed or needed a full report.
 func TestInstallCompactDefaultOutputHasExactlyTheStepLines(t *testing.T) {
-	wantWindows := setupCompactFixture(t, []string{"claude", "codex", "copilot", "opencode", "gemini"})
-	var out bytes.Buffer
-	if err := Install(&out, false, false); err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, l := range splitNonEmpty(out.String()) {
-		got = append(got, compactStepPrefix(t, l))
-	}
-	want := []string{"install", "links", "settings"}
-	if wantWindows {
-		want = append(want, "settings (windows)")
-	}
-	want = append(want, "agents", "extras")
-	if !slices.Equal(got, want) {
-		t.Errorf("default install steps = %v, want %v\nfull output:\n%s", got, want, &out)
+	for _, windowsProfile := range []bool{false, true} {
+		t.Run(fmt.Sprintf("windows profile %v", windowsProfile), func(t *testing.T) {
+			setupCompactFixture(t, []string{"claude", "codex", "copilot", "opencode", "gemini"})
+			if windowsProfile { // a resolved Windows profile (WSL) adds the settings (windows) step
+				t.Setenv(windowsProfileEnv, shortTempDir(t))
+			}
+			var out bytes.Buffer
+			if err := Install(&out, false, false); err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, l := range splitNonEmpty(out.String()) {
+				got = append(got, compactStepPrefix(t, l))
+			}
+			want := []string{"install", "links", "settings"}
+			if windowsProfile {
+				want = append(want, "settings (windows)")
+			}
+			want = append(want, "agents", "extras")
+			if !slices.Equal(got, want) {
+				t.Errorf("default install steps = %v, want %v\nfull output:\n%s", got, want, &out)
+			}
+		})
 	}
 }
 
@@ -250,8 +261,8 @@ func runVerboseFixture(t *testing.T, fn func(io.Writer) error) (output, root, se
 		t.Fatal(err)
 	}
 	selfBinary = func() (string, error) { return self, nil }
-	t.Setenv("PATH", t.TempDir())   // an empty dir: every vendor resolves to "missing", deterministically
-	t.Setenv(windowsProfileEnv, "") // windows settings off in both fixtures alike
+	t.Setenv("PATH", t.TempDir()) // an empty dir: every vendor resolves to "missing", deterministically
+	noWindowsProfile(t)           // windows settings off in both fixtures alike
 	var out bytes.Buffer
 	if err := fn(&out); err != nil {
 		t.Fatal(err)
@@ -762,6 +773,9 @@ func TestDoctorChecksRunsSectionsConcurrentlyInOrder(t *testing.T) {
 
 // Doctor passes only when PATH's rtk is the pin; a shadow or a missing PATH entry fails naming the fix.
 func TestRTKDoctorStatusNamesShadow(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the shadow fixture is an extensionless sh script, which Windows PATH lookup never finds")
+	}
 	pin, userBin := rtkFixture(t)
 	if err := os.Symlink(pin, filepath.Join(userBin, "rtk")); err != nil {
 		t.Fatal(err)
@@ -769,12 +783,13 @@ func TestRTKDoctorStatusNamesShadow(t *testing.T) {
 	shadowDir := t.TempDir()
 	mark := filepath.Join(t.TempDir(), "ran")
 	writeExec(t, filepath.Join(shadowDir, "rtk"), "#!/bin/sh\n: > '"+mark+"'\necho 'rtk 0.42.4'\n")
+	sep := string(os.PathListSeparator)
 	for _, tc := range []struct {
 		name, path, want string
 		ok               bool
 	}{
-		{"pin first", userBin + ":" + shadowDir, "PATH rtk is this binary", true},
-		{"shadow first", shadowDir + ":" + userBin, "PATH rtk " + filepath.Join(shadowDir, "rtk") + " shadows " +
+		{"pin first", userBin + sep + shadowDir, "PATH rtk is this binary", true},
+		{"shadow first", shadowDir + sep + userBin, "PATH rtk " + filepath.Join(shadowDir, "rtk") + " shadows " +
 			pin + " — run make install, or put ~/.local/bin first on PATH", false},
 		{"none on PATH", t.TempDir(), pin + " is not on PATH — run make install", false},
 	} {

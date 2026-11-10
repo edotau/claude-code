@@ -2,8 +2,10 @@ package browser
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -72,5 +74,37 @@ func TestRunCommandPowerShellOffPathUsesWindowsRoot(t *testing.T) {
 	if err != nil && errors.As(err, &pe) && !strings.HasSuffix(pe.Path,
 		"/Windows/System32/WindowsPowerShell/v1.0/powershell.exe") {
 		t.Errorf("exec'd %q", pe.Path)
+	}
+}
+
+// NewEnv per platform: macOS keeps app data under Library/Application Support, Linux under .config, and only a
+// Linux host that the WSL probe recognizes is WSL.
+func TestNewEnvPerPlatform(t *testing.T) {
+	for _, tc := range []struct {
+		goos     string
+		wslProbe bool
+		appSup   []string
+		wantWSL  bool
+	}{
+		{"darwin", true, []string{"Library", "Application Support"}, false},
+		{"linux", false, []string{".config"}, false},
+		{"linux", true, []string{".config"}, true},
+		{"windows", true, []string{".config"}, false},
+	} {
+		t.Run(fmt.Sprintf("%s/wsl=%v", tc.goos, tc.wslProbe), func(t *testing.T) {
+			origGOOS, origWSL := envGOOS, onWSL
+			envGOOS, onWSL = tc.goos, func() bool { return tc.wslProbe }
+			t.Cleanup(func() { envGOOS, onWSL = origGOOS, origWSL })
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("USERPROFILE", home)
+
+			e := NewEnv()
+			want := filepath.Join(append([]string{home}, tc.appSup...)...)
+			if e.GOOS != tc.goos || e.WSL != tc.wantWSL || e.AppSupport != want {
+				t.Fatalf("NewEnv = GOOS %q WSL %v AppSupport %q; want %q, %v, %q",
+					e.GOOS, e.WSL, e.AppSupport, tc.goos, tc.wantWSL, want)
+			}
+		})
 	}
 }

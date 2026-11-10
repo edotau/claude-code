@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -218,4 +219,28 @@ func descendsFrom(pid int, roots map[int]bool) bool {
 		}
 	}
 	return false
+}
+
+// parseLsofCwd reads `lsof -Fpcn` output: a p(id) line opens a process, c(omm) names it, each n(ame) is its cwd.
+func parseLsofCwd(out string) ([]procCwd, error) {
+	var procs []procCwd
+	var pid int
+	var comm string
+	scanner := bufio.NewScanner(strings.NewReader(out))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		switch line[0] {
+		case 'p':
+			pid, _ = strconv.Atoi(line[1:])
+			comm = ""
+		case 'c':
+			comm = line[1:]
+		case 'n':
+			procs = append(procs, procCwd{PID: pid, Cwd: line[1:], Comm: comm})
+		}
+	}
+	return procs, scanner.Err()
 }

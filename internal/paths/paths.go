@@ -320,13 +320,16 @@ func Backup(src string, data []byte) (string, error) {
 	return writeBackup(base, data)
 }
 
+// vscodeGOOS picks VSCodeSettings' platform layout; a seam so tests run every branch on any host.
+var vscodeGOOS = runtime.GOOS
+
 // VSCodeSettings is the platform's VS Code Machine settings path; outside a vscode-server it is the User scope.
 func VSCodeSettings() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	switch runtime.GOOS {
+	switch vscodeGOOS {
 	case "darwin":
 		return filepath.Join(home, "Library", "Application Support", "Code", "User", "settings.json"), nil
 	case "windows":

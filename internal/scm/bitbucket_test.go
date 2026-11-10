@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"os/exec"
 	"strings"
-	"testing"
+	"testing" // tests refuse real DNS: mock API calls
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 func TestDiffTruncatedBodyIsError(t *testing.T) {

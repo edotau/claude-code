@@ -221,8 +221,8 @@ func TestCleanWhatFlagRejected(t *testing.T) {
 
 // TestPruneAgedToFailedRemoval: a removal that errors is counted as a failure and named on errw, never a hit or sized.
 func TestPruneAgedToFailedRemoval(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root ignores directory modes; the failure premise does not hold")
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("root and Windows ignore directory modes; the failure premise does not hold")
 	}
 	dir := t.TempDir()
 	blocked := filepath.Join(dir, "blocked-old")

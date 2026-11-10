@@ -90,3 +90,23 @@ func TestSecretHintPipedPrintsPlainHint(t *testing.T) {
 		t.Fatalf("got %q, %v, out %q", got, err, out)
 	}
 }
+
+// TestFeedPasswordSwallowsSS3Arrow: ESC O A (application-mode Up) must not leak "OA" into the secret.
+func TestFeedPasswordSwallowsSS3Arrow(t *testing.T) {
+	var esc escState
+	line, done, err := feedPassword(nil, []byte("ab\x1bOAc\n"), &esc)
+	if err != nil || !done || string(line) != "abc" {
+		t.Fatalf("feedPassword = %q, %v, %v; want abc, true, nil", line, done, err)
+	}
+}
+
+func TestPasswordBackspaceRemovesWholeRune(t *testing.T) {
+	for _, backspace := range []byte{0x7f, 0x08} {
+		var esc escState
+		input := append([]byte("é"), backspace, 'a', '\n')
+		line, done, err := feedPassword(nil, input, &esc)
+		if err != nil || !done || string(line) != "a" {
+			t.Fatalf("Backspace %#x: password = %q, %v, %v; want a, true, nil", backspace, line, done, err)
+		}
+	}
+}

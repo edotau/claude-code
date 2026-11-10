@@ -60,9 +60,12 @@ var ErrKeyringUnavailable = errors.New("keyring: unavailable")
 // more specific sentinel first.
 var errKeyringNoTool = fmt.Errorf("keyring: no tool on PATH for this OS: %w", ErrKeyringUnavailable)
 
+// keyringGOOS picks the keyring plane's OS branch; tests swap it to run every branch on any host.
+var keyringGOOS = runtime.GOOS
+
 // KeyringTool returns the plane's binary name for this OS, or "" where none is wired up.
 func KeyringTool() string {
-	switch runtime.GOOS {
+	switch keyringGOOS {
 	case "linux":
 		return "secret-tool"
 	case "darwin":
@@ -116,7 +119,7 @@ func KeyringLookup(name string) (value string, found bool, err error) {
 
 // lookupCommand is this OS's keyring read of name's value.
 func lookupCommand(ctx context.Context, name string) *exec.Cmd {
-	switch runtime.GOOS {
+	switch keyringGOOS {
 	case "linux":
 		return exec.CommandContext(ctx, "secret-tool", "lookup", "service", service, "account", name)
 	case "darwin":
@@ -133,9 +136,9 @@ func lookupFailure(err error) error {
 	}
 	stderr := strings.TrimSpace(string(exit.Stderr))
 	switch {
-	case runtime.GOOS == "linux" && exit.ExitCode() == 1 && stderr == "":
+	case keyringGOOS == "linux" && exit.ExitCode() == 1 && stderr == "":
 		return nil // only a positively established absence
-	case runtime.GOOS == "darwin" && exit.ExitCode() == 44:
+	case keyringGOOS == "darwin" && exit.ExitCode() == 44:
 		return nil // only a positively established absence
 	case stderr != "":
 		return fmt.Errorf("%w: %s", ErrKeyringUnavailable, stderr)
@@ -179,7 +182,7 @@ func checkKeyringSet(name, value string) error {
 		return fmt.Errorf("keyring: %s: name or value spans more than one line", name)
 	}
 	if !KeyringAvailable() {
-		return fmt.Errorf("keyring: no keyring tool on PATH for %s — set HARNESS_VAULT_KEY or meta/key_command instead", runtime.GOOS)
+		return fmt.Errorf("keyring: no keyring tool on PATH for %s — set HARNESS_VAULT_KEY or meta/key_command instead", keyringGOOS)
 	}
 	if down.Load() {
 		return errors.New("keyring: the keyring did not answer earlier this run — set HARNESS_VAULT_KEY or meta/key_command instead")
@@ -190,7 +193,7 @@ func checkKeyringSet(name, value string) error {
 // storeCommand is this OS's keyring write of name, with value fed on stdin.
 func storeCommand(ctx context.Context, name, value string) *exec.Cmd {
 	var cmd *exec.Cmd
-	switch runtime.GOOS {
+	switch keyringGOOS {
 	case "linux":
 		cmd = exec.CommandContext(ctx, "secret-tool", "store", "--label="+service, "service", service, "account", name)
 		cmd.Stdin = strings.NewReader(value)

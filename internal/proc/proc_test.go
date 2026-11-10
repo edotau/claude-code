@@ -79,8 +79,8 @@ func TestExecRefusesUnderTest(t *testing.T) {
 }
 
 func TestStartTimeOfSelfIsStable(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("linux /proc identity")
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("StartTime reads /proc (linux) or ps (darwin)")
 	}
 	a, err := StartTime(os.Getpid())
 	b, _ := StartTime(os.Getpid())
@@ -94,6 +94,9 @@ func TestStartTimeOfSelfIsStable(t *testing.T) {
 
 // Alive must report the calling process itself as alive, and a reaped child pid as dead.
 func TestAlive(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Alive is a signal-0 probe; off unix it always reports false")
+	}
 	if !Alive(os.Getpid()) {
 		t.Error("Alive(own pid) must be true")
 	}

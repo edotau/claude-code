@@ -8,7 +8,9 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
+	"time" // tests refuse real DNS: mock API calls
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 func TestDoReturnsStatusBodyHeader(t *testing.T) {

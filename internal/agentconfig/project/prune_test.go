@@ -3,9 +3,13 @@ package project
 import (
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 )
@@ -70,3 +74,50 @@ func TestLegacySkillPrunePreservesMarkerForRetry(t *testing.T) {
 
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func newLegacySkillFIFO(t *testing.T) (root, fifo string) {
+	t.Helper()
+	mkfifo := "/usr/bin/mkfifo" // hosttest's PATH allowlist leaves mkfifo out; coreutils and macOS both ship it here
+	if _, err := os.Stat(mkfifo); runtime.GOOS == "windows" || err != nil {
+		t.Skip("needs a unix FIFO (mkfifo)")
+	}
+	root = t.TempDir()
+	dir := filepath.Join(root, "legacy")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fifo = filepath.Join(dir, "SKILL.md")
+	if out, err := exec.Command(mkfifo, "-m", "600", fifo).CombinedOutput(); err != nil {
+		t.Fatalf("mkfifo: %v: %s", err, out)
+	}
+	// Keep the FIFO open so a regressed reader blocks until cleanup, not forever on open.
+	pipe, err := os.OpenFile(fifo, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := pipe.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	return root, fifo
+}
+
+func TestLegacySkillPruneRejectsFIFO(t *testing.T) {
+	for _, dryRun := range []bool{false, true} {
+		t.Run(strconv.FormatBool(dryRun), func(t *testing.T) {
+			root, fifo := newLegacySkillFIFO(t)
+			done := make(chan syncResult, 1)
+			go func() { done <- pruneLegacyGeminiSkills(io.Discard, root, dryRun) }()
+			select {
+			case res := <-done:
+				assertPruneResult(t, res, syncResult{})
+			case <-time.After(2 * time.Second):
+				t.Fatalf("legacy skill prune blocked reading FIFO (dryRun=%v)", dryRun)
+			}
+			if info, err := os.Lstat(fifo); err != nil || info.Mode()&os.ModeNamedPipe == 0 {
+				t.Fatalf("FIFO changed during prune (dryRun=%v): %v", dryRun, err)
+			}
+		})
+	}
+}

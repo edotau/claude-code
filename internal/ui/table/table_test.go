@@ -2,7 +2,9 @@ package table
 
 import (
 	"strings"
-	"testing"
+	"testing" // tests refuse real DNS: mock API calls
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 func TestRenderCapsColumnsWithEllipsis(t *testing.T) {

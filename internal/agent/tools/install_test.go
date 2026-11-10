@@ -58,6 +58,7 @@ func TestInstallClaudeScienceDryRunTouchesNoNetwork(t *testing.T) {
 }
 
 func TestInstallCopilotFallsBackToBinDirForNonBinDir(t *testing.T) {
+	skipWithoutPOSIXShell(t)
 	setupToolsTestEnv(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("#!/bin/sh\nprintf 'PREFIX=%s\\n' \"$PREFIX\"\n"))
@@ -82,6 +83,7 @@ func TestInstallCopilotFallsBackToBinDirForNonBinDir(t *testing.T) {
 }
 
 func TestInstallCopilotUsesDirDirectlyWhenNamedBin(t *testing.T) {
+	skipWithoutPOSIXShell(t)
 	setupToolsTestEnv(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("#!/bin/sh\nprintf 'PREFIX=%s\\n' \"$PREFIX\"\n"))
@@ -106,6 +108,7 @@ func TestInstallCopilotUsesDirDirectlyWhenNamedBin(t *testing.T) {
 }
 
 func TestInstallOpencodeCopiesFromHomeInstallDir(t *testing.T) {
+	skipWithoutPOSIXShell(t)
 	setupToolsTestEnv(t)
 	const installed = "#!/bin/sh\nprintf 'opencode 1.0.0\\n'\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -144,6 +147,14 @@ chmod 755 "$HOME/.opencode/bin/opencode"
 	}
 }
 
+// skipWithoutPOSIXShell skips fake-installer tests: runInstallScript execs bash and the fakes are sh scripts.
+func skipWithoutPOSIXShell(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("installer scripts run under bash/sh")
+	}
+}
+
 // opencodeInstallScript returns a fake install script whose installed binary reports version via --version.
 func opencodeInstallScript(version string) string {
 	return "#!/bin/sh\n" +
@@ -157,6 +168,7 @@ func opencodeInstallScript(version string) string {
 
 func installOpencodeFromFakeServer(t *testing.T, version, dir string) error {
 	t.Helper()
+	skipWithoutPOSIXShell(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(opencodeInstallScript(version)))
 	}))
@@ -359,9 +371,12 @@ func stubScienceTools(t *testing.T, team string) {
 
 func runScienceInstall(t *testing.T, team string) (root, bin string, err error) {
 	setupToolsTestEnv(t)
-	if runtime.GOOS != "darwin" {
-		t.Skip("macOS app install")
+	if runtime.GOOS == "windows" {
+		t.Skip("the stubbed app is an sh script reached through a symlink")
 	}
+	oldGOOS, oldGOARCH := goosOverride, goarchOverride
+	goosOverride, goarchOverride = "darwin", "arm64" // every macOS tool is stubbed, so any unix host runs it
+	t.Cleanup(func() { goosOverride, goarchOverride = oldGOOS, oldGOARCH })
 	stubScienceTools(t, team)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("dmg")) }))
 	t.Cleanup(srv.Close)

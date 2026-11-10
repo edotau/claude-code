@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -344,3 +346,39 @@ func TestWriteStateSerializesOwnershipCheckAndPublication(t *testing.T) {
 
 // TestMain runs in the hermetic host (hosttest), so no test touches the live vault or secret.
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+// terminate stops a real child, alive sees it gone, and awaitExit returns at once rather than polling out its deadline.
+func TestAwaitExitObservesTerminatedProcess(t *testing.T) {
+	argv := []string{"sleep", "30"}
+	if runtime.GOOS == "windows" {
+		argv = []string{"ping.exe", "-n", "30", "127.0.0.1"}
+	}
+	cmd := exec.Command(argv[0], argv[1:]...)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if cmd.ProcessState == nil {
+			if err := cmd.Process.Kill(); err != nil {
+				t.Error(err)
+			}
+			_ = cmd.Wait()
+		}
+	})
+	pid := cmd.Process.Pid
+	if !alive(pid) {
+		t.Fatal("running child process reported dead")
+	}
+	if err := terminate(pid); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err == nil {
+		t.Fatal("terminated child unexpectedly exited successfully")
+	}
+	previous := ShutdownDrain
+	ShutdownDrain = -4 * time.Second
+	t.Cleanup(func() { ShutdownDrain = previous })
+	if !awaitExit(pid) {
+		t.Fatal("awaitExit still reports a terminated process alive")
+	}
+}

@@ -421,6 +421,9 @@ func buildFakeCLI(t *testing.T) string {
 			return
 		}
 		fakeCLIExe = filepath.Join(fakeCLIDir, "fake")
+		if runtime.GOOS == "windows" {
+			fakeCLIExe += ".exe" // exec resolves an extensionless path only through PATHEXT
+		}
 		if out, err := exec.Command("go", "build", "-o", fakeCLIExe, "./testdata/fakecli").CombinedOutput(); err != nil {
 			fakeCLIErr = fmt.Errorf("build fakecli: %w\n%s", err, out)
 		}
@@ -596,10 +599,14 @@ done
 	}
 	cancel()
 	deadline := time.Now().Add(5 * time.Second)
-	for syscall.Kill(pid, 0) == nil && time.Now().Before(deadline) {
+	alive := func() bool {
+		p, err := os.FindProcess(pid)
+		return err == nil && p.Signal(syscall.Signal(0)) == nil
+	}
+	for alive() && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
-	if syscall.Kill(pid, 0) == nil {
+	if alive() {
 		t.Fatalf("runtime pid %d still alive after ctx cancel", pid)
 	}
 }

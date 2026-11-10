@@ -143,8 +143,8 @@ func TestRunGitInheritPassesGitPrefixedThrough(t *testing.T) {
 }
 
 func TestRunGitDeadlineWithInheritedOutput(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("requires Linux shell process behavior")
+	if runtime.GOOS == "windows" {
+		t.Skip("git's ! alias needs a POSIX sh with sleep and job control")
 	}
 	dir := t.TempDir()
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)

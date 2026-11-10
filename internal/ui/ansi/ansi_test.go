@@ -6,7 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/hosttest" // tests refuse real DNS: mock API calls
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 func TestHex(t *testing.T) {

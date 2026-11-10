@@ -13,7 +13,8 @@ import (
 	"testing"
 	"testing/iotest"
 
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/hosttest" // tests refuse real DNS: mock API calls
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 func init() { newID = func(prefix string) string { return prefix + "test" } }

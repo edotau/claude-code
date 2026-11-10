@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -17,6 +18,9 @@ import (
 // A loop produces a deterministic non-ENOENT probe failure even when tests run as root.
 func probeSymlinkLoop(t *testing.T, path string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("a self-referencing symlink (ELOOP) needs unix")
+	}
 	if err := os.Symlink(path, path); err != nil {
 		t.Fatal(err)
 	}

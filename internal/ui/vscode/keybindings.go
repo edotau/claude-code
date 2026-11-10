@@ -15,6 +15,9 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
+// keybindingsGOOS picks DefaultKeybindingsDest's platform branch; tests swap it to run every branch on any host.
+var keybindingsGOOS = runtime.GOOS
+
 // DefaultKeybindingsDest returns the local client's User keybindings.json. Keybindings are UI-side —
 // unlike settings there is no Machine scope — so a headless box with only vscode-server has nowhere
 // to put them; skip is true and note explains why.
@@ -23,7 +26,7 @@ func DefaultKeybindingsDest() (dest string, skip bool, note string, err error) {
 	if err != nil {
 		return "", false, "", err
 	}
-	switch runtime.GOOS {
+	switch keybindingsGOOS {
 	case "darwin":
 		return filepath.Join(home, "Library", "Application Support", "Code", "User", "keybindings.json"), false, "", nil
 	case "windows":

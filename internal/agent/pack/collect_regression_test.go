@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
-	"time"
+	"time" // tests refuse real DNS: mock API calls
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 func TestCollectRejectsSecretThroughSymlinkedParent(t *testing.T) {

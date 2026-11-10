@@ -56,7 +56,7 @@ func Init(root string) (string, error) {
 	return dir, nil
 }
 
-// writeBody writes a seed file's body; tests swap it to fail mid-write.
+// writeBody writes a new file's body (seedFile, createExcl); tests swap it to fail mid-write.
 var writeBody = func(f *os.File, body string) error { _, err := f.WriteString(body); return err }
 
 // seedFile writes body to a temp file and links it into place, so p is never partial and never replaces a racer's file.
@@ -87,8 +87,7 @@ func createExcl(p, body string) error {
 	if err != nil {
 		return err
 	}
-	_, werr := f.WriteString(body)
-	if err := errors.Join(werr, f.Close()); err != nil {
+	if err := errors.Join(writeBody(f, body), f.Close()); err != nil {
 		return errors.Join(err, os.Remove(p)) // Init skips an existing file, so a partial one must not survive
 	}
 	return nil

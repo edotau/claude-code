@@ -19,6 +19,9 @@ import (
 // TestMain moves TMPDIR out of /tmp: a stray /tmp/.git makes collect's fail-closed check reject every fixture.
 func TestMain(m *testing.M) {
 	root, err := os.MkdirTemp("/var/tmp", "pack-test-")
+	if err != nil && runtime.GOOS == "windows" { // no /var/tmp; %TEMP% has no shared /tmp/.git hazard
+		root, err = os.MkdirTemp("", "pack-test-")
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "pack TestMain:", err)
 		os.Exit(1)
@@ -140,8 +143,8 @@ func TestCollectGlobError(t *testing.T) {
 
 // TestCollectWalkError: an unreadable subdir is recorded as Skipped, not vanished silently.
 func TestCollectWalkError(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root bypasses directory permission bits")
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("root and Windows ignore directory permission bits")
 	}
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "locked")
@@ -524,6 +527,7 @@ func runCancellationCase(t *testing.T, sleep string, tc cancelCase) {
 }
 
 func TestGitCommandCancellation(t *testing.T) {
+	skipUnlessUnix(t) // the fake git is an sh script
 	sleep, err := exec.LookPath("sleep")
 	if err != nil {
 		t.Skip("sleep not on PATH")
@@ -540,6 +544,7 @@ func TestGitCommandCancellation(t *testing.T) {
 }
 
 func TestCollectGitFailureFallback(t *testing.T) {
+	skipUnlessUnix(t) // the fake git is an sh script
 	for _, stage := range []string{"rev-parse", "ls-files"} {
 		t.Run(stage, func(t *testing.T) {
 			dir, bin := t.TempDir(), t.TempDir()
@@ -585,7 +590,7 @@ func fakeGit(t *testing.T, code, stderr string) {
 	if err := os.Chmod(filepath.Join(bin, "git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 // A git failure inside a real repo fails closed; only git's "not a git repository" means non-repo.

@@ -2,6 +2,7 @@ package memory
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -90,5 +91,29 @@ func TestHasBankResolvesDirOnce(t *testing.T) {
 	write(t, filepath.Join(Dir(repo), "progress.md"), "# Progress\n")
 	if !HasBank(repo) {
 		t.Error("HasBank = false with a typed file in the bank")
+	}
+}
+
+// createExcl's write failing midway (disk full, file-size limit) removes the partial file, so a retry lands the body.
+func TestPersistenceCreateExclRemovesPartial(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "projectContext.md")
+	orig := writeBody
+	t.Cleanup(func() { writeBody = orig })
+	writeBody = func(f *os.File, body string) error {
+		_, _ = f.WriteString(body[:len(body)/2])
+		return errors.New("file too large")
+	}
+	if err := createExcl(path, "partial scaffold\n"); err == nil {
+		t.Fatal("expected a partial-write error")
+	}
+	if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("failed fallback left a partial file: %v", err)
+	}
+	writeBody = orig
+	if err := createExcl(path, "retry\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := aliasRead(t, path); got != "retry\n" {
+		t.Errorf("retry retained partial scaffold: %q", got)
 	}
 }

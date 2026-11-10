@@ -5,11 +5,19 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
+// extensionHome is a claude home with the extension source; it skips where symlinks need privileges (Windows).
 func extensionHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
+	if err := os.Symlink(home, filepath.Join(home, "probe")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.Remove(filepath.Join(home, "probe")); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(home, "vscode", "claude-code-agents"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -137,5 +145,27 @@ func TestLinkExtensionCheckRejectsDeletedSource(t *testing.T) {
 	_, err := LinkExtension(home, extensions, true)
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("check of dangling matching link = %v, want missing-source error", err)
+	}
+}
+
+// A Chtimes failure in bumpManifestScan reaches the caller unchanged, naming the extension source.
+func TestLinkExtensionPropagatesChtimesError(t *testing.T) {
+	claudeHome := extensionHome(t)
+	extensionsDir := t.TempDir()
+	source := filepath.Join(claudeHome, "vscode", "claude-code-agents")
+	if err := os.Symlink(source, filepath.Join(extensionsDir, extensionDirName)); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	injected := errors.New("chtimes refused")
+	var touched string
+	orig := chtimes
+	chtimes = func(name string, _, _ time.Time) error { touched = name; return injected }
+	t.Cleanup(func() { chtimes = orig })
+
+	if _, err := LinkExtension(claudeHome, extensionsDir, false); !errors.Is(err, injected) {
+		t.Fatalf("LinkExtension = %v, want the chtimes error", err)
+	}
+	if touched != source {
+		t.Fatalf("chtimes(%q), want the extension source %q", touched, source)
 	}
 }

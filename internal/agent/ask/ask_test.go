@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -213,6 +214,7 @@ func lineCount(s, want string) int {
 // agyJobFixture logs agy in under a temp HOME and fakes the vendor binary with stderr noise plus a streamed answer.
 func agyJobFixture(t *testing.T) {
 	t.Helper()
+	skipWithoutSh(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -284,6 +286,7 @@ func TestCmdAskJobLogEachLineOnce(t *testing.T) {
 // a fake remote bin that prints banner then the given NDJSON lines; it returns the remote bin path.
 func hostFixture(t *testing.T, banner string, lines []string, exit int) string {
 	t.Helper()
+	skipWithoutSh(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -636,6 +639,7 @@ func assertEventsLogMirrors(t *testing.T, evs []wire.Event, dispatchID, secret s
 // ask --format stream-json over a fake claude: ordered start..text..tool_use..result, seq rising, the result
 // envelope answer equals the streamed text, and the on-disk events log mirrors stdout with secrets redacted.
 func TestAskStreamJSONSpansEventsAndLog(t *testing.T) {
+	skipWithoutSh(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -710,6 +714,7 @@ func waitFakeVendorReady(t *testing.T, ready string, done <-chan askOutcome) {
 
 // With --stdin-framed the prompt ends at a NUL; stdin closing after that cancels a run that is still blocked.
 func TestAskStdinFramedCancelsOnEOF(t *testing.T) {
+	skipWithoutSh(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -927,6 +932,14 @@ func runCLI(t *testing.T, argv ...string) (int, string, string) {
 	return code, string(o), string(e)
 }
 
+// skipWithoutSh skips tests whose fake CLIs (vendors, ssh, gh) are sh scripts, which Windows cannot exec.
+func skipWithoutSh(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLIs are sh scripts")
+	}
+}
+
 // cliEnv is a hermetic config dir + HOME with the agy login marker, so every fake CLI looks logged in.
 func cliEnv(t *testing.T) {
 	t.Helper()
@@ -952,6 +965,7 @@ func cliEnv(t *testing.T) {
 // cliFakes installs a stand-in child per CLI agent (copilot rides the SDK and is covered in copilot_gate_test.go).
 func cliFakes(t *testing.T) {
 	t.Helper()
+	skipWithoutSh(t)
 	pathstest.FakeVendor(t, "claude", "cat > /dev/null; sleep 0.05\n"+
 		`printf '%s\n' '{"type":"system","subtype":"init","session_id":"sc","model":"fake-claude"}'`+"\n"+
 		`printf '%s\n' '{"type":"assistant","message":{"model":"fake-claude","content":[{"type":"text","text":"hello"}]}}'`+"\n"+
@@ -968,6 +982,7 @@ func cliFakes(t *testing.T) {
 // cliMarker is a fake child that records its invocation (never a `login` probe) by touching a file.
 func cliMarker(t *testing.T, vendor, body string) string {
 	t.Helper()
+	skipWithoutSh(t)
 	marker := filepath.Join(t.TempDir(), vendor+".ran")
 	pathstest.FakeVendor(t, vendor, `[ "$1" = login ] && { echo "Logged in using ChatGPT"; exit 0; }`+"\n"+
 		"touch "+marker+"\n"+body)
@@ -1292,6 +1307,7 @@ var armDevHop = map[string]struct{ bin, key, route string }{
 // armChildEnvFixture: dev/qa rows, planted env, a stubbed mint, fakes that dump argv+env to <dir>/<seq>-<bin> and 402.
 func armChildEnvFixture(t *testing.T) string {
 	t.Helper()
+	skipWithoutSh(t)
 	cliEnv(t)
 	dump := t.TempDir()
 	for _, h := range armDevHop {
@@ -1326,6 +1342,7 @@ func armChildEnvFixture(t *testing.T) string {
 // armCopilotLogin pins copilot to a gh login "octo" with verified credits, gh itself a fake that prints a token.
 func armCopilotLogin(t *testing.T) {
 	t.Helper()
+	skipWithoutSh(t)
 	if err := vault.SetAgentRecord("copilot", vault.AgentRecord{Profile: "personal"}); err != nil {
 		t.Fatal(err)
 	}
@@ -1376,9 +1393,13 @@ func envValue(dump []string, name string) (string, bool) {
 }
 
 // assertArmDevHop: the child is on dev's route, its key the dev session token, inside the route, leaking nothing.
-func assertArmDevHop(t *testing.T, name string, dump []string) {
+func assertArmDevHop(t *testing.T, name, goos string, dump []string) {
 	t.Helper()
 	h := armDevHop[name]
+	if name == "copilot" && goos != "darwin" {
+		assertArmCopilotRegistryHop(t, dump)
+		return
+	}
 	if !slices.ContainsFunc(dump, func(l string) bool { return strings.Contains(l, h.route) }) {
 		t.Errorf("%s dev hop: no %s route", name, h.route)
 	}
@@ -1389,6 +1410,23 @@ func assertArmDevHop(t *testing.T, name string, dump []string) {
 		t.Errorf("%s dev hop: %s is not databricks:dev", name, router.EnvRoute)
 	}
 	assertArmNoLeak(t, name, dump)
+}
+
+// assertArmCopilotRegistryHop: off macOS the hop runs from the private home; route and token ride the SDK, not env.
+func assertArmCopilotRegistryHop(t *testing.T, dump []string) {
+	t.Helper()
+	if v, _ := envValue(dump, "COPILOT_HOME"); !strings.HasSuffix(v, filepath.Join("copilot", "registry-home")) {
+		t.Errorf("copilot dev hop: COPILOT_HOME = %q, want the private registry home", v)
+	}
+	for _, kv := range dump {
+		if strings.HasPrefix(kv, "COPILOT_PROVIDER_") {
+			t.Errorf("copilot dev hop: registry child inherited the BYOK block %s", strings.SplitN(kv, "=", 2)[0])
+		}
+	}
+	if v, _ := envValue(dump, router.EnvRoute); v != "databricks:dev" {
+		t.Errorf("copilot dev hop: %s is not databricks:dev", router.EnvRoute)
+	}
+	assertArmNoLeak(t, "copilot", dump)
 }
 
 // assertArmNoLeak: no planted credential or router secret.
@@ -1435,21 +1473,32 @@ func assertArmFirstParty(t *testing.T, label string, dump []string) {
 // In databricks:dev each dev hop holds only dev's route and session token; after a dev 402 first-party hops hold none.
 func TestArmChildEnvPerAgent(t *testing.T) {
 	for name := range armDevHop {
-		t.Run(name, func(t *testing.T) {
-			dump := armChildEnvFixture(t)
-			code, _, stderr := runCLI(t, "ask", "--agent", name, "--route", "databricks:dev", "--fallback", "all", "go")
-			bins, envs := armDumps(t, dump)
-			if code == 0 || len(bins) == 0 || bins[0] != armDevHop[name].bin {
-				t.Fatalf("exit %d launches %v, want %s's dev hop first\n%s", code, bins, name, stderr)
+		for _, goos := range []string{"linux", "darwin"} { // copilot's hop differs per OS; the rest ignore it
+			if name != "copilot" && goos == "darwin" {
+				continue
 			}
-			assertArmDevHop(t, name, envs[0])
-			for i := 1; i < len(bins); i++ {
-				assertArmFirstParty(t, bins[i], envs[i])
-			}
-			want := []string{"copilot", "codex", "agy", "opencode", "claude"} // the ladder's first-party order
-			if !slices.Equal(bins[1:], want) {
-				t.Errorf("launches after the dev hop %v, want every first-party login %v\n%s", bins[1:], want, stderr)
-			}
-		})
+			t.Run(name+"/"+goos, func(t *testing.T) { checkArmChildEnv(t, name, goos) })
+		}
+	}
+}
+
+// checkArmChildEnv runs one agent's databricks:dev ask with copilot's OS pinned to goos and checks every hop's env.
+func checkArmChildEnv(t *testing.T, name, goos string) {
+	t.Helper()
+	dump := armChildEnvFixture(t)
+	t.Cleanup(copilot.StubGOOS(goos))
+	t.Cleanup(copilot.StubRegistry("cct_ARM_dev", "databricks-claude-sonnet-5-5")) // no live discovery
+	code, _, stderr := runCLI(t, "ask", "--agent", name, "--route", "databricks:dev", "--fallback", "all", "go")
+	bins, envs := armDumps(t, dump)
+	if code == 0 || len(bins) == 0 || bins[0] != armDevHop[name].bin {
+		t.Fatalf("exit %d launches %v, want %s's dev hop first\n%s", code, bins, name, stderr)
+	}
+	assertArmDevHop(t, name, goos, envs[0])
+	for i := 1; i < len(bins); i++ {
+		assertArmFirstParty(t, bins[i], envs[i])
+	}
+	want := []string{"copilot", "codex", "agy", "opencode", "claude"} // the ladder's first-party order
+	if !slices.Equal(bins[1:], want) {
+		t.Errorf("launches after the dev hop %v, want every first-party login %v\n%s", bins[1:], want, stderr)
 	}
 }

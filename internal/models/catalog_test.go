@@ -1,7 +1,9 @@
 package models
 
 import (
-	"testing"
+	"testing" // tests refuse real DNS: mock API calls
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 // spellings is the schema plan's "Spellings of one model" table: rule -> wire id, per canonical model.

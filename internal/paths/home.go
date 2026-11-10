@@ -2,8 +2,11 @@ package paths
 
 import (
 	"os"
+
 	"path/filepath"
 	"strings"
+
+	_ "github.com/edotau/claude-code/internal/nonet" // test binaries refuse real DNS: tests mock their API calls
 )
 
 // ShortHome replaces a leading home directory with ~, leaving sibling paths unchanged.

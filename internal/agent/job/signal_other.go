@@ -2,14 +2,12 @@
 
 package job
 
-import "fmt"
+import (
+	"errors"
+	"syscall"
+)
 
-// interrupt is unsupported on this platform.
-func interrupt(pid int) error {
-	return fmt.Errorf("cancelling a job by pid is unsupported on this platform")
-}
-
-// kill is unsupported on this platform.
-func kill(pid int) error {
-	return fmt.Errorf("killing a job by pid is unsupported on this platform")
+// sysKill is unsupported off unix: no process-group signals, so cancelling a job by pid fails.
+var sysKill = func(int, syscall.Signal) error {
+	return errors.New("signalling a job by pid is unsupported on this platform")
 }

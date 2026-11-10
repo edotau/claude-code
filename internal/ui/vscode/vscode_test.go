@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -334,28 +333,92 @@ func TestKeybindingsTemplateProfilesExistInSettingsTemplate(t *testing.T) {
 	}
 }
 
-// A headless box with only ~/.vscode-server has no local client, so keybindings must be skipped —
-// unlike settings, there is no Machine scope to fall back to.
-func TestDefaultKeybindingsDestSkipsVSCodeServerOnly(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("vscode-server-only skip path is linux-specific")
+// DefaultKeybindingsDest per platform: darwin and windows use the client's User dir; linux skips a headless box
+// with only ~/.vscode-server (no Machine scope for keybindings) and otherwise uses ~/.config/Code/User.
+func TestDefaultKeybindingsDestPerOS(t *testing.T) {
+	cases := []struct {
+		goos, name string
+		dirs       []string
+		want       []string // path under home; nil means skip
+	}{
+		{"darwin", "client", nil, []string{"Library", "Application Support", "Code", "User", "keybindings.json"}},
+		{"windows", "client", nil, []string{"AppData", "Roaming", "Code", "User", "keybindings.json"}},
+		{"linux", "server-only", []string{".vscode-server"}, nil},
+		{"linux", "client-and-server", []string{".vscode-server", ".config/Code/User"}, []string{".config", "Code", "User", "keybindings.json"}},
+		{"linux", "neither", nil, []string{".config", "Code", "User", "keybindings.json"}},
 	}
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := os.MkdirAll(filepath.Join(home, ".vscode-server"), 0o755); err != nil {
-		t.Fatal(err)
+	for _, tc := range cases {
+		t.Run(tc.goos+"/"+tc.name, func(t *testing.T) {
+			orig := keybindingsGOOS
+			keybindingsGOOS = tc.goos
+			t.Cleanup(func() { keybindingsGOOS = orig })
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("USERPROFILE", home)
+			for _, d := range tc.dirs {
+				if err := os.MkdirAll(filepath.Join(home, filepath.FromSlash(d)), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			dest, skip, note, err := DefaultKeybindingsDest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.want == nil {
+				if !skip || note == "" || dest != "" {
+					t.Fatalf("= %q, skip %v, note %q; want a skip with a note", dest, skip, note)
+				}
+				return
+			}
+			if want := filepath.Join(append([]string{home}, tc.want...)...); skip || dest != want {
+				t.Fatalf("= %q, skip %v; want %q, no skip", dest, skip, want)
+			}
+		})
 	}
+}
 
-	dest, skip, note, err := DefaultKeybindingsDest()
-	if err != nil {
-		t.Fatal(err)
+// A VS Code save landing after the backup but before the replace must be caught by the second staleness check.
+func TestWriteGuardedRejectsSaveAfterBackup(t *testing.T) {
+	hermeticVSCode(t)
+	dest := filepath.Join(t.TempDir(), "settings.json")
+	const original, saved = `{"local":1}`, `{"local":2}`
+	writeFile(t, dest, original)
+	reads := 0
+	orig := readLive
+	readLive = func(name string) ([]byte, error) {
+		if reads++; reads == 2 {
+			if n := countBackups(t); n != 1 {
+				t.Errorf("second check ran with %d backups on disk, want it after the one backup", n)
+			}
+			writeFile(t, dest, saved)
+		}
+		return os.ReadFile(name)
 	}
-	if !skip {
-		t.Fatalf("skip = false, want true (no local client, only ~/.vscode-server); dest = %q", dest)
+	t.Cleanup(func() { readLive = orig })
+
+	result, err := writeGuarded(dest, "settings", []byte(original), []byte(`{"merged":true}`))
+	if err == nil || !strings.Contains(err.Error(), "changed under the merge") || result.Changed {
+		t.Fatalf("want stale-merge error after backup; got %+v, err %v", result, err)
 	}
-	if note == "" {
-		t.Error("skip without a note explaining why")
+	if reads != 2 {
+		t.Fatalf("checkUnchanged read dest %d times, want 2", reads)
 	}
+	if body, _ := os.ReadFile(dest); string(body) != saved {
+		t.Fatalf("concurrent save overwritten: got %s, want %s", body, saved)
+	}
+}
+
+// countBackups counts the backup files under the hermetic cache dir.
+func countBackups(t *testing.T) int {
+	t.Helper()
+	n := 0
+	_ = filepath.WalkDir(filepath.Join(paths.CacheDir(), "backups"), func(_ string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			n++
+		}
+		return nil
+	})
+	return n
 }
 
 func keybindingsFixture(t *testing.T, live string) (tmpl, dest string) {

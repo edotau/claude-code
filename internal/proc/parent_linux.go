@@ -15,20 +15,6 @@ func Parent(pid int) int {
 	return parseStatPPID(string(raw))
 }
 
-// parseStatPPID extracts field 4 (ppid) after the LAST ')' of the parenthesised comm.
-func parseStatPPID(stat string) int {
-	_, after, ok := strings.CutLast(stat, ") ")
-	if !ok {
-		return 0
-	}
-	f := strings.Fields(after)
-	if len(f) < 2 {
-		return 0
-	}
-	ppid, _ := strconv.Atoi(f[1])
-	return ppid
-}
-
 // Descendants returns pid's children, grandchildren, ... via /proc/*/stat.
 func Descendants(pid int) []int {
 	if pid <= 0 {
@@ -48,25 +34,7 @@ func Descendants(pid int) []int {
 			children[ppid] = append(children[ppid], cpid)
 		}
 	}
-	return walkDescendants(pid, children)
-}
-
-func walkDescendants(root int, children map[int][]int) []int {
-	var out []int
-	seen := map[int]bool{root: true}
-	queue := []int{root}
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
-		for _, c := range children[cur] {
-			if !seen[c] {
-				seen[c] = true
-				out = append(out, c)
-				queue = append(queue, c)
-			}
-		}
-	}
-	return out
+	return walkChildren(children, pid)
 }
 
 // Comm returns pid's executable name from /proc ("" when unreadable).
