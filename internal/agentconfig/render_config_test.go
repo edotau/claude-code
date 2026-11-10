@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -268,5 +270,64 @@ func TestOverlayReadsAgentsNotVendors(t *testing.T) {
 	}
 	if _, ok := cfg.Agents["gemini"]; !ok {
 		t.Error("stale vendors overlay removed gemini")
+	}
+}
+
+// TestSettingsMerge: built-in, then the legacy overlay entry (whole), then the stored record; "" unsets an extras key.
+func TestSettingsMerge(t *testing.T) {
+	overlay := `{"agents":{"codex":{"permission":{"approvalPolicy":"on-request"},"launch":{"env":["X=1"]}}}}`
+	cases := []struct {
+		name, agent, overlay string
+		stored               vault.AgentRecord
+		want                 vault.AgentRecord
+	}{
+		{name: "built-in only", agent: "codex",
+			want: vault.AgentRecord{Extras: map[string]string{"approvalPolicy": "never", "sandboxMode": "danger-full-access"}}},
+		{name: "overlay whole-replace", agent: "codex", overlay: overlay,
+			want: vault.AgentRecord{Permissions: &vault.AgentPolicy{}, Launch: &vault.AgentLaunch{Env: []string{"X=1"}},
+				Extras: map[string]string{"approvalPolicy": "on-request"}}},
+		{name: "record block over both", agent: "codex", overlay: overlay,
+			stored: vault.AgentRecord{Profile: "dev", Permissions: &vault.AgentPolicy{Mode: "plan"},
+				Launch: &vault.AgentLaunch{Args: []string{"-y"}}, Extras: map[string]string{"sandboxMode": "read-only"}},
+			want: vault.AgentRecord{Profile: "dev", Permissions: &vault.AgentPolicy{Mode: "plan"},
+				Launch: &vault.AgentLaunch{Args: []string{"-y"}},
+				Extras: map[string]string{"approvalPolicy": "on-request", "sandboxMode": "read-only"}}},
+		{name: "extras empty unsets a built-in key", agent: "gemini",
+			stored: vault.AgentRecord{Extras: map[string]string{"useGuardRules": ""}},
+			want:   vault.AgentRecord{Launch: &vault.AgentLaunch{Args: []string{"--dangerously-skip-permissions"}}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			vaulttest.Use(t)
+			if c.overlay != "" {
+				vaulttest.Put(t, vault.Overlay, "agents", c.overlay)
+			}
+			if !c.stored.IsZero() {
+				if err := vault.SetAgentRecord(c.agent, c.stored); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := Settings(c.agent)
+			if err != nil || !reflect.DeepEqual(got, c.want) {
+				gj, _ := json.Marshal(got)
+				wj, _ := json.Marshal(c.want)
+				t.Errorf("Settings(%s) = %s, %v; want %s", c.agent, gj, err, wj)
+			}
+		})
+	}
+}
+
+// TestAgentsJSONRoster: the built-in records cover exactly the external roster agents.
+func TestAgentsJSONRoster(t *testing.T) {
+	var doc struct {
+		Agents map[string]vault.AgentRecord `json:"agents"`
+	}
+	if err := json.Unmarshal(defaultsJSON, &doc); err != nil {
+		t.Fatal(err)
+	}
+	got := slices.Sorted(maps.Keys(doc.Agents))
+	want := []string{"codex", "copilot", "gemini", "opencode"}
+	if !slices.Equal(got, want) || !slices.Equal(want, agentid.External()) {
+		t.Errorf("agents.json keys = %v, agentid.External() = %v; want both %v", got, agentid.External(), want)
 	}
 }

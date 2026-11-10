@@ -1,11 +1,13 @@
 package agentconfig
 
 import (
+	"cmp"
 	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"slices"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -39,6 +41,8 @@ type AgentConfig struct {
 type Config struct {
 	GuardRules GuardRules             `json:"guardRules"`
 	Agents     map[string]AgentConfig `json:"agents"`
+	// records are the built-in records with legacy overlay entries merged; Settings reads them.
+	records map[string]vault.AgentRecord
 }
 
 // ConfigOverlay is the user overlay (vault overlay/agents; an entry replaces the built-in whole); fs.ErrNotExist when absent.
@@ -91,6 +95,27 @@ func (c *Config) Clone() *Config {
 			out.Agents[name] = a.clone()
 		}
 	}
+	if c.records != nil {
+		out.records = make(map[string]vault.AgentRecord, len(c.records))
+		for name, r := range c.records {
+			out.records[name] = cloneRecord(r)
+		}
+	}
+	return out
+}
+
+// cloneRecord returns a deep copy of r: aliases, extras and the policy and launch blocks.
+func cloneRecord(r vault.AgentRecord) vault.AgentRecord {
+	out := r
+	out.Aliases, out.Extras = maps.Clone(r.Aliases), maps.Clone(r.Extras)
+	if p := r.Permissions; p != nil {
+		cp := *p
+		cp.Allow, cp.Ask, cp.Deny = slices.Clone(p.Allow), slices.Clone(p.Ask), slices.Clone(p.Deny)
+		out.Permissions = &cp
+	}
+	if l := r.Launch; l != nil {
+		out.Launch = &vault.AgentLaunch{Env: slices.Clone(l.Env), Args: slices.Clone(l.Args)}
+	}
 	return out
 }
 
@@ -115,9 +140,18 @@ func ParseConfig(base, overlay []byte) (*Config, error) {
 	if base == nil {
 		base = defaultsJSON
 	}
-	var cfg Config
-	if err := json.Unmarshal(base, &cfg); err != nil {
+	var defaults struct {
+		Agents map[string]vault.AgentRecord `json:"agents"`
+	}
+	if err := json.Unmarshal(base, &defaults); err != nil {
 		return nil, fmt.Errorf("vendorconfig defaults: %w", err)
+	}
+	cfg := Config{records: defaults.Agents}
+	if defaults.Agents != nil {
+		cfg.Agents = make(map[string]AgentConfig, len(defaults.Agents))
+	}
+	for name, r := range defaults.Agents {
+		cfg.Agents[name] = agentConfig(r)
 	}
 	// Built-in guard rules come from the settings template, not a hand-copied subset here.
 	guard, err := templateGuardRules()
@@ -149,9 +183,13 @@ func applyOverlay(cfg *Config, overlay []byte) error {
 	if cfg.Agents == nil {
 		cfg.Agents = map[string]AgentConfig{}
 	}
+	if cfg.records == nil {
+		cfg.records = map[string]vault.AgentRecord{}
+	}
 	for name, raw := range o.Agents {
 		if raw == nil || string(raw) == "null" { // "name": null removes a built-in agent
 			delete(cfg.Agents, name)
+			cfg.records[name] = mergeRecord(cfg.records[name], legacyRecord(AgentConfig{}))
 			continue
 		}
 		var v AgentConfig
@@ -159,8 +197,90 @@ func applyOverlay(cfg *Config, overlay []byte) error {
 			return fmt.Errorf("vault overlay/agents: agents.%s: %w", name, err)
 		}
 		cfg.Agents[name] = v
+		cfg.records[name] = mergeRecord(cfg.records[name], legacyRecord(v))
 	}
 	return nil
+}
+
+// legacyRecord is a whole-replace overlay entry as a record: both blocks set and every knob key, "" when unset.
+func legacyRecord(a AgentConfig) vault.AgentRecord {
+	p, guard := a.Permission, ""
+	if p.UseGuardRules {
+		guard = "true"
+	}
+	return vault.AgentRecord{
+		Permissions: new(vault.AgentPolicy(p.Defaults)),
+		Launch:      new(vault.AgentLaunch(a.Launch)),
+		Extras: map[string]string{extraApprovalPolicy: p.ApprovalPolicy, extraSandboxMode: p.SandboxMode,
+			extraDefaultPermissionMode: p.DefaultPermissionMode, extraUseGuardRules: guard},
+	}
+}
+
+// agentConfig is a built-in record in the legacy shape cfg.Agent returns until the old types go.
+func agentConfig(r vault.AgentRecord) AgentConfig {
+	var a AgentConfig
+	if p := r.Permissions; p != nil {
+		a.Permission.Defaults = Policy(*p)
+	}
+	if l := r.Launch; l != nil {
+		a.Launch = LaunchConfig(*l)
+	}
+	a.Permission.ApprovalPolicy = r.Extras[extraApprovalPolicy]
+	a.Permission.SandboxMode = r.Extras[extraSandboxMode]
+	a.Permission.DefaultPermissionMode = r.Extras[extraDefaultPermissionMode]
+	a.Permission.UseGuardRules = r.Extras[extraUseGuardRules] == "true"
+	return a
+}
+
+// mergeRecord lays over on base: scalars and aliases when set, policy and launch whole when non-nil, extras by key.
+func mergeRecord(base, over vault.AgentRecord) vault.AgentRecord {
+	out := base
+	out.Profile, out.Model = cmp.Or(over.Profile, base.Profile), cmp.Or(over.Model, base.Model)
+	out.Effort, out.Context = cmp.Or(over.Effort, base.Effort), cmp.Or(over.Context, base.Context)
+	out.Account, out.Fallback = cmp.Or(over.Account, base.Account), cmp.Or(over.Fallback, base.Fallback)
+	if len(over.Aliases) > 0 {
+		out.Aliases = over.Aliases
+	}
+	if over.Permissions != nil {
+		out.Permissions = over.Permissions
+	}
+	if over.Launch != nil {
+		out.Launch = over.Launch
+	}
+	out.Extras = mergeExtras(base.Extras, over.Extras)
+	return out
+}
+
+// mergeExtras is base with over's keys set, a "" value deleting the key; nil when nothing is left.
+func mergeExtras(base, over map[string]string) map[string]string {
+	out := maps.Clone(base)
+	for k, v := range over {
+		if v == "" {
+			delete(out, k)
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// Settings is name's merged record: built-in defaults, then the legacy overlay entry, then the stored vault record.
+func Settings(name string) (vault.AgentRecord, error) {
+	cfg, err := LoadConfig()
+	if err != nil {
+		return vault.AgentRecord{}, err
+	}
+	recs, err := vault.ReadAgentRecords([]string{name})
+	if err != nil {
+		return vault.AgentRecord{}, err
+	}
+	return mergeRecord(cfg.records[name], recs[name]), nil
 }
 
 // templateGuardRules reads the embedded settings template's permissions.ask/deny verbatim.

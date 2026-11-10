@@ -14,7 +14,10 @@ import (
 const geminiLogin = "antigravity"
 
 // Effective is an agent's effective settings after the launch flags are applied.
-type Effective struct{ Agent, Profile, Model, Effort, Fallback string }
+type Effective struct {
+	Agent string
+	vault.AgentRecord
+}
 
 // Launch is the flags the caller typed plus the workspace's last-used profile; the zero value keeps every agent on its pin.
 // Routed leads a router run instead (no flag means no profile, unknown profiles err); CanServe filters --provider picks.
@@ -36,14 +39,14 @@ func For(agent string, l Launch) (Effective, error) {
 	}
 	if l.Routed {
 		lead, err := resolveLead(reg, agent, l)
-		return Effective{Agent: agent, Profile: lead}, err
+		return Effective{Agent: agent, AgentRecord: vault.AgentRecord{Profile: lead}}, err
 	}
 	recs, err := vault.ReadAgentRecords([]string{agent})
 	if err != nil {
 		return Effective{}, err
 	}
 	rec := recs[agent]
-	cfg := Effective{Agent: agent, Profile: rec.Profile, Model: rec.Model, Effort: rec.Effort, Fallback: rec.Fallback}
+	cfg := Effective{Agent: agent, AgentRecord: rec}
 	active := rec.Profile != "" // an off agent (no profile) never turns on from the last-used cache
 	if cfg.Profile == "" && agent == agentid.Gemini {
 		cfg.Profile = geminiLogin
