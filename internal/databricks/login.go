@@ -33,7 +33,8 @@ func fail(format string, a ...any) int {
 var loginPage = helptext.Page{
 	Usage: "claude-code databricks login [--profile <name>] [flags]",
 	About: "Sign in through the browser for a profile with auth type oauth;\n" +
-		"the refresh token is sealed in the vault.",
+		"the refresh token is sealed in the vault.\n" +
+		"Identity sp (or --as sp) opens no browser: it mints as the paired service principal.",
 }
 
 // login runs the u2m browser login for a provider row and seals its refresh token.
@@ -44,7 +45,7 @@ func login(args []string) int {
 	authType := fs.String("auth-type", "", "auth type to switch the profile to: only oauth is accepted (needed to change a non-oauth profile)")
 	fs.StringVar(authType, "t", "", "shorthand for --auth-type")
 	profileName := profileFlag(fs)
-	as := fs.String("as", "", "identity: user (browser login, no SP fallback); sp is refused, it needs no login")
+	as := fs.String("as", "", "identity: user (browser login, no SP fallback) or sp (service-principal mint, no browser)")
 	names, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
@@ -59,8 +60,26 @@ func login(args []string) int {
 	if err != nil {
 		return fail("login: %v", err)
 	}
-	reuse := !*force && p.Auth.Method() == providers.AuthOAuth
-	if *dryRun {
+	mode, err := providers.ResolveIdentity(p.Identity, *as)
+	if err != nil {
+		return fail("login: %s: %v", p.Name, err)
+	}
+	if mode == providers.IdentitySP {
+		return loginSP(p, *dryRun)
+	}
+	return loginUser(p, mode, *dryRun, !*force && p.Auth.Method() == providers.AuthOAuth)
+}
+
+// identityNote says what a browser login means for each identity login opens it for.
+var identityNote = map[string]string{
+	providers.IdentityUser: "browser login",
+	providers.IdentityAuto: "browser login; launches use it once stored (the service principal until then), dispatches the service principal first",
+}
+
+// loginUser is the u2m browser login for identity user or auto; reuse keeps a still-valid cached login.
+func loginUser(p *providers.Provider, mode string, dryRun, reuse bool) int {
+	if dryRun {
+		fmt.Printf("identity %s: %s\n", mode, identityNote[mode])
 		return loginDryRun(p, reuse)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
@@ -74,6 +93,39 @@ func login(args []string) int {
 	if err := LoginRow(ctx, p.Name, os.Stdout); err != nil {
 		return fail("login: %v", err)
 	}
+	return 0
+}
+
+// loginSP mints p's paired service-principal token through the router's forced mint; no browser, never the token.
+func loginSP(p *providers.Provider, dryRun bool) int {
+	secret := providers.SecretName(p.Provider, p.Name, providers.AuthM2M)
+	if p.Auth.SPClientID == "" {
+		return fail("login: %s has no paired service principal (auth.spClientId); pair one with `claude-code vault edit`, "+
+			"or pass --as user for a browser login", p.Name)
+	}
+	if providers.HasSecret(secret) == "" {
+		return fail("login: %s: no service-principal secret; run `claude-code vault set %s`", p.Name, secret)
+	}
+	if dryRun {
+		fmt.Printf("identity sp: would mint a token for %s as the service principal %s; no browser, nothing written\n",
+			p.Name, p.Auth.SPClientID)
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	ctx = providers.WithNotes(providers.WithIdentity(ctx, providers.IdentitySP), func(string) {}) // the line below says it
+	tok, err := providers.Refresh(ctx, p)
+	if err != nil {
+		if oauth.IsRejected(err) {
+			return fail("login: %v; replace the secret with `claude-code vault set %s`", err, secret)
+		}
+		return fail("login: %v", err)
+	}
+	line := fmt.Sprintf("%s · service principal %s · token minted", p.Name, p.Auth.SPClientID)
+	if e, ok := providers.JWTExp(tok); ok {
+		line += fmt.Sprintf(" · expires in %dm", max(0, int(time.Until(time.Unix(e, 0)).Minutes())))
+	}
+	fmt.Println(line)
 	return 0
 }
 
@@ -103,10 +155,7 @@ func loginProfile(fs *flag.FlagSet, profileName string) (*providers.Provider, er
 // checkLoginFlags rejects an --as or --auth-type value login cannot honor; bad reports the exit code to return.
 func checkLoginFlags(as, authType string) (code int, bad bool) {
 	switch as {
-	case "", providers.IdentityUser:
-	case providers.IdentitySP:
-		fail("login: --as sp needs no browser login; the paired service principal mints on its own")
-		return 2, true
+	case "", providers.IdentityUser, providers.IdentitySP:
 	default:
 		fail("login: --as must be user or sp")
 		return 2, true

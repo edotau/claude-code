@@ -307,7 +307,7 @@ var page = helptext.Page{
 		"check runs a smoke reply.",
 	Commands: [][2]string{
 		{"check", "--all: one tiny call per profile (serving; --wire all)"},
-		{"login", "browser sign-in for an oauth profile"},
+		{"login", "browser sign-in for an oauth profile; identity sp mints, no browser"},
 		{"mint", "fresh token, never printed; --copy to clipboard"},
 		{"import", "import a .databrickscfg (dry-run unless --apply)"},
 		{"export", "export profiles as .databrickscfg, no secrets"},
