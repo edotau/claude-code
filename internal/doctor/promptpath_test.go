@@ -120,7 +120,11 @@ func TestH7SessionPromptsNamePathsThatExist(t *testing.T) {
 	if got := sessionPrompts(root); len(got) != 0 {
 		t.Fatalf("pass fixture findings = %q", got)
 	}
-	stale := func(*core.Input) core.Result { return core.Result{Context: "pointer /nonexistent/gone.md"} }
+	gone := filepath.Join(root, "gone.md")
+	// A URL route (no such top-level dir) is not a path; a dead file under a real dir is.
+	stale := func(*core.Input) core.Result {
+		return core.Result{Context: "claude `/anthropic` via /serving-endpoints/anthropic; pointer " + gone}
+	}
 	stubSessionSeams(t, ok, stale, func() int { return 0 })
-	wantOne(t, sessionPrompts(root), "memory-recall:1:", "/nonexistent/gone.md which does not exist")
+	wantOne(t, sessionPrompts(root), "memory-recall:1:", gone+" which does not exist")
 }

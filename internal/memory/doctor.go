@@ -114,8 +114,12 @@ func updateProblems(now time.Time) []string {
 		if !r.NeedsAttention(now) || (r.Status == UpdateFailed && now.Sub(r.Time) > 7*24*time.Hour) {
 			continue
 		}
+		see := " — see " + r.Log
+		if _, err := os.Stat(r.Log); err != nil {
+			see = " — log swept" // session-state pruning removes old update-*.log files; don't name a dead path
+		}
 		problems = append(problems, "update "+headID(id)+" "+r.Status+" since "+r.Time.Format("2006-01-02")+
-			" — see "+r.Log+" (claude-code memory update --session "+id+")")
+			see+" (claude-code memory update --session "+id+")")
 	}
 	return problems
 }

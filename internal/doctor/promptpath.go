@@ -306,7 +306,11 @@ func sessionPrompts(root string) []string {
 func missingPaths(hook, ctx string) []string {
 	var out []string
 	for _, m := range namedPath.FindAllStringSubmatch(ctx, -1) {
-		if _, err := os.Stat(paths.ExpandHome(m[1])); err != nil {
+		p := paths.ExpandHome(m[1])
+		if top, _, _ := strings.Cut(strings.TrimPrefix(p, "/"), "/"); func() bool { _, err := os.Stat("/" + top); return err != nil }() {
+			continue // a URL route like /serving-endpoints or /chat/completions, not a filesystem path
+		}
+		if _, err := os.Stat(p); err != nil {
 			out = append(out, fmt.Sprintf("%s:1: context names %s which does not exist (fix at the memory entry that names it)", hook, m[1]))
 		}
 	}
