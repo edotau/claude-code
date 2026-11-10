@@ -161,3 +161,17 @@ func TestStopHookActiveSkipsSteward(t *testing.T) {
 		t.Fatalf("stop_hook_active must skip, got spawns=%d ctx=%q", spawns.Update.Load(), r.Context)
 	}
 }
+
+// TestStopResolvesSessionRootOnce: the checkpoint and the update share one session-root read per Stop.
+func TestStopResolvesSessionRootOnce(t *testing.T) {
+	tr, payload := hookSession(t)
+	writeEdits(t, tr, 5)
+	reads := 0
+	orig := sessionRoot
+	sessionRoot = func(id, cwd string) string { reads++; return orig(id, cwd) }
+	t.Cleanup(func() { sessionRoot = orig })
+	Stop(payload())
+	if reads != 1 {
+		t.Fatalf("session root reads per Stop = %d, want 1", reads)
+	}
+}

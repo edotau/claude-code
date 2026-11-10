@@ -82,7 +82,8 @@ func TestSessionStartRelistsServedOnlyForStaleSessionProfile(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			calls := servedSession(t, c.on, c.fetched, c.updateChild)
-			refreshServed(t.TempDir(), now)
+			reg, _ := providers.Load()
+			refreshServed(reg, t.TempDir(), now)
 			if got := calls.Load(); got != c.want {
 				t.Fatalf("spawnServed calls = %d, want %d", got, c.want)
 			}
@@ -94,8 +95,9 @@ func TestSessionStartRelistsServedOnlyForStaleSessionProfile(t *testing.T) {
 func TestSessionStartClaimsServedRefreshOncePerRetryWindow(t *testing.T) {
 	now := time.Now()
 	calls := servedSession(t, true, time.Time{}, "")
-	refreshServed(t.TempDir(), now)
-	refreshServed(t.TempDir(), now.Add(time.Minute))
+	reg, _ := providers.Load()
+	refreshServed(reg, t.TempDir(), now)
+	refreshServed(reg, t.TempDir(), now.Add(time.Minute))
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("spawnServed calls = %d, want 1", got)
 	}
@@ -166,5 +168,18 @@ func TestSessionStartResumeNotes(t *testing.T) {
 		if got := Start(startInput(cwd, src)).SystemMessage; strings.Contains(got, "handoff") {
 			t.Errorf("%s must be unchanged, got %q", src, got)
 		}
+	}
+}
+
+// TestSessionStartLoadsProvidersOnce: the served refresh and the pin check share one registry load per start.
+func TestSessionStartLoadsProvidersOnce(t *testing.T) {
+	calls := servedSession(t, true, time.Time{}, "")
+	loads := 0
+	orig := loadProviders
+	loadProviders = func() (*providers.Registry, error) { loads++; return orig() }
+	t.Cleanup(func() { loadProviders = orig })
+	Start(startInput(t.TempDir(), "startup"))
+	if loads != 1 || calls.Load() != 1 {
+		t.Fatalf("registry loads = %d, served refreshes = %d; want 1 and 1", loads, calls.Load())
 	}
 }

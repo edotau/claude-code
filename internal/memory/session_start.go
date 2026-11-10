@@ -12,17 +12,20 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
+// hasBank is HasBank behind a seam; tests count the bank probes one start makes.
+var hasBank = HasBank
+
 // StartSession records the session root, renders the note line + bank surface and advances the session chain.
 func StartSession(sessionID, cwd string, now time.Time) string {
 	RecordSessionRoot(sessionID, cwd)
-	prefix := maybeAutoInit(cwd) // a fresh-scaffold notice or ""
+	prefix, banked := maybeAutoInit(cwd, hasBank(cwd)) // the one bank probe; a scaffold re-probes
 	if !IsUpdateChild() {
 		LinkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
 	}
 	chain := filepath.Join(StateDir(), "last-session")
 	out := sessionSurfaceText(cwd, prefix, chain, sessionID, now)
 	if !IsUpdateChild() {
-		startWorkers(cwd, sessionID, now)
+		startWorkers(cwd, sessionID, now, banked)
 		// Every SessionStart (startup, resume, clear, compact) restarts what recall treats as already in context.
 		ResetSeen(sessionID, cwd, out)
 	}
@@ -43,10 +46,10 @@ func sessionSurfaceText(cwd, prefix, chain, sessionID string, now time.Time) str
 	return strings.TrimSpace(prefix)
 }
 
-// startWorkers launches the detached dream and catch-up sweep a start may owe.
-func startWorkers(cwd, sessionID string, now time.Time) {
+// startWorkers launches the detached dream and catch-up sweep a start may owe; banked is cwd's bank probe.
+func startWorkers(cwd, sessionID string, now time.Time, banked bool) {
 	// The daily dream (consolidate) runs detached on Claude; never blocks launch.
-	if HasBank(cwd) && DreamDue(cwd, now) {
+	if banked && DreamDue(cwd, now) {
 		spawn.dream(cwd)
 	}
 	// Every start sweeps for finished sessions whose update was missed, detached; the child does all the scanning.
@@ -102,16 +105,17 @@ func writeChain(path, sessionID string) {
 	}
 }
 
-// maybeAutoInit scaffolds a bank for bank-less safe roots; returns a notice on a fresh scaffold.
-func maybeAutoInit(cwd string) string {
-	if cwd == "" || HasBank(cwd) || !scaffoldSafe(cwd) {
-		return ""
+// maybeAutoInit scaffolds a bank for bank-less safe roots; returns a notice on a fresh scaffold and cwd's bank probe.
+func maybeAutoInit(cwd string, banked bool) (string, bool) {
+	if cwd == "" || banked || !scaffoldSafe(cwd) {
+		return "", banked
 	}
 	dir, err := Init(cwd)
+	banked = hasBank(cwd) // a scaffold, even a failed partial one, changes the answer
 	if err != nil {
-		return ""
+		return "", banked
 	}
-	return "Memory bank scaffolded at " + dir + " — it fills automatically at session end (optionally enrich with `claude-code memory init`)."
+	return "Memory bank scaffolded at " + dir + " — it fills automatically at session end (optionally enrich with `claude-code memory init`).", banked
 }
 
 // scaffoldSafe: the config dir, a dir already carrying .claude/, or a git TOPLEVEL (a subdir would misplace the bank).

@@ -21,6 +21,9 @@ var RememberTypes = map[string]string{
 	"reference": "conventions.md",
 }
 
+// afterRememberWrite runs between Remember's stamped write and its settle, under the lock; tests race a rival there.
+var afterRememberWrite = func() {}
+
 // Remember writes fact into root's bank under kind's file, settles to stamp a fresh id, and
 // returns that id (so a caller can round-trip it through `memory recall`).
 func Remember(root, kind, fact string, now time.Time) (string, error) {
@@ -51,12 +54,11 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 				return werr
 			}
 		}
-		return nil
+		afterRememberWrite()
+		_, werr = settleBankLocked(root, now) // one critical section: no writer slips in, no busy error after the write
+		return werr
 	})
 	if err != nil {
-		return "", err
-	}
-	if _, err := settleBank(root, now); err != nil {
 		return "", err
 	}
 	return id, nil

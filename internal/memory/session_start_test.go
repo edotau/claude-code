@@ -233,3 +233,20 @@ func TestSessionStartCarriesNoCatalogRows(t *testing.T) {
 		t.Errorf("want the one-line pointer and a small surface, got %d bytes:\n%s", len(got), got)
 	}
 }
+
+// TestStartSessionProbesBankOnce: a banked repo's start probes the bank once for the scaffold and dream checks.
+func TestStartSessionProbesBankOnce(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "banked")
+	if _, err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	probes := 0
+	orig := hasBank
+	hasBank = func(r string) bool { probes++; return orig(r) }
+	t.Cleanup(func() { hasBank = orig })
+	StartSession("00000000-0000-4000-8000-0000000000a0", root, time.Now())
+	if probes != 1 {
+		t.Fatalf("bank probes per StartSession = %d, want 1", probes)
+	}
+}

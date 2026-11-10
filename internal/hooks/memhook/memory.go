@@ -17,9 +17,14 @@ func Start(in *core.Input) core.Result {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	ctx := memory.StartSession(in.SessionID, cwd, time.Now())
-	refreshServed(cwd, time.Now())
-	res := core.Result{Context: core.JoinContext(ctx, preflightNotice(time.Now()))}
+	now := time.Now()
+	ctx := memory.StartSession(in.SessionID, cwd, now)
+	reg, err := loadProviders() // one registry load serves the served refresh and the pin check
+	if err != nil {
+		reg = nil
+	}
+	refreshServed(reg, cwd, now)
+	res := core.Result{Context: core.JoinContext(ctx, preflightNotice(reg, now))}
 	if !memory.IsUpdateChild() {
 		res.SystemMessage = memory.ConsumeCatchupNote()
 	}
@@ -33,29 +38,30 @@ func Start(in *core.Input) core.Result {
 }
 
 // preflightNotice is the static pin check (cached listings only): one short line when something needs a fix.
-func preflightNotice(now time.Time) string {
-	reg, err := providers.Load()
-	if err != nil {
+func preflightNotice(reg *providers.Registry, now time.Time) string {
+	if reg == nil {
 		return ""
 	}
 	return preflight.StaticLine(reg, now)
 }
 
 // refreshServed re-lists a stale served-endpoint cache detached; needs no memory bank, never from an update child.
-func refreshServed(cwd string, now time.Time) {
-	if !memory.IsUpdateChild() && servedRefreshDue(now) {
+func refreshServed(reg *providers.Registry, cwd string, now time.Time) {
+	if !memory.IsUpdateChild() && servedRefreshDue(reg, now) {
 		spawnServed(cwd)
 	}
 }
 
 // servedRefreshDue reports whether served routing is on and an in-use Databricks profile has no fresh listing.
-func servedRefreshDue(now time.Time) bool {
+func servedRefreshDue(reg *providers.Registry, now time.Time) bool {
 	if !providers.ServedRoutingOn() {
 		return false
 	}
-	reg, err := providers.Load()
-	return err == nil && preflight.Stale(reg, now) && preflight.Claim(now)
+	return reg != nil && preflight.Stale(reg, now) && preflight.Claim(now)
 }
+
+// loadProviders reads the provider registry (vault included); tests count it.
+var loadProviders = providers.Load
 
 // spawnServed is the detached `preflight --refresh` seam; tests replace it.
 var spawnServed = func(cwd string) bool {
