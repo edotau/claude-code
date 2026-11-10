@@ -34,7 +34,9 @@ func budgetServer(t *testing.T, hits *atomic.Int32, handler http.HandlerFunc) *p
 }
 
 const budgetPage1 = `{"budget_spend_statuses":[{"name":"b1","alert_spend_statuses":[{"scope_type":"ALERT_CONFIGURATION_SCOPE_TYPE_PER_USER","time_period":"MONTH","spend":"100.6","threshold":"100","percent_consumed":"100.6"}]}],"next_page_token":"p2"}`
-const budgetPage2 = `{"budget_spend_statuses":[{"name":"b2","alert_spend_statuses":[{"scope_type":"ALERT_CONFIGURATION_SCOPE_TYPE_WORKSPACE","time_period":"MONTH","spend":"5","threshold":"50","percent_consumed":"10"}]}]}`
+
+// budgetPage2 is a shared threshold as the BudgetSpendStatus reference documents it: percent_consumed only.
+const budgetPage2 = `{"budget_spend_statuses":[{"name":"accounts/a1/budget-spend-statuses/b2","alert_spend_statuses":[{"scope_type":"ALERT_CONFIGURATION_SCOPE_TYPE_SHARED","time_period":"MONTH","percent_consumed":"10.0"}]}]}`
 
 // pagedBudgetServer serves budgetPage1 then budgetPage2 (page_token=p2) and 404s any other request.
 func pagedBudgetServer(t *testing.T, hits *atomic.Int32) *providers.Provider {
@@ -59,8 +61,14 @@ func TestBudgetQuotasPagesAndMaps(t *testing.T) {
 	if len(rows) != 2 || hits.Load() != 2 {
 		t.Fatalf("rows=%+v hits=%d, want 2 rows over 2 pages", rows, hits.Load())
 	}
-	if r := rows[0]; r.Plan != "per-user" || r.Window != "month" || r.UsedPct != 100.6 || r.Used != 100.6 || r.Limit != 100 || r.Unit != "USD" {
-		t.Errorf("row 0 = %+v", r)
+	want := []quota{
+		{Provider: "databricks", Account: "dev", Plan: "per-user", Window: "month", UsedPct: 100.6, Used: 100.6, Limit: 100, Unit: "USD"},
+		{Provider: "databricks", Account: "dev", Plan: "shared", Window: "month", UsedPct: 10, Unit: "USD"},
+	}
+	for i := range want {
+		if rows[i] != want[i] {
+			t.Errorf("row %d = %+v, want %+v", i, rows[i], want[i])
+		}
 	}
 }
 
@@ -86,19 +94,20 @@ func TestBudgetQuotasCaches(t *testing.T) {
 	}
 }
 
-func TestBudgetQuotasMissingEndpointYieldsNoRows(t *testing.T) {
+func TestBudgetQuotasMissingEndpointYieldsCachedNote(t *testing.T) {
 	var hits atomic.Int32
 	for _, code := range []int{http.StatusNotFound, http.StatusForbidden} {
 		p := budgetServer(t, &hits, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(code) })
-		if rows := budgetQuotas(context.Background(), p, time.Now()); rows != nil {
-			t.Errorf("%d: rows = %+v, want none", code, rows)
+		rows := budgetQuotas(context.Background(), p, time.Now())
+		if len(rows) != 1 || !strings.Contains(rows[0].Note, "budget endpoint unavailable ("+strconv.Itoa(code)) {
+			t.Errorf("%d: rows = %+v, want one note naming the status", code, rows)
 		}
 		c := readBudgetCache(budgetCachePath())
-		if c == nil || len(c.Rows) != 0 {
-			t.Fatalf("%d: cache = %+v, want an empty cached entry", code, c)
+		if c == nil || len(c.Rows) != 1 {
+			t.Fatalf("%d: cache = %+v, want the note cached", code, c)
 		}
 		before := hits.Load()
-		if rows := budgetQuotas(context.Background(), p, time.Now()); rows != nil || hits.Load() != before {
+		if again := budgetQuotas(context.Background(), p, time.Now()); len(again) != 1 || hits.Load() != before {
 			t.Errorf("%d: absent endpoint refetched within TTL: rows=%+v hits %d->%d", code, rows, before, hits.Load())
 		}
 	}

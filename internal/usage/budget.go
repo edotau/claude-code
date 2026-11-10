@@ -100,11 +100,10 @@ func withTokenExpiry(rows []quota, profile string) []quota {
 	return rows
 }
 
-// errBudgetAbsent is a 404 or 403: the workspace has no budget endpoint, which is normal and shows nothing.
-var errBudgetAbsent = errors.New("budget endpoint absent")
+// errBudgetAbsent is a 404 or 403: the workspace does not serve the budget endpoint to this caller.
+var errBudgetAbsent = errors.New("budget endpoint unavailable")
 
-// budgetQuotas serves the cache while fresh, else fetches; a missing or forbidden endpoint (404/403) yields no rows, any other
-// failure one note row so an exceeded budget is never silently absent.
+// budgetQuotas serves the cache while fresh, else fetches; any failure yields a note row (404/403 cached, others not).
 func budgetQuotas(ctx context.Context, p *providers.Provider, now time.Time) []quota {
 	path := budgetCachePath()
 	if c := readBudgetCache(path); c != nil && c.Profile == p.Name && now.Sub(c.FetchedAt) < budgetCacheTTL {
@@ -112,8 +111,9 @@ func budgetQuotas(ctx context.Context, p *providers.Provider, now time.Time) []q
 	}
 	rows, err := fetchBudgetRows(ctx, p)
 	if errors.Is(err, errBudgetAbsent) {
-		writeBudgetCache(path, budgetCache{FetchedAt: now, Profile: p.Name})
-		return nil
+		rows = []quota{{Provider: "databricks", Account: p.Name, Note: "unavailable: " + err.Error()}}
+		writeBudgetCache(path, budgetCache{FetchedAt: now, Profile: p.Name, Rows: rows})
+		return rows
 	}
 	if err != nil {
 		return []quota{{Provider: "databricks", Account: p.Name, Note: "unavailable: budget " + commandErrorLine(nil, err)}}
@@ -130,7 +130,7 @@ func isMalformedBudget(q quota) bool {
 	return strings.HasPrefix(q.Note, budgetMalformedNote)
 }
 
-// budgetStatus is one entry of GET /api/ai-gateway/v2/budget-spend-statuses; numbers arrive as JSON strings.
+// budgetStatus is one entry of GET /api/ai-gateway/v2/budget-spend-statuses (undocumented); numbers are strings.
 type budgetStatus struct {
 	Name   string `json:"name"`
 	Alerts []struct {
@@ -189,7 +189,7 @@ func budgetGet(ctx context.Context, p *providers.Provider, u string, into any) e
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden {
-		return errBudgetAbsent
+		return fmt.Errorf("%w (%s)", errBudgetAbsent, resp.Status)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("budget statuses: %s", resp.Status)
@@ -217,6 +217,9 @@ func budgetRows(profile string, s budgetStatus) []quota {
 		pct, ok1 := parseBudgetNum(a.Consumed)
 		spend, ok2 := parseBudgetNum(a.Spend)
 		limit, ok3 := parseBudgetNum(a.Limit)
+		if a.Spend == "" && a.Limit == "" { // a shared threshold withholds spend and threshold, sending percent_consumed only
+			spend, limit, ok2, ok3 = 0, 0, true, true
+		}
 		if !ok1 || !ok2 || !ok3 {
 			out = append(out, quota{Provider: "databricks", Account: profile, Note: budgetMalformedNote + " (" + s.Name + ")"})
 			continue
