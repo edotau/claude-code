@@ -3,12 +3,16 @@ package docs
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/plans"
 )
 
@@ -169,5 +173,57 @@ func TestCommitRepoDirTriesEveryDashC(t *testing.T) {
 				t.Errorf("worktrees=%v cwd=%s: commitRepoDir = %q, want %q", worktrees, l.cwd, got, l.want)
 			}
 		}
+	}
+}
+
+// claimPlanRepo makes a git repo with one dated plan holding open owned tasks 1.2 and 1.3; returns repo and plan path.
+func claimPlanRepo(t *testing.T) (repo, plan string) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo, _ = filepath.EvalSymlinks(t.TempDir())
+	hosttest.In(t, repo, "init", "-q")
+	plan = filepath.Join(plans.Home(memory.GitToplevel(repo)), "2026-10-29-x.md")
+	hosttest.WriteRel(t, filepath.Dir(plan), filepath.Base(plan),
+		"# P\n\n- [ ] 1.2 wire the claim call point owns: a.go\n- [ ] 1.3 delete dead recall helper owns: b.go\n")
+	return repo, plan
+}
+
+// claimSpawn runs ClaimPlanTask for an Agent spawn of id with the given brief and description.
+func claimSpawn(t *testing.T, repo, id, prompt, desc string) {
+	t.Helper()
+	b, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Agent", "tool_use_id": id, "cwd": repo,
+		"tool_input": map[string]any{"prompt": prompt, "description": desc, "model": "sonnet"}})
+	if err := ClaimPlanTask(core.ParseInput(bytes.NewReader(b)), id); err != nil {
+		t.Fatalf("ClaimPlanTask(%s): %v", id, err)
+	}
+}
+
+// A Task: brief line claims exactly that task with the agent, id, worktree and time; ClearPlanClaim removes it.
+func TestClaimPlanTaskThenClearPlanClaim(t *testing.T) {
+	repo, plan := claimPlanRepo(t)
+	claimSpawn(t, repo, "toolu_c1", "Objective: x\nTask: 1.2\nOwns: a.go", "")
+	data, _ := os.ReadFile(plan)
+	if !regexp.MustCompile(`1\.2 wire.*<!-- working: Agent toolu_c1 · worktree main · since \d\d:\d\d -->`).Match(data) || strings.Count(string(data), "working:") != 1 {
+		t.Fatalf("claim not written on 1.2 only:\n%s", data)
+	}
+	if err := ClearPlanClaim(repo, "toolu_c1"); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ = os.ReadFile(plan); strings.Contains(string(data), "working:") {
+		t.Fatalf("claim survived ClearPlanClaim:\n%s", data)
+	}
+}
+
+// No Task: line and no confident description match claims nothing; a unique title match claims.
+func TestPlanClaimNeedsConfidentMatch(t *testing.T) {
+	repo, plan := claimPlanRepo(t)
+	claimSpawn(t, repo, "toolu_n1", "no task line", "do things")
+	claimSpawn(t, repo, "toolu_n2", "Task: 9.9", "")
+	if data, _ := os.ReadFile(plan); strings.Contains(string(data), "working:") {
+		t.Fatalf("unconfident dispatch claimed a task:\n%s", data)
+	}
+	claimSpawn(t, repo, "toolu_n3", "no task line", "Delete dead recall helper")
+	if data, _ := os.ReadFile(plan); !strings.Contains(string(data), "1.3 delete dead recall helper owns: b.go <!-- working: Agent toolu_n3") {
+		t.Fatalf("unique description match not claimed:\n%s", data)
 	}
 }

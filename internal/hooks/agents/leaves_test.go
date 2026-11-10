@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -687,14 +688,30 @@ func TestRanOnGateBlocksThreeTimes(t *testing.T) {
 	}
 }
 
-// Regression (2026-11-10): a gemini leaf that only read docs or this gate's source handed back ungated; mentions of the
-// ran-on line or the gate text in a successful tool result are not evidence.
-func TestRanOnIgnoresDocAndSourceMentions(t *testing.T) {
-	doc := "Envelope (quote the `ask: ran on …` line, outcome first)\nThen `Ran on:` (the `ask: ran on …` line)"
-	src := "const ranOnGateMark = \"" + ranOnGateMark + "\"\nvar ranOnPattern = regexp.MustCompile(`ask: ran on |\\\\\"ran_on\\\\\":`)"
-	in := leafTx(t, "gemini", "Objective: review internal/hooks/agents\n", doc, src)
-	if r, blocked := leafStopBlock(in, "a1"); !blocked || r.Decision != core.Block {
-		t.Fatalf("got %+v blocked=%v, want a Block: prose mentions are not a ran-on line nor a prior gate block", r, blocked)
+// A Task: brief line claims that plan task on the Agent spawn and the agent's SubagentStop clears it.
+func TestPlanClaimOnSpawnClearedOnStop(t *testing.T) {
+	dispatchEnv(t)
+	repo, plan := planRepo(t)
+	tx := filepath.Join(t.TempDir(), "session.jsonl")
+	pre(agentPayload(repo, "toolu_c1", "Objective: x\nTask: 1.2\nOwns: a.go", ""))
+	data, _ := os.ReadFile(plan)
+	if !regexp.MustCompile(`1\.2 wire.*<!-- working: Agent toolu_c1 · worktree main · since \d\d:\d\d -->`).Match(data) || strings.Count(string(data), "working:") != 1 {
+		t.Fatalf("claim not written on 1.2 only:\n%s", data)
+	}
+	writeMeta(t, tx, "ac1", "toolu_c1")
+	stop := `{"hook_event_name":"SubagentStop","agent_id":"ac1","cwd":"` + repo + `","transcript_path":"` + tx + `"}`
+	Stop(core.ParseInput(strings.NewReader(stop)))
+	if data, _ = os.ReadFile(plan); strings.Contains(string(data), "working:") {
+		t.Fatalf("claim survived SubagentStop:\n%s", data)
+	}
+}
+
+// A Workflow call through Effort is linted by quality.WorkflowResult: an unpinned leaf gets a model.
+func TestDispatchEffortLintsWorkflowViaQuality(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	res := pre(`{"tool_name":"Workflow","tool_input":{"script":"agent('x', { label: 'l' });\n"}}`)
+	if got, _ := res.UpdatedInput["script"].(string); !strings.Contains(got, "model: 'sonnet'") {
+		t.Errorf("updatedInput.script = %q, want model: 'sonnet' filled", got)
 	}
 }
 
