@@ -194,8 +194,13 @@ func dispatchDetach(ctx context.Context, client *client.Client, legs []roles.Leg
 			}
 			continue
 		}
-		fmt.Printf("%s\t", leg.Label)
-		ask.ReportBackgroundStart(helptext.Text, prepared.Record)
+		_, err = fmt.Printf("%s\t", leg.Label)
+		if err == nil {
+			err = ask.ReportBackgroundStart(helptext.Text, prepared.Record)
+		}
+		if err != nil {
+			code = helptext.Fail("dispatch: %s: write job id: %v", leg.Label, err)
+		}
 	}
 	return code
 }

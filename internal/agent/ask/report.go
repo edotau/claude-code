@@ -35,7 +35,9 @@ func askSpawn(fs *flag.FlagSet, prepared *client.Prepared, native bool, format, 
 		}
 		return failAsk(format, name, err)
 	}
-	ReportBackgroundStart(format, prepared.Record)
+	if err := ReportBackgroundStart(format, prepared.Record); err != nil {
+		return helptext.Fail("%s: job %s started; write job id: %v", name, prepared.Record.ID, err)
+	}
 	return 0
 }
 

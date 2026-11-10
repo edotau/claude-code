@@ -215,3 +215,20 @@ func writeFixtureFile(t *testing.T, path, content string) {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }
+
+// A background start whose job-id line cannot be written reports the write error instead of exiting 0 silently.
+func TestReportBackgroundStartReturnsWriteError(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Close() // a reader-less pipe fails every write with EPIPE
+	orig := os.Stdout
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = orig; w.Close() })
+	for _, format := range []string{helptext.Text, helptext.JSON} {
+		if err := ReportBackgroundStart(format, job.Record{ID: "j1"}); err == nil {
+			t.Errorf("%s: write to a closed pipe returned nil", format)
+		}
+	}
+}

@@ -88,7 +88,9 @@ func spawnSplitReview(name string, args []string, n int) int {
 	if err := rec.Save(); err != nil { // records the child's pid so status can tell running from lost
 		fmt.Fprintf(os.Stderr, "%s review: job pid not recorded: %v\n", name, err)
 	}
-	ask.ReportBackgroundStart("text", rec)
+	if err := ask.ReportBackgroundStart("text", rec); err != nil {
+		return helptext.Fail("%s review: job %s started; write job id: %v", name, rec.ID, err)
+	}
 	return 0
 }
 
