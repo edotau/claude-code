@@ -21,6 +21,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // freePort returns a currently free loopback port.
@@ -665,6 +667,25 @@ func TestNonJSONErrorBodyStripsControlBytes(t *testing.T) {
 	for _, r := range err.Error() {
 		if r < 0x20 || r == 0x7f {
 			t.Errorf("control rune %q in %q", r, err)
+		}
+	}
+}
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func TestNormalizeHost(t *testing.T) {
+	for in, want := range map[string]string{
+		"Example.cloud.databricks.com":            "https://example.cloud.databricks.com",
+		" https://Example.cloud.databricks.com/ ": "https://example.cloud.databricks.com",
+		"https://h.example.com:8443":              "https://h.example.com:8443",
+		"http://h.example.com":                    "",
+		"https://h.example.com/serving":           "",
+		"https://h.example.com/?o=1":              "",
+		"https://user@h.example.com":              "",
+		"":                                        "",
+	} {
+		if got := NormalizeHost(in); got != want {
+			t.Errorf("NormalizeHost(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

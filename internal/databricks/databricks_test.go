@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -638,3 +639,5 @@ func TestResolveProfileLastNonDatabricksFallsToPin(t *testing.T) {
 		t.Errorf("resolveProfile = %q, want the pinned cc", got)
 	}
 }
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

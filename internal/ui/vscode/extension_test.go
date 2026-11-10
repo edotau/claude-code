@@ -1,6 +1,7 @@
 package vscode
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -121,5 +122,20 @@ func TestDefaultExtensionsDirFallsBackToDesktopClient(t *testing.T) {
 	want := filepath.Join(home, ".vscode", "extensions")
 	if dir != want {
 		t.Errorf("got %q, want %q", dir, want)
+	}
+}
+
+func TestLinkExtensionCheckRejectsDeletedSource(t *testing.T) {
+	home := extensionHome(t)
+	extensions := t.TempDir()
+	if _, err := LinkExtension(home, extensions, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(home, "vscode", "claude-code-agents")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LinkExtension(home, extensions, true)
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("check of dangling matching link = %v, want missing-source error", err)
 	}
 }

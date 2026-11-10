@@ -1,9 +1,12 @@
 package textutil
 
 import (
+	"os"
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestCompareVersionsDottedPrerelease(t *testing.T) {
@@ -161,3 +164,5 @@ func TestParseRetryAfterHugeSecondsNeverNegative(t *testing.T) {
 		}
 	}
 }
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

@@ -94,3 +94,20 @@ func TestClientSecretRetriesLegacyDeletionOnVaultHit(t *testing.T) {
 		t.Fatalf("legacy secret survived successful retry: %v", err)
 	}
 }
+
+func writeProxyFixture(t *testing.T, path, data string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func removeProxyFixture(t *testing.T, path string) {
+	t.Helper()
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+}

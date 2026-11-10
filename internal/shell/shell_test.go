@@ -1,9 +1,18 @@
 package shell
 
 import (
+	"os"
+	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
+
+// TestMain treats every path as an existing directory unless it contains "missing"; statDir has its own test.
+func TestMain(m *testing.M) {
+	dirExists = func(p string) bool { return !strings.Contains(p, "missing") }
+	os.Exit(m.Run())
+}
 
 // TestTokensPinnedOutput pins Tokens on quotes, escapes, group boundaries and line continuations.
 func TestTokensPinnedOutput(t *testing.T) {
@@ -37,6 +46,22 @@ func TestTokensPinnedOutput(t *testing.T) {
 	for _, c := range cases {
 		if got := Tokens(c.in); !slices.Equal(got, c.want) {
 			t.Errorf("Tokens(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestUnwrapNewWrappers(t *testing.T) {
+	rest, _ := Unwrap([]string{"setsid", "stdbuf", "-oL", "ionice", "-c", "3", "chrt", "-f", "10", "git", "x"}, "/w")
+	if !reflect.DeepEqual(rest, []string{"git", "x"}) {
+		t.Errorf("Unwrap = %v", rest)
+	}
+}
+
+func TestUnwrapAttachedShortValues(t *testing.T) {
+	for _, in := range [][]string{{"env", "-C/a", "git", "x"}, {"sudo", "-D/a", "git", "x"}} {
+		rest, dir := Unwrap(in, "/w")
+		if !reflect.DeepEqual(rest, []string{"git", "x"}) || dir != "/a" {
+			t.Errorf("Unwrap(%v) = %v, %q", in, rest, dir)
 		}
 	}
 }

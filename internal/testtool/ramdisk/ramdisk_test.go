@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // fakeDisk stubs the mount seams and reports what ran; attachErr makes the disk unavailable.
@@ -156,3 +158,5 @@ func TestRunErrorPaths(t *testing.T) {
 		t.Errorf("missing command leaked the disk: detached = %v", f.detached)
 	}
 }
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

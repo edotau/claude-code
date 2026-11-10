@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -555,3 +556,27 @@ func TestSyncMigratesOnlyHarnessClaudeProcessWrapper(t *testing.T) {
 		})
 	}
 }
+
+func TestSyncEscapesTemplatePaths(t *testing.T) {
+	hermeticVSCode(t)
+	dir := t.TempDir()
+	tmpl, dest := filepath.Join(dir, "template.json"), filepath.Join(dir, "settings.json")
+	writeFile(t, tmpl, `{"home":"__CLAUDE_HOME__", "bin":"__CLAUDE_BIN__/codex"}`)
+	home, bin := `/tmp/home"with\slash`, `/tmp/a"b/bin`
+	if _, err := Sync(tmpl, dest, home, bin, false); err != nil {
+		t.Fatalf("sync with quoted paths: %v", err)
+	}
+	body, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("merged JSON: %v", err)
+	}
+	if got["home"] != home || got["bin"] != bin+"/codex" {
+		t.Fatalf("rendered paths = %v, want home %q and bin %q", got, home, bin+"/codex")
+	}
+}
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

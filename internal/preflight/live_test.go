@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -251,3 +252,6 @@ func TestRunProfilePongsFailRowWhenNonePong(t *testing.T) {
 		t.Fatalf("usable profile must not emit a fail row:\n%s", good.String())
 	}
 }
+
+// TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

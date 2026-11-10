@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -340,3 +341,6 @@ func TestWriteStateSerializesOwnershipCheckAndPublication(t *testing.T) {
 		t.Fatalf("competing proxy clobbered owner: %+v, %v; want %+v", got, err, owner)
 	}
 }
+
+// TestMain runs in the hermetic host (hosttest), so no test touches the live vault or secret.
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

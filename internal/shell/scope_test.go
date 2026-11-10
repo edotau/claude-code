@@ -1,6 +1,8 @@
 package shell
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestReadOnlyGitLeadingNoPager(t *testing.T) {
 	for cmd, want := range map[string]bool{
@@ -31,6 +33,18 @@ func TestReadOnlyGitRefusesOutsidePaths(t *testing.T) {
 	} {
 		if got := ReadOnlyGit(cmd); got != want {
 			t.Errorf("ReadOnlyGit(%q) = %v, want %v", cmd, got, want)
+		}
+	}
+}
+
+// TestReadOnlyGitRefusesNoIndex pins that --no-index (reads outside the repo) is refused for diff and grep.
+func TestReadOnlyGitRefusesNoIndex(t *testing.T) {
+	for _, cmd := range []string{
+		"git diff --no-ext-diff --no-textconv --no-index /etc/passwd /dev/null",
+		"git grep --no-index -e secret /etc",
+	} {
+		if ReadOnlyGit(cmd) {
+			t.Errorf("ReadOnlyGit(%q) = true", cmd)
 		}
 	}
 }

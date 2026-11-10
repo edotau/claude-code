@@ -11,7 +11,9 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/copilot"
@@ -712,5 +714,77 @@ func TestInstallRendersAgentConfigs(t *testing.T) {
 	}
 	if again := agentConfigsSummary(&out); again != "configs unchanged" {
 		t.Errorf("second run = %q, want unchanged", again)
+	}
+}
+
+// Given sections that each wait for every other to start, Then DoctorChecks runs them at once and keeps their order.
+func TestDoctorChecksRunsSectionsConcurrentlyInOrder(t *testing.T) {
+	orig := doctorSections
+	t.Cleanup(func() { doctorSections = orig })
+	var started sync.WaitGroup
+	section := func(name string, hardFail bool, delay time.Duration) doctorSection {
+		return func() ([]Check, bool) {
+			started.Done()
+			started.Wait() // a serial runner never gets past the first section
+			time.Sleep(delay)
+			return []Check{{Name: name + " 1"}, {Name: name + " 2"}}, !hardFail
+		}
+	}
+	doctorSections = []doctorSection{section("a", false, 30*time.Millisecond), section("b", true, 0),
+		section("c", false, 10*time.Millisecond), section("d", false, 0)}
+	started.Add(len(doctorSections))
+	done := make(chan struct{})
+	var checks []Check
+	var ok bool
+	go func() { checks, ok = DoctorChecks(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("sections ran one at a time")
+	}
+	var got []string
+	for _, c := range checks {
+		got = append(got, c.Name)
+	}
+	want := []string{"a 1", "a 2", "b 1", "b 2", "c 1", "c 2", "d 1", "d 2"}
+	if len(got) != len(want) {
+		t.Fatalf("rows = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("rows = %v, want %v (section order)", got, want)
+		}
+	}
+	if ok {
+		t.Error("ok = true, want false: section b failed a hard check")
+	}
+}
+
+// Doctor passes only when PATH's rtk is the pin; a shadow or a missing PATH entry fails naming the fix.
+func TestRTKDoctorStatusNamesShadow(t *testing.T) {
+	pin, userBin := rtkFixture(t)
+	if err := os.Symlink(pin, filepath.Join(userBin, "rtk")); err != nil {
+		t.Fatal(err)
+	}
+	shadowDir := t.TempDir()
+	mark := filepath.Join(t.TempDir(), "ran")
+	writeExec(t, filepath.Join(shadowDir, "rtk"), "#!/bin/sh\n: > '"+mark+"'\necho 'rtk 0.42.4'\n")
+	for _, tc := range []struct {
+		name, path, want string
+		ok               bool
+	}{
+		{"pin first", userBin + ":" + shadowDir, "PATH rtk is this binary", true},
+		{"shadow first", shadowDir + ":" + userBin, "PATH rtk " + filepath.Join(shadowDir, "rtk") + " shadows " +
+			pin + " — run make install, or put ~/.local/bin first on PATH", false},
+		{"none on PATH", t.TempDir(), pin + " is not on PATH — run make install", false},
+	} {
+		t.Setenv("PATH", tc.path)
+		ok, detail := rtkDoctorStatus()
+		if ok != tc.ok || !strings.Contains(detail, tc.want) {
+			t.Errorf("%s: (%v, %q), want (%v, …%q…)", tc.name, ok, detail, tc.ok, tc.want)
+		}
+	}
+	if _, err := os.Stat(mark); err == nil {
+		t.Error("doctor executed the shadowing rtk")
 	}
 }

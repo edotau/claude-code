@@ -1,7 +1,10 @@
 package models
 
 import (
+	"os"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestParseAndKnobs(t *testing.T) {
@@ -202,3 +205,5 @@ func TestPromptTokens(t *testing.T) {
 		}
 	}
 }
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

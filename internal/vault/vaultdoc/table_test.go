@@ -2,10 +2,17 @@ package vaultdoc
 
 import (
 	"encoding/json"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
 
+	_ "github.com/edotau/claude-code/internal/claude" // the vendors register the roster rows the vault tests list
+	_ "github.com/edotau/claude-code/internal/codex"
+	_ "github.com/edotau/claude-code/internal/copilot"
+	_ "github.com/edotau/claude-code/internal/gemini"
+	"github.com/edotau/claude-code/internal/hosttest"
+	_ "github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -101,3 +108,6 @@ func TestVaultProviderRowsKeepsSamePresetPerProvider(t *testing.T) {
 		t.Errorf("rows by provider = %v, want anthropic and databricks each with preset x and its own env", got)
 	}
 }
+
+// TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

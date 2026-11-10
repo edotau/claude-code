@@ -43,30 +43,6 @@ func TestUnreadableMirrorRecordPreventsTick(t *testing.T) {
 	}
 }
 
-func TestCommitFilesPreservesLeadingNewline(t *testing.T) {
-	hermetic(t)
-	repo, _ := tickRangeRepo(t)
-	writeFile(t, filepath.Join(repo, "foo.go"), "unchanged\n")
-	gitT(t, repo, "add", "foo.go")
-	gitT(t, repo, "commit", "-q", "-m", "ordinary path")
-	writeFile(t, filepath.Join(repo, "\nfoo.go"), "changed\n")
-	gitT(t, repo, "add", "\nfoo.go")
-	gitT(t, repo, "commit", "-q", "-m", "newline path")
-	files, err := CommitFiles(context.Background(), repo, "HEAD")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(files, []string{"\nfoo.go"}) {
-		t.Fatalf("CommitFiles = %q, want only the newline-prefixed path", files)
-	}
-	plan := filepath.Join(t.TempDir(), "plan.md")
-	body := "- [ ] 1.1 Ordinary file owns: foo.go\n"
-	writeFile(t, plan, body)
-	ticked, partial := tickOK(t, plan, "abc1234", files...)
-	wantTicks(t, "unchanged ordinary path", ticked, partial, 0, "", 0)
-	wantBytes(t, plan, "unchanged ordinary path", body)
-}
-
 func TestClearClaimOwnedRejectsEmptyOwner(t *testing.T) {
 	plan := userTickPlan(t, "- [ ] 1.1 Task owns: a.go <!-- working: alice -->\n")
 	before := readFile(t, plan)

@@ -3,6 +3,8 @@ package tui
 import (
 	"os"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestDecodeBasicKeys(t *testing.T) {
@@ -114,3 +116,5 @@ func TestDecodeRightArrow(t *testing.T) {
 		t.Fatalf("Decode(ESC [ C) = %+v,%d", k, n)
 	}
 }
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

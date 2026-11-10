@@ -2,8 +2,11 @@ package ansi
 
 import (
 	"math"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestHex(t *testing.T) {
@@ -276,3 +279,5 @@ func TestGradAtSpanMatchesTheLegacyScan(t *testing.T) {
 		}
 	}
 }
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

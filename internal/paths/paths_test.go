@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestCacheDirIsDotMemoryCacheUnderConfigDir(t *testing.T) {
@@ -371,3 +373,5 @@ func TestSwapSymlinkConcurrent(t *testing.T) {
 		t.Fatalf("temporary links left behind: %v, %v", entries, err)
 	}
 }
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
