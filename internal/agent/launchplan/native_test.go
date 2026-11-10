@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/launchplan"
 	"github.com/edotau/claude-code/internal/agentcfg"
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/vault"
@@ -63,6 +64,9 @@ func TestMapMatchesLaunch(t *testing.T) {
 		for _, flag := range []string{"", "qa"} {
 			t.Run(ag+"/"+flag, func(t *testing.T) {
 				setup(t, ag)
+				if ag == "copilot" {
+					t.Cleanup(copilot.StubGOOS("linux")) // the registry guard refuses darwin
+				}
 				want, err := launchplan.LaunchPlan(context.Background(), ag, agent.LaunchOptions{PrintEnv: true, Provider: flag}, nil)
 				if err != nil {
 					t.Fatal(err)

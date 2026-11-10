@@ -29,6 +29,13 @@ var (
 	macAppCLI          = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 )
 
+// StubMacAppCLI points the macOS GUI-app fallback at path ("" = none), for tests in other packages; restore undoes it.
+func StubMacAppCLI(path string) (restore func()) {
+	orig := macAppCLI
+	macAppCLI = path
+	return func() { macAppCLI = orig }
+}
+
 // defaultExecTimeout bounds every quick exec of the installed CLI; connectTimeout bounds `tailscale up`.
 const (
 	defaultExecTimeout = 5 * time.Second

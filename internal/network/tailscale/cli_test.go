@@ -44,6 +44,7 @@ func noCLI(t *testing.T) {
 	prev := lookPathReal
 	lookPathReal = func(string) (string, error) { return "", errors.New("not found") }
 	t.Cleanup(func() { lookPathReal = prev })
+	t.Cleanup(StubMacAppCLI("")) // the GUI app's bundled binary would otherwise answer on a Mac that has it
 }
 
 func catScript(t *testing.T, fixture string) string {
