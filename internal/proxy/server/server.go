@@ -89,6 +89,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		req = req.WithContext(context.WithValue(req.Context(), scopeKey{}, profileOfPath(req.URL.Path)))
 	}
 	stripClientAuth(req)
+	req = withLaunchIdentity(req)
 	if prov, dialect, rest, ok := parsePassthrough(req.URL.Path); ok {
 		r.passthrough(w, req, prov, dialect, rest)
 		return
@@ -102,6 +103,14 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	sw := &statusWriter{ResponseWriter: w, rc: http.NewResponseController(w)}
 	provider, model, attempts := r.route(sw, req, session, count)
 	fmt.Fprintf(r.log, "%s %s %s %d %d %s\n", start.Format(time.RFC3339), provider, model, sw.status, attempts, time.Since(start).Round(time.Millisecond))
+}
+
+// withLaunchIdentity puts the launch's IdentityHeader (--as, or headless) on req's context for the credential mint.
+func withLaunchIdentity(req *http.Request) *http.Request {
+	if id := req.Header.Get(proxy.IdentityHeader); id != "" {
+		return req.WithContext(providers.WithIdentity(req.Context(), id))
+	}
+	return req
 }
 
 // serveGate answers the host check, health, session and auth-failure requests; true when it wrote the response.

@@ -42,7 +42,7 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	fs.BoolVar(&f.native, "native", false, "opencode: skip the hub ladder; run on its default login")
 	fs.StringVar(&f.provider, "profile", "", "profile, or session; leads, then the ladder (--fallback none pins)")
 	fs.StringVar(&f.leadProvider, "provider", "", "lead on this provider's signed-in profile; falls back like --fallback")
-	fs.StringVar(&f.as, "as", "", "claude on a paired Databricks profile: user|sp, over the profile's identity")
+	fs.StringVar(&f.as, "as", "", "claude, SP-paired Databricks profile: auto|user|sp (default sp)")
 	fs.StringVar(&f.model, "model", "", "alias (opus), version (opus-5-5) or wire id")
 	fs.StringVar(&f.effort, "effort", "", "reasoning effort: low|medium|high|xhigh|max")
 	fs.StringVar(&f.workdir, "workdir", "", "working directory for the agent")
