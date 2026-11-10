@@ -85,6 +85,37 @@ func TestMarkAuthRoundTripAndClear(t *testing.T) {
 	}
 }
 
+func TestTryMarkAuthGivesUpOnABusyLockAndWritesNothing(t *testing.T) {
+	useConfigDir(t)
+	orig := authMarkWait
+	authMarkWait = 50 * time.Millisecond
+	t.Cleanup(func() { authMarkWait = orig })
+	acct := ProviderAccount("dbx-oai")
+	held, release, done := make(chan struct{}), make(chan struct{}), make(chan error)
+	go func() {
+		done <- paths.WithFileLock(StatePath(), func() error { close(held); <-release; return nil })
+	}()
+	<-held
+	start := time.Now()
+	ran, err := TryMarkAuth(acct, "auth rejected")
+	if waited := time.Since(start); err != nil || ran || waited > time.Second {
+		t.Fatalf("busy lock: ran=%v err=%v after %s; want a bounded give-up", ran, err, waited)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := LoadState().AuthMarked(acct, time.Now()); ok {
+		t.Fatal("a give-up wrote the mark")
+	}
+	if ran, err := TryMarkAuth(acct, "auth rejected"); err != nil || !ran {
+		t.Fatalf("free lock: ran=%v err=%v", ran, err)
+	}
+	if _, ok := LoadState().AuthMarked(acct, time.Now()); !ok {
+		t.Fatal("mark missing after a free-lock TryMarkAuth")
+	}
+}
+
 func TestAuthMarkExpiresAtTTL(t *testing.T) {
 	at := time.Date(2026, 10, 26, 8, 0, 0, 0, time.UTC)
 	s := State{"openai·chatgpt": {AuthReason: "r", AuthAt: at}}

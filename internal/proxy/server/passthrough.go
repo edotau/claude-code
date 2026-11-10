@@ -148,6 +148,9 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 		return model, ""
 	}
 	extra := passthroughDiag(resp)
+	if resp.StatusCode == http.StatusTooManyRequests && !providers.ModelDenied(string(peekBody(resp, 64<<10))) {
+		r.coolDown(p, resp) // a passthrough 429 sinks p in this proxy's /v1/messages ladders too
+	}
 	if geminiChat && resp.StatusCode == http.StatusOK && !strings.Contains(resp.Header.Get("Content-Type"), "event-stream") {
 		if err := flattenGeminiResponse(resp); err != nil {
 			writeError(sw, http.StatusBadGateway, "proxy: "+p.Name+": "+err.Error())

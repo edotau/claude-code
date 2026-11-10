@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -305,8 +306,9 @@ func (r *Router) authMarks() func(string, time.Time) (string, bool) {
 
 // condemn records a provider as auth-dead in the route state; best-effort, the caller moves on regardless.
 func (r *Router) condemn(p *providers.Provider, v providers.AuthVerdict) {
-	if err := router.MarkAuth(router.ProviderAccount(p.Name), "auth "+string(v)+": "+authHint(p)); err != nil {
-		fmt.Fprintf(r.log, "proxy: mark %s auth-dead: %v\n", p.Name, err)
+	ran, err := router.TryMarkAuth(router.ProviderAccount(p.Name), "auth "+string(v)+": "+authHint(p))
+	if err != nil || !ran {
+		fmt.Fprintf(r.log, "proxy: mark %s auth-dead: %v\n", p.Name, cmp.Or(err, errors.New("state lock busy")))
 		return
 	}
 	r.mu.Lock()

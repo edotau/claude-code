@@ -119,23 +119,37 @@ func loadState() (State, error) {
 // Update applies fn under the file lock; unreadable/newer state stays untouched, corrupt state keeps one backup.
 func Update(fn func(State)) error {
 	path := StatePath()
-	return paths.WithFileLock(path, func() error {
-		s, err := loadState()
-		if err != nil {
-			if errors.Is(err, schemas.ErrNewer) || !isDecodeErr(err) {
-				return err
-			}
-			if err := backupCorruptState(path); err != nil {
-				return err
-			}
-		}
-		fn(s)
-		data, err := json.MarshalIndent(s, "", "  ")
-		if err != nil {
+	return paths.WithFileLock(path, func() error { return writeState(path, fn) })
+}
+
+var authMarkWait = 2 * time.Second // bounds a request-path auth-mark write; a var so tests need not wait
+
+// tryUpdate is Update that gives up after wait; ran=false means the lock stayed busy and nothing was written.
+func tryUpdate(wait time.Duration, fn func(State)) (bool, error) {
+	path := StatePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, err
+	}
+	return paths.TryFileLock(path+".lock", wait, func() error { return writeState(path, fn) })
+}
+
+// writeState applies fn to the loaded state and writes it back; the caller holds the state lock.
+func writeState(path string, fn func(State)) error {
+	s, err := loadState()
+	if err != nil {
+		if errors.Is(err, schemas.ErrNewer) || !isDecodeErr(err) {
 			return err
 		}
-		return paths.AtomicWrite(path, data, 0o600)
-	})
+		if err := backupCorruptState(path); err != nil {
+			return err
+		}
+	}
+	fn(s)
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return err
+	}
+	return paths.AtomicWrite(path, data, 0o600)
 }
 
 // backupCorruptState preserves the corrupt bytes and removes earlier backups under the state lock.
@@ -213,26 +227,43 @@ func ProviderAccount(profile string) string {
 
 // MarkAuth remembers an auth rejection on account until a login, credential change or the TTL clears it.
 func MarkAuth(account, reason string) error {
-	return Update(func(s State) {
+	return Update(markAuth(account, reason))
+}
+
+// TryMarkAuth is MarkAuth bounded by authMarkWait; ran=false means the lock stayed busy and no mark was written.
+func TryMarkAuth(account, reason string) (bool, error) {
+	return tryUpdate(authMarkWait, markAuth(account, reason))
+}
+
+func markAuth(account, reason string) func(State) {
+	return func(s State) {
 		e := s[account]
 		e.AuthReason, e.AuthAt = reason, time.Now()
 		s[account] = e
-	})
+	}
 }
 
-// ClearAuth drops account's auth mark; nothing is written when none exists.
+// ClearAuth drops account's auth mark within authMarkWait; nothing is written when none exists.
 func ClearAuth(account string) error {
 	if e, ok := LoadState()[account]; !ok || e.AuthAt.IsZero() {
 		return nil
 	}
-	return Update(func(s State) {
+	ran, err := tryUpdate(authMarkWait, clearAuth(account))
+	if err == nil && !ran {
+		return fmt.Errorf("%w: %s.lock", paths.ErrLockTimeout, StatePath())
+	}
+	return err
+}
+
+func clearAuth(account string) func(State) {
+	return func(s State) {
 		e, ok := s[account]
 		if !ok {
 			return
 		}
 		e.AuthReason, e.AuthAt = "", time.Time{}
 		s[account] = e
-	})
+	}
 }
 
 // ClearProviderAuth drops every auth mark on provider: the router's (ProviderAccount) and each dispatch's "<provider>·<p>".
