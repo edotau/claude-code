@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -80,4 +81,21 @@ func ContextWindow(p *Provider, id string) int {
 		return models.ContextWindow(id)
 	}
 	return models.ContextWindowStd
+}
+
+// ServingRow checks that name is a Databricks serving-endpoints row, the only kind route databricks:<p> runs on.
+func ServingRow(name string) error {
+	reg, err := Load()
+	if err != nil {
+		return fmt.Errorf("--route databricks:%s: %w", name, err)
+	}
+	switch p := reg.Providers[name]; {
+	case p == nil:
+		return fmt.Errorf("--route databricks:%s: no such profile", name)
+	case p.Preset != PresetDatabricks:
+		return fmt.Errorf("--route databricks:%s: not a Databricks profile", name)
+	case p.IsAIGateway():
+		return fmt.Errorf("--route databricks:%s: AI Gateway row; use a serving row", name)
+	}
+	return nil
 }

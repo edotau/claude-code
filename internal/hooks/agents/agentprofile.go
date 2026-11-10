@@ -150,6 +150,9 @@ func routeWorkspace(task string) (string, error) {
 
 // applyRoute prepends `agents ask --route databricks:<p>` to a Route: dispatch; deny blocks a bad, unknown or
 // conflicting route (another Profile:, or leaving the session's armed route). Inside the same route it is a no-op.
+// servingRow refuses a profile route databricks:<p> cannot run on; tests stub it.
+var servingRow = providers.ServingRow
+
 func applyRoute(run *dispatchRun, updated map[string]any, promptField, task string) (note string, deny *core.Result) {
 	st, _ := updated["subagent_type"].(string)
 	if !routeApplies(st, task) {
@@ -171,6 +174,9 @@ func applyRoute(run *dispatchRun, updated map[string]any, promptField, task stri
 	}
 	if names, ok := profileNames(run); ok && !slices.Contains(names, p) {
 		return block(fmt.Sprintf("--route databricks:%s: no such profile", p))
+	}
+	if err := servingRow(p); err != nil {
+		return block(err.Error())
 	}
 	cmd := fmt.Sprintf("claude-code agents ask --agent %s --route databricks:%s", routeAgent(st, task), p)
 	if prompt, _ := updated[promptField].(string); !strings.Contains(prompt, "--route databricks:"+p) {

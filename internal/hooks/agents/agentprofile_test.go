@@ -2,6 +2,7 @@ package agents
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -15,7 +16,9 @@ func stubProfiles(t *testing.T, names []string, ok bool) {
 	t.Helper()
 	old := profileNames
 	profileNames = func(*dispatchRun) ([]string, bool) { return names, ok }
-	t.Cleanup(func() { profileNames = old })
+	oldRow := servingRow
+	servingRow = func(string) error { return nil }
+	t.Cleanup(func() { profileNames, servingRow = old, oldRow })
 }
 
 func profileSpawn(t *testing.T, kind, prompt string) string {
@@ -195,6 +198,13 @@ func TestRouteLineConflicts(t *testing.T) {
 	if r := routeSpawn(t, "codex", "Route: databricks:dbx\nProfile: dbx\nx"); r.Decision == core.Block {
 		t.Errorf("matching Route and Profile blocked: %s", r.Reason)
 	}
+	servingRow = func(p string) error {
+		return errors.New("--route databricks:" + p + ": AI Gateway row; use a serving row")
+	}
+	if r := routeSpawn(t, "codex", "Route: databricks:dbx\nx"); r.Decision != core.Block || !strings.Contains(r.Reason, "AI Gateway row") {
+		t.Errorf("a non-serving row = %+v, want a block naming the row kind", r)
+	}
+	servingRow = func(string) error { return nil }
 	t.Setenv(router.EnvRoute, "databricks:qa")
 	if r := routeSpawn(t, "codex", "Route: databricks:dbx\nx"); r.Decision != core.Block || !strings.Contains(r.Reason, "conflicts with databricks:qa") {
 		t.Errorf("leaving the armed route = %+v, want a block", r)
