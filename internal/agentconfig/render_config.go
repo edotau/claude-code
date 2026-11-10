@@ -113,13 +113,15 @@ func cloneShellRules(rs ShellRules) ShellRules {
 	return out
 }
 
-// clone returns a deep copy of a: permission shell scope, MCP allowlist and launch env/args.
+// clone returns a deep copy of a: permission shell scope and defaults, MCP allowlist and launch env/args.
 func (a AgentConfig) clone() AgentConfig {
 	out := a
 	if a.Permission.Shell != nil {
 		shell := ShellScope{Commands: cloneShellRules(a.Permission.Shell.Commands), HookExtras: cloneShellRules(a.Permission.Shell.HookExtras)}
 		out.Permission.Shell = &shell
 	}
+	d := a.Permission.Defaults
+	out.Permission.Defaults = Policy{Mode: d.Mode, Allow: slices.Clone(d.Allow), Ask: slices.Clone(d.Ask), Deny: slices.Clone(d.Deny)}
 	out.MCP.Allow = slices.Clone(a.MCP.Allow)
 	out.Launch.Env = slices.Clone(a.Launch.Env)
 	out.Launch.Args = slices.Clone(a.Launch.Args)

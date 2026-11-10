@@ -137,9 +137,14 @@ func recoveryTarget(r Engine, req RunOptions) (providers.Target, bool) {
 	return t, err == nil && t.Provider != nil
 }
 
-// checkRun resolves inherited permissions, then refuses a persona, read-only or permission set r cannot honor.
+// checkRun layers r's default permissions under the request and the outer dispatch's over it, then refuses a persona,
+// read-only or permission set r cannot honor.
 func checkRun(r Engine, req RunOptions) (RunOptions, error) {
-	var err error
+	def, err := DefaultPermissions(r.Name())
+	if err != nil {
+		return req, err
+	}
+	req.Permissions, _ = ResolvePermissions(def, req.Permissions)
 	if req.Permissions, err = inheritPermissions(req.Permissions); err != nil {
 		return req, err
 	}
