@@ -4,16 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/memory"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig/project"
 	_ "github.com/edotau/claude-code/internal/claude" // registers the claude row an unsigned agent's pick falls through to
 	_ "github.com/edotau/claude-code/internal/codex"
 	_ "github.com/edotau/claude-code/internal/copilot"
@@ -409,6 +412,7 @@ func TestAgentEffortAutoModeRecallRidesContextNotUpdatedInput(t *testing.T) {
 func labelOf(t *testing.T, subagentType, prompt, desc string) string {
 	t.Helper()
 	stubLabelModels(t, "", "")
+	labelCell = func(_ *dispatchRun, agent, alias string) string { return agent + "-" + alias }
 	payload := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"model":"sonnet","prompt":%q,"description":%q}}`,
 		subagentType, prompt, desc)
 	r := agentEffortResult(core.ParseInput(strings.NewReader(payload)))
@@ -432,8 +436,8 @@ func TestDispatchAgentLabels(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	prompt := "Agent: gemini → codex\nreview the thing"
 	got := labelOf(t, "claude", prompt, "review thing")
-	if got != "gemini → codex: review thing" {
-		t.Fatalf("label = %q, want %q", got, "gemini → codex: review thing")
+	if got != "sonnet: review thing" {
+		t.Fatalf("label = %q, want %q", got, "sonnet: review thing")
 	}
 	// Running twice (the labelled description fed back in) does not double-prefix.
 	if again := labelOf(t, "claude", prompt, got); again != got {
@@ -443,18 +447,18 @@ func TestDispatchAgentLabels(t *testing.T) {
 		t.Errorf("Explore label = %q, want its own model prefix", got)
 	}
 	cases := []struct{ st, agent, want string }{
-		{"claude", "copilot", "copilot: task"},
-		{"copilot", "claude", "sonnet: task"},
+		{"claude", "copilot", "copilot-sonnet: task"},
+		{"copilot", "claude", "copilot-sonnet: task"},
 		{"claude", "claude (in-context)", "sonnet: task"},
 		{"claude", "claude", "sonnet: task"},
-		{"codex", "codex → gemini", "gemini: task"},
+		{"codex", "codex → gemini", "codex-sonnet: task"},
 	}
 	// Mode: compare joins with ", "; relay (explicit or absent) keeps the arrow.
 	for _, c := range []struct{ prompt, want string }{
-		{"Mode: compare\nAgent: codex, gemini", "codex, gemini: task"},
-		{"Agent: codex, gemini\nMode: Compare", "codex, gemini: task"},
-		{"Mode: relay\nAgent: codex → gemini", "codex → gemini: task"},
-		{"Agent: codex → gemini", "codex → gemini: task"},
+		{"Mode: compare\nAgent: codex, gemini", "sonnet: task"},
+		{"Agent: codex, gemini\nMode: Compare", "sonnet: task"},
+		{"Mode: relay\nAgent: codex → gemini", "sonnet: task"},
+		{"Agent: codex → gemini", "sonnet: task"},
 	} {
 		if got := labelOf(t, "claude", c.prompt, "task"); got != c.want {
 			t.Errorf("prompt %q = %q, want %q", c.prompt, got, c.want)
@@ -469,19 +473,19 @@ func TestDispatchAgentLabels(t *testing.T) {
 
 // Descriptions start lowercase and drop a hand-typed prefix that repeats the row's own type, for any subagent type.
 func TestDispatchLabelLowercase(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	useAgentsDir(t, "claude", "copilot", "Plan")
 	lower := []struct{ st, agent, desc, want string }{
-		{"claude", "copilot", "Fix bug", "copilot: fix bug"},
-		{"claude", "copilot", "copilot: Fix bug", "copilot: fix bug"},
+		{"claude", "copilot", "Fix bug", "copilot-sonnet: fix bug"},
+		{"claude", "copilot", "copilot: Fix bug", "copilot-sonnet: fix bug"},
 		{"claude", "none", "Exercising live-session cap", "sonnet: exercising live-session cap"},
 		{"claude", "none", "HTTP retry", "sonnet: HTTP retry"},
-		{"claude", "copilot", "CLAUDE.md rewrite", "copilot: CLAUDE.md rewrite"},
+		{"claude", "copilot", "CLAUDE.md rewrite", "copilot-sonnet: CLAUDE.md rewrite"},
 		{"claude", "none", "internal_x fix", "sonnet: internal_x fix"},
 		{"claude", "none", "Fix v2 bug", "sonnet: fix v2 bug"},
 		{"claude", "none", "V2 bug", "sonnet: V2 bug"},
 		{"claude", "none", "Done. Next", "sonnet: done. Next"},
 		{"claude", "none", "claude: RTK hook", "sonnet: RTK hook"},
-		{"copilot", "none", "copilot: repair tests", "sonnet: repair tests"},
+		{"copilot", "none", "copilot: repair tests", "copilot-sonnet: repair tests"},
 		{"Plan", "none", "Plan: Repo-wide package consolidation", "sonnet: repo-wide package consolidation"},
 	}
 	for _, c := range lower {
@@ -500,7 +504,7 @@ func TestDispatchLabelNamesRoutedModel(t *testing.T) {
 	stubLabelModels(t, "gpt-6.1-sol", "databricks-gpt-6-astra")
 	for prompt, want := range map[string]string{
 		"Agent: codex\nreview":               "gpt-6.1-sol: review diff",
-		"Agent: claude (in-context)\nreview": "sonnet: review diff",
+		"Agent: claude (in-context)\nreview": "gpt-6.1-sol: review diff", // an external type runs its agent, whatever the brief
 	} {
 		r := agentEffortResult(core.ParseInput(strings.NewReader(payload(prompt))))
 		if got, _ := r.UpdatedInput["description"].(string); got != want && (want != "review diff" || r.UpdatedInput != nil) {
@@ -513,28 +517,6 @@ func TestDispatchLabelNamesRoutedModel(t *testing.T) {
 	}
 }
 
-func TestCoworkerLabels(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	stubProfiles(t, []string{"dbx"}, true)
-	stubLabelModels(t, "", "dbx-model")
-	labelCell = func(_ *dispatchRun, agent, alias string) string { return agent + "-" + alias }
-	for _, c := range []struct{ st, prompt, want string }{
-		{"coworker:copilot", "fix x", "copilot-sonnet: task"},
-		{"coworker:copilot", "Agent: codex\nfix x", "copilot-sonnet: task"},
-		{"coworker:opencode", "fix x", "opencode-sonnet: task"},
-		{"coworker", "fix x", "copilot-sonnet: task"},
-		{"coworker", "Agent: opencode\nfix x", "opencode-sonnet: task"},
-		{"coworker:databricks", "Agent: codex\nProfile: dbx\nfix x", "dbx-model: task"},
-	} {
-		payload := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"model":"sonnet","prompt":%q,"description":"task"}}`,
-			c.st, c.prompt)
-		r := agentEffortResult(core.ParseInput(strings.NewReader(payload)))
-		if got, _ := r.UpdatedInput["description"].(string); got != c.want {
-			t.Errorf("%s %q: label = %q, want %q", c.st, c.prompt, got, c.want)
-		}
-	}
-}
-
 func TestDiscoveryHintPredicate(t *testing.T) {
 	old := discoveryPoolSize
 	discoveryPoolSize = func() int { return 6 }
@@ -543,10 +525,6 @@ func TestDiscoveryHintPredicate(t *testing.T) {
 		name, st, task string
 		want           bool
 	}{
-		{"coworker", "coworker", "do a thing", true},
-		{"coworker:copilot", "coworker:copilot", "do a thing", true},
-		{"coworker:opencode", "coworker:opencode", "do a thing", true},
-		{"coworker:databricks", "coworker:databricks", "do a thing", false},
 		{"copilot", "copilot", "do a thing", true},
 		{"opencode", "opencode", "do a thing", true},
 		{"codex", "codex", "do a thing", false},
@@ -719,5 +697,187 @@ func TestLabelWritesNoQuotaState(t *testing.T) {
 	after, _ := os.ReadFile(router.StatePath())
 	if !bytes.Equal(before, after) {
 		t.Errorf("quota.json changed by a label: %q -> %q", before, after)
+	}
+}
+
+// useAgentsDir points CLAUDE_CONFIG_DIR at a fresh dir whose agents/ holds one file per name (`name: model` sets a model).
+func useAgentsDir(t *testing.T, names ...string) string {
+	t.Helper()
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	for _, n := range names {
+		writeAgentFile(t, cfg, n)
+	}
+	return cfg
+}
+
+// writeAgentFile writes agents/<name>.md; a "name:model" argument also sets its frontmatter model.
+func writeAgentFile(t *testing.T, cfg, spec string) {
+	t.Helper()
+	name, model, _ := strings.Cut(spec, ":")
+	body := "---\nname: " + name + "\n"
+	if model != "" {
+		body += "model: " + model + "\n"
+	}
+	if err := os.MkdirAll(filepath.Join(cfg, "agents"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "agents", name+".md"), []byte(body+"---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// allowedTypes are the dispatch types the inventory covers: the seven-file roster shape plus the built-ins.
+var allowedTypes = []string{"claude", "codex", "copilot", "gemini", "opencode", "Explore", "Plan", "general-purpose"}
+
+// inventoryLabel is the label oracle: an external type shows its stubbed pick "<agent>-<tier>", a Claude-run type its model.
+func inventoryLabel(st, model string) string {
+	if externalTypes[st] {
+		return st + "-" + model
+	}
+	return model
+}
+
+// TestDispatchLabelInventory: every allowed type × {explicit, agent-file, classified} model × {plain, correct, wrong,
+// doubled} description ends as exactly one `<model>: ` prefix; auto mode blocks only a missing or wrong prefix.
+func TestDispatchLabelInventory(t *testing.T) {
+	const task = "review the diff"
+	for _, st := range allowedTypes {
+		for _, src := range []string{"explicit", "file", "none"} {
+			cfg := useAgentsDir(t, "claude", "codex", "copilot", "gemini", "opencode", "Plan")
+			stubLabelModels(t, "", "")
+			labelCell = func(_ *dispatchRun, agent, alias string) string { return agent + "-" + alias }
+			model := map[string]string{"explicit": "opus", "file": "haiku"}[src]
+			if src == "file" {
+				writeAgentFile(t, cfg, st+":haiku")
+			}
+			pinned, _, _ := dispatchLabel(LabelInput{Type: st, Model: map[string]string{"explicit": "opus"}[src], Brief: task})
+			if src == "none" {
+				_, model, _ = dispatchLabel(LabelInput{Type: st, Brief: task})
+			}
+			label := inventoryLabel(st, model)
+			if pinned != label {
+				t.Errorf("%s/%s: agents label = %q, want %q", st, src, pinned, label)
+			}
+			want := label + ": " + task
+			for kind, desc := range map[string]string{"plain": task, "correct": want, "wrong": "gpt-4-1-mini: " + task,
+				"doubled": label + ": " + want, "d1": "sonnet: databricks-gpt-6-1-sol: " + task} {
+				assertInventoryRow(t, st, src, kind, desc, want)
+			}
+		}
+	}
+}
+
+// assertInventoryRow runs one dispatch outside and inside auto mode and checks the description and the block.
+func assertInventoryRow(t *testing.T, st, src, kind, desc, want string) {
+	t.Helper()
+	in := map[string]any{"subagent_type": st, "prompt": "review the diff", "description": desc}
+	if src == "explicit" {
+		in["model"] = "opus"
+	}
+	for _, auto := range []bool{false, true} {
+		doc := map[string]any{"tool_name": "Agent", "tool_input": in}
+		if auto {
+			doc["permission_mode"] = "auto"
+		}
+		raw, _ := json.Marshal(doc)
+		r := agentEffortResult(core.ParseInput(bytes.NewReader(raw)))
+		got, _ := r.UpdatedInput["description"].(string)
+		if got == "" {
+			got = desc
+		}
+		blocked := r.Decision == core.Block
+		switch {
+		case auto && blocked != (kind != "correct"):
+			t.Errorf("%s/%s/%s auto: blocked = %v (%s)", st, src, kind, blocked, r.Reason)
+		case auto && blocked && !strings.Contains(r.Reason, fmt.Sprintf("%q", want)):
+			t.Errorf("%s/%s/%s auto: reason %q, want it to name %q", st, src, kind, r.Reason, want)
+		case !auto && (blocked || got != want):
+			t.Errorf("%s/%s/%s: description %q (blocked %v), want %q", st, src, kind, got, blocked, want)
+		}
+	}
+}
+
+// D1: a codex leaf whose Agent: line mentions claude-code was labelled with the wrapper's alias stacked on the
+// routed model; an external type's label is its own pick, once.
+func TestDispatchLabelExternalTypeIgnoresAgentLineWords(t *testing.T) {
+	useAgentsDir(t, "codex")
+	stubLabelModels(t, "databricks-gpt-6-1-sol", "")
+	payload := `{"tool_name":"Agent","permission_mode":"auto","tool_input":{"subagent_type":"codex","model":"sonnet",` +
+		`"prompt":"Agent: codex (run via claude-code agents ask --agent codex)\nreview","description":"databricks-gpt-6-1-sol: review phase 2"}}`
+	if r := agentEffortResult(core.ParseInput(strings.NewReader(payload))); r.Decision == core.Block {
+		t.Fatalf("correctly labelled codex dispatch was blocked: %s", r.Reason)
+	}
+}
+
+// The allowed types are the agents/ files plus the built-ins: adding or removing a file changes the set, nothing else does.
+func TestDispatchTypeGateFollowsAgentFiles(t *testing.T) {
+	cfg := useAgentsDir(t, "claude", "codex", "Plan")
+	blocked := func(st, brief string) string {
+		raw, _ := json.Marshal(map[string]any{"tool_name": "Agent", "tool_input": map[string]any{"subagent_type": st, "prompt": brief, "description": "x"}})
+		r := agentEffortResult(core.ParseInput(bytes.NewReader(raw)))
+		if r.Decision != core.Block || !strings.HasPrefix(r.Reason, "agent-effort: subagent_type") {
+			return ""
+		}
+		return r.Reason
+	}
+	for _, st := range []string{"claude", "codex", "Plan", "Explore", "general-purpose", ""} {
+		if r := blocked(st, "do it"); r != "" {
+			t.Errorf("%q blocked: %s", st, r)
+		}
+	}
+	const roster = "(Explore, Plan, claude, codex, general-purpose)"
+	for st, c := range map[string]struct{ brief, use string }{
+		"copilot": {"do it", `use "general-purpose"`}, "web-fetch": {"read a page", `use "general-purpose"`},
+		"claude-code-guide": {"q", `use "general-purpose"`}, "statusline-setup": {"q", `use "general-purpose"`},
+		"claude-context-optimizer:context-analyzer": {"q", `use "general-purpose"`},
+		"coworker:copilot":                          {"do it", `use "copilot", or the /coworker:copilot command`},
+		"coworker:opencode":                         {"do it", `use "opencode", or the /coworker:opencode command`},
+		"coworker:databricks":                       {"Agent: codex\nProfile: dev\ndo it", `use "codex", or the /coworker:codex command`},
+		"coworker":                                  {"do it", "name one roster agent, or use the /coworker:<agent> command"},
+	} {
+		want := fmt.Sprintf("agent-effort: subagent_type %q is not on the roster %s; %s", st, roster, c.use)
+		if r := blocked(st, c.brief); r != want {
+			t.Errorf("%s: reason %q, want %q", st, r, want)
+		}
+	}
+	writeAgentFile(t, cfg, "copilot")
+	if r := blocked("copilot", "do it"); r != "" {
+		t.Errorf("copilot with its file added still blocked: %s", r)
+	}
+	if err := os.Remove(filepath.Join(cfg, "agents", "Plan.md")); err != nil {
+		t.Fatal(err)
+	}
+	if r := blocked("Plan", "do it"); !strings.Contains(r, `use "claude" and state read-only`) {
+		t.Errorf("Plan with its file removed = %q, want blocked with the claude redirect", r)
+	}
+}
+
+// An agents dir that cannot be read or holds no agent never blocks the roster: it falls back to agentid plus the built-ins.
+func TestDispatchTypeGateFallsBackToRoster(t *testing.T) {
+	orig := listAgents
+	t.Cleanup(func() { listAgents = orig })
+	listAgents = func(string) ([]project.Source, error) { return nil, errors.New("permission denied") }
+	if got, want := dispatchTypes(), []string{"Explore", "claude", "codex", "copilot", "gemini", "general-purpose", "opencode"}; !slices.Equal(got, want) {
+		t.Errorf("fallback types = %v, want %v", got, want)
+	}
+	useAgentsDir(t) // no agents/ at all
+	listAgents = orig
+	if r := typeBlock("gemini", ""); r != nil {
+		t.Errorf("gemini with no agents dir blocked: %s", r.Reason)
+	}
+}
+
+// A refused type is blocked before the cap claim: no in-flight marker is written.
+func TestDispatchTypeGateClaimsNoSlot(t *testing.T) {
+	dispatchEnv(t)
+	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "claude")
+	before := markerNames(t)
+	r := pre(`{"tool_name":"Agent","tool_use_id":"gate1","tool_input":{"subagent_type":"web-fetch","prompt":"x","description":"x"}}`)
+	if r.Decision != core.Block || len(markerNames(t)) != len(before) || hasMarker(t, "gate1") {
+		t.Fatalf("web-fetch = %+v, markers %v -> %v; want a block and no new marker", r, before, markerNames(t))
+	}
+	if r := pre(`{"tool_name":"Agent","tool_use_id":"gate2","tool_input":{"subagent_type":"claude","model":"opus","prompt":"x","description":"x"}}`); r.Decision == core.Block || !hasMarker(t, "gate2") {
+		t.Fatalf("claude = %+v, want a claimed slot (negative control)", r)
 	}
 }

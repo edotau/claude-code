@@ -16,6 +16,8 @@ import (
 	"unicode"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig/project"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/quality"
 	"github.com/edotau/claude-code/internal/memory"
@@ -69,6 +71,9 @@ func agentEffortResult(in *core.Input) core.Result {
 	if !core.SpawnTools[in.ToolName] {
 		return core.Result{}
 	}
+	if deny := typeBlock(in.Nested("tool_input", "subagent_type"), in.Nested("tool_input", "prompt")); deny != nil {
+		return *deny
+	}
 	// updatedInput REPLACES the whole tool_input record, so every original key must be echoed back;
 	// dropping one (isolation, run_in_background, subagent_type, …) would silently alter the dispatch.
 	updated := in.CloneToolInput()
@@ -88,12 +93,68 @@ func agentEffortResult(in *core.Input) core.Result {
 	if deny := e.profile(promptField, task); deny != nil {
 		return *deny
 	}
+	if deny := e.route(promptField, task); deny != nil {
+		return *deny
+	}
 	if deny := e.label(task, auto); deny != nil {
 		return *deny
 	}
 	e.discovery(in, task, auto)
 	e.note = strings.TrimSpace(e.note + "\n" + recallNote)
 	return e.result()
+}
+
+// builtinTypes are the harness built-in Claude-run leaf types with no agents/<name>.md that a dispatch may use.
+var builtinTypes = []string{"Explore", "general-purpose"}
+
+// listAgents loads the agent definitions; a seam so tests count or fail the read.
+var listAgents = project.DiscoverAgents
+
+// dispatchTypes is every allowed subagent_type, sorted: each agents/<name>.md plus builtinTypes; a dir that is
+// unreadable or holds no agent falls back to the roster with one notice, so it never blocks every dispatch.
+func dispatchTypes() []string {
+	dir := filepath.Join(paths.ConfigDir(), "agents")
+	srcs, err := listAgents(dir)
+	names := slices.Clone(builtinTypes)
+	for _, s := range srcs {
+		names = append(names, s.Name())
+	}
+	if err != nil || len(srcs) == 0 {
+		fmt.Fprintf(os.Stderr, "agent-effort: no agent definitions read from %s (%v); allowing the roster\n", dir, err)
+		names = append(slices.Clone(builtinTypes), agentid.All()...)
+	}
+	slices.Sort(names)
+	return names
+}
+
+// typeBlock denies a spawn whose subagent_type is not allowed, naming the type to use instead; "" runs general-purpose.
+func typeBlock(st, task string) *core.Result {
+	if st == "" {
+		return nil
+	}
+	allowed := dispatchTypes()
+	if slices.Contains(allowed, st) {
+		return nil
+	}
+	return &core.Result{Decision: core.Block, Reason: fmt.Sprintf("agent-effort: subagent_type %q is not on the roster (%s); %s",
+		st, strings.Join(allowed, ", "), typeSuggestion(st, task))}
+}
+
+// typeSuggestion is the redirect: a coworker type to the roster agent it wraps, anything else to general-purpose.
+func typeSuggestion(st, task string) string {
+	agent, isCoworker := strings.CutPrefix(st, "coworker:")
+	switch {
+	case st == "Plan":
+		return `use "claude" and state read-only in the brief`
+	case st == "coworker" || isCoworker && agent == "databricks":
+		agent = briefExternal(task)
+	case !isCoworker:
+		return `use "general-purpose"` // every tool, WebFetch included: covers web-fetch, claude-code-guide, plugin agents
+	}
+	if agent == "" {
+		return "name one roster agent, or use the /coworker:<agent> command"
+	}
+	return fmt.Sprintf("use %q, or the /coworker:%s command", agent, agent)
 }
 
 // spawnTask is the spawn's prompt, or its description when the prompt is empty, with the field it came from.
@@ -139,15 +200,25 @@ func (e *effortPlan) profile(promptField, task string) *core.Result {
 	return nil
 }
 
+// route applies a brief's Route: line; a non-nil result denies the dispatch.
+func (e *effortPlan) route(promptField, task string) *core.Result {
+	note, deny := applyRoute(e.run, e.updated, promptField, task)
+	if note != "" {
+		e.note, e.changed = strings.TrimSpace(e.note+" "+note), true
+	}
+	return deny
+}
+
 // label puts the model the dispatch runs on first in its description: a rewrite normally, a one-time deny in auto
 // mode, where a rewritten tool input is rejected by the classifier.
 func (e *effortPlan) label(task string, auto bool) *core.Result {
 	if !auto {
-		e.changed = applyLabel(e.run, e.updated, task) || e.changed
+		changed, _ := applyLabel(e.run, e.updated, task)
+		e.changed = changed || e.changed
 		return nil
 	}
 	probe := maps.Clone(e.updated)
-	if !applyLabel(e.run, probe, task) {
+	if _, canonical := applyLabel(e.run, probe, task); canonical { // a right prefix passes; case alone never blocks
 		return nil
 	}
 	return &core.Result{Decision: core.Block, Reason: fmt.Sprintf("agent-effort: the description must start with the model the "+
@@ -171,73 +242,48 @@ func (e *effortPlan) result() core.Result {
 	return core.Result{}
 }
 
-// applyLabel prefixes the description with the agents doing the work, minus the leaf's own type.
-func applyLabel(run *dispatchRun, updated map[string]any, task string) bool {
+// applyLabel rewrites the description to `<model>: <task>`; canonical is false when its prefix is missing or wrong.
+func applyLabel(run *dispatchRun, updated map[string]any, task string) (changed, canonical bool) {
 	st, _ := updated["subagent_type"].(string)
 	orig, _ := updated["description"].(string)
-	desc := orig
-	if rest, ok := strings.CutPrefix(desc, st+":"); ok { // a hand-typed own-type prefix ("Plan: …") repeats the row
-		desc = strings.TrimSpace(rest)
+	if strings.TrimSpace(orig) == "" {
+		return false, true
 	}
-	label, desc := leafLabel(run, updated, st, task, desc)
-	out, ok := labelled(label, desc)
-	if !ok || out == orig {
-		return false
+	label := labelModel(run, updated, st, task)
+	rest := stripLabels(orig, st, label)
+	out := lowerFirst(rest)
+	if label != "" {
+		out = label + ": " + out
+	}
+	if out == orig {
+		return false, true
 	}
 	updated["description"] = out
-	return true
+	return true, label == "" || orig == label+": "+rest
 }
 
-// leafLabel picks the prefix: a harness leaf's agents resolved to their model, else the leaf's own model.
-func leafLabel(run *dispatchRun, updated map[string]any, st, task, desc string) (string, string) {
-	label, compare := harnessLabel(st, task), modeCompareRe().MatchString(task)
-	if label != "" && !compare {
-		desc = cutLabel(desc, label)                          // a hand-typed or earlier unsuffixed label
-		if m := labelModel(run, updated, st, task); m != "" { // the model id alone says where the work runs
-			return m, cutLabel(desc, m)
+// stripLabels cuts every leading label-shaped `<head>:` so a doubled or wrong prefix is replaced, never stacked.
+func stripLabels(desc, st, label string) string {
+	for {
+		head, rest, ok := strings.Cut(desc, ":")
+		head = strings.TrimSpace(head)
+		if !ok || head == "" || !(head == st || label != "" && labelShaped(head, label)) {
+			return strings.TrimSpace(desc)
 		}
-		return label, desc
+		desc = rest
 	}
-	if label == "" && !compare && strings.TrimSpace(desc) != "" { // every other leaf leads with its own model
-		m := ownModel(run, updated, st)
-		if routedOwn(st, task) { // an external agent or a Profile: runs on its own cell, not the dispatch alias
-			m = labelModel(run, updated, st, task)
-		}
-		if m != "" {
-			return m, cutLabel(desc, m)
-		}
-	}
-	return label, desc
 }
 
-// harnessLabel names the agents a harness leaf requests; other types carry no label.
-func harnessLabel(st, task string) string {
-	if typeAgent(st) == "" {
-		return ""
-	}
-	return agentLabel(st, task)
-}
+// modelIDRe matches a model id: no spaces, a letter, a digit and a `-` or `/` ("gpt-6.1-sol", "opencode-go/kimi-k3").
+var modelIDRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z][\w.]*[-/][\w./-]*$`) })
 
-func cutLabel(desc, label string) string {
-	if rest, ok := strings.CutPrefix(desc, label+":"); ok {
-		return strings.TrimSpace(rest)
-	}
-	return desc
-}
-
-// labelled joins label and desc; ok is false when desc already is the bare label.
-func labelled(label, desc string) (string, bool) {
+// labelShaped is true for a description head that is a dispatch label rather than task text.
+func labelShaped(head, label string) bool {
 	switch {
-	case label == "":
-		return lowerFirst(desc), true
-	case strings.HasPrefix(desc, label+":"):
-		return label + ": " + lowerFirst(strings.TrimPrefix(desc[len(label)+1:], " ")), true
-	case desc == label:
-		return "", false
-	case strings.TrimSpace(desc) == "":
-		return label, true
+	case head == label || slices.Contains(models.AliasNames, head) || agentid.Known(head):
+		return true
 	}
-	return label + ": " + lowerFirst(desc), true
+	return modelIDRe().MatchString(head) && strings.ContainsAny(head, "0123456789")
 }
 
 // ownModel is the dispatch's model, else the agent file's, else (also for `inherit`) the session's; "" labels nothing.
@@ -252,17 +298,29 @@ func ownModel(run *dispatchRun, updated map[string]any, st string) string {
 	return m
 }
 
-// routedOwn is true when the leaf runs on an external agent by its own type or on a Profile: the brief applies.
-func routedOwn(st, task string) bool {
-	return pinnedAgentType(st) || profileApplies(st, task)
-}
-
-// typeAgent is the agent a leaf type runs on when its brief names none: an agent-named type, else a coworker's default.
-func typeAgent(st string) string {
-	if labelAgent(st) {
+// workAgent is the external agent doing the work ("" = Claude): the type, or for claude its Agent: line's one agent.
+func workAgent(st, task string) string {
+	if externalTypes[st] {
 		return st
 	}
-	return coworkerAgents[st]
+	if st != agentid.Claude {
+		return ""
+	}
+	return briefExternal(task)
+}
+
+// briefExternal is the one external agent the brief's Agent: line names; "" for none or several.
+func briefExternal(task string) string {
+	var named []string
+	for _, a := range briefAgents(task) {
+		if externalTypes[a] {
+			named = append(named, a)
+		}
+	}
+	if len(named) != 1 {
+		return ""
+	}
+	return named[0]
 }
 
 // profileApplies is true when the brief's Profile: line reaches a leaf of type st (read-only and in-context leaves ignore it).
@@ -281,7 +339,7 @@ func agentLabel(st, task string) string {
 	}
 	var names []string
 	for _, w := range briefAgents(task) {
-		if w != st && w != coworkerPin(st) {
+		if w != st {
 			names = append(names, w)
 		}
 	}
@@ -336,13 +394,10 @@ func explicitModel(in *core.Input) bool {
 	return m != "" && !strings.EqualFold(m, "inherit")
 }
 
-// agentFile is the roster (or coworker plugin) file of an agent type; ok is false for an empty or path-shaped name.
+// agentFile is the agents/<name>.md file of an agent type; ok is false for an empty or path-shaped name.
 func agentFile(name string) (string, bool) {
 	if name == "" || filepath.Base(name) != name {
 		return "", false
-	}
-	if agent, ok := strings.CutPrefix(name, "coworker:"); ok && coworkerAgents[name] != "" { // plugin-namespaced type
-		return filepath.Join(paths.ConfigDir(), "marketplace", "plugins", "coworker", "agents", agent+".md"), true
 	}
 	return filepath.Join(paths.ConfigDir(), "agents", name+".md"), true
 }
@@ -374,30 +429,44 @@ func agentPinsModel(run *dispatchRun, name string) bool {
 	return run.rosterModel(name) != "" // no roster file = a built-in (Explore/Plan), the classifier may apply
 }
 
-// labelModel is the model id a leaf is planned to run: the Claude pin in-context, else the profile's or route table's
-// model for its last agent at the leaf's tier; "" when unknown (the label falls back to the agent name).
+// labelModel is the one precedence: Route: pick, Profile: model, workAgent's no-run pick, else the leaf's Claude model.
 func labelModel(run *dispatchRun, updated map[string]any, st, task string) string {
-	alias, _ := updated["model"].(string)
-	if alias == "" {
-		alias = run.rosterModel(st)
+	agent, profile, route := workAgent(st, task), profileApplies(st, task), routeApplies(st, task)
+	if agent == "" && !profile && !route {
+		return ownModel(run, updated, st)
 	}
-	names, p := briefAgents(task), ""
-	if profileApplies(st, task) {
-		p = briefProfile(task)
+	tier, _ := updated["model"].(string)
+	if tier == "" || tier == "inherit" {
+		tier = run.rosterModel(st)
 	}
-	if own := typeAgent(st); own != "" && (agentLineRe().FindString(task) == "" || coworkerPin(st) != "") {
-		names = []string{own} // no Agent: line (or a pinned coworker) runs on the type's own agent
+	if !slices.Contains(models.AliasNames, tier) {
+		tier = models.Sonnet
 	}
-	if len(names) == 0 || names[len(names)-1] == "claude" && p == "" {
-		return alias
+	if p, err := routeWorkspace(task); route && err == nil {
+		return routePick(run, p, routeAgent(st, task), tier)
 	}
-	if !slices.Contains(models.AliasNames, alias) {
-		alias = models.Sonnet
+	if profile {
+		return labelProfileModel(run, briefProfile(task), tier)
 	}
-	if p != "" {
-		return labelProfileModel(run, p, alias)
+	return labelCell(run, agent, tier)
+}
+
+// routePick is labelCell inside route databricks:<p>: the env `--route` exports (ask.ApplyRoute), restored after.
+func routePick(run *dispatchRun, p, agent, tier string) string {
+	for k, v := range map[string]string{router.EnvRoute: router.RouteDatabricks + ":" + p, providers.EnvSessionProfile: p} {
+		old, had := os.LookupEnv(k)
+		_ = os.Setenv(k, v)
+		defer restoreEnv(k, old, had)
 	}
-	return labelCell(run, names[len(names)-1], alias)
+	return labelCell(run, agent, tier)
+}
+
+func restoreEnv(k, old string, had bool) {
+	if had {
+		_ = os.Setenv(k, old)
+		return
+	}
+	_ = os.Unsetenv(k)
 }
 
 // Label lookups are seams: tests stub them so a dispatch label never reads the live vault or route table.
@@ -469,13 +538,12 @@ func tableCellModel(run *dispatchRun, agent, alias string, pin router.PinSpec) s
 // discoveryPoolSize is the curated Discovery pool's model count (a var so tests can pin it).
 var discoveryPoolSize = func() int { return len(router.DiscoveryPool()) }
 
-// discoveryHint is the one-line `--model discovery` reminder for a coworker spawn or a brief whose Agent: line names copilot or
-// opencode; "" when neither applies or the brief already passes --model.
+// discoveryHint is the `--model discovery` reminder for a copilot/opencode spawn or Agent: line; "" with --model.
 func discoveryHint(st, task string) string {
 	if strings.Contains(task, "--model") {
 		return ""
 	}
-	hit := st == "copilot" || st == "opencode" || st == "coworker" || coworkerPin(st) != ""
+	hit := st == "copilot" || st == "opencode"
 	for _, w := range agentNameRe().FindAllString(agentLabel(st, task), -1) {
 		hit = hit || w == "copilot" || w == "opencode"
 	}

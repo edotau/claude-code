@@ -302,27 +302,15 @@ var externalTypes = func() map[string]bool {
 // labelAgent is true for an agent a dispatch label may name (claude or an external type), and a type that carries one.
 func labelAgent(name string) bool { return name == agentid.Claude || externalTypes[name] }
 
-// coworkerAgents maps each coworker leaf type to the agent it runs when its brief names none; the type is the request.
-var coworkerAgents = map[string]string{"coworker": "copilot", "coworker:copilot": "copilot",
-	"coworker:opencode": "opencode", "coworker:databricks": "claude"}
-
-// coworkerPin is the agent a pinned coworker type always runs, whatever its brief's Agent: line says ("" if unpinned).
-func coworkerPin(t string) string {
-	if t == "coworker:copilot" || t == "coworker:opencode" {
-		return coworkerAgents[t]
-	}
-	return ""
-}
-
-// pinnedAgentType is true for a leaf type whose type is the request (an external agent or a coworker), whatever the brief says.
+// pinnedAgentType is true for a leaf type whose type is the request (an external agent), whatever the brief says.
 func pinnedAgentType(t string) bool {
-	return externalTypes[t] || coworkerAgents[t] != ""
+	return externalTypes[t]
 }
 
 // ranOnVerdict blocks a gated leaf's stop or hand-back up to ranOnMaxBlocks times when no ran-on line was seen.
 func ranOnVerdict(in *core.Input, agentID string) (core.Result, bool) {
 	t := leafAgentType(in)
-	if !pinnedAgentType(t) { // only leaves that can call an external agent: codex|copilot|gemini|opencode, coworker[:*]
+	if !pinnedAgentType(t) { // only leaves that call an external agent: codex|copilot|gemini|opencode
 		return core.Result{}, false
 	}
 	s, err := leafBrief(in.AgentTranscriptPath)
