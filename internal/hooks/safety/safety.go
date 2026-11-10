@@ -313,6 +313,7 @@ func inertSegment(seg string) bool {
 // inertCommands judge, per command name, whether a segment's words are only data.
 var inertCommands = map[string]func(toks []string) bool{
 	"echo": inertEcho, "printf": inertEcho, "grep": inertGrep, "rg": inertGrep, "git": inertGit, "gh": inertGh,
+	"claude-code": inertScm,
 }
 
 // inertEcho: a redirect can plant the text in a file that later runs (~/.bashrc).
@@ -332,6 +333,15 @@ func inertGit(toks []string) bool {
 
 func inertGh(toks []string) bool {
 	return len(toks) > 3 && (toks[1] == "pr" || toks[1] == "issue") && slices.Contains([]string{"create", "edit", "comment"}, toks[2])
+}
+
+// inertScm: the --title of `claude-code scm pr create|comment` is data; a --body-file path or a redirect is not.
+func inertScm(toks []string) bool {
+	if len(toks) < 4 || toks[1] != "scm" || !inertEcho(toks) ||
+		slices.ContainsFunc(toks, func(t string) bool { return strings.HasPrefix(t, "--body-file") }) {
+		return false
+	}
+	return (toks[2] == "pr" && (toks[3] == "create" || toks[3] == "comment")) || toks[2] == "comment"
 }
 
 // dropInertHeredocs removes file-only heredoc bodies unless the command also runs a file.

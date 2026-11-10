@@ -2,8 +2,8 @@
 
 Two judgment passes the detectors can't make: **what else could this change break** (blast radius) and **does it
 break a published contract** (breaking changes). Examples use Django/DRF, a data warehouse and React; substitute
-your stack. For GitHub PRs use `gh pr diff <id>`. Run the full treatment on a PR over ~200 changed lines or one
-touching a shared module, serializer, migration or shared table; scope first:
+your stack. For GitHub PRs use `claude-code scm pr diff <id>`. Run the full treatment on a PR over ~200 changed lines or
+one touching a shared module, serializer, migration or shared table; scope first:
 
 ```bash
 BASE=$(git merge-base HEAD main)

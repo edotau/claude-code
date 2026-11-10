@@ -52,6 +52,7 @@
               "argsInside": true
             },
             {"commands": ["claude-code"], "subcommands": ["test mutate", "network websearch", "workflow lint"]},
+            {"commands": ["claude-code"], "subcommands": ["scm pr list", "scm pr view", "scm pr diff", "scm checks"]},
             {
               "commands": ["claude-code"],
               "subcommands": ["review"],
