@@ -478,11 +478,12 @@ if (tier === 'MEDIUM' && TASK) {
 }
 // code-workers only fixes bugs: a feature or refactor task gets an implementer first, then code-workers audits and hardens the new code.
 const builds = KIND ? KIND === 'feature' || KIND === 'refactor' : /^\W*(build|add|implement|create|introduce|support|write|finish|refactor|move|migrate|replace|rewire|fold|extract|retire|remove|delete|rename|phase)\b/i.test(TASK) // leading verb only: constraint text mentioning review must not veto
-if ((tier === 'LOW' || tier === 'MEDIUM') && TASK && target.paths.length && builds && a.fix === false) decisions.push('feature task: implementer skipped under fix=false (review only)')
-else if ((tier === 'LOW' || tier === 'MEDIUM') && TASK && target.paths.length && builds) {
+const implTargets = target.paths || (PATHS.length ? PATHS : target.packages) // HIGH builds in the named files, else its package dirs
+if (TASK && implTargets.length && builds && a.fix === false) decisions.push('feature task: implementer skipped under fix=false (review only)')
+else if (TASK && implTargets.length && builds) {
   const impl = S.impl.done('impl', await agent(
     S.impl.task(RULES + ' Make this change in these files (new files in the same package ok) and nothing else; smallest correct change, functions < 50 lines, 1-line comments. ' +
-      'Run gofmt and go vet on the package. Do not write tests; code-workers follows with find, fix, guard test and gate. Return `files`: every repo-relative file you changed.\nFiles: ' + target.paths.join(', ') + '\nTask: ' + TASK + '\nContext: ' + focus),
+      'Run gofmt and go vet on the package. Do not write tests; code-workers follows with find, fix, guard test and gate. Return `files`: every repo-relative file you changed.\nFiles: ' + implTargets.join(', ') + '\nTask: ' + TASK + '\nContext: ' + focus),
     { phase: 'Route', label: 'impl', schema: S.impl.schema(ST_WORK), model: S.impl.model, effort: S.impl.effort, ...S.impl.type },
   ).catch(() => null))
   if (impl) IMPL_FILES = strs(impl.files).map((f) => stRel(CTX, f))
