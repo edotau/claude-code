@@ -118,10 +118,11 @@ func TestRunWorkflowLint(t *testing.T) {
 			if rc := RunWorkflowLint([]string{root}, &out, &errb); rc != 0 || out.String() != "workflow lint: 1 script(s) clean\n" {
 				t.Fatalf("clean: rc=%d out=%q err=%q", rc, out.String(), errb.String())
 			}
-			writeScript(t, dir, "bad.js", "export const meta = { name: 'bad' }\nawait agent('x', { effort: 'low' })\n")
+			writeScript(t, dir, "bad.js", "export const meta = { name: 'bad' }\nawait agent('x', { label: 'l' })\n")
 			out.Reset()
 			errb.Reset()
-			if rc := RunWorkflowLint([]string{root}, &out, &errb); rc != 1 || strings.Count(errb.String(), "bad.js:2") != 1 || out.Len() != 0 {
+			if rc := RunWorkflowLint([]string{root}, &out, &errb); rc != 1 || strings.Count(errb.String(), "bad.js:2") != 2 || out.Len() != 0 ||
+				!strings.Contains(errb.String(), "agent() without model:") || !strings.Contains(errb.String(), "agent() without effort:") {
 				t.Fatalf("flagged: rc=%d out=%q err=%q", rc, out.String(), errb.String())
 			}
 		})

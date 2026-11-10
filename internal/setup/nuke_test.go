@@ -320,10 +320,16 @@ func TestNukeKeepMemoryArchiveSet(t *testing.T) {
 			for _, rel := range optional {
 				mustWrite(t, filepath.Join(dir, rel), rel+"\n")
 			}
+			mustWrite(t, filepath.Join(dir, "memory", ".git", "HEAD"), "ref: refs/heads/main\n")
 			if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: keepMemory}); err != nil {
 				t.Fatal(err)
 			}
 			entries := tarEntries(t, findTarball(t, home))
+			for name := range entries {
+				if !keepMemory && (strings.HasPrefix(name, "memory/") || strings.HasPrefix(name, "plans/")) {
+					t.Errorf("nuke without --keep-memory archived %q", name)
+				}
+			}
 			if _, ok := entries[bank]; keepMemory && !ok {
 				t.Errorf("--keep-memory did not archive the bank %s: %v", bank, tarNames(entries))
 			}
