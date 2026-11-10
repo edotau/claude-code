@@ -178,6 +178,19 @@ func opencodeApplyPermissions(env []string, req agent.RunOptions) ([]string, err
 	return append(env, opencodePermissionEnv+"="+string(perm)), nil
 }
 
+// refusePolicyEnv refuses --env setting a name the permission policy owns: --env goes last and would replace it.
+func refusePolicyEnv(req agent.RunOptions) error {
+	if req.Tools && !req.SafeMode && req.Permissions.IsZero() {
+		return nil
+	}
+	for _, kv := range req.Env {
+		if k, _, _ := strings.Cut(kv, "="); k == opencodePermissionEnv || k == opencodeConfigEnv {
+			return retry.Fatal("opencode", fmt.Errorf("--env %s: the permission policy owns it; drop it from --env", k))
+		}
+	}
+	return nil
+}
+
 // refusePureBashDeny: --pure loads no plugin, so nothing covers the `bash -c` bypass of a Bash Deny.
 func refusePureBashDeny(req agent.RunOptions) error {
 	if r, ok := agent.SafeModeDeny(req, func(r agent.Rule) bool { return r.Tool == "Bash" }); ok {
