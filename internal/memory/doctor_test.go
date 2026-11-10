@@ -564,3 +564,29 @@ func TestDoctorFlagsLocalBankOverCap(t *testing.T) {
 		t.Errorf("want a local over-cap finding, got %q", joined)
 	}
 }
+
+// A journal past the grace window is named with its age; a fresh one (in-flight commit) and a missing dir stay quiet.
+func TestJournalProblemsNamesStaleJournal(t *testing.T) {
+	isolatedConfig(t)
+	now := time.Now()
+	if got := journalProblems(now); len(got) != 0 {
+		t.Fatalf("missing journal dir: got %q, want none", got)
+	}
+	dir := memstore.JournalDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stale, fresh := filepath.Join(dir, "20261109T000000-old.json"), filepath.Join(dir, "20261109T010000-new.json")
+	for _, f := range []string{stale, fresh} {
+		if err := os.WriteFile(f, []byte(`{"schema":99}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chtimes(stale, now.Add(-2*time.Hour), now.Add(-2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	got := journalProblems(now)
+	if len(got) != 1 || !strings.Contains(got[0], stale) || !strings.Contains(got[0], "2h0m0s") {
+		t.Fatalf("got %q, want one line naming %s and its 2h0m0s age", got, stale)
+	}
+}
