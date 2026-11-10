@@ -58,7 +58,7 @@ type CLI struct {
 	OwnLoginProfile       string          // the pin naming the agent's own sign-in when no registry row does; "" = none
 	PinIDs                []string        // extra ids accepted as this agent's profile pin besides registry rows
 
-	// Extras maps the record extras keys the CLI reads to their allowed values (nil = free-form); none = refused.
+	// Extras maps the record extras keys the CLI reads to their allowed values; nil = not declared yet, not validated.
 	Extras map[string][]string
 }
 

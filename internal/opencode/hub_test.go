@@ -7,10 +7,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/launchcli"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
@@ -21,6 +23,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // hubRegistry builds a minimal registry for hub tests: a ladder of four providers, one without an
@@ -319,5 +323,50 @@ func TestLogEventOpenCodeFormatted(t *testing.T) {
 	}
 	if strings.Contains(log, evSecret) || strings.Contains(log, `{"`) {
 		t.Errorf("log leaks the secret or raw JSON:\n%s", log)
+	}
+}
+
+// TestHubPrepareLaunchStoredRecord: a hub dispatch fails on an invalid stored opencode record naming the field and not
+// the value; a valid or absent record leaves the argv/env exactly what HeadlessLaunch renders.
+func TestHubPrepareLaunchStoredRecord(t *testing.T) {
+	for _, tc := range []struct {
+		name, wantErr string
+		rec           *vault.AgentRecord
+	}{
+		{"no record", "", nil},
+		{"valid record", "", &vault.AgentRecord{Launch: &vault.AgentLaunch{Env: []string{"HUB_LAUNCH=1"}}}},
+		{"credential-named launch.env", "launch.env", &vault.AgentRecord{Launch: &vault.AgentLaunch{Env: []string{"OPENAI_API_KEY=x"}}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			vaulttest.Use(t)
+			t.Setenv("HOME", t.TempDir())
+			data, _ := fakeOpencode(t, "1.19.3", "", nil)
+			writeAuthJSON(t, data, `{"opencode":{"type":"api","key":"k"}}`)
+			pathstest.FakeVendor(t, "opencode", "exit 0")
+			if tc.rec != nil {
+				if err := vault.SetAgentRecord("opencode", *tc.rec); err != nil {
+					t.Fatal(err)
+				}
+			}
+			p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
+			l := hubDispatch{agent: "opencode", provider: p, reg: hubRegistry()}
+			req := agent.RunOptions{Prompt: "hi", Tools: true}
+			_, env, argv, err := l.prepareLaunch(req, "m")
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) || strings.Contains(err.Error(), "OPENAI_API_KEY=x") {
+					t.Fatalf("prepareLaunch err = %v, want it to name %s and not the value", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			h := agent.Headless{Prompt: "hi", Tools: true}
+			wantEnv, wantArgv := opencodeRun("opencode/m", h)
+			wantEnv, wantArgv = launchcli.HeadlessLaunch("opencode", wantEnv, wantArgv)
+			if !slices.Equal(argv, wantArgv) || !slices.Equal(env[:len(wantEnv)], wantEnv) {
+				t.Errorf("argv/env drifted:\n got %q %q\nwant %q %q", argv, env[:len(wantEnv)], wantArgv, wantEnv)
+			}
+		})
 	}
 }

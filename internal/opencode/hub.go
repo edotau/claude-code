@@ -175,7 +175,12 @@ func (l hubDispatch) prepareLaunch(req agent.RunOptions, model string) (string, 
 	if err != nil {
 		return "", nil, nil, err
 	}
-	env, argv := opencodeRunArgv(l.provider.OpencodeID+"/"+model, h)
+	env, argv := opencodeRun(l.provider.OpencodeID+"/"+model, h)
+	st, err := agent.ResolveSettings("opencode", req, providers.Target{}, true)
+	if err != nil { // headless: a refused stored record fails the run, it never falls back to the built-ins
+		return "", nil, nil, err
+	}
+	env, argv, _, _, _ = agent.NewBaseEngine("opencode").RenderSettings(context.Background(), st, env, argv) // never errs
 	env = append(env, cred...)
 	if req.SystemPrompt != "" {
 		env, argv = opencodeSystemPrompt(env, argv, req.SystemPrompt)

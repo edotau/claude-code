@@ -499,7 +499,33 @@ func TestAnthropicRendersRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkArgv(t, "refused record", p.Argv, nil, []string{"--effort"})
-	if !slices.ContainsFunc(p.Warnings, func(w string) bool { return strings.Contains(w, "record not applied") }) {
-		t.Errorf("refused record: warnings %q, want a not-applied notice", p.Warnings)
+	if !slices.ContainsFunc(p.Warnings, func(w string) bool { return strings.Contains(w, "stored agent settings not applied") }) {
+		t.Errorf("refused record: warnings %q, want the not-applied notice", p.Warnings)
+	}
+}
+
+// An invalid stored record on an interactive launch applies the built-ins and shows exactly one notice, in --print-env too.
+func TestClaudeInteractiveRefusedRecordOneNotice(t *testing.T) {
+	hermetic(t, "")
+	if err := vault.SetAgentRecord("claude", vault.AgentRecord{Effort: "turbo"}); err != nil {
+		t.Fatal(err)
+	}
+	var notices bytes.Buffer
+	orig := agent.NoticeOut
+	agent.NoticeOut = &notices
+	t.Cleanup(func() { agent.NoticeOut = orig })
+	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "ultra"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkArgv(t, "refused record", p.Argv, nil, []string{"--effort"})
+	var shown bytes.Buffer
+	p.Print(&shown)
+	const want = "stored agent settings not applied: "
+	if n := strings.Count(notices.String(), want) + strings.Count(shown.String(), want); n != 1 {
+		t.Errorf("notice shown %d times (stderr %q, print-env %q), want once", n, notices.String(), shown.String())
+	}
+	if len(p.Warnings) != 1 || !strings.HasPrefix(p.Warnings[0], "claude "+want) || !strings.HasSuffix(p.Warnings[0], "; built-in defaults used") {
+		t.Errorf("warnings %q, want one launchSettings-shaped notice", p.Warnings)
 	}
 }
