@@ -123,7 +123,7 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 	if err != nil {
 		return opts, nil, done, err
 	}
-	opts = newSDKOptions(bin, env, req, t)
+	opts = newSDKOptions(bin, env, req, sdkSettings(req, t))
 	if route != nil {
 		route.apply(&opts)
 	}
@@ -147,22 +147,30 @@ func (e copilotEngine) routeEnv(ctx context.Context, cs agent.Schema, req agent.
 	return nil, env, err
 }
 
-// newSDKOptions builds the SDK options for one run from the CLI path, route env and request.
-func newSDKOptions(bin string, env []string, req agent.RunOptions, t providers.Target) SDKOptions {
+// sdkSettings is the run's Settings; an unreadable record is one notice and applies nothing, as launchSettings does.
+func sdkSettings(req agent.RunOptions, t providers.Target) agent.Settings {
+	s, err := agent.ResolveSettings("copilot", req, t, true)
+	if s.Agent == "" {
+		fmt.Fprintf(agent.NoticeOut, "claude-code: copilot settings unreadable: %v; not applied\n", err)
+		return agent.Settings{Agent: "copilot", Effort: req.Effort, Target: t, Headless: true}
+	}
+	return s
+}
+
+// newSDKOptions builds the SDK options for one run from the CLI path, route env, request and resolved settings.
+func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Settings) SDKOptions {
 	var model string
-	if t.Provider != nil && t.Provider.Auth.Login != "" {
+	if t := s.Target; t.Provider != nil && t.Provider.Auth.Login != "" {
 		model = copilotModelID(t.Model) // no BYOK block, so the session takes the catalog id itself ([1m] is ours)
 	}
-	// An explicit --effort overrides the pin; there is no per-call --context, so the pin alone decides it.
-	rec := vault.GetAgentRecord("copilot")
 	workDir := req.WorkDir
 	if workDir == "" {
 		workDir, _ = os.Getwd() // relToWorkDir needs a non-empty root
 	}
 	o := SDKOptions{
 		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model,
-		ReasoningEffort: cmp.Or(req.Effort, rec.Effort),
-		Context:         rec.Context, WorkingDirectory: workDir,
+		ReasoningEffort: s.Effort, // --effort over the record; there is no per-call --context, so the record decides it
+		Context:         s.Record.Context, WorkingDirectory: workDir,
 		AllowAllTools: req.Tools, ReadOnlyTools: req.ReadOnly, Permissions: req.Permissions, UseLoggedInUser: true, Autonomous: req.Autonomous, Fleet: req.Fleet, EnableMemory: req.EnableMemory,
 		SessionID: req.SessionID,
 		System:    strings.TrimSpace(req.SystemPrompt + "\n\n" + req.AppendSystemPrompt),
@@ -361,6 +369,7 @@ var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
 	ResumeFormat: "copilot --resume %s", ModelsProvider: "github", ReadNeedsTools: true,
 	LoginArgv:     []string{"copilot", "login"},
 	ConfigureHint: "run `claude-code configure github` (Copilot) or set an Anthropic/Gemini key",
+	Extras:        map[string][]string{extraDefaultPermissionMode: nil}, // the CLI's own mode names, not validated here
 }}
 
 // Seams for the mid-dispatch quota hand-off; tests replace them.

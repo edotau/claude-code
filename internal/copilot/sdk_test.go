@@ -20,7 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/providers"
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
 )
@@ -397,7 +396,7 @@ func TestSystemPromptRidesSDKNotPrompt(t *testing.T) {
 		t.Fatalf("caps = %v/%v, want Native/Native", row.CLI.Caps.SystemPrompt, row.CLI.Caps.AppendSystemPrompt)
 	}
 	req := agent.RunOptions{Prompt: "say hi", SystemPrompt: "be ZEBRA", AppendSystemPrompt: "end with ZEBRA"}
-	o := newSDKOptions("copilot", nil, req, providers.Target{})
+	o := newSDKOptions("copilot", nil, req, agent.Settings{})
 	if o.System != "be ZEBRA\n\nend with ZEBRA" {
 		t.Errorf("System = %q, want both texts", o.System)
 	}

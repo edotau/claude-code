@@ -14,6 +14,8 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // CopilotJSON renders exactly the native copilot specs on events Copilot supports, each as one command.
@@ -245,5 +247,29 @@ func assertPerm(t *testing.T, path string, want os.FileMode) {
 	t.Helper()
 	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != want {
 		t.Errorf("%s: err %v, want mode %o", path, err, want)
+	}
+}
+
+// A stored record's extras.defaultPermissionMode wins over the built-in allow-all in settings.json.
+func TestCopilotSettingsReadsRecordExtras(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	if err := vault.SetAgentRecord("copilot", vault.AgentRecord{Extras: map[string]string{extraDefaultPermissionMode: "plan"}}); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	var plan render.RenderPlan
+	if _, err := renderCopilotSettings(home, render.RenderOptions{}.Stage(&plan), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(settingsPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil || got["defaultPermissionMode"] != "plan" {
+		t.Errorf("settings.json = %s (%v), want defaultPermissionMode plan", raw, err)
 	}
 }
