@@ -54,26 +54,63 @@ type Check struct {
 	Detail string `json:"detail"`
 }
 
+// doctorSection is one independent group of doctor rows, in order, and whether its hard checks passed.
+type doctorSection func() ([]Check, bool)
+
+// doctorSections run concurrently and print in this order; a var so tests can swap in fakes.
+var doctorSections = []doctorSection{
+	collect(checkBinaryHealth), collect(checkProviderHealth), collect(checkToolHealth), collect(checkHostHealth),
+	func() ([]Check, bool) { return vaultDoctorChecks(), true },
+	func() ([]Check, bool) { return formatsDoctorChecks(), true },
+}
+
+// doctorWorkers caps the doctor sections probing at once.
+const doctorWorkers = 4
+
 // DoctorChecks runs every read-only health check; ok is false when any hard check failed.
 func DoctorChecks() (checks []Check, ok bool) {
-	ok = true
-	check := func(pass, hard bool, name, detail string) {
-		checks = append(checks, Check{Name: name, OK: pass, Hard: hard, Detail: detail})
-		if !pass && hard {
-			ok = false
-		}
+	rows := make([][]Check, len(doctorSections))
+	oks := make([]bool, len(doctorSections))
+	sem := make(chan struct{}, doctorWorkers)
+	var wg sync.WaitGroup
+	for i, section := range doctorSections {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			rows[i], oks[i] = section()
+		}()
 	}
+	wg.Wait()
+	ok = true
+	for i := range rows {
+		checks = append(checks, rows[i]...)
+		ok = ok && oks[i]
+	}
+	return checks, ok
+}
+
+// collect runs a check-callback section into its own rows; ok is false when one of its hard checks failed.
+func collect(run func(check func(bool, bool, string, string))) doctorSection {
+	return func() (checks []Check, ok bool) {
+		ok = true
+		run(func(pass, hard bool, name, detail string) {
+			checks = append(checks, Check{Name: name, OK: pass, Hard: hard, Detail: detail})
+			if !pass && hard {
+				ok = false
+			}
+		})
+		return checks, ok
+	}
+}
+
+func checkBinaryHealth(check func(bool, bool, string, string)) {
 	bin, err := claude.ClaudeBinary()
 	check(err == nil, true, "claude binary", orErr(bin, err))
 	for _, c := range codex.CodexConfigChecks() {
 		check(c.State == "ok", false, c.Name, c.Detail)
 	}
-	checkProviderHealth(check)
-	checkToolHealth(check)
-	checkHostHealth(check)
-	checks = append(checks, vaultDoctorChecks()...)
-	checks = append(checks, formatsDoctorChecks()...)
-	return checks, ok
 }
 
 func checkProviderHealth(check func(bool, bool, string, string)) {

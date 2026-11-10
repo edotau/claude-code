@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// doctorChecks is a test seam over the slow, probing launch.DoctorChecks plus the soft MCP row.
+// doctorChecks is a test seam over the probing launch.DoctorChecks plus the soft, config-only MCP row.
 var doctorChecks = func() ([]launch.Check, bool) {
 	checks, ok := launch.DoctorChecks()
 	mcpOK, detail := Summary(mcpOptions(false))

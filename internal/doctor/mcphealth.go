@@ -374,14 +374,11 @@ type Options struct {
 	JSON          bool
 }
 
-// Summary is the one-row `doctor` view of the scan: ok iff the full report would exit 0.
+// Summary is the one-row `doctor` view of the config scan, without the ~1s live `claude mcp list` (doctor --mcp runs it).
 func Summary(o Options) (ok bool, detail string) {
-	rep := buildReport(o)
-	detail = fmt.Sprintf("%d defined, %d connected, %d failed, %d secrets, %d unscanned; doctor --mcp for detail",
-		len(rep.Defs), rep.Health.Connected, rep.Health.Failed, len(rep.Secrets), len(rep.Unscanned))
-	if rep.Health.Error != "" {
-		detail = "health error: " + rep.Health.Error + "; " + detail
-	}
+	rep := configReport(o)
+	detail = fmt.Sprintf("%d defined, %d secrets, %d unscanned; doctor --mcp for live health",
+		len(rep.Defs), len(rep.Secrets), len(rep.Unscanned))
 	return rep.ExitCode() == 0, detail
 }
 
@@ -503,19 +500,23 @@ func printSecretsSection(w io.Writer, rep Report) {
 	}
 }
 
-// buildReport collects every scope, runs live health and finds inline secrets.
-func buildReport(o Options) Report {
+// configReport collects every scope and finds inline secrets and conflicts; it runs no live health check.
+func configReport(o Options) Report {
 	defs, unscanned := collectDefs(o.UserPath, o.ProjectFiles, o.SettingsFiles)
 	secrets := findSecrets(defs) // must run before redact() — a scrubbed value no longer looks like one
-	safe := redact(defs)
-	rep := Report{
-		Defs:      safe,
-		Health:    runHealth(o.Claude),
+	return Report{
+		Defs:      redact(defs),
 		Conflicts: doctorConflicts(defs, o.Home),
 		Secrets:   secrets,
 		Unscanned: unscanned,
 	}
-	if len(defs) > 0 && rep.Health.Skipped == "" && rep.Health.Error == "" && rep.Health.Connected+rep.Health.Failed == 0 {
+}
+
+// buildReport is configReport plus the live `claude mcp list` health.
+func buildReport(o Options) Report {
+	rep := configReport(o)
+	rep.Health = runHealth(o.Claude)
+	if len(rep.Defs) > 0 && rep.Health.Skipped == "" && rep.Health.Error == "" && rep.Health.Connected+rep.Health.Failed == 0 {
 		rep.Health.Error = "no server status lines recognised in `claude mcp list` output"
 	}
 	return rep
