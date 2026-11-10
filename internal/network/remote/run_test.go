@@ -2,9 +2,13 @@ package remote
 
 import (
 	"encoding/base64"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // decodedScript recovers the shell script hostArgv base64-encoded into ssh's last argument.
@@ -48,6 +52,54 @@ func TestSplitHostErrors(t *testing.T) {
 		host, rest, err := splitHost(args)
 		if err != nil || host != "wks" || !slices.Equal(rest, []string{"doctor", "--prompts"}) {
 			t.Errorf("%q: %q %q %v", args, host, rest, err)
+		}
+	}
+}
+
+// TestSSHArgvReuse: ControlMaster options precede "--" by default and drop out under HARNESS_SSH_REUSE=0|off.
+func TestSSHArgvReuse(t *testing.T) {
+	orig := controlDir
+	controlDir = func() string { return "/tmp/cc" }
+	t.Cleanup(func() { controlDir = orig })
+	reuse := []string{"-o", "ControlMaster=auto", "-o", "ControlPersist=10m", "-o", "ControlPath=/tmp/cc/%C"}
+	for _, tc := range []struct {
+		env  string
+		want bool
+	}{{"", true}, {"1", true}, {"0", false}, {"OFF", false}} {
+		t.Setenv(ReuseEnv, tc.env)
+		argv, err := hostArgv("wks", []string{"version"}, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dash := slices.Index(argv, "--")
+		got := slices.Contains(argv[:dash], "ControlMaster=auto") && slices.Contains(argv[:dash], "ControlPath=/tmp/cc/%C")
+		if got != tc.want || !slices.Contains(argv[:dash], "-t") {
+			t.Errorf("%s=%q: argv %q, want reuse=%v and -t kept", ReuseEnv, tc.env, argv, tc.want)
+		}
+		if tc.want && !slices.Equal(argv[3:9], reuse) {
+			t.Errorf("reuse options = %q, want %q", argv[3:9], reuse)
+		}
+	}
+}
+
+// TestDefaultControlDirShortAndPrivate: a short state dir hosts the sockets (0700); a long one falls back to ~/.ssh/cc.
+func TestDefaultControlDirShortAndPrivate(t *testing.T) {
+	short, err := os.MkdirTemp("/tmp", "cc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(short) })
+	t.Setenv("HOME", short)
+	t.Setenv("CLAUDE_CONFIG_DIR", short)
+	for _, tc := range []struct{ config, want string }{
+		{short, filepath.Join(paths.StateDir(), "ssh")},
+		{filepath.Join(short, strings.Repeat("x", controlPathMax)), filepath.Join(short, ".ssh", "cc")},
+	} {
+		t.Setenv("CLAUDE_CONFIG_DIR", tc.config)
+		dir := defaultControlDir()
+		fi, err := os.Stat(dir)
+		if dir != tc.want || err != nil || fi.Mode().Perm() != 0o700 {
+			t.Errorf("config %q: control dir %q (want %q), err %v", tc.config, dir, tc.want, err)
 		}
 	}
 }

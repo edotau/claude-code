@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/configure"
@@ -38,7 +39,7 @@ func tailscaleRow() homeRow {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	state, host := "not connected", ""
-	if st, err := tailscale.Status(ctx); err == nil {
+	if st, err := tailscaleStatus(ctx); err == nil {
 		state = "running"
 		host, _, _ = strings.Cut(st.DNSName, ".")
 	}
@@ -50,6 +51,32 @@ func tailscaleRow() homeRow {
 		check = host + " · " + check
 	}
 	return homeRow{Name: "tailscale", State: state, Check: check, Run: func(d *dialog) { runRemote(d) }}
+}
+
+// tsStatus caches tailscale.Status (result and error) for tsStatusTTL: every render and runRemote share one call.
+var tsStatus struct {
+	sync.Mutex
+	at  time.Time
+	st  tailscale.Local
+	err error
+}
+
+// tsStatusTTL bounds how stale the home page's tailscale state may be; tsStatusFetch is the seam tests swap.
+var (
+	tsStatusTTL   = 10 * time.Second
+	tsStatusFetch = tailscale.Status
+)
+
+// tailscaleStatus is tailscale.Status, served from tsStatus within tsStatusTTL.
+func tailscaleStatus(ctx context.Context) (tailscale.Local, error) {
+	tsStatus.Lock()
+	defer tsStatus.Unlock()
+	if !tsStatus.at.IsZero() && time.Since(tsStatus.at) < tsStatusTTL {
+		return tsStatus.st, tsStatus.err
+	}
+	tsStatus.st, tsStatus.err = tsStatusFetch(ctx)
+	tsStatus.at = time.Now()
+	return tsStatus.st, tsStatus.err
 }
 
 // webSearchKey is the Tavily key the web_search MCP server reads.
@@ -283,7 +310,7 @@ func rerenderConfigs(d *dialog) error {
 func runRemote(d *dialog) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	st, err := tailscale.Status(ctx)
+	st, err := tailscaleStatus(ctx)
 	switch err {
 	case nil:
 		d.printf("tailscale   running (%s)\n", strings.TrimSuffix(st.DNSName, "."))

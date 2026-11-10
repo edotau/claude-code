@@ -3,11 +3,15 @@ package tailscale
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -366,5 +370,42 @@ func TestTailscaleBinMacAppFallback(t *testing.T) {
 		if got != c.want || (c.want == "") != (err != nil) {
 			t.Errorf("goos=%s path=%s: got (%q, %v), want %q", c.os, filepath.Base(c.path), got, err, c.want)
 		}
+	}
+}
+
+// TestMachinesFetchesDevicesAndStatusConcurrently: each call waits to see the other started; serial order fails one.
+func TestMachinesFetchesDevicesAndStatusConcurrently(t *testing.T) {
+	hermeticSecrets(t)
+	t.Setenv("TAILSCALE_API_KEY", "tskey-api-abc")
+	dir := t.TempDir()
+	statusMark, devicesMark := filepath.Join(dir, "status"), filepath.Join(dir, "devices")
+	// status starts, then waits up to 2s for the devices call; without it, it fails and Online stays false.
+	stubCLI(t, ": > "+shQuote(statusMark)+"\ni=0\nwhile [ ! -e "+shQuote(devicesMark)+" ]; do\n"+
+		"  i=$((i+1)); [ $i -gt 200 ] && exit 1; /bin/sleep 0.01\ndone\n"+catScript(t, "status_running.json"))
+	var sawStatus atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = os.WriteFile(devicesMark, nil, 0o600)
+		for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat(statusMark); err == nil {
+				sawStatus.Store(true)
+				break
+			}
+		}
+		_, _ = w.Write([]byte(`{"devices":[{"name":"test-phone.tailxxxxx.ts.net","addresses":["100.105.201.90"]}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	prev := apiBaseURL
+	apiBaseURL = srv.URL
+	t.Cleanup(func() { apiBaseURL = prev })
+	machines, err := Machines(context.Background())
+	if err != nil || len(machines) != 1 {
+		t.Fatalf("Machines() = %+v, %v; want one api device", machines, err)
+	}
+	if !sawStatus.Load() || !machines[0].Online {
+		t.Errorf("serial calls: devices saw status=%v, status overlay online=%v; want both true",
+			sawStatus.Load(), machines[0].Online)
+	}
+	if got := CachedMachineNames(); !slices.Equal(got, []string{"test-phone.tailxxxxx.ts.net"}) {
+		t.Errorf("machine cache = %q, want the live listing", got)
 	}
 }

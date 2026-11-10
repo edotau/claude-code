@@ -126,8 +126,8 @@ func TestToolsCallSearcherError(t *testing.T) {
 		t.Errorf("backend error must be a tool result, not a JSON-RPC error: %v", resps[0])
 	}
 	res, _ := resps[0]["result"].(map[string]any)
-	if res["isError"] != true {
-		t.Errorf("searcher error should surface as isError result, got %v", res)
+	if res["isError"] != true || !strings.Contains(fmt.Sprint(res["content"]), "websearch: boom") {
+		t.Errorf("searcher error should surface as an isError result prefixed websearch:, got %v", res)
 	}
 }
 
@@ -400,6 +400,7 @@ func allowLoopbackFetch(t *testing.T) {
 	t.Helper()
 	orig := pageClient
 	pageClient = &http.Client{}
+	resetRobotsCache(t)
 	t.Cleanup(func() { pageClient = orig })
 }
 
@@ -437,7 +438,7 @@ func TestFetchRobotsTimesOutOnSilentHost(t *testing.T) {
 	defer srv.Close()
 	defer close(release)
 	done := make(chan string, 1)
-	go func() { done <- fetchRobots(context.Background(), srv.URL) }()
+	go func() { body, _ := fetchRobots(context.Background(), srv.URL); done <- body }()
 	select {
 	case got := <-done:
 		if got != "" {
@@ -496,7 +497,7 @@ func TestRobotsAllowedSeveralUserAgentsShareGroup(t *testing.T) {
 	}))
 	defer srv.Close()
 	u, _ := url.Parse(srv.URL + "/page")
-	if robotsAllowed(context.Background(), u, map[string]string{}) {
+	if robotsAllowed(context.Background(), u) {
 		t.Error("robotsAllowed = true, want false: Disallow / applies to the * group")
 	}
 }

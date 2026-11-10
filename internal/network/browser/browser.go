@@ -86,6 +86,7 @@ type Env struct {
 	Home       string
 	AppSupport string // macOS: ~/Library/Application Support; Linux: ~/.config
 	Run        func(name string, args ...string) (string, error)
+	ProbeRun   func(name string, args ...string) (string, error) // short-bounded GUI probe; nil falls back to Run
 	Now        func() time.Time
 	GOOS       string
 	DryRun     bool
@@ -95,6 +96,7 @@ type Env struct {
 	Sleep      func(time.Duration) // wait seam for the CDP start poll
 	ClaudeBin  string              // the real claude binary for `claude mcp add` (never our shim)
 	HasNPX     bool                // npx is on PATH: chrome-devtools-mcp runs through it
+	gui        func() string       // Detect's memoized guiState, so N browsers share one osascript probe
 }
 
 // sleep is e.Sleep when set, else a no-op (tests never wait).
@@ -137,6 +139,22 @@ func (e Env) run(name string, args ...string) (string, error) {
 		return "", errNoRunner
 	}
 	return e.Run(name, args...)
+}
+
+// probeRun calls e.ProbeRun when set, else e.run.
+func (e Env) probeRun(name string, args ...string) (string, error) {
+	if e.ProbeRun != nil {
+		return e.ProbeRun(name, args...)
+	}
+	return e.run(name, args...)
+}
+
+// guiState is Detect's memoized probe when set, else a fresh one (detectOne called outside Detect).
+func (e Env) guiState() string {
+	if e.gui != nil {
+		return e.gui()
+	}
+	return guiState(e)
 }
 
 // supportDir is spec's Application-Support-relative directory for goos ("" when unsupported there).

@@ -118,14 +118,14 @@ func cmdRestart(args []string) int {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("restart", err)
+		return helptext.BadFormat("network restart", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	row := gateway.RestartReport(ctx, *dry, *force)
 	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, map[string]any{"daemons": []gateway.RestartRow{row}}); err != nil {
-			return helptext.Fail("restart: %v", err)
+			return helptext.Fail("network restart: %v", err)
 		}
 	} else {
 		printRestartRow(row)

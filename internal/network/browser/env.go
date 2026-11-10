@@ -21,6 +21,7 @@ func NewEnv() Env {
 		Home:       home,
 		AppSupport: appSupportRoot(home, runtime.GOOS),
 		Run:        runReal,
+		ProbeRun:   runProbe,
 		Now:        time.Now,
 		GOOS:       runtime.GOOS,
 		WSL:        runtime.GOOS == "linux" && proc.OnWSL(),
@@ -53,6 +54,14 @@ func SetCommandTimeout(d time.Duration) (restore func()) {
 // runReal bounds detection/setup commands and returns trimmed stdout.
 func runReal(name string, args ...string) (string, error) {
 	return runCommand(commandTimeout, name, args...)
+}
+
+// guiProbeTimeout bounds the System Events probe: it answers in ~0.1s, and a hung one must not stall detection.
+var guiProbeTimeout = 5 * time.Second
+
+// runProbe is runReal under guiProbeTimeout.
+func runProbe(name string, args ...string) (string, error) {
+	return runCommand(guiProbeTimeout, name, args...)
 }
 
 func runCommand(timeout time.Duration, name string, args ...string) (string, error) {
