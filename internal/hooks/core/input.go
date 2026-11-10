@@ -2,6 +2,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -36,9 +37,10 @@ type Input struct {
 	Trigger             string `json:"trigger"`
 	BackgroundTasks     int    `json:"-"` // length of the Stop payload's background_tasks array
 
-	Raw   []byte `json:"-"`
-	doc   map[string]any
-	agent string
+	Raw     []byte `json:"-"`
+	Invalid string `json:"-"` // why a non-empty payload could not be read or parsed; "" when it parsed
+	doc     map[string]any
+	agent   string
 }
 
 const (
@@ -56,23 +58,23 @@ func (in *Input) Agent() string {
 	return in.agent
 }
 
-// ParseInput never errors: malformed stdin yields a zero Input (fail-open).
+// ParseInput never errors: malformed stdin yields a zero Input with Invalid set, empty stdin a zero Input.
 func ParseInput(r io.Reader) *Input { return ParseInputFor(r, os.Getenv(settings.AgentEnv)) }
 
 // ParseInputFor parses as ParseInput with the hook agent given explicitly ("" = detect from the payload).
 func ParseInputFor(r io.Reader, agent string) *Input {
-	raw, _ := io.ReadAll(r)
+	raw, err := io.ReadAll(r)
+	if err != nil {
+		return &Input{Raw: raw, Invalid: "read: " + err.Error(), agent: knownAgent(agent)}
+	}
 	in := &Input{Raw: raw}
-	if json.Unmarshal(raw, &in.doc) != nil {
-		return &Input{Raw: raw}
+	if err := json.Unmarshal(raw, &in.doc); err != nil {
+		return unparsed(raw, agent, err)
 	}
 	if in.doc == nil { // stdin `null` unmarshals without error and leaves the map nil
 		in.doc = map[string]any{}
 	}
-	switch name := agent; name {
-	case AgentClaude, AgentCodex, AgentCopilot, AgentGemini:
-		in.agent = name
-	}
+	in.agent = knownAgent(agent)
 	in.SessionID = in.Nested("session_id")
 	in.CWD = in.Nested("cwd")
 	in.TranscriptPath = in.Nested("transcript_path")
@@ -108,6 +110,23 @@ func ParseInputFor(r io.Reader, agent string) *Input {
 		in.normalizeAgy()
 	}
 	return in
+}
+
+// knownAgent is agent when it names a supported hook agent, else "" (detect from the payload).
+func knownAgent(agent string) string {
+	switch agent {
+	case AgentClaude, AgentCodex, AgentCopilot, AgentGemini:
+		return agent
+	}
+	return ""
+}
+
+// unparsed is the zero Input for stdin that is not a JSON object; empty stdin stays valid, as Stop may carry none.
+func unparsed(raw []byte, agent string, err error) *Input {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return &Input{Raw: raw}
+	}
+	return &Input{Raw: raw, Invalid: err.Error(), agent: knownAgent(agent)}
 }
 
 // normalizeAgy reads agy's {toolCall:{name,args}, workspacePaths} payload as tool_name/tool_input/cwd.
