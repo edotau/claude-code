@@ -1,6 +1,24 @@
 package agent
 
-import "testing"
+import (
+	"context"
+	"slices"
+	"testing"
+
+	"github.com/edotau/claude-code/internal/memstore"
+)
+
+// Given a launching workspace in the env, Then every child env carries it exactly once, explicit Base included.
+func TestEnvironPassesMemoryOrigin(t *testing.T) {
+	t.Setenv(memstore.OriginEnv, "/work/space")
+	want := memstore.OriginEnv + "=/work/space"
+	for _, s := range []EnvSpec{{Mode: EnvClaude}, {Mode: EnvAgent}, {Mode: EnvClaude, Base: []string{"PATH=/bin"}}} {
+		env := s.Environ(context.Background())
+		if n := len(slices.DeleteFunc(slices.Clone(env), func(e string) bool { return e != want })); n != 1 {
+			t.Errorf("%+v: %s present %d times, want 1", s, want, n)
+		}
+	}
+}
 
 // Given an outer dispatch's policy in the env, Then a nested policy keeps its Deny rules and plan mode, never fewer.
 func TestInheritPermissionsKeepsOuterDeny(t *testing.T) {

@@ -32,7 +32,7 @@ func Resolve(root string) Identity {
 	if paths.SamePath(root, paths.ConfigDir()) || paths.SamePath(paths.MainCheckout(root), paths.ConfigDir()) {
 		return harnessIdentity()
 	}
-	if id, ok := storeIdentity(root); ok {
+	if id, ok := fixedIdentity(root); ok {
 		return id
 	}
 	origin, ok := identities.Load(root)

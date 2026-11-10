@@ -12,6 +12,10 @@ auto-memory (`MEMORY.md` + topics) **and** six typed bank files — one director
 `~/.claude/projects/<slug>/memory` is a symlink into it, repaired at SessionStart. The bank holds session STATE;
 durable facts belong in `rules/` or `CLAUDE.md` — point at them, never copy.
 
+Scratch and fixture folders (`$TMPDIR`, `/tmp`, `~/.claude/state`, `~/worktrees/wf-fixtures`) never get a store of
+their own, git repo or not: they use the launching workspace's store, which every harness launch passes as
+`HARNESS_MEMORY_ORIGIN`, else `memory/home/` (`internal/memstore/throwaway.go`).
+
 ## Commands
 
 | To… | Run |
