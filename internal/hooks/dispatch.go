@@ -239,7 +239,7 @@ func runEvent(event string, all bool, stdin io.Reader, stdout, stderr io.Writer)
 	var bound []Bound
 	for _, b := range Bind() {
 		switch {
-		case b.AgentOnly, !enabled(b.Group, b.Gate):
+		case b.AgentOnly && in.Agent() == core.AgentClaude, !enabled(b.Group, b.Gate):
 		case !all && (b.Gate || b.Spec.Async):
 		case in.Agent() != core.AgentClaude && !slices.Contains(b.Spec.Agents, in.Agent()):
 		default:

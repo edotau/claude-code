@@ -71,9 +71,9 @@ func OutputCopilot(event string, r Result) string {
 	return marshalDoc(doc)
 }
 
-// OutputGemini is agy's PreToolUse document: a deny carries the reason; anything else is silent so agy's own gate decides.
+// OutputGemini is agy's PreToolUse document: a block or ask denies with the reason; else silent, so agy's gate decides.
 func OutputGemini(event string, r Result) string {
-	if event != "PreToolUse" || r.Decision != Block {
+	if event != "PreToolUse" || decisionName(r.Decision, true) == "" {
 		return ""
 	}
 	return marshalDoc(map[string]any{"decision": "deny", "reason": r.Reason})
@@ -95,6 +95,8 @@ func Emit(name, event string, r Result, stdout, stderr io.Writer) int {
 		build = outputCodex
 	case AgentCopilot:
 		build = OutputCopilot
+	case AgentGemini:
+		build = OutputGemini
 	}
 	if r.Stderr != "" {
 		fmt.Fprintln(stderr, r.Stderr)
