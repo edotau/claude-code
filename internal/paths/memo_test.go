@@ -2,6 +2,7 @@ package paths
 
 import (
 	"errors"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -123,5 +124,52 @@ func TestMemoKeysDoNotBlockEachOther(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("key b waited on key a's open run")
+	}
+}
+
+// memoLen is m's entry count, read under its lock.
+func memoLen[K comparable, V any](m *Memo[K, V]) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.m)
+}
+
+func TestMemoSweepsExpiredKeys(t *testing.T) {
+	now := fakeMemoClock(t)
+	var m Memo[int, int]
+	var runs atomic.Int32
+	fn := func() (int, error) { return int(runs.Add(1)), nil }
+	m.Do(-1, keepFor(0), fn) // keep-forever: never swept
+	peak := 0
+	for i := range 1000 {
+		m.Do(i, keepFor(time.Second), fn)
+		*now = now.Add(2 * time.Second)
+		peak = max(peak, memoLen(&m))
+	}
+	if limit := 2 + memoSweepMin; peak > limit {
+		t.Errorf("map peaked at %d entries after 1000 expired keys; want at most %d", peak, limit)
+	}
+	if v, _ := m.Do(-1, keepFor(0), fn); v != 1 {
+		t.Errorf("keep-forever entry = %d; want 1 (swept and rerun)", v)
+	}
+}
+
+func TestMemoSweepKeepsRunInFlight(t *testing.T) {
+	now := fakeMemoClock(t)
+	var m Memo[string, int]
+	release, got := holdOpen(&m, "open", 1)
+	for i := range 100 {
+		m.Do(strconv.Itoa(i), keepFor(time.Second), func() (int, error) { return 0, nil })
+		*now = now.Add(2 * time.Second)
+	}
+	var reruns atomic.Int32
+	joined := make(chan int, 1)
+	go func() {
+		v, _ := m.Do("open", keepFor(0), func() (int, error) { reruns.Add(1); return 2, nil })
+		joined <- v
+	}()
+	close(release)
+	if a, b := <-got, <-joined; a != 1 || b != 1 || reruns.Load() != 0 {
+		t.Errorf("answers %d, %d with rerun %d; want 1, 1, 0 (the open run was swept)", a, b, reruns.Load())
 	}
 }
