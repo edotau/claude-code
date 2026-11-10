@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"time"
 )
@@ -34,6 +35,27 @@ func DecodeLines(br *bufio.Reader, lg StreamLog, fn func(raw []byte) (stop bool,
 			return readErr
 		}
 	}
+}
+
+// DecodeEvents decodes br's JSON lines into E for handle, timing each when tick; a bad line runs onBad, then aborts.
+func DecodeEvents[E any](br *bufio.Reader, lg StreamLog, label string, tick bool, onBad func(error),
+	handle func(E, *TransportTracker) (stop bool, err error)) (*Transport, error) {
+	ts := TransportTracker{Start: Clock()}
+	err := DecodeLines(br, lg, func(raw []byte) (bool, error) {
+		var ev E
+		if err := json.Unmarshal(raw, &ev); err != nil {
+			err = fmt.Errorf("%s: %w", label, err)
+			if onBad != nil {
+				onBad(err)
+			}
+			return false, err
+		}
+		if tick {
+			ts.Event(Clock())
+		}
+		return handle(ev, &ts)
+	})
+	return ts.Result(), err
 }
 
 var Clock = time.Now
