@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -14,7 +13,7 @@ func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()
 	code := m.Run()
-	gittest.Cleanup()
+	hosttest.Cleanup()
 	cleanup()
 	os.Exit(code)
 }

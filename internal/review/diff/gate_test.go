@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // RunGate ports code-review-gate.sh, an advisory hook with no Python CLI of its own (always exit 0).
@@ -31,7 +31,7 @@ func mustRun(t *testing.T, dir, name string, args ...string) {
 
 func newGateRepo(t *testing.T) string {
 	t.Helper()
-	return gittest.Repo(t)
+	return hosttest.Repo(t)
 }
 
 func TestRunGateNoStagedFiles(t *testing.T) {

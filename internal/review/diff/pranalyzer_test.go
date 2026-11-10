@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // golden commands (captured against a repo built by testdata/pr/build_repo.sh, python3 on PATH):
@@ -85,7 +85,7 @@ func TestResolveGitRepoValidatesRepository(t *testing.T) {
 		}
 	})
 	t.Run("subdirectory resolves to repository root", func(t *testing.T) {
-		repo := gittest.Repo(t)
+		repo := hosttest.Repo(t)
 		want, err := filepath.EvalSymlinks(repo)
 		if err != nil {
 			t.Fatal(err)
@@ -141,17 +141,17 @@ func TestWriteOutputAtomic(t *testing.T) {
 
 func commitFile(t *testing.T, repo, name, body, msg string) {
 	t.Helper()
-	gittest.WriteRel(t, repo, name, body)
-	gittest.In(t, repo, "add", "--", name)
-	gittest.In(t, repo, "commit", "-m", msg)
+	hosttest.WriteRel(t, repo, name, body)
+	hosttest.In(t, repo, "add", "--", name)
+	hosttest.In(t, repo, "commit", "-m", msg)
 }
 
 // Commits only on base must not count as PR commits or draw commit-message findings.
 func TestAnalyzePRCommitsExcludeBaseOnly(t *testing.T) {
-	repo := gittest.Repo(t)
-	gittest.In(t, repo, "checkout", "-b", "feature")
+	repo := hosttest.Repo(t)
+	hosttest.In(t, repo, "checkout", "-b", "feature")
 	commitFile(t, repo, "a.go", "package a\n", "feat: add a")
-	gittest.In(t, repo, "checkout", "main")
+	hosttest.In(t, repo, "checkout", "main")
 	commitFile(t, repo, "b.go", "package b\n", "bad base only")
 	rep, err := AnalyzePR(repo, "main", "feature")
 	if err != nil {
@@ -164,10 +164,10 @@ func TestAnalyzePRCommitsExcludeBaseOnly(t *testing.T) {
 
 // A branch with nothing ahead of base is no_changes even when the index holds staged edits.
 func TestAnalyzePRIgnoresStagedIndex(t *testing.T) {
-	repo := gittest.Repo(t)
-	gittest.In(t, repo, "branch", "feature")
-	gittest.WriteRel(t, repo, "staged.go", "package s\n")
-	gittest.In(t, repo, "add", "--", "staged.go")
+	repo := hosttest.Repo(t)
+	hosttest.In(t, repo, "branch", "feature")
+	hosttest.WriteRel(t, repo, "staged.go", "package s\n")
+	hosttest.In(t, repo, "add", "--", "staged.go")
 	rep, err := AnalyzePR(repo, "main", "feature")
 	if err != nil {
 		t.Fatal(err)
@@ -179,9 +179,9 @@ func TestAnalyzePRIgnoresStagedIndex(t *testing.T) {
 
 // A misspelled head surfaces the ref error instead of analyzing the staged index.
 func TestAnalyzePRBadRefNotMaskedByStaged(t *testing.T) {
-	repo := gittest.Repo(t)
-	gittest.WriteRel(t, repo, "staged.go", "package s\n")
-	gittest.In(t, repo, "add", "--", "staged.go")
+	repo := hosttest.Repo(t)
+	hosttest.WriteRel(t, repo, "staged.go", "package s\n")
+	hosttest.In(t, repo, "add", "--", "staged.go")
 	if _, err := AnalyzePR(repo, "main", "nosuchbranch"); err == nil {
 		t.Fatal("want an error for an unknown head")
 	}
@@ -189,8 +189,8 @@ func TestAnalyzePRBadRefNotMaskedByStaged(t *testing.T) {
 
 // With no merge base, the file list and per-file diff must both come from the two-dot fallback.
 func TestFileDiffSharesTwoDotFallback(t *testing.T) {
-	repo := gittest.Repo(t)
-	gittest.In(t, repo, "checkout", "--orphan", "orphan")
+	repo := hosttest.Repo(t)
+	hosttest.In(t, repo, "checkout", "--orphan", "orphan")
 	commitFile(t, repo, "o.go", "package o\n", "feat: orphan")
 	files, err := changedFiles(repo, "main", "orphan")
 	if err != nil || len(files) != 1 || files[0].Path != "o.go" {
@@ -203,8 +203,8 @@ func TestFileDiffSharesTwoDotFallback(t *testing.T) {
 
 // Non-ASCII names must arrive unquoted, so they match as pathspecs.
 func TestChangedFilesNonASCIIPath(t *testing.T) {
-	repo := gittest.Repo(t)
-	gittest.In(t, repo, "checkout", "-b", "feature")
+	repo := hosttest.Repo(t)
+	hosttest.In(t, repo, "checkout", "-b", "feature")
 	commitFile(t, repo, "caf\u00e9.go", "package c\n", "feat: cafe")
 	files, err := changedFiles(repo, "main", "feature")
 	if err != nil || len(files) != 1 || files[0].Path != "caf\u00e9.go" {

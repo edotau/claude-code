@@ -12,7 +12,6 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/memhook/memhooktest"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -28,7 +27,7 @@ func TestMain(m *testing.M) {
 	for _, f := range tb.Cleanups {
 		f()
 	}
-	gittest.Cleanup()
+	hosttest.Cleanup()
 	cleanup()
 	os.Exit(code)
 }

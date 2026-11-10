@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/memhook/memhooktest"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -544,7 +543,7 @@ func TestHookFlagAllIncludesGateBareExcludes(t *testing.T) {
 // docs-placement runs inside the bare PreToolUse dispatcher and its block survives as the merged deny.
 func TestHookDocsPlacementBlocksThroughDispatcher(t *testing.T) {
 	flagHarness(t)
-	repo := gittest.Repo(t)
+	repo := hosttest.Repo(t)
 	payload, err := json.Marshal(map[string]any{
 		"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": repo,
 		"tool_input": map[string]string{"file_path": filepath.Join(repo, "NOTES.md"), "content": "# notes\n"},
@@ -569,7 +568,7 @@ func TestMain(m *testing.M) {
 	for _, f := range tb.Cleanups {
 		f()
 	}
-	gittest.Cleanup()
+	hosttest.Cleanup()
 	cleanup()
 	os.Exit(code)
 }

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -242,7 +242,7 @@ func TestLogListsCommits(t *testing.T) {
 // A clean git env is the whole point of history.go: a snapshot taken inside a session must never
 // touch whichever repo GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE happen to name — only the history store.
 func TestSnapshotIgnoresInheritedGitEnv(t *testing.T) {
-	decoy := gittest.Repo(t)
+	decoy := hosttest.Repo(t)
 	write(t, filepath.Join(decoy, "tracked.txt"), "original\n")
 	runGitCmd(t, decoy, "add", "tracked.txt")
 	runGitCmd(t, decoy, "commit", "--quiet", "-m", "seed")
@@ -310,7 +310,7 @@ func TestLogAndDiffSurfaceRepositoryErrors(t *testing.T) {
 	root := t.TempDir()
 	write(t, filepath.Join(root, "not-a-directory"), "x")
 	write(t, filepath.Join(root, "broken-gitdir", ".git"), "gitdir: missing\n")
-	missingObject := gittest.Repo(t)
+	missingObject := hosttest.Repo(t)
 	write(t, filepath.Join(missingObject, ".git", "HEAD"), strings.Repeat("1", 40)+"\n")
 	for name, dir := range map[string]string{
 		"stat failure":   filepath.Join(root, "not-a-directory"),

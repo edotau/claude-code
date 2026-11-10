@@ -8,7 +8,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // golden commands (captured with python3 on PATH):
@@ -118,7 +118,7 @@ func TestGetDiffGitFailureIsError(t *testing.T) {
 
 // A range starting with '-' is a git option (--output overwrites a file); it must be rejected before git runs.
 func TestRunGitDiffRejectsOptionRange(t *testing.T) {
-	repo := gittest.Repo(t)
+	repo := hosttest.Repo(t)
 	victim := filepath.Join(t.TempDir(), "victim")
 	var stderr bytes.Buffer
 	if _, ok := runGitDiff(repo, "--output="+victim, &stderr); ok || stderr.Len() == 0 {

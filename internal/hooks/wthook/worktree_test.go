@@ -14,7 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -53,7 +53,7 @@ func remove(cwd, worktreePath string) (int, string) {
 func TestWorktreeCreateFromRealPayload(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	repo := gittest.Repo(t)
+	repo := hosttest.Repo(t)
 
 	got := mustCreate(t, repo, "live-probe")
 	want := filepath.Join(canonHome(t, home), "worktrees", filepath.Base(repo), "live-probe")
@@ -71,7 +71,7 @@ func TestWorktreeCreateFromRealPayload(t *testing.T) {
 
 func TestWorktreeCreateRepeatReturnsSamePath(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	repo := gittest.Repo(t)
+	repo := hosttest.Repo(t)
 
 	first := mustCreate(t, repo, "dup")
 	if second := mustCreate(t, repo, "dup"); first != second {
@@ -82,7 +82,7 @@ func TestWorktreeCreateRepeatReturnsSamePath(t *testing.T) {
 func TestWorktreeCreateFromInsideLinkedWorktreeResolvesToMain(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	repo := gittest.Repo(t)
+	repo := hosttest.Repo(t)
 
 	linked := mustCreate(t, repo, "first")
 	// A second worktree requested with cwd set to the first linked checkout must still land under the main repo.
@@ -101,7 +101,7 @@ func TestWorktreeCreateNonRepoCWD(t *testing.T) {
 
 func TestWorktreeCreateBadName(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	repo := gittest.Repo(t)
+	repo := hosttest.Repo(t)
 	for _, name := range []string{"", "a/b", ".."} {
 		if res := create(repo, name); res.ExitCode != 1 {
 			t.Errorf("name %q: got %d, want 1; stderr %s", name, res.ExitCode, res.Stderr)
@@ -111,7 +111,7 @@ func TestWorktreeCreateBadName(t *testing.T) {
 
 func TestWorktreeRemoveClean(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	repo := gittest.Repo(t)
+	repo := hosttest.Repo(t)
 	wt := mustCreate(t, repo, "clean")
 
 	if code, stderr := remove(wt, wt); code != core.ExitProceed {
@@ -128,7 +128,7 @@ func TestWorktreeRemoveClean(t *testing.T) {
 
 func TestWorktreeRemoveClosesLedger(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	repo := gittest.Repo(t)
+	repo := hosttest.Repo(t)
 	wt := mustCreate(t, repo, "led")
 	ledger := filepath.Join(memory.Dir(repo), "worktrees", "led.md")
 	if data, err := os.ReadFile(ledger); err != nil || !strings.Contains(string(data), "- Status: open") {
@@ -151,7 +151,7 @@ func TestWorktreeRemoveClosesLedger(t *testing.T) {
 
 func TestWorktreeRemoveDirty(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	repo := gittest.Repo(t)
+	repo := hosttest.Repo(t)
 	wt := mustCreate(t, repo, "dirty")
 	if err := os.WriteFile(filepath.Join(wt, "scratch.txt"), []byte("uncommitted"), 0o600); err != nil {
 		t.Fatal(err)
@@ -167,9 +167,9 @@ func TestWorktreeRemoveDirty(t *testing.T) {
 
 func TestWorktreeRemoveKeepsUnmergedBranch(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	repo := gittest.Repo(t)
+	repo := hosttest.Repo(t)
 	wt := mustCreate(t, repo, "unmerged")
-	gittest.In(t, wt, "commit", "--allow-empty", "-q", "-m", "unmerged work")
+	hosttest.In(t, wt, "commit", "--allow-empty", "-q", "-m", "unmerged work")
 
 	if code, stderr := remove(wt, wt); code != core.ExitProceed {
 		t.Fatalf("remove: got %d, stderr %s", code, stderr)
@@ -189,7 +189,7 @@ func TestWorktreeRemoveKeepsUnmergedBranch(t *testing.T) {
 // stubbing worktree's unexported process-discovery seam.
 func TestWorktreeRemoveRefusesWhenCWDIsInside(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	repo := gittest.Repo(t)
+	repo := hosttest.Repo(t)
 	wt := mustCreate(t, repo, "cwdbusy")
 	t.Chdir(wt)
 
@@ -283,9 +283,9 @@ func TestWorktreeBusyStateFileIs0600(t *testing.T) {
 
 // TestCheckoutOfPassesOnlyNestedWorktrees: a nested worktree never skips the main tree, which holds all its peers.
 func TestCheckoutOfPassesOnlyNestedWorktrees(t *testing.T) {
-	main := core.CanonPath(gittest.Repo(t))
+	main := core.CanonPath(hosttest.Repo(t))
 	nested := filepath.Join(main, ".wt", "x")
-	gittest.In(t, main, "worktree", "add", "-q", "-b", "x", nested)
+	hosttest.In(t, main, "worktree", "add", "-q", "-b", "x", nested)
 	ctx, cancel := core.HookContext("worktree-busy")
 	defer cancel()
 	if top, _, skip := CheckoutOf(ctx, nested); top != nested || len(skip) != 0 {
@@ -329,24 +329,24 @@ func TestDivergedAtTellsSiblingCommitsFromRewrite(t *testing.T) {
 		wantRewritten bool
 	}{{"sibling commits", false, false}, {"amended after push", true, true}} {
 		t.Run(tc.name, func(t *testing.T) {
-			repo := gittest.Repo(t)
+			repo := hosttest.Repo(t)
 			commit := func(file string) {
-				gittest.WriteRel(t, repo, file, file+"\n")
-				gittest.In(t, repo, "add", file)
-				gittest.In(t, repo, "commit", "-q", "-m", file)
+				hosttest.WriteRel(t, repo, file, file+"\n")
+				hosttest.In(t, repo, "add", file)
+				hosttest.In(t, repo, "commit", "-q", "-m", file)
 			}
 			if tc.amend {
 				commit("pushed")
-				gittest.In(t, repo, "branch", "-q", "up")
-				gittest.In(t, repo, "commit", "-q", "--amend", "-m", "pushed, reworded")
+				hosttest.In(t, repo, "branch", "-q", "up")
+				hosttest.In(t, repo, "commit", "-q", "--amend", "-m", "pushed, reworded")
 			} else {
-				gittest.In(t, repo, "branch", "-q", "up")
-				gittest.In(t, repo, "switch", "-q", "up")
+				hosttest.In(t, repo, "branch", "-q", "up")
+				hosttest.In(t, repo, "switch", "-q", "up")
 				commit("remote")
-				gittest.In(t, repo, "switch", "-q", "main")
+				hosttest.In(t, repo, "switch", "-q", "main")
 				commit("local")
 			}
-			gittest.In(t, repo, "branch", "-q", "--set-upstream-to=up")
+			hosttest.In(t, repo, "branch", "-q", "--set-upstream-to=up")
 			d, err := divergedAt(context.Background(), repo)
 			if err != nil || d == nil {
 				t.Fatalf("divergedAt = %v, %v; want a divergence (ahead 1, behind 1)", d, err)
@@ -360,13 +360,13 @@ func TestDivergedAtTellsSiblingCommitsFromRewrite(t *testing.T) {
 
 // TestDivergedAtEmptyCommitsAreNotARewrite: empty commits on both sides share one patch-id but replace nothing.
 func TestDivergedAtEmptyCommitsAreNotARewrite(t *testing.T) {
-	repo := gittest.Repo(t)
-	gittest.In(t, repo, "branch", "-q", "up")
-	gittest.In(t, repo, "switch", "-q", "up")
-	gittest.In(t, repo, "commit", "-q", "--allow-empty", "-m", "remote")
-	gittest.In(t, repo, "switch", "-q", "main")
-	gittest.In(t, repo, "commit", "-q", "--allow-empty", "-m", "local")
-	gittest.In(t, repo, "branch", "-q", "--set-upstream-to=up")
+	repo := hosttest.Repo(t)
+	hosttest.In(t, repo, "branch", "-q", "up")
+	hosttest.In(t, repo, "switch", "-q", "up")
+	hosttest.In(t, repo, "commit", "-q", "--allow-empty", "-m", "remote")
+	hosttest.In(t, repo, "switch", "-q", "main")
+	hosttest.In(t, repo, "commit", "-q", "--allow-empty", "-m", "local")
+	hosttest.In(t, repo, "branch", "-q", "--set-upstream-to=up")
 	d, err := divergedAt(context.Background(), repo)
 	if err != nil || d == nil {
 		t.Fatalf("divergedAt = %v, %v; want a divergence (ahead 1, behind 1)", d, err)

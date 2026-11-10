@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -16,22 +16,22 @@ func divergedClone(t *testing.T) string {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(worktreeModeEnv, "off")
-	origin := gittest.Repo(t)
+	origin := hosttest.Repo(t)
 	work := filepath.Join(t.TempDir(), "work")
-	gittest.In(t, origin, "clone", "-q", origin, work)
+	hosttest.In(t, origin, "clone", "-q", origin, work)
 	work = core.CanonPath(work)
-	gittest.WriteRel(t, origin, "up.txt", "up\n")
-	gittest.In(t, origin, "add", ".")
-	gittest.In(t, origin, "commit", "-qm", "upstream")
-	gittest.WriteRel(t, work, "mine.txt", "mine\n")
-	gittest.In(t, work, "add", ".")
-	gittest.In(t, work, "commit", "-qm", "local")
-	gittest.In(t, work, "fetch", "-q")
-	short := strings.TrimSpace(gittest.In(t, work, "rev-parse", "--short=7", "HEAD"))
+	hosttest.WriteRel(t, origin, "up.txt", "up\n")
+	hosttest.In(t, origin, "add", ".")
+	hosttest.In(t, origin, "commit", "-qm", "upstream")
+	hosttest.WriteRel(t, work, "mine.txt", "mine\n")
+	hosttest.In(t, work, "add", ".")
+	hosttest.In(t, work, "commit", "-qm", "local")
+	hosttest.In(t, work, "fetch", "-q")
+	short := strings.TrimSpace(hosttest.In(t, work, "rev-parse", "--short=7", "HEAD"))
 	if err := os.MkdirAll(claimsDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	gittest.WriteRel(t, claimsDir(), filepath.Base(claimsFile(liveOwner, "peerS")), `{"schema":1,"commit":"`+short+`","ts":1}`+"\n")
+	hosttest.WriteRel(t, claimsDir(), filepath.Base(claimsFile(liveOwner, "peerS")), `{"schema":1,"commit":"`+short+`","ts":1}`+"\n")
 	orig, origPeers := claimAlive, PeerAgents
 	claimAlive = func(pid int) bool { return pid == liveOwner }
 	PeerAgents = func(string, []string) ([]worktree.Proc, error) {

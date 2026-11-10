@@ -12,18 +12,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestQualityCheckerUsesHeadContents(t *testing.T) {
 	repo := newGateRepo(t)
-	gittest.In(t, repo, "checkout", "-b", "feature")
+	hosttest.In(t, repo, "checkout", "-b", "feature")
 	commitFile(t, repo, "app.py", "def run():\n    return 1\n", "feat: add app")
 	want, err := runQualityChecker(repo, "main", "feature")
 	if err != nil || mInt(want, "files_analyzed") != 1 {
 		t.Fatalf("head analysis = %v, %v; want one file", want, err)
 	}
-	gittest.WriteRel(t, repo, "app.py", "def run():\n"+strings.Repeat("    print('debug')\n", 100))
+	hosttest.WriteRel(t, repo, "app.py", "def run():\n"+strings.Repeat("    print('debug')\n", 100))
 	got, err := runQualityChecker(repo, "main", "feature")
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("worktree changed head analysis: got %v, %v; want %v", got, err, want)
@@ -32,13 +32,13 @@ func TestQualityCheckerUsesHeadContents(t *testing.T) {
 
 func TestRunGateUsesIndexContents(t *testing.T) {
 	repo := newGateRepo(t)
-	gittest.WriteRel(t, repo, "app.py", "def run(x):\n"+strings.Repeat("    x += 1\n", 150))
-	gittest.In(t, repo, "add", "--", "app.py")
+	hosttest.WriteRel(t, repo, "app.py", "def run(x):\n"+strings.Repeat("    x += 1\n", 150))
+	hosttest.In(t, repo, "add", "--", "app.py")
 	var want, stderr bytes.Buffer
 	if code := RunGate([]string{"--repo", repo}, &want, &stderr); code != 0 || !strings.Contains(want.String(), "[WARN]") {
 		t.Fatalf("staged complexity warning missing: exit %d, %s, %s", code, &want, &stderr)
 	}
-	gittest.WriteRel(t, repo, "app.py", "def run(x):\n    return x\n")
+	hosttest.WriteRel(t, repo, "app.py", "def run(x):\n    return x\n")
 	var got bytes.Buffer
 	if code := RunGate([]string{"--repo", repo}, &got, &stderr); code != 0 || got.String() != want.String() {
 		t.Fatalf("unstaged edit changed gate: exit %d, got %s; want %s", code, &got, &want)
@@ -47,8 +47,8 @@ func TestRunGateUsesIndexContents(t *testing.T) {
 
 func TestGateComplexityIncludesGo(t *testing.T) {
 	repo := newGateRepo(t)
-	gittest.WriteRel(t, repo, "app.go", "package app\n")
-	gittest.In(t, repo, "add", "--", "app.go")
+	hosttest.WriteRel(t, repo, "app.go", "package app\n")
+	hosttest.In(t, repo, "add", "--", "app.go")
 	want := []string{filepath.Join(repo, "app.go")}
 	if got := gateComplexityFiles(repo); !reflect.DeepEqual(got, want) {
 		t.Fatalf("staged complexity files = %v, want %v", got, want)
@@ -57,8 +57,8 @@ func TestGateComplexityIncludesGo(t *testing.T) {
 
 func TestChangedSourceFilesUnicode(t *testing.T) {
 	repo := newGateRepo(t)
-	gittest.In(t, repo, "config", "core.quotePath", "true")
-	gittest.In(t, repo, "checkout", "-b", "feature")
+	hosttest.In(t, repo, "config", "core.quotePath", "true")
+	hosttest.In(t, repo, "checkout", "-b", "feature")
 	commitFile(t, repo, "café.go", "package cafe\n", "feat: cafe")
 	got, err := changedSourceFiles(repo, "main", "feature")
 	if err != nil || !reflect.DeepEqual(got, []string{"café.go"}) {
@@ -102,7 +102,7 @@ func failPatchGit(t *testing.T) {
 
 func TestAnalyzePRPropagatesPatchFailure(t *testing.T) {
 	repo := newGateRepo(t)
-	gittest.In(t, repo, "checkout", "-b", "feature")
+	hosttest.In(t, repo, "checkout", "-b", "feature")
 	commitFile(t, repo, "app.go", "package app\n", "feat: app")
 	failPatchGit(t)
 	files, err := changedFiles(repo, "main", "feature")

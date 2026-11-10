@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
 	"github.com/edotau/claude-code/internal/audit"
@@ -21,7 +20,7 @@ import (
 
 func doctorGitFixture(t *testing.T, dirty bool) string {
 	t.Helper()
-	dir := gittest.Repo(t)
+	dir := hosttest.Repo(t)
 	run := func(args ...string) { t.Helper(); gitRun(t, dir, args...) }
 	text := "nothing sensitive\n"
 	if dirty {
