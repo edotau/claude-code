@@ -39,7 +39,7 @@ func addRemoteFlags(fs *flag.FlagSet) *remoteFlags {
 	f := &remoteFlags{}
 	fs.StringVar(&f.host, "host", "", "ssh host: alias, MagicDNS/tailnet name, or IP")
 	fs.StringVar(&f.dir, "dir", "", "remote working directory (default ~)")
-	fs.StringVar(&f.agent, "agent", "claude", "agent CLI: "+strings.Join(remote.RemoteAgents, "|"))
+	fs.StringVar(&f.agent, "agent", "claude", "agent CLI: "+strings.Join(remote.Agents, "|"))
 	fs.StringVar(&f.name, "name", "", "tmux session name (default cc-<agent>-<id>)")
 	fs.BoolVar(&f.dryRun, "dry-run", false, "print the ssh argv instead of running it")
 	fs.BoolVar(&f.list, "list", false, "list cc-* tmux sessions on --host")
@@ -69,7 +69,7 @@ func cmdNetworkRemote(args []string) int {
 	ctx := context.Background()
 	resolved, err := tailscale.ResolveHost(ctx, f.host)
 	if err != nil {
-		return helptext.Fail("%v", err)
+		return helptext.Fail("network remote: %v", err)
 	}
 	return dispatchRemoteMode(ctx, resolved, mode, f, rest)
 }
@@ -119,7 +119,7 @@ func dispatchRemoteMode(ctx context.Context, host, mode string, f *remoteFlags, 
 		return dispatchAttach(host, rest[0])
 	default:
 		if !remote.ValidAgent(f.agent) {
-			return helptext.Fail("network remote: --agent %q must be one of %s", f.agent, strings.Join(remote.RemoteAgents, "|"))
+			return helptext.Fail("network remote: --agent %q must be one of %s", f.agent, strings.Join(remote.Agents, "|"))
 		}
 		return dispatchStart(ctx, host, f.dir, f.agent, f.name, strings.Join(rest, " "), f.dryRun)
 	}
@@ -129,9 +129,9 @@ func dispatchStart(ctx context.Context, host, dir, agentName, name, task string,
 	if task == "" {
 		return helptext.Fail("network remote: give a task as the final argument")
 	}
-	remoteCmd, session, err := remote.BuildRemoteCommand(remote.RemoteOpts{Dir: dir, Agent: agentName, Name: name, Task: task})
+	remoteCmd, session, err := remote.BuildCommand(remote.Opts{Dir: dir, Agent: agentName, Name: name, Task: task})
 	if err != nil {
-		return helptext.Fail("%v", err)
+		return helptext.Fail("network remote: %v", err)
 	}
 	local := tailscale.IsLocalHost(ctx, host)
 	argv, err := remote.ExecArgs(host, remoteCmd, local, false)
@@ -145,7 +145,7 @@ func dispatchStart(ctx context.Context, host, dir, agentName, name, task string,
 		fmt.Println("attach:", remote.AttachCommand(host, session, local))
 		return 0
 	}
-	out, err := remote.RunRemote(ctx, argv)
+	out, err := remote.RunAgent(ctx, argv)
 	_, writeErr := os.Stdout.Write(out)
 	if err := errors.Join(err, writeErr); err != nil {
 		return helptext.Fail("network remote: %v", err)
@@ -167,7 +167,7 @@ func dispatchList(ctx context.Context, host, format string, withStatus bool, int
 }
 
 func dispatchListPlain(ctx context.Context, host, format string) int {
-	sessions, err := remote.ListRemoteSessions(ctx, host, tailscale.IsLocalHost(ctx, host))
+	sessions, err := remote.ListSessions(ctx, host, tailscale.IsLocalHost(ctx, host))
 	if err != nil {
 		return helptext.Fail("network remote --list: %v", err)
 	}
@@ -175,7 +175,9 @@ func dispatchListPlain(ctx context.Context, host, format string) int {
 		return helptext.WriteJSONOrFail("network remote --list", sessions)
 	}
 	for _, s := range sessions {
-		if _, err := fmt.Fprintf(os.Stdout, "%-24s created=%-12s attached=%-5v cmd=%s\n", s.Name, s.Created, s.Attached, s.CurrentCmd); err != nil {
+		_, err := fmt.Fprintf(os.Stdout, "%-24s created=%-12s attached=%-5v cmd=%s\n",
+			s.Name, s.Created, s.Attached, s.CurrentCmd)
+		if err != nil {
 			return helptext.Fail("network remote --list: %v", err)
 		}
 	}
@@ -200,7 +202,9 @@ func printPaneStatus(statuses []remote.PaneStatus, format string) error {
 		return helptext.WriteJSON(os.Stdout, statuses)
 	}
 	for _, p := range statuses {
-		if _, err := fmt.Fprintf(os.Stdout, "%-24s %-6s agent=%-10s state=%-13s %s\n", p.Session, p.PaneID, p.Agent, p.State, p.Reason); err != nil {
+		_, err := fmt.Fprintf(os.Stdout, "%-24s %-6s agent=%-10s state=%-13s %s\n",
+			p.Session, p.PaneID, p.Agent, p.State, p.Reason)
+		if err != nil {
 			return err
 		}
 	}

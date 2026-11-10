@@ -36,8 +36,7 @@ func TestSetup_DryRunOpensStoreNeverTouchesManifests(t *testing.T) {
 	if len(a.Command) == 0 || a.Command[0] != "open" {
 		t.Fatalf("Command = %v, want an open invocation", a.Command)
 	}
-	// Detection always issues read-only probes (the install-state mdfind, and guiState's own no-op
-	// System Events query); DryRun only gates the install-extension action's mutating "open" call.
+	// Detection always runs read-only probes; DryRun only gates the install action's mutating "open" call.
 	allowed := map[string]bool{
 		"mdfind kMDItemCFBundleIdentifier == '" + s.darwinBundleID + "'": true,
 		guiProbeKey: true,

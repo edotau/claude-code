@@ -5,8 +5,7 @@ import (
 	"io"
 )
 
-// RenderText prints one line per known browser plus the resolved system default; it returns the first write error.
-// JSON output needs no equivalent here: Report's json tags are the shape (internal/helptext.WriteJSON(w, report)).
+// RenderText prints one line per known browser plus the system default; it returns the first write error.
 func RenderText(w io.Writer, r Report) error {
 	if _, err := fmt.Fprintf(w, "default: %s\n", orDash(r.Default)); err != nil {
 		return err

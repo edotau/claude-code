@@ -9,13 +9,13 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"time"
 
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// ErrNoSubnetRoutes means this box advertises no subnet routes to approve.
-var ErrNoSubnetRoutes = errors.New("this box advertises no subnet routes; run --subnet <cidr> first")
+// errNoSubnetRoutes means this box advertises no subnet routes to approve.
+var errNoSubnetRoutes = errors.New("this box advertises no subnet routes; run --subnet <cidr> first")
 
 // ResolveAuthKey picks the auth key: literal ("-" reads stdin), then the keyEnv variable, then the vault.
 func ResolveAuthKey(authKey, keyEnv string, stdin io.Reader) (string, error) {
@@ -64,15 +64,15 @@ func ApproveSelfSubnets(ctx context.Context) (dns string, want, enabled []string
 	if err != nil {
 		return st.DNSName, nil, nil, err
 	}
-	want = SubnetRoutes(cur.Advertised)
+	want = subnetRoutes(cur.Advertised)
 	if len(want) == 0 {
-		return st.DNSName, nil, nil, ErrNoSubnetRoutes
+		return st.DNSName, nil, nil, errNoSubnetRoutes
 	}
 	en, err := client.EnableRoutes(ctx, id, cur, want)
 	if err != nil {
 		return st.DNSName, want, nil, err
 	}
-	return st.DNSName, want, SubnetRoutes(en), nil
+	return st.DNSName, want, subnetRoutes(en), nil
 }
 
 // ParseSubnets splits a comma-separated CIDR list; ok is false when any entry is not a prefix.
@@ -81,9 +81,6 @@ func ParseSubnets(value string) (routes []string, ok bool) {
 	bad := slices.ContainsFunc(routes, func(r string) bool { _, err := netip.ParsePrefix(r); return err != nil })
 	return routes, !bad
 }
-
-// execWaitDelay force-closes a timed-out command's pipes so surviving children cannot hold Wait open.
-const execWaitDelay = 2 * time.Second
 
 // MachinesCached lists tailnet machines and refreshes the `dispatch --host` completion cache.
 func MachinesCached(ctx context.Context) ([]Machine, error) {
@@ -99,9 +96,9 @@ func MachinesCached(ctx context.Context) ([]Machine, error) {
 	return machines, nil
 }
 
-// MintKey parses expiry, mints an auth key through the admin API and hints at the usual 404 cause.
-func MintKey(ctx context.Context, expiry string, opts KeyOpts) (AuthKey, error) {
-	exp, err := ParseKeyExpiry(expiry)
+// mintKey parses expiry, mints an auth key through the admin API and hints at the usual 404 cause.
+func mintKey(ctx context.Context, expiry string, opts KeyOpts) (AuthKey, error) {
+	exp, err := parseKeyExpiry(expiry)
 	if err != nil {
 		return AuthKey{}, fmt.Errorf("--expiry: %w", err)
 	}
@@ -118,3 +115,44 @@ func MintKey(ctx context.Context, expiry string, opts KeyOpts) (AuthKey, error) 
 	}
 	return key, err
 }
+
+// ConnectAudited joins the tailnet with key and audits the connect under this node's name.
+func ConnectAudited(ctx context.Context, key string, advertise bool) error {
+	if err := connect(ctx, key, advertise); err != nil {
+		return err
+	}
+	auditConnect(ctx)
+	return nil
+}
+
+// auditConnect logs the connect with the node name, or notes that status was unavailable.
+func auditConnect(ctx context.Context) {
+	st, err := Status(ctx)
+	if err != nil {
+		audit.Log(audit.TailscaleConnect, "", "connect (status unavailable: "+err.Error()+")")
+		return
+	}
+	audit.Log(audit.TailscaleConnect, st.DNSName, "connect")
+}
+
+// AdvertiseConnected advertises the already-connected node dns as an exit node and audits it.
+func AdvertiseConnected(ctx context.Context, dns string) error {
+	if err := AdvertiseExitNode(ctx, true); err != nil {
+		return err
+	}
+	audit.Log(audit.TailscaleExitNode, dns, "enable")
+	return nil
+}
+
+// MintKeyAudited mints an auth key (MintKey) and audits the mint with its tags.
+func MintKeyAudited(ctx context.Context, expiry string, opts KeyOpts) (AuthKey, error) {
+	key, err := mintKey(ctx, expiry, opts)
+	if err != nil {
+		return AuthKey{}, err
+	}
+	audit.Log(audit.TailscaleKeyMint, "tailnet", "mint:"+strings.Join(opts.Tags, ","))
+	return key, nil
+}
+
+// SaveAuthKey seals key as TAILSCALE_AUTHKEY, the vault entry ResolveAuthKey falls back to.
+func SaveAuthKey(key string) error { return vault.Store("TAILSCALE_AUTHKEY", key) }

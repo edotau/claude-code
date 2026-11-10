@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -14,8 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// hermeticDispatch isolates tailscale credentials/config so ResolveHost falls through to its
-// pass-the-host-through branch instead of hitting a real tailnet.
+// hermeticDispatch isolates tailscale credentials so ResolveHost passes the host through, never a real tailnet.
 func hermeticDispatch(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -56,22 +56,23 @@ func fakeSSHOnPATH(t *testing.T, listOutput string) {
 		t.Skip("requires a POSIX shell")
 	}
 	dir := t.TempDir()
-	script := fakeSSHDecode + "case \"$script\" in *tmux\\ list-sessions*) printf '%s' " + textutil.ShellQuote(listOutput) + " ;; esac\n"
+	script := fakeSSHDecode + "case \"$script\" in *tmux\\ list-sessions*) printf '%s' " +
+		textutil.ShellQuote(listOutput) + " ;; esac\n"
 	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
 }
 
-// fakeSSHStatusOnPATH puts an `ssh` script on PATH that returns canned output for the pane-capture
-// command (tmux list-panes) used by --status, independent of fakeSSHOnPATH's list-sessions case.
+// fakeSSHStatusOnPATH puts an `ssh` on PATH answering the --status pane-capture command with panes.
 func fakeSSHStatusOnPATH(t *testing.T, panes string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("requires a POSIX shell")
 	}
 	dir := t.TempDir()
-	script := fakeSSHDecode + "case \"$script\" in *tmux\\ list-panes*) printf '%s' " + textutil.ShellQuote(panes) + " ;; esac\n"
+	script := fakeSSHDecode + "case \"$script\" in *tmux\\ list-panes*) printf '%s' " + textutil.ShellQuote(panes) +
+		" ;; esac\n"
 	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -126,14 +127,13 @@ func TestDispatchUnknownAgent(t *testing.T) {
 	}
 }
 
-// TestDispatchDryRunSpawnsNoSSH is the security-relevant assertion: PATH has no ssh binary at all,
-// so if --dry-run ever reached exec.CommandContext it would fail with "executable file not found".
-// Exit 0 here proves the ssh/tmux round trip never happened.
+// TestDispatchDryRunSpawnsNoSSH: with no ssh on PATH, exit 0 proves --dry-run never ran the ssh round trip.
 func TestDispatchDryRunSpawnsNoSSH(t *testing.T) {
 	hermeticDispatch(t)
 	emptyPATH(t)
 	code, out, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdNetworkRemote([]string{"--host", "myhost", "--dir", "/tmp/work dir", "--name", "cc-claude-abcd", "--dry-run", "do", "the", "thing"})
+		return cmdNetworkRemote([]string{"--host", "myhost", "--dir", "/tmp/work dir", "--name", "cc-claude-abcd",
+			"--dry-run", "do", "the", "thing"})
 	})
 	if code != 0 {
 		t.Fatalf("dry-run exit %d, want 0; stderr=%q", code, stderr)
@@ -171,7 +171,10 @@ func TestDispatchListTextAndJSON(t *testing.T) {
 	hermeticDispatch(t)
 	listing := "cc-claude-ab12|1700000000|1|claude|claude\n"
 	fakeSSHOnPATH(t, listing)
-	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdNetworkRemote([]string{"--list", "--host", "myhost"}) })
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
+		return cmdNetworkRemote([]string{"--list", "--host",
+			"myhost"})
+	})
 	if code != 0 {
 		t.Fatalf("--list exit %d, want 0; stderr=%q", code, stderr)
 	}
@@ -196,7 +199,10 @@ func TestDispatchListTextAndJSON(t *testing.T) {
 func TestDispatchListEmptyIsNotAnError(t *testing.T) {
 	hermeticDispatch(t)
 	fakeSSHOnPATH(t, "")
-	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdNetworkRemote([]string{"--list", "--host", "myhost"}) })
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
+		return cmdNetworkRemote([]string{"--list", "--host",
+			"myhost"})
+	})
 	if code != 0 {
 		t.Fatalf("--list (no sessions) exit %d, want 0; stderr=%q", code, stderr)
 	}
@@ -233,8 +239,7 @@ func TestDispatchAttachMissingSessionArg(t *testing.T) {
 	}
 }
 
-// statusCaptureFrame builds one captureCommand-shaped record (control-byte framed, "|"-separated
-// header) matching dispatch's actual on-wire format, so the fake ssh script exercises the real parser.
+// statusCaptureFrame builds one record in captureCommand's on-wire format so the fake ssh drives the real parser.
 func statusCaptureFrame(sess, pid, agent, cmd, text string) string {
 	return "\x01" + sess + "|" + pid + "|" + agent + "|" + cmd + "\n" + text + "\x02\n"
 }
@@ -292,9 +297,7 @@ func TestDispatchListStatusSSHFailure(t *testing.T) {
 	}
 }
 
-// TestDispatchLocalhostDryRunNeverLaunches pins the local branch of ExecArgs (host "localhost" runs
-// under "sh -c", not ssh): even with real-looking sh/tmux stubs on PATH, --dry-run must only print
-// the resolved argv and never invoke either stub — the marker file must stay absent.
+// TestDispatchLocalhostDryRunNeverLaunches: localhost runs under sh -c, and --dry-run must never invoke the stubs.
 func TestDispatchLocalhostDryRunNeverLaunches(t *testing.T) {
 	hermeticDispatch(t)
 	dir := t.TempDir()
@@ -378,12 +381,14 @@ func TestDispatchStartReportsStdoutFailure(t *testing.T) {
 	}
 	hermeticDispatch(t)
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "ssh"), []byte("#!/bin/sh\nprintf 'remote output\\n'\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "ssh"), []byte("#!/bin/sh\nprintf 'remote output\\n'\n"),
+		0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
 	hosttest.ClosedStdout(t)
-	if got := dispatchStart(context.Background(), "stdout-test.invalid", "", "claude", "cc-stdout-test", "hello", false); got == 0 {
+	if got := dispatchStart(context.Background(), "stdout-test.invalid", "", "claude", "cc-stdout-test", "hello",
+		false); got == 0 {
 		t.Fatal("dispatch start exit = 0 on closed stdout, want nonzero")
 	}
 }
@@ -397,5 +402,26 @@ func TestNetworkRemoteRefusesOptionShapedHost(t *testing.T) {
 	})
 	if code == 0 || !strings.Contains(stderr, "invalid ssh host") || strings.Contains(out, "ProxyCommand") {
 		t.Fatalf("exit %d, stdout %q, stderr %q; want a refusal naming the invalid host", code, out, stderr)
+	}
+}
+
+func TestRemoteTextReportsStdoutFailure(t *testing.T) {
+	for _, status := range []bool{false, true} {
+		t.Run(fmt.Sprintf("status_%t", status), func(t *testing.T) {
+			hermeticDispatch(t)
+			args := []string{"--list", "--host", "myhost"}
+			want := "network remote --list:"
+			if status {
+				fakeSSHStatusOnPATH(t, statusCaptureFrame("cc-claude-ab12", "%1", "claude", "claude", "thinking..."))
+				args = append(args, "--status")
+				want = "network remote --status:"
+			} else {
+				fakeSSHOnPATH(t, "cc-claude-ab12|1700000000|1|claude|claude\n")
+			}
+			code, stderr := captureClosedStdout(t, func() int { return cmdNetworkRemote(args) })
+			if code != 1 || !strings.Contains(stderr, want) || !strings.Contains(stderr, "file already closed") {
+				t.Fatalf("failed text output reported success: exit=%d stderr=%q", code, stderr)
+			}
+		})
 	}
 }

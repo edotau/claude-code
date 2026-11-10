@@ -1,4 +1,4 @@
-package mcp
+package websearch
 
 import (
 	"strings"
@@ -54,7 +54,8 @@ func TestParseRobotsEmptyDisallowIsAllowAllGroup(t *testing.T) {
 		name, txt string
 		blocked   bool
 	}{
-		{"claude-code allow-all beats * Disallow /", "User-agent: claude-code\nDisallow:\n\nUser-agent: *\nDisallow: /\n", false},
+		{"claude-code allow-all beats * Disallow /", "User-agent: claude-code\nDisallow:\n\nUser-agent: *\nDisallow: /\n",
+			false},
 		{"claude-code Disallow /x applies", "User-agent: claude-code\nDisallow: /x\n\nUser-agent: *\nDisallow:\n", true},
 		{"only * Disallow / applies", "User-agent: *\nDisallow: /\n", true},
 	}

@@ -70,7 +70,9 @@ func tsMode(fs *flag.FlagSet, t *tsFlags) (string, error) {
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 	var modes []string
-	for name, on := range map[string]bool{"machines": t.machines, "connect": t.connect, "key": t.mint, "exit-node": set["exit-node"], "subnet": set["subnet"], "route": set["route"]} {
+	given := map[string]bool{"machines": t.machines, "connect": t.connect, "key": t.mint,
+		"exit-node": set["exit-node"], "subnet": set["subnet"], "route": set["route"]}
+	for name, on := range given {
 		if on {
 			modes = append(modes, "--"+name)
 		}
@@ -225,7 +227,7 @@ func tailscaleMachines(ctx context.Context, format string) int {
 
 func tailscaleConnect(ctx context.Context, o tsOpts) int {
 	if o.authKey != "" && o.authKey != "-" {
-		fmt.Fprintln(os.Stderr, "tailscale connect: a literal --auth-key is visible in shell "+
+		fmt.Fprintln(os.Stderr, "claude-code: network tailscale connect: a literal --auth-key is visible in shell "+
 			"history and `ps`; prefer --auth-key - (stdin) or --key-env")
 	}
 	key, err := tailscale.ResolveAuthKey(o.authKey, o.keyEnv, os.Stdin)
@@ -235,61 +237,46 @@ func tailscaleConnect(ctx context.Context, o tsOpts) int {
 	if key == "" {
 		return tailscaleConnectKeyless(ctx, o.advertise)
 	}
-	if err := tailscale.Connect(ctx, key, o.advertise); err != nil {
+	if err := tailscale.ConnectAudited(ctx, key, o.advertise); err != nil {
 		return helptext.Fail("network tailscale connect: %v", err)
 	}
-	auditConnect(ctx)
 	fmt.Println("tailscale: connected")
 	return 0
-}
-
-// auditConnect logs the connect with the node name, or notes that status was unavailable.
-func auditConnect(ctx context.Context) {
-	st, err := tailscale.Status(ctx)
-	if err != nil {
-		audit.Log(audit.TailscaleConnect, "", "connect (status unavailable: "+err.Error()+")")
-		return
-	}
-	audit.Log(audit.TailscaleConnect, st.DNSName, "connect")
 }
 
 // tailscaleConnectKeyless succeeds only when the node is already connected; advertise then applies via `tailscale set`.
 func tailscaleConnectKeyless(ctx context.Context, advertise bool) int {
 	st, ok := tailscale.Connected(ctx)
 	if !ok {
-		fmt.Fprintln(os.Stderr, "tailscale: not connected; pass --auth-key or run `network tailscale --key --save`")
-		return 2
+		return helptext.FailUsage("network tailscale connect: not connected; " +
+			"pass --auth-key or run `network tailscale --key --save`")
 	}
 	fmt.Printf("tailscale: already connected (%s)\n", st.DNSName)
 	if !advertise {
 		return 0
 	}
-	if err := tailscale.AdvertiseExitNode(ctx, true); err != nil {
+	if err := tailscale.AdvertiseConnected(ctx, st.DNSName); err != nil {
 		return helptext.Fail("network tailscale connect: --advertise-exit: %v", err)
 	}
-	audit.Log(audit.TailscaleExitNode, st.DNSName, "enable")
 	fmt.Println("tailscale: advertising as an exit node")
 	return 0
 }
 
 func tailscaleKey(ctx context.Context, o tsOpts) int {
-	tagList := textutil.SplitCSV(o.tags)
-	key, err := tailscale.MintKey(ctx, o.expiry, tailscale.KeyOpts{
+	key, err := tailscale.MintKeyAudited(ctx, o.expiry, tailscale.KeyOpts{
 		Ephemeral: o.ephemeral, Preauthorized: o.preauth, Reusable: o.reusable,
-		Tags: tagList, Description: o.desc,
+		Tags: textutil.SplitCSV(o.tags), Description: o.desc,
 	})
 	if err != nil {
 		return helptext.Fail("network tailscale key: %v", err)
 	}
-	audit.Log(audit.TailscaleKeyMint, "tailnet", "mint:"+strings.Join(tagList, ","))
 	// the only thing on stdout, so it can be piped; a failed write means the key was not delivered
 	if _, err := fmt.Fprintln(os.Stdout, key.Key); err != nil {
 		return helptext.Fail("network tailscale key: writing key to stdout: %v", err)
 	}
 	if o.save {
-		if err := vault.Store("TAILSCALE_AUTHKEY", key.Key); err != nil {
-			fmt.Fprintf(os.Stderr, "tailscale key: --save: %v\n", err)
-			return 1
+		if err := tailscale.SaveAuthKey(key.Key); err != nil {
+			return helptext.Fail("network tailscale key: --save: %v", err)
 		}
 		fmt.Fprintf(os.Stderr, "saved TAILSCALE_AUTHKEY to the vault (%s)\n", vault.Redact(key.Key))
 	}

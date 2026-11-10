@@ -1,4 +1,4 @@
-package mcp
+package websearch
 
 import (
 	"bytes"
@@ -23,7 +23,7 @@ import (
 )
 
 // drive runs the server over a scripted set of request lines and returns the decoded responses.
-func drive(t *testing.T, srv *Server, lines ...string) []map[string]any {
+func drive(t *testing.T, srv *server, lines ...string) []map[string]any {
 	t.Helper()
 	var out strings.Builder
 	if err := srv.Serve(context.Background(), strings.NewReader(strings.Join(lines, "\n")+"\n"), &out); err != nil {
@@ -40,8 +40,7 @@ func drive(t *testing.T, srv *Server, lines ...string) []map[string]any {
 		}
 		resps = append(resps, m)
 	}
-	// Concurrent dispatch answers out of order by design; ids are the contract, so tests index a
-	// deterministic id-sorted view (a nil id — parse errors — sorts first).
+	// Concurrent dispatch answers out of order; tests index an id-sorted view (nil ids, parse errors, first).
 	sort.Slice(resps, func(i, j int) bool {
 		fi, _ := resps[i]["id"].(float64)
 		fj, _ := resps[j]["id"].(float64)
@@ -51,7 +50,7 @@ func drive(t *testing.T, srv *Server, lines ...string) []map[string]any {
 }
 
 func TestInitializeAndToolsList(t *testing.T) {
-	srv := &Server{Search: func(context.Context, string, int) (string, error) { return "unused", nil }}
+	srv := &server{Search: func(context.Context, string, int) (string, error) { return "unused", nil }}
 	resps := drive(t, srv,
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
@@ -84,12 +83,13 @@ func TestInitializeAndToolsList(t *testing.T) {
 
 func TestToolsCallSuccess(t *testing.T) {
 	called := ""
-	srv := &Server{Search: func(_ context.Context, q string, _ int) (string, error) {
+	srv := &server{Search: func(_ context.Context, q string, _ int) (string, error) {
 		called = q
 		return "RESULT for " + q, nil
 	}}
 	resps := drive(t, srv,
-		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"golang","max_results":3}}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call",`+
+			`"params":{"name":"web_search","arguments":{"query":"golang","max_results":3}}}`,
 	)
 	if called != "golang" {
 		t.Errorf("searcher got query %q, want golang", called)
@@ -106,7 +106,7 @@ func TestToolsCallSuccess(t *testing.T) {
 }
 
 func TestToolsCallEmptyQuery(t *testing.T) {
-	srv := &Server{Search: func(context.Context, string, int) (string, error) { return "x", nil }}
+	srv := &server{Search: func(context.Context, string, int) (string, error) { return "x", nil }}
 	resps := drive(t, srv,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"  "}}}`,
 	)
@@ -117,7 +117,7 @@ func TestToolsCallEmptyQuery(t *testing.T) {
 }
 
 func TestToolsCallSearcherError(t *testing.T) {
-	srv := &Server{Search: func(context.Context, string, int) (string, error) { return "", errString("boom") }}
+	srv := &server{Search: func(context.Context, string, int) (string, error) { return "", errString("boom") }}
 	resps := drive(t, srv,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"q"}}}`,
 	)
@@ -132,7 +132,7 @@ func TestToolsCallSearcherError(t *testing.T) {
 }
 
 func TestUnknownTool(t *testing.T) {
-	srv := &Server{Search: func(context.Context, string, int) (string, error) { return "x", nil }}
+	srv := &server{Search: func(context.Context, string, int) (string, error) { return "x", nil }}
 	resps := drive(t, srv,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"nope","arguments":{}}}`,
 	)
@@ -142,7 +142,7 @@ func TestUnknownTool(t *testing.T) {
 }
 
 func TestUnknownMethodNotificationIgnored(t *testing.T) {
-	srv := &Server{Search: func(context.Context, string, int) (string, error) { return "x", nil }}
+	srv := &server{Search: func(context.Context, string, int) (string, error) { return "x", nil }}
 	// A notification (no id) for an unknown method must produce no response.
 	resps := drive(t, srv, `{"jsonrpc":"2.0","method":"some/notify"}`)
 	if len(resps) != 0 {
@@ -151,7 +151,7 @@ func TestUnknownMethodNotificationIgnored(t *testing.T) {
 }
 
 func TestParseError(t *testing.T) {
-	srv := &Server{}
+	srv := &server{}
 	resps := drive(t, srv, `{not json`)
 	if _, ok := resps[0]["error"]; !ok {
 		t.Errorf("malformed line should yield a parse error, got %v", resps[0])
@@ -210,14 +210,13 @@ func TestOneShotSearcherError(t *testing.T) {
 	}
 }
 
-// Cancellability is worthless unless the server's ctx actually reaches the backend, so assert the
-// searcher observes the caller's cancellation rather than a fresh background context.
+// The server's ctx must reach the backend: the searcher sees the caller's cancellation.
 func TestServeThreadsContextToSearcher(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	var seen error
-	srv := &Server{Search: func(c context.Context, _ string, _ int) (string, error) {
+	srv := &server{Search: func(c context.Context, _ string, _ int) (string, error) {
 		seen = c.Err()
 		return "text", nil
 	}}
@@ -253,8 +252,7 @@ type errString string
 
 func (e errString) Error() string { return string(e) }
 
-// TestInitializeNegotiatesProtocolVersion pins the MCP negotiation contract: the server echoes the
-// client's requested revision when it supports it, and otherwise falls back to its newest.
+// TestInitializeNegotiatesProtocolVersion: echo a supported requested revision, else fall back to newest.
 func TestInitializeNegotiatesProtocolVersion(t *testing.T) {
 	for name, tc := range map[string]struct{ params, want string }{
 		"echoes a supported revision":     {`{"protocolVersion":"2025-06-18"}`, "2025-06-18"},
@@ -265,7 +263,7 @@ func TestInitializeNegotiatesProtocolVersion(t *testing.T) {
 		"garbage version falls back":      {`{"protocolVersion":"not-a-version"}`, defaultProtocolVersion},
 	} {
 		t.Run(name, func(t *testing.T) {
-			srv := &Server{Search: func(context.Context, string, int) (string, error) { return "unused", nil }}
+			srv := &server{Search: func(context.Context, string, int) (string, error) { return "unused", nil }}
 			resps := drive(t, srv, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":`+tc.params+`}`)
 			if len(resps) != 1 {
 				t.Fatalf("got %d responses, want 1", len(resps))
@@ -278,27 +276,26 @@ func TestInitializeNegotiatesProtocolVersion(t *testing.T) {
 	}
 }
 
-// TestDefaultProtocolVersionIsHonest guards against advertising a revision whose semantics this
-// tools-only server does not implement: 2026-07-28 retired initialize and requires _meta routing.
+// TestDefaultProtocolVersionIsHonest: never advertise 2026-07-28, which this tools-only server can't serve.
 func TestDefaultProtocolVersionIsHonest(t *testing.T) {
 	if defaultProtocolVersion != "2025-11-25" {
-		t.Errorf("defaultProtocolVersion = %s, want 2025-11-25 (newest revision whose semantics we implement)", defaultProtocolVersion)
+		t.Errorf("defaultProtocolVersion = %s, want 2025-11-25 (newest revision whose semantics we implement)",
+			defaultProtocolVersion)
 	}
 	if supportedProtocolVersions[defaultProtocolVersion] != true {
 		t.Errorf("defaultProtocolVersion %s missing from supportedProtocolVersions", defaultProtocolVersion)
 	}
 	if supportedProtocolVersions["2026-07-28"] {
-		t.Error("must not advertise 2026-07-28: stateless core, no initialize handshake, _meta per-request routing unimplemented")
+		t.Error("must not advertise 2026-07-28: stateless core, no initialize handshake, " +
+			"_meta per-request routing unimplemented")
 	}
 }
 
-// TestServeDispatchesToolCallsConcurrently: Claude Code batches independent tool calls, so two
-// in-flight searches must OVERLAP — the barrier backend releases only when both have arrived,
-// which deadlocks (and times the test out) if Serve still handles requests inline.
+// TestServeDispatchesToolCallsConcurrently: the barrier backend deadlocks unless two searches overlap.
 func TestServeDispatchesToolCallsConcurrently(t *testing.T) {
 	var inFlight atomic.Int32
 	release := make(chan struct{})
-	srv := &Server{Search: func(ctx context.Context, q string, n int) (string, error) {
+	srv := &server{Search: func(ctx context.Context, q string, n int) (string, error) {
 		if inFlight.Add(1) == 2 {
 			close(release) // both arrived: overlap proven
 		}
@@ -330,7 +327,8 @@ func enrichTestPage(slow chan struct{}) http.HandlerFunc {
 		switch r.URL.Path {
 		case "/good":
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, `<html><head><style>p{}</style></head><body><h1>Real &amp; Deep</h1><script>x()</script><p>page body text</p></body></html>`)
+			fmt.Fprint(w, `<html><head><style>p{}</style></head><body><h1>Real &amp; Deep</h1>`+
+				`<script>x()</script><p>page body text</p></body></html>`)
 		case "/binary":
 			w.Header().Set("Content-Type", "application/pdf")
 			fmt.Fprint(w, "%PDF-1.7")
@@ -342,9 +340,7 @@ func enrichTestPage(slow chan struct{}) http.HandlerFunc {
 	}
 }
 
-// TestEnrichResults: each page's own text (tags stripped, entities decoded) is APPENDED after the
-// hit's snippet — the snippet is Tavily's query-relevance extract and must survive — fetches run
-// concurrently, and any failing fetch keeps the snippet alone.
+// TestEnrichResults: page text is appended after the snippet, fetched concurrently; a failed fetch keeps it.
 func TestEnrichResults(t *testing.T) {
 	allowLoopbackFetch(t)
 	slow := make(chan struct{})
@@ -392,7 +388,7 @@ func checkEnrichSlowBounded(t *testing.T, slowURL string) {
 }
 
 func TestPingReturnsEmptyResult(t *testing.T) {
-	srv := &Server{Search: func(context.Context, string, int) (string, error) { return "x", nil }}
+	srv := &server{Search: func(context.Context, string, int) (string, error) { return "x", nil }}
 	resps := drive(t, srv, `{"jsonrpc":"2.0","id":7,"method":"ping"}`)
 	if len(resps) != 1 || resps[0]["error"] != nil || resps[0]["result"] == nil {
 		t.Errorf("ping = %v, want an empty result and no error", resps)
@@ -407,7 +403,7 @@ func allowLoopbackFetch(t *testing.T) {
 	t.Cleanup(func() { pageClient = orig })
 }
 
-// TestFetchPageTextRefusesInternalAddresses: a loopback target and a public-looking redirect to one both keep the snippet.
+// TestFetchPageTextRefusesInternalAddresses: a loopback target, or a redirect to one, keeps the snippet.
 func TestFetchPageTextRefusesInternalAddresses(t *testing.T) {
 	var hits atomic.Int32
 	internal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -505,8 +501,7 @@ func TestRobotsAllowedSeveralUserAgentsShareGroup(t *testing.T) {
 	}
 }
 
-// TestFetchPageTextRechecksRobotsOnRedirect: an allowed URL redirecting to a Disallowed path, or to another origin
-// that disallows everything, is refused before the target page is requested.
+// TestFetchPageTextRechecksRobotsOnRedirect: a redirect to a disallowed path or origin is refused.
 func TestFetchPageTextRechecksRobotsOnRedirect(t *testing.T) {
 	allowLoopbackFetch(t)
 	var bHits, blockedHits atomic.Int32
@@ -603,7 +598,8 @@ func TestExtractPrintsPagesAndFailures(t *testing.T) {
 	urls := []string{"https://example.com/a", "https://example.org/b", "https://example.net/c"}
 	var code int
 	out := captureStdout(t, func() { code = Extract(context.Background(), urls) })
-	wantCalls := "basic:https://example.com/a,https://example.org/b,https://example.net/c|advanced:https://example.org/b,https://example.net/c"
+	wantCalls := "basic:https://example.com/a,https://example.org/b,https://example.net/c|" +
+		"advanced:https://example.org/b,https://example.net/c"
 	if code != 0 || strings.Join(calls, "|") != wantCalls {
 		t.Fatalf("code=%d calls=%v, want 0 and only basic failures retried at advanced depth", code, calls)
 	}
@@ -630,7 +626,8 @@ func TestExtractRefusesInternalAddresses(t *testing.T) {
 	out := captureStdout(t, func() {
 		code = Extract(context.Background(), []string{"http://127.0.0.1/", "http://192.168.1.1/", "file:///etc/passwd"})
 	})
-	if code != 1 || strings.Count(out, "failed:") != 3 || !strings.Contains(out, "refusing to fetch internal address 192.168.1.1") {
+	if code != 1 || strings.Count(out, "failed:") != 3 || !strings.Contains(out,
+		"refusing to fetch internal address 192.168.1.1") {
 		t.Errorf("code=%d out=%q, want exit 1 with 3 refusals", code, out)
 	}
 }
@@ -689,7 +686,8 @@ func TestTavilySearchReportsUnreadableVault(t *testing.T) {
 // extractCall drives one web_extract tools/call and returns its text and isError flag.
 func extractCall(t *testing.T, args string) (string, bool) {
 	t.Helper()
-	resps := drive(t, &Server{}, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"web_extract","arguments":`+args+`}}`)
+	resps := drive(t, &server{},
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"web_extract","arguments":`+args+`}}`)
 	res, _ := resps[0]["result"].(map[string]any)
 	content, _ := res["content"].([]any)
 	if len(content) != 1 {
@@ -730,7 +728,8 @@ func TestWebExtractToolReturnsMarkdownAndFailures(t *testing.T) {
 		return r
 	})
 	text, isErr := extractCall(t, `{"urls":["https://example.com/a","https://example.org/b"]}`)
-	if isErr || !strings.Contains(text, "# https://example.com/a\n# Hello\nbody") || !strings.Contains(text, "# https://example.org/b\nfailed: nope") {
+	if isErr || !strings.Contains(text, "# https://example.com/a\n# Hello\nbody") || !strings.Contains(text,
+		"# https://example.org/b\nfailed: nope") {
 		t.Errorf("isError=%v text=%q, want markdown page plus failed: line", isErr, text)
 	}
 }
@@ -742,7 +741,8 @@ func TestWebExtractToolRejectsBadInput(t *testing.T) {
 	for name, c := range map[string]struct{ args, want string }{
 		"too many": {`{"urls":` + many + `}`, "1-20 URLs (got 21)"},
 		"empty":    {`{"urls":[]}`, "1-20 URLs (got 0)"},
-		"internal": {`{"urls":["http://192.168.1.1/","file:///etc/passwd"]}`, "refusing to fetch internal address 192.168.1.1"},
+		"internal": {`{"urls":["http://192.168.1.1/","file:///etc/passwd"]}`,
+			"refusing to fetch internal address 192.168.1.1"},
 	} {
 		text, isErr := extractCall(t, c.args)
 		if !isErr || !strings.Contains(text, c.want) {
@@ -770,9 +770,102 @@ func TestExtractCLIOutputBytes(t *testing.T) {
 		}{{urls[0], "BODY"}}}
 	})
 	var code int
-	out := captureStdout(t, func() { code = Extract(context.Background(), []string{"https://example.com/a", "http://127.0.0.1/"}) })
-	want := "# https://example.com/a\nBODY\n\n# http://127.0.0.1/\nfailed: refusing to fetch internal address 127.0.0.1\n\n"
+	out := captureStdout(t, func() {
+		code = Extract(context.Background(), []string{"https://example.com/a",
+			"http://127.0.0.1/"})
+	})
+	want := "# https://example.com/a\nBODY\n\n" +
+		"# http://127.0.0.1/\nfailed: refusing to fetch internal address 127.0.0.1\n\n"
 	if code != 0 || out != want {
 		t.Errorf("code=%d out=%q, want %q", code, out, want)
+	}
+}
+
+func TestToolsListNotificationHasNoResponse(t *testing.T) {
+	resps := drive(t, &server{},
+		`{"jsonrpc":"2.0","method":"tools/list"}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`,
+	)
+	if len(resps) != 1 {
+		t.Fatalf("got %d responses, want only the identified tools/list response: %v", len(resps), resps)
+	}
+	if resps[0]["id"] != float64(1) {
+		t.Fatalf("response id = %v, want 1", resps[0]["id"])
+	}
+}
+
+func TestToolsCallRejectsMalformedArguments(t *testing.T) {
+	for name, params := range map[string]string{
+		"search":  `{"name":"web_search","arguments":{"query":"golang","max_results":"bad"}}`,
+		"extract": `{"name":"web_extract","arguments":{"urls":[123,"http://127.0.0.1/"]}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := &server{Search: func(context.Context, string, int) (string, error) {
+				t.Error("search backend called for malformed arguments")
+				return "unexpected search", nil
+			}}
+			resps := drive(t, srv, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":`+params+`}`)
+			if len(resps) != 1 {
+				t.Fatalf("got %d responses, want 1", len(resps))
+			}
+			res, _ := resps[0]["result"].(map[string]any)
+			if res["isError"] != true {
+				t.Fatalf("malformed arguments must return a tool error, got %v", resps[0])
+			}
+			content, err := json.Marshal(res["content"])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(content), "invalid tool arguments:") {
+				t.Errorf("tool error = %s, want argument decoding error", content)
+			}
+		})
+	}
+}
+
+func closedTestOutput(t *testing.T) *os.File {
+	t.Helper()
+	out, err := os.CreateTemp(t.TempDir(), "output")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestOneShotRejectsOutputWriteFailure(t *testing.T) {
+	search := func(context.Context, string, int) (string, error) { return "the answer", nil }
+	if code := OneShot(context.Background(), "golang", 3, search, io.Discard); code != 0 {
+		t.Fatalf("successful search exit = %d, want 0", code)
+	}
+	if code := OneShot(context.Background(), "golang", 3, search, closedTestOutput(t)); code == 0 {
+		t.Fatal("closed output writer must return a nonzero exit code")
+	}
+}
+
+func TestExtractRejectsOutputWriteFailure(t *testing.T) {
+	t.Setenv(keyName, "test-key")
+	stubExtract(t, func(urls []string) extractResponse {
+		return extractResponse{Results: []struct {
+			URL        string `json:"url"`
+			RawContent string `json:"raw_content"`
+		}{{urls[0], "BODY"}}}
+	})
+	urls := []string{"https://example.com/a"}
+	out := captureStdout(t, func() {
+		if code := Extract(context.Background(), urls); code != 0 {
+			t.Errorf("successful extract exit = %d, want 0", code)
+		}
+	})
+	if !strings.Contains(out, "BODY") {
+		t.Fatalf("extract output = %q, want fetched page", out)
+	}
+	orig := os.Stdout
+	os.Stdout = closedTestOutput(t)
+	t.Cleanup(func() { os.Stdout = orig })
+	if code := Extract(context.Background(), urls); code == 0 {
+		t.Fatal("closed stdout must return a nonzero exit code despite a successfully fetched page")
 	}
 }

@@ -1,6 +1,6 @@
-package mcp
+package websearch
 
-// Stdlib-only stdio MCP server exposing `web_search` and `web_extract` via Tavily; stdout carries only MCP JSON-RPC, logs go to stderr.
+// Stdlib-only stdio MCP server for `web_search` and `web_extract` via Tavily; stdout is JSON-RPC only, logs to stderr.
 
 import (
 	"bufio"
@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -92,8 +93,7 @@ func rawID(id json.RawMessage) any {
 	return id
 }
 
-// toolError is an MCP tool-call result with isError=true. Tool-level failures are returned as
-// results (not JSON-RPC errors) so the model sees and reacts to them rather than aborting the call.
+// toolError is an isError tool result, not a JSON-RPC error, so the model sees the failure and reacts.
 func toolError(text string) map[string]any {
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": text}}, "isError": true}
 }
@@ -133,22 +133,20 @@ func extractDescriptor() map[string]any {
 	}
 }
 
-// Searcher runs one web search. The default is Tavily; tests inject a fake to avoid network calls.
-type Searcher func(ctx context.Context, query string, maxResults int) (string, error)
+// searcher runs one web search. The default is Tavily; tests inject a fake to avoid network calls.
+type searcher func(ctx context.Context, query string, maxResults int) (string, error)
 
-// Server holds the injectable search backend. Zero value uses the Tavily HTTP backend.
-type Server struct {
-	Search Searcher
+// server holds the injectable search backend. Zero value uses the Tavily HTTP backend.
+type server struct {
+	Search searcher
 }
 
-// supportedProtocolVersions are the MCP revisions whose semantics this tools-only server implements.
-// 2026-07-28 is deliberately ABSENT: it retires the initialize handshake for a stateless _meta core.
+// supportedProtocolVersions are the MCP revisions served; 2026-07-28 is absent: it retires initialize.
 var supportedProtocolVersions = map[string]bool{
 	"2024-11-05": true, "2025-03-26": true, "2025-06-18": true, "2025-11-25": true,
 }
 
-// negotiateProtocolVersion echoes the client's requested revision when supported, else falls back to
-// our newest — the spec's negotiation rule, which a hardcoded reply silently violated.
+// negotiateProtocolVersion echoes the client's revision when supported, else our newest (the spec's rule).
 func negotiateProtocolVersion(params json.RawMessage) string {
 	var p struct {
 		ProtocolVersion string `json:"protocolVersion"`
@@ -160,7 +158,7 @@ func negotiateProtocolVersion(params json.RawMessage) string {
 }
 
 // handle dispatches one request. A notification (no id) gets no reply, whatever its method.
-func (s *Server) handle(ctx context.Context, req rpcRequest) map[string]any {
+func (s *server) handle(ctx context.Context, req rpcRequest) map[string]any {
 	resp := s.dispatch(ctx, req)
 	if len(req.ID) == 0 {
 		return nil
@@ -168,7 +166,7 @@ func (s *Server) handle(ctx context.Context, req rpcRequest) map[string]any {
 	return resp
 }
 
-func (s *Server) dispatch(ctx context.Context, req rpcRequest) map[string]any {
+func (s *server) dispatch(ctx context.Context, req rpcRequest) map[string]any {
 	switch req.Method {
 	case "initialize":
 		return result(req.ID, map[string]any{
@@ -188,7 +186,7 @@ func (s *Server) dispatch(ctx context.Context, req rpcRequest) map[string]any {
 	return rpcError(req.ID, -32601, fmt.Sprintf("Method not found: %q", req.Method))
 }
 
-func (s *Server) handleToolsCall(ctx context.Context, req rpcRequest) map[string]any {
+func (s *server) handleToolsCall(ctx context.Context, req rpcRequest) map[string]any {
 	var p struct {
 		Name      string `json:"name"`
 		Arguments struct {
@@ -227,14 +225,9 @@ func (s *Server) handleToolsCall(ctx context.Context, req rpcRequest) map[string
 	return result(req.ID, toolText(text))
 }
 
-// Serve reads newline-delimited JSON-RPC requests from in, writes responses to out, until EOF.
-// ctx bounds every search the loop dispatches, so a cancelled server does not sit out a hung fetch.
-//
-// Each request is handled on its OWN goroutine: Claude Code batches independent tool calls, and an
-// inline handle() serialized N parallel searches into N back-to-back round-trips. JSON-RPC ids make
-// out-of-order responses legal, so only the stdout writes need the mutex; EOF waits for the
-// in-flight handlers, so a late response is never dropped by a closing client.
-func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
+// Serve answers newline-delimited JSON-RPC from in to out until EOF; ctx bounds every search.
+// Gotcha: one goroutine per request (Claude Code batches tool calls); only writes lock, and EOF waits for in-flight.
+func (s *server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	enc := json.NewEncoder(out)
@@ -280,20 +273,17 @@ func Run(ctx context.Context) int {
 	if _, err := resolveKey(); err != nil {
 		fmt.Fprintf(os.Stderr, "websearch-mcp: %v; web_search returns an error until fixed\n", err)
 	}
-	srv := &Server{}
+	srv := &server{}
 	if err := srv.Serve(ctx, os.Stdin, os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, "websearch-mcp:", err)
-		return 1
+		return helptext.Fail("network websearch: %v", err)
 	}
 	return 0
 }
 
-// OneShot runs a single Tavily search and writes the result text to out (Bash/skill entry point, no
-// MCP handshake). Returns a non-zero exit code on error.
-func OneShot(ctx context.Context, query string, maxResults int, search Searcher, out io.Writer) int {
+// OneShot runs one Tavily search and writes the text to out (no MCP handshake); non-zero exit on error.
+func OneShot(ctx context.Context, query string, maxResults int, search searcher, out io.Writer) int {
 	if strings.TrimSpace(query) == "" {
-		fmt.Fprintln(os.Stderr, "web search: a query is required")
-		return 2
+		return helptext.FailUsage("network websearch: a query is required")
 	}
 	if maxResults <= 0 {
 		maxResults = defaultMaxResults
@@ -303,18 +293,15 @@ func OneShot(ctx context.Context, query string, maxResults int, search Searcher,
 	}
 	text, err := search(ctx, query, maxResults)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		return 1
+		return helptext.Fail("network websearch: %v", err)
 	}
 	if _, err := fmt.Fprintln(out, text); err != nil {
-		fmt.Fprintln(os.Stderr, "web search: could not write result:", err)
-		return 1
+		return helptext.Fail("network websearch: could not write result: %v", err)
 	}
 	return 0
 }
 
-// tavilySearch is the default backend: POST the query and render the response as text. requestTimeout
-// is this call's own bound, layered on the caller's ctx rather than replacing it.
+// tavilySearch is the default backend; requestTimeout is layered on the caller's ctx, not replacing it.
 func tavilySearch(ctx context.Context, query string, maxResults int) (string, error) {
 	apiKey, err := resolveKey()
 	if err != nil {
@@ -457,7 +444,7 @@ func fetchPages(ctx context.Context, apiKey string, urls []string, content, fail
 	return nil
 }
 
-// normURL canonicalises a URL (lowercase scheme/host, no fragment, "/" path) so Tavily's echoed URL matches the sent one.
+// normURL canonicalises a URL (lowercase scheme/host, no fragment, "/" path) to match Tavily's echoed URL.
 func normURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -504,8 +491,7 @@ func extractToolResult(ctx context.Context, urls []string) map[string]any {
 	return toolText(text)
 }
 
-// renderExtract reads each URL's page as markdown through Tavily and returns `# <url>` blocks plus how many succeeded.
-// An error (key, vault, Tavily) means nothing was rendered.
+// renderExtract reads each URL as markdown via Tavily into `# <url>` blocks; an error means nothing rendered.
 func renderExtract(ctx context.Context, urls []string) (string, int, error) {
 	send, failed := vetExtractURLs(ctx, urls)
 	content := map[string]string{}
@@ -542,12 +528,10 @@ func renderExtract(ctx context.Context, urls []string) (string, int, error) {
 func Extract(ctx context.Context, urls []string) int {
 	text, ok, err := renderExtract(ctx, urls)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
+		return helptext.Fail("network websearch --extract: %v", err)
 	}
 	if _, err := fmt.Print(text); err != nil {
-		fmt.Fprintln(os.Stderr, "web extract: could not write result:", err)
-		return 1
+		return helptext.Fail("network websearch --extract: could not write result: %v", err)
 	}
 	if ok == 0 {
 		return 1
@@ -555,9 +539,7 @@ func Extract(ctx context.Context, urls []string) int {
 	return 0
 }
 
-// Enrichment bounds: each hit's page fetch gets its own timeout, a byte cap on the read (a page
-// tail past it cannot change the first enrichMaxChars anyway), and a character cap on what replaces
-// the snippet — five enriched results stay under ~10KB of tool output.
+// Enrichment bounds: a per-fetch timeout, a read byte cap, and a char cap keeping five hits under ~10KB.
 const (
 	enrichMaxBody  = 256 << 10
 	enrichMaxChars = 1800
@@ -566,11 +548,7 @@ const (
 // enrichTimeout is a var so tests can shorten it.
 var enrichTimeout = 5 * time.Second
 
-// enrichResults APPENDS each page's own text after the Tavily snippet, fetched CONCURRENTLY so the
-// whole pass costs one slowest-fetch, not a sum. Append, never replace: the snippet is Tavily's
-// query-relevance extract while the page text is positional (top of the body) — a hit whose match
-// is deep in the page would lose the relevant part outright. Best-effort per hit: any failure
-// (timeout, non-HTML, non-200, empty extraction) keeps the snippet — the result never gets worse.
+// enrichResults appends each page's text after its snippet, fetched concurrently; any failure keeps the snippet.
 func enrichResults(ctx context.Context, results []tavilyResult) {
 	var wg sync.WaitGroup
 	for i := range results {
@@ -588,8 +566,7 @@ func enrichResults(ctx context.Context, results []tavilyResult) {
 	wg.Wait()
 }
 
-// pageClient fetches result pages: loopback/private/link-local targets are refused at dial time (so redirects
-// and DNS answers are covered too) and redirects are capped at 5 hops.
+// pageClient refuses loopback/private/link-local targets at dial time (covers redirects and DNS) and caps 5 hops.
 var pageClient = &http.Client{
 	Transport:     &http.Transport{DialContext: (&net.Dialer{Control: rejectInternal}).DialContext},
 	CheckRedirect: capRedirects,
@@ -613,9 +590,10 @@ func rejectInternal(_, address string, _ syscall.RawConn) error {
 	return nil
 }
 
-// publicIP is false for nil and for loopback, private, CGNAT (100.64/10), 0.0.0.0/8, link-local, multicast and unspecified.
+// publicIP is false for nil, loopback, private, CGNAT (100.64/10), 0.0.0.0/8, link-local, multicast, unspecified.
 func publicIP(ip net.IP) bool {
-	if ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsMulticast() || ip.IsUnspecified() {
+	if ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsMulticast() ||
+		ip.IsUnspecified() {
 		return false
 	}
 	if v4 := ip.To4(); v4 != nil && (v4[0] == 0 || (v4[0] == 100 && v4[1]&0xC0 == 64)) {
@@ -624,8 +602,7 @@ func publicIP(ip net.IP) bool {
 	return true
 }
 
-// robotsAllowed reports whether the origin's robots.txt permits u for "claude-code" or "*"; a missing or
-// unreadable robots.txt allows. Parsing is robots.go's.
+// robotsAllowed reports whether robots.txt permits u for claude-code or *; missing or unreadable allows.
 func robotsAllowed(ctx context.Context, u *url.URL, cache map[string]string) bool {
 	origin := u.Scheme + "://" + u.Host
 	body, ok := cache[origin]
@@ -660,9 +637,7 @@ func fetchRobots(ctx context.Context, origin string) string {
 	return string(raw)
 }
 
-// fetchPageText GETs one result URL and reduces it to plain text; "" means "keep the snippet".
-// Only http/https schemes are fetched — a search backend must not be able to point the enricher at
-// file:, ftp:, or any other local scheme.
+// fetchPageText GETs one http(s) result URL as plain text; "" keeps the snippet; other schemes are refused.
 func fetchPageText(ctx context.Context, pageURL string) string {
 	if !strings.HasPrefix(pageURL, "https://") && !strings.HasPrefix(pageURL, "http://") {
 		return ""
@@ -726,10 +701,7 @@ func pageBodyText(resp *http.Response) string {
 	return text
 }
 
-// Markup strippers for htmlToText: script/style/head subtrees vanish wholesale, every other tag
-// becomes a space, and runs of whitespace collapse — crude, stdlib-only, and enough for a model to
-// read; a failed extraction only ever falls back to the snippet.
-// htmlRes lazily compiles the strippers, so a run that never fetches a web page pays no init cost.
+// htmlRes lazily compiles htmlToText's strippers: drop script/style/head, tags to spaces, collapse whitespace.
 var htmlRes = sync.OnceValue(func() (r struct{ drop, tag, spaceRun *regexp.Regexp }) {
 	r.drop = regexp.MustCompile(`(?is)<(script|style|head)\b.*?</(script|style|head)>`)
 	r.tag = regexp.MustCompile(`(?s)<[^>]*>`)

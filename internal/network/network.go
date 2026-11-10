@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/network/mcp"
+	"github.com/edotau/claude-code/internal/network/websearch"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -53,7 +53,8 @@ func Run(args []string) int {
 
 // cmdNetworkWebsearch runs the stdio MCP server when bare, or a one-shot Tavily print for a query or --query.
 func cmdNetworkWebsearch(args []string) int {
-	fs := helptext.NewFlagSet("network websearch", helptext.Page{Usage: "claude-code network websearch [flags] [<query> | --extract <url>...]",
+	fs := helptext.NewFlagSet("network websearch", helptext.Page{
+		Usage: "claude-code network websearch [flags] [<query> | --extract <url>...]",
 		About: "Bare: the stdio MCP web-search server Claude Code runs. A query (or --query)\n" +
 			"prints one Tavily search and exits."})
 	query := fs.String("query", "", "run one search and exit (skip the MCP server loop)")
@@ -65,19 +66,17 @@ func cmdNetworkWebsearch(args []string) int {
 	}
 	if len(extract) > 0 {
 		if *query != "" || fs.NArg() > 0 {
-			fmt.Fprintln(os.Stderr, "network websearch: --extract cannot be combined with a query")
-			return 2
+			return helptext.FailUsage("network websearch: --extract cannot be combined with a query")
 		}
-		return mcp.Extract(context.Background(), extract)
+		return websearch.Extract(context.Background(), extract)
 	}
 	if err := joinPositionalQuery(fs, query); err != nil {
-		fmt.Fprintln(os.Stderr, "network websearch:", err)
-		return 2
+		return helptext.FailUsage("network websearch: %v", err)
 	}
 	if *query != "" {
-		return mcp.OneShot(context.Background(), *query, *maxResults, nil, os.Stdout)
+		return websearch.OneShot(context.Background(), *query, *maxResults, nil, os.Stdout)
 	}
-	return mcp.Run(context.Background())
+	return websearch.Run(context.Background())
 }
 
 // joinPositionalQuery folds positional args into *query; giving both forms is an error.

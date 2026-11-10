@@ -1,5 +1,4 @@
-// The remote files decide whether a dispatch host is this machine and resolve short tailnet names; the tmux
-// engine itself lives in internal/network/remote.
+// The remote files decide whether a dispatch host is this machine and resolve short tailnet names.
 
 package tailscale
 
@@ -73,11 +72,7 @@ func recordSelf(st Local, err error) {
 	}
 }
 
-// ResolveHost matches host against the tailnet's machine list (full or short name, case-insensitive)
-// when one is available offline, mapping a short machine name to its full MagicDNS name. Anything
-// that doesn't match — a dotted FQDN, user@host, an IP, a host:port, an ~/.ssh/config alias, or any
-// host when the tailnet can't be listed at all — passes through unchanged; ssh reports an unknown
-// host itself, and rejecting here would wrongly block a valid ssh alias that isn't a tailnet peer.
+// ResolveHost maps a short tailnet name to its MagicDNS name; anything else passes through for ssh to judge.
 func ResolveHost(ctx context.Context, host string) (string, error) {
 	if err := remote.ValidHost(host); err != nil {
 		return "", err
@@ -93,14 +88,14 @@ func ResolveHost(ctx context.Context, host string) (string, error) {
 	for i, m := range machines {
 		names[i] = m.Name
 	}
-	if name, ok := MatchMachine(names, host); ok {
+	if name, ok := matchMachine(names, host); ok {
 		return name, nil
 	}
 	return host, nil
 }
 
-// MatchMachine returns the first name equal to host, or whose short (pre-dot) form is, ignoring case.
-func MatchMachine(names []string, host string) (string, bool) {
+// matchMachine returns the first name equal to host, or whose short (pre-dot) form is, ignoring case.
+func matchMachine(names []string, host string) (string, bool) {
 	for _, n := range names {
 		if strings.EqualFold(n, host) {
 			return n, true

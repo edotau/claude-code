@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-func paneCap(text string) PaneCapture {
-	return PaneCapture{Host: "h", Session: "cc-claude-x", PaneID: "%1", Agent: "claude", CurrentCmd: "claude", Text: text}
+func paneCap(text string) paneCapture {
+	return paneCapture{Host: "h", Session: "cc-claude-x", PaneID: "%1", Agent: "claude", CurrentCmd: "claude", Text: text}
 }
 
 func TestNormalize_StripsANSIAndSpinnerNoise(t *testing.T) {
@@ -51,8 +51,8 @@ func TestFingerprint_StableAndSensitive(t *testing.T) {
 
 func TestClassify_WorkingIndicator(t *testing.T) {
 	state, reason, _ := classifyPane("", paneCap("doing stuff\nesc to interrupt"))
-	if state != StateWorking {
-		t.Errorf("state = %q, want %q (reason=%q)", state, StateWorking, reason)
+	if state != stateWorking {
+		t.Errorf("state = %q, want %q (reason=%q)", state, stateWorking, reason)
 	}
 }
 
@@ -64,8 +64,8 @@ func TestClassify_InputNeeded(t *testing.T) {
 	}
 	for _, text := range cases {
 		state, _, _ := classifyPane("", paneCap(text))
-		if state != StateInputNeeded {
-			t.Errorf("classifyPane(%q) state = %q, want %q", text, state, StateInputNeeded)
+		if state != stateInputNeeded {
+			t.Errorf("classifyPane(%q) state = %q, want %q", text, state, stateInputNeeded)
 		}
 	}
 }
@@ -73,15 +73,15 @@ func TestClassify_InputNeeded(t *testing.T) {
 func TestClassify_ReadySettledPrompt(t *testing.T) {
 	prevFP := fingerprintPane(normalizePane("$ "))
 	state, _, _ := classifyPane(prevFP, paneCap("$ "))
-	if state != StateReady {
-		t.Errorf("state = %q, want %q", state, StateReady)
+	if state != stateReady {
+		t.Errorf("state = %q, want %q", state, stateReady)
 	}
 }
 
 func TestClassify_FirstObservationIsUnknownNotIdle(t *testing.T) {
 	state, reason, _ := classifyPane("", paneCap("some static text with no prompt"))
-	if state != StateUnknown {
-		t.Errorf("state = %q, want %q (first observation has no baseline): %s", state, StateUnknown, reason)
+	if state != stateUnknown {
+		t.Errorf("state = %q, want %q (first observation has no baseline): %s", state, stateUnknown, reason)
 	}
 }
 
@@ -89,30 +89,29 @@ func TestClassify_StaticAmbiguousOutputIsUnknownNotIdle(t *testing.T) {
 	text := "some static ambiguous text"
 	prevFP := fingerprintPane(normalizePane(text))
 	state, _, _ := classifyPane(prevFP, paneCap(text))
-	if state != StateUnknown {
-		t.Errorf("state = %q, want %q: static unchanged non-prompt text must never be reported idle", state, StateUnknown)
+	if state != stateUnknown {
+		t.Errorf("state = %q, want %q: static unchanged non-prompt text must never be reported idle", state, stateUnknown)
 	}
 }
 
 func TestClassify_OutputChangedIsWorking(t *testing.T) {
 	prevFP := fingerprintPane(normalizePane("old static text"))
 	state, _, _ := classifyPane(prevFP, paneCap("new static text, still no prompt"))
-	if state != StateWorking {
-		t.Errorf("state = %q, want %q (changed output => working)", state, StateWorking)
+	if state != stateWorking {
+		t.Errorf("state = %q, want %q (changed output => working)", state, stateWorking)
 	}
 }
 
 func TestClassify_ShellAfterAgentExit(t *testing.T) {
-	c := PaneCapture{Host: "h", Session: "cc-claude-x", PaneID: "%1", Agent: "claude", CurrentCmd: "-bash", Text: "$ "}
+	c := paneCapture{Host: "h", Session: "cc-claude-x", PaneID: "%1", Agent: "claude", CurrentCmd: "-bash", Text: "$ "}
 	state, reason, _ := classifyPane("", c)
-	if state != StateReady {
-		t.Errorf("state = %q, want %q (shell after agent exit): %s", state, StateReady, reason)
+	if state != stateReady {
+		t.Errorf("state = %q, want %q (shell after agent exit): %s", state, stateReady, reason)
 	}
 }
 
 func TestClassify_InjectionShapedOutputNeverPanics(t *testing.T) {
-	// Terminal text an agent might legitimately print (e.g. echoing a shell command or JSON blob)
-	// shaped like shell/HTML/ANSI injection; classifyPane must only classify, never execute or crash.
+	// Injection-shaped terminal text: classifyPane must only classify, never execute or crash.
 	payloads := []string{
 		"$(rm -rf ~)\nesc to interrupt",
 		"<script>alert(1)</script>",
@@ -135,8 +134,8 @@ func TestClassify_InjectionShapedOutputNeverPanics(t *testing.T) {
 func TestObserve_TypingKeepsWorkingAndAdvancesChangedAt(t *testing.T) {
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	c1 := paneCap("esc to interrupt: typed so f")
-	out := ObservePanes(nil, []PaneCapture{c1}, nil, t0)
-	if len(out) != 1 || out[0].State != StateWorking {
+	out := observePanes(nil, []paneCapture{c1}, nil, t0)
+	if len(out) != 1 || out[0].State != stateWorking {
 		t.Fatalf("first sample = %+v, want 1 working status", out)
 	}
 	if !out[0].ChangedAt.Equal(t0) {
@@ -145,19 +144,20 @@ func TestObserve_TypingKeepsWorkingAndAdvancesChangedAt(t *testing.T) {
 
 	t1 := t0.Add(2 * time.Second)
 	c2 := paneCap("esc to interrupt: typed so far")
-	out2 := ObservePanes(out, []PaneCapture{c2}, nil, t1)
-	if out2[0].State != StateWorking {
-		t.Fatalf("second sample state = %q, want %q", out2[0].State, StateWorking)
+	out2 := observePanes(out, []paneCapture{c2}, nil, t1)
+	if out2[0].State != stateWorking {
+		t.Fatalf("second sample state = %q, want %q", out2[0].State, stateWorking)
 	}
 	if !out2[0].ChangedAt.Equal(t0) {
-		t.Errorf("ChangedAt should stay at the first working sample while state is unchanged: got %v, want %v", out2[0].ChangedAt, t0)
+		t.Errorf("ChangedAt should stay at the first working sample while state is unchanged: got %v, want %v",
+			out2[0].ChangedAt, t0)
 	}
 }
 
 func TestObserve_StartupFirstSampleIsUnknown(t *testing.T) {
 	now := time.Now()
-	out := ObservePanes(nil, []PaneCapture{paneCap("some banner with no recognizable prompt")}, nil, now)
-	if len(out) != 1 || out[0].State != StateUnknown {
+	out := observePanes(nil, []paneCapture{paneCap("some banner with no recognizable prompt")}, nil, now)
+	if len(out) != 1 || out[0].State != stateUnknown {
 		t.Fatalf("startup sample = %+v, want 1 unknown status", out)
 	}
 	if !out[0].ObservedAt.Equal(now) || !out[0].ChangedAt.Equal(now) {
@@ -167,10 +167,10 @@ func TestObserve_StartupFirstSampleIsUnknown(t *testing.T) {
 
 func TestObserve_PaneDisappearanceReportsGone(t *testing.T) {
 	t0 := time.Now()
-	prev := ObservePanes(nil, []PaneCapture{paneCap("$ ")}, nil, t0)
+	prev := observePanes(nil, []paneCapture{paneCap("$ ")}, nil, t0)
 	t1 := t0.Add(time.Second)
-	out := ObservePanes(prev, nil, nil, t1)
-	if len(out) != 1 || out[0].State != StateGone {
+	out := observePanes(prev, nil, nil, t1)
+	if len(out) != 1 || out[0].State != stateGone {
 		t.Fatalf("after pane vanished = %+v, want 1 gone status", out)
 	}
 	if !out[0].ChangedAt.Equal(t1) {
@@ -180,23 +180,23 @@ func TestObserve_PaneDisappearanceReportsGone(t *testing.T) {
 
 func TestObserve_GonePaneIsReportedOnceThenDropped(t *testing.T) {
 	t0 := time.Now()
-	prev := ObservePanes(nil, []PaneCapture{paneCap("$ ")}, nil, t0)
-	gone := ObservePanes(prev, nil, nil, t0.Add(time.Second))
-	if out := ObservePanes(gone, nil, nil, t0.Add(2*time.Second)); len(out) != 0 {
+	prev := observePanes(nil, []paneCapture{paneCap("$ ")}, nil, t0)
+	gone := observePanes(prev, nil, nil, t0.Add(time.Second))
+	if out := observePanes(gone, nil, nil, t0.Add(2*time.Second)); len(out) != 0 {
 		t.Fatalf("gone pane re-emitted on the next pass: %+v", out)
 	}
 }
 
 func TestObserve_SSHFailureDegradesExistingPanesToErrorWithoutDroppingThem(t *testing.T) {
 	t0 := time.Now()
-	prev := ObservePanes(nil, []PaneCapture{paneCap("$ ")}, nil, t0)
+	prev := observePanes(nil, []paneCapture{paneCap("$ ")}, nil, t0)
 	t1 := t0.Add(time.Second)
-	out := ObservePanes(prev, nil, errFakeSSH, t1)
+	out := observePanes(prev, nil, errFakeSSH, t1)
 	if len(out) != 1 {
 		t.Fatalf("capture error must preserve previously known panes, got %+v", out)
 	}
-	if out[0].State != StateError {
-		t.Errorf("state = %q, want %q", out[0].State, StateError)
+	if out[0].State != stateError {
+		t.Errorf("state = %q, want %q", out[0].State, stateError)
 	}
 	if out[0].Reason != errFakeSSH.Error() {
 		t.Errorf("reason = %q, want %q", out[0].Reason, errFakeSSH.Error())
@@ -206,15 +206,15 @@ func TestObserve_SSHFailureDegradesExistingPanesToErrorWithoutDroppingThem(t *te
 func TestObserve_ShellAfterAgentExitAcrossSamples(t *testing.T) {
 	t0 := time.Now()
 	running := paneCap("thinking...")
-	prev := ObservePanes(nil, []PaneCapture{running}, nil, t0)
-	if prev[0].State != StateWorking {
+	prev := observePanes(nil, []paneCapture{running}, nil, t0)
+	if prev[0].State != stateWorking {
 		t.Fatalf("precondition: first sample should be working, got %q", prev[0].State)
 	}
 	t1 := t0.Add(5 * time.Second)
-	exited := PaneCapture{Host: "h", Session: "cc-claude-x", PaneID: "%1", Agent: "claude", CurrentCmd: "bash", Text: "$ "}
-	out := ObservePanes(prev, []PaneCapture{exited}, nil, t1)
-	if out[0].State != StateReady {
-		t.Errorf("state after agent exit = %q, want %q", out[0].State, StateReady)
+	exited := paneCapture{Host: "h", Session: "cc-claude-x", PaneID: "%1", Agent: "claude", CurrentCmd: "bash", Text: "$ "}
+	out := observePanes(prev, []paneCapture{exited}, nil, t1)
+	if out[0].State != stateReady {
+		t.Errorf("state after agent exit = %q, want %q", out[0].State, stateReady)
 	}
 }
 
@@ -225,7 +225,7 @@ func (e fakeSSHErr) Error() string { return string(e) }
 var errFakeSSH = fakeSSHErr("dispatch: capture panes on h: ssh: connection refused")
 
 // fakeRunner returns out/err for every call, regardless of argv, and records the argv it was called with.
-func fakeRunner(out []byte, err error) (RemoteRunner, *[][]string) {
+func fakeRunner(out []byte, err error) (paneRunner, *[][]string) {
 	var calls [][]string
 	return func(_ context.Context, argv []string) ([]byte, error) {
 		calls = append(calls, argv)
@@ -242,7 +242,7 @@ func TestCapturePanes_ParsesMultipleRecords(t *testing.T) {
 	blob := frame("cc-claude-a", "%1", "claude", "claude", "line1\nline2") +
 		frame("cc-codex-b", "%2", "codex", "codex", "working...")
 	run, _ := fakeRunner([]byte(blob), nil)
-	caps, err := CapturePanes(context.Background(), "myhost", false, true, run)
+	caps, err := capturePanes(context.Background(), "myhost", false, true, run)
 	if err != nil {
 		t.Fatalf("CapturePanes: %v", err)
 	}
@@ -253,9 +253,10 @@ func TestCapturePanes_ParsesMultipleRecords(t *testing.T) {
 }
 
 // checkParsedCaptures asserts the two records of TestCapturePanes_ParsesMultipleRecords and their host.
-func checkParsedCaptures(t *testing.T, caps []PaneCapture) {
+func checkParsedCaptures(t *testing.T, caps []paneCapture) {
 	t.Helper()
-	if caps[0].Session != "cc-claude-a" || caps[0].PaneID != "%1" || caps[0].Agent != "claude" || caps[0].Text != "line1\nline2" {
+	if caps[0].Session != "cc-claude-a" || caps[0].PaneID != "%1" || caps[0].Agent != "claude" ||
+		caps[0].Text != "line1\nline2" {
 		t.Errorf("caps[0] = %+v, unexpected", caps[0])
 	}
 	if caps[1].Session != "cc-codex-b" || caps[1].Text != "working..." {
@@ -271,7 +272,7 @@ func checkParsedCaptures(t *testing.T, caps []PaneCapture) {
 func TestCapturePanes_SSHFailurePropagatesError(t *testing.T) {
 	wantErr := errors.New("ssh: connection refused")
 	run, _ := fakeRunner(nil, wantErr)
-	caps, err := CapturePanes(context.Background(), "deadhost", false, true, run)
+	caps, err := capturePanes(context.Background(), "deadhost", false, true, run)
 	if err == nil {
 		t.Fatalf("CapturePanes: want error, got nil (caps=%+v)", caps)
 	}
@@ -285,7 +286,7 @@ func TestCapturePanes_SSHFailurePropagatesError(t *testing.T) {
 
 func TestCapturePanes_EmptyOutputIsEmptyNotError(t *testing.T) {
 	run, _ := fakeRunner([]byte(""), nil)
-	caps, err := CapturePanes(context.Background(), "myhost", false, true, run)
+	caps, err := capturePanes(context.Background(), "myhost", false, true, run)
 	if err != nil {
 		t.Fatalf("CapturePanes: %v", err)
 	}
@@ -295,12 +296,11 @@ func TestCapturePanes_EmptyOutputIsEmptyNotError(t *testing.T) {
 }
 
 func TestCapturePanes_MalformedRecordIsSkipped(t *testing.T) {
-	// Missing the newline that separates the header from the text: parseCaptureBlob must skip it,
-	// not panic or misattribute the following well-formed record's text to it.
+	// No header/text newline: parseCaptureBlob must skip the record, not misattribute the next one's text.
 	blob := paneRecordStart + "cc-claude-a\t%1\tclaude\tclaude" + // no header/body newline
 		frame("cc-codex-b", "%2", "codex", "codex", "ok")
 	run, _ := fakeRunner([]byte(blob), nil)
-	caps, err := CapturePanes(context.Background(), "myhost", false, true, run)
+	caps, err := capturePanes(context.Background(), "myhost", false, true, run)
 	if err != nil {
 		t.Fatalf("CapturePanes: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestCapturePanes_TooManyPanesIsError(t *testing.T) {
 		blob.WriteString(frame("cc-claude-x", "%1", "claude", "claude", "line"))
 	}
 	run, _ := fakeRunner([]byte(blob.String()), nil)
-	caps, err := CapturePanes(context.Background(), "myhost", false, true, run)
+	caps, err := capturePanes(context.Background(), "myhost", false, true, run)
 	if err == nil {
 		t.Fatalf("want error over %d panes, got %d captures", maxPanes, len(caps))
 	}
@@ -329,7 +329,7 @@ func TestCapturePanes_ExactlyMaxPanesIsOK(t *testing.T) {
 		blob.WriteString(frame("cc-claude-x", "%1", "claude", "claude", "line"))
 	}
 	run, _ := fakeRunner([]byte(blob.String()), nil)
-	caps, err := CapturePanes(context.Background(), "myhost", false, true, run)
+	caps, err := capturePanes(context.Background(), "myhost", false, true, run)
 	if err != nil || len(caps) != maxPanes {
 		t.Fatalf("got %d captures, err %v; want %d, nil", len(caps), err, maxPanes)
 	}
@@ -339,7 +339,7 @@ func TestCapturePanes_OversizeBlobIsError(t *testing.T) {
 	huge := strings.Repeat("x", maxCaptureBytes*2)
 	blob := frame("cc-claude-a", "%1", "claude", "claude", huge)
 	run, _ := fakeRunner([]byte(blob), nil)
-	caps, err := CapturePanes(context.Background(), "myhost", false, true, run)
+	caps, err := capturePanes(context.Background(), "myhost", false, true, run)
 	if err == nil {
 		t.Fatalf("want error over %d bytes, got %d captures", maxCaptureBytes, len(caps))
 	}
@@ -355,12 +355,11 @@ func TestParseCaptureBlob_RecordWithoutEndMarkerIsSkipped(t *testing.T) {
 }
 
 func TestCapturePanes_InjectionShapedTextIsDataNotControl(t *testing.T) {
-	// A pane legitimately echoing shell/HTML-looking text must survive as plain Text, not be
-	// interpreted, split further, or crash the parser.
+	// Shell/HTML-looking pane text must survive as plain Text, not be interpreted, split or crash the parser.
 	payload := "$(touch /tmp/pwned); <script>alert(1)</script>; '; DROP TABLE x; --"
 	blob := frame("cc-claude-a", "%1", "claude", "claude", payload)
 	run, _ := fakeRunner([]byte(blob), nil)
-	caps, err := CapturePanes(context.Background(), "myhost", false, true, run)
+	caps, err := capturePanes(context.Background(), "myhost", false, true, run)
 	if err != nil {
 		t.Fatalf("CapturePanes: %v", err)
 	}
@@ -369,8 +368,7 @@ func TestCapturePanes_InjectionShapedTextIsDataNotControl(t *testing.T) {
 	}
 }
 
-// writeStubTmuxListPanesFails puts a `tmux` stub on dir that fails `list-panes` (simulating a
-// transient tmux failure, e.g. no server at all) but would succeed on anything else.
+// writeStubTmuxListPanesFails puts a `tmux` on dir whose `list-panes` fails and everything else succeeds.
 func writeStubTmuxListPanesFails(t *testing.T, dir string) {
 	t.Helper()
 	script := "#!/bin/sh\nif [ \"$1\" = list-panes ]; then echo 'simulated tmux failure' >&2; exit 1; fi\nexit 0\n"
@@ -379,17 +377,13 @@ func writeStubTmuxListPanesFails(t *testing.T, dir string) {
 	}
 }
 
-// TestCapturePanes_RealScriptPropagatesListPanesFailure is the regression test for Appendix A
-// codex-review finding #11 (internal/network/tailscale/status.go): it exercises the REAL captureCommand
-// shell script (via ExecRunner, run locally through sh -c since host="localhost") against a stub
-// tmux whose `list-panes` fails, and requires CapturePanes to surface that as an error rather than
-// a successful empty capture — which previously made every tracked pane look "gone".
+// TestCapturePanes_RealScriptPropagatesListPanesFailure: the real script must error, not read as no panes.
 func TestCapturePanes_RealScriptPropagatesListPanesFailure(t *testing.T) {
 	stubDir := t.TempDir()
 	writeStubTmuxListPanesFails(t, stubDir)
 	t.Setenv("PATH", stubDir+":"+os.Getenv("PATH"))
 
-	caps, err := CapturePanes(context.Background(), "localhost", true, true, ExecRunner)
+	caps, err := capturePanes(context.Background(), "localhost", true, true, execRunner)
 	if err == nil {
 		t.Fatalf("CapturePanes: want an error when the real script's tmux list-panes fails, got caps=%+v", caps)
 	}
@@ -398,12 +392,8 @@ func TestCapturePanes_RealScriptPropagatesListPanesFailure(t *testing.T) {
 	}
 }
 
-// writeStubTmuxCapturePaneFails lists one cc-* pane successfully but fails capture-pane on it, and
-// touches markerPath so the test can confirm capture-pane actually ran rather than list-panes itself
-// having failed first (the printf format string here must treat the pane-id field as DATA, via the
-// "%s" format plus a separate argument — inlining it into the format string, e.g.
-// `printf 'cc-claude-a|%1|...\n'`, makes printf itself fail on the literal "%1" token before
-// list-panes's exit code is even checked, which previously made this test pass for the wrong reason).
+// writeStubTmuxCapturePaneFails lists one pane, fails its capture-pane and touches markerPath when reached.
+// Gotcha: the pane id rides as a printf %s argument; inlined, printf fails on "%1" first and the test passes vacuously.
 func writeStubTmuxCapturePaneFails(t *testing.T, dir, markerPath string) {
 	t.Helper()
 	script := "#!/bin/sh\n" +
@@ -417,18 +407,14 @@ func writeStubTmuxCapturePaneFails(t *testing.T, dir, markerPath string) {
 	}
 }
 
-// TestCapturePanes_RealScriptPropagatesCapturePaneFailure covers the loop-body half of the same
-// finding: a capture-pane failure for one listed pane must also fail the whole script, not just
-// silently omit that pane's record. The marker-file check pins that list-panes actually succeeded and
-// capture-pane was reached — without it, a broken stub that fails list-panes first would make this
-// test pass vacuously, for the wrong reason (see writeStubTmuxCapturePaneFails).
+// TestCapturePanes_RealScriptPropagatesCapturePaneFailure: one failed capture-pane fails the script (marker = reached).
 func TestCapturePanes_RealScriptPropagatesCapturePaneFailure(t *testing.T) {
 	stubDir := t.TempDir()
 	marker := stubDir + "/capture-pane-invoked"
 	writeStubTmuxCapturePaneFails(t, stubDir, marker)
 	t.Setenv("PATH", stubDir+":"+os.Getenv("PATH"))
 
-	caps, err := CapturePanes(context.Background(), "localhost", true, true, ExecRunner)
+	caps, err := capturePanes(context.Background(), "localhost", true, true, execRunner)
 	if err == nil {
 		t.Fatalf("CapturePanes: want an error when capture-pane fails mid-loop, got caps=%+v", caps)
 	}
@@ -446,7 +432,7 @@ func TestCapturePanes_PassesBatchAndHostThroughExecArgs(t *testing.T) {
 		gotArgv = argv
 		return []byte(""), nil
 	}
-	if _, err := CapturePanes(context.Background(), "remote-host", false, true, run); err != nil {
+	if _, err := capturePanes(context.Background(), "remote-host", false, true, run); err != nil {
 		t.Fatalf("CapturePanes: %v", err)
 	}
 	if len(gotArgv) == 0 {
@@ -463,9 +449,9 @@ func TestCapturePanes_PassesBatchAndHostThroughExecArgs(t *testing.T) {
 
 func TestObserve_SSHFailureDoesNotReviveGonePane(t *testing.T) {
 	t0 := time.Now()
-	prev := ObservePanes(nil, []PaneCapture{paneCap("$ ")}, nil, t0)
-	gone := ObservePanes(prev, nil, nil, t0.Add(time.Second))
-	out := ObservePanes(gone, nil, errFakeSSH, t0.Add(2*time.Second))
+	prev := observePanes(nil, []paneCapture{paneCap("$ ")}, nil, t0)
+	gone := observePanes(prev, nil, nil, t0.Add(time.Second))
+	out := observePanes(gone, nil, errFakeSSH, t0.Add(2*time.Second))
 	if len(out) != 0 {
 		t.Fatalf("gone pane revived as error entry: %+v", out)
 	}
@@ -477,8 +463,9 @@ func TestExecRunnerCapsOutput(t *testing.T) {
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\n/usr/bin/head -c 3145728 /dev/zero\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	out, err := ExecRunner(context.Background(), []string{bin})
+	out, err := execRunner(context.Background(), []string{bin})
 	if err == nil || len(out) > maxCaptureBytes {
-		t.Errorf("ExecRunner over cap: err = %v, len(out) = %d, want an error and <= %d bytes", err, len(out), maxCaptureBytes)
+		t.Errorf("ExecRunner over cap: err = %v, len(out) = %d, want an error and <= %d bytes", err, len(out),
+			maxCaptureBytes)
 	}
 }

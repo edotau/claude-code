@@ -20,8 +20,7 @@ var machinesCacheFormat = schemas.Register(schemas.Format{
 	Version: machinesCacheSchema, Keep: "rebuildable cache; a version mismatch is a miss",
 })
 
-// machinesCachePath is where `network tailscale --machines` leaves its last successful listing for completion
-// to read; completion never calls the network itself.
+// machinesCachePath holds the last --machines listing for completion, which never calls the network.
 func machinesCachePath() string { return filepath.Join(paths.StateDir(), "tailscale-machines.json") }
 
 // machinesCacheTTL bounds how stale the cached machine list may be before completion ignores it.
@@ -33,8 +32,7 @@ type machinesCache struct {
 	Names  []string  `json:"names"`
 }
 
-// WriteMachinesCache is called by `network tailscale --machines` on a successful listing; best-effort, never
-// surfaced as an error to the caller.
+// WriteMachinesCache records a successful --machines listing; best-effort, errors are dropped.
 func WriteMachinesCache(names []string) {
 	data, err := json.Marshal(machinesCache{Schema: machinesCacheSchema, At: time.Now(), Names: names})
 	if err != nil {
@@ -44,8 +42,7 @@ func WriteMachinesCache(names []string) {
 	_ = paths.AtomicWrite(machinesCachePath(), data, 0o600)
 }
 
-// CachedMachineNames reads the cache `network tailscale --machines` last wrote, when it's fresh enough; nil
-// (never an error, never a network call) otherwise — the Tab path has no time budget for ssh/API calls.
+// CachedMachineNames reads the --machines cache when fresh, else nil: Tab completion has no budget for calls.
 func CachedMachineNames() []string {
 	data, err := os.ReadFile(machinesCachePath())
 	if err != nil {

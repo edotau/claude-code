@@ -38,7 +38,8 @@ func TestHostArgvPlainVerb(t *testing.T) {
 }
 
 func TestSplitHostErrors(t *testing.T) {
-	for _, args := range [][]string{nil, {"--host"}, {"--host", "-oProxyCommand=x", "version"}, {"--host", "wks"}, {"--host="}} {
+	for _, args := range [][]string{nil, {"--host"}, {"--host", "-oProxyCommand=x", "version"}, {"--host", "wks"},
+		{"--host="}} {
 		if _, _, err := splitHost(args); err == nil {
 			t.Errorf("splitHost(%q) accepted", args)
 		}

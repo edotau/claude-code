@@ -9,8 +9,7 @@ import (
 	"testing"
 )
 
-// stubOAuthMint points apiBaseURL at an httptest server that mints an access_token, restoring the
-// real default on cleanup; the OAuth-pair branch of credentialNote mints against this.
+// stubOAuthMint points apiBaseURL at an httptest server minting an access_token, restored on cleanup.
 func stubOAuthMint(t *testing.T) {
 	t.Helper()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -49,15 +48,15 @@ func TestDoctorRunningAndApproved(t *testing.T) {
 	if !ok {
 		t.Errorf("Doctor() ok = false, detail = %q", detail)
 	}
-	for _, want := range []string{"Running", "exit-node approved", "api credential TAILSCALE_OAUTH_CLIENT_ID+SECRET verified"} {
+	for _, want := range []string{"Running", "exit-node approved",
+		"api credential TAILSCALE_OAUTH_CLIENT_ID+SECRET verified"} {
 		if !strings.Contains(detail, want) {
 			t.Errorf("detail %q missing %q", detail, want)
 		}
 	}
 }
 
-// A half-set OAuth pair alongside an API key falls through to the API-key note, matching
-// tailscaleAPIVerdict's own fallback (NewClient prefers the API key when OAuth is half-set).
+// A half-set OAuth pair plus an API key falls back to the API-key note, as NewClient does.
 func TestDoctorHalfOAuthPlusAPIKeyFallsBackToAPIKeyNote(t *testing.T) {
 	stubCLI(t, catScript(t, "status_running.json"))
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

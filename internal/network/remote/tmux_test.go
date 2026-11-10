@@ -11,9 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// shRoundTrip runs the quoted string through `sh -c 'printf %s <quoted>'` and returns stdout.
-// This is the proof required by the task: execute the generated shell text for real and confirm
-// it reproduces the original bytes with no expansion, no execution, no word-splitting.
+// shRoundTrip runs quoted through `sh -c 'printf %s <quoted>'`, proving it reproduces the bytes unexpanded.
 func shRoundTrip(t *testing.T, quoted string) string {
 	t.Helper()
 	cmd := exec.Command("sh", "-c", "printf %s "+quoted)
@@ -53,8 +51,7 @@ func TestShellQuote_RoundTrip(t *testing.T) {
 }
 
 func TestShellQuote_NoInjectionViaEcho(t *testing.T) {
-	// Build a full `sh -c` command embedding a hostile payload the way BuildRemoteCommand does,
-	// and prove the payload never executes: if it did, the marker file would be created.
+	// Embed a hostile payload as BuildCommand does; a created marker file would mean it executed.
 	dir := t.TempDir()
 	marker := dir + "/pwned"
 	payload := "$(touch " + marker + ")"
@@ -68,7 +65,7 @@ func TestShellQuote_NoInjectionViaEcho(t *testing.T) {
 }
 
 func TestValidAgent(t *testing.T) {
-	for _, a := range RemoteAgents {
+	for _, a := range Agents {
 		if !ValidAgent(a) {
 			t.Errorf("ValidAgent(%q) = false, want true", a)
 		}
@@ -83,13 +80,13 @@ func TestValidAgent(t *testing.T) {
 func TestValidName(t *testing.T) {
 	ok := []string{"a", "cc-claude-abcd", "A.B_C-9", strings.Repeat("x", 64)}
 	for _, n := range ok {
-		if !ValidName(n) {
+		if !validName(n) {
 			t.Errorf("ValidName(%q) = false, want true", n)
 		}
 	}
 	bad := []string{"", "a b", "../x", strings.Repeat("x", 65), "a/b", "a;b", "a$b", "a\nb"}
 	for _, n := range bad {
-		if ValidName(n) {
+		if validName(n) {
 			t.Errorf("ValidName(%q) = true, want false", n)
 		}
 	}
@@ -104,9 +101,7 @@ func TestRandIDLowerHex(t *testing.T) {
 	}
 }
 
-// TestAgentLaunchArgs_Interactive pins agy's attached `-i=<task>` form (verified live on this box;
-// `-i <task>` as two argv elements would swallow the next flag the same way `-p` does headless) against
-// copilot's separate `-i <task>` form, which the two previously shared.
+// TestAgentLaunchArgs_Interactive pins agy's attached `-i=<task>` against copilot's separate `-i <task>`.
 func TestAgentLaunchArgs_Interactive(t *testing.T) {
 	if got := agentLaunchArgs("gemini", "hello"); len(got) != 1 || got[0] != "-i=hello" {
 		t.Errorf("agentLaunchArgs(gemini) = %v, want [\"-i=hello\"]", got)
@@ -116,33 +111,33 @@ func TestAgentLaunchArgs_Interactive(t *testing.T) {
 	}
 }
 
-func TestBuildRemoteCommand_RejectsBadName(t *testing.T) {
+func TestBuildCommand_RejectsBadName(t *testing.T) {
 	for _, bad := range []string{"a b", "../x", strings.Repeat("x", 65), " "} {
-		if _, _, err := BuildRemoteCommand(RemoteOpts{Agent: "claude", Name: bad, Task: "hi"}); err == nil {
-			t.Errorf("BuildRemoteCommand with --name %q: want error, got nil", bad)
+		if _, _, err := BuildCommand(Opts{Agent: "claude", Name: bad, Task: "hi"}); err == nil {
+			t.Errorf("BuildCommand with --name %q: want error, got nil", bad)
 		}
 	}
 }
 
-func TestBuildRemoteCommand_RejectsUnknownAgent(t *testing.T) {
+func TestBuildCommand_RejectsUnknownAgent(t *testing.T) {
 	for _, bad := range []string{"", "bash", "Claude", "claude;rm"} {
-		if _, _, err := BuildRemoteCommand(RemoteOpts{Agent: bad, Task: "hi"}); err == nil {
-			t.Errorf("BuildRemoteCommand with --agent %q: want error, got nil", bad)
+		if _, _, err := BuildCommand(Opts{Agent: bad, Task: "hi"}); err == nil {
+			t.Errorf("BuildCommand with --agent %q: want error, got nil", bad)
 		}
 	}
 }
 
-func TestBuildRemoteCommand_SyntaxAndShape(t *testing.T) {
-	for _, agent := range RemoteAgents {
+func TestBuildCommand_SyntaxAndShape(t *testing.T) {
+	for _, agent := range Agents {
 		t.Run(agent, func(t *testing.T) {
-			cmd, name, err := BuildRemoteCommand(RemoteOpts{
+			cmd, name, err := BuildCommand(Opts{
 				Agent: agent,
 				Dir:   `/tmp/a dir with "quotes" and spaces`,
 				Name:  "cc-" + agent + "-test",
 				Task:  `do something; with $(nasty) 'quotes' and "stuff" & | ; \n chars`,
 			})
 			if err != nil {
-				t.Fatalf("BuildRemoteCommand: %v", err)
+				t.Fatalf("BuildCommand: %v", err)
 			}
 			if name != "cc-"+agent+"-test" {
 				t.Errorf("returned name = %q, want %q", name, "cc-"+agent+"-test")
@@ -152,7 +147,8 @@ func TestBuildRemoteCommand_SyntaxAndShape(t *testing.T) {
 			if out, err := check.CombinedOutput(); err != nil {
 				t.Fatalf("sh -n rejected generated command: %v\n--- command ---\n%s\n--- output ---\n%s", err, cmd, out)
 			}
-			wantPrefix := "tmux new-session -d -s " + textutil.ShellQuote(name) + " -c " + textutil.ShellQuote(`/tmp/a dir with "quotes" and spaces`)
+			wantPrefix := "tmux new-session -d -s " + textutil.ShellQuote(name) + " -c " +
+				textutil.ShellQuote(`/tmp/a dir with "quotes" and spaces`)
 			if !strings.Contains(cmd, wantPrefix) {
 				t.Errorf("command missing expected tmux invocation.\nwant substring: %s\ngot: %s", wantPrefix, cmd)
 			}
@@ -160,16 +156,15 @@ func TestBuildRemoteCommand_SyntaxAndShape(t *testing.T) {
 	}
 }
 
-func TestBuildRemoteCommand_DefaultDirAndName(t *testing.T) {
-	cmd, name, err := BuildRemoteCommand(RemoteOpts{Agent: "claude", Task: "hi"})
+func TestBuildCommand_DefaultDirAndName(t *testing.T) {
+	cmd, name, err := BuildCommand(Opts{Agent: "claude", Task: "hi"})
 	if err != nil {
-		t.Fatalf("BuildRemoteCommand: %v", err)
+		t.Fatalf("BuildCommand: %v", err)
 	}
 	if !strings.HasPrefix(name, "cc-claude-") {
 		t.Errorf("generated name = %q, want prefix cc-claude-", name)
 	}
-	// An empty --dir omits -c entirely: ssh already lands in $HOME, and a quoted "~" is not
-	// expanded by sh, so emitting -c '~' would make tmux try to chdir into a literal "~" directory.
+	// An empty --dir omits -c: sh never expands a quoted "~", so tmux would chdir into a literal "~".
 	if strings.Contains(cmd, "-c ") {
 		t.Errorf("default dir should omit -c, got: %s", cmd)
 	}
@@ -193,8 +188,8 @@ func TestDirFlag(t *testing.T) {
 	}
 }
 
-func TestBuildRemoteCommand_TildeDirUsesHOME(t *testing.T) {
-	cmd, _, err := BuildRemoteCommand(RemoteOpts{Agent: "codex", Dir: "~/my repo", Task: "hi"})
+func TestBuildCommand_TildeDirUsesHOME(t *testing.T) {
+	cmd, _, err := BuildCommand(Opts{Agent: "codex", Dir: "~/my repo", Task: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,8 +202,8 @@ func TestBuildRemoteCommand_TildeDirUsesHOME(t *testing.T) {
 	}
 }
 
-func TestBuildRemoteCommand_KeepsSessionAliveAfterAgentExits(t *testing.T) {
-	cmd, _, err := BuildRemoteCommand(RemoteOpts{Agent: "claude", Task: "hi"})
+func TestBuildCommand_KeepsSessionAliveAfterAgentExits(t *testing.T) {
+	cmd, _, err := BuildCommand(Opts{Agent: "claude", Task: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,20 +212,19 @@ func TestBuildRemoteCommand_KeepsSessionAliveAfterAgentExits(t *testing.T) {
 	}
 }
 
-func TestBuildRemoteCommand_NeverExecutesTask(t *testing.T) {
+func TestBuildCommand_NeverExecutesTask(t *testing.T) {
 	// A task payload that would create a marker file if it were ever interpreted instead of quoted.
 	dir := t.TempDir()
 	marker := dir + "/pwned"
-	cmd, _, err := BuildRemoteCommand(RemoteOpts{
+	cmd, _, err := BuildCommand(Opts{
 		Agent: "claude",
 		Name:  "cc-claude-safe",
 		Task:  "$(touch " + marker + ")",
 	})
 	if err != nil {
-		t.Fatalf("BuildRemoteCommand: %v", err)
+		t.Fatalf("BuildCommand: %v", err)
 	}
-	// Run the generated command for real, but stub out tmux so nothing actually launches an agent;
-	// the only thing under test is whether the shell ever expands/executes the embedded payload.
+	// Run the generated command with tmux stubbed; only whether the shell expands the payload is under test.
 	stubDir := t.TempDir()
 	writeStubTmux(t, stubDir)
 	run := exec.Command("sh", "-c", cmd)
@@ -243,8 +237,7 @@ func TestBuildRemoteCommand_NeverExecutesTask(t *testing.T) {
 	}
 }
 
-// writeStubTmux puts a no-op `tmux` script on dir so BuildRemoteCommand's output can run without
-// a real tmux server; it echoes its argv so callers can assert on invocation shape if needed.
+// writeStubTmux puts a no-op `tmux` on dir that echoes its argv, so BuildCommand's output runs serverless.
 func writeStubTmux(t *testing.T, dir string) {
 	t.Helper()
 	path := dir + "/tmux"
@@ -253,9 +246,7 @@ func writeStubTmux(t *testing.T, dir string) {
 	}
 }
 
-// writeFailingNewSessionTmux puts a `tmux` stub on dir that fails `new-session` (simulating a
-// duplicate session name) but succeeds on every other subcommand, appending every invocation's
-// subcommand to logPath so the test can tell whether `set-option` ran despite the failure.
+// writeFailingNewSessionTmux fails `new-session` only and logs every subcommand to logPath.
 func writeFailingNewSessionTmux(t *testing.T, dir, logPath string) {
 	t.Helper()
 	script := "#!/bin/sh\necho \"$1\" >> " + logPath + "\nif [ \"$1\" = new-session ]; then exit 1; fi\nexit 0\n"
@@ -264,14 +255,11 @@ func writeFailingNewSessionTmux(t *testing.T, dir, logPath string) {
 	}
 }
 
-// TestBuildRemoteCommand_TaggingSkippedWhenNewSessionFails is the regression test for Appendix A
-// codex-review finding #10 (internal/network/tailscale/remote.go:137): a duplicate session name makes
-// `tmux new-session` fail, and the generated script must not then tag whatever unrelated session
-// already holds that name with this dispatch's @cc_agent metadata.
-func TestBuildRemoteCommand_TaggingSkippedWhenNewSessionFails(t *testing.T) {
-	cmd, name, err := BuildRemoteCommand(RemoteOpts{Agent: "claude", Name: "cc-claude-dup", Task: "hi"})
+// TestBuildCommand_TaggingSkippedWhenNewSessionFails: a duplicate name must not tag the other session.
+func TestBuildCommand_TaggingSkippedWhenNewSessionFails(t *testing.T) {
+	cmd, name, err := BuildCommand(Opts{Agent: "claude", Name: "cc-claude-dup", Task: "hi"})
 	if err != nil {
-		t.Fatalf("BuildRemoteCommand: %v", err)
+		t.Fatalf("BuildCommand: %v", err)
 	}
 	stubDir := t.TempDir()
 	logPath := t.TempDir() + "/calls.log"
@@ -328,12 +316,13 @@ func TestExecArgs_RemoteIsArgvNotShellString(t *testing.T) {
 }
 
 func TestAttachArgs(t *testing.T) {
-	args, err := AttachArgs("myhost", "cc-claude-abcd", false)
-	want := []string{"ssh", "-o", "ServerAliveInterval=15", "-t", "--", "myhost", encodeScript("tmux attach -t 'cc-claude-abcd'")}
+	args, err := attachArgs("myhost", "cc-claude-abcd", false)
+	want := []string{"ssh", "-o", "ServerAliveInterval=15", "-t", "--", "myhost",
+		encodeScript("tmux attach -t 'cc-claude-abcd'")}
 	if err != nil || !slices.Equal(args, want) {
 		t.Fatalf("AttachArgs = %q (%v), want %q", args, err, want)
 	}
-	local, _ := AttachArgs("myhost", "cc-claude-abcd", true)
+	local, _ := attachArgs("myhost", "cc-claude-abcd", true)
 	if !slices.Equal(local, []string{"tmux", "attach", "-t", "cc-claude-abcd"}) {
 		t.Errorf("local AttachArgs = %q", local)
 	}
@@ -343,7 +332,10 @@ func TestAttachArgs(t *testing.T) {
 }
 
 func TestListCommand_KnownFormat(t *testing.T) {
-	want := `out=$(tmux list-sessions -F '#{session_name}|#{session_created}|#{session_attached}|#{pane_current_command}|#{@cc_agent}' 2>&1) || { case $out in *"no server running"*|*"No such file or directory"*) out= ;; *) printf '%s\n' "$out" >&2; exit 1 ;; esac; }; printf '%s\n' "$out" | awk -F'|' '$1 ~ /^cc-/'`
+	want := `out=$(tmux list-sessions -F ` +
+		`'#{session_name}|#{session_created}|#{session_attached}|#{pane_current_command}|#{@cc_agent}' 2>&1) || ` +
+		`{ case $out in *"no server running"*|*"No such file or directory"*) out= ;; ` +
+		`*) printf '%s\n' "$out" >&2; exit 1 ;; esac; }; printf '%s\n' "$out" | awk -F'|' '$1 ~ /^cc-/'`
 	if listCommand != want {
 		t.Errorf("listCommand = %q, want %q", listCommand, want)
 	}
@@ -357,11 +349,11 @@ func TestParseSessions(t *testing.T) {
 	// Sample of the real tab-separated format produced by listCommand.
 	input := "cc-claude-ab12|1700000000|1|claude|claude\n" +
 		"cc-codex-ff00|1700000100|0|bash|codex\n"
-	got := ParseSessions(input)
+	got := parseSessions(input)
 	if len(got) != 2 {
 		t.Fatalf("ParseSessions returned %d sessions, want 2: %+v", len(got), got)
 	}
-	want := []RemoteSession{
+	want := []Session{
 		{Name: "cc-claude-ab12", Created: "1700000000", Attached: true, CurrentCmd: "claude", Agent: "claude"},
 		{Name: "cc-codex-ff00", Created: "1700000100", Attached: false, CurrentCmd: "bash", Agent: "codex"},
 	}
@@ -372,11 +364,10 @@ func TestParseSessions(t *testing.T) {
 	}
 }
 
-// "" is also what `tmux list-sessions` with no server running produces: the error goes to stderr,
-// which listCommand redirects away with 2>/dev/null, so awk sees empty input, not an error.
+// "" is also what list-sessions prints with no server (stderr is discarded), so empty is not an error.
 func TestParseSessions_EmptyIsEmptyNotError(t *testing.T) {
 	for _, in := range []string{"", "\n"} {
-		got := ParseSessions(in)
+		got := parseSessions(in)
 		if len(got) != 0 {
 			t.Errorf("ParseSessions(%q) = %+v, want empty slice", in, got)
 		}
@@ -384,16 +375,16 @@ func TestParseSessions_EmptyIsEmptyNotError(t *testing.T) {
 }
 
 func TestParseSessions_ShortRowsDoNotPanic(t *testing.T) {
-	got := ParseSessions("cc-claude-x\n")
+	got := parseSessions("cc-claude-x\n")
 	if len(got) != 1 || got[0].Name != "cc-claude-x" {
 		t.Fatalf("ParseSessions short row = %+v", got)
 	}
 }
 
 func TestDefaultName_MatchesValidName(t *testing.T) {
-	for _, a := range RemoteAgents {
-		n := DefaultName(a)
-		if !ValidName(n) {
+	for _, a := range Agents {
+		n := defaultName(a)
+		if !validName(n) {
 			t.Errorf("DefaultName(%q) = %q, fails ValidName", a, n)
 		}
 		if !strings.HasPrefix(n, "cc-"+a+"-") {

@@ -37,7 +37,8 @@ func TestNetworkUnknownSubverb(t *testing.T) {
 	if code != 1 {
 		t.Errorf("exit %d, want 1", code)
 	}
-	if !strings.Contains(stderr, `unknown subcommand "bogus"`) || !strings.Contains(stderr, "tailscale|browser|websearch|restart|remote") {
+	if !strings.Contains(stderr, `unknown subcommand "bogus"`) || !strings.Contains(stderr,
+		"tailscale|browser|websearch|restart|remote") {
 		t.Errorf("stderr = %q", stderr)
 	}
 }
@@ -50,8 +51,7 @@ func TestNetworkOldSubverbsRejected(t *testing.T) {
 	}
 }
 
-// TestNetworkSubcommandsRejectUnknownFormat: browsers and setup validate --format through
-// helptext.CheckFormat before doing any work — an unknown value is a usage error (2).
+// TestNetworkSubcommandsRejectUnknownFormat: an unknown --format is a usage error (2) before any work.
 func TestNetworkSubcommandsRejectUnknownFormat(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cases := []struct {
@@ -59,7 +59,10 @@ func TestNetworkSubcommandsRejectUnknownFormat(t *testing.T) {
 		fn   func() int
 	}{
 		{"browser", func() int { return cmdNetworkBrowser([]string{"--format", "yaml"}) }},
-		{"browser --setup --dry-run", func() int { return cmdNetworkBrowser([]string{"--setup", "--dry-run", "--format", "yaml"}) }},
+		{"browser --setup --dry-run", func() int {
+			return cmdNetworkBrowser([]string{"--setup", "--dry-run", "--format",
+				"yaml"})
+		}},
 	}
 	for _, c := range cases {
 		code, _, stderr := hosttest.CaptureOutput(t, c.fn)
@@ -133,7 +136,8 @@ func TestRestartStoppedRouterIsSkipped(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("%v: exit = %d, want 0 (a stopped daemon is not a failure)", args, code)
 		}
-		if row := decodeRestart(t, out); row.Daemon != "proxy" || row.Status != "skipped" || row.OldPID != 0 || row.NewPID != 0 {
+		if row := decodeRestart(t, out); row.Daemon != "proxy" || row.Status != "skipped" || row.OldPID != 0 ||
+			row.NewPID != 0 {
 			t.Errorf("%v: row = %+v", args, row)
 		}
 		if _, err := os.Stat(filepath.Join(paths.StateDir(), "router.json")); err == nil {
@@ -144,7 +148,10 @@ func TestRestartStoppedRouterIsSkipped(t *testing.T) {
 
 func TestRestartDryRunRunningRouterChangesNothing(t *testing.T) {
 	isolateRouterState(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,
+		_ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
 	defer srv.Close()
 	u, _ := url.Parse(srv.URL)
 	port, _ := strconv.Atoi(u.Port())

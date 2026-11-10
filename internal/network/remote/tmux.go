@@ -1,5 +1,4 @@
-// The tmux files build the ssh/tmux command that starts an agent TUI on another machine
-// in a detached tmux session, so a laptop or phone SSH client can attach to it later.
+// The tmux files build the ssh/tmux command that starts an agent TUI in a detached session to attach to later.
 
 package remote
 
@@ -16,22 +15,22 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// RemoteAgents lists the allowed --agent values, in the order they're tried/offered.
-var RemoteAgents = []string{"claude", "codex", "opencode", "gemini", "copilot"}
+// Agents lists the allowed --agent values, in the order they're tried/offered.
+var Agents = []string{"claude", "codex", "opencode", "gemini", "copilot"}
 
-// ValidAgent reports whether name is one of RemoteAgents.
+// ValidAgent reports whether name is one of Agents.
 func ValidAgent(name string) bool {
-	return slices.Contains(RemoteAgents, name)
+	return slices.Contains(Agents, name)
 }
 
 // nameRe is the --name / session-name allowlist: tmux session names embed in shell text we build.
 var nameRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`) })
 
-// ValidName reports whether name matches ^[A-Za-z0-9._-]{1,64}$.
-func ValidName(name string) bool { return nameRe().MatchString(name) }
+// validName reports whether name matches ^[A-Za-z0-9._-]{1,64}$.
+func validName(name string) bool { return nameRe().MatchString(name) }
 
-// DefaultName returns "cc-<agent>-<id>" with a short random hex id.
-func DefaultName(agent string) string {
+// defaultName returns "cc-<agent>-<id>" with a short random hex id.
+func defaultName(agent string) string {
 	return fmt.Sprintf("cc-%s-%s", agent, randID())
 }
 
@@ -43,17 +42,15 @@ func randID() string {
 	return hex.EncodeToString(b[:])
 }
 
-// RemoteOpts configures one dispatch's remote command.
-type RemoteOpts struct {
+// Opts configures one dispatch's remote command.
+type Opts struct {
 	Dir   string // remote working directory; "" means the login home (~)
-	Agent string // one of RemoteAgents
+	Agent string // one of Agents
 	Name  string // tmux session name; "" generates one from DefaultName
 	Task  string // the initial prompt handed to the agent
 }
 
-// agentLaunchArgs is the agent CLI's own argv for running Task as its initial prompt, verified via
-// `<agent> --help`: claude/codex take a bare positional prompt, opencode wants --prompt, copilot uses
-// -i/--interactive to seed a prompt and stay in the TUI; gemini (agy) takes the attached `-i=<task>` form.
+// agentLaunchArgs is the agent's argv for an initial prompt: positional (claude, codex), --prompt, -i or -i=<task>.
 func agentLaunchArgs(agent, task string) []string {
 	switch agent {
 	case "opencode":
@@ -67,10 +64,7 @@ func agentLaunchArgs(agent, task string) []string {
 	}
 }
 
-// agentCommand is the shell command tmux runs: it prefers the remote's `claude-code <agent>` verb
-// (same forwarded args, routed through the harness's provider/model plumbing) when claude-code is on
-// PATH there, else falls back to the bare agent binary. claude has no claude-code subcommand of its
-// own (only an argv[0] shim), so it always runs bare.
+// agentCommand prefers the remote's `claude-code <agent>` verb, else the bare binary; claude always runs bare.
 func agentCommand(agent, task string) string {
 	args := agentLaunchArgs(agent, task)
 	quoted := make([]string, len(args))
@@ -93,13 +87,10 @@ func dirFlag(dir string) string {
 	return "-c " + textutil.QuotePath(dir)
 }
 
-// BuildRemoteCommand returns the POSIX sh script to run over ssh: it checks tmux exists, then starts
-// a detached session named opts.Name (or a generated one) in opts.Dir running the agent command
-// through the user's own login shell (so PATH entries from .profile/.bashrc, e.g. mise/npm-installed
-// agent CLIs, are on PATH) and keeps the session open under that shell once the agent exits.
-func BuildRemoteCommand(opts RemoteOpts) (string, string, error) {
+// BuildCommand returns the sh script that starts a detached tmux session running the agent in a login shell.
+func BuildCommand(opts Opts) (string, string, error) {
 	if !ValidAgent(opts.Agent) {
-		return "", "", fmt.Errorf("dispatch: --agent %q must be one of %s", opts.Agent, strings.Join(RemoteAgents, "|"))
+		return "", "", fmt.Errorf("--agent %q must be one of %s", opts.Agent, strings.Join(Agents, "|"))
 	}
 	name, err := sessionName(opts)
 	if err != nil {
@@ -114,33 +105,26 @@ func BuildRemoteCommand(opts RemoteOpts) (string, string, error) {
 		parts = append(parts, df)
 	}
 	parts = append(parts, `"${SHELL:-/bin/sh}"`, "-lc", textutil.ShellQuote(agentCmd))
-	// Chained with && (not a separate statement): a duplicate session name makes new-session fail,
-	// and the tag must not then land on whatever unrelated session already holds that name.
+	// Chained with &&: a duplicate name fails new-session, and the tag must not land on that other session.
 	fmt.Fprintln(&b, strings.Join(parts, " ")+" &&")
-	// Tag the session with the agent it was launched for, so pane-status capture can tell a plain
-	// shell dispatch apart from a shell left behind after the agent process exited.
+	// Tag the session with its agent so pane status can tell a plain shell from one left after the agent exited.
 	fmt.Fprintf(&b, "tmux set-option -t %s @cc_agent %s\n", textutil.ShellQuote(name), textutil.ShellQuote(opts.Agent))
 	return b.String(), name, nil
 }
 
 // sessionName returns opts.Name or a generated one, rejecting names outside the tmux allowlist.
-func sessionName(opts RemoteOpts) (string, error) {
+func sessionName(opts Opts) (string, error) {
 	name := opts.Name
 	if name == "" {
-		name = DefaultName(opts.Agent)
+		name = defaultName(opts.Agent)
 	}
-	if !ValidName(name) {
-		return "", fmt.Errorf("dispatch: --name %q must match %s", name, nameRe().String())
+	if !validName(name) {
+		return "", fmt.Errorf("--name %q must match %s", name, nameRe().String())
 	}
 	return name, nil
 }
 
-// fieldSep separates columns in tmux -F format output. It cannot be a tab: tmux's format engine
-// replaces a literal tab byte in expanded format text with "_" (verified against tmux 3.7c), so a
-// tab survives neither sh's quoting (which never expands "\t" to a real tab) nor tmux's own output.
-// "|" is safe for every field here: ValidName already forbids it in session names, pane ids are
-// tmux-generated ("%N"), @cc_agent is one of the fixed RemoteAgents list, and pane_current_command is a
-// program basename.
+// fieldSep separates tmux -F columns; not a tab, which tmux rewrites to "_". No field can hold "|".
 const fieldSep = "|"
 
 // listCommand is the ssh-side --list command: cc-* rows; a real tmux failure exits 1 with its output on stderr.
@@ -150,8 +134,8 @@ const listCommand = `out=$(tmux list-sessions -F '#{session_name}` + fieldSep + 
 	`*) printf '%s\n' "$out" >&2; exit 1 ;; esac; }; ` +
 	`printf '%s\n' "$out" | awk -F'` + fieldSep + `' '$1 ~ /^cc-/'`
 
-// RemoteSession is one cc-* tmux session reported by --list.
-type RemoteSession struct {
+// Session is one cc-* tmux session reported by --list.
+type Session struct {
 	Name       string
 	Created    string
 	Attached   bool
@@ -159,15 +143,15 @@ type RemoteSession struct {
 	Agent      string // the agent it was launched for, from the @cc_agent tmux user option
 }
 
-// ParseSessions parses listCommand's fieldSep-separated output.
-func ParseSessions(output string) []RemoteSession {
-	var sessions []RemoteSession
+// parseSessions parses listCommand's fieldSep-separated output.
+func parseSessions(output string) []Session {
+	var sessions []Session
 	for line := range strings.SplitSeq(strings.TrimRight(output, "\n"), "\n") {
 		if line == "" {
 			continue
 		}
 		cols := strings.Split(line, fieldSep)
-		s := RemoteSession{Name: cols[0]}
+		s := Session{Name: cols[0]}
 		if len(cols) > 1 {
 			s.Created = cols[1]
 		}

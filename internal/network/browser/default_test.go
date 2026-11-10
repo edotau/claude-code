@@ -9,7 +9,8 @@ import (
 
 // lsHandlersPath mirrors defaultDarwin's own path construction so the fake run's key matches.
 func lsHandlersPath(home string) string {
-	return filepath.Join(home, "Library", "Preferences", "com.apple.LaunchServices", "com.apple.launchservices.secure.plist")
+	return filepath.Join(home, "Library", "Preferences", "com.apple.LaunchServices",
+		"com.apple.launchservices.secure.plist")
 }
 
 func withLSHandlers(t *testing.T, f *fakeRun, env Env, fixture string) {
@@ -51,7 +52,7 @@ func TestDefault_DarwinNonChromiumUnsupported(t *testing.T) {
 	if err == nil {
 		t.Fatal("Default() error = nil, want ErrDefaultUnsupported for a Safari default")
 	}
-	if !errors.Is(err, ErrDefaultUnsupported) {
+	if !errors.Is(err, errDefaultUnsupported) {
 		t.Fatalf("Default() error = %v, want it to wrap ErrDefaultUnsupported", err)
 	}
 	if b.Name != "safari" {

@@ -1,5 +1,4 @@
-// Package tailscale talks to the Tailscale admin API (net/http JSON) and execs the installed
-// `tailscale` CLI. Stdlib only — no tailscale.com import anywhere in this package.
+// Package tailscale calls the Tailscale admin API and execs the `tailscale` CLI; stdlib only, no tailscale.com.
 package tailscale
 
 import (
@@ -22,12 +21,12 @@ import (
 // defaultBaseURL is the Tailscale admin API.
 const defaultBaseURL = "https://api.tailscale.com/api/v2"
 
-// apiBaseURL is the base URL NewClient and Doctor's credential check mint tokens against;
-// package-private so tests can point it at an httptest server.
+// apiBaseURL is where NewClient and Doctor mint tokens; a var so tests can point it at an httptest server.
 var apiBaseURL = defaultBaseURL
 
 // ErrNoCredential: neither an OAuth client nor an API key resolves via the secrets ladder.
-var ErrNoCredential = errors.New("tailscale: no credential (set TAILSCALE_OAUTH_CLIENT_ID/_SECRET or TAILSCALE_API_KEY)")
+var ErrNoCredential = errors.New(
+	"tailscale: no credential (set TAILSCALE_OAUTH_CLIENT_ID/_SECRET or TAILSCALE_API_KEY)")
 
 // errNoDevice: no admin-API device carries any of this node's tailnet addresses.
 var errNoDevice = errors.New("could not match this node's address to a device (is it connected?)")
@@ -43,8 +42,8 @@ func SetNames(apiKey bool) []string {
 // maxKeyDays is the largest whole-day count a time.Duration holds (about 292 years).
 const maxKeyDays = math.MaxInt64 / int64(24*time.Hour)
 
-// ParseKeyExpiry accepts a Go duration or a bare "<N>d" day count.
-func ParseKeyExpiry(s string) (time.Duration, error) {
+// parseKeyExpiry accepts a Go duration or a bare "<N>d" day count.
+func parseKeyExpiry(s string) (time.Duration, error) {
 	if n, ok := strings.CutSuffix(s, "d"); ok {
 		days, err := strconv.Atoi(n)
 		if err != nil {
@@ -91,11 +90,11 @@ type Client struct {
 // apiTimeout bounds one admin-API round trip so a stalled server cannot hang a verb.
 const apiTimeout = 30 * time.Second
 
-// NewClient resolves credentials via vault.Get (the vault, then env):
-// TAILSCALE_OAUTH_CLIENT_ID/_SECRET preferred, else TAILSCALE_API_KEY as a bearer directly.
+// NewClient resolves credentials via vault.Get: TAILSCALE_OAUTH_CLIENT_ID/_SECRET, else TAILSCALE_API_KEY.
 func NewClient() (*Client, error) {
 	// DefaultClient's transport stays the seam tests swap; only the timeout is added.
-	c := &Client{BaseURL: apiBaseURL, Tailnet: "-", HTTP: &http.Client{Transport: http.DefaultClient.Transport, Timeout: apiTimeout}}
+	hc := &http.Client{Transport: http.DefaultClient.Transport, Timeout: apiTimeout}
+	c := &Client{BaseURL: apiBaseURL, Tailnet: "-", HTTP: hc}
 	if id, _, ok := vault.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
 		if secret, _, ok2 := vault.Get("TAILSCALE_OAUTH_CLIENT_SECRET"); ok2 {
 			c.token = oauthToken(c.BaseURL, id, secret, c.HTTP)
@@ -109,8 +108,7 @@ func NewClient() (*Client, error) {
 	return nil, ErrNoCredential
 }
 
-// request sends an authenticated JSON request, decodes a 2xx body into out, and re-mints the token
-// once on a 401 before giving up.
+// request sends an authenticated JSON request, decodes a 2xx body into out, and re-mints once on a 401.
 func (c *Client) request(ctx context.Context, method, path string, body, out any) error {
 	resp, err := c.send(ctx, method, path, body, false)
 	if err != nil {
@@ -210,8 +208,8 @@ func (c *Client) CreateAuthKey(ctx context.Context, opts KeyOpts) (AuthKey, erro
 	return out, nil
 }
 
-// Device is one tailnet device as the admin API reports it.
-type Device struct {
+// device is one tailnet device as the admin API reports it.
+type device struct {
 	ID               string    `json:"id"`
 	NodeID           string    `json:"nodeId"`
 	Name             string    `json:"name"`
@@ -226,9 +224,9 @@ type Device struct {
 }
 
 // Devices lists every device on the tailnet via GET /tailnet/{tailnet}/devices.
-func (c *Client) Devices(ctx context.Context) ([]Device, error) {
+func (c *Client) Devices(ctx context.Context) ([]device, error) {
 	var out struct {
-		Devices []Device `json:"devices"`
+		Devices []device `json:"devices"`
 	}
 	if err := c.request(ctx, http.MethodGet, "/tailnet/"+c.Tailnet+"/devices", nil, &out); err != nil {
 		return nil, err
@@ -249,8 +247,10 @@ func (c *Client) Routes(ctx context.Context, deviceID string) (deviceRoutes, err
 	return out, err
 }
 
-// EnableRoutes adds routes to cur.Enabled and POSTs the union (the endpoint replaces the set); returns the new enabled set.
-func (c *Client) EnableRoutes(ctx context.Context, deviceID string, cur deviceRoutes, routes []string) ([]string, error) {
+// EnableRoutes POSTs cur.Enabled plus routes (the endpoint replaces the set) and returns the new enabled set.
+func (c *Client) EnableRoutes(
+	ctx context.Context, deviceID string, cur deviceRoutes, routes []string,
+) ([]string, error) {
 	want := slices.Clone(cur.Enabled)
 	for _, r := range routes {
 		if !slices.Contains(want, r) {

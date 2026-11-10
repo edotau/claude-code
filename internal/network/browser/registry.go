@@ -2,8 +2,7 @@ package browser
 
 import "strings"
 
-// spec is one known browser's platform-specific identity: how to detect it, where its profiles and
-// native-messaging host live, and how to recognize it as the resolved system default.
+// spec is one known browser's per-platform identity: detection, profile and host dirs, and default-handler match.
 type spec struct {
 	name        string // registry key, also Browser.Name
 	displayName string
@@ -32,7 +31,8 @@ var knownBrowsers = []spec{
 	{
 		name: "brave", displayName: "Brave", family: familyChromium,
 		darwinBundleID: "com.brave.Browser", darwinSupportDir: "BraveSoftware/Brave-Browser",
-		linuxBinary: "brave-browser", linuxConfigDir: "BraveSoftware/Brave-Browser", linuxDesktopFile: "brave-browser.desktop",
+		linuxBinary: "brave-browser", linuxConfigDir: "BraveSoftware/Brave-Browser",
+		linuxDesktopFile: "brave-browser.desktop",
 	},
 	{
 		name: "arc", displayName: "Arc", family: familyChromium,

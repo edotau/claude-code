@@ -2,6 +2,8 @@ package browser
 
 import (
 	"bytes"
+	"errors"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -13,13 +15,15 @@ func TestRenderText_DefaultMarkerAndProfileLine(t *testing.T) {
 			{
 				Name: "chrome", DisplayName: "Google Chrome", Family: familyChromium,
 				Installed: true, Default: true, Host: stateReady,
-				Paths:    Paths{Extension: stateReady, CDP: stateAvailable, WebDriver: stateUnsupported, GUI: stateAvailable},
-				Profiles: []Profile{{Name: "Default", Extension: stateReady}},
+				Paths: controlPaths{Extension: stateReady, CDP: stateAvailable, WebDriver: stateUnsupported,
+					GUI: stateAvailable},
+				Profiles: []profile{{Name: "Default", Extension: stateReady}},
 			},
 			{
 				Name: "safari", DisplayName: "Safari", Family: familySafari,
 				Installed: true, Host: stateUnsupported,
-				Paths: Paths{Extension: stateUnsupported, CDP: stateUnsupported, WebDriver: stateDisabled, GUI: stateAvailable},
+				Paths: controlPaths{Extension: stateUnsupported, CDP: stateUnsupported, WebDriver: stateDisabled,
+					GUI: stateAvailable},
 			},
 		},
 	}
@@ -47,5 +51,40 @@ func TestRenderText_NoDefaultShowsDash(t *testing.T) {
 	RenderText(&buf, r)
 	if !strings.Contains(buf.String(), "default: -") {
 		t.Fatalf("output = %q, want a dash when no default resolved", buf.String())
+	}
+}
+
+type failingRenderWriter struct {
+	writes, failAt int
+	first, later   error
+}
+
+func (w *failingRenderWriter) Write(p []byte) (int, error) {
+	w.writes++
+	if w.writes == w.failAt {
+		return 0, w.first
+	}
+	if w.writes > w.failAt {
+		return 0, w.later
+	}
+	return len(p), nil
+}
+
+func TestRenderTextReturnsFirstWriteError(t *testing.T) {
+	r := Report{Default: "chrome", Browsers: []Browser{
+		{Name: "chrome", Profiles: []profile{{Name: "Default"}, {Name: "Other"}}},
+		{Name: "firefox"},
+	}}
+	for _, failAt := range []int{1, 2, 3, 4, 5} {
+		t.Run(strconv.Itoa(failAt), func(t *testing.T) {
+			first := errors.New("first write failed")
+			w := &failingRenderWriter{failAt: failAt, first: first, later: errors.New("later write failed")}
+			if err := RenderText(w, r); !errors.Is(err, first) {
+				t.Fatalf("write %d: error=%v, want first writer error", failAt, err)
+			}
+			if w.writes != failAt {
+				t.Fatalf("continued after failure at write %d: %d writes", failAt, w.writes)
+			}
+		})
 	}
 }

@@ -8,8 +8,7 @@ import (
 	"testing"
 )
 
-// TestOAuthTokenMintsAndCachesUntilNearExpiry: one mint per 2s token, reused for well under that
-// window, and the request body is form-encoded client_id/client_secret.
+// TestOAuthTokenMintsAndCachesUntilNearExpiry: one form-encoded mint per 2s token, reused within it.
 func TestOAuthTokenMintsAndCachesUntilNearExpiry(t *testing.T) {
 	mints := 0
 	var gotForm url.Values
@@ -39,8 +38,7 @@ func TestOAuthTokenMintsAndCachesUntilNearExpiry(t *testing.T) {
 	}
 }
 
-// TestOAuthTokenForceRefreshBypassesCache: withForceRefresh re-mints even though the cached token
-// is still fresh — the path `request` takes after a 401.
+// TestOAuthTokenForceRefreshBypassesCache: withForceRefresh re-mints a fresh token (the post-401 path).
 func TestOAuthTokenForceRefreshBypassesCache(t *testing.T) {
 	mints := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

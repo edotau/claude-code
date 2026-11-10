@@ -64,13 +64,17 @@ func detectFamily(env Env, s spec, b *Browser) {
 
 func stubUnsupported(b Browser) Browser {
 	b.Host = stateUnsupported
-	b.Paths = Paths{Extension: stateUnsupported, CDP: stateUnsupported, WebDriver: stateUnsupported, GUI: stateUnsupported}
+	b.Paths = controlPaths{
+		Extension: stateUnsupported, CDP: stateUnsupported, WebDriver: stateUnsupported, GUI: stateUnsupported,
+	}
 	return b
 }
 
 func stubNotInstalled(b Browser) Browser {
 	b.Host = stateNotInstalled
-	b.Paths = Paths{Extension: stateNotInstalled, CDP: stateNotInstalled, WebDriver: stateNotInstalled, GUI: stateNotInstalled}
+	b.Paths = controlPaths{
+		Extension: stateNotInstalled, CDP: stateNotInstalled, WebDriver: stateNotInstalled, GUI: stateNotInstalled,
+	}
 	return b
 }
 
@@ -110,9 +114,7 @@ func detectChromium(env Env, s spec, b *Browser) {
 	b.Paths.GUI = guiState(env)
 }
 
-// checkHost reports whether supportDir/NativeMessagingHosts/<manifest> is present, its path target
-// exists, and its allowed_origins matches this extension — the three things Claude Code must have
-// already wired for the extension control path to be reachable at all.
+// checkHost reports whether the NativeMessagingHosts manifest exists, its target exists and its origin matches.
 func checkHost(supportDir string) bool {
 	path := filepath.Join(supportDir, "NativeMessagingHosts", hostManifestName)
 	data, err := os.ReadFile(path)
@@ -131,7 +133,7 @@ func checkHost(supportDir string) bool {
 }
 
 // detectProfiles lists supportDir/Default and supportDir/Profile * and the extension state in each.
-func detectProfiles(supportDir string) []Profile {
+func detectProfiles(supportDir string) []profile {
 	var names []string
 	if paths.IsDir(filepath.Join(supportDir, "Default")) {
 		names = append(names, "Default")
@@ -144,9 +146,9 @@ func detectProfiles(supportDir string) []Profile {
 		}
 	}
 	sort.Strings(names)
-	profiles := make([]Profile, 0, len(names))
+	profiles := make([]profile, 0, len(names))
 	for _, name := range names {
-		profiles = append(profiles, Profile{Name: name, Extension: profileExtensionState(filepath.Join(supportDir, name))})
+		profiles = append(profiles, profile{Name: name, Extension: profileExtensionState(filepath.Join(supportDir, name))})
 	}
 	return profiles
 }
@@ -182,9 +184,8 @@ func extensionDisabled(prefsPath string) bool {
 	return ok && s.State != nil && *s.State == 0
 }
 
-// rollupExtension is the browser-level Paths.Extension: ready if any profile is, else disabled if any
-// profile has the extension but off, else no-extension.
-func rollupExtension(profiles []Profile) string {
+// rollupExtension is the browser-level extension state: ready if any profile is, else disabled, else no-extension.
+func rollupExtension(profiles []profile) string {
 	disabled := false
 	for _, p := range profiles {
 		if p.Extension == stateReady {
@@ -202,7 +203,7 @@ func rollupExtension(profiles []Profile) string {
 
 func detectSafari(env Env, b *Browser) {
 	b.Host = stateUnsupported
-	b.Paths = Paths{
+	b.Paths = controlPaths{
 		Extension: stateUnsupported,
 		CDP:       stateUnsupported,
 		WebDriver: safariWebDriverState(env),
@@ -210,9 +211,7 @@ func detectSafari(env Env, b *Browser) {
 	}
 }
 
-// safariWebDriverState reads com.apple.Safari's AllowRemoteAutomation preference (read-only); the
-// mutating `safaridriver --enable` is never invoked here — see Setup's doc comment on what this
-// package may act on versus only report.
+// safariWebDriverState reads Safari's AllowRemoteAutomation pref read-only; it never runs `safaridriver --enable`.
 func safariWebDriverState(env Env) string {
 	out, err := env.run("defaults", "read", "com.apple.Safari", "AllowRemoteAutomation")
 	if err == nil && strings.TrimSpace(out) == "1" {
@@ -223,7 +222,7 @@ func safariWebDriverState(env Env) string {
 
 func detectFirefox(env Env, b *Browser) {
 	b.Host = stateUnsupported
-	b.Paths = Paths{
+	b.Paths = controlPaths{
 		Extension: stateUnsupported,
 		CDP:       stateUnsupported,
 		WebDriver: geckodriverState(env),
@@ -239,9 +238,7 @@ func geckodriverState(env Env) string {
 	return stateDisabled
 }
 
-// guiState probes gui control read-only: on macOS it needs Accessibility/Apple-Events permission for the
-// controlling app, checked with a no-op System Events query that never performs a UI action (so it cannot
-// itself trigger the permission prompt); a -1719/-25211 error means that permission was already denied.
+// guiState probes GUI control with a no-op System Events query (no prompt); -1719/-25211 means permission denied.
 func guiState(env Env) string {
 	if env.goos() != "darwin" {
 		return stateUnsupported
@@ -260,5 +257,5 @@ func guiState(env Env) string {
 	if strings.Contains(msg, "-1719") || strings.Contains(msg, "-25211") {
 		return stateDisabled
 	}
-	return stateAvailable // some other failure (e.g. osascript missing) — never claim disabled without the specific error
+	return stateAvailable // another failure (e.g. no osascript): never claim disabled without the specific error
 }

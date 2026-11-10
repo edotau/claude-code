@@ -11,18 +11,17 @@ import (
 	"time"
 )
 
-// forceRefreshKey marks a context so oauthToken re-mints even if its cache looks fresh (used once
-// after a 401, since the API's own clock may disagree with ours).
+// forceRefreshKey makes oauthToken re-mint despite a fresh cache (once after a 401: clocks may disagree).
 type forceRefreshKey struct{}
 
 func withForceRefresh(ctx context.Context) context.Context {
 	return context.WithValue(ctx, forceRefreshKey{}, true)
 }
 
-// oauthToken returns a token func that mints an access token via OAuth client_credentials
-// (POST /oauth/token, form-encoded client_id/client_secret) and caches it in-process until
-// expires_in-60s.
-func oauthToken(baseURL, clientID, clientSecret string, httpClient *http.Client) func(ctx context.Context) (string, error) {
+// oauthToken mints an access token via OAuth client_credentials and caches it until expires_in-60s.
+func oauthToken(
+	baseURL, clientID, clientSecret string, httpClient *http.Client,
+) func(ctx context.Context) (string, error) {
 	var (
 		sem     = make(chan struct{}, 1) // a channel, not a mutex, so a queued caller honors its ctx
 		cached  string
@@ -55,7 +54,9 @@ type tokenResponse struct {
 }
 
 // mintToken POSTs the client_credentials form to /oauth/token and decodes the minted token.
-func mintToken(ctx context.Context, baseURL, clientID, clientSecret string, httpClient *http.Client) (tokenResponse, error) {
+func mintToken(
+	ctx context.Context, baseURL, clientID, clientSecret string, httpClient *http.Client,
+) (tokenResponse, error) {
 	var out tokenResponse
 	form := url.Values{"client_id": {clientID}, "client_secret": {clientSecret}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/oauth/token", strings.NewReader(form.Encode()))

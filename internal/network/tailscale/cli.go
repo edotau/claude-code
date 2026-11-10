@@ -43,8 +43,8 @@ const (
 	connectTimeout     = 60 * time.Second
 )
 
-// Peer is one other tailnet node from `tailscale status --json`.
-type Peer struct {
+// peer is one other tailnet node from `tailscale status --json`.
+type peer struct {
 	DNSName string
 	IPs     []string
 	OS      string
@@ -66,7 +66,7 @@ type Local struct {
 	ExitNodeApproved bool
 	// SubnetRoutes are the approved subnet routes in Self.AllowedIPs (own addresses and defaults excluded).
 	SubnetRoutes []string
-	Peers        []Peer
+	Peers        []peer
 }
 
 // rawStatus mirrors the subset of `tailscale status --json` this package reads.
@@ -95,8 +95,8 @@ func hasDefaultRoutes(allowed []string) bool {
 	return !slices.ContainsFunc(defaultRoutes, func(r string) bool { return !slices.Contains(allowed, r) })
 }
 
-// SubnetRoutes is routes minus the default routes: what a subnet router advertises or has enabled.
-func SubnetRoutes(routes []string) []string {
+// subnetRoutes is routes minus the default routes: what a subnet router advertises or has enabled.
+func subnetRoutes(routes []string) []string {
 	return slices.DeleteFunc(slices.Clone(routes), func(r string) bool { return slices.Contains(defaultRoutes, r) })
 }
 
@@ -111,7 +111,7 @@ func subnetRoutesOf(self rawNode) []string {
 		own = append(own, ip+suffix)
 	}
 	var out []string
-	for _, r := range SubnetRoutes(self.AllowedIPs) {
+	for _, r := range subnetRoutes(self.AllowedIPs) {
 		if !slices.Contains(own, r) {
 			out = append(out, r)
 		}
@@ -142,14 +142,14 @@ func tailscaleBin() (string, error) {
 	if bin, err := lookPathReal("tailscale"); err == nil {
 		return bin, nil
 	}
-	if fi, err := os.Stat(macAppCLI); goos == "darwin" && err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0 {
+	fi, err := os.Stat(macAppCLI)
+	if goos == "darwin" && err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0 {
 		return macAppCLI, nil
 	}
 	return "", errNoCLI
 }
 
-// Status parses `tailscale status --json`. errNoCLI when not on PATH; ErrNotRunning when the
-// backend is not Running (the parsed Local is still returned in that case).
+// Status parses `tailscale status --json`: errNoCLI without the CLI; ErrNotRunning (Local still set) when stopped.
 func Status(ctx context.Context) (Local, error) {
 	bin, err := tailscaleBin()
 	if err != nil {
@@ -158,7 +158,7 @@ func Status(ctx context.Context) (Local, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultExecTimeout)
 	defer cancel()
 	cmd := execCommandContext(ctx, bin, "status", "--json")
-	cmd.WaitDelay = execWaitDelay // a wrapper's child holding the pipes must not outlive the timeout
+	cmd.WaitDelay = remote.ExecWaitDelay // a wrapper's child holding the pipes must not outlive the timeout
 	out, err := remote.OutputCapped(cmd)
 	if err != nil {
 		return Local{}, fmt.Errorf("tailscale status --json: %w", err)
@@ -176,7 +176,7 @@ func Status(ctx context.Context) (Local, error) {
 		SubnetRoutes:     subnetRoutesOf(raw.Self),
 	}
 	for _, p := range raw.Peer {
-		local.Peers = append(local.Peers, Peer{
+		local.Peers = append(local.Peers, peer{
 			DNSName: p.DNSName, IPs: p.TailscaleIPs, OS: p.OS, Online: p.Online,
 			ExitNode: p.ExitNode, ExitNodeOption: p.ExitNodeOption, LastSeen: p.LastSeen,
 		})
@@ -187,11 +187,8 @@ func Status(ctx context.Context) (Local, error) {
 	return local, nil
 }
 
-// Connect brings this box onto the tailnet: a no-op when already Running and, if exitNode is
-// requested, its routes are already approved; otherwise `tailscale up --auth-key=file:<path>
-// [--advertise-exit-node]`, the key written to a 0600 temp file (never an argv element, which
-// `ps` would expose) and removed once the command exits.
-func Connect(ctx context.Context, authKey string, exitNode bool) error {
+// connect runs `tailscale up --auth-key=file:<0600 temp>` (never argv, which `ps` shows) unless already up.
+func connect(ctx context.Context, authKey string, exitNode bool) error {
 	bin, err := tailscaleBin()
 	if err != nil {
 		return err
@@ -268,8 +265,7 @@ type Machine struct {
 	Source             string // "api" | "cli"
 }
 
-// Machines merges the admin API's device list with CLI status when a credential is present; falls
-// back to CLI-only (self + peers) when NewClient returns ErrNoCredential.
+// Machines merges admin-API devices with CLI status; without a credential it falls back to CLI self and peers.
 func Machines(ctx context.Context) ([]Machine, error) {
 	client, err := NewClient()
 	if errors.Is(err, ErrNoCredential) {
@@ -300,8 +296,8 @@ func Machines(ctx context.Context) ([]Machine, error) {
 }
 
 // peersByAddr indexes the status peers (and this node) by tailnet address.
-func peersByAddr(st Local) map[string]Peer {
-	byAddr := map[string]Peer{}
+func peersByAddr(st Local) map[string]peer {
+	byAddr := map[string]peer{}
 	for _, p := range st.Peers {
 		for _, a := range p.IPs {
 			byAddr[a] = p
@@ -309,7 +305,7 @@ func peersByAddr(st Local) map[string]Peer {
 	}
 	// This node is never in its own peer list: Running is its online state.
 	for _, a := range st.IPs {
-		byAddr[a] = Peer{Online: st.BackendState == "Running", ExitNode: st.ExitNodeOption}
+		byAddr[a] = peer{Online: st.BackendState == "Running", ExitNode: st.ExitNodeOption}
 	}
 	return byAddr
 }
@@ -320,9 +316,11 @@ func machinesFromStatus(ctx context.Context) ([]Machine, error) {
 	if err != nil && !errors.Is(err, ErrNotRunning) {
 		return nil, err
 	}
-	out := []Machine{{Name: st.DNSName, Addresses: st.IPs, Online: st.BackendState == "Running", ExitNodeApproved: st.ExitNodeApproved, Source: "cli"}}
+	out := []Machine{{Name: st.DNSName, Addresses: st.IPs, Online: st.BackendState == "Running",
+		ExitNodeApproved: st.ExitNodeApproved, Source: "cli"}}
 	for _, p := range st.Peers {
-		out = append(out, Machine{Name: p.DNSName, Addresses: p.IPs, OS: p.OS, Online: p.Online, LastSeen: p.LastSeen, ExitNodeAdvertised: p.ExitNodeOption || p.ExitNode, Source: "cli"})
+		out = append(out, Machine{Name: p.DNSName, Addresses: p.IPs, OS: p.OS, Online: p.Online, LastSeen: p.LastSeen,
+			ExitNodeAdvertised: p.ExitNodeOption || p.ExitNode, Source: "cli"})
 	}
 	return out, nil
 }

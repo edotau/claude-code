@@ -25,8 +25,7 @@ func fakeBin(t *testing.T, dir, name, script string) string {
 	return path
 }
 
-// stubCLI points lookPathReal/execCommandContext at a fake `tailscale` script for the test's
-// duration; the script receives "$@" so it can branch on the subcommand.
+// stubCLI points lookPathReal/execCommandContext at a fake `tailscale` script that branches on "$@".
 func stubCLI(t *testing.T, script string) (dir string) {
 	t.Helper()
 	dir = t.TempDir()
@@ -114,7 +113,7 @@ func TestConnectNoOpWhenAlreadyRunning(t *testing.T) {
 	calls := filepath.Join(dir, "calls")
 	t.Setenv("TS_CALLS", calls)
 	// exitNode=true: fixture is already approved, so this must stay a no-op too.
-	if err := Connect(context.Background(), "tskey-auth-xxx", true); err != nil {
+	if err := connect(context.Background(), "tskey-auth-xxx", true); err != nil {
 		t.Fatalf("Connect() err = %v, want nil (no-op)", err)
 	}
 	if _, err := os.Stat(calls); err == nil {
@@ -122,10 +121,7 @@ func TestConnectNoOpWhenAlreadyRunning(t *testing.T) {
 	}
 }
 
-// TestConnectRunsUpWithAuthKeyAsFileNeverArgv: the auth key must never appear as a `ps`-visible argv
-// element — Connect writes it to a temp file and passes --auth-key=file:<path>, removed once `up` exits.
-// The fake `tailscale up` records its own argv and separately captures what the file: path contained,
-// proving the key reached the CLI without ever riding on the command line.
+// TestConnectRunsUpWithAuthKeyAsFileNeverArgv: the key reaches `up` via --auth-key=file:, never as argv.
 func TestConnectRunsUpWithAuthKeyAsFileNeverArgv(t *testing.T) {
 	dir := t.TempDir()
 	argvFile := filepath.Join(dir, "argv")
@@ -145,7 +141,7 @@ func TestConnectRunsUpWithAuthKeyAsFileNeverArgv(t *testing.T) {
 	execCommandContext = exec.CommandContext
 	t.Cleanup(func() { lookPathReal, execCommandContext = prevLook, prevExec })
 
-	if err := Connect(context.Background(), "tskey-auth-secretvalue", true); err != nil {
+	if err := connect(context.Background(), "tskey-auth-secretvalue", true); err != nil {
 		t.Fatalf("Connect() err = %v", err)
 	}
 	keyFile := authKeyFileFromArgv(t, argvFile)
@@ -161,7 +157,7 @@ func TestConnectRunsUpWithAuthKeyAsFileNeverArgv(t *testing.T) {
 	}
 }
 
-// authKeyFileFromArgv reads the recorded `tailscale up` argv, asserts the key never rode on it and returns the key file path.
+// authKeyFileFromArgv reads the recorded `up` argv, asserts the key never rode on it and returns the key file path.
 func authKeyFileFromArgv(t *testing.T, argvFile string) string {
 	t.Helper()
 	argv, err := os.ReadFile(argvFile)
@@ -172,7 +168,8 @@ func authKeyFileFromArgv(t *testing.T, argvFile string) string {
 		t.Fatalf("auth key must never appear in argv, got %q", string(argv))
 	}
 	fields := strings.Fields(string(argv))
-	if len(fields) != 3 || fields[0] != "up" || !strings.HasPrefix(fields[1], "--auth-key=file:") || fields[2] != "--advertise-exit-node" {
+	if len(fields) != 3 || fields[0] != "up" || !strings.HasPrefix(fields[1], "--auth-key=file:") ||
+		fields[2] != "--advertise-exit-node" {
 		t.Fatalf("up argv = %q, want up + --auth-key=file:<path> + --advertise-exit-node", argv)
 	}
 	return strings.TrimPrefix(fields[1], "--auth-key=file:")
@@ -309,7 +306,7 @@ func TestConnectUpOutlivesDefaultExecTimeout(t *testing.T) {
 	}
 	t.Cleanup(func() { lookPathReal, execCommandContext = prevLook, prevExec })
 
-	if err := Connect(context.Background(), "tskey-auth-x", false); err != nil {
+	if err := connect(context.Background(), "tskey-auth-x", false); err != nil {
 		t.Fatalf("Connect() err = %v", err)
 	}
 	if upBudget <= defaultExecTimeout {
@@ -321,7 +318,7 @@ func TestConnectUpOutlivesDefaultExecTimeout(t *testing.T) {
 func TestPeersByAddrIndexesPeersAndSelf(t *testing.T) {
 	st := Local{
 		BackendState: "Running", IPs: []string{"100.0.0.1"}, ExitNodeOption: true,
-		Peers: []Peer{{IPs: []string{"100.0.0.2", "fd7a::2"}, Online: true, ExitNode: true}},
+		Peers: []peer{{IPs: []string{"100.0.0.2", "fd7a::2"}, Online: true, ExitNode: true}},
 	}
 	got := peersByAddr(st)
 	if len(got) != 3 {

@@ -13,9 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// Doctor is one launch-style check line: CLI found/missing, backend state + node, exit-node state,
-// and whether an admin API credential is present (name only, never its value). Never blocks on the
-// network for more than 4s per step (credential mint, status).
+// Doctor is one check line: CLI, backend and node, exit-node state, credential name; each step waits at most 4s.
 func Doctor(ctx context.Context) (ok bool, detail string) {
 	credCtx, cancelCred := context.WithTimeout(ctx, 4*time.Second)
 	note, credOK := credentialNote(credCtx)
@@ -61,8 +59,7 @@ func Credentials() []CredState {
 	return out
 }
 
-// credentialNote reports whether an admin API credential is configured and, when well-formed,
-// mints a token to confirm it actually works — by name only, never a value.
+// credentialNote names the configured admin credential and, when well-formed, mints a token to confirm it works.
 func credentialNote(ctx context.Context) (note string, ok bool) {
 	cs := Credentials()
 	id, sec, api := cs[0].Present, cs[1].Present, cs[2].Present
