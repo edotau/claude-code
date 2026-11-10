@@ -1,9 +1,5 @@
-// The idle watcher is the SessionEnd-INDEPENDENT final update: Claude Code fires Stop every turn but
-// SessionEnd only on a clean exit — a crash, a kill, or a closed terminal never fires it, and the last
-// stretch of work stays in the transcript. One detached watcher per session polls the transcript's
-// mtime; once it has been quiet for the idle period and holds edits no dispatch covered, it dispatches
-// the same detached worker the Stop gate uses, then keeps watching until its owner or lifetime is gone.
-package memhook
+// The idle watcher is the final update that needs no SessionEnd, which a crash, kill or closed terminal never fires.
+package memory
 
 import (
 	"fmt"
@@ -12,10 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
-
-	"github.com/edotau/claude-code/internal/memory"
-
-	"github.com/edotau/claude-code/internal/hooks/core"
 
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
@@ -31,35 +23,20 @@ const (
 // updateWatchPoll is the mtime poll gap; a var so tests can tighten it.
 var updateWatchPoll = time.Minute
 
-// spawnWatcher is the detached-spawn seam over `claude-code memory watch`; tests replace it.
-var spawnWatcher = func(args []string, cwd string) bool {
-	self, err := os.Executable()
-	if err != nil {
-		return false
-	}
-	logPath := filepath.Join(memory.StateDir(), "watch-"+filepath.Base(args[1])+".log")
-	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return false
-	}
-	defer log.Close()
-	return proc.SpawnDetached(self, append([]string{"memory", "watch"}, args...), cwd, log)
-}
-
 // spawnIdleWatcher starts THIS session's watcher once: a claim file makes every later Stop a no-op.
-func spawnIdleWatcher(in *core.Input) {
-	if in.SessionID == "" {
+func spawnIdleWatcher(sessionID, transcript, cwd string) {
+	if sessionID == "" {
 		return
 	}
-	claim := filepath.Join(memory.StateDir(), "watch-"+filepath.Base(in.SessionID))
+	claim := filepath.Join(StateDir(), "watch-"+filepath.Base(sessionID))
 	f, err := os.OpenFile(claim, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return // claimed by an earlier Stop (or the state dir is unwritable — the Stop gate still runs)
 	}
 	_ = f.Close()
-	args := []string{"--session", in.SessionID, "--transcript", in.TranscriptPath, "--cwd", in.CWD,
+	args := []string{"--session", sessionID, "--transcript", transcript, "--cwd", cwd,
 		"--owner", strconv.Itoa(inflight.SessionOwner())}
-	if !spawnWatcher(args, in.CWD) {
+	if !spawn.watcher(args, cwd) {
 		_ = os.Remove(claim) // let the next Stop try again
 	}
 }
@@ -129,9 +106,7 @@ func (w *watchLoop) poll() (exit bool) {
 	return false
 }
 
-// newestActivity is the newest mtime across the main transcript and this session's subagent transcripts
-// (<session>/subagents/agent-*.jsonl) — a subagent still appending after the parent goes idle must not
-// let the watcher treat the session as quiet.
+// newestActivity is the newest mtime across the main and its subagent transcripts: a busy subagent keeps it live.
 func newestActivity(tr string, mainMtime time.Time) time.Time {
 	latest := mainMtime
 	dir := inflight.SubagentDir(tr)
@@ -147,19 +122,17 @@ func newestActivity(tr string, mainMtime time.Time) time.Time {
 	return latest
 }
 
-// idleUpdateOnce dispatches the final update when the transcript holds substantive work no dispatch
-// covered; the stamp then carries the count so the next idle check (and any late Stop) stays quiet.
-// spawnFailed reports a worker that should have started but did not.
+// idleUpdateOnce dispatches the final update for uncovered work; spawnFailed = a due worker did not start.
 func idleUpdateOnce(tr, cwd, session string, note io.Writer) (dispatched, spawnFailed bool) {
-	cwd = memory.SessionRoot(session, cwd)
+	cwd = SessionRoot(session, cwd)
 	ran := false
-	err := paths.WithFileLock(stampPath(session), func() error { // same session lock as updateIfNew
+	err := paths.WithFileLock(stampPath(session), func() error { // same session lock as UpdateIfNew
 		ran = true
 		dispatched, spawnFailed = idleUpdateLocked(tr, cwd, session, note)
 		return nil
 	})
 	if err != nil && !ran {
-		return idleUpdateLocked(tr, cwd, session, note) // no lock available: unserialized beats skipping the update
+		return idleUpdateLocked(tr, cwd, session, note) // no lock: unserialized beats skipping
 	}
 	return dispatched, spawnFailed
 }
@@ -175,7 +148,7 @@ func idleUpdateLocked(tr, cwd, session string, note io.Writer) (dispatched, spaw
 	if edits < updateMinEdits || edits <= covered {
 		return false, false
 	}
-	if !spawnUpdate(tr, cwd, session) {
+	if !spawn.update(tr, cwd, session) {
 		fmt.Fprintf(note, "memory watch: worker not spawned for %s (%d uncovered edits)\n", session, edits-covered)
 		return false, true
 	}
@@ -183,8 +156,7 @@ func idleUpdateLocked(tr, cwd, session string, note io.Writer) (dispatched, spaw
 	return true, false
 }
 
-// ownerDead is true only when the probe itself is trusted: off unix Alive is always false, and
-// treating every pid as dead there would silently disable the idle-update watcher.
+// ownerDead trusts the probe only where it works: off unix Alive is always false, which would disable the watcher.
 func ownerDead(pid int) bool {
 	return pid > 0 && proc.Alive(os.Getpid()) && !proc.Alive(pid)
 }

@@ -7,8 +7,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
-	"github.com/edotau/claude-code/internal/hooks/memhook/memhooktest"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memory/memorytest"
 )
 
 // memoryRunners are the memory-area native entries and the memhook runner each must be.
@@ -38,7 +38,7 @@ func TestSessionStartMemorySpawnsAreStubbed(t *testing.T) {
 	if _, err := memory.Init(cwd); err != nil {
 		t.Fatal(err)
 	}
-	spawns := memhooktest.StubSpawn(t, true)
+	spawns := memorytest.StubSpawn(t, true)
 	payload := `{"hook_event_name":"SessionStart","session_id":"44444444-4444-4444-8444-444444444444","cwd":"` + cwd + `"}`
 	var out, errb strings.Builder
 	if code := runEvent("SessionStart", false, strings.NewReader(payload), &out, &errb); code != core.ExitProceed {

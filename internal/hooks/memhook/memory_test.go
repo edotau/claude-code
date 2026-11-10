@@ -12,7 +12,10 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/memory/memorytest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/worktree"
 
 	_ "github.com/edotau/claude-code/internal/claude" // registers the claude row
 	"github.com/edotau/claude-code/internal/providers"
@@ -21,8 +24,24 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// servedSession seeds a hermetic vault and a CLAUDE_PROFILE=dev Databricks session (switch on or off), optionally with
-// a listing fetched at fetched, and returns the count of detached refresh spawns a SessionStart makes.
+// TestMain stubs every detached spawn and the process scan: no memhook test starts a process or reads the machine.
+func TestMain(m *testing.M) {
+	cleanup := hosttest.Setup()
+	worktree.StubProcessScanForTest()
+	tb := &hosttest.MainTB{}
+	memorytest.StubSpawn(tb, true)
+	orig := spawnServed
+	spawnServed = func(string) bool { return true }
+	code := m.Run()
+	spawnServed = orig
+	for _, f := range tb.Cleanups {
+		f()
+	}
+	cleanup()
+	os.Exit(code)
+}
+
+// servedSession seeds a hermetic vault and a dev Databricks session; it returns the served-refresh spawn count.
 func servedSession(t *testing.T, on bool, fetched time.Time, updateChild string) *atomic.Int64 {
 	t.Helper()
 	vaulttest.Use(t)
@@ -44,8 +63,7 @@ func servedSession(t *testing.T, on bool, fetched time.Time, updateChild string)
 	return calls
 }
 
-// SessionStart re-lists detached only when the switch is on, a pinned Databricks profile's cache is stale, and the
-// session is not a memory update child.
+// A start re-lists only with the switch on, a stale pinned Databricks cache, and outside an update child.
 func TestSessionStartRelistsServedOnlyForStaleSessionProfile(t *testing.T) {
 	now := time.Now()
 	cases := []struct {
@@ -64,7 +82,7 @@ func TestSessionStartRelistsServedOnlyForStaleSessionProfile(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			calls := servedSession(t, c.on, c.fetched, c.updateChild)
-			memoryContext(t.TempDir(), "s1", now)
+			refreshServed(t.TempDir(), now)
 			if got := calls.Load(); got != c.want {
 				t.Fatalf("spawnServed calls = %d, want %d", got, c.want)
 			}
@@ -76,8 +94,8 @@ func TestSessionStartRelistsServedOnlyForStaleSessionProfile(t *testing.T) {
 func TestSessionStartClaimsServedRefreshOncePerRetryWindow(t *testing.T) {
 	now := time.Now()
 	calls := servedSession(t, true, time.Time{}, "")
-	memoryContext(t.TempDir(), "s1", now)
-	memoryContext(t.TempDir(), "s2", now.Add(time.Minute))
+	refreshServed(t.TempDir(), now)
+	refreshServed(t.TempDir(), now.Add(time.Minute))
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("spawnServed calls = %d, want 1", got)
 	}
@@ -87,7 +105,7 @@ func TestSessionStartClaimsServedRefreshOncePerRetryWindow(t *testing.T) {
 func resumeSession(t *testing.T) (cwd, fresh string) {
 	t.Helper()
 	vaulttest.Use(t)
-	StubSpawnForTest(t, true)
+	memorytest.StubSpawn(t, true)
 	cwd = t.TempDir()
 	dir := memory.HandoffsDir(memory.Dir(cwd))
 	if err := os.MkdirAll(dir, 0o700); err != nil {

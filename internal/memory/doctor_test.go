@@ -635,7 +635,7 @@ func TestDoctorReadsEachBankFileOnce(t *testing.T) {
 	}
 }
 
-// DoctorNotice truncates by rune, never splitting a multi-byte character at the 200 boundary.
+// doctorNotice truncates by rune, never splitting a multi-byte character at the 200 boundary.
 func TestDoctorNoticeTruncationPreservesUTF8(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	if err := os.MkdirAll(StateDir(), 0o755); err != nil {
@@ -645,9 +645,9 @@ func TestDoctorNoticeTruncationPreservesUTF8(t *testing.T) {
 	if err := os.WriteFile(DoctorNoticePath(""), []byte(notice), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got := DoctorNotice("")
+	got := doctorNotice("")
 	if !strings.HasPrefix(got, " memory review: ") {
-		t.Fatalf("DoctorNotice prefix not found: %q", got)
+		t.Fatalf("doctorNotice prefix not found: %q", got)
 	}
 	truncated := strings.TrimPrefix(strings.TrimSuffix(got, "."), " memory review: ")
 	if !utf8.ValidString(truncated) {
