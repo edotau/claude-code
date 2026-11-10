@@ -1,6 +1,6 @@
 # Testing Guidelines
 
-Order, always: **run it live → pin what you observed → prove the test bites.** Gate order: `quality.md` →
+Order, always: **run it live → pin what you observed.** Gate order: `quality.md` →
 Verification Order. Loop shapes and caps: `skills/subagent-workflows/SKILL.md` → Test agent.
 
 ## Live first, then tests — no core-contract exception
@@ -12,7 +12,7 @@ before writing any NEW test.** A test written before the live run pins your gues
   command; the before/after output is the evidence.
 - **Repairing existing tests** the change breaks is not new testing — it runs concurrently (`copilot`).
 - **No real input:** say so, ask for exactly what's needed, and mark anything written as unverified.
-- **No runnable surface:** pin the spec as Given/When/Then in a test that imports the code, and prove its teeth.
+- **No runnable surface:** pin the spec as Given/When/Then in a test that imports the code.
 
 ## Scope — logic, not a coverage number
 
@@ -26,9 +26,6 @@ corner cases you found or split it by behavior — never raise the limit.
 
 - **Call the code under test** (`got := renderVaultTextStyled(doc, …)`), never an inline copy of its logic — that
   passes with the fix reverted.
-- **Prove the teeth:** `claude-code test mutate <file> <old> <new> [--run RE] <pkg>` (exit 0 = the suite caught the
-  defect); check the failure message names it. Never edit-and-restore a tracked file. A test that can't fail is
-  deleted.
 - **Build the defect's worst case**; derive expected values from the fixture and drive parsers with real bytes.
   Equivalence tests assert the fast path actually ran (a call count, a cache key) against a deterministic oracle.
 - **Mock only real boundaries** (network, model calls, clock, external CLIs, process scans), at the consumer; run

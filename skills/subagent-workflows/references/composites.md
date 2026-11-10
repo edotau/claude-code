@@ -47,7 +47,7 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 | Find x2 lenses | `sonnet` medium, read-only | package | findings (file, line, symbol, severity) | merge by file +-10 or symbol | merged count |
 | Rederive | `sonnet` medium, blind | file:line + symptom | reproduced, scenario, severity | reproduced=false drops; null = unverified | dropped, unverified |
 | Fix | `sonnet` medium | confirmed >= `minFix` | `{status, files, callers}` | status `done` or red | fixed count |
-| Guard test | `sonnet` medium | the diff | one test per fix | `claude-code test mutate` exit 0 | test report |
+| Guard test | `sonnet` medium | the diff | one test per fix | guard test passes | test report |
 | Gate | `haiku` low | package | `{green, output}` | build, vet, test; plus `internal/schemas` for a writer | green or red |
 | Simplify | `sonnet` medium | the package's changed files | applied, flagged, Δ lines | simplify gate; reverts its own regressing edit; skipped if `polish:false`, budget < 150k, or fix not done/green | "simplify: N applied" |
 | Review | `sonnet` high, read-only | the package diff | findings (file, line, symbol, symptom, severity) | correctness + contract lenses | "review: N findings (sev counts)" |

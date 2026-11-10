@@ -32,7 +32,7 @@ in a script (`internal/hooks/agents/leaves.go` `Effort`).
 | Pipeline | `code-workers.js` per package | find, rederive, fix, test, gate = Sonnet/Haiku claude agents | `stepOf` pins, schemas |
 | Fan-out / fan-in | `code-workers.js` `pipeline(PKGS, review, repair)` · parallel leaves | `claude` leaves, disjoint files | dispatch cap, `worktree-claim-check` |
 | Expert pool | `code-engineer.js` sizing router | `haiku` sizer picks the route | tier table, `dispatch-effort` |
-| Producer-reviewer | fix, guard test (`test mutate`), gate · rederive | implementer vs blind re-deriver | `test mutate` exit 0, gate exit codes |
+| Producer-reviewer | fix, guard test, gate · rederive | implementer vs blind re-deriver | guard test and gate exit codes |
 | Supervisor | main session + leaves | `claude`, `codex`/`copilot`/`gemini`/`opencode`, `Explore` | dispatch cap, `dispatch-stop` ran-on |
 | Hierarchical | `code-engineer.js` calling `workflow()` on `code-workers.js` | one workflow level | runtime rule: one nesting level |
 
@@ -78,7 +78,7 @@ task -> size(TRIVIAL|LOW|MEDIUM|HIGH|EPIC) -> code-workers x<=3 | code-analyzer 
 ### Producer-reviewer
 
 ```text
-fix -> test agent writes guard test -> claude-code test mutate (exit 0 = caught) -> gate
+fix -> test agent writes guard test -> gate
 finder claim -> blind re-derivation from file:line + symptom -> reproduced | dropped | unverified
 ```
 

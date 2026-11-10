@@ -1,20 +1,16 @@
-// The `test` verb: test tooling that checks a test has teeth.
+// The `test` verb: test tooling.
 
 package cli
 
 import (
 	"os"
 
-	"github.com/edotau/claude-code/internal/testtool/mutate"
 	"github.com/edotau/claude-code/internal/testtool/ramdisk"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // cmdTest dispatches `test <sub>`.
 func cmdTest(args []string) int {
-	if len(args) > 0 && args[0] == "mutate" {
-		return mutate.Run(args[1:])
-	}
 	if len(args) > 0 && args[0] == "ramdisk" {
 		return ramdisk.Run(args[1:])
 	}
@@ -30,16 +26,13 @@ func cmdTest(args []string) int {
 var testPage = helptext.Page{
 	Usage: "claude-code test <command> [flags]",
 	Commands: [][2]string{
-		{"mutate", "swap one snippet via -overlay; do the tests notice?"},
 		{"ramdisk", "run a command with TMPDIR on a throwaway RAM disk"},
 	},
-	Hint: "claude-code test mutate -h lists that command's flags.",
 }
 
 // testSpec is the completion node for the test verb tree.
 func testSpec() *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{
-		"mutate":  {Flags: []helptext.Flag{{Name: "run"}}},
 		"ramdisk": {},
 	}}
 }

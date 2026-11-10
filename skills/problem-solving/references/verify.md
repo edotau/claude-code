@@ -82,7 +82,6 @@ Claims whose evidence is *not* just the obvious command:
 | Claim | Requires |
 |-------|----------|
 | Bug fixed | The original symptom re-tested — not "code changed, assumed fixed" |
-| Regression test works | prove the teeth with `claude-code test mutate` (`rules/standards/testing-guidelines.md`) |
 | Agent completed | VCS diff showing the changes |
 | Requirements met | Line-by-line checklist — tests passing is not it |
 

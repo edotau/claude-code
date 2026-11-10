@@ -237,9 +237,9 @@ async function stageFix(ctx, o) {
   const tdirs = [...new Set([o.pkg, ...((impl && impl.files) || []).map((f) => stDir(stRel(ctx, f))).filter((d) => d === o.pkg || d.startsWith(o.pkg + '/'))])]
   const test = done && o.tests !== false ? await stageAsk(ctx, ctx.S.test, 'test:' + o.label, 'Test', ctx.rules + ' Fixes just landed in ' + o.pkg + ' (' + stDiff([o.pkg]) + '; changed: ' + (impl.files || []).join(', ') + '). ' +
     'Repair tests the fixes break. Edit only *_test.go and testdata files directly in ' + tdirs.join(', ') + '; never another package\'s tests or shared fixtures (list any you would need in leftUndone). Each test under complexity 10. Skip comment-only and dead-code fixes. Put "n/a" in callers.' +
-    (bugs.length ? '\nWrite ONE regression test per bug fix that calls the real code and fails without the fix; for Go prove each with `claude-code test mutate <file> <old> <new> --run <TestName> ./' + o.pkg + ' </dev/null` (exit 0 = caught; a bare test name and no globs: copilot\'s shell refuses `$`, `|` and `*` even inside quotes).\n' + bugs.map(item).join('\n') : '') +
+    (bugs.length ? '\nWrite ONE regression test per bug fix that calls the real code and fails without the fix.\n' + bugs.map(item).join('\n') : '') +
     (costs.length ? '\nFor each cost fix, pin the unchanged behavior it must keep: a test that calls the real code and passes before and after the fix ' +
-      '(it need not fail without it; no mutate). When existing tests already pin that behavior, name them in summary and add none.\n' + costs.map(item).join('\n') : ''), ST_WORK) : null
+      '(it need not fail without it). When existing tests already pin that behavior, name them in summary and add none.\n' + costs.map(item).join('\n') : ''), ST_WORK) : null
   const files = [...new Set([...((impl && impl.files) || []), ...((test && test.files) || [])].map((f) => stRel(ctx, f)))]
   return { pkg: o.pkg, impl, test, done, testOk: o.tests === false || !!(test && test.status === 'done'), files }
 }

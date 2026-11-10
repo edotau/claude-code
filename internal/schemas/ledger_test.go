@@ -135,7 +135,6 @@ var writers = map[string]string{
 	"internal/memory/bank_txn.go:captureNative":                       unversioned("memory-bank: txn native copy"),
 	"internal/memory/bank_txn.go:commit":                              unversioned("memory-bank: txn receipt in the memory repo"),
 	"internal/memory/bank_txn.go:save":                                "memory-journal",
-	"internal/testtool/mutate/mutate.go:writeOverlay":                 unversioned("foreign: mutation-test scratch copy"),
 	"internal/preflight/live.go:ClaimNamed":                           unversioned("marker: detached refresh attempt stamp"),
 	"internal/preflight/discover.go:SpawnDiscover":                    unversioned("foreign: /dev/null opened for a detached refresh"),
 	"internal/gateway/restart.go:claimRestartLocked":                  unversioned("marker: watchdog proxy restart stamp"),
