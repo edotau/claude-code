@@ -329,3 +329,20 @@ func TestOpencodeSubPickOverlayReorderRespected(t *testing.T) {
 		t.Errorf("backup = %s, want the reordered ladder's new first paid entry (github-copilot)", oc[1].Account)
 	}
 }
+
+// IsWorkRepo asks git once per dir per process: a remote dropped after the first answer is not re-read.
+func TestIsWorkRepoCachesGitPerDir(t *testing.T) {
+	orig := workRepoMarkers
+	workRepoMarkers = func() ([]string, error) { return []string{"corp-widgets"}, nil }
+	t.Cleanup(func() { workRepoMarkers = orig })
+	dir := t.TempDir()
+	routeRunGit(t, dir, "init", "-q")
+	routeRunGit(t, dir, "remote", "add", "origin", "https://github.com/corp-widgets/x.git")
+	if !IsWorkRepo(dir) {
+		t.Fatal("want work: origin names the corp org")
+	}
+	routeRunGit(t, dir, "remote", "remove", "origin")
+	if !IsWorkRepo(dir) {
+		t.Error("second IsWorkRepo re-ran git; want the cached answer")
+	}
+}

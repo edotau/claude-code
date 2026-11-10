@@ -87,3 +87,32 @@ func TestRecordQuotasSkipsCachedRows(t *testing.T) {
 		t.Error("cached row reached quota.json")
 	}
 }
+
+// A seat answering with a note (unlimited) records no window: RefreshAccount stamps it checked so picks back off,
+// it stays unknown, and a fetch the caller's own deadline cut short stamps nothing.
+func TestRefreshAccountStampsNotedSeat(t *testing.T) {
+	personalVault(t)
+	bin := t.TempDir()
+	script := "#!/bin/sh\n[ \"$1\" = auth ] && { echo tok; exit 0; }\n" +
+		`echo '{"quota_snapshots":{"premium_interactions":{"unlimited":true}}}'` + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if RefreshAccount(canceled, "github·octocat") {
+		t.Fatal("canceled refresh reported data")
+	}
+	if e, ok := router.LoadState()["github·octocat"]; ok {
+		t.Errorf("canceled refresh stamped %+v, want nothing", e)
+	}
+	if RefreshAccount(context.Background(), "github·personal") {
+		t.Fatal("an unlimited seat has no window to record")
+	}
+	now := time.Now()
+	e := router.LoadState()["github·personal"]
+	if e.CheckNote != "unlimited" || e.Stale(now) || e.Status(now) != router.StateUnknown {
+		t.Errorf("github·personal = %+v, want a fresh unlimited check that reads unknown", e)
+	}
+}

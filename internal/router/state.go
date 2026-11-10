@@ -50,6 +50,8 @@ type Entry struct {
 	ExhaustedUntil time.Time            `json:"exhausted_until,omitzero"`
 	Reason         string               `json:"reason,omitempty"`
 	Seen           time.Time            `json:"seen"`
+	Checked        time.Time            `json:"checked,omitzero"`     // last refresh that recorded no reading; backs off like Seen
+	CheckNote      string               `json:"check_note,omitempty"` // why that refresh recorded nothing
 	AuthReason     string               `json:"auth_reason,omitempty"`
 	AuthAt         time.Time            `json:"auth_at,omitzero"`
 	Discovery      map[string]time.Time `json:"discovery,omitempty"`
@@ -189,11 +191,30 @@ func Record(key string, usedPct float64, window string, resetsAt, now time.Time)
 	return Update(func(s State) {
 		e := s[key]
 		e.UsedPct, e.Window, e.ResetsAt, e.Seen = usedPct, window, resetsAt, now
+		e.Checked, e.CheckNote = time.Time{}, ""
 		if usedPct >= ExhaustedPct && resetsAt.After(e.ExhaustedUntil) {
 			e.ExhaustedUntil, e.Reason = resetsAt, "usage at 100%"
 		}
 		s[key] = e
 	})
+}
+
+// MarkChecked stamps a refresh of key that recorded no reading, so it backs off for StaleAfter; Status is untouched.
+func MarkChecked(key, note string, now time.Time) error {
+	return Update(func(s State) {
+		e := s[key]
+		e.Checked, e.CheckNote = now, note
+		s[key] = e
+	})
+}
+
+// Stale is true once neither a reading nor a no-data check of the account is within StaleAfter.
+func (e Entry) Stale(now time.Time) bool {
+	last := e.Seen
+	if e.Checked.After(last) {
+		last = e.Checked
+	}
+	return now.Sub(last) > StaleAfter
 }
 
 // MarkExhausted remembers a quota failure on key until until.

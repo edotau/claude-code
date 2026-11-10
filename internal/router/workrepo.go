@@ -6,7 +6,9 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -29,7 +31,7 @@ var workRepoMarkers = func() ([]string, error) {
 
 // gitRemoteURLs is the exec seam over `git -C dir remote -v`; tests replace it. It lists every
 // remote's fetch and push URLs (both lines `remote -v` prints per remote).
-var gitRemoteURLs = func(dir string) ([]string, error) {
+var gitRemoteURLs = perDir(func(dir string) ([]string, error) {
 	if dir == "" {
 		dir = "."
 	}
@@ -46,10 +48,29 @@ var gitRemoteURLs = func(dir string) ([]string, error) {
 		}
 	}
 	return urls, nil
+})
+
+// perDir memoizes f's successful answers by absolute dir for the process; errors are retried, never cached.
+func perDir[T any](f func(string) (T, error)) func(string) (T, error) {
+	var cache sync.Map
+	return func(dir string) (T, error) {
+		key, err := filepath.Abs(dir)
+		if err != nil {
+			return f(dir)
+		}
+		if v, ok := cache.Load(key); ok {
+			return v.(T), nil
+		}
+		v, err := f(dir)
+		if err == nil {
+			cache.Store(key, v)
+		}
+		return v, err
+	}
 }
 
 // gitInRepo runs `git rev-parse --git-dir`: only git's "not a git repository" verdict is false; other failures error.
-func gitInRepo(dir string) (bool, error) {
+var gitInRepo = perDir(func(dir string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--git-dir")
@@ -65,7 +86,7 @@ func gitInRepo(dir string) (bool, error) {
 		return false, nil
 	}
 	return false, err
-}
+})
 
 // IsWorkRepo reports whether any of dir's git remotes (fetch or push URL) name a configured work host or
 // org (workRepoMarkers); "" checks the current working directory. No markers configured (and no load
