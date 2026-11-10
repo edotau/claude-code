@@ -287,8 +287,13 @@ func TestBindRoutesEachHookToItsHandler(t *testing.T) {
 	probes := guardBindingProbes()
 	maps.Copy(probes, planBindingProbes())
 	maps.Copy(probes, contextBindingProbes())
+	bound := map[string]bool{}
 	for _, b := range Bind() {
 		name := b.Spec.Name
+		bound[name] = true
+		if reflect.ValueOf(b.Run).Pointer() != reflect.ValueOf(native[name]).Pointer() {
+			t.Errorf("%s: not bound to its native runner", name)
+		}
 		probe, probed := probes[name]
 		want, pinned := pointerBound[name]
 		switch {
@@ -305,6 +310,16 @@ func TestBindRoutesEachHookToItsHandler(t *testing.T) {
 			}
 		case !strings.HasPrefix(name, "memory-"): // memory-*: TestNativeMemoryEntriesAreMemhookRunners
 			t.Errorf("%s has no binding probe or runner pin", name)
+		}
+	}
+	for _, s := range settings.Specs() {
+		if !bound[s.Name] {
+			t.Errorf("%s is declared in hookspec but Bind omits it", s.Name)
+		}
+	}
+	for name := range native {
+		if !bound[name] {
+			t.Errorf("%s is a native runner but Bind omits it", name)
 		}
 	}
 }

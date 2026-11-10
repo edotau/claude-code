@@ -2,6 +2,7 @@ package vault
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -21,6 +22,19 @@ func TestMasterKeyStatusRejectsCorruptSecrets(t *testing.T) {
 				t.Fatalf("corrupt status = %d, %q, %v; want 2, keyring, error", count, source, err)
 			}
 		})
+	}
+}
+
+func TestMasterKeyStatusEmptyAndUnreadable(t *testing.T) {
+	phase1bRing(t)
+	if count, source, err := MasterKeyStatus(); count != 0 || source != "not needed" || err != nil {
+		t.Fatalf("empty vault: MasterKeyStatus = (%d, %q, %v), want (0, \"not needed\", nil)", count, source, err)
+	}
+	if err := Update(func(tx *Tx) error { return tx.Put(Meta, "schema", strconv.Itoa(schemaVersion+1)) }); err != nil {
+		t.Fatal(err)
+	}
+	if count, source, err := MasterKeyStatus(); count != 0 || source != "" || err == nil {
+		t.Fatalf("unreadable vault: MasterKeyStatus = (%d, %q, %v), want (0, \"\", err)", count, source, err)
 	}
 }
 

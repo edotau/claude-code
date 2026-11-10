@@ -272,17 +272,21 @@ func TestSpecsFor(t *testing.T) {
 		agent, surface string
 		count          int // -1 = not checked
 		has, lacks     string
+		exact          []string // sorted names the set must equal
 	}{
-		{"claude", "native", -1, "rtk-rewrite", "codex-agent-route"},
-		{"copilot", "native", -1, "safety-scan", "rtk-rewrite"},
-		{"copilot", "native", -1, "format-stop", "memory-start"},
-		{"copilot", "native", -1, "memory-end", "memory-start"},
-		{"copilot", "sdk", len(names("copilot", "native")), "memory-recall", "rtk-rewrite"},
-		{"codex", "sdk", 0, "", ""},
-		{"opencode", "hosted", 16, "memory-end", "rtk-rewrite"},
-		{"opencode", "plugin", 5, "worktree-claim-check", "memory-end"},
-		{"opencode", "native", 0, "", ""},
-		{"claude", "bogus", 0, "", ""},
+		{"claude", "native", -1, "rtk-rewrite", "codex-agent-route", nil},
+		{"copilot", "native", -1, "safety-scan", "rtk-rewrite", nil},
+		{"copilot", "native", -1, "format-stop", "memory-start", nil},
+		{"copilot", "native", -1, "memory-end", "memory-start", nil},
+		{"copilot", "sdk", len(names("copilot", "native")), "memory-recall", "rtk-rewrite", nil},
+		{"codex", "sdk", 0, "", "", nil},
+		{"opencode", "hosted", 16, "memory-end", "rtk-rewrite", []string{
+			"docs-placement", "docs-plan-gate", "docs-plan-mirror", "docs-plan-reminder", "docs-plan-skeleton-prompt",
+			"docs-plan-tick", "format-stop", "memory-end", "memory-recall", "memory-start", "memory-update",
+			"paths-resolve", "review-simplicity", "safety-scan", "worktree-busy", "worktree-mode"}},
+		{"opencode", "plugin", 5, "worktree-claim-check", "memory-end", nil},
+		{"opencode", "native", 0, "", "", nil},
+		{"claude", "bogus", 0, "", "", nil},
 	}
 	for _, tc := range tests {
 		got := names(tc.agent, tc.surface)
@@ -294,6 +298,9 @@ func TestSpecsFor(t *testing.T) {
 		}
 		if tc.lacks != "" && slices.Contains(got, tc.lacks) {
 			t.Errorf("%s/%s must not have %s", tc.agent, tc.surface, tc.lacks)
+		}
+		if tc.exact != nil && !slices.Equal(slices.Sorted(slices.Values(got)), tc.exact) {
+			t.Errorf("%s/%s set = %v, want exactly %v", tc.agent, tc.surface, slices.Sorted(slices.Values(got)), tc.exact)
 		}
 	}
 }

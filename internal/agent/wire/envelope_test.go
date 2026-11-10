@@ -61,11 +61,11 @@ func TestRanOnCost(t *testing.T) {
 
 // A dispatch that never started a dispatch claims no run: no ran-on line, a did-not-run line with the reason.
 func TestRanOnClaimsOnlyARunThatHappened(t *testing.T) {
-	res := Result{Agent: "codex", Status: StatusError, FallbackReason: "codex: deactivated (CODEX_ACTIVE=off)"}
+	res := Result{Agent: "codex", Status: StatusError, FallbackReason: "codex: deactivated (no profile set)"}
 	if got := RanOn(res); got != "" {
 		t.Errorf("RanOn = %q, want empty", got)
 	}
-	if got, want := DidNotRun(res), "did not run codex — deactivated (CODEX_ACTIVE=off)"; got != want {
+	if got, want := DidNotRun(res), "did not run codex — deactivated (no profile set)"; got != want {
 		t.Errorf("DidNotRun = %q, want %q", got, want)
 	}
 	if NewEnvelope(res, nil, "d").RanOn != "" {
