@@ -37,6 +37,7 @@ func runRemoteOut(t *testing.T) (string, bool) {
 	t.Setenv("TAILSCALE_OAUTH_CLIENT_ID", "")
 	t.Setenv("TAILSCALE_OAUTH_CLIENT_SECRET", "")
 	t.Setenv("TAILSCALE_API_KEY", "")
+	resetTailscaleStatus(t)
 	var out bytes.Buffer
 	d := &dialog{o: Options{}, out: &out}
 	ok := runRemote(d)

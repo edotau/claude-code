@@ -265,8 +265,22 @@ type Machine struct {
 	Source             string // "api" | "cli"
 }
 
-// Machines merges admin-API devices with CLI status; without a credential it falls back to CLI self and peers.
+// Machines lists tailnet machines and refreshes the machine-name cache ResolveHost and completion read.
 func Machines(ctx context.Context) ([]Machine, error) {
+	machines, err := liveMachines(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(machines))
+	for _, m := range machines {
+		names = append(names, m.Name)
+	}
+	WriteMachinesCache(names)
+	return machines, nil
+}
+
+// liveMachines merges admin-API devices with CLI status (fetched concurrently); no credential means CLI only.
+func liveMachines(ctx context.Context) ([]Machine, error) {
 	client, err := NewClient()
 	if errors.Is(err, ErrNoCredential) {
 		return machinesFromStatus(ctx)
@@ -274,11 +288,17 @@ func Machines(ctx context.Context) ([]Machine, error) {
 	if err != nil {
 		return nil, err
 	}
+	var st Local
+	statusDone := make(chan struct{})
+	go func() {
+		defer close(statusDone)
+		st, _ = Status(ctx) // best-effort online/exit-node overlay; a status error leaves the API-only view
+	}()
 	devices, err := client.Devices(ctx)
+	<-statusDone
 	if err != nil {
 		return nil, err
 	}
-	st, _ := Status(ctx) // best-effort online/exit-node overlay; a status error leaves the API-only view
 	byAddr := peersByAddr(st)
 	out := make([]Machine, 0, len(devices))
 	for _, d := range devices {

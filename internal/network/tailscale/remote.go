@@ -4,6 +4,7 @@ package tailscale
 
 import (
 	"context"
+	"net"
 	"os"
 	"slices"
 	"strings"
@@ -72,13 +73,16 @@ func recordSelf(st Local, err error) {
 	}
 }
 
-// ResolveHost maps a short tailnet name to its MagicDNS name; anything else passes through for ssh to judge.
+// ResolveHost maps a short tailnet name to its MagicDNS name (cache first, then live); others pass through to ssh.
 func ResolveHost(ctx context.Context, host string) (string, error) {
 	if err := remote.ValidHost(host); err != nil {
 		return "", err
 	}
-	if host == "localhost" {
-		return host, nil
+	if host == "localhost" || strings.Contains(host, ".") || net.ParseIP(host) != nil {
+		return host, nil // FQDN, MagicDNS name or IP: nothing to resolve
+	}
+	if name, ok := matchMachine(CachedMachineNames(), host); ok {
+		return name, nil
 	}
 	machines, err := Machines(ctx)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -180,5 +181,40 @@ func TestMatchMachine(t *testing.T) {
 		if got, ok := matchMachine(names, host); ok {
 			t.Errorf("MatchMachine(%q) = %q, want no match", host, got)
 		}
+	}
+}
+
+// countingCLI stubs the tailscale CLI with the running fixture and returns a func reporting how often it ran.
+func countingCLI(t *testing.T) func() int {
+	t.Helper()
+	hermeticSecrets(t)
+	calls := filepath.Join(t.TempDir(), "calls")
+	stubCLI(t, "echo x >> "+shQuote(calls)+"\n"+catScript(t, "status_running.json"))
+	return func() int {
+		b, _ := os.ReadFile(calls)
+		return strings.Count(string(b), "x")
+	}
+}
+
+// TestResolveHost_SkipsLookupAndPrefersCache: FQDNs and IPs never look up; a cached short name never runs the CLI.
+func TestResolveHost_SkipsLookupAndPrefersCache(t *testing.T) {
+	calls := countingCLI(t)
+	ctx := context.Background()
+	WriteMachinesCache([]string{"box.tailxxxxx.ts.net"})
+	for host, want := range map[string]string{"other.example.com": "other.example.com", "100.64.1.2": "100.64.1.2",
+		"fd7a::1": "fd7a::1", "BOX": "box.tailxxxxx.ts.net"} {
+		if got, err := ResolveHost(ctx, host); err != nil || got != want {
+			t.Errorf("ResolveHost(%q) = %q, %v; want %q", host, got, err, want)
+		}
+	}
+	if n := calls(); n != 0 {
+		t.Fatalf("tailscale CLI ran %d times, want 0 (no lookup for FQDN/IP, cache hit for BOX)", n)
+	}
+	// A cache miss goes live once and refreshes the cache with the live listing.
+	if got, _ := ResolveHost(ctx, "test-phone"); got != "test-phone.tailxxxxx.ts.net." || calls() != 1 {
+		t.Errorf("live ResolveHost(test-phone) = %q after %d CLI calls, want the MagicDNS name after 1", got, calls())
+	}
+	if !slices.Contains(CachedMachineNames(), "test-phone.tailxxxxx.ts.net.") {
+		t.Errorf("cache after live lookup = %q, want test-phone listed", CachedMachineNames())
 	}
 }

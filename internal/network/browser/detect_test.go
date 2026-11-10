@@ -385,3 +385,24 @@ func findBrowser(t *testing.T, report Report, name string) Browser {
 	t.Fatalf("no browser named %q in report: %+v", name, report)
 	return Browser{}
 }
+
+// TestDetect_GUIProbeRunsOncePerDetect: three installed browsers share one osascript probe; uninstalled ones skip it.
+func TestDetect_GUIProbeRunsOncePerDetect(t *testing.T) {
+	f := &fakeRun{}
+	for _, name := range []string{"chrome", "safari", "firefox"} {
+		markInstalled(f, specMust(t, name))
+	}
+	report := Detect(newTestEnv(t, f))
+	probes := 0
+	for _, c := range f.calls {
+		if c == guiProbeKey {
+			probes++
+		}
+	}
+	if probes != 1 {
+		t.Errorf("osascript probes = %d, want 1 for 3 installed browsers", probes)
+	}
+	if b := findBrowser(t, report, "safari"); b.Paths.GUI != stateAvailable {
+		t.Errorf("safari GUI = %q, want available from the shared probe", b.Paths.GUI)
+	}
+}

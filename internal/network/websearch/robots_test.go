@@ -1,7 +1,13 @@
 package websearch
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -94,5 +100,62 @@ func TestParseRobotsStripsLeadingBOM(t *testing.T) {
 	_, blocked := robotsDisallows(parseRobots("\ufeffUser-agent: *\nDisallow: /\n"), "/x/page")
 	if !blocked {
 		t.Error("BOM-prefixed first group was ignored; want Disallow / to apply")
+	}
+}
+
+// resetRobotsCache empties the package robots.txt cache for this test and again after it.
+func resetRobotsCache(t *testing.T) {
+	t.Helper()
+	clearCache := func() {
+		robotsCache.Lock()
+		clear(robotsCache.m)
+		robotsCache.Unlock()
+	}
+	clearCache()
+	origTTL := robotsTTL
+	t.Cleanup(func() { clearCache(); robotsTTL = origTTL })
+}
+
+// TestRobotsCacheHitWithinTTL: two pages on one origin fetch robots.txt once; past the TTL it is fetched again.
+func TestRobotsCacheHitWithinTTL(t *testing.T) {
+	allowLoopbackFetch(t)
+	var robotsHits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			robotsHits.Add(1)
+			fmt.Fprint(w, "User-agent: *\nDisallow: /private\n")
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, "<p>ok</p>")
+	}))
+	defer srv.Close()
+	ctx := context.Background()
+	for _, p := range []string{"/a", "/b", "/private/x"} {
+		fetchPageText(ctx, srv.URL+p)
+	}
+	if n := robotsHits.Load(); n != 1 {
+		t.Fatalf("robots.txt fetched %d times within the TTL, want 1", n)
+	}
+	robotsTTL = 0
+	if u, _ := url.Parse(srv.URL + "/private/y"); robotsAllowed(ctx, u) || robotsHits.Load() != 2 {
+		t.Errorf("past TTL: robots hits = %d, want a refetch that still disallows /private", robotsHits.Load())
+	}
+}
+
+// TestPageClientTransportBounds: no proxy (the dial guard must see the real target), every phase bounded.
+func TestPageClientTransportBounds(t *testing.T) {
+	tr, ok := pageClient.Transport.(*http.Transport)
+	if !ok || tr.Proxy != nil || tr.DialContext == nil {
+		t.Fatalf("pageClient transport = %#v, want a direct dial-guarded *http.Transport", pageClient.Transport)
+	}
+	for name, d := range map[string]time.Duration{"client": pageClient.Timeout, "tls": tr.TLSHandshakeTimeout,
+		"header": tr.ResponseHeaderTimeout} {
+		if d < enrichTimeout {
+			t.Errorf("%s timeout %v undercuts the %v per-fetch ctx bound", name, d, enrichTimeout)
+		}
+	}
+	if tr.IdleConnTimeout == 0 || tr.MaxIdleConnsPerHost < 2 {
+		t.Errorf("idle pool: timeout %v, per-host %d; want bounded keep-alives", tr.IdleConnTimeout, tr.MaxIdleConnsPerHost)
 	}
 }

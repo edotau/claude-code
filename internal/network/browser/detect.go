@@ -8,12 +8,14 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 // Detect probes every known browser plus the system default and returns one report.
 func Detect(env Env) Report {
+	env.gui = sync.OnceValue(func() string { return guiState(env) }) // one System Events probe per Detect
 	browsers := make([]Browser, 0, len(knownBrowsers))
 	for _, s := range knownBrowsers {
 		browsers = append(browsers, detectOne(env, s))
@@ -111,7 +113,7 @@ func detectChromium(env Env, s spec, b *Browser) {
 	}
 	b.Paths.CDP = stateAvailable // binary present, confirmed by isInstalled above
 	b.Paths.WebDriver = stateUnsupported
-	b.Paths.GUI = guiState(env)
+	b.Paths.GUI = env.guiState()
 }
 
 // checkHost reports whether the NativeMessagingHosts manifest exists, its target exists and its origin matches.
@@ -207,7 +209,7 @@ func detectSafari(env Env, b *Browser) {
 		Extension: stateUnsupported,
 		CDP:       stateUnsupported,
 		WebDriver: safariWebDriverState(env),
-		GUI:       guiState(env),
+		GUI:       env.guiState(),
 	}
 }
 
@@ -226,7 +228,7 @@ func detectFirefox(env Env, b *Browser) {
 		Extension: stateUnsupported,
 		CDP:       stateUnsupported,
 		WebDriver: geckodriverState(env),
-		GUI:       guiState(env),
+		GUI:       env.guiState(),
 	}
 }
 
@@ -246,7 +248,7 @@ func guiState(env Env) string {
 	if env.DryRun {
 		return stateAvailable // DryRun (Setup) never calls Run beyond its own install-state probes
 	}
-	_, err := env.run("osascript", "-e", `tell application "System Events" to get name of first process`)
+	_, err := env.probeRun("osascript", "-e", `tell application "System Events" to get name of first process`)
 	if err == nil {
 		return stateAvailable
 	}

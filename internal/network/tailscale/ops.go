@@ -82,20 +82,6 @@ func ParseSubnets(value string) (routes []string, ok bool) {
 	return routes, !bad
 }
 
-// MachinesCached lists tailnet machines and refreshes the `dispatch --host` completion cache.
-func MachinesCached(ctx context.Context) ([]Machine, error) {
-	machines, err := Machines(ctx)
-	if err != nil {
-		return nil, err
-	}
-	names := make([]string, 0, len(machines))
-	for _, m := range machines {
-		names = append(names, m.Name)
-	}
-	WriteMachinesCache(names)
-	return machines, nil
-}
-
 // mintKey parses expiry, mints an auth key through the admin API and hints at the usual 404 cause.
 func mintKey(ctx context.Context, expiry string, opts KeyOpts) (AuthKey, error) {
 	exp, err := parseKeyExpiry(expiry)

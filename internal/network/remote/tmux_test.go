@@ -289,6 +289,7 @@ func TestBuildCommand_TaggingSkippedWhenNewSessionFails(t *testing.T) {
 
 func TestExecArgs_RemoteIsArgvNotShellString(t *testing.T) {
 	// ExecArgs wraps the remote command as base64 under `sh -c` so it runs under POSIX sh whatever the login shell.
+	t.Setenv(ReuseEnv, "0")
 	args, err := ExecArgs("myhost", "echo hi", false, false)
 	if err != nil {
 		t.Fatal(err)
@@ -316,6 +317,7 @@ func TestExecArgs_RemoteIsArgvNotShellString(t *testing.T) {
 }
 
 func TestAttachArgs(t *testing.T) {
+	t.Setenv(ReuseEnv, "off")
 	args, err := attachArgs("myhost", "cc-claude-abcd", false)
 	want := []string{"ssh", "-o", "ServerAliveInterval=15", "-t", "--", "myhost",
 		encodeScript("tmux attach -t 'cc-claude-abcd'")}

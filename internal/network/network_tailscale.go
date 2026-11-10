@@ -180,7 +180,7 @@ type tsOpts struct {
 
 func tailscaleStatus(ctx context.Context, format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
-		return helptext.BadFormat("", err)
+		return helptext.BadFormat("network tailscale status", err)
 	}
 	st, err := tailscale.Status(ctx)
 	if err != nil && !errors.Is(err, tailscale.ErrNotRunning) {
@@ -207,9 +207,9 @@ func tailscaleStatus(ctx context.Context, format string) int {
 
 func tailscaleMachines(ctx context.Context, format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
-		return helptext.BadFormat("", err)
+		return helptext.BadFormat("network tailscale machines", err)
 	}
-	machines, err := tailscale.MachinesCached(ctx)
+	machines, err := tailscale.Machines(ctx)
 	if err != nil {
 		return helptext.Fail("network tailscale machines: %v", err)
 	}
