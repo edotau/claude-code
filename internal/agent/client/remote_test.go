@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/network/remote"
+
 	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -182,8 +184,8 @@ func TestRemoteHomePath(t *testing.T) {
 		"relative/dir":       "relative/dir",
 		"":                   "",
 	} {
-		if got := remoteHomePath(in); got != want {
-			t.Errorf("remoteHomePath(%q) = %q, want %q", in, got, want)
+		if got := remote.HomePath(in); got != want {
+			t.Errorf("remote.HomePath(%q) = %q, want %q", in, got, want)
 		}
 	}
 	script, err := remoteScript("/Users/me/.local/bin/claude-code", "codex", "", agent.RunOptions{WorkDir: "/Users/me/.claude"})

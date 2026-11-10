@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/edotau/claude-code/internal/network/remote"
+
 	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -75,7 +77,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.DurationVar(&f.timeout, "timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
 	fs.StringVar(&f.host, "host", "", "run the ask on this ssh host (tailnet name or ssh alias); profiles resolve there")
-	fs.StringVar(&f.remoteBin, "remote-bin", "", "remote claude-code path for --host (default $"+client.RemoteBinEnv+", then claude-code)")
+	fs.StringVar(&f.remoteBin, "remote-bin", "", "remote claude-code path for --host (default $"+remote.BinEnv+", then claude-code)")
 	fs.StringVar(&f.format, "format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
 	fs.StringVar(&f.dirs, "dirs", "", "comma-separated dirs whose tracked files are inlined (never .env*, state/, keys)")
 	fs.StringVar(&f.files, "files", "", "comma-separated file globs to inline")

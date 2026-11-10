@@ -2,10 +2,34 @@
 package remote
 
 import (
+	"cmp"
 	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
+
+// BinEnv names the remote claude-code binary when --remote-bin is absent; the fallback is "claude-code" on the remote PATH.
+const BinEnv = "HARNESS_REMOTE_BIN"
+
+// PathPrefix is `make install`'s login PATH: ssh's non-login shell lacks it, so claude-code and auth commands fail.
+const PathPrefix = `export PATH="$HOME/.claude/bin:$HOME/.local/bin:$HOME/.local/go/bin:$HOME/go/bin:$PATH";`
+
+// Bin picks the remote binary: the flag, then HARNESS_REMOTE_BIN, then "claude-code".
+func Bin(flagValue string) string { return cmp.Or(flagValue, os.Getenv(BinEnv), "claude-code") }
+
+// HomePath rewrites a path under the local home to ~/…: the remote's home differs (/Users/x vs /home/x).
+func HomePath(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || p == "" {
+		return p
+	}
+	if rel, err := filepath.Rel(home, p); err == nil && filepath.IsAbs(p) && rel != ".." && !strings.HasPrefix(rel, "../") {
+		return filepath.Join("~", rel)
+	}
+	return p
+}
 
 // ValidHost refuses an ssh destination that ssh would parse as an option or that carries whitespace/control bytes.
 func ValidHost(host string) error {

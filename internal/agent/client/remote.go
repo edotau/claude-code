@@ -9,9 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,12 +24,6 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// RemoteBinEnv names the remote claude-code binary when --remote-bin is absent; the fallback is "claude-code" on the remote PATH.
-const RemoteBinEnv = "HARNESS_REMOTE_BIN"
-
-// remotePath is `make install`'s login PATH: ssh's non-login shell lacks it, so claude-code and auth commands fail.
-const remotePath = `export PATH="$HOME/.claude/bin:$HOME/.local/bin:$HOME/.local/go/bin:$HOME/go/bin:$PATH";`
-
 // remoteGrace pads --timeout for the local ssh's silence watchdog (reset per remote line); the remote's verdict wins.
 var remoteGrace = 30 * time.Second
 
@@ -44,15 +36,10 @@ type idleTimer interface {
 // newIdleTimer is the watchdog seam; tests swap in a timer they drive by hand.
 var newIdleTimer = func(d time.Duration, f func()) idleTimer { return time.AfterFunc(d, f) }
 
-// RemoteBin picks the remote binary: the flag, then HARNESS_REMOTE_BIN, then "claude-code".
-func RemoteBin(flagValue string) string {
-	return cmp.Or(flagValue, os.Getenv(RemoteBinEnv), "claude-code")
-}
-
 // remoteEngine runs the named agent through `claude-code agents ask` on another host over ssh; the remote applies the caps.
 type remoteEngine struct{ agent, host, bin, fallback string }
 
-// NewRemoteEngine wraps agentName for host; bin is the remote claude-code path (see RemoteBin), fallback the remote's policy.
+// NewRemoteEngine wraps agentName for host; bin is the remote claude-code path (see remote.Bin), fallback the remote's policy.
 func NewRemoteEngine(agentName, host, bin, fallback string) agent.Engine {
 	return remoteEngine{agentName, host, bin, fallback}
 }
@@ -83,18 +70,6 @@ func remoteDropped(req agent.RunOptions) []string {
 	return out
 }
 
-// remoteHomePath rewrites a path under the local home to ~/…: the remote's home differs (/Users/x vs /home/x).
-func remoteHomePath(p string) string {
-	home, err := os.UserHomeDir()
-	if err != nil || p == "" {
-		return p
-	}
-	if rel, err := filepath.Rel(home, p); err == nil && filepath.IsAbs(p) && rel != ".." && !strings.HasPrefix(rel, "../") {
-		return filepath.Join("~", rel)
-	}
-	return p
-}
-
 // remoteTarget is the --agent value the remote side resolves.
 func remoteTarget(agentName string, req agent.RunOptions) string {
 	if req.Persona != nil {
@@ -109,7 +84,7 @@ func remoteScript(bin, agentName, fallback string, req agent.RunOptions) (string
 	if err := validateRemoteScript(bin, agentName, req); err != nil {
 		return "", err
 	}
-	w := []string{remotePath, "exec", textutil.QuotePath(remoteHomePath(bin)), "agents", "ask", "--format", "stream-json", "--fallback", textutil.ShellQuote(cmp.Or(fallback, router.FallbackNone)),
+	w := []string{remote.PathPrefix, "exec", textutil.QuotePath(remote.HomePath(bin)), "agents", "ask", "--format", "stream-json", "--fallback", textutil.ShellQuote(cmp.Or(fallback, router.FallbackNone)),
 		"--stdin-framed", "--agent", textutil.ShellQuote(remoteTarget(agentName, req))}
 	opt := func(flag, v string) {
 		if v != "" {
@@ -124,7 +99,7 @@ func remoteScript(bin, agentName, fallback string, req agent.RunOptions) (string
 	opt("--append-system-prompt", req.AppendSystemPrompt)
 	opt("--output-schema", req.OutputSchema)
 	if req.WorkDir != "" {
-		w = append(w, "--workdir", textutil.QuotePath(remoteHomePath(req.WorkDir)))
+		w = append(w, "--workdir", textutil.QuotePath(remote.HomePath(req.WorkDir)))
 	}
 	if req.Timeout > 0 {
 		opt("--timeout", req.Timeout.String())

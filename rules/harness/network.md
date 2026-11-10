@@ -12,6 +12,7 @@ paths:
 | Check MCP health, scope drift, inline secrets | `claude-code network mcp [--format json]` |
 | Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list\|--dry-run]` · opt-in `--target projections\|sessions` |
 | Map the whole harness | `claude-code describe [--format json\|text]` |
+| Run any harness verb on a tailnet host | `claude-code --host <host> <verb …>` (ssh, `-t` on a terminal); a browser login opens on the host (WSL: the Windows default browser via `wslview` or `explorer.exe`) |
 
 - Browser automation only on authorized sites; robots.txt is checked; no detection evasion
   (`rules/standards/security.md` → 5).

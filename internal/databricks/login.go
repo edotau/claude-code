@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"runtime"
 	"time"
+
+	"github.com/edotau/claude-code/internal/network/remote"
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/providers"
@@ -175,15 +175,8 @@ func LoginRow(ctx context.Context, name string, out io.Writer) error {
 	return nil
 }
 
-// openLoginURL hands the authorize URL to the desktop opener; an error makes the login print the URL instead.
-func openLoginURL(url string) error {
-	bin := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		bin = "open"
-	}
-	// The opener outlives this call, so it is not tied to a cancellable ctx.
-	return exec.CommandContext(context.Background(), bin, url).Start()
-}
+// openLoginURL hands the authorize URL to the desktop opener (the Windows browser on WSL); the URL is printed too.
+func openLoginURL(url string) error { return remote.OpenURL(url) }
 
 // loginHost is the workspace a login would talk to, for display.
 func loginHost(p *providers.Provider) string {
