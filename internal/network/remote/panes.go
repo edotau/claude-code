@@ -1,4 +1,4 @@
-package tailscale
+package remote
 
 import (
 	"bytes"
@@ -209,7 +209,7 @@ const (
 
 // captureCommand is the ssh-side script: list cc-* panes, then capture-pane -p -S -N each one,
 // framed by control bytes so parseCaptureBlob can split the output back into per-pane records. It
-// reuses dispatch.go's fieldSep ("|") for the header columns: tmux's format engine replaces a real
+// reuses tmux.go's fieldSep ("|") for the header columns: tmux's format engine replaces a real
 // tab byte with "_" in its own -F output (see fieldSep's comment), so tab cannot separate these.
 //
 // list-panes's own exit status is checked explicitly, outside any pipe, before filtering/looping:
@@ -243,7 +243,7 @@ type RemoteRunner func(ctx context.Context, argv []string) ([]byte, error)
 func ExecRunner(ctx context.Context, argv []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.WaitDelay = execWaitDelay
-	return outputCapped(cmd)
+	return OutputCapped(cmd)
 }
 
 // capBuffer collects writes up to max, then fails the write so the child is cut off with memory bounded.
@@ -261,8 +261,8 @@ func (w *capBuffer) Write(p []byte) (int, error) {
 	return w.buf.Write(p)
 }
 
-// outputCapped is cmd.Output() with stdout held to maxCaptureBytes: over it, the command fails with an over-cap error.
-func outputCapped(cmd *exec.Cmd) ([]byte, error) {
+// OutputCapped is cmd.Output() with stdout held to maxCaptureBytes: over it, the command fails with an over-cap error.
+func OutputCapped(cmd *exec.Cmd) ([]byte, error) {
 	stdout := &capBuffer{max: maxCaptureBytes}
 	var stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = stdout, &stderr
@@ -278,10 +278,13 @@ func outputCapped(cmd *exec.Cmd) ([]byte, error) {
 
 // CapturePanes lists and captures every cc-* tmux pane on host via run, bounding the round trip to
 // captureTimeout and the result to maxCaptureBytes/maxPanes (over either is an error, never a silent cut); batch forbids ssh password prompts.
-func CapturePanes(ctx context.Context, host string, batch bool, run RemoteRunner) ([]PaneCapture, error) {
+func CapturePanes(ctx context.Context, host string, local, batch bool, run RemoteRunner) ([]PaneCapture, error) {
 	cctx, cancel := context.WithTimeout(ctx, captureTimeout)
 	defer cancel()
-	argv := ExecArgs(cctx, host, captureCommand, batch)
+	argv, err := ExecArgs(host, captureCommand, local, batch)
+	if err != nil {
+		return nil, fmt.Errorf("dispatch: capture panes on %s: %w", host, err)
+	}
 	out, err := run(cctx, argv)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: capture panes on %s: %w", host, err)

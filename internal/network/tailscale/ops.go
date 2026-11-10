@@ -7,21 +7,15 @@ import (
 	"io"
 	"net/netip"
 	"os"
-	"os/exec"
-	"os/signal"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
 // ErrNoSubnetRoutes means this box advertises no subnet routes to approve.
 var ErrNoSubnetRoutes = errors.New("this box advertises no subnet routes; run --subnet <cidr> first")
-
-// SSHTimeout bounds one ssh round trip (start or list); attach replaces the process and has no deadline.
-const SSHTimeout = 20 * time.Second
 
 // ResolveAuthKey picks the auth key: literal ("-" reads stdin), then the keyEnv variable, then the vault.
 func ResolveAuthKey(authKey, keyEnv string, stdin io.Reader) (string, error) {
@@ -90,74 +84,6 @@ func ParseSubnets(value string) (routes []string, ok bool) {
 
 // execWaitDelay force-closes a timed-out command's pipes so surviving children cannot hold Wait open.
 const execWaitDelay = 2 * time.Second
-
-// SSHCommand builds argv as a command bounded by SSHTimeout; the caller picks the output mode.
-func SSHCommand(ctx context.Context, argv []string) (*exec.Cmd, context.CancelFunc) {
-	cctx, cancel := context.WithTimeout(ctx, SSHTimeout)
-	cmd := exec.CommandContext(cctx, argv[0], argv[1:]...)
-	cmd.WaitDelay = execWaitDelay
-	return cmd, cancel
-}
-
-// RunRemote runs argv over ssh under SSHTimeout and returns the combined output even on error.
-func RunRemote(ctx context.Context, argv []string) ([]byte, error) {
-	cmd, cancel := SSHCommand(ctx, argv)
-	defer cancel()
-	return cmd.CombinedOutput()
-}
-
-// ListRemoteSessions lists the cc-* tmux sessions on host.
-func ListRemoteSessions(ctx context.Context, host string) ([]RemoteSession, error) {
-	cmd, cancel := SSHCommand(ctx, ExecArgs(ctx, host, ListCommand(), false))
-	defer cancel()
-	out, err := cmd.Output()
-	var ee *exec.ExitError
-	if errors.As(err, &ee) && len(ee.Stderr) > 0 {
-		return nil, fmt.Errorf("list tmux sessions on %s: %s: %w", host, strings.TrimSpace(string(ee.Stderr)), err)
-	}
-	if err != nil {
-		return nil, err
-	}
-	return ParseSessions(string(out)), nil
-}
-
-// PollPaneStatus samples pane status once (interval <= 0) or repeatedly until Ctrl-C, calling emit per sample.
-func PollPaneStatus(ctx context.Context, host string, interval time.Duration, emit func([]PaneStatus) error) error {
-	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
-	defer stop()
-	var prev []PaneStatus
-	for {
-		caps, capErr := CapturePanes(sigCtx, host, false, ExecRunner)
-		prev = ObservePanes(prev, caps, capErr, time.Now())
-		if capErr != nil && len(prev) == 0 {
-			return capErr
-		}
-		if err := emit(prev); err != nil {
-			return err
-		}
-		if interval <= 0 {
-			return nil
-		}
-		select {
-		case <-sigCtx.Done():
-			return nil
-		case <-time.After(interval):
-		}
-	}
-}
-
-// AttachSession replaces this process with an ssh attach to a tmux session on host.
-func AttachSession(host, session string) error {
-	if !ValidName(session) {
-		return fmt.Errorf("session %q must match ^[A-Za-z0-9._-]{1,64}$", session)
-	}
-	argv := AttachArgs(host, session)
-	bin, err := exec.LookPath(argv[0])
-	if err != nil {
-		return err
-	}
-	return proc.Exec(bin, argv[1:], os.Environ())
-}
 
 // MachinesCached lists tailnet machines and refreshes the `dispatch --host` completion cache.
 func MachinesCached(ctx context.Context) ([]Machine, error) {

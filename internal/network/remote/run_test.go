@@ -21,7 +21,10 @@ func decodedScript(t *testing.T, argv []string) string {
 }
 
 func TestHostArgvPlainVerb(t *testing.T) {
-	argv := hostArgv("wks", []string{"vault", "ls", "it's"}, true)
+	argv, err := hostArgv("wks", []string{"vault", "ls", "it's"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !slices.Contains(argv, "-t") || slices.ContainsFunc(argv, func(a string) bool { return a == "-L" }) {
 		t.Errorf("want -t and no tunnel: %q", argv)
 	}

@@ -340,15 +340,10 @@ func TestPeersByAddrIndexesPeersAndSelf(t *testing.T) {
 }
 
 // A CLI that prints past the cap is cut off with an error, not buffered whole.
-func TestStatusAndExecRunnerCapOutput(t *testing.T) {
+func TestStatusCapsOutput(t *testing.T) {
 	stubCLI(t, `/usr/bin/head -c 3145728 /dev/zero`)
 	if _, err := Status(context.Background()); err == nil || !strings.Contains(err.Error(), "over") {
 		t.Errorf("Status over cap: err = %v, want an over-cap error", err)
-	}
-	bin := fakeBin(t, t.TempDir(), "big", `/usr/bin/head -c 3145728 /dev/zero`)
-	out, err := ExecRunner(context.Background(), []string{bin})
-	if err == nil || len(out) > maxCaptureBytes {
-		t.Errorf("ExecRunner over cap: err = %v, len(out) = %d, want an error and <= %d bytes", err, len(out), maxCaptureBytes)
 	}
 }
 

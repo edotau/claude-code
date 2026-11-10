@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/network/browser"
+	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -45,7 +46,7 @@ type Server struct {
 	csrfToken  string
 	logger     *log.Logger
 	mux        *http.ServeMux
-	run        tailscale.RemoteRunner // executes a dispatch capture/list command; tests fake this
+	run        remote.RemoteRunner // executes a dispatch capture/list command; tests fake this
 	now        func() time.Time
 	status     *statusCache  // expiring, synchronized pane-status cache, keyed by host
 	browserEnv browser.Env   // the detection seam; tests fake its Run/Home/AppSupport
@@ -87,7 +88,7 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		dnsNames:   tailnetNames(ctx),
 		csrfToken:  token,
 		logger:     log.New(errw, "", log.LstdFlags),
-		run:        tailscale.ExecRunner,
+		run:        remote.ExecRunner,
 		now:        time.Now,
 		status:     newStatusCache(),
 		browserEnv: browser.NewEnv(),

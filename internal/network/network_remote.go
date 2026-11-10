@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -38,7 +39,7 @@ func addRemoteFlags(fs *flag.FlagSet) *remoteFlags {
 	f := &remoteFlags{}
 	fs.StringVar(&f.host, "host", "", "ssh host: alias, MagicDNS/tailnet name, or IP")
 	fs.StringVar(&f.dir, "dir", "", "remote working directory (default ~)")
-	fs.StringVar(&f.agent, "agent", "claude", "agent CLI: "+strings.Join(tailscale.RemoteAgents, "|"))
+	fs.StringVar(&f.agent, "agent", "claude", "agent CLI: "+strings.Join(remote.RemoteAgents, "|"))
 	fs.StringVar(&f.name, "name", "", "tmux session name (default cc-<agent>-<id>)")
 	fs.BoolVar(&f.dryRun, "dry-run", false, "print the ssh argv instead of running it")
 	fs.BoolVar(&f.list, "list", false, "list cc-* tmux sessions on --host")
@@ -117,8 +118,8 @@ func dispatchRemoteMode(ctx context.Context, host, mode string, f *remoteFlags, 
 		}
 		return dispatchAttach(host, rest[0])
 	default:
-		if !tailscale.ValidAgent(f.agent) {
-			return helptext.Fail("network remote: --agent %q must be one of %s", f.agent, strings.Join(tailscale.RemoteAgents, "|"))
+		if !remote.ValidAgent(f.agent) {
+			return helptext.Fail("network remote: --agent %q must be one of %s", f.agent, strings.Join(remote.RemoteAgents, "|"))
 		}
 		return dispatchStart(ctx, host, f.dir, f.agent, f.name, strings.Join(rest, " "), f.dryRun)
 	}
@@ -128,25 +129,29 @@ func dispatchStart(ctx context.Context, host, dir, agentName, name, task string,
 	if task == "" {
 		return helptext.Fail("network remote: give a task as the final argument")
 	}
-	remoteCmd, session, err := tailscale.BuildRemoteCommand(tailscale.RemoteOpts{Dir: dir, Agent: agentName, Name: name, Task: task})
+	remoteCmd, session, err := remote.BuildRemoteCommand(remote.RemoteOpts{Dir: dir, Agent: agentName, Name: name, Task: task})
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
-	argv := tailscale.ExecArgs(ctx, host, remoteCmd, false)
+	local := tailscale.IsLocalHost(ctx, host)
+	argv, err := remote.ExecArgs(host, remoteCmd, local, false)
+	if err != nil {
+		return helptext.Fail("network remote: %v", err)
+	}
 	if dryRun {
 		for i, a := range argv {
 			fmt.Printf("argv[%d]: %s\n", i, a)
 		}
-		fmt.Println("attach:", tailscale.AttachCommand(host, session))
+		fmt.Println("attach:", remote.AttachCommand(host, session, local))
 		return 0
 	}
-	out, err := tailscale.RunRemote(ctx, argv)
+	out, err := remote.RunRemote(ctx, argv)
 	_, writeErr := os.Stdout.Write(out)
 	if err := errors.Join(err, writeErr); err != nil {
 		return helptext.Fail("network remote: %v", err)
 	}
 	fmt.Printf("remote: started %s on %s\n", session, host)
-	fmt.Println("attach:", tailscale.AttachCommand(host, session))
+	fmt.Println("attach:", remote.AttachCommand(host, session, local))
 	return 0
 }
 
@@ -162,7 +167,7 @@ func dispatchList(ctx context.Context, host, format string, withStatus bool, int
 }
 
 func dispatchListPlain(ctx context.Context, host, format string) int {
-	sessions, err := tailscale.ListRemoteSessions(ctx, host)
+	sessions, err := remote.ListRemoteSessions(ctx, host, tailscale.IsLocalHost(ctx, host))
 	if err != nil {
 		return helptext.Fail("network remote --list: %v", err)
 	}
@@ -179,7 +184,8 @@ func dispatchListPlain(ctx context.Context, host, format string) int {
 
 // dispatchListStatus samples pane status once (interval <= 0) or repeatedly until Ctrl-C.
 func dispatchListStatus(ctx context.Context, host, format string, interval time.Duration) int {
-	err := tailscale.PollPaneStatus(ctx, host, interval, func(s []tailscale.PaneStatus) error {
+	local := tailscale.IsLocalHost(ctx, host)
+	err := remote.PollPaneStatus(ctx, host, local, interval, func(s []remote.PaneStatus) error {
 		return printPaneStatus(s, format)
 	})
 	if err != nil {
@@ -189,7 +195,7 @@ func dispatchListStatus(ctx context.Context, host, format string, interval time.
 }
 
 // printPaneStatus writes one sample of pane statuses in the requested format.
-func printPaneStatus(statuses []tailscale.PaneStatus, format string) error {
+func printPaneStatus(statuses []remote.PaneStatus, format string) error {
 	if format == helptext.JSON {
 		return helptext.WriteJSON(os.Stdout, statuses)
 	}
@@ -202,7 +208,7 @@ func printPaneStatus(statuses []tailscale.PaneStatus, format string) error {
 }
 
 func dispatchAttach(host, session string) int {
-	if err := tailscale.AttachSession(host, session); err != nil {
+	if err := remote.AttachSession(host, session, tailscale.IsLocalHost(context.Background(), host)); err != nil {
 		return helptext.Fail("network remote --attach: %v", err)
 	}
 	return 0

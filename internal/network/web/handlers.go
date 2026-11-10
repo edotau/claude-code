@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/network/browser"
+	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 )
 
@@ -29,7 +30,7 @@ type pageData struct {
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	data := pageData{CSRFToken: s.csrfToken, Hosts: s.resolveHosts(r.Context()), Agents: tailscale.RemoteAgents}
+	data := pageData{CSRFToken: s.csrfToken, Hosts: s.resolveHosts(r.Context()), Agents: remote.RemoteAgents}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := indexTemplate().Execute(w, data); err != nil {
 		s.logger.Printf("render index: %v", err)
@@ -104,9 +105,14 @@ func (s *Server) handleDispatch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	argv := tailscale.ExecArgs(r.Context(), resolved, remoteCmd, true)
+	local := tailscale.IsLocalHost(r.Context(), resolved)
+	argv, err := remote.ExecArgs(resolved, remoteCmd, local, true)
+	if err != nil {
+		http.Error(w, "web: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	if s.opts.DryRunDispatch {
-		writeJSON(w, dispatchResponse{Session: session, Attach: tailscale.AttachCommand(resolved, session), Argv: argv})
+		writeJSON(w, dispatchResponse{Session: session, Attach: remote.AttachCommand(resolved, session, local), Argv: argv})
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), sshTimeout)
@@ -116,7 +122,7 @@ func (s *Server) handleDispatch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "web: dispatch failed", http.StatusBadGateway)
 		return
 	}
-	writeJSON(w, dispatchResponse{Session: session, Attach: tailscale.AttachCommand(resolved, session)})
+	writeJSON(w, dispatchResponse{Session: session, Attach: remote.AttachCommand(resolved, session, local)})
 }
 
 // prepareDispatch validates req and returns the resolved host, remote command and session name; errors are client-facing.
@@ -125,13 +131,13 @@ func (s *Server) prepareDispatch(ctx context.Context, req dispatchRequest) (reso
 	if !ok {
 		return "", "", "", errors.New("web: unknown host")
 	}
-	if !tailscale.ValidAgent(req.Agent) {
-		return "", "", "", errors.New("web: --agent must be one of " + strings.Join(tailscale.RemoteAgents, "|"))
+	if !remote.ValidAgent(req.Agent) {
+		return "", "", "", errors.New("web: --agent must be one of " + strings.Join(remote.RemoteAgents, "|"))
 	}
 	if len(req.Task) > maxTaskBytes {
 		return "", "", "", errors.New("web: task exceeds 8KiB")
 	}
-	remoteCmd, session, err = tailscale.BuildRemoteCommand(tailscale.RemoteOpts{Dir: req.Dir, Agent: req.Agent, Task: req.Task})
+	remoteCmd, session, err = remote.BuildRemoteCommand(remote.RemoteOpts{Dir: req.Dir, Agent: req.Agent, Task: req.Task})
 	if err != nil {
 		return "", "", "", errors.New("web: " + err.Error())
 	}
@@ -211,20 +217,12 @@ func (s *Server) resolveHosts(ctx context.Context) []string {
 }
 
 // allowedHost reports whether host (full or short name) is in the dispatch allowlist, resolving it
-// to the form tailscale.SSHArgs should use. "localhost" is always allowed, matching dispatch's own rule.
+// to the form remote.ExecArgs should use. "localhost" is always allowed, matching dispatch's own rule.
 func (s *Server) allowedHost(ctx context.Context, host string) (string, bool) {
 	if host == "localhost" {
 		return host, true
 	}
-	for _, h := range s.resolveHosts(ctx) {
-		if strings.EqualFold(h, host) {
-			return h, true
-		}
-		if short, _, ok := strings.Cut(h, "."); ok && strings.EqualFold(short, host) {
-			return h, true
-		}
-	}
-	return "", false
+	return tailscale.MatchMachine(s.resolveHosts(ctx), host)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -246,7 +244,7 @@ const statusCacheTTL = 4 * time.Second
 // misses for that host into a single capture round trip instead of one ssh call per request.
 type hostStatus struct {
 	mu       sync.Mutex
-	statuses []tailscale.PaneStatus
+	statuses []remote.PaneStatus
 	sampled  time.Time
 }
 
@@ -272,17 +270,17 @@ func (c *statusCache) entry(host string) *hostStatus {
 }
 
 // get returns host's cached pane statuses, refreshing via run when the cache has aged past
-// statusCacheTTL. It never returns raw captures — only the classified, bounded tailscale.PaneStatus.
-func (c *statusCache) get(ctx context.Context, host string, run tailscale.RemoteRunner, clock func() time.Time) ([]tailscale.PaneStatus, error) {
+// statusCacheTTL. It never returns raw captures — only the classified, bounded remote.PaneStatus.
+func (c *statusCache) get(ctx context.Context, host string, run remote.RemoteRunner, clock func() time.Time) ([]remote.PaneStatus, error) {
 	h := c.entry(host)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if !h.sampled.IsZero() && clock().Sub(h.sampled) < statusCacheTTL {
 		return h.statuses, nil
 	}
-	caps, err := tailscale.CapturePanes(ctx, host, true, run)
+	caps, err := remote.CapturePanes(ctx, host, tailscale.IsLocalHost(ctx, host), true, run)
 	now := clock()
-	h.statuses = tailscale.ObservePanes(h.statuses, caps, err, now)
+	h.statuses = remote.ObservePanes(h.statuses, caps, err, now)
 	if err == nil { // a failed capture is not a sample: the next request retries
 		h.sampled = now
 	}

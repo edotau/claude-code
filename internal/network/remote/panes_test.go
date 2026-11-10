@@ -1,9 +1,10 @@
-package tailscale
+package remote
 
 import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -241,7 +242,7 @@ func TestCapturePanes_ParsesMultipleRecords(t *testing.T) {
 	blob := frame("cc-claude-a", "%1", "claude", "claude", "line1\nline2") +
 		frame("cc-codex-b", "%2", "codex", "codex", "working...")
 	run, _ := fakeRunner([]byte(blob), nil)
-	caps, err := CapturePanes(context.Background(), "myhost", true, run)
+	caps, err := CapturePanes(context.Background(), "myhost", false, true, run)
 	if err != nil {
 		t.Fatalf("CapturePanes: %v", err)
 	}
@@ -270,7 +271,7 @@ func checkParsedCaptures(t *testing.T, caps []PaneCapture) {
 func TestCapturePanes_SSHFailurePropagatesError(t *testing.T) {
 	wantErr := errors.New("ssh: connection refused")
 	run, _ := fakeRunner(nil, wantErr)
-	caps, err := CapturePanes(context.Background(), "deadhost", true, run)
+	caps, err := CapturePanes(context.Background(), "deadhost", false, true, run)
 	if err == nil {
 		t.Fatalf("CapturePanes: want error, got nil (caps=%+v)", caps)
 	}
@@ -284,7 +285,7 @@ func TestCapturePanes_SSHFailurePropagatesError(t *testing.T) {
 
 func TestCapturePanes_EmptyOutputIsEmptyNotError(t *testing.T) {
 	run, _ := fakeRunner([]byte(""), nil)
-	caps, err := CapturePanes(context.Background(), "myhost", true, run)
+	caps, err := CapturePanes(context.Background(), "myhost", false, true, run)
 	if err != nil {
 		t.Fatalf("CapturePanes: %v", err)
 	}
@@ -299,7 +300,7 @@ func TestCapturePanes_MalformedRecordIsSkipped(t *testing.T) {
 	blob := paneRecordStart + "cc-claude-a\t%1\tclaude\tclaude" + // no header/body newline
 		frame("cc-codex-b", "%2", "codex", "codex", "ok")
 	run, _ := fakeRunner([]byte(blob), nil)
-	caps, err := CapturePanes(context.Background(), "myhost", true, run)
+	caps, err := CapturePanes(context.Background(), "myhost", false, true, run)
 	if err != nil {
 		t.Fatalf("CapturePanes: %v", err)
 	}
@@ -316,7 +317,7 @@ func TestCapturePanes_TooManyPanesIsError(t *testing.T) {
 		blob.WriteString(frame("cc-claude-x", "%1", "claude", "claude", "line"))
 	}
 	run, _ := fakeRunner([]byte(blob.String()), nil)
-	caps, err := CapturePanes(context.Background(), "myhost", true, run)
+	caps, err := CapturePanes(context.Background(), "myhost", false, true, run)
 	if err == nil {
 		t.Fatalf("want error over %d panes, got %d captures", maxPanes, len(caps))
 	}
@@ -328,7 +329,7 @@ func TestCapturePanes_ExactlyMaxPanesIsOK(t *testing.T) {
 		blob.WriteString(frame("cc-claude-x", "%1", "claude", "claude", "line"))
 	}
 	run, _ := fakeRunner([]byte(blob.String()), nil)
-	caps, err := CapturePanes(context.Background(), "myhost", true, run)
+	caps, err := CapturePanes(context.Background(), "myhost", false, true, run)
 	if err != nil || len(caps) != maxPanes {
 		t.Fatalf("got %d captures, err %v; want %d, nil", len(caps), err, maxPanes)
 	}
@@ -338,7 +339,7 @@ func TestCapturePanes_OversizeBlobIsError(t *testing.T) {
 	huge := strings.Repeat("x", maxCaptureBytes*2)
 	blob := frame("cc-claude-a", "%1", "claude", "claude", huge)
 	run, _ := fakeRunner([]byte(blob), nil)
-	caps, err := CapturePanes(context.Background(), "myhost", true, run)
+	caps, err := CapturePanes(context.Background(), "myhost", false, true, run)
 	if err == nil {
 		t.Fatalf("want error over %d bytes, got %d captures", maxCaptureBytes, len(caps))
 	}
@@ -359,7 +360,7 @@ func TestCapturePanes_InjectionShapedTextIsDataNotControl(t *testing.T) {
 	payload := "$(touch /tmp/pwned); <script>alert(1)</script>; '; DROP TABLE x; --"
 	blob := frame("cc-claude-a", "%1", "claude", "claude", payload)
 	run, _ := fakeRunner([]byte(blob), nil)
-	caps, err := CapturePanes(context.Background(), "myhost", true, run)
+	caps, err := CapturePanes(context.Background(), "myhost", false, true, run)
 	if err != nil {
 		t.Fatalf("CapturePanes: %v", err)
 	}
@@ -388,7 +389,7 @@ func TestCapturePanes_RealScriptPropagatesListPanesFailure(t *testing.T) {
 	writeStubTmuxListPanesFails(t, stubDir)
 	t.Setenv("PATH", stubDir+":"+os.Getenv("PATH"))
 
-	caps, err := CapturePanes(context.Background(), "localhost", true, ExecRunner)
+	caps, err := CapturePanes(context.Background(), "localhost", true, true, ExecRunner)
 	if err == nil {
 		t.Fatalf("CapturePanes: want an error when the real script's tmux list-panes fails, got caps=%+v", caps)
 	}
@@ -427,7 +428,7 @@ func TestCapturePanes_RealScriptPropagatesCapturePaneFailure(t *testing.T) {
 	writeStubTmuxCapturePaneFails(t, stubDir, marker)
 	t.Setenv("PATH", stubDir+":"+os.Getenv("PATH"))
 
-	caps, err := CapturePanes(context.Background(), "localhost", true, ExecRunner)
+	caps, err := CapturePanes(context.Background(), "localhost", true, true, ExecRunner)
 	if err == nil {
 		t.Fatalf("CapturePanes: want an error when capture-pane fails mid-loop, got caps=%+v", caps)
 	}
@@ -445,7 +446,7 @@ func TestCapturePanes_PassesBatchAndHostThroughExecArgs(t *testing.T) {
 		gotArgv = argv
 		return []byte(""), nil
 	}
-	if _, err := CapturePanes(context.Background(), "remote-host", true, run); err != nil {
+	if _, err := CapturePanes(context.Background(), "remote-host", false, true, run); err != nil {
 		t.Fatalf("CapturePanes: %v", err)
 	}
 	if len(gotArgv) == 0 {
@@ -467,5 +468,17 @@ func TestObserve_SSHFailureDoesNotReviveGonePane(t *testing.T) {
 	out := ObservePanes(gone, nil, errFakeSSH, t0.Add(2*time.Second))
 	if len(out) != 0 {
 		t.Fatalf("gone pane revived as error entry: %+v", out)
+	}
+}
+
+// A command that prints past the cap is cut off with an error, not buffered whole.
+func TestExecRunnerCapsOutput(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "big")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n/usr/bin/head -c 3145728 /dev/zero\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, err := ExecRunner(context.Background(), []string{bin})
+	if err == nil || len(out) > maxCaptureBytes {
+		t.Errorf("ExecRunner over cap: err = %v, len(out) = %d, want an error and <= %d bytes", err, len(out), maxCaptureBytes)
 	}
 }

@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -32,6 +33,22 @@ func emptyPATH(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 }
 
+// fakeSSHDecode opens a fake ssh script: it decodes the base64 remote script ssh's last argument carries into $script.
+const fakeSSHDecode = "#!/bin/sh\nfor a; do last=$a; done\nb64=${last#*'printf %s '}; b64=${b64%%' |'*}\n" +
+	"script=$(printf %s \"$b64\" | /usr/bin/base64 -d)\n"
+
+// decodedRemoteScript recovers the base64 script from a dry-run's printed ssh argv.
+func decodedRemoteScript(t *testing.T, out string) string {
+	t.Helper()
+	_, rest, ok := strings.Cut(out, "printf %s ")
+	b64, _, ok2 := strings.Cut(rest, " | base64 -d")
+	b, err := base64.StdEncoding.DecodeString(b64)
+	if !ok || !ok2 || err != nil {
+		t.Fatalf("no base64 script in dry-run output (%v):\n%s", err, out)
+	}
+	return string(b)
+}
+
 // fakeSSHOnPATH puts an `ssh` script on PATH that returns canned output for --list's tmux listing.
 func fakeSSHOnPATH(t *testing.T, listOutput string) {
 	t.Helper()
@@ -39,8 +56,7 @@ func fakeSSHOnPATH(t *testing.T, listOutput string) {
 		t.Skip("requires a POSIX shell")
 	}
 	dir := t.TempDir()
-	script := "#!/bin/sh\n" +
-		"case \"$*\" in *tmux\\ list-sessions*) printf '%s' " + textutil.ShellQuote(listOutput) + " ;; esac\n"
+	script := fakeSSHDecode + "case \"$script\" in *tmux\\ list-sessions*) printf '%s' " + textutil.ShellQuote(listOutput) + " ;; esac\n"
 	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -55,8 +71,7 @@ func fakeSSHStatusOnPATH(t *testing.T, panes string) {
 		t.Skip("requires a POSIX shell")
 	}
 	dir := t.TempDir()
-	script := "#!/bin/sh\n" +
-		"case \"$*\" in *tmux\\ list-panes*) printf '%s' " + textutil.ShellQuote(panes) + " ;; esac\n"
+	script := fakeSSHDecode + "case \"$script\" in *tmux\\ list-panes*) printf '%s' " + textutil.ShellQuote(panes) + " ;; esac\n"
 	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -126,14 +141,14 @@ func TestDispatchDryRunSpawnsNoSSH(t *testing.T) {
 	if !strings.Contains(out, "argv[0]: ssh") {
 		t.Errorf("dry-run output missing argv[0] line:\n%s", out)
 	}
-	if !strings.Contains(out, "argv[2]: myhost") {
-		t.Errorf("dry-run output missing resolved host in argv[2]:\n%s", out)
+	if !strings.Contains(out, "argv[4]: myhost") {
+		t.Errorf("dry-run output missing resolved host in argv[4]:\n%s", out)
 	}
 	if !strings.Contains(out, "attach: ssh -t -- myhost tmux attach -t cc-claude-abcd") {
 		t.Errorf("dry-run output missing attach hint:\n%s", out)
 	}
 	// The task given as multiple positional words must be joined and passed as one shell-quoted unit.
-	if !strings.Contains(out, "'do the thing'") {
+	if !strings.Contains(decodedRemoteScript(t, out), "'do the thing'") {
 		t.Errorf("dry-run output does not show the joined, quoted task:\n%s", out)
 	}
 }
