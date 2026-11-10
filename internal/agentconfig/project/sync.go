@@ -97,7 +97,7 @@ func runSync(opts Options) int {
 	for _, pname := range in.names {
 		res.add(syncProjectionAssets(out, pname, in.root, in.home, in.skillsDir, in.agents, in.skills, docs, hasDocs, dryRun, prune))
 	}
-	fmt.Fprintln(out, "== skills ==")
+	header(out, "skills")
 	agentsSkills := AgentsSkillsDir(in.home)
 	res.add(syncSkillLinks(out, in.skills, in.skillsDir, agentsSkills, prune, dryRun))
 	if prune {
@@ -155,23 +155,39 @@ func syncFail(err error) int {
 	return 1
 }
 
-// syncSkillLinks links every skill into dir and, when prune is set, removes links the roster no longer projects.
-func syncSkillLinks(out io.Writer, skills []Source, skillsDir, dir string, prune, dryRun bool) syncResult {
-	res := linkSkills(out, skills, skillsDir, dir, dryRun)
+// syncSkillLinks links <dir>/<name> to <skillsDir>/<dir> per projected skill; prune drops unprojected links.
+func syncSkillLinks(out io.Writer, skills []Source, skillsDir, dir string, prune, dryRun bool) (res syncResult) {
+	if !mkdirUnlessDry(&res, dryRun, dir) {
+		return res
+	}
+	for _, skill := range skills {
+		name := skill.Name()
+		if !paths.SafeName(name) {
+			fmt.Fprintf(os.Stderr, "  ERROR unsafe skill name %q (must be a plain path component)\n", name)
+			res.errored++
+			continue
+		}
+		res.record(ensureLink(out, filepath.Join(dir, name), filepath.Join(skillsDir, skill.dirName), skillsDir, dryRun))
+	}
 	if prune {
 		res.add(pruneSkillLinks(out, dir, skillsDir, projectedSkillNames(skills), dryRun))
 	}
 	return res
 }
 
-// mkdirUnlessDry creates dirs unless this is a dry run.
-func mkdirUnlessDry(dryRun bool, dirs ...string) {
+// mkdirUnlessDry creates dirs unless this is a dry run; a failure is reported once, counted in res, and returns false.
+func mkdirUnlessDry(res *syncResult, dryRun bool, dirs ...string) bool {
 	if dryRun {
-		return
+		return true
 	}
 	for _, d := range dirs {
-		_ = os.MkdirAll(d, 0o755)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "  ERROR %v\n", err)
+			res.errored++
+			return false
+		}
 	}
+	return true
 }
 
 // finishSync prints the run summary and maps the totals onto Sync's exit code.
@@ -206,15 +222,14 @@ func finishSync(out io.Writer, opts Options, dryRun bool, res syncResult) int {
 }
 
 func syncProjectionAssets(out io.Writer, name, root, home, skillsDir string, agents, skills []Source, docs string, hasDocs, dryRun, prune bool) syncResult {
-	fmt.Fprintf(out, "== %s ==\n", name)
+	header(out, name)
 	tg := targets[name]
 	res := syncProjection(out, name, tg, agents, Dir(root, name), tg.home(home), dryRun, prune)
 	if tg.skills != nil {
 		// agy reads its own skills dir rather than ~/.agents/skills.
 		res.add(syncSkillLinks(out, skills, skillsDir, tg.skills(home), prune, dryRun))
 	}
-	if rel, ok := instructionFiles[name]; ok && hasDocs {
-		mkdirUnlessDry(dryRun, filepath.Dir(filepath.Join(home, rel)), Root(root, name))
+	if rel, ok := instructionFiles[name]; ok && hasDocs && mkdirUnlessDry(&res, dryRun, filepath.Dir(filepath.Join(home, rel)), Root(root, name)) {
 		res.record(writeProjection(out, filepath.Join(Root(root, name), filepath.Base(rel)), docs, dryRun))
 		res.record(writeOwnedFile(out, filepath.Join(home, rel), docs, dryRun))
 	}
@@ -238,7 +253,9 @@ func syncProjection(out io.Writer, target string, t projectionTarget, agents []S
 		file := name + t.ext
 		content := t.render(agent)
 		rendered[file] = true
-		mkdirUnlessDry(dryRun, distDir, homeDir)
+		if !mkdirUnlessDry(&res, dryRun, distDir, homeDir) {
+			return res
+		}
 		res.record(writeProjection(out, filepath.Join(distDir, file), content, dryRun))
 		res.record(writeOwnedFile(out, filepath.Join(homeDir, file), content, dryRun))
 	}
@@ -255,10 +272,10 @@ func writeOwnedFile(out io.Writer, path, content string, dryRun bool) writeResul
 	info, err := os.Lstat(path)
 	switch {
 	case err == nil && info.Mode()&os.ModeSymlink != 0:
-		fmt.Fprintf(out, "  KEEP  %s (hand-authored symlink)\n", paths.ShortHome(path))
+		status(out, "KEEP", paths.ShortHome(path), "hand-authored symlink")
 		return kept
 	case err == nil && !isGeneratedFile(path):
-		fmt.Fprintf(out, "  KEEP  %s (hand-authored; remove it to let the harness own it)\n", paths.ShortHome(path))
+		status(out, "KEEP", paths.ShortHome(path), "hand-authored; remove it to let the harness own it")
 		return kept
 	}
 	return writeProjection(out, path, content, dryRun)
@@ -269,10 +286,10 @@ func writeProjection(out io.Writer, outputFile, content string, dryRun bool) wri
 	rel := paths.ShortHome(outputFile)
 	if dryRun {
 		if existing, err := os.ReadFile(outputFile); err == nil && string(existing) == content {
-			fmt.Fprintf(out, "  OK    %s (unchanged)\n", rel)
+			status(out, "OK", rel, "unchanged")
 			return unchanged
 		}
-		fmt.Fprintf(out, "  DRY   %s\n", rel)
+		status(out, "DRY", rel, "")
 		return written
 	}
 	wrote, err := paths.WriteIfChanged(outputFile, []byte(content), 0o644)
@@ -281,9 +298,9 @@ func writeProjection(out io.Writer, outputFile, content string, dryRun bool) wri
 		return failed
 	}
 	if !wrote {
-		fmt.Fprintf(out, "  OK    %s (unchanged)\n", rel)
+		status(out, "OK", rel, "unchanged")
 		return unchanged
 	}
-	fmt.Fprintf(out, "  WRITE %s\n", rel)
+	status(out, "WRITE", rel, "")
 	return written
 }

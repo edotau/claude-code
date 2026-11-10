@@ -307,14 +307,10 @@ func extrasCompact(w io.Writer) string {
 	}
 	tokens = append(tokens, clipboardExtras(w)...)
 	var tbuf bytes.Buffer
-	seedTmuxConf(&tbuf, false)
-	switch txt := tbuf.String(); {
-	case strings.Contains(txt, "exists (kept)"):
-		tokens = append(tokens, "tmux kept")
-	case strings.Contains(txt, "wrote"):
-		tokens = append(tokens, "tmux wrote")
-	case strings.Contains(txt, "skip"):
-		fmt.Fprint(w, txt)
+	if tok := seedTmuxConf(&tbuf, false); tok != "" {
+		tokens = append(tokens, "tmux "+tok)
+	} else {
+		fmt.Fprint(w, tbuf.String()) // the skip line, in full
 	}
 	if len(tokens) == 0 {
 		return ""

@@ -47,6 +47,7 @@ func TestCheckWorkflowSteps(t *testing.T) {
 		{"code-workers.js", map[string]any{"steps": map[string]any{"find": map[string]any{"model": "gpt-5"}}}, []string{"steps.find.model must be haiku|sonnet|opus|fable"}},
 		{"code-workers.js", map[string]any{"steps": map[string]any{"find": map[string]any{"profile": "openai:x", "agent": "codex"}}}, []string{"must be a plain name"}},
 		{"code-workers.js", `{"steps":{"review":{"agent":"codex","profile":"nope"}}}`, []string{"steps.review: codex has no route: profile nope"}},
+		{"code-workers.js", `{"steps":{"bogus":{}}`, []string{"args must be a JSON object"}},
 		{"code-workers.js", map[string]any{"profile": "nope", "steps": map[string]any{"review": map[string]any{"agent": "codex"}}}, []string{"codex has no route"}},
 		{"code-engineer.js", map[string]any{"steps": map[string]any{"child": map[string]any{"bogus": map[string]any{}}, "size": map[string]any{"profile": "qa"}}},
 			[]string{"steps.child.bogus: unknown stage", "steps.size: claude stages run in-context"}},

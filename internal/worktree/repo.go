@@ -66,7 +66,9 @@ func ResolveRepo(cwd string) (*Repo, error) {
 // repo.Root, rejecting traversal, a symlink at the destination, and a name already occupied by a
 // directory that is not actually a worktree of this repo (a foreign basename collision).
 func ResolveWorktree(repo *Repo, name string) (string, error) {
-	return resolveWorktree(context.Background(), repo, name)
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	return resolveWorktree(ctx, repo, name)
 }
 
 func resolveWorktree(ctx context.Context, repo *Repo, name string) (string, error) {
@@ -121,7 +123,7 @@ func checkWorktreeName(repo *Repo, name string) (string, error) {
 func rejectLiveCheckoutRoot(repo *Repo) error {
 	rootCanon := paths.CanonDeep(repo.Root)
 	mainCanon := paths.Canon(repo.Main)
-	if rootCanon == mainCanon || strings.HasPrefix(rootCanon+string(filepath.Separator), mainCanon+string(filepath.Separator)) {
+	if paths.Within(rootCanon, mainCanon) {
 		return fmt.Errorf("worktree root %s is the live main checkout %s (or inside it), refusing to use it", repo.Root, repo.Main)
 	}
 	return nil
@@ -137,7 +139,7 @@ func rejectLiveCheckoutRoot(repo *Repo) error {
 func ownsWorktree(ctx context.Context, repo *Repo, dest string) (bool, error) {
 	destCanon := paths.Canon(dest)
 	mainCanon := paths.Canon(repo.Main)
-	if destCanon == mainCanon || strings.HasPrefix(destCanon+string(filepath.Separator), mainCanon+string(filepath.Separator)) {
+	if paths.Within(destCanon, mainCanon) {
 		return false, fmt.Errorf("%s is the live main checkout %s (or inside it), not a worktree", dest, repo.Main)
 	}
 	isRoot, err := isWorktreeRoot(ctx, dest, destCanon)

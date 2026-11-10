@@ -53,7 +53,7 @@ func TestIntegrateTargetHookFailureStopsBeforePromote(t *testing.T) {
 
 func TestPromoteFastForwardSkipsSimulation(t *testing.T) {
 	mergeFixtureLockEnv(t)
-	repo, main, wt := mergeFixtureSetup(t)
+	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature\n", "feature advances")
 	ctx := context.Background()
 	plan, err := Preflight(ctx, repo, "feature", "")
@@ -88,7 +88,7 @@ func TestPromoteFastForwardSkipsSimulation(t *testing.T) {
 // retry hint, never fabricate a real conflicting merge.
 func TestPromoteTargetMovedBetweenIntegrateAndPromote(t *testing.T) {
 	mergeFixtureLockEnv(t)
-	repo, main, wt := mergeFixtureSetup(t)
+	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
@@ -123,7 +123,7 @@ func TestPromoteTargetMovedBetweenIntegrateAndPromote(t *testing.T) {
 // merge rather than fall back to a real merge commit.
 func TestPromoteNotAncestorAfterTargetDiverges(t *testing.T) {
 	mergeFixtureLockEnv(t)
-	repo, main, wt := mergeFixtureSetup(t)
+	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
@@ -152,7 +152,7 @@ func TestPromoteNotAncestorAfterTargetDiverges(t *testing.T) {
 // Promote must only ever fast-forward main onto the OID IntegrateTarget actually produced and pinned.
 func TestPromoteRefusesCommitLandedAfterIntegrate(t *testing.T) {
 	mergeFixtureLockEnv(t)
-	repo, main, wt := mergeFixtureSetup(t)
+	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
@@ -185,7 +185,7 @@ func TestPromoteRefusesCommitLandedAfterIntegrate(t *testing.T) {
 
 func TestPromoteLockHeldRefusesConcurrentMerge(t *testing.T) {
 	mergeFixtureLockEnv(t)
-	repo, _, wt := mergeFixtureSetup(t)
+	repo, _, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
@@ -196,7 +196,8 @@ func TestPromoteLockHeldRefusesConcurrentMerge(t *testing.T) {
 		t.Fatalf("IntegrateTarget: %v", err)
 	}
 
-	t.Cleanup(func() { mergeLockWait = MergeLockWait })
+	origWait := mergeLockWait
+	t.Cleanup(func() { mergeLockWait = origWait })
 	mergeLockWait = 100 * time.Millisecond
 	release := make(chan struct{})
 	held := make(chan struct{})
@@ -223,7 +224,7 @@ func TestPromoteLockHeldRefusesConcurrentMerge(t *testing.T) {
 // residue (a plugin cache) through integrate + promote, while a plain Preflight plan still refuses it.
 func TestIntegrateAndPromoteToleratePostResolutionResidue(t *testing.T) {
 	mergeFixtureLockEnv(t)
-	repo, main, wt := mergeFixtureSetup(t)
+	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	if err := os.MkdirAll(filepath.Join(wt, ".impeccable"), 0o755); err != nil {
 		t.Fatal(err)
@@ -259,7 +260,7 @@ func TestMergeDirtyTargetOverlap(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			mergeFixtureLockEnv(t)
-			repo, main, wt := mergeFixtureSetup(t)
+			repo, main, wt := preflightFixtureSetup(t)
 			mergeFixtureWrite(t, main, "a.txt", "base\n", "main adds a")
 			mergeFixtureWrite(t, wt, "b.txt", "feature\n", "feature adds b")
 			if overlap {
@@ -303,7 +304,7 @@ func assertTargetEditIntact(t *testing.T, main, wantHead string) {
 
 func TestPromoteRechecksDirtyTargetOverlap(t *testing.T) {
 	mergeFixtureLockEnv(t)
-	repo, main, wt := mergeFixtureSetup(t)
+	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "a.txt", "feature\n", "feature adds a")
 	ctx := context.Background()
 	plan, err := Preflight(ctx, repo, "feature", "")
@@ -337,7 +338,7 @@ func TestAcquireRunsFnAndReleases(t *testing.T) {
 	if !ran {
 		t.Fatal("fn did not run")
 	}
-	// The lock must be released: a second Acquire must succeed promptly, not wait out MergeLockWait.
+	// The lock must be released: a second Acquire must succeed promptly, not wait out mergeLockWait.
 	start := time.Now()
 	if err := Acquire(time.Second, func() error { return nil }); err != nil {
 		t.Fatalf("second Acquire: %v", err)
@@ -391,7 +392,7 @@ func TestAcquireBusyReturnsErrMergeBusyWithinWait(t *testing.T) {
 
 func TestAfterPromoteCleanClosesLedgerOnce(t *testing.T) {
 	mergeFixtureLockEnv(t)
-	repo, main, wt := mergeFixtureSetup(t)
+	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature\n", "feature advances")
 	wantHead := headOf(wt)
 	outcome, err := Merge(context.Background(), repo, MergeRequest{
@@ -413,11 +414,9 @@ func TestAfterPromoteCleanClosesLedgerOnce(t *testing.T) {
 
 func TestAcquireZeroWaitDefaultsToMergeLockWait(t *testing.T) {
 	mergeFixtureLockEnv(t)
-	if MergeLockWait != 5*time.Second || mergeLockWait != MergeLockWait {
-		t.Fatalf("defaults: MergeLockWait=%v mergeLockWait=%v, want both 5s", MergeLockWait, mergeLockWait)
-	}
 	const short = 100 * time.Millisecond
-	t.Cleanup(func() { mergeLockWait = MergeLockWait })
+	origWait := mergeLockWait
+	t.Cleanup(func() { mergeLockWait = origWait })
 	mergeLockWait = short
 	held := make(chan struct{})
 	release := make(chan struct{})

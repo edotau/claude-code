@@ -208,12 +208,12 @@ func claudeScienceAssetName(goos, goarch string) string {
 
 // installClaudeScience installs the macOS app from its DMG, or the raw Linux binary, for this platform.
 func installClaudeScience(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
-	asset := claudeScienceAssetName(runtime.GOOS, runtime.GOARCH)
+	asset := claudeScienceAssetName(goosOverride, goarchOverride)
 	if asset == "" {
-		return fmt.Errorf("claude-science: no download mapped for %s/%s", runtime.GOOS, runtime.GOARCH)
+		return fmt.Errorf("claude-science: no download mapped for %s/%s", goosOverride, goarchOverride)
 	}
 	url := claudeScienceBaseURL + "/" + asset
-	if runtime.GOOS == "darwin" {
+	if goosOverride == "darwin" {
 		return installScienceApp(ctx, w, dir, url, dryRun)
 	}
 	fmt.Fprintf(w, "  download %s\n", url)

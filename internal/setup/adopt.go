@@ -156,7 +156,7 @@ func Adopt(opts AdoptOpts) error {
 
 	st := State{Mode: "adopt", Date: now, Commit: commitHash(opts.Into), BackupDir: backupDir, ClashCount: len(clashes)}
 	if err := Record(st); err != nil {
-		return err
+		return fmt.Errorf("adopted into %s but not recorded: %w", opts.Into, err)
 	}
 	audit.Log(audit.SetupAdopt, opts.Into, fmt.Sprintf("clashes=%d", len(clashes)))
 	fmt.Fprintf(opts.Out, "\nadopted into %s\nnext:\n  make -C %s install\n  claude-code configure --check\n", opts.Into, opts.Into)

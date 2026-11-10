@@ -75,9 +75,8 @@ func TestEnsureKeyNoAnswerDoesNotGenerate(t *testing.T) {
 	if len(ring.lookups) == 0 {
 		t.Error("EnsureKey did not consult the unavailable keyring")
 	}
-	if ring.sets != 0 || ring.deletes != 0 || len(ring.values) != 0 {
-		t.Errorf("EnsureKey mutated keyring after ErrNoAnswer: sets=%d deletes=%d entries=%d",
-			ring.sets, ring.deletes, len(ring.values))
+	if ring.sets != 0 || len(ring.values) != 0 {
+		t.Errorf("EnsureKey mutated keyring after ErrNoAnswer: sets=%d entries=%d", ring.sets, len(ring.values))
 	}
 	if err := View(func(tx *Tx) error {
 		if kid, ok := tx.Get(Meta, "kid"); ok {

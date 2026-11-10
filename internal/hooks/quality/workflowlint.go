@@ -33,12 +33,14 @@ func WorkflowResult(in *core.Input) core.Result {
 		return workflowInline(in, script)
 	}
 	if path := paths.ExpandHome(in.Nested("tool_input", "scriptPath")); path != "" {
-		if data, err := os.ReadFile(path); err == nil {
-			if b := blockSteps(path, checkWorkflowSteps(data, filepath.Dir(path), args)); b != nil {
-				return *b
-			}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return core.Result{} // fail open: the tool reports an unreadable scriptPath itself
 		}
-		return workflowSaved(path)
+		if b := blockSteps(path, checkWorkflowSteps(data, filepath.Dir(path), args)); b != nil {
+			return *b
+		}
+		return workflowSaved(path, data)
 	}
 	if name := in.Nested("tool_input", "name"); name != "" {
 		return workflowByName(in, name)
@@ -76,8 +78,8 @@ func workflowInline(in *core.Input, script string) core.Result {
 	return core.Result{UpdatedInput: updated, Context: note}
 }
 
-func workflowSaved(path string) core.Result {
-	hits := lintSavedFile(path)
+func workflowSaved(path string, data []byte) core.Result {
+	hits := lintSaved(path, data)
 	if len(hits) == 0 {
 		return core.Result{}
 	}
@@ -96,24 +98,19 @@ func workflowByName(in *core.Input, name string) core.Result {
 		return core.Result{}
 	}
 	path := filepath.Join(dir, "workflows", name+".js")
-	if info, err := os.Stat(path); err != nil || info.IsDir() {
-		return core.Result{} // no on-disk script for this name — built-in or bogus, pass through
+	data, err := os.ReadFile(path) // read once: the lint, step check and rewrite all see these bytes
+	if err != nil {
+		return core.Result{} // no readable on-disk script for this name — built-in or bogus, pass through
 	}
-	if hits := lintSavedFile(path); len(hits) > 0 {
+	if hits := lintSaved(path, data); len(hits) > 0 {
 		return blockSavedLint(path, hits)
 	}
-	if data, err := os.ReadFile(path); err == nil {
-		if b := blockSteps(path, checkWorkflowSteps(data, filepath.Dir(path), in.ToolInput()["args"])); b != nil {
-			return *b
-		}
+	if b := blockSteps(path, checkWorkflowSteps(data, filepath.Dir(path), in.ToolInput()["args"])); b != nil {
+		return *b
 	}
-	if in.Nested("permission_mode") == "auto" && inCWD(path, in.CWD) {
+	if _, underCWD := core.RelWithin(in.CWD, path); underCWD && in.Nested("permission_mode") == "auto" {
 		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("workflow-lint: auto mode can't review a rewritten call; "+
 			"re-issue as Workflow({scriptPath: %q, args: <same args>})", path)}
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return core.Result{}
 	}
 	updated := in.CloneToolInput()
 	if updated == nil {
@@ -134,20 +131,8 @@ func workflowsDir() string {
 	return ""
 }
 
-// inCWD reports whether path lies inside cwd, comparing cleaned absolute paths.
-func inCWD(path, cwd string) bool {
-	p, err1 := filepath.Abs(path)
-	d, err2 := filepath.Abs(cwd)
-	return cwd != "" && err1 == nil && err2 == nil && core.UnderDir(d, p)
-}
-
-// lintSavedFile reads path and returns the pin problems worth blocking on; a read error returns nil
-// (fail open — the hook cannot rewrite a file anyway).
-func lintSavedFile(path string) []string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
+// lintSaved returns the pin problems worth blocking on in a saved script's bytes.
+func lintSaved(path string, data []byte) []string {
 	return withoutEffortOnly(planlint.LintPins(path, data))
 }
 

@@ -152,36 +152,17 @@ func readlink(p string) string {
 	return target
 }
 
-// replaceLink swaps dst for a symlink to target atomically via a temp link renamed over it, under the bin lock.
-// kept=true means dst is a regular file (a direct install, which writers take the same lock for): the temp
-// link is discarded and dst is left alone.
+// replaceLink atomically links dst to target under the bin lock; kept=true leaves a regular file (direct install).
 func replaceLink(dst, target string) (kept bool, err error) {
 	err = paths.WithFileLock(binLockPath(filepath.Dir(dst)), func() error {
-		var serr error
-		kept, serr = swapLink(dst, target)
-		return serr
+		switch fi, lerr := os.Lstat(dst); {
+		case lerr == nil && fi.Mode().IsRegular():
+			kept = true
+			return nil
+		case lerr != nil && !os.IsNotExist(lerr):
+			return lerr
+		}
+		return paths.SwapSymlink(target, dst)
 	})
 	return kept, err
-}
-
-func swapLink(dst, target string) (kept bool, err error) {
-	dir := filepath.Dir(dst)
-	tmp := filepath.Join(dir, fmt.Sprintf(".%s.%d.link", filepath.Base(dst), os.Getpid()))
-	_ = os.Remove(tmp)
-	if err := os.Symlink(target, tmp); err != nil {
-		return false, err
-	}
-	switch fi, lerr := os.Lstat(dst); {
-	case lerr == nil && fi.Mode().IsRegular():
-		_ = os.Remove(tmp)
-		return true, nil
-	case lerr != nil && !os.IsNotExist(lerr):
-		_ = os.Remove(tmp)
-		return false, lerr
-	}
-	if err := os.Rename(tmp, dst); err != nil {
-		_ = os.Remove(tmp)
-		return false, err
-	}
-	return false, nil
 }

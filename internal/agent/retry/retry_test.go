@@ -173,6 +173,8 @@ func TestDo(t *testing.T) {
 	}
 }
 
+// A failed Recover reaches the caller's error; it is not reduced to a bare "auth rejected".
+
 // MaxAttempts: 0 must behave exactly like 1 — one call, no retry notice, no backoff sleep. BaseDelay
 // is a full second so a stray sleep would blow the 100ms deadline below.
 func TestDoMaxAttemptsZeroActsAsOne(t *testing.T) {
@@ -299,10 +301,6 @@ func assertDispatchSourceGlobals(t *testing.T, p string, banned map[string]bool)
 		t.Fatal(perr)
 	}
 	for _, d := range f.Decls {
-		// Overlay flags set env at flag parse, before dispatch, so --job relaunches inherit (b868a893).
-		if fd, ok := d.(*ast.FuncDecl); ok && (fd.Name.Name == "EnableOverlay") {
-			continue
-		}
 		ast.Inspect(d, func(n ast.Node) bool { return assertDispatchCallGlobals(t, p, n, banned) })
 	}
 }
@@ -326,9 +324,13 @@ func assertDispatchCallGlobals(t *testing.T, p string, n ast.Node, banned map[st
 // Guarantee 4: the dispatch path never mutates process-global env or cwd (concurrent tasks would race on it).
 func TestNoSetenvOrChdirInDispatchPath(t *testing.T) {
 	banned := map[string]bool{"os.Setenv": true, "os.Unsetenv": true, "os.Clearenv": true, "os.Chdir": true}
-	files, err := filepath.Glob("*.go")
-	if err != nil || len(files) == 0 {
-		t.Fatalf("no sources found: %v", err)
+	var files []string
+	for _, dir := range []string{"..", "../../claude", "../../codex", "../../copilot", "../../gemini", "../../opencode"} {
+		got, err := filepath.Glob(filepath.Join(dir, "*.go"))
+		if err != nil || len(got) == 0 {
+			t.Fatalf("no sources in %s: %v", dir, err)
+		}
+		files = append(files, got...)
 	}
 	for _, p := range files {
 		if strings.HasSuffix(p, "_test.go") {

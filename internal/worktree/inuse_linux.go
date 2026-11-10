@@ -13,7 +13,7 @@ import (
 func init() {
 	processesIn = scanIn
 	scanProcs = scanProcsLinux
-	procCmdline = procCmdlineLinux
+	procArgs = procCmdlineLinux
 	parentOf = parentOfLinux
 	commName = commOf
 }

@@ -12,7 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 )
 
-// openMemoryFiles lists state files held open by same-user processes, lock descriptors included.
+// scanOpenMemoryFiles lists state files held open by same-user processes, lock descriptors included.
 func scanOpenMemoryFiles() (map[string]bool, bool) {
 	processes, err := os.ReadDir("/proc")
 	if err != nil {

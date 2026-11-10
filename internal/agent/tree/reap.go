@@ -87,7 +87,11 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 	if dryRun {
 		verb = "would reap"
 	}
-	snapshot := job.RecentRecords(scanAllRecords)
+	snapshot, err := job.ReadRecent(scanAllRecords)
+	if err != nil {
+		fmt.Fprintln(errw, "agents reap:", err)
+		return 1
+	}
 	records, code := reapRecords(snapshot, dryRun, verb, out, errw)
 	socks, sockCode := reapSockets(dryRun, verb, out, errw)
 	markers, err := reapMarkers(dryRun, verb, out)
@@ -168,14 +172,14 @@ func reapMarkers(dryRun bool, verb string, out io.Writer) (int, error) {
 		}
 		return 0, fmt.Errorf("marker dir: %w", err)
 	}
+	if dryRun {
+		return sweepMarkers(dir, dryRun, verb, out)
+	}
 	n := 0
 	sweep := func() error {
 		var err error
 		n, err = sweepMarkers(dir, dryRun, verb, out)
 		return err
-	}
-	if dryRun {
-		return n, sweep()
 	}
 	ran, err := paths.TryFileLock(filepath.Join(dir, ".lock"), markerLockWait, sweep)
 	if err == nil && !ran {

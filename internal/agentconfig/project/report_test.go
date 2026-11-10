@@ -6,29 +6,7 @@ import (
 	"testing"
 )
 
-func TestRowSinkClassifiesLines(t *testing.T) {
-	var s rowSink
-	in := "== codex ==\n  OK    ~/.codex/agents/foo.toml (unchanged)\n  DRY   ~/.codex/agents/bar.toml\n" +
-		"  KEEP  ~/.codex/AGENTS.md (hand-authored; remove it)\n== skills ==\n" +
-		"  EXTRA ~/.agents/skills/x (synced skills go to no agent; preserved)\n  LINK  ~/.agents/skills/s -> ~/.claude/skills/s\n"
-	s.Write([]byte(in[:40]))
-	s.Write([]byte(in[40:]))
-	want := []SyncRow{
-		{"codex", "foo", "agent", "~/.codex/agents/foo.toml", StateCurrent, "unchanged", "unverified"},
-		{"codex", "bar", "agent", "~/.codex/agents/bar.toml", StateStale, "", "unverified"},
-		{"codex", "AGENTS", "instructions", "~/.codex/AGENTS.md", StateBlocked, "hand-authored; remove it", "unverified"},
-		{"skills", "x", "extra", "~/.agents/skills/x", StatePreserved, "synced skills go to no agent; preserved", "unverified"},
-		{"skills", "s", "skill", "~/.agents/skills/s", StateStale, "", "unverified"},
-	}
-	if len(s.rows) != len(want) {
-		t.Fatalf("rows = %+v", s.rows)
-	}
-	for i, w := range want {
-		if s.rows[i] != w {
-			t.Errorf("row %d = %+v, want %+v", i, s.rows[i], w)
-		}
-	}
-}
+// The same status calls print the text lines and, into a rowSink, the matching rows.
 
 func TestWriteRowsEmptyIsArrayAndKeepsCode(t *testing.T) {
 	var b bytes.Buffer

@@ -19,20 +19,25 @@ var errLiveCap = fmt.Errorf("%d live sessions already running (max %d): agents c
 // LiveSocket is the unix socket path of live session id.
 func LiveSocket(id string) string { return filepath.Join(paths.DispatchDir(), id+wire.LiveSockSuffix) }
 
-// LiveCount counts live sessions still running, other than skip.
-func LiveCount(skip string) int {
+// liveCount counts live sessions still running.
+func liveCount() (int, error) {
+	recs, err := ReadRecent(1 << 20)
 	n := 0
-	for _, r := range RecentRecords(1 << 20) {
-		if r.Live && r.ID != skip && r.Alive() {
+	for _, r := range recs {
+		if r.Live && r.Alive() {
 			n++
 		}
 	}
-	return n
+	return n, err
 }
 
-// CheckLiveCap errors when starting another session (besides skip) would pass MaxLiveSessions.
-func CheckLiveCap(skip string) error {
-	if LiveCount(skip) >= MaxLiveSessions {
+// CheckLiveCap errors when starting another session would pass MaxLiveSessions.
+func CheckLiveCap() error {
+	n, err := liveCount()
+	if err != nil {
+		return err
+	}
+	if n >= MaxLiveSessions {
 		return errLiveCap
 	}
 	return nil

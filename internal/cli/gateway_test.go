@@ -124,7 +124,7 @@ func TestPrintRouteWidthsComeFromData(t *testing.T) {
 			{Agent: "claude", Model: "sonnet", Account: "a", State: "ok", Scores: map[string]float64{}},
 			{Agent: "opencode", Model: long, Account: "b", State: "ok", Scores: map[string]float64{}},
 		}}
-	_, out, _ := hosttest.CaptureOutput(t, func() int { printRoute(res, routeSources{}, nil); return 0 })
+	_, out, _ := hosttest.CaptureOutput(t, func() int { writeRoute(os.Stdout, res, routeSources{}, nil); return 0 })
 	var rows []string
 	for l := range strings.SplitSeq(out, "\n") {
 		if strings.HasPrefix(l, "#") || strings.HasPrefix(l, "1 ") || strings.HasPrefix(l, "2 ") {
@@ -152,13 +152,13 @@ func TestPrintRouteSkipHeader(t *testing.T) {
 			{Agent: "copilot", Gate: "exhausted", Reason: "r1"},
 			{Agent: "x", Gate: "g", Reason: "r2"},
 		}}
-	_, out, _ := hosttest.CaptureOutput(t, func() int { printRoute(res, routeSources{}, nil); return 0 })
+	_, out, _ := hosttest.CaptureOutput(t, func() int { writeRoute(os.Stdout, res, routeSources{}, nil); return 0 })
 	if !strings.Contains(out, "SKIP    GATE      REASON\n") ||
 		!strings.Contains(out, "copilot exhausted r1\n") || !strings.Contains(out, "x       g         r2\n") {
 		t.Errorf("skip block wrong:\n%s", out)
 	}
 	_, none, _ := hosttest.CaptureOutput(t, func() int {
-		printRoute(router.PickResult{Weights: map[string]float64{}}, routeSources{}, nil)
+		writeRoute(os.Stdout, router.PickResult{Weights: map[string]float64{}}, routeSources{}, nil)
 		return 0
 	})
 	if strings.Contains(none, "SKIP") {
@@ -249,22 +249,6 @@ func init() {
 	copilot.RefreshAccount = func(ctx context.Context, key string) bool { return ask.RouteRefresh(ctx, key) }
 }
 
-// captureStdout runs fn with os.Stdout redirected and returns what it printed.
-func captureRouteStdout(t *testing.T, fn func() int) (string, int) {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := os.Stdout
-	os.Stdout = w
-	code := fn()
-	w.Close()
-	os.Stdout = old
-	out, _ := io.ReadAll(r)
-	return string(out), code
-}
-
 // routeJSONFixture installs a work copilot profile, fake copilot+codex binaries and a 402-exhausted account.
 func routeJSONFixture(t *testing.T) {
 	t.Helper()
@@ -309,7 +293,7 @@ func assertRouteJSONSkipsAndLast(t *testing.T, res routeJSON) {
 // TestRouteVerbJSON: the pick's JSON carries weights, per-dimension scores, totals and each skip's gate.
 func TestRouteVerbJSON(t *testing.T) {
 	routeJSONFixture(t)
-	out, code := captureRouteStdout(t, func() int {
+	code, out, _ := hosttest.CaptureOutput(t, func() int {
 		return gatewayRoute([]string{"--model", "sonnet", "--agent", "copilot", "--format", "json"})
 	})
 	if code != 0 {
@@ -336,7 +320,7 @@ type routeSourcesJSON struct {
 
 func fetchRouteSources(t *testing.T) routeSourcesJSON {
 	t.Helper()
-	out, code := captureRouteStdout(t,
+	code, out, _ := hosttest.CaptureOutput(t,
 		func() int { return gatewayRoute([]string{"--model", "sonnet", "--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
@@ -374,7 +358,7 @@ func TestRouteVerbSourcesNameWhereEachKnobCameFrom(t *testing.T) {
 			withOverlay.Sources.Weights)
 	}
 
-	textOut, code := captureRouteStdout(t, func() int { return gatewayRoute([]string{"--model", "sonnet"}) })
+	code, textOut, _ := hosttest.CaptureOutput(t, func() int { return gatewayRoute([]string{"--model", "sonnet"}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, textOut)
 	}
@@ -408,7 +392,7 @@ func TestRouteEndsNamesResolvedClaudeAccount(t *testing.T) {
 	ask.RouteRefresh = func(context.Context, string) bool { return false }
 	t.Cleanup(func() { agent.ResolveAccount, ask.RouteRefresh = oldAcct, oldRefresh })
 
-	out, code := captureRouteStdout(t,
+	code, out, _ := hosttest.CaptureOutput(t,
 		func() int { return gatewayRoute([]string{"--model", "sonnet", "--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
@@ -537,7 +521,7 @@ func TestRouterPreviewMatchesDispatch(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			marker := parityEnv(t, "astra-par", tc.responses)
-			out, code := captureRouteStdout(t, func() int {
+			code, out, _ := hosttest.CaptureOutput(t, func() int {
 				return gatewayRoute(
 					[]string{"--agent", "codex", "--model", tc.model, "--fallback", "agents", "--format", "json"})
 			})

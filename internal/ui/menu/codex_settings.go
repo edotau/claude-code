@@ -25,7 +25,7 @@ func runCodexSettings(d *dialog) bool {
 		return false
 	}
 	d.printf("codex settings: %s\n", path)
-	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
+	if d.interactive() {
 		return runCodexSettingsMenu(d, ov, live)
 	}
 	return reportCodexSettings(d, ov, live)
@@ -54,11 +54,8 @@ func reportCodexSettings(d *dialog, ov, live map[string]string) bool {
 	}
 	for _, field := range codex.CodexFields() {
 		value, source := codexPreferenceValue(field.Key, ov, live)
-		if saved, exists := ov[field.Key]; exists {
-			value, source = saved, "vault"
-			if live[field.Key] != saved {
-				source += " · live differs"
-			}
+		if saved, exists := ov[field.Key]; exists && live[field.Key] != saved {
+			source += " · live differs"
 		}
 		d.printf("%s  %s  %s\n", field.Key, value, source)
 	}

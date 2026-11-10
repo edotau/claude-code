@@ -10,14 +10,10 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
-
-// ErrTaskMoved means the task at the requested line no longer carries the requested title.
-var ErrTaskMoved = errors.New("plans: task moved")
 
 var boxRe = regexp.MustCompile(`^(\s*[-*] \[)[ xX](\])`)
 
@@ -94,9 +90,8 @@ func tickText(planPath, text, sha string, files, seen []string) (out string, tic
 	return strings.Join(lines, "\n"), ticked, partial
 }
 
-// editTask re-reads planPath under the plans lock, applies fn and writes back only when bytes changed;
-// a missing task with restore set is re-added ticked under ## Tasks, and the missing-task error still returns.
-func editTask(planPath, taskID, restore string, fn func(Task, []string) []string) error {
+// editTask re-reads planPath under the plans lock, applies fn and writes back only when bytes changed.
+func editTask(planPath, taskID string, fn func(Task, []string) []string) error {
 	return paths.WithFileLock(filepath.Join(paths.StateDir(), "plans.lock"), func() error {
 		info, err := os.Stat(planPath)
 		if err != nil {
@@ -108,15 +103,7 @@ func editTask(planPath, taskID, restore string, fn func(Task, []string) []string
 		}
 		t, ok := findTask(ParseBytes(planPath, b), taskID)
 		if !ok {
-			missing := fmt.Errorf("plans: no task %q in %s", taskID, planPath)
-			if restore == "" {
-				return missing
-			}
-			out := strings.Join(restoreTicked(strings.Split(string(b), "\n"), restore), "\n")
-			if err := writePlan(planPath, []byte(out), info.Mode().Perm()); err != nil {
-				return errors.Join(missing, err)
-			}
-			return fmt.Errorf("%w; re-added it ticked", missing)
+			return fmt.Errorf("plans: no task %q in %s", taskID, planPath)
 		}
 		lines := strings.Split(string(b), "\n")
 		out := strings.Join(fn(t, lines), "\n")
@@ -125,29 +112,6 @@ func editTask(planPath, taskID, restore string, fn func(Task, []string) []string
 		}
 		return writePlan(planPath, []byte(out), info.Mode().Perm())
 	})
-}
-
-// restoreTicked inserts line after the last non-blank line of the ## Tasks section, appending the section when absent.
-func restoreTicked(lines []string, line string) []string {
-	start := slices.IndexFunc(lines, func(l string) bool { return strings.TrimSpace(l) == "## Tasks" })
-	if start < 0 {
-		for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-			lines = lines[:len(lines)-1]
-		}
-		return append(lines, "", "## Tasks", "", line, "")
-	}
-	end := len(lines)
-	for i := start + 1; i < len(lines); i++ {
-		if strings.HasPrefix(lines[i], "## ") {
-			end = i
-			break
-		}
-	}
-	at := end
-	for at > start+1 && strings.TrimSpace(lines[at-1]) == "" {
-		at--
-	}
-	return slices.Insert(lines, at, line)
 }
 
 // WriteFile replaces a plan under the plans lock, so a mirror or save never interleaves with a tick or claim.
@@ -210,44 +174,27 @@ func hasSha(shas []string, sha string) bool {
 	return false
 }
 
-// Claim writes <!-- text --> at a task's last line, replacing its working:/finished: comment.
-func Claim(planPath, taskID, text string) error { return claim(planPath, taskID, text, false) }
-
-// ClaimFree is Claim that leaves a task already carrying a working:/finished: comment alone, decided under the lock.
-func ClaimFree(planPath, taskID, text string) error { return claim(planPath, taskID, text, true) }
-
-func claim(planPath, taskID, text string, onlyFree bool) error {
+// ClaimFree writes <!-- text --> at a task's last line unless it already carries a claim, decided under the lock.
+func ClaimFree(planPath, taskID, text string) error {
 	text = strings.TrimSpace(text)
 	if strings.Contains(text, "-->") {
 		return fmt.Errorf("plans: claim text must not contain %q", "-->")
 	}
-	if !claimWord.MatchString(text) {
-		return errors.New("plans: claim text must start with working: or finished: prefix")
+	if !strings.HasPrefix(strings.ToLower(text), "working:") {
+		return errors.New("plans: claim text must start with \"working\"")
 	}
-	restore := ""
-	if strings.HasPrefix(strings.ToLower(text), "finished:") {
-		restore = "- [x] " + taskID + " <!-- " + text + " -->"
-	}
-	return editTask(planPath, taskID, restore, func(t Task, lines []string) []string {
-		if onlyFree && t.Claim != "" {
+	return editTask(planPath, taskID, func(t Task, lines []string) []string {
+		if t.Claim != "" {
 			return lines
 		}
-		lines = removeClaims(lines, t)
 		lines[t.End] = appendSuffix(lines[t.End], " <!-- "+text+" -->")
 		return lines
 	})
 }
 
-// ClearClaim removes a task's working:/finished: comment; a task without one is left untouched.
-func ClearClaim(planPath, taskID string) error {
-	return editTask(planPath, taskID, "", func(t Task, lines []string) []string {
-		return removeClaims(lines, t)
-	})
-}
-
 // ClearClaimOwned removes a task's claim only when a non-empty owner appears in its text, decided under the lock.
 func ClearClaimOwned(planPath, taskID, owner string) error {
-	return editTask(planPath, taskID, "", func(t Task, lines []string) []string {
+	return editTask(planPath, taskID, func(t Task, lines []string) []string {
 		if owner == "" || !strings.Contains(t.Claim, owner) {
 			return lines
 		}
@@ -264,53 +211,6 @@ func findTask(p Plan, taskID string) (Task, bool) {
 	}
 	for _, t := range p.Tasks {
 		if taskID != "" && strings.HasPrefix(t.Title, taskID) {
-			return t, true
-		}
-	}
-	return Task{}, false
-}
-
-// UserTick sets the task at 1-based line to done and records one hidden user marker stamped at, under the plans lock.
-func UserTick(planPath string, line int, title string, done bool, at time.Time) error {
-	return paths.WithFileLock(filepath.Join(paths.StateDir(), "plans.lock"), func() error {
-		info, err := os.Stat(planPath)
-		if err != nil {
-			return err
-		}
-		b, err := os.ReadFile(planPath)
-		if err != nil {
-			return err
-		}
-		t, ok := taskAtLine(ParseBytes(planPath, b), line-1, title)
-		if !ok {
-			return ErrTaskMoved
-		}
-		lines := strings.Split(string(b), "\n")
-		box := " "
-		verb := "unticked"
-		if done {
-			box, verb = "x", "ticked"
-		}
-		lines[t.Start] = boxRe.ReplaceAllString(lines[t.Start], "${1}"+box+"${2}")
-		for i := t.Start; i <= t.End; i++ {
-			if userRe.MatchString(lines[i]) {
-				lines[i] = strings.TrimRight(userRe.ReplaceAllString(lines[i], ""), " \t")
-			}
-		}
-		mark := " <!-- user: " + verb + " " + at.UTC().Format(time.RFC3339) + " -->"
-		lines[t.End] = appendSuffix(lines[t.End], mark)
-		out := strings.Join(lines, "\n")
-		if out == string(b) {
-			return nil
-		}
-		return writePlan(planPath, []byte(out), info.Mode().Perm())
-	})
-}
-
-// taskAtLine finds the task starting at 0-based start whose Title is title.
-func taskAtLine(p Plan, start int, title string) (Task, bool) {
-	for _, t := range p.Tasks {
-		if t.Start == start && t.Title == title {
 			return t, true
 		}
 	}

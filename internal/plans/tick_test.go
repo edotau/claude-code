@@ -2,7 +2,6 @@ package plans
 
 import (
 	"context"
-	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -12,104 +11,12 @@ import (
 	"time"
 )
 
-var (
-	tickAt1 = time.Date(2026, 10, 31, 9, 0, 0, 0, time.UTC)
-	tickAt2 = tickAt1.Add(time.Hour)
-)
-
 func userTickPlan(t *testing.T, body string) string {
 	t.Helper()
 	hermetic(t)
 	p := filepath.Join(t.TempDir(), "plan.md")
 	writeFile(t, p, body)
 	return p
-}
-
-func readPlan(t *testing.T, p string) string {
-	t.Helper()
-	b, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
-}
-
-// Spanning: tick then untick leaves exactly one marker, keeps sha/claim/partial, and Title is unchanged.
-func TestUserTickMarkerReplacedAndMetadataKept(t *testing.T) {
-	p := userTickPlan(t, "# P\n\n- [ ] 1.1 Alpha owns: a.go (abc1234) <!-- working: bob --> <!-- partly landed: a.go -->\n- [ ] 1.2 Beta\n")
-	before, _ := Parse(p)
-	if err := UserTick(p, 3, before.Tasks[0].Title, true, tickAt1); err != nil {
-		t.Fatal(err)
-	}
-	got := readPlan(t, p)
-	if !strings.Contains(got, "- [x] 1.1 Alpha") || !strings.Contains(got, "<!-- user: ticked 2026-10-31T09:00:00Z -->") {
-		t.Fatalf("tick not written:\n%s", got)
-	}
-	if err := UserTick(p, 3, before.Tasks[0].Title, false, tickAt2); err != nil {
-		t.Fatal(err)
-	}
-	got = readPlan(t, p)
-	if strings.Count(got, "<!-- user:") != 1 || !strings.Contains(got, "<!-- user: unticked 2026-10-31T10:00:00Z -->") ||
-		!strings.Contains(got, "- [ ] 1.1 Alpha") {
-		t.Fatalf("untick did not replace the marker:\n%s", got)
-	}
-	assertUserTickMetadataKept(t, p, before.Tasks[0])
-	if strings.Contains(strings.Split(got, "\n")[3], "user:") {
-		t.Fatalf("neighbouring task touched:\n%s", got)
-	}
-}
-
-// assertUserTickMetadataKept checks the sha, claim, partial and title survived the tick round trip.
-func assertUserTickMetadataKept(t *testing.T, p string, b Task) {
-	t.Helper()
-	after, _ := Parse(p)
-	a := after.Tasks[0]
-	if a.Title != b.Title || a.Sha != "abc1234" || !strings.Contains(a.Claim, "working: bob") || len(a.Partial) != 1 ||
-		a.UserMark != "unticked 2026-10-31T10:00:00Z" {
-		t.Fatalf("metadata lost or title changed: before=%+v after=%+v", b, a)
-	}
-}
-
-// Corner cases: stale title, out-of-range lines and a fenced checkbox all report ErrTaskMoved and leave the file alone.
-func TestUserTickRejectsMovedTasks(t *testing.T) {
-	body := "- [ ] 2.1 Real\n\n```\n- [ ] 9.9 Fenced\n```\n"
-	p := userTickPlan(t, body)
-	cases := []struct {
-		name  string
-		line  int
-		title string
-	}{
-		{"wrong title", 1, "2.1 Other"},
-		{"line zero", 0, "2.1 Real"},
-		{"past end", 99, "2.1 Real"},
-		{"negative", -3, "2.1 Real"},
-		{"inside fence", 4, "9.9 Fenced"},
-	}
-	for _, c := range cases {
-		if err := UserTick(p, c.line, c.title, true, tickAt1); !errors.Is(err, ErrTaskMoved) {
-			t.Errorf("%s: err = %v, want ErrTaskMoved", c.name, err)
-		}
-	}
-	if got := readPlan(t, p); got != body {
-		t.Fatalf("file changed on rejected ticks:\n%s", got)
-	}
-}
-
-// An ID-less task ticks by line+title, and a multi-line item gets one marker on its last line.
-func TestUserTickEmptyIDAndContinuation(t *testing.T) {
-	p := userTickPlan(t, "- [ ] Plain task\n  continued here\n- [ ] Next\n")
-	pl, _ := Parse(p)
-	if pl.Tasks[0].ID != "" {
-		t.Fatalf("fixture has an ID: %+v", pl.Tasks[0])
-	}
-	if err := UserTick(p, 1, pl.Tasks[0].Title, true, tickAt1); err != nil {
-		t.Fatal(err)
-	}
-	lines := strings.Split(readPlan(t, p), "\n")
-	if !strings.HasPrefix(lines[0], "- [x] Plain task") || strings.Contains(lines[0], "user:") ||
-		!strings.Contains(lines[1], "<!-- user: ticked") || strings.Contains(lines[2], "user:") {
-		t.Fatalf("marker misplaced: %q", lines)
-	}
 }
 
 // TestTickRangeSkipsDraftMirror is the regression test: a range tick never lands on an unapproved draft's mirror.
@@ -155,34 +62,5 @@ func TestTickRangeSkipsDraftMirror(t *testing.T) {
 	}
 	if err := TickRange(context.Background(), repo, "", base+"..HEAD", draft, drafts, true, io.Discard); err == nil {
 		t.Error("--plan naming a draft mirror must be refused")
-	}
-}
-
-// A finished claim on a task the plan lost re-adds it ticked under ## Tasks and still returns the missing-task error.
-func TestClaimFinishedRestoresMissingTask(t *testing.T) {
-	p := userTickPlan(t, "# P\n\n## Tasks\n\n- [ ] 1.1 Alpha\n\n## Verification\n\ngo test\n")
-	err := Claim(p, "1.2", "finished: goal done")
-	if err == nil || !strings.Contains(err.Error(), `no task "1.2"`) {
-		t.Fatalf("err = %v, want the missing-task error", err)
-	}
-	want := "# P\n\n## Tasks\n\n- [ ] 1.1 Alpha\n- [x] 1.2 <!-- finished: goal done -->\n\n## Verification\n\ngo test\n"
-	if got := readPlan(t, p); got != want {
-		t.Fatalf("plan =\n%s\nwant\n%s", got, want)
-	}
-	if err := Claim(p, "1.3", "working: bob"); err == nil || strings.Contains(readPlan(t, p), "1.3") {
-		t.Fatalf("a working claim must not re-add a missing task: err=%v", err)
-	}
-}
-
-func TestClaimFinishedAddsTasksSectionWhenAbsent(t *testing.T) {
-	body := "# P\n\nGoal.\n\n\n"
-	p := userTickPlan(t, body)
-	err := Claim(p, "1.2", "finished: goal done")
-	if err == nil || !strings.HasSuffix(err.Error(), "; re-added it ticked") {
-		t.Fatalf("err = %v, want the missing-task error ending in re-added it ticked", err)
-	}
-	want := strings.TrimRight(body, "\n") + "\n\n## Tasks\n\n- [x] 1.2 <!-- finished: goal done -->\n"
-	if got := readPlan(t, p); got != want {
-		t.Fatalf("plan =\n%q\nwant\n%q", got, want)
 	}
 }

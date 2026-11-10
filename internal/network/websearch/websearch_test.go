@@ -471,6 +471,8 @@ func TestFetchPageTextHonorsRobots(t *testing.T) {
 	}
 }
 
+// TestRobotsUnreadableFailsClosed: a 5xx robots.txt cannot be honoured, so the page is never requested.
+
 // TestFetchPageTextTruncatedBodyKeepsSnippet: a body cut off mid-read yields "" rather than a fragment.
 func TestFetchPageTextTruncatedBodyKeepsSnippet(t *testing.T) {
 	allowLoopbackFetch(t)
@@ -497,7 +499,7 @@ func TestRobotsAllowedSeveralUserAgentsShareGroup(t *testing.T) {
 	}))
 	defer srv.Close()
 	u, _ := url.Parse(srv.URL + "/page")
-	if robotsAllowed(context.Background(), u) {
+	if robotsAllowed(context.Background(), u, nil) {
 		t.Error("robotsAllowed = true, want false: Disallow / applies to the * group")
 	}
 }
@@ -614,6 +616,8 @@ func TestExtractPrintsPagesAndFailures(t *testing.T) {
 		}
 	}
 }
+
+// TestExtractKeepsPagesWhenRetryFails: an advanced-depth error keeps the basic pages and marks only the retried URL.
 
 func TestExtractRefusesInternalAddresses(t *testing.T) {
 	t.Setenv(keyName, "test-key")

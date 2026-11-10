@@ -59,7 +59,7 @@ func assertShownFromArchive(t *testing.T, id, archive string) {
 	if _, _, err := ShowBlock("deadbeef"); err != errNoBlock {
 		t.Errorf("unknown id err = %v, want errNoBlock", err)
 	}
-	if e := entriesWithPrefix(archive, "## "); len(e) == 0 || !strings.HasSuffix(e[0], "["+id+"]") || strings.Contains(e[0], "<!--") {
+	if e, _ := entriesWithPrefix(archive, "## "); len(e) == 0 || !strings.HasSuffix(e[0], "["+id+"]") || strings.Contains(e[0], "<!--") {
 		t.Errorf("index line must show [id] without the raw marker: %v", e)
 	}
 }

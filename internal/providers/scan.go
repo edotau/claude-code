@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -82,12 +83,7 @@ func dedupExisting(files []string) []string {
 func walkJSONStrings(prefix []string, node any, visit func(path []string, val string)) {
 	switch v := node.(type) {
 	case map[string]any:
-		keys := make([]string, 0, len(v))
-		for k := range v {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
+		for _, k := range slices.Sorted(maps.Keys(v)) {
 			walkJSONStrings(append(prefix, k), v[k], visit)
 		}
 	case []any:
@@ -173,7 +169,12 @@ func (s *Scanner) ScanFile(path string) {
 	}
 	before := len(s.Findings)
 	var doc any
-	if json.Unmarshal(raw, &doc) == nil {
+	jsonErr := json.Unmarshal(raw, &doc)
+	if jsonErr != nil && strings.EqualFold(filepath.Ext(path), ".json") {
+		s.flag(fmt.Sprintf("%s — not valid JSON, so it could not be scanned: %v", path, jsonErr))
+		return
+	}
+	if jsonErr == nil {
 		walkJSONStrings(nil, doc, func(p []string, val string) {
 			metadata := marketplaceRepoPath(p) ||
 				(filepath.Base(path) == ".claude.json" && claudeMetadataPath(p))
@@ -239,12 +240,7 @@ func scanSecretBuckets(t *vault.Tx) []string {
 	var found []string
 	for _, bucket := range []string{vault.Pins, vault.Env} {
 		kv := t.All(bucket)
-		keys := make([]string, 0, len(kv))
-		for k := range kv {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
+		for _, k := range slices.Sorted(maps.Keys(kv)) {
 			if v := kv[k]; v != SecretRef && vault.LooksLikeSecret(v) {
 				found = append(found, "vault:"+bucket+" → "+k+" holds an inline secret")
 			}

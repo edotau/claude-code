@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/memory"
 
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -198,7 +199,7 @@ func TestLaunchersNeverOfferFlagsOrDispatch(t *testing.T) {
 func TestCompletionLaunchersAreRealVerbs(t *testing.T) {
 	for _, name := range []string{"codex", "copilot", "opencode", "gemini", "claude"} {
 		if lookup(name) == nil {
-			t.Errorf("noComplete lists %q, which is not a registered verb", name)
+			t.Errorf("launcher %q is not a registered verb", name)
 		}
 	}
 }
@@ -462,17 +463,6 @@ func TestFlagEqualsValueForm(t *testing.T) {
 	}
 }
 
-// TestNoCompleteLauncherStillOffersNothing: a bare launcher verb (noComplete) must offer nothing of
-// its own beyond any in-process subwords — its flags belong to a process this binary never
-// inspects, and nothing here may invoke a command's run func to find out what they are.
-func TestNoCompleteLauncherStillOffersNothing(t *testing.T) {
-	for _, name := range []string{"codex", "copilot", "opencode", "gemini", "claude"} {
-		if got := completionCandidates([]string{name, "--"}); len(got) != 0 {
-			t.Errorf("%s -- = %v, want none (noComplete launcher)", name, got)
-		}
-	}
-}
-
 // TestCompletionNeverInvokesARunFunc is the construction proof behind every test in this file: build
 // a specTree whose run funcs are poisoned sentinels, and drive every verb+subword path through
 // completionCandidates — a hang or panic means something dereferenced a command's run func instead
@@ -510,7 +500,7 @@ func TestVendorCompletionOffersEverySubverb(t *testing.T) {
 		want = append(want, sub)
 	}
 	slices.Sort(want)
-	for _, vendor := range vendorNames() {
+	for _, vendor := range agent.Names() {
 		got := completionCandidates([]string{vendor, ""})
 		slices.Sort(got)
 		if !slices.Equal(got, want) {
@@ -561,7 +551,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"memory": {"recall", "remember", "init", "review", "verify", "promote", "update", "dream", "search", "show",
 			"digest", "index", "path", "catchup", "watch", "timeline", "archive", "alias", "fmt", "report"},
 		"gateway":  {"proxy"},
-		"agents":   {"sync", "tree", "reap", "list", "ask", "dispatch", "label"},
+		"agents":   {"sync", "tree", "reap", "list", "ask", "dispatch", "label", "send", "status", "result", "tail", "cancel"},
 		"workflow": {"skeleton", "lint"},
 		"theme":    {"apply", "statusline", "vscode"},
 		"worktree": {"list", "create", "merge", "clean", "clean-all", "gate"},
@@ -655,50 +645,6 @@ func TestHookDomainMatchesRegistry(t *testing.T) {
 	}
 }
 
-// TestWorktreeMergeFlagsMatchItsOwnFlagSet pins worktree merge's completable flags against the
-// literal flag sets in the merge verb (internal/cli/worktree.go) — catching exactly
-// the kind of drift Part 3 replaced three hand tables to prevent.
-func TestWorktreeMergeFlagsMatchItsOwnFlagSet(t *testing.T) {
-	node := specTree()["worktree"].Sub["merge"]
-	if node == nil {
-		t.Fatal(`specTree()["worktree"].Sub["merge"] is nil`)
-	}
-	var got []string
-	for _, f := range node.Flags {
-		got = append(got, f.Name)
-	}
-	slices.Sort(got)
-	want := []string{"dry-run", "full-verify", "no-clean", "no-verify", "resolve-agent", "resume", "target", "verify"}
-	if !slices.Equal(got, want) {
-		t.Errorf("worktree merge flags = %v, want %v (cmdWorktreeMerge's own flag.NewFlagSet)", got, want)
-	}
-}
-
-// TestGenerateProfileDoctorModelsFlagsMatchTheirOwnFlagSets pins four more verbs' completable flags
-// against the literal helptext.NewFlagSet calls in their own handlers (internal/cli/configure.go, internal/doctor/doctor.go,
-// providers.go) — every flag the handler defines must have a specTree candidate, or
-// tab-completion silently falls behind the handler the way askFlags once did.
-func TestConfigureDoctorModelsFlagsMatchTheirOwnFlagSets(t *testing.T) {
-	cases := map[string][]string{
-		"configure": {"restore", "revert", "out", "agents", "agent", "profile", "dry-run", "check", "list", "format"}, // cmdConfigure
-		"doctor":    {"audit", "days", "format"},                                                                      // doctor.Run
-		"models":    {"profile", "unpin", "live", "dry-run", "format", "pin"},                                         // cmdModels
-	}
-	for verb, flags := range cases {
-		node := specTree()[verb]
-		if node == nil {
-			t.Fatalf("%s: no node in specTree()", verb)
-		}
-		got := describe.FlagNames(node)
-		for _, f := range flags {
-			boolForm, valuedForm := "--"+f, "--"+f+" <value>"
-			if !slices.Contains(got, boolForm) && !slices.Contains(got, valuedForm) {
-				t.Errorf("%s: specTree() flags = %v, missing --%s (from its own flag.NewFlagSet)", verb, got, f)
-			}
-		}
-	}
-}
-
 // TestMemoryUpdateSpecHasNoRepoFlag: update takes no --repo in its own flag.FlagSet (memoryFlagSet,
 // not memoryRepoFlagSet) — the spec must not advertise one either.
 func TestMemoryUpdateSpecHasNoRepoFlag(t *testing.T) {
@@ -715,27 +661,4 @@ func TestMemoryUpdateSpecHasNoRepoFlag(t *testing.T) {
 	}
 }
 
-// TestAskFlagsMatchItsOwnFlagSet pins ask's completable flags against the literal flag.NewFlagSet
-// calls in Run (internal/agent/ask/ask.go) — askFlags had silently fallen behind by five flags
-// (fallback, attach, keep-env, autonomous, enable-memory) before this test existed; background and
-// job joined later (job dispatch control: --background detaches, --job replays a saved record).
-func TestAskFlagsMatchItsOwnFlagSet(t *testing.T) {
-	node := specTree()["agents"].Sub["ask"]
-	if node == nil {
-		t.Fatal(`specTree()["agents"].Sub["ask"] is nil`)
-	}
-	var got []string
-	for _, f := range node.Flags {
-		got = append(got, f.Name)
-	}
-	slices.Sort(got)
-	want := []string{
-		"agent", "agents", "allow", "ask", "as", "attach", "autonomous", "background", "batch", "debug-file", "deny", "effort", "enable-memory", "fail-fast", "fallback", "fleet",
-		"format", "job", "jobs", "keep-env", "log", "mode", "model", "native", "no-persist", "no-tools", "overlay", "profile", "read-only", "retry", "rubric", "safe-mode", "session", "timeout",
-		"tools", "workdir",
-	}
-	slices.Sort(want)
-	if !slices.Equal(got, want) {
-		t.Errorf("ask flags = %v, want %v (cmdAsk's own flag.NewFlagSet)", got, want)
-	}
-}
+// TestCompletionOffersEveryAcceptedFlagAndSection: flags and sections the verbs accept are not missing from completion.

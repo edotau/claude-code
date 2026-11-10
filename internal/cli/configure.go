@@ -249,7 +249,7 @@ func providerNames() []string {
 }
 
 // agentNames are the agent CLIs `configure --agent` can scope to: the agents plus claude itself.
-func agentNames() []string { return []string{"claude", "codex", "gemini", "opencode", "copilot"} }
+func agentNames() []string { return append([]string{"claude"}, client.DefaultAgents...) }
 
 // authNames are the github profiles with a login, plus "follow", for `configure github --auth`.
 func authNames() []string {

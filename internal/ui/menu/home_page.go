@@ -50,7 +50,7 @@ func tailscaleRow() homeRow {
 	if host != "" {
 		check = host + " · " + check
 	}
-	return homeRow{Name: "tailscale", State: state, Check: check, Run: func(d *dialog) { runRemote(d) }}
+	return homeRow{Name: "tailscale", State: state, Check: check, Run: runRemote}
 }
 
 // tsStatus caches tailscale.Status (result and error) for tsStatusTTL: every render and runRemote share one call.
@@ -307,7 +307,7 @@ func rerenderConfigs(d *dialog) error {
 }
 
 // runRemote reports tailscale connectivity and dispatch hosts — read-only, never fails --check.
-func runRemote(d *dialog) bool {
+func runRemote(d *dialog) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 	st, err := tailscaleStatus(ctx)
@@ -332,7 +332,6 @@ func runRemote(d *dialog) bool {
 	default:
 		d.printf("dispatch    no online tailnet machines found\n")
 	}
-	return true
 }
 
 // onlineNames is the names of the online machines, in list order.

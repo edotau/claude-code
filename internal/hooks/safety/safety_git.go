@@ -79,8 +79,8 @@ func rewriteRange(verb string, args []string) ([]string, bool) {
 		}
 		return rebaseRange(args), true
 	case "reset":
-		if base := firstOperand(args, nil); base != "" && !slices.Contains(args, "--") {
-			return []string{base + "..HEAD"}, true
+		if ops := rewriteOperands(args, nil); len(ops) > 0 && ops[0] != "" && !slices.Contains(args, "--") {
+			return []string{ops[0] + "..HEAD"}, true
 		}
 	}
 	return nil, false
@@ -103,14 +103,6 @@ func rebaseRange(args []string) []string {
 		branch = operands[1]
 	}
 	return []string{base + ".." + branch}
-}
-
-// firstOperand is the first non-option word before `--`, skipping the value of each flag in valueFlags.
-func firstOperand(args []string, valueFlags map[string]bool) string {
-	if operands := rewriteOperands(args, valueFlags); len(operands) > 0 {
-		return operands[0]
-	}
-	return ""
 }
 
 // rewriteOperands collects non-option words before `--`, skipping option values.
@@ -172,13 +164,13 @@ func probeRewrite(ctx context.Context, target string, rng []string) (string, boo
 	}
 	top := core.CanonPath(dirs[0])
 	n, err := rewriteCount(ctx, top, rng)
-	return top, isLinkedWorktree(dirs[1], dirs[2]), n, err
+	return top, core.CanonPath(dirs[1]) != core.CanonPath(dirs[2]), n, err
 }
 
 // rewriteCount is how many commits rng holds in dir; 0 when its base is not a commit (a path, no upstream).
 func rewriteCount(ctx context.Context, dir string, rng []string) (int, error) {
 	if base, _, isRange := strings.Cut(rng[0], ".."); isRange {
-		if ok, err := isCommit(ctx, dir, base); err != nil || !ok {
+		if _, ok, err := core.Git(ctx, dir, "rev-parse", "--verify", "--quiet", base+"^{commit}"); err != nil || !ok {
 			return 0, err
 		}
 	}
@@ -188,17 +180,6 @@ func rewriteCount(ctx context.Context, dir string, rng []string) (int, error) {
 	}
 	n, _ := strconv.Atoi(out[0])
 	return n, nil
-}
-
-// isCommit reports whether rev names a commit in dir; false for a path or a missing upstream.
-func isCommit(ctx context.Context, dir, rev string) (bool, error) {
-	_, ok, err := core.Git(ctx, dir, "rev-parse", "--verify", "--quiet", rev+"^{commit}")
-	return ok, err
-}
-
-// isLinkedWorktree is true when the git dir is not the common dir: a `git worktree add` checkout.
-func isLinkedWorktree(gitDir, commonDir string) bool {
-	return core.CanonPath(gitDir) != core.CanonPath(commonDir)
 }
 
 // shareReasons lists why top is shared: the live config tree, peer sessions in it, or this session's leaves.

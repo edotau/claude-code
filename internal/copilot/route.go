@@ -24,15 +24,10 @@ func copilotGate(reg *providers.Registry, t providers.Target) (providers.Target,
 		return t, "", nil
 	}
 	// the target GitHub row's own login: an explicit --profile personal is gated on that account, not the copilot pin
-	detail, ok := copilotHeadroom(context.Background(), cmp.Or(t.Provider.Login, copilotPinLogin()))
+	detail, ok := pinnedHeadroom(context.Background(), t.Provider.Login)
 	if ok {
 		return t, "", nil
 	}
-	return copilotFallback(reg, detail)
-}
-
-// copilotFallback is the copilot Databricks fallback target and its notice; detail names why GitHub was refused.
-func copilotFallback(reg *providers.Registry, detail string) (providers.Target, string, error) {
 	ri := copilotDatabricksFallback(reg, detail)
 	ft, ok := agent.RouteTarget(reg, ri)
 	if !ok {
@@ -44,13 +39,10 @@ func copilotFallback(reg *providers.Registry, detail string) (providers.Target, 
 // copilotDatabricksFallback: this session's (else the vault-pinned) profile when it is a signed-in Databricks row,
 // else the first Databricks profile whose credential resolves, else RouteNone. detail names why GitHub was refused.
 func copilotDatabricksFallback(reg *providers.Registry, detail string) agent.RouteInfo {
-	pick := func(p *providers.Provider) agent.RouteInfo {
-		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteDatabricks, Provider: p.Name, Model: p.Models[models.Opus],
-			Reason: "copilot: " + detail + " — using databricks profile " + p.Name, OK: true}
-	}
 	for _, name := range fallbackProfiles(reg) {
 		if p := reg.Providers[name]; p.DatabricksUsable() {
-			return pick(p)
+			return agent.RouteInfo{Agent: "copilot", Route: agent.RouteDatabricks, Provider: p.Name, Model: p.Models[models.Opus],
+				Reason: "copilot: " + detail + " — using databricks profile " + p.Name, OK: true}
 		}
 	}
 	return agent.RouteInfo{Agent: "copilot", Route: agent.RouteNone,
@@ -72,7 +64,7 @@ func describeCopilotRoute(reg *providers.Registry) agent.RouteInfo {
 		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteDatabricks, Provider: p.Name, Model: t.Model,
 			Reason: "copilot: pinned databricks profile " + p.Name, OK: true}
 	}
-	detail, workable := copilotHeadroom(context.Background(), copilotPinLogin())
+	detail, workable := pinnedHeadroom(context.Background(), "")
 	if a, ok := copilotAuthSource(); ok && workable {
 		if p, ok := reg.LoginProfile("github", "copilot"); ok {
 			model, _ := providers.CopilotModel(reg)
@@ -167,7 +159,11 @@ func copilotArgv(h *agent.Headless) []string {
 	if h == nil {
 		return copilotPinArgv()
 	}
-	return copilotHeadless(h)
+	argv := []string{"--prompt", h.Prompt}
+	if h.Tools && h.Autonomous {
+		argv = append(argv, "--allow-all-tools")
+	}
+	return argv
 }
 
 // copilotPinArgv is --reasoning-effort/--context from the configure page's pins, on every interactive launch.
@@ -253,15 +249,6 @@ func copilotCredEnv(p *providers.Provider, cred string) []string {
 		env = append(env, proc.EnvCopilotProviderHeaders+"="+providers.HeaderLines(p.Headers))
 	}
 	return env
-}
-
-func copilotHeadless(h *agent.Headless) []string {
-	argv := []string{"--prompt", h.Prompt}
-	switch {
-	case h.Tools && h.Autonomous:
-		argv = append(argv, "--allow-all-tools")
-	}
-	return argv
 }
 
 // ValidateCopilotPins checks each pin whose effective provider is github-copilot against its live catalog.

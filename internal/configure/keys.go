@@ -26,7 +26,6 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -372,9 +371,7 @@ func ProbeValue(p *providers.Provider, envVar, candidate string) (status, detail
 			_ = os.Unsetenv(envVar)
 		}
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-	defer cancel()
-	return providers.ProbeCredential(ctx, p)
+	return Probe(KeyTarget{Provider: p})
 }
 
 // RotateOptions lists how an already-present kt can be rotated: its own CLI first (login, then mint —
@@ -470,12 +467,9 @@ func ParseAssignment(raw string) (name, value string) {
 	return name, s
 }
 
-// ValidateSecret checks menu-entered credentials before staging; environment edits retain vault-only validation.
+// ValidateSecret checks menu-entered credentials before staging with the same rule as `vault set`.
 func ValidateSecret(name, value string) error {
-	if name == providers.CopilotTokenEnv && !agent.ValidCopilotToken(value) {
-		return fmt.Errorf("%s: not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)", name)
-	}
-	return textutil.ValidCredential(name, value)
+	return agent.ValidateVaultSecret(name, value)
 }
 
 // StoreSecret seals a value using the vault's validation and name-only audit entry, without menu-specific checks.
@@ -490,10 +484,14 @@ func DeleteSecret(name string) error {
 
 // SaveEnvEdit saves the secret before the env reference; the menu separately confirms and reports old-secret deletion.
 func SaveEnvEdit(name, raw, secret string) error {
-	if secret != "" {
-		if err := StoreSecret(name, secret); err != nil {
-			return err
-		}
+	if secret == "" {
+		return providers.SetCustomEnv(name, raw)
 	}
-	return providers.SetCustomEnv(name, raw)
+	if err := StoreSecret(name, secret); err != nil {
+		return err
+	}
+	if err := providers.SetCustomEnv(name, raw); err != nil {
+		return fmt.Errorf("secret %s already sealed, env reference not saved: %w", name, err)
+	}
+	return nil
 }

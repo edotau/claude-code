@@ -15,7 +15,7 @@ import (
 )
 
 func TestCopilotFallbackExcludesFailedEdits(t *testing.T) {
-	for _, edits := range []string{"", `,"fileEdits":[]`} {
+	for _, edits := range []string{"", `,"fileEdits":[]`, `,"fileEdits":[{"path":"/r/rejected.txt"}]`} {
 		t.Run("completion"+edits, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "events.jsonl")
 			data := `{"type":"tool.execution_start","data":{"toolCallId":"failed","toolName":"create","arguments":{"path":"/r/rejected.txt"}}}` + "\n" +
@@ -24,7 +24,7 @@ func TestCopilotFallbackExcludesFailedEdits(t *testing.T) {
 			if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			got := loadCopilotEvents("fallback", copilotEventsFrom(path, "/r"))
+			got := loadCopilotEvents(copilotEventsFrom(path, "/r"))
 			if got.Edits != 1 || fmt.Sprint(got.EditedPaths) != "[/r/pending.txt]" {
 				t.Fatalf("fallback edits=%d paths=%v, want only the unfailed pending edit", got.Edits, got.EditedPaths)
 			}
@@ -83,7 +83,7 @@ func TestFailedStopDispatchLeavesWorkForFinalHook(t *testing.T) {
 			if calls.Load() != 1 {
 				t.Fatalf("%s skipped retry after failed Stop: spawns=%d", hook.name, calls.Load())
 			}
-			if st, ok := readStamp(stampPath("s1")); !ok || !st.bg || st.edits != 5 {
+			if st, ok := readStamp(stampPath("s1")); !ok || st.state != "bg" || st.edits != 5 {
 				t.Fatalf("successful retry stamp=%+v exists=%v, want bg covering 5 edits", st, ok)
 			}
 		})

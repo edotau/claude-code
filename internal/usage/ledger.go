@@ -72,6 +72,8 @@ func humanTokens(n int) string {
 	switch {
 	case n >= 1_000_000:
 		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 999_500: // %.0fk would round up to "1000k"
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
 	case n >= 1_000:
 		return fmt.Sprintf("%.0fk", float64(n)/1_000)
 	default:

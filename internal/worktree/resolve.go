@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,23 +18,18 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// leasedFileLock tries once (no wait) for the exclusive lease at path; ran=false means another
-// resolve/resume/merge/clean already holds it. Unlike paths.WithFileLock, TryFileLock does not create
-// path's parent directory, so this does it first — the operations dir may not exist yet on a first resolve.
-func leasedFileLock(path string, fn func() error) (ran bool, err error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, err
-	}
-	return paths.TryFileLock(path, 0, fn)
-}
-
 // WithWorktreeLease runs fn holding the exclusive per-worktree operation lease for repo+name: the one
 // invariant serializing a resolve, an ordinary merge, and a Clean on the same worktree so they can
 // never interleave. Always acquired before Promote's own merge lock, never the reverse — Merge and the
 // CLI's merge lifecycle both nest Promote inside this lease, so that is the only nesting order that
 // exists in this codebase and the two locks cannot deadlock against each other.
 func WithWorktreeLease(repo *Repo, name string, fn func() error) error {
-	ran, err := leasedFileLock(operationLeasePath(repo.Main, name), fn)
+	leasePath := operationLeasePath(repo.Main, name)
+	// TryFileLock does not create the lease dir, which may not exist yet on a first resolve.
+	if err := os.MkdirAll(filepath.Dir(leasePath), 0o755); err != nil {
+		return err
+	}
+	ran, err := paths.TryFileLock(leasePath, 0, fn) // one try, no wait: ran=false means the lease is held elsewhere
 	if err != nil {
 		return err
 	}
@@ -137,60 +133,66 @@ const (
 // tools-enabled agent is never re-invoked automatically, crash or not. Either way, only Promote (the
 // caller's job) commits repo.Main; this function only edits/polls the worktree and reports.
 func ResolveWithAgent(ctx context.Context, repo *Repo, plan *MergePlan, agentName string, op *Operation) (*Operation, *MergeResult, error) {
-	resuming := op != nil
-	if resuming && !op.AgentExitOK {
-		return nil, nil, fmt.Errorf(
-			"resolve: operation %s has no persisted successful agent-exit receipt (phase %q) — the agent may still be running or never completed; refusing to resume", op.ID, op.Phase)
+	if op != nil {
+		if !op.AgentExitOK {
+			return nil, nil, fmt.Errorf(
+				"resolve: operation %s has no persisted successful agent-exit receipt (phase %q) — the agent may still be running or never completed; refusing to resume", op.ID, op.Phase)
+		}
+		return pollUntilResolved(ctx, op, plan.WorktreePath)
 	}
-	return resolveWithAgent(ctx, repo, plan, agentName, op)
+	materialized, err := materializeConflict(ctx, plan)
+	if err != nil {
+		return nil, nil, err
+	}
+	if materialized.Phase != "conflict" {
+		return nil, materialized, nil // merge-tree's prediction didn't reproduce; nothing to hand the agent
+	}
+	conflictPaths, err := unmergedPaths(ctx, plan.WorktreePath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	op = &Operation{
+		ID:                newOperationID(),
+		Repo:              repo.Main,
+		Worktree:          filepath.Base(plan.WorktreePath),
+		TargetRef:         plan.TargetRef,
+		TargetOID:         plan.TargetOID,
+		OriginalSourceOID: plan.SourceOID,
+		ConflictPaths:     conflictPaths,
+		Phase:             "resolving",
+		StartedAt:         nowFn(),
+		Agent:             agentName,
+	}
+	op.Deadline = op.StartedAt.Add(maxResolveWait)
+	if err := SaveOperation(op); err != nil {
+		return nil, nil, abortMaterialized(plan.WorktreePath, err)
+	}
+
+	res, runErr := runResolveAgent(ctx, agentName, resolvePrompt(plan, conflictPaths), plan.WorktreePath, maxResolveWait)
+	if runErr != nil {
+		return failOperation(op, fmt.Errorf("resolve: agent %s failed: %w", agentName, runErr))
+	}
+	if res.Fallback != "" {
+		return failOperation(op, fmt.Errorf(
+			"resolve: requested agent %q fell back to %q (%s) — refusing a silently different model", agentName, res.Fallback, res.FallbackReason))
+	}
+	op.AgentExitOK = true // the one receipt resume is allowed to trust instead of re-running the agent
+	if err := SaveOperation(op); err != nil {
+		return nil, nil, err
+	}
+	return finalizeAgentResolution(ctx, op, plan.WorktreePath)
 }
 
-func resolveWithAgent(ctx context.Context, repo *Repo, plan *MergePlan, agentName string, op *Operation) (*Operation, *MergeResult, error) {
-	if op == nil {
-		materialized, err := materializeConflict(ctx, plan)
-		if err != nil {
-			return nil, nil, err
-		}
-		if materialized.Phase != "conflict" {
-			return nil, materialized, nil // merge-tree's prediction didn't reproduce; nothing to hand the agent
-		}
-		conflictPaths, err := unmergedPaths(ctx, plan.WorktreePath)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		op = &Operation{
-			ID:                newOperationID(),
-			Repo:              repo.Main,
-			Worktree:          filepath.Base(plan.WorktreePath),
-			TargetRef:         plan.TargetRef,
-			TargetOID:         plan.TargetOID,
-			OriginalSourceOID: plan.SourceOID,
-			ConflictPaths:     conflictPaths,
-			Phase:             "resolving",
-			StartedAt:         nowFn(),
-			Agent:             agentName,
-		}
-		op.Deadline = op.StartedAt.Add(maxResolveWait)
-		if err := SaveOperation(op); err != nil {
-			return nil, nil, err
-		}
-
-		res, runErr := runResolveAgent(ctx, agentName, resolvePrompt(plan, conflictPaths), plan.WorktreePath, maxResolveWait)
-		if runErr != nil {
-			return failOperation(op, fmt.Errorf("resolve: agent %s failed: %w", agentName, runErr))
-		}
-		if res.Fallback != "" {
-			return failOperation(op, fmt.Errorf(
-				"resolve: requested agent %q fell back to %q (%s) — refusing a silently different model", agentName, res.Fallback, res.FallbackReason))
-		}
-		op.AgentExitOK = true // the one receipt resume is allowed to trust instead of re-running the agent
-		if err := SaveOperation(op); err != nil {
-			return nil, nil, err
-		}
-		return finalizeAgentResolution(ctx, op, plan.WorktreePath)
+// abortMaterialized undoes a merge whose operation file failed to save (no resume record); returns saveErr.
+func abortMaterialized(worktreePath string, saveErr error) error {
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	if out, err := runGit(ctx, worktreePath, nil, "merge", "--abort"); err != nil {
+		return errors.Join(saveErr, fmt.Errorf("git merge --abort in %s failed, abort by hand: %w (%s)",
+			worktreePath, err, firstNonEmpty(gitErrorDetail(err), string(out))))
 	}
-	return pollUntilResolved(ctx, op, plan.WorktreePath)
+	return fmt.Errorf("resolve: save operation, merge aborted: %w", saveErr)
 }
 
 // materializeConflict turns plan's merge-tree-predicted conflict into a real one inside the worktree
@@ -198,7 +200,7 @@ func resolveWithAgent(ctx context.Context, repo *Repo, plan *MergePlan, agentNam
 // that unexpectedly completes cleanly is reported as Phase "integrate" instead, so the caller knows
 // there's nothing left for an agent to do.
 func materializeConflict(ctx context.Context, plan *MergePlan) (*MergeResult, error) {
-	if issue, err := checkCheckoutState(ctx, plan.WorktreePath, plan.WorktreeGitDir, IssueDirtyWorktree); err != nil {
+	if issue, err := checkCheckoutState(ctx, plan.WorktreePath, plan.WorktreeGitDir, isDirty); err != nil {
 		return nil, err
 	} else if issue != nil {
 		return nil, fmt.Errorf("resolve: %s: %v", issue.Code, issue.Detail)
@@ -215,7 +217,7 @@ func materializeConflict(ctx context.Context, plan *MergePlan) (*MergeResult, er
 		}
 		return &MergeResult{Phase: "integrate", BeforeOID: before, AfterOID: after}, nil
 	}
-	mergeHead, err := hasMergeHead(ctx, plan.WorktreePath)
+	mergeHead, err := hasMergeHead(plan.WorktreePath)
 	if err != nil {
 		return nil, err
 	}
@@ -385,6 +387,11 @@ func finalizeAgentResolution(ctx context.Context, op *Operation, worktreePath st
 	if state != resolutionResolved {
 		return failOperation(op, fmt.Errorf("resolve: %s", firstNonEmpty(reason, "commit did not produce a resolved state")))
 	}
+	return markResolved(ctx, op, worktreePath)
+}
+
+// markResolved checkpoints op as resolved at the worktree's HEAD and returns the integrate result.
+func markResolved(ctx context.Context, op *Operation, worktreePath string) (*Operation, *MergeResult, error) {
 	head, err := headOfContext(ctx, worktreePath)
 	if err != nil {
 		return failOperation(op, err)
@@ -415,9 +422,7 @@ func agentEditsInScope(ctx context.Context, op *Operation, worktreePath string) 
 func pollUntilResolved(ctx context.Context, op *Operation, worktreePath string) (*Operation, *MergeResult, error) {
 	for {
 		if err := ctx.Err(); err != nil {
-			op.Phase = "cancelled"
-			_ = SaveOperation(op)
-			return op, nil, fmt.Errorf("resolve: cancelled: %w", err)
+			return endOperation(op, "cancelled", fmt.Errorf("resolve: cancelled: %w", err))
 		}
 		state, reason, err := CheckResolution(ctx, op, worktreePath)
 		if err != nil {
@@ -425,22 +430,12 @@ func pollUntilResolved(ctx context.Context, op *Operation, worktreePath string) 
 		}
 		switch state {
 		case resolutionResolved:
-			head, err := headOfContext(ctx, worktreePath)
-			if err != nil {
-				return failOperation(op, err)
-			}
-			op.Phase = "resolved"
-			if err := SaveOperation(op); err != nil {
-				return op, nil, fmt.Errorf("resolve: save resolved checkpoint: %w", err)
-			}
-			return op, &MergeResult{Phase: "integrate", BeforeOID: op.OriginalSourceOID, AfterOID: head}, nil
+			return markResolved(ctx, op, worktreePath)
 		case resolutionInvalid:
 			return failOperation(op, fmt.Errorf("resolve: %s", reason))
 		}
 		if !nowFn().Before(op.Deadline) {
-			op.Phase = "timeout"
-			_ = SaveOperation(op)
-			return op, nil, fmt.Errorf("resolve: no clean, committed resolution within %s of starting", maxResolveWait)
+			return endOperation(op, "timeout", fmt.Errorf("resolve: no clean, committed resolution within %s of starting", maxResolveWait))
 		}
 		sleepFn(pollInterval)
 	}
@@ -509,7 +504,7 @@ func resolutionMidMerge(ctx context.Context, worktreePath string) (bool, error) 
 	if err != nil {
 		return false, err
 	}
-	mergeHead, err := hasMergeHead(ctx, worktreePath)
+	mergeHead, err := hasMergeHead(worktreePath)
 	if err != nil {
 		return false, err
 	}
@@ -548,7 +543,7 @@ func unmergedPaths(ctx context.Context, path string) ([]string, error) {
 }
 
 // hasMergeHead reports whether path's own git-dir still has an in-progress merge recorded.
-func hasMergeHead(_ context.Context, path string) (bool, error) {
+func hasMergeHead(path string) (bool, error) {
 	gitDir, err := gitDirFromPath(path)
 	if err != nil {
 		return false, err
@@ -564,12 +559,17 @@ func hasMergeHead(_ context.Context, path string) (bool, error) {
 	}
 }
 
-// failOperation marks op failed, best-effort re-saves it (the operation file is preserved either way,
-// per the "never auto-retry" contract — resume decides what to do next, this function never cleans up),
-// and returns it alongside err.
+// failOperation marks op failed and re-saves it; the file is never cleaned up, so resume decides what to do next.
 func failOperation(op *Operation, err error) (*Operation, *MergeResult, error) {
-	op.Phase = "failed"
-	_ = SaveOperation(op)
+	return endOperation(op, "failed", err)
+}
+
+// endOperation saves op at a terminal phase and returns err, joined with any save error so a stale file is reported.
+func endOperation(op *Operation, phase string, err error) (*Operation, *MergeResult, error) {
+	op.Phase = phase
+	if serr := SaveOperation(op); serr != nil {
+		err = errors.Join(err, fmt.Errorf("resolve: save %s checkpoint: %w", phase, serr))
+	}
 	return op, nil, err
 }
 

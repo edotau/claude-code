@@ -52,7 +52,14 @@ func noteQuota(disp Dispatch, err error) {
 	} else if t, ok := router.ParseReset(err.Error(), now); ok {
 		until = t
 	}
-	_ = markExhausted(disp.Account, until, now, FallbackReason(err)) // best-effort: the run's own error still reports it
+	warnHold(disp.Account, markExhausted(disp.Account, until, now, FallbackReason(err)))
+}
+
+// warnHold reports a failed route-state write; the run's own error still reports the failure, so it never aborts.
+func warnHold(account string, err error) {
+	if err != nil {
+		fmt.Fprintf(NoticeOut, "claude-code: could not bench %s: %v\n", account, err)
+	}
 }
 
 // holdable is err's *Error when it should bench the account: a quota, or a rate limit on a subscription plan.
@@ -84,7 +91,7 @@ func noteStall(disp Dispatch, err error) {
 	}
 	now := time.Now()
 	reason := fmt.Sprintf("dispatch stalled (no output in %s)", firstOutputDeadline())
-	_ = markExhausted(disp.Account, now.Add(15*time.Minute), now, reason) // best-effort: the run's own error still reports it
+	warnHold(disp.Account, markExhausted(disp.Account, now.Add(15*time.Minute), now, reason))
 }
 
 // condemnAuth tags a KindAuth whose Recover failed with a condemning verdict, or any error that itself condemns
@@ -104,5 +111,5 @@ func noteAuth(disp Dispatch, err error) {
 	if disp.Account == "" || !errors.As(err, &e) || e.AuthReason == "" {
 		return
 	}
-	_ = markAuth(disp.Account, e.AuthReason) // best-effort: the run's own error still reports it
+	warnHold(disp.Account, markAuth(disp.Account, e.AuthReason))
 }

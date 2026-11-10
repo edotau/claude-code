@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,18 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
+const fsizeChildEnv = "VAULT_TEST_FSIZE_CHILD"
+
 func TestAppendDotenvRollsBackPartialWrite(t *testing.T) {
+	// RLIMIT_FSIZE is process-wide and would fail go test's own testlog flush, so the limited write runs in a child.
+	if os.Getenv(fsizeChildEnv) == "" {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestAppendDotenvRollsBackPartialWrite$")
+		cmd.Env = append(os.Environ(), fsizeChildEnv+"=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("limited-write child: %v\n%s", err, out)
+		}
+		return
+	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	path := filepath.Join(t.TempDir(), ".env")
 	const original = "KEEP=yes\n"

@@ -66,13 +66,13 @@ func TestShellQuote_NoInjectionViaEcho(t *testing.T) {
 
 func TestValidAgent(t *testing.T) {
 	for _, a := range Agents {
-		if !ValidAgent(a) {
-			t.Errorf("ValidAgent(%q) = false, want true", a)
+		if !validAgent(a) {
+			t.Errorf("validAgent(%q) = false, want true", a)
 		}
 	}
 	for _, bad := range []string{"", "bash", "Claude", "claude ", " claude", "claude;rm"} {
-		if ValidAgent(bad) {
-			t.Errorf("ValidAgent(%q) = true, want false", bad)
+		if validAgent(bad) {
+			t.Errorf("validAgent(%q) = true, want false", bad)
 		}
 	}
 }

@@ -324,14 +324,7 @@ func checkTargetState(ctx context.Context, path, gitDir, commitRange string) (*I
 				Detail: "uncommitted target changes overlap promoted files: " + withHolders(path, overlap)}, nil
 		}
 	}
-	op, found, err := inProgressOp(ctx, path, gitDir)
-	if err != nil {
-		return nil, err
-	}
-	if found {
-		return &Issue{Code: IssueInProgress, Paths: []string{path}, Detail: op + " in progress"}, nil
-	}
-	return nil, nil
+	return inProgressIssue(ctx, path, gitDir)
 }
 
 // withHolders lists rels, each followed by the live sessions or leaves the claims ledger says are editing it.
@@ -341,7 +334,7 @@ func withHolders(top string, rels []string) string {
 	for i, r := range rels {
 		abs[i] = filepath.Join(root, r)
 	}
-	held := Holders(proc.Alive, abs)
+	held, err := Holders(proc.Alive, abs)
 	out := make([]string, len(rels))
 	for i, r := range rels {
 		out[i] = r
@@ -349,6 +342,9 @@ func withHolders(top string, rels []string) string {
 			slices.Sort(who)
 			out[i] += " (held by " + strings.Join(who, ", ") + ")"
 		}
+	}
+	if err != nil {
+		return strings.Join(out, ", ") + " (claims ledger partly unreadable, holders may be missing: " + err.Error() + ")"
 	}
 	return strings.Join(out, ", ")
 }
@@ -393,50 +389,44 @@ func targetTouchedPaths(ctx context.Context, path, commitRange string) ([]string
 	return strings.FieldsFunc(string(out), func(r rune) bool { return r == '\x00' }), nil
 }
 
+// inProgressIssue is the IssueInProgress for a merge/rebase/cherry-pick underway in path, or nil.
+func inProgressIssue(ctx context.Context, path, gitDir string) (*Issue, error) {
+	op, found, err := inProgressOp(ctx, path, gitDir)
+	if err != nil || !found {
+		return nil, err
+	}
+	return &Issue{Code: IssueInProgress, Paths: []string{path}, Detail: op + " in progress"}, nil
+}
+
 // checkCheckoutState folds the dirty and in-progress-operation checks for one checkout into a single
 // blocking Issue (dirty wins when both are true; the operation marker is secondary context).
-func checkCheckoutState(ctx context.Context, path, gitDir, dirtyCode string) (*Issue, error) {
-	dirty, err := isDirty(ctx, path)
+func checkCheckoutState(ctx context.Context, path, gitDir string, dirtyProbe func(context.Context, string) (bool, error)) (*Issue, error) {
+	dirty, err := dirtyProbe(ctx, path)
 	if err != nil {
 		return nil, err
 	}
 	if dirty {
-		return &Issue{Code: dirtyCode, Paths: []string{path}}, nil
+		return &Issue{Code: IssueDirtyWorktree, Paths: []string{path}}, nil
 	}
-	op, found, err := inProgressOp(ctx, path, gitDir)
-	if err != nil {
-		return nil, err
-	}
-	if found {
-		return &Issue{Code: IssueInProgress, Paths: []string{path}, Detail: op + " in progress"}, nil
-	}
-	return nil, nil
+	return inProgressIssue(ctx, path, gitDir)
+}
+
+// trackedDirty reports tracked changes only, ignoring untracked residue.
+func trackedDirty(ctx context.Context, path string) (bool, error) {
+	tracked, err := changedPaths(ctx, path)
+	return len(tracked) > 0, err
 }
 
 // checkWorktreeState is checkCheckoutState for the source worktree; trackedOnly ignores untracked residue.
 func checkWorktreeState(ctx context.Context, path, gitDir string, trackedOnly bool) (*Issue, error) {
-	if !trackedOnly {
-		return checkCheckoutState(ctx, path, gitDir, IssueDirtyWorktree)
+	probe := isDirty
+	if trackedOnly {
+		probe = trackedDirty
 	}
-	tracked, err := changedPaths(ctx, path)
-	if err != nil {
-		return nil, err
-	}
-	if len(tracked) > 0 {
-		return &Issue{Code: IssueDirtyWorktree, Paths: []string{path}}, nil
-	}
-	op, found, err := inProgressOp(ctx, path, gitDir)
-	if err != nil {
-		return nil, err
-	}
-	if found {
-		return &Issue{Code: IssueInProgress, Paths: []string{path}, Detail: op + " in progress"}, nil
-	}
-	return nil, nil
+	return checkCheckoutState(ctx, path, gitDir, probe)
 }
 
-// isDirty mirrors Inspect's own check in list.go; kept local since Preflight checks the main checkout
-// as well as a worktree, and Inspect's signature only ever runs against the latter. --untracked-files=all
+// isDirty reports uncommitted changes in path (Preflight and Inspect share it). --untracked-files=all
 // overrides a repo-local status.showUntrackedFiles=no, which would otherwise hide new files from this check.
 func isDirty(ctx context.Context, path string) (bool, error) {
 	out, err := runGit(ctx, path, nil, "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=all")

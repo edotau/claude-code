@@ -65,7 +65,8 @@ func providerRows(reg *Registry, groups, modes map[string][]string) (rows [][3]s
 		if len(groups[g]) == 0 {
 			continue
 		}
-		names := sortProfiles(groups[g])
+		slices.Sort(groups[g])
+		names := groups[g]
 		rows = append(rows, [3]string{g, familyProfiles(reg, names), strings.Join(modes[g], ", ")})
 		for _, n := range names {
 			live = append(live, reg.Providers[n])
@@ -138,12 +139,6 @@ func familyProfiles(reg *Registry, names []string) string {
 		}
 	}
 	return strings.Join(out, ", ")
-}
-
-// sortProfiles orders a group's profiles by name; no profile label gets a hardcoded rank.
-func sortProfiles(names []string) []string {
-	slices.Sort(names)
-	return names
 }
 
 func appendUnique(xs []string, x string) []string {

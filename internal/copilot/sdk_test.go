@@ -592,7 +592,10 @@ done
 	if err != nil {
 		t.Fatal(err)
 	}
-	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil || pid <= 0 {
+		t.Fatalf("pid file = %q, want the runtime pid: %v", raw, err)
+	}
 	cancel()
 	deadline := time.Now().Add(5 * time.Second)
 	for syscall.Kill(pid, 0) == nil && time.Now().Before(deadline) {

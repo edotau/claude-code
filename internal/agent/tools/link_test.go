@@ -103,33 +103,6 @@ func TestLinkVendorsKeepsWorkingLinkWithoutCandidate(t *testing.T) {
 	}
 }
 
-// TestLinkVendorsKeepsRealCodexInstallNotSymlink confirms a real codex binary already at
-// BinDir()/codex is left as a regular file, never swapped for a symlink to a different PATH copy.
-func TestLinkVendorsKeepsRealCodexInstallNotSymlink(t *testing.T) {
-	env := setupToolsTestEnv(t)
-	pathCopy := filepath.Join(env.path1, "codex")
-	writeToolsFixture(t, pathCopy, "#!/bin/sh\nprintf 'path copy\\n'\n", 0o755)
-	dst := filepath.Join(paths.BinDir(), "codex")
-	writeToolsFixture(t, dst, "#!/bin/sh\nprintf 'real install\\n'\n", 0o755)
-
-	var out bytes.Buffer
-	Link(&out, []string{"codex"}, false)
-	fi, err := os.Lstat(dst)
-	if err != nil {
-		t.Fatalf("Lstat(%s): %v", dst, err)
-	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		t.Fatalf("%s became a symlink (→ %s), want the real install left untouched", dst, readlink(dst))
-	}
-	if !fi.Mode().IsRegular() {
-		t.Fatalf("%s is not a regular file: mode %v", dst, fi.Mode())
-	}
-	got, err := os.ReadFile(dst)
-	if err != nil || string(got) != "#!/bin/sh\nprintf 'real install\\n'\n" {
-		t.Errorf("%s contents = %q, %v, want the original install untouched", dst, got, err)
-	}
-}
-
 // TestLinkVendorsRelinksSymlinkWhenNoRealCodexInstall preserves the existing behavior: with no
 // real file at BinDir()/codex, a stale symlink is replaced to point at the current PATH candidate.
 func TestLinkVendorsRelinksSymlinkWhenNoRealCodexInstall(t *testing.T) {

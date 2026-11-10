@@ -53,24 +53,18 @@ func (p dreamPreview) Report() string {
 
 // previewDream computes dreamPreview for root without writing anything — the preview a live model
 // never needs to run itself.
-func previewDream(root string, now time.Time) dreamPreview {
+func previewDream(root string) dreamPreview {
 	dir := Dir(root)
 	p := dreamPreview{Dir: dir, Oversized: stat(root).Oversized}
 	if !isHomeBank(root) {
 		p.HomeOversized = homeBankStat().Oversized
 	}
 	for name, capLines := range archiveCaps {
-		p.Archivable += previewOverflowCount(filepath.Join(dir, name), capLines)
+		_, _, overflow, _ := splitOverflow(filepath.Join(dir, name), capLines) // archiveFile's split, read-only
+		p.Archivable += len(overflow)
 	}
 	p.SessionRotate = previewSessionRotate(dir)
 	return p
-}
-
-// previewOverflowCount is archiveFile's split, read-only: how many oldest blocks would
-// overflow path's cap.
-func previewOverflowCount(path string, capLines int) int {
-	_, _, overflow, _ := splitOverflow(path, capLines)
-	return len(overflow)
 }
 
 // previewSessionRotate is rotateSessionHistory's cap check, read-only.

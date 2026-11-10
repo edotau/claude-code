@@ -54,7 +54,10 @@ func checkWorkflowSteps(src []byte, dir string, args any) []string {
 	if len(stages) == 0 {
 		return nil // a stepOf-free script has no steps contract
 	}
-	a, _ := decodeArgs(args)
+	a, ok := decodeArgs(args)
+	if !ok && args != nil && args != "" {
+		return []string{"args must be a JSON object (or a JSON-encoded object string)"}
+	}
 	run := stepRun{profile: plainString(a["profile"]), provider: plainString(a["provider"])}
 	if stepChildRe.Match(src) {
 		if child, err := os.ReadFile(filepath.Join(dir, stepChildScript)); err == nil {

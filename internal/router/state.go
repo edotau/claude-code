@@ -289,8 +289,9 @@ func clearAuth(account string) func(State) {
 
 // ClearProviderAuth drops every auth mark on provider: the router's (ProviderAccount) and each dispatch's "<provider>·<p>".
 func ClearProviderAuth(provider string) error {
+	own := ProviderAccount(provider)
 	hit := func(account string, e Entry) bool {
-		return !e.AuthAt.IsZero() && (account == ProviderAccount(provider) || strings.HasSuffix(account, "·"+provider))
+		return !e.AuthAt.IsZero() && (account == own || strings.HasSuffix(account, "·"+provider))
 	}
 	marked := false
 	for account, e := range LoadState() {

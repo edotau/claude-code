@@ -19,7 +19,10 @@ import (
 
 // Status prints agent's jobs in this repo (all: every repo; ref narrows) as JSON or text; empty stands in for none.
 func Status(prefix, agentName, ref string, all bool, format, empty string) int {
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("%s: %v", prefix, err)
+	}
 	rows, err := job.Status(context.Background(), agentName, cwd, ref, all)
 	if err != nil {
 		return helptext.Fail("%s: %v", prefix, err)
@@ -38,7 +41,10 @@ func Status(prefix, agentName, ref string, all bool, format, empty string) int {
 
 // PrintResult prints a dispatch's log, its ask line and resume command, or with json its envelope.
 func PrintResult(rec job.Record, format string) int {
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("agents result: %v", err)
+	}
 	rec, log, err := job.JobResult(context.Background(), rec.Agent, cwd, rec.ID)
 	if err != nil {
 		return helptext.Fail("agents result: %v", err)
@@ -69,7 +75,10 @@ func PrintResult(rec job.Record, format string) int {
 
 // PrintAgentResult is `<agent> result`: a job's log, session and resume hint, or with json {id, session, resume, log}.
 func PrintAgentResult(name, ref, format string) int {
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("%s result: %v", name, err)
+	}
 	rec, log, err := job.JobResult(context.Background(), name, cwd, ref)
 	if err != nil {
 		return helptext.Fail("%s result: %v", name, err)
@@ -101,8 +110,10 @@ func PrintAgentResult(name, ref, format string) int {
 func TailJob(prefix string, rec job.Record, format string, follow bool) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	cwd, _ := os.Getwd()
-	var err error
+	cwd, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("%s: %v", prefix, err)
+	}
 	if format == helptext.JSON {
 		rec, err = job.TailEvents(ctx, rec, follow, os.Stdout)
 	} else {
@@ -120,7 +131,10 @@ func TailJob(prefix string, rec job.Record, format string, follow bool) int {
 
 // CancelJob interrupts agent's job ref and prints its id (json: id, status, error).
 func CancelJob(prefix, agentName, ref, format string) int {
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("%s: %v", prefix, err)
+	}
 	rec, err := job.CancelJob(context.Background(), agentName, cwd, ref)
 	if err != nil {
 		return helptext.Fail("%s: %v", prefix, err)

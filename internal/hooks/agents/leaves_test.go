@@ -143,7 +143,7 @@ func TestDispatchWorkflowBatchIsAllOrNothing(t *testing.T) {
 	}
 	for i := 1; i <= 3; i++ {
 		want := inflight.Prefix + strconv.Itoa(inflight.SessionOwner()) + "-wf." + strconv.Itoa(i)
-		if !contains(markerNames(t), want) {
+		if !slices.Contains(markerNames(t), want) {
 			t.Fatalf("missing leaf marker %s in %v", want, markerNames(t))
 		}
 	}
@@ -160,10 +160,6 @@ func TestDispatchWorkflowBatchIsAllOrNothing(t *testing.T) {
 	if hasMarker(t, "wf2") || len(markerNames(t)) != capN-2 {
 		t.Fatalf("a blocked batch claimed leaves: %v", markerNames(t))
 	}
-}
-
-func contains(list []string, s string) bool {
-	return slices.Contains(list, s)
 }
 
 // agent-inflight-post (PostToolUseFailure) releases an Agent's exact id and leaves others.
@@ -355,13 +351,7 @@ func TestDispatchCapBlockReleaseAndStop(t *testing.T) {
 func inflightStopFreesSlot(t *testing.T, capN int) {
 	t.Helper()
 	tx := filepath.Join(t.TempDir(), "session.jsonl")
-	sub := inflight.SubagentDir(tx)
-	if err := os.MkdirAll(sub, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(sub, "agent-a1.meta.json"), []byte(`{"toolUseId":"u1"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeMeta(t, tx, "a1", "u1")
 	stop := `{"hook_event_name":"SubagentStop","agent_id":"a1","transcript_path":"` + tx + `"}`
 	Stop(core.ParseInput(strings.NewReader(stop)))
 	Stop(core.ParseInput(strings.NewReader(stop))) // a second stop is a no-op
@@ -541,13 +531,7 @@ func TestLeafStopNoDispatchAndVendor(t *testing.T) {
 func TestLeafStopBlockKeepsSlot(t *testing.T) {
 	dispatchEnv(t)
 	tx := filepath.Join(t.TempDir(), "session.jsonl")
-	sub := inflight.SubagentDir(tx)
-	if err := os.MkdirAll(sub, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(sub, "agent-a1.meta.json"), []byte(`{"toolUseId":"u1"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	sub := writeMeta(t, tx, "a1", "u1")
 	agentTx := filepath.Join(sub, "agent-a1.jsonl")
 	line, _ := json.Marshal(map[string]any{"type": "tool_result", "content": startedLine()})
 	if err := os.WriteFile(agentTx, append(line, '\n'), 0o600); err != nil {

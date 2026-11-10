@@ -18,6 +18,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -32,11 +33,8 @@ const (
 	AuthAPIKey = "x-api-key" // provider anthropic, ANTHROPIC_API_KEY
 )
 
-// DefaultOAuthName and DefaultAPIKeyName are the vault keys used when a flag carries no =NAME.
-const (
-	DefaultOAuthName  = oauthKey
-	DefaultAPIKeyName = "ANTHROPIC_API_KEY"
-)
+// defaultAPIKeyName is the vault key --x-api-key uses when it carries no =NAME; --oauth uses oauthKey.
+const defaultAPIKeyName = proc.EnvAnthropicAPIKey
 
 // AnthropicOptions are the launcher flags plus the verb's own auth selection.
 type AnthropicOptions struct {
@@ -77,9 +75,9 @@ func ParseAnthropicArgs(args []string) (AnthropicOptions, []string, error) {
 }
 
 func applyAnthropicAuthArg(o *AnthropicOptions, name, val string, hasVal bool) error {
-	mode, def := AuthOAuth, DefaultOAuthName
+	mode, def := AuthOAuth, oauthKey
 	if name == "--x-api-key" {
-		mode, def = AuthAPIKey, DefaultAPIKeyName
+		mode, def = AuthAPIKey, defaultAPIKeyName
 	}
 	if o.Mode == mode {
 		return fmt.Errorf("%s given more than once; pass it a single time", name)
@@ -99,10 +97,7 @@ func applyAnthropicAuthArg(o *AnthropicOptions, name, val string, hasVal bool) e
 
 // checkKeyName accepts only an env-var-shaped vault key name; a credential-shaped value is refused unechoed.
 func checkKeyName(flag, v string) error {
-	if textutil.LooksSecret(v) {
-		return fmt.Errorf("%s=NAME takes a vault key name ([A-Z_][A-Z0-9_]*); store secrets with claude-code vault set", flag)
-	}
-	if !envNameRE.MatchString(v) {
+	if textutil.LooksSecret(v) || !envNameRE.MatchString(v) {
 		return fmt.Errorf("%s=NAME takes a vault key name ([A-Z_][A-Z0-9_]*); store secrets with claude-code vault set", flag)
 	}
 	return nil
@@ -136,8 +131,8 @@ func applyAnthropicSecret(plan *agent.Plan, o AnthropicOptions, secret string) {
 		plan.Set[oauthKey] = secret
 	case AuthAPIKey:
 		// The apiKeyHelper reads the registry's env name, so carry this key directly.
-		if o.Name != DefaultAPIKeyName {
-			plan.Set[DefaultAPIKeyName] = secret
+		if o.Name != defaultAPIKeyName {
+			plan.Set[defaultAPIKeyName] = secret
 			delete(plan.Set, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS")
 			if len(plan.Argv) >= 2 && plan.Argv[0] == "--settings" {
 				plan.Argv = plan.Argv[2:]

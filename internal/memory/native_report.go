@@ -54,14 +54,14 @@ func reportMoved(out io.Writer, o ArchiveReportOptions, verb string, moved []str
 	case len(moved) == 0:
 		fmt.Fprintln(out, "nothing to "+verb)
 	case !o.Apply:
-		fmt.Fprintf(out, "dry-run: would %s %d entr%s: %s\n", verb, len(moved), entrySuffix(len(moved)), strings.Join(moved, ", "))
+		fmt.Fprintf(out, "dry-run: would %s %d %s: %s\n", verb, len(moved), textutil.PluralWord(len(moved), "entry", "entries"), strings.Join(moved, ", "))
 		fmt.Fprintln(out, "re-run with --apply to move them")
 	default:
 		dest := nativeArchiveDir(o.Dir)
 		if o.Restore {
 			dest = o.Dir
 		}
-		fmt.Fprintf(out, "%sd %d entr%s -> %s\n", verb, len(moved), entrySuffix(len(moved)), dest)
+		fmt.Fprintf(out, "%sd %d %s -> %s\n", verb, len(moved), textutil.PluralWord(len(moved), "entry", "entries"), dest)
 		for _, n := range moved {
 			fmt.Fprintln(out, "  ", n)
 		}
@@ -107,8 +107,8 @@ func nativeStatsReport(w io.Writer, dir string) error {
 		return err
 	}
 	fmt.Fprintf(w, "store:     %s\n", dir)
-	fmt.Fprintf(w, "index:     %s — %d entr%s, %s (injected EVERY session)\n", NativeIndexFile,
-		st.IndexEntries, entrySuffix(st.IndexEntries), byteSize(st.IndexBytes))
+	fmt.Fprintf(w, "index:     %s — %d %s, %s (injected EVERY session)\n", NativeIndexFile,
+		st.IndexEntries, textutil.PluralWord(st.IndexEntries, "entry", "entries"), byteSize(st.IndexBytes))
 	fmt.Fprintf(w, "topics:    %d file%s, %s (read only on recall)\n", st.TopicFiles, textutil.Plural(st.TopicFiles), byteSize(st.TopicBytes))
 	if st.IndexEntries > NativeCoreCap {
 		fmt.Fprintf(w, "over cap:  %d pointer line%s over the %d-line injected core — `--split %d --apply` moves the rest to %s\n",
@@ -147,14 +147,6 @@ func nativeDupesReport(w io.Writer, dir string) error {
 	}
 	fmt.Fprintln(w, "fold any detail the survivor lacks into it FIRST, then archive the rest")
 	return nil
-}
-
-// entrySuffix keeps the output grammatical without a pluralization dependency.
-func entrySuffix(n int) string {
-	if n == 1 {
-		return "y"
-	}
-	return "ies"
 }
 
 // byteSize renders a size in the units the rest of the audit output uses.

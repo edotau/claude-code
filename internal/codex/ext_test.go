@@ -236,6 +236,3 @@ func TestCodexBannerReplacesExistingTopLevelPermissionKeys(t *testing.T) {
 		t.Errorf("profiles.x table's approval_policy must stay intact:\n%s", content)
 	}
 }
-
-// renderCopilotSettings merges defaultPermissionMode into ~/.copilot/settings.json, keeping every
-// other key (foreign scalar and array alike) untouched.

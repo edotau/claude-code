@@ -80,7 +80,7 @@ func TestHandoffNeverWritesCredentials(t *testing.T) {
 	env := []string{providers.CopilotTokenEnv + "=" + sdkToken, "DBX_TOKEN=" + envSecret, "PLAIN=visible"}
 	creds := CredentialValues(env)
 	req := agent.RunOptions{WorkDir: t.TempDir(), Prompt: "use " + sdkToken + " and " + envSecret}
-	path, body, err := writeCopilotHandoff(req, wire.Result{SessionID: "sess-1"}, "partial "+envSecret,
+	path, err := writeCopilotHandoff(req, wire.Result{SessionID: "sess-1"}, "partial "+envSecret,
 		"acct", errors.New("quota exhausted"), creds)
 	if err != nil {
 		t.Fatal(err)
@@ -89,13 +89,12 @@ func TestHandoffNeverWritesCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, s := range map[string]string{"file": string(onDisk), "returned body": body} {
-		if strings.Contains(s, sdkToken) || strings.Contains(s, envSecret) {
-			t.Errorf("%s holds a raw credential:\n%s", name, s)
-		}
-		if !strings.Contains(s, "REDACTED") {
-			t.Errorf("%s has no redaction marker:\n%s", name, s)
-		}
+	s := string(onDisk)
+	if strings.Contains(s, sdkToken) || strings.Contains(s, envSecret) {
+		t.Errorf("handoff holds a raw credential:\n%s", s)
+	}
+	if !strings.Contains(s, "REDACTED") {
+		t.Errorf("handoff has no redaction marker:\n%s", s)
 	}
 }
 

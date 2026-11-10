@@ -98,9 +98,6 @@ func describe(p string) (detail string, isImage bool, ok bool) {
 		return "", false, false
 	}
 	size := strings.ReplaceAll(textutil.HumanBytes(fi.Size()), "iB", "B")
-	if fi.Size() >= 1<<50 {
-		size = fmt.Sprintf("%.1f TB", float64(fi.Size())/(1<<40))
-	}
 	kind, isImg := imageExts[strings.ToLower(filepath.Ext(p))]
 	if !isImg {
 		return size, false, true

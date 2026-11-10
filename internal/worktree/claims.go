@@ -95,13 +95,13 @@ func scanFile(file string, fn func(Claim)) error {
 }
 
 // Holders maps each claimed path in paths to "session <slug> (pid N)" or "leaf <id> of session …" labels.
-// On a scan error it still returns the holders it read; the error has no channel to the caller.
-func Holders(alive func(int) bool, want []string) map[string][]string {
+// On a scan error it still returns the holders it read, alongside the error.
+func Holders(alive func(int) bool, want []string) (map[string][]string, error) {
 	set := map[string]map[string]bool{}
 	for _, p := range want {
 		set[p] = map[string]bool{}
 	}
-	_ = ScanClaims(alive, func(pid int, slug string, c Claim) {
+	err := ScanClaims(alive, func(pid int, slug string, c Claim) {
 		if who, ok := set[c.Path]; ok {
 			who[Label(pid, slug, c.Agent)] = true
 		}
@@ -112,7 +112,7 @@ func Holders(alive func(int) bool, want []string) map[string][]string {
 			out[p] = append(out[p], w)
 		}
 	}
-	return out
+	return out, err
 }
 
 // Label names a claimant from its claims file name and the line's agent id.

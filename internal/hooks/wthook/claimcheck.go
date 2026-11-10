@@ -357,8 +357,11 @@ func (v claimView) stageVerdict(target, verb string, args []string) core.Result 
 		return core.Result{}
 	}
 	top, dirty, err := dirtySet(v.ctx, target)
-	if top == "" || err != nil {
-		return warnIf(err)
+	if err != nil {
+		return claimWarn(err)
+	}
+	if top == "" {
+		return core.Result{}
 	}
 	scopes, err := stageScopes(v.ctx, top, target, verb, args)
 	if err != nil {
@@ -406,14 +409,6 @@ func (v claimView) takenPaths(top string, dirty map[string]bool, scopes []string
 		}
 	}
 	return taken, claimed, nil
-}
-
-// warnIf is claimWarn for a non-nil err, else no result.
-func warnIf(err error) core.Result {
-	if err != nil {
-		return claimWarn(err)
-	}
-	return core.Result{}
 }
 
 // stageResult renders the ask (main) or block (leaf) for the claimed paths, capped at claimShown.
@@ -611,18 +606,12 @@ func (w stageWords) stagesAll(verb string) bool {
 	})
 }
 
-// stageOperands splits a git add/commit's words into pathspecs and whether an all-tracked flag is present.
-func stageOperands(verb string, args []string) (ops []string, all bool) {
-	w := splitStage(verb, args)
-	return w.ops, w.stagesAll(verb)
-}
-
 // stageFlag classifies one add/commit flag: whether the next word is its value, and whether it stages all tracked.
 func stageFlag(verb, a string) (takesValue, stagesAll bool) {
 	if verb != "commit" {
 		return a == "--pathspec-from-file", allTracked[a]
 	}
-	return commitValueFlags[a] || valueCluster(a), a == "--all" || commitAllCluster(a)
+	return commitValueFlags[a] || valueCluster(a), a == "--all" || clusterHas(a, 'a')
 }
 
 // valueCluster is a short-flag cluster such as -am whose value flag is last, so the value is the next word;
@@ -641,9 +630,6 @@ func valueCluster(a string) bool {
 	}
 	return false
 }
-
-// commitAllCluster reports a short-flag cluster such as -am holding -a; a value flag (-uall, -ma) ends the scan.
-func commitAllCluster(a string) bool { return clusterHas(a, 'a') }
 
 // clusterHas reports a short-flag cluster holding letter before any value-taking letter (-u/-S/-m/-F/-C/-c/-t).
 func clusterHas(a string, letter byte) bool {

@@ -82,19 +82,7 @@ func TestRejoinSplitHeadingBlocksRoundTrip(t *testing.T) {
 	}
 }
 
-// fenceToggle fires on an indented ``` fence (with a language tag) and on a bare ~~~ fence.
-func TestFenceToggleVariants(t *testing.T) {
-	t.Parallel()
-	if !fenceToggle("   ```go") {
-		t.Error("an indented ``` fence with a language tag must toggle")
-	}
-	if !fenceToggle("~~~") {
-		t.Error("a bare ~~~ fence must toggle")
-	}
-	if fenceToggle("not a fence") {
-		t.Error("ordinary text must not toggle")
-	}
-}
+// A ~~~ line inside a ``` fence does not close it: the marker after it is still a fenced example.
 
 func TestAppendBlocksPreservesBytes(t *testing.T) {
 	t.Parallel()

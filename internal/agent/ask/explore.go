@@ -14,7 +14,10 @@ import (
 
 // Explore is `<agent> explore`: scan the code (and the web when web is set) for question and return a brief.
 func Explore(name, question string, web, background bool, format string) int {
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("%s explore: %v", name, err)
+	}
 	askArgs, err := roles.Args(name, cwd, question, web, background)
 	if err != nil {
 		return helptext.Fail("%s explore: %v", name, err)
@@ -28,7 +31,10 @@ func Explore(name, question string, web, background bool, format string) int {
 
 // Transfer is `<agent> transfer`: hand the source transcript (default: this repo's newest) to name with note.
 func Transfer(name, source, note string, wait bool) int {
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("%s transfer: %v", name, err)
+	}
 	src, err := transcript.ResolveSource(source, cwd)
 	if err != nil {
 		return helptext.Fail("%s transfer: %v", name, err)

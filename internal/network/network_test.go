@@ -83,6 +83,8 @@ func TestNetworkBrowserSetupOnlyFlags(t *testing.T) {
 	}
 }
 
+// TestNetworkBrowserRejectsPositional: `--setup chrome` (forgotten --browser) must not silently set up the default.
+
 // TestCmdWebSearchQueryForms: positional and --query both reach OneShot (no key → 1); both at once is usage (2).
 func TestCmdWebSearchQueryForms(t *testing.T) {
 	cases := []struct {

@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -75,7 +76,7 @@ func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Pl
 	}
 	set1MOff(&plan, sel, p)
 	plan.Set[providers.EnvSessionProfile] = p.Name
-	OfferLogin(ctx, o, args, sessionProviders(sel), &plan)
+	offerLogin(ctx, o, args, sessionProviders(sel), &plan)
 	helper, settings, err := configureRouting(ctx, o, reg, sel, p, passthrough, self, &plan)
 	if err != nil {
 		return agent.Plan{}, err
@@ -237,9 +238,9 @@ func sessionProviders(sel providers.Selection) []*providers.Provider {
 // configureRouting wires the router base URL/headers when needed, else the provider's own route, and
 // returns the apiKeyHelper command for the overlay.
 func configureRouting(ctx context.Context, o agent.LaunchOptions, reg *providers.Registry, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *agent.Plan) (helper, settings string, err error) {
-	helper = shellQuote(helperBin(self)) + " resolve --profile " + shellQuote(p.Name)
+	helper = textutil.QuoteSH(helperBin(self)) + " resolve --profile " + textutil.QuoteSH(p.Name)
 	if id := providers.IdentityFrom(ctx); id != "" {
-		helper += " --as " + shellQuote(id)
+		helper += " --as " + textutil.QuoteSH(id)
 	}
 	for _, t := range sel.Aliases {
 		if err := providers.ClaudeCodeError(t.Provider, t.Model); err != nil {
@@ -285,7 +286,7 @@ func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *provi
 		hdrs = append(hdrs, gateway.ClientHeader+": "+secret)
 	}
 	plan.Set[proc.EnvAnthropicCustomHeaders] = strings.Join(hdrs, "\n")
-	return shellQuote(helperBin(self)) + " resolve --proxy", filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json"), nil
+	return textutil.QuoteSH(helperBin(self)) + " resolve --proxy", filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json"), nil
 }
 
 func claudeLaunchBinaries() (string, string, error) {
@@ -341,12 +342,4 @@ func providerEnv(env map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
-}
-
-// shellQuote single-quotes s when it holds shell metacharacters; apiKeyHelper runs under a shell.
-func shellQuote(s string) string {
-	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-:") == "" {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

@@ -57,33 +57,58 @@ func appendReportLocked(dir, label string, in ReportInput) ([]string, error) {
 	day := now().Format("2006-01-02")
 	reportPath := filepath.Join(reports, day+"-"+label+".md")
 	decisionsPath := filepath.Join(reports, day+"-decisions.md")
-	prev, prevErr := os.ReadFile(reportPath)
-	existed := prevErr == nil
-	if prevErr != nil && !errors.Is(prevErr, fs.ErrNotExist) {
-		return nil, prevErr
+	report, err := snapshotFile(reportPath)
+	if err != nil {
+		return nil, err
+	}
+	decisions, err := snapshotFile(decisionsPath)
+	if err != nil {
+		return nil, err
+	}
+	// rollback undoes both appends so a retry never writes the report or its decisions twice.
+	rollback := func(err error) ([]string, error) {
+		return nil, errors.Join(err, report.restore(), decisions.restore())
 	}
 	if err := appendText(reportPath, "", strings.TrimRight(in.Report, "\n")+"\n\n"); err != nil {
 		return nil, err
 	}
 	if err := appendText(decisionsPath, "# Decisions\n\n", decisionLines(day, label, in.Decisions)); err != nil {
-		// roll the report back so a retry does not append it twice
-		return nil, errors.Join(err, restoreReport(reportPath, prev, existed))
+		return rollback(err)
 	}
 	if _, err := formatFiles([]string{reportPath, decisionsPath}, false); err != nil {
-		return nil, err
+		return rollback(err)
 	}
 	if err := commitStore("memory: report " + label); err != nil {
-		return nil, err
+		return rollback(err)
 	}
 	return []string{reportPath, decisionsPath}, nil
 }
 
-// restoreReport undoes the report append: removes the file if it was created, else rewrites its prior bytes.
-func restoreReport(path string, prev []byte, existed bool) error {
-	if !existed {
-		return os.Remove(path)
+// fileSnapshot is a file's bytes before an append; existed is false when it was absent.
+type fileSnapshot struct {
+	path    string
+	prev    []byte
+	existed bool
+}
+
+// snapshotFile records path's current bytes; an absent file is a snapshot with existed false.
+func snapshotFile(path string) (fileSnapshot, error) {
+	prev, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fileSnapshot{}, err
 	}
-	return paths.AtomicWrite(path, prev, 0o600)
+	return fileSnapshot{path: path, prev: prev, existed: err == nil}, nil
+}
+
+// restore puts the snapshot back: removes a file that was absent (if it now exists), else rewrites its prior bytes.
+func (s fileSnapshot) restore() error {
+	if !s.existed {
+		if err := os.Remove(s.path); !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	return paths.AtomicWrite(s.path, s.prev, 0o600)
 }
 
 // decisionLines renders one `- <date> · <label> · <decision>` line per non-blank decision, newline-flattened.

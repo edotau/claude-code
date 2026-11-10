@@ -629,3 +629,5 @@ func TestEmptySourceNoteSeparatesReadableFromMissing(t *testing.T) {
 		t.Errorf("missing dir note = %q", got)
 	}
 }
+
+// A vendor home blocked by a plain file is one mkdir error, not one write error per agent.

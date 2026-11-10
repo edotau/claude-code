@@ -29,7 +29,7 @@ func Start(in *core.Input) core.Result {
 		cwd, _ = os.Getwd()
 	}
 	memory.RecordSessionRoot(in.SessionID, cwd)
-	ctx := memoryContext(cwd, in.SessionID, in.TranscriptPath, time.Now())
+	ctx := memoryContext(cwd, in.SessionID, time.Now())
 	res := core.Result{Context: core.JoinContext(ctx, preflightNotice(time.Now()))}
 	if !memory.IsUpdateChild() {
 		res.SystemMessage = consumeCatchupNote()
@@ -53,7 +53,7 @@ func preflightNotice(now time.Time) string {
 }
 
 // memoryContext renders the note line + bank surface and advances the session chain.
-func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string {
+func memoryContext(cwd, sessionID string, now time.Time) string {
 	prefix := maybeAutoInit(cwd) // a fresh-scaffold notice or ""
 	if !memory.IsUpdateChild() {
 		memory.LinkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
@@ -67,7 +67,7 @@ func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string 
 	}
 	// An update worker is a session too; it must not become the "previous session" of the user's next one. Non-UUID ids (probe/test payloads) must not clobber the real previous-session pointer.
 	if memory.LooksLikeSessionID(sessionID) && !memory.IsUpdateChild() {
-		writeChain(chain, chainEntry{sessionID: sessionID, transcriptPath: transcriptPath, cwd: cwd})
+		writeChain(chain, sessionID)
 	}
 	return out
 }
@@ -109,11 +109,10 @@ func bankLoadNote(prefix string) string {
 
 // chainNote appends the previous-session pointer and any catch-up/attention note, or "" with no chain entry.
 func chainNote(chain, sessionID string, now time.Time) string {
-	entry, ok := readChain(chain)
+	prevID, ok := readChain(chain)
 	if !ok {
 		return ""
 	}
-	prevID := entry.sessionID
 	note := ""
 	if prevID != sessionID {
 		note = " Previous session id: " + prevID + " (reference for the prior session's transcript / claude --resume)."
@@ -145,35 +144,19 @@ func doctorNotice(root string) string {
 	return " memory review: " + notice + "."
 }
 
-// chainEntry is the session chain file: id (line 1), transcript path (line 2), cwd (line 3) — lines 2-3 are optional so a pre-upgrade one-line file still parses.
-type chainEntry struct {
-	sessionID      string
-	transcriptPath string
-	cwd            string
-}
-
-func readChain(path string) (chainEntry, bool) {
+// readChain reads the previous session id from the first line.
+func readChain(path string) (string, bool) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return chainEntry{}, false
+		return "", false
 	}
-	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
-	id := strings.TrimSpace(lines[0])
-	if id == "" {
-		return chainEntry{}, false
-	}
-	e := chainEntry{sessionID: id}
-	if len(lines) > 1 {
-		e.transcriptPath = strings.TrimSpace(lines[1])
-	}
-	if len(lines) > 2 {
-		e.cwd = strings.TrimSpace(lines[2])
-	}
-	return e, true
+	id, _, _ := strings.Cut(string(b), "\n")
+	id = strings.TrimSpace(id)
+	return id, id != ""
 }
 
-func writeChain(path string, e chainEntry) {
-	if err := paths.AtomicWrite(path, []byte(e.sessionID+"\n"+e.transcriptPath+"\n"+e.cwd+"\n"), 0o600); err != nil {
+func writeChain(path, sessionID string) {
+	if err := paths.AtomicWrite(path, []byte(sessionID+"\n"), 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "session-start: write chain %s: %v\n", path, err)
 	}
 }
@@ -409,13 +392,14 @@ func runSweep(current string, now time.Time, out io.Writer) {
 	saved := 0
 	for _, c := range cands {
 		// Stamped first, so a crash or failure retries at most once.
-		_ = writeStamp(stampPath(c.id), time.Now(), "catchup", c.edits)
+		if err := writeStamp(stampPath(c.id), time.Now(), "catchup", c.edits); err != nil {
+			fmt.Fprintf(out, "catchup %s: write retry stamp: %v\n", c.id, err)
+			continue
+		}
 		fmt.Fprintf(out, "catchup %s (%s)\n", c.id, c.why)
 		ctx, cancel := context.WithTimeout(context.Background(), memory.UpdateTimeout+2*time.Minute)
 		started := time.Now()
-		cmd := exec.CommandContext(ctx, self, "memory", "update", "--historical", "--session", c.id, "--transcript", c.path)
-		cmd.Stdout, cmd.Stderr = out, out
-		if err := cmd.Run(); err != nil {
+		if err := runHistoricalUpdate(ctx, self, c, out); err != nil {
 			fmt.Fprintf(out, "catchup %s: %v\n", c.id, err)
 		}
 		cancel()
@@ -428,6 +412,13 @@ func runSweep(current string, now time.Time, out io.Writer) {
 		prev, _ := strconv.Atoi(strings.TrimSpace(readFileOr(catchupDonePath())))
 		_ = paths.AtomicWrite(catchupDonePath(), []byte(strconv.Itoa(prev+saved)), 0o600)
 	}
+}
+
+// runHistoricalUpdate is the subprocess boundary; tests never execute their own binary.
+var runHistoricalUpdate = func(ctx context.Context, self string, c sweepCand, out io.Writer) error {
+	cmd := exec.CommandContext(ctx, self, "memory", "update", "--historical", "--session", c.id, "--transcript", c.path)
+	cmd.Stdout, cmd.Stderr = out, out
+	return cmd.Run()
 }
 
 func readFileOr(path string) string {

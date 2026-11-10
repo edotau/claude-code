@@ -4,8 +4,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -114,7 +116,7 @@ func cmdMemoryUpdate(args []string) int {
 	return 0
 }
 
-func cmdMemoryVerify(args []string, knownVerb func(string) bool) int {
+func cmdMemoryVerify(args []string, helpVerb func(string) bool) int {
 	fs := memoryFlagSet("verify")
 	cwd := fs.String("cwd", "", "project root whose bank to verify (default: cwd)")
 	archives := fs.Bool("archives", false, "include archived bank blocks and native files")
@@ -126,19 +128,10 @@ func cmdMemoryVerify(args []string, knownVerb func(string) bool) int {
 		return helptext.FailUsage("memory verify: unexpected argument %q", fs.Arg(0))
 	}
 	if err := memory.Verify(os.Stdout, memory.VerifyOptions{CWD: *cwd, Archives: *archives,
-		AllStores: *all, HelpVerb: func(verb string) bool { return memoryVerifyHelpVerb(verb, knownVerb) }}); err != nil {
+		AllStores: *all, HelpVerb: helpVerb}); err != nil {
 		return helptext.Fail("memory verify: %v", err)
 	}
 	return 0
-}
-
-// memoryVerifyHelpVerb excludes launchers that forward -h after credential resolution or other side effects.
-func memoryVerifyHelpVerb(verb string, knownVerb func(string) bool) bool {
-	switch verb {
-	case "claude", "wl-paste":
-		return false
-	}
-	return knownVerb(verb)
 }
 
 func cmdMemoryDream(args []string) int {
@@ -206,14 +199,14 @@ func cmdMemoryCatchup(args []string) int {
 }
 
 // memorySubcommands dispatches both public verbs and the off-menu plumbing verbs.
-func memorySubcommands(knownVerb func(string) bool) map[string]func([]string) int {
+func memorySubcommands(helpVerb func(string) bool) map[string]func([]string) int {
 	return map[string]func([]string) int{
 		// public
 		"recall":   cmdMemoryRecall,
 		"remember": cmdMemoryRemember,
 		"init":     cmdMemoryInit,
 		"review":   cmdMemoryReview,
-		"verify":   func(args []string) int { return cmdMemoryVerify(args, knownVerb) },
+		"verify":   func(args []string) int { return cmdMemoryVerify(args, helpVerb) },
 		"promote":  cmdMemoryPromote,
 		"update":   cmdMemoryUpdate,
 		"dream":    cmdMemoryDream,
@@ -233,14 +226,14 @@ func memorySubcommands(knownVerb func(string) bool) map[string]func([]string) in
 	}
 }
 
-// cmdMemory dispatches the memory verb tree; knownVerb identifies the CLI's registered top-level verbs.
-func cmdMemory(args []string, knownVerb func(string) bool) int {
+// cmdMemory dispatches the memory verb tree; helpVerb names the top-level verbs whose -h is read-only.
+func cmdMemory(args []string, helpVerb func(string) bool) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		memoryPage.Fprint(os.Stderr)
 		return 0
 	}
 	sub := args[0]
-	h, ok := memorySubcommands(knownVerb)[sub]
+	h, ok := memorySubcommands(helpVerb)[sub]
 	if !ok {
 		return helptext.Fail("memory: unknown subcommand %q (claude-code memory -h lists them)", sub)
 	}
@@ -278,8 +271,8 @@ func memorySpec() *helptext.Node {
 	}}
 }
 
-// memoryRememberTypes mirrors memory.RememberTypes' keys for `memory remember --type` completion.
-func memoryRememberTypes() []string { return []string{"user", "feedback", "project", "reference"} }
+// memoryRememberTypes lists memory.RememberTypes' keys for `memory remember --type` completion.
+func memoryRememberTypes() []string { return slices.Sorted(maps.Keys(memory.RememberTypes)) }
 
 // memoryPromoteTargets mirrors memory.PromoteTargets for `memory promote --to` completion.
 func memoryPromoteTargets() []string { return memory.PromoteTargets }
@@ -506,8 +499,7 @@ func cmdMemoryPromote(args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if len(pos) != 1 || *to == "" {
-		helptext.Fail("memory promote: usage: %s", memorySubPage("promote").Usage)
-		return 2
+		return helptext.FailUsage("memory promote: usage: %s", memorySubPage("promote").Usage)
 	}
 	out, err := memory.Promote(memory.RepoRoot(*repo), pos[0], *to, *dryRun, time.Now())
 	if err != nil {

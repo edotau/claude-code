@@ -365,10 +365,9 @@ func trackedAtHead(repo Repo, rel string) (bool, error) {
 func headBytes(repo Repo, rel string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "--git-dir="+filepath.Join(repo.Dir, ".git"), "--work-tree="+repo.Dir,
+	out, err := proc.RunGitRaw(ctx, "", "--git-dir="+filepath.Join(repo.Dir, ".git"), "--work-tree="+repo.Dir,
 		"cat-file", "blob", "HEAD:"+rel)
-	cmd.Env = proc.GitEnv()
-	return cmd.Output()
+	return []byte(out), err
 }
 
 // exitCode is the git process exit status wrapped in err, -1 when err is not an exit error.

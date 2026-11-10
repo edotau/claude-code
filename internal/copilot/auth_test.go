@@ -82,3 +82,5 @@ func TestCopilotUsedPctBacksOffAndCapsRefresh(t *testing.T) {
 		t.Errorf("refreshed %v, want only github·fresh", calls)
 	}
 }
+
+// An unreadable registry may hide a GitHub pin: the presence gate and route headroom must say so, not read it as unpinned.

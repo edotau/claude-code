@@ -17,10 +17,10 @@ import (
 )
 
 // Collection defaults. The binding limit for a sweep is the total byte budget (Collect's budget), not the file
-// count: DefaultMaxFiles is now a generous safety cap (an explicit --max-files still overrides it).
+// count: DefaultMaxFiles is a safety cap that an explicit --max-files overrides.
 const (
-	DefaultMaxFiles     = 5000       // safety cap only; --max-files still hard-overrides this
-	DefaultMaxFileBytes = 128 * 1024 // 128 KiB per file (was 32 KiB)
+	DefaultMaxFiles     = 5000
+	DefaultMaxFileBytes = 128 * 1024 // 128 KiB per file
 )
 
 // ignoredSegments: any path containing one of these segments is skipped.
@@ -104,7 +104,7 @@ func Collect(ctx context.Context, cwd string, dirs, patterns []string, maxFiles,
 	matches := map[string]bool{}
 	var skipped []SkippedFile
 	for _, dir := range dirs {
-		dirMatches, dirSkipped, err := walkDirs(ctx, cwd, []string{dir}, tracked, repoRoots[absIn(cwd, dir)])
+		dirMatches, dirSkipped, err := walkDir(ctx, cwd, dir, tracked, repoRoots[absIn(cwd, dir)])
 		if err != nil {
 			return Context{}, err
 		}
@@ -114,7 +114,7 @@ func Collect(ctx context.Context, cwd string, dirs, patterns []string, maxFiles,
 		skipped = append(skipped, dirSkipped...)
 	}
 	for _, pattern := range patterns {
-		skipped = append(skipped, globPatterns(cwd, []string{pattern}, matches, tracked, repoRoots[globBase(cwd, pattern)])...)
+		skipped = append(skipped, globPattern(cwd, pattern, matches, tracked, repoRoots[globBase(cwd, pattern)])...)
 	}
 
 	c := collector{cwd: realPath(cwd), maxFiles: maxFiles, maxFileBytes: maxFileBytes, budget: budget}
@@ -213,75 +213,70 @@ func groupRank(rel string) int {
 	return 0
 }
 
-// walkDirs recursively collects files under dirs, pruning ignored directories and — inside a git work
+// walkDir recursively collects files under dir, pruning ignored directories and — inside a git work
 // tree — anything not cached or untracked-but-not-ignored (gitignored paths are never inlined).
-func walkDirs(ctx context.Context, cwd string, dirs []string, tracked map[string]bool, inRepo bool) (map[string]bool, []SkippedFile, error) {
+func walkDir(ctx context.Context, cwd, dir string, tracked map[string]bool, inRepo bool) (map[string]bool, []SkippedFile, error) {
 	matches := map[string]bool{}
 	var skipped []SkippedFile
-	for _, dir := range dirs {
-		root := dir
-		if !filepath.IsAbs(root) {
-			root = filepath.Join(cwd, dir)
+	root := dir
+	if !filepath.IsAbs(root) {
+		root = filepath.Join(cwd, dir)
+	}
+	walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
 		}
-		walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return ctxErr
+		if err != nil {
+			skipped = append(skipped, SkippedFile{relSlash(cwd, p), "walk-error: " + err.Error()})
+			return nil // unreadable entry: skip, don't abort the walk
+		}
+		if d.IsDir() {
+			// Prune here, not per-file; a pruned directory is not a file, so it is not counted as skipped.
+			if p != root && ignoredSegments[d.Name()] {
+				return fs.SkipDir
 			}
-			if err != nil {
-				skipped = append(skipped, SkippedFile{relSlash(cwd, p), "walk-error: " + err.Error()})
-				return nil // unreadable entry: skip, don't abort the walk
-			}
-			if d.IsDir() {
-				// Prune here, not per-file; a pruned directory is not a file, so it is not counted as skipped.
-				if p != root && ignoredSegments[d.Name()] {
-					return fs.SkipDir
-				}
-				return nil
-			}
-			if !d.Type().IsRegular() {
-				skipped = append(skipped, SkippedFile{relSlash(cwd, p), "non-regular-file"})
-				return nil
-			}
-			rel := relSlash(cwd, p)
-			if inRepo && !tracked[rel] {
-				skipped = append(skipped, SkippedFile{rel, "gitignored"})
-				return nil
-			}
-			matches[p] = true
 			return nil
-		})
-		if walkErr != nil { // the callback only ever returns a non-nil error on cancellation
-			return nil, nil, walkErr
 		}
+		if !d.Type().IsRegular() {
+			skipped = append(skipped, SkippedFile{relSlash(cwd, p), "non-regular-file"})
+			return nil
+		}
+		rel := relSlash(cwd, p)
+		if inRepo && !tracked[rel] {
+			skipped = append(skipped, SkippedFile{rel, "gitignored"})
+			return nil
+		}
+		matches[p] = true
+		return nil
+	})
+	if walkErr != nil { // the callback only ever returns a non-nil error on cancellation
+		return nil, nil, walkErr
 	}
 	return matches, skipped, nil
 }
 
-// globPatterns expands patterns into matches (mutated in place), returning glob-error and filtered-hit skips;
+// globPattern expands pattern into matches (mutated in place), returning glob-error and filtered-hit skips;
 // symlinks and, inside a git work tree, gitignored hits are never inlined.
-func globPatterns(cwd string, patterns []string, matches map[string]bool, tracked map[string]bool, inRepo bool) []SkippedFile {
+func globPattern(cwd, pattern string, matches map[string]bool, tracked map[string]bool, inRepo bool) []SkippedFile {
+	glob := pattern
+	if !filepath.IsAbs(glob) {
+		glob = filepath.Join(globEscape(cwd), pattern) // a cwd holding [, * or ? must match literally
+	}
+	hits, err := filepath.Glob(glob)
+	if err != nil {
+		return []SkippedFile{{pattern, "glob-error: " + err.Error()}}
+	}
 	var skipped []SkippedFile
-	for _, pattern := range patterns {
-		glob := pattern
-		if !filepath.IsAbs(glob) {
-			glob = filepath.Join(globEscape(cwd), pattern) // a cwd holding [, * or ? must match literally
-		}
-		hits, err := filepath.Glob(glob)
-		if err != nil {
-			skipped = append(skipped, SkippedFile{pattern, "glob-error: " + err.Error()})
-			continue
-		}
-		for _, h := range hits {
-			rel := relSlash(cwd, h)
-			switch {
-			case isSymlink(h):
-				skipped = append(skipped, SkippedFile{rel, "symlink"})
-			case !isRegularFile(h):
-			case inRepo && !tracked[rel]:
-				skipped = append(skipped, SkippedFile{rel, "gitignored"})
-			default:
-				matches[h] = true
-			}
+	for _, h := range hits {
+		rel := relSlash(cwd, h)
+		switch {
+		case isSymlink(h):
+			skipped = append(skipped, SkippedFile{rel, "symlink"})
+		case !isRegularFile(h):
+		case inRepo && !tracked[rel]:
+			skipped = append(skipped, SkippedFile{rel, "gitignored"})
+		default:
+			matches[h] = true
 		}
 	}
 	return skipped

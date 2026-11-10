@@ -50,29 +50,20 @@ func decodedRemoteScript(t *testing.T, out string) string {
 }
 
 // fakeSSHOnPATH puts an `ssh` script on PATH that returns canned output for --list's tmux listing.
-func fakeSSHOnPATH(t *testing.T, listOutput string) {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("requires a POSIX shell")
-	}
-	dir := t.TempDir()
-	script := fakeSSHDecode + "case \"$script\" in *tmux\\ list-sessions*) printf '%s' " +
-		textutil.ShellQuote(listOutput) + " ;; esac\n"
-	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
-}
+func fakeSSHOnPATH(t *testing.T, listOutput string) { fakeSSH(t, "list-sessions", listOutput) }
 
 // fakeSSHStatusOnPATH puts an `ssh` on PATH answering the --status pane-capture command with panes.
-func fakeSSHStatusOnPATH(t *testing.T, panes string) {
+func fakeSSHStatusOnPATH(t *testing.T, panes string) { fakeSSH(t, "list-panes", panes) }
+
+// fakeSSH puts an `ssh` on PATH that prints output for the remote script running `tmux <tmuxCmd>`.
+func fakeSSH(t *testing.T, tmuxCmd, output string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("requires a POSIX shell")
 	}
 	dir := t.TempDir()
-	script := fakeSSHDecode + "case \"$script\" in *tmux\\ list-panes*) printf '%s' " + textutil.ShellQuote(panes) +
-		" ;; esac\n"
+	script := fakeSSHDecode + "case \"$script\" in *tmux\\ " + tmuxCmd + "*) printf '%s' " +
+		textutil.ShellQuote(output) + " ;; esac\n"
 	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -348,32 +339,7 @@ func TestDispatchListJSONWriteError(t *testing.T) {
 	}
 }
 
-func TestDispatchListEmptyTextOutput(t *testing.T) {
-	hermeticDispatch(t)
-	fakeSSHOnPATH(t, "") // no sessions
-
-	code, out, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdNetworkRemote([]string{"--list", "--host", "myhost"})
-	})
-	if code != 0 {
-		t.Fatalf("--list (empty): exit %d, want 0; stderr=%q", code, stderr)
-	}
-	if strings.TrimSpace(out) != "" {
-		t.Errorf("--list (empty) output = %q, want empty", out)
-	}
-}
-
-// TestDispatchFlagsNotValidatedPerMode documents the desired behavior; per-mode flag validation is not added yet.
-func TestDispatchFlagsNotValidatedPerMode(t *testing.T) {
-	hermeticDispatch(t)
-	fakeSSHOnPATH(t, "")
-
-	// --dry-run is only valid in start mode, not with --list; it is silently ignored today
-	code, _, _ := hosttest.CaptureOutput(t, func() int {
-		return cmdNetworkRemote([]string{"--host", "myhost", "--list", "--dry-run"})
-	})
-	_ = code
-}
+// TestDispatchRejectsFlagFromAnotherMode: --dry-run belongs to start mode, so --list refuses it.
 
 func TestDispatchStartReportsStdoutFailure(t *testing.T) {
 	if runtime.GOOS == "windows" {

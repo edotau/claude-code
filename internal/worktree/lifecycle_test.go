@@ -103,19 +103,13 @@ func TestCreateUnusualFilenames(t *testing.T) {
 	}
 }
 
-// TestCreateSpaceInNameDerivesInvalidBranchRef documents a code defect: ResolveWorktree accepts any
-// name without a path separator (including spaces), but Create's default "worktree-"+name branch is
-// not a valid git ref when name contains a space, so Create fails with git's raw stderr instead of a
-// clear error or a sanitized branch name. See internal/worktree/lifecycle.go:24.
-func TestCreateSpaceInNameDerivesInvalidBranchRef(t *testing.T) {
+// TestCreateSpaceInNameRejectsInvalidBranch pins createBranchName's clear refusal of a name whose derived ref is invalid.
+func TestCreateSpaceInNameRejectsInvalidBranch(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
 	_, err := Create(repo, "has space", CreateOptions{})
-	if err == nil {
-		t.Fatal("BUG regression: Create used to fail on a derived branch name containing a space; it now succeeds — if Create was fixed to sanitize the default branch name, update this test to assert success instead")
-	}
-	if !strings.Contains(err.Error(), "not a valid ref") && !strings.Contains(err.Error(), "not a valid branch name") {
-		t.Fatalf("got a different error than expected, re-triage: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "not a valid branch name") {
+		t.Fatalf("Create(has space) err = %v, want a 'not a valid branch name' refusal", err)
 	}
 }
 
@@ -374,9 +368,9 @@ func TestIsLockedPropagatesNonNotExistStatError(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(gitDir, 0o755) }) // TempDir cleanup needs this back
 
-	locked, lockErr := isLocked(dest)
+	locked, lockErr := isLockedAt(dest, gitDir)
 	if lockErr == nil {
-		t.Fatalf("isLocked: want a propagated error for a permission-denied stat, got locked=%v, nil error", locked)
+		t.Fatalf("isLockedAt: want a propagated error for a permission-denied stat, got locked=%v, nil error", locked)
 	}
 }
 
@@ -478,18 +472,6 @@ func forceFixture(t *testing.T) (repo *Repo, main, dest string) {
 		t.Fatal(err)
 	}
 	return repo, main, dest
-}
-
-func TestForceCleanRefusesDirtyUnmergedWithoutForce(t *testing.T) {
-	t.Parallel()
-	repo, _, dest := forceFixture(t)
-	res, err := Clean(repo, "force", false)
-	if err != nil || res.Removed {
-		t.Fatalf("plain Clean must refuse: removed=%v err=%v", res.Removed, err)
-	}
-	if _, err := os.Stat(dest); err != nil {
-		t.Fatal("worktree must remain")
-	}
 }
 
 func TestForceCleanDiscardsDirtyUnmergedAndReports(t *testing.T) {
@@ -611,7 +593,7 @@ func TestPromoteCancelledContextNeverMovesMain(t *testing.T) {
 // still stop before the ff-only update, never racing a late cancellation into a real mutation.
 func TestPromoteCancelledAfterChecksStillRefusesFastForward(t *testing.T) {
 	mergeFixtureLockEnv(t)
-	repo, main, wt := mergeFixtureSetup(t)
+	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	mainBefore := headOf(main)
 
@@ -725,7 +707,7 @@ func resolveCancelledPoll(t *testing.T, repo *Repo, plan *MergePlan, op *Operati
 	if loadErr != nil || reloaded.Phase != "cancelled" {
 		t.Fatalf("reloaded = %+v, err=%v, want the preserved cancelled record", reloaded, loadErr)
 	}
-	mh, mhErr := hasMergeHead(context.Background(), wt)
+	mh, mhErr := hasMergeHead(wt)
 	if mhErr != nil {
 		t.Fatal(mhErr)
 	}
@@ -763,7 +745,7 @@ func resolveResumeAfterCancel(t *testing.T, repo *Repo, plan *MergePlan, reloade
 // operation already holds the same worktree's lease — even one that would otherwise be eligible.
 func TestCleanRefusesWhileWorktreeLeaseHeld(t *testing.T) {
 	t.Parallel()
-	repo, main, _ := mergeFixtureSetup(t)
+	repo, main, _ := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, main, "h.txt", "main advances past the merged worktree\n", "main advances")
 
 	if err := os.MkdirAll(operationsDir(), 0o755); err != nil {

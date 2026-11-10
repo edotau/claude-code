@@ -1,8 +1,8 @@
 package project
 
 import (
-	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -28,46 +28,43 @@ type SyncRow struct {
 	Runtime string `json:"runtime"` // always "unverified": sync checks files, not a running agent
 }
 
-// rowSink is an io.Writer that turns Sync's status lines into SyncRows.
+// rowSink collects Sync's status as SyncRows in JSON mode; other text written to it (the summary) is dropped.
 type rowSink struct {
-	buf   bytes.Buffer
 	agent string
 	rows  []SyncRow
 }
 
-func (s *rowSink) Write(p []byte) (int, error) {
-	s.buf.Write(p)
-	for {
-		line, err := s.buf.ReadString('\n')
-		if err != nil {
-			s.buf.WriteString(line) // keep the partial line for the next write
-			break
-		}
-		s.line(strings.TrimRight(line, "\n"))
+func (s *rowSink) Write(p []byte) (int, error) { return len(p), nil }
+
+// header starts one destination group: a "== name ==" line, or the agent of the rows that follow.
+func header(out io.Writer, name string) {
+	if s, ok := out.(*rowSink); ok {
+		s.agent = name
+		return
 	}
-	return len(p), nil
+	fmt.Fprintf(out, "== %s ==\n", name)
 }
 
-func (s *rowSink) line(l string) {
-	if a, ok := strings.CutPrefix(l, "== "); ok {
-		s.agent = strings.TrimSuffix(a, " ==")
+// status reports one destination: a "  VERB  path (reason)" line, or a SyncRow in JSON mode.
+func status(out io.Writer, verb, path, reason string) {
+	if s, ok := out.(*rowSink); ok {
+		s.rows = append(s.rows, SyncRow{Agent: s.agent, Name: logicalName(path), Origin: originOf(verb, path),
+			Path: path, State: verbStates[verb], Reason: reason, Runtime: "unverified"})
 		return
 	}
-	verb, rest, ok := strings.Cut(strings.TrimSpace(l), " ")
-	state, known := verbStates[verb]
-	if !ok || !known {
+	if reason != "" {
+		reason = " (" + reason + ")"
+	}
+	fmt.Fprintf(out, "  %-5s %s%s\n", verb, path, reason)
+}
+
+// linkStatus reports a symlink destination with its target: "  VERB  path -> target", or a SyncRow in JSON mode.
+func linkStatus(out io.Writer, verb, path, target string) {
+	if _, ok := out.(*rowSink); ok {
+		status(out, verb, path, "")
 		return
 	}
-	rest = strings.TrimSpace(rest)
-	path, reason := rest, ""
-	if i := strings.Index(rest, " ("); i > 0 && strings.HasSuffix(rest, ")") {
-		path, reason = rest[:i], rest[i+2:len(rest)-1]
-	}
-	if i := strings.Index(path, " -> "); i > 0 {
-		path = path[:i]
-	}
-	s.rows = append(s.rows, SyncRow{Agent: s.agent, Name: logicalName(path), Origin: originOf(verb, path),
-		Path: path, State: state, Reason: reason, Runtime: "unverified"})
+	fmt.Fprintf(out, "  %-5s %s -> %s\n", verb, path, target)
 }
 
 var verbStates = map[string]string{
@@ -96,7 +93,7 @@ func logicalName(path string) string {
 	return strings.TrimSuffix(base, filepath.Ext(base))
 }
 
-// syncJSON runs Sync with its status lines captured, then writes the rows as one JSON document to opts.Out.
+// syncJSON runs Sync with its status recorded as rows, then writes the rows as one JSON document to opts.Out.
 func syncJSON(opts Options) int {
 	w := opts.Out
 	if w == nil {

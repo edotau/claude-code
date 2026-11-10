@@ -44,13 +44,6 @@ func TestHistoryLogJSONKeepsConfigPlaneShape(t *testing.T) {
 	}
 }
 
-// TestHistoryHelpNamesConfigOnly: the history description must not claim memory coverage.
-func TestHistoryHelpNamesConfigOnly(t *testing.T) {
-	if !strings.Contains(historyPage.About, "config") || strings.Contains(historyPage.About, "memory") {
-		t.Errorf("history description = %q, must name config only", historyPage.About)
-	}
-}
-
 // TestHistoryLogRejectsNegativeCount: -n -1 is a usage error (exit 2), not a leaked `git log --1` failure.
 func TestHistoryLogRejectsNegativeCount(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

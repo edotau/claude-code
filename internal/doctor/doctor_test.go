@@ -311,6 +311,7 @@ func TestDoctorRejectsConflictingModes(t *testing.T) {
 	for _, args := range [][]string{
 		{"--scan", "--audit"}, {"--secrets", "--refresh"},
 		{"--git", "--audit"}, {"--audit", "--refresh"},
+		{"--mcp", "--scan"}, {"--prompts", "--audit"}, {"--prompts", "--mcp"},
 	} {
 		code, _, errOut := hosttest.CaptureOutput(t, func() int { return Run(args) })
 		if code != 2 {

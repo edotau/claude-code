@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +18,7 @@ import (
 // plan with exactly one IssueConflict ready to hand to ResolveWithAgent.
 func resolveFixtureConflictSetup(t *testing.T) (repo *Repo, main, wt string, plan *MergePlan) {
 	t.Helper()
-	repo, main, wt = mergeFixtureSetup(t)
+	repo, main, wt = preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
 	mergeFixtureWrite(t, main, "f.txt", "main line\n", "main edits f")
 	p, err := Preflight(context.Background(), repo, "feature", "")
@@ -56,7 +57,7 @@ func resolveFixtureFakeAgent(t *testing.T, fn func(ctx context.Context, agentNam
 }
 
 func TestHasMergeHeadUsesCheckoutLocalFile(t *testing.T) {
-	_, main, wt := mergeFixtureSetup(t)
+	_, main, wt := preflightFixtureSetup(t)
 	gitDir, err := gitDirFromPath(wt)
 	if err != nil {
 		t.Fatal(err)
@@ -64,13 +65,11 @@ func TestHasMergeHeadUsesCheckoutLocalFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(gitDir, "MERGE_HEAD"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	got, err := hasMergeHead(ctx, wt)
+	got, err := hasMergeHead(wt)
 	if err != nil || !got {
-		t.Fatalf("linked checkout MERGE_HEAD exists despite invalid contents and canceled git context: got %v, %v", got, err)
+		t.Fatalf("linked checkout MERGE_HEAD exists despite invalid contents: got %v, %v", got, err)
 	}
-	got, err = hasMergeHead(ctx, main)
+	got, err = hasMergeHead(main)
 	if err != nil || got {
 		t.Fatalf("main must not inherit the linked checkout's MERGE_HEAD: got %v, %v", got, err)
 	}
@@ -79,7 +78,7 @@ func TestHasMergeHeadUsesCheckoutLocalFile(t *testing.T) {
 // requireMergeHead fails with why unless wt's MERGE_HEAD presence equals want.
 func requireMergeHead(t *testing.T, wt string, want bool, why string) {
 	t.Helper()
-	mh, err := hasMergeHead(context.Background(), wt)
+	mh, err := hasMergeHead(wt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +200,7 @@ func TestResolveWithAgentUntrackedResidueIgnoredAndPromotes(t *testing.T) {
 // does not exercise.
 func TestCleanRefusesWhileUntrackedResidueExists(t *testing.T) {
 	mergeFixtureLockEnv(t)
-	repo, _, wt := mergeFixtureSetup(t)
+	repo, _, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 
 	plan, err := Preflight(context.Background(), repo, "feature", "")
@@ -314,7 +313,7 @@ func TestResolveWithAgentEditsUnrelatedFileRefused(t *testing.T) {
 	if op.Phase != "failed" {
 		t.Fatalf("op.Phase = %q, want %q", op.Phase, "failed")
 	}
-	mh, mhErr := hasMergeHead(context.Background(), wt)
+	mh, mhErr := hasMergeHead(wt)
 	if mhErr != nil {
 		t.Fatal(mhErr)
 	}
@@ -327,7 +326,7 @@ func TestResolveWithAgentEditsUnrelatedFileRefused(t *testing.T) {
 // TestResolveWithAgentAutoMergedFileAllowed is the regression test: a target branch that also adds a clean new file
 // stages it during the merge, and finalizeAgentResolution must not count it as an agent edit outside the conflict.
 func TestResolveWithAgentAutoMergedFileAllowed(t *testing.T) {
-	repo, main, wt := mergeFixtureSetup(t)
+	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
 	mergeFixtureWrite(t, main, "f.txt", "main line\n", "main edits f")
 	mergeFixtureWrite(t, main, "n.txt", "new on main\n", "main adds n")
@@ -678,7 +677,7 @@ func TestFinalizeAgentResolutionPropagatesScopeProbeError(t *testing.T) {
 		t.Fatal("scope probe failure must not create a resolution commit")
 	}
 	unmerged, err := unmergedPaths(ctx, wt)
-	if err != nil || !containsPath(unmerged, "f.txt") {
+	if err != nil || !slices.Contains(unmerged, "f.txt") {
 		t.Fatalf("scope probe failure must leave the conflict unstaged: paths=%v err=%v", unmerged, err)
 	}
 	requireMergeHead(t, wt, true, "scope probe failure must preserve the in-progress merge")
@@ -709,3 +708,41 @@ func TestFinalizeAgentResolutionSurfacesCheckpointSaveFailure(t *testing.T) {
 		t.Fatalf("finalizeAgentResolution err = %v, want a save resolved checkpoint error", err)
 	}
 }
+
+func TestConflictMarkersClearHonorsCustomMarkerSize(t *testing.T) {
+	repo := gitRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, ".gitattributes"), []byte("f.txt conflict-marker-size=9\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name     string
+		contents string
+		wantPath string
+	}{
+		{"opening", "<<<<<<<<< HEAD\nours\n", "f.txt"},
+		{"separator", "ours\n=========\ntheirs\n", "f.txt"},
+		{"closing", "theirs\n>>>>>>>>> feature\n", "f.txt"},
+		{"resolved", "resolved content\n", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.WriteFile(filepath.Join(repo, "f.txt"), []byte(tc.contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			clean, badPath, err := conflictMarkersClear(context.Background(), repo, []string{"f.txt"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if clean != (tc.wantPath == "") {
+				t.Fatalf("clean = %v for %q; want offending path %q", clean, tc.contents, tc.wantPath)
+			}
+			if badPath != tc.wantPath {
+				t.Fatalf("badPath = %q, want %q", badPath, tc.wantPath)
+			}
+		})
+	}
+}
+
+// TestResolveWithAgentFreshSaveFailureAbortsMaterializedMerge: a failed first SaveOperation must not leave a real merge
+// half-applied (MERGE_HEAD set) with no operation file to resume from.
+
+// a non-empty directory at the file path makes AtomicWrite fail
