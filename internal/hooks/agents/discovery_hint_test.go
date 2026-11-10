@@ -13,6 +13,10 @@ func TestDiscoveryHintPredicate(t *testing.T) {
 		name, st, task string
 		want           bool
 	}{
+		{"coworker", "coworker", "do a thing", true},
+		{"coworker:copilot", "coworker:copilot", "do a thing", true},
+		{"coworker:opencode", "coworker:opencode", "do a thing", true},
+		{"coworker:databricks", "coworker:databricks", "do a thing", false},
 		{"copilot", "copilot", "do a thing", true},
 		{"opencode", "opencode", "do a thing", true},
 		{"codex", "codex", "do a thing", false},

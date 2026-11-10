@@ -183,7 +183,7 @@ func leafLabel(updated map[string]any, st, task, desc string, session func() str
 
 // harnessLabel names the agents a harness leaf requests; other types carry no label.
 func harnessLabel(st, task string) string {
-	if !labelAgents[st] {
+	if typeAgent(st) == "" {
 		return ""
 	}
 	return agentLabel(st, task)
@@ -225,7 +225,15 @@ func ownModel(updated map[string]any, st string, session func() string) string {
 
 // routedOwn is true when the leaf runs on an external agent by its own type or on a Profile: the brief applies.
 func routedOwn(st, task string) bool {
-	return externalTypes[st] || profileApplies(st, task)
+	return externalTypes[st] || coworkerAgents[st] != "" || profileApplies(st, task)
+}
+
+// typeAgent is the agent a leaf type runs on when its brief names none: an agent-named type, else a coworker's default.
+func typeAgent(st string) string {
+	if labelAgents[st] {
+		return st
+	}
+	return coworkerAgents[st]
 }
 
 // profileApplies is true when the brief's Profile: line reaches a leaf of type st (read-only and in-context leaves ignore it).
@@ -244,7 +252,7 @@ func agentLabel(st, task string) string {
 	}
 	var names []string
 	for _, w := range briefAgents(task) {
-		if w != st {
+		if w != st && w != coworkerPin(st) {
 			names = append(names, w)
 		}
 	}
@@ -299,10 +307,13 @@ func explicitModel(in *core.Input) bool {
 	return m != "" && !strings.EqualFold(m, "inherit")
 }
 
-// agentFile is the roster file of an agent type; ok is false for an empty or path-shaped name.
+// agentFile is the roster (or coworker plugin) file of an agent type; ok is false for an empty or path-shaped name.
 func agentFile(name string) (string, bool) {
 	if name == "" || filepath.Base(name) != name {
 		return "", false
+	}
+	if agent, ok := strings.CutPrefix(name, "coworker:"); ok && coworkerAgents[name] != "" { // plugin-namespaced type
+		return filepath.Join(paths.ConfigDir(), "marketplace", "plugins", "coworker", "agents", agent+".md"), true
 	}
 	return filepath.Join(paths.ConfigDir(), "agents", name+".md"), true
 }
@@ -352,8 +363,8 @@ func labelModel(updated map[string]any, st, task string) string {
 	if profileApplies(st, task) {
 		p = briefProfile(task)
 	}
-	if agentLineRe.FindString(task) == "" && labelAgents[st] {
-		names = []string{st} // an agent-named leaf with no Agent: line runs on its own agent
+	if own := typeAgent(st); own != "" && (agentLineRe.FindString(task) == "" || coworkerPin(st) != "") {
+		names = []string{own} // no Agent: line (or a pinned coworker) runs on the type's own agent
 	}
 	if len(names) == 0 || names[len(names)-1] == "claude" && p == "" {
 		return alias
@@ -407,13 +418,13 @@ func cellModelFor(agent, alias string) string {
 // discoveryPoolSize is the curated Discovery pool's model count (a var so tests can pin it).
 var discoveryPoolSize = func() int { return len(router.DiscoveryPool()) }
 
-// discoveryHint is the one-line `--model discovery` reminder for a brief whose Agent: line names copilot or
+// discoveryHint is the one-line `--model discovery` reminder for a coworker spawn or a brief whose Agent: line names copilot or
 // opencode; "" when neither applies or the brief already passes --model.
 func discoveryHint(st, task string) string {
 	if strings.Contains(task, "--model") {
 		return ""
 	}
-	hit := st == "copilot" || st == "opencode"
+	hit := st == "copilot" || st == "opencode" || st == "coworker" || coworkerPin(st) != ""
 	for _, w := range agentNameRe.FindAllString(agentLabel(st, task), -1) {
 		hit = hit || w == "copilot" || w == "opencode"
 	}
