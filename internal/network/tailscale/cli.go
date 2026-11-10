@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -158,7 +159,7 @@ func Status(ctx context.Context) (Local, error) {
 	defer cancel()
 	cmd := execCommandContext(ctx, bin, "status", "--json")
 	cmd.WaitDelay = execWaitDelay // a wrapper's child holding the pipes must not outlive the timeout
-	out, err := outputCapped(cmd)
+	out, err := remote.OutputCapped(cmd)
 	if err != nil {
 		return Local{}, fmt.Errorf("tailscale status --json: %w", err)
 	}

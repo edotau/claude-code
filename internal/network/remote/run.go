@@ -18,14 +18,19 @@ var (
 	stdinTTY   = func() bool { return ansi.IsTerminal(os.Stdin) }
 )
 
-// RunVerb is `claude-code --host <host> <verb …>`: the verb runs on host over ssh; a browser login opens on that host.
-func RunVerb(args []string) int {
+// Run is `claude-code --host <host> <verb …>`: the verb runs on host over ssh; a browser login opens on that host.
+func Run(args []string) int {
 	host, rest, err := splitHost(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "claude-code:", err)
 		return 2
 	}
-	cmd := exec.CommandContext(context.Background(), "ssh", hostArgv(host, rest, stdinTTY())[1:]...)
+	argv, err := hostArgv(host, rest, stdinTTY())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "claude-code: --host:", err)
+		return 2
+	}
+	cmd := exec.CommandContext(context.Background(), "ssh", argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	err = runCommand(cmd)
 	if exit, ok := errors.AsType[*exec.ExitError](err); ok {
@@ -59,15 +64,11 @@ func splitHost(args []string) (string, []string, error) {
 }
 
 // hostArgv is the ssh argv: -t for an interactive caller, then the encoded script running the verb.
-func hostArgv(host string, args []string, tty bool) []string {
+func hostArgv(host string, args []string, tty bool) ([]string, error) {
 	quoted := make([]string, len(args))
 	for i, a := range args {
 		quoted[i] = textutil.ShellQuote(a)
 	}
 	script := PathPrefix + " exec " + textutil.QuotePath(HomePath(Bin(""))) + " " + strings.Join(quoted, " ")
-	argv := []string{"ssh", "-o", "ServerAliveInterval=15"}
-	if tty {
-		argv = append(argv, "-t")
-	}
-	return append(argv, "--", host, encodeScript(script))
+	return Argv(host, tty, false, script)
 }

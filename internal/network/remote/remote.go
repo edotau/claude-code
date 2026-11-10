@@ -45,11 +45,21 @@ func encodeScript(script string) string {
 	return `sh -c 'eval "$(printf %s ` + base64.StdEncoding.EncodeToString([]byte(script)) + ` | base64 -d)"'`
 }
 
-// StreamArgs is the argv for running script on host with stdin left free for the caller: BatchMode forbids prompts,
-// ServerAliveInterval drops a dead link, and "--" stops host from being read as an ssh option.
-func StreamArgs(host, script string) ([]string, error) {
+// Argv is the ssh argv running script on host: ServerAliveInterval drops a dead link, batch forbids prompts, tty
+// allocates a terminal, and "--" stops host from being read as an ssh option.
+func Argv(host string, tty, batch bool, script string) ([]string, error) {
 	if err := ValidHost(host); err != nil {
 		return nil, err
 	}
-	return []string{"ssh", "-o", "BatchMode=yes", "-o", "ServerAliveInterval=15", "--", host, encodeScript(script)}, nil
+	argv := []string{"ssh", "-o", "ServerAliveInterval=15"}
+	if batch {
+		argv = append(argv, "-o", "BatchMode=yes")
+	}
+	if tty {
+		argv = append(argv, "-t")
+	}
+	return append(argv, "--", host, encodeScript(script)), nil
 }
+
+// StreamArgs is the argv for running script on host with stdin left free for the caller; ssh may never prompt.
+func StreamArgs(host, script string) ([]string, error) { return Argv(host, false, true, script) }

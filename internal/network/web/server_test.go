@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/network/browser"
-	"github.com/edotau/claude-code/internal/network/tailscale"
+	"github.com/edotau/claude-code/internal/network/remote"
 )
 
 // agenttreeTestdata is internal/agent's own testdata fixture dir, reused rather than duplicated.
@@ -55,7 +55,7 @@ func newTestServer(t *testing.T, opts Options, logBuf *bytes.Buffer) *Server {
 
 // newStatusTestServer is newTestServer plus an injected fake Runner and clock, for handleDispatches
 // tests that must never touch a real ssh/tmux and must control cache expiry deterministically.
-func newStatusTestServer(t *testing.T, opts Options, run tailscale.RemoteRunner, now func() time.Time) *Server {
+func newStatusTestServer(t *testing.T, opts Options, run remote.RemoteRunner, now func() time.Time) *Server {
 	t.Helper()
 	s := newTestServer(t, opts, nil)
 	s.run = run
@@ -65,7 +65,7 @@ func newStatusTestServer(t *testing.T, opts Options, run tailscale.RemoteRunner,
 
 // countingCaptureRunner returns out/err for every call and counts how many times it was invoked, to
 // assert on cache-hit vs. cache-miss behavior without a real ssh/tmux round trip.
-func countingCaptureRunner(out string, err error) (tailscale.RemoteRunner, *int) {
+func countingCaptureRunner(out string, err error) (remote.RemoteRunner, *int) {
 	n := 0
 	return func(context.Context, []string) ([]byte, error) {
 		n++
@@ -354,7 +354,7 @@ func TestDispatchMissingFieldsRejected(t *testing.T) {
 	}
 }
 
-// --- hostile task reaches dry-run argv as the same quoted payload tailscale.BuildRemoteCommand builds,
+// --- hostile task reaches dry-run argv as the same quoted payload remote.BuildRemoteCommand builds,
 // and nothing executes (dry-run never calls exec.Command) ---
 
 // checkHostileDryRun posts task as a dry-run dispatch and asserts the argv equals dispatch's own builder output.
@@ -374,7 +374,7 @@ func checkHostileDryRun(t *testing.T, task string) {
 	}
 	// Rebuild the exact same remote command using the session name the handler generated,
 	// and confirm the handler's dry-run argv is byte-identical to dispatch's own builder.
-	wantCmd, wantName, err := tailscale.BuildRemoteCommand(tailscale.RemoteOpts{
+	wantCmd, wantName, err := remote.BuildRemoteCommand(remote.RemoteOpts{
 		Agent: "claude", Task: task, Name: resp.Session,
 	})
 	if err != nil {
@@ -383,7 +383,10 @@ func checkHostileDryRun(t *testing.T, task string) {
 	if wantName != resp.Session {
 		t.Fatalf("name mismatch: got %q want %q", resp.Session, wantName)
 	}
-	wantArgv := tailscale.ExecArgs(context.Background(), "localhost", wantCmd, true) // localhost runs locally, no ssh
+	wantArgv, err := remote.ExecArgs("localhost", wantCmd, true, true) // localhost runs locally, no ssh
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(resp.Argv) != len(wantArgv) {
 		t.Fatalf("argv length = %d, want %d: got=%v want=%v", len(resp.Argv), len(wantArgv), resp.Argv, wantArgv)
 	}
@@ -496,7 +499,7 @@ func TestHandleDispatchesReturnsClassifiedStatusNotRawCaptureText(t *testing.T) 
 	if strings.Contains(body, secretText) {
 		t.Fatalf("/api/dispatches leaked raw pane capture text: %s", body)
 	}
-	var statuses []tailscale.PaneStatus
+	var statuses []remote.PaneStatus
 	if err := json.Unmarshal(w.Body.Bytes(), &statuses); err != nil {
 		t.Fatalf("decode /api/dispatches body: %v; body=%s", err, body)
 	}
@@ -579,11 +582,11 @@ func TestHandleDispatchesCaptureFailureKeepsClassifiedStatus(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("failed refresh with cached pane = %d %s, want 200", w.Code, w.Body)
 	}
-	var statuses []tailscale.PaneStatus
+	var statuses []remote.PaneStatus
 	if err := json.Unmarshal(w.Body.Bytes(), &statuses); err != nil {
 		t.Fatal(err)
 	}
-	if len(statuses) != 1 || statuses[0].Session != "cc-claude-a" || statuses[0].State != tailscale.StateError {
+	if len(statuses) != 1 || statuses[0].Session != "cc-claude-a" || statuses[0].State != remote.StateError {
 		t.Fatalf("failed refresh statuses = %+v, want cached pane classified as error", statuses)
 	}
 }

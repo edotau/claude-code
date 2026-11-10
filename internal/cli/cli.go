@@ -37,7 +37,7 @@ func Run(argv []string) int {
 		return printUsage()
 	}
 	if name == "--host" || strings.HasPrefix(name, "--host=") { // run a harness verb on a tailnet host over ssh
-		return remote.RunVerb(argv[1:])
+		return remote.Run(argv[1:])
 	}
 	if c := lookup(name); c != nil {
 		return c.run(args)
