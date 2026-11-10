@@ -145,7 +145,7 @@ func TestWithTokenExpiryStampsRecordedExpiryAndOmitsWhenAbsent(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	rec := []byte(`{"schema":1,"exp":` + strconv.FormatInt(exp.Unix(), 10) + `}`)
+	rec := []byte(`{"schema":2,"exp":` + strconv.FormatInt(exp.Unix(), 10) + `}`)
 	if err := os.WriteFile(filepath.Join(dir, "dbx.json"), rec, 0o600); err != nil {
 		t.Fatal(err)
 	}

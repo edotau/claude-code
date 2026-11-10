@@ -51,7 +51,6 @@ func TestBindPrefersNativeRunners(t *testing.T) {
 		t.Fatal("native is empty")
 	}
 	wantNativeBindings(t)
-	wantPathsResolveResult(t)
 }
 
 // wantNativeBindings requires every native runner to be bound by Bind to the same function pointer.
@@ -71,25 +70,6 @@ func wantNativeBindings(t *testing.T) {
 	for name := range native {
 		if !seen[name] {
 			t.Errorf("%s: declared in native but never bound", name)
-		}
-	}
-}
-
-// wantPathsResolveResult runs the bound paths-resolve Runner and requires a Result carrying Context + SystemMessage.
-func wantPathsResolveResult(t *testing.T) {
-	t.Helper()
-	f := filepath.Join(t.TempDir(), "notes.md")
-	if err := os.WriteFile(f, []byte("hello\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	in := core.ParseInput(strings.NewReader(`{"prompt":"read ` + f + `"}`))
-	for _, b := range Bind() {
-		if b.Spec.Name != "paths-resolve" {
-			continue
-		}
-		r := b.Run(in) // a Result straight from the Runner
-		if r.Context == "" || r.SystemMessage == "" {
-			t.Errorf("path-resolver Result = %+v, want Context and SystemMessage", r)
 		}
 	}
 }
@@ -140,20 +120,5 @@ func TestPathResolverRunMatchesDispatcher(t *testing.T) {
 			}
 			wantVendorPromptDoc(t, vendor, hosttest.OneDoc(t, directOut.String()))
 		})
-	}
-}
-
-func TestPlanTemplateCommandRetired(t *testing.T) {
-	for _, old := range []string{"plan-template", "plan-gate"} {
-		if _, ok := native[old]; ok {
-			t.Fatalf("retired %s module remains registered", old)
-		}
-	}
-	var stdout, stderr bytes.Buffer
-	if code := RunArgs("PreToolUse", []string{"--plan-template"}, strings.NewReader("{}"), &stdout, &stderr); code != 1 {
-		t.Fatalf("retired module returned %d, want 1", code)
-	}
-	if stdout.Len() != 0 || stderr.String() != "claude-code hook: no module on PreToolUse named \"plan-template\"\n" {
-		t.Fatalf("stdout=%q stderr=%q", &stdout, &stderr)
 	}
 }

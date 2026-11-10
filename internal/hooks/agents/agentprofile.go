@@ -81,8 +81,12 @@ func applyProfile(updated map[string]any, promptField, task string) (note string
 
 // routeProfile prepends the ask command to the prompt, once.
 func routeProfile(updated map[string]any, promptField, task, p string) (note string) {
+	agents := briefAgents(task)
+	if len(agents) == 0 {
+		agents = []string{"claude"}
+	}
 	var cmds []string
-	for _, a := range cmpSlice(briefAgents(task), []string{"claude"}) {
+	for _, a := range agents {
 		cmds = append(cmds, fmt.Sprintf("claude-code agents ask --agent %s --profile %s", a, p))
 	}
 	prompt, _ := updated[promptField].(string)
@@ -100,11 +104,4 @@ func profileSuffix(label, task string) string {
 		return label
 	}
 	return label + "·" + p
-}
-
-func cmpSlice(xs, def []string) []string {
-	if len(xs) == 0 {
-		return def
-	}
-	return xs
 }

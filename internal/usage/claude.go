@@ -67,20 +67,15 @@ func claudeServiceNames() []string {
 func claudeKeychainToken(ctx context.Context) string {
 	account := claudeAccount()
 	for _, svc := range claudeServiceNames() {
+		var attempts [][]string
 		switch runtime.GOOS {
 		case "darwin":
-			if out, err := claudeKeychainCmd(ctx, "find-generic-password", "-s", svc, "-a", account, "-w"); err == nil {
-				if v := strings.TrimSpace(string(out)); v != "" {
-					return v
-				}
-			}
-			if out, err := claudeKeychainCmd(ctx, "find-generic-password", "-s", svc, "-w"); err == nil {
-				if v := strings.TrimSpace(string(out)); v != "" {
-					return v
-				}
-			}
+			attempts = [][]string{{"find-generic-password", "-s", svc, "-a", account, "-w"}, {"find-generic-password", "-s", svc, "-w"}}
 		case "linux":
-			if out, err := claudeKeychainCmd(ctx, "lookup", "service", svc); err == nil {
+			attempts = [][]string{{"lookup", "service", svc}}
+		}
+		for _, args := range attempts {
+			if out, err := claudeKeychainCmd(ctx, args...); err == nil {
 				if v := strings.TrimSpace(string(out)); v != "" {
 					return v
 				}
@@ -152,7 +147,7 @@ type claudeUsageResponse struct {
 	} `json:"limits"`
 }
 
-// claudeResets parses an RFC3339 instant into formatAgyReset's local display plus a normalized UTC instant.
+// claudeResets parses an RFC3339 instant into a local display plus a normalized UTC instant.
 func claudeResets(s string) (local, utc string) {
 	t, err := time.Parse(time.RFC3339, s)
 	if err != nil {
@@ -236,10 +231,7 @@ func writeClaudeUsageCache(path string, c claudeUsageCache) {
 // claudeRetryAfter parses Retry-After (seconds or an HTTP-date); 120s default when absent or unparsable.
 func claudeRetryAfter(v string, now time.Time) time.Duration {
 	const defaultCooldown = 120 * time.Second
-	v = strings.TrimSpace(v)
-	after, ok := textutil.ParseRetryAfter(v, now)
-	seconds, err := strconv.Atoi(v)
-	if ok && ((err == nil && seconds > 0) || (err != nil && after > 0)) {
+	if after, ok := textutil.ParseRetryAfter(v, now); ok && after > 0 {
 		return after
 	}
 	return defaultCooldown
@@ -307,7 +299,11 @@ func claudeFetch(ctx context.Context, creds claudeOAuthCreds, path string) []quo
 		return claudeCachedOrNote(cache, commandErrorLine(nil, err), "usage unavailable: "+commandErrorLine(nil, err))
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		reason := "read error: " + textutil.FirstLine(err.Error())
+		return claudeCachedOrNote(cache, reason, "usage unavailable: "+reason)
+	}
 	return claudeHandleResponse(resp, body, cache, creds, path, now)
 }
 

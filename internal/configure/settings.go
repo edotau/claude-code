@@ -54,8 +54,5 @@ func SaveCodexSettings(home string, old, next map[string]string) (saved bool, er
 	if err != nil {
 		return false, err
 	}
-	if err := codex.ApplyCodexSettings(home); err != nil {
-		return true, err
-	}
-	return true, nil
+	return true, codex.ApplyCodexSettings(home)
 }

@@ -87,16 +87,22 @@ var operationFormat = schemas.Register(schemas.Format{
 
 // CheckResumable mirrors the pre-agent checks of the real --resume so a dry run fails where that would.
 func CheckResumable(repo *Repo, name string) error {
-	op, err := LoadOperation(repo, name)
+	_, _, err := loadResumable(repo, name)
+	return err
+}
+
+// loadResumable loads name's saved operation and its worktree path, failing if either is missing or foreign to repo.
+func loadResumable(repo *Repo, name string) (op *Operation, worktreePath string, err error) {
+	op, err = LoadOperation(repo, name)
 	if err != nil {
-		return fmt.Errorf("no in-progress --resolve-agent operation found for %q: %w", name, err)
+		return nil, "", fmt.Errorf("no in-progress --resolve-agent operation found for %q: %w", name, err)
 	}
 	if op.Repo != repo.Main {
-		return fmt.Errorf("operation %s belongs to %s, not %s", op.ID, op.Repo, repo.Main)
+		return nil, "", fmt.Errorf("operation %s belongs to %s, not %s", op.ID, op.Repo, repo.Main)
 	}
-	wtPath := filepath.Join(repo.Root, op.Worktree)
-	if _, err := os.Stat(wtPath); err != nil {
-		return fmt.Errorf("worktree %q not found at %s: %w", op.Worktree, wtPath, err)
+	worktreePath = filepath.Join(repo.Root, op.Worktree)
+	if _, err := os.Stat(worktreePath); err != nil {
+		return nil, "", fmt.Errorf("worktree %q not found at %s: %w", op.Worktree, worktreePath, err)
 	}
-	return nil
+	return op, worktreePath, nil
 }

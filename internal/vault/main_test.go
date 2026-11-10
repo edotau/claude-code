@@ -14,7 +14,6 @@ type specKeyring struct {
 	err     error
 	lookups []string
 	sets    int
-	deletes int
 }
 
 func (s *specKeyring) lookup(name string) (string, bool, error) {
@@ -36,19 +35,12 @@ func (s *specKeyring) set(name, value string) error {
 	return nil
 }
 
-func (s *specKeyring) delete(name string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.deletes++
-	delete(s.values, name)
-	return nil
-}
-
 func TestMain(m *testing.M) {
+	DisableSyncForTests()
 	cleanup := hosttest.Setup()
 	// Replace every OS-keyring boundary before internal or external tests can run.
 	ring := &specKeyring{values: make(map[string]string)}
-	keyringLookup, keyringSet, keyringDelete = ring.lookup, ring.set, ring.delete
+	keyringLookup, keyringSet = ring.lookup, ring.set
 	code := m.Run()
 	cleanup()
 	os.Exit(code)
@@ -56,9 +48,9 @@ func TestMain(m *testing.M) {
 
 func useSpecKeyring(t *testing.T, ring *specKeyring) {
 	t.Helper()
-	lookup, set, del := keyringLookup, keyringSet, keyringDelete
-	keyringLookup, keyringSet, keyringDelete = ring.lookup, ring.set, ring.delete
+	lookup, set := keyringLookup, keyringSet
+	keyringLookup, keyringSet = ring.lookup, ring.set
 	t.Cleanup(func() {
-		keyringLookup, keyringSet, keyringDelete = lookup, set, del
+		keyringLookup, keyringSet = lookup, set
 	})
 }

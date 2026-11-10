@@ -57,16 +57,24 @@ func agentProfileChoices(d *dialog, agent string) []string {
 // pickAgentProfile lists off (automatic for claude) and the profiles agent can run on; a pick writes the record.
 // A dismissed picker or an unchanged profile is (false, nil); a failed write is (false, err).
 func pickAgentProfile(d *dialog, agent, cur string) (bool, error) {
-	names := agentProfileChoices(d, agent)
+	name, ok := pickProfileName(d, agent, agentProfileChoices(d, agent), cur)
+	if !ok {
+		return false, nil
+	}
+	return writeAgentField(d, agent, "PROFILE", name)
+}
+
+// pickProfileName opens agent's profile picker over names with cur marked; ok is false when dismissed.
+func pickProfileName(d *dialog, agent string, names []string, cur string) (name string, ok bool) {
 	rows := make([][2]string, len(names))
 	for i, n := range names {
 		rows[i] = [2]string{seedLabel(agent, n), Mark(n == cur)}
 	}
 	idx, err := d.shell().Pick(displayLabel(agent)+" — profile", rows, max(slices.Index(names, cur), 0))
 	if err != nil || idx < 0 || idx >= len(names) {
-		return false, nil
+		return "", false
 	}
-	return writeAgentField(d, agent, "PROFILE", names[idx])
+	return names[idx], true
 }
 
 // agentActiveOn turns an off agent on after a successful sign-in, by seeding its own login's profile.
@@ -143,16 +151,7 @@ func seedDefaults(d *dialog) map[string]string {
 
 // seedPick opens agent's picker; ok is false when dismissed.
 func seedPick(d *dialog, agent, cur string) (profile string, ok bool) {
-	names := append(configure.SeedProfiles(d.reg, agent), "")
-	rows := make([][2]string, len(names))
-	for i, n := range names {
-		rows[i] = [2]string{seedLabel(agent, n), Mark(n == cur)}
-	}
-	idx, err := d.shell().Pick(displayLabel(agent)+" — profile", rows, max(slices.Index(names, cur), 0))
-	if err != nil || idx < 0 || idx >= len(names) {
-		return "", false
-	}
-	return names[idx], true
+	return pickProfileName(d, agent, append(configure.SeedProfiles(d.reg, agent), ""), cur)
 }
 
 // runSeed shows one row per agent and writes every choice, Profile only, when Save is picked; dismissing writes nothing.

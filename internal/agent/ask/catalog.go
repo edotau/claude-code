@@ -17,17 +17,20 @@ func Catalog(name, profile, format string, models func(args []string) int) int {
 	if !ok || !s.External() {
 		return helptext.Fail("unknown agent %q", name)
 	}
+	var reg *providers.Registry
+	if name == "copilot" || s.CLI.ModelsProvider != "" {
+		var err error
+		if reg, err = providers.Load(); err != nil {
+			return helptext.Fail("%v", err)
+		}
+	}
 	if name == "copilot" {
-		if done, code := copilotSource(profile, format); done {
+		if done, code := copilotSource(reg, profile, format); done {
 			return code
 		}
 	}
 	switch {
 	case s.CLI.ModelsProvider != "":
-		reg, err := providers.Load()
-		if err != nil {
-			return helptext.Fail("%v", err)
-		}
 		n, err := s.ModelsProfile(reg)
 		if err != nil {
 			return helptext.Fail("%v", err)
@@ -41,11 +44,7 @@ func Catalog(name, profile, format string, models func(args []string) int) int {
 }
 
 // copilotSource prints a Databricks profile's catalog (done) or, in text, the GitHub model source line.
-func copilotSource(profile, format string) (bool, int) {
-	reg, err := providers.Load()
-	if err != nil {
-		return true, helptext.Fail("%v", err)
-	}
+func copilotSource(reg *providers.Registry, profile, format string) (bool, int) {
 	cat, err := copilot.CopilotModelSource(context.Background(), reg, profile)
 	if err == nil && cat.Databricks {
 		err = cat.Write(os.Stdout, format)

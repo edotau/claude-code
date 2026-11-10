@@ -9,9 +9,6 @@ type termState struct{}
 
 var errNoTTY = errors.New("tui: raw terminal mode is not supported on this platform")
 
-// errCanceled mirrors the unix sentinel; nothing returns it off unix.
-var errCanceled = errors.New("tui: input canceled")
-
 func isTerminal(int) bool                            { return false }
 func makeRaw(int) (*termState, error)                { return nil, errNoTTY }
 func restore(int, *termState) error                  { return nil }

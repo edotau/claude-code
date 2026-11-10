@@ -128,24 +128,23 @@ func GithubAccountLogin(reg *Registry, name string) string {
 // CodexModel resolves the codex record's model: it if set, else "" — codex's own default (config.toml's
 // model, then its ChatGPT-login provider's opus alias) decides.
 func CodexModel() (model, source string) {
-	if m := AgentRecord("codex").Model; m != "" {
-		return m, "pin"
-	}
-	return "", "default"
+	return pinned(AgentRecord("codex").Model)
 }
 
 // CodexEffort resolves the codex record's effort: it if set, else "" — codex's own default effort.
 func CodexEffort() (effort, source string) {
-	if e := AgentRecord("codex").Effort; e != "" {
-		return e, "pin"
-	}
-	return "", "default"
+	return pinned(AgentRecord("codex").Effort)
 }
 
 // GeminiModel resolves the gemini record's model: it if set, else "" — agy's own default (AgyDefaultModel) decides.
 func GeminiModel() (model, source string) {
-	if m := AgentRecord("gemini").Model; m != "" {
-		return m, "pin"
+	return pinned(AgentRecord("gemini").Model)
+}
+
+// pinned is a record field and its source: "pin" when set, else "" and "default".
+func pinned(v string) (value, source string) {
+	if v != "" {
+		return v, "pin"
 	}
 	return "", "default"
 }
@@ -190,12 +189,6 @@ func parseEnvLine(line string) (k, v string, ok bool) {
 		v = v[1 : len(v)-1]
 	}
 	return strings.TrimSpace(k), v, true
-}
-
-// readPins is the vault pins table (non-agent keys; agent settings live in records).
-func readPins() (pins map[string]string, err error) {
-	err = vault.View(func(tx *vault.Tx) error { pins = tx.All(vault.Pins); return nil })
-	return pins, err
 }
 
 // AuditRecords audits claude's record changes after their transaction succeeds: a profile switch, a model pin or unpin.
@@ -260,7 +253,8 @@ func recordFields(r vault.AgentRecord) map[string]string {
 
 // RenderPins renders the vault pins table as the plain-text snapshot history records.
 func RenderPins() ([]byte, error) {
-	pins, err := readPins()
+	var pins map[string]string // non-agent keys; agent settings live in records
+	err := vault.View(func(tx *vault.Tx) error { pins = tx.All(vault.Pins); return nil })
 	if err != nil {
 		return nil, err
 	}
@@ -287,10 +281,11 @@ func HeadlessOAuthToken() string {
 	return StoredSecret(OAuthTokenEnv)
 }
 
-// StoredSecret reads a vault secret; a miss or read error yields an empty string.
+// StoredSecret reads a vault secret; a miss or read error yields an empty string, the error noted on stderr.
 func StoredSecret(name string) string {
 	v, _, err := vault.ReadSecret(name)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: vault secret %s unreadable: %v\n", name, err)
 		return ""
 	}
 	return v

@@ -74,7 +74,7 @@ func TestIdleUpdateOnceDispatchesUncoveredWork(t *testing.T) {
 	if !idleDispatched(tr, "idle") || calls.Load() != 1 {
 		t.Fatalf("5 uncovered edits on a quiet transcript must dispatch the final update (calls=%d)", calls.Load())
 	}
-	if st, _ := readStamp(stampPath("idle")); !st.bg || st.edits != 9 {
+	if st, _ := readStamp(stampPath("idle")); st.state != "bg" || st.edits != 9 {
 		t.Errorf("stamp after the idle update = %+v, want bg covering all 9 edits", st)
 	}
 	if idleDispatched(tr, "idle") || calls.Load() != 1 {
@@ -110,7 +110,7 @@ func TestIdleUpdateOnceCountsSubagentEdits(t *testing.T) {
 	if !idleDispatched(tr, "idle-sub") || calls.Load() != 1 {
 		t.Fatalf("1 main + 10 subagent edits must dispatch the final update (calls=%d)", calls.Load())
 	}
-	if st, _ := readStamp(stampPath("idle-sub")); !st.bg || st.edits != 11 {
+	if st, _ := readStamp(stampPath("idle-sub")); st.state != "bg" || st.edits != 11 {
 		t.Errorf("stamp after the idle update = %+v, want bg covering 11 edits", st)
 	}
 

@@ -72,8 +72,7 @@ func ownLoginActual(disp Dispatch, req RunOptions) Dispatch {
 	if err != nil || own || t.Provider == nil || t.Provider.Auth.Login == name {
 		return disp
 	}
-	disp = withBilling(disp, t.Provider)
-	return disp
+	return withBilling(disp, t.Provider)
 }
 
 // TargetCtx is target, except a target frozen on ctx is used as is.

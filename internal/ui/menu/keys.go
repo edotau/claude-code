@@ -241,7 +241,7 @@ func runRotate(d *dialog, kt configure.KeyTarget) bool {
 // chooseRotateOption picks among several rotate options: a picker on a terminal, else a confirm on the first
 // (no selects the second); ok is false when the picker is cancelled.
 func chooseRotateOption(d *dialog, kt configure.KeyTarget, opts []configure.AuthOption) (chosen int, ok bool) {
-	if !isStdinTTY() || d.o.In != os.Stdin {
+	if !d.onTerminal() {
 		if d.shell().Confirm(opts[0].Label() + "?") {
 			return 0, true
 		}

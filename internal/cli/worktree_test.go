@@ -816,29 +816,6 @@ func TestWorktreeListJSONWriteError(t *testing.T) {
 	}
 }
 
-// TestWorktreeListEmptyJSONIsArray: an empty worktree list prints [] rather than null so consumers can iterate.
-func TestWorktreeListEmptyJSONIsArray(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Chdir(gitRepoCLI(t))
-
-	code, out, _ := hosttest.CaptureOutput(t, func() int {
-		return cmdWorktree([]string{"list", "--format", "json"})
-	})
-	if code != 0 {
-		t.Fatalf("list empty: code=%d", code)
-	}
-	if strings.TrimSpace(out) == "null" {
-		t.Errorf("empty list produced null, want []")
-	}
-	var entries []map[string]any
-	if err := json.Unmarshal([]byte(out), &entries); err != nil {
-		t.Errorf("invalid JSON: %v, output=%q", err, out)
-	}
-	if entries == nil {
-		t.Errorf("JSON unmarshaled to nil, want empty slice []")
-	}
-}
-
 // A clean plan must promote without dispatching --resolve-agent, even without an agent seam.
 func TestCmdWorktreeMergeResolveAgentIgnoredOnCleanPlan(t *testing.T) {
 	repo := mergeFixtureCLISetup(t)

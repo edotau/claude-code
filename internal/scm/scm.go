@@ -75,8 +75,7 @@ func Detect(remote string) (Repo, error) {
 	lower := strings.ToLower(host)
 	isHTTP := strings.HasPrefix(strings.TrimSpace(remote), "http")
 	parts := strings.FieldsFunc(strings.TrimSuffix(strings.TrimRight(path, "/"), ".git"), func(r rune) bool { return r == '/' })
-	switch {
-	case lower == "github.com" || strings.HasSuffix(lower, ".github.com"):
+	if lower == "github.com" || strings.HasSuffix(lower, ".github.com") {
 		if len(parts) != 2 {
 			return Repo{}, fmt.Errorf("remote %q is not owner/repo", shown)
 		}

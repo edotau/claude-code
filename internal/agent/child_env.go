@@ -152,17 +152,12 @@ func (s EnvSpec) dropper(ctx context.Context) func(string) bool {
 // profile) keeps no profile's credentials. Launch-owned values are appended after this, so they are never scrubbed.
 func scrubIsolated(ctx context.Context, inherited, keepEnv []string) []string {
 	if p := ownProviderFrom(ctx); p != nil {
-		return scrubForeignCredentials(inherited, p, keepEnv)
+		return scrubExcept(inherited, p.Name, append(providers.CredentialNames(p), keepEnv...), keepEnv)
 	}
 	if ctx.Value(isolateKey{}) == nil {
 		return inherited
 	}
 	return scrubExcept(inherited, "", keepEnv, keepEnv)
-}
-
-// scrubForeignCredentials drops every other profile's credential env name from env, so a hop holds only its own.
-func scrubForeignCredentials(env []string, own *providers.Provider, keepEnv []string) []string {
-	return scrubExcept(env, own.Name, append(providers.CredentialNames(own), keepEnv...), keepEnv)
 }
 
 // credentialPatterns are the credential-shaped names dropped when the registry cannot say whose they are.

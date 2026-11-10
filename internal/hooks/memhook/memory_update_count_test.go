@@ -74,9 +74,7 @@ func TestCountEditsGitCommitWeightArmsGate(t *testing.T) {
 	}
 }
 
-// TestCountStateOldFormatReadsAndNewFieldsRoundTrip: a pre-upgrade "edits|offset" count file forces a
-// full rescan from 0 (its offset sits past commit lines the old binary never weighted), and
-// writeCountState's 3-field format round-trips exactly.
+// An invalid count format forces a full rescan; the four-field format round-trips exactly.
 func TestCountStateOldFormatReadsAndNewFieldsRoundTrip(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	path := filepath.Join(t.TempDir(), "count-x")
@@ -84,11 +82,11 @@ func TestCountStateOldFormatReadsAndNewFieldsRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	cs, ok := readCountState(path)
-	if !ok || cs != (countState{}) {
+	if ok || cs != (countState{}) {
 		t.Fatalf("old-format read = %+v ok=%v, want zero state forcing a full rescan", cs, ok)
 	}
 
-	want := countState{edits: 7, offset: 240, subEdits: 4, subBytes: 999}
+	want := countState{edits: 7, offset: 240, subEdits: 4, subBytes: 999, turns: 3}
 	writeCountState(path, want)
 	got, ok := readCountState(path)
 	if !ok || got != want {

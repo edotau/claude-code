@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -70,15 +71,42 @@ func detectWindows(env Env, s spec, b *Browser) {
 		return
 	}
 	b.Paths.CDP = stateAvailable
-	if owner := env.cdpOwner(); cdpOwned(owner, s.name) {
+	if cdpTagged(env.cdpOwner(), s.name) && cdpListenedBy(env, s.name) {
 		b.Paths.CDP = stateReady
 	}
 }
 
-// cdpOwned reports whether owner (a /json/version "Browser" value) names the browser; an unknown name never matches.
-func cdpOwned(owner, name string) bool {
+// cdpTagged reports whether owner carries the browser's /json/version tag.
+func cdpTagged(owner, name string) bool {
 	tag := cdpBrowserTag[name]
 	return owner != "" && tag != "" && strings.Contains(owner, tag)
+}
+
+// cdpListenedBy reports whether the browser's own executable listens on cdpPort; Edge's tag is already unique.
+func cdpListenedBy(env Env, name string) bool {
+	if name == "edge" {
+		return true
+	}
+	exes := winExe[name]
+	return len(exes) > 0 && strings.EqualFold(env.cdpListener()+".exe", filepath.Base(exes[0]))
+}
+
+// cdpListener is Detect's memoized listener probe when set, else a fresh one.
+func (e Env) cdpListener() string {
+	if e.cdpListen != nil {
+		return e.cdpListen()
+	}
+	return cdpListener(e)
+}
+
+// cdpListener names the Windows process listening on cdpPort ("chrome", "brave"), or "" when unknown.
+func cdpListener(env Env) string {
+	out, err := env.probeRun("powershell.exe", "-NoProfile", "-Command", fmt.Sprintf(`(Get-Process -Id `+
+		`(Get-NetTCPConnection -LocalPort %d -State Listen | Select-Object -First 1).OwningProcess).ProcessName`, cdpPort))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
 }
 
 // cdpOwner is the "Browser" field of http://localhost:CDPPort/json/version, or "" when nothing answers.
@@ -107,7 +135,7 @@ func probeCDP() string {
 	var v struct {
 		Browser string `json:"Browser"`
 	}
-	if decodeJSON(resp.Body, &v) != nil {
+	if json.NewDecoder(resp.Body).Decode(&v) != nil {
 		return ""
 	}
 	return v.Browser
@@ -142,13 +170,13 @@ func setupWSL(env Env, b Browser) Actions {
 
 // startCDPAction launches the browser with the debug port and a dedicated profile, then waits for the port.
 func startCDPAction(env Env, b Browser) action {
-	if cdpOwned(env.cdpOwner(), b.Name) {
+	if cdpTagged(env.cdpOwner(), b.Name) && cdpListenedBy(env, b.Name) {
 		return action{Kind: "noop", Executed: true,
 			Description: fmt.Sprintf("%s already answers on localhost:%d.", b.DisplayName, cdpPort)}
 	}
 	exe := winExePath(env, b.Name)
 	drive := paths.NewResolver([]paths.Mount{{Point: env.WinRoot, Kind: paths.KindDrvFS, Drive: "C"}})
-	winExe, _ := drive.ViewFrom(exe, paths.Target{Style: paths.StyleWindows})
+	winExe, _ := drive.WindowsPath(exe)
 	ps := fmt.Sprintf(`Start-Process -FilePath '%s' -ArgumentList '--remote-debugging-port=%d',`+
 		`"--user-data-dir=$env:LOCALAPPDATA\claude-code\%s-cdp",'--no-first-run','--no-default-browser-check'`,
 		winExe, cdpPort, b.Name)
@@ -163,11 +191,14 @@ func startCDPAction(env Env, b Browser) action {
 		return a
 	}
 	for range 20 {
-		if cdpOwned(env.cdpOwner(), b.Name) {
-			a.Executed = true
-			return a
+		if cdpTagged(env.cdpOwner(), b.Name) {
+			a.Executed = cdpListenedBy(env, b.Name)
+			break
 		}
 		env.sleep(500 * time.Millisecond)
+	}
+	if a.Executed {
+		return a
 	}
 	a.Error = cdpFailure(env, b)
 	return a
@@ -264,7 +295,7 @@ func mcpRegistered(home string) bool {
 	var cfg struct {
 		MCPServers map[string]any `json:"mcpServers"`
 	}
-	if decodeJSON(f, &cfg) != nil {
+	if json.NewDecoder(f).Decode(&cfg) != nil {
 		return false
 	}
 	_, ok := cfg.MCPServers[devtoolsMCPName]

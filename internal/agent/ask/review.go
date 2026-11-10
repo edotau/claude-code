@@ -35,7 +35,10 @@ func Review(name string, args []string, o ReviewOptions) int {
 	if err != nil {
 		return helptext.Fail("%s review: %v", name, err)
 	}
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("%s review: %v", name, err)
+	}
 	diff, err := reviewDiff(cwd, scope)
 	if err != nil {
 		return helptext.Fail("%s review: %v", name, err)
@@ -103,7 +106,10 @@ func printMerged(adversarial bool, parts []roles.Part, answers []string) error {
 
 // spawnSplitReview detaches this same review (minus --background) as one job that runs the parts in order.
 func spawnSplitReview(name string, args []string, n int) int {
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("%s review: %v", name, err)
+	}
 	req := agent.RunOptions{Agent: name, Prompt: fmt.Sprintf("%s review split into %d parts", name, n),
 		WorkDir: cwd, Background: true}
 	rec, err := NewClient().Record(context.Background(), req, nil)
@@ -111,8 +117,8 @@ func spawnSplitReview(name string, args []string, n int) int {
 		return helptext.Fail("%s review: %v", name, err)
 	}
 	rec.Progress = fmt.Sprintf("part 0/%d", n)
-	if err := rec.Save(); err != nil {
-		fmt.Fprintf(os.Stderr, "%s review: job record not saved: %v\n", name, err)
+	if err := rec.Save(); err != nil { // the child loads this record by id: without it the job would never be visible
+		return helptext.Fail("%s review: job record not saved: %v", name, err)
 	}
 	argv := append([]string{name, "review"}, slices.DeleteFunc(slices.Clone(args), func(a string) bool {
 		return a == "--background" || a == "-background" || a == "--background=true"

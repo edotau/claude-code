@@ -58,7 +58,7 @@ func cliPlan(ctx context.Context, name string, o agent.LaunchOptions, args []str
 	if err != nil {
 		return agent.Plan{}, err
 	}
-	reg, sel, err := selection(o)
+	reg, sel, err := SessionSelection(o, false)
 	if err != nil {
 		if hint := spec.Eng().ProfileHint(o); hint != nil {
 			return agent.Plan{}, hint
@@ -167,8 +167,11 @@ func launchProfile(name string, o agent.LaunchOptions) (agent.LaunchOptions, err
 
 // pinRoute is a profile pin as the launch routes it: "" for the agent's own login or a non-registry pin id (opencode-go).
 func pinRoute(name, pin string) (string, error) {
-	if pin == "" || agent.OwnLogin(name, pin) {
+	if pin == "" {
 		return "", nil
+	}
+	if own, err := agent.OwnLogin(name, pin); own || err != nil {
+		return "", err
 	}
 	reg, err := providers.Load()
 	if err != nil || reg.Providers[pin] == nil {
@@ -231,7 +234,7 @@ func registryPlan(
 
 // retryConfigure re-resolves the target after configure, applying the agent's model pin as cliLaunch does.
 func retryConfigure(ctx context.Context, spec agent.Schema, name string, o agent.LaunchOptions, flagModel string) ([]string, []string, error) {
-	reg, sel, err := selection(o)
+	reg, sel, err := SessionSelection(o, false)
 	if err != nil {
 		return nil, nil, err
 	}

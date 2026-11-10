@@ -70,7 +70,11 @@ func BuildTask(l ParsedLine, o Opts, base agent.RunOptions, timeoutSet bool, cwd
 func RunBatch(ctx context.Context, lines []ParsedLine, o Opts, base agent.RunOptions, timeoutSet bool,
 	newClient func() *client.Client, out io.Writer) (id string, ok bool) {
 	ctx = providers.WithIdentity(ctx, cmp.Or(o.Identity, providers.IdentityHeadless))
-	cwd, _ := os.Getwd() // resolved once here: a pool goroutine must never fall back to the process cwd
+	cwd, err := os.Getwd() // resolved once here: a pool goroutine must never fall back to the process cwd
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claude-code: ask: %v\n", err)
+		return "", false
+	}
 	seen := map[string]bool{}
 	build := func(l ParsedLine) Task {
 		t, err := BuildTask(l, o, base, timeoutSet, cwd, seen, newClient)
@@ -289,12 +293,16 @@ func (b *batchRun) run(ctx context.Context, t Task, p *client.Prepared) (env wir
 		if r := recover(); r != nil {
 			err := retry.Fatal(t.Agent, fmt.Errorf("panic: %v", r))
 			rec.Finish(wire.Result{Agent: t.Agent, Status: wire.StatusError}, err, time.Since(start))
-			_ = rec.Save()
+			if serr := rec.Save(); serr != nil {
+				b.logf(t.ID, "dispatch record %s not saved: %v", rec.ID, serr)
+			}
 			env, ok = wire.NewEnvelope(wire.Result{Agent: t.Agent, Status: wire.StatusError}, err, rec.ID), false
 			env.TaskID = t.ID
 		}
 	}()
-	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
+	if err := rec.Save(); err != nil { // fail-open: the log is for replay and forensics, never a gate on the run
+		b.logf(t.ID, "dispatch record %s not saved: %v", rec.ID, err)
+	}
 	notify := func(s string) { b.logf(t.ID, "%s", s) }
 	cl := client.NewClient(nil, nil, notify)
 	if p.Opts.Launcher != nil {

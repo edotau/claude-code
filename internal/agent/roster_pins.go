@@ -154,9 +154,11 @@ func AgentPins() (map[string]router.PinSpec, error) {
 	if err != nil {
 		return nil, fmt.Errorf("agent pins: %w", err)
 	}
-	reg := sync.OnceValue(func() *providers.Registry { r, _ := providers.Load(); return r }) // only a pinned row reads it
-	out := make(map[string]router.PinSpec, len(rows()))
-	for _, k := range rows() {
+	var regErr error
+	reg := sync.OnceValue(func() *providers.Registry { r, err := providers.Load(); regErr = err; return r }) // only a pinned row reads it
+	rs := rows()
+	out := make(map[string]router.PinSpec, len(rs))
+	for _, k := range rs {
 		r := recs[k.Name]
 		spec := router.PinSpec{Profile: r.Profile, Off: k.External() && r.Profile == ""}
 		if ownLogin(reg, k.Name, r.Profile) {
@@ -168,12 +170,20 @@ func AgentPins() (map[string]router.PinSpec, error) {
 		}
 		out[k.Name] = spec
 	}
+	if regErr != nil { // a broken registry would otherwise make every own-login pin read as a real profile pin
+		return nil, fmt.Errorf("agent pins: %w", regErr)
+	}
 	return out, nil
 }
 
-// OwnLogin reports a profile that is agent's own sign-in, which AgentPins reads as no pin.
-func OwnLogin(agent, profile string) bool {
-	return ownLogin(func() *providers.Registry { r, _ := providers.Load(); return r }, agent, profile)
+// OwnLogin reports a profile that is agent's own sign-in, which AgentPins reads as no pin; a broken registry errors.
+func OwnLogin(agent, profile string) (bool, error) {
+	var regErr error
+	own := ownLogin(func() *providers.Registry { r, err := providers.Load(); regErr = err; return r }, agent, profile)
+	if regErr != nil {
+		return false, fmt.Errorf("own login: %w", regErr)
+	}
+	return own, nil
 }
 
 // ownLogin reports a profile that is agent's own sign-in: its schema's OwnLoginProfile, else a row with Auth.Login == agent.

@@ -70,3 +70,5 @@ func TestVendorArgvMissingVendor(t *testing.T) {
 		t.Errorf("input changed to %v, want %v", argv, original)
 	}
 }
+
+// A failed env write after the secret is sealed must say the secret was already saved.

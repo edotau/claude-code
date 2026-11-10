@@ -32,7 +32,21 @@ func parseKey(value, vaultID string) (*Key, error) {
 	if err != nil || len(root) != 32 {
 		return nil, errors.New("vault: master key must be base64-encoded 32 bytes")
 	}
-	sub, err := hkdf.Key(sha256.New, root, []byte(vaultID), secretsInfo, 32)
+	aead, err := newAEAD(root, vaultID, secretsInfo)
+	if err != nil {
+		return nil, err
+	}
+	backupAEAD, err := newAEAD(root, vaultID, settingsBackupsInfo)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(root)
+	return &Key{Kid: hex.EncodeToString(sum[:])[:16], aead: aead, backupsAEAD: backupAEAD, raw: trimmed}, nil
+}
+
+// newAEAD derives the subkey for info from root and vaultID and wraps it in AES-GCM with random nonces.
+func newAEAD(root []byte, vaultID, info string) (cipher.AEAD, error) {
+	sub, err := hkdf.Key(sha256.New, root, []byte(vaultID), info, 32)
 	if err != nil {
 		return nil, err
 	}
@@ -40,24 +54,7 @@ func parseKey(value, vaultID string) (*Key, error) {
 	if err != nil {
 		return nil, err
 	}
-	aead, err := cipher.NewGCMWithRandomNonce(block)
-	if err != nil {
-		return nil, err
-	}
-	backupSub, err := hkdf.Key(sha256.New, root, []byte(vaultID), settingsBackupsInfo, 32)
-	if err != nil {
-		return nil, err
-	}
-	backupBlock, err := aes.NewCipher(backupSub)
-	if err != nil {
-		return nil, err
-	}
-	backupAEAD, err := cipher.NewGCMWithRandomNonce(backupBlock)
-	if err != nil {
-		return nil, err
-	}
-	sum := sha256.Sum256(root)
-	return &Key{Kid: hex.EncodeToString(sum[:])[:16], aead: aead, backupsAEAD: backupAEAD, raw: trimmed}, nil
+	return cipher.NewGCMWithRandomNonce(block)
 }
 
 // Raw returns the base64-encoded master key value k was parsed from — the same encoding
@@ -69,10 +66,15 @@ func (k *Key) Seal(name, value string) []byte {
 }
 
 func (k *Key) Open(name string, r Record) (string, error) {
+	return k.open(k.aead, secretsInfo, name, r)
+}
+
+// open checks r was sealed under k, then decrypts it with aead and the info-scoped AAD.
+func (k *Key) open(aead cipher.AEAD, info, name string, r Record) (string, error) {
 	if r.Kid != k.Kid {
 		return "", ErrWrongKey
 	}
-	v, err := k.aead.Open(nil, nil, r.Sealed, []byte(secretsInfo+"/"+name))
+	v, err := aead.Open(nil, nil, r.Sealed, []byte(info+"/"+name))
 	return string(v), err
 }
 
@@ -85,9 +87,5 @@ func (k *Key) openIn(bucket, name string, r Record) (string, error) {
 	if bucket == Secrets {
 		return k.Open(name, r)
 	}
-	if r.Kid != k.Kid {
-		return "", ErrWrongKey
-	}
-	v, err := k.backupsAEAD.Open(nil, nil, r.Sealed, []byte(settingsBackupsInfo+"/"+name))
-	return string(v), err
+	return k.open(k.backupsAEAD, settingsBackupsInfo, name, r)
 }

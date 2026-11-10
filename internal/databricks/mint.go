@@ -241,14 +241,6 @@ func mint(args []string) int {
 	return copyToken(ctx, tok, *clearAfter)
 }
 
-// asLabel names the identity a mint would use; empty --as means the profile's own setting.
-func asLabel(as string) string {
-	if as == "" {
-		return "the profile's identity"
-	}
-	return as
-}
-
 func authLabel(p *providers.Provider) string {
 	if m := p.Auth.Method(); m != "" {
 		return m
@@ -287,6 +279,9 @@ func mintDryRun(reg *providers.Registry, name, as string, doCopy bool) int {
 	if err != nil {
 		return fail("mint: %v", err)
 	}
-	fmt.Printf("would mint a fresh token for %s (%s) as %s; copy=%t; nothing written\n", p.Name, authLabel(p), asLabel(as), doCopy)
+	if as == "" {
+		as = "the profile's identity"
+	}
+	fmt.Printf("would mint a fresh token for %s (%s) as %s; copy=%t; nothing written\n", p.Name, authLabel(p), as, doCopy)
 	return 0
 }

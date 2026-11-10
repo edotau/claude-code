@@ -65,6 +65,9 @@ func Sync(template, dest, claudeHome, claudeBin string, check bool) (Result, err
 		result = r
 		return mergeErr
 	})
+	if !ran && err != nil {
+		return Result{}, fmt.Errorf("vscode: lock %s: %w", lock, err)
+	}
 	if !ran {
 		return Result{}, fmt.Errorf("vscode: could not acquire a lock on %s within %s", dest, lockWait)
 	}

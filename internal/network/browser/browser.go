@@ -2,9 +2,7 @@
 package browser
 
 import (
-	"encoding/json"
 	"errors"
-	"io"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -97,6 +95,7 @@ type Env struct {
 	ClaudeBin  string              // the real claude binary for `claude mcp add` (never our shim)
 	HasNPX     bool                // npx is on PATH: chrome-devtools-mcp runs through it
 	gui        func() string       // Detect's memoized guiState, so N browsers share one osascript probe
+	cdpListen  func() string       // Detect's memoized cdpListener, so N browsers share one PowerShell probe
 }
 
 // sleep is e.Sleep when set, else a no-op (tests never wait).
@@ -113,9 +112,6 @@ func (e Env) claudeBin() string {
 	}
 	return "claude"
 }
-
-// decodeJSON decodes one JSON value from r into v.
-func decodeJSON(r io.Reader, v any) error { return json.NewDecoder(r).Decode(v) }
 
 // goos is e.GOOS when set (tests pin it to exercise macOS logic off-machine), else runtime.GOOS.
 func (e Env) goos() string {

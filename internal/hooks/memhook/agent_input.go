@@ -71,7 +71,7 @@ func AgentInput(in *core.Input) *core.Input {
 	case in.Agent() == core.AgentCopilot && in.TranscriptPath != "":
 		// copilotEventsFrom turns an open error into no events; check the open here so it fails open instead.
 		if err = canOpen(in.TranscriptPath); err == nil {
-			at = loadCopilotEvents(in.SessionID, copilotEventsFrom(in.TranscriptPath, in.CWD))
+			at = loadCopilotEvents(copilotEventsFrom(in.TranscriptPath, in.CWD))
 		}
 	default:
 		return in
@@ -168,14 +168,15 @@ func copilotEventsFrom(path, cwd string) []copilotEvent {
 		case "tool.execution_start":
 			starts = append(starts, copilotStart{id: rec.Data.ToolCallID, evs: copilotToolEvents(rec.Data.ToolName, rec.Data.Arguments, cwd)})
 		case "tool.execution_complete":
-			sawFileEdits = sawFileEdits || len(rec.Data.FileEdits) > 0
-			if !rec.Data.Success && rec.Data.ToolCallID != "" {
-				failed[rec.Data.ToolCallID] = true
-			}
-			for _, fe := range rec.Data.FileEdits {
-				if rec.Data.Success {
-					done = append(done, copilotEvent{Type: "tool.execution_start", ToolName: "edit", Arguments: map[string]any{"path": fe.Path}})
+			if !rec.Data.Success {
+				if rec.Data.ToolCallID != "" {
+					failed[rec.Data.ToolCallID] = true
 				}
+				return
+			}
+			sawFileEdits = sawFileEdits || len(rec.Data.FileEdits) > 0
+			for _, fe := range rec.Data.FileEdits {
+				done = append(done, copilotEvent{Type: "tool.execution_start", ToolName: "edit", Arguments: map[string]any{"path": fe.Path}})
 			}
 		}
 	})

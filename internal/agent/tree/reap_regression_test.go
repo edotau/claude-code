@@ -103,3 +103,5 @@ func TestReapReportsRemovalFailures(t *testing.T) {
 		})
 	}
 }
+
+// Given one dead marker, When reapMarkers runs dry, Then it counts the marker it would reap and leaves it in place.

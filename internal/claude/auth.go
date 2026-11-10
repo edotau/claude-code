@@ -15,12 +15,9 @@ import (
 
 var _ agent.Authenticator = claudeAgent
 
-// claudeProbe is `claude auth status`; a seam so tests stay off the real CLI.
-var claudeProbe = ClaudeLoginProbe
-
 // AuthStatus is the claude.ai login from `claude auth status`; a failed probe sets Err (unknown, not logged out).
 func (claudeEngine) AuthStatus() providers.AuthState {
-	ok, plan, err := claudeProbe()
+	ok, plan, err := claudeLoginProbe()
 	if err != nil {
 		return providers.AuthState{Err: err}
 	}
@@ -44,7 +41,7 @@ func (claudeEngine) Plan(_ context.Context, st providers.AuthState) providers.Su
 }
 
 func (claudeEngine) Verify(context.Context) (providers.AuthVerdict, string) {
-	ok, plan, err := claudeProbe()
+	ok, plan, err := claudeLoginProbe()
 	switch {
 	case err != nil:
 		return providers.VerdictTransient, "claude auth status failed: " + err.Error()
@@ -74,8 +71,8 @@ var claudeProbeMemo struct {
 	flight   *probeCall
 }
 
-// ClaudeLoginProbe asks `claude auth status` (JSON); err != nil means unknown. Single-flight; logged-in memo 10s.
-func ClaudeLoginProbe() (loggedIn bool, plan string, err error) {
+// claudeLoginProbe asks `claude auth status` (JSON); err != nil means unknown. Single-flight; logged-in memo 10s.
+func claudeLoginProbe() (loggedIn bool, plan string, err error) {
 	m := &claudeProbeMemo
 	m.mu.Lock()
 	if !m.at.IsZero() && time.Since(m.at) < claudeProbeTTL {

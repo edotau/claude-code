@@ -169,18 +169,6 @@ func asMap(v any) map[string]any {
 	return nil
 }
 
-// getChangedSourceFiles ports get_changed_source_files: changed source paths under repo, warning on git failure.
-func getChangedSourceFiles(repo, base, head string) []string {
-	files, err := changedSourceFiles(repo, base, head)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
-	}
-	for i, f := range files {
-		files[i] = filepath.Join(repo, f)
-	}
-	return files
-}
-
 // changedSourceFiles lists the source files added, copied, modified or renamed in base...head, relative to repo.
 // -z keeps non-ASCII and space-containing names unquoted; deleted files are excluded (they have no head content).
 func changedSourceFiles(repo, base, head string) ([]string, error) {

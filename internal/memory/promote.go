@@ -198,25 +198,33 @@ func promoteJudgment(root, id, to, target string) (string, error) {
 	return block + "\n\ntarget: " + target + "\n\n" + ref + "\n", nil
 }
 
+// blockIn returns the block in path (parsed under typed file name's grammar) that owns id; "" when path lacks it.
+func blockIn(path, name, id string) (string, error) {
+	data, err := readIfExists(path)
+	if err != nil {
+		return "", err
+	}
+	if !strings.Contains(string(data), "<!-- id:"+id+" -->") {
+		return "", nil
+	}
+	_, blocks := entryBlocks(name, string(data))
+	for _, b := range blocks {
+		if ownsMarker(b, id) {
+			return b, nil
+		}
+	}
+	return "", nil
+}
+
 // extractBlock finds the id-marked block in dir's typed files, returning its filename and text.
 func extractBlock(dir, id string) (string, string, error) {
-	marker := "<!-- id:" + id + " -->"
 	for name := range idFiles {
-		data, err := os.ReadFile(filepath.Join(dir, name))
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
+		b, err := blockIn(filepath.Join(dir, name), name, id)
 		if err != nil {
 			return "", "", err
 		}
-		if !strings.Contains(string(data), marker) {
-			continue
-		}
-		_, blocks := entryBlocks(name, string(data))
-		for _, b := range blocks {
-			if ownsMarker(b, id) {
-				return name, b, nil
-			}
+		if b != "" {
+			return name, b, nil
 		}
 	}
 	return "", "", errNoBlock
@@ -227,19 +235,11 @@ func findBlock(dir, id string) (file, block, src string, err error) {
 	if file, block, err = extractBlock(dir, id); err == nil {
 		return file, block, filepath.Join(dir, file), nil
 	}
-	marker := "<!-- id:" + id + " -->"
 	for name := range idFiles {
 		matches, _ := filepath.Glob(filepath.Join(dir, "archive", strings.TrimSuffix(name, ".md")+"-*.md"))
 		for _, p := range matches {
-			data, rerr := os.ReadFile(p)
-			if rerr != nil || !strings.Contains(string(data), marker) {
-				continue
-			}
-			_, blocks := entryBlocks(name, string(data))
-			for _, b := range blocks {
-				if ownsMarker(b, id) {
-					return name, b, p, nil
-				}
+			if b, rerr := blockIn(p, name, id); rerr == nil && b != "" {
+				return name, b, p, nil
 			}
 		}
 	}

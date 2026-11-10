@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 // tailscaleAppBin is the CLI inside the macOS app; the cask puts nothing on PATH.
@@ -27,6 +29,7 @@ func installTailscaleCask(ctx context.Context, w io.Writer, dryRun bool) error {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, brew, "install", "--cask", "tailscale-app")
 	cmd.Stdout, cmd.Stderr = w, w
+	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(ctx) // brew and its cask hooks get no provider credential
 	return cmd.Run()
 }
 

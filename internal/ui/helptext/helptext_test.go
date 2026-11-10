@@ -174,8 +174,8 @@ func TestFlagRowsPlaceholderHook(t *testing.T) {
 	for _, r := range rows {
 		got[r[0]] = r[1]
 	}
-	if label, ok := got["--drop KEY,KEY"]; !ok {
-		t.Errorf("want a --drop KEY,KEY row from the Placeholder hook, got rows: %v (desc %q)", rows, label)
+	if _, ok := got["--drop KEY,KEY"]; !ok {
+		t.Errorf("want a --drop KEY,KEY row from the Placeholder hook, got rows: %v", rows)
 	}
 	if _, ok := got["--keep value"]; !ok {
 		t.Errorf("want a --keep value row (no Placeholder hook), got rows: %v", rows)

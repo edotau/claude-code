@@ -26,7 +26,7 @@ func writeRunningDispatch(t *testing.T, id string, pid, owner int) {
 
 const runningPayload = `{"model":{"display_name":"Opus"},"workspace":{"current_dir":"/tmp"}}`
 
-// runningCounts counts only this session's live dispatches: dead pids and other owners stay out.
+// runningDispatches counts only this session's live dispatches: dead pids and other owners stay out.
 func TestRunningCountsOwnLiveDispatchesOnly(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -47,7 +47,7 @@ func TestRunningCountsOwnLiveDispatchesOnly(t *testing.T) {
 				t.Skip("inflight.SessionOwner() is 0 here; owner filtering is untestable")
 			}
 			writeRunningDispatch(t, "20261024T000001.000-codex", c.pid, c.owner(owner))
-			if _, got := runningCounts(Input{}); got != c.want {
+			if got := runningDispatches(Input{}); got != c.want {
 				t.Errorf("dispatches = %d, want %d", got, c.want)
 			}
 		})
@@ -65,7 +65,7 @@ func TestTotalSegmentPlusWhileDispatchRuns(t *testing.T) {
 		t.Fatalf("idle = %q, want 812", got)
 	}
 	writeRunningDispatch(t, "20261024T000002.000-codex", os.Getpid(), inflight.SessionOwner())
-	// runningCounts caches for runningTTL, so drop the stamp the idle call wrote.
+	// runningDispatches caches for runningTTL, so drop the stamp the idle call wrote.
 	_ = os.Remove(stampFile("running", paths.StateDir()+"\x00"+in.TranscriptPath))
 	if got := totalSegment(in); got != "812+" {
 		t.Errorf("running = %q, want 812+", got)

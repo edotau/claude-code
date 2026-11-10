@@ -114,14 +114,7 @@ func TestUnsupportedAndIncompleteProfilesSkipped(t *testing.T) {
 
 func candsOf(t *testing.T, body string) map[string]Candidate {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "cfg")
-	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cs, err := Candidates(p)
-	if err != nil {
-		t.Fatal(err)
-	}
+	cs := candidatesOf(t, body)
 	m := map[string]Candidate{}
 	for _, c := range cs {
 		m[c.Name] = c
@@ -190,7 +183,7 @@ func TestExplicitAuthTypeWinsOverInference(t *testing.T) {
 
 func TestParseMultiLineValues(t *testing.T) {
 	body := "[m]\ntoken = \"\"\"ab\ncd\"\"\"\nclient_secret = x\\\n  y\nclient_id = `p\nq`\nhost = h # c\n"
-	ps, _, err := parse(strings.NewReader(body))
+	ps, _, err := parse(body)
 	if err != nil || len(ps) != 1 {
 		t.Fatalf("parse = %v, %v", ps, err)
 	}

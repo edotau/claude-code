@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
 	"github.com/edotau/claude-code/internal/launch"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/review/planlint"
 )
@@ -72,7 +73,7 @@ func lines(path string) ([]string, error) {
 func claudeMD(root string) []string {
 	ls, err := lines(filepath.Join(root, "CLAUDE.md"))
 	if err != nil {
-		return []string{"CLAUDE.md:1: unreadable: " + err.Error() + " (fix at CLAUDE.md)"}
+		return []string{unreadable("CLAUDE.md", err)}
 	}
 	var out []string
 	if n := len(ls) - 1; n > claudeMDCap {
@@ -88,6 +89,10 @@ func claudeMD(root string) []string {
 	return out
 }
 
+func unreadable(rel string, err error) string {
+	return fmt.Sprintf("%s:1: unreadable: %v (fix at %s)", rel, err, rel)
+}
+
 func exists(root, rel string) bool {
 	_, err := os.Stat(filepath.Join(root, rel))
 	return err == nil
@@ -97,16 +102,18 @@ func rules(root string) []string {
 	files, _ := filepath.Glob(filepath.Join(root, "rules", "*", "*.md"))
 	more, _ := filepath.Glob(filepath.Join(root, "rules", "*", "*", "*.md"))
 	var out []string
+	idx := goFiles(root)
 	for _, f := range append(files, more...) {
 		rel, _ := filepath.Rel(root, f)
 		ls, err := lines(f)
 		if err != nil {
+			out = append(out, unreadable(rel, err))
 			continue
 		}
 		if !strings.HasPrefix(rel, "rules/standards/") && !hasPaths(ls) {
 			out = append(out, rel+":1: no `paths:` frontmatter (fix at "+rel+")")
 		}
-		out = append(out, symbolPairs(root, rel, ls)...)
+		out = append(out, symbolPairs(root, rel, ls, idx)...)
 	}
 	return out
 }
@@ -126,42 +133,56 @@ func hasPaths(ls []string) bool {
 	return false
 }
 
-// symbolPairs checks every `sym` (`file.go`) pair names a symbol in that file.
-func symbolPairs(root, rel string, ls []string) []string {
+// symbolPairs checks every `sym` (`file.go`) pair names an existing file that contains the symbol.
+func symbolPairs(root, rel string, ls []string, idx map[string][]string) []string {
 	var out []string
 	for i, l := range ls {
 		for _, m := range symPair.FindAllStringSubmatch(l, -1) {
-			src := m[2]
-			if strings.Contains(src, "/") && !exists(root, src) {
-				continue
-			}
-			if !fileNamesSymbol(root, src, m[1]) {
-				out = append(out, fmt.Sprintf("%s:%d: `%s` not found in `%s` (fix at %s)", rel, i+1, m[1], src, rel))
+			if why := symbolMiss(root, m[2], m[1], idx); why != "" {
+				out = append(out, fmt.Sprintf("%s:%d: %s (fix at %s)", rel, i+1, why, rel))
 			}
 		}
 	}
 	return out
 }
 
-func fileNamesSymbol(root, src, sym string) bool {
-	sym = sym[strings.LastIndex(sym, ".")+1:]
+// symbolMiss says why sym is not in src (a bare name resolves through idx), or "" when a candidate contains it.
+func symbolMiss(root, src, sym string, idx map[string][]string) string {
 	var cands []string
-	if strings.Contains(src, "/") {
+	switch {
+	case !strings.Contains(src, "/"):
+		cands = idx[src]
+	case exists(root, src):
 		cands = []string{filepath.Join(root, src)}
-	} else {
-		_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
-			if err == nil && !d.IsDir() && d.Name() == src {
-				cands = append(cands, p)
+	}
+	if len(cands) == 0 {
+		return fmt.Sprintf("`%s` does not exist", src)
+	}
+	short := sym[strings.LastIndex(sym, ".")+1:]
+	for _, c := range cands {
+		b, err := os.ReadFile(c)
+		if err != nil {
+			return fmt.Sprintf("`%s` unreadable: %v", src, err)
+		}
+		if strings.Contains(string(b), short) {
+			return ""
+		}
+	}
+	return fmt.Sprintf("`%s` not found in `%s`", sym, src)
+}
+
+// goFiles indexes the .go files under internal/ and cmd/ by base name, walked once per audit.
+func goFiles(root string) map[string][]string {
+	idx := map[string][]string{}
+	for _, dir := range []string{"internal", "cmd"} {
+		_ = filepath.WalkDir(filepath.Join(root, dir), func(p string, d os.DirEntry, err error) error {
+			if err == nil && !d.IsDir() && strings.HasSuffix(p, ".go") {
+				idx[d.Name()] = append(idx[d.Name()], p)
 			}
 			return nil
 		})
 	}
-	for _, c := range cands {
-		if b, err := os.ReadFile(c); err == nil && strings.Contains(string(b), sym) {
-			return true
-		}
-	}
-	return len(cands) == 0
+	return idx
 }
 
 func skills(root string) []string {
@@ -173,7 +194,12 @@ func skills(root string) []string {
 			continue
 		}
 		rel, _ := filepath.Rel(root, f)
-		out = append(out, frontName(f, rel, dir)...)
+		b, err := os.ReadFile(f)
+		if err != nil {
+			out = append(out, unreadable(rel, err))
+			continue
+		}
+		out = append(out, frontName(b, rel, dir)...)
 	}
 	return out
 }
@@ -183,11 +209,7 @@ func isSymlink(p string) bool {
 	return err == nil && fi.Mode()&os.ModeSymlink != 0
 }
 
-func frontName(path, rel, want string) []string {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
+func frontName(b []byte, rel, want string) []string {
 	m := nameLine.FindSubmatch(b)
 	if m == nil {
 		return []string{rel + ":1: missing name (fix at " + rel + ")"}
@@ -204,8 +226,12 @@ func agents(root string) []string {
 	for _, f := range files {
 		rel, _ := filepath.Rel(root, f)
 		stem := strings.TrimSuffix(filepath.Base(f), ".md")
-		out = append(out, frontName(f, rel, stem)...)
-		b, _ := os.ReadFile(f)
+		b, err := os.ReadFile(f)
+		if err != nil {
+			out = append(out, unreadable(rel, err))
+			continue
+		}
+		out = append(out, frontName(b, rel, stem)...)
 		head := string(b)
 		if i := strings.Index(head[min(4, len(head)):], "\n---"); i >= 0 {
 			head = head[:i+4]
@@ -226,7 +252,7 @@ func planTemplate(root string) []string {
 	rel, _ := filepath.Rel(root, path)
 	ls, err := lines(path)
 	if err != nil {
-		return []string{fmt.Sprintf("%s:1: unreadable: %v (fix at %s)", rel, err, rel)}
+		return []string{unreadable(rel, err)}
 	}
 	var out []string
 	for _, want := range docs.PlanTemplateHeadings() {
@@ -280,12 +306,7 @@ func sessionPrompts(root string) []string {
 func missingPaths(hook, ctx string) []string {
 	var out []string
 	for _, m := range namedPath.FindAllStringSubmatch(ctx, -1) {
-		p := m[1]
-		if strings.HasPrefix(p, "~") {
-			home, _ := os.UserHomeDir()
-			p = filepath.Join(home, strings.TrimPrefix(p, "~"))
-		}
-		if _, err := os.Stat(p); err != nil {
+		if _, err := os.Stat(paths.ExpandHome(m[1])); err != nil {
 			out = append(out, fmt.Sprintf("%s:1: context names %s which does not exist (fix at the memory entry that names it)", hook, m[1]))
 		}
 	}

@@ -51,29 +51,28 @@ func historySnapshot(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	store := &Store{Dir: Dir()}
-	cfg, err := store.Snapshot(ConfigFiles(), "config", *note)
+	cfg, err := SnapshotConfig(*note)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "history: config:", err)
 		return 1
 	}
-	printSnapshot("config", cfg)
+	printSnapshot(cfg)
 	return 0
 }
 
-// printSnapshot reports a plane's outcome; the HELD BACK line (a credential-shaped file) is the one to act on.
-func printSnapshot(plane string, r Result) {
+// printSnapshot reports the config plane's outcome; the HELD BACK line (a credential-shaped file) is the one to act on.
+func printSnapshot(r Result) {
 	switch {
 	case r.Commit != "":
-		fmt.Printf("%-7s %s  %s\n", plane+":", r.Commit, strings.Join(r.Changed, ", "))
+		fmt.Printf("%-7s %s  %s\n", "config:", r.Commit, strings.Join(r.Changed, ", "))
 	default:
-		fmt.Printf("%-7s unchanged\n", plane+":")
+		fmt.Printf("%-7s unchanged\n", "config:")
 	}
 	if len(r.Absent) > 0 { // one line: absent files are a fact about the box, not a problem per file
 		fmt.Printf("%-7s absent: %s\n", "", strings.Join(r.Absent, ", "))
 	}
 	for _, s := range r.Skipped {
-		fmt.Fprintf(os.Stderr, "%-7s HELD BACK %s: %s\n", plane+":", s.Label, s.Reason)
+		fmt.Fprintf(os.Stderr, "%-7s HELD BACK %s: %s\n", "config:", s.Label, s.Reason)
 	}
 }
 
@@ -100,13 +99,13 @@ func historyLog(args []string) int {
 	if *format == helptext.JSON {
 		return helptext.WriteJSONOrFail("history log", map[string][]LogEntry{"config": ParseLog(lines)})
 	}
-	printLog("config", lines)
+	printLog(lines)
 	return 0
 }
 
-// printLog prints one plane's header and lines; an empty history says so rather than printing nothing.
-func printLog(plane string, lines []string) {
-	fmt.Printf("%s: %s\n", plane, Dir())
+// printLog prints the config plane's header and lines; an empty history says so rather than printing nothing.
+func printLog(lines []string) {
+	fmt.Printf("config: %s\n", Dir())
 	if len(lines) == 0 {
 		fmt.Println("  (no history yet)")
 		return
@@ -126,9 +125,8 @@ func historyDiff(args []string) int {
 	if fs.NArg() > 0 {
 		rev = fs.Arg(0)
 	}
-	plane := "config"
 	store := &Store{Dir: Dir()}
-	out, err := store.Diff(rev, plane)
+	out, err := store.Diff(rev, "config")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "history:", err)
 		return 1

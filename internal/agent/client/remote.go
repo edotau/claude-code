@@ -84,7 +84,11 @@ func remoteScript(bin, agentName, fallback string, req agent.RunOptions) (string
 	if err := validateRemoteScript(bin, agentName, req); err != nil {
 		return "", err
 	}
-	w := []string{remote.PathPrefix, "exec", textutil.QuotePath(remote.HomePath(bin)), "agents", "ask", "--format", "stream-json", "--fallback", textutil.ShellQuote(cmp.Or(fallback, router.FallbackNone)),
+	execBin, err := remoteExec(bin)
+	if err != nil {
+		return "", fmt.Errorf("remote ask: %w", err)
+	}
+	w := []string{execBin, "agents", "ask", "--format", "stream-json", "--fallback", textutil.ShellQuote(cmp.Or(fallback, router.FallbackNone)),
 		"--stdin-framed", "--agent", textutil.ShellQuote(remoteTarget(agentName, req))}
 	opt := func(flag, v string) {
 		if v != "" {
@@ -139,9 +143,6 @@ func validateRemoteScript(bin, agentName string, req agent.RunOptions) error {
 		if strings.ContainsRune(v, 0) {
 			return errors.New("remote ask: a NUL byte cannot cross the remote argv")
 		}
-	}
-	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n") {
-		return fmt.Errorf("remote ask: invalid remote binary %q", bin)
 	}
 	return nil
 }
@@ -334,10 +335,11 @@ func (t touchWriter) Write(p []byte) (int, error) {
 
 // ListRemote runs `<bin> agents list --format <format>` on host and copies its stdout to out; a failure carries ssh's stderr.
 func ListRemote(host, bin, format string, out io.Writer) error {
-	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n\x00") {
-		return fmt.Errorf("agents: invalid remote binary %q", bin)
+	script, err := listScript(bin, format)
+	if err != nil {
+		return fmt.Errorf("agents: %w", err)
 	}
-	argv, err := remote.StreamArgs(host, "exec "+textutil.QuotePath(bin)+" agents list --format "+textutil.ShellQuote(format))
+	argv, err := remote.StreamArgs(host, script)
 	if err != nil {
 		return fmt.Errorf("agents: %v", err)
 	}
@@ -350,4 +352,20 @@ func ListRemote(host, bin, format string, out io.Writer) error {
 		return fmt.Errorf("agents: %s: %v: %s", host, err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
+}
+
+func listScript(bin, format string) (string, error) {
+	execBin, err := remoteExec(bin)
+	if err != nil {
+		return "", err
+	}
+	return execBin + " agents list --format " + textutil.ShellQuote(format), nil
+}
+
+// remoteExec is the `exec <bin>` head of a remote script, on the login PATH with a local-home bin rewritten to ~.
+func remoteExec(bin string) (string, error) {
+	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n\x00") {
+		return "", fmt.Errorf("invalid remote binary %q", bin)
+	}
+	return remote.PathPrefix + " exec " + textutil.QuotePath(remote.HomePath(bin)), nil
 }

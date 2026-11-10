@@ -170,6 +170,8 @@ func TestRemoteScriptResolvesHarnessPath(t *testing.T) {
 	}
 }
 
+// Given the default bare binary, When ssh runs the list script with a bare PATH, Then it finds ~/.local/bin/claude-code.
+
 // A local absolute path must not reach the remote: its home is a different directory.
 func TestRemoteHomePath(t *testing.T) {
 	t.Setenv("HOME", "/Users/me")

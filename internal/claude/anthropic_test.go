@@ -27,7 +27,7 @@ func TestParseAnthropicBareFlagTakesNoValue(t *testing.T) {
 		if !slices.Equal(rest, []string{"-p", "hi"}) {
 			t.Errorf("%s swallowed a claude arg: rest %q", flag, rest)
 		}
-		want := map[string][2]string{"--oauth": {AuthOAuth, DefaultOAuthName}, "--x-api-key": {AuthAPIKey, DefaultAPIKeyName}}[flag]
+		want := map[string][2]string{"--oauth": {AuthOAuth, oauthKey}, "--x-api-key": {AuthAPIKey, defaultAPIKeyName}}[flag]
 		if o.Mode != want[0] || o.Name != want[1] {
 			t.Errorf("%s: mode %q name %q", flag, o.Mode, o.Name)
 		}
@@ -133,8 +133,8 @@ func printed(p agent.Plan) string {
 // --oauth: the vault token rides CLAUDE_CODE_OAUTH_TOKEN, no apiKeyHelper, and Print masks it.
 func TestAnthropicOAuthLaunchPlan(t *testing.T) {
 	hermetic(t, "")
-	vaulttest.Secret(t, DefaultOAuthName, fakeToken)
-	if got := providers.StoredSecret(DefaultOAuthName); got != fakeToken {
+	vaulttest.Secret(t, oauthKey, fakeToken)
+	if got := providers.StoredSecret(oauthKey); got != fakeToken {
 		t.Fatalf("vault read %q", got)
 	}
 	p := planFor(t, fakeToken, "--oauth", "--print-env")

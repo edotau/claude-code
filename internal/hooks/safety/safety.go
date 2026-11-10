@@ -129,7 +129,7 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 			return core.Block, core.SafetyMessage(in, core.Block, "destructive command", re.String(), terminalHint), re.String()
 		}
 	}
-	d, msg, detail, _ := hardBlockVerdict(in, cmd, scan)
+	d, msg, detail := hardBlockVerdict(in, cmd, scan)
 	if d == core.Block {
 		return d, msg, detail
 	}
@@ -425,21 +425,21 @@ func catRedirects(toks []string) bool {
 }
 
 // hardBlockVerdict blocks a hard shape outside inert text, asks on one only in quoted text; `<<` keeps heredoc bodies.
-func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string, bool) {
+func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string) {
 	if strings.Contains(cmd, "<<") {
 		scan = cmd
 	}
 	if pattern, ok := firstHardBlock(scan); ok {
-		return core.Block, core.SafetyMessage(in, core.Block, "destructive command", pattern, terminalHint), pattern, true
+		return core.Block, core.SafetyMessage(in, core.Block, "destructive command", pattern, terminalHint), pattern
 	}
 	if scan == cmd {
-		return core.Allow, "", "", false // nothing was stripped, so the raw pass would find nothing new
+		return core.Allow, "", "" // nothing was stripped, so the raw pass would find nothing new
 	}
 	if pattern, ok := firstHardBlock(cmd); ok {
 		what := "destructive command (matched only inside quoted/inert text)"
-		return core.Ask, core.SafetyMessage(in, core.Ask, what, pattern, terminalHint), pattern, true
+		return core.Ask, core.SafetyMessage(in, core.Ask, what, pattern, terminalHint), pattern
 	}
-	return core.Allow, "", "", false
+	return core.Allow, "", ""
 }
 
 // firstHardBlock is the first hard-block pattern any shell segment of text matches.

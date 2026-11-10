@@ -78,6 +78,8 @@ type RouteTable struct {
 	Ladders map[string][]providers.Rung `json:"-"`
 	// ClaudeAnywhere is routing.claudeAnywhere: claude scores into the ladder instead of going last.
 	ClaudeAnywhere bool `json:"-"`
+
+	reg *providers.Registry // the registry LoadFrom applied; AliasOf reads its provider aliases
 }
 
 // fileTable is table.json's shape: rows keyed by canonical Claude id, then agent.
@@ -127,6 +129,7 @@ func LoadFrom(reg *providers.Registry, ghUser string) (*RouteTable, error) {
 		copilotKey = "github·" + ghUser
 	}
 	t.Billing[copilotKey] = t.Billing["github·copilot"]
+	t.reg = reg
 	if err := t.applyRegistry(reg); err != nil {
 		return nil, err
 	}
@@ -266,13 +269,6 @@ func (t *RouteTable) Cell(agent, alias string) (Cell, bool) {
 	return c, ok
 }
 
-// opencodeSubCell returns opencode's sub-candidate id's row at alias; ok is false when id serves no row at
-// that alias (zen-free has no "opus" row — that is how it stays out of the opus alias, not an alias check).
-func (t *RouteTable) opencodeSubCell(id, alias string) (Cell, bool) {
-	c, ok := t.OpencodeSub[id][alias]
-	return c, ok
-}
-
 // AliasOf maps a --model value to its alias: an alias name, a table cell's model, a Claude id's family, or a
 // registry alias id; "" when nothing matches (the classifier decides then).
 func (t *RouteTable) AliasOf(model string) string {
@@ -294,7 +290,7 @@ func (t *RouteTable) AliasOf(model string) string {
 		if f := models.FamilyOf(id); slices.Contains(Aliases, f) {
 			return f
 		}
-		if alias := registryAliasOf(id); alias != "" {
+		if alias := t.registryAliasOf(id); alias != "" {
 			return alias
 		}
 	}
@@ -313,14 +309,13 @@ func (t *RouteTable) aliasOfCell(bare string) string {
 	return ""
 }
 
-// registryAliasOf is the alias some registry provider maps bare to; "" if none.
-func registryAliasOf(bare string) string {
-	reg, err := providers.Load()
-	if err != nil {
+// registryAliasOf is the alias some provider of the loaded registry maps bare to; "" if none or no registry.
+func (t *RouteTable) registryAliasOf(bare string) string {
+	if t.reg == nil {
 		return ""
 	}
-	for _, name := range reg.Names() {
-		if s := reg.Providers[name].AliasOf(bare); slices.Contains(Aliases, s) {
+	for _, name := range t.reg.Names() {
+		if s := t.reg.Providers[name].AliasOf(bare); slices.Contains(Aliases, s) {
 			return s
 		}
 	}

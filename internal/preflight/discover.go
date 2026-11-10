@@ -14,10 +14,6 @@ import (
 // SpawnDiscover starts `preflight --discover <profile>` detached (a goroutine would die at a launch's exec); false when
 // deduped by the profile's claim stamp. force skips the check but still stamps, so later unforced spawns dedup.
 func SpawnDiscover(profile string, force bool) bool {
-	claimed := ClaimNamed("discover-"+url.PathEscape(profile), time.Now())
-	if !force && !claimed {
-		return false
-	}
 	self, err := os.Executable()
 	if err != nil {
 		return false
@@ -27,6 +23,9 @@ func SpawnDiscover(profile string, force bool) bool {
 		return false
 	}
 	defer null.Close()
+	if !ClaimNamed("discover-"+url.PathEscape(profile), time.Now()) && !force {
+		return false
+	}
 	return proc.SpawnDetached(self, []string{"preflight", "--discover", profile}, "", null)
 }
 

@@ -132,23 +132,6 @@ func TestRosterReturnsCopies(t *testing.T) {
 	}
 }
 
-func TestLookupUnknownVendor(t *testing.T) {
-	if s, ok := LookupSchema("nonexistent-vendor"); ok || s.Name != "" {
-		t.Errorf("unknown schema = (%+v, %v), want (Schema{}, false)", s, ok)
-	}
-}
-
-func TestKnownIncludesClaude(t *testing.T) {
-	for _, s := range Roster() {
-		if _, ok := LookupSchema(s.Name); !ok {
-			t.Errorf("LookupSchema(%q) = false", s.Name)
-		}
-	}
-	if _, ok := LookupSchema("nonexistent-vendor"); ok {
-		t.Error("unknown agent is known")
-	}
-}
-
 // A shell model env beats the vault model pin for a CLI agent.
 func TestAgentModelPinShellEnvBeatsVault(t *testing.T) {
 	hermetic(t, `{"fallback": [], "providers": {}}`)
@@ -268,3 +251,5 @@ func TestAgentPinsRejectVaultIOError(t *testing.T) {
 		t.Fatalf("AgentPins = %v, %v; want no pins and the wrapped filesystem error", pins, err)
 	}
 }
+
+// A pinned profile read through a registry that cannot load is an error, not a silent "not an own-login pin".

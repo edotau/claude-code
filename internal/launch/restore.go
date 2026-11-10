@@ -33,7 +33,7 @@ func Restore(w io.Writer, agents, out string, forceHomes, noAgents bool) error {
 	if noAgents {
 		return nil
 	}
-	return renderAgentConfigs(w, agents, forceHomes)
+	return renderAgentConfigs(w, "", false)
 }
 
 // renderAgentConfigs renders the agent configs, asking before an overwrite on a real terminal.

@@ -127,7 +127,7 @@ func TestRunGateRepoFlagFromOtherCwd(t *testing.T) {
 }
 
 // From a repo subdirectory git prints root-relative names; --relative keeps repo+"/"+line resolvable.
-func TestGetChangedSourceFilesFromSubdir(t *testing.T) {
+func TestChangedSourceFilesFromSubdir(t *testing.T) {
 	root := newGateRepo(t)
 	sub := filepath.Join(root, "sub")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
@@ -141,9 +141,9 @@ func TestGetChangedSourceFilesFromSubdir(t *testing.T) {
 	mustRun(t, root, "git", "add", "sub/a.go")
 	mustRun(t, root, "git", "commit", "-q", "-m", "add")
 
-	got := getChangedSourceFiles(sub, "main", "feature")
-	if len(got) != 1 || got[0] != sub+"/a.go" {
-		t.Errorf("getChangedSourceFiles(sub) = %v, want [%s/a.go]", got, sub)
+	got, err := changedSourceFiles(sub, "main", "feature")
+	if err != nil || len(got) != 1 || got[0] != "a.go" {
+		t.Errorf("changedSourceFiles(sub) = %v, %v, want [a.go]", got, err)
 	}
 }
 

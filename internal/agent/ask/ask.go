@@ -146,8 +146,11 @@ func (r *askRun) dispatchMode() (int, bool) {
 		}
 		o := Opts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native,
 			FollowInput: f.follow, FollowIdle: f.followIdle, RetryAgents: retryAgents}
-		return askBatch(r.fs, r.resume, f.batchSrc, o,
-			r.batchBase(), r.fileOv, f.env, f.keepEnv, f.format, f.name), true
+		ov, err := client.ResolveOverlay(r.fileOv, f.env, f.keepEnv, false)
+		if err != nil {
+			return r.fail(err, 2)
+		}
+		return runAskBatch(r.fs, r.resume, f.batchSrc, o, launchplan.ApplyOverlay(r.batchBase(), ov)), true
 	}
 	for _, name := range []string{"jobs", "fail-fast", "follow", "follow-idle", "retry-agent"} {
 		if helptext.Explicit(r.fs, name) {
@@ -209,8 +212,10 @@ func (r *askRun) resolveRecord() (int, bool) {
 	if err := client.OverlayLocal(r.fileOv, f.live, f.host); err != nil { // a --retry/--job record may carry a --host
 		return r.fail(err, 2)
 	}
-	if r.schema, err = askRefreshSchema(f.outputSchema, r.schema); err != nil {
-		return r.fail(err, 2)
+	if f.outputSchema != "" { // a --retry/--job record may carry an already-resolved schema: re-resolve the flag
+		if r.schema, err = client.ResolveOutputSchema(f.outputSchema); err != nil {
+			return r.fail(err, 2)
+		}
 	}
 	return 0, false
 }
@@ -237,9 +242,16 @@ func (r *askRun) execute() int {
 		return startLive(r.state, r.perms, f.name, f.as, f.format)
 	}
 	if r.jobRec != nil && r.jobRec.Live {
-		return runLiveHolder(r.jobRec)
+		return job.RunHolder(r.jobRec, NewClient().Launcher)
 	}
-	framed, prompt, err := askReadPrompt(f.stdinFramed, r.prompt)
+	var framed *bufio.Reader // set only for the remote end of `ask --host`
+	var prompt string
+	var err error
+	if f.stdinFramed {
+		framed, prompt, err = client.ReadFramedPrompt(os.Stdin)
+	} else {
+		prompt, err = client.ResolveAskPrompt(r.prompt)
+	}
 	if err != nil {
 		return failAsk(f.format, f.name, err)
 	}
@@ -267,24 +279,6 @@ func (r *askRun) request(prompt string) agent.RunOptions {
 		NoPersist: f.noPersist, SafeMode: f.safeMode, DebugFile: f.debugFile, SystemPrompt: f.systemPrompt,
 		AppendSystemPrompt: f.appendSystemPrompt, Env: []string(f.env), OutputSchema: r.schema, Persona: r.persona,
 		Pack: f.pack, Agent: r.ref, Agents: r.defs, Fallback: f.fallback, Native: f.native, Host: f.host, RemoteBin: f.remoteBin, Rubric: f.rubric, Background: f.background, Permissions: r.perms}
-}
-
-// askBatch layers the overlay over base and runs the --batch tasks.
-func askBatch(fs *flag.FlagSet, resume bool, src string, o Opts, base agent.RunOptions, fileOv agentconfig.Overlay,
-	env envFlag, keepEnv keepEnvFlag, format, name string) int {
-	ov, err := client.ResolveOverlay(fileOv, env, keepEnv, false)
-	if err != nil {
-		return failAskCode(format, name, err, 2)
-	}
-	return runAskBatch(fs, resume, src, o, launchplan.ApplyOverlay(base, ov))
-}
-
-// askRefreshSchema re-resolves raw, since a --retry/--job record may carry an already-resolved schema; empty keeps schema.
-func askRefreshSchema(raw, schema string) (string, error) {
-	if raw == "" {
-		return schema, nil
-	}
-	return client.ResolveOutputSchema(raw)
 }
 
 // askEnableOverlays turns on --overlay-debug and --overlay; it returns the exit code of a failure, else 0.
@@ -333,15 +327,6 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 		return askSpawn(fs, prepared, native, format, name)
 	}
 	return runAskAndReport(ctx, cl, prepared, jobRec != nil, format)
-}
-
-// askReadPrompt reads the framed stdin prompt, or resolves prompt; framed reader is nil when not framed.
-func askReadPrompt(framed bool, prompt string) (*bufio.Reader, string, error) {
-	if framed {
-		return client.ReadFramedPrompt(os.Stdin)
-	}
-	p, err := client.ResolveAskPrompt(prompt)
-	return nil, p, err
 }
 
 // askTimeout is the deadline: a fresh --tools run without an explicit --timeout gets 45m.

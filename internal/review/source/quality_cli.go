@@ -101,7 +101,7 @@ func qualityReportFor(target string, isDir bool, language string) any {
 		}
 		return dr
 	}
-	qr, err := Quality(target, "")
+	qr, err := Quality(target)
 	if err != nil {
 		return errorResult{Error: err.Error()}
 	}

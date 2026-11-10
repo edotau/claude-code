@@ -5,7 +5,6 @@ package databricks
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -180,14 +179,10 @@ func toProfile(s *section) profile {
 }
 
 // parse returns the named profiles (DEFAULT and __settings__ excluded) and whether a DEFAULT section exists.
-func parse(r io.Reader) ([]profile, bool, error) {
-	b, err := io.ReadAll(r)
-	if err != nil {
-		return nil, false, err
-	}
+func parse(text string) ([]profile, bool, error) {
 	var ps []profile
 	hasDefault := false
-	secs, err := parseSections(string(b))
+	secs, err := parseSections(text)
 	if err != nil {
 		return nil, false, err
 	}
@@ -204,12 +199,11 @@ func parse(r io.Reader) ([]profile, bool, error) {
 }
 
 func load(path string) ([]profile, bool, error) {
-	f, err := os.Open(path)
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, false, err
 	}
-	defer f.Close()
-	return parse(f)
+	return parse(string(b))
 }
 
 // pairingComment recognizes the portable pairing signal above an SP section; none means explicitly unpaired.

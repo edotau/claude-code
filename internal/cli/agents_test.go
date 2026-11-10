@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/job"
+	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	_ "github.com/edotau/claude-code/internal/claude"
 	_ "github.com/edotau/claude-code/internal/codex"
@@ -281,13 +283,6 @@ func writeFixtureFile(t *testing.T, path, content string) {
 	}
 }
 
-// TestVendorModelsAliasRemoved: models is no longer a subverb; it falls through to the agent launch like any bare word.
-func TestVendorModelsAliasRemoved(t *testing.T) {
-	if _, ok := agentSubPages["models"]; ok {
-		t.Error("models must not route to cmdVendorSub")
-	}
-}
-
 // The core sub-verbs stay routed (presence, not exact membership): a renamed or dropped one silently stops routing.
 func TestVendorSubverbsCoverContractVerbs(t *testing.T) {
 	for _, w := range []string{"resume", "status", "result", "cancel", "tail", "setup", "catalog", "review", "transfer"} {
@@ -486,15 +481,13 @@ func TestAnthropicHelpMentionsFlags(t *testing.T) {
 
 // catalog reaches cmdVendorModels, not launchVendor, with canonical diagnostics and help.
 func TestVendorVerbRoutesCatalogToCmdVendorModels(t *testing.T) {
-	for _, sub := range []string{"catalog"} {
-		code, _, stderr := hosttest.CaptureOutput(t, func() int { return agentVerb("codex", []string{sub, "unexpected"}) })
-		if code != 2 || !strings.Contains(stderr, "codex catalog: unexpected argument") {
-			t.Errorf("vendorVerb(%s): code=%d stderr=%q", sub, code, stderr)
-		}
-		code, _, stderr = hosttest.CaptureOutput(t, func() int { return agentVerb("codex", []string{sub, "--help"}) })
-		if code != 0 || !strings.HasPrefix(stderr, "usage: claude-code codex catalog") {
-			t.Errorf("vendorVerb(%s --help): code=%d stderr=%q", sub, code, stderr)
-		}
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return agentVerb("codex", []string{"catalog", "unexpected"}) })
+	if code != 2 || !strings.Contains(stderr, "codex catalog: unexpected argument") {
+		t.Errorf("vendorVerb(catalog): code=%d stderr=%q", code, stderr)
+	}
+	code, _, stderr = hosttest.CaptureOutput(t, func() int { return agentVerb("codex", []string{"catalog", "--help"}) })
+	if code != 0 || !strings.HasPrefix(stderr, "usage: claude-code codex catalog") {
+		t.Errorf("vendorVerb(catalog --help): code=%d stderr=%q", code, stderr)
 	}
 }
 
@@ -510,12 +503,12 @@ func partArgs(n int, tail ...string) []string {
 func TestDispatchUsageErrorsExit2(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	for name, args := range map[string][]string{
-		"missing task": {"explore"},
-		"no args":      {},
-		"unknown role": {"nonesuch", "task"},
-		"13 --part":    partArgs(13, "explore", "task"),
-		"bad schema":   {"--output-schema", "{not json", "fleet", "task"},
-		"schema file":  {"--output-schema", "/nonexistent/schema.json", "fleet", "task"},
+		"missing task":    {"explore"},
+		"no args":         {},
+		"unknown role":    {"nonesuch", "task"},
+		"over-cap --part": partArgs(roles.MaxParts+1, "explore", "task"),
+		"bad schema":      {"--output-schema", "{not json", "fleet", "task"},
+		"schema file":     {"--output-schema", "/nonexistent/schema.json", "fleet", "task"},
 	} {
 		if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdAgentsDispatch(args) }); code != 2 {
 			t.Errorf("%s: exit %d, want 2", name, code)
@@ -525,8 +518,8 @@ func TestDispatchUsageErrorsExit2(t *testing.T) {
 
 func TestDispatchErrorMessagesNameTheCause(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	_, _, errOut := hosttest.CaptureOutput(t, func() int { return cmdAgentsDispatch(partArgs(13, "explore", "task")) })
-	if !strings.Contains(errOut, "13 --part") || !strings.Contains(errOut, "cap is 12") {
+	_, _, errOut := hosttest.CaptureOutput(t, func() int { return cmdAgentsDispatch(partArgs(roles.MaxParts+1, "explore", "task")) })
+	if !strings.Contains(errOut, fmt.Sprintf("%d --part", roles.MaxParts+1)) || !strings.Contains(errOut, fmt.Sprintf("cap is %d", roles.MaxParts)) {
 		t.Errorf("part cap stderr: %q", errOut)
 	}
 	_, _, errOut = hosttest.CaptureOutput(t, func() int { return cmdAgentsDispatch([]string{"--output-schema", "{not json", "fleet", "task"}) })
@@ -936,7 +929,7 @@ func checkClaudeAndCodexProfiles(t *testing.T) {
 
 // TestVendorUsageFits80: every rendered line stays within an 80-column terminal.
 func TestVendorUsageFits80(t *testing.T) {
-	for _, vendor := range vendorNames() {
+	for _, vendor := range agent.Names() {
 		usage := renderHelpPage(agentPage(vendor))
 		for line := range strings.SplitSeq(strings.TrimRight(usage, "\n"), "\n") {
 			if n := utf8.RuneCountInString(line); n > 80 {
@@ -948,7 +941,7 @@ func TestVendorUsageFits80(t *testing.T) {
 
 // TestVendorUsageNamesTail: every vendor's help block carries a tail row.
 func TestVendorUsageNamesTail(t *testing.T) {
-	for _, vendor := range vendorNames() {
+	for _, vendor := range agent.Names() {
 		if !strings.Contains(renderHelpPage(agentPage(vendor)), "tail") {
 			t.Errorf("vendorUsage(%q) has no tail row", vendor)
 		}

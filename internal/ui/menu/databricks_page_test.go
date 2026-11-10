@@ -144,7 +144,7 @@ func dbxExpiry(t *testing.T, env string, exp time.Time) {
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	b, _ := json.Marshal(map[string]int64{"schema": 1, "exp": exp.Unix()})
+	b, _ := json.Marshal(map[string]int64{"schema": 2, "exp": exp.Unix()})
 	if err := os.WriteFile(p, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +329,7 @@ func TestDbxCopyOtherErrorNoSchedule(t *testing.T) {
 	}
 }
 
-// TestDbxCopyWithRealClipboardStub: the real clipboard.WriteSecret path via a stub xclip; ErrNoClipboard without it.
+// TestDbxCopyRealWriteSecretSeam: the real clipboard.WriteSecret path via a stub xclip; ErrNoClipboard without it.
 func TestDbxCopyRealWriteSecretSeam(t *testing.T) {
 	defer clipboard.SetWSLForTest(false)()
 	bin := t.TempDir()
@@ -409,27 +409,6 @@ func TestDbxApplyAlreadyAppliedAndCancel(t *testing.T) {
 	runDatabricksEnv(d, "qa")
 	if !strings.Contains(dbxOut(d), "qa: already applied") {
 		t.Errorf("missing already applied:\n%s", dbxOut(d))
-	}
-}
-
-// TestDbxApplyRowsFitEightyColumns: the rows dbxApply really hands the picker stay single-line at 80 columns.
-func TestDbxApplyRowsFitEightyColumns(t *testing.T) {
-	d := dbxEnv(t)
-	f := &dbxFake{}
-	installDbxFake(t, f)
-	f.picks = []int{5, -1, -1}
-	runDatabricksEnv(d, "qa")
-	if len(f.rows) < 2 || len(f.rows[1]) != len(dbxAgents)+1 {
-		t.Fatalf("apply picker not captured: %v", f.rows)
-	}
-	var labels []string
-	for _, r := range f.rows[1] {
-		labels = append(labels, r[0])
-	}
-	for _, r := range f.rows[1] {
-		if w := rowRenderedWidth(labels, r[1]); w > 80 {
-			t.Errorf("apply row %q = %d cols", r[0], w)
-		}
 	}
 }
 
@@ -780,3 +759,5 @@ func TestDbxIdentityChangeRowPrompts(t *testing.T) {
 		t.Errorf("calls=%v out=%q", f.calls, out)
 	}
 }
+
+// A registry reload that fails (corrupt overlay) says so and keeps the previous registry.

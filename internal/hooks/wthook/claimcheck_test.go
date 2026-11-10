@@ -340,8 +340,8 @@ func TestStageOperandsCommitUntrackedIsNotAll(t *testing.T) {
 		{"add", []string{"-u"}, true},
 	}
 	for _, c := range cases {
-		if _, all := stageOperands(c.verb, c.args); all != c.all {
-			t.Errorf("stageOperands(%s, %v) all=%v, want %v", c.verb, c.args, all, c.all)
+		if all := splitStage(c.verb, c.args).stagesAll(c.verb); all != c.all {
+			t.Errorf("splitStage(%s, %v) all=%v, want %v", c.verb, c.args, all, c.all)
 		}
 	}
 }
@@ -428,8 +428,8 @@ func TestStageOperandsAttachedValueTakesNoNextWord(t *testing.T) {
 		{[]string{"--pathspec-from-file", "F", "y"}, []string{"y"}},
 	}
 	for _, c := range cases {
-		if ops, _ := stageOperands("commit", c.args); !slices.Equal(ops, c.ops) {
-			t.Errorf("stageOperands(commit, %v) ops=%v, want %v", c.args, ops, c.ops)
+		if ops := splitStage("commit", c.args).ops; !slices.Equal(ops, c.ops) {
+			t.Errorf("splitStage(commit, %v) ops=%v, want %v", c.args, ops, c.ops)
 		}
 	}
 }

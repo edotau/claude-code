@@ -19,11 +19,7 @@ const limitsCacheMaxAge = 6 * time.Hour
 // its credential's time left ("u2m:42min", "m2m:42min") when an expiry is recorded, else "".
 func limitsSegment(in Input, session string) string {
 	if !onSubscription(session) {
-		exp, ok := providers.TokenExpiry(session)
-		if !ok {
-			return ""
-		}
-		return tokenLeft(tokenLabel(session), exp, time.Now())
+		return authSegment(session)
 	}
 	week := limitsFromPayload(in)
 	if week < 0 {
@@ -33,6 +29,15 @@ func limitsSegment(in Input, session string) string {
 		return ""
 	}
 	return fmt.Sprintf("7d:%d%%", week)
+}
+
+// authSegment is the session credential's countdown ("m2m:42m") from its expiry record; "" when none is recorded.
+func authSegment(session string) string {
+	exp, method, ok := providers.TokenExpiryMethod(session)
+	if !ok {
+		return ""
+	}
+	return tokenLeft(tokenLabel(session, method), exp, time.Now())
 }
 
 // onSubscription is true when the session profile row is first-party Anthropic on its cli (passthrough) login.
@@ -45,8 +50,12 @@ func onSubscription(session string) bool {
 	return p != nil && p.Provider == "anthropic" && p.Auth.Method() == providers.AuthCLI
 }
 
-// tokenLabel names the credential in the countdown: pat or m2m by the profile's auth, else u2m (a user OAuth JWT).
-func tokenLabel(session string) string {
+// tokenLabel names the countdown's credential: the recorded mint method, else pat/m2m by the row's auth, else u2m.
+func tokenLabel(session, recorded string) string {
+	switch recorded {
+	case "u2m", providers.AuthM2M, providers.AuthPAT:
+		return recorded
+	}
 	if reg := registry(); reg != nil {
 		if p := reg.Providers[session]; p != nil {
 			if m := p.Auth.Method(); m == providers.AuthM2M || m == providers.AuthPAT {

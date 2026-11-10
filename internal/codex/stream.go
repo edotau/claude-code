@@ -73,7 +73,7 @@ func (s *codexStreamState) apply(ev codexEvent) error {
 		}
 	case "turn.completed":
 		u := ev.Usage
-		s.res.Usage.InputTokens += u.InputTokens - u.CachedInputTokens
+		s.res.Usage.InputTokens += max(0, u.InputTokens-u.CachedInputTokens)
 		s.res.Usage.CacheReadTokens += u.CachedInputTokens
 		s.res.Usage.OutputTokens += u.OutputTokens
 		s.log.Emit("result", fmt.Sprintf("turn finished, tokens in=%d out=%d", u.InputTokens, u.OutputTokens))

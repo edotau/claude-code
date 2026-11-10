@@ -111,6 +111,14 @@ func TestLiveStartFailureDoesNotPublishSocket(t *testing.T) {
 	}
 }
 
+// Given a record that cannot be saved, When the live child starts, Then serveChild fails fast instead of serving.
+
+// A nonempty directory at the record path makes the atomic rename fail even as root.
+
+// Given an unreadable dispatch dir, Then the live cap and LoadRecord fail with the read error, not "0 records".
+
+// A file where the dir belongs makes ReadDir fail even as root.
+
 type terminalErrorReader struct{ err error }
 
 func (r terminalErrorReader) Read([]byte) (int, error) { return 0, r.err }
@@ -129,3 +137,5 @@ func TestPumpReturnsReadErrorAfterDraining(t *testing.T) {
 		t.Fatalf("drained stdout = %q, %v; want %q then %v", got, err, output, want)
 	}
 }
+
+// Given a holder that finished ok without ever opening its socket, Then WaitLiveReady fails with a non-empty message.

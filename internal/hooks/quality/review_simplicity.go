@@ -31,10 +31,8 @@ func ReviewSimplicity(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	rel := path
-	if in.CWD != "" {
-		if p, err := filepath.Rel(in.CWD, path); err == nil && !strings.HasPrefix(p, "..") {
-			rel = p
-		}
+	if p, ok := core.RelWithin(in.CWD, path); ok {
+		rel = p
 	}
 	return core.Result{Context: simplicityText(rel, found)}
 }
@@ -70,7 +68,11 @@ func editBefore(in *core.Input, after string) (string, bool) {
 	if !all && strings.Count(after, newStr) > 1 {
 		return "", false // ambiguous: cannot tell which occurrence the edit wrote
 	}
-	return undoEdit(after, oldStr, newStr, all), true
+	n := 1
+	if all {
+		n = -1
+	}
+	return strings.Replace(after, newStr, oldStr, n), true
 }
 
 // readSmallFile returns the file's content unless it is unreadable or over simplicityMaxFile.
@@ -83,15 +85,6 @@ func readSmallFile(path string) (string, bool) {
 		return "", false
 	}
 	return string(data), true
-}
-
-// undoEdit reverses an Edit on the post-edit content: new_string back to old_string (first or all occurrences).
-func undoEdit(after, oldStr, newStr string, all bool) string {
-	n := 1
-	if all {
-		n = -1
-	}
-	return strings.Replace(after, newStr, oldStr, n)
 }
 
 // gitHeadContent is the file at HEAD ("" when untracked or outside a repo); false when git failed for another reason.

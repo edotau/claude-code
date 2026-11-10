@@ -67,8 +67,6 @@ func Strip1M(id string) string { return strings.TrimSuffix(id, marker1M) }
 // Has1M reports a trailing client-only [1m] marker.
 func Has1M(id string) bool { return strings.HasSuffix(id, marker1M) }
 
-var canonicalPrefixes = [...]string{"databricks-", "system.ai.", "system.ai-"}
-
 func isFamily(s string) bool { return s == Opus || s == Sonnet || s == Haiku || s == Fable }
 
 // hasFamilyDash reports a bare "<family>-..." id (no claude- prefix).
@@ -86,7 +84,7 @@ func Canonical(id string) (base string, oneM bool) {
 		return id, oneM
 	}
 	rest, stripped := id, false
-	for _, p := range canonicalPrefixes {
+	for _, p := range wirePrefixes {
 		if strings.HasPrefix(id, p) {
 			rest, stripped = id[len(p):], true
 			break

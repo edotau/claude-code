@@ -31,9 +31,6 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// vendorNames lists the agent CLIs that have their own verb.
-func vendorNames() []string { return []string{"codex", "gemini", "opencode", "copilot"} }
-
 // engineNames lists the `ask --agent` agent names; agent.Engines() only builds the roster, it never dials an agent.
 func engineNames() []string {
 	var out []string
@@ -54,6 +51,10 @@ func askSpecFlags() []helptext.Flag {
 		flag("attach"), flag("keep-env"), flag("overlay"), boolFlag("autonomous"), boolFlag("fleet"), boolFlag("enable-memory"),
 		boolFlag("background"), flag("job"), flag("batch"), flag("jobs"), boolFlag("fail-fast"),
 		boolFlag("no-persist"), boolFlag("safe-mode"), flag("debug-file"), valuedFlag("as", func() []string { return []string{"user", "sp"} }),
+		flag("append-system-prompt"), flag("system-prompt"), flag("output-schema"), flag("env"), flag("provider"), flag("host"), flag("remote-bin"),
+		boolFlag("live"), boolFlag("direct"), valuedFlag("route", func() []string { return router.RouteModes }), flag("retry-agent"),
+		boolFlag("diff"), flag("dirs"), flag("files"), boolFlag("index"), flag("max-files"), flag("max-file-bytes"),
+		boolFlag("follow"), flag("follow-idle"), flag("overlay-debug"), boolFlag("stdin-framed"),
 	}
 }
 
@@ -61,7 +62,7 @@ func askSpecFlags() []helptext.Flag {
 func agentsSpec() *helptext.Node {
 	flag, boolFlag, valuedFlag, formatFlag := helptext.Plain, helptext.BoolFlag, helptext.ValuedFlag, helptext.CompletionFormatFlag
 	return &helptext.Node{Sub: map[string]*helptext.Node{
-		"sync": {Flags: []helptext.Flag{valuedFlag("agent", vendorNames), boolFlag("dry-run"), boolFlag("check"), boolFlag("no-prune")}},
+		"sync": {Flags: []helptext.Flag{valuedFlag("agent", project.Names), boolFlag("dry-run"), boolFlag("check"), boolFlag("no-prune")}},
 		"tree": {Flags: []helptext.Flag{flag("days"), flag("session"), boolFlag("background"), boolFlag("bg"),
 			boolFlag("watch"), flag("interval"), formatFlag()}},
 		"reap":  {Flags: []helptext.Flag{boolFlag("dry-run")}},
@@ -69,7 +70,13 @@ func agentsSpec() *helptext.Node {
 		"list":  {Flags: []helptext.Flag{flag("host"), flag("remote-bin"), formatFlag()}},
 		"ask":   {Flags: askSpecFlags()},
 		"dispatch": {Args: []func() []string{func() []string { return []string{"explore", "fleet", "compare"} }}, Flags: []helptext.Flag{
-			flag("part"), boolFlag("no-web"), flag("models"), flag("jobs"), flag("timeout"), formatFlag(), boolFlag("background")}},
+			flag("part"), boolFlag("no-web"), flag("models"), flag("jobs"), flag("timeout"), formatFlag(), boolFlag("background"),
+			flag("output-schema")}},
+		"send":   {Flags: []helptext.Flag{flag("format")}},
+		"status": {Flags: []helptext.Flag{formatFlag()}},
+		"result": {Flags: []helptext.Flag{formatFlag()}},
+		"tail":   {Flags: []helptext.Flag{formatFlag()}},
+		"cancel": {Flags: []helptext.Flag{formatFlag()}},
 	}}
 }
 
@@ -291,7 +298,10 @@ func cmdAgentsLabel(args []string) int {
 	if err != nil {
 		return helptext.Fail("agents label: %v", err)
 	}
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("agents label: %v", err)
+	}
 	row := hookagents.Label(hookagents.LabelInput{Type: pos[0], Model: *model, Brief: task, SessionModel: *sessionModel},
 		cwd, os.Getenv(memory.SessionIDEnv))
 	if *format == helptext.JSON {
@@ -339,7 +349,10 @@ func cmdAgentsDispatch(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("agents dispatch: %v", err)
+	}
 	q := roles.Request{Task: strings.Join(pos[1:], " "), WorkDir: cwd, Parts: parts, Models: roles.SplitModels(*models),
 		Web: !*noWeb, Timeout: *timeout}
 	return ask.Dispatch(q, ask.DispatchOptions{Role: pos[0], Schema: *outputSchema, Format: *format, Jobs: *jobs, Background: *background})

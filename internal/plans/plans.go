@@ -28,7 +28,6 @@ type Task struct {
 	Sha        string
 	Claim      string // inner text of a working:/finished: comment
 	Partial    []string
-	UserMark   string // "ticked <RFC3339>" or "unticked <RFC3339>" from a <!-- user: ... --> comment
 }
 
 // Plan is one markdown file's parsed checklist.
@@ -57,7 +56,6 @@ var (
 	datedName  = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-.*\.md$`)
 	claimRe    = regexp.MustCompile(`(?i)<!--\s*(?:working|finished):.*?-->`)
 	partialRe  = regexp.MustCompile(`(?i)<!--\s*partly landed:\s*(.*?)\s*-->`)
-	userRe     = regexp.MustCompile(`(?i)<!--\s*user:\s*((?:un)?ticked\s+\S+)\s*-->`)
 	claimWord  = regexp.MustCompile(`(?i)^(?:working|finished):`)
 	partialKey = regexp.MustCompile(`(?i)^partly landed:\s*(.*)$`)
 	ownNote    = regexp.MustCompile(`\s*\([^)]*\)\s*$`) // "cli.go (verb row only)" owns cli.go
@@ -90,9 +88,6 @@ func ParseBytes(path string, b []byte) Plan {
 		text := m[3] + cont
 		t := Task{Start: i, End: end, Done: m[2] == "x" || m[2] == "X"}
 		t.ID, t.Title, t.Owns, t.Sha, t.Claim, t.Partial = parseTaskText(text)
-		if um := userRe.FindStringSubmatch(text); um != nil {
-			t.UserMark = um[1]
-		}
 		p.Tasks = append(p.Tasks, t)
 		i = end
 	}
@@ -193,6 +188,14 @@ func Home(repoRoot string) string {
 	return filepath.Join(paths.ConfigDir(), "plans", paths.RepoSlug(repoRoot))
 }
 
+// WorktreeName is a linked worktree's name (matched against task claims), or "" for the main checkout.
+func WorktreeName(top string) string {
+	if paths.MainCheckout(top) != top {
+		return filepath.Base(top)
+	}
+	return ""
+}
+
 // Active picks home's tick target: a dated plan with an open owned task, never an unapproved draft in skip; a plan
 // whose claim names worktree wins, else the newest by mtime.
 func Active(home, worktree string, skip []string) (string, bool) {
@@ -200,35 +203,20 @@ func Active(home, worktree string, skip []string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	all, _ := loadDatedPlans(entries, home, skip)
 	best, bestMod, bestClaimed := "", time.Time{}, false
-	for _, e := range entries {
-		p := filepath.Join(home, e.Name())
-		mod, claimed, ok := activeCandidate(e, p, worktree, skip)
-		if !ok {
+	for _, d := range all {
+		info, err := os.Stat(d.path)
+		if err != nil || !hasOpenOwnedTask(d.plan) {
 			continue
 		}
-		if best != "" && !beatsActive(claimed, mod, bestClaimed, bestMod) {
+		claimed := worktree != "" && claimsWorktree(d.plan, worktree)
+		if best != "" && !beatsActive(claimed, info.ModTime(), bestClaimed, bestMod) {
 			continue
 		}
-		best, bestMod, bestClaimed = p, mod, claimed
+		best, bestMod, bestClaimed = d.path, info.ModTime(), claimed
 	}
 	return best, best != ""
-}
-
-// activeCandidate returns a dated, non-skipped plan's mtime and worktree claim when it still has an open owned task.
-func activeCandidate(e os.DirEntry, p, worktree string, skip []string) (mod time.Time, claimed, ok bool) {
-	if !e.Type().IsRegular() || !datedName.MatchString(e.Name()) || slices.Contains(skip, p) {
-		return time.Time{}, false, false
-	}
-	info, err := e.Info()
-	if err != nil {
-		return time.Time{}, false, false
-	}
-	plan, err := Parse(p)
-	if err != nil || !hasOpenOwnedTask(plan) {
-		return time.Time{}, false, false
-	}
-	return info.ModTime(), worktree != "" && claimsWorktree(plan, worktree), true
 }
 
 // beatsActive reports whether a candidate outranks the current best: a worktree claim first, then a newer mtime.
@@ -340,21 +328,26 @@ func Covers(owns, files []string) (all, any bool) {
 	}
 	all = true
 	hasFile := false
-	prev := ""
-	for _, own := range owns {
-		entry := filepath.ToSlash(strings.TrimSpace(ownNote.ReplaceAllString(own, "")))
-		entry = spliceOwn(prev, entry, files)
-		prev = entry
-		dir := strings.TrimSuffix(entry, "/")
+	for _, entry := range ownEntries(owns, files) {
 		hasFile = hasFile || !isDirOwn(entry)
-		touched := touchesEntry(entry, dir, files)
-		if touched {
+		if touchesEntry(entry, strings.TrimSuffix(entry, "/"), files) {
 			any = true
 		} else {
 			all = false
 		}
 	}
 	return all && hasFile, any
+}
+
+// ownEntries normalizes owns: notes stripped, slashes forward, each entry spliced against the previous one.
+func ownEntries(owns, files []string) []string {
+	out := make([]string, len(owns))
+	prev := ""
+	for i, own := range owns {
+		prev = spliceOwn(prev, filepath.ToSlash(strings.TrimSpace(ownNote.ReplaceAllString(own, ""))), files)
+		out[i] = prev
+	}
+	return out
 }
 
 // absCovers reports whether an absolute entry ends in the repo-relative file, or in a directory the file sits under.
@@ -408,15 +401,8 @@ func scorePlan(plan Plan, files []string) (s planScore) {
 			s.exact++
 			continue
 		}
-		prev := ""
-		for _, o := range t.Owns {
-			entry := filepath.ToSlash(strings.TrimSpace(ownNote.ReplaceAllString(o, "")))
-			entry = spliceOwn(prev, entry, files)
-			prev = entry
-			if isDirOwn(entry) {
-				continue
-			}
-			if touchesEntry(entry, strings.TrimSuffix(entry, "/"), files) {
+		for _, entry := range ownEntries(t.Owns, files) {
+			if !isDirOwn(entry) && touchesEntry(entry, strings.TrimSuffix(entry, "/"), files) {
 				s.touched++
 				break
 			}

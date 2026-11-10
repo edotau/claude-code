@@ -16,6 +16,7 @@ import (
 // Detect probes every known browser plus the system default and returns one report.
 func Detect(env Env) Report {
 	env.gui = sync.OnceValue(func() string { return guiState(env) }) // one System Events probe per Detect
+	env.cdpListen = sync.OnceValue(func() string { return cdpListener(env) })
 	browsers := make([]Browser, 0, len(knownBrowsers))
 	for _, s := range knownBrowsers {
 		browsers = append(browsers, detectOne(env, s))

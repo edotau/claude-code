@@ -121,12 +121,10 @@ type Options struct {
 	Now     func() time.Time
 }
 
-func (o Options) now() time.Time { return nowOr(o.Now) }
-
-// nowOr returns f() when f is set, else time.Now().
-func nowOr(f func() time.Time) time.Time {
-	if f != nil {
-		return f()
+// now is o.Now() when set, else time.Now().
+func (o Options) now() time.Time {
+	if o.Now != nil {
+		return o.Now()
 	}
 	return time.Now()
 }
@@ -384,9 +382,6 @@ func subagentStatus(finished bool, updated, now time.Time) string {
 	}
 	return StatusStale
 }
-
-// FilterIdleSessions is filterIdleSessions, exported for callers outside this package.
-func FilterIdleSessions(sessions []Session) []Session { return filterIdleSessions(sessions) }
 
 // filterIdleSessions drops idle sessions that never dispatched a subagent or workflow run.
 func filterIdleSessions(sessions []Session) []Session {

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/vault"
@@ -194,5 +193,3 @@ func TestCatalogOriginCommentRoundTripsPathWithCommentCloser(t *testing.T) {
 		t.Errorf("catalogOrigins round trip = %+v, want %+v", got, want)
 	}
 }
-
-var _ = strings.TrimSpace // keep strings imported if unused helpers are trimmed later

@@ -8,17 +8,8 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// freeFirstOutput overrides the first-output deadline for a free-billed hub dispatch (route.BillFree); zero (the
-// default) defers to the registry's routing.opencode.freeFirstOutput (providers.OpencodeRouting.FirstOutput,
-// 90s unless the vault overlay sets it). A paid dispatch carries no deadline and relies on AttemptTimeout alone.
-var freeFirstOutput time.Duration
-
-// firstOutputDeadline resolves the free-dispatch stall deadline: the freeFirstOutput override when tests set
-// one, else the registry's own value (a load error falls back to providers.OpencodeRouting's 90s floor).
+// firstOutputDeadline is the free-dispatch stall deadline from the registry, else OpencodeRouting's 90s floor.
 func firstOutputDeadline() time.Duration {
-	if freeFirstOutput > 0 {
-		return freeFirstOutput
-	}
 	reg, err := providers.Load()
 	if err != nil {
 		return (providers.OpencodeRouting{}).FirstOutput()

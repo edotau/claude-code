@@ -114,10 +114,7 @@ func planAlias(opt AliasOptions, canon string) (aliasResult, *aliasPlan, error) 
 	}
 	res := aliasResult{Key: tgt.Key}
 	p := &aliasPlan{target: tgt.Dir}
-	var src *repoEntry
-	if e := FindEntry(entries, canon); e != nil {
-		src = e
-	}
+	src := FindEntry(entries, canon)
 	res.Lines = append(res.Lines, fmt.Sprintf("alias %s -> %s", canon, tgt.Key))
 	if src == nil {
 		res.Lines = append(res.Lines, "no separate store for that checkout; recording the alias only")
@@ -397,8 +394,7 @@ func (p *aliasPlan) apply(now time.Time) error {
 	if err := removeEmptyTree(p.source); err != nil {
 		return err
 	}
-	var s bankSettlement
-	if err := settleDir(p.target, now, &s); err != nil {
+	if _, err := settleDir(p.target, now); err != nil {
 		return err
 	}
 	if err := writeCatalog(now); err != nil {

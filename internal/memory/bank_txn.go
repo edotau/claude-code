@@ -107,12 +107,6 @@ func commitChangesLocked(subject string, changes []Change) (Receipt, error) {
 	return rec, err
 }
 
-// recoverJournals finishes every unfinished journal and returns the scan error and per-journal failures joined.
-func recoverJournals() error {
-	skipped, err := recoverEach()
-	return errors.Join(err, skipped)
-}
-
 // recoverEach finishes every unfinished journal, oldest first, each as its own commit; a failing one is left on
 // disk (skipped) so later ones still run, and a skipped one may replay after newer commits, where its preimage
 // hashes make it diverge instead of clobber. err is a failed directory scan; skipped joins the per-journal failures.
