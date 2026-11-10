@@ -46,8 +46,8 @@ paths:
 - **Frontmatter worth knowing:** `effort`, `maxTurns`, `isolation: worktree`, `background`, `memory`. Unknown fields
   are silently ignored: check with `claude --debug`.
 - **Prose instructs, hooks guarantee.** A new type that requests external agents must join the hook tables that gate
-  it, or nothing checks it ran: `ranOnGated` (`internal/hooks/agents/leaves.go`) for the ran-on stop gate,
-  `labelAgents` (`internal/hooks/agents/agenteffort.go`) for labels and routing. Shapes and what enforces
+  it, or nothing checks it ran: `pinnedAgentType` (`internal/hooks/agents/leaves.go`) for the ran-on stop gate,
+  `labelAgent` (`internal/hooks/agents/leaves.go`) for labels and routing. Shapes and what enforces
   each: `skills/subagent-workflows/references/patterns.md`.
 
 Dispatch, concurrency, escalation and the test agent: `skills/subagent-workflows/SKILL.md`.

@@ -140,7 +140,7 @@ func staleSessionRoot(dir, name string, cutoff time.Time) bool {
 }
 
 // sessionRootLockWait bounds how long a hook waits for a racing repair to finish.
-const sessionRootLockWait = 5 * time.Second
+var sessionRootLockWait = 5 * time.Second
 
 func sessionRootPath(sessionID string) string {
 	return filepath.Join(StateDir(), "root-"+filepath.Base(sessionID))

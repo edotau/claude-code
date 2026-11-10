@@ -214,17 +214,9 @@
     "agent-design@anthropic-plugin-directory": true,
     "build-harness@anthropic-plugin-directory": true,
     "claude-context-optimizer@anthropic-plugin-directory": true,
-    "coworker@edotau": true,
     "gopls-lsp@claude-plugins-official": true
   },
-  "extraKnownMarketplaces": {
-    "edotau": {
-      "source": {
-        "source": "directory",
-        "path": "/Users/edotau/.claude/marketplace"
-      }
-    }
-  },
+  "extraKnownMarketplaces": {},
   "outputStyle": "Concise",
   "feedbackSurveyRate": 0,
   "feedbackDrafts": "off",

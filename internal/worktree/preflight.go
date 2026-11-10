@@ -79,7 +79,7 @@ var runGit = func(ctx context.Context, dir string, extraEnv []string, args ...st
 }
 
 // gitWaitDelay bounds how long a cancelled git call may hold its output pipes open before being abandoned.
-const gitWaitDelay = 5 * time.Second
+var gitWaitDelay = 5 * time.Second
 
 // Preflight resolves name to its worktree path, rejects an unsafe starting state (steps 1), pins both
 // OIDs and simulates the merge (step 2), and returns the plan either way — a non-nil error means

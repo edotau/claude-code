@@ -17,7 +17,7 @@ exists.
 | Reset settings.json to the clean template | `claude-code configure --restore` (owner-run; `settings.json.bak.<timestamp>` first) |
 | Re-render agent configs only | `claude-code configure --restore --agents` (or `--agent X`); never touches settings.json |
 | Add or retime a hook | handler in `internal/hooks/`, register in a `settings/hookspec.go` group (`hooks.md`) |
-| Lint and auto-fix | `make lint [WHAT=go\|md\|all] [AGENT=on\|<agent>\|off] [MAX=3]`; `on` means Claude Sonnet at medium effort; env `HARNESS_LINT_AGENT` sets the default (`commands/lint-fix.md`) |
+| Lint and auto-fix | `make lint [WHAT=go\|md\|all] [AGENT=on\|<agent>\|off] [MAX=3]`; `on` means Claude Sonnet at medium effort; env `HARNESS_LINT_AGENT` sets the default |
 
 ## Where settings come from
 

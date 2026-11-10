@@ -24,8 +24,6 @@ func writeRunningDispatch(t *testing.T, id string, pid, owner int) {
 	}
 }
 
-const runningPayload = `{"model":{"display_name":"Opus"},"workspace":{"current_dir":"/tmp"}}`
-
 // runningDispatches counts only this session's live dispatches: dead pids and other owners stay out.
 func TestRunningCountsOwnLiveDispatchesOnly(t *testing.T) {
 	cases := []struct {

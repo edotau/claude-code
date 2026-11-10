@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -10,14 +11,17 @@ import (
 )
 
 func TestResolveRepoBoundsDiscoverySubprocess(t *testing.T) {
-	regressionFakeGit(t, "exec /bin/sleep 34\n")
+	orig := probeTimeout
+	probeTimeout = time.Second
+	t.Cleanup(func() { probeTimeout = orig })
+	regressionFakeGit(t, fmt.Sprintf("exec /bin/sleep %d\n", int((probeTimeout+4*time.Second)/time.Second)))
 	start := time.Now()
 	_, err := ResolveRepo(t.TempDir())
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("hung discovery must fail")
 	}
-	if elapsed >= 33*time.Second {
+	if elapsed >= probeTimeout+3*time.Second {
 		t.Fatalf("git discovery ignored its deadline: %s", elapsed)
 	}
 }
