@@ -1,6 +1,6 @@
 ---
 description: "Run an agent on the Databricks arm: Databricks first, first-party login as the fallback"
-argument-hint: "<claude|codex|copilot|gemini|opencode> [profile=<p>] [model=<m>] [fallback=<f>] [effort=<e>] [tools=on|off|read-only] [host=<h>] <task>"
+argument-hint: "<claude|codex|copilot|gemini|opencode> [profile=<p>] [model=<m>] [fallback=<f>] [effort=<e>] [tools=on|off|read-only] [route=<r>] [background=on] [host=<h>] <task>"
 allowed-tools: Bash(claude-code agents ask --agent *)
 disable-model-invocation: true
 ---
@@ -10,12 +10,17 @@ disable-model-invocation: true
 ```text
 /coworker <agent> [key=value …] <task>        agent: claude|codex|copilot|gemini|opencode
 /coworker:<agent> [key=value …] <task>        codex|copilot|gemini|opencode (commands/coworker/<agent>.md)
+/coworker:<agent> [profile=<p>] [model=<m>] <verb> [args…]   → claude-code <agent> <verb> … (not routed)
+  verbs: resume review explore transfer status tail result cancel setup catalog profile on off
+  /coworker:codex adversarial [--base <b>|--commit <sha>|--pr] [focus]   adversarial diff review, saved as a report
 
   profile=<p>        --route databricks:<p>; omitted: --route databricks (the session's Databricks profile, or refused)
   model=<m>          --model <m>; omitted: the route's pick
   fallback=<f>       --fallback none|agents|all; omitted: all
   effort=<e>         --effort low|medium|high|xhigh|max; omitted: the agent's default
   tools=on|read-only --tools | --read-only; omitted or tools=off: no tools (answer only)
+  route=<r>          --route default|first-party: leave the Databricks arm (profile= then means --profile <p>)
+  background=on      --background: detach, print a job id (status | tail <id> | result <id>)
   host=<h>           --host <h>: run on that ssh host; the route rides along, credentials never leave it
                      (its own vault resolves <p>; the same Databricks profile name must exist here too)
 
