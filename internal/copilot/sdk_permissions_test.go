@@ -16,6 +16,52 @@ type permCase struct {
 	want bool
 }
 
+func TestPolicyVerdict(t *testing.T) {
+	wd := t.TempDir()
+	calls := []agent.Rule{
+		{Tool: "Bash", Arg: "git status"}, {Tool: "Bash", Arg: "rm victim"},
+		{Tool: "Edit", Arg: filepath.Join(wd, "secret", "k")},
+		{Tool: "Read", Arg: filepath.Join(wd, "secret", "k")},
+		{Tool: "WebFetch", Arg: "https://example.com"},
+		{Tool: "mcp__web_search__web_search"}, {Tool: "mcp__github__create_issue"},
+	}
+	deny := []agent.Rule{
+		{Tool: "Bash"}, {Tool: "Edit", Arg: "secret/**"}, {Tool: "Read", Arg: "secret/**"},
+		{Tool: "WebFetch", Arg: "domain:example.com"},
+		{Tool: "mcp__web_search"}, {Tool: "mcp__github__create_issue"},
+	}
+	for _, tc := range []struct {
+		name     string
+		policy   agent.Permissions
+		tools    bool
+		readOnly bool
+		want     string
+	}{
+		{"zero", agent.Permissions{}, true, false, "AAAAAAA"},
+		{"deny", agent.Permissions{Deny: deny}, true, false, "DDDDDDD"},
+		{"ask", agent.Permissions{Ask: deny}, true, false, "AAAAAAA"},
+		{"allow unmatched", agent.Permissions{Allow: []agent.Rule{{Tool: "Read"}}}, true, false, "AAAAAAA"},
+		{"auto", agent.Permissions{Mode: "auto"}, true, false, "AAAAAAA"},
+		{"plan", agent.Permissions{Mode: "plan"}, true, false, "DDDAAAD"},
+		{"plan explicit deny", agent.Permissions{Mode: "plan", Deny: deny}, true, false, "DDDDDDD"},
+		{"read only", agent.Permissions{}, true, true, "ADDAAAD"},
+		{"tools off", agent.Permissions{}, false, false, "DDDDDDD"},
+		{"tools off read only", agent.Permissions{}, false, true, "DDDDDDD"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for i, call := range calls {
+				want := agent.Deny
+				if tc.want[i] == 'A' {
+					want = agent.Allow
+				}
+				if got := PolicyVerdict(tc.policy, tc.tools, tc.readOnly, wd, call); got != want {
+					t.Errorf("%s: got %v, want %v", call, got, want)
+				}
+			}
+		})
+	}
+}
+
 func shellReq(wd, c string) copilot.PermissionRequest {
 	return rpc.PermissionRequestShell{FullCommandText: c, ResolvedWorkingDirectory: &wd}
 }

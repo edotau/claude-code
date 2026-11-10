@@ -239,3 +239,26 @@ func countOf(argv []string, s string) (n int) {
 	}
 	return n
 }
+
+// On macOS a GitHub login that is not workable falls back to a registry Databricks profile, which launches there only
+// with --direct: setup's route row warns and says so, never a plain ok.
+func TestCopilotSetupRouteWarnsOnMacOSFallback(t *testing.T) {
+	pinsScratch(t)
+	vaulttest.UseKeyring(t)
+	setGOOS(t, "darwin")
+	for _, k := range []string{"GH_TOKEN", "GITHUB_TOKEN", providers.CopilotTokenEnv} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("GH_CONFIG_DIR", t.TempDir())
+	t.Setenv("COPILOT_HOME", t.TempDir())
+	t.Setenv("DBX_CLI_TOKEN", "dapi-fixture")
+	err := providers.SetProviderFields("dbx", map[string]any{"protocol": "anthropic", "preset": "databricks",
+		"host": "https://127.0.0.1:1", "auth": map[string]any{"type": "key", "env": "DBX_CLI_TOKEN"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := agent.SchemaFor("copilot").Setup().Checks[2]
+	if route.State != "warn" || !strings.Contains(route.Detail, "--direct") {
+		t.Fatalf("route row = %s %q, want warn naming --direct", route.State, route.Detail)
+	}
+}
