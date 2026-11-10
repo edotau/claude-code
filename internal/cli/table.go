@@ -106,7 +106,7 @@ func hiddenCommands() []command {
 		{name: "workflow", hidden: true, summary: "skeleton <pattern> | lint (model/effort pins, meta/throw)", run: cmdWorkflow, spec: workflowSpec},
 		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: cmdHook, spec: hookSpec},
 		{name: "clip", hidden: true, summary: "save the Windows clipboard image as PNG; print its WSL path", run: clipboard.Clip, spec: clipboard.Spec},
-		{name: "clip-clear", hidden: true, summary: "clear the clipboard after a delay if it still holds a copied secret", run: clipboard.ClipClear},
+		{name: "clip-clear", hidden: true, summary: "clear the clipboard after a delay if it still holds a copied secret", run: clipboard.ClipClear, spec: clipClearSpec},
 		{name: "wl-paste", hidden: true, summary: "WSL wl-paste proxy: answer agent image paste, else run real wl-paste", run: clipboard.WLPaste, sideEffectHelp: true},
 		{name: "version", hidden: true, summary: "print the build version", run: cmdVersion},
 		{name: "completion", hidden: true, summary: "bash tab-completion script (--install to write it)", run: cmdCompletion, spec: completionSpec},
@@ -219,6 +219,11 @@ func buildSpecTree() map[string]*helptext.Node {
 		}
 	}
 	return tree
+}
+
+// clipClearSpec is the completion node for `clip-clear`, whose flag lives in clipboard.ClipClear.
+func clipClearSpec() *helptext.Node {
+	return &helptext.Node{Flags: []helptext.Flag{helptext.Plain("after")}}
 }
 
 func completionSpec() *helptext.Node {

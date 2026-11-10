@@ -415,7 +415,9 @@ func switchSpec() *helptext.Node {
 
 // resolveSpec is the completion node for the resolve verb.
 func resolveSpec() *helptext.Node {
-	return &helptext.Node{Flags: []helptext.Flag{profileFlag(), helptext.BoolFlag("proxy")}}
+	identities := func() []string { return []string{"auto", "user", "sp", "headless"} }
+	return &helptext.Node{Flags: []helptext.Flag{profileFlag(), helptext.BoolFlag("proxy"),
+		helptext.ValuedFlag("as", identities)}}
 }
 
 func init() {

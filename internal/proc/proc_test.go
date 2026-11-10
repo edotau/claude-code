@@ -1,6 +1,7 @@
 package proc
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,6 +61,20 @@ func TestIsSelfUnderTest(t *testing.T) {
 	}
 	if IsSelfUnderTest("/bin/sh") {
 		t.Fatal("IsSelfUnderTest(/bin/sh) = true")
+	}
+}
+
+func TestExecRefusesUnderTest(t *testing.T) {
+	orig := execImage
+	var reached []string
+	execImage = func(bin string, _, _ []string) error { reached = append(reached, bin); return nil }
+	t.Cleanup(func() { execImage = orig })
+	err := Exec("/usr/bin/true", []string{"x"}, nil)
+	if !errors.Is(err, ErrExecUnderTest) {
+		t.Fatalf("Exec under go test = %v, want ErrExecUnderTest", err)
+	}
+	if len(reached) != 0 {
+		t.Fatalf("Exec reached the raw exec seam with %v under go test", reached)
 	}
 }
 

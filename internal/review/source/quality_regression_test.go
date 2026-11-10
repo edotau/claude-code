@@ -70,6 +70,27 @@ func TestFindFunctionsGoGenericSignature(t *testing.T) {
 	}
 }
 
+func TestQualityGoGenericGodClass(t *testing.T) {
+	limit := qualityThresholds["god_class_methods"]
+	var src strings.Builder
+	src.WriteString("package fixture\ntype Set[K comparable, V ~[]E, E any] struct{}\ntype Big struct{}\n")
+	for i := range limit + 1 {
+		fmt.Fprintf(&src, "func (s *Set[K, V, E]) M%d() {}\nfunc (b *Big) M%d() {}\n", i, i)
+	}
+	report, err := QualityContent("fixture.go", src.String(), "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []Smell
+	for _, name := range []string{"Set", "Big"} {
+		want = append(want, Smell{Type: "god_class", Severity: "high", Location: name,
+			Message: fmt.Sprintf("Class '%s' has %d methods (max: %d)", name, limit+1, limit)})
+	}
+	if !slices.Equal(report.Smells, want) {
+		t.Fatalf("smells = %+v, want generic Set and plain Big flagged: %+v", report.Smells, want)
+	}
+}
+
 func TestFindClassesPythonStopsAtModuleDefinition(t *testing.T) {
 	src := "class Service:\n    def run(self):\n        pass\n\ndef standalone():\n    pass\nclass Other:\n    def stop(self):\n        pass\n"
 	got := findClasses(src, "python")

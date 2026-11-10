@@ -62,7 +62,8 @@ func askSpecFlags() []helptext.Flag {
 func agentsSpec() *helptext.Node {
 	flag, boolFlag, valuedFlag, formatFlag := helptext.Plain, helptext.BoolFlag, helptext.ValuedFlag, helptext.CompletionFormatFlag
 	return &helptext.Node{Sub: map[string]*helptext.Node{
-		"sync": {Flags: []helptext.Flag{valuedFlag("agent", project.Names), boolFlag("dry-run"), boolFlag("check"), boolFlag("no-prune")}},
+		"sync": {Flags: []helptext.Flag{valuedFlag("agent", project.Names), boolFlag("dry-run"), boolFlag("check"), boolFlag("no-prune"),
+			formatFlag()}},
 		"tree": {Flags: []helptext.Flag{flag("days"), flag("session"), boolFlag("background"), boolFlag("bg"),
 			boolFlag("watch"), flag("interval"), formatFlag()}},
 		"reap":  {Flags: []helptext.Flag{boolFlag("dry-run")}},
@@ -98,7 +99,7 @@ func agentSpec() *helptext.Node {
 		"ask":    {Flags: askSpecFlags()},
 		"resume": {},
 		"review": {Flags: []helptext.Flag{boolFlag("uncommitted"), flag("base"), flag("commit"), boolFlag("pr"),
-			boolFlag("adversarial"), boolFlag("background"), flag("rubric")}},
+			boolFlag("adversarial"), boolFlag("background"), flag("rubric"), flag("model")}},
 		"explore":  {Flags: []helptext.Flag{boolFlag("no-web"), boolFlag("background"), formatFlag()}},
 		"transfer": {Flags: []helptext.Flag{flag("source"), boolFlag("wait")}},
 		"status":   {Flags: []helptext.Flag{boolFlag("all"), formatFlag()}},
