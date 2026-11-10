@@ -6,9 +6,11 @@ import (
 	"os"
 
 	"github.com/edotau/claude-code/internal/agentconfig/project"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // Check is one `claude-code <v> setup` line.
@@ -61,7 +63,23 @@ func (s Schema) routeCheck() Check {
 	if !ok {
 		return Check{Name: "route", State: "warn", Detail: "no route check found for " + s.Name}
 	}
-	return Check{Name: "route", State: "ok", Detail: detail}
+	return Check{Name: "route", State: s.routeState(), Detail: detail}
+}
+
+// routeState warns when copilot's dispatch is not the route it is pinned to: no route, or a fallback off the pin.
+func (s Schema) routeState() string {
+	if s.Name != agentid.Copilot {
+		return "ok"
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return "warn"
+	}
+	ri := s.DescribeRoute(reg)
+	if !ri.OK || ri.Route != RouteCopilotLogin && ri.Provider != vault.GetAgentRecord(s.Name).Profile {
+		return "warn"
+	}
+	return "ok"
 }
 
 // projectionCheck reports whether state/projections/<agent>/agents has any rendered agents.
