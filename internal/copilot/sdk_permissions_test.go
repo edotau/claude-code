@@ -175,7 +175,8 @@ func formerlyScoped(wd string) []struct {
 		req  copilot.PermissionRequest
 		deny string
 	}{
-		{"mcp", rpc.PermissionRequestMCP{ServerName: "github", ToolName: "create_issue"}, ""},
+		{"mcp", rpc.PermissionRequestMCP{ServerName: "github", ToolName: "create_issue"}, "mcp__github__create_issue"},
+		{"mcp server-wide", &rpc.PermissionRequestMCP{ServerName: "github", ToolName: "create_issue"}, "mcp__github"},
 		{"memory", rpc.PermissionRequestMemory{}, ""},
 		{"write .git", writeReq(filepath.Join(wd, ".git", "config")), "Edit(.git/**)"},
 		{"write .env", writeReq(filepath.Join(wd, ".env")), "Edit(.env)"},
@@ -206,7 +207,7 @@ func TestToolsTierDenyRejectsFormerlyScoped(t *testing.T) {
 	wd := t.TempDir()
 	for _, tc := range formerlyScoped(wd) {
 		if tc.deny == "" {
-			continue // MCP and memory map to no rule tool, so no Deny can name them
+			continue // memory maps to no rule tool, so no Deny can name it
 		}
 		r, err := agent.ParseRule(tc.deny)
 		if err != nil {
