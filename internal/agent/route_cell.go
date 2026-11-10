@@ -52,7 +52,7 @@ func (rc routeCtx) pinnedCaller(cand router.Candidate) bool {
 
 // pinnedCell runs the caller's model on cand's pinned profile, respelled for it.
 func (rc routeCtx) pinnedCell(cand router.Candidate, cell *router.Cell) {
-	cell.Model = cmp.Or(rc.exact, rc.callerModel) // the caller's model, respelled for the pinned profile
+	cell.Model = cmp.Or(rc.exact, strings.TrimPrefix(rc.callerModel, cand.Profile+":")) // buildDispatch re-adds the profile
 	if rc.reg != nil && rc.reg.Providers[cand.Profile] != nil {
 		cell.Model = rc.reg.Providers[cand.Profile].WireModel(cell.Model)
 	}
