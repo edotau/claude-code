@@ -5,10 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -54,50 +54,27 @@ func (claudeEngine) Verify(context.Context) (providers.AuthVerdict, string) {
 // claudeProbeTTL is how long a logged-in `claude auth status` result is reused.
 const claudeProbeTTL = 10 * time.Second
 
-// probeCall is one in-flight `claude auth status` run that concurrent callers wait on.
-type probeCall struct {
-	done     chan struct{}
+// claudeProbe is one `claude auth status` answer.
+type claudeProbe struct {
 	loggedIn bool
 	plan     string
-	err      error
 }
 
-// claudeProbeMemo holds the last logged-in probe and the run in flight; logged-out and errors are never stored.
-var claudeProbeMemo struct {
-	mu       sync.Mutex
-	at       time.Time
-	loggedIn bool
-	plan     string
-	flight   *probeCall
-}
+// claudeProbeMemo is single-flight; only a logged-in answer is kept, so the recheck after a login sees it.
+var claudeProbeMemo paths.Memo[struct{}, claudeProbe]
 
 // claudeLoginProbe asks `claude auth status` (JSON); err != nil means unknown. Single-flight; logged-in memo 10s.
 func claudeLoginProbe() (loggedIn bool, plan string, err error) {
-	m := &claudeProbeMemo
-	m.mu.Lock()
-	if !m.at.IsZero() && time.Since(m.at) < claudeProbeTTL {
-		defer m.mu.Unlock()
-		return m.loggedIn, m.plan, nil
-	}
-	if c := m.flight; c != nil {
-		m.mu.Unlock()
-		<-c.done
-		return c.loggedIn, c.plan, c.err
-	}
-	c := &probeCall{done: make(chan struct{})}
-	m.flight = c
-	m.mu.Unlock()
-
-	c.loggedIn, c.plan, c.err = runClaudeProbe()
-
-	m.mu.Lock()
-	if c.err == nil && c.loggedIn { // a logged-out result is not reused, so the recheck after a login sees it
-		m.at, m.loggedIn, m.plan = time.Now(), c.loggedIn, c.plan
-	}
-	m.flight = nil
-	m.mu.Unlock()
-	close(c.done)
-	return c.loggedIn, c.plan, c.err
+	p, err := claudeProbeMemo.Do(struct{}{}, func(p claudeProbe, err error) time.Duration {
+		if err == nil && p.loggedIn {
+			return claudeProbeTTL
+		}
+		return -1
+	}, func() (claudeProbe, error) {
+		in, plan, err := runClaudeProbe()
+		return claudeProbe{in, plan}, err
+	})
+	return p.loggedIn, p.plan, err
 }
 
 // runClaudeProbe spawns `claude auth status` (≤8s) and parses its JSON.

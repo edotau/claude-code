@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -142,7 +141,5 @@ func TestClaudeLoginProbeNativeInstall(t *testing.T) {
 
 // resetClaudeProbe drops the memo so the next claudeLoginProbe runs the binary again.
 func resetClaudeProbe() {
-	claudeProbeMemo.mu.Lock()
-	defer claudeProbeMemo.mu.Unlock()
-	claudeProbeMemo.at = time.Time{}
+	claudeProbeMemo.Drop()
 }
