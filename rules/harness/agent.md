@@ -69,7 +69,8 @@ paths:
 - **Skills.** `agents sync` links `skills/<name>/SKILL.md` (symlinked dirs resolving inside `skills/` included) into
   `~/.agents/skills`, plus copilot's `~/.copilot/skills` and agy's `~/.gemini/antigravity-cli/skills`, which do not
   read the shared dir (`internal/agentconfig/project/targets.go`). **`skills/synced/**` (claude.ai account skills)
-  goes to no agent**; `discover.go` skips it and `skills.go` never prunes a link into it — a link made before the
+  gets no link**, but opencode reads `~/.claude/skills` natively and loads it (duplicate names load once);
+  `discover.go` skips it and `skills.go` never prunes a link into it — a link made before the
   exclusion (e.g. `~/.copilot/skills/synced`) stays visible to that agent; sync prints it as `EXTRA`.
 - **Portable core.** `CLAUDE.md` plus unscoped `rules/standards/*.md` (no `paths:` frontmatter), listed by
   `project.PortableCore`; headless and interactive runs load the same core. Where each agent reads it:

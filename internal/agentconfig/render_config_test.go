@@ -232,12 +232,8 @@ func checkCopilotDefaults(t *testing.T, copilot AgentConfig) {
 
 func checkOpencodeDefaults(t *testing.T, opencode AgentConfig) {
 	t.Helper()
-	wantEnv := []string{"OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1"}
-	if len(opencode.Launch.Env) != len(wantEnv) || opencode.Launch.Env[0] != wantEnv[0] {
-		t.Errorf("opencode.Launch.Env = %v, want %v", opencode.Launch.Env, wantEnv)
-	}
-	if slices.Contains(opencode.Launch.Env, "OPENCODE_DISABLE_EXTERNAL_SKILLS") {
-		t.Errorf("opencode.Launch.Env contains OPENCODE_DISABLE_EXTERNAL_SKILLS, want absent")
+	if len(opencode.Launch.Env) != 0 { // opencode reads ~/.claude/skills natively, synced/ included
+		t.Errorf("opencode.Launch.Env = %v, want none", opencode.Launch.Env)
 	}
 	if len(opencode.Launch.Args) != 0 {
 		t.Errorf("opencode.Launch.Args = %v, want none", opencode.Launch.Args)

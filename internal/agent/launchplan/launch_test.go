@@ -297,8 +297,8 @@ func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 	if plan.Binary != fake {
 		t.Errorf("Binary = %q, want %q", plan.Binary, fake)
 	}
-	if plan.Set["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"] != "1" {
-		t.Errorf("Set[OPENCODE_DISABLE_CLAUDE_CODE_SKILLS] = %q, want 1 (built-in default)", plan.Set["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"])
+	if v, ok := plan.Set["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"]; ok {
+		t.Errorf("Set[OPENCODE_DISABLE_CLAUDE_CODE_SKILLS] = %q, want unset (opencode loads ~/.claude/skills)", v)
 	}
 	if !slices.Equal(plan.Argv, []string{"user"}) {
 		t.Errorf("Argv = %v, want [user] (opencode's default carries no Launch.Args)", plan.Argv)
