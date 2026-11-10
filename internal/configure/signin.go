@@ -1,5 +1,5 @@
 // Signin is the one check -> login -> recheck flow behind every provider kind (signin.go).
-package signin
+package configure
 
 import (
 	"context"
@@ -61,8 +61,8 @@ func SigninFor(p *providers.Provider) Signin {
 	return secretSignin{p}
 }
 
-// ValidateSecret rejects a value that cannot be the named credential (shared with `vault set`).
-func ValidateSecret(name, value string) error {
+// ValidateVaultSecret rejects a value that cannot be the named credential (shared with `vault set`).
+func ValidateVaultSecret(name, value string) error {
 	if isGitHubToken(name) && !ValidCopilotToken(value) {
 		return fmt.Errorf("%s not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)", name)
 	}
@@ -71,7 +71,7 @@ func ValidateSecret(name, value string) error {
 
 // SetSecret validates then stores one vault secret; callers clear whichever auth cache they own.
 func SetSecret(name, value string) error {
-	if err := ValidateSecret(name, value); err != nil {
+	if err := ValidateVaultSecret(name, value); err != nil {
 		return err
 	}
 	return storeSecret(name, value)

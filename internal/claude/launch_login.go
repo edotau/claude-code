@@ -1,4 +1,4 @@
-package signin
+package claude
 
 import (
 	"bufio"
@@ -14,13 +14,14 @@ import (
 	"github.com/edotau/claude-code/internal/agent/launchplan"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
 // Test seams: the sign-in factory, the TTY gate, and the prompt's input and output.
 var (
-	signinFor           = SigninFor
+	signinFor           = configure.SigninFor
 	canPrompt           = func() bool { return launchplan.IsTerminal(os.Stdin) && launchplan.IsTerminal(os.Stderr) }
 	loginIn   io.Reader = os.Stdin
 	loginOut  io.Writer = os.Stderr
@@ -85,7 +86,7 @@ func runChecks(ctx context.Context, todo []*providers.Provider) []checkResult {
 
 // checkResult is one provider's concurrent pre-launch check.
 type checkResult struct {
-	s      Signin
+	s      configure.Signin
 	v      providers.AuthVerdict
 	detail string
 	ok     bool
@@ -138,7 +139,7 @@ func loginSkipped(p *providers.Provider, v providers.AuthVerdict) error {
 }
 
 // checkSignin runs the check, giving up after credCheckTimeout (ok=false); an abandoned one dies with the exec.
-func checkSignin(ctx context.Context, s Signin) (v providers.AuthVerdict, detail string, ok bool) {
+func checkSignin(ctx context.Context, s configure.Signin) (v providers.AuthVerdict, detail string, ok bool) {
 	type res struct {
 		v      providers.AuthVerdict
 		detail string

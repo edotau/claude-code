@@ -1,4 +1,4 @@
-package signin
+package configure
 
 import (
 	"bytes"
@@ -50,23 +50,23 @@ func TestForPicksKind(t *testing.T) {
 		p    *providers.Provider
 		want string
 	}{
-		{"u2m", row("a", providers.Auth{Type: providers.AuthOAuth}), "signin.u2mSignin"},
-		{"databricks preset no authType", &providers.Provider{Name: "b", Preset: providers.PresetDatabricks}, "signin.u2mSignin"},
-		{"pat", row("c", providers.Auth{Type: providers.AuthPAT}), "signin.secretSignin"},
-		{"oauth-m2m service principal", row("d", providers.Auth{Type: providers.AuthM2M, ClientID: "x"}), "signin.secretSignin"},
-		{"bearer env", row("e", providers.Auth{Type: providers.AuthKey, Env: "E_KEY"}), "signin.secretSignin"},
-		{"x-api-key env", row("f", providers.Auth{Type: "x-api-key", Env: "F_KEY"}), "signin.secretSignin"},
-		{"subscription", row("g", providers.Auth{Type: providers.AuthCLI}), "signin.cliSignin"},
-		{"codex", row("h", providers.Auth{Type: providers.AuthCLI, Login: "codex"}), "signin.cliSignin"},
-		{"copilot", row("i", providers.Auth{Type: providers.AuthCLI, Login: "copilot"}), "signin.cliSignin"},
-		{"gemini", row("j", providers.Auth{Type: providers.AuthCLI, Login: "gemini"}), "signin.cliSignin"},
-		{"none/ollama", row("k", providers.Auth{Type: providers.AuthNone}), "signin.noneSignin"},
-		{"method oauth", row("l", providers.Auth{Type: providers.AuthOAuth}), "signin.u2mSignin"},
-		{"method m2m", row("m", providers.Auth{Type: providers.AuthM2M}), "signin.secretSignin"},
-		{"method pat", row("n", providers.Auth{Type: providers.AuthPAT}), "signin.secretSignin"},
-		{"method key", row("o", providers.Auth{Type: providers.AuthKey}), "signin.secretSignin"},
-		{"method cli", row("p", providers.Auth{Type: providers.AuthCLI}), "signin.cliSignin"},
-		{"method cli login", row("q", providers.Auth{Type: providers.AuthCLI, Login: "codex"}), "signin.cliSignin"},
+		{"u2m", row("a", providers.Auth{Type: providers.AuthOAuth}), "configure.u2mSignin"},
+		{"databricks preset no authType", &providers.Provider{Name: "b", Preset: providers.PresetDatabricks}, "configure.u2mSignin"},
+		{"pat", row("c", providers.Auth{Type: providers.AuthPAT}), "configure.secretSignin"},
+		{"oauth-m2m service principal", row("d", providers.Auth{Type: providers.AuthM2M, ClientID: "x"}), "configure.secretSignin"},
+		{"bearer env", row("e", providers.Auth{Type: providers.AuthKey, Env: "E_KEY"}), "configure.secretSignin"},
+		{"x-api-key env", row("f", providers.Auth{Type: "x-api-key", Env: "F_KEY"}), "configure.secretSignin"},
+		{"subscription", row("g", providers.Auth{Type: providers.AuthCLI}), "configure.cliSignin"},
+		{"codex", row("h", providers.Auth{Type: providers.AuthCLI, Login: "codex"}), "configure.cliSignin"},
+		{"copilot", row("i", providers.Auth{Type: providers.AuthCLI, Login: "copilot"}), "configure.cliSignin"},
+		{"gemini", row("j", providers.Auth{Type: providers.AuthCLI, Login: "gemini"}), "configure.cliSignin"},
+		{"none/ollama", row("k", providers.Auth{Type: providers.AuthNone}), "configure.noneSignin"},
+		{"method oauth", row("l", providers.Auth{Type: providers.AuthOAuth}), "configure.u2mSignin"},
+		{"method m2m", row("m", providers.Auth{Type: providers.AuthM2M}), "configure.secretSignin"},
+		{"method pat", row("n", providers.Auth{Type: providers.AuthPAT}), "configure.secretSignin"},
+		{"method key", row("o", providers.Auth{Type: providers.AuthKey}), "configure.secretSignin"},
+		{"method cli", row("p", providers.Auth{Type: providers.AuthCLI}), "configure.cliSignin"},
+		{"method cli login", row("q", providers.Auth{Type: providers.AuthCLI, Login: "codex"}), "configure.cliSignin"},
 	} {
 		if got := fmt.Sprintf("%T", SigninFor(c.p)); got != c.want {
 			t.Errorf("%s: For = %s, want %s", c.name, got, c.want)
@@ -194,13 +194,13 @@ func TestU2MLoginUsesLoginRow(t *testing.T) {
 }
 
 func TestValidateSecret(t *testing.T) {
-	if err := ValidateSecret(providers.CopilotTokenEnv, "not-a-token"); err == nil {
+	if err := ValidateVaultSecret(providers.CopilotTokenEnv, "not-a-token"); err == nil {
 		t.Error("a non-GitHub token must be rejected for the copilot env name")
 	}
-	if err := ValidateSecret(providers.CopilotTokenEnv, "ghp_"+strings.Repeat("a", 30)); err != nil {
+	if err := ValidateVaultSecret(providers.CopilotTokenEnv, "ghp_"+strings.Repeat("a", 30)); err != nil {
 		t.Errorf("valid copilot token rejected: %v", err)
 	}
-	if err := ValidateSecret("SOME_KEY", "value"); err != nil {
+	if err := ValidateVaultSecret("SOME_KEY", "value"); err != nil {
 		t.Errorf("plain secret rejected: %v", err)
 	}
 }
@@ -296,14 +296,14 @@ func TestSecretOKDetail(t *testing.T) {
 
 func TestValidateSecretGitHubVaultNames(t *testing.T) {
 	for _, n := range []string{providers.CopilotTokenEnv, "GITHUB_PERSONAL_PAT", "GITHUB_PAT"} {
-		if ValidateSecret(n, "not-a-token") == nil {
+		if ValidateVaultSecret(n, "not-a-token") == nil {
 			t.Errorf("%s accepted a non-GitHub token", n)
 		}
-		if err := ValidateSecret(n, "ghp_"+strings.Repeat("a", 30)); err != nil {
+		if err := ValidateVaultSecret(n, "ghp_"+strings.Repeat("a", 30)); err != nil {
 			t.Errorf("%s rejected a valid token: %v", n, err)
 		}
 	}
-	if err := ValidateSecret("DATABRICKS_PROD_PAT", "dapi-anything"); err != nil {
+	if err := ValidateVaultSecret("DATABRICKS_PROD_PAT", "dapi-anything"); err != nil {
 		t.Errorf("non-GitHub PAT name must not be shape-checked: %v", err)
 	}
 }

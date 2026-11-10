@@ -27,7 +27,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/shapes"
-	"github.com/edotau/claude-code/internal/signin"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -473,7 +472,7 @@ func ParseAssignment(raw string) (name, value string) {
 
 // ValidateSecret checks menu-entered credentials before staging; environment edits retain vault-only validation.
 func ValidateSecret(name, value string) error {
-	if name == providers.CopilotTokenEnv && !signin.ValidCopilotToken(value) {
+	if name == providers.CopilotTokenEnv && !ValidCopilotToken(value) {
 		return fmt.Errorf("%s: not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)", name)
 	}
 	return shapes.ValidCredential(name, value)

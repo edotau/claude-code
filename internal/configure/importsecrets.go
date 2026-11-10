@@ -1,4 +1,4 @@
-package signin
+package configure
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 // ValidateImport checks every pair so a bad one aborts before anything is written.
 func ValidateImport(pairs []vault.Pair) error {
 	for _, p := range pairs {
-		if err := ValidateSecret(p.Name, p.Value); err != nil {
+		if err := ValidateVaultSecret(p.Name, p.Value); err != nil {
 			return err
 		}
 	}
