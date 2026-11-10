@@ -1,4 +1,4 @@
-package signin
+package claude
 
 import (
 	"bytes"
@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -69,7 +70,7 @@ func loginSetup(t *testing.T, tty bool, input string, loginErr error) loginHarne
 	t.Cleanup(func() {
 		testLoginRow, canPrompt, loginIn, loginOut, signinFor, testCredCheck = oldRow, oldTTY, oldIn, oldOut, oldFor, oldCheck
 	})
-	signinFor = func(p *providers.Provider) Signin { return fakeSignin{p, testCredCheck} }
+	signinFor = func(p *providers.Provider) configure.Signin { return fakeSignin{p, testCredCheck} }
 	canPrompt = func() bool { return tty }
 	loginIn, loginOut = strings.NewReader(input), h.out
 	testLoginRow = func(_ context.Context, name string, _ io.Writer) error {
@@ -297,7 +298,7 @@ func TestOfferLoginUsesSigninForAllKinds(t *testing.T) {
 			t.Run(kind+"/"+string(v), func(t *testing.T) {
 				h := loginSetup(t, true, "y\n", nil)
 				var n atomic.Int32
-				signinFor = func(*providers.Provider) Signin { return verdictSignin{v: v, logins: &n} }
+				signinFor = func(*providers.Provider) configure.Signin { return verdictSignin{v: v, logins: &n} }
 				var plan agent.Plan
 				OfferLogin(context.Background(), agent.LaunchOptions{}, nil, []*providers.Provider{{Name: "r-" + kind, Auth: auth}}, &plan)
 				if kind == "subscription" { // Claude Code shows its own login screen
@@ -324,7 +325,7 @@ func TestOfferLoginSubscriptionRunsNoCheck(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			loginSetup(t, true, "y\n", nil)
 			var checks atomic.Int32
-			signinFor = func(*providers.Provider) Signin { return countSignin{&checks} }
+			signinFor = func(*providers.Provider) configure.Signin { return countSignin{&checks} }
 			OfferLogin(context.Background(), agent.LaunchOptions{}, nil, []*providers.Provider{{Name: "r-" + name, Auth: tc.auth}}, &agent.Plan{})
 			if (checks.Load() > 0) != tc.wantCheck {
 				t.Fatalf("checks=%d, want check=%v", checks.Load(), tc.wantCheck)
@@ -345,7 +346,7 @@ func (countSignin) Login(context.Context, io.Reader, io.Writer) error { return n
 
 func TestOfferLoginSkippedHintNamesConfigureProviderAll(t *testing.T) {
 	loginSetup(t, true, "n\n", nil)
-	signinFor = func(*providers.Provider) Signin {
+	signinFor = func(*providers.Provider) configure.Signin {
 		return verdictSignin{v: providers.VerdictNeedsLogin, logins: &atomic.Int32{}}
 	}
 	var plan agent.Plan
@@ -402,7 +403,7 @@ func TestOfferLoginChecksConcurrentlyPromptsInOrder(t *testing.T) {
 	for _, n := range names {
 		stubs[n] = barrierSignin{n, &arrived, int32(len(names)), &met, &atomic.Bool{}, &order, &mu}
 	}
-	signinFor = func(p *providers.Provider) Signin { return stubs[p.Name] }
+	signinFor = func(p *providers.Provider) configure.Signin { return stubs[p.Name] }
 	var ps []*providers.Provider
 	for _, n := range names {
 		ps = append(ps, &providers.Provider{Name: n, Auth: providers.Auth{Type: providers.AuthPAT}})

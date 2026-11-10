@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/signin"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -25,7 +25,7 @@ func vaultSetSecret(name string, dryRun bool) int {
 	if value == "" {
 		return helptext.Fail("vault set: empty value")
 	}
-	if err := signin.ValidateSecret(name, value); err != nil {
+	if err := configure.ValidateVaultSecret(name, value); err != nil {
 		return helptext.Fail("vault set: %v", err)
 	}
 	if dryRun {
@@ -40,7 +40,7 @@ func vaultSetSecret(name string, dryRun bool) int {
 		fmt.Printf("would %s %s in the vault (%d chars); nothing written\n", verb, name, len(value))
 		return 0
 	}
-	if err := signin.SetSecret(name, value); err != nil {
+	if err := configure.SetSecret(name, value); err != nil {
 		return helptext.Fail("vault set: %v", err)
 	}
 	router.ClearSecretAuth(name)
@@ -51,7 +51,7 @@ func vaultSetSecret(name string, dryRun bool) int {
 // readSecretValue prompts with hidden input on a terminal; a pipe still supplies the value on stdin.
 func readSecretValue(name string) (string, error) {
 	if tui.StdinIsTerminal() {
-		v, err := signin.PromptSecret(name)
+		v, err := configure.PromptSecret(name)
 		return strings.TrimSpace(v), err
 	}
 	raw, err := io.ReadAll(os.Stdin)
@@ -187,13 +187,13 @@ func cmdVaultImport(args []string) int {
 	if len(pairs) == 0 {
 		return helptext.Fail("vault import: %s has no NAME=value lines", name)
 	}
-	if err := signin.ValidateImport(pairs); err != nil {
+	if err := configure.ValidateImport(pairs); err != nil {
 		return helptext.Fail("vault import: %s: %v", name, err)
 	}
 	if !confirmImport(pairs, *yes) {
 		return 1
 	}
-	err = signin.StoreImport(pairs, func(n string) { fmt.Fprintf(os.Stderr, "stored %s in the vault\n", n) })
+	err = configure.StoreImport(pairs, func(n string) { fmt.Fprintf(os.Stderr, "stored %s in the vault\n", n) })
 	if err != nil {
 		return helptext.Fail("vault import: %v", err)
 	}

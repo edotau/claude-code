@@ -11,15 +11,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/signin"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 )
 
 // Seams for --all; tests replace the sign-in factory, its cap and the TTY gates.
 var (
-	allSigninFor    = signin.SigninFor
+	allSigninFor    = configure.SigninFor
 	allCheckTimeout = 12 * time.Second
 	allStdinTTY     = isStdinTTY
 	allStderrTTY    = func() bool { return ansi.IsTerminal(os.Stderr) }

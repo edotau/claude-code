@@ -15,7 +15,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/signin"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -76,7 +75,7 @@ func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Pl
 	}
 	set1MOff(&plan, sel, p)
 	plan.Set[providers.EnvSessionProfile] = p.Name
-	signin.OfferLogin(ctx, o, args, sessionProviders(sel), &plan)
+	OfferLogin(ctx, o, args, sessionProviders(sel), &plan)
 	helper, settings, err := configureRouting(ctx, o, reg, sel, p, passthrough, self, &plan)
 	if err != nil {
 		return agent.Plan{}, err
