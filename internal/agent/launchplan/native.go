@@ -2,6 +2,7 @@ package launchplan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -79,7 +80,7 @@ func viaConfigure(c agentcfg.Config) (Native, error) {
 
 // ownLoginOr is the plain launch for agent.ErrOwnLogin, else err.
 func ownLoginOr(spec agent.Schema, err error) (Native, error) {
-	if err != agent.ErrOwnLogin {
+	if !errors.Is(err, agent.ErrOwnLogin) {
 		return Native{}, err
 	}
 	env, prefix := spec.LaunchSpec()
