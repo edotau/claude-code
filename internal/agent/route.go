@@ -49,6 +49,13 @@ var (
 	markAuth      = router.MarkAuth
 )
 
+// SwapLoadState replaces the router state loader with wrap(prev) and returns the restore func (tests only).
+func SwapLoadState(wrap func(prev func() router.State) func() router.State) func() {
+	prev := loadState
+	loadState = wrap(prev)
+	return func() { loadState = prev }
+}
+
 // modelRow resolves a --model (or alias) value to the route-table row it names: the alias the pick runs at and the
 // canonical Claude id of the row. exact is the canonical id of a non-Claude model, which only agents serving it may run.
 func modelRow(model string) (alias, row, exact string) {

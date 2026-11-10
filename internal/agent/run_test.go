@@ -359,11 +359,6 @@ func TestCheckRunGeminiReadOnlyDenies(t *testing.T) {
 	}
 }
 
-// NewFailingRunner is a fakeRunner whose first attempt fails with err and whose answer is empty.
-func NewFailingRunner(name string, err error) Engine {
-	return &fakeRunner{name: name, errs: []error{err}, emptyAnswer: true}
-}
-
 // fastDefaultBackoff shrinks DefaultPolicy's backoff for the test and restores it on cleanup.
 func fastDefaultBackoff(t *testing.T) {
 	t.Helper()
