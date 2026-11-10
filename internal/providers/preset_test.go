@@ -169,10 +169,15 @@ func TestValidatePresetAndEnvRejections(t *testing.T) {
 func TestExpansionNeverLeaksIntoOverlay(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.UseKeyring(t)
-	if err := SetProviderFields("dbx", map[string]any{"preset": "databricks", "host": "https://h.example.com", "cliProfile": "w"}); err != nil {
+	err := SetProviderFields("dbx", map[string]any{"preset": "databricks", "host": "https://h.example.com",
+		"cliProfile": "w", "models": map[string]string{"opus": "claude-opus-5-5"}})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SetProviderModel("dbx", "opus", "claude-opus-5-5"); err != nil {
+	if reg, err := Load(); err != nil || reg.Providers["dbx"].Models["opus"] != "databricks-claude-opus-5-5" {
+		t.Fatalf("loaded opus after SetProviderFields = %v, err %v, want decorated", reg.Providers["dbx"], err)
+	}
+	if err := SetProviderModel("dbx", "sonnet", "claude-sonnet-5-5"); err != nil {
 		t.Fatal(err)
 	}
 	doc, err := OverlayDoc()
@@ -184,8 +189,10 @@ func TestExpansionNeverLeaksIntoOverlay(t *testing.T) {
 			t.Errorf("overlay leaked derived %q:\n%s", leaked, doc)
 		}
 	}
-	if !strings.Contains(string(doc), `"claude-opus-5-5"`) {
-		t.Errorf("overlay lost the canonical id: %s", doc)
+	for _, id := range []string{`"claude-opus-5-5"`, `"claude-sonnet-5-5"`} {
+		if !strings.Contains(string(doc), id) {
+			t.Errorf("overlay lost the canonical id %s: %s", id, doc)
+		}
 	}
 	reg, err := Load()
 	if err != nil {

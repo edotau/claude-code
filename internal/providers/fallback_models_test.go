@@ -87,6 +87,13 @@ func TestQuotaClassification(t *testing.T) {
 		{"code: 402", true, false},
 		{"read tcp 10.0.0.1:402: connection reset", false, false},
 		{"stream ended after 402 bytes limit: 0", true, true}, // a bare 402 does not veto
+		{"read tcp 10.0.0.1:402: connection reset limit: 0", true, true},
+		{"stream ended after 402 bytes", false, false},
+		{"monthly quota", true, false},
+		{"weekly quota", true, false},
+		{"quota exceeded for metric", true, true},
+		{"usage limit", true, false},
+		{"code: 4021", false, false},
 		{"You've hit your limit · resets 3pm", true, false},
 		{"Out of usage credits", true, false},
 		{"You've hit your channel's monthly spend limit.", true, false},

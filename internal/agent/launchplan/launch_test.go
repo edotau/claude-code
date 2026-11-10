@@ -90,7 +90,7 @@ func TestLaunchProfilePrecedence(t *testing.T) {
 	}
 	vaulttest.SetRecord(t, "copilot", "profile", "")
 	if got := testLaunchProfile(t, "copilot", agent.LaunchOptions{}); got.Provider != "" || got.Model != "" {
-		t.Errorf("COPILOT_ACTIVE=off = %+v, want the pins ignored", got)
+		t.Errorf("deactivated (no profile set) = %+v, want the pins ignored", got)
 	}
 }
 
