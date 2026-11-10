@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // RepoRoot is the main checkout root for cwd, falling back to cwd when git fails.
@@ -328,7 +328,7 @@ func toRow(r Record) Row {
 	if status == "running" || status == "lost" {
 		elapsed = time.Since(r.Time).Round(time.Second).String()
 	}
-	preview := shapes.Preview(r.Request.Prompt, 60)
+	preview := textutil.PreviewRedacted(r.Request.Prompt, 60)
 	return Row{ID: r.ID, Status: status, Elapsed: elapsed, Preview: preview, Session: r.SessionID,
-		Error: shapes.Redact(r.Error), Progress: r.Progress}
+		Error: textutil.RedactSecrets(r.Error), Progress: r.Progress}
 }

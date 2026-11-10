@@ -21,7 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // DispatchSchema versions the dispatch record file.
@@ -196,7 +196,7 @@ func (r Record) LogLine() string {
 	if r.Fallback != "" {
 		agentCol = r.Fallback + "→" + cmp.Or(r.RanAs, "?")
 	}
-	line := fmt.Sprintf("%-28s %-7s %-8s %-9s%s  %s\n", r.ID, r.Status, agentCol, r.Elapsed(), tools, shapes.Preview(r.Request.Prompt, 60))
+	line := fmt.Sprintf("%-28s %-7s %-8s %-9s%s  %s\n", r.ID, r.Status, agentCol, r.Elapsed(), tools, textutil.PreviewRedacted(r.Request.Prompt, 60))
 	if r.FallbackReason != "" {
 		line += fmt.Sprintf("%-28s   fallback: %s\n", "", r.FallbackReason)
 	}
@@ -207,7 +207,7 @@ func (r Record) LogLine() string {
 func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	r.Status, r.Provider, r.Model, r.SessionID = "ok", res.Provider, res.Model, res.SessionID
 	r.Invoked = res.Invoked
-	r.Fallback, r.FallbackReason = res.Fallback, shapes.Redact(res.FallbackReason)
+	r.Fallback, r.FallbackReason = res.Fallback, textutil.RedactSecrets(res.FallbackReason)
 	if res.Fallback != "" {
 		r.RanAs = res.Agent
 		if res.Agent != "" && res.Agent != r.Agent { // widening is judged against the agent that answered
@@ -218,7 +218,7 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	}
 	r.DurationMs = took.Milliseconds()
 	if err != nil {
-		r.Status, r.Error = "error", shapes.Redact(err.Error())
+		r.Status, r.Error = "error", textutil.RedactSecrets(err.Error())
 	}
 }
 

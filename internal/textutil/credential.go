@@ -1,4 +1,4 @@
-package shapes
+package textutil
 
 import (
 	"fmt"

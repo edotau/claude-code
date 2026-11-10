@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -78,10 +78,10 @@ func credentialNote(ctx context.Context) (note string, ok bool) {
 func oauthNote(ctx context.Context) (note string, ok bool) {
 	idVal, _, _ := vault.Get("TAILSCALE_OAUTH_CLIENT_ID")
 	secVal, _, _ := vault.Get("TAILSCALE_OAUTH_CLIENT_SECRET")
-	if err := shapes.ValidCredential("TAILSCALE_OAUTH_CLIENT_ID", idVal); err != nil {
+	if err := textutil.ValidCredential("TAILSCALE_OAUTH_CLIENT_ID", idVal); err != nil {
 		return fmt.Sprintf("; TAILSCALE_OAUTH_CLIENT_ID malformed: %v", err), false
 	}
-	if err := shapes.ValidCredential("TAILSCALE_OAUTH_CLIENT_SECRET", secVal); err != nil {
+	if err := textutil.ValidCredential("TAILSCALE_OAUTH_CLIENT_SECRET", secVal); err != nil {
 		return fmt.Sprintf("; TAILSCALE_OAUTH_CLIENT_SECRET malformed: %v", err), false
 	}
 	if _, err := oauthToken(apiBaseURL, idVal, secVal, http.DefaultClient)(ctx); err != nil {
@@ -94,7 +94,7 @@ func oauthNote(ctx context.Context) (note string, ok bool) {
 // apiKeyNote validates the API key's shape.
 func apiKeyNote() (note string, ok bool) {
 	keyVal, _, _ := vault.Get("TAILSCALE_API_KEY")
-	if err := shapes.ValidCredential("TAILSCALE_API_KEY", keyVal); err != nil {
+	if err := textutil.ValidCredential("TAILSCALE_API_KEY", keyVal); err != nil {
 		return fmt.Sprintf("; TAILSCALE_API_KEY malformed: %v", err), false
 	}
 	return "; api credential TAILSCALE_API_KEY", true

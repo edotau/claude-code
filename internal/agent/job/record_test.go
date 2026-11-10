@@ -25,7 +25,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // A record saves as running, finishes with its outcome, loads by prefix, and the log prunes the oldest.
@@ -663,8 +663,8 @@ func TestLogSinkModeAppendRedact(t *testing.T) {
 
 	token := "ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"
 	line := "key=sk-" + token + "\n"
-	if shapes.Redact(line) == line {
-		t.Fatalf("shapes.Redact(%q) left it unchanged; test has no teeth", line)
+	if textutil.RedactSecrets(line) == line {
+		t.Fatalf("textutil.RedactSecrets(%q) left it unchanged; test has no teeth", line)
 	}
 	s2 := wire.NewLogSink(path)
 	w := s2.Stream()
@@ -677,7 +677,7 @@ func TestLogSinkModeAppendRedact(t *testing.T) {
 	if strings.Contains(got, token) {
 		t.Errorf("log leaks the raw token: %q", got)
 	}
-	if want := "first\n" + shapes.Redact(line); got != want {
+	if want := "first\n" + textutil.RedactSecrets(line); got != want {
 		t.Errorf("log = %q, want %q", got, want)
 	}
 }

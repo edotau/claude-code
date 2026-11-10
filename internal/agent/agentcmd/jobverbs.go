@@ -17,7 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/job"
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -211,7 +211,7 @@ func ResultExit(rec job.Record) int {
 	if rec.Status != "error" {
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "error: %s\n", shapes.Redact(rec.Error)) // the stderr tail in it may carry a key
+	fmt.Fprintf(os.Stderr, "error: %s\n", textutil.RedactSecrets(rec.Error)) // the stderr tail in it may carry a key
 	return 1
 }
 
@@ -222,7 +222,7 @@ func StatusDetail(r job.Row) string {
 		d = "[" + r.Progress + "] " + d
 	}
 	if r.Error != "" {
-		d += " -- " + shapes.Preview(r.Error, 300)
+		d += " -- " + textutil.PreviewRedacted(r.Error, 300)
 	}
 	return d
 }

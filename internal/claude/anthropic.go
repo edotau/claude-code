@@ -19,7 +19,6 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -100,7 +99,7 @@ func applyAnthropicAuthArg(o *AnthropicOptions, name, val string, hasVal bool) e
 
 // checkKeyName accepts only an env-var-shaped vault key name; a credential-shaped value is refused unechoed.
 func checkKeyName(flag, v string) error {
-	if shapes.Looks(v) {
+	if textutil.LooksSecret(v) {
 		return fmt.Errorf("%s=NAME takes a vault key name ([A-Z_][A-Z0-9_]*); store secrets with claude-code vault set", flag)
 	}
 	if !envNameRE.MatchString(v) {

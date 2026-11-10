@@ -19,7 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -346,7 +346,7 @@ var flagSetRules = []rule{
 		refuse(errors.New("reserved by the harness credential scrub: use `claude-code vault set` or a provider's auth.command"))},
 	{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, OverlayVar) }, // a flag must not point at another overlay
 		refuse(errors.New("harness-owned"))},
-	{func(c *ruleCtx) bool { return credentialName(c.up) || shapes.Looks(c.val) },
+	{func(c *ruleCtx) bool { return credentialName(c.up) || textutil.LooksSecret(c.val) },
 		refuse(errors.New("looks like a credential: store it with `claude-code vault set` or a provider's auth.command, not on the command line"))},
 }
 
@@ -404,7 +404,7 @@ var setRules = []rule{
 	{func(c *ruleCtx) bool { return strings.ContainsRune(c.val, 0) }, refuse(errors.New("value holds a NUL byte"))},
 	{func(c *ruleCtx) bool { return strings.HasPrefix(c.val, providers.SecretRef) },
 		refuse(errors.New("malformed @secret reference: want @secret or @secret:<NAME>"))},
-	{func(c *ruleCtx) bool { return credentialName(c.up) || shapes.Looks(c.val) },
+	{func(c *ruleCtx) bool { return credentialName(c.up) || textutil.LooksSecret(c.val) },
 		refuse(errors.New("looks like a credential: store it with `claude-code vault set`, reference it as @secret:<NAME>"))},
 }
 

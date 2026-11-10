@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -108,7 +107,7 @@ func LogEvent(ctx context.Context, kind, text string) {
 
 func (s *LogSink) writeEvent(kind, text string) {
 	// Redact before collapsing (multi-line secrets) and before capping (a cut secret would no longer match).
-	text = strings.Join(strings.Fields(shapes.Redact(text)), " ")
+	text = strings.Join(strings.Fields(textutil.RedactSecrets(text)), " ")
 	if text == "" {
 		return
 	}
@@ -158,7 +157,7 @@ func (s *LogSink) writeLocked(b []byte) {
 	if len(b) == 0 || s.f == nil {
 		return
 	}
-	line := shapes.Redact(string(b))
+	line := textutil.RedactSecrets(string(b))
 	if !strings.HasSuffix(line, "\n") {
 		line += "\n"
 	}

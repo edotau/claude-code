@@ -1,4 +1,4 @@
-package shapes
+package textutil
 
 import (
 	"regexp"
@@ -26,8 +26,8 @@ func TestRedact(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := Redact(c.in); got != c.want {
-				t.Errorf("Redact(%q) = %q, want %q", c.in, got, c.want)
+			if got := RedactSecrets(c.in); got != c.want {
+				t.Errorf("RedactSecrets(%q) = %q, want %q", c.in, got, c.want)
 			}
 		})
 	}
@@ -35,8 +35,8 @@ func TestRedact(t *testing.T) {
 
 func TestRedactBearerPrefixedTokenSuffix(t *testing.T) {
 	in := "Bearer sk-" + strings.Repeat("a", 40) + ".secret"
-	if got := Redact(in); got != "Bearer REDACTED" {
-		t.Errorf("Redact(%q) = %q, want full credential redacted as %q", in, got, "Bearer REDACTED")
+	if got := RedactSecrets(in); got != "Bearer REDACTED" {
+		t.Errorf("RedactSecrets(%q) = %q, want full credential redacted as %q", in, got, "Bearer REDACTED")
 	}
 }
 
@@ -46,9 +46,9 @@ func TestRedactGitHubTokenFamilies(t *testing.T) {
 		t.Run(prefix, func(t *testing.T) {
 			tok := prefix + strings.Repeat("a1", 18)
 			for _, in := range []string{tok, "token " + tok + " end", `{"t":"` + tok + `"}`} {
-				got := Redact(in)
+				got := RedactSecrets(in)
 				if strings.Contains(got, tok) || !strings.Contains(got, "REDACTED") {
-					t.Errorf("Redact(%q) = %q, token survived", in, got)
+					t.Errorf("RedactSecrets(%q) = %q, token survived", in, got)
 				}
 			}
 		})
@@ -91,8 +91,8 @@ func TestPreview(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := Preview(c.in, c.n); got != c.want {
-				t.Errorf("Preview(%q, %d) = %q, want %q", c.in, c.n, got, c.want)
+			if got := PreviewRedacted(c.in, c.n); got != c.want {
+				t.Errorf("PreviewRedacted(%q, %d) = %q, want %q", c.in, c.n, got, c.want)
 			}
 		})
 	}
@@ -100,34 +100,34 @@ func TestPreview(t *testing.T) {
 
 func TestPreviewTruncatesOnRuneBoundary(t *testing.T) {
 	// Given a prompt of 4-byte runes longer than n; When truncated; Then the result is valid UTF-8 and ends in "…"
-	got := Preview(strings.Repeat("😀", 30), 10)
+	got := PreviewRedacted(strings.Repeat("😀", 30), 10)
 	if !utf8.ValidString(got) {
-		t.Fatalf("Preview split a rune: %q", got)
+		t.Fatalf("PreviewRedacted split a rune: %q", got)
 	}
 	if !strings.HasSuffix(got, "…") || utf8.RuneCountInString(got) != 10 {
-		t.Errorf("Preview = %q (%d runes), want 10 runes ending in …", got, utf8.RuneCountInString(got))
+		t.Errorf("PreviewRedacted = %q (%d runes), want 10 runes ending in …", got, utf8.RuneCountInString(got))
 	}
 }
 
 func TestPreviewRedactsThenTruncates(t *testing.T) {
 	tok := "ghp_" + strings.Repeat("a", 36)
-	got := Preview("tok "+tok+" tail words here", 12)
+	got := PreviewRedacted("tok "+tok+" tail words here", 12)
 	if want := "tok REDACTE…"; got != want { // redacted first (no ghp_), then cut to 12 runes
-		t.Errorf("Preview = %q, want %q", got, want)
+		t.Errorf("PreviewRedacted = %q, want %q", got, want)
 	}
 }
 
 func TestLooksPlaceholderOnlyCountsInHead(t *testing.T) {
 	// Given real tokens with "xxx" past the placeholder window; When checked; Then they are credential-shaped
 	tok := "sk-Ab3K9fQ2LmZ7pR1tVw8xxxYc4Hd6Ns0J"
-	if !Looks(tok) {
-		t.Errorf("Looks(%q) = false, want true", tok)
+	if !LooksSecret(tok) {
+		t.Errorf("LooksSecret(%q) = false, want true", tok)
 	}
-	if got := Redact("key=" + tok); strings.Contains(got, tok) {
-		t.Errorf("Redact left token unredacted: %q", got)
+	if got := RedactSecrets("key=" + tok); strings.Contains(got, tok) {
+		t.Errorf("RedactSecrets left token unredacted: %q", got)
 	}
 	// And a placeholder inside the head is still ignored
-	if Looks("sk-xxxxxxxxxxxxxxxxxxxxxxxx") {
+	if LooksSecret("sk-xxxxxxxxxxxxxxxxxxxxxxxx") {
 		t.Error("head placeholder flagged as credential")
 	}
 }

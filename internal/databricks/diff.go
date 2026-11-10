@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -169,7 +168,7 @@ func parseDoc(doc []byte) (any, bool) {
 	return v, true
 }
 
-// diffInputs returns the masked line lists for both documents; non-JSON text falls back to shapes.Redact.
+// diffInputs returns the masked line lists for both documents; non-JSON text falls back to textutil.RedactSecrets.
 func diffInputs(oldDoc, newDoc []byte) ([]string, []string) {
 	ov, ook := parseDoc(oldDoc)
 	nv, nok := parseDoc(newDoc)
@@ -181,7 +180,7 @@ func diffInputs(oldDoc, newDoc []byte) ([]string, []string) {
 		if strings.TrimSpace(string(doc)) == "" {
 			return nil
 		}
-		return strings.Split(shapes.Redact(string(doc)), "\n")
+		return strings.Split(textutil.RedactSecrets(string(doc)), "\n")
 	}
 	return raw(oldDoc), raw(newDoc)
 }

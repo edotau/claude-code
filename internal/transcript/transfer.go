@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // maxTurns is the number of trailing user/assistant turns Handoff keeps before trimming for size.
@@ -83,7 +83,7 @@ func readTurns(source string) ([]string, error) {
 		if role != "user" && role != "assistant" {
 			return
 		}
-		text := clipTurn(shapes.Redact(strings.TrimSpace(ContentText(line.Message.Content))))
+		text := clipTurn(textutil.RedactSecrets(strings.TrimSpace(ContentText(line.Message.Content))))
 		if text == "" {
 			return
 		}

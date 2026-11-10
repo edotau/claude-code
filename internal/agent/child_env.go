@@ -19,7 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // EnvMode picks the deny scrub a child's inherited env goes through.
@@ -232,7 +232,7 @@ func childErr(ctx context.Context, name string, err error, tail *retry.TailBuffe
 		if len(t) > 600 {
 			t = "…" + strings.ToValidUTF8(t[len(t)-600:], "")
 		}
-		return fmt.Errorf("%s: %w: %s", name, err, shapes.Redact(t))
+		return fmt.Errorf("%s: %w: %s", name, err, textutil.RedactSecrets(t))
 	}
 	return fmt.Errorf("%s: %w", name, err)
 }

@@ -31,7 +31,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -738,7 +737,7 @@ func codexStrictChildren(x map[string]any) {
 func codexProviderHeaders(p *providers.Provider, env []string, envHs, fields [][2]string) ([]string, [][2]string, [][2]string) {
 	var hs [][2]string
 	for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
-		if !shapes.Looks(p.Headers[k]) {
+		if !textutil.LooksSecret(p.Headers[k]) {
 			hs = append(hs, [2]string{agentconfig.TOMLQuote(k), agentconfig.TOMLQuote(p.Headers[k])})
 			continue
 		}
