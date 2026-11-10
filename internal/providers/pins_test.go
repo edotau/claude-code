@@ -325,12 +325,12 @@ func TestSelectDoesNotTranslateLegacyDatabricksPin(t *testing.T) {
 const ghRow = `"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},` +
 	`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"}`
 
-// copilotLoginReg is a hermetic vault with github profiles personal (login=edotau) and bare (no login).
+// copilotLoginReg is a hermetic vault with github profiles personal (login=tester) and bare (no login).
 func copilotLoginReg(t *testing.T, pin string) *Registry {
 	t.Helper()
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{`+
-		`"personal":{`+ghRow+`,"login":"edotau"},"bare":{`+ghRow+`}}}}`)
+		`"personal":{`+ghRow+`,"login":"tester"},"bare":{`+ghRow+`}}}}`)
 	if pin != "" {
 		vaulttest.SetRecord(t, "copilot", "profile", pin)
 	}
@@ -343,7 +343,7 @@ func copilotLoginReg(t *testing.T, pin string) *Registry {
 
 func TestCopilotLogin(t *testing.T) {
 	for _, tc := range []struct{ name, pin, login, profile string }{
-		{"profile pin resolves to its login", "personal", "edotau", "personal"},
+		{"profile pin resolves to its login", "personal", "tester", "personal"},
 		{"unset pin is gh's active account", "", "", ""},
 		{"a pin naming no github profile is gh's active account", "octocat", "", ""},
 		{"profile without a login passes none", "bare", "", "bare"},
@@ -360,7 +360,7 @@ func TestCopilotLogin(t *testing.T) {
 func TestGithubAccountNameAndLoginRoundTrip(t *testing.T) {
 	reg := copilotLoginReg(t, "")
 	for _, tc := range []struct{ in, name string }{
-		{"edotau", "personal"}, // login -> profile
+		{"tester", "personal"}, // login -> profile
 		{"octocat", "octocat"}, // unmigrated login stays raw
 		{"", ""},
 	} {
@@ -369,16 +369,16 @@ func TestGithubAccountNameAndLoginRoundTrip(t *testing.T) {
 		}
 	}
 	for _, tc := range []struct{ in, login string }{
-		{"personal", "edotau"}, {"bare", ""}, {"octocat", "octocat"},
+		{"personal", "tester"}, {"bare", ""}, {"octocat", "octocat"},
 	} {
 		if got := GithubAccountLogin(reg, tc.in); got != tc.login {
 			t.Errorf("GithubAccountLogin(%q) = %q, want %q", tc.in, got, tc.login)
 		}
 	}
-	if got := GithubAccountLogin(reg, GithubAccountName(reg, "edotau")); got != "edotau" {
-		t.Errorf("round trip = %q, want edotau", got)
+	if got := GithubAccountLogin(reg, GithubAccountName(reg, "tester")); got != "tester" {
+		t.Errorf("round trip = %q, want tester", got)
 	}
-	if GithubAccountName(nil, "edotau") != "edotau" || GithubAccountLogin(nil, "x") != "x" {
+	if GithubAccountName(nil, "tester") != "tester" || GithubAccountLogin(nil, "x") != "x" {
 		t.Error("nil registry must pass the value through")
 	}
 }
@@ -620,7 +620,7 @@ func TestLoadMalformedVaultOverlay(t *testing.T) {
 
 func TestGitHubAuthLogin(t *testing.T) {
 	for _, tc := range []struct{ name, pin, profile, login string }{
-		{"profile pin resolves to its login", "personal", "personal", "edotau"},
+		{"profile pin resolves to its login", "personal", "personal", "tester"},
 		{"unset pin is gh's active account", "", "", ""},
 		{"profile without a login reports none, not a bare pin", "bare", "", ""},
 	} {

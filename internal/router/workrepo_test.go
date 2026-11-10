@@ -29,10 +29,10 @@ func TestIsWorkRepoMarkers(t *testing.T) {
 	}{
 		{"bitbucket corp", []string{"ssh://git.corp.example:7999/digitalbtd/x.git"}, nil, true},
 		{"github corp-widgets org", []string{"https://github.com/corp-widgets/tool.git"}, nil, true},
-		{"personal github", []string{"https://github.com/edotau/claude-code.git"}, nil, false},
+		{"personal github", []string{"https://github.com/tester/claude-code.git"}, nil, false},
 		{"no remotes", nil, nil, false},
 		{"personal origin, corp upstream (any url in the list is enough)", []string{
-			"https://github.com/edotau/claude-code.git", "https://git.corp.example/digitalbtd/x.git",
+			"https://github.com/tester/claude-code.git", "https://git.corp.example/digitalbtd/x.git",
 		}, nil, true},
 		{"seam error fails closed", nil, errors.New("git: corrupt config"), true},
 	}
@@ -103,7 +103,7 @@ func TestIsWorkRepoRealGitRemotes(t *testing.T) {
 	t.Run("personal origin plus corp upstream is work", func(t *testing.T) {
 		dir := t.TempDir()
 		routeRunGit(t, dir, "init", "-q")
-		routeRunGit(t, dir, "remote", "add", "origin", "https://github.com/edotau/claude-code.git")
+		routeRunGit(t, dir, "remote", "add", "origin", "https://github.com/tester/claude-code.git")
 		routeRunGit(t, dir, "remote", "add", "upstream", "https://git.corp.example/digitalbtd/x.git")
 		if !IsWorkRepo(dir) {
 			t.Error("want work: upstream remote names a corp host")
@@ -113,7 +113,7 @@ func TestIsWorkRepoRealGitRemotes(t *testing.T) {
 	t.Run("corp pushurl only is work", func(t *testing.T) {
 		dir := t.TempDir()
 		routeRunGit(t, dir, "init", "-q")
-		routeRunGit(t, dir, "remote", "add", "origin", "https://github.com/edotau/claude-code.git")
+		routeRunGit(t, dir, "remote", "add", "origin", "https://github.com/tester/claude-code.git")
 		routeRunGit(t, dir, "remote", "set-url", "--push", "origin", "https://git.corp.example/digitalbtd/x.git")
 		if !IsWorkRepo(dir) {
 			t.Error("want work: origin's pushurl names a corp host, even though its fetch url doesn't")
@@ -146,7 +146,7 @@ func TestIsWorkRepoCorruptConfigFailsClosed(t *testing.T) {
 	t.Cleanup(func() { workRepoMarkers = orig })
 	dir := t.TempDir()
 	routeRunGit(t, dir, "init", "-q")
-	routeRunGit(t, dir, "remote", "add", "origin", "https://github.com/edotau/claude-code.git")
+	routeRunGit(t, dir, "remote", "add", "origin", "https://github.com/tester/claude-code.git")
 	cfg := filepath.Join(dir, ".git", "config")
 	f, err := os.OpenFile(cfg, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {

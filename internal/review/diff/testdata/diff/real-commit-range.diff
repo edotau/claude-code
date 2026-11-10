@@ -13,7 +13,7 @@ index 3dcbd70..32c35b0 100644
    tier (`haiku=openai:gpt-5-nano`), and fail over on 429/5xx.
 @@ -19,13 +19,14 @@ What the binary adds to a stock install:
  ```bash
- git clone https://github.com/edotau/claude-code ~/.claude   # or into an existing ~/.claude
+ git clone https://github.com/tester/claude-code ~/.claude   # or into an existing ~/.claude
  cd ~/.claude
 -make install                        # builds bin/claude-code, links shims, renders settings.json
 -export PATH="$HOME/.claude/bin:$PATH"   # in your shell rc — the shims must come first

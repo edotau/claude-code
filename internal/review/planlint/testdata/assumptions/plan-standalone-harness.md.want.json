@@ -15,7 +15,7 @@
       "category": "unscoped-subject",
       "matched": "Users",
       "message": "Which user(s)? All? A specific role? Authenticated only?",
-      "context": "Status: in progress \u00b7 2026-09-16 \u00b7 source: `/Users/edotau/claude-dbx` (read-only reference)"
+      "context": "Status: in progress \u00b7 2026-09-16 \u00b7 source: `/Users/tester/claude-dbx` (read-only reference)"
     },
     {
       "line": 6,

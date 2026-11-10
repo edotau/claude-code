@@ -532,14 +532,14 @@ func resetRemoteCache() { remoteCache.Clear() }
 func TestOriginRemoteURLIsMemoized(t *testing.T) {
 	tempConfig(t)
 	withRemote := gitRepo(t, t.TempDir(), "has-remote")
-	fixtureGit(t, withRemote, "remote", "add", "origin", "https://github.com/edotau/memo.git")
+	fixtureGit(t, withRemote, "remote", "add", "origin", "https://github.com/tester/memo.git")
 	noRemote := gitRepo(t, t.TempDir(), "no-remote")
 	resetRemoteCache()
 	t.Cleanup(resetRemoteCache)
 	calls := countRemoteLookups(t)
 
 	for _, c := range []struct{ dir, want string }{
-		{withRemote, "https://github.com/edotau/memo.git"}, {noRemote, ""},
+		{withRemote, "https://github.com/tester/memo.git"}, {noRemote, ""},
 	} {
 		before := calls()
 		if got := originRemoteURL(c.dir); got != c.want {
@@ -557,12 +557,12 @@ func TestOriginRemoteURLIsMemoized(t *testing.T) {
 		}
 	}
 
-	fixtureGit(t, noRemote, "remote", "add", "origin", "https://github.com/edotau/later.git")
+	fixtureGit(t, noRemote, "remote", "add", "origin", "https://github.com/tester/later.git")
 	if got := originRemoteURL(noRemote); got != "" {
 		t.Fatalf("cache should hide the new remote, got %q", got)
 	}
 	resetRemoteCache()
-	if got := originRemoteURL(noRemote); got != "https://github.com/edotau/later.git" {
+	if got := originRemoteURL(noRemote); got != "https://github.com/tester/later.git" {
 		t.Fatalf("after reset, originRemoteURL = %q, want the new remote", got)
 	}
 }
@@ -571,12 +571,12 @@ func TestOriginRemoteURLIsMemoized(t *testing.T) {
 func TestRepoKeyFromRemote(t *testing.T) {
 	t.Parallel()
 	cases := []struct{ url, want string }{
-		{"ssh://git@ssh.github.com:443/edotau/claude-code.git", "claude-code"},
-		{"git@github.com:edotau/claude-dbx.git", "claude-dbx"},
-		{"https://github.com/edotau/claude-other.git", "claude-other"},
-		{"https://github.com/edotau/edotau.github.io.git", "edotau.github.io"},
-		{"https://github.com/edotau/claude-code", "claude-code"},      // no .git suffix
-		{"https://github.com/edotau/claude-code.git/", "claude-code"}, // trailing slash
+		{"ssh://git@ssh.github.com:443/tester/claude-code.git", "claude-code"},
+		{"git@github.com:tester/claude-dbx.git", "claude-dbx"},
+		{"https://github.com/tester/claude-other.git", "claude-other"},
+		{"https://github.com/tester/tester.github.io.git", "tester.github.io"},
+		{"https://github.com/tester/claude-code", "claude-code"},      // no .git suffix
+		{"https://github.com/tester/claude-code.git/", "claude-code"}, // trailing slash
 		{"", ""},
 	}
 	for _, c := range cases {
@@ -591,7 +591,7 @@ func TestRepoKeyFromRemote(t *testing.T) {
 func TestRepoKeyUsesOriginRemote(t *testing.T) {
 	cfg := tempConfig(t)
 	repo := gitRepo(t, t.TempDir(), "mismatched-dirname")
-	fixtureGit(t, repo, "remote", "add", "origin", "https://github.com/edotau/claude-dbx.git")
+	fixtureGit(t, repo, "remote", "add", "origin", "https://github.com/tester/claude-dbx.git")
 
 	dir, err := EnsureRepoDir(repo)
 	if err != nil {
@@ -638,7 +638,7 @@ func assertCollisionKey(t *testing.T, db, checkout string) {
 
 func TestSameRemoteDifferentCheckoutsDoNotShareAStore(t *testing.T) {
 	cfg := tempConfig(t)
-	const remote = "https://github.com/edotau/collide.git"
+	const remote = "https://github.com/tester/collide.git"
 	a := gitRepo(t, t.TempDir(), "clone-a")
 	fixtureGit(t, a, "remote", "add", "origin", remote)
 	b := gitRepo(t, t.TempDir(), "clone-b")

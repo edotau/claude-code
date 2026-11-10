@@ -44,13 +44,13 @@ func personalVault(t *testing.T) {
 	vaulttest.Use(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"personal":{"protocol":"openai",`+
-		`"base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"login":"edotau",`+
+		`"base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"login":"tester",`+
 		`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"}}}}}`)
 }
 
 func TestAccountKeyMapsLoginToProfile(t *testing.T) {
 	personalVault(t)
-	for login, want := range map[string]string{"edotau": "github·personal", "octocat": "github·octocat", "": ""} {
+	for login, want := range map[string]string{"tester": "github·personal", "octocat": "github·octocat", "": ""} {
 		if got := accountKey(quota{Provider: "github", Account: login}); got != want {
 			t.Errorf("accountKey(%q) = %q, want %q", login, got, want)
 		}
@@ -66,7 +66,7 @@ func TestRefreshAccountPassesLoginToGh(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
-	for key, want := range map[string]string{"github·personal": "--user edotau", "github·octocat": "--user octocat"} {
+	for key, want := range map[string]string{"github·personal": "--user tester", "github·octocat": "--user octocat"} {
 		_ = os.Remove(log)
 		RefreshAccount(context.Background(), key)
 		raw, _ := os.ReadFile(log)

@@ -10,8 +10,8 @@ import (
 )
 
 func TestCountPackageMentionsAbsolutePaths(t *testing.T) {
-	line := "owns: /home/edotau/.claude/internal/a/, /home/edotau/.claude/internal/b/, " +
-		"/home/edotau/.claude/internal/c/, /home/edotau/.claude/internal/d/"
+	line := "owns: /home/tester/.claude/internal/a/, /home/tester/.claude/internal/b/, " +
+		"/home/tester/.claude/internal/c/, /home/tester/.claude/internal/d/"
 	if got := countPackageMentions(line); got != 4 {
 		t.Fatalf("countPackageMentions = %d, want 4 distinct packages", got)
 	}

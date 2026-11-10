@@ -1,6 +1,6 @@
 # Plan — standalone `claude-code` harness (minimal fork of claude-dbx, no Databricks)
 
-Status: in progress · 2026-09-16 · source: `/Users/edotau/claude-dbx` (read-only reference)
+Status: in progress · 2026-09-16 · source: `/Users/tester/claude-dbx` (read-only reference)
 
 Replaces `claude-dbx/docs/plans/plan-solo-edition.md` ("flag, not fork"): a clean fork that keeps the
 routing/gateway/agent features and drops every Databricks, Apollo, employer, cockpit and research subsystem.

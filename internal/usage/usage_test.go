@@ -116,9 +116,9 @@ func writeMainTranscript(t *testing.T, claudeDir, project, session, content stri
 
 func TestUsageCmdDaysScope(t *testing.T) {
 	claudeDir := t.TempDir()
-	writeUsageFixture(t, claudeDir, "-home-edotau-repoA", "session-recent", time.Hour,
+	writeUsageFixture(t, claudeDir, "-home-tester-repoA", "session-recent", time.Hour,
 		usageRecordLine("claude-sonnet-5", 100, 10, recentTS(time.Hour)))
-	writeUsageFixture(t, claudeDir, "-home-edotau-repoB", "session-old", 30*24*time.Hour,
+	writeUsageFixture(t, claudeDir, "-home-tester-repoB", "session-old", 30*24*time.Hour,
 		usageRecordLine("claude-opus-4-8", 9000, 900, "2026-06-01T00:00:00.000Z"))
 
 	var out, errw bytes.Buffer
@@ -136,9 +136,9 @@ func TestUsageCmdDaysScope(t *testing.T) {
 
 func TestUsageCmdSessionScope(t *testing.T) {
 	claudeDir := t.TempDir()
-	writeUsageFixture(t, claudeDir, "-home-edotau-repoA", "target-session", time.Hour,
+	writeUsageFixture(t, claudeDir, "-home-tester-repoA", "target-session", time.Hour,
 		usageRecordLine("claude-sonnet-5", 50, 5, "2026-07-19T06:36:00.000Z"))
-	writeUsageFixture(t, claudeDir, "-home-edotau-repoB", "other-session", time.Hour,
+	writeUsageFixture(t, claudeDir, "-home-tester-repoB", "other-session", time.Hour,
 		usageRecordLine("claude-opus-4-8", 999, 99, "2026-07-19T06:36:00.000Z"))
 
 	var out, errw bytes.Buffer
@@ -170,9 +170,9 @@ func TestUsageCmdNoMatches(t *testing.T) {
 // still land in the default per-model table and count toward "files scanned".
 func TestUsageCmdIncludesWorkflowAgents(t *testing.T) {
 	claudeDir := t.TempDir()
-	writeUsageFixture(t, claudeDir, "-home-edotau-repoA", "target-session", time.Hour,
+	writeUsageFixture(t, claudeDir, "-home-tester-repoA", "target-session", time.Hour,
 		usageRecordLine("claude-sonnet-5", 50, 5, "2026-07-19T06:36:00.000Z"))
-	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_run1", "a", "Find", time.Hour,
+	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_run1", "a", "Find", time.Hour,
 		usageRecordLine("claude-opus-4-8", 700, 70, "2026-07-19T06:37:00.000Z"))
 
 	var out, errw bytes.Buffer
@@ -199,7 +199,7 @@ func TestUsageCmdIncludesWorkflowAgents(t *testing.T) {
 // walk the deeper subagents/workflows/<runId>/agent-*.jsonl glob, not just --session.
 func TestUsageCmdIncludesWorkflowAgentsWithinDays(t *testing.T) {
 	claudeDir := t.TempDir()
-	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "session-1", "wf_run1", "a", "Find", time.Hour,
+	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "session-1", "wf_run1", "a", "Find", time.Hour,
 		usageRecordLine("claude-opus-4-8", 400, 40, recentTS(time.Hour)))
 
 	var out, errw bytes.Buffer
@@ -215,12 +215,12 @@ func TestUsageCmdIncludesWorkflowAgentsWithinDays(t *testing.T) {
 // phase (including an unphased agent under "(none)"), and a TOTAL row.
 func TestUsageCmdWorkflowsFlag(t *testing.T) {
 	claudeDir := t.TempDir()
-	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_2ac0b502-bf2", "a", "Find", time.Hour,
+	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_2ac0b502-bf2", "a", "Find", time.Hour,
 		usageRecordLine("claude-sonnet-5", 100, 10, "2026-07-19T06:36:00.000Z"),
 		usageRecordLine("claude-sonnet-5", 100, 10, "2026-07-19T06:36:30.000Z"))
-	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_2ac0b502-bf2", "b", "", time.Hour,
+	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_2ac0b502-bf2", "b", "", time.Hour,
 		usageRecordLine("claude-opus-4-8", 200, 20, "2026-07-19T06:38:00.000Z"))
-	writeWorkflowScript(t, claudeDir, "-home-edotau-repoA", "target-session", "harness-cut-audit-wf", "wf_2ac0b502-bf2")
+	writeWorkflowScript(t, claudeDir, "-home-tester-repoA", "target-session", "harness-cut-audit-wf", "wf_2ac0b502-bf2")
 
 	var out, errw bytes.Buffer
 	code := Run([]string{"--workflows", "--session", "target-session"}, claudeDir, &out, &errw)
@@ -239,9 +239,9 @@ func TestUsageCmdWorkflowsFlag(t *testing.T) {
 // (random) run id string.
 func TestUsageCmdWorkflowsNewestFirst(t *testing.T) {
 	claudeDir := t.TempDir()
-	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_aaa-old", "a", "Find", time.Hour,
+	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_aaa-old", "a", "Find", time.Hour,
 		usageRecordLine("claude-sonnet-5", 10, 1, "2026-07-19T06:00:00.000Z"))
-	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_zzz-new", "a", "Find", time.Hour,
+	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_zzz-new", "a", "Find", time.Hour,
 		usageRecordLine("claude-sonnet-5", 10, 1, "2026-07-19T09:00:00.000Z"))
 
 	var out, errw bytes.Buffer
@@ -288,7 +288,7 @@ func TestWorkflowPhaseFromMetaMalformed(t *testing.T) {
 // short name (date suffix stripped), not the raw model id, and the TOTAL row carries it too.
 func TestUsageCmdWorkflowsModelColumnSingleModel(t *testing.T) {
 	claudeDir := t.TempDir()
-	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_65ae8cee-79a", "a", "Detect", time.Hour,
+	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_65ae8cee-79a", "a", "Detect", time.Hour,
 		readTestdata(t, "wf_65ae8cee-79a-agent-a.jsonl"))
 
 	var out, errw bytes.Buffer
@@ -316,9 +316,9 @@ func TestUsageCmdWorkflowsModelColumnSingleModel(t *testing.T) {
 // + sonnet, same "▸ gate-loop" phase from the live wf_529c9ef1-350 run) joins them with '+'.
 func TestUsageCmdWorkflowsModelColumnMixed(t *testing.T) {
 	claudeDir := t.TempDir()
-	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_529c9ef1-350", "haiku", "gate-loop", time.Hour,
+	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_529c9ef1-350", "haiku", "gate-loop", time.Hour,
 		readTestdata(t, "wf_529c9ef1-350-agent-a1f2df362eb625d28.jsonl"))
-	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_529c9ef1-350", "sonnet", "gate-loop", time.Hour,
+	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_529c9ef1-350", "sonnet", "gate-loop", time.Hour,
 		readTestdata(t, "wf_529c9ef1-350-agent-a270aa99ac8d4f124.jsonl"))
 
 	var out, errw bytes.Buffer
@@ -343,9 +343,9 @@ func TestUsageCmdWorkflowsModelColumnMixed(t *testing.T) {
 // haiku's).
 func TestUsageCmdWorkflowsPerRunRollup(t *testing.T) {
 	claudeDir := t.TempDir()
-	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_529c9ef1-350", "haiku", "gate-loop", time.Hour,
+	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_529c9ef1-350", "haiku", "gate-loop", time.Hour,
 		readTestdata(t, "wf_529c9ef1-350-agent-a1f2df362eb625d28.jsonl"))
-	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_529c9ef1-350", "sonnet", "gate-loop", time.Hour,
+	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_529c9ef1-350", "sonnet", "gate-loop", time.Hour,
 		readTestdata(t, "wf_529c9ef1-350-agent-a270aa99ac8d4f124.jsonl"))
 
 	var out, errw bytes.Buffer
@@ -373,9 +373,9 @@ func TestUsageCmdWorkflowsPerRunRollup(t *testing.T) {
 // token/agent/turn counts across the listed runs, printed exactly once.
 func TestUsageCmdWorkflowsAllRunsByModel(t *testing.T) {
 	claudeDir := t.TempDir()
-	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_65ae8cee-79a", "a", "Detect", time.Hour,
+	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_65ae8cee-79a", "a", "Detect", time.Hour,
 		readTestdata(t, "wf_65ae8cee-79a-agent-a.jsonl"))
-	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "target-session", "wf_529c9ef1-350", "sonnet", "gate-loop", 2*time.Hour,
+	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_529c9ef1-350", "sonnet", "gate-loop", 2*time.Hour,
 		readTestdata(t, "wf_529c9ef1-350-agent-a270aa99ac8d4f124.jsonl"))
 
 	var out, errw bytes.Buffer
@@ -413,7 +413,7 @@ func TestUsageCmdWorkflowsNoRunsNoAllRunsBlock(t *testing.T) {
 // pair (real bytes from this session's own launch of implement-and-verify.js as wf_c877ead7-adf).
 func TestWorkflowNameForRunScriptPathFallback(t *testing.T) {
 	claudeDir := t.TempDir()
-	project, session, runID := "-home-edotau-repoA", "target-session", "wf_c877ead7-adf"
+	project, session, runID := "-home-tester-repoA", "target-session", "wf_c877ead7-adf"
 	writeMainTranscript(t, claudeDir, project, session, readTestdata(t, "session-scriptpath-pair.jsonl"))
 	runDir := filepath.Join(claudeDir, "projects", project, session, "subagents", "workflows", runID)
 	if err := os.MkdirAll(runDir, 0o700); err != nil {
@@ -445,7 +445,7 @@ func TestScanWorkflowNamesPairsResults(t *testing.T) {
 // With no matching script or transcript launch, the run id itself is the name.
 func TestWorkflowNameForRunNoFallbackMatch(t *testing.T) {
 	claudeDir := t.TempDir()
-	project, session, runID := "-home-edotau-repoA", "target-session", "wf_no_such_run"
+	project, session, runID := "-home-tester-repoA", "target-session", "wf_no_such_run"
 	runDir := filepath.Join(claudeDir, "projects", project, session, "subagents", "workflows", runID)
 	if err := os.MkdirAll(runDir, 0o700); err != nil {
 		t.Fatal(err)
