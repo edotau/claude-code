@@ -1,5 +1,5 @@
 // Signin is the one check -> login -> recheck flow behind every provider kind (signin.go).
-package configure
+package agent
 
 import (
 	"context"
@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -211,13 +210,13 @@ func (noneSignin) Status() providers.AuthState {
 type cliSignin struct{ name string }
 
 func (s cliSignin) Check(ctx context.Context) (providers.AuthVerdict, string) {
-	return agent.Verify(ctx, s.name)
+	return Verify(ctx, s.name)
 }
 
-func (s cliSignin) Status() providers.AuthState { return agent.AuthStatus(s.name) }
+func (s cliSignin) Status() providers.AuthState { return AuthStatus(s.name) }
 
 func (s cliSignin) Login(ctx context.Context, in io.Reader, out io.Writer) error {
-	row, ok := agent.LookupSchema(s.name)
+	row, ok := LookupSchema(s.name)
 	switch {
 	case !ok || len(row.CLI.LoginArgv) == 0:
 		return fmt.Errorf("no sign-in known for %q", s.name)

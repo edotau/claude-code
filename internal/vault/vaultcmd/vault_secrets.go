@@ -2,6 +2,7 @@ package vaultcmd
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent"
 	"io"
 	"os"
 	"slices"
@@ -25,7 +26,7 @@ func vaultSetSecret(name string, dryRun bool) int {
 	if value == "" {
 		return helptext.Fail("vault set: empty value")
 	}
-	if err := configure.ValidateVaultSecret(name, value); err != nil {
+	if err := agent.ValidateVaultSecret(name, value); err != nil {
 		return helptext.Fail("vault set: %v", err)
 	}
 	if dryRun {
@@ -40,7 +41,7 @@ func vaultSetSecret(name string, dryRun bool) int {
 		fmt.Printf("would %s %s in the vault (%d chars); nothing written\n", verb, name, len(value))
 		return 0
 	}
-	if err := configure.SetSecret(name, value); err != nil {
+	if err := agent.SetSecret(name, value); err != nil {
 		return helptext.Fail("vault set: %v", err)
 	}
 	router.ClearSecretAuth(name)
@@ -51,7 +52,7 @@ func vaultSetSecret(name string, dryRun bool) int {
 // readSecretValue prompts with hidden input on a terminal; a pipe still supplies the value on stdin.
 func readSecretValue(name string) (string, error) {
 	if tui.StdinIsTerminal() {
-		v, err := configure.PromptSecret(name)
+		v, err := agent.PromptSecret(name)
 		return strings.TrimSpace(v), err
 	}
 	raw, err := io.ReadAll(os.Stdin)
