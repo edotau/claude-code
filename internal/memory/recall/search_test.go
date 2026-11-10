@@ -13,7 +13,7 @@ import (
 func TestRoutedReposWholeWordMatchAndShortKeysIgnored(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
-	repo := gitRepo(t, t.TempDir(), "edotau.github.io")
+	repo := gitRepo(t, t.TempDir(), "tester.github.io")
 	if _, err := memstore.EnsureRepoDir(repo); err != nil {
 		t.Fatal(err)
 	}
@@ -22,9 +22,9 @@ func TestRoutedReposWholeWordMatchAndShortKeysIgnored(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := memstore.RoutedRepos("check edotau.github.io for the deploy")
-	if len(got) != 1 || filepath.Base(got[0].Origin.Origin) != "edotau.github.io" {
-		t.Fatalf("got = %+v, want exactly the edotau.github.io entry", got)
+	got := memstore.RoutedRepos("check tester.github.io for the deploy")
+	if len(got) != 1 || filepath.Base(got[0].Origin.Origin) != "tester.github.io" {
+		t.Fatalf("got = %+v, want exactly the tester.github.io entry", got)
 	}
 
 	if got := memstore.RoutedRepos("just github alone"); len(got) != 0 {

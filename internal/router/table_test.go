@@ -199,7 +199,7 @@ func TestCopilotUserFollowsProfilePin(t *testing.T) {
 		`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"}`
 	for _, tc := range []struct{ pin, want string }{{"personal", "personal"}, {"", ""}, {"bare", "bare"}} {
 		vaulttest.Use(t)
-		vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"personal":{`+row+`,"login":"edotau"},"bare":{`+row+`}}}}`)
+		vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"personal":{`+row+`,"login":"tester"},"bare":{`+row+`}}}}`)
 		if tc.pin != "" {
 			vaulttest.SetRecord(t, "copilot", "profile", tc.pin)
 		}

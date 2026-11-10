@@ -43,7 +43,7 @@ func TestStripWindowsOnly(t *testing.T) {
 		"statusLine": {"type": "command", "command": "status-script"},
 		"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "foreign stop"}]}]},
 		"permissions": {"allow": ["Bash(ls:*)"]},
-		"SOME_PATH_KEY": "/home/edotau/.claude/skills",
+		"SOME_PATH_KEY": "/home/tester/.claude/skills",
 		"env": {
 			"HARNESS_BIN": "/usr/local/bin/claude-code",
 			"HOME_REF": "$HOME/.claude/bin",

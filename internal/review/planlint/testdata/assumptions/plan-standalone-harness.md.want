@@ -3,7 +3,7 @@ Findings: 7   Verdict: CLARIFY
 
   [unscoped-subject] (2)
     L3: Which user(s)? All? A specific role? Authenticated only?
-      -> "Users" in: Status: in progress · 2026-09-16 · source: `/Users/edotau/claude-dbx` (read-only
+      -> "Users" in: Status: in progress · 2026-09-16 · source: `/Users/tester/claude-dbx` (read-only
     L15: Which user(s)? All? A specific role? Authenticated only?
       -> "the user" in: preserves foreign (non-harness) hooks when the user runs it.
 
