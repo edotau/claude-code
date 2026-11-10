@@ -54,7 +54,7 @@ func TestGradientLine(t *testing.T) {
 	}
 	git("add", "f")
 	git("commit", "-qm", "f")
-	const ctx = " | claude-opus-5-5 · ━━━─────── 31.0% · 309.5k/1M 7d:15%"
+	const ctx = " | claude-opus-5-5 · ━━━─────── 31% · 309.5k/1M 7d:15%"
 	if got := plain(Render([]byte(gradientPayload(repo)), "gradient")); !strings.HasSuffix(got, ctx) {
 		t.Errorf("clean tree: %q must end %q (no provider, id without claude-)", got, ctx)
 	}

@@ -40,7 +40,7 @@ func TestTwolineRendersBothRows(t *testing.T) {
 	if want := promptUser() + ":proj | databricks·dbx-u2m · u2m:42m · Fable 5.1:high"; rows[0] != want {
 		t.Errorf("row 1 = %q, want %q", rows[0], want)
 	}
-	want := "━━━━━━━━━─────────── 47.2% · 94.4k/200k · 7d ━━──────── 18%"
+	want := "━━━━━━━━━─────────── 47% · 94.4k/200k · 7d ━━──────── 18%"
 	if rows[1] != want {
 		t.Errorf("row 2 = %q, want %q", rows[1], want)
 	}
@@ -94,7 +94,7 @@ func TestTwolineNoBranchLeftPacked(t *testing.T) {
 	if !strings.HasSuffix(lines[0], ":proj | databricks·dbx-u2m · u2m:9min · M") {
 		t.Errorf("row 1 = %q, want head | provider · auth · model, no branch, no gap", lines[0])
 	}
-	if lines[1] != twoBar(0, 20)+" 0.0% · 0/0" {
+	if lines[1] != twoBar(0, 20)+" 0% · 0/0" {
 		t.Errorf("row 2 = %q, want it left-packed", lines[1])
 	}
 }
