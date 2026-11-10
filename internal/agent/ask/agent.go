@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/launchplan"
+	"github.com/edotau/claude-code/internal/agent/launchcli"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -220,7 +220,7 @@ func ApplyRoute(route string) error {
 
 // The terminal and sign-in UI the agent package calls but does not import.
 func init() {
-	launchplan.IsTerminal = ansi.IsTerminal
+	launchcli.IsTerminal = ansi.IsTerminal
 	agent.StdinIsTerminal = tui.StdinIsTerminal
 	agent.LoginRow = databricks.LoginRow
 	agent.PromptSecret = func(name string) (string, error) {

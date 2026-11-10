@@ -11,15 +11,11 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/launchcli"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/ui/helptext"
 )
-
-// IsTerminal is the TTY check internal/cli wires at startup; the zero value says no terminal.
-var IsTerminal = func(*os.File) bool { return false }
 
 // LaunchPlan resolves `claude-code run <agent>`: the opus target via Configure, else the agent's own login.
 func LaunchPlan(ctx context.Context, name string, o agent.LaunchOptions, args []string) (agent.Plan, error) {
@@ -62,7 +58,7 @@ func cliPlan(ctx context.Context, name string, o agent.LaunchOptions, args []str
 	if err != nil {
 		return agent.Plan{}, err
 	}
-	reg, sel, err := SessionSelection(o, false)
+	reg, sel, err := launchcli.SessionSelection(o, false)
 	if err != nil {
 		if hint := spec.Eng().ProfileHint(o); hint != nil {
 			return agent.Plan{}, hint
@@ -79,7 +75,7 @@ func cliLaunch(ctx context.Context, spec agent.Schema, name string, o agent.Laun
 	explicit := o.Provider != ""
 	target, note, err := cliTarget(spec, name, reg, sel, explicit, flagModel)
 	// An own-login note is only worth a line on an interactive launch (or --print-env): `opencode --version` stays quiet.
-	showOwnLoginNote := o.PrintEnv || (IsTerminal(os.Stderr) && interactiveArgs(args))
+	showOwnLoginNote := o.PrintEnv || (launchcli.IsTerminal(os.Stderr) && interactiveArgs(args))
 	if errors.Is(err, agent.ErrOwnLogin) {
 		return ownLoginPlan(spec, withFlagModel(args, flagModel), note, showOwnLoginNote)
 	}
@@ -184,26 +180,13 @@ func pinRoute(name, pin string) (string, error) {
 	return pin, nil
 }
 
-// lastProfile is the profile this workspace last launched agentName with, "" unless it is registered and the agent can use it.
-func lastProfile(reg *providers.Registry, agentName string) string {
-	name := providers.LastProfile(agentName)
-	p, err := reg.Get(name)
-	if name == "" || err != nil {
-		return ""
-	}
-	if agentName == "claude" && p.Auth.Login != "" || agentName != "claude" && !agent.CanServe(agentName, p) {
-		return ""
-	}
-	return name
-}
-
 // lastUsedProfile is this workspace's last-used profile for an active agent CLI, "" when none applies.
 func lastUsedProfile(name string) string {
 	if (name != "copilot" && name != "opencode" && name != "codex" && name != "gemini") || !agent.AgentActive(name) {
 		return ""
 	}
 	if reg, err := providers.Load(); err == nil {
-		return lastProfile(reg, name)
+		return launchcli.LastProfile(reg, name)
 	}
 	return ""
 }
@@ -238,7 +221,7 @@ func registryPlan(
 
 // retryConfigure re-resolves the target after configure, applying the agent's model pin as cliLaunch does.
 func retryConfigure(ctx context.Context, spec agent.Schema, name string, o agent.LaunchOptions, flagModel string) ([]string, []string, error) {
-	reg, sel, err := SessionSelection(o, false)
+	reg, sel, err := launchcli.SessionSelection(o, false)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -299,25 +282,6 @@ func plainPlan(spec agent.Schema, args []string) (agent.Plan, error) {
 	return agent.Plan{Binary: bin, Set: envMap(env), Argv: append(prefix, args...)}, nil
 }
 
-// Credentials ride these env vars (never argv); the config text names the variable, not the secret.
-const (
-	OpenCodeKeyEnv = "HARNESS_OPENCODE_API_KEY"
-)
-
-// Positional guards a dash-led prompt from flag parsing.
-func Positional(prompt string) []string {
-	if strings.HasPrefix(prompt, "-") {
-		return []string{"--", prompt}
-	}
-	return []string{prompt}
-}
-
-// HeadlessLaunch applies name's spec Launch.Env (never Launch.Args) to argv, with the route env going last.
-func HeadlessLaunch(name string, env, argv []string) (launchedEnv, launchedArgv []string) {
-	launchEnv, argv := agent.SchemaFor(name).ApplyLaunch(nil, argv, false)
-	return agent.RouteEnvLast(launchEnv, env), argv
-}
-
 // ApplyOverlay layers r under req's --env (the shorthand wins) and unsets $COWORKER_OVERLAY in the child (one hop).
 func ApplyOverlay(req agent.RunOptions, r agentconfig.Resolved) agent.RunOptions {
 	if agent.OverlayIdle(r) {
@@ -344,56 +308,4 @@ func EnableOverlay(path string) error {
 		return err
 	}
 	return os.Setenv(agentconfig.OverlayVar, abs)
-}
-
-// ParseLaunchArgs refuses a removed flag (with its hint) before ParseArgs strips the harness flags.
-func ParseLaunchArgs(args []string, claude bool) (agent.LaunchOptions, []string, error) {
-	if err := databricks.RemovedFlagHint(args); err != nil {
-		return agent.LaunchOptions{}, nil, err
-	}
-	return ParseArgs(args, claude)
-}
-
-// Run applies the launch overlay to plan, then prints it (--print-env) or execs it; a *UsageError exits 2.
-func Run(name string, plan agent.Plan, opts agent.LaunchOptions, err error) int {
-	plan.Agent = name
-	if usage, ok := errors.AsType[*UsageError](err); ok {
-		fmt.Fprintln(os.Stderr, usage)
-		return 2
-	}
-	if err != nil {
-		return helptext.Fail("%v", err)
-	}
-	ov, oerr := launchOverlay(opts)
-	if oerr == nil {
-		oerr = plan.CheckOverlay(ov) // a launch-owned route name is refused, not silently overridden
-	}
-	if oerr != nil {
-		if plan.OnExecFail != nil {
-			plan.OnExecFail() // a minted session token dies with the refused launch
-		}
-		fmt.Fprintln(os.Stderr, "claude-code:", oerr)
-		return 2
-	}
-	plan = plan.WithOverlay(ov)
-	if opts.PrintEnv {
-		plan.Print(os.Stdout)
-		if agentconfig.OverlayDebugOn() {
-			plan.RecordEnv() // dry exec: the env Exec would hand the child
-		}
-		return 0
-	}
-	return helptext.Fail("exec %s: %v", plan.Binary, plan.Exec())
-}
-
-// launchOverlay is --overlay, else $COWORKER_OVERLAY; --print-env keeps vault refs unresolved (names, never values).
-func launchOverlay(opts agent.LaunchOptions) (agentconfig.Resolved, error) {
-	o, err := agentconfig.LoadOverlay(opts.Overlay)
-	if err != nil {
-		return agentconfig.Resolved{}, err
-	}
-	if opts.PrintEnv {
-		return agentconfig.Resolved{Set: o.Set, Unset: o.Unset, Keep: o.Keep}, nil
-	}
-	return agentconfig.ResolveOverlay(o)
 }

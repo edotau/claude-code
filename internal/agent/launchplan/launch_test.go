@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/launchcli"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
@@ -19,6 +20,12 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
+
+	_ "github.com/edotau/claude-code/internal/claude" // the vendor roster registers for the whole test binary
+	_ "github.com/edotau/claude-code/internal/codex"
+	_ "github.com/edotau/claude-code/internal/copilot"
+	_ "github.com/edotau/claude-code/internal/gemini"
+	_ "github.com/edotau/claude-code/internal/opencode"
 )
 
 const (
@@ -40,6 +47,12 @@ func TestMain(m *testing.M) {
 	agent.NoticeOut = io.Discard
 	agentconfig.SetCatalogWarn(io.Discard)
 	agent.StubProxyForTest(testRouterBase, testRouterSecret)
+	for _, n := range []string{"claude", "codex", "copilot", "gemini", "opencode"} {
+		if _, ok := agent.LookupSchema(n); !ok {
+			fmt.Fprintln(os.Stderr, "launchplan tests need vendor "+n+" linked (blank imports in launch_test.go)")
+			os.Exit(1)
+		}
+	}
 	os.Exit(hosttest.Main(m))
 }
 
@@ -144,7 +157,7 @@ func TestConfigureDeclinedPreservesModelFlag(t *testing.T) {
 	hermetic(t, "")
 	fake := pathstest.FakeVendor(t, "agy", "")
 	const model = "gemini-3.8-flash-high"
-	o, args, err := ParseArgs([]string{"--profile", "antigravity", "--model", model, "-p", "hi"}, false)
+	o, args, err := launchcli.ParseArgs([]string{"--profile", "antigravity", "--model", model, "-p", "hi"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -503,30 +516,5 @@ func TestLaunchPlanSurfacesUnreadablePins(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, "{")
 	if _, err := LaunchPlan(context.Background(), "codex", agent.LaunchOptions{PrintEnv: true}, nil); err == nil || !strings.Contains(err.Error(), "agent-records is corrupt") {
 		t.Fatalf("LaunchPlan error = %v", err)
-	}
-}
-
-// Every removed flag is a parse error carrying its hint; --profile stays valid.
-func TestParseLaunchArgsRemovedFlags(t *testing.T) {
-	for flag, want := range map[string]string{
-		"--provider": "--profile", "--env": "--profile", "--tier": "--model", "--router": "removed",
-	} {
-		for _, claude := range []bool{true, false} {
-			if _, _, err := ParseLaunchArgs([]string{flag, "x"}, claude); err == nil || !strings.Contains(err.Error(), want) {
-				t.Errorf("ParseLaunchArgs(%s, claude=%v) = %v, want hint %q", flag, claude, err, want)
-			}
-		}
-	}
-	o, rest, err := ParseLaunchArgs([]string{"--profile", "openai", "-p", "hi"}, true)
-	if err != nil || o.Provider != "openai" || !slices.Equal(rest, []string{"-p", "hi"}) {
-		t.Errorf("--profile control: %+v %q %v", o, rest, err)
-	}
-}
-
-// A launch refusal (*agent.UsageError, even wrapped) prints its message and exits 2, not the generic 1.
-func TestRunPlanUsageErrorExitsTwo(t *testing.T) {
-	err := fmt.Errorf("launch: %w", &UsageError{Msg: "not a harness profile"})
-	if code := Run("claude", agent.Plan{}, agent.LaunchOptions{}, err); code != 2 {
-		t.Fatalf("Run(UsageError) = %d, want 2", code)
 	}
 }

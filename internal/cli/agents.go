@@ -457,7 +457,7 @@ func agentPage(name string) helptext.Page {
 	}
 }
 
-// launchFlags lists the harness flags a bare launch consumes (launchplan.ParseArgs) for the help page.
+// launchFlags lists the harness flags a bare launch consumes (launchcli.ParseArgs) for the help page.
 func launchFlags(name string) *flag.FlagSet {
 	fs := helptext.NewFlagSet(name, helptext.Page{Usage: "claude-code " + name}) // display only; ParseArgs parses
 	fs.String("model", "", "select the model for this launch")
