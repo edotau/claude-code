@@ -13,8 +13,8 @@ func TestBillingLabel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := billingLabel(reg, "max"); got != "subscription" {
-		t.Errorf("billingLabel(max) = %q", got)
+	if got := billingLabel(reg, "ultra"); got != "subscription" {
+		t.Errorf("billingLabel(ultra) = %q", got)
 	}
 	if got := billingLabel(reg, "anthropic"); got != "API key" {
 		t.Errorf("billingLabel(anthropic) = %q", got)

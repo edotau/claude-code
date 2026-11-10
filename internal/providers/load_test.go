@@ -105,7 +105,7 @@ func TestParseNestedByProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, want := range map[string]string{"work": "anthropic", "scratch": "openai", "max": "anthropic", "personal": "github"} {
+	for name, want := range map[string]string{"work": "anthropic", "scratch": "openai", "ultra": "anthropic", "personal": "github"} {
 		if p := reg.Providers[name]; p == nil || p.Provider != want || p.Name != name {
 			t.Errorf("profile %q = %+v, want provider %q", name, p, want)
 		}
@@ -113,7 +113,7 @@ func TestParseNestedByProvider(t *testing.T) {
 	if reg.Default != "work" {
 		t.Errorf("default = %q", reg.Default)
 	}
-	if got := reg.ProfilesOf("anthropic"); strings.Join(got, ",") != "max,anthropic,work" {
+	if got := reg.ProfilesOf("anthropic"); strings.Join(got, ",") != "ultra,anthropic,work" {
 		t.Errorf("ProfilesOf(anthropic) = %v", got)
 	}
 }
@@ -123,7 +123,7 @@ func TestBuiltinProfileNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"max": "anthropic", "anthropic": "anthropic", "personal": "github", "chatgpt": "openai",
+	want := map[string]string{"ultra": "anthropic", "anthropic": "anthropic", "personal": "github", "chatgpt": "openai",
 		"openai": "openai", "antigravity": "google"}
 	if len(reg.Providers) != len(want) {
 		t.Errorf("built-ins = %v, want exactly %d profiles (no ollama)", reg.Names(), len(want))
@@ -139,7 +139,7 @@ func TestDuplicateProfileRejected(t *testing.T) {
 	cases := map[string]string{
 		"two providers in one doc": `{"providers":{"anthropic":{"dup":{"protocol":"anthropic","base_url":"https://x","auth":{"type":"none"}}},` +
 			`"openai":{"dup":{"protocol":"openai","base_url":"https://y","auth":{"type":"none"}}}}}`,
-		"overlay profile owned by another provider": `{"providers":{"openai":{"max":{"protocol":"openai","base_url":"https://y","auth":{"type":"none"}}}}}`,
+		"overlay profile owned by another provider": `{"providers":{"openai":{"ultra":{"protocol":"openai","base_url":"https://y","auth":{"type":"none"}}}}}`,
 	}
 	for name, doc := range cases {
 		_, err := Parse(defaultsJSON, []byte(doc))

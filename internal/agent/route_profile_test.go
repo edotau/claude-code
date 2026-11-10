@@ -23,7 +23,7 @@ func pinFirstSetup(t *testing.T, exhausted bool) (Chain, router.PickResult, map[
 	vaulttest.UseKeyring(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("OPENAI_API_KEY", "test-key") // the non-own-login openai profile needs a credential
-	vaulttest.SetRecord(t, "claude", "profile", "max")
+	vaulttest.SetRecord(t, "claude", "profile", "ultra")
 	vaulttest.SetRecord(t, "codex", "profile", "openai")
 	vaulttest.SetRecord(t, "opencode", "profile", "opencode-go")
 	vaulttest.SetRecord(t, "copilot", "profile", "")
@@ -31,7 +31,7 @@ func pinFirstSetup(t *testing.T, exhausted bool) (Chain, router.PickResult, map[
 	vaulttest.SetRecord(t, "codex", "model", "gpt-6.1-sol")
 	if exhausted {
 		now := time.Now()
-		if err := router.MarkExhausted("anthropic·max", now.Add(time.Hour), now, "test quota"); err != nil {
+		if err := router.MarkExhausted("anthropic·ultra", now.Add(time.Hour), now, "test quota"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -90,7 +90,7 @@ func TestPinFirstFallbackDispatches(t *testing.T) {
 	for _, disp := range c.Dispatches {
 		got = append(got, disp.Agent.Name()+" ("+disp.Account+")")
 	}
-	want := []string{"codex (openai·openai)", "opencode (opencode·go)", "claude (anthropic·max)"}
+	want := []string{"codex (openai·openai)", "opencode (opencode·go)", "claude (anthropic·ultra)"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("dispatches = %v, want %v", got, want)
 	}
@@ -134,7 +134,7 @@ func TestPinFirstFallbackClaudeExhausted(t *testing.T) {
 	if err == nil {
 		t.Fatal("all hops failed, want an error")
 	}
-	containsAll(t, err.Error(), "every hop failed", "codex (openai·openai):", "opencode: auth rejected", "claude: anthropic·max exhausted")
+	containsAll(t, err.Error(), "every hop failed", "codex (openai·openai):", "opencode: auth rejected", "claude: anthropic·ultra exhausted")
 }
 
 func TestPinFirstFallbackContentPolicy(t *testing.T) {

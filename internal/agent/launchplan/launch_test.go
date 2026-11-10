@@ -42,10 +42,10 @@ func TestInteractiveVendorArgs(t *testing.T) {
 
 func TestLaunchProfilePrecedence(t *testing.T) {
 	vaulttest.Use(t)
-	vaulttest.SetRecord(t, "copilot", "profile", "max")
+	vaulttest.SetRecord(t, "copilot", "profile", "ultra")
 	vaulttest.SetRecord(t, "copilot", "model", "kimi-k3")
-	if got := testLaunchProfile(t, "copilot", agent.LaunchOptions{}); got.Provider != "max" || got.Model != "" {
-		t.Errorf("pins only = %+v, want max and no model (the model pin applies after the target resolves)", got)
+	if got := testLaunchProfile(t, "copilot", agent.LaunchOptions{}); got.Provider != "ultra" || got.Model != "" {
+		t.Errorf("pins only = %+v, want ultra and no model (the model pin applies after the target resolves)", got)
 	}
 	if got := testLaunchProfile(t, "copilot", agent.LaunchOptions{Provider: "personal", Model: "m"}); got.Provider != "personal" || got.Model != "m" {
 		t.Errorf("flags = %+v, want flags to beat the pins", got)
@@ -88,7 +88,7 @@ func TestAgentModelTargetPin(t *testing.T) {
 func TestVendorPassesThroughWhenUnroutable(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	t.Setenv("CLAUDE_PROFILE", "max") // passthrough auth: gemini cannot use it
+	t.Setenv("CLAUDE_PROFILE", "ultra") // passthrough auth: gemini cannot use it
 	t.Setenv("GEMINI_API_KEY", "")
 	t.Setenv("HOME", t.TempDir()) // no vendor login state on disk
 	fake := pathstest.FakeVendor(t, "agy", "")
@@ -177,7 +177,7 @@ func TestConfigureRetryPreservesAgentModelPin(t *testing.T) {
 
 func TestVendorSignInSkipsRouting(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("CLAUDE_PROFILE", "max") // neither codex nor gemini can use it
+	t.Setenv("CLAUDE_PROFILE", "ultra") // neither codex nor gemini can use it
 	t.Setenv("GEMINI_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("HOME", t.TempDir()) // no vendor login state on disk

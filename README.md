@@ -72,7 +72,7 @@ claude-code configure --revert [--agent a,b]        # restore agent CLI configs 
 
 Built-ins live in `internal/providers/defaults.json`. `claude-code vault edit` overlays them **by name** (an entry
 replaces the built-in; `null` removes it). Each entry is a **profile** (an account on a provider: `qa`,
-`max`, `chatgpt`); see [Naming](#naming).
+`ultra`, `chatgpt`); see [Naming](#naming).
 
 ```jsonc
 "providers": {
@@ -133,7 +133,7 @@ shows secrets as `<prefix>***  N chars` and marks failing entries ✗ first (`--
 
 ```jsonc
 {
-  "agents": {"records": {"claude": {"profile": "max", "aliases": {"haiku": "openai:gpt-5-nano"}},
+  "agents": {"records": {"claude": {"profile": "ultra", "aliases": {"haiku": "openai:gpt-5-nano"}},
                          "codex": {"profile": "chatgpt", "model": "databricks-gpt-6-astra", "effort": "medium"}}},
   "env": {"MY_PROJECT_ROOT": "/home/me/work", "SOME_API_TOKEN": "@secret"},   // @secret = vault secret of that name
   "providers": {"default": "example"}, "vault": {"key_command": ""}
@@ -218,7 +218,7 @@ parses a profile name.
 
 | Provider | Profile | Auth | Vault entry |
 | --- | --- | --- | --- |
-| anthropic | `max` · `anthropic` | `cli` · `key` | `CLAUDE_CODE_OAUTH_TOKEN` (optional, headless Max) · `ANTHROPIC_KEY` |
+| anthropic | `ultra` · `anthropic` | `cli` · `key` | `CLAUDE_CODE_OAUTH_TOKEN` (optional, headless Max) · `ANTHROPIC_KEY` |
 | databricks | `dev`, `qa`, `prod` · service principals | `oauth` · `m2m` | `DATABRICKS_<PROFILE>_OAUTH` · `DATABRICKS_<PROFILE>_M2M` |
 | github | `personal`, `work` | `cli` (gh / `copilot login`) | `COPILOT_GITHUB_TOKEN` (optional; beats gh's active account) |
 | openai | `chatgpt` · `openai` | `cli` · `key` | none · `OPENAI_KEY` |

@@ -28,7 +28,7 @@ func menuTestEnv(t *testing.T) *providers.Registry {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CODEX_HOME", t.TempDir()) // a foreign tool may export its own codex account home; codex must read unconfigured
 	t.Setenv("PATH", t.TempDir())
-	vaulttest.SetRecord(t, "claude", "profile", "max") // seed_test clears this pin to start first-run
+	vaulttest.SetRecord(t, "claude", "profile", "ultra") // seed_test clears this pin to start first-run
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 	// Copilot/codex/gemini pin env beats the vault pin (providers.Pin); a session running inside one of
 	// these agents exports its own model/effort pin into the process env.

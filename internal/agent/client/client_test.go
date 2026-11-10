@@ -30,8 +30,8 @@ import (
 func TestResolveOverlayAndAgentsPrecedence(t *testing.T) {
 	c := &Client{}
 	defs := map[string]*agent.Schema{"sec": {Name: "sec", Prompt: "client", Model: "cm", Profile: "cp", Effort: "low"}}
-	o := agent.RunOptions{Agent: "sec", Agents: defs, Model: "mine", Provider: "myprov", Effort: "max"}
-	if err := c.resolve(&o); err != nil || o.Model != "mine" || o.Provider != "myprov" || o.Effort != "max" || o.Agent != "claude" {
+	o := agent.RunOptions{Agent: "sec", Agents: defs, Model: "mine", Provider: "myprov", Effort: "ultra"}
+	if err := c.resolve(&o); err != nil || o.Model != "mine" || o.Provider != "myprov" || o.Effort != "ultra" || o.Agent != "claude" {
 		t.Fatalf("explicit options lost: %+v, %v", o, err)
 	}
 	t.Run("definition defaults", func(t *testing.T) { assertDefinitionOverlay(t, c, defs) })
@@ -172,7 +172,7 @@ func TestClientRunNotifiesUnsavedRecord(t *testing.T) {
 	c := NewClient(nil, nil, func(s string) { notes = append(notes, s) })
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, _ = c.Run(ctx, agent.RunOptions{Agent: "claude", Provider: "max", Prompt: "x"}, nil)
+	_, _ = c.Run(ctx, agent.RunOptions{Agent: "claude", Provider: "ultra", Prompt: "x"}, nil)
 	if !slices.ContainsFunc(notes, func(s string) bool { return strings.Contains(s, "record not saved before the run") }) {
 		t.Fatalf("notes = %q, want the pre-run 'record not saved' notice", notes)
 	}

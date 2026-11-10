@@ -288,7 +288,7 @@ func TestClaudeArgsPermissions(t *testing.T) {
 func TestClaudeArgsPermissionModeByProvider(t *testing.T) {
 	hermetic(t, `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
 	allow := agent.Permissions{Allow: []agent.Rule{{Tool: "Bash"}}}
-	for _, c := range []struct{ profile, want, not string }{{"qa", "dontAsk", "auto"}, {"max", "auto", "dontAsk"}} {
+	for _, c := range []struct{ profile, want, not string }{{"qa", "dontAsk", "auto"}, {"ultra", "auto", "dontAsk"}} {
 		req := agent.RunOptions{Tools: true, Provider: c.profile, Permissions: allow}
 		got := strings.Join(claudeArgs(nil, req, anthropicLaunch(req)), " ")
 		if !strings.Contains(got, "--permission-mode "+c.want) || strings.Contains(got, "--permission-mode "+c.not) {
@@ -297,8 +297,8 @@ func TestClaudeArgsPermissionModeByProvider(t *testing.T) {
 	}
 	// No rules: off Anthropic the leaf allow list replaces settings.json's defaultMode auto; on Anthropic nothing is added.
 	tail := []string{"--exclude-dynamic-system-prompt-sections"}
-	if got := claudeArgs(nil, agent.RunOptions{Tools: true, Provider: "max"}, true); !slices.Equal(got, tail) {
-		t.Errorf("max, no rules: args %q, want %q", got, tail)
+	if got := claudeArgs(nil, agent.RunOptions{Tools: true, Provider: "ultra"}, true); !slices.Equal(got, tail) {
+		t.Errorf("ultra, no rules: args %q, want %q", got, tail)
 	}
 	req := agent.RunOptions{Tools: true, Provider: "qa"}
 	got := strings.Join(claudeArgs(nil, req, anthropicLaunch(req)), " ")

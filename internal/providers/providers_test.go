@@ -257,7 +257,7 @@ func TestCredentialLadderAndAuthorize(t *testing.T) {
 	if v, _ := Credential(context.Background(), gw); v != "minted" {
 		t.Errorf("command cred %q", v)
 	}
-	sub, _ := reg.Get("max")
+	sub, _ := reg.Get("ultra")
 	h := http.Header{"Authorization": {"Bearer client"}}
 	if err := Authorize(context.Background(), sub, h); err != nil || h.Get("Authorization") != "Bearer client" {
 		t.Errorf("passthrough must keep client auth: %v %v", err, h)
@@ -594,7 +594,7 @@ func TestSecretName(t *testing.T) {
 		{"anthropic", "work", AuthKey, "ANTHROPIC_WORK_KEY"}, // no collapse
 		{"openai", "openai", AuthKey, "OPENAI_KEY"},          // collapse
 		{"github", "personal", AuthOAuth, "GITHUB_PERSONAL_OAUTH"},
-		{"anthropic", "max", AuthCLI, ""},
+		{"anthropic", "ultra", AuthCLI, ""},
 		{"", "x", AuthKey, ""},
 	}
 	for _, c := range cases {
