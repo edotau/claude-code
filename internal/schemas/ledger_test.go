@@ -41,7 +41,7 @@ var writers = map[string]string{
 	"internal/agent/job/record.go:claimRecord":                        unversioned("claim: the running record, linked in whole"),
 	"internal/agent/wire/log.go:openLocked":                           unversioned("log: per-job dispatch log, humans only"),
 	"internal/agent/wire/event.go:NewEventLog":                        "dispatch-events",
-	"internal/agent/job/live_slot.go:AcquireLiveSlot":                 unversioned("lock: live-session slot file, flock only, no content"),
+	"internal/agent/job/live.go:AcquireLiveSlot":                      unversioned("lock: live-session slot file, flock only, no content"),
 	"internal/copilot/copilot.go:createExclusive":                     unversioned("foreign: handoff markdown in the repo"),
 	"internal/audit/audit.go:Log":                                     "audit",
 	"internal/network/tailscale/machines_cache.go:WriteMachinesCache": "tailscale-machines",
