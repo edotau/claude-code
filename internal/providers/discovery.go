@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/network/httpx"
 )
 
 // DiscoverySource names the live adapter or explains why a vendor login is unsupported.
@@ -278,42 +278,36 @@ func catalogCursor(source string, doc catalogDoc) (next, key string, err error) 
 }
 
 func discoveryGet(ctx context.Context, p *Provider, u, source string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, errors.New("cannot construct catalog request")
-	}
-	req.Header.Set("anthropic-version", "2023-06-01")
-	if err := authorizeDiscovery(ctx, p, req, source); err != nil {
-		return nil, err
-	}
-	client := httpClient()
-	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := client.Do(req)
-	if err != nil {
+	var authErr error
+	status, body, _, err := httpx.Do(ctx, httpx.Call{Client: httpClient(), URL: u, Limit: 8 << 20, NoRedirect: true,
+		Header: http.Header{"Anthropic-Version": {"2023-06-01"}},
+		Authorize: func(h http.Header) error {
+			authErr = authorizeDiscovery(ctx, p, h, source)
+			return authErr
+		}})
+	switch {
+	case authErr != nil:
+		return nil, authErr
+	case status == 0:
 		return nil, errors.New("catalog request failed or timed out; check connectivity")
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("catalog request failed (HTTP %d)", resp.StatusCode)
-	}
-	const limit = 8 << 20
-	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
-	if err != nil || len(body) > limit {
+	case status != http.StatusOK:
+		return nil, fmt.Errorf("catalog request failed (HTTP %d)", status)
+	case err != nil:
 		return nil, errors.New("cannot read bounded catalog response")
 	}
 	return body, nil
 }
 
 // authorizeDiscovery sets the credential headers on a catalog GET; errors name no secret.
-func authorizeDiscovery(ctx context.Context, p *Provider, req *http.Request, source string) error {
+func authorizeDiscovery(ctx context.Context, p *Provider, h http.Header, source string) error {
 	if p.Auth.Type == AuthCLI {
 		tok := HeadlessOAuthToken()
 		if tok == "" {
 			return errors.New("no harness-readable subscription credential")
 		}
-		req.Header.Set("Authorization", "Bearer "+tok)
-		req.Header.Set("anthropic-beta", anthropicOAuthBeta)
-	} else if err := Authorize(ctx, p, req.Header); err != nil {
+		h.Set("Authorization", "Bearer "+tok)
+		h.Set("anthropic-beta", anthropicOAuthBeta)
+	} else if err := Authorize(ctx, p, h); err != nil {
 		return errors.New("catalog authentication unavailable; check profile credentials")
 	}
 	if source == "gemini-models" && p.Auth.Type == AuthKey {
@@ -321,9 +315,9 @@ func authorizeDiscovery(ctx context.Context, p *Provider, req *http.Request, sou
 		if err != nil {
 			return errors.New("gemini API credential unavailable")
 		}
-		req.Header.Del("Authorization")
-		req.Header.Del("X-Api-Key")
-		req.Header.Set("X-Goog-Api-Key", token)
+		h.Del("Authorization")
+		h.Del("X-Api-Key")
+		h.Set("X-Goog-Api-Key", token)
 	}
 	return nil
 }
