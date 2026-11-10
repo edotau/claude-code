@@ -157,7 +157,7 @@ func cmdMemoryDream(args []string) int {
 
 func cmdMemoryDigest(args []string) int {
 	fs, repo := memoryRepoFlagSet("digest")
-	if code, done := helptext.Parse(fs, args); done {
+	if code, done := memoryParseNoArgs(fs, "digest", args); done {
 		return code
 	}
 	claudeBin, binErr := claude.ClaudeBinary()
@@ -183,7 +183,7 @@ func cmdMemoryWatch(args []string) int {
 	cwd := fs.String("cwd", "", "project root whose bank to update")
 	idle := fs.Duration("idle", memory.UpdateIdleAfter, "quiet period before the final update")
 	owner := fs.Int("owner", 0, "session process pid; the watcher exits once it is gone (0 = unbounded)")
-	if code, done := helptext.Parse(fs, args); done {
+	if code, done := memoryParseNoArgs(fs, "watch", args); done {
 		return code
 	}
 	return memory.IdleUpdateWatch(memory.WatchOptions{Session: *session, Transcript: *tr, CWD: *cwd,
@@ -196,7 +196,7 @@ func cmdMemoryCatchup(args []string) int {
 	fs.SetOutput(os.Stderr)
 	dry := fs.Bool("dry-run", false, "list the sessions it would save; write nothing")
 	skip := fs.String("skip", "", "session id to leave alone (the one that started the sweep)")
-	if code, done := helptext.Parse(fs, args); done {
+	if code, done := memoryParseNoArgs(fs, "catchup", args); done {
 		return code
 	}
 	return memory.CatchUpSweep(memory.SweepOptions{DryRun: *dry, Skip: *skip, Stdout: os.Stdout, Stderr: os.Stderr})
@@ -280,7 +280,7 @@ func memoryRememberTypes() []string { return slices.Sorted(maps.Keys(memory.Reme
 
 func cmdMemoryInit(args []string) int {
 	fs, repo := memoryRepoFlagSet("init")
-	if code, done := helptext.Parse(fs, args); done {
+	if code, done := memoryParseNoArgs(fs, "init", args); done {
 		return code
 	}
 	if err := memory.InitBank(os.Stdout, memory.RepoRoot(*repo)); err != nil {
@@ -400,7 +400,7 @@ func cmdMemoryIndex(args []string) int {
 	fs, repo := memoryRepoFlagSet("index")
 	reembed := fs.Bool("reembed", false, "re-embed all entries; last 8 min of the lease or expired")
 	mintOnly := fs.Bool("mint-only", false, "refresh embedding cache without settling bank contents")
-	if code, done := helptext.Parse(fs, args); done {
+	if code, done := memoryParseNoArgs(fs, "index", args); done {
 		return code
 	}
 	if err := memory.Index(os.Stdout, os.Stderr, memory.IndexOptions{Repo: *repo, Reembed: *reembed, MintOnly: *mintOnly}); err != nil {
@@ -411,7 +411,7 @@ func cmdMemoryIndex(args []string) int {
 
 func cmdMemoryPath(args []string) int {
 	fs, repo := memoryRepoFlagSet("path")
-	if code, done := helptext.Parse(fs, args); done {
+	if code, done := memoryParseNoArgs(fs, "path", args); done {
 		return code
 	}
 	fmt.Println(memory.Dir(memory.RepoRoot(*repo)))
@@ -481,7 +481,7 @@ func cmdMemoryReview(args []string) int {
 	brief := fs.Bool("brief", false, "print only the problem count, not each line")
 	notice := fs.Bool("notice", false, "refresh the cached session-start notice and print nothing")
 	candidates := fs.Bool("candidates", false, "print today's stats, then the ranking procedure")
-	if code, done := helptext.Parse(fs, args); done {
+	if code, done := memoryParseNoArgs(fs, "review", args); done {
 		return code
 	}
 	err := memory.ReviewReport(os.Stdout, memory.ReviewOptions{Repo: *repo, StaleDays: *staleDays, Brief: *brief,
@@ -495,10 +495,12 @@ func cmdMemoryReview(args []string) int {
 func cmdMemoryTimeline(args []string) int {
 	fs, repo := memoryRepoFlagSet("timeline")
 	n := fs.Int("n", 20, "max entries")
-	if code, done := helptext.Parse(fs, args); done {
+	if code, done := memoryParseNoArgs(fs, "timeline", args); done {
 		return code
 	}
-	memory.TimelineReport(os.Stdout, *repo, *n)
+	if err := memory.TimelineReport(os.Stdout, *repo, *n); err != nil {
+		return helptext.Fail("memory timeline: %v", err)
+	}
 	return 0
 }
 

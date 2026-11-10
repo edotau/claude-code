@@ -93,7 +93,10 @@ type IndexOptions struct {
 
 // Index settles the bank (unless MintOnly) and refreshes the embedding cache; errors carry their verb prefix.
 func Index(out, errw io.Writer, o IndexOptions) error {
-	root := Root(o.Repo)
+	root, err := ResolveRepo(o.Repo)
+	if err != nil {
+		return fmt.Errorf("memory index: %w", err)
+	}
 	profile := cmp.Or(EmbedProfile(), providers.SessionProfile())
 	if o.Reembed {
 		if err := reembedGate(profile, time.Now()); err != nil {
@@ -238,7 +241,11 @@ func RunDream(o DreamRunOptions) error {
 
 // DigestRepo writes the repo bank's digest and returns its path.
 func DigestRepo(ctx context.Context, repo, claude string) (string, error) {
-	return Digest(ctx, Dir(Root(repo)), claude)
+	root, err := ResolveRepo(repo)
+	if err != nil {
+		return "", err
+	}
+	return Digest(ctx, Dir(root), claude)
 }
 
 // FormatReport wraps the bank files (or only lists them under check) and reports whether check found changes.
@@ -271,7 +278,10 @@ type ReviewOptions struct {
 
 // ReviewReport writes doctor + stats (Notice refreshes the cached session-start notice and prints nothing).
 func ReviewReport(w io.Writer, o ReviewOptions) error {
-	root := Root(o.Repo)
+	root, err := ResolveRepo(o.Repo)
+	if err != nil {
+		return err
+	}
 	if o.Notice {
 		return writeDoctorNotice(root, o.StaleDays, time.Now())
 	}
@@ -299,10 +309,14 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 }
 
 // TimelineReport writes the n most recent bank entries, then the sessionHistory lines.
-func TimelineReport(w io.Writer, repo string, n int) {
-	entries, sessions, err := timeline(Root(repo), n)
+func TimelineReport(w io.Writer, repo string, n int) error {
+	root, err := ResolveRepo(repo)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "memory timeline: sessionHistory: %v\n", err)
+		return err
+	}
+	entries, sessions, err := timeline(root, n)
+	if err != nil {
+		return fmt.Errorf("sessionHistory: %w", err)
 	}
 	for _, e := range entries {
 		fmt.Fprintf(w, "%s  update   %s\n", e.Time.Format("2006-01-02 15:04"), e.Line)
@@ -313,6 +327,7 @@ func TimelineReport(w io.Writer, repo string, n int) {
 			fmt.Fprintln(w, "- "+s)
 		}
 	}
+	return nil
 }
 
 //go:embed prompts/*.md

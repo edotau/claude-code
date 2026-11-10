@@ -1011,3 +1011,161 @@ func helpPageHasCommand(page helptext.Page, name string) bool {
 	}
 	return false
 }
+
+// treeNames lists every path under root, so a test can prove a refused command created nothing.
+func treeNames(t *testing.T, root string) []string {
+	t.Helper()
+	var names []string
+	err := filepath.WalkDir(root, func(p string, _ os.DirEntry, err error) error {
+		names = append(names, p)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return names
+}
+
+// TestMemoryNoArgVerbsRejectStray: verbs that take no positional exit 2 on one and write nothing.
+func TestMemoryNoArgVerbsRejectStray(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	t.Chdir(hosttest.Repo(t))
+	before := treeNames(t, cfg)
+	for _, sub := range []string{"index", "digest", "review", "path", "init", "timeline", "watch", "catchup"} {
+		code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemory([]string{sub, "bogus"}, nil) })
+		if want := `memory ` + sub + `: unexpected argument "bogus"`; code != 2 || !strings.Contains(stderr, want) {
+			t.Errorf("memory %s bogus: code=%d stdout=%q stderr=%q, want exit 2 with %q", sub, code, out, stderr, want)
+		}
+	}
+	if after := treeNames(t, cfg); !slices.Equal(before, after) {
+		t.Errorf("a refused stray argument wrote files: before=%v after=%v", before, after)
+	}
+}
+
+// TestMemoryIndexDigestRepoAcceptsStoreName: --repo <store name> targets that store from another checkout's cwd.
+func TestMemoryIndexDigestRepoAcceptsStoreName(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HARNESS_AGENT_BIN_DIR", bin)
+	a, b := hosttest.Repo(t), hosttest.Repo(t)
+	dirA, err := memory.EnsureRepoDir(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memory.EnsureRepoDir(b); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(b)
+	name := filepath.Base(a)
+	_, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemory([]string{"index", "--repo", name}, nil) })
+	if !strings.Contains(out, "indexed "+dirA) {
+		t.Errorf("memory index --repo %s: stdout=%q stderr=%q, want it to index %s", name, out, stderr, dirA)
+	}
+	_, _, stderr = hosttest.CaptureOutput(t, func() int { return cmdMemory([]string{"digest", "--repo", name}, nil) })
+	if !strings.Contains(stderr, filepath.Join(dirA, "archive")) {
+		t.Errorf("memory digest --repo %s: stderr=%q, want it to read %s", name, stderr, dirA)
+	}
+}
+
+// TestMemoryIndexDigestUnknownRepoNamesKnownStores: a --repo that is no path and no store fails and writes nothing.
+func TestMemoryIndexDigestUnknownRepoNamesKnownStores(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HARNESS_AGENT_BIN_DIR", bin)
+	repo := hosttest.Repo(t)
+	if _, err := memory.EnsureRepoDir(repo); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(repo)
+	before := treeNames(t, cfg)
+	for _, sub := range []string{"index", "digest"} {
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemory([]string{sub, "--repo", "nosuch"}, nil) })
+		if code != 1 || !strings.Contains(stderr, `"nosuch"`) || !strings.Contains(stderr, filepath.Base(repo)) {
+			t.Errorf("memory %s --repo nosuch: code=%d stderr=%q, want exit 1 naming the known store %s", sub, code, stderr, filepath.Base(repo))
+		}
+	}
+	if after := treeNames(t, cfg); !slices.Equal(before, after) {
+		t.Errorf("an unknown --repo wrote files: before=%v after=%v", before, after)
+	}
+}
+
+func TestMemoryReviewRepoStoreName(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	a := hosttest.RepoAt(t, filepath.Join(t.TempDir(), "alpha"))
+	b := hosttest.RepoAt(t, filepath.Join(t.TempDir(), "beta"))
+	stale := time.Now().AddDate(0, 0, -memory.DefaultStaleDays-1)
+	for _, repo := range []string{a, b} {
+		dir, err := memory.EnsureRepoDir(repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hosttest.WriteRel(t, dir, "activeContext.md", "# "+filepath.Base(repo)+" context\n")
+		if repo == a {
+			if err := os.Chtimes(filepath.Join(dir, "activeContext.md"), stale, stale); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	t.Chdir(b)
+	name := filepath.Base(memory.Dir(a))
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemory([]string{"review", "--repo", name}, nil) })
+	if want := "local bank untouched since " + stale.Format("2006-01-02"); code != 0 || !strings.Contains(out, want) {
+		t.Fatalf("memory review --repo %s: code=%d stdout=%q stderr=%q, want %q", name, code, out, stderr, want)
+	}
+	before := treeNames(t, cfg)
+	for _, args := range [][]string{{"review", "--repo", "nosuch"}, {"review", "--repo", "nosuch", "--notice"}} {
+		code, out, stderr = hosttest.CaptureOutput(t, func() int { return cmdMemory(args, nil) })
+		if code != 1 || out != "" || !strings.Contains(stderr, `"nosuch"`) ||
+			!strings.Contains(stderr, "known stores: "+name+", "+filepath.Base(memory.Dir(b))) {
+			t.Errorf("memory %v: code=%d stdout=%q stderr=%q, want exit 1 naming known stores", args, code, out, stderr)
+		}
+	}
+	if after := treeNames(t, cfg); !slices.Equal(before, after) {
+		t.Errorf("an unknown --repo wrote files: before=%v after=%v", before, after)
+	}
+}
+
+func TestMemoryTimelineRepoStoreName(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	a := hosttest.RepoAt(t, filepath.Join(t.TempDir(), "alpha"))
+	b := hosttest.RepoAt(t, filepath.Join(t.TempDir(), "beta"))
+	for _, repo := range []string{a, b} {
+		dir, err := memory.EnsureRepoDir(repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hosttest.WriteRel(t, dir, "sessionHistory.md", "# Sessions\n\n## "+filepath.Base(repo)+" session\n")
+	}
+	t.Chdir(b)
+	name := filepath.Base(memory.Dir(a))
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemory([]string{"timeline", "--repo", name}, nil) })
+	want := "-- sessionHistory --\n- " + filepath.Base(a) + " session\n"
+	if code != 0 || out != want || stderr != "" {
+		t.Fatalf("memory timeline --repo %s: code=%d stdout=%q stderr=%q, want %q", name, code, out, stderr, want)
+	}
+	before := treeNames(t, cfg)
+	code, out, stderr = hosttest.CaptureOutput(t, func() int { return cmdMemory([]string{"timeline", "--repo", "nosuch"}, nil) })
+	if code != 1 || out != "" || !strings.Contains(stderr, `"nosuch"`) ||
+		!strings.Contains(stderr, "known stores: "+name+", "+filepath.Base(memory.Dir(b))) {
+		t.Errorf("memory timeline --repo nosuch: code=%d stdout=%q stderr=%q, want exit 1 naming known stores", code, out, stderr)
+	}
+	if after := treeNames(t, cfg); !slices.Equal(before, after) {
+		t.Errorf("an unknown --repo wrote files: before=%v after=%v", before, after)
+	}
+}
