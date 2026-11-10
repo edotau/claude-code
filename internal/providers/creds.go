@@ -238,7 +238,7 @@ func finishCredential(p *Provider, v string, exp time.Time) error {
 	if err := checkIssuer(p, v); err != nil {
 		return err
 	}
-	recordTokenExpiry(p.Name, v)
+	recordTokenExpiry(p.Name, v, expiryMethod(p.Auth.Method()))
 	ttl := time.Duration(p.Auth.TTL) * time.Second
 	if ttl <= 0 {
 		ttl = 5 * time.Minute
