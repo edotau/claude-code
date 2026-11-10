@@ -43,6 +43,9 @@ func ScopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []str
 		return "", nil, false, err
 	}
 	abs, err := filepath.Abs(dir) // go list reports absolute package dirs
+	if err == nil {
+		abs, err = filepath.EvalSymlinks(abs) // ...with symlinks resolved (macOS /var -> /private/var)
+	}
 	if err != nil {
 		return "", nil, false, err
 	}

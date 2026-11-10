@@ -331,6 +331,12 @@ func goListPackages(root string) (string, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "list", "-f", "{{.Dir}}\t{{join .Imports \" \"}}", "./...")
 	cmd.Dir = root
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", err
+	}
+	// exec sets PWD=root, and go list trusts it: pin it to the real path so {{.Dir}} matches realRoot.
+	cmd.Env = append(os.Environ(), "PWD="+realRoot)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
