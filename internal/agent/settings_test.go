@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -21,6 +23,9 @@ func errMatches(err error, want string) bool {
 	}
 	return err != nil && strings.Contains(err.Error(), want)
 }
+
+// fakeKey is credential-shaped by prefix and length only.
+var fakeKey = "sk-" + strings.Repeat("a", 24)
 
 // D2: every agent × valid effort, unknown effort, and a field only another agent can use.
 func TestValidateRecord(t *testing.T) {
@@ -45,9 +50,12 @@ func TestValidateRecord(t *testing.T) {
 		{"codex", vault.AgentRecord{Aliases: map[string]string{"opus": "x"}}, "codex: aliases is claude only"},
 		{"copilot", vault.AgentRecord{Aliases: map[string]string{"opus": "x"}}, "copilot: aliases is claude only"},
 		{"gemini", vault.AgentRecord{Account: "octo"}, "gemini: account is copilot only"},
-		{"opencode", vault.AgentRecord{Extras: map[string]string{"k": "v"}}, `opencode: extras key "k" unsupported (want none)`},
+		{"opencode", vault.AgentRecord{Extras: map[string]string{"k": "v"}}, ""}, // no CLI.Extras declared: not checked yet
 		{"codex", vault.AgentRecord{Permissions: &vault.AgentPolicy{Mode: "yolo"}}, `unknown permission mode "yolo"`},
 		{"codex", vault.AgentRecord{Launch: &vault.AgentLaunch{Env: []string{"OPENAI_API_KEY=x"}}}, "codex launch.env:"},
+		{"codex", vault.AgentRecord{Launch: &vault.AgentLaunch{Args: []string{"--api-key", fakeKey}}}, "codex launch.args[1]: looks like"},
+		{"codex", vault.AgentRecord{Launch: &vault.AgentLaunch{Args: []string{"--api-key=" + fakeKey}}}, "codex launch.args[0]: looks like"},
+		{"copilot", vault.AgentRecord{Launch: &vault.AgentLaunch{Args: []string{"--allow-all", "--api-key", "$KEY"}}}, ""},
 		{"nobody", vault.AgentRecord{}, `unknown agent "nobody"`},
 	}
 	for _, c := range cases {
@@ -146,16 +154,16 @@ func TestResolveSettingsFlagOverRecord(t *testing.T) {
 	}
 }
 
-// A bad record policy is an error that still carries the record, so launch.env is never dropped over it.
-func TestResolveSettingsBadPolicyKeepsRecord(t *testing.T) {
+// A bad record policy is an error whose Settings carry the built-in record: nothing of the stored one applies.
+func TestResolveSettingsBadPolicyFallsBackToBuiltin(t *testing.T) {
 	vaulttest.Use(t)
 	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Permissions: &vault.AgentPolicy{Deny: []string{"Bash("}},
 		Launch: &vault.AgentLaunch{Env: []string{"FOO=1"}}}); err != nil {
 		t.Fatal(err)
 	}
 	s, err := ResolveSettings("codex", RunOptions{}, providers.Target{}, false)
-	if err == nil || s.Agent != "codex" || !slices.Equal(s.Record.Launch.Env, []string{"FOO=1"}) {
-		t.Errorf("ResolveSettings = %+v, %v; want an error and the record kept", s, err)
+	if err == nil || s.Agent != "codex" || s.Record.Launch != nil || s.Record.Extras["approvalPolicy"] != "never" {
+		t.Errorf("ResolveSettings = %+v, %v; want an error and the built-in codex record", s, err)
 	}
 }
 
@@ -207,16 +215,39 @@ func TestBaseRenderSettingsDefault(t *testing.T) {
 // renderSpy is a codex driver that wires a route itself and records what RenderSettings and Exec see.
 type renderSpy struct {
 	fixtureDriver
-	cleaned *int
-	seen    *CLIPrep
+	cleaned, rendered *int
+	seen              *CLIPrep
 }
 
 func (renderSpy) Wire(context.Context, WireRoute, *Headless) ([]string, []string, error) {
 	return []string{"ROUTE=1"}, []string{"exec"}, nil
 }
 
+// After marks the env so RenderSettings can show it ran second.
+func (renderSpy) After(p *CLIPrep, _ RunOptions) { p.Env = append(p.Env, "AFTER=1") }
+
 func (r renderSpy) RenderSettings(_ context.Context, s Settings, env, argv []string) ([]string, []string, []string, func(), error) {
-	return env, append(argv, "--effort", s.Effort), []string{"effort"}, func() { *r.cleaned++ }, nil
+	*r.rendered++
+	emulated := []string{"effort"}
+	if slices.Contains(env, "AFTER=1") {
+		emulated = append(emulated, "after-ran")
+	}
+	return env, append(argv, "--effort", s.Effort), emulated, func() { *r.cleaned++ }, nil
+}
+
+// runSpy dispatches req headless through a renderSpy registered as codex and returns what it counted and saw.
+func runSpy(t *testing.T, req RunOptions) (cleaned, rendered int, seen CLIPrep) {
+	t.Helper()
+	spy := renderSpy{fixtureDriver{NewBaseEngine("codex")}, &cleaned, &rendered, &seen}
+	registryMu.Lock()
+	orig := drivers["codex"]
+	drivers["codex"] = spy
+	registryMu.Unlock()
+	t.Cleanup(func() { registryMu.Lock(); drivers["codex"] = orig; registryMu.Unlock() })
+	if _, err := newCLIEngine("codex").Run(t.Context(), req, wire.Discard); err == nil || !strings.Contains(err.Error(), "spy") {
+		t.Fatalf("Run err = %v, want the spy's Exec error", err)
+	}
+	return cleaned, rendered, seen
 }
 
 func (r renderSpy) Exec(_ context.Context, p CLIPrep, _ RunOptions, _ wire.Sink) (wire.Result, error) {
@@ -228,18 +259,59 @@ func (r renderSpy) Exec(_ context.Context, p CLIPrep, _ RunOptions, _ wire.Sink)
 func TestCLIRunRendersSettingsAndCleansUp(t *testing.T) {
 	tg := target(t, "openai", "gpt-5")
 	vaulttest.Use(t)
-	cleaned, seen := 0, CLIPrep{}
-	spy := renderSpy{fixtureDriver{NewBaseEngine("codex")}, &cleaned, &seen}
-	registryMu.Lock()
-	orig := drivers["codex"]
-	drivers["codex"] = spy
-	registryMu.Unlock()
-	t.Cleanup(func() { registryMu.Lock(); drivers["codex"] = orig; registryMu.Unlock() })
-	req := RunOptions{Prompt: "p", Provider: tg.Provider.Name, Model: tg.Model, Effort: "high"}
-	if _, err := newCLIEngine("codex").Run(t.Context(), req, wire.Discard); err == nil || !strings.Contains(err.Error(), "spy") {
-		t.Fatalf("Run err = %v, want the spy's Exec error", err)
+	cleaned, _, seen := runSpy(t, RunOptions{Prompt: "p", Provider: tg.Provider.Name, Model: tg.Model, Effort: "high"})
+	if cleaned != 1 || !slices.Equal(seen.Emulated, []string{"effort", "after-ran"}) || !slices.Contains(seen.Argv, "high") {
+		t.Errorf("cleanup ran %d times, Exec saw emulated %v argv %v; want 1, [effort after-ran], --effort high",
+			cleaned, seen.Emulated, seen.Argv)
 	}
-	if cleaned != 1 || !slices.Equal(seen.Emulated, []string{"effort"}) || !slices.Contains(seen.Argv, "high") {
-		t.Errorf("cleanup ran %d times, Exec saw emulated %v argv %v; want 1, [effort], --effort high", cleaned, seen.Emulated, seen.Argv)
+}
+
+// One headless dispatch renders the settings exactly once: a second render repeats credential lookups and overlays.
+func TestCLIRunRendersSettingsOnce(t *testing.T) {
+	tg := target(t, "openai", "gpt-5")
+	vaulttest.Use(t)
+	if _, rendered, _ := runSpy(t, RunOptions{Prompt: "p", Provider: tg.Provider.Name, Model: tg.Model}); rendered != 1 {
+		t.Errorf("RenderSettings ran %d times for one dispatch, want 1", rendered)
+	}
+}
+
+// An invalid stored record fails a headless dispatch by agent and field, never value; interactive keeps the built-ins.
+func TestInvalidRecordRefused(t *testing.T) {
+	tg := target(t, "openai", "gpt-5")
+	vaulttest.Use(t)
+	if err := vault.SetAgentRecord("copilot", vault.AgentRecord{Launch: &vault.AgentLaunch{
+		Env: []string{"FOO=1", "OPENAI_API_KEY=leakvalue"}, Args: []string{"--banner"}}}); err != nil {
+		t.Fatal(err)
+	}
+	err := cliEngine{fixtureDriver{NewBaseEngine("copilot")}}.renderSettings(t.Context(), &CLIPrep{}, RunOptions{}, tg)
+	if err == nil || !strings.Contains(err.Error(), "copilot launch.env") || strings.Contains(err.Error(), "leakvalue") {
+		t.Errorf("headless render err = %v, want the copilot launch.env refusal without the value", err)
+	}
+	env, argv := SchemaFor("copilot").LaunchSpec()
+	if slices.Contains(env, "FOO=1") || !slices.Equal(argv, []string{"--allow-all"}) {
+		t.Errorf("interactive launch: env %v argv %v; want nothing of the record and the built-in [--allow-all]", env, argv)
+	}
+}
+
+// The built-in records, alone and under a legacy overlay of the old agents.json shape, pass validation.
+func TestBuiltinRecordsValidate(t *testing.T) {
+	vaulttest.Use(t)
+	legacy := `{"agents":{"codex":{"permission":{"approvalPolicy":"never","sandboxMode":"danger-full-access"}},
+		"copilot":{"permission":{"defaultPermissionMode":"allow-all"},"launch":{"args":["--allow-all"]}},
+		"gemini":{"permission":{"useGuardRules":true},"launch":{"args":["--dangerously-skip-permissions"]}},
+		"opencode":{"launch":{}}}}`
+	for _, overlay := range []string{"", legacy} {
+		if overlay != "" {
+			vaulttest.Put(t, vault.Overlay, "agents", overlay)
+		}
+		for _, name := range agentid.All() {
+			rec, err := agentconfig.Settings(name)
+			if err == nil {
+				err = ValidateRecord(name, rec)
+			}
+			if err != nil {
+				t.Errorf("legacy overlay %v: %s: %v", overlay != "", name, err)
+			}
+		}
 	}
 }
