@@ -46,13 +46,17 @@ type Input struct {
 }
 
 const (
-	AgentClaude  = agentid.Claude
-	AgentCodex   = agentid.Codex
-	AgentCopilot = agentid.Copilot
-	AgentGemini  = agentid.Gemini // agy
+	AgentClaude   = agentid.Claude
+	AgentCodex    = agentid.Codex
+	AgentCopilot  = agentid.Copilot
+	AgentGemini   = agentid.Gemini // agy
+	AgentOpencode = agentid.OpenCode
 )
 
-// Agent uses the explicit hook agent or Copilot's payload shape, defaulting to Claude.
+// harnessAgentKey is the payload field the in-process opencode host sets, where no HARNESS_HOOK_AGENT env exists.
+const harnessAgentKey = "harness_agent"
+
+// Agent uses the explicit hook agent, opencode's payload key or Copilot's payload shape, defaulting to Claude.
 func (in *Input) Agent() string {
 	if in == nil || in.agent == "" {
 		return AgentClaude
@@ -77,6 +81,9 @@ func ParseInputFor(r io.Reader, agent string) *Input {
 		return unparsed(raw, agent, errNotObject)
 	}
 	in.agent = knownAgent(agent)
+	if in.Nested(harnessAgentKey) == AgentOpencode { // only opencode's own host writes the key, so it wins over the env
+		in.agent = AgentOpencode
+	}
 	in.SessionID = in.Nested("session_id")
 	in.CWD = in.Nested("cwd")
 	in.TranscriptPath = in.Nested("transcript_path")
@@ -154,7 +161,7 @@ func copilotArgs(v any) (map[string]any, string) {
 // knownAgent is agent when it names a supported hook agent, else "" (detect from the payload).
 func knownAgent(agent string) string {
 	switch agent {
-	case AgentClaude, AgentCodex, AgentCopilot, AgentGemini:
+	case AgentClaude, AgentCodex, AgentCopilot, AgentGemini, AgentOpencode:
 		return agent
 	}
 	return ""

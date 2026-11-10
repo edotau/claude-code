@@ -88,3 +88,22 @@ func TestParseInputForRecognisesRosterNames(t *testing.T) {
 		}
 	}
 }
+
+// opencode is its own agent from the env or the payload key its host writes; an unknown name still means Claude.
+func TestParseInputRecognisesOpencode(t *testing.T) {
+	cases := []struct{ name, env, payload, want string }{
+		{"env", AgentOpencode, `{"session_id":"s","hook_event_name":"Stop"}`, AgentOpencode},
+		{"payload key", "", `{"session_id":"s","hook_event_name":"Stop","harness_agent":"opencode"}`, AgentOpencode},
+		{"payload key over codex env", AgentCodex, `{"hook_event_name":"Stop","harness_agent":"opencode"}`, AgentOpencode},
+		{"unknown env", "kilo", `{"session_id":"s","hook_event_name":"Stop"}`, AgentClaude},
+		{"unknown payload key", "", `{"hook_event_name":"Stop","harness_agent":"kilo"}`, AgentClaude},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HARNESS_HOOK_AGENT", tc.env)
+			if got := ParseInput(strings.NewReader(tc.payload)).Agent(); got != tc.want {
+				t.Fatalf("Agent() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
