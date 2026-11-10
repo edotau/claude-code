@@ -199,8 +199,7 @@ func stepOutsideString(line string, i, depth int) (int, string, int) {
 		return i + 1, "", depth
 	case '"', '\'':
 		quote := line[i]
-		triple := strings.Repeat(string(quote), 3)
-		if strings.HasPrefix(line[i:], triple) {
+		if triple := line[i:min(i+3, len(line))]; len(triple) == 3 && triple[1] == quote && triple[2] == quote {
 			return i + 3, triple, depth
 		}
 		return skipQuoted(line, i+1, quote), "", depth

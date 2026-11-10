@@ -1,7 +1,6 @@
 package agentconfig
 
 import (
-	"bytes"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -12,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 //go:embed template/opencode.json template/opencode-tui.json
@@ -72,16 +72,10 @@ func applyOpencodeTableModels(cfgBody []byte) []byte {
 	return out
 }
 
-// encodeOverlayJSON renders doc as the overlay files' two-space JSON without HTML escaping.
+// encodeOverlayJSON renders doc as the overlay files' two-space JSON (trailing newline) without HTML escaping.
 func encodeOverlayJSON(doc any) ([]byte, bool) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if enc.Encode(doc) != nil {
-		return nil, false
-	}
-	return buf.Bytes(), true
+	out, err := textutil.MarshalIndentNoEscape(doc)
+	return append(out, '\n'), err == nil
 }
 
 // WriteOpencodeOverlay writes the tracked opencode.json/tui.json templates to state/harness/opencode

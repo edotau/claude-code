@@ -20,11 +20,6 @@ func isGeneratedFile(path string) bool {
 	if err != nil || !info.Mode().IsRegular() {
 		return false
 	}
-	return isGeneratedText(path)
-}
-
-// isGeneratedText reports whether path reads (without following a symlink) as text carrying a generated banner.
-func isGeneratedText(path string) bool {
 	text, ok := readTextNoFollow(path)
 	return ok && hasGeneratedBanner(text)
 }

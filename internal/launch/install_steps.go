@@ -13,10 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agentconfig/render"
-
 	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/agent/tools"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/history"
@@ -268,7 +267,7 @@ func agentConfigsSummary(w io.Writer) string {
 	var changed []string
 	for _, a := range client.DefaultAgents {
 		var buf bytes.Buffer
-		o := render.RenderOptions{Agents: []string{a}, Check: true, Out: &buf}
+		o := agentconfig.RenderOptions{Agents: []string{a}, Check: true, Out: &buf}
 		drift, err := client.RenderConfigs(o)
 		if err != nil {
 			fmt.Fprintf(w, "agents   config render skip (%s)  %v\n", a, err)

@@ -9,8 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-
-	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/agentconfig"
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
@@ -18,12 +17,12 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// DefaultAgents is every agent generate renders when agentrender.RenderOptions.Agents is empty.
+// DefaultAgents is every agent generate renders when agentconfig.RenderOptions.Agents is empty.
 var DefaultAgents = []string{agentid.Codex, agentid.OpenCode, agentid.Gemini, agentid.Copilot}
 
 // RenderConfigs renders every selected agent's config and reports whether anything
 // differs from what is on disk (Check) or would be written (DryRun never writes either way).
-func RenderConfigs(o agentrender.RenderOptions) (bool, error) {
+func RenderConfigs(o agentconfig.RenderOptions) (bool, error) {
 	p, drift, err := PrepareConfigs(o)
 	if err != nil {
 		return drift, err
@@ -32,8 +31,8 @@ func RenderConfigs(o agentrender.RenderOptions) (bool, error) {
 }
 
 // PrepareConfigs validates all selected renders without writing; dry-run/check output remains immediate.
-func PrepareConfigs(o agentrender.RenderOptions) (*agentrender.RenderPlan, bool, error) {
-	p := &agentrender.RenderPlan{}
+func PrepareConfigs(o agentconfig.RenderOptions) (*agentconfig.RenderPlan, bool, error) {
+	p := &agentconfig.RenderPlan{}
 	o = o.Stage(p)
 	var drift bool
 	var err error
@@ -71,11 +70,11 @@ func PrepareConfigs(o agentrender.RenderOptions) (*agentrender.RenderPlan, bool,
 	return p, drift, nil
 }
 
-func skipConfigHomes(o agentrender.RenderOptions) bool {
+func skipConfigHomes(o agentconfig.RenderOptions) bool {
 	return !o.ForceHomes && !paths.ConfigDirIsDefault() && !paths.ConfigDirIsInstall()
 }
 
-func prepareSelectedConfigs(agents []string, reg *providers.Registry, sel providers.Selection, home string, o agentrender.RenderOptions, out io.Writer) (bool, error) {
+func prepareSelectedConfigs(agents []string, reg *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	if err := knownAgents(agents); err != nil {
 		return false, err
 	}
@@ -101,7 +100,7 @@ func knownAgents(agents []string) error {
 }
 
 // RevertConfigs restores each selected agent's files to their newest backup version, removing the restored version so a second revert steps one version further back.
-func RevertConfigs(o agentrender.RenderOptions) error {
+func RevertConfigs(o agentconfig.RenderOptions) error {
 	agents := o.Agents
 	if len(agents) == 0 {
 		agents = DefaultAgents
@@ -119,7 +118,7 @@ func RevertConfigs(o agentrender.RenderOptions) error {
 			return fmt.Errorf("generate: %w", err)
 		}
 		for _, lp := range files {
-			if err := agentrender.RevertOne(lp.Label, lp.Path, o.DryRun, out); err != nil {
+			if err := agentconfig.RevertOne(lp.Label, lp.Path, o.DryRun, out); err != nil {
 				return err
 			}
 		}

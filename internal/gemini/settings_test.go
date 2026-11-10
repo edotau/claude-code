@@ -14,7 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -260,7 +259,7 @@ func TestRenderGeminiSettingsFollowsGuardExtra(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			got, err := renderGeminiSettings(home, render.RenderOptions{Home: home, DryRun: true}, io.Discard)
+			got, err := renderGeminiSettings(home, agentconfig.RenderOptions{Home: home, DryRun: true}, io.Discard)
 			if err != nil || got != c.want {
 				t.Errorf("settings.json would change = %v (err %v), want %v", got, err, c.want)
 			}

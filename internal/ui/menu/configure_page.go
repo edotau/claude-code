@@ -16,7 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/client"
-	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
@@ -514,7 +514,7 @@ func runAgents(d *dialog) bool {
 	if d.o.Agent != "" {
 		agentList = []string{d.o.Agent}
 	}
-	_, err := client.RenderConfigs(agentrender.RenderOptions{
+	_, err := client.RenderConfigs(agentconfig.RenderOptions{
 		Agents: agentList, DryRun: d.o.DryRun || d.o.Check, Check: d.o.Check, Home: d.o.Home, Out: d.out,
 	})
 	if err != nil {

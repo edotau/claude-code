@@ -10,8 +10,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent/client"
-	"github.com/edotau/claude-code/internal/agentconfig/render"
-	"github.com/edotau/claude-code/internal/agentconfig/render/rendertest"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -46,7 +45,7 @@ func readTestdata(t *testing.T, name string) []byte {
 
 // The full Codex render keeps every foreign hook group in an existing hooks.json (real pre-render bytes).
 func TestRenderCodexHooksFilePreservesForeignOnDisk(t *testing.T) {
-	home := rendertest.Scratch(t)
+	home := scratch(t)
 	hooksPath := filepath.Join(home, ".codex", "hooks.json")
 	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -55,7 +54,7 @@ func TestRenderCodexHooksFilePreservesForeignOnDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := client.RenderConfigs(render.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := client.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 	got, err := os.ReadFile(hooksPath)
@@ -72,7 +71,7 @@ func TestRenderCodexHooksFilePreservesForeignOnDisk(t *testing.T) {
 
 // A malformed existing hooks.json fails the whole render before config.toml (new trust hashes) is written.
 func TestRenderCodexFailsHooksMergeLeavesConfigTomlUntouched(t *testing.T) {
-	home := rendertest.Scratch(t)
+	home := scratch(t)
 	codexDir := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(codexDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -86,7 +85,7 @@ func TestRenderCodexFailsHooksMergeLeavesConfigTomlUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	_, err := client.RenderConfigs(render.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}})
+	_, err := client.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}})
 	if err == nil {
 		t.Fatalf("expected client.RenderConfigs to fail on a malformed hooks.json, got no error:\n%s", out.String())
 	}
@@ -114,12 +113,12 @@ func seedCodexFile(t *testing.T, home, name string, body []byte) string {
 
 // A hooks.json changed between prepare and apply fails the render before config.toml gets new trust hashes.
 func TestRenderCodexHooksWriteConflictLeavesConfigTomlUntouched(t *testing.T) {
-	home := rendertest.Scratch(t)
+	home := scratch(t)
 	originalToml := []byte("# existing config must survive a failed hooks write\n")
 	tomlPath := seedCodexFile(t, home, "config.toml", originalToml)
 	hooksPath := seedCodexFile(t, home, "hooks.json", []byte(`{"hooks":{}}`))
 	var out bytes.Buffer
-	plan, drift, err := client.PrepareConfigs(render.RenderOptions{
+	plan, drift, err := client.PrepareConfigs(agentconfig.RenderOptions{
 		Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"},
 	})
 	if err != nil || !drift {

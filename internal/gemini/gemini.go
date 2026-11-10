@@ -20,7 +20,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/agentid"
 
 	"github.com/edotau/claude-code/internal/gateway"
@@ -131,7 +130,7 @@ func (geminiEngine) Verify(context.Context) (providers.AuthVerdict, string) {
 	return providers.VerdictNeedsLogin, ""
 }
 
-func (geminiEngine) Render(_ *providers.Registry, sel providers.Selection, home string, o render.RenderOptions, out io.Writer) (bool, error) {
+func (geminiEngine) Render(_ *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	d, err := reportGemini(sel, out)
 	if err != nil {
 		return d, err
@@ -144,12 +143,12 @@ func (geminiEngine) Render(_ *providers.Registry, sel providers.Selection, home 
 	return d || gd || hd, err
 }
 
-func (geminiEngine) ConfigPaths(home string) ([]render.LabelPath, error) {
-	home, err := render.HomeOr(home)
+func (geminiEngine) ConfigPaths(home string) ([]agentconfig.LabelPath, error) {
+	home, err := agentconfig.HomeOr(home)
 	if err != nil {
 		return nil, err
 	}
-	return []render.LabelPath{
+	return []agentconfig.LabelPath{
 		{Label: "gemini-settings", Path: filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")},
 		{Label: "gemini-hooks", Path: filepath.Join(home, ".gemini", "config", "hooks.json")},
 	}, nil

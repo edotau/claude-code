@@ -1,7 +1,9 @@
-package render
+package agentconfig
 
 import (
 	"bytes"
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,5 +70,59 @@ func TestCommitJSONObject(t *testing.T) {
 				t.Errorf("note = %q, want %q + %q", out.String(), want, c.wantNote)
 			}
 		})
+	}
+}
+
+// A hook command holding <, > and & must round-trip byte-identical, or every apply restages the file and --check reports drift.
+func TestCommitJSONObjectKeepsHTMLCharsUnescaped(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	path := filepath.Join(t.TempDir(), "settings.json")
+	body := "{\n  \"cmd\": \"cd x && run <arg>\"\n}\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var plan RenderPlan
+	changed, err := CommitJSONObject(path, RenderOptions{}.Stage(&plan), &bytes.Buffer{}, "x-settings", func(map[string]any, bool) bool { return true })
+	if err != nil || changed {
+		t.Fatalf("changed = %v, err = %v; want an unchanged round trip", changed, err)
+	}
+}
+
+func TestRenderHooksFileRejectsNullExistingObject(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	path := filepath.Join(t.TempDir(), "hooks.json")
+	const existing = "null\n"
+	if err := os.WriteFile(path, []byte(existing), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	merge := func(raw, body []byte) ([]byte, error) {
+		next, _, err := MergeHooksTop(raw, body, func(item json.RawMessage) (*json.RawMessage, bool) {
+			return &item, false
+		})
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(next)
+	}
+	var plan RenderPlan
+	changed, err := RenderHooksFile(path, []byte(`{"hooks":{"SessionStart":[{"command":"claude-code hook SessionStart"}]}}`), merge, RenderOptions{}.Stage(&plan), io.Discard, "codex-hooks")
+	if err == nil {
+		t.Fatal("existing null hooks file accepted; want non-object error")
+	}
+	if !strings.Contains(err.Error(), "existing file: not a JSON object") {
+		t.Fatalf("error = %v, want existing-file non-object error", err)
+	}
+	if changed {
+		t.Fatal("rejected hooks file reported changed")
+	}
+	if err := plan.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != existing {
+		t.Fatalf("hooks file = %q, want original %q", got, existing)
 	}
 }

@@ -15,7 +15,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/agentid"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -243,7 +242,7 @@ func settingsPatch(home string) (path string, old []byte, next string, existed b
 	if path, err = paths.CodexConfigPath(home); err != nil {
 		return "", nil, "", false, err
 	}
-	if old, existed, err = render.ReadExisting(path); err != nil {
+	if old, existed, err = agentconfig.ReadExisting(path); err != nil {
 		return "", nil, "", false, err
 	}
 	prefs, err := LoadCodexPreferences()
@@ -475,7 +474,7 @@ func codexRestoreSource(path string, dryRun bool) (backup CodexConfigBackup, sou
 	if err != nil || found {
 		return backup, "encrypted vault backup", found, err
 	}
-	src, _, ok := render.LegacyBackupSource(path)
+	src, _, ok := agentconfig.LegacyBackupSource(path)
 	if !ok {
 		return backup, "", false, nil
 	}

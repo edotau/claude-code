@@ -109,9 +109,7 @@ func cloneRecord(r vault.AgentRecord) vault.AgentRecord {
 	out := r
 	out.Aliases, out.Extras = maps.Clone(r.Aliases), maps.Clone(r.Extras)
 	if p := r.Permissions; p != nil {
-		cp := *p
-		cp.Allow, cp.Ask, cp.Deny = slices.Clone(p.Allow), slices.Clone(p.Ask), slices.Clone(p.Deny)
-		out.Permissions = &cp
+		out.Permissions = new(vault.AgentPolicy(Policy(*p).clone()))
 	}
 	if l := r.Launch; l != nil {
 		out.Launch = &vault.AgentLaunch{Env: slices.Clone(l.Env), Args: slices.Clone(l.Args)}
@@ -124,11 +122,16 @@ func (g GuardRules) clone() GuardRules {
 	return GuardRules{Ask: slices.Clone(g.Ask), Deny: slices.Clone(g.Deny)}
 }
 
+// clone returns a deep copy of p's rule lists.
+func (p Policy) clone() Policy {
+	p.Allow, p.Ask, p.Deny = slices.Clone(p.Allow), slices.Clone(p.Ask), slices.Clone(p.Deny)
+	return p
+}
+
 // clone returns a deep copy of a: permission defaults, MCP allowlist and launch env/args.
 func (a AgentConfig) clone() AgentConfig {
 	out := a
-	d := a.Permission.Defaults
-	out.Permission.Defaults = Policy{Mode: d.Mode, Allow: slices.Clone(d.Allow), Ask: slices.Clone(d.Ask), Deny: slices.Clone(d.Deny)}
+	out.Permission.Defaults = a.Permission.Defaults.clone()
 	out.MCP.Allow = slices.Clone(a.MCP.Allow)
 	out.Launch.Env = slices.Clone(a.Launch.Env)
 	out.Launch.Args = slices.Clone(a.Launch.Args)
@@ -285,11 +288,11 @@ func Settings(name string) (vault.AgentRecord, error) {
 
 // BuiltinSettings is Settings without the stored vault record: built-in defaults, then the legacy overlay entry.
 func BuiltinSettings(name string) (vault.AgentRecord, error) {
-	cfg, err := LoadConfig()
+	cfg, err := configCache.Get(vault.Path(), loadConfig)
 	if err != nil {
 		return vault.AgentRecord{}, err
 	}
-	return cfg.records[name], nil
+	return cloneRecord(cfg.records[name]), nil
 }
 
 // templateGuardRules reads the embedded settings template's permissions.ask/deny verbatim.

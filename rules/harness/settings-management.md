@@ -1,7 +1,7 @@
 ---
 paths:
   - "internal/settings/**"
-  - "internal/agentconfig/render_*.go"
+  - "internal/agentconfig/*.go"
   - "**/settings.json"
   - "internal/settings/template.json"
 ---

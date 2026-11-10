@@ -22,7 +22,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -255,6 +254,6 @@ func RegisterCodexMCP(path, bin string) error {
 
 // RenderAgentConfigs re-renders the agent configs, writing progress to out.
 func RenderAgentConfigs(out io.Writer) error {
-	_, err := client.RenderConfigs(agentrender.RenderOptions{Out: out})
+	_, err := client.RenderConfigs(agentconfig.RenderOptions{Out: out})
 	return err
 }

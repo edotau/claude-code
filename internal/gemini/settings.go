@@ -16,14 +16,13 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
 // renderGeminiSettings merges the spec's exact-match guard denies into agy's
 // ~/.gemini/antigravity-cli/settings.json permissions.deny, preserving every other key.
-func renderGeminiSettings(home string, o render.RenderOptions, out io.Writer) (bool, error) {
+func renderGeminiSettings(home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	cfg, err := loadAgentConfig()
 	if err != nil {
 		fmt.Fprintf(out, "gemini-settings: skipped: %v\n", err)
@@ -39,7 +38,7 @@ func renderGeminiSettings(home string, o render.RenderOptions, out io.Writer) (b
 	}
 	rules := agyGuardRules(cfg.Guard().Deny, out)
 	path := filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
-	return render.CommitJSONObject(path, o, out, "gemini-settings", func(obj map[string]any, existed bool) bool {
+	return agentconfig.CommitJSONObject(path, o, out, "gemini-settings", func(obj map[string]any, existed bool) bool {
 		if len(rules) == 0 && !existed {
 			return false // nothing to deny: don't create agy's settings.json just to write an empty list
 		}
@@ -221,7 +220,7 @@ func agyRule(r agent.Rule, cwd string) (string, bool) {
 
 // agyHooksPath is agy's global hooks.json, where renderGeminiHooks installs the permission gate.
 func agyHooksPath() string {
-	home, _ := render.HomeOr("")
+	home, _ := agentconfig.HomeOr("")
 	return filepath.Join(home, ".gemini", "config", "hooks.json")
 }
 

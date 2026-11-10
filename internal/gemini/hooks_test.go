@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/agentconfig"
 )
 
 // The agy hook render keeps foreign hooks and replaces its own entry with one gate hook on agy's tool names.
@@ -33,8 +33,8 @@ func TestRenderGeminiHooks(t *testing.T) {
 
 // stagedHooks renders the agy hooks.json under home and applies the staged write.
 func stagedHooks(home string) (bool, error) {
-	var plan render.RenderPlan
-	changed, err := renderGeminiHooks(home, render.RenderOptions{}.Stage(&plan), io.Discard)
+	var plan agentconfig.RenderPlan
+	changed, err := renderGeminiHooks(home, agentconfig.RenderOptions{}.Stage(&plan), io.Discard)
 	if err != nil {
 		return changed, err
 	}

@@ -20,7 +20,12 @@ const OverlayDebugVar = "COWORKER_OVERLAY_DEBUG"
 
 // OverlayDebugOn reports whether RecordOverlayDebug writes: COWORKER_OVERLAY_DEBUG and its _SALT are both set.
 func OverlayDebugOn() bool {
-	return os.Getenv(OverlayDebugVar) != "" && os.Getenv(OverlayDebugVar+"_SALT") != ""
+	path, salt := overlayDebugEnv()
+	return path != "" && salt != ""
+}
+
+func overlayDebugEnv() (path, salt string) {
+	return os.Getenv(OverlayDebugVar), os.Getenv(OverlayDebugVar + "_SALT")
 }
 
 type overlayDebugRecord struct {
@@ -85,14 +90,15 @@ func overlayDebugSalt(path string) (string, error) {
 
 // RecordOverlayDebug appends env's names and HMAC-SHA256 fingerprints (last duplicate wins, as exec does).
 func RecordOverlayDebug(agentName string, env []string) {
-	path, salt := os.Getenv(OverlayDebugVar), os.Getenv(OverlayDebugVar+"_SALT")
+	path, salt := overlayDebugEnv()
 	if path == "" || salt == "" {
 		return
 	}
 	rec := overlayDebugRecord{Label: os.Getenv(OverlayDebugVar + "_LABEL"), Agent: agentName, PID: os.Getpid(), FP: map[string]string{}}
+	m := hmac.New(sha256.New, []byte(salt)) // one MAC reused across names
 	for _, kv := range env {
 		name, val, _ := strings.Cut(kv, "=")
-		m := hmac.New(sha256.New, []byte(salt))
+		m.Reset()
 		m.Write([]byte(val))
 		if _, seen := rec.FP[name]; !seen {
 			rec.Names = append(rec.Names, name)

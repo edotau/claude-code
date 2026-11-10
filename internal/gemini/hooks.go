@@ -4,7 +4,7 @@ import (
 	"io"
 	"path/filepath"
 
-	"github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -15,7 +15,7 @@ const agyHookName = "claude-code"
 const agyGateMatcher = "run_command|read_file|write_file|edit_file"
 
 // renderGeminiHooks merges the harness's agy PreToolUse hooks into ~/.gemini/config/hooks.json, keeping every other hook.
-func renderGeminiHooks(home string, o render.RenderOptions, out io.Writer) (bool, error) {
+func renderGeminiHooks(home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	var hooks []any
 	for _, s := range settings.SpecsFor("gemini", "native") {
 		hooks = append(hooks, map[string]any{
@@ -23,7 +23,7 @@ func renderGeminiHooks(home string, o render.RenderOptions, out io.Writer) (bool
 		})
 	}
 	path := filepath.Join(home, ".gemini", "config", "hooks.json")
-	return render.CommitJSONObject(path, o, out, "gemini-hooks", func(obj map[string]any, _ bool) bool {
+	return agentconfig.CommitJSONObject(path, o, out, "gemini-hooks", func(obj map[string]any, _ bool) bool {
 		obj[agyHookName] = map[string]any{"PreToolUse": []any{map[string]any{"matcher": agyGateMatcher, "hooks": hooks}}}
 		return true
 	})

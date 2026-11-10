@@ -3,15 +3,15 @@ package codex
 import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
 func init() {
 	agent.Register(agent.Agent{Row: row, Driver: codexEngine{agent.NewBaseEngine("codex")}})
-	render.RegisterFileOps("codex", render.FileOps{Write: writeCodexConfig, LoadBaseline: LoadCodexBaseline,
+	agentconfig.RegisterFileOps("codex", agentconfig.FileOps{Write: writeCodexConfig, LoadBaseline: LoadCodexBaseline,
 		SaveBaseline: SaveCodexBaseline, Revert: restoreCodexConfig})
-	render.RegisterFileOps("codex-hooks", render.FileOps{Write: writeCodexHooks})
+	agentconfig.RegisterFileOps("codex-hooks", agentconfig.FileOps{Write: writeCodexHooks})
 }
 
 // row is codex's roster entry: binary, dialects, capabilities, events and launch hints.
