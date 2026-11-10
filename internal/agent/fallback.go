@@ -71,13 +71,13 @@ func chainOutcome(c Chain, res wire.Result, err error, reasons []string, prevDis
 	return res, err
 }
 
-// announceFallback tells notify and the sink that disp takes over from prev after err.
-func announceFallback(sink wire.Sink, notify func(string), prev Engine, disp Dispatch, err error) *retry.Error {
+// announceFallback tells notify and the sink in one line, both accounts named, that disp takes over from prev.
+func announceFallback(sink wire.Sink, notify func(string), prev, disp Dispatch, err error) *retry.Error {
+	line := fmt.Sprintf("fallback %s → %s: %s", hopLabel(prev), hopLabel(disp), FallbackReason(err))
 	if notify != nil {
-		notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s%s", dispatchLabel(prev), FallbackReason(err), dispatchLabel(disp.Agent), dispatchCell(disp)))
+		notify(line)
 	}
-	hop := wire.Event{Type: wire.EventRetry, Agent: disp.Agent.Name(),
-		Text: fmt.Sprintf("fallback %s → %s: %s", dispatchLabel(prev), dispatchLabel(disp.Agent), FallbackReason(err))}
+	hop := wire.Event{Type: wire.EventRetry, Agent: disp.Agent.Name(), Text: line}
 	if serr := sink.Emit(hop); serr != nil {
 		return &retry.Error{Kind: retry.KindFatal, Agent: disp.Agent.Name(), Err: serr}
 	}
@@ -176,17 +176,6 @@ func envelopeErrors(attempts ...*retry.Error) []wire.EnvelopeError {
 		out = append(out, wire.EnvelopeError{Kind: wire.ErrorKind(a), Message: textutil.RedactSecrets(a.AttemptMessage())})
 	}
 	return out
-}
-
-// dispatchCell is " (model, effort)" for a routed dispatch, "" for an unrouted one.
-func dispatchCell(l Dispatch) string {
-	if l.Model == "" {
-		return ""
-	}
-	if l.Effort != "" {
-		return " (" + l.Model + ", " + l.Effort + ")"
-	}
-	return " (" + l.Model + ")"
 }
 
 // hopLabel is dispatchLabel plus the hop's account, "codex (openai·chatgpt)".
@@ -384,7 +373,7 @@ func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch,
 	if i > 0 {
 		s.reasons = append(s.reasons, hopLabel(s.prevDispatch)+": "+FallbackReason(s.err))
 		s.req.Prompt = s.nextPrompt(midRun) // the git reconcile steps go to an editing successor only
-		if herr := announceFallback(sink, notify, s.prev, disp, s.err); herr != nil {
+		if herr := announceFallback(sink, notify, s.prevDispatch, disp, s.err); herr != nil {
 			return true, herr
 		}
 	}

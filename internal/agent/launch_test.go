@@ -3,11 +3,14 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -56,6 +59,35 @@ func TestEnsureRouterErrorSurfaces(t *testing.T) {
 	_, _, err := SchemaFor("codex").Configure(context.Background(), target(t, "openai", "gpt-5"), "")
 	if err == nil || !strings.Contains(err.Error(), "router") || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// Inside databricks:dev a routed child holds a session token minted once for dev and this pid, never the router secret.
+func TestArmRouterRouteMintsSessionToken(t *testing.T) {
+	armRegistry(t, "")
+	stubRouter(t, func(context.Context) (string, error) { return "http://127.0.0.1:9" + t.Name(), nil })
+	om := MintSession
+	t.Cleanup(func() { MintSession = om })
+	var mints []string
+	MintSession = func(_ context.Context, profile string, pid int) (string, error) {
+		mints = append(mints, fmt.Sprintf("%s/%d", profile, pid))
+		return "cct_ARM", nil
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if _, _, key, err := routerRoute(t.Context(), SchemaFor("codex"), reg.Providers["dev"], ""); err != nil || key != "cct_ARM" {
+			t.Fatalf("armed routerRoute key = %q, %v; want the minted session token", key, err)
+		}
+	}
+	if want := fmt.Sprintf("dev/%d", os.Getpid()); !slices.Equal(mints, []string{want}) {
+		t.Errorf("mints = %v, want one for %s", mints, want)
+	}
+	t.Setenv(router.EnvRoute, "")
+	if _, _, key, _ := routerRoute(t.Context(), SchemaFor("codex"), reg.Providers["dev"], ""); key != "rtr-secret-xyz" {
+		t.Errorf("unarmed routerRoute key = %q, want the router secret", key)
 	}
 }
 

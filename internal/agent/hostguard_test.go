@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -68,6 +70,80 @@ func TestGuardProviderResolvesModelPrefixForVendorAgent(t *testing.T) {
 	p, err := guardProvider(&fakeRunner{name: "codex"}, RunOptions{Model: "hm:opus"})
 	if err != nil || p == nil || p.Name != "hm" {
 		t.Fatalf("guardProvider = %v, %v; want the hm profile", p, err)
+	}
+}
+
+// armRegistry overlays workspaces dev and qa (DEV_TOKEN, QA_TOKEN; devExtra extends dev) and arms databricks:dev.
+func armRegistry(t *testing.T, devExtra string) {
+	t.Helper()
+	vaulttest.UseKeyring(t)
+	row := func(name, env, extra string) string {
+		return `"` + name + `":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net",` +
+			`"auth":{"type":"key","env":"` + env + `"},"models":{"opus":"databricks-claude-opus-5-5"}` + extra + `}`
+	}
+	vaulttest.Put(t, vault.Overlay, "providers",
+		`{"providers":{"databricks":{`+row("dev", "DEV_TOKEN", devExtra)+`,`+row("qa", "QA_TOKEN", "")+`}}}`)
+	t.Setenv("DEV_TOKEN", "dapi-dev")
+	t.Setenv("QA_TOKEN", "dapi-qa")
+	t.Setenv(router.EnvRoute, "databricks:dev")
+}
+
+// Inside databricks:dev a hop runs only on dev or the agent's own login, isolated; anything else is fatal up front.
+func TestArmGuard(t *testing.T) {
+	cases := []struct {
+		name, devExtra, prof, route, fatal string
+		creds                              []string // the credential names the child keeps on a pass
+	}{
+		{name: "another workspace", prof: "qa", fatal: "profile qa is outside databricks:dev"},
+		{name: "another agent's login", prof: "chatgpt", fatal: "profile chatgpt is outside databricks:dev"},
+		{name: "AI Gateway dev", devExtra: `,"options":{"wire":"ai-gateway"}`, prof: "dev", fatal: "AI Gateway wire"},
+		{name: "dev", prof: "dev", creds: []string{"DEV_TOKEN"}},
+		{name: "own login", prof: "ultra"},
+		{name: "unarmed qa", prof: "qa", route: "default", creds: []string{"DEV_TOKEN", "QA_TOKEN"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			armRegistry(t, c.devExtra)
+			if c.route != "" {
+				t.Setenv(router.EnvRoute, c.route)
+			}
+			armGuardCase(t, c.prof, c.fatal, c.creds)
+		})
+	}
+}
+
+// armGuardCase runs claude's guard on prof: fatal names the refusal, else creds are the credential names kept.
+func armGuardCase(t *testing.T, prof, fatal string, creds []string) {
+	t.Helper()
+	ctx, gerr := guardAttempt(context.Background(), &fakeRunner{name: "claude"}, RunOptions{Provider: prof, Model: "opus"})
+	if fatal != "" {
+		if gerr == nil || gerr.Kind != retry.KindFatal || !strings.Contains(gerr.Error(), fatal) {
+			t.Errorf("guardAttempt = %v, want KindFatal %q", gerr, fatal)
+		}
+		return
+	}
+	if gerr != nil {
+		t.Fatalf("guardAttempt = %v, want a pass", gerr)
+	}
+	env := EnvSpec{Mode: EnvPrescrubbed, Base: []string{"DEV_TOKEN=dapi-dev", "QA_TOKEN=dapi-qa"}}.Environ(ctx)
+	got := slices.DeleteFunc(EnvNames(env), func(n string) bool { return !strings.HasSuffix(n, "_TOKEN") })
+	if !slices.Equal(got, creds) {
+		t.Errorf("child credential names = %v, want %v", got, creds)
+	}
+}
+
+// Inside databricks:dev a claude hop runs on its candidate's "<profile>:" row, which the guard then checks.
+func TestArmClaudeHopRunsOnItsProfile(t *testing.T) {
+	armRegistry(t, "")
+	claude := &fakeRunner{name: "claude"}
+	for prof, fatal := range map[string]bool{"ultra": false, "qa": true} {
+		req := dispatchRequest(RunOptions{Provider: "dev"}, Dispatch{Agent: claude, Model: prof + ":sonnet"}, false)
+		if req.Provider != prof || req.Model != "sonnet" {
+			t.Errorf("%s hop: provider %q model %q, want %q and sonnet", prof, req.Provider, req.Model, prof)
+		}
+		if _, gerr := guardAttempt(context.Background(), claude, req); (gerr != nil) != fatal {
+			t.Errorf("%s hop: guardAttempt = %v, want fatal %v", prof, gerr, fatal)
+		}
 	}
 }
 

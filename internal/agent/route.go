@@ -245,6 +245,18 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 	if out.Effort == "" {
 		out.Effort = disp.Effort
 	}
+	return armClaudeProfile(out, disp)
+}
+
+// armClaudeProfile runs a claude hop inside databricks:<p> on its "<profile>:" row; claude reads only Provider.
+func armClaudeProfile(out RunOptions, disp Dispatch) RunOptions {
+	if router.ArmProfile() == "" || disp.Agent == nil || disp.Agent.Name() != "claude" {
+		return out
+	}
+	prof, model, ok := strings.Cut(out.Model, ":")
+	if reg, err := providers.Load(); ok && err == nil && reg.Providers[prof] != nil {
+		out.Provider, out.Model = prof, model
+	}
 	return out
 }
 
