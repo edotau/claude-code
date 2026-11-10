@@ -32,8 +32,8 @@ var (
 	agentNameRe = regexp.MustCompile(`[a-z]+`)
 )
 
-// agentEffortResult is the pin step as a Result: a spawn gets one UpdatedInput (model pin, recall block, quota
-// pressure, label); a Workflow gets the former workflow-lint rewrite or a Block.
+// agentEffortResult is the pin step as a Result: a spawn gets one UpdatedInput (model pin, recall block, label);
+// a Workflow gets the former workflow-lint rewrite or a Block.
 func agentEffortResult(in *core.Input) core.Result {
 	if in.ToolName == "Workflow" {
 		return quality.WorkflowResult(in)
@@ -59,7 +59,6 @@ func agentEffortResult(in *core.Input) core.Result {
 	if deny := e.profile(promptField, task); deny != nil {
 		return *deny
 	}
-	e.pressure(in, promptField, task)
 	if deny := e.label(in, task, auto); deny != nil {
 		return *deny
 	}
@@ -108,23 +107,6 @@ func (e *effortPlan) profile(promptField, task string) *core.Result {
 		e.note, e.changed = strings.TrimSpace(e.note+" "+profileNote), true
 	}
 	return nil
-}
-
-// pressure downshifts the model under plan pressure unless the dispatch pins one or names a profile.
-func (e *effortPlan) pressure(in *core.Input, promptField, task string) {
-	if explicitModel(in) || briefProfile(task) != "" {
-		return
-	}
-	base, _ := e.updated["model"].(string)
-	if base == "" {
-		base = rosterModel(in.Nested("tool_input", "subagent_type"))
-	}
-	pn, ps := applyPressure(in, e.updated, promptField, base)
-	if pn == "" {
-		return
-	}
-	e.note, e.systemMessage, e.changed = strings.TrimSpace(e.note+" "+pn), strings.TrimSpace(e.systemMessage+"; "+ps), true
-	e.systemMessage = strings.TrimPrefix(e.systemMessage, "; ")
 }
 
 // label puts the model the dispatch runs on first in its description: a rewrite normally, a one-time deny in auto

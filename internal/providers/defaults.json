@@ -6,7 +6,6 @@
       "price": 0.5,
       "headroom": 0.5
     },
-    "subagents": true,
     "claudeAnywhere": true,
     "ladders": {
       "default": [

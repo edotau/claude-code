@@ -114,25 +114,6 @@ func TestProfileSuffixNeverDoubles(t *testing.T) {
 	}
 }
 
-// A Profile: brief opts out of pressure steering: the profile note appears, the Claude-window note does not.
-func TestProfileSkipsPressure(t *testing.T) {
-	withPressure(t, 99)
-	t.Setenv("HARNESS_ROUTE_TEST_ANTHROPIC_PCT", "99")
-	stubProfiles(t, []string{"dbx"}, true)
-	control := runAgentEffortFull(t, profileSpawn(t, "claude", "do it"))
-	if !strings.Contains(control.HSO.AdditionalContext, "window at") {
-		t.Fatalf("control without a profile has no pressure note (%q); the test cannot bite", control.HSO.AdditionalContext)
-	}
-	doc := runAgentEffortFull(t, profileSpawn(t, "claude", "Profile: dbx\ndo it"))
-	ctx := doc.HSO.AdditionalContext
-	if !strings.Contains(ctx, "Profile: dbx") || strings.Contains(ctx, "window at") {
-		t.Errorf("context = %q, want the profile note and no pressure note", ctx)
-	}
-	if doc.HSO.UpdatedInput["subagent_type"] != "claude" || doc.HSO.UpdatedInput["model"] == "haiku" {
-		t.Errorf("updated = %+v, want claude kept, not forced to the pressure haiku", doc.HSO.UpdatedInput)
-	}
-}
-
 // Read-only types and in-context briefs keep their type and get no ask command.
 func TestProfileIgnoredForReadOnlyAndInContext(t *testing.T) {
 	stubProfiles(t, []string{"dbx"}, true)

@@ -418,6 +418,21 @@ func TestIdentitySPSkipsUserLogin(t *testing.T) {
 	}
 }
 
+func TestIdentityHeadlessUsesSPOnAutoRowOnly(t *testing.T) {
+	headless := WithIdentity(context.Background(), IdentityHeadless)
+	p, m2m, refresh, _ := spHarness(t, IdentityAuto)
+	if got, err := Credential(headless, p); err != nil || got != "sp-token" || *m2m != 1 || *refresh != 0 {
+		t.Fatalf("headless on an auto row = %q, %v (m2m %d, refresh %d); want the SP, no user refresh", got, err, *m2m, *refresh)
+	}
+	u, m2m, _, _ := spHarness(t, IdentityUser)
+	if _, err := Credential(headless, u); err == nil || *m2m != 0 {
+		t.Fatalf("headless on a user row minted the SP: %v (m2m %d)", err, *m2m)
+	}
+	if got := headlessAs(&Provider{}, IdentityHeadless); got != "" {
+		t.Errorf("unpaired row headless = %q; want no override", got)
+	}
+}
+
 func TestIdentityFlagBeatsProfile(t *testing.T) {
 	if got, err := ResolveIdentity(IdentityUser, IdentitySP); err != nil || got != IdentitySP {
 		t.Fatalf("flag sp over profile user = %q, %v", got, err)

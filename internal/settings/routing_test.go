@@ -55,55 +55,6 @@ func TestWeightsPriceRejectsOutOfRange(t *testing.T) {
 	}
 }
 
-// TestSubagentsRoundTripsAndResets checks Set/Get agree and "" resets to nil (on, the default).
-func TestSubagentsRoundTripsAndResets(t *testing.T) {
-	f := fieldByKey(t, "subagents")
-	var r providers.Routing
-	if got := f.Get(r); got != "true" {
-		t.Errorf("Get() on a zero Routing = %q, want true (the default)", got)
-	}
-	if err := f.Set(&r, "false"); err != nil {
-		t.Fatal(err)
-	}
-	if got := f.Get(r); got != "false" {
-		t.Errorf("Get() = %q, want false", got)
-	}
-	if r.Subagents == nil || *r.Subagents {
-		t.Errorf("Subagents = %v, want a pointer to false", r.Subagents)
-	}
-	if err := f.Set(&r, ""); err != nil {
-		t.Fatal(err)
-	}
-	if r.Subagents != nil {
-		t.Errorf("reset must clear Subagents to nil, got %v", r.Subagents)
-	}
-}
-
-// TestCoreRoutingEnvExportsSubagentsOffOnly checks the core module's Env exports HARNESS_ROUTE_SUBAGENTS=0
-// only when subagents are off; the default (on, nil) exports nothing.
-func TestCoreRoutingEnvExportsSubagentsOffOnly(t *testing.T) {
-	var core Module
-	for _, m := range Modules() {
-		if m.Name() == "routing" {
-			core = m
-		}
-	}
-	if core == nil {
-		t.Fatal("no core routing module registered")
-	}
-	if env := core.Env(providers.Routing{}); env != nil {
-		t.Errorf("Env(default) = %v, want nil (on is the default, nothing to export)", env)
-	}
-	off := false
-	if env := core.Env(providers.Routing{Subagents: &off}); env[providers.EnvRouteSubagents] != "0" {
-		t.Errorf("Env(off) = %v, want HARNESS_ROUTE_SUBAGENTS=0", env)
-	}
-	on := true
-	if env := core.Env(providers.Routing{Subagents: &on}); env != nil {
-		t.Errorf("Env(explicitly on) = %v, want nil", env)
-	}
-}
-
 // TestLadderRoundTripsAndResets checks the opencode ladder field's comma-separated Set/Get and "" reset.
 func TestLadderRoundTripsAndResets(t *testing.T) {
 	f := fieldByKey(t, "opencode.ladder")
@@ -205,22 +156,5 @@ func TestFreeFirstOutputRoundTripsAndRejectsBadDuration(t *testing.T) {
 		if err := f.Set(&scratch, bad); err == nil {
 			t.Errorf("Set(%q): want an error", bad)
 		}
-	}
-}
-
-// TestOpencodeModuleEnvContributesNothing checks the opencode module's Env always returns nil: it carries
-// no env-shaped knob of its own, every field is read straight from the registry.
-func TestOpencodeModuleEnvContributesNothing(t *testing.T) {
-	var oc Module
-	for _, m := range Modules() {
-		if m.Name() == "opencode" {
-			oc = m
-		}
-	}
-	if oc == nil {
-		t.Fatal("no opencode module registered")
-	}
-	if env := oc.Env(providers.Routing{}); env != nil {
-		t.Errorf("Env() = %v, want nil", env)
 	}
 }

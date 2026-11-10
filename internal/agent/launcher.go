@@ -16,7 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -96,35 +95,7 @@ type Plan struct {
 
 // Env applies the plan to base (KEY=VALUE list).
 func (p Plan) Env(base []string) []string {
-	merged, locked := moduleEnv(base)
-	return p.envWith(merged, customEnv(), locked)
-}
-
-// moduleEnv appends agent settings module exports onto base, skipping keys the process env sets; locked names those.
-func moduleEnv(base []string) ([]string, map[string]bool) {
-	present := map[string]bool{}
-	for _, kv := range base {
-		if k, _, ok := strings.Cut(kv, "="); ok {
-			present[k] = true
-		}
-	}
-	locked := map[string]bool{}
-	reg, err := providers.Load()
-	if err != nil {
-		return base, locked
-	}
-	out := base
-	for _, m := range settings.Modules() {
-		for k, v := range m.Env(reg.Routing) {
-			if present[k] {
-				locked[k] = true // process env already set this module-owned key: protect it from custom env too
-				continue
-			}
-			out = append(out, k+"="+v)
-			present[k] = true
-		}
-	}
-	return out, locked
+	return p.envWith(base, customEnv())
 }
 
 // customEnv is the vault env bucket resolved (@secret refs via vault.Lookup); an unresolved ref is warned, not
@@ -152,8 +123,8 @@ var customEnv = func() map[string]string {
 	return vals
 }
 
-// envWith layers base, then custom (user vars), then Set; Unset and Set beat custom, locked keys skip custom.
-func (p Plan) envWith(base []string, custom map[string]string, locked map[string]bool) []string {
+// envWith layers base, then custom (user vars), then Set; Unset and Set beat custom.
+func (p Plan) envWith(base []string, custom map[string]string) []string {
 	unset := map[string]bool{}
 	for _, k := range p.Unset {
 		unset[k] = true
@@ -164,7 +135,7 @@ func (p Plan) envWith(base []string, custom map[string]string, locked map[string
 	}
 	for k, v := range custom {
 		_, harness := p.Set[k]
-		if !harness && !unset[k] && !locked[k] {
+		if !harness && !unset[k] {
 			merged[k] = v
 		}
 	}

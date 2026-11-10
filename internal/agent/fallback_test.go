@@ -102,6 +102,22 @@ func TestRunWithFallbackSkippedRequestedRoute(t *testing.T) {
 	}
 }
 
+// An unasked agent's availability skip never reaches fallback_reason; the asked agent's skip and every failed hop do.
+func TestRunWithFallbackReasonDropsUnaskedSkips(t *testing.T) {
+	fallbackConfigDir(t)
+	codex := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{errCodexMissing}, emptyAnswer: true}
+	claude := &fakeRunner{name: "claude", errs: []error{nil}}
+	c := chainOf([]Engine{codex, claude})
+	c.Skipped = []string{"gemini: not configured: not installed", "codex (databricks·qa): exhausted"}
+	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
+	if err != nil || res.Fallback != "codex" {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	if strings.Contains(res.FallbackReason, "gemini") || !strings.HasPrefix(res.FallbackReason, "codex (databricks·qa): exhausted; codex: ") {
+		t.Errorf("FallbackReason = %q, want the codex skip then the codex hop, no gemini", res.FallbackReason)
+	}
+}
+
 // An explicit --profile dispatch that fails with the default --fallback all never starts the next dispatch; the same failure
 // without a profile does, so the chain is built to advance.
 func TestExplicitDispatchFailureDoesNotAdvance(t *testing.T) {

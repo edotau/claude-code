@@ -1,4 +1,4 @@
-// Package safety is the command-safety hook area: safety-scan, the rtk rewrite and the copilot-bash guard.
+// Package safety is the command-safety hook area: safety-scan, and the rtk rewrite.
 package safety
 
 import (

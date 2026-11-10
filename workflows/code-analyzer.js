@@ -332,9 +332,9 @@ let PF_STATE = '' // claude account state, read by the coworkers preflight when 
 const EXT = [...new Map(Object.values(S).filter((s) => s.ext).map((s) => [s.agent + '|' + s.profile + '|' + s.provider, s])).values()]
 if (EXT.length) {
   const pf = await agent(
-    'For each line, run it and report its candidate count and the first candidate as agent/account/model. Edit nothing. First run `pwd; echo $HOME` and report them as cwd and home. Also run `claude-code gateway router --format json --agent claude --fallback none --model sonnet </dev/null` and report claudeState = candidates[0].state when candidates is non-empty, else the skipped[] entry for claude and its gate value, else "unknown".\n' +
+    'For each line, run it and report its candidate count and the first candidate as agent/account/model. Edit nothing. Also run `claude-code gateway router --format json --agent claude --fallback none --model sonnet </dev/null` and report claudeState = candidates[0].state when candidates is non-empty, else the skipped[] entry for claude and its gate value, else "unknown".\n' +
       EXT.map((s) => `claude-code gateway router --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
-    { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['cwd', 'home', 'routes'], properties: { cwd: { type: 'string' }, home: { type: 'string' }, claudeState: { type: 'string' }, routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
+    { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['routes'], properties: { claudeState: { type: 'string' }, routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
   )
   PF_STATE = (pf && pf.claudeState) || ''
   for (const r of (pf && pf.routes) || []) log(`coworkers preflight ${r.agent}: ${r.candidates} route(s), first ${r.first}${r.error ? ' — ' + r.error : ''}`)
@@ -342,11 +342,6 @@ if (EXT.length) {
   // fail closed: a missing preflight, or no route row for an external agent, counts as no route
   const dead = [...routes.filter((r) => r.candidates === 0).map((r) => r.agent + (r.error ? ' (' + r.error + ')' : '')),
     ...[...new Set(EXT.map((s) => s.agent))].filter((g) => !routes.some((r) => String(r.agent).includes(g))).map((g) => g + ' (no preflight result)')]
-  // copilot-bash lets a leaf reach only its own cwd and ~/worktrees; a target elsewhere blocks every copilot stage
-  const tgt = a.cwd || a.base || ''
-  const reach = (r) => !!r && (tgt === r || tgt.startsWith(r + '/'))
-  if (tgt && pf && pf.cwd && EXT.some((s) => s.agent === 'copilot') && !reach(pf.cwd) && !reach((pf.home || '') + '/worktrees'))
-    return ERR('coworkers: copilot cannot reach ' + tgt + ' from session cwd ' + pf.cwd + '; start the session in a parent dir or put the target under ~/worktrees')
   if (dead.length) return ERR('coworkers: no route for ' + dead.join(', ') + '; BLOCKED before any work')
 }
 // Audit effort stays per lens unless steps.audit.effort is set; fix keeps opus+high for highs unless set.

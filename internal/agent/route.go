@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agentcfg"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -317,7 +317,7 @@ func LeadFor(q RouteReq) (lead string, explicit bool, err error) {
 		_, err := reg.Get(q.Profile) // an unknown pin errs with explicit set: dispatch reports it, a lead check skips it
 		return "", true, err
 	}
-	cfg, err := agentcfg.For(q.Agent, agentcfg.Launch{Profile: q.Profile, Provider: q.Provider, Routed: true, CanServe: CanServe})
+	cfg, err := agentconfig.For(q.Agent, agentconfig.Launch{Profile: q.Profile, Provider: q.Provider, Routed: true, CanServe: CanServe})
 	return cfg.Profile, false, err
 }
 

@@ -2,6 +2,7 @@ package ask
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -316,7 +317,7 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 	}
 	req = launchplan.ApplyOverlay(req, ov)
 	cl := NewClient()
-	ctx = providers.WithIdentity(ctx, as)
+	ctx = providers.WithIdentity(ctx, cmp.Or(as, providers.IdentityHeadless)) // headless: a paired row runs as its SP
 	prepared, err := cl.Prepare(ctx, req, jobRec)
 	if err != nil {
 		return failAskCode(format, name, err, prepareExitCode(err))

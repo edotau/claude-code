@@ -190,6 +190,20 @@ func TestClaudeRoutedLaunchPlan(t *testing.T) {
 	}
 }
 
+// A headless dispatch's identity rides the proxy headers so the proxy's credential mint applies it.
+func TestClaudeRoutedLaunchCarriesIdentity(t *testing.T) {
+	hermetic(t, `{"providers": {"openai": {"ollama": {"protocol": "openai", "base_url": "http://127.0.0.1:11434/v1",
+		"auth": {"type": "none"}, "models": {"opus": "qwen3-coder", "sonnet": "qwen3-coder", "haiku": "qwen3-coder"}}}}}`)
+	ctx := providers.WithIdentity(context.Background(), providers.IdentityHeadless)
+	p, err := Claude(ctx, agent.LaunchOptions{Provider: "ollama"}, []string{"-p", "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := p.Set["ANTHROPIC_CUSTOM_HEADERS"], "X-Claude-Code-Agent: claude\nX-Claude-Code-Identity: headless"; got != want {
+		t.Errorf("headers = %q, want %q", got, want)
+	}
+}
+
 // Print masks credential-named env values and quoted credential-shaped strings in argv, and keeps the rest readable.
 func TestClaudePlanPrintRedactsSecrets(t *testing.T) {
 	hermetic(t, gwProviders)

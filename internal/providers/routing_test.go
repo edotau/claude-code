@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // TestRoutingOverlayMergesWeightsCellsAndOpencode checks a `routing` overlay object merges its weights,
@@ -177,37 +176,6 @@ func TestUpdateRoutingRejectsInvalidResult(t *testing.T) {
 	}
 	if _, err := OverlayDoc(); err == nil {
 		t.Error("a rejected UpdateRouting must not create an overlay document")
-	}
-}
-
-// TestRouteSubagentsOnPrecedence checks env beats vault beats default, each reporting its own source.
-func TestRouteSubagentsOnPrecedence(t *testing.T) {
-	vaulttest.Use(t)
-
-	on, source := RouteSubagentsOn()
-	if !on || source != "default" {
-		t.Errorf("no overlay: on=%v source=%q, want true/default", on, source)
-	}
-
-	off := false
-	if err := UpdateRouting(func(r *Routing) error { r.Subagents = &off; return nil }); err != nil {
-		t.Fatal(err)
-	}
-	on, source = RouteSubagentsOn()
-	if on || source != "vault" {
-		t.Errorf("vault off: on=%v source=%q, want false/vault", on, source)
-	}
-
-	t.Setenv(EnvRouteSubagents, "1")
-	on, source = RouteSubagentsOn()
-	if !on || source != "env" {
-		t.Errorf("env=1 over vault-off: on=%v source=%q, want true/env", on, source)
-	}
-
-	t.Setenv(EnvRouteSubagents, "0")
-	on, source = RouteSubagentsOn()
-	if on || source != "env" {
-		t.Errorf("env=0: on=%v source=%q, want false/env", on, source)
 	}
 }
 

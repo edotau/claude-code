@@ -95,24 +95,3 @@ func RefreshAccount(ctx context.Context, key string) bool {
 	setStates(qs, warnThreshold())
 	return recordQuotas(qs, time.Now()) > 0
 }
-
-// ClaudePressure is the Anthropic plan's tightest window (5h or weekly; Fable excluded) from the shared usage
-// cache when fetched within router.StaleAfter; never touches the network, so a hook may call it.
-func ClaudePressure(now time.Time) (pct float64, window string, ok bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // a stalled keychain tool must not hang a hook
-	defer cancel()
-	creds, credsOK := claudeCredentials(ctx) // local keychain/file read only; no network
-	if !credsOK {
-		return 0, "", false
-	}
-	c := ownedCache(readClaudeUsageCache(claudeUsageCachePath()), creds)
-	if c == nil || now.Sub(c.FetchedAt) > router.StaleAfter {
-		return 0, "", false
-	}
-	for _, q := range parseClaudeUsage(c.Body, c.SubscriptionType) {
-		if q.Group == "" && q.Window != "" && q.UsedPct >= pct {
-			pct, window, ok = q.UsedPct, q.Window, true
-		}
-	}
-	return pct, window, ok
-}

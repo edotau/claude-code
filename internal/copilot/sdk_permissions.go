@@ -3,7 +3,6 @@
 package copilot
 
 import (
-	"cmp"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -12,7 +11,6 @@ import (
 	"sync/atomic"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/shell"
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
@@ -38,24 +36,18 @@ func baseHandler(o SDKOptions) copilot.PermissionHandlerFunc {
 	case !o.AllowAllTools:
 		return denyAllTools
 	case o.ReadOnlyTools:
-		return withPermissions(o, approveReadOnly, false)
-	case o.Autonomous:
-		return withPermissions(o, approveToolOnce, false)
+		return withPermissions(o, approveReadOnly)
 	}
-	return withPermissions(o, approveScoped(o.WorkingDirectory), true)
+	return withPermissions(o, approveToolOnce)
 }
 
-// withPermissions lets o.Permissions reject (Deny) or, on the scoped tier, approve (Allow) a request before next sees it.
-func withPermissions(o SDKOptions, next copilot.PermissionHandlerFunc, allowWidens bool) copilot.PermissionHandlerFunc {
+// withPermissions lets o.Permissions reject (Deny) a request before next sees it.
+func withPermissions(o SDKOptions, next copilot.PermissionHandlerFunc) copilot.PermissionHandlerFunc {
 	if o.Permissions.IsZero() {
 		return next
 	}
 	return func(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
-		call, ok := ruleCall(req, o.WorkingDirectory)
-		if !ok {
-			return next(req, inv)
-		}
-		if d, handled := ruleDecision(o, req, inv, call, allowWidens); handled {
+		if d, handled := ruleDecision(o, req, ruleCalls(req, o.WorkingDirectory)); handled {
 			return d.decision, d.err
 		}
 		return next(req, inv)
@@ -67,45 +59,48 @@ type ruleOutcome struct {
 	err      error
 }
 
-// ruleDecision judges call against o.Permissions; handled is false when next should decide.
-func ruleDecision(o SDKOptions, req copilot.PermissionRequest, inv copilot.PermissionInvocation, call agent.Rule, allowWidens bool) (ruleOutcome, bool) {
-	switch o.Permissions.Decide(call.Tool, call.Arg) {
-	case agent.Deny:
-		if planReadThrough(o.Permissions, req, call) {
-			return ruleOutcome{}, false
+// ruleDecision rejects when o.Permissions denies any of calls; handled is false when next should decide.
+func ruleDecision(o SDKOptions, req copilot.PermissionRequest, calls []agent.Rule) (ruleOutcome, bool) {
+	for _, call := range calls {
+		if o.Permissions.Decide(call.Tool, call.Arg) != agent.Deny || planReadThrough(o.Permissions, req, call) {
+			continue
 		}
 		feedback := "Refused by permission rule for " + call.String() + ": report it instead."
 		return ruleOutcome{decision: &rpc.PermissionDecisionReject{Feedback: &feedback}}, true
-	case agent.Allow:
-		if allowWidens && !protectedWrite(req, o.WorkingDirectory) && !protectedRm(req, o.WorkingDirectory) {
-			d, err := approveToolOnce(req, inv)
-			return ruleOutcome{d, err}, true
-		}
 	}
 	return ruleOutcome{}, false
 }
 
-// ruleCall is the Claude-style Tool(arg) a request is judged as; ok is false for kinds no rule names.
-func ruleCall(req copilot.PermissionRequest, workDir string) (agent.Rule, bool) {
+// ruleCalls are the Claude-style Tool(arg) names a request is judged as; none for kinds no rule names (memory).
+func ruleCalls(req copilot.PermissionRequest, workDir string) []agent.Rule {
 	switch r := req.(type) {
 	case rpc.PermissionRequestShell:
-		return agent.Rule{Tool: "Bash", Arg: r.FullCommandText}, true
+		return []agent.Rule{{Tool: "Bash", Arg: r.FullCommandText}}
 	case *rpc.PermissionRequestShell:
-		return agent.Rule{Tool: "Bash", Arg: r.FullCommandText}, true
+		return []agent.Rule{{Tool: "Bash", Arg: r.FullCommandText}}
 	case rpc.PermissionRequestWrite:
-		return agent.Rule{Tool: "Edit", Arg: relToWorkDir(workDir, r.FileName)}, true
+		return []agent.Rule{{Tool: "Edit", Arg: relToWorkDir(workDir, r.FileName)}}
 	case *rpc.PermissionRequestWrite:
-		return agent.Rule{Tool: "Edit", Arg: relToWorkDir(workDir, r.FileName)}, true
+		return []agent.Rule{{Tool: "Edit", Arg: relToWorkDir(workDir, r.FileName)}}
 	case rpc.PermissionRequestRead:
-		return agent.Rule{Tool: "Read", Arg: relToWorkDir(workDir, r.Path)}, true
+		return []agent.Rule{{Tool: "Read", Arg: relToWorkDir(workDir, r.Path)}}
 	case *rpc.PermissionRequestRead:
-		return agent.Rule{Tool: "Read", Arg: relToWorkDir(workDir, r.Path)}, true
+		return []agent.Rule{{Tool: "Read", Arg: relToWorkDir(workDir, r.Path)}}
 	case rpc.PermissionRequestURL:
-		return agent.Rule{Tool: "WebFetch", Arg: r.URL}, true
+		return []agent.Rule{{Tool: "WebFetch", Arg: r.URL}}
 	case *rpc.PermissionRequestURL:
-		return agent.Rule{Tool: "WebFetch", Arg: r.URL}, true
+		return []agent.Rule{{Tool: "WebFetch", Arg: r.URL}}
+	case rpc.PermissionRequestMCP:
+		return mcpCalls(r.ServerName, r.ToolName)
+	case *rpc.PermissionRequestMCP:
+		return mcpCalls(r.ServerName, r.ToolName)
 	}
-	return agent.Rule{}, false
+	return nil
+}
+
+// mcpCalls are Claude Code's MCP rule names for one tool: mcp__<server>__<tool> and the server-wide mcp__<server>.
+func mcpCalls(server, tool string) []agent.Rule {
+	return []agent.Rule{{Tool: "mcp__" + server + "__" + tool}, {Tool: "mcp__" + server}}
 }
 
 // relToWorkDir is p relative to workDir when inside it, else p unchanged.
@@ -116,44 +111,10 @@ func relToWorkDir(workDir, p string) string {
 	return p
 }
 
-// planReadThrough is a read or URL fetch that plan mode denied only by its fallback: no Deny rule names it.
+// planReadThrough is a read, URL fetch or harness web search that plan mode denied only by its fallback.
 func planReadThrough(p agent.Permissions, req copilot.PermissionRequest, call agent.Rule) bool {
-	return p.Mode == "plan" && readOnlyKinds[req.Kind()] &&
+	return p.Mode == "plan" && (readOnlyKinds[req.Kind()] || isWebSearchMCP(req)) &&
 		agent.Permissions{Deny: p.Deny}.Decide(call.Tool, call.Arg) != agent.Deny
-}
-
-// protectedRm is a command running rm that the scoped tier refuses (protected targets, .git, keys): Allow never lifts it.
-func protectedRm(req copilot.PermissionRequest, workDir string) bool {
-	cmd, ok := shellCommand(req)
-	return ok && runsRm(cmd, 0) && !scopedAllowed(req, workDir)
-}
-
-// runsRm reports whether any segment, substitution or nested `bash -c` body of cmd runs rm.
-func runsRm(cmd string, depth int) bool {
-	if depth > 8 {
-		return true
-	}
-	outer, subs := shell.ExtractSubstitutions(cmd)
-	for _, sub := range subs {
-		if runsRm(sub, depth+1) {
-			return true
-		}
-	}
-	for _, seg := range shell.Segments(outer) {
-		toks, _ := shell.Unwrap(shell.Tokens(seg), "")
-		if len(toks) > 0 && filepath.Base(toks[0]) == "rm" {
-			return true
-		}
-		if nested, ok := shell.NestedCommand(toks); ok && runsRm(nested, depth+1) {
-			return true
-		}
-	}
-	return false
-}
-
-// protectedWrite is a write the scoped tier refuses (outside the workdir, .git, .env*, state/, keys): Allow never lifts it.
-func protectedWrite(req copilot.PermissionRequest, workDir string) bool {
-	return req.Kind() == rpc.PermissionRequestKindWrite && !scopedAllowed(req, workDir)
 }
 
 func denyAllTools(_ copilot.PermissionRequest, _ copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
@@ -197,21 +158,6 @@ func shellCommand(req copilot.PermissionRequest) (string, bool) {
 	return "", false
 }
 
-// shellCwd is the directory the shell request runs in ("" when the runtime did not report one).
-func shellCwd(req copilot.PermissionRequest) string {
-	var wd *string
-	switch r := req.(type) {
-	case rpc.PermissionRequestShell:
-		wd = r.ResolvedWorkingDirectory
-	case *rpc.PermissionRequestShell:
-		wd = r.ResolvedWorkingDirectory
-	}
-	if wd == nil {
-		return ""
-	}
-	return *wd
-}
-
 // isWebSearchMCP is a call to the harness web_search MCP server (`network websearch`).
 func isWebSearchMCP(req copilot.PermissionRequest) bool {
 	switch r := req.(type) {
@@ -240,43 +186,5 @@ func approveToolOnce(_ copilot.PermissionRequest, inv copilot.PermissionInvocati
 	return &rpc.PermissionDecisionApproveOnce{}, nil
 }
 
-// scopedFeedback is the refusal text naming what the --tools tier allows, generated from the copilot shell policy.
-func scopedFeedback() string {
-	return "This run is scoped: file reads, URL fetches, writes inside the workdir (not .git, .env*, state/, keys), " +
-		agentconfig.ShellPolicy().Commands.Summary() +
-		" are allowed. Anything else (push, reset, rm of protected targets, curl, mcp, memory) is refused: report it instead."
-}
-
-// approveScoped is the --tools tier: reads, workdir-confined writes and an allowlisted shell; the rest is rejected.
-func approveScoped(workDir string) copilot.PermissionHandlerFunc {
-	return func(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
-		if scopedAllowed(req, workDir) {
-			return approveToolOnce(req, inv)
-		}
-		feedback := scopedFeedback()
-		return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
-	}
-}
-
-// webSearchServer is the harness Tavily MCP server (`network websearch`), the one MCP server scoped tools may call.
+// webSearchServer is the harness Tavily MCP server (`network websearch`), the one MCP server the read-only tier may call.
 const webSearchServer = "web_search"
-
-func scopedAllowed(req copilot.PermissionRequest, workDir string) bool {
-	switch r := req.(type) {
-	case rpc.PermissionRequestWrite:
-		return shell.WriteAllowed(r.FileName, workDir)
-	case *rpc.PermissionRequestWrite:
-		return shell.WriteAllowed(r.FileName, workDir)
-	}
-	if isWebSearchMCP(req) {
-		return true
-	}
-	switch req.Kind() {
-	case rpc.PermissionRequestKindRead, rpc.PermissionRequestKindURL:
-		return true
-	case rpc.PermissionRequestKindShell:
-		cmd, ok := shellCommand(req)
-		return ok && shell.CommandIn(shell.CanonicalSelf(cmd), cmp.Or(shellCwd(req), workDir), []string{workDir}, nil)
-	}
-	return false
-}
