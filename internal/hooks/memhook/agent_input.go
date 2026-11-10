@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/memory"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +13,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/transcript"
@@ -110,7 +110,7 @@ func writeSynthTranscript(sessionID string, at agentTranscript) (string, error) 
 	if at.FinalText != "" {
 		_ = enc.Encode(synthLine("text", map[string]any{"text": at.FinalText}))
 	}
-	dest := filepath.Join(memstore.StateDir(), "agent-transcripts", filepath.Base(sessionID)+".jsonl")
+	dest := filepath.Join(memory.StateDir(), "agent-transcripts", filepath.Base(sessionID)+".jsonl")
 	_, err := paths.WriteIfChanged(dest, buf.Bytes(), 0o600)
 	return dest, err
 }

@@ -2,19 +2,19 @@ package memorycmd
 
 import (
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/memory"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/hosttest/gittest"
-	"github.com/edotau/claude-code/internal/memstore"
 )
 
 func TestMemoryReportRegistersFreshRepoOrigin(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := gittest.Repo(t)
-	dir := memstore.Dir(repo)
+	dir := memory.Dir(repo)
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("fresh repo store must not exist: %v", err)
 	}
@@ -24,15 +24,15 @@ func TestMemoryReportRegistersFreshRepoOrigin(t *testing.T) {
 	}
 	for range 2 {
 		checkFreshRepoReportPaths(t, repo, input, dir)
-		if got := memstore.Dir(repo); got != dir {
+		if got := memory.Dir(repo); got != dir {
 			t.Fatalf("report split repo store: got %q, want %q", got, dir)
 		}
 	}
-	entries, err := memstore.RepoDirs()
+	entries, err := memory.RepoDirs()
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry := memstore.FindEntry(entries, memstore.Resolve(repo).Origin)
+	entry := memory.FindEntry(entries, memory.Resolve(repo).Origin)
 	if entry == nil || entry.Dir != dir {
 		t.Fatalf("report store %q is not discoverable by RepoDirs: %v", dir, entries)
 	}
@@ -56,7 +56,7 @@ func checkFreshRepoReportPaths(t *testing.T, repo, input, dir string) {
 		t.Fatalf("memory report paths = %v, want report and decisions", out.Paths)
 	}
 	for _, path := range out.Paths {
-		if filepath.Dir(path) != memstore.ReportsDir(dir) {
+		if filepath.Dir(path) != memory.ReportsDir(dir) {
 			t.Fatalf("report path %q is outside original store %q", path, dir)
 		}
 		if _, err := os.Stat(path); err != nil {

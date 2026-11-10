@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory"
 	"io"
 	"os"
 	"path/filepath"
@@ -18,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -61,7 +61,7 @@ type hookHost struct {
 
 // newHookHost is the host for req, or nil when hooks do not apply (a memory-update child, or nothing bound).
 func newHookHost(req agent.RunOptions) *hookHost {
-	if bank.IsUpdateChild() {
+	if memory.IsUpdateChild() {
 		return nil
 	}
 	bound := hostedBound(req.SafeMode)

@@ -6,9 +6,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // TestSplitNativeIndexMovesOldestUnpinnedOverflow: file order is oldest-first (CC appends new
@@ -16,14 +13,14 @@ import (
 // newest within the cap.
 func TestSplitNativeIndexMovesOldestUnpinnedOverflow(t *testing.T) {
 	tempConfig(t)
-	dir := memstore.NativeDir(t.TempDir())
+	dir := NativeDir(t.TempDir())
 	var b strings.Builder
 	b.WriteString("# Memory Index\n\n")
 	for i := 1; i <= 5; i++ {
 		n := strconv.Itoa(i)
 		fmt.Fprintf(&b, "- [Rule %s](rule-%s.md) — hook\n", n, n)
 	}
-	write(t, filepath.Join(dir, bank.NativeIndexFile), b.String())
+	write(t, filepath.Join(dir, NativeIndexFile), b.String())
 
 	moved, err := SplitNativeIndex(dir, 3)
 	if err != nil {
@@ -32,13 +29,13 @@ func TestSplitNativeIndexMovesOldestUnpinnedOverflow(t *testing.T) {
 	if moved != 2 {
 		t.Fatalf("moved = %d, want 2", moved)
 	}
-	idx := readFile(t, filepath.Join(dir, bank.NativeIndexFile))
+	idx := mustRead(t, filepath.Join(dir, NativeIndexFile))
 	for _, keep := range []string{"rule-3.md", "rule-4.md", "rule-5.md"} {
 		if !strings.Contains(idx, keep) {
 			t.Errorf("MEMORY.md lost a line it should have kept (%s):\n%s", keep, idx)
 		}
 	}
-	searchable := readFile(t, filepath.Join(dir, bank.NativeSearchableFile))
+	searchable := mustRead(t, filepath.Join(dir, NativeSearchableFile))
 	for _, name := range []string{"rule-1.md", "rule-2.md"} {
 		if !strings.Contains(searchable, name) {
 			t.Errorf("SEARCHABLE.md missing the moved line (%s):\n%s", name, searchable)
@@ -53,13 +50,13 @@ func TestSplitNativeIndexMovesOldestUnpinnedOverflow(t *testing.T) {
 // when it is the oldest entry and would otherwise be first to move.
 func TestSplitNativeIndexKeepPinSurvives(t *testing.T) {
 	tempConfig(t)
-	dir := memstore.NativeDir(t.TempDir())
+	dir := NativeDir(t.TempDir())
 	index := "# Memory Index\n\n" +
 		"- [Pinned](pinned.md) — load-bearing <!-- keep -->\n" +
 		"- [Rule 2](rule-2.md) — hook\n" +
 		"- [Rule 3](rule-3.md) — hook\n" +
 		"- [Rule 4](rule-4.md) — hook\n"
-	write(t, filepath.Join(dir, bank.NativeIndexFile), index)
+	write(t, filepath.Join(dir, NativeIndexFile), index)
 
 	moved, err := SplitNativeIndex(dir, 2)
 	if err != nil {
@@ -68,7 +65,7 @@ func TestSplitNativeIndexKeepPinSurvives(t *testing.T) {
 	if moved != 2 {
 		t.Fatalf("moved = %d, want 2 (budget 2 minus 1 pin leaves room for 1 unpinned)", moved)
 	}
-	idx := readFile(t, filepath.Join(dir, bank.NativeIndexFile))
+	idx := mustRead(t, filepath.Join(dir, NativeIndexFile))
 	if !strings.Contains(idx, "pinned.md") {
 		t.Error("the pinned line was moved — a `<!-- keep -->` marker must hold it in MEMORY.md")
 	}
@@ -83,18 +80,18 @@ func TestSplitNativeIndexKeepPinSurvives(t *testing.T) {
 // TestSplitNativeIndexNoopUnderCap: a MEMORY.md already within the cap is left untouched.
 func TestSplitNativeIndexNoopUnderCap(t *testing.T) {
 	dir := nativeStore(t)
-	before := readFile(t, filepath.Join(dir, bank.NativeIndexFile))
-	moved, err := SplitNativeIndex(dir, bank.NativeCoreCap)
+	before := mustRead(t, filepath.Join(dir, NativeIndexFile))
+	moved, err := SplitNativeIndex(dir, NativeCoreCap)
 	if err != nil {
 		t.Fatalf("SplitNativeIndex: %v", err)
 	}
 	if moved != 0 {
 		t.Fatalf("moved = %d, want 0", moved)
 	}
-	if got := readFile(t, filepath.Join(dir, bank.NativeIndexFile)); got != before {
+	if got := mustRead(t, filepath.Join(dir, NativeIndexFile)); got != before {
 		t.Error("a store already under cap must not be rewritten")
 	}
-	if fileExists(filepath.Join(dir, bank.NativeSearchableFile)) {
+	if fileExists(filepath.Join(dir, NativeSearchableFile)) {
 		t.Error("nothing should have been moved into SEARCHABLE.md")
 	}
 }

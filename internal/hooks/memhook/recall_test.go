@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,10 +16,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/memory/bank"
-	memrecall "github.com/edotau/claude-code/internal/memory/recall"
-	"github.com/edotau/claude-code/internal/memory/recall/embed"
-	"github.com/edotau/claude-code/internal/memstore"
 )
 
 func recall(t *testing.T, prompt, cwd string) string {
@@ -38,7 +35,7 @@ func recallAs(t *testing.T, session, prompt, cwd string) string {
 
 func TestMemoryRecall(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(bank.UpdateChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	cwd := t.TempDir()
 	long := strings.Repeat("alpha bravo charlie delta padding ", 40)
 	body := "# Conventions\n\n- alpha bravo charlie delta strong match " + long + "\n- alpha weak\n- unrelated rule entirely\n"
@@ -55,7 +52,7 @@ func TestMemoryRecall(t *testing.T) {
 	if strings.Contains(got, "alpha weak") || len([]rune(got)) > 1500 || !strings.Contains(got, "…") {
 		t.Errorf("floor, total cap or per-hit cap not applied (%d chars): %q", len([]rune(got)), got)
 	}
-	t.Setenv(bank.UpdateChildEnv, "1")
+	t.Setenv(memory.UpdateChildEnv, "1")
 	if recall(t, "alpha bravo charlie delta", cwd) != "" {
 		t.Error("an update worker's prompts must not recall")
 	}
@@ -63,21 +60,21 @@ func TestMemoryRecall(t *testing.T) {
 
 func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(bank.UpdateChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	cwd := t.TempDir()
 	for name, body := range map[string]string{
 		"activeContext.md": "# Active\n\n## Current Focus\n\n- alpha bravo charlie delta already in context\n",
 		"conventions.md":   "# C\n\n- alpha bravo charlie delta echo fresh\n- echo only one shared term\n",
 	} {
-		if err := os.MkdirAll(memstore.HomeBankDir(), 0o755); err != nil {
+		if err := os.MkdirAll(memory.HomeBankDir(), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(memstore.HomeBankDir(), name), []byte(body), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(memory.HomeBankDir(), name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// session_id must be UUID-shaped: memoryContext's ResetSeen (which seeds the dedup set this test
-	// exercises) only fires for a real session id, not a bare probe/test token (recall.LooksLikeSessionID).
+	// exercises) only fires for a real session id, not a bare probe/test token (memory.LooksLikeSessionID).
 	const sessionS = "44444444-4444-4444-8444-444444444444"
 	const sessionT = "55555555-5555-4555-8555-555555555555"
 	raw, _ := json.Marshal(map[string]string{"cwd": cwd, "session_id": sessionS})
@@ -101,17 +98,17 @@ func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 // swallowed with _, leaving root empty and degrading recall accuracy.
 func TestMemoryRecallHandlesCwdGracefully(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(bank.UpdateChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	cwd := t.TempDir()
 
 	// Create a memory bank with searchable content.
 	for name, body := range map[string]string{
 		"conventions.md": "# C\n\n- alpha bravo charlie delta strong\n",
 	} {
-		if err := os.MkdirAll(memstore.HomeBankDir(), 0o755); err != nil {
+		if err := os.MkdirAll(memory.HomeBankDir(), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(memstore.HomeBankDir(), name), []byte(body), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(memory.HomeBankDir(), name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -132,7 +129,7 @@ func TestMemoryRecallHandlesCwdGracefully(t *testing.T) {
 
 func writeBank(t *testing.T, rel, body string) {
 	t.Helper()
-	p := filepath.Join(memstore.HomeBankDir(), rel)
+	p := filepath.Join(memory.HomeBankDir(), rel)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +141,7 @@ func writeBank(t *testing.T, rel, body string) {
 func recallEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(bank.UpdateChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 }
 
@@ -171,7 +168,7 @@ func wantRecallPointers(t *testing.T, got string, pointers []string) {
 		if m == nil {
 			t.Fatalf("not an `id · date · title` pointer: %q", l)
 		}
-		if _, _, err := bank.ShowBlock(m[1]); err != nil {
+		if _, _, err := memory.ShowBlock(m[1]); err != nil {
 			t.Errorf("pointer id %s does not expand: %v", m[1], err)
 		}
 	}
@@ -243,15 +240,15 @@ func vecServer(t *testing.T, slow time.Duration) *httptest.Server {
 	return srv
 }
 
-func useEmbedServer(t *testing.T, srv *httptest.Server) *embed.EmbedClient {
+func useEmbedServer(t *testing.T, srv *httptest.Server) *memory.EmbedClient {
 	t.Helper()
 	t.Setenv("CLAUDE_PROFILE", "fake") // NewSemantic reads the session profile's cache
-	c := &embed.EmbedClient{Profile: "fake", Model: "fake-gte", Namespace: "fake|h|fake-gte", EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
-		return embed.PostEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
+	c := &memory.EmbedClient{Profile: "fake", Model: "fake-gte", Namespace: "fake|h|fake-gte", EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+		return memory.PostEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
 	}}
-	prev := embed.OpenEmbedClient
-	embed.OpenEmbedClient = func(context.Context, string, string) (*embed.EmbedClient, error) { return c, nil }
-	t.Cleanup(func() { embed.OpenEmbedClient = prev })
+	prev := memory.OpenEmbedClient
+	memory.OpenEmbedClient = func(context.Context, string, string) (*memory.EmbedClient, error) { return c, nil }
+	t.Cleanup(func() { memory.OpenEmbedClient = prev })
 	return c
 }
 
@@ -280,7 +277,7 @@ func TestRecallBlendsCosineWithKeyword(t *testing.T) {
 		t.Fatalf("fixture invalid: keyword-only already surfaces the gamma entries:\n%s", base)
 	}
 	c := useEmbedServer(t, vecServer(t, 0))
-	if _, _, err := embed.EmbedEntries(context.Background(), cwd, c); err != nil {
+	if _, _, err := memory.EmbedEntries(context.Background(), cwd, c); err != nil {
 		t.Fatal(err)
 	}
 	blended := recallAs(t, "b", prompt, cwd)
@@ -298,7 +295,7 @@ func TestRecallFallsBackToKeywordOnTimeout(t *testing.T) {
 	seedBlendBank(t)
 	cwd := t.TempDir()
 	const prompt = "walrus harbour tide ledger zeta"
-	if _, _, err := embed.EmbedEntries(context.Background(), cwd, useEmbedServer(t, vecServer(t, 0))); err != nil {
+	if _, _, err := memory.EmbedEntries(context.Background(), cwd, useEmbedServer(t, vecServer(t, 0))); err != nil {
 		t.Fatal(err)
 	}
 	want := recallAs(t, "kw", prompt, cwd) // semantic on, fast endpoint
@@ -309,7 +306,7 @@ func TestRecallFallsBackToKeywordOnTimeout(t *testing.T) {
 		t.Fatalf("fixture invalid: blend and keyword results are identical:\n%s", keyword)
 	}
 
-	t.Cleanup(embed.SetEmbedRecallWait(100 * time.Millisecond))
+	t.Cleanup(memory.SetEmbedRecallWait(100 * time.Millisecond))
 	useEmbedServer(t, vecServer(t, 10*time.Second))
 	start := time.Now()
 	got := recallAs(t, "slow", prompt, cwd)
@@ -329,10 +326,10 @@ func TestSessionStartCarriesNoCatalogRows(t *testing.T) {
 	for i := range 120 {
 		fmt.Fprintf(&cat, "- repo-%03d — some description of the repo · last 2026-10-29 → repo-%03d/MEMORY.md\n", i, i)
 	}
-	if err := os.MkdirAll(memstore.StoreDir(), 0o755); err != nil {
+	if err := os.MkdirAll(memory.StoreDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(memstore.StoreDir(), memstore.CatalogFile), []byte(cat.String()), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(memory.StoreDir(), memory.CatalogFile), []byte(cat.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(map[string]string{"cwd": t.TempDir(), "session_id": "probe-x"})
@@ -373,7 +370,7 @@ func TestRecallSemanticReachesZeroOverlapEntry(t *testing.T) {
 		t.Fatalf("fixture invalid: keyword-only already answers: %q", got)
 	}
 	c := useEmbedServer(t, vecServer(t, 0))
-	if _, _, err := embed.EmbedEntries(context.Background(), cwd, c); err != nil {
+	if _, _, err := memory.EmbedEntries(context.Background(), cwd, c); err != nil {
 		t.Fatal(err)
 	}
 	got := recallAs(t, "s", prompt, cwd)
@@ -393,16 +390,16 @@ func TestRecallSemanticSkipsSeenBeforeTopK(t *testing.T) {
 	writeBank(t, "decisionLog.md", b.String())
 	cwd := t.TempDir()
 	c := useEmbedServer(t, vecServer(t, 0))
-	if _, _, err := embed.EmbedEntries(context.Background(), cwd, c); err != nil {
+	if _, _, err := memory.EmbedEntries(context.Background(), cwd, c); err != nil {
 		t.Fatal(err)
 	}
-	var seen []bank.SearchHit
-	for _, h := range memrecall.SearchBanks(cwd, "quokka burrow", 0) {
+	var seen []memory.SearchHit
+	for _, h := range memory.SearchBanks(cwd, "quokka burrow", 0) {
 		if !strings.Contains(h.Block, "dddd0006") {
 			seen = append(seen, h)
 		}
 	}
-	memrecall.MarkSeen("sess", seen) // the five closest are already in context
+	memory.MarkSeen("sess", seen) // the five closest are already in context
 	got := recallAs(t, "sess", "hello world foo bar zeta", cwd)
 	if !strings.Contains(got, "dddd0006") {
 		t.Errorf("the sixth entry never surfaced:\n%s", got)
@@ -416,7 +413,7 @@ func TestRecallNoArchiveFallbackWhenSemanticMatchSeen(t *testing.T) {
 	writeBank(t, "archive/decisionLog-2026-09.md", "# D\n\n## 2026-09-01 — Hello world outdated <!-- id:eeee0009 -->\n\nhello world foo bar older\n")
 	cwd := t.TempDir()
 	c := useEmbedServer(t, vecServer(t, 0))
-	if _, _, err := embed.EmbedEntries(context.Background(), cwd, c); err != nil {
+	if _, _, err := memory.EmbedEntries(context.Background(), cwd, c); err != nil {
 		t.Fatal(err)
 	}
 	const prompt = "hello world foo bar zeta"
@@ -438,7 +435,7 @@ func TestRecallUncachedEntryKeepsFullKeywordScore(t *testing.T) {
 	writeBank(t, "decisionLog.md", plain("original"))
 	cwd := t.TempDir()
 	c := useEmbedServer(t, vecServer(t, 0))
-	if _, _, err := embed.EmbedEntries(context.Background(), cwd, c); err != nil {
+	if _, _, err := memory.EmbedEntries(context.Background(), cwd, c); err != nil {
 		t.Fatal(err)
 	}
 	writeBank(t, "decisionLog.md", plain("edited after the index")) // ffff0001 now has no valid vector

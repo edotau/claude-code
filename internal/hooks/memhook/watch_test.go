@@ -2,6 +2,7 @@ package memhook
 
 import (
 	"bytes"
+	"github.com/edotau/claude-code/internal/memory"
 	"io"
 	"os"
 	"os/exec"
@@ -11,9 +12,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/memory/bank"
-
-	"github.com/edotau/claude-code/internal/memstore"
 )
 
 func stubWatcher(t *testing.T, ok bool) *[][]string {
@@ -124,7 +122,7 @@ func TestIdleUpdateOnceCountsSubagentEdits(t *testing.T) {
 // The Stop gate claims one watcher per session at its first dispatch — never a second.
 func TestSessionUpdateSpawnsOneIdleWatcherPerSession(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(bank.UpdateChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
 	writeEdits(t, tr, 6)
@@ -142,7 +140,7 @@ func TestSessionUpdateSpawnsOneIdleWatcherPerSession(t *testing.T) {
 	if got := strings.Join((*watches)[0], " "); !strings.HasPrefix(got, "--session s1 --transcript "+tr+" --cwd "+cwd+" --owner ") {
 		t.Errorf("watcher argv = %q", got)
 	}
-	if _, err := os.Stat(filepath.Join(memstore.StateDir(), "watch-s1")); err != nil {
+	if _, err := os.Stat(filepath.Join(memory.StateDir(), "watch-s1")); err != nil {
 		t.Error("the per-session claim file must exist after the spawn")
 	}
 
@@ -156,7 +154,7 @@ func TestSessionUpdateSpawnsOneIdleWatcherPerSession(t *testing.T) {
 	if len(*failed) != 2 {
 		t.Errorf("a failed watcher spawn must be retried on the next dispatch (got %d)", len(*failed))
 	}
-	if _, err := os.Stat(filepath.Join(memstore.StateDir(), "watch-s1")); err == nil {
+	if _, err := os.Stat(filepath.Join(memory.StateDir(), "watch-s1")); err == nil {
 		t.Error("a failed spawn must release its claim file")
 	}
 }

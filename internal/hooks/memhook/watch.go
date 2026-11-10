@@ -7,6 +7,7 @@ package memhook
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,10 +15,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 
 	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -37,7 +36,7 @@ var spawnWatcher = func(args []string, cwd string) bool {
 	if err != nil {
 		return false
 	}
-	logPath := filepath.Join(memstore.StateDir(), "watch-"+filepath.Base(args[1])+".log")
+	logPath := filepath.Join(memory.StateDir(), "watch-"+filepath.Base(args[1])+".log")
 	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return false
@@ -51,7 +50,7 @@ func spawnIdleWatcher(in *core.Input) {
 	if in.SessionID == "" {
 		return
 	}
-	claim := filepath.Join(memstore.StateDir(), "watch-"+filepath.Base(in.SessionID))
+	claim := filepath.Join(memory.StateDir(), "watch-"+filepath.Base(in.SessionID))
 	f, err := os.OpenFile(claim, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return // claimed by an earlier Stop (or the state dir is unwritable — the Stop gate still runs)
@@ -151,7 +150,7 @@ func newestActivity(tr string, mainMtime time.Time) time.Time {
 // covered; the stamp then carries the count so the next idle check (and any late Stop) stays quiet.
 // spawnFailed reports a worker that should have started but did not.
 func idleUpdateOnce(tr, cwd, session string, note io.Writer) (dispatched, spawnFailed bool) {
-	cwd = memrecall.SessionRoot(session, cwd)
+	cwd = memory.SessionRoot(session, cwd)
 	ran := false
 	err := paths.WithFileLock(stampPath(session), func() error { // same session lock as updateIfNew
 		ran = true

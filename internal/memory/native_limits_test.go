@@ -5,16 +5,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/edotau/claude-code/internal/memory/bank"
 )
 
 // TestSplitReportsNativeProseOverLimit: the split moves what it can and then reports an index the native loader
 // would still truncate instead of silently rewriting the prose that busts it.
 func TestSplitReportsNativeProseOverLimit(t *testing.T) {
 	dir := nativeStore(t)
-	indexPath := filepath.Join(dir, bank.NativeIndexFile)
-	prose := strings.Repeat("prose that is not a pointer\n", bank.NativeIndexMaxLines)
+	indexPath := filepath.Join(dir, NativeIndexFile)
+	prose := strings.Repeat("prose that is not a pointer\n", NativeIndexMaxLines)
 	write(t, indexPath, prose+testIndex)
 	moved, err := SplitNativeIndex(dir, 1)
 	if moved != 2 {
@@ -23,7 +21,7 @@ func TestSplitReportsNativeProseOverLimit(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "native load limit") {
 		t.Errorf("err = %v, want the native load-limit diagnostic", err)
 	}
-	got := readFile(t, indexPath)
+	got := mustRead(t, indexPath)
 	if !strings.HasPrefix(got, prose) || strings.Contains(got, "stale-fact.md") || !strings.Contains(got, "also-keep.md") {
 		t.Errorf("split rewrote prose or kept the wrong pointers:\n%s", got[len(got)-200:])
 	}
@@ -39,9 +37,9 @@ func TestRestoreNativeReportsIndexOverLimit(t *testing.T) {
 	if _, err := ArchiveNative(dir, []string{"stale-fact"}, true); err != nil {
 		t.Fatal(err)
 	}
-	idxPath := filepath.Join(dir, bank.NativeIndexFile)
-	idx := readFile(t, idxPath)
-	write(t, idxPath, idx+strings.Repeat("prose\n", bank.NativeIndexMaxLines-bank.LineCount(idx)))
+	idxPath := filepath.Join(dir, NativeIndexFile)
+	idx := mustRead(t, idxPath)
+	write(t, idxPath, idx+strings.Repeat("prose\n", NativeIndexMaxLines-LineCount(idx)))
 	res, err := RestoreNative(dir, []string{"stale-fact"}, true)
 	if err == nil || !strings.Contains(err.Error(), "exceed the native load limit") {
 		t.Fatalf("RestoreNative err = %v, want the load-limit diagnostic", err)
@@ -49,8 +47,8 @@ func TestRestoreNativeReportsIndexOverLimit(t *testing.T) {
 	if len(res.Restored) != 1 || !fileExists(filepath.Join(dir, "stale-fact.md")) {
 		t.Errorf("restore did not land: Restored = %v", res.Restored)
 	}
-	if got := readFile(t, idxPath); !strings.Contains(got, "(stale-fact.md)") || bank.LineCount(got) != bank.NativeIndexMaxLines+1 {
-		t.Errorf("index has %d lines, want %d with the restored pointer", bank.LineCount(got), bank.NativeIndexMaxLines+1)
+	if got := mustRead(t, idxPath); !strings.Contains(got, "(stale-fact.md)") || LineCount(got) != NativeIndexMaxLines+1 {
+		t.Errorf("index has %d lines, want %d with the restored pointer", LineCount(got), NativeIndexMaxLines+1)
 	}
 }
 
@@ -61,8 +59,8 @@ func TestArchiveNativeReportsHealedIndexOverLimit(t *testing.T) {
 	for _, n := range []string{"orphan-one.md", "orphan-two.md"} {
 		write(t, filepath.Join(dir, n), "---\nname: "+strings.TrimSuffix(n, ".md")+"\n---\n\nbody\n")
 	}
-	idxPath := filepath.Join(dir, bank.NativeIndexFile)
-	write(t, idxPath, testIndex+strings.Repeat("prose\n", bank.NativeIndexMaxLines-bank.LineCount(testIndex)))
+	idxPath := filepath.Join(dir, NativeIndexFile)
+	write(t, idxPath, testIndex+strings.Repeat("prose\n", NativeIndexMaxLines-LineCount(testIndex)))
 	res, err := ArchiveNative(dir, []string{"stale-fact"}, true)
 	if err == nil || !strings.Contains(err.Error(), "exceed the native load limit") {
 		t.Fatalf("ArchiveNative err = %v, want the load-limit diagnostic", err)
@@ -75,12 +73,12 @@ func TestArchiveNativeReportsHealedIndexOverLimit(t *testing.T) {
 
 func assertHealedArchiveIndexOverLimit(t *testing.T, idxPath string) {
 	t.Helper()
-	got := readFile(t, idxPath)
+	got := mustRead(t, idxPath)
 	if strings.Contains(got, "(stale-fact.md)") || !strings.Contains(got, "(orphan-one.md)") || !strings.Contains(got, "(orphan-two.md)") {
 		t.Errorf("index not struck and healed:\n%s", got)
 	}
-	if bank.LineCount(got) != bank.NativeIndexMaxLines+1 {
-		t.Errorf("index has %d lines, want %d", bank.LineCount(got), bank.NativeIndexMaxLines+1)
+	if LineCount(got) != NativeIndexMaxLines+1 {
+		t.Errorf("index has %d lines, want %d", LineCount(got), NativeIndexMaxLines+1)
 	}
 }
 
@@ -88,7 +86,7 @@ func assertHealedArchiveIndexOverLimit(t *testing.T, idxPath string) {
 func TestHealedIndexUnreadableIsAnError(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	if err := os.Mkdir(filepath.Join(dir, bank.NativeIndexFile), 0o755); err != nil { // reads fail with EISDIR
+	if err := os.Mkdir(filepath.Join(dir, NativeIndexFile), 0o755); err != nil { // reads fail with EISDIR
 		t.Fatal(err)
 	}
 	if _, _, err := healedIndex(dir); err == nil {

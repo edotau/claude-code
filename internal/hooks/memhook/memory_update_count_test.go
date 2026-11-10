@@ -3,6 +3,7 @@ package memhook
 import (
 	"bytes"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -12,7 +13,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -30,7 +30,7 @@ func statSize(t *testing.T, path string) int64 {
 // the parent session's edits, and that combined total is what arms the Stop update gate.
 func TestCountEditsIncludesSubagentEdits(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(bank.UpdateChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 1)
 	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
@@ -55,7 +55,7 @@ func TestCountEditsIncludesSubagentEdits(t *testing.T) {
 // counts for updateMinEdits on its own and arms the Stop gate.
 func TestCountEditsGitCommitWeightArmsGate(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(bank.UpdateChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	commit := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git commit -m x"}}]}}` + "\n"
 	if err := os.WriteFile(tr, []byte(commit), 0o600); err != nil {

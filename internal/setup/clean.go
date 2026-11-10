@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory"
 	"io"
 	"os"
 	"path/filepath"
@@ -27,8 +28,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/job"
-
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -478,13 +477,13 @@ func protected(p string) bool {
 	if p == vaultPath || strings.HasPrefix(p, vaultPath+".") {
 		return true
 	}
-	if p == filepath.Clean(memstore.BankLockPath()) {
+	if p == filepath.Clean(memory.BankLockPath()) {
 		return true
 	}
-	if access := filepath.Clean(memstore.AccessStateDir()); p == access || strings.HasPrefix(p, access+string(filepath.Separator)) {
+	if access := filepath.Clean(memory.AccessStateDir()); p == access || strings.HasPrefix(p, access+string(filepath.Separator)) {
 		return !orphanAccessLog(p)
 	}
-	for _, root := range []string{memstore.StoreDir(), memstore.JournalDir()} {
+	for _, root := range []string{memory.StoreDir(), memory.JournalDir()} {
 		root = filepath.Clean(root)
 		if p == root || strings.HasPrefix(p, root+string(filepath.Separator)) {
 			return true

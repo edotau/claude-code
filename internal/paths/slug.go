@@ -31,6 +31,17 @@ func Slug(s, keep string, max int, fallback string) string {
 	return slug
 }
 
+// ProjectSlug mirrors Claude Code's projects/<slug> naming: every non-alphanumeric byte becomes '-'.
+func ProjectSlug(root string) string {
+	b := []byte(filepath.Clean(root))
+	for i, c := range b {
+		if ('a' > c || c > 'z') && ('A' > c || c > 'Z') && ('0' > c || c > '9') {
+			b[i] = '-'
+		}
+	}
+	return string(b)
+}
+
 // RepoSlug is root's tag for repo-scoped artifacts; the config dir itself is "" so its artifacts sit untagged.
 // A linked worktree is tagged by its main checkout, so every worktree of a repo shares one bank instead of each
 // branch directory ("main", "fix-x") minting its own and colliding across repos.

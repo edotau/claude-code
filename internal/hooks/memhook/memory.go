@@ -16,9 +16,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/memory/bank"
-	memrecall "github.com/edotau/claude-code/internal/memory/recall"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/proc"
@@ -31,10 +28,10 @@ func Start(in *core.Input) core.Result {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	memrecall.RecordSessionRoot(in.SessionID, cwd)
+	memory.RecordSessionRoot(in.SessionID, cwd)
 	ctx := memoryContext(cwd, in.SessionID, in.TranscriptPath, time.Now())
 	res := core.Result{Context: core.JoinContext(ctx, preflightNotice(time.Now()))}
-	if !bank.IsUpdateChild() {
+	if !memory.IsUpdateChild() {
 		res.SystemMessage = consumeCatchupNote()
 	}
 	if in.Source == "compact" || in.Source == "clear" {
@@ -58,18 +55,18 @@ func preflightNotice(now time.Time) string {
 // memoryContext renders the note line + bank surface and advances the session chain.
 func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string {
 	prefix := maybeAutoInit(cwd) // a fresh-scaffold notice or ""
-	if !bank.IsUpdateChild() {
-		memstore.LinkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
+	if !memory.IsUpdateChild() {
+		memory.LinkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
 	}
-	chain := filepath.Join(memstore.StateDir(), "last-session")
+	chain := filepath.Join(memory.StateDir(), "last-session")
 	out := sessionSurfaceText(cwd, prefix, chain, sessionID, now)
-	if !bank.IsUpdateChild() {
+	if !memory.IsUpdateChild() {
 		spawnStartWorkers(cwd, sessionID, now)
 		// Every SessionStart (startup, resume, clear, compact) restarts what recall treats as already in context.
-		memrecall.ResetSeen(sessionID, cwd, out)
+		memory.ResetSeen(sessionID, cwd, out)
 	}
 	// An update worker is a session too; it must not become the "previous session" of the user's next one. Non-UUID ids (probe/test payloads) must not clobber the real previous-session pointer.
-	if memrecall.LooksLikeSessionID(sessionID) && !bank.IsUpdateChild() {
+	if memory.LooksLikeSessionID(sessionID) && !memory.IsUpdateChild() {
 		writeChain(chain, chainEntry{sessionID: sessionID, transcriptPath: transcriptPath, cwd: cwd})
 	}
 	return out
@@ -92,7 +89,7 @@ func spawnStartWorkers(cwd, sessionID string, now time.Time) {
 		spawnDream(cwd)
 	}
 	// Every start sweeps for finished sessions whose update was missed, detached; the child does all the scanning.
-	if memrecall.LooksLikeSessionID(sessionID) {
+	if memory.LooksLikeSessionID(sessionID) {
 		spawnCatchup(cwd, sessionID)
 	}
 	// A stale served-endpoint cache is re-listed detached; needs no memory bank.
@@ -201,7 +198,7 @@ func scaffoldSafe(cwd string) bool {
 	if fi, err := os.Stat(filepath.Join(cwd, ".claude")); err == nil && fi.IsDir() {
 		return true
 	}
-	top := memstore.GitToplevel(cwd)
+	top := memory.GitToplevel(cwd)
 	return top != "" && paths.SamePath(top, cwd)
 }
 
@@ -234,7 +231,7 @@ var spawnDream = func(cwd string) bool {
 	if err != nil {
 		return false
 	}
-	logPath := filepath.Join(memstore.StateDir(), "dream-"+time.Now().Format("20060102-150405")+".log")
+	logPath := filepath.Join(memory.StateDir(), "dream-"+time.Now().Format("20060102-150405")+".log")
 	if os.MkdirAll(filepath.Dir(logPath), 0o700) != nil {
 		return false
 	}
@@ -260,7 +257,7 @@ type sweepCand struct {
 	mtime         time.Time
 }
 
-func catchupDonePath() string { return filepath.Join(memstore.StateDir(), "catchup-done") }
+func catchupDonePath() string { return filepath.Join(memory.StateDir(), "catchup-done") }
 
 // transcriptInteractive: a person's session has entrypoint "cli"; `claude -p` workers, leaves and pings say "sdk-cli".
 func transcriptInteractive(path string) bool {
@@ -353,7 +350,7 @@ func recentSessions(now time.Time) []sweepCand {
 	for _, p := range files {
 		id := strings.TrimSuffix(filepath.Base(p), ".jsonl")
 		fi, err := os.Stat(p)
-		if err != nil || !memrecall.LooksLikeSessionID(id) || now.Sub(fi.ModTime()) > catchupWindow {
+		if err != nil || !memory.LooksLikeSessionID(id) || now.Sub(fi.ModTime()) > catchupWindow {
 			continue
 		}
 		recent = append(recent, sweepCand{id: id, path: p, mtime: fi.ModTime()})
@@ -386,11 +383,11 @@ func CatchUpSweep(o SweepOptions) int {
 		fmt.Fprintf(stdout, "skipped: %v\n", skips)
 		return 0
 	}
-	if err := os.MkdirAll(memstore.StateDir(), 0o700); err != nil {
+	if err := os.MkdirAll(memory.StateDir(), 0o700); err != nil {
 		fmt.Fprintf(stderr, "memory catchup: %v\n", err)
 		return 1
 	}
-	_, err := paths.TryFileLock(filepath.Join(memstore.StateDir(), "catchup.lock"), 0, func() error {
+	_, err := paths.TryFileLock(filepath.Join(memory.StateDir(), "catchup.lock"), 0, func() error {
 		runSweep(current, now, stdout)
 		return nil
 	})
@@ -445,7 +442,7 @@ func consumeCatchupNote() string {
 	}
 	n := 0
 	// A running sweep holds the lock and still updates the count: leave it for the next start.
-	_, _ = paths.TryFileLock(filepath.Join(memstore.StateDir(), "catchup.lock"), 0, func() error {
+	_, _ = paths.TryFileLock(filepath.Join(memory.StateDir(), "catchup.lock"), 0, func() error {
 		n, _ = strconv.Atoi(strings.TrimSpace(readFileOr(catchupDonePath())))
 		return os.Remove(catchupDonePath())
 	})
@@ -464,7 +461,7 @@ var spawnCatchup = func(cwd, sessionID string) bool {
 	if err != nil {
 		return false
 	}
-	logPath := filepath.Join(memstore.StateDir(), "catchup-"+time.Now().Format(logStampLayout)+".log")
+	logPath := filepath.Join(memory.StateDir(), "catchup-"+time.Now().Format(logStampLayout)+".log")
 	if os.MkdirAll(filepath.Dir(logPath), 0o700) != nil {
 		return false
 	}

@@ -1,6 +1,7 @@
 package memorycmd
 
 import (
+	"github.com/edotau/claude-code/internal/memory"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,7 +11,6 @@ import (
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/hosttest/gittest"
-	"github.com/edotau/claude-code/internal/memstore"
 )
 
 func TestMemoryDreamRejectsStrayBeforeDryRun(t *testing.T) {
@@ -40,7 +40,7 @@ func TestMemoryFmtRejectsStrayBeforeCheck(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	t.Chdir(t.TempDir())
-	dir := memstore.HomeBankDir()
+	dir := memory.HomeBankDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestMemoryCompletionSupportedCommandsAndFlags(t *testing.T) {
 func TestMemoryPathRepoFlagResolvesStoreName(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := gittest.Repo(t)
-	dir, err := memstore.EnsureRepoDir(repo)
+	dir, err := memory.EnsureRepoDir(repo)
 	if err != nil {
 		t.Fatal(err)
 	}

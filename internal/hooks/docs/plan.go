@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,7 +18,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 )
@@ -223,7 +223,7 @@ func planRepoRoot(cwd string) string {
 	if cfg := paths.ConfigDir(); core.UnderDir(paths.Canon(cfg), paths.CanonDeep(cwd)) {
 		return cfg
 	}
-	return cmp.Or(memstore.GitToplevel(cwd), cwd)
+	return cmp.Or(memory.GitToplevel(cwd), cwd)
 }
 
 // claimPlanFile reserves p with an O_EXCL create; false means a peer claimed it first.

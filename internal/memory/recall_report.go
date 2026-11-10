@@ -6,17 +6,13 @@ import (
 	"os"
 	"strings"
 	"unicode/utf8"
-
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memory/recall"
-	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // recallLoadCap bounds `memory recall --load N`'s total appended bytes across every loaded block.
 const recallLoadCap = 4096
 
 // RecallReport lists the hits as "id — title" and appends the top load bodies; load failures go to errw.
-func RecallReport(out, errw io.Writer, hits []bank.SearchHit, load int) {
+func RecallReport(out, errw io.Writer, hits []SearchHit, load int) {
 	if len(hits) == 0 {
 		fmt.Fprintln(out, "no matching blocks (banks empty or query all stopwords)")
 		return
@@ -30,7 +26,7 @@ func RecallReport(out, errw io.Writer, hits []bank.SearchHit, load int) {
 }
 
 // recallLoad appends the top n hits' full block text (ShowBlock), capped at recallLoadCap bytes total.
-func recallLoad(out, errw io.Writer, hits []bank.SearchHit, n int) {
+func recallLoad(out, errw io.Writer, hits []SearchHit, n int) {
 	if n > len(hits) {
 		n = len(hits)
 	}
@@ -39,7 +35,7 @@ func recallLoad(out, errw io.Writer, hits []bank.SearchHit, n int) {
 		if budget <= 0 {
 			continue
 		}
-		_, block, err := bank.ShowBlock(h.ID)
+		_, block, err := ShowBlock(h.ID)
 		if err != nil {
 			fmt.Fprintf(errw, "claude-code: memory recall --load: %s: %v\n", h.ID, err)
 			continue
@@ -59,11 +55,11 @@ func recallLoad(out, errw io.Writer, hits []bank.SearchHit, n int) {
 
 // RecallExplain writes the hook-recall selection trace for query: terms, cache state and every candidate's scores.
 func RecallExplain(w io.Writer, repo, query string) {
-	root := memstore.Root(repo)
-	if e, ok := memstore.RepoByName(repo); repo != "" && ok && e.Origin.Origin != "" {
+	root := Root(repo)
+	if e, ok := RepoByName(repo); repo != "" && ok && e.Origin.Origin != "" {
 		root = e.Origin.Origin
 	}
-	_, trace := recall.RecallPicks(root, os.Getenv(SessionIDEnv), query, true, true)
+	_, trace := RecallPicks(root, os.Getenv(SessionIDEnv), query, true, true)
 	fmt.Fprintf(w, "query terms: %s\nembeddings: %s\ncache age: %s; rows: %d\nwould stay silent: %t\n",
 		strings.Join(trace.Terms, " "), trace.Embeddings, trace.CacheAge, trace.CacheRows, trace.Silent)
 	files := explainFiles(w, trace.Rows)
@@ -77,7 +73,7 @@ func RecallExplain(w io.Writer, repo, query string) {
 	}
 }
 
-func explainFiles(w io.Writer, rows []recall.RecallCandidate) map[string]int {
+func explainFiles(w io.Writer, rows []RecallCandidate) map[string]int {
 	files := make(map[string]int)
 	for _, row := range rows {
 		if _, ok := files[row.File]; !ok {
@@ -89,7 +85,7 @@ func explainFiles(w io.Writer, rows []recall.RecallCandidate) map[string]int {
 	return files
 }
 
-func explainRow(w io.Writer, row recall.RecallCandidate, file int) {
+func explainRow(w io.Writer, row RecallCandidate, file int) {
 	cosine := "no vector"
 	if row.Cosine != nil {
 		cosine = explainNumber(*row.Cosine)

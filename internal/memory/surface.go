@@ -5,9 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/memory/bank"
-
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	mdast "github.com/jeduden/mdsmith/pkg/goldmark/ast"
 	"github.com/jeduden/mdsmith/pkg/goldmark/parser"
@@ -30,29 +27,29 @@ const (
 // SessionSurface is the session preload, capped at totalCapChars ("" when empty): root's focus sections plus the home bank's, and one pointer to the other
 // repos (no catalog rows); Claude Code loads the repo's MEMORY.md (with its generated bank region) itself.
 func SessionSurface(root string) string {
-	dir := memstore.Dir(root)
+	dir := Dir(root)
 	var parts []string
-	if _, err := os.Stat(filepath.Join(memstore.StoreDir(), memstore.CatalogFile)); err == nil {
-		parts = append(parts, "<!-- other repos: `claude-code memory search --all <terms>`; catalog "+filepath.Join(memstore.StoreDir(), memstore.CatalogFile)+" -->")
+	if _, err := os.Stat(filepath.Join(StoreDir(), CatalogFile)); err == nil {
+		parts = append(parts, "<!-- other repos: `claude-code memory search --all <terms>`; catalog "+filepath.Join(StoreDir(), CatalogFile)+" -->")
 	}
 	if HasBank(root) { // the header alone still names the bank when there is no focus text yet
 		head := "<!-- THIS REPO (" + dir + ") — focus only; read the typed files on demand -->"
 		if focus := repoFocus(dir); len(focus) > 0 {
 			head += "\n" + strings.Join(focus, "\n\n")
 		}
-		parts = append(parts, bank.CapChars(head, focusCapChars))
+		parts = append(parts, CapChars(head, focusCapChars))
 	}
-	if home := memstore.HomeBankDir(); !memstore.IsHomeBank(root) {
+	if home := HomeBankDir(); !IsHomeBank(root) {
 		if focus := repoFocus(home); len(focus) > 0 {
-			parts = append(parts, bank.CapChars("<!-- HOME BANK ("+home+") — essentials -->\n"+strings.Join(focus, "\n\n"), homeFocusCapChars))
+			parts = append(parts, CapChars("<!-- HOME BANK ("+home+") — essentials -->\n"+strings.Join(focus, "\n\n"), homeFocusCapChars))
 		}
 	}
 	if !nativeLinked(root, dir) { // Claude Code is reading another dir: carry the store's index ourselves
-		if data, err := os.ReadFile(filepath.Join(dir, bank.NativeIndexFile)); err == nil && len(data) > 0 {
-			parts = append(parts, bank.CapChars("<!-- THIS REPO's MEMORY.md (native link missing or blocked) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
+		if data, err := os.ReadFile(filepath.Join(dir, NativeIndexFile)); err == nil && len(data) > 0 {
+			parts = append(parts, CapChars("<!-- THIS REPO's MEMORY.md (native link missing or blocked) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
 		}
 	}
-	return bank.CapChars(strings.Join(parts, "\n\n"), totalCapChars)
+	return CapChars(strings.Join(parts, "\n\n"), totalCapChars)
 }
 
 // repoFocus is a bank dir's injected sections: activeContext focus/blockers/next steps and progress "In Progress".
@@ -76,10 +73,10 @@ func repoFocus(dir string) []string {
 // nativeLinked reports whether Claude Code's native memory dir for root is the symlink into dir.
 func nativeLinked(root, dir string) bool {
 	r := filepath.Clean(root)
-	if top := paths.MainCheckout(r, memstore.GitOut); top != "" {
+	if top := paths.MainCheckout(r, GitOut); top != "" {
 		r = paths.CanonDeep(top)
 	}
-	target := memstore.NativeLinkTarget(memstore.ProjectsMemory(memstore.ProjectSlug(r)))
+	target := NativeLinkTarget(ProjectsMemory(paths.ProjectSlug(r)))
 	return target != "" && paths.SamePath(target, dir)
 }
 

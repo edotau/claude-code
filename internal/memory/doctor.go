@@ -9,10 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memory/recall"
-
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -25,14 +21,14 @@ type BankStat struct {
 }
 
 // HomeBankStat rolls up the shared home bank.
-func HomeBankStat() BankStat { return statBank(memstore.HomeBankDir()) }
+func HomeBankStat() BankStat { return statBank(HomeBankDir()) }
 
 // Stat rolls up root's local bank.
-func Stat(root string) BankStat { return statBank(memstore.Dir(root)) }
+func Stat(root string) BankStat { return statBank(Dir(root)) }
 
 func statBank(dir string) BankStat {
 	s := BankStat{Dir: dir}
-	for _, name := range bank.BankFiles() {
+	for _, name := range BankFiles() {
 		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			if !os.IsNotExist(err) {
@@ -40,7 +36,7 @@ func statBank(dir string) BankStat {
 			}
 			continue
 		}
-		if capLines, ok := FileCaps[name]; ok && bank.LogicalLineCount(string(data)) > capLines {
+		if capLines, ok := FileCaps[name]; ok && LogicalLineCount(string(data)) > capLines {
 			s.Oversized = append(s.Oversized, name)
 		}
 		if fi, err := os.Stat(filepath.Join(dir, name)); err == nil && fi.ModTime().After(s.Updated) {
@@ -55,7 +51,7 @@ const DefaultStaleDays = 90
 
 // DoctorNoticePath is the per-store cached doctor summary read at SessionStart.
 func DoctorNoticePath(root string) string {
-	return filepath.Join(memstore.StateDir(), "doctor-notice-"+filepath.Base(memstore.Dir(root)))
+	return filepath.Join(StateDir(), "doctor-notice-"+filepath.Base(Dir(root)))
 }
 
 // WriteDoctorNotice caches root's first problem and a count (hot hints excluded); an empty file means checked and healthy.
@@ -77,14 +73,14 @@ func WriteDoctorNotice(root string, staleDays int, now time.Time) error {
 // staleness, credential-shaped lines, and access-log nominations. Never fatal — advisory only.
 func Doctor(root string, staleDays int, now time.Time) []string {
 	var problems []string
-	if !memstore.IsHomeBank(root) {
+	if !IsHomeBank(root) {
 		problems = append(problems, bankProblems("local", Stat(root), staleDays, now)...)
 	}
 	problems = append(problems, bankProblems("home", HomeBankStat(), staleDays, now)...)
 	problems = append(problems, updateProblems(now)...)
 	problems = append(problems, journalProblems(now)...)
-	problems = append(problems, memstore.NativeLinkProblems(root)...)
-	return append(problems, recall.AccessNominations(now)...)
+	problems = append(problems, NativeLinkProblems(root)...)
+	return append(problems, AccessNominations(now)...)
 }
 
 // updateProblems surfaces receipts that need a human: a failed update, or one still "pending" past the
@@ -108,7 +104,7 @@ const journalGrace = 10 * time.Minute
 
 // journalProblems names each bank journal left on disk past the grace window, so a stuck one is seen, not retried silently.
 func journalProblems(now time.Time) []string {
-	entries, err := os.ReadDir(memstore.JournalDir())
+	entries, err := os.ReadDir(JournalDir())
 	if err != nil {
 		return nil // a missing dir means no journals; any other read error is the next commit's to report
 	}
@@ -118,7 +114,7 @@ func journalProblems(now time.Time) []string {
 		if err != nil || !strings.HasSuffix(e.Name(), ".json") || now.Sub(fi.ModTime()) <= journalGrace {
 			continue
 		}
-		problems = append(problems, "bank journal "+filepath.Join(memstore.JournalDir(), e.Name())+" left on disk for "+
+		problems = append(problems, "bank journal "+filepath.Join(JournalDir(), e.Name())+" left on disk for "+
 			now.Sub(fi.ModTime()).Round(time.Minute).String()+" — recovery keeps skipping it; inspect, then delete or fix")
 	}
 	return problems
@@ -147,12 +143,12 @@ func bankProblems(tier string, s BankStat, staleDays int, now time.Time) []strin
 // CommitStore's refusal to stage them.
 func bankCredentialFindings(dir string) []string {
 	var problems []string
-	for _, name := range bank.BankFiles() {
+	for _, name := range BankFiles() {
 		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			continue
 		}
-		if bank.CredentialPattern.MatchString(string(data)) {
+		if CredentialPattern.MatchString(string(data)) {
 			problems = append(problems, name+": possible credential-shaped value — scrub before promoting")
 		}
 	}

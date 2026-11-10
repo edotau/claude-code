@@ -10,9 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory/bank"
-
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -30,7 +27,7 @@ var bottomAppended = map[string]bool{"conventions.md": true}
 // ArchiveOverflow moves the oldest overflow blocks of root's durable files into the same store's
 // archive/, returning how many moved. The archive stays local, so no credential gate applies.
 func ArchiveOverflow(root string, now time.Time) (int, error) {
-	dir := memstore.Dir(root)
+	dir := Dir(root)
 	total := 0
 	for name, capLines := range archiveCaps {
 		n, err := archiveFile(filepath.Join(dir, name), capLines, now)
@@ -71,11 +68,11 @@ func splitOverflow(path string, capLines int) (header string, keep, overflow []s
 		}
 		return "", nil, nil, err
 	}
-	if bank.LogicalLineCount(string(data)) <= capLines {
+	if LogicalLineCount(string(data)) <= capLines {
 		return "", nil, nil, nil
 	}
 	base := filepath.Base(path)
-	header, blocks := bank.EntryBlocks(base, string(data))
+	header, blocks := EntryBlocks(base, string(data))
 	keep, overflow = settledSplit(base, header, blocks, capLines)
 	return header, keep, overflow, nil
 }
@@ -83,7 +80,7 @@ func splitOverflow(path string, capLines int) (header string, keep, overflow []s
 // archiveFile prunes path under the bank lock, so a concurrent append cannot land between its read and rewrite.
 func archiveFile(path string, capLines int, now time.Time) (int, error) {
 	var moved int
-	err := memstore.WithBankLock(memstore.BankLockWait, func() (err error) {
+	err := WithBankLock(BankLockWait, func() (err error) {
 		moved, err = archiveFileLocked(path, capLines, now)
 		return err
 	})
@@ -97,10 +94,10 @@ func archiveFileLocked(path string, capLines int, now time.Time) (int, error) {
 	if err != nil || len(overflow) == 0 {
 		return 0, err
 	}
-	if err := bank.AppendBlocks(archivePath(filepath.Dir(path), filepath.Base(path), now), overflow); err != nil {
+	if err := AppendBlocks(archivePath(filepath.Dir(path), filepath.Base(path), now), overflow); err != nil {
 		return 0, err
 	}
-	if err := paths.AtomicWrite(path, []byte(bank.Rejoin(header, keep)), 0o600); err != nil {
+	if err := paths.AtomicWrite(path, []byte(Rejoin(header, keep)), 0o600); err != nil {
 		return 0, err
 	}
 	return len(overflow), nil
@@ -132,13 +129,13 @@ func Promote(root, id, to string, dryRun bool, now time.Time) (string, error) {
 // promoteBlockToHome moves one id-marked block from root's local bank into the matching home-bank
 // file, preserving its id, and settles both.
 func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, error) {
-	dir := memstore.Dir(root)
-	if memstore.IsHomeBank(root) {
+	dir := Dir(root)
+	if IsHomeBank(root) {
 		return "", errors.New("root's bank IS the home bank — nothing to promote")
 	}
 	var file, block, src string
-	homeDir := memstore.HomeBankDir()
-	moveErr := memstore.WithBankLock(memstore.BankLockWait, func() error {
+	homeDir := HomeBankDir()
+	moveErr := WithBankLock(BankLockWait, func() error {
 		var err error
 		if file, block, src, err = findBlock(dir, id); err != nil {
 			return err
@@ -149,7 +146,7 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 		_, _, homeErr := extractBlock(homeDir, id)
 		inHome := homeErr == nil // an existing home copy is kept, never appended twice or rolled back
 		if !inHome {
-			if err := bank.AppendBlocks(filepath.Join(homeDir, file), []string{block}); err != nil {
+			if err := AppendBlocks(filepath.Join(homeDir, file), []string{block}); err != nil {
 				return err
 			}
 		}
@@ -169,7 +166,7 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 	if dryRun {
 		return fmt.Sprintf("would move [%s] %s -> %s\n\n%s\n", id, src, homePath, block), nil
 	}
-	if _, err := bank.SettleBank(root, now); err != nil {
+	if _, err := SettleBank(root, now); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("promoted [%s] local -> home (%s)\n", id, homePath), nil
@@ -186,15 +183,15 @@ func promoteJudgment(root, id, to, target string) (string, error) {
 			"(gated: 3+ memory entries AND a hard prohibition) — route %s to rules instead: "+
 			"`memory promote %s --to rules`", id, id)
 	}
-	dir := memstore.Dir(root)
+	dir := Dir(root)
 	_, block, _, err := findBlock(dir, id)
-	if err != nil && !memstore.IsHomeBank(root) {
-		_, block, _, err = findBlock(memstore.HomeBankDir(), id)
+	if err != nil && !IsHomeBank(root) {
+		_, block, _, err = findBlock(HomeBankDir(), id)
 	}
 	if err != nil {
 		return "", err
 	}
-	ref, err := bank.Reference("promote")
+	ref, err := Reference("promote")
 	if err != nil {
 		return "", err
 	}
@@ -204,7 +201,7 @@ func promoteJudgment(root, id, to, target string) (string, error) {
 // extractBlock finds the id-marked block in dir's typed files, returning its filename and text.
 func extractBlock(dir, id string) (string, string, error) {
 	marker := "<!-- id:" + id + " -->"
-	for name := range bank.IdFiles {
+	for name := range IdFiles {
 		data, err := os.ReadFile(filepath.Join(dir, name))
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
@@ -215,14 +212,14 @@ func extractBlock(dir, id string) (string, string, error) {
 		if !strings.Contains(string(data), marker) {
 			continue
 		}
-		_, blocks := bank.EntryBlocks(name, string(data))
+		_, blocks := EntryBlocks(name, string(data))
 		for _, b := range blocks {
 			if ownsMarker(b, id) {
 				return name, b, nil
 			}
 		}
 	}
-	return "", "", bank.ErrNoBlock
+	return "", "", ErrNoBlock
 }
 
 // findBlock is extractBlock, then dir/archive/<stem>-*.md (dream overflow); src is the file holding the block.
@@ -231,14 +228,14 @@ func findBlock(dir, id string) (file, block, src string, err error) {
 		return file, block, filepath.Join(dir, file), nil
 	}
 	marker := "<!-- id:" + id + " -->"
-	for name := range bank.IdFiles {
+	for name := range IdFiles {
 		matches, _ := filepath.Glob(filepath.Join(dir, "archive", strings.TrimSuffix(name, ".md")+"-*.md"))
 		for _, p := range matches {
 			data, rerr := os.ReadFile(p)
 			if rerr != nil || !strings.Contains(string(data), marker) {
 				continue
 			}
-			_, blocks := bank.EntryBlocks(name, string(data))
+			_, blocks := EntryBlocks(name, string(data))
 			for _, b := range blocks {
 				if ownsMarker(b, id) {
 					return name, b, p, nil
@@ -246,11 +243,11 @@ func findBlock(dir, id string) (file, block, src string, err error) {
 			}
 		}
 	}
-	return "", "", "", bank.ErrNoBlock
+	return "", "", "", ErrNoBlock
 }
 
 // ownsMarker reports whether id is b's own (oldest unfenced) marker, not a quote of it in the body.
-func ownsMarker(b, id string) bool { return bank.OwnerID(b) == id }
+func ownsMarker(b, id string) bool { return OwnerID(b) == id }
 
 // removeBlock drops the id-marked block from path (parsed under typed file name's grammar), rewriting it without it.
 func removeBlock(path, name, id string) error {
@@ -258,20 +255,20 @@ func removeBlock(path, name, id string) error {
 	if err != nil {
 		return err
 	}
-	header, blocks := bank.EntryBlocks(name, string(data))
+	header, blocks := EntryBlocks(name, string(data))
 	var kept []string
 	for _, b := range blocks {
 		if !ownsMarker(b, id) {
 			kept = append(kept, b)
 		}
 	}
-	return paths.AtomicWrite(path, []byte(bank.Rejoin(header, kept)), 0o600)
+	return paths.AtomicWrite(path, []byte(Rejoin(header, kept)), 0o600)
 }
 
 // budgetSplit keeps blocks from the top while header+kept stays within capLines; the rest overflow.
 // blocks arrives newest-first, so walking forward keeps the newest and settles the oldest end.
 func budgetSplit(header string, blocks []string, capLines int) (keep, overflow []string) {
-	used := bank.LogicalLineCount(header)
+	used := LogicalLineCount(header)
 	full := false
 	for i, b := range blocks {
 		cost := blockCost(b, i, used)
@@ -290,7 +287,7 @@ func budgetSplit(header string, blocks []string, capLines int) (keep, overflow [
 // blockCost is a block's line cost including the blank separator rejoin inserts — absent only before
 // block 0 of a header-less file.
 func blockCost(block string, i, used int) int {
-	n := bank.LogicalLineCount(block)
+	n := LogicalLineCount(block)
 	if used > 0 || i > 0 {
 		n++
 	}

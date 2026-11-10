@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // digestFixture is a dir with one raw archive file, a prior digest.md, and a fake claude script body.
@@ -54,12 +52,12 @@ func TestDigestRunsWithoutToolsOrSettings(t *testing.T) {
 func TestDigestCommitFailureRestoresPreviousDigest(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
-	dir := memstore.HomeBankDir()
-	archive := memstore.ArchiveDir(dir)
+	dir := HomeBankDir()
+	archive := ArchiveDir(dir)
 	write(t, filepath.Join(archive, "sessionHistory-2026-10.md"), "- a durable archived fact\n")
 	digest := filepath.Join(archive, DigestFile)
 	write(t, digest, "PREVIOUS\n")
-	write(t, filepath.Join(memstore.StoreDir(), ".git", "index.lock"), "held by another writer\n")
+	write(t, filepath.Join(StoreDir(), ".git", "index.lock"), "held by another writer\n")
 	fake := filepath.Join(t.TempDir(), "claude")
 	write(t, fake, "#!/bin/sh\nprintf '%s\\n' '- replacement digest'\n")
 	if err := os.Chmod(fake, 0o700); err != nil {

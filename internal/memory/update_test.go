@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/paths"
 	"io"
 	"os"
 	"os/exec"
@@ -12,10 +13,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memory/recall"
-	"github.com/edotau/claude-code/internal/memstore"
 )
 
 func writeTranscript(t *testing.T, lines ...string) string {
@@ -49,7 +46,7 @@ func TestAgentUpdatePrompt_UsesReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agentUpdatePrompt: %v", err)
 	}
-	ref, err := bank.Reference("update")
+	ref, err := Reference("update")
 	if err != nil {
 		t.Fatalf("Reference(update): %v", err)
 	}
@@ -94,44 +91,17 @@ func TestAgentUpdatePrompt_WithCWDAppendsGitActivity(t *testing.T) {
 	}
 }
 
-func tempConfig(t *testing.T) string {
-	t.Helper()
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	return cfg
-}
-
-func write(t *testing.T, path, body string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// repoRoot makes a git work-tree root (a .git dir is enough for the stat-first check).
-func repoRoot(t *testing.T, name string) string {
-	t.Helper()
-	root := gitRepo(t, canonTemp(t, t.TempDir()), name)
-	if _, err := memstore.EnsureRepoDir(root); err != nil {
-		t.Fatal(err)
-	}
-	return root
-}
-
 func TestDirSlug(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "My Repo.v2")
-	if got := memstore.Dir(root); filepath.Dir(got) != memstore.StoreDir() || !strings.HasPrefix(filepath.Base(got), "my-repo.v2") {
-		t.Errorf("Dir = %s want a my-repo.v2 store under %s", got, memstore.StoreDir())
+	if got := Dir(root); filepath.Dir(got) != StoreDir() || !strings.HasPrefix(filepath.Base(got), "my-repo.v2") {
+		t.Errorf("Dir = %s want a my-repo.v2 store under %s", got, StoreDir())
 	}
-	if memstore.IsHomeBank(root) {
+	if IsHomeBank(root) {
 		t.Error("a repo's bank must not be the home bank")
 	}
-	if plain := t.TempDir(); !memstore.IsHomeBank(plain) {
-		t.Errorf("a non-repo root must collapse to the global bank, got %s", memstore.Dir(plain))
+	if plain := t.TempDir(); !IsHomeBank(plain) {
+		t.Errorf("a non-repo root must collapse to the global bank, got %s", Dir(plain))
 	}
 }
 
@@ -142,7 +112,7 @@ func TestInitNoOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range bank.BankFiles() {
+	for _, name := range BankFiles() {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("missing %s", name)
 		}
@@ -163,15 +133,15 @@ func TestInitNoOverwrite(t *testing.T) {
 func TestSplitBlocksFenceAware(t *testing.T) {
 	t.Parallel()
 	body := "# Conventions\n> note\n\n- first rule\n  - sub\n```\n- not a block\n## nor this\n```\n- second rule\n## Heading\ntext"
-	header, blocks := bank.EntryBlocks("conventions.md", body)
+	header, blocks := EntryBlocks("conventions.md", body)
 	if header != "# Conventions\n> note" || len(blocks) != 3 || !strings.Contains(blocks[0], "- not a block") {
 		t.Fatalf("header %q blocks %q", header, blocks)
 	}
-	_, hb := bank.EntryBlocks("decisionLog.md", "# D\n## a\n- bullet stays\n~~~\n## fenced\n~~~\n## b")
+	_, hb := EntryBlocks("decisionLog.md", "# D\n## a\n- bullet stays\n~~~\n## fenced\n~~~\n## b")
 	if len(hb) != 2 || !strings.Contains(hb[0], "## fenced") {
 		t.Errorf("heading blocks %q", hb)
 	}
-	if got := bank.Rejoin(header, blocks[:1]); !strings.HasPrefix(got, "# Conventions\n> note\n\n- first rule") {
+	if got := Rejoin(header, blocks[:1]); !strings.HasPrefix(got, "# Conventions\n> note\n\n- first rule") {
 		t.Errorf("rejoin %q", got)
 	}
 }
@@ -179,21 +149,21 @@ func TestSplitBlocksFenceAware(t *testing.T) {
 func TestSearchBanksRanking(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	dir := memstore.Dir(root)
+	dir := Dir(root)
 	write(t, filepath.Join(dir, "decisionLog.md"), "# D\n\n## 2026-01-01 — router retries on 429\n\nwhy: rate limits\n\n## 2026-01-02 — unrelated choice\n\nthe router is mentioned once\n")
-	write(t, filepath.Join(memstore.HomeBankDir(), "conventions.md"), "# C\n\n- keep commits small\n")
+	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# C\n\n- keep commits small\n")
 	write(t, filepath.Join(dir, "archive", "sessionHistory-2025-12.md"), "# old\n\n## 2025-12-01 — 429 storm\n")
-	hits := recall.SearchBanks(root, "the router 429", 0)
+	hits := SearchBanks(root, "the router 429", 0)
 	if len(hits) != 3 || !strings.Contains(hits[0].Block, "retries on 429") || hits[0].Bank != "local" {
 		t.Fatalf("hits %+v", hits)
 	}
 	if hits[0].Title() != "2026-01-01 — router retries on 429" {
 		t.Errorf("title %q", hits[0].Title())
 	}
-	if g := recall.SearchBanks(root, "commits", 5); len(g) != 1 || g[0].Bank != "home" {
+	if g := SearchBanks(root, "commits", 5); len(g) != 1 || g[0].Bank != "home" {
 		t.Errorf("global hit %+v", g)
 	}
-	if recall.SearchBanks(root, "the and of", 5) != nil {
+	if SearchBanks(root, "the and of", 5) != nil {
 		t.Error("all-stopword query must return nothing")
 	}
 }
@@ -201,7 +171,7 @@ func TestSearchBanksRanking(t *testing.T) {
 func TestRotateAndSettle(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	dir := memstore.Dir(root)
+	dir := Dir(root)
 	var b strings.Builder
 	b.WriteString("# Session History\n\n> newest first\n")
 	for i := 35; i >= 1; i-- {
@@ -209,12 +179,12 @@ func TestRotateAndSettle(t *testing.T) {
 	}
 	write(t, filepath.Join(dir, "sessionHistory.md"), b.String())
 	now := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
-	s, err := bank.SettleBank(root, now)
+	s, err := SettleBank(root, now)
 	if err != nil || s.Rotated != 5 {
 		t.Fatalf("rotated %d err %v", s.Rotated, err)
 	}
 	assertRotated(t, dir)
-	if n, _ := bank.RotateSessionHistory(dir, now); n != 0 {
+	if n, _ := RotateSessionHistory(dir, now); n != 0 {
 		t.Error("rotation under cap must be a no-op")
 	}
 }
@@ -222,28 +192,19 @@ func TestRotateAndSettle(t *testing.T) {
 // assertRotated checks the history kept its newest entries, the oldest went to the archive, and the index follows.
 func assertRotated(t *testing.T, dir string) {
 	t.Helper()
-	_, kept := bank.SplitHeadingBlocks(mustRead(t, filepath.Join(dir, "sessionHistory.md")))
+	_, kept := SplitHeadingBlocks(mustRead(t, filepath.Join(dir, "sessionHistory.md")))
 	arch := mustRead(t, filepath.Join(dir, "archive", "sessionHistory-2026-09.md"))
-	if len(kept) != bank.SessionHistoryMaxEntries || !strings.HasPrefix(kept[0], "## entry 35") || !strings.Contains(arch, "## entry 01") || strings.Contains(arch, "## entry 06") {
+	if len(kept) != SessionHistoryMaxEntries || !strings.HasPrefix(kept[0], "## entry 35") || !strings.Contains(arch, "## entry 01") || strings.Contains(arch, "## entry 06") {
 		t.Errorf("kept %d first %q archive %q", len(kept), kept[0], arch)
 	}
-	idx := mustRead(t, filepath.Join(dir, bank.NativeIndexFile))
+	idx := mustRead(t, filepath.Join(dir, NativeIndexFile))
 	if !strings.Contains(idx, "- sessionHistory: entry 35") || strings.Contains(idx, "entry 01") {
 		t.Errorf("index %q", idx)
 	}
 }
 
-func mustRead(t *testing.T, p string) string {
-	t.Helper()
-	b, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
-}
-
 func TestCapCharsBelowMarkerYieldsEmpty(t *testing.T) {
-	if got := bank.CapChars("aaaa\nbbbb", 3); got != "" {
+	if got := CapChars("aaaa\nbbbb", 3); got != "" {
 		t.Errorf("a cap below the marker length yields empty, got %q", got)
 	}
 }
@@ -254,7 +215,7 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	dir, _ := Init(root)
 	bin := t.TempDir()
 	ok := filepath.Join(bin, "claude-ok")
-	write(t, ok, "#!/bin/sh\n[ \"$"+bank.UpdateChildEnv+"\" = 1 ] || exit 3\nsleep 0.01\nprintf '\\n## 2026-09-16 — updated-by-child\\n' >> "+filepath.Join(dir, "sessionHistory.md")+"\n")
+	write(t, ok, "#!/bin/sh\n[ \"$"+UpdateChildEnv+"\" = 1 ] || exit 3\nsleep 0.01\nprintf '\\n## 2026-09-16 — updated-by-child\\n' >> "+filepath.Join(dir, "sessionHistory.md")+"\n")
 	bad := filepath.Join(bin, "claude-bad")
 	write(t, bad, "#!/bin/sh\nexit 1\n")
 	_ = os.Chmod(ok, 0o755)
@@ -268,7 +229,7 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	if r.Status != UpdateOK || !r.BankUpdated || r.Log != "/l.log" || r.NeedsAttention(time.Now()) {
 		t.Errorf("success result %+v", r)
 	}
-	if !strings.Contains(mustRead(t, filepath.Join(dir, bank.NativeIndexFile)), "updated-by-child") {
+	if !strings.Contains(mustRead(t, filepath.Join(dir, NativeIndexFile)), "updated-by-child") {
 		t.Error("update did not settle/index the bank")
 	}
 	assertUpdateFailures(t, root, bad)
@@ -295,14 +256,14 @@ func assertUpdateFailures(t *testing.T, root, bad string) {
 func TestNativeTopicsJoinSearch(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	if got := memstore.ProjectSlug("/Users/a/.claude"); got != "-Users-a--claude" {
+	if got := paths.ProjectSlug("/Users/a/.claude"); got != "-Users-a--claude" {
 		t.Errorf("ProjectSlug = %q", got)
 	}
-	native := memstore.NativeDir(root)
+	native := NativeDir(root)
 	write(t, filepath.Join(native, "gw.md"), "---\nname: gateway\ndescription: home gateway over ssh\n---\n\nRun the status script.\n")
 	write(t, filepath.Join(native, "MEMORY.md"), "- [gateway](gw.md) — home gateway over ssh status\n")
 	write(t, filepath.Join(native, "loose.md"), "gateway ssh status without frontmatter\n")
-	hits := recall.SearchBanks(root, "gateway ssh status", 0)
+	hits := SearchBanks(root, "gateway ssh status", 0)
 	if len(hits) != 1 || hits[0].Bank != "native" || hits[0].File != "gw.md" || hits[0].Matched != 3 {
 		t.Fatalf("want only the frontmatter topic, matching 3 terms; got %+v", hits)
 	}
@@ -314,34 +275,34 @@ func TestNativeTopicsJoinSearch(t *testing.T) {
 func TestSeenSetTracksInjectedBlocks(t *testing.T) {
 	tempConfig(t)
 	root := t.TempDir()
-	write(t, filepath.Join(memstore.HomeBankDir(), "conventions.md"), "# C\n\n- injected rule\n  continues here\n- other rule\n")
-	recall.ResetSeen("11111111-1111-1111-1111-111111111111", root, "<!-- surface -->\n- injected   rule\ncontinues here\n")
-	seen := recall.SeenBlocks("11111111-1111-1111-1111-111111111111")
-	if !seen[recall.BlockKey("- injected rule\n  continues here")] || seen[recall.BlockKey("- other rule")] || len(seen) != 1 {
+	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# C\n\n- injected rule\n  continues here\n- other rule\n")
+	ResetSeen("11111111-1111-1111-1111-111111111111", root, "<!-- surface -->\n- injected   rule\ncontinues here\n")
+	seen := SeenBlocks("11111111-1111-1111-1111-111111111111")
+	if !seen[BlockKey("- injected rule\n  continues here")] || seen[BlockKey("- other rule")] || len(seen) != 1 {
 		t.Fatalf("seen after reset: %v", seen)
 	}
-	recall.MarkSeen("11111111-1111-1111-1111-111111111111", []bank.SearchHit{{Block: "- other rule"}})
-	if !recall.SeenBlocks("11111111-1111-1111-1111-111111111111")[recall.BlockKey("- other rule")] {
-		t.Error("recall.MarkSeen did not record the hit")
+	MarkSeen("11111111-1111-1111-1111-111111111111", []SearchHit{{Block: "- other rule"}})
+	if !SeenBlocks("11111111-1111-1111-1111-111111111111")[BlockKey("- other rule")] {
+		t.Error("MarkSeen did not record the hit")
 	}
-	recall.ResetSeen("11111111-1111-1111-1111-111111111111", root, "")
-	if len(recall.SeenBlocks("11111111-1111-1111-1111-111111111111")) != 0 {
+	ResetSeen("11111111-1111-1111-1111-111111111111", root, "")
+	if len(SeenBlocks("11111111-1111-1111-1111-111111111111")) != 0 {
 		t.Error("a SessionStart (e.g. after compact) must clear what recall injected")
 	}
 	for _, bad := range []string{"", ".."} {
-		recall.MarkSeen(bad, []bank.SearchHit{{Block: "x"}})
-		if len(recall.SeenBlocks(bad)) != 0 {
+		MarkSeen(bad, []SearchHit{{Block: "x"}})
+		if len(SeenBlocks(bad)) != 0 {
 			t.Errorf("session id %q must be a no-op", bad)
 		}
 	}
 }
 
-// bank.CredentialPattern is the coarse memory tripwire: ghs_ with 10+ body characters is caught, a short stub is not.
+// CredentialPattern is the coarse memory tripwire: ghs_ with 10+ body characters is caught, a short stub is not.
 func TestCredentialPatternGitHubShapes(t *testing.T) {
-	if !bank.CredentialPattern.MatchString("token ghs_abcdefghij12 leaked") {
+	if !CredentialPattern.MatchString("token ghs_abcdefghij12 leaked") {
 		t.Error("ghs_ + 12 chars must match")
 	}
-	if bank.CredentialPattern.MatchString("see ghs_abc for the format") {
+	if CredentialPattern.MatchString("see ghs_abc for the format") {
 		t.Error("ghs_abc is too short to be a token")
 	}
 }
@@ -349,7 +310,7 @@ func TestCredentialPatternGitHubShapes(t *testing.T) {
 // TestSearchHitPlainStripsMarkup: a preview drops heading/bullet marks and id markers but keeps every word.
 func TestSearchHitPlainStripsMarkup(t *testing.T) {
 	t.Parallel()
-	h := bank.SearchHit{Block: "## 2026-10-23 — Routing stays local <!-- id:7e92d61b -->\n\n- Rejected the remote router.\n"}
+	h := SearchHit{Block: "## 2026-10-23 — Routing stays local <!-- id:7e92d61b -->\n\n- Rejected the remote router.\n"}
 	want := "2026-10-23 — Routing stays local Rejected the remote router."
 	if got := h.Plain(); got != want {
 		t.Errorf("Plain() = %q, want %q", got, want)
@@ -357,7 +318,7 @@ func TestSearchHitPlainStripsMarkup(t *testing.T) {
 }
 
 // hitContaining returns the first hit whose block contains sub (the last when several do, as the old scan did).
-func hitContaining(hits []bank.SearchHit, sub string) (found bank.SearchHit, ok bool) {
+func hitContaining(hits []SearchHit, sub string) (found SearchHit, ok bool) {
 	for _, h := range hits {
 		if strings.Contains(h.Block, sub) {
 			found, ok = h, true
@@ -373,7 +334,7 @@ func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "routing")
-	dir, err := memstore.EnsureRepoDir(repo)
+	dir, err := EnsureRepoDir(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +343,7 @@ func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
 		"## exact candidate\nAgent routing stays on the local classifier\n\n"+
 		"## unrelated entry\nnothing to do with either term\n")
 
-	hits := recall.SearchBanks(repo, "agent routing", 0)
+	hits := SearchBanks(repo, "agent routing", 0)
 	compound, compoundSeen := hitContaining(hits, "Subagent routing")
 	exact, exactSeen := hitContaining(hits, "Agent routing")
 	compoundScore, compoundMatched := compound.Score, compound.Matched
@@ -411,7 +372,7 @@ func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
 // assertHyphenatedMatchesBoth: the hyphenated query "agent-routing" matches both the compound and the exact block.
 func assertHyphenatedMatchesBoth(t *testing.T, repo string) {
 	t.Helper()
-	hyphen := recall.SearchBanks(repo, "agent-routing", 0)
+	hyphen := SearchBanks(repo, "agent-routing", 0)
 	var hyphenHitsCompound, hyphenHitsExact bool
 	for _, h := range hyphen {
 		if strings.Contains(h.Block, "Subagent routing") {
@@ -440,7 +401,7 @@ func TestLiveTranscript(t *testing.T) {
 		}
 		return p
 	}
-	exact := write(memstore.ProjectSlug(cwd), "s1")
+	exact := write(paths.ProjectSlug(cwd), "s1")
 	write("-other-project", "s1")
 	other := write("-other-project", "s2")
 	if got := LiveTranscript(cwd, "s1"); got != exact {
@@ -467,7 +428,7 @@ var embeddedVerbs = []string{"init", "review", "promote", "update", "dream"}
 // non-empty embedded prompt — no disk path left to go missing at runtime.
 func TestReferenceEmbeddedVerbsNonEmpty(t *testing.T) {
 	for _, verb := range embeddedVerbs {
-		got, err := bank.Reference(verb)
+		got, err := Reference(verb)
 		if err != nil {
 			t.Errorf("Reference(%q): %v", verb, err)
 			continue
@@ -481,14 +442,14 @@ func TestReferenceEmbeddedVerbsNonEmpty(t *testing.T) {
 // TestReferenceUnknownVerbErrors: a verb with no embedded prompts/<verb>.md is an error, not an
 // empty string — a caller must never run a background job on a silently empty prompt.
 func TestReferenceUnknownVerbErrors(t *testing.T) {
-	if _, err := bank.Reference("does-not-exist"); err == nil {
+	if _, err := Reference("does-not-exist"); err == nil {
 		t.Fatal("Reference(\"does-not-exist\") = nil error, want one")
 	}
 }
 
 // TestReferenceEmptyVerbErrors: the empty string is also an unknown verb.
 func TestReferenceEmptyVerbErrors(t *testing.T) {
-	if _, err := bank.Reference(""); err == nil {
+	if _, err := Reference(""); err == nil {
 		t.Fatal("Reference(\"\") = nil error, want one")
 	}
 }
@@ -499,7 +460,7 @@ func TestAgentDreamPrompt_UsesReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agentDreamPrompt: %v", err)
 	}
-	ref, err := bank.Reference("dream")
+	ref, err := Reference("dream")
 	if err != nil {
 		t.Fatalf("Reference(\"dream\"): %v", err)
 	}
@@ -513,6 +474,7 @@ func TestAgentDreamPrompt_UsesReference(t *testing.T) {
 // (the old "missing reference" repro is unreachable), so this instead confirms Dream still returns
 // promptly and the agent still runs, proving the lock-then-settle-outside-the-lock fix holds.
 func TestDreamFreshStoreRunsWithoutDeadlock(t *testing.T) {
+	clearChildEnv(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	ran := false
 	run := func(context.Context, string, string) (string, error) { ran = true; return "stub", nil }
@@ -540,6 +502,7 @@ func TestMergeFileListsKeepsUnstagedPaths(t *testing.T) {
 }
 
 func TestDreamFailedRunRetriesAfterBackoff(t *testing.T) {
+	clearChildEnv(t)
 	tempConfig(t)
 	root := repoRoot(t, "proj")
 	if _, err := Init(root); err != nil {
@@ -560,9 +523,10 @@ func TestDreamFailedRunRetriesAfterBackoff(t *testing.T) {
 
 // TestHistoricalUpdatePromptAndReport: an older session's prompt forbids current state, and an edit to it is reported.
 func TestHistoricalUpdatePromptAndReport(t *testing.T) {
+	clearChildEnv(t)
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	dir := memstore.Dir(root)
+	dir := Dir(root)
 	write(t, filepath.Join(dir, "activeContext.md"), "live focus\n")
 	var prompt string
 	run := func(_ context.Context, p, _ string) (string, error) {

@@ -16,7 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -280,10 +279,10 @@ func Spec() *completion.Node {
 	}}
 }
 
-// memoryRememberTypes mirrors bank.RememberTypes' keys for `memory remember --type` completion.
+// memoryRememberTypes mirrors memory.RememberTypes' keys for `memory remember --type` completion.
 func memoryRememberTypes() []string { return []string{"user", "feedback", "project", "reference"} }
 
 // memoryPromoteTargets mirrors memory.PromoteTargets for `memory promote --to` completion.
 func memoryPromoteTargets() []string { return memory.PromoteTargets }
 
-func memoryRepoNames() []string { return memstore.RepoKeys() }
+func memoryRepoNames() []string { return memory.RepoKeys() }

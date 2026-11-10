@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory"
 	"io"
 	"maps"
 	"os"
@@ -15,8 +16,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/shapes"
@@ -62,15 +61,15 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 
 // withMemoryOrigin hands the child the launching workspace's store origin, so a scratch-folder session uses its memory.
 func withMemoryOrigin(env []string) []string {
-	if slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, memstore.OriginEnv+"=") }) {
+	if slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, memory.OriginEnv+"=") }) {
 		return env
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return env
 	}
-	if o := memstore.LaunchOrigin(cwd); o != "" {
-		env = append(env, memstore.OriginEnv+"="+o)
+	if o := memory.LaunchOrigin(cwd); o != "" {
+		env = append(env, memory.OriginEnv+"="+o)
 	}
 	return env
 }

@@ -2,6 +2,7 @@ package agents
 
 import (
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/memory"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/plans"
 )
 
@@ -22,7 +22,7 @@ func planRepo(t *testing.T) (repo, plan string) {
 	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
-	dir := plans.Home(memstore.GitToplevel(repo))
+	dir := plans.Home(memory.GitToplevel(repo))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}

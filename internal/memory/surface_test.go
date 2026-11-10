@@ -8,10 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memory/recall"
-	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // The catalog leaves the surface (one pointer stays); the Parked section leaves the injected surface (with a count), the other sections stay, and recall can still find it.
@@ -19,11 +15,11 @@ func TestUnifiedSurfaceFocusOnly(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "proj")
-	dir, err := memstore.EnsureRepoDir(repo)
+	dir, err := EnsureRepoDir(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(memstore.StoreDir(), memstore.CatalogFile), "# Memory catalog\n\n- proj — hook · last never -> proj/MEMORY.md\n")
+	write(t, filepath.Join(StoreDir(), CatalogFile), "# Memory catalog\n\n- proj — hook · last never -> proj/MEMORY.md\n")
 	write(t, filepath.Join(dir, "activeContext.md"), "# Active Context\n\n"+
 		"## Current Focus\n\n- shipping the router\n\n"+
 		"## Open Questions\n\n- should not appear\n\n"+
@@ -58,7 +54,7 @@ func TestUnifiedSurfaceCarriesNoCatalogRows(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "proj")
-	dir, err := memstore.EnsureRepoDir(repo)
+	dir, err := EnsureRepoDir(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,9 +63,9 @@ func TestUnifiedSurfaceCarriesNoCatalogRows(t *testing.T) {
 	for i := range 200 {
 		fmt.Fprintf(&cat, "- repo-%03d — hook · last never -> repo-%03d/MEMORY.md\n", i, i)
 	}
-	write(t, filepath.Join(memstore.StoreDir(), memstore.CatalogFile), cat.String())
+	write(t, filepath.Join(StoreDir(), CatalogFile), cat.String())
 	write(t, filepath.Join(dir, "activeContext.md"), "# Active Context\n\n## Current Focus\n\n- local focus\n")
-	write(t, filepath.Join(memstore.HomeBankDir(), "activeContext.md"), "# Active Context\n\n## Current Focus\n\n- home essential\n")
+	write(t, filepath.Join(HomeBankDir(), "activeContext.md"), "# Active Context\n\n## Current Focus\n\n- home essential\n")
 
 	s := SessionSurface(repo)
 	if strings.Contains(s, "repo-000") || strings.Contains(s, "repo-199") || strings.Contains(s, "MEMORY CATALOG") {
@@ -122,24 +118,24 @@ func TestSectionBodyRespectsFence(t *testing.T) {
 func TestAccessLogPathMovesToStateAfterCutover(t *testing.T) {
 	isolatedConfig(t)
 	legacy := filepath.Join(t.TempDir(), "bank")
-	if got := recall.AccessLogPath(legacy); got != filepath.Join(legacy, recall.AccessLogFile) {
+	if got := AccessLogPath(legacy); got != filepath.Join(legacy, AccessLogFile) {
 		t.Fatalf("pre-cutover path = %s, want beside the bank", got)
 	}
 	initStore(t)
 	for dir, want := range map[string]string{
-		memstore.StoreDir():                           "home.log",
-		filepath.Join(memstore.StoreDir(), ".claude"): ".claude.log",
-		filepath.Join(memstore.StoreDir(), "repo-a"):  "repo-a.log",
+		StoreDir():                           "home.log",
+		filepath.Join(StoreDir(), ".claude"): ".claude.log",
+		filepath.Join(StoreDir(), "repo-a"):  "repo-a.log",
 	} {
-		if got := recall.AccessLogPath(dir); got != filepath.Join(memstore.AccessStateDir(), want) {
-			t.Errorf("recall.AccessLogPath(%s) = %s, want %s", dir, got, want)
+		if got := AccessLogPath(dir); got != filepath.Join(AccessStateDir(), want) {
+			t.Errorf("AccessLogPath(%s) = %s, want %s", dir, got, want)
 		}
 	}
-	recall.LogAccess(filepath.Join(memstore.StoreDir(), "repo-a"), time.Now(), "aa11bb22", "read")
-	if _, err := os.Stat(filepath.Join(memstore.StoreDir(), "repo-a", recall.AccessLogFile)); !os.IsNotExist(err) {
+	LogAccess(filepath.Join(StoreDir(), "repo-a"), time.Now(), "aa11bb22", "read")
+	if _, err := os.Stat(filepath.Join(StoreDir(), "repo-a", AccessLogFile)); !os.IsNotExist(err) {
 		t.Errorf("access.log written inside the store: %v", err)
 	}
-	if data, _ := os.ReadFile(filepath.Join(memstore.AccessStateDir(), "repo-a.log")); !strings.Contains(string(data), "aa11bb22") {
+	if data, _ := os.ReadFile(filepath.Join(AccessStateDir(), "repo-a.log")); !strings.Contains(string(data), "aa11bb22") {
 		t.Errorf("state access log missing the entry: %q", data)
 	}
 }
@@ -148,9 +144,9 @@ func TestAccessLogPathMovesToStateAfterCutover(t *testing.T) {
 func TestKnowledgeIsSearchedAndCataloged(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
-	write(t, filepath.Join(memstore.KnowledgeDir(memstore.HomeBankDir()), "README.md"), "# Knowledge\nzebracorn readme\n")
-	write(t, filepath.Join(memstore.KnowledgeDir(memstore.HomeBankDir()), "zebra.md"), "# Zebra\nZebracorn invariant: probes never ship.\n")
-	hits := recall.SearchBanks(t.TempDir(), "zebracorn invariant probes", 5)
+	write(t, filepath.Join(KnowledgeDir(HomeBankDir()), "README.md"), "# Knowledge\nzebracorn readme\n")
+	write(t, filepath.Join(KnowledgeDir(HomeBankDir()), "zebra.md"), "# Zebra\nZebracorn invariant: probes never ship.\n")
+	hits := SearchBanks(t.TempDir(), "zebracorn invariant probes", 5)
 	if len(hits) == 0 || hits[0].Bank != "knowledge" || hits[0].File != "zebra.md" {
 		t.Fatalf("knowledge not ranked first: %+v", hits)
 	}
@@ -159,7 +155,7 @@ func TestKnowledgeIsSearchedAndCataloged(t *testing.T) {
 			t.Errorf("the tier README was indexed as knowledge")
 		}
 	}
-	c, err := bank.BuildCatalog(time.Now())
+	c, err := BuildCatalog(time.Now())
 	if err != nil || !strings.Contains(c, "## Knowledge") || !strings.Contains(c, "home/knowledge/zebra.md — Zebracorn invariant") || strings.Contains(c, "README.md —") {
 		t.Errorf("catalog knowledge section wrong (err=%v):\n%s", err, c)
 	}
@@ -171,18 +167,18 @@ func TestRepoBankKnowledgeIsCatalogedAndSearched(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
 	root := gitRepo(t, t.TempDir(), "narwhal")
-	dir, err := memstore.EnsureRepoDir(root)
+	dir, err := EnsureRepoDir(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(memstore.KnowledgeDir(memstore.Dir(root)), "README.md"), "# Knowledge\nnarwhal readme\n")
-	write(t, filepath.Join(memstore.KnowledgeDir(memstore.Dir(root)), "narwhal.md"), "# Narwhal\nNarwhalcorn invariant: tusks never ship.\n")
-	hits := recall.SearchBanks(root, "narwhalcorn invariant tusks", 5)
+	write(t, filepath.Join(KnowledgeDir(Dir(root)), "README.md"), "# Knowledge\nnarwhal readme\n")
+	write(t, filepath.Join(KnowledgeDir(Dir(root)), "narwhal.md"), "# Narwhal\nNarwhalcorn invariant: tusks never ship.\n")
+	hits := SearchBanks(root, "narwhalcorn invariant tusks", 5)
 	if len(hits) == 0 || hits[0].Bank != "knowledge" || hits[0].File != "narwhal.md" {
 		t.Fatalf("repo bank knowledge not ranked first: %+v", hits)
 	}
 	key := filepath.Base(dir)
-	c, err := bank.BuildCatalog(time.Now())
+	c, err := BuildCatalog(time.Now())
 	if err != nil || !strings.Contains(c, key+"/knowledge/narwhal.md — Narwhalcorn invariant") || strings.Contains(c, key+"/README.md —") {
 		t.Errorf("catalog missing repo bank knowledge row (err=%v):\n%s", err, c)
 	}
@@ -193,10 +189,10 @@ func TestLegacyDocsKnowledgeIgnored(t *testing.T) {
 	cfg, _ := isolatedConfig(t)
 	initStore(t)
 	write(t, filepath.Join(cfg, "docs", "knowledge", "yak.md"), "# Yak\nYakcorn invariant: wool never ships.\n")
-	if hits := recall.SearchBanks(t.TempDir(), "yakcorn invariant wool", 5); len(hits) != 0 {
+	if hits := SearchBanks(t.TempDir(), "yakcorn invariant wool", 5); len(hits) != 0 {
 		t.Errorf("legacy docs/knowledge note was searched: %+v", hits)
 	}
-	c, err := bank.BuildCatalog(time.Now())
+	c, err := BuildCatalog(time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,15 +209,15 @@ func TestUnifiedSurfaceFallsBackWhenNativeUnlinked(t *testing.T) {
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
 		t.Skip("git unavailable")
 	}
-	dir, err := memstore.EnsureRepoDir(repo)
+	dir, err := EnsureRepoDir(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(dir, bank.NativeIndexFile), "- [Topic](topic.md) — fallback marker\n")
+	write(t, filepath.Join(dir, NativeIndexFile), "- [Topic](topic.md) — fallback marker\n")
 	if s := SessionSurface(repo); !strings.Contains(s, "native link missing") || !strings.Contains(s, "fallback marker") {
 		t.Fatalf("unlinked surface lacks the MEMORY.md fallback:\n%s", s)
 	}
-	if _, ok := memstore.LinkNativeFor(repo); !ok {
+	if _, ok := LinkNativeFor(repo); !ok {
 		t.Fatal("LinkNativeFor failed")
 	}
 	if s := SessionSurface(repo); strings.Contains(s, "native link missing") {

@@ -10,7 +10,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/shapes"
 )
@@ -22,10 +21,10 @@ const maxTurns = 40
 const handoffCap = 64 * 1024
 
 // DefaultSource finds the newest *.jsonl Claude Code session file for cwd, under Claude Code's own
-// projects/<slug> dir (ConfigDir()/projects/<slug>) — never memstore.NativeDir, which redirects into the
+// projects/<slug> dir (ConfigDir()/projects/<slug>) — never memory.NativeDir, which redirects into the
 // memory store post-cutover and holds no transcripts.
 func DefaultSource(cwd string) (string, error) {
-	dir := filepath.Join(paths.ConfigDir(), "projects", memstore.ProjectSlug(cwd))
+	dir := filepath.Join(paths.ConfigDir(), "projects", paths.ProjectSlug(cwd))
 	ents, err := os.ReadDir(dir) // on error ents is empty, so newest stays ""
 	var newest string
 	var newestMod time.Time

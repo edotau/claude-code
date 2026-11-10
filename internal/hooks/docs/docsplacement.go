@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory"
 	"io"
 	"os"
 	"os/exec"
@@ -15,7 +16,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
@@ -169,8 +169,8 @@ func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 // blockPlacement prints the canonical homes for a markdown write that landed somewhere stranded.
 func blockPlacement(stderr io.Writer, base, where, root string) int {
 	plansDir := filepath.Join(paths.ConfigDir(), "plans")
-	store := memstore.Dir(root)
-	if core.UnderDir(canonDeep(memstore.StoreDir()), canonDeep(root)) {
+	store := memory.Dir(root)
+	if core.UnderDir(canonDeep(memory.StoreDir()), canonDeep(root)) {
 		store = root // a repo inside the memory store is its own bank, not the home one
 	}
 	plansHome := plans.Home(planRepoRoot(root))
@@ -186,8 +186,8 @@ func blockPlacement(stderr io.Writer, base, where, root string) int {
 		"-> rules/harness/docs-placement.md\n",
 		base, where, plansDir,
 		plansHome,
-		memstore.ReportsDir(store), base,
-		memstore.HandoffsDir(store),
+		memory.ReportsDir(store), base,
+		memory.HandoffsDir(store),
 		store,
 		docsPlacementDisableEnv)
 	return core.ExitBlock
