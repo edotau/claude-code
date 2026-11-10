@@ -128,3 +128,18 @@ func TestProfileIgnoredForReadOnlyAndInContext(t *testing.T) {
 		}
 	}
 }
+
+// TestArmProfileLineBlocked: under databricks:dev a Profile: line for another profile is blocked, dev's own passes.
+func TestArmProfileLineBlocked(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_ROUTE", "databricks:dev")
+	stubProfiles(t, []string{"dev", "qa"}, true)
+	res := agentEffortResult(core.ParseInput(strings.NewReader(profileSpawn(t, "claude", "Agent: codex\nProfile: qa\nfix"))))
+	if res.Decision != core.Block || !strings.Contains(res.Reason, "agent-effort: Profile: qa conflicts with databricks:dev") {
+		t.Errorf("Profile: qa = %+v, want a Block naming databricks:dev", res)
+	}
+	res = agentEffortResult(core.ParseInput(strings.NewReader(profileSpawn(t, "claude", "Agent: codex\nProfile: dev\nfix"))))
+	if p, _ := res.UpdatedInput["prompt"].(string); res.Decision == core.Block || !strings.HasPrefix(p, "Run: claude-code agents ask --agent codex --profile dev") {
+		t.Errorf("Profile: dev = %+v, want the usual Run: rewrite", res)
+	}
+}

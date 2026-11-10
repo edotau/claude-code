@@ -2,6 +2,7 @@ package agents
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,8 +13,12 @@ import (
 
 	"github.com/edotau/claude-code/internal/memory"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
+	_ "github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -652,5 +657,39 @@ func TestAgentEffortReadsRosterAndRegistryOnce(t *testing.T) {
 	r := agentEffortResult(core.ParseInput(strings.NewReader(payload)))
 	if d, _ := r.UpdatedInput["description"].(string); d != "dbx-haiku: fix x" || reads != 1 || loads != 1 {
 		t.Fatalf("description %q, agent-file reads %d, registry loads %d; want \"dbx-haiku: fix x\", 1, 1", d, reads, loads)
+	}
+}
+
+const armDevOverlay = `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`
+
+// TestArmLabelIsPick: under databricks:dev the label is the model the no-run pick lists first, not a table prediction.
+func TestArmLabelIsPick(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-value")
+	pathstest.FakeVendor(t, "codex", "exit 0")
+	vaulttest.SetRecord(t, "codex", "profile", "dev")
+	t.Setenv("HARNESS_ROUTE", "databricks:dev")
+	_, res, err := agentpkg.Resolve(context.Background(), agentpkg.RouteReq{Agent: "codex", Model: "sonnet", Fallback: router.FallbackAll, Preview: true})
+	if err != nil || len(res.Candidates) == 0 {
+		t.Fatalf("preview = %+v, %v; want a candidate (skipped %+v)", res.Candidates, err, res.Skipped)
+	}
+	first := res.Candidates[0]
+	if got := cellModelFor(newDispatchRun(nil), "codex", "sonnet"); got == "" || got != first.Model {
+		t.Errorf("label = %q, want the first candidate %s on %s: %q", got, first.Agent, first.Account, first.Model)
+	}
+}
+
+// A label is side-effect free: a discovery pin must not advance the rotation in quota.json.
+func TestLabelWritesNoQuotaState(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
+	vaulttest.SetRecord(t, "copilot", "profile", "dev")
+	vaulttest.SetRecord(t, "copilot", "model", router.DiscoveryModel)
+	before, _ := os.ReadFile(router.StatePath())
+	cellModelFor(newDispatchRun(nil), "copilot", "sonnet")
+	after, _ := os.ReadFile(router.StatePath())
+	if !bytes.Equal(before, after) {
+		t.Errorf("quota.json changed by a label: %q -> %q", before, after)
 	}
 }
