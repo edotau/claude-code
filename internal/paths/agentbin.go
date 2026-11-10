@@ -116,3 +116,12 @@ func resolvedDir(dir string) string {
 	abs, _ := filepath.Abs(dir)
 	return Canon(abs)
 }
+
+// BinKey identifies one binary build (path|size|mtime); ok is false when path cannot be stat'ed.
+func BinKey(path string) (key string, ok bool) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return "", false
+	}
+	return fmt.Sprintf("%s|%d|%d", path, fi.Size(), fi.ModTime().UnixNano()), true
+}

@@ -511,13 +511,11 @@ func (copilotEngine) Plan(_ context.Context, st providers.AuthState) providers.S
 
 // copilotTierCmd is the plan lookup seam; tests replace it. A non-empty token asks as that account, not gh's active one.
 var copilotTierCmd = func(ctx context.Context, token string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "gh", "api", "/copilot_internal/user")
 	spec := agent.EnvSpec{Mode: agent.EnvAgent}
 	if token != "" {
 		spec.Set = []string{"GH_TOKEN=" + token}
 	}
-	cmd.Env = spec.Environ(ctx)
-	return cmd.Output()
+	return agent.ProbeCLI(ctx, "gh", spec, false, "api", "/copilot_internal/user")
 }
 
 // copilotPlanMemo holds one lookup per account, so a sign-in or account switch mid-menu re-asks.

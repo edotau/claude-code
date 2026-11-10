@@ -114,21 +114,12 @@ var (
 
 func versionCacheFile() string { return filepath.Join(paths.StateDir(), "agentversion.json") }
 
-// versionKey identifies one binary build; ok is false when path cannot be stat'ed.
-func versionKey(path string) (key string, ok bool) {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return "", false
-	}
-	return fmt.Sprintf("%s|%d|%d", path, fi.Size(), fi.ModTime().UnixNano()), true
-}
-
 // versionLine is firstVersionLine cached in-process and in the state dir, keyed by path+size+mtime; failures uncached.
 func versionLine(path string) string { return ProbedVersionLine(path, firstVersionLine) }
 
 // ProbedVersionLine is versionLine with the caller's own probe (its timeout and parsing), sharing the same cache.
 func ProbedVersionLine(path string, probe func(string) string) string {
-	key, ok := versionKey(path)
+	key, ok := paths.BinKey(path)
 	if !ok {
 		return probe(path)
 	}

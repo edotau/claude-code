@@ -4,7 +4,6 @@ package claude
 import (
 	"context"
 	"encoding/json"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -112,9 +111,7 @@ func runClaudeProbe() (loggedIn bool, plan string, err error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "auth", "status")
-	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(ctx) // the scrubbed agent env, as codex and opencode probes use
-	out, runErr := cmd.Output()
+	out, runErr := agent.ProbeCLI(ctx, bin, agent.EnvSpec{Mode: agent.EnvAgent}, false, "auth", "status")
 	var st struct {
 		LoggedIn         bool   `json:"loggedIn"`
 		SubscriptionType string `json:"subscriptionType"`
