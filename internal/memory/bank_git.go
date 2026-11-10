@@ -95,7 +95,7 @@ func (r Repo) initIfAbsent(gitDir string) error {
 // checkRoot proves plain discovery from inside Dir lands on gitDir (not an empty .git or a parent's), that no commondir
 // file shares another repo's refs/objects, and that the enclosing checkout, if any, does not share it.
 func (r Repo) checkRoot(gitDir string) error {
-	found, err := GitOut(r.Dir, "rev-parse", "--absolute-git-dir")
+	found, err := gitOut(r.Dir, "rev-parse", "--absolute-git-dir")
 	if err != nil {
 		return err
 	}
@@ -103,14 +103,14 @@ func (r Repo) checkRoot(gitDir string) error {
 	if paths.CanonDeep(found) != want {
 		return fmt.Errorf("memory repo: git in %s resolves to %q, not %q", r.Dir, found, gitDir)
 	}
-	common, err := GitOut(r.Dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	common, err := gitOut(r.Dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
 		return err
 	}
 	if paths.CanonDeep(common) != want {
 		return fmt.Errorf("memory repo: %s shares git metadata with %q (commondir)", gitDir, common)
 	}
-	outer, err := GitOut(filepath.Dir(r.Dir), "rev-parse", "--absolute-git-dir")
+	outer, err := gitOut(filepath.Dir(r.Dir), "rev-parse", "--absolute-git-dir")
 	if err == nil && paths.CanonDeep(outer) == want {
 		return fmt.Errorf("memory repo: %s is the outer checkout's git dir", gitDir)
 	}
@@ -137,11 +137,11 @@ func (r Repo) remotes() ([]string, error) {
 	return splitLines(out), nil
 }
 
-// StatusEntry is one porcelain v1 row: the XY code and the path (a rename reports its NEW path, then OLD as "D ").
-type StatusEntry struct{ Code, Path string }
+// statusEntry is one porcelain v1 row: the XY code and the path (a rename reports its NEW path, then OLD as "D ").
+type statusEntry struct{ Code, Path string }
 
 // Status lists dirty paths (untracked files individually), limited to pathspecs when given.
-func (r Repo) Status(pathspecs ...string) ([]StatusEntry, error) {
+func (r Repo) Status(pathspecs ...string) ([]statusEntry, error) {
 	args := []string{"status", "--porcelain=v1", "-z", "--untracked-files=all"}
 	if len(pathspecs) > 0 {
 		args = append(append(args, "--"), pathspecs...)
@@ -150,7 +150,7 @@ func (r Repo) Status(pathspecs ...string) ([]StatusEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	var entries []StatusEntry
+	var entries []statusEntry
 	fields := strings.Split(out, "\x00")
 	for i := 0; i < len(fields); i++ {
 		f := fields[i]
@@ -158,11 +158,11 @@ func (r Repo) Status(pathspecs ...string) ([]StatusEntry, error) {
 			continue
 		}
 		code := f[:2]
-		entries = append(entries, StatusEntry{Code: code, Path: f[3:]})
+		entries = append(entries, statusEntry{Code: code, Path: f[3:]})
 		if code[0] == 'R' || code[0] == 'C' {
 			i++ // the original path follows as its own NUL field
 			if code[0] == 'R' && i < len(fields) {
-				entries = append(entries, StatusEntry{Code: "D ", Path: fields[i]}) // a rename also deletes its source
+				entries = append(entries, statusEntry{Code: "D ", Path: fields[i]}) // a rename also deletes its source
 			}
 		}
 	}
@@ -343,7 +343,7 @@ func (r Repo) run(args ...string) (string, error) {
 // overrides --git-dir), bounded, trimming ONLY trailing newlines (porcelain carries meaning in column 0).
 // full already carries its own -C/-c flags, so dir stays "" here to avoid a duplicate -C.
 func runGit(full []string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), GitTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	return proc.RunGit(ctx, "", full...)
 }
@@ -363,7 +363,7 @@ func trackedAtHead(repo Repo, rel string) (bool, error) {
 
 // headBytes is rel's content at HEAD, byte-exact: run trims trailing newlines, which would corrupt a recovery copy.
 func headBytes(repo Repo, rel string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), GitTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "--git-dir="+filepath.Join(repo.Dir, ".git"), "--work-tree="+repo.Dir,
 		"cat-file", "blob", "HEAD:"+rel)

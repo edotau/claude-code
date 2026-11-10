@@ -9,15 +9,15 @@ import (
 	"time"
 )
 
-// TimelineEntry is one recall row from an update receipt.
-type TimelineEntry struct {
+// timelineEntry is one recall row from an update receipt.
+type timelineEntry struct {
 	Time time.Time
 	Line string
 }
 
-// Timeline returns the newest-first update-receipt trail (bounded by limit) plus the most recent
+// timeline returns the newest-first update-receipt trail (bounded by limit) plus the most recent
 // sessionHistory headings from the local then home bank (their files are newest-first already).
-func Timeline(root string, limit int) (entries []TimelineEntry, sessions []string) {
+func timeline(root string, limit int) (entries []timelineEntry, sessions []string) {
 	for _, rc := range readReceipts() {
 		id, r := rc.id, rc.r
 		if r.Time.IsZero() {
@@ -27,7 +27,7 @@ func Timeline(root string, limit int) (entries []TimelineEntry, sessions []strin
 		if r.BankUpdated {
 			line += ", bank updated"
 		}
-		entries = append(entries, TimelineEntry{Time: r.Time, Line: line + "  (session " + headID(id) + ")"})
+		entries = append(entries, timelineEntry{Time: r.Time, Line: line + "  (session " + headID(id) + ")"})
 	}
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Time.After(entries[j].Time) })
 	if limit > 0 && len(entries) > limit {
@@ -40,11 +40,11 @@ func Timeline(root string, limit int) (entries []TimelineEntry, sessions []strin
 func recentSessions(root string, limit int) (sessions []string) {
 	seen := map[string]bool{}
 	dirs := []string{HomeBankDir()}
-	if !IsHomeBank(root) {
+	if !isHomeBank(root) {
 		dirs = []string{Dir(root), HomeBankDir()}
 	}
 	for _, dir := range dirs {
-		for _, h := range EntriesWithPrefix(filepath.Join(dir, "sessionHistory.md"), "## ") {
+		for _, h := range entriesWithPrefix(filepath.Join(dir, "sessionHistory.md"), "## ") {
 			if seen[h] {
 				continue
 			}

@@ -21,8 +21,8 @@ var sessionIDShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA
 // LooksLikeSessionID reports whether id has the UUID shape Claude Code assigns real sessions.
 func LooksLikeSessionID(id string) bool { return sessionIDShape.MatchString(id) }
 
-// BlockKey identifies a block by its whitespace-normalized text.
-func BlockKey(block string) string {
+// blockKey identifies a block by its whitespace-normalized text.
+func blockKey(block string) string {
 	h := fnv.New64a()
 	h.Write([]byte(strings.Join(strings.Fields(block), " ")))
 	return strconv.FormatUint(h.Sum64(), 16)
@@ -47,22 +47,22 @@ func ResetSeen(sessionID, root, surface string) {
 	}
 	pruneSeen(filepath.Dir(p))
 	flat := strings.Join(strings.Fields(surface), " ")
-	hits, err := CorpusBlocks(root)
+	hits, err := corpusBlocks(root)
 	if err != nil {
 		return // fail-open: no corpus read, so the seen set is left as it was
 	}
 	var b strings.Builder
 	for _, h := range hits {
 		if norm := strings.Join(strings.Fields(h.Block), " "); norm != "" && strings.Contains(flat, norm) {
-			b.WriteString(BlockKey(h.Block) + "\n")
+			b.WriteString(blockKey(h.Block) + "\n")
 		}
 	}
 	_ = os.MkdirAll(filepath.Dir(p), 0o700)
 	_ = paths.AtomicWrite(p, []byte(b.String()), 0o600)
 }
 
-// SeenBlocks returns sessionID's seen set: blocks already in the conversation's context.
-func SeenBlocks(sessionID string) map[string]bool {
+// seenBlocks returns sessionID's seen set: blocks already in the conversation's context.
+func seenBlocks(sessionID string) map[string]bool {
 	out := map[string]bool{}
 	p := seenPath(sessionID)
 	if p == "" {
@@ -88,7 +88,7 @@ func MarkSeen(sessionID string, hits []SearchHit) {
 	}
 	defer f.Close()
 	for _, h := range hits {
-		_, _ = f.WriteString(BlockKey(h.Block) + "\n")
+		_, _ = f.WriteString(blockKey(h.Block) + "\n")
 	}
 }
 

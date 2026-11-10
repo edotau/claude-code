@@ -2,7 +2,7 @@ package memory
 
 // The unified store tree (plan §1): ~/.claude/memory/ is one local Git repo holding the home bank under
 // home/, every repo's memory under <repo>/ (keyed by its origin remote), and the harness's own under
-// claude-code/. HomeBankDir, Dir and NativeDir (below) are the live path resolvers.
+// claude-code/. HomeBankDir and Dir (below) are the live path resolvers.
 
 import (
 	"os"
@@ -15,19 +15,19 @@ import (
 // CatalogFile is the reserved global catalog at the store root; BuildCatalog (Phase 2) is its only writer.
 const CatalogFile = "index.md"
 
-// StoreReservedDirs are store subdirectories that are never a repo's memory dir.
-var StoreReservedDirs = map[string]bool{
+// storeReservedDirs are store subdirectories that are never a repo's memory dir.
+var storeReservedDirs = map[string]bool{
 	".git": true, "archive": true, "handoffs": true, "receipts": true, "reports": true, "home": true,
 }
 
 // StoreDir is the memory store root and the work tree of the local memory repo.
 func StoreDir() string { return filepath.Join(paths.ConfigDir(), "memory") }
 
-// HarnessStoreDir is the harness's own memory dir inside the store; keyed by the same rule as any repo.
-func HarnessStoreDir() string { return filepath.Join(StoreDir(), HarnessStoreKey()) }
+// harnessStoreDir is the harness's own memory dir inside the store; keyed by the same rule as any repo.
+func harnessStoreDir() string { return filepath.Join(StoreDir(), harnessStoreKey()) }
 
-// ArchiveDir is dir's cold tier for rotated entries and prior revisions.
-func ArchiveDir(dir string) string { return filepath.Join(dir, "archive") }
+// archiveDir is dir's cold tier for rotated entries and prior revisions.
+func archiveDir(dir string) string { return filepath.Join(dir, "archive") }
 
 // HandoffsDir is dir's long-form session handoffs.
 func HandoffsDir(dir string) string { return filepath.Join(dir, "handoffs") }
@@ -35,8 +35,8 @@ func HandoffsDir(dir string) string { return filepath.Join(dir, "handoffs") }
 // ReportsDir is dir's command/agent reports (reviews, audits, research briefs).
 func ReportsDir(dir string) string { return filepath.Join(dir, "reports") }
 
-// KnowledgeDir is dir's local, near-rules tier: durable lessons kept short of a rule (plan C.2, post-T10).
-func KnowledgeDir(dir string) string { return filepath.Join(dir, "knowledge") }
+// knowledgeDir is dir's local, near-rules tier: durable lessons kept short of a rule (plan C.2, post-T10).
+func knowledgeDir(dir string) string { return filepath.Join(dir, "knowledge") }
 
 // JournalDir holds pending commit-transaction journals; state only, never committed.
 func JournalDir() string { return filepath.Join(StateDir(), "journal") }
@@ -44,8 +44,8 @@ func JournalDir() string { return filepath.Join(StateDir(), "journal") }
 // AccessStateDir holds migrated access logs; the single source of truth for migrate and clean.
 func AccessStateDir() string { return filepath.Join(StateDir(), "access") }
 
-// InsideStore reports whether p resolves under the store (and not under its .git); rel is slash-separated.
-func InsideStore(p string) (rel string, ok bool) {
+// insideStore reports whether p resolves under the store (and not under its .git); rel is slash-separated.
+func insideStore(p string) (rel string, ok bool) {
 	store := paths.CanonDeep(StoreDir())
 	r, err := filepath.Rel(store, paths.CanonDeep(p))
 	if err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
@@ -76,18 +76,13 @@ func Dir(root string) string {
 	case id.HomeBank:
 		return homeStoreDir()
 	case id.Harness:
-		return HarnessStoreDir()
+		return harnessStoreDir()
 	}
 	return filepath.Join(StateDir(), "unresolved-store")
 }
 
-// IsHomeBank reports whether root's local bank is the home bank (read it once, not twice).
-func IsHomeBank(root string) bool { return paths.SamePath(Dir(root), HomeBankDir()) }
-
-// NativeDir is root's own native auto-memory dir, the one `memory archive` acts on.
-func NativeDir(root string) string {
-	return Dir(root)
-}
+// isHomeBank reports whether root's local bank is the home bank (read it once, not twice).
+func isHomeBank(root string) bool { return paths.SamePath(Dir(root), HomeBankDir()) }
 
 // Root resolves --repo → $CLAUDE_PROJECT_DIR (only when it is a repo or the config dir) → git toplevel → cwd.
 // A launcher may stamp CLAUDE_PROJECT_DIR with a non-repo parent (e.g. $HOME); honoring that attached every

@@ -113,13 +113,13 @@ func freshEmbedCache(c *EmbedClient) vectorRecord {
 
 // currentEntryHashes is the content hash of each embeddable entry in root's corpus right now.
 func currentEntryHashes(root string) (map[string]string, error) {
-	hits, err := CorpusBlocks(root)
+	hits, err := corpusBlocks(root)
 	if err != nil {
 		return nil, err
 	}
 	out := map[string]string{}
 	for _, h := range hits {
-		e := EntryFromHit(h)
+		e := entryFromHit(h)
 		if e.Archived || e.Superseded {
 			continue
 		}
@@ -135,8 +135,8 @@ func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, t
 	return embedEntries(ctx, root, c, false)
 }
 
-// ReembedEntries re-embeds every live entry once the override window opens, otherwise returning ErrReembedEarly.
-func ReembedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, total int, err error) {
+// reembedEntries re-embeds every live entry once the override window opens, otherwise returning ErrReembedEarly.
+func reembedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, total int, err error) {
 	return embedEntries(ctx, root, c, true)
 }
 
@@ -149,14 +149,14 @@ func checkEmbedLease(rec vectorRecord, now time.Time, force bool) error {
 		return nil
 	}
 	if embedValid(rec, now) {
-		return fmt.Errorf("%w until %s", ErrEmbedValid, MintedTime(rec).Add(embedValidity).Format("15:04"))
+		return fmt.Errorf("%w until %s", ErrEmbedValid, mintedTime(rec).Add(embedValidity).Format("15:04"))
 	}
 	return nil
 }
 
 // embedBase is the cache a mint starts from: c's record, or a fresh one when forced or from another namespace.
 func embedBase(c *EmbedClient, now time.Time, force bool) (vectorRecord, error) {
-	if !SafeProfile(c.Profile) {
+	if !safeProfile.MatchString(c.Profile) {
 		return vectorRecord{}, fmt.Errorf("embeddings: unsafe profile name %q", c.Profile)
 	}
 	rec, err := readEmbedCache(c.Profile)
@@ -215,7 +215,7 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 
 // store merges the run into the current record under owner's claim; complete starts the lease, a partial run does not.
 func (r *embedRun) store(owner int64, complete bool) (stored bool, err error) {
-	stored, err = vectorStore.Put(VectorWrite{Profile: r.c.Profile, Owner: owner, Started: r.started, Merge: func(cur vectorRecord) vectorRecord {
+	stored, err = vectorStore.Put(vectorWrite{Profile: r.c.Profile, Owner: owner, Started: r.started, Merge: func(cur vectorRecord) vectorRecord {
 		out := r.merge(cur)
 		if complete && r.covers(out) { // a partial or migrated-incomplete run keeps its rows but does not start the lease
 			out.MintedAt = time.Now().UnixNano()
@@ -241,12 +241,12 @@ func cacheRowCurrent(row vectorRow, hash, blockHash string, cacheDim int) bool {
 func pendingEmbeds(root string, cache vectorRecord) (ids, texts, hashes, blocks []string, total int, err error) {
 	live := map[string]bool{}
 	cacheDim := cacheDimOf(cache)
-	hits, err := CorpusBlocks(root)
+	hits, err := corpusBlocks(root)
 	if err != nil {
 		return nil, nil, nil, nil, 0, err
 	}
 	for _, h := range hits {
-		e := EntryFromHit(h)
+		e := entryFromHit(h)
 		if e.Archived || e.Superseded || live[e.ID] { // the first of a duplicated id wins
 			continue
 		}
@@ -356,8 +356,8 @@ type Semantic struct {
 	blocks map[string]string
 }
 
-// ReadProfileCache is the per-profile read NewSemantic uses; a var so tests can fail one profile.
-var ReadProfileCache = readEmbedCache
+// readProfileCache is the per-profile read NewSemantic uses; a var so tests can fail one profile.
+var readProfileCache = readEmbedCache
 
 // NewSemantic embeds a query against the session cache, falling back to the agent record.
 func NewSemantic(query string) (*Semantic, error) {
@@ -407,15 +407,6 @@ func clearOldBackoff(backoff string, attempt time.Time) {
 	if st, err := os.Stat(backoff); err == nil && st.ModTime().Before(attempt) {
 		_ = os.Remove(backoff)
 	}
-}
-
-// Cosine is e's similarity to the query; false when e has no vector for its current content.
-func (s *Semantic) Cosine(e Entry) (float64, bool) {
-	row, ok := s.rows[e.ID]
-	if !ok || row.Hash != textHash(entryEmbedText(e)) {
-		return 0, false
-	}
-	return s.cosineRow(row)
 }
 
 // dominantDim returns the most frequent decoded vector dimension, with ties going to the larger dimension.
@@ -581,10 +572,10 @@ func semanticCache() (string, vectorRecord, error) {
 	var cache vectorRecord
 	var readErr error
 	for _, name := range []string{providers.SessionProfile(), providers.AgentRecord("claude").Profile} {
-		if name == "" || name == profile || !SafeProfile(name) {
+		if name == "" || name == profile || !safeProfile.MatchString(name) {
 			continue
 		}
-		c, err := ReadProfileCache(name)
+		c, err := readProfileCache(name)
 		if err != nil { // a locked or unreadable profile is a miss; the next one may serve
 			readErr = err
 			continue

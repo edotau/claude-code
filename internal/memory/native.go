@@ -27,7 +27,7 @@ func topicFiles(dir string) ([]string, error) {
 		if err := checkReadable(dir, e); err != nil {
 			return nil, err
 		}
-		if ClassifyMemoryFile(dir, e.Name()) == KindTopic {
+		if classifyMemoryFile(dir, e.Name()) == KindTopic {
 			out = append(out, filepath.Join(dir, e.Name()))
 		}
 	}
@@ -58,13 +58,13 @@ func topicPaths(dir string) []string {
 // not an archivable topic is refused, since callers pass the result straight to a move.
 func topicName(dir, arg string) (string, error) {
 	name := strings.TrimSpace(arg)
-	if err := ValidBareName(name); err != nil {
+	if err := validBareName(name); err != nil {
 		return "", err
 	}
-	k, reserved := ReservedNames[name]
+	k, reserved := reservedNames[name]
 	if !reserved && !strings.HasSuffix(name, ".md") {
 		name += ".md"
-		k, reserved = ReservedNames[name]
+		k, reserved = reservedNames[name]
 	}
 	if reserved {
 		return "", fmt.Errorf("%q: %s, not an archivable topic", arg, k)
@@ -76,7 +76,7 @@ func topicName(dir, arg string) (string, error) {
 	if absent {
 		return name, nil
 	}
-	if k := ClassifyMemoryFile(dir, name); !k.Archivable() {
+	if k := classifyMemoryFile(dir, name); !k.Archivable() {
 		return "", fmt.Errorf("%q: %s, not an archivable topic", arg, k)
 	}
 	return name, nil
@@ -87,9 +87,9 @@ func nativeArchiveDir(dir string) string {
 	return filepath.Join(dir, nativeArchiveRel)
 }
 
-// NativeStoreStats reports dir's injected cost plus two integrity faults across MEMORY.md + SEARCHABLE.md: a
+// nativeStoreStats reports dir's injected cost plus two integrity faults across MEMORY.md + SEARCHABLE.md: a
 // topic no pointer names (orphan), and a pointer whose target is gone (dangling — an answer that cannot open).
-type NativeStoreStats struct {
+type nativeStoreStats struct {
 	TopicFiles   int   // flat topic .md files (the store's own index files excluded)
 	IndexEntries int   // `- [Title](topic.md)` lines in MEMORY.md — the part paid on EVERY turn
 	IndexBytes   int64 // MEMORY.md's size
@@ -98,8 +98,8 @@ type NativeStoreStats struct {
 	Dangling     []string
 }
 
-// NativeResult reports one archive/restore pass; Skipped carries the reason per rejected name.
-type NativeResult struct {
+// nativeResult reports one archive/restore pass; Skipped carries the reason per rejected name.
+type nativeResult struct {
 	Archived []string
 	Restored []string
 	Skipped  []string
@@ -116,7 +116,7 @@ type nativeBatch struct {
 }
 
 func newNativeBatch(dir string) *nativeBatch {
-	if rel, ok := InsideStore(dir); ok {
+	if rel, ok := insideStore(dir); ok {
 		return &nativeBatch{base: StoreDir(), prefix: filepath.FromSlash(rel), inStore: true}
 	}
 	return &nativeBatch{base: dir}
@@ -166,8 +166,8 @@ func (b *nativeBatch) commit(subject string) (string, error) {
 		return "", nil
 	}
 	if b.inStore {
-		rec, err := CommitChangesLocked(subject, b.changes)
-		if errors.Is(err, ErrDivergent) {
+		rec, err := commitChangesLocked(subject, b.changes)
+		if errors.Is(err, errDivergent) {
 			err = fmt.Errorf("%w: %s", err, strings.Join(rec.Divergent, ", "))
 		}
 		return rec.Commit, err
@@ -207,7 +207,7 @@ func preimageGate(c Change, cur []byte, absent bool) (replayed bool, err error) 
 	case c.Delete && absent, !c.Delete && !absent && bytes.Equal(cur, c.Data):
 		return true, nil
 	case absent != (c.Preimage == nil), !absent && !bytes.Equal(cur, c.Preimage):
-		return false, fmt.Errorf("%w: %s", ErrDivergent, c.Rel)
+		return false, fmt.Errorf("%w: %s", errDivergent, c.Rel)
 	}
 	return false, nil
 }
@@ -216,7 +216,7 @@ func preimageGate(c Change, cur []byte, absent bool) (replayed bool, err error) 
 // region is not parsed, so its pointers are never counted, struck, moved or recorded.
 func indexLinks(index string) map[string]string {
 	out := map[string]string{}
-	for line := range strings.SplitSeq(OutsideBankRegion(index), "\n") {
+	for line := range strings.SplitSeq(outsideBankRegion(index), "\n") {
 		if target, ok := linkTarget(line); ok {
 			out[target] = line
 		}
@@ -257,9 +257,9 @@ func linkTarget(line string) (string, bool) {
 	return t, true
 }
 
-// NativeStats reports dir's injected cost and the two integrity faults, counting only topic files.
-func NativeStats(dir string) (NativeStoreStats, error) {
-	var st NativeStoreStats
+// nativeStats reports dir's injected cost and the two integrity faults, counting only topic files.
+func nativeStats(dir string) (nativeStoreStats, error) {
+	var st nativeStoreStats
 	topics, err := topicFiles(dir)
 	if err != nil {
 		return st, err
@@ -276,7 +276,7 @@ func NativeStats(dir string) (NativeStoreStats, error) {
 	if err != nil {
 		return st, err
 	}
-	if err := CheckBankRegion(string(raw)); err != nil {
+	if err := checkBankRegion(string(raw)); err != nil {
 		return st, fmt.Errorf("%s: %w", NativeIndexFile, err)
 	}
 	st.IndexBytes = int64(len(raw))
@@ -313,43 +313,52 @@ func indexFaults(dir, raw string, present map[string]bool) (dangling, orphans []
 	return dangling, orphans, nil
 }
 
-// ArchiveNative moves each named topic file out of dir into its archive and strikes its pointer line
-// (from whichever of MEMORY.md/SEARCHABLE.md carries it), recording that line verbatim so RestoreNative
-// is exact rather than reconstructed. Nothing is deleted — the file moves. apply=false plans only.
-// A symlink, directory, typed bank file or index name is refused outright (topicName classifies).
-func ArchiveNative(dir string, names []string, apply bool) (NativeResult, error) {
-	res := NativeResult{Applied: apply}
-	var todo []string
+// resolveTopics splits names into those present in base (todo) and "<name>: <absentMsg>" skips; skipped is kept on error.
+func resolveTopics(base string, names []string, absentMsg string) (todo, skipped []string, err error) {
 	for _, arg := range names {
-		name, err := topicName(dir, arg)
+		name, err := topicName(base, arg)
 		if err != nil {
-			return res, err
+			return todo, skipped, err
 		}
-		absent, err := absentPath(filepath.Join(dir, name))
+		absent, err := absentPath(filepath.Join(base, name))
 		if err != nil {
-			return res, err
+			return todo, skipped, err
 		}
 		if absent {
-			res.Skipped = append(res.Skipped, name+": not in the store")
+			skipped = append(skipped, name+": "+absentMsg)
 			continue
 		}
 		todo = append(todo, name)
+	}
+	return todo, skipped, nil
+}
+
+// archiveNative moves each named topic file out of dir into its archive and strikes its pointer line
+// (from whichever of MEMORY.md/SEARCHABLE.md carries it), recording that line verbatim so restoreNative
+// is exact rather than reconstructed. Nothing is deleted — the file moves. apply=false plans only.
+// A symlink, directory, typed bank file or index name is refused outright (topicName classifies).
+func archiveNative(dir string, names []string, apply bool) (nativeResult, error) {
+	res := nativeResult{Applied: apply}
+	todo, skipped, err := resolveTopics(dir, names, "not in the store")
+	res.Skipped = skipped
+	if err != nil {
+		return res, err
 	}
 	if len(todo) == 0 || !apply {
 		res.Archived = todo
 		return res, nil
 	}
-	err := WithBankLock(BankLockWait, func() error { return archiveNativeLocked(dir, todo, &res) })
+	err = WithBankLock(BankLockWait, func() error { return archiveNativeLocked(dir, todo, &res) })
 	return res, err
 }
 
 // nativeArchiveRel is nativeArchiveDir relative to its dir, the form the batch takes.
 var nativeArchiveRel = filepath.Join("archive", "native")
 
-// archiveNativeLocked is ArchiveNative's apply path for a caller that already holds the bank lock: one batch that
+// archiveNativeLocked is archiveNative's apply path for a caller that already holds the bank lock: one batch that
 // records, strikes, lands, then removes — a replay or a crash leaves an orphan a re-run moves, never a
 // dangling pointer. The reconcile repair rides in the same batch rather than as a separate write.
-func archiveNativeLocked(dir string, todo []string, res *NativeResult) error {
+func archiveNativeLocked(dir string, todo []string, res *nativeResult) error {
 	index, healed, err := healedIndex(dir)
 	if err != nil {
 		return err
@@ -436,7 +445,7 @@ func stageArchive(b *nativeBatch, dir string, todo []string, ix archiveIndexes, 
 
 // landedIndexOverLimit is the loader-limit diagnostic after a batch has landed: the write stays, the caller reports it.
 func landedIndexOverLimit(verb string, todo []string, final string) error {
-	if err := CheckNativeIndexLimits(final); err != nil {
+	if err := checkNativeIndexLimits(final); err != nil {
 		return fmt.Errorf("%s %s, but the index busts the limit — %w", verb, strings.Join(todo, ", "), err)
 	}
 	return nil
@@ -570,7 +579,7 @@ func healedIndex(dir string) (raw []byte, healed string, err error) {
 	if err != nil {
 		return nil, "", err
 	}
-	if err := CheckBankRegion(string(raw)); err != nil {
+	if err := checkBankRegion(string(raw)); err != nil {
 		return nil, "", fmt.Errorf("%s: %w", NativeIndexFile, err)
 	}
 	missing, err := reconcileLines(dir, string(raw))
@@ -586,7 +595,7 @@ func frontmatterPointer(dir, file string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	name, desc, _, ok := TopicFrontmatter(string(raw))
+	name, desc, _, ok := topicFrontmatter(string(raw))
 	if !ok {
 		return "", false
 	}
@@ -640,7 +649,7 @@ func indexWithout(index string, names []string) (string, error) {
 	for _, n := range names {
 		drop[n] = true
 	}
-	region, err := BankRegionLines(index)
+	region, err := bankRegionLines(index)
 	if err != nil {
 		return "", err
 	}
@@ -654,41 +663,30 @@ func indexWithout(index string, names []string) (string, error) {
 	return strings.Join(kept, "\n"), nil
 }
 
-// RestoreNative reverses ArchiveNative: the topic file moves back and its recorded pointer line is re-appended
+// restoreNative reverses archiveNative: the topic file moves back and its recorded pointer line is re-appended
 // verbatim — to MEMORY.md while the injected core has room, else to SEARCHABLE.md.
 // The archived copy is classified in place, so a typed bank file or index name can never be restored
 // over a live one; a live file with different bytes aborts the whole pass before anything moves.
-func RestoreNative(dir string, names []string, apply bool) (NativeResult, error) {
-	res := NativeResult{Applied: apply}
+func restoreNative(dir string, names []string, apply bool) (nativeResult, error) {
+	res := nativeResult{Applied: apply}
 	archiveDir := nativeArchiveDir(dir)
-	var todo []string
-	for _, arg := range names {
-		name, err := topicName(archiveDir, arg)
-		if err != nil {
-			return res, err
-		}
-		absent, err := absentPath(filepath.Join(archiveDir, name))
-		if err != nil {
-			return res, err
-		}
-		if absent {
-			res.Skipped = append(res.Skipped, name+": not in the archive")
-			continue
-		}
-		todo = append(todo, name)
+	todo, skipped, err := resolveTopics(archiveDir, names, "not in the archive")
+	res.Skipped = skipped
+	if err != nil {
+		return res, err
 	}
 	if len(todo) == 0 || !apply {
 		res.Restored = todo
 		return res, nil
 	}
-	err := WithBankLock(BankLockWait, func() error { return restoreNativeLocked(dir, todo, &res) })
+	err = WithBankLock(BankLockWait, func() error { return restoreNativeLocked(dir, todo, &res) })
 	return res, err
 }
 
-// restoreNativeLocked is RestoreNative's apply path for a caller that already holds the bank lock: one batch that
+// restoreNativeLocked is restoreNative's apply path for a caller that already holds the bank lock: one batch that
 // lands the files, re-points them, removes the archive copies, then strikes the record. An equal live copy (a
 // crashed restore) is kept and only the archive copy goes; the reconcile repair rides in the same batch.
-func restoreNativeLocked(dir string, todo []string, res *NativeResult) error {
+func restoreNativeLocked(dir string, todo []string, res *nativeResult) error {
 	index, healed, err := healedIndex(dir)
 	if err != nil {
 		return err
@@ -772,11 +770,11 @@ func liveCollision(dst string, archived []byte) (bool, error) {
 	return true, nil
 }
 
-// SplitNativeIndex trims MEMORY.md to at most keepLines pointer lines, moving the oldest unpinned ones
+// splitNativeIndex trims MEMORY.md to at most keepLines pointer lines, moving the oldest unpinned ones
 // (file order = oldest first: Claude Code appends new memories at the bottom) to SEARCHABLE.md. A line
 // carrying a `<!-- keep -->` marker never moves; pins claim the budget first, recency fills the rest.
 // Returns the number of lines moved. apply is the caller's job — this always writes when there is work.
-func SplitNativeIndex(dir string, keepLines int) (int, error) {
+func splitNativeIndex(dir string, keepLines int) (int, error) {
 	var moved int
 	err := WithBankLock(BankLockWait, func() (err error) {
 		moved, err = splitNativeIndexLocked(dir, keepLines)
@@ -785,7 +783,7 @@ func SplitNativeIndex(dir string, keepLines int) (int, error) {
 	return moved, err
 }
 
-// splitNativeIndexLocked is SplitNativeIndex for a caller that already holds the bank lock. Lines inside
+// splitNativeIndexLocked is splitNativeIndex for a caller that already holds the bank lock. Lines inside
 // the generated bank region are neither pointers nor candidates and are rewritten byte-for-byte; a malformed
 // region refuses the split. Pointers move even when native prose alone busts the loader limit — that is reported.
 func splitNativeIndexLocked(dir string, keepLines int) (int, error) {
@@ -797,14 +795,14 @@ func splitNativeIndexLocked(dir string, keepLines int) (int, error) {
 		}
 		return 0, err
 	}
-	if err := CheckBankRegion(string(raw)); err != nil {
+	if err := checkBankRegion(string(raw)); err != nil {
 		return 0, fmt.Errorf("%s: %w", NativeIndexFile, err)
 	}
 	lines := strings.Split(string(raw), "\n")
 	pinnedCount, unpinnedIdx := pointerLines(lines, raw)
 	budget := max(keepLines-pinnedCount, 0)
 	if len(unpinnedIdx) <= budget {
-		return 0, CheckNativeIndexLimits(string(raw))
+		return 0, checkNativeIndexLimits(string(raw))
 	}
 	drop := unpinnedIdx[:len(unpinnedIdx)-budget] // oldest unpinned pointer lines, file order preserved
 	kept, overflow := partitionLines(lines, drop)
@@ -820,7 +818,7 @@ func splitNativeIndexLocked(dir string, keepLines int) (int, error) {
 	if _, err := b.commit(fmt.Sprintf("split index: %d pointer(s) to %s", len(overflow), NativeSearchableFile)); err != nil {
 		return 0, err
 	}
-	if err := CheckNativeIndexLimits(trimmed); err != nil {
+	if err := checkNativeIndexLimits(trimmed); err != nil {
 		return len(overflow), fmt.Errorf("moved %d pointer line(s), but the native prose that stays still busts the limit — %w", len(overflow), err)
 	}
 	return len(overflow), nil
@@ -828,7 +826,7 @@ func splitNativeIndexLocked(dir string, keepLines int) (int, error) {
 
 // pointerLines counts the pinned (<!-- keep -->) pointer lines and lists the unpinned ones' indexes, skipping the generated region.
 func pointerLines(lines []string, raw []byte) (pinnedCount int, unpinnedIdx []int) {
-	region, _ := BankRegionLines(string(raw)) // same scan checkBankRegion just passed
+	region, _ := bankRegionLines(string(raw)) // same scan checkBankRegion just passed
 	for i, line := range lines {
 		if _, ok := linkTarget(line); !ok || region[i] {
 			continue

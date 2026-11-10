@@ -97,10 +97,10 @@ func TestDirSlug(t *testing.T) {
 	if got := Dir(root); filepath.Dir(got) != StoreDir() || !strings.HasPrefix(filepath.Base(got), "my-repo.v2") {
 		t.Errorf("Dir = %s want a my-repo.v2 store under %s", got, StoreDir())
 	}
-	if IsHomeBank(root) {
+	if isHomeBank(root) {
 		t.Error("a repo's bank must not be the home bank")
 	}
-	if plain := t.TempDir(); !IsHomeBank(plain) {
+	if plain := t.TempDir(); !isHomeBank(plain) {
 		t.Errorf("a non-repo root must collapse to the global bank, got %s", Dir(plain))
 	}
 }
@@ -133,15 +133,15 @@ func TestInitNoOverwrite(t *testing.T) {
 func TestSplitBlocksFenceAware(t *testing.T) {
 	t.Parallel()
 	body := "# Conventions\n> note\n\n- first rule\n  - sub\n```\n- not a block\n## nor this\n```\n- second rule\n## Heading\ntext"
-	header, blocks := EntryBlocks("conventions.md", body)
+	header, blocks := entryBlocks("conventions.md", body)
 	if header != "# Conventions\n> note" || len(blocks) != 3 || !strings.Contains(blocks[0], "- not a block") {
 		t.Fatalf("header %q blocks %q", header, blocks)
 	}
-	_, hb := EntryBlocks("decisionLog.md", "# D\n## a\n- bullet stays\n~~~\n## fenced\n~~~\n## b")
+	_, hb := entryBlocks("decisionLog.md", "# D\n## a\n- bullet stays\n~~~\n## fenced\n~~~\n## b")
 	if len(hb) != 2 || !strings.Contains(hb[0], "## fenced") {
 		t.Errorf("heading blocks %q", hb)
 	}
-	if got := Rejoin(header, blocks[:1]); !strings.HasPrefix(got, "# Conventions\n> note\n\n- first rule") {
+	if got := rejoin(header, blocks[:1]); !strings.HasPrefix(got, "# Conventions\n> note\n\n- first rule") {
 		t.Errorf("rejoin %q", got)
 	}
 }
@@ -179,12 +179,12 @@ func TestRotateAndSettle(t *testing.T) {
 	}
 	write(t, filepath.Join(dir, "sessionHistory.md"), b.String())
 	now := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
-	s, err := SettleBank(root, now)
+	s, err := settleBank(root, now)
 	if err != nil || s.Rotated != 5 {
 		t.Fatalf("rotated %d err %v", s.Rotated, err)
 	}
 	assertRotated(t, dir)
-	if n, _ := RotateSessionHistory(dir, now); n != 0 {
+	if n, _ := rotateSessionHistory(dir, now); n != 0 {
 		t.Error("rotation under cap must be a no-op")
 	}
 }
@@ -192,9 +192,9 @@ func TestRotateAndSettle(t *testing.T) {
 // assertRotated checks the history kept its newest entries, the oldest went to the archive, and the index follows.
 func assertRotated(t *testing.T, dir string) {
 	t.Helper()
-	_, kept := SplitHeadingBlocks(mustRead(t, filepath.Join(dir, "sessionHistory.md")))
+	_, kept := splitHeadingBlocks(mustRead(t, filepath.Join(dir, "sessionHistory.md")))
 	arch := mustRead(t, filepath.Join(dir, "archive", "sessionHistory-2026-09.md"))
-	if len(kept) != SessionHistoryMaxEntries || !strings.HasPrefix(kept[0], "## entry 35") || !strings.Contains(arch, "## entry 01") || strings.Contains(arch, "## entry 06") {
+	if len(kept) != sessionHistoryMaxEntries || !strings.HasPrefix(kept[0], "## entry 35") || !strings.Contains(arch, "## entry 01") || strings.Contains(arch, "## entry 06") {
 		t.Errorf("kept %d first %q archive %q", len(kept), kept[0], arch)
 	}
 	idx := mustRead(t, filepath.Join(dir, NativeIndexFile))
@@ -204,7 +204,7 @@ func assertRotated(t *testing.T, dir string) {
 }
 
 func TestCapCharsBelowMarkerYieldsEmpty(t *testing.T) {
-	if got := CapChars("aaaa\nbbbb", 3); got != "" {
+	if got := capChars("aaaa\nbbbb", 3); got != "" {
 		t.Errorf("a cap below the marker length yields empty, got %q", got)
 	}
 }
@@ -222,7 +222,7 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	_ = os.Chmod(bad, 0o755)
 	_ = WriteUpdateResult("11111111-1111-1111-1111-111111111111", UpdateResult{Status: UpdatePending, Time: time.Now(), Log: "/l.log"})
 
-	if err := Update(UpdateOptions{Claude: ok, CWD: root, Session: "11111111-1111-1111-1111-111111111111"}); err != nil {
+	if err := update(updateOptions{Claude: ok, CWD: root, Session: "11111111-1111-1111-1111-111111111111"}); err != nil {
 		t.Fatal(err)
 	}
 	r, _ := ReadUpdateResult("11111111-1111-1111-1111-111111111111")
@@ -242,13 +242,13 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 // assertUpdateFailures: a failing claude and a missing claude both error, and the first records a failed result.
 func assertUpdateFailures(t *testing.T, root, bad string) {
 	t.Helper()
-	if err := Update(UpdateOptions{Claude: bad, CWD: root, Session: "s2"}); err == nil {
+	if err := update(updateOptions{Claude: bad, CWD: root, Session: "s2"}); err == nil {
 		t.Error("failing claude must return an error")
 	}
 	if r, _ := ReadUpdateResult("s2"); r.Status != UpdateFailed || r.BankUpdated || !r.NeedsAttention(time.Now()) {
 		t.Errorf("failure result %+v", r)
 	}
-	if err := Update(UpdateOptions{CWD: root, Session: "s3"}); err == nil {
+	if err := update(updateOptions{CWD: root, Session: "s3"}); err == nil {
 		t.Error("missing claude must fail")
 	}
 }
@@ -259,7 +259,7 @@ func TestNativeTopicsJoinSearch(t *testing.T) {
 	if got := paths.ProjectSlug("/Users/a/.claude"); got != "-Users-a--claude" {
 		t.Errorf("ProjectSlug = %q", got)
 	}
-	native := NativeDir(root)
+	native := Dir(root)
 	write(t, filepath.Join(native, "gw.md"), "---\nname: gateway\ndescription: home gateway over ssh\n---\n\nRun the status script.\n")
 	write(t, filepath.Join(native, "MEMORY.md"), "- [gateway](gw.md) — home gateway over ssh status\n")
 	write(t, filepath.Join(native, "loose.md"), "gateway ssh status without frontmatter\n")
@@ -277,32 +277,32 @@ func TestSeenSetTracksInjectedBlocks(t *testing.T) {
 	root := t.TempDir()
 	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# C\n\n- injected rule\n  continues here\n- other rule\n")
 	ResetSeen("11111111-1111-1111-1111-111111111111", root, "<!-- surface -->\n- injected   rule\ncontinues here\n")
-	seen := SeenBlocks("11111111-1111-1111-1111-111111111111")
-	if !seen[BlockKey("- injected rule\n  continues here")] || seen[BlockKey("- other rule")] || len(seen) != 1 {
+	seen := seenBlocks("11111111-1111-1111-1111-111111111111")
+	if !seen[blockKey("- injected rule\n  continues here")] || seen[blockKey("- other rule")] || len(seen) != 1 {
 		t.Fatalf("seen after reset: %v", seen)
 	}
 	MarkSeen("11111111-1111-1111-1111-111111111111", []SearchHit{{Block: "- other rule"}})
-	if !SeenBlocks("11111111-1111-1111-1111-111111111111")[BlockKey("- other rule")] {
+	if !seenBlocks("11111111-1111-1111-1111-111111111111")[blockKey("- other rule")] {
 		t.Error("MarkSeen did not record the hit")
 	}
 	ResetSeen("11111111-1111-1111-1111-111111111111", root, "")
-	if len(SeenBlocks("11111111-1111-1111-1111-111111111111")) != 0 {
+	if len(seenBlocks("11111111-1111-1111-1111-111111111111")) != 0 {
 		t.Error("a SessionStart (e.g. after compact) must clear what recall injected")
 	}
 	for _, bad := range []string{"", ".."} {
 		MarkSeen(bad, []SearchHit{{Block: "x"}})
-		if len(SeenBlocks(bad)) != 0 {
+		if len(seenBlocks(bad)) != 0 {
 			t.Errorf("session id %q must be a no-op", bad)
 		}
 	}
 }
 
-// CredentialPattern is the coarse memory tripwire: ghs_ with 10+ body characters is caught, a short stub is not.
+// credentialPattern is the coarse memory tripwire: ghs_ with 10+ body characters is caught, a short stub is not.
 func TestCredentialPatternGitHubShapes(t *testing.T) {
-	if !CredentialPattern.MatchString("token ghs_abcdefghij12 leaked") {
+	if !credentialPattern.MatchString("token ghs_abcdefghij12 leaked") {
 		t.Error("ghs_ + 12 chars must match")
 	}
-	if CredentialPattern.MatchString("see ghs_abc for the format") {
+	if credentialPattern.MatchString("see ghs_abc for the format") {
 		t.Error("ghs_abc is too short to be a token")
 	}
 }
@@ -470,7 +470,7 @@ func TestAgentDreamPrompt_UsesReference(t *testing.T) {
 }
 
 // TestDreamFreshStoreRunsWithoutDeadlock: on a fresh store Dream used to re-take its
-// own bank lock inside SettleBank and hang. Reference("dream") is now embedded and always resolves
+// own bank lock inside settleBank and hang. Reference("dream") is now embedded and always resolves
 // (the old "missing reference" repro is unreachable), so this instead confirms Dream still returns
 // promptly and the agent still runs, proving the lock-then-settle-outside-the-lock fix holds.
 func TestDreamFreshStoreRunsWithoutDeadlock(t *testing.T) {
@@ -479,7 +479,7 @@ func TestDreamFreshStoreRunsWithoutDeadlock(t *testing.T) {
 	ran := false
 	run := func(context.Context, string, string) (string, error) { ran = true; return "stub", nil }
 	done := make(chan error, 1)
-	go func() { done <- Dream(DreamOptions{CWD: t.TempDir(), Run: run}) }()
+	go func() { done <- dream(dreamOptions{CWD: t.TempDir(), Run: run}) }()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -509,7 +509,7 @@ func TestDreamFailedRunRetriesAfterBackoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	fail := func(context.Context, string, string) (string, error) { return "x", errors.New("boom") }
-	if err := Dream(DreamOptions{CWD: root, Run: fail}); err == nil {
+	if err := dream(dreamOptions{CWD: root, Run: fail}); err == nil {
 		t.Fatal("failed agent run must return an error")
 	}
 	now := time.Now()
@@ -537,7 +537,7 @@ func TestHistoricalUpdatePromptAndReport(t *testing.T) {
 	var out bytes.Buffer
 	tr := filepath.Join(t.TempDir(), "s.jsonl")
 	write(t, tr, "{}\n")
-	if err := Update(UpdateOptions{Run: run, Transcript: tr, CWD: root, Session: "h1", Historical: true, Out: &out}); err != nil {
+	if err := update(updateOptions{Run: run, Transcript: tr, CWD: root, Session: "h1", Historical: true, Out: &out}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(prompt, "OLDER session") || !strings.Contains(prompt, "never write NOW") {
@@ -546,7 +546,7 @@ func TestHistoricalUpdatePromptAndReport(t *testing.T) {
 	if !strings.Contains(out.String(), "changed activeContext.md") {
 		t.Errorf("edit to activeContext.md not reported: %q", out.String())
 	}
-	if err := Update(UpdateOptions{Run: run, Transcript: tr, CWD: root, Session: "h2", Out: io.Discard}); err != nil {
+	if err := update(updateOptions{Run: run, Transcript: tr, CWD: root, Session: "h2", Out: io.Discard}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(prompt, "OLDER session") {
@@ -560,5 +560,22 @@ func TestMergeFileListsRenameKeepsNewPath(t *testing.T) {
 	got := mergeFileLists("", "R  old.go -> new.go\n")
 	if len(got) != 1 || got[0] != "new.go" {
 		t.Fatalf("got %q, want [new.go]", got)
+	}
+}
+
+// Dream's child-env markers stay set after the run: the post-run settle and stamp still run as a child.
+func TestDreamKeepsChildEnvAfterRun(t *testing.T) {
+	clearChildEnv(t)
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	if _, err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	ok := func(context.Context, string, string) (string, error) { return "stub", nil }
+	if err := dream(dreamOptions{CWD: root, Run: ok}); err != nil {
+		t.Fatal(err)
+	}
+	if !IsUpdateChild() || !isDreamChild() {
+		t.Errorf("child markers cleared after Dream: update=%v dream=%v", IsUpdateChild(), isDreamChild())
 	}
 }

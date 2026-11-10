@@ -27,13 +27,13 @@ var (
 	}
 )
 
-// EntryFromHit lifts a search hit to an Entry; a block without a persisted id gets its ContentRef.
-func EntryFromHit(h SearchHit) Entry {
+// entryFromHit lifts a search hit to an Entry; a block without a persisted id gets its contentRef.
+func entryFromHit(h SearchHit) Entry {
 	first, _, _ := strings.Cut(h.Block, "\n")
 	id := blockMarkerID(h.Block)
 	if id == "" {
 		if id = h.ID; id == "" {
-			id = ContentRef(h.Block)
+			id = contentRef(h.Block)
 		}
 	}
 	typ := entryTypes[logicalName(h.File)]

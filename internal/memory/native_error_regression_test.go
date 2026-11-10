@@ -20,7 +20,7 @@ func TestNativeErrorRegressionRestoreMissingIndexIdenticalLive(t *testing.T) {
 	write(t, filepath.Join(archive, "topic.md"), body)
 	write(t, filepath.Join(archive, NativeArchiveIndexFile), pointer+"\n")
 
-	res, err := RestoreNative(dir, []string{"topic"}, true)
+	res, err := restoreNative(dir, []string{"topic"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestNativeErrorRegressionDirectoryReadFailure(t *testing.T) {
 		}
 	})
 	for name, run := range map[string]func() error{
-		"NativeStats":    func() error { _, err := NativeStats(dir); return err },
+		"nativeStats":    func() error { _, err := nativeStats(dir); return err },
 		"reconcileLines": func() error { _, err := reconcileLines(dir, ""); return err },
 	} {
 		err := run()

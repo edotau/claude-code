@@ -35,7 +35,7 @@ func TestOriginRoundTripsThroughVault(t *testing.T) {
 	if err := WriteOrigin(dir, o); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, LegacyOriginFile)); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(dir, legacyOriginFile)); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("WriteOrigin left a legacy file on disk: %v", err)
 	}
 	if raw, ok := vaultGet(t, "proj"); !ok || raw == "" {
@@ -104,7 +104,7 @@ func TestLegacyOriginFileIgnored(t *testing.T) {
 	resetVaultRetry(t)
 	cfg := tempConfig(t)
 	dir := filepath.Join(cfg, "memory", "legacy")
-	legacyPath := filepath.Join(dir, LegacyOriginFile)
+	legacyPath := filepath.Join(dir, legacyOriginFile)
 	write(t, legacyPath, `{"version":1,"key":"legacy","origin":"/src/legacy"}`)
 
 	if _, err := ReadOrigin(dir); err == nil {
@@ -131,7 +131,7 @@ func TestWriteOriginGuards(t *testing.T) {
 	if err := WriteOrigin(dir, o); err != nil {
 		t.Error("same identity must be a no-op:", err)
 	}
-	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: "one", Origin: "/src/other"}); !errors.Is(err, ErrOriginConflict) {
+	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: "one", Origin: "/src/other"}); !errors.Is(err, errOriginConflict) {
 		t.Errorf("different origin must conflict, got %v", err)
 	}
 	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: "two", Origin: "/src/one"}); err == nil {
@@ -162,7 +162,7 @@ func TestOriginRebuiltFromCatalogWhenRowAndFileAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := Origin{Version: OriginVersion, Key: "catkey", Origin: "/src/cat", Aliases: []string{"/alt1", "/alt2"}}
-	row := "- catkey — some-hook · last 2024-01-01 → catkey/MEMORY.md" + CatalogOriginComment(want) + "\n"
+	row := "- catkey — some-hook · last 2024-01-01 → catkey/MEMORY.md" + catalogOriginComment(want) + "\n"
 	catalogPath := filepath.Join(cfg, "memory", CatalogFile)
 	write(t, catalogPath, "# Memory catalog\n\n## Repos\n\n"+row)
 	before := mustRead(t, catalogPath)
@@ -181,12 +181,12 @@ func TestOriginRebuiltFromCatalogWhenRowAndFileAbsent(t *testing.T) {
 
 // TestCatalogOriginCommentRoundTripsPathWithCommentCloser: an origin path containing the literal
 // bytes "-->" must never be able to close the HTML comment early — json.Marshal escapes '>', so the
-// round trip through CatalogOriginComment/catalogOrigins must reproduce it exactly.
+// round trip through catalogOriginComment/catalogOrigins must reproduce it exactly.
 func TestCatalogOriginCommentRoundTripsPathWithCommentCloser(t *testing.T) {
 	resetVaultRetry(t)
 	cfg := tempConfig(t)
 	want := Origin{Version: OriginVersion, Key: "weird", Origin: "/src/a-->b", Aliases: []string{"/alt-->c"}}
-	row := "- weird — hook · last never → weird/MEMORY.md" + CatalogOriginComment(want) + "\n"
+	row := "- weird — hook · last never → weird/MEMORY.md" + catalogOriginComment(want) + "\n"
 	write(t, filepath.Join(cfg, "memory", CatalogFile), "# Memory catalog\n\n## Repos\n\n"+row)
 
 	got := catalogOrigins()["weird"]

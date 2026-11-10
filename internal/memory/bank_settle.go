@@ -10,15 +10,15 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// BankIndexFile is the generated routing index inside a bank dir — never hand-edit.
-const BankIndexFile = "index.md"
+// bankIndexFile is the generated routing index inside a bank dir — never hand-edit.
+const bankIndexFile = "index.md"
 
 // buildBankIndex renders one routing line per durable entry (two-stage recall); "" when nothing is indexable.
 func buildBankIndex(dir string, now time.Time) string {
 	var b strings.Builder
 	total := 0
 	section := func(name, prefix, unit string) {
-		entries := EntriesWithPrefix(filepath.Join(dir, name), prefix)
+		entries := entriesWithPrefix(filepath.Join(dir, name), prefix)
 		if len(entries) == 0 {
 			return
 		}
@@ -39,8 +39,8 @@ func buildBankIndex(dir string, now time.Time) string {
 		"> Route, then read: scan these lines, open only the entry you need in the named file.\n" + b.String()
 }
 
-// RotateSessionHistory moves entries past the cap to <dir>/archive/sessionHistory-<yyyy-mm>.md, archive first.
-func RotateSessionHistory(dir string, now time.Time) (int, error) {
+// rotateSessionHistory moves entries past the cap to <dir>/archive/sessionHistory-<yyyy-mm>.md, archive first.
+func rotateSessionHistory(dir string, now time.Time) (int, error) {
 	path := filepath.Join(dir, "sessionHistory.md")
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -49,16 +49,16 @@ func RotateSessionHistory(dir string, now time.Time) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("rotate session history: %w", err)
 	}
-	header, entries := SplitHeadingBlocks(string(data))
-	if len(entries) <= SessionHistoryMaxEntries {
+	header, entries := splitHeadingBlocks(string(data))
+	if len(entries) <= sessionHistoryMaxEntries {
 		return 0, nil
 	}
-	keep, overflow := entries[:SessionHistoryMaxEntries], entries[SessionHistoryMaxEntries:]
+	keep, overflow := entries[:sessionHistoryMaxEntries], entries[sessionHistoryMaxEntries:]
 	archive := filepath.Join(dir, "archive", "sessionHistory-"+now.Format("2006-01")+".md")
 	if err := appendUnarchived(archive, overflow); err != nil {
 		return 0, err // never truncate unarchived entries
 	}
-	if err := paths.AtomicWrite(path, []byte(Rejoin(header, keep)), 0o600); err != nil {
+	if err := paths.AtomicWrite(path, []byte(rejoin(header, keep)), 0o600); err != nil {
 		return 0, err
 	}
 	return len(overflow), nil
@@ -70,7 +70,7 @@ func appendUnarchived(archive string, blocks []string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	_, held := SplitHeadingBlocks(string(existing))
+	_, held := splitHeadingBlocks(string(existing))
 	seen := make(map[string]bool, len(held))
 	for _, b := range held {
 		seen[b] = true
@@ -84,26 +84,26 @@ func appendUnarchived(archive string, blocks []string) error {
 	if len(missing) == 0 {
 		return nil
 	}
-	return AppendBlocks(archive, missing)
+	return appendBlocks(archive, missing)
 }
 
-// LockPath serializes bank writers (the update worker's headless pass, then its settle); the
+// lockPath serializes bank writers (the update worker's headless pass, then its settle); the
 // physical lock lives under state, namespaced per store key — never beside the committed bank.
-func LockPath(dir string) string { return filepath.Join(StoreLockDir(dir), ".postupdate") }
+func lockPath(dir string) string { return filepath.Join(storeLockDir(dir), ".postupdate") }
 
-// BankSettlement counts what one settle pass moved — rotation, promotion, archiving, and whether
+// bankSettlement counts what one settle pass moved — rotation, promotion, archiving, and whether
 // the index was refreshed. A single "moved" number would hide rotation and index refreshes entirely.
-type BankSettlement struct {
+type bankSettlement struct {
 	Rotated  int  // sessionHistory entries moved to <bank>/archive/sessionHistory-<yyyy-mm>.md
 	Promoted int  // unused: settle never promotes to home
 	Archived int  // unused: settle never archives overflow
 	Indexed  bool // the routing index was rewritten
 }
 
-// SettleBank rotates root's sessionHistory, archives settled overflow in scope (no auto-promotion to home), regenerates
+// settleBank rotates root's sessionHistory, archives settled overflow in scope (no auto-promotion to home), regenerates
 // the region and catalog, and commits — all under the bank lock. Deletes nothing.
-func SettleBank(root string, now time.Time) (BankSettlement, error) {
-	var s BankSettlement
+func settleBank(root string, now time.Time) (bankSettlement, error) {
+	var s bankSettlement
 	err := WithBankLock(BankLockWait, func() error {
 		var dirs []string
 		own := Dir(root)
@@ -114,15 +114,15 @@ func SettleBank(root string, now time.Time) (BankSettlement, error) {
 			dirs = append(dirs, g)
 		}
 		for _, d := range dirs {
-			if err := SettleDir(d, now, &s); err != nil {
+			if err := settleDir(d, now, &s); err != nil {
 				return err
 			}
 		}
-		if err := WriteCatalog(now); err != nil {
+		if err := writeCatalog(now); err != nil {
 			return err
 		}
 		s.Indexed = true
-		return CommitStore("settle: " + filepath.Base(dirs[0]))
+		return commitStore("settle: " + filepath.Base(dirs[0]))
 	})
 	return s, err
 }

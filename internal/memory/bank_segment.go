@@ -10,42 +10,42 @@ import (
 	"strings"
 )
 
-type SegMode uint8
+type segMode uint8
 
 const (
-	SegEntries SegMode = iota
+	SegEntries segMode = iota
 	SegNative
 	SegKnowledge
 )
 
-type CorpusFile struct {
+type corpusFile struct {
 	Bank, Path string
-	Mode       SegMode
+	Mode       segMode
 }
 
-// CorpusFiles preserves bank, archive, native and knowledge order without reading file contents.
-func CorpusFiles(root string) []CorpusFile {
-	var out []CorpusFile
+// corpusFiles preserves bank, archive, native and knowledge order without reading file contents.
+func corpusFiles(root string) []corpusFile {
+	var out []corpusFile
 	banks := func(bank, dir string) {
 		for _, name := range bankFiles {
-			out = append(out, CorpusFile{bank, filepath.Join(dir, name), SegEntries})
+			out = append(out, corpusFile{bank, filepath.Join(dir, name), SegEntries})
 		}
 	}
-	if !IsHomeBank(root) {
+	if !isHomeBank(root) {
 		banks("local", Dir(root))
 	}
 	banks("home", HomeBankDir())
 	archived, _ := filepath.Glob(filepath.Join(Dir(root), "archive", "*.md"))
 	for _, path := range archived {
-		out = append(out, CorpusFile{"archive", path, SegEntries})
+		out = append(out, corpusFile{"archive", path, SegEntries})
 	}
 	for _, dir := range nativeDirs(root) {
 		for _, path := range searchTopicFiles(dir) {
-			out = append(out, CorpusFile{"native", path, SegNative})
+			out = append(out, corpusFile{"native", path, SegNative})
 		}
 	}
 	for _, path := range knowledgeFiles(root) {
-		out = append(out, CorpusFile{"knowledge", path, SegKnowledge})
+		out = append(out, corpusFile{"knowledge", path, SegKnowledge})
 	}
 	return out
 }
@@ -66,7 +66,7 @@ func searchTopicFiles(dir string) []string {
 		if !e.Type().IsRegular() || !strings.HasSuffix(name, ".md") {
 			continue
 		}
-		if _, ok := ReservedNames[name]; ok {
+		if _, ok := reservedNames[name]; ok {
 			continue
 		}
 		if _, ok := reservedKindFold(name); ok && !hasExactEntry(dir, name) {
@@ -77,17 +77,17 @@ func searchTopicFiles(dir string) []string {
 	return files
 }
 
-func ParseBlocks(mode SegMode, base string, data []byte) []string {
+func parseBlocks(mode segMode, base string, data []byte) []string {
 	s := string(data)
 	switch mode {
 	case SegEntries:
-		_, blocks := EntryBlocks(base, s)
+		_, blocks := entryBlocks(base, s)
 		return blocks
 	case SegNative:
 		if frontmatterValue(s, "harness_kind") == "bank" {
 			return nil
 		}
-		if name, desc, body, ok := TopicFrontmatter(s); ok {
+		if name, desc, body, ok := topicFrontmatter(s); ok {
 			return []string{name + " — " + desc + "\n" + body}
 		}
 	case SegKnowledge:
@@ -96,8 +96,8 @@ func ParseBlocks(mode SegMode, base string, data []byte) []string {
 	return nil
 }
 
-// SegView stores little-endian tables followed by a shared term/text blob.
-type SegView []byte
+// segView stores little-endian tables followed by a shared term/text blob.
+type segView []byte
 
 type segDoc struct {
 	text string
@@ -115,11 +115,11 @@ func indexBlocks(blocks []string) (docs []segDoc, postings map[string][]segPosti
 		tf := map[string]uint32{}
 		var dl uint32
 		first, rest, _ := strings.Cut(block, "\n")
-		for _, t := range ContentTerms(first) {
+		for _, t := range contentTerms(first) {
 			tf[t] += searchTitleWeight
 			dl += searchTitleWeight
 		}
-		for _, t := range ContentTerms(rest) {
+		for _, t := range contentTerms(rest) {
 			tf[t]++
 			dl++
 		}
@@ -136,7 +136,7 @@ func indexBlocks(blocks []string) (docs []segDoc, postings map[string][]segPosti
 	return docs, postings, sumdl, nposts
 }
 
-func EncodeSegment(blocks []string) SegView {
+func encodeSegment(blocks []string) segView {
 	docs, postings, sumdl, nposts := indexBlocks(blocks)
 	terms := make([]string, 0, len(postings))
 	for term := range postings {
@@ -146,7 +146,7 @@ func EncodeSegment(blocks []string) SegView {
 	termStart := 12 + len(docs)*12
 	postStart := termStart + 4 + len(terms)*16
 	blobStart := postStart + 4 + nposts*8
-	s := make(SegView, blobStart)
+	s := make(segView, blobStart)
 	binary.LittleEndian.PutUint32(s, uint32(len(docs)))
 	binary.LittleEndian.PutUint64(s[4:], sumdl)
 	binary.LittleEndian.PutUint32(s[termStart:], uint32(len(terms)))
@@ -175,15 +175,15 @@ func EncodeSegment(blocks []string) SegView {
 	return s
 }
 
-func (s SegView) Docs() int {
+func (s segView) Docs() int {
 	return int(binary.LittleEndian.Uint32(s))
 }
 
-func (s SegView) sumDL() uint64 {
+func (s segView) sumDL() uint64 {
 	return binary.LittleEndian.Uint64(s[4:])
 }
 
-func (s SegView) Doc(i int) (text string, dl uint32) {
+func (s segView) Doc(i int) (text string, dl uint32) {
 	termStart := 12 + s.Docs()*12
 	postStart := termStart + 4 + int(binary.LittleEndian.Uint32(s[termStart:]))*16
 	blobStart := postStart + 4 + int(binary.LittleEndian.Uint32(s[postStart:]))*8
@@ -194,7 +194,7 @@ func (s SegView) Doc(i int) (text string, dl uint32) {
 }
 
 // Posting offsets are byte offsets relative to the posting table; text and term offsets are blob-relative.
-func (s SegView) lookup(term string) (posts []byte, n int) {
+func (s segView) lookup(term string) (posts []byte, n int) {
 	termStart := 12 + s.Docs()*12
 	nterms := int(binary.LittleEndian.Uint32(s[termStart:]))
 	postStart := termStart + 4 + nterms*16
@@ -219,7 +219,7 @@ func (s SegView) lookup(term string) (posts []byte, n int) {
 	return s[start : start+n*8], n
 }
 
-func (s SegView) Valid() bool {
+func (s segView) Valid() bool {
 	l, ok := s.layout()
 	return ok && s.docsValid(l) && s.termsValid(l) && s.postsValid(l)
 }
@@ -231,10 +231,10 @@ type segLayout struct {
 	blobLen                         uint64
 }
 
-func (s SegView) u32(off uint64) uint64 { return uint64(binary.LittleEndian.Uint32(s[off:])) }
+func (s segView) u32(off uint64) uint64 { return uint64(binary.LittleEndian.Uint32(s[off:])) }
 
 // layout reads the header, reporting false when a table would run past the end of the segment.
-func (s SegView) layout() (l segLayout, ok bool) {
+func (s segView) layout() (l segLayout, ok bool) {
 	size := uint64(len(s))
 	if size < 12 {
 		return l, false
@@ -259,7 +259,7 @@ func (s SegView) layout() (l segLayout, ok bool) {
 }
 
 // docsValid checks every document has terms, its text inside the blob, and that the lengths sum to the header's.
-func (s SegView) docsValid(l segLayout) bool {
+func (s segView) docsValid(l segLayout) bool {
 	var sumdl uint64
 	for i := range l.ndocs {
 		off := 12 + i*12
@@ -273,7 +273,7 @@ func (s SegView) docsValid(l segLayout) bool {
 }
 
 // termsValid checks every term's blob and posting ranges and that terms are strictly ascending.
-func (s SegView) termsValid(l segLayout) bool {
+func (s segView) termsValid(l segLayout) bool {
 	var previous []byte
 	for i := range l.nterms {
 		off := l.termStart + 4 + i*16
@@ -292,7 +292,7 @@ func (s SegView) termsValid(l segLayout) bool {
 }
 
 // postsValid checks every posting names an existing document with a non-zero frequency.
-func (s SegView) postsValid(l segLayout) bool {
+func (s segView) postsValid(l segLayout) bool {
 	for i := range l.nposts {
 		off := l.postStart + 4 + i*8
 		if s.u32(off) >= l.ndocs || s.u32(off+4) == 0 {
@@ -311,7 +311,7 @@ const compoundWeight = 0.4
 
 // lookupWeighted merges exact postings (weight 1) with postings of every other indexed token containing
 // term (weight compoundWeight), deduped per doc by the stronger signal.
-func (s SegView) lookupWeighted(term string) map[int]float64 {
+func (s segView) lookupWeighted(term string) map[int]float64 {
 	out := map[int]float64{}
 	add := func(t string, weight float64) {
 		posts, n := s.lookup(t)
@@ -335,7 +335,7 @@ func (s SegView) lookupWeighted(term string) map[int]float64 {
 }
 
 // terms returns every indexed term in the segment, in their stored (sorted) order.
-func (s SegView) terms() []string {
+func (s segView) terms() []string {
 	termStart := 12 + s.Docs()*12
 	nterms := int(binary.LittleEndian.Uint32(s[termStart:]))
 	postStart := termStart + 4 + nterms*16
@@ -362,7 +362,7 @@ func uniqTermIndex(qTerms []string) map[string]int {
 }
 
 // indexSegments computes per-term document frequency, per-segment per-doc weighted tf, and corpus stats.
-func indexSegments(uniq map[string]int, segs []SegView) (
+func indexSegments(uniq map[string]int, segs []segView) (
 	df []int, weighted []map[int][]float64, usable []int, ndocs int, avgdl float64,
 ) {
 	df = make([]int, len(uniq))
@@ -396,7 +396,7 @@ func indexSegments(uniq map[string]int, segs []SegView) (
 
 // scoreSegmentDocs returns the BM25F-scored hits for every matched doc in one segment.
 func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl float64,
-	seg SegView, wt map[int][]float64, file CorpusFile) []SearchHit {
+	seg segView, wt map[int][]float64, file corpusFile) []SearchHit {
 	var hits []SearchHit
 	for doc := 0; doc < seg.Docs(); doc++ {
 		freqs := wt[doc]
@@ -426,7 +426,7 @@ func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl f
 		}
 		id := blockMarkerID(block)
 		if id == "" {
-			id = ContentRef(block)
+			id = contentRef(block)
 		}
 		hits = append(hits, SearchHit{
 			Score: score, Matched: matched, Bank: file.Bank,
@@ -436,7 +436,7 @@ func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl f
 	return hits
 }
 
-func RankFiles(qTerms []string, k int, files []CorpusFile, segs []SegView) []SearchHit {
+func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []SearchHit {
 	if len(qTerms) == 0 {
 		return nil
 	}

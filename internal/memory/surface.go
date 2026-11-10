@@ -37,19 +37,19 @@ func SessionSurface(root string) string {
 		if focus := repoFocus(dir); len(focus) > 0 {
 			head += "\n" + strings.Join(focus, "\n\n")
 		}
-		parts = append(parts, CapChars(head, focusCapChars))
+		parts = append(parts, capChars(head, focusCapChars))
 	}
-	if home := HomeBankDir(); !IsHomeBank(root) {
+	if home := HomeBankDir(); !isHomeBank(root) {
 		if focus := repoFocus(home); len(focus) > 0 {
-			parts = append(parts, CapChars("<!-- HOME BANK ("+home+") — essentials -->\n"+strings.Join(focus, "\n\n"), homeFocusCapChars))
+			parts = append(parts, capChars("<!-- HOME BANK ("+home+") — essentials -->\n"+strings.Join(focus, "\n\n"), homeFocusCapChars))
 		}
 	}
 	if !nativeLinked(root, dir) { // Claude Code is reading another dir: carry the store's index ourselves
 		if data, err := os.ReadFile(filepath.Join(dir, NativeIndexFile)); err == nil && len(data) > 0 {
-			parts = append(parts, CapChars("<!-- THIS REPO's MEMORY.md (native link missing or blocked) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
+			parts = append(parts, capChars("<!-- THIS REPO's MEMORY.md (native link missing or blocked) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
 		}
 	}
-	return CapChars(strings.Join(parts, "\n\n"), totalCapChars)
+	return capChars(strings.Join(parts, "\n\n"), totalCapChars)
 }
 
 // repoFocus is a bank dir's injected sections: activeContext focus/blockers/next steps and progress "In Progress".
@@ -73,10 +73,10 @@ func repoFocus(dir string) []string {
 // nativeLinked reports whether Claude Code's native memory dir for root is the symlink into dir.
 func nativeLinked(root, dir string) bool {
 	r := filepath.Clean(root)
-	if top := paths.MainCheckout(r, GitOut); top != "" {
+	if top := paths.MainCheckout(r, gitOut); top != "" {
 		r = paths.CanonDeep(top)
 	}
-	target := NativeLinkTarget(ProjectsMemory(paths.ProjectSlug(r)))
+	target := nativeLinkTarget(projectsMemory(paths.ProjectSlug(r)))
 	return target != "" && paths.SamePath(target, dir)
 }
 

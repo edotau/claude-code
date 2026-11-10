@@ -45,8 +45,8 @@ func TestExtractBlockSurfacesReadError(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _, err := extractBlock(dir, "abcd1234")
-	if err == nil || errors.Is(err, ErrNoBlock) {
-		t.Errorf("extractBlock err = %v, want the read error, not ErrNoBlock", err)
+	if err == nil || errors.Is(err, errNoBlock) {
+		t.Errorf("extractBlock err = %v, want the read error, not errNoBlock", err)
 	}
 }
 
@@ -62,7 +62,7 @@ func TestReadIfExists(t *testing.T) {
 
 func TestDigestInputBoundsBeforeReading(t *testing.T) {
 	dir := t.TempDir()
-	arch := ArchiveDir(dir)
+	arch := archiveDir(dir)
 	if err := os.MkdirAll(arch, 0o700); err != nil {
 		t.Fatal(err)
 	}

@@ -16,17 +16,17 @@ import (
 // archiveCaps are the per-file caps that trigger archiving on a durable bank file; the churny
 // session-state files never do.
 var archiveCaps = map[string]int{
-	"conventions.md": FileCaps["conventions.md"],
-	"decisionLog.md": FileCaps["decisionLog.md"],
+	"conventions.md": fileCaps["conventions.md"],
+	"decisionLog.md": fileCaps["decisionLog.md"],
 }
 
 // bottomAppended marks files whose newest entries land at the BOTTOM, so the settle split runs on
 // the reversed list; decisionLog.md is newest-first and keeps the straight split.
 var bottomAppended = map[string]bool{"conventions.md": true}
 
-// ArchiveOverflow moves the oldest overflow blocks of root's durable files into the same store's
+// archiveOverflow moves the oldest overflow blocks of root's durable files into the same store's
 // archive/, returning how many moved. The archive stays local, so no credential gate applies.
-func ArchiveOverflow(root string, now time.Time) (int, error) {
+func archiveOverflow(root string, now time.Time) (int, error) {
 	dir := Dir(root)
 	total := 0
 	for name, capLines := range archiveCaps {
@@ -54,7 +54,7 @@ func settledSplit(base, header string, blocks []string, capLines int) (keep, ove
 	return budgetSplit(header, blocks, capLines)
 }
 
-// archivePath is the <dir>/archive/<base>-<yyyy-mm>.md shape shared by archiveFile and RotateSessionHistory.
+// archivePath is the <dir>/archive/<base>-<yyyy-mm>.md shape shared by archiveFile and rotateSessionHistory.
 func archivePath(dir, base string, now time.Time) string {
 	return filepath.Join(dir, "archive", strings.TrimSuffix(base, ".md")+"-"+now.Format("2006-01")+".md")
 }
@@ -68,11 +68,11 @@ func splitOverflow(path string, capLines int) (header string, keep, overflow []s
 		}
 		return "", nil, nil, err
 	}
-	if LogicalLineCount(string(data)) <= capLines {
+	if logicalLineCount(string(data)) <= capLines {
 		return "", nil, nil, nil
 	}
 	base := filepath.Base(path)
-	header, blocks := EntryBlocks(base, string(data))
+	header, blocks := entryBlocks(base, string(data))
 	keep, overflow = settledSplit(base, header, blocks, capLines)
 	return header, keep, overflow, nil
 }
@@ -94,10 +94,10 @@ func archiveFileLocked(path string, capLines int, now time.Time) (int, error) {
 	if err != nil || len(overflow) == 0 {
 		return 0, err
 	}
-	if err := AppendBlocks(archivePath(filepath.Dir(path), filepath.Base(path), now), overflow); err != nil {
+	if err := appendBlocks(archivePath(filepath.Dir(path), filepath.Base(path), now), overflow); err != nil {
 		return 0, err
 	}
-	if err := paths.AtomicWrite(path, []byte(Rejoin(header, keep)), 0o600); err != nil {
+	if err := paths.AtomicWrite(path, []byte(rejoin(header, keep)), 0o600); err != nil {
 		return 0, err
 	}
 	return len(overflow), nil
@@ -130,7 +130,7 @@ func Promote(root, id, to string, dryRun bool, now time.Time) (string, error) {
 // file, preserving its id, and settles both.
 func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, error) {
 	dir := Dir(root)
-	if IsHomeBank(root) {
+	if isHomeBank(root) {
 		return "", errors.New("root's bank IS the home bank — nothing to promote")
 	}
 	var file, block, src string
@@ -146,7 +146,7 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 		_, _, homeErr := extractBlock(homeDir, id)
 		inHome := homeErr == nil // an existing home copy is kept, never appended twice or rolled back
 		if !inHome {
-			if err := AppendBlocks(filepath.Join(homeDir, file), []string{block}); err != nil {
+			if err := appendBlocks(filepath.Join(homeDir, file), []string{block}); err != nil {
 				return err
 			}
 		}
@@ -166,7 +166,7 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 	if dryRun {
 		return fmt.Sprintf("would move [%s] %s -> %s\n\n%s\n", id, src, homePath, block), nil
 	}
-	if _, err := SettleBank(root, now); err != nil {
+	if _, err := settleBank(root, now); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("promoted [%s] local -> home (%s)\n", id, homePath), nil
@@ -175,17 +175,17 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 // promoteJudgment finds id in root's local bank (falling back to the home bank) and prints it with
 // target and the embedded judgment procedure for a human/agent to apply by hand; it is model
 // residue, so Go never writes target itself. `claude-md` is gated: it only prints inside a dream
-// run's own promote call (IsDreamChild); elsewhere there is no cross-pollination check (3+ entries,
+// run's own promote call (isDreamChild); elsewhere there is no cross-pollination check (3+ entries,
 // hard prohibition) behind it.
 func promoteJudgment(root, id, to, target string) (string, error) {
-	if to == "claude-md" && !IsDreamChild() {
+	if to == "claude-md" && !isDreamChild() {
 		return "", fmt.Errorf("--to claude-md only runs inside `memory dream`'s cross-pollination step "+
 			"(gated: 3+ memory entries AND a hard prohibition) — route %s to rules instead: "+
 			"`memory promote %s --to rules`", id, id)
 	}
 	dir := Dir(root)
 	_, block, _, err := findBlock(dir, id)
-	if err != nil && !IsHomeBank(root) {
+	if err != nil && !isHomeBank(root) {
 		_, block, _, err = findBlock(HomeBankDir(), id)
 	}
 	if err != nil {
@@ -201,7 +201,7 @@ func promoteJudgment(root, id, to, target string) (string, error) {
 // extractBlock finds the id-marked block in dir's typed files, returning its filename and text.
 func extractBlock(dir, id string) (string, string, error) {
 	marker := "<!-- id:" + id + " -->"
-	for name := range IdFiles {
+	for name := range idFiles {
 		data, err := os.ReadFile(filepath.Join(dir, name))
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
@@ -212,14 +212,14 @@ func extractBlock(dir, id string) (string, string, error) {
 		if !strings.Contains(string(data), marker) {
 			continue
 		}
-		_, blocks := EntryBlocks(name, string(data))
+		_, blocks := entryBlocks(name, string(data))
 		for _, b := range blocks {
 			if ownsMarker(b, id) {
 				return name, b, nil
 			}
 		}
 	}
-	return "", "", ErrNoBlock
+	return "", "", errNoBlock
 }
 
 // findBlock is extractBlock, then dir/archive/<stem>-*.md (dream overflow); src is the file holding the block.
@@ -228,14 +228,14 @@ func findBlock(dir, id string) (file, block, src string, err error) {
 		return file, block, filepath.Join(dir, file), nil
 	}
 	marker := "<!-- id:" + id + " -->"
-	for name := range IdFiles {
+	for name := range idFiles {
 		matches, _ := filepath.Glob(filepath.Join(dir, "archive", strings.TrimSuffix(name, ".md")+"-*.md"))
 		for _, p := range matches {
 			data, rerr := os.ReadFile(p)
 			if rerr != nil || !strings.Contains(string(data), marker) {
 				continue
 			}
-			_, blocks := EntryBlocks(name, string(data))
+			_, blocks := entryBlocks(name, string(data))
 			for _, b := range blocks {
 				if ownsMarker(b, id) {
 					return name, b, p, nil
@@ -243,11 +243,11 @@ func findBlock(dir, id string) (file, block, src string, err error) {
 			}
 		}
 	}
-	return "", "", "", ErrNoBlock
+	return "", "", "", errNoBlock
 }
 
 // ownsMarker reports whether id is b's own (oldest unfenced) marker, not a quote of it in the body.
-func ownsMarker(b, id string) bool { return OwnerID(b) == id }
+func ownsMarker(b, id string) bool { return ownerID(b) == id }
 
 // removeBlock drops the id-marked block from path (parsed under typed file name's grammar), rewriting it without it.
 func removeBlock(path, name, id string) error {
@@ -255,20 +255,20 @@ func removeBlock(path, name, id string) error {
 	if err != nil {
 		return err
 	}
-	header, blocks := EntryBlocks(name, string(data))
+	header, blocks := entryBlocks(name, string(data))
 	var kept []string
 	for _, b := range blocks {
 		if !ownsMarker(b, id) {
 			kept = append(kept, b)
 		}
 	}
-	return paths.AtomicWrite(path, []byte(Rejoin(header, kept)), 0o600)
+	return paths.AtomicWrite(path, []byte(rejoin(header, kept)), 0o600)
 }
 
 // budgetSplit keeps blocks from the top while header+kept stays within capLines; the rest overflow.
 // blocks arrives newest-first, so walking forward keeps the newest and settles the oldest end.
 func budgetSplit(header string, blocks []string, capLines int) (keep, overflow []string) {
-	used := LogicalLineCount(header)
+	used := logicalLineCount(header)
 	full := false
 	for i, b := range blocks {
 		cost := blockCost(b, i, used)
@@ -287,7 +287,7 @@ func budgetSplit(header string, blocks []string, capLines int) (keep, overflow [
 // blockCost is a block's line cost including the blank separator rejoin inserts — absent only before
 // block 0 of a header-less file.
 func blockCost(block string, i, used int) int {
-	n := LogicalLineCount(block)
+	n := logicalLineCount(block)
 	if used > 0 || i > 0 {
 		n++
 	}

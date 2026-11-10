@@ -22,9 +22,9 @@ var idMarker = regexp.MustCompile(`\s*<!-- id:([0-9a-f]{8}) -->`)
 // never collide with a real id marker — `show`/`recall --load` tell the two apart by this prefix.
 const contentRefPrefix = "z"
 
-// ContentRef derives a stable, show-able reference for a block with no persisted id marker:
+// contentRef derives a stable, show-able reference for a block with no persisted id marker:
 // the prefix plus the first 4 bytes of sha256 over its whitespace-normalized text.
-func ContentRef(block string) string {
+func contentRef(block string) string {
 	sum := sha256.Sum256([]byte(strings.Join(strings.Fields(block), " ")))
 	return contentRefPrefix + hex.EncodeToString(sum[:4])
 }
@@ -42,36 +42,36 @@ func isHex(s string) bool {
 	return true
 }
 
-// IdFiles are the typed files whose blocks get IDs, with the prefix that starts a block.
-var IdFiles = map[string]string{"decisionLog.md": "## ", "sessionHistory.md": "## ", "conventions.md": "- "}
+// idFiles are the typed files whose blocks get IDs, with the prefix that starts a block.
+var idFiles = map[string]string{"decisionLog.md": "## ", "sessionHistory.md": "## ", "conventions.md": "- "}
 
-// BlockID is the persisted ID on line ("" when it has none).
-func BlockID(line string) string {
+// blockID is the persisted ID on line ("" when it has none).
+func blockID(line string) string {
 	if m := idMarker.FindStringSubmatch(line); m != nil {
 		return m[1]
 	}
 	return ""
 }
 
-// OwnerID is the id a block answers to: its last unfenced marker, which may be wrapped or stacked below the first line.
-func OwnerID(block string) string {
+// ownerID is the id a block answers to: its last unfenced marker, which may be wrapped or stacked below the first line.
+func ownerID(block string) string {
 	lines := strings.Split(block, "\n")
 	line, span, total := lastMarker(lines, fencedLines(lines))
 	if total == 0 {
 		return ""
 	}
-	return BlockID(lines[line][span[0]:span[1]])
+	return blockID(lines[line][span[0]:span[1]])
 }
 
-// StripID removes the ID marker for display.
-func StripID(s string) string { return idMarker.ReplaceAllString(s, "") }
+// stripID removes the ID marker for display.
+func stripID(s string) string { return idMarker.ReplaceAllString(s, "") }
 
 // assignIDs stamps every unmarked block in dir's typed files and collapses stacked markers to the oldest (the
 // last in the block); a block is judged whole because the formatter may wrap its marker onto a later line.
 // Returns how many blocks it stamped.
 func assignIDs(dir string, now time.Time) (int, error) {
 	n := 0
-	for name, prefix := range IdFiles {
+	for name, prefix := range idFiles {
 		stamped, err := assignFileIDs(dir, name, prefix, now)
 		n += stamped
 		if err != nil {
@@ -220,13 +220,13 @@ func stripMarkers(l string, keepHere bool, keepSpan []int) string {
 	return b.String()
 }
 
-// ErrNoBlock is returned when no block in the store carries the requested ID.
-var ErrNoBlock = errors.New("no memory block with that id")
+// errNoBlock is returned when no block in the store carries the requested ID.
+var errNoBlock = errors.New("no memory block with that id")
 
 // ShowBlock finds the block carrying ref anywhere in the store (archives included); ref is either a
-// persisted `<!-- id:xxxx -->` marker or a ContentRef for a block that never got one. Returns path and text.
+// persisted `<!-- id:xxxx -->` marker or a contentRef for a block that never got one. Returns path and text.
 func ShowBlock(ref string) (string, string, error) {
-	contentRef := strings.HasPrefix(ref, contentRefPrefix) && isHex(strings.TrimPrefix(ref, contentRefPrefix))
+	derived := strings.HasPrefix(ref, contentRefPrefix) && isHex(strings.TrimPrefix(ref, contentRefPrefix))
 	var foundPath, foundBlock string
 	err := filepath.WalkDir(StoreDir(), func(p string, d fs.DirEntry, err error) error {
 		if foundPath != "" { // already matched: a later unreadable entry must not discard the match
@@ -244,7 +244,7 @@ func ShowBlock(ref string) (string, string, error) {
 		if d.IsDir() || !strings.HasSuffix(p, ".md") {
 			return nil
 		}
-		if b, ok := blockWithRef(p, ref, contentRef); ok {
+		if b, ok := blockWithRef(p, ref, derived); ok {
 			foundPath, foundBlock = p, b
 		}
 		return nil
@@ -253,30 +253,30 @@ func ShowBlock(ref string) (string, string, error) {
 		return "", "", err
 	}
 	if foundPath == "" {
-		return "", "", ErrNoBlock
+		return "", "", errNoBlock
 	}
 	return foundPath, foundBlock, nil
 }
 
-// blockWithRef returns the last block in file p carrying ref (an id marker, or a ContentRef when contentRef).
-func blockWithRef(p, ref string, contentRef bool) (found string, ok bool) {
+// blockWithRef returns the last block in file p carrying ref (an id marker, or a contentRef when derived).
+func blockWithRef(p, ref string, derived bool) (found string, ok bool) {
 	data, err := os.ReadFile(p)
 	if err != nil {
 		return "", false
 	}
-	if !contentRef && !strings.Contains(string(data), "<!-- id:"+ref+" -->") {
+	if !derived && !strings.Contains(string(data), "<!-- id:"+ref+" -->") {
 		return "", false
 	}
-	_, blocks := EntryBlocks(logicalName(p), string(data))
-	if contentRef { // native topics and knowledge notes are indexed whole, under their own grammar
+	_, blocks := entryBlocks(logicalName(p), string(data))
+	if derived { // native topics and knowledge notes are indexed whole, under their own grammar
 		base := filepath.Base(p)
-		blocks = append(blocks, ParseBlocks(SegNative, base, data)...)
-		blocks = append(blocks, ParseBlocks(SegKnowledge, base, data)...)
+		blocks = append(blocks, parseBlocks(SegNative, base, data)...)
+		blocks = append(blocks, parseBlocks(SegKnowledge, base, data)...)
 	}
 	for _, b := range blocks {
 		matches := strings.Contains(b, "<!-- id:"+ref+" -->")
-		if contentRef {
-			matches = ContentRef(b) == ref
+		if derived {
+			matches = contentRef(b) == ref
 		}
 		if matches {
 			found, ok = b, true
@@ -288,7 +288,7 @@ func blockWithRef(p, ref string, contentRef bool) (found string, ok bool) {
 // logicalName maps an archive file (decisionLog-2026-10.md) back to its typed file's grammar.
 func logicalName(path string) string {
 	base := filepath.Base(path)
-	for name := range IdFiles {
+	for name := range idFiles {
 		if stem := strings.TrimSuffix(name, ".md"); base == name || regexp.MustCompile(`^`+stem+`-\d{4}-\d{2}\.md$`).MatchString(base) {
 			return name
 		}

@@ -19,18 +19,18 @@ func TestRoutedReposWholeWordMatchAndShortKeysIgnored(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := RoutedRepos("check tester.github.io for the deploy")
+	got := routedRepos("check tester.github.io for the deploy")
 	if len(got) != 1 || filepath.Base(got[0].Origin.Origin) != "tester.github.io" {
 		t.Fatalf("got = %+v, want exactly the tester.github.io entry", got)
 	}
 
-	if got := RoutedRepos("just github alone"); len(got) != 0 {
+	if got := routedRepos("just github alone"); len(got) != 0 {
 		t.Errorf("a bare substring of a routed name matched: %+v", got)
 	}
-	if got := RoutedRepos("abc is here"); len(got) != 0 {
+	if got := routedRepos("abc is here"); len(got) != 0 {
 		t.Errorf("a key under 4 chars matched: %+v", got)
 	}
-	if got := RoutedRepos("nothing names a repo here"); len(got) != 0 {
+	if got := routedRepos("nothing names a repo here"); len(got) != 0 {
 		t.Errorf("an unrelated query matched: %+v", got)
 	}
 }
@@ -52,7 +52,7 @@ func TestRoutedFilesExcludesOwnStore(t *testing.T) {
 	write(t, filepath.Join(da, "decisionLog.md"), "# D\n\n## 2026-01-01 — proja note\n\nbody\n")
 	write(t, filepath.Join(db, "decisionLog.md"), "# D\n\n## 2026-01-01 — projb note\n\nbody\n")
 
-	files := RoutedFiles(a, "proja projb")
+	files := routedFiles(a, "proja projb")
 	var blocks []SearchHit
 	for i, seg := range loadSegments(files, false) {
 		if seg == nil {
@@ -125,7 +125,7 @@ func TestSearchBanksSurfacesRoutedReposOnlyWhenNamed(t *testing.T) {
 	}
 }
 
-// TestSearchAllCoversEveryRepoStore: SearchAll ranks blocks across every repo store, not just one root.
+// TestSearchAllCoversEveryRepoStore: searchAll ranks blocks across every repo store, not just one root.
 func TestSearchAllCoversEveryRepoStore(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
@@ -142,12 +142,12 @@ func TestSearchAllCoversEveryRepoStore(t *testing.T) {
 	write(t, filepath.Join(da, "decisionLog.md"), "# D\n\n## 2026-01-01 — proja retries the deploy pipeline\n\nbody\n")
 	write(t, filepath.Join(db, "decisionLog.md"), "# D\n\n## 2026-01-01 — projb retries the deploy pipeline\n\nbody\n")
 
-	hits := SearchAll("retries the deploy pipeline", 0)
+	hits := searchAll("retries the deploy pipeline", 0)
 	banks := map[string]bool{}
 	for _, h := range hits {
 		banks[h.Bank] = true
 	}
 	if !banks["proja"] || !banks["projb"] {
-		t.Errorf("SearchAll missed a store, banks seen = %v", banks)
+		t.Errorf("searchAll missed a store, banks seen = %v", banks)
 	}
 }

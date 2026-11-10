@@ -4,8 +4,8 @@ import "strings"
 
 const truncatedNotice = "\n<!-- (surface truncated) -->"
 
-// CapChars cuts s to at most max runes (marker included) at the last whole line.
-func CapChars(s string, max int) string {
+// capChars cuts s to at most max runes (marker included) at the last whole line.
+func capChars(s string, max int) string {
 	r := []rune(s)
 	if len(r) <= max {
 		return s

@@ -35,11 +35,11 @@ func TestRoutedReposMatchesDottedName(t *testing.T) {
 	resetVaultRetry(t)
 	want := seedRouteStore(t, ".project", "/src/.project")
 
-	got := RoutedRepos("check .project")
+	got := routedRepos("check .project")
 	if len(got) != 1 {
-		t.Fatalf("RoutedRepos(check .project) = %+v; want exactly the dotted store", got)
+		t.Fatalf("routedRepos(check .project) = %+v; want exactly the dotted store", got)
 	}
 	if got[0].Key != ".project" || got[0].Dir != want {
-		t.Fatalf("RoutedRepos(check .project) = %+v; want .project at %s", got, want)
+		t.Fatalf("routedRepos(check .project) = %+v; want .project at %s", got, want)
 	}
 }

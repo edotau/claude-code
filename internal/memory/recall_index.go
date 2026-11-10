@@ -20,11 +20,11 @@ const (
 type exeStamp struct{ size, mtimeNs int64 }
 type fileKey struct {
 	path string
-	mode SegMode
+	mode segMode
 }
 type indexed struct {
 	size, mtimeNs int64
-	seg           SegView
+	seg           segView
 }
 
 func currentExeStamp() (exeStamp, bool) {
@@ -83,7 +83,7 @@ func readIndexEntry(data []byte) (key fileKey, entry indexed, rest []byte, ok bo
 	if length+21 > uint64(len(data)) {
 		return key, entry, nil, false
 	}
-	key = fileKey{string(data[:length]), SegMode(data[length])}
+	key = fileKey{string(data[:length]), segMode(data[length])}
 	data = data[length+1:]
 	entry = indexed{size: u64(data), mtimeNs: u64(data[8:])}
 	length = uint64(u32(data[16:]))
@@ -91,7 +91,7 @@ func readIndexEntry(data []byte) (key fileKey, entry indexed, rest []byte, ok bo
 	if length > uint64(len(data)) {
 		return key, entry, nil, false
 	}
-	entry.seg = SegView(data[:length])
+	entry.seg = segView(data[:length])
 	if key.mode > SegKnowledge || !entry.seg.Valid() {
 		return key, entry, nil, false
 	}
@@ -143,7 +143,7 @@ func pruneMissing(index map[fileKey]indexed, stats map[string]bool) {
 }
 
 // fresh returns the cached segment when its recorded size and mtime still match info; the zero entry never matches.
-func (e indexed) fresh(info os.FileInfo) (SegView, bool) {
+func (e indexed) fresh(info os.FileInfo) (segView, bool) {
 	if e.seg == nil || e.size != info.Size() || e.mtimeNs != info.ModTime().UnixNano() {
 		return nil, false
 	}
@@ -151,22 +151,22 @@ func (e indexed) fresh(info os.FileInfo) (SegView, bool) {
 }
 
 // encodeFile reads and indexes f; nil when it cannot be read.
-func encodeFile(f CorpusFile) SegView {
+func encodeFile(f corpusFile) segView {
 	data, err := os.ReadFile(f.Path)
 	if err != nil {
 		return nil
 	}
-	return EncodeSegment(ParseBlocks(f.Mode, filepath.Base(f.Path), data))
+	return encodeSegment(parseBlocks(f.Mode, filepath.Base(f.Path), data))
 }
 
-func loadSegments(files []CorpusFile, persist bool) []SegView {
+func loadSegments(files []corpusFile, persist bool) []segView {
 	stamp, ok := currentExeStamp()
 	path := filepath.Join(StateDir(), recallIndexFile)
 	var index map[fileKey]indexed
 	if ok {
 		index = readRecallIndex(path, stamp)
 	}
-	segs := make([]SegView, len(files))
+	segs := make([]segView, len(files))
 	// Reuse query stats when pruning so each corpus file is statted only once.
 	stats := make(map[string]bool, len(files))
 	dirty := false

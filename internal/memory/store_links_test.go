@@ -39,7 +39,7 @@ func mustRemove(t *testing.T, path string) {
 }
 
 // wantAction fails unless r.Action is want.
-func wantAction(t *testing.T, label string, r LinkResult, want string) {
+func wantAction(t *testing.T, label string, r linkResult, want string) {
 	t.Helper()
 	if r.Action != want {
 		t.Fatalf("%s: %+v", label, r)

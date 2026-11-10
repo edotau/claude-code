@@ -13,7 +13,7 @@ import (
 // newest within the cap.
 func TestSplitNativeIndexMovesOldestUnpinnedOverflow(t *testing.T) {
 	tempConfig(t)
-	dir := NativeDir(t.TempDir())
+	dir := Dir(t.TempDir())
 	var b strings.Builder
 	b.WriteString("# Memory Index\n\n")
 	for i := 1; i <= 5; i++ {
@@ -22,9 +22,9 @@ func TestSplitNativeIndexMovesOldestUnpinnedOverflow(t *testing.T) {
 	}
 	write(t, filepath.Join(dir, NativeIndexFile), b.String())
 
-	moved, err := SplitNativeIndex(dir, 3)
+	moved, err := splitNativeIndex(dir, 3)
 	if err != nil {
-		t.Fatalf("SplitNativeIndex: %v", err)
+		t.Fatalf("splitNativeIndex: %v", err)
 	}
 	if moved != 2 {
 		t.Fatalf("moved = %d, want 2", moved)
@@ -50,7 +50,7 @@ func TestSplitNativeIndexMovesOldestUnpinnedOverflow(t *testing.T) {
 // when it is the oldest entry and would otherwise be first to move.
 func TestSplitNativeIndexKeepPinSurvives(t *testing.T) {
 	tempConfig(t)
-	dir := NativeDir(t.TempDir())
+	dir := Dir(t.TempDir())
 	index := "# Memory Index\n\n" +
 		"- [Pinned](pinned.md) — load-bearing <!-- keep -->\n" +
 		"- [Rule 2](rule-2.md) — hook\n" +
@@ -58,9 +58,9 @@ func TestSplitNativeIndexKeepPinSurvives(t *testing.T) {
 		"- [Rule 4](rule-4.md) — hook\n"
 	write(t, filepath.Join(dir, NativeIndexFile), index)
 
-	moved, err := SplitNativeIndex(dir, 2)
+	moved, err := splitNativeIndex(dir, 2)
 	if err != nil {
-		t.Fatalf("SplitNativeIndex: %v", err)
+		t.Fatalf("splitNativeIndex: %v", err)
 	}
 	if moved != 2 {
 		t.Fatalf("moved = %d, want 2 (budget 2 minus 1 pin leaves room for 1 unpinned)", moved)
@@ -81,9 +81,9 @@ func TestSplitNativeIndexKeepPinSurvives(t *testing.T) {
 func TestSplitNativeIndexNoopUnderCap(t *testing.T) {
 	dir := nativeStore(t)
 	before := mustRead(t, filepath.Join(dir, NativeIndexFile))
-	moved, err := SplitNativeIndex(dir, NativeCoreCap)
+	moved, err := splitNativeIndex(dir, NativeCoreCap)
 	if err != nil {
-		t.Fatalf("SplitNativeIndex: %v", err)
+		t.Fatalf("splitNativeIndex: %v", err)
 	}
 	if moved != 0 {
 		t.Fatalf("moved = %d, want 0", moved)
@@ -105,7 +105,10 @@ func TestNativeDupesFindsOverlappingBodies(t *testing.T) {
 	write(t, filepath.Join(dir, "short.md"), "---\nname: short\n---\n\n"+shared+"\n")
 	write(t, filepath.Join(dir, "long.md"), "---\nname: long\n---\n\n"+shared+" and then escalates to the secondary rotation\n")
 
-	clusters := NativeDupes(dir, 0.6)
+	clusters, err := nativeDupes(dir, 0.6)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(clusters) != 1 {
 		t.Fatalf("clusters = %+v, want exactly 1", clusters)
 	}

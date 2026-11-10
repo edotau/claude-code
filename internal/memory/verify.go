@@ -142,13 +142,13 @@ func verifyStores() ([]verifyStore, error) {
 	}
 	var stores []verifyStore
 	for _, e := range entries {
-		if !e.IsDir() || (StoreReservedDirs[e.Name()] && e.Name() != "home") {
+		if !e.IsDir() || (storeReservedDirs[e.Name()] && e.Name() != "home") {
 			continue
 		}
 		s := verifyStore{dir: filepath.Join(StoreDir(), e.Name())}
 		if e.Name() != "home" {
 			s.repo, s.aliases = origins[e.Name()].Origin, origins[e.Name()].Aliases
-			if e.Name() == HarnessStoreKey() {
+			if e.Name() == harnessStoreKey() {
 				s.repo = paths.CanonDeep(paths.ConfigDir())
 			}
 		}
@@ -187,7 +187,7 @@ func verifyCatalogOrigins(catalog string) map[string]Origin {
 		key, rest, ok := strings.Cut(strings.TrimPrefix(line, "- "), " — ")
 		_, raw, found := strings.CutLast(rest, "<!-- origin: ")
 		var origin Origin
-		if ok && found && ValidBareName(key) == nil && json.Unmarshal([]byte(strings.TrimSuffix(raw, " -->")), &origin) == nil {
+		if ok && found && validBareName(key) == nil && json.Unmarshal([]byte(strings.TrimSuffix(raw, " -->")), &origin) == nil {
 			out[key] = origin
 		}
 	}
@@ -206,7 +206,7 @@ func verifySelectStore(stores []verifyStore, cwd string) ([]verifyStore, error) 
 		return nil, err
 	}
 	cwd = paths.CanonDeep(cwd)
-	root := paths.MainCheckout(cwd, GitOut)
+	root := paths.MainCheckout(cwd, gitOut)
 	if root != "" {
 		root = paths.CanonDeep(root)
 	}
@@ -254,7 +254,7 @@ func verifyClaims(store verifyStore, archives bool) ([]verifyClaim, error) {
 			return err
 		}
 		if d.IsDir() {
-			if path != store.dir && (!archives || !paths.Within(path, ArchiveDir(store.dir))) {
+			if path != store.dir && (!archives || !paths.Within(path, archiveDir(store.dir))) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -271,7 +271,7 @@ func verifyClaims(store verifyStore, archives bool) ([]verifyClaim, error) {
 
 // fileClaims extracts the claims of one bank or topic markdown file; other kinds yield none.
 func fileClaims(store verifyStore, path string) ([]verifyClaim, error) {
-	kind := ClassifyMemoryFile(filepath.Dir(path), filepath.Base(path))
+	kind := classifyMemoryFile(filepath.Dir(path), filepath.Base(path))
 	if kind != KindBank && kind != KindTopic {
 		return nil, nil
 	}
@@ -283,9 +283,9 @@ func fileClaims(store verifyStore, path string) ([]verifyClaim, error) {
 	active := filepath.Dir(path) == store.dir && verifyActive(filepath.Base(path))
 	var claims []verifyClaim
 	for _, block := range verifyBlocks(filepath.Base(path), string(data), kind) {
-		id := BlockID(block)
+		id := blockID(block)
 		if id == "" {
-			id = ContentRef(block)
+			id = contentRef(block)
 		}
 		claims = append(claims, verifyExtract(filepath.ToSlash(rel), id, block, active)...)
 	}
@@ -297,7 +297,7 @@ func verifyActive(name string) bool {
 		strings.HasPrefix(name, "feedback-") || strings.HasPrefix(name, "project-")
 }
 
-func verifyBlocks(name, body string, kind FileKind) []string {
+func verifyBlocks(name, body string, kind fileKind) []string {
 	for _, base := range BankFiles() {
 		if strings.HasPrefix(name, strings.TrimSuffix(base, ".md")+"-") || strings.HasSuffix(name, "-"+base) {
 			name, kind = base, KindBank
@@ -307,7 +307,7 @@ func verifyBlocks(name, body string, kind FileKind) []string {
 	if kind == KindTopic {
 		return []string{body}
 	}
-	header, blocks := EntryBlocks(name, body)
+	header, blocks := entryBlocks(name, body)
 	if strings.TrimSpace(header) != "" {
 		blocks = append([]string{header}, blocks...)
 	}

@@ -9,23 +9,17 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// NativeDupe is one near-duplicate cluster: Keep is the survivor (the longest body — the best-evidenced
+// nativeDupe is one near-duplicate cluster: Keep is the survivor (the longest body — the best-evidenced
 // carrier), Losers the rest. Similarity is Jaccard over the frontmatter description + body tokens.
-type NativeDupe struct {
+type nativeDupe struct {
 	Keep   string
 	Losers []string
 	Score  float64
 }
 
-// NativeDupes is nativeDupes with its error dropped; an unreadable topic reads as no overlap, so use nativeDupes.
-func NativeDupes(dir string, threshold float64) []NativeDupe {
-	out, _ := nativeDupes(dir, threshold)
-	return out
-}
-
 // nativeDupes clusters dir's topic files whose bodies overlap at or above threshold; an unreadable topic fails the
 // scan, since a file never read cannot be ruled out as a duplicate. Report-only: nothing moves here.
-func nativeDupes(dir string, threshold float64) ([]NativeDupe, error) {
+func nativeDupes(dir string, threshold float64) ([]nativeDupe, error) {
 	topics, err := topicFiles(dir)
 	if err != nil {
 		return nil, err
@@ -44,7 +38,7 @@ func nativeDupes(dir string, threshold float64) ([]NativeDupe, error) {
 		size[name] = len(b)
 	}
 	seen := map[string]bool{}
-	var out []NativeDupe
+	var out []nativeDupe
 	for i, a := range names {
 		if seen[a] {
 			continue
@@ -67,8 +61,8 @@ func nativeDupes(dir string, threshold float64) ([]NativeDupe, error) {
 }
 
 // dupeCluster gathers the unseen names whose token sets overlap a's at or above threshold, marking them seen.
-func dupeCluster(a string, rest []string, sets map[string]map[string]bool, seen map[string]bool, threshold float64) NativeDupe {
-	cluster := NativeDupe{Keep: a}
+func dupeCluster(a string, rest []string, sets map[string]map[string]bool, seen map[string]bool, threshold float64) nativeDupe {
+	cluster := nativeDupe{Keep: a}
 	for _, b := range rest {
 		if seen[b] {
 			continue

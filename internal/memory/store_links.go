@@ -9,41 +9,41 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// LinkResult is one projects/<slug>/memory link the harness maintains (Appendix D: native follows the symlink).
-type LinkResult struct {
+// linkResult is one projects/<slug>/memory link the harness maintains (Appendix D: native follows the symlink).
+type linkResult struct {
 	Link, Target string
 	Action       string // linked | ok | relinked | blocked
 	Detail       string
 }
 
-// ProjectsMemory is Claude Code's native memory dir for a project slug.
-func ProjectsMemory(slug string) string {
+// projectsMemory is Claude Code's native memory dir for a project slug.
+func projectsMemory(slug string) string {
 	return filepath.Join(paths.ConfigDir(), "projects", slug, "memory")
 }
 
 // LinkNativeFor repairs the native link for one session cwd, keyed the way Claude Code names the project.
-func LinkNativeFor(cwd string) (LinkResult, bool) {
+func LinkNativeFor(cwd string) (linkResult, bool) {
 	if cwd == "" {
-		return LinkResult{}, false
+		return linkResult{}, false
 	}
 	root := filepath.Clean(cwd)
-	if top := paths.MainCheckout(root, GitOut); top != "" {
+	if top := paths.MainCheckout(root, gitOut); top != "" {
 		root = paths.CanonDeep(top)
 	}
 	target, err := RepoDir(cwd)
 	if err != nil {
-		return LinkResult{}, false
+		return linkResult{}, false
 	}
 	if fi, err := os.Stat(target); err != nil || !fi.IsDir() {
-		return LinkResult{}, false // no store yet: never mint an origin-less dir that would squat the repo's key
+		return linkResult{}, false // no store yet: never mint an origin-less dir that would squat the repo's key
 	}
 	repairNativeLinks(cwd)
-	return ensureLink(ProjectsMemory(paths.ProjectSlug(root)), target), true
+	return ensureLink(projectsMemory(paths.ProjectSlug(root)), target), true
 }
 
 // ensureLink makes link a symlink to target: absent or empty dir → linked, wrong link → relinked, content → blocked.
-func ensureLink(link, target string) LinkResult {
-	r := LinkResult{Link: link, Target: target}
+func ensureLink(link, target string) linkResult {
+	r := linkResult{Link: link, Target: target}
 	fi, err := os.Lstat(link)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -71,15 +71,15 @@ func ensureLink(link, target string) LinkResult {
 }
 
 // blocked returns r marked blocked with detail.
-func (r LinkResult) blocked(detail string) LinkResult {
+func (r linkResult) blocked(detail string) linkResult {
 	r.Action, r.Detail = "blocked", detail
 	return r
 }
 
 // relink removes a wrong symlink (Action "relinked"), keeps a right one (Action "ok"), or reports blocked.
-func relink(r LinkResult) LinkResult {
+func relink(r linkResult) linkResult {
 	cur, _ := os.Readlink(r.Link)
-	if paths.SamePath(NativeLinkTarget(r.Link), r.Target) {
+	if paths.SamePath(nativeLinkTarget(r.Link), r.Target) {
 		r.Action = "ok"
 		return r
 	}
@@ -91,7 +91,7 @@ func relink(r LinkResult) LinkResult {
 }
 
 // clearEmptyDir removes an empty real dir (Action "linked"); a dir with content is blocked.
-func clearEmptyDir(r LinkResult) LinkResult {
+func clearEmptyDir(r linkResult) linkResult {
 	if ents, err := os.ReadDir(r.Link); err != nil || len(ents) > 0 {
 		return r.blocked("real native dir with content: merge it into the store dir by hand")
 	}

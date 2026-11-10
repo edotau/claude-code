@@ -15,11 +15,11 @@ func TestNativeRegressionZeroByteRoundTrip(t *testing.T) {
 	tempConfig(t)
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "empty.md"), "")
-	if _, err := ArchiveNative(dir, []string{"empty"}, true); err != nil {
+	if _, err := archiveNative(dir, []string{"empty"}, true); err != nil {
 		t.Fatal(err)
 	}
 	assertNativeRegressionEmptyMove(t, nativeArchiveDir(dir), dir)
-	if _, err := RestoreNative(dir, []string{"empty"}, true); err != nil {
+	if _, err := restoreNative(dir, []string{"empty"}, true); err != nil {
 		t.Fatal(err)
 	}
 	assertNativeRegressionEmptyMove(t, dir, nativeArchiveDir(dir))
@@ -44,7 +44,7 @@ func TestNativeRegressionMissingIndexFindings(t *testing.T) {
 	write(t, filepath.Join(dir, "orphan.md"), "body\n")
 	write(t, filepath.Join(dir, "linked.md"), "body\n")
 	write(t, filepath.Join(dir, NativeSearchableFile), "- [Linked](linked.md)\n- [Gone](gone.md)\n")
-	st, err := NativeStats(dir)
+	st, err := nativeStats(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestNativeRegressionBatchRestoreCoreCap(t *testing.T) {
 	write(t, filepath.Join(archive, "first.md"), "first body\n")
 	write(t, filepath.Join(archive, "second.md"), "second body\n")
 	write(t, filepath.Join(archive, NativeArchiveIndexFile), "- [First](first.md)\n- [Second](second.md)\n")
-	res, err := RestoreNative(dir, []string{"first", "second"}, true)
+	res, err := restoreNative(dir, []string{"first", "second"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestNativeRegressionBatchRestoreCoreCap(t *testing.T) {
 	assertNativeRegressionRestoredFiles(t, dir, res)
 }
 
-func assertNativeRegressionRestoredFiles(t *testing.T, dir string, res NativeResult) {
+func assertNativeRegressionRestoredFiles(t *testing.T, dir string, res nativeResult) {
 	t.Helper()
 	if len(res.Restored) != 2 {
 		t.Fatalf("batch did not restore both files: %+v", res)
@@ -107,7 +107,7 @@ func TestNativeRegressionLstatError(t *testing.T) {
 	if err := os.Symlink("loop", dir); err != nil {
 		t.Fatal(err)
 	}
-	for _, run := range []func(string, []string, bool) (NativeResult, error){ArchiveNative, RestoreNative} {
+	for _, run := range []func(string, []string, bool) (nativeResult, error){archiveNative, restoreNative} {
 		res, err := run(dir, []string{"topic"}, false)
 		if !errors.Is(err, syscall.ELOOP) {
 			t.Errorf("Lstat I/O error became absence: result=%+v err=%v", res, err)
@@ -122,9 +122,9 @@ func TestNativeRegressionSearchableReadError(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, NativeSearchableFile), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	st, err := NativeStats(dir)
+	st, err := nativeStats(dir)
 	if !errors.Is(err, syscall.EISDIR) || len(st.Orphans) != 0 || len(st.Dangling) != 0 {
-		t.Fatalf("NativeStats fabricated findings instead of a read error: stats=%+v err=%v", st, err)
+		t.Fatalf("nativeStats fabricated findings instead of a read error: stats=%+v err=%v", st, err)
 	}
 	dangling, orphans, err := indexFaults(dir, "", map[string]bool{"topic.md": true})
 	if !errors.Is(err, syscall.EISDIR) || len(orphans) != 0 || len(dangling) != 0 {
@@ -134,7 +134,7 @@ func TestNativeRegressionSearchableReadError(t *testing.T) {
 
 func TestNativeRegressionRestoreReportDestination(t *testing.T) {
 	dir := nativeStore(t)
-	if _, err := ArchiveNative(dir, []string{"stale-fact"}, true); err != nil {
+	if _, err := archiveNative(dir, []string{"stale-fact"}, true); err != nil {
 		t.Fatal(err)
 	}
 	var out, errout bytes.Buffer
@@ -150,5 +150,36 @@ func TestNativeRegressionRestoreReportDestination(t *testing.T) {
 	}
 	if !fileExists(filepath.Join(dir, "stale-fact.md")) {
 		t.Fatal("reported restore did not land in the live store")
+	}
+}
+
+// TestArchiveRestoreSkipMissingTopics: a name absent from the store (archive) or archive (restore) is skipped with its reason.
+func TestArchiveRestoreSkipMissingTopics(t *testing.T) {
+	dir := nativeStore(t)
+	res, err := archiveNative(dir, []string{"stale-fact", "ghost"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Archived) != 1 || len(res.Skipped) != 1 || res.Skipped[0] != "ghost.md: not in the store" {
+		t.Errorf("archive = %+v, want stale-fact archived and ghost.md skipped as not in the store", res)
+	}
+	res, err = restoreNative(dir, []string{"stale-fact", "ghost"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Restored) != 1 || len(res.Skipped) != 1 || res.Skipped[0] != "ghost.md: not in the archive" {
+		t.Errorf("restore = %+v, want stale-fact planned and ghost.md skipped as not in the archive", res)
+	}
+}
+
+// TestArchiveKeepsSkippedOnRefusal: a later refused name returns the skips gathered before it.
+func TestArchiveKeepsSkippedOnRefusal(t *testing.T) {
+	dir := nativeStore(t)
+	res, err := archiveNative(dir, []string{"ghost", "MEMORY.md"}, true)
+	if err == nil {
+		t.Fatal("an index name must be refused")
+	}
+	if len(res.Skipped) != 1 || res.Skipped[0] != "ghost.md: not in the store" {
+		t.Errorf("Skipped = %v, want the ghost skip kept alongside the error", res.Skipped)
 	}
 }

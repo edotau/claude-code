@@ -11,15 +11,15 @@ import (
 )
 
 // RecallPicks is the common query preparation and selection for prompt, agent and diagnostic recall.
-func RecallPicks(root, session, query string, semantic, explain bool) ([]RecallPick, RecallTrace) {
-	trace := RecallTrace{Silent: true, Embeddings: "not requested", CacheAge: "not inspected"}
+func RecallPicks(root, session, query string, semantic, explain bool) ([]recallPick, recallTrace) {
+	trace := recallTrace{Silent: true, Embeddings: "not requested", CacheAge: "not inspected"}
 	q := strings.TrimSpace(query)
 	if rs := []rune(q); len(rs) > recallQueryCapRunes {
 		q = string(rs[:recallQueryCapRunes])
 	}
 	tokens := textutil.Tokenize(q)
-	terms := ContentQueryTerms(tokens)
-	var tr *RecallTrace
+	terms := contentQueryTerms(tokens)
+	var tr *recallTrace
 	if explain {
 		tr = &trace
 		trace.Terms = terms
@@ -40,7 +40,7 @@ func RecallPicks(root, session, query string, semantic, explain bool) ([]RecallP
 	if len(ranked) == 0 {
 		return nil, trace
 	}
-	counts := ReturnCounts([]string{Dir(root), HomeBankDir()}, time.Now())
+	counts := returnCounts([]string{Dir(root), HomeBankDir()}, time.Now())
 	picks := selectRecall(session, terms, ranked, sem, semSeen, counts, tr)
 	trace.Silent = len(picks) == 0
 	return picks, trace
@@ -76,15 +76,15 @@ func startSemantic(query string, enabled bool) <-chan semanticReady {
 	return ready
 }
 
-func recallSemantic(result semanticReady, files []CorpusFile, segs []SegView, session string, need int, ranked []SearchHit, trace *RecallTrace) ([]SearchHit, *Semantic, bool, string) {
+func recallSemantic(result semanticReady, files []corpusFile, segs []segView, session string, need int, ranked []SearchHit, trace *recallTrace) ([]SearchHit, *Semantic, bool, string) {
 	if result.err != nil {
 		return ranked, nil, false, "keyword-only: " + result.err.Error()
 	}
 	sem := result.sem
-	seen := SeenBlocks(session)
+	seen := seenBlocks(session)
 	var skipped []SearchHit
 	skip := func(h SearchHit) bool {
-		if !seen[BlockKey(h.Block)] {
+		if !seen[blockKey(h.Block)] {
 			return false
 		}
 		if trace != nil {
@@ -96,23 +96,23 @@ func recallSemantic(result semanticReady, files []CorpusFile, segs []SegView, se
 	if trace != nil {
 		have := map[string]bool{}
 		for _, h := range ranked {
-			have[BlockKey(h.Block)] = true
+			have[blockKey(h.Block)] = true
 		}
 		for _, h := range skipped {
-			if have[BlockKey(h.Block)] {
+			if have[blockKey(h.Block)] {
 				continue
 			}
 			c := recallTracePick(h)
 			c.Score, _ = scoreRecall(c, 0, false, sem)
 			trace.candidate(c, need, sem)
-			trace.outcome(BlockKey(h.Block), "seen")
+			trace.outcome(blockKey(h.Block), "seen")
 		}
 	}
 	return withSemanticCandidates(ranked, extra), sem, semSeen, "ran"
 }
 
 // RecallContext renders the prompt recall and returns the body and pointer hits for bookkeeping.
-func RecallContext(picks []RecallPick) (string, []SearchHit, []SearchHit) {
+func RecallContext(picks []recallPick) (string, []SearchHit, []SearchHit) {
 	if len(picks) == 0 {
 		return "", nil, nil
 	}
@@ -128,11 +128,11 @@ func RecallContext(picks []RecallPick) (string, []SearchHit, []SearchHit) {
 		}
 		hits = append(hits, p.Hit)
 	}
-	return CapChars(b.String(), recallTotalCapChars), bodies, hits
+	return capChars(b.String(), recallTotalCapChars), bodies, hits
 }
 
 // RecallPointers supplies the agent adapter's limited pointer list.
-func RecallPointers(picks []RecallPick) []Entry {
+func RecallPointers(picks []recallPick) []Entry {
 	var entries []Entry
 	for _, p := range picks[:min(recallK, len(picks))] {
 		entries = append(entries, p.Entry)
@@ -142,13 +142,13 @@ func RecallPointers(picks []RecallPick) []Entry {
 
 // RecordRecall logs and marks only the bodies delivered to the prompt.
 func RecordRecall(root, session string, bodies, hits []SearchHit) {
-	LogHits(recallRoot(root), hits, AccessRecall, time.Now())
+	logHits(recallRoot(root), hits, AccessRecall, time.Now())
 	MarkSeen(session, bodies)
 }
 
 // SearchBanks ranks every block of root's local, home and archive banks plus native topics; top k (0 = all).
 func SearchBanks(root, query string, k int) []SearchHit {
-	return SearchBanksTerms(root, query, ContentTerms(query), k)
+	return SearchBanksTerms(root, query, contentTerms(query), k)
 }
 
 // SearchBanksTerms ranks banks using the caller's pretokenized content terms.
@@ -157,24 +157,24 @@ func SearchBanksTerms(root, query string, terms []string, k int) []SearchHit {
 	return ranked
 }
 
-func searchBanksTerms(root, query string, terms []string, k int) ([]SearchHit, []CorpusFile, []SegView) {
-	corpus := CorpusFiles(root)
-	files := append(corpus, RoutedFiles(root, query)...)
+func searchBanksTerms(root, query string, terms []string, k int) ([]SearchHit, []corpusFile, []segView) {
+	corpus := corpusFiles(root)
+	files := append(corpus, routedFiles(root, query)...)
 	segs := loadSegments(files, true)
-	return RankFiles(terms, k, files, segs), files[:len(corpus)], segs[:len(corpus)]
+	return rankFiles(terms, k, files, segs), files[:len(corpus)], segs[:len(corpus)]
 }
 
-// SearchAll ranks the home tier plus every repo store as one corpus (`memory search --all`).
-func SearchAll(query string, k int) []SearchHit {
-	files := CorpusFiles(paths.ConfigDir())
+// searchAll ranks the home tier plus every repo store as one corpus (`memory search --all`).
+func searchAll(query string, k int) []SearchHit {
+	files := corpusFiles(paths.ConfigDir())
 	if entries, err := RepoDirs(); err == nil {
 		for _, e := range entries {
-			if e.Key != HarnessStoreKey() {
-				files = append(files, StoreFiles(e)...)
+			if e.Key != harnessStoreKey() {
+				files = append(files, storeFiles(e)...)
 			}
 		}
 	}
-	return RankFiles(ContentTerms(query), k, files, loadSegments(files, false))
+	return rankFiles(contentTerms(query), k, files, loadSegments(files, false))
 }
 
 // SearchRepo ranks blocks for q: every store with all, else the named store or checkout (default: cwd's).
@@ -182,7 +182,7 @@ func SearchRepo(repo string, all bool, q string, k int) ([]SearchHit, string) {
 	root := Root(repo)
 	switch {
 	case all:
-		return SearchAll(q, k), root
+		return searchAll(q, k), root
 	case repo != "": // a store name from the catalog, else a checkout path
 		if e, ok := RepoByName(repo); ok && e.Origin.Origin != "" {
 			root = e.Origin.Origin

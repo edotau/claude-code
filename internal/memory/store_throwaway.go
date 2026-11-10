@@ -23,8 +23,8 @@ func throwawayRoots() []string {
 // throwawayInTests opts a test into the rule; other tests' t.TempDir() repos live under /tmp and must stay projects.
 var throwawayInTests = false
 
-// Throwaway reports whether root sits in a scratch or fixture folder, which must never mint a store.
-func Throwaway(root string) bool {
+// throwaway reports whether root sits in a scratch or fixture folder, which must never mint a store.
+func throwaway(root string) bool {
 	if testing.Testing() && !throwawayInTests {
 		return false
 	}
@@ -42,7 +42,7 @@ func fixedIdentity(root string) (Identity, bool) {
 	if id, ok := storeIdentity(root); ok {
 		return id, true
 	}
-	if Throwaway(root) {
+	if throwaway(root) {
 		return throwawayIdentity(), true
 	}
 	return Identity{}, false

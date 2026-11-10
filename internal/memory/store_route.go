@@ -5,14 +5,14 @@ import (
 	"strings"
 )
 
-// RoutedRepos are the repo stores a query names explicitly (key or origin basename as a whole word); no IDF guessing.
-func RoutedRepos(query string) []RepoEntry {
+// routedRepos are the repo stores a query names explicitly (key or origin basename as a whole word); no IDF guessing.
+func routedRepos(query string) []repoEntry {
 	entries, err := RepoDirs()
 	if err != nil {
 		return nil
 	}
 	q := strings.ToLower(query)
-	var out []RepoEntry
+	var out []repoEntry
 	for _, e := range entries {
 		if routeMatch(q, e.Key) || routeMatch(q, filepath.Base(e.Origin.Origin)) {
 			out = append(out, e)
@@ -31,7 +31,7 @@ func routeMatch(query, raw string) bool {
 }
 
 // RepoByName is the store whose key equals name, else the store whose origin basename does, for `--repo <name>`.
-func RepoByName(name string) (RepoEntry, bool) {
+func RepoByName(name string) (repoEntry, bool) {
 	entries, _ := RepoDirs()
 	for _, e := range entries {
 		if strings.EqualFold(e.Key, name) {
@@ -43,7 +43,7 @@ func RepoByName(name string) (RepoEntry, bool) {
 			return e, true
 		}
 	}
-	return RepoEntry{}, false
+	return repoEntry{}, false
 }
 
 // routeWord uses the same separator set at both ends, so dotted names stay whole.

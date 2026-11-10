@@ -116,13 +116,13 @@ func assertSemanticCloser(t *testing.T, c *EmbedClient, root string) {
 // entryCosines returns the query's cosine to entry aaaa0001 (gamma) and to the other entry (delta).
 func entryCosines(t *testing.T, sem *Semantic, root string) (gamma, delta float64) {
 	t.Helper()
-	hits, err := CorpusBlocks(root)
+	hits, err := corpusBlocks(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, h := range hits {
-		e := EntryFromHit(h)
-		cos, ok := sem.Cosine(e)
+		e := entryFromHit(h)
+		cos, ok := sem.CosineHit(h)
 		if !ok {
 			t.Fatalf("entry %s has no vector", e.ID)
 		}
@@ -455,7 +455,7 @@ func TestNewSemanticBacksOffAfterTimeout(t *testing.T) {
 
 // loadEmbedCache is readEmbedCache with every failure folded into an empty record.
 func loadEmbedCache(profile string) vectorRecord {
-	if !SafeProfile(profile) {
+	if !safeProfile.MatchString(profile) {
 		return vectorRecord{}
 	}
 	f, err := readEmbedCache(profile)
@@ -467,10 +467,10 @@ func loadEmbedCache(profile string) vectorRecord {
 
 // saveEmbedCache stores f as profile's record unconditionally (one Put); the mint path uses commitEmbedMint.
 func saveEmbedCache(profile string, f vectorRecord) error {
-	if !SafeProfile(profile) {
+	if !safeProfile.MatchString(profile) {
 		return fmt.Errorf("embeddings: unsafe profile name %q", profile)
 	}
-	_, err := vectorStore.Put(VectorWrite{Profile: profile, Record: f})
+	_, err := vectorStore.Put(vectorWrite{Profile: profile, Record: f})
 	return err
 }
 

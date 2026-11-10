@@ -20,8 +20,8 @@ type boltVectorStore struct{}
 
 var vectorStore = &boltVectorStore{}
 
-// VectorWrite replaces a record or atomically merges a mint while releasing its claim.
-type VectorWrite struct {
+// vectorWrite replaces a record or atomically merges a mint while releasing its claim.
+type vectorWrite struct {
 	Profile string
 	Record  vectorRecord
 	Owner   int64
@@ -29,7 +29,7 @@ type VectorWrite struct {
 	Merge   func(vectorRecord) vectorRecord
 }
 
-func (s *boltVectorStore) Put(write VectorWrite) (stored bool, err error) {
+func (s *boltVectorStore) Put(write vectorWrite) (stored bool, err error) {
 	err = updateEmbedDB(func(tx *bbolt.Tx) error {
 		record := write.Record
 		if write.Merge != nil {
@@ -86,13 +86,11 @@ var (
 // embedDBPath is the one bbolt file holding every profile's entry-vector record, scoped like StateDir.
 func embedDBPath() string { return filepath.Join(StateDir(), "embeddings.db") }
 
-func SafeProfile(profile string) bool { return safeProfile.MatchString(profile) }
-
-func MintedTime(f vectorRecord) time.Time { return time.Unix(0, f.MintedAt) }
+func mintedTime(f vectorRecord) time.Time { return time.Unix(0, f.MintedAt) }
 
 // embedValid reports whether f was minted less than embedValidity before now; a future MintedAt is not valid.
 func embedValid(f vectorRecord, now time.Time) bool {
-	return f.MintedAt > 0 && !MintedTime(f).After(now) && now.Sub(MintedTime(f)) < embedValidity
+	return f.MintedAt > 0 && !mintedTime(f).After(now) && now.Sub(mintedTime(f)) < embedValidity
 }
 
 // reembedOpensAt reports the override opening time and whether it is open now.
@@ -100,13 +98,13 @@ func reembedOpensAt(f vectorRecord, now time.Time) (time.Time, bool) {
 	if !embedValid(f, now) {
 		return time.Time{}, true
 	}
-	at := MintedTime(f).Add(embedValidity - embedOverrideAt)
+	at := mintedTime(f).Add(embedValidity - embedOverrideAt)
 	return at, !now.Before(at)
 }
 
-// ReembedWindow reads profile's record and reports when --reembed opens and whether it is open now.
-func ReembedWindow(profile string, now time.Time) (opensAt time.Time, open bool, err error) {
-	if !SafeProfile(profile) {
+// reembedWindow reads profile's record and reports when --reembed opens and whether it is open now.
+func reembedWindow(profile string, now time.Time) (opensAt time.Time, open bool, err error) {
+	if !safeProfile.MatchString(profile) {
 		return time.Time{}, false, fmt.Errorf("embeddings: unsafe profile name %q", profile)
 	}
 	f, err := readEmbedCache(profile)
@@ -285,7 +283,7 @@ func (s *boltVectorStore) Release(profile string, owner int64) error {
 
 // RefreshDue reads the mint lease and claim without taking a write lock or opening an endpoint.
 func (s *boltVectorStore) RefreshDue(profile string, now time.Time) bool {
-	if !SafeProfile(profile) {
+	if !safeProfile.MatchString(profile) {
 		return false
 	}
 	db, err := bbolt.Open(embedDBPath(), 0o600, &bbolt.Options{ReadOnly: true, Timeout: time.Nanosecond})

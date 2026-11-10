@@ -17,8 +17,8 @@ import (
 )
 
 // Migration: remove after 2026-11-17 once every machine has run a post-2026-10-20 build.
-// LegacyOriginFile is the pre-vault per-store record; it is ignored (neither imported nor removed) and only skipped.
-const LegacyOriginFile = ".origin"
+// legacyOriginFile is the pre-vault per-store record; it is ignored (neither imported nor removed) and only skipped.
+const legacyOriginFile = ".origin"
 
 // OriginVersion is the schema version ReadOrigin accepts.
 const OriginVersion = 1
@@ -26,13 +26,13 @@ const OriginVersion = 1
 // Origin ties a store directory to the canonical checkout it serves; Aliases are explicit, never inferred.
 type Origin struct {
 	Version int      `json:"version"`
-	Key     string   `json:"key"`               // the directory name under StoreDir(); HarnessStoreKey() for the config checkout
+	Key     string   `json:"key"`               // the directory name under StoreDir(); harnessStoreKey() for the config checkout
 	Origin  string   `json:"origin"`            // canonical main-checkout path (EvalSymlinks); "" only for the store root
 	Aliases []string `json:"aliases,omitempty"` // other canonical checkout paths accepted as this repo — explicit only
 }
 
-// ErrOriginConflict is returned instead of ever overwriting an origin record that names a different repo.
-var ErrOriginConflict = errors.New("origin record exists with a different canonical origin")
+// errOriginConflict is returned instead of ever overwriting an origin record that names a different repo.
+var errOriginConflict = errors.New("origin record exists with a different canonical origin")
 
 // ReadOrigin loads and validates dir's origin record; dir must be a real directory directly under StoreDir().
 func ReadOrigin(dir string) (Origin, error) {
@@ -198,15 +198,15 @@ func WriteOrigin(dir string, o Origin) error {
 	case err == nil && cur.Key == o.Key && cur.Origin == o.Origin:
 		return nil
 	case err == nil:
-		return fmt.Errorf("%s: %w", dir, ErrOriginConflict)
+		return fmt.Errorf("%s: %w", dir, errOriginConflict)
 	case !errors.Is(err, fs.ErrNotExist):
 		return fmt.Errorf("refusing to overwrite: %w", err)
 	}
-	return FoldOrigin(dir, o, "")
+	return foldOrigin(dir, o, "")
 }
 
-// FoldOrigin writes dir's record and, when drop is set, deletes that folded store's row in the same transaction.
-func FoldOrigin(dir string, o Origin, drop string) error {
+// foldOrigin writes dir's record and, when drop is set, deletes that folded store's row in the same transaction.
+func foldOrigin(dir string, o Origin, drop string) error {
 	key, err := originKey(dir)
 	if err != nil {
 		return err
@@ -235,8 +235,8 @@ type catalogOrigin struct {
 	Aliases []string `json:"aliases,omitempty"`
 }
 
-// CatalogOriginComment is the trailing comment recording o on its catalog row.
-func CatalogOriginComment(o Origin) string {
+// catalogOriginComment is the trailing comment recording o on its catalog row.
+func catalogOriginComment(o Origin) string {
 	data, _ := json.Marshal(catalogOrigin{Origin: o.Origin, Aliases: o.Aliases})
 	return catalogOriginTag + string(data) + " -->"
 }

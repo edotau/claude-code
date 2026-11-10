@@ -44,7 +44,7 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 		if werr != nil {
 			return werr
 		}
-		// Stamp the id directly: SettleBank only runs assignIDs on the unified-store path,
+		// Stamp the id directly: settleBank only runs assignIDs on the unified-store path,
 		// and a fresh bank must still get an id back to round-trip through `memory recall`.
 		if _, werr = assignIDs(dir, now); werr != nil {
 			return werr
@@ -55,7 +55,7 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := SettleBank(root, now); err != nil {
+	if _, err := settleBank(root, now); err != nil {
 		return "", err
 	}
 	return id, nil
@@ -68,7 +68,7 @@ func writeRememberFact(path, file, kind, fact string, now time.Time) (string, er
 	}
 	label := strings.ToUpper(kind[:1]) + kind[1:]
 	line := "- " + label + ": " + fact
-	return line, AppendBlocks(path, []string{line})
+	return line, appendBlocks(path, []string{line})
 }
 
 // prependBlock inserts block at the top of path's entries — decisionLog.md is newest-first.
@@ -77,9 +77,9 @@ func prependBlock(path, base, block string) error {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err // never rewrite the log from an unread file
 	}
-	header, blocks := EntryBlocks(base, string(data))
+	header, blocks := entryBlocks(base, string(data))
 	blocks = append([]string{block}, blocks...)
-	return paths.AtomicWrite(path, []byte(Rejoin(header, blocks)), 0o600)
+	return paths.AtomicWrite(path, []byte(rejoin(header, blocks)), 0o600)
 }
 
 // lastStampedID finds the id stamped on line's first line: the first exact match in a newest-first file, else the last.
@@ -95,7 +95,7 @@ func lastStampedID(path, line string, newestFirst bool) (string, error) {
 		slices.Reverse(lines)
 	}
 	for _, ln := range lines {
-		if id := BlockID(ln); id != "" && strings.TrimRight(StripID(ln), " \t") == want {
+		if id := blockID(ln); id != "" && strings.TrimRight(stripID(ln), " \t") == want {
 			return id, nil
 		}
 	}

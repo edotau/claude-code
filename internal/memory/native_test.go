@@ -30,7 +30,7 @@ func TestTopicFrontmatterFencesAndRawValues(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			name, desc, _, ok := TopicFrontmatter(tc.raw)
+			name, desc, _, ok := topicFrontmatter(tc.raw)
 			if ok != tc.wantOK || name != tc.wantName || desc != tc.wantDesc {
 				t.Errorf("topicFrontmatter(%q) = name=%q desc=%q ok=%v, want name=%q desc=%q ok=%v",
 					tc.raw, name, desc, ok, tc.wantName, tc.wantDesc, tc.wantOK)
@@ -52,7 +52,7 @@ func fileExists(path string) bool { _, err := os.Stat(path); return err == nil }
 func nativeStore(t *testing.T) string {
 	t.Helper()
 	tempConfig(t)
-	dir := NativeDir(t.TempDir())
+	dir := Dir(t.TempDir())
 	write(t, filepath.Join(dir, NativeIndexFile), testIndex)
 	for _, n := range []string{"keep-me.md", "stale-fact.md", "also-keep.md"} {
 		write(t, filepath.Join(dir, n), "---\nname: "+strings.TrimSuffix(n, ".md")+"\n---\n\nbody\n")
@@ -75,9 +75,9 @@ func plainNativeStore(t *testing.T) string {
 // injected surface for the archive, and its MEMORY.md line goes with it.
 func TestArchiveNativeMovesFileAndStrikesIndexLine(t *testing.T) {
 	dir := nativeStore(t)
-	res, err := ArchiveNative(dir, []string{"stale-fact"}, true)
+	res, err := archiveNative(dir, []string{"stale-fact"}, true)
 	if err != nil {
-		t.Fatalf("ArchiveNative: %v", err)
+		t.Fatalf("archiveNative: %v", err)
 	}
 	if len(res.Archived) != 1 || res.Archived[0] != "stale-fact.md" {
 		t.Fatalf("archived %v, want [stale-fact.md]", res.Archived)
@@ -109,9 +109,9 @@ func TestArchiveNativeDryRunWritesNothing(t *testing.T) {
 	t.Parallel()
 	dir := plainNativeStore(t)
 	before := mustRead(t, filepath.Join(dir, NativeIndexFile))
-	res, err := ArchiveNative(dir, []string{"stale-fact"}, false)
+	res, err := archiveNative(dir, []string{"stale-fact"}, false)
 	if err != nil {
-		t.Fatalf("ArchiveNative: %v", err)
+		t.Fatalf("archiveNative: %v", err)
 	}
 	if len(res.Archived) != 1 {
 		t.Fatalf("dry run planned %v, want 1 entry", res.Archived)
@@ -139,12 +139,12 @@ func TestArchiveNativeRefusesIndexFilesAndTraversal(t *testing.T) {
 	write(t, filepath.Join(dir, NativeArchiveIndexFile), "# Archived\n")
 	for _, name := range []string{NativeIndexFile, NativeSearchableFile, NativeArchiveIndexFile,
 		"../escape", "nested/topic.md", "subtree.md", ""} {
-		if _, err := ArchiveNative(dir, []string{name}, true); err == nil {
-			t.Errorf("ArchiveNative(%q) was allowed; want refusal", name)
+		if _, err := archiveNative(dir, []string{name}, true); err == nil {
+			t.Errorf("archiveNative(%q) was allowed; want refusal", name)
 		}
 	}
 	// A name that simply is not there is SKIPPED, not an error — archiving is idempotent by design.
-	res, err := ArchiveNative(dir, []string{"never-existed"}, true)
+	res, err := archiveNative(dir, []string{"never-existed"}, true)
 	if err != nil {
 		t.Fatalf("an absent name should skip, not fail: %v", err)
 	}
@@ -156,12 +156,12 @@ func TestArchiveNativeRefusesIndexFilesAndTraversal(t *testing.T) {
 // TestRestoreNativeRoundTrip: archive -> restore returns both the file and its index line.
 func TestRestoreNativeRoundTrip(t *testing.T) {
 	dir := nativeStore(t)
-	if _, err := ArchiveNative(dir, []string{"stale-fact"}, true); err != nil {
-		t.Fatalf("ArchiveNative: %v", err)
+	if _, err := archiveNative(dir, []string{"stale-fact"}, true); err != nil {
+		t.Fatalf("archiveNative: %v", err)
 	}
-	res, err := RestoreNative(dir, []string{"stale-fact"}, true)
+	res, err := restoreNative(dir, []string{"stale-fact"}, true)
 	if err != nil {
-		t.Fatalf("RestoreNative: %v", err)
+		t.Fatalf("restoreNative: %v", err)
 	}
 	if len(res.Restored) != 1 {
 		t.Fatalf("restored %v, want 1", res.Restored)
@@ -182,9 +182,9 @@ func TestRestoreNativeRoundTrip(t *testing.T) {
 func TestNativeStatsCountsOnlyTopicFiles(t *testing.T) {
 	t.Parallel()
 	dir := plainNativeStore(t)
-	st, err := NativeStats(dir)
+	st, err := nativeStats(dir)
 	if err != nil {
-		t.Fatalf("NativeStats: %v", err)
+		t.Fatalf("nativeStats: %v", err)
 	}
 	if st.TopicFiles != 3 {
 		t.Errorf("TopicFiles = %d, want 3 (MEMORY.md excluded)", st.TopicFiles)
@@ -200,9 +200,9 @@ func TestNativeStatsFindsOrphansAndDangling(t *testing.T) {
 	dir := plainNativeStore(t)
 	write(t, filepath.Join(dir, NativeIndexFile), "# Index\n\n- [Gone](gone.md) — dangling\n")
 	write(t, filepath.Join(dir, "orphan.md"), "---\nname: orphan\n---\nbody\n")
-	st, err := NativeStats(dir)
+	st, err := nativeStats(dir)
 	if err != nil {
-		t.Fatalf("NativeStats: %v", err)
+		t.Fatalf("nativeStats: %v", err)
 	}
 	if len(st.Dangling) != 1 || st.Dangling[0] != "gone.md" {
 		t.Errorf("Dangling = %v, want [gone.md]", st.Dangling)
@@ -218,11 +218,11 @@ func TestNativeStatsFindsOrphansAndDangling(t *testing.T) {
 
 // TestReconcileHealsCrashedRestorePointer: simulate a crash between a move and its index write —
 // the file is back in the store, MEMORY.md still lacks the pointer, and the archive's own record
-// still has it. ArchiveNative (which reconciles before archiving) must heal it, verbatim.
+// still has it. archiveNative (which reconciles before archiving) must heal it, verbatim.
 func TestReconcileHealsCrashedRestorePointer(t *testing.T) {
 	dir := nativeStore(t)
-	if _, err := ArchiveNative(dir, []string{"stale-fact"}, true); err != nil {
-		t.Fatalf("ArchiveNative: %v", err)
+	if _, err := archiveNative(dir, []string{"stale-fact"}, true); err != nil {
+		t.Fatalf("archiveNative: %v", err)
 	}
 	// Simulate the crash: move the file back by hand, without touching either index.
 	if err := os.Rename(filepath.Join(nativeArchiveDir(dir), "stale-fact.md"), filepath.Join(dir, "stale-fact.md")); err != nil {
@@ -232,8 +232,8 @@ func TestReconcileHealsCrashedRestorePointer(t *testing.T) {
 		t.Fatal("test setup: MEMORY.md must not already point at the crashed-back file")
 	}
 
-	if _, err := ArchiveNative(dir, []string{"keep-me"}, true); err != nil {
-		t.Fatalf("ArchiveNative(keep-me): %v", err)
+	if _, err := archiveNative(dir, []string{"keep-me"}, true); err != nil {
+		t.Fatalf("archiveNative(keep-me): %v", err)
 	}
 	idx := mustRead(t, filepath.Join(dir, NativeIndexFile))
 	if !strings.Contains(idx, "- [Stale fact](stale-fact.md) — a closed incident") {
@@ -247,8 +247,8 @@ func TestReconcileAddsFrontmatterPointerForUnindexedFile(t *testing.T) {
 	dir := nativeStore(t)
 	write(t, filepath.Join(dir, "lost-one.md"), "---\nname: lost-one\ndescription: a crashed restore\n---\n\nbody\n")
 
-	if _, err := ArchiveNative(dir, []string{"keep-me"}, true); err != nil {
-		t.Fatalf("ArchiveNative: %v", err)
+	if _, err := archiveNative(dir, []string{"keep-me"}, true); err != nil {
+		t.Fatalf("archiveNative: %v", err)
 	}
 	idx := mustRead(t, filepath.Join(dir, NativeIndexFile))
 	if !strings.Contains(idx, "- [lost-one](lost-one.md) — a crashed restore") {
@@ -262,8 +262,8 @@ func TestReconcileSkipsFrontmatterlessTopics(t *testing.T) {
 	dir := nativeStore(t)
 	write(t, filepath.Join(dir, "no-frontmatter.md"), "just body text, no --- block\n")
 
-	if _, err := ArchiveNative(dir, []string{"keep-me"}, true); err != nil {
-		t.Fatalf("ArchiveNative: %v", err)
+	if _, err := archiveNative(dir, []string{"keep-me"}, true); err != nil {
+		t.Fatalf("archiveNative: %v", err)
 	}
 	idx := mustRead(t, filepath.Join(dir, NativeIndexFile))
 	if strings.Contains(idx, "no-frontmatter.md") {
@@ -271,7 +271,7 @@ func TestReconcileSkipsFrontmatterlessTopics(t *testing.T) {
 	}
 }
 
-// TestReconcileDoesNotRunOnDryRun: ArchiveNative's plan-only path must not reconcile, so an
+// TestReconcileDoesNotRunOnDryRun: archiveNative's plan-only path must not reconcile, so an
 // unindexed topic file present in the store must NOT gain a pointer on a dry run.
 func TestReconcileDoesNotRunOnDryRun(t *testing.T) {
 	t.Parallel()
@@ -279,8 +279,8 @@ func TestReconcileDoesNotRunOnDryRun(t *testing.T) {
 	write(t, filepath.Join(dir, "lost-one.md"), "---\nname: lost-one\ndescription: a crashed restore\n---\n\nbody\n")
 	before := mustRead(t, filepath.Join(dir, NativeIndexFile))
 
-	if _, err := ArchiveNative(dir, []string{"keep-me"}, false); err != nil {
-		t.Fatalf("ArchiveNative (dry run): %v", err)
+	if _, err := archiveNative(dir, []string{"keep-me"}, false); err != nil {
+		t.Fatalf("archiveNative (dry run): %v", err)
 	}
 	if got := mustRead(t, filepath.Join(dir, NativeIndexFile)); got != before {
 		t.Errorf("dry run reconciled MEMORY.md:\nbefore:\n%s\nafter:\n%s", before, got)
@@ -296,7 +296,7 @@ func TestSearchableIndexIsIndexedButNotInjected(t *testing.T) {
 	write(t, filepath.Join(dir, NativeIndexFile), idx)
 	write(t, filepath.Join(dir, NativeSearchableFile), "# Searchable\n\n- [Stale fact](stale-fact.md) — a closed incident\n")
 
-	if _, err := ArchiveNative(dir, []string{"also-keep"}, true); err != nil {
+	if _, err := archiveNative(dir, []string{"also-keep"}, true); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustRead(t, filepath.Join(dir, NativeIndexFile)); strings.Contains(got, "stale-fact.md") {
@@ -304,7 +304,7 @@ func TestSearchableIndexIsIndexedButNotInjected(t *testing.T) {
 	}
 	assertSearchableIndexStats(t, dir)
 
-	if _, err := ArchiveNative(dir, []string{"stale-fact"}, true); err != nil {
+	if _, err := archiveNative(dir, []string{"stale-fact"}, true); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustRead(t, filepath.Join(dir, NativeSearchableFile)); strings.Contains(got, "stale-fact.md") {
@@ -317,7 +317,7 @@ func TestSearchableIndexIsIndexedButNotInjected(t *testing.T) {
 
 func assertSearchableIndexStats(t *testing.T, dir string) {
 	t.Helper()
-	st, err := NativeStats(dir)
+	st, err := nativeStats(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,8 +330,8 @@ func assertSearchableIndexStats(t *testing.T, dir string) {
 // so one project's archive never collides with another's.
 func TestNativeArchiveDirIsPerProject(t *testing.T) {
 	tempConfig(t)
-	a := NativeDir(repoRoot(t, "repo-a"))
-	b := NativeDir(repoRoot(t, "repo-b"))
+	a := Dir(repoRoot(t, "repo-a"))
+	b := Dir(repoRoot(t, "repo-b"))
 	if nativeArchiveDir(a) == nativeArchiveDir(b) {
 		t.Errorf("both projects archive into %s", nativeArchiveDir(a))
 	}
@@ -349,14 +349,14 @@ func TestArchiveNativeRefusesSymlinkAndSkipsNonTopics(t *testing.T) {
 	write(t, filepath.Join(dir, "activeContext.md"), "# Active\n")
 	write(t, filepath.Join(dir, "custom.md"), "---\nname: custom\nharness_kind: bank\n---\nbody\n")
 	write(t, filepath.Join(dir, CatalogFile), "# catalog\n")
-	write(t, filepath.Join(dir, LegacyOriginFile), "{}\n")
+	write(t, filepath.Join(dir, legacyOriginFile), "{}\n")
 	if err := os.Symlink(filepath.Join(dir, "keep-me.md"), filepath.Join(dir, "link.md")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ArchiveNative(dir, []string{"link"}, true); err == nil || !fileExists(filepath.Join(dir, "link.md")) {
-		t.Errorf("ArchiveNative(link) err = %v; want refusal with the symlink left in place", err)
+	if _, err := archiveNative(dir, []string{"link"}, true); err == nil || !fileExists(filepath.Join(dir, "link.md")) {
+		t.Errorf("archiveNative(link) err = %v; want refusal with the symlink left in place", err)
 	}
-	st, err := NativeStats(dir)
+	st, err := nativeStats(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +377,7 @@ func TestBankRegionPointerToAbsentFileIsNotDangling(t *testing.T) {
 	dir := plainNativeStore(t)
 	write(t, filepath.Join(dir, NativeIndexFile), "# Memory Index\n\n"+bankRegion+"\n"+
 		"- [Keep me](keep-me.md) — a live preference\n- [Stale fact](stale-fact.md) — a closed incident\n")
-	st, err := NativeStats(dir)
+	st, err := nativeStats(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,11 +395,11 @@ func TestArchiveNativeVersionsCollidingRevision(t *testing.T) {
 	dir := nativeStore(t)
 	archive := nativeArchiveDir(dir)
 	first := mustRead(t, filepath.Join(dir, "stale-fact.md"))
-	if _, err := ArchiveNative(dir, []string{"stale-fact"}, true); err != nil {
+	if _, err := archiveNative(dir, []string{"stale-fact"}, true); err != nil {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(dir, "stale-fact.md"), first+"\nrevised\n")
-	res, err := ArchiveNative(dir, []string{"stale-fact"}, true)
+	res, err := archiveNative(dir, []string{"stale-fact"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +420,7 @@ func assertThirdRevisionDistinct(t *testing.T, dir, first, stamped string) {
 	t.Helper()
 	archive := nativeArchiveDir(dir)
 	write(t, filepath.Join(dir, "stale-fact.md"), first+"\nrevised again\n")
-	third, err := ArchiveNative(dir, []string{"stale-fact"}, true)
+	third, err := archiveNative(dir, []string{"stale-fact"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,15 +433,15 @@ func assertThirdRevisionDistinct(t *testing.T, dir, first, stamped string) {
 // moves and neither index changes.
 func TestRestoreNativeRefusesDifferingLiveFile(t *testing.T) {
 	dir := nativeStore(t)
-	if _, err := ArchiveNative(dir, []string{"stale-fact"}, true); err != nil {
+	if _, err := archiveNative(dir, []string{"stale-fact"}, true); err != nil {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(dir, "stale-fact.md"), "---\nname: stale-fact\n---\n\nrewritten live\n")
 	idxBefore := mustRead(t, filepath.Join(dir, NativeIndexFile))
 	recBefore := mustRead(t, filepath.Join(nativeArchiveDir(dir), NativeArchiveIndexFile))
-	_, err := RestoreNative(dir, []string{"stale-fact"}, true)
+	_, err := restoreNative(dir, []string{"stale-fact"}, true)
 	if err == nil || !strings.Contains(err.Error(), "differs from the archived copy") {
-		t.Fatalf("RestoreNative err = %v, want a differing-live-file refusal", err)
+		t.Fatalf("restoreNative err = %v, want a differing-live-file refusal", err)
 	}
 	if !fileExists(filepath.Join(nativeArchiveDir(dir), "stale-fact.md")) {
 		t.Error("archive copy moved despite the refusal")
@@ -461,13 +461,13 @@ func TestRestoreNativeRefusesDifferingLiveFile(t *testing.T) {
 // copy is dropped, and the pointer is present exactly once.
 func TestRestoreNativeDedupesEqualLiveFile(t *testing.T) {
 	dir := nativeStore(t)
-	if _, err := ArchiveNative(dir, []string{"stale-fact"}, true); err != nil {
+	if _, err := archiveNative(dir, []string{"stale-fact"}, true); err != nil {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(dir, "stale-fact.md"), mustRead(t, filepath.Join(nativeArchiveDir(dir), "stale-fact.md")))
-	res, err := RestoreNative(dir, []string{"stale-fact"}, true)
+	res, err := restoreNative(dir, []string{"stale-fact"}, true)
 	if err != nil {
-		t.Fatalf("RestoreNative: %v", err)
+		t.Fatalf("restoreNative: %v", err)
 	}
 	if len(res.Restored) != 1 || res.Restored[0] != "stale-fact.md" {
 		t.Errorf("Restored = %v, want [stale-fact.md]", res.Restored)
@@ -485,7 +485,7 @@ func TestRestoreNativeDedupesEqualLiveFile(t *testing.T) {
 }
 
 // TestArchiveAndRestoreRefuseReservedAndBankNames: every reserved/typed name is refused with an
-// error naming its kind, for both ArchiveNative and RestoreNative.
+// error naming its kind, for both archiveNative and restoreNative.
 func TestArchiveAndRestoreRefuseReservedAndBankNames(t *testing.T) {
 	dir := nativeStore(t)
 	archiveDir := nativeArchiveDir(dir)
@@ -500,17 +500,17 @@ func TestArchiveAndRestoreRefuseReservedAndBankNames(t *testing.T) {
 		write(t, filepath.Join(archiveDir, n), body)
 	}
 	for _, n := range names {
-		if _, err := ArchiveNative(dir, []string{n}, true); err == nil {
-			t.Errorf("ArchiveNative(%q) was allowed; want refusal naming the kind", n)
+		if _, err := archiveNative(dir, []string{n}, true); err == nil {
+			t.Errorf("archiveNative(%q) was allowed; want refusal naming the kind", n)
 		}
-		if _, err := RestoreNative(dir, []string{n}, true); err == nil {
-			t.Errorf("RestoreNative(%q) was allowed; want refusal naming the kind", n)
+		if _, err := restoreNative(dir, []string{n}, true); err == nil {
+			t.Errorf("restoreNative(%q) was allowed; want refusal naming the kind", n)
 		}
 	}
 }
 
 // TestTopicPathsExcludeMetadataBankAndSymlink: a harness_kind:bank topic and a symlinked .md are
-// not topics — topicPaths, NativeStats.TopicFiles and NativeDupes must all exclude them.
+// not topics — topicPaths, nativeStats.TopicFiles and nativeDupes must all exclude them.
 func TestTopicPathsExcludeMetadataBankAndSymlink(t *testing.T) {
 	t.Parallel()
 	dir := plainNativeStore(t)
@@ -529,7 +529,7 @@ func TestTopicPathsExcludeMetadataBankAndSymlink(t *testing.T) {
 	}
 	assertExcludesNames(t, topicNames, excluded, "topicPaths")
 
-	st, err := NativeStats(dir)
+	st, err := nativeStats(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -538,12 +538,15 @@ func TestTopicPathsExcludeMetadataBankAndSymlink(t *testing.T) {
 		t.Errorf("TopicFiles = %d, want 4 (metadata-bank file and symlink excluded)", st.TopicFiles)
 	}
 
-	clusters := NativeDupes(dir, 0.5)
+	clusters, err := nativeDupes(dir, 0.5)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var clustered []string
 	for _, c := range clusters {
 		clustered = append(append(clustered, c.Keep), c.Losers...)
 	}
-	assertExcludesNames(t, clustered, excluded, "NativeDupes")
+	assertExcludesNames(t, clustered, excluded, "nativeDupes")
 }
 
 // assertExcludesNames fails if any of excluded appears in got; context names the caller for the message.
@@ -559,7 +562,7 @@ func assertExcludesNames(t *testing.T, got, excluded []string, context string) {
 }
 
 // TestBankRegionNeverTouchedByIndexOpsOrArchive: MEMORY.md's generated bank region (two pointer
-// lines) is ignored by IndexEntries, never moved by SplitNativeIndex, and never struck by archive.
+// lines) is ignored by IndexEntries, never moved by splitNativeIndex, and never struck by archive.
 func TestBankRegionNeverTouchedByIndexOpsOrArchive(t *testing.T) {
 	dir := nativeStore(t)
 	region := "<!-- bank:begin generated by claude-code memory index -->\n" +
@@ -568,13 +571,13 @@ func TestBankRegionNeverTouchedByIndexOpsOrArchive(t *testing.T) {
 	before := mustRead(t, filepath.Join(dir, NativeIndexFile))
 	write(t, filepath.Join(dir, NativeIndexFile), before+region)
 	withRegion := mustRead(t, filepath.Join(dir, NativeIndexFile))
-	start, end := BankRegionBounds(withRegion)
+	start, end := bankRegionBounds(withRegion)
 	if start < 0 || end < 0 {
 		t.Fatalf("test setup: bank region not detected in:\n%s", withRegion)
 	}
 	regionBytes := withRegion[start:end]
 
-	st, err := NativeStats(dir)
+	st, err := nativeStats(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -582,22 +585,22 @@ func TestBankRegionNeverTouchedByIndexOpsOrArchive(t *testing.T) {
 		t.Errorf("IndexEntries = %d, want 3 (bank region's 2 pointers excluded)", st.IndexEntries)
 	}
 
-	if _, err := SplitNativeIndex(dir, 0); err != nil {
-		t.Fatalf("SplitNativeIndex: %v", err)
+	if _, err := splitNativeIndex(dir, 0); err != nil {
+		t.Fatalf("splitNativeIndex: %v", err)
 	}
-	assertRegionUnchanged(t, filepath.Join(dir, NativeIndexFile), regionBytes, "SplitNativeIndex")
+	assertRegionUnchanged(t, filepath.Join(dir, NativeIndexFile), regionBytes, "splitNativeIndex")
 
-	if _, err := ArchiveNative(dir, []string{"keep-me"}, true); err != nil {
-		t.Fatalf("ArchiveNative: %v", err)
+	if _, err := archiveNative(dir, []string{"keep-me"}, true); err != nil {
+		t.Fatalf("archiveNative: %v", err)
 	}
-	assertRegionUnchanged(t, filepath.Join(dir, NativeIndexFile), regionBytes, "ArchiveNative")
+	assertRegionUnchanged(t, filepath.Join(dir, NativeIndexFile), regionBytes, "archiveNative")
 }
 
 // assertRegionUnchanged fails if path's bank region is missing or no longer equals want; op names the caller for the message.
 func assertRegionUnchanged(t *testing.T, path, want, op string) {
 	t.Helper()
 	got := mustRead(t, path)
-	start, end := BankRegionBounds(got)
+	start, end := bankRegionBounds(got)
 	if start < 0 || end < 0 || got[start:end] != want {
 		t.Errorf("%s moved or altered the bank region:\n%s", op, got)
 	}
@@ -613,7 +616,7 @@ func TestBankPointerToPresentTypedFileIsNotDanglingOrOrphan(t *testing.T) {
 	before := mustRead(t, filepath.Join(dir, NativeIndexFile))
 	write(t, filepath.Join(dir, NativeIndexFile), before+"- [Active](activeContext.md) — focus\n")
 
-	st, err := NativeStats(dir)
+	st, err := nativeStats(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -638,7 +641,7 @@ func TestArchiveCollisionVersionsByTimestampAndDedupesEqualContent(t *testing.T)
 	before := mustRead(t, filepath.Join(dir, NativeIndexFile))
 	write(t, filepath.Join(dir, NativeIndexFile), before+"- [A](a.md) — v1\n")
 
-	if _, err := ArchiveNative(dir, []string{"a"}, true); err != nil {
+	if _, err := archiveNative(dir, []string{"a"}, true); err != nil {
 		t.Fatalf("archive 1: %v", err)
 	}
 	// A fresh a.md with other bytes while the v1 copy still sits in the archive: the collision case.
@@ -647,7 +650,7 @@ func TestArchiveCollisionVersionsByTimestampAndDedupesEqualContent(t *testing.T)
 	if !strings.Contains(idx, "a.md") {
 		write(t, filepath.Join(dir, NativeIndexFile), idx+"- [A](a.md) — v2\n")
 	}
-	if _, err := ArchiveNative(dir, []string{"a"}, true); err != nil {
+	if _, err := archiveNative(dir, []string{"a"}, true); err != nil {
 		t.Fatalf("archive 2: %v", err)
 	}
 	archiveDir := nativeArchiveDir(dir)
@@ -664,7 +667,7 @@ func assertArchiveDedupesAndRefusesDivergentRestore(t *testing.T, dir, archiveDi
 	write(t, filepath.Join(dir, "a.md"), "---\nname: a\n---\n\nversion two\n")
 	idx2 := mustRead(t, filepath.Join(dir, NativeIndexFile))
 	write(t, filepath.Join(dir, NativeIndexFile), idx2+"- [A](a.md) — v2 again\n")
-	if _, err := ArchiveNative(dir, []string{"a"}, true); err != nil {
+	if _, err := archiveNative(dir, []string{"a"}, true); err != nil {
 		t.Fatalf("archive 3 (equal content): %v", err)
 	}
 	if got := archivedVersions(t, archiveDir, "a"); len(got) != 2 {
@@ -673,8 +676,8 @@ func assertArchiveDedupesAndRefusesDivergentRestore(t *testing.T, dir, archiveDi
 
 	// Restore onto a live a.md with different bytes must fail, leaving both intact.
 	write(t, filepath.Join(dir, "a.md"), "---\nname: a\n---\n\nlive divergent content\n")
-	if _, err := RestoreNative(dir, []string{"a"}, true); err == nil {
-		t.Error("RestoreNative onto a divergent live file was allowed; want refusal")
+	if _, err := restoreNative(dir, []string{"a"}, true); err == nil {
+		t.Error("restoreNative onto a divergent live file was allowed; want refusal")
 	}
 	if !fileExists(filepath.Join(dir, "a.md")) {
 		t.Error("the live file was removed by a failed restore")
@@ -707,12 +710,12 @@ func TestRestoreNativeRefusesReservedNameEvenIfArchived(t *testing.T) {
 	dir := plainNativeStore(t)
 	archiveDir := nativeArchiveDir(dir)
 	write(t, filepath.Join(archiveDir, "activeContext.md"), "focus\n")
-	if _, err := RestoreNative(dir, []string{"activeContext.md"}, true); err == nil {
-		t.Error("RestoreNative(activeContext.md) was allowed because a file of that name sat in the archive")
+	if _, err := restoreNative(dir, []string{"activeContext.md"}, true); err == nil {
+		t.Error("restoreNative(activeContext.md) was allowed because a file of that name sat in the archive")
 	}
 }
 
-// TestArchiveNativeReturnsErrBankBusy: while another fd holds BankLockPath(), ArchiveNative
+// TestArchiveNativeReturnsErrBankBusy: while another fd holds BankLockPath(), archiveNative
 // must return ErrBankBusy (wrapped), and no "<lock>.lock" file is created anywhere.
 func TestArchiveNativeReturnsErrBankBusy(t *testing.T) {
 	shortBankWait(t)
@@ -721,9 +724,9 @@ func TestArchiveNativeReturnsErrBankBusy(t *testing.T) {
 		t.Fatal(err)
 	}
 	ran, err := paths.TryFileLock(BankLockPath(), 0, func() error {
-		_, archErr := ArchiveNative(dir, []string{"stale-fact"}, true)
+		_, archErr := archiveNative(dir, []string{"stale-fact"}, true)
 		if !errors.Is(archErr, ErrBankBusy) {
-			t.Errorf("ArchiveNative under contention = %v, want errors.Is ErrBankBusy", archErr)
+			t.Errorf("archiveNative under contention = %v, want errors.Is ErrBankBusy", archErr)
 		}
 		return nil
 	})
@@ -746,14 +749,14 @@ func TestMalformedBankRegionRefusesEveryIndexRewrite(t *testing.T) {
 	broken := mustRead(t, indexPath) + "<!-- bank:begin generated by claude-code memory index -->\n" +
 		"- [Active](activeContext.md) — focus\n" // no end marker
 	write(t, indexPath, broken)
-	if _, err := ArchiveNative(dir, []string{"stale-fact"}, true); !errors.Is(err, ErrBankRegion) {
-		t.Errorf("ArchiveNative err = %v, want errBankRegion", err)
+	if _, err := archiveNative(dir, []string{"stale-fact"}, true); !errors.Is(err, errBankRegion) {
+		t.Errorf("archiveNative err = %v, want errBankRegion", err)
 	}
-	if _, err := SplitNativeIndex(dir, 0); !errors.Is(err, ErrBankRegion) {
-		t.Errorf("SplitNativeIndex err = %v, want errBankRegion", err)
+	if _, err := splitNativeIndex(dir, 0); !errors.Is(err, errBankRegion) {
+		t.Errorf("splitNativeIndex err = %v, want errBankRegion", err)
 	}
-	if _, err := NativeStats(dir); !errors.Is(err, ErrBankRegion) {
-		t.Errorf("NativeStats err = %v, want errBankRegion", err)
+	if _, err := nativeStats(dir); !errors.Is(err, errBankRegion) {
+		t.Errorf("nativeStats err = %v, want errBankRegion", err)
 	}
 	if got := mustRead(t, indexPath); got != broken {
 		t.Errorf("a refused rewrite still changed %s:\n%s", NativeIndexFile, got)
@@ -762,8 +765,8 @@ func TestMalformedBankRegionRefusesEveryIndexRewrite(t *testing.T) {
 		t.Error("a refused rewrite still wrote SEARCHABLE.md or moved the topic")
 	}
 	write(t, filepath.Join(nativeArchiveDir(dir), "old.md"), "---\nname: old\n---\n\nbody\n")
-	if _, err := RestoreNative(dir, []string{"old"}, true); !errors.Is(err, ErrBankRegion) {
-		t.Errorf("RestoreNative err = %v, want errBankRegion", err)
+	if _, err := restoreNative(dir, []string{"old"}, true); !errors.Is(err, errBankRegion) {
+		t.Errorf("restoreNative err = %v, want errBankRegion", err)
 	}
 	if fileExists(filepath.Join(dir, "old.md")) {
 		t.Error("a refused restore still landed the topic")

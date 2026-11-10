@@ -30,7 +30,7 @@ var (
 // bankFmtTargetDirs is the glob paths inside one bank dir worth formatting; bare "*.md" is handled separately.
 var bankFmtTargetDirs = []string{"archive", "handoffs", "reports"}
 
-// bankFmtTargets lists every markdown file FormatBank formats, across every repo store and home/.
+// bankFmtTargets lists every markdown file formatBank formats, across every repo store and home/.
 func bankFmtTargets() ([]string, error) {
 	dirs := []string{HomeBankDir()}
 	entries, err := RepoDirs()
@@ -93,9 +93,9 @@ func mdFilesIn(dir string) ([]string, error) {
 	return out, nil
 }
 
-// FormatBank wraps every target file; check=true writes nothing and only reports. changed lists what
-// would (or did) change; CommitStore settles the result the same way `memory index` does.
-func FormatBank(check bool) (changed []string, err error) {
+// formatBank wraps every target file; check=true writes nothing and only reports. changed lists what
+// would (or did) change; commitStore settles the result the same way `memory index` does.
+func formatBank(check bool) (changed []string, err error) {
 	if check {
 		return formatBankLocked(true)
 	}
@@ -106,7 +106,7 @@ func FormatBank(check bool) (changed []string, err error) {
 	return changed, err
 }
 
-// formatBankLocked is FormatBank's body; a writing caller holds the bank lock.
+// formatBankLocked is formatBank's body; a writing caller holds the bank lock.
 func formatBankLocked(check bool) (changed []string, err error) {
 	files, err := bankFmtTargets()
 	if err != nil {
@@ -117,7 +117,7 @@ func formatBankLocked(check bool) (changed []string, err error) {
 		return changed, err
 	}
 	if !check && len(changed) > 0 {
-		if err := CommitStore("fmt: wrap bank lines"); err != nil {
+		if err := commitStore("fmt: wrap bank lines"); err != nil {
 			return changed, err
 		}
 	}
@@ -272,9 +272,9 @@ func (g *lineGrouper) content(line string) {
 	}
 }
 
-// LogicalLineCount is len(groupLogicalLines(text)) — the cap unit every bank line cap counts in: a
+// logicalLineCount is len(groupLogicalLines(text)) — the cap unit every bank line cap counts in: a
 // wrapped bullet or paragraph counts once, matching the pre-wrap line count exactly.
-func LogicalLineCount(text string) int {
+func logicalLineCount(text string) int {
 	return len(groupLogicalLines(text))
 }
 

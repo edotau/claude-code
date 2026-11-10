@@ -108,7 +108,7 @@ func TestMainCheckoutModes(t *testing.T) {
 		if got := paths.MainCheckout(tc.root); got != tc.lexical {
 			t.Errorf("MainCheckout(%q) = %q, want lexical %q", tc.root, got, tc.lexical)
 		}
-		got, want := canonical(paths.MainCheckout(tc.root, GitOut)), canonical(tc.git)
+		got, want := canonical(paths.MainCheckout(tc.root, gitOut)), canonical(tc.git)
 		if got != want {
 			t.Errorf("MainCheckout(%q, GitOut) = %q, want canonical %q", tc.root, got, want)
 		}
@@ -130,7 +130,7 @@ func TestResolveHarness(t *testing.T) {
 		t.Fatal(err)
 	}
 	o, err := ReadOrigin(dir)
-	if err != nil || o.Key != HarnessStoreKey() || o.Origin != paths.CanonDeep(cfg) {
+	if err != nil || o.Key != harnessStoreKey() || o.Origin != paths.CanonDeep(cfg) {
 		t.Errorf("harness .origin = %+v, %v", o, err)
 	}
 }
@@ -142,7 +142,7 @@ func assertHarnessRoot(t *testing.T, cfg, root string) {
 	if !id.Harness || id.HomeBank || id.Origin != paths.CanonDeep(cfg) {
 		t.Errorf("Resolve(%s) = %+v", root, id)
 	}
-	if dir, err := RepoDir(root); err != nil || dir != HarnessStoreDir() {
+	if dir, err := RepoDir(root); err != nil || dir != harnessStoreDir() {
 		t.Errorf("RepoDir(%s) = %s, %v", root, dir, err)
 	}
 }
@@ -156,8 +156,8 @@ func TestResolveHarnessWorktreePointer(t *testing.T) {
 	if got := Resolve(worktree); got != want {
 		t.Errorf("Resolve(worktree) = %+v, want main checkout identity %+v", got, want)
 	}
-	if got, err := RepoDir(worktree); err != nil || got != HarnessStoreDir() {
-		t.Errorf("RepoDir(worktree) = %q, %v, want %q", got, err, HarnessStoreDir())
+	if got, err := RepoDir(worktree); err != nil || got != harnessStoreDir() {
+		t.Errorf("RepoDir(worktree) = %q, %v, want %q", got, err, harnessStoreDir())
 	}
 }
 
@@ -260,7 +260,7 @@ func TestForeignAndReservedDirsNeverClaimed(t *testing.T) {
 	if dc := mustRepoDir(t, c); !strings.HasPrefix(filepath.Base(dc), "zed--") {
 		t.Errorf("foreign dir claimed: %s", dc)
 	}
-	for name := range maps.Keys(StoreReservedDirs) {
+	for name := range maps.Keys(storeReservedDirs) {
 		r := gitRepo(t, t.TempDir(), name)
 		if dr := mustRepoDir(t, r); filepath.Base(dr) == name {
 			t.Errorf("reserved key %q claimed", name)
@@ -299,10 +299,10 @@ func TestAliasRoutesAndConflicts(t *testing.T) {
 	c := gitRepo(t, t.TempDir(), "gamma")
 	da, _ := EnsureRepoDir(a)
 	db, _ := EnsureRepoDir(b)
-	if err := AddOriginAlias(da, c); err != nil {
+	if err := addOriginAlias(da, c); err != nil {
 		t.Fatal(err)
 	}
-	if err := AddOriginAlias(da, c); err != nil {
+	if err := addOriginAlias(da, c); err != nil {
 		t.Fatal("alias add must be idempotent:", err)
 	}
 	if got := mustRepoDir(t, c); got != da {
@@ -311,13 +311,13 @@ func TestAliasRoutesAndConflicts(t *testing.T) {
 	if o, _ := ReadOrigin(da); len(o.Aliases) != 1 || o.Aliases[0] != paths.CanonDeep(c) || o.Origin != paths.CanonDeep(a) {
 		t.Errorf("origin after alias = %+v", o)
 	}
-	if err := AddOriginAlias(db, c); !errors.Is(err, ErrOriginConflict) {
+	if err := addOriginAlias(db, c); !errors.Is(err, errOriginConflict) {
 		t.Errorf("second claim must conflict, got %v", err)
 	}
-	if err := AddOriginAlias(db, a); !errors.Is(err, ErrOriginConflict) {
+	if err := addOriginAlias(db, a); !errors.Is(err, errOriginConflict) {
 		t.Errorf("claiming another store's origin must conflict, got %v", err)
 	}
-	if err := AddOriginAlias(da, filepath.Join(t.TempDir(), "missing")); err == nil {
+	if err := addOriginAlias(da, filepath.Join(t.TempDir(), "missing")); err == nil {
 		t.Error("alias must exist on disk")
 	}
 }
@@ -337,7 +337,7 @@ func TestOriginReadWriteGuards(t *testing.T) {
 	if err := WriteOrigin(dir, o); err != nil {
 		t.Error("same identity must be a no-op:", err)
 	}
-	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: "one", Origin: "/src/other"}); !errors.Is(err, ErrOriginConflict) {
+	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: "one", Origin: "/src/other"}); !errors.Is(err, errOriginConflict) {
 		t.Errorf("different origin must conflict, got %v", err)
 	}
 	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: "two", Origin: "/src/one"}); err == nil {
@@ -380,24 +380,24 @@ func TestAliasToHarnessStore(t *testing.T) {
 	cfg := gitRepo(t, t.TempDir(), ".claude")
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	ext := gitRepo(t, filepath.Join(t.TempDir(), "ext"), "claude-code")
-	dir := HarnessStoreDir()
+	dir := harnessStoreDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	o := Origin{Version: OriginVersion, Key: HarnessStoreKey(), Origin: paths.CanonDeep(cfg), Aliases: []string{paths.CanonDeep(ext)}}
+	o := Origin{Version: OriginVersion, Key: harnessStoreKey(), Origin: paths.CanonDeep(cfg), Aliases: []string{paths.CanonDeep(ext)}}
 	if err := WriteOrigin(dir, o); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustRepoDir(t, ext); got != dir {
 		t.Errorf("RepoDir(ext alias) = %s want %s", got, dir)
 	}
-	// AddOriginAlias must refuse to hand that same origin to a different store.
+	// addOriginAlias must refuse to hand that same origin to a different store.
 	other := gitRepo(t, t.TempDir(), "other")
 	odir, err := EnsureRepoDir(other)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := AddOriginAlias(odir, ext); !errors.Is(err, ErrOriginConflict) {
+	if err := addOriginAlias(odir, ext); !errors.Is(err, errOriginConflict) {
 		t.Errorf("claiming the harness's alias from another store must conflict, got %v", err)
 	}
 }
@@ -459,10 +459,10 @@ func seedJunkStores(t *testing.T, store string) {
 	os.MkdirAll(filepath.Join(store, "noorigin"), 0o755)
 	write(t, filepath.Join(store, "file.md"), "x")
 	os.MkdirAll(filepath.Join(store, "mismatch"), 0o755)
-	write(t, filepath.Join(store, "mismatch", LegacyOriginFile), `{"version":1,"key":"other","origin":"/src/other"}`)
-	for r := range maps.Keys(StoreReservedDirs) {
+	write(t, filepath.Join(store, "mismatch", legacyOriginFile), `{"version":1,"key":"other","origin":"/src/other"}`)
+	for r := range maps.Keys(storeReservedDirs) {
 		os.MkdirAll(filepath.Join(store, r), 0o755)
-		write(t, filepath.Join(store, r, LegacyOriginFile), `{"version":1,"key":"`+r+`","origin":"/r"}`)
+		write(t, filepath.Join(store, r, legacyOriginFile), `{"version":1,"key":"`+r+`","origin":"/r"}`)
 	}
 	os.Symlink(filepath.Join(store, "alpha"), filepath.Join(store, "sym"))
 }

@@ -69,7 +69,7 @@ func appendReportLocked(dir, label string, in ReportInput) ([]string, error) {
 	if _, err := formatFiles([]string{reportPath, decisionsPath}, false); err != nil {
 		return nil, err
 	}
-	if err := CommitStore("memory: report " + label); err != nil {
+	if err := commitStore("memory: report " + label); err != nil {
 		return nil, err
 	}
 	return []string{reportPath, decisionsPath}, nil

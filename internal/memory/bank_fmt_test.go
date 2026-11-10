@@ -144,8 +144,8 @@ func TestFormatBankMarkdownMatchesFenceRun(t *testing.T) {
 			if got := formatBankMarkdown(input); got != want {
 				t.Fatalf("fenced code or following prose changed incorrectly:\n got: %q\nwant: %q", got, want)
 			}
-			if got := LogicalLineCount(want); got != 6 {
-				t.Fatalf("LogicalLineCount = %d, want 6 (each fenced line separate, prose joined)", got)
+			if got := logicalLineCount(want); got != 6 {
+				t.Fatalf("logicalLineCount = %d, want 6 (each fenced line separate, prose joined)", got)
 			}
 		})
 	}
@@ -356,7 +356,7 @@ func TestFormatBankCheckWritesNothingAndListsFiles(t *testing.T) {
 	beforeData, _ := os.ReadFile(target)
 	headBefore := StoreRepo().headOrEmpty(t)
 
-	changed, err := FormatBank(true)
+	changed, err := formatBank(true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +404,7 @@ func TestFormatBankWritesAndCommitsOnlyOnChange(t *testing.T) {
 	longLine := "- " + strings.Join(repeatWords(15), " ")
 	write(t, target, "# decisionLog\n\n"+longLine+"\n")
 
-	changed, err := FormatBank(false)
+	changed, err := formatBank(false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +425,7 @@ func TestFormatBankWritesAndCommitsOnlyOnChange(t *testing.T) {
 
 func assertBankFmtNoOp(t *testing.T, headAfterFirst string) {
 	t.Helper()
-	changed, err := FormatBank(false)
+	changed, err := formatBank(false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +438,7 @@ func assertBankFmtNoOp(t *testing.T, headAfterFirst string) {
 }
 
 // TestFormatBankNativeAndCatalogUntouched: MEMORY.md and the store catalog (index.md) are never rewritten,
-// even with an over-width line, because FormatBank never targets them.
+// even with an over-width line, because formatBank never targets them.
 func TestFormatBankNativeAndCatalogUntouched(t *testing.T) {
 	global, _ := bankFmtRepoStore(t)
 	longLine := strings.Join(repeatWords(15), " ")
@@ -449,7 +449,7 @@ func TestFormatBankNativeAndCatalogUntouched(t *testing.T) {
 	nativeBefore, _ := os.ReadFile(nativePath)
 	catalogBefore, _ := os.ReadFile(catalogPath)
 
-	if _, err := FormatBank(false); err != nil {
+	if _, err := formatBank(false); err != nil {
 		t.Fatal(err)
 	}
 	nativeAfter, _ := os.ReadFile(nativePath)

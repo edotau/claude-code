@@ -14,8 +14,8 @@ import (
 //go:embed templates/*.md
 var templatesFS embed.FS
 
-// FileCaps are the per-file line caps `claude-code memory update` holds; sessionHistory rotates by entry count instead.
-var FileCaps = map[string]int{
+// fileCaps are the per-file line caps `claude-code memory update` holds; sessionHistory rotates by entry count instead.
+var fileCaps = map[string]int{
 	"projectContext.md": 60,
 	"activeContext.md":  80,
 	"progress.md":       60,
@@ -89,9 +89,9 @@ func createExcl(p, body string) error {
 	return nil
 }
 
-// IsProjectContextTemplate reports whether root's projectContext.md still equals the scaffold
+// isProjectContextTemplate reports whether root's projectContext.md still equals the scaffold
 // template — unfilled, so `memory init` should still offer its enrichment procedure.
-func IsProjectContextTemplate(root string) bool {
+func isProjectContextTemplate(root string) bool {
 	data, err := os.ReadFile(filepath.Join(Dir(root), "projectContext.md"))
 	if err != nil {
 		return false

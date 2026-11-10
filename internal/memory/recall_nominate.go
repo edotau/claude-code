@@ -15,8 +15,8 @@ const (
 	coldDays      = 90 // no recall for this long → archive candidate (log-age gated)
 )
 
-// AccessNominations suggests pointers for hot entries and archives for cold entries with enough log history.
-func AccessNominations(now time.Time) []string {
+// accessNominations suggests pointers for hot entries and archives for cold entries with enough log history.
+func accessNominations(now time.Time) []string {
 	files, err := filepath.Glob(filepath.Join(AccessStateDir(), "*.log"))
 	if err != nil || len(files) == 0 {
 		return nil

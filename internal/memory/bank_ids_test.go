@@ -41,7 +41,7 @@ func firstBlockID(t *testing.T, data string) string {
 	var id string
 	for l := range strings.SplitSeq(data, "\n") {
 		if strings.HasPrefix(l, "## 2026-10-18") {
-			id = BlockID(l)
+			id = blockID(l)
 		}
 	}
 	if len(id) != 8 {
@@ -50,16 +50,16 @@ func firstBlockID(t *testing.T, data string) string {
 	return id
 }
 
-// assertShownFromArchive checks ShowBlock finds id in the archive, an unknown id reports ErrNoBlock, and the index line hides the raw marker.
+// assertShownFromArchive checks ShowBlock finds id in the archive, an unknown id reports errNoBlock, and the index line hides the raw marker.
 func assertShownFromArchive(t *testing.T, id, archive string) {
 	t.Helper()
 	if path, _, err := ShowBlock(id); err != nil || !strings.Contains(path, "archive") {
 		t.Errorf("show after archiving = %s, %v; want the archive file", path, err)
 	}
-	if _, _, err := ShowBlock("deadbeef"); err != ErrNoBlock {
-		t.Errorf("unknown id err = %v, want ErrNoBlock", err)
+	if _, _, err := ShowBlock("deadbeef"); err != errNoBlock {
+		t.Errorf("unknown id err = %v, want errNoBlock", err)
 	}
-	if e := EntriesWithPrefix(archive, "## "); len(e) == 0 || !strings.HasSuffix(e[0], "["+id+"]") || strings.Contains(e[0], "<!--") {
+	if e := entriesWithPrefix(archive, "## "); len(e) == 0 || !strings.HasSuffix(e[0], "["+id+"]") || strings.Contains(e[0], "<!--") {
 		t.Errorf("index line must show [id] without the raw marker: %v", e)
 	}
 }
@@ -97,7 +97,7 @@ func TestAssignIDsThreeIdenticalBlocksGetThreeDistinctIDs(t *testing.T) {
 	data, _ := os.ReadFile(path)
 	seen := map[string]bool{}
 	for l := range strings.SplitSeq(string(data), "\n") {
-		if id := BlockID(l); id != "" {
+		if id := blockID(l); id != "" {
 			if seen[id] {
 				t.Fatalf("duplicate id %q across identical blocks", id)
 			}
@@ -123,7 +123,7 @@ func TestAssignIDsSameTextDifferentFilesGetDistinctIDs(t *testing.T) {
 	for _, name := range []string{"decisionLog.md", "sessionHistory.md"} {
 		data, _ := os.ReadFile(filepath.Join(dir, name))
 		for l := range strings.SplitSeq(string(data), "\n") {
-			if id := BlockID(l); id != "" {
+			if id := blockID(l); id != "" {
 				ids = append(ids, id)
 			}
 		}
@@ -209,7 +209,7 @@ func TestShowBlockExpandsNativeAndKnowledgeRefs(t *testing.T) {
 	isolatedConfig1(t)
 	note := filepath.Join(HomeBankDir(), "knowledge", "wires.md")
 	write(t, note, "---\ndescription: d\n---\n# Wires\nknowledge body zebra\n")
-	hits, err := CorpusBlocks(t.TempDir())
+	hits, err := corpusBlocks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestShowBlockExpandsNativeAndKnowledgeRefs(t *testing.T) {
 	if got.Block == "" {
 		t.Fatal("fixture: knowledge note not indexed")
 	}
-	if _, block, err := ShowBlock(EntryFromHit(got).ID); err != nil || !strings.Contains(block, "knowledge body zebra") {
+	if _, block, err := ShowBlock(entryFromHit(got).ID); err != nil || !strings.Contains(block, "knowledge body zebra") {
 		t.Errorf("knowledge ref does not expand: %v %q", err, block)
 	}
 }

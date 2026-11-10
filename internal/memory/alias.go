@@ -24,8 +24,8 @@ type AliasOptions struct {
 	Now        time.Time
 }
 
-// AliasResult is the plan (dry run) or the outcome (applied): one human line per action.
-type AliasResult struct {
+// aliasResult is the plan (dry run) or the outcome (applied): one human line per action.
+type aliasResult struct {
 	Key, Source string // target key; folded source key ("" when no separate store existed)
 	Lines       []string
 }
@@ -38,17 +38,17 @@ var (
 )
 
 // AliasRepo records an alias and folds its separate store, preserving content, under the bank lock.
-func AliasRepo(opt AliasOptions) (AliasResult, error) {
+func AliasRepo(opt AliasOptions) (aliasResult, error) {
 	if opt.Now.IsZero() {
 		opt.Now = time.Now()
 	}
 	abs, err := filepath.Abs(opt.Repo)
 	if err != nil {
-		return AliasResult{}, err
+		return aliasResult{}, err
 	}
-	canon := paths.MainCheckout(abs, GitOut)
+	canon := paths.MainCheckout(abs, gitOut)
 	if canon == "" {
-		return AliasResult{}, fmt.Errorf("%s is not a git checkout", abs)
+		return aliasResult{}, fmt.Errorf("%s is not a git checkout", abs)
 	}
 	canon = paths.CanonDeep(canon)
 	if opt.DryRun {
@@ -59,13 +59,13 @@ func AliasRepo(opt AliasOptions) (AliasResult, error) {
 	if err != nil {
 		return res, err
 	}
-	if p.source == "" { // origin-only: AddOriginAlias takes the lock itself
-		return res, AddOriginAlias(p.target, canon)
+	if p.source == "" { // origin-only: addOriginAlias takes the lock itself
+		return res, addOriginAlias(p.target, canon)
 	}
 	return applyAlias(opt, canon, res, p)
 }
 
-func applyAlias(opt AliasOptions, canon string, res AliasResult, p *aliasPlan) (AliasResult, error) {
+func applyAlias(opt AliasOptions, canon string, res aliasResult, p *aliasPlan) (aliasResult, error) {
 	err := WithBankLock(BankLockWait, func() error {
 		var perr error
 		if res, p, perr = planAlias(opt, canon); perr != nil { // replan: the store may have moved since the preview read
@@ -77,7 +77,7 @@ func applyAlias(opt AliasOptions, canon string, res AliasResult, p *aliasPlan) (
 		return p.apply(opt.Now)
 	})
 	if err == nil && p.source == "" {
-		return res, AddOriginAlias(p.target, canon)
+		return res, addOriginAlias(p.target, canon)
 	}
 	return res, err
 }
@@ -90,31 +90,31 @@ type aliasPlan struct {
 	links          []string // projects/*/memory symlinks that pointed at source
 }
 
-func findStore(entries []RepoEntry, key string) (RepoEntry, bool) {
+func findStore(entries []repoEntry, key string) (repoEntry, bool) {
 	for _, e := range entries {
 		if e.Key == key {
 			return e, true
 		}
 	}
-	return RepoEntry{}, false
+	return repoEntry{}, false
 }
 
 // planAlias reads the store and builds the plan without writing; apply (under the lock) executes it.
-func planAlias(opt AliasOptions, canon string) (AliasResult, *aliasPlan, error) {
+func planAlias(opt AliasOptions, canon string) (aliasResult, *aliasPlan, error) {
 	entries, err := RepoDirs()
 	if err != nil {
-		return AliasResult{}, nil, err // an unreadable vault must not look like "no separate store"
+		return aliasResult{}, nil, err // an unreadable vault must not look like "no separate store"
 	}
 	tgt, ok := findStore(entries, opt.Into)
 	if !ok {
-		return AliasResult{}, nil, fmt.Errorf("unknown store key %q (see the catalog: %s)", opt.Into, filepath.Join(StoreDir(), CatalogFile))
+		return aliasResult{}, nil, fmt.Errorf("unknown store key %q (see the catalog: %s)", opt.Into, filepath.Join(StoreDir(), CatalogFile))
 	}
 	if tgt.Origin.Accepts(canon) {
-		return AliasResult{}, nil, fmt.Errorf("%s already resolves to store %q", canon, tgt.Key)
+		return aliasResult{}, nil, fmt.Errorf("%s already resolves to store %q", canon, tgt.Key)
 	}
-	res := AliasResult{Key: tgt.Key}
+	res := aliasResult{Key: tgt.Key}
 	p := &aliasPlan{target: tgt.Dir}
-	var src *RepoEntry
+	var src *repoEntry
 	if e := FindEntry(entries, canon); e != nil {
 		src = e
 	}
@@ -151,13 +151,13 @@ func storeRel(dir, name string) string {
 	return r
 }
 
-func (p *aliasPlan) addWrite(dir, name string, data []byte, res *AliasResult, line string) {
+func (p *aliasPlan) addWrite(dir, name string, data []byte, res *aliasResult, line string) {
 	p.changes = append(p.changes, Change{Rel: storeRel(dir, name), Data: data})
 	res.Lines = append(res.Lines, line)
 }
 
 // foldFiles plans every regular file of the source store; anything unsafe or colliding aborts the whole plan.
-func (p *aliasPlan) foldFiles(src, tgt RepoEntry, res *AliasResult) error {
+func (p *aliasPlan) foldFiles(src, tgt repoEntry, res *aliasResult) error {
 	return filepath.WalkDir(src.Dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -181,7 +181,7 @@ func (p *aliasPlan) foldFiles(src, tgt RepoEntry, res *AliasResult) error {
 // foldSkips reports the identity, generated index and lock files, which do not travel.
 // Migration: remove the legacy-origin match after 2026-11-17 once every machine has run a post-2026-10-20 build.
 func foldSkips(rel string) bool {
-	return rel == LegacyOriginFile || rel == BankIndexFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate"
+	return rel == legacyOriginFile || rel == bankIndexFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate"
 }
 
 // isSessionArchive reports whether rel is a rotated monthly archive/sessionHistory-<yyyy-mm>.md.
@@ -198,7 +198,7 @@ func logName(rel string) string {
 }
 
 // foldOne plans one source file against its target counterpart.
-func (p *aliasPlan) foldOne(path, rel string, data []byte, src, tgt RepoEntry, res *AliasResult) error {
+func (p *aliasPlan) foldOne(path, rel string, data []byte, src, tgt repoEntry, res *aliasResult) error {
 	if foldSkips(rel) {
 		return nil
 	}
@@ -228,7 +228,7 @@ func (p *aliasPlan) foldOne(path, rel string, data []byte, src, tgt RepoEntry, r
 	return nil
 }
 
-func (p *aliasPlan) foldNativeIndex(path, rel, cur, data string, tgt RepoEntry, res *AliasResult) error {
+func (p *aliasPlan) foldNativeIndex(path, rel, cur, data string, tgt repoEntry, res *aliasResult) error {
 	merged, n, err := mergeNativeIndex(cur, data)
 	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
@@ -239,12 +239,12 @@ func (p *aliasPlan) foldNativeIndex(path, rel, cur, data string, tgt RepoEntry, 
 	return nil
 }
 
-func (p *aliasPlan) foldReplace(rel string, cur, data []byte, src, tgt RepoEntry, res *AliasResult) error {
+func (p *aliasPlan) foldReplace(rel string, cur, data []byte, src, tgt repoEntry, res *aliasResult) error {
 	if bytes.Equal(cur, data) {
 		return nil
 	}
 	name := "merged-" + src.Key + "-" + rel
-	arch := filepath.Join(ArchiveDir(tgt.Dir), name)
+	arch := filepath.Join(archiveDir(tgt.Dir), name)
 	old, err := readIfExists(arch)
 	if err != nil {
 		return err
@@ -252,7 +252,7 @@ func (p *aliasPlan) foldReplace(rel string, cur, data []byte, src, tgt RepoEntry
 	if old != nil && !bytes.Equal(old, data) {
 		return fmt.Errorf("%s exists with different bytes; refusing", arch)
 	}
-	p.addWrite(ArchiveDir(tgt.Dir), name, data, res, fmt.Sprintf("%s: target wins; source kept at archive/%s", rel, name))
+	p.addWrite(archiveDir(tgt.Dir), name, data, res, fmt.Sprintf("%s: target wins; source kept at archive/%s", rel, name))
 	return nil
 }
 
@@ -274,10 +274,10 @@ func linesMissingFrom(tgt, src string) []string {
 
 // mergeNativeIndex appends the source's pointer lines (outside the generated region) the target lacks.
 func mergeNativeIndex(tgt, src string) (string, int, error) {
-	if _, _, err := ScanBankRegion(tgt); err != nil {
+	if _, _, err := scanBankRegion(tgt); err != nil {
 		return "", 0, err
 	}
-	s, e, err := ScanBankRegion(src)
+	s, e, err := scanBankRegion(src)
 	if err != nil {
 		return "", 0, err
 	}
@@ -297,8 +297,8 @@ func mergeNativeIndex(tgt, src string) (string, int, error) {
 // mergeLog adds the source blocks missing from the target (by persisted id, else same text); dated logs
 // stay newest-first, conventions append.
 func mergeLog(name, tgt, src string) (string, int) {
-	hdr, blocks := EntryBlocks(name, tgt)
-	_, sblocks := EntryBlocks(name, src)
+	hdr, blocks := entryBlocks(name, tgt)
+	_, sblocks := entryBlocks(name, src)
 	add := blocksMissingFrom(blocks, sblocks)
 	if len(add) == 0 {
 		return tgt, 0
@@ -306,19 +306,19 @@ func mergeLog(name, tgt, src string) (string, int) {
 	if name == "conventions.md" {
 		return strings.TrimRight(tgt, "\n") + "\n" + strings.Join(add, "\n") + "\n", len(add)
 	}
-	return Rejoin(hdr, sortNewestFirst(append(slices.Clone(blocks), add...))), len(add)
+	return rejoin(hdr, sortNewestFirst(append(slices.Clone(blocks), add...))), len(add)
 }
 
 // blocksMissingFrom lists sblocks whose persisted id and trimmed text are both absent from blocks.
 func blocksMissingFrom(blocks, sblocks []string) []string {
 	ids, texts := map[string]bool{}, map[string]bool{}
 	for _, b := range blocks {
-		ids[BlockID(textutil.FirstLine(b))] = true
-		texts[strings.TrimSpace(StripID(b))] = true
+		ids[blockID(textutil.FirstLine(b))] = true
+		texts[strings.TrimSpace(stripID(b))] = true
 	}
 	var add []string
 	for _, b := range sblocks {
-		id, t := BlockID(textutil.FirstLine(b)), strings.TrimSpace(StripID(b))
+		id, t := blockID(textutil.FirstLine(b)), strings.TrimSpace(stripID(b))
 		if (id != "" && ids[id]) || texts[t] {
 			continue
 		}
@@ -372,7 +372,7 @@ func projectLinksTo(dir string) ([]string, error) {
 		if fi.Mode()&os.ModeSymlink == 0 {
 			continue
 		}
-		if paths.SamePath(NativeLinkTarget(l), want) {
+		if paths.SamePath(nativeLinkTarget(l), want) {
 			out = append(out, l)
 		}
 	}
@@ -386,7 +386,7 @@ func (p *aliasPlan) apply(now time.Time) error {
 		return err
 	}
 	if len(p.changes) > 0 {
-		rec, err := CommitChangesLocked("memory: fold "+filepath.Base(p.source)+" into "+filepath.Base(p.target), p.changes)
+		rec, err := commitChangesLocked("memory: fold "+filepath.Base(p.source)+" into "+filepath.Base(p.target), p.changes)
 		if err != nil && rec.ID != "" { // a journal exists: it rolls forward to the repointed target, so undo would split them
 			return err
 		}
@@ -397,14 +397,14 @@ func (p *aliasPlan) apply(now time.Time) error {
 	if err := removeEmptyTree(p.source); err != nil {
 		return err
 	}
-	var s BankSettlement
-	if err := SettleDir(p.target, now, &s); err != nil {
+	var s bankSettlement
+	if err := settleDir(p.target, now, &s); err != nil {
 		return err
 	}
-	if err := WriteCatalog(now); err != nil {
+	if err := writeCatalog(now); err != nil {
 		return err
 	}
-	return CommitStore("settle: alias " + filepath.Base(p.target))
+	return commitStore("settle: alias " + filepath.Base(p.target))
 }
 
 // repoint folds the origin row and swaps the links; on error it rolls back, else returns an undo for a later failure.
@@ -419,16 +419,16 @@ func (p *aliasPlan) repoint() (func() error, error) {
 	}
 	tPrev, tErr := ReadOrigin(p.target)
 	if tErr == nil {
-		undos = append(undos, func() error { return FoldOrigin(p.target, tPrev, "") })
+		undos = append(undos, func() error { return foldOrigin(p.target, tPrev, "") })
 	}
 	if sPrev, err := ReadOrigin(p.source); err == nil {
 		drop := "" // a target that had no row loses the folded one in the same transaction
 		if errors.Is(tErr, fs.ErrNotExist) {
 			drop = filepath.Base(p.target)
 		}
-		undos = append(undos, func() error { return FoldOrigin(p.source, sPrev, drop) })
+		undos = append(undos, func() error { return foldOrigin(p.source, sPrev, drop) })
 	}
-	if err := FoldOrigin(p.target, p.origin, filepath.Base(p.source)); err != nil {
+	if err := foldOrigin(p.target, p.origin, filepath.Base(p.source)); err != nil {
 		return nil, err
 	}
 	for _, l := range p.links {

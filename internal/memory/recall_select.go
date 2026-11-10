@@ -31,18 +31,18 @@ const (
 func withSemanticCandidates(ranked, extra []SearchHit) []SearchHit {
 	have := map[string]bool{}
 	for _, h := range ranked {
-		have[BlockKey(h.Block)] = true
+		have[blockKey(h.Block)] = true
 	}
 	for _, h := range extra {
-		if !have[BlockKey(h.Block)] {
+		if !have[blockKey(h.Block)] {
 			ranked = append(ranked, h)
 		}
 	}
 	return ranked
 }
 
-// RecallPick is one surviving entry with its search hit and final score.
-type RecallPick struct {
+// recallPick is one surviving entry with its search hit and final score.
+type recallPick struct {
 	Entry Entry
 	Hit   SearchHit
 	Score float64
@@ -54,7 +54,7 @@ func recallFlat(e Entry) string {
 }
 
 // orderRecall sorts by final score, using type and date only for exact ties.
-func orderRecall(picks []RecallPick) {
+func orderRecall(picks []recallPick) {
 	sort.SliceStable(picks, func(i, j int) bool {
 		if picks[i].Score != picks[j].Score {
 			return picks[i].Score > picks[j].Score
@@ -99,9 +99,9 @@ func Cut(s string, limit int) string {
 }
 
 // selectRecall consults archives only when no current entry passes the relevance gates.
-func selectRecall(sessionID string, terms []string, ranked []SearchHit, sem *Semantic, semSeen bool, counts map[string]int, trace *RecallTrace) []RecallPick {
+func selectRecall(sessionID string, terms []string, ranked []SearchHit, sem *Semantic, semSeen bool, counts map[string]int, trace *recallTrace) []recallPick {
 	need := recallNeed(terms)
-	seen := SeenBlocks(sessionID)
+	seen := seenBlocks(sessionID)
 	if trace != nil {
 		trace.candidates(ranked, need, sem)
 	}
@@ -124,15 +124,15 @@ func selectRecall(sessionID string, terms []string, ranked []SearchHit, sem *Sem
 }
 
 // pickTier applies the gates before access boosts, then chooses the best final scores.
-func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool, sem *Semantic, counts map[string]int, trace *RecallTrace) ([]RecallPick, bool) {
+func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool, sem *Semantic, counts map[string]int, trace *recallTrace) ([]recallPick, bool) {
 	cands, top := recallTier(ranked, archived, need)
 	pool := recallPool(cands, top, need, sem, trace)
 	orderRecall(pool)
 	passed := len(pool) > 0
-	var survivors []RecallPick
+	var survivors []recallPick
 	for _, c := range pool {
 		if c.Score < pool[0].Score*recallScoreFloor {
-			trace.outcome(BlockKey(c.Hit.Block), "below floor")
+			trace.outcome(blockKey(c.Hit.Block), "below floor")
 			continue
 		}
 		boost := recallAccessBoost * float64(min(counts[c.Entry.ID], recallAccessCap)) / recallAccessCap
@@ -141,10 +141,10 @@ func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool,
 		survivors = append(survivors, c)
 	}
 	orderRecall(survivors)
-	var out []RecallPick
+	var out []recallPick
 	for _, c := range survivors {
-		if seen[BlockKey(c.Hit.Block)] {
-			trace.outcome(BlockKey(c.Hit.Block), "seen")
+		if seen[blockKey(c.Hit.Block)] {
+			trace.outcome(blockKey(c.Hit.Block), "seen")
 			continue
 		}
 		if len(out) < recallBodies+recallPointers {
@@ -176,7 +176,7 @@ func recallTier(ranked []SearchHit, archived bool, need int) ([]SearchHit, float
 	return cands, top
 }
 
-func scoreRecall(c RecallPick, top float64, admitted bool, sem *Semantic) (float64, bool) {
+func scoreRecall(c recallPick, top float64, admitted bool, sem *Semantic) (float64, bool) {
 	kw := 0.0
 	if top > 0 {
 		kw = min(c.Hit.Score/top, 1)
@@ -192,21 +192,21 @@ func scoreRecall(c RecallPick, top float64, admitted bool, sem *Semantic) (float
 	return blend, admitted || cos >= recallCosineAdmit
 }
 
-func recallPool(cands []SearchHit, top float64, need int, sem *Semantic, trace *RecallTrace) []RecallPick {
-	var pool []RecallPick
+func recallPool(cands []SearchHit, top float64, need int, sem *Semantic, trace *recallTrace) []recallPick {
+	var pool []recallPick
 	for _, h := range cands {
 		kwOK := h.Matched >= need && h.Score >= top*recallScoreFloor
-		c := RecallPick{Hit: h}
+		c := recallPick{Hit: h}
 		c.Score, kwOK = scoreRecall(c, top, kwOK, sem)
 		if !kwOK {
 			reason := "below floor"
 			if h.Matched < need {
 				reason = "matched too few"
 			}
-			trace.outcome(BlockKey(h.Block), reason)
+			trace.outcome(blockKey(h.Block), reason)
 			continue
 		}
-		c.Entry = EntryFromHit(h)
+		c.Entry = entryFromHit(h)
 		if h.ID != "" {
 			c.Entry.ID = h.ID
 		}

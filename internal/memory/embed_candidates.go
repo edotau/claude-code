@@ -42,7 +42,7 @@ func (s *Semantic) cosineRow(row vectorRow) (float64, bool) {
 }
 
 // Candidates scores the already loaded corpus segments without parsing bank files or constructing entries.
-func (s *Semantic) Candidates(files []CorpusFile, segs []SegView, k int, floor float64, skip func(SearchHit) bool) (hits []SearchHit, skipped bool) {
+func (s *Semantic) Candidates(files []corpusFile, segs []segView, k int, floor float64, skip func(SearchHit) bool) (hits []SearchHit, skipped bool) {
 	var all []scoredHit
 	for i, seg := range segs {
 		if seg == nil || files[i].Bank == "archive" {
@@ -74,7 +74,7 @@ type scoredHit struct {
 }
 
 // hitFor builds the hit for block of file f and its cosine; false for a struck-out block or one with no embedding at floor.
-func (s *Semantic) hitFor(f CorpusFile, block string, floor float64) (SearchHit, float64, bool) {
+func (s *Semantic) hitFor(f corpusFile, block string, floor float64) (SearchHit, float64, bool) {
 	first, _, _ := strings.Cut(block, "\n")
 	if strings.Contains(first, "~~") || strings.Contains(first, "SUPERSEDED") {
 		return SearchHit{}, 0, false

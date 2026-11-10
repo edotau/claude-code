@@ -12,22 +12,22 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// BankStat is one bank's roll-up: newest mtime, per-file cap offenders, and files that could not be read.
-type BankStat struct {
+// bankStat is one bank's roll-up: newest mtime, per-file cap offenders, and files that could not be read.
+type bankStat struct {
 	Dir        string
 	Updated    time.Time
 	Oversized  []string
 	Unreadable []string // "name: error" for each file whose read failed for a reason other than absence
 }
 
-// HomeBankStat rolls up the shared home bank.
-func HomeBankStat() BankStat { return statBank(HomeBankDir()) }
+// homeBankStat rolls up the shared home bank.
+func homeBankStat() bankStat { return statBank(HomeBankDir()) }
 
-// Stat rolls up root's local bank.
-func Stat(root string) BankStat { return statBank(Dir(root)) }
+// stat rolls up root's local bank.
+func stat(root string) bankStat { return statBank(Dir(root)) }
 
-func statBank(dir string) BankStat {
-	s := BankStat{Dir: dir}
+func statBank(dir string) bankStat {
+	s := bankStat{Dir: dir}
 	for _, name := range BankFiles() {
 		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
@@ -36,7 +36,7 @@ func statBank(dir string) BankStat {
 			}
 			continue
 		}
-		if capLines, ok := FileCaps[name]; ok && LogicalLineCount(string(data)) > capLines {
+		if capLines, ok := fileCaps[name]; ok && logicalLineCount(string(data)) > capLines {
 			s.Oversized = append(s.Oversized, name)
 		}
 		if fi, err := os.Stat(filepath.Join(dir, name)); err == nil && fi.ModTime().After(s.Updated) {
@@ -54,9 +54,9 @@ func DoctorNoticePath(root string) string {
 	return filepath.Join(StateDir(), "doctor-notice-"+filepath.Base(Dir(root)))
 }
 
-// WriteDoctorNotice caches root's first problem and a count (hot hints excluded); an empty file means checked and healthy.
-func WriteDoctorNotice(root string, staleDays int, now time.Time) error {
-	problems := slices.DeleteFunc(Doctor(root, staleDays, now), func(p string) bool {
+// writeDoctorNotice caches root's first problem and a count (hot hints excluded); an empty file means checked and healthy.
+func writeDoctorNotice(root string, staleDays int, now time.Time) error {
+	problems := slices.DeleteFunc(doctor(root, staleDays, now), func(p string) bool {
 		return strings.Contains(p, ": hot — recalled") // advice, not a problem; `memory review` still lists it
 	})
 	line := ""
@@ -69,18 +69,18 @@ func WriteDoctorNotice(root string, staleDays int, now time.Time) error {
 	return paths.AtomicWrite(DoctorNoticePath(root), []byte(line), 0o600)
 }
 
-// Doctor returns advisory problems for root's local bank and the shared home bank: cap offenders,
+// doctor returns advisory problems for root's local bank and the shared home bank: cap offenders,
 // staleness, credential-shaped lines, and access-log nominations. Never fatal — advisory only.
-func Doctor(root string, staleDays int, now time.Time) []string {
+func doctor(root string, staleDays int, now time.Time) []string {
 	var problems []string
-	if !IsHomeBank(root) {
-		problems = append(problems, bankProblems("local", Stat(root), staleDays, now)...)
+	if !isHomeBank(root) {
+		problems = append(problems, bankProblems("local", stat(root), staleDays, now)...)
 	}
-	problems = append(problems, bankProblems("home", HomeBankStat(), staleDays, now)...)
+	problems = append(problems, bankProblems("home", homeBankStat(), staleDays, now)...)
 	problems = append(problems, updateProblems(now)...)
 	problems = append(problems, journalProblems(now)...)
-	problems = append(problems, NativeLinkProblems(root)...)
-	return append(problems, AccessNominations(now)...)
+	problems = append(problems, nativeLinkProblems(root)...)
+	return append(problems, accessNominations(now)...)
 }
 
 // updateProblems surfaces receipts that need a human: a failed update, or one still "pending" past the
@@ -121,10 +121,10 @@ func journalProblems(now time.Time) []string {
 }
 
 // bankProblems is one bank's advisories, each prefixed with the bank's tier so a reader knows which file to open.
-func bankProblems(tier string, s BankStat, staleDays int, now time.Time) []string {
+func bankProblems(tier string, s bankStat, staleDays int, now time.Time) []string {
 	var problems []string
 	for _, f := range s.Oversized {
-		problems = append(problems, tier+" "+f+": over "+strconv.Itoa(FileCaps[f])+" lines — consolidate or promote")
+		problems = append(problems, tier+" "+f+": over "+strconv.Itoa(fileCaps[f])+" lines — consolidate or promote")
 	}
 	for _, u := range s.Unreadable {
 		problems = append(problems, tier+" "+u+" — unreadable, so not checked")
@@ -140,7 +140,7 @@ func bankProblems(tier string, s BankStat, staleDays int, now time.Time) []strin
 }
 
 // bankCredentialFindings scans typed files for credential-shaped values — the visible surface for
-// CommitStore's refusal to stage them.
+// commitStore's refusal to stage them.
 func bankCredentialFindings(dir string) []string {
 	var problems []string
 	for _, name := range BankFiles() {
@@ -148,7 +148,7 @@ func bankCredentialFindings(dir string) []string {
 		if err != nil {
 			continue
 		}
-		if CredentialPattern.MatchString(string(data)) {
+		if credentialPattern.MatchString(string(data)) {
 			problems = append(problems, name+": possible credential-shaped value — scrub before promoting")
 		}
 	}
