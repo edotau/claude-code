@@ -5,9 +5,8 @@ paths:
 ---
 # Memory Consolidation
 
-Gates and scope for `claude-code memory update` and `memory dream`. The operational contract is
-`skills/reflection/SKILL.md` (verbs print their own procedure) — on drift the skill wins. Store layout:
-`memory-bank.md`.
+Gates and scope for `claude-code memory update` and `memory dream`. Precedence, store layout, caps and verbs:
+`memory-bank.md`; the promotion ladder: `skills/reflection/SKILL.md`.
 
 | Verb | Does | Edits files? | When |
 | --- | --- | --- | --- |
@@ -17,14 +16,15 @@ Gates and scope for `claude-code memory update` and `memory dream`. The operatio
 
 ## Promotion gradient
 
-The ladder (home → rules/skill → `CLAUDE.md`, gated) lives in `skills/reflection/SKILL.md` → Promotion ladder; each
-step up costs more context, and `--to claude-md` only prints the block for review — nothing bypasses the gate.
+The ladder lives in `skills/reflection/SKILL.md` → Promotion ladder. `--to claude-md` is refused outside
+`memory dream`'s own run; inside it, it prints the block like `rules` and `skill` do.
 
 ## Writer limits
 
 - `memory promote --to rules` targets only `rules/standards/` or `rules/software/` — **never** `rules/workflows/` or
   `CLAUDE.md`.
-- `memory dream` never edits `rules/**`; its only `CLAUDE.md` write is the gated promotion.
+- `memory dream` never edits `rules/**`; its only `CLAUDE.md` edit is a block `promote --to claude-md` printed in its
+  own run.
 - Native memory edits never touch the `<!-- RULES:BEGIN -->`…`<!-- RULES:END -->` region without human approval.
 - `conventions.md`/`decisionLog.md` entries never auto-promote to home; move durable ones with `memory promote --to
   home`.

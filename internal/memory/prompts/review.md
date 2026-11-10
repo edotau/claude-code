@@ -10,19 +10,19 @@ Read in order:
 
 1. **Catalog** — `memory/index.md` (the generated router, one row per repo store); `claude-code
    memory path` resolves this repo's store dir (`memory/<repo>/`, harness = `memory/claude-code/`)
-2. **Native `MEMORY.md` + topic files** — in that same store dir (first ~200 lines of `MEMORY.md`
-   auto-load, including its generated `<!-- bank:begin -->`…`<!-- bank:end -->` region)
+2. **Native `MEMORY.md` + topic files** — in that same store dir (the native loader reads `MEMORY.md` up to
+   200 lines / 25 KB, including its generated `<!-- bank:begin -->`…`<!-- bank:end -->` region of ≤ 40 lines)
 3. **Typed bank files** — the six files beside `MEMORY.md` in the same dir; `claude-code memory
    review` surfaces caps/staleness/cross-tier-duplication across both native and typed
 4. **Rules tiers** — `rules/standards/*.md`, `rules/workflows/*.md`
 5. **Always-on tier** — the global `~/.claude/CLAUDE.md` and the project `./CLAUDE.md`
 
 Use `Glob`/`Read`/`Grep` to inventory and cross-reference, `Bash` for `claude-code memory review`
-and `memory archive --dupes` (audit mode — never pass `--apply` here).
+and `memory archive --dupes` (audit mode — never pass `--apply` here); caps: `rules/workflows/memory-bank.md` → Caps.
 
 ## Analysis process
 
-1. **Inventory.** Count lines per layer; note whether `MEMORY.md` nears the 200-line cap (flag if > 180).
+1. **Inventory.** Count lines per layer; note whether `MEMORY.md` nears the native index cap (200 lines / 25 KB; flag if > 180 lines).
 2. **Cross-reference against harness tiers.** Duplicate of CLAUDE.md/rules? Conflicts with one
    (show both sides)? Or fills a gap no tier captures (promotion candidate)?
 3. **Detect staleness.** Dead paths (`ls`/`find`), dead function/flag names (`Grep` the
@@ -38,12 +38,12 @@ and `memory archive --dupes` (audit mode — never pass `--apply` here).
 ## Memory Health Report — <date>
 
 ### Inventory
-- MEMORY.md: N entries, N lines (cap: 200)
+- MEMORY.md: N entries, N lines (index cap: 200)
 - Topic files: <list with line counts>
 - memory review findings: <summary>
 
 ### Promotion Candidates  (score ≥ 6, sorted descending)
-| Score | Entry | Current tier | Recommended tier (`--to home\|rules\|skill`) | Gate status |
+| Score | Entry | Current tier | Recommended tier (`--to home\|rules\|skill`; `claude-md` is dream-gated) | Gate status |
 
 ### Stale Entries
 | Entry | Staleness reason | Verify command |
@@ -55,7 +55,7 @@ and `memory archive --dupes` (audit mode — never pass `--apply` here).
 | Entry | Conflicts with | Both sides |
 
 ### Health Metrics
-- Capacity: N/200 lines (N%)
+- Capacity: N/200 lines (N%) of the native index; typed files against `rules/workflows/memory-bank.md` → Caps
 - Entries with dead path refs / duplicating higher tiers: N
 
 ### Recommendations (top 3)

@@ -115,7 +115,7 @@ var PromoteTargets = []string{"home", "rules", "skill", "claude-md"}
 var promoteJudgmentTarget = map[string]string{
 	"rules":     "rules/standards/<topic>.md or rules/software/<lang>/<topic>.md",
 	"skill":     "skills/<name>/SKILL.md or its references/",
-	"claude-md": "CLAUDE.md Known Gotchas (gated: 3+ entries AND a hard prohibition)",
+	"claude-md": "CLAUDE.md Hard rules (gated: 3+ entries AND a hard prohibition)",
 }
 
 // Promote moves or surfaces block id by --to: "home" is a deterministic move (local -> home bank,

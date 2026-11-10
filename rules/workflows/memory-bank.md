@@ -13,17 +13,43 @@ durable facts belong in `rules/` or `CLAUDE.md` — point at them, never copy.
 
 Scratch and fixture folders (`$TMPDIR`, `/tmp`, `~/.claude/state`, `~/worktrees/wf-fixtures`) never get a store of
 their own, git repo or not: they use the launching workspace's store, which every harness launch passes as
-`HARNESS_MEMORY_ORIGIN`, else `memory/home/` (`internal/memory/store_throwaway.go`).
+`HARNESS_MEMORY_ORIGIN`, else `memory/home/` (`throwawayRoots` in `internal/memory`).
 
-## Commands
+## Precedence
 
-| To… | Run |
+The code under `internal/memory` is the source of truth, then this file (store layout, file contracts, caps, verbs),
+then `skills/reflection/SKILL.md` (the promotion ladder, which verbs print a procedure), then the prompts embedded
+in `internal/memory/prompts/` (`claude-code memory <verb>` prints them). Each fact lives in one of these; the rest
+point to it, and on a disagreement the earlier one wins.
+
+## Verbs
+
+`claude-code memory -h` lists the eight menu verbs; the plumbing verbs are dispatchable but off that menu.
+`memory <verb> -h` lists a verb's flags.
+
+| Verb | Does |
 | --- | --- |
-| Find past entries | `claude-code memory recall <terms>` · `memory search [--repo R \| --all] <terms>` |
-| Capture a correction, then route it into a rule | `claude-code memory remember <fact>` → `memory promote <id> --to rules` |
-| Save the session (auto at Stop/SessionEnd) | `claude-code memory update` |
-| Audit or consolidate | `claude-code memory review` · `memory dream [--dry-run]` |
-| Keep MEMORY.md small | `claude-code memory archive [--split 20 --apply]` |
+| `recall <terms>` | Rank bank blocks for terms; `--load` appends the top bodies |
+| `remember <fact>` | Append a fact to the bank; `--type` picks the file |
+| `init` | Create the repo's bank |
+| `review` | Doctor + bank stats; `--candidates` prints the promotion-ranking procedure |
+| `verify` | Check bank claims against local evidence; never writes or fetches |
+| `promote <id> --to <target>` | Move or surface one block (`home\|rules\|skill\|claude-md`) |
+| `update` | Save the live session or `--transcript`; with neither, print the procedure |
+| `dream` | Consolidate the bank when due; `--force`, `--dry-run` |
+| `search [--repo R \| --all] <terms>` | Rank blocks for terms, with scores |
+| `show <id>` | Print one block (id from `search` or a `MEMORY.md` region) |
+| `index` | Settle the bank: rotate and archive over caps; refresh the embedding cache |
+| `path` | Print the bank directory |
+| `report` | Append a report and its decisions to the bank's `reports/` |
+| `digest` | Write the bank digest |
+| `fmt` | Wrap the bank files; `--check` reports only |
+| `watch`, `catchup` | The idle watcher and the missed-session sweep that the hooks spawn |
+| `timeline` | Recent bank entries and sessionHistory |
+| `archive [--split 20 --apply]` | Move topic files out of `MEMORY.md` (`--dupes`, `--restore`); `--split N` keeps N pointers and moves the rest to `SEARCHABLE.md` |
+| `alias --repo <checkout> --into <key>` | Fold a second checkout's store into another |
+
+Which verbs print a procedure, and when: `skills/reflection/SKILL.md` → Verb table.
 
 ## Files + mutation contracts
 
@@ -34,18 +60,33 @@ their own, git repo or not: they use the launching workspace's store, which ever
 | `progress.md` | What Works / In Progress / What's Next / Known Issues | **Replace** each session end |
 | `decisionLog.md` | Dated decisions + rationale | **Append-only, newest first; supersede (strike + pointer), never delete** |
 | `conventions.md` | Learned patterns not yet promoted | Append; `memory dream` prunes |
-| `sessionHistory.md` | Newest-first summaries | Append at top; past 30 rotates to `archive/sessionHistory-<yyyy-mm>.md` |
+| `sessionHistory.md` | Newest-first summaries | Append at top; past the entry cap rotates to `archive/sessionHistory-<yyyy-mm>.md` |
 
 Typed files carry `harness_kind: bank` frontmatter. `MEMORY.md` carries a generated `<!-- bank:begin -->`…
-`<!-- bank:end -->` region (≤40 lines/4KB); lines outside it are Claude's own and never rewritten.
+`<!-- bank:end -->` region; lines outside it are Claude's own and never rewritten.
+
+## Caps
+
+| Limit | Value | Defined by |
+| --- | --- | --- |
+| `projectContext.md` · `progress.md` | 60 lines each | `fileCaps` |
+| `activeContext.md` · `conventions.md` | 80 lines each | `fileCaps` |
+| `decisionLog.md` | 200 lines | `fileCaps` |
+| `sessionHistory.md` | 30 entries (rotates, not a line cap) | `sessionHistoryMaxEntries` |
+| Generated bank region of `MEMORY.md` | 40 lines / 4 KB, markers included | `BankRegionMaxLines`, `BankRegionMaxBytes` |
+| Whole `MEMORY.md` (native index) | 200 lines / 25 KB | `NativeIndexMaxLines`, `NativeIndexMaxBytes` |
+| Pointer lines left injected by `archive --split` | 20 | `NativeCoreCap` |
+
+The 40-line region and the 200-line index are different things: the region is the harness's slice, the index is
+everything the native loader reads. Past a `fileCaps` limit `memory dream` archives the overflow.
 
 ## Who writes what
 
 - `memory-start` (SessionStart) — injects a pointer to the catalog + this repo's Current Focus/Blockers/Next Steps and
   In Progress; the rest loads on demand. It also scaffolds a missing bank, spawns the daily `memory dream` when
-  due, and spawns one detached sweep (`memory catchup`) that saves up to 3 missed interactive sessions from the last
-  14 days, skips live ones, and prints one quiet line at the next start. Replays run `memory update --historical`:
-  history and decision log only, never current focus.
+  due, and spawns one detached sweep (`memory catchup`) that saves up to 3 (`catchupMax`) missed interactive sessions
+  from the last 14 days (`catchupWindow`), skips live ones, and prints one quiet line at the next start. Replays run
+  `memory update --historical`: history and decision log only, never current focus.
 - `memory-recall` (UserPromptSubmit) — injects a few matching blocks; another repo's store only when the prompt names
   it.
 - `claude-code memory update` — the session-close writer: summary → sessionHistory, rewrite activeContext + progress,
@@ -58,8 +99,9 @@ Typed files carry `harness_kind: bank` frontmatter. `MEMORY.md` carries a genera
 - `memory index` — regenerates the `MEMORY.md` bank region and `memory/index.md`, rotates sessionHistory, commits the
   store. **Never hand-edit generated regions.**
 - `memory review` — caps, staleness, dupes, hot/cold. `memory promote <id> --to home|rules|skill|claude-md` — `home`
-  moves the block (no link back); the others print the block, target and procedure and edit nothing.
-  `memory alias --repo <checkout> --into <key>` — folds a second checkout's store.
+  moves the block (no link back); `rules` and `skill` print the block, target and procedure and edit nothing;
+  `claude-md` does the same only inside `memory dream`'s own run and is refused anywhere else (`promoteJudgment`).
+  The ladder: `skills/reflection/SKILL.md` → Promotion ladder.
 - `memory init` scaffolds a fresh repo's store (also minted on first use).
 
 The store's git repo is never pushed and nothing in it rides a project's commits.

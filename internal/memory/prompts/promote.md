@@ -2,32 +2,21 @@
 
 > The daily background `claude-code memory dream` also prints this during its cross-pollination step.
 
-`claude-code memory promote <id> --to home|rules|skill|claude-md` does the mechanical move: locate
-the entry, move/copy it to the target, link back, drop the source, settle. What it cannot do is
-**pick the right target**, **word a rule or skill so it stands alone**, or **gate `claude-md`**.
-That's this reference.
+`claude-code memory promote <id> --to home|rules|skill|claude-md` locates the entry. `home` moves it
+to the home bank (no link back) and settles; `rules`, `skill` and `claude-md` only print the block, its target and
+this procedure, and you edit the target by hand. What the verb cannot do is **pick the right target**, **word a
+rule or skill so it stands alone**, or **gate `claude-md`**. That's this reference.
 
 ## The promotion gradient
 
-```text
-bank entry ──promote --to home──▶ home bank (~/.claude/memory/home/)
-                                          │
-                 ──promote --to rules────▶ rules/standards/<topic>.md
-                                           rules/software/<lang>/<topic>.md   (writable)
-                 ──promote --to skill────▶ skills/<name>/SKILL.md            (reusable how-to)
-                                                  │
-                                                  │ dream gate only:
-                                                  │ 3+ memory entries AND
-                                                  │ hard prohibition
-                                                  ▼
-                 ──promote --to claude-md─▶ CLAUDE.md "Known Gotchas"  ← always-on tier,
-                                              ONLY from `memory dream`'s gate
-```
+Full ladder: `skills/reflection/SKILL.md` → Promotion ladder. In short: `home` (cross-project bank) → `rules`
+(`rules/standards/` or `rules/software/<lang>/`, enforced) or `skill` (`skills/<name>/SKILL.md`, how-to) → `claude-md`
+(`CLAUDE.md` → Hard rules, always on).
 
-**`--to claude-md` is dream-gated.** Outside `memory dream`'s cross-pollination step, route a
-CLAUDE.md-worthy entry to `rules/standards/` instead and note that the dream gate will consider it
-later — that is the only path. `promote` also never edits `rules/workflows/` (human-authored
-process).
+**`--to claude-md` is dream-gated:** the verb refuses outside `memory dream`'s cross-pollination step, which
+requires 3+ memory entries AND a hard prohibition. Elsewhere, route a CLAUDE.md-worthy entry to `rules/standards/`
+instead and note that the dream gate will consider it later. `promote` also never targets `rules/workflows/`
+(human-authored process).
 
 ## `--to home`: durable + cross-project
 
@@ -61,7 +50,7 @@ promote. (Run `claude-code memory review` first if you need candidates.)
 ### Step 2: Route to a target
 
 Pick the writable target by signal type with the table below. Replace `<lang>` with the project's
-primary language dir (`python`, `go`, …). Honor an explicit `--target <path>` only if it points at
+primary language dir (`python`, `go`, …). Honor a target the user names only if it is
 a writable tier (never `CLAUDE.md`, `rules/workflows/`).
 
 | Signal Type | Target File | Section |
@@ -125,13 +114,13 @@ examples).
 ### Step 2: Name the skill
 
 Lowercase, hyphenated, 2–4 words, descriptive (e.g. `provider-auth-refresh`,
-`router-fallback-tuning`). Honor `--name` if given. The folder name and the SKILL.md `name:`
+`router-fallback-tuning`). Honor a name the user gives. The folder name and the SKILL.md `name:`
 frontmatter must match. Verify no collision with `Glob`.
 
 ### Step 3: Write the skill
 
 From the source material, author `skills/<name>/SKILL.md` (plus any `references/` it needs).
-With `--dry-run`, preview the SKILL.md and file list without writing.
+Show the user the SKILL.md and file list before writing.
 
 ### Step 4: Quality gate
 
@@ -163,7 +152,7 @@ entry under cap):
 3. Confirm the index no longer references a deleted file (no dangling links).
 4. Run `claude-code memory index`.
 
-This frees `MEMORY.md` space (cap: 200 lines auto-loaded) and prevents the same rule living in two tiers.
+This frees `MEMORY.md` space (caps: `rules/workflows/memory-bank.md` → Caps) and stops one rule living in two tiers.
 
 ## Report
 
@@ -171,7 +160,7 @@ This frees `MEMORY.md` space (cap: 200 lines auto-loaded) and prevents the same 
 Promoted: "<distilled rule / entry title>"
   → <target> (home bank | rules/<file> §<section> | skills/<name>/SKILL.md)
 Removed from native memory: <slug>.md  +  MEMORY.md index line
-MEMORY.md: N index lines remaining
+MEMORY.md: N index lines remaining (of 200)
 
 [if claude-md-worthy] Routed to <rules file>; the `memory dream` gate
 (3+ memory entries AND hard prohibition) will consider it for CLAUDE.md promotion.
