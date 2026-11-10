@@ -41,7 +41,7 @@ func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, 
 	}
 	col = wrapSegments(&out, pieces, b.cells, b.brks, col, width)
 	if cfg.seg("velocity", true) && (v.adds != 0 || v.dels != 0) {
-		writeVelocity(&out, velocityText(v, mode, pal, "/"), ansi.Paint(mode, dim, sepPath, false), col, width)
+		writeVelocity(&out, velocityText(v, mode, pal), ansi.Paint(mode, dim, sepPath, false), col, width)
 	}
 	return out.String()
 }
@@ -160,7 +160,7 @@ func (b *cellBuf) pushContextBlock(v values, sepMajor string) bool {
 	return true
 }
 
-// pushContext pushes twoline's "ctx <bar> NN.N% · used/size" block; the bar's filled and empty runs keep their tones.
+// pushContext pushes twoline's "<bar> NN.N% · used/size" block; the bar's filled and empty runs keep their tones.
 func (b *cellBuf) pushContext(v values) {
 	d := v.two
 	if !d.hasCtx {
@@ -168,7 +168,6 @@ func (b *cellBuf) pushContext(v values) {
 	}
 	bar := twoBar(d.ctxPct, 10)
 	filled := strings.TrimRight(bar, "─")
-	b.push("ctx ", "g")
 	b.push(filled, "filled")
 	b.push(bar[len(filled):], "empty")
 	b.push(fmt.Sprintf(" %.1f%%", d.ctxPct), "g")
@@ -221,8 +220,8 @@ func gradientSkips(key string) bool {
 	return key == "path" || key == "provider" || key == "limits" || key == "total"
 }
 
-// velocityText paints "+A<sep>-D" in the add/del tones, omitting a zero side.
-func velocityText(v values, mode string, pal theme.Palettes, sep string) string {
+// velocityText paints "+A -D" in the add/del tones, omitting a zero side.
+func velocityText(v values, mode string, pal theme.Palettes) string {
 	var parts []string
 	if v.adds != 0 {
 		parts = append(parts, ansi.Paint(mode, ansi.Hex(pal.Sem("add")), "+"+strconv.Itoa(v.adds), false))
@@ -230,7 +229,7 @@ func velocityText(v values, mode string, pal theme.Palettes, sep string) string 
 	if v.dels != 0 {
 		parts = append(parts, ansi.Paint(mode, ansi.Hex(pal.Sem("del")), "-"+strconv.Itoa(v.dels), false))
 	}
-	return strings.Join(parts, sep)
+	return strings.Join(parts, " ")
 }
 
 // contextBarParts returns the filled and empty runs separately so renderers classify cells by construction.

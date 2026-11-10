@@ -239,7 +239,7 @@ func rawModelID(in Input, model string) string {
 	if id == "" || strings.Contains(model, "⇄") {
 		return model
 	}
-	return id
+	return dropDatabricksClaude(id)
 }
 
 // sessionCwd is the session's working dir: the workspace's current dir, then the payload cwd, then the process cwd.
@@ -390,7 +390,15 @@ var trailingDate = regexp.MustCompile(`-\d{8}$`)
 
 // shortModelID is the id without a "claude-" prefix or trailing -YYYYMMDD date.
 func shortModelID(id string) string {
-	return trailingDate.ReplaceAllString(strings.TrimPrefix(id, "claude-"), "")
+	return trailingDate.ReplaceAllString(strings.TrimPrefix(dropDatabricksClaude(id), "claude-"), "")
+}
+
+// dropDatabricksClaude shortens "databricks-claude-opus-5-5" to "databricks-opus-5-5".
+func dropDatabricksClaude(name string) string {
+	if rest, ok := strings.CutPrefix(name, "databricks-claude-"); ok {
+		return "databricks-" + rest
+	}
+	return name
 }
 
 // displayModel is the display name without its " · " suffix and "(1M context)" tag, for payloads with no id.

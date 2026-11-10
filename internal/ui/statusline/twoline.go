@@ -82,13 +82,13 @@ func twolineRows(v values) (row1, row2 []twoSeg) {
 	if d.auth != "" {
 		row1 = appendSep(row1, twoSeg{key: "auth", text: d.auth})
 	}
-	row1 = appendSep(row1, twoSeg{key: "model", text: cmpModel(d.model, v.model), bold: true})
+	row1 = appendSep(row1, twoSeg{key: "model", text: dropDatabricksClaude(cmpModel(d.model, v.model)), bold: true})
 	if d.effort != "" {
 		row1 = append(row1, twoSeg{key: "effort", text: ":" + d.effort, dim: true})
 	}
 	row1 = appendVelocity(row1, v.adds, v.dels)
 	if d.hasCtx {
-		row2 = appendSep(row2, twoSeg{key: "context", text: "ctx " + twoBar(d.ctxPct, 20) + fmt.Sprintf(" %.1f%%", d.ctxPct)})
+		row2 = appendSep(row2, twoSeg{key: "context", text: twoBar(d.ctxPct, 20) + fmt.Sprintf(" %.1f%%", d.ctxPct)})
 		row2 = appendSep(row2, twoSeg{key: "tokens", text: compactTokens(d.tokens) + "/" + compactTokens(d.size)})
 	}
 	if d.week >= 0 {

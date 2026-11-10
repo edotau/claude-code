@@ -97,7 +97,7 @@ func renderSegmented(v values, cfg Config, pal theme.Palettes, mode string) stri
 		renderBlocks(&out, blocks, cfg, pal, mode)
 	}
 	if cfg.seg("velocity", true) && (v.adds != 0 || v.dels != 0) {
-		out.WriteString(" " + velocityText(v, mode, pal, " "))
+		out.WriteString(" " + velocityText(v, mode, pal))
 	}
 	return out.String()
 }

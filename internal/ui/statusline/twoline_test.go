@@ -29,7 +29,7 @@ func twolineRender(t *testing.T, session, extra string) []string {
 	return strings.Split(plain(Render([]byte(payload), "twoline")), "\n")
 }
 
-// Both rows of the OAuth session: row 1 has the dir basename, provider, auth countdown and effort; row 2 ctx, tokens, 7d.
+// Both rows of the OAuth session: row 1 has the dir basename, provider, auth countdown and effort; row 2 context bar, tokens, 7d.
 func TestTwolineRendersBothRows(t *testing.T) {
 	future := time.Now().Add(time.Hour).Unix()
 	rows := twolineRender(t, "dbx-u2m", fmt.Sprintf(`,"effort":{"level":"high"},`+
@@ -40,7 +40,7 @@ func TestTwolineRendersBothRows(t *testing.T) {
 	if want := promptUser() + ":proj | databricks·dbx-u2m · u2m:42m · Fable 5.1:high"; rows[0] != want {
 		t.Errorf("row 1 = %q, want %q", rows[0], want)
 	}
-	want := "ctx ━━━━━━━━━─────────── 47.2% · 94.4k/200k · 7d ━━──────── 18%"
+	want := "━━━━━━━━━─────────── 47.2% · 94.4k/200k · 7d ━━──────── 18%"
 	if rows[1] != want {
 		t.Errorf("row 2 = %q, want %q", rows[1], want)
 	}
@@ -55,8 +55,8 @@ func TestTwolineCornerCases(t *testing.T) {
 	if strings.Contains(rows[1], "7d") || strings.Contains(rows[0], "u2m:") || strings.HasPrefix(rows[1], " ·") {
 		t.Errorf("rows = %q, want no 7d, no auth, no leading separator", rows)
 	}
-	if !strings.HasPrefix(rows[1], "ctx ") {
-		t.Errorf("row 2 should open with ctx: %q", rows[1])
+	if !strings.HasPrefix(rows[1], "━") {
+		t.Errorf("row 2 should open with the context bar: %q", rows[1])
 	}
 }
 
@@ -94,7 +94,7 @@ func TestTwolineNoBranchLeftPacked(t *testing.T) {
 	if !strings.HasSuffix(lines[0], ":proj | databricks·dbx-u2m · u2m:9min · M") {
 		t.Errorf("row 1 = %q, want head | provider · auth · model, no branch, no gap", lines[0])
 	}
-	if lines[1] != "ctx "+twoBar(0, 20)+" 0.0% · 0/0" {
+	if lines[1] != twoBar(0, 20)+" 0.0% · 0/0" {
 		t.Errorf("row 2 = %q, want it left-packed", lines[1])
 	}
 }

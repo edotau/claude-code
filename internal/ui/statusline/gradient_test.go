@@ -36,7 +36,7 @@ func gradientPayload(cwd string) string {
 		`"rate_limits":{"seven_day":{"used_percentage":15}}}`
 }
 
-// The default gradient line: twoline's ctx block, the display name, no 7d/total/branch, velocity only with changes.
+// The default gradient line: twoline's context block, the display name, no 7d/total/branch, velocity only with changes.
 func TestGradientLine(t *testing.T) {
 	hermetic(t)
 	repo := t.TempDir()
@@ -54,7 +54,7 @@ func TestGradientLine(t *testing.T) {
 	}
 	git("add", "f")
 	git("commit", "-qm", "f")
-	const ctx = " | claude-opus-5-5 · ctx ━━━─────── 31.0% · 309.5k/1M 7d:15%"
+	const ctx = " | claude-opus-5-5 · ━━━─────── 31.0% · 309.5k/1M 7d:15%"
 	if got := plain(Render([]byte(gradientPayload(repo)), "gradient")); !strings.HasSuffix(got, ctx) {
 		t.Errorf("clean tree: %q must end %q (no provider, id without claude-)", got, ctx)
 	}
@@ -62,15 +62,15 @@ func TestGradientLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = os.RemoveAll(filepath.Dir(stampFile("velocity", "x"))) // drop the clean tree's cached velocity
-	if got := plain(Render([]byte(gradientPayload(repo)), "gradient")); !strings.HasSuffix(got, ctx+" | +2/-1") {
-		t.Errorf("dirty tree: %q must end %q", got, ctx+" | +2/-1")
+	if got := plain(Render([]byte(gradientPayload(repo)), "gradient")); !strings.HasSuffix(got, ctx+" | +2 -1") {
+		t.Errorf("dirty tree: %q must end %q", got, ctx+" | +2 -1")
 	}
 }
 
 // The gradient label is the raw payload id: claude- kept, a [1m] tag and a profile: prefix dropped, a routed label kept.
 func TestRawModelID(t *testing.T) {
 	for id, want := range map[string]string{
-		"claude-opus-5-5": "claude-opus-5-5", "databricks-claude-opus-5-5": "databricks-claude-opus-5-5",
+		"claude-opus-5-5": "claude-opus-5-5", "databricks-claude-opus-5-5": "databricks-opus-5-5",
 		"claude-opus-5-5[1m]": "claude-opus-5-5", "work:claude-opus-5-5": "claude-opus-5-5", "": "short",
 	} {
 		if got := rawModelID(Input{Model: struct {
