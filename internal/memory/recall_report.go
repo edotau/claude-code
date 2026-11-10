@@ -25,34 +25,32 @@ func RecallReport(out, errw io.Writer, hits []SearchHit, load int) {
 	}
 }
 
-// recallLoad appends the top n hits' full block text (ShowBlock), capped at recallLoadCap bytes total.
+// recallLoad appends the top n hits' full block text (ShowBlock), capped at recallLoadCap bytes written in total.
 func recallLoad(out, errw io.Writer, hits []SearchHit, n int) {
 	if n > len(hits) {
 		n = len(hits)
 	}
 	budget := recallLoadCap
 	for _, h := range hits[:n] {
-		if budget <= 0 {
-			return
-		}
 		_, block, err := ShowBlock(h.ID)
 		if err != nil {
 			fmt.Fprintf(errw, "claude-code: memory recall --load: %s: %v\n", h.ID, err)
 			continue
 		}
 		block = strings.TrimSpace(block)
-		if len(block) > budget {
+		wrapper := len(fmt.Sprintf("\n<!-- %s -->\n\n", h.ID))
+		if wrapper+len(block) > budget {
 			if budget < recallLoadCap {
-				return // only the first block is cut: its rune-boundary cut leaves 1-3 bytes, a fragment
+				continue // only the first block is cut; a later one that does not fit whole is skipped, never a fragment
 			}
-			cut := budget
+			cut := budget - wrapper
 			for cut > 0 && !utf8.RuneStart(block[cut]) {
 				cut--
 			}
 			block = block[:cut]
 		}
 		fmt.Fprintf(out, "\n<!-- %s -->\n%s\n", h.ID, block)
-		budget -= len(block)
+		budget -= wrapper + len(block)
 	}
 }
 

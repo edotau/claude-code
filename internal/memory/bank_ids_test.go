@@ -282,3 +282,21 @@ func TestShowBlockReturnsWalkErrors(t *testing.T) {
 		})
 	}
 }
+
+// TestRememberSameFactSameClockGetsDistinctIDs: a repeat prepended at the same index and clock never reuses an id.
+func TestRememberSameFactSameClockGetsDistinctIDs(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	now := time.Date(2026, 11, 10, 1, 2, 3, 0, time.UTC)
+	first, err := Remember(root, "project", "same fact", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Remember(root, "project", "same fact", now)
+	if err != nil || second == first {
+		t.Fatalf("second Remember = %q, %v; want an id distinct from the first, %q", second, err, first)
+	}
+	if body := mustRead(t, filepath.Join(Dir(root), "decisionLog.md")); strings.Count(body, "<!-- id:"+second+" -->") != 1 {
+		t.Errorf("id %s is not unique in decisionLog.md:\n%s", second, body)
+	}
+}
