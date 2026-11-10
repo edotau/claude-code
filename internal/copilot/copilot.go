@@ -112,6 +112,10 @@ func quotaHandoffEligible(t providers.Target, err error) bool {
 func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.RunOptions, t providers.Target,
 ) (opts SDKOptions, env []string, done func(), err error) {
 	done = func() {}
+	st, err := agent.ResolveSettings("copilot", req, t, true) // headless: a bad stored record fails before any route
+	if err != nil {
+		return opts, nil, done, copilotFatal(err)
+	}
 	route, env, err := e.routeEnv(ctx, cs, req, t)
 	if err != nil {
 		return opts, nil, done, copilotFatal(err)
@@ -123,7 +127,7 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 	if err != nil {
 		return opts, nil, done, err
 	}
-	opts = newSDKOptions(bin, env, req, sdkSettings(req, t))
+	opts = newSDKOptions(bin, env, req, st)
 	if route != nil {
 		route.apply(&opts)
 	}
@@ -153,16 +157,6 @@ func (e copilotEngine) routeEnv(ctx context.Context, cs agent.Schema, req agent.
 	}
 	env, _, err = cs.Configure(ctx, t, "")
 	return nil, env, err
-}
-
-// sdkSettings is the run's Settings; an unreadable record is one notice and applies nothing, as launchSettings does.
-func sdkSettings(req agent.RunOptions, t providers.Target) agent.Settings {
-	s, err := agent.ResolveSettings("copilot", req, t, true)
-	if s.Agent == "" {
-		fmt.Fprintf(agent.NoticeOut, "claude-code: copilot settings unreadable: %v; not applied\n", err)
-		return agent.Settings{Agent: "copilot", Effort: req.Effort, Target: t, Headless: true}
-	}
-	return s
 }
 
 // newSDKOptions builds the SDK options for one run from the CLI path, route env, request and resolved settings.
