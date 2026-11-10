@@ -21,7 +21,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -626,7 +625,7 @@ func publicIP(ip net.IP) bool {
 }
 
 // robotsAllowed reports whether the origin's robots.txt permits u for "claude-code" or "*"; a missing or
-// unreadable robots.txt allows. Parsing is the browser package's.
+// unreadable robots.txt allows. Parsing is robots.go's.
 func robotsAllowed(ctx context.Context, u *url.URL, cache map[string]string) bool {
 	origin := u.Scheme + "://" + u.Host
 	body, ok := cache[origin]
@@ -634,7 +633,7 @@ func robotsAllowed(ctx context.Context, u *url.URL, cache map[string]string) boo
 		body = fetchRobots(ctx, origin)
 		cache[origin] = body
 	}
-	return !browser.RobotsBlocks(body, u.RequestURI())
+	return !robotsBlocks(body, u.RequestURI())
 }
 
 // fetchRobots returns the origin's robots.txt body, or "" when it is missing or unreadable.

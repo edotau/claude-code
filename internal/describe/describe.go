@@ -1,4 +1,4 @@
-// Package describe builds the machine-readable map of the harness behind `describe` and the network page.
+// Package describe builds the machine-readable map of the harness behind `describe`.
 package describe
 
 import (
@@ -166,22 +166,6 @@ func FlagNames(node *completion.Node) []string {
 	return slices.Sorted(maps.Keys(seen))
 }
 
-// verbSub is one subverb in the dashboard's CLI tree.
-type verbSub struct {
-	Name  string   `json:"name"`
-	Flags []string `json:"flags,omitempty"`
-}
-
-// verbNode is one top-level verb in the dashboard's CLI tree: its own flags plus each subverb's.
-type verbNode struct {
-	Name     string    `json:"name"`
-	Group    string    `json:"group,omitempty"`
-	Summary  string    `json:"summary"`
-	Hidden   bool      `json:"hidden"`
-	Flags    []string  `json:"flags,omitempty"`
-	Subverbs []verbSub `json:"subverbs,omitempty"`
-}
-
 // ownFlagNames lists only node's own flags ("--flag" or "--flag <value>"), sorted.
 func ownFlagNames(node *completion.Node) []string {
 	if node == nil {
@@ -196,23 +180,6 @@ func ownFlagNames(node *completion.Node) []string {
 		out = append(out, name)
 	}
 	slices.Sort(out)
-	return out
-}
-
-// VerbTree is the verb map behind the network page's Architecture tab, in menu order.
-func VerbTree(verbs []Verb) []verbNode {
-	var out []verbNode
-	for _, c := range verbs {
-		if strings.HasPrefix(c.Name, "__") {
-			continue
-		}
-		node := c.Node
-		v := verbNode{Name: c.Name, Group: c.Group, Summary: c.Summary, Hidden: c.Hidden, Flags: ownFlagNames(node)}
-		for _, w := range subwordNames(node) {
-			v.Subverbs = append(v.Subverbs, verbSub{Name: w, Flags: ownFlagNames(node.Sub[w])})
-		}
-		out = append(out, v)
-	}
 	return out
 }
 

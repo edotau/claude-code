@@ -1,12 +1,9 @@
 package tree
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -416,98 +413,6 @@ func TestVendorDispatchHeuristicRunningMatch(t *testing.T) {
 	}
 	if heuristic.ID != "20261018T100500.000-gemini" {
 		t.Errorf("heuristic dispatch id = %q, want the still-running gemini dispatch", heuristic.ID)
-	}
-}
-
-// (8) View's Snapshot carries the edited files, dispatches and a result summary for a finished workflow
-// agent, and the event stream is ordered oldest-first.
-func TestViewSnapshotFields(t *testing.T) {
-	withDispatchFixture(t)
-	claudeDir, now := copyTestdataTree(t)
-	snap, err := View(ViewOptions{ClaudeDir: claudeDir, Session: "finished-session-aaaa1111", Agent: "fakewfagent002", Now: pinNow(now)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if snap.ID != "fakewfagent002" || snap.Workflow != "wf_fake0001-abc" || snap.Phase != "Gate" {
-		t.Errorf("snapshot id/workflow/phase = %q/%q/%q", snap.ID, snap.Workflow, snap.Phase)
-	}
-	if snap.Status != StatusFinished {
-		t.Errorf("snapshot status = %q, want finished", snap.Status)
-	}
-	wantEdited := []string{"/Users/fake/demo-repo/internal/agenttree/scan.go"}
-	if len(snap.FilesEdited) != 1 || snap.FilesEdited[0] != wantEdited[0] {
-		t.Errorf("FilesEdited = %v, want %v", snap.FilesEdited, wantEdited)
-	}
-	if len(snap.Dispatches) != 3 {
-		t.Errorf("Dispatches = %+v, want 3", snap.Dispatches)
-	}
-	if snap.Result != "green." {
-		t.Errorf("Result = %q, want the journal result preview %q", snap.Result, "green.")
-	}
-	assertEventsOldestFirst(t, snap.Events)
-}
-
-func assertEventsOldestFirst(t *testing.T, events []Event) {
-	t.Helper()
-	for i := 1; i < len(events); i++ {
-		if events[i].At.Before(events[i-1].At) {
-			t.Fatalf("events not ordered oldest-first at index %d: %+v", i, events)
-		}
-	}
-	if len(events) == 0 {
-		t.Error("expected at least one event from fakewfagent002's transcript")
-	}
-}
-
-// (9) View's --n keeps only the trailing N events read from the transcript; a terminal journal
-// result (fakewfagent002 has one) is appended on top of that and is never itself capped by --n.
-func TestViewSnapshotEventCountN(t *testing.T) {
-	withDispatchFixture(t)
-	claudeDir, now := copyTestdataTree(t)
-	full, err := View(ViewOptions{ClaudeDir: claudeDir, Session: "finished-session-aaaa1111", Agent: "fakewfagent002", Now: pinNow(now)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(full.Events) < 3 || full.Events[len(full.Events)-1].Kind != "result" {
-		t.Fatalf("precondition: need >=3 events ending in a result, got %+v", full.Events)
-	}
-	lastRealEvent := full.Events[len(full.Events)-2]
-
-	limited, err := View(ViewOptions{ClaudeDir: claudeDir, Session: "finished-session-aaaa1111", Agent: "fakewfagent002", N: 1, Now: pinNow(now)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// 1 kept transcript event + the appended result event.
-	if len(limited.Events) != 2 {
-		t.Fatalf("got %d events with --n 1, want 2 (1 kept + the result): %+v", len(limited.Events), limited.Events)
-	}
-	if limited.Events[0] != lastRealEvent {
-		t.Errorf("--n 1 kept event = %+v, want the newest transcript event %+v", limited.Events[0], lastRealEvent)
-	}
-	if limited.Events[1].Kind != "result" {
-		t.Errorf("limited.Events[1].Kind = %q, want result", limited.Events[1].Kind)
-	}
-}
-
-// (10) Follow emits one line per new event and stops as soon as the journal carries a result line.
-func TestFollowStopsOnJournalResult(t *testing.T) {
-	withDispatchFixture(t)
-	claudeDir, now := copyTestdataTree(t)
-	var buf strings.Builder
-	done := make(chan error, 1)
-	go func() {
-		done <- Follow(context.Background(), ViewOptions{ClaudeDir: claudeDir, Session: "finished-session-aaaa1111", Agent: "fakewfagent002", Now: pinNow(now)}, func(e Event) { fmt.Fprintln(&buf, FormatEvent(e)) })
-	}()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Follow did not stop within 5s of an already-resulted journal entry")
-	}
-	if !strings.Contains(buf.String(), "result") {
-		t.Errorf("Follow output = %q, want a result line once the journal result appears", buf.String())
 	}
 }
 

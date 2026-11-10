@@ -29,7 +29,6 @@
 # legacy-layout: usage-ledger
 # legacy-layout: vault
 # legacy-layout: vendor-baseline
-# legacy-layout: vscode-serve-runtime
 # legacy-layout: worktree-merge-op
 agentversion | cache | 1 | state/harness/agentversion.json | internal/agent/tools | keep
 ask-envelope | wire | 1 | - | internal/agent/wire | keep
@@ -69,5 +68,4 @@ transcript-summary | cache | 2 | state/harness/transcript/summary.json | interna
 usage-ledger | log | 1 | state/usage/ledger.jsonl | internal/tokenledger | keep
 vault | store | 6 | state/vault.db | vault | keep
 vendor-baseline | derived | 1 | state/harness/vendor-baseline/* | internal/agentconfig/render | keep
-vscode-serve-runtime | record | 1 | state/harness/vscode-serve.json | internal/network/vscode | keep
 worktree-merge-op | record | 1 | state/harness/worktree-merge-ops/*.json | internal/worktree | keep

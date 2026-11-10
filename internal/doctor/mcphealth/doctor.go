@@ -1,7 +1,7 @@
-// Package mcp is a read-only diagnostic for Claude Code's MCP config surface: it lists every
+// Package mcphealth is a read-only diagnostic for Claude Code's MCP config surface: it lists every
 // defined server, runs `claude mcp list` for live connect health, flags a server name defined with
 // different commands/urls across scopes, and flags inline plaintext secrets.
-package mcp
+package mcphealth
 
 import (
 	"context"
@@ -373,21 +373,20 @@ type Options struct {
 	JSON          bool
 }
 
+// Summary is the one-row `doctor` view of the scan: ok iff the full report would exit 0.
+func Summary(o Options) (ok bool, detail string) {
+	rep := buildReport(o)
+	detail = fmt.Sprintf("%d defined, %d connected, %d failed, %d secrets, %d unscanned; doctor --mcp for detail",
+		len(rep.Defs), rep.Health.Connected, rep.Health.Failed, len(rep.Secrets), len(rep.Unscanned))
+	if rep.Health.Error != "" {
+		detail = "health error: " + rep.Health.Error + "; " + detail
+	}
+	return rep.ExitCode() == 0, detail
+}
+
 // Doctor runs the full scan and writes either the human report or (Options.JSON) the Report as JSON.
 func Doctor(w io.Writer, o Options) int {
-	defs, unscanned := collectDefs(o.UserPath, o.ProjectFiles, o.SettingsFiles)
-	secrets := findSecrets(defs) // must run before redact() — a scrubbed value no longer looks like one
-	safe := redact(defs)
-	rep := Report{
-		Defs:      safe,
-		Health:    runHealth(o.Claude),
-		Conflicts: doctorConflicts(defs, o.Home),
-		Secrets:   secrets,
-		Unscanned: unscanned,
-	}
-	if len(defs) > 0 && rep.Health.Skipped == "" && rep.Health.Error == "" && rep.Health.Connected+rep.Health.Failed == 0 {
-		rep.Health.Error = "no server status lines recognised in `claude mcp list` output"
-	}
+	rep := buildReport(o)
 	ew := &errWriter{w: w}
 	if o.JSON {
 		b, err := json.MarshalIndent(rep, "", "  ")
@@ -400,7 +399,7 @@ func Doctor(w io.Writer, o Options) int {
 		printReport(ew, rep)
 	}
 	if ew.err != nil {
-		fmt.Fprintln(os.Stderr, "network mcp: could not write report:", ew.err)
+		fmt.Fprintln(os.Stderr, "doctor --mcp: could not write report:", ew.err)
 		return 1
 	}
 	return rep.ExitCode()
@@ -501,4 +500,22 @@ func printSecretsSection(w io.Writer, rep Report) {
 			fmt.Fprintf(w, "  ⚠ [%s] server '%s' %s %s holds an inline secret (use ${ENV} or a token helper)\n", f.Scope, f.Server, f.Field, f.Key)
 		}
 	}
+}
+
+// buildReport collects every scope, runs live health and finds inline secrets.
+func buildReport(o Options) Report {
+	defs, unscanned := collectDefs(o.UserPath, o.ProjectFiles, o.SettingsFiles)
+	secrets := findSecrets(defs) // must run before redact() — a scrubbed value no longer looks like one
+	safe := redact(defs)
+	rep := Report{
+		Defs:      safe,
+		Health:    runHealth(o.Claude),
+		Conflicts: doctorConflicts(defs, o.Home),
+		Secrets:   secrets,
+		Unscanned: unscanned,
+	}
+	if len(defs) > 0 && rep.Health.Skipped == "" && rep.Health.Error == "" && rep.Health.Connected+rep.Health.Failed == 0 {
+		rep.Health.Error = "no server status lines recognised in `claude mcp list` output"
+	}
+	return rep
 }

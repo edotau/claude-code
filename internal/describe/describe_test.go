@@ -66,14 +66,3 @@ func TestFlagNamesMergesSubverbs(t *testing.T) {
 		}
 	}
 }
-
-// VerbTree keeps menu order, drops "__" verbs and nests each subverb's own flags.
-func TestVerbTreeNestsSubverbs(t *testing.T) {
-	tree := VerbTree(fixtureVerbs())
-	if len(tree) != 2 || tree[0].Name != "memory" || len(tree[0].Subverbs) != 2 {
-		t.Fatalf("tree = %+v", tree)
-	}
-	if got := strings.Join(tree[0].Subverbs[1].Flags, " "); got != "--notice --session <value>" {
-		t.Errorf("update flags = %q", got)
-	}
-}

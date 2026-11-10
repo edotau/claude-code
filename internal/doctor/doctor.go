@@ -5,9 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/completion"
+	"github.com/edotau/claude-code/internal/doctor/mcphealth"
 	"github.com/edotau/claude-code/internal/doctor/promptpath"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
@@ -16,14 +19,18 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// doctorChecks is a test seam over the slow, probing launch.DoctorChecks.
-var doctorChecks = launch.DoctorChecks
+// doctorChecks is a test seam over the slow, probing launch.DoctorChecks plus the soft MCP row.
+var doctorChecks = func() ([]launch.Check, bool) {
+	checks, ok := launch.DoctorChecks()
+	mcpOK, detail := mcphealth.Summary(mcpOptions(false))
+	return append(checks, launch.Check{Name: "mcp", OK: mcpOK, Detail: detail}), ok
+}
 
 type doctorOpts struct {
-	format                                          *string
-	auditMode, scan, gitScan, refresh, all, prompts bool
-	days, since                                     int
-	rev                                             string
+	format                                               *string
+	auditMode, scan, gitScan, refresh, all, prompts, mcp bool
+	days, since                                          int
+	rev                                                  string
 }
 
 var doctorPage = helptext.Page{
@@ -31,7 +38,8 @@ var doctorPage = helptext.Page{
 	About: "Check binaries, providers, credentials and the proxy without changing anything; " +
 		"exits 1 when a check fails. --audit prints switches, pins, secret sets, safety blocks " +
 		"and proxy failovers instead. --scan, --git and --secrets audit for plaintext " +
-		"credentials instead and exit 1 on any finding.",
+		"credentials instead and exit 1 on any finding. --mcp prints every MCP server's live " +
+		"health, cross-scope drift and inline secrets; exit 1 on any.",
 }
 
 func doctorFlags() (*flag.FlagSet, *doctorOpts) {
@@ -46,6 +54,7 @@ func doctorFlags() (*flag.FlagSet, *doctorOpts) {
 	fs.BoolVar(&o.refresh, "refresh", false, "re-list each pinned Databricks workspace's served models before the checks")
 	fs.BoolVar(&o.all, "secrets", false, "--scan, --git and the vault checks together; worst exit wins")
 	fs.BoolVar(&o.prompts, "prompts", false, "audit the CLAUDE.md, rules, skills and agents instruction path")
+	fs.BoolVar(&o.mcp, "mcp", false, "MCP server health, cross-scope drift and inline plaintext secrets")
 	return fs, o
 }
 
@@ -86,6 +95,9 @@ func runDoctor(o *doctorOpts, targets []string) int {
 	}
 	if o.prompts {
 		return runPrompts(o)
+	}
+	if o.mcp {
+		return mcphealth.Doctor(os.Stdout, mcpOptions(*o.format == helptext.JSON))
 	}
 	if o.scan || o.gitScan || o.all {
 		return runDoctorAudits(o, targets)
@@ -135,6 +147,24 @@ func runPrompts(o *doctorOpts) int {
 	return 0
 }
 
+// mcpOptions points the MCP scan at the user, project and settings scopes; every path is read-only.
+func mcpOptions(asJSON bool) mcphealth.Options {
+	home, _ := os.UserHomeDir()
+	bin, _ := claude.ClaudeBinary() // "" on error: the scan fails OPEN on a missing claude binary
+	cwd, _ := os.Getwd()
+	return mcphealth.Options{
+		UserPath:     paths.ClaudeJSON(),
+		ProjectFiles: []string{filepath.Join(cwd, ".mcp.json")},
+		SettingsFiles: []string{
+			filepath.Join(paths.ConfigDir(), "settings.json"),
+			filepath.Join(paths.ConfigDir(), "settings.local.json"),
+		},
+		Claude: bin,
+		Home:   home,
+		JSON:   asJSON,
+	}
+}
+
 func runDoctorAudits(o *doctorOpts, targets []string) int {
 	if *o.format == helptext.JSON {
 		helptext.Fail("doctor: --scan, --git and --secrets print text only")
@@ -154,5 +184,5 @@ func refreshServed() {
 // SpecNode is the `doctor` completion spec.
 func SpecNode() *completion.Node {
 	return &completion.Node{Flags: []completion.Flag{completion.BoolFlag("audit"), completion.Plain("days"), completion.BoolFlag("scan"), completion.BoolFlag("git"), completion.Plain("since"),
-		completion.Plain("range"), completion.BoolFlag("secrets"), completion.BoolFlag("refresh"), completion.BoolFlag("prompts"), completion.FormatFlag()}}
+		completion.Plain("range"), completion.BoolFlag("secrets"), completion.BoolFlag("refresh"), completion.BoolFlag("prompts"), completion.BoolFlag("mcp"), completion.FormatFlag()}}
 }

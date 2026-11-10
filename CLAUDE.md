@@ -75,7 +75,7 @@ auto-loads while you work in that code). Anything unlisted: `claude-code describ
 | Agents and dispatch | `claude-code agents ask --agent <agent> "<task>"` · `claude` ‖ `copilot` (features and bug fixes only: `rules/standards/testing-guidelines.md`) | `rules/workflows/agents.md` · `rules/workflows/master-workflow.md` |
 | Memory | `claude-code memory recall <terms>` | `rules/workflows/memory-bank.md` |
 | Git and worktrees | `claude-code worktree create\|merge <name>` | `rules/standards/worktree-git.md` |
-| Network, web, MCP, cleanup | `claude-code network mcp` · `claude-code network websearch --query "<q>"` | `rules/harness/network.md` |
+| Network, web, MCP, cleanup | `claude-code doctor --mcp` · `claude-code network websearch --query "<q>"` | `rules/harness/network.md` |
 | Test, lint, review | `go test ./internal/<pkg>` · `make lint` · `/code-review` | `rules/standards/quality.md` |
 
 Open audit findings (2026-10-31; not yet fixed): `memory/claude-code/reports/2026-10-31-wrapup-*.md` and

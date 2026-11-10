@@ -6,7 +6,6 @@ const {
   dispatchStartArgv,
   usageArgv,
   profileArgv,
-  vscodeServeArgv,
   attachCommandLine,
 } = require('./lib/argv');
 const { buildUsageModel, statusBarText, statusBarTooltip } = require('./lib/usage-model');
@@ -1618,21 +1617,6 @@ function activate(context) {
     }),
     vscode.commands.registerCommand('claudeCodeAgents.refreshUsage', () => usageProvider.load()),
     vscode.commands.registerCommand('claudeCodeAgents.openUsageEditor', () => usageProvider.openInEditor())
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand('claudeCodeAgents.servePhone', () => {
-      const binary = config().get('binary') || 'claude-code';
-      const terminal = dashboardTerminal();
-      terminal.sendText(vscodeServeArgv(binary, {}).join(' '));
-      terminal.show();
-    }),
-    vscode.commands.registerCommand('claudeCodeAgents.servePhoneStop', () => {
-      const binary = config().get('binary') || 'claude-code';
-      const terminal = dashboardTerminal();
-      terminal.sendText(vscodeServeArgv(binary, { stop: true }).join(' '));
-      terminal.show();
-    })
   );
 
   usageProvider.load();

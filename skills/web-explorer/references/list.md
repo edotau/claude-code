@@ -48,6 +48,3 @@ Angles: {the queries and the list pages you opened}
 Excluded this pass: {names and websites already kept, or none}
 Likely gaps: {the part of the set this pass could not see}
 ```
-
-Structured listing pages (many repeated records) are faster through `claude-code network browser --extract`
-(`SKILL.md`, rung 7) than through search.

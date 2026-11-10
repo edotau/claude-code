@@ -2,7 +2,6 @@
 package tree
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -340,52 +339,6 @@ func treeShortID(id string) string {
 		return id
 	}
 	return string(r[:8])
-}
-
-// RenderSnapshot writes a Snapshot as the `--format text` drill-down view; it returns the first write error.
-func RenderSnapshot(w io.Writer, snap agenttree.Snapshot) error {
-	ew := &errWriter{w: w}
-	renderSnapshot(ew, snap)
-	return ew.err
-}
-
-// renderSnapshot writes the drill-down lines to w; write errors are collected by the errWriter it is given.
-func renderSnapshot(w io.Writer, snap agenttree.Snapshot) {
-	fmt.Fprintf(w, "%s  %s\n", snap.ID, snap.Label)
-	if snap.Workflow != "" {
-		fmt.Fprintf(w, "workflow %s  phase %s\n", snap.Workflow, snap.Phase)
-	}
-	model := snap.Model
-	if snap.Effort != "" {
-		model += " effort=" + snap.Effort
-	}
-	fmt.Fprintf(w, "status %s %s  model %s  tokens %s\n", statusGlyph(snap.Status), snap.Status, model, tokenCompact(snap.Tokens))
-	if snap.Activity != nil {
-		fmt.Fprintf(w, "last activity: %s %s (%s)\n", snap.Activity.Tool, snap.Activity.Arg, snap.Activity.At.Format(time.RFC3339))
-	}
-	for _, f := range snap.FilesEdited {
-		fmt.Fprintf(w, "  edited %s\n", f)
-	}
-	for _, disp := range snap.Dispatches {
-		fmt.Fprintf(w, "  %s\n", formatDispatch(disp))
-	}
-	for _, e := range snap.Events {
-		fmt.Fprintln(w, agenttree.FormatEvent(e))
-	}
-	if snap.Result != "" {
-		fmt.Fprintf(w, "result: %s\n", snap.Result)
-	}
-}
-
-// Follow writes one formatted line per new event of opts.Agent to w, until it ends or ctx is cancelled.
-// A write failure is returned even when the follow itself ended cleanly.
-func Follow(ctx context.Context, opts agenttree.ViewOptions, w io.Writer) error {
-	ew := &errWriter{w: w}
-	err := agenttree.Follow(ctx, opts, func(e agenttree.Event) { fmt.Fprintln(ew, agenttree.FormatEvent(e)) })
-	if err != nil {
-		return err
-	}
-	return ew.err
 }
 
 // errWriter records the first write error and skips later writes, so a broken pipe is not hidden.

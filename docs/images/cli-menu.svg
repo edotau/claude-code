@@ -28,7 +28,7 @@
 <text x="22.0" y="274" fill="#8a7e90" font-weight="bold">AUTH</text>
 <text x="22.0" y="293" fill="#d7d4dc">  </text>
 <text x="38.8" y="293" fill="#847ace" font-weight="bold">network         </text>
-<text x="173.2" y="293" fill="#d7d4dc">tailnet, browsers, web search, MCP health, agent page</text>
+<text x="173.2" y="293" fill="#d7d4dc">tailnet, browsers, web search, remote agents</text>
 <text x="22.0" y="312" fill="#d7d4dc">  </text>
 <text x="38.8" y="312" fill="#8679cc" font-weight="bold">vault           </text>
 <text x="173.2" y="312" fill="#d7d4dc">pins, env, overlays and sealed secrets</text>

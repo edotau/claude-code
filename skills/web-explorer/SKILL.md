@@ -22,7 +22,6 @@ Start at the top; move down only when a rung fails or cannot do the job.
 | 4 | Site known, page unknown | `tvly map <site> --instructions '<topic>' --limit 20`, then extract the match |
 | 5 | Many pages of one section | `tvly crawl <section-url> --instructions '<topic>' --limit 20` (`references/crawl.md`) |
 | 6 | Rung 2-3 printed `failed:` or JS content is missing (Claude only) | Chrome: `navigate` + `get_page_text` |
-| 7 | Every record of a listing or table | `claude-code network browser --extract <url> --container <sel> --field name=sel[@attr]` |
 
 ```bash
 claude-code network websearch --query "OpenShift 4.16 release notes" --max-results 3
@@ -84,7 +83,7 @@ dressed as a search result is worse than no answer.
 
 ## Rules
 
-- Authorized public pages only. Honor robots.txt (`network browser --extract` checks it; never `--ignore-robots`);
+- Authorized public pages only. Honor robots.txt (`network websearch --extract` checks it);
   no spoofing, proxy rotation or CAPTCHA solving. Why: a block is the site's decision; ask for an API or permission.
 - Internal addresses (`192.168.x.x`, `localhost`) are refused; use curl for a local server you own.
 - Crawl politely: small limits, no repeat crawls of one section.

@@ -58,9 +58,6 @@ func TestRunRemoteConnectedReportsStatus(t *testing.T) {
 	if !strings.Contains(got, "admin api   credential absent") {
 		t.Errorf("output should note the missing admin credential:\n%s", got)
 	}
-	if !strings.Contains(got, "web         100.64.1.2 available for claude-code network page") {
-		t.Errorf("output missing the tailnet web-bind line:\n%s", got)
-	}
 }
 
 // Tailscale not on PATH: the remote section still reports (not connected), and --check never fails
@@ -76,9 +73,6 @@ func TestRunRemoteNotConnectedNeverFails(t *testing.T) {
 	}
 	if !strings.Contains(got, "tailscale   not connected → claude-code network tailscale --connect") {
 		t.Errorf("output missing the not-connected line:\n%s", got)
-	}
-	if !strings.Contains(got, "web         no tailnet IPv4 address; claude-code network page binds loopback only") {
-		t.Errorf("output missing the no-IPv4 web line:\n%s", got)
 	}
 	if !strings.Contains(got, "dispatch    could not list tailnet machines:") {
 		t.Errorf("output missing the machine-list error:\n%s", got)
@@ -124,16 +118,6 @@ func TestHasAdminCredential(t *testing.T) {
 	t.Setenv("TAILSCALE_API_KEY", "tskey-api-abc")
 	if !configure.HasAdminCredential() {
 		t.Error("hasAdminCredential() = false with TAILSCALE_API_KEY set, want true")
-	}
-}
-
-func TestTailnetIPv4PicksCGNATAddress(t *testing.T) {
-	st := tailscale.Local{IPs: []string{"fd7a:115c:a1e0::1", "100.64.1.2", "192.168.1.5"}}
-	if got := tailnetIPv4(st); got != "100.64.1.2" {
-		t.Errorf("tailnetIPv4 = %q, want 100.64.1.2", got)
-	}
-	if got := tailnetIPv4(tailscale.Local{IPs: []string{"192.168.1.5"}}); got != "" {
-		t.Errorf("tailnetIPv4 = %q, want \"\" (no CGNAT address)", got)
 	}
 }
 

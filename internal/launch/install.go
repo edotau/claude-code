@@ -23,7 +23,6 @@ import (
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/network/tailscale"
-	"github.com/edotau/claude-code/internal/network/vscode"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
@@ -118,7 +117,6 @@ func checkHostHealth(check func(bool, bool, string, string)) {
 	check(rtkOK, false, "rtk compressor", rtkDetail)
 	tsOK, tsDetail := tailscale.Doctor(context.Background())
 	check(tsOK, false, "tailscale", tsDetail)
-	check(true, false, "vscode serve", vscodeServeDoctorDetail())
 	settingsErr := settings.CheckFile(settings.SettingsFile())
 	nested := setup.NestedConfig()
 	check(nested.Dir == "" || nested.OnlyWorktrees(), false, "nested config", nestedDetail(nested))
@@ -397,16 +395,6 @@ func proxyStatus() (detail string, stale bool) {
 		return fmt.Sprintf("pid %d runs build %s; restart when idle", h.PID, h.Build), true
 	}
 	return fmt.Sprintf("port %d pid %d, %d sessions", st.Port, h.PID, h.Sessions), false
-}
-
-// vscodeServeDoctorDetail reports the vscode-serve daemon and its tailscale mapping, token redacted.
-func vscodeServeDoctorDetail() string {
-	st, running := vscode.Running()
-	if !running {
-		return "stopped"
-	}
-	url, _, _ := strings.Cut(st.URL, "?")
-	return fmt.Sprintf("running on :%d -> %s", st.Port, url)
 }
 
 // toolDoctorOK is false only for a bin/<agent> entry that exists but cannot run (broken link, retired shim).

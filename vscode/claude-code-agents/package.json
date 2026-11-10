@@ -94,16 +94,6 @@
         "category": "Claude Code Agents"
       },
       {
-        "command": "claudeCodeAgents.servePhone",
-        "title": "Serve for Phone (Tailscale)",
-        "category": "Claude Code Agents"
-      },
-      {
-        "command": "claudeCodeAgents.servePhoneStop",
-        "title": "Stop Serving for Phone",
-        "category": "Claude Code Agents"
-      },
-      {
         "command": "claudeCodeTasks.refresh",
         "title": "Refresh",
         "icon": "$(refresh)",

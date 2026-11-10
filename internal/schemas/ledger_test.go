@@ -17,7 +17,6 @@ import (
 	_ "github.com/edotau/claude-code/internal/hooks"
 	_ "github.com/edotau/claude-code/internal/launch"
 	_ "github.com/edotau/claude-code/internal/memory"
-	_ "github.com/edotau/claude-code/internal/network/vscode"
 	_ "github.com/edotau/claude-code/internal/providers"
 	_ "github.com/edotau/claude-code/internal/proxy"
 	_ "github.com/edotau/claude-code/internal/router"
@@ -48,7 +47,6 @@ var writers = map[string]string{
 	"internal/network/tailscale/machines_cache.go:WriteMachinesCache": "tailscale-machines",
 	"internal/cli/helpsvg.go:cmdMenuSVG":                              unversioned("foreign: -o output"),
 	"internal/ui/theme/look.go:SetGradient":                           unversioned("foreign: theme file in a vendor home"),
-	"internal/network/network_browser.go:networkBrowserExtract":       unversioned("foreign: --extract -o output"),
 	"internal/clipboard/clipboard.go:grabMac":                         unversioned("foreign: clipboard PNG in the temp dir"),
 	"internal/clipboard/clipboard.go:savePNG":                         unversioned("foreign: clipboard PNG in the temp dir"),
 	"internal/clipboard/ssh_bridge.go:installLaunchAgentAt":           unversioned("foreign: launchd plist (Apple format)"),
@@ -103,7 +101,7 @@ var writers = map[string]string{
 	"internal/agent/launcher.go:WriteFiles":                           unversioned("per-launch 0600 files: settings-overlay row; copilot's foreign registry"),
 	"internal/claude/science.go:scienceDefaultsFile":                  unversioned("foreign: science TOML defaults for a vendor"),
 	"internal/launch/tmux.go:seedTmuxConf":                            unversioned("foreign: user tmux.conf"),
-	"internal/network/mcp/doctor.go:mcpList":                          unversioned("foreign: temp output of claude mcp list"),
+	"internal/doctor/mcphealth/doctor.go:mcpList":                     unversioned("foreign: temp output of claude mcp list"),
 	"internal/memory/recall_accesslog.go:appendAccessLines":           unversioned("log: memory access log, text lines"),
 	"internal/memory/recall_accesslog.go:maybeTrimAccessLog":          unversioned("log: memory access log trim"),
 	"internal/memory/bank_fmt.go:formatFiles":                         unversioned("memory-bank: bank markdown format"),
@@ -190,9 +188,7 @@ var writers = map[string]string{
 	"internal/opencode/hooks.go:openHookLog":                          unversioned("log: opencode hook log, text lines"),
 	"internal/opencode/plugin.go:writePlugin":                         unversioned("foreign: generated opencode JS plugin, opencode-owned shape"),
 	"internal/opencode/auth.go:updateOpencodeDiskCache":               "opencode-auth-cache",
-	"internal/network/vscode/vscode.go:writeGuarded":                  unversioned("foreign: VS Code settings.json, keybindings.json and backup"),
-	"internal/network/vscode/serve.go:prepareDataDir":                 unversioned("foreign: VS Code machine settings seed"),
-	"internal/network/vscode/serve.go:writeState":                     "vscode-serve-runtime",
+	"internal/ui/vscode/vscode.go:writeGuarded":                       unversioned("foreign: VS Code settings.json, keybindings.json and backup"),
 	"internal/worktree/ledger.go:editLedger":                          unversioned("memory-bank: worktree ledger log line and task fill"),
 	"internal/worktree/ledger.go:CloseLedger":                         unversioned("memory-bank: worktree ledger close"),
 	"internal/worktree/ledger.go:OpenLedger":                          unversioned("memory-bank: worktree ledger open"),

@@ -65,7 +65,7 @@ func commands() []command {
 		// AUTH
 		{name: "resolve", group: groupAuth, hidden: true, summary: "resolve + print a profile's credential (apiKeyHelper)", run: providerscmd.Resolve, spec: providerscmd.ResolveSpec},
 		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: vaultcmd.Run, spec: vaultcmd.Spec},
-		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, MCP health, agent page", run: func(a []string) int { return network.Run(a, func() any { return describe.VerbTree(describeVerbs()) }) }, spec: network.Spec},
+		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, remote agents", run: network.Run, spec: network.Spec},
 		// SESSION
 		{name: "switch", group: groupSession, hidden: true, summary: "pin the session profile (vault pins)", run: providerscmd.Switch, spec: providerscmd.SwitchSpec},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: func(args []string) int { return setup.Clean(args, os.Stdout, os.Stderr) }, spec: setup.CleanSpec},
@@ -89,7 +89,7 @@ func commands() []command {
 	}, hiddenCommands()...)
 }
 
-// describeVerbs lists the table's verbs with their completion specs, for describe and the network page.
+// describeVerbs lists the table's verbs with their completion specs, for describe.
 func describeVerbs() []describe.Verb {
 	tree := specTree()
 	var out []describe.Verb

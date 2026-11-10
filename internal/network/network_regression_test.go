@@ -3,7 +3,6 @@ package network
 import (
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,60 +12,6 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/textutil"
 )
-
-func blockedExtraction(t *testing.T) ([]string, string) {
-	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/robots.txt" {
-			t.Errorf("unexpected extraction request: %s", r.URL.Path)
-		}
-		if _, err := fmt.Fprintln(w, "User-agent: claude-code\nDisallow: /"); err != nil {
-			t.Error(err)
-		}
-	}))
-	t.Cleanup(srv.Close)
-	out := filepath.Join(t.TempDir(), "results.json")
-	if err := os.WriteFile(out, []byte("previous results\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return []string{"--extract", srv.URL + "/articles", "--container", "article", "--field", "title=h1", "-o", out}, out
-}
-
-func requirePreviousResults(t *testing.T, out string) {
-	t.Helper()
-	got, err := os.ReadFile(out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != "previous results\n" {
-		t.Fatalf("extraction destroyed previous output: %q", got)
-	}
-}
-
-func TestBrowserExtractRejectsSetupFlags(t *testing.T) {
-	for _, flag := range [][]string{{"--dry-run"}, {"--browser", "chrome"}} {
-		t.Run(flag[0], func(t *testing.T) {
-			args, out := blockedExtraction(t)
-			code, _, stderr := hosttest.CaptureOutput(t, func() int {
-				return cmdNetworkBrowser(append(args, flag...))
-			})
-			if code != 2 || !strings.Contains(stderr, flag[0]+" belongs to --setup") {
-				t.Fatalf("setup flag reached extraction: exit=%d stderr=%q", code, stderr)
-			}
-			requirePreviousResults(t, out)
-		})
-	}
-}
-
-func TestBrowserExtractFailurePreservesOutput(t *testing.T) {
-	args, out := blockedExtraction(t)
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdNetworkBrowser(args) })
-	requirePreviousResults(t, out)
-	if code != 1 || !strings.Contains(stderr, "robots.txt") || !strings.Contains(stderr, "disallows") {
-		t.Fatalf("expected robots refusal: exit=%d stderr=%q", code, stderr)
-	}
-}
 
 func fakeAdvertiseCLI(t *testing.T, exitCode int) string {
 	t.Helper()

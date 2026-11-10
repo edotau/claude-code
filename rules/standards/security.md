@@ -11,5 +11,5 @@ Language specifics: `rules/software/<lang>/security.md`. Harness credentials: CL
 4. **Production is read-only from a session** — never `exec`/shell into a live pod or decode a cluster secret; read
    logs and status, copy artifacts out (`kubectl cp`/`oc cp`), change production only through its deploy pipeline.
 5. **Browser automation on authorized sites only** — ours, internal, or with explicit permission; honor robots.txt
-   (`network browser --extract` checks it); no detection evasion (fingerprint spoofing, webdriver masking, anti-bot
+   (`network websearch --extract` checks it); no detection evasion (fingerprint spoofing, webdriver masking, anti-bot
    proxy rotation) — a block means ask for an API or permission.
