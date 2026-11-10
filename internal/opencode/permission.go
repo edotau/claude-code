@@ -180,14 +180,9 @@ func opencodeApplyPermissions(env []string, req agent.RunOptions) ([]string, err
 
 // refusePureBashDeny: --pure loads no plugin, so nothing covers the `bash -c` bypass of a Bash Deny.
 func refusePureBashDeny(req agent.RunOptions) error {
-	if !req.SafeMode {
-		return nil
-	}
-	for _, r := range req.Permissions.Deny {
-		if r.Tool == "Bash" {
-			return retry.Fatal("opencode",
-				fmt.Errorf("cannot enforce deny %s under --safe-mode (--pure loads no plugin; bash -c bypasses its matcher)", r))
-		}
+	if r, ok := agent.SafeModeDeny(req, func(r agent.Rule) bool { return r.Tool == "Bash" }); ok {
+		return retry.Fatal("opencode",
+			fmt.Errorf("cannot enforce deny %s under --safe-mode (--pure loads no plugin; bash -c bypasses its matcher)", r))
 	}
 	return nil
 }
