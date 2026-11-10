@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // Seams for tests: model discovery, the running router and the router's session tokens.
@@ -388,12 +389,15 @@ func copilotChoice(requested []string, profileModel string) CopilotChoice {
 const CopilotRegistryBanner = "copilot: GitHub models are unavailable in this mode"
 
 // copilotRegistryEligible: a keyed Databricks profile the router can mint a session for (not direct, not a login,
-// not auth none/cli — the router cannot authenticate those rows).
+// not auth none/cli — the router cannot authenticate those rows), except armed on macOS, which runs routed BYOK.
 func copilotRegistryEligible(direct bool, t providers.Target) bool {
 	p := t.Provider
 	return p != nil && !direct && p.Preset == providers.PresetDatabricks && p.Auth.Login == "" &&
-		p.Auth.Method() != providers.AuthNone && p.Auth.Method() != providers.AuthCLI
+		p.Auth.Method() != providers.AuthNone && p.Auth.Method() != providers.AuthCLI && !armedOnMacOS()
 }
+
+// armedOnMacOS is a --route databricks:<p> run on macOS, where the registry is refused (home.go).
+func armedOnMacOS() bool { return copilotGOOS == "darwin" && router.ArmProfile() != "" }
 
 // UsesCopilotRegistry reports whether t is a Databricks row whose copilot launch runs on the registry.
 func UsesCopilotRegistry(ctx context.Context, t providers.Target) bool {

@@ -16,7 +16,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
@@ -405,4 +407,59 @@ func TestRunUnreadableRecordNoticesAndContinues(t *testing.T) {
 	if got.ReasoningEffort != "low" || strings.Count(notice.String(), "copilot settings unreadable") != 1 {
 		t.Errorf("ReasoningEffort = %q, notice = %q; want low and one unreadable-settings notice", got.ReasoningEffort, notice.String())
 	}
+}
+
+// Armed on macOS a Databricks hop runs routed BYOK: router base /p/dbx, no GitHub login, the login env stripped.
+func TestArmCopilotBYOK(t *testing.T) {
+	got, child := runArmedBYOK(t)
+	if got.UseLoggedInUser || got.GitHubToken != "" || got.multiProvider() {
+		t.Errorf("UseLoggedInUser=%v GitHubToken set=%v registry=%v; want BYOK with no GitHub login",
+			got.UseLoggedInUser, got.GitHubToken != "", got.multiProvider())
+	}
+	base := proc.EnvCopilotProviderBaseURL + "=" + testRouterBase + "/p/dbx"
+	if !slices.Contains(child, base) || !slices.Contains(child, "COPILOT_OFFLINE=true") {
+		t.Errorf("child env lacks %s or COPILOT_OFFLINE=true", base)
+	}
+	if keyed, leaked := byokKeyState(child); !keyed || leaked {
+		t.Errorf("child env: BYOK key present=%v, a GitHub token or the workspace token leaked=%v", keyed, leaked)
+	}
+}
+
+// byokKeyState: child carries a BYOK key (the router's credential for dbx; task 2.1 mints cct_ARM there), and whether
+// a planted GitHub token or the workspace token reached it.
+func byokKeyState(child []string) (keyed, leaked bool) {
+	for _, kv := range child {
+		k, v, _ := strings.Cut(kv, "=")
+		keyed = keyed || (v != "" && (k == proc.EnvCopilotProviderBearerToken || k == proc.EnvCopilotProviderAPIKey))
+		leaked = leaked || v == "ghp-planted" || (strings.HasPrefix(k, proc.CopilotProviderPrefix) && v == "dapi-fixture")
+	}
+	return keyed, leaked
+}
+
+// runArmedBYOK runs copilot on dbx inside databricks:dbx on macOS with GitHub tokens planted: SDK options, child env.
+func runArmedBYOK(t *testing.T) (SDKOptions, []string) {
+	t.Helper()
+	macFallbackScratch(t)
+	stubProxy(t)
+	agent.MintSession = func(context.Context, string, int) (string, error) { return "cct_ARM", nil }
+	pathstest.FakeVendor(t, "copilot", "exit 0")
+	t.Setenv(router.EnvRoute, "databricks:dbx")
+	t.Setenv("GH_TOKEN", "ghp-planted")
+	t.Setenv("COPILOT_GITHUB_TOKEN", "ghp-planted")
+	var got SDKOptions
+	orig := copilotAsk
+	copilotAsk = func(_ context.Context, o SDKOptions, _ string, _ []string) (SDKResult, error) {
+		got = o
+		return SDKResult{Text: "ok"}, nil
+	}
+	t.Cleanup(func() { copilotAsk = orig })
+	req := agent.RunOptions{Prompt: "hi", Provider: "dbx", Model: "databricks-claude-sonnet-5-5", WorkDir: t.TempDir()}
+	if _, err := copilotAgent.Run(t.Context(), req, wire.Discard); err != nil {
+		t.Fatal(err)
+	}
+	co, err := BuildClientOptions(t.Context(), got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got, co.Connection.(copilot.StdioConnection).Env
 }
