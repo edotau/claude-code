@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"strings"
 	"sync"
@@ -121,7 +122,7 @@ func probeOne(ctx context.Context, p *providers.Provider, o CheckOptions, t Chec
 		url, anthropic = route, dialect == providers.ProtocolAnthropic
 		body = func(tools bool) map[string]any { return clientProbeBody(t.Wire, dialect, tools) }
 	}
-	code, ms, msg, err := probeRequest(ctx, p, o, url, body(true), anthropic)
+	code, ms, msg, err := probeBudget(ctx, p, o, url, body(true), anthropic)
 	r.HTTP, r.LatencyMS = code, ms
 	switch {
 	case err != nil:
@@ -134,7 +135,7 @@ func probeOne(ctx context.Context, p *providers.Provider, o CheckOptions, t Chec
 			r.Status = StatusTransient
 			return r
 		}
-		code2, ms2, msg2, err2 := probeRequest(ctx, p, o, url, body(false), anthropic)
+		code2, ms2, msg2, err2 := probeBudget(ctx, p, o, url, body(false), anthropic)
 		switch {
 		case err2 == nil && code2/100 == 2:
 			r.Status, r.HTTP, r.LatencyMS, r.Tools, r.Error = "ok", code2, ms2, "no", ""
@@ -200,6 +201,27 @@ func responsesBody(model string, tools bool) map[string]any {
 		b["tools"] = []any{checkResponsesTool}
 	}
 	return b
+}
+
+// budgetExhausted is Databricks' 400 text when a model spends its token budget before the first output token.
+const budgetExhausted = "max_tokens or model output limit was reached"
+
+// budgetRetryTokens is the one retry's budget: room for a reasoning model's hidden tokens on a one-word reply.
+const budgetRetryTokens = 1024
+
+// probeBudget is probeRequest, resent once with budgetRetryTokens when the tiny budget ran out (a reasoning model).
+func probeBudget(ctx context.Context, p *providers.Provider, o CheckOptions, url string, body map[string]any, anthropic bool) (int, int64, string, error) {
+	code, ms, msg, err := probeRequest(ctx, p, o, url, body, anthropic)
+	if err != nil || code != http.StatusBadRequest || !strings.Contains(msg, budgetExhausted) {
+		return code, ms, msg, err
+	}
+	retry := maps.Clone(body)
+	for _, k := range []string{"max_tokens", "max_output_tokens"} {
+		if _, ok := retry[k]; ok {
+			retry[k] = budgetRetryTokens
+		}
+	}
+	return probeRequest(ctx, p, o, url, retry, anthropic)
 }
 
 // probeRequest POSTs body and returns status, latency, a truncated server message and any transport error.

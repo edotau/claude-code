@@ -12,7 +12,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/launchplan"
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/tools"
-	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -100,26 +99,21 @@ func PrintResumeHint(name, sessionID string) {
 	}
 }
 
-// Catalog is `<agent> catalog`: the agent's own catalog (a ModelsProvider lists through models), or a no-catalog note.
-func Catalog(name, profile, format string, models func(args []string) int) int {
+// Catalog is bare `<agent> catalog` off Databricks: the agent's own catalog via models or ModelsArgv, else a note.
+func Catalog(name, format string, models func(args []string) int) int {
 	s, ok := agent.LookupSchema(name)
 	if !ok || !s.External() {
 		return helptext.Fail("unknown agent %q", name)
 	}
-	var reg *providers.Registry
-	if name == "copilot" || s.CLI.ModelsProvider != "" {
-		var err error
-		if reg, err = providers.Load(); err != nil {
-			return helptext.Fail("%v", err)
-		}
-	}
-	if name == "copilot" {
-		if done, code := copilotSource(reg, profile, format); done {
-			return code
-		}
+	if name == "copilot" && format == helptext.Text {
+		fmt.Println("GitHub Copilot catalog")
 	}
 	switch {
 	case s.CLI.ModelsProvider != "":
+		reg, err := providers.Load()
+		if err != nil {
+			return helptext.Fail("%v", err)
+		}
 		n, err := s.ModelsProfile(reg)
 		if err != nil {
 			return helptext.Fail("%v", err)
@@ -130,22 +124,4 @@ func Catalog(name, profile, format string, models func(args []string) int) int {
 	}
 	fmt.Printf("%s: no model catalog\n", name)
 	return 0
-}
-
-// copilotSource prints a Databricks profile's catalog (done) or, in text, the GitHub model source line.
-func copilotSource(reg *providers.Registry, profile, format string) (bool, int) {
-	cat, err := copilot.CopilotModelSource(context.Background(), reg, profile)
-	if err == nil && cat.Databricks {
-		err = cat.Write(os.Stdout, format)
-	}
-	if err != nil {
-		return true, helptext.Fail("copilot catalog: %v", err)
-	}
-	if cat.Databricks {
-		return true, 0
-	}
-	if format == helptext.Text {
-		fmt.Println(cat.Source)
-	}
-	return false, 0
 }

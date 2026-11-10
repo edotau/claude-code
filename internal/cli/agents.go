@@ -23,7 +23,6 @@ import (
 	hookagents "github.com/edotau/claude-code/internal/hooks/agents"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/remote"
-	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -110,7 +109,7 @@ func agentSpec() *helptext.Node {
 		"on":       {},
 		"off":      {},
 		"setup":    {Flags: []helptext.Flag{formatFlag()}},
-		"catalog":  {},
+		"catalog":  catalogSpec(),
 	}}
 }
 
@@ -434,7 +433,7 @@ func agentPage(name string) helptext.Page {
 		{"result", "a finished job's answer + session"},
 		{"cancel", "interrupt a running job"},
 		{"setup", "binary, login, route, projection; --format json"},
-		{"catalog", "the agent's own model catalog"},
+		{"catalog", "model catalog; on Databricks: list|check|sync"},
 		{"profile", "show or set " + name + "'s harness profile pin"},
 		{"on", "route to " + name + " again"},
 		{"off", "stop routing to " + name},
@@ -485,7 +484,7 @@ var agentSubPages = map[string][2]string{
 	"result":   {"result [id] [flags]", "A finished job's answer (default: the newest), its session and resume command."},
 	"cancel":   {"cancel", "Interrupt a running %s job (default: the single running job in this repo)."},
 	"setup":    {"setup [flags]", "Check %s's binary, login, route and projection; exits 1 when one fails."},
-	"catalog":  {"catalog [--profile p]", "The %s CLI's own model catalog, or a note that it has none."},
+	"catalog":  {"catalog [list|check|sync] [flags]", "Databricks serving endpoints %s can use, or its own model catalog."},
 	"review":   {"review [flags] [focus…]", "Review a diff with %s; trailing words name the focus."},
 	"explore":  {"explore [flags] <question>", "Scan the code and research the web with %s, then return a brief."},
 	"profile":  {"profile [<profile>|--clear]", "Show %s's profile pin, or set %[1]s to <profile> (--clear unpins)."},
@@ -501,11 +500,7 @@ func agentSubPage(name, verb string) helptext.Page {
 	if strings.Contains(about, "%") {
 		about = fmt.Sprintf(about, name)
 	}
-	page := helptext.Page{Usage: "claude-code " + name + " " + sp[0], About: about}
-	if s, _ := agent.LookupSchema(name); verb == "catalog" {
-		page.Hint = s.CLI.CatalogHint
-	}
-	return page
+	return helptext.Page{Usage: "claude-code " + name + " " + sp[0], About: about}
 }
 
 // newAgentFlags makes a ContinueOnError FlagSet named "<agent> <verb>" whose -h renders the sub-verb's page.
@@ -688,30 +683,6 @@ func agentCancel(name string, args []string) int {
 		return code
 	}
 	return ask.CancelJob(name+" cancel", name, fs.Arg(0), helptext.Text)
-}
-
-// agentCatalog is `<v> catalog [--profile p] [--format f]`; only copilot takes flags.
-func agentCatalog(name string, args []string) int {
-	if opencode.IsMenuVerb(name, args) {
-		return opencode.RunMenu(args)
-	}
-	if agentSubHelp(name, "catalog", args) {
-		return 0
-	}
-	if name != "copilot" && len(args) > 0 {
-		fmt.Fprintf(os.Stderr, "error: %s catalog: unexpected argument %q\n", name, args[0])
-		return 2
-	}
-	fs := newAgentFlags(name, "catalog")
-	profile := fs.String("profile", "", "list this profile's models (default: the session profile)")
-	format := helptext.FormatFlag(fs)
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat(name+" catalog", err)
-	}
-	return ask.Catalog(name, *profile, *format, cmdModels)
 }
 
 // agentProfile is `<v> profile [<profile>] [--clear]`: show, set or clear the agent's record profile.

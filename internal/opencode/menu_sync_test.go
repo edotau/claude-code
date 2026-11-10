@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -334,7 +335,7 @@ func TestOpencodeMenuSyncHistoricalFailuresOnlyBlockNewEntries(t *testing.T) {
 
 func assertNoLegacyCheckCache(t *testing.T, msg string) {
 	t.Helper()
-	if _, err := os.Stat(CheckCachePath()); !os.IsNotExist(err) {
+	if _, err := os.Stat(catalog.CheckCachePath()); !os.IsNotExist(err) {
 		t.Fatalf("%s: %v", msg, err)
 	}
 }
