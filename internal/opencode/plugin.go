@@ -60,6 +60,7 @@ function verdict(m, payload) {
     return reason ?? incomplete(m, "malformed output")
   } catch (err) {
     if (err.status === 2) return String(err.stderr ?? "").trim() || m.name + " blocked the call"
+    if (err.code === "EPIPE" && err.status === 0) return denied(String(err.stdout ?? "")) ?? incomplete(m, "malformed output") // answered before reading stdin
     return incomplete(m, err.signal ? "timed out (" + err.signal + ")" : (err.code ?? "exit " + err.status))
   }
 }
