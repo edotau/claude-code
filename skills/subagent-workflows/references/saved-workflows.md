@@ -22,7 +22,7 @@ decision; agents work in the shared tree.
   After a 429/quota/auth failure, even mid-run, the chain runs: same model on another endpoint, GitHub copilot
   gpt-6.1-sol, another agent, BLOCKED; an editing successor checks `git diff` first. gemini defaults to Google; a
   named Databricks profile or the arm runs it there. A run preflights each external route once with
-  `claude-code gateway router`.
+  `claude-code gateway`.
   Parser: `stepOf`, verbatim in `code-analyzer`, `green-keeper-loop`, `code-evaluator`, `code-workers` and
   `code-engineer` (enforced by `workflow lint`).
 - Stages: the `// ── stages:` block (`stageGate`, `stageDetect`, `stageFix`, `stagePolish`), verbatim in
@@ -31,7 +31,7 @@ decision; agents work in the shared tree.
   `cwd`.
 - `code-engineer` is the size-routed rewrite, renamed from `orchestrate` on 2026-11-07 (A/B:
   `memory/claude-code/reports/2026-11-07-workflow-trial-decisions.md`).
-- Under Claude quota pressure (`low`/`exhausted` from `claude-code gateway router --agent claude`), the scripts step
+- Under Claude quota pressure (`low`/`exhausted` from `claude-code gateway --agent claude`), the scripts step
   their own Claude pins down one alias (opus→sonnet→haiku), fail-open. `green-keeper-loop` takes `claudeState`
   (`ok|low|exhausted|unknown`) from its caller or reads it itself; `code-analyzer` runs its gate in-script and passes
   none.

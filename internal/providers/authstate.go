@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -49,6 +50,26 @@ func MaxTierName(tier string) string {
 		return "Ultra"
 	}
 	return "Max " + m[1]
+}
+
+// DisplayName is the profile's name, "ultra" for the claude.ai login profile on a 20x tier.
+func (p *Provider) DisplayName(tier string) string {
+	if p.Provider == "anthropic" && p.Auth.Type == AuthCLI && MaxTierName(tier) == "Ultra" {
+		return "ultra"
+	}
+	return p.Name
+}
+
+// AccountLabel is an account key for display, its profile named by DisplayName ("anthropic·max" → "anthropic·ultra").
+func AccountLabel(reg *Registry, account, tier string) string {
+	p, err := reg.Get(account)
+	if err != nil {
+		return account
+	}
+	if base, ok := strings.CutSuffix(account, p.Name); ok {
+		return base + p.DisplayName(tier)
+	}
+	return account
 }
 
 // ClaudeOAuthAccount is the oauthAccount block of ~/.claude.json.

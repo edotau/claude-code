@@ -68,41 +68,30 @@ func TestGatewayBareShowsRouteAndProxyFooter(t *testing.T) {
 	}
 }
 
-// TestGatewayBareJSONShape: bare --format json nests the unchanged route payload beside the proxy state.
+// TestGatewayBareJSONShape: --format json keeps the route fields at the top level beside the proxy state.
 func TestGatewayBareJSONShape(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	code, stdout, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	var got struct {
-		Route map[string]json.RawMessage `json:"route"`
-		Proxy map[string]json.RawMessage `json:"proxy"`
-	}
-	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(stdout), &top); err != nil {
 		t.Fatalf("not JSON: %v\n%s", err, stdout)
 	}
-	for _, k := range []string{"model", "weights", "candidates", "sources"} {
-		if _, ok := got.Route[k]; !ok {
-			t.Errorf("route payload missing %q", k)
+	for _, k := range []string{"model", "weights", "candidates", "sources", "proxy"} {
+		if _, ok := top[k]; !ok {
+			t.Errorf("payload missing top-level %q", k)
 		}
 	}
-	for _, k := range []string{"running", "fallback"} {
-		if _, ok := got.Proxy[k]; !ok {
-			t.Errorf("proxy payload missing %q", k)
-		}
-	}
-	// gateway router alone stays the bare route payload (no wrapper).
-	_, rout, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"router", "--format", "json"}) })
-	var plain map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(rout), &plain); err != nil {
+	var proxy map[string]json.RawMessage
+	if err := json.Unmarshal(top["proxy"], &proxy); err != nil {
 		t.Fatal(err)
 	}
-	if _, wrapped := plain["route"]; wrapped {
-		t.Error("gateway router json must not be wrapped")
-	}
-	if _, ok := plain["model"]; !ok {
-		t.Error("gateway router json lost its top-level model")
+	for _, k := range []string{"running", "fallback"} {
+		if _, ok := proxy[k]; !ok {
+			t.Errorf("proxy payload missing %q", k)
+		}
 	}
 }
 

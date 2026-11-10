@@ -116,7 +116,7 @@ Default menu (the live list varies per profile: `claude-code opencode catalog li
 
 - **Let the router pick** unless the brief names a model: `ask --agent opencode` routes by alias over the pinned
   profile (opencode's pin: `dev`) on price + headroom. Preview with
-  `claude-code gateway router --agent opencode --model <alias> [--task "<t>"]`.
+  `claude-code gateway --agent opencode --model <alias> [--task "<t>"]`.
 - **Name one** with `--model <id>` (an id off the profile's menu is refused); `--profile <p>` bills another profile.
 - **Compare or rotate** across models through `/opencode` (`model=<m>`, `discovery`); report which model answered
   (the `ask: ran on …` line).

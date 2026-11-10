@@ -93,7 +93,7 @@ func quotaFix(key string) string {
 	case strings.HasPrefix(key, "opencode·"):
 		return "routed around; `opencode auth login` changes opencode's login"
 	}
-	return "routed around until the reset; `claude-code gateway router` shows the pick"
+	return "routed around until the reset; `claude-code gateway` shows the pick"
 }
 
 // formatsDoctorChecks returns the soft "formats" row.

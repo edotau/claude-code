@@ -86,7 +86,7 @@ func assertRouteJSONSkipsAndLast(t *testing.T, res routeJSON) {
 func TestRouteVerbJSON(t *testing.T) {
 	routeJSONFixture(t)
 	out, code := captureRouteStdout(t, func() int {
-		return cmdGatewayRouter([]string{"--model", "sonnet", "--agent", "copilot", "--format", "json"})
+		return gatewayRoute([]string{"--model", "sonnet", "--agent", "copilot", "--format", "json"})
 	})
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
@@ -99,7 +99,7 @@ func TestRouteVerbJSON(t *testing.T) {
 		t.Fatalf("res = %+v", res)
 	}
 	assertRouteJSONSkipsAndLast(t, res)
-	if code := cmdGatewayRouter([]string{"--model", "fable"}); code == 0 {
+	if code := gatewayRoute([]string{"--model", "fable"}); code == 0 {
 		t.Error("an unrouted alias must fail")
 	}
 }
@@ -112,7 +112,7 @@ type routeSourcesJSON struct {
 
 func fetchRouteSources(t *testing.T) routeSourcesJSON {
 	t.Helper()
-	out, code := captureRouteStdout(t, func() int { return cmdGatewayRouter([]string{"--model", "sonnet", "--format", "json"}) })
+	out, code := captureRouteStdout(t, func() int { return gatewayRoute([]string{"--model", "sonnet", "--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
 	}
@@ -149,7 +149,7 @@ func TestRouteVerbSourcesNameWhereEachKnobCameFrom(t *testing.T) {
 		t.Errorf("weights source = %q, want vault even though the value equals the default", withOverlay.Sources.Weights)
 	}
 
-	textOut, code := captureRouteStdout(t, func() int { return cmdGatewayRouter([]string{"--model", "sonnet"}) })
+	textOut, code := captureRouteStdout(t, func() int { return gatewayRoute([]string{"--model", "sonnet"}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, textOut)
 	}
@@ -183,7 +183,7 @@ func TestRouteEndsNamesResolvedClaudeAccount(t *testing.T) {
 	ask.RouteRefresh = func(context.Context, string) bool { return false }
 	t.Cleanup(func() { agent.ResolveAccount, ask.RouteRefresh = oldAcct, oldRefresh })
 
-	out, code := captureRouteStdout(t, func() int { return gatewayRoute([]string{"--model", "sonnet", "--format", "json"}, false) })
+	out, code := captureRouteStdout(t, func() int { return gatewayRoute([]string{"--model", "sonnet", "--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
 	}
@@ -226,7 +226,6 @@ func TestGatewayRouteRejectsStrayArgument(t *testing.T) {
 		name string
 		args []string
 	}{
-		{"router", []string{"router", "--model", "sonnet", "typo"}},
 		{"bare", []string{"--model", "sonnet", "typo"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -299,7 +298,7 @@ func assertPreviewMatchesChain(t *testing.T, got routeJSON, chain agent.Chain, o
 	return strings.Join(skips, "\n")
 }
 
-// TestRouterPreviewMatchesDispatch: `gateway router` lists the candidates, models and skips `ask` would route.
+// TestRouterPreviewMatchesDispatch: `gateway` lists the candidates, models and skips `ask` would route.
 func TestRouterPreviewMatchesDispatch(t *testing.T) {
 	cases := []struct {
 		name, model string
@@ -314,7 +313,7 @@ func TestRouterPreviewMatchesDispatch(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			marker := parityEnv(t, "astra-par", tc.responses)
 			out, code := captureRouteStdout(t, func() int {
-				return gatewayRoute([]string{"--agent", "codex", "--model", tc.model, "--fallback", "agents", "--format", "json"}, false)
+				return gatewayRoute([]string{"--agent", "codex", "--model", tc.model, "--fallback", "agents", "--format", "json"})
 			})
 			if code != 0 {
 				t.Fatalf("preview exit %d: %s", code, out)
@@ -447,7 +446,7 @@ func TestRenderGatewayRouteFailsWhenStdoutFull(t *testing.T) {
 	os.Stdout = full
 	t.Cleanup(func() { os.Stdout = orig })
 	res := router.PickResult{Alias: "m", Weights: map[string]float64{}}
-	if code := renderGatewayRoute("gateway router", res, "", false); code == 0 {
+	if code := renderGatewayRoute("gateway", res, ""); code == 0 {
 		t.Fatal("exit 0 despite a failed stdout write")
 	}
 }
@@ -467,7 +466,7 @@ func TestNewRouteJSONEndsIsFirstClaudeAccount(t *testing.T) {
 // TestGatewayRouteUnknownProfileIsAUsageError: a --profile that cannot lead exits 2 and names it, with no route output.
 func TestGatewayRouteUnknownProfileIsAUsageError(t *testing.T) {
 	vaulttest.Use(t)
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return gatewayRoute([]string{"--profile", "nope"}, false) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return gatewayRoute([]string{"--profile", "nope"}) })
 	if code != 2 || stdout != "" || !strings.Contains(stderr, "nope") {
 		t.Fatalf("want exit 2, no stdout, stderr naming the profile; got exit %d stdout %q stderr %q", code, stdout, stderr)
 	}

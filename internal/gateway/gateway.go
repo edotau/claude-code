@@ -17,37 +17,20 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-var gatewayPage = helptext.Page{
-	Usage: "claude-code gateway [command] [flags]",
-	About: "Where a request goes: the agent + model pick (router) and the loopback proxy\n" +
-		"(proxy). Bare: the router pick, then the proxy status.",
-	Commands: [][2]string{
-		{"router", "which agent + model a task routes to, and why"},
-		{"proxy", "the loopback proxy: --start|--stop|--restart|--status|--serve"},
-		{"token", "print only the proxy credential for a credential helper"},
-	},
-	Hint: "claude-code gateway <command> -h lists that command's flags.",
-}
-
 // Run dispatches the gateway verb tree.
 func Run(args []string) int {
 	if len(args) > 0 {
 		switch args[0] {
-		case "-h", "--help", "help":
-			gatewayPage.Fprint(os.Stderr)
-			return 0
-		case "router":
-			return cmdGatewayRouter(args[1:])
 		case "proxy":
 			return cmdGatewayProxy(args[1:])
 		case "token":
 			return cmdGatewayToken(args[1:])
 		}
 		if !strings.HasPrefix(args[0], "-") {
-			return helptext.Fail("gateway: unknown command %q (router|proxy|token)", args[0])
+			return helptext.Fail("gateway: unknown command %q (proxy)", args[0])
 		}
 	}
-	return gatewayRoute(args, true)
+	return gatewayRoute(args)
 }
 
 // printProxyState renders the proxy status block and writes it once; a write error is returned.
