@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/gateway"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -783,4 +784,10 @@ func TestStalledLargeUploadFailsOverWithinAttemptBound(t *testing.T) {
 	if !interruptedWrite.Load() {
 		t.Fatal("upload completed before cancellation; regression did not exercise a stalled write")
 	}
+}
+
+// TestMain runs hermetically (hosttest) and treats this test binary as the proxy process.
+func TestMain(m *testing.M) {
+	gateway.HolderComm = func(int) string { return "claude-code" }
+	os.Exit(hosttest.Main(m))
 }

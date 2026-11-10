@@ -1,6 +1,11 @@
 package inflight
 
-import "testing"
+import (
+	"os"
+	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
+)
 
 func TestSessionOwner(t *testing.T) {
 	originalGetppid, originalComm, originalParent := sessionGetppid, sessionComm, sessionParent
@@ -44,3 +49,5 @@ func TestSessionOwner(t *testing.T) {
 		})
 	}
 }
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

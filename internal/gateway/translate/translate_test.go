@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"testing/iotest"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func init() { newID = func(prefix string) string { return prefix + "test" } }
@@ -720,3 +722,5 @@ func TestCountTokensMalformedContent(t *testing.T) {
 		})
 	}
 }
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

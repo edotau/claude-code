@@ -6,8 +6,11 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // staticClient wires a Client at ts.URL with a fixed bearer, bypassing credential resolution.
@@ -292,3 +295,5 @@ func TestRequestErrorBodyIsCapped(t *testing.T) {
 		t.Fatalf("want error with body capped near 4KiB, got %v", err != nil)
 	}
 }
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

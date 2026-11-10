@@ -330,3 +330,13 @@ func TestCleanAtWarnsWhenBranchNotDetected(t *testing.T) {
 		t.Fatalf("log = %q, want a branch-not-detected warning", log.String())
 	}
 }
+
+// TestMain pins every state/config path to a temp dir so no test can touch the real ~/.claude, and git startup is trimmed by hosttest.
+func TestMain(m *testing.M) {
+	cleanup := hosttest.Setup()
+	StubProcessScanForTest()
+	code := m.Run()
+	cleanup()
+	hosttest.Cleanup()
+	os.Exit(code)
+}

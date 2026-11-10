@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestPageLayout(t *testing.T) {
@@ -744,3 +746,5 @@ func TestHelpGuardFixtures(t *testing.T) {
 		})
 	}
 }
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

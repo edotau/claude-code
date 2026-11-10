@@ -8,6 +8,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestArgvPreservesTrailingEmptyArguments(t *testing.T) {
@@ -110,3 +112,5 @@ func TestSpawnDetachedNilOutKeepsStdioOpen(t *testing.T) {
 		t.Fatalf("child write exit codes (stdout, stderr) = %q; want \"00\\n\" (fds closed instead of /dev/null)", got)
 	}
 }
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

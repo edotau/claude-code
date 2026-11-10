@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestSyncCheckReportsPruneReadError(t *testing.T) {
@@ -65,3 +67,6 @@ func TestLegacySkillPrunePreservesMarkerForRetry(t *testing.T) {
 		})
 	}
 }
+
+// TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

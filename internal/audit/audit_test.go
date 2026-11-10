@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestLogReadRoundTripAndDropsInvalid(t *testing.T) {
@@ -231,3 +233,5 @@ func TestLogTightensExistingModes(t *testing.T) {
 		t.Errorf("file mode = %v, want 0600", fi.Mode().Perm())
 	}
 }
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

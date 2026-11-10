@@ -368,3 +368,9 @@ func TestSecretREMatchesCommonProviderKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestMain(m *testing.M) {
+	code := hosttest.Main(m)
+	hosttest.Cleanup()
+	os.Exit(code)
+}

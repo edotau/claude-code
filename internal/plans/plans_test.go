@@ -5,9 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // hermetic points the harness config dir (plans.lock lives under StateDir) at a temp dir.
@@ -627,3 +630,29 @@ func TestCoversAbsoluteOwnsMatchRepoRelativeFiles(t *testing.T) {
 		t.Error("absolute entry for a different file must not be covered")
 	}
 }
+
+func TestCommitFilesPreservesLeadingNewline(t *testing.T) {
+	hermetic(t)
+	repo, _ := tickRangeRepo(t)
+	writeFile(t, filepath.Join(repo, "foo.go"), "unchanged\n")
+	gitT(t, repo, "add", "foo.go")
+	gitT(t, repo, "commit", "-q", "-m", "ordinary path")
+	writeFile(t, filepath.Join(repo, "\nfoo.go"), "changed\n")
+	gitT(t, repo, "add", "\nfoo.go")
+	gitT(t, repo, "commit", "-q", "-m", "newline path")
+	files, err := CommitFiles(context.Background(), repo, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(files, []string{"\nfoo.go"}) {
+		t.Fatalf("CommitFiles = %q, want only the newline-prefixed path", files)
+	}
+	plan := filepath.Join(t.TempDir(), "plan.md")
+	body := "- [ ] 1.1 Ordinary file owns: foo.go\n"
+	writeFile(t, plan, body)
+	ticked, partial := tickOK(t, plan, "abc1234", files...)
+	wantTicks(t, "unchanged ordinary path", ticked, partial, 0, "", 0)
+	wantBytes(t, plan, "unchanged ordinary path", body)
+}
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // fakeWlPaste installs a wl-paste script as the only PATH entry; body runs with $1 = first arg.
@@ -146,3 +148,5 @@ func TestGrabMac(t *testing.T) {
 		t.Errorf("temp file left behind: %s", p)
 	}
 }
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
