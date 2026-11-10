@@ -201,9 +201,9 @@ func armTiers(r PickResult) (tier1, tier2 []string) {
 func TestArmAdmitDropsOffRouteAccount(t *testing.T) {
 	l := pickLadder{arm: "dev", armAccount: "databricks·dev"}
 	res := &PickResult{}
-	got := l.admit([]Candidate{{Agent: "codex", Cell: Cell{Account: "databricks·dev"}},
-		{Agent: "codex", Cell: Cell{Account: "openai·chatgpt"}}, {Agent: "opencode", Cell: Cell{Account: "opencode·zen-free"}},
-		{Agent: "codex", Cell: Cell{Account: "databricks·qa"}}}, res)
+	got := l.admit([]Candidate{{Agent: "codex", Account: "databricks·dev"},
+		{Agent: "codex", Account: "openai·chatgpt"}, {Agent: "opencode", Account: "opencode·zen-free"},
+		{Agent: "codex", Account: "databricks·qa"}}, res)
 	if len(got) != 2 || got[0].Account != "databricks·dev" || got[1].Account != "openai·chatgpt" {
 		t.Errorf("admitted %+v, want dev and chatgpt", got)
 	}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -19,6 +18,8 @@ import (
 	"syscall"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tokenledger"

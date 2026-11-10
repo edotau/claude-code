@@ -247,7 +247,7 @@ func armPinSkip(agent, pin, arm string, own []string, res *PickResult) {
 	}
 	label := agent + "·" + pin // an opencode sub id is no registry row
 	if agent != "opencode" || !slices.Contains(providers.RouteOpencodeSubIDs, pin) {
-		label = skipLabel(Candidate{Agent: agent, Cell: Cell{Account: ProviderAccount(pin)}})
+		label = skipLabel(Candidate{Agent: agent, Account: ProviderAccount(pin)})
 	}
 	res.Skipped = append(res.Skipped, Skip{label, gateLadder, armOutside(arm)})
 }

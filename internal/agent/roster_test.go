@@ -5,14 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // fixtureDriver stands in for a vendor driver, which this package cannot import: base defaults, no CLI to exec.
@@ -275,4 +279,356 @@ func TestRegisterPanicsOnUnknownAgent(t *testing.T) {
 		}
 	}()
 	Register(Agent{Row: Schema{Name: "bogus"}, Driver: fixtureDriver{NewBaseEngine("bogus")}})
+}
+
+// A shell model env beats the vault model pin for a CLI agent.
+func TestAgentModelPinShellEnvBeatsVault(t *testing.T) {
+	hermetic(t, `{"fallback": [], "providers": {}}`)
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Model: "vault-model"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := AgentModelPin("codex"); got != "vault-model" {
+		t.Fatalf("vault pin = %q", got)
+	}
+	t.Setenv("CODEX_MODEL", "shell-model")
+	if got := AgentModelPin("codex"); got != "shell-model" {
+		t.Errorf("AgentModelPin = %q, want shell-model", got)
+	}
+}
+
+func putRawPins(t *testing.T, pins map[string]string) {
+	t.Helper()
+	if err := vault.Update(func(tx *vault.Tx) error {
+		for k, v := range pins {
+			if err := tx.Put(vault.Pins, k, v); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Given unmigrated legacy pins in every shape, the records answer AgentActive and carry the same state.
+func TestLegacyPinsDriveAgentActiveAndRecords(t *testing.T) {
+	vaulttest.Use(t)
+	putRawPins(t, map[string]string{
+		"CODEX_PROFILE": "chatgpt", "COPILOT_PROFILE": "personal", "COPILOT_ACTIVE": "off",
+		"COPILOT_GITHUB_USER": "alice", "GEMINI_PROFILE": "antigravity", "OPENCODE_MODEL": "m", "OPENCODE_ACTIVE": "off",
+	})
+	for agent, want := range map[string]bool{"claude": true, "codex": true, "gemini": true, "copilot": false, "opencode": false} {
+		if got := AgentActive(agent); got != want {
+			t.Errorf("AgentActive(%s) = %v, want %v", agent, got, want)
+		}
+	}
+	if r := vault.GetAgentRecord("copilot"); r.Account != "alice" || r.Profile != "" {
+		t.Errorf("copilot record = %+v, want account alice and no profile", r)
+	}
+	if r := vault.GetAgentRecord("opencode"); r.Model != "m" {
+		t.Errorf("opencode record = %+v, want the model kept while off", r)
+	}
+}
+
+// An unmigrated vault's raw pin makes the agent on and never reads as every agent off.
+func TestUnmigratedRawPinIsNotReadAsOff(t *testing.T) {
+	vaulttest.Use(t)
+	putRawPins(t, map[string]string{"COPILOT_PROFILE": "dev"})
+	if got := vault.GetAgentRecord("copilot").Profile; got != "dev" {
+		t.Fatalf("copilot profile = %q, want dev", got)
+	}
+}
+
+// SetAgentRecord round-trips, and an empty profile turns an external agent off.
+func TestSetAgentRecordRoundTripAndOff(t *testing.T) {
+	vaulttest.Use(t)
+	if err := vault.SetAgentRecord("gemini", vault.AgentRecord{Profile: "antigravity", Model: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	if r := vault.GetAgentRecord("gemini"); r.Profile != "antigravity" || r.Model != "g" || !AgentActive("gemini") {
+		t.Fatalf("gemini = %+v active=%v", r, AgentActive("gemini"))
+	}
+	if err := vault.SetAgentRecord("gemini", vault.AgentRecord{Model: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	if AgentActive("gemini") || vault.GetAgentRecord("gemini").Model != "g" {
+		t.Fatalf("gemini with no profile must be off keeping its model: %+v", vault.GetAgentRecord("gemini"))
+	}
+}
+
+// vault.OwnLoginProfiles must name the built-in rows with auth.login == agent, and opencode's Zen id.
+func TestOwnLoginProfilesMatchBuiltInDefaults(t *testing.T) {
+	vaulttest.Use(t)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range vault.LegacyAgents[1:] {
+		want := vault.OwnLoginProfiles[a]
+		if a == "opencode" {
+			if want != "zen-free" {
+				t.Errorf("opencode own login = %q, want %q", want, "zen-free")
+			}
+			continue
+		}
+		if !ownLogin(func() *providers.Registry { return reg }, a, want) {
+			t.Errorf("%s: %q is not a built-in row with auth.login == %s", a, want, a)
+		}
+	}
+}
+
+func TestAgentPinsRejectUnreadableRecords(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, "{")
+	pins, err := AgentPins()
+	if err == nil || !strings.Contains(err.Error(), "agent pins: vault: agent-records is corrupt") || pins != nil {
+		t.Fatalf("AgentPins = %v, %v; want no pins and the vault read error", pins, err)
+	}
+	if _, err := RosterPick(router.PickOpts{}); err == nil || !strings.Contains(err.Error(), "agent-records is corrupt") {
+		t.Fatalf("RosterPick error = %v", err)
+	}
+}
+
+func TestAgentPinsRejectVaultIOError(t *testing.T) {
+	dir := vaulttest.Use(t)
+	if err := os.WriteFile(filepath.Join(dir, "state"), []byte("not a directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	pins, err := AgentPins()
+	var pathErr *os.PathError
+	if pins != nil || !errors.As(err, &pathErr) {
+		t.Fatalf("AgentPins = %v, %v; want no pins and the wrapped filesystem error", pins, err)
+	}
+}
+
+// Ties agentModelEnv to the four external agents' model knobs; claude has none.
+func TestAgentModelEnvPinsTheExternalAgents(t *testing.T) {
+	want := map[string]string{"codex": "CODEX_MODEL", "copilot": "COPILOT_MODEL", "gemini": "GEMINI_MODEL", "opencode": "OPENCODE_MODEL"}
+	if !reflect.DeepEqual(agentModelEnv, want) {
+		t.Errorf("agentModelEnv = %v, want %v", agentModelEnv, want)
+	}
+}
+
+const (
+	sessProfile       = "profile-r7"
+	sessGithubProfile = "profile-k3"
+	sessGPT           = "gpt-6-1-sol"
+	sessClaude        = "claude-sonnet-5-5"
+)
+
+// sessFix is a Databricks session profile plus a github copilot profile, with github already exhausted.
+type sessFix struct {
+	p           *providers.Provider
+	tb          *router.RouteTable
+	dbx, github string
+	st          router.State
+	opts        router.PickOpts
+}
+
+func newSessFix(t *testing.T) *sessFix {
+	t.Helper()
+	vaulttest.Use(t)
+	t.Setenv("CLAUDE_PROFILE", sessProfile)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{`+
+		`"databricks":{"`+sessProfile+`":{"preset":"databricks","host":"https://profile.example.com",`+
+		`"auth":{"type":"pat"},"models":{"sonnet":"`+sessClaude+`"}}},`+
+		`"github":{"`+sessGithubProfile+`":{"protocol":"openai","base_url":"https://api.githubcopilot.com",`+
+		`"auth":{"type":"cli","login":"copilot"},"models":{"sonnet":"auto"}}}}}`)
+	if err := providers.SetOpencodeMenu([]providers.OpencodeModel{{ID: sessGPT, Label: "GPT", Responses: true}}); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := reg.Providers[sessProfile]
+	if p == nil {
+		t.Fatal("profile absent")
+	}
+	vaulttest.Secret(t, providers.AuthSecretName(p), "profile-auth")
+	vaulttest.SetRecord(t, "copilot", "profile", sessGithubProfile)
+	activateAgents(t, "codex", "opencode")
+	tb, err := router.LoadFrom(reg, sessGithubProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbx, github := router.ProviderAccount(sessProfile), router.ProviderAccount(sessGithubProfile)
+	return &sessFix{p: p, tb: tb, dbx: dbx, github: github,
+		st:   router.State{github: {UsedPct: 100, Seen: now0, ExhaustedUntil: now0.Add(time.Hour)}},
+		opts: router.PickOpts{Configured: allConfigured, Now: func() time.Time { return now0 }, WorkRepo: func() bool { return true }}}
+}
+
+func (s *sessFix) pickAgent(t *testing.T, agent string, state router.State, opts router.PickOpts) router.PickResult {
+	t.Helper()
+	opts, err := RosterPick(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.tb.Pick(context.Background(), "sonnet", agent, state, opts)
+}
+
+func (s *sessFix) models(r router.PickResult, agent, account string) []router.Candidate {
+	var out []router.Candidate
+	for _, c := range r.Candidates {
+		if c.Agent == agent && c.Account == account {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func (s *sessFix) assertProfile(t *testing.T, c router.Candidate, agent, model string) {
+	t.Helper()
+	if c.Agent != agent || c.Account != s.dbx || c.Profile != sessProfile || c.Model != model {
+		t.Errorf("agent = %+v, want %s %s profile %s model %s", c, agent, s.dbx, sessProfile, model)
+	}
+}
+
+func (s *sessFix) skipped(r router.PickResult, agent, gate string) bool {
+	return slices.ContainsFunc(r.Skipped, func(k router.Skip) bool {
+		return strings.Split(k.Agent, "·")[0] == agent && k.Gate == gate
+	})
+}
+
+func TestSessionProfileAgentsCopilot(t *testing.T) {
+	s := newSessFix(t)
+	r := s.pickAgent(t, "copilot", s.st, s.opts)
+	if len(r.Candidates) == 0 {
+		t.Fatalf("copilot absent: %+v", r)
+	}
+	s.assertProfile(t, r.Candidates[0], "copilot", s.p.WireModel(s.p.Models["sonnet"]))
+	if len(s.models(r, "copilot", s.github)) != 0 || !s.skipped(r, "copilot", router.GateExhausted) {
+		t.Errorf("copilot github profile = %+v", r)
+	}
+}
+
+func TestSessionProfileAgentsCodex(t *testing.T) {
+	s := newSessFix(t)
+	r := s.pickAgent(t, "codex", s.st, s.opts)
+	if len(r.Candidates) < 3 {
+		t.Fatalf("codex/copilot absent: %+v", r)
+	}
+	own, _ := s.tb.Cell("codex", "sonnet")
+	if c := r.Candidates[0]; c.Agent != "codex" || c.Account != own.Account || c.Model != own.Model || c.Profile != "" {
+		t.Errorf("codex = %+v, want %+v", c, own)
+	}
+	s.assertProfile(t, r.Candidates[1], "codex", providers.FirstResponsesModel(s.p))
+	s.assertProfile(t, r.Candidates[2], "copilot", r.Candidates[1].Model)
+	if n := len(s.models(r, "copilot", s.dbx)); n != 1 {
+		t.Errorf("copilot rows on the session account = %d, want 1: %+v", n, r.Candidates)
+	}
+	seen := map[string]bool{}
+	for _, c := range s.models(r, "copilot", s.dbx) {
+		if seen[c.Model] {
+			t.Errorf("copilot profile model repeated: %+v", c)
+		}
+		seen[c.Model] = true
+	}
+}
+
+func TestSessionProfileAgentsCopilotAuth(t *testing.T) {
+	s := newSessFix(t)
+	blocked := s.opts
+	blocked.Configured = func(agent string, c router.Cell) error {
+		if agent == "copilot" && c.Account == s.dbx {
+			return errors.New("profile auth")
+		}
+		return nil
+	}
+	for _, agent := range []string{"copilot", "codex"} {
+		r := s.pickAgent(t, agent, s.st, blocked)
+		if len(s.models(r, "copilot", s.dbx)) != 0 || !s.skipped(r, "copilot", router.GateAvailable) {
+			t.Errorf("%s copilot profile auth = %+v", agent, r)
+		}
+	}
+}
+
+func TestSessionProfileAgentsCopilotOff(t *testing.T) {
+	s := newSessFix(t)
+	vaulttest.SetRecord(t, "copilot", "profile", "")
+	if r := s.pickAgent(t, "codex", s.st, s.opts); slices.ContainsFunc(r.Candidates, func(c router.Candidate) bool { return c.Agent == "copilot" }) {
+		t.Errorf("copilot off = %+v", r)
+	}
+}
+
+func TestSessionProfileAgentsProfileAuth(t *testing.T) {
+	s := newSessFix(t)
+	for _, state := range []struct {
+		gate  string
+		entry router.Entry
+	}{
+		{router.GateAuth, router.Entry{AuthAt: now0, AuthReason: "profile auth"}},
+		{router.GateExhausted, router.Entry{Seen: now0, ExhaustedUntil: now0.Add(time.Hour)}},
+	} {
+		blocked := router.State{s.github: s.st[s.github], s.dbx: state.entry}
+		for _, agent := range []string{"copilot", "codex"} {
+			r := s.pickAgent(t, agent, blocked, s.opts)
+			if len(s.models(r, "copilot", s.dbx)) != 0 || !s.skipped(r, "copilot", state.gate) {
+				t.Errorf("%s copilot profile %s = %+v", agent, state.gate, r)
+			}
+		}
+	}
+}
+
+func TestSessionProfileAgentsCopilotProfile(t *testing.T) {
+	s := newSessFix(t)
+	vaulttest.SetRecord(t, "copilot", "profile", sessProfile)
+	only := s.opts
+	only.Fallback = router.FallbackNone
+	r := s.pickAgent(t, "copilot", s.st, only)
+	if len(r.Candidates) != 1 {
+		t.Fatalf("copilot profile = %+v", r)
+	}
+	s.assertProfile(t, r.Candidates[0], "copilot", s.p.WireModel(s.p.Models["sonnet"]))
+}
+
+func TestSessionProfileAgentsCopilotModel(t *testing.T) {
+	s := newSessFix(t)
+	cell := s.tb.Rows["copilot"]["sonnet"]
+	cell.Account, cell.Model = s.dbx, s.p.WireModel(s.p.Models["sonnet"])
+	s.tb.Rows["copilot"]["sonnet"] = cell
+	only := s.opts
+	only.Fallback = router.FallbackNone
+	if r := s.pickAgent(t, "copilot", s.st, only); len(r.Candidates) != 1 || r.Candidates[0].Cell != cell {
+		t.Errorf("copilot profile model = %+v, want %+v", r, cell)
+	}
+}
+
+func TestSessionProfileAgentsCodexHopModel(t *testing.T) {
+	s := newSessFix(t)
+	own, _ := s.tb.Cell("codex", "sonnet")
+	own.Effort = "high"
+	s.tb.Rows["codex"]["sonnet"] = own
+	menu := []providers.OpencodeModel{{ID: sessGPT, Label: "GPT", Responses: true}, {ID: own.Model, Label: "Own", Responses: true}}
+	if err := providers.SetOpencodeMenu(menu); err != nil {
+		t.Fatal(err)
+	}
+	r := s.pickAgent(t, "codex", s.st, s.opts)
+	hops := 0
+	for _, c := range r.Candidates {
+		if c.Account != s.dbx || c.Agent == "claude" {
+			continue
+		}
+		hops++
+		if c.Model != s.p.WireModel(own.Model) || c.Effort != "high" {
+			t.Errorf("hop = %+v, want model %s effort high", c, s.p.WireModel(own.Model))
+		}
+	}
+	if hops != 2 {
+		t.Errorf("hops = %d, want 2: %+v", hops, r.Candidates)
+	}
+}
+
+// A candidate dropped after the pick must not lend its slot to the next survivor of the same agent and account.
+func TestPreviewOutcomeMatchesByRungNotPosition(t *testing.T) {
+	cell := func(m string) router.Cell { return router.Cell{Model: m} }
+	pick := router.PickResult{Candidates: []router.Candidate{
+		{Agent: "codex", Cell: cell("m1"), Profile: "A"},
+		{Agent: "codex", Cell: cell("m2"), Profile: "B"},
+	}}
+	chain := Chain{Dispatches: []Dispatch{{Agent: &pinFallbackRunner{name: "codex"}, Model: "m2", rung: 2}}}
+	got := previewOutcome(chain, pick).Candidates
+	if len(got) != 1 || got[0].Profile != "B" || got[0].Model != "m2" {
+		t.Fatalf("candidates = %+v, want only rung 2 (profile B, model m2)", got)
+	}
 }

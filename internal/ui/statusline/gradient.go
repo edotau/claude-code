@@ -158,6 +158,7 @@ func (b *cellBuf) pushContextBlock(v values, sepMajor string) bool {
 	b.pushSep(sepMajor)
 	d := v.two
 	bar := twoBar(d.ctxPct, 10)
+	b.push("ctx ", "g")
 	filled := strings.TrimRight(bar, "─")
 	b.push(filled, "filled")
 	b.push(bar[len(filled):], "empty")

@@ -97,7 +97,7 @@ var writers = map[string]string{
 	"internal/hooks/quality/stop_format.go:StopFormat":                "stop-format",
 	"internal/memory/watch.go:spawnIdleWatcher":                       unversioned("marker: idle watcher claim file"),
 	"internal/launch/install_steps.go:copyBinary":                     unversioned("foreign: installed binary"),
-	"internal/agent/launcher.go:WriteFiles":                           unversioned("per-launch 0600 files: settings-overlay row; copilot's foreign registry"),
+	"internal/agent/launch.go:WriteFiles":                             unversioned("per-launch 0600 files: settings-overlay row; copilot's foreign registry"),
 	"internal/claude/science.go:scienceDefaultsFile":                  unversioned("foreign: science TOML defaults for a vendor"),
 	"internal/launch/tmux.go:seedTmuxConf":                            unversioned("foreign: user tmux.conf"),
 	"internal/doctor/mcphealth.go:mcpList":                            unversioned("foreign: temp output of claude mcp list"),
