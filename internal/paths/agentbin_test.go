@@ -278,3 +278,24 @@ func TestAgentBinAbsolutizesRelativeEnvDir(t *testing.T) {
 		t.Errorf("AgentBin(codex) = %q, want an absolute path", got)
 	}
 }
+
+// TestBinKeyTracksSizeAndMtime: a rewrite of the same path changes the key; a missing path has none.
+func TestBinKeyTracksSizeAndMtime(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "tool")
+	if _, ok := paths.BinKey(bin); ok {
+		t.Fatal("BinKey of a missing file reported ok")
+	}
+	if err := os.WriteFile(bin, []byte("v1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	k1, ok := paths.BinKey(bin)
+	if !ok || !strings.HasPrefix(k1, bin+"|2|") {
+		t.Fatalf("BinKey = %q, %v; want path|size|mtime", k1, ok)
+	}
+	if err := os.WriteFile(bin, []byte("v22"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if k2, _ := paths.BinKey(bin); k2 == k1 {
+		t.Errorf("BinKey unchanged after an upgrade: %q", k2)
+	}
+}

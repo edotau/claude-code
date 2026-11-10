@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -149,7 +148,5 @@ func codexRouteDetail() string {
 
 // codexStatus runs `codex login status` on the scrubbed agent env; tests replace it so none of it reaches the real CLI.
 var codexStatus = func(ctx context.Context, bin string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, bin, "login", "status")
-	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(ctx)
-	return cmd.CombinedOutput()
+	return agent.ProbeCLI(ctx, bin, agent.EnvSpec{Mode: agent.EnvAgent}, true, "login", "status")
 }

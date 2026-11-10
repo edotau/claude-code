@@ -15,6 +15,7 @@ import (
 	_ "github.com/edotau/claude-code/internal/codex" // register the codex, copilot and opencode rows
 	_ "github.com/edotau/claude-code/internal/copilot"
 	_ "github.com/edotau/claude-code/internal/opencode"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestParseVersion(t *testing.T) {
@@ -169,7 +170,7 @@ func TestAgentVersionCacheShapeMismatchIsMissThenWritesSchema1(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			bin, counter := probeFixture(t, "echo 'fake 7.1.0'")
 			resetMemo()
-			key, ok := versionKey(bin)
+			key, ok := paths.BinKey(bin)
 			if !ok {
 				t.Fatal("no key")
 			}

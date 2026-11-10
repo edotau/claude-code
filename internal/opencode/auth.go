@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -44,9 +43,7 @@ var opencodeOutput = func(ctx context.Context, args ...string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(ctx) // never hand the vendor CLI HARNESS_VAULT_KEY
-	return cmd.Output()
+	return agent.ProbeCLI(ctx, bin, agent.EnvSpec{Mode: agent.EnvAgent}, false, args...) // never hand it HARNESS_VAULT_KEY
 }
 
 var (
@@ -71,8 +68,8 @@ func opencodeBinKey() string {
 	if err != nil {
 		return ""
 	}
-	if fi, err := os.Stat(p); err == nil {
-		return fmt.Sprintf("%s|%d|%d", p, fi.Size(), fi.ModTime().UnixNano())
+	if key, ok := paths.BinKey(p); ok {
+		return key
 	}
 	return p
 }
@@ -101,7 +98,7 @@ func opencodeMajor(key string) (int, error) {
 	defer cancel()
 	out, err := opencodeOutput(ctx, "--version")
 	if err != nil {
-		return 0, fmt.Errorf("opencode --version: %s", execErrDetail(err))
+		return 0, fmt.Errorf("opencode --version: %s", agent.ProbeErrDetail(err))
 	}
 	v := textutil.VersionMajor(string(out))
 	storeOpencodeMajor(key, v)
@@ -219,26 +216,13 @@ func opencodeAuthV2() ([]OpencodeIntegration, error) {
 	defer cancel()
 	out, err := opencodeOutput(ctx, "auth", "list", "--format", "json", "--standalone")
 	if err != nil {
-		return nil, fmt.Errorf("opencode auth list: %s", execErrDetail(err))
+		return nil, fmt.Errorf("opencode auth list: %s", agent.ProbeErrDetail(err))
 	}
 	ints, err := parseOpencodeAuthList(out)
 	if err != nil {
 		return nil, fmt.Errorf("opencode auth list: %w", err)
 	}
 	return ints, nil
-}
-
-// execErrDetail is err plus the first stderr line, when the command reported one.
-func execErrDetail(err error) string {
-	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
-		if line, _, _ := strings.Cut(strings.TrimSpace(string(ee.Stderr)), "\n"); line != "" {
-			if len(line) > 200 {
-				line = line[:200]
-			}
-			return err.Error() + ": " + line
-		}
-	}
-	return err.Error()
 }
 
 func parseOpencodeAuthList(data []byte) ([]OpencodeIntegration, error) {

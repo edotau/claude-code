@@ -128,18 +128,12 @@ func (codexEngine) Verify(ctx context.Context) (providers.AuthVerdict, string) {
 	ctx, cancel := context.WithTimeout(ctx, agent.ProbeTimeout)
 	defer cancel()
 	out, err := codexStatus(ctx, bin)
-	var ee *exec.ExitError
-	switch {
-	case err == nil:
-		line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
-		line, _, _ = strings.Cut(line, " - ") // drop the account/key tail codex appends
-		return providers.VerdictOK, line
-	case ctx.Err() != nil:
-		return providers.VerdictTransient, ctx.Err().Error()
-	case errors.As(err, &ee) && ee.ExitCode() >= 0:
-		return providers.VerdictNeedsLogin, ""
+	if err != nil {
+		return agent.ClassifyProbe(ctx, err)
 	}
-	return providers.VerdictTransient, err.Error()
+	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	line, _, _ = strings.Cut(line, " - ") // drop the account/key tail codex appends
+	return providers.VerdictOK, line
 }
 
 var _ agent.Authenticator = codexEngine{}
@@ -243,7 +237,7 @@ func codexAuthState() providers.AuthState {
 	case ctx.Err() != nil:
 		return providers.AuthState{Method: providers.AuthNone, Err: fmt.Errorf("codex login status: %w", ctx.Err())}
 	}
-	if ee, ok := errors.AsType[*exec.ExitError](err); ok && ee.ExitCode() >= 0 {
+	if v, _ := agent.ClassifyProbe(ctx, err); v == providers.VerdictNeedsLogin {
 		return providers.AuthState{Method: providers.AuthNone} // codex answered: not signed in
 	}
 	return providers.AuthState{Method: providers.AuthNone, Err: fmt.Errorf("codex login status: %w", err)}
