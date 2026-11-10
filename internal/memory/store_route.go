@@ -67,3 +67,11 @@ func routeWord(query, name string) bool {
 func routeWordByte(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '-'
 }
+
+// RepoRoot resolves --repo like recall: a catalog store name maps to its origin checkout, else a path.
+func RepoRoot(repo string) string {
+	if e, ok := RepoByName(repo); ok && repo != "" && e.Origin.Origin != "" {
+		return e.Origin.Origin
+	}
+	return Root(repo)
+}

@@ -1,4 +1,4 @@
-package worktreecmd
+package cli
 
 import (
 	"context"
@@ -37,7 +37,8 @@ package.json, or Cargo.toml. Without a gate, promotion is refused.
 Makefile + go.mod: build+vet all, test changed and registry packages;
 --full-verify runs the full Makefile gate. Only --no-verify skips the gate.`
 
-func Run(args []string) int {
+// cmdWorktree dispatches the worktree verb tree.
+func cmdWorktree(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		worktreePage.Fprint(os.Stderr)
 		return 0
@@ -219,7 +220,7 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 // mergeDryRun previews the plan without the lease or any mutation: a nil plan means it was blocked and already printed.
 func mergeDryRun(ctx context.Context, repo *worktree.Repo, req worktree.MergeRequest) int {
 	if req.Resume {
-		if err := checkResumable(repo, req.Name); err != nil {
+		if err := worktree.CheckResumable(repo, req.Name); err != nil {
 			return helptext.Fail("worktree merge: %v", err)
 		}
 	}
@@ -231,22 +232,6 @@ func mergeDryRun(ctx context.Context, repo *worktree.Repo, req worktree.MergeReq
 		return 1
 	}
 	return 0
-}
-
-// checkResumable mirrors the pre-agent checks of the real --resume so a dry run fails where that would.
-func checkResumable(repo *worktree.Repo, name string) error {
-	op, err := worktree.LoadOperation(repo, name)
-	if err != nil {
-		return fmt.Errorf("no in-progress --resolve-agent operation found for %q: %w", name, err)
-	}
-	if op.Repo != repo.Main {
-		return fmt.Errorf("operation %s belongs to %s, not %s", op.ID, op.Repo, repo.Main)
-	}
-	wtPath := filepath.Join(repo.Root, op.Worktree)
-	if _, err := os.Stat(wtPath); err != nil {
-		return fmt.Errorf("worktree %q not found at %s: %w", op.Worktree, wtPath, err)
-	}
-	return nil
 }
 
 // mergeLocked runs worktree.Merge under the lease cmdWorktreeMerge holds and prints the outcome.
@@ -381,4 +366,27 @@ func printCleanResult(r worktree.CleanResult, dryRun bool) {
 			fmt.Printf("  branch deleted: %s\n", r.Branch)
 		}
 	}
+}
+
+func resolveAgents() []string { return []string{"claude", "codex"} }
+
+func names() []string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	return worktree.Names(cwd)
+}
+
+// worktreeSpec is the completion node for the worktree verb tree.
+func worktreeSpec() *helptext.Node {
+	return &helptext.Node{Sub: map[string]*helptext.Node{
+		"list":   {Flags: []helptext.Flag{helptext.CompletionFormatFlag()}},
+		"create": {Flags: []helptext.Flag{helptext.Plain("branch")}},
+		"merge": {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("target"),
+			helptext.BoolFlag("no-clean"), {Name: "resolve-agent", Values: resolveAgents}, helptext.BoolFlag("resume"), helptext.Plain("verify"), helptext.BoolFlag("no-verify"), helptext.BoolFlag("full-verify")}},
+		"clean":     {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("force")}},
+		"clean-all": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("yes")}},
+		"gate":      {Flags: []helptext.Flag{helptext.Plain("dir"), helptext.Plain("scope"), helptext.BoolFlag("lint-check"), helptext.CompletionFormatFlag()}},
+	}}
 }

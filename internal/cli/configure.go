@@ -1,4 +1,4 @@
-package configurecmd
+package cli
 
 import (
 	"context"
@@ -6,13 +6,15 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/agent/launchplan"
-
 	"github.com/edotau/claude-code/internal/desktop"
 	"github.com/edotau/claude-code/internal/gateway"
+	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -71,13 +73,13 @@ func configureFlags() (*flag.FlagSet, *configureOpts) {
 	return fs, o
 }
 
-// Run is the guided setup: every section in order, or the one named; providerList prints `provider --list`.
-func Run(args []string, providerList func(name, format string) int) int {
+// cmdConfigure is the guided setup: every section in order, or the one named; list prints `provider --list`.
+func cmdConfigure(args []string, list func(name, format string) int) int {
 	if len(args) > 0 && args[0] == "desktop" {
 		return configureDesktop(args[1:])
 	}
 	fs, o := configureFlags()
-	o.providerList = providerList
+	o.providerList = list
 	// `configure agents --agent codex`: a leading section word precedes the flags, so lift it out first.
 	section := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -244,4 +246,96 @@ func configureDesktopOptions(opts desktop.Options, profile string) int {
 		return helptext.Fail("configure desktop: %v", err)
 	}
 	return 0
+}
+
+// configureRender runs --restore / --revert; the agent flag is a comma list there.
+func configureRender(restore, revert bool, section, agents, out string, check, dryRun, renderAgents, noAgents bool) int {
+	if err := renderModeConflict(restore, revert, section); err != nil {
+		return helptext.Fail("%v", err)
+	}
+	if revert {
+		return configureRevert(agents, dryRun, check || out != "" || renderAgents || noAgents)
+	}
+	if check || dryRun {
+		return helptext.Fail("configure: --restore takes no --check or --dry-run")
+	}
+	return configureRestore(agents, out, renderAgents, noAgents)
+}
+
+func configureRestore(agents, out string, renderAgents, noAgents bool) int {
+	if err := unknownAgent(agents); err != nil {
+		return helptext.Fail("%v", err)
+	}
+	if noAgents && (renderAgents || agents != "") {
+		return helptext.Fail("configure: --no-agents excludes --agents and --agent")
+	}
+	if out != "" && (renderAgents || agents != "") {
+		return helptext.Fail("configure: --out resets a settings file; --agents and --agent never write one")
+	}
+	return launch.CmdRestore(agents, out, renderAgents, noAgents)
+}
+
+// configureRevert runs --revert; extras is true when a flag that only --restore takes was given.
+func configureRevert(agents string, dryRun, extras bool) int {
+	if extras {
+		return helptext.Fail("configure: --revert takes only --agent and --dry-run")
+	}
+	if err := unknownAgent(agents); err != nil {
+		return helptext.Fail("%v", err)
+	}
+	return launch.CmdRevert(agents, dryRun)
+}
+
+func renderModeConflict(restore, revert bool, section string) error {
+	switch {
+	case restore && revert:
+		return errors.New("configure: --restore and --revert are mutually exclusive")
+	case section != "":
+		return fmt.Errorf("configure: --restore/--revert take no page (got %q)", section)
+	}
+	return nil
+}
+
+// unknownAgent rejects a typo the engine would skip silently.
+func unknownAgent(agents string) error {
+	for a := range strings.SplitSeq(agents, ",") {
+		if a = strings.TrimSpace(a); a != "" && !slices.Contains(client.DefaultAgents, a) {
+			return fmt.Errorf("configure: unknown --agent %q (%s)", a, strings.Join(client.DefaultAgents, "|"))
+		}
+	}
+	return nil
+}
+
+func providerNames() []string {
+	reg, err := providers.Load()
+	if err != nil {
+		return nil
+	}
+	return reg.Names()
+}
+
+// agentNames are the agent CLIs `configure --agent` can scope to: the agents plus claude itself.
+func agentNames() []string { return []string{"claude", "codex", "gemini", "opencode", "copilot"} }
+
+// authNames are the github profiles with a login, plus "follow", for `configure github --auth`.
+func authNames() []string {
+	reg, err := providers.Load()
+	if err != nil {
+		return []string{"follow"}
+	}
+	return append([]string{"follow"}, menu.GitHubAuthProfiles(reg)...)
+}
+
+// sections derives from menu.SectionNames, the package's own run order.
+func sections() []string {
+	return append(append([]string{}, menu.SectionNames...), "desktop")
+}
+
+// configureSpec is the completion node for the configure verb.
+func configureSpec() *helptext.Node {
+	formatFlag := helptext.ValuedFlag("format", func() []string { return []string{helptext.Text, helptext.JSON} })
+	return &helptext.Node{Args: []func() []string{sections, providerNames}, Flags: []helptext.Flag{
+		helptext.ValuedFlag("profile", providerNames), helptext.ValuedFlag("agent", agentNames), helptext.ValuedFlag("auth", authNames), helptext.BoolFlag("dry-run"), helptext.BoolFlag("check"),
+		helptext.BoolFlag("restore"), helptext.BoolFlag("revert"), helptext.Plain("out"), helptext.BoolFlag("agents"), helptext.BoolFlag("list"), helptext.BoolFlag("all"),
+		helptext.BoolFlag("no-agents"), formatFlag}}
 }

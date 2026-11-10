@@ -2,6 +2,7 @@ package memory
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -73,5 +74,72 @@ func TestInsideStoreRejectsEscapingSymlink(t *testing.T) {
 	}
 	if _, ok := insideStore(filepath.Join(StoreDir(), "escape.md")); ok {
 		t.Error("insideStore accepted a symlink escaping the store")
+	}
+}
+
+func TestMemoryRootHonorsHarnessWorktreePointer(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	worktree := t.TempDir()
+	pointer := "gitdir: " + filepath.Join(cfg, ".git", "worktrees", "x") + "\n"
+	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte(pointer), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	other := t.TempDir()
+	if out, err := exec.Command("git", "-C", other, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	t.Chdir(other)
+	t.Setenv("CLAUDE_PROJECT_DIR", worktree)
+	if got := Root(""); got != worktree {
+		t.Fatalf("Root(\"\") = %q, want harness worktree %q (not cwd %q)", got, worktree, other)
+	}
+}
+
+// The inverse: CLAUDE_CONFIG_DIR is itself a linked worktree, so its main checkout is not the config dir.
+func TestMemoryRootHonorsConfigDirWorktree(t *testing.T) {
+	main := t.TempDir()
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	pointer := "gitdir: " + filepath.Join(main, ".git", "worktrees", "x") + "\n"
+	if err := os.WriteFile(filepath.Join(cfg, ".git"), []byte(pointer), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	other := t.TempDir()
+	if out, err := exec.Command("git", "-C", other, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	t.Chdir(other)
+	t.Setenv("CLAUDE_PROJECT_DIR", cfg)
+	if got := Root(""); got != cfg {
+		t.Fatalf("Root(\"\") = %q, want config worktree %q (not cwd %q)", got, cfg, other)
+	}
+}
+
+// A CLAUDE_PROJECT_DIR that is not a repo (a launcher stamping $HOME) must not win over the cwd's toplevel.
+func TestMemoryRootIgnoresNonRepoProjectDir(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(filepath.Join(repo, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Skipf("git init: %v %s", err, out)
+	}
+	t.Chdir(filepath.Join(repo, "sub"))
+	want, _ := filepath.EvalSymlinks(repo)
+
+	t.Setenv("CLAUDE_PROJECT_DIR", filepath.Dir(repo)) // the non-repo parent
+	if got, _ := filepath.EvalSymlinks(Root("")); got != want {
+		t.Errorf("non-repo CLAUDE_PROJECT_DIR won: got %s want %s", got, want)
+	}
+	t.Setenv("CLAUDE_PROJECT_DIR", repo) // a real repo root is honored
+	if got, _ := filepath.EvalSymlinks(Root("")); got != want {
+		t.Errorf("repo CLAUDE_PROJECT_DIR not honored: got %s want %s", got, want)
+	}
+	t.Setenv("CLAUDE_PROJECT_DIR", cfg) // the config dir itself is the global bank's root
+	if got := Root(""); got != cfg {
+		t.Errorf("config dir not honored: got %s", got)
 	}
 }

@@ -1,15 +1,17 @@
-package worktreecmd
+package cli
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
-
+	"github.com/edotau/claude-code/internal/hosttest/gittest"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -17,10 +19,10 @@ func TestCmdWorktreeNoArgsAndUnknownSub(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
-	if got := Run(nil); got != 0 {
+	if got := cmdWorktree(nil); got != 0 {
 		t.Fatalf("no args: got %d, want 0", got)
 	}
-	if got := Run([]string{"bogus"}); got != 2 {
+	if got := cmdWorktree([]string{"bogus"}); got != 2 {
 		t.Fatalf("unknown sub: got %d, want 2", got)
 	}
 }
@@ -29,7 +31,7 @@ func TestCmdWorktreeNonRepoCWD(t *testing.T) {
 	scrubGitEnv(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Chdir(t.TempDir()) // not a git repository
-	code, _, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"list"}) })
+	code, _, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"list"}) })
 	if code == 0 {
 		t.Fatalf("want non-zero exit outside a git repo, stderr=%q", errb)
 	}
@@ -40,12 +42,12 @@ func TestCmdWorktreeListEmptyTextAndJSON(t *testing.T) {
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
 
-	code, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"list"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"list"}) })
 	if code != 0 || !strings.Contains(out, "no worktrees under") {
 		t.Fatalf("text list empty: code=%d out=%q", code, out)
 	}
 
-	code, out, _ = hosttest.CaptureOutput(t, func() int { return Run([]string{"list", "--format", "json"}) })
+	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"list", "--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("json list empty: code=%d", code)
 	}
@@ -71,15 +73,15 @@ func TestCmdWorktreeGateOutsideRepo(t *testing.T) {
 	}
 	t.Chdir(t.TempDir()) // not a git repository
 
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"gate", "--dir", goDir}) })
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"gate", "--dir", goDir}) })
 	if code != 0 || strings.TrimSpace(out) != "go build ./... && go vet ./... && go test ./..." {
 		t.Fatalf("gate on go.mod: code=%d out=%q stderr=%q", code, out, errb)
 	}
-	code, _, errb = hosttest.CaptureOutput(t, func() int { return Run([]string{"gate", "--dir", t.TempDir()}) })
+	code, _, errb = hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"gate", "--dir", t.TempDir()}) })
 	if code != 1 || !strings.Contains(errb, "no verification gate found") {
 		t.Fatalf("gate with no toolchain: code=%d stderr=%q, want 1 and the no-gate message", code, errb)
 	}
-	code, _, _ = hosttest.CaptureOutput(t, func() int { return Run([]string{"gate", "-h"}) })
+	code, _, _ = hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"gate", "-h"}) })
 	if code != 0 {
 		t.Fatalf("gate -h: code=%d, want 0", code)
 	}
@@ -117,7 +119,7 @@ func TestCmdWorktreeCreateThenListShowsIt(t *testing.T) {
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
 
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"create", "feature"}) })
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "feature"}) })
 	if code != 0 {
 		t.Fatalf("create: code=%d stderr=%q", code, errb)
 	}
@@ -126,7 +128,7 @@ func TestCmdWorktreeCreateThenListShowsIt(t *testing.T) {
 		t.Fatalf("created worktree missing at %s: %v", dest, err)
 	}
 
-	code, out, _ = hosttest.CaptureOutput(t, func() int { return Run([]string{"list", "--format", "json"}) })
+	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"list", "--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("list: code=%d", code)
 	}
@@ -144,7 +146,7 @@ func TestCmdWorktreeCreateWithCustomBranch(t *testing.T) {
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
 
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"create", "--branch", "wt/custom", "feature"}) })
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "--branch", "wt/custom", "feature"}) })
 	if code != 0 {
 		t.Fatalf("create: code=%d stderr=%q", code, errb)
 	}
@@ -160,7 +162,7 @@ func TestCmdWorktreeCreateWrongArity(t *testing.T) {
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
 	for _, args := range [][]string{{"create"}, {"create", "a", "b"}} {
-		code, _, errb := hosttest.CaptureOutput(t, func() int { return Run(append([]string{}, args...)) })
+		code, _, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree(append([]string{}, args...)) })
 		if code == 0 {
 			t.Errorf("args %v: want non-zero exit, stderr=%q", args, errb)
 		}
@@ -171,7 +173,7 @@ func TestCmdWorktreeCleanMissingName(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
-	code, _, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"clean", "does-not-exist"}) })
+	code, _, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean", "does-not-exist"}) })
 	if code == 0 {
 		t.Fatalf("want non-zero exit for a missing worktree, stderr=%q", errb)
 	}
@@ -181,10 +183,10 @@ func TestCmdWorktreeCleanDryRunDoesNotRemove(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
-	_, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"create", "mergeable"}) })
+	_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "mergeable"}) })
 	dest := strings.TrimSpace(out)
 
-	code, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"clean", "--dry-run", "mergeable"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean", "--dry-run", "mergeable"}) })
 	if code != 0 || !strings.Contains(out, "eligible:") {
 		t.Fatalf("dry-run clean: code=%d out=%q", code, out)
 	}
@@ -197,10 +199,10 @@ func TestCmdWorktreeCleanRealRemovesEligible(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
-	_, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"create", "mergeable"}) })
+	_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "mergeable"}) })
 	dest := strings.TrimSpace(out)
 
-	code, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"clean", "mergeable"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean", "mergeable"}) })
 	if code != 0 || !strings.Contains(out, "removed:") {
 		t.Fatalf("real clean: code=%d out=%q", code, out)
 	}
@@ -213,12 +215,12 @@ func TestCmdWorktreeCleanDirtyRefusedExitsNonZero(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
-	_, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"create", "dirty"}) })
+	_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "dirty"}) })
 	dest := strings.TrimSpace(out)
 	if err := os.WriteFile(filepath.Join(dest, "scratch.txt"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"clean", "dirty"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean", "dirty"}) })
 	if code == 0 {
 		t.Fatalf("want non-zero exit for a refused dirty clean, out=%q", out)
 	}
@@ -233,11 +235,11 @@ func TestCmdWorktreeCleanAllOverlappingFlagsPreviewWins(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
-	_, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"create", "mergeable"}) })
+	_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "mergeable"}) })
 	dest := strings.TrimSpace(out)
 
 	code, out, _ := hosttest.CaptureOutput(t, func() int {
-		return Run([]string{"clean-all", "--dry-run", "--yes"})
+		return cmdWorktree([]string{"clean-all", "--dry-run", "--yes"})
 	})
 	if code != 0 {
 		t.Fatalf("clean-all --dry-run --yes: code=%d out=%q", code, out)
@@ -254,10 +256,10 @@ func TestCmdWorktreeCleanAllRequiresYesToApply(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
-	_, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"create", "mergeable"}) })
+	_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "mergeable"}) })
 	dest := strings.TrimSpace(out)
 
-	code, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"clean-all"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean-all"}) })
 	if code != 0 {
 		t.Fatalf("clean-all (no flags): code=%d out=%q", code, out)
 	}
@@ -281,7 +283,7 @@ func TestCmdWorktreeListReopenCommandIsShellSafe(t *testing.T) {
 	marker := "pwned-marker"
 	name := "x$(touch${IFS}" + marker + ")y"
 	code, out, errb := hosttest.CaptureOutput(t, func() int {
-		return Run([]string{"create", "--branch", "wt/safe-branch", name})
+		return cmdWorktree([]string{"create", "--branch", "wt/safe-branch", name})
 	})
 	if code != 0 {
 		t.Fatalf("create: code=%d stderr=%q", code, errb)
@@ -291,7 +293,7 @@ func TestCmdWorktreeListReopenCommandIsShellSafe(t *testing.T) {
 		t.Fatalf("worktree missing at %s: %v", dest, err)
 	}
 
-	code, listOut, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"list"}) })
+	code, listOut, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"list"}) })
 	if code != 0 {
 		t.Fatalf("list: code=%d stderr=%q", code, errb)
 	}
@@ -318,7 +320,7 @@ func TestCmdWorktreeCreateUnusualName(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"create", "dots.and-dashes_123"}) })
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "dots.and-dashes_123"}) })
 	if code != 0 {
 		t.Fatalf("create: code=%d stderr=%q", code, errb)
 	}
@@ -350,7 +352,7 @@ func forceBranchList(t *testing.T, repo, branch string) string {
 
 func TestCmdWorktreeCleanForceRefusedWithoutFlag(t *testing.T) {
 	repo, wt := forceFixtureDirty(t)
-	code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"clean", "feature"}) })
+	code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean", "feature"}) })
 	if code == 0 {
 		t.Fatal("plain clean of a dirty+unmerged worktree must fail")
 	}
@@ -364,7 +366,7 @@ func TestCmdWorktreeCleanForceRefusedWithoutFlag(t *testing.T) {
 
 func TestCmdWorktreeCleanForceDiscardsDirtyUnmerged(t *testing.T) {
 	repo, wt := forceFixtureDirty(t)
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"clean", "--force", "feature"}) })
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean", "--force", "feature"}) })
 	if code != 0 {
 		t.Fatalf("clean --force: code=%d stdout=%q stderr=%q", code, out, errb)
 	}
@@ -385,7 +387,7 @@ func TestCmdWorktreeCleanForceDiscardsDirtyUnmerged(t *testing.T) {
 func TestCmdWorktreeCleanForceNeverTouchesMainCheckout(t *testing.T) {
 	repo := mergeFixtureCLISetup(t)
 	for _, name := range []string{"..", "../" + filepath.Base(repo), repo, "."} {
-		code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"clean", "--force", name}) })
+		code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean", "--force", name}) })
 		if code == 0 {
 			t.Errorf("clean --force %q must fail", name)
 		}
@@ -429,7 +431,7 @@ func mergeFixtureCLISetup(t *testing.T) (repo string) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo = gitRepoCLI(t)
 	t.Chdir(repo)
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"create", "feature"}) })
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "feature"}) })
 	if code != 0 {
 		t.Fatalf("create feature: code=%d stderr=%q", code, errb)
 	}
@@ -462,7 +464,7 @@ func TestCmdWorktreeMergeDryRunCleanShowsPlanWithoutMutating(t *testing.T) {
 	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	mainBefore := cliHeadOf(t, repo)
 
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"merge", "--dry-run", "feature"}) })
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "--dry-run", "feature"}) })
 	if code != 0 {
 		t.Fatalf("merge --dry-run: code=%d stderr=%q", code, errb)
 	}
@@ -485,7 +487,7 @@ func TestCmdWorktreeMergeApplyPromotesAndAutoCleans(t *testing.T) {
 
 	// The fixture repo has no detectable gate (no Makefile/go.mod/etc) — --no-verify isolates this
 	// test's intent (promote + auto-clean) from the separate verify-by-default behavior.
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"merge", "--no-verify", "feature"}) })
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "--no-verify", "feature"}) })
 	if code != 0 {
 		t.Fatalf("merge apply: code=%d stderr=%q", code, errb)
 	}
@@ -505,7 +507,7 @@ func TestCmdWorktreeMergeApplyNoCleanLeavesWorktree(t *testing.T) {
 	wt := mergeFixtureCLIWorktreePath(t, repo)
 	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"merge", "--no-verify", "--no-clean", "feature"}) })
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "--no-verify", "--no-clean", "feature"}) })
 	if code != 0 {
 		t.Fatalf("merge --no-clean: code=%d stderr=%q", code, errb)
 	}
@@ -528,7 +530,7 @@ func TestCmdWorktreeMergeVerifyFailurePreservesWorktreeAndSkipsPromotion(t *test
 	mainBefore := cliHeadOf(t, repo)
 
 	code, out, errb := hosttest.CaptureOutput(t, func() int {
-		return Run([]string{"merge", "--verify", "exit 1", "feature"})
+		return cmdWorktree([]string{"merge", "--verify", "exit 1", "feature"})
 	})
 	if code == 0 {
 		t.Fatalf("want non-zero exit when --verify fails, stdout=%q stderr=%q", out, errb)
@@ -554,7 +556,7 @@ func TestCmdWorktreeMergeVerifySuccessRunsInsideWorktreeThenPromotes(t *testing.
 
 	verifyCmd := `test -f g.txt && [ "$(pwd -P)" = "` + wt + `" ]`
 	code, out, errb := hosttest.CaptureOutput(t, func() int {
-		return Run([]string{"merge", "--verify", verifyCmd, "feature"})
+		return cmdWorktree([]string{"merge", "--verify", verifyCmd, "feature"})
 	})
 	if code != 0 {
 		t.Fatalf("merge --verify (passing): code=%d stdout=%q stderr=%q", code, out, errb)
@@ -577,7 +579,7 @@ func TestCmdWorktreeMergeConflictBlocksAndLeavesMainUntouched(t *testing.T) {
 	mergeFixtureCLIWrite(t, repo, "f.txt", "main line\n", "main edits f")
 	mainBefore := cliHeadOf(t, repo)
 
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"merge", "feature"}) })
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "feature"}) })
 	if code == 0 {
 		t.Fatalf("merge on predicted conflict: want non-zero exit, stdout=%q stderr=%q", out, errb)
 	}
@@ -594,7 +596,7 @@ func TestCmdWorktreeMergeConflictBlocksAndLeavesMainUntouched(t *testing.T) {
 
 func TestCmdWorktreeMergeUnknownNameFails(t *testing.T) {
 	mergeFixtureCLISetup(t)
-	code, _, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"merge", "does-not-exist"}) })
+	code, _, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "does-not-exist"}) })
 	if code == 0 {
 		t.Fatalf("want non-zero exit for an unknown worktree name, stderr=%q", errb)
 	}
@@ -603,7 +605,7 @@ func TestCmdWorktreeMergeUnknownNameFails(t *testing.T) {
 func TestCmdWorktreeMergeTargetMismatchFails(t *testing.T) {
 	mergeFixtureCLISetup(t)
 	code, out, errb := hosttest.CaptureOutput(t, func() int {
-		return Run([]string{"merge", "--target", "some-other-branch", "feature"})
+		return cmdWorktree([]string{"merge", "--target", "some-other-branch", "feature"})
 	})
 	if code == 0 {
 		t.Fatalf("want non-zero exit on target mismatch, stdout=%q stderr=%q", out, errb)
@@ -615,7 +617,7 @@ func TestCmdWorktreeMergeTargetMismatchFails(t *testing.T) {
 
 func TestCmdWorktreeMergeNoArgsFails(t *testing.T) {
 	mergeFixtureCLISetup(t)
-	code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"merge"}) })
+	code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge"}) })
 	if code == 0 {
 		t.Fatal("want non-zero exit for merge with no name")
 	}
@@ -627,7 +629,7 @@ func TestCmdWorktreeMergeResolveAgentUnknownValueRejected(t *testing.T) {
 	repo := mergeFixtureCLISetup(t)
 	mainBefore := cliHeadOf(t, repo)
 	code, _, errb := hosttest.CaptureOutput(t, func() int {
-		return Run([]string{"merge", "--resolve-agent", "gpt5", "feature"})
+		return cmdWorktree([]string{"merge", "--resolve-agent", "gpt5", "feature"})
 	})
 	if code == 0 {
 		t.Fatalf("want non-zero exit for an unknown --resolve-agent value, stderr=%q", errb)
@@ -650,7 +652,7 @@ func TestCmdWorktreeMergeNoDetectableGateRefusesWithoutNoVerify(t *testing.T) {
 	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	mainBefore := cliHeadOf(t, repo)
 
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"merge", "feature"}) })
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "feature"}) })
 	if code == 0 {
 		t.Fatalf("want non-zero exit with no detectable gate and no --verify/--no-verify, stdout=%q", out)
 	}
@@ -677,7 +679,7 @@ func TestCmdWorktreeMergeNoVerifyPromotesWithoutRunningAnythingAndMarksUnverifie
 	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 	sourceOID := cliHeadOf(t, wt)
 
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"merge", "--no-verify", "feature"}) })
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "--no-verify", "feature"}) })
 	if code != 0 {
 		t.Fatalf("merge --no-verify: code=%d stderr=%q", code, errb)
 	}
@@ -701,7 +703,7 @@ func TestCmdWorktreeMergeAutoDetectedFailingGateRefusesAndPreservesWorktree(t *t
 	mergeFixtureCLIWrite(t, wt, "Makefile", "test:\n\texit 1\n", "add failing gate")
 	mainBefore := cliHeadOf(t, repo)
 
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"merge", "feature"}) })
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "feature"}) })
 	if code == 0 {
 		t.Fatalf("want non-zero exit when the auto-detected gate fails, stdout=%q", out)
 	}
@@ -727,7 +729,7 @@ func TestCmdWorktreeMergeAutoDetectedPassingGatePromotes(t *testing.T) {
 	mergeFixtureCLIWrite(t, wt, "Makefile", "test:\n\ttrue\n", "add passing gate")
 	sourceOID := cliHeadOf(t, wt)
 
-	code, out, errb := hosttest.CaptureOutput(t, func() int { return Run([]string{"merge", "feature"}) })
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"merge", "feature"}) })
 	if code != 0 {
 		t.Fatalf("merge with a passing auto-detected gate: code=%d stderr=%q", code, errb)
 	}
@@ -751,7 +753,7 @@ func TestCmdWorktreeMergeExplicitVerifyOverridesDetection(t *testing.T) {
 	sourceOID := cliHeadOf(t, wt)
 
 	code, out, errb := hosttest.CaptureOutput(t, func() int {
-		return Run([]string{"merge", "--verify", "true", "feature"})
+		return cmdWorktree([]string{"merge", "--verify", "true", "feature"})
 	})
 	if code != 0 {
 		t.Fatalf("merge --verify overriding detection: code=%d stderr=%q", code, errb)
@@ -777,7 +779,7 @@ func TestCmdWorktreeMergeVerifyPipelineFailureFailsGate(t *testing.T) {
 	mainBefore := cliHeadOf(t, repo)
 
 	code, out, errb := hosttest.CaptureOutput(t, func() int {
-		return Run([]string{"merge", "--verify", "false | cat", "feature"})
+		return cmdWorktree([]string{"merge", "--verify", "false | cat", "feature"})
 	})
 	if code == 0 {
 		t.Fatalf("want non-zero exit for a failing pipeline stage under pipefail, stdout=%q", out)
@@ -802,14 +804,14 @@ func TestWorktreeListJSONWriteError(t *testing.T) {
 	t.Chdir(gitRepoCLI(t))
 
 	code, _, _ := hosttest.CaptureOutput(t, func() int {
-		return Run([]string{"create", "test-wt"})
+		return cmdWorktree([]string{"create", "test-wt"})
 	})
 	if code != 0 {
 		t.Fatalf("create worktree failed: code=%d", code)
 	}
 
 	hosttest.ClosedStdout(t)
-	code = Run([]string{"list", "--format", "json"})
+	code = cmdWorktree([]string{"list", "--format", "json"})
 	if code == 0 {
 		t.Errorf("worktree list --format json on closed stdout: exit %d, want non-zero", code)
 	}
@@ -821,7 +823,7 @@ func TestWorktreeListEmptyJSONIsArray(t *testing.T) {
 	t.Chdir(gitRepoCLI(t))
 
 	code, out, _ := hosttest.CaptureOutput(t, func() int {
-		return Run([]string{"list", "--format", "json"})
+		return cmdWorktree([]string{"list", "--format", "json"})
 	})
 	if code != 0 {
 		t.Fatalf("list empty: code=%d", code)
@@ -836,4 +838,304 @@ func TestWorktreeListEmptyJSONIsArray(t *testing.T) {
 	if entries == nil {
 		t.Errorf("JSON unmarshaled to nil, want empty slice []")
 	}
+}
+
+// A clean plan must promote without dispatching --resolve-agent, even without an agent seam.
+func TestCmdWorktreeMergeResolveAgentIgnoredOnCleanPlan(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	sourceOID := cliHeadOf(t, wt)
+
+	// --no-verify isolates agent dispatch from verification in a fixture without a detectable gate.
+	code, out, errb := hosttest.CaptureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--no-verify", "--resolve-agent", "claude", "feature"})
+	})
+	if code != 0 {
+		t.Fatalf("merge --resolve-agent on a clean plan: code=%d stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "promoted") {
+		t.Fatalf("output = %q, want a promoted line", out)
+	}
+	if cliHeadOf(t, repo) != sourceOID {
+		t.Fatalf("main HEAD = %s, want fast-forwarded to %s", cliHeadOf(t, repo), sourceOID)
+	}
+}
+
+// --resume without a saved operation must report LoadOperation's error and leave main untouched.
+func TestCmdWorktreeMergeResumeWithNoSavedOperationFails(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	mainBefore := cliHeadOf(t, repo)
+	code, _, errb := hosttest.CaptureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--resume", "feature"})
+	})
+	if code == 0 {
+		t.Fatalf("want non-zero exit for --resume with no saved operation, stderr=%q", errb)
+	}
+	if !strings.Contains(errb, "no in-progress") {
+		t.Fatalf("stderr = %q, want the no-in-progress-operation message", errb)
+	}
+	if cliHeadOf(t, repo) != mainBefore {
+		t.Fatal("main HEAD changed despite nothing to resume")
+	}
+}
+
+// An operation saved for another repo must not resume against this checkout.
+func TestCmdWorktreeMergeResumeWrongRepoOperationFails(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	mainBefore := cliHeadOf(t, repo)
+	r, err := worktree.ResolveRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// operationPath hashes the full path, so the same basename under another parent cannot match.
+	otherRepoWithSameBasename := filepath.Join(r.Main, "..", "other-"+filepath.Base(r.Main), filepath.Base(r.Main))
+	op := &worktree.Operation{
+		Repo:      otherRepoWithSameBasename,
+		Worktree:  "feature",
+		Phase:     "resolving",
+		Agent:     "claude",
+		StartedAt: time.Now(),
+		Deadline:  time.Now().Add(10 * time.Minute),
+	}
+	if err := worktree.SaveOperation(op); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, errb := hosttest.CaptureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--resume", "feature"})
+	})
+	if code == 0 {
+		t.Fatalf("want non-zero exit for a wrong-repo operation, stderr=%q", errb)
+	}
+	if !strings.Contains(errb, "no in-progress") {
+		t.Fatalf("stderr = %q, want no operation found for this repo", errb)
+	}
+	if cliHeadOf(t, repo) != mainBefore {
+		t.Fatal("main HEAD changed despite a wrong-repo operation")
+	}
+}
+
+// Compare the pinned target OID, not only branch names, when resuming an in-flight resolution.
+func TestCmdWorktreeMergeResumeStopsOnTargetMovedSinceResolutionStarted(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	plan := resolvedMergeOperationFixture(t, repo, "op-target-moved")
+	mainBeforeResume := plan.TargetOID
+
+	// Main advances on the same branch while the resolution is in flight.
+	mergeFixtureCLIWrite(t, repo, "unrelated.txt", "main moved on\n", "main advances during resolution")
+	movedMain := cliHeadOf(t, repo)
+	if movedMain == mainBeforeResume {
+		t.Fatal("fixture invariant broken: main must have actually moved")
+	}
+
+	code, _, errb := hosttest.CaptureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--resume", "feature"})
+	})
+	if code == 0 {
+		t.Fatalf("want non-zero exit when the target moved during resolution, stderr=%q", errb)
+	}
+	if !strings.Contains(errb, "moved") {
+		t.Fatalf("stderr = %q, want it to report the target movement", errb)
+	}
+	if cliHeadOf(t, repo) != movedMain {
+		t.Fatal("main HEAD changed despite target movement, which must stop before integrate/promote")
+	}
+}
+
+// Compare TargetRef too: another branch at the same pinned OID is still target movement.
+func TestCmdWorktreeMergeResumeStopsOnTargetBranchChangedAtSameOID(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	plan := resolvedMergeOperationFixture(t, repo, "op-branch-changed")
+
+	// Switch to a new branch without moving the OID.
+	mergeFixtureCLIRun(t, repo, "checkout", "-b", "renamed-main")
+	sameOID := cliHeadOf(t, repo)
+	if sameOID != plan.TargetOID {
+		t.Fatal("fixture invariant broken: the checkout-b must not move the OID")
+	}
+
+	code, _, errb := hosttest.CaptureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--resume", "feature"})
+	})
+	if code == 0 {
+		t.Fatalf("want non-zero exit when the target branch changed at the same OID, stderr=%q", errb)
+	}
+	if !strings.Contains(errb, "moved") {
+		t.Fatalf("stderr = %q, want it to report the target movement", errb)
+	}
+	if cliHeadOf(t, repo) != sameOID {
+		t.Fatal("main HEAD changed despite the branch-change refusal")
+	}
+}
+
+func resolvedMergeOperationFixture(t *testing.T, repo, id string) *worktree.MergePlan {
+	t.Helper()
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	// Divergent edits predict exactly the conflict the simulated agent resolves below.
+	mergeFixtureCLIWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
+	mergeFixtureCLIWrite(t, repo, "f.txt", "main line\n", "main edits f")
+	r, err := worktree.ResolveRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := worktree.Preflight(context.Background(), r, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != worktree.IssueConflict {
+		t.Fatalf("Issues = %v, want exactly one conflict", plan.Issues)
+	}
+	// Record both pinned OIDs as ancestors, satisfying CheckResolution's contract.
+	mergeFixtureCLIWrite(t, wt, "f.txt", "resolved\n", "agent resolves f")
+	mergeFixtureCLIRun(t, wt, "merge", "--no-edit", "-s", "ours", plan.TargetOID)
+	op := &worktree.Operation{
+		ID:                id,
+		Repo:              r.Main,
+		Worktree:          "feature",
+		TargetRef:         plan.TargetRef,
+		TargetOID:         plan.TargetOID,
+		OriginalSourceOID: plan.SourceOID,
+		ConflictPaths:     []string{"f.txt"},
+		Phase:             "resolving",
+		StartedAt:         time.Now(),
+		Deadline:          time.Now().Add(10 * time.Minute),
+		Agent:             "claude",
+		AgentExitOK:       true,
+	}
+	if err := worktree.SaveOperation(op); err != nil {
+		t.Fatal(err)
+	}
+	return plan
+}
+
+// A missing worktree must fail clearly before polling it or changing main.
+func TestCmdWorktreeMergeResumeMissingWorktreeFails(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	mainBefore := cliHeadOf(t, repo)
+	r, err := worktree.ResolveRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := &worktree.Operation{
+		Repo:      r.Main,
+		Worktree:  "ghost",
+		Phase:     "resolving",
+		Agent:     "claude",
+		StartedAt: time.Now(),
+		Deadline:  time.Now().Add(10 * time.Minute),
+	}
+	if err := worktree.SaveOperation(op); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, errb := hosttest.CaptureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--resume", "ghost"})
+	})
+	if code == 0 {
+		t.Fatalf("want non-zero exit for a missing worktree, stderr=%q", errb)
+	}
+	if !strings.Contains(errb, "not found") {
+		t.Fatalf("stderr = %q, want a not-found message", errb)
+	}
+	if cliHeadOf(t, repo) != mainBefore {
+		t.Fatal("main HEAD changed despite a missing worktree")
+	}
+}
+
+func TestCmdWorktreeMergeDryRunResumeRequiresOperation(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	before := cliHeadOf(t, repo)
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--dry-run", "--resume", "feature"})
+	})
+	if code != 1 || !strings.Contains(stderr, "no in-progress --resolve-agent operation") {
+		t.Fatalf("dry-run resume without operation: code=%d stdout=%q stderr=%q", code, out, stderr)
+	}
+	if strings.Contains(out, "clean") {
+		t.Fatalf("invalid resume printed a clean plan: %q", out)
+	}
+	if cliHeadOf(t, repo) != before {
+		t.Fatal("dry-run resume changed main HEAD")
+	}
+	if _, err := os.Stat(mergeFixtureCLIWorktreePath(t, repo)); err != nil {
+		t.Fatalf("dry-run resume removed worktree: %v", err)
+	}
+}
+
+func TestCmdWorktreeCleanForceBranchDeletionFailure(t *testing.T) {
+	repo, wt := forceFixtureDirty(t)
+	lock := filepath.Join(repo, ".git", "refs", "heads", "worktree-feature.lock")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
+		return cmdWorktree([]string{"clean", "--force", "feature"})
+	})
+	if code != 1 || !strings.Contains(stderr, "branch not deleted") || !strings.Contains(stderr, "worktree-feature.lock") {
+		t.Fatalf("locked branch deletion: code=%d stdout=%q stderr=%q", code, out, stderr)
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Fatalf("worktree should be removed despite branch deletion failure: %v", err)
+	}
+	if forceBranchList(t, repo, "worktree-feature") == "" {
+		t.Fatal("locked branch should remain after failed deletion")
+	}
+}
+
+func TestCmdWorktreeCreateStdoutFailure(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := gitRepoCLI(t)
+	t.Chdir(repo)
+	unwritable, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := unwritable.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
+		stdout := os.Stdout
+		os.Stdout = unwritable
+		defer func() { os.Stdout = stdout }()
+		return cmdWorktree([]string{"create", "feature"})
+	})
+	dest := mergeFixtureCLIWorktreePath(t, repo)
+	if code != 1 || !strings.Contains(stderr, "could not print its path") || !strings.Contains(stderr, dest) {
+		t.Fatalf("create with unwritable stdout: code=%d stderr=%q", code, stderr)
+	}
+	if _, err := os.Stat(dest); err != nil {
+		t.Fatalf("created worktree should remain at reported path %s: %v", dest, err)
+	}
+}
+
+func scrubGitEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+		"GIT_OBJECT_DIRECTORY", "GIT_PREFIX", "GIT_CEILING_DIRECTORIES",
+	} {
+		value, ok := os.LookupEnv(key)
+		if !ok {
+			continue
+		}
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatalf("unset %s: %v", key, err)
+		}
+		t.Cleanup(func() {
+			if err := os.Setenv(key, value); err != nil {
+				t.Errorf("restore %s: %v", key, err)
+			}
+		})
+	}
+}
+
+// gitRepoCLI makes a fresh git repo with one commit, env wired so every git invocation has an identity.
+func gitRepoCLI(t *testing.T) string {
+	t.Helper()
+	scrubGitEnv(t)
+	return gittest.Repo(t)
 }

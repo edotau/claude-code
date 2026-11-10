@@ -149,3 +149,30 @@ func ownFlagNames(node *helptext.Node) []string {
 	slices.Sort(out)
 	return out
 }
+
+// ProviderListEntry is the describe provider view plus where its credential resolves from.
+type ProviderListEntry struct {
+	DescribeProvider
+	Group       string `json:"group"` // the family `--list` files it under (anthropic, openai, ... local)
+	Source      string `json:"source"`
+	Note        string `json:"note"`
+	Host        string `json:"host,omitempty"` // non-secret: preset host, else BaseURL's scheme+host
+	AccountID   string `json:"accountId,omitempty"`
+	WorkspaceID string `json:"workspaceId,omitempty"`
+}
+
+// ProviderEntries is d's provider list with credential sources: every entry, or only want's when want is set.
+func (d Describe) ProviderEntries(reg *providers.Registry, want *providers.Provider) []ProviderListEntry {
+	list := make([]ProviderListEntry, 0, len(d.Providers.List))
+	for _, dp := range d.Providers.List {
+		p := reg.Providers[dp.Name]
+		if want != nil && p != want {
+			continue
+		}
+		e := ProviderListEntry{DescribeProvider: dp, Group: p.Provider}
+		e.Source, e.Note = providers.CredSource(p)
+		e.Host, e.AccountID, e.WorkspaceID = providers.AuthHost(p), p.Auth.AccountID, p.Auth.WorkspaceID
+		list = append(list, e)
+	}
+	return list
+}
