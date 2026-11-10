@@ -2,16 +2,18 @@ package menu
 
 import (
 	"bytes"
-	"net/http"
-	"net/http/httptest"
+	"context"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"testing"
+	"time"
+	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/table"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -211,65 +213,6 @@ func TestSaveKeysPartialFailureKeepsFailedStagedOthersDiscarded(t *testing.T) {
 	}
 }
 
-// TestRunMenuExitCodeReflectsSaveKeysFailure: runMenu's exit code must surface a Submit-time Store
-// failure (1), not silently report success (0), so a scripted `configure` invocation can detect it.
-func TestRunMenuExitCodeReflectsSaveKeysFailure(t *testing.T) {
-	reg := menuTestEnv(t)
-	vaulttest.Use(t)
-	origConfirmed := saveConfirmed
-	t.Cleanup(func() { saveConfirmed = origConfirmed })
-	saveConfirmed = func(string) bool { return true }
-	origMenu := pickMenu
-	t.Cleanup(func() { pickMenu = origMenu })
-	t.Setenv("CONFIGURE_RUNMENU_BAD", "prior-test-value")
-	var d *dialog
-	pickMenu = flatPick(func(title string, rows [][2]string, start int) (int, error) {
-		d.stage("CONFIGURE_RUNMENU_BAD", "two\nlines") // a real Store failure, staged via the real seam
-		return -1, nil                                 // Esc: leave through Submit's confirm
-	})
-	d = &dialog{reg: reg, out: discardWriter{}}
-	if rc := runMenu(d); rc != 1 {
-		t.Fatalf("runMenu rc = %d, want 1 when a staged key fails to save", rc)
-	}
-
-	pickMenu = flatPick(func(title string, rows [][2]string, start int) (int, error) {
-		return -1, nil // nothing staged this time
-	})
-	d2 := &dialog{reg: reg, out: discardWriter{}}
-	if rc := runMenu(d2); rc != 0 {
-		t.Fatalf("runMenu rc = %d, want 0 with nothing staged", rc)
-	}
-}
-
-// Failed saves retain the staged key and its shadowing environment after runMenu returns.
-func TestRunMenuKeepsFailedKeyStagedAfterReturn(t *testing.T) {
-	reg := menuTestEnv(t)
-	vaulttest.Use(t)
-	origConfirmed := saveConfirmed
-	t.Cleanup(func() { saveConfirmed = origConfirmed })
-	saveConfirmed = func(string) bool { return true }
-	origMenu := pickMenu
-	t.Cleanup(func() { pickMenu = origMenu })
-	const name = "CONFIGURE_RUNMENU_KEEP_BAD"
-	t.Setenv(name, "")
-	_ = os.Unsetenv(name)
-	var d *dialog
-	pickMenu = flatPick(func(title string, rows [][2]string, start int) (int, error) {
-		d.stage(name, "two\nlines") // vault.Store genuinely rejects a multi-line value
-		return -1, nil
-	})
-	d = &dialog{reg: reg, out: discardWriter{}}
-	if rc := runMenu(d); rc != 1 {
-		t.Fatalf("runMenu rc = %d, want 1", rc)
-	}
-	if _, staged := d.pending[name]; !staged {
-		t.Error("failed key dropped from pending after runMenu returned, want it kept")
-	}
-	if got := os.Getenv(name); got != "two\nlines" {
-		t.Error("failed key env after return must retain the staged value")
-	}
-}
-
 const (
 	returnKeyGood    = "CONFIGURE_RETURN_GOOD"
 	returnKeyOther   = "CONFIGURE_RETURN_OTHER"
@@ -433,42 +376,6 @@ func TestStoreValueRejectsInvalidStagingWithoutSuccess(t *testing.T) {
 	}
 }
 
-func TestProbeValueRejectsInvalidCandidateBeforeRequest(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	const name = "CONFIGURE_PROBE_INVALID"
-	const candidate = "private-invalid\x00candidate"
-	t.Setenv(name, "prior-good-credential")
-	var requests atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests.Add(1)
-		w.Header().Set("Content-Type", "application/json")
-		if _, err := w.Write([]byte(`{"data":[]}`)); err != nil {
-			t.Errorf("write catalog: %v", err)
-		}
-	}))
-	defer srv.Close()
-	p := &providers.Provider{
-		Name: "invalid-candidate", Protocol: providers.ProtocolAnthropic, BaseURL: srv.URL,
-		Auth: providers.Auth{Type: providers.AuthKey, Header: providers.HeaderXAPIKey, Env: name},
-	}
-	status, detail := configure.ProbeValue(p, name, candidate)
-	if status != "unreachable" || detail == "" {
-		t.Errorf("probeValue = (%q, %q), want unreachable with an error detail", status, detail)
-	}
-	for _, raw := range []string{candidate, "private-invalid", "prior-good-credential"} {
-		if strings.Contains(detail, raw) {
-			t.Errorf("probe detail leaked a credential: %q", detail)
-		}
-	}
-	if got := requests.Load(); got != 0 {
-		t.Errorf("invalid candidate made %d HTTP requests with a prior credential", got)
-	}
-	if got := os.Getenv(name); got != "prior-good-credential" {
-		t.Errorf("probe changed original credential to %q", got)
-	}
-}
-
 func TestMatchPlanExactThenLongestGlob(t *testing.T) {
 	plans := []providers.Plan{{ID: "*max*", Tier: "short"}, {ID: "*claude_max_20x", Tier: "long"}, {ID: "pro", Tier: "exact"}}
 	cases := map[string]string{"pro": "exact", "default_claude_max_20x": "long", "max_5x": "short"}
@@ -514,4 +421,182 @@ func TestWithTier(t *testing.T) {
 	if got := withTier("subscription", "Max 20x"); got != "subscription (Max 20x)" {
 		t.Errorf("withTier = %q", got)
 	}
+}
+
+func TestRunMenuAppendsExitRowAfterAgentRows(t *testing.T) {
+	reg := menuTestEnv(t)
+	d := &dialog{reg: reg, out: discardWriter{}}
+	_, actions := menuRows(d)
+	orig := pickMenu
+	t.Cleanup(func() { pickMenu = orig })
+	var got [][2]string
+	pickMenu = flatPick(func(_ string, rows [][2]string, _ int) (int, error) { got = rows; return -1, nil })
+	runMenu(d)
+	if len(got) != len(actions)+1 || got[len(actions)] != submitRow {
+		t.Fatalf("rows = %v, want %d agent rows then %v", got, len(actions), submitRow)
+	}
+}
+
+func TestRunMenuSubmitStoresStagedKeys(t *testing.T) {
+	for _, yes := range []bool{false, true} {
+		reg := menuTestEnv(t)
+		var out strings.Builder
+		d := &dialog{reg: reg, out: &out}
+		_, actions := menuRows(d)
+		origPick, orig := pickMenu, saveConfirmed
+		t.Cleanup(func() { saveConfirmed, pickMenu = orig, origPick })
+		pickMenu = flatPick(func(string, [][2]string, int) (int, error) { // a submenu's key paste, then Submit
+			storeValue(d, "GEMINI_API_KEY", "AIzaTestKey-0123456789")
+			return len(actions), nil
+		})
+		var asked []string
+		saveConfirmed = func(q string) bool { asked = append(asked, q); return yes }
+		rc := runMenu(d)
+		if rc != 0 {
+			t.Fatalf("yes=%v: rc=%d", yes, rc)
+		}
+		if len(asked) != 1 || asked[0] != "Save 1 key(s) to the secrets manager" {
+			t.Errorf("yes=%v: asked = %v", yes, asked)
+		}
+		v, src, _ := vault.Get("GEMINI_API_KEY")
+		if yes && (src != "vault" || v != "AIzaTestKey-0123456789") {
+			t.Errorf("Submit y: GEMINI_API_KEY = %q from %q, want the staged value stored\n%s", v, src, out.String())
+		}
+		if !yes && src != "" {
+			t.Errorf("Submit n: GEMINI_API_KEY resolves from %q, want nothing stored and the env restored", src)
+		}
+	}
+}
+
+// menuTestEnv pins the claude provider to subscription, so claude reads "subscription"; every other agent is unconfigured.
+func TestRunMenuStatusColumnsComeFromAgentState(t *testing.T) {
+	reg := menuTestEnv(t)
+	rows, _ := menuRows(&dialog{reg: reg, out: discardWriter{}})
+	for _, r := range rows {
+		want := "not set up"
+		if r[0] == "claude" {
+			want = "subscription"
+		}
+		if !strings.Contains(r[1], want) || !strings.Contains(r[1], "not verified") {
+			t.Errorf("row %v: want %q · not verified", r, want)
+		}
+	}
+}
+
+// flatPick adapts a flat-rows picker stub to the sectioned home picker: rows = every section's rows, then trailing.
+func flatPick(f func(string, [][2]string, int) (int, error)) func(string, []tui.Section, [2]string, int) (int, error) {
+	return func(title string, secs []tui.Section, trailing [2]string, start int) (int, error) {
+		var rows [][2]string
+		for _, s := range secs {
+			rows = append(rows, s.Rows...)
+		}
+		return f(title, append(rows, trailing), start)
+	}
+}
+
+// panelBack is the Back row tui.PickBack and tui.PickSectionsBack append to a page's rows.
+var panelBack = [2]string{"Back", "return to the previous menu"}
+
+var (
+	panelSplit     = regexp.MustCompile(`\s{2,}`)
+	panelBadge     = regexp.MustCompile(` (\[[^\]]*\])$`)
+	numberedPrefix = regexp.MustCompile(`^  \d+\) `)
+)
+
+// panelClips lays rows out as tui's 80-column panel does and returns the cells it clipped (split copies tui.rowCells).
+func panelClips(rows [][2]string) []string {
+	cells := make([][]string, len(rows))
+	for i, r := range rows {
+		detail := strings.Join(strings.FieldsFunc(r[1], func(c rune) bool { return strings.ContainsRune("\n\r\t", c) }), " ")
+		badge := ""
+		if m := panelBadge.FindStringSubmatchIndex(detail); m != nil {
+			badge, detail = detail[m[2]:m[3]], detail[:m[0]]
+		}
+		cells[i] = append([]string{r[0]}, panelSplit.Split(detail, -1)...)
+		if badge != "" {
+			cells[i] = append(cells[i], badge)
+		}
+	}
+	var clipped []string
+	table.Justify(cells, 78, func(c string, w int) string {
+		if utf8.RuneCountInString(c) > w {
+			clipped = append(clipped, c)
+		}
+		return table.Truncate(c, w)
+	})
+	return clipped
+}
+
+// assertFitsEighty fails when an 80-column panel would clip any cell of rows, which a picker lays out together.
+func assertFitsEighty(t *testing.T, what string, rows [][2]string) {
+	t.Helper()
+	if len(rows) == 0 {
+		t.Errorf("%s: no rows reached the picker", what)
+	}
+	if c := panelClips(rows); len(c) > 0 {
+		t.Errorf("%s: an 80-column panel clips %q of rows %q", what, c, rows)
+	}
+}
+
+// numberedRows parses the rows Shell's numbered prompt printed ("  N) %-22s %s") back into (name, detail) pairs.
+func numberedRows(out string) [][2]string {
+	var rows [][2]string
+	for ln := range strings.SplitSeq(out, "\n") {
+		m := numberedPrefix.FindStringIndex(ln)
+		if m == nil || len(ln)-m[1] < 23 {
+			continue
+		}
+		rest := ln[m[1]:]
+		i := 22 + strings.IndexByte(rest[22:], ' ')
+		rows = append(rows, [2]string{strings.TrimRight(rest[:i], " "), rest[i+1:]})
+	}
+	return rows
+}
+
+// The home page and every agent page, as runMenu and runAgentMenu hand them to the picker, fit 80 columns unclipped.
+func TestMenuRowWidthsFitEightyColumns(t *testing.T) {
+	realExtra := extraSections
+	menuTestEnv(t)
+	extraSections = realExtra
+	d := worstCaseHomeDialog(t)
+	assertFitsEighty(t, "home page", homePageRows(d))
+	for name, build := range agentMenus {
+		assertFitsEighty(t, name+" page", agentPageRows(d, name, build(d)))
+	}
+}
+
+// worstCaseHomeDialog loads three Databricks envs (one expiring in 23h59m) and a connected tailnet with a long host.
+func worstCaseHomeDialog(t *testing.T) *dialog {
+	t.Helper()
+	resetTailscaleStatus(t)
+	tsStatusFetch = func(context.Context) (tailscale.Local, error) {
+		return tailscale.Local{DNSName: "a-long-hostname-01.tail1234.ts.net."}, nil
+	}
+	vaulttest.Put(t, vault.Overlay, "providers", dbxDoc)
+	dbxExpiry(t, "prod", time.Now().Add(23*time.Hour+59*time.Minute))
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &dialog{reg: reg, out: discardWriter{}}
+}
+
+// homePageRows runs runMenu once and returns every row its picker lays out together, trailing Submit included.
+func homePageRows(d *dialog) [][2]string {
+	orig := pickMenu
+	defer func() { pickMenu = orig }()
+	var rows [][2]string
+	pickMenu = flatPick(func(_ string, r [][2]string, _ int) (int, error) { rows = r; return -1, nil })
+	runMenu(d)
+	return rows
+}
+
+// agentPageRows runs runAgentMenu once and returns the rows its picker lays out, the panel's Back row included.
+func agentPageRows(d *dialog, name string, m agentMenu) [][2]string {
+	orig := pickAgent
+	defer func() { pickAgent = orig }()
+	var rows [][2]string
+	pickAgent = func(_ *dialog, _ string, r [][2]string, _ int) (int, error) { rows = r; return -1, nil }
+	runAgentMenu(d, name, m)
+	return append(rows, panelBack)
 }

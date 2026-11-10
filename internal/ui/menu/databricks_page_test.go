@@ -761,3 +761,22 @@ func TestDbxIdentityChangeRowPrompts(t *testing.T) {
 }
 
 // A registry reload that fails (corrupt overlay) says so and keeps the previous registry.
+
+// TestDatabricksRowsFitEightyColumns: every page the env list and its actions draw fits an 80-column panel.
+func TestDatabricksRowsFitEightyColumns(t *testing.T) {
+	menuTestEnv(t)
+	d := dbxEnv(t)
+	dbxExpiry(t, "prod", time.Now().Add(23*time.Hour+59*time.Minute))
+	f := &dbxFake{}
+	installDbxFake(t, f)
+	f.picks = []int{1, 4, 0, -1, -1}
+	runDatabricksPage(d)
+	if len(f.rows) < 2 {
+		t.Fatalf("pages drawn = %q, want the env list and an env's actions", f.titles)
+	}
+	for i, set := range f.rows {
+		if len(set) > 0 {
+			assertFitsEighty(t, f.titles[i], append(set, panelBack))
+		}
+	}
+}

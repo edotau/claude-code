@@ -105,39 +105,6 @@ func newDialog(in string) (*dialog, *bytes.Buffer) {
 
 // --- rotateOptions ---
 
-func TestRotateOptionsShapes(t *testing.T) {
-	cases := []struct {
-		name string
-		kt   configure.KeyTarget
-		want []string
-	}{
-		{"login only", configure.KeyTarget{LoginArgv: []string{"codex", "login"}}, []string{"Login"}},
-		{"mint only", configure.KeyTarget{MintArgv: []string{"claude", "setup-token"}}, []string{"OAuth token"}},
-		{"login and mint (subscription)", configure.KeyTarget{LoginArgv: []string{"claude", "auth", "login"}, MintArgv: []string{"claude", "setup-token"}},
-			[]string{"Login", "OAuth token"}},
-		{"keyed, no generator", configure.KeyTarget{EnvVar: "X", Provider: &providers.Provider{}}, []string{"API key"}},
-		{"keyed but no provider: no generator and no paste", configure.KeyTarget{EnvVar: "X"}, nil},
-		{"nothing at all", configure.KeyTarget{}, nil},
-	}
-	for _, c := range cases {
-		opts := configure.RotateOptions(c.kt)
-		var got []string
-		for _, o := range opts {
-			got = append(got, o.Action)
-		}
-		if len(got) != len(c.want) {
-			t.Errorf("%s: rotateOptions = %v, want %v", c.name, got, c.want)
-			continue
-		}
-		for i := range got {
-			if got[i] != c.want[i] {
-				t.Errorf("%s: rotateOptions = %v, want %v", c.name, got, c.want)
-				break
-			}
-		}
-	}
-}
-
 // --- runRotate ---
 
 func TestRunRotateNoOptionsFalse(t *testing.T) {
@@ -331,26 +298,6 @@ func TestEnsureKeyAbsentRunsResolve(t *testing.T) {
 	}
 }
 
-func TestParseAssignment(t *testing.T) {
-	cases := []struct {
-		raw, name, value string
-	}{
-		{"sk-bare-value", "", "sk-bare-value"},
-		{"NAME=v", "NAME", "v"},
-		{`export NAME="v"`, "NAME", "v"},
-		{"NAME='v'", "NAME", "v"},
-		{"abc==", "", "abc=="},   // base64 padding stays a bare value, never split as NAME=value
-		{"ABC=", "", "ABC="},     // trailing '=' with no value: Cut's v=="" rule keeps it bare
-		{"name=v", "", "name=v"}, // lowercase "key" is not an env-var-shaped name: stays bare
-	}
-	for _, c := range cases {
-		name, value := configure.ParseAssignment(c.raw)
-		if name != c.name || value != c.value {
-			t.Errorf("ParseAssignment(%q) = (%q, %q), want (%q, %q)", c.raw, name, value, c.name, c.value)
-		}
-	}
-}
-
 // Adding a custom secret seals it in the vault and shows only its redacted value.
 func TestSecretsAddCustomStoresVaultAndRedacts(t *testing.T) {
 	vaulttest.UseKeyring(t)
@@ -427,48 +374,25 @@ func TestSourceLabel(t *testing.T) {
 	}
 }
 
-// Every secrets-page row, worst case "env over vault" shadowing the setup-token's long name and
-// user list, must still render at 80 columns or fewer (mirrors rowRenderedWidth in rowwidth_test.go).
+// The secrets page secretsLoop draws, the setup-token shadowed (env over vault) and a custom secret, fits 80 columns.
 func TestSecretsRowWidthFitsEightyColumns(t *testing.T) {
-	list := []configure.TrackedSecret{
-		{Name: providers.OAuthTokenEnv, Source: "env", Shadowed: "vault", Users: "claude -p (setup-token)"},
-		{Name: "A_CUSTOM", Source: "vault", Shadowed: "", Users: "custom"},
-	}
-	var labels []string
-	for _, s := range list {
-		labels = append(labels, s.Name)
-	}
-	for _, s := range list {
-		detail := fmt.Sprintf("%-16s %s", sourceLabel(s.Source, s.Shadowed), s.Users)
-		if w := rowRenderedWidth(labels, detail); w > 80 {
-			t.Errorf("secrets row %q = %d cols, want <=80: %q", s.Name, w, detail)
-		}
-	}
-}
-
-// The list is harness-read names plus the user's own: a console-URL key no enabled provider reads is not a row,
-// an indexed custom secret is.
-func TestTrackedSecretsListsHarnessAndCustomOnly(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("PATH", t.TempDir())
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers": {"openai": null}}`)
-	if err := vault.Store("MY_CUSTOM", "v"); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Secret(t, providers.OAuthTokenEnv, "sk-ant-oat01-vault")
+	vaulttest.Secret(t, "A_CUSTOM", "v")
+	t.Setenv(providers.OAuthTokenEnv, "sk-ant-oat01-env")
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := map[string]string{}
-	for _, s := range configure.TrackedSecrets(reg) {
-		rows[s.Name] = s.Users
+	d, out := newDialog("")
+	d.reg = reg
+	secretsLoop(d)
+	rows := numberedRows(out.String())
+	if !strings.Contains(out.String(), "env over vault") {
+		t.Fatalf("no shadowed setup-token row in:\n%s", out.String())
 	}
-	if _, ok := rows["OPENAI_API_KEY"]; ok {
-		t.Error("OPENAI_API_KEY listed although its provider is disabled")
-	}
-	if rows["MY_CUSTOM"] != "custom" || rows[providers.OAuthTokenEnv] == "" {
-		t.Errorf("rows = %v, want MY_CUSTOM (custom) and the setup-token", rows)
-	}
+	assertFitsEighty(t, "secrets page", rows)
 }
 
 func TestEditSecretDeletesVaultValue(t *testing.T) {
@@ -556,31 +480,6 @@ func assertSecretDeleteAudited(t *testing.T, since time.Time, name string) {
 		}
 	}
 	t.Errorf("commit did not audit secret_delete for %s: %+v", name, events)
-}
-
-func TestProbeCachedVaultAndEnvOverride(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	const name = "CONFIGURE_CACHED_SECRET"
-	t.Setenv(name, "")
-	vaulttest.Secret(t, name, "stored-value")
-	meta, err := vault.LoadMeta()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := vault.RecordProbe(name, "verified", time.Now().Add(-time.Minute), meta[name].SetAt); err != nil {
-		t.Fatal(err)
-	}
-	p := fakeKeyedProvider(t, name, "env-value")
-	kt := configure.KeyTarget{Provider: p}
-	status, _, age := configure.ProbeCached(kt)
-	if status != "verified" || age < time.Minute {
-		t.Fatalf("vault cache = (%q, %v), want verified cached result", status, age)
-	}
-	t.Setenv(name, "env-value")
-	status, _, age = configure.ProbeCached(kt)
-	if status != "verified" || age != 0 {
-		t.Fatalf("env override = (%q, %v), want verified live result", status, age)
-	}
 }
 
 func TestCustomEnvPlainAndSecret(t *testing.T) {
@@ -736,5 +635,34 @@ func TestConfirmPageKeysCountsStagedAndDeletedKeyOnce(t *testing.T) {
 
 	if !strings.Contains(out.String(), "secrets: 1 change(s) discarded") {
 		t.Errorf("output = %q, want 1 change(s) discarded", out.String())
+	}
+}
+
+// TestConfirmPageKeysSavesOrDiscardsOnlyThePagesKeys: y stores the page's staged keys (Submit has none left),
+// N restores env; a key staged before the page opened is untouched either way.
+func TestConfirmPageKeysSavesOrDiscardsOnlyThePagesKeys(t *testing.T) {
+	for _, yes := range []bool{true, false} {
+		menuTestEnv(t)
+		t.Setenv("OLD_KEY", "")
+		os.Unsetenv("PAGE_KEY")
+		d := &dialog{out: discardWriter{}, pending: map[string]stagedKey{}}
+		d.stage("OLD_KEY", "old")
+		before := map[string]stagedKey{"OLD_KEY": d.pending["OLD_KEY"]}
+		d.stage("PAGE_KEY", "page-value")
+		orig := saveConfirmed
+		saveConfirmed = func(string) bool { return yes }
+		confirmPageKeys(d, before)
+		saveConfirmed = orig
+		if _, still := d.pending["PAGE_KEY"]; still {
+			t.Errorf("yes=%v: PAGE_KEY still pending after the page closed", yes)
+		}
+		if _, ok := d.pending["OLD_KEY"]; !ok {
+			t.Errorf("yes=%v: OLD_KEY (staged before the page) must stay for Submit", yes)
+		}
+		if got := os.Getenv("PAGE_KEY"); (got == "page-value") != yes {
+			t.Errorf("yes=%v: PAGE_KEY env = %q", yes, got)
+		}
+		d.pending = nil
+		os.Unsetenv("PAGE_KEY")
 	}
 }

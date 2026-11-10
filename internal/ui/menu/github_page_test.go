@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -162,5 +163,54 @@ func TestRunGithubAuthFlagUnknownAndDryRun(t *testing.T) {
 	d, switched, _ := authFlagDialog(t, "work", Options{DryRun: true})
 	if !runGithubAuthFlag(d) || vault.GitHubAuth() != "" || len(*switched) != 0 {
 		t.Errorf("dry-run touched state: pin=%q switched=%v", vault.GitHubAuth(), *switched)
+	}
+}
+
+// githubScratch isolates CLAUDE_CONFIG_DIR, HOME, XDG, PATH and every credential env var github.go
+// reads, so a test never touches a real gh/copilot login or a real vault overlay.
+func githubScratch(t *testing.T) {
+	t.Helper()
+	cfg, home, xdg := t.TempDir(), t.TempDir(), t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	for _, k := range []string{"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN"} {
+		t.Setenv(k, "")
+	}
+}
+
+func TestRunGithubLoginPrintsVendorBinError(t *testing.T) {
+	githubScratch(t)
+	_, err := paths.AgentBin("copilot")
+	if err == nil {
+		t.Fatal("expected missing vendor")
+	}
+	var out bytes.Buffer
+	runGithubLogin(&dialog{out: &out}, []string{"copilot", "login"}, "copilot")
+	if want := "copilot: " + err.Error() + "\n"; out.String() != want {
+		t.Errorf("output = %q, want %q", out.String(), want)
+	}
+}
+
+// The piped `configure github` report prints only booleans, provider/model names and the fix commands —
+// never a token-shaped string, even when a real-looking GitHub token sits in the environment.
+func TestGithubSectionNonTTYOutputNamesNoSecret(t *testing.T) {
+	githubScratch(t)
+	t.Setenv("GH_TOKEN", "ghp_FAKEtokenlookingvalue1234567890")
+	var out bytes.Buffer
+	_ = Run(Options{Check: true, In: strings.NewReader(""), Out: &out}, "github")
+	got := out.String()
+	if strings.Contains(got, "ghp_FAKEtokenlookingvalue1234567890") {
+		t.Errorf("github section leaked a credential:\n%s", got)
+	}
+	if !regexp.MustCompile(`copilot CLI +present`).MatchString(got) {
+		t.Errorf("want copilot CLI to read present via GH_TOKEN:\n%s", got)
+	}
+	for _, want := range []string{"gh CLI", "copilot CLI", "route("} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output lacks %q:\n%s", want, got)
+		}
 	}
 }

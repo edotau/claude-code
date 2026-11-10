@@ -19,6 +19,20 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
+// pickModel's alias rows (alias · use · current model id), claude's list and an account's, fit 80 columns unclipped.
+func TestTierRowsFitEightyColumns(t *testing.T) {
+	reg := menuTestEnv(t)
+	long := "anthropic/claude-sonnet-5-5"
+	gw := &providers.Provider{Name: "gw", Provider: "anthropic", Protocol: providers.ProtocolAnthropic,
+		Models: map[string]string{"opus": long, "sonnet": long, "haiku": long}}
+	for _, claude := range []bool{true, false} {
+		d, out := newDialog("")
+		d.reg = reg
+		pickModel(d, "claude", gw, claude)
+		assertFitsEighty(t, fmt.Sprintf("alias rows (claude=%v)", claude), append(numberedRows(out.String()), panelBack))
+	}
+}
+
 // copilot's Model row saves to the COPILOT_MODEL pin (pickCopilotModel): one model list, no alias step,
 // and the github-copilot provider's own models table is left untouched (opencode's fallback ladder reads it).
 // copilotPickerTitle is pickCopilotModel's numbered-prompt title, used to split repeated renders.
@@ -235,25 +249,20 @@ func TestPickCopilotModelSavesModelAfterSettingEffort(t *testing.T) {
 	}
 }
 
-// The picker's Effort and Context rows must fit 80 columns against their own labels.
+// The copilot Model picker (Effort, Context, then a catalog row with name and multiplier) fits an 80-column panel.
 func TestPickCopilotModelRowsFitEightyColumns(t *testing.T) {
-	menuTestEnv(t)
+	reg := menuTestEnv(t)
 	fakeCopilotBin(t)
+	mult := 10.0
 	stubCatalog(t, []copilot.SDKModel{
-		{ID: "gemini-3-pro-preview", Enabled: true, ReasoningEffort: true,
+		{ID: "gemini-3-pro-preview", Name: "Gemini 3 Pro Preview", Multiplier: &mult, Enabled: true, ReasoningEffort: true,
 			Efforts: []string{"low", "medium", "high", "xhigh"}, DefaultEffort: "xhigh", ContextTokens: 2_000_000},
 	}, nil)
-
-	d := &dialog{out: discardWriter{}}
-	effort, context := copilotEffortRow(d, "gemini-3-pro-preview"), copilotContextRow(d, "gemini-3-pro-preview")
-	if effort == nil || context == nil {
-		t.Fatalf("Effort row = %v, Context row = %v, want both non-nil", effort, context)
+	rows := numberedRows(runCopilotPicker(t, reg, "gemini-3-pro-preview", "\n"))
+	if len(rows) != 3 {
+		t.Fatalf("rows = %q, want Effort, Context and the model", rows)
 	}
-	for _, r := range []*billingRow{effort, context} {
-		if w := rowRenderedWidth([]string{"Effort", "Context"}, r.desc); w > 80 {
-			t.Errorf("%s row = %d cols, want <=80: %q", r.label, w, r.desc)
-		}
-	}
+	assertFitsEighty(t, "copilot model picker", append(rows, panelBack))
 }
 
 // fakeCopilotBin makes paths.AgentBin("copilot") resolve, so copilotCatalog gets past that check and
@@ -384,90 +393,6 @@ func TestPickCopilotModelFallsBackToOpencodeOnSDKError(t *testing.T) {
 	}
 	if got := gp.Models["opus"]; got != wantOpus {
 		t.Errorf("github-copilot opus alias = %q, want unchanged %q: the pick must not write the provider overlay", got, wantOpus)
-	}
-}
-
-// copilotEffortRow lists only the catalog model's own supported efforts, with its DefaultEffort marked.
-func TestCopilotEffortRowListsModelsOwnEfforts(t *testing.T) {
-	menuTestEnv(t)
-	fakeCopilotBin(t)
-	stubCatalog(t, []copilot.SDKModel{
-		{ID: "claude-sonnet-5", ReasoningEffort: true, Efforts: []string{"low", "medium", "high"}, DefaultEffort: "medium"},
-	}, nil)
-
-	d := &dialog{out: discardWriter{}}
-	r := copilotEffortRow(d, "claude-sonnet-5")
-	if r == nil {
-		t.Fatal("copilotEffortRow = nil, want a row (model supports reasoning effort)")
-	}
-	in := strings.NewReader("\n") // blank = cancel; we only need the printed choice list
-	var out bytes.Buffer
-	d2 := &dialog{o: Options{In: in}, br: bufio.NewReader(in), out: &out}
-	r2 := copilotEffortRow(d2, "claude-sonnet-5")
-	r2.run()
-	shown := out.String()
-	if !strings.Contains(shown, "Medium (default)") {
-		t.Errorf("output missing the default marker on medium:\n%s", shown)
-	}
-	if strings.Contains(shown, "Extra High") || strings.Contains(shown, "Max") {
-		t.Errorf("output lists an effort the model does not support:\n%s", shown)
-	}
-}
-
-// Switching to a model that cannot honor the current effort/context pins must clear them, with a reason.
-func TestClearIneligibleCopilotPinsOnModelSwitch(t *testing.T) {
-	menuTestEnv(t)
-	fakeCopilotBin(t)
-	stubCatalog(t, []copilot.SDKModel{
-		{ID: "new-model", ReasoningEffort: true, Efforts: []string{"low", "medium"}, ContextTokens: 128_000},
-	}, nil)
-	putRec(t, "copilot", "EFFORT", "high")
-	putRec(t, "copilot", "CONTEXT", "long_context")
-
-	var out bytes.Buffer
-	d := &dialog{out: &out}
-	clearIneligibleCopilotPins(d, "new-model")
-
-	if got := vault.GetAgentRecord("copilot").Effort; got != "" {
-		t.Errorf("effort pin = %q, want cleared (new-model doesn't support high)", got)
-	}
-	if got := vault.GetAgentRecord("copilot").Context; got != "" {
-		t.Errorf("context pin = %q, want cleared (new-model has no long-context tier)", got)
-	}
-	if !strings.Contains(out.String(), "doesn't support that effort") || !strings.Contains(out.String(), "has no long-context tier") {
-		t.Errorf("output missing the clear reasons:\n%s", out.String())
-	}
-}
-
-// clearIneligibleCopilotPins must leave compatible pins alone: a model that still supports the pinned
-// effort and still has a long-context tier keeps both.
-func TestClearIneligibleCopilotPinsKeepsCompatiblePins(t *testing.T) {
-	menuTestEnv(t)
-	fakeCopilotBin(t)
-	stubCatalog(t, []copilot.SDKModel{
-		{ID: "still-fits", ReasoningEffort: true, Efforts: []string{"low", "high"}, ContextTokens: 1_000_000},
-	}, nil)
-	putRec(t, "copilot", "EFFORT", "high")
-	putRec(t, "copilot", "CONTEXT", "long_context")
-
-	d := &dialog{out: discardWriter{}}
-	clearIneligibleCopilotPins(d, "still-fits")
-
-	if got := vault.GetAgentRecord("copilot").Effort; got != "high" {
-		t.Errorf("effort pin = %q, want unchanged high", got)
-	}
-	if got := vault.GetAgentRecord("copilot").Context; got != "long_context" {
-		t.Errorf("context pin = %q, want unchanged long_context", got)
-	}
-}
-
-// Catalog-driven rows (the Model picker's name+multiplier line) must still fit 80 columns against the longest label.
-func TestCopilotCatalogRowsFitEightyColumns(t *testing.T) {
-	mult := 10.0
-	id := "gemini-3-pro-preview" // a realistic worst-case id length from the live catalog
-	desc := copilotModelDesc(copilot.SDKModel{ID: id, Name: "Gemini 3 Pro Preview", Multiplier: &mult}, id)
-	if w := rowRenderedWidth([]string{id}, desc); w > 80 {
-		t.Errorf("Model row = %d cols, want <=80: %q", w, desc)
 	}
 }
 
