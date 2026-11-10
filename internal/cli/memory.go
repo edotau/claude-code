@@ -15,7 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/claude"
-	"github.com/edotau/claude-code/internal/hooks/memhook"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -182,12 +181,12 @@ func cmdMemoryWatch(args []string) int {
 	session := fs.String("session", "", "session id (names the stamp)")
 	tr := fs.String("transcript", "", "the session's transcript path")
 	cwd := fs.String("cwd", "", "project root whose bank to update")
-	idle := fs.Duration("idle", memhook.UpdateIdleAfter, "quiet period before the final update")
+	idle := fs.Duration("idle", memory.UpdateIdleAfter, "quiet period before the final update")
 	owner := fs.Int("owner", 0, "session process pid; the watcher exits once it is gone (0 = unbounded)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	return memhook.IdleUpdateWatch(memhook.WatchOptions{Session: *session, Transcript: *tr, CWD: *cwd,
+	return memory.IdleUpdateWatch(memory.WatchOptions{Session: *session, Transcript: *tr, CWD: *cwd,
 		Idle: *idle, Owner: *owner, Stderr: os.Stderr})
 }
 
@@ -200,7 +199,7 @@ func cmdMemoryCatchup(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	return memhook.CatchUpSweep(memhook.SweepOptions{DryRun: *dry, Skip: *skip, Stdout: os.Stdout, Stderr: os.Stderr})
+	return memory.CatchUpSweep(memory.SweepOptions{DryRun: *dry, Skip: *skip, Stdout: os.Stdout, Stderr: os.Stderr})
 }
 
 // memorySubcommands dispatches both public verbs and the off-menu plumbing verbs.

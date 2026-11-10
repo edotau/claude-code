@@ -59,8 +59,8 @@ func DoctorNoticePath(root string) string {
 	return filepath.Join(StateDir(), "doctor-notice-"+filepath.Base(Dir(root)))
 }
 
-// DoctorNotice is the cached review line for SessionStart, "" with none; a full Doctor pass is too slow for launch.
-func DoctorNotice(root string) string {
+// doctorNotice is the cached review line for SessionStart, "" with none; a full Doctor pass is too slow for launch.
+func doctorNotice(root string) string {
 	data, err := os.ReadFile(DoctorNoticePath(root))
 	if err != nil {
 		return ""

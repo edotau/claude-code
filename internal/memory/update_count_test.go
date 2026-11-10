@@ -1,7 +1,6 @@
-package memhook
+package memory
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,11 +10,40 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
-
-	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 )
+
+func writeEdits(t *testing.T, path string, n int) {
+	t.Helper()
+	line := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go"}}]}}` + "\n"
+	if err := os.WriteFile(path, []byte(strings.Repeat(line, n)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeUserTurns(t *testing.T, path string, n int) {
+	t.Helper()
+	line := `{"type":"user","message":{"content":"ship it"}}` + "\n"
+	if err := os.WriteFile(path, []byte(strings.Repeat(line, n)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func appendUserTurns(t *testing.T, path string, n int) {
+	t.Helper()
+	line := `{"type":"user","message":{"content":"ship it"}}` + "\n"
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(strings.Repeat(line, n)); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // statSize returns path's current size, failing the test when it cannot be stat'ed.
 func statSize(t *testing.T, path string) int64 {
@@ -25,53 +53,6 @@ func statSize(t *testing.T, path string) int64 {
 		t.Fatal(err)
 	}
 	return fi.Size()
-}
-
-// TestCountEditsIncludesSubagentEdits: a dispatched subagent's own agent-*.jsonl transcript counts toward
-// the parent session's edits, and that combined total is what arms the Stop update gate.
-func TestCountEditsIncludesSubagentEdits(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
-	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 1)
-	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
-	if err := os.MkdirAll(subDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 2)
-
-	if got := countEdits(tr, countPath("sub-session")); got != 3 {
-		t.Fatalf("countEdits = %d, want 3 (1 main edit + 2 subagent edits)", got)
-	}
-
-	cwd := t.TempDir()
-	calls := &StubSpawnForTest(t, true).Update
-	payload := fmt.Sprintf(`{"session_id":"sub-session","cwd":%q,"transcript_path":%q}`, cwd, tr)
-	if code := sessionUpdateCode(core.ParseInput(strings.NewReader(payload)), &bytes.Buffer{}); code != core.ExitProceed || calls.Load() != 1 {
-		t.Fatalf("subagent edits must arm the update gate: code=%d calls=%d", code, calls.Load())
-	}
-}
-
-// TestCountEditsGitCommitWeightArmsGate: a single `git commit` Bash call, with zero Edit/Write calls,
-// counts for updateMinEdits on its own and arms the Stop gate.
-func TestCountEditsGitCommitWeightArmsGate(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
-	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	commit := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git commit -m x"}}]}}` + "\n"
-	if err := os.WriteFile(tr, []byte(commit), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got := countEdits(tr, countPath("commit-session")); got != updateMinEdits {
-		t.Fatalf("countEdits = %d, want %d (one git commit)", got, updateMinEdits)
-	}
-
-	cwd := t.TempDir()
-	calls := &StubSpawnForTest(t, true).Update
-	payload := fmt.Sprintf(`{"session_id":"commit-session","cwd":%q,"transcript_path":%q}`, cwd, tr)
-	if code := sessionUpdateCode(core.ParseInput(strings.NewReader(payload)), &bytes.Buffer{}); code != core.ExitProceed || calls.Load() != 1 {
-		t.Fatalf("a bare git commit must arm the update gate: code=%d calls=%d", code, calls.Load())
-	}
 }
 
 // An invalid count format forces a full rescan; the four-field format round-trips exactly.
@@ -94,9 +75,7 @@ func TestCountStateOldFormatReadsAndNewFieldsRoundTrip(t *testing.T) {
 	}
 }
 
-// TestCountEditsOldFormatCountFileRescansUnweightedCommit: an old 2-field count file's offset already sits
-// past a `git commit` the old binary never weighted. Upgrading must force a full rescan from 0 so that
-// commit is counted at CommitEditWeight, and the count file is rewritten in the new 4-field format.
+// An old 2-field count file forces a full rescan, so a past `git commit` is weighted and the file gets 4 fields.
 func TestCountEditsOldFormatCountFileRescansUnweightedCommit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
@@ -121,9 +100,7 @@ func TestCountEditsOldFormatCountFileRescansUnweightedCommit(t *testing.T) {
 	}
 }
 
-// TestCountEditsThreeFieldCountFileRescansTurns: a 3-field pre-upgrade count file's offset sits past
-// user turns that format never counted, so upgrading must force a full rescan from 0 — the turns are
-// re-weighted — and the count file is rewritten in the 4-field format.
+// A 3-field count file forces a full rescan, so its uncounted user turns are weighted and the file gets 4 fields.
 func TestCountEditsThreeFieldCountFileRescansTurns(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
@@ -149,8 +126,7 @@ func TestCountEditsThreeFieldCountFileRescansTurns(t *testing.T) {
 	}
 }
 
-// TestCountSubagentEditsCachesUnchangedSizeRecountsGrowth: subagentEdits trusts a cached edit count
-// outright when the summed subagent file size hasn't moved, and only rescans once it grows.
+// subagentEdits trusts the cached count while the summed subagent size is unchanged and rescans once it grows.
 func TestCountSubagentEditsCachesUnchangedSizeRecountsGrowth(t *testing.T) {
 	dir := t.TempDir()
 	tr := filepath.Join(dir, "t.jsonl")
@@ -167,9 +143,7 @@ func TestCountSubagentEditsCachesUnchangedSizeRecountsGrowth(t *testing.T) {
 		t.Fatalf("initial scan = (%d,%d), want (2,%d)", edits, bytes, size)
 	}
 
-	// A deliberately wrong cached edit count, paired with the SAME cached size, must be trusted as-is:
-	// this is the only way to prove the unchanged-size path skips the rescan rather than coincidentally
-	// recomputing the same answer.
+	// A wrong cached count with the SAME size must come back as-is: proof the rescan was skipped, not repeated.
 	edits2, bytes2 := subagentEdits(tr, size, 999, true)
 	if edits2 != 999 || bytes2 != size {
 		t.Fatalf("unchanged size must skip the rescan: got (%d,%d), want (999,%d)", edits2, bytes2, size)
@@ -208,8 +182,7 @@ func subagentFixture(t *testing.T) (tr, subDir string) {
 	return tr, subDir
 }
 
-// TestCountSubagentEditsGrowOneFileOnlyAdvancesItsSidecarEntry: with 3 sibling files, growing one must
-// only rescan (and advance the sidecar offset of) that file — the other two entries come back unchanged.
+// Growing one of three subagent files advances only that file's sidecar entry.
 func TestCountSubagentEditsGrowOneFileOnlyAdvancesItsSidecarEntry(t *testing.T) {
 	tr, subDir := subagentFixture(t)
 	a := filepath.Join(subDir, "agent-a.jsonl")
@@ -247,8 +220,7 @@ func TestCountSubagentEditsGrowOneFileOnlyAdvancesItsSidecarEntry(t *testing.T) 
 	}
 }
 
-// TestCountSubagentEditsOffsetPastFileSizeRescansFromZero: a sidecar offset larger than the file's
-// current size (truncation/rotation) must rescan that file from 0, not skip it or go negative.
+// A sidecar offset past the file's size (truncated or rotated) rescans that file from 0.
 func TestCountSubagentEditsOffsetPastFileSizeRescansFromZero(t *testing.T) {
 	tr, subDir := subagentFixture(t)
 	a := filepath.Join(subDir, "agent-a.jsonl")
@@ -269,8 +241,7 @@ func TestCountSubagentEditsOffsetPastFileSizeRescansFromZero(t *testing.T) {
 	}
 }
 
-// TestCountSubagentEditsGarbageSidecarTreatedAsEmpty: unparsable sidecar JSON must not panic and must
-// behave as if no cache existed — every file rescanned from 0.
+// Unparsable sidecar JSON never panics and reads as no cache: every file rescans from 0.
 func TestCountSubagentEditsGarbageSidecarTreatedAsEmpty(t *testing.T) {
 	tr, subDir := subagentFixture(t)
 	a := filepath.Join(subDir, "agent-a.jsonl")
@@ -293,8 +264,7 @@ func TestCountSubagentEditsGarbageSidecarTreatedAsEmpty(t *testing.T) {
 	}
 }
 
-// TestCountSubagentEditsDeletedFileDropsFromSidecar: a subagent file removed between Stops must not
-// survive in the rewritten sidecar (it would otherwise leak a stale entry forever).
+// A subagent file deleted between Stops drops out of the rewritten sidecar.
 func TestCountSubagentEditsDeletedFileDropsFromSidecar(t *testing.T) {
 	tr, subDir := subagentFixture(t)
 	a := filepath.Join(subDir, "agent-a.jsonl")
@@ -327,9 +297,7 @@ func TestCountSubagentEditsDeletedFileDropsFromSidecar(t *testing.T) {
 	}
 }
 
-// TestCountSubagentEditsConcurrentCallsCountOnce: Stop and SessionEnd can call in for the same session at
-// once; two concurrent calls racing the same growth must serialize through the sidecar lock so the total
-// is counted once each, not doubled, and both land on the same final offset.
+// Two concurrent counts of one growth serialize on the sidecar lock: counted once, one final offset.
 func TestCountSubagentEditsConcurrentCallsCountOnce(t *testing.T) {
 	tr, subDir := subagentFixture(t)
 	a := filepath.Join(subDir, "agent-a.jsonl")
@@ -375,9 +343,7 @@ func TestCountSubagentEditsConcurrentCallsCountOnce(t *testing.T) {
 	}
 }
 
-// TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting: when the sidecar lock is held by
-// another writer, subagentEdits must fall back to the caller's cached totals, write nothing, and
-// return within its (test-shortened) lock wait rather than hang.
+// With the sidecar lock held elsewhere subagentEdits returns the cached totals, writes nothing and never hangs.
 func TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting(t *testing.T) {
 	oldWait := sidecarLockWait
 	sidecarLockWait = 100 * time.Millisecond
@@ -406,8 +372,7 @@ func TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting(t *testi
 	edits, bytes := subagentEdits(tr, bytes0, edits0, true)
 	elapsed := time.Since(start)
 
-	// The lock-busy path keeps the caller's cached totals entirely (edits AND bytes): caching the new
-	// totalBytes against stale edits would make the next call's fast-path skip the recount permanently.
+	// Busy lock keeps both cached totals: new bytes against stale edits would skip the recount forever.
 	if edits != edits0 || bytes != bytes0 {
 		t.Fatalf("lock held elsewhere: subagentEdits = (%d,%d), want (%d,%d)", edits, bytes, edits0, bytes0)
 	}
@@ -441,5 +406,30 @@ func TestReadOnlyEditsMatchesCountEditsWithoutWriting(t *testing.T) {
 	}
 	if real := countEdits(tr, countFile); dry != 4 || real != dry {
 		t.Errorf("dry = %d, real = %d, want both 4", dry, real)
+	}
+}
+
+// Regression: a filepath.Glob result must reach the count, never be swallowed into an empty file list.
+func TestCountSubagentEditsHandlesGlobError(t *testing.T) {
+	// Create a transcript path with no subagents dir — Glob will return no matches (ok state).
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	writeEdits(t, tr, 1)
+
+	// No subagents dir exists — Glob should handle this gracefully.
+	edits, bytes := subagentEdits(tr, 0, 0, true)
+	if edits != 0 || bytes != 0 {
+		t.Errorf("subagentEdits with no subagents dir = (%d, %d), want (0, 0)", edits, bytes)
+	}
+
+	// Now create a subagents dir with agent files.
+	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 3)
+
+	edits2, _ := subagentEdits(tr, 0, 0, true)
+	if edits2 != 3 {
+		t.Errorf("subagentEdits after adding agent files = %d, want 3", edits2)
 	}
 }

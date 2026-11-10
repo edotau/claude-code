@@ -2,7 +2,6 @@ package memhook
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -76,7 +75,7 @@ func handoffPrompt(in *core.Input, pct int) core.Result {
 // contextCheckpoint: once per threshold crossing with nothing in flight, spawn an update and prompt a handoff.
 func contextCheckpoint(in *core.Input) core.Result {
 	in = sessionRootInput(in)
-	if in.StopHookActive || !updatable(in) {
+	if in.StopHookActive || !memory.Updatable(in.SessionID, in.TranscriptPath) {
 		return core.Result{}
 	}
 	pct, ok := contextPct(in.TranscriptPath)
@@ -108,7 +107,8 @@ func contextCheckpoint(in *core.Input) core.Result {
 	}
 	_ = f.Close()
 	// The fresh "bg" stamp makes the same Stop's sessionUpdate a no-op.
-	if !dispatchUpdate(in, triggerStop, countEdits(in.TranscriptPath, countPath(in.SessionID)), time.Now()) {
+	work := memory.CountEdits(in.SessionID, in.TranscriptPath)
+	if !memory.DispatchUpdate(updateRequest(in), memory.TriggerStop, work, time.Now()) {
 		fmt.Fprintln(os.Stderr, "context-checkpoint: could not start the background handoff; retrying at the next Stop")
 		_ = os.Remove(flag)
 		return core.Result{}
@@ -117,95 +117,6 @@ func contextCheckpoint(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	return handoffPrompt(in, pct)
-}
-
-// compactRecord is what PreCompact leaves for the next SessionStart(compact).
-type compactRecord struct {
-	Trigger string `json:"trigger"`
-	Pct     int    `json:"pct"`
-	At      string `json:"at"`
-}
-
-func compactRecordPath(sessionID string) string {
-	return filepath.Join(paths.StateDir(), "compact", filepath.Base(sessionID)+".json")
-}
-
-// writeCompactRecord notes the compaction for the next start; errors go to stderr only.
-func writeCompactRecord(in *core.Input, now time.Time) {
-	pct, _ := contextPct(in.TranscriptPath)
-	b, err := json.Marshal(compactRecord{Trigger: in.Trigger, Pct: pct, At: now.Format(time.RFC3339)})
-	if err == nil {
-		path := compactRecordPath(in.SessionID)
-		if err = os.MkdirAll(filepath.Dir(path), 0o700); err == nil {
-			err = paths.AtomicWrite(path, b, 0o600)
-		}
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "context-steward: compact record: %v\n", err)
-	}
-}
-
-// takeCompactRecord reads and deletes the session's compact record; ok is false when none was left.
-func takeCompactRecord(sessionID string) (r compactRecord, ok bool) {
-	path := compactRecordPath(sessionID)
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return r, false
-	}
-	_ = os.Remove(path)
-	return r, json.Unmarshal(b, &r) == nil
-}
-
-// newestHandoff is the most recently modified handoff in dir within maxAge, or "".
-func newestHandoff(dir string, now time.Time, maxAge time.Duration) string {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return ""
-	}
-	best, bestMod := "", time.Time{}
-	for _, e := range entries {
-		fi, err := e.Info()
-		if err != nil || e.IsDir() || filepath.Ext(e.Name()) != ".md" || now.Sub(fi.ModTime()) > maxAge {
-			continue
-		}
-		if fi.ModTime().After(bestMod) {
-			best, bestMod = filepath.Join(dir, e.Name()), fi.ModTime()
-		}
-	}
-	return best
-}
-
-// resumeNote is the compact/clear start line: the compaction record and the fresh handoff, whichever exist.
-func resumeNote(in *core.Input, cwd string, now time.Time) string {
-	var parts []string
-	if in.Source == "compact" {
-		if r, ok := takeCompactRecord(in.SessionID); ok {
-			parts = append(parts, compactedText(r))
-		}
-	}
-	if h := newestHandoff(memory.HandoffsDir(memory.Dir(cwd)), now, 24*time.Hour); h != "" {
-		parts = append(parts, "handoff: "+h)
-	}
-	return strings.Join(parts, "; ")
-}
-
-// compactedText renders "compacted (auto, 91%) at 14:02", dropping what the record lacks.
-func compactedText(r compactRecord) string {
-	var detail []string
-	if r.Trigger != "" {
-		detail = append(detail, r.Trigger)
-	}
-	if r.Pct > 0 {
-		detail = append(detail, strconv.Itoa(r.Pct)+"%")
-	}
-	text := "compacted"
-	if len(detail) > 0 {
-		text += " (" + strings.Join(detail, ", ") + ")"
-	}
-	if at, err := time.Parse(time.RFC3339, r.At); err == nil {
-		text += " at " + at.Local().Format("15:04")
-	}
-	return text
 }
 
 // Stop runs the context checkpoint and memory update; only the memory update can block the stop.

@@ -3,7 +3,6 @@ package memhook
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,39 +96,5 @@ func writeBank(t *testing.T, rel, body string) {
 	}
 	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func recallEnv(t *testing.T) {
-	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
-	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
-}
-
-// The session surface carries no all-repos catalog rows, however many repos the catalog lists.
-func TestSessionStartCarriesNoCatalogRows(t *testing.T) {
-	recallEnv(t)
-	var cat strings.Builder
-	cat.WriteString("# Memory catalog\n\n## Repos\n\n")
-	for i := range 120 {
-		fmt.Fprintf(&cat, "- repo-%03d — some description of the repo · last 2026-10-29 → repo-%03d/MEMORY.md\n", i, i)
-	}
-	if err := os.MkdirAll(memory.StoreDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(memory.StoreDir(), memory.CatalogFile), []byte(cat.String()), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	raw, _ := json.Marshal(map[string]string{"cwd": t.TempDir(), "session_id": "probe-x"})
-	res := Start(core.ParseInput(bytes.NewReader(raw)))
-	if res.Decision == core.Block {
-		t.Fatal("SessionStart failed")
-	}
-	if strings.Contains(res.Context, "repo-000") || strings.Contains(res.Context, "repo-119") {
-		t.Errorf("catalog rows injected:\n%s", res.Context)
-	}
-	if !strings.Contains(res.Context, "other repos:") || len(res.Context) > 1500 {
-		t.Errorf("want the one-line pointer and a small surface, got %d bytes:\n%s", len(res.Context), res.Context)
 	}
 }

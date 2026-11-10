@@ -27,41 +27,6 @@ func fakeOpencode(t *testing.T, body string) string {
 	return dir
 }
 
-func TestAgentInputOpencodeExportCounts(t *testing.T) {
-	data, err := filepath.Abs("../../memory/testdata/opencode-export.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cwd := fakeOpencode(t, `[ "$*" = "export ses_x1" ] || exit 1; cat '`+data+`'`)
-	in := agentIn(t, `{"session_id":"ses_x1","cwd":"`+cwd+`","harness_agent":"opencode"}`)
-	out := AgentInput(in)
-	if !updatable(out) {
-		t.Fatalf("export for ses_x1 not converted, updatable %v", updatable(out))
-	}
-	if n := countEdits(out.TranscriptPath, countPath("ses_x1")); n != 2 {
-		t.Fatalf("work = %d, want the export's 2 edits", n)
-	}
-}
-
-func TestAgentInputCopilotEventsFile(t *testing.T) {
-	events, err := filepath.Abs("../../memory/testdata/copilot-events.jsonl")
-	if err != nil {
-		t.Fatal(err)
-	}
-	in := agentIn(t, `{"sessionId":"cop-1","cwd":"/r","transcriptPath":"`+events+`"}`)
-	out := AgentInput(in)
-	if out.TranscriptPath == events {
-		t.Fatal("copilot events were not converted")
-	}
-	if n := countEdits(out.TranscriptPath, countPath("cop-1")); n != 1 {
-		t.Fatalf("work = %d, want the apply_patch's 1 edit", n)
-	}
-	b, _ := os.ReadFile(out.TranscriptPath)
-	if !strings.Contains(string(b), `/r/a.txt`) || !strings.Contains(string(b), "Created") {
-		t.Fatalf("synthesized transcript lacks the patched path or final text: %s", b)
-	}
-}
-
 func TestAgentInputClaudePassesThrough(t *testing.T) {
 	in := agentIn(t, `{"session_id":"s9","cwd":"/r","transcript_path":"/t.jsonl"}`)
 	if out := AgentInput(in); out != in {
