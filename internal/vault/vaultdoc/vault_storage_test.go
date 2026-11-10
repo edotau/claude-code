@@ -1,4 +1,4 @@
-package vaultcmd
+package vaultdoc
 
 import (
 	"bytes"
@@ -632,5 +632,23 @@ func assertReeditRefused(t *testing.T, mode string, err error, stdout string, be
 	}
 	if pins := vaultTestState(t)[vault.Pins]; !reflect.DeepEqual(pins, map[string]string{"HARNESS_OPUS_MODEL": "concurrent-model"}) {
 		t.Errorf("conflicting re-edit wrote pins: %v", pins)
+	}
+}
+
+func TestImportRejectsNullDocument(t *testing.T) {
+	vaulttest.Use(t)
+	seedTestDoc(t)
+	vaulttest.Put(t, vault.Overlay, "settings", `{"theme":"dark"}`)
+	vaulttest.SetRecord(t, "codex", "model", "keep-model")
+	orig := exportTestDoc(t)
+	before := vaultTestState(t)
+	if err := Import(orig, []byte(" \nnull\t")); err == nil || !strings.Contains(err.Error(), "must be a JSON object") {
+		t.Errorf("Import(null) = %v, want JSON object error", err)
+	}
+	if got := exportTestDoc(t); !bytes.Equal(got, orig) {
+		t.Error("null document changed exported pins, env, records, overlays or key_command")
+	}
+	if got := vaultTestState(t); !reflect.DeepEqual(got, before) {
+		t.Error("null document changed a vault bucket")
 	}
 }

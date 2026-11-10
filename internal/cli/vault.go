@@ -1,0 +1,529 @@
+package cli
+
+import (
+	"bufio"
+	"fmt"
+	"io"
+	"os"
+	"slices"
+	"strings"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/agentcmd"
+	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/network/tailscale"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/menu"
+	"github.com/edotau/claude-code/internal/ui/tui"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaultdoc"
+)
+
+func init() {
+	agentcmd.VaultVerb = cmdVault // agentcmd cannot import cli: a launch stores a missing secret through this verb
+}
+
+func vaultSections() []string {
+	return []string{"secrets", "pins", "env", "providers", "agents", "settings", "vault", "all"}
+}
+
+// vaultSpec is the completion node for the vault verb.
+func vaultSpec() *helptext.Node {
+	flag, boolFlag, formatFlag := helptext.Plain, helptext.BoolFlag, helptext.CompletionFormatFlag
+	secretNames := providers.SecretNames
+	return &helptext.Node{Sub: map[string]*helptext.Node{
+		"ls": {Args: []func() []string{vaultSections}, Flags: []helptext.Flag{boolFlag("tailscale"), formatFlag()}},
+		"set": {Args: []func() []string{secretNames}, Flags: []helptext.Flag{boolFlag("tailscale"), boolFlag("api-key"),
+			boolFlag("dry-run")}},
+		"get":           {Args: []func() []string{secretNames}, Flags: []helptext.Flag{boolFlag("export"), boolFlag("key")}},
+		"delete":        {Args: []func() []string{secretNames}},
+		"import":        {Flags: []helptext.Flag{boolFlag("yes")}},
+		"export":        {Args: []func() []string{secretNames}, Flags: []helptext.Flag{flag("out")}},
+		"edit":          {},
+		"rotate-secret": {Flags: []helptext.Flag{boolFlag("force")}},
+	}}
+}
+
+var vaultPage = helptext.Page{
+	Usage: "claude-code vault [<command>] [flags]",
+	About: "The encrypted store (state/vault.db): sealed secrets, pins, env, and the\n" +
+		"profile and agent overlays. Values print only through get.",
+	Commands: [][2]string{
+		{"ls", "everything stored, secrets first (masked); bare vault runs it"},
+		{"set", "store a secret; bare opens a guided dialog; --tailscale"},
+		{"get", "print secret values; --export for shell, --key for master"},
+		{"delete", "remove a secret"},
+		{"import", "seal every NAME=value line of a .env file"},
+		{"export", "write secrets to ./.env (0600); --out for another path"},
+		{"edit", "pins, env and overlays in $EDITOR, one transaction"},
+		{"rotate-secret", "re-seal every secret under a new master key"},
+	},
+	Hint: "claude-code vault <command> -h lists that command's arguments and flags.",
+}
+
+// vaultVerbs is the vault subcommand table.
+var vaultVerbs = map[string]func(args []string) int{
+	"ls": vaultList, "set": cmdVaultSet, "get": cmdVaultGet, "delete": cmdVaultDelete,
+	"import": cmdVaultImport, "export": cmdVaultExport, "edit": configEdit, "rotate-secret": configRotateKey,
+}
+
+// cmdVault reads and edits the vault's non-secret config through one JSON document.
+func cmdVault(args []string) int {
+	if len(args) == 0 || (strings.HasPrefix(args[0], "-") && !helptext.WantsHelp(args[:1])) {
+		return vaultList(args) // bare `vault` (or a leading flag) is `vault ls`
+	}
+	sub, args := args[0], args[1:]
+	if sub == "-h" || sub == "--help" || sub == "help" {
+		vaultPage.Fprint(os.Stdout)
+		return 0
+	}
+	if run, ok := vaultVerbs[sub]; ok {
+		return run(args)
+	}
+	fmt.Fprintf(os.Stderr, "vault: unknown subcommand %q\n", sub)
+	vaultPage.Fprint(os.Stderr)
+	return 2
+}
+
+// vaultUsageErr reports a stray argument to a vault subcommand; a -h there prints the page and exits 0.
+func vaultUsageErr(sub string, args []string) int {
+	if args[0] == "-h" || args[0] == "--help" {
+		vaultPage.Fprint(os.Stdout)
+		return 0
+	}
+	fmt.Fprintf(os.Stderr, "vault %s: unexpected argument %q\n", sub, args[0])
+	vaultPage.Fprint(os.Stderr)
+	return 2
+}
+
+// cmdVaultSet stores a secret by NAME (or via the guided dialog); --tailscale adds a Tailscale credential.
+func cmdVaultSet(args []string) int {
+	fs := helptext.NewFlagSet("vault set", helptext.Page{
+		Usage: "claude-code vault set [NAME] [flags]",
+		About: "Store a secret sealed in the vault; no NAME on a terminal opens the guided dialog.",
+	})
+	ts := fs.Bool("tailscale", false, "add a Tailscale credential (OAuth or API key) instead of NAME")
+	apiKey := fs.Bool("api-key", false, "with --tailscale: piped stdin is one TAILSCALE_API_KEY value")
+	dryRun := fs.Bool("dry-run", false, "report what would be written; change nothing")
+	names, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if *ts {
+		if len(names) > 0 {
+			return vaultUsageErr("set", names)
+		}
+		if tui.StdinIsTerminal() {
+			return vaultSetTailscaleInteractive(*dryRun)
+		}
+		return vaultSetTailscalePiped(*apiKey, *dryRun)
+	}
+	if len(names) == 0 && !*dryRun && tui.StdinIsTerminal() {
+		return menu.Secrets(menu.Options{In: os.Stdin, Out: os.Stdout, Interactive: true})
+	}
+	if len(names) != 1 {
+		fs.Usage()
+		return 2
+	}
+	return vaultSetSecret(names[0], *dryRun)
+}
+
+// vaultSetTailscaleInteractive asks which credential kind, then reads each value hidden.
+func vaultSetTailscaleInteractive(dryRun bool) int {
+	fmt.Fprint(os.Stdout, "OAuth client (o) or API key (a)? ")
+	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	names := tailscale.SetNames(strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "a"))
+	pairs := make([]tailscale.Cred, len(names))
+	for i, name := range names {
+		v, err := readSecretValue(name)
+		if err != nil {
+			return helptext.Fail("vault set: %v", err)
+		}
+		pairs[i] = tailscale.Cred{Name: name, Value: v}
+	}
+	return vaultStoreTailscale(dryRun, pairs)
+}
+
+// vaultSetTailscalePiped reads one line per expected value: --api-key wants one, otherwise id then secret.
+func vaultSetTailscalePiped(apiKeyOnly, dryRun bool) int {
+	r := bufio.NewReader(os.Stdin)
+	readLine := func() (string, error) {
+		line, err := r.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return "", err
+		}
+		return strings.TrimSpace(line), nil
+	}
+	names := tailscale.SetNames(apiKeyOnly)
+	pairs := make([]tailscale.Cred, len(names))
+	for i, name := range names {
+		v, err := readLine()
+		if err != nil {
+			return helptext.Fail("vault set: %v", err)
+		}
+		pairs[i] = tailscale.Cred{Name: name, Value: v}
+	}
+	return vaultStoreTailscale(dryRun, pairs)
+}
+
+// vaultStoreTailscale validates every value, then stores them all or none (StoreCreds rolls back); dry-run only reports.
+func vaultStoreTailscale(dryRun bool, creds []tailscale.Cred) int {
+	if err := tailscale.CheckCreds(creds); err != nil {
+		fmt.Fprintf(os.Stderr, "vault set: %v; nothing written\n", err)
+		return 1
+	}
+	if dryRun {
+		for _, c := range creds {
+			verb, _ := tailscale.StoreCred(c, true) // dry-run never fails
+			fmt.Printf("would %s %s (%d chars); nothing written\n", verb, c.Name, len(c.Value))
+		}
+		return 0
+	}
+	if err := tailscale.StoreCreds(creds); err != nil {
+		return helptext.Fail("vault set: %v", err)
+	}
+	for _, c := range creds {
+		fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s)\n", c.Name, vault.Redact(c.Value))
+	}
+	return 0
+}
+
+func configEdit(args []string) int {
+	fs := helptext.NewFlagSet("vault edit", helptext.Page{
+		Usage: "claude-code vault edit",
+		About: "Edit pins, env and overlays in $EDITOR, as one transaction.",
+	})
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	if fs.NArg() > 0 {
+		return vaultUsageErr("edit", fs.Args())
+	}
+	if err := vaultdoc.Edit(os.Stdout, os.Stderr); err != nil {
+		fmt.Fprintln(os.Stderr, "vault edit:", err)
+		return 1
+	}
+	return 0
+}
+
+func configRotateKey(args []string) int {
+	fs := helptext.NewFlagSet("vault rotate-secret", helptext.Page{
+		Usage: "claude-code vault rotate-secret [flags]",
+		About: "Re-seal every secret under a new master key; values unchanged.",
+	})
+	force := fs.Bool("force", false, "rotate even if HARNESS_VAULT_KEY or key_command is set")
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	if fs.NArg() > 0 {
+		return vaultUsageErr("rotate-secret", fs.Args())
+	}
+	var opts []vault.RotateKeyOption
+	if *force {
+		opts = append(opts, vault.ForceRotate())
+	}
+	return configRun("rotate-secret", vaultdoc.RotateKey(os.Stdout, opts...))
+}
+
+// configRun maps a subcommand's error to its exit code.
+func configRun(sub string, err error) int {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "vault %s: %v\n", sub, err)
+		return 1
+	}
+	return 0
+}
+
+// vaultList prints the selected sections (default all): secrets masked, then the vault's non-secret config.
+func vaultList(args []string) int {
+	fs := helptext.NewFlagSet("vault ls", helptext.Page{
+		Usage: "claude-code vault ls [<section>...|all]\n[--format text|json] [--tailscale]",
+		About: "Print what the vault stores, secrets masked. Sections: " +
+			strings.Join(vaultdoc.Sections, ", ") + "; bare or all prints every one.",
+	})
+	ts := fs.Bool("tailscale", false, "show Tailscale credential presence, not JSON")
+	format := fs.String("format", "", "text or json (default: text on a terminal, json otherwise)")
+	names, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if *ts {
+		if len(names) > 0 {
+			return vaultUsageErr("ls", names)
+		}
+		vaultdoc.Tailscale(os.Stdout)
+		return 0
+	}
+	sel, err := vaultdoc.Select(names)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "vault ls:", err)
+		return 2
+	}
+	f := *format
+	if f == "" {
+		f = helptext.JSON
+		if tui.StdoutIsTerminal() {
+			f = helptext.Text
+		}
+	}
+	if err := helptext.CheckFormat(f); err != nil {
+		helptext.Fail("vault ls: %v", err)
+		return 2
+	}
+	if err := vaultdoc.List(os.Stdout, f, sel); err != nil {
+		return helptext.Fail("vault ls: %v", err)
+	}
+	return 0
+}
+
+// vaultSetSecret stores one NAME whose value comes from a hidden prompt or stdin.
+func vaultSetSecret(name string, dryRun bool) int {
+	value, err := readSecretValue(name)
+	if err != nil {
+		return helptext.Fail("vault set: %v", err)
+	}
+	if value == "" {
+		return helptext.Fail("vault set: empty value")
+	}
+	if err := agent.ValidateVaultSecret(name, value); err != nil {
+		return helptext.Fail("vault set: %v", err)
+	}
+	if dryRun {
+		names, err := vault.NamesErr()
+		if err != nil {
+			return helptext.Fail("vault set: %v", err)
+		}
+		verb := "add"
+		if slices.Contains(names, name) {
+			verb = "replace"
+		}
+		fmt.Printf("would %s %s in the vault (%d chars); nothing written\n", verb, name, len(value))
+		return 0
+	}
+	if err := agent.SetSecret(name, value); err != nil {
+		return helptext.Fail("vault set: %v", err)
+	}
+	router.ClearSecretAuth(name)
+	fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s); `claude-code vault get %s` prints it\n", name, vault.Redact(value), name)
+	return 0
+}
+
+// readSecretValue prompts with hidden input on a terminal; a pipe still supplies the value on stdin.
+func readSecretValue(name string) (string, error) {
+	if tui.StdinIsTerminal() {
+		v, err := agent.PromptSecret(name)
+		return strings.TrimSpace(v), err
+	}
+	raw, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", fmt.Errorf("read stdin: %w", err)
+	}
+	return strings.TrimSpace(string(raw)), nil
+}
+
+// cmdVaultGet prints NAME=value per name (vault -> env), or the master key with --key (pipes only).
+func cmdVaultGet(args []string) int {
+	fs := helptext.NewFlagSet("vault get", helptext.Page{
+		Usage: "claude-code vault get NAME... [flags]",
+		About: "Print each secret as NAME=value (vault first, then the process env).",
+	})
+	export := fs.Bool("export", false, "print export NAME='value' lines for a shell")
+	key := fs.Bool("key", false, "print the master key (base64) instead; refused on a terminal")
+	names, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if *key {
+		if len(names) > 0 || *export {
+			fmt.Fprintln(os.Stderr, "vault get: --key takes no NAME and no --export")
+			return 2
+		}
+		return vaultGetKey()
+	}
+	if len(names) == 0 {
+		fs.Usage()
+		return 2
+	}
+	lookup, masterKey := names, slices.Contains(names, "HARNESS_VAULT_KEY")
+	if masterKey {
+		lookup = names[:slices.Index(names, "HARNESS_VAULT_KEY")]
+	}
+	values, err := vault.LookupAll(lookup)
+	if err != nil {
+		return helptext.Fail("vault get: %v", err)
+	}
+	if masterKey {
+		return helptext.Fail("vault get: HARNESS_VAULT_KEY is the master key; use vault get --key (refused on a terminal)")
+	}
+	if err := printVaultValues(names, values, *export); err != nil {
+		return helptext.Fail("vault get: %v", err)
+	}
+	return 0
+}
+
+// printVaultValues prints NAME=value lines, or shell-quoted export lines with export; the first write error is returned.
+func printVaultValues(names, values []string, export bool) error {
+	for i, name := range names {
+		var err error
+		if export {
+			_, err = fmt.Printf("export %s=%s\n", name, textutil.ShellQuote(values[i]))
+		} else {
+			_, err = fmt.Printf("%s=%s\n", name, values[i])
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// vaultGetKey prints the master key only to a pipe, never a terminal, so it never lands in scrollback.
+func vaultGetKey() int {
+	if tui.StdoutIsTerminal() {
+		fmt.Fprintln(os.Stderr, "vault get --key: refusing to print the master key to a terminal; pipe it")
+		return 2
+	}
+	k, _, err := vault.MasterKey()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "vault get --key:", err)
+		return 1
+	}
+	if _, err := fmt.Println(k.Raw()); err != nil {
+		fmt.Fprintln(os.Stderr, "vault get --key:", err)
+		return 1
+	}
+	audit.Log(audit.KeyReveal, k.Kid, "")
+	return 0
+}
+
+// cmdVaultDelete removes NAME from the vault.
+func cmdVaultDelete(args []string) int {
+	fs := helptext.NewFlagSet("vault delete", helptext.Page{
+		Usage: "claude-code vault delete NAME",
+		About: "Remove a secret from the vault.",
+	})
+	names, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if len(names) != 1 {
+		fs.Usage()
+		return 2
+	}
+	name := names[0]
+	if err := vault.Remove(name); err != nil {
+		return helptext.Fail("vault delete: %v", err)
+	}
+	fmt.Fprintf(os.Stderr, "deleted %s\n", name)
+	return 0
+}
+
+// cmdVaultImport stores a .env's NAME=value lines; any malformed line aborts before anything is written.
+// "-" reads stdin: no confirm prompt can read the data stream, so it needs --yes and refuses a terminal.
+func cmdVaultImport(args []string) int {
+	fs := helptext.NewFlagSet("vault import", helptext.Page{
+		Usage: "claude-code vault import FILE|- [flags]",
+		About: "Store each NAME=value line of a .env (# lines skipped); - reads stdin.",
+	})
+	yes := fs.Bool("yes", false, "skip the confirm; required for - (stdin)")
+	rest, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if len(rest) != 1 {
+		fs.Usage()
+		return 2
+	}
+	name := rest[0]
+	r, code := openImport(name, *yes)
+	if r == nil {
+		return code
+	}
+	defer r.Close()
+	pairs, problems := vault.ParseDotenv(r)
+	if len(problems) > 0 {
+		return helptext.Fail("vault import: %s: nothing written\n  %s", name, strings.Join(problems, "\n  "))
+	}
+	if len(pairs) == 0 {
+		return helptext.Fail("vault import: %s has no NAME=value lines", name)
+	}
+	if err := configure.ValidateImport(pairs); err != nil {
+		return helptext.Fail("vault import: %s: %v", name, err)
+	}
+	if !confirmImport(pairs, *yes) {
+		return 1
+	}
+	err = configure.StoreImport(pairs, func(n string) { fmt.Fprintf(os.Stderr, "stored %s in the vault\n", n) })
+	if err != nil {
+		return helptext.Fail("vault import: %v", err)
+	}
+	return 0
+}
+
+// openImport opens FILE, or piped stdin for "-" after the terminal and --yes checks; a nil reader carries the exit code.
+func openImport(name string, yes bool) (io.ReadCloser, int) {
+	if name != "-" {
+		f, err := os.Open(name)
+		if err != nil {
+			return nil, helptext.Fail("vault import: %v", err)
+		}
+		return f, 0
+	}
+	if tui.StdinIsTerminal() {
+		return nil, helptext.Fail("vault import -: refusing, stdin is a terminal (pipe data in)")
+	}
+	if !yes {
+		return nil, helptext.Fail("vault import -: needs --yes (no confirm prompt possible on piped stdin)")
+	}
+	return io.NopCloser(os.Stdin), 0
+}
+
+// confirmImport previews each pair (masked) and, on a terminal without --yes, asks before storing; false means nothing written.
+func confirmImport(pairs []vault.Pair, yes bool) bool {
+	for _, p := range pairs {
+		fmt.Fprintf(os.Stderr, "  %-28s %s\n", p.Name, vault.Preview(p.Value))
+	}
+	if !yes && tui.StdinIsTerminal() && !tui.ConfirmKey(fmt.Sprintf("Store %d secret(s)?", len(pairs)), true) {
+		fmt.Fprintln(os.Stderr, "vault import: nothing written")
+		return false
+	}
+	return true
+}
+
+// cmdVaultExport appends stored secrets (all, or the NAMEs given) to --out (default ./.env): names the file
+// already defines are skipped, and the file is left 0600 whether created or appended to.
+func cmdVaultExport(args []string) int {
+	fs := helptext.NewFlagSet("vault export", helptext.Page{
+		Usage: "claude-code vault export [NAME...] [flags]",
+		About: "Append stored secrets to a .env file (0600); names already there are kept.",
+	})
+	out := fs.String("out", ".env", "file to append to; vault get prints to stdout instead")
+	names, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if *out == "-" {
+		fmt.Fprintln(os.Stderr, "vault export: --out - is gone; use claude-code vault get NAME... to print")
+		return 2
+	}
+	pairs, err := vault.ExportPairs(names)
+	if err != nil {
+		return helptext.Fail("vault %v", err)
+	}
+	if len(pairs) == 0 {
+		return helptext.Fail("vault export: no stored secrets to export")
+	}
+	added, skipped, err := vault.AppendDotenv(*out, pairs)
+	if err != nil {
+		return helptext.Fail("vault export: %v", err)
+	}
+	if len(skipped) > 0 {
+		fmt.Fprintf(os.Stderr, "kept %s (already in %s)\n", strings.Join(skipped, ", "), *out)
+	}
+	fmt.Fprintf(os.Stderr, "wrote %d secret(s) to %s (0600, plaintext — keep it out of git)\n", added, *out)
+	return 0
+}

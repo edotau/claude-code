@@ -1,12 +1,10 @@
-package vaultcmd
+package vaulttest
 
 import (
 	"os"
 	"strings"
 	"testing"
 	"unsafe"
-
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
 	"golang.org/x/sys/unix"
 )
@@ -24,31 +22,31 @@ func ptyIoctl(fd uintptr, req uint, arg unsafe.Pointer) error {
 	return nil
 }
 
-func TestVaultGetKeyRefusesTTY(t *testing.T) {
-	vaulttest.UseFreshKey(t)
+// PTY opens a pseudo-terminal pair closed at cleanup; the slave reads as a terminal.
+func PTY(t testing.TB) (master, slave *os.File) {
+	t.Helper()
 	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer master.Close()
+	t.Cleanup(func() { _ = master.Close() })
 	var nameBuf [128]byte
 	if err := ptyIoctl(master.Fd(), unix.TIOCPTYGNAME, unsafe.Pointer(&nameBuf[0])); err != nil {
 		t.Fatal(err)
 	}
-	if err := ptyIoctl(master.Fd(), unix.TIOCPTYGRANT, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := ptyIoctl(master.Fd(), unix.TIOCPTYUNLK, nil); err != nil {
-		t.Fatal(err)
+	for _, req := range []uint{unix.TIOCPTYGRANT, unix.TIOCPTYUNLK} {
+		if err := ptyIoctl(master.Fd(), req, nil); err != nil {
+			t.Fatal(err)
+		}
 	}
 	name := string(nameBuf[:])
 	if i := strings.IndexByte(name, 0); i >= 0 {
 		name = name[:i]
 	}
-	slave, err := os.OpenFile(name, os.O_RDWR|unix.O_NOCTTY, 0)
+	slave, err = os.OpenFile(name, os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer slave.Close()
-	assertGetKeyRefusesTTY(t, slave)
+	t.Cleanup(func() { _ = slave.Close() })
+	return master, slave
 }
