@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"slices"
 	"strings"
 	"time"
@@ -445,28 +446,35 @@ func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.Run
 	if err != nil {
 		return p.Result, retry.Fatal(e.Name(), err)
 	}
-	p.Env, p.Argv = env, opencodePolicyArgv(p.Argv, req)
-	env, plugged, err := opencodeApplyPlugin(p.Env, req)
+	cmd, tail, host, err := opencodeChild(ctx, e.Name(), bin, env, opencodePolicyArgv(p.Argv, req), p.Prompt, req)
 	if err != nil {
-		return p.Result, retry.Fatal(e.Name(), err)
+		return p.Result, err
 	}
-	p.Env = env
-	host := newHookHost(req)
-	p.Env = withHostedMarker(p.Env, host)
-	if plugged {
-		host.dropPlugin() // the plugin blocks for real; the host's detect-only copies would double-run them
-	}
-	argv, err := host.before(p.Argv, p.Prompt)
-	if err != nil {
-		return p.Result, retry.Fatal(e.Name(), err)
-	}
-	cmd, tail := agent.ChildCmd(ctx, bin, argv, p.Env, req.WorkDir, "", req.KeepEnv, true)
 	res, err := agent.RunStream(ctx, e.Name(), cmd, tail, p.Result, sink, host.parser(nil))
 	host.after(res)
 	if err == nil {
 		err = refuseToolCallText(e.Name(), req, res.Answer)
 	}
 	return res, err
+}
+
+// opencodeChild loads the plugin and hook host over env/argv and builds the child; its errors are Fatal for name.
+func opencodeChild(ctx context.Context, name, bin string, env, argv []string, prompt string, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer, *hookHost, error) {
+	env, plugged, err := opencodeApplyPlugin(env, req)
+	if err != nil {
+		return nil, nil, nil, retry.Fatal(name, err)
+	}
+	host := newHookHost(req)
+	env = withHostedMarker(env, host)
+	if plugged {
+		host.dropPlugin() // the plugin blocks for real; the host's detect-only copies would double-run them
+	}
+	argv, err = host.before(argv, prompt)
+	if err != nil {
+		return nil, nil, nil, retry.Fatal(name, err)
+	}
+	cmd, tail := agent.ChildCmd(ctx, bin, argv, env, req.WorkDir, "", req.KeepEnv, true)
+	return cmd, tail, host, nil
 }
 
 // LoginServes adds github: that profile's Auth.Login names copilot, yet opencode has its own GitHub Copilot login.
