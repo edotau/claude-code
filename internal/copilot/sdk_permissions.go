@@ -47,11 +47,7 @@ func withPermissions(o SDKOptions, next copilot.PermissionHandlerFunc) copilot.P
 		return next
 	}
 	return func(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
-		call, ok := ruleCall(req, o.WorkingDirectory)
-		if !ok {
-			return next(req, inv)
-		}
-		if d, handled := ruleDecision(o, req, call); handled {
+		if d, handled := ruleDecision(o, req, ruleCalls(req, o.WorkingDirectory)); handled {
 			return d.decision, d.err
 		}
 		return next(req, inv)
@@ -63,12 +59,11 @@ type ruleOutcome struct {
 	err      error
 }
 
-// ruleDecision judges call against o.Permissions; handled is false when next should decide.
-func ruleDecision(o SDKOptions, req copilot.PermissionRequest, call agent.Rule) (ruleOutcome, bool) {
-	switch o.Permissions.Decide(call.Tool, call.Arg) {
-	case agent.Deny:
-		if planReadThrough(o.Permissions, req, call) {
-			return ruleOutcome{}, false
+// ruleDecision rejects when o.Permissions denies any of calls; handled is false when next should decide.
+func ruleDecision(o SDKOptions, req copilot.PermissionRequest, calls []agent.Rule) (ruleOutcome, bool) {
+	for _, call := range calls {
+		if o.Permissions.Decide(call.Tool, call.Arg) != agent.Deny || planReadThrough(o.Permissions, req, call) {
+			continue
 		}
 		feedback := "Refused by permission rule for " + call.String() + ": report it instead."
 		return ruleOutcome{decision: &rpc.PermissionDecisionReject{Feedback: &feedback}}, true
@@ -76,27 +71,36 @@ func ruleDecision(o SDKOptions, req copilot.PermissionRequest, call agent.Rule) 
 	return ruleOutcome{}, false
 }
 
-// ruleCall is the Claude-style Tool(arg) a request is judged as; ok is false for kinds no rule names.
-func ruleCall(req copilot.PermissionRequest, workDir string) (agent.Rule, bool) {
+// ruleCalls are the Claude-style Tool(arg) names a request is judged as; none for kinds no rule names (memory).
+func ruleCalls(req copilot.PermissionRequest, workDir string) []agent.Rule {
 	switch r := req.(type) {
 	case rpc.PermissionRequestShell:
-		return agent.Rule{Tool: "Bash", Arg: r.FullCommandText}, true
+		return []agent.Rule{{Tool: "Bash", Arg: r.FullCommandText}}
 	case *rpc.PermissionRequestShell:
-		return agent.Rule{Tool: "Bash", Arg: r.FullCommandText}, true
+		return []agent.Rule{{Tool: "Bash", Arg: r.FullCommandText}}
 	case rpc.PermissionRequestWrite:
-		return agent.Rule{Tool: "Edit", Arg: relToWorkDir(workDir, r.FileName)}, true
+		return []agent.Rule{{Tool: "Edit", Arg: relToWorkDir(workDir, r.FileName)}}
 	case *rpc.PermissionRequestWrite:
-		return agent.Rule{Tool: "Edit", Arg: relToWorkDir(workDir, r.FileName)}, true
+		return []agent.Rule{{Tool: "Edit", Arg: relToWorkDir(workDir, r.FileName)}}
 	case rpc.PermissionRequestRead:
-		return agent.Rule{Tool: "Read", Arg: relToWorkDir(workDir, r.Path)}, true
+		return []agent.Rule{{Tool: "Read", Arg: relToWorkDir(workDir, r.Path)}}
 	case *rpc.PermissionRequestRead:
-		return agent.Rule{Tool: "Read", Arg: relToWorkDir(workDir, r.Path)}, true
+		return []agent.Rule{{Tool: "Read", Arg: relToWorkDir(workDir, r.Path)}}
 	case rpc.PermissionRequestURL:
-		return agent.Rule{Tool: "WebFetch", Arg: r.URL}, true
+		return []agent.Rule{{Tool: "WebFetch", Arg: r.URL}}
 	case *rpc.PermissionRequestURL:
-		return agent.Rule{Tool: "WebFetch", Arg: r.URL}, true
+		return []agent.Rule{{Tool: "WebFetch", Arg: r.URL}}
+	case rpc.PermissionRequestMCP:
+		return mcpCalls(r.ServerName, r.ToolName)
+	case *rpc.PermissionRequestMCP:
+		return mcpCalls(r.ServerName, r.ToolName)
 	}
-	return agent.Rule{}, false
+	return nil
+}
+
+// mcpCalls are Claude Code's MCP rule names for one tool: mcp__<server>__<tool> and the server-wide mcp__<server>.
+func mcpCalls(server, tool string) []agent.Rule {
+	return []agent.Rule{{Tool: "mcp__" + server + "__" + tool}, {Tool: "mcp__" + server}}
 }
 
 // relToWorkDir is p relative to workDir when inside it, else p unchanged.
@@ -107,9 +111,9 @@ func relToWorkDir(workDir, p string) string {
 	return p
 }
 
-// planReadThrough is a read or URL fetch that plan mode denied only by its fallback: no Deny rule names it.
+// planReadThrough is a read, URL fetch or harness web search that plan mode denied only by its fallback.
 func planReadThrough(p agent.Permissions, req copilot.PermissionRequest, call agent.Rule) bool {
-	return p.Mode == "plan" && readOnlyKinds[req.Kind()] &&
+	return p.Mode == "plan" && (readOnlyKinds[req.Kind()] || isWebSearchMCP(req)) &&
 		agent.Permissions{Deny: p.Deny}.Decide(call.Tool, call.Arg) != agent.Deny
 }
 
