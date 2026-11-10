@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/databricks"
@@ -44,7 +45,7 @@ const (
 )
 
 // dbxAgents are the agents "Apply to agents" can repoint.
-var dbxAgents = []string{"claude", "codex", "opencode", "copilot"}
+var dbxAgents = []string{agentid.Claude, agentid.Codex, agentid.OpenCode, agentid.Copilot}
 
 // dbxState is one env's authType and its no-network expiry text ("expires in 52m", "no login").
 func dbxState(reg *providers.Registry, env string) (authType, text string, ok bool) {

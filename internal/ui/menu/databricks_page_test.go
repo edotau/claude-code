@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -769,5 +771,23 @@ func TestDatabricksRowsFitEightyColumns(t *testing.T) {
 		if len(set) > 0 {
 			assertFitsEighty(t, f.titles[i], append(set, panelBack))
 		}
+	}
+}
+
+// dbxAgents, agentMaker and the copilot effort values keep their pinned contents; an agentid rename fails here.
+func TestMenuListsTieToAgentid(t *testing.T) {
+	if want := []string{"claude", "codex", "opencode", "copilot"}; !slices.Equal(dbxAgents, want) {
+		t.Errorf("dbxAgents = %v, want %v", dbxAgents, want)
+	}
+	wantMaker := map[string]string{"claude": "Anthropic", "codex": "OpenAI", "gemini": "Google", "copilot": "GitHub", "opencode": "opencode"}
+	if !maps.Equal(agentMaker, wantMaker) {
+		t.Errorf("agentMaker = %v, want %v", agentMaker, wantMaker)
+	}
+	var got []string
+	for _, c := range copilotEffortChoices {
+		got = append(got, c[1])
+	}
+	if want := []string{"low", "medium", "high", "xhigh", "max"}; !slices.Equal(got, want) {
+		t.Errorf("copilotEffortChoices values = %v, want %v", got, want)
 	}
 }

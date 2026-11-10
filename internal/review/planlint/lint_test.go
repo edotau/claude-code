@@ -3,6 +3,7 @@ package planlint
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -465,4 +466,16 @@ func TestMain(m *testing.M) {
 		_ = os.Setenv("PLANLINT_NODE", node)
 	}
 	os.Exit(hosttest.Main(m))
+}
+
+// The effort pin allow-list and agent-name set keep their pinned contents; an agentid rename fails here.
+func TestPinAndAgentSetsTieToAgentid(t *testing.T) {
+	wantEffort := map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
+	if !maps.Equal(pinAllowed["effort"], wantEffort) {
+		t.Errorf("pinAllowed[effort] = %v, want %v", pinAllowed["effort"], wantEffort)
+	}
+	wantAgents := map[string]bool{"claude": true, "codex": true, "copilot": true, "gemini": true, "opencode": true, "agy": true}
+	if !maps.Equal(agentNames, wantAgents) {
+		t.Errorf("agentNames = %v, want %v", agentNames, wantAgents)
+	}
 }

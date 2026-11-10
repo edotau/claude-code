@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -201,7 +202,9 @@ func discardKeys(d *dialog) {
 const labelMax = 48
 
 // agentMaker is the provider a plan names when its entry gives none.
-var agentMaker = map[string]string{"claude": "Anthropic", "codex": "OpenAI", "gemini": "Google", "copilot": "GitHub", "opencode": "opencode"}
+var agentMaker = map[string]string{
+	agentid.Claude: "Anthropic", agentid.Codex: "OpenAI", agentid.Gemini: "Google", agentid.Copilot: "GitHub", agentid.OpenCode: "opencode",
+}
 
 // modeLabel renders the mode column from agentPlanFormat with the matching agentPlans entry (tier and provider
 // default to the detected plan and the agent's agent). No entry and no format keeps today's label.

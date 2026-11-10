@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -309,5 +310,13 @@ func TestPeerAgentsScansOnceWithLinkedDirs(t *testing.T) {
 	}
 	if len(pids) != 2 || pids[0] != 101 || pids[1] != 105 {
 		t.Errorf("peers = %v, want [101 105] (linked and .git dirs skipped)", pids)
+	}
+}
+
+// agentComms keeps its five process names; an agentid rename fails here.
+func TestAgentCommsTieToAgentid(t *testing.T) {
+	want := map[string]bool{"claude": true, "codex": true, "copilot": true, "opencode": true, "agy": true}
+	if !maps.Equal(agentComms, want) {
+		t.Errorf("agentComms = %v, want %v", agentComms, want)
 	}
 }

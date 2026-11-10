@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
@@ -443,7 +444,8 @@ func copilotFallback(chain []copilot.RouteStep) string {
 // fallback for when the SDK catalog is unavailable; a reachable catalog drives the row from the model's
 // own SupportedReasoningEfforts instead (copilotEffortRow).
 var copilotEffortChoices = [][2]string{
-	{"Low", "low"}, {"Medium", "medium"}, {"High", "high"}, {"Extra High", "xhigh"}, {"Max", "max"},
+	{"Low", string(agentid.EffortLow)}, {"Medium", string(agentid.EffortMedium)}, {"High", string(agentid.EffortHigh)},
+	{"Extra High", string(agentid.EffortXHigh)}, {"Max", string(agentid.EffortMax)},
 }
 
 // copilotContextChoices: menu label → the --context tier value.

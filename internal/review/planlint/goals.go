@@ -9,6 +9,7 @@ import (
 
 	reviewsource "github.com/edotau/claude-code/internal/review/source"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -99,7 +100,13 @@ var (
 )
 
 // agentNames head agent alternatives like `(codex/copilot)`, which are not package paths.
-var agentNames = map[string]bool{"copilot": true, "codex": true, "gemini": true, "opencode": true, "claude": true, "agy": true}
+var agentNames = func() map[string]bool {
+	set := map[string]bool{agentid.Binary(agentid.Gemini): true}
+	for _, a := range agentid.All() {
+		set[a] = true
+	}
+	return set
+}()
 
 // countPackageMentions counts distinct internal/cmd package pairs and other path heads, excluding agent names.
 func countPackageMentions(line string) int {

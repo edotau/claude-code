@@ -12,11 +12,12 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Agents lists the allowed --agent values, in the order they're tried/offered.
-var Agents = []string{"claude", "codex", "opencode", "gemini", "copilot"}
+var Agents = []string{agentid.Claude, agentid.Codex, agentid.OpenCode, agentid.Gemini, agentid.Copilot}
 
 // validAgent reports whether name is one of Agents.
 func validAgent(name string) bool {
@@ -53,11 +54,11 @@ type Opts struct {
 // agentLaunchArgs is the agent's argv for an initial prompt: positional (claude, codex), --prompt, -i or -i=<task>.
 func agentLaunchArgs(agent, task string) []string {
 	switch agent {
-	case "opencode":
+	case agentid.OpenCode:
 		return []string{"--prompt", task}
-	case "gemini":
+	case agentid.Gemini:
 		return []string{"-i=" + task}
-	case "copilot":
+	case agentid.Copilot:
 		return []string{"-i", task}
 	default: // claude, codex
 		return []string{task}
@@ -72,7 +73,7 @@ func agentCommand(agent, task string) string {
 		quoted[i] = textutil.ShellQuote(a)
 	}
 	bare := agent + " " + strings.Join(quoted, " ")
-	if agent == "claude" {
+	if agent == agentid.Claude {
 		return bare
 	}
 	shimmed := "claude-code " + agent + " " + strings.Join(quoted, " ")
