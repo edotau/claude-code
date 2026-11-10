@@ -14,7 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // EnvelopeSchema versions the `ask --format json` envelope.
@@ -70,7 +70,7 @@ func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 		env.Usage = &u
 	}
 	if err != nil {
-		env.Error = &EnvelopeError{Kind: ErrorKind(err), Message: shapes.Redact(err.Error())}
+		env.Error = &EnvelopeError{Kind: ErrorKind(err), Message: textutil.RedactSecrets(err.Error())}
 	}
 	if env.Status == "" {
 		env.Status = StatusOK

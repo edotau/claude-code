@@ -1,24 +1,21 @@
-// Package shapes is the one credential-shape heuristic shared by every printer and scanner.
-package shapes
+package textutil
 
 import (
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
-
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // bearerToken matches a bearer-style header value: the scheme plus a long opaque token.
 var bearerToken = regexp.MustCompile(`(?i)bearer\s+\S{40,}`)
 
-// bearerAuth captures the scheme so Redact masks only the token after it.
+// bearerAuth captures the scheme so RedactSecrets masks only the token after it.
 var bearerAuth = regexp.MustCompile(`(?i)(bearer\s+)\S{40,}`)
 
-// Looks reports a credential-shaped value: known token prefixes or a bearer-style value; ${ENV}
+// LooksSecret reports a credential-shaped value: known token prefixes or a bearer-style value; ${ENV}
 // references, file paths, and obvious placeholders are never flagged.
-func Looks(val string) bool {
+func LooksSecret(val string) bool {
 	if val == "" || notCredentialShaped(val) {
 		return false
 	}
@@ -66,14 +63,14 @@ func matchSlack(v string) bool {
 	return v[3] == 'b' || v[3] == 'p'
 }
 
-// RedactMap returns a copy of m with every credential-shaped value replaced by "REDACTED".
-func RedactMap(m map[string]string) map[string]string {
+// RedactSecretMap returns a copy of m with every credential-shaped value replaced by "REDACTED".
+func RedactSecretMap(m map[string]string) map[string]string {
 	if m == nil {
 		return nil
 	}
 	out := make(map[string]string, len(m))
 	for k, v := range m {
-		if Looks(v) {
+		if LooksSecret(v) {
 			v = "REDACTED"
 		}
 		out[k] = v
@@ -81,8 +78,8 @@ func RedactMap(m map[string]string) map[string]string {
 	return out
 }
 
-// Redact replaces each credential-shaped [A-Za-z0-9_-] run and bearer token in s with REDACTED, in place.
-func Redact(s string) string {
+// RedactSecrets replaces each credential-shaped [A-Za-z0-9_-] run and bearer token in s with REDACTED, in place.
+func RedactSecrets(s string) string {
 	s = bearerAuth.ReplaceAllString(s, "${1}REDACTED") // before the run pass, which would shorten the token
 	var b strings.Builder
 	for i := 0; i < len(s); {
@@ -95,7 +92,7 @@ func Redact(s string) string {
 			i++
 			continue
 		}
-		if run := s[i:j]; Looks(run) {
+		if run := s[i:j]; LooksSecret(run) {
 			b.WriteString("REDACTED")
 		} else {
 			b.WriteString(run)
@@ -110,17 +107,17 @@ func tokenByte(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-'
 }
 
-// Any reports whether any value in m is credential-shaped.
-func Any(m map[string]string) bool {
+// AnySecret reports whether any value in m is credential-shaped.
+func AnySecret(m map[string]string) bool {
 	for _, v := range m {
-		if Looks(v) {
+		if LooksSecret(v) {
 			return true
 		}
 	}
 	return false
 }
 
-// Preview collapses prompt's whitespace, redacts credential-shaped words, and truncates to n runes.
-func Preview(prompt string, n int) string {
-	return textutil.Truncate(Redact(strings.Join(strings.Fields(prompt), " ")), n)
+// PreviewRedacted collapses prompt's whitespace, redacts credential-shaped words, and truncates to n runes.
+func PreviewRedacted(prompt string, n int) string {
+	return Truncate(RedactSecrets(strings.Join(strings.Fields(prompt), " ")), n)
 }

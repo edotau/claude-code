@@ -18,7 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
@@ -743,7 +743,7 @@ func setupRow(d *dialog, agent string) billingRow {
 func agentSetUp(d *dialog, agent string) {
 	name := displayLabel(agent)
 	stop := func(step string, err error) {
-		d.printf("%s: set up stopped at %s: %s\n", name, step, shapes.Redact(err.Error()))
+		d.printf("%s: set up stopped at %s: %s\n", name, step, textutil.RedactSecrets(err.Error()))
 	}
 	if setupState(d, agent).verified {
 		d.printf("%s: already signed in\n", name)

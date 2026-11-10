@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // EventSchema versions the `ask --format stream-json` event line.
@@ -310,11 +310,11 @@ func (l *EventLog) writeText(held string) {
 // writeLocked redacts the event's free text, envelope answer and structured value, then writes it.
 func (l *EventLog) writeLocked(ev Event) {
 	if ev.Text != "" {
-		ev.Text = shapes.Redact(ev.Text)
+		ev.Text = textutil.RedactSecrets(ev.Text)
 	}
 	if ev.Envelope != nil && (ev.Envelope.Answer != "" || len(ev.Envelope.Structured) > 0) {
 		env := *ev.Envelope
-		env.Answer = shapes.Redact(env.Answer)
+		env.Answer = textutil.RedactSecrets(env.Answer)
 		if len(env.Structured) > 0 {
 			env.Structured = redactJSON(env.Structured)
 		}
@@ -339,11 +339,11 @@ func redactJSON(raw json.RawMessage) json.RawMessage {
 	return b
 }
 
-// redactValue returns a copy of v with shapes.Redact applied to every string.
+// redactValue returns a copy of v with textutil.RedactSecrets applied to every string.
 func redactValue(v any) any {
 	switch x := v.(type) {
 	case string:
-		return shapes.Redact(x)
+		return textutil.RedactSecrets(x)
 	case []any:
 		out := make([]any, len(x))
 		for i, e := range x {
@@ -353,7 +353,7 @@ func redactValue(v any) any {
 	case map[string]any:
 		out := make(map[string]any, len(x))
 		for k, e := range x {
-			out[shapes.Redact(k)] = redactValue(e)
+			out[textutil.RedactSecrets(k)] = redactValue(e)
 		}
 		return out
 	}

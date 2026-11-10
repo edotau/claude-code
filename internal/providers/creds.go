@@ -14,7 +14,6 @@ import (
 	"unicode"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -330,14 +329,14 @@ func redactDetail(stderr string) string {
 	if len(lines) == 0 {
 		return ""
 	}
-	words := strings.Fields(shapes.Redact(lines[len(lines)-1]))
+	words := strings.Fields(textutil.RedactSecrets(lines[len(lines)-1]))
 	for i, w := range words {
 		core := strings.Trim(w, redactPunct)
 		key := strings.ToLower(core)
 		if i+1 < len(words) && slices.Contains([]string{"token", "access_token", "bearer", "authorization"}, key) {
 			words[i+1] = maskCore(words[i+1], "REDACTED")
 		}
-		if strings.HasPrefix(core, "eyJ") { // a JWT; shapes.Looks covers the prefixed key families
+		if strings.HasPrefix(core, "eyJ") { // a JWT; textutil.LooksSecret covers the prefixed key families
 			words[i] = maskCore(w, "REDACTED")
 		}
 	}

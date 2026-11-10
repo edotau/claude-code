@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Exit codes shared by every audit (scan/git/doctor/all): 0 clean, 1 finding(s), 2 usage error.
@@ -52,7 +52,7 @@ func neverSecret(val string) bool {
 // knownSecretShape reports a known token prefix or a JWT shape.
 func knownSecretShape(val string) bool {
 	switch {
-	case shapes.HasGitHubPrefix(val), matchSlack(val):
+	case textutil.HasGitHubPrefix(val), matchSlack(val):
 		return true
 	case strings.HasPrefix(val, "AKIA"): // AWS
 		return true
@@ -74,7 +74,7 @@ func matchSlack(v string) bool {
 // isolated first; narrower than LooksLikeSecret (no bare base64 rule) to avoid flooding history scans
 // with incidental base64 blobs.
 var secretPattern = regexp.MustCompile(
-	`(` + shapes.GitHubPattern(20) + `|` +
+	`(` + textutil.GitHubPattern(20) + `|` +
 		`xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}|` +
 		`eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})`)
 

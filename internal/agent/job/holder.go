@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // serveLive is the ServeLive seam of RunHolder.
@@ -21,7 +21,7 @@ func RunHolder(rec *Record, launcher agent.Launcher) int {
 	defer stop()
 	rec.Request.Launcher = launcher // json:"-", so the record loaded from disk has none
 	if err := serveLive(ctx, rec); err != nil {
-		msg := shapes.Redact(err.Error()) // stderr is the job log: the same redaction as the record
+		msg := textutil.RedactSecrets(err.Error()) // stderr is the job log: the same redaction as the record
 		rec.Status, rec.Error = "error", msg
 		rec.DurationMs = time.Since(rec.Time).Milliseconds()
 		_ = rec.Save()

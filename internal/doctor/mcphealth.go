@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // listTimeout bounds `claude mcp list`; without it a cold-starting npx server hangs Run() forever.
@@ -41,14 +41,14 @@ type serverDef struct {
 func (d serverDef) MarshalJSON() ([]byte, error) {
 	type plain serverDef // no MarshalJSON, so the alias cannot recurse
 	v := plain(d)
-	v.Env, v.Headers, v.Args = shapes.RedactMap(d.Env), shapes.RedactMap(d.Headers), redactArgs(d.Args)
+	v.Env, v.Headers, v.Args = textutil.RedactSecretMap(d.Env), textutil.RedactSecretMap(d.Headers), redactArgs(d.Args)
 	if v.URL != "" {
 		v.URL = queryParamSecret.ReplaceAllString(v.URL, "${1}REDACTED")
 	}
 	return json.Marshal(struct {
 		plain
 		HasSecrets bool `json:"has_secrets,omitempty"`
-	}{v, shapes.Any(d.Env) || shapes.Any(d.Headers) || (d.URL != "" && queryParamSecret.MatchString(d.URL))})
+	}{v, textutil.AnySecret(d.Env) || textutil.AnySecret(d.Headers) || (d.URL != "" && queryParamSecret.MatchString(d.URL))})
 }
 
 // display renders the "command args" / url / type / "?" column.
@@ -303,8 +303,8 @@ func findSecrets(defs []Def) []SecretFinding {
 func redact(defs []Def) []Def {
 	out := make([]Def, len(defs))
 	for i, d := range defs {
-		d.D.Env = shapes.RedactMap(d.D.Env)
-		d.D.Headers = shapes.RedactMap(d.D.Headers)
+		d.D.Env = textutil.RedactSecretMap(d.D.Env)
+		d.D.Headers = textutil.RedactSecretMap(d.D.Headers)
 		d.D.Args = redactArgs(d.D.Args)
 		if d.D.URL != "" {
 			d.D.URL = queryParamSecret.ReplaceAllString(d.D.URL, "${1}REDACTED")
@@ -316,7 +316,7 @@ func redact(defs []Def) []Def {
 
 // scrub masks credential-shaped words and token/key query values in free text.
 func scrub(s string) string {
-	return queryParamSecret.ReplaceAllString(shapes.Redact(s), "${1}REDACTED")
+	return queryParamSecret.ReplaceAllString(textutil.RedactSecrets(s), "${1}REDACTED")
 }
 
 // redactArgs returns a copy of args with credential-shaped words masked.
@@ -339,7 +339,7 @@ func scanMap(d Def, field string, m map[string]string) []SecretFinding {
 	sort.Strings(keys)
 	var out []SecretFinding
 	for _, k := range keys {
-		if shapes.Looks(m[k]) {
+		if textutil.LooksSecret(m[k]) {
 			out = append(out, SecretFinding{Scope: d.Scope, Server: d.Server, Field: field, Key: k})
 		}
 	}

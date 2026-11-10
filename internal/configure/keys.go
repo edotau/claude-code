@@ -26,7 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -475,7 +475,7 @@ func ValidateSecret(name, value string) error {
 	if name == providers.CopilotTokenEnv && !agent.ValidCopilotToken(value) {
 		return fmt.Errorf("%s: not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)", name)
 	}
-	return shapes.ValidCredential(name, value)
+	return textutil.ValidCredential(name, value)
 }
 
 // StoreSecret seals a value using the vault's validation and name-only audit entry, without menu-specific checks.

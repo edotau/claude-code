@@ -14,7 +14,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -162,7 +161,7 @@ func hopOf(disp Dispatch, req RunOptions, res wire.Result, err error) wire.Hop {
 func envelopeErrors(attempts ...*retry.Error) []wire.EnvelopeError {
 	var out []wire.EnvelopeError
 	for _, a := range attempts {
-		out = append(out, wire.EnvelopeError{Kind: wire.ErrorKind(a), Message: shapes.Redact(a.AttemptMessage())})
+		out = append(out, wire.EnvelopeError{Kind: wire.ErrorKind(a), Message: textutil.RedactSecrets(a.AttemptMessage())})
 	}
 	return out
 }

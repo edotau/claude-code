@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -65,7 +65,7 @@ func ValidateVaultSecret(name, value string) error {
 	if isGitHubToken(name) && !ValidCopilotToken(value) {
 		return fmt.Errorf("%s not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)", name)
 	}
-	return shapes.ValidCredential(name, value)
+	return textutil.ValidCredential(name, value)
 }
 
 // SetSecret validates then stores one vault secret; callers clear whichever auth cache they own.

@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Wire protocols a provider route can speak.
@@ -97,11 +97,11 @@ func (p *Provider) UnmarshalJSON(b []byte) error {
 func (p Provider) MarshalJSON() ([]byte, error) {
 	type plain Provider // no MarshalJSON, so the alias cannot recurse
 	v := plain(p)
-	v.Headers = shapes.RedactMap(p.Headers)
+	v.Headers = textutil.RedactSecretMap(p.Headers)
 	return json.Marshal(struct {
 		plain
 		HasSecretHeaders bool `json:"has_secret_headers,omitempty"`
-	}{v, shapes.Any(p.Headers)})
+	}{v, textutil.AnySecret(p.Headers)})
 }
 
 // Auth names where the credential comes from; the first non-empty source wins (see Credential).

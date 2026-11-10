@@ -13,7 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Action is the closed set of audited events; Log drops anything else.
@@ -146,7 +146,7 @@ func archiveOld(rotated string) error {
 }
 
 // scrub replaces every credential-shaped field so the log can never become a secret store.
-func scrub(s string) string { return shapes.Redact(s) }
+func scrub(s string) string { return textutil.RedactSecrets(s) }
 
 // Read returns events at or after since, oldest first, across every kept archive and the live file.
 func Read(since time.Time) ([]Event, error) {

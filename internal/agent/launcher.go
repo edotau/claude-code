@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -265,7 +265,7 @@ var quotedRE = regexp.MustCompile(`"(?:[^"\\]|\\.)*"`)
 func redactQuoted(s string) string {
 	return quotedRE.ReplaceAllStringFunc(s, func(q string) string {
 		inner := q[1 : len(q)-1]
-		if shapes.Looks(inner) || shapes.Redact(inner) != inner {
+		if textutil.LooksSecret(inner) || textutil.RedactSecrets(inner) != inner {
 			return `"<redacted>"`
 		}
 		return q

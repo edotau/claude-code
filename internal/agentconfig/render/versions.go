@@ -14,7 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 var _ = schemas.Register(schemas.Format{
@@ -129,7 +129,7 @@ func lostLines(theirs, base, next []byte) []string {
 // printLostLines indents each lost line for display under a warning/prompt header, credential shapes redacted.
 func printLostLines(out io.Writer, lines []string) {
 	for _, l := range lines {
-		fmt.Fprintf(out, "    %s\n", shapes.Redact(l))
+		fmt.Fprintf(out, "    %s\n", textutil.RedactSecrets(l))
 	}
 }
 
