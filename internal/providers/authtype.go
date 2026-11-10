@@ -383,11 +383,17 @@ func mintSP(ctx context.Context, p *Provider, force bool) (string, error) {
 		return "", fmt.Errorf("%s: no service-principal credential (set %s with `claude-code vault set`)", p.Name, name)
 	}
 	host := AuthHost(p)
-	if v, ok := clientAccessHit(access, clientBind(host, p.Auth.SPClientID, secret)); ok && !force {
+	bind := clientBind(host, p.Auth.SPClientID, secret)
+	if v, ok := clientAccessHit(access, bind, expiryMargin); ok && !force {
 		return v, finishSPCredential(p, v, time.Time{}) // a served token is no news: the note marks a mint only
 	}
 	tok, err := m2mToken(ctx, p, name, host, p.Auth.SPClientID, secret, true) // the sealed slot was checked above
 	if err != nil {
+		if !force && Verdict(err) == VerdictTransient {
+			if old, ok := staleSPAccess(p, access, bind, err); ok {
+				return old, nil
+			}
+		}
 		return "", fmt.Errorf("%s: service principal: %w", p.Name, err)
 	}
 	if err := finishSPCredential(p, tok.Access, tok.Expiry); err != nil {
@@ -412,6 +418,7 @@ func finishSPCredential(p *Provider, v string, exp time.Time) error {
 	if err := checkIssuer(p, v); err != nil {
 		return err
 	}
+	recordTokenExpiry(p.Name, v, AuthM2M)
 	ttl := time.Duration(p.Auth.TTL) * time.Second
 	if ttl <= 0 {
 		ttl = 5 * time.Minute
@@ -435,6 +442,17 @@ func staleAccess(p *Provider, err error) (string, bool) {
 	}
 	fmt.Fprintf(os.Stderr, "%s: refresh failed (%s); using the cached token until it expires\n", p.Name, textutil.FirstLine(err.Error()))
 	cmdCache.Store(p.Name, cached{value: old, until: time.Now().Add(time.Minute)})
+	return old, true
+}
+
+// staleSPAccess is staleAccess for the SP: a transient mint failure rides on the sealed _ACCESS token.
+func staleSPAccess(p *Provider, access, bind string, err error) (string, bool) {
+	old, ok := clientAccessHit(access, bind, time.Minute)
+	if !ok {
+		return "", false
+	}
+	fmt.Fprintf(os.Stderr, "%s: service principal mint failed (%s); using the cached token until it expires\n", p.Name, textutil.FirstLine(err.Error()))
+	spCache.Store(p.Name, cached{value: old, until: time.Now().Add(time.Minute)})
 	return old, true
 }
 
@@ -583,17 +601,17 @@ func sealedClientAccess(name, bind string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	return clientAccessHit(raw, bind)
+	return clientAccessHit(raw, bind, expiryMargin)
 }
 
-// clientAccessHit returns the token in a sealed clientAccess when bind matches and it stays valid past expiryMargin.
-func clientAccessHit(raw, bind string) (string, bool) {
+// clientAccessHit returns the token in a sealed clientAccess when bind matches and it stays valid past margin.
+func clientAccessHit(raw, bind string, margin time.Duration) (string, bool) {
 	var ca clientAccess
 	if raw == "" || json.Unmarshal([]byte(raw), &ca) != nil || ca.Bind != bind {
 		return "", false
 	}
 	exp, ok := JWTExp(ca.Access)
-	if !ok || !time.Unix(exp, 0).Add(-expiryMargin).After(time.Now()) {
+	if !ok || !time.Unix(exp, 0).Add(-margin).After(time.Now()) {
 		return "", false
 	}
 	return ca.Access, true

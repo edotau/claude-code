@@ -175,7 +175,11 @@ func (b *cellBuf) pushContext(v values) {
 	b.push(compactTokens(d.tokens)+"/"+compactTokens(d.size), "g")
 	if v.limits != "" {
 		b.pushBreakable(" ", "g")
-		b.push(v.limits, "g") // 7d:N% on a subscription, else the token countdown
+		b.push(v.limits, "g") // 7d:N% on a subscription
+	}
+	if v.auth != "" {
+		b.pushBreakable(twoSep, "g")
+		b.push(v.auth, "g") // the token countdown ends the context block
 	}
 }
 
@@ -203,16 +207,28 @@ func (b *cellBuf) pushMetrics(v values, cfg Config) {
 			emitted = b.pushContextBlock(v, sepMajor) || emitted
 			continue
 		}
-		text := v.text(key)
-		if text == "" {
-			continue
+		for _, text := range gradientTexts(v, key) {
+			if text == "" {
+				continue
+			}
+			if emitted {
+				b.pushSep(sepMinor)
+			}
+			b.push(text, "g")
+			emitted = true
 		}
-		if emitted {
-			b.pushSep(sepMinor)
-		}
-		b.push(text, "g")
-		emitted = true
 	}
+}
+
+// gradientTexts is a segment's text; the model carries the profile, and the countdown when no context block shows.
+func gradientTexts(v values, key string) []string {
+	if key == "model" && !v.two.hasCtx {
+		return []string{v.model, v.profile, v.auth}
+	}
+	if key == "model" {
+		return []string{v.model, v.profile}
+	}
+	return []string{v.text(key)}
 }
 
 // gradientSkips names the segments the gradient line paints elsewhere or never.

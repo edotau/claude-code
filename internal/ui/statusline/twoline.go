@@ -5,10 +5,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
@@ -29,16 +27,11 @@ type twoSeg struct {
 	bare          bool // padding or the head gap: never takes a derived background
 }
 
-// collectTwoline resolves model, effort, auth countdown, context and 7d from the payload.
-func collectTwoline(in Input, session string) twoData {
-	d := twoData{model: in.Model.DisplayName, week: limitsFromPayload(in)}
+// collectTwoline resolves model, effort, context and 7d from the payload; auth is the collected countdown.
+func collectTwoline(in Input, auth string) twoData {
+	d := twoData{model: in.Model.DisplayName, week: limitsFromPayload(in), auth: auth}
 	if in.Effort != nil {
 		d.effort = in.Effort.Level
-	}
-	if !onSubscription(session) {
-		if exp, ok := providers.TokenExpiry(session); ok {
-			d.auth = tokenLeft(tokenLabel(session), exp, time.Now())
-		}
 	}
 	d.fillContext(in)
 	return d
