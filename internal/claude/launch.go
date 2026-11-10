@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/launchcli"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/proc"
 
 	"github.com/edotau/claude-code/internal/gateway"
@@ -47,6 +48,14 @@ const defaultAnthropicBase = "https://api.anthropic.com"
 
 // oauthKey survives the wipe only for cli-auth (subscription login) profiles.
 const oauthKey = "CLAUDE_CODE_OAUTH_TOKEN"
+
+// dropLaunchOwned is launch.env minus the names the launch wipes and resolves itself, so it never redirects the route.
+func dropLaunchOwned(env []string) []string {
+	return slices.DeleteFunc(env, func(kv string) bool {
+		k, _, _ := strings.Cut(kv, "=")
+		return k == oauthKey || slices.Contains(wipeKeys, k)
+	})
+}
 
 // Claude resolves a Claude Code launch.
 func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Plan, error) {
@@ -84,10 +93,35 @@ func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Pl
 	if err := applyOverlay(&plan, passthrough, args, helper, settings, p.Env); err != nil {
 		return agent.Plan{}, err
 	}
-	plan.Argv = append(plan.Argv, args...)
+	if !launchcli.IsHeadless(args) { // a headless launch renders in claudeCmd, where the request is known
+		if err := renderInteractive(ctx, &plan, providers.Target{Provider: p, Model: o.Model}); err != nil {
+			return agent.Plan{}, err
+		}
+	}
+	plan.Argv = append(plan.Argv, args...) // after the record's flags, so a typed --effort wins
 	plan.Keep = o.KeepEnv
 	keepShellEndpoint(&plan, o)
 	return plan, nil
+}
+
+// renderInteractive adds the record's effort and launch.env/launch.args to plan; the route's own keys win.
+func renderInteractive(ctx context.Context, plan *agent.Plan, t providers.Target) error {
+	st, err := agent.ResolveSettings(agentid.Claude, agent.RunOptions{}, t, false)
+	if st.Agent == "" { // the record did not load; a bad policy alone is headless-only, so it does not stop this launch
+		return fmt.Errorf("claude settings: %w", err)
+	}
+	env, argv, _, _, err := claudeAgent.RenderSettings(ctx, st, nil, nil) // the cleanup is the base's no-op
+	if err != nil {
+		return err
+	}
+	for _, kv := range dropLaunchOwned(env) {
+		k, v, _ := strings.Cut(kv, "=")
+		if _, set := plan.Set[k]; !set {
+			plan.Set[k] = v
+		}
+	}
+	plan.Argv = append(plan.Argv, argv...)
+	return nil
 }
 
 // keepShellEndpoint lets a shell ANTHROPIC_MODEL (no --model flag) or ANTHROPIC_BASE_URL win over the vault resolution;

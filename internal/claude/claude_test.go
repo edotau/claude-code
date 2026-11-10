@@ -2,6 +2,7 @@ package claude
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -14,6 +15,8 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
@@ -275,7 +278,7 @@ func TestClaudeArgsPermissions(t *testing.T) {
 			append([]string{"--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
 	}
 	for _, c := range cases {
-		if got := claudeArgs(nil, c.req, true); !slices.Equal(got, c.want) {
+		if got := renderedArgs(t, c.req, anthropicTarget); !slices.Equal(got, c.want) {
 			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
 		}
 	}
@@ -293,18 +296,18 @@ func TestClaudeArgsPermissionModeByProvider(t *testing.T) {
 	allow := agent.Permissions{Allow: []agent.Rule{{Tool: "Bash"}}}
 	for _, c := range []struct{ profile, want, not string }{{"qa", "dontAsk", "auto"}, {"ultra", "auto", "dontAsk"}} {
 		req := agent.RunOptions{Tools: true, Provider: c.profile, Permissions: allow}
-		got := strings.Join(claudeArgs(nil, req, anthropicLaunch(req)), " ")
+		got := strings.Join(renderedArgs(t, req, launchTarget(req)), " ")
 		if !strings.Contains(got, "--permission-mode "+c.want) || strings.Contains(got, "--permission-mode "+c.not) {
 			t.Errorf("profile %s: args %q, want --permission-mode %s", c.profile, got, c.want)
 		}
 	}
 	// No rules: off Anthropic the leaf allow list replaces settings.json's defaultMode auto; on Anthropic nothing is added.
 	tail := []string{"--exclude-dynamic-system-prompt-sections"}
-	if got := claudeArgs(nil, agent.RunOptions{Tools: true, Provider: "ultra"}, true); !slices.Equal(got, tail) {
+	if got := renderedArgs(t, agent.RunOptions{Tools: true, Provider: "ultra"}, anthropicTarget); !slices.Equal(got, tail) {
 		t.Errorf("ultra, no rules: args %q, want %q", got, tail)
 	}
 	req := agent.RunOptions{Tools: true, Provider: "qa"}
-	got := strings.Join(claudeArgs(nil, req, anthropicLaunch(req)), " ")
+	got := strings.Join(renderedArgs(t, req, launchTarget(req)), " ")
 	for _, want := range []string{"--allowedTools Edit Write Read Grep Glob Bash(go build *)", "Bash(go test *)", "Bash(git diff *)",
 		"Bash(grep *) --permission-mode dontAsk --permission-prompts none"} {
 		if !strings.Contains(got, want) {
@@ -312,9 +315,85 @@ func TestClaudeArgsPermissionModeByProvider(t *testing.T) {
 		}
 	}
 	bypass := agent.RunOptions{Tools: true, Autonomous: true, Provider: "qa"}
-	if got := claudeArgs(nil, bypass, false); slices.Contains(got, "dontAsk") || !slices.Contains(got, "bypassPermissions") {
+	if got := renderedArgs(t, bypass, providers.Target{}); slices.Contains(got, "dontAsk") || !slices.Contains(got, "bypassPermissions") {
 		t.Errorf("qa autonomous, no rules: args %q, want bypassPermissions only", got)
 	}
+}
+
+// The record's effort, permissions and launch env reach a headless claude child through claudeCmd, the flag beats the
+// stored effort, and off Anthropic (Databricks included) the mode stays dontAsk because the auto judge is not served.
+func TestClaudeCmdRendersRecord(t *testing.T) {
+	const dbx = `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`
+	launch := &vault.AgentLaunch{Env: []string{"FOO_LAUNCH=1", "ANTHROPIC_BASE_URL=https://elsewhere.example"}, Args: []string{"--launch-arg"}}
+	cases := []struct {
+		name      string
+		rec       vault.AgentRecord
+		flag      string
+		want, not map[string][]string // per profile: argv substrings
+	}{
+		{"no record", vault.AgentRecord{}, "",
+			map[string][]string{"qa": {"--allowedTools Edit Write Read", "--permission-mode dontAsk"}},
+			map[string][]string{"ultra": {"--effort", "--permission-mode"}, "qa": {"--effort"}}},
+		{"record effort", vault.AgentRecord{Effort: "high"}, "",
+			map[string][]string{"ultra": {"--effort high"}, "qa": {"--effort high", "--permission-mode dontAsk"}}, nil},
+		{"flag over record", vault.AgentRecord{Effort: "high"}, "low",
+			map[string][]string{"ultra": {"--effort low"}, "qa": {"--effort low"}},
+			map[string][]string{"ultra": {"--effort high"}, "qa": {"--effort high"}}},
+		{"permissions", vault.AgentRecord{Permissions: &vault.AgentPolicy{Allow: []string{"Bash(git *)"}}}, "",
+			map[string][]string{"ultra": {"--allowedTools Bash(git *) --permission-mode auto"},
+				"qa": {"--allowedTools Bash(git *) --permission-mode dontAsk"}},
+			map[string][]string{"ultra": {"dontAsk"}, "qa": {"auto", "Bash(go build *)"}}},
+		{"launch", vault.AgentRecord{Launch: launch}, "", nil,
+			map[string][]string{"ultra": {"--launch-arg"}, "qa": {"--launch-arg"}}},
+	}
+	for _, c := range cases {
+		for _, prof := range []string{"ultra", "qa"} {
+			hermetic(t, dbx)
+			if err := vault.SetAgentRecord("claude", c.rec); err != nil {
+				t.Fatal(err)
+			}
+			req := agent.RunOptions{Tools: true, Provider: prof, Effort: c.flag, Launcher: claudeLauncher{}}
+			cmd, _, _, err := claudeCmd(context.Background(), req, claudeArgs([]string{"--print"}, req), "")
+			if err != nil {
+				t.Fatalf("%s/%s: %v", c.name, prof, err)
+			}
+			checkArgv(t, c.name+"/"+prof, cmd.Args, c.want[prof], c.not[prof])
+			if c.rec.Launch != nil && (!slices.Contains(cmd.Env, "FOO_LAUNCH=1") || slices.Contains(cmd.Env, "ANTHROPIC_BASE_URL=https://elsewhere.example")) {
+				t.Errorf("%s/%s: env must carry launch.env minus the wiped base URL, got %q", c.name, prof, cmd.Env)
+			}
+		}
+	}
+}
+
+// checkArgv fails unless the joined argv carries every want substring and no not substring.
+func checkArgv(t *testing.T, name string, args, want, not []string) {
+	t.Helper()
+	argv := strings.Join(args, " ")
+	for _, w := range want {
+		if !strings.Contains(argv, w) {
+			t.Errorf("%s: argv %q, want %q", name, argv, w)
+		}
+	}
+	for _, n := range not {
+		if strings.Contains(argv, n) {
+			t.Errorf("%s: argv %q must not carry %q", name, argv, n)
+		}
+	}
+}
+
+// anthropicTarget is a first-party Anthropic launch, the one that serves auto mode's judge.
+var anthropicTarget = providers.Target{Provider: &providers.Provider{Provider: "anthropic"}}
+
+// renderedArgs is claudeArgs plus claude's RenderSettings for req on t, composed as claudeCmd does.
+func renderedArgs(t *testing.T, req agent.RunOptions, tgt providers.Target) []string {
+	t.Helper()
+	s := agent.Settings{Agent: "claude", Effort: req.Effort, Permissions: req.Permissions, Target: tgt, Tools: req.Tools,
+		Autonomous: req.Autonomous, Headless: true}
+	_, argv, _, _, err := claudeAgent.RenderSettings(context.Background(), s, nil, claudeArgs(nil, req))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return append(argv, toolArgs(req)...)
 }
 
 type goldenSink func(wire.Event)
