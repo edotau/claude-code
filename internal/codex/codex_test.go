@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -309,19 +308,18 @@ func resetAuthMemos(t *testing.T) {
 
 // A keyring-held ChatGPT login reads as present on every call, with or without auth.json to stat.
 func TestAuthStatusKeyringLoginStaysPresent(t *testing.T) {
-	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
-		t.Skip("no keyring plane on this OS")
-	}
-	t.Setenv("CODEX_HOME", t.TempDir())
-	resetAuthMemos(t)
-	orig := codexKeychainCmd
-	codexKeychainCmd = func(context.Context, ...string) ([]byte, error) { return []byte(tokensJSON), nil }
-	t.Cleanup(func() { codexKeychainCmd = orig })
-	for i := range 2 {
-		if st := (codexEngine{}).AuthStatus(); !st.Present || st.Err != nil {
-			t.Fatalf("call %d: keyring login not present: %+v", i, st)
+	forEachKeyringOS(t, func(t *testing.T) {
+		t.Setenv("CODEX_HOME", t.TempDir())
+		resetAuthMemos(t)
+		orig := codexKeychainCmd
+		codexKeychainCmd = func(context.Context, ...string) ([]byte, error) { return []byte(tokensJSON), nil }
+		t.Cleanup(func() { codexKeychainCmd = orig })
+		for i := range 2 {
+			if st := (codexEngine{}).AuthStatus(); !st.Present || st.Err != nil {
+				t.Fatalf("call %d: keyring login not present: %+v", i, st)
+			}
 		}
-	}
+	})
 }
 
 // With auth.json present the mtime memo answers without touching the keyring, and a logout is seen at once.
@@ -345,6 +343,28 @@ func TestAuthStatusKeyedMemoSkipsKeyring(t *testing.T) {
 	}
 }
 
+// forEachKeyringOS runs body under each OS with a keyring plane; an unsupported OS never consults the keyring.
+func forEachKeyringOS(t *testing.T, body func(t *testing.T)) {
+	t.Helper()
+	for _, goos := range []string{"linux", "darwin", "windows"} {
+		t.Run(goos, func(t *testing.T) {
+			orig := codexGOOS
+			codexGOOS = goos
+			t.Cleanup(func() { codexGOOS = orig })
+			if goos != "windows" {
+				body(t)
+				return
+			}
+			resetAuthMemos(t)
+			t.Setenv("CODEX_HOME", t.TempDir())
+			stubKeyringLogin(t, func() bool { t.Error("keyring consulted on an OS without a keyring plane"); return true })
+			if st := (codexEngine{}).AuthStatus(); st.Present {
+				t.Fatalf("keyring login present on %s: %+v", goos, st)
+			}
+		})
+	}
+}
+
 // stubKeyringLogin swaps the keyring and CLI probes: signedIn() decides what the keyring holds.
 func stubKeyringLogin(t *testing.T, signedIn func() bool) {
 	t.Helper()
@@ -361,56 +381,53 @@ func stubKeyringLogin(t *testing.T, signedIn func() bool) {
 
 // A cached keyring login for one CODEX_HOME is not served for another home.
 func TestAuthStatusSoftMemoKeyedOnHome(t *testing.T) {
-	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
-		t.Skip("no keyring plane on this OS")
-	}
-	resetAuthMemos(t)
-	signedIn := true
-	stubKeyringLogin(t, func() bool { return signedIn })
-	t.Setenv("CODEX_HOME", t.TempDir())
-	if st := (codexEngine{}).AuthStatus(); !st.Present {
-		t.Fatalf("first home: %+v", st)
-	}
-	signedIn = false
-	t.Setenv("CODEX_HOME", t.TempDir())
-	if st := (codexEngine{}).AuthStatus(); st.Present {
-		t.Fatalf("second home served the first home's cached login: %+v", st)
-	}
+	forEachKeyringOS(t, func(t *testing.T) {
+		resetAuthMemos(t)
+		signedIn := true
+		stubKeyringLogin(t, func() bool { return signedIn })
+		t.Setenv("CODEX_HOME", t.TempDir())
+		if st := (codexEngine{}).AuthStatus(); !st.Present {
+			t.Fatalf("first home: %+v", st)
+		}
+		signedIn = false
+		t.Setenv("CODEX_HOME", t.TempDir())
+		if st := (codexEngine{}).AuthStatus(); st.Present {
+			t.Fatalf("second home served the first home's cached login: %+v", st)
+		}
+	})
 }
 
 // A signed-out result is never cached, so a login from another process shows on the next call.
 func TestAuthStatusSignedOutNotCached(t *testing.T) {
-	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
-		t.Skip("no keyring plane on this OS")
-	}
-	resetAuthMemos(t)
-	signedIn := false
-	stubKeyringLogin(t, func() bool { return signedIn })
-	t.Setenv("CODEX_HOME", t.TempDir())
-	if st := (codexEngine{}).AuthStatus(); st.Present {
-		t.Fatalf("signed out reads present: %+v", st)
-	}
-	signedIn = true
-	if st := (codexEngine{}).AuthStatus(); !st.Present {
-		t.Fatalf("login from another process not seen: %+v", st)
-	}
+	forEachKeyringOS(t, func(t *testing.T) {
+		resetAuthMemos(t)
+		signedIn := false
+		stubKeyringLogin(t, func() bool { return signedIn })
+		t.Setenv("CODEX_HOME", t.TempDir())
+		if st := (codexEngine{}).AuthStatus(); st.Present {
+			t.Fatalf("signed out reads present: %+v", st)
+		}
+		signedIn = true
+		if st := (codexEngine{}).AuthStatus(); !st.Present {
+			t.Fatalf("login from another process not seen: %+v", st)
+		}
+	})
 }
 
 // Verify forgets the soft memo so a fresh probe follows it.
 func TestVerifyDropsAuthMemo(t *testing.T) {
-	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
-		t.Skip("no keyring plane on this OS")
-	}
-	resetAuthMemos(t)
-	signedIn := true
-	stubKeyringLogin(t, func() bool { return signedIn })
-	t.Setenv("CODEX_HOME", t.TempDir())
-	if st := (codexEngine{}).AuthStatus(); !st.Present {
-		t.Fatalf("seed: %+v", st)
-	}
-	signedIn = false
-	_, _ = (codexEngine{}).Verify(context.Background())
-	if st := (codexEngine{}).AuthStatus(); st.Present {
-		t.Fatalf("memo survived Verify: %+v", st)
-	}
+	forEachKeyringOS(t, func(t *testing.T) {
+		resetAuthMemos(t)
+		signedIn := true
+		stubKeyringLogin(t, func() bool { return signedIn })
+		t.Setenv("CODEX_HOME", t.TempDir())
+		if st := (codexEngine{}).AuthStatus(); !st.Present {
+			t.Fatalf("seed: %+v", st)
+		}
+		signedIn = false
+		_, _ = (codexEngine{}).Verify(context.Background())
+		if st := (codexEngine{}).AuthStatus(); st.Present {
+			t.Fatalf("memo survived Verify: %+v", st)
+		}
+	})
 }
