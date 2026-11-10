@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -874,5 +875,46 @@ func TestNoteAuthNeedsAccountAndReason(t *testing.T) {
 	noteAuth(Dispatch{Account: "codex:x"}, &retry.Error{AuthReason: "r"})
 	if len(calls) != 1 || calls[0].account != "codex:x" {
 		t.Fatalf("calls = %+v", calls)
+	}
+}
+
+type cancelAfterRun struct {
+	name   string
+	cancel context.CancelFunc
+}
+
+func (c cancelAfterRun) Name() string { return c.name }
+func (c cancelAfterRun) Caps() Caps   { return Caps{} }
+
+func (c cancelAfterRun) Available() error { return nil }
+func (c cancelAfterRun) Run(context.Context, RunOptions, wire.Sink) (wire.Result, error) {
+	c.cancel() // the parent ctx dies at the moment the dispatch succeeds
+	return wire.Result{Answer: "a"}, nil
+}
+
+// flagRunner counts its runs.
+type flagRunner struct {
+	name string
+	runs *atomic.Int32
+}
+
+func (f flagRunner) Name() string { return f.name }
+func (f flagRunner) Caps() Caps   { return Caps{} }
+
+func (f flagRunner) Available() error { return nil }
+func (f flagRunner) Run(context.Context, RunOptions, wire.Sink) (wire.Result, error) {
+	f.runs.Add(1)
+	return wire.Result{Answer: "a"}, nil
+}
+
+// A cancel that lands right after a dispatch succeeded must not overwrite its answer.
+func TestSuccessSurvivesCancelRightAfterIt(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var runs atomic.Int32
+	c := Chain{Want: "first", Dispatches: []Dispatch{{Agent: cancelAfterRun{name: "first", cancel: cancel}}, {Agent: flagRunner{name: "second", runs: &runs}}}}
+	res, err := RunWithFallback(ctx, c, RunOptions{Prompt: "p"}, wire.Discard, nil)
+	if err != nil || res.Answer != "a" || runs.Load() != 0 || len(res.Hops) != 1 {
+		t.Fatalf("res=%+v err=%v second ran %d times; want the first dispatch's answer alone", res, err, runs.Load())
 	}
 }
