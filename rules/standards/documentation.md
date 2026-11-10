@@ -11,8 +11,8 @@ paths:
   references; never copy a rule body into it.
 - **AGENTS.md** is the cross-agent equivalent at a project root. If a repo generates it from `CLAUDE.md`, edit the
   source, not the output. Where harness markdown may land: `rules/harness/docs-placement.md`.
-- **Formatting** — `.markdownlint-cli2.jsonc`, mirrored by `.mdsmith.yml`, is the enforced standard (`make lint`
-  auto-fixes; `CHECK=1` only reports): 120 columns, one H1, no skipped heading levels, `-` bullets, fenced code
+- **Formatting** — `.markdownlint-cli2.jsonc`, mirrored by `.mdsmith.yml`, is the enforced standard (`make fmt`
+  auto-fixes; `make lint` only reports): 120 columns, one H1, no skipped heading levels, `-` bullets, fenced code
   with a language.
 - **Naming** — lowercase-with-hyphens (`git-workflow.md`, `code-review/`), except the uppercase root anchors
   (`README.md`, `CLAUDE.md`, `AGENTS.md`).

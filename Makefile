@@ -53,8 +53,8 @@ compile:  ## Compile bin/claude-code, no install
 	$(GO) build -trimpath -ldflags='-s -w' -o $(BIN) ./cmd/claude-code
 
 .PHONY: build
-build: install  # (dev recipe, hidden from help) compile + install + lint fix + audit (SKIP_AUDIT=1)
-	@$(MAKE) --no-print-directory lint
+build: install  # (dev recipe, hidden from help) compile + install + fmt + audit (SKIP_AUDIT=1)
+	@$(MAKE) --no-print-directory fmt
 	@$(if $(SKIP_AUDIT),echo -e "$(C_NOTE)audit skipped (SKIP_AUDIT)",$(MAKE) audit)
 
 # install.go already links the bare shims, seeds a missing settings.json, and writes bash completion
@@ -168,27 +168,24 @@ setup-env:  ## Print the PATH line (APPLY=1 writes shell rc)
 	fi
 
 ##@ Quality
-# Umbrella gate: gofmt + doctor --git (unpushed commits) + vet + test + build (ci.yml's four steps, same order) +
-# govulncheck when installed + the agents sync --dry-run smoke test. Exact superset of ci.yml (which runs this target).
+# Umbrella gate: lint (gofmt, vet, golangci, md, js, yaml) + doctor --git (unpushed commits) + vet + test + build (ci.yml's four steps, same order) +
+# test + build + govulncheck when installed + the agents sync --dry-run smoke test. ci.yml runs this target.
 .PHONY: audit
-audit: compile  ## CI gate: fmt, git secrets, vet, test, build, vuln, docs
-	@out="$$(gofmt -l $(GO_FMT_DIRS))"; if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; exit 1; fi
+audit: compile  ## CI gate: lint, git secrets, test, build, vuln, docs
+	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory audit-git
-	$(GO) vet $(PKGS)
 	@if [ "$(SKIP_TESTS)" = 1 ]; then echo -e "$(C_NOTE)tests skipped (SKIP_TESTS=1)"; else \
 		$(BIN) test ramdisk -- $(GO) test -timeout $(GO_TEST_TIMEOUT) $(PKGS) && \
 		$(MAKE) --no-print-directory audit-nokeyring; fi
 	$(GO) build $(PKGS)
-	-@$(MAKE) --no-print-directory lint CHECK=1  # advisory for now: 20 pre-existing golangci issues
-	@echo -e "$(C_OK)go check passed (gofmt + vet + lint + build$(if $(filter 1,$(SKIP_TESTS)),, + test))"
+	@echo -e "$(C_OK)go check passed (lint + build$(if $(filter 1,$(SKIP_TESTS)),, + test))"
 	@if command -v govulncheck >/dev/null 2>&1; then govulncheck $(PKGS); \
 		else echo -e "$(C_NOTE)govulncheck not installed — skipped (make install)"; fi
-	@$(MAKE) --no-print-directory lint-yaml
 	@$(BIN) doctor --prompts
 	@out="$$(CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run 2>&1)" || { echo "$$out"; exit 1; }
 	@t=$$(mktemp); rc=0; $(BIN) help-svg --out $$t && cmp -s $$t docs/images/cli-menu.svg || rc=1; rm -f $$t; \
 		if [ $$rc -ne 0 ]; then echo "docs/images/cli-menu.svg is stale: run make help-svg"; exit 1; fi
-	@echo -e "$(C_OK)audit passed (gofmt/vet/test/build + sync smoke + generated docs; vuln + yaml when installed)"
+	@echo -e "$(C_OK)audit passed (lint/test/build + sync smoke + generated docs; vuln + yaml when installed)"
 
 # Commits being pushed: AUDIT_GIT_RANGE (pre-push sets it), else @{u}..HEAD, else the last AUDIT_GIT_FALLBACK commits.
 AUDIT_GIT_FALLBACK ?= 20
@@ -206,37 +203,39 @@ audit-nokeyring:  # (folded into `audit`) re-test vault importers with no keyrin
 		env -u HARNESS_VAULT_KEY -u DBUS_SESSION_BUS_ADDRESS HARNESS_KEYRING=off \
 		$(GO) test -timeout $(GO_TEST_TIMEOUT) $$pkgs
 
-.PHONY: fmt
-fmt:  ## gofmt + goimports every Go file
-	$(GO) fmt $(PKGS) >/dev/null
-	@if command -v golangci-lint >/dev/null; then golangci-lint fmt $(GO_FMT_DIRS); fi
-	@echo -e "$(C_OK)fmt applied"
-
 # One lint per kind, each a branch of lint-% below; `make lint-<kind>` runs one.
-LINT_WHAT := go shell yaml help docs
+LINT_WHAT := go shell yaml help docs js
 
 WHAT    ?= all
-AGENT   ?= $(HARNESS_LINT_AGENT)
+AGENT   ?= $(or $(HARNESS_LINT_AGENT),on)
 MAX     ?= 3
-LINT_AGENT := $(patsubst on,claude,$(filter-out off,$(AGENT)))
-LINT_KINDS := $(if $(filter go,$(WHAT)),go,$(if $(filter md,$(WHAT)),docs,$(LINT_WHAT)))
+LINT_AGENT := $(patsubst on,copilot,$(filter-out off,$(AGENT)))
+LINT_KINDS := $(or $(if $(filter go,$(WHAT)),go),$(if $(filter md,$(WHAT)),docs),$(if $(filter js,$(WHAT)),js),$(LINT_WHAT))
+.PHONY: fmt
+fmt:  ## Format + auto-fix go, md, js; an agent fixes the rest (AGENT=off)
+	@case "$(WHAT)" in go|md|js|all) ;; *) echo "WHAT must be go|md|js|all"; exit 1 ;; esac
+	$(GO) fmt $(PKGS) >/dev/null
+	@if command -v golangci-lint >/dev/null; then golangci-lint fmt $(GO_FMT_DIRS); fi
+	@$(MAKE) --no-print-directory $(if $(LINT_AGENT),-k) $(addprefix lint-,$(LINT_KINDS)) CHECK= \
+		$(if $(LINT_AGENT),|| $(MAKE) --no-print-directory lint-agent)
+	@echo -e "$(C_OK)fmt applied"
+
 .PHONY: lint
-lint:  ## Lint and auto-fix (CHECK=1 reports; AGENT=on fixes the rest; WHAT=go|md)
-	@case "$(WHAT)" in go|md|all) ;; *) echo "WHAT must be go|md|all"; exit 1 ;; esac
-	@$(MAKE) --no-print-directory $(if $(LINT_AGENT),-k) $(addprefix lint-,$(LINT_KINDS)) \
-		$(if $(filter 1,$(CHECK)),,$(if $(LINT_AGENT),|| $(MAKE) --no-print-directory lint-agent))
+lint:  ## Check go, md, js, yaml; reports, never edits (fix: make fmt)
+	@case "$(WHAT)" in go|md|js|all) ;; *) echo "WHAT must be go|md|js|all"; exit 1 ;; esac
+	@$(MAKE) --no-print-directory $(addprefix lint-,$(LINT_KINDS)) CHECK=1
 	@echo -e "$(C_OK)lint passed"
 
 lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 only reports
 	@case "$*" in \
 	go) if [ "$(CHECK)" = 1 ]; then \
 			out="$$(gofmt -l $(GO_FMT_DIRS))"; \
-			if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; echo "run make lint"; exit 1; fi; \
+			if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; echo "run make fmt"; exit 1; fi; \
 		else gofmt -w $(GO_FMT_DIRS); fi; \
 		$(GO) vet $(PKGS) && echo -e "$(C_OK)gofmt + vet clean" || exit 1; \
 		if ! command -v golangci-lint >/dev/null; then echo -e "$(C_NOTE)golangci-lint skipped: not installed (make install DEV_TOOLS=1)"; exit 0; fi; \
 		golangci-lint run $(if $(filter 1,$(CHECK)),,--fix --disable gocognit) --max-issues-per-linter=0 --max-same-issues=0 ./... \
-			$(if $(or $(filter 1,$(CHECK)),$(LINT_AGENT)),, || echo -e "$(C_NOTE)golangci-lint: warning only (CHECK=1 fails): what is left has no auto-fix; AGENT=on hands it to Claude") ;; \
+			$(if $(or $(filter 1,$(CHECK)),$(LINT_AGENT)),, || echo -e "$(C_NOTE)golangci-lint: warning only (make lint fails): what is left has no auto-fix; AGENT=on hands it to copilot") ;; \
 	shell) if [ -z "$(GO_SH_SRC)" ]; then echo -e "$(C_NOTE)no shell scripts to lint"; \
 		elif command -v shellcheck >/dev/null 2>&1; then shellcheck -S error $(GO_SH_SRC) && echo -e "$(C_OK)shellcheck clean"; \
 		else echo -e "$(C_NOTE)shellcheck not on PATH — skipped"; fi ;; \
@@ -250,23 +249,26 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 only re
 		if [ "$$(realpath "$(CURDIR)" 2>/dev/null)" = "$$(realpath "$$live" 2>/dev/null)" ]; then \
 			$(BIN) memory fmt $(if $(filter 1,$(CHECK)),--check); \
 		else echo -e "$(C_NOTE)memory fmt skipped: $(CURDIR) is not the live config dir ($$live) — a worktree must not write the shared memory store"; fi ;; \
+	js) $(BIN) workflow lint ;; \
 	*) printf "Unknown lint '%s' (use %s)\n" "$*" "$(subst $(C_SP),|,$(LINT_WHAT))"; exit 1 ;; \
 	esac
 
 .PHONY: lint-agent
-lint-agent: compile mdsmith  # (folded into `lint`) AGENT fixes what auto-fix left, at most MAX passes
-	@go=0; md=0; gl=0; case "$(WHAT)" in go) go=1;; md) md=1;; *) go=1; md=1;; esac; \
+lint-agent: compile mdsmith  # (folded into `fmt`) AGENT fixes what auto-fix left, at most MAX passes
+	@go=0; md=0; js=0; gl=0; case "$(WHAT)" in go) go=1;; md) md=1;; js) js=1;; *) go=1; md=1; js=1;; esac; \
 	if [ $$go = 1 ]; then if command -v golangci-lint >/dev/null; then gl=1; \
 		else echo -e "$(C_NOTE)golangci-lint not installed — skipped (make install DEV_TOOLS=1)"; fi; fi; \
 	o=$$(mktemp); b=$$(mktemp); t=$$(mktemp); e=$$(mktemp); trap 'rm -f "$$o" "$$b" "$$t" "$$e"' EXIT; \
-	pat='^[^ ]+\.(go|md):[0-9]+|\.go$$'; \
+	pat='^[^ ]+\.(go|md|js):|\.go$$'; \
 	run() { n=$$1; shift; "$$@" > "$$t" 2>&1; rc=$$?; cat "$$t" >> "$$o"; \
 		if [ $$rc != 0 ] && ! grep -qE "$$pat" "$$t"; then echo "$$n (exit $$rc)" >> "$$e"; fi; }; \
 	chk() { : > "$$o"; : > "$$e"; \
 		if [ $$go = 1 ]; then run gofmt gofmt -l $(GO_FMT_DIRS); run "go vet" $(GO) vet $(PKGS); \
 			if [ $$gl = 1 ]; then run golangci-lint golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./...; fi; fi; \
 		if [ $$md = 1 ]; then run mdsmith $(MDSMITH) check; fi; \
+		if [ $$js = 1 ]; then run "workflow lint" $(BIN) workflow lint; fi; \
 		grep -E "$$pat" "$$o" | grep -vc '(gocognit)$$' || true; }; \
+	fp() { grep -oE '^[^ :]+\.(go|md|js)' "$$o" | sort -u | xargs cat 2>/dev/null | cksum; }; \
 	opfail() { if [ -s "$$e" ]; then echo "lint: $$(paste -sd, "$$e") failed:"; head -n 50 "$$o"; exit 1; fi; }; \
 	left=$$(chk); opfail; \
 	if [ "$$left" = 0 ]; then echo -e "$(C_OK)lint: clean after auto-fix"; exit 0; fi; \
@@ -279,11 +281,12 @@ lint-agent: compile mdsmith  # (folded into `lint`) AGENT fixes what auto-fix le
 		echo "- Edit only the files named in the lint output."; \
 		echo "- Leave gocognit findings alone; they need a human refactor."; \
 		echo "- After editing, run go build ./... and go test on each package you touched; keep them green."; \
+		echo "- After editing a workflow .js, re-run $(BIN) workflow lint; keep it clean."; \
 		echo "- Do not run git commands."; echo; echo "Lint output (truncated):"; \
 		awk 'NR<=150{print substr($$0,1,300)}' "$$o" | head -c 12000 || [ $$? = 141 ]; } > "$$b"; \
-		echo "lint: pass $$pass/$(MAX): dispatching $(LINT_AGENT)"; snap=$$(git diff | cksum); \
-		$(BIN) agents ask --agent $(LINT_AGENT) $(if $(filter claude,$(LINT_AGENT)),--model sonnet --effort medium) --tools --fallback none --workdir $(CURDIR) - < "$$b" || echo -e "$(C_NOTE)$(LINT_AGENT) dispatch failed"; \
-		if [ "$$(git diff | cksum)" = "$$snap" ]; then \
+		echo "lint: pass $$pass/$(MAX): dispatching $(LINT_AGENT)"; snap=$$(fp); \
+		$(BIN) agents ask --agent $(LINT_AGENT) $(if $(filter claude,$(LINT_AGENT)),--model sonnet --effort medium)$(if $(filter copilot,$(LINT_AGENT)), --direct) --tools --fallback none --workdir $(CURDIR) - < "$$b" || echo -e "$(C_NOTE)$(LINT_AGENT) dispatch failed"; \
+		if [ "$$(fp)" = "$$snap" ]; then \
 			echo -e "$(C_NOTE)lint: $(LINT_AGENT) changed no file (a denied Edit in its reply means it could not write here)"; break; fi; \
 		prev=$$left; left=$$(chk); opfail; echo "lint: $$left issue(s) left"; \
 		[ "$$left" -lt "$$prev" ] || break; pass=$$((pass+1)); done; \
