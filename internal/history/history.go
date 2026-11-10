@@ -17,7 +17,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // HistoryFile is one watched file: Label names it inside its plane's directory of the store (unique within
@@ -55,7 +55,7 @@ func Dir() string { return filepath.Join(paths.CacheDir(), "history") }
 
 // ConfigFiles are the config files whose ownership is CONTESTED: a tool other than the one that last
 // wrote one of these can rewrite it. The provider overlay and pins are read from the vault; its secrets
-// bucket is never read here — secretRE below is only the backstop for a credential leaked into one of these.
+// bucket is never read here — textutil.CredentialRE is only the backstop for a credential leaked into one of these.
 func ConfigFiles() []HistoryFile {
 	cfg := paths.ConfigDir()
 	files := []HistoryFile{
@@ -91,26 +91,6 @@ func agentConfigs() []HistoryFile {
 	out = append(out, HistoryFile{Label: "gemini-settings.json", Path: filepath.Join(geminiHome, ".gemini", "settings.json")})
 	return out
 }
-
-// secretRE matches credential-SHAPED values (Databricks PATs, JWTs, agent keys). A git history is
-// durable and gets copied around, so a token committed once is leaked for good; a match holds the
-// whole file back rather than redacting it, because a silent redaction teaches nobody to fix the leak.
-//
-// Every prefix is anchored on \b: unanchored, `sk-` matches MID-WORD inside kebab-case prose
-// (a`sk-before-changing-appearance`), which would hold back ordinary memory-bank prose. A guard that
-// eats ordinary text is worse than none — its output gets ignored and the tree stops being recorded.
-var secretRE = regexp.MustCompile(
-	`\bdapi[0-9a-f]{32}` + // Databricks PAT
-		`|\beyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}` + // JWT (header.payload)
-		`|\bsk-[A-Za-z0-9_-]{24,}` + // OpenAI/Anthropic-style key
-		`|\bnvapi-[A-Za-z0-9_-]{24,}` + // NVIDIA
-		`|\bgh[pousr]_[A-Za-z0-9]{28,}` + // GitHub
-		`|\bgithub_pat_[A-Za-z0-9_]{22,}` + // GitHub fine-grained PAT
-		`|\bAIza[0-9A-Za-z_-]{35}` + // Google API key
-		`|\btvly-[A-Za-z0-9_-]{16,}` + // Tavily
-		`|\bgsk_[A-Za-z0-9]{24,}` + // Groq
-		`|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b` + // AWS access key id
-		`|\bxox[abprs]-[A-Za-z0-9-]{10,}`) // Slack
 
 // Snapshot copies each of files into the store and commits iff something in THIS plane actually
 // changed. An absent file is a FACT (an agent config is often absent on a fresh box), not an error;
@@ -151,7 +131,8 @@ func (s *Store) stageFile(f HistoryFile, plane string, res *Result) error {
 	if err != nil {
 		return stageUnreadable(f, dest, err, res)
 	}
-	if loc := secretRE.FindIndex(data); loc != nil {
+	// Hold the whole file back, never redact: a silent redaction teaches nobody to fix the leak.
+	if loc := textutil.CredentialRE.FindIndex(data); loc != nil {
 		res.Skipped = append(res.Skipped, Skip{f.Label,
 			fmt.Sprintf("holds a credential-shaped value at byte %d — not committed", loc[0])})
 		return dropStale(f, dest, res)

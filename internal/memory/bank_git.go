@@ -11,13 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Repo is the nested memory repository rooted at Dir (its work tree); .git lives directly inside it.
@@ -26,19 +26,8 @@ type Repo struct{ Dir string }
 // StoreRepo is the live memory store's repo.
 func StoreRepo() Repo { return Repo{Dir: StoreDir()} }
 
-// credentialPattern is the one secret shape for doctor, access log and commit gate; \b keeps `sk-` off kebab prose.
-var credentialPattern = regexp.MustCompile(
-	`\bsk-[A-Za-z0-9_-]{20,}` + // OpenAI/Anthropic, incl. sk-proj-/sk-ant- segments
-		`|\bdapi[0-9a-f]{32}` + // Databricks PAT
-		`|\beyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}` + // JWT (header.payload)
-		`|\bnvapi-[A-Za-z0-9_-]{24,}` + // NVIDIA
-		`|\bgh[pousr]_[A-Za-z0-9]{28,}` + // GitHub
-		`|\bgithub_pat_[A-Za-z0-9_]{22,}` + // GitHub fine-grained PAT
-		`|\bAKIA[A-Z0-9]{16}\b` + // AWS access key id
-		`|-----BEGIN [A-Z ]*PRIVATE KEY`) // private keys only, never certificates or public keys
-
-// stageSecretRE is the commit gate's name for credentialPattern.
-var stageSecretRE = credentialPattern
+// credentialPattern is doctor's and the access log's name for the shared credential shape.
+var credentialPattern = textutil.CredentialRE
 
 // prePushHook refuses every push: a guard against accidents, not an access-control boundary.
 const prePushHook = "#!/bin/sh\n# memory is local-only (plan C.3): refuse every push; a guard against accidents, not access control.\n" +
@@ -276,7 +265,7 @@ func checkStageContent(abs, rel string) error {
 	if err != nil {
 		return err
 	}
-	if stageSecretRE.Match(data) {
+	if textutil.CredentialRE.Match(data) {
 		return fmt.Errorf("credential-shaped content: %s", rel)
 	}
 	return nil

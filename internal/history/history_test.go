@@ -352,19 +352,23 @@ func TestSnapshotDropsStaleCopyWhenFileTurnsCredentialShaped(t *testing.T) {
 	}
 }
 
-func TestSecretREMatchesCommonProviderKeys(t *testing.T) {
-	rep := func(c string, n int) string { return strings.Repeat(c, n) }
+// Regression: the scanner missed shapes the memory commit gate refuses (PEM private keys, sk- bodies of 20-23).
+func TestSnapshotHoldsBackMemoryGateShapes(t *testing.T) {
 	cases := map[string]string{
-		"github fine-grained": "github_pat_" + rep("a1", 15),
-		"google":              "AIza" + rep("Ab1", 12) + "x",
-		"tavily":              "tvly-" + rep("ab", 10),
-		"groq":                "gsk_" + rep("aB", 14),
-		"aws":                 "AKIA" + rep("A1", 8),
-		"slack":               "xoxb-" + rep("1", 12),
+		"pem private key": "-----BEGIN " + "RSA PRIVATE KEY-----",
+		"short sk body":   "sk-" + strings.Repeat("Fk", 10),
 	}
-	for name, tok := range cases {
-		if !secretRE.MatchString(`{"k":"` + tok + `"}`) {
-			t.Errorf("%s key shape not caught: %q", name, tok)
+	for name, v := range cases {
+		root := t.TempDir()
+		leaky := filepath.Join(root, "leaky.json")
+		write(t, leaky, `{"k":"`+v+`"}`)
+		s := &Store{Dir: filepath.Join(root, "history")}
+		res, err := s.Snapshot([]HistoryFile{{Label: "leaky.json", Path: leaky}}, "config", "x")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Skipped) != 1 {
+			t.Errorf("%s: not held back (Skipped = %d entries)", name, len(res.Skipped))
 		}
 	}
 }

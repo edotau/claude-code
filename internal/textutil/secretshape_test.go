@@ -132,3 +132,44 @@ func TestLooksPlaceholderOnlyCountsInHead(t *testing.T) {
 		t.Error("head placeholder flagged as credential")
 	}
 }
+
+// TestCredentialRE pins the union of the memory gate's and config history's shapes; every sample is fake.
+func TestCredentialRE(t *testing.T) {
+	rep := strings.Repeat
+	cases := []struct {
+		label, in string
+		want      bool
+	}{
+		{"sk 20-char body", "sk-" + rep("Fk", 10), true},
+		{"sk-proj", "sk-" + "proj-" + rep("Fk", 12), true},
+		{"databricks pat", "dapi" + rep("0f", 16), true},
+		{"jwt", "eyJ" + rep("Fk", 8) + "." + rep("Fk", 8), true},
+		{"nvidia", "nvapi-" + rep("Fk", 12), true},
+		{"github ghp", "ghp_" + rep("Fk", 14), true},
+		{"github gho", "gho_" + rep("Fk", 14), true},
+		{"github fine-grained", "github_pat_" + rep("Fk", 11), true},
+		{"google", "AI" + "za" + rep("Fk1", 11) + "Fk", true},
+		{"tavily", "tvly-" + rep("Fk", 12), true},
+		{"groq", "gsk_" + rep("Fk", 15), true},
+		{"aws akia", "AK" + "IA" + rep("FK", 8), true},
+		{"aws asia", "AS" + "IA" + rep("FK", 8), true},
+		{"slack", "xoxb-" + "1234567890-FAKEFAKEFAKE", true},
+		{"pem rsa", "-----BEGIN " + "RSA PRIVATE KEY-----", true},
+		{"pem openssh", "-----BEGIN " + "OPENSSH PRIVATE KEY-----", true},
+		{"sk 19-char body", "sk-" + rep("F", 19), false},
+		{"git sha", rep("0123456789", 4), false},
+		{"uuid", "123e4567-e89b-12d3-a456-426614174000", false},
+		{"base64 chunk", rep("Zm9vYmFy", 25), false},
+		{"kebab prose", "ask-before-changing-appearance", false},
+		{"certificate", "-----BEGIN " + "CERTIFICATE-----", false},
+		{"password assignment", "password=hunter2", false},
+		{"databricks host", "adb-1234567890123456.7.azuredatabricks.net", false},
+		{"model id", "databricks-claude-sonnet-5-5", false},
+		{"kebab task id", "task-12345678901234567890", false},
+	}
+	for _, c := range cases {
+		if got := CredentialRE.MatchString("note: " + c.in + " here"); got != c.want {
+			t.Errorf("%s: flagged = %v, want %v", c.label, got, c.want)
+		}
+	}
+}

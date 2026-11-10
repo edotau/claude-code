@@ -453,3 +453,21 @@ func TestDoctorAndCommitGateAgree(t *testing.T) {
 		}
 	}
 }
+
+// Regression: the commit gate missed shapes the config-history scanner holds back (Tavily, Google, Groq, AWS STS, Slack).
+func TestCommitGateRefusesHistoryScannerShapes(t *testing.T) {
+	cases := map[string]string{
+		"tavily":  "tvly-" + strings.Repeat("Fk", 12),
+		"google":  "AI" + "za" + strings.Repeat("Fk1", 11) + "Fk",
+		"groq":    "gsk_" + strings.Repeat("Fk", 15),
+		"aws sts": "AS" + "IA" + strings.Repeat("FK", 8),
+		"slack":   "xoxb-" + "1234567890-FAKEFAKEFAKE",
+	}
+	for name, v := range cases {
+		path := filepath.Join(t.TempDir(), "progress.md")
+		write(t, path, "- fact "+v+"\n")
+		if checkStageContent(path, "progress.md") == nil {
+			t.Errorf("%s: commit gate accepted a credential-shaped fact", name)
+		}
+	}
+}
