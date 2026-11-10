@@ -34,7 +34,16 @@ type Permission struct {
 	ApprovalPolicy        string      `json:"approvalPolicy,omitempty"`
 	SandboxMode           string      `json:"sandboxMode,omitempty"`
 	DefaultPermissionMode string      `json:"defaultPermissionMode,omitempty"`
-	Shell                 *ShellScope `json:"shell,omitempty"` // guards read the embedded copy only (ShellPolicy)
+	Shell                 *ShellScope `json:"shell,omitempty"`   // guards read the embedded copy only (ShellPolicy)
+	Defaults              Policy      `json:"defaults,omitzero"` // the agent's default dispatch policy (agent.DefaultPermissions)
+}
+
+// Policy is a dispatch policy in Claude Code's rule grammar, e.g. deny ["Bash(rm:*)"]; mode default, auto or plan.
+type Policy struct {
+	Mode  string   `json:"mode,omitempty"`
+	Allow []string `json:"allow,omitempty"`
+	Ask   []string `json:"ask,omitempty"`
+	Deny  []string `json:"deny,omitempty"`
 }
 
 // ShellRule admits one command family; with no subcommands, exact or targets it admits any args.

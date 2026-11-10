@@ -23,6 +23,8 @@ func TestPermissionGate(t *testing.T) {
 		{"deny blocks a protected path in cwd", policy,
 			`{"tool_name":"write","cwd":"/repo","tool_input":{"filePath":"/repo/.env","content":"k"}}`, true, "deny Edit(.env)"},
 		{"allowed command passes", policy, `{"tool_name":"Bash","tool_input":{"command":"ls -la"}}`, false, ""},
+		{"an allowed first segment never admits a denied second", `{"allow":[{"Tool":"Bash","Arg":"git log:*"}],"deny":[{"Tool":"Bash","Arg":"rm:*"}]}`,
+			`{"tool_name":"Bash","tool_input":{"command":"git log && rm -rf x"}}`, true, "deny Bash(git log && rm -rf x)"},
 		{"malformed env blocks", `{deny`, `{"tool_name":"Bash","tool_input":{"command":"ls"}}`, true, "is unreadable"},
 	}
 	for _, c := range cases {

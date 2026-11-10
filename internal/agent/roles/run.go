@@ -158,7 +158,8 @@ type Leg struct {
 
 // Legs builds r's legs for q; the shape follows the role name, the agent comes from the table.
 func Legs(r Role, q Request) []Leg {
-	base := agent.RunOptions{Agent: r.Agent, WorkDir: q.WorkDir, Timeout: q.Timeout, OutputSchema: q.OutputSchema}
+	base := agent.RunOptions{Agent: r.Agent, WorkDir: q.WorkDir, Timeout: q.Timeout, OutputSchema: q.OutputSchema,
+		Permissions: r.Permissions}
 	switch r.Name {
 	case "explore":
 		return exploreLegs(base, q)
