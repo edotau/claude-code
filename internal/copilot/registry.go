@@ -521,6 +521,9 @@ func copilotSelect(ctx context.Context, reg *providers.Registry, p *providers.Pr
 ) (CopilotRegistry, string, error) {
 	routed := *p
 	routed.Headers = map[string]string{proxy.AgentHeader: "copilot"} // the router adds the provider's own headers upstream
+	if id := providers.IdentityFrom(ctx); id != "" {
+		routed.Headers[proxy.IdentityHeader] = id
+	}
 	r := copilotBuildRegistry(p.Name, &routed, eps, base)
 	ref, err := r.Select(c)
 	fromSnapshot := slices.ContainsFunc(eps, func(ep CopilotEndpoint) bool { return ep.Snapshot })

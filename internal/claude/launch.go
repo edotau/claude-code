@@ -239,6 +239,9 @@ func sessionProviders(sel providers.Selection) []*providers.Provider {
 // returns the apiKeyHelper command for the overlay.
 func configureRouting(ctx context.Context, o agent.LaunchOptions, reg *providers.Registry, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *agent.Plan) (helper, settings string, err error) {
 	helper = shellQuote(helperBin(self)) + " resolve --profile " + shellQuote(p.Name)
+	if id := providers.IdentityFrom(ctx); id != "" {
+		helper += " --as " + shellQuote(id)
+	}
 	for _, t := range sel.Aliases {
 		if err := providers.ClaudeCodeError(t.Provider, t.Model); err != nil {
 			return "", "", err
@@ -271,6 +274,9 @@ func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *provi
 	}
 	plan.Set[proc.EnvAnthropicBaseURL] = proxy.SessionBase(base, p.Name)
 	hdrs := []string{proxy.AgentHeader + ": claude"} // Claude Code adds the session id itself.
+	if id := providers.IdentityFrom(ctx); id != "" {
+		hdrs = append(hdrs, proxy.IdentityHeader+": "+id)
+	}
 	if passthrough {
 		// The login stays in Authorization, so the router secret rides in its own header.
 		secret, err := proxy.ClientSecret()

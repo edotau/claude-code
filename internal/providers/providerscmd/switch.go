@@ -79,6 +79,7 @@ func Resolve(args []string) int {
 	fs := helptext.NewFlagSet("resolve", resolvePage)
 	profile := fs.String("profile", "", "profile name")
 	viaRouter := fs.Bool("proxy", false, "print the loopback proxy client secret")
+	as := fs.String("as", "", "Databricks identity the launch carries: auto|user|sp|headless")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
@@ -98,7 +99,7 @@ func Resolve(args []string) int {
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
-	tok, err := providers.Credential(context.Background(), sel.Provider)
+	tok, err := providers.Credential(providers.WithIdentity(context.Background(), *as), sel.Provider)
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}

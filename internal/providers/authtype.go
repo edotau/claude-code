@@ -238,7 +238,7 @@ func authCredential(ctx context.Context, p *Provider, force bool) (string, error
 	if p.Auth.Type != AuthOAuth {
 		return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) { return mintAndCache(ctx, p, force) })
 	}
-	mode, err := ResolveIdentity(p.Identity, identityFrom(ctx))
+	mode, err := ResolveIdentity(p.Identity, headlessAs(p, IdentityFrom(ctx)))
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", p.Name, err)
 	}
@@ -286,7 +286,20 @@ const (
 	IdentityAuto = "auto" // user login first, the service principal when it is rejected or needs a login
 	IdentityUser = "user" // user login only
 	IdentitySP   = "sp"   // service principal only, no browser
+	// IdentityHeadless marks a headless dispatch with no --as: the paired SP when the row's identity is auto.
+	IdentityHeadless = "headless"
 )
+
+// headlessAs maps IdentityHeadless to sp for a SP-paired row left at auto, else to no override; other values pass.
+func headlessAs(p *Provider, as string) string {
+	if as != IdentityHeadless {
+		return as
+	}
+	if p.Auth.SPClientID != "" && cmp.Or(p.Identity, IdentityAuto) == IdentityAuto {
+		return IdentitySP
+	}
+	return ""
+}
 
 // ResolveIdentity picks the mode: flagAs (--as) > the profile's stored identity > auto (user when unpaired).
 func ResolveIdentity(profile, flagAs string) (string, error) {
@@ -305,7 +318,8 @@ func WithIdentity(ctx context.Context, as string) context.Context {
 	return context.WithValue(ctx, identityKey{}, as)
 }
 
-func identityFrom(ctx context.Context) string {
+// IdentityFrom is the identity WithIdentity put on ctx, "" when none.
+func IdentityFrom(ctx context.Context) string {
 	as, _ := ctx.Value(identityKey{}).(string)
 	return as
 }

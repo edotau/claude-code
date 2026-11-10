@@ -2,6 +2,7 @@ package job
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -71,9 +72,7 @@ func ServeLive(ctx context.Context, rec *Record) (err error) {
 	defer cancel(nil)
 	logSink := wire.NewLogSink(rec.LogPath())
 	defer logSink.Close()
-	if req.Identity != "" {
-		ctx = providers.WithIdentity(ctx, req.Identity)
-	}
+	ctx = providers.WithIdentity(ctx, cmp.Or(req.Identity, providers.IdentityHeadless))
 	ctx = wire.WithLogEvents(wire.WithLog(ctx, logSink), logSink)
 	cmd, tail, profile, err := be.Build(ctx, req)
 	if err != nil {

@@ -57,10 +57,20 @@ static menu: routing never touches the network.
   on the next READY Responses model. An exact `--model` never retries. copilot and opencode refuse unknown models
   client-side, so there is no captured failure text for them.
 
+## Databricks routes (key rule)
+
+- Every agent uses the workspace serving endpoints, never AI Gateway (`/ai-gateway/*`): claude
+  `<workspace>/serving-endpoints/anthropic`, codex `/serving-endpoints/responses` (stays on Responses), copilot and
+  opencode `/serving-endpoints/chat/completions`. Probe a route with a real `claude-code agents ask`, not a hand-built
+  `curl`.
+
 ## Databricks service-principal identity
 
 - A u2m (`oauth`) row may pair a service principal: `auth.spClientId` (not secret) plus the sealed secret
   `DATABRICKS_<PROFILE>_M2M`; `identity` is `auto` (default) | `user` | `sp`. Unpaired rows are unchanged.
 - Precedence: `--as` (carried by `providers.WithIdentity(ctx, as)`) > the row's `identity` > `auto`.
+- Headless dispatch (`agents ask`, `--batch`, `--background`/job, `--live`, `--host`) with no `--as` runs a paired
+  row left at `auto` as its SP (`IdentityHeadless`); `--as auto|user` overrides; the proxy gets it via
+  `X-Claude-Code-Identity`. No credential path opens a browser: only `databricks login` and an interactive prompt do.
 - `auto` tries the user token, then `oauth.MintM2M` on a rejection or login-required, with a one-line stderr note;
   `user` never mints the SP; `sp` mints only the SP, no browser. The SP never refreshes the user login.

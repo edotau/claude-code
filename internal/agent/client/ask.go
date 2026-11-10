@@ -33,8 +33,8 @@ func ValidateAs(as, ag string) error {
 	if as == "" {
 		return nil
 	}
-	if as != providers.IdentityUser && as != providers.IdentitySP {
-		return fmt.Errorf("--as %q must be user or sp", as)
+	if as != providers.IdentityAuto && as != providers.IdentityUser && as != providers.IdentitySP {
+		return fmt.Errorf("--as %q must be auto, user or sp", as)
 	}
 	if ag != "claude" {
 		return fmt.Errorf("--as applies to claude only; %s follows the profile's identity setting", ag)

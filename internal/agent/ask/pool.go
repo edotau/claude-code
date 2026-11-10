@@ -69,9 +69,7 @@ func BuildTask(l ParsedLine, o Opts, base agent.RunOptions, timeoutSet bool, cwd
 // RunBatch builds a task per line (a bad line fails alone, logged to os.Stderr) and runs them on the pool; true only if all ok.
 func RunBatch(ctx context.Context, lines []ParsedLine, o Opts, base agent.RunOptions, timeoutSet bool,
 	newClient func() *client.Client, out io.Writer) (id string, ok bool) {
-	if o.Identity != "" {
-		ctx = providers.WithIdentity(ctx, o.Identity)
-	}
+	ctx = providers.WithIdentity(ctx, cmp.Or(o.Identity, providers.IdentityHeadless))
 	cwd, _ := os.Getwd() // resolved once here: a pool goroutine must never fall back to the process cwd
 	seen := map[string]bool{}
 	build := func(l ParsedLine) Task {
