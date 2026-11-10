@@ -134,16 +134,17 @@ func backgroundExtraFlags(fs *flag.FlagSet, fallback string, native bool) []stri
 }
 
 // ReportBackgroundStart tells the caller how to track a detached job.
-func ReportBackgroundStart(format string, rec job.Record) {
+func ReportBackgroundStart(format string, rec job.Record) error {
 	if format == helptext.JSON {
 		body, _ := json.Marshal(struct {
 			ID  string `json:"id"`
 			Log string `json:"log"`
 		}{rec.ID, rec.Log})
-		fmt.Println(string(body))
-		return
+		_, err := fmt.Println(string(body))
+		return err
 	}
-	fmt.Printf("job %s started — claude-code agents status|tail|result|cancel %s\n", rec.ID, rec.ID)
+	_, err := fmt.Printf("job %s started — claude-code agents status|tail|result|cancel %s\n", rec.ID, rec.ID)
+	return err
 }
 
 // failAsk reports a pre-run failure; with --format json it prints the same envelope a run would.
