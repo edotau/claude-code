@@ -162,3 +162,60 @@ func TestPlanModeLetsReadsThrough(t *testing.T) {
 		}
 	}
 }
+
+// formerlyScoped are the requests the removed scoped --tools tier refused; the deny rule names each ruleable one.
+func formerlyScoped(wd string) []struct {
+	name string
+	req  copilot.PermissionRequest
+	deny string
+} {
+	outside := filepath.Join(filepath.Dir(wd), "outside.txt")
+	return []struct {
+		name string
+		req  copilot.PermissionRequest
+		deny string
+	}{
+		{"mcp", rpc.PermissionRequestMCP{ServerName: "github", ToolName: "create_issue"}, ""},
+		{"memory", rpc.PermissionRequestMemory{}, ""},
+		{"write .git", writeReq(filepath.Join(wd, ".git", "config")), "Edit(.git/**)"},
+		{"write .env", writeReq(filepath.Join(wd, ".env")), "Edit(.env)"},
+		{"write state", writeReq(filepath.Join(wd, "state", "vault.db")), "Edit(state/**)"},
+		{"write outside workdir", writeReq(outside), "Edit(" + outside + ")"},
+		{"shell outside former allowlist", shellReq(wd, "rm -rf build"), "Bash(rm:*)"},
+	}
+}
+
+// With no dispatch rules --tools approves every formerly scoped kind, and managed org settings still win.
+func TestToolsTierApprovesFormerlyScoped(t *testing.T) {
+	wd := t.TempDir()
+	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: wd}).OnPermissionRequest
+	for _, tc := range formerlyScoped(wd) {
+		d, err := h(tc.req, copilot.PermissionInvocation{})
+		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); err != nil || !ok {
+			t.Errorf("%s: decision %T, err %v; want ApproveOnce", tc.name, d, err)
+		}
+		d, err = h(tc.req, copilot.PermissionInvocation{ManagedSettingsEnabled: true})
+		if _, ok := d.(*rpc.PermissionDecisionNoResult); err != nil || !ok {
+			t.Errorf("%s managed: decision %T, err %v; want NoResult", tc.name, d, err)
+		}
+	}
+}
+
+// A dispatch Deny rule rejects the same formerly scoped request --tools otherwise approves.
+func TestToolsTierDenyRejectsFormerlyScoped(t *testing.T) {
+	wd := t.TempDir()
+	for _, tc := range formerlyScoped(wd) {
+		if tc.deny == "" {
+			continue // MCP and memory map to no rule tool, so no Deny can name them
+		}
+		r, err := agent.ParseRule(tc.deny)
+		if err != nil {
+			t.Fatal(err)
+		}
+		o := SDKOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: agent.Permissions{Deny: []agent.Rule{r}}}
+		d, err := BuildSessionConfig(o).OnPermissionRequest(tc.req, copilot.PermissionInvocation{})
+		if _, ok := d.(*rpc.PermissionDecisionReject); err != nil || !ok {
+			t.Errorf("%s under Deny %s: decision %T, err %v; want Reject", tc.name, tc.deny, d, err)
+		}
+	}
+}
