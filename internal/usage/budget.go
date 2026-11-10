@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
 	"net/url"
@@ -18,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/network/httpx"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -175,24 +175,17 @@ func fetchBudgetRows(ctx context.Context, p *providers.Provider) ([]quota, error
 }
 
 func budgetGet(ctx context.Context, p *providers.Provider, u string, into any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
+	status, body, _, err := httpx.Do(ctx, httpx.Call{Client: http.DefaultClient, URL: u, Limit: 4 << 20,
+		Authorize: func(h http.Header) error { return providers.Authorize(ctx, p, h) }})
+	if status == 0 {
 		return err
 	}
-	if err := providers.Authorize(ctx, p, req.Header); err != nil {
-		return err
+	st := fmt.Sprintf("%d %s", status, http.StatusText(status))
+	if status == http.StatusNotFound || status == http.StatusForbidden {
+		return fmt.Errorf("%w (%s)", errBudgetAbsent, st)
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("%w (%s)", errBudgetAbsent, resp.Status)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("budget statuses: %s", resp.Status)
+	if status != http.StatusOK {
+		return fmt.Errorf("budget statuses: %s", st)
 	}
 	return json.Unmarshal(body, into)
 }

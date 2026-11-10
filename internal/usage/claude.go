@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -21,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/network/httpx"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -287,24 +287,19 @@ func claudeFetch(ctx context.Context, creds claudeOAuthCreds, path string) []quo
 		return rows
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, claudeOAuthURL, nil)
-	if err != nil {
+	status, body, hdr, err := httpx.Do(ctx, httpx.Call{Client: http.DefaultClient, URL: claudeOAuthURL, Limit: 1 << 20,
+		Header: http.Header{
+			"Authorization":  {"Bearer " + creds.ClaudeAiOauth.AccessToken},
+			"Anthropic-Beta": {"oauth-2025-04-20"}, "User-Agent": {"claude-code/2.1.0"},
+		}})
+	if status == 0 {
 		return claudeCachedOrNote(cache, commandErrorLine(nil, err), "usage unavailable: "+commandErrorLine(nil, err))
 	}
-	req.Header.Set("Authorization", "Bearer "+creds.ClaudeAiOauth.AccessToken)
-	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-	req.Header.Set("User-Agent", "claude-code/2.1.0")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return claudeCachedOrNote(cache, commandErrorLine(nil, err), "usage unavailable: "+commandErrorLine(nil, err))
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		reason := "read error: " + textutil.FirstLine(err.Error())
 		return claudeCachedOrNote(cache, reason, "usage unavailable: "+reason)
 	}
-	return claudeHandleResponse(resp, body, cache, creds, path, now)
+	return claudeHandleResponse(status, hdr, body, cache, creds, path, now)
 }
 
 // claudeServeLocal answers without a request: from a fresh cache, a rate-limit hold, or a stale token; done is false to fetch.
@@ -323,8 +318,8 @@ func claudeServeLocal(cache *claudeUsageCache, creds claudeOAuthCreds, now time.
 }
 
 // claudeHandleResponse maps the endpoint's status to rows, rewriting the cache on 200 and on 429.
-func claudeHandleResponse(resp *http.Response, body []byte, cache *claudeUsageCache, creds claudeOAuthCreds, path string, now time.Time) []quota {
-	switch resp.StatusCode {
+func claudeHandleResponse(status int, hdr http.Header, body []byte, cache *claudeUsageCache, creds claudeOAuthCreds, path string, now time.Time) []quota {
+	switch status {
 	case http.StatusOK:
 		if _, ok := claudeUsageWindows(body); !ok { // never cache a body that lacks a headline window
 			return claudeCachedOrNote(cache, "unreadable response", "usage unavailable: unreadable response")
@@ -334,8 +329,8 @@ func claudeHandleResponse(resp *http.Response, body []byte, cache *claudeUsageCa
 		})
 		return parseClaudeUsage(body, creds.ClaudeAiOauth.SubscriptionType)
 	case http.StatusTooManyRequests:
-		notBefore := now.Add(claudeRetryAfter(resp.Header.Get("Retry-After"), now))
-		note := fmt.Sprintf("usage unavailable: HTTP %d", resp.StatusCode)
+		notBefore := now.Add(claudeRetryAfter(hdr.Get("Retry-After"), now))
+		note := fmt.Sprintf("usage unavailable: HTTP %d", status)
 		if cache == nil {
 			cache = &claudeUsageCache{SubscriptionType: creds.ClaudeAiOauth.SubscriptionType, Owner: claudeOwner(creds)}
 		}
@@ -343,8 +338,8 @@ func claudeHandleResponse(resp *http.Response, body []byte, cache *claudeUsageCa
 		writeClaudeUsageCache(path, *cache)
 		return claudeCachedOrNote(cache, "rate limited until "+notBefore.Local().Format("15:04"), note)
 	default:
-		return claudeCachedOrNote(cache, fmt.Sprintf("HTTP %d", resp.StatusCode),
-			fmt.Sprintf("usage unavailable: HTTP %d", resp.StatusCode))
+		return claudeCachedOrNote(cache, fmt.Sprintf("HTTP %d", status),
+			fmt.Sprintf("usage unavailable: HTTP %d", status))
 	}
 }
 

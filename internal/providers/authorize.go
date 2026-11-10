@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"slices"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/network/httpx"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -77,24 +77,17 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
+	hdr := http.Header{}
 	if anthropicDialect {
-		req.Header.Set("anthropic-version", "2023-06-01") // required by api.anthropic.com on every direct call
+		hdr.Set("anthropic-version", "2023-06-01") // required by api.anthropic.com on every direct call
 	}
-	if err := authorizeCatalog(ctx, p, req); err != nil {
-		return nil, err
+	status, body, _, readErr := httpx.Do(ctx, httpx.Call{Client: httpClient(), URL: url, Header: hdr, Limit: 8 << 20,
+		Authorize: func(h http.Header) error { return authorizeCatalog(ctx, p, h) }})
+	if status == 0 {
+		return nil, readErr
 	}
-	resp, err := httpClient().Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if resp.StatusCode != http.StatusOK {
-		return nil, &catalogStatusError{url: url, status: resp.Status, code: resp.StatusCode, body: strings.TrimSpace(string(body))}
+	if status != http.StatusOK {
+		return nil, &catalogStatusError{url: url, status: fmt.Sprintf("%d %s", status, http.StatusText(status)), code: status, body: strings.TrimSpace(string(body))}
 	}
 	if readErr != nil { // a truncated body must not decode as a complete list
 		return nil, fmt.Errorf("read %s: %w", url, readErr)
@@ -120,16 +113,16 @@ func catalogURL(p *Provider) (url string, anthropicDialect bool, err error) {
 }
 
 // authorizeCatalog sets the credential headers on a catalog GET: the setup-token for a passthrough provider.
-func authorizeCatalog(ctx context.Context, p *Provider, req *http.Request) error {
+func authorizeCatalog(ctx context.Context, p *Provider, h http.Header) error {
 	if p.Auth.Type != AuthCLI {
-		return Authorize(ctx, p, req.Header)
+		return Authorize(ctx, p, h)
 	}
 	tok := HeadlessOAuthToken()
 	if tok == "" {
 		return ErrPassthrough
 	}
-	req.Header.Set("Authorization", "Bearer "+tok)
-	req.Header.Set("anthropic-beta", anthropicOAuthBeta)
+	h.Set("Authorization", "Bearer "+tok)
+	h.Set("anthropic-beta", anthropicOAuthBeta)
 	return nil
 }
 

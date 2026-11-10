@@ -23,6 +23,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/codex"
 
+	"github.com/edotau/claude-code/internal/network/httpx"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -195,21 +196,14 @@ func openaiQuotas(ctx context.Context) []quota {
 		}
 		return []quota{{Provider: "openai", Note: note}}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, whamURL, nil)
-	if err != nil {
-		return []quota{{Provider: "openai", Note: "unavailable: " + err.Error()}}
-	}
-	req.Header.Set("Authorization", "Bearer "+tok)
-	req.Header.Set("ChatGPT-Account-Id", acct)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
+	status, body, _, err := httpx.Do(ctx, httpx.Call{Client: http.DefaultClient, URL: whamURL, Limit: 1 << 20,
+		Header: http.Header{"Authorization": {"Bearer " + tok}, "Chatgpt-Account-Id": {acct}}})
+	if status == 0 {
 		return []quota{{Provider: "openai", Note: "unavailable: network error"}}
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return []quota{{Provider: "openai", Note: fmt.Sprintf("unavailable: HTTP %d (run codex to refresh login)", resp.StatusCode)}}
+	if status != http.StatusOK {
+		return []quota{{Provider: "openai", Note: fmt.Sprintf("unavailable: HTTP %d (run codex to refresh login)", status)}}
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return []quota{{Provider: "openai", Note: "unavailable: read error: " + textutil.FirstLine(err.Error())}}
 	}

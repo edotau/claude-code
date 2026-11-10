@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/network/httpx"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
@@ -102,32 +102,21 @@ func ValidateIdentity(ctx context.Context, p *providers.Provider) (string, error
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		scope.Host+"/api/2.0/preview/scim/v2/Me?attributes=id,active", nil)
-	if err != nil {
-		return "", errors.New("cannot construct identity validation request")
-	}
-	if err := providers.Authorize(ctx, p, req.Header); err != nil {
+	var authErr error
+	status, body, _, err := httpx.Do(ctx, httpx.Call{Client: http.DefaultClient, NoRedirect: true, Limit: 64 << 10,
+		URL: scope.Host + "/api/2.0/preview/scim/v2/Me?attributes=id,active",
+		Authorize: func(h http.Header) error {
+			authErr = providers.Authorize(ctx, p, h)
+			return authErr
+		}})
+	switch {
+	case authErr != nil:
 		return "", errors.New("identity authentication failed; check profile credentials")
-	}
-	client := *http.DefaultClient
-	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := client.Do(req)
-	if err != nil {
+	case status == 0:
 		return "", errors.New("identity validation request failed; check authentication and connectivity")
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("identity validation failed (HTTP %d); no cached discovery used", resp.StatusCode)
-	}
-	return parseIdentity(resp.Body)
-}
-
-// parseIdentity reads the bounded SCIM response and returns the active user's id.
-func parseIdentity(r io.Reader) (string, error) {
-	const limit = 64 << 10
-	body, err := io.ReadAll(io.LimitReader(r, limit+1))
-	if err != nil || len(body) > limit {
+	case status != http.StatusOK:
+		return "", fmt.Errorf("identity validation failed (HTTP %d); no cached discovery used", status)
+	case err != nil:
 		return "", errors.New("cannot read bounded identity response")
 	}
 	var identity struct {
