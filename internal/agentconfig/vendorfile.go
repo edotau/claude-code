@@ -492,8 +492,15 @@ func CommitJSONObject(path string, o RenderOptions, out io.Writer, label string,
 		return false, nil
 	}
 	obj := map[string]any{}
+	var before []byte
 	if existed {
-		if err := json.Unmarshal(raw, &obj); err != nil {
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.UseNumber() // numbers stay verbatim, so the equality check below never loses float precision
+		err := dec.Decode(&obj)
+		if err == nil && dec.More() {
+			err = errors.New("trailing data after the top-level value")
+		}
+		if err != nil {
 			fmt.Fprintf(out, "%s: skipped: %s is not plain JSON: %v\n", label, path, err)
 			return false, nil
 		}
@@ -501,16 +508,23 @@ func CommitJSONObject(path string, o RenderOptions, out io.Writer, label string,
 			fmt.Fprintf(out, "%s: skipped: %s is not plain JSON: not an object\n", label, path)
 			return false, nil
 		}
+		if before, err = textutil.MarshalNoEscape(obj); err != nil {
+			return false, fmt.Errorf("%s: %w", label, err)
+		}
 	}
 	if !mutate(obj, existed) {
 		return false, nil
 	}
-	// NoEscape leaves <, > and & raw: an existing file holding \u003c escapes reads as drift and is rewritten once.
 	body, err := textutil.MarshalIndentNoEscape(obj)
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", label, err)
 	}
-	return CommitFile(path, raw, append(body, '\n'), existed, o, out, label)
+	next := append(body, '\n')
+	// Same values as the file: its key order, spacing and \u003c escapes stay as the vendor wrote them (no rewrite).
+	if after, err := textutil.MarshalNoEscape(obj); existed && err == nil && bytes.Equal(before, after) {
+		next = raw
+	}
+	return CommitFile(path, raw, next, existed, o, out, label)
 }
 
 // RenderHooksFile writes body to path, merged over whatever is already there.
