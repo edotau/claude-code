@@ -922,3 +922,20 @@ func TestMintOncePanicDoesNotWedgeLaterCallers(t *testing.T) {
 		t.Fatal("second mintOnce hung after a panicking mint")
 	}
 }
+
+func TestCrossCallerAgreeEnvWinsButGetPrefersVault(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	vaulttest.Secret(t, "CROSS_NAME", "vault-value")
+	t.Setenv("CROSS_NAME", "env-value")
+	p := &Provider{
+		Name: "x", Protocol: ProtocolAnthropic,
+		Auth: Auth{Type: AuthKey, Header: HeaderXAPIKey, Env: "CROSS_NAME"},
+	}
+	cv, err := Credential(context.Background(), p)
+	if err != nil || cv != "env-value" {
+		t.Fatalf("Credential = (%q, %v), want (env-value, nil)", cv, err)
+	}
+	if st := Resolve(p); st.Source != "env" {
+		t.Fatalf("Resolve(p).Source = %q, want env", st.Source)
+	}
+}

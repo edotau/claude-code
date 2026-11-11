@@ -100,7 +100,7 @@ func hiddenCommands() []command {
 		{name: "claude", hidden: true, summary: "launch Claude Code on the selected profile", run: cmdClaude, sideEffectHelp: true},
 		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f)", run: cmdMenuSVG, spec: menuSVGSpec},
 		{name: "agents", hidden: true, summary: "ask, dispatch, list, sync, tree, status: run and track agents", run: cmdAgents, spec: agentsSpec},
-		{name: "preflight", hidden: true, summary: "pin check per agent; --live runs the post-install pong round", run: doctor.Preflight, spec: doctor.PreflightSpecNode},
+		{name: "preflight", hidden: true, summary: "pin check per agent; --live runs the post-install pong round", run: cmdPreflight, spec: preflightSpec},
 		{name: "models", hidden: true, summary: "model aliases; --pin alias=model, --live", run: cmdModels, spec: modelsSpec},
 		{name: "review", hidden: true, summary: "code-review detectors: quality|complexity|diff|pr|gate", run: cmdReview, spec: reviewSpec},
 		{name: "workflow", hidden: true, summary: "skeleton <pattern> | lint (model/effort pins, meta/throw)", run: cmdWorkflow, spec: workflowSpec},

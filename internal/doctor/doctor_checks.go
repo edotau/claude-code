@@ -1,4 +1,4 @@
-package launch
+package doctor
 
 import (
 	"bytes"
@@ -173,17 +173,17 @@ func vaultDoctorChecks() []Check {
 		}
 	}
 	// "vault master key" repeats this row's own count/source/error; drop it here, where "vault" already
-	// shows it, but keep it in secretsDoctorChecks for VaultDoctor (doctor --secrets never prints "vault").
+	// shows it, but keep it in secretsDoctorChecks for PrintVault (doctor --secrets never prints "vault").
 	checks, _ := secretsDoctorChecks()
 	checks = slices.DeleteFunc(checks, func(c Check) bool { return c.Name == "vault master key" })
 	return append([]Check{row}, checks...)
 }
 
-// secretsDoctorChecks adapts providers.DoctorChecks to soft doctor rows; gateOK is false when a gating row failed.
+// secretsDoctorChecks adapts vaultChecks to soft doctor rows; gateOK is false when a gating row failed.
 func secretsDoctorChecks() (checks []Check, gateOK bool) {
 	reg, _ := providers.Load() // a load error is reported by the provider registry row; nil skips name checks
 	gateOK = true
-	for _, c := range providers.DoctorChecks(reg) {
+	for _, c := range vaultChecks(reg) {
 		checks = append(checks, Check{Name: c.Name, OK: c.OK, Detail: c.Detail})
 		if c.Gate && !c.OK {
 			gateOK = false
@@ -192,8 +192,8 @@ func secretsDoctorChecks() (checks []Check, gateOK bool) {
 	return checks, gateOK
 }
 
-// VaultDoctor prints the vault rows as ✓/✗ lines for doctor --secrets; false when a gating row failed.
-func VaultDoctor(w io.Writer) bool {
+// PrintVault prints the vault rows as ✓/✗ lines for doctor --secrets; false when a gating row failed.
+func PrintVault(w io.Writer) bool {
 	checks, ok := secretsDoctorChecks()
 	fmt.Fprintln(w, "== vault checks ==")
 	PrintChecks(w, checks)

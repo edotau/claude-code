@@ -1,4 +1,4 @@
-package providers
+package doctor
 
 import (
 	"encoding/json"
@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -178,13 +179,13 @@ func (s *Scanner) ScanFile(path string) {
 		walkJSONStrings(nil, doc, func(p []string, val string) {
 			metadata := marketplaceRepoPath(p) ||
 				(filepath.Base(path) == ".claude.json" && claudeMetadataPath(p))
-			if LooksLikeSecretGeneric(val, !metadata) {
+			if providers.LooksLikeSecretGeneric(val, !metadata) {
 				s.flag(fmt.Sprintf("%s → %s holds an inline secret", path, strings.Join(p, ".")))
 			}
 		})
 	} else {
-		for k, v := range ReadEnvFile(path) {
-			if LooksLikeSecret(v) {
+		for k, v := range providers.ReadEnvFile(path) {
+			if providers.LooksLikeSecret(v) {
 				s.flag(fmt.Sprintf("%s → %s holds an inline secret", path, k))
 			}
 		}
@@ -227,7 +228,7 @@ func scanOverlayDocs(t *vault.Tx) []string {
 			continue
 		}
 		walkJSONStrings(nil, doc, func(p []string, val string) {
-			if LooksLikeSecret(envPairValue(val)) {
+			if providers.LooksLikeSecret(envPairValue(val)) {
 				found = append(found, "vault:overlay/"+key+" → "+strings.Join(p, ".")+" holds an inline secret")
 			}
 		})
@@ -241,7 +242,7 @@ func scanSecretBuckets(t *vault.Tx) []string {
 	for _, bucket := range []string{vault.Pins, vault.Env} {
 		kv := t.All(bucket)
 		for _, k := range slices.Sorted(maps.Keys(kv)) {
-			if v := kv[k]; v != SecretRef && LooksLikeSecret(v) {
+			if v := kv[k]; v != providers.SecretRef && providers.LooksLikeSecret(v) {
 				found = append(found, "vault:"+bucket+" → "+k+" holds an inline secret")
 			}
 		}
@@ -264,8 +265,41 @@ func (s *Scanner) ScanConfigs(targets []string) int {
 	}
 	if n := len(s.Findings); n > 0 {
 		fmt.Fprintf(s.out(), "doctor --scan: %d finding(s) — move inline values into the vault with `claude-code vault set`.\n", n)
-		return ExitFindings
+		return providers.ExitFindings
 	}
 	fmt.Fprintln(s.out(), "doctor --scan: clean.")
-	return ExitClean
+	return providers.ExitClean
+}
+
+// AuditOpts selects the credential audits doctor --scan/--git/--secrets runs.
+type AuditOpts struct {
+	Scan, Git, Vault bool
+	Targets          []string
+	Rev              string
+	Since            int
+}
+
+// RunAudits runs the requested audits in order, writing their reports to w; the worst exit wins.
+func RunAudits(w io.Writer, o AuditOpts) int {
+	rc, sep := providers.ExitClean, ""
+	if o.Scan {
+		rc = max(rc, (&Scanner{Out: w}).ScanConfigs(o.Targets))
+		sep = "\n"
+	}
+	if o.Git {
+		fmt.Fprint(w, sep)
+		dir, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "claude-code: doctor --git: %v\n", err)
+			return 1
+		}
+		rc, sep = max(rc, providers.ScanGit(w, dir, o.Rev, o.Since)), "\n"
+	}
+	if o.Vault {
+		fmt.Fprint(w, sep)
+		if !PrintVault(w) {
+			rc = max(rc, providers.ExitFindings)
+		}
+	}
+	return rc
 }

@@ -78,3 +78,11 @@ func captureConfigFixStderr(t *testing.T, fn func()) string {
 	}
 	return string(data)
 }
+
+// writeTestFile writes content to path with perm, failing the test on error.
+func writeTestFile(t *testing.T, path, content string, perm os.FileMode) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), perm); err != nil {
+		t.Fatal(err)
+	}
+}

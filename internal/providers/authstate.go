@@ -142,3 +142,12 @@ func fallbackSource(p *Provider) string {
 	}
 	return "none"
 }
+
+// CredSource names where p's credential resolves from (vault|env|command|auth.file|cli|none|missing).
+func CredSource(p *Provider) (source, note string) {
+	st := Resolve(p)
+	if st.Source == "none" && p.Auth.Method() != AuthNone {
+		return "missing", st.Note
+	}
+	return st.Source, st.Note
+}

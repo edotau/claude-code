@@ -702,7 +702,7 @@ func TestLaunchIdentityReachesMintNotUpstream(t *testing.T) {
 	if got := providers.IdentityFrom(withLaunchIdentity(httptest.NewRequest(http.MethodPost, "/", nil)).Context()); got != "" {
 		t.Errorf("no header set identity %q", got)
 	}
-	gateway.StripLauncherHeaders(req.Header)
+	StripLauncherHeaders(req.Header)
 	if v := req.Header.Get(gateway.IdentityHeader); v != "" {
 		t.Errorf("identity header %q would go upstream", v)
 	}

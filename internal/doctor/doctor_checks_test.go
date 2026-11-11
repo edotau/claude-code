@@ -1,4 +1,4 @@
-package launch
+package doctor
 
 import (
 	"bytes"
@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini route engine the prod binary links
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -126,5 +128,29 @@ func testVaultDoctorSingleRow(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("vaultDoctorChecks has %d vault/master-key row(s), want exactly 1 (the \"vault\" row carries the master-key status)", n)
+	}
+}
+
+// seed writes a file under state/harness and returns its path.
+func seedHarness(t *testing.T, name, body string) string {
+	t.Helper()
+	p := filepath.Join(paths.StateDir(), name)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestFormatsDoctorRowIgnoresBareMapCaches(t *testing.T) {
+	hermetic(t, "")
+	seedHarness(t, "quota.json", `{"acct":{"until":"2099-01-01T00:00:00Z"}}`)
+	seedHarness(t, "agentversion.json", `{"claude":"1.0.0"}`) // unversioned cache: a miss, never stale
+
+	formats := findCheck([]Check{formatsCheck()}, "formats")
+	if formats == nil || !formats.OK || strings.Contains(formats.Detail, "stale") { // quota stays a bare map: an old daemon reads it
+		t.Fatalf("formats row = %+v, want current", formats)
 	}
 }

@@ -1,6 +1,9 @@
 package agentconfig
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 // TOMLString must take the quoted value only: a trailing comment or literal quotes must not ride into the model id.
 func TestTomlString(t *testing.T) {
@@ -33,5 +36,25 @@ func TestInsertTopLevelTOMLQuotedReplacementKey(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestSplitInlineTableKeepsQuotedDelimiters(t *testing.T) {
+	in := `{ name = "x", http_headers = { "anthropic-beta" = "a,b}{" }, lit = 'c,d' }`
+	want := []string{
+		`name = "x"`,
+		`http_headers = { "anthropic-beta" = "a,b}{" }`,
+		`lit = 'c,d'`,
+	}
+	if got := SplitInlineTable(in); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestSplitInlineTableEscapedQuote(t *testing.T) {
+	in := `{ a = "x\",y", b = 1 }`
+	want := []string{`a = "x\",y"`, `b = 1`}
+	if got := SplitInlineTable(in); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }

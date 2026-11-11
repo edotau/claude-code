@@ -1,10 +1,12 @@
-package paths
+package pathview
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 const mountinfoSample = `22 1 8:1 / / rw,relatime - ext4 /dev/sdc rw

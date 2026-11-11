@@ -17,7 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
 	"github.com/edotau/claude-code/internal/hooks/quality"
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 )
@@ -45,8 +44,8 @@ var (
 )
 
 // promptPath returns one check per implemented hop for the config tree at root.
-func promptPath(root string) []launch.Check {
-	return []launch.Check{
+func promptPath(root string) []Check {
+	return []Check{
 		hop("H1 CLAUDE.md", claudeMD(root)),
 		hop("H2 rules", rules(root)),
 		hop("H3 skills", skills(root)),
@@ -57,11 +56,11 @@ func promptPath(root string) []launch.Check {
 	}
 }
 
-func hop(name string, findings []string) launch.Check {
+func hop(name string, findings []string) Check {
 	if len(findings) == 0 {
-		return launch.Check{Name: name, OK: true, Hard: true, Detail: "ok"}
+		return Check{Name: name, OK: true, Hard: true, Detail: "ok"}
 	}
-	return launch.Check{Name: name, Hard: true, Detail: strings.Join(findings, "\n")}
+	return Check{Name: name, Hard: true, Detail: strings.Join(findings, "\n")}
 }
 
 func lines(path string) ([]string, error) {

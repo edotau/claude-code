@@ -13,7 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -285,7 +284,7 @@ func pad(s string, n int) string {
 func TestDoctorJSONWriteError(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	orig := doctorChecks
-	doctorChecks = func() ([]launch.Check, bool) { return []launch.Check{{Name: "x", OK: true}}, true }
+	doctorChecks = func() ([]Check, bool) { return []Check{{Name: "x", OK: true}}, true }
 	t.Cleanup(func() { doctorChecks = orig })
 	hosttest.ClosedStdout(t)
 
@@ -324,4 +323,7 @@ func TestDoctorRejectsConflictingModes(t *testing.T) {
 }
 
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
-func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+func TestMain(m *testing.M) {
+	detectBrowsers = func() browser.Report { return browser.Report{} }
+	os.Exit(hosttest.Main(m))
+}

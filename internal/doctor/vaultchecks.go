@@ -1,10 +1,9 @@
-package providers
+package doctor
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -14,21 +13,23 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// Check is one vault-health row; a failed Gate row fails doctor --secrets, the rest only advise.
-type Check struct {
+// vaultCheck is one vault-health row; a failed Gate row fails doctor --secrets, the rest only advise.
+type vaultCheck struct {
 	Name   string
 	OK     bool
 	Gate   bool
 	Detail string
 }
 
-// DoctorChecks checks vault permissions, master and retired keys, and credential names without reading values.
-func DoctorChecks(reg *Registry) []Check {
-	var out []Check
+// vaultChecks checks vault permissions, master and retired keys, and credential names without reading values.
+func vaultChecks(reg *providers.Registry) []vaultCheck {
+	var out []vaultCheck
 	out = append(out, checkVaultPerms()...)
 	out = append(out, checkMasterKey()...)
 	out = append(out, checkRetiredKeys()...)
@@ -43,10 +44,10 @@ var permsGOOS = runtime.GOOS
 func loosePerm(fi os.FileInfo) bool { return permsGOOS != "windows" && fi.Mode().Perm()&0o077 != 0 }
 
 // checkVaultPerms flags a vault.db readable/writable by anyone but its owner.
-func checkVaultPerms() []Check {
+func checkVaultPerms() []vaultCheck {
 	file := vault.Path()
 	fi, err := os.Stat(file)
-	row := Check{Name: "vault perms", OK: true, Gate: true}
+	row := vaultCheck{Name: "vault perms", OK: true, Gate: true}
 	switch {
 	case os.IsNotExist(err):
 		row.Detail = "no vault yet (nothing to check)"
@@ -57,21 +58,21 @@ func checkVaultPerms() []Check {
 	default:
 		row.Detail = file + " is 0600"
 	}
-	return append([]Check{row}, checkArchivePerms()...)
+	return append([]vaultCheck{row}, checkArchivePerms()...)
 }
 
 // checkArchivePerms flags vault.db.rolledback-* archives and migration .bak files (from
 // state/vault-migration.json) that are readable beyond the owner; an unreadable listing or manifest is a failing row.
-func checkArchivePerms() []Check {
-	var out []Check
+func checkArchivePerms() []vaultCheck {
+	var out []vaultCheck
 	matches, err := rolledBackArchives()
 	if err != nil {
-		out = append(out, Check{Name: "vault archive perms", Gate: true,
+		out = append(out, vaultCheck{Name: "vault archive perms", Gate: true,
 			Detail: "could not list the vault directory, so its rolledback archives were not checked: " + err.Error()})
 	}
 	backups, err := manifestBackups()
 	if err != nil {
-		out = append(out, Check{Name: "vault archive perms", Gate: true,
+		out = append(out, vaultCheck{Name: "vault archive perms", Gate: true,
 			Detail: "could not read the migration manifest, so its .bak files were not checked: " + err.Error()})
 	}
 	for _, m := range append(matches, backups...) {
@@ -104,18 +105,18 @@ func rolledBackArchives() ([]string, error) {
 }
 
 // flagPerm reports a mode > 0600 file, or one that cannot be inspected; a missing file is not a finding.
-func flagPerm(file string) (Check, bool) {
+func flagPerm(file string) (vaultCheck, bool) {
 	fi, err := os.Stat(file)
 	if errors.Is(err, fs.ErrNotExist) {
-		return Check{}, false
+		return vaultCheck{}, false
 	}
 	if err != nil {
-		return Check{Name: "vault archive perms", Gate: true, Detail: fmt.Sprintf("could not stat %s: %v", file, err)}, true
+		return vaultCheck{Name: "vault archive perms", Gate: true, Detail: fmt.Sprintf("could not stat %s: %v", file, err)}, true
 	}
 	if !loosePerm(fi) {
-		return Check{}, false
+		return vaultCheck{}, false
 	}
-	return Check{Name: "vault archive perms", Gate: true,
+	return vaultCheck{Name: "vault archive perms", Gate: true,
 		Detail: fmt.Sprintf("%s is %04o, want 0600 — run: chmod 600 %s", file, fi.Mode().Perm(), file)}, true
 }
 
@@ -148,25 +149,25 @@ func manifestBackups() ([]string, error) {
 
 // checkMasterKey fails when the vault holds secrets the resolved master key cannot open, or when the
 // vault itself can't be read (locked, wrong key) — an unreadable vault must not read as "no credential".
-func checkMasterKey() []Check {
-	row := Check{Name: "vault master key", OK: true, Gate: true}
+func checkMasterKey() []vaultCheck {
+	row := vaultCheck{Name: "vault master key", OK: true, Gate: true}
 	count, source, err := vault.MasterKeyStatus()
 	switch {
 	case err != nil && count == 0:
 		row.OK, row.Detail = false, "vault is unreadable: "+keyErrText(err)
-		return []Check{row}
+		return []vaultCheck{row}
 	case err != nil:
 		row.OK, row.Detail = false, fmt.Sprintf("vault holds %d secret(s) but the master key does not open it: %s", count, keyErrText(err))
-		return []Check{row}
+		return []vaultCheck{row}
 	case count == 0:
 		return nil
 	}
 	row.Detail = fmt.Sprintf("%d secret(s); master key from %s", count, source)
-	return []Check{row}
+	return []vaultCheck{row}
 }
 
 // checkRetiredKeys reports whether archive keys remain available in the keyring (advisory).
-func checkRetiredKeys() []Check {
+func checkRetiredKeys() []vaultCheck {
 	var id string
 	var kids []string
 	if err := vault.View(func(t *vault.Tx) error {
@@ -175,11 +176,11 @@ func checkRetiredKeys() []Check {
 		kids, err = vault.Retired(t)
 		return err
 	}); err != nil {
-		return []Check{{Name: "vault retired keys", Detail: err.Error()}}
+		return []vaultCheck{{Name: "vault retired keys", Detail: err.Error()}}
 	}
-	var out []Check
+	var out []vaultCheck
 	for _, kid := range kids {
-		row := Check{Name: "vault retired key " + kid}
+		row := vaultCheck{Name: "vault retired key " + kid}
 		_, found, err := vault.KeyringLookup("vault-key/" + id + "." + kid)
 		switch {
 		case err != nil:
@@ -194,19 +195,14 @@ func checkRetiredKeys() []Check {
 	return out
 }
 
-// TailscaleNames are the Tailscale credentials the harness stores; not provider keys, so checkKeyNames knows them.
-var TailscaleNames = []string{
-	"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET", "TAILSCALE_API_KEY", "TAILSCALE_AUTHKEY",
-}
-
 // checkKeyNames warns about a stored key that matches no provider's auth.env — likely a typo, but
 // not necessarily wrong (a provider not yet in the registry), so this never fails the gate.
-func checkKeyNames(reg *Registry) []Check {
+func checkKeyNames(reg *providers.Registry) []vaultCheck {
 	if reg == nil { // no registry to compare against: every key would read as a typo
 		return nil
 	}
-	known := map[string]bool{OAuthTokenEnv: true}
-	for _, n := range TailscaleNames {
+	known := map[string]bool{providers.OAuthTokenEnv: true}
+	for _, n := range tailscale.CredentialNames {
 		known[n] = true
 	}
 	for _, p := range reg.Providers {
@@ -229,9 +225,9 @@ func checkKeyNames(reg *Registry) []Check {
 		}
 	}
 	if len(typos) == 0 {
-		return []Check{{Name: "vault key names", OK: true, Detail: fmt.Sprintf("%d name(s), no likely typos", len(names))}}
+		return []vaultCheck{{Name: "vault key names", OK: true, Detail: fmt.Sprintf("%d name(s), no likely typos", len(names))}}
 	}
-	return []Check{{Name: "vault key names", Detail: strings.Join(typos, ", ")}}
+	return []vaultCheck{{Name: "vault key names", Detail: strings.Join(typos, ", ")}}
 }
 
 // editDistance is the Levenshtein distance between a and b.
@@ -256,11 +252,11 @@ func editDistance(a, b string) int {
 }
 
 // checkKeyringTool is informational: without one the master key must come from env or key_command.
-func checkKeyringTool() Check {
+func checkKeyringTool() vaultCheck {
 	if vault.KeyringAvailable() {
-		return Check{Name: "keyring tool", OK: true, Detail: vault.KeyringTool() + " on PATH"}
+		return vaultCheck{Name: "keyring tool", OK: true, Detail: vault.KeyringTool() + " on PATH"}
 	}
-	return Check{Name: "keyring tool", OK: true, Detail: "none on PATH — set HARNESS_VAULT_KEY or the vault key_command"}
+	return vaultCheck{Name: "keyring tool", OK: true, Detail: "none on PATH — set HARNESS_VAULT_KEY or the vault key_command"}
 }
 
 // keyCmdStderr matches the key_command stderr tail vault appends to its error; it could echo key material.
@@ -269,47 +265,4 @@ var keyCmdStderr = regexp.MustCompile(`(?s)(key_command: [^:]*): .*`)
 // keyErrText is err's text with any key_command stderr withheld, safe for doctor text and JSON rows.
 func keyErrText(err error) string {
 	return keyCmdStderr.ReplaceAllString(err.Error(), "$1 (stderr withheld)")
-}
-
-// AuditOpts selects the credential audits doctor --scan/--git/--secrets runs.
-type AuditOpts struct {
-	Scan, Git, Vault bool
-	Targets          []string
-	Rev              string
-	Since            int
-	VaultDoctor      func(io.Writer) bool // the vault health checks; injected because launch imports secrets
-}
-
-// RunAudits runs the requested audits in order, writing their reports to w; the worst exit wins.
-func RunAudits(w io.Writer, o AuditOpts) int {
-	rc, sep := ExitClean, ""
-	if o.Scan {
-		rc = max(rc, (&Scanner{Out: w}).ScanConfigs(o.Targets))
-		sep = "\n"
-	}
-	if o.Git {
-		fmt.Fprint(w, sep)
-		dir, err := os.Getwd()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "claude-code: doctor --git: %v\n", err)
-			return 1
-		}
-		rc, sep = max(rc, ScanGit(w, dir, o.Rev, o.Since)), "\n"
-	}
-	if o.Vault {
-		fmt.Fprint(w, sep)
-		if !o.VaultDoctor(w) {
-			rc = max(rc, ExitFindings)
-		}
-	}
-	return rc
-}
-
-// CredSource names where p's credential resolves from (vault|env|command|auth.file|cli|none|missing).
-func CredSource(p *Provider) (source, note string) {
-	st := Resolve(p)
-	if st.Source == "none" && p.Auth.Method() != AuthNone {
-		return "missing", st.Note
-	}
-	return st.Source, st.Note
 }

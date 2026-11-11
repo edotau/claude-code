@@ -1,4 +1,4 @@
-package doctor
+package cli
 
 import (
 	"context"
@@ -55,8 +55,8 @@ func preflightLive(reg *providers.Registry, profile string) int {
 	return 0
 }
 
-// Preflight is the hidden `preflight [--live|--refresh]`: pin rows, the post-install step, or a silent re-list.
-func Preflight(args []string) int {
+// cmdPreflight is the hidden `preflight [--live|--refresh]`: pin rows, the post-install step, or a silent re-list.
+func cmdPreflight(args []string) int {
 	fs := helptext.NewFlagSet("preflight", helptext.Page{
 		Usage: "claude-code preflight [--live [--profile <p>|all]|--refresh|--discover <profile>]",
 		About: "Print each agent's pin check; --live also refreshes stale listings and runs the post-install pong round.\n" +
@@ -116,7 +116,7 @@ func preflightReport(reg *providers.Registry, refresh, live bool, profile string
 	return 0
 }
 
-// PreflightSpecNode is the `preflight` completion spec.
-func PreflightSpecNode() *helptext.Node {
+// preflightSpec is the `preflight` completion spec.
+func preflightSpec() *helptext.Node {
 	return &helptext.Node{Flags: []helptext.Flag{{Name: "discover"}, {Name: "live", IsBool: true}, {Name: "profile"}, {Name: "refresh", IsBool: true}}}
 }

@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/pathview"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/settings"
 )
@@ -54,7 +54,7 @@ func windowsProfileDir() string {
 	if win == "" || win == "%USERPROFILE%" {
 		return ""
 	}
-	dir, _ := paths.Resolve(win)
+	dir, _ := pathview.Resolve(win)
 	if _, err := os.Stat(dir); err != nil {
 		return ""
 	}

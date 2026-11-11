@@ -2,17 +2,20 @@ package launch
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/clipboard"
+	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini route engine the prod binary links
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -392,7 +395,6 @@ func vendorPATHFixture(t *testing.T, name, body string) string {
 // TestMain runs in the hermetic host (hosttest), so no test touches the live vault or sees a vendor CLI.
 func TestMain(m *testing.M) {
 	agent.NoticeOut = io.Discard
-	detectBrowsers = func() browser.Report { return browser.Report{} }
 	os.Exit(hosttest.Main(m))
 }
 
@@ -479,5 +481,19 @@ func TestTmuxConfPathsEmptyWithoutHomeAndSeedSkips(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cwd, ".tmux.conf")); err == nil {
 		t.Error("seedTmuxConf wrote .tmux.conf into the working directory")
+	}
+}
+
+// A loop produces a deterministic non-ENOENT probe failure even when tests run as root.
+func probeSymlinkLoop(t *testing.T, path string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("a self-referencing symlink (ELOOP) needs unix")
+	}
+	if err := os.Symlink(path, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, syscall.ELOOP) {
+		t.Fatalf("fixture stat = %v, want ELOOP", err)
 	}
 }

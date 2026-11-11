@@ -1,8 +1,7 @@
-package providers
+package doctor
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -52,7 +52,7 @@ func TestScanVaultFindsInlineSecrets(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"x":{"headers":[{"Authorization":"`+value+`"}]}}}`)
 	vaulttest.Put(t, vault.Overlay, "providers.prev", `{"providers":{"x":{"auth":{"env":"`+value+`"}}}}`)
 	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"o":{"launch":{"env":["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1","O_KEY=`+value+`"]}}}}`)
-	vaulttest.Put(t, vault.Env, "STORED_REF", SecretRef)
+	vaulttest.Put(t, vault.Env, "STORED_REF", providers.SecretRef)
 	vaulttest.Put(t, vault.Pins, "ENV_REF", "${API_KEY}")
 	vaulttest.Secret(t, "SEALED", value)
 	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
@@ -85,7 +85,7 @@ func TestScanVaultClean(t *testing.T) {
 			vaulttest.Use(t)
 			if populated {
 				vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "openai")
-				vaulttest.Put(t, vault.Env, "API_KEY", SecretRef)
+				vaulttest.Put(t, vault.Env, "API_KEY", providers.SecretRef)
 				vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"x":{"auth":{"env":"API_KEY"}}}}`)
 				vaulttest.Secret(t, "API_KEY", "sk-test-abcdefghijklmnopqrstuvwxyz")
 			}
@@ -128,7 +128,7 @@ func TestScanConfigsDefaultIncludesVaultAndSummary(t *testing.T) {
 	}
 	var out bytes.Buffer
 	scanner := &Scanner{Out: &out}
-	if code := scanner.ScanConfigs(nil); code != ExitFindings {
+	if code := scanner.ScanConfigs(nil); code != providers.ExitFindings {
 		t.Fatalf("default scan = %d, want findings: %s", code, out.String())
 	}
 	if len(scanner.Findings) != 1 || scanner.Findings[0] != "vault:env → INLINE_KEY holds an inline secret" {
@@ -140,25 +140,8 @@ func TestScanConfigsDefaultIncludesVaultAndSummary(t *testing.T) {
 	}
 	out.Reset()
 	scanner = &Scanner{Out: &out}
-	if code := scanner.ScanConfigs([]string{path}); code != ExitClean || len(scanner.Findings) != 0 {
+	if code := scanner.ScanConfigs([]string{path}); code != providers.ExitClean || len(scanner.Findings) != 0 {
 		t.Fatalf("explicit file scan included vault: %d, %v, %s", code, scanner.Findings, out.String())
-	}
-}
-
-func TestCrossCallerAgreeEnvWinsButGetPrefersVault(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	vaulttest.Secret(t, "CROSS_NAME", "vault-value")
-	t.Setenv("CROSS_NAME", "env-value")
-	p := &Provider{
-		Name: "x", Protocol: ProtocolAnthropic,
-		Auth: Auth{Type: AuthKey, Header: HeaderXAPIKey, Env: "CROSS_NAME"},
-	}
-	cv, err := Credential(context.Background(), p)
-	if err != nil || cv != "env-value" {
-		t.Fatalf("Credential = (%q, %v), want (env-value, nil)", cv, err)
-	}
-	if st := Resolve(p); st.Source != "env" {
-		t.Fatalf("Resolve(p).Source = %q, want env", st.Source)
 	}
 }
 
@@ -166,7 +149,7 @@ func TestScanConfigsMissingExplicitTargetIsFinding(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "typo.json")
 	var out bytes.Buffer
 	scanner := &Scanner{Out: &out}
-	if code := scanner.ScanConfigs([]string{missing}); code != ExitFindings {
+	if code := scanner.ScanConfigs([]string{missing}); code != providers.ExitFindings {
 		t.Fatalf("missing explicit target = %d, want findings: %s", code, out.String())
 	}
 	if len(scanner.Findings) != 1 || !strings.Contains(scanner.Findings[0], missing+" — could not read") {
@@ -373,7 +356,7 @@ func checkScanExemption(t *testing.T, tc scanCase, value scanValue) {
 // scanNested writes value nested under tc.keys into tc.file and scans it, returning the scanner and its output.
 func scanNested(t *testing.T, tc scanCase, value string) (*Scanner, *bytes.Buffer) {
 	t.Helper()
-	if !LooksLikeSecret(value) {
+	if !providers.LooksLikeSecret(value) {
 		t.Fatal("exported heuristic must still flag the value")
 	}
 	var doc any = value
