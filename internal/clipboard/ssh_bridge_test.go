@@ -357,6 +357,29 @@ func TestAllowedServePathRejectsSymlinkedSecrets(t *testing.T) {
 	}
 }
 
+// Only home and the temp roots are served: /etc is refused, a temp-root file is served, an escaping symlink is refused.
+func TestAllowedServePathRoots(t *testing.T) {
+	home := t.TempDir()
+	tmpFile := filepath.Join(t.TempDir(), "shot.png")
+	writeBridgeFixture(t, tmpFile, "png bytes")
+	homeFile := filepath.Join(home, "Desktop", "shot.png")
+	writeBridgeFixture(t, homeFile, "png bytes")
+	link := filepath.Join(home, "hosts")
+	if err := os.Symlink("/etc/hosts", link); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{tmpFile, homeFile} {
+		if _, _, err := allowedServePath(home, p); err != nil {
+			t.Errorf("%s: err=%v, want served", p, err)
+		}
+	}
+	for _, p := range []string{"/etc/hosts", link} {
+		if _, _, err := allowedServePath(home, p); err == nil || !strings.Contains(err.Error(), "not shareable") {
+			t.Errorf("%s: err=%v, want not shareable", p, err)
+		}
+	}
+}
+
 func TestAllowedServePathRejectsUnknownHome(t *testing.T) {
 	key := filepath.Join(t.TempDir(), ".ssh", "id_ed25519")
 	writeBridgeFixture(t, key, "private bytes")

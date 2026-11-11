@@ -184,7 +184,7 @@ func serveFile(w io.Writer, home, path string) error {
 	return err
 }
 
-// allowedServePath resolves path and accepts only a regular file within the size cap outside secret directories.
+// allowedServePath resolves path and accepts only a regular file within the size cap, under home or a temp root.
 func allowedServePath(home, path string) (real string, size int64, err error) {
 	if !filepath.IsAbs(path) {
 		return "", 0, errors.New("path must be absolute")
@@ -207,10 +207,35 @@ func allowedServePath(home, path string) (real string, size int64, err error) {
 	if h, err := filepath.EvalSymlinks(home); err == nil {
 		home = h
 	}
-	if underSecretRoot(real, secretRoots(home)) {
+	if !underAnyRoot(real, serveRoots(home)) || underSecretRoot(real, secretRoots(home)) {
 		return "", 0, errors.New("path is not shareable")
 	}
 	return real, fi.Size(), nil
+}
+
+// underAnyRoot reports whether real is one of roots or inside one.
+func underAnyRoot(real string, roots []string) bool {
+	for _, r := range roots {
+		if paths.Within(real, r) {
+			return true
+		}
+	}
+	return false
+}
+
+// serveRoots lists the only trees a file may be served from: home and the temp roots, symlinks resolved.
+func serveRoots(home string) []string {
+	var roots []string
+	for _, d := range []string{home, os.TempDir(), "/tmp", "/private/tmp", "/var/folders", "/private/var/folders"} {
+		if d == "" {
+			continue
+		}
+		roots = append(roots, d)
+		if r, err := filepath.EvalSymlinks(d); err == nil {
+			roots = append(roots, r)
+		}
+	}
+	return roots
 }
 
 // underSecretRoot reports whether real is a denied root or inside one, by path string or by file identity.
