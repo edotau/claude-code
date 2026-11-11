@@ -78,7 +78,7 @@ func TestChildCmdSetsPWD(t *testing.T) {
 	dir := t.TempDir()
 	cmd, _ := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, dir, "", nil, false)
 	if !slices.Contains(cmd.Env, "PWD="+dir) {
-		t.Errorf("cmd.Env = %q, want PWD=%s", cmd.Env, dir)
+		t.Errorf("cmd.Env lacks PWD=%s", dir) // never print cmd.Env: it holds tokens
 	}
 
 	// dir == "" (no --workdir): childCmd must append nothing past the scrubbed environ, no PWD.
@@ -99,11 +99,11 @@ func TestChildCmdScrubsVaultKeyForVendorOnly(t *testing.T) {
 	}
 	cmd, _ := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, true)
 	if hasKey(cmd.Env) {
-		t.Errorf("vendor child env leaked HARNESS_VAULT_KEY: %v", cmd.Env)
+		t.Error("vendor child env leaked HARNESS_VAULT_KEY")
 	}
 	cmd, _ = ChildCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, false)
 	if !hasKey(cmd.Env) {
-		t.Errorf("claude's own child must keep HARNESS_VAULT_KEY, env=%v", cmd.Env)
+		t.Error("claude's own child must keep HARNESS_VAULT_KEY")
 	}
 }
 

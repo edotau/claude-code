@@ -366,7 +366,7 @@ func TestClaudeCmdRendersRecord(t *testing.T) {
 			}
 			checkArgv(t, c.name+"/"+prof, cmd.Args, c.want[prof], c.not[prof])
 			if c.rec.Launch != nil && (!slices.Contains(cmd.Env, "FOO_LAUNCH=1") || slices.Contains(cmd.Env, "ANTHROPIC_SMALL_FAST_MODEL=elsewhere")) {
-				t.Errorf("%s/%s: env must carry launch.env minus the wiped model name, got %q", c.name, prof, cmd.Env)
+				t.Errorf("%s/%s: env must carry launch.env minus the wiped model name", c.name, prof) // never print cmd.Env
 			}
 		}
 	}
