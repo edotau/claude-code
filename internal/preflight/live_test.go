@@ -101,8 +101,8 @@ func TestInstallStepRows(t *testing.T) {
 	var buf bytes.Buffer
 	RunInstallStep(context.Background(), &buf, preflightRegistry(true), "claude-code", time.Now())
 	out := buf.String()
-	if !strings.Contains(out, "pong codex    · dev · good-model · ok · gemini") ||
-		!strings.Contains(out, "pong opencode · dev · default · fail · auth") ||
+	if !strings.Contains(out, "pong     codex    · dev · good-model · ok · gemini") ||
+		!strings.Contains(out, "pong     opencode · dev · default · fail · auth") ||
 		!strings.Contains(out, "copilot unserved: ") || slices.Contains(asked, "copilot") {
 		t.Fatalf("install step rows:\n%s", out)
 	}
@@ -176,7 +176,7 @@ func TestInstallStepOpencodePongOutlastsBudget(t *testing.T) {
 	var buf bytes.Buffer
 	RunInstallStep(context.Background(), &buf, preflightRegistry(true), "claude-code", time.Now())
 	out := buf.String()
-	if !strings.Contains(out, "pong opencode · dev · m · ok") || !strings.Contains(out, "pong codex    · dev · default · fail · timeout") {
+	if !strings.Contains(out, "pong     opencode · dev · m · ok") || !strings.Contains(out, "pong     codex    · dev · default · fail · timeout") {
 		t.Fatalf("want opencode ok and codex timeout:\n%s", out)
 	}
 }
@@ -198,7 +198,7 @@ func TestRunProfilePongsAllExpandsProfiles(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	RunProfilePongs(context.Background(), &buf, reg, "claude-code", "all")
-	if len(asked) != 15 || !asked["gemini/qa"] || !asked["claude/prod"] || strings.Count(buf.String(), " · ok · ") != 15 {
+	if len(asked) != 15 || !asked["gemini/qa"] || !asked["claude/prod"] || strings.Count(buf.String(), " · ok\n") != 15 {
 		t.Fatalf("asked %v\n%s", asked, buf.String())
 	}
 }
@@ -213,7 +213,7 @@ func TestInstallStepPongsCLILoginPin(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	RunInstallStep(context.Background(), &buf, preflightRegistry(false), "claude-code", time.Now())
-	if !slices.Equal(asked, []string{"gemini"}) || !strings.Contains(buf.String(), "pong gemini") {
+	if !slices.Equal(asked, []string{"gemini"}) || !strings.Contains(buf.String(), "pong     gemini") {
 		t.Fatalf("asked %v\n%s", asked, buf.String())
 	}
 }
@@ -230,7 +230,7 @@ func TestRunProfilePongsSkipRows(t *testing.T) {
 	RunProfilePongs(context.Background(), &buf, reg, "claude-code", "all")
 	RunProfilePongs(context.Background(), &buf, reg, "claude-code", "typo")
 	out := buf.String()
-	if !strings.Contains(out, "pong skip · prod · no credential") || !strings.Contains(out, "pong skip · typo · unknown profile") {
+	if !strings.Contains(out, "pong     skip · prod · no credential") || !strings.Contains(out, "pong     skip · typo · unknown profile") {
 		t.Fatalf("missing skip rows:\n%s", out)
 	}
 }
@@ -245,7 +245,7 @@ func TestRunProfilePongsFailRowWhenNonePong(t *testing.T) {
 	var bad, good bytes.Buffer
 	RunProfilePongs(context.Background(), &bad, reg, "claude-code", "typo")
 	RunProfilePongs(context.Background(), &good, reg, "claude-code", "dev")
-	if !strings.Contains(bad.String(), "pong · fail · typo · no usable Databricks profile") {
+	if !strings.Contains(bad.String(), "pong     fail · typo · no usable Databricks profile") {
 		t.Fatalf("want a fail row for an unusable profile, got %q", bad.String())
 	}
 	if strings.Contains(good.String(), " · fail · ") {

@@ -50,7 +50,7 @@ YAML_FILES      := $(shell git ls-files '*.yml' '*.yaml' 2>/dev/null)
 ##@ Go
 .PHONY: compile
 compile:  ## Compile bin/claude-code, no install
-	$(GO) build -trimpath -ldflags='-s -w' -o $(BIN) ./cmd/claude-code
+	@$(GO) build -trimpath -ldflags='-s -w' -o $(BIN) ./cmd/claude-code
 
 .PHONY: build
 build: install  # (dev recipe, hidden from help) compile + install + fmt + audit (SKIP_AUDIT=1)
@@ -61,7 +61,7 @@ build: install  # (dev recipe, hidden from help) compile + install + fmt + audit
 # (internal/launch/install.go: Install() -> completion.Install) — one call does all three.
 .PHONY: install
 install: compile mdsmith rtk  ## Build + install + lint/vuln tools (DEV_TOOLS=0: skip)
-	$(BIN) install$(if $(filter 1,$(V)), --verbose,)
+	@$(BIN) install$(if $(filter 1,$(V)), --verbose,)
 	@if [ "$(DEV_TOOLS)" = 1 ]; then \
 		$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION) && \
 		$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) && \
@@ -73,12 +73,14 @@ install: compile mdsmith rtk  ## Build + install + lint/vuln tools (DEV_TOOLS=0:
 
 # A stale copy earlier on PATH (e.g. ~/.local/bin) shadows the fresh GOBIN build; after a toolchain bump it
 # fails typecheck with "export data version N is greater than maximum supported" — overwrite it in place.
+# A shim that resolves to another binary (mise) already runs the GOBIN build: never copy over it.
 .PHONY: tools-sync
 tools-sync:  ## Refresh stale PATH copies of the pinned tools from GOBIN
 	@gobin="$$($(GO) env GOBIN)"; [ -n "$$gobin" ] || gobin="$$($(GO) env GOPATH)/bin"; \
 	for t in govulncheck golangci-lint yamlfmt; do \
 		found="$$(command -v "$$t" 2>/dev/null)" || continue; \
 		{ [ -x "$$gobin/$$t" ] && [ "$$found" != "$$gobin/$$t" ]; } || continue; \
+		[ "$$(basename "$$(realpath "$$found")")" = "$$t" ] || continue; \
 		cmp -s "$$found" "$$gobin/$$t" && continue; \
 		cp -f "$$gobin/$$t" "$$found" && echo -e "$(C_OK)tools-sync: refreshed stale $$found from $$gobin/$$t"; \
 	done

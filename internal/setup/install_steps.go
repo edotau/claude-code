@@ -167,29 +167,24 @@ func installBinaryTarget(w io.Writer, dryRun bool) (string, error) {
 	return target, nil
 }
 
-// agentsCompactLine groups tools.LinkResults into one "links" line (linked / kept), printing any
-// other status (skip, remove, missing, error) in full on its own line.
+// agentsCompactLine prints one "tools" line (kept) and one "links" line (linked); any other status prints in full.
 func agentsCompactLine(w io.Writer) {
 	var linked, kept []string
 	for _, r := range tools.LinkResults(nil, false) {
 		switch {
 		case r.Status == "ok" || r.Status == "link":
 			linked = append(linked, r.Bin)
-		case r.Status == "keep" && strings.Contains(r.Detail, "installed here") && !strings.Contains(r.Detail, "also on PATH"):
+		case r.Status == "keep" && strings.Contains(r.Detail, "installed here"):
 			kept = append(kept, r.Bin)
 		default:
 			fmt.Fprintf(w, "  %-8s %s\n", r.Status, r.Detail)
 		}
 	}
-	var parts []string
-	if len(linked) > 0 {
-		parts = append(parts, strings.Join(linked, " ")+" linked")
-	}
 	if len(kept) > 0 {
-		parts = append(parts, strings.Join(kept, " ")+" kept (installed here)")
+		fmt.Fprintf(w, "tools    kept: %s\n", strings.Join(kept, " "))
 	}
-	if len(parts) > 0 {
-		fmt.Fprintf(w, "links    %s\n", strings.Join(parts, " · "))
+	if len(linked) > 0 {
+		fmt.Fprintf(w, "links    %s linked\n", strings.Join(linked, " "))
 	}
 }
 
