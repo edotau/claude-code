@@ -1,6 +1,10 @@
 {
   "default": "ultra",
   "fallback": [],
+  "agentPlans": {
+    "gemini": [{"id": "*", "tier": "AI Pro"}],
+    "opencode": [{"id": "opencode-go", "tier": "Go"}]
+  },
   "routing": {
     "weights": {
       "price": 0.5,

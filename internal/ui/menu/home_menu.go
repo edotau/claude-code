@@ -218,6 +218,9 @@ func modeLabel(d *dialog, name string, st agentState) string {
 	}
 	id := rawPlanID(d, name, st)
 	plan, matched := matchPlan(plans, id)
+	if st.mode == modeNone { // a signed-out row holds no plan, whatever a "*" entry says
+		plan, matched = providers.Plan{}, false
+	}
 	if !matched && d.reg.AgentPlanFormat == "" {
 		return st.label()
 	}
