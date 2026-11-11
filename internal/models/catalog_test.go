@@ -44,7 +44,7 @@ func TestWireAndResolveRoundTrip(t *testing.T) {
 func TestResolveForms(t *testing.T) {
 	cases := map[string]string{
 		"opus": "claude-opus-5-5", "Sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5",
-		"fable": "claude-fable-5-1", "opus-5-5": "claude-opus-5-5", "opus-5.5": "claude-opus-5-5",
+		"fable": "claude-fable-5-2", "opus-5-5": "claude-opus-5-5", "opus-5.5": "claude-opus-5-5",
 		"claude-sonnet-4.6":              "claude-sonnet-4-6", // B4: not 4.0
 		"databricks-claude-opus-4-8":     "claude-opus-4-8",
 		"anthropic/claude-opus-4-8":      "claude-opus-4-8",
