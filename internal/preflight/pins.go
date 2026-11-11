@@ -2,14 +2,12 @@ package preflight
 
 import (
 	"cmp"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -25,14 +23,14 @@ const (
 
 // Pin is one agent's resolved profile and model pin and what the workspace says about it.
 type Pin struct {
-	Agent         string `json:"agent"`
-	Profile       string `json:"profile"`
-	ProfileSource string `json:"profile_source"` // pin | follows CLAUDE_PROFILE | none
-	Model         string `json:"model"`
-	Served        string `json:"served"` // yes | no | unknown | n/a
-	Status        string `json:"status"`
-	Fix           string `json:"fix,omitempty"`
-	Detail        string `json:"detail,omitempty"`
+	Agent         string
+	Profile       string
+	ProfileSource string // pin | follows CLAUDE_PROFILE | none
+	Model         string
+	Served        string // yes | no | unknown | n/a
+	Status        string
+	Fix           string
+	Detail        string
 }
 
 // Line is the one-line row: agent, profile, model, served, status and the fix.
@@ -56,32 +54,18 @@ func Check(reg *providers.Registry, now time.Time) []Pin {
 	session := pins["claude"].Profile
 	var out []Pin
 	if session != "" { // claude's session profile is always warmed
-		out = append(out, checkAgent(reg, "claude", router.PinSpec{Profile: session}, "pin", session, now))
+		out = append(out, checkAgent(reg, "claude", router.PinSpec{Profile: session}, session, now))
 	}
 	for _, a := range slices.Sorted(slices.Values(router.TableAgents)) {
 		if a != "claude" && !pins[a].Off {
-			cfg, err := agentconfig.For(a, agentconfig.Launch{})
-			if err != nil && !errors.Is(err, agentconfig.ErrUnknownProfile) { // an unknown profile is checkAgent's stale row
-				out = append(out, Pin{Agent: a, Profile: cfg.Profile, ProfileSource: "pin", Status: StatusError, Detail: err.Error()})
-				continue
-			}
-			spec := router.PinSpec{Profile: cfg.Profile, Model: cfg.Model}
-			own, err := agent.OwnLogin(a, spec.Profile)
-			if err != nil {
-				out = append(out, Pin{Agent: a, Profile: cfg.Profile, ProfileSource: "pin", Status: StatusError, Detail: err.Error()})
-				continue
-			}
-			if own {
-				spec.Profile = "" // the agent's own login reads as no pin, as AgentPins does
-			}
-			out = append(out, checkAgent(reg, a, spec, "pin", session, now))
+			out = append(out, checkAgent(reg, a, pins[a], session, now))
 		}
 	}
 	return out
 }
 
-func checkAgent(reg *providers.Registry, name string, spec router.PinSpec, source, session string, now time.Time) Pin {
-	p := Pin{Agent: name, Profile: spec.Profile, ProfileSource: source, Model: spec.Model, Served: "n/a"}
+func checkAgent(reg *providers.Registry, name string, spec router.PinSpec, session string, now time.Time) Pin {
+	p := Pin{Agent: name, Profile: spec.Profile, ProfileSource: "pin", Model: spec.Model, Served: "n/a"}
 	if p.Profile == "" && name == "codex" {
 		p.Profile, p.ProfileSource = session, "follows CLAUDE_PROFILE"
 	}

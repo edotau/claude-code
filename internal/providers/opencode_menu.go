@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
@@ -30,21 +31,20 @@ func OpencodeMenuFromVault() bool {
 	return ok
 }
 
+// menuCache holds the vault menu per vault.db stamp; vaultOpencodeMenu hands out clones.
+var menuCache paths.StampCache[[]OpencodeModel]
+
 func vaultOpencodeMenu() ([]OpencodeModel, bool) {
-	var out []OpencodeModel
-	var found bool
-	err := vault.View(func(t *vault.Tx) error {
-		raw, ok := t.Get(vault.Overlay, opencodeMenuKey)
-		if !ok || raw == "" {
+	out, err := menuCache.Get(vault.Path(), func() (out []OpencodeModel, err error) {
+		err = vault.View(func(t *vault.Tx) error {
+			if raw, ok := t.Get(vault.Overlay, opencodeMenuKey); ok && raw != "" && json.Unmarshal([]byte(raw), &out) != nil {
+				out = nil
+			}
 			return nil
-		}
-		found = json.Unmarshal([]byte(raw), &out) == nil && len(out) > 0
-		return nil
+		})
+		return out, err
 	})
-	if err != nil || !found {
-		return nil, false
-	}
-	return out, true
+	return slices.Clone(out), err == nil && len(out) > 0
 }
 
 // SetOpencodeMenu stores menu as the vault overlay; an empty menu deletes the entry (back to the seed).
