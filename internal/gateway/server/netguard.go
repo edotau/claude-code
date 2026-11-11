@@ -16,8 +16,12 @@ func guardedClient() *http.Client {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.DialContext = guardedDial
 	t.ResponseHeaderTimeout = responseHeaderTimeout
+	t.MaxIdleConnsPerHost = upstreamIdleConns
 	return &http.Client{Transport: t}
 }
+
+// upstreamIdleConns keeps this many idle connections per workspace host: Go's default of 2 re-handshakes TLS under parallel jobs.
+const upstreamIdleConns = 32
 
 // responseHeaderTimeout bounds the wait for upstream response headers so a wedged upstream fails over.
 const responseHeaderTimeout = 120 * time.Second
