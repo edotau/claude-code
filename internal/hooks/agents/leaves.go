@@ -86,7 +86,9 @@ func workflowLeaves(in *core.Input, res core.Result) int {
 func Release(in *core.Input) core.Result {
 	if owner, id := inflight.SessionOwner(), in.Nested("tool_use_id"); owner != 0 && id != "" {
 		inflight.Release(owner, id)
-		return core.WithStderr(core.Result{}, docs.ClearPlanClaim(in.CWD, id)) // a failed spawn never reaches SubagentStop
+		if core.SpawnTools[in.ToolName] { // only a spawn claims a plan task; a failed one never reaches SubagentStop
+			return core.WithStderr(core.Result{}, docs.ClearPlanClaim(in.CWD, id))
+		}
 	}
 	return core.Result{}
 }

@@ -1,6 +1,4 @@
-// `dispatch-effort` — PreToolUse on a subagent spawn (Claude Code's Agent/Task tool) or a Workflow: fills an UNSET
-// dispatch model from the local prompt classifier (low->haiku, medium/high->sonnet). Never overrides
-// an explicit model/pin; fails OPEN on any error.
+// `dispatch-effort`: PreToolUse on a spawn/Workflow — type deny, model pin, recall, Profile:/Route:, label; fails OPEN.
 package agents
 
 import (
@@ -360,9 +358,6 @@ func pinModel(run *dispatchRun, in *core.Input, updated map[string]any, task str
 	}
 	tier, signal := router.EffortTierSignal(task)
 	model := models.AliasModel(tier)
-	if model == "" { // a tier with no row: never emit an empty pin
-		return "", ""
-	}
 	updated["model"] = model
 	return fmt.Sprintf("dispatch-effort: dispatch model unset and the task classifies %s — pinned model=%s"+
 			" (set model explicitly to override).", tier, model),
@@ -659,11 +654,11 @@ func routeWorkspace(task string) (string, error) {
 	return p, nil
 }
 
-// applyRoute prepends `agents ask --route databricks:<p>` to a Route: dispatch; deny blocks a bad, unknown or
-// conflicting route (another Profile:, or leaving the session's armed route). Inside the same route it is a no-op.
 // servingRow refuses a profile route databricks:<p> cannot run on; tests stub it.
 var servingRow = providers.ServingRow
 
+// applyRoute prepends `agents ask --route databricks:<p>` to a Route: dispatch; deny blocks a bad, unknown or
+// conflicting route (another Profile:, or leaving the session's armed route). Inside the same route it is a no-op.
 func applyRoute(run *dispatchRun, updated map[string]any, promptField, task string) (note string, deny *core.Result) {
 	st, _ := updated["subagent_type"].(string)
 	if !routeApplies(st, task) {

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,9 +145,10 @@ func CodexSubagentStart(in *core.Input) core.Result {
 
 // codexRecorded runs the audit and keeps its warning as the result's stderr.
 func codexRecorded(in *core.Input, record codexRouteRecord) core.Result {
-	var warn strings.Builder
-	recordCodexRoute(in, record, &warn)
-	return core.Result{Stderr: strings.TrimSpace(warn.String())}
+	if recordCodexRoute(in, record) != nil {
+		return core.Result{Stderr: "codex routing: audit unavailable"}
+	}
+	return core.Result{}
 }
 
 func codexResultAgentID(raw any) string {
@@ -162,15 +162,13 @@ func codexResultAgentID(raw any) string {
 	return id
 }
 
-func recordCodexRoute(in *core.Input, record codexRouteRecord, stderr io.Writer) {
+func recordCodexRoute(in *core.Input, record codexRouteRecord) error {
 	if in.Agent() != core.AgentCodex || in.SessionID == "" {
-		return
+		return nil
 	}
 	record.SessionID, record.At = in.SessionID, time.Now().UnixMilli()
 	path := filepath.Join(paths.StateDir(), "codex", fmt.Sprintf("routing-%x.jsonl", sha256.Sum256([]byte(in.SessionID))))
-	if err := paths.WithFileLock(path, func() error { return appendCodexRoute(path, record) }); err != nil {
-		fmt.Fprintln(stderr, "codex routing: audit unavailable")
-	}
+	return paths.WithFileLock(path, func() error { return appendCodexRoute(path, record) })
 }
 
 func appendCodexRoute(path string, record codexRouteRecord) error {

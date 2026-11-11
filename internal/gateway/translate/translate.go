@@ -3,6 +3,7 @@
 package translate
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -41,7 +42,7 @@ type source struct {
 
 // parseBlocks accepts content as a plain string or a block array.
 func parseBlocks(raw json.RawMessage) ([]block, error) {
-	raw = json.RawMessage(strings.TrimSpace(string(raw)))
+	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil, nil
 	}

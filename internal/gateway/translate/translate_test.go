@@ -417,8 +417,8 @@ func TestStreamChatErrors(t *testing.T) {
 			`data: {"error":{"message":"quota exceeded","code":429}}` + "\n\n"
 		var buf strings.Builder
 		err := StreamChat(&buf, nil, strings.NewReader(in), "claude-client")
-		if !errors.Is(err, errUpstream) {
-			t.Fatalf("err = %v, want errUpstream", err)
+		if err == nil || !strings.Contains(err.Error(), "upstream stream error") {
+			t.Fatalf("err = %v, want an upstream stream error", err)
 		}
 		got := parseSSE(t, buf.String())
 		last := got[len(got)-1]

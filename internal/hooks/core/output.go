@@ -129,7 +129,7 @@ func Emit(name, event string, r Result, stdout, stderr io.Writer) int {
 }
 
 // outputCodex is exactly one JSON document in Codex's Claude-compatible schema: no ask decision (deny), and an
-// updatedInput on PreToolUse is an explicit allow (ruling 4).
+// updatedInput on PreToolUse is an explicit allow.
 func outputCodex(event string, r Result) string {
 	return claudeDoc(event, r, claudeStyle{askAsDeny: true, allowWithInput: true})
 }

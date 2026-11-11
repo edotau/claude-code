@@ -222,7 +222,10 @@ func CheckoutOf(ctx context.Context, cwd string) (top, branch string, nested []s
 	var others []string
 	for line := range strings.SplitSeq(git("worktree", "list", "--porcelain"), "\n") {
 		path, ok := strings.CutPrefix(line, "worktree ")
-		if real, err := filepath.EvalSymlinks(path); ok && err == nil && real != top {
+		if !ok {
+			continue
+		}
+		if real, err := filepath.EvalSymlinks(path); err == nil && real != top {
 			others = append(others, real)
 		}
 	}

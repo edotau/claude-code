@@ -37,11 +37,10 @@ func appendOutputFiles(files []string, seen map[string]bool, b []byte) []string 
 	if !bytes.Contains(b, []byte(`"tool_result"`)) {
 		return files
 	}
-	line := string(b)
-	for _, m := range bgOutputPattern().FindAllStringSubmatch(line, -1) {
-		if !seen[m[1]] {
-			seen[m[1]] = true
-			files = append(files, m[1])
+	for _, m := range bgOutputPattern().FindAllSubmatch(b, -1) {
+		if f := string(m[1]); !seen[f] {
+			seen[f] = true
+			files = append(files, f)
 		}
 	}
 	return files

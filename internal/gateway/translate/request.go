@@ -152,17 +152,14 @@ func FlattenChatContent(body []byte) []byte {
 // flattenChoice joins one choice's content-part array into a string in place, reporting whether it did.
 func flattenChoice(c map[string]json.RawMessage) bool {
 	var msg map[string]json.RawMessage
-	var parts []struct{ Type, Text string }
-	if json.Unmarshal(c["message"], &msg) != nil || json.Unmarshal(msg["content"], &parts) != nil || parts == nil {
+	if json.Unmarshal(c["message"], &msg) != nil || len(msg["content"]) == 0 || msg["content"][0] != '[' {
 		return false // a null (tool-call-only) or string content stays as sent
 	}
-	var sb strings.Builder
-	for _, pt := range parts {
-		if pt.Type == "text" {
-			sb.WriteString(pt.Text)
-		}
+	text, err := contentText(msg["content"])
+	if err != nil {
+		return false
 	}
-	msg["content"], _ = json.Marshal(sb.String())
+	msg["content"], _ = json.Marshal(text)
 	c["message"], _ = json.Marshal(msg)
 	return true
 }
