@@ -189,13 +189,14 @@ func runGithub(d *dialog) bool {
 // before the next render, so a login that just succeeded shows "present" immediately.
 func githubMenu(d *dialog) bool {
 	login := func(name, detail, label string, check func() (bool, string), argv ...string) shellRow {
-		return shellRow{Name: name, Detail: detail, Run: func() bool { runGithubLogin(d, argv, label, check); return false }}
+		return shellRow{Name: name, Detail: detail, Run: func() bool { runLoginChecked(d, argv, label, check); return false }}
 	}
+	as := func(label string) func() (bool, string) { return func() (bool, string) { return signedIn(label) } }
 	d.shell().Run("GitHub (opencode fallback) — pick an action", func() []shellRow {
 		githubStatusRows(d)
 		return []shellRow{
-			login("Log in to GitHub CLI", "gh auth login", "gh CLI", ghSignedIn, "gh", "auth", "login"),
-			login("Log in to Copilot", "copilot login", "copilot", copilotSignedIn, "copilot", "login"),
+			login("Log in to GitHub CLI", "gh auth login", "gh CLI", as("gh"), "gh", "auth", "login"),
+			login("Log in to Copilot", "copilot login", "copilot", as("copilot"), "copilot", "login"),
 			login("Log in to OpenCode", "opencode auth login (choose GitHub Copilot)", "opencode", opencodeSignedIn,
 				"opencode", "auth", "login"),
 			{Name: "GitHub auth", Detail: "gh's active account: pick a profile or follow gh",
@@ -207,32 +208,9 @@ func githubMenu(d *dialog) bool {
 	return true
 }
 
-// Sign-in checks, read fresh after the vendor tool exits: its exit code alone does not prove a stored login.
-func ghSignedIn() (bool, string) {
-	st := configure.GHAuthCheck()
-	return st.LoggedIn, "account " + st.Account
-}
-
-func copilotSignedIn() (bool, string) {
-	st := agent.AuthStatus("copilot")
-	return st.Present, st.Label()
-}
-
+// opencodeSignedIn is the OpenCode row's check: opencode's own GitHub Copilot login, not any opencode login.
 func opencodeSignedIn() (bool, string) {
 	return opencode.OpencodeCopilotLoginPresent(), "GitHub Copilot login stored"
-}
-
-// runGithubLogin execs argv attached to the real terminal, then reports what check finds, not the exit code.
-func runGithubLogin(d *dialog, argv []string, label string, check func() (bool, string)) {
-	if err := configure.RunLogin(argv); err != nil {
-		d.printf("%s: %v\n", label, err)
-		return
-	}
-	if ok, detail := check(); ok {
-		d.printf("%s: signed in (%s)\n", label, detail)
-		return
-	}
-	d.printf("%s: %s exited without a usable login; run it again\n", label, strings.Join(argv, " "))
 }
 
 // pickCopilotModels lists the live copilot catalog (plus the synthetic "auto" router alias), asks for an

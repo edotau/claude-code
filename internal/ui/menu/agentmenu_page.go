@@ -187,13 +187,33 @@ func agentMenuTitle(name string, st agentState) string {
 	return title + ")"
 }
 
-// signIn runs an agent's own sign-in CLI (picking its row was the confirmation) and reports the outcome.
+// signIn runs an agent's own sign-in CLI (picking its row was the confirmation) and reports the login it then finds.
 func signIn(d *dialog, label string, argv []string) bool {
+	return runLoginChecked(d, argv, label, func() (bool, string) { return signedIn(label) })
+}
+
+// signedIn reads label's login fresh: gh through gh itself, an agent through its own status.
+func signedIn(label string) (bool, string) {
+	if label == "gh" {
+		st := configure.GHAuthCheck()
+		return st.LoggedIn, "account " + st.Account
+	}
+	st := agent.AuthStatus(label)
+	return st.Present, st.Label()
+}
+
+// runLoginChecked execs argv attached to the real terminal, then reports what check finds, not the exit code.
+func runLoginChecked(d *dialog, argv []string, label string, check func() (bool, string)) bool {
 	if err := configure.RunLogin(argv); err != nil {
 		d.printf("%s: %v\n", label, err)
 		return false
 	}
-	d.printf("%-10s signed in\n", label)
+	ok, detail := check()
+	if !ok {
+		d.printf("%s: %s exited without a usable login; run it again\n", label, strings.Join(argv, " "))
+		return false
+	}
+	d.printf("%s: signed in (%s)\n", label, detail)
 	return true
 }
 
