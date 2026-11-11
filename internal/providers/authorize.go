@@ -186,13 +186,19 @@ func decodeServingEndpoints(url string, body []byte) ([]liveModelEntry, error) {
 	return out, nil
 }
 
-// ProbeCredential makes one authenticated catalog GET to tell a present credential from a working one:
-// "login" (passthrough: not probeable here), "verified", "rejected" (401, or a 403 naming a refused credential),
-// "unreachable" (no connection),
-// or "unverified" with the error. Never fatal; callers surface the status next to the credential.
+// ProbeCredential's statuses; the vault persists verified and rejected, so the values never change.
+const (
+	ProbeLogin       = "login"       // passthrough: not probeable here
+	ProbeVerified    = "verified"    // the catalog GET succeeded
+	ProbeRejected    = "rejected"    // 401, or a 403 naming a refused credential
+	ProbeUnreachable = "unreachable" // no connection
+	ProbeUnverified  = "unverified"  // any other error
+)
+
+// ProbeCredential makes one authenticated catalog GET to tell a present credential from a working one; never fatal.
 func ProbeCredential(ctx context.Context, p *Provider) (status, detail string) {
 	if p.Auth.Type == AuthCLI || p.Auth.Login != "" {
-		return "login", ""
+		return ProbeLogin, ""
 	}
 	_, err := LiveModels(ctx, p)
 	if err != nil {
@@ -201,15 +207,15 @@ func ProbeCredential(ctx context.Context, p *Provider) (status, detail string) {
 	var se *catalogStatusError
 	switch {
 	case err == nil:
-		return "verified", ""
+		return ProbeVerified, ""
 	case errors.As(err, &se) && se.rejected():
-		return "rejected", detail
+		return ProbeRejected, detail
 	default:
 		var ne net.Error
 		if errors.As(err, &ne) || strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "no such host") {
-			return "unreachable", detail
+			return ProbeUnreachable, detail
 		}
-		return "unverified", detail
+		return ProbeUnverified, detail
 	}
 }
 

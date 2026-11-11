@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/tokenledger"
 )
 
 // Each render is a fresh process, so memos live in stamp files under the state dir ("f1|f2|…"); any
@@ -50,6 +51,31 @@ func freshStamp(path string, ttl time.Duration, n int) []string {
 
 func writeTimedStamp(path string, fields ...string) {
 	writeStamp(path, append([]string{strconv.FormatInt(time.Now().UnixMilli(), 10)}, fields...)...)
+}
+
+// ledgerTotals memos (ledger size, mtime) → this session's dispatch tokens: the ledger only changes by appending.
+func ledgerTotals(session string) (in, out int) {
+	if session == "" {
+		return 0, 0
+	}
+	fi, statErr := os.Stat(tokenledger.Path())
+	stamp := stampFile("ledger", paths.StateDir()+"\x00"+session)
+	size, mtime := "", ""
+	if statErr == nil {
+		size, mtime = strconv.FormatInt(fi.Size(), 10), strconv.FormatInt(fi.ModTime().UnixNano(), 10)
+		if f := readStamp(stamp); len(f) == 4 && f[0] == size && f[1] == mtime {
+			i, ierr := strconv.Atoi(f[2])
+			o, oerr := strconv.Atoi(f[3])
+			if ierr == nil && oerr == nil {
+				return i, o
+			}
+		}
+	}
+	in, out, _ = tokenledger.TotalsBySession(session)
+	if statErr == nil {
+		writeStamp(stamp, size, mtime, strconv.Itoa(in), strconv.Itoa(out))
+	}
+	return in, out
 }
 
 // runningTTL caps the marker + dispatch sweep at one per 3s across renders.

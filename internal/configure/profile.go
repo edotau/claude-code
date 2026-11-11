@@ -120,7 +120,7 @@ func KeyVerified(p *providers.Provider) bool {
 		return false
 	}
 	status, _, _ := ProbeCached(KeyTarget{Provider: p})
-	return status == "verified"
+	return status == providers.ProbeVerified
 }
 
 // AgentProfile is `<agent> profile`: clear the pin (an external agent's own login, not off), show it, or set it.

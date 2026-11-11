@@ -72,10 +72,10 @@ func keyCols(kt configure.KeyTarget) [2]string {
 	}
 	if kt.Provider != nil && kt.EnvVar != "" {
 		status, _ := configure.Probe(kt)
-		if status == "verified" {
+		if status == providers.ProbeVerified {
 			return [2]string{modeAPIKey, "verified"}
 		}
-		if status == "login" {
+		if status == providers.ProbeLogin {
 			return [2]string{loginLine(kt), "verified"}
 		}
 		return [2]string{modeAPIKey, "not verified"}
@@ -145,7 +145,7 @@ func keepOldKey(d *dialog, kt configure.KeyTarget, v string) bool {
 		return false
 	}
 	status, detail := configure.ProbeValue(kt.Provider, kt.EnvVar, v)
-	if status != "rejected" && status != "unreachable" {
+	if status != providers.ProbeRejected && status != providers.ProbeUnreachable {
 		return false
 	}
 	d.printf("%s: new value %s (%s)\n", kt.EnvVar, status, detail)

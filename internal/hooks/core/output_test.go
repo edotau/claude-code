@@ -122,6 +122,31 @@ func TestOutputCopilotAskIsDeny(t *testing.T) {
 	}
 }
 
+func TestDialectOf(t *testing.T) {
+	ask := Result{Decision: Ask, Reason: "r", Context: "c", UpdatedInput: map[string]any{"k": "v"}}
+	claude := func(event string, r Result) string { return claudeDoc(event, r, claudeStyle{}) }
+	cases := []struct {
+		agent    string
+		build    func(string, Result) string
+		jsonDeny bool
+	}{
+		{AgentClaude, claude, false},
+		{AgentCodex, outputCodex, false},
+		{AgentCopilot, OutputCopilot, false},
+		{AgentGemini, OutputGemini, true},
+		{"no-such-agent", claude, false},
+	}
+	for _, tc := range cases {
+		d := DialectOf(tc.agent)
+		if got, want := d.Build("PreToolUse", ask), tc.build("PreToolUse", ask); got != want || want == "" {
+			t.Errorf("%s: Build = %q, want %q", tc.agent, got, want)
+		}
+		if d.JSONDeny != tc.jsonDeny {
+			t.Errorf("%s: JSONDeny = %v, want %v", tc.agent, d.JSONDeny, tc.jsonDeny)
+		}
+	}
+}
+
 func TestOutputEmitBlockOutsidePreToolUse(t *testing.T) {
 	var out, errw bytes.Buffer
 	code := Emit(AgentClaude, "Stop", Result{Decision: Block, Reason: "keep going"}, &out, &errw)

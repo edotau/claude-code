@@ -121,12 +121,8 @@ func scanUsage(claudeDir, session string, days int, errw io.Writer) (*transcript
 // is dated by its file's mtime) and adds each token-bearing one to its local day in counts.
 func foldResponses(path string, resps []transcript.Response, cutoff time.Time, counts map[string]*dayCount) []transcript.Response {
 	var mtimeDay string
-	kept := make([]transcript.Response, 0, len(resps))
-	for _, r := range resps {
-		if !r.At.IsZero() && r.At.Before(cutoff) {
-			continue
-		}
-		kept = append(kept, r)
+	kept := inWindowResponses(resps, cutoff)
+	for _, r := range kept {
 		if r.Usage.Total() == 0 {
 			continue
 		}

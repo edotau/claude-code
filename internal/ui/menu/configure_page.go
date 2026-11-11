@@ -333,10 +333,10 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 
 func runPresentKey(d *dialog, kt configure.KeyTarget) (ok, changed bool) {
 	status, detail, age := configure.ProbeCached(kt)
-	if status == "rejected" {
+	if status == providers.ProbeRejected {
 		return runRejectedKey(d, kt, detail)
 	}
-	if status != "" && status != "login" {
+	if status != "" && status != providers.ProbeLogin {
 		d.printf("%-10s present (%s; %s%s)\n", kt.Label, kt.Source, status, ageSuffix(age))
 	} else {
 		d.printf("%-10s present (%s)\n", kt.Label, kt.Source)

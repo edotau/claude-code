@@ -23,7 +23,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -555,7 +554,7 @@ func totalSegment(in Input) string {
 	if cw := in.ContextWindow; cw != nil {
 		n = cw.TotalInput + cw.TotalOutput
 	}
-	li, lo, _ := tokenledger.TotalsBySession(in.SessionID)
+	li, lo := ledgerTotals(in.SessionID)
 	n += li + lo
 	if n <= 0 {
 		return ""

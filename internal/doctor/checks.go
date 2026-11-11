@@ -222,7 +222,7 @@ func probeCredentialLabel(p *providers.Provider, label string) (bool, string) {
 	status, detail := probeCredential(pctx, p)
 	cancel()
 	switch status {
-	case "login":
+	case providers.ProbeLogin:
 		if p.Auth.Login == "" { // the Claude Max login: say whether unattended runs have a token too
 			if providers.HeadlessOAuthToken() != "" {
 				label += " · headless token set"
@@ -230,9 +230,9 @@ func probeCredentialLabel(p *providers.Provider, label string) (bool, string) {
 				label += " · no headless token (claude-code configure → claude mints one)"
 			}
 		}
-	case "verified":
+	case providers.ProbeVerified:
 		label += " · verified"
-	case "rejected":
+	case providers.ProbeRejected:
 		present = false                           // stored, but the provider refuses it: as unusable as a missing key
 		detail, _, _ = strings.Cut(detail, ": {") // drop the JSON error body the probe appends
 		label += " · REJECTED: " + detail

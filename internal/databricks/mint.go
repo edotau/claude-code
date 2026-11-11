@@ -98,7 +98,7 @@ func setPATLocked(ctx context.Context, name, value string) (string, error) {
 		return "", errors.Join(err, undo())
 	}
 	status, detail := probePAT(ctx, p)
-	if status != "rejected" {
+	if status != providers.ProbeRejected {
 		return status, nil
 	}
 	if rbErr := rollbackPAT(secret, old, had, undo); rbErr != nil {
@@ -188,7 +188,7 @@ func restoreOverlayAuth(name string, raw json.RawMessage) error {
 // probePAT refreshes p's credential and probes it; a refresh failure reports "unverified" with its message.
 func probePAT(ctx context.Context, p *providers.Provider) (status, detail string) {
 	if _, err := providers.Refresh(ctx, p); err != nil {
-		return "unverified", err.Error()
+		return providers.ProbeUnverified, err.Error()
 	}
 	return providers.ProbeCredential(ctx, p)
 }

@@ -312,11 +312,12 @@ func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	in := core.ParseInput(stdin)
 	res := runGated(name, run, in)
 	if res.Decision == core.Block && specOf(name).Blocks {
+		d := core.DialectOf(in.Agent())
 		if name == "safety-scan" && in.Agent() == core.AgentCopilot {
-			fmt.Fprintln(stdout, core.OutputCopilot(settings.EventPreToolUse, res))
+			fmt.Fprintln(stdout, d.Build(settings.EventPreToolUse, res))
 		}
-		if in.Agent() == core.AgentGemini { // agy blocks on a JSON deny, not exit 2
-			if _, err := fmt.Fprintln(stdout, core.OutputGemini(settings.EventPreToolUse, res)); err != nil {
+		if d.JSONDeny { // agy blocks on a JSON deny, not exit 2
+			if _, err := fmt.Fprintln(stdout, d.Build(settings.EventPreToolUse, res)); err != nil {
 				fmt.Fprintf(stderr, "%s (deny JSON not written: %v)\n", res.Reason, err)
 				return core.ExitBlock // fail closed: a lost deny must not proceed
 			}
