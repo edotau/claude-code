@@ -179,16 +179,12 @@ func stateErrClass(err error) string {
 // pickPool selects and records under the same lock, so simultaneous picks see each other's timestamps.
 func pickPool(agent string, p *providers.Provider, pool []string, now time.Time) (string, error) {
 	pool = servedPool(p, pool, now)
-	var selected, model string
+	var model string
 	err := update(func(s State) {
 		account := ProviderAccount(p.Name)
 		e := s[account]
-		for _, entry := range pool {
-			wire := providers.SpellPin(p, entry)
-			if wire != "" && !discoverySkipped(e, agent, entry, now) && (selected == "" || e.Discovery[entry].Before(e.Discovery[selected])) {
-				selected, model = entry, wire
-			}
-		}
+		selected := leastRecent(e, agent, p, pool, now)
+		model = providers.SpellPin(p, selected)
 		if selected == "" {
 			return
 		}
@@ -196,6 +192,18 @@ func pickPool(agent string, p *providers.Provider, pool []string, now time.Time)
 		s[account] = e
 	})
 	return model, err
+}
+
+// leastRecent is the spellable, unskipped pool entry picked longest ago; "" when none qualifies.
+func leastRecent(e Entry, agent string, p *providers.Provider, pool []string, now time.Time) string {
+	var selected string
+	for _, entry := range pool {
+		if providers.SpellPin(p, entry) != "" && !discoverySkipped(e, agent, entry, now) &&
+			(selected == "" || e.Discovery[entry].Before(e.Discovery[selected])) {
+			selected = entry
+		}
+	}
+	return selected
 }
 
 // servedPool drops entries a fresh listing marks not READY; unchanged when the switch is off or the cache cold.
