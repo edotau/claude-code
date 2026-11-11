@@ -14,8 +14,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
+	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -203,15 +205,15 @@ var freeLocalPort = func(first, last int) int {
 	return first
 }
 
-// hostBrowser, on a --host `databricks login`, opens the browser on the host instead of forwarding; never sent on.
-const hostBrowser = "--host-browser"
+// HostBrowser, on a --host `databricks login`, opens the browser on the host instead of forwarding; never sent on.
+const HostBrowser = "--host-browser"
 
 // loginForward pins a remote `databricks login` to an exact --port with --no-browser; port 0 means no forward.
 func loginForward(args []string) ([]string, int) {
 	if !isLogin(args) {
 		return args, 0
 	}
-	if i := slices.Index(args, hostBrowser); i >= 0 {
+	if i := slices.Index(args, HostBrowser); i >= 0 {
 		return slices.Delete(slices.Clone(args), i, i+1), 0
 	}
 	flags := flagValues(args[2:])
@@ -241,4 +243,46 @@ func withForward(argv []string, port int) []string {
 	p := strconv.Itoa(port)
 	return slices.Insert(slices.Clone(argv), 1, "-o", "ControlMaster=no", "-o", "ControlPath=none",
 		"-o", "ExitOnForwardFailure=yes", "-L", p+":localhost:"+p)
+}
+
+// tailnetHosts lists the other tailnet machines' DNS names; tests swap it.
+var tailnetHosts = func() []string {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	st, err := tailscale.Status(ctx)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, p := range st.Peers {
+		names = append(names, strings.TrimSuffix(p.DNSName, "."))
+	}
+	return names
+}
+
+// Complete is tab completion with --host in front: host names after --host, then local's candidates for the rest
+// (bash splits --host=<host> at the =), plus --host-browser on a login.
+func Complete(words []string, local func([]string) []string) []string {
+	if len(words) == 0 || words[0] != "--host" {
+		return local(words)
+	}
+	skip := 2
+	if len(words) > 1 && words[1] == "=" {
+		skip = 3
+	}
+	if len(words) <= skip {
+		var out []string
+		for _, h := range tailnetHosts() {
+			if strings.HasPrefix(h, words[len(words)-1]) && h != "" {
+				out = append(out, h)
+			}
+		}
+		return out
+	}
+	rest := words[skip:]
+	out := local(rest)
+	if cur := rest[len(rest)-1]; isLogin(rest) && len(rest) > 2 && strings.HasPrefix(cur, "-") && strings.HasPrefix(HostBrowser, cur) {
+		out = append(out, HostBrowser)
+	}
+	return out
 }
