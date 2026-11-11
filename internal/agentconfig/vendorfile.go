@@ -39,7 +39,7 @@ type RenderPlan struct {
 	writes []stagedWrite
 }
 
-// stagedWrite is one queued write; path names the agent config file it changes ("" for a side file like a baseline).
+// stagedWrite is one queued write; path names the file Apply snapshots for rollback ("" for none, like a baseline seed).
 type stagedWrite struct {
 	path  string
 	write func() error
@@ -113,8 +113,8 @@ func (o RenderOptions) Stage(p *RenderPlan) RenderOptions {
 
 // CommitFile is the shared dry-run/check/write decision once a renderer has the next byte slice.
 func CommitFile(path string, raw, next []byte, existed bool, o RenderOptions, out io.Writer, label string) (bool, error) {
-	changed, done, err := previewOrCheck(path, raw, next, o, out, label, func() error {
-		return reportCheck(path, raw, next, !bytes.Equal(next, raw), out, label)
+	changed, done, err := previewOrCheck(path, raw, next, o, out, label, func(changed bool) error {
+		return reportCheck(path, raw, next, changed, out, label)
 	})
 	switch {
 	case done:
@@ -130,14 +130,14 @@ func CommitFile(path string, raw, next []byte, existed bool, o RenderOptions, ou
 }
 
 // previewOrCheck is the dry-run/check half of every commit: done means the mode handled it, check runs for --check.
-func previewOrCheck(path string, raw, next []byte, o RenderOptions, out io.Writer, label string, check func() error) (changed, done bool, err error) {
+func previewOrCheck(path string, raw, next []byte, o RenderOptions, out io.Writer, label string, check func(changed bool) error) (changed, done bool, err error) {
 	changed = !bytes.Equal(next, raw)
 	switch {
 	case o.DryRun:
 		fmt.Fprintf(out, "--- %s (%s) ---\n%s\n", path, label, next)
 		return changed, true, nil
 	case o.Check:
-		return changed, true, check()
+		return changed, true, check(changed)
 	}
 	return changed, false, nil
 }
@@ -183,17 +183,18 @@ func reportUnchanged(path string, next []byte, existed bool, o RenderOptions, ou
 	return nil
 }
 
-// seedBaseline writes next as path's baseline under the lock unless a concurrent write already created one.
+// seedBaseline writes next as path's baseline under the lock unless a concurrent write created one; best-effort.
 func seedBaseline(label, path string, next []byte, out io.Writer) error {
-	return paths.WithFileLock(baselinePath(label, path), func() error {
+	err := paths.WithFileLock(baselinePath(label, path), func() error {
 		if _, err := os.Stat(baselinePath(label, path)); !os.IsNotExist(err) {
 			return nil
 		}
-		if err := writeBaseline(label, path, next); err != nil {
-			fmt.Fprintf(out, "%s: baseline: %v (next run can't detect hand edits)\n", label, err)
-		}
-		return nil
+		return writeBaseline(label, path, next)
 	})
+	if err != nil { // a lock or write failure must not fail Apply and roll back the config writes before it
+		fmt.Fprintf(out, "%s: baseline: %v (next run can't detect hand edits)\n", label, err)
+	}
+	return nil
 }
 
 // commitWrite runs the lost-lines check (prompting or warning), writes path, and refreshes its
@@ -250,8 +251,8 @@ func writeLocked(path string, raw, next []byte, existed bool, out io.Writer, lab
 // CommitOverlayFile is CommitFile's dry-run/check/write decision, minus the lost-hand-edited-lines
 // check and baseline tracking: the overlay is never hand-edited, so there is nothing to lose.
 func CommitOverlayFile(path string, raw, next []byte, o RenderOptions, out io.Writer, label string) (bool, error) {
-	changed, done, err := previewOrCheck(path, raw, next, o, out, label, func() error {
-		if !bytes.Equal(next, raw) {
+	changed, done, err := previewOrCheck(path, raw, next, o, out, label, func(changed bool) error {
+		if changed {
 			fmt.Fprintf(out, "%s: drift at %s\n", label, path)
 		}
 		return nil

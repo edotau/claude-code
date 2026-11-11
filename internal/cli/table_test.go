@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/describe"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/tailscale"
@@ -676,21 +675,9 @@ func TestMemoryUpdateSpecHasNoRepoFlag(t *testing.T) {
 	if node == nil {
 		t.Fatal("memory update: no sub-node in specTree()")
 	}
-	if got := describe.FlagNames(node); slices.Contains(got, "--repo") || slices.Contains(got, "--repo <value>") {
-		t.Errorf("memory update: specTree() flags = %v, must not advertise --repo", got)
-	}
-}
-
-// describeVerbs carries every table verb with a spec node, so a launcher is never unrepresented in describe.
-func TestDescribeVerbsCarryEverySpecNode(t *testing.T) {
-	got := map[string]describe.Verb{}
-	for _, v := range describeVerbs() {
-		got[v.Name] = v
-	}
-	for _, c := range commands() {
-		v, ok := got[c.name]
-		if !ok || v.Node == nil || v.Node != specTree()[c.name] || v.Hidden != c.hidden {
-			t.Errorf("describeVerbs entry for %q = %+v, want the table row with its specTree node", c.name, v)
+	for _, f := range node.Flags {
+		if f.Name == "repo" {
+			t.Errorf("memory update: specTree() flags = %v, must not advertise --repo", node.Flags)
 		}
 	}
 }

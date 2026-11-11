@@ -73,7 +73,7 @@ func TestCommitJSONObject(t *testing.T) {
 	}
 }
 
-// A hook command holding <, > and & must round-trip byte-identical, or every apply restages the file and --check reports drift.
+// A hook command holding <, > and & must round-trip byte-identical, or every apply restages the file as drift.
 func TestCommitJSONObjectKeepsHTMLCharsUnescaped(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	path := filepath.Join(t.TempDir(), "settings.json")

@@ -15,7 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/databricks"
-	"github.com/edotau/claude-code/internal/describe"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/preflight"
@@ -329,8 +328,8 @@ func printDiscoverText(results []copilot.DiscoverResult) error {
 	return err
 }
 
-// providerList prints every provider's credential state, or one provider's detail; json mirrors describe.
-func providerList(name, format string, verbs func() []describe.Verb) int {
+// providerList prints every provider's credential state, or one provider's detail.
+func providerList(name, format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
 		return helptext.BadFormat("configure provider", err)
 	}
@@ -339,7 +338,7 @@ func providerList(name, format string, verbs func() []describe.Verb) int {
 		return helptext.Fail("%v", err)
 	}
 	if format == helptext.JSON {
-		return providerListJSON(reg, name, verbs())
+		return providerListJSON(reg, name)
 	}
 	if name == "" {
 		return printProviderTable(reg)
@@ -368,31 +367,58 @@ func printProviderTable(reg *providers.Registry) int {
 	return 0
 }
 
-// providerListJSON emits the describe provider view: all providers, or the one named, never a credential.
-func providerListJSON(reg *providers.Registry, name string, verbs []describe.Verb) int {
-	d, err := describe.Build(reg, verbs)
-	if err != nil {
-		return helptext.Fail("configure provider: %v", err)
+// providerEntry is one provider in the JSON listing: its shape and where its credential resolves from, never the value.
+type providerEntry struct {
+	Name        string            `json:"name"`
+	Protocol    string            `json:"protocol"`
+	Dialects    []string          `json:"dialects"`
+	Auth        string            `json:"auth"`
+	Login       string            `json:"login,omitempty"`
+	Credential  bool              `json:"credential"`
+	Models      map[string]string `json:"models,omitempty"`
+	Group       string            `json:"group"` // the family `--list` files it under (anthropic, openai, ... local)
+	Source      string            `json:"source"`
+	Note        string            `json:"note"`
+	Host        string            `json:"host,omitempty"` // non-secret: preset host, else BaseURL's scheme+host
+	AccountID   string            `json:"accountId,omitempty"`
+	WorkspaceID string            `json:"workspaceId,omitempty"`
+}
+
+// newProviderEntry builds p's listing entry; p.Name is its registry key.
+func newProviderEntry(p *providers.Provider) providerEntry {
+	e := providerEntry{
+		Name: p.Name, Protocol: p.Protocol, Dialects: p.Dialects(), Auth: p.Auth.Method(), Login: p.Auth.Login,
+		Credential: providers.CredentialPresent(p), Models: p.Models, Group: p.Provider,
+		Host: providers.AuthHost(p), AccountID: p.Auth.AccountID, WorkspaceID: p.Auth.WorkspaceID,
 	}
-	var want *providers.Provider
+	e.Source, e.Note = providers.CredSource(p)
+	return e
+}
+
+// providerListJSON emits the provider listing: all providers, or the one named, never a credential.
+func providerListJSON(reg *providers.Registry, name string) int {
 	if name != "" {
-		if want, err = reg.Get(name); err != nil {
+		p, err := reg.Get(name)
+		if err != nil {
 			return helptext.Fail("%v", err)
 		}
+		return helptext.WriteJSONOrFail("configure provider", newProviderEntry(p))
 	}
-	list := d.ProviderEntries(reg, want)
-	if want != nil {
-		if len(list) == 0 {
-			return helptext.Fail("configure provider: %q not in the provider list", name)
-		}
-		return helptext.WriteJSONOrFail("configure provider", list[0])
+	names := reg.Names()
+	list := make([]providerEntry, 0, len(names))
+	for _, n := range names {
+		list = append(list, newProviderEntry(reg.Providers[n]))
+	}
+	var session string // the profile a launch resolves to today
+	if sel, err := providers.Select(reg, ""); err == nil && sel.Provider != nil {
+		session = sel.Provider.Name
 	}
 	return helptext.WriteJSONOrFail("configure provider", struct {
-		Session  string                       `json:"session"`
-		Default  string                       `json:"default"`
-		Fallback []string                     `json:"fallback,omitempty"`
-		List     []describe.ProviderListEntry `json:"list"`
-	}{d.Providers.Session, d.Providers.Default, d.Providers.Fallback, list})
+		Session  string          `json:"session"`
+		Default  string          `json:"default"`
+		Fallback []string        `json:"fallback,omitempty"`
+		List     []providerEntry `json:"list"`
+	}{session, reg.Default, reg.Fallback, list})
 }
 
 func profileFlag() helptext.Flag {

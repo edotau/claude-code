@@ -14,7 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/copilot"
-	"github.com/edotau/claude-code/internal/describe"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
@@ -435,7 +434,7 @@ func TestPrintRecordDiffRejectsUnreadableRecords(t *testing.T) {
 // providerListCmdJSON runs `configure providers list <name> --format json`, requires exit 0, and returns stdout and stderr.
 func providerListCmdJSON(t *testing.T, name string) (stdout, stderr string) {
 	t.Helper()
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return providerList(name, "json", func() []describe.Verb { return nil }) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return providerList(name, "json") })
 	if code != 0 {
 		t.Fatalf("provider list %q JSON exit %d stderr %q", name, code, stderr)
 	}
@@ -486,7 +485,7 @@ func TestProviderListTextWriteError(t *testing.T) {
 	}
 	for _, name := range []string{"", "write-error"} {
 		t.Run("name="+name, func(t *testing.T) {
-			run := func() int { return providerList(name, "text", nil) }
+			run := func() int { return providerList(name, "text") }
 			code, stdout, stderr := hosttest.CaptureOutput(t, run)
 			if code != 0 || !strings.Contains(stdout, "write-error") || stderr != "" {
 				t.Fatalf("successful write: code=%d stdout=%q stderr=%q", code, stdout, stderr)
@@ -589,7 +588,7 @@ func credSourceFixture(t *testing.T) (map[string]providers.Auth, string) {
 		t.Fatal(err)
 	}
 	vaulttest.Put(t, vault.Overlay, "providers", string(raw))
-	code, text, _ := hosttest.CaptureOutput(t, func() int { return providerList("", "text", nil) })
+	code, text, _ := hosttest.CaptureOutput(t, func() int { return providerList("", "text") })
 	if code != 0 {
 		t.Fatalf("provider table exit %d", code)
 	}
@@ -621,7 +620,7 @@ func assertCredentialSource(t *testing.T, source, text string) {
 
 func assertCredentialDetail(t *testing.T, name, source, note, text string) {
 	t.Helper()
-	code, detail, _ := hosttest.CaptureOutput(t, func() int { return providerList(name, "text", nil) })
+	code, detail, _ := hosttest.CaptureOutput(t, func() int { return providerList(name, "text") })
 	if code != 0 || !strings.Contains(detail, "cred      "+source) ||
 		(note != "" && !strings.Contains(detail, note)) {
 		t.Error("provider text detail omitted source or note")
@@ -638,7 +637,7 @@ func TestProviderCredentialSources(t *testing.T) {
 	}
 	stdout, _ := providerListCmdJSON(t, "")
 	var list struct {
-		List []describe.ProviderListEntry `json:"list"`
+		List []providerEntry `json:"list"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &list); err != nil {
 		t.Fatal("provider list JSON failed")
