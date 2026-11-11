@@ -1,4 +1,4 @@
-package proctest
+package hosttest
 
 import (
 	"fmt"

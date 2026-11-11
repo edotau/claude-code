@@ -1,6 +1,6 @@
 //go:build !linux && !darwin
 
-package proctest
+package hosttest
 
 import (
 	"os"

@@ -8,7 +8,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/edotau/claude-code/internal/proc/proctest"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func testIoctl(t *testing.T, f *os.File, req uintptr, value unsafe.Pointer) {
@@ -20,7 +20,7 @@ func testIoctl(t *testing.T, f *os.File, req uintptr, value unsafe.Pointer) {
 
 func testPickerTTY(t *testing.T, height uint16, input string) {
 	t.Helper()
-	master, slave := proctest.PTY(t)
+	master, slave := hosttest.PTY(t)
 	size := [4]uint16{height, 80, 0, 0}
 	testIoctl(t, slave, syscall.TIOCSWINSZ, unsafe.Pointer(&size))
 	out, err := os.CreateTemp(t.TempDir(), "picker-output")
@@ -52,7 +52,7 @@ func TestPickClampsStartPastLastRow(t *testing.T) {
 }
 
 func TestTerminalReportsInputEIO(t *testing.T) {
-	master, slave := proctest.PTY(t)
+	master, slave := hosttest.PTY(t)
 	if err := slave.Close(); err != nil {
 		t.Fatal(err)
 	}

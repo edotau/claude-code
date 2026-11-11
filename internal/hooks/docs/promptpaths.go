@@ -15,7 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/pathview"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -116,7 +116,7 @@ func describe(p string) (detail string, isImage bool, ok bool) {
 
 // collectReports resolves every path token to a report through the mount-table resolver. Ordered
 // foreign forms (Windows, UNC, URL, ~) first, then POSIX, each in prompt order.
-func collectReports(prompt string, res *pathview.Resolver) []pathReport {
+func collectReports(prompt string, res *paths.Resolver) []pathReport {
 	c := &reportCollector{res: res, seen: map[string]bool{}}
 	for _, tok := range scanWinTokens(prompt) {
 		c.add(tok.trimmed, tok.raw, tok.trimmed)
@@ -158,7 +158,7 @@ func (c *reportCollector) fetchRemote(client string) {
 
 // reportCollector accumulates path reports, skipping paths it has already reported.
 type reportCollector struct {
-	res  *pathview.Resolver
+	res  *paths.Resolver
 	seen map[string]bool
 	reps []pathReport
 }
@@ -248,7 +248,7 @@ func modelContext(reps []pathReport) string {
 }
 
 // pathResolverResult is the native form: user-visible feedback plus model-visible context, empty when no path hits.
-func pathResolverResult(in *core.Input, res *pathview.Resolver) core.Result {
+func pathResolverResult(in *core.Input, res *paths.Resolver) core.Result {
 	reps := collectReports(in.Prompt, res)
 	if len(reps) == 0 {
 		return core.Result{}
@@ -257,7 +257,7 @@ func pathResolverResult(in *core.Input, res *pathview.Resolver) core.Result {
 }
 
 // defaultResolver reads the host's mount table (macOS runs `mount`); swapped in tests.
-var defaultResolver = pathview.Default
+var defaultResolver = paths.Default
 
 // ResolvePaths binds pathResolverResult to the host's mount view, read only when the prompt holds a path token.
 func ResolvePaths(in *core.Input) core.Result {

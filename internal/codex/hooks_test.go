@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/agentrender"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -54,7 +54,7 @@ func TestRenderCodexHooksFilePreservesForeignOnDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := agentrender.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := client.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 	got, err := os.ReadFile(hooksPath)
@@ -85,9 +85,9 @@ func TestRenderCodexFailsHooksMergeLeavesConfigTomlUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	_, err := agentrender.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}})
+	_, err := client.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}})
 	if err == nil {
-		t.Fatalf("expected agentrender.RenderConfigs to fail on a malformed hooks.json, got no error:\n%s", out.String())
+		t.Fatalf("expected client.RenderConfigs to fail on a malformed hooks.json, got no error:\n%s", out.String())
 	}
 	got, readErr := os.ReadFile(tomlPath)
 	if readErr != nil {
@@ -118,7 +118,7 @@ func TestRenderCodexHooksWriteConflictLeavesConfigTomlUntouched(t *testing.T) {
 	tomlPath := seedCodexFile(t, home, "config.toml", originalToml)
 	hooksPath := seedCodexFile(t, home, "hooks.json", []byte(`{"hooks":{}}`))
 	var out bytes.Buffer
-	plan, drift, err := agentrender.PrepareConfigs(agentconfig.RenderOptions{
+	plan, drift, err := client.PrepareConfigs(agentconfig.RenderOptions{
 		Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"},
 	})
 	if err != nil || !drift {

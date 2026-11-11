@@ -1,4 +1,4 @@
-package agentrender
+package client
 
 import (
 	"bytes"

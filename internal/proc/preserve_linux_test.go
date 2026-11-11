@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/proc/proctest"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestPreserveHelper(t *testing.T) {
@@ -30,7 +30,7 @@ func TestPreserveHelper(t *testing.T) {
 // runPreserveHelper runs the helper with the pty slave as stdin; ttyOut also makes it stdout and returns what it wrote.
 func runPreserveHelper(t *testing.T, mode string, ttyOut bool) (syscall.Termios, string) {
 	t.Helper()
-	master, slave := proctest.PTY(t)
+	master, slave := hosttest.PTY(t)
 	var before syscall.Termios
 	if err := ioctlTermios(int(slave.Fd()), ioctlGet, &before); err != nil {
 		t.Fatal(err)
