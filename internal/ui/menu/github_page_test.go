@@ -130,7 +130,7 @@ func authFlagDialog(t *testing.T, auth string, o Options) (*dialog, *[]string, *
 }
 
 func TestRunGithubAuthFlagPinsAndSwitches(t *testing.T) {
-	d, switched, out := authFlagDialog(t, "work", Options{})
+	d, switched, out := authFlagDialog(t, "wl", Options{})
 	if !runGithubAuthFlag(d) || vault.GitHubAuth() != "work" || strings.Join(*switched, ",") != "wl" {
 		t.Errorf("pin=%q switched=%v out=%s", vault.GitHubAuth(), *switched, out)
 	}
@@ -138,7 +138,7 @@ func TestRunGithubAuthFlagPinsAndSwitches(t *testing.T) {
 
 func TestRunGithubAuthFlagFollowClearsPinWithoutSwitch(t *testing.T) {
 	d, switched, _ := authFlagDialog(t, "", Options{})
-	d.reg.Providers["follow"].Login = ""
+	d.reg.Providers["follow"].Login = "" // no account is named "follow": the keyword clears the pin
 	if err := vault.SetGitHubAuth("work"); err != nil {
 		t.Fatal(err)
 	}
@@ -148,9 +148,10 @@ func TestRunGithubAuthFlagFollowClearsPinWithoutSwitch(t *testing.T) {
 	}
 }
 
-func TestRunGithubAuthFlagProfileNamedFollowIsPinned(t *testing.T) {
+func TestRunGithubAuthFlagAccountNamedFollowIsPinned(t *testing.T) {
 	d, switched, _ := authFlagDialog(t, "follow", Options{})
-	if !runGithubAuthFlag(d) || vault.GitHubAuth() != "follow" || strings.Join(*switched, ",") != "fl" {
+	d.reg.Providers["follow"].Login = "follow"
+	if !runGithubAuthFlag(d) || vault.GitHubAuth() != "follow" || strings.Join(*switched, ",") != "follow" {
 		t.Errorf("pin=%q switched=%v", vault.GitHubAuth(), *switched)
 	}
 }
@@ -160,7 +161,7 @@ func TestRunGithubAuthFlagUnknownAndDryRun(t *testing.T) {
 	if runGithubAuthFlag(d) || !strings.Contains(out.String(), "valid: follow") {
 		t.Errorf("unknown name must fail listing valid names: %s", out)
 	}
-	d, switched, _ := authFlagDialog(t, "work", Options{DryRun: true})
+	d, switched, _ := authFlagDialog(t, "wl", Options{DryRun: true})
 	if !runGithubAuthFlag(d) || vault.GitHubAuth() != "" || len(*switched) != 0 {
 		t.Errorf("dry-run touched state: pin=%q switched=%v", vault.GitHubAuth(), *switched)
 	}

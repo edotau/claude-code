@@ -637,27 +637,23 @@ func pickGitHubUser(d *dialog, cur providers.AuthState) bool {
 	}
 }
 
-// ghUserRows is one picker row per gh account, tagged personal/enterprise, gh active and in use.
+// ghUserRows is one picker row per GitHub account, marked when it is gh's active account or the one in use.
 func ghUserRows(gh []string, active, inUse string) [][2]string {
 	var rows [][2]string
 	for _, u := range gh {
-		desc := "personal"
-		if strings.Contains(u, "_") { // only enterprise managed users carry the _shortcode suffix
-			desc = "enterprise"
-		}
+		var marks []string
 		if u == active {
-			desc += " · gh active"
+			marks = append(marks, "gh active")
 		}
 		if u == inUse {
-			desc += " · in use"
+			marks = append(marks, "in use")
 		}
-		rows = append(rows, [2]string{u, desc})
+		rows = append(rows, [2]string{u, strings.Join(marks, " · ")})
 	}
 	return rows
 }
 
-// pinCopilotProfile pins the github profile whose login is user; "" is refused (gh's active account is GitHub auth).
-// With no such row it sets login on the personal row when that has none, else asks for a profile with that login.
+// pinCopilotProfile pins the profile behind GitHub account user, creating it on first use; "" is refused.
 func pinCopilotProfile(d *dialog, user string) bool {
 	if user == "" {
 		d.printf("copilot: pick an account; gh's active account is GitHub auth (configure github)\n")
@@ -668,24 +664,16 @@ func pinCopilotProfile(d *dialog, user string) bool {
 		d.printf("copilot: %v\n", err)
 		return false
 	}
-	profile := providers.GithubAccountName(reg, user)
-	if profile == user {
-		p := reg.Providers["personal"]
-		if p == nil || p.Provider != "github" || p.Login != "" {
-			d.printf("copilot: no github profile has login %s; add one with `claude-code vault edit` (providers.github.<name>.login)\n", user)
-			return false
-		}
-		if err := providers.SetProviderFields("personal", map[string]any{"login": user}); err != nil {
-			d.printf("copilot: %v\n", err)
-			return false
-		}
-		profile = "personal"
+	profile, err := githubProfile(reg, user)
+	if err != nil {
+		d.printf("copilot: %v\n", err)
+		return false
 	}
 	if _, err := writeAgentField(d, "copilot", "PROFILE", profile); err != nil {
 		d.printf("copilot: %v\n", err)
 		return false
 	}
-	d.printf("%-10s runs as %s (pinned as %s)\n", "copilot", user, profile)
+	d.printf("%-10s runs as %s\n", "copilot", user)
 	return true
 }
 

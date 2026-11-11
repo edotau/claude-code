@@ -193,6 +193,24 @@ func inferProvider(name string, row json.RawMessage) string {
 	return providerLocal
 }
 
+// AddGithubAccount writes a github profile named after login: the built-in personal row with that login, minus opencodeID.
+func AddGithubAccount(login string) error {
+	base, err := builtinEntry("personal")
+	if err != nil {
+		return err
+	}
+	quoted, err := json.Marshal(login)
+	if err != nil {
+		return err
+	}
+	return updateProviderFields(login, func(entry map[string]json.RawMessage) error {
+		maps.Copy(entry, base)
+		delete(entry, "opencodeID") // opencode's own Copilot sign-in belongs to one profile, the built-in one
+		entry["provider"], entry["login"] = json.RawMessage(`"github"`), quoted
+		return nil
+	})
+}
+
 func updateProviderFields(name string, update func(map[string]json.RawMessage) error) error {
 	_, _, err := UpdateOverlayDoc(true, func(doc map[string]json.RawMessage, _ *vault.Tx) error {
 		provs := map[string]map[string]json.RawMessage{}
