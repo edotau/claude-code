@@ -10,7 +10,7 @@ func TestOpenerPicksWindowsBrowserOnWSL(t *testing.T) {
 		goos string
 		wsl  bool
 		want string
-	}{{"linux", true, wslExplorer}, {"linux", false, "xdg-open"}, {"darwin", false, "open"}} {
+	}{{"linux", true, "/mnt/" + winExplorer}, {"linux", false, "xdg-open"}, {"darwin", false, "open"}} {
 		openGOOS, openWSL = tc.goos, func() bool { return tc.wsl }
 		if got := Opener(); got != tc.want {
 			t.Errorf("%s wsl=%v: Opener() = %q, want %q", tc.goos, tc.wsl, got, tc.want)
