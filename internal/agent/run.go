@@ -296,7 +296,7 @@ func statusOf(e *retry.Error) string {
 		return wire.StatusOK
 	case e.Kind == retry.KindQuota:
 		return wire.StatusQuota
-	case errors.Is(e, context.DeadlineExceeded), errors.Is(e, ErrStalled):
+	case errors.Is(e, context.DeadlineExceeded), errors.Is(e, ErrStalled), errors.Is(e, ErrSilent):
 		return wire.StatusStalled
 	case e.Progressed:
 		return wire.StatusPartial

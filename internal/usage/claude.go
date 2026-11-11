@@ -217,15 +217,8 @@ func readClaudeUsageCache(path string) *claudeUsageCache {
 
 // writeClaudeUsageCache persists c to path (0600 in a 0700 dir); best-effort, a write failure never fails the verb.
 func writeClaudeUsageCache(path string, c claudeUsageCache) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return
-	}
 	c.Schema = usageCacheSchema
-	data, err := json.Marshal(c)
-	if err != nil {
-		return
-	}
-	_ = paths.AtomicWrite(path, data, 0o600)
+	_ = paths.WriteJSON(path, c)
 }
 
 // claudeRetryAfter parses Retry-After (seconds or an HTTP-date); 120s default when absent or unparsable.

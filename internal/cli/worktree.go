@@ -9,7 +9,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -179,13 +178,13 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	verify := fs.String("verify", "", "run this worktree gate after integration; failure blocks promotion")
 	noVerify := fs.Bool("no-verify", false, "promote without any verification gate — the only way to skip one")
 	fullVerify := fs.Bool("full-verify", false, "run the full Makefile gate instead of the scoped one")
-	resolveAgent := fs.String("resolve-agent", "", "resolve predicted conflicts with claude|codex")
+	resolveAgent := fs.String("resolve-agent", "", "resolve predicted conflicts with a tools-capable agent")
 	resume := fs.Bool("resume", false, "resume --resolve-agent for <name> without restarting the agent")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	if !worktree.ValidResolveAgent(*resolveAgent) {
-		return helptext.Fail("worktree merge: --resolve-agent %q unknown (claude|codex)", *resolveAgent)
+		return helptext.Fail("worktree merge: --resolve-agent %q unknown (%s)", *resolveAgent, strings.Join(worktree.ResolveAgents(), "|"))
 	}
 	rest := fs.Args()
 	if len(rest) != 1 {
@@ -383,7 +382,7 @@ func worktreeSpec() *helptext.Node {
 		"list":   {Flags: []helptext.Flag{helptext.CompletionFormatFlag()}},
 		"create": {Flags: []helptext.Flag{helptext.Plain("branch")}},
 		"merge": {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("target"),
-			helptext.BoolFlag("no-clean"), {Name: "resolve-agent", Values: func() []string { return []string{agentid.Claude, agentid.Codex} }}, helptext.BoolFlag("resume"), helptext.Plain("verify"), helptext.BoolFlag("no-verify"), helptext.BoolFlag("full-verify")}},
+			helptext.BoolFlag("no-clean"), {Name: "resolve-agent", Values: worktree.ResolveAgents}, helptext.BoolFlag("resume"), helptext.Plain("verify"), helptext.BoolFlag("no-verify"), helptext.BoolFlag("full-verify")}},
 		"clean":     {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("force")}},
 		"clean-all": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("yes")}},
 		"gate":      {Flags: []helptext.Flag{helptext.Plain("dir"), helptext.Plain("scope"), helptext.BoolFlag("lint-check"), helptext.CompletionFormatFlag()}},

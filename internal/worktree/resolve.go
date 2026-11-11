@@ -11,10 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -584,5 +587,13 @@ func newOperationID() string {
 	return "op-" + hex.EncodeToString(b)
 }
 
+// ResolveAgents are the --resolve-agent values: registered roster agents whose tools run natively.
+func ResolveAgents() []string {
+	return slices.DeleteFunc(agentid.All(), func(a string) bool {
+		s, ok := agent.LookupSchema(a)
+		return !ok || s.CLI.Caps.Tools != agent.Native
+	})
+}
+
 // ValidResolveAgent reports whether a is a --resolve-agent value merge accepts ("" means none).
-func ValidResolveAgent(a string) bool { return a == "" || a == "claude" || a == "codex" }
+func ValidResolveAgent(a string) bool { return a == "" || slices.Contains(ResolveAgents(), a) }

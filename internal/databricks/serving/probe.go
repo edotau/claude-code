@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -102,8 +104,8 @@ func Probe(ctx context.Context, p *providers.Provider, targets []CheckTarget, o 
 // StatusTransient marks a probe lost to a passing condition (timeout, 429, 5xx, mint error), not a model verdict.
 const StatusTransient = "transient"
 
-// transientHTTP reports a status that is a passing condition rather than a verdict on the model.
-func transientHTTP(code int) bool {
+// TransientHTTP reports a status that is a passing condition rather than a verdict on the model.
+func TransientHTTP(code int) bool {
 	return code == http.StatusRequestTimeout || code == http.StatusTooManyRequests || code >= 500
 }
 
@@ -122,28 +124,31 @@ func probeOne(ctx context.Context, p *providers.Provider, o CheckOptions, t Chec
 		url, anthropic = route, dialect == providers.ProtocolAnthropic
 		body = func(tools bool) map[string]any { return clientProbeBody(t.Wire, dialect, tools) }
 	}
-	code, ms, msg, err := probeBudget(ctx, p, o, url, body(true), anthropic)
-	r.HTTP, r.LatencyMS = code, ms
+	rep, err := probeBudget(ctx, p, o, ProbeCall{URL: url, Body: body(true), Anthropic: anthropic})
+	r.HTTP, r.LatencyMS = rep.HTTP, rep.LatencyMS
 	switch {
 	case err != nil:
 		r.Status, r.Error = StatusTransient, err.Error()
-	case code/100 == 2:
+	case rep.HTTP/100 == 2:
 		r.Status, r.Tools = "ok", "yes"
 	default:
-		r.Status, r.Error = "fail", fmt.Sprintf("HTTP %d: %s", code, msg)
-		if transientHTTP(code) {
+		r.Status, r.Error = "fail", fmt.Sprintf("HTTP %d: %s", rep.HTTP, TruncateMsg([]byte(rep.Body)))
+		if TransientHTTP(rep.HTTP) {
 			r.Status = StatusTransient
 			return r
 		}
-		code2, ms2, msg2, err2 := probeBudget(ctx, p, o, url, body(false), anthropic)
+		if rep.Denied { // a spend-budget 403 denies the endpoint, not the tools: no tools-less retry
+			return r
+		}
+		rep2, err2 := probeBudget(ctx, p, o, ProbeCall{URL: url, Body: body(false), Anthropic: anthropic})
 		switch {
-		case err2 == nil && code2/100 == 2:
-			r.Status, r.HTTP, r.LatencyMS, r.Tools, r.Error = "ok", code2, ms2, "no", ""
+		case err2 == nil && rep2.HTTP/100 == 2:
+			r.Status, r.HTTP, r.LatencyMS, r.Tools, r.Error = "ok", rep2.HTTP, rep2.LatencyMS, "no", ""
 		case err2 != nil:
 			r.Status, r.Error = StatusTransient, "tools-less retry: "+err2.Error()
-		case transientHTTP(code2):
-			r.Status, r.HTTP, r.LatencyMS = StatusTransient, code2, ms2
-			r.Error = fmt.Sprintf("tools-less retry: HTTP %d: %s", code2, msg2)
+		case TransientHTTP(rep2.HTTP):
+			r.Status, r.HTTP, r.LatencyMS = StatusTransient, rep2.HTTP, rep2.LatencyMS
+			r.Error = fmt.Sprintf("tools-less retry: HTTP %d: %s", rep2.HTTP, TruncateMsg([]byte(rep2.Body)))
 		}
 	}
 	return r
@@ -209,51 +214,112 @@ const budgetExhausted = "max_tokens or model output limit was reached"
 // budgetRetryTokens is the one retry's budget: room for a reasoning model's hidden tokens on a one-word reply.
 const budgetRetryTokens = 1024
 
-// probeBudget is probeRequest, resent once with budgetRetryTokens when the tiny budget ran out (a reasoning model).
-func probeBudget(ctx context.Context, p *providers.Provider, o CheckOptions, url string, body map[string]any, anthropic bool) (int, int64, string, error) {
-	code, ms, msg, err := probeRequest(ctx, p, o, url, body, anthropic)
-	if err != nil || code != http.StatusBadRequest || !strings.Contains(msg, budgetExhausted) {
-		return code, ms, msg, err
-	}
-	retry := maps.Clone(body)
-	for _, k := range []string{"max_tokens", "max_output_tokens"} {
-		if _, ok := retry[k]; ok {
-			retry[k] = budgetRetryTokens
-		}
-	}
-	return probeRequest(ctx, p, o, url, retry, anthropic)
+// ProbeCall is one probe POST; a set Token is sent as the bearer (after p.Headers) instead of minting one.
+type ProbeCall struct {
+	URL       string
+	Body      map[string]any
+	Token     string
+	Anthropic bool
 }
 
-// probeRequest POSTs body and returns status, latency, a truncated server message and any transport error.
-func probeRequest(ctx context.Context, p *providers.Provider, o CheckOptions, url string, body map[string]any, anthropic bool) (int, int64, string, error) {
-	raw, err := json.Marshal(body)
+// ProbeReply is one probe's answer: Body is the reply with credentials scrubbed, Denied a 403 naming a spend budget.
+type ProbeReply struct {
+	HTTP      int
+	LatencyMS int64
+	Body      string
+	Denied    bool
+}
+
+// ProbeOnce sends c (resent once with a larger budget when a reasoning model ran out); zero options as in Probe.
+func ProbeOnce(ctx context.Context, p *providers.Provider, o CheckOptions, c ProbeCall) (ProbeReply, error) {
+	o.Client = cmp.Or(o.Client, http.DefaultClient)
+	o.Timeout = cmp.Or(o.Timeout, 30*time.Second)
+	return probeBudget(ctx, p, o, c)
+}
+
+// probeBudget is probeRequest, resent once with budgetRetryTokens when the tiny budget ran out (a reasoning model).
+func probeBudget(ctx context.Context, p *providers.Provider, o CheckOptions, c ProbeCall) (ProbeReply, error) {
+	r, err := probeRequest(ctx, p, o, c)
+	if err != nil || r.HTTP != http.StatusBadRequest || !strings.Contains(r.Body, budgetExhausted) {
+		return r, err
+	}
+	c.Body = maps.Clone(c.Body)
+	for _, k := range []string{"max_tokens", "max_output_tokens"} {
+		if _, ok := c.Body[k]; ok {
+			c.Body[k] = budgetRetryTokens
+		}
+	}
+	return probeRequest(ctx, p, o, c)
+}
+
+// probeRequest POSTs c.Body and returns the reply with its latency, or a named transport error.
+func probeRequest(ctx context.Context, p *providers.Provider, o CheckOptions, c ProbeCall) (ProbeReply, error) {
+	raw, err := json.Marshal(c.Body)
 	if err != nil {
-		return 0, 0, "", err
+		return ProbeReply{}, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, o.Timeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL, bytes.NewReader(raw))
 	if err != nil {
-		return 0, 0, "", err
+		return ProbeReply{}, err
+	}
+	if err := authorizeProbe(ctx, p, req.Header, c.Token); err != nil {
+		return ProbeReply{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if err := providers.Authorize(ctx, p, req.Header); err != nil {
-		return 0, 0, "", errors.New("credential: " + err.Error())
-	}
-	if anthropic {
+	if c.Anthropic {
 		req.Header.Set("anthropic-version", "2023-06-01")
 	}
 	start := time.Now()
 	resp, err := o.Client.Do(req)
 	if err != nil {
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return 0, time.Since(start).Milliseconds(), "", fmt.Errorf("timeout after %s", o.Timeout)
-		}
-		return 0, time.Since(start).Milliseconds(), "", errors.New("request failed") // url.Error text could echo the URL
+		return ProbeReply{LatencyMS: time.Since(start).Milliseconds()}, probeFailure(ctx, err, o.Timeout)
 	}
 	defer resp.Body.Close()
 	msg, err := readBody(ctx, resp, o.Timeout)
-	return resp.StatusCode, time.Since(start).Milliseconds(), TruncateMsg(msg), err
+	body := scrubCredentials(string(msg), req.Header)
+	return ProbeReply{HTTP: resp.StatusCode, LatencyMS: time.Since(start).Milliseconds(), Body: body,
+		Denied: resp.StatusCode == http.StatusForbidden && strings.Contains(strings.ToLower(body), "budget")}, err
+}
+
+// authorizeProbe sets the bearer from a pre-minted token over p.Headers, else mints through providers.Authorize.
+func authorizeProbe(ctx context.Context, p *providers.Provider, h http.Header, tok string) error {
+	if tok == "" {
+		if err := providers.Authorize(ctx, p, h); err != nil {
+			return errors.New("credential: " + err.Error())
+		}
+		return nil
+	}
+	h.Set("Authorization", "Bearer "+tok)
+	for k, v := range p.Headers {
+		h.Set(k, v)
+	}
+	return nil
+}
+
+// scrubCredentials masks every credential h carries wherever the reply echoes it.
+func scrubCredentials(s string, h http.Header) string {
+	for _, k := range []string{"Authorization", "X-Api-Key", "X-Goog-Api-Key"} {
+		if v := strings.TrimPrefix(h.Get(k), "Bearer "); v != "" {
+			s = strings.ReplaceAll(s, v, "***")
+		}
+	}
+	return s
+}
+
+// probeFailure names a transport failure by kind; the error text itself could echo the URL.
+func probeFailure(ctx context.Context, err error, timeout time.Duration) error {
+	var ne net.Error
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()):
+		return fmt.Errorf("timeout after %s", timeout)
+	case errors.As(err, new(*net.DNSError)):
+		return errors.New("network error: DNS")
+	case errors.As(err, new(*tls.CertificateVerificationError)):
+		return errors.New("network error: TLS")
+	}
+	return errors.New("network error")
 }
 
 // readBody reads up to 1MiB; only a 2xx body failure is an error, with text that cannot echo the address.

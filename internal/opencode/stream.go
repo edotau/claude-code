@@ -41,7 +41,7 @@ type openCodeEvent struct {
 	} `json:"error"`
 }
 
-// isMeaningfulOpenCodeEvent reports whether ev is real model output; step_start is not (it only renews the watchdog).
+// isMeaningfulOpenCodeEvent reports whether ev is real model output; step_start is not (it only renews the idle timeout).
 func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
 	switch ev.Type {
 	case "step_finish":

@@ -11,7 +11,6 @@ import (
 	"io"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -19,17 +18,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
 )
-
-// updatePrompt is the headless update instruction; the tail bound keeps a multi-MB transcript from eating the turns.
-const updatePrompt = "Background update of a finished session (transcript: %s). " +
-	"Read ONLY the last ~1500 lines of that transcript — it may be many MB and reading it whole will " +
-	"exhaust your turn budget before you can write anything. " +
-	"Then run `claude-code memory update` with no --transcript to print the narrative procedure, and follow it " +
-	"COMPLETE, every step, not the abbreviated one. " +
-	"Do it in this order so a truncated run still leaves the bank coherent: sessionHistory first, then " +
-	"activeContext, then progress, decisionLog, and conventions. Be surgical; touch nothing else."
 
 // historicalRule is appended to the worker prompt of a swept (older, finished) session.
 const historicalRule = "\n\nThis is an OLDER session, not the current one: write sessionHistory.md and dated decisionLog.md " +
@@ -260,8 +249,7 @@ func tagBlock(transcript string) string {
 
 // updateOptions drive one background update.
 type updateOptions struct {
-	Claude     string    // real claude binary; "" records a failure unless Run is set
-	Run        AgentFunc // preferred agent; nil = claude -p
+	Run        AgentFunc // the injected agent runner (ask.MemoryRunner in production)
 	Transcript string
 	CWD        string
 	Session    string
@@ -280,9 +268,6 @@ func update(o updateOptions) error {
 			return fmt.Errorf("record update result: %w", err)
 		}
 		return nil
-	}
-	if o.Claude == "" && o.Run == nil {
-		return errors.Join(errors.New("claude binary not found"), record(UpdateFailed, false))
 	}
 	dir := Dir(o.CWD)
 	var run updateRun
@@ -328,7 +313,7 @@ func (r *updateRun) finish(o updateOptions, dir string) (updated bool, err error
 	return updated, nil
 }
 
-// locked runs the agent or claude update and its settlement under the store lock; errors ride in the run struct.
+// locked runs the agent update and its settlement under the store lock; errors ride in the run struct.
 func (r *updateRun) locked(o updateOptions, dir string) error {
 	if o.Historical {
 		snap := snapshotFiles(dir, currentStateFiles)
@@ -337,11 +322,7 @@ func (r *updateRun) locked(o updateOptions, dir string) error {
 	r.before, r.beforeHome = NewestMtime(dir), NewestMtime(HomeBankDir())
 	ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 	defer cancel()
-	if o.Run != nil {
-		r.runErr = runAgentUpdate(ctx, o)
-	} else {
-		r.runErr = runClaudeUpdate(ctx, o)
-	}
+	r.runErr = runAgentUpdate(ctx, o)
 	r.updated, r.settleErr = r.finish(o, dir)
 	return nil
 }
@@ -356,26 +337,6 @@ func runAgentUpdate(ctx context.Context, o updateOptions) error {
 	who, err := o.Run(ctx, prompt, o.CWD)
 	fmt.Fprintln(o.Out, "memory update: ran on", who)
 	return err
-}
-
-// headlessClaudeEnv marks an update child; a stored setup-token keeps it working after the interactive /login expires.
-func headlessClaudeEnv() []string {
-	env := append(os.Environ(), UpdateChildEnv+"=1")
-	if os.Getenv(providers.OAuthTokenEnv) == "" {
-		if tok := providers.HeadlessOAuthToken(); tok != "" {
-			env = append(env, providers.OAuthTokenEnv+"="+tok)
-		}
-	}
-	return env
-}
-
-// runClaudeUpdate runs `claude -p` with the update prompt, streaming to o.Out.
-func runClaudeUpdate(ctx context.Context, o updateOptions) error {
-	cmd := exec.CommandContext(ctx, o.Claude, "-p", fmt.Sprintf(updatePrompt, o.Transcript)+tagBlock(o.Transcript)+historicalBlock(o.Historical), "--max-turns", "40")
-	cmd.Dir = o.CWD
-	cmd.Env = headlessClaudeEnv()
-	cmd.Stdout, cmd.Stderr = o.Out, o.Out
-	return cmd.Run()
 }
 
 // UpdateChildEnv marks a spawned update worker so its own session hooks never schedule another.

@@ -4,6 +4,7 @@ package paths
 import (
 	"bytes"
 	cryptorand "crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -152,6 +153,24 @@ func AtomicWrite(dest string, data []byte, mode os.FileMode) error {
 		return errors.Join(err, os.Remove(tmp))
 	}
 	return nil
+}
+
+// WriteJSON writes v as JSON to path atomically with mode 0600, creating its parent dir 0700.
+func WriteJSON(path string, v any) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return AtomicWrite(path, data, 0o600)
+}
+
+// Stale reports whether a cache stamped at is ttl or older at now, or stamped more than skew in the future.
+func Stale(at time.Time, ttl, skew time.Duration, now time.Time) bool {
+	age := now.Sub(at)
+	return age >= ttl || age < -skew
 }
 
 // WithFileLock runs fn holding an exclusive advisory lock on path+".lock".

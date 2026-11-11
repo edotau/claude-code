@@ -64,7 +64,7 @@ func SummaryCachePath() string {
 	return filepath.Join(paths.StateDir(), "transcript", "summary.json")
 }
 
-// SummaryCache memoizes SummarizeFile per absolute path across runs, keyed by size and mtime; not concurrent-safe.
+// SummaryCache memoizes SummarizeFile per absolute path across runs, keyed by size and mtime; one goroutine each.
 type SummaryCache struct {
 	path         string
 	old, cur     map[string]summaryRow
@@ -73,16 +73,20 @@ type SummaryCache struct {
 
 // OpenSummaryCache loads the cache at path; a missing, corrupt or other-version file reads as empty, never an error.
 func OpenSummaryCache(path string) *SummaryCache {
-	c := &SummaryCache{path: path, old: map[string]summaryRow{}, cur: map[string]summaryRow{}}
+	return &SummaryCache{path: path, old: readSummaryRows(path), cur: map[string]summaryRow{}}
+}
+
+// readSummaryRows decodes the cache file's rows; a missing, corrupt or other-version file is an empty map.
+func readSummaryRows(path string) map[string]summaryRow {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return c
+		return map[string]summaryRow{}
 	}
 	var f summaryCacheFile
-	if schemas.DecodeOK(summaryCacheFormat, raw, &f) && f.Files != nil {
-		c.old = f.Files
+	if !schemas.DecodeOK(summaryCacheFormat, raw, &f) || f.Files == nil {
+		return map[string]summaryRow{}
 	}
-	return c
+	return f.Files
 }
 
 // Stats reports how many Responses calls were served from the cache and how many re-read the file.
@@ -116,26 +120,29 @@ func (c *SummaryCache) Responses(path string) ([]Response, error) {
 	return resps, nil
 }
 
-// Save writes this run's rows plus unvisited rows whose file still exists, atomically; it skips the write if unchanged.
+// Save merges this run's rows into the file's current rows under its lock, so a concurrent run's rows survive.
 func (c *SummaryCache) Save() error {
-	rows := make(map[string]summaryRow, len(c.cur))
-	for k, v := range c.old {
-		if _, seen := c.cur[k]; seen {
-			continue
+	return paths.WithFileLock(c.path, func() error {
+		disk := readSummaryRows(c.path)
+		rows := make(map[string]summaryRow, len(disk)+len(c.cur))
+		for k, v := range disk {
+			if _, seen := c.cur[k]; seen {
+				continue
+			}
+			if _, err := os.Stat(k); !errors.Is(err, fs.ErrNotExist) { // a gone file prunes its row; the cache stays bounded
+				rows[k] = v
+			}
 		}
-		if _, err := os.Stat(k); !errors.Is(err, fs.ErrNotExist) { // a gone file prunes its row; the cache stays bounded
-			rows[k] = v
+		maps.Copy(rows, c.cur)
+		if c.misses == 0 && len(rows) == len(disk) {
+			return nil
 		}
-	}
-	maps.Copy(rows, c.cur)
-	if c.misses == 0 && len(rows) == len(c.old) {
-		return nil
-	}
-	raw, err := json.Marshal(summaryCacheFile{Schema: summaryCacheSchema, Files: rows})
-	if err != nil {
-		return err
-	}
-	return paths.AtomicWrite(c.path, raw, 0o600)
+		raw, err := json.Marshal(summaryCacheFile{Schema: summaryCacheSchema, Files: rows})
+		if err != nil {
+			return err
+		}
+		return paths.AtomicWrite(c.path, raw, 0o600)
+	})
 }
 
 // summaryCacheSchema is the summary cache's current schema version; a mismatch is a miss, never migrated.

@@ -1,7 +1,6 @@
 package router
 
 import (
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -128,8 +127,7 @@ const clockSkew = 5 * time.Minute
 
 // Fresh reports whether s was fetched within TTL of now; a timestamp beyond clockSkew in the future is stale.
 func (s Served) Fresh(now time.Time) bool {
-	age := now.Sub(s.FetchedAt)
-	return age < servedTTL && age > -clockSkew
+	return !paths.Stale(s.FetchedAt, servedTTL, clockSkew, now)
 }
 
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
@@ -187,16 +185,10 @@ func SaveServed(s Served) error {
 		return os.ErrInvalid
 	}
 	s.Schema = servedSchema
-	b, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil { // before the lock, which creates it world-readable
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	return paths.WithFileLock(path, func() error {
-		return paths.AtomicWrite(path, append(b, '\n'), 0o600)
-	})
+	return paths.WithFileLock(path, func() error { return paths.WriteJSON(path, s) })
 }
 
 // Has reports whether the listing serves pin as a READY endpoint; ready is false for a listed but unready one.

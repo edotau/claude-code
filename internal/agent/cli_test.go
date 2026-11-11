@@ -143,7 +143,7 @@ func TestRunEventStreamParseErrorKillsChild(t *testing.T) {
 		return wire.Result{Answer: "seen"}, bad
 	}
 	start := time.Now()
-	res, err := RunEventStream(context.Background(), "x", cmd, tail, wire.Discard, parse, nil)
+	res, err := RunEventStream(context.Background(), "x", cmd, tail, wire.Discard, parse, StreamOpts{})
 	if time.Since(start) > 10*time.Second || !errors.Is(err, bad) || res.Answer != "seen" {
 		t.Fatalf("took %v, res=%+v err=%v; want a prompt kill keeping the parse error and answer", time.Since(start), res, err)
 	}
@@ -157,7 +157,7 @@ func TestRunEventStreamParseErrorAfterEOFKeepsExitStatus(t *testing.T) {
 		_, _ = io.Copy(io.Discard, br)
 		return wire.Result{}, bad
 	}
-	_, err := RunEventStream(context.Background(), "x", cmd, tail, wire.Discard, parse, nil)
+	_, err := RunEventStream(context.Background(), "x", cmd, tail, wire.Discard, parse, StreamOpts{})
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) || ee.ExitCode() != 7 || !errors.Is(err, bad) {
 		t.Fatalf("err = %v; want exit code 7 (not a kill) joined with the parse error", err)

@@ -6,11 +6,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"flag"
-	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -617,19 +614,6 @@ func TestResolveProfileLastNonDatabricksFallsToPin(t *testing.T) {
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
-// A probe timeout is named as such, not the bare "network error".
-func TestProbeFailureNamesTimeout(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
-	defer cancel()
-	<-ctx.Done()
-	if got := probeFailure(ctx, errors.New("x")); got != "network error: timeout" {
-		t.Errorf("probeFailure = %q", got)
-	}
-	if got := probeFailure(context.Background(), &net.DNSError{Name: "h"}); got != "network error: DNS" {
-		t.Errorf("DNS probeFailure = %q", got)
-	}
-}
-
 func TestCheckAllAcceptsPositionalModel(t *testing.T) {
 	seedOverlay(t, "")
 	t.Setenv("DATABRICKS_TEST_PROBE_TOKEN", "test-token")
@@ -682,7 +666,11 @@ func TestProbeReportsCutOffBody(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 			p := &providers.Provider{Name: "p", Protocol: providers.ProtocolAnthropic, BaseURL: srv.URL}
-			if got, want := probe(context.Background(), p, "test-token", "m"), fmt.Sprintf("HTTP %d (body cut off)", status); got != want {
+			want := "HTTP 200 (body cut off)"
+			if status != http.StatusOK { // a non-2xx status stands on a cut body, labelled transient when it is one
+				want = "transient HTTP 502: partial"
+			}
+			if got := probe(context.Background(), p, "test-token", "m"); got != want {
 				t.Errorf("probe = %q, want %q", got, want)
 			}
 		})

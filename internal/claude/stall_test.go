@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -79,8 +78,8 @@ func TestClaudeExecStallsWhenSilent(t *testing.T) {
 
 func TestClaudeExecStallsAfterSuccessfulResult(t *testing.T) {
 	res, err := runFakeClaude(t, "echo '"+resultLine+"'\nexec sleep 30\n")
-	if !errors.Is(err, agent.ErrStalled) {
-		t.Fatalf("err = %v; want ErrStalled after result before EOF", err)
+	if !errors.Is(err, agent.ErrSilent) || errors.Is(err, agent.ErrStalled) {
+		t.Fatalf("err = %v; want ErrSilent (not ErrStalled) after result before EOF", err)
 	}
 	if res.Answer != "done" || !strings.Contains(err.Error(), "last event: result") {
 		t.Fatalf("res = %+v, err = %v; want answer preserved and last event result", res, err)
@@ -180,35 +179,12 @@ func TestParseClaudeEventsDecodesEachMessageOnce(t *testing.T) {
 	decodeMessage = func(raw json.RawMessage) anthropic.Message { calls++; return orig(raw) }
 	t.Cleanup(func() { decodeMessage = orig })
 	w := newStallWatch(time.Minute, func() {})
-	defer w.stop()
+	defer w.Stop()
 	stream := strings.Join([]string{initLine, toolUse, toolResult, resultLine}, "\n") + "\n"
-	if _, err := parseClaudeEvents(bufio.NewReader(strings.NewReader(stream)), false, w, wire.Discard); err != nil {
+	if _, err := parseClaudeEvents(bufio.NewReader(strings.NewReader(stream)), false, w, wire.Discard, nil); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 2 {
 		t.Fatalf("decodes = %d, want 2 (one per assistant/user message)", calls)
-	}
-}
-
-// Given events keep arriving, Then the watch re-arms its one timer (no new timer per event) and trips once when quiet.
-func TestStallWatchResetReusesTimer(t *testing.T) {
-	var kills atomic.Int32
-	w := newStallWatch(60*time.Millisecond, func() { kills.Add(1) })
-	defer w.stop()
-	first := w.timer
-	use, result := decodeMessage(json.RawMessage(`{"content":[{"type":"tool_use","id":"t1"}]}`)), anthropic.Message{}
-	for _, ev := range []claudeEvent{{Type: "system"}, {Type: "assistant"}, {Type: "user"}} {
-		w.observe(ev, result)
-		time.Sleep(30 * time.Millisecond)
-	}
-	w.observe(claudeEvent{Type: "assistant"}, use) // a running tool disarms the window
-	time.Sleep(120 * time.Millisecond)
-	if kills.Load() != 0 {
-		t.Fatal("tripped while a tool ran or events kept arriving")
-	}
-	w.observe(claudeEvent{Type: "user"}, result) // the tool answered: re-armed
-	time.Sleep(150 * time.Millisecond)
-	if w.timer != first || kills.Load() != 1 {
-		t.Fatalf("same timer = %v, kills = %d; want the one timer re-armed and one trip", w.timer == first, kills.Load())
 	}
 }

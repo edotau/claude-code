@@ -13,7 +13,7 @@ Promotion is **fast-forward only**: `Preflight` pins both OIDs and simulates wit
 `IntegrateTarget` merges the pinned target **inside the worktree** and runs the verify gate there, `Promote`
 runs `git merge --ff-only` on the main checkout and refuses any OID other than the one just verified. Never a
 `--no-ff` merge commit on the live branch, never a real conflicting merge there. A predicted conflict stops
-before anything mutates unless `--resolve-agent claude|codex` hands it to an agent inside the worktree.
+before anything mutates unless `--resolve-agent <agent>` hands it to an agent inside the worktree.
 
 ### create
 

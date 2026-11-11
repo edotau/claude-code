@@ -211,19 +211,26 @@ func TestCapCharsBelowMarkerYieldsEmpty(t *testing.T) {
 }
 
 func TestUpdateRecordsOutcome(t *testing.T) {
+	clearChildEnv(t)
 	tempConfig(t)
 	root := repoRoot(t, "proj")
 	dir, _ := Init(root)
-	bin := t.TempDir()
-	ok := filepath.Join(bin, "claude-ok")
-	write(t, ok, "#!/bin/sh\n[ \"$"+UpdateChildEnv+"\" = 1 ] || exit 3\nsleep 0.01\nprintf '\\n## 2026-09-16 — updated-by-child\\n' >> "+filepath.Join(dir, "sessionHistory.md")+"\n")
-	bad := filepath.Join(bin, "claude-bad")
-	write(t, bad, "#!/bin/sh\nexit 1\n")
-	_ = os.Chmod(ok, 0o755)
-	_ = os.Chmod(bad, 0o755)
+	ok := func(context.Context, string, string) (string, error) {
+		if !IsUpdateChild() {
+			return "fake", errors.New("update child env not set")
+		}
+		time.Sleep(10 * time.Millisecond)
+		f, err := os.OpenFile(filepath.Join(dir, "sessionHistory.md"), os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			return "fake", err
+		}
+		defer f.Close()
+		_, err = f.WriteString("\n## 2026-09-16 — updated-by-child\n")
+		return "fake", err
+	}
 	_ = WriteUpdateResult("11111111-1111-1111-1111-111111111111", UpdateResult{Status: UpdatePending, Time: time.Now(), Log: "/l.log"})
 
-	if err := update(updateOptions{Claude: ok, CWD: root, Session: "11111111-1111-1111-1111-111111111111"}); err != nil {
+	if err := update(updateOptions{Run: ok, CWD: root, Session: "11111111-1111-1111-1111-111111111111"}); err != nil {
 		t.Fatal(err)
 	}
 	r, _ := ReadUpdateResult("11111111-1111-1111-1111-111111111111")
@@ -233,24 +240,22 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	if !strings.Contains(mustRead(t, filepath.Join(dir, NativeIndexFile)), "updated-by-child") {
 		t.Error("update did not settle/index the bank")
 	}
-	assertUpdateFailures(t, root, bad)
+	assertUpdateFailure(t, root)
 	stale := UpdateResult{Status: UpdatePending, Time: time.Now().Add(-20 * time.Minute)}
 	if !stale.NeedsAttention(time.Now()) {
 		t.Error("a pending result past the grace window needs attention")
 	}
 }
 
-// assertUpdateFailures: a failing claude and a missing claude both error, and the first records a failed result.
-func assertUpdateFailures(t *testing.T, root, bad string) {
+// assertUpdateFailure: a failing agent errors and records a failed result.
+func assertUpdateFailure(t *testing.T, root string) {
 	t.Helper()
-	if err := update(updateOptions{Claude: bad, CWD: root, Session: "s2"}); err == nil {
-		t.Error("failing claude must return an error")
+	bad := func(context.Context, string, string) (string, error) { return "fake", errors.New("exit status 1") }
+	if err := update(updateOptions{Run: bad, CWD: root, Session: "s2"}); err == nil {
+		t.Error("failing agent must return an error")
 	}
 	if r, _ := ReadUpdateResult("s2"); r.Status != UpdateFailed || r.BankUpdated || !r.NeedsAttention(time.Now()) {
 		t.Errorf("failure result %+v", r)
-	}
-	if err := update(updateOptions{CWD: root, Session: "s3"}); err == nil {
-		t.Error("missing claude must fail")
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -215,9 +216,9 @@ func TestProbeRequestReportsTruncatedBody(t *testing.T) {
 	}))
 	defer srv.Close()
 	p := &providers.Provider{Name: "cut", Auth: providers.Auth{Type: providers.AuthKey, Env: "CUT_TOKEN"}}
-	status, _, _, err := probeRequest(context.Background(), p, CheckOptions{Client: srv.Client(), Timeout: 5 * time.Second}, srv.URL, map[string]any{}, false)
-	if err == nil || status != 200 {
-		t.Errorf("status %d err %v, want 200 with a read error", status, err)
+	rep, err := probeRequest(context.Background(), p, CheckOptions{Client: srv.Client(), Timeout: 5 * time.Second}, ProbeCall{URL: srv.URL, Body: map[string]any{}})
+	if err == nil || rep.HTTP != 200 {
+		t.Errorf("status %d err %v, want 200 with a read error", rep.HTTP, err)
 	}
 }
 
@@ -232,9 +233,22 @@ func TestProbeRequestKeepsNon2xxStatusOnTruncatedBody(t *testing.T) {
 	}))
 	defer srv.Close()
 	p := &providers.Provider{Name: "cut", Auth: providers.Auth{Type: providers.AuthKey, Env: "CUT_TOKEN"}}
-	status, _, _, err := probeRequest(context.Background(), p, CheckOptions{Client: srv.Client(), Timeout: 5 * time.Second}, srv.URL, map[string]any{}, false)
-	if err != nil || status != 400 {
-		t.Errorf("status %d err %v, want 400 with no error", status, err)
+	rep, err := probeRequest(context.Background(), p, CheckOptions{Client: srv.Client(), Timeout: 5 * time.Second}, ProbeCall{URL: srv.URL, Body: map[string]any{}})
+	if err != nil || rep.HTTP != 400 {
+		t.Errorf("status %d err %v, want 400 with no error", rep.HTTP, err)
+	}
+}
+
+// A probe timeout is named as such, and a DNS failure by its kind, never the bare "network error".
+func TestProbeFailureNamesTimeout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	<-ctx.Done()
+	if got := probeFailure(ctx, errors.New("x"), 15*time.Second); got.Error() != "timeout after 15s" {
+		t.Errorf("probeFailure = %q", got)
+	}
+	if got := probeFailure(context.Background(), &net.DNSError{Name: "h"}, time.Second); got.Error() != "network error: DNS" {
+		t.Errorf("DNS probeFailure = %q", got)
 	}
 }
 

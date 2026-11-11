@@ -3,7 +3,6 @@ package catalog
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
@@ -186,15 +185,7 @@ func CheckCachePath() string { return filepath.Join(paths.StateDir(), "opencode-
 // SaveCheckCache writes c (no secrets) with mode 0600.
 func SaveCheckCache(c CheckCache) error {
 	c.Schema = checkCacheSchema
-	b, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return err
-	}
-	path := CheckCachePath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	return paths.AtomicWrite(path, append(b, '\n'), 0o600)
+	return paths.WriteJSON(CheckCachePath(), c)
 }
 
 // LoadCheckCache returns the cached results by id when the cache exists and belongs to provider.

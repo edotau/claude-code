@@ -197,20 +197,40 @@ func EmptyAnswer(name string) error {
 // RunStream reads a CLI's JSON event stream: the answer, session id, usage and errors ride in it.
 func RunStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry.TailBuffer, res wire.Result, sink wire.Sink,
 	parse func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error)) (wire.Result, error) {
-	out, err := RunEventStream(ctx, name, cmd, tail, sink, parse, nil)
+	out, err := RunEventStream(ctx, name, cmd, tail, sink, parse, StreamOpts{})
 	return withParsed(res, out), err
 }
 
-// withParsed copies the parser's answer, usage, transport and structured output into res; an empty session id keeps res's.
+// withParsed copies the parser's answer, usage, transport, structured output and model into res; empty ids keep res's.
 func withParsed(res, out wire.Result) wire.Result {
 	res.Answer, res.Usage, res.Transport, res.Structured = out.Answer, out.Usage, out.Transport, out.Structured
 	res.SessionID = cmp.Or(out.SessionID, res.SessionID)
+	res.Model = cmp.Or(out.Model, res.Model)
 	return res
 }
 
-// RunEventStream runs cmd, decoding stdout via parse while streaming live; onMeaningful fires on the first model event.
+// StreamOpts are RunEventStream's options: Idle kills a silent child; OnMeaningful fires on the first model event.
+type StreamOpts struct {
+	Idle         *IdleTimeout
+	OnMeaningful func()
+}
+
+// meaningful is the callback the parser fires on its first model event: OnMeaningful, then it marks Idle as spoken.
+func (o StreamOpts) meaningful() func() {
+	if o.Idle == nil {
+		return o.OnMeaningful
+	}
+	return func() {
+		if o.OnMeaningful != nil {
+			o.OnMeaningful()
+		}
+		o.Idle.Spoke()
+	}
+}
+
+// RunEventStream runs cmd, decoding stdout via parse while streaming live; a tripped Idle beats the exit error.
 func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry.TailBuffer, sink wire.Sink,
-	parse func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error), onMeaningful func()) (wire.Result, error) {
+	parse func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error), opts StreamOpts) (wire.Result, error) {
 	var res wire.Result
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -220,14 +240,19 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry
 	if err := cmd.Start(); err != nil {
 		return res, childErr(ctx, name, err, tail)
 	}
+	opts.Idle.bind(cmd.Cancel) // a silent child must not hold the run to --timeout
 	lg := wire.EventLogFor(ctx)
 	idle := &idleReader{src: EOFReader{R: stdout}, last: time.Now().UnixNano()}
 	stop := heartbeat(lg, idle, name)
 	// the parser writes formatted event lines to the dispatch log and fires onMeaningful on its first real event.
-	out, perr := parse(bufio.NewReader(idle), sink, onMeaningful, lg)
+	out, perr := parse(bufio.NewReader(idle), sink, opts.meaningful(), lg)
 	stop()
+	opts.Idle.Stop()
 	werr := ReapChild(cmd, &idle.src, perr)
 	res = withParsed(res, out)
+	if serr := opts.Idle.Err(); serr != nil {
+		return res, serr
+	}
 	if werr != nil || ctx.Err() != nil {
 		return res, childErr(ctx, name, errors.Join(werr, perr), tail)
 	}

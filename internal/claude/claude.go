@@ -20,7 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -67,27 +66,13 @@ func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink w
 	if err != nil {
 		return wire.Result{}, err
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return wire.Result{}, err
+	wd := newStallWatch(claudeIdleLimit, nil) // RunEventStream binds the kill once the child starts
+	parse := func(br *bufio.Reader, sink wire.Sink, spoke func(), logs ...wire.StreamLog) (wire.Result, error) {
+		return parseClaudeEvents(br, false, wd, sink, spoke, logs...)
 	}
-	agentconfig.RecordOverlayDebug("claude", cmd.Env)
-	if err := cmd.Start(); err != nil {
-		return wire.Result{}, err
-	}
-	wd := newStallWatch(claudeIdleLimit, func() { _ = cmd.Cancel() }) // a silent child must not hold the run to --timeout
-	out := &agent.EOFReader{R: stdout}
-	res, perr := parseClaudeEvents(bufio.NewReader(out), false, wd, sink, wire.EventLogFor(ctx))
-	wd.stop()
-	werr := agent.ReapChild(cmd, out, perr)
+	res, err := agent.RunEventStream(ctx, "claude", cmd, tail, sink, parse, agent.StreamOpts{Idle: wd.IdleTimeout})
 	res.Provider = cl.Set[providers.EnvSessionProfile]
-	if serr := wd.stalled(); serr != nil {
-		return res, serr
-	}
-	if werr != nil || ctx.Err() != nil {
-		return res, agent.ChildErr(ctx, "claude", errors.Join(werr, perr), tail)
-	}
-	return res, perr
+	return res, err
 }
 
 // claudeArgs appends the request's option flags to base; effort and permissions are RenderSettings', tools toolArgs'.
@@ -314,9 +299,11 @@ func (ev claudeEvent) text() string {
 }
 
 // parseClaudeEvents stops at the first result when untilResult is set, preserving buffered lines for the next turn.
-func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink wire.Sink, logs ...wire.StreamLog) (res wire.Result, _ error) {
+// spoke (may be nil) fires once, on the first top-level model output.
+func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink wire.Sink, spoke func(),
+	logs ...wire.StreamLog) (res wire.Result, _ error) {
 	lg := wire.PickLog(logs)
-	sawResult := false
+	sawResult, spoken := false, spoke == nil
 	seen := wire.Answer{Join: "\n\n"} // top-level assistant text, the answer when no result event delivers one
 	partial := func(err error) (wire.Result, error) {
 		if res.Answer == "" {
@@ -327,6 +314,10 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink 
 	tr, err := wire.DecodeEvents(br, lg, "decode stream-json", false, nil, func(ev claudeEvent, ts *wire.TransportTracker) (bool, error) {
 		msg := ev.topMessage()
 		wd.observe(ev, msg)
+		if !spoken && ev.ParentToolUseID == "" && (ev.Type == "assistant" || ev.Type == "stream_event" || ev.Type == "result") {
+			spoken = true
+			spoke()
+		}
 		if ev.SessionID != "" {
 			res.SessionID = ev.SessionID
 		}
@@ -535,9 +526,9 @@ func (*claudeLive) WriteTurn(w io.Writer, prompt string) error {
 // A silent child is killed after claudeIdleLimit, so a turn cannot stay busy forever.
 func (b *claudeLive) Parse(dec *bufio.Reader, sink wire.Sink, lg func(kind, text string)) (wire.Result, error) {
 	wd := newStallWatch(claudeIdleLimit, func() { _ = b.cmd.Cancel() })
-	defer wd.stop()
-	res, err := parseClaudeEvents(dec, true, wd, sink, lg)
-	if serr := wd.stalled(); serr != nil {
+	defer wd.Stop()
+	res, err := parseClaudeEvents(dec, true, wd, sink, wd.Spoke, lg)
+	if serr := wd.Err(); serr != nil {
 		err = serr
 	}
 	total := res.Usage.CostUSD
