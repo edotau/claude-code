@@ -1,6 +1,7 @@
 package copilot
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/rand"
@@ -181,8 +182,43 @@ func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Setti
 		o.InstructionDirs = existingDirs(home)
 		o.SkillDirs = existingDirs(filepath.Join(home, "skills"))
 		o.AgentDirs = existingDirs(filepath.Join(home, "agents"))
+		o.InlineInstructions = sameInstructions(home, workDir)
 	}
 	return o
+}
+
+// otherInstructionFiles are the instruction sources the runtime discovers besides CLAUDE.md (workDir-relative).
+var otherInstructionFiles = []string{
+	"AGENTS.md", "GEMINI.md", "CLAUDE.local.md", filepath.Join(".claude", "CLAUDE.md"),
+	filepath.Join(".github", "copilot-instructions.md"), filepath.Join(".github", "instructions"),
+}
+
+// sameInstructions is home's copilot-instructions.md when workDir's CLAUDE.md, its only instruction file, is already
+// inside it (the runtime would load that text twice, ~7 KB per request); "" otherwise.
+func sameInstructions(home, workDir string) string {
+	own, err := os.ReadFile(filepath.Join(workDir, "CLAUDE.md"))
+	if own = bytes.TrimSpace(own); err != nil || len(own) == 0 {
+		return ""
+	}
+	for _, p := range append([]string{filepath.Join(home, "instructions")}, joinNames(workDir, otherInstructionFiles)...) {
+		if _, err := os.Stat(p); err == nil {
+			return ""
+		}
+	}
+	rendered, err := os.ReadFile(filepath.Join(home, "copilot-instructions.md"))
+	if err != nil || !bytes.Contains(rendered, own) {
+		return ""
+	}
+	return string(rendered)
+}
+
+// joinNames joins each name onto dir.
+func joinNames(dir string, names []string) []string {
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = filepath.Join(dir, n)
+	}
+	return out
 }
 
 // copilotPrompt inlines text attachments; the SDK never resolves @<path>, so images ride as absolute file paths.

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -52,6 +53,8 @@ type sdkOptions struct {
 	System           string // system text, sent as SystemMessage in append mode (replace would drop the SDK guardrails)
 	// InstructionDirs, SkillDirs and AgentDirs are the discovery roots the harness renders; missing ones are skipped.
 	InstructionDirs, SkillDirs, AgentDirs []string
+	// InlineInstructions, when set, replaces discovery of every instruction file (see sameInstructions).
+	InlineInstructions string
 	// Providers+Models switch to the multi-provider route: Model is a provider/id of Models, Token feeds every
 	// provider's BearerTokenProvider (set by the SDK layer), and the child runs in a private login-free home.
 	Providers []copilotRegistryProvider
@@ -117,6 +120,13 @@ func buildSessionConfig(o sdkOptions) *copilot.SessionConfig {
 	}
 	cfg.SystemMessage = systemMessage(o)
 	cfg.InstructionDirectories, cfg.SkillDirectories, cfg.AgentDirectories = o.InstructionDirs, o.SkillDirs, o.AgentDirs
+	if o.InlineInstructions != "" { // sent once through the system prompt instead of being discovered twice
+		cfg.SkipCustomInstructions, cfg.OrganizationCustomInstructions = new(true), &o.InlineInstructions
+		cfg.InstructionDirectories = nil
+	}
+	if !o.AllowAllTools { // every call is denied: send no tool schemas, skill or agent listings the model cannot use
+		cfg.AvailableTools, cfg.SkillDirectories, cfg.AgentDirectories = []string{}, nil, nil
+	}
 	if o.multiProvider() {
 		cfg.Provider = nil
 		cfg.Providers, cfg.Models = namedProviders(o)
@@ -124,8 +134,24 @@ func buildSessionConfig(o sdkOptions) *copilot.SessionConfig {
 	return cfg
 }
 
-// systemMessage is o.System in append mode, nil when empty.
+// toolOnlySections are the runtime's system-prompt sections that only teach tool use, background tasks and PR/commit
+// handling; a run with tools denied drops them (~8.6 KB per request).
+var toolOnlySections = map[string]copilot.SectionOverride{
+	copilot.SectionToolEfficiency:      {Action: copilot.SectionActionRemove},
+	copilot.SectionToolInstructions:    {Action: copilot.SectionActionRemove},
+	copilot.SectionRuntimeInstructions: {Action: copilot.SectionActionRemove},
+}
+
+// systemMessage is o.System in append mode (the SDK guardrails stay), nil when empty; with tools denied it is
+// customize mode minus toolOnlySections, o.System still appended.
 func systemMessage(o sdkOptions) *copilot.SystemMessageConfig {
+	if !o.AllowAllTools {
+		sections := maps.Clone(toolOnlySections)
+		if strings.TrimSpace(o.System) != "" {
+			sections[copilot.SectionLastInstructions] = copilot.SectionOverride{Action: copilot.SectionActionAppend, Content: "\n\n" + o.System}
+		}
+		return &copilot.SystemMessageConfig{Mode: "customize", Sections: sections}
+	}
 	if strings.TrimSpace(o.System) == "" {
 		return nil
 	}
@@ -151,6 +177,8 @@ func buildResumeSessionConfig(o sdkOptions) *copilot.ResumeSessionConfig {
 		WorkingDirectory: c.WorkingDirectory, Provider: c.Provider, OnPermissionRequest: c.OnPermissionRequest,
 		Memory: c.Memory, SystemMessage: c.SystemMessage, InstructionDirectories: c.InstructionDirectories,
 		SkillDirectories: c.SkillDirectories, AgentDirectories: c.AgentDirectories, Providers: c.Providers, Models: c.Models,
+		AvailableTools: c.AvailableTools, SkipCustomInstructions: c.SkipCustomInstructions,
+		OrganizationCustomInstructions: c.OrganizationCustomInstructions,
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -362,7 +363,7 @@ func TestCreateAndResumeCarryInstructions(t *testing.T) {
 	fields := func(session string) map[string]any {
 		log := t.TempDir() + "/log"
 		o := registryOpts(t, "1.0.104", log, registryPick)
-		o.SessionID, o.System = session, "be brief"
+		o.SessionID, o.System, o.AllowAllTools = session, "be brief", true
 		o.InstructionDirs, o.SkillDirs, o.AgentDirs = []string{dir}, []string{dir + "/skills"}, []string{dir + "/agents"}
 		if _, err := openSession(t, o); err != nil {
 			t.Fatal(err)
@@ -396,12 +397,94 @@ func TestSystemPromptRidesSDKNotPrompt(t *testing.T) {
 		t.Fatalf("caps = %v/%v, want Native/Native", row.CLI.Caps.SystemPrompt, row.CLI.Caps.AppendSystemPrompt)
 	}
 	req := agent.RunOptions{Prompt: "say hi", SystemPrompt: "be ZEBRA", AppendSystemPrompt: "end with ZEBRA"}
+	req.Tools = true
 	o := newSDKOptions("copilot", nil, req, agent.Settings{})
 	if o.System != "be ZEBRA\n\nend with ZEBRA" {
 		t.Errorf("System = %q, want both texts", o.System)
 	}
 	if cfg := buildSessionConfig(o); cfg.SystemMessage == nil || cfg.SystemMessage.Mode != "append" {
 		t.Errorf("SystemMessage = %+v, want append mode", cfg.SystemMessage)
+	}
+}
+
+// A tools-off session sends no tool schemas, skill or agent roots and no tool-only prompt sections, yet keeps the
+// system text and the instruction root; a tools run keeps all of them.
+func TestToolsOffSessionConfigTrimsPrompt(t *testing.T) {
+	o := sdkOptions{System: "be ZEBRA", InstructionDirs: []string{"/i"}, SkillDirs: []string{"/s"}, AgentDirs: []string{"/a"}}
+	off := buildSessionConfig(o)
+	if off.AvailableTools == nil || len(off.AvailableTools) != 0 || off.SkillDirectories != nil || off.AgentDirectories != nil {
+		t.Errorf("tools-off tools/skills/agents = %v/%v/%v, want an empty non-nil tool list and no roots",
+			off.AvailableTools, off.SkillDirectories, off.AgentDirectories)
+	}
+	sm := off.SystemMessage
+	if sm == nil || sm.Mode != "customize" || sm.Sections[copilot.SectionRuntimeInstructions].Action != copilot.SectionActionRemove ||
+		!strings.Contains(sm.Sections[copilot.SectionLastInstructions].Content, "be ZEBRA") || !slices.Equal(off.InstructionDirectories, []string{"/i"}) {
+		t.Errorf("tools-off system message / instruction dirs = %+v / %v", sm, off.InstructionDirectories)
+	}
+	o.AllowAllTools = true
+	on := buildSessionConfig(o)
+	if on.AvailableTools != nil || len(on.SkillDirectories) != 1 || len(on.AgentDirectories) != 1 ||
+		on.SystemMessage == nil || on.SystemMessage.Mode != "append" || on.SystemMessage.Sections != nil {
+		t.Errorf("tools run lost tools, roots or append mode: %+v", on)
+	}
+}
+
+// The workdir's CLAUDE.md already inside the rendered copilot-instructions.md is sent once, not discovered twice.
+func TestSameInstructions(t *testing.T) {
+	const core = "# CLAUDE.md\n\nthe portable core\n"
+	setup := func(t *testing.T, rendered string, extra ...string) (home, work string) {
+		t.Helper()
+		home, work = t.TempDir(), t.TempDir()
+		files := map[string]string{filepath.Join(home, "copilot-instructions.md"): rendered, filepath.Join(work, "CLAUDE.md"): core}
+		for _, e := range extra {
+			files[filepath.Join(work, e)] = "x"
+		}
+		for p, body := range files {
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return home, work
+	}
+	rendered := "<!-- GENERATED -->\n" + core + "\n# rules\n"
+	home, work := setup(t, rendered)
+	if got := sameInstructions(home, work); got != rendered {
+		t.Errorf("duplicate CLAUDE.md: got %q, want the rendered file", got)
+	}
+	home, work = setup(t, "<!-- GENERATED -->\n# something else\n")
+	if got := sameInstructions(home, work); got != "" {
+		t.Errorf("a CLAUDE.md the rendered file lacks must keep discovery, got %q", got)
+	}
+	for _, other := range []string{"AGENTS.md", filepath.Join(".github", "copilot-instructions.md")} {
+		home, work = setup(t, rendered, other)
+		if got := sameInstructions(home, work); got != "" {
+			t.Errorf("%s beside CLAUDE.md must keep discovery, got %q", other, got)
+		}
+	}
+	if got := sameInstructions(home, t.TempDir()); got != "" {
+		t.Errorf("a workdir with no CLAUDE.md must keep discovery, got %q", got)
+	}
+}
+
+// Inline instructions replace discovery on create and resume alike.
+func TestInlineInstructionsSkipDiscovery(t *testing.T) {
+	o := sdkOptions{AllowAllTools: true, InstructionDirs: []string{"/i"}, InlineInstructions: "core text"}
+	for name, c := range map[string]struct {
+		skip *bool
+		org  *string
+	}{
+		"create": {buildSessionConfig(o).SkipCustomInstructions, buildSessionConfig(o).OrganizationCustomInstructions},
+		"resume": {buildResumeSessionConfig(o).SkipCustomInstructions, buildResumeSessionConfig(o).OrganizationCustomInstructions},
+	} {
+		if c.skip == nil || !*c.skip || c.org == nil || *c.org != "core text" {
+			t.Errorf("%s: skip/org = %v/%v, want true and the inline text", name, c.skip, c.org)
+		}
+	}
+	if dirs := buildSessionConfig(o).InstructionDirectories; dirs != nil {
+		t.Errorf("instruction dirs = %v, want none (the text rides inline)", dirs)
 	}
 }
 

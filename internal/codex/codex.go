@@ -521,6 +521,9 @@ func codexHeadless(argv []string, h *agent.Headless) []string {
 	if h.Tools && os.Getenv(codexNetworkEnv) == "1" { // opt-in: codex has no loopback-only switch, so this opens all egress
 		argv = append(argv, "-c", "sandbox_workspace_write.network_access=true")
 	}
+	if !h.Tools { // read-only shell stays; skill listings, desktop plugins and app connectors are ~30 KB per request
+		argv = append(argv, codexToolsOffArgs...)
+	}
 	if h.NoPersist {
 		argv = append(argv, "--ephemeral")
 	}
@@ -533,6 +536,9 @@ func codexHeadless(argv []string, h *agent.Headless) []string {
 	// The prompt rides stdin behind the `-` operand: a positional prompt like "help" is a codex subcommand.
 	return append(argv, "-")
 }
+
+// codexToolsOffArgs drop what a tools-off exec cannot use: the skill list, desktop-app plugins and ChatGPT app connectors.
+var codexToolsOffArgs = []string{"-c", "skills.include_instructions=false", "-c", "features.plugins=false", "-c", "features.apps=false"}
 
 // codexNetworkEnv=1 opts codex tool runs into sandbox network (loopback test listeners); default sealed.
 const codexNetworkEnv = "HARNESS_CODEX_NETWORK"
