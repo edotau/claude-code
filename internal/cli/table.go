@@ -7,7 +7,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/databricks"
-	"github.com/edotau/claude-code/internal/describe"
 	"github.com/edotau/claude-code/internal/doctor"
 	"github.com/edotau/claude-code/internal/history"
 	"github.com/edotau/claude-code/internal/launch"
@@ -71,9 +70,7 @@ func commands() []command {
 		{name: "usage", group: groupDiagnostics, summary: "token totals, peak rate, profile quotas", run: func(a []string) int { return usagecmd.Run(a, paths.ConfigDir(), os.Stdout, os.Stderr) }, spec: usagecmd.Spec},
 		// SETTINGS
 		{name: "install", group: groupSettings, summary: "install Claude Code; seed settings.json if missing", run: func(a []string) int { return launch.RunInstall(a, setup.Run) }, spec: setup.InstallSpec},
-		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: func(a []string) int {
-			return cmdConfigure(a, func(name, format string) int { return providerList(name, format, describeVerbs) })
-		}, spec: configureSpec},
+		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: func(a []string) int { return cmdConfigure(a, providerList) }, spec: configureSpec},
 		{name: "theme", group: groupSettings, summary: "palette, statusline, VS Code template, tool themes", run: cmdTheme, spec: themeSpec},
 	}, hiddenCommands()...)
 }
@@ -82,16 +79,6 @@ func commands() []command {
 func readOnlyHelp(verb string) bool {
 	c := lookup(verb)
 	return c != nil && !c.sideEffectHelp
-}
-
-// describeVerbs lists the table's verbs with their completion specs, for describe.
-func describeVerbs() []describe.Verb {
-	tree := specTree()
-	var out []describe.Verb
-	for _, c := range commands() {
-		out = append(out, describe.Verb{Name: c.name, Group: c.group, Summary: c.summary, Hidden: c.hidden, Node: tree[c.name]})
-	}
-	return out
 }
 
 func hiddenCommands() []command {

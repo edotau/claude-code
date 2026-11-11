@@ -94,6 +94,23 @@ func TestUnchangedBaselineSeedIsStaged(t *testing.T) {
 	}
 }
 
+// A baseline seed that cannot take its lock warns and lets Apply succeed: the seed is advisory, the plan is not.
+func TestUnchangedBaselineSeedFailureDoesNotFailApply(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	path := filepath.Join(t.TempDir(), "a.toml")
+	if err := os.MkdirAll(baselinePath("x", path)+".lock", 0o700); err != nil { // a directory where the lock file goes
+		t.Fatal(err)
+	}
+	var plan RenderPlan
+	var out bytes.Buffer
+	if _, err := CommitFile(path, []byte("same"), []byte("same"), true, RenderOptions{}.Stage(&plan), &out, "x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Apply(); err != nil || !strings.Contains(out.String(), "x: baseline:") {
+		t.Fatalf("Apply = %v, output %q; want nil and a baseline warning", err, out.String())
+	}
+}
+
 // Without Stage an unchanged file with no baseline must seed it at once, not panic on a nil write queue.
 func TestUnchangedBaselineSeedWithoutStage(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
