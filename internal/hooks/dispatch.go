@@ -1,11 +1,12 @@
 // Package hooks implements `claude-code hook <Event> [--<module>|--all]`: JSON on stdin, exit 0 = proceed, 2 = block.
-// Hooks fail OPEN — an infra glitch never blocks, except a Blocks gate's panic, overrun or unparseable payload.
+// Hooks fail OPEN — an infra glitch never blocks, except a Blocks gate's panic, overrun, or empty/unparseable payload.
 package hooks
 
 import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -165,8 +166,8 @@ func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 		if b.Spec.Event != event {
 			continue
 		}
-		if in.Invalid != "" && b.Spec.Blocks { // the tool is unknown, so every gate on the event fails closed
-			m.merged.Decision, m.merged.Reason = core.Block, unreadable(b.Spec.Name, in.Invalid)
+		if problem := payloadProblem(in); problem != "" && b.Spec.Blocks { // tool unknown: every gate fails closed
+			m.merged.Decision, m.merged.Reason = core.Block, unreadable(b.Spec.Name, problem)
 			continue
 		}
 		if !match.matches(b.Spec.Matcher, in.CanonicalTool()) {
@@ -286,29 +287,80 @@ var native = map[string]core.Runner{
 	"permission-gate":           safety.PermissionGate,
 }
 
+// gateDeadline is how long a Blocks module may run in its own process: the host's timeout less half HookMargin, so a
+// handler's HookContext fail-open (a full margin early) still wins and the host's timer never lets the call through.
+var gateDeadline = func(s settings.EventSpec) time.Duration {
+	host := time.Duration(s.Seconds()) * time.Second
+	if d := host - core.HookMargin/2; d > 0 {
+		return d
+	}
+	return host / 2
+}
+
 // runDirect is `hook <Event> --<module>`: one Runner rendered for its own process. A module that blocks exits 2 with
-// its reason on stderr, which is how a guard run by an agent or by safety-scan's own entry blocks.
+// its reason on stderr, which is how a guard run by an agent or by safety-scan's own entry blocks. A Blocks module
+// that overruns gateDeadline (stdin read included) blocks with a retry reason; any other module has no deadline.
 func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	run, ok := native[name]
 	if !ok {
 		return core.ExitProceed
 	}
+	spec := specOf(name)
+	if !spec.Blocks {
+		return runModuleDirect(name, run, stdin, stdout, stderr)
+	}
+	g := &gateWriters{}
+	done := make(chan int, 1)
+	go func() { done <- runModuleDirect(name, run, stdin, g.wrap(stdout), g.wrap(stderr)) }()
+	select {
+	case code := <-done:
+		return code
+	case <-time.After(gateDeadline(spec)):
+		g.close() // the late module can no longer write; one that finished at the wire keeps its own verdict
+		select {
+		case code := <-done:
+			return code
+		default:
+		}
+		res := core.Result{Decision: core.Block, Reason: name + " timed out; blocked, retry the command"}
+		return renderBlock(name, os.Getenv(settings.AgentEnv), res, stdout, stderr)
+	}
+}
+
+// gateWriters hands a module's writers to a goroutine that may be abandoned: after close their writes are dropped.
+type gateWriters struct {
+	mu     sync.Mutex
+	closed bool
+}
+
+func (g *gateWriters) wrap(w io.Writer) io.Writer { return gateWriter{g, w} }
+
+func (g *gateWriters) close() {
+	g.mu.Lock()
+	g.closed = true
+	g.mu.Unlock()
+}
+
+type gateWriter struct {
+	g *gateWriters
+	w io.Writer
+}
+
+func (gw gateWriter) Write(p []byte) (int, error) {
+	gw.g.mu.Lock()
+	defer gw.g.mu.Unlock()
+	if gw.g.closed {
+		return len(p), nil
+	}
+	return gw.w.Write(p)
+}
+
+// runModuleDirect parses stdin, runs one module and renders its result for the agent that sent it.
+func runModuleDirect(name string, run core.Runner, stdin io.Reader, stdout, stderr io.Writer) int {
 	in := core.ParseInput(stdin)
 	res := runGated(name, run, in, stderr)
 	if res.Decision == core.Block && specOf(name).Blocks {
-		d := core.DialectOf(in.Agent())
-		if name == "safety-scan" && in.Agent() == core.AgentCopilot {
-			fmt.Fprintln(stdout, d.Build(settings.EventPreToolUse, res))
-		}
-		if d.JSONDeny { // agy blocks on a JSON deny, not exit 2
-			if _, err := fmt.Fprintln(stdout, d.Build(settings.EventPreToolUse, res)); err != nil {
-				fmt.Fprintf(stderr, "%s (deny JSON not written: %v)\n", res.Reason, err)
-				return core.ExitBlock // fail closed: a lost deny must not proceed
-			}
-			return core.ExitProceed
-		}
-		fmt.Fprintln(stderr, res.Reason)
-		return core.ExitBlock
+		return renderBlock(name, in.Agent(), res, stdout, stderr)
 	}
 	res.Context = textutil.CapRunes(res.Context, core.ContextCapChars, "…")
 	if !bareStdout[name] {
@@ -320,12 +372,40 @@ func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return code
 }
 
-// runGated runs one module, except a Blocks gate on a payload that did not parse: that blocks without running.
+// renderBlock writes a gate's block for agent: exit 2 with the reason on stderr, or a JSON deny where agy needs one.
+func renderBlock(name, agent string, res core.Result, stdout, stderr io.Writer) int {
+	d := core.DialectOf(agent)
+	if name == "safety-scan" && agent == core.AgentCopilot {
+		fmt.Fprintln(stdout, d.Build(settings.EventPreToolUse, res))
+	}
+	if d.JSONDeny { // agy blocks on a JSON deny, not exit 2
+		if _, err := fmt.Fprintln(stdout, d.Build(settings.EventPreToolUse, res)); err != nil {
+			fmt.Fprintf(stderr, "%s (deny JSON not written: %v)\n", res.Reason, err)
+			return core.ExitBlock // fail closed: a lost deny must not proceed
+		}
+		return core.ExitProceed
+	}
+	fmt.Fprintln(stderr, res.Reason)
+	return core.ExitBlock
+}
+
+// payloadProblem is why a gate cannot trust its payload: it did not parse, or the host sent nothing on a gated event.
+func payloadProblem(in *core.Input) string {
+	if in.Invalid != "" {
+		return in.Invalid
+	}
+	if len(bytes.TrimSpace(in.Raw)) == 0 {
+		return "empty payload"
+	}
+	return ""
+}
+
+// runGated runs one module, except a Blocks gate on a payload that was empty or did not parse: that blocks unrun.
 // A panic is logged to stderr: a Blocks module blocks, any other proceeds (Go's own exit 2 would read as a block).
 func runGated(name string, run core.Runner, in *core.Input, stderr io.Writer) (res core.Result) {
 	blocks := specOf(name).Blocks
-	if in.Invalid != "" && blocks {
-		return core.Result{Decision: core.Block, Reason: unreadable(name, in.Invalid)}
+	if problem := payloadProblem(in); problem != "" && blocks {
+		return core.Result{Decision: core.Block, Reason: unreadable(name, problem)}
 	}
 	defer func() {
 		if p := recover(); p != nil {
