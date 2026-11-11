@@ -32,15 +32,10 @@ type Query struct {
 	Mode    Mode
 }
 
-// SourceVendor marks a result the harness cannot list: the agent's own CLI prints its catalog.
-const SourceVendor = "vendor-cli"
-
 // Model is one model in the shape every agent returns.
 type Model struct {
 	ID        string `json:"id"`
 	Label     string `json:"label,omitempty"`
-	Ready     bool   `json:"ready"`
-	Task      string `json:"task,omitempty"`
 	Dialect   string `json:"dialect,omitempty"`
 	Responses bool   `json:"responses"`
 }
@@ -53,37 +48,27 @@ type Result struct {
 	Models    []Model   `json:"models"`
 	FetchedAt time.Time `json:"fetched_at,omitzero"`
 	CacheHit  bool      `json:"cache_hit"`
-	Warnings  []string  `json:"warnings,omitempty"`
 
-	Provider *providers.Provider   `json:"-"` // the resolved profile; nil when none is named
+	Provider *providers.Provider   `json:"-"` // the resolved profile
 	Raw      []providers.ModelInfo `json:"-"` // every row the source listed, before the agent filter
 	Snapshot *serving.Snapshot     `json:"-"` // Verified and Refresh only: the snapshot a caller may seal
 }
 
 // Models lists q.Agent's models on q.Profile: one query and one result shape for every agent.
 func Models(ctx context.Context, q Query) (Result, error) {
-	res := Result{Agent: q.Agent, Source: SourceVendor}
+	res := Result{Agent: q.Agent}
+	if !slices.Contains([]string{agentid.Codex, agentid.Copilot, agentid.OpenCode}, q.Agent) {
+		return res, fmt.Errorf("discovery: unknown agent %q", q.Agent)
+	}
 	p, err := catalog.Profile(q.Agent, q.Profile)
 	if err != nil {
 		return res, profileErr(q, err)
 	}
-	if res.Provider = p; p != nil {
-		res.Profile = p.Name
+	if p == nil {
+		return res, profileErr(q, fmt.Errorf("no profile pinned for %s; pass --profile", q.Agent))
 	}
-	switch q.Agent {
-	case agentid.Claude:
-		return serve(ctx, res, q.Mode, []string{providers.ProtocolAnthropic})
-	case agentid.Codex, agentid.Copilot:
-		return serve(ctx, res, q.Mode, agent.SchemaFor(q.Agent).CLI.Dialects)
-	case agentid.OpenCode:
-		if p == nil {
-			return res, profileErr(q, errors.New("no profile pinned for opencode; pass --profile"))
-		}
-		return serve(ctx, res, q.Mode, agent.SchemaFor(q.Agent).CLI.Dialects)
-	case agentid.Gemini:
-		return vendor(res), nil
-	}
-	return res, fmt.Errorf("discovery: unknown agent %q", q.Agent)
+	res.Provider, res.Profile = p, p.Name
+	return serve(ctx, res, q.Mode, agent.SchemaFor(q.Agent).CLI.Dialects)
 }
 
 // profileErr keeps opencode sync's one-line resolve failure; every other read returns the cause.
@@ -97,9 +82,6 @@ func profileErr(q Query, err error) error {
 // serve is the shared serving read: Recall is catalog.Served, Verified and Refresh are serving.Discover.
 func serve(ctx context.Context, res Result, mode Mode, dialects []string) (Result, error) {
 	p := res.Provider
-	if p == nil {
-		return vendor(res), nil
-	}
 	res.Source, _ = providers.DiscoverySource(p)
 	if mode != Recall {
 		snap, err := serving.Discover(ctx, p, mode == Refresh)
@@ -128,15 +110,7 @@ func shape(p *providers.Provider, infos []providers.ModelInfo) []Model {
 	var out []Model
 	for _, m := range infos {
 		wire, _, _ := providers.WireFor(p, m.ID)
-		out = append(out, Model{ID: m.ID, Label: m.Name, Ready: m.Ready == "" || m.Ready == "READY", Task: m.Task,
-			Dialect: wire, Responses: providers.ResponsesID(catalog.ID(m.ID))})
+		out = append(out, Model{ID: m.ID, Label: m.Name, Dialect: wire, Responses: providers.ResponsesID(catalog.ID(m.ID))})
 	}
 	return out
-}
-
-// vendor is the result for an agent the harness cannot list: its own CLI prints the catalog.
-func vendor(res Result) Result {
-	res.Source = SourceVendor
-	res.Warnings = append(res.Warnings, res.Agent+" lists its own models: claude-code "+res.Agent+" catalog")
-	return res
 }

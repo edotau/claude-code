@@ -3,6 +3,7 @@ package router
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -245,13 +246,29 @@ const (
 
 // ProviderAccount is the account key of a registry profile: <provider>·<profile>, databricks when unregistered.
 func ProviderAccount(profile string) string {
-	prov := "databricks"
-	if reg, err := providers.Load(); err == nil {
-		if p := reg.Providers[profile]; p != nil && p.Provider != "" {
-			prov = p.Provider
+	if reg, err := providers.Load(); err == nil && reg.Providers[profile] != nil {
+		return AccountOf(reg.Providers[profile])
+	}
+	return "databricks·" + profile
+}
+
+// AccountOf is ProviderAccount for a profile already in hand: no registry load.
+func AccountOf(p *providers.Provider) string {
+	return cmp.Or(p.Provider, "databricks") + "·" + p.Name
+}
+
+// extendHold is cur without its expired keys, with key held until until when that is later than its current hold.
+func extendHold(cur map[string]time.Time, key string, until, now time.Time) map[string]time.Time {
+	out := map[string]time.Time{}
+	for k, t := range cur {
+		if t.After(now) {
+			out[k] = t
 		}
 	}
-	return prov + "·" + profile
+	if until.After(now) && until.After(out[key]) {
+		out[key] = until
+	}
+	return out
 }
 
 // MarkAuth remembers an auth rejection on account until a login, credential change or the TTL clears it.
@@ -297,9 +314,8 @@ func clearAuth(account string) func(State) {
 
 // ClearProviderAuth drops provider's auth and model-dead marks: the router's own and each dispatch's "<provider>·<p>".
 func ClearProviderAuth(provider string) error {
-	own := ProviderAccount(provider)
 	hit := func(account string, e Entry) bool {
-		return (!e.AuthAt.IsZero() || len(e.ModelDead) > 0) && (account == own || strings.HasSuffix(account, "·"+provider))
+		return (!e.AuthAt.IsZero() || len(e.ModelDead) > 0) && strings.HasSuffix(account, "·"+provider)
 	}
 	marked := false
 	for account, e := range LoadState() {

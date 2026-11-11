@@ -43,6 +43,7 @@ type Router struct {
 
 	sessions *sessionStore // lifetime-limited per-profile tokens, persisted across restarts
 	inflight atomic.Int64
+	bg       sync.WaitGroup // background state writes (cooling, quota-dead); tests wait on it before cleanup
 
 	regLoad  sync.Mutex // serializes providers.Load outside mu
 	mu       sync.Mutex
@@ -215,7 +216,7 @@ func (r *Router) walkAttempts(w *statusWriter, in *http.Request, body []byte, la
 		last := i == len(ladder)-1
 		done, err := r.try(w, in, body, t, clientModel, count, last)
 		if done {
-			r.clearOnSuccess(t.Provider.Name, w.status)
+			r.clearOnSuccess(t.Provider, w.status)
 			return t.Provider.Name, t.Model, i + 1
 		}
 		lastErr = err
@@ -269,7 +270,7 @@ func (r *Router) attempts(reg *providers.Registry, target providers.Target, clie
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	cooling := func(t providers.Target) bool { // this process's hold, else one another process persisted
-		return now.Before(r.cool[t.Provider.Name]) || now.Before(state.CoolingUntil(router.ProviderAccount(t.Provider.Name)))
+		return now.Before(r.cool[t.Provider.Name]) || now.Before(state.CoolingUntil(router.AccountOf(t.Provider)))
 	}
 	sort.SliceStable(out, func(i, j int) bool { return !cooling(out[i]) && cooling(out[j]) })
 	return out
@@ -297,7 +298,7 @@ func (r *Router) withoutAuthMarked(out []providers.Target) []providers.Target {
 	state, now := r.routeState(), r.now()
 	kept := make([]providers.Target, 0, len(out))
 	for _, t := range out {
-		if _, ok := state.AuthMarked(router.ProviderAccount(t.Provider.Name), now); !ok {
+		if _, ok := state.AuthMarked(router.AccountOf(t.Provider), now); !ok {
 			kept = append(kept, t)
 		}
 	}
@@ -333,7 +334,7 @@ func (r *Router) routeStateAt() (router.State, time.Time) {
 
 // condemn records a provider as auth-dead in the route state; best-effort, the caller moves on regardless.
 func (r *Router) condemn(p *providers.Provider, v providers.AuthVerdict) {
-	ran, err := router.TryMarkAuth(router.ProviderAccount(p.Name), "auth "+string(v)+": "+authHint(p))
+	ran, err := router.TryMarkAuth(router.AccountOf(p), "auth "+string(v)+": "+authHint(p))
 	if err != nil || !ran {
 		fmt.Fprintf(r.log, "proxy: mark %s auth-dead: %v\n", p.Name, cmp.Or(err, errors.New("state lock busy")))
 		return
@@ -346,16 +347,16 @@ func (r *Router) condemn(p *providers.Provider, v providers.AuthVerdict) {
 }
 
 // clearOnSuccess lifts a mark this process set once the provider answers with a 2xx.
-func (r *Router) clearOnSuccess(name string, status int) {
+func (r *Router) clearOnSuccess(p *providers.Provider, status int) {
 	if status < 200 || status > 299 {
 		return
 	}
 	r.mu.Lock()
-	was := r.marked[name]
-	delete(r.marked, name)
+	was := r.marked[p.Name]
+	delete(r.marked, p.Name)
 	r.mu.Unlock()
 	if was {
-		_ = router.ClearAuth(router.ProviderAccount(name)) // best-effort: the TTL backstop expires a missed clear
+		_ = router.ClearAuth(router.AccountOf(p)) // best-effort: the TTL backstop expires a missed clear
 	}
 }
 

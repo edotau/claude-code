@@ -18,16 +18,7 @@ func MarkCooling(account string, until, now time.Time) (bool, error) {
 	}
 	return tryUpdate(authMarkWait, func(s State) {
 		e := s[account]
-		cool := map[string]time.Time{}
-		for k, t := range e.Cooling {
-			if t.After(now) {
-				cool[k] = t
-			}
-		}
-		if until.After(now) && until.After(cool[coolingSelf]) {
-			cool[coolingSelf] = until
-		}
-		e.Cooling = cool
+		e.Cooling = extendHold(e.Cooling, coolingSelf, until, now)
 		s[account] = e
 	})
 }

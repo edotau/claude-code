@@ -180,8 +180,22 @@ func (t *RouteTable) pick(
 		res.Candidates = append(res.Candidates, u.cs...)
 	}
 	res.Candidates = append(res.Candidates, slices.Concat(lastG...)...)
-	res.Candidates = dedupeCandidates(res.Candidates)
+	res.Candidates = deadLast(dedupeCandidates(res.Candidates), st, now, &res)
 	return res
+}
+
+// deadLast moves candidates whose model carries a live quota-dead mark behind the rest, in order, noting each.
+func deadLast(cs []Candidate, st State, now time.Time, res *PickResult) []Candidate {
+	var live, dead []Candidate
+	for _, c := range cs {
+		if !st.accountModelDead(c.Account, c.Model, now) {
+			live = append(live, c)
+			continue
+		}
+		dead = append(dead, c)
+		res.Skipped = append(res.Skipped, Skip{c.Agent, GateExhausted, c.Model + " is quota-denied on " + c.Account + "; tried last"})
+	}
+	return append(live, dead...)
 }
 
 // refreshConcurrency bounds the stale-account refreshes one pick runs at once.
