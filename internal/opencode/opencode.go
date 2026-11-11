@@ -26,7 +26,7 @@ import (
 )
 
 // opencode: a generated provider block via OPENCODE_CONFIG_CONTENT; the key is an {env:} reference.
-// Interactive runs also list every alias model and import the caller's Claude permissions + MCP servers.
+// Interactive runs also list every alias model and import the caller's Claude rules, commands, plugin and menu.
 func opencode(p *providers.Provider, dialect, base, model, cred string, routed bool, h *agent.Headless) ([]string, []string, error) {
 	id, err := agentconfig.OwnedID(p)
 	if err != nil {
@@ -94,7 +94,7 @@ func opencodeDisableToolStreaming(menu map[string]any) {
 
 // opencodeDatabricksLaunch is the databricks split's env, plus the harness config and (headless) the run argv.
 func opencodeDatabricksLaunch(p *providers.Provider, id, dialect, base, model, cred string, routed bool, env []string, h *agent.Headless) ([]string, []string, error) {
-	denv, _, err := opencodeDatabricks(p, id, dialect, base, model, cred, routed, env)
+	denv, err := opencodeDatabricks(p, id, dialect, base, model, cred, routed, env)
 	if err != nil {
 		return denv, nil, err
 	}
@@ -285,7 +285,12 @@ func OpencodeCopilotToken() string {
 	if json.Unmarshal(data, &m) != nil {
 		return ""
 	}
-	return m["github-copilot"].Refresh
+	for k, v := range m {
+		if strings.TrimSuffix(k, "/") == "github-copilot" && v.Refresh != "" {
+			return v.Refresh
+		}
+	}
+	return ""
 }
 
 // opencodeCopilotLogin runs opencode on its own Copilot sign-in: interactive is plain (ErrOwnLogin), headless pins -m.

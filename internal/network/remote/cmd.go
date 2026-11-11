@@ -62,11 +62,11 @@ func Flags() []helptext.Flag {
 func Cmd(args []string) int {
 	fs := helptext.NewFlagSet("network remote", remotePage)
 	f := addRemoteFlags(fs)
-	// Interspersed: a trailing --dry-run must not join the task and run it for real.
 	if len(args) == 0 || args[0] == "help" {
 		fs.Usage()
 		return 0
 	}
+	// ParseArgs intersperses flags: a trailing --dry-run must not join the task and run it for real.
 	rest, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
@@ -93,6 +93,9 @@ func checkRemoteFlags(fs *flag.FlagSet, f *remoteFlags, mode string) int {
 	}
 	if wrong := remoteModeFlags(fs, mode); wrong != nil {
 		return helptext.Fail("network remote: %v", wrong)
+	}
+	if f.interval != 0 && !f.status {
+		return helptext.FailUsage("network remote: --interval applies with --status only")
 	}
 	return 0
 }

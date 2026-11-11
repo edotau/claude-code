@@ -2,12 +2,10 @@
 package tailscale
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
 	"net/url"
@@ -16,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/network/httpx"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -37,6 +36,7 @@ const (
 	oauthIDName     = "TAILSCALE_OAUTH_CLIENT_ID"
 	oauthSecretName = "TAILSCALE_OAUTH_CLIENT_SECRET"
 	apiKeyName      = "TAILSCALE_API_KEY"
+	authKeyName     = "TAILSCALE_AUTHKEY" // the minted node auth key `--save` stores
 )
 
 // SetNames is what `vault set --tailscale` writes: the API key alone, or the OAuth id then secret.
@@ -127,56 +127,51 @@ func NewClient() (*Client, error) {
 	return nil, errNoCredential
 }
 
+// apiBodyLimit caps one admin-API response read; the largest legitimate answer is a device list.
+const apiBodyLimit = 8 << 20
+
 // request sends an authenticated JSON request, decodes a 2xx body into out, and re-mints once on a 401.
 func (c *Client) request(ctx context.Context, method, path string, body, out any) error {
-	resp, err := c.send(ctx, method, path, body, false)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode == http.StatusUnauthorized {
-		_ = resp.Body.Close()
-		resp, err = c.send(ctx, method, path, body, true)
-		if err != nil {
-			return err
-		}
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		b, rerr := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		return errors.Join(fmt.Errorf("tailscale: %s %s: HTTP %d: %s", method, path, resp.StatusCode,
-			strings.TrimSpace(string(b))), rerr)
-	}
-	if out == nil {
-		return nil
-	}
-	return json.NewDecoder(resp.Body).Decode(out)
-}
-
-func (c *Client) send(ctx context.Context, method, path string, body any, forceRefresh bool) (*http.Response, error) {
-	if forceRefresh {
-		ctx = withForceRefresh(ctx)
-	}
-	tok, err := c.token(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var rdr io.Reader
+	call := httpx.Call{Client: c.HTTP, Method: method, URL: c.BaseURL + path, Limit: apiBodyLimit}
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		rdr = bytes.NewReader(b)
+		call.Body, call.Header = b, http.Header{"Content-Type": {"application/json"}}
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, rdr)
-	if err != nil {
-		return nil, err
+	status, b, err := c.send(ctx, call, false)
+	if status == http.StatusUnauthorized {
+		status, b, err = c.send(ctx, call, true)
 	}
-	req.Header.Set("Authorization", "Bearer "+tok)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if status == 0 {
+		return err
 	}
-	return c.HTTP.Do(req)
+	if status/100 != 2 {
+		return errors.Join(fmt.Errorf("tailscale: %s %s: HTTP %d: %s", method, path, status,
+			strings.TrimSpace(string(b[:min(len(b), 4<<10)]))), err)
+	}
+	if err != nil || out == nil {
+		return err
+	}
+	return json.Unmarshal(b, out)
+}
+
+// send runs call with a bearer token (re-minted when forceRefresh) and returns the status and bounded body.
+func (c *Client) send(ctx context.Context, call httpx.Call, forceRefresh bool) (int, []byte, error) {
+	if forceRefresh {
+		ctx = withForceRefresh(ctx)
+	}
+	call.Authorize = func(h http.Header) error {
+		tok, err := c.token(ctx)
+		if err != nil {
+			return err
+		}
+		h.Set("Authorization", "Bearer "+tok)
+		return nil
+	}
+	status, b, _, err := httpx.Do(ctx, call)
+	return status, b, err
 }
 
 // keyOpts configures a minted auth key.
@@ -230,17 +225,13 @@ func (c *Client) CreateAuthKey(ctx context.Context, opts keyOpts) (AuthKey, erro
 
 // device is one tailnet device as the admin API reports it.
 type device struct {
-	ID               string    `json:"id"`
-	NodeID           string    `json:"nodeId"`
-	Name             string    `json:"name"`
-	Hostname         string    `json:"hostname"`
-	OS               string    `json:"os"`
-	Addresses        []string  `json:"addresses"`
-	Tags             []string  `json:"tags"`
-	LastSeen         time.Time `json:"lastSeen"`
-	Authorized       bool      `json:"authorized"`
-	AdvertisedRoutes []string  `json:"advertisedRoutes,omitempty"`
-	EnabledRoutes    []string  `json:"enabledRoutes,omitempty"`
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	OS            string    `json:"os"`
+	Addresses     []string  `json:"addresses"`
+	Tags          []string  `json:"tags"`
+	LastSeen      time.Time `json:"lastSeen"`
+	EnabledRoutes []string  `json:"enabledRoutes,omitempty"`
 }
 
 // Devices lists every device on the tailnet via GET /tailnet/-/devices.
@@ -345,20 +336,20 @@ func mintToken(
 ) (tokenResponse, error) {
 	var out tokenResponse
 	form := url.Values{"client_id": {clientID}, "client_secret": {clientSecret}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/oauth/token", strings.NewReader(form.Encode()))
+	status, b, _, err := httpx.Do(ctx, httpx.Call{
+		Client: httpClient, Method: http.MethodPost, URL: baseURL + "/oauth/token", Limit: 64 << 10,
+		Header: http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}, Body: []byte(form.Encode()),
+	})
+	if status == 0 {
+		return out, err
+	}
+	if status != http.StatusOK {
+		return out, fmt.Errorf("tailscale: oauth token mint: HTTP %d", status)
+	}
 	if err != nil {
 		return out, err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return out, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return out, fmt.Errorf("tailscale: oauth token mint: HTTP %d", resp.StatusCode)
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&out); err != nil {
+	if err := json.Unmarshal(b, &out); err != nil {
 		return out, err
 	}
 	if out.AccessToken == "" {

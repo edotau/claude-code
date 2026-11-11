@@ -78,7 +78,7 @@ type browser struct {
 	Paths       controlPaths `json:"paths"`
 }
 
-// Report is the full `web browsers` result.
+// Report is the full `network browser` result.
 type Report struct {
 	Browsers    []browser `json:"browsers"`
 	Default     string    `json:"default"` // the default browser's Name, "" when unresolved

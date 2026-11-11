@@ -55,7 +55,7 @@ func (r *Resolver) resolveForm(p string) (string, bool) {
 	if strings.HasPrefix(p, "/") {
 		return cleanLocal(p), true
 	}
-	if host, rp, ok := splitHostPath(p); ok && !isDrivePath(p) {
+	if host, rp, ok := splitHostPath(p); ok {
 		return r.fromRemote(host, rp, KindNFS, kindSSHFS)
 	}
 	return "", false

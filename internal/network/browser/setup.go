@@ -10,7 +10,7 @@ import (
 
 // action is one repair step Setup took (or, with Env.DryRun, planned).
 type action struct {
-	Kind        string   `json:"kind"` // missing-host|enable-extension|install-extension|noop
+	Kind        string   `json:"kind"` // missing-host|enable-extension|install-extension|start-cdp|register-mcp|noop
 	Description string   `json:"description"`
 	Command     []string `json:"command,omitempty"`
 	Executed    bool     `json:"executed"`
