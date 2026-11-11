@@ -278,7 +278,7 @@ func spLoginRow(t *testing.T, identity string, paired, secret bool) *atomic.Int3
 	return &mints
 }
 
-// login mints as the SP with no browser on identity sp or --as sp; user, --as user and auto keep the browser login.
+// login mints as the SP with no browser on identity sp, --as sp, or auto with a paired SP; else the browser login.
 func TestLoginIdentitySPMintsWithoutBrowser(t *testing.T) {
 	for _, c := range []struct {
 		name, identity, as   string
@@ -288,7 +288,8 @@ func TestLoginIdentitySPMintsWithoutBrowser(t *testing.T) {
 	}{
 		{"identity sp", "sp", "", true, true, 0, 1, 0, "dbx-sp · service principal sp-client · token minted"},
 		{"--as user on an sp row", "sp", "user", true, true, 0, 0, 1, "logged in"},
-		{"auto keeps the browser", "auto", "", true, true, 0, 0, 1, "logged in"},
+		{"auto with a paired sp mints", "auto", "", true, true, 0, 1, 0, "dbx-sp · service principal sp-client · token minted"},
+		{"auto without the sp secret keeps the browser", "auto", "", true, false, 0, 0, 1, "logged in"},
 		{"--as sp, unpaired", "user", "sp", false, false, 1, 0, 0, "`claude-code vault edit`"},
 		{"--as sp, no secret", "auto", "sp", true, false, 1, 0, 0, "`claude-code vault set DATABRICKS_DBX_SP_M2M`"},
 	} {

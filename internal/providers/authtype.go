@@ -289,7 +289,7 @@ func dispatchCredential(ctx context.Context, p *Provider, force bool) (string, e
 		return userCredential(ctx, p, force)
 	}
 	reason := "no service-principal secret stored"
-	if spPresent(p) {
+	if SPPresent(p) {
 		v, err := spCredential(ctx, p, force)
 		if err == nil || !oauth.IsRejected(err) {
 			return v, err

@@ -122,7 +122,7 @@ func Run(args []string) int {
 	}
 	if port > 0 {
 		argv = withForward(argv, port)
-		fmt.Fprintf(os.Stderr, "forwarding localhost:%d to %s for the sign-in callback; open the URL below on this machine\n", port, host)
+		fmt.Fprintf(os.Stderr, "forwarding localhost:%d to %s in case the sign-in needs a browser; open any URL below on this machine\n", port, host)
 	}
 	cmd := exec.CommandContext(context.Background(), "ssh", argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
