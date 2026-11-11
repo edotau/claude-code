@@ -27,10 +27,9 @@ type boltVectorStore struct{}
 
 var vectorStore = &boltVectorStore{}
 
-// vectorWrite replaces a record or atomically merges a mint while releasing its claim.
+// vectorWrite atomically merges a mint while releasing its claim.
 type vectorWrite struct {
 	Profile string
-	Record  vectorRecord
 	Owner   int64
 	Started int64
 	Merge   func(vectorRecord) vectorRecord
@@ -38,22 +37,18 @@ type vectorWrite struct {
 
 func (s *boltVectorStore) Put(write vectorWrite) (stored bool, err error) {
 	err = updateEmbedDB(func(tx *bbolt.Tx) error {
-		record := write.Record
-		if write.Merge != nil {
-			if !claimOwnedBy(tx, write.Profile, write.Owner) { // taken over or expired: refuse, stored stays false
-				return nil
-			}
-			if err := dropClaim(tx, write.Profile, write.Owner); err != nil {
-				return err
-			}
-			current := decodeEmbedRecord(tx, write.Profile)
-			if current.MintedAt >= write.Started && current.MintedAt <= time.Now().UnixNano() {
-				return nil
-			}
-			record = write.Merge(current)
+		if !claimOwnedBy(tx, write.Profile, write.Owner) { // taken over or expired: refuse, stored stays false
+			return nil
+		}
+		if err := dropClaim(tx, write.Profile, write.Owner); err != nil {
+			return err
+		}
+		current := decodeEmbedRecord(tx, write.Profile)
+		if current.MintedAt >= write.Started && current.MintedAt <= time.Now().UnixNano() {
+			return nil
 		}
 		stored = true
-		return putEmbedRecord(tx, write.Profile, record)
+		return putEmbedRecord(tx, write.Profile, write.Merge(current))
 	})
 	return stored, err
 }
@@ -333,7 +328,7 @@ func embedProvider() *providers.Provider {
 	if err != nil {
 		return nil
 	}
-	for _, name := range []string{providers.SessionProfile(), providers.AgentRecord("claude").Profile} {
+	for name := range embedProfiles {
 		if p := reg.Providers[name]; p != nil && p.Preset == providers.PresetDatabricks {
 			return p
 		}
@@ -351,19 +346,20 @@ func embedProfile() string {
 
 // refreshEmbeddings starts a detached mint at most once per claim TTL; failed launches release the slot.
 func refreshEmbeddings(root, profile, host string, now time.Time) bool {
-	if IsUpdateChild() || !safeProfile.MatchString(profile) {
+	stamp := filepath.Join(StateDir(), embedCachePre+profile+".refresh")
+	stampFresh := func() bool {
+		st, err := os.Stat(stamp)
+		return err == nil && now.Sub(st.ModTime()) < embedClaimTTL
+	}
+	if IsUpdateChild() || !safeProfile.MatchString(profile) || embedBackedOff(profile, now) || stampFresh() {
 		return false
 	}
 	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
 		return false
 	}
-	if embedBackedOff(profile, now) {
-		return false
-	}
-	stamp := filepath.Join(StateDir(), "embeddings-"+profile+".refresh")
 	spawned := false
 	_, _ = paths.TryFileLock(stamp+".lock", 0, func() error {
-		if st, err := os.Stat(stamp); err == nil && now.Sub(st.ModTime()) < embedClaimTTL {
+		if stampFresh() {
 			return nil
 		}
 		if !vectorStore.RefreshDue(profile, host, now) {

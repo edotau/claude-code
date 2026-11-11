@@ -7,12 +7,12 @@ import (
 	"strings"
 )
 
-// fileKind classifies one entry of a memory dir; only kindTopic may be archived, restored or re-pointed.
+// fileKind classifies one entry of a memory dir; only kindTopic may be re-pointed.
 type fileKind int
 
 const (
 	kindOther        fileKind = iota // non-regular (symlink/dir), non-.md, unknown dotfile — never mutated, never a topic
-	kindTopic                        // native topic file: the only archivable kind
+	kindTopic                        // native topic file
 	kindBank                         // one of the six typed files BY NAME, or any .md whose frontmatter says `harness_kind: bank`
 	kindNativeIndex                  // MEMORY.md
 	kindSearchable                   // SEARCHABLE.md
@@ -36,9 +36,6 @@ func (k fileKind) String() string {
 	}
 	return fmt.Sprintf("fileKind(%d)", int(k))
 }
-
-// Archivable reports whether an archive/restore may move a file of this kind.
-func (k fileKind) Archivable() bool { return k == kindTopic }
 
 // reservedNames maps every filename a memory dir reserves to its kind; bank files are reserved by name too.
 var reservedNames = reservedNameKinds()

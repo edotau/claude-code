@@ -84,9 +84,8 @@ func distinctCount(tokens []string, minLen int) int {
 }
 
 // selectRecall consults archives only when no current entry passes the relevance gates.
-func selectRecall(sessionID string, terms []string, ranked []SearchHit, sem *Semantic, semSeen bool, counts map[string]int, trace *recallTrace) []recallPick {
+func selectRecall(seen map[string]bool, terms []string, ranked []SearchHit, sem *Semantic, semSeen bool, counts map[string]int, trace *recallTrace) []recallPick {
 	need := recallNeed(terms)
-	seen := seenBlocks(sessionID)
 	if trace != nil {
 		trace.candidates(ranked, need, sem)
 	}
@@ -97,7 +96,6 @@ func selectRecall(sessionID string, terms []string, ranked []SearchHit, sem *Sem
 		}
 		picks, passed := pickTier(ranked, archived, need, seen, tierSem, counts, trace)
 		if len(picks) > 0 {
-			orderRecall(picks)
 			trace.selected(picks)
 			return picks
 		}

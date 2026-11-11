@@ -139,7 +139,7 @@ func historicalBlock(historical bool) string {
 	return ""
 }
 
-// firstTranscriptTimestamp reads only the first JSONL line's "timestamp" field — the session's
+// firstTranscriptTimestamp is the first "timestamp" among the leading JSONL lines — the session's
 // start time, used to scope `git log --since`. Zero time when absent or unparseable.
 func firstTranscriptTimestamp(transcript string) time.Time {
 	f, err := os.Open(transcript)
@@ -147,21 +147,22 @@ func firstTranscriptTimestamp(transcript string) time.Time {
 		return time.Time{}
 	}
 	defer f.Close()
-	line, err := bufio.NewReader(f).ReadBytes('\n')
-	if err != nil && len(line) == 0 {
-		return time.Time{}
+	r := bufio.NewReader(f)
+	for range 20 { // the first records may be snapshots with no timestamp
+		line, err := r.ReadBytes('\n')
+		var rec struct {
+			Timestamp string `json:"timestamp"`
+		}
+		if json.Unmarshal(line, &rec) == nil {
+			if t, perr := time.Parse(time.RFC3339, rec.Timestamp); perr == nil {
+				return t
+			}
+		}
+		if err != nil {
+			break
+		}
 	}
-	var rec struct {
-		Timestamp string `json:"timestamp"`
-	}
-	if json.Unmarshal(line, &rec) != nil {
-		return time.Time{}
-	}
-	t, err := time.Parse(time.RFC3339, rec.Timestamp)
-	if err != nil {
-		return time.Time{}
-	}
-	return t
+	return time.Time{}
 }
 
 // gitSinceBlock appends this session's commits and touched files (committed + working tree) so the

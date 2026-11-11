@@ -12,9 +12,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// bankIndexFile is the generated routing index inside a bank dir — never hand-edit.
-const bankIndexFile = "index.md"
-
 // buildBankIndex renders one routing line per durable entry (two-stage recall); "" when nothing is indexable.
 func buildBankIndex(dir string) (string, error) {
 	var b strings.Builder

@@ -128,11 +128,10 @@ func dreamDue(cwd string, now time.Time) bool {
 
 // dreamOptions drive one consolidation.
 type dreamOptions struct {
-	CWD     string
-	Run     AgentFunc
-	Out     io.Writer
-	Timeout time.Duration // 0 = updateTimeout
-	IfDue   bool          // re-check dreamDue once the lock is held: a racing peer may have just dreamed
+	CWD   string
+	Run   AgentFunc
+	Out   io.Writer
+	IfDue bool // re-check dreamDue once the lock is held: a racing peer may have just dreamed
 }
 
 // agentDreamPrompt frames the model-residue consolidation pass; the procedure itself is one copy,
@@ -150,9 +149,6 @@ func agentDreamPrompt() (string, error) {
 func dream(o dreamOptions) error {
 	if o.Out == nil {
 		o.Out = io.Discard
-	}
-	if o.Timeout == 0 {
-		o.Timeout = updateTimeout
 	}
 	var runErr, archiveErr error
 	notDue := false
@@ -201,7 +197,7 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 	if err != nil {
 		return err, archiveErr
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
 	defer cancel()
 	_ = os.Setenv(UpdateChildEnv, "1") // a Claude fallback dispatch must not re-trigger hooks
 	_ = os.Setenv(dreamChildEnv, "1")  // lets this run's own `memory promote --to claude-md` through the gate

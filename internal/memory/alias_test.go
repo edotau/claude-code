@@ -166,13 +166,18 @@ func assertFoldedFiles(t *testing.T, e aliasEnv) {
 	}
 }
 
+// storeCommits is the memory repo's commit count as text (git prints 0 on an unborn branch).
+func storeCommits(t *testing.T) string {
+	t.Helper()
+	return strings.TrimSpace(hosttest.In(t, StoreDir(), "rev-list", "--count", "--all"))
+}
+
 // assertAliasCommit checks the fold landed in the memory repo (not the decoy), left it clean, and names the fold.
-func assertAliasCommit(t *testing.T, e aliasEnv, decoyHead string, before []string) {
+func assertAliasCommit(t *testing.T, e aliasEnv, decoyHead, before string) {
 	t.Helper()
 	// commit landed in the memory repo, not the decoy
-	after, _ := StoreRepo().Log(50)
-	if len(after) <= len(before) {
-		t.Errorf("memory repo gained no commit: before %d after %d", len(before), len(after))
+	if got := storeCommits(t); got == before {
+		t.Errorf("memory repo gained no commit: still %s", got)
 	}
 	if dh := strings.TrimSpace(hosttest.In(t, e.cfg, "rev-parse", "HEAD")); dh != decoyHead {
 		t.Errorf("decoy HEAD moved %s -> %s", decoyHead, dh)
@@ -181,8 +186,8 @@ func assertAliasCommit(t *testing.T, e aliasEnv, decoyHead string, before []stri
 		t.Errorf("memory repo dirty after alias: %v", st)
 	}
 	// a new commit mentions the fold in its subject
-	if !strings.Contains(strings.Join(after[:len(after)-len(before)], "\n"), "alias") && !strings.Contains(strings.Join(after[:len(after)-len(before)], "\n"), "fold") {
-		t.Errorf("new commits do not mention the fold: %v", after[:len(after)-len(before)])
+	if subject := hosttest.In(t, StoreDir(), "log", "-1", "--format=%s"); !strings.Contains(subject, "alias") {
+		t.Errorf("last commit does not mention the alias: %q", subject)
 	}
 
 }
@@ -210,7 +215,7 @@ func TestAliasFoldsSeparateStore(t *testing.T) {
 	e := newAliasEnv(t)
 	link := seedAliasFold(t, e)
 	decoyHead := strings.TrimSpace(hosttest.In(t, e.cfg, "rev-parse", "HEAD"))
-	before, _ := StoreRepo().Log(50)
+	before := storeCommits(t)
 
 	res, err := alias(t, e, false)
 	if err != nil {

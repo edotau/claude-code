@@ -82,30 +82,24 @@ func overflowSplit(base, body string, capLines int) (header string, keep, overfl
 	return header, keep, overflow
 }
 
-// archiveFile prunes path under the bank lock, so a concurrent append cannot land between its read and rewrite.
-func archiveFile(path string, capLines int, now time.Time) (int, error) {
-	var moved int
-	err := WithBankLock(BankLockWait, func() (err error) {
-		moved, err = archiveFileLocked(path, capLines, now)
-		return err
+// archiveFile prunes path under the bank lock, so a concurrent append cannot land between its read and rewrite;
+// the oldest overflow is archived first so nothing is lost if the rewrite fails.
+func archiveFile(path string, capLines int, now time.Time) (moved int, err error) {
+	err = WithBankLock(BankLockWait, func() error {
+		header, keep, overflow, err := splitOverflow(path, capLines)
+		if err != nil || len(overflow) == 0 {
+			return err
+		}
+		if err := appendBlocks(archivePath(filepath.Dir(path), filepath.Base(path), now), overflow); err != nil {
+			return err
+		}
+		if err := paths.AtomicWrite(path, []byte(rejoin(header, keep)), 0o600); err != nil {
+			return err
+		}
+		moved = len(overflow)
+		return nil
 	})
 	return moved, err
-}
-
-// archiveFileLocked is archiveFile for a caller holding the bank lock; it appends the oldest overflow to the archive
-// first so nothing is lost if the rewrite fails.
-func archiveFileLocked(path string, capLines int, now time.Time) (int, error) {
-	header, keep, overflow, err := splitOverflow(path, capLines)
-	if err != nil || len(overflow) == 0 {
-		return 0, err
-	}
-	if err := appendBlocks(archivePath(filepath.Dir(path), filepath.Base(path), now), overflow); err != nil {
-		return 0, err
-	}
-	if err := paths.AtomicWrite(path, []byte(rejoin(header, keep)), 0o600); err != nil {
-		return 0, err
-	}
-	return len(overflow), nil
 }
 
 // PromoteTargets are the `memory promote --to` destinations.

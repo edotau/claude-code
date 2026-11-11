@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -23,12 +22,16 @@ const (
 // updateWatchPoll is the mtime poll gap; a var so tests can tighten it.
 var updateWatchPoll = time.Minute
 
+func watchClaimPath(sessionID string) string {
+	return filepath.Join(StateDir(), "watch-"+filepath.Base(sessionID))
+}
+
 // spawnIdleWatcher starts THIS session's watcher once: a claim file makes every later Stop a no-op.
 func spawnIdleWatcher(sessionID, transcript, cwd string) {
 	if sessionID == "" {
 		return
 	}
-	claim := filepath.Join(StateDir(), "watch-"+filepath.Base(sessionID))
+	claim := watchClaimPath(sessionID)
 	f, err := os.OpenFile(claim, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return // claimed by an earlier Stop (or the state dir is unwritable — the Stop gate still runs)
@@ -60,6 +63,7 @@ func IdleUpdateWatch(o WatchOptions) int {
 		fmt.Fprintf(stderr, "memory watch: --cwd %q is not a directory\n", o.CWD)
 		return 2
 	}
+	defer func() { _ = os.Remove(watchClaimPath(o.Session)) }() // free the claim so a later Stop can start a fresh watcher
 	w := &watchLoop{tr: o.Transcript, cwd: o.CWD, session: o.Session, idle: o.Idle, owner: o.Owner, stderr: stderr}
 	deadline := time.Now().Add(updateWatchLife)
 	for time.Now().Before(deadline) {
@@ -114,8 +118,7 @@ func newestActivity(tr string, mainMtime time.Time) time.Time {
 	if dir == "" {
 		return latest
 	}
-	matches, _ := filepath.Glob(filepath.Join(dir, "agent-*.jsonl"))
-	for _, m := range matches {
+	for _, m := range globIn(dir, "agent-*.jsonl") {
 		if fi, err := os.Stat(m); err == nil && fi.ModTime().After(latest) {
 			latest = fi.ModTime()
 		}
@@ -126,35 +129,23 @@ func newestActivity(tr string, mainMtime time.Time) time.Time {
 // idleUpdateOnce dispatches the final update for uncovered work; spawnFailed = a due worker did not start.
 func idleUpdateOnce(tr, cwd, session string, note io.Writer) (dispatched, spawnFailed bool) {
 	cwd = SessionRoot(session, cwd)
-	ran := false
-	err := paths.WithFileLock(stampPath(session), func() error { // same session lock as UpdateIfNew
-		ran = true
-		dispatched, spawnFailed = idleUpdateLocked(tr, cwd, session, note)
-		return nil
+	withStampLock(session, func() { // same session lock as UpdateIfNew
+		covered := 0
+		if st, ok := readStamp(stampPath(session)); ok {
+			covered = st.edits
+		}
+		edits := countEdits(tr, countPath(session))
+		if edits < updateMinEdits || edits <= covered {
+			return
+		}
+		if !DispatchUpdate(UpdateRequest{SessionID: session, Transcript: tr, CWD: cwd}, "idle", edits, time.Now()) {
+			fmt.Fprintf(note, "memory watch: worker not spawned for %s (%d uncovered edits)\n", session, edits-covered)
+			spawnFailed = true
+			return
+		}
+		dispatched = true
 	})
-	if err != nil && !ran {
-		return idleUpdateLocked(tr, cwd, session, note) // no lock: unserialized beats skipping
-	}
 	return dispatched, spawnFailed
-}
-
-// idleUpdateLocked is idleUpdateOnce's read-dispatch-write body; the caller holds the session stamp lock.
-func idleUpdateLocked(tr, cwd, session string, note io.Writer) (dispatched, spawnFailed bool) {
-	stamp := stampPath(session)
-	covered := 0
-	if st, ok := readStamp(stamp); ok {
-		covered = st.edits
-	}
-	edits := countEdits(tr, countPath(session))
-	if edits < updateMinEdits || edits <= covered {
-		return false, false
-	}
-	if !spawn.update(tr, cwd, session) {
-		fmt.Fprintf(note, "memory watch: worker not spawned for %s (%d uncovered edits)\n", session, edits-covered)
-		return false, true
-	}
-	_ = writeStamp(stamp, time.Now(), "bg", edits) // best effort: a lost stamp only re-dispatches later
-	return true, false
 }
 
 // ownerDead trusts the probe only where it works: off unix Alive is always false, which would disable the watcher.
