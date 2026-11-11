@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
@@ -481,3 +482,6 @@ func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 		t.Errorf("Argv = %v, want [auth] (opencode's default carries no Launch.Args)", plan.Argv)
 	}
 }
+
+// TestMain runs in the hermetic host (hosttest): a dispatched leaf's own HARNESS_* environment never reaches a test.
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

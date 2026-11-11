@@ -3,6 +3,7 @@
 package tree
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"os"
@@ -92,9 +93,13 @@ func renderDispatches(w io.Writer, dispatches []Dispatch, width int) {
 		return
 	}
 	fmt.Fprintln(w, "dispatches")
-	for _, l := range dispatches {
-		prefix := fmt.Sprintf("  %s  %-8s  %-6s", l.ID, l.Agent, l.Duration)
-		fmt.Fprintln(w, fitRow(prefix, l.Repo, "", width))
+	for _, l := range dispatches { // the id already ends in the agent name; where it runs and on what model come next
+		where := cmp.Or(l.Route, l.Provider, "own login")
+		if l.Route == "" && l.Provider == "" && strings.HasPrefix(l.Model, "databricks-") { // a record from before Route existed
+			where = "databricks"
+		}
+		prefix := fmt.Sprintf("  %s  %-15s  %-22s  %-6s", l.ID, where, strings.TrimPrefix(cmp.Or(l.Model, "default"), "databricks-"), l.Duration)
+		fmt.Fprintln(w, fitRow(prefix, cmp.Or(l.Task, l.Repo), "", width))
 	}
 }
 

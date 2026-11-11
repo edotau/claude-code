@@ -68,6 +68,8 @@ type Dispatch struct {
 	FallbackReason string `json:"fallbackReason,omitempty"`
 	Matched        string `json:"matched,omitempty"` // "heuristic" when inferred rather than read directly
 	Repo           string `json:"repo,omitempty"`    // main checkout root; set on the machine-wide running list
+	Route          string `json:"route,omitempty"`   // the --route it was launched on; "" is the agent's own login
+	Task           string `json:"task,omitempty"`    // first line of the prompt
 
 	sessionID string    // dispatch record's session id; matches a duplicate session row
 	cwd       string    // dispatch workdir (repo fallback); matches a duplicate session row
