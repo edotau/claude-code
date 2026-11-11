@@ -1,5 +1,5 @@
-// Package clipboard works around WSL2 image paste: it transcodes WSLg's bridged BMP into a decodable
-// BMP/PNG, saves the Windows clipboard image via PowerShell, and installs the wl-paste proxy.
+// Package clipboard carries image paste across WSL2, macOS and SSH (BMP transcode, PowerShell, wl-paste proxy,
+// launchd-served Mac bridge) and writes secrets to the clipboard with a timed clear.
 package clipboard
 
 import (
@@ -48,10 +48,7 @@ const powershellTimeout = 30 * time.Second
 func runPowerShell(script string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), powershellTimeout)
 	defer cancel()
-	ps := "powershell.exe"
-	if _, err := exec.LookPath(ps); err != nil {
-		ps = wslPowerShell // interop left Windows off PATH (VS Code Remote-WSL terminals)
-	}
+	ps := powerShellPath(func(n string) bool { _, err := exec.LookPath(n); return err == nil })
 	out, err := exec.CommandContext(ctx, ps, psCmd(script)...).Output()
 	if err != nil {
 		return "", err
@@ -278,7 +275,7 @@ func transcodePNG(r io.Reader, w io.Writer) error {
 }
 
 // decodeRaster reads a BMP from r and returns its pixels as packed 24bpp BGR rows. Shared by both
-// public encoders so the format-specific part is only the write. Alpha is discarded — correct for a
+// encoders so the format-specific part is only the write. Alpha is discarded — correct for a
 // paste target, not a bug.
 func decodeRaster(r io.Reader) (raster, error) {
 	data, dib, pixelOffset, err := readBMPHeader(r)

@@ -248,7 +248,10 @@ func ancestorIsRoot(real string, roots []string) bool {
 // secretRoots lists the secret directories under home, both as named and as their symlink targets.
 func secretRoots(home string) []string {
 	var roots []string
-	for _, d := range []string{".ssh", ".gnupg", "Library/Keychains", ".claude/state"} {
+	for _, d := range []string{
+		".ssh", ".gnupg", "Library/Keychains", ".claude/state",
+		".aws", ".netrc", ".config/gh", ".config/gcloud", ".kube", ".docker",
+	} {
 		p := filepath.Join(home, filepath.FromSlash(d))
 		roots = append(roots, p)
 		if r, err := filepath.EvalSymlinks(p); err == nil {
@@ -332,6 +335,13 @@ func fetchFrom(sock, path, dropDir string) (string, error) {
 	}
 	if err := os.MkdirAll(dropDir, 0o700); err != nil {
 		return "", err
+	}
+	fi, err := os.Lstat(dropDir)
+	if err != nil {
+		return "", err
+	}
+	if uid, ok := paths.OwnerUID(fi); !fi.IsDir() || !ok || uid != os.Getuid() || fi.Mode().Perm()&0o077 != 0 {
+		return "", fmt.Errorf("%s is not a private directory owned by you", dropDir)
 	}
 	local, err := claimDropPath(dropDir, name)
 	if err != nil {

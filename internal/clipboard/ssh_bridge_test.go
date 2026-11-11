@@ -407,7 +407,7 @@ func TestUnderSecretRootByIdentity(t *testing.T) {
 }
 
 func TestFetchFromPreservesSameBasename(t *testing.T) {
-	home, drop := t.TempDir(), t.TempDir()
+	home, drop := t.TempDir(), filepath.Join(t.TempDir(), "drop")
 	sock := bridgeServer(t, home, nil)
 	var fetched []string
 	for _, content := range []string{"first report", "second report"} {
