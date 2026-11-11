@@ -241,6 +241,39 @@ func TestWriteIfUnchanged(t *testing.T) {
 	}
 }
 
+func TestWriteIfUnchangedSecondCheckFailureReturnsBackup(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dest := filepath.Join(t.TempDir(), "cfg.json")
+	if err := os.WriteFile(dest, []byte("a"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reads := 0
+	restore := SwapReadLive(func(path string) ([]byte, error) {
+		reads++
+		if reads == 2 {
+			if err := os.WriteFile(path, []byte("b"), 0o600); err != nil {
+				return nil, err
+			}
+		}
+		return os.ReadFile(path)
+	})
+	t.Cleanup(restore)
+
+	backup, err := WriteIfUnchanged(dest, []byte("a"), []byte("next"), 0o600, "cfg")
+	if err == nil || !strings.Contains(err.Error(), "changed under the merge") {
+		t.Fatalf("WriteIfUnchanged error = %v, want changed-under-merge error", err)
+	}
+	if backup == "" {
+		t.Fatal("WriteIfUnchanged returned an empty backup path after the second check failed")
+	}
+	if got, readErr := os.ReadFile(backup); readErr != nil || string(got) != "a" {
+		t.Errorf("backup = %q, %v; want original contents", got, readErr)
+	}
+	if got, readErr := os.ReadFile(dest); readErr != nil || string(got) != "b" {
+		t.Errorf("destination = %q, %v; want concurrent contents", got, readErr)
+	}
+}
+
 func TestVSCodeSettingsIsPlatformSpecific(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)        // os.UserHomeDir on unix

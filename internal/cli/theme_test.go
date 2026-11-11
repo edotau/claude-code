@@ -5,11 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 
+	"github.com/edotau/claude-code/internal/ui/statusline"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
@@ -187,6 +189,24 @@ func TestThemeStatuslineBadFlagExitsTwo(t *testing.T) {
 	code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdTheme([]string{"statusline", "--nope"}) })
 	if code != 2 {
 		t.Errorf("exit %d, want 2", code)
+	}
+}
+
+func TestThemeStatuslineStyleHelpAndCompletionListEveryStyle(t *testing.T) {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdTheme([]string{"statusline", "-h"}) })
+	if code != 0 {
+		t.Fatalf("theme statusline -h exit %d, want 0", code)
+	}
+	for _, style := range statusline.Styles {
+		if !strings.Contains(stderr, style) {
+			t.Errorf("statusline help missing style %q: %q", style, stderr)
+		}
+	}
+	got := candidates("theme", "statusline", "--style", "")
+	for _, style := range statusline.Styles {
+		if !slices.Contains(got, style) {
+			t.Errorf("style completion missing %q: %v", style, got)
+		}
 	}
 }
 

@@ -63,6 +63,28 @@ func vaultStore(t *testing.T, name, value string) {
 	}
 }
 
+func TestVaultExportDecryptErrorHasSinglePrefix(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	vaulttest.Secret(t, "Z_BAD", "test-secret")
+	if err := vault.Update(func(tx *vault.Tx) error {
+		record, _, err := tx.Record("Z_BAD")
+		if err != nil {
+			return err
+		}
+		record.Sealed[len(record.Sealed)-1] ^= 1
+		return tx.PutRecord("Z_BAD", record)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir())
+
+	code, _, stderr := vaultRun(t, "export")
+	if code != 1 || !strings.Contains(stderr, "vault export: Z_BAD:") ||
+		strings.Contains(stderr, "vault export: export:") {
+		t.Fatalf("vault export = %d, stderr %q; want one prefix for Z_BAD decrypt error", code, stderr)
+	}
+}
+
 // Usage errors exit 2 before any write, print nothing to stdout and name the problem on stderr.
 func TestCmdVault(t *testing.T) {
 	tests := []struct {
