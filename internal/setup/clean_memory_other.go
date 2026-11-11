@@ -12,7 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 )
 
-// openMemoryFiles retains state if lsof is missing or cannot inspect open descriptors.
+// scanOpenMemoryFiles retains state if lsof is missing or cannot inspect open descriptors.
 func scanOpenMemoryFiles() (map[string]bool, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

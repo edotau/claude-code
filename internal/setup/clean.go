@@ -106,7 +106,7 @@ func stateTargets() []target {
 			globs: func() []string {
 				return []string{
 					s("checkpoint", "*"), s("plans-scratch", "*.dest"), s("stop-format", "*.json"), s("agents-inflight", "*"),
-					s("plans-scratch", "*.partial.lock"),
+					s("plans-scratch", "*.partial"), s("plans-scratch", "*.partial.lock"),
 				}
 			},
 		},

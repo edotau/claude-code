@@ -118,10 +118,7 @@ func TestTokenize(t *testing.T) {
 	}
 }
 
-func TestPlural(t *testing.T) {
-	if Plural(1) != "" || Plural(0) != "s" || Plural(2) != "s" || Plural(-1) != "s" {
-		t.Errorf("Plural: 1=%q 0=%q 2=%q -1=%q", Plural(1), Plural(0), Plural(2), Plural(-1))
-	}
+func TestPluralWord(t *testing.T) {
 	if got := PluralWord(1, "y", "ies"); got != "y" {
 		t.Errorf("PluralWord(1, y, ies) = %q, want y", got)
 	}

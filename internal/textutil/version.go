@@ -5,6 +5,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // CompareVersions orders dotted numeric versions, ignoring v and hyphen suffixes; false means parsing failed.
@@ -52,11 +53,11 @@ func BuildVersion() string {
 	return "devel"
 }
 
-var majorRe = regexp.MustCompile(`(\d+)\.\d+`)
+var majorRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(\d+)\.\d+`) })
 
 // VersionMajor reads the major from "1.19.3", "v2.0.32" or "opencode 2.0.32"; 0 when none.
 func VersionMajor(s string) int {
-	m := majorRe.FindStringSubmatch(s)
+	m := majorRe().FindStringSubmatch(s)
 	if m == nil {
 		return 0
 	}

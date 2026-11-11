@@ -143,23 +143,20 @@ func cmdSetupWorkspace(args []string) int {
 		return 2
 	}
 	fs := helptext.NewFlagSet("setup workspace "+args[0], op)
-	with, dryRun := new(string), new(bool)
-	if args[0] == "init" { // link and status write or report only what they are told; the flags are init's
-		with = fs.String("with", "", "subset of agents,commands,skills,settings,memory (default all)")
-		dryRun = fs.Bool("dry-run", false, "print the plan, write nothing")
+	if args[0] != "init" { // link and status take no flags; with and dry-run are init's
+		pos, err := helptext.ParseArgs(fs, args[1:])
+		if err != nil {
+			return helptext.ExitCode(err)
+		}
+		return setupWorkspaceReadOrLink(args[0], pos)
 	}
+	with := fs.String("with", "", "subset of agents,commands,skills,settings,memory (default all)")
+	dryRun := fs.Bool("dry-run", false, "print the plan, write nothing")
 	pos, err := helptext.ParseArgs(fs, args[1:])
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	return runSetupWorkspace(args[0], pos, *with, *dryRun)
-}
-
-func runSetupWorkspace(op string, pos []string, with string, dryRun bool) int {
-	if op == "init" {
-		return setupWorkspaceInit(pos, with, dryRun)
-	}
-	return setupWorkspaceReadOrLink(op, pos)
+	return setupWorkspaceInit(pos, *with, *dryRun)
 }
 
 func setupWorkspaceReadOrLink(op string, pos []string) int {

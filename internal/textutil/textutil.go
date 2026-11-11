@@ -52,10 +52,7 @@ func CapRunes(s string, n int, suffix string) string {
 // RuneLen is the rune count of s.
 func RuneLen(s string) int { return utf8.RuneCountInString(s) }
 
-// Plural returns "s" when n != 1 — the terse counter suffix for log lines.
-func Plural(n int) string { return PluralWord(n, "", "s") }
-
-// PluralWord picks one or many for n — the general form for suffixes Plural's bare "s" can't spell.
+// PluralWord picks one or many for n.
 func PluralWord(n int, one, many string) string {
 	if n == 1 {
 		return one
@@ -97,29 +94,6 @@ func Tokenize(s string) []string {
 	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 	})
-}
-
-// TokenSet is Tokenize's output as a set, for Jaccard overlap.
-func TokenSet(s string) map[string]bool {
-	set := map[string]bool{}
-	for _, t := range Tokenize(s) {
-		set[t] = true
-	}
-	return set
-}
-
-// Jaccard is |a∩b| / |a∪b|, the near-duplicate overlap between two token sets; 0 when either is empty.
-func Jaccard(a, b map[string]bool) float64 {
-	if len(a) == 0 || len(b) == 0 {
-		return 0
-	}
-	inter := 0
-	for t := range a {
-		if b[t] {
-			inter++
-		}
-	}
-	return float64(inter) / float64(len(a)+len(b)-inter)
 }
 
 // SplitCSV splits a comma-separated list, trimming blanks and dropping empty entries; nil when none remain.
