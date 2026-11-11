@@ -141,8 +141,7 @@ func routePickOpts(o router.PickOpts, mode string) (router.PickOpts, map[string]
 	if err != nil {
 		return o, nil, err
 	}
-	pins, err := AgentPins()
-	return o, pins, err
+	return o, o.Pins, nil
 }
 
 // pickSkips lists the gate drops as "agent: reason", leaving out hub agents when opencode leads natively.
@@ -412,7 +411,8 @@ var hub *Hub
 // IsHubAgent reports whether name is one ask routes through opencode unless --native is set. codex and
 // copilot run their own CLI first (user decision): the hub cannot pass copilot's `auto` or its pinned account.
 func IsHubAgent(name string) bool {
-	return slices.ContainsFunc(rows(), func(s Schema) bool { return s.Name == name && s.CLI.Hub })
+	s, ok := lookupRow(name)
+	return ok && s.CLI.Hub
 }
 
 // hubLinked reports whether a linked vendor registered the opencode Hub.

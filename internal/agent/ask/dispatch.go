@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -68,21 +69,6 @@ func dispatchRun(ctx context.Context, role roles.Role, q roles.Request, jobs int
 	return 0
 }
 
-// ErrWriter keeps the first write error, so output whose callee drops write errors still surfaces it.
-type ErrWriter struct {
-	W   io.Writer
-	Err error
-}
-
-// Write forwards to W and records the first failure.
-func (e *ErrWriter) Write(p []byte) (int, error) {
-	n, err := e.W.Write(p)
-	if err != nil && e.Err == nil {
-		e.Err = err
-	}
-	return n, err
-}
-
 // writeReport prints rep to stdout as one JSON line or as text, returning any write failure.
 func writeReport(rep roles.Report, format string) error {
 	if format == helptext.JSON {
@@ -93,7 +79,7 @@ func writeReport(rep roles.Report, format string) error {
 		_, err = fmt.Fprintln(os.Stdout, string(body))
 		return err
 	}
-	out := &ErrWriter{W: os.Stdout}
+	out := &textutil.ErrWriter{W: os.Stdout}
 	if err := rep.Text(out); err != nil {
 		return err
 	}

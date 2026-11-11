@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/ask"
-	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -119,7 +118,7 @@ func cmdMemoryUpdate(args []string) int {
 		return helptext.FailUsage("memory update: unexpected argument %q; name a session with --session <id>", fs.Arg(0))
 	}
 	err := memory.UpdateSession(memory.UpdateSessionOptions{Transcript: *transcript, CWD: *cwd, Session: *session,
-		DryRun: *dryRun, Historical: *historical, ClaudeBin: claude.ClaudeBinary, Run: client.MemoryRunner(ask.NewClient), Out: os.Stdout, Err: os.Stderr})
+		DryRun: *dryRun, Historical: *historical, ClaudeBin: claude.ClaudeBinary, Run: ask.MemoryRunner(), Out: os.Stdout, Err: os.Stderr})
 	if err != nil {
 		return helptext.Fail("memory update: %v", err)
 	}
@@ -149,7 +148,7 @@ func cmdMemoryDream(args []string) int {
 	if code, done := memoryParseNoArgs(fs, "dream", args); done {
 		return code
 	}
-	if err := memory.RunDream(memory.DreamRunOptions{CWD: *cwd, Force: *force, DryRun: *dryRun, Run: client.MemoryRunner(ask.NewClient), Out: os.Stdout}); err != nil {
+	if err := memory.RunDream(memory.DreamRunOptions{CWD: *cwd, Force: *force, DryRun: *dryRun, Run: ask.MemoryRunner(), Out: os.Stdout}); err != nil {
 		return helptext.Fail("memory dream: %v", err)
 	}
 	return 0

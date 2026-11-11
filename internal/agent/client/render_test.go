@@ -715,7 +715,7 @@ func TestListAgentsRegistryLoadErrorNoPanic(t *testing.T) {
 	}
 
 	var lines []string
-	for _, r := range RosterRows() { // must not panic despite a nil registry from the failed Load()
+	for _, r := range rosterRows() { // must not panic despite a nil registry from the failed Load()
 		lines = append(lines, r.Line())
 	}
 	out := strings.Join(lines, "\n")
@@ -750,7 +750,7 @@ func assertCapabilitySchemaRow(t *testing.T, r capabilitySchemaRow) {
 // agents --format json carries each agent's binary, the cost/background/live/remote levels and its event kinds.
 func TestAgentsJSONCapabilitySchema(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	out, err := json.Marshal(RosterRows())
+	out, err := json.Marshal(rosterRows())
 	if err != nil {
 		t.Fatal(err)
 	}

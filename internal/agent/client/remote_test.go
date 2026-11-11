@@ -31,7 +31,7 @@ func TestRemoteArgvSurvivesHostileValues(t *testing.T) {
 	req := agent.RunOptions{Model: hostile[0], Provider: hostile[1], Effort: hostile[2], SessionID: hostile[3], SystemPrompt: hostile[4],
 		AppendSystemPrompt: hostile[5], OutputSchema: hostile[6], WorkDir: "/w/" + hostile[7], Env: []string{"K=" + hostile[0] + hostile[5]},
 		Timeout: time.Minute, Tools: true}
-	argv, err := RemoteArgv("wks", stub, "codex", "", req)
+	argv, err := remoteArgv("wks", stub, "codex", "", req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,14 +58,14 @@ func TestRemoteArgvSurvivesHostileValues(t *testing.T) {
 
 func TestRemoteArgvRefusals(t *testing.T) {
 	for _, host := range []string{"-oProxyCommand=x", "", "a b", "h\n"} {
-		if _, err := RemoteArgv(host, "claude-code", "codex", "", agent.RunOptions{}); err == nil {
+		if _, err := remoteArgv(host, "claude-code", "codex", "", agent.RunOptions{}); err == nil {
 			t.Errorf("host %q accepted", host)
 		}
 	}
-	if _, err := RemoteArgv("h", "claude-code", "codex", "", agent.RunOptions{Model: "a\x00b"}); err == nil {
+	if _, err := remoteArgv("h", "claude-code", "codex", "", agent.RunOptions{Model: "a\x00b"}); err == nil {
 		t.Error("NUL value accepted")
 	}
-	if _, err := RemoteArgv("h", "bin\nx", "codex", "", agent.RunOptions{}); err == nil {
+	if _, err := remoteArgv("h", "bin\nx", "codex", "", agent.RunOptions{}); err == nil {
 		t.Error("newline in remote bin accepted")
 	}
 }
@@ -111,7 +111,7 @@ func swapIdleTimer(t *testing.T) *handTimer {
 func TestRemoteRunDeadlineIsPerActivityNotWholeRun(t *testing.T) {
 	h := swapIdleTimer(t)
 	req := agent.RunOptions{Prompt: "p", Timeout: time.Minute}
-	r := NewRemoteEngine("codex", "fakehost", "claude-code", "")
+	r := newRemoteEngine("codex", "fakehost", "claude-code", "")
 
 	fakeSSH(t, "for i in 1 2 3 4 5 6 7 8; do echo 'ask: transient, retrying' >&2; done\n"+
 		`printf '%s\n' '{"schema":1,"type":"result","envelope":{"status":"ok","answer":"done"}}'`+"\n")

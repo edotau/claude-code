@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"sort"
 	"sync"
 
 	"github.com/edotau/claude-code/internal/vault"
@@ -447,14 +446,12 @@ func orderedNames[V any](order []string, has func(string) bool, m map[string]V) 
 			out = append(out, n)
 		}
 	}
-	rest := []string{}
-	for n := range m {
+	for _, n := range slices.Sorted(maps.Keys(m)) {
 		if !seen[n] {
-			rest = append(rest, n)
+			out = append(out, n)
 		}
 	}
-	sort.Strings(rest)
-	return append(out, rest...)
+	return out
 }
 
 // MarshalOrdered renders m as a JSON object with keys in the given order (keys absent from m are skipped).

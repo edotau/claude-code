@@ -115,7 +115,7 @@ type Tree struct {
 	Dispatches []Dispatch `json:"dispatches,omitempty"` // unscoped views: live dispatch jobs machine-wide
 }
 
-// Options scopes a Build by Days (ignored with Session), one Session id, or Running only; Now defaults to time.Now.
+// Options scopes a build by Days (ignored with Session), one Session id, or Running only; Now defaults to time.Now.
 type Options struct {
 	Days    int
 	Session string
@@ -131,9 +131,9 @@ func (o Options) now() time.Time {
 	return time.Now()
 }
 
-// Listing is the tree the `agents tree` verb shows: Build, the idle filter unless showAll, and running dispatches.
-func Listing(claudeDir string, opts Options, showAll bool) (*Tree, error) {
-	tree, err := Build(claudeDir, opts)
+// listing is the tree the `agents tree` verb shows: build, the idle filter unless showAll, and running dispatches.
+func listing(claudeDir string, opts Options, showAll bool) (*Tree, error) {
+	tree, err := build(claudeDir, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -141,14 +141,14 @@ func Listing(claudeDir string, opts Options, showAll bool) (*Tree, error) {
 		tree.Sessions = filterIdleSessions(tree.Sessions)
 	}
 	if opts.Session == "" { // every view lists them, so --background stays a superset of the default
-		tree.Dispatches = RunningDispatches(opts.now())
+		tree.Dispatches = runningDispatches(opts.now())
 		tree.Sessions = dropDispatchSessions(tree.Sessions, tree.Dispatches)
 	}
 	return tree, nil
 }
 
-// Build scans claudeDir/projects for every session in scope, newest first.
-func Build(claudeDir string, opts Options) (*Tree, error) {
+// build scans claudeDir/projects for every session in scope, newest first.
+func build(claudeDir string, opts Options) (*Tree, error) {
 	now := opts.now()
 	sessionFiles, err := sessionTranscriptsInScope(claudeDir, opts, now)
 	if err != nil {
@@ -200,8 +200,11 @@ func sessionHasActivity(s Session) bool {
 }
 
 // unfinished is true for a subagent pruneToRunning keeps: running or stale, not finished or error.
-func unfinished(sub Subagent) bool {
-	return sub.Status != StatusFinished && sub.Status != StatusError
+func unfinished(sub Subagent) bool { return !finished(sub) }
+
+// finished is true for a subagent with a result in: finished or error.
+func finished(sub Subagent) bool {
+	return sub.Status == StatusFinished || sub.Status == StatusError
 }
 
 // forEachRunAgent calls fn on every agent of every phase of run.
@@ -215,13 +218,12 @@ func forEachRunAgent(run WorkflowRun, fn func(Subagent)) {
 
 // pruneToRunning returns a copy without finished/error subagents and emptied runs; stale ones stay.
 func pruneToRunning(s Session) Session {
-	done := func(sub Subagent) bool { return sub.Status == StatusFinished || sub.Status == StatusError }
-	s.Subagents = slices.DeleteFunc(slices.Clone(s.Subagents), done)
+	s.Subagents = slices.DeleteFunc(slices.Clone(s.Subagents), finished)
 	var runs []WorkflowRun
 	for _, run := range s.Workflows {
 		var phases []WorkflowPhase
 		for _, ph := range run.Phases {
-			ph.Agents = slices.DeleteFunc(slices.Clone(ph.Agents), done)
+			ph.Agents = slices.DeleteFunc(slices.Clone(ph.Agents), finished)
 			if len(ph.Agents) > 0 {
 				phases = append(phases, ph)
 			}

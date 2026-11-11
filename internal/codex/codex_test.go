@@ -77,7 +77,7 @@ func TestAuthNoneNotRouted(t *testing.T) {
 	p := *tg.Provider
 	p.Auth = providers.Auth{Type: providers.AuthNone}
 	tg.Provider = &p
-	env, argv, err := agent.SchemaFor("codex").Configure(context.Background(), tg, "")
+	env, argv, err := agent.SchemaFor("codex").Configure(context.Background(), tg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func TestCodexInteractiveCarriesEffortPin(t *testing.T) {
 	stubProxy(t, nil)
 	tg := loadTarget(t, "openai", "gpt-5")
 	vaulttest.SetRecord(t, "codex", "effort", "medium")
-	_, argv, err := agent.SchemaFor("codex").Configure(context.Background(), tg, "")
+	_, argv, err := agent.SchemaFor("codex").Configure(context.Background(), tg)
 	if err != nil {
 		t.Fatal(err)
 	}

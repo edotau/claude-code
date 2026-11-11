@@ -59,7 +59,7 @@ func stubRouter(t *testing.T, ensure func(context.Context) (string, error)) {
 
 func TestEnsureRouterErrorSurfaces(t *testing.T) {
 	stubRouter(t, func(context.Context) (string, error) { return "", errors.New("boom") })
-	_, _, err := SchemaFor("codex").Configure(context.Background(), target(t, "openai", "gpt-5"), "")
+	_, _, err := SchemaFor("codex").Configure(context.Background(), target(t, "openai", "gpt-5"))
 	if err == nil || !strings.Contains(err.Error(), "router") || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("err = %v", err)
 	}

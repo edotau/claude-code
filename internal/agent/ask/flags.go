@@ -4,15 +4,17 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/network/remote"
-
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -29,11 +31,11 @@ type askFlags struct {
 	pack                                                                                                                                                                                                                          *pack.Spec
 	agents                                                                                                                                                                                                                        agentsFlag
 	attach                                                                                                                                                                                                                        attachFlag
-	keepEnv                                                                                                                                                                                                                       keepEnvFlag
-	permAllow, permAsk, permDeny                                                                                                                                                                                                  ruleFlag
+	keepEnv                                                                                                                                                                                                                       []string
+	permAllow, permAsk, permDeny                                                                                                                                                                                                  []string
 	permMode                                                                                                                                                                                                                      string
 	leadProvider                                                                                                                                                                                                                  string
-	env                                                                                                                                                                                                                           envFlag
+	env                                                                                                                                                                                                                           []string
 }
 
 func askFlagSet() (*flag.FlagSet, *askFlags) {
@@ -53,17 +55,17 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	fs.StringVar(&f.session, "session", "", "resume this session id")
 	fs.BoolVar(&f.tools, "tools", false, "allow tool use where the agent can gate it (default: disabled)")
 	fs.BoolVar(&f.readOnly, "read-only", false, "tools may read files but never write, run shell or commit; implies --tools")
-	fs.Var(&f.permAllow, "allow", "allow a tool call, e.g. 'Bash(ls:*)' (repeatable)")
-	fs.Var(&f.permAsk, "ask", "ask before a tool call matching the rule (repeatable)")
-	fs.Var(&f.permDeny, "deny", "deny a tool call matching the rule (repeatable)")
+	helptext.ListVar(fs, &f.permAllow, "allow", "RULE", "allow a tool call, e.g. 'Bash(ls:*)' (repeatable)", false)
+	helptext.ListVar(fs, &f.permAsk, "ask", "RULE", "ask before a tool call matching the rule (repeatable)", false)
+	helptext.ListVar(fs, &f.permDeny, "deny", "RULE", "deny a tool call matching the rule (repeatable)", false)
 	fs.StringVar(&f.permMode, "mode", "", "permission mode for unmatched calls: default|auto|plan")
 	fs.BoolVar(&f.noTools, "no-tools", false, "claude only: answer from the profile directly, no tools; not with --tools")
 	fs.BoolVar(&f.noPersist, "no-persist", false, "claude, codex: do not save the session for later resume")
 	fs.BoolVar(&f.safeMode, "safe-mode", false, "claude, codex, opencode: skip hooks, plugins, customizations")
 	fs.StringVar(&f.debugFile, "debug-file", "", "claude, gemini: write the agent's debug log to this path")
 	fs.Var(&f.attach, "attach", "attach a file (repeatable); task text precedes every attachment")
-	fs.Var(&f.keepEnv, "keep-env", "keep NAME[,NAME] from the credential scrub (repeatable)")
-	fs.Var(&f.env, "env", "set NAME=VALUE in the agent's environment (repeatable); credential names are refused")
+	helptext.ListVar(fs, &f.keepEnv, "keep-env", "NAME,NAME", "keep NAME[,NAME] from the credential scrub (repeatable)", true)
+	helptext.ListVar(fs, &f.env, "env", "NAME=VALUE", "set NAME=VALUE in the agent's environment (repeatable); credential names are refused", false)
 	askRunFlags(fs, f)
 	return fs, f
 }
@@ -104,7 +106,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 }
 
 // askCheckFlags runs the flag checks needing no resolved agent; it returns the exit code with the error.
-func askCheckFlags(env envFlag, keepEnv keepEnvFlag, format, fallback string, background bool, job string, tools, noTools bool) (int, error) {
+func askCheckFlags(env, keepEnv []string, format, fallback string, background bool, job string, tools, noTools bool) (int, error) {
 	if _, err := agentconfig.FlagOverlay(env, keepEnv); err != nil { // names only: the error never carries a value
 		return 2, err
 	}
@@ -160,5 +162,50 @@ func askHostEnvCombos(host string, background bool, job, batchSrc string, hasEnv
 	if hasEnv && background {
 		return errors.New("--env cannot be combined with --background: env values are never stored in the dispatch record")
 	}
+	return nil
+}
+
+// attachFlag collects repeatable --attach paths; Set resolves each to an absolute path and fails fast
+// unless it names an existing regular file.
+type attachFlag []string
+
+func (a *attachFlag) String() string { return strings.Join(*a, ",") }
+
+// Placeholder names the FLAGS placeholder for attachFlag (helptext.Placeholder).
+func (a *attachFlag) Placeholder() string { return "PATH" }
+
+func (a *attachFlag) Set(s string) error {
+	abs, err := filepath.Abs(s)
+	if err != nil {
+		return fmt.Errorf("--attach %q: %w", s, err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return fmt.Errorf("--attach %q: %w", s, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("--attach %q: not a regular file", s)
+	}
+	// reject non-image binary up front: it fails the same way on every agent, so it must never reach the fallback chain
+	if data, err := os.ReadFile(abs); err != nil {
+		return fmt.Errorf("--attach %q: %w", s, err)
+	} else if !agent.IsText(data) && !agent.IsImage(data) {
+		return fmt.Errorf("--attach %q: binary file; attach text only", s)
+	}
+	*a = append(*a, abs)
+	return nil
+}
+
+// agentsFlag is the --agents value: inline JSON or a file of agent definitions.
+type agentsFlag string
+
+func (a *agentsFlag) String() string { return string(*a) }
+
+// Placeholder names the FLAGS placeholder for agentsFlag (helptext.Placeholder).
+func (a *agentsFlag) Placeholder() string { return "JSON|FILE" }
+
+// Set accepts anything: the flag parser echoes a rejected value in its error, so RunAsk validates after Parse.
+func (a *agentsFlag) Set(s string) error {
+	*a = agentsFlag(s)
 	return nil
 }

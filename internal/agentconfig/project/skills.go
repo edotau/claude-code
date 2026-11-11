@@ -51,6 +51,7 @@ const syncedDir = "synced"
 
 // pruneSkillLinks removes unprojected symlinks in agentsSkills that point under skillsDir; all else is untouched.
 func pruneSkillLinks(out io.Writer, agentsSkills, skillsDir string, projected map[string]bool, dryRun bool) syncResult {
+	syncedPath := filepath.Join(skillsDir, syncedDir)
 	match := func(e os.DirEntry) (string, bool) {
 		if e.Type()&os.ModeSymlink == 0 || projected[e.Name()] {
 			return "", false
@@ -59,7 +60,7 @@ func pruneSkillLinks(out io.Writer, agentsSkills, skillsDir string, projected ma
 		if err != nil || !paths.Within(dest, skillsDir) {
 			return "", false
 		}
-		if paths.Within(dest, filepath.Join(skillsDir, syncedDir)) {
+		if paths.Within(dest, syncedPath) {
 			status(out, "EXTRA", paths.ShortHome(filepath.Join(agentsSkills, e.Name())), "synced skills go to no agent; preserved")
 			return "", false
 		}

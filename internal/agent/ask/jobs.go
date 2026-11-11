@@ -52,17 +52,17 @@ func PrintResult(rec job.Record, format string) int {
 		return helptext.Fail("agents result: %v", err)
 	}
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, client.RecordEnvelope(rec, os.Stderr)); err != nil {
+		if err := helptext.WriteJSON(os.Stdout, rec.ResultEnvelope(os.Stderr)); err != nil {
 			return helptext.Fail("agents result: %v", err)
 		}
 		return ResultExit(rec)
 	}
-	out := &ErrWriter{W: os.Stdout}
+	out := &textutil.ErrWriter{W: os.Stdout}
 	fmt.Fprint(out, log)
 	if log != "" && !strings.HasSuffix(log, "\n") {
 		fmt.Fprintln(out)
 	}
-	if line := client.RecordEnvelope(rec, os.Stderr).RanOn; line != "" {
+	if line := rec.ResultEnvelope(os.Stderr).RanOn; line != "" {
 		fmt.Fprintln(out, "ask:", line)
 	}
 	if rec.SessionID != "" {

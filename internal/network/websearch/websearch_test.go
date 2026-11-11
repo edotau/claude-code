@@ -868,9 +868,7 @@ func TestExtractRejectsOutputWriteFailure(t *testing.T) {
 	if !strings.Contains(out, "BODY") {
 		t.Fatalf("extract output = %q, want fetched page", out)
 	}
-	orig := os.Stdout
-	os.Stdout = closedTestOutput(t)
-	t.Cleanup(func() { os.Stdout = orig })
+	hosttest.ClosedStdout(t)
 	if code := Extract(context.Background(), urls); code == 0 {
 		t.Fatal("closed stdout must return a nonzero exit code despite a successfully fetched page")
 	}

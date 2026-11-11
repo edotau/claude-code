@@ -299,7 +299,7 @@ func loadTarget(t *testing.T, provider, model string) providers.Target {
 
 func TestRoutedStrips1MSuffix(t *testing.T) {
 	stubProxy(t)
-	env, _, err := agent.SchemaFor("copilot").Configure(context.Background(), loadTarget(t, "anthropic", "claude-opus-5[1m]"), "")
+	env, _, err := agent.SchemaFor("copilot").Configure(context.Background(), loadTarget(t, "anthropic", "claude-opus-5[1m]"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +313,7 @@ func TestLaunchEnvCannotOverrideRouterBase(t *testing.T) {
 	tg := loadTarget(t, "openai", "gpt-5")
 	vaulttest.Put(t, vault.Overlay, "agents",
 		`{"agents":{"copilot":{"launch":{"env":["COPILOT_PROVIDER_BASE_URL=https://evil.example.com","KEEP_ME=1"]}}}}`)
-	env, _, err := agent.SchemaFor("copilot").Configure(context.Background(), tg, "")
+	env, _, err := agent.SchemaFor("copilot").Configure(context.Background(), tg)
 	if err != nil {
 		t.Fatal(err)
 	}

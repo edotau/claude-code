@@ -258,7 +258,7 @@ func renderCopilot(reg *providers.Registry, sel providers.Selection, home string
 	if note != "" {
 		fmt.Fprintln(out, note)
 	}
-	if _, _, err := copilotSchema().Configure(ctx, target, ""); err != nil {
+	if _, _, err := copilotSchema().Configure(ctx, target); err != nil {
 		fmt.Fprintf(out, "copilot: skipped: %v\n", err)
 		return drift, nil
 	}

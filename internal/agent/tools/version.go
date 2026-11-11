@@ -22,11 +22,6 @@ import (
 // versionProbeTimeout bounds a `--version` call; it is not a login probe, so it is not agent.ProbeTimeout.
 const versionProbeTimeout = 5 * time.Second
 
-// firstVersionLine is FirstVersionLine under versionProbeTimeout, the probe shape ProbedVersionLine takes.
-func firstVersionLine(path string) string {
-	return FirstVersionLine(context.Background(), path, versionProbeTimeout)
-}
-
 // FirstVersionLine is the first line of `path --version`, bounded by ctx and timeout; any error is "" (best-effort).
 func FirstVersionLine(ctx context.Context, path string, timeout time.Duration) string {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -141,8 +136,12 @@ var (
 
 func versionCacheFile() string { return filepath.Join(paths.StateDir(), "agentversion.json") }
 
-// versionLine is firstVersionLine cached in-process and in the state dir, keyed by path+size+mtime; failures uncached.
-func versionLine(path string) string { return ProbedVersionLine(path, firstVersionLine) }
+// versionLine is FirstVersionLine under versionProbeTimeout, cached in-process and in the state dir by path+size+mtime.
+func versionLine(path string) string {
+	return ProbedVersionLine(path, func(p string) string {
+		return FirstVersionLine(context.Background(), p, versionProbeTimeout)
+	})
+}
 
 // ProbedVersionLine is versionLine with the caller's own probe (its timeout and parsing), sharing the same cache.
 func ProbedVersionLine(path string, probe func(string) string) string {

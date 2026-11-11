@@ -205,16 +205,16 @@ func npmCleanupFor(ctx context.Context, w io.Writer, name, dir string, dryRun bo
 		return
 	}
 	localPath := filepath.Join(dir, name)
-	if !dryRun && firstVersionLine(localPath) == "" {
+	if !dryRun && FirstVersionLine(context.Background(), localPath, versionProbeTimeout) == "" {
 		fmt.Fprintf(w, "  keep     npm-global %s (%s did not answer --version)\n", name, localPath)
 		return
 	}
 	seen := make(map[string]bool)
-	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
-		if dir == "" {
+	for _, entry := range filepath.SplitList(os.Getenv("PATH")) {
+		if entry == "" {
 			continue
 		}
-		bin := filepath.Join(dir, name)
+		bin := filepath.Join(entry, name)
 		prefix := cleanupPrefix(bin, localPath)
 		if prefix == "" || seen[prefix] {
 			continue

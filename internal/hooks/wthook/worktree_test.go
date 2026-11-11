@@ -409,10 +409,10 @@ func divergedClone(t *testing.T) string {
 	hosttest.In(t, work, "commit", "-qm", "local")
 	hosttest.In(t, work, "fetch", "-q")
 	short := strings.TrimSpace(hosttest.In(t, work, "rev-parse", "--short=7", "HEAD"))
-	if err := os.MkdirAll(claimsDir(), 0o700); err != nil {
+	if err := os.MkdirAll(worktree.ClaimsDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	hosttest.WriteRel(t, claimsDir(), filepath.Base(claimsFile(liveOwner, "peerS")), `{"schema":1,"commit":"`+short+`","ts":1}`+"\n")
+	hosttest.WriteRel(t, worktree.ClaimsDir(), filepath.Base(claimsFile(liveOwner, "peerS")), `{"schema":1,"commit":"`+short+`","ts":1}`+"\n")
 	orig, origPeers := claimAlive, PeerAgents
 	claimAlive = func(pid int) bool { return pid == liveOwner }
 	PeerAgents = func(string, []string) ([]worktree.Proc, error) {

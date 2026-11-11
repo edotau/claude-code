@@ -180,6 +180,36 @@ func (n *Name) Placeholder() string { return "NAME" }
 // NameVar binds the flag name to *v as a NAME-placeholder string flag.
 func NameVar(fs *flag.FlagSet, v *string, name, usage string) { fs.Var((*Name)(v), name, usage) }
 
+// listFlag is a repeatable string flag appending to *v; split also comma-splits each occurrence.
+type listFlag struct {
+	v           *[]string
+	placeholder string
+	split       bool
+}
+
+func (l *listFlag) String() string {
+	if l == nil || l.v == nil {
+		return ""
+	}
+	return strings.Join(*l.v, ",")
+}
+
+func (l *listFlag) Placeholder() string { return l.placeholder }
+
+func (l *listFlag) Set(s string) error {
+	if l.split {
+		*l.v = append(*l.v, strings.Split(s, ",")...)
+	} else {
+		*l.v = append(*l.v, s)
+	}
+	return nil
+}
+
+// ListVar binds the repeatable flag name to *v with the given FLAGS placeholder; split comma-splits each value.
+func ListVar(fs *flag.FlagSet, v *[]string, name, placeholder, usage string, split bool) {
+	fs.Var(&listFlag{v: v, placeholder: placeholder, split: split}, name, usage)
+}
+
 // shorthandPrefix marks a one-letter alias; its row folds into the long flag's as "-p, --profile NAME".
 const shorthandPrefix = "shorthand for --"
 

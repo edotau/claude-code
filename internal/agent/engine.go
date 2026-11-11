@@ -142,7 +142,10 @@ func NewBaseEngine(name string) BaseEngine { return BaseEngine{name} }
 
 func (b BaseEngine) Name() string { return b.name }
 
-func (b BaseEngine) Caps() Caps { return SchemaFor(b.name).CLI.Caps }
+func (b BaseEngine) Caps() Caps {
+	s, _ := lookupRow(b.name)
+	return s.CLI.Caps
+}
 
 func (b BaseEngine) Available() error {
 	_, err := paths.AgentBin(SchemaFor(b.name).CLI.Binary)

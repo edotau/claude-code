@@ -58,11 +58,11 @@ func computeColumnWidths(tree *Tree) columnWidths {
 	return c
 }
 
-// RenderText groups tree.Sessions by repo (cwd), newest session first within each repo, and prints
+// renderText groups tree.Sessions by repo (cwd), newest session first within each repo, and prints
 // each session's subagents indented by spawnDepth, with Workflow runs shown as phases -> agents.
 // Every row is fit to terminalWidth() by truncating its description (its tool segment is dropped
 // first) rather than wrapping. It returns the first write error, if any.
-func RenderText(w io.Writer, tree *Tree, now time.Time) error {
+func renderText(w io.Writer, tree *Tree, now time.Time) error {
 	ew := &textutil.ErrWriter{W: w}
 	renderTree(ew, tree, now)
 	return ew.Err
@@ -212,8 +212,8 @@ func renderSubagent(w io.Writer, sub Subagent, now time.Time, cols columnWidths,
 	prefix := fmt.Sprintf("%s%s %-*s %-*s depth=%d  %s  %s  idle=%s",
 		indent, statusGlyph(sub.Status), cols.subType, sub.Type, cols.subStatus, sub.Status, sub.Depth,
 		tokenCompact(sub.Tokens), age(sub.Updated, now), idleSince(sub, now))
-	label := StripPaths(sub.Description, home, cwd)
-	fmt.Fprintln(w, fitRow(prefix, Truncate(label, 60), tool, width))
+	label := stripPaths(sub.Description, home, cwd)
+	fmt.Fprintln(w, fitRow(prefix, truncate(label, 60), tool, width))
 	for _, disp := range sub.Dispatches {
 		fmt.Fprintf(w, "%s  %s\n", indent, formatDispatch(disp))
 	}
@@ -237,7 +237,7 @@ func formatDispatch(l Dispatch) string {
 func phaseDone(agents []Subagent) (done, total int) {
 	for _, a := range agents {
 		total++
-		if a.Status == StatusFinished || a.Status == StatusError {
+		if finished(a) {
 			done++
 		}
 	}
@@ -363,7 +363,7 @@ func Show(claudeDir string, opts Options, v View) int {
 
 // show lists the tree once and writes it as JSON or text.
 func show(claudeDir string, opts Options, v View) int {
-	listing, err := Listing(claudeDir, opts, v.All)
+	listing, err := listing(claudeDir, opts, v.All)
 	if err == nil && v.JSON {
 		err = helptext.WriteJSON(os.Stdout, listing)
 	}
@@ -372,7 +372,7 @@ func show(claudeDir string, opts Options, v View) int {
 		return 1
 	}
 	if !v.JSON {
-		if err := RenderText(os.Stdout, listing, time.Now()); err != nil {
+		if err := renderText(os.Stdout, listing, time.Now()); err != nil {
 			return helptext.Fail("agents tree: %v", err)
 		}
 	}

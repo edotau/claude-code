@@ -123,11 +123,23 @@ func formatsCheck() Check {
 }
 
 func ledgerLines() int {
-	data, err := os.ReadFile(schemas.LedgerPath())
+	f, err := os.Open(schemas.LedgerPath())
 	if err != nil {
 		return 0
 	}
-	return bytes.Count(data, []byte("\n"))
+	defer f.Close()
+	buf := make([]byte, 32<<10)
+	n := 0
+	for {
+		k, err := f.Read(buf)
+		n += bytes.Count(buf[:k], []byte("\n"))
+		if errors.Is(err, io.EOF) {
+			return n
+		}
+		if err != nil {
+			return 0
+		}
+	}
 }
 
 func vaultDoctorChecks() []Check {

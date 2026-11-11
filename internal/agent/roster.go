@@ -214,12 +214,19 @@ func cloneSchema(s Schema) Schema {
 
 // LookupSchema returns a roster row by name, claude included.
 func LookupSchema(name string) (Schema, bool) {
-	for _, s := range rows() {
-		if s.Name == name {
-			return cloneSchema(s), true
-		}
+	s, ok := lookupRow(name)
+	return cloneSchema(s), ok
+}
+
+// lookupRow is the shared registry row for name, not to be mutated; readers that do not keep it skip the clone.
+func lookupRow(name string) (Schema, bool) {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	i, ok := slices.BinarySearchFunc(rosterRows, name, func(r Schema, n string) int { return strings.Compare(r.Name, n) })
+	if !ok {
+		return Schema{}, false
 	}
-	return Schema{}, false
+	return rosterRows[i], true
 }
 
 // External reports whether the row drives an external CLI rather than the harness's Claude launcher.

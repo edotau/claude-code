@@ -538,7 +538,7 @@ func runAgents(d *dialog) bool {
 			d.printf("%-10s routes to %s (%s)\n", name, target.Provider.Name, target.Model)
 			continue
 		}
-		_, _, cerr := s.Configure(context.Background(), target, "")
+		_, _, cerr := s.Configure(context.Background(), target)
 		if errors.Is(cerr, agent.ErrOwnLogin) { // e.g. opencode on its own Copilot sign-in: working, nothing to inject
 			d.printf("%-10s runs on its own %s login (%s)\n", name, target.Provider.Name, target.Model)
 			continue

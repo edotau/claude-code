@@ -155,7 +155,7 @@ func (e copilotEngine) routeEnv(ctx context.Context, cs agent.Schema, req agent.
 		route, err = prepareCopilotRegistry(ctx, t)
 		return route, nil, err
 	}
-	env, _, err = cs.Configure(ctx, t, "")
+	env, _, err = cs.Configure(ctx, t)
 	return nil, env, err
 }
 

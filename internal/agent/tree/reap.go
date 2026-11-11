@@ -1,6 +1,7 @@
 package tree
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // scanAllRecords is RecentRecords' n for "every record": the log itself is capped by the dispatch keep.
@@ -27,8 +29,8 @@ const markerLockWait = 2 * time.Second
 // lostError is the Error a reaped dispatch record carries.
 const lostError = "lost: process gone"
 
-// RunningDispatches lists live dispatch jobs machine-wide (every repo, any age), newest first.
-func RunningDispatches(now time.Time) []Dispatch {
+// runningDispatches lists live dispatch jobs machine-wide (every repo, any age), newest first.
+func runningDispatches(now time.Time) []Dispatch {
 	var dispatches []Dispatch
 	for _, rec := range job.RecentRecords(scanAllRecords) {
 		if !rec.Alive() {
@@ -212,4 +214,75 @@ func sweepMarkers(dir string, dryRun bool, verb string, out io.Writer) (int, err
 		n++
 	}
 	return n, errors.Join(errs...)
+}
+
+// pendingAskMarker flags a Bash arg as a relay that launched `ask` and has not seen its exit line yet.
+const pendingAskMarker = "ask --agent"
+
+// firstTimestamp reads a transcript first record timestamp: the subagent start time, zero on failure.
+func firstTimestamp(path string) time.Time {
+	f, err := os.Open(path)
+	if err != nil {
+		return time.Time{}
+	}
+	defer f.Close()
+	sc := newLineScanner(f)
+	if sc.Scan() {
+		var rec struct {
+			Timestamp string `json:"timestamp"`
+		}
+		if json.Unmarshal(sc.Bytes(), &rec) == nil {
+			return parseRFC3339(rec.Timestamp)
+		}
+	}
+	return time.Time{}
+}
+
+// dispatchFromRecord renders a dispatch record; a still-running record reports its elapsed time so far.
+func dispatchFromRecord(rec job.Record, matched string, now time.Time) Dispatch {
+	duration := rec.Elapsed()
+	if duration == "" && rec.Status == "running" {
+		duration = now.Sub(rec.Time).Round(time.Second).String()
+	}
+	return Dispatch{
+		ID: rec.ID, Agent: rec.Agent, Provider: rec.Provider, Model: rec.Model,
+		Status: rec.Status, Duration: duration, Fallback: rec.Fallback,
+		FallbackReason: rec.FallbackReason, Matched: matched,
+	}
+}
+
+// buildDispatches returns each "ask: dispatch <id>" the transcript shows, plus a heuristic match when `ask` is pending.
+func buildDispatches(transcriptPath, cwd string, now time.Time, act Activity) []Dispatch {
+	var dispatches []Dispatch
+	matched := map[string]bool{}
+	for _, id := range transcript.DispatchIDs(transcriptPath) {
+		rec, err := job.LoadRecord(id)
+		if err != nil {
+			continue
+		}
+		dispatches = append(dispatches, dispatchFromRecord(rec, "", now))
+		matched[rec.ID] = true
+	}
+	if act.Tool == "Bash" && strings.Contains(act.Arg, pendingAskMarker) {
+		if disp := pendingDispatch(transcriptPath, cwd, matched, now); disp != nil {
+			dispatches = append(dispatches, *disp)
+		}
+	}
+	return dispatches
+}
+
+// pendingDispatch matches the newest running dispatch for this cwd that started no earlier than the subagent.
+func pendingDispatch(transcriptPath, cwd string, matched map[string]bool, now time.Time) *Dispatch {
+	start := firstTimestamp(transcriptPath)
+	for _, rec := range job.RecentRecords(50) {
+		if matched[rec.ID] || rec.Status != "running" || rec.Request.WorkDir != cwd {
+			continue
+		}
+		if !start.IsZero() && rec.Time.Before(start) {
+			continue
+		}
+		disp := dispatchFromRecord(rec, "heuristic", now)
+		return &disp
+	}
+	return nil
 }

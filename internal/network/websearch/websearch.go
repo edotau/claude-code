@@ -29,6 +29,7 @@ const (
 	defaultProtocolVersion = "2025-11-25"
 	serverName             = "websearch"
 	serverVersion          = "1.0.0"
+	userAgent              = "claude-code-websearch/" + serverVersion
 	toolName               = "web_search"
 	extractToolName        = "web_extract"
 	extractToolDescription = "Read public web pages as markdown via Tavily; up to 20 URLs; honors robots.txt"
@@ -337,7 +338,7 @@ func postTavilySearch(ctx context.Context, body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("could not build Tavily request (%v)", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "claude-code-websearch/"+serverVersion)
+	req.Header.Set("User-Agent", userAgent)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("could not reach Tavily (%v)", err)
@@ -379,7 +380,7 @@ func postTavilyExtract(ctx context.Context, apiKey string, urls []string, depth 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("User-Agent", "claude-code-websearch/"+serverVersion)
+	req.Header.Set("User-Agent", userAgent)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return payload, fmt.Errorf("could not reach Tavily (%v)", err)
@@ -628,7 +629,7 @@ func fetchPageText(ctx context.Context, pageURL string) string {
 		return ""
 	}
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5")
-	req.Header.Set("User-Agent", "claude-code-websearch/"+serverVersion)
+	req.Header.Set("User-Agent", userAgent)
 	if !robotsAllowed(ctx, req.URL, nil) {
 		return ""
 	}

@@ -33,16 +33,16 @@ func TestCompactNumberBoundaries(t *testing.T) {
 	}
 }
 
-// (g) RenderText never produces a line over terminalWidth(), even for a subagent with a long description.
+// (g) renderText never produces a line over terminalWidth(), even for a subagent with a long description.
 func TestRenderTextLineWidth(t *testing.T) {
 	now := time.Date(2026, 10, 18, 3, 10, 0, 0, time.UTC)
 	fixture := filepath.Join("..", "..", "agent", "tree", "testdata")
-	tree, err := Build(fixture, Options{Days: 99999, Now: func() time.Time { return now }})
+	tree, err := build(fixture, Options{Days: 99999, Now: func() time.Time { return now }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var buf strings.Builder
-	RenderText(&buf, tree, now)
+	renderText(&buf, tree, now)
 	max := terminalWidth()
 	for i, line := range strings.Split(buf.String(), "\n") {
 		if n := len([]rune(line)); n > max {
@@ -66,7 +66,7 @@ func TestRenderWriteErrors(t *testing.T) {
 	}{
 		{"text", func(w io.Writer) error {
 			tr := &Tree{Sessions: []Session{{Cwd: "/repo"}}}
-			return RenderText(w, tr, time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC))
+			return renderText(w, tr, time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC))
 		}},
 	}
 	failures := []struct {

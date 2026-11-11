@@ -82,7 +82,7 @@ func (s *TextSink) Emit(ev Event) error {
 	return err
 }
 
-// stamper numbers and times a sink's events; the caller holds the sink's lock.
+// Stamper numbers and times a sink's events; the caller holds the sink's lock.
 type Stamper struct {
 	seq   int64
 	start time.Time
@@ -94,7 +94,7 @@ func NewStamper() Stamper {
 	return Stamper{start: Clock(), host: host}
 }
 
-// stamp sets ev's schema, seq, t_ms and, when unset, host.
+// Stamp sets ev's schema, seq, t_ms and, when unset, host.
 func (s *Stamper) Stamp(ev *Event) {
 	s.seq++
 	ev.Schema, ev.Seq, ev.TMs = EventSchema, s.seq, Clock().Sub(s.start).Milliseconds()
@@ -172,7 +172,7 @@ func (w textWriter) Write(p []byte) (int, error) {
 // SinkWriter is an io.Writer that emits its bytes as text events on s.
 func SinkWriter(s Sink) io.Writer { return textWriter{s: s} }
 
-// runSink stamps the running agent's name and notes progress, so a retry never repeats streamed output or tool effects.
+// RunSink stamps the running agent's name and notes progress, so a retry never repeats streamed output or tool effects.
 type RunSink struct {
 	Sink
 	Agent      string
@@ -187,7 +187,7 @@ func (r *RunSink) Emit(ev Event) error {
 	return r.Sink.Emit(ev)
 }
 
-// progress is true for an event a replay could repeat: answer text, a tool call that may have had effects, or a mark.
+// Progress is true for an event a replay could repeat: answer text, a tool call that may have had effects, or a mark.
 func (ev Event) Progress() bool {
 	switch ev.Type {
 	case EventProgress:

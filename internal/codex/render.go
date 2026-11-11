@@ -54,7 +54,7 @@ func codexProviderSection(reg *providers.Registry, sel providers.Selection, exis
 		fmt.Fprintf(out, "codex: %s runs on codex's own login; writing approval/sandbox keys only\n", target.Provider.Name)
 		return codexBannerSection(strings.TrimRight(keys, "\n")), nil
 	}
-	_, argv, err := codexSchema().Configure(ctx, target, "")
+	_, argv, err := codexSchema().Configure(ctx, target)
 	if err != nil {
 		fmt.Fprintf(out, "codex: skipped: %v\n", err)
 		return "", nil

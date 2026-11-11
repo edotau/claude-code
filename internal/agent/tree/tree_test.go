@@ -129,7 +129,7 @@ func sessionByID(t *testing.T, tree *Tree, id string) Session {
 // from its sidecar meta.json into Subagent.Depth.
 func TestBuildDiscoversSessionsAndSubagentsByDepth(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 60, Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestBuildDiscoversSessionsAndSubagentsByDepth(t *testing.T) {
 // phases (Detect, Gate), each phase holding the agents that ran inside it.
 func TestBuildFoldsWorkflowRunIntoPhases(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 60, Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func assertPhaseAgents(t *testing.T, run WorkflowRun, want map[string]string) {
 // active/running; finished wins outright for a subagent regardless of mtime; otherwise idle/stale.
 func TestStatusClassificationUsesPinnedClock(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 60, Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestSubagentGoesStaleOutsideActiveWindow(t *testing.T) {
 	if err := os.Chtimes(p, old, old); err != nil {
 		t.Fatal(err)
 	}
-	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 60, Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestSubagentGoesStaleOutsideActiveWindow(t *testing.T) {
 // (c) --days excludes a session whose transcript mtime falls outside the window.
 func TestBuildDaysFilterExcludesOldSessions(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Days: 1, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 1, Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestBuildDaysFilterExcludesOldSessions(t *testing.T) {
 // (d) --session narrows to exactly one session id, searched across every project dir, ignoring --days.
 func TestBuildSessionFilter(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Session: "stale-session-cccc3333", Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Session: "stale-session-cccc3333", Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +285,7 @@ func TestBuildSessionFilter(t *testing.T) {
 // (direct or inside a workflow run); a wholly finished/idle session is dropped.
 func TestBuildRunningFilter(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Days: 60, Running: true, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 60, Running: true, Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +343,7 @@ type schemaSession struct {
 // branch, title, updated, status, tokens, subagents:[...], workflows:[...]}]}.
 func TestBuildJSONSchema(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Session: "finished-session-aaaa1111", Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Session: "finished-session-aaaa1111", Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,10 +397,10 @@ func TestMalformedLastLineDoesNotPanic(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
 	defer func() {
 		if r := recover(); r != nil {
-			t.Fatalf("Build panicked on a malformed last line: %v", r)
+			t.Fatalf("build panicked on a malformed last line: %v", r)
 		}
 	}()
-	tree, err := Build(claudeDir, Options{Session: "malformed-session-dddd4444", Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Session: "malformed-session-dddd4444", Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +414,7 @@ func TestMalformedLastLineDoesNotPanic(t *testing.T) {
 // on the Tokens type; a cache-read-heavy agent must not be folded into the "freshly billed" column.
 func TestTokensCacheReadIsSeparateFromIn(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Session: "finished-session-aaaa1111", Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Session: "finished-session-aaaa1111", Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -445,7 +445,7 @@ func TestTokensCacheReadIsSeparateFromIn(t *testing.T) {
 // everything else (active sessions, or any session that dispatched something).
 func TestFilterIdleSessionsDropsOnlyEmptyIdle(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 60, Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +471,7 @@ func TestFilterIdleSessionsDropsOnlyEmptyIdle(t *testing.T) {
 // filterIdleSessions must keep it regardless of its empty subagent/workflow list.
 func TestFilterIdleSessionsKeepsActiveEvenWhenEmpty(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Session: "running-session-bbbb2222", Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Session: "running-session-bbbb2222", Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,8 +490,8 @@ func TestFilterIdleSessionsKeepsActiveEvenWhenEmpty(t *testing.T) {
 func TestBuildRejectsSessionPathTraversal(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
 	for _, bad := range []string{"../../etc/passwd", "foo/../bar", ".."} {
-		if _, err := Build(claudeDir, Options{Session: bad, Now: pinNow(now)}); err == nil {
-			t.Errorf("Build(Session=%q) = nil error, want rejection of a non-plain session id", bad)
+		if _, err := build(claudeDir, Options{Session: bad, Now: pinNow(now)}); err == nil {
+			t.Errorf("build(Session=%q) = nil error, want rejection of a non-plain session id", bad)
 		}
 	}
 }
@@ -515,7 +515,7 @@ func runningIDs(s Session) (subs, wfAgents []string, runs []string) {
 // --running prunes finished/error subagents and workflow runs inside a kept session; running ones stay.
 func TestBuildRunningPrunesFinishedChildren(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Days: 60, Running: true, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 60, Running: true, Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -548,10 +548,10 @@ func assertNoDoneWorkflowAgents(t *testing.T, s Session) {
 	}
 }
 
-// Plain Build (no --running) keeps both the finished and the running subagent.
+// Plain build (no --running) keeps both the finished and the running subagent.
 func TestBuildPlainKeepsFinishedChildren(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 60, Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -573,7 +573,7 @@ func TestBuildRunningKeepsStaleSubagent(t *testing.T) {
 	if err := os.Chtimes(p, old, old); err != nil {
 		t.Fatal(err)
 	}
-	tree, err := Build(claudeDir, Options{Days: 60, Running: true, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 60, Running: true, Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -586,7 +586,7 @@ func TestBuildRunningKeepsStaleSubagent(t *testing.T) {
 // The JSON view marshals the same pruned tree: no finished/error subagents, same session count.
 func TestBuildRunningJSONMatchesPrunedTree(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Days: 60, Running: true, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 60, Running: true, Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -703,7 +703,7 @@ func (e dedupeEnv) dispatch(t *testing.T, name, prompt, workDir, repo, sessionID
 
 func (e dedupeEnv) tree(t *testing.T) Tree {
 	t.Helper()
-	tree, err := Listing(e.cfg, Options{Days: 60, Running: true, Now: pinNow(e.now)}, true)
+	tree, err := listing(e.cfg, Options{Days: 60, Running: true, Now: pinNow(e.now)}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -794,7 +794,7 @@ func subagentByID(s Session, id string) (Subagent, bool) {
 // both regardless of the sidecar meta's own (missing/false) "finished" flag.
 func TestJournalDrivesFinishedAndErrorStatus(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 60, Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -820,7 +820,7 @@ func TestJournalDrivesFinishedAndErrorStatus(t *testing.T) {
 // (2) A journal "started" line with no result yet keeps today's mtime-driven running read.
 func TestJournalStartedWithoutResultStillRunning(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 60, Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -850,7 +850,7 @@ func TestManifestLessWorkflowRunFinishesFromJournal(t *testing.T) {
 	old := now.Add(-20 * time.Minute)
 	chtimesAll(t, runDir, old)
 
-	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 60, Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -869,7 +869,7 @@ func TestManifestLessWorkflowRunFinishesFromJournal(t *testing.T) {
 func TestVendorDispatchesDirectMatch(t *testing.T) {
 	withDispatchFixture(t)
 	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 60, Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -908,7 +908,7 @@ func assertGateDispatches(t *testing.T, dispatches []Dispatch) {
 func TestVendorDispatchHeuristicRunningMatch(t *testing.T) {
 	withDispatchFixture(t)
 	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 60, Now: pinNow(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -973,9 +973,9 @@ func TestRegistryJoin(t *testing.T) {
 		}
 	}
 
-	tree, err := Build(claudeDir, Options{Days: 1, Running: true, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 1, Running: true, Now: pinNow(now)})
 	if err != nil {
-		t.Fatalf("Build with an unparsable registry file: %v", err)
+		t.Fatalf("build with an unparsable registry file: %v", err)
 	}
 	got := registryJoinedSession(t, tree)
 	if !got.Live || got.PID != os.Getpid() || got.Name != "name-live-stale" || got.CLIStatus != "waiting" || got.Mode != "interactive" {

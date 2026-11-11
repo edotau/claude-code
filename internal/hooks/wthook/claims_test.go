@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // claimInput is a parsed hook payload for the claims modules.
@@ -38,7 +39,7 @@ func TestWorktreeClaimRecordsEditsAndCommits(t *testing.T) {
 	dir := core.CanonPath(t.TempDir())
 	Claim(claimInput(t, map[string]any{"session_id": "", "cwd": dir, "tool_name": "Edit",
 		"tool_input": map[string]any{"file_path": "a.txt"}}))
-	if _, err := os.Stat(claimsDir()); !os.IsNotExist(err) {
+	if _, err := os.Stat(worktree.ClaimsDir()); !os.IsNotExist(err) {
 		t.Fatalf("no session must write no claims dir, stat err = %v", err)
 	}
 	Claim(claimInput(t, map[string]any{"session_id": "S1", "agent_id": "leaf1", "cwd": dir,

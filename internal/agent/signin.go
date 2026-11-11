@@ -328,13 +328,11 @@ func ClassifyProbe(ctx context.Context, err error) (providers.AuthVerdict, strin
 // probeDetailMax caps the stderr line ProbeErrDetail appends.
 const probeDetailMax = 200
 
-// ProbeErrDetail is err plus the first stderr line (≤200 bytes), when the command reported one.
+// ProbeErrDetail is err plus the first stderr line (≤200 runes), when the command reported one.
 func ProbeErrDetail(err error) string {
 	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 		if line, _, _ := strings.Cut(strings.TrimSpace(string(ee.Stderr)), "\n"); line != "" {
-			if len(line) > probeDetailMax {
-				line = line[:probeDetailMax]
-			}
+			line = textutil.CapRunes(line, probeDetailMax, "")
 			return err.Error() + ": " + line
 		}
 	}

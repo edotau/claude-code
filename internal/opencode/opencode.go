@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/launchcli"
-
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
@@ -80,7 +78,7 @@ func opencodeProviderOptions(p *providers.Provider, dialect, base, cred string) 
 	}
 	var env []string
 	if cred != "" {
-		env = append(env, launchcli.OpenCodeKeyEnv+"="+cred)
+		env = append(env, OpenCodeKeyEnv+"="+cred)
 	}
 	native := dialect == providers.ProtocolAnthropic || (dialect == providers.ProtocolGemini && agent.IsGateway(base))
 	return npm, providerOptions(p, cred, url, native), env
@@ -244,7 +242,7 @@ func opencodeArgv(model string, h agent.Headless) []string {
 		// -f is variadic: without "--", opencode reads the prompt as another file path.
 		return append(append(argv, "--"), h.Prompt)
 	}
-	return append(argv, launchcli.Positional(h.Prompt)...)
+	return append(argv, positional(h.Prompt)...)
 }
 
 // opencodeTitle is the session title: "opencode: " plus the prompt's first 40 runes on one line.
@@ -609,6 +607,17 @@ func opencodeSystemPrompt(env, argv []string, prompt string) ([]string, []string
 
 // OpencodeAPIKeyEnv is the vault key a launch passes as env when opencode holds no stored `opencode` login.
 const OpencodeAPIKeyEnv = "OPENCODE_API_KEY"
+
+// OpenCodeKeyEnv carries the credential (never argv); the config text names the variable, not the secret.
+const OpenCodeKeyEnv = "HARNESS_OPENCODE_API_KEY"
+
+// positional guards a dash-led prompt from flag parsing.
+func positional(prompt string) []string {
+	if strings.HasPrefix(prompt, "-") {
+		return []string{"--", prompt}
+	}
+	return []string{prompt}
+}
 
 // OpencodeCredID maps a model's provider prefix to the opencode credential serving it; Go and Zen share `opencode`.
 func OpencodeCredID(prefix string) string {

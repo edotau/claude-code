@@ -115,3 +115,43 @@ func TestReapRecordsSkipsRecordRevivedAfterSnapshot(t *testing.T) {
 		t.Errorf("record = %q pid %d, want the live owner's running record untouched", got.Status, got.PID)
 	}
 }
+
+// withDispatchFixture points internal/agent's dispatch log at testdata/dispatch for the duration of
+// the test, via CLAUDE_CONFIG_DIR (internal/paths.StateDir honors it).
+func withDispatchFixture(t *testing.T) {
+	t.Helper()
+	cfgDir := t.TempDir()
+	dst := filepath.Join(cfgDir, "state", "harness", "dispatch")
+	if err := os.MkdirAll(dst, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join("testdata", "dispatch")
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		raw, err := os.ReadFile(filepath.Join(src, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dst, e.Name()), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
+}
+
+// A dispatch id printed only as the envelope "dispatch_id" (no `ask: dispatch` line) still yields its Dispatch.
+func TestBuildDispatchesEnvelopeID(t *testing.T) {
+	withDispatchFixture(t)
+	path := filepath.Join(t.TempDir(), "agent.jsonl")
+	line := `{"type":"user","message":{"content":[{"type":"tool_result","content":"{\"dispatch_id\":\"20261017T231131.948-codex\"}"}]}}` + "\n"
+	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := buildDispatches(path, "", time.Now(), Activity{})
+	if len(got) != 1 || got[0].ID != "20261017T231131.948-codex" {
+		t.Fatalf("buildDispatches = %+v, want the envelope dispatch", got)
+	}
+}

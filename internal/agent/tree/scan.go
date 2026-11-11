@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -29,23 +28,6 @@ const headScanBytes = 64 << 10
 // activityScanBytes bounds the subagent tail read for the newest tool/text activity signal.
 const activityScanBytes = 64 << 10
 
-// grepScanMaxLine bounds one scanned line of the full-file greps (dispatch ids, edited files, events, journal).
-const grepScanMaxLine = 10 << 20
-
-// eachLine calls fn on every line of path; an open failure or a too-long/truncated line ends the scan quietly.
-func eachLine(path string, fn func(line []byte)) {
-	f, err := os.Open(path)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64<<10), grepScanMaxLine)
-	for sc.Scan() {
-		fn(sc.Bytes())
-	}
-}
-
 // isJSONNull reports whether raw is the literal JSON null (vs. absent/empty, which is "").
 func isJSONNull(raw json.RawMessage) bool {
 	return strings.TrimSpace(string(raw)) == "null"
@@ -55,9 +37,9 @@ func isJSONNull(raw json.RawMessage) bool {
 func resultPreview(raw json.RawMessage) string {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
-		return Truncate(s, 200)
+		return truncate(s, 200)
 	}
-	return Truncate(string(raw), 200)
+	return truncate(string(raw), 200)
 }
 
 // sessionHead is what the first ~64KB of a main transcript carries about the session itself.
@@ -117,7 +99,7 @@ func titleFromRecord(rec sessionHeadLine) string {
 	if text == "" || isSkippableTitle(text) {
 		return ""
 	}
-	return Truncate(text, 60)
+	return truncate(text, 60)
 }
 
 // userTurnText reads a user record's message.content: a plain string or an array of blocks (text parts concatenated).
@@ -131,8 +113,8 @@ func userTurnText(raw json.RawMessage) string {
 	return transcript.ContentText(msg.Content)
 }
 
-// Truncate renders s on one line, cut to n runes with an ellipsis when longer.
-func Truncate(s string, n int) string {
+// truncate renders s on one line, cut to n runes with an ellipsis when longer.
+func truncate(s string, n int) string {
 	return textutil.CapRunes(oneLine(s), n, "…")
 }
 
@@ -207,13 +189,7 @@ func lastActivity(path, cwd string) Activity {
 	home, _ := os.UserHomeDir()
 	var act Activity
 	for raw := range bytes.SplitSeq(buf, []byte("\n")) {
-		for _, e := range eventsFromLine(raw, home, cwd) {
-			if e.Kind == "tool" {
-				act.Tool, act.Arg, act.At = e.Tool, e.Arg, e.At
-			} else {
-				act.Text, act.At = e.Text, e.At
-			}
-		}
+		applyEvents(&act, raw, home, cwd)
 	}
 	return act
 }
@@ -236,14 +212,14 @@ func toolArg(input json.RawMessage) string {
 	case in.Path != "":
 		return in.Path
 	case in.Command != "":
-		return Truncate(in.Command, 60)
+		return truncate(in.Command, 60)
 	default:
 		return in.Pattern
 	}
 }
 
-// StripPaths removes the session cwd and collapses $HOME to "~" wherever either appears in s.
-func StripPaths(s, home, cwd string) string {
+// stripPaths removes the session cwd and collapses $HOME to "~" wherever either appears in s.
+func stripPaths(s, home, cwd string) string {
 	if cwd != "" {
 		s = strings.ReplaceAll(s, cwd+"/", "")
 		s = strings.ReplaceAll(s, cwd, "")
@@ -254,104 +230,22 @@ func StripPaths(s, home, cwd string) string {
 	return s
 }
 
-// pendingAskMarker flags a Bash arg as a relay that launched `ask` and has not seen its exit line yet.
-const pendingAskMarker = "ask --agent"
-
-// firstTimestamp reads a transcript first record timestamp: the subagent start time, zero on failure.
-func firstTimestamp(path string) time.Time {
-	f, err := os.Open(path)
-	if err != nil {
-		return time.Time{}
-	}
-	defer f.Close()
-	sc := newLineScanner(f)
-	if sc.Scan() {
-		var rec struct {
-			Timestamp string `json:"timestamp"`
-		}
-		if json.Unmarshal(sc.Bytes(), &rec) == nil {
-			return parseRFC3339(rec.Timestamp)
-		}
-	}
-	return time.Time{}
-}
-
-// dispatchFromRecord renders a dispatch record; a still-running record reports its elapsed time so far.
-func dispatchFromRecord(rec job.Record, matched string, now time.Time) Dispatch {
-	duration := rec.Elapsed()
-	if duration == "" && rec.Status == "running" {
-		duration = now.Sub(rec.Time).Round(time.Second).String()
-	}
-	return Dispatch{
-		ID: rec.ID, Agent: rec.Agent, Provider: rec.Provider, Model: rec.Model,
-		Status: rec.Status, Duration: duration, Fallback: rec.Fallback,
-		FallbackReason: rec.FallbackReason, Matched: matched,
-	}
-}
-
-// buildDispatches returns each "ask: dispatch <id>" the transcript shows, plus a heuristic match when `ask` is pending.
-func buildDispatches(transcriptPath, cwd string, now time.Time, act Activity) []Dispatch {
-	var dispatches []Dispatch
-	matched := map[string]bool{}
-	for _, id := range transcript.DispatchIDs(transcriptPath) {
-		rec, err := job.LoadRecord(id)
-		if err != nil {
-			continue
-		}
-		dispatches = append(dispatches, dispatchFromRecord(rec, "", now))
-		matched[rec.ID] = true
-	}
-	if act.Tool == "Bash" && strings.Contains(act.Arg, pendingAskMarker) {
-		if disp := pendingDispatch(transcriptPath, cwd, matched, now); disp != nil {
-			dispatches = append(dispatches, *disp)
-		}
-	}
-	return dispatches
-}
-
-// pendingDispatch matches the newest running dispatch for this cwd that started no earlier than the subagent.
-func pendingDispatch(transcriptPath, cwd string, matched map[string]bool, now time.Time) *Dispatch {
-	start := firstTimestamp(transcriptPath)
-	for _, rec := range job.RecentRecords(50) {
-		if matched[rec.ID] || rec.Status != "running" || rec.Request.WorkDir != cwd {
-			continue
-		}
-		if !start.IsZero() && rec.Time.Before(start) {
-			continue
-		}
-		disp := dispatchFromRecord(rec, "heuristic", now)
-		return &disp
-	}
-	return nil
-}
-
-// Event is one assistant transcript block: a tool call or a text blurb.
-type Event struct {
-	At   time.Time `json:"at"`
-	Kind string    `json:"kind"` // tool|text
-	Tool string    `json:"tool,omitempty"`
-	Arg  string    `json:"arg,omitempty"`
-	Text string    `json:"text,omitempty"`
-}
-
-// eventsFromLine turns one assistant transcript record into 0+ Events, one per tool_use/text block.
-func eventsFromLine(raw []byte, home, cwd string) []Event {
+// applyEvents folds one assistant transcript record's tool_use/text blocks into act, the last of each kind winning.
+func applyEvents(act *Activity, raw []byte, home, cwd string) {
 	if !bytes.Contains(raw, toolUseMarker) && !bytes.Contains(raw, []byte(`"text"`)) {
-		return nil
+		return
 	}
 	var rec assistantContentLine
 	if json.Unmarshal(raw, &rec) != nil || rec.Type != "assistant" {
-		return nil
+		return
 	}
 	at := parseRFC3339(rec.Timestamp)
-	var out []Event
 	for _, c := range rec.Message.Content {
 		switch {
 		case c.Type == "tool_use" && c.Name != "":
-			out = append(out, Event{At: at, Kind: "tool", Tool: c.Name, Arg: StripPaths(toolArg(c.Input), home, cwd)})
+			act.Tool, act.Arg, act.At = c.Name, stripPaths(toolArg(c.Input), home, cwd), at
 		case c.Type == "text" && c.Text != "":
-			out = append(out, Event{At: at, Kind: "text", Text: Truncate(c.Text, 80)})
+			act.Text, act.At = truncate(c.Text, 80), at
 		}
 	}
-	return out
 }

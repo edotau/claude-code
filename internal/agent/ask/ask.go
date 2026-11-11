@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -21,9 +22,21 @@ import (
 	"github.com/edotau/claude-code/internal/agent/launchplan"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/databricks"
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/tui"
+	usagepkg "github.com/edotau/claude-code/internal/usage"
+	"github.com/edotau/claude-code/internal/vault"
+
+	// Each vendor CLI registers its roster row and driver from its package init; the program links them all through the agents package.
+	_ "github.com/edotau/claude-code/internal/claude"
+	_ "github.com/edotau/claude-code/internal/codex"
+	_ "github.com/edotau/claude-code/internal/copilot"
+	_ "github.com/edotau/claude-code/internal/gemini"
+	_ "github.com/edotau/claude-code/internal/opencode"
 )
 
 // askPage is `ask -h`; the task is the trailing args, or stdin when absent or "-".
@@ -161,7 +174,7 @@ func (r *askRun) dispatchMode() (int, bool) {
 		if err != nil {
 			return r.fail(err, 2)
 		}
-		return runAskBatch(r.fs, r.resume, f.batchSrc, o, launchplan.ApplyOverlay(r.batchBase(), ov)), true
+		return runAskBatch(r.fs, r.resume, f.batchSrc, o, r.batchBase().ApplyOverlay(ov)), true
 	}
 	for _, name := range []string{"jobs", "fail-fast", "follow", "follow-idle", "retry-agent"} {
 		if helptext.Explicit(r.fs, name) {
@@ -193,9 +206,9 @@ func (r *askRun) retryAgents() ([]string, error) {
 func (r *askRun) batchBase() agent.RunOptions {
 	f := r.f
 	return agent.RunOptions{Model: f.model, Provider: f.provider, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, ReadOnly: f.readOnly, NoTools: f.noTools,
-		Timeout: f.timeout, KeepEnv: []string(f.keepEnv), Autonomous: f.autonomous, Fleet: f.fleet, EnableMemory: f.enableMemory, Direct: f.direct,
+		Timeout: f.timeout, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SafeMode: f.safeMode, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
-		Env: []string(f.env), OutputSchema: r.schema, Agents: r.defs, Permissions: r.perms}
+		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Permissions: r.perms}
 }
 
 // resolveRecord reads the task and applies a --job or --retry record over the flags.
@@ -235,11 +248,11 @@ func (r *askRun) askState() *askState {
 	f := r.f
 	st := &askState{Name: &f.name, Provider: &f.provider, Model: &f.model, Effort: &f.effort,
 		Workdir: &f.workdir, Session: &f.session, Tools: &f.tools, ReadOnly: &f.readOnly, NoTools: &f.noTools,
-		Timeout: &f.timeout, Attach: (*[]string)(&f.attach), KeepEnv: (*[]string)(&f.keepEnv), Autonomous: &f.autonomous,
+		Timeout: &f.timeout, Attach: (*[]string)(&f.attach), KeepEnv: &f.keepEnv, Autonomous: &f.autonomous,
 		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist, SafeMode: &f.safeMode,
 		DebugFile: &f.debugFile, SystemPrompt: &f.systemPrompt, AppendSystemPrompt: &f.appendSystemPrompt,
 		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, RemoteBin: &f.remoteBin, Fallback: &f.fallback,
-		PermMode: &f.permMode, PermAllow: (*[]string)(&f.permAllow), PermAsk: (*[]string)(&f.permAsk), PermDeny: (*[]string)(&f.permDeny),
+		PermMode: &f.permMode, PermAllow: &f.permAllow, PermAsk: &f.permAsk, PermDeny: &f.permDeny,
 		rubric: &f.rubric, env: &f.env}
 	st.Pack = &f.pack
 	st.lead = &r.lead
@@ -286,9 +299,9 @@ func (r *askRun) request(prompt string) agent.RunOptions {
 	f := r.f
 	return agent.RunOptions{Prompt: prompt, Model: f.model, Provider: f.provider, Lead: r.lead, Effort: f.effort,
 		WorkDir: f.workdir, SessionID: f.session, Tools: f.tools, ReadOnly: f.readOnly, NoTools: f.noTools, Timeout: f.timeout,
-		Attach: []string(f.attach), KeepEnv: []string(f.keepEnv), Autonomous: f.autonomous, Fleet: f.fleet, EnableMemory: f.enableMemory, Direct: f.direct,
+		Attach: []string(f.attach), KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SafeMode: f.safeMode, DebugFile: f.debugFile, SystemPrompt: f.systemPrompt,
-		AppendSystemPrompt: f.appendSystemPrompt, Env: []string(f.env), OutputSchema: r.schema, Persona: r.persona,
+		AppendSystemPrompt: f.appendSystemPrompt, Env: f.env, OutputSchema: r.schema, Persona: r.persona,
 		Pack: f.pack, Agent: r.ref, Agents: r.defs, Fallback: f.fallback, Native: f.native, Host: f.host, RemoteBin: f.remoteBin, Rubric: f.rubric, Background: f.background, Permissions: r.perms}
 }
 
@@ -315,12 +328,12 @@ func askEnableOverlays(debugPath, overlayPath string) int {
 
 // askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches it or runs it and reports.
 func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *job.Record, fileOv agentconfig.Overlay,
-	env envFlag, keepEnv keepEnvFlag, as, format, name string, background, native bool) int {
+	env, keepEnv []string, as, format, name string, background, native bool) int {
 	ov, err := client.ResolveOverlay(fileOv, env, keepEnv, background)
 	if err != nil {
 		return failAskCode(format, name, err, 2)
 	}
-	req = launchplan.ApplyOverlay(req, ov)
+	req = req.ApplyOverlay(ov)
 	cl := NewClient()
 	ctx = providers.WithIdentity(ctx, cmp.Or(as, providers.IdentityHeadless)) // headless: a paired row tries its SP first
 	prepared, err := cl.Prepare(ctx, req, jobRec)
@@ -460,7 +473,7 @@ func StdoutSink(format, dispatchID string) wire.Sink {
 type askState struct {
 	client.AskTarget
 	rubric *string
-	env    *envFlag
+	env    *[]string
 	lead   *string // routed lead profile resolved by resolveLead; a live holder keeps it
 }
 
@@ -538,4 +551,123 @@ func printDispatchLog(format string) int {
 		fmt.Print(r.LogLine())
 	}
 	return 0
+}
+
+// RouteRefresh re-fetches a stale account for a pick; a var so tests stay offline.
+var RouteRefresh = usagepkg.RefreshAccount
+
+// NewClient builds the dispatch client; RouteRefresh is the offline-able account refresh.
+func NewClient() *client.Client {
+	return client.NewClient(router.RuleClassifier{}.Alias, RouteRefresh,
+		func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) })
+}
+
+// backgroundExtraFlags carries explicit routing and identity flags over to the spawned --job child.
+func backgroundExtraFlags(fs *flag.FlagSet, fallback string, native bool) []string {
+	var extra []string
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "as":
+			extra = append(extra, "--as", f.Value.String())
+		case "fallback":
+			extra = append(extra, "--fallback", fallback)
+		case "native":
+			if native {
+				extra = append(extra, "--native")
+			}
+		}
+	})
+	return extra
+}
+
+// ReportBackgroundStart tells the caller how to track a detached job.
+func ReportBackgroundStart(format string, rec job.Record) error {
+	if format == helptext.JSON {
+		body, _ := json.Marshal(struct {
+			ID  string `json:"id"`
+			Log string `json:"log"`
+		}{rec.ID, rec.Log})
+		_, err := fmt.Println(string(body))
+		return err
+	}
+	_, err := fmt.Printf("job %s started — claude-code agents status|tail|result|cancel %s\n", rec.ID, rec.ID)
+	return err
+}
+
+// failAsk reports a pre-run failure; with --format json it prints the same envelope a run would.
+func failAsk(format, agentName string, err error) int { return failAskCode(format, agentName, err, 1) }
+
+// failAskCode is failAsk exiting with code (2 for a usage error).
+func failAskCode(format, agentName string, err error, code int) int {
+	printAskFailure(format, agentName, err)
+	helptext.Fail("ask: %v", err)
+	return code
+}
+
+// printAskFailure prints the typed failure envelope on stdout when format is json; a lost write is noted on stderr.
+func printAskFailure(format, agentName string, err error) {
+	var werr error
+	switch format {
+	case helptext.JSON:
+		body, _ := json.Marshal(wire.FailureEnvelope(agentName, err))
+		_, werr = fmt.Println(string(body))
+	case client.FormatStreamJSON:
+		werr = StdoutSink(format, "").Emit(wire.ResultEvent(wire.FailureEnvelope(agentName, err)))
+	}
+	if werr != nil {
+		fmt.Fprintf(os.Stderr, "ask: failure envelope not written to stdout: %v\n", werr)
+	}
+}
+
+// reportAskResult prints the outcome; it returns the stdout write error of the json envelope, else nil.
+func reportAskResult(format string, res wire.Result, err error, dispatchID string) error {
+	for _, d := range res.Dropped {
+		if d == "--read-only (tools off)" {
+			fmt.Fprintf(os.Stderr, "ask: the %s agent runs with tools off (read-only sandbox where it has one)\n", res.Agent)
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "ask: %s has no channel on the %s agent — dropped\n", d, res.Agent)
+	}
+	if format == helptext.JSON {
+		body, _ := json.Marshal(wire.NewEnvelope(res, err, dispatchID))
+		_, werr := fmt.Println(string(body))
+		return werr
+	}
+	if format == client.FormatStreamJSON {
+		return nil // the result event already carried the envelope
+	}
+	if res.Answer != "" && !strings.HasSuffix(res.Answer, "\n") {
+		fmt.Println()
+	}
+	return nil
+}
+
+// The terminal and sign-in UI the agent package calls but does not import.
+func init() {
+	agent.StdinIsTerminal = tui.StdinIsTerminal
+	agent.LoginRow = databricks.LoginRow
+	agent.PromptSecret = func(name string) (string, error) {
+		return tui.Secret("Paste the value for "+name+" (input hidden, Enter when done): ", vault.Preview)
+	}
+}
+
+// memoryRunOptions pins the memory job to claude: it holds write tools, so it never falls back to another vendor.
+func memoryRunOptions(prompt, workdir string) agent.RunOptions {
+	return agent.RunOptions{Agent: "claude", Prompt: prompt, Effort: "medium", Tools: true, WorkDir: workdir,
+		Fallback: router.FallbackNone}
+}
+
+// MemoryRunner runs background memory jobs on Claude as the logged-in user, on their pin (medium effort).
+func MemoryRunner() memory.AgentFunc {
+	return func(ctx context.Context, prompt, workdir string) (string, error) {
+		c := NewClient()
+		c.Refresh = nil
+		c.Notify = func(m string) { fmt.Fprintln(os.Stderr, m) }
+		res, err := c.Run(ctx, memoryRunOptions(prompt, workdir), wire.NewTextSink(os.Stdout))
+		who := res.Agent
+		if res.Fallback != "" {
+			who += "<-" + res.Fallback
+		}
+		return who, err
+	}
 }
