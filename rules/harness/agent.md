@@ -3,7 +3,7 @@ paths:
   - "internal/agent/**"
   - "internal/agentconfig/**"
   - "internal/copilot/**"
-  - "internal/launch/**"
+  - "internal/setup/install*.go"
 ---
 # Agent CLIs — codex, copilot, opencode, gemini
 
