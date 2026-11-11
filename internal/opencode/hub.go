@@ -17,8 +17,8 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// opencodeLogins is a seam over OpencodeLogins, so tests never shell out to opencode auth.
-var opencodeLogins = OpencodeLogins
+// opencodeLogins is a seam over listOpencodeLogins, so tests never shell out to opencode auth.
+var opencodeLogins = listOpencodeLogins
 
 // HubStart resolves the provider a hub agent's first dispatch targets: explicitProvider when the caller set
 // one (forced, regardless of login or quota), else the first opencodeLadder entry that has a login,
@@ -105,7 +105,7 @@ func (l hubDispatch) WithFirstOutput(d time.Duration) agent.Engine {
 // Caps mirrors cliEngine's: every RunOptions field the opencode CLI can carry.
 func (l hubDispatch) Caps() agent.Caps {
 	return agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native, Tools: agent.Native, Autonomous: agent.Native,
-		SafeMode: agent.Native, Permissions: agent.Native, Direct: agent.Native, Env: agent.Native, SystemPrompt: agent.Native, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Emulated, Persona: agent.Emulated}
+		ReadOnly: agent.Emulated, SafeMode: agent.Native, Permissions: agent.Native, Direct: agent.Native, Env: agent.Native, SystemPrompt: agent.Native, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Emulated, Persona: agent.Emulated}
 }
 
 // Available requires the opencode binary and an opencode login for this dispatch's provider; a login-less
@@ -156,6 +156,9 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink wire.Si
 }
 
 func (l hubDispatch) prepareLaunch(req agent.RunOptions, model string) (string, []string, []string, error) {
+	if err := refusePolicyEnv(req); err != nil {
+		return "", nil, nil, err
+	}
 	bin, err := paths.AgentBin("opencode")
 	if err != nil {
 		return "", nil, nil, err

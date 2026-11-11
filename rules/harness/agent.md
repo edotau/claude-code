@@ -28,7 +28,8 @@ paths:
   (claude, codex, opencode), `--debug-file <path>` (claude, gemini). Without `--tools`, agents are read-only.
   `--read-only` (implies `--tools`): copilot approves file reads, URL fetches and read-only git; gemini denies
   `Bash`, `Write` and `Edit` through the agy `permission-gate` hook (reads, search and URL fetches still run; refused
-  when the hook is missing); any other agent drops its tools (fail closed).
+  when the hook is missing); opencode enforces those denies with read tools on, refusing `--safe-mode`;
+  any other agent drops its tools (fail closed).
   copilot `--tools` approves every request like the other agents' `--tools`, still subject to the dispatch's
   permission rules (a Deny returns feedback and the run continues) and the native hooks.
   claude `--tools` off Anthropic is an allow list (edit tools plus go/git/read commands, `--allow` adds to it), not
@@ -94,7 +95,7 @@ paths:
   (no fallback to the real install); real vault pins still route.
 - **Deny and D3.** Deny is the hard boundary; Ask goes to the agent's own judge (opencode Ask = `--auto`). A Deny an
   agent cannot enforce refuses the dispatch with `retry.Error{Kind: retry.KindFatal}` naming the rule. opencode
-  `--read-only` stays tools-off.
+  `--read-only` keeps read tools on, denies `Bash`, `Write` and `Edit`, and runs without `--auto`.
 - **Bash deny via `permission-gate`.** opencode's native matcher is bypassed by `bash -c "..."`, so the dispatch's
   rules ride `HARNESS_DISPATCH_PERMISSIONS` to the `permission-gate` PreToolUse module (`Decide` per segment): opencode
   runs it from the harness plugin's `tool.execute.before` (headless and TUI; refused only under `--safe-mode`, which

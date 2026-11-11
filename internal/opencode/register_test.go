@@ -12,9 +12,9 @@ import (
 func TestOpencodeRouteDetailHonorsPin(t *testing.T) {
 	fakeOpencode(t, "1.19.3", "", nil)
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv(OpencodeAPIKeyEnv, "")
+	t.Setenv(opencodeAPIKeyEnv, "")
 	regressionDatabricksProfile(t, "databricks-test", []providers.OpencodeModel{{ID: "glm-5-2", Label: "GLM 5.2"}})
-	vaulttest.Secret(t, OpencodeAPIKeyEnv, "placeholder")
+	vaulttest.Secret(t, opencodeAPIKeyEnv, "placeholder")
 	InvalidateOpencodeAuth()
 	own := "provider=opencode-go dispatch=own-login opencode_login=true "
 	if row, ok := (opencodeEngine{}).RouteDetail(); !ok || !strings.HasPrefix(row, own) {

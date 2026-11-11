@@ -213,7 +213,7 @@ func TestHubRunHookBlockStartsNoProcess(t *testing.T) {
 	bindHooks = func() []hooks.Bound {
 		return []hooks.Bound{{Group: "fake", Gate: true, Run: func(*core.Input) core.Result {
 			return core.Result{Decision: decision, Reason: "prompt refused"}
-		}, Spec: settings.EventSpec{Name: "worktree-busy", Event: settings.EventUserPromptSubmit, Budget: time.Second}}}
+		}, Spec: settings.EventSpec{Name: "memory-recall", Event: settings.EventUserPromptSubmit, Budget: time.Second}}}
 	}
 	p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
 	l := hubDispatch{agent: "opencode", provider: p, reg: hubRegistry()}

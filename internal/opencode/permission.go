@@ -161,11 +161,25 @@ func opencodeCommand(arg string) string {
 // opencodeApplyPermissions sets req's policy as the config's permission and pins OPENCODE_PERMISSION to it,
 // so the global "permission":"allow" of ~/.config/opencode/opencode.json is not inherited. No policy leaves env as is.
 func opencodeApplyPermissions(env []string, req agent.RunOptions) ([]string, error) {
-	if !req.Tools || req.Permissions.IsZero() {
+	if !req.Tools {
+		return env, nil
+	}
+	if req.ReadOnly {
+		req.Permissions.Deny = slices.Clone(req.Permissions.Deny)
+		for _, r := range agent.ReadOnlyDeny {
+			if !slices.Contains(req.Permissions.Deny, r) {
+				req.Permissions.Deny = append(req.Permissions.Deny, r)
+			}
+		}
+	}
+	if req.Permissions.IsZero() {
 		return env, nil
 	}
 	if err := refusePureBashDeny(req); err != nil {
 		return nil, err
+	}
+	if opencodeReadOnly(req) {
+		req.Permissions.Mode = "plan"
 	}
 	perm, err := opencodePermission(req.Permissions)
 	if err != nil {
@@ -180,7 +194,7 @@ func opencodeApplyPermissions(env []string, req agent.RunOptions) ([]string, err
 
 // refusePolicyEnv refuses --env setting a name the permission policy owns: --env goes last and would replace it.
 func refusePolicyEnv(req agent.RunOptions) error {
-	if req.Tools && !req.SafeMode && req.Permissions.IsZero() {
+	if req.Tools && !req.ReadOnly && !req.SafeMode && req.Permissions.IsZero() {
 		return nil
 	}
 	for _, kv := range req.Env {
@@ -200,8 +214,25 @@ func refusePureBashDeny(req agent.RunOptions) error {
 	return nil
 }
 
-// opencodePolicyArgv adds --auto when a policy applies, so "ask" goes to opencode's auto judge and deny still holds.
+// opencodeReadOnly also recognizes emulated denies when RenderSettings carries permissions without the ReadOnly flag.
+func opencodeReadOnly(req agent.RunOptions) bool {
+	if req.ReadOnly {
+		return true
+	}
+	for _, r := range agent.ReadOnlyDeny {
+		if !slices.Contains(req.Permissions.Deny, r) {
+			return false
+		}
+	}
+	return true
+}
+
+// opencodePolicyArgv keeps read-only off --auto; other policies send "ask" to opencode's auto judge.
 func opencodePolicyArgv(argv []string, req agent.RunOptions) []string {
+	if opencodeReadOnly(req) {
+		n := len(flagsOnly(argv))
+		return append(slices.DeleteFunc(slices.Clone(argv[:n]), func(arg string) bool { return arg == "--auto" }), argv[n:]...)
+	}
 	if !req.Tools || req.Permissions.IsZero() || slices.Contains(flagsOnly(argv), "--auto") {
 		return argv
 	}

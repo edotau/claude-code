@@ -16,7 +16,7 @@ func TestRefuseToolCallText(t *testing.T) {
 		want   bool
 	}{
 		{"tools off, markup only", agent.RunOptions{}, fake, true},
-		{"read-only is tools off for opencode", agent.RunOptions{Tools: true, ReadOnly: true}, fake, true},
+		{"read-only keeps tools on", agent.RunOptions{Tools: true, ReadOnly: true}, fake, false},
 		{"tools on: the CLI ran them", agent.RunOptions{Tools: true}, fake, false},
 		{"prose quoting markup", agent.RunOptions{}, "The fix is to call <invoke name=\"read\"></invoke> before parsing the config file.", false},
 		{"plain answer", agent.RunOptions{}, "ok", false},

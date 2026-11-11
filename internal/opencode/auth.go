@@ -300,13 +300,13 @@ func readOpencodeAuthJSON(file string) ([]OpencodeIntegration, error) {
 	return ints, nil
 }
 
-// OpencodeLogins lists the integration IDs opencode has at least one connection for (any version), sorted.
-func OpencodeLogins() []string {
+// listOpencodeLogins lists the integration IDs opencode has at least one connection for (any version), sorted.
+func listOpencodeLogins() []string {
 	names, _ := opencodeLoginsErr()
 	return names
 }
 
-// opencodeLoginsErr is OpencodeLogins plus the probe error, so a failed `auth list` is not read as logged out.
+// opencodeLoginsErr is listOpencodeLogins plus the probe error, so a failed `auth list` is not read as logged out.
 func opencodeLoginsErr() ([]string, error) {
 	ints, err := OpencodeAuth()
 	var names []string

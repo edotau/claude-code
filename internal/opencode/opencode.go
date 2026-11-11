@@ -78,7 +78,7 @@ func opencodeProviderOptions(p *providers.Provider, dialect, base, cred string) 
 	}
 	var env []string
 	if cred != "" {
-		env = append(env, OpenCodeKeyEnv+"="+cred)
+		env = append(env, openCodeKeyEnv+"="+cred)
 	}
 	native := dialect == providers.ProtocolAnthropic || (dialect == providers.ProtocolGemini && agent.IsGateway(base))
 	return npm, providerOptions(p, cred, url, native), env
@@ -270,7 +270,7 @@ func opencodeCopilotTarget(reg *providers.Registry) (providers.Target, string, b
 // OpencodeCopilotLoginPresent reports whether opencode's stored logins (OpencodeAuth: 1.x auth.json or the
 // 2.x CLI) include "github-copilot", the integration `opencode auth login` stores for a GitHub Copilot sign-in.
 func OpencodeCopilotLoginPresent() bool {
-	return slices.Contains(OpencodeLogins(), "github-copilot")
+	return slices.Contains(listOpencodeLogins(), "github-copilot")
 }
 
 // opencodeCopilotLogin runs opencode on its own Copilot sign-in: interactive is plain (ErrOwnLogin), headless pins -m.
@@ -605,11 +605,11 @@ func opencodeSystemPrompt(env, argv []string, prompt string) ([]string, []string
 	return env, argv
 }
 
-// OpencodeAPIKeyEnv is the vault key a launch passes as env when opencode holds no stored `opencode` login.
-const OpencodeAPIKeyEnv = "OPENCODE_API_KEY"
+// opencodeAPIKeyEnv is the vault key a launch passes as env when opencode holds no stored `opencode` login.
+const opencodeAPIKeyEnv = "OPENCODE_API_KEY"
 
-// OpenCodeKeyEnv carries the credential (never argv); the config text names the variable, not the secret.
-const OpenCodeKeyEnv = "HARNESS_OPENCODE_API_KEY"
+// openCodeKeyEnv carries the credential (never argv); the config text names the variable, not the secret.
+const openCodeKeyEnv = "HARNESS_OPENCODE_API_KEY"
 
 // positional guards a dash-led prompt from flag parsing.
 func positional(prompt string) []string {
@@ -636,13 +636,13 @@ func opencodeCredential(prefix string) (env []string, err error) {
 		return nil, nil
 	}
 	if key := opencodeVaultKey(id); key != "" {
-		return []string{OpencodeAPIKeyEnv + "=" + key}, nil
+		return []string{opencodeAPIKeyEnv + "=" + key}, nil
 	}
 	if lerr != nil { // a failed probe is not "no login": say so rather than sending the user to re-login
 		return nil, fmt.Errorf("opencode logins could not be read: %w", lerr)
 	}
 	if id == "opencode" {
-		return nil, missingCredError(fmt.Sprintf("opencode has no opencode login (opencode auth login) and no %s in the vault", OpencodeAPIKeyEnv))
+		return nil, missingCredError(fmt.Sprintf("opencode has no opencode login (opencode auth login) and no %s in the vault", opencodeAPIKeyEnv))
 	}
 	return nil, missingCredError(fmt.Sprintf("opencode has no %s login (opencode auth login)", id))
 }
@@ -657,7 +657,7 @@ func opencodeVaultKey(id string) string {
 	if id != "opencode" {
 		return ""
 	}
-	v, _, _ := vault.Get(OpencodeAPIKeyEnv)
+	v, _, _ := vault.Get(opencodeAPIKeyEnv)
 	return strings.TrimSpace(v)
 }
 
@@ -673,7 +673,7 @@ var ownLogin paths.Memo[ownLoginKey, bool] // InvalidateOpencodeAuth drops it; a
 // The answer is reused for ownLoginTTL, so a launch's route calls read the vault once.
 func OpencodeOwnLoginPresent() bool {
 	_, _, key := opencodeAuthKeys()
-	ok, _ := ownLogin.Do(ownLoginKey{key, os.Getenv(OpencodeAPIKeyEnv)}, func(bool, error) time.Duration { return ownLoginTTL },
+	ok, _ := ownLogin.Do(ownLoginKey{key, os.Getenv(opencodeAPIKeyEnv)}, func(bool, error) time.Duration { return ownLoginTTL },
 		func() (bool, error) {
 			_, err := opencodeCredential("opencode-go")
 			return err == nil, nil
