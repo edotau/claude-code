@@ -521,6 +521,7 @@ func codexHeadless(argv []string, h *agent.Headless) []string {
 	if h.Tools && os.Getenv(codexNetworkEnv) == "1" { // opt-in: codex has no loopback-only switch, so this opens all egress
 		argv = append(argv, "-c", "sandbox_workspace_write.network_access=true")
 	}
+	argv = append(argv, codexLeafArgs...)
 	if !h.Tools { // read-only shell stays; skill listings, desktop plugins and app connectors are ~30 KB per request
 		argv = append(argv, codexToolsOffArgs...)
 	}
@@ -535,6 +536,12 @@ func codexHeadless(argv []string, h *agent.Headless) []string {
 	}
 	// The prompt rides stdin behind the `-` operand: a positional prompt like "help" is a codex subcommand.
 	return append(argv, "-")
+}
+
+// codexLeafArgs drop what a headless leaf must not use: the sub-agent tools, request_user_input and their role text.
+var codexLeafArgs = []string{
+	"-c", "features.multi_agent_v2.disable_native_tools=true", "-c", "tools.experimental_request_user_input.enabled=false",
+	"-c", `features.multi_agent_v2.root_agent_usage_hint_text=""`, "-c", `features.multi_agent_v2.multi_agent_mode_hint_text=""`,
 }
 
 // codexToolsOffArgs drop what a tools-off exec cannot use: the skill list, desktop-app plugins and ChatGPT app connectors.
