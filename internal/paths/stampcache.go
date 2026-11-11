@@ -14,6 +14,13 @@ const racyWindow = 2 * time.Second
 // stampNow is the clock behind the racy-window check; tests advance it.
 var stampNow = time.Now
 
+// SetStampNowForTest replaces the stamp clock and returns its restore; callers must not run in parallel.
+func SetStampNowForTest(now func() time.Time) func() {
+	old := stampNow
+	stampNow = now
+	return func() { stampNow = old }
+}
+
 // stamp identifies a file by presence, modification time, size, inode and change time.
 type stamp struct {
 	present bool

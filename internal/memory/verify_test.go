@@ -5,10 +5,15 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // A timed-out git whose grandchild keeps stdout open returns within the timeout plus WaitDelay, not when it exits.
 func TestVerifyGitBoundsGrandchildHoldingStdout(t *testing.T) {
+	oldDelay := proc.ExecWaitDelay
+	proc.ExecWaitDelay = 300 * time.Millisecond
+	t.Cleanup(func() { proc.ExecWaitDelay = oldDelay })
 	bin := t.TempDir()
 	script := "#!/bin/sh\nsleep 10 &\nwait\n"
 	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
@@ -22,7 +27,8 @@ func TestVerifyGitBoundsGrandchildHoldingStdout(t *testing.T) {
 	if _, err := verifyGit(t.TempDir(), "", "status"); err == nil {
 		t.Fatal("verifyGit succeeded despite the timeout")
 	}
-	if elapsed := time.Since(start); elapsed > 5*time.Second {
-		t.Fatalf("verifyGit returned after %v; want under 5s (WaitDelay must bound a grandchild's stdout)", elapsed)
+	if elapsed := time.Since(start); elapsed < proc.ExecWaitDelay || elapsed > verifyGitTimeout+proc.ExecWaitDelay+2*time.Second {
+		t.Fatalf("verifyGit returned after %v; want between %v and %v",
+			elapsed, proc.ExecWaitDelay, verifyGitTimeout+proc.ExecWaitDelay+2*time.Second)
 	}
 }

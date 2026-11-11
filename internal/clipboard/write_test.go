@@ -279,6 +279,9 @@ func TestClearIfMatchBoundsContext(t *testing.T) {
 }
 
 func TestClearIfMatchRejectsTruncatedRead(t *testing.T) {
+	orig := pipeGrace
+	pipeGrace = 200 * time.Millisecond
+	t.Cleanup(func() { pipeGrace = orig })
 	realRun := run
 	env(t, false, "wayland-0", "", "wl-copy", "wl-paste")
 	run = realRun
@@ -294,7 +297,11 @@ func TestClearIfMatchRejectsTruncatedRead(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() { stopClipboardChild(t, pidFile) })
+	start := time.Now()
 	ok, err := ClearIfMatch(context.Background(), Digest(secret))
+	if d := time.Since(start); d < pipeGrace || d > pipeGrace+5*time.Second {
+		t.Fatalf("read returned after %v; want between %v and %v", d, pipeGrace, pipeGrace+5*time.Second)
+	}
 	if ok || !errors.Is(err, errOutputCut) {
 		t.Fatalf("truncated read: cleared=%v err=%v, want errOutputCut without clearing", ok, err)
 	}
@@ -327,12 +334,15 @@ func stopClipboardChild(t *testing.T, pidFile string) {
 
 // A tool that forks a daemon holding stdout (xclip -i) must not block run past the pipe grace.
 func TestRunReturnsWhenForkedChildHoldsStdout(t *testing.T) {
+	orig := pipeGrace
+	pipeGrace = 200 * time.Millisecond
+	t.Cleanup(func() { pipeGrace = orig })
 	start := time.Now()
 	_, err := run(context.Background(), nil, "sh", "-c", "sleep 30 & exit 0")
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if d := time.Since(start); d > 10*time.Second {
+	if d := time.Since(start); d < pipeGrace || d > pipeGrace+5*time.Second {
 		t.Fatalf("run blocked %v on a forked child holding stdout", d)
 	}
 }

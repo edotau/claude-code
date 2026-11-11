@@ -21,7 +21,7 @@ import (
 const clearTimeout = 30 * time.Second
 
 // pipeGrace is how long run waits for stdout to close after the tool exits.
-const pipeGrace = 2 * time.Second
+var pipeGrace = 2 * time.Second
 
 // errOutputCut: the tool exited 0 but its stdout was cut off at pipeGrace, so the output may be truncated.
 var errOutputCut = errors.New("clipboard tool output may be truncated")

@@ -146,8 +146,12 @@ func TestRunGitDeadlineWithInheritedOutput(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("git's ! alias needs a POSIX sh with sleep and job control")
 	}
+	orig := ExecWaitDelay
+	ExecWaitDelay = 300 * time.Millisecond
+	t.Cleanup(func() { ExecWaitDelay = orig })
 	dir := t.TempDir()
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	const deadline = 500 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
 	defer cancel()
 	// The bounded child retains captured stdout after the context kills git.
 	start := time.Now()
@@ -159,8 +163,9 @@ func TestRunGitDeadlineWithInheritedOutput(t *testing.T) {
 	if marker, err := os.ReadFile(dir + "/ready"); err != nil || string(marker) != "ready\n" {
 		t.Fatalf("git alias did not reach its wait: marker=%q, err=%v", marker, err)
 	}
-	if elapsed < 2*time.Second || elapsed > 4500*time.Millisecond {
-		t.Fatalf("RunGit with inherited stdout returned after %v; want 2s–4.5s (WaitDelay must bound descendant output)", elapsed)
+	if elapsed < ExecWaitDelay || elapsed > deadline+ExecWaitDelay+2*time.Second {
+		t.Fatalf("RunGit with inherited stdout returned after %v; want %v–%v (WaitDelay must bound descendant output)",
+			elapsed, ExecWaitDelay, deadline+ExecWaitDelay+2*time.Second)
 	}
 }
 
