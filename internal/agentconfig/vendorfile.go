@@ -46,6 +46,7 @@ type RenderPlan struct {
 type stagedWrite struct {
 	path  string
 	write func() error
+	undo  func() error // optional: reverses write for state outside path (a vault baseline); nil for none
 }
 
 // Apply performs the staged writes in order; on the first error it restores every config file already written.
@@ -59,6 +60,7 @@ func (p *RenderPlan) Apply() error {
 		if err := w.write(); err != nil {
 			return errors.Join(err, restore(append(done, snap)))
 		}
+		snap.undo = w.undo
 		done = append(done, snap)
 	}
 	return nil
@@ -69,6 +71,7 @@ type snapshot struct {
 	path   string
 	data   []byte
 	absent bool
+	undo   func() error
 }
 
 func takeSnapshot(path string) (snapshot, error) {
@@ -86,6 +89,9 @@ func takeSnapshot(path string) (snapshot, error) {
 func restore(done []snapshot) error {
 	var errs []error
 	for _, s := range slices.Backward(done) {
+		if s.undo != nil {
+			errs = append(errs, s.undo())
+		}
 		switch {
 		case s.path == "":
 		case s.absent:
@@ -125,11 +131,22 @@ func CommitFile(path string, raw, next []byte, existed bool, o RenderOptions, ou
 	case !changed:
 		return false, reportUnchanged(path, next, existed, o, out, label)
 	}
-	// The no-op write snapshots only the default baseline file; fileOps baselines (codex vault) are not rolled back.
-	if err := o.queue(stagedWrite{baselinePath(label, path), func() error { return nil }}); err != nil {
+	// The no-op write snapshots the default baseline file; a fileOps baseline (codex vault) is restored by its undo.
+	pre := stagedWrite{path: baselinePath(label, path), write: func() error { return nil }}
+	if ops := fileOps[label]; ops.LoadBaseline != nil && ops.SaveBaseline != nil {
+		var prev []byte
+		pre.write = func() (err error) { prev, err = ops.LoadBaseline(path); return err }
+		pre.undo = func() error {
+			if prev == nil { // no previous baseline to put back: the ops cannot delete one
+				return nil
+			}
+			return ops.SaveBaseline(path, prev)
+		}
+	}
+	if err := o.queue(pre); err != nil {
 		return true, err
 	}
-	return true, o.queue(stagedWrite{path, func() error { return commitWrite(path, raw, next, existed, o, out, label) }})
+	return true, o.queue(stagedWrite{path: path, write: func() error { return commitWrite(path, raw, next, existed, o, out, label) }})
 }
 
 // previewOrCheck is the dry-run/check half of every commit: done means the mode handled it, check runs for --check.
@@ -267,7 +284,7 @@ func CommitOverlayFile(path string, raw, next []byte, o RenderOptions, out io.Wr
 		fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
 		return false, nil
 	}
-	return true, o.queue(stagedWrite{path, func() error {
+	return true, o.queue(stagedWrite{path: path, write: func() error {
 		if _, err := paths.WriteIfChanged(path, next, 0o600); err != nil {
 			return fmt.Errorf("%s: %w", label, err)
 		}

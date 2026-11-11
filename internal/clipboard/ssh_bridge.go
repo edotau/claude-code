@@ -219,7 +219,7 @@ func allowedServePath(home, path string) (real string, size int64, err error) {
 // underSecretRoot reports whether real is a denied root or inside one, by path string or by file identity.
 func underSecretRoot(real string, roots []string) bool {
 	for _, deny := range roots {
-		if real == deny || strings.HasPrefix(real, deny+string(filepath.Separator)) {
+		if paths.Within(real, deny) {
 			return true
 		}
 	}

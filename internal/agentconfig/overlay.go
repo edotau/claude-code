@@ -15,7 +15,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -62,9 +61,8 @@ type overlaySrc struct {
 }
 
 var (
-	fileSrc     = overlaySrc{"overlay set", "overlay keep", "overlay unset", false}
-	flagSrc     = overlaySrc{"--env", "--keep-env", "unset", true}
-	secretKeyRE = regexp.MustCompile(`(^|_)(KEY|TOKEN|SECRET|PASSWORD|HEADERS|AUTH|CREDENTIALS?|PAT|BEARER)(_|$)`)
+	fileSrc = overlaySrc{"overlay set", "overlay keep", "overlay unset", false}
+	flagSrc = overlaySrc{"--env", "--keep-env", "unset", true}
 )
 
 // LoadOverlay reads and checks path, else $COWORKER_OVERLAY; neither set is the empty overlay.
@@ -293,7 +291,7 @@ func unsetRule(name string) error {
 
 // credentialName is the credential shape --env has always refused, widened by the redaction segments (HEADERS, PAT, ...).
 func credentialName(up string) bool {
-	return strings.Contains(up, "AUTH") || secretKeyRE.MatchString(up) // KEY/TOKEN/SECRET segments cover the old suffixes
+	return strings.Contains(up, "AUTH") || providers.IsSecretName(up) // KEY/TOKEN/SECRET segments cover the old suffixes
 }
 
 // rule is one refusal: the first whose match holds decides the result, even when its err returns nil.

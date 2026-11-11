@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -149,16 +150,6 @@ func TestRewriteGuard(t *testing.T) {
 	}
 }
 
-// gitIn runs git in dir with a fixed identity and fails the test on error.
-func gitIn(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-}
-
 // An explicit-branch rebase inspects that branch, not HEAD: on main at origin/main it still rewrites topic commits.
 func TestRebaseExplicitBranchInspectsThatBranch(t *testing.T) {
 	if got, _ := rewriteRange("rebase", []string{"origin/main", "topic"}); len(got) != 1 || got[0] != "origin/main..topic" {
@@ -166,12 +157,12 @@ func TestRebaseExplicitBranchInspectsThatBranch(t *testing.T) {
 	}
 	work, wt := rewriteFixture(t)
 	tw := filepath.Join(filepath.Dir(work), "tw")
-	gitIn(t, work, "worktree", "add", "-q", "-b", "topic", tw)
+	hosttest.In(t, work, "worktree", "add", "-q", "-b", "topic", tw)
 	if err := os.WriteFile(filepath.Join(tw, "t.txt"), []byte("t"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	gitIn(t, tw, "add", ".")
-	gitIn(t, tw, "commit", "-qm", "t")
+	hosttest.In(t, tw, "add", ".")
+	hosttest.In(t, tw, "commit", "-qm", "t")
 	rewriteSetup(t, rewriteCase{live: true}, map[string]string{"work": work, "wt": wt})
 	payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": work,
 		"tool_input": map[string]string{"command": "git rebase origin/main topic"}})

@@ -3,7 +3,6 @@ package doctor
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -22,7 +21,7 @@ import (
 func doctorGitFixture(t *testing.T, dirty bool) string {
 	t.Helper()
 	dir := hosttest.Repo(t)
-	run := func(args ...string) { t.Helper(); gitRun(t, dir, args...) }
+	run := func(args ...string) { t.Helper(); hosttest.In(t, dir, args...) }
 	text := "nothing sensitive\n"
 	if dirty {
 		text = "FAKE_TOKEN=" + "gh" + "p_obviouslyFAKEfixtureToken1234567890\n"
@@ -326,16 +325,3 @@ func TestDoctorRejectsConflictingModes(t *testing.T) {
 
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
-
-// gitRun runs git in dir with an author/committer identity set and fails the test on error.
-func gitRun(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.com",
-		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-}

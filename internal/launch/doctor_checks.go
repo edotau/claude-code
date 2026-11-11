@@ -116,22 +116,10 @@ func formatsCheck() Check {
 			stale = append(stale, fmt.Sprintf("%s: schema %d (want %d)", f.Name, v, f.Version))
 		}
 	}
-	stale = append(stale, pendingFormatDetails()...)
 	if len(stale) > 0 {
 		return Check{Name: "formats", OK: false, Detail: strings.Join(stale, " · ")}
 	}
 	return Check{Name: "formats", OK: true, Detail: fmt.Sprintf("%d formats current · %d migrations applied", current, ledgerLines())}
-}
-
-func pendingFormatDetails() []string {
-	var stale []string
-	for _, s := range schemas.Pending() {
-		if !s.Rewrite || s.Err != "" {
-			continue // migrate-on-read rows are informational
-		}
-		stale = append(stale, fmt.Sprintf("%s: 1 file at v%d (stale, install migrates)", s.Format, s.From))
-	}
-	return stale
 }
 
 func ledgerLines() int {

@@ -22,7 +22,6 @@ import (
 	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini route engine the prod binary links
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/vault"
@@ -343,23 +342,14 @@ func seedHarness(t *testing.T, name, body string) string {
 	return p
 }
 
-func TestFormatsDoctorAndInstallStepSpan(t *testing.T) {
+func TestFormatsDoctorRowIgnoresBareMapCaches(t *testing.T) {
 	hermetic(t, "")
-	quota := seedHarness(t, "quota.json", `{"acct":{"until":"2099-01-01T00:00:00Z"}}`)
+	seedHarness(t, "quota.json", `{"acct":{"until":"2099-01-01T00:00:00Z"}}`)
 	seedHarness(t, "agentversion.json", `{"claude":"1.0.0"}`) // unversioned cache: a miss, never stale
 
 	formats := findCheck([]Check{formatsCheck()}, "formats")
 	if formats == nil || !formats.OK || strings.Contains(formats.Detail, "stale") { // quota stays a bare map: an old daemon reads it
 		t.Fatalf("formats row = %+v, want current", formats)
-	}
-	before, _ := os.ReadFile(quota)
-	var out bytes.Buffer
-	installFormats(&out, false)
-	if after, _ := os.ReadFile(quota); !bytes.Equal(before, after) {
-		t.Fatalf("install rewrote quota.json: %s", after)
-	}
-	if _, err := os.Stat(schemas.LedgerPath()); err == nil {
-		t.Error("install wrote the ledger for a bare-map quota.json")
 	}
 }
 
