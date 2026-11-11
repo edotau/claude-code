@@ -96,7 +96,7 @@ main session -> Explore x3 -> Plan -> claude || copilot (test agent) -> fan-in -
 
 - The main session decides, integrates and commits; leaves never dispatch, commit or run the full suite
   (`../SKILL.md` Ownership). Run-state: `claude-code agents tree`; proof an external agent ran: `ask: ran on` line
-  (`ranOnGated`, `internal/hooks/agents/leaves.go`).
+  (`externalTypes`, `internal/hooks/agents/leaves.go`).
 
 ### Hierarchical
 
@@ -149,8 +149,7 @@ Alias guidance: aliases or `inherit`, never dated ids on first-party use (resear
 - Split only when expertise, tool grant or authority differs (read-only `Explore` vs editing `claude`) or several
   shapes reuse it. Merge when two files differ only in task wording; a role that only picks another agent is that
   agent's leaf type (`codex`, `copilot`…), not a file. Prefer few focused leaves: each costs a brief and a fan-in read.
-- Prose instructs, hooks guarantee: a new type that requests external agents joins `ranOnGated`
-  (`internal/hooks/agents/leaves.go`) and `labelAgents` (`internal/hooks/agents/effort.go`).
+- Hook tables a new external-agent type must join: `rules/workflows/agents.md` → Prose instructs, hooks guarantee.
 
 ## Agent definition template
 

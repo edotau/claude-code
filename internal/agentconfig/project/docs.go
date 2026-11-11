@@ -91,7 +91,9 @@ func standardsSection(root string) (string, error) {
 	}
 	var b strings.Builder
 	for _, s := range standards {
-		b.WriteString("\n" + demoteH1(strings.Trim(s.body, "\n")) + "\n")
+		b.WriteByte('\n')
+		b.WriteString(demoteH1(strings.Trim(s.body, "\n")))
+		b.WriteByte('\n')
 	}
 	return "\n## Standards\n" + b.String(), nil
 }
@@ -127,7 +129,8 @@ func renderDocs(root string, agents []Source) (content string, ok bool, err erro
 	var b strings.Builder
 	b.WriteString(DocsBanner + "\n\n" + docsPathsNote + "\n\n")
 	b.WriteString(strings.TrimRight(string(conventions), "\n"))
-	b.WriteString("\n" + standards)
+	b.WriteByte('\n')
+	b.WriteString(standards)
 	b.WriteString("\n## Agents\n\n")
 	for _, a := range agents {
 		fmt.Fprintf(&b, "- **%s** (`%s`)", a.Name(), cmp.Or(toString(a.frontmatter["model"]), "inherit"))
