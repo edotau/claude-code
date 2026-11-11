@@ -172,13 +172,13 @@ func TestClaudeExecMidStreamParseErrorKillsChild(t *testing.T) {
 	}
 }
 
-// Given a top-level tool_use then tool_result, Then each message is decoded once, shared by the stream and the stall watch.
+// Given a top-level tool_use then tool_result, Then each message is decoded once, shared by the stream and idle watch.
 func TestParseClaudeEventsDecodesEachMessageOnce(t *testing.T) {
 	orig := decodeMessage
 	calls := 0
 	decodeMessage = func(raw json.RawMessage) anthropic.Message { calls++; return orig(raw) }
 	t.Cleanup(func() { decodeMessage = orig })
-	w := newStallWatch(time.Minute, func() {})
+	w := newIdleWatch(time.Minute, func() {})
 	defer w.Stop()
 	stream := strings.Join([]string{initLine, toolUse, toolResult, resultLine}, "\n") + "\n"
 	if _, err := parseClaudeEvents(bufio.NewReader(strings.NewReader(stream)), false, w, wire.Discard, nil); err != nil {
