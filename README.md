@@ -161,8 +161,8 @@ claude-code doctor --scan|--git|--secrets   # leak audits; never print values
 
 **Databricks:** an `oauth` profile seals refresh + access tokens together (`DATABRICKS_<PROFILE>_OAUTH`); `pat` is
 sealed too; `m2m` tokens are minted per use, the service-principal secret stays sealed (`DATABRICKS_<PROFILE>_M2M`).
-`claude-code databricks mint [--profile <id>] [--copy] [--clear-after 30s]` prints type, length and expiry, never the
-token; `--copy` clears the clipboard after 30s (kept out of Win+V history on WSL; macOS clipboard managers and a
+`claude-code databricks token [--profile <id>] [--auth oauth|m2m|pat] [--copy] [--clear-after 30s]` prints type,
+length and expiry, never the token; `--copy` clears the clipboard after 30s (kept out of Win+V history on WSL; macOS clipboard managers and a
 killed clear process can still keep it). `configure` → databricks offers Set up (OAuth sign-in, verify, apply) / Login /
 Paste PAT / Mint now / Copy token / Apply to agents / Identity.
 
