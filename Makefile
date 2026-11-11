@@ -57,8 +57,7 @@ build: install  # (dev recipe, hidden from help) compile + install + fmt + audit
 	@$(MAKE) --no-print-directory fmt
 	@$(if $(SKIP_AUDIT),echo -e "$(C_NOTE)audit skipped (SKIP_AUDIT)",$(MAKE) audit)
 
-# install.go already links the bare shims, seeds a missing settings.json, and writes bash completion
-# (internal/setup/install_steps.go: Install() -> completion.Install) — one call does all three.
+# `claude-code install` links the bare shims, seeds a missing settings.json and writes bash completion (helptext.Install).
 .PHONY: install
 install: compile mdsmith rtk  ## Build + install + lint/vuln tools (DEV_TOOLS=0: skip)
 	@$(BIN) install$(if $(filter 1,$(V)), --verbose,)
@@ -206,7 +205,7 @@ audit-shards:  # (folded into `audit`) go test SHARD_PKGS with memory and worktr
 		shard -skip '$(subst $(C_SP),|,$(SHARDS_$(p)))' ./internal/$(p); fi; ) \
 		wait; rc=0; for f in $$d/*.log; do cat $$f; if [ -e $${f%.log}.fail ]; then rc=1; fi; done; exit $$rc
 
-# Commits being pushed: AUDIT_GIT_RANGE (pre-push sets it), else @{u}..HEAD, else the last AUDIT_GIT_FALLBACK commits.
+# Commits being pushed: AUDIT_GIT_RANGE, else @{u}..HEAD, else the last AUDIT_GIT_FALLBACK commits.
 AUDIT_GIT_FALLBACK ?= 20
 .PHONY: audit-git
 audit-git: compile  # (folded into `audit`) doctor --git over the unpushed commits; a token-shaped addition fails
