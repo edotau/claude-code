@@ -201,6 +201,18 @@ func cloneCounts(m map[string]int) map[string]int {
 	return out
 }
 
+// readMarker splits a marker file into its account and session transcript; ok=false when it cannot be read.
+func readMarker(dir, name string) (account, transcript string, mod time.Time, ok bool) {
+	path := filepath.Join(dir, name)
+	fi, ierr := os.Stat(path)
+	b, rerr := os.ReadFile(path)
+	if ierr != nil || rerr != nil {
+		return "", "", time.Time{}, false
+	}
+	account, transcript, _ = strings.Cut(strings.TrimSpace(string(b)), "\n")
+	return account, transcript, fi.ModTime(), true
+}
+
 // scan counts live markers, removing dead ones when prune.
 func scan(dir string, now time.Time, prune bool) Snapshot {
 	snap := Snapshot{Per: map[string]int{}}
@@ -213,16 +225,11 @@ func scan(dir string, now time.Time, prune bool) Snapshot {
 		if _, ok := Owner(e.Name()); !ok {
 			continue
 		}
-		fi, err := e.Info()
-		if err != nil {
-			continue
-		}
-		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
+		account, transcript, mod, ok := readMarker(dir, e.Name())
+		if !ok {
 			continue // released between ReadDir and now
 		}
-		account, transcript, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
-		if !s.live(e.Name(), fi.ModTime(), transcript) {
+		if !s.live(e.Name(), mod, transcript) {
 			if prune {
 				_ = os.Remove(filepath.Join(dir, e.Name()))
 			}
@@ -291,10 +298,11 @@ type scanner struct {
 	now     time.Time
 	trusted bool
 	meta    map[string]map[string]metaAgent // session transcript → tool_use_id → agent
+	answers map[string]bool                 // transcript + id → answered result
 }
 
 func newScanner(now time.Time) *scanner {
-	return &scanner{now: now, trusted: probeTrusted(), meta: map[string]map[string]metaAgent{}}
+	return &scanner{now: now, trusted: probeTrusted(), meta: map[string]map[string]metaAgent{}, answers: map[string]bool{}}
 }
 
 // live: dispatches and markers without a session follow ownerLive; a spawn marker follows its agent's meta.json and transcript.
@@ -374,16 +382,27 @@ func readMeta(path string) (meta, bool) {
 const scanChunk = 64 << 10
 
 // answered: the session transcript holds a tool_result for this spawn (refused or finished without a PostToolUse).
+// Leaf markers of one Workflow share the id, so the result is memoized for the scan.
 func (s *scanner) answered(transcript, id string) bool {
 	if id == "" {
 		return false
 	}
-	f, err := os.Open(transcript)
+	key := transcript + "\x00" + id
+	if v, ok := s.answers[key]; ok {
+		return v
+	}
+	v := transcriptHas(transcript, []byte(`"tool_use_id":"`+id+`"`))
+	s.answers[key] = v
+	return v
+}
+
+// transcriptHas reports whether the file at path contains needle, reading it in bounded chunks.
+func transcriptHas(path string, needle []byte) bool {
+	f, err := os.Open(path)
 	if err != nil {
 		return false
 	}
 	defer f.Close()
-	needle := []byte(`"tool_use_id":"` + id + `"`)
 	keep := len(needle) - 1 // overlap so a match straddling two chunks is still seen
 	buf := make([]byte, keep+scanChunk)
 	have := 0

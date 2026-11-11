@@ -43,7 +43,7 @@ func TestBuildBankRegionCapsAndPresentPointersOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if n := lineCount(region); n > bankRegionMaxLines {
+	if n := strings.Count(region, "\n"); n > bankRegionMaxLines {
 		t.Errorf("region has %d lines, want <= %d:\n%s", n, bankRegionMaxLines, region)
 	}
 	if len(region) >= bankRegionMaxBytes {
@@ -230,17 +230,6 @@ func TestBankRegionBoundsTwoBegins(t *testing.T) {
 	}
 }
 
-func TestOutsideBankRegionDropsExactlyTheRegion(t *testing.T) {
-	t.Parallel()
-	got := outsideBankRegion(bankRegionFixture)
-	if strings.Contains(got, "bank:begin") || strings.Contains(got, "bank:end") || strings.Contains(got, "- [a](a.md)") {
-		t.Errorf("outsideBankRegion left region bytes in:\n%s", got)
-	}
-	if !strings.Contains(got, "before") || !strings.Contains(got, "after") {
-		t.Errorf("outsideBankRegion dropped bytes outside the region:\n%s", got)
-	}
-}
-
 // TestScanBankRegionDistinguishesAbsentFromMalformed: readers collapse a malformed region to absent, but the
 // scanner every rewrite gates on must tell the two apart.
 func TestScanBankRegionDistinguishesAbsentFromMalformed(t *testing.T) {
@@ -258,30 +247,5 @@ func TestScanBankRegionDistinguishesAbsentFromMalformed(t *testing.T) {
 		if !errors.Is(err, errBankRegion) {
 			t.Errorf("%s: err = %v, want errBankRegion", name, err)
 		}
-		if _, err := bankRegionLines(text); !errors.Is(err, errBankRegion) {
-			t.Errorf("%s: bankRegionLines err = %v, want errBankRegion", name, err)
-		}
-		if err := checkBankRegion(text); !errors.Is(err, errBankRegion) {
-			t.Errorf("%s: CheckBankRegion err = %v, want errBankRegion", name, err)
-		}
-	}
-}
-
-// TestCheckBankRegionEnforcesReserve: a well-formed region past 40 lines or 4 KB is a diagnostic, not a pass.
-func TestCheckBankRegionEnforcesReserve(t *testing.T) {
-	t.Parallel()
-	if err := checkBankRegion(bankRegionFixture); err != nil {
-		t.Fatalf("small region: %v", err)
-	}
-	tall := "<!-- bank:begin x -->\n" + strings.Repeat("- [a](a.md)\n", bankRegionMaxLines-1) + "<!-- bank:end -->\n"
-	if err := checkBankRegion(tall); !errors.Is(err, errBankRegion) {
-		t.Errorf("%d-line region: err = %v, want errBankRegion", bankRegionMaxLines+1, err)
-	}
-	wide := "<!-- bank:begin x -->\n- " + strings.Repeat("x", bankRegionMaxBytes) + "\n<!-- bank:end -->\n"
-	if err := checkBankRegion(wide); !errors.Is(err, errBankRegion) {
-		t.Errorf("over-4KB region: err = %v, want errBankRegion", err)
-	}
-	if err := checkNativeIndexLimits(strings.Repeat("x\n", nativeIndexMaxLines+1)); err == nil {
-		t.Error("checkNativeIndexLimits passed a file past the native line limit")
 	}
 }

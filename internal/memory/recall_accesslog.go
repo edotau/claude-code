@@ -151,9 +151,8 @@ func maybeTrimAccessLog(path string) {
 	_ = paths.AtomicWrite(path, []byte(strings.Join(lines[keep:], "\n")+"\n"), 0o600)
 }
 
-// accessStat counts an entry's reads, distinct in-window UTC days and newest access.
+// accessStat holds an entry's distinct in-window UTC days and newest access.
 type accessStat struct {
-	Count  int
 	Days   int
 	Newest time.Time
 }
@@ -172,7 +171,6 @@ func accessStatsAt(path string, now time.Time, windowDays int) (map[string]acces
 			oldest = ts
 		}
 		s := stats[entry]
-		s.Count++
 		if ts.After(s.Newest) {
 			s.Newest = ts
 		}

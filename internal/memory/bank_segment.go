@@ -35,9 +35,15 @@ func corpusFiles(root string) []corpusFile {
 		banks("local", Dir(root))
 	}
 	banks("home", HomeBankDir())
-	archived, _ := filepath.Glob(filepath.Join(Dir(root), "archive", "*.md"))
-	for _, path := range archived {
-		out = append(out, corpusFile{"archive", path, segEntries})
+	archiveOwners := []string{Dir(root)}
+	if !isHomeBank(root) {
+		archiveOwners = append(archiveOwners, HomeBankDir())
+	}
+	for _, owner := range archiveOwners {
+		archived, _ := filepath.Glob(filepath.Join(owner, "archive", "*.md"))
+		for _, path := range archived {
+			out = append(out, corpusFile{"archive", path, segEntries})
+		}
 	}
 	for _, dir := range nativeDirs(root) {
 		for _, path := range searchTopicFiles(dir) {
@@ -66,10 +72,10 @@ func searchTopicFiles(dir string) []string {
 		if !e.Type().IsRegular() || !strings.HasSuffix(name, ".md") {
 			continue
 		}
-		if _, ok := reservedNames[name]; ok {
+		if reservedNames[name] {
 			continue
 		}
-		if _, ok := reservedKindFold(name); ok && !hasExactEntry(dir, name) {
+		if reservedKindFold(name) && !hasExactEntry(dir, name) {
 			continue
 		}
 		files = append(files, filepath.Join(dir, name))
@@ -81,7 +87,7 @@ func parseBlocks(mode segMode, base string, data []byte) []string {
 	s := strings.ReplaceAll(string(data), "\r\n", "\n") // the frontmatter parsers anchor on a bare newline
 	switch mode {
 	case segEntries:
-		_, blocks := entryBlocks(base, s)
+		_, blocks := entryBlocks(logicalName(base), s)
 		return blocks
 	case segNative:
 		if frontmatterValue(s, "harness_kind") == "bank" {

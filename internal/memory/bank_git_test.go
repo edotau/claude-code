@@ -102,9 +102,6 @@ func assertFreshRepoEmpty(t *testing.T, r Repo) {
 	if head, _ := r.Head(); head != "" {
 		t.Fatalf("fresh repo has HEAD %q", head)
 	}
-	if log, err := r.Log(5); err != nil || log != nil {
-		t.Fatalf("Log on empty repo = %v, %v", log, err)
-	}
 	if remotes, err := r.remotes(); err != nil || len(remotes) != 0 {
 		t.Fatalf("fresh repo remotes() = %v, %v; want none", remotes, err)
 	}
@@ -182,9 +179,9 @@ func TestCommitDropsUntrackedAndStagesDeletion(t *testing.T) {
 	if _, committed, err := r.Commit([]string{"repo/MEMORY.md", "never/existed.md"}, "delete", "body"); err != nil || !committed {
 		t.Fatalf("deletion commit = %v, %v", committed, err)
 	}
-	log, err := r.Log(10)
-	if err != nil || len(log) != 2 || !strings.HasSuffix(log[0], " delete") {
-		t.Fatalf("Log = %v, %v", log, err)
+	log, err := r.run("log", "--format=%s")
+	if err != nil || strings.Count(log, "\n") != 1 || !strings.HasPrefix(log, "delete\n") {
+		t.Fatalf("log = %q, %v", log, err)
 	}
 	if head, _ := r.Head(); head == "" {
 		t.Fatal("Head empty after commits")

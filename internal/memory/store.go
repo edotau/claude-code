@@ -119,12 +119,12 @@ var templates = sync.OnceValue(func() map[string]string {
 	return m
 })
 
-// catalogFile is the reserved global catalog at the store root; BuildCatalog (Phase 2) is its only writer.
+// catalogFile is the reserved global catalog at the store root; BuildCatalog is its only writer.
 const catalogFile = "index.md"
 
 // storeReservedDirs are store subdirectories that are never a repo's memory dir.
 var storeReservedDirs = map[string]bool{
-	".git": true, "archive": true, "handoffs": true, "receipts": true, "reports": true, "home": true,
+	".git": true, "archive": true, "handoffs": true, "reports": true, "home": true,
 }
 
 // StoreDir is the memory store root and the work tree of the local memory repo.
@@ -142,13 +142,13 @@ func HandoffsDir(dir string) string { return filepath.Join(dir, "handoffs") }
 // ReportsDir is dir's command/agent reports (reviews, audits, research briefs).
 func ReportsDir(dir string) string { return filepath.Join(dir, "reports") }
 
-// knowledgeDir is dir's local, near-rules tier: durable lessons kept short of a rule (plan C.2, post-T10).
+// knowledgeDir is dir's local, near-rules tier: durable lessons kept short of a rule.
 func knowledgeDir(dir string) string { return filepath.Join(dir, "knowledge") }
 
 // JournalDir holds pending commit-transaction journals; state only, never committed.
 func JournalDir() string { return filepath.Join(StateDir(), "journal") }
 
-// AccessStateDir holds migrated access logs; the single source of truth for migrate and clean.
+// AccessStateDir holds the access logs; the single source of truth for their path.
 func AccessStateDir() string { return filepath.Join(StateDir(), "access") }
 
 // insideStore reports whether p resolves under the store (and not under its .git); rel is slash-separated.

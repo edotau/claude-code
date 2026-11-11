@@ -385,9 +385,6 @@ func (m *catalogMemo) store(stamp string, out []repoEntry) {
 	m.stamp, m.out = stamp, slices.Clone(out)
 }
 
-// reset drops the memo; tests call it after rewriting the vault or catalog by hand.
-func (m *catalogMemo) reset() { m.store("", nil) }
-
 // catalogStamp names RepoDirs' inputs: the store keys plus the vault's and the catalog's size and mtime.
 // stable=false while either file changed within racyWindow, where an mtime may not yet show the next write.
 func catalogStamp(keys []string) (stamp string, stable bool) {
@@ -537,25 +534,26 @@ func routeWordByte(c byte) bool {
 
 // RepoRoot resolves --repo like recall: a catalog store name maps to its origin checkout, else a path.
 func RepoRoot(repo string) string {
+	r, _ := lookupRepo(repo)
+	return r
+}
+
+// lookupRepo is repo's root and whether it was known: "" is the current repo, else a store name or an existing path.
+func lookupRepo(repo string) (string, bool) {
 	if repo == "" {
-		return root(repo)
+		return root(""), true
 	}
 	if e, ok := repoByName(repo); ok && e.Origin.Origin != "" {
-		return e.Origin.Origin
+		return e.Origin.Origin, true
 	}
-	return root(repo)
+	_, err := os.Stat(repo)
+	return root(repo), err == nil
 }
 
 // resolveRepo is RepoRoot that refuses a guess: "" is the current repo, else a catalog store name or an existing path.
 func resolveRepo(repo string) (string, error) {
-	if repo == "" {
-		return root(""), nil
-	}
-	if e, ok := repoByName(repo); ok && e.Origin.Origin != "" {
-		return e.Origin.Origin, nil
-	}
-	if _, err := os.Stat(repo); err == nil {
-		return root(repo), nil
+	if r, ok := lookupRepo(repo); ok {
+		return r, nil
 	}
 	return "", fmt.Errorf("--repo %q is neither an existing path nor a known store (known stores: %s)",
 		repo, strings.Join(RepoKeys(), ", "))

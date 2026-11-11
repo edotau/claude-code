@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // historicalRule is appended to the worker prompt of a swept (older, finished) session.
@@ -402,24 +403,17 @@ var tagKinds = []string{"DECISION:", "BUG:", "NEXT:", "NOTE:"}
 func extractTags(r io.Reader) ([]tag, error) {
 	var tags []tag
 	seen := map[string]bool{}
-	br := bufio.NewReader(r)
-	for {
-		line, err := br.ReadBytes('\n')
-		if len(line) > 0 {
-			for _, t := range tagsFromLine(line) {
-				key := t.Kind + "\x00" + t.Text
-				if !seen[key] {
-					seen[key] = true
-					tags = append(tags, t)
-				}
+	err := transcript.EachLine(r, func(line []byte) {
+		for _, t := range tagsFromLine(line) {
+			key := t.Kind + "\x00" + t.Text
+			if !seen[key] {
+				seen[key] = true
+				tags = append(tags, t)
 			}
 		}
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, err
-		}
+	})
+	if err != nil {
+		return nil, err
 	}
 	if len(tags) > tagMaxCount {
 		tags = tags[len(tags)-tagMaxCount:]

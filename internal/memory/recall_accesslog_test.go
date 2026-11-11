@@ -30,7 +30,7 @@ func TestAccessRotationReturnCountsAndRepoNominations(t *testing.T) {
 	if !oldest.Equal(old) {
 		t.Errorf("rotation lost the cold horizon: oldest = %v, want %v", oldest, old)
 	}
-	if s := stats["aa000001"]; s.Count != 1 {
+	if s := stats["aa000001"]; s.Newest.IsZero() {
 		t.Errorf("the rotated entry must still count: %+v", s)
 	}
 	// returnCounts: search/show returns inside the window count; recall injections and old lines never do.
@@ -128,10 +128,10 @@ func TestLogAccessAndAccessStatsAt(t *testing.T) {
 	if oldest.IsZero() || !oldest.Equal(day1) {
 		t.Errorf("oldest = %v want %v", oldest, day1)
 	}
-	if s := stats["aa11bb22"]; s.Count != 3 || s.Days != 3 {
+	if s := stats["aa11bb22"]; s.Days != 3 {
 		t.Errorf("decisionLog stat %+v", s)
 	}
-	if s := stats["cc33dd44"]; s.Count != 1 || s.Days != 1 {
+	if s := stats["cc33dd44"]; s.Days != 1 {
 		t.Errorf("conventions stat %+v", s)
 	}
 }

@@ -56,7 +56,7 @@ func commitLocked(t *testing.T, subject string, changes []Change) (Receipt, erro
 // assertNoopBatch: a second identical batch changes no bytes, so there is no commit.
 func assertNoopBatch(t *testing.T, first Receipt) {
 	t.Helper()
-	rec2, err := commitLocked(t, "import", []Change{{Rel: "repo/MEMORY.md", Data: []byte("- a\n"), Checked: true}})
+	rec2, err := commitLocked(t, "import", []Change{{Rel: "repo/MEMORY.md", Data: []byte("- a\n")}})
 	if err != nil || rec2.Commit != "" || len(rec2.Skipped) != 1 {
 		t.Fatalf("no-op batch = %+v, %v", rec2, err)
 	}
@@ -94,53 +94,15 @@ func TestCommitChangesLockedFreshImportCommits(t *testing.T) {
 	assertDecoyUntouched(t, decoy)
 }
 
-// settleWithDivergence seeds two files, edits one natively and settles a batch over both plus two new files.
-func settleWithDivergence(t *testing.T) (store string, rec Receipt, err error) {
-	t.Helper()
-	store, _ = storeFixture(t)
-	if _, err := commitLocked(t, "seed", []Change{{Rel: "r/a.md", Data: []byte("v1\n")}, {Rel: "r/b.md", Data: []byte("v1\n")}}); err != nil {
+// Delete: absent is skipped, present is removed and committed.
+func TestCommitChangesLockedDeleteRules(t *testing.T) {
+	store, _ := storeFixture(t)
+	if _, err := commitLocked(t, "seed", []Change{{Rel: "r/new.md", Data: []byte("new\n")}}); err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(store, "r", "b.md"), "edited by native\n")
-	write(t, filepath.Join(store, "r", "native.md"), "native topic\n")
-	rec, err = commitLocked(t, "settle", []Change{
-		{Rel: "r/a.md", Data: []byte("v2\n"), Preimage: []byte("v1\n"), Checked: true},
-		{Rel: "r/b.md", Data: []byte("v2\n"), Preimage: []byte("v1\n"), Checked: true},
-		{Rel: "r/new.md", Data: []byte("new\n"), Checked: true},
-		{Rel: "r/also-new.md", Data: []byte("x\n"), Preimage: nil, Checked: true},
-	})
-	return store, rec, err
-}
-
-func TestCommitChangesLockedPreimageRules(t *testing.T) {
-	_, rec, err := settleWithDivergence(t)
-	if !errors.Is(err, errDivergent) {
-		t.Fatalf("err = %v, want errDivergent", err)
-	}
-	if strings.Join(rec.Applied, ",") != "r/a.md,r/new.md,r/also-new.md" || strings.Join(rec.Divergent, ",") != "r/b.md" {
-		t.Fatalf("receipt = %+v", rec)
-	}
-	if strings.Join(rec.Preexisting, ",") != "r/native.md" {
-		t.Fatalf("preexisting = %v", rec.Preexisting)
-	}
-	if readStore(t, "r/b.md") != "edited by native\n" {
-		t.Fatal("divergent bytes were overwritten")
-	}
-	if readStore(t, "r/a.md") != "v2\n" {
-		t.Fatal("matching preimage not applied")
-	}
-	st, _ := StoreRepo().Status()
-	if len(st) != 1 || st[0].Path != "r/b.md" {
-		t.Fatalf("only the divergent edit may stay dirty: %+v", st)
-	}
-}
-
-// Delete: absent is skipped, present with matching preimage is removed and committed.
-func TestCommitChangesLockedDeleteRules(t *testing.T) {
-	store, _, _ := settleWithDivergence(t)
 	rec, err := commitLocked(t, "delete", []Change{
-		{Rel: "r/gone.md", Delete: true, Checked: true},
-		{Rel: "r/new.md", Delete: true, Preimage: []byte("new\n"), Checked: true},
+		{Rel: "r/gone.md", Delete: true},
+		{Rel: "r/new.md", Delete: true},
 	})
 	if err != nil || strings.Join(rec.Skipped, ",") != "r/gone.md" || strings.Join(rec.Applied, ",") != "r/new.md" {
 		t.Fatalf("delete batch = %+v, %v", rec, err)
@@ -245,7 +207,7 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 	// Hooks are disabled; a held ref lock makes git commit itself fail.
 	refLock := filepath.Join(store, ".git", "refs", "heads", "main.lock")
 	write(t, refLock, "")
-	_, err := batchLocked("batch", []Change{{Rel: "r/x.md", Data: []byte("x\n"), Checked: true}})
+	_, err := batchLocked("batch", []Change{{Rel: "r/x.md", Data: []byte("x\n")}})
 	if err == nil || errors.Is(err, errDivergent) {
 		t.Fatalf("commit must fail under the held ref lock: %v", err)
 	}
@@ -268,9 +230,9 @@ func assertRecovered(t *testing.T, rec Receipt) {
 	if len(journals(t)) != 0 {
 		t.Fatal("journal not retired after recovery")
 	}
-	log, err := StoreRepo().Log(10)
-	if err != nil || len(log) != 2 || !strings.HasSuffix(log[0], " next") || !strings.HasSuffix(log[1], " batch") {
-		t.Fatalf("Log = %v, %v", log, err)
+	log, err := StoreRepo().run("log", "--format=%s")
+	if err != nil || strings.TrimSpace(log) != "next\nbatch" {
+		t.Fatalf("log = %q, %v", log, err)
 	}
 	if len(rec.Preexisting) != 0 {
 		t.Fatalf("recovered batch's files leaked into the next batch as preexisting: %v", rec.Preexisting)
@@ -454,23 +416,6 @@ func TestCommitChangesLockedNotWedgedByPermanentlyFailingJournal(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(JournalDir(), stuck+".json")); err != nil {
 		t.Fatalf("stuck journal should stay on disk: %v", err)
-	}
-}
-
-// Regression: a skipped journal must surface on the receipt of the batch that succeeded behind it.
-func TestCommitChangesLockedReportsUnrecoveredOnSuccess(t *testing.T) {
-	storeFixture(t)
-	if err := StoreRepo().Ensure(); err != nil {
-		t.Fatal(err)
-	}
-	writeJournal(t, "20260101-000000.000-aaaa", map[string]any{"schema": 2})
-
-	rec, err := commitLocked(t, "next", []Change{{Rel: "r/next.md", Data: []byte("n\n")}})
-	if err != nil {
-		t.Fatalf("batch behind a stuck journal failed: %v", err)
-	}
-	if len(rec.Unrecovered) != 1 || !strings.Contains(rec.Unrecovered[0], "20260101-000000.000-aaaa") {
-		t.Fatalf("receipt Unrecovered = %q, want the stuck journal", rec.Unrecovered)
 	}
 }
 

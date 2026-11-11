@@ -115,7 +115,9 @@ func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool,
 	var survivors []recallPick
 	for _, c := range pool {
 		if c.Score < pool[0].Score*recallScoreFloor {
-			trace.outcome(blockKey(c.Hit.Block), "below floor")
+			if trace != nil {
+				trace.outcome(blockKey(c.Hit.Block), "below floor")
+			}
 			continue
 		}
 		boost := recallAccessBoost * float64(min(counts[c.Entry.ID], recallAccessCap)) / recallAccessCap
@@ -126,8 +128,8 @@ func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool,
 	orderRecall(survivors)
 	var out []recallPick
 	for _, c := range survivors {
-		if seen[blockKey(c.Hit.Block)] {
-			trace.outcome(blockKey(c.Hit.Block), "seen")
+		if key := blockKey(c.Hit.Block); seen[key] {
+			trace.outcome(key, "seen")
 			continue
 		}
 		if len(out) < recallBodies+recallPointers {
@@ -182,11 +184,13 @@ func recallPool(cands []SearchHit, top float64, need int, sem *Semantic, trace *
 		c := recallPick{Hit: h}
 		c.Score, kwOK = scoreRecall(c, top, kwOK, sem)
 		if !kwOK {
-			reason := "below floor"
-			if h.Matched < need {
-				reason = "matched too few"
+			if trace != nil {
+				reason := "below floor"
+				if h.Matched < need {
+					reason = "matched too few"
+				}
+				trace.outcome(blockKey(h.Block), reason)
 			}
-			trace.outcome(blockKey(h.Block), reason)
 			continue
 		}
 		c.Entry = entryFromHit(h)

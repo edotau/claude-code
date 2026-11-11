@@ -18,6 +18,9 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
+// reset drops the memo; tests call it after rewriting the vault or catalog by hand.
+func (m *catalogMemo) reset() { m.store("", nil) }
+
 func idFatal(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

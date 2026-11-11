@@ -8,7 +8,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -29,6 +28,7 @@ type recallTrace struct {
 	Embeddings, CacheAge string
 	CacheRows            int
 	Silent               bool
+	Degraded             error // why semantic recall fell back to keyword-only, nil when it did not
 	Rows                 []recallCandidate
 }
 
@@ -87,8 +87,8 @@ func (t *recallTrace) scores(c recallPick, boost float64) {
 // recallCacheInfo is diagnostic I/O, never used by the hook's normal path.
 func recallCacheInfo(t *recallTrace) {
 	t.CacheAge = "missing"
-	for _, name := range []string{providers.SessionProfile(), providers.AgentRecord("claude").Profile} {
-		if name == "" || !safeProfile.MatchString(name) {
+	for name := range embedProfiles {
+		if !safeProfile.MatchString(name) {
 			continue
 		}
 		cache, err := readProfileCache(name)
