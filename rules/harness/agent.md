@@ -74,7 +74,7 @@ paths:
   gets no link**, but opencode reads `~/.claude/skills` natively and loads it (duplicate names load once);
   `discover.go` skips it and `skills.go` never prunes a link into it — a link made before the
   exclusion (e.g. `~/.copilot/skills/synced`) stays visible to that agent; sync prints it as `EXTRA`.
-- **Portable core.** `CLAUDE.md` (else `AGENTS.md`, else `.github/copilot-instructions.md`: first one present)
+- **Portable core.** `CLAUDE.md` (else `AGENTS.md`, `.copilot/copilot-instructions.md`, `.github/copilot-instructions.md`: first present)
   plus unscoped `rules/standards/*.md` (no `paths:` frontmatter), listed by
   `project.PortableCore`; headless and interactive runs load the same core. Where each agent reads it:
 
