@@ -3,11 +3,11 @@ package configure
 import (
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -38,7 +38,7 @@ func Restore(w io.Writer, agents, out string, forceHomes, noAgents bool) error {
 
 // renderAgentConfigs renders the agent configs, asking before an overwrite on a real terminal.
 func renderAgentConfigs(w io.Writer, agents string, forceHomes bool) error {
-	opts := agentconfig.RenderOptions{Agents: splitAgents(agents), Out: w, ForceHomes: forceHomes}
+	opts := agentconfig.RenderOptions{Agents: textutil.SplitCSV(agents), Out: w, ForceHomes: forceHomes}
 	if tui.StdinIsTerminal() && tui.StdoutIsTerminal() {
 		opts.Confirm = func(path string, lost []string) bool {
 			return tui.ConfirmKey(fmt.Sprintf("overwrite %s?", path), true)
@@ -53,12 +53,5 @@ func renderAgentConfigs(w io.Writer, agents string, forceHomes bool) error {
 
 // Revert is `configure --revert [--agent a,b] [--dry-run]`.
 func Revert(w io.Writer, agents string, dryRun bool) error {
-	return agent.RevertConfigs(agentconfig.RenderOptions{Agents: splitAgents(agents), DryRun: dryRun, Out: w})
-}
-
-func splitAgents(agents string) []string {
-	if agents == "" {
-		return nil
-	}
-	return strings.Split(agents, ",")
+	return agent.RevertConfigs(agentconfig.RenderOptions{Agents: textutil.SplitCSV(agents), DryRun: dryRun, Out: w})
 }

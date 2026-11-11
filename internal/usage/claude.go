@@ -1,4 +1,4 @@
-// claude.go — live Claude.ai subscription quota (5h/weekly/Fable) via the OAuth usage endpoint.
+// claude.go — live Claude.ai subscription quota (weekly/Fable, 5h when reported) via the OAuth usage endpoint.
 
 package usage
 
@@ -180,6 +180,44 @@ func ownedCache(c *claudeUsageCache, creds claudeOAuthCreds) *claudeUsageCache {
 	return c
 }
 
+// CachedSevenDay reads the cached 7d window, no network or keychain; !ok when absent, over maxAge or another login's.
+func CachedSevenDay(maxAge time.Duration) (utilization float64, resetsAt string, ok bool) {
+	c := readClaudeUsageCache(claudeUsageCachePath())
+	if c == nil || len(c.Body) == 0 || claudeNow().Sub(c.FetchedAt) > maxAge {
+		return 0, "", false
+	}
+	// An unowned cache, or a login only the keychain knows (too slow to ask per render), is served.
+	if c.Owner != "" {
+		if cur := claudeFileOwner(); cur != "" && cur != c.Owner {
+			return 0, "", false
+		}
+	}
+	var b struct {
+		SevenDay struct {
+			Utilization float64 `json:"utilization"`
+			ResetsAt    string  `json:"resets_at"`
+		} `json:"seven_day"`
+	}
+	if json.Unmarshal(c.Body, &b) != nil {
+		return 0, "", false
+	}
+	return b.SevenDay.Utilization, b.SevenDay.ResetsAt, true
+}
+
+// claudeFileOwner is claudeOwner of the login in .credentials.json alone; "" when only a keychain holds it.
+func claudeFileOwner() string {
+	path, err := claudeCredentialsPath()
+	if err != nil {
+		return ""
+	}
+	raw, err := os.ReadFile(path)
+	var creds claudeOAuthCreds
+	if err != nil || json.Unmarshal(raw, &creds) != nil || creds.ClaudeAiOauth.AccessToken == "" {
+		return ""
+	}
+	return claudeOwner(creds)
+}
+
 // claudeCacheDir overrides the usage cache dir (tests); empty resolves state/harness/cache at call time.
 var claudeCacheDir string
 
@@ -351,10 +389,10 @@ func claudePlanName() string {
 	return cfg.Account.PlanName
 }
 
-// claudeUsageWindows decodes an oauth/usage body and reports whether both headline windows are present (non-null).
+// claudeUsageWindows decodes an oauth/usage body; the weekly window must be present, the retired 5h one may be absent.
 func claudeUsageWindows(body []byte) (claudeUsageResponse, bool) {
 	var u claudeUsageResponse
-	if json.Unmarshal(body, &u) != nil || u.FiveHour == nil || u.SevenDay == nil {
+	if json.Unmarshal(body, &u) != nil || u.SevenDay == nil {
 		return u, false
 	}
 	return u, true
@@ -367,14 +405,15 @@ func parseClaudeUsage(body []byte, subscriptionType string) []quota {
 		return []quota{{Provider: "anthropic", Note: "usage unavailable: unreadable response"}}
 	}
 	plan := cmp.Or(claudePlanName(), textutil.Title(subscriptionType))
-	fiveLocal, fiveUTC := claudeResets(u.FiveHour.ResetsAt)
-	weekLocal, weekUTC := claudeResets(u.SevenDay.ResetsAt)
-	out := []quota{
-		{Provider: "anthropic", Account: "-", Plan: plan, Window: "5h",
-			UsedPct: u.FiveHour.Utilization, Resets: fiveLocal, ResetsAt: fiveUTC},
-		{Provider: "anthropic", Account: "-", Plan: plan, Window: "weekly",
-			UsedPct: u.SevenDay.Utilization, Resets: weekLocal, ResetsAt: weekUTC},
+	var out []quota
+	if u.FiveHour != nil {
+		fiveLocal, fiveUTC := claudeResets(u.FiveHour.ResetsAt)
+		out = append(out, quota{Provider: "anthropic", Account: "-", Plan: plan, Window: "5h",
+			UsedPct: u.FiveHour.Utilization, Resets: fiveLocal, ResetsAt: fiveUTC})
 	}
+	weekLocal, weekUTC := claudeResets(u.SevenDay.ResetsAt)
+	out = append(out, quota{Provider: "anthropic", Account: "-", Plan: plan, Window: "weekly",
+		UsedPct: u.SevenDay.Utilization, Resets: weekLocal, ResetsAt: weekUTC})
 	for _, l := range u.Limits {
 		if l.Kind != "weekly_scoped" || l.Scope == nil || l.Scope.Model.DisplayName != "Fable" {
 			continue

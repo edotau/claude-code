@@ -11,7 +11,7 @@ import (
 
 // Config is the render-time design: <ConfigDir>/state/statusline/config.json overlaid on the embedded default.
 type Config struct {
-	Style string `json:"style"` // gradient|powerline|capsule|minimal|dashboard
+	Style string `json:"style"` // one of Styles
 	theme.Look
 	GradientEase   float64           `json:"gradientEase"` // ramp position exponent: <1 reaches the end colors sooner; 0 → 1
 	UserColor      string            `json:"userColor"`    // "ansi" → literal PS1 bold-green; else palette user

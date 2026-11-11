@@ -13,7 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/menu"
@@ -290,10 +289,9 @@ func vaultSetSecret(name string, dryRun bool) int {
 		fmt.Printf("would %s %s in the vault (%d chars); nothing written\n", verb, name, len(value))
 		return 0
 	}
-	if err := agent.SetSecret(name, value); err != nil {
+	if err := configure.StoreSecret(name, value); err != nil {
 		return helptext.Fail("vault set: %v", err)
 	}
-	router.ClearSecretAuth(name)
 	fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s); `claude-code vault get %s` prints it\n", name, vault.Redact(value), name)
 	return 0
 }
@@ -502,8 +500,8 @@ func cmdVaultExport(args []string) int {
 		return 2
 	}
 	pairs, err := vault.ExportPairs(names)
-	if err != nil {
-		return helptext.Fail("vault %v", err)
+	if err != nil { // ExportPairs prefixes only its per-name failures with "export: "
+		return helptext.Fail("vault export: %s", strings.TrimPrefix(err.Error(), "export: "))
 	}
 	if len(pairs) == 0 {
 		return helptext.Fail("vault export: no stored secrets to export")

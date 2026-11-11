@@ -473,9 +473,13 @@ func ValidateSecret(name, value string) error {
 	return agent.ValidateVaultSecret(name, value)
 }
 
-// StoreSecret seals a value using the vault's validation and name-only audit entry, without menu-specific checks.
+// StoreSecret seals a value (the vault's own checks only) and clears the auth marks of the providers that read it.
 func StoreSecret(name, value string) error {
-	return vault.Store(name, value)
+	if err := vault.Store(name, value); err != nil {
+		return err
+	}
+	router.ClearSecretAuth(name)
+	return nil
 }
 
 // DeleteSecret removes a sealed value and retains the vault's name-only audit entry.
@@ -524,7 +528,11 @@ func ImportablePairs(pairs []vault.Pair, problems []string) ([]vault.Pair, []str
 // StoreImport stores each pair in order, calling stored after each success; an error names the failing pair.
 func StoreImport(pairs []vault.Pair, stored func(name string)) error {
 	for _, p := range pairs {
-		if err := agent.SetSecret(p.Name, p.Value); err != nil {
+		err := agent.ValidateVaultSecret(p.Name, p.Value)
+		if err == nil {
+			err = StoreSecret(p.Name, p.Value)
+		}
+		if err != nil {
 			return fmt.Errorf("%s: %w", p.Name, err)
 		}
 		stored(p.Name)
