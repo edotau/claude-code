@@ -468,12 +468,13 @@ func TestLeafJobIDs(t *testing.T) {
 	if err := os.WriteFile(tx, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, err := leafJobIDs(tx)
-	if err != nil {
-		t.Fatal(err)
+	lr := readLeaf(tx, leafWant{ids: true})
+	got := lr.ids
+	if lr.openErr != nil {
+		t.Fatal(lr.openErr)
 	}
 	if want := []string{textID, jsonID}; strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Fatalf("leafJobIDs = %v, want %v", got, want)
+		t.Fatalf("readLeaf ids = %v, want %v", got, want)
 	}
 }
 
@@ -488,11 +489,11 @@ func TestLeafJobIDsEnvelopeAndExitLine(t *testing.T) {
 	if err := os.WriteFile(tx, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, err := leafJobIDs(tx)
-	if err != nil || strings.Join(got, ",") != envID+","+exitID {
-		t.Fatalf("leafJobIDs = %v, %v", got, err)
+	lr := readLeaf(tx, leafWant{ids: true})
+	if got := lr.ids; lr.openErr != nil || strings.Join(got, ",") != envID+","+exitID {
+		t.Fatalf("leafJobIDs = %v, %v", got, lr.openErr)
 	}
-	if _, err := leafJobIDs(filepath.Join(t.TempDir(), "missing")); err == nil {
+	if lr := readLeaf(filepath.Join(t.TempDir(), "missing"), leafWant{ids: true}); lr.openErr == nil {
 		t.Fatal("missing transcript: want an error so the gate fails open")
 	}
 }

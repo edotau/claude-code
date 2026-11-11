@@ -64,6 +64,16 @@ func tailscaleFlags() (*flag.FlagSet, *tsFlags) {
 	return fs, t
 }
 
+// Flags are the completion flags of `network tailscale`, derived from its FlagSet.
+func Flags() []helptext.Flag {
+	fs, _ := tailscaleFlags()
+	return helptext.FlagsOf(fs, map[string]func() []string{
+		"exit-node": func() []string { return []string{"on", "off", "approve"} },
+		"subnet":    func() []string { return []string{"approve", "off"} },
+		"route":     func() []string { return append(CachedMachineNames(), "off") },
+	})
+}
+
 // tsMode returns the one mode flag given ("" = status), or an error when several are.
 func tsMode(fs *flag.FlagSet, t *tsFlags) (string, error) {
 	set := map[string]bool{}

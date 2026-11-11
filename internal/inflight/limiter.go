@@ -233,16 +233,15 @@ func scan(dir string, now time.Time, prune bool) Snapshot {
 	return snap
 }
 
-// scanner caches each session's meta.json map and transcript across one scan.
+// scanner caches each session's meta.json map across one scan.
 type scanner struct {
-	now      time.Time
-	trusted  bool
-	meta     map[string]map[string]metaAgent // session transcript → tool_use_id → agent
-	sessions map[string][]byte
+	now     time.Time
+	trusted bool
+	meta    map[string]map[string]metaAgent // session transcript → tool_use_id → agent
 }
 
 func newScanner(now time.Time) *scanner {
-	return &scanner{now: now, trusted: ProbeTrusted(), meta: map[string]map[string]metaAgent{}, sessions: map[string][]byte{}}
+	return &scanner{now: now, trusted: ProbeTrusted(), meta: map[string]map[string]metaAgent{}}
 }
 
 // live: dispatches and markers without a session follow ownerLive; a spawn marker follows its agent's meta.json and transcript.
@@ -318,14 +317,37 @@ func readMeta(path string) (meta, bool) {
 	return m, err == nil && json.Unmarshal(b, &m) == nil
 }
 
+// scanChunk is the read size of answered: memory is bounded by it, not by the transcript size.
+const scanChunk = 64 << 10
+
 // answered: the session transcript holds a tool_result for this spawn (refused or finished without a PostToolUse).
 func (s *scanner) answered(transcript, id string) bool {
-	b, ok := s.sessions[transcript]
-	if !ok {
-		b, _ = os.ReadFile(transcript)
-		s.sessions[transcript] = b
+	if id == "" {
+		return false
 	}
-	return id != "" && bytes.Contains(b, []byte(`"tool_use_id":"`+id+`"`))
+	f, err := os.Open(transcript)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	needle := []byte(`"tool_use_id":"` + id + `"`)
+	keep := len(needle) - 1 // overlap so a match straddling two chunks is still seen
+	buf := make([]byte, keep+scanChunk)
+	have := 0
+	for {
+		n, err := f.Read(buf[have:])
+		have += n
+		if bytes.Contains(buf[:have], needle) {
+			return true
+		}
+		if err != nil {
+			return false
+		}
+		if have > keep {
+			copy(buf, buf[have-keep:have])
+			have = keep
+		}
+	}
 }
 
 // Base is the per-account cap on concurrent agents unless a profile's `concurrency` overrides it.

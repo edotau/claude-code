@@ -184,6 +184,38 @@ func AppendLine(file string, line []byte) error {
 	})
 }
 
+// AppendLineRepair is AppendLine without the lock; it starts line on its own row when a torn write left no newline.
+func AppendLineRepair(file string, line []byte) error {
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	if len(line) == 0 || line[len(line)-1] != '\n' {
+		line = append(slices.Clip(line), '\n')
+	}
+	if endsMidLine(f) {
+		line = append([]byte{'\n'}, line...)
+	}
+	_, err = f.Write(line)
+	return errors.Join(err, f.Close())
+}
+
+// endsMidLine reports whether the file is non-empty and its last byte is not a newline.
+func endsMidLine(f *os.File) bool {
+	fi, err := f.Stat()
+	if err != nil || fi.Size() == 0 {
+		return false
+	}
+	last := make([]byte, 1)
+	if _, err := f.ReadAt(last, fi.Size()-1); err != nil {
+		return false
+	}
+	return last[0] != '\n'
+}
+
 // ErrLockTimeout means WithFileLock gave up waiting for a held lock.
 var ErrLockTimeout = errors.New("timed out waiting for file lock")
 

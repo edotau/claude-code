@@ -49,6 +49,16 @@ func addRemoteFlags(fs *flag.FlagSet) *remoteFlags {
 	return f
 }
 
+// Flags are the completion flags of `network remote`, derived from its FlagSet.
+func Flags() []helptext.Flag {
+	fs := helptext.NewFlagSet("network remote", helptext.Page{})
+	addRemoteFlags(fs)
+	return helptext.FlagsOf(fs, map[string]func() []string{
+		"host":  tailscale.CachedMachineNames,
+		"agent": func() []string { return Agents },
+	})
+}
+
 func Cmd(args []string) int {
 	fs := helptext.NewFlagSet("network remote", remotePage)
 	f := addRemoteFlags(fs)

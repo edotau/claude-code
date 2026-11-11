@@ -171,7 +171,6 @@ var writers = map[string]string{
 	"internal/transcript/summary_cache.go:Save":              "transcript-summary",
 	"internal/usage/claude.go:writeClaudeUsageCache":         "oauth-usage-cache",
 	"internal/usage/budget.go:writeBudgetCache":              "gateway-budget-cache",
-	"internal/tokenledger/store.go:Append":                   "usage-ledger",
 	"internal/vault/vault.go:create":                         "vault",
 	"internal/agent/job/job.go:SpawnArgv":                    unversioned("log: vendor job log, humans only"),
 	"internal/agent/ask/reviewdiff.go:ReviewArgs":            unversioned("foreign: temp diff handed to a vendor CLI"),
