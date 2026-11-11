@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -144,7 +145,7 @@ func loadSource(path, dirName string) (Source, error) {
 
 // readTextNoFollow reads a file, refusing to follow a symlink at the final component (TOCTOU guard).
 func readTextNoFollow(path string) (string, bool) {
-	f, err := openNoFollow(path)
+	f, err := paths.OpenNoFollow(path, os.O_RDONLY, 0)
 	if err != nil {
 		return "", false
 	}

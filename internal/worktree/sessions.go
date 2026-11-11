@@ -17,12 +17,11 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
-// Claim is one line of the hooks' claims ledger (written by internal/hooks/wthook/claims.go): a path or a commit.
+// Claim is one line of the hooks' claims ledger (written by internal/hooks/wthook/claims.go): a path.
 type Claim struct {
-	Path   string `json:"path,omitempty"`
-	Commit string `json:"commit,omitempty"`
-	Agent  string `json:"agent_id,omitempty"`
-	TS     int64  `json:"ts"`
+	Path  string `json:"path,omitempty"`
+	Agent string `json:"agent_id,omitempty"`
+	TS    int64  `json:"ts"`
 }
 
 // claimTail is how much of each claims file a scan reads: the newest lines are the ones that matter.
@@ -91,7 +90,7 @@ func scanFile(file string, fn func(Claim)) error {
 	sc.Buffer(make([]byte, 0, 64<<10), claimTail)
 	for sc.Scan() {
 		var c Claim
-		if json.Unmarshal(sc.Bytes(), &c) == nil && (c.Path != "" || c.Commit != "") {
+		if json.Unmarshal(sc.Bytes(), &c) == nil && c.Path != "" {
 			fn(c) // the first line after a tail seek is usually torn and fails to decode
 		}
 	}
