@@ -24,19 +24,12 @@ type secretScanner struct {
 	Findings []string
 }
 
-func (s *secretScanner) out() io.Writer {
-	if s.Out != nil {
-		return s.Out
-	}
-	return os.Stdout
-}
-
 func (s *secretScanner) flag(detail string) {
 	s.Findings = append(s.Findings, detail)
-	fmt.Fprintf(s.out(), "  ⚠ %s\n", detail)
+	fmt.Fprintf(s.Out, "  ⚠ %s\n", detail)
 }
 
-func (s *secretScanner) ok(msg string) { fmt.Fprintf(s.out(), "  ✓ %s\n", msg) }
+func (s *secretScanner) ok(msg string) { fmt.Fprintf(s.Out, "  ✓ %s\n", msg) }
 
 // defaultScanTargets lists settings.json, settings.local.json, ~/.claude.json and .mcp.json for a scan with no paths.
 func defaultScanTargets() []string {
@@ -256,7 +249,7 @@ func (s *secretScanner) scanConfigs(targets []string) int {
 	if defaults {
 		targets = defaultScanTargets()
 	}
-	fmt.Fprintln(s.out(), "== config-surface credential scan ==")
+	fmt.Fprintln(s.Out, "== config-surface credential scan ==")
 	for _, f := range targets {
 		s.scanFile(f)
 	}
@@ -264,10 +257,10 @@ func (s *secretScanner) scanConfigs(targets []string) int {
 		s.scanVault()
 	}
 	if n := len(s.Findings); n > 0 {
-		fmt.Fprintf(s.out(), "doctor --scan: %d finding(s) — move inline values into the vault with `claude-code vault set`.\n", n)
+		fmt.Fprintf(s.Out, "doctor --scan: %d finding(s) — move inline values into the vault with `claude-code vault set`.\n", n)
 		return providers.ExitFindings
 	}
-	fmt.Fprintln(s.out(), "doctor --scan: clean.")
+	fmt.Fprintln(s.Out, "doctor --scan: clean.")
 	return providers.ExitClean
 }
 

@@ -1,20 +1,15 @@
 package doctor
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
 	"maps"
 	"os"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -58,93 +53,7 @@ func checkVaultPerms() []vaultCheck {
 	default:
 		row.Detail = file + " is 0600"
 	}
-	return append([]vaultCheck{row}, checkArchivePerms()...)
-}
-
-// checkArchivePerms flags vault.db.rolledback-* archives and migration .bak files (from
-// state/vault-migration.json) that are readable beyond the owner; an unreadable listing or manifest is a failing row.
-func checkArchivePerms() []vaultCheck {
-	var out []vaultCheck
-	matches, err := rolledBackArchives()
-	if err != nil {
-		out = append(out, vaultCheck{Name: "vault archive perms", Gate: true,
-			Detail: "could not list the vault directory, so its rolledback archives were not checked: " + err.Error()})
-	}
-	backups, err := manifestBackups()
-	if err != nil {
-		out = append(out, vaultCheck{Name: "vault archive perms", Gate: true,
-			Detail: "could not read the migration manifest, so its .bak files were not checked: " + err.Error()})
-	}
-	for _, m := range append(matches, backups...) {
-		if c, bad := flagPerm(m); bad {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
-// rolledBackArchives lists vault.db.rolledback-* beside the vault; a missing directory holds none.
-func rolledBackArchives() ([]string, error) {
-	file := vault.Path()
-	dir := filepath.Dir(file)
-	entries, err := os.ReadDir(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	prefix := filepath.Base(file) + ".rolledback-"
-	var out []string
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), prefix) {
-			out = append(out, filepath.Join(dir, e.Name()))
-		}
-	}
-	return out, nil
-}
-
-// flagPerm reports a mode > 0600 file, or one that cannot be inspected; a missing file is not a finding.
-func flagPerm(file string) (vaultCheck, bool) {
-	fi, err := os.Stat(file)
-	if errors.Is(err, fs.ErrNotExist) {
-		return vaultCheck{}, false
-	}
-	if err != nil {
-		return vaultCheck{Name: "vault archive perms", Gate: true, Detail: fmt.Sprintf("could not stat %s: %v", file, err)}, true
-	}
-	if !loosePerm(fi) {
-		return vaultCheck{}, false
-	}
-	return vaultCheck{Name: "vault archive perms", Gate: true,
-		Detail: fmt.Sprintf("%s is %04o, want 0600 — run: chmod 600 %s", file, fi.Mode().Perm(), file)}, true
-}
-
-// manifestBackups reads state/vault-migration.json directly (not internal/configure, which imports this
-// package) for each item's "backup" path; an absent manifest is benign, an unreadable or corrupt one is an error.
-func manifestBackups() ([]string, error) {
-	raw, err := os.ReadFile(filepath.Join(paths.ConfigDir(), "state", "vault-migration.json"))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var doc struct {
-		Items []struct {
-			Backup string `json:"backup"`
-		} `json:"items"`
-	}
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		return nil, fmt.Errorf("parse manifest: %w", err)
-	}
-	var out []string
-	for _, item := range doc.Items {
-		if item.Backup != "" {
-			out = append(out, item.Backup)
-		}
-	}
-	return out, nil
+	return []vaultCheck{row}
 }
 
 // checkMasterKey fails when the vault holds secrets the resolved master key cannot open, or when the

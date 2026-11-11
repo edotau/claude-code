@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// doctorChecks is a test seam over the probing launch.DoctorChecks plus the soft, config-only MCP row.
+// doctorChecks is a test seam over the probing runChecks plus the soft, config-only MCP row.
 var doctorChecks = func() ([]check, bool) {
 	checks, ok := runChecks()
 	mcpOK, detail := summary(mcpOptions(false))
@@ -33,7 +33,7 @@ var doctorPage = helptext.Page{
 	Usage: "claude-code doctor [flags] [--scan [path...]]",
 	About: "Check binaries, providers, credentials and the proxy; exits 1 when a hard check fails " +
 		"(claude binary, provider registry, session credential), soft rows only report. " +
-		"Changes nothing except --refresh's model cache. --audit prints the action log (profile " +
+		"Changes nothing except the version cache and --refresh's model cache. --audit prints the action log (profile " +
 		"switches, pins, secret sets, key use, safety blocks, failovers, tailscale and setup actions) " +
 		"instead. --scan, --git and --secrets audit for plaintext credentials instead, text only, " +
 		"and exit 1 on any finding. --mcp prints every MCP server's live health, cross-scope drift " +

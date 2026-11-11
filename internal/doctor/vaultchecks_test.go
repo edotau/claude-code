@@ -225,44 +225,7 @@ func TestDoctorUnreadableVaultIsFailure(t *testing.T) {
 	}
 }
 
-// TestDoctorFlagsArchivePerms: a .rolledback-* vault archive and a manifest-listed .bak file
-// readable/writable by anyone but their owner must each be flagged, a 0600 one must not.
-func TestDoctorFlagsArchivePerms(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("needs POSIX mode bits: Windows reports 0666 for every writable file")
-	}
-	dir := doctorTestVault(t)
-	if err := os.MkdirAll(filepath.Dir(vault.Path()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	loose := vault.Path() + ".rolledback-20260101-000000"
-	tight := vault.Path() + ".rolledback-20260102-000000"
-	writeTestFile(t, loose, "archive", 0o644)
-	writeTestFile(t, tight, "archive", 0o600)
-	bak := filepath.Join(dir, "providers.json.bak-20260101-000000")
-	writeTestFile(t, bak, "backup", 0o644)
-	stateDir := filepath.Join(dir, "state")
-	if err := os.MkdirAll(stateDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	manifestJSON := `{"items":[{"backup":"` + strings.ReplaceAll(bak, `\`, `\\`) + `"}]}`
-	writeTestFile(t, filepath.Join(stateDir, "vault-migration.json"), manifestJSON, 0o600)
-	rc, out := doctorTestResult(&providers.Registry{})
-	if rc != providers.ExitFindings {
-		t.Fatalf("Doctor = %d, want findings: %s", rc, out)
-	}
-	if !strings.Contains(out, loose+" is 0644, want 0600 — run: chmod 600 "+loose) {
-		t.Errorf("Doctor missing loose archive finding or its remediation: %s", out)
-	}
-	if strings.Contains(out, tight+" is") {
-		t.Errorf("Doctor flagged a 0600 archive: %s", out)
-	}
-	if !strings.Contains(out, bak+" is 0644") {
-		t.Errorf("Doctor missing loose manifest backup finding: %s", out)
-	}
-}
-
-// On Windows mode bits are meaningless (Stat reports 0666), so neither the vault nor an archive is a perms finding.
+// On Windows mode bits are meaningless (Stat reports 0666), so the vault is not a perms finding.
 func TestDoctorPermsIgnoreWindowsModeBits(t *testing.T) {
 	doctorTestVault(t)
 	if err := vault.Update(func(*vault.Tx) error { return nil }); err != nil {
@@ -271,17 +234,12 @@ func TestDoctorPermsIgnoreWindowsModeBits(t *testing.T) {
 	if err := os.Chmod(vault.Path(), 0o666); err != nil {
 		t.Fatal(err)
 	}
-	archive := vault.Path() + ".rolledback-20260101-000000"
-	writeTestFile(t, archive, "archive", 0o666)
-	if err := os.Chmod(archive, 0o666); err != nil { // umask may have narrowed WriteFile's mode
-		t.Fatal(err)
-	}
 	orig := permsGOOS
 	t.Cleanup(func() { permsGOOS = orig })
 	for goos, wantFlagged := range map[string]bool{"windows": false, "linux": runtime.GOOS != "windows"} {
 		permsGOOS = goos
 		rows := checkVaultPerms()
-		flagged := !rows[0].OK || len(rows) > 1
+		flagged := !rows[0].OK
 		if flagged != wantFlagged {
 			t.Errorf("permsGOOS=%s: checkVaultPerms = %+v, want flagged=%v", goos, rows, wantFlagged)
 		}
@@ -304,23 +262,6 @@ func TestKeyErrTextWithholdsKeyCommandStderr(t *testing.T) {
 	if got := keyErrText(errors.New("keyring: unavailable")); got != "keyring: unavailable" {
 		t.Fatalf("keyErrText = %q", got)
 	}
-}
-
-func TestConfigFixArchiveListingErrorIsFinding(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	// A regular file instead of a directory fails portably, even when tests run as root.
-	state := filepath.Join(dir, "state")
-	writeTestFile(t, state, "not a directory", 0o600)
-	for _, row := range checkArchivePerms() {
-		if row.Name == "vault archive perms" && strings.Contains(row.Detail, "could not list the vault directory") {
-			if row.OK || !row.Gate || !strings.Contains(row.Detail, state) {
-				t.Fatalf("listing error must fail the gate and identify its path: %+v", row)
-			}
-			return
-		}
-	}
-	t.Fatal("archive audit omitted the vault directory listing error")
 }
 
 func noKeyring(t *testing.T) {

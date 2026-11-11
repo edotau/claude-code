@@ -122,24 +122,10 @@ func formatsCheck() check {
 	return check{Name: "formats", OK: true, Detail: fmt.Sprintf("%d formats current · %d migrations applied", current, ledgerLines())}
 }
 
+// ledgerLines counts the migration ledger's lines; an unreadable ledger counts as 0.
 func ledgerLines() int {
-	f, err := os.Open(schemas.LedgerPath())
-	if err != nil {
-		return 0
-	}
-	defer f.Close()
-	buf := make([]byte, 32<<10)
-	n := 0
-	for {
-		k, err := f.Read(buf)
-		n += bytes.Count(buf[:k], []byte("\n"))
-		if errors.Is(err, io.EOF) {
-			return n
-		}
-		if err != nil {
-			return 0
-		}
-	}
+	data, _ := os.ReadFile(schemas.LedgerPath())
+	return bytes.Count(data, []byte("\n"))
 }
 
 func vaultDoctorChecks() []check {
@@ -161,7 +147,6 @@ func vaultDoctorChecks() []check {
 		}
 		count, source := 0, "not needed"
 		if err == nil {
-			// Shares the "vault master key" row's resolution instead of re-resolving the master key here.
 			var kerr error
 			count, source, kerr = vault.MasterKeyStatus()
 			err = kerr

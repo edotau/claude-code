@@ -98,7 +98,7 @@ func hiddenCommands() []command {
 		{name: "review", hidden: true, summary: "code-review detectors: quality, complexity, simplify, diff, pr, gate, ...", run: cmdReview, spec: reviewSpec},
 		{name: "workflow", hidden: true, summary: "skeleton <pattern> | lint (pins, meta/throw, syntax, table)", run: cmdWorkflow, spec: workflowSpec},
 		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: cmdHook, spec: hookSpec},
-		{name: "clip", hidden: true, summary: "save the Windows clipboard image as PNG; print its WSL path", run: cmdClip, spec: clipSpec},
+		{name: "clip", hidden: true, summary: "save the clipboard image as PNG and print its path", run: cmdClip, spec: clipSpec},
 		{name: "clip-clear", hidden: true, summary: "clear the clipboard after a delay if it still holds a copied secret", run: cmdClipClear, spec: clipClearSpec},
 		{name: "wl-paste", hidden: true, summary: "WSL wl-paste proxy: answer agent image paste, else run real wl-paste", run: cmdWLPaste, sideEffectHelp: true},
 		{name: "version", hidden: true, summary: "print the build version", run: cmdVersion},

@@ -100,14 +100,7 @@ func TestDoctorSecretsWorstExitWins(t *testing.T) {
 				if err := vault.Store("AUDIT_FAKE_KEY", value); err != nil {
 					t.Fatal(err)
 				}
-				// Opening the vault tightens vault.db (fa2b54af); a loose rolled-back archive is still a finding.
-				archive := filepath.Join(cfg, "state", "vault.db.rolledback-1")
-				if err := os.WriteFile(archive, []byte("x"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.Chmod(archive, 0o644); err != nil {
-					t.Fatal(err)
-				}
+				wrongVaultKey(t) // a master key that cannot open the stored secret is a gating finding
 			}
 			code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 				return Run([]string{"--secrets", "--since", "1"})

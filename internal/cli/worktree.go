@@ -59,15 +59,16 @@ func cmdWorktree(args []string) int {
 	return dispatchWorktree(repo, sub, rest)
 }
 
+var worktreeHandlers = map[string]func(*worktree.Repo, []string) int{
+	"list":      cmdWorktreeList,
+	"create":    cmdWorktreeCreate,
+	"merge":     cmdWorktreeMerge,
+	"clean":     cmdWorktreeClean,
+	"clean-all": cmdWorktreeCleanAll,
+}
+
 func dispatchWorktree(repo *worktree.Repo, sub string, args []string) int {
-	handlers := map[string]func(*worktree.Repo, []string) int{
-		"list":      cmdWorktreeList,
-		"create":    cmdWorktreeCreate,
-		"merge":     cmdWorktreeMerge,
-		"clean":     cmdWorktreeClean,
-		"clean-all": cmdWorktreeCleanAll,
-	}
-	if handler, ok := handlers[sub]; ok {
+	if handler, ok := worktreeHandlers[sub]; ok {
 		return handler(repo, args)
 	}
 	helptext.Fail("worktree: unknown subcommand %q", sub)
