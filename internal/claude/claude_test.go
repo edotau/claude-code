@@ -311,7 +311,7 @@ func TestClaudeArgsPermissionModeByProvider(t *testing.T) {
 	req := agent.RunOptions{Tools: true, Provider: "qa"}
 	got := strings.Join(renderedArgs(t, req, launchTarget(req)), " ")
 	for _, want := range []string{"--allowedTools Edit Write Read Grep Glob Bash(go build *)", "Bash(go test *)", "Bash(git diff *)",
-		"Bash(grep *) --permission-mode dontAsk --permission-prompts none"} {
+		"Bash(rtk go test *)", "Bash(rtk read *) --permission-mode dontAsk --permission-prompts none"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("qa, no rules: args %q, want %q", got, want)
 		}
@@ -343,8 +343,8 @@ func TestClaudeCmdRendersRecord(t *testing.T) {
 			map[string][]string{"ultra": {"--effort high"}, "qa": {"--effort high"}}},
 		{"permissions", vault.AgentRecord{Permissions: &vault.AgentPolicy{Allow: []string{"Bash(git *)"}}}, "",
 			map[string][]string{"ultra": {"--allowedTools Bash(git *) --permission-mode auto"},
-				"qa": {"--allowedTools Bash(git *) --permission-mode dontAsk"}},
-			map[string][]string{"ultra": {"dontAsk"}, "qa": {"auto", "Bash(go build *)"}}},
+				"qa": {"Bash(go build *)", "Bash(git *) --permission-mode dontAsk"}},
+			map[string][]string{"ultra": {"dontAsk"}, "qa": {"auto"}}},
 		{"launch", vault.AgentRecord{Launch: launch}, "", nil,
 			map[string][]string{"ultra": {"--launch-arg"}, "qa": {"--launch-arg"}}},
 	}

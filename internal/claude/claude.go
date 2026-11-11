@@ -111,12 +111,16 @@ func toolArgs(req agent.RunOptions) []string {
 // planDeny is plan mode's write boundary: deny beats the user's allow rules and defaultMode, which a bare plan mode does not.
 var planDeny = []agent.Rule{{Tool: "Edit"}, {Tool: "Write"}, {Tool: "NotebookEdit"}, {Tool: "Bash"}}
 
-// gatewayAllow is a rule-less --tools leaf's allow list off Anthropic, where dontAsk denies whatever no rule matches.
+// gatewayAllow is a --tools leaf's base allow list off Anthropic, where dontAsk denies whatever no rule matches.
 var gatewayAllow = func() []agent.Rule {
 	rules := []agent.Rule{{Tool: "Edit"}, {Tool: "Write"}, {Tool: "Read"}, {Tool: "Grep"}, {Tool: "Glob"}}
-	for _, c := range []string{"go build *", "go vet *", "go test *", "gofmt *", "go run *", "git diff *", "git status *",
-		"git log *", "git show *", "jq *", "ls *", "cat *", "rg *", "grep *"} {
+	rewritten := []string{"go build *", "go vet *", "go test *", "git diff *", "git status *", "git log *", "git show *",
+		"jq *", "ls *", "wc *", "rg *", "grep *"}
+	for _, c := range slices.Concat(rewritten, []string{"gofmt *", "go run *", "cat *", "head *", "tail *"}) {
 		rules = append(rules, agent.Rule{Tool: "Bash", Arg: c})
+	}
+	for _, c := range append(rewritten, "read *") { // the rtk-rewrite hook's spelling, which is what claude matches
+		rules = append(rules, agent.Rule{Tool: "Bash", Arg: "rtk " + c})
 	}
 	return rules
 }()
@@ -157,10 +161,9 @@ func claudeEffort(e string) (string, error) {
 // Mode plan adds planDeny and sets no --permission-mode: --permission-prompts none denies what no rule matched.
 func permissionArgs(p agent.Permissions, tools, autonomous, anthropic bool) []string {
 	switch {
-	case !p.IsZero():
-	case tools && !autonomous && !anthropic: // settings.json's defaultMode auto would call the unserved judge
-		p.Allow = gatewayAllow
-	default:
+	case tools && !anthropic && p.Mode != "plan" && (!autonomous || !p.IsZero()): // dontAsk: the request's rules only add
+		p.Allow = slices.Concat(gatewayAllow, p.Allow)
+	case p.IsZero():
 		return nil
 	}
 	if p.Mode == "plan" && tools {

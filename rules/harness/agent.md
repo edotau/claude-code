@@ -31,6 +31,8 @@ paths:
   when the hook is missing); any other agent drops its tools (fail closed).
   copilot `--tools` approves every request like the other agents' `--tools`, still subject to the dispatch's
   permission rules (a Deny returns feedback and the run continues) and the native hooks.
+  claude `--tools` off Anthropic is an allow list (edit tools plus go/git/read commands, `--allow` adds to it), not
+  approve-all: there is no judge there, so anything unlisted is denied.
 - `agents ask --agents <json|file>` defines agents inline: `name`, `description`, `prompt`, `tools`, `model`,
   `max_turns`, `agent`, `profile`, `effort`. `--agent` also takes an `--agents` key, and a definition's `model` applies
   on every agent. With `--batch`, `--agents` covers the whole file and a line's `agent` takes the same selector; the
