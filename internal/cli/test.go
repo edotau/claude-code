@@ -5,7 +5,7 @@ package cli
 import (
 	"os"
 
-	"github.com/edotau/claude-code/internal/testtool/ramdisk"
+	"github.com/edotau/claude-code/internal/hosttest/ramdisk"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 

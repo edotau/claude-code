@@ -28,7 +28,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/setup"
-	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
@@ -347,11 +346,11 @@ func browserDoctorDetail() string {
 
 // rtkDoctorStatus reports the rtk compressor and fails when PATH's rtk is not that binary; a shadow is never executed.
 func rtkDoctorStatus() (bool, string) {
-	bin := shell.RTKBinary()
+	bin := paths.RTKBinary()
 	if bin == "" {
 		return true, "not on PATH — the rtk hook skips the rewrite"
 	}
-	found, same := shell.RTKOnPath(bin)
+	found, same := paths.RTKOnPath(bin)
 	switch {
 	case same:
 		return true, bin + " (rtk rewrite; PATH rtk is this binary)"

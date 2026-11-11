@@ -5,6 +5,7 @@ import (
 	"os"
 	"slices"
 
+	"github.com/edotau/claude-code/internal/hooks/quality"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/review/diff"
 	"github.com/edotau/claude-code/internal/review/planlint"
@@ -103,7 +104,7 @@ func cmdWorkflow(args []string) int {
 	}
 	switch args[0] {
 	case "skeleton":
-		return planlint.RunSkeleton(args[1:], os.Stdout, os.Stderr)
+		return quality.RunSkeleton(args[1:], os.Stdout, os.Stderr)
 	case "lint":
 		return workflowLint(args[1:])
 	}
@@ -113,9 +114,9 @@ func cmdWorkflow(args []string) int {
 
 func workflowLint(args []string) int {
 	if len(args) == 0 {
-		return planlint.RunWorkflowLint([]string{paths.ConfigDir()}, os.Stdout, os.Stderr)
+		return quality.RunWorkflowLint([]string{paths.ConfigDir()}, os.Stdout, os.Stderr)
 	}
-	return planlint.RunWorkflowLint(args, os.Stdout, os.Stderr)
+	return quality.RunWorkflowLint(args, os.Stdout, os.Stderr)
 }
 
 // reviewToolNames lists the review detectors, derived from reviewTools so a new one is completable for free.

@@ -17,7 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -401,8 +400,8 @@ func TestMain(m *testing.M) {
 func rtkFixture(t *testing.T) (pin, userBin string) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(shell.RTKBinaryEnv, "")
-	pin = shell.RTKPinned()
+	t.Setenv(paths.RTKBinaryEnv, "")
+	pin = paths.RTKPinned()
 	writeExec(t, pin, "#!/bin/sh\necho 'rtk 1.1.0'\n")
 	userBin = t.TempDir()
 	orig := userBinDir

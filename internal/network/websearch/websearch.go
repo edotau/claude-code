@@ -21,7 +21,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/network/httpx"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -617,79 +616,6 @@ func publicIP(ip net.IP) bool {
 	return true
 }
 
-// robotsMax caps the per-origin robots.txt cache the long-lived MCP server keeps; robotsTTL bounds its age.
-const robotsMax = 256
-
-var robotsTTL = 20 * time.Minute
-
-type robotsEntry struct {
-	body string
-	at   time.Time
-}
-
-// robotsCache holds each origin's robots.txt body across requests; a fetch error is never cached.
-var robotsCache = struct {
-	sync.Mutex
-	m map[string]robotsEntry
-}{m: map[string]robotsEntry{}}
-
-// robotsAllowed reports whether robots.txt permits u; missing allows, unreadable (5xx/transport) refuses and joins dead.
-func robotsAllowed(ctx context.Context, u *url.URL, dead map[string]bool) bool {
-	origin := u.Scheme + "://" + u.Host
-	if dead[origin] {
-		return false
-	}
-	body, ok := robotsBody(ctx, origin)
-	if !ok && dead != nil {
-		dead[origin] = true
-	}
-	_, blocked := robotsDisallows(parseRobots(body), u.RequestURI())
-	return ok && !blocked
-}
-
-// robotsBody is origin's robots.txt from robotsCache within robotsTTL, else freshly fetched and cached.
-func robotsBody(ctx context.Context, origin string) (string, bool) {
-	robotsCache.Lock()
-	e, ok := robotsCache.m[origin]
-	robotsCache.Unlock()
-	if ok && time.Since(e.at) < robotsTTL {
-		return e.body, true
-	}
-	body, ok := fetchRobots(ctx, origin)
-	if !ok {
-		return "", false
-	}
-	robotsCache.Lock()
-	defer robotsCache.Unlock()
-	if len(robotsCache.m) >= robotsMax {
-		for k, old := range robotsCache.m {
-			if time.Since(old.at) >= robotsTTL || len(robotsCache.m) >= robotsMax {
-				delete(robotsCache.m, k)
-			}
-		}
-	}
-	robotsCache.m[origin] = robotsEntry{body: body, at: time.Now()}
-	return body, true
-}
-
-// fetchRobots returns the origin's robots.txt body ("" when missing); ok is false when it could not be read.
-func fetchRobots(ctx context.Context, origin string) (string, bool) {
-	ctx, cancel := context.WithTimeout(ctx, enrichTimeout)
-	defer cancel()
-	status, raw, _, err := httpx.Do(ctx, httpx.Call{Client: pageClient, URL: origin + "/robots.txt", Limit: 512 << 10,
-		Header: http.Header{"User-Agent": {"claude-code-websearch/" + serverVersion}}})
-	if status == 0 {
-		return "", false
-	}
-	if status != http.StatusOK {
-		return "", status < 500
-	}
-	if err != nil && !errors.Is(err, httpx.ErrTooLarge) {
-		return "", false
-	}
-	return string(raw), true
-}
-
 // fetchPageText GETs one http(s) result URL as plain text; "" keeps the snippet; other schemes are refused.
 func fetchPageText(ctx context.Context, pageURL string) string {
 	if !strings.HasPrefix(pageURL, "https://") && !strings.HasPrefix(pageURL, "http://") {
@@ -714,17 +640,6 @@ func fetchPageText(ctx context.Context, pageURL string) string {
 	}
 	defer resp.Body.Close()
 	return pageBodyText(resp)
-}
-
-// robotsRedirectCheck caps redirects and re-applies robots.txt at every hop.
-func robotsRedirectCheck(next *http.Request, via []*http.Request) error {
-	if err := capRedirects(next, via); err != nil {
-		return err
-	}
-	if !robotsAllowed(next.Context(), next.URL, nil) {
-		return fmt.Errorf("robots.txt disallows redirect to %s", next.URL)
-	}
-	return nil
 }
 
 // textual reports whether a Content-Type is absent or names html/text.

@@ -1,11 +1,9 @@
-package shell
+package paths
 
 import (
 	"os"
 	"os/exec"
 	"path/filepath"
-
-	"github.com/edotau/claude-code/internal/paths"
 )
 
 // RTKBinaryEnv overrides the rtk binary; tests cannot rely on rtk being installed, and a wrapper or pinned path also works.
@@ -30,7 +28,7 @@ func RTKBinary() string {
 }
 
 // RTKPinned is the harness-pinned rtk install, BinDir/rtk; it may not exist.
-func RTKPinned() string { return filepath.Join(paths.BinDir(), "rtk") }
+func RTKPinned() string { return filepath.Join(BinDir(), "rtk") }
 
 // RTKOnPath is PATH's rtk ("" when none) and whether it resolves, symlinks followed, to the same file as bin.
 func RTKOnPath(bin string) (found string, same bool) {

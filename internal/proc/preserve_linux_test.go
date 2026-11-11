@@ -8,7 +8,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
-	"unsafe"
+
+	"github.com/edotau/claude-code/internal/proc/proctest"
 )
 
 func TestPreserveHelper(t *testing.T) {
@@ -26,45 +27,10 @@ func TestPreserveHelper(t *testing.T) {
 	os.Exit(0)
 }
 
-// openPty returns the pty master and slave, skipping when /dev/ptmx is unusable.
-func openPty(t *testing.T) (master, slave *os.File) {
-	t.Helper()
-	m, err := os.OpenFile("/dev/ptmx", os.O_RDWR|syscall.O_NOCTTY, 0)
-	if err != nil {
-		t.Skipf("no /dev/ptmx: %v", err)
-	}
-	t.Cleanup(func() { _ = m.Close() })
-	var unlock int32
-	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, m.Fd(), syscall.TIOCSPTLCK, uintptr(unsafe.Pointer(&unlock))); e != 0 {
-		t.Skipf("TIOCSPTLCK: %v", e)
-	}
-	var n uint32
-	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, m.Fd(), syscall.TIOCGPTN, uintptr(unsafe.Pointer(&n))); e != 0 {
-		t.Skipf("TIOCGPTN: %v", e)
-	}
-	s, err := os.OpenFile("/dev/pts/"+itoa(n), os.O_RDWR|syscall.O_NOCTTY, 0)
-	if err != nil {
-		t.Skipf("open pty slave: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	return m, s
-}
-
-func itoa(n uint32) string {
-	if n == 0 {
-		return "0"
-	}
-	var b []byte
-	for ; n > 0; n /= 10 {
-		b = append([]byte{byte('0' + n%10)}, b...)
-	}
-	return string(b)
-}
-
 // runPreserveHelper runs the helper with the pty slave as stdin; ttyOut also makes it stdout and returns what it wrote.
 func runPreserveHelper(t *testing.T, mode string, ttyOut bool) (syscall.Termios, string) {
 	t.Helper()
-	master, slave := openPty(t)
+	master, slave := proctest.PTY(t)
 	var before syscall.Termios
 	if err := ioctlTermios(int(slave.Fd()), ioctlGet, &before); err != nil {
 		t.Fatal(err)

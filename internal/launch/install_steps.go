@@ -24,7 +24,6 @@ import (
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -413,7 +412,7 @@ func linkUserBins(w io.Writer, target string, dryRun bool) error {
 	if err := linkOnPath(w, "claude-code", target, dryRun); err != nil {
 		return err
 	}
-	if rtk := shell.RTKPinned(); executableRealPath(rtk) != "" {
+	if rtk := paths.RTKPinned(); executableRealPath(rtk) != "" {
 		return linkOnPath(w, "rtk", rtk, dryRun)
 	}
 	return nil

@@ -14,13 +14,3 @@ bare relative filename, so tests must `t.Chdir` here to match):
 ## goals/ (goal_verifier.py)
 plan-standalone-harness.md <- docs/plans/plan-standalone-harness.md (same commands/rules as above).
 noplan.txt / stdin-case.txt are hand-written to exercise NO_PLAN and STRONG/WEAK verdicts.
-
-## skeleton/ (workflow_skeleton.py)
-No file input — CLI args only. No cwd sensitivity (no path embedded in output):
-
-    python3 <repo>/skills/subagent-workflows/scripts/workflow_skeleton.py pipeline --name review-changes
-    python3 <repo>/skills/subagent-workflows/scripts/workflow_skeleton.py parallel --name fan-out-audit
-    python3 <repo>/skills/subagent-workflows/scripts/workflow_skeleton.py evaluator --name gen-verify
-    python3 <repo>/skills/subagent-workflows/scripts/workflow_skeleton.py orchestrator --name plan-then-build
-    python3 <repo>/skills/subagent-workflows/scripts/workflow_skeleton.py pipeline              (default-name.want)
-    python3 <repo>/skills/subagent-workflows/scripts/workflow_skeleton.py bogus                  (exit 2, argparse error)

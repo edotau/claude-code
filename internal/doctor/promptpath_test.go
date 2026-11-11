@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -45,6 +46,14 @@ func TestH1ClaudeMDPathsResolve(t *testing.T) {
 	}
 	writeRel(t, root, "CLAUDE.md", "# x\n`rules/gone.md`\n")
 	wantOne(t, claudeMD(root), "CLAUDE.md:2:", "`rules/gone.md` does not exist", "(fix at CLAUDE.md)")
+
+	// A gitignored path (local-only, absent on a fresh clone) is not a finding; an unignored one still is.
+	if err := exec.Command("git", "-C", root, "init", "-q").Run(); err != nil {
+		t.Skipf("git unavailable: %v", err)
+	}
+	writeRel(t, root, ".gitignore", "/skills/synced/\n")
+	writeRel(t, root, "CLAUDE.md", "# x\n`skills/synced/` and `rules/gone.md`\n")
+	wantOne(t, claudeMD(root), "`rules/gone.md` does not exist")
 }
 
 func TestH2RulesPathsAndSymbols(t *testing.T) {

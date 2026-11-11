@@ -1,4 +1,4 @@
-package planlint
+package quality
 
 import (
 	"fmt"

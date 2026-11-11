@@ -3,9 +3,11 @@
 package doctor
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -14,10 +16,10 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
+	"github.com/edotau/claude-code/internal/hooks/quality"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/review/planlint"
 )
 
 const claudeMDCap = 200
@@ -81,7 +83,7 @@ func claudeMD(root string) []string {
 	}
 	for i, l := range ls {
 		for _, m := range backtickPath.FindAllStringSubmatch(l, -1) {
-			if p := strings.TrimRight(m[1], "/"); !strings.ContainsAny(p, "*<>") && !exists(root, p) {
+			if p := strings.TrimRight(m[1], "/"); !strings.ContainsAny(p, "*<>") && !exists(root, p) && !gitIgnored(root, m[1]) {
 				out = append(out, fmt.Sprintf("CLAUDE.md:%d: `%s` does not exist (fix at CLAUDE.md)", i+1, m[1]))
 			}
 		}
@@ -96,6 +98,11 @@ func unreadable(rel string, err error) string {
 func exists(root, rel string) bool {
 	_, err := os.Stat(filepath.Join(root, rel))
 	return err == nil
+}
+
+// gitIgnored reports a path .gitignore covers (e.g. skills/synced/); keep the trailing / so dir-only patterns match.
+func gitIgnored(root, rel string) bool {
+	return exec.CommandContext(context.Background(), "git", "-C", root, "check-ignore", "-q", "--no-index", rel).Run() == nil
 }
 
 func rules(root string) []string {
@@ -276,7 +283,7 @@ func hasHeading(ls []string, want string) bool {
 // workflows reports saved-workflow doc and helper-block drift, each as file:1 with its origin.
 func workflows(root string) []string {
 	var out []string
-	for _, m := range planlint.WorkflowDrift(root) {
+	for _, m := range quality.WorkflowDrift(root) {
 		head, what, _ := strings.Cut(m, ": ")
 		origin := head
 		if head == "saved-workflows.md" {

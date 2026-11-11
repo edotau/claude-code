@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/network/tailscale"
+	"github.com/edotau/claude-code/internal/proc/proctest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -1039,7 +1040,7 @@ func TestVaultImportFileYesSkipsTerminalConfirm(t *testing.T) {
 	if err := os.WriteFile(path, []byte("REGRESSION_IMPORT=synthetic-import-value\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	master, slave := vaulttest.PTY(t)
+	master, slave := proctest.PTY(t)
 	old := os.Stdin
 	os.Stdin = slave
 	t.Cleanup(func() { os.Stdin = old })
@@ -1089,6 +1090,6 @@ func TestVaultGetFailsOnUnwritableStdout(t *testing.T) {
 
 func TestVaultGetKeyRefusesTTY(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	_, slave := vaulttest.PTY(t)
+	_, slave := proctest.PTY(t)
 	assertGetKeyRefusesTTY(t, slave)
 }

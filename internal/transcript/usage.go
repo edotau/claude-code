@@ -175,17 +175,17 @@ func (a *UsageAggregate) Add(s *FileSummary) {
 	}
 }
 
-// WorkflowRunDirs lists one session's subagents/workflows/<runId> dirs.
+// WorkflowRunDirs lists the subagents/workflows/<runId> dirs of a session dir; the path may hold glob wildcards.
 func WorkflowRunDirs(sessionDir string) []string {
 	matches, err := filepath.Glob(filepath.Join(sessionDir, "subagents", "workflows", "*"))
 	if err != nil {
 		return nil
 	}
-	return KeepDirs(matches)
+	return keepDirs(matches)
 }
 
-// KeepDirs filters a glob result down to directories, sorted.
-func KeepDirs(matches []string) []string {
+// keepDirs filters a glob result down to directories, sorted.
+func keepDirs(matches []string) []string {
 	var dirs []string
 	for _, m := range matches {
 		if info, err := os.Stat(m); err == nil && info.IsDir() {

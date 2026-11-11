@@ -2,6 +2,7 @@ package planlint
 
 import (
 	"bytes"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -230,5 +231,13 @@ func TestRunGoalsStdoutWriteError(t *testing.T) {
 		if code != 1 || !strings.Contains(stderr.String(), "writing output") {
 			t.Errorf("args %v: code=%d stderr=%q; want 1 and 'writing output'", args, code, stderr.String())
 		}
+	}
+}
+
+// The agent-name set keeps its pinned contents; an agentid rename fails here.
+func TestAgentNamesTieToAgentid(t *testing.T) {
+	wantAgents := map[string]bool{"claude": true, "codex": true, "copilot": true, "gemini": true, "opencode": true, "agy": true}
+	if !maps.Equal(agentNames, wantAgents) {
+		t.Errorf("agentNames = %v, want %v", agentNames, wantAgents)
 	}
 }

@@ -282,7 +282,7 @@ type AuditOpts struct {
 
 // RunAudits runs the requested audits in order, writing their reports to w; the worst exit wins.
 func RunAudits(w io.Writer, o AuditOpts) int {
-	rc, sep := vault.ExitClean, ""
+	rc, sep := ExitClean, ""
 	if o.Scan {
 		rc = max(rc, (&Scanner{Out: w}).ScanConfigs(o.Targets))
 		sep = "\n"
@@ -294,12 +294,12 @@ func RunAudits(w io.Writer, o AuditOpts) int {
 			fmt.Fprintf(os.Stderr, "claude-code: doctor --git: %v\n", err)
 			return 1
 		}
-		rc, sep = max(rc, vault.ScanGit(w, dir, o.Rev, o.Since)), "\n"
+		rc, sep = max(rc, ScanGit(w, dir, o.Rev, o.Since)), "\n"
 	}
 	if o.Vault {
 		fmt.Fprint(w, sep)
 		if !o.VaultDoctor(w) {
-			rc = max(rc, vault.ExitFindings)
+			rc = max(rc, ExitFindings)
 		}
 	}
 	return rc

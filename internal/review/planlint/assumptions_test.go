@@ -8,7 +8,12 @@ import (
 	"strings"
 	"testing"
 	"testing/iotest"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
+
+// TestMain isolates the host (HOME, config dir, PATH tools) so no planlint test reads or writes the real machine.
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
 // golden commands (captured with python3 on PATH):
 //   cd testdata/assumptions && python3 assumption_linter.py <file> [--json]

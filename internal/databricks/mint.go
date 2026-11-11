@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/clipboard"
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -291,20 +290,4 @@ func mintDryRun(reg *providers.Registry, name, as string, doCopy bool) int {
 	}
 	fmt.Printf("would mint a fresh token for %s (%s) as %s; copy=%t; nothing written\n", p.Name, authLabel(p), as, doCopy)
 	return 0
-}
-
-// MintProxyToken ensures the proxy is up and mints a token for profile; a nonzero code is the exit status.
-func MintProxyToken(profile, cfgDir string) (string, int) {
-	if cfgDir != "" {
-		if err := os.Setenv("CLAUDE_CONFIG_DIR", cfgDir); err != nil {
-			return "", helptext.Fail("gateway token: %v", err)
-		}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	token, err := gateway.Token(ctx, profile)
-	if err != nil {
-		return "", helptext.Fail("gateway token: %v", err)
-	}
-	return token, 0
 }

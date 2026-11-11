@@ -1,6 +1,6 @@
 //go:build !linux && !darwin
 
-package vaulttest
+package proctest
 
 import (
 	"os"

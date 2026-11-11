@@ -43,7 +43,7 @@ func RTKRewrite(in *core.Input) core.Result {
 	if !rtkApplies(in) {
 		return core.Result{}
 	}
-	bin := shell.RTKBinary()
+	bin := paths.RTKBinary()
 	if bin == "" {
 		return core.Result{}
 	}
@@ -62,7 +62,7 @@ func RTKRewrite(in *core.Input) core.Result {
 	if updated == nil {
 		return core.Result{}
 	}
-	found, onPath := shell.RTKOnPath(bin)
+	found, onPath := paths.RTKOnPath(bin)
 	word := textutil.QuoteSH(bin) // the command moves PATH or HOME, so bare rtk or "$HOME/…" could run another rtk
 	if !rtkEnvAltered().MatchString(cmd) {
 		word = rtkWord(bin, os.Getenv("HOME"), onPath)

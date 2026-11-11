@@ -12,7 +12,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/memory/memorytest"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -49,7 +48,7 @@ func hookSession(t *testing.T) (tr string, payload func() *core.Input) {
 func TestFailedWorkerMessageUsesWorkUnits(t *testing.T) {
 	tr, payload := hookSession(t)
 	writeUserTurns(t, tr, 6)
-	memorytest.StubSpawn(t, false)
+	memory.StubSpawn(t, false)
 	for range 2 {
 		r := Stop(payload())
 		if r.Decision != core.Block || !strings.Contains(r.Reason, "~3 work units this session") {
@@ -65,7 +64,7 @@ func TestFailedWorkerMessageUsesWorkUnits(t *testing.T) {
 func TestStopFailOpenSaysUpdateNotSaved(t *testing.T) {
 	tr, payload := hookSession(t)
 	writeEdits(t, tr, 5)
-	memorytest.StubSpawn(t, false)
+	memory.StubSpawn(t, false)
 	for range 3 {
 		Stop(payload())
 	}
@@ -82,7 +81,7 @@ func TestEndAndCompactDispatchOnce(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			tr, payload := hookSession(t)
 			writeEdits(t, tr, 3)
-			spawns := memorytest.StubSpawn(t, true)
+			spawns := memory.StubSpawn(t, true)
 			for range 2 {
 				if r := hook(payload()); !reflect.DeepEqual(r, core.Result{}) {
 					t.Fatalf("%s = %+v, want an empty result", name, r)
@@ -115,7 +114,7 @@ func TestUpdateAppendsWorktreeLedger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spawns := memorytest.StubSpawn(t, true)
+	spawns := memory.StubSpawn(t, true)
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 3)
 	if res := Stop(core.ParseInput(strings.NewReader(updatePayload(tr, dest)))); res.Decision == core.Block || spawns.Update.Load() != 1 {

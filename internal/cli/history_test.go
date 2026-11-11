@@ -1,4 +1,4 @@
-package history
+package cli
 
 import (
 	"encoding/json"
@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
-
 	"github.com/edotau/claude-code/internal/paths"
 )
 

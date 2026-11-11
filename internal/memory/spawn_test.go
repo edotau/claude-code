@@ -10,14 +10,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// stubSpawn replaces every detached worker spawn until tb ends; memory's own tests use it instead of memorytest.
-func stubSpawn(tb testing.TB, ok bool) *Spawns {
-	tb.Helper()
-	s, restore := StubSpawns(ok)
-	tb.Cleanup(restore)
-	return s
-}
-
 type launch struct {
 	bin, dir, log string
 	args, env     []string
@@ -93,7 +85,7 @@ func TestDefaultSpawnersBuildTodaysArgvAndLogs(t *testing.T) {
 }
 
 func TestStubSpawnsCountsAndRestoresNested(t *testing.T) {
-	base := stubSpawn(t, true)
+	base := StubSpawn(t, true)
 	outer, restoreOuter := StubSpawns(true)
 	inner, restoreInner := StubSpawns(false)
 	if spawn.update("", "", "") || !spawn.dream("") || !spawn.catchup("", "") || !spawn.watcher(nil, "") {

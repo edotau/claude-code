@@ -210,3 +210,52 @@ func NewestMtime(dir string) time.Time {
 	}
 	return newest
 }
+
+// settleDir stamps block IDs, rotates sessionHistory, regenerates dir's MEMORY.md region and wraps its files.
+func settleDir(d string, now time.Time) (rotated int, err error) {
+	if _, err := assignIDs(d, now); err != nil {
+		return 0, err
+	}
+	rotated, err = rotateSessionHistory(d, now)
+	if err != nil {
+		return rotated, err
+	}
+	if _, err = writeBankRegion(d, now); err != nil {
+		return rotated, err
+	}
+	targets, err := dirFmtTargets(d)
+	if err != nil {
+		return rotated, err
+	}
+	_, err = formatFiles(targets, false) // update writes land wrapped, so lint-docs stays clean
+	return rotated, err
+}
+
+func writeCatalog(now time.Time) error {
+	c, err := BuildCatalog(now)
+	if err != nil {
+		return err
+	}
+	return paths.AtomicWrite(filepath.Join(StoreDir(), CatalogFile), []byte(c), 0o644)
+}
+
+// commitStore commits every dirty path in the store (update writes + settle output) as one settle commit.
+func commitStore(subject string) error {
+	repo := StoreRepo()
+	if !repo.Exists() {
+		return nil
+	}
+	st, err := repo.Status()
+	if err != nil {
+		return err
+	}
+	var rels []string
+	for _, e := range st {
+		rels = append(rels, e.Path)
+	}
+	if len(rels) == 0 {
+		return nil
+	}
+	_, _, err = repo.Commit(rels, subject, "")
+	return err
+}

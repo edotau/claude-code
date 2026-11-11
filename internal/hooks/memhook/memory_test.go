@@ -15,7 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/memory/memorytest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -30,7 +29,7 @@ func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()
 	tb := &hosttest.MainTB{}
-	memorytest.StubSpawn(tb, true)
+	memory.StubSpawn(tb, true)
 	orig := spawnServed
 	spawnServed = func(string) bool { return true }
 	code := m.Run()
@@ -108,7 +107,7 @@ func TestSessionStartClaimsServedRefreshOncePerRetryWindow(t *testing.T) {
 func resumeSession(t *testing.T) (cwd, fresh string) {
 	t.Helper()
 	vaulttest.Use(t)
-	memorytest.StubSpawn(t, true)
+	memory.StubSpawn(t, true)
 	cwd = t.TempDir()
 	dir := memory.HandoffsDir(memory.Dir(cwd))
 	if err := os.MkdirAll(dir, 0o700); err != nil {

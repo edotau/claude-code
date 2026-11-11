@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/opencode"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
@@ -24,7 +25,7 @@ var (
 	opencodeSwitchArgv     = opencode.OpencodeSwitchArgv
 	invalidateOpencodeAuth = opencode.InvalidateOpencodeAuth
 	opencodeList           = tui.List
-	runAttached            = tui.RunAttached
+	runAttached            = proc.RunAttached
 	confirmKey             = tui.ConfirmKey
 	lookOpencode           = paths.AgentBin
 )

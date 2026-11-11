@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -35,7 +35,7 @@ func fakeRTK(t *testing.T) string {
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(shell.RTKBinaryEnv, bin)
+	t.Setenv(paths.RTKBinaryEnv, bin)
 	return bin
 }
 
@@ -240,7 +240,7 @@ func TestRTKRewriteExitCodesAndFailures(t *testing.T) {
 	if err := os.WriteFile(bad, []byte("#!/bin/sh\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(shell.RTKBinaryEnv, bad)
+	t.Setenv(paths.RTKBinaryEnv, bad)
 	if got, ok := rtkOut(t, rtkBashIn("ls")); ok {
 		t.Errorf("unrunnable rtk rewrote to %q", got)
 	}
@@ -265,7 +265,7 @@ func TestRTKPinnedBinaryShellMetacharacters(t *testing.T) {
 			if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			t.Setenv(shell.RTKBinaryEnv, bin)
+			t.Setenv(paths.RTKBinaryEnv, bin)
 			cmd, ok := rtkOut(t, rtkBashIn("ls"))
 			if !ok {
 				t.Fatal("expected rewrite using pinned binary")
@@ -289,7 +289,7 @@ func TestRTKNeverRewritesGitCommit(t *testing.T) {
 }
 
 func TestRTKMissingBinaryIsNoOp(t *testing.T) {
-	t.Setenv(shell.RTKBinaryEnv, "definitely-not-a-real-binary-xyz")
+	t.Setenv(paths.RTKBinaryEnv, "definitely-not-a-real-binary-xyz")
 	if got, ok := rtkOut(t, rtkBashIn("git log")); ok {
 		t.Errorf("missing binary still wrapped to %q — must degrade to a no-op", got)
 	}
@@ -451,7 +451,7 @@ func TestRTKHomeSpellingPassesSafetyScan(t *testing.T) {
 // Bare rtk only when PATH resolves to the pinned file itself (symlinks followed); a different rtk first keeps $HOME.
 func TestRTKWordBareOnlyWhenPathFindsPin(t *testing.T) {
 	word := homeRTK(t)
-	bin := os.Getenv(shell.RTKBinaryEnv)
+	bin := os.Getenv(paths.RTKBinaryEnv)
 	link := filepath.Join(t.TempDir(), "rtk")
 	if err := os.Symlink(bin, link); err != nil {
 		t.Fatal(err)
@@ -464,7 +464,7 @@ func TestRTKWordBareOnlyWhenPathFindsPin(t *testing.T) {
 		{"no rtk on PATH", t.TempDir(), word},
 	} {
 		t.Setenv("PATH", tc.path)
-		_, same := shell.RTKOnPath(bin)
+		_, same := paths.RTKOnPath(bin)
 		if got := rtkWord(bin, os.Getenv("HOME"), same); got != tc.want {
 			t.Errorf("%s: rtkWord = %q, want %q", tc.name, got, tc.want)
 		}
@@ -539,7 +539,7 @@ func TestRTKShadowNoticeNeverRunsShadow(t *testing.T) {
 // A command that sets, exports or unsets PATH or HOME gets the quoted absolute pin, never bare rtk or "$HOME/…".
 func TestRTKPinnedPathWhenCommandAltersPathOrHome(t *testing.T) {
 	homeRTK(t)
-	bin := os.Getenv(shell.RTKBinaryEnv)
+	bin := os.Getenv(paths.RTKBinaryEnv)
 	pinned := textutil.QuoteSH(bin)
 	for _, path := range []string{filepath.Dir(bin), t.TempDir()} { // bare-rtk and "$HOME/…" spellings
 		t.Setenv("PATH", path)
@@ -560,7 +560,7 @@ func TestRTKPinnedPathWhenCommandAltersPathOrHome(t *testing.T) {
 
 func TestRTKArrayAssignmentPinsBinary(t *testing.T) {
 	homeRTK(t)
-	bin := os.Getenv(shell.RTKBinaryEnv)
+	bin := os.Getenv(paths.RTKBinaryEnv)
 	for _, path := range []string{filepath.Dir(bin), t.TempDir()} {
 		t.Setenv("PATH", path)
 		for _, cmd := range []string{"PATH[0]=/nonexistent; ls", "HOME[0]=/nonexistent; ls"} {

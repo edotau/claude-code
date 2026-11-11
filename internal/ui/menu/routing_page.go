@@ -6,7 +6,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -26,7 +25,7 @@ func routingRow() homeRow {
 // countRoutingOverrides is how many fields the vault overlay itself sets, across every module.
 func countRoutingOverrides(overlay providers.Routing) int {
 	n := 0
-	for _, m := range settings.Modules() {
+	for _, m := range configure.Modules() {
 		for _, f := range m.Fields() {
 			if f.IsSet(overlay) {
 				n++
@@ -38,7 +37,7 @@ func countRoutingOverrides(overlay providers.Routing) int {
 
 // routingSource reports "vault" when the overlay itself sets f, else "default" — derived from presence
 // in the overlay (providers.RoutingOverlay), never from comparing f's resolved value to the default.
-func routingSource(f settings.RoutingField, overlay providers.Routing) string {
+func routingSource(f configure.RoutingField, overlay providers.Routing) string {
 	if f.IsSet(overlay) {
 		return "vault"
 	}
@@ -67,7 +66,7 @@ func runRouting(d *dialog) bool {
 // reportRouting prints one line per field under its module's header: key, effective value, source. The
 // core module (Name() "routing") skips its own header — Run's section header already reads "routing".
 func reportRouting(d *dialog, r, overlay providers.Routing) bool {
-	for _, m := range settings.Modules() {
+	for _, m := range configure.Modules() {
 		fields := m.Fields()
 		if len(fields) == 0 {
 			continue
@@ -107,10 +106,10 @@ func runRoutingMenu(d *dialog, r, overlay providers.Routing) bool {
 
 // routingSections groups the routing fields by module, showing this page's staged and reset values; fields lists
 // the editable rows in order.
-func routingSections(r, overlay providers.Routing, staged map[string]string, resetKeys map[string]bool) ([]tui.Section, []settings.RoutingField) {
+func routingSections(r, overlay providers.Routing, staged map[string]string, resetKeys map[string]bool) ([]tui.Section, []configure.RoutingField) {
 	var sections []tui.Section
-	var fields []settings.RoutingField
-	for _, m := range settings.Modules() {
+	var fields []configure.RoutingField
+	for _, m := range configure.Modules() {
 		var rows [][2]string
 		for _, f := range m.Fields() {
 			val, source := f.Get(r), routingSource(f, overlay)
@@ -132,7 +131,7 @@ func routingSections(r, overlay providers.Routing, staged map[string]string, res
 
 // stageRoutingField records one edit: "" (explicit reset) marks the key reset; otherwise it stages the
 // typed input string, passed verbatim to f.Set on save.
-func stageRoutingField(staged map[string]string, resetKeys map[string]bool, f settings.RoutingField, input string) {
+func stageRoutingField(staged map[string]string, resetKeys map[string]bool, f configure.RoutingField, input string) {
 	delete(staged, f.Key)
 	delete(resetKeys, f.Key)
 	if input == "" {
@@ -144,11 +143,11 @@ func stageRoutingField(staged map[string]string, resetKeys map[string]bool, f se
 
 // editRoutingField prompts for a new value: a picker for Bool/Enum, a text line otherwise. Returns the raw
 // string to stage ("" means reset); ok is false on cancel or an invalid value (already reported).
-func editRoutingField(d *dialog, f settings.RoutingField) (string, bool) {
+func editRoutingField(d *dialog, f configure.RoutingField) (string, bool) {
 	switch f.Kind {
-	case settings.RoutingBool:
+	case configure.RoutingBool:
 		return editRoutingChoice(d, f, []string{"true", "false"})
-	case settings.RoutingEnum:
+	case configure.RoutingEnum:
 		return editRoutingChoice(d, f, f.Values)
 	default:
 		return editRoutingText(d, f)
@@ -156,7 +155,7 @@ func editRoutingField(d *dialog, f settings.RoutingField) (string, bool) {
 }
 
 // editRoutingChoice is the on/off or enum picker, with a trailing "reset to default" row.
-func editRoutingChoice(d *dialog, f settings.RoutingField, values []string) (string, bool) {
+func editRoutingChoice(d *dialog, f configure.RoutingField, values []string) (string, bool) {
 	rows := make([][2]string, 0, len(values)+1)
 	for _, v := range values {
 		rows = append(rows, [2]string{v, ""})
@@ -178,7 +177,7 @@ func editRoutingChoice(d *dialog, f settings.RoutingField, values []string) (str
 }
 
 // editRoutingText is the number/text/list prompt; an empty line resets to the default.
-func editRoutingText(d *dialog, f settings.RoutingField) (string, bool) {
+func editRoutingText(d *dialog, f configure.RoutingField) (string, bool) {
 	raw, ok := readAnswer(d, f.Key+" (empty resets to default): ")
 	if !ok {
 		return "", false // input ended: a cancel, never an accidental reset

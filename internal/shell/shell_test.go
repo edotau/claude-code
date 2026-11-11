@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 // TestMain treats every path as an existing directory unless it contains "missing"; statDir has its own test.

@@ -1,10 +1,11 @@
-package history
+package cli
 
 import (
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/history"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -21,8 +22,8 @@ var historyPage = helptext.Page{
 		"claude-code history <command> -h lists that command's flags.",
 }
 
-// Run is the `history` verb: reads and writes the shadow config history (state/harness/history, gitignored); memory has its own git.
-func Run(args []string) int {
+// cmdHistory is the `history` verb: reads and writes the shadow config history (state/harness/history, gitignored); memory has its own git.
+func cmdHistory(args []string) int {
 	sub := ""
 	if len(args) > 0 {
 		sub = args[0]
@@ -51,7 +52,7 @@ func historySnapshot(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	cfg, err := SnapshotConfig(*note)
+	cfg, err := history.SnapshotConfig(*note)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "history: config:", err)
 		return 1
@@ -61,7 +62,7 @@ func historySnapshot(args []string) int {
 }
 
 // printSnapshot reports the config plane's outcome; the HELD BACK line (a credential-shaped file) is the one to act on.
-func printSnapshot(r Result) {
+func printSnapshot(r history.Result) {
 	switch {
 	case r.Commit != "":
 		fmt.Printf("%-7s %s  %s\n", "config:", r.Commit, strings.Join(r.Changed, ", "))
@@ -90,14 +91,14 @@ func historyLog(args []string) int {
 	if *n < 0 {
 		return helptext.FailUsage("history log: -n must be >= 0, got %d", *n)
 	}
-	store := &Store{Dir: Dir()}
+	store := &history.Store{Dir: history.Dir()}
 	lines, err := store.Log(*n, "config")
 	if err != nil { // a failed read is not an empty history: say so, print nothing as if it were
 		fmt.Fprintf(os.Stderr, "history: config: %v\n", err)
 		return 1
 	}
 	if *format == helptext.JSON {
-		return helptext.WriteJSONOrFail("history log", map[string][]LogEntry{"config": ParseLog(lines)})
+		return helptext.WriteJSONOrFail("history log", map[string][]history.LogEntry{"config": history.ParseLog(lines)})
 	}
 	printLog(lines)
 	return 0
@@ -105,7 +106,7 @@ func historyLog(args []string) int {
 
 // printLog prints the config plane's header and lines; an empty history says so rather than printing nothing.
 func printLog(lines []string) {
-	fmt.Printf("config: %s\n", Dir())
+	fmt.Printf("config: %s\n", history.Dir())
 	if len(lines) == 0 {
 		fmt.Println("  (no history yet)")
 		return
@@ -125,7 +126,7 @@ func historyDiff(args []string) int {
 	if fs.NArg() > 0 {
 		rev = fs.Arg(0)
 	}
-	store := &Store{Dir: Dir()}
+	store := &history.Store{Dir: history.Dir()}
 	out, err := store.Diff(rev, "config")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "history:", err)
@@ -135,8 +136,8 @@ func historyDiff(args []string) int {
 	return 0
 }
 
-// SpecNode returns the history completion tree.
-func SpecNode() *helptext.Node {
+// historySpec returns the history completion tree.
+func historySpec() *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{
 		"snapshot": {Flags: []helptext.Flag{{Name: "note"}}},
 		"log": {Flags: []helptext.Flag{{Name: "n"},

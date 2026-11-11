@@ -120,7 +120,7 @@ var writers = map[string]string{
 	"internal/memory/promote.go:removeBlock":                 unversioned("memory-bank: bank block removal"),
 	"internal/memory/recall_index.go:writeRecallIndex":       unversioned("text: recall index, rebuilt on a miss"),
 	"internal/memory/bank_region.go:writeBankRegion":         unversioned("memory-bank: bank generated region"),
-	"internal/memory/bank_region.go:writeCatalog":            unversioned("memory-bank: memory/index.md catalog"),
+	"internal/memory/bank_settle.go:writeCatalog":            unversioned("memory-bank: memory/index.md catalog"),
 	"internal/memory/bank_remember.go:writeRememberFact":     unversioned("memory-bank: bank remember"),
 	"internal/memory/recall_seen.go:MarkSeen":                unversioned("log: seen-ids list, text lines"),
 	"internal/memory/recall_seen.go:ResetSeen":               unversioned("log: seen-ids list rewrite"),

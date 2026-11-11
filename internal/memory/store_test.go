@@ -218,7 +218,7 @@ func gitRepo(t *testing.T, parent, name string) string {
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	tb := &hosttest.MainTB{}
-	stubSpawn(tb, true) // no memory test may launch a real detached worker
+	StubSpawn(tb, true) // no memory test may launch a real detached worker
 	code := m.Run()
 	for _, f := range tb.Cleanups {
 		f()

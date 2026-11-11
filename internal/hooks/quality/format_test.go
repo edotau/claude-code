@@ -10,8 +10,11 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 )
 
-// TestMain isolates the host (HOME, config dir, PATH tools) so no quality test reads or writes the real machine.
+// TestMain isolates the host (HOME, config dir, PATH tools); node is handed to useNode via PLANLINT_NODE first.
 func TestMain(m *testing.M) {
+	if node, err := exec.LookPath("node"); err == nil && os.Getenv("PLANLINT_NODE") == "" {
+		_ = os.Setenv("PLANLINT_NODE", node)
+	}
 	cleanup := hosttest.Setup()
 	code := m.Run()
 	hosttest.Cleanup()
