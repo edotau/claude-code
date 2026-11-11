@@ -14,7 +14,7 @@ import (
 )
 
 // limitsCacheMaxAge bounds how stale internal/usage's oauth-usage cache may be before it is ignored.
-const limitsCacheMaxAge = 6 * time.Hour
+const limitsCacheMaxAge = 15 * time.Minute
 
 // limitsSegment is "7d:N%" on the first-party subscription session only: the payload's rate_limits, else
 // internal/usage's cache file; no fresh data or a passed reset omits it. Any other session shows
