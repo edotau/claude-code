@@ -177,7 +177,7 @@ type Terminal struct {
 // callers fall back to a line-mode prompt instead of crashing.
 func Open() (*Terminal, error) {
 	fd := int(os.Stdin.Fd())
-	if !isTerminal(fd) {
+	if !proc.IsTerminalFD(fd) {
 		return nil, errors.New("stdin is not a terminal")
 	}
 	prev, err := makeRaw(fd)

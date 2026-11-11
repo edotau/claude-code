@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/gateway"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 type sessionRig struct {
@@ -220,7 +221,7 @@ func sessionSnapshot(t *testing.T, g *sessionRig, token string) session {
 	t.Helper()
 	g.r.sessions.mu.Lock()
 	defer g.r.sessions.mu.Unlock()
-	ses := g.r.sessions.m[sessionHash(token)]
+	ses := g.r.sessions.m[textutil.SHA256Hex([]byte(token))]
 	if ses == nil {
 		t.Fatal("session unexpectedly removed")
 	}

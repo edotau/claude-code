@@ -13,8 +13,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 // Seams for --all; tests replace the sign-in factory, its cap and the TTY gates.
@@ -22,7 +22,7 @@ var (
 	allSigninFor    = agent.SigninFor
 	allCheckTimeout = 12 * time.Second
 	allStdinTTY     = isStdinTTY
-	allStderrTTY    = func() bool { return ansi.IsTerminal(os.Stderr) }
+	allStderrTTY    = func() bool { return proc.IsTerminal(os.Stderr) }
 )
 
 // Row states reported by --all.

@@ -16,21 +16,25 @@ func ioctlTermios(fd int, req uint, t *syscall.Termios) error {
 	return nil
 }
 
-func isTerminal(fd int) bool {
+// IsTerminalFD reports whether fd accepts the termios get ioctl, which only tty devices do (not /dev/null or files).
+func IsTerminalFD(fd int) bool {
 	var t syscall.Termios
 	return ioctlTermios(fd, ioctlGet, &t) == nil
 }
 
+// IsTerminal reports whether f is a real terminal; /dev/null and /dev/zero are not.
+func IsTerminal(f *os.File) bool { return IsTerminalFD(int(f.Fd())) }
+
 // Preserve snapshots stdin's termios; the returned func restores it and re-shows the cursor (no-op off a tty).
 func Preserve() (restore func()) {
-	if !isTerminal(0) {
+	if !IsTerminalFD(0) {
 		return func() {}
 	}
 	var saved syscall.Termios
 	if ioctlTermios(0, ioctlGet, &saved) != nil {
 		return func() {}
 	}
-	showCursor := isTerminal(1)
+	showCursor := IsTerminalFD(1)
 	return func() {
 		_ = ioctlTermios(0, ioctlSet, &saved)
 		if showCursor {

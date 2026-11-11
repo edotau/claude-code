@@ -3,9 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -70,7 +68,7 @@ func fileScope(in *http.Request, p *providers.Provider) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	return p.Name + "|" + hashHex([]byte(cred)), true
+	return p.Name + "|" + textutil.SHA256Hex([]byte(cred)), true
 }
 
 // rewriteFiles returns body with large base64 image/document blocks swapped for file sources; body is never mutated.
@@ -196,7 +194,7 @@ func (fr *fileRewriter) source(typ string, raw json.RawMessage) (json.RawMessage
 }
 
 func (fr *fileRewriter) fileID(data []byte, mediaType string) (string, bool) {
-	key := fr.scope + "|" + mediaType + "|" + hashHex(data)
+	key := fr.scope + "|" + mediaType + "|" + textutil.SHA256Hex(data)
 	if id, ok := fr.r.cachedFile(key); ok {
 		return id, true
 	}
@@ -296,13 +294,13 @@ func (r *Router) filesRefused(bearer string) bool {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.filesOff == hashHex([]byte(bearer)) && r.now().Before(r.filesTill)
+	return r.filesOff == textutil.SHA256Hex([]byte(bearer)) && r.now().Before(r.filesTill)
 }
 
 func (r *Router) refuseFiles(bearer string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.filesOff, r.filesTill = hashHex([]byte(bearer)), r.now().Add(filesOffTTL)
+	r.filesOff, r.filesTill = textutil.SHA256Hex([]byte(bearer)), r.now().Add(filesOffTTL)
 }
 
 // fileForm builds the multipart body for /v1/files and returns it with its Content-Type.
@@ -326,9 +324,4 @@ func fileForm(data []byte, mediaType string) ([]byte, string, error) {
 		return nil, "", err
 	}
 	return buf.Bytes(), mw.FormDataContentType(), nil
-}
-
-func hashHex(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
 }

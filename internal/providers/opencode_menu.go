@@ -2,15 +2,14 @@ package providers
 
 import (
 	"cmp"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"slices"
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -138,7 +137,7 @@ func pickerScope(p *Provider) string {
 	data, _ := json.Marshal([]any{p.Name, p.Provider, p.Login, p.Identity,
 		p.Protocol, p.BaseURL, p.Routes, p.Host, p.CLIProfile, p.SpellingRule(), p.Options,
 		p.Auth, p.Headers})
-	return fmt.Sprintf("%x", sha256.Sum256(data))
+	return textutil.SHA256Hex(data)
 }
 
 func pickerKey(p *Provider) string { return "picker-additions/v1/" + pickerScope(p) }

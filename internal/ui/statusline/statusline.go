@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/transcript"
@@ -126,7 +127,7 @@ func Run(fs *flag.FlagSet, args []string, r io.Reader, w io.Writer) int {
 		}
 		return 2
 	}
-	if f, ok := r.(*os.File); ok && ansi.IsTerminal(f) { // nothing piped in: ReadAll would wait for Ctrl+D
+	if f, ok := r.(*os.File); ok && proc.IsTerminal(f) { // nothing piped in: ReadAll would wait for Ctrl+D
 		fmt.Fprintln(os.Stderr, "claude-code: theme statusline reads Claude Code's status JSON on stdin; "+
 			"try: echo '{}' | claude-code theme statusline")
 		return 2

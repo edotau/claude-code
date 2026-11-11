@@ -18,12 +18,6 @@ func ioctlTermios(fd int, req uint, t *syscall.Termios) error {
 	return nil
 }
 
-// isTerminal reports whether fd is a character device the termios ioctls accept.
-func isTerminal(fd int) bool {
-	var t syscall.Termios
-	return ioctlTermios(fd, ioctlGet, &t) == nil
-}
-
 // makeRaw mirrors cfmakeraw(3): no echo, no canonical mode, no signals or flow control, 1-byte reads.
 func makeRaw(fd int) (*termState, error) {
 	var t syscall.Termios

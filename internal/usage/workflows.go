@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/table"
 )
@@ -74,7 +75,7 @@ func runUsageWorkflows(claudeDir string, out, errw io.Writer, session string, da
 	// Newest first: run ids are random, so recency comes from the last transcript timestamp, with the
 	// run dir's mtime as the fallback when no record carried a parseable one.
 	sort.SliceStable(runs, func(i, j int) bool { return runs[i].recency().After(runs[j].recency()) })
-	w := &errWriter{w: out}
+	w := &textutil.ErrWriter{W: out}
 	for i, run := range runs {
 		if i > 0 {
 			fmt.Fprintln(w)
@@ -83,8 +84,8 @@ func runUsageWorkflows(claudeDir string, out, errw io.Writer, session string, da
 	}
 	printAllRunsByModel(w, runs)
 	fmt.Fprintf(w, "\nworkflow runs: %d   agent transcripts scanned: %d\n", len(runs), scanned)
-	if w.err != nil {
-		fmt.Fprintln(errw, "usage: write output:", w.err)
+	if w.Err != nil {
+		fmt.Fprintln(errw, "usage: write output:", w.Err)
 		return 1
 	}
 	return 0

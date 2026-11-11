@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -227,21 +228,6 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	return runUsageText(o, claudeDir, out, errw)
 }
 
-// errWriter keeps the first write error so a text renderer reports a failing writer once, at the end.
-type errWriter struct {
-	w   io.Writer
-	err error
-}
-
-func (e *errWriter) Write(p []byte) (int, error) {
-	if e.err != nil {
-		return 0, e.err
-	}
-	n, err := e.w.Write(p)
-	e.err = err
-	return n, err
-}
-
 // runUsageText prints the five text sections, overlapping the quota fetch and agent aggregation with the local scan.
 func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
 	session, days, show := o.session, o.days, o.show
@@ -255,7 +241,7 @@ func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
 		return 1
 	}
 	agg, files := scan.agg, scan.files
-	w := &errWriter{w: out}
+	w := &textutil.ErrWriter{W: out}
 
 	// Section 1 (MODEL table) prints the moment the local scan is done, even while quotas are in flight.
 	if len(files) == 0 {
@@ -281,8 +267,8 @@ func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
 
 	// Section 4 (AGENTS): the aggregation above has had the whole quota round-trip to finish by now.
 	printAgentsSection(w, <-agentsCh, days)
-	if w.err != nil {
-		fmt.Fprintln(errw, "usage: write output:", w.err)
+	if w.Err != nil {
+		fmt.Fprintln(errw, "usage: write output:", w.Err)
 		return 1
 	}
 

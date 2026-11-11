@@ -3,8 +3,6 @@ package copilot
 import (
 	"cmp"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/usage"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -374,8 +373,7 @@ var (
 
 // GitHubLogin asks api.github.com/user who token belongs to (memoized per token); "" on any failure.
 func GitHubLogin(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	key := hex.EncodeToString(sum[:])
+	key := textutil.SHA256Hex([]byte(token))
 	v, _ := gitHubLoginMemo.Do(key, keepAuth, func() (string, error) { return fetchGitHubLogin(token), nil })
 	return v
 }

@@ -11,8 +11,8 @@ import (
 	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/agent/launchplan"
 	"github.com/edotau/claude-code/internal/launch"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -160,14 +160,14 @@ func configureRun(o *configureOpts, section string, pos []string) int {
 func configureMenu(o *configureOpts, section, profile string) int {
 	return menu.Run(menu.Options{
 		Provider: o.provider, Agent: o.agent, Auth: o.auth, AuthSet: o.authSet, DryRun: o.dryRun, Check: o.check, All: o.all, Profile: profile,
-		JSON: *o.format == helptext.JSON, Interactive: ansi.IsTerminal(os.Stdin) && ansi.IsTerminal(os.Stderr),
+		JSON: *o.format == helptext.JSON, Interactive: proc.IsTerminal(os.Stdin) && proc.IsTerminal(os.Stderr),
 	}, section)
 }
 
 func init() {
 	// An agent the harness cannot route gets one interactive setup offer before the plain-CLI passthrough.
 	launchplan.OfferConfigure = func(name string, reason error) bool {
-		if !ansi.IsTerminal(os.Stdin) || !ansi.IsTerminal(os.Stderr) {
+		if !proc.IsTerminal(os.Stdin) || !proc.IsTerminal(os.Stderr) {
 			return false
 		}
 		fmt.Fprintln(os.Stderr, reason)

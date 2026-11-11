@@ -154,11 +154,11 @@ func readCodexConfig(home string) (path string, raw []byte, existed bool, err er
 	if err != nil {
 		return "", nil, false, err
 	}
-	raw, err = os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	raw, existed, err = agentconfig.ReadExisting(path)
+	if err != nil {
 		return "", nil, false, fmt.Errorf("codex: %w", err)
 	}
-	return path, raw, err == nil, nil
+	return path, raw, existed, nil
 }
 
 // codexProviderConfig is raw with the provider section inserted, any prior banner removed.
@@ -179,11 +179,10 @@ func insertCodexSection(raw, section string) string {
 }
 
 func prepareCodexHooks(path string, body []byte) ([]byte, []byte, bool, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	raw, existed, err := agentconfig.ReadExisting(path)
+	if err != nil {
 		return nil, nil, false, fmt.Errorf("codex-hooks: %w", err)
 	}
-	existed := err == nil
 	merged, err := mergeCodexHooks(raw, body)
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("codex-hooks: %w", err)

@@ -8,6 +8,7 @@ import (
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // catalogFn is the discovery seam over catalogForAlias; tests stub the served-model listing.
@@ -74,11 +75,7 @@ func modelRowDetail(m providers.ModelInfo) string {
 			parts = append(parts, p)
 		}
 	}
-	r := []rune(strings.Join(parts, " · "))
-	if len(r) > 52 {
-		r = append(r[:51], '…')
-	}
-	return string(r)
+	return textutil.Truncate(strings.Join(parts, " · "), 52)
 }
 
 // pickModelForAlias lists the profile's served models (providers.ListModels; FallbackModels covers the

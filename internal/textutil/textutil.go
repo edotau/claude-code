@@ -2,6 +2,8 @@
 package textutil
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"unicode"
@@ -129,4 +131,10 @@ func SplitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+// SHA256Hex is the lowercase hex SHA-256 of b.
+func SHA256Hex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }

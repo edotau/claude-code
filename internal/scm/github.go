@@ -14,6 +14,8 @@ import (
 	"strings"
 
 	"encoding/json"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 var hexRe = regexp.MustCompile(`^[0-9a-fA-F]{1,64}$`)
@@ -132,12 +134,7 @@ func (h *GitHubHost) Create(ctx context.Context, o CreateOpts) (PR, error) {
 	if err != nil {
 		return PR{}, err
 	}
-	return h.View(ctx, lastLine(string(out)))
-}
-
-func lastLine(s string) string {
-	s = strings.TrimSpace(s)
-	return s[strings.LastIndex(s, "\n")+1:]
+	return h.View(ctx, textutil.LastLine(string(out)))
 }
 
 func (h *GitHubHost) Checks(ctx context.Context, id, sha string) ([]Check, error) {

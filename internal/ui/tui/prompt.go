@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // stdinReader is the one bufio.Reader over os.Stdin for every line-based read in this package, matching
@@ -59,7 +61,7 @@ func Secret(prompt string, preview func(string) string) (string, error) {
 // SecretHint is Secret with a hint line above the input that is erased on the first input byte (terminals only).
 func SecretHint(hint, prompt string, preview func(string) string) (string, error) {
 	fd := int(os.Stdin.Fd())
-	if !isTerminal(fd) {
+	if !proc.IsTerminalFD(fd) {
 		if hint != "" {
 			fmt.Fprintln(os.Stdout, hint)
 		}
@@ -100,10 +102,10 @@ func SecretHint(hint, prompt string, preview func(string) string) (string, error
 }
 
 // StdinIsTerminal reports whether stdin is a real terminal (a /dev/null char device is not).
-func StdinIsTerminal() bool { return isTerminal(int(os.Stdin.Fd())) }
+func StdinIsTerminal() bool { return proc.IsTerminalFD(int(os.Stdin.Fd())) }
 
 // StdoutIsTerminal reports whether stdout is a real terminal (a /dev/null char device is not).
-func StdoutIsTerminal() bool { return isTerminal(int(os.Stdout.Fd())) }
+func StdoutIsTerminal() bool { return proc.IsTerminalFD(int(os.Stdout.Fd())) }
 
 // confirmKey maps one keypress to an answer: y yes; n, Esc, q or Ctrl-C no; Enter the default; done=false waits.
 func confirmKey(k Key, def bool) (answer, done bool) {

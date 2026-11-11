@@ -9,7 +9,6 @@ type termState struct{}
 
 var errNoTTY = errors.New("tui: raw terminal mode is not supported on this platform")
 
-func isTerminal(int) bool                            { return false }
 func makeRaw(int) (*termState, error)                { return nil, errNoTTY }
 func restore(int, *termState) error                  { return nil }
 func readPassword(int, func([]byte)) ([]byte, error) { return nil, errNoTTY }

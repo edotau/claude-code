@@ -19,9 +19,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/launchcli"
 	"github.com/edotau/claude-code/internal/databricks"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	usagepkg "github.com/edotau/claude-code/internal/usage"
@@ -311,7 +311,7 @@ func armModel(p *providers.Provider, agentName, model string) error {
 
 // The terminal and sign-in UI the agent package calls but does not import.
 func init() {
-	launchcli.IsTerminal = ansi.IsTerminal
+	launchcli.IsTerminal = proc.IsTerminal
 	agent.StdinIsTerminal = tui.StdinIsTerminal
 	agent.LoginRow = databricks.LoginRow
 	agent.PromptSecret = func(name string) (string, error) {

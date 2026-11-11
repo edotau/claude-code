@@ -152,19 +152,10 @@ func (r Repo) Status(pathspecs ...string) ([]statusEntry, error) {
 		return nil, err
 	}
 	var entries []statusEntry
-	fields := strings.Split(out, "\x00")
-	for i := 0; i < len(fields); i++ {
-		f := fields[i]
-		if len(f) < 4 {
-			continue
-		}
-		code := f[:2]
-		entries = append(entries, statusEntry{Code: code, Path: f[3:]})
-		if code[0] == 'R' || code[0] == 'C' {
-			i++ // the original path follows as its own NUL field
-			if code[0] == 'R' && i < len(fields) {
-				entries = append(entries, statusEntry{Code: "D ", Path: fields[i]}) // a rename also deletes its source
-			}
+	for _, e := range proc.StatusEntries(out) {
+		entries = append(entries, statusEntry{Code: e.Code, Path: e.Path})
+		if strings.Contains(e.Code, "R") && e.From != "" {
+			entries = append(entries, statusEntry{Code: "D ", Path: e.From}) // a rename also deletes its source
 		}
 	}
 	return entries, nil

@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 const (
@@ -55,11 +56,6 @@ type sessionState struct {
 }
 
 func sessionsFile() string { return filepath.Join(paths.StateDir(), "proxy", "sessions.json") }
-
-func sessionHash(tok string) string {
-	hash := sha256.Sum256([]byte(tok))
-	return hex.EncodeToString(hash[:])
-}
 
 // sessionStore persists only token hashes, scoped to the config directory at creation.
 type sessionStore struct {
@@ -147,7 +143,7 @@ func (s *sessionStore) mint(profile string, pid int) (string, error) {
 	if err := s.makeRoomLocked(now); err != nil {
 		return "", err
 	}
-	hash := sessionHash(tok)
+	hash := textutil.SHA256Hex([]byte(tok))
 	s.m[hash] = &session{
 		profile: profile,
 		pid:     pid,
@@ -186,7 +182,7 @@ func (s *sessionStore) makeRoomLocked(now time.Time) error {
 func (s *sessionStore) revoke(tok string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.m, sessionHash(tok))
+	delete(s.m, textutil.SHA256Hex([]byte(tok)))
 	return s.saveLocked()
 }
 
@@ -195,7 +191,7 @@ func (s *sessionStore) accept(tok, profile string) bool {
 	if !strings.HasPrefix(tok, sessionTokenPf) || profile == "" {
 		return false
 	}
-	now, hash := s.now(), sessionHash(tok)
+	now, hash := s.now(), textutil.SHA256Hex([]byte(tok))
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ses := s.findLocked(hash)
