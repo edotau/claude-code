@@ -273,7 +273,7 @@ func (r *askRun) askState() *askState {
 		DebugFile: &f.debugFile, SystemPrompt: &f.systemPrompt, AppendSystemPrompt: &f.appendSystemPrompt,
 		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, RemoteBin: &f.remoteBin, Fallback: &f.fallback,
 		PermMode: &f.permMode, PermAllow: &f.permAllow, PermAsk: &f.permAsk, PermDeny: &f.permDeny,
-		rubric: &f.rubric, env: &f.env}
+		Native: &f.native, rubric: &f.rubric, env: &f.env}
 	st.Pack = &f.pack
 	st.lead = &r.lead
 	return st
