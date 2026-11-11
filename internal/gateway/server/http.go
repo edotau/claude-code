@@ -69,7 +69,11 @@ type statusWriter struct {
 	http.ResponseWriter
 	status int
 	rc     *http.ResponseController // cached: constructing one per Flush call allocated on every SSE chunk
+	errBuf []byte                   // the first bytes of an error reply (status >= 400), for the request log
 }
+
+// errBufMax bounds how much of an error reply the request log may read its code and message from.
+const errBufMax = 4 << 10
 
 func (s *statusWriter) WriteHeader(code int) {
 	if s.status == 0 {
@@ -81,6 +85,9 @@ func (s *statusWriter) WriteHeader(code int) {
 func (s *statusWriter) Write(b []byte) (int, error) {
 	if s.status == 0 {
 		s.status = http.StatusOK
+	}
+	if s.status >= http.StatusBadRequest && len(s.errBuf) < errBufMax {
+		s.errBuf = append(s.errBuf, b[:min(len(b), errBufMax-len(s.errBuf))]...)
 	}
 	return s.ResponseWriter.Write(b)
 }

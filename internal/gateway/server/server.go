@@ -114,8 +114,8 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	start := r.now()
 	sw := &statusWriter{ResponseWriter: w, rc: http.NewResponseController(w)}
 	provider, model, attempts := r.route(sw, req, session, count)
-	fmt.Fprintf(r.log, "%s %s %s %d %d %s\n", start.Format(time.RFC3339), provider, model, sw.status, attempts,
-		time.Since(start).Round(time.Millisecond))
+	fmt.Fprintf(r.log, "%s %s %s %d %d %s%s\n", start.Format(time.RFC3339), provider, model, sw.status, attempts,
+		time.Since(start).Round(time.Millisecond), errDiag(sw.errBuf))
 }
 
 // withLaunchIdentity puts the launch's IdentityHeader (--as, or headless) on req's context for the credential mint.

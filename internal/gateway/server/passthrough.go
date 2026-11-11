@@ -383,25 +383,31 @@ func passthroughDiag(resp *http.Response, reqBytes int) string {
 		b.WriteString(" bytes=" + strconv.Itoa(reqBytes))
 	}
 	if resp.StatusCode >= 400 {
-		peek := peekBody(resp, 64<<10)
-		var e struct {
-			Code    string `json:"error_code"`
-			Message string `json:"message"`
-			Error   struct {
-				Code    string `json:"code"`
-				Type    string `json:"type"`
-				Message string `json:"message"`
-			} `json:"error"`
-		}
-		_ = json.Unmarshal(peek, &e)
-		if c := cmp.Or(e.Code, e.Error.Code, e.Error.Type); c != "" {
-			b.WriteString(" err=" + agentToken(c))
-		}
-		if m := logMessage(cmp.Or(e.Message, e.Error.Message)); m != "" {
-			b.WriteString(" msg=" + m)
-		}
+		b.WriteString(errDiag(peekBody(resp, 64<<10)))
 	}
 	return b.String()
+}
+
+// errDiag is the " err=<code> msg=<message>" log suffix read from an upstream error body; "" when it names neither.
+func errDiag(body []byte) string {
+	var e struct {
+		Code    string `json:"error_code"`
+		Message string `json:"message"`
+		Error   struct {
+			Code    string `json:"code"`
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(body, &e)
+	out := ""
+	if c := cmp.Or(e.Code, e.Error.Code, e.Error.Type); c != "" {
+		out += " err=" + agentToken(c)
+	}
+	if m := logMessage(cmp.Or(e.Message, e.Error.Message)); m != "" {
+		out += " msg=" + m
+	}
+	return out
 }
 
 // logMessage is an upstream error message on one line: control characters dropped, capped at 160 runes.
