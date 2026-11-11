@@ -63,7 +63,7 @@ func ServeLive(ctx context.Context, rec *Record) (err error) {
 		return fmt.Errorf("%s has no live mode (claude|gemini)", name)
 	}
 	be := lc.NewLive()
-	release, err := AcquireLiveSlot()
+	release, err := acquireLiveSlot()
 	if err != nil {
 		return err
 	}
@@ -216,8 +216,8 @@ func CheckLiveCap() error {
 // ensureDispatchDir creates the 0700 dispatch dir.
 func ensureDispatchDir() error { return os.MkdirAll(paths.DispatchDir(), 0o700) }
 
-// AcquireLiveSlot takes one of MaxLiveSessions flock'd slot files (freed when the holder dies); the func releases it.
-func AcquireLiveSlot() (func(), error) {
+// acquireLiveSlot takes one of MaxLiveSessions flock'd slot files (freed when the holder dies); the func releases it.
+func acquireLiveSlot() (func(), error) {
 	if err := ensureDispatchDir(); err != nil {
 		return nil, err
 	}

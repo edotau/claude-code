@@ -54,7 +54,7 @@ func configureFlags() (*flag.FlagSet, *configureOpts) {
 	o := &configureOpts{}
 	fs.StringVar(&o.provider, "profile", "", "select the session profile non-interactively")
 	fs.StringVar(&o.agent, "agent", "", "set up one CLI: claude|codex|copilot|opencode|gemini")
-	fs.StringVar(&o.auth, "auth", "", "with github: pin gh account by profile name, or follow")
+	fs.StringVar(&o.auth, "auth", "", "with github: pin a GitHub account (login), or follow")
 	fs.BoolVar(&o.dryRun, "dry-run", false, "print what would change; write nothing (not with --restore)")
 	fs.BoolVar(&o.check, "check", false, "report only; exit 1 if any unset (no --restore/--revert)")
 	fs.BoolVar(&o.restore, "restore", false, "reset settings.json to the template (backup first)")

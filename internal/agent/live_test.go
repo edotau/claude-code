@@ -69,14 +69,14 @@ func TestLiveCapOfFour(t *testing.T) {
 func TestLiveSlotLastSlotGoesToExactlyOne(t *testing.T) {
 	liveEnv(t)
 	for range maxLiveSessions - 1 {
-		if _, err := AcquireLiveSlot(); err != nil {
+		if _, err := acquireLiveSlot(); err != nil {
 			t.Fatal(err)
 		}
 	}
 	errs := make(chan error, 2)
 	start := make(chan struct{})
 	for range 2 {
-		go func() { <-start; _, err := AcquireLiveSlot(); errs <- err }()
+		go func() { <-start; _, err := acquireLiveSlot(); errs <- err }()
 	}
 	close(start)
 	won := 0
@@ -95,17 +95,17 @@ func TestLiveSlotReleaseFreesIt(t *testing.T) {
 	liveEnv(t)
 	var rel []func()
 	for range maxLiveSessions {
-		r, err := AcquireLiveSlot()
+		r, err := acquireLiveSlot()
 		if err != nil {
 			t.Fatal(err)
 		}
 		rel = append(rel, r)
 	}
-	if _, err := AcquireLiveSlot(); err == nil {
+	if _, err := acquireLiveSlot(); err == nil {
 		t.Fatal("a fifth slot must be refused")
 	}
 	rel[0]()
-	if _, err := AcquireLiveSlot(); err != nil {
+	if _, err := acquireLiveSlot(); err != nil {
 		t.Errorf("released slot not reusable: %v", err)
 	}
 }

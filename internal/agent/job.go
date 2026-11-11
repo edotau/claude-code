@@ -231,14 +231,6 @@ func waitGone(pid int, d time.Duration) bool {
 	return !proc.Alive(pid)
 }
 
-// Find resolves ref (exact id or unique prefix) across every agent's records, so the caller learns the agent.
-func Find(ref string) (Record, error) {
-	if ref == "" {
-		return Record{}, errors.New("no matching dispatch found (see claude-code <agent> status)")
-	}
-	return LoadRecord(ref)
-}
-
 // checkAgent errors when name is not a registered agent.
 func checkAgent(name string) error {
 	if _, ok := LookupSchema(name); !ok {

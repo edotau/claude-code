@@ -574,18 +574,18 @@ func TestCancelJobUnknownVendorErrors(t *testing.T) {
 	}
 }
 
-// TestFindAmbiguousPrefix: a prefix shared by two dispatches errors and names the count; an exact id resolves.
-func TestFindAmbiguousPrefix(t *testing.T) {
+// TestLoadRecordAmbiguousPrefix: a prefix shared by two dispatches errors and names the count; an exact id resolves.
+func TestLoadRecordAmbiguousPrefix(t *testing.T) {
 	setConfigDir(t)
 	a := fixtureRecord(t, NewRecord("claude", RunOptions{Prompt: "a"}, time.Now().Add(-2*time.Hour)))
 	b := fixtureRecord(t, NewRecord("codex", RunOptions{Prompt: "b"}, time.Now().Add(-time.Hour)))
 	prefix := a.ID[:4]
-	if _, err := Find(prefix); err == nil || !strings.Contains(err.Error(), "2 matches") {
-		t.Errorf("Find(%q) err = %v, want an ambiguity error", prefix, err)
+	if _, err := LoadRecord(prefix); err == nil || !strings.Contains(err.Error(), "2 matches") {
+		t.Errorf("LoadRecord(%q) err = %v, want an ambiguity error", prefix, err)
 	}
-	got, err := Find(b.ID)
+	got, err := LoadRecord(b.ID)
 	if err != nil || got.Agent != "codex" {
-		t.Errorf("Find(exact) = %+v, %v, want the codex record", got, err)
+		t.Errorf("LoadRecord(exact) = %+v, %v, want the codex record", got, err)
 	}
 }
 

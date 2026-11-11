@@ -211,8 +211,8 @@ func memorySubcommands() map[string]func([]string) int {
 	}
 }
 
-// cmdMemory dispatches the memory verb tree; the second parameter is vestigial (table.go still passes readOnlyHelp).
-func cmdMemory(args []string, _ func(string) bool) int {
+// cmdMemory dispatches the memory verb tree.
+func cmdMemory(args []string) int {
 	if len(args) == 0 || isHelpVerb(args[0]) {
 		memoryPage.Fprint(os.Stderr)
 		return 0

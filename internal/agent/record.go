@@ -282,6 +282,9 @@ func recordNames(dir string) ([]string, error) {
 
 // LoadRecord reads one record by exact id or unique id prefix.
 func LoadRecord(id string) (Record, error) {
+	if id == "" { // an empty prefix would match every record
+		return Record{}, errors.New("no matching dispatch found (see claude-code <agent> status)")
+	}
 	names, err := recordNames(paths.DispatchDir())
 	if err != nil {
 		return Record{}, fmt.Errorf("dispatch %q: %w", id, err)

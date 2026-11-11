@@ -39,7 +39,7 @@ func memCLIOK(t *testing.T, args ...string) string {
 // memCLI runs `memory <args>` and returns its exit code, stdout and stderr.
 func memCLI(t *testing.T, args ...string) (int, string, string) {
 	t.Helper()
-	return hosttest.CaptureOutput(t, func() int { return cmdMemory(args, nil) })
+	return hosttest.CaptureOutput(t, func() int { return cmdMemory(args) })
 }
 
 // memCfg points the config dir at a fresh temp dir and returns it.

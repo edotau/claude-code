@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -94,10 +95,7 @@ func renderDispatches(w io.Writer, dispatches []Dispatch, width int) {
 	}
 	fmt.Fprintln(w, "dispatches")
 	for _, l := range dispatches { // the id already ends in the agent name; where it runs and on what model come next
-		where := cmp.Or(l.Route, l.Provider, "own login")
-		if l.Route == "" && l.Provider == "" && strings.HasPrefix(l.Model, "databricks-") { // a record from before Route existed
-			where = "databricks"
-		}
+		where := cmp.Or(l.Route, l.Provider, providers.AgentRecord(l.Agent).Profile, "own login") // no --route: its pinned profile
 		prefix := fmt.Sprintf("  %s  %-15s  %-22s  %-6s", l.ID, where, strings.TrimPrefix(cmp.Or(l.Model, "default"), "databricks-"), l.Duration)
 		fmt.Fprintln(w, fitRow(prefix, cmp.Or(l.Task, l.Repo), "", width))
 	}

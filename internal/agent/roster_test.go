@@ -632,3 +632,26 @@ func TestPreviewOutcomeMatchesByRungNotPosition(t *testing.T) {
 		t.Fatalf("candidates = %+v, want only rung 2 (profile B, model m2)", got)
 	}
 }
+
+// The roster survives a providers.Load() failure and no longer lists the folded-in "api" agent.
+func TestListAgentsRegistryLoadErrorNoPanic(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv(providers.EnvSessionProfile, "")
+	vaulttest.Put(t, vault.Overlay, "providers", "{not valid json")
+	if _, err := providers.Load(); err == nil {
+		t.Fatal("providers.Load() must fail on malformed overlay JSON for this test to prove anything")
+	}
+
+	var lines []string
+	for _, r := range Summaries() { // must not panic despite a nil registry from the failed Load()
+		lines = append(lines, r.Line())
+	}
+	if out := strings.Join(lines, "\n"); !strings.Contains(out, " claude ") {
+		t.Errorf("no claude row in output:\n%s", out)
+	}
+	for _, line := range lines {
+		if f := strings.Fields(line); len(f) >= 2 && f[1] == "api" {
+			t.Errorf("api agent still listed: %q", line)
+		}
+	}
+}
