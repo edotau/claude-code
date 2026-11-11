@@ -2,17 +2,14 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/scm"
 	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/vault"
 )
 
 var page = helptext.Page{
@@ -24,43 +21,6 @@ var page = helptext.Page{
 		{"checks", "CI results of a PR <id>, or of --sha"},
 		{"comment", "comment on a PR <id> (--body-file, --reply-to)"},
 	},
-}
-
-// open resolves the origin remote to a Host; tests swap it.
-var open = openOrigin
-
-func openOrigin(ctx context.Context) (scm.Host, error) {
-	remote, err := scm.OriginURL(ctx)
-	if err != nil {
-		return nil, err
-	}
-	repo, err := scm.Detect(remote)
-	if err != nil {
-		return nil, err
-	}
-	if repo.Kind == scm.GitHub {
-		return scm.NewGitHub(repo.Owner, repo.Name), nil
-	}
-	token, _, err := vault.Lookup("BITBUCKET_TOKEN")
-	if err != nil {
-		return nil, fmt.Errorf("BITBUCKET_TOKEN: %w", err)
-	}
-	if token == "" {
-		return nil, errors.New("BITBUCKET_TOKEN is not set; run `claude-code vault set BITBUCKET_TOKEN`")
-	}
-	base := bitbucketURL()
-	if base == "" { // the ssh port (7999) is not the HTTP port, so the default is the bare host
-		base = "https://" + repo.Host
-	}
-	return scm.NewBitbucket(base, repo.Owner, repo.Name, token), nil
-}
-
-// bitbucketURL is the Data Center server root from vault env, then the process env.
-func bitbucketURL() string {
-	if v := strings.TrimSpace(providers.CustomEnv()["BITBUCKET_URL"]); v != "" {
-		return v
-	}
-	return strings.TrimSpace(os.Getenv("BITBUCKET_URL"))
 }
 
 // scmUsage prints the page to stderr: exit 2 when nothing was asked for, 0 for -h.
@@ -156,7 +116,7 @@ func dispatch(name string, args []string) int {
 	if msg := checkArgs(name, pos, o); msg != "" {
 		return helptext.FailUsage("scm %s: %s", name, msg)
 	}
-	h, err := open(ctx)
+	h, err := scm.Open(ctx)
 	if err != nil {
 		return helptext.Fail("scm %s: %v", name, err)
 	}

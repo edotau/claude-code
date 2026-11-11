@@ -169,7 +169,7 @@ func Send(id, task, format string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
-	if rec, ferr := agent.Find(id); ferr == nil {
+	if rec, ferr := agent.LoadRecord(id); ferr == nil {
 		id = rec.ID
 	}
 	env, err := agent.SendLive(ctx, id, prompt, stdoutSink(format, id))

@@ -73,7 +73,7 @@ func buildCommands() []command {
 		{name: "history", group: groupSession, summary: "shadow git history of the config files", run: cmdHistory, spec: historySpec},
 		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: cmdWorktree, spec: worktreeSpec},
 		{name: "test", group: groupSession, hidden: true, summary: "test tooling: run a command with TMPDIR on a RAM disk", run: cmdTest, spec: testSpec},
-		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: func(a []string) int { return cmdMemory(a, readOnlyHelp) }, spec: memorySpec},
+		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: cmdMemory, spec: memorySpec},
 		{name: "plan", group: groupSession, hidden: true, summary: "plan checklists: status (ticked/total, claims), tick", run: cmdPlan, spec: planSpec},
 		{name: "scm", group: groupSession, summary: "PRs, checks, comments on GitHub or Bitbucket DC", run: cmdScm, spec: scmSpec},
 		// DIAGNOSTICS
@@ -85,12 +85,6 @@ func buildCommands() []command {
 		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: cmdConfigure, spec: configureSpec},
 		{name: "theme", group: groupSettings, summary: "palette, statusline, VS Code template, tool themes", run: cmdTheme, spec: themeSpec},
 	}, hiddenCommands()...)
-}
-
-// readOnlyHelp reports whether verb is a registered command whose -h only prints help.
-func readOnlyHelp(verb string) bool {
-	c := lookup(verb)
-	return c != nil && !c.sideEffectHelp
 }
 
 func hiddenCommands() []command {

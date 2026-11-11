@@ -372,7 +372,7 @@ func cmdAgentsJob(verb string, args []string) int {
 		fs.Usage()
 		return 2
 	}
-	rec, err := agent.Find(pos[0])
+	rec, err := agent.LoadRecord(pos[0])
 	if err != nil {
 		return helptext.Fail("agents %s: %v", verb, err)
 	}
@@ -735,26 +735,9 @@ func agentOnOff(name string, on bool, args []string) int {
 	return 0
 }
 
-// rosterRow is one agent in `agents`: its binary, availability, capability levels and event kinds.
-type rosterRow struct {
-	Name      string            `json:"name"`
-	Binary    string            `json:"binary"`
-	Available bool              `json:"available"`
-	Reason    string            `json:"reason,omitempty"`
-	Caps      map[string]string `json:"caps"`
-	Events    []string          `json:"events"`
-	Defaults  agent.Permissions `json:"permissions"` // the resolved default dispatch policy; {} = none, the tier flags decide
-	Levels    agent.Caps        `json:"-"`
-	shown     []string
-}
-
-// rosterShown are the capabilities the text roster lists beside each agent.
-var rosterShown = []string{"model", "profile", "effort", "workdir", "session", "tools", "system-prompt",
-	"append-system-prompt", "env", "output-schema"}
-
-// printRoster prints rosterRows as the JSON array of rows, or one text line each.
+// printRoster prints agent.Summaries as the JSON array of rows, or one text line each.
 func printRoster(format string) int {
-	rows := rosterRows()
+	rows := agent.Summaries()
 	if format == helptext.JSON {
 		return helptext.WriteJSONOrFail("agents", rows)
 	}
@@ -762,65 +745,4 @@ func printRoster(format string) int {
 		fmt.Println(r.Line())
 	}
 	return 0
-}
-
-// rosterRows describes every registered agent, probing each one's availability.
-func rosterRows() []rosterRow {
-	var rows []rosterRow
-	for _, r := range agent.Engines() {
-		row := rosterRow{Available: true}
-		if err := r.Available(); err != nil {
-			row.Available, row.Reason = false, err.Error()
-		}
-		s, _ := agent.LookupSchema(r.Name())
-		row.Caps = map[string]string{}
-		for _, f := range capFields(s.CLI.Caps) {
-			row.Caps[f.Name] = f.L.String()
-			if f.L != agent.None && slices.Contains(rosterShown, f.Name) {
-				row.shown = append(row.shown, f.Name+":"+f.L.String())
-			}
-		}
-		row.Caps["cost"], row.Caps["live"] = agent.None.String(), agent.None.String()
-		if s.CLI.Cost {
-			row.Caps["cost"] = agent.Native.String()
-		}
-		if s.HasLive() {
-			row.Caps["live"] = agent.Native.String()
-		}
-		row.Caps["background"], row.Caps["remote"] = agent.Native.String(), agent.Native.String()
-		row.Binary = s.CLI.Binary
-		if !s.External() {
-			row.Binary = s.Name
-		}
-		row.Name, row.Events, row.Levels = s.Name, s.CLI.Events, s.CLI.Caps
-		var err error
-		if row.Defaults, err = agent.DefaultPermissions(s.Name); err != nil { // checkRun refuses every dispatch on it
-			row.Available, row.Reason = false, err.Error()
-		}
-		rows = append(rows, row)
-	}
-	return rows
-}
-
-// Line is the text roster row: availability mark, name, the shown capabilities and the unavailable reason.
-func (r rosterRow) Line() string {
-	mark := "✓"
-	if !r.Available {
-		mark = "✗"
-	}
-	return fmt.Sprintf("%s %-9s %s %s", mark, r.Name, strings.Join(r.shown, ","), r.Reason)
-}
-
-type capField struct {
-	Name string
-	L    agent.Level
-}
-
-// capFields lists an agent's capability levels in RunOptions-flag order, named as the flags are.
-func capFields(c agent.Caps) []capField {
-	return []capField{{"model", c.Model}, {"profile", c.Provider}, {"effort", c.Effort}, {"workdir", c.WorkDir}, {"session", c.SessionID},
-		{"tools", c.Tools}, {"no-tools", c.NoTools}, {"autonomous", c.Autonomous}, {"fleet", c.Fleet}, {"enable-memory", c.Memory},
-		{"no-persist", c.NoPersist}, {"safe-mode", c.SafeMode}, {"debug-file", c.DebugFile}, {"direct", c.Direct},
-		{"system-prompt", c.SystemPrompt}, {"append-system-prompt", c.AppendSystemPrompt}, {"env", c.Env},
-		{"output-schema", c.OutputSchema}, {"persona", c.Persona}}
 }

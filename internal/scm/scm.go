@@ -3,13 +3,17 @@ package scm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // Host kinds.
@@ -142,4 +146,39 @@ func checkDigits(what, v string) error {
 		return fmt.Errorf("invalid %s %q: want digits", what, v)
 	}
 	return nil
+}
+
+// Open resolves the current directory's origin remote to a Host.
+func Open(ctx context.Context) (Host, error) {
+	remote, err := OriginURL(ctx)
+	if err != nil {
+		return nil, err
+	}
+	repo, err := Detect(remote)
+	if err != nil {
+		return nil, err
+	}
+	if repo.Kind == GitHub {
+		return NewGitHub(repo.Owner, repo.Name), nil
+	}
+	token, _, err := vault.Lookup("BITBUCKET_TOKEN")
+	if err != nil {
+		return nil, fmt.Errorf("BITBUCKET_TOKEN: %w", err)
+	}
+	if token == "" {
+		return nil, errors.New("BITBUCKET_TOKEN is not set; run `claude-code vault set BITBUCKET_TOKEN`")
+	}
+	base := bitbucketURL()
+	if base == "" { // the ssh port (7999) is not the HTTP port, so the default is the bare host
+		base = "https://" + repo.Host
+	}
+	return NewBitbucket(base, repo.Owner, repo.Name, token), nil
+}
+
+// bitbucketURL is the Data Center server root from vault env, then the process env.
+func bitbucketURL() string {
+	if v := strings.TrimSpace(providers.CustomEnv()["BITBUCKET_URL"]); v != "" {
+		return v
+	}
+	return strings.TrimSpace(os.Getenv("BITBUCKET_URL"))
 }

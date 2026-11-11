@@ -566,3 +566,80 @@ func rosterPick(o router.PickOpts) (router.PickOpts, error) {
 	}
 	return o, nil
 }
+
+// Summary is one agent in `agents`: its binary, availability, capability levels and event kinds.
+type Summary struct {
+	Name      string            `json:"name"`
+	Binary    string            `json:"binary"`
+	Available bool              `json:"available"`
+	Reason    string            `json:"reason,omitempty"`
+	Caps      map[string]string `json:"caps"`
+	Events    []string          `json:"events"`
+	Defaults  Permissions       `json:"permissions"` // the resolved default dispatch policy; {} = none, the tier flags decide
+	shown     []string
+}
+
+// summaryShown are the capabilities the text roster lists beside each agent.
+var summaryShown = []string{"model", "profile", "effort", "workdir", "session", "tools", "system-prompt",
+	"append-system-prompt", "env", "output-schema"}
+
+// Summaries describes every registered agent, probing each one's availability.
+func Summaries() []Summary {
+	var rows []Summary
+	for _, r := range Engines() {
+		row := Summary{Available: true}
+		if err := r.Available(); err != nil {
+			row.Available, row.Reason = false, err.Error()
+		}
+		s, _ := LookupSchema(r.Name())
+		row.Caps = map[string]string{}
+		for _, f := range capFields(s.CLI.Caps) {
+			row.Caps[f.Name] = f.L.String()
+			if f.L != None && slices.Contains(summaryShown, f.Name) {
+				row.shown = append(row.shown, f.Name+":"+f.L.String())
+			}
+		}
+		row.Caps["cost"], row.Caps["live"] = None.String(), None.String()
+		if s.CLI.Cost {
+			row.Caps["cost"] = Native.String()
+		}
+		if s.HasLive() {
+			row.Caps["live"] = Native.String()
+		}
+		row.Caps["background"], row.Caps["remote"] = Native.String(), Native.String()
+		row.Binary = s.CLI.Binary
+		if !s.External() {
+			row.Binary = s.Name
+		}
+		row.Name, row.Events = s.Name, s.CLI.Events
+		var err error
+		if row.Defaults, err = DefaultPermissions(s.Name); err != nil { // checkRun refuses every dispatch on it
+			row.Available, row.Reason = false, err.Error()
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+// Line is the text roster row: availability mark, name, the shown capabilities and the unavailable reason.
+func (r Summary) Line() string {
+	mark := "✓"
+	if !r.Available {
+		mark = "✗"
+	}
+	return fmt.Sprintf("%s %-9s %s %s", mark, r.Name, strings.Join(r.shown, ","), r.Reason)
+}
+
+type capField struct {
+	Name string
+	L    Level
+}
+
+// capFields lists an agent's capability levels in RunOptions-flag order, named as the flags are.
+func capFields(c Caps) []capField {
+	return []capField{{"model", c.Model}, {"profile", c.Provider}, {"effort", c.Effort}, {"workdir", c.WorkDir}, {"session", c.SessionID},
+		{"tools", c.Tools}, {"no-tools", c.NoTools}, {"autonomous", c.Autonomous}, {"fleet", c.Fleet}, {"enable-memory", c.Memory},
+		{"no-persist", c.NoPersist}, {"safe-mode", c.SafeMode}, {"debug-file", c.DebugFile}, {"direct", c.Direct},
+		{"system-prompt", c.SystemPrompt}, {"append-system-prompt", c.AppendSystemPrompt}, {"env", c.Env},
+		{"output-schema", c.OutputSchema}, {"persona", c.Persona}}
+}

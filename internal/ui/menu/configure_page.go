@@ -32,7 +32,7 @@ var SectionNames = []string{"provider", "models", "agents", "github", "remote", 
 type Options struct {
 	Provider    string    // --profile: pick this one non-interactively (provider section)
 	Agent       string    // --agent: scope keys/agents to one agent CLI
-	Auth        string    // --auth (github page): pin this github profile; "" or "follow" clears the pin
+	Auth        string    // --auth (github page): pin this GitHub account; "" or "follow" clears the pin
 	AuthSet     bool      // --auth was passed (an empty Auth is meaningful)
 	DryRun      bool      // print what would change; write nothing
 	Check       bool      // report only; never writes; Run exits 1 if anything is unset
