@@ -269,27 +269,23 @@ func awaitPortFree(ctx context.Context, port int) error {
 	return fmt.Errorf("proxy still accepting on :%d after SIGTERM", port)
 }
 
-// restart replaces a running router with one from the current binary (gap: the respawn); a stopped one is left alone.
-func restart(ctx context.Context) (old, cur State, restarted bool, err error) {
-	old, ok := Running(ctx)
-	if !ok {
-		return old, State{}, false, nil
+// restart replaces the running router old with one from the current binary (gap: the respawn).
+func restart(ctx context.Context, old State) (State, error) {
+	if err := terminate(old.PID); err != nil {
+		return State{}, err
 	}
-	if err = terminate(old.PID); err != nil {
-		return old, State{}, false, err
-	}
-	if err = awaitPortFree(ctx, old.Port); err != nil {
-		return old, State{}, false, err
+	if err := awaitPortFree(ctx, old.Port); err != nil {
+		return State{}, err
 	}
 	// The old daemon keeps draining in the background: its listener is closed, so the replacement binds at once.
-	if _, err = Ensure(ctx); err != nil {
-		return old, State{}, false, err
+	if _, err := Ensure(ctx); err != nil {
+		return State{}, err
 	}
-	cur, ok = Running(ctx)
+	cur, ok := Running(ctx)
 	if !ok {
-		return old, State{}, false, fmt.Errorf("proxy did not come back healthy (see %s)", logFile())
+		return State{}, fmt.Errorf("proxy did not come back healthy (see %s)", logFile())
 	}
-	return old, cur, true, nil
+	return cur, nil
 }
 
 // PIDHeader is the /healthz response header carrying the proxy's pid.

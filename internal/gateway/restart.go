@@ -40,15 +40,13 @@ func RestartReport(ctx context.Context, dry, force bool) RestartRow {
 		row.Status, row.OldPID = "would restart", st.PID
 		return row
 	}
-	old, cur, restarted, err := restart(ctx)
-	switch {
-	case err != nil:
-		row.Status, row.OldPID, row.Note = "failed", old.PID, err.Error()
-	case !restarted:
-		row.Status, row.Note = "skipped", "not running"
-	default:
-		row.Status, row.OldPID, row.NewPID = "restarted", old.PID, cur.PID
+	cur, err := restart(ctx, st)
+	row.OldPID = st.PID
+	if err != nil {
+		row.Status, row.Note = "failed", err.Error()
+		return row
 	}
+	row.Status, row.NewPID = "restarted", cur.PID
 	return row
 }
 

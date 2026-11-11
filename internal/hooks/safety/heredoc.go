@@ -81,14 +81,13 @@ func blankInert(cmd string) string {
 		// A piped segment feeds the next command, so its text stays: `echo "curl x" | sh` runs curl.
 		if inertSegment(seg) && (seps[i] == "" || seps[i][0] != '|' || seps[i] == "||") {
 			_, subs := shell.ExtractSubstitutions(seg)
-			seg = ""
 			var kept strings.Builder
 			for _, sub := range subs {
 				kept.WriteString(" $(")
 				kept.WriteString(sub)
 				kept.WriteString(")")
 			}
-			seg += kept.String()
+			seg = kept.String()
 		}
 		b.WriteString(seg)
 		b.WriteString(seps[i])

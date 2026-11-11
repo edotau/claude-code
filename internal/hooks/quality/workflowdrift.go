@@ -74,14 +74,18 @@ var helperBlocks = []helperBlock{
 	{"stages", stagesStart, stagesEnd, []string{"stageGate(", "stageFix(", "stagePolish(", "stageDetect("}},
 }
 
+// lintTargets is every workflow script plus every skill script under root.
+func lintTargets(root string) ([]string, error) {
+	skills, err := skillScripts(root)
+	return append(workflowScripts(root), skills...), err
+}
+
 // workflowHelperDrift returns one message per script that calls a block's functions with that block missing or differing.
 func workflowHelperDrift(root string) []string {
-	scripts := workflowScripts(root)
-	skills, err := skillScripts(root)
+	scripts, err := lintTargets(root)
 	if err != nil {
 		return []string{"skills scripts: " + err.Error()}
 	}
-	scripts = append(scripts, skills...)
 	srcs := map[string]string{}
 	for _, s := range scripts {
 		if data, err := os.ReadFile(s); err == nil { // lintScript already reports an unreadable script

@@ -212,10 +212,7 @@ func editPath(in *core.Input) string {
 	if p == "" {
 		return ""
 	}
-	if !filepath.IsAbs(p) {
-		p = filepath.Join(in.CWD, p)
-	}
-	return core.CanonPath(p)
+	return core.CanonPath(core.AnchorPath(p, in.CWD))
 }
 
 // editCheck returns the once-per-(session, path, who) advisory for an edit of a dirty claimed file.

@@ -42,13 +42,11 @@ func RunWorkflowLint(args []string, stdout, stderr io.Writer) int {
 		}
 		root = args[0]
 	}
-	files := workflowScripts(root)
-	skills, err := skillScripts(root)
+	files, err := lintTargets(root)
 	if err != nil {
 		fmt.Fprintf(stderr, "workflow lint: glob skills scripts under %s: %v\n", root, err)
 		return 1
 	}
-	files = append(files, skills...)
 	if len(files) == 0 { // a wrong root (e.g. the workflows dir itself) must not pass as "0 clean"
 		fmt.Fprintf(stderr, "workflow lint: no scripts in %s (pass the root that contains workflows/)\n", filepath.Join(root, "workflows", "*.js"))
 		return 1
@@ -633,7 +631,7 @@ func metaLiteralDefects(path, src string) []string {
 		return nil
 	}
 	meta := delimitedWindow(src, stripStrings(src), start+len("export const meta = "), '{', '}')
-	if !strings.Contains(meta, "`") && !strings.Contains(stripStrings(meta), "+") {
+	if bare := stripStrings(meta); !strings.Contains(bare, "`") && !strings.Contains(bare, "+") {
 		return nil
 	}
 	return []string{fmt.Sprintf("%s:%d: meta is not a pure literal (no `+`, template literals or variables) — the registry cannot load it", path, 1+strings.Count(src[:start], "\n"))}

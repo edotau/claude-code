@@ -10,7 +10,6 @@ import (
 	"os"
 	"slices"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -470,11 +469,7 @@ func (r *Router) tryOpenAI(w *statusWriter, in *http.Request, body []byte, t pro
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		eb := translate.FromChatError(resp.StatusCode, b)
-		if eb == nil {
-			eb = translate.ErrorBody(resp.StatusCode, p.Name+": "+strings.TrimSpace(string(b)))
-		}
-		writeJSON(w, resp.StatusCode, eb)
+		writeJSON(w, resp.StatusCode, translate.FromChatError(resp.StatusCode, b))
 		return true, nil
 	}
 	return r.relayChat(w, in, resp, t, clientModel, stream)

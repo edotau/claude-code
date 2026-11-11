@@ -340,12 +340,8 @@ func (r *Router) serveSession(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusBadRequest, "proxy: session: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, mustJSON(gateway.SessionResponse{Token: tok, ExpiresIn: int(sessionTTL.Seconds())}))
-}
-
-func mustJSON(v any) []byte {
-	b, _ := json.Marshal(v)
-	return b
+	b, _ := json.Marshal(gateway.SessionResponse{Token: tok, ExpiresIn: int(sessionTTL.Seconds())})
+	writeJSON(w, http.StatusOK, b)
 }
 
 var routerSessionsFormat = schemas.Register(schemas.Format{

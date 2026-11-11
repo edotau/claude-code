@@ -160,8 +160,7 @@ func copilotArgs(v any) (map[string]any, string) {
 
 // knownAgent is agent when it names a supported hook agent, else "" (detect from the payload).
 func knownAgent(agent string) string {
-	switch agent {
-	case AgentClaude, AgentCodex, AgentCopilot, AgentGemini, AgentOpencode:
+	if agentid.Known(agent) {
 		return agent
 	}
 	return ""

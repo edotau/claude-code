@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -164,8 +163,6 @@ func StreamChat(w io.Writer, flush func(), r io.Reader, clientModel string) erro
 	}
 }
 
-var errUpstream = errors.New("translate: upstream stream error")
-
 // handle processes one SSE payload and reports whether the stream is done.
 func (s *streamer) handle(payload []byte) (bool, error) {
 	if string(bytes.TrimSpace(payload)) == "[DONE]" {
@@ -192,13 +189,13 @@ func (s *streamer) handle(payload []byte) (bool, error) {
 	return false, nil
 }
 
-// upstreamError writes an in-band upstream error as an error event and returns it wrapped in errUpstream.
+// upstreamError writes an in-band upstream error as an error event and returns it as an error.
 func (s *streamer) upstreamError(raw json.RawMessage, payload []byte) error {
 	body := FromChatError(streamErrorStatus(raw), payload)
 	if err := s.event("error", json.RawMessage(body)); err != nil {
 		return err
 	}
-	return fmt.Errorf("%w: %s", errUpstream, raw)
+	return fmt.Errorf("translate: upstream stream error: %s", raw)
 }
 
 // choice emits the text and tool-call deltas of one stream choice and records its finish reason.

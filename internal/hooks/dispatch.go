@@ -25,11 +25,10 @@ import (
 
 // Bound pairs a declared handler with its Runner.
 type Bound struct {
-	Group     string
-	Gate      bool
-	AgentOnly bool
-	Spec      settings.EventSpec
-	Run       core.Runner
+	Group string
+	Gate  bool
+	Spec  settings.EventSpec
+	Run   core.Runner
 }
 
 // Bind pairs every hookspec handler with its native Runner.
@@ -37,7 +36,7 @@ func Bind() []Bound {
 	var out []Bound
 	for _, g := range settings.Registry {
 		for _, s := range g.Events {
-			out = append(out, Bound{Group: g.Name, Gate: g.Gate, AgentOnly: g.AgentOnly, Spec: s, Run: native[s.Name]})
+			out = append(out, Bound{Group: g.Name, Gate: g.Gate, Spec: s, Run: native[s.Name]})
 		}
 	}
 	return out

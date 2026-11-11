@@ -49,7 +49,7 @@ func contextPct(session, transcriptPath string) (int, bool) {
 		return 0, false
 	}
 	window := transcript.RecordedWindow(session)
-	if window < u.Tokens {
+	if window <= 0 || window < u.Tokens {
 		window = transcript.Window(u.Model, u.Tokens)
 	}
 	return u.Tokens * 100 / window, true

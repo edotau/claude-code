@@ -1,5 +1,5 @@
 // Package hosttest gives every test binary the same host: no agent CLIs on PATH, no inherited credentials,
-// and HOME/XDG/CLAUDE_CONFIG_DIR in a throwaway dir. Imports stdlib only, so any package's tests may use it.
+// and HOME/XDG/CLAUDE_CONFIG_DIR in a throwaway dir. Imports stdlib (plus x/sys/unix in the pty files), so any package's tests may use it.
 package hosttest
 
 import (
@@ -250,7 +250,7 @@ func FakeRTK(t *testing.T) string {
 	bin := fakeScript(t, "rtk", "#!/bin/sh\n[ \"$1\" = rewrite ] || exit 9\n"+
 		"if [ -n \"$FAKE_RTK_OUT\" ]; then printf '%s' \"$FAKE_RTK_OUT\"; else printf '%s' \"rtk $2\"; fi\n"+
 		"exit ${FAKE_RTK_EXIT:-0}\n")
-	t.Setenv("HARNESS_RTK_BIN", bin) // paths.RTKBinaryEnv; this package imports stdlib only
+	t.Setenv("HARNESS_RTK_BIN", bin) // paths.RTKBinaryEnv; this package imports stdlib + x/sys/unix
 	return bin
 }
 
