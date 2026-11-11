@@ -65,7 +65,7 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK, routesOK bool) {
 	return ghOK, copilotOK, ocRoute.OK && cpRoute.OK
 }
 
-// githubAuthLine is the GitHub auth pin and whether gh's active account matches it.
+// githubAuthLine is the pinned GitHub account and whether gh's active account matches it.
 func githubAuthLine(d *dialog) string {
 	profile := vault.GitHubAuth()
 	if profile == "" {
@@ -81,37 +81,74 @@ func githubAuthLine(d *dialog) string {
 	case p.Login == "":
 		return profile + " · drift: profile has no login, gh follows its active account"
 	}
-	login := p.Login
-	if active := copilot.GHActiveAccount(); active != login {
-		return profile + " (" + login + ") · drift: gh active is " + cmp.Or(active, "none")
+	if active := copilot.GHActiveAccount(); active != p.Login {
+		return p.Login + " · drift: gh active is " + cmp.Or(active, "none")
 	}
-	return profile + " (" + login + ")"
+	return p.Login
 }
 
-// pickGitHubAuth lists github profiles with a login plus "follow gh active"; a pick switches gh, then stores it.
+// pickGitHubAuth lists the GitHub accounts plus "follow gh active"; a pick switches gh, then stores it.
 func pickGitHubAuth(d *dialog) {
-	names := []string{""}
-	rows := [][2]string{{"follow gh active", "no switch; use whichever account gh has active"}}
-	for _, n := range GitHubAuthProfiles(d.reg) {
-		names = append(names, n)
-		rows = append(rows, [2]string{n, "gh account " + d.reg.Providers[n].Login})
-	}
+	accounts := GitHubAccounts(d.reg)
+	rows := append([][2]string{{"follow gh active", "no switch; use whichever account gh has active"}},
+		ghUserRows(accounts, copilot.GHActiveAccount(), "")...)
 	idx, err := d.shell().Pick("GitHub auth — gh's active account", rows)
 	if err != nil || idx < 0 {
 		return
 	}
-	applyGitHubAuth(d, names[idx])
+	if idx == 0 {
+		applyGitHubAuth(d, "")
+		return
+	}
+	applyGitHubAccount(d, accounts[idx-1])
 }
 
-// GitHubAuthProfiles are the github profiles with a login: the names `--auth` and the auth picker accept.
-func GitHubAuthProfiles(reg *providers.Registry) []string {
+// GitHubAccounts are the logins `--auth` and the pickers accept: every github profile's login, then gh's other accounts.
+func GitHubAccounts(reg *providers.Registry) []string {
 	var out []string
-	for _, n := range reg.ProfilesOf("github") {
-		if reg.Providers[n].Login != "" {
-			out = append(out, n)
+	if reg != nil {
+		for _, n := range reg.ProfilesOf("github") {
+			if l := reg.Providers[n].Login; l != "" && !slices.Contains(out, l) {
+				out = append(out, l)
+			}
+		}
+	}
+	for _, l := range copilot.GHAccounts() {
+		if !slices.Contains(out, l) {
+			out = append(out, l)
 		}
 	}
 	return out
+}
+
+// githubProfile is the profile behind a GitHub account, written on first use: personal while it has no login,
+// else a profile named after the account.
+func githubProfile(reg *providers.Registry, login string) (string, error) {
+	if reg != nil {
+		for _, n := range reg.ProfilesOf("github") {
+			if reg.Providers[n].Login == login {
+				return n, nil
+			}
+		}
+		if p := reg.Providers["personal"]; p != nil && p.Provider == "github" && p.Login == "" {
+			return "personal", providers.SetProviderFields("personal", map[string]any{"login": login})
+		}
+	}
+	return login, providers.AddGithubAccount(login)
+}
+
+// applyGitHubAccount pins login's profile (creating it on first use) as GitHub auth.
+func applyGitHubAccount(d *dialog, login string) bool {
+	_, known := d.reg.Providers[providers.GithubAccountName(d.reg, login)]
+	profile, err := githubProfile(d.reg, login)
+	if err != nil {
+		d.printf("github auth: %v\n", err)
+		return false
+	}
+	if !known {
+		d.reload()
+	}
+	return applyGitHubAuth(d, profile)
 }
 
 // applyGitHubAuth switches gh to name's login and stores the pin, rolling gh back if the vault write fails.
@@ -137,23 +174,23 @@ func applyGitHubAuth(d *dialog, name string) bool {
 		return false
 	}
 	d.changed = true
-	d.printf("github auth: %s\n", cmp.Or(name, "follows gh's active account"))
+	d.printf("github auth: %s\n", cmp.Or(login, "follows gh's active account"))
 	return true
 }
 
-// runGithubAuthFlag is `configure github --auth NAME`: "" or "follow" clears the pin; --check verifies, --dry-run is a no-op.
+// runGithubAuthFlag is `configure github --auth ACCOUNT`: "" or "follow" clears the pin; --check verifies, --dry-run is a no-op.
 func runGithubAuthFlag(d *dialog) bool {
 	name := d.o.Auth
-	valid := GitHubAuthProfiles(d.reg)
-	if name == "follow" && !slices.Contains(valid, name) { // a real profile named "follow" wins over the keyword
+	valid := GitHubAccounts(d.reg)
+	if name == "follow" && !slices.Contains(valid, name) { // a real account named "follow" wins over the keyword
 		name = ""
 	}
 	if name != "" && !slices.Contains(valid, name) {
-		d.printf("github auth: %q is not a github profile with a login; valid: follow, %s\n", name, strings.Join(valid, ", "))
+		d.printf("github auth: %q is not a GitHub account gh is signed in to; valid: follow, %s\n", name, strings.Join(valid, ", "))
 		return false
 	}
-	if d.o.Check { // verification: pass only when the stored pin already equals name
-		cur := vault.GitHubAuth()
+	if d.o.Check { // verification: pass only when the pinned account already equals name
+		cur := providers.GithubAccountLogin(d.reg, vault.GitHubAuth())
 		d.printf("github auth: pin is %q, want %q\n", cur, name)
 		return cur == name
 	}
@@ -161,7 +198,10 @@ func runGithubAuthFlag(d *dialog) bool {
 		d.printf("github auth: would set %s\n", cmp.Or(name, "follow gh's active account"))
 		return true
 	}
-	return applyGitHubAuth(d, name)
+	if name == "" {
+		return applyGitHubAuth(d, "")
+	}
+	return applyGitHubAccount(d, name)
 }
 
 // runGithub is the `configure github` / `configure` "github" section: opencode's GitHub Copilot

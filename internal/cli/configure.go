@@ -250,13 +250,13 @@ func unknownAgent(agents string) error {
 // agentNames are the agent CLIs `configure --agent` can scope to: the agents plus claude itself.
 func agentNames() []string { return append([]string{"claude"}, agent.DefaultAgents...) }
 
-// authNames are the github profiles with a login, plus "follow", for `configure github --auth`.
+// authNames are the GitHub accounts, plus "follow", for `configure github --auth`.
 func authNames() []string {
 	reg, err := providers.Load()
 	if err != nil {
 		return []string{"follow"}
 	}
-	return append([]string{"follow"}, menu.GitHubAuthProfiles(reg)...)
+	return append([]string{"follow"}, menu.GitHubAccounts(reg)...)
 }
 
 // sections derives from menu.SectionNames, the package's own run order.
