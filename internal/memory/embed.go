@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -72,11 +71,6 @@ type EmbedClient struct {
 	Model     string
 	Namespace string // profile|host|model: vectors are comparable only within one namespace
 	EmbedFunc func(ctx context.Context, texts []string) ([][]float32, error)
-}
-
-// embedder turns text batches into embedding vectors.
-type embedder interface {
-	Embed(context.Context, []string) ([][]float32, error)
 }
 
 func (c *EmbedClient) Embed(ctx context.Context, texts []string) ([][]float32, error) {
@@ -189,8 +183,11 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 	if !ok {
 		return 0, total, fmt.Errorf("%w until %s", errEmbedBusy, held.Format("15:04"))
 	}
+	if _, err := embedBase(c, now, force); err != nil { // a mint that landed before our claim must not be paid for twice
+		return 0, total, errors.Join(err, vectorStore.Release(c.Profile, owner))
+	}
 	run := &embedRun{c: c, root: root, force: force, fresh: map[string]vectorRow{}, started: started}
-	embedded, embedErr := run.embed(ctx, c, ids, texts, hashes, blocks)
+	embedded, embedErr := run.embed(ctx, ids, texts, hashes, blocks)
 	current, cerr := currentEntryHashes(root)
 	if cerr != nil {
 		rerr := vectorStore.Release(c.Profile, owner) // nothing was stored, so the claim is still ours to drop
@@ -225,8 +222,8 @@ func cacheRowCurrent(row vectorRow, hash, blockHash string, cacheDim int) bool {
 	if row.Hash != hash || row.BlockHash != blockHash {
 		return false
 	}
-	v, decoded := decodeVec(row.Vec)
-	return decoded && (cacheDim == 0 || len(v) == cacheDim)
+	dim, ok := vecDim(row.Vec)
+	return ok && (cacheDim == 0 || dim == cacheDim)
 }
 
 // pendingEmbeds lists root's live entries whose vector in cache is missing, stale or undecodable, and the live count.
@@ -310,7 +307,7 @@ func (r *embedRun) absorb(cur vectorRecord, fresh map[string]vectorRow) {
 // moveDim handles the endpoint's dimension moving: drop vectors it cannot match and record the new dimension.
 func (r *embedRun) moveDim(cur *vectorRecord) {
 	for id, row := range cur.Rows {
-		if v, ok := decodeVec(row.Vec); ok && len(v) > 0 && len(v) != r.freshDim {
+		if dim, ok := vecDim(row.Vec); ok && dim > 0 && dim != r.freshDim {
 			delete(cur.Rows, id)
 		}
 	}
@@ -318,9 +315,9 @@ func (r *embedRun) moveDim(cur *vectorRecord) {
 }
 
 func sameDim(a, b vectorRow) bool {
-	av, aok := decodeVec(a.Vec)
-	bv, bok := decodeVec(b.Vec)
-	return aok && bok && len(av) == len(bv)
+	ad, aok := vecDim(a.Vec)
+	bd, bok := vecDim(b.Vec)
+	return aok && bok && ad == bd
 }
 
 // shed drops this root's rows whose entry is gone once the root holds more than embedMaxRows.
@@ -407,8 +404,8 @@ func clearOldBackoff(backoff string, attempt time.Time) {
 func dominantDim(rows map[string]vectorRow) int {
 	counts := map[int]int{}
 	for _, r := range rows {
-		if v, ok := decodeVec(r.Vec); ok {
-			counts[len(v)]++
+		if dim, ok := vecDim(r.Vec); ok {
+			counts[dim]++
 		}
 	}
 	best, frequency := 0, 0
@@ -458,17 +455,8 @@ func encodeVec(v []float32) string {
 	return string(b)
 }
 
-func decodeVec(s string) ([]float32, bool) {
-	b := []byte(s)
-	if len(b)%4 != 0 {
-		return nil, false
-	}
-	v := make([]float32, len(b)/4)
-	for i := range v {
-		v[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[4*i:]))
-	}
-	return v, true
-}
+// vecDim is the dimension of an encoded vector; false when its length is not a whole number of float32s.
+func vecDim(s string) (int, bool) { return len(s) / 4, len(s)%4 == 0 }
 
 // pickEmbeddingModel chooses a ready embeddings endpoint from a live catalog, preferring gte then bge.
 func pickEmbeddingModel(infos []providers.ModelInfo) (string, bool) {
@@ -541,10 +529,10 @@ func decodeEmbeddings(raw []byte) ([][]float32, error) {
 	return out, nil
 }
 
-func (r *embedRun) embed(ctx context.Context, client embedder, ids, texts, hashes, blocks []string) (embedded int, embedErr error) {
+func (r *embedRun) embed(ctx context.Context, ids, texts, hashes, blocks []string) (embedded int, embedErr error) {
 	for i := 0; i < len(texts) && embedErr == nil; i += embedBatch { // network calls stay outside any transaction
 		j := min(i+embedBatch, len(texts))
-		vecs, err := client.Embed(ctx, texts[i:j])
+		vecs, err := r.c.Embed(ctx, texts[i:j])
 		if err == nil && len(vecs) != j-i {
 			err = fmt.Errorf("embedding endpoint returned %d vectors for %d texts", len(vecs), j-i)
 		}
@@ -561,16 +549,25 @@ func (r *embedRun) embed(ctx context.Context, client embedder, ids, texts, hashe
 	return embedded, embedErr
 }
 
+// embedProfiles yields the session profile, then the claude record's when it differs; the record loads only if reached.
+func embedProfiles(yield func(string) bool) {
+	name := providers.SessionProfile()
+	if name != "" && !yield(name) {
+		return
+	}
+	if other := providers.AgentRecord("claude").Profile; other != "" && other != name {
+		yield(other)
+	}
+}
+
 func semanticCache() (string, vectorRecord, error) {
 	var profile string
 	var cache vectorRecord
 	var readErr error
-	var tried []string
-	for _, name := range []string{providers.SessionProfile(), providers.AgentRecord("claude").Profile} {
-		if name == "" || slices.Contains(tried, name) || !safeProfile.MatchString(name) {
+	for name := range embedProfiles {
+		if !safeProfile.MatchString(name) {
 			continue
 		}
-		tried = append(tried, name)
 		c, err := readProfileCache(name)
 		if err != nil { // a locked or unreadable profile is a miss; the next one may serve
 			readErr = err

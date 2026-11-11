@@ -1,6 +1,6 @@
 # `memory review --candidates` — Judgment Residue: Ranking Promotion Candidates
 
-> `claude-code memory review` prints today's caps/staleness/dupe stats first; this is what
+> `claude-code memory review` prints today's caps/staleness stats first; this is what
 > ranks them against the promotion gradient. Read-only — never modify, promote, or create
 > files here; that's `memory promote`'s job.
 
@@ -13,7 +13,7 @@ Read in order:
 2. **Native `MEMORY.md` + topic files** — in that same store dir (the native loader reads `MEMORY.md` up to
    200 lines / 25 KB, including its generated `<!-- bank:begin -->`…`<!-- bank:end -->` region of ≤ 40 lines)
 3. **Typed bank files** — the six files beside `MEMORY.md` in the same dir; `claude-code memory
-   review` surfaces caps/staleness/cross-tier-duplication across both native and typed
+   review` surfaces caps/staleness across both native and typed
 4. **Rules tiers** — `rules/standards/*.md`, `rules/workflows/*.md`
 5. **Always-on tier** — the global `~/.claude/CLAUDE.md` and the project `./CLAUDE.md`
 

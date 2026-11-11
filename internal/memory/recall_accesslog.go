@@ -72,16 +72,13 @@ func logAccessBatch(dir string, now time.Time, entries []string, reason string) 
 		return
 	}
 	// Rotate, trim and append under one lock: concurrent hooks and verbs must never interleave the renames.
-	appendLines := func() error {
-		return appendAccessLines(path, lines)
-	}
 	write := func() error {
 		maybeRotateAccessLog(path, now)
 		maybeTrimAccessLog(path)
-		return appendLines()
+		return appendAccessLines(path, lines)
 	}
 	if ran, err := paths.TryFileLock(path+".lock", accessLockWait, write); !ran && err != nil {
-		_ = appendLines() // lock file unopenable: O_APPEND only, never rotate or trim unlocked; a timeout drops it
+		_ = appendAccessLines(path, lines) // lock file unopenable: O_APPEND only, never rotate or trim unlocked; a timeout drops it
 	}
 }
 
@@ -289,7 +286,7 @@ func logShown(path, id, reason string, now time.Time) {
 // AccessLogPath puts store traces in state/harness/memory/access, otherwise beside the bank.
 func AccessLogPath(dir string) string {
 	if rel, ok := insideStore(dir); ok {
-		key := strings.ReplaceAll(rel, string(filepath.Separator), "_")
+		key := strings.ReplaceAll(rel, "/", "_")
 		if key == "" || key == "." {
 			key = "home"
 		}

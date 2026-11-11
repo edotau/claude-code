@@ -10,8 +10,8 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// logStampLayout timestamps detached worker log names.
-const logStampLayout = "20060102-150405"
+// logStampLayout timestamps detached worker log names; milliseconds keep two workers in one second apart.
+const logStampLayout = "20060102-150405.000"
 
 // spawnDetached is the process-launch seam under spawnSelf; tests replace it.
 var spawnDetached = proc.SpawnDetached
@@ -46,16 +46,21 @@ type spawner struct {
 
 var spawn = spawner{update: spawnUpdate, watcher: spawnWatcher, dream: spawnDream, catchup: spawnCatchup}
 
-// spawnUpdate launches `memory update` and records the session's result as pending on success.
+// spawnUpdate records the session's result as pending, then launches `memory update`; a failed launch undoes it.
 func spawnUpdate(transcriptPath, cwd, sessionID string) bool {
 	logName := "update-" + time.Now().Format(logStampLayout) + ".log"
 	args := []string{"memory", "update", "--transcript", transcriptPath, "--cwd", cwd, "--session", sessionID}
-	if !spawnSelf(args, cwd, logName) {
-		return false
+	prior, hadPrior := readUpdateResult(sessionID)
+	_ = writeUpdateResult(sessionID, UpdateResult{Status: updatePending, Time: time.Now(), Log: filepath.Join(StateDir(), logName)})
+	if spawnSelf(args, cwd, logName) {
+		return true
 	}
-	logPath := filepath.Join(StateDir(), logName)
-	_ = writeUpdateResult(sessionID, UpdateResult{Status: updatePending, Time: time.Now(), Log: logPath})
-	return true
+	if hadPrior {
+		_ = writeUpdateResult(sessionID, prior)
+	} else if sessionID != "" {
+		_ = os.Remove(resultPath(sessionID))
+	}
+	return false
 }
 
 // spawnWatcher launches `memory watch`; args[1] is the session ID naming its log.

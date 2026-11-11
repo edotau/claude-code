@@ -224,7 +224,7 @@ func compactedText(r compactRecord) string {
 
 func prunableSessionState(name string) bool {
 	for _, prefix := range []string{"count-", "stamp-", "watch-"} {
-		if strings.HasPrefix(name, prefix) {
+		if strings.HasPrefix(name, prefix) && !strings.HasSuffix(name, ".lock") { // a live session's lock looks old
 			return true
 		}
 	}
@@ -236,13 +236,19 @@ func prunableSessionState(name string) bool {
 	return false
 }
 
-// staleSessionRoot reports a root-<id>[.lock] file whose session has no count-/stamp-/watch- file newer than cutoff.
+// staleSessionRoot reports a root-<id>[.lock] or count-/stamp-/watch-<id>.lock file whose session has no
+// count-/stamp-/watch- file newer than cutoff.
 func staleSessionRoot(dir, name string, cutoff time.Time) bool {
-	id, ok := strings.CutPrefix(name, "root-")
+	base, isLock := strings.CutSuffix(name, ".lock")
+	id, ok := strings.CutPrefix(base, "root-")
+	for _, prefix := range []string{"count-", "stamp-", "watch-"} {
+		if rest, found := strings.CutPrefix(base, prefix); found && isLock {
+			id, ok = rest, true
+		}
+	}
 	if !ok {
 		return false
 	}
-	id = strings.TrimSuffix(id, ".lock")
 	for _, prefix := range []string{"count-", "stamp-", "watch-"} {
 		if fi, err := os.Stat(filepath.Join(dir, prefix+id)); err == nil && !fi.ModTime().Before(cutoff) {
 			return false
@@ -359,7 +365,7 @@ func LiveTranscript(cwd, sessionID string) string {
 	if p := filepath.Join(projects, paths.ProjectSlug(cwd), id); paths.IsFile(p) {
 		return p
 	}
-	if m, _ := filepath.Glob(filepath.Join(projects, "*", id)); len(m) > 0 {
+	if m := globIn(projects, "*/"+id); len(m) > 0 {
 		return m[0]
 	}
 	return ""

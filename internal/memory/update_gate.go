@@ -44,18 +44,30 @@ type GateResult struct {
 
 // UpdateIfNew spawns an update when work (edits or user turns) is new since the stamp.
 func UpdateIfNew(r UpdateRequest, trigger string, now time.Time) GateResult {
-	var blocked, failedOpen bool
-	var work int
+	var res GateResult
+	withStampLock(r.SessionID, func() { // hooks of one session are separate processes
+		res.Blocked, res.Work, res.FailedOpen = updateIfNewLocked(r, trigger, now)
+	})
+	return res
+}
+
+// withStampLock runs fn under the session's stamp lock; with no lock, unserialized beats skipping.
+func withStampLock(sessionID string, fn func()) {
 	ran := false
-	err := paths.WithFileLock(stampPath(r.SessionID), func() error { // hooks of one session are separate processes
+	err := paths.WithFileLock(stampPath(sessionID), func() error {
 		ran = true
-		blocked, work, failedOpen = updateIfNewLocked(r, trigger, now)
+		fn()
 		return nil
 	})
 	if err != nil && !ran {
-		blocked, work, failedOpen = updateIfNewLocked(r, trigger, now) // no lock: unserialized beats skipping
+		fn()
 	}
-	return GateResult{Blocked: blocked, Work: work, FailedOpen: failedOpen}
+}
+
+// globIn is filepath.Glob(dir/pattern) with dir's own glob metacharacters matched literally.
+func globIn(dir, pattern string) []string {
+	m, _ := filepath.Glob(filepath.Join(strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`).Replace(dir), pattern))
+	return m
 }
 
 func updateIfNewLocked(r UpdateRequest, trigger string, now time.Time) (blocked bool, work int, failedOpen bool) {
@@ -344,10 +356,7 @@ func subagentEdits(transcriptPath string, cachedBytes int64, cachedEdits int, wr
 	if dir == "" {
 		return 0, 0
 	}
-	matches, err := filepath.Glob(filepath.Join(dir, "agent-*.jsonl"))
-	if err != nil {
-		return cachedEdits, cachedBytes // glob failed: keep the last known count rather than reporting zero
-	}
+	matches := globIn(dir, "agent-*.jsonl")
 	sizes := make(map[string]int64, len(matches))
 	for _, m := range matches {
 		if fi, err := os.Stat(m); err == nil {

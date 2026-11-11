@@ -179,7 +179,7 @@ func (p *aliasPlan) foldFiles(src, tgt repoEntry, res *aliasResult) error {
 // foldSkips reports the identity, generated index and lock files, which do not travel.
 // Migration: remove the legacy-origin match after 2026-11-17 once every machine has run a post-2026-10-20 build.
 func foldSkips(rel string) bool {
-	return rel == legacyOriginFile || rel == bankIndexFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate"
+	return rel == legacyOriginFile || rel == catalogFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate"
 }
 
 // isSessionArchive reports whether rel is a rotated monthly archive/sessionHistory-<yyyy-mm>.md.

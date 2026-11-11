@@ -52,9 +52,7 @@ func ensureLink(link, target string) linkResult {
 	case err != nil:
 		return r.blocked(err.Error())
 	case fi.Mode()&fs.ModeSymlink != 0:
-		if r = relink(r); r.Action != "relinked" {
-			return r
-		}
+		return relink(r)
 	case fi.IsDir():
 		if r = clearEmptyDir(r); r.Action != "linked" {
 			return r
@@ -77,14 +75,14 @@ func (r linkResult) blocked(detail string) linkResult {
 	return r
 }
 
-// relink removes a wrong symlink (Action "relinked"), keeps a right one (Action "ok"), or reports blocked.
+// relink swaps a wrong symlink atomically (Action "relinked"), keeps a right one (Action "ok"), or reports blocked.
 func relink(r linkResult) linkResult {
-	cur, _ := os.Readlink(r.Link)
 	if paths.SamePath(nativeLinkTarget(r.Link), r.Target) {
 		r.Action = "ok"
 		return r
 	}
-	if err := os.Remove(r.Link); err != nil {
+	cur, _ := os.Readlink(r.Link)
+	if err := paths.SwapSymlink(r.Target, r.Link); err != nil {
 		return r.blocked(err.Error())
 	}
 	r.Action, r.Detail = "relinked", "was -> "+cur

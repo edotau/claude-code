@@ -32,17 +32,18 @@ func recallPicks(root, session, query string, semantic, explain bool) ([]recallP
 	}
 	root = recallRoot(root)
 	ready := startSemantic(q, semantic)
+	seen := seenBlocks(session)
 	ranked, files, segs := searchBanksTerms(root, q, terms, 0)
 	var sem *Semantic
 	semSeen := false
 	if semantic {
-		ranked, sem, semSeen, trace.Embeddings = recallSemantic(<-ready, files, segs, session, recallNeed(terms), ranked, tr)
+		ranked, sem, semSeen, trace.Embeddings = recallSemantic(<-ready, files, segs, seen, recallNeed(terms), ranked, tr)
 	}
 	if len(ranked) == 0 {
 		return nil, trace
 	}
 	counts := returnCounts([]string{Dir(root), HomeBankDir()}, time.Now())
-	picks := selectRecall(session, terms, ranked, sem, semSeen, counts, tr)
+	picks := selectRecall(seen, terms, ranked, sem, semSeen, counts, tr)
 	trace.Silent = len(picks) == 0
 	return picks, trace
 }
@@ -77,12 +78,11 @@ func startSemantic(query string, enabled bool) <-chan semanticReady {
 	return ready
 }
 
-func recallSemantic(result semanticReady, files []corpusFile, segs []segView, session string, need int, ranked []SearchHit, trace *recallTrace) ([]SearchHit, *Semantic, bool, string) {
+func recallSemantic(result semanticReady, files []corpusFile, segs []segView, seen map[string]bool, need int, ranked []SearchHit, trace *recallTrace) ([]SearchHit, *Semantic, bool, string) {
 	if result.err != nil {
 		return ranked, nil, false, "keyword-only: " + result.err.Error()
 	}
 	sem := result.sem
-	seen := seenBlocks(session)
 	var skipped []SearchHit
 	skip := func(h SearchHit) bool {
 		if !seen[blockKey(h.Block)] {
@@ -132,33 +132,20 @@ func recallContext(picks []recallPick) (string, []SearchHit, []SearchHit) {
 	return capChars(b.String(), recallTotalCapChars), bodies, hits
 }
 
-// pointerEntries supplies the agent adapter's limited pointer list.
-func pointerEntries(picks []recallPick) []Entry {
-	var entries []Entry
-	for _, p := range picks[:min(recallK, len(picks))] {
-		entries = append(entries, p.Entry)
-	}
-	return entries
-}
-
-// recordRecall logs and marks only the bodies delivered to the prompt.
-func recordRecall(root, session string, bodies, hits []SearchHit) {
-	logHits(recallRoot(root), hits, accessRecall, time.Now())
-	markSeen(session, bodies)
-}
-
 // PromptRecall is the UserPromptSubmit recall block for prompt, "" when nothing clears the floor.
 func PromptRecall(sessionID, cwd, prompt string, warn io.Writer) string {
 	root := SessionRoot(sessionID, cwd)
 	picks, trace := recallPicks(root, sessionID, prompt, true, false)
-	if after, ok := strings.CutPrefix(trace.Embeddings, "keyword-only: "); ok {
+	after, ok := strings.CutPrefix(trace.Embeddings, "keyword-only: ")
+	if ok && os.Getenv("CLAUDE_RECALL_SEMANTIC") != "0" { // the deliberate opt-out is not a degradation
 		fmt.Fprintf(warn, "memory-recall: keyword-only (%s)\n", textutil.CapRunes(after, 120, "…"))
 	}
 	context, bodies, hits := recallContext(picks)
 	if context == "" {
 		return ""
 	}
-	recordRecall(root, sessionID, bodies, hits)
+	logHits(recallRoot(root), hits, accessRecall, time.Now())
+	markSeen(sessionID, bodies) // only the bodies delivered count as seen
 	return context
 }
 
@@ -217,9 +204,9 @@ func AgentRecall(sessionID, cwd, task string) (block string, ids []string) {
 	picks, _ := recallPicks(cwd, sessionID, q, false, false)
 
 	var lines []string
-	for _, e := range pointerEntries(picks) {
-		lines = append(lines, "\n- "+textutil.CapRunes(e.Pointer(), agentRecallPreviewRunes, "…"))
-		ids = append(ids, e.ID)
+	for _, p := range picks[:min(recallK, len(picks))] {
+		lines = append(lines, "\n- "+textutil.CapRunes(p.Entry.Pointer(), agentRecallPreviewRunes, "…"))
+		ids = append(ids, p.Entry.ID)
 	}
 	block, n := capRecallLines(lines)
 	if block == "" {

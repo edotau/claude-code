@@ -2,6 +2,7 @@ package memory
 
 import (
 	"encoding/binary"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -169,7 +170,7 @@ func loadSegments(files []corpusFile, persist bool) []segView {
 	segs := make([]segView, len(files))
 	// Reuse query stats when pruning so each corpus file is statted only once.
 	stats := make(map[string]bool, len(files))
-	dirty := false
+	added := map[fileKey]indexed{}
 	for i, f := range files {
 		info, err := os.Stat(f.Path)
 		stats[f.Path] = err == nil
@@ -183,13 +184,16 @@ func loadSegments(files []corpusFile, persist bool) []segView {
 		}
 		segs[i] = encodeFile(f)
 		if segs[i] != nil && persist && ok && time.Since(info.ModTime()) >= racyWindow {
-			index[key] = indexed{info.Size(), info.ModTime().UnixNano(), segs[i]}
-			dirty = true
+			added[key] = indexed{info.Size(), info.ModTime().UnixNano(), segs[i]}
 		}
 	}
-	if dirty {
-		pruneMissing(index, stats)
-		_ = writeRecallIndex(path, stamp, index)
+	if len(added) > 0 && os.MkdirAll(filepath.Dir(path), 0o755) == nil { // re-read under the lock: keep peers' entries
+		_, _ = paths.TryFileLock(path+".lock", time.Second, func() error {
+			cur := readRecallIndex(path, stamp)
+			maps.Copy(cur, added)
+			pruneMissing(cur, stats)
+			return writeRecallIndex(path, stamp, cur)
+		})
 	}
 	return segs
 }

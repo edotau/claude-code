@@ -31,8 +31,8 @@ func nativeDirs(root string) []string {
 // Native auto-memory file names recognised when classifying a bank directory's files.
 const (
 	nativeIndexFile        = "MEMORY.md"     // the injected index of `- [Title](topic.md) — hook` lines
-	nativeSearchableFile   = "SEARCHABLE.md" // overflow pointer lines kept out of the injected index
-	nativeArchiveIndexFile = "INDEX.md"      // struck pointer lines recorded by the archive
+	nativeSearchableFile   = "SEARCHABLE.md" // legacy overflow file, classified only
+	nativeArchiveIndexFile = "INDEX.md"      // legacy archive index, classified only
 )
 
 // topicFrontmatter splits a topic file into its name, description and body; false without a closed block and a name.

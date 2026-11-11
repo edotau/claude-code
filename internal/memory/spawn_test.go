@@ -57,7 +57,7 @@ func TestDefaultSpawnersBuildTodaysArgvAndLogs(t *testing.T) {
 	spawnDream("/c")
 	spawnCatchup("/c", "s1")
 	spawnEmbedRefresh("/r", "p1")
-	stamp := `\d{8}-\d{6}`
+	stamp := `\d{8}-\d{6}\.\d{3}`
 	want := []struct {
 		args       []string
 		dir, logRE string

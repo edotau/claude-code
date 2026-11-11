@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 const (
@@ -115,9 +116,8 @@ func sweepCandidates(current string, now time.Time, all bool, count func(string,
 
 // recentTranscripts lists transcripts modified inside the catch-up window, newest first.
 func recentTranscripts(now time.Time) []sweepCand {
-	files, _ := filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", "*.jsonl"))
 	var recent []sweepCand
-	for _, p := range files {
+	for _, p := range globIn(paths.ConfigDir(), "projects/*/*.jsonl") {
 		id := strings.TrimSuffix(filepath.Base(p), ".jsonl")
 		fi, err := os.Stat(p)
 		if err != nil || !LooksLikeSessionID(id) || now.Sub(fi.ModTime()) > catchupWindow {
@@ -205,6 +205,8 @@ func runSweep(current string, now time.Time, out io.Writer) {
 var runHistoricalUpdate = func(ctx context.Context, self string, c sweepCand, out io.Writer) error {
 	cmd := exec.CommandContext(ctx, self, "memory", "update", "--historical", "--session", c.id, "--transcript", c.path)
 	cmd.Stdout, cmd.Stderr = out, out
+	proc.OwnGroup(cmd) // the timeout kills the update's whole group, so its claude child cannot outlive the lock
+	cmd.WaitDelay = proc.ExecWaitDelay
 	return cmd.Run()
 }
 

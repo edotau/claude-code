@@ -41,11 +41,11 @@ func resolveWith(root string, main func(string) string) Identity {
 	if paths.SamePath(root, paths.ConfigDir()) || paths.SamePath(paths.MainCheckout(root), paths.ConfigDir()) {
 		return harnessIdentity()
 	}
-	if id, ok := fixedIdentity(root); ok {
-		return id
-	}
 	origin, ok := identities.Load(root)
 	if !ok {
+		if id, fixed := fixedIdentity(root); fixed {
+			return id
+		}
 		o := main(root)
 		if o != "" {
 			o = paths.CanonDeep(o)
@@ -323,7 +323,7 @@ type repoEntry struct {
 func storeKeys(ents []fs.DirEntry) []string {
 	var keys []string
 	for _, e := range ents {
-		if e.IsDir() && e.Type()&fs.ModeSymlink == 0 && !storeReservedDirs[e.Name()] {
+		if e.IsDir() && !storeReservedDirs[e.Name()] {
 			keys = append(keys, e.Name())
 		}
 	}
@@ -413,6 +413,8 @@ const OriginEnv = "HARNESS_MEMORY_ORIGIN"
 func throwawayRoots() []string {
 	roots := []string{os.TempDir(), "/tmp", filepath.Join(paths.ConfigDir(), "state")}
 	if home, err := os.UserHomeDir(); err == nil {
+		// TMPDIR=$HOME (or /) would make every repo scratch
+		roots = slices.DeleteFunc(roots, func(r string) bool { return paths.SamePath(r, home) || filepath.Dir(r) == r })
 		roots = append(roots, filepath.Join(home, "worktrees", "wf-fixtures"))
 	}
 	return roots

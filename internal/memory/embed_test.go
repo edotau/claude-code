@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"go.etcd.io/bbolt"
 )
 
 // fakeEmbedServer answers {"input":[...]} with one 3-dim vector per text and counts the texts it embedded.
@@ -467,13 +468,12 @@ func loadEmbedCache(profile string) vectorRecord {
 	return f
 }
 
-// saveEmbedCache stores f as profile's record unconditionally (one Put); the mint path uses commitEmbedMint.
+// saveEmbedCache stores f as profile's record unconditionally; the mint path merges through vectorStore.Put.
 func saveEmbedCache(profile string, f vectorRecord) error {
 	if !safeProfile.MatchString(profile) {
 		return fmt.Errorf("embeddings: unsafe profile name %q", profile)
 	}
-	_, err := vectorStore.Put(vectorWrite{Profile: profile, Record: f})
-	return err
+	return updateEmbedDB(func(tx *bbolt.Tx) error { return putEmbedRecord(tx, profile, f) })
 }
 
 // dimEmbedClient answers every text with a dim-wide unit vector, calling hook (if any) before each batch.
@@ -544,8 +544,8 @@ func TestStaleEmbedRunCannotRevertDimension(t *testing.T) {
 		t.Fatalf("stale run reset the dimension to %d", cacheDimOf(c))
 	}
 	for id, r := range c.Rows {
-		if v, _ := decodeVec(r.Vec); len(v) != 2 {
-			t.Errorf("row %s has dim %d, want 2", id, len(v))
+		if dim, _ := vecDim(r.Vec); dim != 2 {
+			t.Errorf("row %s has dim %d, want 2", id, dim)
 		}
 	}
 }
