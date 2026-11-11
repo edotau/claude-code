@@ -559,6 +559,17 @@ func dbxGeminiSetup(t *testing.T) (*rawUp, string) {
 	return up, srv.URL + "/p/dbx/gemini/"
 }
 
+// A Databricks row answers count_tokens locally: the serving endpoint has no such path and would return 400.
+func TestDatabricksCountTokensAnsweredLocally(t *testing.T) {
+	up, base := dbxGeminiSetup(t)
+	resp := post(t, strings.TrimSuffix(base, "gemini/")+"v1/messages/count_tokens",
+		`{"model":"claude-sonnet-5-5","messages":[{"role":"user","content":"hi"}]}`, nil)
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || !strings.Contains(string(b), "input_tokens") || len(up.got()) != 0 {
+		t.Fatalf("count_tokens = %d %s with %d upstream hits, want a local 200 estimate", resp.StatusCode, b, len(up.got()))
+	}
+}
+
 // agy's call reaches /serving-endpoints/gemini with the wire model, alt=sse only, fresh token, thoughts-off fixed.
 func TestDatabricksGeminiRoute(t *testing.T) {
 	up, base := dbxGeminiSetup(t)
