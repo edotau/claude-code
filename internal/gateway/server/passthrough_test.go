@@ -139,7 +139,7 @@ func TestPassthrough429CoolsOnlyOnTransientLimits(t *testing.T) {
 			r := newRouter(secret)
 			r.log = io.Discard
 			srv := httptest.NewServer(r)
-			t.Cleanup(srv.Close)
+			t.Cleanup(func() { srv.Close(); r.bg.Wait() }) // a late state write must not race TempDir removal
 			resp := ptDo(t, http.MethodPost, srv.URL+"/p/pt/openai/chat/completions", `{"model":"m"}`, nil)
 			if b, _ := io.ReadAll(resp.Body); resp.StatusCode != 429 || string(b) != c.body {
 				t.Fatalf("relayed %d %q, want the upstream 429 untouched", resp.StatusCode, b)

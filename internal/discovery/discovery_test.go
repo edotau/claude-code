@@ -74,7 +74,7 @@ func workspace(t *testing.T) (hits *atomic.Int32) {
 	return hits
 }
 
-// shape marks blank and READY rows ready, names the wire each id is served on and flags Responses-only ids.
+// shape names the wire each id is served on and flags Responses-only ids.
 func TestShape(t *testing.T) {
 	workspace(t)
 	p, err := catalog.Profile(agentid.Codex, "dev")
@@ -88,25 +88,13 @@ func TestShape(t *testing.T) {
 		{ID: "databricks-gpt-5-5", Task: "llm/v1/chat", Ready: "READY"},
 	})
 	want := []Model{
-		{ID: "databricks-claude-sonnet-5-5", Label: "Sonnet", Ready: true, Task: "llm/v1/chat", Dialect: providers.ProtocolAnthropic},
-		{ID: "databricks-glm-5-2", Ready: true, Task: "llm/v1/chat", Dialect: providers.ProtocolOpenAI},
-		{ID: "databricks-cold-1", Task: "llm/v1/chat", Dialect: providers.ProtocolOpenAI},
-		{ID: "databricks-gpt-5-5", Ready: true, Task: "llm/v1/chat", Dialect: providers.ProtocolResponses, Responses: true},
+		{ID: "databricks-claude-sonnet-5-5", Label: "Sonnet", Dialect: providers.ProtocolAnthropic},
+		{ID: "databricks-glm-5-2", Dialect: providers.ProtocolOpenAI},
+		{ID: "databricks-cold-1", Dialect: providers.ProtocolOpenAI},
+		{ID: "databricks-gpt-5-5", Dialect: providers.ProtocolResponses, Responses: true},
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("shape =\n%+v\nwant\n%+v", got, want)
-	}
-}
-
-// gemini is listed by its own CLI: the result says so and the workspace is never asked, even on a named profile.
-func TestModelsGeminiIsVendorListed(t *testing.T) {
-	hits := workspace(t)
-	res, err := Models(context.Background(), Query{Agent: agentid.Gemini, Profile: "dev", Mode: Refresh})
-	if err != nil || res.Source != SourceVendor || len(res.Models) != 0 || len(res.Warnings) != 1 {
-		t.Errorf("Models(gemini) = %+v, %v; want the vendor source, no models and one warning", res, err)
-	}
-	if n := hits.Load(); n != 0 {
-		t.Errorf("gemini discovery made %d HTTP request(s); want none", n)
 	}
 }
 

@@ -127,12 +127,12 @@ func (r *Router) coolDown(p *providers.Provider, resp *http.Response) {
 	if d < coolPersistMin {
 		return
 	}
-	go func() { // off the request path; a failed write is only logged
-		ran, err := router.MarkCooling(router.ProviderAccount(p.Name), until, now)
+	r.bg.Go(func() { // off the request path; a failed write is only logged
+		ran, err := router.MarkCooling(router.AccountOf(p), until, now)
 		if err != nil || !ran {
 			fmt.Fprintf(r.log, "proxy: persist %s cooling: %v\n", p.Name, cmp.Or(err, errors.New("state lock busy")))
 		}
-	}()
+	})
 }
 
 // promptTooLong matches the upstream limit text, e.g. "prompt is too long: 1177204 tokens > 1000000 maximum".

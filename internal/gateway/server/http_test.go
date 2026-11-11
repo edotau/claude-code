@@ -55,7 +55,7 @@ func setupRouter(t *testing.T, overlay string, tweak func(*Router)) *httptest.Se
 		tweak(r)
 	}
 	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
+	t.Cleanup(func() { srv.Close(); r.bg.Wait() }) // a late state write must not race TempDir removal
 	return srv
 }
 
@@ -288,7 +288,7 @@ func setupRouter2(t *testing.T, overlay string) *httptest.Server {
 	r.log = io.Discard
 	r.oauth = func() string { return "" }
 	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
+	t.Cleanup(func() { srv.Close(); r.bg.Wait() }) // a late state write must not race TempDir removal
 	return srv
 }
 

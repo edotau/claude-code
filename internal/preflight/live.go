@@ -4,10 +4,8 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -18,7 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/catalog"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -52,7 +50,7 @@ func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now ti
 		wg.Go(func() {
 			lctx, cancel := context.WithTimeout(ctx, profileTimeout)
 			defer cancel()
-			if _, err := fetch(lctx, reg, prov, now); err != nil {
+			if err := fetch(lctx, prov, now); err != nil {
 				mu.Lock()
 				errs = append(errs, fmt.Errorf("%s: %w", prov.Name, err))
 				mu.Unlock()
@@ -328,17 +326,8 @@ func StaticLine(reg *providers.Registry, now time.Time) string {
 
 // proxyUp reads the proxy state file and checks its pid is alive.
 func proxyUp() bool {
-	b, err := os.ReadFile(paths.StateDir() + "/proxy.json")
-	if errors.Is(err, os.ErrNotExist) {
-		b, err = os.ReadFile(paths.StateDir() + "/router.json") // a daemon from an older build; drop after 2026-11-14
-	}
-	if err != nil {
-		return false
-	}
-	var st struct {
-		PID int `json:"pid"`
-	}
-	return json.Unmarshal(b, &st) == nil && st.PID > 0 && proc.Alive(st.PID)
+	st, err := gateway.ReadState()
+	return err == nil && st.PID > 0 && proc.Alive(st.PID)
 }
 
 // Claim takes the detached served-refresh slot; false when another attempt started within refreshRetry.
@@ -355,14 +344,10 @@ func DiscoverAfterAuth(reg *providers.Registry) {
 var listModels = providers.ListModels
 
 // fetch lists p's endpoints live and caches them.
-func fetch(ctx context.Context, reg *providers.Registry, p *providers.Provider, now time.Time) (router.Served, error) {
+func fetch(ctx context.Context, p *providers.Provider, now time.Time) error {
 	infos, err := listModels(ctx, p)
 	if err != nil {
-		return router.Served{}, err
+		return err
 	}
-	s := router.Served{Profile: p.Name, FetchedAt: now.UTC()}
-	for _, m := range infos {
-		s.Models = append(s.Models, router.ServedModel{ID: m.ID, Task: m.Task, Ready: m.Ready})
-	}
-	return s, router.WarmServed(p.Name, infos, now)
+	return router.WarmServed(p.Name, infos, now)
 }

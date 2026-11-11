@@ -66,7 +66,7 @@ func setup(t *testing.T, overlay string) *httptest.Server {
 	r := newRouter(secret)
 	r.log = io.Discard
 	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
+	t.Cleanup(func() { srv.Close(); r.bg.Wait() }) // a late state write must not race TempDir removal
 	return srv
 }
 

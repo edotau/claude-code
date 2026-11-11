@@ -67,7 +67,7 @@ func deadKey(t providers.Target) string {
 func (r *Router) isDead(t providers.Target) bool {
 	now, key := r.now(), deadKey(t)
 	state, at := r.routeStateAt()
-	persisted := state.ModelDead(router.ProviderAccount(t.Provider.Name), t.Model, now)
+	persisted := state.ModelDead(router.AccountOf(t.Provider), t.Model, now)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if saved, ok := r.deadAt[key]; ok && !persisted && at.After(saved) {
@@ -86,8 +86,8 @@ func (r *Router) markDead(t providers.Target) {
 	r.dead[key] = until
 	delete(r.deadAt, key) // a re-mark is unpersisted again until its own write lands
 	r.mu.Unlock()
-	go func() {
-		ran, err := router.MarkModelDead(router.ProviderAccount(t.Provider.Name), t.Model, until, now)
+	r.bg.Go(func() {
+		ran, err := router.MarkModelDead(router.AccountOf(t.Provider), t.Model, until, now)
 		if err != nil || !ran {
 			fmt.Fprintf(r.log, "proxy: persist %s %s quota-dead: %v\n", t.Provider.Name, t.Model,
 				cmp.Or(err, errors.New("state lock busy")))
@@ -98,5 +98,5 @@ func (r *Router) markDead(t providers.Target) {
 			r.deadAt[key] = r.now()
 		}
 		r.mu.Unlock()
-	}()
+	})
 }
