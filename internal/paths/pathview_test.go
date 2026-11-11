@@ -1,4 +1,4 @@
-package pathview
+package paths
 
 import (
 	"os"

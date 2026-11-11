@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/pathview"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // cdpPort is the remote-debugging port the WSL path starts a Windows browser on.
@@ -174,7 +174,7 @@ func startCDPAction(env Env, b Browser) action {
 			Description: fmt.Sprintf("%s already answers on localhost:%d.", b.DisplayName, cdpPort)}
 	}
 	exe := winExePath(env, b.Name)
-	drive := pathview.NewResolver([]pathview.Mount{{Point: env.WinRoot, Kind: pathview.KindDrvFS, Drive: "C"}})
+	drive := paths.NewResolver([]paths.Mount{{Point: env.WinRoot, Kind: paths.KindDrvFS, Drive: "C"}})
 	winExe, _ := drive.WindowsPath(exe)
 	ps := fmt.Sprintf(`Start-Process -FilePath '%s' -ArgumentList '--remote-debugging-port=%d',`+
 		`"--user-data-dir=$env:LOCALAPPDATA\claude-code\%s-cdp",'--no-first-run','--no-default-browser-check'`,

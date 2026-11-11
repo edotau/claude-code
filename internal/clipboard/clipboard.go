@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/pathview"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -200,7 +200,7 @@ func grabMac() (path, dim string, err error) {
 
 // translateWin maps a Windows path to its WSL view, "" when no mount covers it.
 func translateWin(win string) string {
-	p, _ := pathview.Resolve(win)
+	p, _ := paths.Resolve(win)
 	return p
 }
 

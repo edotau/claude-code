@@ -1,5 +1,4 @@
-// Package agentrender renders and reverts the vendor agents' configs and hooks without launching a session.
-package agentrender
+package client
 
 import (
 	"fmt"

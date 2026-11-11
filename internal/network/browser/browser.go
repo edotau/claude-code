@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/pathview"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -256,10 +255,10 @@ func realClaude() string {
 }
 
 // winRoot is where WSL mounts C: (the mount table honors a custom /etc/wsl.conf automount root), else /mnt/c.
-func winRoot() string { return winRootFrom(pathview.Default()) }
+func winRoot() string { return winRootFrom(paths.Default()) }
 
 // winRootFrom is winRoot over an explicit resolver.
-func winRootFrom(r *pathview.Resolver) string {
+func winRootFrom(r *paths.Resolver) string {
 	if p, ok := r.Resolve(`C:\`); ok && p != "/" {
 		return p
 	}
