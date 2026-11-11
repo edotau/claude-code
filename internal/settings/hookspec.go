@@ -11,8 +11,8 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// HookBin is the literal binary reference in harness commands; $HOME expands under `sh -c`.
-const HookBin = "$HOME/.claude/bin/claude-code"
+// hookBin is the literal binary reference in harness commands; $HOME expands under `sh -c`.
+const hookBin = "$HOME/.claude/bin/claude-code"
 
 // AgentEnv identifies the agent invoking a hook with a shared payload contract.
 const AgentEnv = "HARNESS_HOOK_AGENT"
@@ -58,7 +58,7 @@ type EventSpec struct {
 func (s EventSpec) Seconds() int { return int((s.Budget + time.Second - 1) / time.Second) }
 
 // Command is the shell command settings.json carries for this module alone.
-func (s EventSpec) Command() string { return HookBin + " hook " + s.Event + " --" + s.Name }
+func (s EventSpec) Command() string { return hookBin + " hook " + s.Event + " --" + s.Name }
 
 // AgentCommand is s.Command() prefixed with AgentEnv=agent, as a non-Claude agent's rendered config carries it.
 func AgentCommand(agent string, s EventSpec) string {
@@ -77,13 +77,13 @@ type Group struct {
 func (g Group) own(s EventSpec) bool { return g.Gate || s.Async }
 
 // DispatcherCommand is the one-per-event entry; it skips modules that render as their own entries.
-func DispatcherCommand(event string) string { return HookBin + " hook " + event }
+func DispatcherCommand(event string) string { return hookBin + " hook " + event }
 
 // AllFlag makes `hook <Event>` run every module on the event, own-process ones included.
 const AllFlag = "--all"
 
 // Any HARNESS_HOOK_* marker counts, so a renamed marker's stale entries are replaced on render, not kept as foreign.
-var harnessCommand = regexp.MustCompile(`^(?:HARNESS_HOOK_[A-Z]+=\w+ )?` + regexp.QuoteMeta(HookBin) + ` `)
+var harnessCommand = regexp.MustCompile(`^(?:HARNESS_HOOK_[A-Z]+=\w+ )?` + regexp.QuoteMeta(hookBin) + ` `)
 
 // foreignRTKHook is the bare `rtk hook claude` entry `rtk init -g` writes; the harness rtk-rewrite replaces it.
 var foreignRTKHook = regexp.MustCompile(`^(?:\S*/)?rtk hook claude\b`)
@@ -284,8 +284,8 @@ func Events() map[string][]MatcherGroup {
 	return block
 }
 
-// SettingsJSON renders the object under settings.json's "hooks" key.
-func SettingsJSON() ([]byte, error) { return textutil.MarshalIndentNoEscape(Events()) }
+// settingsJSON renders the object under settings.json's "hooks" key.
+func settingsJSON() ([]byte, error) { return textutil.MarshalIndentNoEscape(Events()) }
 
 // HookEvents derives from the hook chain the registry declares, in declaration order, deduplicated.
 func HookEvents() []string {

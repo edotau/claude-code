@@ -792,3 +792,21 @@ func (k *Key) openIn(bucket, name string, r Record) (string, error) {
 	}
 	return k.open(k.backupsAEAD, settingsBackupsInfo, name, r)
 }
+
+// MasterKeyStatus returns the secret count and master-key source; err means the vault or its key will not open.
+func MasterKeyStatus() (count int, source string, err error) {
+	names, err := NamesErr()
+	if err != nil {
+		return 0, "", err
+	}
+	count = len(names)
+	if count == 0 {
+		return 0, "not needed", nil
+	}
+	_, source, err = MasterKey()
+	if err != nil {
+		return count, source, err
+	}
+	_, err = ReadSecrets(names) // opening every record proves the key decrypts them, not merely resolves
+	return count, source, err
+}

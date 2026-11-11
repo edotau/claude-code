@@ -33,7 +33,7 @@ func Render() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("settings template: %w", err)
 	}
-	hooks, err := SettingsJSON()
+	hooks, err := settingsJSON()
 	if err != nil {
 		return nil, err
 	}
