@@ -22,6 +22,9 @@ var (
 	secretNameRE = regexp.MustCompile(`(^|_)(KEY|TOKEN|SECRET|PASSWORD|HEADERS|AUTH|CREDENTIALS?|PAT|BEARER)(_|$)`)
 )
 
+// IsSecretName reports whether an env name has a credential-shaped segment (KEY, TOKEN, AUTH, ...).
+func IsSecretName(name string) bool { return secretNameRE.MatchString(name) }
+
 // DatabricksProfiles lists the profiles under the databricks provider in declared order.
 func DatabricksProfiles(r *Registry) []string { return r.ProfilesOf(GroupDatabricks) }
 
@@ -210,7 +213,7 @@ func validateEnv(n string, env map[string]string) []string {
 		switch {
 		case !envKeyRE.MatchString(k):
 			errs = append(errs, fmt.Sprintf("%s: env key %q must match [A-Z_][A-Z0-9_]*", n, k))
-		case secretNameRE.MatchString(k):
+		case IsSecretName(k):
 			errs = append(errs, fmt.Sprintf("%s: env key %q looks like a credential; secrets belong in auth", n, k))
 		case harnessEnvRE.MatchString(k) || slices.Contains(harnessEnvKeys, k):
 			errs = append(errs, fmt.Sprintf("%s: env key %q is owned by the harness", n, k))

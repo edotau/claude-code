@@ -370,21 +370,10 @@ func wantEntries(t *testing.T, s State) {
 	}
 }
 
-// A v0 bare-map quota.json reads, install-time migration leaves it untouched (an old daemon still reads it), the
-// {schema,accounts} wrapper reads too, and Update writes the bare map back.
+// A v0 bare-map quota.json reads, the {schema,accounts} wrapper reads too, and Update writes the bare map back.
 func TestQuotaV0ReadsAndStaysBareMap(t *testing.T) {
 	path := quotaFixture(t, v0Quota)
 	wantEntries(t, LoadState())
-
-	if _, err := schemas.MigrateAll(false); err != nil {
-		t.Fatalf("MigrateAll: %v", err)
-	}
-	if raw, _ := os.ReadFile(path); string(raw) != v0Quota {
-		t.Fatalf("quota.json rewritten: %s", raw)
-	}
-	if _, err := os.Stat(filepath.Join(paths.StateDir(), "migrations.jsonl")); err == nil {
-		t.Fatal("migration ledger written for quota")
-	}
 
 	wrapped := `{"schema":1,"accounts":` + v0Quota + `}`
 	if err := os.WriteFile(path, []byte(wrapped), 0o600); err != nil {

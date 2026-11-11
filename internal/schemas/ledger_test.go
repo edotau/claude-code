@@ -148,7 +148,6 @@ var writers = map[string]string{
 	"internal/router/state.go:writeState":                    "quota",
 	"internal/router/state.go:backupCorruptState":            unversioned("backup: the corrupt quota.json copied aside before it is replaced"),
 	"internal/schemas/schemas.go:LogMigration":               "migrations",
-	"internal/schemas/schemas.go:rewrite":                    unversioned("foreign: rewrites registered formats in place during migration"),
 	"internal/vault/nofollow_unix.go:openAppendNoFollow":     unversioned("foreign: user .env file"),
 	"internal/vault/nofollow_other.go:openAppendNoFollow":    unversioned("foreign: user .env file"),
 	"internal/settings/apply.go:ResetSettings":               unversioned("foreign: owner-run settings.json reset and its .bak copy"),

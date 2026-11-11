@@ -25,9 +25,9 @@ func TestApplyRollsBackOnFailure(t *testing.T) {
 	}
 	boom := errors.New("boom")
 	p := &RenderPlan{writes: []stagedWrite{
-		{existing, func() error { return os.WriteFile(existing, []byte("new"), 0o600) }},
-		{created, func() error { return os.WriteFile(created, []byte("x"), 0o600) }},
-		{filepath.Join(dir, "config.toml"), func() error { return boom }},
+		{path: existing, write: func() error { return os.WriteFile(existing, []byte("new"), 0o600) }},
+		{path: created, write: func() error { return os.WriteFile(created, []byte("x"), 0o600) }},
+		{path: filepath.Join(dir, "config.toml"), write: func() error { return boom }},
 	}}
 	if err := p.Apply(); !errors.Is(err, boom) {
 		t.Fatalf("Apply = %v, want boom", err)
@@ -72,6 +72,41 @@ func TestApplyRollsBackBaselineOnFailure(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(baselinePath("x", a)); string(got) != "old" {
 		t.Errorf("baseline = %q, want rolled back to %q", got, "old")
+	}
+}
+
+// A fileOps baseline (codex vault) refreshed by an earlier write must be restored through the ops when a later write fails.
+func TestApplyRollsBackFileOpsBaselineOnFailure(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	baseline := []byte("old")
+	fileOps["vaulty"] = FileOps{
+		LoadBaseline: func(string) ([]byte, error) { return baseline, nil },
+		SaveBaseline: func(_ string, next []byte) error { baseline = next; return nil },
+		Write:        func(_ string, _, _ []byte, _ bool) error { return nil },
+	}
+	t.Cleanup(func() { delete(fileOps, "vaulty") })
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a.toml"), filepath.Join(dir, "b.toml")
+	for _, p := range []string{a, b} {
+		if err := os.WriteFile(p, []byte("old"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var plan RenderPlan
+	o := RenderOptions{}.Stage(&plan)
+	for _, p := range []string{a, b} {
+		if _, err := CommitFile(p, []byte("old"), []byte("new"), true, o, io.Discard, "vaulty"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(b, []byte("edited meanwhile"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Apply(); err == nil {
+		t.Fatal("Apply succeeded, want the changed-since-read conflict on b")
+	}
+	if string(baseline) != "old" {
+		t.Errorf("vault baseline = %q, want rolled back to %q", baseline, "old")
 	}
 }
 

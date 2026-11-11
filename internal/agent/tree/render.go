@@ -63,12 +63,12 @@ func computeColumnWidths(tree *Tree) columnWidths {
 // Every row is fit to terminalWidth() by truncating its description (its tool segment is dropped
 // first) rather than wrapping. It returns the first write error, if any.
 func RenderText(w io.Writer, tree *Tree, now time.Time) error {
-	ew := &errWriter{w: w}
+	ew := &textutil.ErrWriter{W: w}
 	renderTree(ew, tree, now)
-	return ew.err
+	return ew.Err
 }
 
-// renderTree writes the grouped listing to w; write errors are collected by the errWriter it is given.
+// renderTree writes the grouped listing to w; write errors are collected by the textutil.ErrWriter it is given.
 func renderTree(w io.Writer, tree *Tree, now time.Time) {
 	if len(tree.Sessions) == 0 && len(tree.Dispatches) == 0 {
 		fmt.Fprintln(w, "agents tree: no sessions in scope")
@@ -340,21 +340,6 @@ func treeShortID(id string) string {
 		return id
 	}
 	return string(r[:8])
-}
-
-// errWriter records the first write error and skips later writes, so a broken pipe is not hidden.
-type errWriter struct {
-	w   io.Writer
-	err error
-}
-
-func (e *errWriter) Write(p []byte) (int, error) {
-	if e.err != nil {
-		return 0, e.err
-	}
-	n, err := e.w.Write(p)
-	e.err = err
-	return n, err
 }
 
 // View is how `agents tree` shows the listing: JSON or text, every entry or only running work, once or redrawn.

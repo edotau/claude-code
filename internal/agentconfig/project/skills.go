@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -21,7 +20,7 @@ func ensureLink(out io.Writer, link, target, ownedRoot string, dryRun bool) writ
 			status(out, "OK", rel, "linked")
 			return unchanged
 		}
-		if !under(dest, ownedRoot) {
+		if !paths.Within(dest, ownedRoot) {
 			status(out, "KEEP", rel, "hand-authored symlink")
 			return kept
 		}
@@ -57,10 +56,10 @@ func pruneSkillLinks(out io.Writer, agentsSkills, skillsDir string, projected ma
 			return "", false
 		}
 		dest, err := os.Readlink(filepath.Join(agentsSkills, e.Name()))
-		if err != nil || !under(dest, skillsDir) {
+		if err != nil || !paths.Within(dest, skillsDir) {
 			return "", false
 		}
-		if under(dest, filepath.Join(skillsDir, syncedDir)) {
+		if paths.Within(dest, filepath.Join(skillsDir, syncedDir)) {
 			status(out, "EXTRA", paths.ShortHome(filepath.Join(agentsSkills, e.Name())), "synced skills go to no agent; preserved")
 			return "", false
 		}
@@ -76,10 +75,4 @@ func pruneLegacyGeminiSkills(out io.Writer, root string, dryRun bool) syncResult
 	}
 	remove := func(path string) error { return removeGeneratedSkillDir(path, root) }
 	return pruneEntries(out, root, match, remove, dryRun)
-}
-
-// under reports whether path is root or lies beneath it (lexically; both absolute).
-func under(path, root string) bool {
-	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
