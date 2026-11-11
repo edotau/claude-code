@@ -82,7 +82,7 @@ func Recall(in *core.Input) core.Result {
 }
 
 // AgentInput returns in with TranscriptPath pointing at a Claude-shaped transcript synthesized from an opencode
-// export or a Copilot events.jsonl; any other input, or a failed load, comes back unchanged (fail open).
+// export, a Copilot events.jsonl or a codex rollout; any other input, or a failed load, comes back unchanged.
 func AgentInput(in *core.Input) *core.Input {
 	kind := agentKind(in)
 	if kind == "" {
@@ -104,6 +104,8 @@ func agentKind(in *core.Input) string {
 		return memory.SourceOpencode
 	case in.Agent() == core.AgentCopilot && in.TranscriptPath != "":
 		return memory.SourceCopilot
+	case in.Agent() == core.AgentCodex && in.TranscriptPath != "":
+		return memory.SourceCodex
 	}
 	return ""
 }

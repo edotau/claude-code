@@ -62,13 +62,8 @@ func readBudgetCache(path string) *budgetCache {
 }
 
 func writeBudgetCache(path string, c budgetCache) {
-	if os.MkdirAll(filepath.Dir(path), 0o700) != nil {
-		return
-	}
 	c.Schema = budgetSchema
-	if data, err := json.Marshal(c); err == nil {
-		_ = paths.AtomicWrite(path, data, 0o600)
-	}
+	_ = paths.WriteJSON(path, c)
 }
 
 // sessionBudgetQuotas returns the session profile's budget rows when it is a Databricks workspace, else nil.

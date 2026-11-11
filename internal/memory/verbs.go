@@ -155,13 +155,12 @@ func embedIndex(out, errw io.Writer, root, profile string, reembed bool) {
 	}
 }
 
-// UpdateSessionOptions is one `memory update`; ClaudeBin is only called once an update will really run.
+// UpdateSessionOptions is one `memory update`; Run is only called once an update will really run.
 type UpdateSessionOptions struct {
 	Transcript, CWD, Session string
 	DryRun, Historical       bool
-	ClaudeBin                func() (string, error)
 	Run                      AgentFunc
-	Out, Err                 io.Writer
+	Out                      io.Writer
 }
 
 // resolveUpdateTarget resolves the bank root, session id and transcript an update acts on (transcript may be empty).
@@ -204,11 +203,7 @@ func UpdateSession(o UpdateSessionOptions) error {
 		fmt.Fprintf(o.Out, "memory update (dry run): session %s, transcript %s, bank %s\n", session, transcript, Dir(root))
 		return nil
 	}
-	claude, err := o.ClaudeBin() // "" is fine here: Run handles the update, Claude is only its fallback
-	if err != nil {
-		fmt.Fprintln(o.Err, "claude-code: memory update:", err)
-	}
-	return update(updateOptions{Claude: claude, Run: o.Run, Transcript: transcript, CWD: root, Session: session, Historical: o.Historical, Out: o.Out})
+	return update(updateOptions{Run: o.Run, Transcript: transcript, CWD: root, Session: session, Historical: o.Historical, Out: o.Out})
 }
 
 // DreamRunOptions is one `memory dream`.

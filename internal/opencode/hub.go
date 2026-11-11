@@ -2,11 +2,9 @@ package opencode
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -98,7 +96,7 @@ func (l hubDispatch) Name() string { return l.agent }
 // HubProvider is the account this step dispatches on.
 func (l hubDispatch) HubProvider() *providers.Provider { return l.provider }
 
-// WithFirstOutput sets the free dispatch's stall watchdog.
+// WithFirstOutput sets the free dispatch's idle timeout.
 func (l hubDispatch) WithFirstOutput(d time.Duration) agent.Engine {
 	l.firstOutput = d
 	return l
@@ -133,35 +131,28 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink wire.Si
 	if err != nil {
 		return res, retry.Fatal(l.agent, err)
 	}
-	cctx := ctx
-	var onFirstByte, onStep func()
-	if l.firstOutput > 0 {
-		var stop func()
-		cctx, onFirstByte, onStep, stop = armFirstOutput(ctx, l.firstOutput)
-		defer stop()
-	}
-	cmd, tail, host, err := opencodeChild(cctx, l.agent, bin, env, argv, req.Prompt, req)
+	cmd, tail, host, err := opencodeChild(ctx, l.agent, bin, env, argv, req.Prompt, req)
 	if err != nil {
 		return res, err
 	}
-	out, runErr := agent.RunEventStream(cctx, l.agent, cmd, tail, sink, host.parser(onStep), onFirstByte)
+	// the first-output watch: step_start renews it, the first real event stops it for good; RunEventStream kills.
+	w := agent.NewIdleTimeout(l.agent, l.firstOutput, nil)
+	defer w.Stop()
+	var onStep func()
+	if w != nil {
+		onStep = func() { w.Beat("step_start") }
+	}
+	opts := agent.StreamOpts{Idle: w, OnMeaningful: w.Stop}
+	out, runErr := agent.RunEventStream(ctx, l.agent, cmd, tail, sink, host.parser(onStep), opts)
 	defer func() { host.after(res) }()
 	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
 	if out.SessionID != "" {
 		res.SessionID = out.SessionID
 	}
-	return res, l.runError(cctx, req, res.Answer, runErr)
-}
-
-// runError is the hub run's outcome: a stall after first output, then a tools-off answer that is only tool calls.
-func (l hubDispatch) runError(cctx context.Context, req agent.RunOptions, answer string, runErr error) error {
-	if l.firstOutput > 0 && errors.Is(context.Cause(cctx), agent.ErrStalled) {
-		return retry.Fatal(l.agent, agent.ErrStalled)
+	if runErr != nil { // a stall, then a tools-off answer that is only tool calls
+		return res, runErr
 	}
-	if runErr != nil {
-		return runErr
-	}
-	return refuseToolCallText(l.agent, req, answer)
+	return res, refuseToolCallText(l.agent, req, res.Answer)
 }
 
 func (l hubDispatch) prepareLaunch(req agent.RunOptions, model string) (string, []string, []string, error) {
@@ -195,22 +186,6 @@ func (l hubDispatch) prepareLaunch(req agent.RunOptions, model string) (string, 
 	argv = opencodePolicyArgv(argv, req)
 	env = append(env, req.Env...) // --env goes last so it wins
 	return bin, env, argv, nil
-}
-
-// armFirstOutput is the stall watchdog: cctx is cancelled with agent.ErrStalled if nothing real streams within d.
-// firstByte disarms it for good; renew restarts the window (a step_start shows the model is working) until then.
-func armFirstOutput(ctx context.Context, d time.Duration) (cctx context.Context, firstByte, renew, stop func()) {
-	cctx, cc := context.WithCancelCause(ctx)
-	timer := time.AfterFunc(d, func() { cc(agent.ErrStalled) })
-	var disarmed atomic.Bool
-	firstByte = func() { disarmed.Store(true); timer.Stop() }
-	renew = func() {
-		if !disarmed.Load() {
-			timer.Reset(d)
-		}
-	}
-	stop = func() { timer.Stop(); cc(nil) }
-	return cctx, firstByte, renew, stop
 }
 
 // resolveModel: "" takes provider's opus alias; an alias name maps through provider's table; anything else (a routed

@@ -118,7 +118,7 @@ func cmdMemoryUpdate(args []string) int {
 		return helptext.FailUsage("memory update: unexpected argument %q; name a session with --session <id>", fs.Arg(0))
 	}
 	err := memory.UpdateSession(memory.UpdateSessionOptions{Transcript: *transcript, CWD: *cwd, Session: *session,
-		DryRun: *dryRun, Historical: *historical, ClaudeBin: claude.ClaudeBinary, Run: ask.MemoryRunner(), Out: os.Stdout, Err: os.Stderr})
+		DryRun: *dryRun, Historical: *historical, Run: ask.MemoryRunner(), Out: os.Stdout})
 	if err != nil {
 		return helptext.Fail("memory update: %v", err)
 	}

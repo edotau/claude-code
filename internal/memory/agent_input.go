@@ -21,6 +21,7 @@ import (
 const (
 	SourceOpencode = "opencode"
 	SourceCopilot  = "copilot"
+	SourceCodex    = "codex"
 )
 
 const (
@@ -55,7 +56,7 @@ func (w *capWriter) Write(p []byte) (int, error) {
 	return w.buf.Write(p)
 }
 
-// SynthAgentTranscript writes a Claude-shaped transcript for an opencode or copilot session; ok=false fails open.
+// SynthAgentTranscript writes a Claude-shaped transcript for an opencode, copilot or codex session; !ok fails open.
 func SynthAgentTranscript(source, sessionID, cwd, transcriptPath string) (path string, ok bool) {
 	var at agentTranscript
 	var err error
@@ -72,6 +73,8 @@ func SynthAgentTranscript(source, sessionID, cwd, transcriptPath string) (path s
 		if err = canOpen(transcriptPath); err == nil {
 			at = loadCopilotEvents(copilotEventsFrom(transcriptPath, cwd))
 		}
+	case source == SourceCodex:
+		at, err = loadCodexRollout(transcriptPath, cwd)
 	default:
 		return "", false
 	}
@@ -119,6 +122,92 @@ func synthLine(kind string, block map[string]any) map[string]any {
 }
 
 var patchFileRe = regexp.MustCompile(`(?m)^\*\*\* (?:Add|Update|Delete) File: (.+)$`)
+
+// codexRec is the part of one codex rollout line the loader reads (observed on codex-cli 0.166.0).
+type codexRec struct {
+	Type    string `json:"type"`
+	Payload struct {
+		Type      string          `json:"type"`
+		Role      string          `json:"role"`
+		CallID    string          `json:"call_id"`
+		Input     string          `json:"input"`
+		Arguments string          `json:"arguments"`
+		Output    json.RawMessage `json:"output"`
+		Content   []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	} `json:"payload"`
+}
+
+// loadCodexRollout reads a codex rollout jsonl: patch headers in tool-call inputs are the edits, dropped when the
+// call's output starts "Script failed"; the last assistant output_text is the final text.
+func loadCodexRollout(path, cwd string) (agentTranscript, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return agentTranscript{}, err
+	}
+	defer f.Close()
+	var order []string
+	edits, failed := map[string][]string{}, map[string]bool{}
+	b := &pathBuilder{seen: map[string]bool{}}
+	err = transcript.EachLine(f, func(line []byte) {
+		var rec codexRec
+		if json.Unmarshal(line, &rec) != nil || rec.Type != "response_item" {
+			return
+		}
+		p := rec.Payload
+		switch p.Type {
+		case "custom_tool_call", "function_call":
+			order = append(order, p.CallID)
+			edits[p.CallID] = append(edits[p.CallID], patchPaths(strings.ReplaceAll(p.Input+p.Arguments, `\n`, "\n"), cwd)...)
+		case "custom_tool_call_output", "function_call_output":
+			failed[p.CallID] = codexCallFailed(p.Output)
+		case "message":
+			for _, c := range p.Content {
+				if p.Role == "assistant" && c.Type == "output_text" && c.Text != "" {
+					b.out.FinalText = c.Text
+				}
+			}
+		}
+	})
+	for _, id := range order {
+		for _, e := range edits[id] {
+			if !failed[id] {
+				b.edit(e)
+			}
+		}
+		delete(edits, id) // a repeated call id counts once
+	}
+	return b.done(), err
+}
+
+// codexCallFailed reports a tool output whose first text part starts "Script failed" (string or part-list output).
+func codexCallFailed(raw json.RawMessage) bool {
+	var parts []struct {
+		Text string `json:"text"`
+	}
+	var text string
+	if json.Unmarshal(raw, &parts) == nil && len(parts) > 0 {
+		text = parts[0].Text
+	} else {
+		_ = json.Unmarshal(raw, &text) // a non-string output leaves text empty: not a failure
+	}
+	return strings.HasPrefix(text, "Script failed")
+}
+
+// patchPaths are the files an apply_patch body names, made absolute against cwd.
+func patchPaths(text, cwd string) []string {
+	var out []string
+	for _, m := range patchFileRe.FindAllStringSubmatch(text, -1) {
+		p := strings.TrimSpace(m[1])
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(cwd, p)
+		}
+		out = append(out, p)
+	}
+	return out
+}
 
 // copilotRec is the part of one events.jsonl line the loader reads.
 type copilotRec struct {
@@ -196,11 +285,7 @@ func copilotToolEvents(tool string, raw json.RawMessage, cwd string) []copilotEv
 		return []copilotEvent{{Type: "tool.execution_start", ToolName: tool, Arguments: args}}
 	}
 	var out []copilotEvent
-	for _, m := range patchFileRe.FindAllStringSubmatch(text, -1) {
-		p := strings.TrimSpace(m[1])
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(cwd, p)
-		}
+	for _, p := range patchPaths(text, cwd) {
 		out = append(out, copilotEvent{Type: "tool.execution_start", ToolName: tool, Arguments: map[string]any{"path": p}})
 	}
 	return out

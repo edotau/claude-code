@@ -108,7 +108,8 @@ func TestCompletionExact(t *testing.T) {
 		{"workflow skeleton positional", []string{"workflow", "skeleton", ""}, workflowPatterns()},
 		{"bare flag keeps prefix match", []string{"agents", "ask", "--agent"}, []string{"--agent", "--agents"}},
 		{"vendor past double dash", []string{"codex", "--", ""}, nil},
-		{"resolve-agent domain", []string{"worktree", "merge", "--resolve-agent", ""}, []string{"claude", "codex"}},
+		{"resolve-agent domain", []string{"worktree", "merge", "--resolve-agent", ""},
+			[]string{"claude", "codex", "copilot", "gemini", "opencode"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := candidates(tc.words...); !slices.Equal(got, tc.want) {

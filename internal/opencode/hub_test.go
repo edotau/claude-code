@@ -154,12 +154,13 @@ func TestHubDispatchRunOversizedPromptRefused(t *testing.T) {
 	}
 }
 
-// stallRun feeds lines (each after its delay) to the real stream parser wired to armFirstOutput(window) and
-// reports, once the stream has been quiet for settle, whether the watchdog fired.
+// stallRun feeds lines (each after its delay) to the real stream parser wired to a IdleTimeout(window) the way Run wires
+// it, and reports, once the stream has been quiet for settle, whether the idle timeout fired.
 func stallRun(t *testing.T, window, settle time.Duration, lines []string, delays []time.Duration) (stalled bool) {
 	t.Helper()
-	cctx, firstByte, renew, stop := armFirstOutput(context.Background(), window)
-	defer stop()
+	w := agent.NewIdleTimeout("opencode", window, nil)
+	defer w.Stop()
+	firstByte, renew := w.Stop, func() { w.Beat("step_start") }
 	pr, pw := io.Pipe()
 	done := make(chan struct{})
 	go func() {
@@ -173,21 +174,21 @@ func stallRun(t *testing.T, window, settle time.Duration, lines []string, delays
 		}
 	}
 	time.Sleep(settle)
-	stalled = errors.Is(context.Cause(cctx), agent.ErrStalled)
+	stalled = errors.Is(w.Err(), agent.ErrStalled)
 	pw.Close()
 	<-done
 	return stalled
 }
 
-// TestFirstOutputWatchdogStepStart pins that step_start renews the first-output window but never disarms it:
+// TestFirstOutputIdleTimeoutStepStart pins that step_start renews the first-output window but never disarms it:
 // step_start then silence still stalls, while step_starts that keep the window alive until text arrives do not.
-func TestFirstOutputWatchdogStepStart(t *testing.T) {
+func TestFirstOutputIdleTimeoutStepStart(t *testing.T) {
 	const step = `{"type":"step_start","sessionID":"s"}`
 	const text = `{"type":"text","sessionID":"s","part":{"text":"hi"}}`
 	ms := func(n int) time.Duration { return time.Duration(n) * time.Millisecond }
 
 	if !stallRun(t, ms(200), ms(500), []string{step}, []time.Duration{0}) {
-		t.Error("step_start then silence did not stall: step_start must not disarm the watchdog")
+		t.Error("step_start then silence did not stall: step_start must not disarm the idle timeout")
 	}
 	// text at 1000ms is past the first window (800ms); only the 500ms renewal saves it, with 300ms slack for load.
 	if stallRun(t, ms(800), ms(1000), []string{step, step, text}, []time.Duration{0, ms(500), ms(500)}) {

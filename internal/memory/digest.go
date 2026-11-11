@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // Digest bounds: raw-archive input only, one small model call, never digest-of-digest.
@@ -68,6 +69,17 @@ func digestInput(dir string) (string, []string, error) {
 		return "", used, fmt.Errorf("needs-scope: raw archive is %d KB, over the %d KB digest cap; archive less or digest by hand", b.Len()>>10, digestMaxInput>>10)
 	}
 	return b.String(), used, nil
+}
+
+// headlessClaudeEnv marks an update child; a stored setup-token keeps it working after the interactive /login expires.
+func headlessClaudeEnv() []string {
+	env := append(os.Environ(), UpdateChildEnv+"=1")
+	if os.Getenv(providers.OAuthTokenEnv) == "" {
+		if tok := providers.HeadlessOAuthToken(); tok != "" {
+			env = append(env, providers.OAuthTokenEnv+"="+tok)
+		}
+	}
+	return env
 }
 
 // runDigestModel runs one bounded, tool-less headless call over input and returns its capped, non-empty output lines.

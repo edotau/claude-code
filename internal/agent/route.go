@@ -590,7 +590,7 @@ func cellServing(tb *router.RouteTable, agentName, exact string) (router.Cell, b
 	return router.Cell{}, false
 }
 
-// watchFreeDispatch sets the stall watchdog on r when billing is free; any other agent (or billing) passes through.
+// watchFreeDispatch sets the idle timeout on r when billing is free; any other agent (or billing) passes through.
 func watchFreeDispatch(r Engine, billing string) Engine {
 	if billing != router.BillFree {
 		return r

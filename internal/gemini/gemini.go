@@ -356,7 +356,7 @@ func runAgy(ctx context.Context, r agyRequest, sink wire.Sink) (wire.Result, err
 		return wire.Result{}, err
 	}
 	cmd, tail := agent.ChildCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv, true)
-	return agent.RunEventStream(ctx, "gemini", cmd, tail, sink, parseAgyStream, nil)
+	return agent.RunEventStream(ctx, "gemini", cmd, tail, sink, parseAgyStream, agent.StreamOpts{})
 }
 
 // agyToolStep is the step_type of a tool execution, seen live as `tool` with states active then DONE.

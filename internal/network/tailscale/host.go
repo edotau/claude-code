@@ -2,7 +2,6 @@ package tailscale
 
 import (
 	"context"
-	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
@@ -137,12 +136,7 @@ type machinesCache struct {
 
 // WriteMachinesCache records a successful --machines listing; best-effort, errors are dropped.
 func WriteMachinesCache(names []string) {
-	data, err := json.Marshal(machinesCache{Schema: machinesCacheSchema, At: time.Now(), Names: names})
-	if err != nil {
-		return
-	}
-	_ = os.MkdirAll(paths.StateDir(), 0o700)
-	_ = paths.AtomicWrite(machinesCachePath(), data, 0o600)
+	_ = paths.WriteJSON(machinesCachePath(), machinesCache{Schema: machinesCacheSchema, At: time.Now(), Names: names})
 }
 
 // CachedMachineNames reads the --machines cache when fresh, else nil: Tab completion has no budget for calls.
@@ -155,7 +149,7 @@ func CachedMachineNames() []string {
 	if !schemas.DecodeOK(machinesCacheFormat, data, &c) {
 		return nil
 	}
-	if age := time.Since(c.At); age < 0 || age > machinesCacheTTL { // future At (clock skew) is stale
+	if paths.Stale(c.At, machinesCacheTTL, 0, time.Now()) { // a future At (clock skew) is stale
 		return nil
 	}
 	return c.Names

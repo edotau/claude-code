@@ -44,7 +44,7 @@ More verbs and options:
 |------|------|
 | `claude-code worktree create <name> [--branch <b>]` | New worktree, then the venv/env steps |
 | `claude-code worktree merge <name> [--target <ref>] [--no-clean] [--verify "<cmd>"\|--no-verify\|--full-verify]` | `--dry-run` preview, confirm, apply |
-| `claude-code worktree merge <name> --resolve-agent claude\|codex` · `--resume` | Agent resolves a predicted conflict; reattach |
+| `claude-code worktree merge <name> --resolve-agent <agent>` · `--resume` | Agent resolves a predicted conflict; reattach |
 | `claude-code worktree clean <name>` · `clean-all [--yes]` | `--dry-run` preview, confirm, apply |
 
 `clean`/`clean-all` take `--force` (discard uncommitted and unmerged work); every other verb refuses

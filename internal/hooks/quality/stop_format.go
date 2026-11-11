@@ -32,7 +32,7 @@ const (
 
 // StopFormat formats git-dirty files this session wrote; a dirty file it never wrote is the user's and left alone.
 func StopFormat(in *core.Input) core.Result {
-	in = memhook.AgentInput(in) // copilot and opencode have no Claude-shaped transcript of their own
+	in = memhook.AgentInput(in) // copilot, opencode and codex have no Claude-shaped transcript of their own
 	cwd := in.CWD
 	if cwd == "" {
 		cwd, _ = os.Getwd()

@@ -4,12 +4,10 @@ package databricks
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -19,6 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
+	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -526,59 +525,35 @@ func probeWire(ctx context.Context, row *providers.Provider, name, host, w, tok,
 	return probe(ctx, p, tok, model)
 }
 
-// probe sends one max_tokens=1 message on p's Anthropic route and classifies the reply.
+// probe sends one max_tokens=1 message on p's Anthropic route, all tries within probeTimeout, and names the reply.
 func probe(ctx context.Context, p *providers.Provider, tok, model string) string {
 	base, ok := p.Route(providers.ProtocolAnthropic)
 	if !ok {
 		return "no anthropic route"
 	}
-	body, _ := json.Marshal(map[string]any{"model": p.WireModel(model), "max_tokens": 1,
-		"messages": []map[string]string{{"role": "user", "content": "ping"}}})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(base, "/")+"/v1/messages",
-		bytes.NewReader(body))
-	if err != nil {
-		return "bad request"
-	}
-	req.Header.Set("Authorization", "Bearer "+tok)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("anthropic-version", "2023-06-01")
-	for k, v := range p.Headers {
-		req.Header.Set(k, v)
-	}
-	resp, err := probeClient.Do(req)
-	if err != nil {
-		return probeFailure(ctx, err)
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	if err != nil { // a truncated body is a failure even on 2xx
-		return fmt.Sprintf("HTTP %d (body cut off)", resp.StatusCode)
-	}
-	return classify(resp.StatusCode, strings.ReplaceAll(string(raw), tok, "***"))
-}
-
-// probeFailure names a transport failure by kind; the error text itself could echo the URL.
-func probeFailure(ctx context.Context, err error) string {
-	var ne net.Error
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	rep, err := serving.ProbeOnce(ctx, p, serving.CheckOptions{Client: probeClient, Timeout: probeTimeout}, serving.ProbeCall{
+		URL: strings.TrimRight(base, "/") + "/v1/messages", Token: tok, Anthropic: true,
+		Body: map[string]any{"model": p.WireModel(model), "max_tokens": 1,
+			"messages": []map[string]string{{"role": "user", "content": "ping"}}}})
 	switch {
-	case errors.Is(ctx.Err(), context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()):
-		return "network error: timeout"
-	case errors.As(err, new(*net.DNSError)):
-		return "network error: DNS"
-	case errors.As(err, new(*tls.CertificateVerificationError)):
-		return "network error: TLS"
+	case err != nil && rep.HTTP != 0: // a truncated body is a failure even on 2xx
+		return fmt.Sprintf("HTTP %d (body cut off)", rep.HTTP)
+	case err != nil:
+		return err.Error()
+	case rep.HTTP/100 == 2:
+		return "ok"
+	case rep.Denied:
+		return budgetDenied
+	case serving.TransientHTTP(rep.HTTP):
+		return clip(serving.StatusTransient+" "+classify(rep.HTTP, rep.Body), 48)
 	}
-	return "network error"
+	return clip(classify(rep.HTTP, rep.Body), 48)
 }
 
-// classify names a probe outcome: ok, budget denied (403 mentioning budget), else HTTP <code>: <message>.
+// classify names a failed reply as HTTP <code>: <message>, the message taken from a JSON error body when there is one.
 func classify(status int, body string) string {
-	if status >= 200 && status < 300 {
-		return "ok"
-	}
-	if status == http.StatusForbidden && strings.Contains(strings.ToLower(body), "budget") {
-		return budgetDenied
-	}
 	var e struct {
 		Message string `json:"message"`
 		Error   struct {
@@ -592,7 +567,7 @@ func classify(status int, body string) string {
 	if msg == "" {
 		return fmt.Sprintf("HTTP %d", status)
 	}
-	return clip(fmt.Sprintf("HTTP %d: %s", status, msg), 48)
+	return fmt.Sprintf("HTTP %d: %s", status, msg)
 }
 
 // clip cuts s to n runes on one line.
