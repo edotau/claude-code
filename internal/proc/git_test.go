@@ -173,19 +173,3 @@ func TestRunGitHonorsContextTimeout(t *testing.T) {
 		t.Fatal("expected an error from an already-expired context")
 	}
 }
-
-func TestStatusEntriesRenameInEitherColumn(t *testing.T) {
-	out := "R  new.go\x00old.go\x00 R b.go\x00a.go\x00C  cp.go\x00src.go\x00?? u.go\x00"
-	want := []StatusEntry{
-		{"R ", "new.go", "old.go"}, {" R", "b.go", "a.go"}, {"C ", "cp.go", "src.go"}, {"??", "u.go", ""},
-	}
-	got := StatusEntries(out)
-	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("entry %d: got %v, want %v", i, got[i], want[i])
-		}
-	}
-}

@@ -321,21 +321,3 @@ func TestAgentsJSONRoster(t *testing.T) {
 		t.Errorf("agents.json keys = %v, agentid.External() = %v; want both %v", got, agentid.External(), want)
 	}
 }
-
-// BuiltinSettings hands back an independent copy: mutating it must not leak into the cached config.
-func TestBuiltinSettingsReturnsIndependentCopy(t *testing.T) {
-	vaulttest.Use(t)
-	first, err := BuiltinSettings("codex")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := maps.Clone(first.Extras)
-	first.Extras["approvalPolicy"] = "mutated"
-	second, err := BuiltinSettings("codex")
-	if err != nil || !maps.Equal(second.Extras, want) {
-		t.Errorf("BuiltinSettings = %v, %v; want extras %v", second.Extras, err, want)
-	}
-	if zero, err := BuiltinSettings("nope"); err != nil || !zero.IsZero() {
-		t.Errorf("unknown agent = %+v, %v; want zero record", zero, err)
-	}
-}

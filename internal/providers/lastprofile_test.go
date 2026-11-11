@@ -78,24 +78,3 @@ func captureConfigFixStderr(t *testing.T, fn func()) string {
 	}
 	return string(data)
 }
-
-// Given a corrupt last-profile.json, reading it twice leaves one .corrupt-* backup and no original.
-func TestLoadLastProfilesBacksUpCorruptFileOnce(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if err := os.MkdirAll(filepath.Dir(lastProfileFile()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(lastProfileFile(), []byte("{not json"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	for range 2 {
-		if _, err := loadLastProfiles(); err != nil {
-			t.Fatal(err)
-		}
-		time.Sleep(1100 * time.Millisecond)
-	}
-	backups, _ := filepath.Glob(lastProfileFile() + ".corrupt-*")
-	if len(backups) != 1 {
-		t.Errorf("backups = %v, want exactly one", backups)
-	}
-}

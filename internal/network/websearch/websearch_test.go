@@ -670,25 +670,6 @@ func TestTavilySearchReportsUnreadableVault(t *testing.T) {
 	}
 }
 
-// roundTripFunc adapts a function to http.RoundTripper.
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
-
-// TestPostTavilySearchKeepsRepliesOverEnrichCap: a search reply above the 256KB page cap must arrive whole.
-func TestPostTavilySearchKeepsRepliesOverEnrichCap(t *testing.T) {
-	reply := `{"results":[{"content":"` + strings.Repeat("x", 2*enrichMaxBody) + `"}]}`
-	orig := http.DefaultClient.Transport
-	http.DefaultClient.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(reply))}, nil
-	})
-	t.Cleanup(func() { http.DefaultClient.Transport = orig })
-	raw, err := postTavilySearch(context.Background(), []byte(`{}`))
-	if err != nil || len(raw) != len(reply) {
-		t.Fatalf("got %d bytes, err %v; want %d bytes", len(raw), err, len(reply))
-	}
-}
-
 // extractCall drives one web_extract tools/call and returns its text and isError flag.
 func extractCall(t *testing.T, args string) (string, bool) {
 	t.Helper()

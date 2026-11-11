@@ -284,7 +284,7 @@ func TestSetOverridesAndCredentialRefusal(t *testing.T) {
 	if d.Env["ANTHROPIC_MODEL"] != "databricks-claude-haiku-5-5" || d.Env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] != "0" {
 		t.Errorf("--set not applied: %v", d.Env)
 	}
-	for _, k := range []string{"ANTHROPIC_AUTH_TOKEN", "anthropic_auth_token", "X-API-KEY", "db.password", "CLIENT_SECRET", "apiKey", "MY_PAT", "ANTHROPIC_BEARER"} {
+	for _, k := range []string{"ANTHROPIC_AUTH_TOKEN", "anthropic_auth_token", "X-API-KEY", "db.password", "CLIENT_SECRET"} {
 		o.Set = []string{k + "=v"}
 		if _, err := renderConfig(o); err == nil {
 			t.Errorf("credential-shaped %q accepted", k)

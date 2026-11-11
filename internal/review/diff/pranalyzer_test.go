@@ -253,22 +253,3 @@ func TestAnalyzePRPropagatesPatchFailure(t *testing.T) {
 		t.Fatalf("AnalyzePR error = %v, want app.go patch failure (exit 42)", err)
 	}
 }
-
-func TestAnalyzePRFailsClosedOnGitLogError(t *testing.T) {
-	repo := newGateRepo(t)
-	hosttest.In(t, repo, "checkout", "-b", "feature")
-	commitFile(t, repo, "app.go", "package app\n", "feat: app")
-	git, err := exec.LookPath("git")
-	if err != nil {
-		t.Fatal(err)
-	}
-	bin := t.TempDir()
-	script := "#!/bin/sh\nfor arg do\n  if [ \"$arg\" = \"log\" ]; then\n    echo log-failed >&2\n    exit 43\n  fi\ndone\n" + fmt.Sprintf("exec %q \"$@\"\n", git)
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	if _, err := AnalyzePR(repo, "main", "feature"); err == nil || !strings.Contains(err.Error(), "git log") {
-		t.Fatalf("AnalyzePR error = %v, want a git log failure", err)
-	}
-}

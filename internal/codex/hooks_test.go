@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentrender"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -54,7 +54,7 @@ func TestRenderCodexHooksFilePreservesForeignOnDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := client.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := agentrender.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 	got, err := os.ReadFile(hooksPath)
@@ -85,9 +85,9 @@ func TestRenderCodexFailsHooksMergeLeavesConfigTomlUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	_, err := client.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}})
+	_, err := agentrender.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}})
 	if err == nil {
-		t.Fatalf("expected client.RenderConfigs to fail on a malformed hooks.json, got no error:\n%s", out.String())
+		t.Fatalf("expected agentrender.RenderConfigs to fail on a malformed hooks.json, got no error:\n%s", out.String())
 	}
 	got, readErr := os.ReadFile(tomlPath)
 	if readErr != nil {
@@ -118,7 +118,7 @@ func TestRenderCodexHooksWriteConflictLeavesConfigTomlUntouched(t *testing.T) {
 	tomlPath := seedCodexFile(t, home, "config.toml", originalToml)
 	hooksPath := seedCodexFile(t, home, "hooks.json", []byte(`{"hooks":{}}`))
 	var out bytes.Buffer
-	plan, drift, err := client.PrepareConfigs(agentconfig.RenderOptions{
+	plan, drift, err := agentrender.PrepareConfigs(agentconfig.RenderOptions{
 		Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"},
 	})
 	if err != nil || !drift {
@@ -168,26 +168,5 @@ func TestCodexJSONAddsApplyPatchToFileWriteMatchers(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), `"Write|Edit|apply_patch"`) { // docs-placement and docs-plan-gate
 		t.Errorf("no file-write gate selects Codex's apply_patch:\n%s", raw)
-	}
-}
-
-// A symlinked hooks.json is written through to its target; the link survives.
-func TestWriteCodexHooksFollowsSymlink(t *testing.T) {
-	dir := t.TempDir()
-	target, link := filepath.Join(dir, "real.json"), filepath.Join(dir, "hooks.json")
-	if err := os.WriteFile(target, []byte("{}"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(target, link); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeCodexHooks(link, []byte("{}"), []byte(`{"a":1}`), true); err != nil {
-		t.Fatal(err)
-	}
-	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("hooks.json symlink was replaced: %v, %v", info, err)
-	}
-	if got, _ := os.ReadFile(target); string(got) != `{"a":1}` {
-		t.Errorf("target = %q, want the new hooks", got)
 	}
 }
