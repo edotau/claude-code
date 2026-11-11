@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -75,13 +76,22 @@ func dbxState(reg *providers.Registry, env string) (authType, text string, ok bo
 	case exp.IsZero():
 		return authType, "logged in", true
 	case time.Until(exp) <= 0:
-		return authType, dbxRenews, true
+		return authType, dbxExpired, true
 	}
-	return authType, "expires in " + dbxDur(time.Until(exp)), true
+	return authType, dbxLeft(time.Until(exp)), true
 }
 
-// dbxRenews is the state of a stored credential whose last token ran out: the next call mints a new one.
-const dbxRenews = "renews on use"
+// dbxLeft is a live token's remaining time, green, or yellow in its last five minutes.
+func dbxLeft(d time.Duration) string {
+	open := ansi.SpanOK
+	if d < 5*time.Minute {
+		open = ansi.SpanWarn
+	}
+	return open + dbxDur(d) + ansi.SpanEnd
+}
+
+// dbxExpired is the state of a stored credential whose last token ran out; plain text, so the row leaves it grey.
+const dbxExpired = "expired"
 
 // dbxIdentityBadge is the Identity row's check column: the set mode and who signs in now ("[auto → sp]"),
 // green while that credential's token is live.
@@ -97,7 +107,7 @@ func dbxIdentityBadge(reg *providers.Registry, env string) string {
 	if who != "" && who != mode {
 		label += " → " + who
 	}
-	return checked(ok && text != dbxRenews, label)
+	return checked(ok && text != dbxExpired, label)
 }
 
 // dbxDur renders a remaining lifetime as Nm, or NhMMm from two hours up.

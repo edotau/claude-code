@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -176,9 +177,9 @@ func TestDbxState(t *testing.T) {
 		t.Errorf("qa no expiry = %q %q", at, text)
 	}
 	dbxExpiry(t, "qa", time.Now().Add(59*time.Minute+30*time.Second))
-	assertDbxText(t, d, "expires in 59m")
+	assertDbxText(t, d, "59m")
 	dbxExpiry(t, "qa", time.Now().Add(-time.Minute))
-	assertDbxText(t, d, dbxRenews)
+	assertDbxText(t, d, dbxExpired)
 	if at, text, ok := dbxState(nil, "qa"); at != "" || text != "no login" || ok {
 		t.Errorf("nil reg = %q %q %v", at, text, ok)
 	}
@@ -187,7 +188,7 @@ func TestDbxState(t *testing.T) {
 // assertDbxText requires qa's state text to be want.
 func assertDbxText(t *testing.T, d *dialog, want string) {
 	t.Helper()
-	if _, text, _ := dbxState(d.reg, "qa"); text != want {
+	if _, text, _ := dbxState(d.reg, "qa"); ansi.Strip(text) != want {
 		t.Errorf("qa = %q, want %q", text, want)
 	}
 }
@@ -196,7 +197,7 @@ func TestDbxHomeRow(t *testing.T) {
 	d := dbxEnv(t)
 	dbxExpiry(t, "qa", time.Now().Add(59*time.Minute+30*time.Second))
 	row := databricksRow(d)
-	if row.Name != "databricks" || row.State != "qa · command" || row.Check != "expires in 59m" {
+	if row.Name != "databricks" || row.State != "qa · command" || ansi.Strip(row.Check) != "59m" {
 		t.Errorf("home row = %+v", row)
 	}
 	if r := databricksRow(&dialog{}); r.State != "not configured" || r.Check != "no login" {
@@ -240,7 +241,7 @@ func assertDbxEnvRows(t *testing.T, f *dbxFake) {
 	if len(envRows) != 3 || envRows[0][0] != "dev" || envRows[1][0] != "qa" || envRows[2][0] != "prod" {
 		t.Fatalf("env rows = %v", envRows)
 	}
-	if envRows[1][1] != "command  expires in 59m" || envRows[0][1] != "oauth    no login" {
+	if ansi.Strip(envRows[1][1]) != "command  59m" || envRows[0][1] != "oauth    no login" {
 		t.Errorf("env row text = %q / %q", envRows[1][1], envRows[0][1])
 	}
 	if f.titles[1] != "databricks · qa" {
@@ -413,7 +414,7 @@ func TestDbxReportNoTokenAndShape(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("report lines = %q", lines)
 	}
-	want := map[string]string{"dev": "dev oauth no login", "prod": "prod command logged in", "qa": "qa command expires in 59m"}
+	want := map[string]string{"dev": "dev oauth no login", "prod": "prod command logged in", "qa": "qa command 59m"}
 	for _, l := range lines {
 		got := strings.Join(strings.Fields(l), " ")
 		f0 := strings.Fields(l)[0]
