@@ -370,9 +370,6 @@ func syncOpencodeMenu(w io.Writer, profile string, refresh bool, opts catalog.Sy
 	return nil
 }
 
-// opencodeMenuVerbs are the `opencode catalog` subverbs runOpencodeMenu handles.
-var opencodeMenuVerbs = []string{"list", "add", "remove", "import", "reset", "check", "sync"}
-
 func opencodeMenuPage(verb string) helptext.Page {
 	usage := map[string][2]string{
 		"list": {"list [--live] [--profile P] [--format F]",

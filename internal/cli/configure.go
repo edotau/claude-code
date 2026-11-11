@@ -47,7 +47,6 @@ type configureOpts struct {
 	dryRun, check, restore, revert, agents, noAgents bool
 	list, all                                        bool
 	format                                           *string
-	providerList                                     func(name, format string) int
 }
 
 func configureFlags() (*flag.FlagSet, *configureOpts) {
@@ -70,9 +69,8 @@ func configureFlags() (*flag.FlagSet, *configureOpts) {
 }
 
 // cmdConfigure is the guided setup: every section in order, or the one named; list prints `provider --list`.
-func cmdConfigure(args []string, list func(name, format string) int) int {
+func cmdConfigure(args []string) int {
 	fs, o := configureFlags()
-	o.providerList = list
 	// `configure agents --agent codex`: a leading section word precedes the flags, so lift it out first.
 	section := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -133,7 +131,7 @@ func configureList(o *configureOpts, section string, pos []string, format string
 	if len(pos) > 0 {
 		name = pos[0]
 	}
-	return o.providerList(name, format)
+	return providerList(name, format)
 }
 
 // wantsList is true for --list, or a non-text --format outside the --all check.

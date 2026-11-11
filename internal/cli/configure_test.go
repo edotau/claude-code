@@ -11,7 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/menu"
 )
 
-func run(args []string) int { return cmdConfigure(args, func(string, string) int { return 0 }) }
+func run(args []string) int { return cmdConfigure(args) }
 
 // TestSpecArgsOfferSectionsThenProfiles: the first bare argument completes from the menu sections.
 func TestSpecArgsOfferSectionsThenProfiles(t *testing.T) {

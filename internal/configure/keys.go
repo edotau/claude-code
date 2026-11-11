@@ -468,11 +468,6 @@ func ParseAssignment(raw string) (name, value string) {
 	return name, s
 }
 
-// ValidateSecret checks menu-entered credentials before staging with the same rule as `vault set`.
-func ValidateSecret(name, value string) error {
-	return agent.ValidateVaultSecret(name, value)
-}
-
 // StoreSecret seals a value (the vault's own checks only) and clears the auth marks of the providers that read it.
 func StoreSecret(name, value string) error {
 	if err := vault.Store(name, value); err != nil {
@@ -480,11 +475,6 @@ func StoreSecret(name, value string) error {
 	}
 	router.ClearSecretAuth(name)
 	return nil
-}
-
-// DeleteSecret removes a sealed value and retains the vault's name-only audit entry.
-func DeleteSecret(name string) error {
-	return vault.Delete(name)
 }
 
 // SaveEnvEdit saves the secret before the env reference; the menu separately confirms and reports old-secret deletion.

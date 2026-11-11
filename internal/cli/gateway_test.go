@@ -179,7 +179,7 @@ func TestPrintProxyStateReportsWriteError(t *testing.T) {
 // TestProxyStatusJSONReportsWriteError: a failed JSON write prints a message instead of a silent exit 1.
 func TestProxyStatusJSONReportsWriteError(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, msg := captureClosedStdout(t, func() int { return proxyStatus(context.Background(), "json") })
+	code, msg := hosttest.CaptureClosedStdout(t, func() int { return proxyStatus(context.Background(), "json") })
 	if code != 1 || !strings.Contains(msg, "gateway proxy:") {
 		t.Fatalf("want exit 1 with a 'gateway proxy:' message, got %d %q", code, msg)
 	}
@@ -197,7 +197,7 @@ func TestGatewayHelpListsProxyRestart(t *testing.T) {
 // TestProxyStartReportsWriteError: a failed stdout write of the base URL is an exit 1, not a silent 0.
 func TestProxyStartReportsWriteError(t *testing.T) {
 	tokenDaemon(t, func(http.ResponseWriter, gateway.SessionRequest) {})
-	code, msg := captureClosedStdout(t, func() int { return proxyStart(context.Background()) })
+	code, msg := hosttest.CaptureClosedStdout(t, func() int { return proxyStart(context.Background()) })
 	if code != 1 || !strings.Contains(msg, "gateway proxy:") {
 		t.Fatalf("want exit 1 with a 'gateway proxy:' message, got %d %q", code, msg)
 	}
@@ -678,7 +678,7 @@ func TestGatewayTokenRejectsBadArgsAndMintFailure(t *testing.T) {
 
 // TestPrintTokenWriteFailureNamesCause: a failed stdout write exits 1 with a stderr message.
 func TestPrintTokenWriteFailureNamesCause(t *testing.T) {
-	code, msg := captureClosedStdout(t, func() int { return printToken("cct_abc") })
+	code, msg := hosttest.CaptureClosedStdout(t, func() int { return printToken("cct_abc") })
 	if code != 1 || !strings.Contains(msg, "gateway token: write stdout") {
 		t.Fatalf("want exit 1 with a 'gateway token: write stdout' message, got %d %q", code, msg)
 	}
@@ -699,7 +699,7 @@ func TestProxyLifecycleRejectsFailedStdout(t *testing.T) {
 			orig := gatewayStop
 			gatewayStop = func(context.Context) (gateway.State, error) { return gateway.State{PID: 4242}, nil }
 			t.Cleanup(func() { gatewayStop = orig })
-			code, msg := captureClosedStdout(t, func() int { return tc.run(context.Background()) })
+			code, msg := hosttest.CaptureClosedStdout(t, func() int { return tc.run(context.Background()) })
 			if code == 0 || !strings.Contains(msg, "gateway proxy: write output:") {
 				t.Fatalf("exit %d stderr %q; want nonzero with a write-output error", code, msg)
 			}

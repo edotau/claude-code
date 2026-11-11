@@ -417,7 +417,7 @@ func TestOpencodeMenuListDefaultSource(t *testing.T) {
 
 func TestOpencodeMenuHelpWithin80Cols(t *testing.T) {
 	ocCheckEnv(t)
-	for _, verb := range opencodeMenuVerbs {
+	for _, verb := range slices.Concat(catalogVerbs, menuVerbs) {
 		_, stdout, stderr := ocMenu(t, verb, "-h")
 		out := stdout + stderr
 		if !strings.Contains(out, "usage: claude-code opencode catalog "+verb) {
