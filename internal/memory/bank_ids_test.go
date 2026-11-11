@@ -146,8 +146,8 @@ func TestAssignIDsSeesMarkerOnLaterLine(t *testing.T) {
 		t.Fatalf("first settle stamped %d, err %v", n, err)
 	}
 	once, _ := os.ReadFile(path)
-	if !strings.Contains(string(once), "- long convention wrapped <!-- id:aaaa0001 -->\n  onto two lines\n") {
-		t.Errorf("a wrapped marker must move onto the block's first line:\n%s", once)
+	if !strings.Contains(string(once), "- long convention wrapped\n  onto two lines <!-- id:aaaa0001 -->\n") {
+		t.Errorf("a wrapped marker must stay where the formatter put it:\n%s", once)
 	}
 	if n, _ = assignIDs(dir, time.Now().Add(time.Second)); n != 0 {
 		t.Errorf("second settle stamped %d", n)
@@ -298,5 +298,37 @@ func TestRememberSameFactSameClockGetsDistinctIDs(t *testing.T) {
 	}
 	if body := mustRead(t, filepath.Join(Dir(root), "decisionLog.md")); strings.Count(body, "<!-- id:"+second+" -->") != 1 {
 		t.Errorf("id %s is not unique in decisionLog.md:\n%s", second, body)
+	}
+}
+
+// A long conventions bullet keeps its wrapped marker: a second settle rewrites no byte, and the catalog still sees its id.
+func TestSettleLongConventionIsIdempotentAndKeepsItsID(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "conventions.md")
+	write(t, path, "# C\n\n- "+strings.TrimSpace(strings.Repeat("word ", 40))+"\n")
+	settle := func(now time.Time) {
+		t.Helper()
+		if _, err := assignIDs(dir, now); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := formatFiles([]string{path}, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	settle(time.Now())
+	once, _ := os.ReadFile(path)
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(path, past, past); err != nil {
+		t.Fatal(err)
+	}
+	settle(time.Now().Add(time.Second))
+	twice, _ := os.ReadFile(path)
+	fi, _ := os.Stat(path)
+	if string(once) != string(twice) || !fi.ModTime().Equal(past) {
+		t.Fatalf("second settle rewrote the file (mtime %v):\n%s\n---\n%s", fi.ModTime(), once, twice)
+	}
+	got, err := entriesWithPrefix(path, "- ")
+	if err != nil || len(got) != 1 || !strings.HasSuffix(got[0], "["+ownerID(string(twice))+"]") {
+		t.Fatalf("catalog entry lost the wrapped bullet's id: %q, %v\n%s", got, err, twice)
 	}
 }

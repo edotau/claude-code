@@ -566,3 +566,84 @@ func TestEmbedCorpusReadFailureReleasesClaim(t *testing.T) {
 	}
 	wantEmbedded(t, "immediate retry", n, calls, err, 1, 2)
 }
+
+// Given a cache from another workspace, When the query is refused locally, Then no endpoint backoff marker is written.
+func TestNewSemanticMismatchWritesNoBackoff(t *testing.T) {
+	isolatedConfig1(t)
+	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
+	t.Setenv("CLAUDE_PROFILE", "fake")
+	f := vectorRecord{Namespace: "fake|https://old|gte", Model: "gte", Rows: map[string]vectorRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
+	if err := saveEmbedCache("fake", f); err != nil {
+		t.Fatal(err)
+	}
+	prev := openEmbedClient
+	t.Cleanup(func() { openEmbedClient = prev })
+	openEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
+		return &EmbedClient{Profile: profile, Model: model, Namespace: "fake|https://new|gte"}, nil
+	}
+	_, err := NewSemantic("q")
+	if _, statErr := os.Stat(filepath.Join(StateDir(), embedCachePre+"fake.backoff")); !os.IsNotExist(statErr) {
+		t.Errorf("a local namespace mismatch wrote the endpoint backoff marker: %v", statErr)
+	}
+	if !errors.Is(err, errEmbedMismatch) {
+		t.Errorf("NewSemantic = %v, want the namespace mismatch", err)
+	}
+}
+
+// Given a valid lease minted against another host, When refresh is asked for the current host, Then it is due.
+func TestRefreshDueWhenHostChangedInsideLease(t *testing.T) {
+	isolatedConfig1(t)
+	now := time.Now()
+	f := vectorRecord{Namespace: embedNamespace("fake", "https://old/", "gte"), Model: "gte", MintedAt: now.UnixNano(),
+		Rows: map[string]vectorRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
+	if err := saveEmbedCache("fake", f); err != nil {
+		t.Fatal(err)
+	}
+	if vectorStore.RefreshDue("fake", "https://old", now) {
+		t.Error("a record minted against the current host inside its lease is due")
+	}
+	if !vectorStore.RefreshDue("fake", "https://new", now) {
+		t.Error("a record minted against another host is not due inside its lease")
+	}
+}
+
+// Given a zero-byte or damaged embeddings.db, When refresh is due and a mint runs, Then the file is set aside and re-minted.
+func TestBrokenEmbedDBHeals(t *testing.T) {
+	for name, body := range map[string][]byte{"zero-byte": nil, "damaged": append([]byte("not a bbolt file"), make([]byte, 16384)...)} {
+		t.Run(name, func(t *testing.T) {
+			root := leaseFixture(t)
+			if err := os.MkdirAll(StateDir(), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			write(t, embedDBPath(), string(body))
+			if !vectorStore.RefreshDue("fake", "h", time.Now()) {
+				t.Fatal("RefreshDue = false for a broken embeddings.db")
+			}
+			var calls int
+			if n, _, err := embedChanged(context.Background(), root, leaseClient(&calls, nil)); err != nil || n != 1 {
+				t.Fatalf("mint over a broken db: n=%d err=%v", n, err)
+			}
+			if got := loadEmbedCache("fake"); len(got.Rows) != 1 {
+				t.Errorf("healed cache rows = %d, want 1", len(got.Rows))
+			}
+		})
+	}
+}
+
+// Given the session and record profiles are one name, When the cache misses, Then that profile is read once.
+func TestSemanticCacheReadsSharedProfileOnce(t *testing.T) {
+	isolatedConfig1(t)
+	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
+	t.Setenv("CLAUDE_PROFILE", "dev")
+	vaulttest.SetRecord(t, "claude", "profile", "dev")
+	reads := 0
+	prev := readProfileCache
+	t.Cleanup(func() { readProfileCache = prev })
+	readProfileCache = func(string) (vectorRecord, error) { reads++; return vectorRecord{}, nil }
+	if _, err := NewSemantic("q"); err == nil {
+		t.Fatal("NewSemantic succeeded with no cache")
+	}
+	if reads != 1 {
+		t.Errorf("profile cache read %d times, want 1", reads)
+	}
+}

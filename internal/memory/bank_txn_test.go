@@ -479,8 +479,15 @@ func TestCommitChangesLockedReportsUnrecoveredOnSuccess(t *testing.T) {
 	}
 	writeJournal(t, "20260101-000000.000-aaaa", map[string]any{"schema": 2})
 
-	if _, err := commitLocked(t, "next", []Change{{Rel: "r/next.md", Data: []byte("n\n")}}); err != nil {
+	rec, err := commitLocked(t, "next", []Change{{Rel: "r/next.md", Data: []byte("n\n")}})
+	if err != nil {
 		t.Fatalf("batch behind a stuck journal failed: %v", err)
+	}
+	if len(rec.Unrecovered) != 1 || !strings.Contains(rec.Unrecovered[0], "20260101-000000.000-aaaa") {
+		t.Fatalf("receipt Unrecovered = %q, want the stuck journal", rec.Unrecovered)
+	}
+	if onDisk := readStore(t, "receipts/"+rec.ID+".json"); !strings.Contains(onDisk, "20260101-000000.000-aaaa") {
+		t.Fatalf("committed receipt does not name the stuck journal:\n%s", onDisk)
 	}
 }
 

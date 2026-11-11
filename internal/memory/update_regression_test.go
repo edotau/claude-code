@@ -145,3 +145,69 @@ func TestUpdateReturnsReceiptWriteError(t *testing.T) {
 		t.Fatalf("Update = %v, want receipt write error", err)
 	}
 }
+
+// Given a peer holds the store lock, When a dispatched update gives up as busy, Then its bg stamp no longer claims the work.
+func TestBusyUpdateUncoversDispatchStamp(t *testing.T) {
+	clearChildEnv(t)
+	isolatedConfig(t)
+	root := repoRoot(t, "busy-uncover")
+	if _, err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	prev := updateLockWait
+	updateLockWait = 20 * time.Millisecond
+	t.Cleanup(func() { updateLockWait = prev })
+	at := time.Now().Add(-time.Minute).Truncate(time.Second)
+	if err := writeStamp(stampPath("busy"), at, "bg", 7); err != nil {
+		t.Fatal(err)
+	}
+	var updateErr error
+	ran, err := paths.TryFileLock(lockPath(Dir(root))+".lock", 0, func() error {
+		updateErr = update(updateOptions{CWD: root, Session: "busy", Run: func(context.Context, string, string) (string, error) {
+			t.Error("agent ran while a peer held the store lock")
+			return "fixture", nil
+		}})
+		return nil
+	})
+	if err != nil || !ran {
+		t.Fatalf("hold peer lock: ran=%v err=%v", ran, err)
+	}
+	if updateErr == nil {
+		t.Fatal("busy update returned nil, want an error")
+	}
+	st, ok := readStamp(stampPath("busy"))
+	if !ok || st.state != "bg" || st.edits != 0 || !st.at.Equal(at) {
+		t.Errorf("stamp after busy update = %+v ok=%v, want bg with 0 covered edits at %v", st, ok, at)
+	}
+	if res, _ := readUpdateResult("busy"); res.Status != updateFailed {
+		t.Errorf("receipt status %q, want failed", res.Status)
+	}
+}
+
+// Given an update for one repo, When its agent runs, Then the shared home bank's lock is held so other repos' agents queue.
+func TestUpdateHoldsHomeBankLockDuringAgentRun(t *testing.T) {
+	clearChildEnv(t)
+	isolatedConfig(t)
+	root := repoRoot(t, "home-lock")
+	if _, err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	ranAgent := false
+	run := func(context.Context, string, string) (string, error) {
+		ranAgent = true
+		got, err := paths.TryFileLock(lockPath(HomeBankDir())+".lock", 0, func() error { return nil })
+		if err != nil {
+			t.Error(err)
+		}
+		if got {
+			t.Error("another repo's worker took the home bank lock while this agent ran")
+		}
+		return "fixture", nil
+	}
+	if err := update(updateOptions{CWD: root, Session: "home-lock", Run: run}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if !ranAgent {
+		t.Fatal("agent never ran")
+	}
+}

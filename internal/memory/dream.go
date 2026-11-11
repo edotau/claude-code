@@ -132,6 +132,7 @@ type dreamOptions struct {
 	Run     AgentFunc
 	Out     io.Writer
 	Timeout time.Duration // 0 = updateTimeout
+	IfDue   bool          // re-check dreamDue once the lock is held: a racing peer may have just dreamed
 }
 
 // agentDreamPrompt frames the model-residue consolidation pass; the procedure itself is one copy,
@@ -154,30 +155,24 @@ func dream(o dreamOptions) error {
 		o.Timeout = updateTimeout
 	}
 	var runErr, archiveErr error
+	notDue := false
 	lockErr := paths.WithFileLock(lockPath(Dir(o.CWD)), func() error {
-		now := time.Now()
-		n, err := archiveOverflow(o.CWD, now)
-		if err != nil {
-			archiveErr = fmt.Errorf("archive: %w", err)
-			fmt.Fprintln(o.Out, "memory dream:", archiveErr)
-		}
-		fmt.Fprintf(o.Out, "memory dream: archived %d block(s)\n", n)
-		if o.Run != nil {
-			prompt, perr := agentDreamPrompt()
-			if perr != nil {
-				runErr = perr
-			} else {
-				ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
-				defer cancel()
-				_ = os.Setenv(UpdateChildEnv, "1") // a Claude fallback dispatch must not re-trigger hooks
-				_ = os.Setenv(dreamChildEnv, "1")  // lets this run's own `memory promote --to claude-md` through the gate
-				who, err := o.Run(ctx, prompt, o.CWD)
-				runErr = err
-				fmt.Fprintln(o.Out, "memory dream: ran on", who)
+		ran, err := withHomeLock(Dir(o.CWD), func() error { // the agent edits both banks, so hold both locks
+			if notDue = o.IfDue && !dreamDue(o.CWD, time.Now()); notDue {
+				fmt.Fprintln(o.Out, "memory dream: not due")
+				return nil
 			}
+			runErr, archiveErr = dreamLocked(o)
+			return nil
+		})
+		if err == nil && !ran {
+			err = errors.New("another update or dream holds the home bank lock")
 		}
-		return nil
+		return err
 	})
+	if notDue && lockErr == nil {
+		return nil
+	}
 	// Settle after the lock is released.
 	var settleErr error
 	if _, err := settleBank(o.CWD, time.Now()); err != nil {
@@ -189,6 +184,30 @@ func dream(o dreamOptions) error {
 		return errors.Join(err, stampDream(o.CWD, time.Now().Add(dreamRetry-dreamInterval), true))
 	}
 	return stampDream(o.CWD, time.Now(), false)
+}
+
+// dreamLocked archives overflow and runs the agent, both banks' locks held; it returns the agent and archive errors.
+func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
+	n, err := archiveOverflow(o.CWD, time.Now())
+	if err != nil {
+		archiveErr = fmt.Errorf("archive: %w", err)
+		fmt.Fprintln(o.Out, "memory dream:", archiveErr)
+	}
+	fmt.Fprintf(o.Out, "memory dream: archived %d block(s)\n", n)
+	if o.Run == nil {
+		return nil, archiveErr
+	}
+	prompt, err := agentDreamPrompt()
+	if err != nil {
+		return err, archiveErr
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
+	defer cancel()
+	_ = os.Setenv(UpdateChildEnv, "1") // a Claude fallback dispatch must not re-trigger hooks
+	_ = os.Setenv(dreamChildEnv, "1")  // lets this run's own `memory promote --to claude-md` through the gate
+	who, err := o.Run(ctx, prompt, o.CWD)
+	fmt.Fprintln(o.Out, "memory dream: ran on", who)
+	return err, archiveErr
 }
 
 func stampDream(root string, at time.Time, failed bool) error {

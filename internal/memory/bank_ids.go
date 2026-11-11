@@ -155,15 +155,15 @@ func fencedLines(block []string) []bool {
 	return out
 }
 
-// settleBlockID leaves exactly one id marker, on the block's first line: the oldest it already carries (the last,
-// since settle stacks newer ones above), else a fresh one. Fenced lines are examples and are never touched.
+// settleBlockID leaves exactly one id marker: the oldest it already carries (the last, since settle stacks newer ones
+// above; a lone one stays where the formatter wrapped it), else a fresh one. Fenced lines are never touched.
 func settleBlockID(dir, name string, idx int, block []string, now time.Time) ([]string, int) {
 	fenced := fencedLines(block)
 	keepLine, keepSpan, total := lastMarker(block, fenced)
 	if total == 0 {
 		return append([]string{block[0] + freshID(dir, name, idx, block[0], now)}, block[1:]...), 1
 	}
-	if total == 1 && keepLine == 0 {
+	if total == 1 {
 		return block, 0
 	}
 	kept := " " + strings.TrimSpace(block[keepLine][keepSpan[0]:keepSpan[1]])

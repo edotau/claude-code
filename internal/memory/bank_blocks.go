@@ -137,16 +137,26 @@ func entriesWithPrefix(path, prefix string) ([]string, error) {
 		return nil, err
 	}
 	var out []string
-	for line := range strings.SplitSeq(string(data), "\n") {
+	lines := strings.Split(string(data), "\n")
+	for i, line := range lines {
 		if rest, ok := strings.CutPrefix(line, prefix); ok {
 			e := truncateLine(stripID(rest))
-			if id := blockID(rest); id != "" {
+			if id := ownerID(wrappedBlock(lines, i)); id != "" {
 				e += " [" + id + "]"
 			}
 			out = append(out, e)
 		}
 	}
 	return out, nil
+}
+
+// wrappedBlock is lines[i] and the indented continuation lines the formatter wrapped under it, joined.
+func wrappedBlock(lines []string, i int) string {
+	end := i + 1
+	for end < len(lines) && strings.HasPrefix(lines[end], " ") && strings.TrimSpace(lines[end]) != "" {
+		end++
+	}
+	return strings.Join(lines[i:end], "\n")
 }
 
 // truncateLine caps s at indexLineMax bytes, cutting at a word boundary, rune-safe.

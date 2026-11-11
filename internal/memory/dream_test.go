@@ -110,3 +110,32 @@ func TestPreviewDreamReportsUnreadableBankFile(t *testing.T) {
 		t.Errorf("dry run hid the unreadable bank file:\n%s", got)
 	}
 }
+
+// Given a peer dreamed after this worker's due check, When the worker takes the lock, Then it skips and leaves the stamp.
+func TestDreamIfDueSkipsUnderLockWhenPeerJustDreamed(t *testing.T) {
+	isolatedConfig(t)
+	t.Setenv(UpdateChildEnv, "")
+	t.Setenv(dreamChildEnv, "")
+	root := repoRoot(t, "proj")
+	if _, err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	peer := time.Now().Add(-time.Minute).Truncate(time.Second)
+	if err := stampDream(root, peer, false); err != nil {
+		t.Fatal(err)
+	}
+	run := func(context.Context, string, string) (string, error) {
+		t.Error("a second dream ran right after a peer's")
+		return "stub", nil
+	}
+	var out strings.Builder
+	if err := dream(dreamOptions{CWD: root, Run: run, Out: &out, IfDue: true}); err != nil {
+		t.Fatalf("dream = %v, want nil", err)
+	}
+	if got, _, _ := dreamStamp(root); !got.Equal(peer) {
+		t.Errorf("stamp = %v, want the peer's %v untouched", got, peer)
+	}
+	if !strings.Contains(out.String(), "not due") {
+		t.Errorf("output %q lacks the not-due note", out.String())
+	}
+}

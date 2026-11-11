@@ -41,3 +41,17 @@ func TestCatchUpSweepDryRunListsMissedSession(t *testing.T) {
 		t.Error("the dry run wrote a count file")
 	}
 }
+
+// Given transcripts from each entrypoint, When classified, Then IDE and desktop sessions are people and sdk-* runs are workers.
+func TestTranscriptInteractiveByEntrypoint(t *testing.T) {
+	dir := t.TempDir()
+	for entry, want := range map[string]bool{"cli": true, "claude-vscode": true, "claude-desktop": true, "sdk-cli": false, "sdk-ts": false} {
+		path := filepath.Join(dir, entry+".jsonl")
+		if err := os.WriteFile(path, []byte(`{"type":"queue-operation"}`+"\n"+`{"entrypoint":"`+entry+`"}`+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := transcriptInteractive(path); got != want {
+			t.Errorf("entrypoint %q interactive = %v, want %v", entry, got, want)
+		}
+	}
+}

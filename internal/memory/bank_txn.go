@@ -47,6 +47,7 @@ type Receipt struct {
 	Preexisting  []string  `json:"preexisting,omitempty"`  // dirty native paths outside the batch, swept into Commit
 	Captured     []string  `json:"captured,omitempty"`     // dirty native revisions this batch replaced
 	Tombstones   []string  `json:"tombstones,omitempty"`   // tracked facts found deleted; HEAD bytes under tombstoneDir
+	Unrecovered  []string  `json:"unrecovered,omitempty"`  // older journals that could not be finished and stay on disk
 }
 
 // tombstoneDir is where a deleted tracked fact's last committed bytes are copied: <tombstoneDir>/<journal id>/<rel>.
@@ -62,6 +63,8 @@ type journal struct {
 	Subject string          `json:"subject"`
 	State   string          `json:"state"`
 	Changes []journalChange `json:"changes"`
+
+	unrecovered []string // older journals recoverEach left on disk; stamped on this run's receipt, never persisted
 }
 
 type journalChange struct {
@@ -99,6 +102,9 @@ func commitChangesLocked(subject string, changes []Change) (Receipt, error) {
 	}
 	if err := j.save(); err != nil {
 		return Receipt{}, err
+	}
+	if skipped != nil {
+		j.unrecovered = strings.Split(skipped.Error(), "\n")
 	}
 	rec, err := j.run(repo)
 	if err != nil && skipped != nil { // a stuck journal stays on disk and is retried by the next commit
@@ -199,7 +205,7 @@ func (j *journal) save() error {
 
 // run drives one journal: check, native capture, apply, receipt, commit, complete; a failed commit stays "applied".
 func (j *journal) run(repo Repo) (Receipt, error) {
-	rec := Receipt{ID: j.ID, Subject: j.Subject, Time: time.Now().UTC()}
+	rec := Receipt{ID: j.ID, Subject: j.Subject, Time: time.Now().UTC(), Unrecovered: j.unrecovered}
 	present, err := j.applyBatch(repo, &rec)
 	if err != nil {
 		return rec, err
@@ -239,6 +245,8 @@ func (j *journal) applyBatch(repo Repo, rec *Receipt) (present []string, err err
 	if err != nil {
 		return nil, err
 	}
+	own, missing := j.splitOwnDeletes(missing)
+	present = append(present, own...) // this batch's own replayed deletions: staged with the batch, not tombstoned
 	outcomes, capture, err := j.plan(repo.Dir, present, rec)
 	if err != nil {
 		return nil, err
@@ -252,6 +260,18 @@ func (j *journal) applyBatch(repo Repo, rec *Receipt) (present []string, err err
 		}
 	}
 	return present, nil
+}
+
+// splitOwnDeletes splits the tracked-but-missing paths into the ones this journal deletes itself and the rest.
+func (j *journal) splitOwnDeletes(missing []string) (own, other []string) {
+	for _, p := range missing {
+		if slices.ContainsFunc(j.Changes, func(c journalChange) bool { return c.Delete && c.Rel == p }) {
+			own = append(own, p)
+		} else {
+			other = append(other, p)
+		}
+	}
+	return own, other
 }
 
 // commitStage lists what the batch commit stages: applied and preexisting paths, plus skipped ones left dirty by

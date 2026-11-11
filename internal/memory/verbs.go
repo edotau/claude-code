@@ -231,7 +231,7 @@ func RunDream(o DreamRunOptions) error {
 		fmt.Fprintln(o.Out, "memory dream: not due")
 		return nil
 	}
-	return dream(dreamOptions{CWD: root, Run: o.Run, Out: o.Out})
+	return dream(dreamOptions{CWD: root, Run: o.Run, Out: o.Out, IfDue: !o.Force})
 }
 
 // DigestRepo writes the repo bank's digest and returns its path.

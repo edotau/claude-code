@@ -172,7 +172,7 @@ func storeHook(e repoEntry) string {
 // stripFrontmatter drops a leading --- … --- block; the closing fence must start its own line, so a
 // block-scalar value that merely contains the literal bytes "---" can't be mistaken for it.
 func stripFrontmatter(s string) string {
-	_, content := markdown.StripFrontMatter([]byte(s))
+	_, content := markdown.StripFrontMatter([]byte(strings.ReplaceAll(s, "\r\n", "\n")))
 	return string(content)
 }
 

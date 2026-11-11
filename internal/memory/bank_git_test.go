@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -477,5 +478,63 @@ func TestCommitGateRefusesHistoryScannerShapes(t *testing.T) {
 		if checkStageContent(path, "progress.md") == nil {
 			t.Errorf("%s: commit gate accepted a credential-shaped fact", name)
 		}
+	}
+}
+
+func TestCommitStagesGlobNamedFilesLiterally(t *testing.T) {
+	store, _ := storeFixture(t)
+	r := StoreRepo()
+	if err := r.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(store, "why?.md"), "glob-named\n")
+	write(t, filepath.Join(store, "whyx.md"), "sibling the glob would match\n")
+	if _, committed, err := r.Commit([]string{"why?.md"}, "literal", ""); err != nil || !committed {
+		t.Fatalf("Commit(why?.md) = %v, %v; a glob pathspec staged the sibling", committed, err)
+	}
+	if got := hosttest.In(t, store, "ls-tree", "--name-only", "HEAD"); got != "why?.md\n" {
+		t.Fatalf("HEAD tree = %q, want only why?.md", got)
+	}
+}
+
+func TestFailedCommitLeavesTheIndexClean(t *testing.T) {
+	store, _ := storeFixture(t)
+	r := StoreRepo()
+	if err := r.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(store, "a.md"), "a\n")
+	write(t, filepath.Join(store, "b.md"), "b\n")
+	lock := filepath.Join(store, ".git", "refs", "heads", "main.lock")
+	write(t, lock, "")
+	if _, _, err := r.Commit([]string{"a.md"}, "locked", ""); err == nil {
+		t.Fatal("a held ref lock must fail the commit")
+	}
+	if staged := hosttest.In(t, store, "diff", "--cached", "--name-only"); staged != "" {
+		t.Fatalf("failed commit left %q staged", staged)
+	}
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	if _, committed, err := r.Commit([]string{"b.md"}, "next", ""); err != nil || !committed {
+		t.Fatalf("a later commit in the same store = %v, %v", committed, err)
+	}
+}
+
+func TestStoreGitIgnoresTheUsersGlobalExcludes(t *testing.T) {
+	store, _ := storeFixture(t)
+	r := StoreRepo()
+	if err := r.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "git", "ignore"), "*.json\nreports/\n")
+	write(t, filepath.Join(store, "receipts", "x.json"), "{}\n")
+	write(t, filepath.Join(store, "reports", "a.md"), "report\n")
+	st, err := r.Status()
+	if err != nil || !slices.Contains(st, statusEntry{"??", "receipts/x.json"}) || !slices.Contains(st, statusEntry{"??", "reports/a.md"}) {
+		t.Fatalf("a global ignore hid store files from Status: %+v, %v", st, err)
+	}
+	if _, committed, err := r.Commit([]string{"receipts/x.json", "reports/a.md"}, "receipts", ""); err != nil || !committed {
+		t.Fatalf("a global ignore broke Commit: %v, %v", committed, err)
 	}
 }

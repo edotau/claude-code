@@ -119,6 +119,16 @@ func TestFormatBankMarkdownWrapTable(t *testing.T) {
 	runWrapCases(t, wrapBreakCases())
 }
 
+// A RULES region opened and closed on one line must not switch wrapping off for the rest of the file.
+func TestFormatBankMarkdownInlineRulesMarkersCloseOnTheirLine(t *testing.T) {
+	t.Parallel()
+	long := "- " + strings.TrimSpace(strings.Repeat("word ", 40))
+	got := formatBankMarkdown("- quotes <!-- RULES:BEGIN -->x<!-- RULES:END --> inline\n" + long + "\n")
+	if got == "- quotes <!-- RULES:BEGIN -->x<!-- RULES:END --> inline\n"+long+"\n" {
+		t.Fatalf("the bullet after an inline RULES pair was left unwrapped:\n%s", got)
+	}
+}
+
 func TestFormatBankMarkdownPreservesHardBreak(t *testing.T) {
 	t.Parallel()
 	cases := wrapBreakCases()

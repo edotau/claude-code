@@ -2,6 +2,7 @@ package memory
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -51,5 +52,21 @@ func TestRoutedFilesExcludesOwnStore(t *testing.T) {
 		if f.Bank != "projb" || filepath.Dir(f.Path) != dirs["projb"] {
 			t.Errorf("routedFiles listed %+v, want only projb's files under %s", f, dirs["projb"])
 		}
+	}
+}
+
+// A topic or knowledge note saved with CRLF endings is indexed like its LF twin, frontmatter stripped.
+func TestParseBlocksIndexesCRLFNotes(t *testing.T) {
+	note := []byte("---\r\nname: crlf-topic\r\ndescription: windows saved\r\n---\r\n\r\nzebra fact\r\n")
+	native := parseBlocks(segNative, "t.md", note)
+	if len(native) != 1 || !strings.HasPrefix(native[0], "crlf-topic — windows saved\n") || !strings.Contains(native[0], "zebra fact") {
+		t.Errorf("CRLF native topic blocks = %q", native)
+	}
+	knowledge := parseBlocks(segKnowledge, "k.md", note)
+	if len(knowledge) != 1 || strings.Contains(knowledge[0], "name:") || knowledge[0] != "zebra fact" {
+		t.Errorf("CRLF knowledge blocks = %q", knowledge)
+	}
+	if got := strings.TrimSpace(stripFrontmatter(string(note))); got != "zebra fact" {
+		t.Errorf("stripFrontmatter(CRLF) = %q", got)
 	}
 }
