@@ -188,7 +188,7 @@ func conclusionState(c string) string {
 }
 
 func (h *gitHubHost) Comment(ctx context.Context, id, body, replyTo string) error {
-	if !digitsRe.MatchString(id) || (replyTo != "" && !digitsRe.MatchString(replyTo)) {
+	if !textutil.IsDigits(id) || (replyTo != "" && !textutil.IsDigits(replyTo)) {
 		return fmt.Errorf("invalid PR id %q or reply-to %q: want digits", id, replyTo)
 	}
 	if replyTo != "" {

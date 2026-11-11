@@ -436,9 +436,9 @@ func TestArmPickWantedClaudeFallsThrough(t *testing.T) {
 		t.Errorf("fallback none = %+v, want claude on databricks·dev only", c)
 	}
 	calls := map[string]int{}
-	(&RouteTable{}).gatherCandidates("claude", PickOpts{Fallback: FallbackAll}, func(a string) ([]Candidate, bool) {
+	(&RouteTable{}).gatherCandidates("claude", PickOpts{Fallback: FallbackAll}, func(a string) []Candidate {
 		calls[a]++
-		return nil, false
+		return nil
 	})
 	if calls["claude"] != 1 || calls["codex"] != 1 {
 		t.Errorf("gate calls = %v, want claude once (no claudeLast pass) and each other agent once", calls)

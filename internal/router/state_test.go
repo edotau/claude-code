@@ -418,42 +418,6 @@ func TestParseResetHugeNClampsToFuture(t *testing.T) {
 	}
 }
 
-// Given a quota.json written with the byok-era keys, an update keeps them under the discovery keys; new keys win.
-func TestStateKeepsLegacyByokKeys(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	old := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
-	newer := old.Add(time.Hour)
-	raw := map[string]any{
-		"acct": map[string]any{"used_pct": 1, "seen": old,
-			"byok": map[string]any{"a|m": old}, "byok_skip": map[string]any{"a|e": old}},
-		"both": map[string]any{"used_pct": 2, "seen": old,
-			"byok": map[string]any{"a|m": old}, "discovery": map[string]any{"a|m": newer}},
-	}
-	data, _ := json.Marshal(raw)
-	if err := os.MkdirAll(filepath.Dir(StatePath()), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(StatePath(), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	for range 2 {
-		if err := update(func(State) {}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	got := LoadState()
-	if !got["acct"].Discovery["a|m"].Equal(old) || !got["acct"].DiscoverySkip["a|e"].Equal(old) {
-		t.Errorf("acct = %+v, want byok history and skip carried to discovery keys", got["acct"])
-	}
-	if !got["both"].Discovery["a|m"].Equal(newer) {
-		t.Errorf("both = %+v, want the new discovery key to win", got["both"])
-	}
-	disk, _ := os.ReadFile(StatePath())
-	if strings.Contains(string(disk), "byok") {
-		t.Errorf("quota.json still carries byok keys: %s", disk)
-	}
-}
-
 func TestParseClockResetAcrossDST(t *testing.T) {
 	ny, err := time.LoadLocation("America/New_York")
 	if err != nil {

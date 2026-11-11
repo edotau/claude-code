@@ -84,22 +84,22 @@ func (t *RouteTable) gateDatabricksCodex(
 func (t *RouteTable) gateCandidate(
 	ctx context.Context, pg *pickGate, alias, agent string, pins map[string]PinSpec, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
-) ([]Candidate, bool) {
+) []Candidate {
 	spec := pins[agent]
 	if spec.Off {
 		res.Skipped = append(res.Skipped, Skip{agent, GateOff, "deactivated (no profile set)"})
-		return nil, false
+		return nil
 	}
 	if arm := ArmProfile(); arm != "" {
 		return t.gateArm(ctx, pg, alias, agent, arm, spec, st, o, now, configured, res)
 	}
 	var group []Candidate
 	if agent != "claude" && spec.Profile != "" {
-		group, _ = t.gatePinned(ctx, pg.reg, alias, agent, spec.Profile, spec, st, o, now, configured, res)
+		group = t.gatePinned(ctx, pg.reg, alias, agent, spec.Profile, spec, st, o, now, configured, res)
 		group = append(group, t.gateWorkspaces(ctx, pg, alias, agent, spec, group, st, o, now, configured, res)...)
 		group = append(group, t.gateVendor(ctx, pg, alias, agent, group, st, o, now, configured, res)...)
 	} else {
-		group, _ = t.gateAgent(ctx, alias, agent, st, o, now, configured, res)
+		group = t.gateAgent(ctx, alias, agent, st, o, now, configured, res)
 		if agent == "gemini" && spec.Model != "" { // native agy login: the GEMINI_MODEL pin beats the table cell
 			for i := range group {
 				group[i].Model = spec.Model
@@ -115,7 +115,7 @@ func (t *RouteTable) gateCandidate(
 	if agent == res.Want && o.Lead != "" && agent != "claude" {
 		group = t.gateLead(ctx, pg, alias, agent, spec, group, st, o, now, configured, res)
 	}
-	return group, len(group) > 0
+	return group
 }
 
 // gateVendor (non-want agents only; the want path is unchanged without Lead) is a pinned codex or copilot's own-login rows beside its pin; a skipped pin gets none (fails closed).
@@ -142,7 +142,7 @@ func (t *RouteTable) gateRow(
 	configured func(agent string, c Cell) error, res *PickResult,
 ) []Candidate {
 	scratch := &PickResult{Alias: res.Alias, Want: res.Want}
-	g, _ := t.gateProfile(ctx, pg.reg, alias, agent, prof, model, "", st, o, now, configured, scratch)
+	g := t.gateProfile(ctx, pg.reg, alias, agent, prof, model, "", st, o, now, configured, scratch)
 	for _, sk := range scratch.Skipped {
 		if !quiet || sk.Gate == GateExhausted || sk.Gate == GateAuth { // a quiet row reports only real account state
 			sk.Reason = strings.Replace(sk.Reason, "pinned profile ", "profile ", 1)
@@ -202,10 +202,10 @@ func (t *RouteTable) gateLead(
 func (t *RouteTable) gateArm(
 	ctx context.Context, pg *pickGate, alias, agent, arm string, spec PinSpec, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
-) ([]Candidate, bool) {
+) []Candidate {
 	if pg.reg == nil {
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, RouteDatabricks + ":" + arm + ": no provider registry"})
-		return nil, false
+		return nil
 	}
 	own := firstPartyRows(pg.reg, agent)
 	armPinSkip(agent, spec.Profile, arm, own, res)
@@ -214,22 +214,20 @@ func (t *RouteTable) gateArm(
 	}
 	var group []Candidate
 	if agent != "gemini" || geminiRow(pg.reg, arm) {
-		group, _ = t.gateProfile(ctx, pg.reg, alias, agent, arm, spec.Model, "", st, o, now, configured, res)
+		group = t.gateProfile(ctx, pg.reg, alias, agent, arm, spec.Model, "", st, o, now, configured, res)
 	} else {
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google or a Databricks gateway row, not " + arm})
 	}
 	if o.Fallback == FallbackNone {
-		return group, len(group) > 0
+		return group
 	}
 	if agent == "opencode" {
-		g, _ := t.gateOpencodeCandidate(ctx, alias, ArmOpencodeSub, st, o, now, configured, res)
-		group = append(group, g...)
+		group = append(group, t.gateOpencodeCandidate(ctx, alias, ArmOpencodeSub, st, o, now, configured, res)...)
 	}
 	for _, row := range own {
-		g, _ := t.gateProfile(ctx, pg.reg, alias, agent, row, spec.Model, "", st, o, now, configured, res)
-		group = append(group, g...)
+		group = append(group, t.gateProfile(ctx, pg.reg, alias, agent, row, spec.Model, "", st, o, now, configured, res)...)
 	}
-	return group, len(group) > 0
+	return group
 }
 
 // ArmOpencodeSub is opencode's own-login sub id, its one first-party hop inside the arm.
@@ -342,8 +340,7 @@ func (t *RouteTable) gateSessionCopilot(
 	if slices.ContainsFunc(own, func(c Candidate) bool { return c.Account == account }) || (own == nil && t.sessionCopilotTaken(pg, alias, account, model, spec, o)) {
 		return nil
 	}
-	group, _ := t.gateProfile(ctx, reg, alias, "copilot", profile, model, effort, st, o, now, configured, res)
-	return group
+	return t.gateProfile(ctx, reg, alias, "copilot", profile, model, effort, st, o, now, configured, res)
 }
 
 // sessionCopilotTaken reports that account is already held by an earlier gate or is the copilot cell's own account.

@@ -1,4 +1,4 @@
-// The prompt complexity classifier behind EffortTierSignal: read by the agent-effort hook (fills an unset
+// The prompt complexity classifier behind EffortTierSignal: read by the dispatch-effort hook (fills an unset
 // dispatch model). Advisory and O(len(prompt)) — never a gate.
 package router
 
@@ -25,7 +25,7 @@ var (
 		return regexp.MustCompile(`(?:^|\s)\.{0,2}/?(?:[\w.-]+/)*[\w-]+\.(?:go|py|md|sh|bash|js|ts|tsx|jsx|yaml|yml|json|toml|sql|rs|java|c|h|cpp|rb|css|html|tmpl)\b`)
 	})
 	questionRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?i)^(what|where|why|how|when|which|who|explain|show|list|is|are|does|do|can|should)\b`)
+		return regexp.MustCompile(`(?i)^(what|where|why|how|when|which|who|explain|show|list|is|are|does|can|should)\b`)
 	})
 	// highRe: keywords that mark multi-file / design-level work regardless of prompt length.
 	highRe = sync.OnceValue(func() *regexp.Regexp {

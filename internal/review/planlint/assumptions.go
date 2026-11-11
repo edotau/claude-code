@@ -257,7 +257,7 @@ func RunAssumptions(args []string, stdin io.Reader, stdout, stderr io.Writer) in
 		err = printAssumptions(stdout, source, findings, groups, verdict)
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "assumption_linter.py: error: writing output: %v\n", err)
+		fmt.Fprintf(stderr, "claude-code review assumptions: error: writing output: %v\n", err)
 		return 1
 	}
 	return 0

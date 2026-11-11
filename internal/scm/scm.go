@@ -24,16 +24,15 @@ const (
 
 // PR is one pull request in the row shape shared by every host.
 type PR struct {
-	Host    string  `json:"host"`
-	ID      string  `json:"id"`
-	Title   string  `json:"title"`
-	State   string  `json:"state"` // open|merged|declined|closed
-	Author  string  `json:"author"`
-	Source  string  `json:"source"`
-	Target  string  `json:"target"`
-	URL     string  `json:"url"`
-	HeadSHA string  `json:"headSha,omitempty"`
-	Checks  []Check `json:"checks,omitempty"`
+	Host    string `json:"host"`
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	State   string `json:"state"` // open|merged|declined|closed
+	Author  string `json:"author"`
+	Source  string `json:"source"`
+	Target  string `json:"target"`
+	URL     string `json:"url"`
+	HeadSHA string `json:"headSha,omitempty"`
 }
 
 // Check is one CI result.
@@ -138,11 +137,9 @@ func OriginURL(ctx context.Context) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-var digitsRe = regexp.MustCompile(`^[0-9]+$`)
-
 // checkDigits rejects a PR or comment id that is not all digits, matching the GitHub host.
 func checkDigits(what, v string) error {
-	if !digitsRe.MatchString(v) {
+	if !textutil.IsDigits(v) {
 		return fmt.Errorf("invalid %s %q: want digits", what, v)
 	}
 	return nil
@@ -169,8 +166,11 @@ func Open(ctx context.Context) (Host, error) {
 		return nil, errors.New("BITBUCKET_TOKEN is not set; run `claude-code vault set BITBUCKET_TOKEN`")
 	}
 	base := bitbucketURL()
-	if base == "" { // the ssh port (7999) is not the HTTP port, so the default is the bare host
+	if base == "" { // the ssh port is not the HTTP port; an http(s) remote keeps its own host:port
 		base = "https://" + repo.Host
+		if u, err := url.Parse(remote); err == nil && strings.HasPrefix(u.Scheme, "http") {
+			base = u.Scheme + "://" + u.Host
+		}
 	}
 	return NewBitbucket(base, repo.Owner, repo.Name, token), nil
 }

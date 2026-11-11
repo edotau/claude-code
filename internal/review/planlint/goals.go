@@ -400,7 +400,7 @@ func RunGoals(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = printGoals(stdout, a)
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "goal_verifier.py: error: writing output: %v\n", err)
+		fmt.Fprintf(stderr, "claude-code review goals: error: writing output: %v\n", err)
 		return 1
 	}
 	return 0
