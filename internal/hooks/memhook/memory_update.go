@@ -44,7 +44,7 @@ func Compact(in *core.Input) core.Result {
 	if !memory.Updatable(in.SessionID, in.TranscriptPath) {
 		return core.Result{}
 	}
-	pct, _ := contextPct(in.TranscriptPath)
+	pct, _ := contextPct(in.SessionID, in.TranscriptPath)
 	memory.WriteCompactRecord(in.SessionID, in.Trigger, pct, time.Now())
 	memory.UpdateIfNew(updateRequest(in), memory.TriggerPreCompact, time.Now())
 	return core.Result{}

@@ -8,10 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // ModelUsage totals one model's token counts.
@@ -314,4 +316,33 @@ func Window(model string, used int) int {
 		}
 	}
 	return models.ContextWindow(model)
+}
+
+// windowFile holds the context window Claude Code reported for a session, written by the status line.
+func windowFile(session string) string {
+	return filepath.Join(paths.StateDir(), "context", filepath.Base(session))
+}
+
+// RecordWindow stores the window Claude Code reports for session; the file is rewritten only when the size changes.
+func RecordWindow(session string, size int) {
+	if session == "" || size <= 0 || RecordedWindow(session) == size {
+		return
+	}
+	path := windowFile(session)
+	if os.MkdirAll(filepath.Dir(path), 0o700) == nil {
+		_ = paths.AtomicWrite(path, []byte(strconv.Itoa(size)), 0o600)
+	}
+}
+
+// RecordedWindow is the window RecordWindow stored for session, 0 when none: Claude Code's own figure beats a guess.
+func RecordedWindow(session string) int {
+	if session == "" {
+		return 0
+	}
+	b, err := os.ReadFile(windowFile(session))
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	return max(n, 0)
 }

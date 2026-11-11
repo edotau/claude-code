@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
@@ -43,6 +44,7 @@ func collectTwoline(in input, auth string) twoData {
 func (d *twoData) fillContext(in input) {
 	if cw := in.ContextWindow; cw != nil {
 		d.hasCtx, d.size, d.tokens = true, cw.Size, cw.TotalInput
+		transcript.RecordWindow(in.SessionID, cw.Size) // the Stop hook's context share uses this size
 		d.ctxPct = float64(contextPct(in))
 		if cw.UsedPercentage != nil {
 			d.ctxPct = *cw.UsedPercentage
