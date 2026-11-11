@@ -161,11 +161,10 @@ func themeApply(args []string) int {
 
 // themeSpec is the completion node for the theme verb tree.
 func themeSpec() *helptext.Node {
-	styles := func() []string { return []string{"gradient", "powerline", "capsule", "minimal", "dashboard"} }
 	return &helptext.Node{Args: []func() []string{theme.GradientNames}, Flags: []helptext.Flag{helptext.BoolFlag("palettes"), helptext.BoolFlag("reset")},
 		Sub: map[string]*helptext.Node{
 			"apply":      {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("only")}},
-			"statusline": {Flags: []helptext.Flag{{Name: "style", Values: styles}}},
+			"statusline": {Flags: []helptext.Flag{{Name: "style", Values: func() []string { return statusline.Styles }}}},
 			"vscode":     vscode.Spec(),
 		}}
 }

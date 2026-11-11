@@ -235,7 +235,7 @@ func renderModeConflict(restore, revert bool, section string) error {
 	return nil
 }
 
-// unknownAgent rejects a typo the engine would skip silently.
+// unknownAgent rejects a typo before the engine runs: off ~/.claude it returns before its own name check.
 func unknownAgent(agents string) error {
 	for a := range strings.SplitSeq(agents, ",") {
 		if a = strings.TrimSpace(a); a != "" && !slices.Contains(agent.DefaultAgents, a) {

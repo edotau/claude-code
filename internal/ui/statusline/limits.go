@@ -1,16 +1,11 @@
 package statusline
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/usage"
 )
 
 // limitsCacheMaxAge bounds how stale internal/usage's oauth-usage cache may be before it is ignored.
@@ -100,63 +95,14 @@ func limitsFromPayload(in Input) int {
 	return in.RateLimits.SevenDay.pct(time.Now().Unix())
 }
 
-// cacheWindow is one window of internal/usage's oauth/usage cache body.
-type cacheWindow struct {
-	Utilization float64 `json:"utilization"`
-	ResetsAt    string  `json:"resets_at"`
-}
-
-// pct is the window's rounded utilization; -1 when its reset is unparsable or already passed.
-func (w cacheWindow) pct(now time.Time) int {
-	if t, err := time.Parse(time.RFC3339, w.ResetsAt); err != nil || !t.After(now) {
-		return -1
-	}
-	return clampPct(int(w.Utilization + 0.5))
-}
-
-// cacheOwner is the owner internal/usage stamps for the login in .credentials.json; "" when only a keychain holds it.
-func cacheOwner() string {
-	raw, err := os.ReadFile(filepath.Join(paths.ConfigDir(), ".credentials.json"))
-	if err != nil {
-		return ""
-	}
-	var c struct {
-		ClaudeAiOauth struct {
-			AccessToken string `json:"accessToken"`
-		} `json:"claudeAiOauth"`
-	}
-	if json.Unmarshal(raw, &c) != nil || c.ClaudeAiOauth.AccessToken == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(c.ClaudeAiOauth.AccessToken))
-	return hex.EncodeToString(sum[:])
-}
-
 // limitsFromCache reads internal/usage's cached 7d window (no network); -1 means absent, stale, expired or another login's.
 func limitsFromCache() int {
-	raw, err := os.ReadFile(filepath.Join(paths.StateDir(), "cache", "claude-oauth-usage.json"))
-	if err != nil {
+	util, resets, ok := usage.CachedSevenDay(limitsCacheMaxAge)
+	if !ok {
 		return -1
 	}
-	var c struct {
-		FetchedAt time.Time       `json:"fetched_at"`
-		Owner     string          `json:"owner"`
-		Body      json.RawMessage `json:"body"`
+	if t, err := time.Parse(time.RFC3339, resets); err != nil || !t.After(time.Now()) {
+		return -1 // the window's reset is unparsable or already passed
 	}
-	if json.Unmarshal(raw, &c) != nil || len(c.Body) == 0 || time.Since(c.FetchedAt) > limitsCacheMaxAge {
-		return -1
-	}
-	// An unowned cache, or a login only the keychain knows (too slow to ask per render), is served as before.
-	if c.Owner != "" {
-		if cur := cacheOwner(); cur != "" && cur != c.Owner {
-			return -1
-		}
-	}
-	var b struct {
-		SevenDay cacheWindow `json:"seven_day"`
-	}
-	if json.Unmarshal(c.Body, &b) != nil {
-		return -1
-	}
-	return b.SevenDay.pct(time.Now())
+	return clampPct(int(util + 0.5))
 }

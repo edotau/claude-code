@@ -116,9 +116,12 @@ func (v values) text(key string) string {
 	return ""
 }
 
+// Styles are the --style values; unset means config.json's style, and an unknown name renders as gradient.
+var Styles = []string{"gradient", "powerline", "capsule", "minimal", "dashboard", "twoline"}
+
 // Run is `claude-code theme statusline [--style S]`: payload on r, rendered line(s) on w; fs carries the caller's Usage.
 func Run(fs *flag.FlagSet, args []string, r io.Reader, w io.Writer) int {
-	style := fs.String("style", "", "gradient|powerline|capsule|minimal|dashboard (default: config.json)")
+	style := fs.String("style", "", strings.Join(Styles, "|"))
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
