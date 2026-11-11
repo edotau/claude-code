@@ -57,6 +57,15 @@ func Show(id string) (path, block string, err error) {
 	return path, block, nil
 }
 
+// DispatchCheckpoint counts r's work and dispatches a Stop update under the stamp lock; false when no worker started.
+func DispatchCheckpoint(r UpdateRequest, now time.Time) bool {
+	started := false
+	withStampLock(r.SessionID, func() {
+		started = DispatchUpdate(r, TriggerStop, CountEdits(r.SessionID, r.Transcript), now)
+	})
+	return started
+}
+
 // ReportRepo appends a report to repo's store, its origin registered under the bank lock so later calls find it.
 func ReportRepo(repo, label string, in ReportInput) ([]string, error) {
 	dir, err := EnsureRepoDir(RepoRoot(repo))

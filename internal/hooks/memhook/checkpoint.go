@@ -110,8 +110,7 @@ func contextCheckpoint(in *core.Input) core.Result {
 	}
 	_ = f.Close()
 	// The fresh "bg" stamp makes the same Stop's sessionUpdate a no-op.
-	work := memory.CountEdits(in.SessionID, in.TranscriptPath)
-	if !memory.DispatchUpdate(updateRequest(in), memory.TriggerStop, work, time.Now()) {
+	if !memory.DispatchCheckpoint(updateRequest(in), time.Now()) { // under the stamp lock, like UpdateIfNew
 		fmt.Fprintln(os.Stderr, "context-checkpoint: could not start the background handoff; retrying at the next Stop")
 		_ = os.Remove(flag)
 		return core.Result{}

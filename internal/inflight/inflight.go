@@ -128,6 +128,8 @@ func SessionOwner() int {
 			return 0
 		}
 		switch sessionComm(pid) {
+		case "": // unreadable or already exited: pid may be a dead sh wrapper, so the owner is unknown
+			return 0
 		case "sh", "dash", "bash", "zsh":
 			if depth == 8 {
 				return 0
