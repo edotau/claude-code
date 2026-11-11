@@ -14,13 +14,11 @@ import (
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
-	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -446,9 +444,4 @@ func resolveSpec() *helptext.Node {
 	identities := func() []string { return []string{"auto", "user", "sp", "headless"} }
 	return &helptext.Node{Flags: []helptext.Flag{helptext.ValuedFlag("profile", providers.ProfileNames), helptext.BoolFlag("proxy"),
 		helptext.ValuedFlag("as", identities)}}
-}
-
-func init() {
-	databricks.Pick = tui.Pick
-	databricks.Interactive = tui.StdinIsTerminal
 }

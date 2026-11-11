@@ -441,7 +441,7 @@ func cmdVaultImport(args []string) int {
 
 // importPairs parses r and warns about each line or pair it skips; nil pairs carry the exit code (nothing importable).
 func importPairs(name string, r io.Reader) ([]vault.Pair, int) {
-	pairs, problems := importablePairs(vault.ParseDotenv(r))
+	pairs, problems := configure.ImportablePairs(vault.ParseDotenv(r))
 	switch {
 	case len(pairs) == 0 && len(problems) > 0:
 		return nil, helptext.Fail("vault import: %s: nothing written\n  unable to parse %s", name,
@@ -453,20 +453,6 @@ func importPairs(name string, r io.Reader) ([]vault.Pair, int) {
 		fmt.Fprintf(os.Stderr, "vault import: warning: unable to parse %s; skipped\n", p)
 	}
 	return pairs, 0
-}
-
-// importablePairs keeps the pairs that validate; each one that does not joins problems by name, never by value.
-func importablePairs(pairs []vault.Pair, problems []string) ([]vault.Pair, []string) {
-	var ok []vault.Pair
-	out := slices.Clone(problems)
-	for _, p := range pairs {
-		if err := configure.ValidateImport([]vault.Pair{p}); err != nil {
-			out = append(out, fmt.Sprintf("%s: %v", p.Name, err))
-			continue
-		}
-		ok = append(ok, p)
-	}
-	return ok, out
 }
 
 // openImport opens FILE, or piped stdin for "-" after the terminal and --yes checks; a nil reader carries the exit code.
