@@ -281,7 +281,7 @@ func TestRegistryCloneReferenceFields(t *testing.T) {
 	reg := Registry{order: []string{"order"}}
 	populateCloneReferences(reflect.ValueOf(&reg).Elem())
 	// When the real Clone copies all nested provider and routing types.
-	cloned := reg.Clone()
+	cloned := reg.clone()
 	// Then values are preserved and no map, slice or pointer field aliases its original.
 	if !reflect.DeepEqual(&reg, cloned) {
 		t.Fatal("Clone changed registry values")

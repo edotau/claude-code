@@ -46,11 +46,6 @@ var reviewPage = helptext.Page{
 	Hint: "claude-code review <tool> -h lists that tool's flags.",
 }
 
-// wantsHelp reports a leading -h/--help; a later one belongs to the tool's own parser, after its value flags.
-func wantsHelp(args []string) bool {
-	return len(args) > 0 && (args[0] == "-h" || args[0] == "-help" || args[0] == "--help")
-}
-
 // cmdReview dispatches `review <tool>`.
 func cmdReview(args []string) int {
 	if len(args) == 0 || isHelpVerb(args[0]) {
@@ -98,7 +93,8 @@ func cmdWorkflow(args []string) int {
 		workflowPage.Fprint(os.Stdout)
 		return 0
 	}
-	if (args[0] == "skeleton" || args[0] == "lint") && wantsHelp(args[1:]) {
+	// only a leading -h: a later one belongs to the tool's own parser, after its value flags
+	if (args[0] == "skeleton" || args[0] == "lint") && len(args) > 1 && helptext.WantsHelp(args[1:2]) {
 		workflowSubPage(args[0]).Fprint(os.Stdout)
 		return 0
 	}

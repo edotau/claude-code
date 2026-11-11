@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -22,7 +23,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	_ "github.com/edotau/claude-code/internal/claude"
+	_ "github.com/edotau/claude-code/internal/codex"
+	_ "github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/hosttest"
+	_ "github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
@@ -37,8 +41,8 @@ import (
 
 func TestResumeSlot(t *testing.T) {
 	for in, want := range map[string]string{"sonnet": "sonnet", "dev:haiku": "haiku", "claude-sonnet-5-5": "sonnet", "gpt-5": ""} {
-		if got := ResumeAlias(in); got != want {
-			t.Errorf("ResumeAlias(%q) = %q, want %q", in, got, want)
+		if got := resumeAlias(in); got != want {
+			t.Errorf("resumeAlias(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
@@ -49,22 +53,22 @@ func (s *recSink) Emit(ev wire.Event) error { s.types = append(s.types, ev.Type)
 
 // An approved tool then a 503 leaves the sink with a progress mark before any text; a denied-only run emits none.
 func TestToolApprovalMarksProgressOnFailure(t *testing.T) {
-	run := func(o SDKOptions, req copilot.PermissionRequest) []string {
+	run := func(o sdkOptions, req copilot.PermissionRequest) []string {
 		var ok atomic.Bool
 		h := permissionHandler(o, &ok)
 		if _, err := h(req, copilot.PermissionInvocation{}); err != nil {
 			t.Fatal(err)
 		}
 		sink := &recSink{}
-		out := SDKResult{Text: "part", ToolRan: ok.Load()}
+		out := sdkResult{Text: "part", ToolRan: ok.Load()}
 		err := markToolRan(out, sink, errors.New("503 service unavailable")) // Run marks the tool before branching on err
 		_, _ = copilotPartial(wire.Result{}, out, err, sink)
 		return sink.types
 	}
-	if got := run(SDKOptions{AllowAllTools: true}, rpc.PermissionRequestRead{}); !slices.Equal(got, []string{wire.EventProgress, wire.EventText}) {
+	if got := run(sdkOptions{AllowAllTools: true}, rpc.PermissionRequestRead{}); !slices.Equal(got, []string{wire.EventProgress, wire.EventText}) {
 		t.Errorf("approved read: events = %v, want [progress text]", got)
 	}
-	if got := run(SDKOptions{AllowAllTools: true, ReadOnlyTools: true}, rpc.PermissionRequestMCP{}); !slices.Equal(got, []string{wire.EventText}) {
+	if got := run(sdkOptions{AllowAllTools: true, ReadOnlyTools: true}, rpc.PermissionRequestMCP{}); !slices.Equal(got, []string{wire.EventText}) {
 		t.Errorf("denied mcp: events = %v, want [text]", got)
 	}
 }
@@ -72,13 +76,13 @@ func TestToolApprovalMarksProgressOnFailure(t *testing.T) {
 // A tool-only run (no text, no error) still marks progress, so a fallback cannot repeat its side effects.
 func TestMarkToolRanMarksProgressOnSuccess(t *testing.T) {
 	sink := &recSink{}
-	if err := markToolRan(SDKResult{ToolRan: true}, sink, nil); err != nil {
+	if err := markToolRan(sdkResult{ToolRan: true}, sink, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(sink.types) != 1 || sink.types[0] != wire.EventProgress {
 		t.Fatalf("sink saw %v, want one progress mark and no tool_use", sink.types)
 	}
-	if err := markToolRan(SDKResult{}, sink, nil); err != nil || len(sink.types) != 1 {
+	if err := markToolRan(sdkResult{}, sink, nil); err != nil || len(sink.types) != 1 {
 		t.Fatalf("no tool ran: err=%v events=%v, want none emitted", err, sink.types)
 	}
 }
@@ -91,7 +95,7 @@ func TestHandoffNeverWritesCredentials(t *testing.T) {
 	handoffDir = func(string) string { return dir }
 	t.Cleanup(func() { handoffDir = orig })
 	env := []string{providers.CopilotTokenEnv + "=" + sdkToken, "DBX_TOKEN=" + envSecret, "PLAIN=visible"}
-	creds := CredentialValues(env)
+	creds := credentialValues(env)
 	req := agent.RunOptions{WorkDir: t.TempDir(), Prompt: "use " + sdkToken + " and " + envSecret}
 	path, err := writeCopilotHandoff(req, wire.Result{SessionID: "sess-1"}, "partial "+envSecret,
 		"acct", errors.New("quota exhausted"), creds)
@@ -114,7 +118,7 @@ func TestHandoffNeverWritesCredentials(t *testing.T) {
 // A failed run keeps the usage the collector summed before the failure.
 func TestCopilotPartialKeepsUsage(t *testing.T) {
 	want := wire.Usage{InputTokens: 7, OutputTokens: 3}
-	res, _ := copilotPartial(wire.Result{}, SDKResult{Text: "partial", Usage: want}, errors.New("boom"), wire.Discard)
+	res, _ := copilotPartial(wire.Result{}, sdkResult{Text: "partial", Usage: want}, errors.New("boom"), wire.Discard)
 	if res.Usage != want {
 		t.Fatalf("Usage = %+v, want %+v", res.Usage, want)
 	}
@@ -123,7 +127,7 @@ func TestCopilotPartialKeepsUsage(t *testing.T) {
 const runGHToken = "plainRunToken123456" // no token shape, so only Run's credential list can redact it
 
 // runScratch routes copilot to gh user "work" (fake gh/copilot, free credits), stubs the SDK; returns the hand-off dir.
-func runScratch(t *testing.T, ask func(context.Context, SDKOptions, string, []string) (SDKResult, error)) string {
+func runScratch(t *testing.T, ask func(context.Context, sdkOptions, string, []string) (sdkResult, error)) string {
 	t.Helper()
 	pinsScratch(t)
 	vaulttest.UseKeyring(t)
@@ -158,8 +162,8 @@ func runPersonal(t *testing.T) (wire.Result, error) {
 
 // A quota failure on the GitHub route writes a redacted hand-off (the SDK token included) and returns a quota error.
 func TestRunQuotaWritesRedactedHandoff(t *testing.T) {
-	dir := runScratch(t, func(_ context.Context, o SDKOptions, _ string, _ []string) (SDKResult, error) {
-		return SDKResult{Text: "half done with " + o.GitHubToken, SessionID: "abcdef1234567"}, errors.New("402 payment required")
+	dir := runScratch(t, func(_ context.Context, o sdkOptions, _ string, _ []string) (sdkResult, error) {
+		return sdkResult{Text: "half done with " + o.GitHubToken, SessionID: "abcdef1234567"}, errors.New("402 payment required")
 	})
 	res, err := runPersonal(t)
 	if k := retry.Classify("copilot", err, false).Kind; k != retry.KindQuota {
@@ -176,8 +180,8 @@ func TestRunQuotaWritesRedactedHandoff(t *testing.T) {
 
 // A non-quota failure on the same route keeps the partial answer and writes no hand-off.
 func TestRunNonQuotaFailureWritesNoHandoff(t *testing.T) {
-	dir := runScratch(t, func(context.Context, SDKOptions, string, []string) (SDKResult, error) {
-		return SDKResult{Text: "half", SessionID: "abcdef1234567"}, errors.New("503 service unavailable")
+	dir := runScratch(t, func(context.Context, sdkOptions, string, []string) (sdkResult, error) {
+		return sdkResult{Text: "half", SessionID: "abcdef1234567"}, errors.New("503 service unavailable")
 	})
 	res, err := runPersonal(t)
 	if err == nil || res.Handoff != "" || res.Answer != "half" {
@@ -224,6 +228,12 @@ func isFatal(err error) bool {
 
 // TestMain runs in the hermetic host (hosttest), so no test touches the live config or vault.
 func TestMain(m *testing.M) {
+	for _, name := range []string{"codex", "gemini", "opencode"} { // the render tests read these sibling rows
+		if _, ok := agent.LookupSchema(name); !ok {
+			fmt.Fprintf(os.Stderr, "copilot tests: the %s roster row is not linked into this test binary\n", name)
+			os.Exit(2)
+		}
+	}
 	code := hosttest.Main(m)
 	removeFakeCLI() // the fake CLI is built once per package (sdk_test.go), so it outlives every test
 	os.Exit(code)
@@ -231,7 +241,7 @@ func TestMain(m *testing.M) {
 
 // The quota hand-off masks --env values and the registry token, not only the route env.
 func TestRunCredentialsCoverEnvAndRegistryToken(t *testing.T) {
-	opts := SDKOptions{Token: func() (string, error) { return "sess-token-123456", nil }}
+	opts := sdkOptions{Token: func() (string, error) { return "sess-token-123456", nil }}
 	req := agent.RunOptions{Env: []string{"INTERNAL_SECRET=plain-value-12345", "EMPTY="}}
 	got := runCredentials(opts, []string{"DBX_TOKEN=route-secret-1"}, req)
 	for _, want := range []string{"route-secret-1", "plain-value-12345", "sess-token-123456"} {
@@ -247,7 +257,7 @@ func TestRunCredentialsCoverEnvAndRegistryToken(t *testing.T) {
 // A plain --env value (a path) must stay out of the redaction list; secret-named ones are masked.
 func TestRunCredentialsIgnoresNonSecretEnv(t *testing.T) {
 	req := agent.RunOptions{Env: []string{"WORKDIR=/home/user/long/project/dir", "API_TOKEN=s3cr3t-value-123"}}
-	got := runCredentials(SDKOptions{}, nil, req)
+	got := runCredentials(sdkOptions{}, nil, req)
 	if !slices.Equal(got, []string{"s3cr3t-value-123"}) {
 		t.Fatalf("runCredentials = %q; want only the secret-named value", got)
 	}
@@ -261,7 +271,7 @@ func TestQuotaHandoffWriteFailureKeepsPartialAnswer(t *testing.T) {
 	handoffDir = func(string) string { return filepath.Join(blocked, "handoffs") }
 	t.Cleanup(func() { handoffDir = old })
 	cause := errors.New("402 payment required")
-	res, err := CopilotQuotaHandoff(agent.RunOptions{WorkDir: t.TempDir()}, wire.Result{}, "partial-session", "partial answer", cause, nil)
+	res, err := copilotQuotaHandoff(agent.RunOptions{WorkDir: t.TempDir()}, wire.Result{}, "partial-session", "partial answer", cause, nil)
 	if res.Answer != "partial answer" || res.SessionID != "partial-session" || res.Handoff != "" {
 		t.Fatalf("result = %+v; want partial answer and session without handoff", res)
 	}
@@ -349,10 +359,10 @@ func copilotSettings(t *testing.T, rec *vault.AgentRecord, flag string, headless
 func TestRunSDKOptionsReadSettings(t *testing.T) {
 	for _, c := range settingsCases {
 		t.Run(c.name, func(t *testing.T) {
-			var got SDKOptions
-			runScratch(t, func(_ context.Context, o SDKOptions, _ string, _ []string) (SDKResult, error) {
+			var got sdkOptions
+			runScratch(t, func(_ context.Context, o sdkOptions, _ string, _ []string) (sdkResult, error) {
 				got = o
-				return SDKResult{Text: "ok"}, nil
+				return sdkResult{Text: "ok"}, nil
 			})
 			if c.rec != nil {
 				if err := vault.SetAgentRecord("copilot", *c.rec); err != nil {
@@ -383,9 +393,9 @@ func TestRunBadRecordFailsHeadless(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			asked := false
-			runScratch(t, func(context.Context, SDKOptions, string, []string) (SDKResult, error) {
+			runScratch(t, func(context.Context, sdkOptions, string, []string) (sdkResult, error) {
 				asked = true
-				return SDKResult{Text: "ok"}, nil
+				return sdkResult{Text: "ok"}, nil
 			})
 			put(t)
 			req := agent.RunOptions{Prompt: "do it", Provider: "personal", WorkDir: t.TempDir(), Effort: "low"}
@@ -428,7 +438,7 @@ func byokKeyState(child []string) (keyed, leaked bool) {
 }
 
 // runArmedBYOK runs copilot on dbx inside databricks:dbx on macOS with GitHub tokens planted: SDK options, child env.
-func runArmedBYOK(t *testing.T) (SDKOptions, []string) {
+func runArmedBYOK(t *testing.T) (sdkOptions, []string) {
 	t.Helper()
 	macFallbackScratch(t)
 	agenttest.StubProxy(t, testRouterBase, "rtr-secret-xyz")
@@ -437,18 +447,18 @@ func runArmedBYOK(t *testing.T) (SDKOptions, []string) {
 	t.Setenv(router.EnvRoute, "databricks:dbx")
 	t.Setenv("GH_TOKEN", "ghp-planted")
 	t.Setenv("COPILOT_GITHUB_TOKEN", "ghp-planted")
-	var got SDKOptions
+	var got sdkOptions
 	orig := copilotAsk
-	copilotAsk = func(_ context.Context, o SDKOptions, _ string, _ []string) (SDKResult, error) {
+	copilotAsk = func(_ context.Context, o sdkOptions, _ string, _ []string) (sdkResult, error) {
 		got = o
-		return SDKResult{Text: "ok"}, nil
+		return sdkResult{Text: "ok"}, nil
 	}
 	t.Cleanup(func() { copilotAsk = orig })
 	req := agent.RunOptions{Prompt: "hi", Provider: "dbx", Model: "databricks-claude-sonnet-5-5", WorkDir: t.TempDir()}
 	if _, err := copilotAgent.Run(t.Context(), req, wire.Discard); err != nil {
 		t.Fatal(err)
 	}
-	co, err := BuildClientOptions(t.Context(), got)
+	co, err := buildClientOptions(t.Context(), got)
 	if err != nil {
 		t.Fatal(err)
 	}

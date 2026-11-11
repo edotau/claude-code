@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"errors"
+	"maps"
 	"slices"
 	"testing"
 
@@ -44,11 +45,11 @@ func TestUsableFiltersByAgentDialects(t *testing.T) {
 		{"gemini", nil, nil},
 	} {
 		var got []string
-		for _, info := range usable(fixtureProvider(), fixtureServing, tc.dialects) {
+		for _, info := range UsableIn(fixtureProvider(), slices.Collect(maps.Values(fixtureServing)), tc.dialects) {
 			got = append(got, info.ID)
 		}
 		if !slices.Equal(got, tc.want) {
-			t.Errorf("%s (%v): usable = %v, want %v", tc.agent, tc.dialects, got, tc.want)
+			t.Errorf("%s (%v): UsableIn = %v, want %v", tc.agent, tc.dialects, got, tc.want)
 		}
 	}
 }

@@ -16,9 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	_ "github.com/edotau/claude-code/internal/codex"
-	_ "github.com/edotau/claude-code/internal/gemini"
-	_ "github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
@@ -182,8 +179,8 @@ func setGOOS(t *testing.T, goos string) {
 func TestRegistryRefusedOnMacOS(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	setGOOS(t, "darwin")
-	if _, err := PrepareCopilotHome(false); !errors.Is(err, errCopilotRegistryDarwin) {
-		t.Errorf("PrepareCopilotHome err = %v, want the macOS refusal", err)
+	if _, err := prepareCopilotHome(false); !errors.Is(err, errCopilotRegistryDarwin) {
+		t.Errorf("prepareCopilotHome err = %v, want the macOS refusal", err)
 	}
 	if _, err := os.Stat(copilotRegistryHome()); !os.IsNotExist(err) {
 		t.Errorf("registry home was created on macOS: %v", err)
@@ -194,9 +191,9 @@ func TestRegistryRefusedOnMacOS(t *testing.T) {
 		return nil, nil
 	}
 	t.Cleanup(func() { discoverModels = orig })
-	_, err := ConfigureCopilotRegistry(context.Background(), nil, providers.Target{Provider: &providers.Provider{Name: "dev"}}, nil, true)
+	_, err := configureCopilotRegistry(context.Background(), nil, providers.Target{Provider: &providers.Provider{Name: "dev"}}, nil, true)
 	if !errors.Is(err, errCopilotRegistryDarwin) {
-		t.Errorf("ConfigureCopilotRegistry err = %v, want the macOS refusal", err)
+		t.Errorf("configureCopilotRegistry err = %v, want the macOS refusal", err)
 	}
 }
 
@@ -205,7 +202,7 @@ func TestPrepareCopilotHomeSeedsLoginFree(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	setGOOS(t, "linux")
 	seedSourceHome(t)
-	ph, err := PrepareCopilotHome(false)
+	ph, err := prepareCopilotHome(false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -59,35 +59,35 @@ func TestUseCase(t *testing.T) {
 		want     string
 	}{
 		// Claude families, by id alone.
-		{"claude-fable-5-1", "", UseFrontier},
-		{"claude-opus-5-5", "", UseAgentic},
-		{"claude-sonnet-5-5", "", UseBalanced},
-		{"claude-haiku-5-5", "", UseHighVol},
+		{"claude-fable-5-1", "", useFrontier},
+		{"claude-opus-5-5", "", useAgentic},
+		{"claude-sonnet-5-5", "", useBalanced},
+		{"claude-haiku-5-5", "", useHighVol},
 		// Gemini: pro/flash/flash-lite/gemma.
-		{"models/gemini-2.5-pro", "", UseAgentic},
-		{"models/gemini-2.5-flash", "", UseBalanced},
-		{"models/gemini-2.5-flash-lite", "", UseHighVol},
-		{"models/gemma-4-26b-a4b-it", "", UseHighVol},
+		{"models/gemini-2.5-pro", "", useAgentic},
+		{"models/gemini-2.5-flash", "", useBalanced},
+		{"models/gemini-2.5-flash-lite", "", useHighVol},
+		{"models/gemma-4-26b-a4b-it", "", useHighVol},
 		// A speech model is caught by the id/name heuristic ahead of the gemini family switch.
-		{"models/gemini-2.5-flash-preview-tts", "", UseSpeech},
+		{"models/gemini-2.5-flash-preview-tts", "", useSpeech},
 		// Copilot: bare "auto" alias, and a copilot-routed Claude id keeps its Claude family mapping.
-		{"auto", "", UseAuto},
-		{"claude-sonnet-5", "", UseBalanced},
+		{"auto", "", useAuto},
+		{"claude-sonnet-5", "", useBalanced},
 		// GPT family: mini/nano, o-series, and the plain chat alias.
-		{"gpt-5-mini", "", UseHighVol},
-		{"gpt-5-nano", "", UseHighVol},
-		{"o3", "", UseFrontier},
-		{"o4-mini", "", UseHighVol}, // mini wins over the o-series frontier check
-		{"gpt-5", "", UseAgentic},
+		{"gpt-5-mini", "", useHighVol},
+		{"gpt-5-nano", "", useHighVol},
+		{"o3", "", useFrontier},
+		{"o4-mini", "", useHighVol}, // mini wins over the o-series frontier check
+		{"gpt-5", "", useAgentic},
 		// Non-chat kinds, keyed off id/name text rather than family.
-		{"text-embedding-3-large", "", UseEmbedding},
-		{"whisper-1", "", UseSpeech},
-		{"dall-e-3", "", UseImage},
-		{"veo-3", "", UseVideo},
+		{"text-embedding-3-large", "", useEmbedding},
+		{"whisper-1", "", useSpeech},
+		{"dall-e-3", "", useImage},
+		{"veo-3", "", useVideo},
 		// Name-only signal still resolves a kind when the id alone carries nothing.
-		{"some-vendor-id-123", "Veo 3 Video Generation", UseVideo},
+		{"some-vendor-id-123", "Veo 3 Video Generation", useVideo},
 		// Unknown id and name: General, never empty.
-		{"zzz-unknown-9", "", UseGeneral},
+		{"zzz-unknown-9", "", useGeneral},
 	}
 	for _, c := range cases {
 		if got := UseCase(c.id, c.name); got != c.want {
@@ -157,7 +157,7 @@ func TestFamilyKindAndWireFlags(t *testing.T) {
 		{"databricks-gpt-6-1-sol", FamilyGPT, true, false, true},
 		{"gpt-5.5", FamilyGPT, true, false, true},
 		{"gemini-4-argon", FamilyGemini, false, false, false},
-		{"totally-unknown-model", FamilyOther, false, false, false},
+		{"totally-unknown-model", familyOther, false, false, false},
 	}
 	for _, c := range cases {
 		if got := FamilyKind(c.id); got != c.fam {

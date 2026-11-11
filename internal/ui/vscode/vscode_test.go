@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// hermeticVSCode isolates CLAUDE_CONFIG_DIR so Sync/SyncKeybindings backups never touch the real
+// hermeticVSCode isolates CLAUDE_CONFIG_DIR so Sync/syncKeybindings backups never touch the real
 // ~/.claude/state/harness.
 func hermeticVSCode(t *testing.T) {
 	t.Helper()
@@ -53,7 +53,7 @@ func jsoncMergeFixture(t *testing.T) (dir, tmpl, dest string) {
 
 func TestSyncCheckLeavesJSONCUntouched(t *testing.T) {
 	_, tmpl, dest := jsoncMergeFixture(t)
-	result, err := Sync(tmpl, dest, "/opt/claude", "/opt/claude/bin", true)
+	result, err := syncSettings(tmpl, dest, "/opt/claude", "/opt/claude/bin", true)
 	if err != nil || !result.Changed || result.Backup != "" {
 		t.Fatalf("check = %+v err %v", result, err)
 	}
@@ -64,7 +64,7 @@ func TestSyncCheckLeavesJSONCUntouched(t *testing.T) {
 
 func TestSyncMergesJSONCAndBacksUp(t *testing.T) {
 	dir, tmpl, dest := jsoncMergeFixture(t)
-	result, err := Sync(tmpl, dest, "/opt/claude", "/opt/claude/bin", false)
+	result, err := syncSettings(tmpl, dest, "/opt/claude", "/opt/claude/bin", false)
 	if err != nil || !result.Changed || result.Backup == "" {
 		t.Fatalf("sync = %+v err %v", result, err)
 	}
@@ -91,10 +91,10 @@ func TestSyncMergesJSONCAndBacksUp(t *testing.T) {
 // A second sync against the now-merged file has nothing left to change.
 func TestSyncJSONCIsIdempotent(t *testing.T) {
 	_, tmpl, dest := jsoncMergeFixture(t)
-	if _, err := Sync(tmpl, dest, "/opt/claude", "/opt/claude/bin", false); err != nil {
+	if _, err := syncSettings(tmpl, dest, "/opt/claude", "/opt/claude/bin", false); err != nil {
 		t.Fatal(err)
 	}
-	result, err := Sync(tmpl, dest, "/opt/claude", "/opt/claude/bin", false)
+	result, err := syncSettings(tmpl, dest, "/opt/claude", "/opt/claude/bin", false)
 	if err != nil || result.Changed {
 		t.Fatalf("idempotent re-sync = %+v err %v", result, err)
 	}
@@ -121,14 +121,14 @@ func TestSyncRefusesAStaleMerge(t *testing.T) {
 	const concurrent = `{"local.only": true, "saved.by.vscode": 42}`
 	tmpl, dest := vscodeRaceFixture(t, original)
 
-	BeforeWrite = func(string) {
+	beforeWrite = func(string) {
 		if err := os.WriteFile(dest, []byte(concurrent), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	t.Cleanup(func() { BeforeWrite = nil })
+	t.Cleanup(func() { beforeWrite = nil })
 
-	result, err := Sync(tmpl, dest, "/opt/claude", "/opt/claude/bin", false)
+	result, err := syncSettings(tmpl, dest, "/opt/claude", "/opt/claude/bin", false)
 	if err == nil {
 		t.Errorf("stale merge was accepted: %+v", result)
 	}
@@ -149,13 +149,13 @@ func TestSyncCheckCreatesNoLockFile(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	tmpl, dest := vscodeRaceFixture(t, `{"local.only": true}`)
 	lock := filepath.Join(paths.StateDir(), "vscode.lock")
-	if _, err := Sync(tmpl, dest, "/opt/claude", "/opt/claude/bin", true); err != nil {
+	if _, err := syncSettings(tmpl, dest, "/opt/claude", "/opt/claude/bin", true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(lock); !os.IsNotExist(err) {
 		t.Errorf("--check created the lock (stat err %v)", err)
 	}
-	if _, err := Sync(tmpl, dest, "/opt/claude", "/opt/claude/bin", false); err != nil {
+	if _, err := syncSettings(tmpl, dest, "/opt/claude", "/opt/claude/bin", false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(lock); err != nil {
@@ -185,9 +185,9 @@ func readKeybindingEntries(t *testing.T, path string) (entries []map[string]any,
 func TestSyncKeybindingsAppendsTemplateEntriesPreservingUserEntryAndComment(t *testing.T) {
 	tmpl, dest := keybindingsFixture(t, userKeybindings)
 	dir := filepath.Dir(dest)
-	result, err := SyncKeybindings(tmpl, dest, false)
+	result, err := syncKeybindings(tmpl, dest, false)
 	if err != nil || !result.Changed || result.Backup == "" {
-		t.Fatalf("SyncKeybindings = %+v err %v", result, err)
+		t.Fatalf("syncKeybindings = %+v err %v", result, err)
 	}
 	entries, body := readKeybindingEntries(t, dest)
 	if !strings.HasPrefix(string(body), "// Place your key bindings in this file to override the defaults") {
@@ -214,7 +214,7 @@ func TestSyncKeybindingsAppendsTemplateEntriesPreservingUserEntryAndComment(t *t
 func TestSyncKeybindingsBracketInHeaderCommentStaysValid(t *testing.T) {
 	user := "/* keep [these] bindings\n   as is */\n[\n  {\"key\": \"ctrl+k\", \"command\": \"myExtension.doThing\"}\n]\n"
 	tmpl, dest := keybindingsFixture(t, user)
-	if _, err := SyncKeybindings(tmpl, dest, false); err != nil {
+	if _, err := syncKeybindings(tmpl, dest, false); err != nil {
 		t.Fatal(err)
 	}
 	entries, body := readKeybindingEntries(t, dest)
@@ -227,7 +227,7 @@ func TestSyncKeybindingsBracketInHeaderCommentStaysValid(t *testing.T) {
 func TestSyncKeybindingsOverlappingCommentDelimiterStaysValid(t *testing.T) {
 	user := "/*/ keep */\n[\n  {\"key\": \"ctrl+k\", \"command\": \"myExtension.doThing\"}\n]\n"
 	tmpl, dest := keybindingsFixture(t, user)
-	if _, err := SyncKeybindings(tmpl, dest, false); err != nil {
+	if _, err := syncKeybindings(tmpl, dest, false); err != nil {
 		t.Fatal(err)
 	}
 	entries, body := readKeybindingEntries(t, dest)
@@ -239,10 +239,10 @@ func TestSyncKeybindingsOverlappingCommentDelimiterStaysValid(t *testing.T) {
 // A second run against the already-merged file has nothing left to change — no rewrite, no new backup.
 func TestSyncKeybindingsIsIdempotent(t *testing.T) {
 	tmpl, dest := keybindingsFixture(t, `[]`)
-	if _, err := SyncKeybindings(tmpl, dest, false); err != nil {
+	if _, err := syncKeybindings(tmpl, dest, false); err != nil {
 		t.Fatal(err)
 	}
-	result, err := SyncKeybindings(tmpl, dest, false)
+	result, err := syncKeybindings(tmpl, dest, false)
 	if err != nil || result.Changed || result.Backup != "" {
 		t.Fatalf("idempotent re-sync = %+v err %v", result, err)
 	}
@@ -267,9 +267,9 @@ func TestSyncKeybindingsReplacesStaleEntryByCommandAndProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := SyncKeybindings(tmpl, dest, false)
+	result, err := syncKeybindings(tmpl, dest, false)
 	if err != nil || !result.Changed {
-		t.Fatalf("SyncKeybindings = %+v err %v", result, err)
+		t.Fatalf("syncKeybindings = %+v err %v", result, err)
 	}
 	var entries []map[string]any
 	body, _ := os.ReadFile(dest)
@@ -289,7 +289,7 @@ func TestSyncKeybindingsCheckReportsDriftWithoutWriting(t *testing.T) {
 	tmpl, dest := keybindingsFixture(t, `[]`)
 	original, _ := os.ReadFile(dest)
 
-	result, err := SyncKeybindings(tmpl, dest, true)
+	result, err := syncKeybindings(tmpl, dest, true)
 	if err != nil || !result.Changed {
 		t.Fatalf("--check = %+v err %v, want Changed=true", result, err)
 	}
@@ -333,7 +333,7 @@ func TestKeybindingsTemplateProfilesExistInSettingsTemplate(t *testing.T) {
 	}
 }
 
-// DefaultKeybindingsDest per platform: darwin and windows use the client's User dir; linux skips a headless box
+// defaultKeybindingsDest per platform: darwin and windows use the client's User dir; linux skips a headless box
 // with only ~/.vscode-server (no Machine scope for keybindings) and otherwise uses ~/.config/Code/User.
 func TestDefaultKeybindingsDestPerOS(t *testing.T) {
 	cases := []struct {
@@ -360,7 +360,7 @@ func TestDefaultKeybindingsDestPerOS(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			dest, skip, note, err := DefaultKeybindingsDest()
+			dest, skip, note, err := defaultKeybindingsDest()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -441,7 +441,7 @@ func TestSyncDefaultTemplateRoutesTerminalProfiles(t *testing.T) {
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "settings.json")
 	claudeBin := filepath.Join(dir, "bin")
-	result, err := Sync("", dest, dir, claudeBin, false)
+	result, err := syncSettings("", dest, dir, claudeBin, false)
 	if err != nil || !result.Changed {
 		t.Fatalf("Sync = %+v, err %v", result, err)
 	}
@@ -511,7 +511,7 @@ type wrapperMigration struct {
 // checkNoRewrite runs --check and asserts it reports the drift but leaves dest untouched.
 func (m wrapperMigration) checkNoRewrite(t *testing.T) {
 	t.Helper()
-	result, err := Sync(m.tmpl, m.dest, m.dir, m.claudeBin, true)
+	result, err := syncSettings(m.tmpl, m.dest, m.dir, m.claudeBin, true)
 	if err != nil || result.Changed != m.remove || result.Backup != "" {
 		t.Fatalf("check = %+v, err %v; want Changed=%v and no backup", result, err, m.remove)
 	}
@@ -525,7 +525,7 @@ func (m wrapperMigration) checkNoRewrite(t *testing.T) {
 }
 
 // checkBackup asserts a migration backs up the original settings and an untouched wrapper makes no backup.
-func (m wrapperMigration) checkBackup(t *testing.T, result Result) {
+func (m wrapperMigration) checkBackup(t *testing.T, result mergeResult) {
 	t.Helper()
 	if !m.remove {
 		if result.Backup != "" {
@@ -604,13 +604,13 @@ func TestSyncMigratesOnlyHarnessClaudeProcessWrapper(t *testing.T) {
 			m := newWrapperMigration(t, claudeBin, tc.wrapper, tc.remove)
 			m.checkNoRewrite(t)
 
-			result, err := Sync(m.tmpl, m.dest, m.dir, claudeBin, false)
+			result, err := syncSettings(m.tmpl, m.dest, m.dir, claudeBin, false)
 			if err != nil || result.Changed != tc.remove {
 				t.Fatalf("sync = %+v, err %v; want Changed=%v", result, err, tc.remove)
 			}
 			m.checkBackup(t, result)
 			m.checkMigrated(t)
-			result, err = Sync(m.tmpl, m.dest, m.dir, claudeBin, false)
+			result, err = syncSettings(m.tmpl, m.dest, m.dir, claudeBin, false)
 			if err != nil || result.Changed || result.Backup != "" {
 				t.Fatalf("idempotent sync = %+v, err %v", result, err)
 			}
@@ -624,7 +624,7 @@ func TestSyncEscapesTemplatePaths(t *testing.T) {
 	tmpl, dest := filepath.Join(dir, "template.json"), filepath.Join(dir, "settings.json")
 	writeFile(t, tmpl, `{"home":"__CLAUDE_HOME__", "bin":"__CLAUDE_BIN__/codex"}`)
 	home, bin := `/tmp/home"with\slash`, `/tmp/a"b/bin`
-	if _, err := Sync(tmpl, dest, home, bin, false); err != nil {
+	if _, err := syncSettings(tmpl, dest, home, bin, false); err != nil {
 		t.Fatalf("sync with quoted paths: %v", err)
 	}
 	body, err := os.ReadFile(dest)

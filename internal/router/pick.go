@@ -19,11 +19,11 @@ import (
 
 // Gates a candidate must pass before it is scored; a Skip names the one that dropped it.
 const (
-	GateRow       = "row"
+	gateRow       = "row"
 	GateAvailable = "available"
-	GateAccount   = "account"
+	gateAccount   = "account"
 	GateExhausted = "exhausted"
-	GateFree      = "free" // a free opencode sub-candidate blocked at opus or on a work repo
+	gateFree      = "free" // a free opencode sub-candidate blocked at opus or on a work repo
 	GateOff       = "off"  // the agent is deactivated (no profile set)
 )
 
@@ -148,7 +148,7 @@ func (t *RouteTable) pick(
 	pins := o.Pins
 	reg, err := providers.Load()
 	if err != nil {
-		res.Skipped = append(res.Skipped, Skip{"registry", GateRow, "provider registry did not load, profile pins unchecked: " + err.Error()})
+		res.Skipped = append(res.Skipped, Skip{"registry", gateRow, "provider registry did not load, profile pins unchecked: " + err.Error()})
 	}
 	pg := &pickGate{reg: reg, held: map[string]bool{}}
 	gate := func(agent string) ([]Candidate, bool) {
@@ -254,7 +254,7 @@ func dedupeCandidates(cs []Candidate) []Candidate {
 
 // skipNoRow records that agent has no row at alias.
 func skipNoRow(res *PickResult, agent, alias string) {
-	res.Skipped = append(res.Skipped, Skip{agent, GateRow, "no " + alias + " row"})
+	res.Skipped = append(res.Skipped, Skip{agent, gateRow, "no " + alias + " row"})
 }
 
 // skipNotConfigured records that agent failed its configured check with err.
@@ -307,7 +307,7 @@ func (t *RouteTable) gateAccount(
 	ctx context.Context, name string, c Cell, billing string, st State, o PickOpts, now time.Time, res *PickResult,
 ) (Candidate, bool) {
 	if c.Account == copilotUnpinned {
-		res.Skipped = append(res.Skipped, Skip{name, GateAccount, "no pinned Copilot account (claude-code configure github)"})
+		res.Skipped = append(res.Skipped, Skip{name, gateAccount, "no pinned Copilot account (claude-code configure github)"})
 		return Candidate{}, false
 	}
 	if reason, marked := st.accountAuthMarked(c.Account, now); marked {
@@ -394,7 +394,7 @@ func (t *RouteTable) gateOpencodeSub(
 	}
 	name := "opencode·" + id
 	if _, known := t.OpencodeSub[id]; !known {
-		res.Skipped = append(res.Skipped, Skip{name, GateRow, "unknown opencode ladder id"})
+		res.Skipped = append(res.Skipped, Skip{name, gateRow, "unknown opencode ladder id"})
 		return opencodeSub{}, false
 	}
 	c, has := t.OpencodeSub[id][alias]
@@ -403,11 +403,11 @@ func (t *RouteTable) gateOpencodeSub(
 	}
 	billing := t.Billing[c.Account]
 	if billing == BillFree && workRepo() {
-		res.Skipped = append(res.Skipped, Skip{name, GateFree, "free blocked on a work repo"})
+		res.Skipped = append(res.Skipped, Skip{name, gateFree, "free blocked on a work repo"})
 		return opencodeSub{}, false
 	}
 	if billing == BillFree && !t.OpencodeRouting.FreeTierOK(alias) {
-		res.Skipped = append(res.Skipped, Skip{name, GateFree, "free not enabled at " + alias})
+		res.Skipped = append(res.Skipped, Skip{name, gateFree, "free not enabled at " + alias})
 		return opencodeSub{}, false
 	}
 	if err := configured("opencode", c); err != nil {

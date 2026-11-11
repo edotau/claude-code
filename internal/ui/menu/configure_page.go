@@ -94,15 +94,15 @@ func (d *dialog) interactive() bool {
 }
 
 // shell is the Shell on d's terminal or numbered prompt, painting status lines like printf.
-func (d *dialog) shell() *Shell {
-	return &Shell{Out: d.out, In: d.br, TTY: d.onTerminal(),
+func (d *dialog) shell() *shell {
+	return &shell{Out: d.out, In: d.br, TTY: d.onTerminal(),
 		Paint: func(s string) string { return ansi.Status(d.color, s) }}
 }
 
 func (d *dialog) println(args ...any) { d.printf("%s\n", fmt.Sprint(args...)) }
 
 func (d *dialog) header(section string) {
-	d.println(tui.Accent(d.color, Heading(section)))
+	d.println(tui.Accent(d.color, heading(section)))
 }
 
 // Run executes the named section (empty = every section in SectionNames order); returns the CLI exit code.
@@ -281,7 +281,7 @@ func applyNamedProvider(d *dialog, name string) bool {
 
 func pickProvider(d *dialog, names []string) bool {
 	fmt.Fprint(d.out, "pick a profile by number or name (blank = keep current): ")
-	line := strings.TrimSpace(ReadLine(d.br))
+	line := strings.TrimSpace(readLine(d.br))
 	if line == "" {
 		return true
 	}
@@ -470,7 +470,7 @@ func openBrowser(url string) {
 
 // saveConfirmed is the one save prompt every configure page ends with: [Y/n], Enter or blank = yes, Esc = no.
 // Non-terminal runs save.
-var saveConfirmed = func(question string) bool { return ConfirmTerminal(question, true) }
+var saveConfirmed = func(question string) bool { return confirmTerminal(question, true) }
 
 // confirmLeave asks to save n staged change(s) of what; false (nothing to save, or n/Esc) means discard them.
 func confirmLeave(n int, what string) bool {
@@ -559,7 +559,7 @@ func secretLine(d *dialog, prompt string) (string, error) {
 		return tui.Secret(prompt, pastePreview)
 	}
 	fmt.Fprint(d.out, prompt)
-	val := ReadLine(d.br)
+	val := readLine(d.br)
 	fmt.Fprintln(d.out)
 	if _, v := configure.ParseAssignment(val); v != "" {
 		d.printf("  pasted  %s\n", pastePreview(val))

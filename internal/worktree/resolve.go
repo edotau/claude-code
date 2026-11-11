@@ -115,7 +115,7 @@ const (
 	resolutionInvalid
 )
 
-// ResolveWithAgent drives one agent-mediated conflict resolution to completion. The caller must already
+// resolveWithAgent drives one agent-mediated conflict resolution to completion. The caller must already
 // hold WithWorktreeLease(repo, name, ...) for the full span of this call — this function does no
 // locking of its own. op == nil starts fresh: it materializes plan's merge-tree-predicted conflict for
 // real inside the worktree (never repo.Main), invokes agentName once with tools enabled to edit (not
@@ -126,7 +126,7 @@ const (
 // saved operation (for a human or an agent that committed on its own despite the instruction not to); a
 // tools-enabled agent is never re-invoked automatically, crash or not. Either way, only promote (the
 // caller's job) commits repo.Main; this function only edits/polls the worktree and reports.
-func ResolveWithAgent(ctx context.Context, repo *Repo, plan *MergePlan, agentName string, op *Operation) (*Operation, *MergeResult, error) {
+func resolveWithAgent(ctx context.Context, repo *Repo, plan *MergePlan, agentName string, op *Operation) (*Operation, *MergeResult, error) {
 	if op != nil {
 		if !op.AgentExitOK {
 			return nil, nil, fmt.Errorf(

@@ -216,7 +216,7 @@ func TestMarkUnservedExpiresAfterAnHour(t *testing.T) {
 	stubServed(t, []providers.OpencodeModel{respA}, listing("dev", map[string]string{"m-a": "READY", "m-b": "READY"}))
 	acct := ProviderAccount(p.Name)
 	now := time.Now()
-	if err := Update(func(s State) {
+	if err := update(func(s State) {
 		e := s[acct]
 		e.Unserved = map[string]time.Time{"m-a": now.Add(-2 * time.Hour), "m-old": now.Add(-3 * time.Hour), "m-new": now.Add(-10 * time.Minute)}
 		s[acct] = e

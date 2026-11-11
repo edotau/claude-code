@@ -82,7 +82,7 @@ func ledgerTotals(session string) (in, out int) {
 const runningTTL = 3 * time.Second
 
 // runningDispatches is the live dispatch count for this session, cached for runningTTL.
-func runningDispatches(in Input) int {
+func runningDispatches(in input) int {
 	stamp := stampFile("running", paths.StateDir()+"\x00"+in.TranscriptPath)
 	if f := freshStamp(stamp, runningTTL, 1); f != nil {
 		n, _ := strconv.Atoi(f[0])

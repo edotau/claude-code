@@ -19,7 +19,7 @@ import (
 )
 
 // homeRow is one selectable home-page row: name, state, check, and what picking it does.
-type homeRow = Row[*dialog]
+type homeRow = row[*dialog]
 
 func toolsRows(d *dialog) []homeRow {
 	return []homeRow{databricksRow(d), tailscaleRow(), webSearchRow()}
@@ -163,7 +163,7 @@ func runCustomEnv(d *dialog) {
 		env := stagedCustomEnv(edits)
 		names := slices.Sorted(maps.Keys(env))
 		rows := customEnvRows(env, names)
-		idx, err := d.shell().PickPlain("environment — injected into every launch", rows)
+		idx, err := d.shell().pickPlain("environment — injected into every launch", rows)
 		if err != nil || idx < 0 || idx == len(rows)-1 {
 			return
 		}
@@ -204,7 +204,7 @@ func customEnvRows(env map[string]string, names []string) [][2]string {
 		}
 		rows = append(rows, [2]string{n, strings.TrimSpace(kind + "  " + shown)})
 	}
-	return append(rows, [2]string{"+ New", "NAME, then value, then plain or secret"}, EnterRow("save and go back"))
+	return append(rows, [2]string{"+ New", "NAME, then value, then plain or secret"}, enterRow("save and go back"))
 }
 
 // editCustomEnv reads one change (no confirmation): NAME for a new var, the value (empty deletes), then

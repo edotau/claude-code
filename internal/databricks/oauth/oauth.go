@@ -28,8 +28,8 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// ClientID is the public OAuth client id of the Databricks CLI (an identifier, not a secret).
-const ClientID = "databricks-cli"
+// clientID is the public OAuth client id of the Databricks CLI (an identifier, not a secret).
+const clientID = "databricks-cli"
 
 // RetryBackoff is the token-endpoint retry step (attempt × step); a var so tests can shorten it.
 var RetryBackoff = 500 * time.Millisecond
@@ -261,7 +261,7 @@ func RefreshU2M(ctx context.Context, host, refreshToken string) (Token, error) {
 		return Token{}, fmt.Errorf("oauth: refresh at %s: empty refresh token", h)
 	}
 	reply, err := postToken(ctx, tokenRequest{host: h, op: "refresh", form: url.Values{
-		"grant_type": {"refresh_token"}, "refresh_token": {refreshToken}, "client_id": {ClientID},
+		"grant_type": {"refresh_token"}, "refresh_token": {refreshToken}, "client_id": {clientID},
 	}})
 	if err != nil {
 		return Token{}, err
@@ -426,7 +426,7 @@ func (c *callback) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func authorizeURL(host, redirect, state, verifier string) string {
 	sum := sha256.Sum256([]byte(verifier))
 	return host + authorizePath + "?" + url.Values{
-		"client_id": {ClientID}, "response_type": {"code"}, "redirect_uri": {redirect}, "scope": {"all-apis offline_access"},
+		"client_id": {clientID}, "response_type": {"code"}, "redirect_uri": {redirect}, "scope": {"all-apis offline_access"},
 		"state": {state}, "code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])}, "code_challenge_method": {"S256"},
 	}.Encode()
 }
@@ -522,7 +522,7 @@ func serveCallback(ln *loopback, cb *callback) *http.Server {
 // exchangeCode trades the authorization code for tokens; a reply without a refresh token is an error.
 func exchangeCode(ctx context.Context, h, code, verifier, redirect string) (Token, error) {
 	reply, err := postToken(ctx, tokenRequest{host: h, op: "login", form: url.Values{
-		"grant_type": {"authorization_code"}, "client_id": {ClientID}, "code": {code},
+		"grant_type": {"authorization_code"}, "client_id": {clientID}, "code": {code},
 		"code_verifier": {verifier}, "redirect_uri": {redirect},
 	}})
 	if err != nil {

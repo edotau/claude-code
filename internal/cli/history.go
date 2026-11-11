@@ -141,7 +141,7 @@ func historySpec() *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{
 		"snapshot": {Flags: []helptext.Flag{{Name: "note"}}},
 		"log": {Flags: []helptext.Flag{{Name: "n"},
-			{Name: "format", Values: func() []string { return []string{helptext.Text, helptext.JSON} }}}},
+			helptext.CompletionFormatFlag()}},
 		"diff": {},
 	}}
 }

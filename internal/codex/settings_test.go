@@ -74,7 +74,7 @@ func TestUpdateCodexPreferencesWritesRecord(t *testing.T) {
 	if rec.Effort != "max" || rec.Profile != "chatgpt" || rec.Extras[extraVerbosity] != "high" {
 		t.Errorf("record after save = %+v, want effort max, profile kept, verbosity high moved in", rec)
 	}
-	if ov, err := LoadCodexOverlay(); err != nil || len(ov) != 0 {
+	if ov, err := readCodexOverlay(); err != nil || len(ov) != 0 {
 		t.Errorf("legacy overlay after save = %v (%v), want empty", ov, err)
 	}
 	if err := UpdateCodexPreferences(func(p map[string]string) map[string]string {
@@ -156,7 +156,7 @@ func assertCodexConfigHistoryEncrypted(t *testing.T, dir string, fixture []byte)
 
 func assertCodexRotatedContents(t *testing.T, path string, fixture []byte) {
 	t.Helper()
-	baseline, err := LoadCodexBaseline(path)
+	baseline, err := loadCodexBaseline(path)
 	if err != nil || !bytes.Equal(baseline, fixture) {
 		t.Fatalf("baseline did not survive rotation: %v", err)
 	}
@@ -200,7 +200,7 @@ func assertCodexHistoryOtherAndBaseline(t *testing.T, path, other string, fixtur
 	if err != nil || !found || !bytes.Equal(b.Data, fixture) || b.Existed || b.Path != other {
 		t.Fatalf("other path snapshot changed: found=%v, err=%v", found, err)
 	}
-	baseline, err := LoadCodexBaseline(path)
+	baseline, err := loadCodexBaseline(path)
 	if err != nil || !bytes.Equal(baseline, fixture) {
 		t.Fatalf("snapshot consumption changed baseline: %v", err)
 	}

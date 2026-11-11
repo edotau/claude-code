@@ -57,7 +57,7 @@ func TestSyncProjectsAgentsToEveryVendorAndLinksSkills(t *testing.T) {
 	}
 	assertAgentsProjectedEverywhere(t, home, claude, "unique-agent", "shared")
 	for link, dir := range map[string]string{"shared": "shared-skill", "real-only": "real-only"} {
-		dest, err := os.Readlink(filepath.Join(AgentsSkillsDir(home), link))
+		dest, err := os.Readlink(filepath.Join(agentsSkillsDir(home), link))
 		if err != nil || dest != filepath.Join(claude, "skills", dir) {
 			t.Errorf("~/.agents/skills/%s -> %q (%v), want %s", link, dest, err, filepath.Join(claude, "skills", dir))
 		}
@@ -362,7 +362,7 @@ func TestDiscoverSkillsSkipsSymlinkedDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	skills, err := DiscoverSkills(filepath.Join(claude, "skills"))
+	skills, err := discoverSkills(filepath.Join(claude, "skills"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,7 +383,7 @@ func TestSkillLinksRespectOwnership(t *testing.T) {
 	writeSource(t, claude, "skills", "mine-dir", "mine")
 	writeSource(t, claude, "skills", "foreign-dir", "foreign")
 	writeSource(t, claude, "skills", "moved-new", "moved")
-	agentsSkills := AgentsSkillsDir(home)
+	agentsSkills := agentsSkillsDir(home)
 	projectWriteFile(t, filepath.Join(agentsSkills, "mine", "SKILL.md"), "user's own copy\n")
 	vendor := filepath.Join(home, "vendor", "foreign")
 	projectWriteFile(t, filepath.Join(vendor, "SKILL.md"), "vendor copy\n")
@@ -416,7 +416,7 @@ func TestSkillLinksRespectOwnership(t *testing.T) {
 	assertFileContains(t, filepath.Join(agentsSkills, "mine", "SKILL.md"), "user's own copy")
 }
 
-// The gemini vendor pass links skills into agy's own GeminiSkillsDir, not just ~/.agents/skills.
+// The gemini vendor pass links skills into agy's own geminiSkillsDir, not just ~/.agents/skills.
 func TestGeminiVendorSyncLinksOwnSkillsDir(t *testing.T) {
 	home, claude := isolate(t)
 	writeSource(t, claude, "agents", "demo", "demo")
@@ -426,7 +426,7 @@ func TestGeminiVendorSyncLinksOwnSkillsDir(t *testing.T) {
 	if code := Sync(Options{Agent: "gemini", Out: &out}); code != 0 {
 		t.Fatalf("Sync exit = %d, want 0\n%s", code, out.String())
 	}
-	geminiSkills := GeminiSkillsDir(home)
+	geminiSkills := geminiSkillsDir(home)
 	if fi, err := os.Lstat(filepath.Join(geminiSkills, "mine")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("GeminiSkillsDir/mine not linked: %v", err)
 	}
@@ -605,7 +605,7 @@ func TestCheckBlockedByForeignEntryOnManagedName(t *testing.T) {
 	if code := Sync(Options{Check: true, Out: io.Discard}); code != 0 {
 		t.Fatalf("--check with a harmless foreign extra = %d, want 0", code)
 	}
-	link := filepath.Join(AgentsSkillsDir(home), "mine")
+	link := filepath.Join(agentsSkillsDir(home), "mine")
 	if err := os.Remove(link); err != nil {
 		t.Fatal(err)
 	}

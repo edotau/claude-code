@@ -134,7 +134,7 @@ func TestCheckAndPipedNeverOpenTheMenu(t *testing.T) {
 // name differs from the one already in effect; picking the current backend again must not re-pin it.
 //
 // This is the closest unit-level proof available for "picking claude pins only on an explicit backend
-// pick": runAgentMenu's picker is now the pickAgent seam (see agentmenu_test.go).
+// pick": runAgentMenu's picker is now the pickAgent seam (see agentmenu_page_test.go).
 func TestKeepOrPinWritesTheProviderPinOnlyOnAnExplicitDifferentPick(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())

@@ -172,7 +172,7 @@ func allLoginRow(d *dialog, s allRowStatus) allRowStatus {
 		return allRowStatus{Row: s.Row, Status: allError, Detail: "provider no longer registered"}
 	}
 	fmt.Fprintf(os.Stderr, "%s: login required. Log in now? [Y/n] ", s.Row)
-	if !Yes(d.br) {
+	if !yes(d.br) {
 		return s
 	}
 	ctx := context.Background()
@@ -188,7 +188,7 @@ func allLoginRow(d *dialog, s allRowStatus) allRowStatus {
 	st := allCheckOne(ctx, namedProvider(s.Row, cur))
 	if st.Status == allOK {
 		fmt.Fprintf(os.Stderr, "%s: pick models now? [Y/n] ", s.Row)
-		if Yes(d.br) {
+		if yes(d.br) {
 			offerModels(d, s.Row)
 		}
 	}

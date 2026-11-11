@@ -134,7 +134,7 @@ func (c proxyCall) sshLeg() (code int, ok bool) {
 	if !requestsType(c.args, "image/png") {
 		return 0, false
 	}
-	b, err := ReadSSH()
+	b, err := readSSH(sshSocket())
 	if err == nil {
 		_, err = c.stdout.Write(b)
 	}
@@ -151,7 +151,7 @@ func (c proxyCall) bmpLeg(reject bool) int {
 	}
 	b, err := captureWlPaste(c.real, c.env, c.args)
 	if err == nil {
-		err = Transcode(bytes.NewReader(b), c.stdout)
+		err = transcode(bytes.NewReader(b), c.stdout)
 	}
 	if err != nil {
 		fmt.Fprintf(c.stderr, "wl-paste: %v\n", err)
@@ -171,7 +171,7 @@ func (c proxyCall) pngLeg() int {
 	}
 	b, err := captureWlPaste(c.real, c.env, withType(c.args, "image/bmp"))
 	if err == nil {
-		err = TranscodePNG(bytes.NewReader(b), c.stdout) // decodeRaster runs before any write: no partial output
+		err = transcodePNG(bytes.NewReader(b), c.stdout) // decodeRaster runs before any write: no partial output
 	}
 	if err != nil {
 		fmt.Fprintf(c.stderr, "wl-paste: %v\n", err)
@@ -224,7 +224,7 @@ func findRealWlPaste() string {
 			dir = "."
 		}
 		c := filepath.Join(dir, "wl-paste")
-		if st, err := os.Stat(c); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 && proxyState(c) == ProxyForeign {
+		if st, err := os.Stat(c); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 && proxyState(c) == proxyForeign {
 			return c
 		}
 	}
@@ -258,55 +258,55 @@ func OnWSLKernel() bool {
 	return err == nil && strings.Contains(strings.ToLower(string(b)), "microsoft")
 }
 
-// ProxyPath is where the proxy lives: ~/.local/bin/wl-paste, ahead of /usr/bin on a normal PATH.
-func ProxyPath() string {
+// proxyPath is where the proxy lives: ~/.local/bin/wl-paste, ahead of /usr/bin on a normal PATH.
+func proxyPath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".local", "bin", "wl-paste")
 }
 
-// ProxyState is the proxy file's state at ProxyPath.
-type ProxyState int
+// proxyFileState is the proxy file's state at proxyPath.
+type proxyFileState int
 
 const (
-	ProxyAbsent  ProxyState = iota // nothing at the path
-	ProxyCurrent                   // byte-identical to the embedded script
-	ProxyStale                     // an older proxy version
-	ProxyForeign                   // some other file; never overwritten
+	proxyAbsent  proxyFileState = iota // nothing at the path
+	proxyCurrent                       // byte-identical to the embedded script
+	proxyStale                         // an older proxy version
+	proxyForeign                       // some other file; never overwritten
 )
 
 // proxyState classifies the file at path.
-func proxyState(path string) ProxyState {
+func proxyState(path string) proxyFileState {
 	b, err := os.ReadFile(path)
 	switch {
 	case os.IsNotExist(err):
-		return ProxyAbsent
+		return proxyAbsent
 	case err != nil:
-		return ProxyForeign // unreadable: never overwrite what we cannot identify
+		return proxyForeign // unreadable: never overwrite what we cannot identify
 	case bytes.Equal(b, ProxyScript):
-		return ProxyCurrent
+		return proxyCurrent
 	case bytes.Contains(b, []byte(proxyMarker)):
-		return ProxyStale
+		return proxyStale
 	default:
-		return ProxyForeign
+		return proxyForeign
 	}
 }
 
-// InstallProxy writes the wl-paste proxy to ProxyPath on WSL only; off WSL it is a silent no-op, and
+// InstallProxy writes the wl-paste proxy to proxyPath on WSL only; off WSL it is a silent no-op, and
 // a foreign file at the path is reported and left alone.
 func InstallProxy(w io.Writer, dryRun bool) error {
 	if !OnWSLKernel() {
 		return nil
 	}
-	return installProxyAt(w, ProxyPath(), dryRun)
+	return installProxyAt(w, proxyPath(), dryRun)
 }
 
 // installProxyAt is InstallProxy without the WSL gate, writing atomically to dest.
 func installProxyAt(w io.Writer, dest string, dryRun bool) error {
 	switch proxyState(dest) {
-	case ProxyCurrent:
+	case proxyCurrent:
 		fmt.Fprintf(w, "  %-17s %s\n", "ok", dest+" (current)")
 		return nil
-	case ProxyForeign:
+	case proxyForeign:
 		fmt.Fprintf(w, "  %-17s %s\n", "skip", dest+" is not the claude-code proxy; left alone")
 		return nil
 	}
@@ -330,14 +330,14 @@ func DoctorDetail() (ok bool, detail string) {
 	if !OnWSLKernel() {
 		return true, "not WSL (proxy not needed)"
 	}
-	dest := ProxyPath()
+	dest := proxyPath()
 	var base string
 	switch proxyState(dest) {
-	case ProxyAbsent:
+	case proxyAbsent:
 		return false, "absent: " + dest + " (run claude-code install)"
-	case ProxyForeign:
+	case proxyForeign:
 		return false, dest + " is not the proxy"
-	case ProxyStale:
+	case proxyStale:
 		return false, "stale proxy at " + dest + " (run claude-code install)"
 	default:
 		base = "proxy at " + dest + "; if paste fails, try claude-code clip"

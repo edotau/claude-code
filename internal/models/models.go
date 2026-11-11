@@ -163,7 +163,7 @@ const (
 	FamilyClaude Family = "claude"
 	FamilyGPT    Family = "gpt"
 	FamilyGemini Family = "gemini"
-	FamilyOther  Family = "other"
+	familyOther  Family = "other"
 )
 
 // legacyClaudeRE matches Claude ids the catalog and ParseClaudeID do not list (claude-3-7-sonnet, us.anthropic.claude-...).
@@ -196,7 +196,7 @@ func FamilyKind(id string) Family {
 	case strings.HasPrefix(n, "gemini-"):
 		return FamilyGemini
 	}
-	return FamilyOther
+	return familyOther
 }
 
 // IsOpenAIReasoning reports an OpenAI reasoning model (o-series, gpt-5 and newer) under any spelling or vendor prefix.
@@ -216,16 +216,16 @@ func ChatOnly(id string) bool {
 
 // Use-case labels, keyed to Anthropic's own alias wording on the Claude model comparison page.
 const (
-	UseFrontier  = "Frontier reasoning" // demanding reasoning and long-horizon agentic work
-	UseAgentic   = "Agentic coding"     // long-running agentic coding and knowledge work
-	UseBalanced  = "Balanced"           // best combination of speed and intelligence
-	UseHighVol   = "High volume"        // high-volume, latency-sensitive: classification, extraction, routing
-	UseAuto      = "Auto"
-	UseSpeech    = "Speech"
-	UseEmbedding = "Embeddings"
-	UseImage     = "Image"
-	UseVideo     = "Video"
-	UseGeneral   = "General"
+	useFrontier  = "Frontier reasoning" // demanding reasoning and long-horizon agentic work
+	useAgentic   = "Agentic coding"     // long-running agentic coding and knowledge work
+	useBalanced  = "Balanced"           // best combination of speed and intelligence
+	useHighVol   = "High volume"        // high-volume, latency-sensitive: classification, extraction, routing
+	useAuto      = "Auto"
+	useSpeech    = "Speech"
+	useEmbedding = "Embeddings"
+	useImage     = "Image"
+	useVideo     = "Video"
+	useGeneral   = "General"
 )
 
 // UseCase maps a model id (and optional display name) onto Anthropic's four aliases by family, or a
@@ -233,7 +233,7 @@ const (
 func UseCase(id, name string) string {
 	s := strings.ToLower(id + " " + name)
 	if id == "auto" {
-		return UseAuto
+		return useAuto
 	}
 	for _, k := range kindKeywords {
 		if containsAny(s, k.words...) {
@@ -249,7 +249,7 @@ func UseCase(id, name string) string {
 	case containsAny(s, "gpt", "o1", "o3", "o4"):
 		return gptUseCase(s)
 	default:
-		return UseGeneral
+		return useGeneral
 	}
 }
 
@@ -258,36 +258,36 @@ var kindKeywords = []struct {
 	use   string
 	words []string
 }{
-	{UseSpeech, []string{"whisper", "tts", "speech", "audio"}},
-	{UseEmbedding, []string{"embed"}},
-	{UseImage, []string{"dall-e", "dalle", "imagen", "image-gen", "-image"}},
-	{UseVideo, []string{"video", "veo"}},
+	{useSpeech, []string{"whisper", "tts", "speech", "audio"}},
+	{useEmbedding, []string{"embed"}},
+	{useImage, []string{"dall-e", "dalle", "imagen", "image-gen", "-image"}},
+	{useVideo, []string{"video", "veo"}},
 }
 
 // familyUse maps a Claude family onto its use-case label.
-var familyUse = map[string]string{Fable: UseFrontier, Opus: UseAgentic, Sonnet: UseBalanced, Haiku: UseHighVol}
+var familyUse = map[string]string{Fable: useFrontier, Opus: useAgentic, Sonnet: useBalanced, Haiku: useHighVol}
 
 func geminiUseCase(s string) string {
 	switch {
 	case containsAny(s, "flash-lite", "gemma", "nano"):
-		return UseHighVol
+		return useHighVol
 	case containsAny(s, "-pro"):
-		return UseAgentic
+		return useAgentic
 	case containsAny(s, "-flash"):
-		return UseBalanced
+		return useBalanced
 	default:
-		return UseGeneral
+		return useGeneral
 	}
 }
 
 func gptUseCase(s string) string {
 	switch {
 	case containsAny(s, "mini", "nano"):
-		return UseHighVol
+		return useHighVol
 	case containsAny(s, "o1", "o3", "o4") || containsAny(s, "-pro", "high"):
-		return UseFrontier
+		return useFrontier
 	default:
-		return UseAgentic
+		return useAgentic
 	}
 }
 
@@ -300,7 +300,7 @@ func containsAny(s string, subs ...string) bool {
 	return false
 }
 
-func inCatalog(canonical string) bool { _, ok := Lookup(canonical); return ok }
+func inCatalog(canonical string) bool { _, ok := lookup(canonical); return ok }
 
 // Effort tiers; router.EffortTierSignal returns them.
 const (

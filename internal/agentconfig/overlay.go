@@ -428,8 +428,8 @@ func refRule(ref string, route func(string) bool) error {
 	return nil
 }
 
-// OverlayDebugVar names the 0600 JSONL file RecordOverlayDebug appends to; unset (or no _SALT) records nothing.
-const OverlayDebugVar = "COWORKER_OVERLAY_DEBUG"
+// overlayDebugVar names the 0600 JSONL file RecordOverlayDebug appends to; unset (or no _SALT) records nothing.
+const overlayDebugVar = "COWORKER_OVERLAY_DEBUG"
 
 // OverlayDebugOn reports whether RecordOverlayDebug writes: COWORKER_OVERLAY_DEBUG and its _SALT are both set.
 func OverlayDebugOn() bool {
@@ -438,7 +438,7 @@ func OverlayDebugOn() bool {
 }
 
 func overlayDebugEnv() (path, salt string) {
-	return os.Getenv(OverlayDebugVar), os.Getenv(OverlayDebugVar + "_SALT")
+	return os.Getenv(overlayDebugVar), os.Getenv(overlayDebugVar + "_SALT")
 }
 
 type overlayDebugRecord struct {
@@ -457,16 +457,16 @@ func EnableOverlayDebug(path string) error {
 	if err != nil {
 		return err
 	}
-	if os.Getenv(OverlayDebugVar+"_SALT") == "" {
+	if os.Getenv(overlayDebugVar+"_SALT") == "" {
 		salt, err := overlayDebugSalt(abs + ".salt")
 		if err != nil {
 			return err
 		}
-		if err := os.Setenv(OverlayDebugVar+"_SALT", salt); err != nil {
+		if err := os.Setenv(overlayDebugVar+"_SALT", salt); err != nil {
 			return err
 		}
 	}
-	return os.Setenv(OverlayDebugVar, abs)
+	return os.Setenv(overlayDebugVar, abs)
 }
 
 // overlayDebugSalt reads the salt beside the log, or links a fully written one into place (the loser reads the winner's).
@@ -507,7 +507,7 @@ func RecordOverlayDebug(agentName string, env []string) {
 	if path == "" || salt == "" {
 		return
 	}
-	rec := overlayDebugRecord{Label: os.Getenv(OverlayDebugVar + "_LABEL"), Agent: agentName, PID: os.Getpid(), FP: map[string]string{}}
+	rec := overlayDebugRecord{Label: os.Getenv(overlayDebugVar + "_LABEL"), Agent: agentName, PID: os.Getpid(), FP: map[string]string{}}
 	m := hmac.New(sha256.New, []byte(salt)) // one MAC reused across names
 	for _, kv := range env {
 		name, val, _ := strings.Cut(kv, "=")

@@ -284,7 +284,7 @@ func pad(s string, n int) string {
 func TestDoctorJSONWriteError(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	orig := doctorChecks
-	doctorChecks = func() ([]Check, bool) { return []Check{{Name: "x", OK: true}}, true }
+	doctorChecks = func() ([]check, bool) { return []check{{Name: "x", OK: true}}, true }
 	t.Cleanup(func() { doctorChecks = orig })
 	hosttest.ClosedStdout(t)
 

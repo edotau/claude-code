@@ -103,13 +103,13 @@ func TestAgyArgvSettings(t *testing.T) {
 		want         []string
 		wantEmulated []string
 	}{
-		{"no record", nil, agent.RunOptions{}, slices.Concat([]string{"--model", AgyDefaultModel}, stream, []string{"-p="}), nil},
+		{"no record", nil, agent.RunOptions{}, slices.Concat([]string{"--model", agyDefaultModel}, stream, []string{"-p="}), nil},
 		{"record effort", high, agent.RunOptions{Model: "gemini-3.8-flash"},
 			slices.Concat([]string{"--model", "gemini-3.8-flash"}, stream, []string{"--effort", "high", "-p="}), nil},
 		{"flag over record", high, agent.RunOptions{Model: "gemini-3.8-flash", Effort: "low"},
 			slices.Concat([]string{"--model", "gemini-3.8-flash"}, stream, []string{"--effort", "low", "-p="}), nil},
-		{"suffixed model", high, agent.RunOptions{}, slices.Concat([]string{"--model", AgyDefaultModel}, stream, []string{"-p="}),
-			[]string{"effort high: model " + AgyDefaultModel + " carries its own"}},
+		{"suffixed model", high, agent.RunOptions{}, slices.Concat([]string{"--model", agyDefaultModel}, stream, []string{"-p="}),
+			[]string{"effort high: model " + agyDefaultModel + " carries its own"}},
 		{"settings before -p=", high, agent.RunOptions{Model: "gemini-3.8-flash", Tools: true, WorkDir: "/w", Permissions: deny},
 			slices.Concat([]string{"--model", "gemini-3.8-flash"}, stream,
 				[]string{"--dangerously-skip-permissions", "--effort", "high", "--settings", settings, "-p="}), nil},

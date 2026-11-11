@@ -64,14 +64,14 @@ func TestGradientLine(t *testing.T) {
 	git("add", "f")
 	git("commit", "-qm", "f")
 	const ctx = " | claude-opus-5-5 ~ ultra ~ ctx ━━━─────── 31% · 309.5k/1M 7d:15%"
-	if got := plain(Render([]byte(gradientPayload(repo)), "gradient")); !strings.HasSuffix(got, ctx) {
+	if got := plain(renderStatusline([]byte(gradientPayload(repo)), "gradient")); !strings.HasSuffix(got, ctx) {
 		t.Errorf("clean tree: %q must end %q (profile only, id without claude-)", got, ctx)
 	}
 	if err := os.WriteFile(filepath.Join(repo, "f"), []byte("a\nc\nd\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_ = os.RemoveAll(filepath.Dir(stampFile("velocity", "x"))) // drop the clean tree's cached velocity
-	if got := plain(Render([]byte(gradientPayload(repo)), "gradient")); !strings.HasSuffix(got, ctx+" | +2 -1") {
+	if got := plain(renderStatusline([]byte(gradientPayload(repo)), "gradient")); !strings.HasSuffix(got, ctx+" | +2 -1") {
 		t.Errorf("dirty tree: %q must end %q", got, ctx+" | +2 -1")
 	}
 }
@@ -82,14 +82,14 @@ func TestRawModelID(t *testing.T) {
 		"claude-opus-5-5": "claude-opus-5-5", "databricks-claude-opus-5-5": "databricks-opus-5-5",
 		"claude-opus-5-5[1m]": "claude-opus-5-5", "work:claude-opus-5-5": "claude-opus-5-5", "": "short",
 	} {
-		if got := rawModelID(Input{Model: struct {
+		if got := rawModelID(input{Model: struct {
 			ID          string `json:"id"`
 			DisplayName string `json:"display_name"`
 		}{ID: id}}, "short"); got != want {
 			t.Errorf("rawModelID(%q) = %q, want %q", id, got, want)
 		}
 	}
-	if got := rawModelID(Input{}, "opus ⇄acme"); got != "opus ⇄acme" {
+	if got := rawModelID(input{}, "opus ⇄acme"); got != "opus ⇄acme" {
 		t.Errorf("routed label replaced: %q", got)
 	}
 }
@@ -97,7 +97,7 @@ func TestRawModelID(t *testing.T) {
 // Empty bar cells take the separator dim, not the trough tone that all but vanished on the terminal background.
 func TestGradientEmptyCellsVisible(t *testing.T) {
 	hermetic(t)
-	line := Render([]byte(gradientPayload(t.TempDir())), "gradient")
+	line := renderStatusline([]byte(gradientPayload(t.TempDir())), "gradient")
 	sep := line[:strings.Index(line, "|")]
 	dimSGR := sep[strings.LastIndex(sep, "\x1b["):]
 	if strings.Count(line, dimSGR+"─") != 7 {
@@ -110,10 +110,10 @@ func TestGradientWrapsWholeSegments(t *testing.T) {
 	hermetic(t)
 	const dir = "/statusline-fixture"
 	t.Setenv("COLUMNS", "300")
-	wide := plain(Render([]byte(gradientPayload(dir)), "gradient"))
+	wide := plain(renderStatusline([]byte(gradientPayload(dir)), "gradient"))
 	for _, cols := range []int{40, 65, 80} {
 		t.Setenv("COLUMNS", strconv.Itoa(cols))
-		lines := strings.Split(plain(Render([]byte(gradientPayload(dir)), "gradient")), "\n")
+		lines := strings.Split(plain(renderStatusline([]byte(gradientPayload(dir)), "gradient")), "\n")
 		if len(lines) < 2 {
 			t.Fatalf("%d cols: want a wrap, got %q", cols, lines)
 		}
@@ -177,14 +177,14 @@ func TestGradientModelProfileAuthOrder(t *testing.T) {
 	writeTokenExpiryMethod(t, "dbx-sp", time.Now().Add(42*time.Minute+30*time.Second), "m2m")
 	payload := `{"cwd":"` + t.TempDir() + `","model":{"id":"databricks-claude-opus-5-5"},` +
 		`"context_window":{"used_percentage":31,"context_window_size":1000000,"total_input_tokens":309500}}`
-	got := plain(Render([]byte(payload), "gradient"))
+	got := plain(renderStatusline([]byte(payload), "gradient"))
 	if !strings.Contains(got, " | databricks-opus-5-5 ~ dbx-sp ~ ") || !strings.Contains(got, " 309.5k/1M · m2m:42m") {
 		t.Errorf("%q: want model · profile, then the countdown ending the context block", got)
 	}
 	if strings.Count(got, "m2m:") != 1 {
 		t.Errorf("%q: countdown must show once", got)
 	}
-	noCtx := plain(Render([]byte(`{"cwd":"`+t.TempDir()+`","model":{"id":"databricks-claude-opus-5-5"}}`), "gradient"))
+	noCtx := plain(renderStatusline([]byte(`{"cwd":"`+t.TempDir()+`","model":{"id":"databricks-claude-opus-5-5"}}`), "gradient"))
 	if !strings.Contains(noCtx, " | databricks-opus-5-5 ~ dbx-sp ~ m2m:42m") {
 		t.Errorf("%q: with no context block the countdown follows the profile", noCtx)
 	}

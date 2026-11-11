@@ -102,7 +102,7 @@ func TestScreenCheckoutsStopsOnTargetMismatch(t *testing.T) {
 		t.Fatalf("branch screen did not preserve target and issue: %+v", plan)
 	}
 	issue := plan.Issues[0]
-	if issue.Code != IssueTargetMismatch || !strings.Contains(issue.Detail, `requested target was "release"`) {
+	if issue.Code != issueTargetMismatch || !strings.Contains(issue.Detail, `requested target was "release"`) {
 		t.Fatalf("issue = %+v, want requested-target mismatch", issue)
 	}
 	if plan.TargetOID != "" || plan.SourceOID != "" {
@@ -242,7 +242,7 @@ func TestPreflightDirtyTarget(t *testing.T) {
 
 func assertDirtyTargetIssue(t *testing.T, plan *MergePlan, path string) {
 	t.Helper()
-	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueDirtyTarget {
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueDirtyTarget {
 		t.Fatalf("Issues = %v, want one IssueDirtyTarget", plan.Issues)
 	}
 	issue := plan.Issues[0]
@@ -318,7 +318,7 @@ func TestPreflightDirtyWorktreeWithShowUntrackedFilesOff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueDirtyWorktree {
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueDirtyWorktree {
 		t.Fatalf("Issues = %v, want one IssueDirtyWorktree (an untracked file must still count as dirty)", plan.Issues)
 	}
 }
@@ -334,7 +334,7 @@ func TestPreflightDirtyWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueDirtyWorktree {
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueDirtyWorktree {
 		t.Fatalf("Issues = %v, want one IssueDirtyWorktree", plan.Issues)
 	}
 }
@@ -349,7 +349,7 @@ func TestPreflightDetachedTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueDetachedTarget {
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueDetachedTarget {
 		t.Fatalf("Issues = %v, want one IssueDetachedTarget", plan.Issues)
 	}
 }
@@ -362,7 +362,7 @@ func TestPreflightTargetMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueTargetMismatch {
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueTargetMismatch {
 		t.Fatalf("Issues = %v, want one IssueTargetMismatch", plan.Issues)
 	}
 }
@@ -385,7 +385,7 @@ func TestPreflightInProgressOperation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueInProgress {
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueInProgress {
 		t.Fatalf("Issues = %v, want one IssueInProgress", plan.Issues)
 	}
 }
@@ -401,7 +401,7 @@ func TestPreflightUnrelatedHistories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueUnrelatedHistories {
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueUnrelatedHistories {
 		t.Fatalf("Issues = %v, want one IssueUnrelatedHistories", plan.Issues)
 	}
 }
@@ -458,7 +458,7 @@ func TestSimulateMergeUnsupportedGit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueCapability {
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueCapability {
 		t.Fatalf("Issues = %v, want one IssueCapability", plan.Issues)
 	}
 }

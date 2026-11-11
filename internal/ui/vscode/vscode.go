@@ -19,25 +19,25 @@ import (
 // lockWait bounds the wait for a sibling invocation; past the budget the merge errors rather than hang.
 const lockWait = 5 * time.Second
 
-// BeforeWrite is a test seam: it runs inside the lock, immediately before the staleness re-check, so
+// beforeWrite is a test seam: it runs inside the lock, immediately before the staleness re-check, so
 // a foreign save landing in that window can be observed deterministically.
-var BeforeWrite func(dest string)
+var beforeWrite func(dest string)
 
-// Result is what one merge attempt produced.
-type Result struct {
+// mergeResult is what one merge attempt produced.
+type mergeResult struct {
 	Changed bool
 	Backup  string
 }
 
-// Sync renders template with __CLAUDE_HOME__/__CLAUDE_BIN__ expanded, then merges it into dest.
+// syncSettings renders template with __CLAUDE_HOME__/__CLAUDE_BIN__ expanded, then merges it into dest.
 // check=true never writes — --check (drift probe) and --dry-run (preview) both pass it; the caller
 // tells them apart by message and exit code.
-func Sync(template, dest, claudeHome, claudeBin string, check bool) (Result, error) {
+func syncSettings(template, dest, claudeHome, claudeBin string, check bool) (mergeResult, error) {
 	rawTemplate := defaultTemplate // the embedded template ships with the binary; --template overrides it
 	if template != "" {
 		b, err := os.ReadFile(template)
 		if err != nil {
-			return Result{}, err
+			return mergeResult{}, err
 		}
 		rawTemplate = b
 	}
@@ -45,7 +45,7 @@ func Sync(template, dest, claudeHome, claudeBin string, check bool) (Result, err
 	rendered = strings.ReplaceAll(rendered, "__CLAUDE_BIN__", jsonEscape(claudeBin))
 	var overlay map[string]any
 	if err := json.Unmarshal(textutil.StripJSONC([]byte(rendered)), &overlay); err != nil {
-		return Result{}, fmt.Errorf("template: %w", err)
+		return mergeResult{}, fmt.Errorf("template: %w", err)
 	}
 
 	if check {
@@ -54,10 +54,10 @@ func Sync(template, dest, claudeHome, claudeBin string, check bool) (Result, err
 	}
 	// Read -> backup -> write is ONE critical section, serialized against a sibling invocation. The lock
 	// lives in harness state, never beside VS Code's own file.
-	var result Result
+	var result mergeResult
 	lock := filepath.Join(paths.StateDir(), "vscode.lock")
 	if err := os.MkdirAll(filepath.Dir(lock), 0o700); err != nil {
-		return Result{}, err
+		return mergeResult{}, err
 	}
 	ran, err := paths.TryFileLock(lock, lockWait, func() error {
 		r, mergeErr := merge(dest, overlay, claudeBin+"/claude", false)
@@ -65,19 +65,19 @@ func Sync(template, dest, claudeHome, claudeBin string, check bool) (Result, err
 		return mergeErr
 	})
 	if !ran && err != nil {
-		return Result{}, fmt.Errorf("vscode: lock %s: %w", lock, err)
+		return mergeResult{}, fmt.Errorf("vscode: lock %s: %w", lock, err)
 	}
 	if !ran {
-		return Result{}, fmt.Errorf("vscode: could not acquire a lock on %s within %s", dest, lockWait)
+		return mergeResult{}, fmt.Errorf("vscode: could not acquire a lock on %s within %s", dest, lockWait)
 	}
 	return result, err
 }
 
-func merge(dest string, overlay map[string]any, claudeWrapper string, check bool) (Result, error) {
+func merge(dest string, overlay map[string]any, claudeWrapper string, check bool) (mergeResult, error) {
 	base := map[string]any{}
 	rawBase, err := readBase(dest, "settings", &base)
 	if err != nil {
-		return Result{}, err
+		return mergeResult{}, err
 	}
 	merged := cloneMap(base)
 	if base["claudeCode.claudeProcessWrapper"] == claudeWrapper {
@@ -85,14 +85,14 @@ func merge(dest string, overlay map[string]any, claudeWrapper string, check bool
 	}
 	mergeInto(merged, overlay)
 	if reflect.DeepEqual(base, merged) {
-		return Result{}, nil
+		return mergeResult{}, nil
 	}
 	if check {
-		return Result{Changed: true}, nil
+		return mergeResult{Changed: true}, nil
 	}
 	body, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
-		return Result{}, err
+		return mergeResult{}, err
 	}
 	body = append(body, '\n')
 	return writeGuarded(dest, "settings", rawBase, body)
@@ -119,19 +119,19 @@ func readBase(dest, label string, into any) ([]byte, error) {
 }
 
 // writeGuarded backs dest up and atomically replaces it with body, but only while rawBase is still on disk.
-func writeGuarded(dest, label string, rawBase, body []byte) (Result, error) {
+func writeGuarded(dest, label string, rawBase, body []byte) (mergeResult, error) {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return Result{}, err
+		return mergeResult{}, err
 	}
-	if BeforeWrite != nil {
-		BeforeWrite(dest)
+	if beforeWrite != nil {
+		beforeWrite(dest)
 	}
 	// VS Code takes no lock of ours: write only while the merged bytes are still on disk (missing reads as nil).
 	backup, err := paths.WriteIfUnchanged(dest, rawBase, body, 0o600, label)
 	if err != nil {
-		return Result{Backup: backup}, err
+		return mergeResult{Backup: backup}, err
 	}
-	return Result{Changed: true, Backup: backup}, nil
+	return mergeResult{Changed: true, Backup: backup}, nil
 }
 
 func cloneMap(in map[string]any) map[string]any {
@@ -165,26 +165,26 @@ func mergeInto(base, overlay map[string]any) {
 //go:embed machine-settings.template.json
 var defaultTemplate []byte
 
-// SyncOptions are `theme vscode`'s paths; an empty field resolves to the platform default.
-type SyncOptions struct {
+// syncOptions are `theme vscode`'s paths; an empty field resolves to the platform default.
+type syncOptions struct {
 	Template, Dest, ExtensionsDir, KeybindingsTemplate, KeybindingsDest string
 	Check                                                               bool // never write (--check and --dry-run)
 }
 
-// Outcome is one sync run's results: settings template, keybindings and extension link.
-type Outcome struct {
+// outcome is one sync run's results: settings template, keybindings and extension link.
+type outcome struct {
 	DestPath   string
-	Result     Result
+	Result     mergeResult
 	KbDestPath string
 	Skip       bool // keybindings were not synced; Note says why
 	Note       string
-	KbResult   Result
-	ExtResult  ExtensionResult
+	KbResult   mergeResult
+	ExtResult  extensionResult
 }
 
-// SyncAll merges the settings and keybindings templates and links the Agents extension.
-func SyncAll(o SyncOptions) (Outcome, error) {
-	out := Outcome{DestPath: o.Dest}
+// syncAll merges the settings and keybindings templates and links the Agents extension.
+func syncAll(o syncOptions) (outcome, error) {
+	out := outcome{DestPath: o.Dest}
 	if o.Dest == "" {
 		p, err := paths.VSCodeSettings()
 		if err != nil {
@@ -193,24 +193,24 @@ func SyncAll(o SyncOptions) (Outcome, error) {
 		out.DestPath = p
 	}
 	var err error
-	if out.Result, err = Sync(o.Template, out.DestPath, paths.ConfigDir(), paths.BinDir(), o.Check); err != nil {
+	if out.Result, err = syncSettings(o.Template, out.DestPath, paths.ConfigDir(), paths.BinDir(), o.Check); err != nil {
 		return out, err
 	}
 	if out.KbDestPath, out.Skip, out.Note, err = resolveKeybindingsDest(o.KeybindingsDest, o.Dest, out.DestPath); err != nil {
 		return out, err
 	}
 	if !out.Skip {
-		if out.KbResult, err = SyncKeybindings(o.KeybindingsTemplate, out.KbDestPath, o.Check); err != nil {
+		if out.KbResult, err = syncKeybindings(o.KeybindingsTemplate, out.KbDestPath, o.Check); err != nil {
 			return out, err
 		}
 	}
 	extDir := o.ExtensionsDir
 	if extDir == "" {
-		if extDir, err = DefaultExtensionsDir(); err != nil {
+		if extDir, err = defaultExtensionsDir(); err != nil {
 			return out, err
 		}
 	}
-	out.ExtResult, err = LinkExtension(paths.ConfigDir(), extDir, o.Check)
+	out.ExtResult, err = linkExtension(paths.ConfigDir(), extDir, o.Check)
 	return out, err
 }
 
@@ -223,6 +223,6 @@ func resolveKeybindingsDest(kbDest, dest, destPath string) (path string, skip bo
 	case dest != "":
 		return filepath.Join(filepath.Dir(destPath), "keybindings.json"), false, "", nil
 	default:
-		return DefaultKeybindingsDest()
+		return defaultKeybindingsDest()
 	}
 }

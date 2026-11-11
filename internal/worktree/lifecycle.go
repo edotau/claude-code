@@ -27,7 +27,7 @@ func Create(repo *Repo, name string, opt CreateOptions) (string, error) {
 	if log == nil {
 		log = io.Discard
 	}
-	dest, err := ResolveWorktree(repo, name)
+	dest, err := resolveWorktreeBounded(repo, name)
 	if err != nil {
 		return "", err
 	}
@@ -35,7 +35,7 @@ func Create(repo *Repo, name string, opt CreateOptions) (string, error) {
 		if err := resumeLedger(repo, name, dest, opt.Session); err != nil {
 			fmt.Fprintf(log, "worktree-create: warning: ledger: %v\n", err)
 		}
-		return dest, nil // `--worktree <name>` again resumes the existing checkout; ResolveWorktree already verified it's ours
+		return dest, nil // `--worktree <name>` again resumes the existing checkout; resolveWorktreeBounded already verified it's ours
 	}
 	branch, err := createBranchName(name, opt.Branch)
 	if err != nil {
@@ -54,7 +54,7 @@ func Create(repo *Repo, name string, opt CreateOptions) (string, error) {
 	seedWorktree(repo.Main, dest, log)
 	if baseErr != nil {
 		fmt.Fprintf(log, "worktree-create: warning: ledger: resolve base: %v\n", baseErr)
-	} else if err := openLedger(repo.Main, name, LedgerInfo{
+	} else if err := openLedger(repo.Main, name, ledgerInfo{
 		Path: dest, Branch: branch, Base: strings.TrimSpace(string(base)), BaseRef: baseRef, Session: opt.Session,
 	}); err != nil {
 		fmt.Fprintf(log, "worktree-create: warning: ledger: %v\n", err)
@@ -158,7 +158,7 @@ type CleanResult struct {
 }
 
 // Clean removes name's worktree only after a live recheck confirms it is unlocked, clean, merged and
-// owned by repo (ResolveWorktree's collision check); it never forces removal, and keeps the branch
+// owned by repo (resolveWorktree's collision check); it never forces removal, and keeps the branch
 // unless a safe `branch -d` succeeds. dryRun runs the same recheck and reports the verdict only. The
 // whole recheck-and-remove runs under the per-worktree lease (WithWorktreeLease), so it can never
 // interleave with an active resolve or merge on the same worktree.
@@ -170,7 +170,7 @@ func Clean(repo *Repo, name string, dryRun bool) (CleanResult, error) {
 func cleanWithLog(repo *Repo, name string, dryRun bool, log io.Writer) (CleanResult, error) {
 	var result CleanResult
 	err := WithWorktreeLease(repo, name, func() error {
-		dest, err := ResolveWorktree(repo, name)
+		dest, err := resolveWorktreeBounded(repo, name)
 		if err != nil {
 			return err
 		}
@@ -394,7 +394,7 @@ func cleanForceWithLog(repo *Repo, name string, dryRun bool, report func(Discard
 }
 
 func cleanForceInLease(repo *Repo, name string, dryRun bool, report func(DiscardSummary), log io.Writer) (CleanResult, error) {
-	dest, err := ResolveWorktree(repo, name) // refuses traversal, symlinks, foreign dirs, a root inside Main
+	dest, err := resolveWorktreeBounded(repo, name) // refuses traversal, symlinks, foreign dirs, a root inside Main
 	if err != nil {
 		return CleanResult{}, err
 	}

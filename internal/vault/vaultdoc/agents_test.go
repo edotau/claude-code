@@ -34,7 +34,7 @@ func editRecords(t *testing.T, raw []byte, edit func(map[string]any)) []byte {
 	})
 }
 
-// Records appear under agents.records beside the overlay, an unchanged Import writes nothing, and edits land in the records.
+// Records appear under agents.records beside the overlay, an unchanged importDoc writes nothing, and edits land in the records.
 func TestExportImportAgentRecords(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"opencode":{"launch":{"env":["X=1"]}}}}`)
@@ -48,7 +48,7 @@ func TestExportImportAgentRecords(t *testing.T) {
 		recs["codex"] = map[string]any{"profile": "openai", "model": "m1"}
 		recs["copilot"] = map[string]any{"profile": "personal", "effort": "high"}
 	})
-	if _, err := Import(orig, edited); err != nil {
+	if _, err := importDoc(orig, edited); err != nil {
 		t.Fatal(err)
 	}
 	assertRecordEditsLanded(t)
@@ -70,7 +70,7 @@ func assertExportShowsRecords(t *testing.T, orig []byte) {
 func assertUnchangedImportIsNoop(t *testing.T, orig []byte) {
 	t.Helper()
 	before := vaultTestState(t)
-	if _, err := Import(orig, orig); err != nil || !reflect.DeepEqual(vaultTestState(t), before) {
+	if _, err := importDoc(orig, orig); err != nil || !reflect.DeepEqual(vaultTestState(t), before) {
 		t.Fatalf("unchanged Import err=%v, vault changed=%v", err, !reflect.DeepEqual(vaultTestState(t), before))
 	}
 }
@@ -98,7 +98,7 @@ func TestImportAgentRecordsValidation(t *testing.T) {
 		"unknown field": func(r map[string]any) { r["codex"] = map[string]any{"colour": "x"} },
 	} {
 		before := vaultTestState(t)
-		if _, err := Import(orig, editRecords(t, orig, edit)); err == nil || !strings.Contains(err.Error(), "agents.records") {
+		if _, err := importDoc(orig, editRecords(t, orig, edit)); err == nil || !strings.Contains(err.Error(), "agents.records") {
 			t.Errorf("%s: err = %v, want an agents.records error", name, err)
 		}
 		if !reflect.DeepEqual(vaultTestState(t), before) {
@@ -129,7 +129,7 @@ func TestImportRefusesInvalidAgentRecord(t *testing.T) {
 				t.Fatal(err)
 			}
 			orig := exportTestDoc(t)
-			warnings, err := Import(orig, editRecords(t, orig, func(recs map[string]any) {
+			warnings, err := importDoc(orig, editRecords(t, orig, func(recs map[string]any) {
 				recs[c.agent] = c.rec
 				recs["copilot"] = map[string]any{"effort": "high"}
 			}))

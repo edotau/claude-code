@@ -157,7 +157,7 @@ func copilotLogin(model, login string, h *agent.Headless) ([]string, []string, e
 		model = ""
 	}
 	env := []string{"COPILOT_MODEL=" + model, proc.EnvCopilotProviderBaseURL + "=", "COPILOT_OFFLINE=", proc.EnvCopilotProvidersConfig + "="}
-	tok, err := CopilotLaunchTokenFor(login)
+	tok, err := copilotLaunchTokenFor(login)
 	if err != nil {
 		return nil, nil, err
 	}

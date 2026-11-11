@@ -12,7 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// cmdClip saves the Windows clipboard image as a PNG and prints its WSL path, for @-reference when
+// cmdClip saves the clipboard image (macOS, WSL) as a PNG and prints its path, for @-reference when
 // WSL2 Ctrl+V image paste fails on the bridged BMP.
 func cmdClip(args []string) int {
 	fs := helptext.NewFlagSet("clip", helptext.Page{

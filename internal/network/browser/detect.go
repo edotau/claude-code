@@ -17,7 +17,7 @@ import (
 func Detect(env Env) Report {
 	env.gui = sync.OnceValue(func() string { return guiState(env) }) // one System Events probe per Detect
 	env.cdpListen = sync.OnceValue(func() string { return cdpListener(env) })
-	browsers := make([]Browser, 0, len(knownBrowsers))
+	browsers := make([]browser, 0, len(knownBrowsers))
 	for _, s := range knownBrowsers {
 		browsers = append(browsers, detectOne(env, s))
 	}
@@ -31,8 +31,8 @@ func Detect(env Env) Report {
 }
 
 // detectOne builds one browser's full result: identity, install state, then its control paths.
-func detectOne(env Env, s spec) Browser {
-	b := Browser{Name: s.name, DisplayName: s.displayName, Family: s.family}
+func detectOne(env Env, s spec) browser {
+	b := browser{Name: s.name, DisplayName: s.displayName, Family: s.family}
 	if env.WSL && winExePath(env, s.name) != "" { // WSL: the Windows host's browser, reached over CDP
 		detectWindows(env, s, &b)
 		return b
@@ -54,7 +54,7 @@ func detectOne(env Env, s spec) Browser {
 }
 
 // detectFamily fills the host and control paths for an installed browser by its family.
-func detectFamily(env Env, s spec, b *Browser) {
+func detectFamily(env Env, s spec, b *browser) {
 	switch s.family {
 	case familyChromium:
 		detectChromium(env, s, b)
@@ -65,7 +65,7 @@ func detectFamily(env Env, s spec, b *Browser) {
 	}
 }
 
-func stubUnsupported(b Browser) Browser {
+func stubUnsupported(b browser) browser {
 	b.Host = stateUnsupported
 	b.Paths = controlPaths{
 		Extension: stateUnsupported, CDP: stateUnsupported, WebDriver: stateUnsupported, GUI: stateUnsupported,
@@ -73,7 +73,7 @@ func stubUnsupported(b Browser) Browser {
 	return b
 }
 
-func stubNotInstalled(b Browser) Browser {
+func stubNotInstalled(b browser) browser {
 	b.Host = stateNotInstalled
 	b.Paths = controlPaths{
 		Extension: stateNotInstalled, CDP: stateNotInstalled, WebDriver: stateNotInstalled, GUI: stateNotInstalled,
@@ -102,7 +102,7 @@ func isInstalled(env Env, s spec) bool {
 }
 
 // detectChromium fills in a Chromium-family browser's host, profiles, and the four control paths.
-func detectChromium(env Env, s spec, b *Browser) {
+func detectChromium(env Env, s spec, b *browser) {
 	supportDir := appSupportPath(env, s)
 	b.Profiles = detectProfiles(supportDir)
 	if checkHost(supportDir) {
@@ -204,7 +204,7 @@ func rollupExtension(profiles []profile) string {
 	return stateNoExtension
 }
 
-func detectSafari(env Env, b *Browser) {
+func detectSafari(env Env, b *browser) {
 	b.Host = stateUnsupported
 	b.Paths = controlPaths{
 		Extension: stateUnsupported,
@@ -223,7 +223,7 @@ func safariWebDriverState(env Env) string {
 	return stateDisabled
 }
 
-func detectFirefox(env Env, b *Browser) {
+func detectFirefox(env Env, b *browser) {
 	b.Host = stateUnsupported
 	b.Paths = controlPaths{
 		Extension: stateUnsupported,

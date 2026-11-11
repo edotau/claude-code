@@ -366,7 +366,7 @@ type extractResponse struct {
 	} `json:"failed_results"`
 }
 
-// tavilyExtract is the HTTP seam for Extract; tests swap it to avoid the network.
+// tavilyExtract is the HTTP seam for extractURLs; tests swap it to avoid the network.
 var tavilyExtract = postTavilyExtract
 
 func postTavilyExtract(ctx context.Context, apiKey string, urls []string, depth string) (extractResponse, error) {
@@ -531,8 +531,8 @@ func renderExtract(ctx context.Context, urls []string) (string, int, error) {
 	return sb.String(), ok, nil
 }
 
-// Extract prints renderExtract's `# <url>` blocks to stdout. Exit 1 when every URL failed, else 0.
-func Extract(ctx context.Context, urls []string) int {
+// extractURLs prints renderExtract's `# <url>` blocks to stdout. Exit 1 when every URL failed, else 0.
+func extractURLs(ctx context.Context, urls []string) int {
 	text, ok, err := renderExtract(ctx, urls)
 	if err != nil {
 		return helptext.Fail("network websearch --extract: %v", err)

@@ -75,7 +75,7 @@ func resolveSetupName(env Env, name string) (string, error) {
 	return b.Name, nil
 }
 
-func missingHostAction(b Browser) action {
+func missingHostAction(b browser) action {
 	return action{
 		Kind: "missing-host",
 		Description: fmt.Sprintf(
@@ -85,7 +85,7 @@ func missingHostAction(b Browser) action {
 	}
 }
 
-func enableExtensionAction(b Browser) action {
+func enableExtensionAction(b browser) action {
 	return action{
 		Kind: "enable-extension",
 		Description: fmt.Sprintf("The extension is installed but disabled in %s — enable it from its extensions page.",
@@ -94,7 +94,7 @@ func enableExtensionAction(b Browser) action {
 }
 
 // installExtensionAction opens the Web Store page: macOS `open -b <bundle>` targets the browser, else the default.
-func installExtensionAction(env Env, b Browser) action {
+func installExtensionAction(env Env, b browser) action {
 	cmd := []string{"open", "-b", b.BundleID, webStoreURL}
 	if env.goos() != "darwin" {
 		cmd = []string{proc.Opener(), webStoreURL}

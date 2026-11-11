@@ -68,8 +68,8 @@ type Pong struct {
 	Err                             string
 }
 
-// Line is the row, at most 80 columns.
-func (p Pong) Line() string {
+// line is the row, at most 80 columns.
+func (p Pong) line() string {
 	state := "ok"
 	if !p.OK {
 		state = "fail · " + cmp.Or(p.Err, "unknown")
@@ -114,7 +114,7 @@ func LivePongs(ctx context.Context, bin string, ps []Pin) []Pong {
 func livePins(ps []Pin) []Pin {
 	var live []Pin
 	for _, p := range ps {
-		if p.Status != StatusUnpinned && p.Served != "no" && !strings.HasPrefix(p.Detail, "no credential") {
+		if p.Status != statusUnpinned && p.Served != "no" && !strings.HasPrefix(p.Detail, "no credential") {
 			live = append(live, p)
 		}
 	}
@@ -198,7 +198,7 @@ func RunInstallStep(ctx context.Context, w io.Writer, reg *providers.Registry, b
 	defer cancel()
 	pongs := pongAll(ctx, bin, livePins(ps), "", func(a string) time.Time { return pongStart.Add(pongCap(a)) })
 	for _, r := range pongs {
-		fmt.Fprintln(w, r.Line())
+		fmt.Fprintln(w, r.line())
 	}
 	printFixRows(w, ps)
 	return pongs
@@ -240,7 +240,7 @@ func RunProfilePongs(ctx context.Context, w io.Writer, reg *providers.Registry, 
 			ps = append(ps, Pin{Agent: a, Profile: n})
 		}
 		for _, r := range pongAll(pctx, bin, ps, n, nil) {
-			fmt.Fprintln(w, r.Line())
+			fmt.Fprintln(w, r.line())
 			all = append(all, r)
 		}
 		cancel()

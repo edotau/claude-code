@@ -71,7 +71,7 @@ func runCodexSettingsMenu(d *dialog, ov, live map[string]string) bool {
 	fields := codex.CodexFields()
 	for {
 		rows := codexSettingRows(fields, ov, next, live)
-		idx, err := d.shell().PickPlain("Codex settings", rows)
+		idx, err := d.shell().pickPlain("Codex settings", rows)
 		if err != nil {
 			d.printf("codex: %v\n", err)
 			return false

@@ -23,7 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// errChanged reports that the vault moved between Export and Import; Import wrote nothing.
+// errChanged reports that the vault moved between Export and importDoc; importDoc wrote nothing.
 var errChanged = errors.New("vault changed while you edited; nothing saved")
 
 // Doc is the editable, non-secret vault view: secrets and overlay/providers.prev never appear (D-a).
@@ -61,7 +61,7 @@ func docFrom(t *vault.Tx) (Doc, error) {
 	return d, nil
 }
 
-// render is the canonical doc bytes Import compares against.
+// render is the canonical doc bytes importDoc compares against.
 func render(d Doc) ([]byte, error) {
 	b, err := json.MarshalIndent(d, "", "  ")
 	if err != nil {
@@ -86,7 +86,7 @@ func Export() ([]byte, error) {
 // docSchema is the newest doc shape this build reads; Export does not stamp it, a hand-added "schema" is checked.
 const docSchema = 1
 
-// docKeys are the top-level keys Import reads; "$schema" is an editor hint, any other key is reported and ignored.
+// docKeys are the top-level keys importDoc reads; "$schema" is an editor hint, any other key is reported and ignored.
 var docKeys = []string{"schema", "$schema", "pins", "env", "providers", "agents", "settings", "vault"}
 
 // parsed is an edited doc decoded entry by entry: what applies, the paths that keep their stored value, the warnings.
@@ -348,8 +348,8 @@ func applyOverlaySection(t *vault.Tx, name string, oldRaw, nextRaw json.RawMessa
 	return t.Put(vault.Overlay, name, stored)
 }
 
-// Import applies each entry that parses (R11: one tx, vault equal to orig), warning per bad one; none applied errs.
-func Import(orig, edited []byte) (warnings []string, err error) {
+// importDoc applies each entry that parses (R11: one tx, vault equal to orig), warning per bad one; none applied errs.
+func importDoc(orig, edited []byte) (warnings []string, err error) {
 	top, err := decodeTop(edited)
 	if err != nil {
 		return nil, err
@@ -519,7 +519,7 @@ var confirmEdit = func(q string) bool { return tui.ConfirmKey(q, true) }
 
 // Edit opens the non-secret config in $VISUAL/$EDITOR via a 0600 temp file and imports it; the file is always removed.
 func Edit(stdout, stderr io.Writer) error {
-	// Migrate first: Import's write migrates, so an unmigrated export would always read as "vault changed".
+	// Migrate first: importDoc's write migrates, so an unmigrated export would always read as "vault changed".
 	if err := vault.Update(func(*vault.Tx) error { return nil }); err != nil {
 		return err
 	}
@@ -600,7 +600,7 @@ func runEditor(argv []string, file string) error {
 
 // importEdited imports the edited doc; retry is true only when the import failed and the user chose to re-edit.
 func importEdited(stdout, stderr io.Writer, orig, edited []byte) (retry bool, err error) {
-	warnings, err := Import(orig, edited)
+	warnings, err := importDoc(orig, edited)
 	if err == nil {
 		for _, w := range warnings {
 			fmt.Fprintln(stderr, "warning:", w)

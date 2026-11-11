@@ -187,12 +187,12 @@ func runGithub(d *dialog) bool {
 // githubMenu loops a status report + action picker until Back/Esc; each action re-checks live state
 // before the next render, so a login that just succeeded shows "present" immediately.
 func githubMenu(d *dialog) bool {
-	login := func(name, detail, label string, argv ...string) ShellRow {
-		return ShellRow{Name: name, Detail: detail, Run: func() bool { runGithubLogin(d, argv, label); return false }}
+	login := func(name, detail, label string, argv ...string) shellRow {
+		return shellRow{Name: name, Detail: detail, Run: func() bool { runGithubLogin(d, argv, label); return false }}
 	}
-	d.shell().Run("GitHub (opencode fallback) — pick an action", func() []ShellRow {
+	d.shell().Run("GitHub (opencode fallback) — pick an action", func() []shellRow {
 		githubStatusRows(d)
-		return []ShellRow{
+		return []shellRow{
 			login("Log in to GitHub CLI", "gh auth login", "gh CLI", "gh", "auth", "login"),
 			login("Log in to Copilot", "copilot login", "copilot", "copilot", "login"),
 			login("Log in to OpenCode", "opencode auth login (choose GitHub Copilot)", "opencode", "opencode", "auth", "login"),

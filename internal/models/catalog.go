@@ -11,8 +11,8 @@ import (
 //go:embed catalog.json
 var catalogJSON []byte
 
-// Entry is one catalog model: canonical id, display name and capabilities.
-type Entry struct {
+// entry is one catalog model: canonical id, display name and capabilities.
+type entry struct {
 	ID            string            `json:"id"`
 	Name          string            `json:"name"`
 	Version       string            `json:"version,omitempty"` // dash-separated version a dotted spelling turns into dots
@@ -38,9 +38,9 @@ type spelling struct {
 type catalog struct {
 	Aliases   map[string]string   `json:"aliases"`
 	Spellings map[string]spelling `json:"spellings"`
-	Models    []Entry             `json:"models"`
+	Models    []entry             `json:"models"`
 
-	byID    map[string]Entry
+	byID    map[string]entry
 	byWire  map[string]string // every known spelling of every model -> canonical id
 	aliasOf map[string]string // canonical id -> the alias it currently backs
 }
@@ -51,7 +51,7 @@ var load = sync.OnceValue(func() *catalog {
 	if err := json.Unmarshal(catalogJSON, &c); err != nil {
 		panic("models: catalog.json: " + err.Error())
 	}
-	c.byID = map[string]Entry{}
+	c.byID = map[string]entry{}
 	c.aliasOf = map[string]string{}
 	for _, m := range c.Models {
 		c.byID[m.ID] = m
@@ -132,8 +132,8 @@ func Alias(name string) (canonical string, ok bool) {
 // AliasOf returns the alias a canonical id currently backs, or "" when none.
 func AliasOf(canonical string) string { return load().aliasOf[canonical] }
 
-// Lookup returns the catalog entry (display name, capabilities) of a canonical id.
-func Lookup(canonical string) (Entry, bool) {
+// lookup returns the catalog entry (display name, capabilities) of a canonical id.
+func lookup(canonical string) (entry, bool) {
 	e, ok := load().byID[canonical]
 	return e, ok
 }

@@ -86,8 +86,8 @@ func dirFlag(dir string) string {
 	return "-c " + textutil.QuotePath(dir)
 }
 
-// BuildCommand returns the sh script that starts a detached tmux session running the agent in a login shell.
-func BuildCommand(opts Opts) (string, string, error) {
+// buildCommand returns the sh script that starts a detached tmux session running the agent in a login shell.
+func buildCommand(opts Opts) (string, string, error) {
 	if !validAgent(opts.Agent) {
 		return "", "", fmt.Errorf("--agent %q must be one of %s", opts.Agent, strings.Join(Agents, "|"))
 	}

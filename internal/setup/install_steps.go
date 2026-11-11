@@ -27,10 +27,10 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// Install copies the binary into BinDir, links the agent CLIs, and seeds a missing settings.json
+// install copies the binary into BinDir, links the agent CLIs, and seeds a missing settings.json
 // (an existing one is never written). A real (non-dry-run) run prints one compact line per step, naming only
 // non-ok items in full; --dry-run and --verbose keep the full step-by-step detail.
-func Install(w io.Writer, dryRun bool, verbose bool) error {
+func install(w io.Writer, dryRun bool, verbose bool) error {
 	if dryRun || verbose {
 		return installVerbose(w, dryRun)
 	}
@@ -52,7 +52,7 @@ func installVerbose(w io.Writer, dryRun bool) error {
 		return err
 	}
 	settingsErr := installSettings(w, dryRun)
-	if werr := InstallWindowsSettings(w, dryRun); werr != nil {
+	if werr := installWindowsSettings(w, dryRun); werr != nil {
 		fmt.Fprintf(w, "settings (windows) skip  %v\n", werr)
 	}
 	syncAgents(w, dryRun)
@@ -237,9 +237,9 @@ func settingsStatus(dryRun bool) (string, error) {
 	return "settings " + short + " kept (yours) · valid", nil
 }
 
-// windowsSettingsCompact runs InstallWindowsSettings; its lines are already one per state, plus any error.
+// windowsSettingsCompact runs installWindowsSettings; its lines are already one per state, plus any error.
 func windowsSettingsCompact(w io.Writer) {
-	if err := InstallWindowsSettings(w, false); err != nil {
+	if err := installWindowsSettings(w, false); err != nil {
 		fmt.Fprintf(w, "settings (windows) error  %v\n", err)
 	}
 }

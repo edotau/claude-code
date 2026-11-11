@@ -43,16 +43,16 @@ func Accent(on bool, s string) string {
 	return ansi.Style(on, ansi.Bold+ansi.Cyan, s)
 }
 
-// AccentMark paints s (the cursor mark) in the theme accent, not bold; the fallback is cyan.
-func AccentMark(on bool, s string) string {
+// accentMark paints s (the cursor mark) in the theme accent, not bold; the fallback is cyan.
+func accentMark(on bool, s string) string {
 	if p, mode, ok := themed(); on && ok && s != "" {
 		return ansi.Paint(mode, p.Accent, s, false)
 	}
 	return ansi.Style(on, ansi.Cyan, s)
 }
 
-// Selected paints s on the theme selection background; the fallback is reverse video.
-func Selected(on bool, s string) string {
+// selected paints s on the theme selection background; the fallback is reverse video.
+func selected(on bool, s string) string {
 	if p, mode, ok := themed(); on && ok && s != "" {
 		return ansi.BgSeq(mode, p.Selection) + s + ansi.Reset
 	}
@@ -62,8 +62,8 @@ func Selected(on bool, s string) string {
 // mutedRGB is the description column's grey: softer than a row's label, brighter than the dim key hint.
 var mutedRGB = ansi.RGB{0xb4, 0xb4, 0xb4}
 
-// Muted paints s in the description grey; 16-colour terminals fall back to plain white (SGR 37).
-func Muted(on bool, s string) string {
+// muted paints s in the description grey; 16-colour terminals fall back to plain white (SGR 37).
+func muted(on bool, s string) string {
 	if !on || s == "" {
 		return s
 	}
@@ -85,5 +85,5 @@ func muteDetail(on bool, row string) string {
 			j = k
 		}
 	}
-	return row[:i] + Muted(on, row[i:j]) + row[j:]
+	return row[:i] + muted(on, row[i:j]) + row[j:]
 }

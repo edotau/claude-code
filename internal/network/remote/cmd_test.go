@@ -382,21 +382,10 @@ func TestRemoteTextReportsStdoutFailure(t *testing.T) {
 			} else {
 				fakeSSHOnPATH(t, "cc-claude-ab12|1700000000|1|claude|claude\n")
 			}
-			code, stderr := captureClosedStdout(t, func() int { return Cmd(args) })
+			code, stderr := hosttest.CaptureClosedStdout(t, func() int { return Cmd(args) })
 			if code != 1 || !strings.Contains(stderr, want) || !strings.Contains(stderr, "file already closed") {
 				t.Fatalf("failed text output reported success: exit=%d stderr=%q", code, stderr)
 			}
 		})
 	}
-}
-
-func captureClosedStdout(t *testing.T, fn func() int) (int, string) {
-	t.Helper()
-	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		if err := os.Stdout.Close(); err != nil {
-			t.Fatal(err)
-		}
-		return fn()
-	})
-	return code, stderr
 }

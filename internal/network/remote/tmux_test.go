@@ -51,7 +51,7 @@ func TestShellQuote_RoundTrip(t *testing.T) {
 }
 
 func TestShellQuote_NoInjectionViaEcho(t *testing.T) {
-	// Embed a hostile payload as BuildCommand does; a created marker file would mean it executed.
+	// Embed a hostile payload as buildCommand does; a created marker file would mean it executed.
 	dir := t.TempDir()
 	marker := dir + "/pwned"
 	payload := "$(touch " + marker + ")"
@@ -113,7 +113,7 @@ func TestAgentLaunchArgs_Interactive(t *testing.T) {
 
 func TestBuildCommand_RejectsBadName(t *testing.T) {
 	for _, bad := range []string{"a b", "../x", strings.Repeat("x", 65), " "} {
-		if _, _, err := BuildCommand(Opts{Agent: "claude", Name: bad, Task: "hi"}); err == nil {
+		if _, _, err := buildCommand(Opts{Agent: "claude", Name: bad, Task: "hi"}); err == nil {
 			t.Errorf("BuildCommand with --name %q: want error, got nil", bad)
 		}
 	}
@@ -121,7 +121,7 @@ func TestBuildCommand_RejectsBadName(t *testing.T) {
 
 func TestBuildCommand_RejectsUnknownAgent(t *testing.T) {
 	for _, bad := range []string{"", "bash", "Claude", "claude;rm"} {
-		if _, _, err := BuildCommand(Opts{Agent: bad, Task: "hi"}); err == nil {
+		if _, _, err := buildCommand(Opts{Agent: bad, Task: "hi"}); err == nil {
 			t.Errorf("BuildCommand with --agent %q: want error, got nil", bad)
 		}
 	}
@@ -130,7 +130,7 @@ func TestBuildCommand_RejectsUnknownAgent(t *testing.T) {
 func TestBuildCommand_SyntaxAndShape(t *testing.T) {
 	for _, agent := range Agents {
 		t.Run(agent, func(t *testing.T) {
-			cmd, name, err := BuildCommand(Opts{
+			cmd, name, err := buildCommand(Opts{
 				Agent: agent,
 				Dir:   `/tmp/a dir with "quotes" and spaces`,
 				Name:  "cc-" + agent + "-test",
@@ -157,7 +157,7 @@ func TestBuildCommand_SyntaxAndShape(t *testing.T) {
 }
 
 func TestBuildCommand_DefaultDirAndName(t *testing.T) {
-	cmd, name, err := BuildCommand(Opts{Agent: "claude", Task: "hi"})
+	cmd, name, err := buildCommand(Opts{Agent: "claude", Task: "hi"})
 	if err != nil {
 		t.Fatalf("BuildCommand: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestDirFlag(t *testing.T) {
 }
 
 func TestBuildCommand_TildeDirUsesHOME(t *testing.T) {
-	cmd, _, err := BuildCommand(Opts{Agent: "codex", Dir: "~/my repo", Task: "hi"})
+	cmd, _, err := buildCommand(Opts{Agent: "codex", Dir: "~/my repo", Task: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func TestBuildCommand_TildeDirUsesHOME(t *testing.T) {
 }
 
 func TestBuildCommand_KeepsSessionAliveAfterAgentExits(t *testing.T) {
-	cmd, _, err := BuildCommand(Opts{Agent: "claude", Task: "hi"})
+	cmd, _, err := buildCommand(Opts{Agent: "claude", Task: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestBuildCommand_NeverExecutesTask(t *testing.T) {
 	// A task payload that would create a marker file if it were ever interpreted instead of quoted.
 	dir := t.TempDir()
 	marker := dir + "/pwned"
-	cmd, _, err := BuildCommand(Opts{
+	cmd, _, err := buildCommand(Opts{
 		Agent: "claude",
 		Name:  "cc-claude-safe",
 		Task:  "$(touch " + marker + ")",
@@ -237,7 +237,7 @@ func TestBuildCommand_NeverExecutesTask(t *testing.T) {
 	}
 }
 
-// writeStubTmux puts a no-op `tmux` on dir that echoes its argv, so BuildCommand's output runs serverless.
+// writeStubTmux puts a no-op `tmux` on dir that echoes its argv, so buildCommand's output runs serverless.
 func writeStubTmux(t *testing.T, dir string) {
 	t.Helper()
 	path := dir + "/tmux"
@@ -257,7 +257,7 @@ func writeFailingNewSessionTmux(t *testing.T, dir, logPath string) {
 
 // TestBuildCommand_TaggingSkippedWhenNewSessionFails: a duplicate name must not tag the other session.
 func TestBuildCommand_TaggingSkippedWhenNewSessionFails(t *testing.T) {
-	cmd, name, err := BuildCommand(Opts{Agent: "claude", Name: "cc-claude-dup", Task: "hi"})
+	cmd, name, err := buildCommand(Opts{Agent: "claude", Name: "cc-claude-dup", Task: "hi"})
 	if err != nil {
 		t.Fatalf("BuildCommand: %v", err)
 	}
@@ -288,9 +288,9 @@ func TestBuildCommand_TaggingSkippedWhenNewSessionFails(t *testing.T) {
 }
 
 func TestExecArgs_RemoteIsArgvNotShellString(t *testing.T) {
-	// ExecArgs wraps the remote command as base64 under `sh -c` so it runs under POSIX sh whatever the login shell.
-	t.Setenv(ReuseEnv, "0")
-	args, err := ExecArgs("myhost", "echo hi", false, false)
+	// execArgs wraps the remote command as base64 under `sh -c` so it runs under POSIX sh whatever the login shell.
+	t.Setenv(reuseEnv, "0")
+	args, err := execArgs("myhost", "echo hi", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,11 +299,11 @@ func TestExecArgs_RemoteIsArgvNotShellString(t *testing.T) {
 		t.Fatalf("ExecArgs = %q, want %q", args, want)
 	}
 	// The host is its own argv element: shell metacharacters must not merge with the command.
-	args2, err := ExecArgs("host;id", "echo hi", false, false)
+	args2, err := execArgs("host;id", "echo hi", false, false)
 	if err != nil || len(args2) != 6 || args2[4] != "host;id" {
 		t.Fatalf("host argv element was mangled: %q (%v)", args2, err)
 	}
-	if _, err := ExecArgs("host; id", "echo hi", false, false); err == nil {
+	if _, err := execArgs("host; id", "echo hi", false, false); err == nil {
 		t.Error("ExecArgs accepted a host with whitespace")
 	}
 	// The wrapped remote command must run under sh and reproduce the script.
@@ -311,13 +311,13 @@ func TestExecArgs_RemoteIsArgvNotShellString(t *testing.T) {
 	if err != nil || string(out) != "hi\n" {
 		t.Fatalf("sh ran the wrapped remote command: %q, %v", out, err)
 	}
-	if local, _ := ExecArgs("localhost", "echo hi", true, true); !slices.Equal(local, []string{"sh", "-c", "echo hi"}) {
+	if local, _ := execArgs("localhost", "echo hi", true, true); !slices.Equal(local, []string{"sh", "-c", "echo hi"}) {
 		t.Errorf("local ExecArgs = %q", local)
 	}
 }
 
 func TestAttachArgs(t *testing.T) {
-	t.Setenv(ReuseEnv, "off")
+	t.Setenv(reuseEnv, "off")
 	args, err := attachArgs("myhost", "cc-claude-abcd", false)
 	want := []string{"ssh", "-o", "ServerAliveInterval=15", "-t", "--", "myhost",
 		encodeScript("tmux attach -t 'cc-claude-abcd'")}
@@ -328,7 +328,7 @@ func TestAttachArgs(t *testing.T) {
 	if !slices.Equal(local, []string{"tmux", "attach", "-t", "cc-claude-abcd"}) {
 		t.Errorf("local AttachArgs = %q", local)
 	}
-	if got := AttachCommand("myhost", "cc-claude-abcd", false); got != "ssh -t -- myhost tmux attach -t cc-claude-abcd" {
+	if got := attachCommand("myhost", "cc-claude-abcd", false); got != "ssh -t -- myhost tmux attach -t cc-claude-abcd" {
 		t.Errorf("AttachCommand = %q", got)
 	}
 }

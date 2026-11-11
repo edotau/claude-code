@@ -77,7 +77,7 @@ func (p Page) Fprint(w io.Writer) {
 			wrapAt = min(wrapAt, term)
 		}
 		for para := range strings.SplitSeq(p.About, "\n") {
-			about = append(about, WrapRow("", para, 0, wrapAt)...)
+			about = append(about, wrapRow("", para, 0, wrapAt)...)
 		}
 		secs = append(secs, strings.Join(about, "\n"))
 	}
@@ -129,9 +129,9 @@ func TermWidth(w io.Writer) int {
 // Row is one help row: a single line clipped to term on a terminal, wrapped at 80 with a hanging indent when term is 0.
 func Row(label, desc string, labelWidth, term int) []string {
 	if term <= 0 {
-		return WrapRow(label, desc, labelWidth, 80)
+		return wrapRow(label, desc, labelWidth, 80)
 	}
-	return []string{clipLine(WrapRow(label, desc, labelWidth, math.MaxInt)[0], term)}
+	return []string{clipLine(wrapRow(label, desc, labelWidth, math.MaxInt)[0], term)}
 }
 
 // clipLine ends a line wider than n columns in "...".
@@ -165,20 +165,20 @@ type Placeholder interface {
 	Placeholder() string
 }
 
-// Name is a string flag whose help placeholder is NAME, not the generic "string".
-type Name string
+// nameFlag is a string flag whose help placeholder is NAME, not the generic "string".
+type nameFlag string
 
-func (n *Name) String() string {
+func (n *nameFlag) String() string {
 	if n == nil {
 		return ""
 	}
 	return string(*n)
 }
-func (n *Name) Set(s string) error  { *n = Name(s); return nil }
-func (n *Name) Placeholder() string { return "NAME" }
+func (n *nameFlag) Set(s string) error  { *n = nameFlag(s); return nil }
+func (n *nameFlag) Placeholder() string { return "NAME" }
 
 // NameVar binds the flag name to *v as a NAME-placeholder string flag.
-func NameVar(fs *flag.FlagSet, v *string, name, usage string) { fs.Var((*Name)(v), name, usage) }
+func NameVar(fs *flag.FlagSet, v *string, name, usage string) { fs.Var((*nameFlag)(v), name, usage) }
 
 // listFlag is a repeatable string flag appending to *v; split also comma-splits each occurrence.
 type listFlag struct {
@@ -304,9 +304,9 @@ func isHead(l string) bool {
 	return t != "" && l[0] != ' ' && allCaps(t)
 }
 
-// WrapRow lays out `label` padded to labelWidth plus desc, wrapping desc at word boundaries within width columns;
+// wrapRow lays out `label` padded to labelWidth plus desc, wrapping desc at word boundaries within width columns;
 // continuation lines are indented to the description column. A word longer than the space overflows its line.
-func WrapRow(label, desc string, labelWidth, width int) []string {
+func wrapRow(label, desc string, labelWidth, width int) []string {
 	pad := max(labelWidth-utf8.RuneCountInString(label), 0)
 	first := label + strings.Repeat(" ", pad)
 	col := utf8.RuneCountInString(first)

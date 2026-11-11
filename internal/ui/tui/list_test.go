@@ -59,11 +59,11 @@ func TestDecodeControlAndBackspace(t *testing.T) {
 		{[]byte{0x08}, Key{Kind: KeyBackspace}, 1},
 		{[]byte("\x1b[3~"), dropped, 4}, // Delete: no stray '~' rune left behind
 	} {
-		if got, n := Decode(c.in); got != c.want || n != c.n {
+		if got, n := decode(c.in); got != c.want || n != c.n {
 			t.Errorf("Decode(%q) = %+v,%d want %+v,%d", c.in, got, n, c.want, c.n)
 		}
 	}
-	if _, n := Decode([]byte("\x1b[3")); n != 0 {
+	if _, n := decode([]byte("\x1b[3")); n != 0 {
 		t.Errorf("incomplete parameterized CSI consumed %d, want 0", n)
 	}
 	if got := ctrl('d').Name(); got != "ctrl+d" {

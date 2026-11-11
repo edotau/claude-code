@@ -48,8 +48,8 @@ func StubRegistry(tok string, ids ...string) (restore func()) {
 
 // copilotRegistryRoute is the multi-provider SDK wiring for one run: in-memory providers, a session token, no file.
 type copilotRegistryRoute struct {
-	providers []CopilotRegistryProvider
-	models    []CopilotRegistryModel
+	providers []copilotRegistryProvider
+	models    []copilotRegistryModel
 	ref       string // the selected provider/id
 	token     string
 	home      copilotPrivateHome
@@ -80,7 +80,7 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	if err != nil {
 		return nil, fmt.Errorf("copilot: %w", err)
 	}
-	home, err := PrepareCopilotHome(false)
+	home, err := prepareCopilotHome(false)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 }
 
 // apply puts the route on opts; the token reaches the SDK only as a callback result.
-func (rt *copilotRegistryRoute) apply(o *SDKOptions) {
+func (rt *copilotRegistryRoute) apply(o *sdkOptions) {
 	o.Providers, o.Models, o.Model = rt.providers, rt.models, rt.ref
 	o.Token = func() (string, error) { return rt.token, nil }
 	o.GitHubToken, o.UseLoggedInUser, o.Env = "", false, nil
@@ -110,8 +110,8 @@ func (rt *copilotRegistryRoute) close() {
 	_ = revokeSession(ctx, rt.token)
 }
 
-// CopilotRegistryProvider is one named upstream: Type anthropic|openai, WireAPI "" (anthropic), completions or responses.
-type CopilotRegistryProvider struct {
+// copilotRegistryProvider is one named upstream: Type anthropic|openai, WireAPI "" (anthropic), completions or responses.
+type copilotRegistryProvider struct {
 	Name    string
 	Type    string
 	WireAPI string
@@ -120,8 +120,8 @@ type CopilotRegistryProvider struct {
 	Headers map[string]string
 }
 
-// CopilotRegistryModel is one selectable entry; the CLI selects it as Provider + "/" + ID.
-type CopilotRegistryModel struct {
+// copilotRegistryModel is one selectable entry; the CLI selects it as Provider + "/" + ID.
+type copilotRegistryModel struct {
 	ID                     string // canonical
 	Provider               string
 	WireModel              string // the Databricks endpoint id
@@ -133,16 +133,16 @@ type CopilotRegistryModel struct {
 	MaxOutputTokens        int
 }
 
-// CopilotRegistry is the credential-free registry data; the SDK path maps it in memory, the CLI path renders it.
-type CopilotRegistry struct {
+// copilotRegistry is the credential-free registry data; the SDK path maps it in memory, the CLI path renders it.
+type copilotRegistry struct {
 	Profile   string
-	Providers []CopilotRegistryProvider
-	Models    []CopilotRegistryModel
+	Providers []copilotRegistryProvider
+	Models    []copilotRegistryModel
 	Note      string // one line naming the endpoints dropped because the profile has no route for them; "" when none
 }
 
 // Ref is the CLI's selection string for m.
-func (m CopilotRegistryModel) Ref() string { return m.Provider + "/" + m.ID }
+func (m copilotRegistryModel) Ref() string { return m.Provider + "/" + m.ID }
 
 // copilotWireRoute is the registry shape of one wire; its router path is copilot's CLI.RouterSuffix.
 var copilotWireRoute = map[string]struct{ typ, wireAPI string }{
@@ -153,8 +153,8 @@ var copilotWireRoute = map[string]struct{ typ, wireAPI string }{
 
 // copilotBuildRegistry maps profile p's endpoints to registry data against routerBase (the router root, no /p/<profile>).
 // An endpoint whose canonical id repeats an earlier one is dropped, so every id selects one model.
-func copilotBuildRegistry(profile string, p *providers.Provider, eps []CopilotEndpoint, routerBase string) CopilotRegistry {
-	r := CopilotRegistry{Profile: profile}
+func copilotBuildRegistry(profile string, p *providers.Provider, eps []CopilotEndpoint, routerBase string) copilotRegistry {
+	r := copilotRegistry{Profile: profile}
 	base := strings.TrimRight(routerBase, "/") + "/p/" + profile
 	seen, used := map[string]bool{}, map[string]bool{}
 	var dropped []string
@@ -174,8 +174,8 @@ func copilotBuildRegistry(profile string, p *providers.Provider, eps []CopilotEn
 			r.Providers = append(r.Providers, newCopilotRegistryProvider(name, wire, base, p))
 		}
 		window, output := copilotCaps(providers.ContextWindow(p, ep.ID), ep.ID)
-		r.Models = append(r.Models, CopilotRegistryModel{
-			ID: canonical, Provider: name, WireModel: ep.ID, ModelID: WellKnownModel(canonical), Name: ep.Name,
+		r.Models = append(r.Models, copilotRegistryModel{
+			ID: canonical, Provider: name, WireModel: ep.ID, ModelID: wellKnownModel(canonical), Name: ep.Name,
 			Tested: ep.Tested, MaxPromptTokens: models.PromptTokens(window, output), MaxContextWindowTokens: window,
 			MaxOutputTokens: output,
 		})
@@ -187,10 +187,10 @@ func copilotBuildRegistry(profile string, p *providers.Provider, eps []CopilotEn
 	return r
 }
 
-func newCopilotRegistryProvider(name, wire, base string, p *providers.Provider) CopilotRegistryProvider {
+func newCopilotRegistryProvider(name, wire, base string, p *providers.Provider) copilotRegistryProvider {
 	rt := copilotWireRoute[wire]
 	spec := copilotSchema()
-	return CopilotRegistryProvider{Name: name, Type: rt.typ, WireAPI: rt.wireAPI, BaseURL: base + spec.CLI.RouterSuffix[wire],
+	return copilotRegistryProvider{Name: name, Type: rt.typ, WireAPI: rt.wireAPI, BaseURL: base + spec.CLI.RouterSuffix[wire],
 		Bearer: wire != providers.ProtocolAnthropic, Headers: p.Headers}
 }
 
@@ -223,7 +223,7 @@ type jsonModel struct {
 }
 
 // renderCopilotRegistry is the CLI's COPILOT_PROVIDERS_CONFIG JSON with cred (the session token) on every provider.
-func renderCopilotRegistry(r CopilotRegistry, cred string) ([]byte, error) {
+func renderCopilotRegistry(r copilotRegistry, cred string) ([]byte, error) {
 	if len(r.Models) == 0 {
 		return nil, errors.New("copilot registry: no models to render")
 	}
@@ -250,38 +250,38 @@ func renderCopilotRegistry(r CopilotRegistry, cred string) ([]byte, error) {
 
 // Named selection failures; callers match with errors.Is.
 var (
-	ErrUnknownModel      = errors.New("model is not in the registry")
-	ErrAmbiguousModel    = errors.New("model selection is ambiguous")
-	ErrSavedModelGone    = errors.New("saved model left the registry")
-	ErrNoModels          = errors.New("registry has no models")
-	ErrRepeatedSelection = errors.New("model selected more than once")
+	errUnknownModel      = errors.New("model is not in the registry")
+	errAmbiguousModel    = errors.New("model selection is ambiguous")
+	errSavedModelGone    = errors.New("saved model left the registry")
+	errNoModels          = errors.New("registry has no models")
+	errRepeatedSelection = errors.New("model selected more than once")
 )
 
-// CopilotChoice is every place a model can come from, highest priority first: Requested (each --model given),
+// modelChoice is every place a model can come from, highest priority first: Requested (each --model given),
 // Pin (the vault pin value); none set picks the default.
-type CopilotChoice struct {
+type modelChoice struct {
 	Requested []string
 	Pin       string
 }
 
 // Select maps a harness alias | canonical id | wire id | provider/id to the registry's provider/id.
-func (r CopilotRegistry) Select(c CopilotChoice) (string, error) {
+func (r copilotRegistry) Select(c modelChoice) (string, error) {
 	if len(r.Models) == 0 {
-		return "", ErrNoModels
+		return "", errNoModels
 	}
 	switch {
 	case len(c.Requested) > 1:
-		return "", fmt.Errorf("%w: %s", ErrRepeatedSelection, strings.Join(c.Requested, ", "))
+		return "", fmt.Errorf("%w: %s", errRepeatedSelection, strings.Join(c.Requested, ", "))
 	case len(c.Requested) == 1:
-		return r.find(c.Requested[0], ErrUnknownModel)
+		return r.find(c.Requested[0], errUnknownModel)
 	case c.Pin != "":
-		return r.find(c.Pin, ErrSavedModelGone)
+		return r.find(c.Pin, errSavedModelGone)
 	}
 	return r.defaultRef(), nil
 }
 
 // defaultRef is the sonnet alias's model when the profile serves it, else the first model.
-func (r CopilotRegistry) defaultRef() string {
+func (r copilotRegistry) defaultRef() string {
 	if canonical, ok := models.Alias(models.Sonnet); ok {
 		for _, m := range r.Models {
 			if m.ID == canonical {
@@ -293,14 +293,14 @@ func (r CopilotRegistry) defaultRef() string {
 }
 
 // find matches s by provider/id, then id, then wire id, then its canonical resolution; a miss wraps miss.
-func (r CopilotRegistry) find(s string, miss error) (string, error) {
+func (r copilotRegistry) find(s string, miss error) (string, error) {
 	s = strings.TrimSpace(s)
 	canonical, _, _ := models.Resolve(s)
-	for _, match := range []func(CopilotRegistryModel) bool{
-		func(m CopilotRegistryModel) bool { return m.Ref() == s },
-		func(m CopilotRegistryModel) bool { return m.ID == s },
-		func(m CopilotRegistryModel) bool { return m.WireModel == s },
-		func(m CopilotRegistryModel) bool { return canonical != "" && m.ID == canonical },
+	for _, match := range []func(copilotRegistryModel) bool{
+		func(m copilotRegistryModel) bool { return m.Ref() == s },
+		func(m copilotRegistryModel) bool { return m.ID == s },
+		func(m copilotRegistryModel) bool { return m.WireModel == s },
+		func(m copilotRegistryModel) bool { return canonical != "" && m.ID == canonical },
 	} {
 		var hits []string
 		for _, m := range r.Models {
@@ -313,7 +313,7 @@ func (r CopilotRegistry) find(s string, miss error) (string, error) {
 		case 1:
 			return hits[0], nil
 		default:
-			return "", fmt.Errorf("%w: %q matches %s", ErrAmbiguousModel, s, strings.Join(hits, ", "))
+			return "", fmt.Errorf("%w: %q matches %s", errAmbiguousModel, s, strings.Join(hits, ", "))
 		}
 	}
 	return "", fmt.Errorf("%w: %q (profile %s)", miss, s, r.Profile)
@@ -392,16 +392,16 @@ func checkDir(dir string) error {
 }
 
 // copilotChoice is the model choice: the requested models, else the agent pin, else the profile default model.
-func copilotChoice(requested []string, profileModel string) CopilotChoice {
+func copilotChoice(requested []string, profileModel string) modelChoice {
 	pin := agent.AgentModelPin("copilot")
 	if m := models.Strip1M(profileModel); len(requested) == 0 && pin == "" && m != "" {
 		requested = []string{m}
 	}
-	return CopilotChoice{Requested: requested, Pin: pin}
+	return modelChoice{Requested: requested, Pin: pin}
 }
 
-// CopilotRegistryBanner is the one-line launch notice; GitHub models are unreachable by construction in this mode.
-const CopilotRegistryBanner = "copilot: GitHub models are unavailable in this mode"
+// copilotRegistryBanner is the one-line launch notice; GitHub models are unreachable by construction in this mode.
+const copilotRegistryBanner = "copilot: GitHub models are unavailable in this mode"
 
 // copilotRegistryEligible: a keyed Databricks profile the router can mint a session for (not direct, not a login,
 // not auth none/cli — the router cannot authenticate those rows), except armed on macOS, which runs routed BYOK.
@@ -414,13 +414,13 @@ func copilotRegistryEligible(direct bool, t providers.Target) bool {
 // armedOnMacOS is a --route databricks:<p> run on macOS, where the registry is refused (home.go).
 func armedOnMacOS() bool { return copilotGOOS == "darwin" && router.ArmProfile() != "" }
 
-// UsesCopilotRegistry reports whether t is a Databricks row whose copilot launch runs on the registry.
-func UsesCopilotRegistry(ctx context.Context, t providers.Target) bool {
+// usesCopilotRegistry reports whether t is a Databricks row whose copilot launch runs on the registry.
+func usesCopilotRegistry(ctx context.Context, t providers.Target) bool {
 	return copilotRegistryEligible(agent.IsDirect(ctx), t)
 }
 
-// ConfigureCopilotRegistry builds the registry launch for t; errors are fatal (no plain fallback); dry mints nothing.
-func ConfigureCopilotRegistry(
+// configureCopilotRegistry builds the registry launch for t; errors are fatal (no plain fallback); dry mints nothing.
+func configureCopilotRegistry(
 	ctx context.Context, reg *providers.Registry, t providers.Target, args []string, dry bool,
 ) (agent.RegistryLaunch, error) {
 	if err := checkCopilotRegistryOS(); err != nil { // before discovery or minting
@@ -450,7 +450,7 @@ func ConfigureCopilotRegistry(
 		revoke()
 		return agent.RegistryLaunch{}, err
 	}
-	ph, err := PrepareCopilotHome(dry)
+	ph, err := prepareCopilotHome(dry)
 	if err != nil {
 		revoke()
 		return agent.RegistryLaunch{}, err
@@ -463,7 +463,7 @@ func ConfigureCopilotRegistry(
 	return agent.RegistryLaunch{
 		Env:   append([]string{"COPILOT_PROVIDERS_CONFIG=" + file, "COPILOT_OFFLINE=true"}, ph.Env...),
 		Unset: ph.Unset, Argv: []string{"--model", ref}, Args: rest,
-		Warnings: warnings, Files: files, Revoke: revoke, Banner: CopilotRegistryBanner,
+		Warnings: warnings, Files: files, Revoke: revoke, Banner: copilotRegistryBanner,
 	}, nil
 }
 
@@ -479,7 +479,7 @@ func copilotRouterBase(ctx context.Context, dry bool) (string, error) {
 }
 
 // prepareRegistry mints the token and renders the registry as a launch file in the verified runtime dir; Exec writes it.
-func prepareRegistry(ctx context.Context, r CopilotRegistry, profile string, pid int,
+func prepareRegistry(ctx context.Context, r copilotRegistry, profile string, pid int,
 ) (agent.LaunchFile, string, error) {
 	token, err := mintSession(ctx, profile, pid)
 	if err != nil {
@@ -498,7 +498,7 @@ func prepareRegistry(ctx context.Context, r CopilotRegistry, profile string, pid
 
 // registryFile is the registry file path and its launch file; dry only computes the path (--print-env creates nothing).
 func registryFile(
-	ctx context.Context, r CopilotRegistry, profile string, pid int, dry bool,
+	ctx context.Context, r copilotRegistry, profile string, pid int, dry bool,
 ) (file string, files []agent.LaunchFile, token string, err error) {
 	if !dry {
 		f, tok, err := prepareRegistry(ctx, r, profile, pid)
@@ -533,8 +533,8 @@ func splitModelFlags(args []string) (models, rest []string) {
 
 // copilotSelect builds the registry for p behind the router and selects c; a model miss on a snapshot list relists once.
 func copilotSelect(ctx context.Context, reg *providers.Registry, p *providers.Provider, eps []CopilotEndpoint,
-	base string, c CopilotChoice,
-) (CopilotRegistry, string, error) {
+	base string, c modelChoice,
+) (copilotRegistry, string, error) {
 	routed := *p
 	routed.Headers = map[string]string{gateway.AgentHeader: "copilot"} // the router adds the provider's own headers upstream
 	if id := providers.IdentityFrom(ctx); id != "" {
@@ -543,7 +543,7 @@ func copilotSelect(ctx context.Context, reg *providers.Registry, p *providers.Pr
 	r := copilotBuildRegistry(p.Name, &routed, eps, base)
 	ref, err := r.Select(c)
 	fromSnapshot := slices.ContainsFunc(eps, func(ep CopilotEndpoint) bool { return ep.Snapshot })
-	if (!errors.Is(err, ErrUnknownModel) && !errors.Is(err, ErrSavedModelGone)) || !fromSnapshot {
+	if (!errors.Is(err, errUnknownModel) && !errors.Is(err, errSavedModelGone)) || !fromSnapshot {
 		return r, ref, err
 	}
 	fresh, listErr := copilotRelist(ctx, reg, p)

@@ -60,7 +60,7 @@ func TestRedactGitHubTokenFamilies(t *testing.T) {
 func TestGitHubPatternMinLen(t *testing.T) {
 	const minLen = 10
 	re := regexp.MustCompile(GitHubPattern(minLen))
-	for _, p := range GitHubPrefixes {
+	for _, p := range gitHubPrefixes {
 		if !re.MatchString(p + strings.Repeat("a", minLen)) {
 			t.Errorf("%s at minLen must match", p)
 		}

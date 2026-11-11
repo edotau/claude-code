@@ -67,7 +67,7 @@ func TestSSHArgvReuse(t *testing.T) {
 		env  string
 		want bool
 	}{{"", true}, {"1", true}, {"0", false}, {"OFF", false}} {
-		t.Setenv(ReuseEnv, tc.env)
+		t.Setenv(reuseEnv, tc.env)
 		argv, err := hostArgv("wks", []string{"version"}, true)
 		if err != nil {
 			t.Fatal(err)
@@ -75,7 +75,7 @@ func TestSSHArgvReuse(t *testing.T) {
 		dash := slices.Index(argv, "--")
 		got := slices.Contains(argv[:dash], "ControlMaster=auto") && slices.Contains(argv[:dash], "ControlPath=/tmp/cc/%C")
 		if got != tc.want || !slices.Contains(argv[:dash], "-t") {
-			t.Errorf("%s=%q: argv %q, want reuse=%v and -t kept", ReuseEnv, tc.env, argv, tc.want)
+			t.Errorf("%s=%q: argv %q, want reuse=%v and -t kept", reuseEnv, tc.env, argv, tc.want)
 		}
 		if tc.want && !slices.Equal(argv[3:9], reuse) {
 			t.Errorf("reuse options = %q, want %q", argv[3:9], reuse)

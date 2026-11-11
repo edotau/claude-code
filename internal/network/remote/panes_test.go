@@ -472,4 +472,4 @@ func TestExecRunnerCapsOutput(t *testing.T) {
 	}
 }
 
-// RunAgent's merged stdout+stderr is capped like the pane capture, so a runaway remote cannot grow memory unbounded.
+// runAgent's merged stdout+stderr is capped like the pane capture, so a runaway remote cannot grow memory unbounded.

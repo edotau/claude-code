@@ -208,12 +208,12 @@ func agyLoginMarkers(home string) []string {
 	}
 }
 
-// AgyDefaultModel runs agy when the caller names no model: fast, and enough for headless dispatches.
-const AgyDefaultModel = "gemini-3.8-flash-high"
+// agyDefaultModel runs agy when the caller names no model: fast, and enough for headless dispatches.
+const agyDefaultModel = "gemini-3.8-flash-high"
 
 // agyGatewayArg returns the dotted catalog id agy lists for model (effort suffix dropped) and the --model agy takes in
 // gateway mode (base plus model's effort suffix); a non-Gemini id (a Databricks Claude slot) falls back to the
-// GEMINI_MODEL pin, else AgyDefaultModel.
+// GEMINI_MODEL pin, else agyDefaultModel.
 func agyGatewayArg(model string) (base, arg string) {
 	base, effort, ok := agyGatewayBase(model)
 	if !ok {
@@ -223,7 +223,7 @@ func agyGatewayArg(model string) (base, arg string) {
 		}
 		base, effort, ok = agyGatewayBase(rec.Model)
 		if !ok { // a non-Gemini or mistyped pin must not leave base empty
-			base, effort, _ = agyGatewayBase(AgyDefaultModel)
+			base, effort, _ = agyGatewayBase(agyDefaultModel)
 		}
 	}
 	if effort == "" {
@@ -574,7 +574,7 @@ func reportGemini(sel providers.Selection, out io.Writer) (bool, error) {
 }
 
 // geminiRouteDetail reports agy's own GEMINI_MODEL pin (effort rides the id's own suffix) — unset
-// means agy's own default (AgyDefaultModel).
+// means agy's own default (agyDefaultModel).
 func geminiRouteDetail() string {
 	model, source := providers.GeminiModel()
 	return fmt.Sprintf("model=%s source=%s", cmp.Or(model, "(default)"), source)
@@ -583,7 +583,7 @@ func geminiRouteDetail() string {
 // agyModel is the --model agy runs for req on t; a Databricks row gets the id its gateway mode lists.
 func agyModel(req agent.RunOptions, t providers.Target) string {
 	if req.Model == "" || t.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
-		t.Model = AgyDefaultModel
+		t.Model = agyDefaultModel
 	}
 	gt, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
 	if agent.GeminiGatewayRow(t.Provider) { // gateway agy lists only the base id; the effort rides --effort (agyGatewayEffort)
@@ -604,7 +604,7 @@ func agyGatewayEffort(req agent.RunOptions, t providers.Target) string {
 		return ""
 	}
 	if t.Model == "" {
-		t.Model = AgyDefaultModel
+		t.Model = agyDefaultModel
 	}
 	gt, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
 	base, arg := agyGatewayArg(gt.Model)

@@ -248,7 +248,7 @@ func TestOnWSLKernelMissingFile(t *testing.T) {
 	}
 }
 
-// setHome points UserHomeDir (via $HOME) at a scratch dir so ProxyPath never touches the real home.
+// setHome points UserHomeDir (via $HOME) at a scratch dir so proxyPath never touches the real home.
 func setHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
@@ -305,7 +305,7 @@ func TestInstallProxyAtStaleIsUpdated(t *testing.T) {
 	if err := os.WriteFile(dest, stale, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := proxyState(dest); got != ProxyStale {
+	if got := proxyState(dest); got != proxyStale {
 		t.Fatalf("fixture precondition: proxyState = %v, want ProxyStale", got)
 	}
 	var out bytes.Buffer

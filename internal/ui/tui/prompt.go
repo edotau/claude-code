@@ -123,7 +123,7 @@ func confirmKey(k Key, def bool) (answer, done bool) {
 // ConfirmKey asks a [y/N]-style question answered by a single keypress (Esc cancels at once); it falls back to the
 // line-based Confirm when stdin is not a terminal.
 func ConfirmKey(question string, def bool) bool {
-	t, err := Open()
+	t, err := openTerminal()
 	if err != nil {
 		return Confirm(question, def)
 	}

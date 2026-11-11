@@ -15,12 +15,12 @@ type Kind int
 
 // Mount kinds.
 const (
-	KindOpaque Kind = iota // any other mount; kept so it fences off the mounts beneath it
+	kindOpaque Kind = iota // any other mount; kept so it fences off the mounts beneath it
 	KindDrvFS              // WSL /mnt/<drive>, a Windows drive
-	KindSMB                // //server/share (cifs, smbfs)
+	kindSMB                // //server/share (cifs, smbfs)
 	KindNFS                // host:/export
-	KindSSHFS              // user@host:path
-	KindVolume             // other macOS /Volumes/<name> share
+	kindSSHFS              // user@host:path
+	kindVolume             // other macOS /Volumes/<name> share
 )
 
 // Mount is one classified mount-table entry.
@@ -63,16 +63,16 @@ func classify(point, source, fstype string) (Mount, bool) {
 	case isDriveSource(norm):
 		m.Kind, m.Drive = KindDrvFS, strings.ToUpper(norm[:1])
 	case isSMB(norm, fstype):
-		m.Kind = KindSMB
+		m.Kind = kindSMB
 		m.Host, m.RemotePath, ok = splitSMB(norm)
 	case strings.HasPrefix(fstype, "nfs"):
 		m.Kind = KindNFS
 		m.Host, m.RemotePath, ok = splitHostPath(norm)
 	case isSSHFS(norm, fstype):
-		m.Kind = KindSSHFS
+		m.Kind = kindSSHFS
 		m.Host, m.RemotePath, ok = splitHostPath(norm)
 	case strings.HasPrefix(point, "/Volumes/") && !strings.HasPrefix(norm, "/dev/"):
-		m.Kind = KindVolume
+		m.Kind = kindVolume
 	default:
 		ok = false
 	}
@@ -183,7 +183,7 @@ func parseMountinfo(text string) []Mount {
 		point, source := unescapeOctal(f[4]), unescapeOctal(f[sep+2])
 		m, ok := classify(point, source, f[sep+1])
 		if !ok {
-			m = Mount{Point: point, Source: source, FSType: f[sep+1], Kind: KindOpaque}
+			m = Mount{Point: point, Source: source, FSType: f[sep+1], Kind: kindOpaque}
 		}
 		out = append(out, withRoot(m, unescapeOctal(f[3])))
 	}
@@ -196,9 +196,9 @@ func withRoot(m Mount, root string) Mount {
 	switch m.Kind {
 	case KindDrvFS:
 		m.Root = root
-	case KindSMB:
+	case kindSMB:
 		m.RemotePath = strings.TrimPrefix(path.Join(m.RemotePath, root), "/")
-	case KindNFS, KindSSHFS:
+	case KindNFS, kindSSHFS:
 		m.RemotePath = path.Join(m.RemotePath, root)
 	}
 	return m
@@ -216,7 +216,7 @@ func parseDarwinMount(text string) []Mount {
 		fstype, _, _ := strings.Cut(rest[open+2:len(rest)-1], ",")
 		m, ok := classify(rest[:open], src, strings.TrimSpace(fstype))
 		if !ok {
-			m = Mount{Point: rest[:open], Source: src, FSType: strings.TrimSpace(fstype), Kind: KindOpaque}
+			m = Mount{Point: rest[:open], Source: src, FSType: strings.TrimSpace(fstype), Kind: kindOpaque}
 		}
 		out = append(out, m)
 	}

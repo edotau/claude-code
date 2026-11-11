@@ -481,7 +481,7 @@ func TestModelTargetHonorsAgentPin(t *testing.T) {
 
 // subscriptionSelection loads the real registry and resolves the subscription provider (passthrough,
 // no live token): ListModels fails instantly with ErrPassthrough (no network dial at all), so
-// catalogForAlias falls back to RegistryModels(p) — the provider's own configured per-alias ids, in
+// configure.CatalogForAlias falls back to RegistryModels(p) — the provider's own configured per-alias ids, in
 // models.AliasNames order — deterministically and without hitting the network.
 func subscriptionSelection(t *testing.T) (*providers.Registry, providers.Selection) {
 	t.Helper()

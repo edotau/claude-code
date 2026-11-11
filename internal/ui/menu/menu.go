@@ -16,34 +16,34 @@ import (
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
-// Row is one selectable row: Name, then State and Check in aligned columns, and what picking it does with an A.
-type Row[A any] struct {
+// row is one selectable row: Name, then State and Check in aligned columns, and what picking it does with an A.
+type row[A any] struct {
 	Name, State, Check string
 	Run                func(A)
 }
 
-// Block is a titled group of rows.
-type Block[A any] struct {
+// block is a titled group of rows.
+type block[A any] struct {
 	Title string
-	Rows  []Row[A]
+	Rows  []row[A]
 }
 
-// Heading is a section's title line.
-func Heading(title string) string { return "== " + title + " ==" }
+// heading is a section's title line.
+func heading(title string) string { return "== " + title + " ==" }
 
-// EnterRow is a page's last row: Enter leaves the page, asking first when it has unsaved changes.
-func EnterRow(detail string) [2]string { return [2]string{"Enter", detail} }
+// enterRow is a page's last row: Enter leaves the page, asking first when it has unsaved changes.
+func enterRow(detail string) [2]string { return [2]string{"Enter", detail} }
 
-// Bracket is a row's trailing state: [yes] or [no].
-func Bracket(ok bool, yes, no string) string {
+// bracket is a row's trailing state: [yes] or [no].
+func bracket(ok bool, yes, no string) string {
 	if ok {
 		return "[" + yes + "]"
 	}
 	return "[" + no + "]"
 }
 
-// Checked is a bracketed value that paints green when valid and dim otherwise (only where Status paints the row).
-func Checked(valid bool, s string) string {
+// checked is a bracketed value that paints green when valid and dim otherwise (only where Status paints the row).
+func checked(valid bool, s string) string {
 	open := ansi.SpanOff
 	if valid {
 		open = ansi.SpanOK
@@ -51,16 +51,16 @@ func Checked(valid bool, s string) string {
 	return "[" + open + s + ansi.SpanEnd + "]"
 }
 
-// PadTo pads s to n columns of runes; an s already that wide gets a two-space gap instead.
-func PadTo(s string, n int) string {
+// padTo pads s to n columns of runes; an s already that wide gets a two-space gap instead.
+func padTo(s string, n int) string {
 	if textutil.RuneLen(s) >= n {
 		return s + "  "
 	}
 	return s + strings.Repeat(" ", n-textutil.RuneLen(s))
 }
 
-// WithChecks lays out name rows whose detail is two aligned columns: the mode, then the check ("verified" is green).
-func WithChecks(names []string, cols [][2]string) [][2]string {
+// withChecks lays out name rows whose detail is two aligned columns: the mode, then the check ("verified" is green).
+func withChecks(names []string, cols [][2]string) [][2]string {
 	width := 0
 	for _, c := range cols {
 		width = max(width, textutil.RuneLen(c[0]))
@@ -73,31 +73,31 @@ func WithChecks(names []string, cols [][2]string) [][2]string {
 	return rows
 }
 
-// RowsOf lays rows out with WithChecks and returns what each one runs, in row order.
-func RowsOf[A any](rs []Row[A]) ([][2]string, []func(A)) {
+// rowsOf lays rows out with withChecks and returns what each one runs, in row order.
+func rowsOf[A any](rs []row[A]) ([][2]string, []func(A)) {
 	names := make([]string, len(rs))
 	cols := make([][2]string, len(rs))
 	acts := make([]func(A), len(rs))
 	for i, r := range rs {
 		names[i], cols[i], acts[i] = r.Name, [2]string{r.State, r.Check}, r.Run
 	}
-	return WithChecks(names, cols), acts
+	return withChecks(names, cols), acts
 }
 
-// Sections lays each block out on its own and returns the actions of every block, in row order.
-func Sections[A any](blocks []Block[A]) ([]tui.Section, []func(A)) {
+// sections lays each block out on its own and returns the actions of every block, in row order.
+func sections[A any](blocks []block[A]) ([]tui.Section, []func(A)) {
 	var sections []tui.Section
 	var actions []func(A)
 	for _, b := range blocks {
-		r, a := RowsOf(b.Rows)
-		sections = append(sections, tui.Section{Title: Heading(b.Title), Rows: r})
+		r, a := rowsOf(b.Rows)
+		sections = append(sections, tui.Section{Title: heading(b.Title), Rows: r})
 		actions = append(actions, a...)
 	}
 	return sections, actions
 }
 
-// Shell is where a page's menus run: the arrow-key panel when TTY is set, else a numbered prompt on In and Out.
-type Shell struct {
+// shell is where a page's menus run: the arrow-key panel when TTY is set, else a numbered prompt on In and Out.
+type shell struct {
 	Out io.Writer
 	In  *bufio.Reader
 	TTY bool
@@ -105,14 +105,14 @@ type Shell struct {
 	Paint func(string) string
 }
 
-// ShellRow is one menu row: Name, Detail, and what Enter does; Run reports true when the page is done.
-type ShellRow struct {
+// shellRow is one menu row: Name, Detail, and what Enter does; Run reports true when the page is done.
+type shellRow struct {
 	Name, Detail string
 	Run          func() (done bool)
 }
 
-// Pairs lays rows out as the (name, detail) pairs the panel renders.
-func Pairs(rows []ShellRow) [][2]string {
+// pairs lays rows out as the (name, detail) pairs the panel renders.
+func pairs(rows []shellRow) [][2]string {
 	out := make([][2]string, len(rows))
 	for i, r := range rows {
 		out[i] = [2]string{r.Name, r.Detail}
@@ -120,8 +120,8 @@ func Pairs(rows []ShellRow) [][2]string {
 	return out
 }
 
-// Mark flags the row holding the current value.
-func Mark(current bool) string {
+// mark flags the row holding the current value.
+func mark(current bool) string {
 	if current {
 		return " (current)"
 	}
@@ -129,22 +129,22 @@ func Mark(current bool) string {
 }
 
 // Pick returns the chosen row index, or -1 on Esc, Back or a blank answer; start is the TTY cursor row only.
-func (s *Shell) Pick(title string, rows [][2]string, start ...int) (int, error) {
+func (s *shell) Pick(title string, rows [][2]string, start ...int) (int, error) {
 	if s.TTY {
 		return tui.PickBack(title, rows, cmp.Or(start...))
 	}
 	return s.numbered(title, rows), nil
 }
 
-// PickPlain is Pick without the trailing Back row on a terminal, for a list that owns its own exit.
-func (s *Shell) PickPlain(title string, rows [][2]string) (int, error) {
+// pickPlain is Pick without the trailing Back row on a terminal, for a list that owns its own exit.
+func (s *shell) pickPlain(title string, rows [][2]string) (int, error) {
 	if s.TTY {
 		return tui.Pick(title, rows, 0)
 	}
 	return s.numbered(title, rows), nil
 }
 
-func (s *Shell) numbered(title string, rows [][2]string) int {
+func (s *shell) numbered(title string, rows [][2]string) int {
 	s.say(title + "\n")
 	for i, r := range rows {
 		s.say(fmt.Sprintf("  %d) %-22s %s\n", i+1, r[0], r[1]))
@@ -158,7 +158,7 @@ func (s *Shell) numbered(title string, rows [][2]string) int {
 	return n - 1
 }
 
-func (s *Shell) say(line string) {
+func (s *shell) say(line string) {
 	if s.Paint != nil {
 		line = s.Paint(line)
 	}
@@ -166,34 +166,34 @@ func (s *Shell) say(line string) {
 }
 
 // Confirm asks a [Y/n] question: tui.Confirm on the terminal, a line from In otherwise.
-func (s *Shell) Confirm(question string) bool {
+func (s *shell) Confirm(question string) bool {
 	if s.TTY {
 		return tui.Confirm(question, true)
 	}
 	fmt.Fprintf(s.Out, "%s [Y/n] ", question)
-	return Yes(s.In)
+	return yes(s.In)
 }
 
 // lineReader is tui's shared stdin reader, so Line and tui.Confirm/Secret never drop each other's look-ahead.
 var lineReader = tui.Stdin
 
 // Line reads one visible line: straight from the terminal like tui.Confirm, from In otherwise.
-func (s *Shell) Line(prompt string) string {
+func (s *shell) Line(prompt string) string {
 	fmt.Fprint(s.Out, prompt)
 	if s.TTY {
-		return ReadLine(lineReader())
+		return readLine(lineReader())
 	}
-	return ReadLine(s.In)
+	return readLine(s.In)
 }
 
-// ReadLine is one line from br without its line ending; a read error yields what arrived before it.
-func ReadLine(br *bufio.Reader) string {
+// readLine is one line from br without its line ending; a read error yields what arrived before it.
+func readLine(br *bufio.Reader) string {
 	line, _ := br.ReadString('\n')
 	return strings.TrimRight(line, "\r\n")
 }
 
-// Yes reads a [Y/n] answer: blank or y/Y is yes; end of input declines, so a dry pipe never starts a login or paste.
-func Yes(br *bufio.Reader) bool {
+// yes reads a [Y/n] answer: blank or y/Y is yes; end of input declines, so a dry pipe never starts a login or paste.
+func yes(br *bufio.Reader) bool {
 	raw, err := br.ReadString('\n')
 	if err != nil && raw == "" {
 		return false
@@ -202,8 +202,8 @@ func Yes(br *bufio.Reader) bool {
 	return line == "" || strings.HasPrefix(line, "y")
 }
 
-// ConfirmTerminal asks question by keypress on a terminal (Enter takes def, Esc is no); non-terminal runs proceed.
-func ConfirmTerminal(question string, def bool) bool {
+// confirmTerminal asks question by keypress on a terminal (Enter takes def, Esc is no); non-terminal runs proceed.
+func confirmTerminal(question string, def bool) bool {
 	if !proc.IsTerminal(os.Stdin) {
 		return true
 	}
@@ -212,11 +212,11 @@ func ConfirmTerminal(question string, def bool) bool {
 
 // Run shows rows (rebuilt each pass, cursor kept) and runs the one Enter picks, until a row reports done (true)
 // or Esc/Back/an error dismisses the page (false).
-func (s *Shell) Run(title string, rows func() []ShellRow) bool {
+func (s *shell) Run(title string, rows func() []shellRow) bool {
 	cur := 0
 	for {
 		rs := rows()
-		idx, err := s.Pick(title, Pairs(rs), cur)
+		idx, err := s.Pick(title, pairs(rs), cur)
 		if err != nil || idx < 0 || idx >= len(rs) {
 			return false
 		}

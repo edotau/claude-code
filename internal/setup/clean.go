@@ -486,12 +486,11 @@ func protected(p string) bool {
 	if p == filepath.Clean(memory.BankLockPath()) {
 		return true
 	}
-	if access := filepath.Clean(memory.AccessStateDir()); p == access || strings.HasPrefix(p, access+string(filepath.Separator)) {
+	if paths.Within(p, memory.AccessStateDir()) {
 		return !orphanAccessLog(p)
 	}
 	for _, root := range []string{memory.StoreDir(), memory.JournalDir()} {
-		root = filepath.Clean(root)
-		if p == root || strings.HasPrefix(p, root+string(filepath.Separator)) {
+		if paths.Within(p, root) {
 			return true
 		}
 	}

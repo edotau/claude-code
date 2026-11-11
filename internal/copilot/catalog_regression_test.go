@@ -38,13 +38,13 @@ func TestRefreshCatalogRefusesMissingPinnedToken(t *testing.T) {
 	old := listModelsFn
 	t.Cleanup(func() { listModelsFn = old })
 	calls := 0
-	listModelsFn = func(context.Context, SDKOptions) ([]copilotsdk.ModelInfo, error) {
+	listModelsFn = func(context.Context, sdkOptions) ([]copilotsdk.ModelInfo, error) {
 		calls++
 		return []copilotsdk.ModelInfo{{ID: "account-b-model"}}, nil
 	}
-	got, err := RefreshCatalog(context.Background())
+	got, err := refreshCatalog(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "account-a") || len(got) != 0 || calls != 0 {
-		t.Fatalf("RefreshCatalog = %v, %v; listings = %d; want refusal before listing account-b", got, err, calls)
+		t.Fatalf("refreshCatalog = %v, %v; listings = %d; want refusal before listing account-b", got, err, calls)
 	}
 	if _, found, err := vault.ReadSecret(catalogRecord); err != nil || found {
 		t.Fatalf("snapshot found = %v, err = %v; want no mislabeled snapshot", found, err)
@@ -57,7 +57,7 @@ func TestCatalogRefreshesAfterEnvironmentTokenChange(t *testing.T) {
 	old := listModelsFn
 	t.Cleanup(func() { listModelsFn = old })
 	calls := 0
-	listModelsFn = func(_ context.Context, opts SDKOptions) ([]copilotsdk.ModelInfo, error) {
+	listModelsFn = func(_ context.Context, opts sdkOptions) ([]copilotsdk.ModelInfo, error) {
 		calls++
 		return []copilotsdk.ModelInfo{{ID: opts.GitHubToken + "-model"}}, nil
 	}

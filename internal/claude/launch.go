@@ -57,8 +57,8 @@ func dropLaunchOwned(env []string) []string {
 	})
 }
 
-// Claude resolves a Claude Code launch.
-func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Plan, error) {
+// claudePlan resolves a Claude Code launch.
+func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Plan, error) {
 	reg, sel, err := agent.SessionSelection(o, true)
 	if err != nil {
 		return agent.Plan{}, err
@@ -553,7 +553,7 @@ func Launch(alias string, args []string) int {
 		return helptext.WrappedDocs(bin)
 	}
 	opts.Alias = alias
-	plan, err := Claude(providers.WithIdentity(context.Background(), as), opts, rest)
+	plan, err := claudePlan(providers.WithIdentity(context.Background(), as), opts, rest)
 	if err == nil && !opts.PrintEnv && !agent.IsHeadless(rest) {
 		providers.RecordLastProfile("claude", plan.Set[providers.EnvSessionProfile])
 	}
@@ -569,7 +569,7 @@ func LaunchScience(args []string) int {
 	if len(args) > 0 && args[0] == "--print-env" {
 		opts.PrintEnv, args = true, args[1:]
 	}
-	plan, err := ScienceEnv(args)
+	plan, err := scienceEnv(args)
 	return agent.RunPlan("claude-science", plan, opts, err)
 }
 
@@ -578,7 +578,7 @@ func LaunchAnthropic(args []string, vaultSet func(name string) int) int {
 	if err := helptext.RemovedFlagHint(args); err != nil {
 		return helptext.Fail("%v", err)
 	}
-	o, rest, err := ParseAnthropicArgs(args)
+	o, rest, err := parseAnthropicArgs(args)
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
@@ -586,11 +586,11 @@ func LaunchAnthropic(args []string, vaultSet func(name string) int) int {
 		return Launch("", args)
 	}
 	secret := ""
-	if o.Mode != AuthLogin {
-		if secret, err = AnthropicSecret(o, vaultSet); err != nil {
+	if o.Mode != authLogin {
+		if secret, err = anthropicSecret(o, vaultSet); err != nil {
 			return helptext.Fail("%v", err)
 		}
 	}
-	plan, err := Anthropic(context.Background(), o, rest, secret)
+	plan, err := anthropicPlan(context.Background(), o, rest, secret)
 	return agent.RunPlan("claude", plan, o.LaunchOptions, err)
 }

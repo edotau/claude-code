@@ -18,13 +18,13 @@ import (
 // Issue codes Preflight (and promote's recheck) can append to a MergePlan; each names one condition
 // that must clear before Merge proceeds. IssueConflict is the one agent resolution acts on.
 const (
-	IssueDetachedTarget     = "detached-target"
-	IssueTargetMismatch     = "target-mismatch"
-	IssueDirtyTarget        = "dirty-target"
-	IssueDirtyWorktree      = "dirty-worktree"
-	IssueInProgress         = "operation-in-progress"
-	IssueUnrelatedHistories = "unrelated-histories"
-	IssueCapability         = "merge-tree-capability"
+	issueDetachedTarget     = "detached-target"
+	issueTargetMismatch     = "target-mismatch"
+	issueDirtyTarget        = "dirty-target"
+	issueDirtyWorktree      = "dirty-worktree"
+	issueInProgress         = "operation-in-progress"
+	issueUnrelatedHistories = "unrelated-histories"
+	issueCapability         = "merge-tree-capability"
 	IssueConflict           = "conflict"
 )
 
@@ -175,12 +175,12 @@ func screenTargetBranch(ctx context.Context, repo *Repo, plan *MergePlan, target
 		if !errors.Is(err, errDetachedHead) {
 			return false, err
 		}
-		plan.Issues = append(plan.Issues, Issue{Code: IssueDetachedTarget, Paths: []string{repo.Main}, Detail: err.Error()})
+		plan.Issues = append(plan.Issues, Issue{Code: issueDetachedTarget, Paths: []string{repo.Main}, Detail: err.Error()})
 		return true, nil
 	}
 	plan.TargetRef = branch
 	if target != "" && target != branch {
-		plan.Issues = append(plan.Issues, Issue{Code: IssueTargetMismatch,
+		plan.Issues = append(plan.Issues, Issue{Code: issueTargetMismatch,
 			Detail: fmt.Sprintf("main checkout is on %q, requested target was %q", branch, target)})
 		return true, nil
 	}
@@ -210,7 +210,7 @@ func simulateIssues(ctx context.Context, repo *Repo, plan *MergePlan) error {
 		return err
 	}
 	if unrelated {
-		plan.Issues = append(plan.Issues, Issue{Code: IssueUnrelatedHistories,
+		plan.Issues = append(plan.Issues, Issue{Code: issueUnrelatedHistories,
 			Detail: fmt.Sprintf("%s and %s share no common ancestor", plan.SourceOID, plan.TargetOID)})
 		return nil
 	}
@@ -220,7 +220,7 @@ func simulateIssues(ctx context.Context, repo *Repo, plan *MergePlan) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		plan.Issues = append(plan.Issues, Issue{Code: IssueCapability, Detail: err.Error()})
+		plan.Issues = append(plan.Issues, Issue{Code: issueCapability, Detail: err.Error()})
 		return nil
 	}
 	if len(conflicts) > 0 {
@@ -320,7 +320,7 @@ func checkTargetState(ctx context.Context, path, gitDir, commitRange string) (*I
 			}
 		}
 		if len(overlap) > 0 {
-			return &Issue{Code: IssueDirtyTarget, Paths: overlap,
+			return &Issue{Code: issueDirtyTarget, Paths: overlap,
 				Detail: "uncommitted target changes overlap promoted files: " + withHolders(path, overlap)}, nil
 		}
 	}
@@ -383,13 +383,13 @@ func targetTouchedPaths(ctx context.Context, path, commitRange string) ([]string
 	return strings.FieldsFunc(string(out), func(r rune) bool { return r == '\x00' }), nil
 }
 
-// inProgressIssue is the IssueInProgress for a merge/rebase/cherry-pick underway in path, or nil.
+// inProgressIssue is the issueInProgress for a merge/rebase/cherry-pick underway in path, or nil.
 func inProgressIssue(ctx context.Context, path, gitDir string) (*Issue, error) {
 	op, found, err := inProgressOp(ctx, path, gitDir)
 	if err != nil || !found {
 		return nil, err
 	}
-	return &Issue{Code: IssueInProgress, Paths: []string{path}, Detail: op + " in progress"}, nil
+	return &Issue{Code: issueInProgress, Paths: []string{path}, Detail: op + " in progress"}, nil
 }
 
 // checkCheckoutState folds the dirty and in-progress-operation checks for one checkout into a single
@@ -400,7 +400,7 @@ func checkCheckoutState(ctx context.Context, path, gitDir string, dirtyProbe fun
 		return nil, err
 	}
 	if dirty {
-		return &Issue{Code: IssueDirtyWorktree, Paths: []string{path}}, nil
+		return &Issue{Code: issueDirtyWorktree, Paths: []string{path}}, nil
 	}
 	return inProgressIssue(ctx, path, gitDir)
 }

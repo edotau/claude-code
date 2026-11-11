@@ -61,7 +61,7 @@ func keyRows(targets []configure.KeyTarget) ([][2]string, bool) {
 	for _, c := range cols {
 		allOK = allOK && c[1] == "verified"
 	}
-	return WithChecks(names, cols), allOK
+	return withChecks(names, cols), allOK
 }
 
 // keyCols is one credential's mode (how it signs in · how it bills) and check: verified, unverified, rejected or
@@ -98,7 +98,7 @@ func loginLine(kt configure.KeyTarget) string {
 // changeKey runs the picked credential's actions: rotate when present, set up when absent.
 func changeKey(d *dialog, kt configure.KeyTarget) bool {
 	if !kt.Present {
-		if !ConfirmTerminal("Set up "+kt.Label, false) {
+		if !confirmTerminal("Set up "+kt.Label, false) {
 			return false
 		}
 		return resolveKey(d, kt)
@@ -121,7 +121,7 @@ func replaceKey(d *dialog, kt configure.KeyTarget) bool {
 		d.printf("%s: env-only, not in the vault; edit where exported\n", kt.EnvVar)
 		return false
 	}
-	if !ConfirmTerminal("Paste a new "+kt.EnvVar+" to rotate it", false) {
+	if !confirmTerminal("Paste a new "+kt.EnvVar+" to rotate it", false) {
 		return false
 	}
 	if u := configure.ConsoleURLs[kt.EnvVar]; u != "" && d.shell().Confirm("Open "+u+" in your browser to create the new key?") {
@@ -180,7 +180,7 @@ func readAnswer(d *dialog, prompt string) (string, bool) {
 
 // runMint asks first (a stray Enter must never start a mint), then runs the token-minting CLI.
 func runMint(argv []string) (string, error) {
-	if !ConfirmTerminal("Run `"+strings.Join(argv, " ")+"` to mint a new token", false) {
+	if !confirmTerminal("Run `"+strings.Join(argv, " ")+"` to mint a new token", false) {
 		return "", nil
 	}
 	return configure.RunMint(argv)
@@ -247,11 +247,11 @@ func chooseRotateOption(d *dialog, kt configure.KeyTarget, opts []configure.Auth
 		}
 		return 1, true
 	}
-	rows := make([]ShellRow, len(opts))
+	rows := make([]shellRow, len(opts))
 	for i, o := range opts {
-		rows[i] = ShellRow{Name: o.Action, Detail: o.Desc}
+		rows[i] = shellRow{Name: o.Action, Detail: o.Desc}
 	}
-	idx, err := d.shell().Pick(kt.Label+" — rotate which credential?", Pairs(rows))
+	idx, err := d.shell().Pick(kt.Label+" — rotate which credential?", pairs(rows))
 	if err != nil || idx < 0 {
 		return 0, false
 	}
@@ -311,12 +311,12 @@ func secretsLoop(d *dialog) int {
 		for _, s := range list {
 			rows = append(rows, [2]string{s.Name, fmt.Sprintf("%-16s %s", sourceLabel(s.Source, s.Shadowed), s.Users)})
 		}
-		rows = append(rows, [2]string{"+ New", "custom NAME, then paste"}, EnterRow("save and go back"))
+		rows = append(rows, [2]string{"+ New", "custom NAME, then paste"}, enterRow("save and go back"))
 		title := "secrets — pick one to set (stores in " + store + ")"
 		if d.pending != nil {
 			title = "secrets — pick one to set (Submit saves to " + store + ")"
 		}
-		idx, err := d.shell().PickPlain(title, rows)
+		idx, err := d.shell().pickPlain(title, rows)
 		if err != nil {
 			fmt.Fprintf(d.out, "secrets: %v\n", err)
 			return 1
@@ -334,18 +334,18 @@ func secretsLoop(d *dialog) int {
 
 // editSecret offers mint, login, paste, and vault deletion actions for one tracked secret.
 func editSecret(d *dialog, s configure.TrackedSecret) {
-	var acts []ShellRow
+	var acts []shellRow
 	kt := configure.KeyTarget{Label: s.Name, EnvVar: s.Name, FixCmd: "claude-code vault set " + s.Name}
 	if s.Name == providers.OAuthTokenEnv {
 		kt.MintArgv = []string{"claude", "setup-token"}
 	}
 	for _, o := range configure.AuthOptions(kt) {
-		acts = append(acts, ShellRow{Name: o.Action, Detail: o.Desc, Run: func() bool { return runAuthOption(d, kt, o) }})
+		acts = append(acts, shellRow{Name: o.Action, Detail: o.Desc, Run: func() bool { return runAuthOption(d, kt, o) }})
 	}
 	if s.Source == "vault" {
-		acts = append(acts, ShellRow{Name: "Delete", Detail: "remove from the vault", Run: func() bool { return deleteSecret(d, s.Name) }})
+		acts = append(acts, shellRow{Name: "Delete", Detail: "remove from the vault", Run: func() bool { return deleteSecret(d, s.Name) }})
 	}
-	idx, err := d.shell().Pick(s.Name+" ("+sourceLabel(s.Source, s.Shadowed)+")", Pairs(acts))
+	idx, err := d.shell().Pick(s.Name+" ("+sourceLabel(s.Source, s.Shadowed)+")", pairs(acts))
 	if err != nil || idx < 0 || idx >= len(acts) {
 		return
 	}

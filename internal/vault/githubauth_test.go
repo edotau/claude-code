@@ -17,7 +17,7 @@ func TestGitHubAuthWarnsWhenVaultUnreadable(t *testing.T) {
 	if got != "" {
 		t.Fatalf("GitHubAuth = %q, want empty", got)
 	}
-	if !strings.Contains(out, "cannot read "+GitHubAuthKey) {
-		t.Fatalf("stderr = %q, want a warning naming %s", out, GitHubAuthKey)
+	if !strings.Contains(out, "cannot read "+gitHubAuthKey) {
+		t.Fatalf("stderr = %q, want a warning naming %s", out, gitHubAuthKey)
 	}
 }

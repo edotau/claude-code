@@ -36,8 +36,8 @@ func TestScanVaultOverlaySecretsSorted(t *testing.T) {
 		want = append(want, "vault:overlay/providers → providers."+n+".k holds an inline secret")
 	}
 	for range 20 {
-		scanner := &Scanner{Out: &bytes.Buffer{}}
-		scanner.ScanVault()
+		scanner := &secretScanner{Out: &bytes.Buffer{}}
+		scanner.scanVault()
 		if !slices.Equal(scanner.Findings, want) {
 			t.Fatalf("findings = %v, want %v", scanner.Findings, want)
 		}
@@ -57,8 +57,8 @@ func TestScanVaultFindsInlineSecrets(t *testing.T) {
 	vaulttest.Secret(t, "SEALED", value)
 	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
 	var out bytes.Buffer
-	scanner := &Scanner{Out: &out}
-	scanner.ScanVault()
+	scanner := &secretScanner{Out: &out}
+	scanner.scanVault()
 	want := []string{
 		"vault:overlay/providers → providers.x.headers.0.Authorization holds an inline secret",
 		"vault:overlay/providers.prev → providers.x.auth.env holds an inline secret",
@@ -67,15 +67,15 @@ func TestScanVaultFindsInlineSecrets(t *testing.T) {
 		"vault:env → ENV_TOKEN holds an inline secret",
 	}
 	if !slices.Equal(scanner.Findings, want) {
-		t.Fatalf("ScanVault findings = %v, want %v", scanner.Findings, want)
+		t.Fatalf("scanVault findings = %v, want %v", scanner.Findings, want)
 	}
 	for _, finding := range want {
 		if !strings.Contains(out.String(), finding) {
-			t.Errorf("ScanVault output missing %q: %s", finding, out.String())
+			t.Errorf("scanVault output missing %q: %s", finding, out.String())
 		}
 	}
 	if strings.Contains(out.String(), value) {
-		t.Fatal("ScanVault printed a secret value")
+		t.Fatal("scanVault printed a secret value")
 	}
 }
 
@@ -91,14 +91,14 @@ func TestScanVaultClean(t *testing.T) {
 			}
 			t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
 			var out bytes.Buffer
-			scanner := &Scanner{Out: &out}
-			scanner.ScanVault()
+			scanner := &secretScanner{Out: &out}
+			scanner.scanVault()
 			if len(scanner.Findings) != 0 || !strings.Contains(out.String(), "vault — clean") {
-				t.Fatalf("ScanVault = %v, output %s", scanner.Findings, out.String())
+				t.Fatalf("scanVault = %v, output %s", scanner.Findings, out.String())
 			}
 			if !populated {
 				if _, err := os.Stat(vault.Path()); !os.IsNotExist(err) {
-					t.Fatalf("ScanVault created a vault: %v", err)
+					t.Fatalf("scanVault created a vault: %v", err)
 				}
 			}
 		})
@@ -109,11 +109,11 @@ func TestScanVaultReadErrorIsFinding(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(currentVaultSchema(t)+1))
 	var out bytes.Buffer
-	scanner := &Scanner{Out: &out}
-	scanner.ScanVault()
+	scanner := &secretScanner{Out: &out}
+	scanner.scanVault()
 	if len(scanner.Findings) != 1 || !strings.Contains(scanner.Findings[0], "vault — could not read:") ||
 		!strings.Contains(scanner.Findings[0], "schema "+strconv.Itoa(currentVaultSchema(t)+1)) || strings.Contains(out.String(), "vault — clean") {
-		t.Fatalf("ScanVault must report unreadable vault: %v, %s", scanner.Findings, out.String())
+		t.Fatalf("scanVault must report unreadable vault: %v, %s", scanner.Findings, out.String())
 	}
 }
 
@@ -127,8 +127,8 @@ func TestScanConfigsDefaultIncludesVaultAndSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	scanner := &Scanner{Out: &out}
-	if code := scanner.ScanConfigs(nil); code != providers.ExitFindings {
+	scanner := &secretScanner{Out: &out}
+	if code := scanner.scanConfigs(nil); code != providers.ExitFindings {
 		t.Fatalf("default scan = %d, want findings: %s", code, out.String())
 	}
 	if len(scanner.Findings) != 1 || scanner.Findings[0] != "vault:env → INLINE_KEY holds an inline secret" {
@@ -139,8 +139,8 @@ func TestScanConfigsDefaultIncludesVaultAndSummary(t *testing.T) {
 		t.Fatalf("default scan missing file scan or summary: %s", out.String())
 	}
 	out.Reset()
-	scanner = &Scanner{Out: &out}
-	if code := scanner.ScanConfigs([]string{path}); code != providers.ExitClean || len(scanner.Findings) != 0 {
+	scanner = &secretScanner{Out: &out}
+	if code := scanner.scanConfigs([]string{path}); code != providers.ExitClean || len(scanner.Findings) != 0 {
 		t.Fatalf("explicit file scan included vault: %d, %v, %s", code, scanner.Findings, out.String())
 	}
 }
@@ -148,8 +148,8 @@ func TestScanConfigsDefaultIncludesVaultAndSummary(t *testing.T) {
 func TestScanConfigsMissingExplicitTargetIsFinding(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "typo.json")
 	var out bytes.Buffer
-	scanner := &Scanner{Out: &out}
-	if code := scanner.ScanConfigs([]string{missing}); code != providers.ExitFindings {
+	scanner := &secretScanner{Out: &out}
+	if code := scanner.scanConfigs([]string{missing}); code != providers.ExitFindings {
 		t.Fatalf("missing explicit target = %d, want findings: %s", code, out.String())
 	}
 	if len(scanner.Findings) != 1 || !strings.Contains(scanner.Findings[0], missing+" — could not read") {
@@ -166,8 +166,8 @@ func TestScanFileFindsPlantedSecretAndIgnoresEnvRef(t *testing.T) {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	s := &Scanner{Out: &buf}
-	s.ScanFile(path)
+	s := &secretScanner{Out: &buf}
+	s.scanFile(path)
 	if len(s.Findings) != 1 {
 		t.Fatalf("Findings = %v, want exactly 1 (the LEAKED key, not the ${ENV} ref)", s.Findings)
 	}
@@ -193,8 +193,8 @@ func TestScanFileParseFallback(t *testing.T) {
 			path := filepath.Join(t.TempDir(), tc.file)
 			writeTestFile(t, path, tc.doc, 0o600)
 			var buf bytes.Buffer
-			s := &Scanner{Out: &buf}
-			s.ScanFile(path)
+			s := &secretScanner{Out: &buf}
+			s.scanFile(path)
 			clean := tc.want == "clean"
 			if (len(s.Findings) == 0) != clean || !strings.Contains(buf.String(), tc.want) {
 				t.Fatalf("Findings = %v, output %q, want %q", s.Findings, buf.String(), tc.want)
@@ -215,13 +215,13 @@ func TestScanFileClaudeMetadataFixtures(t *testing.T) {
 		"settings.json": `{"extraKnownMarketplaces":{"x":{"source":{"repo":"anthropics/claude-plugins-official"}}}}`,
 	}
 	var buf bytes.Buffer
-	s := &Scanner{Out: &buf}
+	s := &secretScanner{Out: &buf}
 	for name, doc := range fixtures {
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		s.ScanFile(path)
+		s.scanFile(path)
 		if !strings.Contains(buf.String(), path+" — clean") {
 			t.Errorf("%s did not scan clean", name)
 		}
@@ -354,7 +354,7 @@ func checkScanExemption(t *testing.T, tc scanCase, value scanValue) {
 }
 
 // scanNested writes value nested under tc.keys into tc.file and scans it, returning the scanner and its output.
-func scanNested(t *testing.T, tc scanCase, value string) (*Scanner, *bytes.Buffer) {
+func scanNested(t *testing.T, tc scanCase, value string) (*secretScanner, *bytes.Buffer) {
 	t.Helper()
 	if !providers.LooksLikeSecret(value) {
 		t.Fatal("exported heuristic must still flag the value")
@@ -372,7 +372,7 @@ func scanNested(t *testing.T, tc scanCase, value string) (*Scanner, *bytes.Buffe
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	s := &Scanner{Out: &buf}
-	s.ScanFile(path)
+	s := &secretScanner{Out: &buf}
+	s.scanFile(path)
 	return s, &buf
 }

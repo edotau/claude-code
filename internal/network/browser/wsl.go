@@ -61,7 +61,7 @@ func winExePath(env Env, name string) string {
 }
 
 // detectWindows fills a Windows-host browser from WSL: extension unsupported, CDP ready when cdpPort answers.
-func detectWindows(env Env, s spec, b *Browser) {
+func detectWindows(env Env, s spec, b *browser) {
 	b.Installed = true
 	b.Host = stateUnsupportedWSL
 	b.Paths = controlPaths{
@@ -141,11 +141,11 @@ func probeCDP() string {
 }
 
 // defaultWSL reads the Windows https UserChoice ProgId through PowerShell interop.
-func defaultWSL(env Env) (Browser, error) {
+func defaultWSL(env Env) (browser, error) {
 	out, err := env.run("powershell.exe", "-NoProfile", "-Command",
 		`(Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice').ProgId`)
 	if err != nil {
-		return Browser{}, fmt.Errorf("browser: reading the Windows default browser: %w", err)
+		return browser{}, fmt.Errorf("browser: reading the Windows default browser: %w", err)
 	}
 	progID := strings.TrimSpace(out)
 	for prefix, name := range winProgID {
@@ -158,7 +158,7 @@ func defaultWSL(env Env) (Browser, error) {
 }
 
 // setupWSL starts the Windows browser with CDP when nothing answers, then registers chrome-devtools-mcp.
-func setupWSL(env Env, b Browser) Actions {
+func setupWSL(env Env, b browser) Actions {
 	acts := Actions{Browser: b.Name}
 	acts.Items = append(acts.Items, action{Kind: "noop", Executed: true,
 		Description: "Claude in Chrome is unsupported from WSL (code.claude.com/docs/en/chrome); using CDP instead."})
@@ -168,7 +168,7 @@ func setupWSL(env Env, b Browser) Actions {
 }
 
 // startCDPAction launches the browser with the debug port and a dedicated profile, then waits for the port.
-func startCDPAction(env Env, b Browser) action {
+func startCDPAction(env Env, b browser) action {
 	if cdpTagged(env.cdpOwner(), b.Name) && cdpListenedBy(env, b.Name) {
 		return action{Kind: "noop", Executed: true,
 			Description: fmt.Sprintf("%s already answers on localhost:%d.", b.DisplayName, cdpPort)}
@@ -204,7 +204,7 @@ func startCDPAction(env Env, b Browser) action {
 }
 
 // cdpFailure explains a dead CDP port: stale processes on the profile first, then a missing mirrored networking.
-func cdpFailure(env Env, b Browser) string {
+func cdpFailure(env Env, b browser) string {
 	msg := fmt.Sprintf("started, but localhost:%d does not answer from WSL", cdpPort)
 	if pids := staleProfilePIDs(env, b.Name); len(pids) > 0 {
 		return fmt.Sprintf("%s; %s process(es) %s already own the %s-cdp profile and ignored the debug flag: run "+

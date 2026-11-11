@@ -79,7 +79,7 @@ func ServedFirst(p *providers.Provider, responsesOnly bool, now time.Time) (mode
 // MarkUnserved remembers that p's endpoint for model is gone, so served-aware picks skip it for unservedTTL.
 func MarkUnserved(p *providers.Provider, model string) error {
 	now := time.Now()
-	return Update(func(s State) {
+	return update(func(s State) {
 		account := ProviderAccount(p.Name)
 		e := s[account]
 		next := make(map[string]time.Time, len(e.Unserved)+1)

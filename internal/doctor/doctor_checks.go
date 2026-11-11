@@ -60,14 +60,14 @@ func inflightDoctorDetail() string {
 }
 
 // quotaDoctorRows is one row per exhausted or low account in route's quota.json, with its reset and the manual fix.
-func quotaDoctorRows(now time.Time) []Check {
+func quotaDoctorRows(now time.Time) []check {
 	st := router.LoadState()
 	keys := make([]string, 0, len(st))
 	for k := range st {
 		keys = append(keys, k)
 	}
 	slices.Sort(keys)
-	var rows []Check
+	var rows []check
 	for _, k := range keys {
 		e := st[k]
 		s := e.Status(now)
@@ -78,9 +78,9 @@ func quotaDoctorRows(now time.Time) []Check {
 		if u := e.Until(now); !u.IsZero() {
 			d += ", resets " + u.Local().Format("2006-01-02 15:04")
 		}
-		rows = append(rows, Check{Name: "quota " + k, Detail: d + "; " + quotaFix(k)})
+		rows = append(rows, check{Name: "quota " + k, Detail: d + "; " + quotaFix(k)})
 	}
-	rows = append(rows, Check{Name: "quota gemini", OK: true,
+	rows = append(rows, check{Name: "quota gemini", OK: true,
 		Detail: "failure-driven only (Antigravity's quota endpoint denies access)"})
 	return rows
 }
@@ -97,7 +97,7 @@ func quotaFix(key string) string {
 }
 
 // formatsCheck is the soft "formats" row.
-func formatsCheck() Check {
+func formatsCheck() check {
 	var stale []string
 	current := 0
 	for _, f := range schemas.All() {
@@ -117,9 +117,9 @@ func formatsCheck() Check {
 		}
 	}
 	if len(stale) > 0 {
-		return Check{Name: "formats", OK: false, Detail: strings.Join(stale, " · ")}
+		return check{Name: "formats", OK: false, Detail: strings.Join(stale, " · ")}
 	}
-	return Check{Name: "formats", OK: true, Detail: fmt.Sprintf("%d formats current · %d migrations applied", current, ledgerLines())}
+	return check{Name: "formats", OK: true, Detail: fmt.Sprintf("%d formats current · %d migrations applied", current, ledgerLines())}
 }
 
 func ledgerLines() int {
@@ -142,8 +142,8 @@ func ledgerLines() int {
 	}
 }
 
-func vaultDoctorChecks() []Check {
-	row := Check{Name: "vault", OK: true}
+func vaultDoctorChecks() []check {
+	row := check{Name: "vault", OK: true}
 	retired := 0
 	_, err := os.Stat(vault.Path())
 	if errors.Is(err, fs.ErrNotExist) {
@@ -173,18 +173,18 @@ func vaultDoctorChecks() []Check {
 		}
 	}
 	// "vault master key" repeats this row's own count/source/error; drop it here, where "vault" already
-	// shows it, but keep it in secretsDoctorChecks for PrintVault (doctor --secrets never prints "vault").
+	// shows it, but keep it in secretsDoctorChecks for printVault (doctor --secrets never prints "vault").
 	checks, _ := secretsDoctorChecks()
-	checks = slices.DeleteFunc(checks, func(c Check) bool { return c.Name == "vault master key" })
-	return append([]Check{row}, checks...)
+	checks = slices.DeleteFunc(checks, func(c check) bool { return c.Name == "vault master key" })
+	return append([]check{row}, checks...)
 }
 
 // secretsDoctorChecks adapts vaultChecks to soft doctor rows; gateOK is false when a gating row failed.
-func secretsDoctorChecks() (checks []Check, gateOK bool) {
+func secretsDoctorChecks() (checks []check, gateOK bool) {
 	reg, _ := providers.Load() // a load error is reported by the provider registry row; nil skips name checks
 	gateOK = true
 	for _, c := range vaultChecks(reg) {
-		checks = append(checks, Check{Name: c.Name, OK: c.OK, Detail: c.Detail})
+		checks = append(checks, check{Name: c.Name, OK: c.OK, Detail: c.Detail})
 		if c.Gate && !c.OK {
 			gateOK = false
 		}
@@ -192,10 +192,10 @@ func secretsDoctorChecks() (checks []Check, gateOK bool) {
 	return checks, gateOK
 }
 
-// PrintVault prints the vault rows as ✓/✗ lines for doctor --secrets; false when a gating row failed.
-func PrintVault(w io.Writer) bool {
+// printVault prints the vault rows as ✓/✗ lines for doctor --secrets; false when a gating row failed.
+func printVault(w io.Writer) bool {
 	checks, ok := secretsDoctorChecks()
 	fmt.Fprintln(w, "== vault checks ==")
-	PrintChecks(w, checks)
+	printCheckLines(w, checks)
 	return ok
 }

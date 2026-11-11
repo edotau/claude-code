@@ -50,7 +50,7 @@ func (t *RouteTable) gateProfile(
 		p = reg.Providers[pin]
 	}
 	if p == nil {
-		res.Skipped = append(res.Skipped, Skip{agent, GateRow, "pinned profile " + pin + " is not in the registry"})
+		res.Skipped = append(res.Skipped, Skip{agent, gateRow, "pinned profile " + pin + " is not in the registry"})
 		return nil, false
 	}
 	if !o.canServe(agent, p) || !providers.CredentialPresent(p) {
@@ -161,7 +161,7 @@ func PinnedModel(agent, alias string, cell Cell, p *providers.Provider, pin stri
 	return model, ""
 }
 
-// stateErrClass names why Update failed, for a note; the raw error carries paths, so it stays out.
+// stateErrClass names why update failed, for a note; the raw error carries paths, so it stays out.
 func stateErrClass(err error) string {
 	switch {
 	case errors.Is(err, schemas.ErrNewer):
@@ -178,7 +178,7 @@ func stateErrClass(err error) string {
 func pickPool(agent string, p *providers.Provider, pool []string, now time.Time) (string, error) {
 	pool = servedPool(p, pool, now)
 	var selected, model string
-	err := Update(func(s State) {
+	err := update(func(s State) {
 		account := ProviderAccount(p.Name)
 		e := s[account]
 		for _, entry := range pool {
@@ -230,7 +230,7 @@ func discoverySkipped(e Entry, agent, entry string, now time.Time) bool {
 // SkipDiscovery marks a pool entry unusable; returns "" for no match or a persistence error, reported on stderr.
 func SkipDiscovery(agent string, p *providers.Provider, wire string) string {
 	var hit string
-	err := Update(func(s State) {
+	err := update(func(s State) {
 		for _, entry := range DiscoveryPool() {
 			if providers.SpellPin(p, entry) != wire {
 				continue

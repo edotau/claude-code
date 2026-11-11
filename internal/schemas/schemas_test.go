@@ -101,7 +101,7 @@ func TestDecodeOlderWithoutMigrateReturnsErrNoMigration(t *testing.T) {
 	f := reg(t, Format{Name: "t-decode-nomig", Owner: "test", Kind: "record", Version: 1,
 		Glob: func() string { return "x" }, New: func() any { return &rec{} }, Clean: "x"})
 	var got rec
-	if _, err := Decode(f, []byte(`{"name":"a"}`), &got); !errors.Is(err, ErrNoMigration) {
+	if _, err := Decode(f, []byte(`{"name":"a"}`), &got); !errors.Is(err, errNoMigration) {
 		t.Fatalf("err=%v, want ErrNoMigration", err)
 	}
 }

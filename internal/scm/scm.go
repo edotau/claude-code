@@ -15,7 +15,7 @@ import (
 // Host kinds.
 const (
 	GitHub    = "github"
-	Bitbucket = "bitbucket"
+	bitbucket = "bitbucket"
 )
 
 // PR is one pull request in the row shape shared by every host.
@@ -101,7 +101,7 @@ func bitbucketRepo(host string, parts []string, isHTTP bool, remote string) (Rep
 	if len(parts) != 2 || (isHTTP && !hasScm) {
 		return Repo{}, fmt.Errorf("remote %q is not a Bitbucket {project}/{repo} path", remote)
 	}
-	return Repo{Bitbucket, host, strings.ToUpper(parts[0]), parts[1]}, nil
+	return Repo{bitbucket, host, strings.ToUpper(parts[0]), parts[1]}, nil
 }
 
 // redact drops userinfo from a URL remote so credentials never reach an error message.

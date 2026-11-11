@@ -59,8 +59,8 @@ type copilotPrivateHome struct {
 	Warnings []string
 }
 
-// PrepareCopilotHome seeds the private home (not when dry), guards logins, returns its env; launch and ask share it.
-func PrepareCopilotHome(dry bool) (copilotPrivateHome, error) {
+// prepareCopilotHome seeds the private home (not when dry), guards logins, returns its env; launch and ask share it.
+func prepareCopilotHome(dry bool) (copilotPrivateHome, error) {
 	if err := checkCopilotRegistryOS(); err != nil {
 		return copilotPrivateHome{}, err
 	}

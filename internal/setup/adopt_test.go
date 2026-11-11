@@ -77,7 +77,7 @@ func TestAdoptDryRunWritesNothing(t *testing.T) {
 	before := snapshot(t, dir)
 
 	var out bytes.Buffer
-	if err := Adopt(AdoptOpts{From: repo, Into: dir, Label: "adopt", DryRun: true, Out: &out}); err != nil {
+	if err := adopt(adoptOpts{From: repo, Into: dir, Label: "adopt", DryRun: true, Out: &out}); err != nil {
 		t.Fatal(err)
 	}
 	after := snapshot(t, dir)
@@ -92,14 +92,14 @@ func TestAdoptDryRunWritesNothing(t *testing.T) {
 	}
 }
 
-// Adopt refuses an Into that is already a checkout with ErrAlreadyCheckout, before touching either dir.
+// adopt refuses an Into that is already a checkout with errAlreadyCheckout, before touching either dir.
 func TestAdoptRefusesExistingGit(t *testing.T) {
 	repo := fixtureRepo(t)
 	dir := fixtureTarget(t)
 	mustWrite(t, filepath.Join(dir, ".git", "HEAD"), "ref: refs/heads/main\n")
 	before := snapshot(t, dir)
-	if err := Adopt(AdoptOpts{From: repo, Into: dir}); !errors.Is(err, ErrAlreadyCheckout) {
-		t.Fatalf("Adopt into a checkout = %v, want ErrAlreadyCheckout", err)
+	if err := adopt(adoptOpts{From: repo, Into: dir}); !errors.Is(err, errAlreadyCheckout) {
+		t.Fatalf("Adopt into a checkout = %v, want errAlreadyCheckout", err)
 	}
 	if !reflect.DeepEqual(before, snapshot(t, dir)) {
 		t.Error("refused adopt changed the target dir")
@@ -109,12 +109,12 @@ func TestAdoptRefusesExistingGit(t *testing.T) {
 	}
 }
 
-// Adopt refuses a From without .git with ErrNotAClone, before touching the target.
+// adopt refuses a From without .git with errNotAClone, before touching the target.
 func TestAdoptRefusesNonCloneFrom(t *testing.T) {
 	dir := fixtureTarget(t)
 	before := snapshot(t, dir)
-	if err := Adopt(AdoptOpts{From: t.TempDir(), Into: dir}); !errors.Is(err, ErrNotAClone) {
-		t.Fatalf("Adopt from a non-clone = %v, want ErrNotAClone", err)
+	if err := adopt(adoptOpts{From: t.TempDir(), Into: dir}); !errors.Is(err, errNotAClone) {
+		t.Fatalf("Adopt from a non-clone = %v, want errNotAClone", err)
 	}
 	if !reflect.DeepEqual(before, snapshot(t, dir)) {
 		t.Error("refused adopt changed the target dir")
@@ -131,7 +131,7 @@ func TestAdoptBacksUpClashesAndLeavesRestAlone(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := Adopt(AdoptOpts{From: repo, Into: dir, Label: "adopt", Out: &out}); err != nil {
+	if err := adopt(adoptOpts{From: repo, Into: dir, Label: "adopt", Out: &out}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -224,14 +224,14 @@ func TestClashes(t *testing.T) {
 	mustWrite(t, filepath.Join(dir, "skills", "mine", "SKILL.md"), "mine\n")
 	mustWrite(t, filepath.Join(dir, "settings.local.json"), "{}\n")
 
-	clashes, err := Clashes(repo, dir)
+	clashes, err := clashes(repo, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(clashes) != 2 {
 		t.Fatalf("want 2 clashes, got %d: %+v", len(clashes), clashes)
 	}
-	byPath := map[string]Clash{}
+	byPath := map[string]clash{}
 	for _, c := range clashes {
 		byPath[c.Path] = c
 	}
@@ -253,7 +253,7 @@ func TestClashesDanglingSymlinkIsAClash(t *testing.T) {
 	if err := os.Symlink(filepath.Join(dir, "nowhere"), filepath.Join(dir, "CLAUDE.md")); err != nil {
 		t.Fatal(err)
 	}
-	clashes, err := Clashes(repo, dir)
+	clashes, err := clashes(repo, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestClashesStatErrorIsReturned(t *testing.T) {
 	gitInit(t, repo, map[string]string{"agents/a.md": "a\n"})
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "agents"), "a file, not a dir\n") // Lstat agents/a.md -> ENOTDIR
-	if _, err := Clashes(repo, dir); err == nil {
+	if _, err := clashes(repo, dir); err == nil {
 		t.Fatal("non-NotExist stat error was swallowed")
 	}
 }
@@ -296,7 +296,7 @@ func TestBackupDanglingSymlink(t *testing.T) {
 	}
 	now := time.Now()
 	dest := paths.BackupDir("adopt", now)
-	err := Backup(dir, []string{"CLAUDE.md"}, "adopt", now)
+	err := backup(dir, []string{"CLAUDE.md"}, "adopt", now)
 	if err != nil {
 		t.Fatalf("Backup = %v, want the dangling link copied", err)
 	}

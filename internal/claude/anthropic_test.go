@@ -20,14 +20,14 @@ const fakeToken = "sk-ant-oat01-FAKEFAKEFAKEFAKEFAKEFAKE0123456789"
 
 func TestParseAnthropicBareFlagTakesNoValue(t *testing.T) {
 	for _, flag := range []string{"--oauth", "--x-api-key"} {
-		o, rest, err := ParseAnthropicArgs([]string{flag, "-p", "hi"})
+		o, rest, err := parseAnthropicArgs([]string{flag, "-p", "hi"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !slices.Equal(rest, []string{"-p", "hi"}) {
 			t.Errorf("%s swallowed a claude arg: rest %q", flag, rest)
 		}
-		want := map[string][2]string{"--oauth": {AuthOAuth, oauthKey}, "--x-api-key": {AuthAPIKey, defaultAPIKeyName}}[flag]
+		want := map[string][2]string{"--oauth": {authOAuth, oauthKey}, "--x-api-key": {authAPIKey, defaultAPIKeyName}}[flag]
 		if o.Mode != want[0] || o.Name != want[1] {
 			t.Errorf("%s: mode %q name %q", flag, o.Mode, o.Name)
 		}
@@ -35,26 +35,26 @@ func TestParseAnthropicBareFlagTakesNoValue(t *testing.T) {
 }
 
 func TestParseAnthropicNoFlagIsLogin(t *testing.T) {
-	o, rest, err := ParseAnthropicArgs([]string{"--resume"})
-	if err != nil || o.Mode != AuthLogin || o.Name != "" || !slices.Equal(rest, []string{"--resume"}) {
+	o, rest, err := parseAnthropicArgs([]string{"--resume"})
+	if err != nil || o.Mode != authLogin || o.Name != "" || !slices.Equal(rest, []string{"--resume"}) {
 		t.Errorf("%+v %q %v", o, rest, err)
 	}
 }
 
 func TestParseAnthropicNamedFlag(t *testing.T) {
-	o, _, err := ParseAnthropicArgs([]string{"--oauth=MY_TOKEN"})
-	if err != nil || o.Mode != AuthOAuth || o.Name != "MY_TOKEN" {
+	o, _, err := parseAnthropicArgs([]string{"--oauth=MY_TOKEN"})
+	if err != nil || o.Mode != authOAuth || o.Name != "MY_TOKEN" {
 		t.Errorf("%+v %v", o, err)
 	}
-	o, _, err = ParseAnthropicArgs([]string{"--x-api-key=WORK_KEY"})
-	if err != nil || o.Mode != AuthAPIKey || o.Name != "WORK_KEY" {
+	o, _, err = parseAnthropicArgs([]string{"--x-api-key=WORK_KEY"})
+	if err != nil || o.Mode != authAPIKey || o.Name != "WORK_KEY" {
 		t.Errorf("%+v %v", o, err)
 	}
 }
 
 func TestParseAnthropicRefusesSecretShapedName(t *testing.T) {
 	for _, flag := range []string{"--oauth", "--x-api-key"} {
-		_, _, err := ParseAnthropicArgs([]string{flag + "=" + fakeToken})
+		_, _, err := parseAnthropicArgs([]string{flag + "=" + fakeToken})
 		if err == nil {
 			t.Fatalf("%s accepted a secret-shaped NAME", flag)
 		}
@@ -64,27 +64,27 @@ func TestParseAnthropicRefusesSecretShapedName(t *testing.T) {
 	}
 	// A non-credential-shaped but non-env-shaped name is refused too.
 	for _, bad := range []string{"has space", "9LEAD", "a-b", ""} {
-		if _, _, err := ParseAnthropicArgs([]string{"--oauth=" + bad}); err == nil {
+		if _, _, err := parseAnthropicArgs([]string{"--oauth=" + bad}); err == nil {
 			t.Errorf("--oauth=%q accepted", bad)
 		}
 	}
 }
 
 func TestParseAnthropicRefusesConflicts(t *testing.T) {
-	if _, _, err := ParseAnthropicArgs([]string{"--oauth", "--x-api-key"}); err == nil {
+	if _, _, err := parseAnthropicArgs([]string{"--oauth", "--x-api-key"}); err == nil {
 		t.Error("--oauth with --x-api-key accepted")
 	}
-	if _, _, err := ParseAnthropicArgs([]string{"--x-api-key=A", "--oauth=B"}); err == nil {
+	if _, _, err := parseAnthropicArgs([]string{"--x-api-key=A", "--oauth=B"}); err == nil {
 		t.Error("named --x-api-key with --oauth accepted")
 	}
-	if _, _, err := ParseAnthropicArgs([]string{"--oauth", "--profile", "anthropic"}); err == nil {
+	if _, _, err := parseAnthropicArgs([]string{"--oauth", "--profile", "anthropic"}); err == nil {
 		t.Error("--oauth with --profile accepted")
 	}
 }
 
 func TestParseAnthropicDoubleDashEndsFlags(t *testing.T) {
-	o, rest, err := ParseAnthropicArgs([]string{"--", "--oauth"})
-	if err != nil || o.Mode != AuthLogin || !slices.Equal(rest, []string{"--oauth"}) {
+	o, rest, err := parseAnthropicArgs([]string{"--", "--oauth"})
+	if err != nil || o.Mode != authLogin || !slices.Equal(rest, []string{"--oauth"}) {
 		t.Errorf("%+v %q %v", o, rest, err)
 	}
 }
@@ -93,11 +93,11 @@ func TestAnthropicLoginPlan(t *testing.T) {
 	vaulttest.Use(t)
 	hermetic(t, "")
 	t.Setenv(oauthKey, "")
-	o, rest, err := ParseAnthropicArgs(nil)
+	o, rest, err := parseAnthropicArgs(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := Anthropic(context.Background(), o, rest, "")
+	p, err := anthropicPlan(context.Background(), o, rest, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,11 +112,11 @@ func TestAnthropicLoginPlan(t *testing.T) {
 // planFor parses args as the anthropic verb does and resolves the plan with secret.
 func planFor(t *testing.T, secret string, args ...string) agent.Plan {
 	t.Helper()
-	o, rest, err := ParseAnthropicArgs(args)
+	o, rest, err := parseAnthropicArgs(args)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := Anthropic(context.Background(), o, rest, secret)
+	p, err := anthropicPlan(context.Background(), o, rest, secret)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,11 +200,11 @@ func TestAnthropicModelPicksMainTier(t *testing.T) {
 		if model != "" {
 			args = []string{"--model", model}
 		}
-		o, rest, err := ParseAnthropicArgs(args)
+		o, rest, err := parseAnthropicArgs(args)
 		if err != nil {
 			t.Fatal(err)
 		}
-		p, err := Anthropic(context.Background(), o, rest, "")
+		p, err := anthropicPlan(context.Background(), o, rest, "")
 		if err != nil {
 			t.Fatalf("%q: %v", model, err)
 		}
@@ -223,7 +223,7 @@ func TestParseAnthropicErrorsNeverEchoName(t *testing.T) {
 	const entropy = "q8ZtR3vLx9Kp2wN7mBcY4hJs6dFgA1eW"
 	for _, flag := range []string{"--oauth", "--x-api-key"} {
 		for _, v := range []string{entropy, fakeToken, "bad name-xyz"} {
-			_, _, err := ParseAnthropicArgs([]string{flag + "=" + v})
+			_, _, err := parseAnthropicArgs([]string{flag + "=" + v})
 			if err == nil {
 				t.Fatalf("%s=%q accepted", flag, v)
 			}
@@ -236,7 +236,7 @@ func TestParseAnthropicErrorsNeverEchoName(t *testing.T) {
 
 func TestParseAnthropicRefusesRepeatedFlag(t *testing.T) {
 	for _, flag := range []string{"--oauth", "--x-api-key"} {
-		_, _, err := ParseAnthropicArgs([]string{flag, flag})
+		_, _, err := parseAnthropicArgs([]string{flag, flag})
 		want := flag + " given more than once; pass it a single time"
 		if err == nil || err.Error() != want {
 			t.Errorf("%s %s: err = %v, want %q", flag, flag, err, want)
@@ -247,15 +247,15 @@ func TestParseAnthropicRefusesRepeatedFlag(t *testing.T) {
 func TestAnthropicSecretMissingOffTTYNamesVaultSet(t *testing.T) {
 	vaulttest.Use(t)
 	t.Setenv("MISSING_KEY_FOR_TEST", "")
-	for _, mode := range []string{AuthOAuth, AuthAPIKey} {
-		o := AnthropicOptions{Mode: mode, Name: "MISSING_KEY_FOR_TEST"}
-		_, err := AnthropicSecret(o, failStore) // go test has no TTY on stdin: must error, never prompt
+	for _, mode := range []string{authOAuth, authAPIKey} {
+		o := anthropicOptions{Mode: mode, Name: "MISSING_KEY_FOR_TEST"}
+		_, err := anthropicSecret(o, failStore) // go test has no TTY on stdin: must error, never prompt
 		if err == nil || !strings.Contains(err.Error(), "claude-code vault set MISSING_KEY_FOR_TEST") {
 			t.Errorf("%s: err = %v", mode, err)
 		}
 	}
-	o := AnthropicOptions{Mode: AuthOAuth, Name: "MISSING_KEY_FOR_TEST", PrintEnv: true}
-	if _, err := AnthropicSecret(o, failStore); err == nil || !strings.Contains(err.Error(), "claude-code vault set MISSING_KEY_FOR_TEST") {
+	o := anthropicOptions{Mode: authOAuth, Name: "MISSING_KEY_FOR_TEST", PrintEnv: true}
+	if _, err := anthropicSecret(o, failStore); err == nil || !strings.Contains(err.Error(), "claude-code vault set MISSING_KEY_FOR_TEST") {
 		t.Errorf("--print-env: err = %v", err)
 	}
 }
@@ -263,12 +263,12 @@ func TestAnthropicSecretMissingOffTTYNamesVaultSet(t *testing.T) {
 func TestAnthropicSecretReadsVault(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Secret(t, "WORK_KEY", fakeToken)
-	o := AnthropicOptions{Mode: AuthOAuth, Name: "WORK_KEY"}
-	if v, err := AnthropicSecret(o, failStore); err != nil || v != fakeToken {
+	o := anthropicOptions{Mode: authOAuth, Name: "WORK_KEY"}
+	if v, err := anthropicSecret(o, failStore); err != nil || v != fakeToken {
 		t.Errorf("oauth: %q %v", v, err)
 	}
-	o.Mode = AuthAPIKey
-	if v, err := AnthropicSecret(o, failStore); err != nil || v != fakeToken {
+	o.Mode = authAPIKey
+	if v, err := anthropicSecret(o, failStore); err != nil || v != fakeToken {
 		t.Errorf("api key: %q %v", v, err)
 	}
 }
@@ -278,8 +278,8 @@ func TestAnthropicSecretMissingNamesKey(t *testing.T) {
 	vaulttest.Use(t)
 	const name = "NOPE_ABSENT_KEY_XYZ"
 	t.Setenv(name, "")
-	o := AnthropicOptions{Mode: AuthOAuth, Name: name, PrintEnv: true}
-	_, err := AnthropicSecret(o, failStore)
+	o := anthropicOptions{Mode: authOAuth, Name: name, PrintEnv: true}
+	_, err := anthropicSecret(o, failStore)
 	if err == nil || !strings.Contains(err.Error(), name+" is not in the vault") {
 		t.Fatalf("err = %v", err)
 	}

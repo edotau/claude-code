@@ -28,7 +28,7 @@ func twolineRender(t *testing.T, session, extra string) []string {
 	writeTokenExpiry(t, "dbx-u2m", time.Now().Add(42*time.Minute+30*time.Second))
 	writeTokenExpiry(t, "ultra", time.Now().Add(42*time.Minute)) // a subscription session never shows it
 	payload := fmt.Sprintf(`{"workspace":{"current_dir":%q},%s%s}`, filepath.Join(t.TempDir(), "proj"), twolineBody, extra)
-	return strings.Split(plain(Render([]byte(payload), "twoline")), "\n")
+	return strings.Split(plain(renderStatusline([]byte(payload), "twoline")), "\n")
 }
 
 // Both rows of the OAuth session: row 1 has the dir basename, provider, auth countdown and effort; row 2 context bar, tokens, 7d.

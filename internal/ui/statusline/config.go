@@ -9,8 +9,8 @@ import (
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
-// Config is the render-time design: <ConfigDir>/state/statusline/config.json overlaid on the embedded default.
-type Config struct {
+// config is the render-time design: <ConfigDir>/state/statusline/config.json overlaid on the embedded default.
+type config struct {
 	Style string `json:"style"` // one of Styles
 	theme.Look
 	GradientEase   float64           `json:"gradientEase"` // ramp position exponent: <1 reaches the end colors sooner; 0 → 1
@@ -19,24 +19,24 @@ type Config struct {
 	ProfileMax     int               `json:"profileMax"` // profile-name cap in the provider label, in runes; 0 → no cap
 	Width          int               `json:"width"`      // clip each line to N cells; 0 → $COLUMNS, else no clip
 	Segments       map[string]bool   `json:"segments"`
-	Bar            BarConfig         `json:"bar"`
+	Bar            barConfig         `json:"bar"`
 	Separators     map[string]string `json:"separators"`
 	PowerlineTheme string            `json:"powerlineTheme"` // dark|nord|tokyo-night|rose-pine|light
 	Charset        string            `json:"charset"`        // nerd → Nerd Font glyphs; text → ASCII fallback
 	VelocityMode   string            `json:"velocityMode"`   // code = uncommitted git diff; raw = Claude Code's ledger
-	Dashboard      DashboardConfig   `json:"dashboard"`
+	Dashboard      dashboardConfig   `json:"dashboard"`
 }
 
-// DashboardConfig controls the two-line dashboard layout.
-type DashboardConfig struct {
+// dashboardConfig controls the two-line dashboard layout.
+type dashboardConfig struct {
 	Columns []string `json:"columns"`
 	Gutter  int      `json:"gutter"`
 	Headers bool     `json:"headers"`
 	Width   int      `json:"width"` // right-align context to N; 0 → Config.Width/$COLUMNS, else 100
 }
 
-// BarConfig controls the context bar's width, glyphs, and trough tone.
-type BarConfig struct {
+// barConfig controls the context bar's width, glyphs, and trough tone.
+type barConfig struct {
 	Width         int     `json:"width"`
 	FilledGlyph   string  `json:"filledGlyph"`
 	EmptyGlyph    string  `json:"emptyGlyph"`
@@ -47,8 +47,8 @@ type BarConfig struct {
 }
 
 // defaultConfig decodes a fresh embedded theme: json reuses a slice's backing array, so overlays must not share one.
-func defaultConfig() Config {
-	var c Config
+func defaultConfig() config {
+	var c config
 	_ = json.Unmarshal(theme.DefaultConfigJSON(), &c)
 	return c
 }
@@ -56,14 +56,14 @@ func defaultConfig() Config {
 // Decoded on first use: this package links into every claude-code exec, only `statusline` reads it.
 var embeddedConfig = sync.OnceValue(defaultConfig)
 
-func (c Config) seg(key string, def bool) bool {
+func (c config) seg(key string, def bool) bool {
 	if v, ok := c.Segments[key]; ok {
 		return v
 	}
 	return def
 }
 
-func (c Config) sep(key, def string) string {
+func (c config) sep(key, def string) string {
 	if v, ok := c.Separators[key]; ok {
 		return v
 	}
@@ -71,7 +71,7 @@ func (c Config) sep(key, def string) string {
 }
 
 // loadConfig overlays config.json onto the embedded theme; a file that fails to decode is ignored whole.
-func loadConfig() Config {
+func loadConfig() config {
 	cfg := embeddedConfig()
 	data, err := os.ReadFile(filepath.Join(theme.StatuslineDir(), "config.json"))
 	if err != nil {
@@ -92,7 +92,7 @@ func loadConfig() Config {
 }
 
 // gradientStyle is true for the default style: any Style renderRaw does not route elsewhere.
-func (c Config) gradientStyle() bool {
+func (c config) gradientStyle() bool {
 	switch c.Style {
 	case "twoline", "dashboard", "powerline", "capsule", "minimal":
 		return false

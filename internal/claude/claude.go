@@ -495,7 +495,7 @@ var row = agent.Schema{Name: "claude", CLI: agent.CLI{
 type claudeLauncher struct{}
 
 func (claudeLauncher) Claude(ctx context.Context, o agent.ClaudeOptions, args []string) (agent.ClaudeLaunch, error) {
-	plan, err := Claude(ctx, agent.LaunchOptions{Provider: o.Provider, Model: o.Model, KeepEnv: o.KeepEnv}, args)
+	plan, err := claudePlan(ctx, agent.LaunchOptions{Provider: o.Provider, Model: o.Model, KeepEnv: o.KeepEnv}, args)
 	if err != nil {
 		return agent.ClaudeLaunch{}, err
 	}

@@ -57,7 +57,7 @@ func TestCopilotTier(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			copilotPlanMemo.Drop()
 			copilotTierCmd = func(context.Context, string) ([]byte, error) { return []byte(c.out), c.err }
-			if got := providers.CopilotPlanName(CopilotRawPlan("", "")); got != c.want {
+			if got := providers.CopilotPlanName(copilotRawPlan("", "")); got != c.want {
 				t.Errorf("copilotTier = %q, want %q", got, c.want)
 			}
 		})

@@ -167,7 +167,7 @@ func TestMalformedOverlayErrors(t *testing.T) {
 // TestGuardIsNilSafe: a nil *Config must not panic on Guard, returning the zero value instead.
 func TestGuardIsNilSafe(t *testing.T) {
 	var c *Config
-	if got := c.Guard(); !reflect.DeepEqual(got, GuardRules{}) {
+	if got := c.Guard(); !reflect.DeepEqual(got, guardRules{}) {
 		t.Errorf("nil.Guard() = %+v, want zero value", got)
 	}
 }

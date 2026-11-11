@@ -323,7 +323,7 @@ func TestWrapRow(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := WrapRow("  name", tc.desc, lw, w)
+			got := wrapRow("  name", tc.desc, lw, w)
 			switch {
 			case tc.wantLines > 0 && len(got) != tc.wantLines:
 				t.Fatalf("lines = %d, want %d: %q", len(got), tc.wantLines, got)
@@ -336,7 +336,7 @@ func TestWrapRow(t *testing.T) {
 			assertWrapContinuations(t, got, tc.desc, lw, w)
 		})
 	}
-	if got := WrapRow("  name", "one short description", lw, w); got[0] != "  name"+strings.Repeat(" ", 12)+"one short description" {
+	if got := wrapRow("  name", "one short description", lw, w); got[0] != "  name"+strings.Repeat(" ", 12)+"one short description" {
 		t.Errorf("short row changed: %q", got[0])
 	}
 }
@@ -360,7 +360,7 @@ func assertWrapContinuations(t *testing.T, got []string, desc string, lw, w int)
 }
 
 func TestPaintKeepsWrappedLayout(t *testing.T) {
-	text := strings.Join(WrapRow("  name", strings.Repeat("alpha beta ", 12), 18, 80), "\n") + "\n"
+	text := strings.Join(wrapRow("  name", strings.Repeat("alpha beta ", 12), 18, 80), "\n") + "\n"
 	if got := ansiRE.ReplaceAllString(Paint(text), ""); got != text {
 		t.Errorf("plain text of Paint differs:\n%q\nwant\n%q", got, text)
 	}

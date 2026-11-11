@@ -21,8 +21,8 @@ var workspaceParts = []string{"agents", "commands", "skills", "settings", "memor
 // workspaceKinds are the project-local dirs that can hold a symlink to a global entry.
 var workspaceKinds = []string{"agents", "commands", "skills"}
 
-// ErrWorkspaceUsage marks a caller mistake (bad --with, bad name) so the CLI exits 2, not 1.
-var ErrWorkspaceUsage = errors.New("usage")
+// errWorkspaceUsage marks a caller mistake (bad --with, bad name) so the CLI exits 2, not 1.
+var errWorkspaceUsage = errors.New("usage")
 
 // workspaceIgnoreLine is the one project .claude/ path that never belongs in git.
 const workspaceIgnoreLine = ".claude/settings.local.json"
@@ -30,8 +30,8 @@ const workspaceIgnoreLine = ".claude/settings.local.json"
 // workspaceSettings is the only project settings.json init writes: project-scoped keys, no hooks.
 const workspaceSettings = "{\n  \"permissions\": {\n    \"allow\": []\n  },\n  \"env\": {}\n}\n"
 
-// WorkspaceInitOpts drives WorkspaceInit; Out receives one line per action.
-type WorkspaceInitOpts struct {
+// workspaceInitOpts drives workspaceInit; Out receives one line per action.
+type workspaceInitOpts struct {
 	Root   string
 	With   []string
 	DryRun bool
@@ -70,15 +70,15 @@ func workspaceWith(with []string) ([]string, error) {
 	}
 	for _, w := range with {
 		if !slices.Contains(workspaceParts, w) {
-			return nil, fmt.Errorf("%w: --with %q: want a subset of %s", ErrWorkspaceUsage, w, strings.Join(workspaceParts, ","))
+			return nil, fmt.Errorf("%w: --with %q: want a subset of %s", errWorkspaceUsage, w, strings.Join(workspaceParts, ","))
 		}
 	}
 	return with, nil
 }
 
-// WorkspaceInit scaffolds root/.claude/ (project settings, empty agents/commands/skills, gitignore line,
+// workspaceInit scaffolds root/.claude/ (project settings, empty agents/commands/skills, gitignore line,
 // memory bank) without ever overwriting what is already there.
-func WorkspaceInit(o WorkspaceInitOpts) error {
+func workspaceInit(o workspaceInitOpts) error {
 	with, err := workspaceWith(o.With)
 	if err != nil {
 		return err
@@ -250,7 +250,7 @@ func workspaceMemoryAction(root string) workspaceAction {
 // ("ns:cmd" → ns/cmd.md), skills are directories.
 func workspaceRel(kind, name string) (string, error) {
 	if name == "" || strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
-		return "", fmt.Errorf("%w: bad %s name %q", ErrWorkspaceUsage, kind, name)
+		return "", fmt.Errorf("%w: bad %s name %q", errWorkspaceUsage, kind, name)
 	}
 	switch kind {
 	case "agents":
@@ -258,18 +258,18 @@ func workspaceRel(kind, name string) (string, error) {
 	case "commands":
 		ns, cmd, ok := strings.Cut(name, ":")
 		if !ok {
-			return "", fmt.Errorf("%w: command %q: want <namespace>:<command>", ErrWorkspaceUsage, name)
+			return "", fmt.Errorf("%w: command %q: want <namespace>:<command>", errWorkspaceUsage, name)
 		}
 		return filepath.Join(ns, strings.TrimSuffix(cmd, ".md")+".md"), nil
 	case "skills":
 		return name, nil
 	}
-	return "", fmt.Errorf("%w: kind %q: want one of %s", ErrWorkspaceUsage, kind, strings.Join(workspaceKinds, "|"))
+	return "", fmt.Errorf("%w: kind %q: want one of %s", errWorkspaceUsage, kind, strings.Join(workspaceKinds, "|"))
 }
 
-// WorkspaceLink symlinks root/.claude/<kind>/<name> to the harness's global copy so a project pins
+// workspaceLink symlinks root/.claude/<kind>/<name> to the harness's global copy so a project pins
 // a subset of the harness without copying it.
-func WorkspaceLink(root, kind, name string, out io.Writer) error {
+func workspaceLink(root, kind, name string, out io.Writer) error {
 	root, err := workspaceRoot(root)
 	if err != nil {
 		return err
@@ -297,9 +297,9 @@ func WorkspaceLink(root, kind, name string, out io.Writer) error {
 	return nil
 }
 
-// WorkspaceStatus lists each project entry as linked, local, or shadowing a global one of the same name,
+// workspaceStatus lists each project entry as linked, local, or shadowing a global one of the same name,
 // then the settings, memory and gitignore state.
-func WorkspaceStatus(root string, out io.Writer) error {
+func workspaceStatus(root string, out io.Writer) error {
 	root, err := workspaceRoot(root)
 	if err != nil {
 		return err

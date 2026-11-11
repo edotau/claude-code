@@ -375,7 +375,7 @@ func specMust(t *testing.T, name string) spec {
 	return s
 }
 
-func findBrowser(t *testing.T, report Report, name string) Browser {
+func findBrowser(t *testing.T, report Report, name string) browser {
 	t.Helper()
 	for _, b := range report.Browsers {
 		if b.Name == name {
@@ -383,7 +383,7 @@ func findBrowser(t *testing.T, report Report, name string) Browser {
 		}
 	}
 	t.Fatalf("no browser named %q in report: %+v", name, report)
-	return Browser{}
+	return browser{}
 }
 
 // TestDetect_GUIProbeRunsOncePerDetect: three installed browsers share one osascript probe; uninstalled ones skip it.

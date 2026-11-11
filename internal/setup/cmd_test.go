@@ -26,7 +26,7 @@ func TestCmdSetupRunExits(t *testing.T) {
 		want       int
 		wantStderr string
 	}{{nil, 0, ""}, {[]string{"bogus"}, 1, "bogus"}, {[]string{"adopt"}, 2, "--from"}} {
-		got, _, stderr := hosttest.CaptureOutput(t, func() int { return Run(c.args) })
+		got, _, stderr := hosttest.CaptureOutput(t, func() int { return run(c.args) })
 		if got != c.want || !strings.Contains(stderr, c.wantStderr) {
 			t.Errorf("Run(%v) = %d, stderr %q; want %d naming %q", c.args, got, stderr, c.want, c.wantStderr)
 		}
@@ -123,7 +123,7 @@ func setupWorkspaceGitRoot(t *testing.T) string {
 }
 
 // TestSetupWorkspaceLinkRejectsDryRunWithoutLinking: --dry-run only applies to init; on link it is a
-// usage error (2), caught before WorkspaceLink ever runs — no symlink is created.
+// usage error (2), caught before workspaceLink ever runs — no symlink is created.
 func TestSetupWorkspaceLinkRejectsDryRunWithoutLinking(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := setupWorkspaceGitRoot(t)

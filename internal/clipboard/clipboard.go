@@ -112,7 +112,7 @@ func grabWSLg() (path, dim string, err error) {
 		return "", "", errors.New("wl-paste image/bmp: empty output")
 	}
 	var buf bytes.Buffer
-	if err := TranscodePNG(bytes.NewReader(bmp), &buf); err != nil {
+	if err := transcodePNG(bytes.NewReader(bmp), &buf); err != nil {
 		return "", "", err
 	}
 	return savePNG(buf.Bytes())
@@ -257,9 +257,9 @@ type raster struct {
 	topDown               bool
 }
 
-// Transcode reads a BMP from r and writes a widely-decodable BMP to w: 24bpp, BI_RGB, bottom-up,
+// transcode reads a BMP from r and writes a widely-decodable BMP to w: 24bpp, BI_RGB, bottom-up,
 // rows padded to 4 bytes.
-func Transcode(r io.Reader, w io.Writer) error {
+func transcode(r io.Reader, w io.Writer) error {
 	img, err := decodeRaster(r)
 	if err != nil {
 		return err
@@ -267,9 +267,9 @@ func Transcode(r io.Reader, w io.Writer) error {
 	return writeBMP24(w, img.width, img.height, img.stride, img.rows, img.topDown)
 }
 
-// TranscodePNG reads a BMP from r and writes a PNG to w, so the CLI's `wl-paste --type image/png`
+// transcodePNG reads a BMP from r and writes a PNG to w, so the CLI's `wl-paste --type image/png`
 // leg can be answered on a WSLg clipboard that only ever offers BMP.
-func TranscodePNG(r io.Reader, w io.Writer) error {
+func transcodePNG(r io.Reader, w io.Writer) error {
 	img, err := decodeRaster(r)
 	if err != nil {
 		return err

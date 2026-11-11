@@ -26,8 +26,8 @@ const (
 	stateError       = "error"        // the host-wide capture failed (ssh/tmux error)
 )
 
-// PaneStatus is one pane's classified state; fingerprint (bounded, never the text) carries across samples unexported.
-type PaneStatus struct {
+// paneStatus is one pane's classified state; fingerprint (bounded, never the text) carries across samples unexported.
+type paneStatus struct {
 	Host       string    `json:"host"`
 	Session    string    `json:"session"`
 	PaneID     string    `json:"paneId"`
@@ -65,12 +65,12 @@ var workingPatterns = sync.OnceValue(func() *regexp.Regexp {
 // readyPatterns match a settled, idle prompt: the agent's bare composer caret or a plain shell prompt.
 var readyPatterns = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(>|\$|%|❯)\s*$`) })
 
-// loginShells are the shell names BuildCommand execs into after the dispatched agent exits.
+// loginShells are the shell names buildCommand execs into after the dispatched agent exits.
 var loginShells = map[string]bool{
 	"sh": true, "bash": true, "zsh": true, "fish": true, "dash": true, "ksh": true, "tcsh": true, "csh": true,
 }
 
-// isShellAfterExit reports a pane back at a login shell after its agent exited (BuildCommand execs $SHELL -l).
+// isShellAfterExit reports a pane back at a login shell after its agent exited (buildCommand execs $SHELL -l).
 func isShellAfterExit(c paneCapture) bool {
 	return c.Agent != "" && loginShells[strings.TrimPrefix(c.CurrentCmd, "-")]
 }
@@ -126,13 +126,13 @@ func classifyPane(prevFingerprint string, c paneCapture) (state, reason, fingerp
 }
 
 // observeOne classifies a fresh capture against its previous status, keeping ChangedAt while the state holds.
-func observeOne(old PaneStatus, c paneCapture, now time.Time) PaneStatus {
+func observeOne(old paneStatus, c paneCapture, now time.Time) paneStatus {
 	state, reason, fp := classifyPane(old.fingerprint, c)
 	changedAt := now
 	if old.PaneID == c.PaneID && old.State == state && !old.ChangedAt.IsZero() {
 		changedAt = old.ChangedAt
 	}
-	return PaneStatus{
+	return paneStatus{
 		Host: c.Host, Session: c.Session, PaneID: c.PaneID, Agent: c.Agent,
 		State: state, Reason: reason, ObservedAt: now, ChangedAt: changedAt,
 		fingerprint: fp,
@@ -140,7 +140,7 @@ func observeOne(old PaneStatus, c paneCapture, now time.Time) PaneStatus {
 }
 
 // markGone reports a previously observed pane that no longer appears in a successful capture.
-func markGone(p PaneStatus, now time.Time) PaneStatus {
+func markGone(p paneStatus, now time.Time) paneStatus {
 	if p.State != stateGone {
 		p.ChangedAt = now
 	}
@@ -149,8 +149,8 @@ func markGone(p PaneStatus, now time.Time) PaneStatus {
 }
 
 // degradeToError marks every known pane unobservable rather than dropping it, so one ssh blip keeps the view.
-func degradeToError(prev []PaneStatus, err error, now time.Time) []PaneStatus {
-	out := make([]PaneStatus, 0, len(prev))
+func degradeToError(prev []paneStatus, err error, now time.Time) []paneStatus {
+	out := make([]paneStatus, 0, len(prev))
 	for _, p := range prev {
 		if p.State == stateGone { // already reported gone: dropped, never revived as an error entry
 			continue
@@ -165,16 +165,16 @@ func degradeToError(prev []PaneStatus, err error, now time.Time) []PaneStatus {
 }
 
 // observePanes advances prev with a capture pass: match by PaneID, vanished = gone, capture failure = error.
-func observePanes(prev []PaneStatus, captures []paneCapture, captureErr error, now time.Time) []PaneStatus {
+func observePanes(prev []paneStatus, captures []paneCapture, captureErr error, now time.Time) []paneStatus {
 	if captureErr != nil {
 		return degradeToError(prev, captureErr, now)
 	}
-	byID := make(map[string]PaneStatus, len(prev))
+	byID := make(map[string]paneStatus, len(prev))
 	for _, p := range prev {
 		byID[p.PaneID] = p
 	}
 	seen := make(map[string]bool, len(captures))
-	out := make([]PaneStatus, 0, len(captures))
+	out := make([]paneStatus, 0, len(captures))
 	for _, c := range captures {
 		seen[c.PaneID] = true
 		out = append(out, observeOne(byID[c.PaneID], c, now))
@@ -218,7 +218,7 @@ type paneCapture struct {
 	Text                                     string
 }
 
-// paneRunner runs an ExecArgs argv and returns its output; tests swap in a fake with no ssh or tmux.
+// paneRunner runs an execArgs argv and returns its output; tests swap in a fake with no ssh or tmux.
 type paneRunner func(ctx context.Context, argv []string) ([]byte, error)
 
 // execRunner is the production paneRunner.
@@ -232,7 +232,7 @@ func execRunner(ctx context.Context, argv []string) ([]byte, error) {
 func capturePanes(ctx context.Context, host string, local, batch bool, run paneRunner) ([]paneCapture, error) {
 	cctx, cancel := context.WithTimeout(ctx, captureTimeout)
 	defer cancel()
-	argv, err := ExecArgs(host, captureCommand, local, batch)
+	argv, err := execArgs(host, captureCommand, local, batch)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: capture panes on %s: %w", host, err)
 	}

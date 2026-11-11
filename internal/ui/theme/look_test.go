@@ -21,7 +21,7 @@ func near(a, b ansi.RGB) bool {
 
 func TestLiftIdentityAtZero(t *testing.T) {
 	in := ansi.Hex("#7C6C7C")
-	if got := (Look{}).Lifted(in); got != in {
+	if got := (Look{}).lifted(in); got != in {
 		t.Fatalf("lift 0 changed %v to %v", in, got)
 	}
 	pal := EmbeddedPalettes()
@@ -33,12 +33,12 @@ func TestLiftIdentityAtZero(t *testing.T) {
 func TestLiftKnownValues(t *testing.T) {
 	c := Look{Lift: 0.15}
 	for hex, want := range map[string]string{"#7C6C7C": "#908291", "#4796E4": "#62A6E8"} {
-		if got := c.Lifted(ansi.Hex(hex)); !near(got, ansi.Hex(want)) {
+		if got := c.lifted(ansi.Hex(hex)); !near(got, ansi.Hex(want)) {
 			t.Errorf("%s: got %v want %v", hex, got, ansi.Hex(want))
 		}
 	}
 	pal := EmbeddedPalettes()
-	if got := c.LiftPalette(pal).Sem("dim"); !near(ansi.Hex(got), c.Lifted(ansi.Hex(pal.Sem("dim")))) {
+	if got := c.LiftPalette(pal).Sem("dim"); !near(ansi.Hex(got), c.lifted(ansi.Hex(pal.Sem("dim")))) {
 		t.Errorf("palette dim = %s", got)
 	}
 }
@@ -60,10 +60,10 @@ func TestLiftGeminiStops(t *testing.T) {
 
 func TestLiftClamped(t *testing.T) {
 	in := ansi.Hex("#4796E4")
-	if got, want := (Look{Lift: 5}).Lifted(in), (Look{Lift: 0.6}).Lifted(in); got != want {
+	if got, want := (Look{Lift: 5}).lifted(in), (Look{Lift: 0.6}).lifted(in); got != want {
 		t.Errorf("high not clamped: %v vs %v", got, want)
 	}
-	if got := (Look{Lift: -1}).Lifted(in); got != in {
+	if got := (Look{Lift: -1}).lifted(in); got != in {
 		t.Errorf("negative not clamped: %v", got)
 	}
 }

@@ -16,7 +16,7 @@ import (
 // configs unless noAgents. out replaces the settings.json path.
 func Restore(w io.Writer, agents, out string, forceHomes, noAgents bool) error {
 	if agents != "" || forceHomes {
-		return renderAgentConfigs(w, agents, forceHomes)
+		return confirmAndRender(w, agents, forceHomes)
 	}
 	if out == "" {
 		out = settings.SettingsFile()
@@ -33,11 +33,11 @@ func Restore(w io.Writer, agents, out string, forceHomes, noAgents bool) error {
 	if noAgents {
 		return nil
 	}
-	return renderAgentConfigs(w, "", false)
+	return confirmAndRender(w, "", false)
 }
 
-// renderAgentConfigs renders the agent configs, asking before an overwrite on a real terminal.
-func renderAgentConfigs(w io.Writer, agents string, forceHomes bool) error {
+// confirmAndRender renders the agent configs, asking before an overwrite on a real terminal.
+func confirmAndRender(w io.Writer, agents string, forceHomes bool) error {
 	opts := agentconfig.RenderOptions{Agents: textutil.SplitCSV(agents), Out: w, ForceHomes: forceHomes}
 	if tui.StdinIsTerminal() && tui.StdoutIsTerminal() {
 		opts.Confirm = func(path string, lost []string) bool {

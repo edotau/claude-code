@@ -22,11 +22,11 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// ErrConfirmMismatch is returned when --apply's typed confirmation doesn't match Dir exactly.
-var ErrConfirmMismatch = errors.New("confirmation did not match the target directory")
+// errConfirmMismatch is returned when --apply's typed confirmation doesn't match Dir exactly.
+var errConfirmMismatch = errors.New("confirmation did not match the target directory")
 
-// ErrNotConfigDir refuses a nuke of the filesystem root, home or a parent of home: only a config dir goes.
-var ErrNotConfigDir = errors.New("refusing: not a Claude config dir (filesystem root, home or a parent of home)")
+// errNotConfigDir refuses a nuke of the filesystem root, home or a parent of home: only a config dir goes.
+var errNotConfigDir = errors.New("refusing: not a Claude config dir (filesystem root, home or a parent of home)")
 
 // nukeFloor rejects dir when it is "/", the user's home, or an ancestor of home, whatever the caller typed.
 func nukeFloor(dir string) error {
@@ -36,7 +36,7 @@ func nukeFloor(dir string) error {
 	}
 	abs = paths.Canon(abs)
 	if abs == string(filepath.Separator) {
-		return ErrNotConfigDir
+		return errNotConfigDir
 	}
 	home, _ := os.UserHomeDir()
 	if home == "" {
@@ -44,33 +44,33 @@ func nukeFloor(dir string) error {
 	}
 	home = paths.Canon(home)
 	if rel, err := filepath.Rel(abs, home); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return ErrNotConfigDir
+		return errNotConfigDir
 	}
 	return nil
 }
 
-// Entry is one top-level path under the directory being nuked.
-type Entry struct {
+// entry is one top-level path under the directory being nuked.
+type entry struct {
 	Name  string
 	Size  int64
 	Class string // "tracked" | "untracked" | "ignored" | "no-git"
 }
 
-// NukePlan is what Nuke would do to dir, without doing it.
-type NukePlan struct {
+// nukePlan is what nuke would do to dir, without doing it.
+type nukePlan struct {
 	Dir          string
-	Entries      []Entry
+	Entries      []entry
 	HasSecrets   bool
 	SecretNames  []string
 	VaultID      string
 	Kid          string
 	VaultWarning string   // set when the vault couldn't be read; it is still archived opaquely, never named
-	UserContent  []string // untracked-user-content paths Nuke archives before removing dir (+ the keep-memory set when kept)
+	UserContent  []string // untracked-user-content paths nuke archives before removing dir (+ the keep-memory set when kept)
 }
 
-// Plan inspects dir and reports what a nuke would remove, archive, and never touch (secret values).
-func Plan(dir string, keepMemory bool) (NukePlan, error) {
-	plan := NukePlan{Dir: dir}
+// planNuke inspects dir and reports what a nuke would remove, archive, and never touch (secret values).
+func planNuke(dir string, keepMemory bool) (nukePlan, error) {
+	plan := nukePlan{Dir: dir}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return plan, err
@@ -84,7 +84,7 @@ func Plan(dir string, keepMemory bool) (NukePlan, error) {
 		if hasGit {
 			class = classify(dir, e.Name())
 		}
-		plan.Entries = append(plan.Entries, Entry{Name: e.Name(), Size: paths.DirSize(filepath.Join(dir, e.Name())), Class: class})
+		plan.Entries = append(plan.Entries, entry{Name: e.Name(), Size: paths.DirSize(filepath.Join(dir, e.Name())), Class: class})
 	}
 	// An unreadable/corrupt vault must not block the nuke: it is still archived whole, as an opaque
 	// file, by userContentPaths below — just without naming the secrets it may hold.
@@ -112,8 +112,8 @@ func Plan(dir string, keepMemory bool) (NukePlan, error) {
 	return plan, nil
 }
 
-// NukeOpts configures Nuke.
-type NukeOpts struct {
+// nukeOpts configures nuke.
+type nukeOpts struct {
 	Dir        string
 	Apply      bool
 	Confirm    string
@@ -121,15 +121,15 @@ type NukeOpts struct {
 	Out        io.Writer
 }
 
-// Nuke previews by default; confirmed Apply archives user content and the sealed vault, then removes opts.Dir.
-func Nuke(opts NukeOpts) error {
+// nuke previews by default; confirmed Apply archives user content and the sealed vault, then removes opts.Dir.
+func nuke(opts nukeOpts) error {
 	if opts.Out == nil {
 		opts.Out = io.Discard
 	}
 	if err := nukeFloor(opts.Dir); err != nil {
 		return err
 	}
-	plan, err := Plan(opts.Dir, opts.KeepMemory)
+	plan, err := planNuke(opts.Dir, opts.KeepMemory)
 	if err != nil {
 		return err
 	}
@@ -138,14 +138,14 @@ func Nuke(opts NukeOpts) error {
 		return nil
 	}
 	if opts.Confirm != opts.Dir {
-		return ErrConfirmMismatch
+		return errConfirmMismatch
 	}
 	if !opts.KeepMemory {
 		return archiveAndRemove(opts, plan)
 	}
 	// The bank lock spans re-plan, archive and removal: a concurrent memory write is never deleted unarchived.
 	return memory.WithBankLock(0, func() error {
-		fresh, err := Plan(opts.Dir, true)
+		fresh, err := planNuke(opts.Dir, true)
 		if err != nil {
 			return err
 		}
@@ -153,7 +153,7 @@ func Nuke(opts NukeOpts) error {
 	})
 }
 
-func archiveAndRemove(opts NukeOpts, plan NukePlan) error {
+func archiveAndRemove(opts nukeOpts, plan nukePlan) error {
 	tarPath, err := archiveUserContent(plan, opts.KeepMemory)
 	if err != nil {
 		return err
@@ -183,7 +183,7 @@ func createBackupFile(home string) (string, *os.File, error) {
 	}
 }
 
-func printPlan(w io.Writer, plan NukePlan) {
+func printPlan(w io.Writer, plan nukePlan) {
 	fmt.Fprintf(w, "nuke plan for %s\n", plan.Dir)
 	for _, e := range plan.Entries {
 		fmt.Fprintf(w, "  %-30s %12d bytes  %s\n", e.Name, e.Size, e.Class)
@@ -219,7 +219,7 @@ func classify(repo, name string) string {
 	return "untracked"
 }
 
-// userContentPaths lists the vault, settings.json, local settings, and untracked repo files Nuke archives.
+// userContentPaths lists the vault, settings.json, local settings, and untracked repo files nuke archives.
 func userContentPaths(dir string, hasGit bool) ([]string, error) {
 	var out []string
 	for _, rel := range []string{"state/vault.db", "settings.json", "settings.local.json"} {
@@ -262,7 +262,7 @@ func untrackedUnder(repo, sub string) ([]string, error) {
 
 // archiveUserContent writes a tarball of plan.UserContent (+ a manifest naming secrets by key only,
 // never value) to ~/claude-nuke-<date>.tgz; a failure removes the truncated tarball so none poses as a backup.
-func archiveUserContent(plan NukePlan, keepMemory bool) (dest string, err error) {
+func archiveUserContent(plan nukePlan, keepMemory bool) (dest string, err error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -298,8 +298,8 @@ func archiveUserContent(plan NukePlan, keepMemory bool) (dest string, err error)
 	return dest, nil
 }
 
-// tarPlan writes the manifest then plan.UserContent; with keepMemory the caller (Nuke) holds the bank lock.
-func tarPlan(tw *tar.Writer, plan NukePlan, keepMemory bool) error {
+// tarPlan writes the manifest then plan.UserContent; with keepMemory the caller (nuke) holds the bank lock.
+func tarPlan(tw *tar.Writer, plan nukePlan, keepMemory bool) error {
 	manifest := struct {
 		Date        time.Time `json:"date"`
 		Dir         string    `json:"dir"`

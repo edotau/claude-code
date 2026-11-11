@@ -179,7 +179,7 @@ func TestCopilotLaunchTokenForTargetLogin(t *testing.T) {
 	if a, ok := authSourceFor("work"); !ok || a.Account != "work" || a.token == "stored-expired" {
 		t.Fatalf("target login lost to the stored token: %+v ok=%v", a, ok)
 	}
-	if _, err := CopilotLaunchTokenFor("nobody"); err == nil {
+	if _, err := copilotLaunchTokenFor("nobody"); err == nil {
 		t.Fatal("a target login missing from gh must fail, never fall back to the stored token")
 	}
 }
@@ -222,7 +222,7 @@ func TestRegistryLaunchArgvPinsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cr, err := ConfigureCopilotRegistry(t.Context(), reg, providers.Target{Provider: &providers.Provider{Name: "fixture"}}, nil, true)
+	cr, err := configureCopilotRegistry(t.Context(), reg, providers.Target{Provider: &providers.Provider{Name: "fixture"}}, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}

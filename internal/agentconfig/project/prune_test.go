@@ -24,7 +24,7 @@ func TestSyncCheckReportsPruneReadError(t *testing.T) {
 		t.Fatalf("current projections check = %d, want 0", code)
 	}
 	// ENOTDIR exercises the read-error path even when the test runs with permission bypass privileges.
-	legacy := LegacyGeminiSkillsDir(home)
+	legacy := legacyGeminiSkillsDir(home)
 	projectWriteFile(t, legacy, "not a directory\n")
 	if code := Sync(Options{Check: true, Out: io.Discard}); code != 1 {
 		t.Fatalf("check with unreadable prune destination = %d, want 1", code)

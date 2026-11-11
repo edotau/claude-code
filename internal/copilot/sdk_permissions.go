@@ -17,7 +17,7 @@ import (
 )
 
 // permissionHandler wraps baseHandler to record an approval in approved (handlers run on SDK goroutines).
-func permissionHandler(o SDKOptions, approved *atomic.Bool) copilot.PermissionHandlerFunc {
+func permissionHandler(o sdkOptions, approved *atomic.Bool) copilot.PermissionHandlerFunc {
 	h := baseHandler(o)
 	return func(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 		d, err := h(req, inv)
@@ -28,7 +28,7 @@ func permissionHandler(o SDKOptions, approved *atomic.Bool) copilot.PermissionHa
 	}
 }
 
-func baseHandler(o SDKOptions) copilot.PermissionHandlerFunc {
+func baseHandler(o sdkOptions) copilot.PermissionHandlerFunc {
 	switch {
 	case !o.AllowAllTools:
 		return denyAllTools
@@ -39,7 +39,7 @@ func baseHandler(o SDKOptions) copilot.PermissionHandlerFunc {
 }
 
 // withPermissions lets o.Permissions reject (Deny) a request before next sees it.
-func withPermissions(o SDKOptions, next copilot.PermissionHandlerFunc) copilot.PermissionHandlerFunc {
+func withPermissions(o sdkOptions, next copilot.PermissionHandlerFunc) copilot.PermissionHandlerFunc {
 	if o.Permissions.IsZero() {
 		return next
 	}
@@ -52,7 +52,7 @@ func withPermissions(o SDKOptions, next copilot.PermissionHandlerFunc) copilot.P
 }
 
 // ruleDecision rejects when o.Permissions denies any of calls; handled is false when next should decide.
-func ruleDecision(o SDKOptions, req copilot.PermissionRequest, calls []agent.Rule) (rpc.PermissionDecision, bool) {
+func ruleDecision(o sdkOptions, req copilot.PermissionRequest, calls []agent.Rule) (rpc.PermissionDecision, bool) {
 	for _, call := range calls {
 		if o.Permissions.Decide(call.Tool, call.Arg) != agent.Deny || planReadThrough(o.Permissions, req, call) {
 			continue

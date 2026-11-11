@@ -26,7 +26,7 @@ var planPage = helptext.Page{
 
 // cmdPlan is the `plan` verb.
 func cmdPlan(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+	if len(args) == 0 || isHelpVerb(args[0]) {
 		planPage.Fprint(os.Stderr)
 		return 0
 	}
@@ -117,7 +117,7 @@ func cmdPlanTick(args []string) int {
 func planSpec() *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{
 		"status": {Flags: []helptext.Flag{{Name: "all", IsBool: true},
-			{Name: "format", Values: func() []string { return []string{helptext.Text, helptext.JSON} }}}},
+			helptext.CompletionFormatFlag()}},
 		"tick": {Flags: []helptext.Flag{{Name: "range"}, {Name: "plan"}, {Name: "dry-run", IsBool: true}}},
 	}}
 }

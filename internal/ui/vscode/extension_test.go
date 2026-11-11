@@ -28,9 +28,9 @@ func TestLinkExtensionCreatesSymlink(t *testing.T) {
 	claudeHome := extensionHome(t)
 	extensionsDir := filepath.Join(t.TempDir(), "extensions")
 
-	result, err := LinkExtension(claudeHome, extensionsDir, false)
+	result, err := linkExtension(claudeHome, extensionsDir, false)
 	if err != nil {
-		t.Fatalf("LinkExtension: %v", err)
+		t.Fatalf("linkExtension: %v", err)
 	}
 	if !result.Changed {
 		t.Fatal("expected Changed=true on first link")
@@ -49,10 +49,10 @@ func TestLinkExtensionIsIdempotent(t *testing.T) {
 	claudeHome := extensionHome(t)
 	extensionsDir := filepath.Join(t.TempDir(), "extensions")
 
-	if _, err := LinkExtension(claudeHome, extensionsDir, false); err != nil {
+	if _, err := linkExtension(claudeHome, extensionsDir, false); err != nil {
 		t.Fatalf("first link: %v", err)
 	}
-	result, err := LinkExtension(claudeHome, extensionsDir, false)
+	result, err := linkExtension(claudeHome, extensionsDir, false)
 	if err != nil {
 		t.Fatalf("second link: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestLinkExtensionCheckReportsDriftWithoutWriting(t *testing.T) {
 	claudeHome := extensionHome(t)
 	extensionsDir := filepath.Join(t.TempDir(), "extensions")
 
-	result, err := LinkExtension(claudeHome, extensionsDir, true)
+	result, err := linkExtension(claudeHome, extensionsDir, true)
 	if err != nil {
 		t.Fatalf("check: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestLinkExtensionReplacesAStaleTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := LinkExtension(claudeHome, extensionsDir, false)
+	result, err := linkExtension(claudeHome, extensionsDir, false)
 	if err != nil {
 		t.Fatalf("relink: %v", err)
 	}
@@ -110,9 +110,9 @@ func TestDefaultExtensionsDirPrefersVSCodeServer(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".vscode-server"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	dir, err := DefaultExtensionsDir()
+	dir, err := defaultExtensionsDir()
 	if err != nil {
-		t.Fatalf("DefaultExtensionsDir: %v", err)
+		t.Fatalf("defaultExtensionsDir: %v", err)
 	}
 	want := filepath.Join(home, ".vscode-server", "extensions")
 	if dir != want {
@@ -123,9 +123,9 @@ func TestDefaultExtensionsDirPrefersVSCodeServer(t *testing.T) {
 func TestDefaultExtensionsDirFallsBackToDesktopClient(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	dir, err := DefaultExtensionsDir()
+	dir, err := defaultExtensionsDir()
 	if err != nil {
-		t.Fatalf("DefaultExtensionsDir: %v", err)
+		t.Fatalf("defaultExtensionsDir: %v", err)
 	}
 	want := filepath.Join(home, ".vscode", "extensions")
 	if dir != want {
@@ -136,13 +136,13 @@ func TestDefaultExtensionsDirFallsBackToDesktopClient(t *testing.T) {
 func TestLinkExtensionCheckRejectsDeletedSource(t *testing.T) {
 	home := extensionHome(t)
 	extensions := t.TempDir()
-	if _, err := LinkExtension(home, extensions, false); err != nil {
+	if _, err := linkExtension(home, extensions, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.RemoveAll(filepath.Join(home, "vscode", "claude-code-agents")); err != nil {
 		t.Fatal(err)
 	}
-	_, err := LinkExtension(home, extensions, true)
+	_, err := linkExtension(home, extensions, true)
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("check of dangling matching link = %v, want missing-source error", err)
 	}
@@ -162,8 +162,8 @@ func TestLinkExtensionPropagatesChtimesError(t *testing.T) {
 	chtimes = func(name string, _, _ time.Time) error { touched = name; return injected }
 	t.Cleanup(func() { chtimes = orig })
 
-	if _, err := LinkExtension(claudeHome, extensionsDir, false); !errors.Is(err, injected) {
-		t.Fatalf("LinkExtension = %v, want the chtimes error", err)
+	if _, err := linkExtension(claudeHome, extensionsDir, false); !errors.Is(err, injected) {
+		t.Fatalf("linkExtension = %v, want the chtimes error", err)
 	}
 	if touched != source {
 		t.Fatalf("chtimes(%q), want the extension source %q", touched, source)

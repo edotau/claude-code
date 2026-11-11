@@ -60,7 +60,7 @@ var vaultPage = helptext.Page{
 // vaultVerbs is the vault subcommand table.
 var vaultVerbs = map[string]func(args []string) int{
 	"ls": vaultList, "set": cmdVaultSet, "get": cmdVaultGet, "delete": cmdVaultDelete,
-	"import": cmdVaultImport, "export": cmdVaultExport, "edit": configEdit, "rotate-secret": configRotateKey,
+	"import": cmdVaultImport, "export": cmdVaultExport, "edit": cmdVaultEdit, "rotate-secret": cmdVaultRotateSecret,
 }
 
 // cmdVault dispatches the vault subcommands; bare `vault` lists.
@@ -183,7 +183,7 @@ func vaultStoreTailscale(dryRun bool, creds []tailscale.Cred) int {
 	return 0
 }
 
-func configEdit(args []string) int {
+func cmdVaultEdit(args []string) int {
 	fs := helptext.NewFlagSet("vault edit", helptext.Page{
 		Usage: "claude-code vault edit",
 		About: "Edit pins, env and overlays in $EDITOR, as one transaction.",
@@ -201,7 +201,7 @@ func configEdit(args []string) int {
 	return 0
 }
 
-func configRotateKey(args []string) int {
+func cmdVaultRotateSecret(args []string) int {
 	fs := helptext.NewFlagSet("vault rotate-secret", helptext.Page{
 		Usage: "claude-code vault rotate-secret [flags]",
 		About: "Re-seal every secret under a new master key; values unchanged.",

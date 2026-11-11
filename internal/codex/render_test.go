@@ -258,7 +258,7 @@ func TestVendorBaselineSeededOnFirstWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := LoadCodexBaseline(codexPath)
+	base, err := loadCodexBaseline(codexPath)
 	if err != nil {
 		t.Fatalf("no baseline seeded: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestVendorBaselineSeededWhenUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(codexPath)
-	base, err := LoadCodexBaseline(codexPath)
+	base, err := loadCodexBaseline(codexPath)
 	if err != nil {
 		t.Fatalf("unchanged render seeded no baseline: %v", err)
 	}
@@ -428,7 +428,7 @@ func revertCodex(t *testing.T, home, codexPath string) string {
 }
 
 // seedCodexBackups writes current to codexPath and backs up each version in order; returns the newest backup.
-func seedCodexBackups(t *testing.T, codexPath, current string, versions ...string) CodexConfigBackup {
+func seedCodexBackups(t *testing.T, codexPath, current string, versions ...string) codexConfigBackup {
 	t.Helper()
 	writeForeign(t, codexPath, current)
 	for _, v := range versions {

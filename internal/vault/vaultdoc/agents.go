@@ -1,4 +1,5 @@
-// vault_agents.go — the per-agent records ride in the exported doc's "agents" section under "records".
+// The per-agent records ride in the exported doc's "agents" section under "records".
+
 package vaultdoc
 
 import (

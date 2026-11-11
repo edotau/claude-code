@@ -21,21 +21,21 @@ var beforeWrite func(dest string)
 // Dir is the tracked theme directory.
 func Dir() string { return filepath.Join(paths.ConfigDir(), "theme") }
 
-// Target is one tool's theme file and the config it merges into.
-type Target struct {
+// target is one tool's theme file and the config it merges into.
+type target struct {
 	Name string // display name for output
 	Dest string // the tool's own config file
 	Src  string // source file in theme/, defaults to Name+".json" if empty
 }
 
 // targets maps each theme/<name>.json to its destination; VS Code's path is platform-specific.
-func targets(home string) []Target {
+func targets(home string) []target {
 	vs, _ := paths.VSCodeSettings()
 	cfg := os.Getenv("XDG_CONFIG_HOME")
 	if cfg == "" {
 		cfg = filepath.Join(home, ".config")
 	}
-	return []Target{
+	return []target{
 		{"vscode", vs, ""},
 		{"statusline", filepath.Join(paths.ConfigDir(), "state", "statusline", "config.json"), ""},
 		{"opencode", filepath.Join(paths.StateDir(), "opencode", "tui.json"), ""},
@@ -92,11 +92,11 @@ func Apply(dir, home string, only []string, dryRun bool) ([]Outcome, error) {
 }
 
 // selectTargets keeps the named targets (a name also picks "<name>/…"); empty keeps all, an unknown name errors.
-func selectTargets(all []Target, only []string) ([]Target, error) {
+func selectTargets(all []target, only []string) ([]target, error) {
 	if len(only) == 0 {
 		return all, nil
 	}
-	var out []Target
+	var out []target
 	for _, n := range only {
 		hit := false
 		for _, t := range all {

@@ -180,8 +180,8 @@ func TestContextPct(t *testing.T) {
 		}
 	}
 	writeUsage(50_000)
-	parse := func(s string) Input {
-		var in Input
+	parse := func(s string) input {
+		var in input
 		if err := json.Unmarshal([]byte(strings.ReplaceAll(s, "TR", tr)), &in); err != nil {
 			t.Fatal(err)
 		}
@@ -231,7 +231,7 @@ func TestSessionProvider(t *testing.T) {
 func TestModelSegment(t *testing.T) {
 	hermetic(t)
 	model := func(id, display string) string {
-		var in Input
+		var in input
 		in.Model.ID, in.Model.DisplayName = id, display
 		return modelSegment(in, "anthropic")
 	}
@@ -252,7 +252,7 @@ func TestModelSegment(t *testing.T) {
 			t.Errorf("model(%q, %q) = %q, want %q", c[0], c[1], got, c[2])
 		}
 	}
-	var in Input
+	var in input
 	in.Model.ID, in.Model.DisplayName = "custom-model", "Custom"
 	in.ContextWindow = &struct {
 		Size           int      `json:"context_window_size"`
@@ -328,7 +328,7 @@ func TestGitSegments(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "new.go"), []byte("package x\n\nfunc F() {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	var in Input
+	var in input
 	in.Cost.LinesAdded, in.Cost.LinesRemoved = 999, 999
 	if a, d := codeVelocity(in, dir, embeddedConfig()); a != 4 || d != 2 {
 		t.Errorf("git velocity +%d -%d, want +4 -2 (1 edit + 3 untracked, 2 removed)", a, d)
@@ -342,7 +342,7 @@ func TestGitSegments(t *testing.T) {
 
 func TestGitSegmentsOutsideRepo(t *testing.T) {
 	hermetic(t)
-	var in Input
+	var in input
 	in.Cost.LinesAdded, in.Cost.LinesRemoved = 999, 999
 	notRepo := t.TempDir()
 	if b := gitBranch(notRepo); b != "" {
@@ -404,10 +404,10 @@ func TestRunAndConfigOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "tester:/nowhere/proj | ( anthropic·ultra ) ( opus-5 ) ( 0% ) ( 51.4k ) ( 1h02m ) ( abcdef01 )"
-	if got := plain(Render([]byte(payload), "")); got != want {
+	if got := plain(renderStatusline([]byte(payload), "")); got != want {
 		t.Errorf("config override:\n got %q\nwant %q", got, want)
 	}
-	if got := plain(Render(nil, "gradient")); !strings.HasPrefix(got, "tester:") {
+	if got := plain(renderStatusline(nil, "gradient")); !strings.HasPrefix(got, "tester:") {
 		t.Errorf("blank payload must still render: %q", got)
 	}
 }
@@ -431,7 +431,7 @@ func TestSigTokens(t *testing.T) {
 
 func TestTotalSegment(t *testing.T) {
 	hermetic(t)
-	var in Input
+	var in input
 	if err := json.Unmarshal([]byte(`{"session_id":"s1","context_window":{"total_input_tokens":41200,"total_output_tokens":4800}}`), &in); err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +443,7 @@ func TestTotalSegment(t *testing.T) {
 	if got := totalSegment(in); got != "47.5k" {
 		t.Errorf("with ledger = %q, want 47.5k", got)
 	}
-	if got := totalSegment(Input{SessionID: "none"}); got != "" {
+	if got := totalSegment(input{SessionID: "none"}); got != "" {
 		t.Errorf("zero total = %q, want empty", got)
 	}
 }
@@ -505,7 +505,7 @@ func TestModelFamily(t *testing.T) {
 func renderPayload(t *testing.T, model string) string {
 	t.Helper()
 	payload := `{"workspace":{"current_dir":"/nowhere/proj"},"model":{"id":"` + model + `","display_name":"Opus 5"}}`
-	return plain(Render([]byte(payload), "minimal"))
+	return plain(renderStatusline([]byte(payload), "minimal"))
 }
 
 // Regression: another session's `switch` rewrites the vault pin; this session's label follows its own env.
@@ -564,7 +564,7 @@ func TestProfileFitsWidth(t *testing.T) {
 func TestGradientPreservesOllamaTag(t *testing.T) {
 	hermetic(t)
 	writeStatuslineConfig(t, `{"segments":{"path":false,"git":false,"velocity":false,"proxy":false,"provider":false,"limits":false,"total":false}}`)
-	got := plain(Render([]byte(`{"model":{"id":"qwen3:30b"}}`), "gradient"))
+	got := plain(renderStatusline([]byte(`{"model":{"id":"qwen3:30b"}}`), "gradient"))
 	if got != "qwen3:30b" {
 		t.Fatalf("gradient model = %q, want qwen3:30b", got)
 	}
@@ -573,7 +573,7 @@ func TestGradientPreservesOllamaTag(t *testing.T) {
 func TestDashboardOmitsDisabledContext(t *testing.T) {
 	hermetic(t)
 	writeStatuslineConfig(t, `{"style":"dashboard","segments":{"context":false,"path":false,"git":false,"velocity":false,"proxy":false,"limits":false,"total":false}}`)
-	got := plain(Render([]byte(`{"model":{"id":"qwen3:30b"},"context_window":{"used_percentage":75}}`), ""))
+	got := plain(renderStatusline([]byte(`{"model":{"id":"qwen3:30b"},"context_window":{"used_percentage":75}}`), ""))
 	if strings.Contains(got, "context") || strings.Contains(got, "%") {
 		t.Fatalf("disabled context column rendered: %q", got)
 	}

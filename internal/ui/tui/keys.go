@@ -37,9 +37,9 @@ type Key struct {
 // dropped is the zero Key an unbound control byte or unknown escape sequence decodes to.
 var dropped = Key{Kind: KeyRune, Rune: 0}
 
-// Decode parses ONE key from buf, returning it and the bytes consumed (0 means "need more input": an
+// decode parses ONE key from buf, returning it and the bytes consumed (0 means "need more input": an
 // incomplete escape sequence or a split UTF-8 rune at the buffer's end).
-func Decode(buf []byte) (Key, int) {
+func decode(buf []byte) (Key, int) {
 	if len(buf) == 0 {
 		return Key{}, 0
 	}
@@ -145,7 +145,7 @@ func drain(pending []byte) ([]Key, []byte) {
 		if isLoneEsc(pending) {
 			break // held until the next read or a silent pollTick: the Esc key, or the start of a split sequence
 		}
-		key, consumed := Decode(pending)
+		key, consumed := decode(pending)
 		if consumed == 0 {
 			break // incomplete tail — wait for the next read
 		}
@@ -158,9 +158,9 @@ func drain(pending []byte) ([]Key, []byte) {
 	return keys, pending
 }
 
-// Terminal is the raw-mode session: cursor hidden, keys decoded onto a channel. Close restores
+// terminal is the raw-mode session: cursor hidden, keys decoded onto a channel. Close restores
 // everything; callers defer it so a panic can't strand the shell in raw mode.
-type Terminal struct {
+type terminal struct {
 	fd   int
 	prev *termState
 	out  *os.File
@@ -173,9 +173,9 @@ type Terminal struct {
 	readErr error
 }
 
-// Open puts stdin into raw mode and hides the cursor. Fails cleanly when stdin is not a TTY, so
+// openTerminal puts stdin into raw mode and hides the cursor. Fails cleanly when stdin is not a TTY, so
 // callers fall back to a line-mode prompt instead of crashing.
-func Open() (*Terminal, error) {
+func openTerminal() (*terminal, error) {
 	fd := int(os.Stdin.Fd())
 	if !proc.IsTerminalFD(fd) {
 		return nil, errors.New("stdin is not a terminal")
@@ -184,7 +184,7 @@ func Open() (*Terminal, error) {
 	if err != nil {
 		return nil, err
 	}
-	t := &Terminal{fd: fd, prev: prev, out: os.Stdout, in: os.Stdin, keys: make(chan Key, 8),
+	t := &terminal{fd: fd, prev: prev, out: os.Stdout, in: os.Stdin, keys: make(chan Key, 8),
 		stop: make(chan struct{}), done: make(chan struct{})}
 	fmt.Fprint(t.out, "\x1b[?25l") // hide cursor
 	go t.readKeys()
@@ -192,7 +192,7 @@ func Open() (*Terminal, error) {
 }
 
 // Close restores the terminal: cooked mode, cursor back, key pump stopped. Safe to call more than once.
-func (t *Terminal) Close() error {
+func (t *terminal) Close() error {
 	t.stopReader()
 	fmt.Fprint(t.out, "\x1b[?25h")
 	return restore(t.fd, t.prev)
@@ -200,7 +200,7 @@ func (t *Terminal) Close() error {
 
 // stopReader ends the key pump and waits for it: an orphaned read(2) on stdin would otherwise win the
 // next line the user types after Close returns. Unpollable stdin keeps the old parked-forever reader.
-func (t *Terminal) stopReader() {
+func (t *terminal) stopReader() {
 	if t.stop == nil {
 		return
 	}
@@ -211,13 +211,13 @@ func (t *Terminal) stopReader() {
 }
 
 // Keys is the decoded keypress stream.
-func (t *Terminal) Keys() <-chan Key { return t.keys }
+func (t *terminal) Keys() <-chan Key { return t.keys }
 
 // Err is the read error that ended the key stream; read it only after Keys is closed.
-func (t *Terminal) Err() error { return t.readErr }
+func (t *terminal) Err() error { return t.readErr }
 
 // Size returns the terminal's current width and height (80x24 when the query fails).
-func (t *Terminal) Size() (w, h int) {
+func (t *terminal) Size() (w, h int) {
 	w, h, err := proc.Size(t.fd)
 	if err != nil || w <= 0 || h <= 0 {
 		return 80, 24
@@ -227,7 +227,7 @@ func (t *Terminal) Size() (w, h int) {
 
 // readKeys pumps stdin through drain. An incomplete sequence carries into the next read; a lone Esc is
 // held for one pollTick of silence before it counts as the Esc key. Exits when stopReader signals.
-func (t *Terminal) readKeys() {
+func (t *terminal) readKeys() {
 	defer close(t.done)
 	var pending []byte
 	buf := make([]byte, 64)
@@ -263,10 +263,10 @@ func (t *Terminal) readKeys() {
 }
 
 // escTimedOut reports whether a held lone Esc got no continuation within pollTick (always true unpollable).
-func (t *Terminal) escTimedOut() bool { return !canPoll || !waitReadable(t.fd, pollTick) }
+func (t *terminal) escTimedOut() bool { return !canPoll || !waitReadable(t.fd, pollTick) }
 
 // emit sends keys to the consumer; false when Close stopped the pump first.
-func (t *Terminal) emit(keys []Key) bool {
+func (t *terminal) emit(keys []Key) bool {
 	for _, key := range keys {
 		select {
 		case t.keys <- key:

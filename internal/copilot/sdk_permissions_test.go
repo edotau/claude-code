@@ -19,7 +19,7 @@ type permCase struct {
 
 // policyVerdict evaluates a rule call through baseHandler.
 func policyVerdict(p agent.Permissions, tools, readOnly bool, workDir string, call agent.Rule) agent.Decision {
-	o := SDKOptions{Permissions: p, AllowAllTools: tools, ReadOnlyTools: readOnly, WorkingDirectory: workDir}
+	o := sdkOptions{Permissions: p, AllowAllTools: tools, ReadOnlyTools: readOnly, WorkingDirectory: workDir}
 	var req copilot.PermissionRequest
 	switch call.Tool {
 	case "Bash":
@@ -93,9 +93,9 @@ func shellReq(wd, c string) copilot.PermissionRequest {
 
 func writeReq(f string) copilot.PermissionRequest { return rpc.PermissionRequestWrite{FileName: f} }
 
-// A read-only run approves reads and URL fetches through BuildSessionConfig's handler and rejects writes and shell.
+// A read-only run approves reads and URL fetches through buildSessionConfig's handler and rejects writes and shell.
 func TestReadOnlyToolsApproveOnlyReads(t *testing.T) {
-	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
+	h := buildSessionConfig(sdkOptions{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
 	for _, tc := range []struct {
 		req  copilot.PermissionRequest
 		want bool
@@ -114,7 +114,7 @@ func TestReadOnlyToolsApproveOnlyReads(t *testing.T) {
 }
 
 func TestReadOnlyWebSearchMCP(t *testing.T) {
-	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
+	h := buildSessionConfig(sdkOptions{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
 	for _, tc := range []permCase{
 		{"harness value", rpc.PermissionRequestMCP{ServerName: "web_search", ToolName: "web_search"}, true},
 		{"harness pointer", &rpc.PermissionRequestMCP{ServerName: "web_search", ToolName: "web_search"}, true},
@@ -135,7 +135,7 @@ func TestReadOnlyWebSearchMCP(t *testing.T) {
 
 // A read-only run approves allowlisted read-only git and rejects every chained, redirected, config or write form.
 func TestReadOnlyGitShell(t *testing.T) {
-	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
+	h := buildSessionConfig(sdkOptions{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
 	for cmd, want := range map[string]bool{
 		"git status": true, "git log --no-ext-diff --no-textconv -3 --oneline": true,
 		"git diff --no-ext-diff --no-textconv HEAD~1 -- internal/x.go": true,
@@ -167,7 +167,7 @@ func TestPermissionsDecideInHandler(t *testing.T) {
 	perms := agent.Permissions{
 		Deny: []agent.Rule{{Tool: "Bash", Arg: "rm *"}, {Tool: "Edit", Arg: "secret/**"}},
 	}
-	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: perms}).OnPermissionRequest
+	h := buildSessionConfig(sdkOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: perms}).OnPermissionRequest
 	for _, tc := range []struct {
 		name string
 		req  copilot.PermissionRequest
@@ -199,7 +199,7 @@ func TestPermissionsDecideInHandler(t *testing.T) {
 func TestPlanModeLetsReadsThrough(t *testing.T) {
 	wd := t.TempDir()
 	perms := agent.Permissions{Mode: "plan", Deny: []agent.Rule{{Tool: "Read", Arg: "secret/**"}}}
-	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: perms}).OnPermissionRequest
+	h := buildSessionConfig(sdkOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: perms}).OnPermissionRequest
 	for _, tc := range []struct {
 		name string
 		req  copilot.PermissionRequest
@@ -247,7 +247,7 @@ func formerlyScoped(wd string) []struct {
 // With no dispatch rules --tools approves every formerly scoped kind, and managed org settings still win.
 func TestToolsTierApprovesFormerlyScoped(t *testing.T) {
 	wd := t.TempDir()
-	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, WorkingDirectory: wd}).OnPermissionRequest
+	h := buildSessionConfig(sdkOptions{AllowAllTools: true, WorkingDirectory: wd}).OnPermissionRequest
 	for _, tc := range formerlyScoped(wd) {
 		d, err := h(tc.req, copilot.PermissionInvocation{})
 		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); err != nil || !ok {
@@ -271,8 +271,8 @@ func TestToolsTierDenyRejectsFormerlyScoped(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		o := SDKOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: agent.Permissions{Deny: []agent.Rule{r}}}
-		d, err := BuildSessionConfig(o).OnPermissionRequest(tc.req, copilot.PermissionInvocation{})
+		o := sdkOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: agent.Permissions{Deny: []agent.Rule{r}}}
+		d, err := buildSessionConfig(o).OnPermissionRequest(tc.req, copilot.PermissionInvocation{})
 		if _, ok := d.(*rpc.PermissionDecisionReject); err != nil || !ok {
 			t.Errorf("%s under Deny %s: decision %T, err %v; want Reject", tc.name, tc.deny, d, err)
 		}
@@ -294,7 +294,7 @@ func TestPlanModeWebSearchMCP(t *testing.T) {
 		{"denied web search rejected", search, []agent.Rule{{Tool: "mcp__" + webSearchServer}}, false},
 	} {
 		perms := agent.Permissions{Mode: "plan", Deny: tc.deny}
-		h := BuildSessionConfig(SDKOptions{AllowAllTools: true, Permissions: perms}).OnPermissionRequest
+		h := buildSessionConfig(sdkOptions{AllowAllTools: true, Permissions: perms}).OnPermissionRequest
 		d, err := h(tc.req, copilot.PermissionInvocation{})
 		if err != nil {
 			t.Fatal(err)

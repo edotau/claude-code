@@ -25,7 +25,7 @@ func agentPinRows(d *dialog, agent string) []billingRow {
 			provider = p.Provider
 		}
 	}
-	state := Checked(cur != "", seedLabel(agent, cur)) // green when a profile is pinned
+	state := checked(cur != "", seedLabel(agent, cur)) // green when a profile is pinned
 	if why := agentpkg.AgentUnbillable(agent); cur != "" && why != "" {
 		state = "[off, " + why + "]"
 	}
@@ -68,7 +68,7 @@ func pickAgentProfile(d *dialog, agent, cur string) (bool, error) {
 func pickProfileName(d *dialog, agent string, names []string, cur string) (name string, ok bool) {
 	rows := make([][2]string, len(names))
 	for i, n := range names {
-		rows[i] = [2]string{seedLabel(agent, n), Mark(n == cur)}
+		rows[i] = [2]string{seedLabel(agent, n), mark(n == cur)}
 	}
 	idx, err := d.shell().Pick(displayLabel(agent)+" — profile", rows, max(slices.Index(names, cur), 0))
 	if err != nil || idx < 0 || idx >= len(names) {
@@ -157,17 +157,17 @@ func seedPick(d *dialog, agent, cur string) (profile string, ok bool) {
 // runSeed shows one row per agent and writes every choice, Profile only, when Save is picked; dismissing writes nothing.
 func runSeed(d *dialog) bool {
 	choice, agents, saved := seedDefaults(d), seedAgents(), false
-	d.shell().Run("Seed agent profiles", func() []ShellRow {
-		rows := make([]ShellRow, 0, len(agents)+1)
+	d.shell().Run("Seed agent profiles", func() []shellRow {
+		rows := make([]shellRow, 0, len(agents)+1)
 		for _, a := range agents {
-			rows = append(rows, ShellRow{Name: displayLabel(a), Detail: seedLabel(a, choice[a]), Run: func() bool {
+			rows = append(rows, shellRow{Name: displayLabel(a), Detail: seedLabel(a, choice[a]), Run: func() bool {
 				if p, ok := seedPick(d, a, choice[a]); ok {
 					choice[a] = p
 				}
 				return false
 			}})
 		}
-		return append(rows, ShellRow{Name: "Save", Detail: "write these choices", Run: func() bool {
+		return append(rows, shellRow{Name: "Save", Detail: "write these choices", Run: func() bool {
 			saved = saveSeed(d, choice)
 			return true
 		}})

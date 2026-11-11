@@ -46,8 +46,8 @@ func resolveBilling() *billing {
 	return &billing{Mode: mode, Provider: sel.Provider.Name}
 }
 
-// Document is the `usage --format json` payload; the web page's /api/usage serves the same value.
-type Document struct {
+// document is the `usage --format json` payload; the web page's /api/usage serves the same value.
+type document struct {
 	*transcript.UsageAggregate
 	Providers  []quota      `json:"providers,omitempty"`
 	API        []ledgerAgg  `json:"api,omitempty"`
@@ -56,8 +56,8 @@ type Document struct {
 	WindowDays int          `json:"window_days"`
 }
 
-// Report builds the JSON document for one window (session scopes to one id, else the last days days).
-func Report(claudeDir, session string, days int, withQuotas bool, errw io.Writer) (*Document, error) {
+// report builds the JSON document for one window (session scopes to one id, else the last days days).
+func report(claudeDir, session string, days int, withQuotas bool, errw io.Writer) (*document, error) {
 	if session == "" && days <= 0 {
 		days = 1 // the same window scanUsage scans
 	}
@@ -70,7 +70,7 @@ func Report(claudeDir, session string, days int, withQuotas bool, errw io.Writer
 	agents := buildAgentsUsage(scan, session, days)
 	quotas := <-quotasCh
 	aggs, _ := loadLedger(errw)
-	return &Document{agg, quotas, aggs, resolveBilling(), agents, days}, nil
+	return &document{agg, quotas, aggs, resolveBilling(), agents, days}, nil
 }
 
 // transcriptScan is claude's share of the window: the aggregate and the daily buckets are built from the same
@@ -207,7 +207,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 		return runUsageWorkflows(claudeDir, out, errw, o.session, o.days)
 	}
 	if o.jsonOut {
-		doc, err := Report(claudeDir, o.session, o.days, o.wantProvider, errw)
+		doc, err := report(claudeDir, o.session, o.days, o.wantProvider, errw)
 		if err != nil {
 			fmt.Fprintln(errw, "usage:", err)
 			return 1

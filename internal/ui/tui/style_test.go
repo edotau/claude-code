@@ -30,10 +30,10 @@ func TestStylesFallbackByteIdentical(t *testing.T) {
 		if got, want := Accent(on, "x"), ansi.Style(on, ansi.Bold+ansi.Cyan, "x"); got != want {
 			t.Errorf("Accent(%v) = %q, want %q", on, got, want)
 		}
-		if got, want := AccentMark(on, "x"), ansi.Style(on, ansi.Cyan, "x"); got != want {
-			t.Errorf("AccentMark(%v) = %q, want %q", on, got, want)
+		if got, want := accentMark(on, "x"), ansi.Style(on, ansi.Cyan, "x"); got != want {
+			t.Errorf("accentMark(%v) = %q, want %q", on, got, want)
 		}
-		if got, want := Selected(on, "x"), ansi.Style(on, "\x1b[7m", "x"); got != want {
+		if got, want := selected(on, "x"), ansi.Style(on, "\x1b[7m", "x"); got != want {
 			t.Errorf("Selected(%v) = %q, want %q", on, got, want)
 		}
 	}
@@ -46,14 +46,14 @@ func TestStylesTruecolorUsePalette(t *testing.T) {
 	if got := Accent(true, "x"); !strings.Contains(got, "38;2;71;150;228") || !strings.Contains(got, "x") {
 		t.Errorf("Accent = %q, want Border 38;2;71;150;228", got)
 	}
-	if got := AccentMark(true, "x"); !strings.Contains(got, "38;2;71;150;228") {
-		t.Errorf("AccentMark = %q, want Border fg", got)
+	if got := accentMark(true, "x"); !strings.Contains(got, "38;2;71;150;228") {
+		t.Errorf("accentMark = %q, want Border fg", got)
 	}
-	if got := Selected(true, "x"); !strings.Contains(got, "48;2;45;74;122") || strings.Contains(got, "\x1b[7m") {
+	if got := selected(true, "x"); !strings.Contains(got, "48;2;45;74;122") || strings.Contains(got, "\x1b[7m") {
 		t.Errorf("Selected = %q, want Sel bg and no reverse video", got)
 	}
-	for name, got := range map[string]string{"Accent": Accent(false, "x"), "AccentMark": AccentMark(false, "x"),
-		"Selected": Selected(false, "x")} {
+	for name, got := range map[string]string{"Accent": Accent(false, "x"), "accentMark": accentMark(false, "x"),
+		"Selected": selected(false, "x")} {
 		if got != "x" {
 			t.Errorf("%s with on=false = %q, want plain text", name, got)
 		}
@@ -69,7 +69,7 @@ func TestStylesNoColorOrDumbTermKeepLegacy(t *testing.T) {
 	}
 	setTerm(t, "truecolor", "xterm")
 	t.Setenv("NO_COLOR", "1")
-	if got, want := Selected(true, "x"), ansi.Style(true, "\x1b[7m", "x"); got != want {
+	if got, want := selected(true, "x"), ansi.Style(true, "\x1b[7m", "x"); got != want {
 		t.Errorf("NO_COLOR Selected = %q, want %q", got, want)
 	}
 }

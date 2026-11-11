@@ -122,7 +122,7 @@ type bbPR struct {
 }
 
 func (r bbPR) pr() PR {
-	p := PR{Host: Bitbucket, ID: strconv.Itoa(r.ID), Title: r.Title, State: prState(r.State),
+	p := PR{Host: bitbucket, ID: strconv.Itoa(r.ID), Title: r.Title, State: prState(r.State),
 		Author: cmp.Or(r.Author.User.DisplayName, r.Author.User.Name), Source: r.FromRef.DisplayID,
 		Target: r.ToRef.DisplayID, HeadSHA: r.FromRef.LatestCommit}
 	if len(r.Links.Self) > 0 {

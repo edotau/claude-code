@@ -82,7 +82,7 @@ func TestCmdModelsRejectsPositionalArguments(t *testing.T) {
 	}
 }
 
-// listLive's copilot dispatch (dispatched via the provider name, listLiveCopilot no longer exists standalone)
+// listLive's copilot dispatch (dispatched via the provider name)
 // reports the copilot CLI as not found (never a panic) when it is absent from bin/.
 func TestListLiveCopilotReportsMissingCLI(t *testing.T) {
 	cliScratch(t)

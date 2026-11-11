@@ -12,8 +12,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// LedgerInfo describes the checkout and starting commit recorded when a ledger opens.
-type LedgerInfo struct {
+// ledgerInfo describes the checkout and starting commit recorded when a ledger opens.
+type ledgerInfo struct {
 	Path, Branch, Base, BaseRef, Session string
 	Now                                  time.Time
 }
@@ -29,7 +29,7 @@ type LedgerClose struct {
 func ledgerPath(dir, name string) string { return filepath.Join(dir, "worktrees", name+".md") }
 
 // openLedger creates a ledger, leaves an open ledger unchanged, or reopens a closed ledger.
-func openLedger(main, name string, info LedgerInfo) error {
+func openLedger(main, name string, info ledgerInfo) error {
 	if err := ledgerName(name); err != nil {
 		return err
 	}
@@ -253,7 +253,7 @@ func openSection(text string) string {
 }
 
 // reopenedText rewrites a closed ledger as open with a fresh Opened section; the caller holds the lock.
-func reopenedText(text string, info LedgerInfo) string {
+func reopenedText(text string, info ledgerInfo) string {
 	text = strings.Replace(text, "- Status: closed\n", "- Status: open\n", 1)
 	text = ledgerLog(text, "reopened", info.Now)
 	text = strings.TrimRight(text, "\n") + fmt.Sprintf("\n\n## Opened\n\n- Branch: %s\n- Base: %s (%s)\n- Opened: %s\n- Session: %s\n",
@@ -262,22 +262,22 @@ func reopenedText(text string, info LedgerInfo) string {
 }
 
 // reopenInfo describes work resuming in a kept worktree: base is the merge-base with the main checkout's HEAD.
-func reopenInfo(repo *Repo, dest, session string) (LedgerInfo, error) {
+func reopenInfo(repo *Repo, dest, session string) (ledgerInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), ledgerGitTimeout)
 	defer cancel()
 	head, err := headOfContext(ctx, dest)
 	if err != nil {
-		return LedgerInfo{}, err
+		return ledgerInfo{}, err
 	}
 	base, err := gitCmd(ctx, "-C", repo.Main, "merge-base", "HEAD", head).Output()
 	if err != nil {
-		return LedgerInfo{}, fmt.Errorf("resolve resume base: %w", err)
+		return ledgerInfo{}, fmt.Errorf("resolve resume base: %w", err)
 	}
 	branch, err := currentWorktreeBranch(dest)
 	if err != nil {
-		return LedgerInfo{}, err
+		return ledgerInfo{}, err
 	}
-	return LedgerInfo{Path: dest, Branch: branch, Base: strings.TrimSpace(string(base)), BaseRef: "merge-base", Session: session}, nil
+	return ledgerInfo{Path: dest, Branch: branch, Base: strings.TrimSpace(string(base)), BaseRef: "merge-base", Session: session}, nil
 }
 
 // ledgerSession is the session that opened (or last reopened) worktreePath's ledger; "" on any error or none.

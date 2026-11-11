@@ -30,7 +30,7 @@ func easeAt(t, exp float64) float64 {
 }
 
 // renderGradient paints "user:" and the ramp; a segment that would cross width starts the next row whole.
-func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string, width int) string {
+func renderGradient(v values, cfg config, pal theme.Palettes, stops []ansi.RGB, mode string, width int) string {
 	dim := ansi.Hex(pal.Sem("dim"))
 	b := gradientCells(v, cfg)
 	total := max(len(b.cells)-1, 1)
@@ -48,7 +48,7 @@ func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, 
 }
 
 // writeUserHost paints "user@host:" when the path shows and returns the columns it took.
-func writeUserHost(out *strings.Builder, v values, cfg Config, pal theme.Palettes, mode string) int {
+func writeUserHost(out *strings.Builder, v values, cfg config, pal theme.Palettes, mode string) int {
 	if !cfg.seg("path", true) {
 		return 0
 	}
@@ -177,7 +177,7 @@ func (b *cellBuf) pushContextBlock(v values, sepMajor string) bool {
 	return true
 }
 
-func gradientCells(v values, cfg Config) cellBuf {
+func gradientCells(v values, cfg config) cellBuf {
 	var b cellBuf
 	if cfg.seg("path", true) {
 		b.push(v.path, "g")
@@ -189,7 +189,7 @@ func gradientCells(v values, cfg Config) cellBuf {
 
 // pushMetrics pushes enabled cfg.Order segments but path, provider, limits and total: the context block after the
 // major separator, the rest as text joined by the minor separator.
-func (b *cellBuf) pushMetrics(v values, cfg Config) {
+func (b *cellBuf) pushMetrics(v values, cfg config) {
 	sepMajor := cfg.sep("major", "  ●  ")
 	sepMinor := cfg.sep("minor", " · ")
 	emitted := false
@@ -243,7 +243,7 @@ func velocityText(v values, mode string, pal theme.Palettes) string {
 }
 
 // contextBarParts returns the filled and empty runs separately so renderers classify cells by construction.
-func contextBarParts(pct int, bar BarConfig) (filledPart, emptyPart string) {
+func contextBarParts(pct int, bar barConfig) (filledPart, emptyPart string) {
 	width := bar.Width
 	if width <= 0 {
 		width = 8
@@ -261,7 +261,7 @@ func contextBarParts(pct int, bar BarConfig) (filledPart, emptyPart string) {
 
 // troughTone derives empty-bar cells from the terminal bg (not the ramp, which drags troughs dark):
 // dark lifts toward white, light toward black, by emptyContrast.
-func troughTone(bar BarConfig) ansi.RGB {
+func troughTone(bar barConfig) ansi.RGB {
 	bg := bar.TerminalBg
 	if bg == "" {
 		bg = "#300a24"

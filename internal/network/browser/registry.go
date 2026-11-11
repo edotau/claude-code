@@ -10,7 +10,7 @@ import (
 
 // spec is one known browser's per-platform identity: detection, profile and host dirs, and default-handler match.
 type spec struct {
-	name        string // registry key, also Browser.Name
+	name        string // registry key, also browser.Name
 	displayName string
 	family      string
 
@@ -99,8 +99,8 @@ func specByDesktopFile(f string) (spec, bool) {
 var errDefaultUnsupported = errors.New(
 	"browser: system default has no extension/cdp control path (tier 3: safaridriver/geckodriver)")
 
-// Default resolves the https handler to a known browser; the Browser is filled even when the error says unsupported.
-func Default(env Env) (Browser, error) {
+// Default resolves the https handler to a known browser; the browser is filled even when the error says unsupported.
+func Default(env Env) (browser, error) {
 	switch env.goos() {
 	case "darwin":
 		return defaultDarwin(env)
@@ -110,7 +110,7 @@ func Default(env Env) (Browser, error) {
 		}
 		return defaultLinux(env)
 	default:
-		return Browser{}, fmt.Errorf("browser: default-browser detection is unsupported on %s", env.goos())
+		return browser{}, fmt.Errorf("browser: default-browser detection is unsupported on %s", env.goos())
 	}
 }
 
@@ -120,18 +120,18 @@ type lsHandler struct {
 }
 
 // defaultDarwin reads LaunchServices' secure plist (via plutil -convert json) for the https handler.
-func defaultDarwin(env Env) (Browser, error) {
+func defaultDarwin(env Env) (browser, error) {
 	path := filepath.Join(env.Home, "Library", "Preferences", "com.apple.LaunchServices",
 		"com.apple.launchservices.secure.plist")
 	out, err := env.run("plutil", "-convert", "json", "-o", "-", path)
 	if err != nil {
-		return Browser{}, fmt.Errorf("browser: reading LSHandlers: %w", err)
+		return browser{}, fmt.Errorf("browser: reading LSHandlers: %w", err)
 	}
 	var doc struct {
 		LSHandlers []lsHandler `json:"LSHandlers"`
 	}
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
-		return Browser{}, fmt.Errorf("browser: parsing LSHandlers: %w", err)
+		return browser{}, fmt.Errorf("browser: parsing LSHandlers: %w", err)
 	}
 	for _, h := range doc.LSHandlers {
 		if h.LSHandlerURLScheme == "https" {
@@ -139,14 +139,14 @@ func defaultDarwin(env Env) (Browser, error) {
 			return resolveDefault(env, s, ok, h.LSHandlerRoleAll)
 		}
 	}
-	return Browser{}, errors.New("browser: no https LSHandler found")
+	return browser{}, errors.New("browser: no https LSHandler found")
 }
 
 // defaultLinux reads `xdg-settings get default-web-browser` (a .desktop file name).
-func defaultLinux(env Env) (Browser, error) {
+func defaultLinux(env Env) (browser, error) {
 	out, err := env.run("xdg-settings", "get", "default-web-browser")
 	if err != nil {
-		return Browser{}, fmt.Errorf("browser: xdg-settings: %w", err)
+		return browser{}, fmt.Errorf("browser: xdg-settings: %w", err)
 	}
 	desktop := strings.TrimSpace(out)
 	s, ok := specByDesktopFile(desktop)
@@ -154,9 +154,9 @@ func defaultLinux(env Env) (Browser, error) {
 }
 
 // resolveDefault detects the matched spec; a non-Chromium result is errDefaultUnsupported but keeps its identity.
-func resolveDefault(env Env, s spec, ok bool, raw string) (Browser, error) {
+func resolveDefault(env Env, s spec, ok bool, raw string) (browser, error) {
 	if !ok {
-		return Browser{}, fmt.Errorf("browser: system default %q is not a recognized browser: %w", raw, errDefaultUnsupported)
+		return browser{}, fmt.Errorf("browser: system default %q is not a recognized browser: %w", raw, errDefaultUnsupported)
 	}
 	b := detectOne(env, s)
 	b.Default = true
