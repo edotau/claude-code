@@ -31,7 +31,7 @@ const claimsSchema = 1
 
 var _ = schemas.Register(schemas.Format{
 	Name: "claims", Owner: "internal/hooks/wthook", Kind: schemas.Log,
-	Glob:    func() string { return filepath.Join(claimsDir(), "*.jsonl") },
+	Glob:    func() string { return filepath.Join(worktree.ClaimsDir(), "*.jsonl") },
 	New:     func() any { return &claim{} },
 	Version: claimsSchema, Keep: "per-session edit/commit claims; the claim check removes a dead owner pid's file",
 })
@@ -42,11 +42,9 @@ var claimOwner = inflight.SessionOwner
 // sessionSlug is the session id as the file-name slug every per-session state file uses.
 func sessionSlug(session string) string { return paths.Slug(session, "", 80, "session") }
 
-func claimsDir() string { return worktree.ClaimsDir() } // one home for the path: the reader lives in worktree
-
 // claimsFile is <claims>/<owner pid>-<session slug>.jsonl; a dead owner pid retires the whole file.
 func claimsFile(owner int, session string) string {
-	return filepath.Join(claimsDir(), fmt.Sprintf("%d-%s.jsonl", owner, sessionSlug(session)))
+	return filepath.Join(worktree.ClaimsDir(), fmt.Sprintf("%d-%s.jsonl", owner, sessionSlug(session)))
 }
 
 // Claim records the written path, each sha a landed `git commit` printed, and each path `git add` staged.

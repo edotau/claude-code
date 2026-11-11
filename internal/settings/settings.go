@@ -180,10 +180,11 @@ type Key struct {
 	props      map[string]Key // object property schemas
 	required   []string
 	constVal   json.RawMessage
-	noExtra    bool // additionalProperties: false
-	addl       *Key // additionalProperties schema applied to unlisted properties
-	ref        bool // uses $ref, which is not resolved: childRef and validateProperty read it
-	untyped    bool // no type, enum or not of its own (a bare $ref or {}): any value passes
+	constWant  string // compactStr(constVal), computed once when the Key is built
+	noExtra    bool   // additionalProperties: false
+	addl       *Key   // additionalProperties schema applied to unlisted properties
+	ref        bool   // uses $ref, which is not resolved: childRef and validateProperty read it
+	untyped    bool   // no type, enum or not of its own (a bare $ref or {}): any value passes
 }
 
 // schemaType is a JSON-Schema "type": one name or a list, kept whole so unions validate every branch.
@@ -303,6 +304,7 @@ func (n schemaNode) key(name string, env bool) Key {
 		}
 	}
 	k.required, k.constVal = n.Required, n.Const
+	k.constWant, _ = compactStr(n.Const) // a schema constant is always valid JSON
 	k.noExtra = strings.TrimSpace(string(n.AddlProps)) == "false"
 	k.addl = n.addlKey(name, env)
 	k.ref = n.Ref != "" || k.childRef()
@@ -395,8 +397,7 @@ func (k Key) Validate(raw json.RawMessage) error {
 	}
 	if len(k.constVal) > 0 {
 		a, errA := compactStr(raw)
-		want, _ := compactStr(k.constVal) // a schema constant is always valid JSON
-		if errA != nil || a != want {
+		if errA != nil || a != k.constWant {
 			return fmt.Errorf("%s: must be %s", k.Name, k.constVal)
 		}
 	}
@@ -558,7 +559,7 @@ func compactStr(raw json.RawMessage) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return string(raw) + "\n", nil
+	return string(raw), nil
 }
 
 // SettingsFile is the live Claude Code settings.json under the config dir.

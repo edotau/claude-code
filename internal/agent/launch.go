@@ -51,12 +51,8 @@ func PinnedProfile(name string) (string, error) {
 }
 
 // Configure returns extra env (KEY=VALUE) and leading argv that point the agent CLI at target.
-// headlessPrompt != "" asks for the non-interactive form (the agent path).
-func (s Schema) Configure(ctx context.Context, target providers.Target, headlessPrompt string) (env, argv []string, err error) {
-	if headlessPrompt == "" {
-		return s.configure(ctx, target, nil)
-	}
-	return s.configure(ctx, target, &Headless{Prompt: headlessPrompt})
+func (s Schema) Configure(ctx context.Context, target providers.Target) (env, argv []string, err error) {
+	return s.configure(ctx, target, nil)
 }
 
 // ConfigureHeadless is Configure's agent form with the per-run options each CLI can carry.
@@ -108,16 +104,13 @@ func RouteEnvLast(launchEnv, env []string) []string {
 	return append(out, env...)
 }
 
-// ApplyLaunch appends the agent's spec Launch.Env (always) and Launch.Args (only when args is true) to
-// an already-built launch; a broken overlay is best-effort and must not break the launch.
-func (s Schema) ApplyLaunch(argv []string, args bool) ([]string, []string) {
-	st := s.launchSettings(providers.Target{}, !args)
-	env, argv, _, _, _ := s.Eng().RenderSettings(context.Background(), st, nil, argv) // the default never errs
+// LaunchSpec is the agent's spec env and argv prefix for an interactive launch that bypasses Configure (own login).
+// A broken overlay is best-effort and must not break the launch.
+func (s Schema) LaunchSpec() (env, argv []string) {
+	st := s.launchSettings(providers.Target{}, false)
+	env, argv, _, _, _ = s.Eng().RenderSettings(context.Background(), st, nil, nil) // the default never errs
 	return env, argv
 }
-
-// LaunchSpec is the agent's spec env and argv prefix for an interactive launch that bypasses Configure (own login).
-func (s Schema) LaunchSpec() (env, argv []string) { return s.ApplyLaunch(nil, true) }
 
 func (s Schema) configureRoute(ctx context.Context, t providers.Target, h *Headless) ([]string, []string, error) {
 	name := s.Name
@@ -446,7 +439,7 @@ func (p Plan) Print(w io.Writer) {
 	for _, k := range slices.Sorted(maps.Keys(p.Set)) {
 		v := p.Set[k]
 		switch {
-		case secretKey(k):
+		case providers.IsSecretName(k):
 			v = "<redacted>"
 		case envRedactors[k] != nil:
 			v = redactQuoted(envRedactors[k](v))
@@ -524,13 +517,6 @@ func (p Plan) execFailed() {
 	}
 }
 
-func secretKey(k string) bool {
-	return secretKeyRE.MatchString(k)
-}
-
-// secretKeyRE matches the same credential-shaped name segments as providers' validateEnv.
-var secretKeyRE = regexp.MustCompile(`(^|_)(KEY|TOKEN|SECRET|PASSWORD|HEADERS|AUTH|CREDENTIALS?|PAT|BEARER)(_|$)`)
-
 // quotedRE is one double-quoted string; codex -c TOML and opencode JSON carry static provider headers in them.
 var quotedRE = regexp.MustCompile(`"(?:[^"\\]|\\.)*"`)
 
@@ -586,6 +572,22 @@ func (p Plan) CheckOverlay(r agentconfig.Resolved) error {
 		}
 	}
 	return nil
+}
+
+// ApplyOverlay layers r under req's --env (the shorthand wins) and unsets $COWORKER_OVERLAY in the child (one hop).
+func (req RunOptions) ApplyOverlay(r agentconfig.Resolved) RunOptions {
+	if OverlayIdle(r) {
+		return req
+	}
+	env := make([]string, 0, len(r.Set)+len(req.Env))
+	for _, k := range slices.Sorted(maps.Keys(r.Set)) {
+		env = append(env, k+"="+r.Set[k])
+	}
+	req.Env = append(env, req.Env...)
+	req.KeepEnv = slices.Concat(req.KeepEnv, r.Keep)
+	req.Unset = slices.Concat(req.Unset, r.Unset, []string{agentconfig.OverlayVar})
+	req.OverlaySet = slices.Sorted(maps.Keys(r.Set))
+	return req
 }
 
 // WithOverlay layers r over an interactive plan the way ApplyOverlay does for a headless run; the launch's own Set wins.

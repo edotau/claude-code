@@ -290,24 +290,31 @@ func runMintContext(ctx context.Context, argv []string) (string, error) {
 	if err := ctxErr(ctx, "mint token"); err != nil {
 		return "", err
 	}
+	var buf bytes.Buffer
+	if err := runAttached(ctx, "mint token", argv, io.MultiWriter(os.Stdout, &buf)); err != nil {
+		return "", err
+	}
+	return SetupTokenRE.FindString(buf.String()), nil
+}
+
+// runAttached runs argv on the real terminal with stdout redirected, then refreshes model lists on success.
+func runAttached(ctx context.Context, verb string, argv []string, stdout io.Writer) error {
 	argv, err := cliArgv(argv)
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer proc.Preserve()()
-	var buf bytes.Buffer
 	cmd := attachedCommand(ctx, argv)
-	cmd.Stdin, cmd.Stderr = os.Stdin, os.Stderr
-	cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, stdout, os.Stderr
 	err = cmd.Run()
-	if cerr := ctxErr(ctx, "mint token"); cerr != nil {
-		return "", cerr
+	if cerr := ctxErr(ctx, verb); cerr != nil {
+		return cerr
 	}
 	if err != nil {
-		return "", err
+		return err
 	}
 	DiscoverAfterSignin()
-	return SetupTokenRE.FindString(buf.String()), nil
+	return nil
 }
 
 // DiscoverAfterSignin refreshes copilot's and opencode's model lists in the background after a successful sign-in.
@@ -348,21 +355,7 @@ func cliArgv(argv []string) ([]string, error) {
 }
 
 func runLoginContext(ctx context.Context, argv []string) error {
-	argv, err := cliArgv(argv)
-	if err != nil {
-		return err
-	}
-	defer proc.Preserve()()
-	cmd := attachedCommand(ctx, argv)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	err = cmd.Run()
-	if cerr := ctxErr(ctx, "login"); cerr != nil {
-		return cerr
-	}
-	if err == nil {
-		DiscoverAfterSignin()
-	}
-	return err
+	return runAttached(ctx, "login", argv, os.Stdout)
 }
 
 // ProbeValue live-checks a candidate value for p without storing it first, via the env-var seam

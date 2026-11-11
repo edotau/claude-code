@@ -362,7 +362,11 @@ func TestHubPrepareLaunchStoredRecord(t *testing.T) {
 			}
 			h := agent.Headless{Prompt: "hi", Tools: true}
 			wantEnv, wantArgv := opencodeRun("opencode/m", h)
-			launchEnv, launchedArgv := agent.SchemaFor("opencode").ApplyLaunch(wantArgv, false)
+			st, serr := agent.ResolveSettings("opencode", agent.RunOptions{}, providers.Target{}, true)
+			if serr != nil {
+				t.Fatal(serr)
+			}
+			launchEnv, launchedArgv, _, _, _ := agent.SchemaFor("opencode").Eng().RenderSettings(context.Background(), st, nil, wantArgv)
 			wantEnv, wantArgv = agent.RouteEnvLast(launchEnv, wantEnv), launchedArgv
 			if !slices.Equal(argv, wantArgv) || !slices.Equal(env[:len(wantEnv)], wantEnv) {
 				t.Errorf("argv/env drifted:\n got %q %q\nwant %q %q", argv, env[:len(wantEnv)], wantArgv, wantEnv)

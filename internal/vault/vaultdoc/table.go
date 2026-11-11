@@ -186,18 +186,12 @@ func clipValues(rows [][2]string, width int) [][2]string {
 
 // vaultProvidersText renders the providers overlay as a provider table (PLANS stays JSON-only) and one-line lists.
 func vaultProvidersText(raw json.RawMessage, width int) string {
+	reg, head, done := overlayRegistry("PROVIDERS", raw, width)
+	if done {
+		return head
+	}
 	var b strings.Builder
-	b.WriteString("PROVIDERS\n")
-	if isBlankJSON(raw) {
-		b.WriteString("  (none)\n")
-		return b.String()
-	}
-	var reg providers.Registry
-	if err := json.Unmarshal(raw, &reg); err != nil {
-		b.WriteString(table.Truncate("  error  "+err.Error(), width))
-		b.WriteByte('\n')
-		return b.String()
-	}
+	b.WriteString(head)
 	var top struct {
 		Providers map[string]json.RawMessage `json:"providers"`
 	}
@@ -330,31 +324,31 @@ func presetEnvs(names []string) string {
 // vaultRoutingText renders the providers overlay's nested routing object (weights, cells, subagents,
 // opencode's sub-pick knobs) as dotted-path rows, in the style of vaultProvidersText's own flatten.
 func vaultRoutingText(raw json.RawMessage, width int) string {
-	var b strings.Builder
-	b.WriteString("ROUTING\n")
-	if isBlankJSON(raw) {
-		b.WriteString("  (none)\n")
-		return b.String()
-	}
-	var reg providers.Registry
-	if err := json.Unmarshal(raw, &reg); err != nil {
-		b.WriteString(table.Truncate("  error  "+err.Error(), width))
-		b.WriteByte('\n')
-		return b.String()
+	reg, head, done := overlayRegistry("ROUTING", raw, width)
+	if done {
+		return head
 	}
 	rb, err := json.Marshal(reg.Routing)
 	if err != nil {
-		b.WriteString(table.Truncate("  error  "+err.Error(), width))
-		b.WriteByte('\n')
-		return b.String()
+		return head + table.Truncate("  error  "+err.Error(), width) + "\n"
 	}
 	rows := vaultFlattenSection(rb)
 	if len(rows) == 0 {
-		b.WriteString("  (none)\n")
-		return b.String()
+		return head + "  (none)\n"
 	}
-	b.WriteString(strings.TrimPrefix(vaultSection("", rows, width), "\n"))
-	return b.String()
+	return head + strings.TrimPrefix(vaultSection("", rows, width), "\n")
+}
+
+// overlayRegistry decodes a providers overlay under title; done means head is already the whole section.
+func overlayRegistry(title string, raw json.RawMessage, width int) (reg providers.Registry, head string, done bool) {
+	head = title + "\n"
+	if isBlankJSON(raw) {
+		return reg, head + "  (none)\n", true
+	}
+	if err := json.Unmarshal(raw, &reg); err != nil {
+		return reg, head + table.Truncate("  error  "+err.Error(), width) + "\n", true
+	}
+	return reg, head, false
 }
 
 // vaultRoutingJSON is `vault ls --format json`'s "routing" value: the providers overlay's nested

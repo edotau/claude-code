@@ -1,6 +1,7 @@
 package job
 
 import (
+	"bufio"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -357,4 +358,36 @@ func RunRecorded(ctx context.Context, rec *Record, agentName string, out wire.Si
 		o.Notify(fmt.Sprintf("dispatch %s record not saved, it stays at running: %v", rec.ID, serr))
 	}
 	return res, err
+}
+
+// ResultEnvelope is the result event's envelope, or one rebuilt from rec when no result event can be read.
+func (rec Record) ResultEnvelope(errw io.Writer) wire.Envelope {
+	if f, err := os.Open(rec.EventsPath()); err == nil {
+		defer f.Close()
+		var env *wire.Envelope
+		sc := bufio.NewScanner(f)
+		sc.Buffer(nil, 16<<20)
+		for sc.Scan() {
+			var ev wire.Event
+			if json.Unmarshal(sc.Bytes(), &ev) == nil && ev.Type == wire.EventResult && ev.Envelope != nil {
+				env = ev.Envelope
+			}
+		}
+		if err := sc.Err(); err != nil {
+			fmt.Fprintf(errw, "agents result: %s: events unreadable, envelope may be incomplete: %v\n", rec.ID, err)
+		}
+		if env != nil {
+			return *env
+		}
+	}
+	var runErr error
+	if rec.Status == "error" {
+		runErr = fmt.Errorf("%s", rec.Error)
+	}
+	res := wire.Result{Agent: rec.Agent, Provider: rec.Provider, Model: rec.Model, Invoked: rec.Invoked,
+		SessionID: rec.SessionID, DurationMs: rec.DurationMs, Fallback: rec.Fallback, FallbackReason: rec.FallbackReason}
+	if log, err := os.ReadFile(rec.LogPath()); err == nil {
+		res.Answer = string(log)
+	}
+	return wire.NewEnvelope(res, runErr, rec.ID)
 }

@@ -93,7 +93,7 @@ var envelopeKindTokens = map[retry.Kind]string{
 	retry.KindAuth: "auth", retry.KindRateLimit: "rate_limit", retry.KindTransient: "transient", retry.KindQuota: "quota",
 }
 
-// errorKind is the envelope token for err's class; an unclassified error is fatal.
+// ErrorKind is the envelope token for err's class; an unclassified error is fatal.
 func ErrorKind(err error) string {
 	if re, ok := errors.AsType[RemoteError](err); ok {
 		return re.Kind

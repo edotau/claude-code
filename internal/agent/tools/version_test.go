@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -219,7 +220,7 @@ func TestProbedVersionLineSharesCacheAndSurvivesConcurrentWrites(t *testing.T) {
 	var calls int
 	probe := func(p string) string {
 		calls++
-		return firstVersionLine(p)
+		return FirstVersionLine(context.Background(), p, versionProbeTimeout)
 	}
 	for range 2 {
 		if got := ProbedVersionLine(bin, probe); got != "fake 4.5.6" {

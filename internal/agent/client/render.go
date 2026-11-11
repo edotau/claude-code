@@ -143,9 +143,9 @@ type RosterRow struct {
 var rosterShown = []string{"model", "profile", "effort", "workdir", "session", "tools", "system-prompt",
 	"append-system-prompt", "env", "output-schema"}
 
-// PrintRoster prints RosterRows as the JSON array of rows, or one text line each.
+// PrintRoster prints rosterRows as the JSON array of rows, or one text line each.
 func PrintRoster(format string) int {
-	rows := RosterRows()
+	rows := rosterRows()
 	if format == helptext.JSON {
 		return helptext.WriteJSONOrFail("agents", rows)
 	}
@@ -155,8 +155,8 @@ func PrintRoster(format string) int {
 	return 0
 }
 
-// RosterRows describes every registered agent, probing each one's availability.
-func RosterRows() []RosterRow {
+// rosterRows describes every registered agent, probing each one's availability.
+func rosterRows() []RosterRow {
 	var rows []RosterRow
 	for _, r := range agent.Engines() {
 		row := RosterRow{Available: true}
@@ -165,7 +165,7 @@ func RosterRows() []RosterRow {
 		}
 		s, _ := agent.LookupSchema(r.Name())
 		row.Caps = map[string]string{}
-		for _, f := range CapFields(s.CLI.Caps) {
+		for _, f := range capFields(s.CLI.Caps) {
 			row.Caps[f.Name] = f.L.String()
 			if f.L != agent.None && slices.Contains(rosterShown, f.Name) {
 				row.shown = append(row.shown, f.Name+":"+f.L.String())
@@ -202,8 +202,8 @@ func (r RosterRow) Line() string {
 	return fmt.Sprintf("%s %-9s %s %s", mark, r.Name, strings.Join(r.shown, ","), r.Reason)
 }
 
-// CapFields lists an agent's capability levels in RunOptions-flag order, named as the flags are.
-func CapFields(c agent.Caps) []struct {
+// capFields lists an agent's capability levels in RunOptions-flag order, named as the flags are.
+func capFields(c agent.Caps) []struct {
 	Name string
 	L    agent.Level
 } {

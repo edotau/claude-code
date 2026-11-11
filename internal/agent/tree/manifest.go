@@ -21,7 +21,6 @@ type subagentMeta struct {
 	Description string `json:"description"`
 	SpawnDepth  int    `json:"spawnDepth"`
 	Finished    bool   `json:"finished"`
-	Model       string `json:"model"`
 }
 
 // readSubagentMeta reads the sidecar .meta.json beside transcriptPath; a missing or bad one yields a zero meta.
@@ -116,7 +115,12 @@ type journalLine struct {
 // readJournal reads a run's journal.jsonl into one entry per agentId; a missing or bad journal gives an empty map.
 func readJournal(runDir string) map[string]journalEntry {
 	out := map[string]journalEntry{}
-	eachLine(filepath.Join(runDir, "journal.jsonl"), func(raw []byte) {
+	f, err := os.Open(filepath.Join(runDir, "journal.jsonl"))
+	if err != nil {
+		return out
+	}
+	defer f.Close()
+	_ = transcript.EachLine(f, func(raw []byte) {
 		var line journalLine
 		if json.Unmarshal(raw, &line) != nil || line.AgentID == "" {
 			return

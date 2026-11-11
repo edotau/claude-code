@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -89,7 +88,7 @@ func cliLaunch(ctx context.Context, spec agent.Schema, name string, o agent.Laun
 		plan.Profile = o.Provider
 		return plan, err
 	}
-	env, prefix, err := spec.Configure(ctx, target, "")
+	env, prefix, err := spec.Configure(ctx, target)
 	if errors.Is(err, agent.ErrOwnLogin) {
 		// The agent's own login (opencode on Copilot) picks the model itself: plain launch, not a failure.
 		return ownLoginPlan(spec, withFlagModel(args, flagModel), note, showOwnLoginNote)
@@ -234,7 +233,7 @@ func retryConfigure(ctx context.Context, spec agent.Schema, name string, o agent
 	if note != "" {
 		fmt.Fprintln(agent.NoticeOut, note)
 	}
-	return spec.Configure(ctx, target, "")
+	return spec.Configure(ctx, target)
 }
 
 // authArgs reports an agent's own sign-in subcommand: codex/copilot login|logout, gemini/opencode auth.
@@ -284,34 +283,6 @@ func plainPlan(spec agent.Schema, args []string) (agent.Plan, error) {
 	return agent.Plan{Binary: bin, Set: envMap(env), Argv: append(prefix, args...)}, nil
 }
 
-// ApplyOverlay layers r under req's --env (the shorthand wins) and unsets $COWORKER_OVERLAY in the child (one hop).
-func ApplyOverlay(req agent.RunOptions, r agentconfig.Resolved) agent.RunOptions {
-	if agent.OverlayIdle(r) {
-		return req
-	}
-	env := make([]string, 0, len(r.Set)+len(req.Env))
-	for _, k := range slices.Sorted(maps.Keys(r.Set)) {
-		env = append(env, k+"="+r.Set[k])
-	}
-	req.Env = append(env, req.Env...)
-	req.KeepEnv = slices.Concat(req.KeepEnv, r.Keep)
-	req.Unset = slices.Concat(req.Unset, r.Unset, []string{agentconfig.OverlayVar})
-	req.OverlaySet = slices.Sorted(maps.Keys(r.Set))
-	return req
-}
-
-// EnableOverlay checks path and points this process and its --job relaunches at it (absolute).
-func EnableOverlay(path string) error {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return err
-	}
-	if _, err := agentconfig.LoadOverlay(abs); err != nil {
-		return err
-	}
-	return os.Setenv(agentconfig.OverlayVar, abs)
-}
-
 // envMap turns a KEY=VALUE env list into a map, dropping malformed entries.
 func envMap(env []string) map[string]string {
 	out := map[string]string{}
@@ -325,3 +296,15 @@ func envMap(env []string) map[string]string {
 
 // lookPath is the seam for resolving an agent binary.
 var lookPath = paths.AgentBin
+
+// EnableOverlay checks path and points this process and its --job relaunches at it (absolute).
+func EnableOverlay(path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	if _, err := agentconfig.LoadOverlay(abs); err != nil {
+		return err
+	}
+	return os.Setenv(agentconfig.OverlayVar, abs)
+}

@@ -15,7 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/agent/job"
-	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -27,6 +26,9 @@ import (
 
 // FormatStreamJSON is the --format value for the newline-delimited event stream.
 const FormatStreamJSON = "stream-json"
+
+// Formats is every allowed --format value.
+var Formats = []string{helptext.Text, helptext.JSON, FormatStreamJSON}
 
 // ValidateAs validates --as; it applies to claude only, other agents follow the profile's identity setting.
 func ValidateAs(as, ag string) error {
@@ -44,7 +46,7 @@ func ValidateAs(as, ag string) error {
 
 // ValidateAskFlags checks --format and --fallback against their allowed values.
 func ValidateAskFlags(format, fallback string) error {
-	if !slices.Contains([]string{helptext.Text, helptext.JSON, FormatStreamJSON}, format) {
+	if !slices.Contains(Formats, format) {
 		return fmt.Errorf("--format %q unknown (text|json|stream-json)", format)
 	}
 	if !slices.Contains(router.FallbackModes, fallback) {
@@ -154,38 +156,6 @@ func ResolveOutputSchema(arg string) (string, error) {
 		return "", fmt.Errorf("--output-schema: not a JSON object: %w", err)
 	}
 	return body, nil
-}
-
-// RecordEnvelope is the result event's envelope, or one rebuilt from rec when no result event can be read.
-func RecordEnvelope(rec job.Record, errw io.Writer) wire.Envelope {
-	if f, err := os.Open(rec.EventsPath()); err == nil {
-		defer f.Close()
-		var env *wire.Envelope
-		sc := bufio.NewScanner(f)
-		sc.Buffer(nil, 16<<20)
-		for sc.Scan() {
-			var ev wire.Event
-			if json.Unmarshal(sc.Bytes(), &ev) == nil && ev.Type == wire.EventResult && ev.Envelope != nil {
-				env = ev.Envelope
-			}
-		}
-		if err := sc.Err(); err != nil {
-			fmt.Fprintf(errw, "agents result: %s: events unreadable, envelope may be incomplete: %v\n", rec.ID, err)
-		}
-		if env != nil {
-			return *env
-		}
-	}
-	var runErr error
-	if rec.Status == "error" {
-		runErr = fmt.Errorf("%s", rec.Error)
-	}
-	res := wire.Result{Agent: rec.Agent, Provider: rec.Provider, Model: rec.Model, Invoked: rec.Invoked,
-		SessionID: rec.SessionID, DurationMs: rec.DurationMs, Fallback: rec.Fallback, FallbackReason: rec.FallbackReason}
-	if log, err := os.ReadFile(rec.LogPath()); err == nil {
-		res.Answer = string(log)
-	}
-	return wire.NewEnvelope(res, runErr, rec.ID)
 }
 
 // AskTarget bundles the ask flag pointers that a logged dispatch's request overwrites on --job/--retry.

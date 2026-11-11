@@ -44,7 +44,18 @@ const (
 // alphabetical groups list their verbs A→Z; AGENTS keeps declaration order.
 var alphabetical = map[string]bool{groupAuth: true, groupSession: true, groupDiagnostics: true, groupSettings: true}
 
+var (
+	commandsInit  sync.Once
+	commandsCache []command
+)
+
+// commands returns the fixed verb table, built once per process; callers must not mutate it.
 func commands() []command {
+	commandsInit.Do(func() { commandsCache = buildCommands() })
+	return commandsCache
+}
+
+func buildCommands() []command {
 	return append([]command{
 		// AGENTS — launch an agent CLI; `ask` runs one task headlessly.
 		{name: "anthropic", group: groupAgents, summary: "Claude Code: --model opus|sonnet|haiku|fable; science", run: cmdAnthropic, spec: anthropicSpec},

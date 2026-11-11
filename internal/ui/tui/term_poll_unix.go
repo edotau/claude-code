@@ -24,9 +24,9 @@ func waitReadable(fd int, d time.Duration) bool {
 		return true
 	}
 	deadline := time.Now().Add(d)
+	nbits := fdSetSize / len(syscall.FdSet{}.Bits)
 	for {
 		var set syscall.FdSet
-		nbits := fdSetSize / len(set.Bits)
 		set.Bits[fd/nbits] |= 1 << uint(fd%nbits)
 		tv := syscall.NsecToTimeval(max(int64(time.Until(deadline)), 0)) // EINTR retries wait only the remainder
 		err := sysSelect(fd+1, &set, &tv)

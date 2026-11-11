@@ -89,9 +89,14 @@ func runInstallScript(ctx context.Context, w io.Writer, dryRun bool, url string,
 	if err := f.Close(); err != nil {
 		return err
 	}
+	return runLogged(ctx, w, env, "bash", append([]string{f.Name()}, args...)...)
+}
+
+// runLogged runs name under installCmdTimeout with a credential-free agent env plus env, streaming output to w.
+func runLogged(ctx context.Context, w io.Writer, env []string, name string, args ...string) error {
 	ctx, cancel := context.WithTimeout(ctx, installCmdTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "bash", append([]string{f.Name()}, args...)...)
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent, Set: env}.Environ(agent.ProbeContext(ctx, "")) // no credential or login
 	cmd.Stdout, cmd.Stderr = w, w
 	return cmd.Run()
@@ -208,12 +213,7 @@ func runSelfUpdate(ctx context.Context, w io.Writer, bin string, dryRun bool) er
 	if dryRun {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, installCmdTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "update")
-	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(agent.ProbeContext(ctx, "")) // no credential or login
-	cmd.Stdout, cmd.Stderr = w, w
-	return cmd.Run()
+	return runLogged(ctx, w, nil, bin, "update")
 }
 
 // installAgy runs Google's installer into ~/.local/bin, where Link finds agy for bin/gemini; dir/agy would go unlinked.
@@ -432,12 +432,7 @@ func installTailscaleCask(ctx context.Context, w io.Writer, dryRun bool) error {
 	if err != nil {
 		return errors.New("tailscale: brew not found; install Homebrew or see https://tailscale.com/download")
 	}
-	ctx, cancel := context.WithTimeout(ctx, installCmdTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, brew, "install", "--cask", "tailscale-app")
-	cmd.Stdout, cmd.Stderr = w, w
-	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(ctx) // brew and its cask hooks get no provider credential
-	return cmd.Run()
+	return runLogged(ctx, w, nil, brew, "install", "--cask", "tailscale-app")
 }
 
 // linkTailscaleCLI writes ~/.local/bin/tailscale exec'ing the app's CLI (Tailscale's documented alias, no admin).

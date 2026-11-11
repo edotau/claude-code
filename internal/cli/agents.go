@@ -23,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -312,22 +313,11 @@ func cmdAgentsLabel(args []string) int {
 	return 0
 }
 
-// partFlag collects repeatable --part entries.
-type partFlag []string
-
-func (p *partFlag) String() string { return strings.Join(*p, ",") }
-
-// Placeholder names the FLAGS placeholder for partFlag (helptext.Placeholder).
-func (p *partFlag) Placeholder() string { return "QUESTION" }
-
-// Set appends one sub-question.
-func (p *partFlag) Set(s string) error { *p = append(*p, s); return nil }
-
 // cmdAgentsDispatch is `agents dispatch <role> <task>`.
 func cmdAgentsDispatch(args []string) int {
 	fs := agentsFlags("dispatch")
-	var parts partFlag
-	fs.Var(&parts, "part", "explore: one sub-question per leg (repeatable, max 12)")
+	var parts []string
+	helptext.ListVar(fs, &parts, "part", "QUESTION", "explore: one sub-question per leg (repeatable, max 12)", false)
 	noWeb := fs.Bool("no-web", false, "explore: code scan only, skip web research")
 	models := fs.String("models", "", "compare: model ids, comma-separated (default: the role's set)")
 	jobs := fs.Int("jobs", roles.MaxParts, "legs running at once (max 12)")
@@ -350,7 +340,7 @@ func cmdAgentsDispatch(args []string) int {
 	if err != nil {
 		return helptext.Fail("agents dispatch: %v", err)
 	}
-	q := roles.Request{Task: strings.Join(pos[1:], " "), WorkDir: cwd, Parts: parts, Models: roles.SplitModels(*models),
+	q := roles.Request{Task: strings.Join(pos[1:], " "), WorkDir: cwd, Parts: parts, Models: textutil.SplitCSV(*models),
 		Web: !*noWeb, Timeout: *timeout}
 	return ask.Dispatch(q, ask.DispatchOptions{Role: pos[0], Schema: *outputSchema, Format: *format, Jobs: *jobs, Background: *background})
 }
@@ -397,7 +387,7 @@ func cmdAgentsSend(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if len(pos) < 2 || !slices.Contains([]string{helptext.Text, helptext.JSON, client.FormatStreamJSON}, *format) {
+	if len(pos) < 2 || !slices.Contains(client.Formats, *format) {
 		fs.Usage()
 		return 2
 	}

@@ -455,9 +455,33 @@ func sameFile(self, target string) bool {
 	if si, err := os.Stat(self); err != nil || si.Size() != fi.Size() {
 		return false
 	}
-	a, err1 := os.ReadFile(self)
-	b, err2 := os.ReadFile(target)
-	return err1 == nil && err2 == nil && bytes.Equal(a, b)
+	return sameBytes(self, target)
+}
+
+// sameBytes streams both files in chunks and is true only when every byte matches and both read cleanly.
+func sameBytes(a, b string) bool {
+	fa, err := os.Open(a)
+	if err != nil {
+		return false
+	}
+	defer fa.Close()
+	fb, err := os.Open(b)
+	if err != nil {
+		return false
+	}
+	defer fb.Close()
+	ba, bb := make([]byte, 64<<10), make([]byte, 64<<10)
+	for {
+		na, ea := io.ReadFull(fa, ba)
+		nb, eb := io.ReadFull(fb, bb)
+		if na != nb || !bytes.Equal(ba[:na], bb[:nb]) {
+			return false
+		}
+		if ea != nil || eb != nil {
+			ok := func(e error) bool { return errors.Is(e, io.EOF) || errors.Is(e, io.ErrUnexpectedEOF) }
+			return ok(ea) && ok(eb)
+		}
+	}
 }
 
 func copyBinary(src, dst string) error {

@@ -287,7 +287,7 @@ func TestStreamFullBufferDropsStillEndsInOneResult(t *testing.T) {
 	}
 }
 
-// Given a consumer stalled past streamStall, Then the run's ctx is cancelled with ErrStreamAbandoned.
+// Given a consumer stalled past streamStall, Then the run's ctx is cancelled with errStreamAbandoned.
 func TestStreamStalledConsumerCancelsRun(t *testing.T) {
 	orig := streamStall
 	streamStall = 20 * time.Millisecond
@@ -307,8 +307,8 @@ func TestStreamStalledConsumerCancelsRun(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("ctx not cancelled by a stalled consumer")
 	}
-	if !errors.Is(context.Cause(ctx), ErrStreamAbandoned) {
-		t.Errorf("cause = %v, want ErrStreamAbandoned", context.Cause(ctx))
+	if !errors.Is(context.Cause(ctx), errStreamAbandoned) {
+		t.Errorf("cause = %v, want errStreamAbandoned", context.Cause(ctx))
 	}
 	drainEvents(ch)
 }
@@ -393,9 +393,127 @@ func TestPrepareRefusesPackWithHost(t *testing.T) {
 	}
 }
 
-func TestMemoryRunOptionsNeverFallBack(t *testing.T) {
-	o := memoryRunOptions("p", "/w")
-	if o.Fallback != router.FallbackNone || o.Agent != "claude" || !o.Tools || o.WorkDir != "/w" {
-		t.Fatalf("memoryRunOptions = %+v, want claude with tools and FallbackNone", o)
+func gitRepoWith(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	names := []string{}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, name)
 	}
+	for _, args := range [][]string{{"init", "-q"}, append([]string{"add"}, names...)} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	return dir
+}
+
+// Given a lead with a 1M window and a stub on a 200K model, an n between their budgets drops only the stub.
+func TestFitChainSkipsSmallWindows(t *testing.T) {
+	lead := agent.Dispatch{Agent: stubEngine("claude"), Model: "claude-sonnet-5-5[1m]"}
+	small := agent.Dispatch{Agent: stubEngine("stub"), Model: "mystery-model"}
+	chain := agent.Chain{Dispatches: []agent.Dispatch{lead, small}}
+	lb, _ := packBudget(lead, agent.RunOptions{}, false)
+	sb, _ := packBudget(small, agent.RunOptions{}, false)
+	if sb >= lb {
+		t.Fatalf("fixture: small budget %d must be under lead %d", sb, lb)
+	}
+	got := fitChain(chain, (lb+sb)/2, agent.RunOptions{})
+	if len(got.Dispatches) != 1 || len(got.Skipped) != 1 || !strings.Contains(got.Skipped[0], "stub") {
+		t.Fatalf("chain = %+v, want only the lead and a skip naming stub", got)
+	}
+	if kept := fitChain(chain, sb-1, agent.RunOptions{}); len(kept.Dispatches) != 2 {
+		t.Errorf("a prompt under both budgets must keep both, got %+v", kept)
+	}
+}
+
+func TestPackBudgetArgvCap(t *testing.T) {
+	d := agent.Dispatch{Agent: stubEngine("opencode"), Model: "claude-sonnet-5-5[1m]"}
+	if got, note := packBudget(d, agent.RunOptions{}, false); got != agent.MaxPromptBytes || !strings.Contains(note, "argv prompt cap") {
+		t.Errorf("budget = %d (%q), want MaxPromptBytes with a cap note", got, note)
+	}
+}
+
+// A PackFile lead keeps the prompt to the instruction, turns tools on, and its file never re-enters a Collect.
+func TestPackPromptFileTransport(t *testing.T) {
+	setupWorkdirFixture(t)
+	body := strings.Repeat("x", 300<<10)
+	dir := gitRepoWith(t, map[string]string{"big.txt": body, ".env": "TOKEN=hunter2"})
+	lead := agent.Dispatch{Agent: stubEngine("gemini"), Model: "claude-sonnet-5-5[1m]"}
+	p := &Prepared{Opts: agent.RunOptions{Prompt: "find it", WorkDir: dir, Pack: &pack.Spec{Dirs: []string{"."}, MaxFileBytes: 400 << 10}},
+		Chain: agent.Chain{Dispatches: []agent.Dispatch{lead}}}
+	p.Record.ID = "id1"
+	if err := NewClient(nil, nil, nil).packPrompt(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Opts.Prompt) > 1024 || !strings.Contains(p.Opts.Prompt, p.pack.path) || !p.Opts.Tools || !p.Record.Request.Tools {
+		t.Fatalf("prompt = %q tools=%v, want a short instruction naming %s with tools on", p.Opts.Prompt, p.Opts.Tools, p.pack.path)
+	}
+	if len(p.pack.body) < 300<<10 || strings.Contains(p.pack.body, "hunter2") {
+		t.Fatalf("pack body = %d bytes, want the 300 KB file and no .env", len(p.pack.body))
+	}
+	if err := p.pack.write(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := pack.Collect(context.Background(), dir, []string{"."}, nil, 100, 0, 1<<30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range got.Included {
+		if strings.HasPrefix(f.Path, ".claude-code-pack-") {
+			t.Errorf("Collect picked up the pack file %s", f.Path)
+		}
+	}
+	p.pack.remove()
+	if _, err := os.Stat(p.pack.path); !os.IsNotExist(err) {
+		t.Errorf("pack file still present after remove: %v", err)
+	}
+}
+
+// Given a gemini lead (pack read from a file with tools), --read-only keeps the run: agy enforces it with deny rules.
+func TestPackPromptKeepsReadOnlyOnFileRoute(t *testing.T) {
+	dir := gitRepoWith(t, map[string]string{"a.go": "package a"})
+	o := agent.RunOptions{Prompt: "p", WorkDir: dir, ReadOnly: true, Pack: &pack.Spec{Dirs: []string{"."}}}
+	p := &Prepared{Opts: o, Chain: agent.Chain{Dispatches: []agent.Dispatch{{Agent: stubEngine("gemini")}}}}
+	if err := NewClient(router.RuleClassifier{}.Alias, nil, nil).packPrompt(context.Background(), p); err != nil {
+		t.Fatalf("packPrompt() = %v, want the read-only file route accepted", err)
+	}
+	defer p.pack.remove()
+	if !p.Opts.Tools || !p.Opts.ReadOnly {
+		t.Fatalf("opts tools=%v read-only=%v, want both on", p.Opts.Tools, p.Opts.ReadOnly)
+	}
+}
+
+// Given a relative --workdir, the file-route pack path in the prompt is absolute (the child starts inside the workdir).
+func TestPackPromptFilePathAbsoluteForRelativeWorkdir(t *testing.T) {
+	dir := gitRepoWith(t, map[string]string{"a.go": "package a"})
+	t.Chdir(dir)
+	if err := os.Mkdir("sub", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := &Prepared{Opts: agent.RunOptions{Prompt: "p", WorkDir: "sub", Pack: &pack.Spec{Dirs: []string{"."}}},
+		Chain: agent.Chain{Dispatches: []agent.Dispatch{{Agent: stubEngine("gemini")}}}}
+	p.Record.ID = "id1"
+	if err := NewClient(nil, nil, nil).packPrompt(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	abs, _ := filepath.Abs("sub")
+	if want := filepath.Join(abs, pack.FilePrefix+"id1.md"); p.pack.path != want || !strings.Contains(p.Opts.Prompt, want) {
+		t.Fatalf("pack path = %q, prompt = %q, want absolute %q", p.pack.path, p.Opts.Prompt, want)
+	}
+}
+
+// stubEngine is an agent.Engine that only has a name; the pack tests never run it.
+type stubEngine string
+
+func (s stubEngine) Name() string     { return string(s) }
+func (s stubEngine) Caps() agent.Caps { return agent.Caps{} }
+func (s stubEngine) Available() error { return nil }
+func (s stubEngine) Run(context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
+	return wire.Result{}, nil
 }

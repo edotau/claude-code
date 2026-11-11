@@ -166,7 +166,7 @@ func fetchRobots(ctx context.Context, origin string) (string, bool) {
 	ctx, cancel := context.WithTimeout(ctx, enrichTimeout)
 	defer cancel()
 	status, raw, _, err := httpx.Do(ctx, httpx.Call{Client: pageClient, URL: origin + "/robots.txt", Limit: 512 << 10,
-		Header: http.Header{"User-Agent": {"claude-code-websearch/" + serverVersion}}})
+		Header: http.Header{"User-Agent": {userAgent}}})
 	if status == 0 {
 		return "", false
 	}

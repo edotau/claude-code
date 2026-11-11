@@ -54,7 +54,7 @@ func logFrom(ctx context.Context) *LogSink {
 	return nil
 }
 
-// stderrLogFrom is the sink for child-stderr tees and event lines, job carriers included.
+// StderrLogFrom is the sink for child-stderr tees and event lines, job carriers included.
 func StderrLogFrom(ctx context.Context) *LogSink {
 	c, _ := ctx.Value(logSinkKey{}).(logCarrier)
 	return c.sink
@@ -98,7 +98,7 @@ func PickLog(ls []StreamLog) StreamLog {
 	return nil
 }
 
-// logEvent writes `▸ kind: text` (one redacted, capped line) to ctx's log; a no-op without a sink.
+// LogEvent writes `▸ kind: text` (one redacted, capped line) to ctx's log; a no-op without a sink.
 func LogEvent(ctx context.Context, kind, text string) {
 	if s := StderrLogFrom(ctx); s != nil {
 		s.writeEvent(kind, text)

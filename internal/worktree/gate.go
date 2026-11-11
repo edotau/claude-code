@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -448,7 +449,7 @@ func runVerify(ctx context.Context, workDir, cmdStr string, stdout, stderr io.Wr
 	cmd.Dir, cmd.Env = workDir, gateEnv()
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	killGroupOnCancel(cmd)
+	proc.OwnGroup(cmd)
 	cmd.WaitDelay = 5 * time.Second // orphans holding the output pipes must not block Wait after cancel
 	return cmd.Run()
 }

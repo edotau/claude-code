@@ -40,8 +40,8 @@ var newIdleTimer = func(d time.Duration, f func()) idleTimer { return time.After
 // remoteEngine runs the named agent through `claude-code agents ask` on another host over ssh; the remote applies the caps.
 type remoteEngine struct{ agent, host, bin, fallback string }
 
-// NewRemoteEngine wraps agentName for host; bin is the remote claude-code path (see remote.Bin), fallback the remote's policy.
-func NewRemoteEngine(agentName, host, bin, fallback string) agent.Engine {
+// newRemoteEngine wraps agentName for host; bin is the remote claude-code path (see remote.Bin), fallback the remote's policy.
+func newRemoteEngine(agentName, host, bin, fallback string) agent.Engine {
 	return remoteEngine{agentName, host, bin, fallback}
 }
 
@@ -150,8 +150,8 @@ func validateRemoteScript(bin, agentName string, req agent.RunOptions) error {
 	return nil
 }
 
-// RemoteArgv is the full local ssh argv for one remote ask.
-func RemoteArgv(host, bin, agentName, fallback string, req agent.RunOptions) ([]string, error) {
+// remoteArgv is the full local ssh argv for one remote ask.
+func remoteArgv(host, bin, agentName, fallback string, req agent.RunOptions) ([]string, error) {
 	script, err := remoteScript(bin, agentName, fallback, req)
 	if err != nil {
 		return nil, err
@@ -194,7 +194,7 @@ func resultFromEnvelope(env wire.Envelope, agentName string, dropped []string) w
 
 // Run streams the remote ask: events are re-emitted on sink, the remote result event becomes the Result.
 func (r remoteEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
-	argv, err := RemoteArgv(r.host, r.bin, r.agent, r.fallback, req)
+	argv, err := remoteArgv(r.host, r.bin, r.agent, r.fallback, req)
 	if err != nil {
 		return wire.Result{Agent: r.agent, Status: wire.StatusError}, retry.Fatal(r.agent, err)
 	}

@@ -316,7 +316,8 @@ func mirrorsOf(path string) []string {
 	sample := paths.BackupPath(path, time.Now())
 	prefix := sample[:strings.LastIndex(sample, ".bak-")+len(".bak-")]
 	matches, _ := filepath.Glob(prefix + "*")
-	sort.Sort(sort.Reverse(sort.StringSlice(matches)))
+	slices.Sort(matches)
+	slices.Reverse(matches)
 	return matches
 }
 

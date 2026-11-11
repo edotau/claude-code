@@ -90,21 +90,9 @@ func changedOrListed(ctx context.Context, s Spec, cwd string) ([]string, error) 
 		return nil, errors.New("--diff: nothing changed vs HEAD")
 	}
 	for _, p := range changed {
-		files = append(files, escapeGlob(p)) // literal paths: a `page[1].go` must match only itself
+		files = append(files, globEscape(p)) // literal paths: a `page[1].go` must match only itself
 	}
 	return files, nil
-}
-
-// escapeGlob backslash-escapes glob metacharacters so p matches only the file it names.
-func escapeGlob(p string) string {
-	var b strings.Builder
-	for _, r := range p {
-		if strings.ContainsRune(`*?[\`, r) {
-			b.WriteByte('\\')
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
 }
 
 // ChangedFiles lists tracked files changed against HEAD (staged + unstaged + untracked), which is

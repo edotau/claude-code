@@ -121,13 +121,12 @@ func (e Env) cdpOwner() string {
 func probeCDP() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	c := http.Client{Timeout: 2 * time.Second}
 	versionURL := "http://localhost:" + strconv.Itoa(cdpPort) + "/json/version"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, versionURL, nil)
 	if err != nil {
 		return ""
 	}
-	resp, err := c.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return ""
 	}

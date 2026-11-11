@@ -67,14 +67,3 @@ func vaultRoles() ([]Role, error) {
 	}
 	return out, nil
 }
-
-// SplitModels returns the non-empty, trimmed entries of a comma-separated --models value.
-func SplitModels(s string) []string {
-	var out []string
-	for m := range strings.SplitSeq(s, ",") {
-		if m = strings.TrimSpace(m); m != "" {
-			out = append(out, m)
-		}
-	}
-	return out
-}
