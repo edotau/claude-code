@@ -671,7 +671,10 @@ func pinCopilotProfile(d *dialog, user string) bool {
 
 // opencodeMenu is the home row's state only; its page is runOpencodePage (opencode_page.go).
 func opencodeMenu(d *dialog) agentMenu {
-	if opencode.OpencodeOwnLoginPresent() || opencode.OpencodeCopilotLoginPresent() {
+	if opencode.OpencodeOwnLoginPresent() { // Raw matches the agentPlans entry naming the Go plan
+		return agentMenu{state: agentState{modeSubscription, providers.Subscription{Raw: "opencode-go"}, true}}
+	}
+	if opencode.OpencodeCopilotLoginPresent() {
 		return agentMenu{state: agentState{modeSubscription, providers.Subscription{}, true}}
 	}
 	return agentMenu{state: agentState{mode: modeNone}}
