@@ -1,7 +1,6 @@
 package serving
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -351,7 +350,10 @@ const (
 
 // CacheTTL is the snapshot life; an unset or invalid HARNESS_MODEL_CACHE_TTL gives the default (invalid warns).
 func CacheTTL() time.Duration {
-	raw := strings.TrimSpace(cmp.Or(os.Getenv(cacheTTLEnv), providers.CustomEnv()[cacheTTLEnv]))
+	raw := strings.TrimSpace(os.Getenv(cacheTTLEnv))
+	if raw == "" {
+		raw = strings.TrimSpace(providers.CustomEnv()[cacheTTLEnv])
+	}
 	if raw == "" {
 		return snapshotTTL
 	}

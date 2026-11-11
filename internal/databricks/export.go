@@ -189,7 +189,7 @@ func presetRows(reg *providers.Registry) (rows []exportRow, skipped []string) {
 	return rows, skipped
 }
 
-// markM2MPairs flags each m2m row that shares a host with an oauth row as paired.
+// markM2MPairs records a no-pairing decision for each m2m row that shares a host with an oauth row.
 func markM2MPairs(rows []exportRow) {
 	for i, r := range rows {
 		if r.Auth != providers.AuthM2M {
@@ -355,10 +355,7 @@ func splitBlocks(text string) []block {
 // section of the same name is replaced only with force, and an auth_type = databricks-cli one never is.
 func mergeExport(existing string, rows []exportRow, force bool) (string, []string) {
 	have := map[string]*section{}
-	secs, _, err := parseSections(existing)
-	if err != nil {
-		return existing, []string{"keep everything: the existing file does not parse: " + err.Error()}
-	}
+	secs, _, _ := parseSections(existing) // mergeInto has already refused a file that does not parse
 	for _, s := range secs {
 		have[s.name] = s
 	}

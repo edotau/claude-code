@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
@@ -31,22 +30,16 @@ type Query struct {
 	Mode    Mode
 }
 
-// Model is one model in the shape every agent returns.
+// Model is one usable model.
 type Model struct {
-	ID        string `json:"id"`
-	Label     string `json:"label,omitempty"`
-	Dialect   string `json:"dialect,omitempty"`
-	Responses bool   `json:"responses"`
+	ID string `json:"id"`
 }
 
 // Result is one discovery read; Provider, Raw and Snapshot serve callers that probe or seal.
 type Result struct {
-	Agent     string    `json:"agent"`
-	Profile   string    `json:"profile,omitempty"`
-	Source    string    `json:"source"`
-	Models    []Model   `json:"models"`
-	FetchedAt time.Time `json:"fetched_at,omitzero"`
-	CacheHit  bool      `json:"cache_hit"`
+	Agent   string  `json:"agent"`
+	Profile string  `json:"profile,omitempty"`
+	Models  []Model `json:"models"`
 
 	Provider *providers.Provider   `json:"-"` // the resolved profile
 	Raw      []providers.ModelInfo `json:"-"` // every row the source listed, before the agent filter
@@ -81,31 +74,29 @@ func profileErr(q Query, err error) error {
 // serve is the shared serving read: Recall is catalog.Served, Verified and Refresh are serving.Discover.
 func serve(ctx context.Context, res Result, mode Mode, dialects []string) (Result, error) {
 	p := res.Provider
-	res.Source, _ = providers.DiscoverySource(p)
 	if mode != Recall {
 		snap, err := serving.Discover(ctx, p, mode == Refresh)
 		if err != nil {
 			return res, err
 		}
-		res.Snapshot, res.Raw, res.FetchedAt, res.CacheHit = &snap, snap.Models, snap.DiscoveredAt, snap.CacheHit
-		res.Models = shape(p, catalog.UsableIn(p, snap.Models, dialects))
+		res.Snapshot, res.Raw = &snap, snap.Models
+		res.Models = shape(catalog.UsableIn(p, snap.Models, dialects))
 		return res, nil
 	}
-	infos, discoveredAt, hit, err := catalog.Served(p)
+	infos, _, _, err := catalog.Served(p)
 	if err != nil {
 		return res, err
 	}
-	res.Raw, res.FetchedAt, res.CacheHit = infos, discoveredAt, hit
-	res.Models = shape(p, catalog.UsableIn(p, infos, dialects))
+	res.Raw = infos
+	res.Models = shape(catalog.UsableIn(p, infos, dialects))
 	return res, nil
 }
 
-// shape renders infos in the common shape; Dialect is the wire p serves each id on.
-func shape(p *providers.Provider, infos []providers.ModelInfo) []Model {
+// shape keeps the ids of infos.
+func shape(infos []providers.ModelInfo) []Model {
 	var out []Model
 	for _, m := range infos {
-		wire, _, _ := providers.WireFor(p, m.ID)
-		out = append(out, Model{ID: m.ID, Label: m.Name, Dialect: wire, Responses: providers.ResponsesID(catalog.ID(m.ID))})
+		out = append(out, Model{ID: m.ID})
 	}
 	return out
 }
