@@ -106,3 +106,35 @@ func TestDefaultControlDirShortAndPrivate(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+// TestLoginForward: only a browser `databricks login` is pinned to an exact port, browser off, and forwarded.
+func TestLoginForward(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+		port int
+	}{
+		{"databricks login", "databricks login --port 8031 --no-browser", 8031},
+		{"databricks login --force --port=8020", "databricks login --force --port=8020 --no-browser", 8020},
+		{"databricks login --no-browser --port 9000 --paste", "databricks login --no-browser --port 9000 --paste", 9000},
+		{"databricks login --as sp", "databricks login --as sp", 0},
+		{"databricks login --dry-run", "databricks login --dry-run", 0},
+		{"databricks login --port nope", "databricks login --port nope", 0},
+		{"databricks status", "databricks status", 0},
+		{"vault ls", "vault ls", 0},
+	}
+	orig := freeLocalPort
+	freeLocalPort = func(first, _ int) int { return first + 1 } // 8030 busy here: only a login with no --port moves
+	t.Cleanup(func() { freeLocalPort = orig })
+	for _, c := range cases {
+		got, port := loginForward(strings.Fields(c.in))
+		if strings.Join(got, " ") != c.want || port != c.port {
+			t.Errorf("loginForward(%q) = %q, %d; want %q, %d", c.in, got, port, c.want, c.port)
+		}
+	}
+	argv := withForward([]string{"ssh", "-o", "ControlMaster=auto", "--", "wks", "x"}, 8030)
+	i, m := slices.Index(argv, "-L"), slices.Index(argv, "ControlMaster=no")
+	if i < 0 || argv[i+1] != "8030:localhost:8030" || m < 0 || m > slices.Index(argv, "ControlMaster=auto") {
+		t.Errorf("forward must precede the reuse options and \"--\": %q", argv)
+	}
+}

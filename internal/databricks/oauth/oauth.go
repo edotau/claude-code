@@ -303,8 +303,8 @@ func MintM2M(ctx context.Context, host, clientID, clientSecret string) (Token, e
 
 const (
 	authorizePath = "/oidc/v1/authorize"
-	defaultPort   = 8030
-	portSpan      = 20
+	DefaultPort   = 8030 // first callback port tried; a --host login forwards it
+	PortSpan      = 20   // ports tried above DefaultPort when it is busy
 	loginTimeout  = 5 * time.Minute
 	failedPage    = "Login failed. You can close this tab."
 )
@@ -340,8 +340,8 @@ func (l *loopback) Close() error {
 
 func (l *loopback) Addr() net.Addr { return l.ls[0].Addr() }
 
-// listenLoopback binds 127.0.0.1 (and ::1 when the host has it) on the first free port from first to first+portSpan.
-func listenLoopback(first int) (*loopback, int, error) { return listenPorts(first, first+portSpan) }
+// listenLoopback binds 127.0.0.1 (and ::1 when the host has it) on the first free port from first to first+PortSpan.
+func listenLoopback(first int) (*loopback, int, error) { return listenPorts(first, first+PortSpan) }
 
 // listenPorts is listenLoopback over first..last; first == last is an exact port, and busy is an error naming it.
 func listenPorts(first, last int) (*loopback, int, error) {
@@ -518,7 +518,7 @@ func LoginU2M(ctx context.Context, host string, opts LoginOptions) (Token, error
 	if err := errors.Join(err1, err2); err != nil {
 		return Token{}, fmt.Errorf("oauth: login at %s: %w", h, err)
 	}
-	last := opts.Port + portSpan
+	last := opts.Port + PortSpan
 	if opts.ExactPort {
 		last = opts.Port
 	}
@@ -556,7 +556,7 @@ func LoginU2M(ctx context.Context, host string, opts LoginOptions) (Token, error
 // withDefaults fills the zero port, timeout and output of opts.
 func (opts LoginOptions) withDefaults() LoginOptions {
 	if opts.Port == 0 {
-		opts.Port = defaultPort
+		opts.Port = DefaultPort
 	}
 	if opts.Timeout == 0 {
 		opts.Timeout = loginTimeout

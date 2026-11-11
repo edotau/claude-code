@@ -7,11 +7,15 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -105,15 +109,20 @@ var (
 	stdinTTY   = func() bool { return proc.IsTerminal(os.Stdin) }
 )
 
-// Run is `claude-code --host <host> <verb …>`: the verb runs on host over ssh; a browser login opens on that host.
+// Run is `claude-code --host <host> <verb …>`: the verb runs on host over ssh; a login's callback port is forwarded.
 func Run(args []string) int {
 	host, rest, err := splitHost(args)
 	if err != nil {
 		return helptext.FailUsage("%v", err)
 	}
+	rest, port := loginForward(rest)
 	argv, err := hostArgv(host, rest, stdinTTY())
 	if err != nil {
 		return helptext.FailUsage("--host: %v", err)
+	}
+	if port > 0 {
+		argv = withForward(argv, port)
+		fmt.Fprintf(os.Stderr, "forwarding localhost:%d to %s for the sign-in callback; open the URL below on this machine\n", port, host)
 	}
 	cmd := exec.CommandContext(context.Background(), "ssh", argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
@@ -155,4 +164,70 @@ func hostArgv(host string, args []string, tty bool) ([]string, error) {
 	}
 	script := PathPrefix + " exec " + textutil.QuotePath(HomePath(Bin(""))) + " " + strings.Join(quoted, " ")
 	return sshArgv(host, tty, false, script)
+}
+
+// flagValues maps each flag in args to its =value or the next argument; presence is all a bool flag needs.
+func flagValues(args []string) map[string]string {
+	flags := map[string]string{}
+	for i, a := range args {
+		if !strings.HasPrefix(a, "-") {
+			continue
+		}
+		k, v, ok := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if !ok && i+1 < len(args) {
+			v = args[i+1]
+		}
+		flags[k] = v
+	}
+	return flags
+}
+
+// freeLocalPort is the first port from first to last free on this machine's loopback, else first; tests swap it.
+var freeLocalPort = func(first, last int) int {
+	for p := first; p <= last; p++ {
+		l, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(p)))
+		if err == nil {
+			_ = l.Close()
+			return p
+		}
+	}
+	return first
+}
+
+// loginForward pins a remote `databricks login` to an exact --port with --no-browser; port 0 means no forward.
+func loginForward(args []string) ([]string, int) {
+	if len(args) < 2 || args[0] != "databricks" || args[1] != "login" {
+		return args, 0
+	}
+	flags := flagValues(args[2:])
+	for _, k := range []string{"dry-run", "h", "help"} {
+		if _, ok := flags[k]; ok {
+			return args, 0
+		}
+	}
+	if flags["as"] == "sp" {
+		return args, 0
+	}
+	port, out := oauth.DefaultPort, slices.Clone(args)
+	if v, ok := flags["port"]; ok {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 65535 {
+			return args, 0 // the remote verb reports the bad port
+		}
+		port = n
+	} else {
+		port = freeLocalPort(port, port+oauth.PortSpan)
+		out = append(out, "--port", strconv.Itoa(port))
+	}
+	if _, ok := flags["no-browser"]; !ok {
+		out = append(out, "--no-browser")
+	}
+	return out, port
+}
+
+// withForward adds a local forward of port on a connection of its own: ssh keeps the first value of each option.
+func withForward(argv []string, port int) []string {
+	p := strconv.Itoa(port)
+	return slices.Insert(slices.Clone(argv), 1, "-o", "ControlMaster=no", "-o", "ControlPath=none",
+		"-o", "ExitOnForwardFailure=yes", "-L", p+":localhost:"+p)
 }
