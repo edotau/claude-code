@@ -398,7 +398,7 @@ func TestPickCopilotModelFallsBackToOpencodeOnSDKError(t *testing.T) {
 	}
 }
 
-// kimiChoiceNumber is the number of the picker's databricks-kimi-k3 row, which must carry the tested marker.
+// kimiChoiceNumber is the number of the picker's databricks-kimi-k3 row, which must carry the verified marker.
 func kimiChoiceNumber(t *testing.T, shown string) int {
 	t.Helper()
 	choice := 0
@@ -407,8 +407,8 @@ func kimiChoiceNumber(t *testing.T, shown string) int {
 		var id string
 		if _, err := fmt.Sscanf(strings.TrimSpace(line), "%d) %s", &n, &id); err == nil && id == "databricks-kimi-k3" {
 			choice = n
-			if !strings.Contains(line, "tested") {
-				t.Errorf("kimi row missing tested marker: %q", line)
+			if !strings.Contains(line, "verified") {
+				t.Errorf("kimi row missing verified marker: %q", line)
 			}
 		}
 	}

@@ -18,7 +18,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -283,13 +282,13 @@ func copilotExtraRows(d *dialog, cur string) (rows [][2]string, runs []func() bo
 	return rows, runs
 }
 
-// appendDatabricksCopilotRows adds one row per serving endpoint: a green "tested" when on the curated menu, plus current.
+// appendDatabricksCopilotRows adds one row per serving endpoint: "verified" when on the curated menu, plus current.
 func appendDatabricksCopilotRows(cat copilot.CopilotCatalog, cur string, rows [][2]string) ([]string, [][2]string) {
 	var ids []string
 	for _, r := range cat.Rows {
 		var marks []string
 		if r.Tested {
-			marks = append(marks, ansi.SpanOK+"tested"+ansi.SpanEnd)
+			marks = append(marks, "verified") // painted green by ansi.Status
 		}
 		if cur != "" && copilotCanonicalID(cur) == copilotCanonicalID(r.ID) {
 			marks = append(marks, "current")
