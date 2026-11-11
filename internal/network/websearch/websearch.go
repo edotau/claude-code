@@ -346,7 +346,7 @@ func postTavilySearch(ctx context.Context, body []byte) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("search with Tavily failed (HTTP %d)", resp.StatusCode)
 	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, enrichMaxBody))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, searchMaxBody))
 	if err != nil {
 		return nil, fmt.Errorf("could not read Tavily response (%v)", err)
 	}
@@ -548,6 +548,7 @@ func Extract(ctx context.Context, urls []string) int {
 // Enrichment bounds: a per-fetch timeout, a read byte cap, and a char cap keeping five hits under ~10KB.
 const (
 	enrichMaxBody  = 256 << 10
+	searchMaxBody  = 16 << 20 // the Tavily search reply, sized like the extract reply
 	enrichMaxChars = 1800
 )
 

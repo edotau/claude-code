@@ -13,7 +13,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 
@@ -68,7 +67,6 @@ type SDKResult struct {
 	Text      string
 	SessionID string
 	Model     string
-	Duration  time.Duration
 	ToolRan   bool // a tool request was approved, so the run may have side effects
 	Usage     wire.Usage
 }
@@ -349,10 +347,9 @@ func SDKAsk(ctx context.Context, o SDKOptions, prompt string, images []string) (
 	unsubscribe := session.On(col.onEvent)
 	defer unsubscribe()
 
-	start := time.Now()
 	sendErr := sendPrompt(ctx, session, o, prompt, images)
 	text, model, usage := col.snapshot()
-	res := SDKResult{Text: text, SessionID: session.SessionID, Model: model, Duration: time.Since(start), ToolRan: approved.Load(), Usage: usage}
+	res := SDKResult{Text: text, SessionID: session.SessionID, Model: model, ToolRan: approved.Load(), Usage: usage}
 	if sendErr != nil { // the partial text and session id still ride back, so a caller can hand the task off
 		return res, fmt.Errorf("send prompt: %w", sendErr)
 	}

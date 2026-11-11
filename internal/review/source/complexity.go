@@ -117,16 +117,11 @@ func deepestIndentUnits(text string) int {
 
 // analyzeFileComplexity ports complexity_checker.analyze_file.
 func analyzeFileComplexity(path string, th ComplexityThresholds) (*FileResult, error) {
-	return analyzeFileComplexityFrom(path, th, os.ReadFile)
-}
-
-// analyzeFileComplexityFrom is analyzeFileComplexity with the file contents supplied by read.
-func analyzeFileComplexityFrom(path string, th ComplexityThresholds, read func(string) ([]byte, error)) (*FileResult, error) {
 	lang := detectComplexityLang(path)
 	if lang == "" {
 		return nil, nil
 	}
-	data, err := read(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -323,11 +318,6 @@ func parseComplexityArgs(args []string, stdout, stderr io.Writer) (complexityArg
 
 // RunComplexity is the complexity_checker.py CLI: findings are advisory; JSON output errors exit 1.
 func RunComplexity(args []string, stdout, stderr io.Writer) int {
-	return RunComplexityWith(args, stdout, stderr, os.ReadFile)
-}
-
-// RunComplexityWith is RunComplexity reading each file's contents through read (the review gate passes staged blobs).
-func RunComplexityWith(args []string, stdout, stderr io.Writer, read func(string) ([]byte, error)) int {
 	parsed, code, done := parseComplexityArgs(args, stdout, stderr)
 	if done {
 		return code
@@ -340,7 +330,7 @@ func RunComplexityWith(args []string, stdout, stderr io.Writer, read func(string
 	}
 
 	sort.Strings(files)
-	results := analyzeComplexityFiles(files, th, stderr, read)
+	results := analyzeComplexityFiles(files, th, stderr)
 	summary := buildComplexitySummary(results, parsed.threshold)
 	if parsed.jsonOut {
 		if err := writeJSON(stdout, summary); err != nil {
@@ -384,10 +374,10 @@ func gatherComplexityFiles(targets, extensions []string) []string {
 	return files
 }
 
-func analyzeComplexityFiles(files []string, th ComplexityThresholds, stderr io.Writer, read func(string) ([]byte, error)) []FileResult {
+func analyzeComplexityFiles(files []string, th ComplexityThresholds, stderr io.Writer) []FileResult {
 	var results []FileResult
 	for _, f := range files {
-		r, err := analyzeFileComplexityFrom(f, th, read)
+		r, err := analyzeFileComplexity(f, th)
 		if err != nil {
 			fmt.Fprintf(stderr, "[warning] could not read %s: %v\n", f, err)
 			continue

@@ -57,7 +57,7 @@ func preflightFixtureSetup(t *testing.T) (repo *Repo, main, wt string) {
 	t.Helper()
 	r := testRepo(t)
 	main = r.Main
-	// The gittest template carries a local identity, so IntegrateTarget's `git merge` (no GIT_AUTHOR env) can commit.
+	// The gittest template carries a local identity, so integrateTarget's `git merge` (no GIT_AUTHOR env) can commit.
 	mergeFixtureWrite(t, main, "f.txt", "base\n", "base")
 	dest, err := Create(r, "feature", CreateOptions{})
 	if err != nil {

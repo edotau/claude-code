@@ -12,7 +12,7 @@ import (
 
 // TestIntegrateTargetHookFailureStopsBeforePromote installs a pre-merge-commit hook (shared via the
 // repo's common git dir) that always fails, so `git merge` inside the worktree aborts mid-merge; the
-// worktree is left with MERGE_HEAD, and main must never be touched since Promote is never reached.
+// worktree is left with MERGE_HEAD, and main must never be touched since promote is never reached.
 func TestIntegrateTargetHookFailureStopsBeforePromote(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
@@ -42,8 +42,8 @@ func TestIntegrateTargetHookFailureStopsBeforePromote(t *testing.T) {
 		t.Fatalf("Issues = %v, want none (hook failure happens inside git merge, not merge-tree)", plan.Issues)
 	}
 
-	if _, err := IntegrateTarget(context.Background(), repo, plan); err == nil {
-		t.Fatal("IntegrateTarget: want error when the pre-merge-commit hook rejects")
+	if _, err := integrateTarget(context.Background(), repo, plan); err == nil {
+		t.Fatal("integrateTarget: want error when the pre-merge-commit hook rejects")
 	}
 	if headOf(wt) != wtBefore {
 		t.Fatalf("worktree HEAD advanced to %s despite the rejected merge commit (want %s)", headOf(wt), wtBefore)
@@ -60,15 +60,15 @@ func TestPromoteFastForwardSkipsSimulation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	integrated, err := IntegrateTarget(ctx, repo, plan)
+	integrated, err := integrateTarget(ctx, repo, plan)
 	if err != nil {
 		t.Fatal(err)
 	}
 	trace := filepath.Join(t.TempDir(), "git.trace")
 	t.Setenv("GIT_TRACE", trace)
-	result, err := Promote(ctx, repo, plan)
+	result, err := promote(ctx, repo, plan)
 	if err != nil {
-		t.Fatalf("Promote: %v", err)
+		t.Fatalf("promote: %v", err)
 	}
 	if result.AfterOID != integrated.AfterOID || headOf(main) != integrated.AfterOID {
 		t.Fatalf("promotion = %+v, HEAD = %s, want %s", result, headOf(main), integrated.AfterOID)
@@ -84,7 +84,7 @@ func TestPromoteFastForwardSkipsSimulation(t *testing.T) {
 }
 
 // TestPromoteTargetMovedBetweenIntegrateAndPromote simulates another actor advancing main after
-// IntegrateTarget ran but before Promote reacquires the lock and rechecks: Promote must stop with a
+// integrateTarget ran but before promote reacquires the lock and rechecks: promote must stop with a
 // retry hint, never fabricate a real conflicting merge.
 func TestPromoteTargetMovedBetweenIntegrateAndPromote(t *testing.T) {
 	mergeFixtureLockEnv(t)
@@ -98,17 +98,17 @@ func TestPromoteTargetMovedBetweenIntegrateAndPromote(t *testing.T) {
 	if len(plan.Issues) != 0 {
 		t.Fatalf("Issues = %v, want none", plan.Issues)
 	}
-	if _, err := IntegrateTarget(context.Background(), repo, plan); err != nil {
-		t.Fatalf("IntegrateTarget: %v", err)
+	if _, err := integrateTarget(context.Background(), repo, plan); err != nil {
+		t.Fatalf("integrateTarget: %v", err)
 	}
 
 	// Another actor advances main directly, after the plan pinned its OID.
 	mergeFixtureWrite(t, main, "h.txt", "moved on\n", "main moves on")
 	movedTo := headOf(main)
 
-	result, err := Promote(context.Background(), repo, plan)
+	result, err := promote(context.Background(), repo, plan)
 	if err == nil {
-		t.Fatal("Promote: want error when the target moved since integration")
+		t.Fatal("promote: want error when the target moved since integration")
 	}
 	if result == nil || result.ResumeHint == "" {
 		t.Fatalf("result = %+v, want a populated ResumeHint", result)
@@ -119,7 +119,7 @@ func TestPromoteTargetMovedBetweenIntegrateAndPromote(t *testing.T) {
 }
 
 // TestPromoteNotFastForwardAfterIntegration covers ancestry re-verification: if main is advanced with
-// a commit that is not an ancestor of the (re-pinned) worktree HEAD, Promote must refuse the ff-only
+// a commit that is not an ancestor of the (re-pinned) worktree HEAD, promote must refuse the ff-only
 // merge rather than fall back to a real merge commit.
 func TestPromoteNotAncestorAfterTargetDiverges(t *testing.T) {
 	mergeFixtureLockEnv(t)
@@ -130,16 +130,16 @@ func TestPromoteNotAncestorAfterTargetDiverges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if _, err := IntegrateTarget(context.Background(), repo, plan); err != nil {
-		t.Fatalf("IntegrateTarget: %v", err)
+	if _, err := integrateTarget(context.Background(), repo, plan); err != nil {
+		t.Fatalf("integrateTarget: %v", err)
 	}
 
 	// main advances past plan.TargetOID with a commit the integrated worktree HEAD never saw.
 	mergeFixtureWrite(t, main, "f.txt", "main diverges\n", "main diverges")
 
-	result, err := Promote(context.Background(), repo, plan)
+	result, err := promote(context.Background(), repo, plan)
 	if err == nil {
-		t.Fatal("Promote: want error — target moved, so promotion must stop regardless of ancestry")
+		t.Fatal("promote: want error — target moved, so promotion must stop regardless of ancestry")
 	}
 	if result == nil || result.ResumeHint == "" {
 		t.Fatalf("result = %+v, want a populated ResumeHint", result)
@@ -147,9 +147,9 @@ func TestPromoteNotAncestorAfterTargetDiverges(t *testing.T) {
 }
 
 // TestPromoteRefusesCommitLandedAfterIntegrate is the regression test for Appendix A codex-review
-// finding #2 (internal/worktree/merge.go:93): a commit landing in the worktree between IntegrateTarget
-// and Promote (e.g. another actor, or the agent continuing to work) must never be silently promoted —
-// Promote must only ever fast-forward main onto the OID IntegrateTarget actually produced and pinned.
+// finding #2 (internal/worktree/merge.go:93): a commit landing in the worktree between integrateTarget
+// and promote (e.g. another actor, or the agent continuing to work) must never be silently promoted —
+// promote must only ever fast-forward main onto the OID integrateTarget actually produced and pinned.
 func TestPromoteRefusesCommitLandedAfterIntegrate(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
@@ -159,21 +159,21 @@ func TestPromoteRefusesCommitLandedAfterIntegrate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	integrated, err := IntegrateTarget(context.Background(), repo, plan)
+	integrated, err := integrateTarget(context.Background(), repo, plan)
 	if err != nil {
-		t.Fatalf("IntegrateTarget: %v", err)
+		t.Fatalf("integrateTarget: %v", err)
 	}
 	if plan.IntegratedOID != integrated.AfterOID {
 		t.Fatalf("plan.IntegratedOID = %q, want it pinned to %q", plan.IntegratedOID, integrated.AfterOID)
 	}
 
-	// An unreviewed commit lands in the worktree after integration, before Promote ever runs.
+	// An unreviewed commit lands in the worktree after integration, before promote ever runs.
 	mergeFixtureWrite(t, wt, "unreviewed.txt", "slipped in after review\n", "unreviewed commit after integrate")
 	unreviewed := headOf(wt)
 
-	result, promoteErr := Promote(context.Background(), repo, plan)
+	result, promoteErr := promote(context.Background(), repo, plan)
 	if promoteErr == nil {
-		t.Fatal("Promote: want an error — the worktree moved past the verified integration since IntegrateTarget ran")
+		t.Fatal("promote: want an error — the worktree moved past the verified integration since integrateTarget ran")
 	}
 	if result == nil || result.ResumeHint == "" {
 		t.Fatalf("result = %+v, want a populated ResumeHint", result)
@@ -192,8 +192,8 @@ func TestPromoteLockHeldRefusesConcurrentMerge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if _, err := IntegrateTarget(context.Background(), repo, plan); err != nil {
-		t.Fatalf("IntegrateTarget: %v", err)
+	if _, err := integrateTarget(context.Background(), repo, plan); err != nil {
+		t.Fatalf("integrateTarget: %v", err)
 	}
 
 	origWait := mergeLockWait
@@ -202,7 +202,7 @@ func TestPromoteLockHeldRefusesConcurrentMerge(t *testing.T) {
 	release := make(chan struct{})
 	held := make(chan struct{})
 	go func() {
-		_ = Acquire(2*time.Second, func() error {
+		_ = acquire(2*time.Second, func() error {
 			close(held)
 			<-release
 			return nil
@@ -211,16 +211,16 @@ func TestPromoteLockHeldRefusesConcurrentMerge(t *testing.T) {
 	<-held
 	defer close(release)
 
-	_, err = Promote(context.Background(), repo, plan)
+	_, err = promote(context.Background(), repo, plan)
 	if err == nil {
-		t.Fatal("Promote: want error while another holder has the merge lock")
+		t.Fatal("promote: want error while another holder has the merge lock")
 	}
-	if err != ErrMergeBusy {
-		t.Fatalf("err = %v, want ErrMergeBusy", err)
+	if err != errMergeBusy {
+		t.Fatalf("err = %v, want errMergeBusy", err)
 	}
 }
 
-// TestIntegrateAndPromoteToleratePostResolutionResidue: a plan from PreflightAfterResolution lets untracked tool
+// TestIntegrateAndPromoteToleratePostResolutionResidue: a plan from preflightAfterResolution lets untracked tool
 // residue (a plugin cache) through integrate + promote, while a plain Preflight plan still refuses it.
 func TestIntegrateAndPromoteToleratePostResolutionResidue(t *testing.T) {
 	mergeFixtureLockEnv(t)
@@ -237,15 +237,15 @@ func TestIntegrateAndPromoteToleratePostResolutionResidue(t *testing.T) {
 	if err != nil || len(strict.Issues) == 0 {
 		t.Fatalf("plain Preflight must still flag untracked residue: issues=%v err=%v", strict.Issues, err)
 	}
-	plan, err := PreflightAfterResolution(ctx, repo, "feature", "")
+	plan, err := preflightAfterResolution(ctx, repo, "feature", "")
 	if err != nil || len(plan.Issues) != 0 {
-		t.Fatalf("PreflightAfterResolution: issues=%v err=%v", plan.Issues, err)
+		t.Fatalf("preflightAfterResolution: issues=%v err=%v", plan.Issues, err)
 	}
-	if _, err := IntegrateTarget(ctx, repo, plan); err != nil {
-		t.Fatalf("IntegrateTarget refused residue: %v", err)
+	if _, err := integrateTarget(ctx, repo, plan); err != nil {
+		t.Fatalf("integrateTarget refused residue: %v", err)
 	}
-	if _, err := Promote(ctx, repo, plan); err != nil {
-		t.Fatalf("Promote refused residue: %v", err)
+	if _, err := promote(ctx, repo, plan); err != nil {
+		t.Fatalf("promote refused residue: %v", err)
 	}
 	if headOf(main) != headOf(wt) {
 		t.Fatalf("main = %s, want promoted to %s", headOf(main), headOf(wt))
@@ -311,15 +311,15 @@ func TestPromoteRechecksDirtyTargetOverlap(t *testing.T) {
 	if err != nil || len(plan.Issues) != 0 {
 		t.Fatalf("Preflight = %+v, %v", plan, err)
 	}
-	if _, err := IntegrateTarget(ctx, repo, plan); err != nil {
+	if _, err := integrateTarget(ctx, repo, plan); err != nil {
 		t.Fatal(err)
 	}
 	before := headOf(main)
 	if err := os.WriteFile(filepath.Join(main, "a.txt"), []byte("uncommitted\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Promote(ctx, repo, plan); err == nil || !strings.Contains(err.Error(), "dirty-target") || !strings.Contains(err.Error(), "a.txt") {
-		t.Fatalf("Promote = %v, want dirty-target naming a.txt", err)
+	if _, err := promote(ctx, repo, plan); err == nil || !strings.Contains(err.Error(), "dirty-target") || !strings.Contains(err.Error(), "a.txt") {
+		t.Fatalf("promote = %v, want dirty-target naming a.txt", err)
 	}
 	assertTargetEditIntact(t, main, before)
 }
@@ -332,26 +332,26 @@ func mergeFixtureLockEnv(t *testing.T) {
 func TestAcquireRunsFnAndReleases(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	ran := false
-	if err := Acquire(time.Second, func() error { ran = true; return nil }); err != nil {
-		t.Fatalf("Acquire: %v", err)
+	if err := acquire(time.Second, func() error { ran = true; return nil }); err != nil {
+		t.Fatalf("acquire: %v", err)
 	}
 	if !ran {
 		t.Fatal("fn did not run")
 	}
-	// The lock must be released: a second Acquire must succeed promptly, not wait out mergeLockWait.
+	// The lock must be released: a second acquire must succeed promptly, not wait out mergeLockWait.
 	start := time.Now()
-	if err := Acquire(time.Second, func() error { return nil }); err != nil {
-		t.Fatalf("second Acquire: %v", err)
+	if err := acquire(time.Second, func() error { return nil }); err != nil {
+		t.Fatalf("second acquire: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
-		t.Fatalf("second Acquire took %v, want near-instant (lock should have been released)", elapsed)
+		t.Fatalf("second acquire took %v, want near-instant (lock should have been released)", elapsed)
 	}
 }
 
 func TestAcquirePropagatesFnError(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	sentinel := errFixtureSentinel{}
-	err := Acquire(time.Second, func() error { return sentinel })
+	err := acquire(time.Second, func() error { return sentinel })
 	if err != sentinel {
 		t.Fatalf("err = %v, want the sentinel fn error", err)
 	}
@@ -366,7 +366,7 @@ func TestAcquireBusyReturnsErrMergeBusyWithinWait(t *testing.T) {
 	held := make(chan struct{})
 	release := make(chan struct{})
 	go func() {
-		_ = Acquire(2*time.Second, func() error {
+		_ = acquire(2*time.Second, func() error {
 			close(held)
 			<-release
 			return nil
@@ -377,16 +377,16 @@ func TestAcquireBusyReturnsErrMergeBusyWithinWait(t *testing.T) {
 
 	start := time.Now()
 	wait := 100 * time.Millisecond
-	err := Acquire(wait, func() error {
+	err := acquire(wait, func() error {
 		t.Fatal("fn must not run while another holder has the lock")
 		return nil
 	})
 	elapsed := time.Since(start)
-	if err != ErrMergeBusy {
-		t.Fatalf("err = %v, want ErrMergeBusy", err)
+	if err != errMergeBusy {
+		t.Fatalf("err = %v, want errMergeBusy", err)
 	}
 	if elapsed < wait {
-		t.Fatalf("Acquire returned after %v, want it to have waited at least %v", elapsed, wait)
+		t.Fatalf("acquire returned after %v, want it to have waited at least %v", elapsed, wait)
 	}
 }
 
@@ -421,7 +421,7 @@ func TestAcquireZeroWaitDefaultsToMergeLockWait(t *testing.T) {
 	held := make(chan struct{})
 	release := make(chan struct{})
 	go func() {
-		_ = Acquire(time.Second, func() error {
+		_ = acquire(time.Second, func() error {
 			close(held)
 			<-release
 			return nil
@@ -431,13 +431,13 @@ func TestAcquireZeroWaitDefaultsToMergeLockWait(t *testing.T) {
 	defer close(release)
 
 	start := time.Now()
-	err := Acquire(0, func() error { return nil })
+	err := acquire(0, func() error { return nil })
 	elapsed := time.Since(start)
-	if err != ErrMergeBusy {
-		t.Fatalf("err = %v, want ErrMergeBusy", err)
+	if err != errMergeBusy {
+		t.Fatalf("err = %v, want errMergeBusy", err)
 	}
 	// wait<=0 must fall back to the default wait, not return immediately as a zero wait would imply.
 	if elapsed < short-20*time.Millisecond {
-		t.Fatalf("Acquire(0, ...) returned after %v, want it to have used the default wait (%v)", elapsed, short)
+		t.Fatalf("acquire(0, ...) returned after %v, want it to have used the default wait (%v)", elapsed, short)
 	}
 }

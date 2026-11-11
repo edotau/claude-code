@@ -94,9 +94,9 @@ func scanFile(file string, fn func(Claim)) error {
 	return sc.Err()
 }
 
-// Holders maps each claimed path in paths to "session <slug> (pid N)" or "leaf <id> of session …" labels.
+// holders maps each claimed path in paths to "session <slug> (pid N)" or "leaf <id> of session …" labels.
 // On a scan error it still returns the holders it read, alongside the error.
-func Holders(alive func(int) bool, want []string) (map[string][]string, error) {
+func holders(alive func(int) bool, want []string) (map[string][]string, error) {
 	set := map[string]map[string]bool{}
 	for _, p := range want {
 		set[p] = map[string]bool{}

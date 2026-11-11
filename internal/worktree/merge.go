@@ -17,10 +17,10 @@ type MergeResult struct {
 	ResumeHint string
 }
 
-// IntegrateTarget merges the pinned target OID into the worktree itself — never repo.Main — so any
+// integrateTarget merges the pinned target OID into the worktree itself — never repo.Main — so any
 // integration commit lands in the worktree's own history. Callers gate on plan.Issues (a predicted
 // conflict) before calling this; resolve handles the ones that stop here instead.
-func IntegrateTarget(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
+func integrateTarget(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
 	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.WorktreeGitDir, plan.AfterResolution); err != nil {
 		return nil, err
 	} else if issue != nil {
@@ -38,21 +38,21 @@ func IntegrateTarget(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeRe
 	if err != nil {
 		return nil, err
 	}
-	plan.IntegratedOID = after // pins exactly what Promote is allowed to fast-forward onto
+	plan.IntegratedOID = after // pins exactly what promote is allowed to fast-forward onto
 	return &MergeResult{Phase: "integrate", BeforeOID: before, AfterOID: after}, nil
 }
 
-// Promote reacquires the merge lock, rechecks both OIDs and checkout states against what Preflight
+// promote reacquires the merge lock, rechecks both OIDs and checkout states against what Preflight
 // pinned, requires ancestry, and fast-forwards repo.Main onto the integrated worktree HEAD — never a
 // real merge commit. Target movement or a failed ancestry/re-simulation check stops with a retry hint;
-// this never falls back to a real conflicting merge. A ctx already canceled when Promote is entered
+// this never falls back to a real conflicting merge. A ctx already canceled when promote is entered
 // returns immediately without acquiring the lock or touching repo.Main.
-func Promote(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
+func promote(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	var result *MergeResult
-	err := Acquire(0, func() error {
+	err := acquire(0, func() error {
 		r, lockedErr := promoteLocked(ctx, repo, plan)
 		result = r
 		return lockedErr
@@ -62,7 +62,7 @@ func Promote(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, er
 
 func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
 	if plan.IntegratedOID == "" {
-		return nil, errors.New("promote: no verified integration OID pinned — call IntegrateTarget first")
+		return nil, errors.New("promote: no verified integration OID pinned — call integrateTarget first")
 	}
 	if err := promoteStateChecks(ctx, repo, plan); err != nil {
 		return nil, err

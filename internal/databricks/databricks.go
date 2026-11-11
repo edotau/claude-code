@@ -25,8 +25,8 @@ const (
 	betaOff     = betaKey + "=1"
 )
 
-// Plan is one parsed invocation: the profile (Provider) and model the child launches with, plus pass-through args.
-type Plan struct {
+// launchPlan is one parsed invocation: the profile (Provider) and model the child launches with, plus pass-through args.
+type launchPlan struct {
 	Check    bool
 	Provider string
 	Model    string
@@ -114,17 +114,17 @@ var subverbs = map[string]func([]string) int{
 }
 
 // plan parses args: optional leading check, optional MODEL, --profile; everything else passes through.
-func plan(args []string) (Plan, error) {
+func plan(args []string) (launchPlan, error) {
 	p, name := parsePlanArgs(args)
 	reg, err := providers.Load()
 	if err != nil {
-		return Plan{}, fmt.Errorf("load providers: %w", err)
+		return launchPlan{}, fmt.Errorf("load providers: %w", err)
 	}
 	if p.Provider = resolveProfile(reg, name); p.Provider == "" {
-		return Plan{}, errNoProfile
+		return launchPlan{}, errNoProfile
 	}
 	if !slices.Contains(providers.DatabricksProfiles(reg), p.Provider) {
-		return Plan{}, fmt.Errorf("--profile %q is not a Databricks profile", p.Provider)
+		return launchPlan{}, fmt.Errorf("--profile %q is not a Databricks profile", p.Provider)
 	}
 	if p.Model == "" {
 		p.Model = defaultModel(reg, p.Provider)
@@ -133,9 +133,9 @@ func plan(args []string) (Plan, error) {
 	return p, nil
 }
 
-// parsePlanArgs splits args into the Plan fields they set and the raw --profile name.
-func parsePlanArgs(args []string) (Plan, string) {
-	var p Plan
+// parsePlanArgs splits args into the launchPlan fields they set and the raw --profile name.
+func parsePlanArgs(args []string) (launchPlan, string) {
+	var p launchPlan
 	if len(args) > 0 && args[0] == "check" {
 		p.Check = true
 		args = args[1:]
@@ -217,7 +217,7 @@ func providerHasBetaOff(reg *providers.Registry, name string) bool {
 }
 
 // childEnv is the parent environment plus the beta opt-out, unless the provider's own Env already carries it.
-func childEnv(p Plan) []string {
+func childEnv(p launchPlan) []string {
 	if p.NoBeta {
 		return os.Environ()
 	}
@@ -225,7 +225,7 @@ func childEnv(p Plan) []string {
 }
 
 // launch execs this binary as `--profile P --model M rest...` with the parent's stdio.
-func launch(self string, p Plan) int {
+func launch(self string, p launchPlan) int {
 	argv := []string{"--profile", p.Provider}
 	if p.Asked {
 		argv = append(argv, "--model", p.Model)
@@ -256,7 +256,7 @@ var spawnCtx = func(ctx context.Context, bin string, argv, env []string, stdin i
 
 // capture runs one prompt through the provider and returns combined stdout+stderr and the exit code;
 // a start error or timeout is appended to the output with code -1.
-func capture(self string, p Plan, prompt string, stdin io.Reader, extra ...string) (string, int) {
+func capture(self string, p launchPlan, prompt string, stdin io.Reader, extra ...string) (string, int) {
 	var buf bytes.Buffer
 	argv := append([]string{"--profile", p.Provider, "--model", p.Model, "-p", prompt}, extra...)
 	ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
@@ -273,7 +273,7 @@ func capture(self string, p Plan, prompt string, stdin io.Reader, extra ...strin
 }
 
 // check runs the smoke reply; exit 0 only if the child exits 0 and its last line is OK.
-func check(self string, p Plan) int {
+func check(self string, p launchPlan) int {
 	rc := 0
 	fmt.Printf("== smoke: %s %s\n", p.Provider, p.Model)
 	if out, code := capture(self, p, smokePrompt, nil, p.Rest...); code == 0 && lastLine(out) == "OK" {

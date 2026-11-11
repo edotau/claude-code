@@ -20,7 +20,7 @@ const (
 
 // credWords are the name segments that mark a string leaf as a credential value.
 var credWords = map[string]bool{
-	"KEY": true, "TOKEN": true, "SECRET": true, "PASSWORD": true, "CREDENTIAL": true, "CREDENTIALS": true,
+	"KEY": true, "TOKEN": true, "SECRET": true, "PASSWORD": true, "PASSWD": true, "CREDENTIAL": true, "CREDENTIALS": true,
 	"BEARER": true, "PAT": true, "AUTHORIZATION": true,
 }
 

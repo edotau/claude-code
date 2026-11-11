@@ -37,9 +37,9 @@ func (p Provider) SpellingRule() string {
 		return "databricks-ai-gateway"
 	case p.Preset == PresetDatabricks || p.ModelPrefix == models.DatabricksPrefix:
 		return "databricks-serving"
-	case p.provider() == "github":
+	case p.Provider == "github":
 		return "dotted"
-	case p.provider() == "anthropic":
+	case p.Provider == "anthropic":
 		return "anthropic"
 	}
 	return ""

@@ -20,60 +20,47 @@ import (
 var tmplFS embed.FS
 
 const (
-	// PlaceholderHost is the host baked into the embedded templates.
-	PlaceholderHost = "https://example.cloud.databricks.com"
-	WireAIGateway   = providers.WireAIGateway
-	AuthHarness     = "harness"
-	AuthCLI         = "cli"
-	TargetClaude    = "claude"
-	TargetCodex     = "codex"
-	// GatewayNote is shown for gateway-wire output.
-	GatewayNote = "gateway inference is budget-denied on this account (403); serving is the working path"
+	// placeholderHost is the host baked into the embedded templates.
+	placeholderHost = "https://example.cloud.databricks.com"
+	authHarness     = "harness"
+	authCLI         = "cli"
+	targetClaude    = "claude"
+	targetCodex     = "codex"
+	// gatewayNote is shown for gateway-wire output.
+	gatewayNote = "gateway inference is budget-denied on this account (403); serving is the working path"
 	authHeader  = "[model_providers.databricks.auth]"
 	helperTTL   = "300000"
 )
 
-// Options is one render request. P is the expanded registry row: routes, headers, env and model prefix all
+// renderOptions is one render request. P is the expanded registry row: routes, headers, env and model prefix all
 // come from it. Self is the claude-code binary the harness token helper runs.
-type Options struct {
+type renderOptions struct {
 	Target, Host, Auth, Self string
 	Model                    string // optional model override, canonical or wire id
 	P                        *providers.Provider
 	Set, Unset               []string
 }
 
-// Result is the rendered file plus an optional note the caller shows out-of-band (stderr).
-type Result struct {
+// renderResult is the rendered file plus an optional note the caller shows out-of-band (stderr).
+type renderResult struct {
 	Text string
 	Note string
 }
 
-var credSegs = map[string]bool{"TOKEN": true, "KEY": true, "SECRET": true, "PASSWORD": true, "PASSWD": true, "CREDENTIAL": true, "CREDENTIALS": true}
-
-// CredentialShaped reports whether a config key names a secret, by underscore/dash/dot segment.
-func CredentialShaped(k string) bool {
-	for _, s := range strings.FieldsFunc(strings.ToUpper(k), func(r rune) bool { return r == '_' || r == '-' || r == '.' }) {
-		if credSegs[s] {
-			return true
-		}
-	}
-	return false
-}
-
-// Render produces the config text for o.
-func Render(o Options) (Result, error) {
+// renderConfig produces the config text for o.
+func renderConfig(o renderOptions) (renderResult, error) {
 	if err := o.validate(); err != nil {
-		return Result{}, err
+		return renderResult{}, err
 	}
-	var res Result
+	var res renderResult
 	var err error
-	if o.Target == TargetClaude {
+	if o.Target == targetClaude {
 		res, err = renderClaude(o)
 	} else {
 		res, err = renderCodex(o)
 	}
-	if err == nil && o.P.Options.Wire == WireAIGateway {
-		res.Note = GatewayNote
+	if err == nil && o.P.Options.Wire == providers.WireAIGateway {
+		res.Note = gatewayNote
 	}
 	return res, err
 }
@@ -83,7 +70,7 @@ var (
 	setKeyRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 )
 
-func (o Options) validate() error {
+func (o renderOptions) validate() error {
 	if err := o.checkBasics(); err != nil {
 		return err
 	}
@@ -96,20 +83,20 @@ func (o Options) validate() error {
 }
 
 // checkBasics validates the target, provider row, auth mode, host and harness prerequisites, in that order.
-func (o Options) checkBasics() error {
-	if o.Target != TargetClaude && o.Target != TargetCodex {
+func (o renderOptions) checkBasics() error {
+	if o.Target != targetClaude && o.Target != targetCodex {
 		return fmt.Errorf("target must be claude or codex (got %q)", o.Target)
 	}
 	if o.P == nil {
 		return errors.New("no provider row to render from")
 	}
-	if o.Auth != AuthHarness && o.Auth != AuthCLI {
+	if o.Auth != authHarness && o.Auth != authCLI {
 		return fmt.Errorf("--auth must be harness or cli (got %q)", o.Auth)
 	}
 	if !hostRe.MatchString(o.Host) {
 		return fmt.Errorf("host must be https://host with no path (got %q)", o.Host)
 	}
-	if o.Auth == AuthHarness && (o.P.Name == "" || o.Self == "") {
+	if o.Auth == authHarness && (o.P.Name == "" || o.Self == "") {
 		return errors.New("--auth harness needs a named provider and the claude-code binary path")
 	}
 	return nil
@@ -124,22 +111,22 @@ func checkSetPair(kv string) error {
 	if !setKeyRE.MatchString(k) {
 		return fmt.Errorf("--set %q: keys must match [A-Za-z0-9_.-]+ (a bare TOML/env key)", k)
 	}
-	if CredentialShaped(k) {
+	if credLeaf(k) {
 		return fmt.Errorf("--set %s: credential keys are refused; auth comes from the token helper", k)
 	}
 	return nil
 }
 
 // checkModel enforces which models each target can reach without the router.
-func (o Options) checkModel() error {
+func (o renderOptions) checkModel() error {
 	if o.Model == "" {
 		return nil
 	}
 	isClaude := models.FamilyKind(o.Model) == models.FamilyClaude
-	if o.Target == TargetCodex && isClaude {
+	if o.Target == targetCodex && isClaude {
 		return fmt.Errorf("model %q: the Responses route serves GPT models only", o.Model)
 	}
-	if o.Target != TargetClaude {
+	if o.Target != targetClaude {
 		return nil
 	}
 	if err := providers.ClaudeCodeError(o.P, o.Model); err != nil {
@@ -158,7 +145,7 @@ func (o Options) checkModel() error {
 // tmpl loads an embedded template with its placeholder host swapped for host.
 func tmpl(name, host string) (string, error) {
 	b, err := tmplFS.ReadFile("templates/" + name)
-	return strings.ReplaceAll(string(b), PlaceholderHost, host), err
+	return strings.ReplaceAll(string(b), placeholderHost, host), err
 }
 
 // cliTokenCmd is the template's own Databricks CLI token command.
@@ -182,7 +169,7 @@ func checkHeaders(h map[string]string) error {
 		switch strings.ToLower(k) {
 		case "authorization", "proxy-authorization", "cookie":
 		default:
-			if !CredentialShaped(k) {
+			if !credLeaf(k) {
 				continue
 			}
 		}
@@ -191,27 +178,27 @@ func checkHeaders(h map[string]string) error {
 	return nil
 }
 
-func renderClaude(o Options) (Result, error) {
+func renderClaude(o renderOptions) (renderResult, error) {
 	raw, err := tmpl("claude.json", o.Host)
 	if err != nil {
-		return Result{}, err
+		return renderResult{}, err
 	}
 	var doc map[string]any
 	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
-		return Result{}, err
+		return renderResult{}, err
 	}
 	env, _ := doc["env"].(map[string]any)
 	if env == nil {
-		return Result{}, errors.New("claude template has no env block")
+		return renderResult{}, errors.New("claude template has no env block")
 	}
 	for _, k := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_USE_GATEWAY", "ANTHROPIC_AUTH_TOKEN"} {
 		delete(env, k)
 	}
 	if err := claudeProviderEnv(env, o); err != nil {
-		return Result{}, err
+		return renderResult{}, err
 	}
 	doc["apiKeyHelper"] = cliTokenCmd(o.Host)
-	if o.Auth == AuthHarness {
+	if o.Auth == authHarness {
 		doc["apiKeyHelper"] = textutil.QuoteSH(o.Self) + " resolve --profile " + textutil.QuoteSH(o.P.Name)
 	}
 	for _, kv := range o.Set {
@@ -223,11 +210,11 @@ func renderClaude(o Options) (Result, error) {
 	}
 	delete(env, "ANTHROPIC_AUTH_TOKEN")
 	b, err := json.MarshalIndent(doc, "", "  ")
-	return Result{Text: string(b) + "\n"}, err
+	return renderResult{Text: string(b) + "\n"}, err
 }
 
 // claudeProviderEnv layers the provider's route, headers, models and env onto the template env block.
-func claudeProviderEnv(env map[string]any, o Options) error {
+func claudeProviderEnv(env map[string]any, o renderOptions) error {
 	p := o.P
 	base, ok := p.Route(providers.ProtocolAnthropic)
 	if !ok {
@@ -240,7 +227,7 @@ func claudeProviderEnv(env map[string]any, o Options) error {
 	if h := headerLines(p.Headers); h != "" {
 		env["ANTHROPIC_CUSTOM_HEADERS"] = h
 	}
-	if p.Options.Wire == WireAIGateway {
+	if p.Options.Wire == providers.WireAIGateway {
 		env["CLAUDE_CODE_USE_GATEWAY"] = "1"
 	}
 	if !p.Serves1M() {
@@ -301,15 +288,15 @@ func bareModel(id string) string {
 	return id
 }
 
-func renderCodex(o Options) (Result, error) {
+func renderCodex(o renderOptions) (renderResult, error) {
 	raw, err := tmpl("codex.toml", o.Host)
 	if err != nil {
-		return Result{}, err
+		return renderResult{}, err
 	}
 	p := o.P
 	base, ok := p.Route(providers.ProtocolResponses)
 	if !ok {
-		return Result{}, fmt.Errorf("provider %q has no Responses route", p.Name)
+		return renderResult{}, fmt.Errorf("provider %q has no Responses route", p.Name)
 	}
 	head, _, _ := strings.Cut(raw, authHeader)
 	head = replaceLine(head, "base_url", base)
@@ -318,19 +305,19 @@ func renderCodex(o Options) (Result, error) {
 		model = o.Model
 	}
 	head = replaceLine(head, "model", p.WireModel(bareModel(model)))
-	if p.Options.Wire == WireAIGateway {
+	if p.Options.Wire == providers.WireAIGateway {
 		head = replaceLine(head, "name", "Databricks AI Gateway")
 	}
 	auth := fmt.Sprintf("command = \"sh\"\nargs = [\"-c\", %s]\n", strconv.Quote(cliTokenCmd(o.Host)))
-	if o.Auth == AuthHarness {
+	if o.Auth == authHarness {
 		auth = fmt.Sprintf("command = %s\nargs = [\"resolve\", \"--profile\", %s]\n", strconv.Quote(o.Self), strconv.Quote(p.Name))
 	}
 	auth += "timeout_ms = 5000\nrefresh_interval_ms = 1800000\n"
 	text := editTopLevel(head, o) + authHeader + "\n" + auth
-	if p.Options.Wire == WireAIGateway {
-		text = "# " + GatewayNote + "\n" + text
+	if p.Options.Wire == providers.WireAIGateway {
+		text = "# " + gatewayNote + "\n" + text
 	}
-	return Result{Text: text}, nil
+	return renderResult{Text: text}, nil
 }
 
 // keyOf returns the trimmed key of a `k = v` line.
@@ -340,7 +327,7 @@ func keyOf(l string) string {
 }
 
 // editTopLevel applies --set/--unset to the keys above the first [table] of a TOML head.
-func editTopLevel(head string, o Options) string {
+func editTopLevel(head string, o renderOptions) string {
 	top, rest := head, ""
 	if i := strings.Index(head, "\n["); i >= 0 {
 		top, rest = head[:i+1], head[i+1:]

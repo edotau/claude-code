@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -219,7 +221,7 @@ func checkKeyNames(reg *Registry) []Check {
 			continue
 		}
 		// Only a near miss of a known name is a likely typo; other names (JIRA_TOKEN, …) are the user's own.
-		for n := range known {
+		for _, n := range slices.Sorted(maps.Keys(known)) {
 			if editDistance(k, n) <= 2 {
 				typos = append(typos, k+" (did you mean "+n+"?)")
 				break

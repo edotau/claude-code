@@ -26,8 +26,8 @@ import (
 // OverlayVar names the JSON overlay file layered over every agent child this process starts.
 const OverlayVar = "COWORKER_OVERLAY"
 
-// OverlaySchema versions the overlay document; one without "schema" reads as this version.
-const OverlaySchema = 1
+// overlaySchema versions the overlay document; one without "schema" reads as this version.
+const overlaySchema = 1
 
 const overlayMaxBytes = 64 << 10
 
@@ -47,7 +47,7 @@ type Resolved struct {
 }
 
 var overlayFormat = schemas.Register(schemas.Format{
-	Name: "coworker-overlay", Owner: "internal/agentconfig", Kind: schemas.Wire, Version: OverlaySchema,
+	Name: "coworker-overlay", Owner: "internal/agentconfig", Kind: schemas.Wire, Version: overlaySchema,
 	New: func() any { return new(Overlay) }, Migrate: schemas.SameShape,
 })
 
@@ -71,7 +71,7 @@ func LoadOverlay(path string) (Overlay, error) {
 	raw, err := readOverlayFile(path)
 	if err == nil {
 		var o Overlay
-		if o, err = ParseOverlay(raw); err == nil {
+		if o, err = parseOverlay(raw); err == nil {
 			return o, nil
 		}
 	}
@@ -125,8 +125,8 @@ func checkOverlayInfo(info os.FileInfo, err error) error {
 	return nil
 }
 
-// ParseOverlay decodes one document strictly and checks it; errors name keys, never values.
-func ParseOverlay(raw []byte) (Overlay, error) {
+// parseOverlay decodes one document strictly and checks it; errors name keys, never values.
+func parseOverlay(raw []byte) (Overlay, error) {
 	var o Overlay
 	if err := checkOverlaySchema(raw); err != nil {
 		return Overlay{}, err
@@ -156,7 +156,7 @@ func checkOverlaySchema(raw []byte) error {
 	switch {
 	case v.Schema < 0:
 		return fmt.Errorf("schema %d is not valid", v.Schema)
-	case v.Schema > OverlaySchema:
+	case v.Schema > overlaySchema:
 		return fmt.Errorf("schema %d is newer than this build", v.Schema)
 	}
 	return nil

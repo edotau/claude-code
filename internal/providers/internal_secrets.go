@@ -33,7 +33,7 @@ func (r *Registry) RouteSecret(name string) bool {
 			return true
 		}
 		for _, m := range []string{AuthOAuth, AuthM2M, AuthPAT, AuthKey} {
-			if SecretName(p.provider(), p.Name, m) == name {
+			if SecretName(p.Provider, p.Name, m) == name {
 				return true
 			}
 		}

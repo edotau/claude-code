@@ -20,12 +20,12 @@ func row(t *testing.T, wire string) *providers.Provider {
 	return p
 }
 
-func base(t *testing.T, target, wire string) Options {
-	return Options{Target: target, Host: "https://x.example.com", P: row(t, wire), Auth: AuthHarness, Self: "/bin/cc"}
+func base(t *testing.T, target, wire string) renderOptions {
+	return renderOptions{Target: target, Host: "https://x.example.com", P: row(t, wire), Auth: authHarness, Self: "/bin/cc"}
 }
 
 func TestClaudeServingHarness(t *testing.T) {
-	r, err := Render(base(t, TargetClaude, "serving"))
+	r, err := renderConfig(base(t, targetClaude, "serving"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,9 +52,9 @@ func TestClaudeServingHarness(t *testing.T) {
 }
 
 func TestClaudeGatewayCLISetUnset(t *testing.T) {
-	o := base(t, TargetClaude, "ai-gateway")
-	o.Auth, o.Set, o.Unset = AuthCLI, []string{"FOO=1"}, []string{"ENABLE_TOOL_SEARCH"}
-	r, err := Render(o)
+	o := base(t, targetClaude, "ai-gateway")
+	o.Auth, o.Set, o.Unset = authCLI, []string{"FOO=1"}, []string{"ENABLE_TOOL_SEARCH"}
+	r, err := renderConfig(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,15 +64,15 @@ func TestClaudeGatewayCLISetUnset(t *testing.T) {
 			t.Errorf("missing %q in\n%s", w, r.Text)
 		}
 	}
-	if strings.Contains(r.Text, "ENABLE_TOOL_SEARCH") || r.Note != GatewayNote {
+	if strings.Contains(r.Text, "ENABLE_TOOL_SEARCH") || r.Note != gatewayNote {
 		t.Error("unset/note wrong")
 	}
 }
 
 func TestCodex(t *testing.T) {
-	o := base(t, TargetCodex, "serving")
+	o := base(t, targetCodex, "serving")
 	o.Set = []string{"model_reasoning_effort=high"}
-	r, err := Render(o)
+	r, err := renderConfig(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestCodex(t *testing.T) {
 			t.Errorf("missing %q in\n%s", w, r.Text)
 		}
 	}
-	r, err = Render(base(t, TargetCodex, "ai-gateway"))
+	r, err = renderConfig(base(t, targetCodex, "ai-gateway"))
 	if err != nil || !strings.HasPrefix(r.Text, "# gateway") || !strings.Contains(r.Text, "https://x.example.com/ai-gateway/codex/v1") {
 		t.Errorf("gateway %v:\n%s", err, r.Text)
 	}
@@ -90,25 +90,25 @@ func TestCodex(t *testing.T) {
 
 func TestRejects(t *testing.T) {
 	for _, kv := range []string{"ANTHROPIC_AUTH_TOKEN=x", "OPENAI_API_KEY=x", "my_secret=1", "noequals"} {
-		o := base(t, TargetClaude, "serving")
+		o := base(t, targetClaude, "serving")
 		o.Set = []string{kv}
-		if _, err := Render(o); err == nil {
+		if _, err := renderConfig(o); err == nil {
 			t.Errorf("%q accepted", kv)
 		}
 	}
-	o := base(t, TargetClaude, "serving")
+	o := base(t, targetClaude, "serving")
 	o.Model = "gpt-5.5"
-	if _, err := Render(o); err == nil || !strings.Contains(err.Error(), "router") {
+	if _, err := renderConfig(o); err == nil || !strings.Contains(err.Error(), "router") {
 		t.Errorf("non-claude model for claude: %v", err)
 	}
-	c := base(t, TargetCodex, "serving")
+	c := base(t, targetCodex, "serving")
 	c.Model = "claude-opus-5-5"
-	if _, err := Render(c); err == nil {
+	if _, err := renderConfig(c); err == nil {
 		t.Error("claude model for codex accepted")
 	}
-	o = base(t, TargetClaude, "serving")
+	o = base(t, targetClaude, "serving")
 	o.Host = "http://bad"
-	if _, err := Render(o); err == nil {
+	if _, err := renderConfig(o); err == nil {
 		t.Error("bad host accepted")
 	}
 }
@@ -121,9 +121,9 @@ func TestCodexModelAndNameFollowWire(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.wire, func(t *testing.T) {
-			o := base(t, TargetCodex, c.wire)
+			o := base(t, targetCodex, c.wire)
 			o.Model = c.model
-			r, err := Render(o)
+			r, err := renderConfig(o)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -137,7 +137,7 @@ func TestCodexModelAndNameFollowWire(t *testing.T) {
 // TestClaudeDisable1MFollowsEndpoint pins that an endpoint without 1M gets CLAUDE_CODE_DISABLE_1M_CONTEXT and serving does not.
 func TestClaudeDisable1MFollowsEndpoint(t *testing.T) {
 	for wire, want := range map[string]bool{"ai-gateway": true, "serving": false} {
-		r, err := Render(base(t, TargetClaude, wire))
+		r, err := renderConfig(base(t, targetClaude, wire))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -156,7 +156,7 @@ func TestTemplatesOnlyPlaceholderHost(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, h := range hostLike.FindAllString(string(b), -1) {
-			if h != PlaceholderHost {
+			if h != placeholderHost {
 				t.Errorf("%s: unexpected host %q", n, h)
 			}
 		}
@@ -168,19 +168,19 @@ func TestTemplatesOnlyPlaceholderHost(t *testing.T) {
 
 // TestMatrix renders every target x wire x auth and checks the invariants each cell must hold.
 func TestMatrix(t *testing.T) {
-	for _, target := range []string{TargetClaude, TargetCodex} {
+	for _, target := range []string{targetClaude, targetCodex} {
 		for _, wire := range []string{"serving", "ai-gateway"} {
-			for _, auth := range []string{AuthHarness, AuthCLI} {
+			for _, auth := range []string{authHarness, authCLI} {
 				name := target + "/" + wire + "/" + auth
 				t.Run(name, func(t *testing.T) {
 					o := base(t, target, wire)
 					o.Auth = auth
-					r, err := Render(o)
+					r, err := renderConfig(o)
 					if err != nil {
 						t.Fatalf("%s: %v", name, err)
 					}
 					checkMatrixCommon(t, name, r.Text, wire)
-					if target == TargetClaude {
+					if target == targetClaude {
 						checkMatrixClaude(t, name, r.Text, wire, auth)
 						return
 					}
@@ -215,7 +215,7 @@ func checkMatrixCommon(t *testing.T, name, text, wire string) {
 func checkMatrixClaude(t *testing.T, name, text, wire, auth string) {
 	t.Helper()
 	helper := "/bin/cc resolve --profile databricks-dev"
-	if auth == AuthCLI {
+	if auth == authCLI {
 		helper = "databricks auth token --host " + matrixHost + " --output json | jq -r '.access_token'"
 	}
 	var d struct {
@@ -243,7 +243,7 @@ func checkMatrixCodex(t *testing.T, name, text, auth string) {
 		}
 	}
 	wantCmd := `command = "/bin/cc"`
-	if auth == AuthCLI {
+	if auth == authCLI {
 		wantCmd = `command = "sh"`
 	}
 	if !strings.Contains(text, wantCmd) {
@@ -273,9 +273,9 @@ func checkTOML(t *testing.T, name, text string) {
 }
 
 func TestSetOverridesAndCredentialRefusal(t *testing.T) {
-	o := base(t, TargetClaude, "serving")
+	o := base(t, targetClaude, "serving")
 	o.Set = []string{"ANTHROPIC_MODEL=databricks-claude-haiku-5-5", "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=0"}
-	r, err := Render(o)
+	r, err := renderConfig(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,23 +284,23 @@ func TestSetOverridesAndCredentialRefusal(t *testing.T) {
 	if d.Env["ANTHROPIC_MODEL"] != "databricks-claude-haiku-5-5" || d.Env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] != "0" {
 		t.Errorf("--set not applied: %v", d.Env)
 	}
-	for _, k := range []string{"ANTHROPIC_AUTH_TOKEN", "anthropic_auth_token", "X-API-KEY", "db.password", "CLIENT_SECRET"} {
+	for _, k := range []string{"ANTHROPIC_AUTH_TOKEN", "anthropic_auth_token", "X-API-KEY", "db.password", "CLIENT_SECRET", "apiKey", "MY_PAT", "ANTHROPIC_BEARER"} {
 		o.Set = []string{k + "=v"}
-		if _, err := Render(o); err == nil {
+		if _, err := renderConfig(o); err == nil {
 			t.Errorf("credential-shaped %q accepted", k)
 		}
 	}
 	o.Set = []string{"MAX_TOKENS=5"}
-	if _, err := Render(o); err != nil {
+	if _, err := renderConfig(o); err != nil {
 		t.Errorf("MAX_TOKENS wrongly refused: %v", err)
 	}
 }
 
 func TestCodexUnsetAndModel(t *testing.T) {
-	o := base(t, TargetCodex, "serving")
+	o := base(t, targetCodex, "serving")
 	o.Unset = []string{"model_provider"}
 	o.Model = "gpt-5.5"
-	r, err := Render(o)
+	r, err := renderConfig(o)
 	if err != nil {
 		t.Fatal(err)
 	}

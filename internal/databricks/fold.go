@@ -49,7 +49,7 @@ func foldLegacy(top map[string]json.RawMessage, tx *vault.Tx, key *vault.Key, ap
 			return plan, err
 		}
 	}
-	provs := Existing(top)
+	provs := existingRows(top)
 	for _, m := range plan.Moves {
 		delete(provs, m.From)
 	}
@@ -70,7 +70,7 @@ func foldCredVeto(p providers.Provider) string {
 
 // planFold pairs each Databricks m2m row with the one oauth profile on its host whose spClientId is its clientId.
 func planFold(top map[string]json.RawMessage, tx *vault.Tx) (foldPlan, error) {
-	rows := decodeRows(Existing(top))
+	rows := decodeRows(existingRows(top))
 	settings, err := settingsText()
 	if err != nil {
 		return foldPlan{}, err
@@ -173,7 +173,7 @@ func docRef(top map[string]json.RawMessage, quoted, id string) string {
 			return "referenced by overlay " + k
 		}
 	}
-	rows := Existing(top)
+	rows := existingRows(top)
 	for _, other := range slices.Sorted(maps.Keys(rows)) {
 		if other != id && strings.Contains(string(rows[other]), quoted) {
 			return "referenced by row " + other

@@ -94,7 +94,7 @@ func runDigestModel(ctx context.Context, dir, claude, input string) ([]string, e
 	if len(lines) > digestMaxLines {
 		lines = lines[:digestMaxLines]
 	}
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
+	if strings.TrimSpace(lines[0]) == "" {
 		return nil, errors.New("digest model returned nothing")
 	}
 	return lines, nil

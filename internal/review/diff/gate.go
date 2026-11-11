@@ -104,7 +104,7 @@ func runStagedComplexity(repo string, changed []string, out io.Writer) int {
 		}
 		mirrored = append(mirrored, dst)
 	}
-	return source.RunComplexityWith(append(mirrored, "--threshold", "medium"), out, out, os.ReadFile)
+	return source.RunComplexity(append(mirrored, "--threshold", "medium"), out, out)
 }
 
 func filterLines(text string, re *regexp.Regexp) (string, bool) {

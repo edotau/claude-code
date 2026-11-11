@@ -36,9 +36,9 @@ func TestSaveOperationThenLoadOperationRoundTrip(t *testing.T) {
 		t.Fatalf("SaveOperation: %v", err)
 	}
 	repo := &Repo{Main: "/repo/main"}
-	got, err := LoadOperation(repo, "feature")
+	got, err := loadOperation(repo, "feature")
 	if err != nil {
-		t.Fatalf("LoadOperation: %v", err)
+		t.Fatalf("loadOperation: %v", err)
 	}
 	if !reflect.DeepEqual(got, op) {
 		t.Fatalf("round trip mismatch: got %+v, want %+v", got, op)
@@ -56,32 +56,32 @@ func TestSaveOperationOverwritesPriorStateForSameRepoWorktree(t *testing.T) {
 	if err := SaveOperation(second); err != nil {
 		t.Fatalf("SaveOperation (second): %v", err)
 	}
-	got, err := LoadOperation(repo, "feature")
+	got, err := loadOperation(repo, "feature")
 	if err != nil {
-		t.Fatalf("LoadOperation: %v", err)
+		t.Fatalf("loadOperation: %v", err)
 	}
 	if got.Phase != "resolved" {
 		t.Fatalf("Phase = %q, want the overwritten %q (same repo+worktree key)", got.Phase, "resolved")
 	}
 }
 
-// TestLoadOperationMissingFileSurfacesNotExist exercises LoadOperation's documented contract: a
+// TestLoadOperationMissingFileSurfacesNotExist exercises loadOperation's documented contract: a
 // missing file is the plain *os.PathError from os.ReadFile, so a caller can os.IsNotExist(err) it —
 // e.g. --resume reporting "nothing to resume" instead of a generic failure.
 func TestLoadOperationMissingFileSurfacesNotExist(t *testing.T) {
 	resolveFixtureOpEnv(t)
 	repo := &Repo{Main: "/repo/main"}
-	_, err := LoadOperation(repo, "never-started")
+	_, err := loadOperation(repo, "never-started")
 	if err == nil {
-		t.Fatal("LoadOperation: want an error for a never-saved operation")
+		t.Fatal("loadOperation: want an error for a never-saved operation")
 	}
 	if !os.IsNotExist(err) {
-		t.Fatalf("LoadOperation err = %v (%T), want os.IsNotExist true", err, err)
+		t.Fatalf("loadOperation err = %v (%T), want os.IsNotExist true", err, err)
 	}
 }
 
 // TestLoadOperationCorruptFileReturnsError writes garbage at the exact path SaveOperation would have
-// used, proving LoadOperation neither panics nor silently returns a zero-value Operation on bad JSON.
+// used, proving loadOperation neither panics nor silently returns a zero-value Operation on bad JSON.
 func TestLoadOperationCorruptFileReturnsError(t *testing.T) {
 	resolveFixtureOpEnv(t)
 	repo := &Repo{Main: "/repo/main"}
@@ -92,12 +92,12 @@ func TestLoadOperationCorruptFileReturnsError(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := LoadOperation(repo, "feature")
+	_, err := loadOperation(repo, "feature")
 	if err == nil {
-		t.Fatal("LoadOperation: want an error for corrupt JSON")
+		t.Fatal("loadOperation: want an error for corrupt JSON")
 	}
 	if os.IsNotExist(err) {
-		t.Fatalf("LoadOperation err = %v, want a decode error, not not-exist", err)
+		t.Fatalf("loadOperation err = %v, want a decode error, not not-exist", err)
 	}
 	if !strings.Contains(err.Error(), "load operation") {
 		t.Fatalf("err = %q, want it to name the failing step", err)

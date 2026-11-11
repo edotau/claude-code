@@ -16,9 +16,9 @@ import (
 
 var secretish = regexp.MustCompile(`(?i)token|secret|password|passwd|pat$|bearer|credential|apikey|key`)
 
-// Candidate must be structurally unable to carry a secret: no secret-named string field, only presence flags.
+// cfgCandidate must be structurally unable to carry a secret: no secret-named string field, only presence flags.
 func TestCandidateHasNoSecretBearingField(t *testing.T) {
-	typ := reflect.TypeFor[Candidate]()
+	typ := reflect.TypeFor[cfgCandidate]()
 	for f := range typ.Fields() {
 		if secretish.MatchString(f.Name) && f.Type.Kind() != reflect.Bool {
 			t.Errorf("Candidate.%s (%s) looks secret-bearing", f.Name, f.Type)
@@ -32,11 +32,11 @@ func TestCandidateHasNoSecretBearingField(t *testing.T) {
 }
 
 func TestSecretValuesNeverAppearInCandidatesOrPlan(t *testing.T) {
-	cs, _, err := Candidates(writeFixtureCfg(t))
+	cs, _, err := readCandidates(writeFixtureCfg(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := ImportPlan(cs, nil, ImportOptions{})
+	rows := importPlan(cs, nil, importOptions{})
 	var sb strings.Builder
 	for _, c := range cs {
 		fmt.Fprintf(&sb, "%+v %#v\n", c, c)
@@ -45,7 +45,7 @@ func TestSecretValuesNeverAppearInCandidatesOrPlan(t *testing.T) {
 	}
 	for _, r := range rows {
 		fmt.Fprintf(&sb, "%+v\n", r)
-		if b, err := RowJSON(r); err == nil {
+		if b, err := rowJSON(r); err == nil {
 			sb.Write(b)
 		}
 	}
@@ -57,7 +57,7 @@ func TestSecretValuesNeverAppearInCandidatesOrPlan(t *testing.T) {
 }
 
 func TestDefaultAndSettingsSectionsAreNeverCandidates(t *testing.T) {
-	cs, _, err := Candidates(writeFixtureCfg(t))
+	cs, _, err := readCandidates(writeFixtureCfg(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,18 +66,18 @@ func TestDefaultAndSettingsSectionsAreNeverCandidates(t *testing.T) {
 			t.Errorf("section %q became a candidate", c.Name)
 		}
 	}
-	if _, err := ReadSecrets(writeFixtureCfg(t), "__settings__"); err == nil {
+	if _, err := readSecrets(writeFixtureCfg(t), "__settings__"); err == nil {
 		t.Error("__settings__ is readable as a secret source")
 	}
 }
 
-func candidatesOf(t *testing.T, cfg string) []Candidate {
+func candidatesOf(t *testing.T, cfg string) []cfgCandidate {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "cfg")
 	if err := os.WriteFile(p, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cs, _, err := Candidates(p)
+	cs, _, err := readCandidates(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,10 +113,10 @@ func TestUnsupportedAndIncompleteProfilesSkipped(t *testing.T) {
 	}
 }
 
-func candsOf(t *testing.T, body string) map[string]Candidate {
+func candsOf(t *testing.T, body string) map[string]cfgCandidate {
 	t.Helper()
 	cs := candidatesOf(t, body)
-	m := map[string]Candidate{}
+	m := map[string]cfgCandidate{}
 	for _, c := range cs {
 		m[c.Name] = c
 	}
@@ -194,12 +194,12 @@ func TestParseMultiLineValues(t *testing.T) {
 	}
 }
 
-func patCand(name string) Candidate {
-	return Candidate{Name: name, Host: "https://example.cloud.databricks.com", Auth: providers.AuthPAT, HasSecret: true}
+func patCand(name string) cfgCandidate {
+	return cfgCandidate{Name: name, Host: "https://example.cloud.databricks.com", Auth: providers.AuthPAT, HasSecret: true}
 }
 
 func TestPlanSkipsCollidingSecretNames(t *testing.T) {
-	rows := ImportPlan([]Candidate{patCand("a-b"), patCand("a_b")}, nil, ImportOptions{})
+	rows := importPlan([]cfgCandidate{patCand("a-b"), patCand("a_b")}, nil, importOptions{})
 	if rows[0].Action != "add" {
 		t.Errorf("first = %+v", rows[0])
 	}
@@ -212,7 +212,7 @@ func TestPlanReplaceOfNoAuthTypeRowSkipsOnlyThatRow(t *testing.T) {
 	existing := map[string]json.RawMessage{
 		"keep": json.RawMessage(`{"preset":"databricks","host":"https://example.cloud.databricks.com","auth":{"type":"key"}}`),
 	}
-	rows := ImportPlan([]Candidate{patCand("keep"), patCand("fresh")}, existing, ImportOptions{Replace: true})
+	rows := importPlan([]cfgCandidate{patCand("keep"), patCand("fresh")}, existing, importOptions{Replace: true})
 	if rows[0].Action != "skip" || !strings.Contains(rows[0].Reason, "databricks login --profile keep --auth-type oauth") {
 		t.Errorf("existing = %+v", rows[0])
 	}
@@ -220,10 +220,10 @@ func TestPlanReplaceOfNoAuthTypeRowSkipsOnlyThatRow(t *testing.T) {
 		t.Errorf("fresh = %+v", rows[1])
 	}
 	top := map[string]json.RawMessage{}
-	if err := Apply(top, rows); err != nil {
+	if err := applyRows(top, rows); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := Existing(top)["fresh"]; !ok {
+	if _, ok := existingRows(top)["fresh"]; !ok {
 		t.Error("fresh row not applied")
 	}
 }
@@ -251,8 +251,8 @@ func TestCandidatesNotes(t *testing.T) {
 			if err := os.WriteFile(p, []byte(tt.cfg), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			cs, notes, err := Candidates(p)
-			if err != nil || !slices.ContainsFunc(cs, func(c Candidate) bool { return c.Name == tt.profile && c.Host == h }) {
+			cs, notes, err := readCandidates(p)
+			if err != nil || !slices.ContainsFunc(cs, func(c cfgCandidate) bool { return c.Name == tt.profile && c.Host == h }) {
 				t.Fatalf("Candidates = %+v, %v; want [%s] with host %s", cs, err, tt.profile, h)
 			}
 			joined := strings.Join(notes, "\n")

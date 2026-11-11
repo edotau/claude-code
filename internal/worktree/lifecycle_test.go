@@ -368,7 +368,7 @@ func TestIsLockedPropagatesNonNotExistStatError(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(gitDir, 0o755) }) // TempDir cleanup needs this back
 
-	locked, lockErr := isLockedAt(dest, gitDir)
+	locked, lockErr := isLockedAt(gitDir)
 	if lockErr == nil {
 		t.Fatalf("isLockedAt: want a propagated error for a permission-denied stat, got locked=%v, nil error", locked)
 	}
@@ -559,8 +559,8 @@ func TestContextAwareWorktreeLookupsReturnCancellation(t *testing.T) {
 	}
 }
 
-// TestPromoteCancelledContextNeverMovesMain covers Promote's own early ctx.Err() check: a context
-// already cancelled when Promote is entered must return immediately without acquiring the merge lock
+// TestPromoteCancelledContextNeverMovesMain covers promote's own early ctx.Err() check: a context
+// already cancelled when promote is entered must return immediately without acquiring the merge lock
 // or touching repo.Main at all — not even a failed fast-forward attempt.
 func TestPromoteCancelledContextNeverMovesMain(t *testing.T) {
 	mergeFixtureLockEnv(t)
@@ -572,15 +572,15 @@ func TestPromoteCancelledContextNeverMovesMain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if _, err := IntegrateTarget(context.Background(), repo, plan); err != nil {
-		t.Fatalf("IntegrateTarget: %v", err)
+	if _, err := integrateTarget(context.Background(), repo, plan); err != nil {
+		t.Fatalf("integrateTarget: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if _, err := Promote(ctx, repo, plan); err == nil {
-		t.Fatal("Promote: want an error for an already-cancelled context")
+	if _, err := promote(ctx, repo, plan); err == nil {
+		t.Fatal("promote: want an error for an already-cancelled context")
 	}
 	if headOf(main) != mainBefore {
 		t.Fatalf("main HEAD = %s, want unchanged %s — a cancelled ctx must never move it", headOf(main), mainBefore)
@@ -601,8 +601,8 @@ func TestPromoteCancelledAfterChecksStillRefusesFastForward(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if _, err := IntegrateTarget(context.Background(), repo, plan); err != nil {
-		t.Fatalf("IntegrateTarget: %v", err)
+	if _, err := integrateTarget(context.Background(), repo, plan); err != nil {
+		t.Fatalf("integrateTarget: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -615,8 +615,8 @@ func TestPromoteCancelledAfterChecksStillRefusesFastForward(t *testing.T) {
 	}
 	defer func() { runGit = orig }()
 
-	if _, err := Promote(ctx, repo, plan); err == nil {
-		t.Fatal("Promote: want an error — ctx was cancelled just before the ff-only merge")
+	if _, err := promote(ctx, repo, plan); err == nil {
+		t.Fatal("promote: want an error — ctx was cancelled just before the ff-only merge")
 	}
 	if headOf(main) != mainBefore {
 		t.Fatalf("main HEAD = %s, want unchanged %s", headOf(main), mainBefore)
@@ -703,7 +703,7 @@ func resolveCancelledPoll(t *testing.T, repo *Repo, plan *MergePlan, op *Operati
 	if gotOp.Phase != "cancelled" {
 		t.Fatalf("gotOp.Phase = %q, want %q", gotOp.Phase, "cancelled")
 	}
-	reloaded, loadErr := LoadOperation(repo, "feature")
+	reloaded, loadErr := loadOperation(repo, "feature")
 	if loadErr != nil || reloaded.Phase != "cancelled" {
 		t.Fatalf("reloaded = %+v, err=%v, want the preserved cancelled record", reloaded, loadErr)
 	}
@@ -721,7 +721,7 @@ func resolveCancelledPoll(t *testing.T, repo *Repo, plan *MergePlan, op *Operati
 func resolveResumeAfterCancel(t *testing.T, repo *Repo, plan *MergePlan, reloaded *Operation, wt string) {
 	t.Helper()
 	// A later --resume with a live (uncancelled) context must still be able to finish the job: resolve
-	// the conflict for real now, matching what CheckResolution's own poll would have found.
+	// the conflict for real now, matching what checkResolution's own poll would have found.
 	if err := os.WriteFile(filepath.Join(wt, "f.txt"), []byte("resolved after cancel\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

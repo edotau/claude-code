@@ -25,7 +25,7 @@ func hasFooter(text string) bool {
 // AttributionFooterCommit reports a `git commit` carrying a footer in its raw text (heredoc bodies too), in its
 // unquoted arguments (`"Cl""aude"`, `$'\x20'`), or in text a substitution builds that mentions one.
 func AttributionFooterCommit(cmd string) bool {
-	if hasFooter(cmd) && GitCommitInvocation(cmd) {
+	if hasFooter(cmd) && gitCommitInvocation(cmd) {
 		return true
 	}
 	_, subs := ExtractSubstitutions(cmd)

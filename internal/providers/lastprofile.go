@@ -85,7 +85,7 @@ func gitTopOr(cwd string) string {
 	return cwd
 }
 
-// loadLastProfiles is the stored state plus any decode error; a corrupt file is copied to .corrupt-<unix>, a newer one refused.
+// loadLastProfiles is the stored state plus any decode error; a corrupt file is renamed to .corrupt-<unix>, a newer one refused.
 func loadLastProfiles() (lastProfiles, error) {
 	var st lastProfiles
 	path := lastProfileFile()
@@ -100,7 +100,7 @@ func loadLastProfiles() (lastProfiles, error) {
 		if errors.Is(err, schemas.ErrNewer) {
 			return lastProfiles{}, err
 		}
-		if berr := paths.AtomicWrite(fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix()), data, 0o600); berr != nil {
+		if berr := os.Rename(path, fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())); berr != nil {
 			return lastProfiles{}, errors.Join(err, berr)
 		}
 		return lastProfiles{}, nil

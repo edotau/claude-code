@@ -243,9 +243,9 @@ func TestRescueDeletesScratchWhenSpawnFails(t *testing.T) {
 }
 
 func TestApiKeyHelperQuotesPathWithSpace(t *testing.T) {
-	o := base(t, TargetClaude, "serving")
+	o := base(t, targetClaude, "serving")
 	o.Self = "/opt/my tools/claude-code"
-	r, err := Render(o)
+	r, err := renderConfig(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,24 +259,24 @@ func TestApiKeyHelperQuotesPathWithSpace(t *testing.T) {
 		t.Errorf("helper path not quoted: %q", d.K)
 	}
 	o.Self = "/bin/cc"
-	if r, _ = Render(o); strings.Contains(r.Text, "'/bin/cc'") {
+	if r, _ = renderConfig(o); strings.Contains(r.Text, "'/bin/cc'") {
 		t.Errorf("a safe path must stay unquoted:\n%s", r.Text)
 	}
 }
 
 func TestSetRejectsKeysThatBreakOutOfTOML(t *testing.T) {
 	for _, k := range []string{"a b", `a"b`, "a]b", "a\nb", "[table]", "", "é"} {
-		for _, target := range []string{TargetCodex, TargetClaude} {
+		for _, target := range []string{targetCodex, targetClaude} {
 			o := base(t, target, "serving")
 			o.Set = []string{k + "=v"}
-			if _, err := Render(o); err == nil {
+			if _, err := renderConfig(o); err == nil {
 				t.Errorf("%s: --set key %q accepted", target, k)
 			}
 		}
 	}
-	o := base(t, TargetCodex, "serving")
+	o := base(t, targetCodex, "serving")
 	o.Set = []string{"model_reasoning_effort=high"}
-	if _, err := Render(o); err != nil {
+	if _, err := renderConfig(o); err != nil {
 		t.Errorf("plain key refused: %v", err)
 	}
 }

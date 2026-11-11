@@ -155,38 +155,6 @@ func TestCredentialAndConfigCiphertextCannotBeExchanged(t *testing.T) {
 	}
 }
 
-func TestPreferencesRejectInvalidEditsWithoutOverwritingSavedValues(t *testing.T) {
-	vaulttest.Use(t)
-	want := map[string]string{"model_reasoning_effort": "high", "model_verbosity": "low"}
-	if err := codex.SaveCodexOverlay(want); err != nil {
-		t.Fatal(err)
-	}
-	for _, invalid := range []map[string]string{
-		{"model_reasoning_effort": "unbounded"},
-		{"model_verbosity": "verbose"},
-		{"max_output_tokens": "256"},
-	} {
-		if err := codex.SaveCodexOverlay(invalid); err == nil {
-			t.Fatalf("accepted invalid preferences: %v", invalid)
-		}
-		got, err := codex.LoadCodexOverlay()
-		if err != nil || !reflect.DeepEqual(got, want) {
-			t.Fatalf("invalid edit overwrote saved preferences: %v, %v", got, err)
-		}
-	}
-	if err := codex.UpdateCodexOverlay(func(current map[string]string) map[string]string {
-		current["model_verbosity"] = "medium"
-		return current
-	}); err != nil {
-		t.Fatal(err)
-	}
-	want["model_verbosity"] = "medium"
-	got, err := codex.LoadCodexOverlay()
-	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Fatalf("staged preference merge lost an untouched preference: %v, %v", got, err)
-	}
-}
-
 // codex.MergeCodexTrust must not mistake a "["-led line inside an open array for a table header: an
 // existing trusted_hash AFTER the array, still inside the same table, is replaced in place —
 // not left stale with a duplicate appended at EOF because the array wrongly reset the active table.

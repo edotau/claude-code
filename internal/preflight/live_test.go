@@ -157,6 +157,33 @@ func TestInstallStepSharesBudget(t *testing.T) {
 	}
 }
 
+// A refresh that uses the whole Budget must not eat the pongs' window.
+func TestInstallStepPongsStartAfterRefresh(t *testing.T) {
+	hermeticVault(t)
+	pinAll(t)
+	setPins(t, map[string]string{"CODEX_MODEL": "m"})
+	old := Budget
+	Budget = 300 * time.Millisecond
+	t.Cleanup(func() { Budget = old; listModels = providers.ListModels })
+	listModels = func(ctx context.Context, _ *providers.Registry, _ *providers.Provider) ([]providers.ModelInfo, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	runAsk = func(ctx context.Context, _, _, _ string) (wire.Envelope, error) {
+		select {
+		case <-time.After(Budget / 3):
+			return wire.Envelope{Status: "ok", Provider: "dev", Model: "m"}, nil
+		case <-ctx.Done():
+			return wire.Envelope{}, ctx.Err()
+		}
+	}
+	var buf bytes.Buffer
+	RunInstallStep(context.Background(), &buf, preflightRegistry(true), "claude-code", time.Now().Add(48*time.Hour))
+	if strings.Contains(buf.String(), "fail · timeout") {
+		t.Fatalf("want pongs to run after the refresh, got %q", buf.String())
+	}
+}
+
 // opencode's install pong may outlast Budget (cold start); the other agents still stop at Budget.
 func TestInstallStepOpencodePongOutlastsBudget(t *testing.T) {
 	hermeticVault(t)

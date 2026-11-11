@@ -107,8 +107,8 @@ func rowKey(key string) string {
 	return id
 }
 
-// CopilotUnpinned is the copilot account key when no gh user is pinned; route's account gate drops it.
-const CopilotUnpinned = "github·unpinned"
+// copilotUnpinned is the copilot account key when no gh user is pinned; route's account gate drops it.
+const copilotUnpinned = "github·unpinned"
 
 // Load parses the embedded table, applies the registry's route overlay cell by cell and resolves account keys.
 func Load() (*RouteTable, error) {
@@ -124,7 +124,7 @@ func LoadFrom(reg *providers.Registry, ghUser string) (*RouteTable, error) {
 		return nil, fmt.Errorf("router: table.json: %w", err)
 	}
 	t := RouteTable{Billing: f.Billing, Weights: f.Weights, ByModel: f.Rows, OpencodeRowOverridden: map[string]bool{}}
-	copilotKey := CopilotUnpinned
+	copilotKey := copilotUnpinned
 	if ghUser != "" {
 		copilotKey = "github·" + ghUser
 	}

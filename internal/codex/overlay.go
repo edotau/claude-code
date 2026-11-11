@@ -67,33 +67,6 @@ func LoadCodexOverlay() (ov map[string]string, err error) {
 	return
 }
 
-func SaveCodexOverlay(ov map[string]string) error {
-	return UpdateCodexOverlay(func(map[string]string) map[string]string { return ov })
-}
-
-// UpdateCodexOverlay merges staged edits in one transaction, preserving other sessions' untouched preferences.
-func UpdateCodexOverlay(edit func(map[string]string) map[string]string) error {
-	return vault.Update(func(tx *vault.Tx) error {
-		ov, err := loadCodexOverlay(tx)
-		if err != nil {
-			return err
-		}
-		ov = edit(ov)
-		if err := ValidateCodexOverlay(ov); err != nil {
-			return err
-		}
-		raw := ""
-		if len(ov) > 0 {
-			data, err := json.Marshal(ov)
-			if err != nil {
-				return err
-			}
-			raw = string(data)
-		}
-		return tx.Put(vault.Overlay, codexOverlayKey, raw)
-	})
-}
-
 type CodexConfigBackup struct {
 	Name    string `json:"-"`
 	Path    string

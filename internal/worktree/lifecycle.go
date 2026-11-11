@@ -54,7 +54,7 @@ func Create(repo *Repo, name string, opt CreateOptions) (string, error) {
 	seedWorktree(repo.Main, dest, log)
 	if baseErr != nil {
 		fmt.Fprintf(log, "worktree-create: warning: ledger: resolve base: %v\n", baseErr)
-	} else if err := OpenLedger(repo.Main, name, LedgerInfo{
+	} else if err := openLedger(repo.Main, name, LedgerInfo{
 		Path: dest, Branch: branch, Base: strings.TrimSpace(string(base)), BaseRef: baseRef, Session: opt.Session,
 	}); err != nil {
 		fmt.Fprintf(log, "worktree-create: warning: ledger: %v\n", err)
@@ -99,7 +99,7 @@ func resumeLedger(repo *Repo, name, dest, session string) error {
 	if err != nil {
 		return err
 	}
-	return OpenLedger(repo.Main, name, info)
+	return openLedger(repo.Main, name, info)
 }
 
 func createBase(main string, log io.Writer) string {
@@ -254,7 +254,7 @@ func cleanBusyReason(dest string) (gitDir, reason string) {
 	if err != nil {
 		return "", "lock check failed: " + err.Error()
 	}
-	locked, err := isLockedAt(dest, gitDir)
+	locked, err := isLockedAt(gitDir)
 	if reason := lockReason(locked, err); reason != "" {
 		return "", reason
 	}
@@ -270,7 +270,7 @@ func cleanBusyReason(dest string) (gitDir, reason string) {
 func cleanInspectReason(repo *Repo, dest, gitDir string) (entry Entry, reason string) {
 	entry = Entry{Path: dest, Head: headOf(dest), gitDir: gitDir}
 	target, targetErr := currentBranch(repo.Main)
-	Inspect(repo, &entry, target, targetErr, time.Now())
+	inspect(repo, &entry, target, targetErr, time.Now())
 	switch {
 	case len(entry.Problems) > 0:
 		return entry, "inspection failed: " + strings.Join(entry.Problems, "; ")
@@ -363,7 +363,7 @@ func headOfContext(ctx context.Context, dest string) (string, error) {
 // isLockedAt stats the linked worktree's private "locked" marker directly, so Clean needs no full
 // `worktree list` round trip just to recheck one entry's lock state. Only a confirmed os.IsNotExist
 // counts as unlocked; any other stat error is an unknown state and must propagate.
-func isLockedAt(dest, gitDir string) (bool, error) {
+func isLockedAt(gitDir string) (bool, error) {
 	_, statErr := os.Stat(filepath.Join(gitDir, "locked"))
 	switch {
 	case statErr == nil:
@@ -447,7 +447,7 @@ func forceBusyReason(repo *Repo, dest string) string {
 	if err != nil {
 		return lockReason(false, err)
 	}
-	return lockReason(isLockedAt(dest, gitDir))
+	return lockReason(isLockedAt(gitDir))
 }
 
 // discardSummary counts what a forced clean would throw away; a non-empty reason refuses it.

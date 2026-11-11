@@ -58,11 +58,11 @@ func TestPickPoolRotatesHonorsSkipAndExpiry(t *testing.T) {
 func TestDiscoveryPoolOverlayOverridesSeedAndSeedIsCloned(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	got := DiscoveryPool()
-	if !slices.Equal(got, DatabricksDiscoveryPool) {
-		t.Fatalf("unset overlay: pool = %v, want the seed %v", got, DatabricksDiscoveryPool)
+	if !slices.Equal(got, databricksDiscoveryPool) {
+		t.Fatalf("unset overlay: pool = %v, want the seed %v", got, databricksDiscoveryPool)
 	}
 	got[0] = "mutated"
-	if DatabricksDiscoveryPool[0] == "mutated" {
+	if databricksDiscoveryPool[0] == "mutated" {
 		t.Fatal("DiscoveryPool aliases the seed slice")
 	}
 	put := func(raw string) {
@@ -77,7 +77,7 @@ func TestDiscoveryPoolOverlayOverridesSeedAndSeedIsCloned(t *testing.T) {
 	}
 	for _, bad := range []string{`not json`, `[]`} {
 		put(bad)
-		if got := DiscoveryPool(); !slices.Equal(got, DatabricksDiscoveryPool) {
+		if got := DiscoveryPool(); !slices.Equal(got, databricksDiscoveryPool) {
 			t.Errorf("overlay %q: pool = %v, want the seed", bad, got)
 		}
 	}

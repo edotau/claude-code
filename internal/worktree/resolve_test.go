@@ -190,13 +190,13 @@ func TestResolveWithAgentUntrackedResidueIgnoredAndPromotes(t *testing.T) {
 }
 
 // TestCleanRefusesWhileUntrackedResidueExists covers the other half of the untracked-residue change:
-// Clean's own dirty check (Inspect, --untracked-files=all) is unchanged, so residue left behind in a
+// Clean's own dirty check (inspect, --untracked-files=all) is unchanged, so residue left behind in a
 // worktree still blocks an ordinary `worktree clean` — the two checks are deliberately different (the
 // resolve controller's commit scope vs. Clean's "is this worktree empty-handed" bar) and this pins
 // that they stay different. Built on a clean fast-forward merge (not a resolve) to isolate Clean's own
-// dirty check from IntegrateTarget's — see the KNOWN DEFECT noted in this file's package comment: a
+// dirty check from integrateTarget's — see the KNOWN DEFECT noted in this file's package comment: a
 // residue file left behind by a real agent resolution currently makes the production merge's own
-// post-resolution IntegrateTarget call refuse with IssueDirtyWorktree, which this test deliberately
+// post-resolution integrateTarget call refuse with IssueDirtyWorktree, which this test deliberately
 // does not exercise.
 func TestCleanRefusesWhileUntrackedResidueExists(t *testing.T) {
 	mergeFixtureLockEnv(t)
@@ -210,11 +210,11 @@ func TestCleanRefusesWhileUntrackedResidueExists(t *testing.T) {
 	if len(plan.Issues) != 0 {
 		t.Fatalf("Preflight: issues=%v err=%v", plan.Issues, err)
 	}
-	if _, err := IntegrateTarget(context.Background(), repo, plan); err != nil {
-		t.Fatalf("IntegrateTarget: %v", err)
+	if _, err := integrateTarget(context.Background(), repo, plan); err != nil {
+		t.Fatalf("integrateTarget: %v", err)
 	}
-	if _, err := Promote(context.Background(), repo, plan); err != nil {
-		t.Fatalf("Promote: %v", err)
+	if _, err := promote(context.Background(), repo, plan); err != nil {
+		t.Fatalf("promote: %v", err)
 	}
 
 	// Simulate tooling residue (e.g. a plugin hook cache) left behind after the merge already landed.
@@ -265,9 +265,9 @@ func TestResolveWithAgentMarkersRemainFailsLikeTimeoutPreservingState(t *testing
 	}
 	requirePhase(t, "op", op.Phase, "failed")
 	// The operation file itself must be preserved (not deleted) and reflect the same terminal state.
-	reloaded, loadErr := LoadOperation(repo, "feature")
+	reloaded, loadErr := loadOperation(repo, "feature")
 	if loadErr != nil {
-		t.Fatalf("LoadOperation after failure: %v", loadErr)
+		t.Fatalf("loadOperation after failure: %v", loadErr)
 	}
 	if reloaded.Phase != "failed" || reloaded.ID != op.ID {
 		t.Fatalf("reloaded operation = %+v, want the preserved failed record", reloaded)
@@ -388,9 +388,9 @@ func TestResolveWithAgentCleanAbortNeverCommittedByController(t *testing.T) {
 // (ignoring the instruction not to run git commands): finalizeAgentResolution's own commit attempt
 // finds nothing staged (the agent's commit already cleared the working tree) and fails — the
 // fabricated commit is never promoted past this controller, by construction, regardless of its
-// ancestry. (A human can still --resume: that path polls CheckResolution directly instead of trying
+// ancestry. (A human can still --resume: that path polls checkResolution directly instead of trying
 // to re-commit, and rejects the stale commit there — see TestResolveWithAgentResumeRevalidatesAndCompletes
-// and the ancestry check in CheckResolution.)
+// and the ancestry check in checkResolution.)
 func TestResolveWithAgentStaleMergeCommitNeverPromoted(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
@@ -422,7 +422,7 @@ func TestResolveWithAgentStaleMergeCommitNeverPromoted(t *testing.T) {
 // FRESH run fails (finalizeAgentResolution's own re-commit finds nothing staged), but the operation
 // record is preserved with AgentExitOK — a later --resume (the op != nil / polling path) never
 // re-invokes the agent and instead revalidates the already-committed state directly via
-// CheckResolution, succeeding without ever trying to commit again.
+// checkResolution, succeeding without ever trying to commit again.
 func TestResolveWithAgentCommitsItselfFailsFreshButResumeSucceeds(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
@@ -520,7 +520,7 @@ func TestResolveWithAgentResumeRevalidatesAndCompletes(t *testing.T) {
 	}
 	requireIntegrate(t, result, resolvedHead)
 	requirePhase(t, "gotOp", gotOp.Phase, "resolved")
-	reloaded, loadErr := LoadOperation(repo, "feature")
+	reloaded, loadErr := loadOperation(repo, "feature")
 	if loadErr != nil || reloaded.Phase != "resolved" {
 		t.Fatalf("reloaded = %+v, err=%v, want a persisted resolved state", reloaded, loadErr)
 	}
@@ -528,8 +528,8 @@ func TestResolveWithAgentResumeRevalidatesAndCompletes(t *testing.T) {
 }
 
 // TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced chains a successful agent resolution into
-// Promote, then advances main before Promote runs — reproducing "target moved between resolve and
-// promote". Promote must stop with a retry hint rather than falling back to a real conflicting merge.
+// promote, then advances main before promote runs — reproducing "target moved between resolve and
+// promote". promote must stop with a retry hint rather than falling back to a real conflicting merge.
 func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
@@ -549,19 +549,19 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 	requirePhase(t, "result", result.Phase, "integrate")
 	requireIntegrate(t, result, headOf(wt)) // AfterOID is the resolved worktree HEAD
 
-	// Matches production order (cmdWorktreeMerge): IntegrateTarget always runs after resolution,
+	// Matches production order (cmdWorktreeMerge): integrateTarget always runs after resolution,
 	// pinning plan.IntegratedOID — content is already merged, so this is a no-op re-merge.
-	if _, err := IntegrateTarget(context.Background(), repo, plan); err != nil {
-		t.Fatalf("IntegrateTarget: %v", err)
+	if _, err := integrateTarget(context.Background(), repo, plan); err != nil {
+		t.Fatalf("integrateTarget: %v", err)
 	}
 
-	// Main moves on after resolution but before Promote — plan.TargetOID is now stale.
+	// Main moves on after resolution but before promote — plan.TargetOID is now stale.
 	mergeFixtureWrite(t, main, "unrelated.txt", "main moved on\n", "main advances independently")
 	advancedMain := headOf(main)
 
-	promoted, promoteErr := Promote(context.Background(), repo, plan)
+	promoted, promoteErr := promote(context.Background(), repo, plan)
 	if promoteErr == nil {
-		t.Fatal("Promote: want an error — target advanced since the plan was pinned")
+		t.Fatal("promote: want an error — target advanced since the plan was pinned")
 	}
 	if promoted == nil || promoted.ResumeHint == "" {
 		t.Fatalf("promoted = %+v, want a non-empty ResumeHint", promoted)
@@ -570,7 +570,7 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 		t.Fatalf("err = %q, want a target-moved message", promoteErr)
 	}
 	if headOf(main) != advancedMain {
-		t.Fatalf("main HEAD = %s, want unchanged %s (Promote must not fall back to a real merge)", headOf(main), advancedMain)
+		t.Fatalf("main HEAD = %s, want unchanged %s (promote must not fall back to a real merge)", headOf(main), advancedMain)
 	}
 }
 

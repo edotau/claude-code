@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -26,9 +27,7 @@ func TestCodexOwnModelSkipsMultilineValues(t *testing.T) {
 // Each record extra reaches config.toml; the record beats the legacy overlay, which still fills what it leaves unset.
 func TestCodexConfigFromRecordExtras(t *testing.T) {
 	vaulttest.Use(t)
-	if err := SaveCodexOverlay(map[string]string{codexEffortKey: "medium", extraVerbosity: "high"}); err != nil {
-		t.Fatal(err)
-	}
+	putCodexOverlay(t, map[string]string{codexEffortKey: "medium", extraVerbosity: "high"})
 	putCodexRecord(t, vault.AgentRecord{Effort: "max", Extras: map[string]string{
 		extraApprovalPolicy: "on-request", extraSandboxMode: "workspace-write", extraVerbosity: "low"}})
 	keys, err := codexPermissionKeys("", io.Discard)
@@ -62,9 +61,7 @@ func TestCodexConfigFromRecordExtras(t *testing.T) {
 // A preferences save lands in the codex record and empties the legacy overlay; an untouched max effort stays max.
 func TestUpdateCodexPreferencesWritesRecord(t *testing.T) {
 	vaulttest.Use(t)
-	if err := SaveCodexOverlay(map[string]string{extraVerbosity: "high"}); err != nil {
-		t.Fatal(err)
-	}
+	putCodexOverlay(t, map[string]string{extraVerbosity: "high"})
 	putCodexRecord(t, vault.AgentRecord{Effort: "max", Profile: "chatgpt"})
 	if err := UpdateCodexPreferences(func(p map[string]string) map[string]string { return p }); err != nil {
 		t.Fatal(err)
@@ -85,5 +82,17 @@ func TestUpdateCodexPreferencesWritesRecord(t *testing.T) {
 	}
 	if rec = vault.GetAgentRecord("codex"); rec.Effort != "" || rec.Extras[extraVerbosity] != "low" {
 		t.Errorf("record after edit = %+v, want effort cleared and verbosity low", rec)
+	}
+}
+
+// putCodexOverlay seeds the legacy overlay, which production no longer writes.
+func putCodexOverlay(t *testing.T, ov map[string]string) {
+	t.Helper()
+	raw, err := json.Marshal(ov)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, codexOverlayKey, string(raw)) }); err != nil {
+		t.Fatal(err)
 	}
 }

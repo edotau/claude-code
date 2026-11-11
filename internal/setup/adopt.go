@@ -21,10 +21,8 @@ import (
 
 // Clash is a git-tracked path in the source repo that already exists at the target dir.
 type Clash struct {
-	Path    string      // repo-relative, slash-separated
-	Size    int64       // the target's current size
-	Mode    os.FileMode // the target's current mode
-	Differs bool        // sha256 differs from the repo's version
+	Path    string // repo-relative, slash-separated
+	Differs bool   // sha256 differs from the repo's version
 }
 
 // Clashes lists every git-tracked path in repo that already exists at dir. Untracked and ignored
@@ -48,7 +46,7 @@ func Clashes(repo, dir string) ([]Clash, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, Clash{Path: rel, Size: fi.Size(), Mode: fi.Mode(), Differs: differs})
+		out = append(out, Clash{Path: rel, Differs: differs})
 	}
 	return out, nil
 }

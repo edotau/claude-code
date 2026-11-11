@@ -55,7 +55,7 @@ func TestScopedGoGate(t *testing.T) {
 	run("add", "-A")
 	run("commit", "-q", "-m", "change")
 
-	cmd, pkgs, full, err := ScopedGoGate(context.Background(), dir, base)
+	cmd, pkgs, full, err := scopedGoGate(context.Background(), dir, base)
 	if err != nil || full {
 		t.Fatalf("err=%v full=%v", err, full)
 	}
@@ -69,7 +69,7 @@ func TestScopedGoGate(t *testing.T) {
 	write("go.mod", "module example.com/m\n\ngo 1.23\n")
 	run("add", "-A")
 	run("commit", "-q", "-m", "mod")
-	cmd, _, full, err = ScopedGoGate(context.Background(), dir, base)
+	cmd, _, full, err = scopedGoGate(context.Background(), dir, base)
 	if err != nil || !full || !strings.HasSuffix(cmd, "go test ./...") {
 		t.Fatalf("go.mod change: cmd=%s full=%v err=%v", cmd, full, err)
 	}
@@ -91,7 +91,7 @@ func TestScopedGoGateReverseDeps(t *testing.T) {
 	write("a/a.go", "package a\n\nconst X = 1\n")
 	run("commit", "-q", "-am", "change a")
 
-	_, pkgs, _, err := ScopedGoGate(context.Background(), dir, base)
+	_, pkgs, _, err := scopedGoGate(context.Background(), dir, base)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestScopedGoGateNonGoFiles(t *testing.T) {
 	run("add", "-A")
 	run("commit", "-q", "-m", "data")
 
-	_, pkgs, full, err := ScopedGoGate(context.Background(), dir, base)
+	_, pkgs, full, err := scopedGoGate(context.Background(), dir, base)
 	if err != nil || full {
 		t.Fatalf("err=%v full=%v", err, full)
 	}
@@ -130,7 +130,7 @@ func TestScopedGoGateNonGoFiles(t *testing.T) {
 	write("tools/run.sh", "#!/bin/sh\n")
 	run("add", "-A")
 	run("commit", "-q", "-m", "script")
-	if cmd, _, full, err := ScopedGoGate(context.Background(), dir, base); err != nil || !full || cmd != fullGoGate {
+	if cmd, _, full, err := scopedGoGate(context.Background(), dir, base); err != nil || !full || cmd != fullGoGate {
 		t.Fatalf("unowned non-markdown file: cmd=%s full=%v err=%v", cmd, full, err)
 	}
 }
@@ -216,8 +216,8 @@ func TestScopedVerifyGateQuotesScope(t *testing.T) {
 			var out, stderr strings.Builder
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if err := RunVerify(ctx, dir, stub+gate, &out, &stderr); err != nil {
-				t.Fatalf("RunVerify: %v; stderr=%s", err, &stderr)
+			if err := runVerify(ctx, dir, stub+gate, &out, &stderr); err != nil {
+				t.Fatalf("runVerify: %v; stderr=%s", err, &stderr)
 			}
 			if got := out.String(); got != c.want {
 				t.Fatalf("scope arguments changed during shell execution:\ngot  %q\nwant %q", got, c.want)
@@ -288,33 +288,33 @@ func TestRunVerifyCancelledByContextStopsPromptly(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	start := time.Now()
-	err := RunVerify(ctx, t.TempDir(), "sleep 30", io.Discard, io.Discard)
+	err := runVerify(ctx, t.TempDir(), "sleep 30", io.Discard, io.Discard)
 	if err == nil {
-		t.Fatal("RunVerify: want an error for an already-cancelled context")
+		t.Fatal("runVerify: want an error for an already-cancelled context")
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
-		t.Fatalf("RunVerify took %s after cancellation, want it to stop promptly", elapsed)
+		t.Fatalf("runVerify took %s after cancellation, want it to stop promptly", elapsed)
 	}
 }
 
 // Precedence: --no-verify, then --verify, then detection (Makefile test target beats go.mod); nothing found refuses.
 func TestChooseVerifyGatePrecedence(t *testing.T) {
 	dir := t.TempDir()
-	if _, _, err := ChooseVerifyGate(dir, "", false); err == nil {
+	if _, _, err := chooseVerifyGate(dir, "", false); err == nil {
 		t.Fatal("empty dir without --no-verify: want a refusal")
 	}
-	if g, _, err := ChooseVerifyGate(dir, "x", true); g != "" || err != nil {
+	if g, _, err := chooseVerifyGate(dir, "x", true); g != "" || err != nil {
 		t.Fatalf("--no-verify = (%q, %v), want skip", g, err)
 	}
-	if g, s, _ := ChooseVerifyGate(dir, "x", false); g != "x" || s != "flag" {
+	if g, s, _ := chooseVerifyGate(dir, "x", false); g != "x" || s != "flag" {
 		t.Fatalf("--verify = (%q, %q)", g, s)
 	}
 	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m\n"), 0o644)
-	if _, s, _ := ChooseVerifyGate(dir, "", false); s != "go.mod" {
+	if _, s, _ := chooseVerifyGate(dir, "", false); s != "go.mod" {
 		t.Fatalf("go.mod source = %q", s)
 	}
 	os.WriteFile(filepath.Join(dir, "Makefile"), []byte("test:\n\ttrue\n"), 0o644)
-	if g, s, _ := ChooseVerifyGate(dir, "", false); g != "make test" || s != "Makefile" {
+	if g, s, _ := chooseVerifyGate(dir, "", false); g != "make test" || s != "Makefile" {
 		t.Fatalf("Makefile = (%q, %q)", g, s)
 	}
 }
@@ -331,7 +331,7 @@ func TestScopedGoGateNoPackagesOmitsGoTest(t *testing.T) {
 	run("add", "-A")
 	run("commit", "-q", "-m", "docs")
 
-	cmd, pkgs, full, err := ScopedGoGate(context.Background(), dir, base)
+	cmd, pkgs, full, err := scopedGoGate(context.Background(), dir, base)
 	if err != nil || full || len(pkgs) != 0 {
 		t.Fatalf("err=%v full=%v pkgs=%v", err, full, pkgs)
 	}
@@ -369,7 +369,7 @@ func TestScopedGoGateRootPackageAndGlobPath(t *testing.T) {
 	run("add", "-A")
 	run("commit", "-q", "-m", "change")
 
-	cmd, pkgs, _, err := ScopedGoGate(context.Background(), dir, base)
+	cmd, pkgs, _, err := scopedGoGate(context.Background(), dir, base)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,9 +384,9 @@ func TestRunVerifyCancelKillsProcessTree(t *testing.T) {
 	defer cancel()
 	var out strings.Builder
 	start := time.Now()
-	_ = RunVerify(ctx, t.TempDir(), "sleep 30 & wait", &out, &out)
+	_ = runVerify(ctx, t.TempDir(), "sleep 30 & wait", &out, &out)
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
-		t.Fatalf("RunVerify took %s after cancellation; the orphaned grandchild held the pipe", elapsed)
+		t.Fatalf("runVerify took %s after cancellation; the orphaned grandchild held the pipe", elapsed)
 	}
 }
 
@@ -394,7 +394,7 @@ func TestRunVerifyCancelKillsProcessTree(t *testing.T) {
 func TestRunVerifyDropsVaultKey(t *testing.T) {
 	t.Setenv("HARNESS_VAULT_KEY", "sekrit")
 	var out strings.Builder
-	if err := RunVerify(context.Background(), t.TempDir(), `echo "key=[${HARNESS_VAULT_KEY}]"`, &out, &out); err != nil {
+	if err := runVerify(context.Background(), t.TempDir(), `echo "key=[${HARNESS_VAULT_KEY}]"`, &out, &out); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.TrimSpace(out.String()); got != "key=[]" {

@@ -424,7 +424,9 @@ func TestNewSemanticPerProfileCacheFallsBackToPin(t *testing.T) {
 // A timed-out query pauses the semantic dispatch: the next prompt skips the endpoint instead of waiting again.
 func TestNewSemanticBacksOffAfterTimeout(t *testing.T) {
 	isolatedConfig1(t)
-	t.Cleanup(SetEmbedRecallWait(50 * time.Millisecond))
+	prevWait := embedRecallWait
+	embedRecallWait = 50 * time.Millisecond
+	t.Cleanup(func() { embedRecallWait = prevWait })
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 	t.Setenv("CLAUDE_PROFILE", "fake")
 	f := vectorRecord{Namespace: "fake|h|gte", Model: "gte", Rows: map[string]vectorRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}

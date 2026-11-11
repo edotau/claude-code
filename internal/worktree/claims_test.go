@@ -38,11 +38,11 @@ func TestScanClaimsReportsLiveLedgerErrors(t *testing.T) {
 	if !reflect.DeepEqual(got, []string{label + ":dirty.go"}) {
 		t.Errorf("ScanClaims claims = %v, want readable owner's dirty.go claim", got)
 	}
-	holders, err := Holders(alive, []string{"dirty.go"})
-	if !reflect.DeepEqual(holders["dirty.go"], []string{label}) {
-		t.Errorf("Holders = %v, want readable owner's claim despite ledger errors", holders)
+	held, err := holders(alive, []string{"dirty.go"})
+	if !reflect.DeepEqual(held["dirty.go"], []string{label}) {
+		t.Errorf("holders = %v, want readable owner's claim despite ledger errors", held)
 	}
 	if !errors.Is(err, syscall.ELOOP) || !errors.Is(err, syscall.EISDIR) {
-		t.Errorf("Holders error = %v, want the live ledger failures", err)
+		t.Errorf("holders error = %v, want the live ledger failures", err)
 	}
 }

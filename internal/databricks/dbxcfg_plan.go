@@ -9,9 +9,9 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// Row is the planned outcome for one candidate.
-type Row struct {
-	Candidate
+// importRow is the planned outcome for one candidate.
+type importRow struct {
+	cfgCandidate
 	ID           string // vault provider id
 	Action       string // add|replace|skip
 	Reason       string // why skipped
@@ -23,16 +23,16 @@ type Row struct {
 	existed      bool
 }
 
-// ImportOptions steer ImportPlan.
-type ImportOptions struct {
+// importOptions steer importPlan.
+type importOptions struct {
 	Rename  map[string]string // source name to row id
 	Replace bool
 	Pair    map[string]string // SP section to user section; empty means explicitly unpaired
 }
 
-// ImportPlan maps candidates to rows against the existing provider rows (id to raw JSON).
-func ImportPlan(cands []Candidate, existing map[string]json.RawMessage, o ImportOptions) []Row {
-	rows := make([]Row, 0, len(cands))
+// importPlan maps candidates to rows against the existing provider rows (id to raw JSON).
+func importPlan(cands []cfgCandidate, existing map[string]json.RawMessage, o importOptions) []importRow {
+	rows := make([]importRow, 0, len(cands))
 	taken := map[string]bool{}
 	names := sealedNames(existing)
 	for _, c := range cands {
@@ -44,7 +44,7 @@ func ImportPlan(cands []Candidate, existing map[string]json.RawMessage, o Import
 		}
 		if r.Action != "skip" {
 			taken[r.ID] = true
-			if n := SecretNameOf(r); n != "" {
+			if n := secretNameOf(r); n != "" {
 				names[n] = r.ID
 			}
 		}
@@ -54,8 +54,8 @@ func ImportPlan(cands []Candidate, existing map[string]json.RawMessage, o Import
 }
 
 // baseImportRow is candidate c's "add" row with the id, existing-row facts and oauth pairing carried over.
-func baseImportRow(c Candidate, existing map[string]json.RawMessage, o ImportOptions) (r Row, ek string) {
-	r = Row{Candidate: c, ID: c.Name, Action: "add"}
+func baseImportRow(c cfgCandidate, existing map[string]json.RawMessage, o importOptions) (r importRow, ek string) {
+	r = importRow{cfgCandidate: c, ID: c.Name, Action: "add"}
 	if n, ok := o.Rename[c.Name]; ok {
 		r.ID = n
 	}
@@ -80,7 +80,7 @@ func baseImportRow(c Candidate, existing map[string]json.RawMessage, o ImportOpt
 }
 
 // skipReason is why row r is not imported ("" = importable); the checks run in a fixed order.
-func skipReason(r Row, c Candidate, ek string, o ImportOptions, taken map[string]bool, names map[string]string) string {
+func skipReason(r importRow, c cfgCandidate, ek string, o importOptions, taken map[string]bool, names map[string]string) string {
 	switch {
 	case c.Skip != "":
 		return c.Skip
@@ -98,14 +98,14 @@ func skipReason(r Row, c Candidate, ek string, o ImportOptions, taken map[string
 		return "paired profile host is never changed on re-import"
 	}
 	if collides(names, r) {
-		n := SecretNameOf(r)
+		n := secretNameOf(r)
 		return "secret name " + n + " is shared with row " + names[n] + "; use --rename"
 	}
 	return ""
 }
 
 // existingSkipReason is why an already-present row is left alone ("" = it may be replaced).
-func existingSkipReason(r Row, c Candidate, ek string, o ImportOptions) string {
+func existingSkipReason(r importRow, c cfgCandidate, ek string, o importOptions) string {
 	switch {
 	case !o.Replace:
 		return "row exists (use --replace)"
@@ -117,8 +117,8 @@ func existingSkipReason(r Row, c Candidate, ek string, o ImportOptions) string {
 	return ""
 }
 
-// SecretNameOf is the vault name of a planned row's sealed credential, derived by providers.
-func SecretNameOf(r Row) string {
+// secretNameOf is the vault name of a planned row's sealed credential, derived by providers.
+func secretNameOf(r importRow) string {
 	if r.Auth == providers.AuthOAuth && r.SPClientID != "" {
 		return secretName(r.ID, providers.AuthM2M)
 	}
@@ -152,8 +152,8 @@ func sealedNames(existing map[string]json.RawMessage) map[string]string {
 }
 
 // collides reports whether r's secret name already belongs to a different row.
-func collides(names map[string]string, r Row) bool {
-	n := SecretNameOf(r)
+func collides(names map[string]string, r importRow) bool {
+	n := secretNameOf(r)
 	o, ok := names[n]
 	return n != "" && ok && o != r.ID
 }
@@ -174,8 +174,8 @@ func existingAuthType(raw json.RawMessage) string {
 	return p.Auth.Type
 }
 
-// RowJSON renders the vault row for a planned candidate.
-func RowJSON(r Row) (json.RawMessage, error) {
+// rowJSON renders the vault row for a planned candidate.
+func rowJSON(r importRow) (json.RawMessage, error) {
 	auth := map[string]any{"type": r.Auth}
 	if r.Auth == providers.AuthM2M {
 		auth["clientId"] = r.ClientID
@@ -196,21 +196,21 @@ func RowJSON(r Row) (json.RawMessage, error) {
 	return json.Marshal(out)
 }
 
-// Apply writes the add/replace rows into the overlay doc's providers map.
-func Apply(top map[string]json.RawMessage, rows []Row) error {
+// applyRows writes the add/replace rows into the overlay doc's providers map.
+func applyRows(top map[string]json.RawMessage, rows []importRow) error {
 	if raw, ok := top["providers"]; ok {
 		var probe map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &probe); err != nil {
 			return fmt.Errorf("providers overlay: existing value is not an object: %w", err)
 		}
 	}
-	provs := Existing(top)
+	provs := existingRows(top)
 	keys := providers.ObjectKeys(top["providers"])
 	for _, r := range rows {
 		if r.Action == "skip" {
 			continue
 		}
-		raw, err := RowJSON(r)
+		raw, err := rowJSON(r)
 		if err != nil {
 			return err
 		}
@@ -227,8 +227,8 @@ func Apply(top map[string]json.RawMessage, rows []Row) error {
 	return nil
 }
 
-// Existing returns the overlay's provider rows by id.
-func Existing(top map[string]json.RawMessage) map[string]json.RawMessage {
+// existingRows returns the overlay's provider rows by id.
+func existingRows(top map[string]json.RawMessage) map[string]json.RawMessage {
 	out := map[string]json.RawMessage{}
 	if raw, ok := top["providers"]; ok {
 		_ = json.Unmarshal(raw, &out)
@@ -237,7 +237,7 @@ func Existing(top map[string]json.RawMessage) map[string]json.RawMessage {
 }
 
 // pairRows consumes explicit choices before same-host inference; any existing user pairing decision is final.
-func pairRows(rows []Row, choices map[string]string, names map[string]string) []Row {
+func pairRows(rows []importRow, choices map[string]string, names map[string]string) []importRow {
 	for _, i := range pairOrder(rows, choices) {
 		sp := &rows[i]
 		if sp.Auth != providers.AuthM2M || sp.Skip != "" {
@@ -256,7 +256,7 @@ func pairRows(rows []Row, choices map[string]string, names map[string]string) []
 }
 
 // attachToTarget attaches sp to the same-host user row named target, reporting whether one took it.
-func attachToTarget(rows []Row, users []int, target string, sp *Row, names map[string]string) bool {
+func attachToTarget(rows []importRow, users []int, target string, sp *importRow, names map[string]string) bool {
 	for _, j := range users {
 		if rows[j].Name == target && attachSP(&rows[j], sp, names) {
 			return true
@@ -266,7 +266,7 @@ func attachToTarget(rows []Row, users []int, target string, sp *Row, names map[s
 }
 
 // pairOrder is rows' indexes with explicit choices and saved pairings first, otherwise stable.
-func pairOrder(rows []Row, choices map[string]string) []int {
+func pairOrder(rows []importRow, choices map[string]string) []int {
 	order := make([]int, len(rows))
 	for i := range rows {
 		order[i] = i
@@ -287,7 +287,7 @@ func pairOrder(rows []Row, choices map[string]string) []int {
 }
 
 // markDeclinedPairings records an explicit "no pairing" on the same-host users still without a service principal.
-func markDeclinedPairings(rows []Row, choices map[string]string) {
+func markDeclinedPairings(rows []importRow, choices map[string]string) {
 	for _, sp := range rows {
 		target, explicit := choices[sp.Name]
 		if !explicit {
@@ -306,7 +306,7 @@ func markDeclinedPairings(rows []Row, choices map[string]string) {
 }
 
 // pairingTags are a candidate's Env plus its name tokens; they only order choices, never override host safety.
-func pairingTags(c Candidate) []string {
+func pairingTags(c cfgCandidate) []string {
 	tags := strings.FieldsFunc(strings.ToLower(c.Name), func(r rune) bool { return r == '-' || r == '_' || r == '.' })
 	if c.Env != "" {
 		tags = append(tags, strings.ToLower(c.Env))
@@ -325,7 +325,7 @@ func existingHost(raw json.RawMessage) string {
 }
 
 // sameHostRows counts source profiles, including ones that an earlier pairing already consumed.
-func sameHostRows(rows []Row, sp Row) (users []int, principals int) {
+func sameHostRows(rows []importRow, sp importRow) (users []int, principals int) {
 	for j, u := range rows {
 		if u.Skip != "" || u.Host != sp.Host {
 			continue
@@ -340,7 +340,7 @@ func sameHostRows(rows []Row, sp Row) (users []int, principals int) {
 	return users, principals
 }
 
-func pairTarget(rows []Row, sp Row, users []int, principals int, choices map[string]string) (string, bool) {
+func pairTarget(rows []importRow, sp importRow, users []int, principals int, choices map[string]string) (string, bool) {
 	if target, ok := choices[sp.Name]; ok {
 		return target, true
 	}
@@ -359,7 +359,7 @@ func pairTarget(rows []Row, sp Row, users []int, principals int, choices map[str
 }
 
 // canAttachSP is the row-state half of attachSP's guard: no stored decision or foreign credential is overridden.
-func canAttachSP(u, sp *Row) bool {
+func canAttachSP(u, sp *importRow) bool {
 	if u.Action == "skip" && (!u.existed || u.SPClientID != sp.ClientID) {
 		return false
 	}
@@ -370,7 +370,7 @@ func canAttachSP(u, sp *Row) bool {
 }
 
 // attachSP never replaces a stored pairing decision or borrows a credential from a different host.
-func attachSP(u, sp *Row, names map[string]string) bool {
+func attachSP(u, sp *importRow, names map[string]string) bool {
 	if !canAttachSP(u, sp) {
 		return false
 	}
