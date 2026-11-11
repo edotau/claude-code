@@ -54,18 +54,6 @@ type turnLine struct {
 	} `json:"message"`
 }
 
-// clipTurn truncates one turn to handoffCap bytes so a single giant paste cannot exceed the arg limit.
-func clipTurn(s string) string {
-	if len(s) <= handoffCap {
-		return s
-	}
-	cut := handoffCap // a byte budget (argv limits are bytes), cut back to a rune boundary
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut] + " …[truncated]"
-}
-
 // readTurns reads source's JSONL, keeping user/assistant lines with non-empty text.
 func readTurns(source string) ([]string, error) {
 	f, err := os.Open(source)
@@ -83,7 +71,7 @@ func readTurns(source string) ([]string, error) {
 		if role != "user" && role != "assistant" {
 			return
 		}
-		text := clipTurn(textutil.RedactSecrets(strings.TrimSpace(ContentText(line.Message.Content))))
+		text := clipBytes(textutil.RedactSecrets(strings.TrimSpace(ContentText(line.Message.Content))), handoffCap)
 		if text == "" {
 			return
 		}

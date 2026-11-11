@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -561,12 +561,12 @@ func Skeleton(configDir string) (string, error) {
 
 // CommitFiles lists the files sha changed in the repo at dir.
 func CommitFiles(ctx context.Context, dir, sha string) ([]string, error) {
-	raw, err := exec.CommandContext(ctx, "git", "-C", dir, "show", "-z", "--name-only", "--format=", sha).Output()
+	raw, err := proc.RunGitInherit(ctx, dir, "show", "-z", "--name-only", "--format=", sha)
 	if err != nil {
 		return nil, fmt.Errorf("git show %s: %w", sha, err)
 	}
 	var files []string
-	for f := range strings.SplitSeq(string(raw), "\x00") {
+	for f := range strings.SplitSeq(raw, "\x00") {
 		if f != "" {
 			files = append(files, f)
 		}
@@ -579,12 +579,12 @@ func rangeCommits(ctx context.Context, dir, rng string) ([]Commit, error) {
 	if !strings.Contains(rng, "..") || strings.HasPrefix(rng, "-") {
 		return nil, fmt.Errorf("range %q: want <a>..<b>", rng)
 	}
-	raw, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-list", "--reverse", "--no-merges", rng, "--").Output()
+	raw, err := proc.RunGitInherit(ctx, dir, "rev-list", "--reverse", "--no-merges", rng, "--")
 	if err != nil {
 		return nil, fmt.Errorf("git rev-list %s: %w", rng, err)
 	}
 	var commits []Commit
-	for sha := range strings.FieldsSeq(string(raw)) {
+	for sha := range strings.FieldsSeq(raw) {
 		files, err := CommitFiles(ctx, dir, sha)
 		if err != nil {
 			return nil, err

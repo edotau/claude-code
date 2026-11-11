@@ -3,13 +3,13 @@ package diff
 import (
 	"bytes"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // RunGate ports code-review-gate.sh, an advisory hook with no Python CLI of its own (always exit 0).
@@ -17,22 +17,17 @@ import (
 // and assert the gate's own documented contract: always exit 0, and the section markers the shell
 // script prints ("--- code-review gate ---", "[simplicity]", "[surgical]").
 
-func mustRun(t *testing.T, dir, name string, args ...string) {
-	t.Helper()
-	cmd := exec.Command(name, args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.com",
-		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.com",
-	)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("%s %v: %v\n%s", name, args, err, out)
-	}
-}
-
 func newGateRepo(t *testing.T) string {
 	t.Helper()
 	return hosttest.Repo(t)
+}
+
+// gitAddInherited stages with the test's own GIT_INDEX_FILE, which hosttest.In strips.
+func gitAddInherited(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	if _, err := proc.RunGitInherit(t.Context(), dir, append([]string{"add"}, args...)...); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestRunGateNoStagedFiles(t *testing.T) {
@@ -54,7 +49,7 @@ func TestRunGateStagedFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "app.js"), []byte("function run() {\n  console.log('hi')\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	mustRun(t, dir, "git", "add", "app.js")
+	hosttest.In(t, dir, "add", "app.js")
 	t.Chdir(dir)
 
 	var stdout, stderr bytes.Buffer
@@ -85,7 +80,7 @@ func TestGateStagedFilesHonorsInheritedGitIndexFile(t *testing.T) {
 	}
 	altIndex := filepath.Join(t.TempDir(), "alt-index")
 	t.Setenv("GIT_INDEX_FILE", altIndex)
-	mustRun(t, dir, "git", "add", "a.txt")
+	gitAddInherited(t, dir, "a.txt")
 
 	files := gateStagedFiles(dir)
 	found := false
@@ -118,7 +113,7 @@ func TestRunGateRepoFlagFromOtherCwd(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "app.js"), []byte("function run() {\n  console.log('hi')\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	mustRun(t, dir, "git", "add", "app.js")
+	hosttest.In(t, dir, "add", "app.js")
 	t.Chdir(t.TempDir())
 
 	var stdout, stderr bytes.Buffer
@@ -137,13 +132,13 @@ func TestChangedSourceFilesFromSubdir(t *testing.T) {
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mustRun(t, root, "git", "commit", "-q", "--allow-empty", "-m", "init")
-	mustRun(t, root, "git", "checkout", "-q", "-b", "feature")
+	hosttest.In(t, root, "commit", "-q", "--allow-empty", "-m", "init")
+	hosttest.In(t, root, "checkout", "-q", "-b", "feature")
 	if err := os.WriteFile(filepath.Join(sub, "a.go"), []byte("package a\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	mustRun(t, root, "git", "add", "sub/a.go")
-	mustRun(t, root, "git", "commit", "-q", "-m", "add")
+	hosttest.In(t, root, "add", "sub/a.go")
+	hosttest.In(t, root, "commit", "-q", "-m", "add")
 
 	got, err := changedSourceFiles(sub, "main", "feature")
 	if err != nil || len(got) != 1 || got[0] != "a.go" {
@@ -188,7 +183,7 @@ func TestRunGateHonorsAlternateIndexBlob(t *testing.T) {
 	content := "\ndef run(x):\n" + strings.Repeat("    x += 1\n", 150) + "\n\t \n"
 	hosttest.WriteRel(t, repo, "app.py", content)
 	t.Setenv("GIT_INDEX_FILE", filepath.Join(t.TempDir(), "alternate-index"))
-	mustRun(t, repo, "git", "add", "--", "app.py")
+	gitAddInherited(t, repo, "--", "app.py")
 	hosttest.WriteRel(t, repo, "app.py", "def run(x):\n    return x\n")
 	stdout.Reset()
 	stderr.Reset()

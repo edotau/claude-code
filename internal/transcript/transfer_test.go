@@ -311,7 +311,7 @@ func TestReadTurnsAcceptsLineOver4MiB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readTurns: %v", err)
 	}
-	wantLen := len("USER: ") + handoffCap + len(" …[truncated]")
+	wantLen := len("USER: ") + handoffCap
 	if len(turns) != 3 || len(turns[1]) != wantLen {
 		t.Fatalf("got %d turns (middle len %d), want 3 with the big one clipped to %d", len(turns), len(turns[1]), wantLen)
 	}
