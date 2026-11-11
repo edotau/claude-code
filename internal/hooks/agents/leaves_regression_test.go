@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
@@ -60,5 +61,33 @@ func TestRanOnIgnoresDocAndSourceMentions(t *testing.T) {
 	in := leafTx(t, "gemini", "Objective: review internal/hooks/agents\n", doc, src)
 	if r, blocked := leafStopBlock(in, "a1"); !blocked || r.Decision != core.Block {
 		t.Fatalf("got %+v blocked=%v, want a Block: prose mentions are not a ran-on line nor a prior gate block", r, blocked)
+	}
+}
+
+// The reap runs last: a reap that outruns the host timeout must find the slot already retired.
+func TestStopReapsAfterRetiringSlot(t *testing.T) {
+	dispatchEnv(t)
+	pre(spawnPayload("u1"))
+	tx := filepath.Join(t.TempDir(), "session.jsonl")
+	writeMeta(t, tx, "a1", "u1")
+	slotAtReap := true
+	orig := reapLeaf
+	reapLeaf = func(*core.Input, leafRead) { slotAtReap = hasMarker(t, "u1") }
+	t.Cleanup(func() { reapLeaf = orig })
+	Stop(core.ParseInput(strings.NewReader(stopPayload("a1", tx, ""))))
+	if slotAtReap {
+		t.Error("reapLeaf ran while the slot marker was still held")
+	}
+}
+
+// An expired dispatch note and the ran-on fail-open note both reach the user.
+func TestLeafGateKeepsBothNotes(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	in := gatedLeafTx(t, "Objective: x\nAgent: codex\n", startedLine())
+	in.StopHookActive = true
+	writeDispatch(t, leafJob, recordAt(leafJob, "running", os.Getpid(), time.Now().Add(-leafStopMaxWait-time.Minute)))
+	r, blocked := leafStopBlock(in, "a1")
+	if blocked || !strings.Contains(r.SystemMessage, "finished with no ran-on line") || !strings.Contains(r.SystemMessage, "limit reached") {
+		t.Errorf("got %+v blocked=%v, want one message holding both the ran-on and the expiry notes", r, blocked)
 	}
 }

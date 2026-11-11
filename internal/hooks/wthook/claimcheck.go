@@ -44,6 +44,7 @@ type claimHit struct {
 func liveClaims(in *core.Input) (map[string][]claimHit, error) {
 	self := sessionSlug(in.SessionID)
 	leaf := siblingLeaf(in)
+	own := sync.OnceValue(claimOwner) // looked up once, and only when another session's file is seen
 	labels := map[int]string{}
 	byPath := map[string]map[string]int64{}
 	err := worktree.ScanClaims(claimAlive, func(pid int, slug string, c worktree.Claim) {
@@ -51,7 +52,8 @@ func liveClaims(in *core.Input) (map[string][]claimHit, error) {
 			return
 		}
 		w := leaf(c) // own session: only a sibling leaf's claim counts
-		if slug != self {
+		// our own pid under another slug is /clear or a resume, not a peer
+		if slug != self && pid != own() {
 			if labels[pid] == "" {
 				labels[pid] = SessionLabel(worktree.Proc{PID: pid, Comm: "claude"})
 			}

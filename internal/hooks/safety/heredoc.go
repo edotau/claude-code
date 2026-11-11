@@ -68,11 +68,14 @@ var fdToSubst = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile
 
 // inertStripped blanks text that is only data (message values, echo/grep arguments, file-only heredoc bodies)
 // but keeps every command substitution; pipeBlocks, exfilPatterns and sqlDestructive match this view.
-func inertStripped(cmd string) string {
+func inertStripped(cmd string) string { return blankInert(dropInertHeredocs(cmd)) }
+
+// blankInert is cmd with each inert segment's words blanked (substitutions kept), heredoc bodies untouched.
+func blankInert(cmd string) string {
 	if strings.Contains(cmd, ">(") || strings.Contains(cmd, "<(") || fdToSubst().MatchString(cmd) {
 		return cmd
 	}
-	segs, seps := shell.SegmentsSep(dropInertHeredocs(cmd))
+	segs, seps := shell.SegmentsSep(cmd)
 	var b strings.Builder
 	for i, seg := range segs {
 		// A piped segment feeds the next command, so its text stays: `echo "curl x" | sh` runs curl.

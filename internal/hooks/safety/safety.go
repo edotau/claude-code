@@ -2,9 +2,12 @@
 package safety
 
 import (
+	"context"
 	"fmt"
+	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -20,18 +23,21 @@ const rmRecursive = `rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(\S+
 // hardBlocks are command shapes that are almost never intentional.
 var hardBlocks = core.LazyCompile(
 	rmRecursive+`["']?/(\*|\s|$|[)\x60"'])`,
-	rmRecursive+`["']?/(etc|usr|var|bin|sbin|lib|System|Users|home)(/?\s|/?$|/?[)\x60"'])`,
+	rmRecursive+`["']?/(etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|System|Users|home|Applications|Library|Volumes|private)(/?\s|/?$|/?[)\x60"'])`,
 	rmRecursive+`["']?(\$HOME|\$\{HOME\}|~)/?(\*|\s|$|[)\x60"'])`,
 	`mkfs\.`,
 	`dd\s+.*\sof=/dev/(sd|disk|nvme|hd)`,
 	`chmod\s+-R\s+777\s+/(\s|$)`,
-	`:\(\)\s*\{.*\};\s*:`,
 	`python3?\s+.*-c\s+.*exec\(.*base64`,
 )
 
-// pipeBlocks match the WHOLE command text (minus inert data, see inertStripped) because pipes and encoded Python heredocs span shell segments.
+// pipeBlocks match the WHOLE command text (minus inert data, see inertStripped): pipes, a fork bomb and encoded Python
+// heredocs span shell segments.
 var pipeBlocks = core.LazyCompile(
-	`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(ba|z)?sh([^[:alnum:]_]|$)`,
+	`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(\S*/)?(ba|z)?sh([^[:alnum:]_]|$)`,
+	`(^|[\s;&|({/\x60])eval\s+["']?(\$\(|\x60)\s*(\S*/)?(curl|wget)\s`,
+	`(^|[^[:alnum:]_])base64\s+(-d|-D|--decode)[^|]*\|\s*(sudo\s+)?(\S*/)?(ba|z|da|k)?sh([^[:alnum:]_]|$)`,
+	`:\(\)\s*\{[^}]*\}\s*;\s*:`,
 	`(^|[\s;&|({/\x60])(bash|sh|zsh|dash|ksh)\s+(-\S*\s+)*-[a-zA-Z]*c[a-zA-Z]*\s+["']?(\$\(\s*|\x60\s*)(\S*/)?(curl|wget)\s`,
 	`(^|[\s;&|({/\x60])(bash|sh|zsh|dash|ksh|source|\.)\s+(-\S*\s+)*(<\s*)?<\(\s*(\S*/)?(curl|wget)\s`,
 	`(?s)(^|[\s;&|({/\x60])python3?(\.[0-9]+)?\b[^\n]*<<[-<]?.*((exec|eval)\(.*(base64|b64decode)|(base64|b64decode).*(exec|eval)\()`,
@@ -43,7 +49,7 @@ type askRule struct {
 	pats       func() []*regexp.Regexp
 }
 
-const gitPushPrefix = `git\s+((-[Cc]\s+|--(git-dir|work-tree)(=|\s+))("[^"]*"|'[^']*'|[^\s"']+)\s+)*push\s+`
+const gitPushPrefix = `git\s+(((-[Cc]\s+|--(git-dir|work-tree)(=|\s+))("[^"]*"|'[^']*'|[^\s"']+)|--?[a-zA-Z][a-zA-Z-]*(=\S+)?)\s+)*push\s+`
 
 // forceFlag is a standalone --force or short-flag cluster containing f (-f, -fu, -uf).
 const forceFlag = `(--force|-[a-zA-Z]*f[a-zA-Z]*)(\s|$)`
@@ -51,10 +57,15 @@ const forceFlag = `(--force|-[a-zA-Z]*f[a-zA-Z]*)(\s|$)`
 // protectedBranch is main/master as a whole refspec word: after whitespace, a quote, `:` or refs/heads/ (not feature-main).
 const protectedBranch = `(.*[\s"':]|.*refs/heads/)?(main|master)["']?(\s|$)`
 
+const (
+	forcePushWhat = "force push to main/master"
+	forcePushHint = "Push a branch and open a PR instead: git push origin HEAD:<branch>."
+)
+
 var askRules = []askRule{
 	{"sudo command", "Approve only if you asked for it; otherwise install to a user prefix (~/.local, pipx, a venv) instead.",
 		core.LazyCompile(`(^|[^[:alnum:]_])sudo(\s|$)`)},
-	{"force push to main/master", "Push a branch and open a PR instead: git push origin HEAD:<branch>.", core.LazyCompile(
+	{forcePushWhat, forcePushHint, core.LazyCompile(
 		gitPushPrefix+`(.*\s)?`+forceFlag+protectedBranch,
 		gitPushPrefix+protectedBranch+`(.*\s)?`+forceFlag,
 		gitPushPrefix+`.*--force-with-lease(=[^[:space:]]*)?(\s|$)`+protectedBranch,
@@ -153,7 +164,8 @@ func safetyAskVerdict(in *core.Input) (core.Decision, string, string) {
 		return d, warn + msg, detail
 	}
 	// Each pattern is matched inside ONE shell segment: `git push origin main; readlink -f x` is not a force-push.
-	for _, seg := range shell.Segments(cmd) {
+	// Inert text (a commit message mentioning sudo) is blanked first; heredoc bodies stay, as for the hard blocks.
+	for _, seg := range shell.Segments(blankInert(cmd)) {
 		for _, rule := range askRules {
 			for _, re := range rule.pats() {
 				if re.MatchString(seg) {
@@ -161,6 +173,9 @@ func safetyAskVerdict(in *core.Input) (core.Decision, string, string) {
 				}
 			}
 		}
+	}
+	if branch := bareForcePush(cmd, in.CWD); branch != "" {
+		return core.Ask, warn + core.SafetyMessage(in, core.Ask, forcePushWhat, "", forcePushHint), "force push of " + branch
 	}
 	d, msg, detail = askPatternVerdict(in, cmd)
 	return d, warn + msg, detail
@@ -245,14 +260,97 @@ func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, 
 	return core.Allow, "", ""
 }
 
-// firstHardBlock is the first hard-block pattern any shell segment of text matches.
+// firstHardBlock is the first hard-block pattern any shell segment of text matches, as written or as the shell reads it.
 func firstHardBlock(text string) (string, bool) {
 	for _, seg := range shell.Segments(text) {
+		read := shellRead(seg)
 		for _, re := range hardBlocks() {
-			if re.MatchString(seg) {
+			if re.MatchString(seg) || re.MatchString(read) {
 				return re.String(), true
 			}
 		}
 	}
 	return "", false
+}
+
+// shellRead is seg with its words unquoted and unescaped and each path operand cleaned: `"rm" -rf //` reads `rm -rf /`.
+func shellRead(seg string) string {
+	toks := shell.Tokens(seg)
+	for i, t := range toks {
+		toks[i] = cleanOperand(t)
+	}
+	return strings.Join(toks, " ")
+}
+
+// cleanOperand collapses `//`, `.` and `..` in an absolute or home-relative word; a home path that climbs out reads `/`.
+func cleanOperand(word string) string {
+	for _, home := range []string{"${HOME}", "$HOME", "~"} {
+		rest, ok := strings.CutPrefix(word, home)
+		if !ok || (rest != "" && rest[0] != '/') {
+			continue
+		}
+		switch up := path.Clean("h" + rest); {
+		case up == "h":
+			return "$HOME"
+		case strings.HasPrefix(up, "h/"):
+			return "$HOME" + up[1:]
+		default:
+			return "/"
+		}
+	}
+	if strings.HasPrefix(word, "/") {
+		return path.Clean(word)
+	}
+	return word
+}
+
+// bareForcePush is the protected branch a force-push names no refspec for (it updates the checked-out one), else "".
+func bareForcePush(cmd, cwd string) string {
+	if cwd == "" || !strings.Contains(cmd, "push") {
+		return ""
+	}
+	var branch string
+	shell.EachGit(dropRemoteHeredocs(cmd), cwd, func(target, verb string, args []string) bool {
+		if verb == "push" && forcesPush(args) && !slices.Contains(args, "--tags") && impliedRefspec(args) {
+			branch = protectedHead(target)
+		}
+		return branch != ""
+	})
+	return branch
+}
+
+// forcesPush reports --force, --force-with-lease[=…] or a short-flag cluster containing f among push args.
+func forcesPush(args []string) bool {
+	return slices.ContainsFunc(args, func(a string) bool {
+		return a == "--force" || strings.HasPrefix(a, "--force-with-lease") ||
+			(strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a, "f"))
+	})
+}
+
+// pushValueFlags take their value as the next word, which is neither the remote nor a refspec.
+var pushValueFlags = []string{"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
+
+// impliedRefspec reports a push whose words are at most a remote and HEAD, so it updates the checked-out branch.
+func impliedRefspec(args []string) bool {
+	var words []string
+	for i := 0; i < len(args); i++ {
+		switch {
+		case slices.Contains(pushValueFlags, args[i]):
+			i++
+		case !strings.HasPrefix(args[i], "-"):
+			words = append(words, args[i])
+		}
+	}
+	return len(words) <= 1 || (len(words) == 2 && words[1] == "HEAD")
+}
+
+// protectedHead is the branch checked out in dir when it is main or master, else "" (detached, no repo, git failed).
+func protectedHead(dir string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), rewriteTimeout)
+	defer cancel()
+	lines, ok, err := core.Git(ctx, dir, "symbolic-ref", "--short", "-q", "HEAD")
+	if err != nil || !ok || len(lines) != 1 || (lines[0] != "main" && lines[0] != "master") {
+		return ""
+	}
+	return lines[0]
 }

@@ -294,7 +294,7 @@ func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return core.ExitProceed
 	}
 	in := core.ParseInput(stdin)
-	res := runGated(name, run, in)
+	res := runGated(name, run, in, stderr)
 	if res.Decision == core.Block && specOf(name).Blocks {
 		d := core.DialectOf(in.Agent())
 		if name == "safety-scan" && in.Agent() == core.AgentCopilot {
@@ -321,10 +321,21 @@ func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 }
 
 // runGated runs one module, except a Blocks gate on a payload that did not parse: that blocks without running.
-func runGated(name string, run core.Runner, in *core.Input) core.Result {
-	if in.Invalid != "" && specOf(name).Blocks {
+// A panic is logged to stderr: a Blocks module blocks, any other proceeds (Go's own exit 2 would read as a block).
+func runGated(name string, run core.Runner, in *core.Input, stderr io.Writer) (res core.Result) {
+	blocks := specOf(name).Blocks
+	if in.Invalid != "" && blocks {
 		return core.Result{Decision: core.Block, Reason: unreadable(name, in.Invalid)}
 	}
+	defer func() {
+		if p := recover(); p != nil {
+			fmt.Fprintf(stderr, "hook %s: panic: %v (%s)\n", name, p, skipOrBlock[blocks])
+			res = core.Result{}
+			if blocks {
+				res = core.Result{Decision: core.Block, Reason: fmt.Sprintf("%s did not complete (panic: %v); blocked", name, p)}
+			}
+		}
+	}()
 	return run(in)
 }
 

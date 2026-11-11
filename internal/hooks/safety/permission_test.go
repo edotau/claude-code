@@ -1,6 +1,7 @@
 package safety
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -64,6 +65,43 @@ func TestPermissionGateApplyPatchJudgesEachFile(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			res := PermissionGate(core.ParseInput(strings.NewReader(c.payload)))
+			if (res.Decision == core.Block) != c.block || !strings.Contains(res.Reason, c.reason) {
+				t.Errorf("decision %v reason %q, want block=%v naming %q", res.Decision, res.Reason, c.block, c.reason)
+			}
+		})
+	}
+}
+
+// TestPermissionGateCodexApplyPatch: codex's apply_patch is judged as an Edit on each file its patch headers name.
+func TestPermissionGateCodexApplyPatch(t *testing.T) {
+	const patch = "*** Begin Patch\\n*** Update File: %s\\n@@\\n+x\\n*** End Patch"
+	body := func(key string, files ...string) string {
+		var text strings.Builder
+		for _, f := range files {
+			fmt.Fprintf(&text, patch, f)
+		}
+		return `{"tool_name":"apply_patch","cwd":"/repo","tool_input":{"` + key + `":"` + text.String() + `"}}`
+	}
+	cases := []struct {
+		name, policy, payload string
+		block                 bool
+		reason                string
+	}{
+		{"denied file in command", `{"deny":[{"Tool":"Edit","Arg":"secret.txt"}]}`, body("command", "secret.txt"), true, "Edit(secret.txt)"},
+		{"denied file in input", `{"deny":[{"Tool":"Edit","Arg":"secret.txt"}]}`, body("input", "secret.txt"), true, "Edit(secret.txt)"},
+		{"denied file in patch", `{"deny":[{"Tool":"Edit","Arg":"secret.txt"}]}`, body("patch", "secret.txt"), true, "Edit(secret.txt)"},
+		{"denied absolute path", `{"deny":[{"Tool":"Edit","Arg":"secret.txt"}]}`, body("command", "/repo/secret.txt"), true, "Edit(secret.txt)"},
+		{"denied file second of two", `{"deny":[{"Tool":"Edit","Arg":"secret.txt"}]}`, body("command", "ok.txt", "secret.txt"), true, "Edit(secret.txt)"},
+		{"plan mode refuses any patch", `{"mode":"plan"}`, body("command", "ok.txt"), true, "mode: plan"},
+		{"headerless patch under a scoped deny", `{"deny":[{"Tool":"Edit","Arg":"secret.txt"}]}`,
+			`{"tool_name":"apply_patch","cwd":"/repo","tool_input":{"command":"no headers"}}`, true, "has no path"},
+		{"allowed file passes", `{"deny":[{"Tool":"Edit","Arg":"secret.txt"}]}`, body("command", "a.txt", "b.txt"), false, ""},
+		{"no policy passes", ``, body("command", "secret.txt"), false, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv(agent.DispatchPermissionsEnv, c.policy)
+			res := PermissionGate(core.ParseInputFor(strings.NewReader(c.payload), "codex"))
 			if (res.Decision == core.Block) != c.block || !strings.Contains(res.Reason, c.reason) {
 				t.Errorf("decision %v reason %q, want block=%v naming %q", res.Decision, res.Reason, c.block, c.reason)
 			}
