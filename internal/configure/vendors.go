@@ -8,12 +8,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"regexp"
 	"slices"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -143,9 +143,6 @@ func signalAliveDescendants(pids []int, sig syscall.Signal) {
 	}
 }
 
-// ghAccountRE pulls the account name out of `gh auth status`'s "Logged in to github.com account <name>" line.
-var ghAccountRE = regexp.MustCompile(`account\s+(\S+)`)
-
 // ghStatus is what `gh auth status` reports: whether the binary exists, whether it is logged in, and the
 // account name — never a token (gh itself only ever prints a masked one).
 type ghStatus struct {
@@ -154,7 +151,7 @@ type ghStatus struct {
 	Account  string
 }
 
-// GHAuthCheck runs `gh auth status` (8s cap); its exit code is the verdict, its stdout+stderr the account line.
+// GHAuthCheck runs `gh auth status` (8s cap); its exit code is the verdict, gh's active account the name.
 func GHAuthCheck() ghStatus {
 	bin, err := exec.LookPath("gh")
 	if err != nil {
@@ -162,12 +159,9 @@ func GHAuthCheck() ghStatus {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "auth", "status").CombinedOutput()
-	st := ghStatus{Found: true, LoggedIn: err == nil}
-	if m := ghAccountRE.FindStringSubmatch(string(out)); len(m) > 1 {
-		st.Account = m[1]
-	}
-	return st
+	err = exec.CommandContext(ctx, bin, "auth", "status").Run()
+	account := copilot.GHActiveAccount() // `gh auth status` lists the first account, not the active one
+	return ghStatus{Found: true, LoggedIn: err == nil || account != "", Account: account}
 }
 
 // WriteGithubCopilotModels validates and merges picks and fallback into vault overlay/providers.

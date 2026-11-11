@@ -406,7 +406,7 @@ var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
 	Events:       []string{wire.EventStart, wire.EventText, wire.EventProgress, wire.EventResult, wire.EventError},
 	ResumeFormat: "copilot --resume %s", ModelsProvider: "github", ReadNeedsTools: true,
 	LoginArgv:     []string{"copilot", "login"},
-	ConfigureHint: "run `claude-code configure github` (Copilot) or set an Anthropic/Gemini key",
+	ConfigureHint: "run `claude-code configure github` (Copilot) or set an Anthropic key",
 	Extras:        map[string][]string{extraDefaultPermissionMode: nil}, // the CLI's own mode names, not validated here
 }}
 

@@ -124,11 +124,7 @@ func applyAnthropicSecret(plan *agent.Plan, o anthropicOptions, secret string) {
 		// The apiKeyHelper reads the registry's env name, so carry this key directly.
 		if o.Name != defaultAPIKeyName {
 			plan.Set[defaultAPIKeyName] = secret
-			delete(plan.Set, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS")
-			if len(plan.Argv) >= 2 && plan.Argv[0] == "--settings" {
-				plan.Argv = plan.Argv[2:]
-			}
-			plan.Files = nil
+			dropKeyHelper(plan)
 		}
 	}
 }

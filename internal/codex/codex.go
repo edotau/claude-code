@@ -65,13 +65,13 @@ func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOpt
 		extra = append(extra, "--json")
 	}
 	argv = codexExecArgs(codexImageArgs(argv, req.Attach), extra...)
-	var answer strings.Builder
-	var banner agent.HeadBuffer
 	cmd, tail := agent.ChildCmd(ctx, bin, argv, env, req.WorkDir, prompt, req.KeepEnv, true)
-	cmd.Stderr = io.MultiWriter(cmd.Stderr, &banner)
 	if codexJSON {
 		return agent.RunStream(ctx, e.Name(), cmd, tail, res, sink, parseCodexStream)
 	}
+	var answer strings.Builder
+	var banner agent.HeadBuffer
+	cmd.Stderr = io.MultiWriter(cmd.Stderr, &banner)
 	cmd.Stdout = wire.TeeWriter(ctx, io.MultiWriter(wire.SinkWriter(sink), &answer))
 	agentconfig.RecordOverlayDebug(e.Name(), cmd.Env)
 	err = cmd.Run()
@@ -248,7 +248,7 @@ func codexAuthState() providers.AuthState {
 	case transient:
 		return providers.AuthState{Method: providers.AuthNone, Err: verdict}
 	case verdict == nil:
-		return providers.AuthState{Present: true, Source: codexAuthSource, Method: providers.AuthCLI, PlanHint: codexPlanFrom(t)}
+		return providers.AuthState{Present: true, Source: codexAuthSource, Method: providers.AuthCLI}
 	}
 	return providers.AuthState{Method: providers.AuthNone} // an API key or no login: codex answered
 }

@@ -105,10 +105,15 @@ func copilotLaunchTokenFor(login string) (string, error) {
 			return "", fmt.Errorf("copilot: GitHub user %s is not logged in to gh; run `gh auth login`", login)
 		}
 	} else {
-		if err := copilotPinError(); err != nil {
-			return "", err
+		pin, err := copilotPinLoginErr()
+		if err != nil {
+			return "", fmt.Errorf("copilot: cannot read the provider registry to check the pinned GitHub account "+
+				"(launch refused): %w", err)
 		}
-		a, ok = copilotAuthSource()
+		if a, ok = authSourceFor(pin); !ok && pin != "" { // the harness fails rather than run on another account
+			return "", fmt.Errorf("copilot: pinned GitHub user %s is not logged in to gh; run `claude-code configure "+
+				"github` (no other account is used)", pin)
+		}
 	}
 	if !ok {
 		return "", nil
@@ -121,21 +126,6 @@ func copilotLaunchTokenFor(login string) (string, error) {
 	fmt.Fprintf(os.Stderr, "copilot: GitHub account %s (%s)\n", cmp.Or(a.Account, "from token"), how)
 	audit.Log(audit.CopilotAuth, cmp.Or(a.Account, a.Source), how)
 	return tok, nil
-}
-
-// copilotPinError is non-nil when the copilot profile's GitHub login is pinned but that user is not a gh login: the harness
-// fails rather than run copilot on a stored token or another account.
-func copilotPinError() error {
-	pin, err := copilotPinLoginErr()
-	if err != nil {
-		return fmt.Errorf("copilot: cannot read the provider registry to check the pinned GitHub account "+
-			"(launch refused): %w", err)
-	}
-	if pin == "" || slices.Contains(GHAccounts(), pin) {
-		return nil
-	}
-	return fmt.Errorf("copilot: pinned GitHub user %s is not logged in to gh; run `claude-code configure github` "+
-		"(no other account is used)", pin)
 }
 
 // RefreshAccount re-fetches a stale account for copilotUsedPct; a var so tests stay offline.

@@ -1,4 +1,4 @@
-// the one place claude calls github.com/anthropics/anthropic-sdk-go: a streaming Messages call.
+// the one-shot HTTP calls of claude: the streaming Messages call (anthropic-sdk-go) and the chat-completions call.
 package claude
 
 import (
@@ -52,27 +52,23 @@ func claudeOneShot(ctx context.Context, req agent.RunOptions, sink wire.Sink) (r
 	}
 	var answer strings.Builder
 	w := io.MultiWriter(wire.SinkWriter(sink), &answer)
+	var usage wire.Usage
+	var model string
 	if base, ok := providers.AnthropicRoute(p, t.Model); ok {
-		out, err := streamMessages(ctx, apiRequest{
+		usage, model, err = streamMessages(ctx, apiRequest{
 			BaseURL: base, Model: t.Model, Prompt: prompt, Effort: effort, MaxTokens: apiMaxTokens,
 			Authorize: func(ctx context.Context, h http.Header) error { return providers.Authorize(ctx, p, h) },
 		}, w)
-		if out.Model != "" {
-			res.Model = out.Model
+	} else {
+		if err := providers.ClaudeCodeError(p, t.Model); err != nil { // Responses-only: the one-shot has no such wire
+			return res, true, retry.Fatal("claude", err)
 		}
-		res.Answer, res.Usage = answer.String(), wire.Usage{InputTokens: int(out.InputTokens), OutputTokens: int(out.OutputTokens),
-			CacheCreationTokens: int(out.CacheCreationTokens), CacheReadTokens: int(out.CacheReadTokens)}
-		logAPIRun(ctx, res, err)
-		return res, true, err
+		if _, servable, why := providers.WireFor(p, t.Model); !servable {
+			return res, true, retry.Fatal("claude", errors.New(why))
+		}
+		base, _ := p.Route(providers.ProtocolOpenAI)
+		usage, model, err = chatStream(ctx, base, p, t.Model, prompt, effort, w)
 	}
-	if err := providers.ClaudeCodeError(p, t.Model); err != nil { // Responses-only: the one-shot has no such wire
-		return res, true, retry.Fatal("claude", err)
-	}
-	if _, servable, why := providers.WireFor(p, t.Model); !servable {
-		return res, true, retry.Fatal("claude", errors.New(why))
-	}
-	base, _ := p.Route(providers.ProtocolOpenAI)
-	usage, model, err := chatStream(ctx, base, p, t.Model, prompt, effort, w)
 	if model != "" {
 		res.Model = model
 	}
@@ -239,17 +235,8 @@ type apiRequest struct {
 	Authorize func(context.Context, http.Header) error
 }
 
-// apiResponse is the served model and token usage.
-type apiResponse struct {
-	Model               string
-	InputTokens         int64
-	CacheCreationTokens int64
-	CacheReadTokens     int64
-	OutputTokens        int64
-}
-
-// streamMessages sends r and writes text deltas to w as they arrive.
-func streamMessages(ctx context.Context, r apiRequest, w io.Writer) (apiResponse, error) {
+// streamMessages sends r and writes text deltas to w as they arrive; it returns the usage and the served model.
+func streamMessages(ctx context.Context, r apiRequest, w io.Writer) (wire.Usage, string, error) {
 	client := anthropic.NewClient(
 		option.WithoutEnvironmentDefaults(),
 		option.WithBaseURL(r.BaseURL),
@@ -264,36 +251,37 @@ func streamMessages(ctx context.Context, r apiRequest, w io.Writer) (apiResponse
 	if r.Effort != "" {
 		params.OutputConfig = anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffort(r.Effort)}
 	}
-	var res apiResponse
+	var res wire.Usage
+	var model string
 	stream := client.Messages.NewStreaming(ctx, params)
 	defer stream.Close()
 	for stream.Next() {
 		switch ev := stream.Current().AsAny().(type) {
 		case anthropic.MessageStartEvent:
-			res.Model = string(ev.Message.Model)
+			model = string(ev.Message.Model)
 			u := ev.Message.Usage
-			res.InputTokens, res.OutputTokens = u.InputTokens, u.OutputTokens
-			res.CacheCreationTokens, res.CacheReadTokens = u.CacheCreationInputTokens, u.CacheReadInputTokens
+			res.InputTokens, res.OutputTokens = int(u.InputTokens), int(u.OutputTokens)
+			res.CacheCreationTokens, res.CacheReadTokens = int(u.CacheCreationInputTokens), int(u.CacheReadInputTokens)
 		case anthropic.ContentBlockDeltaEvent:
 			if t, ok := ev.Delta.AsAny().(anthropic.TextDelta); ok {
 				if _, err := io.WriteString(w, t.Text); err != nil {
-					return res, err
+					return res, model, err
 				}
 			}
 		case anthropic.MessageDeltaEvent:
 			if ev.Usage.InputTokens > 0 { // cumulative; input may be absent mid-stream
-				res.InputTokens = ev.Usage.InputTokens
+				res.InputTokens = int(ev.Usage.InputTokens)
 			}
 			if ev.Usage.CacheCreationInputTokens > 0 {
-				res.CacheCreationTokens = ev.Usage.CacheCreationInputTokens
+				res.CacheCreationTokens = int(ev.Usage.CacheCreationInputTokens)
 			}
 			if ev.Usage.CacheReadInputTokens > 0 {
-				res.CacheReadTokens = ev.Usage.CacheReadInputTokens
+				res.CacheReadTokens = int(ev.Usage.CacheReadInputTokens)
 			}
-			res.OutputTokens = ev.Usage.OutputTokens
+			res.OutputTokens = int(ev.Usage.OutputTokens)
 		}
 	}
-	return res, boxSDKError(stream.Err())
+	return res, model, boxSDKError(stream.Err())
 }
 
 func anthropicAuthorization(r apiRequest) option.Middleware {

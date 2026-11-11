@@ -55,8 +55,7 @@ func codexMatcher(m string) string {
 
 // mergeCodexHooks keeps every foreign top-level key, event and hook already in a Codex hooks.json,
 // replacing only the harness's own groups (by command prefix, IsHarness) with the freshly
-// rendered ones; mirrors internal/settings mergeHooks, adapted to the top-level {"hooks": {...}} file
-// Codex reads directly.
+// rendered ones; wraps agentconfig.MergeHooksTop for the top-level {"hooks": {...}} file Codex reads directly.
 func mergeCodexHooks(existingRaw, body []byte) ([]byte, error) {
 	next, _, err := agentconfig.MergeHooksTop(existingRaw, body, classifyCodexGroup)
 	if err != nil {
@@ -116,6 +115,7 @@ func rebuildCodexGroup(raw json.RawMessage, foreign []json.RawMessage) (json.Raw
 	return textutil.MarshalNoEscape(obj)
 }
 
+// writeCodexHooks writes hooks.json under a file lock, refusing when it changed since the merge read it.
 func writeCodexHooks(path string, old, next []byte, existed bool) error {
 	return withCodexLock(path, func() error {
 		target, err := codexWriteTarget(path)

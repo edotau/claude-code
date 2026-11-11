@@ -597,18 +597,15 @@ func claudeLoginProbe() (loggedIn bool, plan string, err error) {
 			return claudeProbeTTL
 		}
 		return -1
-	}, func() (claudeProbe, error) {
-		in, plan, err := runClaudeProbe()
-		return claudeProbe{in, plan}, err
-	})
+	}, runClaudeProbe)
 	return p.loggedIn, p.plan, err
 }
 
 // runClaudeProbe spawns `claude auth status` (≤8s) and parses its JSON.
-func runClaudeProbe() (loggedIn bool, plan string, err error) {
+func runClaudeProbe() (claudeProbe, error) {
 	bin, err := ClaudeBinary()
 	if err != nil {
-		return false, "", err
+		return claudeProbe{}, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 	defer cancel()
@@ -620,12 +617,13 @@ func runClaudeProbe() (loggedIn bool, plan string, err error) {
 	}
 	if jerr := json.Unmarshal(out, &st); jerr != nil { // logged-out may exit nonzero but still print JSON
 		if runErr != nil {
-			return false, "", runErr
+			return claudeProbe{}, runErr
 		}
-		return false, "", jerr
+		return claudeProbe{}, jerr
 	}
+	p := claudeProbe{loggedIn: st.LoggedIn}
 	if st.SubscriptionType != "" {
-		plan = " (" + st.SubscriptionType + ")"
+		p.plan = " (" + st.SubscriptionType + ")"
 	}
-	return st.LoggedIn, plan, nil
+	return p, nil
 }

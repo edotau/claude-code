@@ -91,8 +91,9 @@ func agentConfigs() []HistoryFile {
 	if geminiHome == "" {
 		geminiHome = home
 	}
-	out = append(out, HistoryFile{Label: "gemini-settings.json", Path: filepath.Join(geminiHome, ".gemini", "settings.json")})
-	return out
+	return append(out,
+		HistoryFile{Label: "gemini-settings.json", Path: filepath.Join(geminiHome, ".gemini", "antigravity-cli", "settings.json")},
+		HistoryFile{Label: "gemini-hooks.json", Path: filepath.Join(geminiHome, ".gemini", "config", "hooks.json")})
 }
 
 // Snapshot copies each of files into the store and commits iff something actually changed. An absent

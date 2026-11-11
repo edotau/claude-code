@@ -32,7 +32,7 @@ const defaultClientName = "claude-code"
 // denyFeedback tells the model to re-plan in prose instead of retrying a refused tool call.
 const denyFeedback = "Tool use is disabled for this headless run. Answer from the prompt alone."
 
-// sdkOptions configures one headless run. Env carries the COPILOT_PROVIDER_* BYOK block from agent.Configure.
+// sdkOptions configures one headless run. Env carries the COPILOT_PROVIDER_* BYOK block from Schema.Configure.
 type sdkOptions struct {
 	CLIPath          string   // resolved copilot binary; empty is an error (never the SDK's bundled runtime)
 	Env              []string // KEY=VALUE BYOK block
@@ -189,7 +189,7 @@ func buildResumeSessionConfig(o sdkOptions) *copilot.ResumeSessionConfig {
 }
 
 // providerFromEnv lifts the BYOK block into the session: the server-mode runtime ignores COPILOT_PROVIDER_* env.
-// Last duplicate wins (exec's rule): agent.copilotWire blanks each credential var, then appends the real one.
+// Last duplicate wins (exec's rule): copilotWire blanks each credential var, then appends the real one.
 func providerFromEnv(env []string) *copilot.ProviderConfig {
 	get := func(key string) string {
 		for _, kv := range slices.Backward(env) {

@@ -42,20 +42,17 @@ func checkCopilotRegistryOS() error {
 	return nil
 }
 
-// copilotStripEnv is the inherited GitHub login/routing env a registry child must not see (plus CopilotStripPrefix).
+// copilotStripEnv is the inherited GitHub login/routing env a registry child must not see (plus proc.CopilotProviderPrefix).
 var copilotStripEnv = []string{
 	"GH_TOKEN", "GITHUB_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_ENTERPRISE_TOKEN", "COPILOT_GITHUB_TOKEN",
 	"COPILOT_SDK_AUTH_TOKEN", "GH_HOST", "COPILOT_GH_HOST", "COPILOT_API_URL", "GH_CONFIG_DIR",
 	proc.EnvCopilotProvidersConfig,
 }
 
-// copilotStripPrefix names the singular BYOK block (COPILOT_PROVIDER_*) a registry child must not inherit.
-const copilotStripPrefix = proc.CopilotProviderPrefix
-
 // copilotPrivateHome is the private login-free copilot home: the env to set and the names to strip.
 type copilotPrivateHome struct {
 	Env      []string
-	Unset    []string // exact names; also strip anything with CopilotStripPrefix
+	Unset    []string // exact names; also strip anything with proc.CopilotProviderPrefix
 	Warnings []string
 }
 
