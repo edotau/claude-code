@@ -116,7 +116,7 @@ func TestOutputClaudeShape(t *testing.T) {
 }
 
 func TestOutputCopilotAskIsDeny(t *testing.T) {
-	m := hosttest.OneDoc(t, OutputCopilot("PreToolUse", Result{Decision: Ask, Reason: "r", Context: "c"}))
+	m := hosttest.OneDoc(t, outputCopilot("PreToolUse", Result{Decision: Ask, Reason: "r", Context: "c"}))
 	if m["permissionDecision"] != "deny" || m["permissionDecisionReason"] != "r" || m["additionalContext"] != "c" {
 		t.Errorf("ask must map to deny: %v", m)
 	}
@@ -132,8 +132,8 @@ func TestDialectOf(t *testing.T) {
 	}{
 		{AgentClaude, claude, false},
 		{AgentCodex, outputCodex, false},
-		{AgentCopilot, OutputCopilot, false},
-		{AgentGemini, OutputGemini, true},
+		{AgentCopilot, outputCopilot, false},
+		{AgentGemini, outputGemini, true},
 		{"no-such-agent", claude, false},
 	}
 	for _, tc := range cases {

@@ -56,8 +56,8 @@ func claudeDoc(event string, r Result, style claudeStyle) string {
 	return marshalDoc(doc)
 }
 
-// OutputCopilot is Copilot's flat shape; it has no ask, so ask is deny.
-func OutputCopilot(event string, r Result) string {
+// outputCopilot is Copilot's flat shape; it has no ask, so ask is deny.
+func outputCopilot(event string, r Result) string {
 	doc := map[string]any{}
 	if event == "PreToolUse" {
 		if d := decisionName(r.Decision, true); d != "" {
@@ -71,8 +71,8 @@ func OutputCopilot(event string, r Result) string {
 	return marshalDoc(doc)
 }
 
-// OutputGemini is agy's PreToolUse document: a block or ask denies with the reason; else silent, so agy's gate decides.
-func OutputGemini(event string, r Result) string {
+// outputGemini is agy's PreToolUse document: a block or ask denies with the reason; else silent, so agy's gate decides.
+func outputGemini(event string, r Result) string {
 	if event != "PreToolUse" || decisionName(r.Decision, true) == "" {
 		return ""
 	}
@@ -99,9 +99,9 @@ func DialectOf(name string) Dialect {
 	case AgentCodex:
 		return Dialect{Build: outputCodex}
 	case AgentCopilot:
-		return Dialect{Build: OutputCopilot}
+		return Dialect{Build: outputCopilot}
 	case AgentGemini:
-		return Dialect{Build: OutputGemini, JSONDeny: true}
+		return Dialect{Build: outputGemini, JSONDeny: true}
 	}
 	return Dialect{Build: func(event string, r Result) string { return claudeDoc(event, r, claudeStyle{}) }}
 }
