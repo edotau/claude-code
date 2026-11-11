@@ -28,12 +28,6 @@ func Positional(prompt string) []string {
 	return []string{prompt}
 }
 
-// HeadlessLaunch applies name's spec Launch.Env (never Launch.Args) to argv, with the route env going last.
-func HeadlessLaunch(name string, env, argv []string) (launchedEnv, launchedArgv []string) {
-	launchEnv, argv := agent.SchemaFor(name).ApplyLaunch(argv, false)
-	return agent.RouteEnvLast(launchEnv, env), argv
-}
-
 // ParseLaunchArgs refuses a removed flag (with its hint) before ParseArgs strips the harness flags.
 func ParseLaunchArgs(args []string, claude bool) (agent.LaunchOptions, []string, error) {
 	if err := databricks.RemovedFlagHint(args); err != nil {

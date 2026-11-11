@@ -125,3 +125,25 @@ func Catalog(name, format string, models func(args []string) int) int {
 	fmt.Printf("%s: no model catalog\n", name)
 	return 0
 }
+
+// Setup is `<agent> setup`: check name's binary, login, route and projection; exit 1 when one fails.
+func Setup(name, format string) int {
+	row, ok := agent.LookupSchema(name)
+	if !ok {
+		row = agent.Schema{Name: name} // reported as an unknown agent, by name
+	}
+	rep := row.Setup()
+	if format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, rep); err != nil {
+			return helptext.Fail("%s setup: %v", name, err)
+		}
+	} else {
+		for _, c := range rep.Checks {
+			fmt.Printf("%s  %s  %s  %s\n", rep.Agent, c.Name, c.State, c.Detail)
+		}
+	}
+	if !rep.OK {
+		return 1
+	}
+	return 0
+}

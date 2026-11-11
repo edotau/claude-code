@@ -456,7 +456,7 @@ func StdoutSink(format, dispatchID string) wire.Sink {
 	return wire.NewTextSink(os.Stdout)
 }
 
-// askState is the agent.AskTarget plus the flag pointers --retry resets or --job clears.
+// askState is the client.AskTarget plus the flag pointers --retry resets or --job clears.
 type askState struct {
 	client.AskTarget
 	rubric *string

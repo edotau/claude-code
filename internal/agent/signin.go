@@ -260,3 +260,83 @@ func ValidCopilotToken(tok string) bool {
 	}
 	return false
 }
+
+// the optional Authenticator a Driver adds, and the agent-level entry points over it.
+
+// Authenticator is the optional sign-in surface a Driver adds; BaseEngine does not implement it.
+type Authenticator interface {
+	// AuthStatus is the CLI's own sign-in from local state (files, keyring, a local status command); no network.
+	AuthStatus() providers.AuthState
+	// Plan is the subscription st's sign-in holds; it may reach the network and caches per account itself.
+	Plan(ctx context.Context, st providers.AuthState) providers.Subscription
+	// Verify probes the sign-in for the provider sign-in rows; a failed probe is VerdictTransient.
+	Verify(ctx context.Context) (providers.AuthVerdict, string)
+}
+
+func authenticator(name string) (Authenticator, bool) {
+	a, ok := SchemaFor(name).Eng().(Authenticator)
+	return a, ok
+}
+
+// AuthStatus is name's own sign-in; the zero state for an agent with no Authenticator. Safe for concurrent use.
+func AuthStatus(name string) providers.AuthState {
+	if a, ok := authenticator(name); ok {
+		return a.AuthStatus()
+	}
+	return providers.AuthState{}
+}
+
+// AuthPlan is name's subscription for st; zero when st is not present or the agent has no Authenticator.
+func AuthPlan(ctx context.Context, name string, st providers.AuthState) providers.Subscription {
+	if a, ok := authenticator(name); ok && st.Present {
+		return a.Plan(ctx, st)
+	}
+	return providers.Subscription{}
+}
+
+// Verify probes name's own CLI sign-in for the provider sign-in rows.
+func Verify(ctx context.Context, name string) (providers.AuthVerdict, string) {
+	if a, ok := authenticator(name); ok {
+		return a.Verify(ctx)
+	}
+	return providers.VerdictTransient, "unknown sign-in " + name
+}
+
+// The shared run-and-classify helpers for a vendor CLI's sign-in and version probes.
+
+// ProbeCLI runs bin args on spec's environment; combined folds stderr into the returned output.
+func ProbeCLI(ctx context.Context, bin string, spec EnvSpec, combined bool, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = spec.Environ(ctx)
+	if combined {
+		return cmd.CombinedOutput()
+	}
+	return cmd.Output()
+}
+
+// ClassifyProbe maps a failed probe: a deadline is transient, an exit the CLI chose is NeedsLogin, else transient.
+func ClassifyProbe(ctx context.Context, err error) (providers.AuthVerdict, string) {
+	if ctx.Err() != nil {
+		return providers.VerdictTransient, ctx.Err().Error()
+	}
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok && ee.ExitCode() >= 0 {
+		return providers.VerdictNeedsLogin, ""
+	}
+	return providers.VerdictTransient, ProbeErrDetail(err)
+}
+
+// probeDetailMax caps the stderr line ProbeErrDetail appends.
+const probeDetailMax = 200
+
+// ProbeErrDetail is err plus the first stderr line (≤200 bytes), when the command reported one.
+func ProbeErrDetail(err error) string {
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
+		if line, _, _ := strings.Cut(strings.TrimSpace(string(ee.Stderr)), "\n"); line != "" {
+			if len(line) > probeDetailMax {
+				line = line[:probeDetailMax]
+			}
+			return err.Error() + ": " + line
+		}
+	}
+	return err.Error()
+}

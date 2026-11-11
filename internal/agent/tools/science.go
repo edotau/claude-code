@@ -10,7 +10,58 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
+
+var claudeScienceBaseURL = "https://downloads.claude.ai/claude-science/latest"
+
+// claudeScienceAssetName mirrors claude.ai/install.sh's os/arch naming (x64/arm64).
+func claudeScienceAssetName(goos, goarch string) string {
+	arch := map[string]string{"amd64": "x64", "arm64": "arm64"}[goarch]
+	if arch == "" {
+		return ""
+	}
+	switch goos {
+	case "linux":
+		return "linux-" + arch
+	case "darwin":
+		return "mac-" + arch + ".dmg"
+	default:
+		return ""
+	}
+}
+
+// installClaudeScience installs the macOS app from its DMG, or the raw Linux binary, for this platform.
+func installClaudeScience(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
+	asset := claudeScienceAssetName(goosOverride, goarchOverride)
+	if asset == "" {
+		return fmt.Errorf("claude-science: no download mapped for %s/%s", goosOverride, goarchOverride)
+	}
+	url := claudeScienceBaseURL + "/" + asset
+	if goosOverride == "darwin" {
+		return installScienceApp(ctx, w, dir, url, dryRun)
+	}
+	fmt.Fprintf(w, "  download %s\n", url)
+	if dryRun {
+		fmt.Fprintln(w, "  (dry-run: would download and install claude-science)")
+		return nil
+	}
+	data, err := httpGet(ctx, url)
+	if err != nil {
+		return err
+	}
+	return installBinaryLocked(w, dir, "claude-science", data)
+}
+
+// updateClaudeScience runs the installed binary's own updater; a missing binary falls back to a fresh install.
+func updateClaudeScience(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
+	bin, err := paths.LookPathReal("claude-science")
+	if err != nil {
+		return installClaudeScience(ctx, w, dir, dryRun)
+	}
+	return runSelfUpdate(ctx, w, bin, dryRun)
+}
 
 const (
 	scienceAppName = "Claude Science.app"

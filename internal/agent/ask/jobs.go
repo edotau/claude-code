@@ -3,6 +3,8 @@ package ask
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -200,24 +202,84 @@ func printLiveEnvelope(env wire.Envelope, format string) error {
 	return nil
 }
 
-// Setup is `<agent> setup`: check name's binary, login, route and projection; exit 1 when one fails.
-func Setup(name, format string) int {
-	row, ok := agent.LookupSchema(name)
-	if !ok {
-		row = agent.Schema{Name: name} // reported as an unknown agent, by name
+// liveExclusive are the ask flags a live session cannot honor: it has no single task, route or envelope of its own.
+var liveExclusive = []string{"background", "host", "batch", "retry", "job", "env", "attach", "no-tools", "output-schema",
+	"rubric", "log", "stdin-framed", "fallback", "native"}
+
+// askLiveCheck rejects --live with another agent, a task, or a flag that has no meaning for a held-open session.
+func askLiveCheck(fs *flag.FlagSet, name string) error {
+	if row, _ := agent.LookupSchema(name); !row.HasLive() {
+		return fmt.Errorf("--live is claude or gemini only, not %s", name)
 	}
-	rep := row.Setup()
+	if fs.NArg() > 0 {
+		return errors.New("--live takes no task: start it, then claude-code agents send <id> <task>")
+	}
+	for _, f := range liveExclusive {
+		if helptext.Explicit(fs, f) {
+			return fmt.Errorf("--live cannot be combined with --%s", f)
+		}
+	}
+	return nil
+}
+
+// liveRequest is the RunOptions a live holder keeps for its whole session.
+func liveRequest(s *askState, perms agent.Permissions, name string) agent.RunOptions {
+	return agent.RunOptions{Model: *s.Model, Provider: *s.Provider, Effort: *s.Effort, WorkDir: *s.Workdir, SessionID: *s.Session,
+		Tools: *s.Tools, ReadOnly: *s.ReadOnly, Permissions: perms, Timeout: *s.Timeout, KeepEnv: *s.KeepEnv, NoPersist: *s.NoPersist, SafeMode: *s.SafeMode,
+		DebugFile: absDebugFile(*s.DebugFile), SystemPrompt: *s.SystemPrompt, AppendSystemPrompt: *s.AppendSystemPrompt,
+		Autonomous: *s.Autonomous, Direct: *s.Direct, Lead: *s.lead, Agent: name, Background: true}
+}
+
+func startLive(s *askState, perms agent.Permissions, name, as, format string) int {
+	r, err := agent.Lookup(name)
+	if err == nil {
+		err = r.Available()
+	}
+	if err == nil {
+		err = job.CheckLiveCap()
+	}
+	if err != nil {
+		return failAsk(format, name, err)
+	}
+	req := liveRequest(s, perms, name)
+	req.Identity = as
+	rec, err := NewClient().Record(context.Background(), req, nil)
+	if err != nil {
+		return failAsk(format, name, err)
+	}
+	rec.Live = true
+	if err := rec.Save(); err != nil {
+		return failAsk(format, name, err)
+	}
+	if err := job.Spawn(&rec, nil); err != nil {
+		return failAsk(format, name, abandonLive(&rec, err))
+	}
+	if err := job.WaitLiveReady(rec.ID, rec.PID); err != nil {
+		return failAsk(format, name, abandonLive(&rec, fmt.Errorf("live session %s did not start: %w (log: %s)", rec.ID, err, rec.Log)))
+	}
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, rep); err != nil {
-			return helptext.Fail("%s setup: %v", name, err)
-		}
-	} else {
-		for _, c := range rep.Checks {
-			fmt.Printf("%s  %s  %s  %s\n", rep.Agent, c.Name, c.State, c.Detail)
-		}
+		body, _ := json.Marshal(struct {
+			ID     string `json:"id"`
+			Socket string `json:"socket"`
+			Log    string `json:"log"`
+		}{rec.ID, job.LiveSocket(rec.ID), rec.Log})
+		fmt.Println(string(body))
+		return 0
 	}
-	if !rep.OK {
-		return 1
-	}
+	fmt.Printf("live session %s — claude-code agents send %s \"<task>\" · agents cancel %s · idle limit %s\n", rec.ID, rec.ID, rec.ID, job.IdleOf(req))
 	return 0
+}
+
+// abandonLive stops a holder that never became ready and marks its record failed; an unstoppable holder is not marked.
+func abandonLive(rec *job.Record, cause error) error {
+	if rec.PID > 0 {
+		if err := job.Cancel(rec); err != nil {
+			return fmt.Errorf("%w; holder pid %d still running, stop failed: %w", cause, rec.PID, err)
+		}
+	}
+	if rec.Status == "running" || rec.Status == "" {
+		rec.Status, rec.Error = "error", cause.Error()
+		_ = rec.Save()
+	}
+	return cause
 }

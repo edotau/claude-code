@@ -399,22 +399,6 @@ func TestStatusOneTargetIsLinkTargetOnly(t *testing.T) {
 	}
 }
 
-// FirstVersionLine honours the caller's timeout: a hung --version is "" well before versionProbeTimeout.
-func TestFirstVersionLineHonoursTimeout(t *testing.T) {
-	bin, _ := probeFixture(t, "sleep 3\necho 'fake 1.0.0'")
-	start := time.Now()
-	if got := FirstVersionLine(t.Context(), bin, 100*time.Millisecond); got != "" {
-		t.Fatalf("hung probe = %q, want \"\"", got)
-	}
-	if d := time.Since(start); d > 2*time.Second {
-		t.Fatalf("probe took %v, want the 100ms timeout honoured", d)
-	}
-	fast, _ := probeFixture(t, "echo 'fake 1.0.0'\necho second")
-	if got := FirstVersionLine(t.Context(), fast, time.Second); got != "fake 1.0.0" {
-		t.Fatalf("FirstVersionLine = %q, want the first line", got)
-	}
-}
-
 // Every roster agent's executable has an install row.
 func TestToolsCoverEveryAgentBinary(t *testing.T) {
 	for _, a := range agentid.All() {
