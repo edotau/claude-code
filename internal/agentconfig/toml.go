@@ -9,39 +9,6 @@ import (
 	"strings"
 )
 
-// TOMLString reads one basic or literal TOML string value, dropping a trailing comment; bare values are kept.
-func TOMLString(v string) string {
-	v = strings.TrimSpace(v)
-	if len(v) > 0 && (v[0] == '"' || v[0] == '\'') {
-		if v[0] == '"' {
-			if end := basicStringEnd(v); end > 0 {
-				if s, err := strconv.Unquote(v[:end+1]); err == nil {
-					return s
-				}
-				return v[1:end]
-			}
-		} else if end := strings.IndexByte(v[1:], '\''); end >= 0 {
-			return v[1 : end+1]
-		}
-		return strings.Trim(v, `"'`)
-	}
-	v, _, _ = strings.Cut(v, "#")
-	return strings.TrimSpace(v)
-}
-
-// basicStringEnd is the index of the closing quote of the basic string opening v, skipping escapes; -1 if unclosed.
-func basicStringEnd(v string) int {
-	for i := 1; i < len(v); i++ {
-		switch v[i] {
-		case '\\':
-			i++
-		case '"':
-			return i
-		}
-	}
-	return -1
-}
-
 // TOMLQuote renders s as a TOML basic string (a JSON string is one) for a codex -c override.
 func TOMLQuote(s string) string {
 	b, _ := json.Marshal(s) // a JSON string is a valid TOML basic string

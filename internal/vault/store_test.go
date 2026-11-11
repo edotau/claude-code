@@ -1021,14 +1021,14 @@ func TestRetiredAfterTwoRotations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	old, next, err := RotateKey()
+	old, next, err := RotateKey(false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if old != k.Kid {
 		t.Fatalf("old = %s, want %s", old, k.Kid)
 	}
-	second, _, err := RotateKey()
+	second, _, err := RotateKey(false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1075,7 +1075,7 @@ func TestRotateKeyRefusesWithoutForce(t *testing.T) {
 				t.Fatal(err)
 			}
 			tc.setup(t, k)
-			if _, _, err := RotateKey(); err == nil || !strings.Contains(err.Error(), tc.mention) {
+			if _, _, err := RotateKey(false); err == nil || !strings.Contains(err.Error(), tc.mention) {
 				t.Fatalf("RotateKey without --force = %v, want a refusal naming %s", err, tc.mention)
 			}
 		})
@@ -1090,7 +1090,7 @@ func TestRotateKeyRefusesWhenRetiredUnparsable(t *testing.T) {
 		t.Fatal(err)
 	}
 	putVault(t, Meta, "retired", "not valid json")
-	if _, _, err = RotateKey(); err == nil || !strings.Contains(err.Error(), "retired") {
+	if _, _, err = RotateKey(false); err == nil || !strings.Contains(err.Error(), "retired") {
 		t.Fatalf("RotateKey with unparsable meta/retired = %v, want an error naming meta/retired", err)
 	}
 	if err := View(func(tx *Tx) error {
@@ -1106,7 +1106,7 @@ func TestRotateKeyRefusesWhenRetiredUnparsable(t *testing.T) {
 	}
 }
 
-// ForceRotate lets rotation proceed past the key_command guard.
+// RotateKey(true) lets rotation proceed past the key_command guard.
 func TestRotateKeyForceBypassesKeyCommandGuard(t *testing.T) {
 	useKeyringVault(t)
 	k, err := EnsureKey()
@@ -1114,9 +1114,9 @@ func TestRotateKeyForceBypassesKeyCommandGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	putVault(t, Meta, "key_command", `["/bin/true"]`)
-	oldKid, newKid, err := RotateKey(ForceRotate())
+	oldKid, newKid, err := RotateKey(true)
 	if err != nil {
-		t.Fatalf("RotateKey(ForceRotate()) = %v, want success", err)
+		t.Fatalf("RotateKey(true) = %v, want success", err)
 	}
 	if oldKid != k.Kid {
 		t.Errorf("oldKid = %q, want %q", oldKid, k.Kid)

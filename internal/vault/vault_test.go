@@ -241,7 +241,7 @@ func TestRotateKeyRederivesUnderNewRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	oldKid, _, err := RotateKey()
+	oldKid, _, err := RotateKey(false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -100,6 +100,25 @@ func (o *object) marshal() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// FilterObject keeps the entries of the JSON object raw that keep accepts (optionally rewriting the value), in order.
+func FilterObject(raw []byte, keep func(key string, val json.RawMessage) (json.RawMessage, bool, error)) ([]byte, error) {
+	o, err := parseObject(raw)
+	if err != nil {
+		return nil, err
+	}
+	kept := &object{vals: map[string]json.RawMessage{}}
+	for _, k := range o.keys {
+		val, ok, err := keep(k, o.vals[k])
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			kept.set(k, val)
+		}
+	}
+	return kept.marshal()
+}
+
 // CheckFile is the read-only audit: it reports why file would make Claude Code throw, nil when it is valid.
 func CheckFile(file string) error {
 	data, err := os.ReadFile(file)

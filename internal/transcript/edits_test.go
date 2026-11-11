@@ -21,7 +21,7 @@ func BenchmarkScan(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		countEdits(path)
-		_, _ = EditedFiles(path, 50)
+		_, _ = EditedFiles(path)
 	}
 }
 
@@ -55,7 +55,7 @@ func TestLastUsageAndEdits(t *testing.T) {
 	if !ok || u.Tokens != 100 || u.Model != "claude-opus-5" {
 		t.Errorf("full-scan fallback: %+v %v", u, ok)
 	}
-	if got, err := EditedFiles(tr, 10); err != nil || strings.Join(got, ",") != "/r/a.go,/r/b.go" {
+	if got, err := EditedFiles(tr); err != nil || strings.Join(got, ",") != "/r/a.go,/r/b.go" {
 		t.Errorf("edits %v", got)
 	}
 	if n := countEdits(tr); n != 2 {
@@ -122,13 +122,13 @@ func appendTranscript(t *testing.T, path, chunk string) {
 
 func checkEditsFrom(t *testing.T, path string, offset int64, wantEdits int, wantNext int64) {
 	t.Helper()
-	edits, next := CountEditsFrom(path, offset)
+	edits, _, next := CountWorkFrom(path, offset)
 	if edits != wantEdits || next != wantNext {
-		t.Fatalf("CountEditsFrom(offset=%d) = (%d, %d), want (%d, %d)",
+		t.Fatalf("CountWorkFrom(offset=%d) = (%d, %d), want (%d, %d)",
 			offset, edits, next, wantEdits, wantNext)
 	}
 	for range 2 {
-		if edits, next := CountEditsFrom(path, wantNext); edits != 0 || next != wantNext {
+		if edits, _, next := CountWorkFrom(path, wantNext); edits != 0 || next != wantNext {
 			t.Fatalf("repeated read at offset %d = (%d, %d), want (0, %d)",
 				wantNext, edits, next, wantNext)
 		}
@@ -526,8 +526,8 @@ func TestCountEditsFromSequentialCallsIndependentWithPool(t *testing.T) {
 		if err := os.WriteFile(pathB, []byte(strings.Repeat(editLn, 5)), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		editsA, nextA := CountEditsFrom(pathA, 0)
-		editsB, nextB := CountEditsFrom(pathB, 0)
+		editsA, _, nextA := CountWorkFrom(pathA, 0)
+		editsB, _, nextB := CountWorkFrom(pathB, 0)
 		if editsA != 3 || nextA != int64(3*len(editLn)) {
 			t.Fatalf("round %d: file A = (%d,%d), want (3,%d)", round, editsA, nextA, 3*len(editLn))
 		}
@@ -582,7 +582,7 @@ func TestCountEditsFromRealTranscript(t *testing.T) {
 			continue
 		}
 		appendTranscript(t, path, string(line))
-		edits, next := CountEditsFrom(path, offset)
+		edits, _, next := CountWorkFrom(path, offset)
 		if want := offset + int64(len(line)); next != want {
 			t.Fatalf("real record %d: next = %d, want %d", i, next, want)
 		}
@@ -631,9 +631,9 @@ func TestEachLineExportedHandlesHugeAndUnterminated(t *testing.T) {
 	}
 }
 
-// countEdits is the whole-file count: CountEditsFrom from offset 0.
+// countEdits is the whole-file edit count: CountWorkFrom from offset 0.
 func countEdits(path string) int {
-	n, _ := CountEditsFrom(path, 0)
+	n, _, _ := CountWorkFrom(path, 0)
 	return n
 }
 
@@ -655,10 +655,10 @@ func TestGitCommitCommandTrailingWrapperFlag(t *testing.T) {
 
 // A missing transcript is no edits and no error; an unreadable one (a directory) surfaces its read error.
 func TestEditedFilesErrors(t *testing.T) {
-	if got, err := EditedFiles(filepath.Join(t.TempDir(), "absent.jsonl"), 10); err != nil || len(got) != 0 {
+	if got, err := EditedFiles(filepath.Join(t.TempDir(), "absent.jsonl")); err != nil || len(got) != 0 {
 		t.Fatalf("missing transcript: %v, %v; want no edits and nil", got, err)
 	}
-	if _, err := EditedFiles(t.TempDir(), 10); err == nil {
+	if _, err := EditedFiles(t.TempDir()); err == nil {
 		t.Fatal("a directory as the transcript must return its read error")
 	}
 }

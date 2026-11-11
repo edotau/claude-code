@@ -85,7 +85,7 @@ func testVaultDoctorSecrets(t *testing.T) {
 	t.Setenv("HARNESS_VAULT_KEY", "")
 	vaulttest.Keyring(t)
 	vaulttest.Secret(t, "FOO_API_KEY", "sk-test-0123456789")
-	if _, _, err := vault.RotateKey(); err != nil {
+	if _, _, err := vault.RotateKey(false); err != nil {
 		t.Fatal(err)
 	}
 	c := findCheck(vaultDoctorChecks(), "vault")

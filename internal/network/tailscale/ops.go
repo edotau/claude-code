@@ -162,15 +162,12 @@ func CheckCreds(creds []Cred) error {
 	return nil
 }
 
-// StoreCred stores c, or with dryRun only reports; verb is "add" or "replace" for a dry run, else "".
-func StoreCred(c Cred, dryRun bool) (verb string, err error) {
-	if dryRun {
-		if slices.Contains(vault.Names(), c.Name) {
-			return "replace", nil
-		}
-		return "add", nil
+// DryVerb is what a dry-run write of c would do: "replace" when the vault already has the name, else "add".
+func DryVerb(c Cred) string {
+	if slices.Contains(vault.Names(), c.Name) {
+		return "replace"
 	}
-	return "", vault.Store(c.Name, c.Value)
+	return "add"
 }
 
 // priorCred is a vault value a StoreCreds write is about to overwrite, kept so it can be restored.

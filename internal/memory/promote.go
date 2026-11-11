@@ -54,7 +54,7 @@ func settledSplit(base, header string, blocks []string, capLines int) (keep, ove
 	return budgetSplit(header, blocks, capLines)
 }
 
-// archivePath is archiveFile's <dir>/archive/<base>-<yyyy-mm>.md destination.
+// archivePath is the <dir>/archive/<base>-<yyyy-mm>.md destination of archiveFile and rotateSessionHistory.
 func archivePath(dir, base string, now time.Time) string {
 	return filepath.Join(dir, "archive", strings.TrimSuffix(base, ".md")+"-"+now.Format("2006-01")+".md")
 }

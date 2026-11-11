@@ -92,6 +92,16 @@ var envelopeKindTokens = map[retry.Kind]string{
 	retry.KindAuth: "auth", retry.KindRateLimit: "rate_limit", retry.KindTransient: "transient", retry.KindQuota: "quota",
 }
 
+// KindOf is the failure class of an envelope error token, the inverse of ErrorKind's table; unknown is fatal.
+func KindOf(token string) retry.Kind {
+	for k, t := range envelopeKindTokens {
+		if t == token {
+			return k
+		}
+	}
+	return retry.KindFatal
+}
+
 // ErrorKind is the envelope token for err's class; an unclassified error is fatal.
 func ErrorKind(err error) string {
 	if re, ok := errors.AsType[RemoteError](err); ok {

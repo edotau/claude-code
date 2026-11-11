@@ -67,14 +67,11 @@ func (r AgentRecord) IsZero() bool {
 		r.Permissions == nil && r.Launch == nil && len(r.Extras) == 0
 }
 
-// LegacyAgents are the roster agents whose <AGENT>_<FIELD> pins fold into records; claude is first.
-var LegacyAgents = agentid.All()
-
 var legacyAliases = []string{"opus", "sonnet", "haiku", "fable"}
 
 // parseAgentPin splits a legacy pin key into agent and field (PROFILE, MODEL, ..., claude's <TIER>_MODEL); ok=false else.
 func parseAgentPin(key string) (agent, field string, ok bool) {
-	for _, a := range LegacyAgents {
+	for _, a := range agentid.All() {
 		f, found := strings.CutPrefix(key, strings.ToUpper(a)+"_")
 		if !found {
 			continue
@@ -322,7 +319,7 @@ func keepOwnLogin(recs map[string]AgentRecord, pins map[string]string) {
 	if !legacy {
 		return
 	}
-	for _, a := range LegacyAgents[1:] {
+	for _, a := range agentid.External() {
 		if r := recs[a]; r.Profile == "" && pins[strings.ToUpper(a)+"_ACTIVE"] != "off" {
 			r.Profile = OwnLoginProfiles[a]
 			recs[a] = r
@@ -344,7 +341,7 @@ func migrateAgentPins(t *Tx) (off []string, err error) {
 	if err := t.PutAgentRecords(recs); err != nil {
 		return nil, err
 	}
-	for _, a := range LegacyAgents[1:] {
+	for _, a := range agentid.External() {
 		if recs[a].Profile == "" {
 			off = append(off, a)
 		}

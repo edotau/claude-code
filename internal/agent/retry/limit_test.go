@@ -21,7 +21,7 @@ func TestBatchAndSpawnsShareTheAccountCap(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const account = "shared·acct"
 	const capA = 12
-	lim := inflight.Limits{Base: capA, Total: 1000}
+	lim := inflight.Limits{Total: 1000, Override: map[string]int{account: capA}}
 
 	helper := exec.Command("sleep", "30")
 	if err := helper.Start(); err != nil {
@@ -113,7 +113,7 @@ func assertAccountPeakAndMarkers(t *testing.T, account string, peak int32, capA 
 func TestSharedWaitHoldsNoLocalWorker(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const full, free = "full·acct", "free·acct"
-	lim := inflight.Limits{Base: 1, Total: 1000}
+	lim := inflight.Limits{Total: 1000, Override: map[string]int{full: 1, free: 1}}
 	if ok, _ := inflight.TryClaim(inflight.Claim{Owner: os.Getpid(), ID: "other", Account: full}, lim); !ok {
 		t.Fatal("seed claim refused")
 	}

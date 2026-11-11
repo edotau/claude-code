@@ -164,7 +164,7 @@ func TestDoctorRetiredKeys(t *testing.T) {
 	if _, err := vault.EnsureKey(); err != nil {
 		t.Fatal(err)
 	}
-	kid, _, err := vault.RotateKey()
+	kid, _, err := vault.RotateKey(false)
 	if err != nil {
 		t.Fatal(err)
 	}

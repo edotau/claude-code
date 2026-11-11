@@ -268,9 +268,6 @@ func TestFallbackRoundTrip(t *testing.T) {
 }
 
 func TestAgentNameListsTieToAgentid(t *testing.T) {
-	if !slices.Equal(LegacyAgents, agentid.All()) {
-		t.Fatalf("LegacyAgents = %v, want agentid.All() %v", LegacyAgents, agentid.All())
-	}
 	keys := slices.Sorted(maps.Keys(OwnLoginProfiles))
 	if want := slices.Sorted(slices.Values(agentid.External())); !slices.Equal(keys, want) {
 		t.Fatalf("OwnLoginProfiles keys = %v, want agentid.External() %v", keys, want)

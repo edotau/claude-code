@@ -103,7 +103,7 @@ func TestOverlayOmittedGuardRulesKeepsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defaults, err := ParseConfig(nil, nil)
+	defaults, err := ParseConfig(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestDefaultGuardsMirrorSettingsTemplate(t *testing.T) {
 	if err := json.Unmarshal(rendered, &doc); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := ParseConfig(nil, nil)
+	cfg, err := ParseConfig(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestMalformedOverlayErrors(t *testing.T) {
 	writeOverlay(t, `{not json`)
 	for name, read := range map[string]func() (*Config, error){
 		"Load":  LoadConfig,
-		"Parse": func() (*Config, error) { return ParseConfig([]byte(`{}`), []byte(`{not json`)) },
+		"Parse": func() (*Config, error) { return ParseConfig([]byte(`{not json`)) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := read()

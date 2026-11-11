@@ -73,7 +73,7 @@ func loadConfig() (*Config, error) {
 	} else if err != nil {
 		return nil, err
 	}
-	return ParseConfig(defaultsJSON, user)
+	return ParseConfig(user)
 }
 
 // Clone returns a deep copy of c; nil clones to nil.
@@ -106,15 +106,12 @@ func cloneRecord(r vault.AgentRecord) vault.AgentRecord {
 	return out
 }
 
-// ParseConfig merges base with an optional overlay document. A nil base uses the embedded defaults.
-func ParseConfig(base, overlay []byte) (*Config, error) {
-	if base == nil {
-		base = defaultsJSON
-	}
+// ParseConfig merges the embedded defaults with an optional overlay document.
+func ParseConfig(overlay []byte) (*Config, error) {
 	var defaults struct {
 		Agents map[string]vault.AgentRecord `json:"agents"`
 	}
-	if err := json.Unmarshal(base, &defaults); err != nil {
+	if err := json.Unmarshal(defaultsJSON, &defaults); err != nil {
 		return nil, fmt.Errorf("agentconfig defaults: %w", err)
 	}
 	cfg := Config{records: defaults.Agents}

@@ -169,8 +169,7 @@ func vaultStoreTailscale(dryRun bool, creds []tailscale.Cred) int {
 	}
 	if dryRun {
 		for _, c := range creds {
-			verb, _ := tailscale.StoreCred(c, true) // dry-run never fails
-			fmt.Printf("would %s %s (%d chars); nothing written\n", verb, c.Name, len(c.Value))
+			fmt.Printf("would %s %s (%d chars); nothing written\n", tailscale.DryVerb(c), c.Name, len(c.Value))
 		}
 		return 0
 	}
@@ -213,11 +212,7 @@ func cmdVaultRotateSecret(args []string) int {
 	if fs.NArg() > 0 {
 		return vaultUsageErr("rotate-secret", fs.Args())
 	}
-	var opts []vault.RotateKeyOption
-	if *force {
-		opts = append(opts, vault.ForceRotate())
-	}
-	if err := vaultdoc.RotateKey(os.Stdout, opts...); err != nil {
+	if err := vaultdoc.RotateKey(os.Stdout, *force); err != nil {
 		return helptext.Fail("vault rotate-secret: %v", err)
 	}
 	return 0

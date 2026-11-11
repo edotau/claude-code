@@ -19,7 +19,7 @@ import (
 )
 
 // scienceWipePrefixes are Claude Code / harness namespaces: a live session's IPC tokens and routing ride them.
-// ANTHROPIC_ is exact-match only (wipeKeys): claude-science reads its own ANTHROPIC_* SSO/BYOK knobs.
+// ANTHROPIC_ is exact-match only (providers.WipeKeys): claude-science reads its own ANTHROPIC_* SSO/BYOK knobs.
 var scienceWipePrefixes = []string{"CLAUDE_", "CLAUDECODE", "HARNESS_", "GEMINI_"}
 
 // scienceWiped reports whether key must not reach claude-science, which signs in with its own OAuth.
@@ -27,7 +27,7 @@ func scienceWiped(key string) bool {
 	if strings.HasPrefix(key, "CLAUDE_SCIENCE_") {
 		return false
 	}
-	if slices.Contains(wipeKeys, key) {
+	if slices.Contains(providers.WipeKeys, key) {
 		return true
 	}
 	return slices.ContainsFunc(scienceWipePrefixes, func(p string) bool { return strings.HasPrefix(key, p) })

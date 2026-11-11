@@ -173,7 +173,7 @@ func init() {
 		if !tui.Confirm("Set up "+name+" now?", true) {
 			return false
 		}
-		changed, err := menu.Agent(name, true, os.Stderr)
+		changed, err := menu.Agent(name, os.Stderr)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "configure %s: %v\n", name, err)
 		}

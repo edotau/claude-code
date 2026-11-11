@@ -34,7 +34,6 @@ const (
 	TailscaleConnect  Action = "tailscale_connect"
 	TailscaleSubnet   Action = "tailscale_subnet"
 	SetupAdopt        Action = "setup_adopt"
-	SetupNuke         Action = "setup_nuke"
 	SetupWorkspace    Action = "setup_workspace"
 	CopilotAuth       Action = "copilot_auth"
 	KeyRotate         Action = "key_rotate"
@@ -44,7 +43,7 @@ const (
 
 // Actions lists every valid action in report order.
 var Actions = []Action{ProviderSwitch, ModelPin, SecretSet, SecretDelete, HookBlocked, RouterFallback,
-	TailscaleKeyMint, TailscaleExitNode, TailscaleConnect, TailscaleSubnet, SetupAdopt, SetupNuke, SetupWorkspace, CopilotAuth,
+	TailscaleKeyMint, TailscaleExitNode, TailscaleConnect, TailscaleSubnet, SetupAdopt, SetupWorkspace, CopilotAuth,
 	KeyRotate, KeyReveal, PlanSaved}
 
 func (a Action) Valid() bool {

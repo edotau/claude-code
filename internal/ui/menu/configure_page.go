@@ -202,13 +202,13 @@ func runSection(d *dialog, s string) bool {
 // Agent runs the keys then agents sections scoped to name; changed reports whether a login or key
 // write actually happened (telling launch.Agent it is worth re-resolving). Call only after a human
 // has already said yes on a TTY — Agent itself still gates every login/write on o.Interactive.
-func Agent(name string, interactive bool, out io.Writer) (changed bool, err error) {
+func Agent(name string, out io.Writer) (changed bool, err error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return false, err
 	}
 	d := &dialog{
-		o:   Options{Agent: name, Interactive: interactive, Out: out, In: os.Stdin},
+		o:   Options{Agent: name, Interactive: true, Out: out, In: os.Stdin},
 		reg: reg, br: bufio.NewReader(os.Stdin), out: out, color: ansi.Enabled(out),
 	}
 	d.header("keys")

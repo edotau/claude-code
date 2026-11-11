@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -50,7 +49,7 @@ func StopFormat(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	allow := map[string]bool{}
-	edited, err := transcript.EditedFiles(in.TranscriptPath, math.MaxInt)
+	edited, err := transcript.EditedFiles(in.TranscriptPath)
 	if err != nil { // a partial scan still formats what it found
 		fmt.Fprintf(os.Stderr, "format-stop: transcript scan: %v\n", err)
 	}

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -33,8 +32,6 @@ type anthropicOptions struct {
 	Mode string // authLogin | authOAuth | authAPIKey
 	Name string // vault key holding the secret ("" for authLogin)
 }
-
-var envNameRE = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 
 // parseAnthropicArgs strips --oauth[=NAME] and --x-api-key[=NAME] (a bare flag takes no value), then the shared launcher flags.
 func parseAnthropicArgs(args []string) (anthropicOptions, []string, error) {
@@ -88,7 +85,7 @@ func applyAnthropicAuthArg(o *anthropicOptions, name, val string, hasVal bool) e
 
 // checkKeyName accepts only an env-var-shaped vault key name; a credential-shaped value is refused unechoed.
 func checkKeyName(flag, v string) error {
-	if textutil.LooksSecret(v) || !envNameRE.MatchString(v) {
+	if textutil.LooksSecret(v) || !providers.EnvNameRE.MatchString(v) {
 		return fmt.Errorf("%s=NAME takes a vault key name ([A-Z_][A-Z0-9_]*); store secrets with claude-code vault set", flag)
 	}
 	return nil

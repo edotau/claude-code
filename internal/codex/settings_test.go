@@ -108,7 +108,7 @@ func TestConfigHistoryIsEncryptedBoundedAndSurvivesRotation(t *testing.T) {
 	fixture := []byte("private-config-fixture-68b19d\nforeign = 'preserve exactly'\n")
 	seedCodexConfigHistory(t, path, other, fixture)
 	assertCodexConfigHistoryEncrypted(t, dir, fixture)
-	oldKid, newKid, err := vault.RotateKey()
+	oldKid, newKid, err := vault.RotateKey(false)
 	if err != nil || oldKid == newKid {
 		t.Fatalf("rotation did not change the key: %v", err)
 	}

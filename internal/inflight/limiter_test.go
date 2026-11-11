@@ -69,7 +69,7 @@ func mkdirAll(t *testing.T, dir string) {
 // probeClaim claims one slot for owner so the prune pass runs, failing the test when it is refused.
 func probeClaim(t *testing.T, owner int, transcript string) {
 	t.Helper()
-	if ok, _ := TryClaim(Claim{Owner: owner, ID: "probe", Account: "a", Transcript: transcript}, Limits{Base: Base, Total: 100}); !ok {
+	if ok, _ := TryClaim(Claim{Owner: owner, ID: "probe", Account: "a", Transcript: transcript}, Limits{Total: 100}); !ok {
 		t.Fatal("probe claim refused")
 	}
 }
@@ -79,7 +79,7 @@ func probeClaim(t *testing.T, owner int, transcript string) {
 func TestTryClaimBurst(t *testing.T) {
 	setupDir(t)
 	owner := os.Getpid()
-	lim := Limits{Base: Base, Total: 10000}
+	lim := Limits{Total: 10000}
 	if got := raceClaims(owner, lim, 2*Base); got != Base {
 		t.Fatalf("winners = %d, want exactly %d", got, Base)
 	}
@@ -104,7 +104,7 @@ func TestTryClaimBurst(t *testing.T) {
 		}
 	})
 	t.Run("total binds across accounts", func(t *testing.T) {
-		tight := Limits{Base: Base, Total: Base + 1} // Base + 1 live leaves no room
+		tight := Limits{Total: Base + 1} // Base + 1 live leaves no room
 		if ok, _ := TryClaim(Claim{Owner: owner, ID: "dispatch.b2", Account: "acct-b"}, tight); ok {
 			t.Fatal("claim admitted past Total even though the per-account cap had room")
 		}
@@ -131,7 +131,7 @@ func raceClaims(owner int, lim Limits, n int) int32 {
 func TestTryClaimN(t *testing.T) {
 	setupDir(t)
 	owner := os.Getpid()
-	lim := Limits{Base: Base, Total: 100}
+	lim := Limits{Total: 100}
 	if ok, _ := TryClaim(Claim{Owner: owner, ID: "wf", Account: "a", N: 3}, lim); !ok {
 		t.Fatal("N=3 claim refused with room")
 	}
@@ -145,7 +145,7 @@ func TestTryClaimN(t *testing.T) {
 	})
 	t.Run("refused whole when N does not fit", func(t *testing.T) {
 		// 3 slots of 4 used on "a": an N=2 claim does not fit.
-		tight := Limits{Base: Base, Total: 100, Override: map[string]int{"a": 4}}
+		tight := Limits{Total: 100, Override: map[string]int{"a": 4}}
 		if ok, _ := TryClaim(Claim{Owner: owner, ID: "no", Account: "a", N: 2}, tight); ok {
 			t.Fatal("N=2 claim admitted with only 1 slot left")
 		}
@@ -160,7 +160,7 @@ func TestTryClaimN(t *testing.T) {
 func TestTryClaimPartialWriteReleasesMarkers(t *testing.T) {
 	setupDir(t)
 	owner := os.Getpid()
-	lim := Limits{Base: 4, Total: 4}
+	lim := Limits{Total: 4, Override: map[string]int{"a": 4}}
 	if ok, _ := TryClaim(Claim{Owner: owner, ID: "existing", Account: "a"}, lim); !ok {
 		t.Fatal("existing claim refused with room")
 	}
@@ -233,7 +233,7 @@ func TestDispatchOwnerLiveness(t *testing.T) {
 	if got := Count().Total; got != 0 {
 		t.Fatalf("Count() with a dead dispatch owner = %d, want 0", got)
 	}
-	lim := Limits{Base: Base, Total: 100}
+	lim := Limits{Total: 100}
 	if ok, _ := TryClaim(Claim{Owner: owner, ID: "probe", Account: "a"}, lim); !ok {
 		t.Fatal("probe claim refused")
 	}
@@ -266,7 +266,7 @@ func TestRetireAgent(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(subDir, "agent-a1.meta.json"), []byte(`{"toolUseId":"toolu_x"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	lim := Limits{Base: Base, Total: 100}
+	lim := Limits{Total: 100}
 	for _, id := range []string{"toolu_x", "toolu_y"} {
 		if ok, _ := TryClaim(Claim{Owner: owner, ID: id, Account: "a"}, lim); !ok {
 			t.Fatalf("setup claim %s refused", id)
@@ -428,9 +428,6 @@ func TestComputeLimits(t *testing.T) {
 			if lim.Total != tc.want {
 				t.Errorf("ComputeLimits(%d accounts, %d cpus).Total = %d, want %d",
 					tc.available, tc.cpus, lim.Total, tc.want)
-			}
-			if lim.Base != Base {
-				t.Errorf("ComputeLimits().Base = %d, want %d", lim.Base, Base)
 			}
 		})
 	}

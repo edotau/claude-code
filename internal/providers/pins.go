@@ -171,11 +171,7 @@ func parseEnvLine(line string) (k, v string, ok bool) {
 	if !ok {
 		return "", "", false
 	}
-	v = strings.TrimSpace(v)
-	if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
-		v = v[1 : len(v)-1]
-	}
-	return strings.TrimSpace(k), v, true
+	return strings.TrimSpace(k), vault.UnquoteDotenv(v), true
 }
 
 // AuditRecords audits claude's record changes after their transaction succeeds: a profile switch, a model pin or unpin.

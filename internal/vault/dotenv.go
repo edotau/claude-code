@@ -38,7 +38,7 @@ func ParseDotenv(r io.Reader) (pairs []Pair, problems []string) {
 			continue
 		}
 		name, value, ok := strings.Cut(strings.TrimPrefix(line, "export "), "=")
-		value = unquoteDotenv(value)
+		value = UnquoteDotenv(value)
 		switch {
 		case !ok || !EnvName.MatchString(name):
 			problems = append(problems, fmt.Sprintf("line %d: want NAME=value", n))
@@ -54,8 +54,8 @@ func ParseDotenv(r io.Reader) (pairs []Pair, problems []string) {
 	return pairs, problems
 }
 
-// unquoteDotenv matches providers.ReadEnvFile: trim, then strip one matching quote pair.
-func unquoteDotenv(value string) string {
+// UnquoteDotenv is the dotenv value rule ParseDotenv and providers.ReadEnvFile share: trim, strip one quote pair.
+func UnquoteDotenv(value string) string {
 	value = strings.TrimSpace(value)
 	if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
 		return value[1 : len(value)-1]

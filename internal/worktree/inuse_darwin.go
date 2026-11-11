@@ -3,11 +3,10 @@
 package worktree
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os/exec"
-	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/proc"
@@ -17,7 +16,7 @@ func init() {
 	processesIn = scanIn
 	scanProcs = scanProcsDarwin
 	parentOf = func(pid int) (int, error) { return proc.Parent(pid), nil } // 0 ends ancestry
-	commName = commOfDarwin
+	commName = func(pid int) string { return cmp.Or(proc.Comm(pid), "?") }
 }
 
 // scanProcsDarwin shells out to lsof once (stdlib os/exec only, no cgo) since macOS has no /proc. The -F fields
@@ -36,14 +35,4 @@ func scanProcsDarwin() ([]procCwd, error) {
 		}
 	}
 	return parseLsofCwd(string(out))
-}
-
-func commOfDarwin(pid int) string {
-	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "ps", "-o", "comm=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
-		return "?"
-	}
-	return filepath.Base(strings.TrimSpace(string(out)))
 }
