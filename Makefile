@@ -58,7 +58,7 @@ build: install  # (dev recipe, hidden from help) compile + install + fmt + audit
 	@$(if $(SKIP_AUDIT),echo -e "$(C_NOTE)audit skipped (SKIP_AUDIT)",$(MAKE) audit)
 
 # install.go already links the bare shims, seeds a missing settings.json, and writes bash completion
-# (internal/launch/install.go: Install() -> completion.Install) — one call does all three.
+# (internal/setup/install_steps.go: Install() -> completion.Install) — one call does all three.
 .PHONY: install
 install: compile mdsmith rtk  ## Build + install + lint/vuln tools (DEV_TOOLS=0: skip)
 	@$(BIN) install$(if $(filter 1,$(V)), --verbose,)

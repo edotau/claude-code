@@ -51,9 +51,7 @@ var (
 	maxResolveWait = 10 * time.Minute
 )
 
-// askEnvelope mirrors the JSON `claude-code agents ask --format json` prints: agent.Result's fields plus the
-// top-level "error". Decoded here rather than importing internal/agent, which would cycle back through
-// internal/launch -> internal/hooks -> internal/worktree.
+// askEnvelope mirrors the JSON `claude-code agents ask --format json` prints: agent.Result's fields plus "error".
 type askEnvelope struct {
 	Answer         string `json:"answer"`
 	Fallback       string `json:"fallback,omitempty"`
