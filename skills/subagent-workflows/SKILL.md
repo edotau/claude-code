@@ -56,6 +56,7 @@ plan (resume at the first unticked line of its `~/.claude/plans/` checklist).
 |---|---|
 | Single leaf | One `Agent` call with a brief ([prompts.md](references/prompts.md)) |
 | Parallel fan-out | `Agent` calls in one message, disjoint files ([Ownership](#handoff-contract)) |
+| Which agent, model, workspace | [agents-and-models.md](references/agents-and-models.md) (decision table, capabilities, measurements) |
 | Same question, many angles | `claude-code agents dispatch explore\|fleet\|compare` ([cost-routing.md](references/cost-routing.md)) |
 | Sequential plan · tournament | [patterns.md](references/patterns.md) (every shape, its pattern and what enforces it) |
 | Many leaf-sized tasks | [Lane orchestrator](references/lane-orchestrator.md) |
