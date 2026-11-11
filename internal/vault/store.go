@@ -3,7 +3,6 @@ package vault
 import (
 	"fmt"
 	"os"
-	"slices"
 	"strings"
 	"time"
 
@@ -50,17 +49,23 @@ func Store(name, value string) error {
 
 // Delete removes name's vault record without resolving a key and audits it; an absent name is a silent no-op.
 func Delete(name string) error {
+	_, err := deleteSecret(name)
+	return err
+}
+
+// deleteSecret removes name's record in one transaction, audits it when present and reports whether it existed.
+func deleteSecret(name string) (bool, error) {
 	var existed bool
 	if err := Update(func(tx *Tx) error {
 		_, existed = tx.Get(Secrets, name)
 		return tx.Put(Secrets, name, "")
 	}); err != nil {
-		return err
+		return false, err
 	}
 	if existed {
 		audit.Log(audit.SecretDelete, name, "")
 	}
-	return nil
+	return existed, nil
 }
 
 // Redact renders a stored value for display: a 5-char prefix (enough to recognise a paste) plus its length.
@@ -226,14 +231,14 @@ func LookupAll(names []string) ([]string, error) {
 
 // Remove deletes the sealed secret name and audits it; an unknown name is an error.
 func Remove(name string) error {
-	names, err := NamesErr()
+	existed, err := deleteSecret(name)
 	if err != nil {
 		return err
 	}
-	if !slices.Contains(names, name) {
+	if !existed {
 		return fmt.Errorf("%s not set", name)
 	}
-	return Delete(name)
+	return nil
 }
 
 // SecretMeta is a vault record's display and probe metadata, without ciphertext or key information.

@@ -84,7 +84,7 @@ func Plan(dir string, keepMemory bool) (NukePlan, error) {
 		if hasGit {
 			class = classify(dir, e.Name())
 		}
-		plan.Entries = append(plan.Entries, Entry{Name: e.Name(), Size: dirSize(filepath.Join(dir, e.Name())), Class: class})
+		plan.Entries = append(plan.Entries, Entry{Name: e.Name(), Size: paths.DirSize(filepath.Join(dir, e.Name())), Class: class})
 	}
 	// An unreadable/corrupt vault must not block the nuke: it is still archived whole, as an opaque
 	// file, by userContentPaths below — just without naming the secrets it may hold.
@@ -219,20 +219,6 @@ func classify(repo, name string) string {
 	return "untracked"
 }
 
-func dirSize(path string) int64 {
-	var total int64
-	_ = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
-		}
-		if info, err := d.Info(); err == nil {
-			total += info.Size()
-		}
-		return nil
-	})
-	return total
-}
-
 // userContentPaths lists the vault, settings.json, local settings, and untracked repo files Nuke archives.
 func userContentPaths(dir string, hasGit bool) ([]string, error) {
 	var out []string
@@ -271,13 +257,7 @@ func untrackedUnder(repo, sub string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list untracked %s: %w", sub, err)
 	}
-	var rels []string
-	for l := range strings.SplitSeq(strings.TrimRight(string(out), "\x00"), "\x00") {
-		if l != "" {
-			rels = append(rels, l)
-		}
-	}
-	return rels, nil
+	return splitNUL(out), nil
 }
 
 // archiveUserContent writes a tarball of plan.UserContent (+ a manifest naming secrets by key only,

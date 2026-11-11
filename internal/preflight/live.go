@@ -365,7 +365,7 @@ var listModels = providers.ListModels
 
 // fetch lists p's endpoints live and caches them.
 func fetch(ctx context.Context, reg *providers.Registry, p *providers.Provider, now time.Time) (router.Served, error) {
-	infos, err := listModels(ctx, reg, p)
+	infos, err := listModels(ctx, p)
 	if err != nil {
 		return router.Served{}, err
 	}

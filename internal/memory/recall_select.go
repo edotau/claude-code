@@ -144,7 +144,7 @@ func recallTier(ranked []SearchHit, archived bool, need int) ([]SearchHit, float
 	top, topAny := 0.0, 0.0
 	for _, h := range ranked {
 		first, _, _ := strings.Cut(h.Block, "\n")
-		if (h.Bank == "archive") != archived || strings.Contains(first, "~~") || strings.Contains(first, "SUPERSEDED") {
+		if (h.Bank == "archive") != archived || isSupersededTitle(first) {
 			continue
 		}
 		if topAny == 0 {

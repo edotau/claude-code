@@ -196,7 +196,7 @@ func TestAssignIDsIgnoresFencedMarkers(t *testing.T) {
 	if !strings.Contains(s, "real heading <!-- id:aaaa0001 -->") || strings.Count(s, "<!-- id:bbbb0002 -->") != 1 {
 		t.Errorf("real id lost or example touched:\n%s", s)
 	}
-	if id := blockMarkerID(strings.Join(strings.Split(s, "\n")[2:], "\n")); id != "aaaa0001" {
+	if id := ownerID(strings.Join(strings.Split(s, "\n")[2:], "\n")); id != "aaaa0001" {
 		t.Errorf("canonical id = %q, want the unfenced one", id)
 	}
 	// an unmarked block whose only marker is a fenced example still gets its own id

@@ -62,7 +62,7 @@ func ghError(err error, stderr string) error {
 // GitHubHost is a GitHub repository.
 type GitHubHost struct{ Repo string }
 
-// New binds owner/name.
+// NewGitHub binds owner/name.
 func NewGitHub(owner, name string) *GitHubHost { return &GitHubHost{Repo: owner + "/" + name} }
 
 type ghPR struct {

@@ -84,33 +84,6 @@ func appendReportLocked(dir, label string, in ReportInput) ([]string, error) {
 	return []string{reportPath, decisionsPath}, nil
 }
 
-// fileSnapshot is a file's bytes before an append; existed is false when it was absent.
-type fileSnapshot struct {
-	path    string
-	prev    []byte
-	existed bool
-}
-
-// snapshotFile records path's current bytes; an absent file is a snapshot with existed false.
-func snapshotFile(path string) (fileSnapshot, error) {
-	prev, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fileSnapshot{}, err
-	}
-	return fileSnapshot{path: path, prev: prev, existed: err == nil}, nil
-}
-
-// restore puts the snapshot back: removes a file that was absent (if it now exists), else rewrites its prior bytes.
-func (s fileSnapshot) restore() error {
-	if !s.existed {
-		if err := os.Remove(s.path); !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		return nil
-	}
-	return paths.AtomicWrite(s.path, s.prev, 0o600)
-}
-
 // decisionLines renders one `- <date> · <label> · <decision>` line per non-blank decision, newline-flattened.
 func decisionLines(day, label string, decisions []string) string {
 	var b strings.Builder

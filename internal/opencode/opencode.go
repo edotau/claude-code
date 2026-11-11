@@ -89,8 +89,7 @@ func opencodeProviderOptions(p *providers.Provider, dialect, base, cred string) 
 func opencodeDisableToolStreaming(menu map[string]any) {
 	for id, m := range menu { // the router cannot relay fine-grained tool streaming
 		if entry, ok := m.(map[string]any); ok {
-			entry["options"] = map[string]any{"toolStreaming": false}
-			menu[id] = entry
+			menu[id] = claudeEntry(entry)
 		}
 	}
 }
@@ -316,7 +315,11 @@ func aliasModelID(reg *providers.Registry, p *providers.Provider, alias string) 
 	if spec == "" {
 		return ""
 	}
-	id := p.WireModel(providers.ParseTarget(reg, spec, p).Model) // a cross-provider pin is respelled for p, not copied
+	return opencodeModel(p, p.WireModel(providers.ParseTarget(reg, spec, p).Model)) // a cross-provider pin is respelled for p
+}
+
+// opencodeModel swaps Copilot's "auto" router id (absent from opencode's catalog) for p.OpencodeFallback.
+func opencodeModel(p *providers.Provider, id string) string {
 	if id == "auto" && p.OpencodeFallback != "" {
 		return p.OpencodeFallback
 	}
@@ -473,9 +476,7 @@ func (opencodeEngine) Login(p *providers.Provider, model string, h *agent.Headle
 	if p.Provider != "github" {
 		return nil, nil, errors.New("opencode: no subscription sign-in support")
 	}
-	if model == "auto" && p.OpencodeFallback != "" { // Copilot's own router id; opencode's catalog lacks it
-		model = p.OpencodeFallback
-	}
+	model = opencodeModel(p, model)
 	return opencodeCopilotLogin(model, h)
 }
 

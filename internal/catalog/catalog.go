@@ -50,7 +50,7 @@ func Served(p *providers.Provider) (map[string]providers.ModelInfo, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		var err error
-		if infos, err = providers.ListModels(ctx, nil, p); err != nil {
+		if infos, err = providers.ListModels(ctx, p); err != nil {
 			return nil, err
 		}
 	}
@@ -137,10 +137,7 @@ func WriteList(w io.Writer, profile string, rows []Row, format string) error {
 		return helptext.WriteJSON(w, rows)
 	}
 	fmt.Fprintln(w, profile+" serving endpoints")
-	nameW := len("NAME")
-	for _, r := range rows {
-		nameW = max(nameW, len(r.Name))
-	}
+	nameW := ColWidth("NAME", len(rows), func(i int) string { return rows[i].Name })
 	fmt.Fprintf(w, "%-*s  %s\n", nameW, "NAME", "TESTED")
 	for _, r := range rows {
 		fmt.Fprintln(w, strings.TrimRight(fmt.Sprintf("%-*s  %s", nameW, r.Name, r.Tested), " "))

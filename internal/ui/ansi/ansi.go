@@ -179,13 +179,7 @@ func smooth(x float64) float64 {
 }
 
 // TowardWhite lightens rgb by fraction w toward white.
-func TowardWhite(rgb RGB, w float64) RGB {
-	return RGB{
-		int(math.Round(float64(rgb[0]) + (255-float64(rgb[0]))*w)),
-		int(math.Round(float64(rgb[1]) + (255-float64(rgb[1]))*w)),
-		int(math.Round(float64(rgb[2]) + (255-float64(rgb[2]))*w)),
-	}
-}
+func TowardWhite(rgb RGB, w float64) RGB { return Mix(rgb, RGB{255, 255, 255}, w) }
 
 // Mix linearly interpolates a→b by fraction w.
 func Mix(a, b RGB, w float64) RGB {

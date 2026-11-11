@@ -4,7 +4,6 @@ package vaulttest
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"maps"
 	"strings"
 	"sync"
 	"testing"
@@ -66,14 +65,7 @@ func SetRecord(t testing.TB, agent, field, val string) {
 func setRecordField(r vault.AgentRecord, field, val string) (vault.AgentRecord, bool) {
 	switch alias, isAlias := strings.CutPrefix(field, "aliases."); {
 	case isAlias:
-		aliases := maps.Clone(r.Aliases)
-		if aliases == nil {
-			aliases = map[string]string{}
-		}
-		if aliases[alias] = val; val == "" {
-			delete(aliases, alias)
-		}
-		r.Aliases = aliases
+		r = r.WithAlias(alias, val)
 	case field == "profile":
 		r.Profile = val
 	case field == "model":

@@ -54,53 +54,50 @@ func clip(s string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
+// forEachCell walks s calling fn per SGR escape (w == 0) or rune (w cells); fn false stops. A bare ESC is skipped.
+func forEachCell(s string, fn func(tok string, w int) bool) {
+	for i := 0; i < len(s); {
+		if s[i] == 0x1b {
+			j := strings.IndexByte(s[i:], 'm')
+			if j < 0 {
+				i++
+				continue
+			}
+			if !fn(s[i:i+j+1], 0) {
+				return
+			}
+			i += j + 1
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if !fn(string(r), cellWidth(r)) {
+			return
+		}
+		i += size
+	}
+}
+
 func clipLine(s string, width int) string {
 	if visibleWidth(s) <= width {
 		return s
 	}
 	var b strings.Builder
 	cells := 0
-	for i := 0; i < len(s); {
-		if s[i] == 0x1b {
-			j := strings.IndexByte(s[i:], 'm')
-			if j < 0 {
-				// malformed/incomplete escape: skip just the ESC byte, keep counting the rest
-				i++
-				continue
-			}
-			b.WriteString(s[i : i+j+1])
-			i += j + 1
-			continue
-		}
-		r, size := utf8.DecodeRuneInString(s[i:])
-		if cells+cellWidth(r) > width-1 {
+	forEachCell(s, func(tok string, w int) bool {
+		if w > 0 && cells+w > width-1 {
 			b.WriteString("…")
-			break
+			return false
 		}
-		b.WriteRune(r)
-		cells += cellWidth(r)
-		i += size
-	}
+		b.WriteString(tok)
+		cells += w
+		return true
+	})
 	return b.String() + ansi.Reset
 }
 
 func visibleWidth(s string) int {
 	n := 0
-	for i := 0; i < len(s); {
-		if s[i] == 0x1b {
-			j := strings.IndexByte(s[i:], 'm')
-			if j < 0 {
-				// malformed/incomplete escape: skip just the ESC byte, keep counting the rest
-				i++
-				continue
-			}
-			i += j + 1
-			continue
-		}
-		r, size := utf8.DecodeRuneInString(s[i:])
-		n += cellWidth(r)
-		i += size
-	}
+	forEachCell(s, func(_ string, w int) bool { n += w; return true })
 	return n
 }
 

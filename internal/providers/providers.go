@@ -405,8 +405,10 @@ func (r *Registry) Validate() error {
 	for _, n := range r.Names() {
 		errs = append(errs, validateProvider(n, r.Providers[n], valid)...)
 	}
-	errs = append(errs, validateOpencodeIDs(r)...)
-	errs = append(errs, validateSecretNames(r)...)
+	// the opencode hub picks the owner of an id, so each has one (chatgpt, not openai, owns "openai")
+	errs = append(errs, uniqueOwner(r, func(p *Provider) string { return p.OpencodeID },
+		"%s and %s both claim opencodeID %q; one profile owns it")...)
+	errs = append(errs, uniqueOwner(r, AuthSecretName, "%s and %s would share sealed secret %s; rename one")...)
 	errs = append(errs, validateNameRefs(r)...)
 	errs = append(errs, validateRouting(r.Routing)...)
 	errs = append(errs, validateLadders(r)...)
@@ -416,39 +418,20 @@ func (r *Registry) Validate() error {
 	return nil
 }
 
-// validateOpencodeIDs rejects two profiles claiming one opencodeID: the opencode hub picks the owner of an id, so
-// each id has exactly one (chatgpt, not openai, owns "openai" — opencode's own openai login is the ChatGPT plan).
-func validateOpencodeIDs(r *Registry) []string {
+// uniqueOwner reports every pair of providers whose key (blank = none) collides; msg takes (owner, name, key).
+func uniqueOwner(r *Registry, key func(*Provider) string, msg string) []string {
 	var errs []string
 	owner := map[string]string{}
 	for _, n := range r.Names() {
-		id := r.Providers[n].OpencodeID
-		if id == "" {
+		k := key(r.Providers[n])
+		if k == "" {
 			continue
 		}
-		if o, ok := owner[id]; ok {
-			errs = append(errs, fmt.Sprintf("%s and %s both claim opencodeID %q; one profile owns it", o, n, id))
+		if o, ok := owner[k]; ok {
+			errs = append(errs, fmt.Sprintf(msg, o, n, k))
 			continue
 		}
-		owner[id] = n
-	}
-	return errs
-}
-
-// validateSecretNames rejects two sealed-authType providers whose derived secret names collide.
-func validateSecretNames(r *Registry) []string {
-	var errs []string
-	owner := map[string]string{}
-	for _, n := range r.Names() {
-		name := AuthSecretName(r.Providers[n])
-		if name == "" {
-			continue
-		}
-		if o, ok := owner[name]; ok {
-			errs = append(errs, fmt.Sprintf("%s and %s would share sealed secret %s; rename one", o, n, name))
-			continue
-		}
-		owner[name] = n
+		owner[k] = n
 	}
 	return errs
 }

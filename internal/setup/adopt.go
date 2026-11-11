@@ -70,13 +70,18 @@ func trackedFiles(repo string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return splitNUL(out), nil
+}
+
+// splitNUL splits NUL-terminated `git ls-files -z` output, dropping empty entries.
+func splitNUL(out []byte) []string {
 	var files []string
 	for p := range strings.SplitSeq(strings.TrimRight(string(out), "\x00"), "\x00") {
 		if p != "" {
 			files = append(files, p)
 		}
 	}
-	return files, nil
+	return files
 }
 
 // filesDiffer sha256-compares two files.

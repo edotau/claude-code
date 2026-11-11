@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -40,7 +41,7 @@ type diffSurgeonResult struct {
 	FilesInDiff     int              `json:"files_in_diff"`
 	TotalChangeLine int              `json:"total_change_lines"`
 	NoiseLines      int              `json:"noise_lines"`
-	NoiseRatio      pyFloat          `json:"noise_ratio"`
+	NoiseRatio      source.PyFloat   `json:"noise_ratio"`
 	Verdict         string           `json:"verdict"`
 	FileResults     []diffFileResult `json:"file_results"`
 }
@@ -255,7 +256,7 @@ func buildDiffResult(files []*diffFileEntry) diffSurgeonResult {
 		FilesInDiff:     len(files),
 		TotalChangeLine: totalChanges,
 		NoiseLines:      totalNoise,
-		NoiseRatio:      pyFloat(ratio),
+		NoiseRatio:      source.PyFloat(ratio),
 		Verdict:         verdict,
 		FileResults:     fileResults,
 	}
@@ -336,28 +337,6 @@ func runDiffIn(repo string, args []string, stdout, stderr io.Writer) int {
 	}
 	printDiffReport(stdout, result)
 	return 0
-}
-
-// splitPositional separates positional args from flags so Go's flag.Parse (which stops at the
-// first non-flag token) can still handle argparse-style interleaving like ". --base main".
-func splitPositional(args []string, boolFlags map[string]bool) (positional, rest []string) {
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if len(a) > 0 && a[0] == '-' && a != "-" {
-			rest = append(rest, a)
-			name := strings.TrimLeft(a, "-")
-			if strings.Contains(name, "=") || boolFlags[name] {
-				continue
-			}
-			if i+1 < len(args) {
-				i++
-				rest = append(rest, args[i])
-			}
-			continue
-		}
-		positional = append(positional, a)
-	}
-	return positional, rest
 }
 
 // printJSON writes v as indented JSON; an encode or stdout write failure goes to stderr with exit 1.

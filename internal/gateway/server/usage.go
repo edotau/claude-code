@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/gateway"
+	"github.com/edotau/claude-code/internal/gateway/translate"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tokenledger"
 )
@@ -51,12 +52,9 @@ func scrapeLastUsage(body []byte, inKey, outKey, detailsKey string) ledgerUsage 
 	}
 	_ = json.Unmarshal(raw[detailsKey], &details)
 	// An absent or null count is 0: an embeddings usage has no completion_tokens, and the prompt count still counts.
-	u := ledgerUsage{input: count(raw[inKey]), output: count(raw[outKey])}
-	if details.Cached > 0 && details.Cached <= u.input {
-		u.cacheRead = details.Cached
-		u.input -= u.cacheRead
-	}
-	return u
+	prompt := count(raw[inKey])
+	input, cacheRead := translate.SplitCached(prompt, details.Cached)
+	return ledgerUsage{input: input, output: count(raw[outKey]), cacheRead: cacheRead}
 }
 
 // count decodes one token count; absent, null or non-numeric reads as 0.

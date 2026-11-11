@@ -48,12 +48,6 @@ var (
 	maxResolveWait = 10 * time.Minute
 )
 
-// resolveAgentResult is the subset of `ask --format json`'s envelope ResolveWithAgent inspects.
-type resolveAgentResult struct {
-	Fallback       string
-	FallbackReason string
-}
-
 // askEnvelope mirrors the JSON `claude-code agents ask --format json` prints: agent.Result's fields plus the
 // top-level "error". Decoded here rather than importing internal/agent, which would cycle back through
 // internal/launch -> internal/hooks -> internal/worktree.
@@ -71,10 +65,10 @@ type askEnvelope struct {
 // with tools enabled, on prompt inside workDir. It never retries. The agent only edits files; it is
 // told not to run git add/commit/merge (a sandboxed agent can't write inside .git anyway) — the
 // controller (finalizeAgentResolution) stages and commits its edits once it exits.
-var runResolveAgent = func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
+var runResolveAgent = func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
 	bin, err := claudeCodeBin()
 	if err != nil {
-		return resolveAgentResult{}, fmt.Errorf("resolve: locate claude-code binary: %w", err)
+		return askEnvelope{}, fmt.Errorf("resolve: locate claude-code binary: %w", err)
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout+30*time.Second) // belt-and-suspenders over ask's own --timeout
 	defer cancel()
@@ -88,18 +82,17 @@ var runResolveAgent = func(ctx context.Context, agentName, prompt, workDir strin
 	var env askEnvelope
 	if jsonErr := json.Unmarshal(stdout, &env); jsonErr != nil {
 		if runErr != nil {
-			return resolveAgentResult{}, fmt.Errorf("claude-code agents ask: %w (%s)", runErr, strings.TrimSpace(stderr.String()))
+			return askEnvelope{}, fmt.Errorf("claude-code agents ask: %w (%s)", runErr, strings.TrimSpace(stderr.String()))
 		}
-		return resolveAgentResult{}, fmt.Errorf("claude-code agents ask: unparseable output: %w", jsonErr)
+		return askEnvelope{}, fmt.Errorf("claude-code agents ask: unparseable output: %w", jsonErr)
 	}
-	res := resolveAgentResult{Fallback: env.Fallback, FallbackReason: env.FallbackReason}
 	if env.Error != nil {
-		return res, fmt.Errorf("claude-code agents ask: %s", env.Error.Message)
+		return env, fmt.Errorf("claude-code agents ask: %s", env.Error.Message)
 	}
 	if runErr != nil {
-		return res, fmt.Errorf("claude-code agents ask: %w (%s)", runErr, strings.TrimSpace(stderr.String()))
+		return env, fmt.Errorf("claude-code agents ask: %w (%s)", runErr, strings.TrimSpace(stderr.String()))
 	}
-	return res, nil
+	return env, nil
 }
 
 // claudeCodeBin resolves the binary to self-exec: this code already runs inside it, so os.Executable
@@ -548,15 +541,7 @@ func hasMergeHead(path string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	_, statErr := os.Stat(filepath.Join(gitDir, "MERGE_HEAD"))
-	switch {
-	case statErr == nil:
-		return true, nil
-	case os.IsNotExist(statErr):
-		return false, nil
-	default:
-		return false, statErr
-	}
+	return markerExists(gitDir, "MERGE_HEAD")
 }
 
 // failOperation marks op failed and re-saves it; the file is never cleaned up, so resume decides what to do next.

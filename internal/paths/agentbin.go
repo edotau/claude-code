@@ -5,20 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-)
 
-// Vendors maps bin names to shipped binaries; gemini is Google's agy.
-var Vendors = map[string]string{
-	"claude": "claude", "codex": "codex", "copilot": "copilot", "opencode": "opencode", "gemini": "agy",
-}
+	"github.com/edotau/claude-code/internal/agentid"
+)
 
 // AgentName maps a bin name or a shipped binary ("agy") to its bin name.
 func AgentName(name string) (string, bool) {
-	if _, ok := Vendors[name]; ok {
-		return name, true
-	}
-	for bin, vendor := range Vendors {
-		if vendor == name {
+	for _, bin := range agentid.All() {
+		if bin == name || agentid.Binary(bin) == name {
 			return bin, true
 		}
 	}
@@ -56,7 +50,7 @@ func AgentBin(name string) (string, error) {
 func checkVendorLink(bin, p string) error {
 	fi, err := os.Lstat(p)
 	if os.IsNotExist(err) {
-		return fmt.Errorf("%s: not installed at %s (claude-code install --tools=%s)", bin, p, Vendors[bin])
+		return fmt.Errorf("%s: not installed at %s (claude-code install --tools=%s)", bin, p, agentid.Binary(bin))
 	}
 	if err != nil {
 		return err

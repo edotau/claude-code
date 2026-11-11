@@ -73,13 +73,13 @@ func patchCodexSettings(raw string, overlay map[string]string) (string, error) {
 		return base, nil
 	}
 	var section strings.Builder
-	section.WriteString("# >>> claude-code:codex-settings:begin >>>\n")
+	section.WriteString(codexSettingsBegin + "\n")
 	for _, field := range CodexFields() {
 		if value, ok := overlay[field.Key]; ok {
 			fmt.Fprintf(&section, "%s = %q\n", field.Key, value)
 		}
 	}
-	section.WriteString("# <<< claude-code:codex-settings:end <<<\n")
+	section.WriteString(codexSettingsEnd + "\n")
 	return agentconfig.InsertTopLevelTOML(base, section.String()), nil
 }
 

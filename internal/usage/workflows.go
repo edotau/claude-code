@@ -193,15 +193,20 @@ func inWindowResponses(resps []transcript.Response, cutoff time.Time) []transcri
 	return kept
 }
 
+// addUsage adds src's four token counts to dst.
+func addUsage(dst *transcript.ModelUsage, src transcript.ModelUsage) {
+	dst.InputTokens += src.InputTokens
+	dst.OutputTokens += src.OutputTokens
+	dst.CacheReadTokens += src.CacheReadTokens
+	dst.CacheCreationTokens += src.CacheCreationTokens
+}
+
 // addAgentToRow folds one agent transcript's summary into a phase (or run-total) row.
 func addAgentToRow(row *workflowPhaseRow, s *transcript.FileSummary) {
 	t := s.Totals()
 	row.agents++
 	row.turns += s.Turns
-	row.tokens.InputTokens += t.InputTokens
-	row.tokens.OutputTokens += t.OutputTokens
-	row.tokens.CacheReadTokens += t.CacheReadTokens
-	row.tokens.CacheCreationTokens += t.CacheCreationTokens
+	addUsage(&row.tokens, t)
 	if !s.First.IsZero() && (row.first.IsZero() || s.First.Before(row.first)) {
 		row.first = s.First
 	}
@@ -226,10 +231,7 @@ func addAgentToRow(row *workflowPhaseRow, s *transcript.FileSummary) {
 			seen[short] = true
 		}
 		ms.turns += s.ModelTurns[rawModel]
-		ms.tokens.InputTokens += u.InputTokens
-		ms.tokens.OutputTokens += u.OutputTokens
-		ms.tokens.CacheReadTokens += u.CacheReadTokens
-		ms.tokens.CacheCreationTokens += u.CacheCreationTokens
+		addUsage(&ms.tokens, *u)
 	}
 }
 
@@ -322,10 +324,7 @@ func printAllRunsByModel(out io.Writer, runs []*workflowRun) {
 			}
 			dst.agents += ms.agents
 			dst.turns += ms.turns
-			dst.tokens.InputTokens += ms.tokens.InputTokens
-			dst.tokens.OutputTokens += ms.tokens.OutputTokens
-			dst.tokens.CacheReadTokens += ms.tokens.CacheReadTokens
-			dst.tokens.CacheCreationTokens += ms.tokens.CacheCreationTokens
+			addUsage(&dst.tokens, ms.tokens)
 		}
 	}
 	if len(all) == 0 {
@@ -470,30 +469,11 @@ func matchWorkflowToolResults(content json.RawMessage, toolUses map[string]toolU
 
 // runIDFromToolResult extracts the wf_<id> run id a tool_result's text names, or "" when none does.
 func runIDFromToolResult(raw json.RawMessage) string {
-	m := runIDPattern.FindStringSubmatch(toolResultText(raw))
+	m := runIDPattern.FindStringSubmatch(transcript.ContentText(raw))
 	if len(m) < 2 {
 		return ""
 	}
 	return m[1]
-}
-
-// toolResultText reads a tool_result's content, which is either a plain string or an array of text blocks.
-func toolResultText(raw json.RawMessage) string {
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return s
-	}
-	var blocks []struct {
-		Text string `json:"text"`
-	}
-	if json.Unmarshal(raw, &blocks) == nil {
-		var sb strings.Builder
-		for _, b := range blocks {
-			sb.WriteString(b.Text)
-		}
-		return sb.String()
-	}
-	return ""
 }
 
 // workflowNameFromToolUse resolves a Workflow tool_use's name: the by-name input.name, else the

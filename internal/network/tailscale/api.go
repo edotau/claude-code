@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -76,7 +77,7 @@ func selfDevice(ctx context.Context) (*Client, Local, string, error) {
 		return nil, Local{}, "", err
 	}
 	st, err := Status(ctx)
-	if err != nil { // ErrNotRunning included: st.IPs would be stale and never match a device
+	if err != nil { // errNotRunning included: st.IPs would be stale and never match a device
 		return nil, Local{}, "", err
 	}
 	devices, err := client.Devices(ctx)
@@ -235,7 +236,7 @@ type device struct {
 	EnabledRoutes    []string  `json:"enabledRoutes,omitempty"`
 }
 
-// Devices lists every device on the tailnet via GET /tailnet/{tailnet}/devices.
+// Devices lists every device on the tailnet via GET /tailnet/-/devices.
 func (c *Client) Devices(ctx context.Context) ([]device, error) {
 	var out struct {
 		Devices []device `json:"devices"`
@@ -287,4 +288,74 @@ func (c *Client) ApproveExitNode(ctx context.Context, deviceID string) error {
 	}
 	_, err = c.EnableRoutes(ctx, deviceID, cur, defaultRoutes)
 	return err
+}
+
+// forceRefreshKey makes oauthToken re-mint despite a fresh cache (once after a 401: clocks may disagree).
+type forceRefreshKey struct{}
+
+func withForceRefresh(ctx context.Context) context.Context {
+	return context.WithValue(ctx, forceRefreshKey{}, true)
+}
+
+// oauthToken mints an access token via OAuth client_credentials and caches it until expires_in-60s.
+func oauthToken(
+	baseURL, clientID, clientSecret string, httpClient *http.Client,
+) func(ctx context.Context) (string, error) {
+	var (
+		sem     = make(chan struct{}, 1) // a channel, not a mutex, so a queued caller honors its ctx
+		cached  string
+		expires time.Time
+	)
+	return func(ctx context.Context) (string, error) {
+		select {
+		case sem <- struct{}{}:
+			defer func() { <-sem }()
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+		force, _ := ctx.Value(forceRefreshKey{}).(bool)
+		if !force && cached != "" && time.Now().Before(expires) {
+			return cached, nil
+		}
+		out, err := mintToken(ctx, baseURL, clientID, clientSecret, httpClient)
+		if err != nil {
+			return "", err
+		}
+		cached = out.AccessToken
+		expires = time.Now().Add(time.Duration(out.ExpiresIn)*time.Second - 60*time.Second)
+		return cached, nil
+	}
+}
+
+type tokenResponse struct {
+	AccessToken string `json:"access_token"`
+	ExpiresIn   int    `json:"expires_in"`
+}
+
+// mintToken POSTs the client_credentials form to /oauth/token and decodes the minted token.
+func mintToken(
+	ctx context.Context, baseURL, clientID, clientSecret string, httpClient *http.Client,
+) (tokenResponse, error) {
+	var out tokenResponse
+	form := url.Values{"client_id": {clientID}, "client_secret": {clientSecret}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/oauth/token", strings.NewReader(form.Encode()))
+	if err != nil {
+		return out, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return out, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return out, fmt.Errorf("tailscale: oauth token mint: HTTP %d", resp.StatusCode)
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&out); err != nil {
+		return out, err
+	}
+	if out.AccessToken == "" {
+		return out, errors.New("tailscale: oauth token mint: empty access_token")
+	}
+	return out, nil
 }

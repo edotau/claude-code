@@ -192,12 +192,25 @@ const authSoftTTL = 5 * time.Second
 // dropAuthMemo forgets every memoized AuthStatus so the next call re-reads the login.
 func dropAuthMemo() { authState.Drop() }
 
-// codexTokensPresent reports whether an auth.json body holds a non-null "tokens" object (a ChatGPT login).
-func codexTokensPresent(b []byte) bool {
+// codexTokens is the "tokens" object of an auth.json body.
+type codexTokens struct {
+	IDToken string `json:"id_token"`
+	Access  string `json:"access_token"`
+	Account string `json:"account_id"`
+}
+
+// parseCodexTokens decodes an auth.json body; present is a non-null "tokens" object, t is zero when unreadable.
+func parseCodexTokens(b []byte) (t codexTokens, present bool) {
 	var auth struct {
 		Tokens json.RawMessage `json:"tokens"`
 	}
-	return b != nil && json.Unmarshal(b, &auth) == nil && len(auth.Tokens) > 0 && string(auth.Tokens) != "null"
+	if b == nil || json.Unmarshal(b, &auth) != nil || len(auth.Tokens) == 0 || string(auth.Tokens) == "null" {
+		return codexTokens{}, false
+	}
+	if json.Unmarshal(auth.Tokens, &t) != nil {
+		return codexTokens{}, true
+	}
+	return t, true
 }
 
 // AuthStatus reads auth.json or the keyring first (memoized by mtime); `codex login status` runs only as fallback.
@@ -219,8 +232,9 @@ func (codexEngine) AuthStatus() providers.AuthState {
 
 func codexAuthState() providers.AuthState {
 	b, keyringNote := codexAuthJSON()
-	if codexTokensPresent(b) {
-		return providers.AuthState{Present: true, Source: codexAuthSource, Method: providers.AuthCLI, PlanHint: codexPlanFrom(b)}
+	t, present := parseCodexTokens(b)
+	if present {
+		return providers.AuthState{Present: true, Source: codexAuthSource, Method: providers.AuthCLI, PlanHint: codexPlanFrom(t)}
 	}
 	bin, err := paths.AgentBin("codex")
 	if err != nil { // no CLI to ask: a failed keyring lookup is the only unknown left
@@ -229,21 +243,14 @@ func codexAuthState() providers.AuthState {
 		}
 		return providers.AuthState{Method: providers.AuthNone}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
-	defer cancel()
-	out, err := codexStatus(ctx, bin)
+	verdict, transient := codexLoginProbe(bin)
 	switch {
-	case err == nil && strings.Contains(strings.ToLower(string(out)), "chatgpt"):
-		return providers.AuthState{Present: true, Source: codexAuthSource, Method: providers.AuthCLI, PlanHint: codexPlanFrom(b)}
-	case err == nil:
-		return providers.AuthState{Method: providers.AuthNone} // signed in with an API key, not ChatGPT
-	case ctx.Err() != nil:
-		return providers.AuthState{Method: providers.AuthNone, Err: fmt.Errorf("codex login status: %w", ctx.Err())}
+	case transient:
+		return providers.AuthState{Method: providers.AuthNone, Err: verdict}
+	case verdict == nil:
+		return providers.AuthState{Present: true, Source: codexAuthSource, Method: providers.AuthCLI, PlanHint: codexPlanFrom(t)}
 	}
-	if v, _ := agent.ClassifyProbe(ctx, err); v == providers.VerdictNeedsLogin {
-		return providers.AuthState{Method: providers.AuthNone} // codex answered: not signed in
-	}
-	return providers.AuthState{Method: providers.AuthNone, Err: fmt.Errorf("codex login status: %w", err)}
+	return providers.AuthState{Method: providers.AuthNone} // an API key or no login: codex answered
 }
 
 // Plan is codex's ChatGPT plan ("Plus", "Pro"): st.PlanHint, which AuthStatus read from the login's id token.
@@ -480,17 +487,14 @@ func codexOwnModel() string {
 func codexChatGPTLogin() error {
 	var probeErr error // set when the CLI could not answer: the verdict is unknown, not "not signed in"
 	if bin, err := paths.AgentBin("codex"); err == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
-		defer cancel()
-		out, err := codexStatus(ctx, bin)
-		verdict, transient := codexLoginVerdict(ctx, out, err)
+		verdict, transient := codexLoginProbe(bin)
 		if !transient {
 			return verdict
 		}
 		probeErr = verdict
 	}
 	b, keyringNote := codexAuthJSON()
-	if codexTokensPresent(b) {
+	if _, present := parseCodexTokens(b); present {
 		return nil
 	}
 	if probeErr != nil {
@@ -614,19 +618,8 @@ func codexKeyringAuthJSON() (data []byte, note string) {
 
 // codexPlanFrom is the ChatGPT plan ("plus", "pro", "team"…) in the id_token claim of an auth.json body; "" when
 // absent or unreadable. The token is decoded, never verified or printed.
-func codexPlanFrom(b []byte) string {
-	if b == nil {
-		return ""
-	}
-	var auth struct {
-		Tokens struct {
-			IDToken string `json:"id_token"`
-		} `json:"tokens"`
-	}
-	if json.Unmarshal(b, &auth) != nil {
-		return ""
-	}
-	parts := strings.Split(auth.Tokens.IDToken, ".")
+func codexPlanFrom(t codexTokens) string {
+	parts := strings.Split(t.IDToken, ".")
 	if len(parts) < 2 {
 		return ""
 	}
@@ -653,16 +646,8 @@ func CodexAccessToken() (token, accountID, keyringNote string) {
 	if b == nil {
 		return "", "", note
 	}
-	var auth struct {
-		Tokens struct {
-			Access  string `json:"access_token"`
-			Account string `json:"account_id"`
-		} `json:"tokens"`
-	}
-	if json.Unmarshal(b, &auth) != nil {
-		return "", "", ""
-	}
-	return auth.Tokens.Access, auth.Tokens.Account, ""
+	t, _ := parseCodexTokens(b)
+	return t.Access, t.Account, ""
 }
 
 // codexSchema is the registered codex roster row.
@@ -726,6 +711,14 @@ func codexProviderHeaders(p *providers.Provider, env []string, envHs, fields [][
 		fields = append(fields, [2]string{"http_headers", agentconfig.TOMLInline(hs)})
 	}
 	return env, envHs, fields
+}
+
+// codexLoginProbe runs `codex login status` under the probe timeout and classifies it.
+func codexLoginProbe(bin string) (error, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
+	defer cancel()
+	out, err := codexStatus(ctx, bin)
+	return codexLoginVerdict(ctx, out, err)
 }
 
 func codexLoginVerdict(ctx context.Context, out []byte, err error) (error, bool) {

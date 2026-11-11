@@ -121,8 +121,7 @@ func mayCountEdits(line []byte) bool {
 	return hasEditToolName(line) || bytes.Contains(line, bashNameKey) && bytes.Contains(line, commitKey)
 }
 
-// countLineEdits decodes an assistant tool_use line at most once, counting editor calls and weighted
-// git commits — eachEditLine and eachCommitLine used to each re-unmarshal the same line.
+// countLineEdits decodes an assistant tool_use line at most once, counting editor calls and weighted git commits.
 func countLineEdits(line []byte) (n int) {
 	defer func() { _ = recover() }() // malformed command text must not crash the hook; keep edits counted so far
 	if !mayCountEdits(line) {

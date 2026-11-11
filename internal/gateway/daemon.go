@@ -115,18 +115,6 @@ func healthGet(ctx context.Context, port int) (*http.Response, error) {
 	return http.DefaultClient.Do(req)
 }
 
-// executable returns this binary's path with symlinks resolved, so a shim name does not change the dispatch.
-func executable() (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	if real, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = real
-	}
-	return exe, nil
-}
-
 // Health GETs /healthz on port.
 func Health(ctx context.Context, port int) error {
 	resp, err := probeHealth(ctx, port)
@@ -201,7 +189,7 @@ func daemonCommand(exe string) *exec.Cmd {
 }
 
 func spawn() error {
-	exe, err := executable() // resolved: argv[0] `claude` would dispatch to the launcher, not `gateway proxy --serve`
+	exe, err := paths.SelfBinary() // resolved: argv[0] `claude` would dispatch to the launcher, not `gateway proxy --serve`
 	if err != nil {
 		return err
 	}

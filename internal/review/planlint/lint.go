@@ -407,7 +407,7 @@ func scanAgentCalls(src string, fn func(at, line int, window string, marked bool
 		if open := skipSpaces(masked, i+5); open >= len(masked) || masked[open] != '(' {
 			continue // `agent (` with whitespace is the same call; `agentic(` is not
 		}
-		window := callWindow(src, i)
+		window := delimitedWindow(src, masked, i, '(', ')')
 		markerEnd := i + len(window)
 		if nl := strings.IndexByte(src[markerEnd:], '\n'); nl >= 0 {
 			markerEnd += nl
@@ -632,21 +632,15 @@ func metaLiteralDefects(path, src string) []string {
 	if start < 0 {
 		return nil
 	}
-	meta := delimitedWindow(src, start+len("export const meta = "), '{', '}')
+	meta := delimitedWindow(src, stripStrings(src), start+len("export const meta = "), '{', '}')
 	if !strings.Contains(meta, "`") && !strings.Contains(stripStrings(meta), "+") {
 		return nil
 	}
 	return []string{fmt.Sprintf("%s:%d: meta is not a pure literal (no `+`, template literals or variables) — the registry cannot load it", path, 1+strings.Count(src[:start], "\n"))}
 }
 
-// callWindow returns src from the `agent` word at start through its matching close paren.
-func callWindow(src string, start int) string {
-	return delimitedWindow(src, start, '(', ')')
-}
-
-// delimitedWindow returns src from open through its matching closer, counting depth on the stripStrings mask.
-func delimitedWindow(src string, open int, opener, closer byte) string {
-	masked := stripStrings(src)
+// delimitedWindow returns src from open through its matching closer, counting depth on masked (stripStrings(src)).
+func delimitedWindow(src, masked string, open int, opener, closer byte) string {
 	depth := 0
 	i := open
 	for ; i < len(masked) && i < open+pinWindow; i++ {

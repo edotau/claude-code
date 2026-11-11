@@ -1,7 +1,7 @@
 // Package usage is `claude-code usage`: token totals from subagent transcripts, including Workflow-tool agents
 // (<session>/subagents/workflows/<runId>/agent-*.jsonl); --workflows rolls each run up per phase, with a
 // per-model (MODEL column) split and a per-run plus cross-run model rollup. Live provider plan quotas and the
-// local per-token ledger (API-key providers; ledger.go) follow the table (provider_quotas.go); --show picks
+// local per-token ledger (API-key providers) follow the table (provider_quotas.go); --show picks
 // left/used/total for the quota column.
 package usage
 
@@ -436,4 +436,10 @@ func printQuotaWarnings(errw io.Writer, qs []quota) {
 			fmt.Fprintf(errw, "usage: %s %s at %.0f%% (%s)\n", q.Provider, account, q.UsedPct, q.State)
 		}
 	}
+}
+
+// Spec is the completion node for the usage verb.
+func Spec() *helptext.Node {
+	flag, boolFlag := helptext.Plain, helptext.BoolFlag
+	return &helptext.Node{Flags: []helptext.Flag{flag("session"), flag("days"), helptext.CompletionFormatFlag(), boolFlag("workflows"), boolFlag("providers"), flag("show")}}
 }

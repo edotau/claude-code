@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -274,13 +273,13 @@ func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnal
 func qualitySummaryOf(q map[string]any) *QualitySummary {
 	if _, ok := q["files"]; ok {
 		return &QualitySummary{
-			FilesAnalyzed: mInt(q, "files_analyzed"), AverageScore: pyFloat(mFloat(q, "average_score")),
+			FilesAnalyzed: mInt(q, "files_analyzed"), AverageScore: source.PyFloat(mFloat(q, "average_score")),
 			TotalCodeSmells: mInt(q, "total_code_smells"), TotalSolidViolations: mInt(q, "total_solid_violations"),
 		}
 	}
 	if _, ok := q["file"]; ok {
 		return &QualitySummary{
-			FilesAnalyzed: 1, AverageScore: pyFloat(mFloat(q, "quality_score")),
+			FilesAnalyzed: 1, AverageScore: source.PyFloat(mFloat(q, "quality_score")),
 			TotalCodeSmells: len(mSlice(q, "smells")), TotalSolidViolations: len(mSlice(q, "solid_violations")),
 		}
 	}
@@ -289,7 +288,6 @@ func qualitySummaryOf(q map[string]any) *QualitySummary {
 
 // RunReport ports review_report_generator.py's CLI.
 func RunReport(args []string, stdout, stderr io.Writer) int {
-	positional, flagArgs := splitPositional(args, map[string]bool{"json": true, "h": true, "help": true})
 	fs := helptext.NewFlagSet("report", helptext.Page{
 		Usage: "claude-code review report [<repo>] [flags]",
 		About: "Combine the PR analysis and code-quality findings into one review report.",
@@ -305,8 +303,9 @@ func RunReport(args []string, stdout, stderr io.Writer) int {
 	output := fs.String("output", "", "Write output to file")
 	fs.StringVar(output, "o", "", "shorthand for --output")
 	jsonOut := fs.Bool("json", false, "Output in JSON format (same as --format json)")
-	if code, done := helptext.Parse(fs, flagArgs); done {
-		return code
+	positional, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
 	}
 
 	if err := checkRefs(*base, *head); err != nil {
@@ -338,18 +337,13 @@ func RunReport(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	return writeReport(out, *output, stdout, stderr)
+	return writeOutput(out, true, *output, "Report", stdout, stderr)
 }
 
 // resolveExistingPath returns the absolute path of the first positional (default "."), which must exist.
 func resolveExistingPath(positional []string, stderr io.Writer) (string, bool) {
-	repoArg := "."
-	if len(positional) > 0 {
-		repoArg = positional[0]
-	}
-	repoPath, err := filepath.Abs(repoArg)
-	if err != nil {
-		fmt.Fprintf(stderr, "Error: %v\n", err)
+	repoPath, ok := absRepoArg(positional, stderr)
+	if !ok {
 		return "", false
 	}
 	if _, statErr := os.Stat(repoPath); statErr != nil {
@@ -357,22 +351,6 @@ func resolveExistingPath(positional []string, stderr io.Writer) (string, bool) {
 		return "", false
 	}
 	return repoPath, true
-}
-
-func writeReport(out, output string, stdout, stderr io.Writer) int {
-	if output == "" {
-		if _, err := fmt.Fprintln(stdout, out); err != nil {
-			fmt.Fprintf(stderr, "Error: %v\n", err)
-			return 1
-		}
-		return 0
-	}
-	if err := paths.AtomicWrite(output, []byte(out), 0o644); err != nil {
-		fmt.Fprintf(stderr, "Error: %v\n", err)
-		return 1
-	}
-	fmt.Fprintf(stdout, "Report written to %s\n", output)
-	return 0
 }
 
 // loadAnalysisOverride loads an optional analysis JSON file, warning on stderr when it cannot be read.

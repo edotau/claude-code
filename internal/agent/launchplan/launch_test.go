@@ -14,8 +14,8 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/launchcli"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -278,7 +278,7 @@ func TestPlainPlansResolveVendorBinNotPATH(t *testing.T) {
 	for _, name := range agent.Names() {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			source := vendorPATHFixture(t, paths.Vendors[name], "")
+			source := vendorPATHFixture(t, agentid.Binary(name), "")
 			t.Setenv("PATH", filepath.Dir(source))
 			bin := pathstest.FakeVendor(t, name, "")
 			spec, ok := agent.LookupSchema(name)

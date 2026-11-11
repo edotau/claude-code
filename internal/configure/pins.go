@@ -109,7 +109,7 @@ func CatalogForAlias(ctx context.Context, reg *providers.Registry, p *providers.
 	if p.Provider == "github" {
 		infos, err = copilot.ListModels(ctx)
 	} else {
-		infos, err = providers.ListModels(ctx, reg, p)
+		infos, err = providers.ListModels(ctx, p)
 	}
 	if err == nil {
 		return infos, ""

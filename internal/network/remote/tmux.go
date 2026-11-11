@@ -1,5 +1,3 @@
-// The tmux files build the ssh/tmux command that starts an agent TUI in a detached session to attach to later.
-
 package remote
 
 import (

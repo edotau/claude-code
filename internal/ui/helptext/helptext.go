@@ -238,47 +238,6 @@ func withDefault(f *flag.Flag, usage string) string {
 	return usage + fmt.Sprintf(" (default %v)", f.DefValue)
 }
 
-// WantsHelp reports a -h/-help/--help token before any literal "--" terminator, so a caller can route
-// explicit help to stdout itself instead of letting fs.Parse's automatic usage call land on stderr.
-func WantsHelp(args []string) bool {
-	for _, a := range args {
-		if a == "--" {
-			return false
-		}
-		if a == "-h" || a == "-help" || a == "--help" {
-			return true
-		}
-	}
-	return false
-}
-
-// ExitCode maps a FlagSet parse error to the verb's exit code: 0 after -h, 2 for a bad flag.
-func ExitCode(err error) int {
-	if errors.Is(err, flag.ErrHelp) {
-		return 0
-	}
-	return 2
-}
-
-// Parse parses args into fs: (0,false) to continue, (0,true) after -h, (2,true) on a bad flag.
-func Parse(fs *flag.FlagSet, args []string) (code int, done bool) {
-	if err := fs.Parse(args); err != nil {
-		return ExitCode(err), true
-	}
-	return 0, false
-}
-
-// NewFlagSet builds a ContinueOnError FlagSet on stderr whose -h renders p with p.Flags set to it.
-func NewFlagSet(name string, p Page) *flag.FlagSet {
-	fs := flag.NewFlagSet(name, flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		p.Flags = fs
-		p.Fprint(fs.Output())
-	}
-	return fs
-}
-
 // isRow: an indented label with a description column, or a bare flag line (`  -name type`) from PrintDefaults.
 func isRow(l string) bool {
 	if isTableHead(l) {
@@ -298,6 +257,11 @@ func isTableHead(l string) bool {
 		return false
 	}
 	t := strings.TrimSpace(l)
+	return allCaps(t)
+}
+
+// allCaps: ToUpper leaves t unchanged and t holds an ASCII capital.
+func allCaps(t string) bool {
 	return strings.ToUpper(t) == t && strings.ContainsFunc(t, func(r rune) bool { return r >= 'A' && r <= 'Z' })
 }
 
@@ -307,7 +271,7 @@ func isHead(l string) bool {
 		return true
 	}
 	t := strings.TrimSuffix(strings.TrimSpace(l), ":")
-	return t != "" && l[0] != ' ' && strings.ToUpper(t) == t && strings.ContainsFunc(t, func(r rune) bool { return r >= 'A' && r <= 'Z' })
+	return t != "" && l[0] != ' ' && allCaps(t)
 }
 
 // WrapRow lays out `label` padded to labelWidth plus desc, wrapping desc at word boundaries within width columns;

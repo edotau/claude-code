@@ -31,7 +31,7 @@ func hermeticVault(t *testing.T) {
 // stubListing makes every profile list a ready and a cold endpoint, without the network.
 func stubListing(t *testing.T) {
 	t.Helper()
-	listModels = func(context.Context, *providers.Registry, *providers.Provider) ([]providers.ModelInfo, error) {
+	listModels = func(context.Context, *providers.Provider) ([]providers.ModelInfo, error) {
 		return []providers.ModelInfo{{ID: "good-model", Task: "llm/v1/chat", Ready: "READY"}, {ID: "cold-model", Ready: "NOT_READY"}}, nil
 	}
 	t.Cleanup(func() { listModels = providers.ListModels })

@@ -76,3 +76,34 @@ var spawnServed = func(cwd string) bool {
 	defer null.Close()
 	return proc.SpawnDetached(self, []string{"preflight", "--refresh"}, cwd, null)
 }
+
+func Recall(in *core.Input) core.Result {
+	return core.Result{Context: memory.PromptRecall(in.SessionID, in.CWD, in.Prompt, os.Stderr)}
+}
+
+// AgentInput returns in with TranscriptPath pointing at a Claude-shaped transcript synthesized from an opencode
+// export or a Copilot events.jsonl; any other input, or a failed load, comes back unchanged (fail open).
+func AgentInput(in *core.Input) *core.Input {
+	kind := agentKind(in)
+	if kind == "" {
+		return in
+	}
+	path, ok := memory.SynthAgentTranscript(kind, in.SessionID, in.CWD, in.TranscriptPath)
+	if !ok {
+		return in
+	}
+	out := *in
+	out.TranscriptPath = path
+	return &out
+}
+
+// agentKind names the memory source whose transcript AgentInput synthesizes, or "" for a Claude-shaped input.
+func agentKind(in *core.Input) string {
+	switch {
+	case in.Agent() == core.AgentOpencode:
+		return memory.SourceOpencode
+	case in.Agent() == core.AgentCopilot && in.TranscriptPath != "":
+		return memory.SourceCopilot
+	}
+	return ""
+}

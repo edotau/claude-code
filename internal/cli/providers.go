@@ -109,7 +109,7 @@ func listLive(reg *providers.Registry, p *providers.Provider, format string) int
 	if p.Provider == "github" {
 		own = copilot.ListModels
 	}
-	cat, err := providers.LoadCatalog(reg, p, own)
+	cat, err := providers.LoadCatalog(p, own)
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}

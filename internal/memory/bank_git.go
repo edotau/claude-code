@@ -1,6 +1,6 @@
 package memory
 
-// Bounded, sanitized git for the nested local memory repo at StoreDir() (plan C.3). Explicit --git-dir and
+// Bounded, sanitized git for the nested local memory repo at StoreDir(). Explicit --git-dir and
 // --work-tree are what keep an inherited GIT_DIR or a missing .git from retargeting the OUTER ~/.claude checkout;
 // never call bare `git -C StoreDir()` here. Shares internal/proc's sanitized env with internal/history.
 
@@ -31,7 +31,7 @@ func StoreRepo() Repo { return Repo{Dir: StoreDir()} }
 var credentialPattern = textutil.CredentialRE
 
 // prePushHook refuses every push: a guard against accidents, not an access-control boundary.
-const prePushHook = "#!/bin/sh\n# memory is local-only (plan C.3): refuse every push; a guard against accidents, not access control.\n" +
+const prePushHook = "#!/bin/sh\n# memory is local-only: refuse every push; a guard against accidents, not access control.\n" +
 	"echo 'memory: this repository is local-only; push refused' >&2\nexit 1\n"
 
 // storeGitignore keeps runtime beacons beside memory files out of history; locks live under state now.

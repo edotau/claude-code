@@ -176,10 +176,6 @@ func unquoteStep(b *strings.Builder, seg string, i int, quote byte) (int, byte) 
 	return i, quote
 }
 
-// groupLeaders are control words after which a `(`/`{` still opens a group rather than starting the command word.
-var groupLeaders = map[string]bool{"!": true, "if": true, "then": true, "do": true, "else": true, "elif": true,
-	"while": true, "until": true}
-
 // trimGroupOpen drops `(`/`{` openers from the leading words (also after control words), and words left empty.
 func trimGroupOpen(out []string) []string {
 	for i := 0; i < len(out); {
@@ -190,7 +186,7 @@ func trimGroupOpen(out []string) []string {
 				continue
 			}
 		}
-		if !groupLeaders[out[i]] {
+		if !slices.Contains(shellKeywords, out[i]) {
 			break
 		}
 		i++
@@ -450,7 +446,7 @@ func nestedOf(toks []string) (string, bool) {
 	if shellWrapperNames[filepath.Base(toks[0])] {
 		for i := 1; i < len(toks)-1; i++ {
 			t := toks[i]
-			if len(t) > 1 && t[0] == '-' && t[1] != '-' && strings.ContainsRune(t[1:], 'c') {
+			if isCFlag(t) {
 				return toks[i+1], true
 			}
 		}

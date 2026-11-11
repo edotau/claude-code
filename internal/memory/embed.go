@@ -624,7 +624,7 @@ var routerLink = func(ctx context.Context) (base, secret string, ok bool) {
 
 // embeddingModelFor picks p's embeddings endpoint from the models it serves.
 func embeddingModelFor(ctx context.Context, reg *providers.Registry, p *providers.Provider) (string, error) {
-	infos, err := providers.ListModels(ctx, reg, p)
+	infos, err := providers.ListModels(ctx, p)
 	if err != nil {
 		return "", err
 	}

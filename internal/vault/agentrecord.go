@@ -110,16 +110,21 @@ func (r AgentRecord) WithPin(field, val string) AgentRecord {
 			r.Profile = ""
 		}
 	default:
-		alias := strings.ToLower(strings.TrimSuffix(field, "_MODEL"))
-		aliases := maps.Clone(r.Aliases)
-		if aliases == nil {
-			aliases = map[string]string{}
-		}
-		if aliases[alias] = val; val == "" {
-			delete(aliases, alias)
-		}
-		r.Aliases = aliases
+		r = r.WithAlias(strings.ToLower(strings.TrimSuffix(field, "_MODEL")), val)
 	}
+	return r
+}
+
+// WithAlias returns r with the model alias set to val ("" removes it), leaving r's Aliases map untouched.
+func (r AgentRecord) WithAlias(alias, val string) AgentRecord {
+	aliases := maps.Clone(r.Aliases)
+	if aliases == nil {
+		aliases = map[string]string{}
+	}
+	if aliases[alias] = val; val == "" {
+		delete(aliases, alias)
+	}
+	r.Aliases = aliases
 	return r
 }
 

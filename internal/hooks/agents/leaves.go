@@ -58,7 +58,7 @@ func Effort(in *core.Input) core.Result {
 }
 
 func blockAtCap(snap inflight.Snapshot, account string, lim inflight.Limits) core.Result {
-	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("agent-effort: %d agents already in flight (cap %d for %s, %d machine-wide) — "+
+	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("dispatch-effort: %d agents already in flight (cap %d for %s, %d machine-wide) — "+
 		"wait for one to finish or run this task sequentially.", snap.Per[account], lim.For(account), account, lim.Total)}
 }
 
@@ -79,7 +79,7 @@ func workflowLeaves(in *core.Input, res core.Result) int {
 }
 
 // The release side of the dispatch cap: PostToolUseFailure, PostToolUse(Workflow) and SubagentStop retire the
-// markers `agent-effort` claimed in internal/inflight; back-pressure, not a mutex.
+// markers `dispatch-effort` claimed in internal/inflight; back-pressure, not a mutex.
 
 // Release retires the exact tool_use_id a spawn or Workflow claimed; a blocked dispatch wrote none, so it is a no-op.
 func Release(in *core.Input) core.Result {

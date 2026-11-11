@@ -20,13 +20,6 @@ type stepResult struct {
 	Level string `json:"level"`
 }
 
-// pyFloat renders like Python's json.dumps for a round(x, 1) value (keeps "70.0", not Go's "70").
-type pyFloat float64
-
-func (f pyFloat) MarshalJSON() ([]byte, error) {
-	return []byte(formatPyFloat(float64(f))), nil
-}
-
 // noStepsResult / stepsResult are two distinct shapes because the Python script returns two different
 // dict literals (different key sets/order) depending on whether any steps were found.
 type noStepsResult struct {
@@ -42,17 +35,17 @@ type noStepsResult struct {
 }
 
 type stepsResult struct {
-	Status               string          `json:"status"`
-	Source               string          `json:"source"`
-	StepsFound           int             `json:"steps_found"`
-	Score                int             `json:"score"`
-	MaxScore             int             `json:"max_score"`
-	Percentage           pyFloat         `json:"percentage"`
-	HasFinalVerification bool            `json:"has_final_verification"`
-	Verdict              string          `json:"verdict"`
-	StepResults          []stepResult    `json:"step_results"`
-	Recommendations      []string        `json:"recommendations"`
-	OversizedTasks       []oversizedTask `json:"oversized_tasks,omitempty"`
+	Status               string               `json:"status"`
+	Source               string               `json:"source"`
+	StepsFound           int                  `json:"steps_found"`
+	Score                int                  `json:"score"`
+	MaxScore             int                  `json:"max_score"`
+	Percentage           reviewsource.PyFloat `json:"percentage"`
+	HasFinalVerification bool                 `json:"has_final_verification"`
+	Verdict              string               `json:"verdict"`
+	StepResults          []stepResult         `json:"step_results"`
+	Recommendations      []string             `json:"recommendations"`
+	OversizedTasks       []oversizedTask      `json:"oversized_tasks,omitempty"`
 }
 
 // oversizedTask is a `## Tasks` (or phase task) line that isn't leaf-sized: too many packages, too many
@@ -425,7 +418,7 @@ func goalsJSON(a analysis) []byte {
 	}
 	b, _ = reviewsource.PyMarshalIndent(stepsResult{
 		Status: "ok", Source: a.source, StepsFound: a.stepsFound, Score: a.score, MaxScore: a.maxScore,
-		Percentage: pyFloat(a.percentage), HasFinalVerification: a.hasFinalVerification, Verdict: a.verdict,
+		Percentage: reviewsource.PyFloat(a.percentage), HasFinalVerification: a.hasFinalVerification, Verdict: a.verdict,
 		StepResults: a.stepResults, Recommendations: a.recommendations, OversizedTasks: a.oversizedTasks,
 	})
 	return b

@@ -226,8 +226,5 @@ func (l hubDispatch) resolveModel(reqModel string) string {
 	default:
 		id = providers.ParseTarget(l.reg, reqModel, l.provider).Model
 	}
-	if id == "auto" && l.provider.OpencodeFallback != "" { // Copilot's own router id; opencode's catalog lacks it
-		id = l.provider.OpencodeFallback
-	}
-	return models.Strip1M(id)
+	return models.Strip1M(opencodeModel(l.provider, id))
 }

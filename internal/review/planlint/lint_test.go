@@ -281,7 +281,7 @@ func readScript(t *testing.T, p string) string {
 // An apostrophe in a comment inside agent({...}) must not open a string and swallow the close paren.
 func TestCallWindowSkipsCommentApostrophe(t *testing.T) {
 	src := "agent('x', { // don't wait\n model: 'sonnet' })\nagent('y', { model: 'opus' })"
-	if got := callWindow(src, 0); strings.Contains(got, "opus") {
+	if got := delimitedWindow(src, stripStrings(src), 0, '(', ')'); strings.Contains(got, "opus") {
 		t.Fatalf("window %q spilled into the next call", got)
 	}
 }

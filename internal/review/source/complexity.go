@@ -1,9 +1,10 @@
 package source
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -160,7 +162,7 @@ func complexityContent(path, text, lang string, th ComplexityThresholds) *FileRe
 	if score < 0 {
 		score = 0
 	}
-	return &FileResult{File: path, Language: lang, Lines: lineCount, Score: score, Findings: nonNil(findings)}
+	return &FileResult{File: path, Language: lang, Lines: lineCount, Score: score, Findings: NonNil(findings)}
 }
 
 // importCountFinding is the shared import-coupling check.
@@ -249,7 +251,7 @@ func buildComplexitySummary(results []FileResult, threshold string) ComplexitySu
 		}
 	}
 	return ComplexitySummary{Status: "ok", Threshold: threshold, FilesAnalyzed: len(results),
-		TotalFindings: total, AverageScore: PyFloat(avg), Verdict: verdict, Results: nonNil(results)}
+		TotalFindings: total, AverageScore: PyFloat(avg), Verdict: verdict, Results: NonNil(results)}
 }
 
 func printComplexityReport(w io.Writer, s ComplexitySummary) {
@@ -408,11 +410,8 @@ func reportNoFiles(stdout, stderr io.Writer, extensions, targets []string, jsonO
 
 // jsonStringLiteral renders s as a Python-style json.dumps string literal (ensure_ascii, no HTML-escaping).
 func jsonStringLiteral(s string) string {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	_ = enc.Encode(s) // a string literal always marshals; nothing here can fail
-	return string(PyEscapeNonASCII(bytes.TrimRight(buf.Bytes(), "\n")))
+	b, _ := textutil.MarshalNoEscape(s) // a string literal always marshals; nothing here can fail
+	return string(PyEscapeNonASCII(b))
 }
 
 // pyListRepr mimics Python's str(list[str]): ['py', 'ts', ...] with single quotes.
@@ -439,4 +438,93 @@ func hasComplexityExtension(path string, extensions map[string]struct{}) bool {
 		}
 	}
 	return false
+}
+
+// analyzeGo scores Go source with go/ast; a parse error yields no findings (fail-open).
+func analyzeGo(path, text string, lineCount int, th ComplexityThresholds) []Finding {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, text, parser.SkipObjectResolution)
+	if err != nil {
+		return nil
+	}
+	var findings []Finding
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil {
+			findings = append(findings, goFunctionFindings(fset, fn, th)...)
+		}
+	}
+	findings = append(findings, importCountFinding(len(file.Imports), th)...)
+	return findings
+}
+
+func goFunctionFindings(fset *token.FileSet, fn *ast.FuncDecl, th ComplexityThresholds) []Finding {
+	start, end := fset.Position(fn.Pos()), fset.Position(fn.End())
+	name, line := fn.Name.Name, start.Line
+	return functionFindings(name, line, end.Line-start.Line+1, goCyclomatic(fn.Body), goNesting(fn.Body, 0), th)
+}
+
+// goCyclomatic is 1 + if/for/range/case/comm clauses + short-circuit operators.
+func goCyclomatic(body *ast.BlockStmt) int {
+	score := 1
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.CommClause:
+			score++
+		case *ast.CaseClause:
+			if v.List != nil { // default adds no branch
+				score++
+			}
+		case *ast.BinaryExpr:
+			if v.Op == token.LAND || v.Op == token.LOR {
+				score++
+			}
+		}
+		return true
+	})
+	return score
+}
+
+// goNesting returns the deepest count of enclosing if/for/range/switch/select blocks.
+func goNesting(root ast.Node, depth int) int {
+	deepest := depth
+	ast.Inspect(root, func(n ast.Node) bool {
+		if n == nil || n == root {
+			return n == root
+		}
+		switch v := n.(type) {
+		case *ast.IfStmt:
+			if d := goIfChainNesting(v, depth+1); d > deepest {
+				deepest = d
+			}
+			return false
+		case *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+			if d := goNesting(n, depth+1); d > deepest {
+				deepest = d
+			}
+			return false
+		}
+		return true
+	})
+	return deepest
+}
+
+// goIfChainNesting scores an if/else-if chain flat: each else-if shares the first if's depth.
+func goIfChainNesting(v *ast.IfStmt, depth int) int {
+	deepest := depth
+	for cur := v; cur != nil; {
+		if d := goNesting(cur.Body, depth); d > deepest {
+			deepest = d
+		}
+		switch e := cur.Else.(type) {
+		case *ast.IfStmt:
+			cur = e
+			continue
+		case *ast.BlockStmt:
+			if d := goNesting(e, depth); d > deepest {
+				deepest = d
+			}
+		}
+		cur = nil
+	}
+	return deepest
 }

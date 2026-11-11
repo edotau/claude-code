@@ -83,7 +83,7 @@ func WriteCheck(w io.Writer, results []serving.CheckResult, format string) error
 	if format == helptext.JSON {
 		return helptext.WriteJSON(w, results)
 	}
-	idW := IDWidth(len(results), func(i int) string { return results[i].ID })
+	idW := ColWidth("ID", len(results), func(i int) string { return results[i].ID })
 	fmt.Fprintf(w, "%-*s  %-9s  %-4s  %-10s  %s\n", idW, "ID", "STATUS", "HTTP", "LATENCY", "TOOLS")
 	for _, r := range results {
 		code, lat := "-", "-"
@@ -102,11 +102,11 @@ func WriteCheck(w io.Writer, results []serving.CheckResult, format string) error
 	return nil
 }
 
-// IDWidth is the widest of the "ID" header and the n ids.
-func IDWidth(n int, id func(int) string) int {
-	w := len("ID")
+// ColWidth is the widest of the head and the n cells.
+func ColWidth(head string, n int, cell func(int) string) int {
+	w := len(head)
 	for i := range n {
-		w = max(w, len(id(i)))
+		w = max(w, len(cell(i)))
 	}
 	return w
 }

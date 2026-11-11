@@ -40,16 +40,8 @@ func Tick(planPath, sha string, files []string) (ticked, partial []string, err e
 
 // TickCommits ticks per commit in order under one lock, a task completing once the range's union covers it; dryRun skips writing.
 func TickCommits(planPath string, commits []Commit, dryRun bool) (results []TickResult, err error) {
-	err = paths.WithFileLock(filepath.Join(paths.StateDir(), "plans.lock"), func() error {
-		info, err := os.Stat(planPath)
-		if err != nil {
-			return err
-		}
-		b, err := os.ReadFile(planPath)
-		if err != nil {
-			return err
-		}
-		text := string(b)
+	err = editPlan(planPath, func(text string) (string, error) {
+		orig := text
 		var seen []string
 		for _, c := range commits {
 			r := TickResult{Sha: strings.TrimSpace(c.Sha)}
@@ -59,10 +51,10 @@ func TickCommits(planPath string, commits []Commit, dryRun bool) (results []Tick
 				results = append(results, r)
 			}
 		}
-		if dryRun || text == string(b) {
-			return nil
+		if dryRun {
+			return orig, nil
 		}
-		return writePlan(planPath, []byte(text), info.Mode().Perm())
+		return text, nil
 	})
 	return results, err
 }
@@ -90,9 +82,12 @@ func tickText(planPath, text, sha string, files, seen []string) (out string, tic
 	return strings.Join(lines, "\n"), ticked, partial
 }
 
-// editTask re-reads planPath under the plans lock, applies fn and writes back only when bytes changed.
-func editTask(planPath, taskID string, fn func(Task, []string) []string) error {
-	return paths.WithFileLock(filepath.Join(paths.StateDir(), "plans.lock"), func() error {
+// plansLock is the path of the lock every plan write holds.
+func plansLock() string { return filepath.Join(paths.StateDir(), "plans.lock") }
+
+// editPlan re-reads planPath under the plans lock, applies fn and writes back only when bytes changed.
+func editPlan(planPath string, fn func(text string) (string, error)) error {
+	return paths.WithFileLock(plansLock(), func() error {
 		info, err := os.Stat(planPath)
 		if err != nil {
 			return err
@@ -101,22 +96,28 @@ func editTask(planPath, taskID string, fn func(Task, []string) []string) error {
 		if err != nil {
 			return err
 		}
-		t, ok := findTask(ParseBytes(planPath, b), taskID)
-		if !ok {
-			return fmt.Errorf("plans: no task %q in %s", taskID, planPath)
-		}
-		lines := strings.Split(string(b), "\n")
-		out := strings.Join(fn(t, lines), "\n")
-		if out == string(b) {
-			return nil
+		out, err := fn(string(b))
+		if err != nil || out == string(b) {
+			return err
 		}
 		return writePlan(planPath, []byte(out), info.Mode().Perm())
 	})
 }
 
+// editTask applies fn to taskID's task and plan lines under the plans lock.
+func editTask(planPath, taskID string, fn func(Task, []string) []string) error {
+	return editPlan(planPath, func(text string) (string, error) {
+		t, ok := findTask(ParseBytes(planPath, []byte(text)), taskID)
+		if !ok {
+			return "", fmt.Errorf("plans: no task %q in %s", taskID, planPath)
+		}
+		return strings.Join(fn(t, strings.Split(text, "\n")), "\n"), nil
+	})
+}
+
 // WriteFile replaces a plan under the plans lock, so a mirror or save never interleaves with a tick or claim.
 func WriteFile(dest string, data []byte) error {
-	return paths.WithFileLock(filepath.Join(paths.StateDir(), "plans.lock"), func() error {
+	return paths.WithFileLock(plansLock(), func() error {
 		mode := os.FileMode(0o600)
 		if info, err := os.Stat(dest); err == nil {
 			mode = info.Mode().Perm()

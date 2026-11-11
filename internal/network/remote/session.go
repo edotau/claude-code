@@ -105,7 +105,7 @@ func PollPaneStatus(
 // AttachSession replaces this process with an ssh attach to a tmux session on host.
 func AttachSession(host, session string, local bool) error {
 	if !validName(session) {
-		return fmt.Errorf("session %q must match ^[A-Za-z0-9._-]{1,64}$", session)
+		return fmt.Errorf("session %q must match %s", session, nameRe().String())
 	}
 	argv, err := attachArgs(host, session, local)
 	if err != nil {

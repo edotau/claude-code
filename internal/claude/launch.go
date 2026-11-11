@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -11,18 +12,18 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/launchcli"
-
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/launchcli"
 	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/proc"
-
+	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -466,4 +467,132 @@ func providerEnv(env map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// ClaudeBinary finds claude: BinDir/claude, else the native installer's newest (not under the bin-dir override).
+func ClaudeBinary() (string, error) {
+	bin, err := paths.AgentBin("claude")
+	if err == nil {
+		return bin, nil
+	}
+	if os.Getenv(paths.AgentBinDirEnv) != "" {
+		return "", err // the override is hermetic: never fall back to the real install
+	}
+	if bin := newestInstalledClaude(); bin != "" {
+		return bin, nil
+	}
+	return "", errors.New("claude: not found in " + paths.BinDir() +
+		" or ~/.local/share/claude/versions (claude-code install --tools=claude)")
+}
+
+func newestInstalledClaude() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Join(home, ".local", "share", "claude", "versions")
+	entries, _ := os.ReadDir(dir)
+	self, _ := paths.SelfBinary()
+	best := ""
+	for _, e := range entries {
+		cand := filepath.Join(dir, e.Name())
+		fi, err := os.Stat(cand)
+		if err != nil || fi.IsDir() || fi.Mode()&0o111 == 0 {
+			continue
+		}
+		if real, _ := filepath.EvalSymlinks(cand); real == self {
+			continue
+		}
+		if best == "" || versionLess(filepath.Base(best), e.Name()) {
+			best = cand
+		}
+	}
+	return best
+}
+
+// versionLess compares dot-separated numeric fields (2.0.9 < 2.0.14).
+func versionLess(a, b string) bool {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		an, aerr := strconv.Atoi(as[i])
+		bn, berr := strconv.Atoi(bs[i])
+		if aerr != nil || berr != nil {
+			if as[i] != bs[i] {
+				return as[i] < bs[i]
+			}
+			continue
+		}
+		if an != bn {
+			return an < bn
+		}
+	}
+	return len(as) < len(bs)
+}
+
+// helperBin prefers the installed binary: the overlay file is shared, so a scratch build must never be baked in.
+func helperBin(self string) string {
+	if bin := filepath.Join(paths.BinDir(), "claude-code"); paths.IsFile(bin) {
+		return bin
+	}
+	return self
+}
+
+// Launch launches Claude Code with alias as the main-loop model ("" = opus) and returns the exit code.
+func Launch(alias string, args []string) int {
+	as, args, err := providers.TakeAs(args)
+	if err != nil {
+		return helptext.Fail("%v", err)
+	}
+	opts, rest, err := launchcli.ParseLaunchArgs(args, true)
+	if err != nil {
+		return helptext.Fail("%v", err)
+	}
+	if bareHelp(rest) { // claude's own help needs no profile or model, so no lookup may refuse it
+		bin, err := ClaudeBinary()
+		if err != nil {
+			return helptext.Fail("%v", err)
+		}
+		return helptext.WrappedDocs(bin)
+	}
+	opts.Alias = alias
+	plan, err := Claude(providers.WithIdentity(context.Background(), as), opts, rest)
+	if err == nil && !opts.PrintEnv && !launchcli.IsHeadless(rest) {
+		providers.RecordLastProfile("claude", plan.Set[providers.EnvSessionProfile])
+	}
+	return launchcli.Run("claude", plan, opts, err)
+}
+
+// bareHelp is a lone help flag; `claude mcp --help` still goes to claude so the subcommand's help is kept.
+func bareHelp(rest []string) bool { return len(rest) == 1 && helptext.WantsHelp(rest) }
+
+// LaunchScience is `anthropic science`: only a leading --print-env; every other flag is claude-science's own.
+func LaunchScience(args []string) int {
+	var opts agent.LaunchOptions
+	if len(args) > 0 && args[0] == "--print-env" {
+		opts.PrintEnv, args = true, args[1:]
+	}
+	plan, err := ScienceEnv(args)
+	return launchcli.Run("claude-science", plan, opts, err)
+}
+
+// LaunchAnthropic is first-party Claude Code with a login, OAuth token or API key; vaultSet stores a missing secret.
+func LaunchAnthropic(args []string, vaultSet func(name string) int) int {
+	if err := databricks.RemovedFlagHint(args); err != nil {
+		return helptext.Fail("%v", err)
+	}
+	o, rest, err := ParseAnthropicArgs(args)
+	if err != nil {
+		return helptext.Fail("%v", err)
+	}
+	if o.Provider != "" { // a named profile launches like `claude --profile P`, on that profile's credential
+		return Launch("", args)
+	}
+	secret := ""
+	if o.Mode != AuthLogin {
+		if secret, err = AnthropicSecret(o, vaultSet); err != nil {
+			return helptext.Fail("%v", err)
+		}
+	}
+	plan, err := Anthropic(context.Background(), o, rest, secret)
+	return launchcli.Run("claude", plan, o.LaunchOptions, err)
 }

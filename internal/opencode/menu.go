@@ -166,11 +166,8 @@ func ListMenu(w io.Writer, live bool, provider, format string) error {
 	if format == helptext.JSON {
 		return helptext.WriteJSON(w, rows)
 	}
-	labW := len("LABEL")
-	for _, r := range rows {
-		labW = max(labW, len(r.Label))
-	}
-	idW := catalog.IDWidth(len(rows), func(i int) string { return rows[i].ID })
+	labW := catalog.ColWidth("LABEL", len(rows), func(i int) string { return rows[i].Label })
+	idW := catalog.ColWidth("ID", len(rows), func(i int) string { return rows[i].ID })
 	head := fmt.Sprintf("%-*s  %-*s  %-9s  %s", idW, "ID", labW, "LABEL", "RESPONSES", "SOURCE")
 	if live {
 		head += "  LIVE                  CHECK"

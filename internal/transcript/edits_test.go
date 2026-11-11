@@ -554,7 +554,7 @@ func TestExtractSubstitutionsDanglingOpen(t *testing.T) {
 }
 
 // TestCountEditsFromMalformedCommandNoPanic: a Bash command with a dangling `$(` must not panic
-// CountEditsFrom and must not count as a commit — the recover in eachCommitLine is the safety net.
+// CountEditsFrom and must not count as a commit — the recover in countLineEdits is the safety net.
 func TestCountEditsFromMalformedCommandNoPanic(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "commit.jsonl")
 	line := bashLine("echo commit # $(")

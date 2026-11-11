@@ -441,6 +441,19 @@ var opMarkers = []struct{ marker, op string }{
 	{"rebase-apply", "rebase"},
 }
 
+// markerExists stats gitDir/name; only a confirmed os.IsNotExist is "absent", any other stat error propagates.
+func markerExists(gitDir, name string) (bool, error) {
+	_, err := os.Stat(filepath.Join(gitDir, name))
+	switch {
+	case err == nil:
+		return true, nil
+	case os.IsNotExist(err):
+		return false, nil
+	default:
+		return false, err
+	}
+}
+
 // inProgressOp reports the name of a mid-operation marker found under path's own git-dir ("" = look it up), if any. Only
 // a confirmed os.IsNotExist counts as "no marker" — any other stat error (e.g. permission denied) is an
 // unknown state and must propagate, never be read as clean.
@@ -451,12 +464,12 @@ func inProgressOp(ctx context.Context, path, gitDir string) (op string, found bo
 		}
 	}
 	for _, m := range opMarkers {
-		_, statErr := os.Stat(filepath.Join(gitDir, m.marker))
-		if statErr == nil {
-			return m.op, true, nil
-		}
-		if !os.IsNotExist(statErr) {
+		exists, statErr := markerExists(gitDir, m.marker)
+		if statErr != nil {
 			return "", false, fmt.Errorf("check %s in %s: %w", m.marker, gitDir, statErr)
+		}
+		if exists {
+			return m.op, true, nil
 		}
 	}
 	return "", false, nil

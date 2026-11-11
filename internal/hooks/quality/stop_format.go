@@ -161,7 +161,7 @@ func changedFiles(ctx context.Context, cwd string) []string {
 	if err != nil || len(data) == 0 {
 		return nil
 	}
-	root := core.RepoRootOf(cwd)
+	root, _ := paths.CheckoutOf(cwd)
 	if root == "" {
 		return nil
 	}

@@ -147,7 +147,7 @@ func ParseConfig(base, overlay []byte) (*Config, error) {
 		Agents map[string]vault.AgentRecord `json:"agents"`
 	}
 	if err := json.Unmarshal(base, &defaults); err != nil {
-		return nil, fmt.Errorf("vendorconfig defaults: %w", err)
+		return nil, fmt.Errorf("agentconfig defaults: %w", err)
 	}
 	cfg := Config{records: defaults.Agents}
 	if defaults.Agents != nil {
@@ -304,7 +304,7 @@ func templateGuardRules() (GuardRules, error) {
 		} `json:"permissions"`
 	}
 	if err := json.Unmarshal(settings.Template(), &tpl); err != nil {
-		return GuardRules{}, fmt.Errorf("vendorconfig guard rules: %w", err)
+		return GuardRules{}, fmt.Errorf("agentconfig guard rules: %w", err)
 	}
 	return GuardRules{Ask: tpl.Permissions.Ask, Deny: tpl.Permissions.Deny}, nil
 }

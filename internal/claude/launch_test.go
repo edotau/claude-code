@@ -11,8 +11,10 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/gateway"
-
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -676,5 +678,99 @@ func TestClaudeArmPassthroughHeaderIsSessionToken(t *testing.T) {
 	}
 	if hdrs := plan.Set["ANTHROPIC_CUSTOM_HEADERS"]; !strings.Contains(hdrs, gateway.ClientHeader+": "+tok) {
 		t.Errorf("armed passthrough: the client header carries the session token = false (headers len %d)", len(hdrs))
+	}
+}
+
+func TestClaudeBinaryPrefersBinDirOverVersions(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	versions := filepath.Join(os.Getenv("HOME"), ".local", "share", "claude", "versions")
+	if err := os.MkdirAll(versions, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, version := range []string{"2.0.9", "2.0.14"} {
+		if err := os.WriteFile(filepath.Join(versions, version), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bin := pathstest.FakeVendor(t, "claude", "")
+	got, err := ClaudeBinary()
+	if err != nil || got != bin {
+		t.Fatalf("ClaudeBinary = %q, %v; want %q", got, err, bin)
+	}
+	if err := os.Remove(bin); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(versions, "2.0.14")
+	got, err = ClaudeBinary()
+	if err != nil || got != want {
+		t.Fatalf("without bin/claude = %q, %v; want %q", got, err, want)
+	}
+}
+
+func TestClaudeBinaryDoesNotSearchPATH(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	source := vendorPATHFixture(t, "claude", "")
+	t.Setenv("PATH", filepath.Dir(source))
+	if bin, err := ClaudeBinary(); err == nil || !strings.Contains(err.Error(), "not found in") || bin != "" {
+		t.Fatalf("ClaudeBinary = %q, %v; want not found despite PATH vendor", bin, err)
+	}
+}
+
+func TestClaudeBinaryBinDirOverrideSkipsInstalledVersions(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	versions := filepath.Join(os.Getenv("HOME"), ".local", "share", "claude", "versions")
+	if err := os.MkdirAll(versions, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(versions, "2.0.14"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(paths.AgentBinDirEnv, t.TempDir())
+	if got, err := ClaudeBinary(); err == nil || got != "" {
+		t.Fatalf("ClaudeBinary = %q, %v; want error, no fallback to the installed claude", got, err)
+	}
+}
+
+func TestTakeAsBeatsProfileIdentity(t *testing.T) {
+	as, rest, err := providers.TakeAs([]string{"--model", "x", "--as", "sp", "--", "--as", "user"})
+	if err != nil || as != providers.IdentitySP {
+		t.Fatalf("as=%q err=%v", as, err)
+	}
+	if len(rest) != 5 || rest[3] != "--as" {
+		t.Fatalf("rest=%v", rest)
+	}
+	// the flag wins over a profile set to user
+	if got, _ := providers.ResolveIdentity(providers.IdentityUser, as); got != providers.IdentitySP {
+		t.Fatalf("resolved %q", got)
+	}
+	if _, _, err := providers.TakeAs([]string{"--as=bogus"}); err == nil {
+		t.Fatal("bogus accepted")
+	}
+	if err := client.ValidateAs("sp", "codex"); err == nil {
+		t.Fatal("--as accepted for codex")
+	}
+}
+
+// `<alias> --help` runs claude's own help; a profile with no model for the alias must not refuse it.
+func TestLaunchClaudeHelpSkipsModelLookup(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	pathstest.FakeVendor(t, "claude", `[ "$1" = --help ] && echo FAKE-CLAUDE-HELP`)
+	code, out, errOut := hosttest.CaptureOutput(t, func() int { return Launch("nosuchalias", []string{"--help"}) })
+	if code != 0 || !strings.Contains(out, "FAKE-CLAUDE-HELP") {
+		t.Fatalf("Launch(--help) = %d, stdout %q, stderr %q; want 0 and claude's help", code, out, errOut)
+	}
+}
+
+// Only a lone help flag takes the shortcut; a subcommand's --help goes through to claude.
+func TestBareHelpKeepsSubcommandHelp(t *testing.T) {
+	for args, want := range map[string]bool{"--help": true, "-h": true, "mcp --help": false, "-p hi --help": false} {
+		if got := bareHelp(strings.Fields(args)); got != want {
+			t.Errorf("bareHelp(%q) = %v, want %v", args, got, want)
+		}
 	}
 }

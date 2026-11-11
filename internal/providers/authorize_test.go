@@ -84,7 +84,7 @@ func TestListModelsDatabricksServingEndpoints(t *testing.T) {
 	trustTestTLS(t, srv)
 	p := liveDbxProvider(t, srv.URL, "tok-abc123")
 
-	got, err := ListModels(context.Background(), nil, p)
+	got, err := ListModels(context.Background(), p)
 	if err != nil {
 		t.Fatalf("ListModels: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestListModelsNonDatabricksUsesV1Models(t *testing.T) {
 			p := &Provider{Name: "plain-live-test", Protocol: tc.kind, BaseURL: srv.URL,
 				Auth: Auth{Type: AuthKey, Env: "PLAIN_LIVE_TEST_TOKEN"}}
 
-			got, err := ListModels(context.Background(), nil, p)
+			got, err := ListModels(context.Background(), p)
 			if err != nil {
 				t.Fatalf("ListModels: %v", err)
 			}
@@ -183,7 +183,7 @@ func TestListModelsNon200DoesNotLeakBearer(t *testing.T) {
 	t.Cleanup(srv.Close)
 	trustTestTLS(t, srv)
 
-	_, err := ListModels(context.Background(), nil, liveDbxProvider(t, srv.URL, secret))
+	_, err := ListModels(context.Background(), liveDbxProvider(t, srv.URL, secret))
 	if err == nil {
 		t.Fatal("ListModels on 403 returned nil error")
 	}

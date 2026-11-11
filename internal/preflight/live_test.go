@@ -138,7 +138,7 @@ func TestInstallStepSharesBudget(t *testing.T) {
 	old := Budget
 	Budget = 300 * time.Millisecond
 	t.Cleanup(func() { Budget = old; listModels = providers.ListModels })
-	listModels = func(ctx context.Context, _ *providers.Registry, _ *providers.Provider) ([]providers.ModelInfo, error) {
+	listModels = func(ctx context.Context, _ *providers.Provider) ([]providers.ModelInfo, error) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
@@ -165,7 +165,7 @@ func TestInstallStepPongsStartAfterRefresh(t *testing.T) {
 	old := Budget
 	Budget = 300 * time.Millisecond
 	t.Cleanup(func() { Budget = old; listModels = providers.ListModels })
-	listModels = func(ctx context.Context, _ *providers.Registry, _ *providers.Provider) ([]providers.ModelInfo, error) {
+	listModels = func(ctx context.Context, _ *providers.Provider) ([]providers.ModelInfo, error) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}

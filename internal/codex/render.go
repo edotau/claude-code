@@ -16,13 +16,18 @@ import (
 
 // --- codex: ~/.codex/config.toml, a banner-marked [model_providers.claude-code] block ---
 
+const (
+	codexManagedBegin = "# >>> claude-code:managed:begin >>>"
+	codexManagedEnd   = "# <<< claude-code:managed:end <<<"
+)
+
 // codexBannerRE is compiled lazily: a package-level MustCompile runs at every process start (hooks, statusline).
 var codexBannerRE = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?s)# >>> claude-code:managed:begin >>>\n.*?\n# <<< claude-code:managed:end <<<\n?`)
+	return regexp.MustCompile(`(?s)` + regexp.QuoteMeta(codexManagedBegin) + `\n.*?\n` + regexp.QuoteMeta(codexManagedEnd) + `\n?`)
 })
 
 func codexBannerSection(block string) string {
-	return "# >>> claude-code:managed:begin >>>\n" + block + "\n# <<< claude-code:managed:end <<<\n"
+	return codexManagedBegin + "\n" + block + "\n" + codexManagedEnd + "\n"
 }
 
 func codexProviderSection(reg *providers.Registry, sel providers.Selection, existing string, out io.Writer) (string, error) {

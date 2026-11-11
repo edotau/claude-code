@@ -12,12 +12,12 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 )
 
-func TestCacheDirIsDotMemoryCacheUnderConfigDir(t *testing.T) {
+func TestStateDirIsHarnessUnderConfigDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	want := filepath.Join(dir, "state", "harness")
-	if got := CacheDir(); got != want {
-		t.Errorf("CacheDir() = %s, want %s", got, want)
+	if got := StateDir(); got != want {
+		t.Errorf("StateDir() = %s, want %s", got, want)
 	}
 }
 
@@ -52,8 +52,8 @@ func TestBackupPathNoFilesystemAccess(t *testing.T) {
 	// BackupPath is pure: it must not create CacheDir, src, or any parent, even once called.
 	src := filepath.Join(dir, "home-unused", ".config", "thing.json")
 	_ = BackupPath(src, backupTS)
-	if _, err := os.Stat(CacheDir()); !os.IsNotExist(err) {
-		t.Errorf("BackupPath touched the filesystem: CacheDir() stat err = %v", err)
+	if _, err := os.Stat(StateDir()); !os.IsNotExist(err) {
+		t.Errorf("BackupPath touched the filesystem: StateDir() stat err = %v", err)
 	}
 }
 
@@ -99,8 +99,8 @@ func TestBackupDirNoFilesystemAccess(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	_ = BackupDir("install", backupTS)
-	if _, err := os.Stat(CacheDir()); !os.IsNotExist(err) {
-		t.Errorf("BackupDir touched the filesystem: CacheDir() stat err = %v", err)
+	if _, err := os.Stat(StateDir()); !os.IsNotExist(err) {
+		t.Errorf("BackupDir touched the filesystem: StateDir() stat err = %v", err)
 	}
 }
 
@@ -378,3 +378,18 @@ func TestSwapSymlinkConcurrent(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+// Within cleans both sides, so a sibling prefix, a trailing slash, ".." and the root "/" all resolve correctly.
+func TestWithin(t *testing.T) {
+	for _, tc := range []struct {
+		path, base string
+		want       bool
+	}{
+		{"/a/foo", "/a/foo", true}, {"/a/foo/bar", "/a/foo", true}, {"/a/foo/", "/a/foo", true},
+		{"/a/foobar", "/a/foo", false}, {"/a/foo/../bar", "/a/foo", false}, {"/x", "/", true}, {"/a/foo", "/a/foo/", true},
+	} {
+		if got := Within(tc.path, tc.base); got != tc.want {
+			t.Errorf("Within(%q, %q) = %v, want %v", tc.path, tc.base, got, tc.want)
+		}
+	}
+}

@@ -2,8 +2,13 @@ package vault
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hkdf"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,8 +38,7 @@ func UseKeyringSeams(lookup func(string) (string, bool, error), set func(string,
 // tx; a spec test uses it to pause a writer mid-rotation (TestStaleWriterRetries).
 var testHookAfterKey = func() {}
 
-// errStaleKey means the tx's meta/kid no longer matches the key UpdateSealed selected before
-// opening it — a rotation landed between selection and commit; the caller refreshes and retries.
+// errStaleKey means a rotation landed between UpdateSealed selecting its key and the tx; the caller retries.
 var errStaleKey = errors.New("vault: master key is stale")
 
 // account is the keyring account for a vault's current master key; account+"."+kid is the
@@ -76,11 +80,16 @@ func invalidateKey() {
 
 func keyMeta() (id, kid, command string, err error) {
 	err = View(func(t *Tx) error {
-		id = vaultID(t)
-		kid, _ = t.Get(Meta, "kid")
-		command, _ = t.Get(Meta, "key_command")
+		id, kid, command = keyMetaTx(t)
 		return nil
 	})
+	return
+}
+
+func keyMetaTx(t *Tx) (id, kid, command string) {
+	id = vaultID(t)
+	kid, _ = t.Get(Meta, "kid")
+	command, _ = t.Get(Meta, "key_command")
 	return
 }
 
@@ -315,8 +324,7 @@ func commandKey(command, id, kid string) (*Key, string) {
 	return nil, "key_command"
 }
 
-// wrapKeyringUnavailable turns a keyring that could not positively establish absence into a
-// locked vault with recovery instructions, instead of letting EnsureKey generate over it (R6).
+// wrapKeyringUnavailable turns a keyring that cannot establish absence into a locked vault, not a fresh key (R6).
 func wrapKeyringUnavailable(err error) error {
 	if keyringRecoverable(err) {
 		return fmt.Errorf("%w: set HARNESS_VAULT_KEY or meta/key_command (%v)", ErrLocked, err)
@@ -510,9 +518,7 @@ func rotateKeyLocked(o rotateKeyOpts) (oldKid, newKid string, err error) {
 	}
 	newKid = next.Kid
 
-	// Persist the new key under its immutable kid account BEFORE any ciphertext is committed
-	// under it (R1): a crash after this line but before (or during) the reseal below leaves
-	// the new key durable and unreferenced — harmless — never stranded or lost.
+	// Persist the new key under its immutable kid account BEFORE any ciphertext is committed under it (R1).
 	if e := keyringSet(acct+"."+newKid, value); e != nil {
 		return oldKid, newKid, e
 	}
@@ -551,19 +557,9 @@ func rotatePreflight(o rotateKeyOpts) (old *Key, id string, err error) {
 	return old, id, nil
 }
 
-// RotateKey generates a new master key, re-seals every secret under it, and retains every key —
-// outgoing and incoming — forever under its own immutable kid account so an archive, a stalled
-// writer, or a sibling root sharing this vault_id mid-rotation can still open records sealed
-// under it (R2, R4).
+// RotateKey re-seals every secret under a new master key, retaining every key under its own kid account (R1, R2, R4).
 //
-// Design (R1, R2): the new key is written to its immutable account+"."+newKid account BEFORE the
-// re-seal transaction runs, and the convenience current-key pointer (account(id)) is updated only
-// AFTER that transaction commits. Recovery needs no separate "pending" bookkeeping: whatever the
-// pointer says, resolveKey/matchKey always find the key matching the committed meta/kid under its
-// own immutable account, so a crash at any point between those two writes — or a second root's
-// rotation overwriting the shared pointer with an unrelated kid — strands nothing. The only
-// outcome of an interrupted rotation is a harmless, never-read orphan key sitting under its own
-// kid account.
+// The new key is stored before the re-seal tx and the pointer moves after it commits, so a crash strands nothing.
 func RotateKey(opts ...RotateKeyOption) (oldKid, newKid string, err error) {
 	var o rotateKeyOpts
 	for _, opt := range opts {
@@ -594,12 +590,9 @@ func rotateGuard(force bool, command string) error {
 
 // retireKid appends kid to meta/retired, reading it raw: a corrupt list refuses rather than losing history.
 func retireKid(t *Tx, kid string) error {
-	raw, _ := t.Get(Meta, "retired")
-	var retired []string
-	if raw != "" {
-		if err := json.Unmarshal([]byte(raw), &retired); err != nil {
-			return fmt.Errorf("vault: meta/retired is corrupt; refusing to rotate (history would be lost): %w", err)
-		}
+	retired, err := Retired(t)
+	if err != nil {
+		return fmt.Errorf("refusing to rotate (history would be lost): %w", err)
 	}
 	if !slices.Contains(retired, kid) {
 		retired = append(retired, kid)
@@ -677,9 +670,7 @@ func readSealedAll(bucket string, names []string) (map[string]string, error) {
 		var id, kid, command string
 		records := map[string]Record{}
 		if verr := View(func(t *Tx) error {
-			id = vaultID(t)
-			kid, _ = t.Get(Meta, "kid")
-			command, _ = t.Get(Meta, "key_command")
+			id, kid, command = keyMetaTx(t)
 			for _, name := range names {
 				r, ok, rerr := t.RecordIn(bucket, name)
 				if rerr != nil {
@@ -721,4 +712,83 @@ func openAll(bucket string, records map[string]Record, id, kid, command string) 
 		vals[name] = v
 	}
 	return vals, nil
+}
+
+// Each encrypted collection derives a distinct subkey from the same vault-scoped root.
+const secretsInfo = "claude-code/vault/v1/secrets"
+const settingsBackupsInfo = "claude-code/vault/v1/settings-backups"
+
+type Key struct {
+	Kid         string
+	aead        cipher.AEAD
+	backupsAEAD cipher.AEAD
+	raw         string // the base64 value this key was parsed from; rotation retains it as-is (R4)
+}
+
+// parseKey turns a base64 master-key value into a Key scoped to vaultID. Kid identifies the root
+// itself (stable across vaults so retired-key accounts and matchKey stay vault-independent); the
+// AEAD seals under K = HKDF(sha256, root, salt=vaultID, info=secretsInfo, 32) so a root reused
+// across two vaults still yields distinct ciphertext keys, without changing who can decrypt.
+func parseKey(value, vaultID string) (*Key, error) {
+	trimmed := strings.TrimSpace(value)
+	root, err := base64.StdEncoding.DecodeString(trimmed)
+	if err != nil || len(root) != 32 {
+		return nil, errors.New("vault: master key must be base64-encoded 32 bytes")
+	}
+	aead, err := newAEAD(root, vaultID, secretsInfo)
+	if err != nil {
+		return nil, err
+	}
+	backupAEAD, err := newAEAD(root, vaultID, settingsBackupsInfo)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(root)
+	return &Key{Kid: hex.EncodeToString(sum[:])[:16], aead: aead, backupsAEAD: backupAEAD, raw: trimmed}, nil
+}
+
+// newAEAD derives the subkey for info from root and vaultID and wraps it in AES-GCM with random nonces.
+func newAEAD(root []byte, vaultID, info string) (cipher.AEAD, error) {
+	sub, err := hkdf.Key(sha256.New, root, []byte(vaultID), info, 32)
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(sub)
+	if err != nil {
+		return nil, err
+	}
+	return cipher.NewGCMWithRandomNonce(block)
+}
+
+// Raw returns the base64-encoded master key value k was parsed from — the same encoding
+// HARNESS_VAULT_KEY accepts. Callers must only print it through an explicit, audited reveal path.
+func (k *Key) Raw() string { return k.raw }
+
+func (k *Key) Seal(name, value string) []byte {
+	return k.aead.Seal(nil, nil, []byte(value), []byte(secretsInfo+"/"+name))
+}
+
+func (k *Key) Open(name string, r Record) (string, error) {
+	return k.open(k.aead, secretsInfo, name, r)
+}
+
+// open checks r was sealed under k, then decrypts it with aead and the info-scoped AAD.
+func (k *Key) open(aead cipher.AEAD, info, name string, r Record) (string, error) {
+	if r.Kid != k.Kid {
+		return "", ErrWrongKey
+	}
+	v, err := aead.Open(nil, nil, r.Sealed, []byte(info+"/"+name))
+	return string(v), err
+}
+
+// SealSettingsBackup encrypts a snapshot without sharing the credential collection's key or AAD.
+func (k *Key) SealSettingsBackup(name, value string) []byte {
+	return k.backupsAEAD.Seal(nil, nil, []byte(value), []byte(settingsBackupsInfo+"/"+name))
+}
+
+func (k *Key) openIn(bucket, name string, r Record) (string, error) {
+	if bucket == Secrets {
+		return k.Open(name, r)
+	}
+	return k.open(k.backupsAEAD, settingsBackupsInfo, name, r)
 }

@@ -196,7 +196,7 @@ func discardKeys(d *dialog) {
 	d.pending = nil
 }
 
-// labels.go — an agent's mode column from agentPlans + agentPlanFormat (vault overlay/providers), else today's text.
+// Labels section — an agent's mode column from agentPlans + agentPlanFormat (vault overlay/providers), else today's text.
 
 // labelMax is the mode column's room in an 80-column row (name 11 · label · check 12, plus gaps).
 const labelMax = 48

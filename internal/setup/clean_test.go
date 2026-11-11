@@ -452,7 +452,7 @@ func TestNestedConfigKeepsWorktrees(t *testing.T) {
 func TestBackupsMirrorNeverSwept(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	mirror := filepath.Join(paths.CacheDir(), "backups", "settings.json.bak-20200101-000000")
+	mirror := filepath.Join(paths.StateDir(), "backups", "settings.json.bak-20200101-000000")
 	cli := filepath.Join(dir, "backups", ".claude.json.backup.1")
 	for _, p := range []string{mirror, cli} {
 		write(t, p, "x")

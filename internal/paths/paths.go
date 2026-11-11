@@ -3,6 +3,7 @@ package paths
 
 import (
 	"bytes"
+	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -13,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	_ "github.com/edotau/claude-code/internal/nonet" // test binaries refuse real DNS: tests mock their API calls
 )
 
 // ConfigDir is CLAUDE_CONFIG_DIR, else the git clone holding the running binary in its bin/, else ~/.claude.
@@ -74,10 +77,7 @@ func ExportConfigDir() {
 // BinDir is the install target for the claude-code binary and its bare-name shims.
 func BinDir() string { return filepath.Join(ConfigDir(), "bin") }
 
-// CacheDir holds backups, shadow history and vendor disk caches; it is the harness state dir.
-func CacheDir() string { return StateDir() }
-
-// BackupPath maps src to its mirrored backup location under CacheDir, tagged with now; pure, no I/O.
+// BackupPath maps src to its mirrored backup location under StateDir, tagged with now; pure, no I/O.
 func BackupPath(src string, now time.Time) string {
 	var rel string
 	if home, err := os.UserHomeDir(); err == nil {
@@ -90,12 +90,12 @@ func BackupPath(src string, now time.Time) string {
 		rel = strings.TrimPrefix(src, string(filepath.Separator))
 	}
 	ts := now.Format("20060102-150405.000000000")
-	return filepath.Join(CacheDir(), "backups", rel+".bak-"+ts)
+	return filepath.Join(StateDir(), "backups", rel+".bak-"+ts)
 }
 
 // BackupDir is the per-run directory for internal/setup's backup bundles.
 func BackupDir(label string, now time.Time) string {
-	return filepath.Join(CacheDir(), "backups", "setup", label+"-"+now.Format("20060102-150405"))
+	return filepath.Join(StateDir(), "backups", "setup", label+"-"+now.Format("20060102-150405"))
 }
 
 // StateDir holds runtime state (router pid/port/secret) that must never be committed.
@@ -155,24 +155,15 @@ func AtomicWrite(dest string, data []byte, mode os.FileMode) error {
 }
 
 // WithFileLock runs fn holding an exclusive advisory lock on path+".lock".
-func WithFileLock(path string, fn func() error) (err error) {
+func WithFileLock(path string, fn func() error) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return err
+	ran, err := TryFileLock(path+".lock", lockTimeout, fn)
+	if !ran && err == nil {
+		return fmt.Errorf("%w: %s.lock", ErrLockTimeout, path)
 	}
-	defer f.Close()
-	if err := acquire(f, path); err != nil {
-		return err
-	}
-	defer func() {
-		if uerr := unlock(f); uerr != nil {
-			err = errors.Join(err, uerr)
-		}
-	}()
-	return fn()
+	return err
 }
 
 // AppendLine appends line (plus a trailing newline when missing) to file under its lock, creating the 0700 parent dir.
@@ -201,22 +192,6 @@ var lockTimeout = 2 * time.Minute
 
 // TryLock takes the exclusive lock on f without blocking; false means another holder has it (or locking is unsupported).
 func TryLock(f *os.File) bool { ok, _ := tryLock(f); return ok }
-
-// acquire polls tryLock until granted, lockTimeout passes (ErrLockTimeout) or locking itself fails.
-func acquire(f *os.File, path string) error {
-	for deadline := time.Now().Add(lockTimeout); ; time.Sleep(lockPoll()) {
-		ok, err := tryLock(f)
-		if err != nil {
-			return err
-		}
-		if ok {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("%w: %s.lock", ErrLockTimeout, path)
-		}
-	}
-}
 
 // lockPoll is a jittered 1-50ms wait: a fixed period keeps contenders in lockstep, one winner per period.
 func lockPoll() time.Duration { return time.Duration(1+rand.IntN(50)) * time.Millisecond }
@@ -352,4 +327,73 @@ func SelfBinary() (string, error) {
 		exe = real
 	}
 	return filepath.Abs(exe)
+}
+
+// DispatchDir is the directory holding dispatch records and job logs.
+func DispatchDir() string { return filepath.Join(StateDir(), "dispatch") }
+
+// EnsureDispatchDir creates the 0700 dispatch dir and returns its path.
+func EnsureDispatchDir() (string, error) {
+	dir := DispatchDir()
+	return dir, os.MkdirAll(dir, 0o700)
+}
+
+// SwapSymlink points link at target via a temp link and rename, so link is never absent or half-made.
+func SwapSymlink(target, link string) error {
+	tmp := fmt.Sprintf("%s.tmp%d-%s", link, os.Getpid(), cryptorand.Text())
+	if err := os.Symlink(target, tmp); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, link); err != nil {
+		return errors.Join(err, os.Remove(tmp))
+	}
+	return nil
+}
+
+// ShortHome replaces a leading home directory with ~, leaving sibling paths unchanged.
+func ShortHome(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	if p == home {
+		return "~"
+	}
+	if rest, ok := strings.CutPrefix(p, home+string(filepath.Separator)); ok {
+		return "~/" + rest
+	}
+	return p
+}
+
+// ExpandHome expands only ~ and a leading ~/ using the current home directory.
+func ExpandHome(p string) string {
+	if p != "~" && !strings.HasPrefix(p, "~/") {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	if p == "~" {
+		return home
+	}
+	return filepath.Join(home, p[2:])
+}
+
+// ConfigDirIsDefault reports whether the config directory is the current home's .claude directory.
+func ConfigDirIsDefault() bool {
+	home, err := os.UserHomeDir()
+	return err == nil && filepath.Clean(ConfigDir()) == filepath.Join(home, ".claude")
+}
+
+// Within reports whether path equals base or sits under it, after cleaning both (so /a/foo is not inside /a/foobar).
+func Within(path, base string) bool {
+	path, base = filepath.Clean(path), filepath.Clean(base)
+	if path == base {
+		return true
+	}
+	if !strings.HasSuffix(base, string(filepath.Separator)) {
+		base += string(filepath.Separator) // the root "/" already ends in one
+	}
+	return strings.HasPrefix(path, base)
 }
