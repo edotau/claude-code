@@ -162,9 +162,9 @@ claude-code doctor --scan|--git|--secrets   # leak audits; never print values
 **Databricks:** an `oauth` profile seals refresh + access tokens together (`DATABRICKS_<PROFILE>_OAUTH`); `pat` is
 sealed too; `m2m` tokens are minted per use, the service-principal secret stays sealed (`DATABRICKS_<PROFILE>_M2M`).
 `claude-code databricks token [--profile <id>] [--auth oauth|m2m|pat] [--copy] [--clear-after 30s]` prints type,
-length and expiry, never the token; `--copy` clears the clipboard after 30s (kept out of Win+V history on WSL; macOS clipboard managers and a
-killed clear process can still keep it). `configure` → databricks offers Set up (OAuth sign-in, verify, apply) / Login /
-Paste PAT / Token / Copy token / Apply to agents / Identity.
+length and expiry, never the token; `--copy` clears the clipboard after 30s (kept out of Win+V history on WSL; macOS
+clipboard managers and a killed clear process can still keep it). `configure` → databricks offers Set up (OAuth
+sign-in, verify, apply) / Login / Paste PAT / Token / Copy token / Apply to agents / Identity.
 
 **The vault key** — 32 random bytes from `HARNESS_VAULT_KEY` → OS keyring (service `claude-code`) → `key_command` (a
 JSON argv, no shell). No key file is written; headless boxes set one of the first or last; `HARNESS_KEYRING=off`
