@@ -206,12 +206,7 @@ func linkScienceCLI(w io.Writer, dir, app string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	tmpLink := fmt.Sprintf("%s.%d.new", link, os.Getpid())
-	_ = os.Remove(tmpLink)
-	if err := os.Symlink(target, tmpLink); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpLink, link); err != nil {
+	if err := withBinLock(dir, func() error { return paths.SwapSymlink(target, link) }); err != nil {
 		return err
 	}
 	fmt.Fprintf(w, "  link     %s -> %s\n", link, target)

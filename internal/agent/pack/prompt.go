@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // Spec is what to inline around a task: tracked files under Dirs and Files globs, plus the HEAD diff when Diff is set.
@@ -102,16 +103,15 @@ func ChangedFiles(ctx context.Context, root string) ([]string, error) {
 	var all []string
 	for _, args := range [][]string{
 		// --relative matches ls-files's cwd-relative output, so a subdirectory run doesn't mix bases.
-		{"-C", root, "diff", "--name-only", "-z", "--relative", "HEAD"},
-		{"-C", root, "ls-files", "--others", "--exclude-standard", "-z"},
+		{"diff", "--name-only", "-z", "--relative", "HEAD"},
+		{"ls-files", "--others", "--exclude-standard", "-z"},
 	} {
-		out, err := exec.CommandContext(ctx, "git", args...).Output()
+		out, err := proc.RunGitRaw(ctx, root, args...)
 		if err != nil {
-			stderr := stderrOf(err)
 			if ctx.Err() != nil {
-				err = ctx.Err()
+				return nil, fmt.Errorf("git -C %s %s: %w: ", root, strings.Join(args, " "), ctx.Err())
 			}
-			return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, stderr)
+			return nil, err
 		}
 		all = append(all, strings.Split(string(out), "\x00")...) // -z: raw names, never quoted or newline-split
 	}
@@ -124,14 +124,6 @@ func ChangedFiles(ctx context.Context, root string) ([]string, error) {
 		}
 	}
 	return uniq, nil
-}
-
-// stderrOf extracts a *exec.ExitError's trimmed stderr, or empty for any other error type.
-func stderrOf(err error) string {
-	if ee, ok := err.(*exec.ExitError); ok {
-		return strings.TrimSpace(string(ee.Stderr))
-	}
-	return ""
 }
 
 // Fit renders the prompt, moving whole trailing files to Skipped ("prompt-cap") until it fits limit.

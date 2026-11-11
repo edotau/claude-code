@@ -1,6 +1,6 @@
 //go:build unix
 
-package job
+package proc
 
 import "syscall"
 

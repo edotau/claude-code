@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentrender"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -78,7 +78,7 @@ func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := client.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := agentrender.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -90,8 +90,8 @@ func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
 	assertCodexApprovalBeforeForeignTables(t, content)
 
 	var out2 bytes.Buffer
-	if _, err := client.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out2, Agents: []string{"codex"}}); err != nil {
-		t.Fatalf("second client.RenderConfigs: %v\n%s", err, out2.String())
+	if _, err := agentrender.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out2, Agents: []string{"codex"}}); err != nil {
+		t.Fatalf("second agentrender.RenderConfigs: %v\n%s", err, out2.String())
 	}
 	raw2, err := os.ReadFile(path)
 	if err != nil {
@@ -154,7 +154,7 @@ func TestCodexBannerReplacesExistingTopLevelPermissionKeys(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := client.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := agentrender.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 

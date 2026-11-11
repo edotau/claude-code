@@ -1,9 +1,12 @@
 package paths
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // Slug lowercases s into one safe path element: runs outside [a-z0-9]+keep become one '-', edges trimmed,
@@ -51,6 +54,15 @@ func RepoSlug(root string) string {
 		return ""
 	}
 	return Slug(filepath.Base(filepath.Clean(main)), "._-", 0, "")
+}
+
+// GitTop is cwd's `git rev-parse --show-toplevel`, "" when git fails or prints nothing (not a repo).
+func GitTop(ctx context.Context, cwd string) string {
+	out, err := proc.RunGit(ctx, cwd, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
 }
 
 // MainCheckout resolves a worktree pointer lexically; with a git runner it probes enclosing repos, failing to "".

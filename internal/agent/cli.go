@@ -56,12 +56,16 @@ func (s Schema) targetNote(req RunOptions) (t providers.Target, own bool, note s
 
 // targetBase picks the target; applied is true when t.Model already carries req.Model (no fallback respelled it).
 func (s Schema) targetBase(req RunOptions) (t providers.Target, own bool, note string, applied bool, err error) {
-	if reg, _ := providers.Load(); req.Provider == "" && !namesProvider(reg, req.Model) { // the vault pin outranks the session
+	reg, loadErr := providers.Load()
+	if req.Provider == "" && !namesProvider(reg, req.Model) { // the vault pin outranks the session
 		if req.Provider, err = PinnedProfile(s.Name); err != nil {
 			return t, false, "", true, err
 		}
 	}
-	reg, t, err := resolveTarget(req)
+	if loadErr != nil {
+		return t, false, "", true, loadErr
+	}
+	reg, t, err = resolveIn(reg, req)
 	if err != nil || req.Provider != "" || namesProvider(reg, req.Model) {
 		if err == nil { // an explicit login still passes the CLI's own gate
 			t, note, err = s.Eng().GateExplicit(req, reg, t)
