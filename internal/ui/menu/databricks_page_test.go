@@ -178,7 +178,7 @@ func TestDbxState(t *testing.T) {
 	dbxExpiry(t, "qa", time.Now().Add(59*time.Minute+30*time.Second))
 	assertDbxText(t, d, "expires in 59m")
 	dbxExpiry(t, "qa", time.Now().Add(-time.Minute))
-	assertDbxText(t, d, "expired")
+	assertDbxText(t, d, dbxRenews)
 	if at, text, ok := dbxState(nil, "qa"); at != "" || text != "no login" || ok {
 		t.Errorf("nil reg = %q %q %v", at, text, ok)
 	}
