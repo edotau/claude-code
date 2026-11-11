@@ -97,3 +97,33 @@ func TestTickRangePropagatesOutputErrors(t *testing.T) {
 		})
 	}
 }
+
+// A retired (emptied) or truncated record names no mirror; only a record that cannot be read excludes every plan.
+func TestMirrorDestsTreatsTruncatedRecordAsAbsent(t *testing.T) {
+	hermetic(t)
+	live := filepath.Join(Home(t.TempDir()), "2026-11-09-live.md")
+	approved := filepath.Join(filepath.Dir(live), "2026-11-09-approved.md") // filed from a draft whose record was retired
+	other := filepath.Join(ScratchDir(), "other.dest")
+	writeFile(t, live, "- [ ] 1.1 Live\n")
+	writeFile(t, approved, "- [ ] 1.1 Approved\n")
+	writeFile(t, other, "")
+	if err := RecordDest("live", live); err != nil {
+		t.Fatal(err)
+	}
+	bad := map[string]string{"emptied": "", "truncated": live[:len(live)-6], "relative": "plans/x.md", "two lines": live + "\nx.md"}
+	for name, body := range bad {
+		writeFile(t, other, body)
+		if got, ok := ReadRecordedDest("other"); ok {
+			t.Errorf("%s record %q read back as destination %q", name, body, got)
+		}
+		if got := MirrorDests(); !slices.Equal(got, []string{live}) {
+			t.Errorf("%s record: MirrorDests = %v, want only %v", name, got, live)
+		}
+	}
+	if err := os.Remove(other); err != nil || os.MkdirAll(DestRecordPath("other"), 0o700) != nil {
+		t.Fatal("cannot build an unreadable record")
+	}
+	if got := MirrorDests(); !slices.Contains(got, approved) || !slices.Contains(got, live) {
+		t.Errorf("unreadable record must still fail closed to every plan: %v", got)
+	}
+}
