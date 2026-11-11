@@ -4,7 +4,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"slices"
 	"strings"
@@ -17,16 +16,13 @@ import (
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
-	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/hooks"
 	hookagents "github.com/edotau/claude-code/internal/hooks/agents"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -79,17 +75,6 @@ func agentsSpec() *helptext.Node {
 		"cancel": {Flags: []helptext.Flag{formatFlag()}},
 	}}
 }
-
-// anthropicSpec is the completion node for the anthropic verb.
-func anthropicSpec() *helptext.Node {
-	flag, boolFlag := helptext.Plain, helptext.BoolFlag
-	return &helptext.Node{Sub: map[string]*helptext.Node{"science": {}},
-		Flags: []helptext.Flag{boolFlag("oauth"), boolFlag("x-api-key"), flag("model"), flag("profile"),
-			boolFlag("print-env"), flag("keep-env"), flag("overlay")}}
-}
-
-// hookSpec is the completion node for the hook verb.
-func hookSpec() *helptext.Node { return &helptext.Node{Args: []func() []string{settings.HookEvents}} }
 
 // agentSpec is the one completion subtree for every agent verb (codex, copilot, opencode, gemini).
 func agentSpec() *helptext.Node {
@@ -732,63 +717,4 @@ func agentOnOff(name string, on bool, args []string) int {
 	}
 	fmt.Printf("%s: %s\n", name, verb)
 	return 0
-}
-
-// cmdClaude is `claude-code claude`: Claude Code on the selected profile.
-func cmdClaude(args []string) int { return claude.Launch("", args) }
-
-// hookPage lists modules in Hint, not Commands: a COMMANDS row would invite `hook <name> -h`, which runs the hook.
-var hookPage = helptext.Page{
-	Usage: "claude-code hook <Event> [--<module>|--all] < payload.json",
-	About: "Run one lifecycle hook on the event JSON on stdin; settings.json and the agent hook files invoke it.",
-	Hint:  settings.HookModules() + "\nevents: <Event> runs the dispatcher, --<module> one module, --all every module",
-}
-
-// cmdHook runs one lifecycle hook.
-func cmdHook(args []string) int {
-	if len(args) == 0 || isHelpVerb(args[0]) {
-		hookPage.Fprint(os.Stderr)
-		return 0
-	}
-	return hooks.RunArgs(args[0], args[1:], os.Stdin, os.Stdout, os.Stderr)
-}
-
-var anthropicPage = helptext.Page{
-	Usage: "claude-code anthropic [--oauth[=NAME]] [--x-api-key[=NAME]] [--model M]\n" +
-		"[--profile P] [--print-env] [--keep-env NAMES] [--overlay FILE] [args]\n" +
-		"claude-code anthropic science [--print-env] [claude-science args]",
-	About: "Claude Code on first-party Anthropic. No flag uses your claude.ai login. A bare flag takes no " +
-		"value; =NAME picks the vault key. --profile runs on that registry profile instead.",
-	Commands: [][2]string{{"science", "Claude for Life Sciences, own login (--print-env)"}},
-	Hint:     "claude-code anthropic " + helptext.DocsFlag + " prints claude's own help.",
-}
-
-// anthropicHelp renders the page with its flag rows; the flags are parsed by claude.ParseAnthropicArgs.
-func anthropicHelp(w io.Writer) {
-	fs := helptext.NewFlagSet("anthropic", anthropicPage)
-	fs.Bool("oauth", false, "setup-token login; =NAME picks the vault key")
-	fs.Bool("x-api-key", false, "API key login; =NAME picks the vault key")
-	fs.String("model", "", "opus|sonnet|haiku|fable, a version (opus-5-5) or wire id")
-	fs.String("profile", "", "run on this registry profile instead")
-	fs.Bool("print-env", false, "print the resolved launch; never prompts")
-	fs.String("keep-env", "", "env names the credential scrub keeps")
-	fs.String("overlay", "", "JSON {set,unset,keep} file over the child's env")
-	p := anthropicPage
-	p.Flags = fs
-	p.Fprint(w)
-}
-
-// cmdAnthropic is `claude-code anthropic`: first-party Claude Code with a login, OAuth token or API key.
-func cmdAnthropic(args []string) int {
-	if len(args) > 0 && args[0] == "science" {
-		return claude.LaunchScience(args[1:])
-	}
-	if len(args) > 0 && helptext.WantsHelp(args[:1]) { // only a leading help flag; `anthropic mcp --help` goes to claude
-		anthropicHelp(os.Stdout)
-		return 0
-	}
-	if len(args) == 1 && args[0] == helptext.DocsFlag {
-		return helptext.WrappedDocs("claude")
-	}
-	return claude.LaunchAnthropic(args, func(name string) int { return cmdVault([]string{"set", name}) })
 }

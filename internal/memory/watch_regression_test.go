@@ -62,7 +62,7 @@ func TestWatcherRetriesStatErrors(t *testing.T) {
 	if err := os.Chtimes(tr, old, old); err != nil {
 		t.Fatal(err)
 	}
-	calls := &stubSpawn(t, true).Update
+	calls := &StubSpawn(t, true).Update
 	if w.poll() || calls.Load() != 1 {
 		t.Fatalf("watcher did not recover and dispatch after stat error: spawns=%d", calls.Load())
 	}

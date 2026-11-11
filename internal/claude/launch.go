@@ -15,7 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/launchcli"
 	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -577,7 +576,7 @@ func LaunchScience(args []string) int {
 
 // LaunchAnthropic is first-party Claude Code with a login, OAuth token or API key; vaultSet stores a missing secret.
 func LaunchAnthropic(args []string, vaultSet func(name string) int) int {
-	if err := databricks.RemovedFlagHint(args); err != nil {
+	if err := helptext.RemovedFlagHint(args); err != nil {
 		return helptext.Fail("%v", err)
 	}
 	o, rest, err := ParseAnthropicArgs(args)

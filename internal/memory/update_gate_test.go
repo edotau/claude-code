@@ -34,7 +34,7 @@ func newGateRun(t *testing.T) *gateRun {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(UpdateChildEnv, "")
-	return &gateRun{t: t, tr: filepath.Join(t.TempDir(), "t.jsonl"), cwd: t.TempDir(), calls: &stubSpawn(t, true).Update}
+	return &gateRun{t: t, tr: filepath.Join(t.TempDir(), "t.jsonl"), cwd: t.TempDir(), calls: &StubSpawn(t, true).Update}
 }
 
 func (u *gateRun) stop() GateResult { return runGate("s1", u.tr, u.cwd, TriggerStop) }
@@ -66,7 +66,7 @@ func TestCountEditsIncludesSubagentEdits(t *testing.T) {
 	}
 
 	cwd := t.TempDir()
-	calls := &stubSpawn(t, true).Update
+	calls := &StubSpawn(t, true).Update
 	if g := runGate("sub-session", tr, cwd, TriggerStop); g.Blocked || calls.Load() != 1 {
 		t.Fatalf("subagent edits must arm the update gate: gate=%+v calls=%d", g, calls.Load())
 	}
@@ -86,7 +86,7 @@ func TestCountEditsGitCommitWeightArmsGate(t *testing.T) {
 	}
 
 	cwd := t.TempDir()
-	calls := &stubSpawn(t, true).Update
+	calls := &StubSpawn(t, true).Update
 	if g := runGate("commit-session", tr, cwd, TriggerStop); g.Blocked || calls.Load() != 1 {
 		t.Fatalf("a bare git commit must arm the update gate: gate=%+v calls=%d", g, calls.Load())
 	}
@@ -139,7 +139,7 @@ func TestSessionUpdateSpawnFailureBlocksThrice(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := filepath.Join(t.TempDir(), "proj")
 	writeEdits(t, tr, 5)
-	stubSpawn(t, false)
+	StubSpawn(t, false)
 	blocks := []bool{}
 	for range 5 {
 		g := runGate("s1", tr, cwd, TriggerStop)
@@ -170,7 +170,7 @@ func TestPreCompactUpdatesOnlyUncoveredEdits(t *testing.T) {
 	t.Setenv(UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
-	calls := &stubSpawn(t, true).Update
+	calls := &StubSpawn(t, true).Update
 	run := func() bool { return runGate("s1", tr, cwd, TriggerPreCompact).Blocked }
 
 	writeEdits(t, tr, 0)
@@ -196,7 +196,7 @@ func TestSessionUpdateDiscussionOnly(t *testing.T) {
 	t.Setenv(UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
-	calls := &stubSpawn(t, true).Update
+	calls := &StubSpawn(t, true).Update
 	run := func() bool { return runGate("s1", tr, cwd, TriggerStop).Blocked }
 
 	writeUserTurns(t, tr, 5)
@@ -218,7 +218,7 @@ func TestPreCompactAndSessionEndUpdateNewUserTurns(t *testing.T) {
 	t.Setenv(UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
-	calls := &stubSpawn(t, true).Update
+	calls := &StubSpawn(t, true).Update
 	gate := func(trigger string) { runGate("s1", tr, cwd, trigger) }
 
 	writeEdits(t, tr, 3)
@@ -257,7 +257,7 @@ func TestReadStampCatchupStateDoesNotBreakParsing(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 20)
 	cwd := t.TempDir()
-	stubSpawn(t, false)
+	StubSpawn(t, false)
 	runGate("x", tr, cwd, TriggerStop)
 }
 
@@ -267,7 +267,7 @@ func TestSessionUpdateUnwritableStampFailsOpen(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := filepath.Join(t.TempDir(), "proj")
 	writeEdits(t, tr, 5)
-	stubSpawn(t, false)
+	StubSpawn(t, false)
 	if err := os.MkdirAll(filepath.Join(stampPath("s1"), "x"), 0o755); err != nil {
 		t.Fatal(err)
 	}

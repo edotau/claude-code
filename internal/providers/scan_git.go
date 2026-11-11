@@ -1,4 +1,4 @@
-package vault
+package providers
 
 import (
 	"bufio"
@@ -10,11 +10,77 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
+
+// Exit codes shared by every audit (scan/git/doctor/all): 0 clean, 1 finding(s), 2 usage error.
+const (
+	ExitClean    = 0
+	ExitFindings = 1
+)
+
+// base64ish catches high-entropy tokens that don't match a known prefix.
+var base64ish = regexp.MustCompile(`^[A-Za-z0-9_+/=-]{32,}$`)
+
+// LooksLikeSecret is the credential-shape heuristic for a single, already-isolated value (a JSON leaf
+// or a KEY=value RHS): known token prefixes, a JWT shape, or base64-ish noise; ${ENV} refs, file paths,
+// and obvious placeholders are never flagged.
+func LooksLikeSecret(val string) bool {
+	return LooksLikeSecretGeneric(val, true)
+}
+
+// LooksLikeSecretGeneric is LooksLikeSecret with the bare base64-ish rule switchable via generic.
+func LooksLikeSecretGeneric(val string, generic bool) bool {
+	switch {
+	case neverSecret(val):
+		return false
+	case knownSecretShape(val):
+		return true
+	default:
+		return generic && base64ish.MatchString(val)
+	}
+}
+
+// neverSecret reports values never flagged: empty, ${ENV} refs, file paths and obvious placeholders.
+func neverSecret(val string) bool {
+	switch {
+	case val == "":
+		return true
+	case strings.HasPrefix(val, "$"): // ${ENV} or $ENV reference
+		return true
+	case strings.HasPrefix(val, "/") || strings.HasPrefix(val, "~/"): // file path
+		return true
+	}
+	return strings.ContainsAny(val, "<>") || strings.Contains(val, "PLACEHOLDER") ||
+		strings.Contains(val, "YOUR_") || strings.Contains(val, "xxx")
+}
+
+// knownSecretShape reports a known token prefix or a JWT shape.
+func knownSecretShape(val string) bool {
+	switch {
+	case textutil.HasGitHubPrefix(val), textutil.IsSlackToken(val):
+		return true
+	case strings.HasPrefix(val, "AKIA"): // AWS
+		return true
+	case strings.HasPrefix(val, "sk-"): // OpenAI-style
+		return true
+	}
+	return strings.HasPrefix(val, "eyJ") && strings.Count(val, ".") >= 2 // JWT
+}
+
+// secretPattern is the substring regex used over raw text (git diff lines) where a value cannot be
+// isolated first; narrower than LooksLikeSecret (no bare base64 rule) to avoid flooding history scans
+// with incidental base64 blobs.
+var secretPattern = regexp.MustCompile(
+	`(` + textutil.GitHubPattern(20) + `|` +
+		`xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}|` +
+		`eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})`)
 
 // gitLogTimeout bounds one history scan; a huge repo with no -n limit must still terminate.
 var gitLogTimeout = 60 * time.Second

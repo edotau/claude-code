@@ -1,22 +1,16 @@
-// the one place claude calls github.com/anthropics/anthropic-sdk-go: a streaming Messages call.
 package claude
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/edotau/claude-code/internal/agent/launchcli"
 
-	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -149,102 +143,6 @@ func anthropicProfile(reg *providers.Registry, method string) string {
 		}
 	}
 	return ""
-}
-
-// apiRequest is one single-turn ask. Authorize sets auth headers per request; the SDK's env credential chain is off.
-type apiRequest struct {
-	BaseURL   string
-	Model     string
-	Prompt    string
-	Effort    string // low|medium|high|xhigh|max; "" = model default
-	MaxTokens int64
-	Authorize func(context.Context, http.Header) error
-}
-
-// apiResponse is the served model and token usage.
-type apiResponse struct {
-	Model               string
-	InputTokens         int64
-	CacheCreationTokens int64
-	CacheReadTokens     int64
-	OutputTokens        int64
-}
-
-// streamMessages sends r and writes text deltas to w as they arrive.
-func streamMessages(ctx context.Context, r apiRequest, w io.Writer) (apiResponse, error) {
-	client := anthropic.NewClient(
-		option.WithoutEnvironmentDefaults(),
-		option.WithBaseURL(r.BaseURL),
-		option.WithMaxRetries(0), // the caller's dispatch loop owns retries
-		option.WithMiddleware(anthropicAuthorization(r)),
-	)
-	params := anthropic.MessageNewParams{
-		Model:     anthropic.Model(r.Model),
-		MaxTokens: r.MaxTokens,
-		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(r.Prompt))},
-	}
-	if r.Effort != "" {
-		params.OutputConfig = anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffort(r.Effort)}
-	}
-	var res apiResponse
-	stream := client.Messages.NewStreaming(ctx, params)
-	defer stream.Close()
-	for stream.Next() {
-		switch ev := stream.Current().AsAny().(type) {
-		case anthropic.MessageStartEvent:
-			res.Model = string(ev.Message.Model)
-			u := ev.Message.Usage
-			res.InputTokens, res.OutputTokens = u.InputTokens, u.OutputTokens
-			res.CacheCreationTokens, res.CacheReadTokens = u.CacheCreationInputTokens, u.CacheReadInputTokens
-		case anthropic.ContentBlockDeltaEvent:
-			if t, ok := ev.Delta.AsAny().(anthropic.TextDelta); ok {
-				if _, err := io.WriteString(w, t.Text); err != nil {
-					return res, err
-				}
-			}
-		case anthropic.MessageDeltaEvent:
-			if ev.Usage.InputTokens > 0 { // cumulative; input may be absent mid-stream
-				res.InputTokens = ev.Usage.InputTokens
-			}
-			if ev.Usage.CacheCreationInputTokens > 0 {
-				res.CacheCreationTokens = ev.Usage.CacheCreationInputTokens
-			}
-			if ev.Usage.CacheReadInputTokens > 0 {
-				res.CacheReadTokens = ev.Usage.CacheReadInputTokens
-			}
-			res.OutputTokens = ev.Usage.OutputTokens
-		}
-	}
-	return res, boxSDKError(stream.Err())
-}
-
-func anthropicAuthorization(r apiRequest) option.Middleware {
-	return func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
-		req.Header.Del("X-Api-Key")
-		req.Header.Del("Authorization")
-		if r.Authorize != nil {
-			if err := r.Authorize(req.Context(), req.Header); err != nil {
-				return nil, err
-			}
-		}
-		return next(req)
-	}
-}
-
-func boxSDKError(err error) error {
-	var apiErr *anthropic.Error
-	if !errors.As(err, &apiErr) {
-		return err
-	}
-	out := &httpError{status: apiErr.StatusCode, msg: fmt.Sprintf("HTTP %d: %s", apiErr.StatusCode, apiErr.RawJSON())}
-	if apiErr.Response != nil {
-		// Keep the SDK caller's integer-only header policy.
-		v := apiErr.Response.Header.Get("Retry-After")
-		if v == strings.TrimSpace(v) && !strings.Contains(v, ":") {
-			out.after, _ = textutil.ParseRetryAfter(v, time.Now())
-		}
-	}
-	return out
 }
 
 // AnthropicSecret reads the mode's vault key; when it is missing and a terminal is attached, offers to store it.

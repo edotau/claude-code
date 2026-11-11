@@ -1,4 +1,4 @@
-package plans
+package cli
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -23,8 +24,8 @@ var planPage = helptext.Page{
 	Hint: "claude-code plan status -h lists its flags.",
 }
 
-// Run is the `plan` verb.
-func Run(args []string) int {
+// cmdPlan is the `plan` verb.
+func cmdPlan(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		planPage.Fprint(os.Stderr)
 		return 0
@@ -51,13 +52,13 @@ func cmdPlanStatus(args []string) int {
 	if err := helptext.CheckFormat(*format); err != nil {
 		return helptext.BadFormat("", err)
 	}
-	summaries, err := Status(Dirs(*all)...)
+	summaries, err := plans.Status(plans.Dirs(*all)...)
 	if err != nil {
 		return helptext.Fail("plan status: %v", err)
 	}
 	if *format == helptext.JSON {
 		if summaries == nil {
-			summaries = []Summary{}
+			summaries = []plans.Summary{}
 		}
 		if err := helptext.WriteJSON(os.Stdout, summaries); err != nil {
 			return helptext.Fail("plan status: %v", err)
@@ -68,7 +69,7 @@ func cmdPlanStatus(args []string) int {
 	return 0
 }
 
-func printPlanSummaries(summaries []Summary) {
+func printPlanSummaries(summaries []plans.Summary) {
 	if len(summaries) == 0 {
 		fmt.Println("no plans")
 		return
@@ -106,14 +107,14 @@ func cmdPlanTick(args []string) int {
 	if top == "" {
 		return helptext.Fail("plan tick: %s is not in a git checkout", cwd)
 	}
-	if err := TickRange(context.Background(), top, WorktreeName(top), *rng, *plan, MirrorDests(), *dryRun, os.Stdout); err != nil {
+	if err := plans.TickRange(context.Background(), top, plans.WorktreeName(top), *rng, *plan, plans.MirrorDests(), *dryRun, os.Stdout); err != nil {
 		return helptext.Fail("plan tick: %v", err)
 	}
 	return 0
 }
 
-// SpecNode returns the plan completion tree.
-func SpecNode() *helptext.Node {
+// planSpec returns the plan completion tree.
+func planSpec() *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{
 		"status": {Flags: []helptext.Flag{{Name: "all", IsBool: true},
 			{Name: "format", Values: func() []string { return []string{helptext.Text, helptext.JSON} }}}},

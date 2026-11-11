@@ -178,13 +178,13 @@ func (s *Scanner) ScanFile(path string) {
 		walkJSONStrings(nil, doc, func(p []string, val string) {
 			metadata := marketplaceRepoPath(p) ||
 				(filepath.Base(path) == ".claude.json" && claudeMetadataPath(p))
-			if vault.LooksLikeSecretGeneric(val, !metadata) {
+			if LooksLikeSecretGeneric(val, !metadata) {
 				s.flag(fmt.Sprintf("%s → %s holds an inline secret", path, strings.Join(p, ".")))
 			}
 		})
 	} else {
 		for k, v := range ReadEnvFile(path) {
-			if vault.LooksLikeSecret(v) {
+			if LooksLikeSecret(v) {
 				s.flag(fmt.Sprintf("%s → %s holds an inline secret", path, k))
 			}
 		}
@@ -227,7 +227,7 @@ func scanOverlayDocs(t *vault.Tx) []string {
 			continue
 		}
 		walkJSONStrings(nil, doc, func(p []string, val string) {
-			if vault.LooksLikeSecret(envPairValue(val)) {
+			if LooksLikeSecret(envPairValue(val)) {
 				found = append(found, "vault:overlay/"+key+" → "+strings.Join(p, ".")+" holds an inline secret")
 			}
 		})
@@ -241,7 +241,7 @@ func scanSecretBuckets(t *vault.Tx) []string {
 	for _, bucket := range []string{vault.Pins, vault.Env} {
 		kv := t.All(bucket)
 		for _, k := range slices.Sorted(maps.Keys(kv)) {
-			if v := kv[k]; v != SecretRef && vault.LooksLikeSecret(v) {
+			if v := kv[k]; v != SecretRef && LooksLikeSecret(v) {
 				found = append(found, "vault:"+bucket+" → "+k+" holds an inline secret")
 			}
 		}
@@ -264,8 +264,8 @@ func (s *Scanner) ScanConfigs(targets []string) int {
 	}
 	if n := len(s.Findings); n > 0 {
 		fmt.Fprintf(s.out(), "doctor --scan: %d finding(s) — move inline values into the vault with `claude-code vault set`.\n", n)
-		return vault.ExitFindings
+		return ExitFindings
 	}
 	fmt.Fprintln(s.out(), "doctor --scan: clean.")
-	return vault.ExitClean
+	return ExitClean
 }

@@ -17,7 +17,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
-	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/gateway/server"
 	"github.com/edotau/claude-code/internal/providers"
@@ -458,11 +457,27 @@ func cmdGatewayToken(args []string) int {
 	if fs.NArg() != 0 || *profile == "" {
 		return helptext.Fail("gateway token: want --profile <name> and no other arguments")
 	}
-	token, code := databricks.MintProxyToken(*profile, *cfg)
+	token, code := mintProxyToken(*profile, *cfg)
 	if code != 0 {
 		return code
 	}
 	return printToken(token)
+}
+
+// mintProxyToken ensures the proxy is up and mints a token for profile; a nonzero code is the exit status.
+func mintProxyToken(profile, cfgDir string) (string, int) {
+	if cfgDir != "" {
+		if err := os.Setenv("CLAUDE_CONFIG_DIR", cfgDir); err != nil {
+			return "", helptext.Fail("gateway token: %v", err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	token, err := gateway.Token(ctx, profile)
+	if err != nil {
+		return "", helptext.Fail("gateway token: %v", err)
+	}
+	return token, 0
 }
 
 func printToken(token string) int {

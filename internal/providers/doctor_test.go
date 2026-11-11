@@ -28,11 +28,11 @@ func doctorTestVault(t *testing.T) string {
 }
 
 func doctorTestResult(reg *Registry) (int, string) {
-	rc := vault.ExitClean
+	rc := ExitClean
 	var details []string
 	for _, c := range DoctorChecks(reg) {
 		if c.Gate && !c.OK {
-			rc = vault.ExitFindings
+			rc = ExitFindings
 		}
 		details = append(details, c.Name+": "+c.Detail)
 	}
@@ -52,7 +52,7 @@ func TestDoctorMissingVaultIgnoresLegacyFiles(t *testing.T) {
 		}
 	}
 	rc, out := doctorTestResult(&Registry{})
-	if rc != vault.ExitClean {
+	if rc != ExitClean {
 		t.Fatalf("DoctorChecks = %d, want clean: %s", rc, out)
 	}
 	for _, want := range []string{
@@ -96,7 +96,7 @@ func TestDoctorMasterKeySources(t *testing.T) {
 				t.Fatal(err)
 			}
 			rc, out := doctorTestResult(&Registry{})
-			if rc != vault.ExitClean {
+			if rc != ExitClean {
 				t.Fatalf("Doctor = %d, want clean: %s", rc, out)
 			}
 			if !strings.Contains(out, "1 secret(s); master key from "+source) ||
@@ -128,7 +128,7 @@ func TestDoctorLockedVault(t *testing.T) {
 				want = "keyring: unavailable"
 			}
 			rc, out := doctorTestResult(&Registry{})
-			if rc != vault.ExitFindings {
+			if rc != ExitFindings {
 				t.Fatalf("Doctor = %d, want findings: %s", rc, out)
 			}
 			if !strings.Contains(out, "vault holds 1 secret(s) but the master key does not open it:") ||
@@ -175,7 +175,7 @@ func TestDoctorRetiredKeys(t *testing.T) {
 	} {
 		t.Setenv("RETIRED_MODE", tc.mode)
 		rc, out := doctorTestResult(&Registry{})
-		if rc != vault.ExitClean {
+		if rc != ExitClean {
 			t.Fatalf("Doctor = %d: %s", rc, out)
 		}
 		if !strings.Contains(out, tc.want) {
@@ -216,7 +216,7 @@ func TestDoctorUnreadableVaultIsFailure(t *testing.T) {
 	doctorTestVault(t)
 	vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(currentVaultSchema(t)+1))
 	rc, out := doctorTestResult(&Registry{})
-	if rc != vault.ExitFindings {
+	if rc != ExitFindings {
 		t.Fatalf("Doctor = %d, want findings: %s", rc, out)
 	}
 	if !strings.Contains(out, "vault is unreadable:") || !strings.Contains(out, "schema "+strconv.Itoa(currentVaultSchema(t)+1)) {
@@ -247,7 +247,7 @@ func TestDoctorFlagsArchivePerms(t *testing.T) {
 	manifestJSON := `{"items":[{"backup":"` + strings.ReplaceAll(bak, `\`, `\\`) + `"}]}`
 	writeTestFile(t, filepath.Join(stateDir, "vault-migration.json"), manifestJSON, 0o600)
 	rc, out := doctorTestResult(&Registry{})
-	if rc != vault.ExitFindings {
+	if rc != ExitFindings {
 		t.Fatalf("Doctor = %d, want findings: %s", rc, out)
 	}
 	if !strings.Contains(out, loose+" is 0644, want 0600 — run: chmod 600 "+loose) {
@@ -344,8 +344,8 @@ func TestDoctorPassesOnCleanStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	rc, detail := doctorTestResult(reg)
-	if rc != vault.ExitClean {
-		t.Fatalf("DoctorChecks rc = %d, want %d:\n%s", rc, vault.ExitClean, detail)
+	if rc != ExitClean {
+		t.Fatalf("DoctorChecks rc = %d, want %d:\n%s", rc, ExitClean, detail)
 	}
 	if !strings.Contains(detail, "OPENA_API_KEY (did you mean OPENAI_API_KEY?)") ||
 		strings.Contains(detail, "JIRA_TOKEN (") || strings.Contains(detail, "OPENXYZ_API_KEY (") ||

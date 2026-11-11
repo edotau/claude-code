@@ -301,3 +301,20 @@ func TestClaudeNoToolsRecordEffort(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeNoToolsAnthropicReportsCacheTokens(t *testing.T) {
+	sse := strings.Replace(anthropicSSE, `"usage":{"input_tokens":7,"output_tokens":1}`,
+		`"usage":{"input_tokens":7,"cache_creation_input_tokens":11,"cache_read_input_tokens":13,"output_tokens":1}`, 1)
+	sse = strings.Replace(sse, `"usage":{"output_tokens":2}`, `"usage":{"cache_read_input_tokens":17,"output_tokens":2}`, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, sse)
+	}))
+	defer srv.Close()
+	registry(t, srv)
+	res, err := claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "x", Provider: "tanth", Model: "haiku", NoTools: true}, wire.Discard)
+	want := wire.Usage{InputTokens: 7, CacheCreationTokens: 11, CacheReadTokens: 17, OutputTokens: 2}
+	if err != nil || res.Usage != want {
+		t.Fatalf("usage = %+v (err %v); want %+v (start's creation, delta's cumulative read)", res.Usage, err, want)
+	}
+}

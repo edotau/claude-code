@@ -13,7 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -124,7 +123,7 @@ func CatalogForAlias(ctx context.Context, reg *providers.Registry, p *providers.
 }
 
 // ValidateRoutingInput runs f.Set against a scratch Routing, so a bad value is reported before staging.
-func ValidateRoutingInput(f settings.RoutingField, input string) error {
+func ValidateRoutingInput(f RoutingField, input string) error {
 	var scratch providers.Routing
 	return f.Set(&scratch, input)
 }
@@ -132,7 +131,7 @@ func ValidateRoutingInput(f settings.RoutingField, input string) error {
 // SaveRouting applies staged values and resets to the overlay routing object in one transaction.
 func SaveRouting(staged map[string]string, resetKeys map[string]bool) error {
 	return providers.UpdateRouting(func(r *providers.Routing) error {
-		for _, m := range settings.Modules() {
+		for _, m := range Modules() {
 			for _, f := range m.Fields() {
 				switch {
 				case resetKeys[f.Key]:

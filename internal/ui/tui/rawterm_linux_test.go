@@ -2,31 +2,14 @@ package tui
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"syscall"
 	"testing"
 	"time"
 	"unsafe"
-)
 
-func testPTY(t *testing.T) (*os.File, *os.File) {
-	t.Helper()
-	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR|syscall.O_NOCTTY, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { master.Close() })
-	var unlock, number uint32
-	testIoctl(t, master, syscall.TIOCSPTLCK, unsafe.Pointer(&unlock))
-	testIoctl(t, master, syscall.TIOCGPTN, unsafe.Pointer(&number))
-	slave, err := os.OpenFile(fmt.Sprintf("/dev/pts/%d", number), os.O_RDWR|syscall.O_NOCTTY, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { slave.Close() })
-	return master, slave
-}
+	"github.com/edotau/claude-code/internal/proc/proctest"
+)
 
 func testIoctl(t *testing.T, f *os.File, req uintptr, value unsafe.Pointer) {
 	t.Helper()
@@ -37,7 +20,7 @@ func testIoctl(t *testing.T, f *os.File, req uintptr, value unsafe.Pointer) {
 
 func testPickerTTY(t *testing.T, height uint16, input string) {
 	t.Helper()
-	master, slave := testPTY(t)
+	master, slave := proctest.PTY(t)
 	size := [4]uint16{height, 80, 0, 0}
 	testIoctl(t, slave, syscall.TIOCSWINSZ, unsafe.Pointer(&size))
 	out, err := os.CreateTemp(t.TempDir(), "picker-output")
@@ -69,7 +52,7 @@ func TestPickClampsStartPastLastRow(t *testing.T) {
 }
 
 func TestTerminalReportsInputEIO(t *testing.T) {
-	master, slave := testPTY(t)
+	master, slave := proctest.PTY(t)
 	if err := slave.Close(); err != nil {
 		t.Fatal(err)
 	}

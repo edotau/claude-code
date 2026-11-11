@@ -1,10 +1,12 @@
-package clipboard
+package cli
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/clipboard"
 )
 
 // stubXclip fakes xclip over a file clipboard: -o prints it, -i replaces it with stdin.
@@ -20,7 +22,7 @@ func stubXclip(t *testing.T, content string) string {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
-	t.Cleanup(SetWSLForTest(false)) // on a WSL host the real Windows clipboard would win over the stub
+	t.Cleanup(clipboard.SetWSLForTest(false)) // on a WSL host the real Windows clipboard would win over the stub
 	t.Setenv("WAYLAND_DISPLAY", "")
 	t.Setenv("DISPLAY", ":0")
 	return clip
@@ -39,18 +41,18 @@ func runClipClear(t *testing.T, stdin string) int {
 	old := os.Stdin
 	os.Stdin = r
 	t.Cleanup(func() { os.Stdin = old; r.Close() })
-	return ClipClear([]string{"--after", "10ms"})
+	return cmdClipClear([]string{"--after", "10ms"})
 }
 
 func TestClipClearClearsOnlyOnMatch(t *testing.T) {
 	clip := stubXclip(t, "tok-123")
-	if code := runClipClear(t, Digest("other")+"\n"); code != 0 {
+	if code := runClipClear(t, clipboard.Digest("other")+"\n"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	if b, _ := os.ReadFile(clip); string(b) != "tok-123" {
 		t.Fatalf("mismatch must not clear, clipboard = %q", b)
 	}
-	if code := runClipClear(t, Digest("tok-123")+"\n"); code != 0 {
+	if code := runClipClear(t, clipboard.Digest("tok-123")+"\n"); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	if b, _ := os.ReadFile(clip); strings.TrimSpace(string(b)) != "" {

@@ -8,7 +8,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -30,7 +29,7 @@ func Positional(prompt string) []string {
 
 // ParseLaunchArgs refuses a removed flag (with its hint) before ParseArgs strips the harness flags.
 func ParseLaunchArgs(args []string, claude bool) (agent.LaunchOptions, []string, error) {
-	if err := databricks.RemovedFlagHint(args); err != nil {
+	if err := helptext.RemovedFlagHint(args); err != nil {
 		return agent.LaunchOptions{}, nil, err
 	}
 	return ParseArgs(args, claude)

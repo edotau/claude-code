@@ -111,12 +111,7 @@ func (r *workflowRun) recency() time.Time {
 // session dir whose mtime falls within --days (the same gate the per-model table uses).
 func workflowRunDirsForScope(claudeDir, session string, days int) ([]string, error) {
 	if session != "" {
-		pattern := filepath.Join(claudeDir, "projects", "*", session, "subagents", "workflows", "*")
-		matches, err := filepath.Glob(pattern)
-		if err != nil {
-			return nil, fmt.Errorf("glob %s: %w", pattern, err)
-		}
-		return transcript.KeepDirs(matches), nil
+		return transcript.WorkflowRunDirs(filepath.Join(claudeDir, "projects", "*", session)), nil
 	}
 	if days <= 0 {
 		days = 1

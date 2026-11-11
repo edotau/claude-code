@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
@@ -85,4 +86,12 @@ func StubSpawns(ok bool) (s *Spawns, restore func()) {
 		catchup: func(string, string) bool { s.Catchup.Add(1); return true },
 	}
 	return s, func() { spawn = prev }
+}
+
+// StubSpawn is StubSpawns restored when tb ends; tests use it so none relaunches the test binary.
+func StubSpawn(tb testing.TB, ok bool) *Spawns {
+	tb.Helper()
+	s, restore := StubSpawns(ok)
+	tb.Cleanup(restore)
+	return s
 }

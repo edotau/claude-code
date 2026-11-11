@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -175,55 +176,6 @@ func stripFrontmatter(s string) string {
 	return string(content)
 }
 
-// settleDir stamps block IDs, rotates sessionHistory, regenerates dir's MEMORY.md region and wraps its files.
-func settleDir(d string, now time.Time) (rotated int, err error) {
-	if _, err := assignIDs(d, now); err != nil {
-		return 0, err
-	}
-	rotated, err = rotateSessionHistory(d, now)
-	if err != nil {
-		return rotated, err
-	}
-	if _, err = writeBankRegion(d, now); err != nil {
-		return rotated, err
-	}
-	targets, err := dirFmtTargets(d)
-	if err != nil {
-		return rotated, err
-	}
-	_, err = formatFiles(targets, false) // update writes land wrapped, so lint-docs stays clean
-	return rotated, err
-}
-
-func writeCatalog(now time.Time) error {
-	c, err := BuildCatalog(now)
-	if err != nil {
-		return err
-	}
-	return paths.AtomicWrite(filepath.Join(StoreDir(), CatalogFile), []byte(c), 0o644)
-}
-
-// commitStore commits every dirty path in the store (update writes + settle output) as one settle commit.
-func commitStore(subject string) error {
-	repo := StoreRepo()
-	if !repo.Exists() {
-		return nil
-	}
-	st, err := repo.Status()
-	if err != nil {
-		return err
-	}
-	var rels []string
-	for _, e := range st {
-		rels = append(rels, e.Path)
-	}
-	if len(rels) == 0 {
-		return nil
-	}
-	_, _, err = repo.Commit(rels, subject, "")
-	return err
-}
-
 // newestMarkdown is the newest mtime across dir's top-level .md files (typed files and native topics alike).
 func newestMarkdown(dir string) (time.Time, error) {
 	var newest time.Time
@@ -288,4 +240,109 @@ func storeHookFile(path string) string {
 		return hook
 	}
 	return filepath.Base(path)
+}
+
+// The harness-generated region of MEMORY.md: its pointer lines are never counted, struck, moved or recorded.
+// The region is reserved 40 lines / 4 KB including markers; the native loader caps the whole index at 200 lines / 25 KB.
+const (
+	bankRegionBegin     = "<!-- bank:begin"
+	bankRegionEnd       = "<!-- bank:end -->"
+	BankRegionMaxLines  = 40
+	BankRegionMaxBytes  = 4 * 1024
+	NativeIndexMaxLines = 200
+	NativeIndexMaxBytes = 25 * 1024
+)
+
+// errBankRegion marks a MEMORY.md whose generated region cannot be located safely: a diagnostic, never a guess.
+var errBankRegion = errors.New("malformed bank region")
+
+// bankRegionBounds is scanBankRegion for read-only callers; every rewrite goes through CheckBankRegion first,
+// so a malformed region reads as absent here without ever being guessed at on disk.
+func bankRegionBounds(text string) (start, end int) {
+	start, end, _ = scanBankRegion(text)
+	return start, end
+}
+
+// scanBankRegion is the byte range [start,end) of text's generated region, trailing newline included;
+// (-1,-1,nil) when absent, ErrBankRegion for a lone marker, several of either, or end before begin.
+func scanBankRegion(text string) (start, end int, err error) {
+	start, end = -1, -1
+	begins, ends := 0, 0
+	for off := 0; off < len(text); {
+		lineEnd := len(text)
+		if nl := strings.IndexByte(text[off:], '\n'); nl >= 0 {
+			lineEnd = off + nl + 1
+		}
+		line := text[off:lineEnd]
+		if strings.HasPrefix(line, bankRegionBegin) {
+			begins++
+			start = off
+		}
+		if strings.Contains(line, bankRegionEnd) {
+			ends++
+			end = lineEnd
+		}
+		off = lineEnd
+	}
+	return validateBankRegionBounds(start, end, begins, ends)
+}
+
+func validateBankRegionBounds(start, end, begins, ends int) (int, int, error) {
+	if begins == 0 && ends == 0 {
+		return -1, -1, nil
+	}
+	if begins != 1 || ends != 1 || end <= start {
+		return -1, -1, fmt.Errorf("%w: %d begin / %d end markers, want one of each, begin first", errBankRegion, begins, ends)
+	}
+	return start, end, nil
+}
+
+// checkBankRegion gates every MEMORY.md rewrite: malformed markers or a region past its reserve reject the mutation.
+func checkBankRegion(text string) error {
+	start, end, err := scanBankRegion(text)
+	if err != nil || start < 0 {
+		return err
+	}
+	region := text[start:end]
+	if n := lineCount(region); n > BankRegionMaxLines || len(region) > BankRegionMaxBytes {
+		return fmt.Errorf("%w: %d lines / %d bytes exceed the %d-line / %d-byte reserve",
+			errBankRegion, n, len(region), BankRegionMaxLines, BankRegionMaxBytes)
+	}
+	return nil
+}
+
+// checkNativeIndexLimits reports a MEMORY.md the native loader would truncate: the whole file, region included.
+func checkNativeIndexLimits(text string) error {
+	if n := lineCount(text); n > NativeIndexMaxLines || len(text) > NativeIndexMaxBytes {
+		return fmt.Errorf("%s: %d lines / %d bytes exceed the native load limit (%d lines / %d bytes)",
+			NativeIndexFile, n, len(text), NativeIndexMaxLines, NativeIndexMaxBytes)
+	}
+	return nil
+}
+
+// outsideBankRegion is text with its generated region cut out; unchanged when there is none.
+func outsideBankRegion(text string) string {
+	start, end := bankRegionBounds(text)
+	if start < 0 {
+		return text
+	}
+	return text[:start] + text[end:]
+}
+
+// bankRegionLines is the set of line indexes (as strings.Split on "\n" numbers them) inside text's region;
+// a malformed region is an error, never an empty set, so a rewrite cannot mistake its lines for pointers.
+func bankRegionLines(text string) (map[int]bool, error) {
+	in := map[int]bool{}
+	start, end, err := scanBankRegion(text)
+	if err != nil || start < 0 {
+		return in, err
+	}
+	off := 0
+	for i, line := range strings.Split(text, "\n") {
+		if off >= start && off < end {
+			in[i] = true
+		}
+		off += len(line) + 1
+	}
+	return in, nil
 }

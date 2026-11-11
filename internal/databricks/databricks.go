@@ -47,7 +47,7 @@ var spawn = proc.RunForwarding
 
 // Run is the `claude-code databricks` verb; args follow the verb name and it returns the exit code.
 func Run(args []string) int {
-	if err := RemovedFlagHint(args); err != nil {
+	if err := helptext.RemovedFlagHint(args); err != nil {
 		fmt.Fprintf(os.Stderr, "claude-code databricks: %v\n", err)
 		return 2
 	}
@@ -339,29 +339,6 @@ func usage(check bool) {
 		fs.String("model", aliasID(models.Haiku), "with --all: canonical model id to probe")
 	}
 	fs.Usage()
-}
-
-// removedFlags maps each flag Phase 6 removed to its hint; they stay errors, never aliases.
-var removedFlags = map[string]string{
-	"--provider": "was renamed to --profile",
-	"--env":      "was renamed to --profile",
-	"--tier":     "was replaced by --model <alias>",
-	"--router":   "was removed; routing is automatic (see `claude-code gateway`)",
-	"--1m":       "was removed; 1M context is the base behavior on serving and first-party endpoints",
-}
-
-// RemovedFlagHint returns the error for a removed flag in args (up to "--"), or nil.
-func RemovedFlagHint(args []string) error {
-	for _, a := range args {
-		if a == "--" {
-			return nil
-		}
-		name, _, _ := strings.Cut(a, "=")
-		if hint, ok := removedFlags[name]; ok {
-			return fmt.Errorf("%s %s", name, hint)
-		}
-	}
-	return nil
 }
 
 const (

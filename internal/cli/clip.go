@@ -1,4 +1,4 @@
-package clipboard
+package cli
 
 import (
 	"context"
@@ -8,12 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// Clip saves the Windows clipboard image as a PNG and prints its WSL path, for @-reference when
+// cmdClip saves the Windows clipboard image as a PNG and prints its WSL path, for @-reference when
 // WSL2 Ctrl+V image paste fails on the bridged BMP.
-func Clip(args []string) int {
+func cmdClip(args []string) int {
 	fs := helptext.NewFlagSet("clip", helptext.Page{
 		Usage: "claude-code clip [--serve]",
 		About: "Saves the clipboard image to a PNG and prints its path (macOS, WSL). " +
@@ -24,12 +25,12 @@ func Clip(args []string) int {
 		return code
 	}
 	if *serve { // stdout is the bridge socket: errors go to stderr only
-		if err := ServePNG(os.Stdout); err != nil {
+		if err := clipboard.ServePNG(os.Stdout); err != nil {
 			return helptext.Fail("clip --serve: %v", err)
 		}
 		return 0
 	}
-	path, dim, err := Grab()
+	path, dim, err := clipboard.Grab()
 	if err != nil {
 		return helptext.Fail("clip: %v", err)
 	}
@@ -38,19 +39,19 @@ func Clip(args []string) int {
 	return 0
 }
 
-// WLPaste is the WSL wl-paste proxy; args are wl-paste's own and pass through verbatim, --help included.
-func WLPaste(args []string) int {
-	return RunProxy(args, os.Stdout, os.Stderr)
+// cmdWLPaste is the WSL wl-paste proxy; args are wl-paste's own and pass through verbatim, --help included.
+func cmdWLPaste(args []string) int {
+	return clipboard.RunProxy(args, os.Stdout, os.Stderr)
 }
 
-// ClipClear sleeps --after, then clears the clipboard if it still holds the value whose sha256
-// digest arrives on stdin; ScheduleClear spawns it detached.
-func ClipClear(args []string) int {
+// cmdClipClear sleeps --after, then clears the clipboard if it still holds the value whose sha256
+// digest arrives on stdin; clipboard.ScheduleClear spawns it detached.
+func cmdClipClear(args []string) int {
 	fs := helptext.NewFlagSet("clip-clear", helptext.Page{
 		Usage: "claude-code clip-clear [--after 30s] < digest",
 		About: "Waits, then clears the clipboard only if it still holds the copied secret (sha256 on stdin).",
 	})
-	after := fs.Duration("after", DefaultClearAfter, "delay before the clear")
+	after := fs.Duration("after", clipboard.DefaultClearAfter, "delay before the clear")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
@@ -61,13 +62,18 @@ func ClipClear(args []string) int {
 	time.Sleep(*after)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second) // a hung clipboard tool must not block the clear
 	defer cancel()
-	if _, err := ClearIfMatch(ctx, string(b)); err != nil {
+	if _, err := clipboard.ClearIfMatch(ctx, string(b)); err != nil {
 		return helptext.Fail("clip-clear: %v", err)
 	}
 	return 0
 }
 
-// Spec is the completion node for `clip`.
-func Spec() *helptext.Node {
+// clipSpec is the completion node for `clip`.
+func clipSpec() *helptext.Node {
 	return &helptext.Node{Flags: []helptext.Flag{{Name: "serve", IsBool: true}}}
+}
+
+// clipClearSpec is the completion node for `clip-clear`, whose flag lives in cmdClipClear.
+func clipClearSpec() *helptext.Node {
+	return &helptext.Node{Flags: []helptext.Flag{helptext.Plain("after")}}
 }

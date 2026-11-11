@@ -688,32 +688,3 @@ func corruptHealthSecret(t *testing.T, malformed bool) {
 		t.Fatal(err)
 	}
 }
-
-func TestLooksLikeSecret(t *testing.T) {
-	cases := map[string]bool{
-		"sk-abcdefghij0123456789":    true,
-		"ghp_abcdefghij0123456789":   true,
-		"${ANTHROPIC_API_KEY}":       false,
-		"$ANTHROPIC_API_KEY":         false,
-		"/home/user/.ssh/token-file": false,
-		"":                           false,
-		"YOUR_API_KEY_HERE":          false,
-	}
-	for v, want := range cases {
-		if got := LooksLikeSecret(v); got != want {
-			t.Errorf("LooksLikeSecret(%q) = %v, want %v", v, got, want)
-		}
-	}
-}
-
-// secretPattern (raw-text scan) catches every GitHub family at 20+ body characters and not shorter.
-func TestSecretPatternGitHubFamilies(t *testing.T) {
-	for _, p := range []string{"gho_", "ghp_", "ghu_", "ghs_", "ghr_", "github_pat_"} {
-		if !secretPattern.MatchString("x = " + p + strings.Repeat("a", 20)) {
-			t.Errorf("%s with a 20-char body must be caught", p)
-		}
-		if secretPattern.MatchString("x = " + p + strings.Repeat("a", 19)) {
-			t.Errorf("%s with a 19-char body must not be caught", p)
-		}
-	}
-}

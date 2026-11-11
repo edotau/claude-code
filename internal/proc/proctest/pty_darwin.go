@@ -1,4 +1,4 @@
-package vaulttest
+package proctest
 
 import (
 	"os"
