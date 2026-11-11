@@ -13,8 +13,9 @@ What it adds to a stock install:
   (`claude-code <agent>`).
 - **Hooks, memory, status line** — a Bash safety gate, a per-repo memory bank, format-on-stop, context checkpoint.
 
-Every verb takes `--help`; `claude-code -h` lists them all. Agent-facing commands and gotchas live
-per area under `rules/harness/` and `rules/workflows/` (index: `CLAUDE.md` → How-to).
+Every verb takes `--help`; `claude-code -h` lists the menu verbs (hidden ones such as `agents` and `models` are
+below). Agent-facing commands and gotchas live per area under `rules/harness/` and `rules/workflows/` (index:
+`CLAUDE.md` → How-to).
 
 ## Install
 
@@ -48,7 +49,7 @@ claude-code --host <h> doctor   # any verb on a tailnet host over ssh (a login's
 ## Setup
 
 ```bash
-claude-code configure                 # interactive menu: providers, logins/keys, models, agents; Submit seals keys
+claude-code configure                 # interactive menu: agents, tools (databricks, tailscale, web search), settings (secrets, routing, environment, seed agents); Submit seals keys
 claude-code configure models          # one page (provider|models|agents|github|remote|codex|routing|databricks)
 claude-code configure codex           # codex effort and verbosity (vault)
 claude-code configure --check         # report only; exit 1 if anything is unset
@@ -163,7 +164,7 @@ sealed too; `m2m` tokens are minted per use, the service-principal secret stays 
 `claude-code databricks mint [--profile <id>] [--copy] [--clear-after 30s]` prints type, length and expiry, never the
 token; `--copy` clears the clipboard after 30s (kept out of Win+V history on WSL; macOS clipboard managers and a
 killed clear process can still keep it). `configure` → databricks offers Set up (OAuth sign-in, verify, apply) / Login /
-Paste PAT / Mint / Apply to agents.
+Paste PAT / Mint now / Copy token / Apply to agents / Identity.
 
 **The vault key** — 32 random bytes from `HARNESS_VAULT_KEY` → OS keyring (service `claude-code`) → `key_command` (a
 JSON argv, no shell). No key file is written; headless boxes set one of the first or last; `HARNESS_KEYRING=off`
@@ -255,10 +256,10 @@ claude-code gateway [--model M] [--task "<text>"]   # agent + model pick
 ## Agents
 
 ```bash
-claude-code agents                                     # agents and availability
+claude-code agents list                                # agents and availability
 claude-code agents ask --agent codex "Review this branch."    # one-shot; --format json, --tools, --effort
 claude-code agents ask --agents <json|file> --agent <name> "<task>"   # inline agent definitions
-claude-code agents dispatch explore|fleet|compare [--part q]… [--models a,b] [--output-schema s] "<task>"   # parallel legs, one report
+claude-code agents dispatch explore|fleet|compare [--part q]… [--models a,b] [--output-schema s] "<task>"   # parallel dispatches, one report
 claude-code agents ask --log | --retry <id>                   # recent dispatches; replay one
 claude-code agents ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]   # many tasks on a pool; one envelope per line
 claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- forces passthrough
@@ -269,10 +270,11 @@ claude-code usage --days 7                             # subagent token usage
 ```
 
 Without `--tools`, agents are read-only. `agents sync` renders under `state/projections/<agent>/`, installs into
-`~/.codex`, `~/.copilot`, `~/.gemini`, `~/.config/opencode`, and links `skills/` into `~/.agents/skills`; no AGENTS.md
-lives at this root (Claude Code would load it as a second CLAUDE.md). claude.ai `skills/synced/**` is linked for no
-agent; opencode reads it from `~/.claude/skills` natively. Envelope fields, instruction sources and per-agent
-behavior: `rules/harness/agent.md`; in-session fan-out: `rules/workflows/master-workflow.md`.
+`~/.codex`, `~/.copilot`, `~/.gemini`, `~/.config/opencode`, and links `skills/` into `~/.agents/skills` (plus gemini's
+and copilot's own skills dirs); no AGENTS.md lives at this root (Claude Code would load it as a second CLAUDE.md).
+claude.ai `skills/synced/**` is linked for no agent; opencode reads it from `~/.claude/skills` natively. Envelope
+fields, instruction sources and per-agent behavior: `rules/harness/agent.md`; in-session fan-out:
+`rules/workflows/master-workflow.md`.
 
 ### Sync the Databricks model menu
 

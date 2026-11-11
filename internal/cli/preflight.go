@@ -58,7 +58,7 @@ func preflightLive(reg *providers.Registry, profile string) int {
 // cmdPreflight is the hidden `preflight [--live|--refresh]`: pin rows, the post-install step, or a silent re-list.
 func cmdPreflight(args []string) int {
 	fs := helptext.NewFlagSet("preflight", helptext.Page{
-		Usage: "claude-code preflight [--live [--profile <p>|all]|--refresh|--discover <profile>]",
+		Usage: "claude-code preflight [--live [--profile <p>|all]] [flags]\nclaude-code preflight --refresh|--discover <profile>",
 		About: "Print each agent's pin check; --live also refreshes stale listings and runs the post-install pong round.\n" +
 			"--refresh only re-lists stale listings, silently.\n" +
 			"--discover re-seals one profile's model snapshot (Databricks or github), silently (a launch spawns it when expired).",

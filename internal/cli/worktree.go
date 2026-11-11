@@ -34,7 +34,7 @@ var worktreePage = helptext.Page{
 const worktreeVerifyNote = `Verify inside the worktree after integration, before promotion.
 Set --verify or detect a gate from Makefile's test target, go.mod, pyproject,
 package.json, or Cargo.toml. Without a gate, promotion is refused.
-Makefile + go.mod: build+vet all, test changed and registry packages;
+Makefile + go.mod: build+vet all, test changed, importing and registry pkgs;
 --full-verify runs the full Makefile gate. Only --no-verify skips the gate.`
 
 // cmdWorktree dispatches the worktree verb tree.
@@ -76,7 +76,8 @@ func dispatchWorktree(repo *worktree.Repo, sub string, args []string) int {
 }
 
 func cmdWorktreeList(repo *worktree.Repo, args []string) int {
-	fs := helptext.NewFlagSet("worktree list", helptext.Page{Usage: "claude-code worktree list [flags]"})
+	fs := helptext.NewFlagSet("worktree list", helptext.Page{Usage: "claude-code worktree list [flags]",
+		About: "List linked worktrees with status, reopen and cleanup commands."})
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -122,7 +123,8 @@ func printEntry(e worktree.Entry) {
 
 // cmdWorktreeGate prints the scoped verify gate for --dir; exits 1 when the directory has no toolchain.
 func cmdWorktreeGate(args []string) int {
-	fs := helptext.NewFlagSet("worktree gate", helptext.Page{Usage: "claude-code worktree gate [flags]"})
+	fs := helptext.NewFlagSet("worktree gate", helptext.Page{Usage: "claude-code worktree gate [flags]",
+		About: "Print the scoped verify command for --dir's toolchain; exit 1 if none."})
 	dir := fs.String("dir", ".", "repo directory to read the toolchain from")
 	scope := fs.String("scope", "", "comma-separated dirs to limit the gate to (default: whole repo)")
 	lintCheck := fs.Bool("lint-check", false, "prefix make lint CHECK=1 when the Makefile lint target supports it")
@@ -150,7 +152,8 @@ func cmdWorktreeGate(args []string) int {
 }
 
 func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
-	fs := helptext.NewFlagSet("worktree create", helptext.Page{Usage: "claude-code worktree create [flags] <name>"})
+	fs := helptext.NewFlagSet("worktree create", helptext.Page{Usage: "claude-code worktree create [flags] <name>",
+		About: "Create ~/worktrees/<repo>/<name> on branch worktree-<name> and print its path (an existing one is reused)."})
 	branch := fs.String("branch", "", "branch to use (default worktree-<name>; reused if it already exists)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -171,7 +174,8 @@ func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
 
 // cmdWorktreeMerge previews (--dry-run) or applies Preflight's two-phase merge under one worktree lease.
 func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
-	fs := helptext.NewFlagSet("worktree merge", helptext.Page{Usage: "claude-code worktree merge [flags] <name>\nclaude-code worktree merge --resume [flags] <name>", Hint: worktreeVerifyNote})
+	fs := helptext.NewFlagSet("worktree merge", helptext.Page{Usage: "claude-code worktree merge [flags] <name>\nclaude-code worktree merge --resume [flags] <name>",
+		About: "Fast-forward <name> into main after a verify gate, tick the plan, clean up.", Hint: worktreeVerifyNote})
 	dryRun := fs.Bool("dry-run", false, "preview the plan and predicted conflicts without merging")
 	target := fs.String("target", "", "require this main branch (default: current branch)")
 	noClean := fs.Bool("no-clean", false, "leave the worktree on disk after a successful promote")
@@ -284,7 +288,8 @@ func oidSuffix(oid string) string {
 }
 
 func cmdWorktreeClean(repo *worktree.Repo, args []string) int {
-	fs := helptext.NewFlagSet("worktree clean", helptext.Page{Usage: "claude-code worktree clean [flags] <name>"})
+	fs := helptext.NewFlagSet("worktree clean", helptext.Page{Usage: "claude-code worktree clean [flags] <name>",
+		About: "Remove a merged worktree and its branch; --force discards unmerged work."})
 	dryRun := fs.Bool("dry-run", false, "preview the recheck without removing anything")
 	force := fs.Bool("force", false, "discard uncommitted and unmerged work")
 	if code, done := helptext.Parse(fs, args); done {
@@ -328,7 +333,8 @@ func printDiscardSummary(s worktree.DiscardSummary, dryRun bool) {
 }
 
 func cmdWorktreeCleanAll(repo *worktree.Repo, args []string) int {
-	fs := helptext.NewFlagSet("worktree clean-all", helptext.Page{Usage: "claude-code worktree clean-all [flags]"})
+	fs := helptext.NewFlagSet("worktree clean-all", helptext.Page{Usage: "claude-code worktree clean-all [flags]",
+		About: "Remove every eligible worktree; preview only unless --yes is given."})
 	dryRun := fs.Bool("dry-run", false, "preview without removing anything")
 	yes := fs.Bool("yes", false, "required to actually remove every eligible worktree")
 	if code, done := helptext.Parse(fs, args); done {

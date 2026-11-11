@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // engineNames lists the `ask --agent` agent names; agent.Engines() only builds the roster, it never dials an agent.
@@ -125,15 +127,17 @@ var agentsSubPages = map[string][3]string{
 	"reap": {"reap [flags]", "Mark dispatch records still \"running\" whose process is gone as error, and drop stale " +
 		"agent-inflight markers."},
 	"sync": {"sync [flags]", "Render agents/ into state/projections/<agent>/agents plus each agent's instruction " +
-		"file, install them into the agent homes, and link skills/ into ~/.agents/skills."},
+		"file, install them into the agent homes, and link skills/ into ~/.agents/skills " +
+		"(plus gemini's and copilot's own skills dirs)."},
 	"tree": {"tree [flags]", "Live tree of running Claude sessions, their subagents and agent dispatches, in every repo. " +
 		"--background adds idle and finished work."},
 	"label": {"label <type> [flags]", "Print the \"<model>: \" prefix the dispatch-effort hook requires on a dispatch " +
 		"description, for a leaf of <type> with the given model and brief."},
 	"send": {"send <id> <task | -> [flags]", "Send one user turn to a live claude or gemini session (ask --agent <a> " +
 		"--live) and stream that turn's events; exits on its result. One turn at a time per session."},
-	"dispatch": {"dispatch <role> [flags] <task>", "Run a task by role: explore (gemini, one leg per --part), fleet " +
-		"(copilot fleet mode) or compare (opencode, one leg per model). Legs run concurrently; the report lists each leg's answer.",
+	"dispatch": {"dispatch <role> [flags] <task>", "Run a task by role: explore (copilot, one dispatch per --part), fleet " +
+		"(copilot fleet mode) or compare (opencode, one dispatch per model). Dispatches run concurrently; the report " +
+		"lists each answer.",
 		"Roles come from the vault overlay dispatch-roles, else the built-in table."},
 	"status": {"status <id> [flags]", "Show one dispatch's state, whichever agent ran it (claude included)."},
 	"result": {"result <id> [flags]", "Print a finished dispatch's output; --format json prints its envelope."},
@@ -161,9 +165,15 @@ func cmdAgents(args []string) int {
 	return 1
 }
 
+// cmdAgentsAsk runs ask after starting a silent, unwaited reap, so orphaned dispatch children never pile up unseen.
+func cmdAgentsAsk(args []string) int {
+	go tree.Reap(false, io.Discard, io.Discard)
+	return ask.Cmd(args)
+}
+
 // agentsVerbs routes `agents <verb>` to its handler; the job verbs share cmdAgentsJob.
 var agentsVerbs = map[string]func([]string) int{
-	"list": cmdAgentsList, "ask": ask.Cmd, "dispatch": cmdAgentsDispatch, "sync": cmdAgentsSync,
+	"list": cmdAgentsList, "ask": cmdAgentsAsk, "dispatch": cmdAgentsDispatch, "sync": cmdAgentsSync,
 	"tree": cmdAgentsTree, "reap": cmdAgentsReap, "send": cmdAgentsSend, "label": cmdAgentsLabel,
 	"status": func(a []string) int { return cmdAgentsJob("status", a) },
 	"result": func(a []string) int { return cmdAgentsJob("result", a) },
@@ -176,7 +186,7 @@ func cmdAgentsList(args []string) int {
 	fs := agentsFlags("list")
 	host := fs.String("host", "", "list the agents on this ssh host instead (runs its agents list --format)")
 	remoteBin := fs.String("remote-bin", "", "remote claude-code path for --host (default $"+remote.BinEnv+", then claude-code)")
-	format := fs.String("format", "text", "text, or json: per agent {name, binary, available, reason, caps, events}")
+	format := fs.String("format", "text", "text, or json: caps, events, permissions")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
@@ -315,13 +325,13 @@ func cmdAgentsLabel(args []string) int {
 func cmdAgentsDispatch(args []string) int {
 	fs := agentsFlags("dispatch")
 	var parts []string
-	helptext.ListVar(fs, &parts, "part", "QUESTION", "explore: one sub-question per leg (repeatable, max 12)", false)
+	helptext.ListVar(fs, &parts, "part", "QUESTION", "explore: question per dispatch (repeatable, max 12)", false)
 	noWeb := fs.Bool("no-web", false, "explore: code scan only, skip web research")
 	models := fs.String("models", "", "compare: model ids, comma-separated (default: the role's set)")
-	jobs := fs.Int("jobs", roles.MaxParts, "legs running at once (max 12)")
-	timeout := fs.Duration("timeout", 0, "per-leg time limit (0 = the agent's default)")
+	jobs := fs.Int("jobs", roles.MaxParts, "dispatches running at once (max 12)")
+	timeout := fs.Duration("timeout", 0, "per-dispatch time limit (0 = the agent's default)")
 	format := helptext.FormatFlag(fs)
-	background := fs.Bool("background", false, "detach each leg and print its id; no merged report")
+	background := fs.Bool("background", false, "detach each dispatch, print its id; no merged report")
 	outputSchema := fs.String("output-schema", "", "JSON Schema (file or inline) each answer must satisfy")
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -419,13 +429,20 @@ func agentPage(name string) helptext.Page {
 		{"cancel", "interrupt a running job"},
 		{"setup", "binary, login, route, projection; --format json"},
 		{"catalog", "model catalog; on Databricks: list|check|sync"},
-		{"profile", "show or set " + name + "'s harness profile pin"},
+		{"profile", "show or set " + name + "'s profile; --clear = own login"},
 		{"on", "route to " + name + " again"},
 		{"off", "stop routing to " + name},
 	}
+	if exploreRefused(name) {
+		rows = slices.DeleteFunc(rows, func(r [2]string) bool { return r[0] == "explore" })
+	}
 	s, _ := agent.LookupSchema(name)
-	if s.CLI.CatalogUsage != "" {
-		rows[slices.IndexFunc(rows, func(r [2]string) bool { return r[0] == "catalog" })][1] = s.CLI.CatalogUsage
+	catalogRow := slices.IndexFunc(rows, func(r [2]string) bool { return r[0] == "catalog" })
+	switch {
+	case s.CLI.CatalogUsage != "":
+		rows[catalogRow][1] = s.CLI.CatalogUsage
+	case len(s.CLI.Dialects) == 0:
+		rows[catalogRow][1] = "own model list; no Databricks route"
 	}
 	rows = append(rows, s.CLI.ExtraUsage...)
 	binary := name
@@ -442,6 +459,12 @@ func agentPage(name string) helptext.Page {
 	}
 }
 
+// exploreRefused reports whether `<agent> explore` is refused: it reads with tools but cannot enforce read-only.
+func exploreRefused(name string) bool {
+	s, ok := agent.LookupSchema(name)
+	return ok && s.CLI.ReadNeedsTools && s.CLI.Caps.ReadOnly != agent.Native
+}
+
 // launchFlags lists the harness flags a bare launch consumes (agent.ParseArgs) for the help page.
 func launchFlags(name string) *flag.FlagSet {
 	fs := helptext.NewFlagSet(name, helptext.Page{Usage: "claude-code " + name}) // display only; ParseArgs parses
@@ -454,8 +477,10 @@ func launchFlags(name string) *flag.FlagSet {
 	fs.Bool("direct", false, "skip the proxy; hand the CLI the profile route")
 	fs.Bool("print-env", false, "print the resolved binary, argv and env; do not launch")
 	fs.String("overlay", "", "JSON {set,unset,keep} file over the child's env")
+	fs.String("keep-env", "", "env names the credential scrub keeps")
 	if name == "codex" {
-		fs.String("f", "", "config.toml whose keys ride as -c overrides")
+		fs.String("file", "", "config.toml whose keys ride as -c overrides")
+		fs.String("f", "", "shorthand for --file")
 	}
 	return fs
 }
@@ -467,15 +492,15 @@ var agentSubPages = map[string][2]string{
 	"status":   {"status [id] [flags]", "Background %s jobs in this repo, newest first; an id narrows to one job."},
 	"tail":     {"tail [id] [flags]", "A job's output (default: the newest). Exits 1 when the job failed or was lost."},
 	"result":   {"result [id] [flags]", "A finished job's answer (default: the newest), its session and resume command."},
-	"cancel":   {"cancel", "Interrupt a running %s job (default: the single running job in this repo)."},
-	"setup":    {"setup [flags]", "Check %s's binary, login, route and projection; exits 1 when one fails."},
+	"cancel":   {"cancel [id]", "Interrupt a running %s job (default: the single running job in this repo)."},
+	"setup":    {"setup [flags]", "Check %s's binary, login, route and projection; exits 1 if binary or login fails."},
 	"catalog":  {"catalog [list|check|sync] [flags]", "Databricks serving endpoints %s can use, or its own model catalog."},
 	"review":   {"review [flags] [focus…]", "Review a diff with %s; trailing words name the focus."},
 	"explore":  {"explore [flags] <question>", "Scan the code and research the web with %s, then return a brief."},
-	"profile":  {"profile [<profile>|--clear]", "Show %s's profile pin, or set %[1]s to <profile> (--clear unpins)."},
-	"on":       {"on", "Route to %s again (clears its off pin)."},
-	"off":      {"off", "Stop routing to %s (claude cannot be turned off)."},
-	"transfer": {"transfer [flags] [note…]", "Hand this Claude session's transcript to %s, detached unless --wait."},
+	"profile":  {"profile [<profile>|--clear]", "Show %s's profile, or set %[1]s to <profile>; --clear = own login."},
+	"on":       {"on", "Route to %s again: sets its profile to its own login."},
+	"off":      {"off", "Stop routing to %s: clears its profile."},
+	"transfer": {"transfer [flags] [note…]", "Hand this session's transcript to %s with tools on; detached unless --wait."},
 }
 
 // agentSubPage is the help page for `<agent> <verb>`.
@@ -484,6 +509,9 @@ func agentSubPage(name, verb string) helptext.Page {
 	about := sp[1]
 	if strings.Contains(about, "%") {
 		about = fmt.Sprintf(about, name)
+	}
+	if verb == "explore" && exploreRefused(name) {
+		about = "Refused on " + name + " (read-only by prompt only); use codex or copilot."
 	}
 	return helptext.Page{Usage: "claude-code " + name + " " + sp[0], About: about}
 }
@@ -501,7 +529,7 @@ func cmdAgentVerb(name string, args []string) int {
 	case args[0] == "--":
 		return ask.Launch(name, args[1:])
 	case args[0] == "ask":
-		return ask.Cmd(append([]string{"--agent", name}, args[1:]...))
+		return ask.AgentCmd(name, args[1:])
 	case agentSubPages[args[0]] != [2]string{}:
 		return agentSub(name, args)
 	case len(args) == 1 && isHelpVerb(args[0]):
@@ -676,7 +704,7 @@ func agentProfile(name string, args []string) int {
 		return helptext.Fail("%s profile: unknown agent", name)
 	}
 	fs := newAgentFlags(name, "profile")
-	unpin := fs.Bool("clear", false, "unpin: launches use today's selection again")
+	unpin := fs.Bool("clear", false, "reset to its own login ("+vault.OwnLoginProfiles[name]+")")
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)

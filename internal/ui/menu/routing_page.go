@@ -19,7 +19,7 @@ func routingRow() homeRow {
 	if err == nil {
 		detail = fmt.Sprintf("%d overrides", countRoutingOverrides(overlay))
 	}
-	return homeRow{Name: "routing", State: detail, Check: "price weight, subagents, opencode sub-pick", Run: func(d *dialog) { runRouting(d) }}
+	return homeRow{Name: "routing", State: detail, Check: "price weight, served-aware, opencode sub-pick", Run: func(d *dialog) { runRouting(d) }}
 }
 
 // countRoutingOverrides is how many fields the vault overlay itself sets, across every module.

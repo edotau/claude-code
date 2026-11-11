@@ -914,6 +914,7 @@ func helpAllowsNoRows(path []string) bool {
 	flagless := map[string]bool{
 		"hook": true, "clip": true, "history diff": true, "workflow lint": true,
 		"vault delete": true, "vault edit": true, "test ramdisk": true,
+		"opencode catalog remove": true, "opencode catalog reset": true,
 	}
 	if len(path) == 2 && slices.Contains([]string{"copilot", "codex", "gemini", "opencode"}, path[0]) &&
 		slices.Contains([]string{"cancel", "catalog", "models", "resume", "on", "off"}, path[1]) {

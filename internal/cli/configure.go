@@ -22,10 +22,12 @@ var configurePage = helptext.Page{
 	Usage: "claude-code configure [<page>] [flags]\n" +
 		"claude-code configure --restore|--revert [flags]\n" +
 		"claude-code configure provider --all [<profile>] [--check]",
-	About: "Guided setup for the profile, model pins and each agent CLI; bare walks every page in order. " +
+	About: "Guided setup for the profile, model pins and each agent CLI; bare opens a menu on a terminal " +
+		"(agents, tools, settings), else walks every page in order. " +
 		"--restore resets settings.json to the template (backup first), then re-renders the agent configs; " +
 		"with --agents or --agent it renders only the agent configs and leaves settings.json alone. " +
-		"--revert puts agent configs back from their backups.",
+		"--revert puts agent configs back from their backups. --format json applies to provider --list " +
+		"and --all only. With --restore or --revert, --agent is a comma list without claude.",
 	Commands: [][2]string{
 		{"provider", "pick the session profile; --list shows credential state"},
 		{"models", "pin models (live catalog: claude-code models --live)"},
@@ -33,7 +35,7 @@ var configurePage = helptext.Page{
 		{"github", "GitHub Copilot logins and opencode's fallback ladder"},
 		{"remote", "tailscale connectivity and remote hosts (read-only)"},
 		{"codex", "Codex preferences with encrypted config history"},
-		{"routing", "price weight, subagent offload, opencode's sub-pick knobs"},
+		{"routing", "price weight, served-aware switch, opencode sub-pick knobs"},
 		{"databricks", "browser sign-in and token mint per Databricks profile"},
 	},
 }
@@ -54,8 +56,8 @@ func configureFlags() (*flag.FlagSet, *configureOpts) {
 	fs.StringVar(&o.provider, "profile", "", "select the session profile non-interactively")
 	fs.StringVar(&o.agent, "agent", "", "set up one CLI: claude|codex|copilot|opencode|gemini")
 	fs.StringVar(&o.auth, "auth", "", "with github: pin gh account by profile name, or follow")
-	fs.BoolVar(&o.dryRun, "dry-run", false, "print what would change; write nothing")
-	fs.BoolVar(&o.check, "check", false, "report only; exit 1 if anything is unset")
+	fs.BoolVar(&o.dryRun, "dry-run", false, "print what would change; write nothing (not with --restore)")
+	fs.BoolVar(&o.check, "check", false, "report only; exit 1 if any unset (no --restore/--revert)")
 	fs.BoolVar(&o.restore, "restore", false, "reset settings.json to the template (backup first)")
 	fs.BoolVar(&o.revert, "revert", false, "put agent configs back from their timestamped backups")
 	fs.StringVar(&o.out, "out", "", "with --restore: reset this file instead of settings.json")

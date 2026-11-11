@@ -64,7 +64,7 @@
 <text x="173.2" y="597" fill="#d7d4dc">guided setup; --restore resets settings.json</text>
 <text x="22.0" y="616" fill="#d7d4dc">  </text>
 <text x="38.8" y="616" fill="#fb6b9b" font-weight="bold">install         </text>
-<text x="173.2" y="616" fill="#d7d4dc">install Claude Code; seed settings.json if missing</text>
+<text x="173.2" y="616" fill="#d7d4dc">install claude-code and agent links; seed settings.json</text>
 <text x="22.0" y="635" fill="#d7d4dc">  </text>
 <text x="38.8" y="635" fill="#ff6b9d" font-weight="bold">theme           </text>
 <text x="173.2" y="635" fill="#d7d4dc">palette, statusline, VS Code template, tool themes</text>

@@ -29,8 +29,7 @@ var reviewTools = map[string]func(args []string, stdin io.Reader, stdout, stderr
 
 var reviewPage = helptext.Page{
 	Usage: "claude-code review <tool> [args...]",
-	About: "The evaluate-code and simplify detectors as one verb; each tool keeps its former script's flags " +
-		"and output.",
+	About: "The evaluate-code and simplify detectors as one verb; each tool has its own flags.",
 	Commands: [][2]string{
 		{"quality", "code smells and SOLID violations in a file or tree"},
 		{"complexity", "function length, nesting and branch counts"},
@@ -64,7 +63,7 @@ var workflowPage = helptext.Page{
 	About: "Scaffold a new Workflow tool script from a pattern, or lint the saved ones.",
 	Commands: [][2]string{
 		{"skeleton", "print a pipeline|parallel|evaluator|orchestrator script"},
-		{"lint", "check model/effort pins + meta/throw"},
+		{"lint", "check pins, meta/throw, syntax and the saved-workflows table"},
 	},
 	Hint: "claude-code workflow <command> -h lists that command's flags.",
 }
@@ -75,7 +74,8 @@ func workflowSubPage(sub string) helptext.Page {
 		return helptext.Page{
 			Usage: "claude-code workflow lint [<root>]",
 			About: "Lint <root>/workflows/*.js and <root>/skills/*/scripts/*.js for model/effort pins and " +
-				"meta/throw. <root> defaults to the config dir; exits 1 when anything is flagged.",
+				"meta/throw; compile each with node and check helper and saved-workflows table drift. " +
+				"<root> defaults to the config dir; exits 1 when anything is flagged.",
 		}
 	}
 	fs := helptext.NewFlagSet("skeleton", helptext.Page{})
@@ -94,7 +94,7 @@ func cmdWorkflow(args []string) int {
 		return 0
 	}
 	// only a leading -h: a later one belongs to the tool's own parser, after its value flags
-	if (args[0] == "skeleton" || args[0] == "lint") && len(args) > 1 && helptext.WantsHelp(args[1:2]) {
+	if (args[0] == "skeleton" || args[0] == "lint") && len(args) > 1 && helptext.WantsHelp(helpArgs(args)) {
 		workflowSubPage(args[0]).Fprint(os.Stdout)
 		return 0
 	}
@@ -106,6 +106,14 @@ func cmdWorkflow(args []string) int {
 	}
 	workflowPage.Fprint(os.Stderr)
 	return 2
+}
+
+// helpArgs is where a workflow sub-verb's -h may sit: skeleton takes it after its pattern, lint only first.
+func helpArgs(args []string) []string {
+	if args[0] == "skeleton" {
+		return args[1:]
+	}
+	return args[1:2]
 }
 
 func workflowLint(args []string) int {

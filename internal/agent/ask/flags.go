@@ -44,20 +44,20 @@ type askFlags struct {
 func askFlagSet() (*flag.FlagSet, *askFlags) {
 	fs := helptext.NewFlagSet("ask", askPage)
 	f := &askFlags{}
-	fs.StringVar(&f.name, "agent", "claude", "vendor, agents/<name>.md, vendor:name, or an --agents key")
+	fs.StringVar(&f.name, "agent", "claude", "agent, agents/<name>.md, <agent>:<name>, or an --agents key")
 	fs.Var(&f.agents, "agents", "agent definitions: --agent takes their keys")
 	fs.StringVar(&f.fallback, "fallback", router.FallbackAll, "fallback: all (agents, then claude)|agents|none")
 	fs.StringVar(&f.route, "route", "", "fallback ladder: default|first-party|databricks[:<profile>] (bare databricks: the session's Databricks profile; default: by session profile)")
 	fs.BoolVar(&f.native, "native", false, "opencode: skip the hub ladder; run on its default login")
 	fs.StringVar(&f.provider, "profile", "", "profile, or session; leads, then the ladder (--fallback none pins)")
 	fs.StringVar(&f.leadProvider, "provider", "", "lead on this provider's signed-in profile; falls back like --fallback")
-	fs.StringVar(&f.as, "as", "", "claude, SP-paired Databricks profile: auto|user|sp (default sp)")
+	fs.StringVar(&f.as, "as", "", "claude only: auto|user|sp (default: the profile's)")
 	fs.StringVar(&f.model, "model", "", "alias (opus), version (opus-5-5) or wire id")
 	fs.StringVar(&f.effort, "effort", "", "reasoning effort: "+strings.Join(agentid.EffortNames(), "|"))
 	fs.StringVar(&f.workdir, "workdir", "", "working directory for the agent")
 	fs.StringVar(&f.session, "session", "", "resume this session id")
 	fs.BoolVar(&f.tools, "tools", false, "allow tool use where the agent can gate it (default: disabled)")
-	fs.BoolVar(&f.readOnly, "read-only", false, "tools may read files but never write, run shell or commit; implies --tools")
+	fs.BoolVar(&f.readOnly, "read-only", false, "read-only tools (claude, codex: tools off)")
 	helptext.ListVar(fs, &f.permAllow, "allow", "RULE", "allow a tool call, e.g. 'Bash(ls:*)' (repeatable)", false)
 	helptext.ListVar(fs, &f.permAsk, "ask", "RULE", "ask before a tool call matching the rule (repeatable)", false)
 	helptext.ListVar(fs, &f.permDeny, "deny", "RULE", "deny a tool call matching the rule (repeatable)", false)
@@ -74,11 +74,11 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 }
 
 func askRunFlags(fs *flag.FlagSet, f *askFlags) {
-	fs.StringVar(&f.systemPrompt, "system-prompt", "", "claude only: replace the system prompt")
-	fs.StringVar(&f.appendSystemPrompt, "append-system-prompt", "", "claude only: append to the system prompt")
+	fs.StringVar(&f.systemPrompt, "system-prompt", "", "replace the system prompt (gemini: as a preamble)")
+	fs.StringVar(&f.appendSystemPrompt, "append-system-prompt", "", "append to the system prompt (else a preamble)")
 	fs.StringVar(&f.outputSchema, "output-schema", "", "JSON Schema (file or inline) the answer must satisfy; envelope gains structured")
 	fs.BoolVar(&f.direct, "direct", false, "agents: hand the CLI the profile route, skip the proxy")
-	fs.BoolVar(&f.autonomous, "autonomous", false, "drive the run without stopping to ask, per agent")
+	fs.BoolVar(&f.autonomous, "autonomous", false, "run without stopping to ask (not codex)")
 	fs.BoolVar(&f.fleet, "fleet", false, "copilot only: run the task in Copilot's fleet mode (parallel subagents)")
 	fs.BoolVar(&f.enableMemory, "enable-memory", false, "copilot only: turn on session memory")
 	fs.DurationVar(&f.timeout, "timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")

@@ -27,7 +27,7 @@ var themePage = helptext.Page{
 	Commands: [][2]string{
 		{"apply", "merge theme/<tool>.json into each tool's config"},
 		{"statusline", "render the status line (settings.json runs it)"},
-		{"vscode", "merge the VS Code Machine settings + keybindings templates"},
+		{"vscode", "merge VS Code Machine settings and keybindings; link the extension"},
 	},
 	Hint: "claude-code theme <command> -h lists that command's flags.",
 }
@@ -123,10 +123,11 @@ func printPalettes(w io.Writer, colored bool) {
 func themeApply(args []string) int {
 	fs := helptext.NewFlagSet("theme apply", helptext.Page{
 		Usage: "claude-code theme apply [flags]",
-		About: "Merge every theme/<tool>.json|.conf into that tool's config.",
+		About: "Merge every theme/<tool>.json|.conf into that tool's config. Targets: vscode, statusline, opencode, " +
+			"opencode-themes, copilot, gemini, ghostty.",
 	})
 	dryRun := fs.Bool("dry-run", false, "report what would change; write nothing")
-	only := fs.String("only", "", "apply only these comma-separated targets (e.g. opencode-themes)")
+	only := fs.String("only", "", "apply only these comma-separated targets (listed above)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
