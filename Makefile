@@ -171,7 +171,7 @@ setup-env:  ## Print the PATH line (APPLY=1 writes shell rc)
 
 ##@ Quality
 # Umbrella gate: lint (gofmt, vet, golangci, md, js, yaml) + doctor --git (unpushed commits) + vet + test + build (ci.yml's four steps, same order) +
-# test + build + govulncheck when installed + the agents sync --dry-run smoke test. ci.yml runs this target.
+# test + build + govulncheck (VULN=1 only: it is the one networked step) + the agents sync --dry-run smoke test. ci.yml runs this target.
 .PHONY: audit
 audit: compile  ## CI gate: lint, git secrets, test, build, vuln, docs
 	@$(MAKE) --no-print-directory lint
@@ -181,13 +181,14 @@ audit: compile  ## CI gate: lint, git secrets, test, build, vuln, docs
 		$(MAKE) --no-print-directory audit-nokeyring; fi
 	$(GO) build $(PKGS)
 	@echo -e "$(C_OK)go check passed (lint + build$(if $(filter 1,$(SKIP_TESTS)),, + test))"
-	@if command -v govulncheck >/dev/null 2>&1; then govulncheck $(PKGS); \
+	@if [ "$(VULN)" != 1 ]; then echo -e "$(C_NOTE)govulncheck skipped (network; run make audit VULN=1)"; \
+		elif command -v govulncheck >/dev/null 2>&1; then govulncheck $(PKGS); \
 		else echo -e "$(C_NOTE)govulncheck not installed — skipped (make install)"; fi
 	@$(BIN) doctor --prompts
 	@out="$$(CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run 2>&1)" || { echo "$$out"; exit 1; }
 	@t=$$(mktemp); rc=0; $(BIN) help-svg --out $$t && cmp -s $$t docs/images/cli-menu.svg || rc=1; rm -f $$t; \
 		if [ $$rc -ne 0 ]; then echo "docs/images/cli-menu.svg is stale: run make help-svg"; exit 1; fi
-	@echo -e "$(C_OK)audit passed (lint/test/build + sync smoke + generated docs; vuln + yaml when installed)"
+	@echo -e "$(C_OK)audit passed (lint/test/build + sync smoke + generated docs; vuln with VULN=1)"
 
 # Commits being pushed: AUDIT_GIT_RANGE (pre-push sets it), else @{u}..HEAD, else the last AUDIT_GIT_FALLBACK commits.
 AUDIT_GIT_FALLBACK ?= 20
