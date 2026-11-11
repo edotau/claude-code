@@ -55,7 +55,7 @@ func (h headless) options() oauth.LoginOptions {
 
 // describe is the dry-run line for h.
 func (h headless) describe() string {
-	port := "callback port 8020 (next free port up to 8040 if busy)"
+	port := "callback port 8030 (next free port up to 8050 if busy)"
 	if h.port > 0 {
 		port = fmt.Sprintf("callback port %d (exact; error if busy)", h.port)
 	}
@@ -92,7 +92,7 @@ func login(args []string) int {
 	profileName := profileFlag(fs)
 	as := fs.String("as", "", "identity: user (browser login, no SP fallback) or sp (service-principal mint, no browser)")
 	var h headless
-	fs.IntVar(&h.port, "port", 0, "exact localhost callback port to listen on, error if busy (default: 8020, next free up to 8040)")
+	fs.IntVar(&h.port, "port", 0, "exact localhost callback port to listen on, error if busy (default: 8030, next free up to 8050)")
 	fs.BoolVar(&h.noBrowser, "no-browser", false, "do not open a browser; print the URL and the ssh -L forward hint")
 	fs.BoolVar(&h.paste, "paste", false, "also accept the redirected URL pasted on stdin when the callback cannot be forwarded")
 	names, err := helptext.ParseArgs(fs, args)
