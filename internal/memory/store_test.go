@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -39,7 +38,7 @@ func TestStorePaths(t *testing.T) {
 		t.Errorf("no origin: harnessStoreDir = %q, want %q", got, want)
 	}
 	cloned := gitRepo(t, canonTemp(t, t.TempDir()), "cfg-clone")
-	rawGit(t, cloned, "remote", "add", "origin", "git@github.com:someone/claude-code.git")
+	hosttest.In(t, cloned, "remote", "add", "origin", "git@github.com:someone/claude-code.git")
 	t.Setenv("CLAUDE_CONFIG_DIR", cloned)
 	if got, want := harnessStoreDir(), filepath.Join(cloned, "memory", "claude-code"); got != want {
 		t.Errorf("with origin: harnessStoreDir = %q, want %q (keyed by the remote, not the dir)", got, want)
@@ -176,18 +175,6 @@ func canonTemp(t *testing.T, p string) string {
 		t.Fatal(err)
 	}
 	return r
-}
-
-// rawGit runs git against dir bypassing the package's sanitized Repo.run, for building/inspecting fixtures.
-func rawGit(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(proc.GitEnv(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v: %s", args, err, out)
-	}
-	return strings.TrimSpace(string(out))
 }
 
 // isolatedConfig isolates CLAUDE_CONFIG_DIR, HOME and XDG_CONFIG_HOME under fresh temp dirs.

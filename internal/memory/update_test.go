@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -63,20 +63,12 @@ func TestAgentUpdatePrompt_UsesReference(t *testing.T) {
 // real git cwd gets a "git activity" block with the session's commits/touched files appended.
 func TestAgentUpdatePrompt_WithCWDAppendsGitActivity(t *testing.T) {
 	cwd := t.TempDir()
-	run := func(args ...string) {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = cwd
-		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v %s", args, err, out)
-		}
-	}
-	run("init", "-q")
+	hosttest.In(t, cwd, "init", "-q")
 	if err := os.WriteFile(filepath.Join(cwd, "f.txt"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	run("add", "f.txt")
-	run("commit", "-q", "-m", "seed commit")
+	hosttest.In(t, cwd, "add", "f.txt")
+	hosttest.In(t, cwd, "commit", "-q", "-m", "seed commit")
 
 	ts := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
 	path := writeTranscript(t, `{"timestamp":"`+ts+`"}`)

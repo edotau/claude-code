@@ -241,7 +241,7 @@ func TestWriteGithubCopilotModelsKeepsPreviousOverlay(t *testing.T) {
 // launch and configure page read, even when a pin is already set to something else.
 func TestWriteGithubCopilotModelsLeavesCopilotModelPinUntouched(t *testing.T) {
 	githubScratch(t)
-	putRec(t, "copilot", "MODEL", "claude-opus-5.5")
+	vaulttest.SetRecord(t, "copilot", "model", "claude-opus-5.5")
 	picks := map[string]string{models.Opus: "gpt-6.1-sol", models.Sonnet: "claude-sonnet-5.5", models.Haiku: "claude-haiku-4.5"}
 	if err := WriteGithubCopilotModels(picks, ""); err != nil {
 		t.Fatalf("WriteGithubCopilotModels: %v", err)

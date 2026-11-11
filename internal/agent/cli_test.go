@@ -25,7 +25,7 @@ import (
 // fallback resolution), so every case fails or refuses before any real CLI exec — no bin/codex, bin/agy
 // or bin/opencode needed, and no network call.
 func TestVendorEngineOversizedPromptRefusalScopedToArgv(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	t.Setenv("HOME", t.TempDir())
 	big := strings.Repeat("x", MaxPromptBytes+10)
 
@@ -55,7 +55,7 @@ func TestVendorEngineOversizedPromptRefusalScopedToArgv(t *testing.T) {
 // Line 104 (res.Provider = t.Provider.Name) must not panic when t.Provider is nil.
 // Similarly, copilotEngine.Run (copilot.go) must handle nil Provider.
 func TestVendorEngineNilProviderDefense(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	t.Setenv("HOME", t.TempDir())
 
 	// Simulate the scenario where vendorTargetNote returns own=false with nil Provider.
@@ -108,7 +108,7 @@ func TestVendorIsolationCaps(t *testing.T) {
 
 // vendorTargetBase honors the request's model alias; ResolveVendorTarget always returns the session's opus alias.
 func TestVendorTargetBaseDiffersFromResolveTargetOnTier(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	vaulttest.Use(t)
 	reg, err := providers.Load()
 	if err != nil {
@@ -178,7 +178,7 @@ func TestRunStreamKeepsStructured(t *testing.T) {
 
 // A run on an agent's own login reports the registry profile naming that login, never the retired "own-login".
 func TestOwnProfileNamesTheLoginRow(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	if got := SchemaFor("codex").OwnProfile(); got == "own-login" || got == "" {
 		t.Errorf("OwnProfile(codex) = %q", got)
 	}

@@ -1,16 +1,10 @@
-# testdata — golden fixtures (live oracle: python3, this repo's checkout)
+# testdata — golden fixtures (frozen captures of the retired Python tools; no regeneration command)
 
 ## assumptions/ (assumption_linter.py)
-plan-standalone-harness.md <- docs/plans/plan-standalone-harness.md
-simplicity-skill.md <- skills/simplicity/SKILL.md
-Goldens captured with cwd = testdata/assumptions (the "source" field in the output is the
-bare relative filename, so tests must `t.Chdir` here to match):
-
-    cd testdata/assumptions && python3 <repo>/skills/evaluate-code/scripts/assumption_linter.py plan-standalone-harness.md [--json]
-    cd testdata/assumptions && python3 <repo>/skills/evaluate-code/scripts/assumption_linter.py simplicity-skill.md [--json]
-    echo "<stdin-case.txt content>" | python3 <repo>/skills/evaluate-code/scripts/assumption_linter.py - [--json]
-    python3 <repo>/skills/evaluate-code/scripts/assumption_linter.py nosuch.md   (exit 0, "[error] ... not found")
+plan-standalone-harness.md and simplicity-skill.md are copies of documents this repo no longer has.
+Goldens were captured with cwd = testdata/assumptions (the "source" field in the output is the
+bare relative filename, so tests must `t.Chdir` here to match); `stdin-case.*` is the stdin run.
 
 ## goals/ (goal_verifier.py)
-plan-standalone-harness.md <- docs/plans/plan-standalone-harness.md (same commands/rules as above).
+plan-standalone-harness.md is the same copy as above (same rules).
 noplan.txt / stdin-case.txt are hand-written to exercise NO_PLAN and STRONG/WEAK verdicts.

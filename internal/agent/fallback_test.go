@@ -23,7 +23,7 @@ import (
 
 // Only an unreachable non-claude dispatch (no answer, no progress, not a context or size error) falls back.
 func TestDispatchUnavailable(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	genericErr := errors.New(`exec: "codex": executable file not found in $PATH`)
 	deadline := &retry.Error{Kind: retry.KindFatal, Err: context.DeadlineExceeded}
 	canceled := &retry.Error{Kind: retry.KindFatal, Err: context.Canceled}
@@ -73,7 +73,7 @@ func chainOf(rs []Engine, models ...string) Chain {
 
 // A real expiring or canceled context is final: Run's tools-on special-case only fires on an actual ctx.Err().
 func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	claude := &fakeRunner{name: "claude", errs: []error{nil}}
 
 	codex := newCodexHang()
@@ -94,7 +94,7 @@ func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
 
 // A gated-out own-login route followed by a same-agent Databricks route is a fallback.
 func TestRunWithFallbackSkippedRequestedRoute(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	codex := &fakeRunner{name: "codex", errs: []error{nil}}
 	c := Chain{Want: "codex", Skipped: []string{"codex: chatgpt exhausted"},
 		Dispatches: []Dispatch{{Agent: codex, Account: "databricks·codex", keepCaller: true, otherRoute: true}}}
@@ -123,7 +123,7 @@ func TestRunWithFallbackReasonDropsUnaskedSkips(t *testing.T) {
 
 // An explicit --profile dispatch that fails never advances; without a profile the same chain does.
 func TestExplicitDispatchFailureDoesNotAdvance(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	run := func(provider string) (first, next *fakeRunner, err error) {
 		first = &fakeRunner{name: "codex", errs: []error{errors.New("exit status 1")}, emptyAnswer: true}
 		next = &fakeRunner{name: "opencode", errs: []error{nil}}
@@ -161,7 +161,7 @@ var errCodexMissing = errors.New(`exec: "codex": executable file not found in $P
 
 // fallbackConfigDir isolates the config dir and retry's process-wide cooldowns, which an earlier test's 429 sets.
 func fallbackConfigDir(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	retry.ResetCooldowns()
 	t.Cleanup(retry.ResetCooldowns)
 }
@@ -417,7 +417,7 @@ var testPersona = &Schema{Name: "reviewer", Description: "Reviews", Prompt: "Be 
 
 // A hop to an emulating agent must not run a tool-limited persona unrestricted.
 func TestFallbackHopRefusesRestrictivePersona(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	down := &fakeRunner{name: "codex", errs: []error{errors.New(`exec: "codex": executable file not found in $PATH`)}, emptyAnswer: true}
 	emu := &fakeRunner{name: "gemini", caps: Caps{Persona: Emulated, AppendSystemPrompt: Emulated}, errs: []error{nil}}
 	res, err := RunWithFallback(context.Background(), chainOf([]Engine{down, emu}), RunOptions{Prompt: "p", Persona: testPersona}, wire.Discard, nil)
@@ -431,7 +431,7 @@ func TestFallbackHopRefusesRestrictivePersona(t *testing.T) {
 
 // Each fallback hop emits exactly one retry event with the documented text.
 func TestRunWithFallbackEmitsOneRetryPerHop(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	first := &fakeRunner{name: "codex", emptyAnswer: true, errs: []error{errors.New("boom")}}
@@ -496,7 +496,7 @@ func (h *handoffRunner) Run(context.Context, RunOptions, wire.Sink) (wire.Result
 
 // A hand-off written by dispatch 1 rides the final envelope whichever way the later dispatches end.
 func TestRunWithFallbackCarriesHandoff(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	quota := errors.New("402 Payment Required: You have exceeded your monthly quota")
 	first := func() *handoffRunner {
 		return &handoffRunner{name: "copilot", res: wire.Result{Handoff: "/tmp/x.md"}, err: quota}
@@ -530,7 +530,7 @@ func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 
 // A hand-off replaces the bare task for the next dispatch; an unreadable file changes nothing.
 func TestRunWithFallbackNextDispatchGetsHandoff(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	quota := errors.New("402 Payment Required: You have exceeded your monthly quota")
 	file := filepath.Join(t.TempDir(), "h.md")
 	if err := os.WriteFile(file, []byte("PARTIAL-PROGRESS-MARKER"), 0o600); err != nil {
@@ -783,7 +783,7 @@ func TestPinFirstFallbackContentPolicy(t *testing.T) {
 
 // Skip notices name only the wanted agent's gates; other agents' reasons are not printed.
 func TestSkipNoticeOnlyForWantedAgent(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	c := Single(&fakeRunner{name: "copilot", errs: []error{nil}})
 	c.Skipped = []string{"opencode·openai: not configured", "copilot: exhausted"}
 	var got []string

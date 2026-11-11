@@ -44,7 +44,7 @@ func TestCheckPipedReportsAbsentKeysAndExitsOne(t *testing.T) {
 	t.Setenv("HOME", home)
 	vaulttest.Use(t) // pins are vault-only: seed the openai pin, then assert --check leaves the vault bytes alone
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	putRec(t, "claude", "PROFILE", "openai")
+	vaulttest.SetRecord(t, "claude", "profile", "openai")
 	vaultBefore, _ := os.ReadFile(filepath.Join(cfg, "state", "vault.db"))
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("GEMINI_API_KEY", "")

@@ -114,7 +114,7 @@ func TestCopilotEffortRowShowsPinState(t *testing.T) {
 	if got := copilotEffortRow(d, "auto").desc; !strings.Contains(got, "unset") {
 		t.Errorf("unpinned: desc = %q, want unset", got)
 	}
-	putRec(t, "copilot", "EFFORT", "high")
+	vaulttest.SetRecord(t, "copilot", "effort", "high")
 	if got := copilotEffortRow(d, "auto").desc; !strings.Contains(got, "high") {
 		t.Errorf("pinned: desc = %q, want high", got)
 	}
@@ -148,7 +148,7 @@ func TestPickCopilotPinSetsAndClearsPin(t *testing.T) {
 // A blank/invalid pick (Back/Esc on the non-TTY path) must leave the pin untouched.
 func TestPickCopilotPinBackLeavesPinUntouched(t *testing.T) {
 	menuTestEnv(t)
-	putRec(t, "copilot", "EFFORT", "medium")
+	vaulttest.SetRecord(t, "copilot", "effort", "medium")
 	in := strings.NewReader("\n")
 	d := &dialog{o: Options{In: in}, br: bufio.NewReader(in), out: discardWriter{}}
 	if pickCopilotPin(d, "effort", "EFFORT", [][2]string{{"Low", "low"}}, "medium") {
@@ -426,7 +426,7 @@ func TestSetUpIsEveryAgentPagesFirstRow(t *testing.T) {
 func runRealRoute(t *testing.T, in string, readOnlyVault bool) string {
 	t.Helper()
 	reg := menuTestEnv(t)
-	putRec(t, "codex", "PROFILE", "chatgpt") // codex is on its own login, so picking off is a real write
+	vaulttest.SetRecord(t, "codex", "profile", "chatgpt") // codex is on its own login, so picking off is a real write
 	if readOnlyVault {
 		if err := os.Chmod(vault.Path(), 0o400); err != nil {
 			t.Fatal(err)
@@ -598,8 +598,8 @@ func TestClearIneligibleCopilotPinsOnModelSwitch(t *testing.T) {
 	stubCatalog(t, []copilot.SDKModel{
 		{ID: "new-model", ReasoningEffort: true, Efforts: []string{"low", "medium"}, ContextTokens: 128_000},
 	}, nil)
-	putRec(t, "copilot", "EFFORT", "high")
-	putRec(t, "copilot", "CONTEXT", "long_context")
+	vaulttest.SetRecord(t, "copilot", "effort", "high")
+	vaulttest.SetRecord(t, "copilot", "context", "long_context")
 
 	var out bytes.Buffer
 	d := &dialog{out: &out}
@@ -624,8 +624,8 @@ func TestClearIneligibleCopilotPinsKeepsCompatiblePins(t *testing.T) {
 	stubCatalog(t, []copilot.SDKModel{
 		{ID: "still-fits", ReasoningEffort: true, Efforts: []string{"low", "high"}, ContextTokens: 1_000_000},
 	}, nil)
-	putRec(t, "copilot", "EFFORT", "high")
-	putRec(t, "copilot", "CONTEXT", "long_context")
+	vaulttest.SetRecord(t, "copilot", "effort", "high")
+	vaulttest.SetRecord(t, "copilot", "context", "long_context")
 
 	d := &dialog{out: discardWriter{}}
 	clearIneligibleCopilotPins(d, "still-fits")

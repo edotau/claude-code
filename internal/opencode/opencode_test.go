@@ -5,17 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent/agenttest"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
@@ -412,16 +412,6 @@ func TestInteractiveLaunchRejectsPluginWriteFailure(t *testing.T) {
 	}
 }
 
-// launchHermetic isolates a launch test from the host and stubs the router, with launch notices discarded.
-func launchHermetic(t *testing.T) {
-	t.Helper()
-	hosttest.HermeticEnv(t)
-	t.Cleanup(agent.StubRouter("http://127.0.0.1:4000"))
-	orig := agent.NoticeOut
-	agent.NoticeOut = io.Discard
-	t.Cleanup(func() { agent.NoticeOut = orig })
-}
-
 func TestOwnLoginLaunchPreservesModelFlag(t *testing.T) {
 	const model = "opencode-go/kimi-k3.1-pro"
 	cases := []struct{ name, auth, profile string }{
@@ -430,7 +420,7 @@ func TestOwnLoginLaunchPreservesModelFlag(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			launchHermetic(t)
+			agenttest.LaunchHermetic(t)
 			pathstest.FakeVendor(t, "opencode", "")
 			dir := filepath.Join(os.Getenv("XDG_DATA_HOME"), "opencode")
 			if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -453,7 +443,7 @@ func TestOwnLoginLaunchPreservesModelFlag(t *testing.T) {
 }
 
 func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
-	launchHermetic(t)
+	agenttest.LaunchHermetic(t)
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	fake := pathstest.FakeVendor(t, "opencode", "")

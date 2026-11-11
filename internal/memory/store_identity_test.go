@@ -13,22 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/vault"
 )
-
-// fixtureGit runs git on dir minus inherited GIT_* (GIT_DIR beats -C), user/system config, hooks and signing.
-func fixtureGit(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	full := append([]string{"-C", dir, "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false",
-		"-c", "user.email=t@example.com", "-c", "user.name=t"}, args...)
-	cmd := exec.Command("git", full...)
-	cmd.Env = append(proc.GitEnv(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v %s", args, err, out)
-	}
-}
 
 func idFatal(t *testing.T, err error) {
 	t.Helper()
@@ -55,7 +43,7 @@ func TestResolveSharesWorktreeAndSubdir(t *testing.T) {
 	sub := filepath.Join(repo, "a", "b")
 	idMkdir(t, sub)
 	wt := filepath.Join(t.TempDir(), "wt")
-	fixtureGit(t, repo, "worktree", "add", "-q", wt)
+	hosttest.In(t, repo, "worktree", "add", "-q", wt)
 	want := Resolve(repo)
 	if want.HomeBank || want.Harness || want.Base != "proj" || want.Origin != paths.CanonDeep(repo) {
 		t.Fatalf("Resolve(repo) = %+v", want)
@@ -79,10 +67,10 @@ func mainCheckoutCases(t *testing.T) []mainCheckoutCase {
 	base := t.TempDir()
 	repo := gitRepo(t, base, "repo")
 	wt, separate, bare := filepath.Join(base, "wt"), filepath.Join(base, "separate"), filepath.Join(base, "bare")
-	fixtureGit(t, repo, "worktree", "add", "-q", wt)
+	hosttest.In(t, repo, "worktree", "add", "-q", wt)
 	write(t, filepath.Join(wt, ".git"), "gitdir: ../repo/.git/worktrees/wt\n")
-	fixtureGit(t, base, "init", "-q", "--separate-git-dir="+filepath.Join(base, "gitdata"), separate)
-	fixtureGit(t, base, "init", "-q", "--bare", bare)
+	hosttest.In(t, base, "init", "-q", "--separate-git-dir="+filepath.Join(base, "gitdata"), separate)
+	hosttest.In(t, base, "init", "-q", "--bare", bare)
 	for _, dir := range []string{filepath.Join(repo, "sub"), filepath.Join(wt, "sub"), filepath.Join(base, "plain")} {
 		idMkdir(t, dir)
 	}
@@ -497,7 +485,7 @@ func resetRemoteCache() { remoteCache.Clear() }
 func TestOriginRemoteURLIsMemoized(t *testing.T) {
 	tempConfig(t)
 	withRemote := gitRepo(t, t.TempDir(), "has-remote")
-	fixtureGit(t, withRemote, "remote", "add", "origin", "https://github.com/tester/memo.git")
+	hosttest.In(t, withRemote, "remote", "add", "origin", "https://github.com/tester/memo.git")
 	noRemote := gitRepo(t, t.TempDir(), "no-remote")
 	resetRemoteCache()
 	t.Cleanup(resetRemoteCache)
@@ -520,7 +508,7 @@ func TestOriginRemoteURLIsMemoized(t *testing.T) {
 			t.Fatalf("second lookup of %s forked git again", c.dir)
 		}
 	}
-	fixtureGit(t, noRemote, "remote", "add", "origin", "https://github.com/tester/later.git")
+	hosttest.In(t, noRemote, "remote", "add", "origin", "https://github.com/tester/later.git")
 	if got := originRemoteURL(noRemote); got != "" {
 		t.Fatalf("cache should hide the new remote, got %q", got)
 	}
@@ -557,7 +545,7 @@ func TestRepoKeyFromOriginRemoteOrDir(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			cfg := tempConfig(t)
 			repo := gitRepo(t, t.TempDir(), c.dirName)
-			fixtureGit(t, repo, "remote", "add", "origin", c.remote)
+			hosttest.In(t, repo, "remote", "add", "origin", c.remote)
 			dir := idEnsure(t, repo)
 			if want := filepath.Join(cfg, "memory", c.key); dir != want {
 				t.Fatalf("EnsureRepoDir = %s, want %s", dir, want)
@@ -584,9 +572,9 @@ func TestSameRemoteDifferentCheckoutsDoNotShareAStore(t *testing.T) {
 	cfg := tempConfig(t)
 	const remote = "https://github.com/tester/collide.git"
 	a := gitRepo(t, t.TempDir(), "clone-a")
-	fixtureGit(t, a, "remote", "add", "origin", remote)
+	hosttest.In(t, a, "remote", "add", "origin", remote)
 	b := gitRepo(t, t.TempDir(), "clone-b")
-	fixtureGit(t, b, "remote", "add", "origin", remote)
+	hosttest.In(t, b, "remote", "add", "origin", remote)
 	da := idEnsure(t, a)
 	if want := filepath.Join(cfg, "memory", "collide"); da != want {
 		t.Fatalf("first clone's dir = %s, want %s", da, want)

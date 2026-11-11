@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestSafetySSHUnquotedHeredocLocalExpansion(t *testing.T) {
@@ -32,14 +33,14 @@ func TestSafetySSHUnquotedHeredocLocalExpansion(t *testing.T) {
 }
 
 func TestSafetyRecursiveRemovalLaterProtectedOperand(t *testing.T) {
-	tierHarness(t)
+	hosttest.TierHarness(t)
 	for _, target := range []string{"/", "/etc", "/usr", "/home", "$HOME"} {
 		cmd := "rm -rf build " + target
-		if got, reason := safetyScanDecision(t, bashPayload(cmd)); got != core.Block {
+		if got, reason := safetyScanDecision(t, hosttest.BashPayload(cmd)); got != core.Block {
 			t.Errorf("%q: decision %v reason %q, want Block", cmd, got, reason)
 		}
 	}
-	if got, reason := safetyScanDecision(t, bashPayload("rm -rf build dist")); got != core.Allow {
+	if got, reason := safetyScanDecision(t, hosttest.BashPayload("rm -rf build dist")); got != core.Allow {
 		t.Errorf("ordinary operands: decision %v reason %q, want Allow", got, reason)
 	}
 }
@@ -69,9 +70,9 @@ func TestInertSegmentScmBodyFileAndRedirectNotInert(t *testing.T) {
 
 // An inert-text ask (hard-block shape only in quoted text) must not mask a real exfil block later in the command.
 func TestSafetyInertAskDoesNotMaskExfilBlock(t *testing.T) {
-	tierHarness(t)
+	hosttest.TierHarness(t)
 	cmd := `echo "rm -rf /"; printenv > /tmp/x`
-	if got, stderr := safetyScanDecision(t, bashPayload(cmd)); got != core.Block {
+	if got, stderr := safetyScanDecision(t, hosttest.BashPayload(cmd)); got != core.Block {
 		t.Errorf("%q: got %v want Block (stderr %s)", cmd, got, stderr)
 	}
 }
@@ -91,9 +92,9 @@ func TestHardBlockAskKeepsRewriteWarning(t *testing.T) {
 
 // A quoted rm -rf target hits the same hard block as the bare one.
 func TestHardBlockQuotedRmTarget(t *testing.T) {
-	tierHarness(t)
+	hosttest.TierHarness(t)
 	cmd := `rm -rf "/etc"`
-	if got, stderr := safetyScanDecision(t, bashPayload(cmd)); got != core.Block {
+	if got, stderr := safetyScanDecision(t, hosttest.BashPayload(cmd)); got != core.Block {
 		t.Errorf("%q: got %v want Block (stderr %s)", cmd, got, stderr)
 	}
 }

@@ -1,17 +1,12 @@
-package paths_test
+package paths
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/paths/pathstest"
 )
 
 func TestVendorBinCases(t *testing.T) {
@@ -44,7 +39,7 @@ func TestVendorBinCases(t *testing.T) {
 // binDirReady creates and returns the shim directory.
 func binDirReady(t *testing.T) string {
 	t.Helper()
-	binDir := paths.BinDir()
+	binDir := BinDir()
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +67,7 @@ func writeScript(t *testing.T, path string) {
 // codexErrContains asserts AgentBin("codex") fails with every fragment in its message.
 func codexErrContains(t *testing.T, fragments ...string) {
 	t.Helper()
-	_, err := paths.AgentBin("codex")
+	_, err := AgentBin("codex")
 	for _, fragment := range fragments {
 		if err == nil || !strings.Contains(err.Error(), fragment) {
 			t.Errorf("AgentBin(codex) error = %v, want substring %q", err, fragment)
@@ -81,19 +76,19 @@ func codexErrContains(t *testing.T, fragments ...string) {
 }
 
 func vendorUnknownName(t *testing.T) {
-	_, err := paths.AgentBin("unknown")
+	_, err := AgentBin("unknown")
 	if err == nil || !strings.Contains(err.Error(), `unknown vendor "unknown"`) {
 		t.Fatalf("AgentBin(unknown) error = %v, want unknown vendor message", err)
 	}
 }
 
 func vendorMissingGemini(t *testing.T) {
-	_, err := paths.AgentBin("gemini")
+	_, err := AgentBin("gemini")
 	if err == nil {
 		t.Fatal("AgentBin(gemini) succeeded for missing binary")
 	}
 	for _, fragment := range []string{
-		filepath.Join(paths.BinDir(), "gemini"),
+		filepath.Join(BinDir(), "gemini"),
 		"--tools=agy",
 	} {
 		if !strings.Contains(err.Error(), fragment) {
@@ -135,7 +130,7 @@ func vendorNonExecFile(t *testing.T) {
 }
 
 func vendorDirectory(t *testing.T) {
-	link := filepath.Join(paths.BinDir(), "codex")
+	link := filepath.Join(BinDir(), "codex")
 	if err := os.MkdirAll(link, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -143,21 +138,18 @@ func vendorDirectory(t *testing.T) {
 }
 
 func vendorRegularFile(t *testing.T) {
-	got := pathstest.FakeVendor(t, "codex", "exit 0")
-	want := filepath.Join(paths.BinDir(), "codex")
-	if got != want {
-		t.Fatalf("FakeVendor path = %q, want %q", got, want)
-	}
-	if resolved, err := paths.AgentBin("codex"); err != nil || resolved != want {
+	want := filepath.Join(binDirReady(t), "codex")
+	writeScript(t, want)
+	if resolved, err := AgentBin("codex"); err != nil || resolved != want {
 		t.Fatalf("AgentBin(codex) = %q, %v; want %q, nil", resolved, err, want)
 	}
 }
 
 func vendorAgyAlias(t *testing.T) {
-	pathstest.FakeVendor(t, "agy", "exit 0")
-	want := filepath.Join(paths.BinDir(), "gemini")
+	want := filepath.Join(binDirReady(t), "gemini")
+	writeScript(t, want)
 	for _, name := range []string{"agy", "gemini"} {
-		got, err := paths.AgentBin(name)
+		got, err := AgentBin(name)
 		if err != nil || got != want {
 			t.Errorf("AgentBin(%q) = %q, %v; want %q, nil", name, got, err, want)
 		}
@@ -171,7 +163,7 @@ func vendorSymlinkOwnPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	link := linkCodex(t, target)
-	got, err := paths.AgentBin("codex")
+	got, err := AgentBin("codex")
 	if err != nil || got != link {
 		t.Fatalf("AgentBin(codex) = %q, %v; want link path %q", got, err, link)
 	}
@@ -187,17 +179,17 @@ func TestLookPathRealSkipsBinDirSymlink(t *testing.T) {
 	writeScript(t, vendor)
 	linkCodex(t, vendor)
 	alias := filepath.Join(t.TempDir(), "alias")
-	if err := os.Symlink(paths.BinDir(), alias); err != nil {
+	if err := os.Symlink(BinDir(), alias); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", alias+string(os.PathListSeparator)+vendorDir)
 
-	got, err := paths.LookPathReal("codex")
+	got, err := LookPathReal("codex")
 	if err != nil || got != vendor {
 		t.Fatalf("LookPathReal(codex) = %q, %v; want external vendor %q, not BinDir alias", got, err, vendor)
 	}
 	t.Setenv("PATH", alias)
-	if got, err := paths.LookPathReal("codex"); err == nil || got != "" {
+	if got, err := LookPathReal("codex"); err == nil || got != "" {
 		t.Fatalf("LookPathReal(codex) = %q, %v; BinDir alias alone must not resolve", got, err)
 	}
 }
@@ -205,60 +197,9 @@ func TestLookPathRealSkipsBinDirSymlink(t *testing.T) {
 func TestVendorName(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 
-	if got, ok := paths.AgentName("agy"); !ok || got != "gemini" {
+	if got, ok := AgentName("agy"); !ok || got != "gemini" {
 		t.Fatalf("AgentName(agy) = %q, %t; want gemini, true", got, ok)
 	}
-}
-
-func TestFakeVendorRefusesRealConfig(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	u, err := user.Current()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", u.HomeDir)
-
-	tb := &fatalTB{TB: t}
-	returned := make(chan struct{}, 1)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		pathstest.FakeVendor(tb, "codex", "exit 0")
-		returned <- struct{}{}
-	}()
-	<-done
-
-	if !tb.called {
-		t.Fatal("FakeVendor did not call Fatal")
-	}
-	for _, fragment := range []string{"refusing to write", "real ~/.claude"} {
-		if !strings.Contains(tb.message, fragment) {
-			t.Errorf("Fatal message %q does not contain %q", tb.message, fragment)
-		}
-	}
-	select {
-	case <-returned:
-		t.Fatal("FakeVendor returned instead of stopping before writing")
-	default:
-	}
-}
-
-type fatalTB struct {
-	testing.TB
-	called  bool
-	message string
-}
-
-func (tb *fatalTB) Fatal(args ...any) {
-	tb.called = true
-	tb.message = fmt.Sprint(args...)
-	runtime.Goexit()
-}
-
-func (tb *fatalTB) Fatalf(format string, args ...any) {
-	tb.called = true
-	tb.message = fmt.Sprintf(format, args...)
-	runtime.Goexit()
 }
 
 func TestAgentBinAbsolutizesRelativeEnvDir(t *testing.T) {
@@ -269,9 +210,9 @@ func TestAgentBinAbsolutizesRelativeEnvDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeScript(t, filepath.Join(cwd, "fakebin", "codex"))
-	t.Setenv(paths.AgentBinDirEnv, "fakebin")
+	t.Setenv(AgentBinDirEnv, "fakebin")
 
-	got, err := paths.AgentBin("codex")
+	got, err := AgentBin("codex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,20 +224,20 @@ func TestAgentBinAbsolutizesRelativeEnvDir(t *testing.T) {
 // TestBinKeyTracksSizeAndMtime: a rewrite of the same path changes the key; a missing path has none.
 func TestBinKeyTracksSizeAndMtime(t *testing.T) {
 	bin := filepath.Join(t.TempDir(), "tool")
-	if _, ok := paths.BinKey(bin); ok {
+	if _, ok := BinKey(bin); ok {
 		t.Fatal("BinKey of a missing file reported ok")
 	}
 	if err := os.WriteFile(bin, []byte("v1"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	k1, ok := paths.BinKey(bin)
+	k1, ok := BinKey(bin)
 	if !ok || !strings.HasPrefix(k1, bin+"|2|") {
 		t.Fatalf("BinKey = %q, %v; want path|size|mtime", k1, ok)
 	}
 	if err := os.WriteFile(bin, []byte("v22"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if k2, _ := paths.BinKey(bin); k2 == k1 {
+	if k2, _ := BinKey(bin); k2 == k1 {
 		t.Errorf("BinKey unchanged after an upgrade: %q", k2)
 	}
 }

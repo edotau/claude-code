@@ -21,11 +21,11 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/agents"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
+	"github.com/edotau/claude-code/internal/hooks/memhook"
 	"github.com/edotau/claude-code/internal/hooks/quality"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -147,11 +147,6 @@ func TestDispatchWaitsForOverrunHandler(t *testing.T) {
 	}
 }
 
-func bashPayload(cmd string) *strings.Reader {
-	b, _ := json.Marshal(map[string]any{"tool_name": "Bash", "tool_input": map[string]string{"command": cmd}})
-	return strings.NewReader(string(b))
-}
-
 // Every hookspec module has a native handler and every native handler is declared in hookspec.
 func TestRegistryMatchesHookspec(t *testing.T) {
 	declared := map[string]bool{}
@@ -182,11 +177,11 @@ func writeProbe(cwd, path, content string) string {
 func guardBindingProbes() map[string]bindingProbe {
 	return map[string]bindingProbe{
 		"safety-scan": func(*testing.T, string) (string, func(core.Result) bool) {
-			return rtkBashIn("rm -rf /"), func(r core.Result) bool { return r.Decision == core.Block }
+			return hosttest.RTKBashIn("rm -rf /"), func(r core.Result) bool { return r.Decision == core.Block }
 		},
 		"rtk-rewrite": func(t *testing.T, _ string) (string, func(core.Result) bool) {
-			bin := fakeRTK(t)
-			return rtkBashIn("git status"), func(r core.Result) bool { return r.UpdatedInput["command"] == bin+" git status" }
+			bin := hosttest.FakeRTK(t)
+			return hosttest.RTKBashIn("git status"), func(r core.Result) bool { return r.UpdatedInput["command"] == bin+" git status" }
 		},
 		"permission-gate": func(t *testing.T, _ string) (string, func(core.Result) bool) {
 			t.Setenv("HARNESS_HOOK_AGENT", "gemini")
@@ -364,24 +359,10 @@ func TestRunDirectCapsContext(t *testing.T) {
 	}
 }
 
-// tierHarness points HOME/CLAUDE_CONFIG_DIR at a temp config tree and neutralizes an ambient vendor env.
-func tierHarness(t *testing.T) string {
-	t.Helper()
-	home := t.TempDir()
-	harness := filepath.Join(home, ".claude")
-	if err := os.MkdirAll(harness, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", home)
-	t.Setenv("CLAUDE_CONFIG_DIR", harness)
-	t.Setenv("HARNESS_HOOK_AGENT", "")
-	return harness
-}
-
 // flagHarness is a hermetic config tree and vault with rtk a no-op, so only the modules under test decide.
 func flagHarness(t *testing.T) string {
 	t.Helper()
-	harness := tierHarness(t)
+	harness := hosttest.TierHarness(t)
 	t.Setenv("HARNESS_VAULT_KEY", "0123456789abcdef0123456789abcdef")
 	t.Setenv("HARNESS_RTK_BIN", "claude-test-no-such-rtk-binary")
 	t.Setenv("HARNESS_DOCS_PLACEMENT", "1")
@@ -403,10 +384,10 @@ func denied(code int, stdout string) bool {
 // `--<module>` runs exactly that module: safety-scan alone denies rm -rf /, rtk-rewrite alone does not.
 func TestHookFlagRunsExactModule(t *testing.T) {
 	flagHarness(t)
-	if code, out, errb := runFlags("PreToolUse", bashPayload("rm -rf /"), "--safety-scan"); !denied(code, out) {
+	if code, out, errb := runFlags("PreToolUse", hosttest.BashPayload("rm -rf /"), "--safety-scan"); !denied(code, out) {
 		t.Errorf("--safety-scan on rm -rf / = %d %q %q, want a deny", code, out, errb)
 	}
-	if code, out, errb := runFlags("PreToolUse", bashPayload("rm -rf /"), "--rtk-rewrite"); code != core.ExitProceed || denied(code, out) {
+	if code, out, errb := runFlags("PreToolUse", hosttest.BashPayload("rm -rf /"), "--rtk-rewrite"); code != core.ExitProceed || denied(code, out) {
 		t.Errorf("--rtk-rewrite on rm -rf / = %d %q %q, want proceed (safety-scan must not run)", code, out, errb)
 	}
 }
@@ -432,10 +413,10 @@ func TestHookFlagWrongEventErrors(t *testing.T) {
 // `--all` runs the gate; the bare dispatcher leaves it to its own process.
 func TestHookFlagAllIncludesGateBareExcludes(t *testing.T) {
 	flagHarness(t)
-	if code, out, errb := runFlags("PreToolUse", bashPayload("rm -rf /"), "--all"); !denied(code, out) {
+	if code, out, errb := runFlags("PreToolUse", hosttest.BashPayload("rm -rf /"), "--all"); !denied(code, out) {
 		t.Errorf("hook PreToolUse --all on rm -rf / = %d %q %q, want a deny", code, out, errb)
 	}
-	if code, out, errb := runFlags("PreToolUse", bashPayload("rm -rf /")); denied(code, out) {
+	if code, out, errb := runFlags("PreToolUse", hosttest.BashPayload("rm -rf /")); denied(code, out) {
 		t.Errorf("bare hook PreToolUse on rm -rf / = %d %q %q, want no deny (safety-scan is own-process)", code, out, errb)
 	}
 }
@@ -459,9 +440,9 @@ func TestHookDocsPlacementBlocksThroughDispatcher(t *testing.T) {
 
 // TestSafetyAskDocumentExactShape pins the Claude ask document: exactly one top-level key, three inner keys.
 func TestSafetyAskDocumentExactShape(t *testing.T) {
-	tierHarness(t)
+	hosttest.TierHarness(t)
 	var out, errb bytes.Buffer
-	if code := runDirect("safety-scan", bashPayload("sudo apt-get install jq"), &out, &errb); code != core.ExitProceed {
+	if code := runDirect("safety-scan", hosttest.BashPayload("sudo apt-get install jq"), &out, &errb); code != core.ExitProceed {
 		t.Fatalf("exit = %d, want 0 (stderr %s)", code, errb.String())
 	}
 	var top map[string]json.RawMessage
@@ -607,12 +588,12 @@ func TestRtkGroupIsOwnNonGateGroup(t *testing.T) {
 // The bare PreToolUse dispatcher merges the rtk rewrite and carries no permissionDecision (the gate is own-process).
 func TestRtkDispatcherBareRunsRtk(t *testing.T) {
 	rtkHermetic(t)
-	bin := fakeRTK(t)
+	bin := hosttest.FakeRTK(t)
 
 	run := func(cmd string) map[string]json.RawMessage {
 		t.Helper()
 		var out, errb strings.Builder
-		if rc := runEvent(settings.EventPreToolUse, false, strings.NewReader(rtkBashIn(cmd)), &out, &errb); rc != core.ExitProceed {
+		if rc := runEvent(settings.EventPreToolUse, false, strings.NewReader(hosttest.RTKBashIn(cmd)), &out, &errb); rc != core.ExitProceed {
 			t.Fatalf("%q: runEvent rc = %d, want ExitProceed; stderr=%q", cmd, rc, errb.String())
 		}
 		var doc map[string]json.RawMessage
@@ -643,28 +624,6 @@ func TestRtkDispatcherBareRunsRtk(t *testing.T) {
 	if raw := string(run("git push --force origin main")["hookSpecificOutput"]); strings.Contains(raw, "permissionDecision") {
 		t.Errorf("ask-tier command: bare dispatcher output carries a permissionDecision: %s", raw)
 	}
-}
-
-// fakeRTK installs a stub rtk (HARNESS_RTK_BIN) whose `rewrite <cmd>` prints FAKE_RTK_OUT or "rtk <cmd>".
-func fakeRTK(t *testing.T) string {
-	t.Helper()
-	bin := filepath.Join(t.TempDir(), "rtk")
-	script := "#!/bin/sh\n[ \"$1\" = rewrite ] || exit 9\n" +
-		"if [ -n \"$FAKE_RTK_OUT\" ]; then printf '%s' \"$FAKE_RTK_OUT\"; else printf '%s' \"rtk $2\"; fi\n" +
-		"exit ${FAKE_RTK_EXIT:-0}\n"
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv(paths.RTKBinaryEnv, bin)
-	return bin
-}
-
-func rtkBashIn(cmd string) string {
-	b, _ := json.Marshal(map[string]any{
-		"tool_name":  "Bash",
-		"tool_input": map[string]any{"command": cmd, "description": "d", "timeout": 120},
-	})
-	return string(b)
 }
 
 // wantVendorPromptDoc checks the vendor-specific shape of the paths-resolve JSON document.
@@ -748,4 +707,42 @@ func TestMain(m *testing.M) {
 	hosttest.Cleanup()
 	cleanup()
 	os.Exit(code)
+}
+
+// memoryRunners are the memory-area native entries and the memhook runner each must be.
+var memoryRunners = map[string]core.Runner{
+	"memory-start": memhook.Start, "memory-recall": memhook.Recall, "memory-update": memhook.Stop,
+	"memory-end": memhook.End, "memory-compact": memhook.Compact,
+}
+
+// Every memory-* native entry is the intended memhook runner, and no memory-* entry is missing from the map above.
+func TestNativeMemoryEntriesAreMemhookRunners(t *testing.T) {
+	for name, want := range memoryRunners {
+		if reflect.ValueOf(native[name]).Pointer() != reflect.ValueOf(want).Pointer() {
+			t.Errorf("%s: native entry is not the memhook runner", name)
+		}
+	}
+	for name := range native {
+		if _, ok := memoryRunners[name]; strings.HasPrefix(name, "memory-") && !ok {
+			t.Errorf("%s: memory-* native entry has no expected memhook runner", name)
+		}
+	}
+}
+
+// SessionStart for a UUID session with a due dream reaches the stubbed spawns, so the go test binary is never relaunched.
+func TestSessionStartMemorySpawnsAreStubbed(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cwd := t.TempDir()
+	if _, err := memory.Init(cwd); err != nil {
+		t.Fatal(err)
+	}
+	spawns := memory.StubSpawn(t, true)
+	payload := `{"hook_event_name":"SessionStart","session_id":"44444444-4444-4444-8444-444444444444","cwd":"` + cwd + `"}`
+	var out, errb strings.Builder
+	if code := runEvent("SessionStart", false, strings.NewReader(payload), &out, &errb); code != core.ExitProceed {
+		t.Fatalf("SessionStart exit %d, stderr %q", code, errb.String())
+	}
+	if spawns.Dream.Load() != 1 || spawns.Catchup.Load() != 1 {
+		t.Errorf("dream=%d catchup=%d spawn-stub hits, want 1 each", spawns.Dream.Load(), spawns.Catchup.Load())
+	}
 }

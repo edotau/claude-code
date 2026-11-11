@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 type aliasEnv struct {
@@ -172,7 +174,7 @@ func assertAliasCommit(t *testing.T, e aliasEnv, decoyHead string, before []stri
 	if len(after) <= len(before) {
 		t.Errorf("memory repo gained no commit: before %d after %d", len(before), len(after))
 	}
-	if dh := strings.TrimSpace(rawGit(t, e.cfg, "rev-parse", "HEAD")); dh != decoyHead {
+	if dh := strings.TrimSpace(hosttest.In(t, e.cfg, "rev-parse", "HEAD")); dh != decoyHead {
 		t.Errorf("decoy HEAD moved %s -> %s", decoyHead, dh)
 	}
 	if st, _ := StoreRepo().Status(); len(st) != 0 {
@@ -207,7 +209,7 @@ func assertSourceGoneAliasRecorded(t *testing.T, e aliasEnv) {
 func TestAliasFoldsSeparateStore(t *testing.T) {
 	e := newAliasEnv(t)
 	link := seedAliasFold(t, e)
-	decoyHead := strings.TrimSpace(rawGit(t, e.cfg, "rev-parse", "HEAD"))
+	decoyHead := strings.TrimSpace(hosttest.In(t, e.cfg, "rev-parse", "HEAD"))
 	before, _ := StoreRepo().Log(50)
 
 	res, err := alias(t, e, false)

@@ -3,9 +3,13 @@ package pathstest
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestFakeVendorRejectsExternalSymlinks(t *testing.T) {
@@ -79,4 +83,59 @@ func expectVendorFatal(t *testing.T, want string, run func(testing.TB)) {
 		}
 	}()
 	run(fatalVendorTB{TB: t})
+}
+
+func TestFakeVendorRefusesRealConfig(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	u, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", u.HomeDir)
+
+	tb := &fatalTB{TB: t}
+	returned := make(chan struct{}, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		FakeVendor(tb, "codex", "exit 0")
+		returned <- struct{}{}
+	}()
+	<-done
+
+	if !tb.called {
+		t.Fatal("FakeVendor did not call Fatal")
+	}
+	for _, fragment := range []string{"refusing to write", "real ~/.claude"} {
+		if !strings.Contains(tb.message, fragment) {
+			t.Errorf("Fatal message %q does not contain %q", tb.message, fragment)
+		}
+	}
+	select {
+	case <-returned:
+		t.Fatal("FakeVendor returned instead of stopping before writing")
+	default:
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if got, want := FakeVendor(t, "codex", "exit 0"), filepath.Join(paths.BinDir(), "codex"); got != want {
+		t.Fatalf("FakeVendor path = %q, want %q", got, want)
+	}
+}
+
+type fatalTB struct {
+	testing.TB
+	called  bool
+	message string
+}
+
+func (tb *fatalTB) Fatal(args ...any) {
+	tb.called = true
+	tb.message = fmt.Sprint(args...)
+	runtime.Goexit()
+}
+
+func (tb *fatalTB) Fatalf(format string, args ...any) {
+	tb.called = true
+	tb.message = fmt.Sprintf(format, args...)
+	runtime.Goexit()
 }

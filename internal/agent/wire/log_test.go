@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/paths/pathstest"
+
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -26,17 +28,7 @@ func loggedRun(t *testing.T, jobMode bool, fn func(ctx context.Context)) string 
 	}
 	fn(ctx)
 	sink.Close()
-	return readLog(t, path)
-}
-
-// readLog reads path, failing the test on error.
-func readLog(t *testing.T, path string) string {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile(%s): %v", path, err)
-	}
-	return string(b)
+	return pathstest.ReadFile(t, path)
 }
 
 // The plain-text vendor path (codex etc.) tees stdout via teeWriter: a job carrier must not tee it, a plain
@@ -97,7 +89,7 @@ func TestLogSinkModeAppendRedact(t *testing.T) {
 	_, _ = w.Write([]byte("\n"))
 	s2.Close()
 
-	got := readLog(t, path)
+	got := pathstest.ReadFile(t, path)
 	if strings.Contains(got, token) {
 		t.Errorf("log leaks the raw token: %q", got)
 	}
@@ -111,11 +103,11 @@ func TestLogSinkPartialLineFlushedOnClose(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "job.log")
 	s := NewLogSink(path)
 	_, _ = s.Stream().Write([]byte("whole\npartial"))
-	if got := readLog(t, path); got != "whole\n" {
+	if got := pathstest.ReadFile(t, path); got != "whole\n" {
 		t.Errorf("log before Close = %q, want %q", got, "whole\n")
 	}
 	s.Close()
-	if got := readLog(t, path); got != "whole\npartial\n" {
+	if got := pathstest.ReadFile(t, path); got != "whole\npartial\n" {
 		t.Errorf("log after Close = %q, want %q", got, "whole\npartial\n")
 	}
 }
@@ -157,7 +149,7 @@ func TestLogSinkConcurrentStreamsNoInterleave(t *testing.T) {
 	wg.Wait()
 	s.Close()
 
-	lines := strings.Split(strings.TrimSuffix(readLog(t, path), "\n"), "\n")
+	lines := strings.Split(strings.TrimSuffix(pathstest.ReadFile(t, path), "\n"), "\n")
 	if len(lines) != 2*n {
 		t.Fatalf("log has %d lines, want %d", len(lines), 2*n)
 	}

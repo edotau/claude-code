@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -54,12 +55,12 @@ func TestCountEditsIncludesSubagentEdits(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 1)
+	hosttest.WriteEdits(t, tr, 1)
 	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
 	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 2)
+	hosttest.WriteEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 2)
 
 	if got := countEdits(tr, countPath("sub-session")); got != 3 {
 		t.Fatalf("countEdits = %d, want 3 (1 main edit + 2 subagent edits)", got)
@@ -95,25 +96,25 @@ func TestCountEditsGitCommitWeightArmsGate(t *testing.T) {
 func TestSessionUpdateTriggerAndReupdate(t *testing.T) {
 	u := newGateRun(t)
 
-	writeEdits(t, u.tr, 2)
+	hosttest.WriteEdits(t, u.tr, 2)
 	if u.stop().Blocked {
 		t.Error("under the edit floor must proceed")
 	}
 	u.wantSpawns(0, "under the edit floor must not spawn")
-	writeEdits(t, u.tr, 3)
+	hosttest.WriteEdits(t, u.tr, 3)
 	if u.stop().Blocked {
 		t.Error("3 edits must proceed")
 	}
 	u.wantSpawns(1, "3 edits must spawn once")
-	writeEdits(t, u.tr, 20)
+	hosttest.WriteEdits(t, u.tr, 20)
 	u.stop()
 	u.wantSpawns(1, "re-update inside the cooldown")
 	stamp := stampPath("s1")
 	writeStamp(stamp, time.Now().Add(-16*time.Minute), "bg", 3)
-	writeEdits(t, u.tr, 12)
+	hosttest.WriteEdits(t, u.tr, 12)
 	u.stop()
 	u.wantSpawns(1, "re-update with fewer than 10 new edits")
-	writeEdits(t, u.tr, 13)
+	hosttest.WriteEdits(t, u.tr, 13)
 	u.stop()
 	u.wantSpawns(2, "10 new edits after the cooldown must re-update")
 	if st, _ := readStamp(stamp); st.state != "bg" || st.edits != 13 {
@@ -123,7 +124,7 @@ func TestSessionUpdateTriggerAndReupdate(t *testing.T) {
 	// SessionEnd: nothing new since the last dispatch → no spawn; new edits → final update.
 	u.end()
 	u.wantSpawns(2, "session end with no new edits spawned")
-	writeEdits(t, u.tr, 14)
+	hosttest.WriteEdits(t, u.tr, 14)
 	u.end()
 	u.wantSpawns(3, "session end with new edits must spawn")
 
@@ -138,7 +139,7 @@ func TestSessionUpdateSpawnFailureBlocksThrice(t *testing.T) {
 	t.Setenv(UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := filepath.Join(t.TempDir(), "proj")
-	writeEdits(t, tr, 5)
+	hosttest.WriteEdits(t, tr, 5)
 	StubSpawn(t, false)
 	blocks := []bool{}
 	for range 5 {
@@ -173,18 +174,18 @@ func TestPreCompactUpdatesOnlyUncoveredEdits(t *testing.T) {
 	calls := &StubSpawn(t, true).Update
 	run := func() bool { return runGate("s1", tr, cwd, TriggerPreCompact).Blocked }
 
-	writeEdits(t, tr, 0)
+	hosttest.WriteEdits(t, tr, 0)
 	if run() || calls.Load() != 0 {
 		t.Fatal("no edits must not spawn")
 	}
-	writeEdits(t, tr, 1) // below the Stop floor: a compaction still checkpoints it
+	hosttest.WriteEdits(t, tr, 1) // below the Stop floor: a compaction still checkpoints it
 	if run() || calls.Load() != 1 {
 		t.Fatalf("uncovered edit must spawn once, calls=%d", calls.Load())
 	}
 	if run(); calls.Load() != 1 {
 		t.Error("covered edits re-dispatched")
 	}
-	writeEdits(t, tr, 4)
+	hosttest.WriteEdits(t, tr, 4)
 	if run(); calls.Load() != 2 {
 		t.Errorf("new edits after the stamp must spawn again, calls=%d", calls.Load())
 	}
@@ -199,11 +200,11 @@ func TestSessionUpdateDiscussionOnly(t *testing.T) {
 	calls := &StubSpawn(t, true).Update
 	run := func() bool { return runGate("s1", tr, cwd, TriggerStop).Blocked }
 
-	writeUserTurns(t, tr, 5)
+	hosttest.WriteUserTurns(t, tr, 5)
 	if run() || calls.Load() != 0 {
 		t.Fatalf("5 user turns (2 work units) sit under the floor, calls=%d", calls.Load())
 	}
-	writeUserTurns(t, tr, 6)
+	hosttest.WriteUserTurns(t, tr, 6)
 	if run() || calls.Load() != 1 {
 		t.Fatalf("6 user turns (3 work units) must spawn once, calls=%d", calls.Load())
 	}
@@ -221,7 +222,7 @@ func TestPreCompactAndSessionEndUpdateNewUserTurns(t *testing.T) {
 	calls := &StubSpawn(t, true).Update
 	gate := func(trigger string) { runGate("s1", tr, cwd, trigger) }
 
-	writeEdits(t, tr, 3)
+	hosttest.WriteEdits(t, tr, 3)
 	if gate(TriggerPreCompact); calls.Load() != 1 {
 		t.Fatalf("3 edits must spawn at pre-compact, calls=%d", calls.Load())
 	}
@@ -255,7 +256,7 @@ func TestReadStampCatchupStateDoesNotBreakParsing(t *testing.T) {
 
 	// The Stop gate must not crash reading this stamp for a session that resumes under the same id.
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 20)
+	hosttest.WriteEdits(t, tr, 20)
 	cwd := t.TempDir()
 	StubSpawn(t, false)
 	runGate("x", tr, cwd, TriggerStop)
@@ -266,29 +267,13 @@ func TestSessionUpdateUnwritableStampFailsOpen(t *testing.T) {
 	t.Setenv(UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := filepath.Join(t.TempDir(), "proj")
-	writeEdits(t, tr, 5)
+	hosttest.WriteEdits(t, tr, 5)
 	StubSpawn(t, false)
 	if err := os.MkdirAll(filepath.Join(stampPath("s1"), "x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if g := runGate("s1", tr, cwd, TriggerStop); g.Blocked || !g.FailedOpen {
 		t.Errorf("an unwritable stamp cannot count blocks, so Stop must fail open; got %+v", g)
-	}
-}
-
-func writeEdits(t *testing.T, path string, n int) {
-	t.Helper()
-	line := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go"}}]}}` + "\n"
-	if err := os.WriteFile(path, []byte(strings.Repeat(line, n)), 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func writeUserTurns(t *testing.T, path string, n int) {
-	t.Helper()
-	line := `{"type":"user","message":{"content":"ship it"}}` + "\n"
-	if err := os.WriteFile(path, []byte(strings.Repeat(line, n)), 0o600); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -367,7 +352,7 @@ func TestCountEditsOldFormatCountFileRescansUnweightedCommit(t *testing.T) {
 func TestCountEditsThreeFieldCountFileRescansTurns(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeUserTurns(t, tr, 4)
+	hosttest.WriteUserTurns(t, tr, 4)
 	fi, err := os.Stat(tr)
 	if err != nil {
 		t.Fatal(err)
@@ -398,7 +383,7 @@ func TestCountSubagentEditsCachesUnchangedSizeRecountsGrowth(t *testing.T) {
 		t.Fatal(err)
 	}
 	agent := filepath.Join(subDir, "agent-a.jsonl")
-	writeEdits(t, agent, 2)
+	hosttest.WriteEdits(t, agent, 2)
 	size := statSize(t, agent)
 
 	edits, bytes := subagentEdits(tr, 0, 0, true)
@@ -412,7 +397,7 @@ func TestCountSubagentEditsCachesUnchangedSizeRecountsGrowth(t *testing.T) {
 		t.Fatalf("unchanged size must skip the rescan: got (%d,%d), want (999,%d)", edits2, bytes2, size)
 	}
 
-	writeEdits(t, agent, 5) // grows the file: the cached size no longer matches
+	hosttest.WriteEdits(t, agent, 5) // grows the file: the cached size no longer matches
 	size2 := statSize(t, agent)
 	if size2 == size {
 		t.Fatal("test setup: file did not grow")
@@ -451,9 +436,9 @@ func TestCountSubagentEditsGrowOneFileOnlyAdvancesItsSidecarEntry(t *testing.T) 
 	a := filepath.Join(subDir, "agent-a.jsonl")
 	b := filepath.Join(subDir, "agent-b.jsonl")
 	c := filepath.Join(subDir, "agent-c.jsonl")
-	writeEdits(t, a, 1)
-	writeEdits(t, b, 2)
-	writeEdits(t, c, 3)
+	hosttest.WriteEdits(t, a, 1)
+	hosttest.WriteEdits(t, b, 2)
+	hosttest.WriteEdits(t, c, 3)
 
 	edits, totalBytes := subagentEdits(tr, 0, 0, true)
 	if want := 1 + 2 + 3; edits != want {
@@ -463,7 +448,7 @@ func TestCountSubagentEditsGrowOneFileOnlyAdvancesItsSidecarEntry(t *testing.T) 
 	before := readSidecar(sidecar)
 	wantSidecarEdits(t, before, map[string]int{a: 1, b: 2, c: 3})
 
-	writeEdits(t, a, 4) // only a grows (overwritten with more lines, same identical-line trick as above)
+	hosttest.WriteEdits(t, a, 4) // only a grows (overwritten with more lines, same identical-line trick as above)
 	size := statSize(t, a)
 
 	edits2, totalBytes2 := subagentEdits(tr, totalBytes, edits, true)
@@ -487,7 +472,7 @@ func TestCountSubagentEditsGrowOneFileOnlyAdvancesItsSidecarEntry(t *testing.T) 
 func TestCountSubagentEditsOffsetPastFileSizeRescansFromZero(t *testing.T) {
 	tr, subDir := subagentFixture(t)
 	a := filepath.Join(subDir, "agent-a.jsonl")
-	writeEdits(t, a, 3)
+	hosttest.WriteEdits(t, a, 3)
 	fi, err := os.Stat(a)
 	if err != nil {
 		t.Fatal(err)
@@ -508,7 +493,7 @@ func TestCountSubagentEditsOffsetPastFileSizeRescansFromZero(t *testing.T) {
 func TestCountSubagentEditsGarbageSidecarTreatedAsEmpty(t *testing.T) {
 	tr, subDir := subagentFixture(t)
 	a := filepath.Join(subDir, "agent-a.jsonl")
-	writeEdits(t, a, 2)
+	hosttest.WriteEdits(t, a, 2)
 	if err := os.WriteFile(sidecarPath(subDir), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -532,8 +517,8 @@ func TestCountSubagentEditsDeletedFileDropsFromSidecar(t *testing.T) {
 	tr, subDir := subagentFixture(t)
 	a := filepath.Join(subDir, "agent-a.jsonl")
 	b := filepath.Join(subDir, "agent-b.jsonl")
-	writeEdits(t, a, 1)
-	writeEdits(t, b, 2)
+	hosttest.WriteEdits(t, a, 1)
+	hosttest.WriteEdits(t, b, 2)
 
 	edits, totalBytes := subagentEdits(tr, 0, 0, true)
 	if edits != 3 {
@@ -542,7 +527,7 @@ func TestCountSubagentEditsDeletedFileDropsFromSidecar(t *testing.T) {
 	if err := os.Remove(a); err != nil {
 		t.Fatal(err)
 	}
-	writeEdits(t, b, 5) // move the total size so the cache is invalidated and a rescan actually runs
+	hosttest.WriteEdits(t, b, 5) // move the total size so the cache is invalidated and a rescan actually runs
 
 	edits2, totalBytes2 := subagentEdits(tr, totalBytes, edits, true)
 	if totalBytes2 == totalBytes {
@@ -564,14 +549,14 @@ func TestCountSubagentEditsDeletedFileDropsFromSidecar(t *testing.T) {
 func TestCountSubagentEditsConcurrentCallsCountOnce(t *testing.T) {
 	tr, subDir := subagentFixture(t)
 	a := filepath.Join(subDir, "agent-a.jsonl")
-	writeEdits(t, a, 2)
+	hosttest.WriteEdits(t, a, 2)
 
 	edits0, bytes0 := subagentEdits(tr, 0, 0, true) // seed the sidecar
 	if edits0 != 2 {
 		t.Fatalf("seed scan edits = %d, want 2", edits0)
 	}
 
-	writeEdits(t, a, 7) // grows past the cached size: both goroutines will try the lock
+	hosttest.WriteEdits(t, a, 7) // grows past the cached size: both goroutines will try the lock
 	fi, err := os.Stat(a)
 	if err != nil {
 		t.Fatal(err)
@@ -613,11 +598,11 @@ func TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting(t *testi
 	t.Cleanup(func() { sidecarLockWait = oldWait })
 	tr, subDir := subagentFixture(t)
 	a := filepath.Join(subDir, "agent-a.jsonl")
-	writeEdits(t, a, 2)
+	hosttest.WriteEdits(t, a, 2)
 	edits0, bytes0 := subagentEdits(tr, 0, 0, true) // seed the sidecar
 	before := readSidecar(sidecarPath(subDir))
 
-	writeEdits(t, a, 9) // grows past the cached size: subagentEdits must attempt the lock
+	hosttest.WriteEdits(t, a, 9) // grows past the cached size: subagentEdits must attempt the lock
 
 	held := make(chan struct{})
 	release := make(chan struct{})
@@ -652,12 +637,12 @@ func TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting(t *testi
 func TestReadOnlyEditsMatchesCountEditsWithoutWriting(t *testing.T) {
 	dir := t.TempDir()
 	tr := filepath.Join(dir, "t.jsonl")
-	writeEdits(t, tr, 1)
+	hosttest.WriteEdits(t, tr, 1)
 	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
 	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 3)
+	hosttest.WriteEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 3)
 	countFile := filepath.Join(dir, "count")
 
 	dry := readOnlyEdits(tr, countFile)
@@ -676,7 +661,7 @@ func TestReadOnlyEditsMatchesCountEditsWithoutWriting(t *testing.T) {
 func TestCountSubagentEditsHandlesGlobError(t *testing.T) {
 	// Create a transcript path with no subagents dir — Glob will return no matches (ok state).
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 1)
+	hosttest.WriteEdits(t, tr, 1)
 
 	// No subagents dir exists — Glob should handle this gracefully.
 	edits, bytes := subagentEdits(tr, 0, 0, true)
@@ -689,7 +674,7 @@ func TestCountSubagentEditsHandlesGlobError(t *testing.T) {
 	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 3)
+	hosttest.WriteEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 3)
 
 	edits2, _ := subagentEdits(tr, 0, 0, true)
 	if edits2 != 3 {

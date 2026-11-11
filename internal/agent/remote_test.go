@@ -71,7 +71,7 @@ func TestRemoteArgvRefusals(t *testing.T) {
 // fakeSSH puts an `ssh` script with the given body on PATH, in hermetic config dirs.
 func fakeSSH(t *testing.T, body string) {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
 		t.Fatal(err)

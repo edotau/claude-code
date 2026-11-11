@@ -117,7 +117,7 @@ func TestModelRowCopilotSkipsTierPicker(t *testing.T) {
 // pickCopilotModel with the newline-separated answers and returns everything it printed.
 func runCopilotPicker(t *testing.T, reg *providers.Registry, modelID, answers string) string {
 	t.Helper()
-	putRec(t, "copilot", "MODEL", modelID)
+	vaulttest.SetRecord(t, "copilot", "model", modelID)
 	in := strings.NewReader(answers)
 	var out bytes.Buffer
 	d := &dialog{reg: reg, o: Options{In: in}, br: bufio.NewReader(in), out: &out}
@@ -224,7 +224,7 @@ func TestPickCopilotModelEffortSubPickDefaultClearsPin(t *testing.T) {
 	reg := menuTestEnv(t)
 	fakeCopilotBin(t)
 	stubCatalog(t, effortStub, nil)
-	putRec(t, "copilot", "EFFORT", "high")
+	vaulttest.SetRecord(t, "copilot", "effort", "high")
 
 	runCopilotPicker(t, reg, "stub-model-1", "1\n1\n\n")
 	if got := vault.GetAgentRecord("copilot").Effort; got != "" {
@@ -487,7 +487,7 @@ func subscriptionSelection(t *testing.T) (*providers.Registry, providers.Selecti
 	t.Helper()
 	vaulttest.Use(t)
 	t.Setenv("HOME", t.TempDir())
-	putRec(t, "claude", "PROFILE", "ultra")
+	vaulttest.SetRecord(t, "claude", "profile", "ultra")
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 	reg, err := providers.Load()
 	if err != nil {

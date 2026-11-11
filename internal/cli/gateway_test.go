@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -180,7 +179,7 @@ func TestPrintProxyStateReportsWriteError(t *testing.T) {
 // TestProxyStatusJSONReportsWriteError: a failed JSON write prints a message instead of a silent exit 1.
 func TestProxyStatusJSONReportsWriteError(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, msg := gwtStdoutFailing(t, func() int { return proxyStatus(context.Background(), "json") })
+	code, msg := captureClosedStdout(t, func() int { return proxyStatus(context.Background(), "json") })
 	if code != 1 || !strings.Contains(msg, "gateway proxy:") {
 		t.Fatalf("want exit 1 with a 'gateway proxy:' message, got %d %q", code, msg)
 	}
@@ -198,7 +197,7 @@ func TestGatewayHelpListsProxyRestart(t *testing.T) {
 // TestProxyStartReportsWriteError: a failed stdout write of the base URL is an exit 1, not a silent 0.
 func TestProxyStartReportsWriteError(t *testing.T) {
 	tokenDaemon(t, func(http.ResponseWriter, gateway.SessionRequest) {})
-	code, msg := gwtStdoutFailing(t, func() int { return proxyStart(context.Background()) })
+	code, msg := captureClosedStdout(t, func() int { return proxyStart(context.Background()) })
 	if code != 1 || !strings.Contains(msg, "gateway proxy:") {
 		t.Fatalf("want exit 1 with a 'gateway proxy:' message, got %d %q", code, msg)
 	}
@@ -679,7 +678,7 @@ func TestGatewayTokenRejectsBadArgsAndMintFailure(t *testing.T) {
 
 // TestPrintTokenWriteFailureNamesCause: a failed stdout write exits 1 with a stderr message.
 func TestPrintTokenWriteFailureNamesCause(t *testing.T) {
-	code, msg := gwtStdoutFailing(t, func() int { return printToken("cct_abc") })
+	code, msg := captureClosedStdout(t, func() int { return printToken("cct_abc") })
 	if code != 1 || !strings.Contains(msg, "gateway token: write stdout") {
 		t.Fatalf("want exit 1 with a 'gateway token: write stdout' message, got %d %q", code, msg)
 	}
@@ -700,7 +699,7 @@ func TestProxyLifecycleRejectsFailedStdout(t *testing.T) {
 			orig := gatewayStop
 			gatewayStop = func(context.Context) (gateway.State, error) { return gateway.State{PID: 4242}, nil }
 			t.Cleanup(func() { gatewayStop = orig })
-			code, msg := gwtStdoutFailing(t, func() int { return tc.run(context.Background()) })
+			code, msg := captureClosedStdout(t, func() int { return tc.run(context.Background()) })
 			if code == 0 || !strings.Contains(msg, "gateway proxy: write output:") {
 				t.Fatalf("exit %d stderr %q; want nonzero with a write-output error", code, msg)
 			}
@@ -709,21 +708,6 @@ func TestProxyLifecycleRejectsFailedStdout(t *testing.T) {
 			}
 		})
 	}
-}
-
-// gwtStdoutFailing runs fn with a dead stdout and returns its exit code and captured stderr.
-func gwtStdoutFailing(t *testing.T, fn func() int) (int, string) {
-	t.Helper()
-	full := closedFile(t)
-	r, w, _ := os.Pipe()
-	origOut, origErr := os.Stdout, os.Stderr
-	os.Stdout, os.Stderr = full, w
-	t.Cleanup(func() { os.Stdout, os.Stderr = origOut, origErr })
-	code := fn()
-	os.Stdout, os.Stderr = origOut, origErr
-	w.Close()
-	msg, _ := io.ReadAll(r)
-	return code, string(msg)
 }
 
 // closedFile is a file that fails every write, standing in for a full or broken stdout on every OS.

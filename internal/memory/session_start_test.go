@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -195,7 +196,7 @@ func TestSessionStartCatchUpUpdateChildNeverSpawns(t *testing.T) {
 		t.Fatal(err)
 	}
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 5)
+	hosttest.WriteEdits(t, tr, 5)
 	idle(t, tr, 20*time.Minute)
 	chain := filepath.Join(StateDir(), "last-session")
 	writeChain(chain, "prev3")

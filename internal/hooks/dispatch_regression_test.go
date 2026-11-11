@@ -56,10 +56,10 @@ func TestRunModuleGateBlocksUnparseablePayload(t *testing.T) {
 	if ran != len(unparseable) {
 		t.Errorf("rtk-rewrite ran %d times, want %d", ran, len(unparseable))
 	}
-	if code, _, errb := runFlags("PreToolUse", bashPayload("ls -la"), "--safety-scan"); code != core.ExitProceed {
+	if code, _, errb := runFlags("PreToolUse", hosttest.BashPayload("ls -la"), "--safety-scan"); code != core.ExitProceed {
 		t.Errorf("valid ls: exit %d stderr %q, want proceed", code, errb)
 	}
-	if code, _, errb := runFlags("PreToolUse", bashPayload("rm -rf /"), "--safety-scan"); code != core.ExitBlock || strings.Contains(errb, "unreadable") {
+	if code, _, errb := runFlags("PreToolUse", hosttest.BashPayload("rm -rf /"), "--safety-scan"); code != core.ExitBlock || strings.Contains(errb, "unreadable") {
 		t.Errorf("valid rm -rf /: exit %d stderr %q, want the scan's own block", code, errb)
 	}
 }
@@ -90,7 +90,7 @@ func TestRunEventGateBlocksUnparseablePayload(t *testing.T) {
 	if code, out, _ := runFlags("PreToolUse", strings.NewReader(unparseable[0])); !denied(code, out) || !strings.Contains(out, "unreadable hook payload") {
 		t.Errorf("hook PreToolUse on a garbled payload: exit %d stdout %q; want a deny naming the payload", code, out)
 	}
-	if code, out, errb := runFlags("PreToolUse", bashPayload("ls -la")); denied(code, out) {
+	if code, out, errb := runFlags("PreToolUse", hosttest.BashPayload("ls -la")); denied(code, out) {
 		t.Errorf("hook PreToolUse on valid ls: exit %d stdout %q stderr %q; want no deny", code, out, errb)
 	}
 }

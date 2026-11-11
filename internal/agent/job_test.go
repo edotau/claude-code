@@ -77,7 +77,7 @@ func TestResolveNoMatchErrors(t *testing.T) {
 }
 
 func TestListFiltersByAgentAndRepo(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
 	mk := func(a, repo string, offset time.Duration) {
 		r := NewRecord(a, RunOptions{Prompt: "p"}, base.Add(offset))
@@ -107,7 +107,7 @@ func TestListFiltersByAgentAndRepo(t *testing.T) {
 }
 
 func TestSpawnSetsPIDAndLogThenCancelStops(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	script := sleeperScript(t)
 	old := executable
 	executable = func() (string, error) { return script, nil }
@@ -167,7 +167,7 @@ func assertSpawnLog(t *testing.T, path string) {
 // A fast child that saves its own "ok" record immediately must not have that outcome overwritten:
 // Spawn only sets rec.PID/Log in memory for the caller's print and must never save after cmd.Start().
 func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -209,7 +209,7 @@ func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
 // Cancel must verify the PID still belongs to the job it was spawned as; a reused PID (here, a live
 // unrelated process the test itself starts) must not be signalled, and the record is marked an error.
 func TestCancelDetectsPIDReuse(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	unrelated := exec.Command("sleep", "30")
 	if err := unrelated.Start(); err != nil {
 		t.Fatalf("start unrelated process: %v", err)
@@ -300,7 +300,7 @@ func waitForTrapReady(t *testing.T, log string) {
 }
 
 func TestCancelDeadPIDReturnsNilAndMarksRecord(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	cmd := exec.Command("true")
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
@@ -320,7 +320,7 @@ func TestCancelDeadPIDReturnsNilAndMarksRecord(t *testing.T) {
 
 // A foreground record (Log=="") whose pid is live but not `ask --job` is never signalled or rewritten.
 func TestCancelForegroundRunErrorsWithoutWriting(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	rec.PID = os.Getpid() // the test process: alive, not a job
 	if err := rec.Save(); err != nil {
@@ -343,7 +343,7 @@ func TestCancelForegroundRunErrorsWithoutWriting(t *testing.T) {
 
 // A dead pid whose record already finished is left untouched; a still-running one is marked once.
 func TestCancelDeadPIDLeavesFinishedRecord(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	cmd := exec.Command("true")
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
@@ -365,7 +365,7 @@ func TestCancelDeadPIDLeavesFinishedRecord(t *testing.T) {
 }
 
 func TestCancelDeadPIDMarksRunningRecordOnce(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	cmd := exec.Command("true")
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
@@ -416,7 +416,7 @@ func TestIsJobArgvRequiresWholeArgs(t *testing.T) {
 	}
 }
 
-// fixtureRecord saves rec under a fresh CLAUDE_CONFIG_DIR scoped to t, returning the saved record.
+// fixtureRecord saves rec under the current config dir, returning the saved record.
 func fixtureRecord(t *testing.T, rec Record) Record {
 	t.Helper()
 	if err := rec.Save(); err != nil {
@@ -592,7 +592,7 @@ func TestFindAmbiguousPrefix(t *testing.T) {
 func TestCancelRejectsReusedSplitReviewPID(t *testing.T) {
 	for _, identity := range []string{"stale", "missing"} {
 		t.Run(identity, func(t *testing.T) {
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			setConfigDir(t)
 			old := executable
 			executable = func() (string, error) { return sleeperScript(t), nil }
 			t.Cleanup(func() { executable = old })
@@ -744,7 +744,7 @@ func TestSpawnArgvScrubsInheritedSecrets(t *testing.T) {
 }
 
 func TestCancelDetachedSplitReview(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	old := executable
 	executable = func() (string, error) { return sleeperScript(t), nil }
 	t.Cleanup(func() { executable = old })

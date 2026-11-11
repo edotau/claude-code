@@ -285,17 +285,7 @@ func loggedRun(t *testing.T, jobMode bool, fn func(ctx context.Context)) string 
 	}
 	fn(ctx)
 	sink.Close()
-	return readLog(t, path)
-}
-
-// readLog reads path, failing the test on error.
-func readLog(t *testing.T, path string) string {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile(%s): %v", path, err)
-	}
-	return string(b)
+	return pathstest.ReadFile(t, path)
 }
 
 func TestLogEventOpenCodeFormatted(t *testing.T) {
@@ -413,7 +403,6 @@ func setupWorkdirFixture(t *testing.T) {
 // A work --workdir must skip free Zen even when the process cwd is a personal repo.
 func TestClientPrepareWorkRepoFromWorkdirNotCwd(t *testing.T) {
 	setupWorkdirFixture(t)
-	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
 	if err := providers.UpdateRouting(func(r *providers.Routing) error {
 		r.Opencode.WorkRepoMarkers = &[]string{"git.corp.example"}
 		return nil

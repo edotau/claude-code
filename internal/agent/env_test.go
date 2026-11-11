@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths/pathstest"
+
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -105,16 +107,6 @@ func TestChildCmdScrubsVaultKeyForVendorOnly(t *testing.T) {
 	}
 }
 
-// readLog reads path, failing the test on error.
-func readLog(t *testing.T, path string) string {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile(%s): %v", path, err)
-	}
-	return string(b)
-}
-
 // TestLogSinkStdoutByteIdentical: a sink must not change what the caller's stdout receives.
 func TestLogSinkStdoutByteIdentical(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -148,7 +140,7 @@ func TestLogSinkStdoutByteIdentical(t *testing.T) {
 	if want := "alpha\nbeta\ngamma\nno-newline"; string(plain) != want {
 		t.Errorf("stdout = %q, want %q", plain, want)
 	}
-	log := readLog(t, logPath)
+	log := pathstest.ReadFile(t, logPath)
 	for _, l := range []string{"alpha\n", "beta\n", "gamma\n", "no-newline\n", "oops\n"} {
 		if !strings.Contains(log, l) {
 			t.Errorf("log %q missing %q", log, l)

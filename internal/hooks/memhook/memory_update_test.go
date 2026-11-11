@@ -11,25 +11,10 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/worktree"
 )
-
-func writeEdits(t *testing.T, path string, n int) {
-	t.Helper()
-	line := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go"}}]}}` + "\n"
-	if err := os.WriteFile(path, []byte(strings.Repeat(line, n)), 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func writeUserTurns(t *testing.T, path string, n int) {
-	t.Helper()
-	line := `{"type":"user","message":{"content":"ship it"}}` + "\n"
-	if err := os.WriteFile(path, []byte(strings.Repeat(line, n)), 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
 
 func updatePayload(tr, cwd string) string {
 	return fmt.Sprintf(`{"session_id":"s1","cwd":%q,"transcript_path":%q}`, cwd, tr)
@@ -47,7 +32,7 @@ func hookSession(t *testing.T) (tr string, payload func() *core.Input) {
 // A failed Stop spawn blocks with the live work units, never mislabeled as file edits.
 func TestFailedWorkerMessageUsesWorkUnits(t *testing.T) {
 	tr, payload := hookSession(t)
-	writeUserTurns(t, tr, 6)
+	hosttest.WriteUserTurns(t, tr, 6)
 	memory.StubSpawn(t, false)
 	for range 2 {
 		r := Stop(payload())
@@ -63,7 +48,7 @@ func TestFailedWorkerMessageUsesWorkUnits(t *testing.T) {
 // At the block cap Stop fails open once with the not-saved notice; later Stops stay quiet.
 func TestStopFailOpenSaysUpdateNotSaved(t *testing.T) {
 	tr, payload := hookSession(t)
-	writeEdits(t, tr, 5)
+	hosttest.WriteEdits(t, tr, 5)
 	memory.StubSpawn(t, false)
 	for range 3 {
 		Stop(payload())
@@ -80,7 +65,7 @@ func TestEndAndCompactDispatchOnce(t *testing.T) {
 	for name, hook := range map[string]func(*core.Input) core.Result{"End": End, "Compact": Compact} {
 		t.Run(name, func(t *testing.T) {
 			tr, payload := hookSession(t)
-			writeEdits(t, tr, 3)
+			hosttest.WriteEdits(t, tr, 3)
 			spawns := memory.StubSpawn(t, true)
 			for range 2 {
 				if r := hook(payload()); !reflect.DeepEqual(r, core.Result{}) {
@@ -116,7 +101,7 @@ func TestUpdateAppendsWorktreeLedger(t *testing.T) {
 	}
 	spawns := memory.StubSpawn(t, true)
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 3)
+	hosttest.WriteEdits(t, tr, 3)
 	if res := Stop(core.ParseInput(strings.NewReader(updatePayload(tr, dest)))); res.Decision == core.Block || spawns.Update.Load() != 1 {
 		t.Fatalf("update = %+v, spawns=%d; want not blocked and one background worker", res, spawns.Update.Load())
 	}

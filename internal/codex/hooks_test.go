@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent/agenttest"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/settings"
@@ -45,7 +47,7 @@ func readTestdata(t *testing.T, name string) []byte {
 
 // The full Codex render keeps every foreign hook group in an existing hooks.json (real pre-render bytes).
 func TestRenderCodexHooksFilePreservesForeignOnDisk(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	hooksPath := filepath.Join(home, ".codex", "hooks.json")
 	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -71,7 +73,7 @@ func TestRenderCodexHooksFilePreservesForeignOnDisk(t *testing.T) {
 
 // A malformed existing hooks.json fails the whole render before config.toml (new trust hashes) is written.
 func TestRenderCodexFailsHooksMergeLeavesConfigTomlUntouched(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	codexDir := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(codexDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -113,7 +115,7 @@ func seedCodexFile(t *testing.T, home, name string, body []byte) string {
 
 // A hooks.json changed between prepare and apply fails the render before config.toml gets new trust hashes.
 func TestRenderCodexHooksWriteConflictLeavesConfigTomlUntouched(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	originalToml := []byte("# existing config must survive a failed hooks write\n")
 	tomlPath := seedCodexFile(t, home, "config.toml", originalToml)
 	hooksPath := seedCodexFile(t, home, "hooks.json", []byte(`{"hooks":{}}`))

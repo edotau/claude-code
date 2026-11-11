@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent/agenttest"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/edotau/claude-code/internal/agent"
@@ -650,39 +651,12 @@ while IFS= read -r line; do
 done
 `
 
-// socketAccepts dials rather than stats: the socket file exists a moment before the holder listens on it.
-func socketAccepts(path string) bool {
-	c, err := net.DialTimeout("unix", path, time.Second)
-	if err != nil {
-		return false
-	}
-	_ = c.Close()
-	return true
-}
-
 // liveEnv gives the test a short /tmp config dir (a unix socket path caps at 104 bytes on macOS, 108 on Linux) holding the fake claude.
 func liveEnv(t *testing.T) { liveEnvScript(t, fakeLiveClaude) }
 
 func liveEnvScript(t *testing.T, script string) {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "lv")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	home := filepath.Join(dir, "home") // the agy target needs a Google sign-in marker; never read the developer's
-	marker := filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token")
-	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(marker, []byte("test"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", home)
-	if err := os.MkdirAll(paths.BinDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	pathstest.ShortConfigDir(t)
 	if err := os.WriteFile(filepath.Join(paths.BinDir(), "claude"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -691,34 +665,7 @@ func liveEnvScript(t *testing.T, script string) {
 // startHolder claims a live record and runs ServeLive on it; the returned func waits for the holder and its error.
 func startHolder(t *testing.T, ctx context.Context, idle time.Duration) (string, func() error) {
 	t.Helper()
-	return startHolderAs(t, ctx, "claude", idle)
-}
-
-func startHolderAs(t *testing.T, ctx context.Context, name string, idle time.Duration) (string, func() error) {
-	t.Helper()
-	rec := agent.ClaimRecord(name, agent.RunOptions{Timeout: idle}, time.Now())
-	rec.Live, rec.PID = true, os.Getpid()
-	rec.Request.Launcher = testLauncher{}
-	if err := rec.Save(); err != nil {
-		t.Fatal(err)
-	}
-	done, id := make(chan error, 1), rec.ID
-	go func() { done <- agent.ServeLive(ctx, &rec) }()
-	for range 200 {
-		if socketAccepts(agent.LiveSocket(id)) {
-			break
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	if _, err := os.Stat(agent.LiveSocket(id)); err != nil {
-		select {
-		case serveErr := <-done:
-			t.Fatalf("holder did not open its socket: %v (serve: %v)", err, serveErr)
-		default:
-			t.Fatalf("holder did not open its socket: %v", err)
-		}
-	}
-	return id, func() error { return <-done }
+	return agenttest.StartHolder(t, ctx, "claude", idle, testLauncher{})
 }
 
 type collect struct {

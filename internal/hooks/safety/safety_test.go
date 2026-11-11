@@ -108,7 +108,7 @@ func TestSafetyScanChecksExecutedHeredocBodies(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for want, commands := range map[core.Decision][]string{core.Block: heredocMustBlock, core.Ask: heredocMustAsk} {
 		for _, cmd := range commands {
-			if got, stderr := safetyScanDecision(t, bashPayload(cmd)); got != want {
+			if got, stderr := safetyScanDecision(t, hosttest.BashPayload(cmd)); got != want {
 				t.Errorf("claude shape %q: got %d want %d (%s)", cmd, got, want, stderr)
 			}
 		}
@@ -135,7 +135,7 @@ func TestSafetyScanChecksPythonHeredocBodies(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got, msg := safetyScanDecision(t, bashPayload(c.cmd)); got != c.want {
+			if got, msg := safetyScanDecision(t, hosttest.BashPayload(c.cmd)); got != c.want {
 				t.Errorf("%q: got %d want %d (%s)", c.cmd, got, c.want, msg)
 			}
 		})
@@ -179,7 +179,7 @@ var heredocDataSinkMentions = []struct {
 func TestSafetyScanBlocksHeredocDataSinkMentions(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, c := range heredocDataSinkMentions {
-		if got, stderr := safetyScanDecision(t, bashPayload(c.cmd)); got != c.want {
+		if got, stderr := safetyScanDecision(t, hosttest.BashPayload(c.cmd)); got != c.want {
 			t.Errorf("%q: got %d want %d (%s)", c.cmd, got, c.want, stderr)
 		}
 	}
@@ -190,7 +190,7 @@ func TestSafetyScanBlocksHeredocDataSinkMentions(t *testing.T) {
 func TestSafetyScanIgnoresArithmeticShift(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cmd := "echo $((1<<y))"
-	if got, msg := safetyScanDecision(t, bashPayload(cmd)); got != core.Allow {
+	if got, msg := safetyScanDecision(t, hosttest.BashPayload(cmd)); got != core.Allow {
 		t.Errorf("%q: got %d want Allow (%s)", cmd, got, msg)
 	}
 }
@@ -199,7 +199,7 @@ func TestSafetyScanIgnoresArithmeticShift(t *testing.T) {
 func TestSafetyScanBlockMessageShowsOriginalCommand(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cmd := "bash <<'EOF'\nsudo rm -rf /\nEOF"
-	got, msg := safetyScanDecision(t, bashPayload(cmd))
+	got, msg := safetyScanDecision(t, hosttest.BashPayload(cmd))
 	if got != core.Block {
 		t.Fatalf("got %d want Block", got)
 	}
@@ -211,7 +211,7 @@ func TestSafetyScanBlockMessageShowsOriginalCommand(t *testing.T) {
 func TestSafetyScanIgnoresInertMentions(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, cmd := range inertMentions {
-		if got, stderr := safetyScanDecision(t, bashPayload(cmd)); got != core.Allow {
+		if got, stderr := safetyScanDecision(t, hosttest.BashPayload(cmd)); got != core.Allow {
 			t.Errorf("%q: got %d want Allow (%s)", cmd, got, stderr)
 		}
 	}
@@ -220,7 +220,7 @@ func TestSafetyScanIgnoresInertMentions(t *testing.T) {
 func TestSafetyScanStillCatchesExecutedShapes(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, c := range stillCaught {
-		if got, stderr := safetyScanDecision(t, bashPayload(c.cmd)); got != c.want {
+		if got, stderr := safetyScanDecision(t, hosttest.BashPayload(c.cmd)); got != c.want {
 			t.Errorf("%q: got %d want %d (%s)", c.cmd, got, c.want, stderr)
 		}
 	}
@@ -275,7 +275,7 @@ func safetyBasicCases() []safetyBasicCase {
 func TestSafety(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // the test process cwd sits inside the real config tree
 	for _, c := range safetyBasicCases() {
-		if got, stderr := safetyScanDecision(t, bashPayload(c.cmd)); got != c.want {
+		if got, stderr := safetyScanDecision(t, hosttest.BashPayload(c.cmd)); got != c.want {
 			t.Errorf("%q: got %d want %d (%s)", c.cmd, got, c.want, stderr)
 		}
 	}
@@ -289,12 +289,6 @@ func TestSafety(t *testing.T) {
 
 // scanPayload runs the safety-scan runner on a hook payload.
 func scanPayload(payload io.Reader) core.Result { return Scan(core.ParseInput(payload)) }
-
-// bashPayload is a Claude-shaped Bash hook payload for cmd.
-func bashPayload(cmd string) *strings.Reader {
-	b, _ := json.Marshal(map[string]any{"tool_name": "Bash", "tool_input": map[string]string{"command": cmd}})
-	return strings.NewReader(string(b))
-}
 
 // safetyScanDecision is the runner's decision and the message a reader would see (reason plus warnings).
 func safetyScanDecision(t *testing.T, payload io.Reader) (core.Decision, string) {
@@ -339,24 +333,10 @@ func safetyAskCases(harness string) []safetyTierCase {
 	}
 }
 
-// tierHarness points HOME/CLAUDE_CONFIG_DIR at a temp config tree and neutralizes an ambient vendor env.
-func tierHarness(t *testing.T) string {
-	t.Helper()
-	home := t.TempDir()
-	harness := filepath.Join(home, ".claude")
-	if err := os.MkdirAll(harness, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", home)
-	t.Setenv("CLAUDE_CONFIG_DIR", harness)
-	t.Setenv("HARNESS_HOOK_AGENT", "")
-	return harness
-}
-
 // tierPayload is bashPayload plus the cwd the shared-tree git cases need.
 func tierPayload(cmd, cwd string) io.Reader {
 	if cwd == "" {
-		return bashPayload(cmd)
+		return hosttest.BashPayload(cmd)
 	}
 	b, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": cwd, "tool_input": map[string]string{"command": cmd}})
 	return bytes.NewReader(b)
@@ -417,7 +397,7 @@ func safetyAllowCases() []safetyTierCase {
 
 // TestSafetyTierDecisions spans all three tiers on the Claude payload shape: one row per tier member.
 func TestSafetyTierDecisions(t *testing.T) {
-	harness := tierHarness(t)
+	harness := hosttest.TierHarness(t)
 	cases := append(safetyBlockCases(), safetyAskCases(harness)...)
 	cases = append(cases, safetyAllowCases()...)
 	for _, c := range cases {
@@ -431,8 +411,8 @@ func TestSafetyTierDecisions(t *testing.T) {
 
 // TestSafetyResetHardWarnsButProceeds: git reset --hard is warn-only, so it proceeds with a WARNING on stderr.
 func TestSafetyResetHardWarnsButProceeds(t *testing.T) {
-	tierHarness(t)
-	got, stderr := safetyScanDecision(t, bashPayload("git reset --hard"))
+	hosttest.TierHarness(t)
+	got, stderr := safetyScanDecision(t, hosttest.BashPayload("git reset --hard"))
 	if got != core.Allow {
 		t.Fatalf("got %v want Allow (stderr %s)", got, stderr)
 	}
@@ -443,7 +423,7 @@ func TestSafetyResetHardWarnsButProceeds(t *testing.T) {
 
 // TestSafetyAskReasonNamesAlternative pins the hint that names the safer alternative.
 func TestSafetyAskReasonNamesAlternative(t *testing.T) {
-	harness := tierHarness(t)
+	harness := hosttest.TierHarness(t)
 	cases := []struct {
 		cmd, cwd, want string
 	}{
@@ -462,7 +442,7 @@ func TestSafetyAskReasonNamesAlternative(t *testing.T) {
 
 // TestSafetyAskFallsBackToBlockOffClaude: every ask shape blocks on codex and copilot, naming the vendor.
 func TestSafetyAskFallsBackToBlockOffClaude(t *testing.T) {
-	harness := tierHarness(t)
+	harness := hosttest.TierHarness(t)
 	askRows := safetyAskCases(harness)
 	t.Run("codex", func(t *testing.T) {
 		t.Setenv("HARNESS_HOOK_AGENT", "codex")
@@ -489,9 +469,9 @@ func TestSafetyAskFallsBackToBlockOffClaude(t *testing.T) {
 
 // TestSafetyBlockPrecedenceOverAsk: a block shape anywhere in the command beats every ask shape.
 func TestSafetyBlockPrecedenceOverAsk(t *testing.T) {
-	tierHarness(t)
+	hosttest.TierHarness(t)
 	for _, cmd := range []string{"sudo rm -rf /", "git push --force origin main && rm -rf /"} {
-		if got, stderr := safetyScanDecision(t, bashPayload(cmd)); got != core.Block {
+		if got, stderr := safetyScanDecision(t, hosttest.BashPayload(cmd)); got != core.Block {
 			t.Errorf("%q: got %v want Block (stderr %s)", cmd, got, stderr)
 		}
 	}
@@ -523,7 +503,7 @@ func TestSafetyAnyOperandGitOptionsShellDownloaders(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.cmd, func(t *testing.T) {
-			if got, stderr := safetyScanDecision(t, bashPayload(c.cmd)); got != c.want {
+			if got, stderr := safetyScanDecision(t, hosttest.BashPayload(c.cmd)); got != c.want {
 				t.Errorf("got %v want %v (stderr %s)", got, c.want, stderr)
 			}
 		})
@@ -574,7 +554,7 @@ func TestHarnessGitNotBlockedOptionsAndWrappers(t *testing.T) {
 
 // TestSafetyHarnessGitWrapperForms: value options, env -S and cd/chdir forms still reach the banned-verb check.
 func TestSafetyHarnessGitWrapperForms(t *testing.T) {
-	harness := tierHarness(t)
+	harness := hosttest.TierHarness(t)
 	cases := []struct{ cmd, cwd string }{
 		{"sudo --user root bash -c 'git stash'", harness},
 		{"timeout -s KILL 5 bash -c 'git stash'", harness},
@@ -739,7 +719,7 @@ func TestSafetyScanBlocksAttributionFooterCommit(t *testing.T) {
 	otherRepo := t.TempDir() // not the harness tree: the contract is "in any repo"
 	for _, c := range attributionScanCases(otherRepo) {
 		t.Run(c.name, func(t *testing.T) {
-			res := scanPayload(bashPayload(c.cmd))
+			res := scanPayload(hosttest.BashPayload(c.cmd))
 			if res.Decision != c.want {
 				t.Errorf("%q: got %d want %d (reason=%s)", c.cmd, res.Decision, c.want, res.Reason)
 			}

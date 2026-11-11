@@ -9,6 +9,9 @@ import (
 	"syscall"
 )
 
+// preserveIn and preserveOut are the descriptors Preserve snapshots and checks; tests point them at a pty.
+var preserveIn, preserveOut = 0, 1
+
 // RunAttached runs argv on this process's stdin/stdout/stderr. While it runs, the terminal signals (SIGINT, and
 // SIGQUIT) are caught and dropped here, so Ctrl-C reaches only the child; afterwards they behave as before.
 // Returns (false, nil) on success, (true, nil) when the child died from a signal, (false, err) otherwise.

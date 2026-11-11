@@ -8,7 +8,7 @@ same file; collisions surface as a red build or a commit that carries another se
 
 - List what else is live: `git status --short` (uncommitted files you didn't write), other sessions'
   `plans/*.md`, and `claude-code agents tree` for peers in the same checkout.
-- Check each task's `owns:` files against that list. Registry-shaped files (`internal/schemas/ledger_test.go`,
+- Check each task's `owns:` files against that list. Registry-shaped files (`internal/schemas/schemas_test.go`,
   `internal/settings/hookspec.go`, `internal/providers/defaults.json`) are edited by every lane that adds an
   entry; assume they overlap.
 - Name each overlap in the plan's Risks with the holder and who goes first, or message the peer to agree an
@@ -42,7 +42,7 @@ leaf claiming each overlapping file.
 
 ## Registry files: the orchestrator owns them
 
-Files every lane appends to (`internal/schemas/ledger_test.go`, `internal/schemas/testdata/registry.golden`,
+Files every lane appends to (`internal/schemas/schemas_test.go`, `internal/schemas/testdata/registry.golden`,
 `internal/settings/hookspec.go`, `internal/hooks/dispatch.go`'s handler map, `rules/harness/hooks.md`) are never in a
 leaf's `owns:`. The leaf's report carries its entry as a fenced block (file, anchor line, exact text); main applies
 every lane's entries in one commit after the leaves land. Leaves share the tree by default; one that must compile
@@ -71,6 +71,6 @@ stayed intact, local `main` diverged, and any commit by either session would hav
 ## Incident (2026-10-30)
 
 A cleanup lane and the agent refactor both edited `internal/schemas/writers_test.go`
-(now `internal/schemas/ledger_test.go`). A commit by path swept the
+(now `internal/schemas/schemas_test.go`). A commit by path swept the
 refactor's three unpushed registry keys into `a32139a6`, and `origin/main` went red on `TestWriters` until the
 refactor's commit landed. A clean-archive check without `-count=1` had passed; the same check with it failed.

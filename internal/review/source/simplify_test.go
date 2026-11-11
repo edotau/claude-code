@@ -35,11 +35,8 @@ func gitFixture(t *testing.T) string {
 	dir := hosttest.Repo(t)
 	writeFx(t, dir, "fx.go", cleanGo)
 	writeFx(t, dir, "notes.txt", "a\n")
-	for _, a := range [][]string{{"add", "."}, {"commit", "-q", "-m", "init"}} {
-		if out, err := exec.Command("git", append([]string{"-C", dir}, a...)...).CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", a, err, out)
-		}
-	}
+	hosttest.In(t, dir, "add", ".")
+	hosttest.In(t, dir, "commit", "-q", "-m", "init")
 	t.Chdir(dir)
 	return dir
 }

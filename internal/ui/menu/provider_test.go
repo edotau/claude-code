@@ -7,14 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -234,22 +233,11 @@ func TestAllLine(t *testing.T) {
 	}
 }
 
-// captureStderr swaps os.Stderr for a pipe while fn runs.
+// captureStderr returns what fn wrote to os.Stderr.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
-	old := os.Stderr
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stderr = w
-	done := make(chan string)
-	go func() { b, _ := io.ReadAll(r); done <- string(b) }()
-	func() {
-		defer func() { os.Stderr = old; _ = w.Close() }()
-		fn()
-	}()
-	return <-done
+	_, _, stderr := hosttest.CaptureOutput(t, func() int { fn(); return 0 })
+	return stderr
 }
 
 // outSignin is a needs-login sign-in whose Login writes a marker to the writer it is handed.

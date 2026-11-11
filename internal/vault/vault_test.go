@@ -32,10 +32,31 @@ import (
 
 // useZeroRootVault points the package at a fresh TempDir vault with HARNESS_VAULT_KEY fixed to 32
 // zero bytes, mirroring vaulttest.Use (unusable here: vaulttest imports this package).
-func useZeroRootVault(t *testing.T) {
+func useZeroRootVault(t *testing.T) string {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	t.Setenv("CLAUDE_PROFILE", "") // the launching session's marker must not steer a hermetic vault
+	return dir
+}
+
+// useKeyringVault is a fresh vault whose master key resolves through an in-memory keyring, not the env var.
+func useKeyringVault(t *testing.T) (string, *specKeyring) {
+	t.Helper()
+	dir := useZeroRootVault(t)
+	t.Setenv("HARNESS_VAULT_KEY", "")
+	ring := &specKeyring{values: make(map[string]string)}
+	useSpecKeyring(t, ring)
+	return dir, ring
+}
+
+// putVault writes one raw bucket value.
+func putVault(t *testing.T, bucket, key, val string) {
+	t.Helper()
+	if err := Update(func(tx *Tx) error { return tx.Put(bucket, key, val) }); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // buildManualKey constructs a Key the same way parseKey does (HKDF subkey, AES-GCM with a random

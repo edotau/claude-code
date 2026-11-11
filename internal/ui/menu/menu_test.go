@@ -23,7 +23,7 @@ import (
 // Given a routed agent, when check/dry-run reports it, then neither router boundary is called.
 func TestRunAgentsReadOnlyNeverConfiguresRouter(t *testing.T) {
 	reg := menuTestEnv(t)
-	putRec(t, "claude", "PROFILE", "openai")
+	vaulttest.SetRecord(t, "claude", "profile", "openai")
 	t.Setenv("OPENAI_API_KEY", "synthetic-openai-key")
 	origEnsure, origSecret := agent.EnsureRouter, agent.RouterSecret
 	t.Cleanup(func() { agent.EnsureRouter, agent.RouterSecret = origEnsure, origSecret })

@@ -18,7 +18,7 @@ import (
 
 // An explicit backend stays one dispatch, records its own quota failure, and is skipped without an attempt after.
 func TestExplicitChainRecordsAndGates(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	codex := &fakeRunner{name: "codex", errs: []error{errors.New("insufficient_quota: you exceeded your current quota")}, emptyAnswer: true}
 	req := RunOptions{Prompt: "p", Provider: "openai"}
 	c := explicitChain(codex, req)
@@ -42,7 +42,7 @@ func TestExplicitChainRecordsAndGates(t *testing.T) {
 
 // --native opencode leads on opencode's own config, ahead of (and instead of) the hub cell.
 func TestRouteChainNativeOpencodeLeads(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	all := router.PickOpts{Configured: allConfigured}
 	c, _, err := RouteChainFor(context.Background(), "opencode", "sonnet", "", router.FallbackAll, true, all)
 	if err != nil {
@@ -65,7 +65,7 @@ func TestRouteChainNativeOpencodeLeads(t *testing.T) {
 // A codex dispatch asked at sonnet never inherits opus's effort.
 func TestRequestedAliasSurvivesSharedModel(t *testing.T) {
 	vaulttest.UseKeyring(t)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	t.Setenv("HOME", t.TempDir())
 	activateAgents(t, "codex")
 	if got := codexEffortAt(t, "opus"); got != "high" {
@@ -249,7 +249,7 @@ func TestModelRow(t *testing.T) {
 
 // A non-Claude id keeps matching agents, with Claude last at the lowest alias serving the id.
 func TestRouteChainForNonClaudeIDIsExact(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	all := router.PickOpts{Configured: allConfigured}
 	vaulttest.Use(t)
 	activateAgents(t, "codex")
@@ -272,7 +272,7 @@ func TestRouteChainForNonClaudeIDIsExact(t *testing.T) {
 
 // An alias-less older row runs its own cell on every agent, not the current alias's.
 func TestRouteChainForCanonicalRowUsesItsCell(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	all := router.PickOpts{Configured: allConfigured}
 	c, _, err := RouteChainFor(context.Background(), "copilot", "claude-sonnet-5.5", "", router.FallbackAll, false, all)
 	if err != nil {
@@ -321,7 +321,7 @@ var servedCand = router.Candidate{Agent: "codex", Profile: "dev", Account: "data
 
 // A plain 429 (no quota wording) that exhausts the retries holds the account out of the picks for 10 minutes.
 func TestRateLimitedHopMarksAccount(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	b, m := retry.DefaultBaseDelay, retry.DefaultMaxDelay
 	retry.DefaultBaseDelay, retry.DefaultMaxDelay = time.Millisecond, 2*time.Millisecond
 	t.Cleanup(func() { retry.DefaultBaseDelay, retry.DefaultMaxDelay = b, m })
@@ -581,7 +581,7 @@ func TestCallerExactIDServedOnLeadProfile(t *testing.T) {
 func isCopilotDevSkip(s string) bool { return strings.HasPrefix(s, "copilot (databricks·dev):") }
 
 func TestDiscoveryRetryModelSkipsFailedAndStaysOnPool(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, "discovery-models", `["m-a","m-b"]`) }); err != nil {
 		t.Fatal(err)
 	}

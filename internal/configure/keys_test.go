@@ -395,7 +395,7 @@ func TestVendorKeyTargetGeminiGoogleLoginRotateWiring(t *testing.T) {
 // the switch flipping off -> on warms the cache even though no pin changed.
 func TestWarmServedOnFlipOn(t *testing.T) {
 	n := servedHarness(t, true)
-	putRec(t, "claude", "PROFILE", "qa")
+	vaulttest.SetRecord(t, "claude", "profile", "qa")
 	var out bytes.Buffer
 	WarmServedOnChange(&out, false, testRoutingPins(t), false)
 	if *n == 0 || !cached(t) {
@@ -412,7 +412,7 @@ func TestWarmServedOnPinChangeOnly(t *testing.T) {
 	if *n != 0 {
 		t.Fatalf("unchanged pins and switch warmed: %d requests", *n)
 	}
-	putRec(t, "claude", "PROFILE", "qa")
+	vaulttest.SetRecord(t, "claude", "profile", "qa")
 	WarmServedOnChange(&out, false, before, true)
 	if *n == 0 || !cached(t) {
 		t.Fatalf("pin change made %d requests, cached=%v, want a warmed cache", *n, cached(t))
@@ -423,7 +423,7 @@ func TestWarmServedOnPinChangeOnly(t *testing.T) {
 func TestWarmServedSwitchOffNeverWarms(t *testing.T) {
 	n := servedHarness(t, false)
 	before := testRoutingPins(t)
-	putRec(t, "claude", "PROFILE", "qa")
+	vaulttest.SetRecord(t, "claude", "profile", "qa")
 	WarmServedOnChange(&bytes.Buffer{}, false, before, false)
 	if *n != 0 || cached(t) {
 		t.Fatalf("switch off: %d requests, cached=%v", *n, cached(t))
@@ -434,7 +434,7 @@ func TestWarmServedSwitchOffNeverWarms(t *testing.T) {
 func TestWarmServedSkippedForCheckAndDryRun(t *testing.T) {
 	n := servedHarness(t, true)
 	before := testRoutingPins(t)
-	putRec(t, "claude", "PROFILE", "qa")
+	vaulttest.SetRecord(t, "claude", "profile", "qa")
 	WarmServedOnChange(&bytes.Buffer{}, true, before, false)
 	if *n != 0 || cached(t) {
 		t.Fatalf("skip=true: %d requests, cached=%v", *n, cached(t))
@@ -663,12 +663,4 @@ func hasLabel(ts []KeyTarget, label string) bool {
 		}
 	}
 	return false
-}
-
-// putRec sets one field of agent's vault record (a vault.AgentRecord.WithPin field name).
-func putRec(t *testing.T, agent, field, val string) {
-	t.Helper()
-	if err := vault.SetAgentRecord(agent, vault.GetAgentRecord(agent).WithPin(field, val)); err != nil {
-		t.Fatal(err)
-	}
 }

@@ -85,7 +85,7 @@ func (h *codexHang) Run(ctx context.Context, _ RunOptions, _ wire.Sink) (wire.Re
 
 // A flag the agent lacks is dropped from the request and named in Dropped, whichever flag it is.
 func TestRunDropsFlagsAgentLacks(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	cases := []struct {
 		name string
 		req  RunOptions
@@ -116,7 +116,7 @@ func (f *noteRunner) Run(ctx context.Context, req RunOptions, w wire.Sink) (wire
 
 // The envelope keeps the run's own emulated entries and the vendor's note, run-level first.
 func TestRunKeepsVendorEmulatedNotes(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	f := &noteRunner{fakeRunner{caps: Caps{Model: Native, SystemPrompt: Emulated}, errs: []error{nil}}}
 	res, err := Run(context.Background(), f, RunOptions{Prompt: "p", SystemPrompt: "sys"}, wire.Discard, nil)
 	if want := []string{"--system-prompt", "vendor-note"}; err != nil || !reflect.DeepEqual(res.Emulated, want) {
@@ -126,7 +126,7 @@ func TestRunKeepsVendorEmulatedNotes(t *testing.T) {
 
 // Streamed text or a tool call that may have had effects vetoes the retry: one attempt, Progressed set.
 func TestRunProgressVetoesRetry(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	text := &fakeRunner{write: "partial", errs: []error{errors.New("HTTP 503 overloaded"), nil}}
 	tool := &toolRunner{}
 	cases := []struct {
@@ -152,7 +152,7 @@ func TestRunProgressVetoesRetry(t *testing.T) {
 // A hard-quota 429 (this key cannot use the model) demotes the alias for the retry instead of waiting it out.
 func TestRunDemotesSlotOnHardQuota(t *testing.T) {
 	fastDefaultBackoff(t)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	hard := errors.New("HTTP 429: You exceeded your current quota. Quota exceeded for metric: requests, limit: 0, model: big")
 	f := &fakeRunner{caps: Caps{Model: Native}, errs: []error{hard, nil}}
 	var notes []string
@@ -192,7 +192,7 @@ func assertQuotaNoDemote(t *testing.T, acctErr error) {
 
 func TestRunQuotaAccountExhaustedDoesNotDemote(t *testing.T) {
 	fastDefaultBackoff(t)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	assertQuotaNoDemote(t, errors.New("HTTP 402 payment required: you have exceeded your monthly quota"))
 
 	// A body carrying BOTH the 402/payment-required account marker AND a model-denied marker
@@ -205,7 +205,7 @@ func TestRunQuotaAccountExhaustedDoesNotDemote(t *testing.T) {
 // branch was removed as redundant); Do's own AttemptTimeout-is-terminal path is the only one left, and it
 // must classify a hung call to KindFatal wrapping context.DeadlineExceeded the same whether Tools was on.
 func TestRunTimeoutEndsKindFatalRegardlessOfTools(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	for _, tools := range []bool{true, false} {
 		t.Run(fmt.Sprintf("Tools=%v", tools), func(t *testing.T) {
 			hang := newCodexHang()
@@ -219,7 +219,7 @@ func TestRunTimeoutEndsKindFatalRegardlessOfTools(t *testing.T) {
 }
 
 func TestRunStatusAndAttempts(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	fastDefaultBackoff(t)
 	dl := context.DeadlineExceeded
 	cases := []struct {
@@ -671,7 +671,7 @@ func TestOverlayInheritModelIsNone(t *testing.T) {
 
 // Record resolves the selector to its agent but, unlike Prepare, never routes or applies the rubric.
 func TestClientRecordSkipsRouting(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	defs, err := ParseAgents(`{"sec":{"prompt":"p","agent":"codex"}}`)
 	if err != nil {
 		t.Fatal(err)
@@ -691,7 +691,7 @@ func TestClientRecordSkipsRouting(t *testing.T) {
 // sub-pick's gates turn on the work-repo rule alone, not on missing credentials.
 func setupWorkdirFixture(t *testing.T) {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	pathstest.FakeVendor(t, "opencode", `printf '%s\n' '{"type":"text","part":{"text":"ok"}}'`)
 	t.Setenv("OPENCODE_API_KEY", "test-key")
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
@@ -748,7 +748,7 @@ func (b *burstRunner) Run(ctx context.Context, _ RunOptions, w wire.Sink) (wire.
 
 func streamPrepared(t *testing.T, r Engine) *Prepared {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	return &Prepared{Opts: RunOptions{Agent: "fake", Prompt: "p"}, Record: ClaimRecord("fake", RunOptions{Prompt: "p"}, time.Now()), Chain: Single(r)}
 }
 
@@ -841,7 +841,7 @@ func TestStreamStalledConsumerCancelsRun(t *testing.T) {
 
 // Given Prepare fails, Then the stream carries one failure result and closes.
 func TestStreamPrepareFailureYieldsOneResult(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	ch := (&Client{}).Stream(context.Background(), RunOptions{Agent: "no-such-agent", Prompt: "p"})
 	results, last := drainEvents(ch)
 	if results != 1 || last.Type != wire.EventResult || last.Status != wire.StatusError {
@@ -874,7 +874,7 @@ func TestClientRouteCarriesLeadToThePick(t *testing.T) {
 
 // Given a pack file that cannot be written, Then Exec fails and the claimed record leaves running.
 func TestExecPackWriteFailureFinishesRecord(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	rec := ClaimRecord("claude", RunOptions{}, time.Now())
 	p := &Prepared{Record: rec, pack: &packFile{path: filepath.Join(t.TempDir(), "missing", "pack.md"), body: "x"}}
 	res, err := (&Client{}).Exec(context.Background(), p, wire.Discard, RunRecordedOpts{})

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent/agenttest"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	_ "github.com/edotau/claude-code/internal/gemini"
@@ -31,7 +33,7 @@ func TestCodexCredStoreKeyIgnoresMultilineInstructions(t *testing.T) {
 
 // Approval/sandbox top-level keys land before the first [table] header and a second render is byte-identical.
 func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	path := filepath.Join(home, ".codex", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -107,7 +109,7 @@ func topLevelKeyCount(content, key string) int {
 
 // The banner replaces a top-level approval_policy (no duplicate) and leaves one inside [profiles.x] alone.
 func TestCodexBannerReplacesExistingTopLevelPermissionKeys(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	path := filepath.Join(home, ".codex", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -136,57 +138,6 @@ func TestCodexBannerReplacesExistingTopLevelPermissionKeys(t *testing.T) {
 	}
 	if !strings.Contains(content, "[profiles.x]") || !strings.Contains(content, "approval_policy = \"untrusted\"") {
 		t.Errorf("profiles.x table's approval_policy must stay intact:\n%s", content)
-	}
-}
-
-// scratch sets CLAUDE_CONFIG_DIR to its own temp dir, a keyed provider as default (so every vendor
-// renders instead of skipping), and returns the vendor-config home dir.
-func scratch(t *testing.T) string {
-	t.Helper()
-	configDir := vaulttest.Use(t)
-	home := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
-	t.Setenv("GEMINI_CLI_HOME", filepath.Join(home, ".gemini-cli-home-unused"))
-	t.Setenv("CODEX_HOME", filepath.Join(home, "codex-home-unused"))
-	// Isolated from the real machine's opencode auth.json/opencode.jsonc (ResolveTarget probes both unconditionally).
-	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("PATH", t.TempDir()) // no real opencode: a 2.x CLI would report its own logins instead of auth.json
-	t.Setenv("HARNESS_PROVIDER", "")
-	t.Setenv("GEMINI_API_KEY", "sk-test-gemini")
-	t.Setenv("OPENROUTER_API_KEY", "sk-test-openrouter")
-	t.Setenv("OPENAI_API_KEY", "")
-	t.Cleanup(agent.StubRouter("http://127.0.0.1:9999"))
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	overlay := `{"default": "openai"}`
-	t.Setenv("OPENAI_API_KEY", "sk-test-openai")
-	vaulttest.Put(t, vault.Overlay, "providers", overlay)
-	if err := os.MkdirAll(filepath.Join(configDir, "agents"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(configDir, "CLAUDE.md"), []byte("# CLAUDE.md\n\nfixture\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return home
-}
-
-// assertNotExist reports each path that exists though it must not.
-func assertNotExist(t *testing.T, why string, ps ...string) {
-	t.Helper()
-	for _, p := range ps {
-		if _, err := os.Stat(p); !os.IsNotExist(err) {
-			t.Errorf("%s: %s, stat err = %v", p, why, err)
-		}
-	}
-}
-
-// assertExists reports each path that is missing though it must exist.
-func assertExists(t *testing.T, why string, ps ...string) {
-	t.Helper()
-	for _, p := range ps {
-		if _, err := os.Stat(p); err != nil {
-			t.Errorf("%s: %s: %v", p, why, err)
-		}
 	}
 }
 
@@ -223,7 +174,7 @@ func assertForeignCodexKept(t *testing.T, got string) {
 
 func assertCodexBackupKept(t *testing.T, codexPath string) {
 	t.Helper()
-	assertNotExist(t, "plaintext backup must not be written", codexPath+".backup")
+	agenttest.AssertNotExist(t, "plaintext backup must not be written", codexPath+".backup")
 	backup, found, err := LatestCodexBackup(codexPath)
 	if err != nil || !found {
 		t.Fatalf("encrypted backup missing: found=%v err=%v", found, err)
@@ -234,7 +185,7 @@ func assertCodexBackupKept(t *testing.T, codexPath string) {
 }
 
 func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
 	writeForeign(t, codexPath, foreignCodex)
 	// opencode's own config is never touched: foreign content must survive byte-for-byte.
@@ -261,13 +212,13 @@ func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 	if string(ocGot) != foreignOC {
 		t.Errorf("opencode's own config was touched: got %q, want untouched %q", ocGot, foreignOC)
 	}
-	assertExists(t, "overlay was not written to state/harness/opencode", filepath.Join(paths.StateDir(), "opencode", "opencode.json"))
+	agenttest.AssertExists(t, "overlay was not written to state/harness/opencode", filepath.Join(paths.StateDir(), "opencode", "opencode.json"))
 }
 
 // A user-set cli_auth_credentials_store outside the managed banner is kept verbatim, and the render
 // reports it rather than silently overwriting a value the user chose for themselves.
 func TestCodexCredStoreKeyUserValueKept(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(codexPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -298,7 +249,7 @@ func TestCodexCredStoreKeyUserValueKept(t *testing.T) {
 // TestVendorBaselineSeededOnFirstWrite: with no prior baseline, the first write seeds one matching
 // exactly what was written — today's behavior, now backed by an on-disk comparison basis for next time.
 func TestVendorBaselineSeededOnFirstWrite(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
 	if _, err := agent.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
@@ -319,7 +270,7 @@ func TestVendorBaselineSeededOnFirstWrite(t *testing.T) {
 // TestVendorBaselineSeededWhenUnchanged: a file already current but with no baseline (installed before
 // baselines existed) gets one, so a later hand edit is still detected.
 func TestVendorBaselineSeededWhenUnchanged(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
 	opts := func() agentconfig.RenderOptions {
 		return agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}
@@ -355,7 +306,7 @@ func TestVendorBaselineSeededWhenUnchanged(t *testing.T) {
 // TestLostLineNonInteractiveOverwritesWithWarning: a hand edit inside the managed banner, re-rendered
 // non-interactively (Confirm nil — matches launch/configure/make install), writes anyway and warns.
 func TestLostLineNonInteractiveOverwritesWithWarning(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
 	if _, err := agent.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
@@ -390,7 +341,7 @@ func TestLostLineNonInteractiveOverwritesWithWarning(t *testing.T) {
 // TestConfirmFalseKeepsFile: an interactive caller's Confirm declining the overwrite leaves the file
 // (and its hand edit) untouched.
 func TestConfirmFalseKeepsFile(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
 	if _, err := agent.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
@@ -418,7 +369,7 @@ func TestConfirmFalseKeepsFile(t *testing.T) {
 // TestConfirmTrueWrites: an interactive caller's Confirm accepting the overwrite writes through,
 // same as the non-interactive path, but by explicit choice rather than by default.
 func TestConfirmTrueWrites(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
 	if _, err := agent.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
@@ -441,7 +392,7 @@ func TestConfirmTrueWrites(t *testing.T) {
 
 // TestCheckListsLostLinesWritesNothing: --check reports the lost line without touching the file.
 func TestCheckListsLostLinesWritesNothing(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
 	if _, err := agent.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
@@ -536,7 +487,7 @@ func tamperCodexConfig(t *testing.T, path string) string {
 }
 
 func TestCheckExitsOnDriftAndWritesNothing(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	var out bytes.Buffer
 	if drift, err := agent.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Check: true, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -544,7 +495,7 @@ func TestCheckExitsOnDriftAndWritesNothing(t *testing.T) {
 		t.Fatal("expected drift=true against an empty home")
 	}
 	path := filepath.Join(home, ".codex", "config.toml")
-	assertNotExist(t, "--check must write nothing", path)
+	agenttest.AssertNotExist(t, "--check must write nothing", path)
 
 	// Write it for real, then hand-edit the managed block and confirm --check reports drift again.
 	if _, err := agent.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
@@ -569,7 +520,7 @@ func TestCheckExitsOnDriftAndWritesNothing(t *testing.T) {
 }
 
 func TestDryRunWritesNothing(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	var out bytes.Buffer
 	drift, err := agent.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, DryRun: true, Agents: []string{"codex", "opencode", "gemini"}})
 	if err != nil {
@@ -587,7 +538,7 @@ func TestDryRunWritesNothing(t *testing.T) {
 }
 
 func TestCodexOnOwnLoginSkipsInsteadOfFailing(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"default": "chatgpt"}`)
 	codexHome := os.Getenv("CODEX_HOME")
 	if err := os.MkdirAll(codexHome, 0o755); err != nil {
@@ -601,7 +552,7 @@ func TestCodexOnOwnLoginSkipsInsteadOfFailing(t *testing.T) {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 	// Own login no longer fully "skips": the model_providers block is skipped, but approval/sandbox
-	// keys (vendorconfig, independent of login type) still render.
+	// keys (agentconfig, independent of login type) still render.
 	if !strings.Contains(out.String(), "codex: chatgpt runs on codex's own login; writing approval/sandbox keys only") {
 		t.Fatalf("want the own-login codex report line, got:\n%s", out.String())
 	}
@@ -616,7 +567,7 @@ func TestCodexOnOwnLoginSkipsInsteadOfFailing(t *testing.T) {
 	if !strings.Contains(string(raw), "[hooks.state.") {
 		t.Fatalf("own-login codex should still get hook trust entries:\n%s", raw)
 	}
-	// Top-level approval/sandbox keys are vendorconfig's, independent of login type: written even here.
+	// Top-level approval/sandbox keys are agentconfig's, independent of login type: written even here.
 	if !strings.Contains(string(raw), "approval_policy") || !strings.Contains(string(raw), "sandbox_mode") {
 		t.Fatalf("own-login codex should still get approval_policy/sandbox_mode:\n%s", raw)
 	}

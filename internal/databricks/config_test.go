@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 const exHost = "https://example.cloud.databricks.com"
@@ -22,7 +24,7 @@ func noTokens(t *testing.T, s string) {
 
 func TestConfigStdoutClaudeAndCodex(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, out, _ := runCaptured(t, func() int {
+	code, out, _ := hosttest.CaptureOutput(t, func() int {
 		return config([]string{"claude", "--host", exHost, "--wire", "serving", "--auth", "cli", "--set", "FOO=1", "--unset", "ENABLE_TOOL_SEARCH"})
 	})
 	if code != 0 {
@@ -37,7 +39,7 @@ func TestConfigStdoutClaudeAndCodex(t *testing.T) {
 	if strings.Contains(out, "ENABLE_TOOL_SEARCH") {
 		t.Error("unset ignored")
 	}
-	code, out, _ = runCaptured(t, func() int {
+	code, out, _ = hosttest.CaptureOutput(t, func() int {
 		return config([]string{"codex", "--host", exHost, "--auth", "cli"})
 	})
 	if code != 0 || !strings.Contains(out, "[model_providers.databricks.auth]") || !strings.Contains(out, exHost+"/serving-endpoints") {
@@ -47,7 +49,7 @@ func TestConfigStdoutClaudeAndCodex(t *testing.T) {
 }
 
 func TestConfigGatewayNoteOnStderr(t *testing.T) {
-	_, out, errOut := runCaptured(t, func() int {
+	_, out, errOut := hosttest.CaptureOutput(t, func() int {
 		return config([]string{"claude", "--host", exHost, "--wire", "ai-gateway", "--auth", "cli"})
 	})
 	if !strings.Contains(errOut, "budget-denied") || strings.Contains(out, "budget-denied") {
@@ -72,7 +74,7 @@ func TestConfigRefusals(t *testing.T) {
 		"http host":   {"claude", "--host", "http://example.com", "--auth", "cli"},
 	}
 	for name, a := range cases {
-		code, out, _ := runCaptured(t, func() int { return config(a) })
+		code, out, _ := hosttest.CaptureOutput(t, func() int { return config(a) })
 		if code != 2 {
 			t.Errorf("%s: code %d", name, code)
 		}
@@ -125,7 +127,7 @@ func TestRescuePrintNeverExecs(t *testing.T) {
 	fakeClaudeOnPath(t)
 	f := &fakeChild{}
 	useFake(t, f)
-	code, out, _ := runCaptured(t, func() int { return rescue([]string{"--host", exHost, "--print", "--", "-p", "hi"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return rescue([]string{"--host", exHost, "--print", "--", "-p", "hi"}) })
 	if code != 0 {
 		t.Fatalf("code %d", code)
 	}
@@ -157,7 +159,7 @@ func TestRescueRunsThroughSeamWithScrubbedEnv(t *testing.T) {
 	t.Setenv("HARNESS_OPUS_MODEL", "leak")
 	f := &fakeChild{code: 7}
 	useFake(t, f)
-	code, _, _ := runCaptured(t, func() int { return rescue([]string{"--host", exHost, "--", "-p", "hi"}) })
+	code, _, _ := hosttest.CaptureOutput(t, func() int { return rescue([]string{"--host", exHost, "--", "-p", "hi"}) })
 	if code != 7 || len(f.calls) != 1 {
 		t.Fatalf("code %d calls %d", code, len(f.calls))
 	}
@@ -182,7 +184,7 @@ func TestRescueRefusals(t *testing.T) {
 		"non-claude": {"--host", exHost, "--model", "gpt-5.5"},
 		"bad wire":   {"--host", exHost, "--wire", "x"},
 	} {
-		if code, _, _ := runCaptured(t, func() int { return rescue(a) }); code != 2 {
+		if code, _, _ := hosttest.CaptureOutput(t, func() int { return rescue(a) }); code != 2 {
 			t.Errorf("%s: %d", name, code)
 		}
 	}
@@ -190,7 +192,7 @@ func TestRescueRefusals(t *testing.T) {
 		t.Error("refused rescue spawned")
 	}
 	t.Setenv("PATH", t.TempDir())
-	if code, _, _ := runCaptured(t, func() int { return rescue([]string{"--host", exHost}) }); code != 2 || len(f.calls) != 0 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return rescue([]string{"--host", exHost}) }); code != 2 || len(f.calls) != 0 {
 		t.Errorf("missing claude: %d", code)
 	}
 }
@@ -207,7 +209,7 @@ func rescueScratch(t *testing.T, spawnErr error) (path string, existedDuring boo
 		return 3, spawnErr
 	}
 	t.Cleanup(func() { spawn = old })
-	code, _, _ = runCaptured(t, func() int { return rescue([]string{"--host", exHost}) })
+	code, _, _ = hosttest.CaptureOutput(t, func() int { return rescue([]string{"--host", exHost}) })
 	t.Cleanup(func() { os.Remove(path) })
 	return path, existedDuring, code
 }
