@@ -21,11 +21,11 @@ import (
 
 // RepoRoot is the main checkout root for cwd, falling back to cwd when git fails.
 func RepoRoot(ctx context.Context, cwd string) string {
-	out, err := proc.RunGit(ctx, cwd, "rev-parse", "--show-toplevel")
-	if err != nil || out == "" {
+	top := paths.GitTop(ctx, cwd)
+	if top == "" {
 		return cwd
 	}
-	return paths.MainCheckout(strings.TrimSpace(out))
+	return paths.MainCheckout(top)
 }
 
 // executable is swapped by tests.
@@ -346,21 +346,8 @@ func toRow(r Record) Row {
 		Error: textutil.RedactSecrets(r.Error), Progress: r.Progress}
 }
 
-// signalGroup sends sig to pid's whole process group, then to pid; a target already reaped (ESRCH) is success.
-func signalGroup(pid int, sig syscall.Signal) error {
-	var gerr error = syscall.ESRCH
-	if pid > 1 {
-		gerr = sysKill(-pid, sig)
-	}
-	err := sysKill(pid, sig)
-	if err == nil || gerr == nil || errors.Is(err, syscall.ESRCH) {
-		return nil
-	}
-	return err
-}
-
 // interrupt sends SIGINT to pid's process group and pid.
-func interrupt(pid int) error { return signalGroup(pid, syscall.SIGINT) }
+func interrupt(pid int) error { return proc.SignalGroup(pid, syscall.SIGINT) }
 
 // kill sends SIGKILL to pid's process group and pid; the caller verifies termination by polling.
-func kill(pid int) error { return signalGroup(pid, syscall.SIGKILL) }
+func kill(pid int) error { return proc.SignalGroup(pid, syscall.SIGKILL) }

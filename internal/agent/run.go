@@ -58,6 +58,11 @@ func resolveTarget(req RunOptions) (*providers.Registry, providers.Target, error
 	if err != nil {
 		return nil, providers.Target{}, err
 	}
+	return resolveIn(reg, req)
+}
+
+// resolveIn is resolveTarget against an already loaded registry.
+func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, providers.Target, error) {
 	req = profileAliasRequest(reg, req)
 	sel, err := providers.Select(reg, cmp.Or(req.Provider, providers.SessionLead(reg, false)))
 	if sel.Provider == nil || (err != nil && req.Model == "") {

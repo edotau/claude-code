@@ -11,7 +11,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/job"
-	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -58,8 +57,8 @@ func TestSplitReviewReportsMergedWriteFailure(t *testing.T) {
 	}
 	t.Setenv(reviewJobEnv, parent.ID)
 	run := func() int {
-		return runSplitReview("opencode", nil, []roles.Part{{Diff: []byte("test diff")}},
-			roles.Scope{Kind: "uncommitted"}, ReviewOptions{})
+		return runSplitReview("opencode", nil, []Part{{Diff: []byte("test diff")}},
+			Scope{Kind: "uncommitted"}, ReviewOptions{})
 	}
 	code, stdout, stderr := hosttest.CaptureOutput(t, run)
 	if code != 0 || !strings.Contains(stdout, "SHIP IT") {

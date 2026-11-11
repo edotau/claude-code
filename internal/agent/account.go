@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -104,36 +103,4 @@ func copilotLoginAccount() string {
 		return "github·" + u
 	}
 	return ""
-}
-
-// hubDispatchFor maps an opencode cell "<opencodeID>/<model>" to the hub dispatch on that provider and the bare model.
-func hubDispatchFor(reg *providers.Registry, cell string) (Engine, string, error) {
-	id, model, ok := strings.Cut(cell, "/")
-	if !ok || reg == nil {
-		return nil, "", fmt.Errorf("cell %q is not <opencodeID>/<model>", cell)
-	}
-	if hub == nil {
-		return nil, "", errNoHub
-	}
-	var first *providers.Provider
-	for _, name := range reg.Names() {
-		p := reg.Providers[name]
-		if p.OpencodeID != id {
-			continue
-		}
-		if providers.CredentialPresent(p) { // rows can share an opencodeID (chatgpt, openai): the signed-in one serves it
-			return hub.Dispatch("opencode", p, reg), model, nil
-		}
-		if first == nil {
-			first = p
-		}
-	}
-	if first != nil {
-		return hub.Dispatch("opencode", first, reg), model, nil
-	}
-	// opencode's own plans (opencode-go, opencode) have no registry provider: opencode resolves them itself.
-	if hub.OwnPlan(id) {
-		return hub.Dispatch("opencode", &providers.Provider{Name: id, OpencodeID: id}, reg), model, nil
-	}
-	return nil, "", fmt.Errorf("no provider has opencodeID %q", id)
 }

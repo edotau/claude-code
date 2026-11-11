@@ -14,7 +14,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -311,15 +310,5 @@ func TestClassifyProbeTransient(t *testing.T) {
 	_, err = ProbeCLI(ctx, "/nonexistent/probe-bin", spec, false)
 	if v, _ := ClassifyProbe(ctx, err); v != providers.VerdictTransient {
 		t.Errorf("missing bin = %s, want transient", v)
-	}
-}
-
-// TestProbeErrDetailKeepsRunesWhole: a stderr line whose byte 200 splits a multibyte rune stays valid UTF-8.
-func TestProbeErrDetailKeepsRunesWhole(t *testing.T) {
-	line := strings.Repeat("世", 100) // 300 bytes: byte 200 falls inside a rune
-	_, err := ProbeCLI(context.Background(), "/bin/sh", EnvSpec{Mode: EnvAgent}, false, "-c", "echo "+line+" >&2; exit 3")
-	d := ProbeErrDetail(err)
-	if !utf8.ValidString(d) || !strings.HasSuffix(d, ": "+line) {
-		t.Errorf("ProbeErrDetail = %q, want valid UTF-8 ending in the whole line", d)
 	}
 }

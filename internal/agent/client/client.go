@@ -19,9 +19,12 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent/pack"
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // Client assembles and executes recorded agent dispatches.
@@ -405,4 +408,43 @@ func fitChain(c agent.Chain, n int, o agent.RunOptions) agent.Chain {
 		out.Dispatches = append(out.Dispatches, d)
 	}
 	return out
+}
+
+// FormatStreamJSON is the --format value for the newline-delimited event stream.
+const FormatStreamJSON = "stream-json"
+
+// Formats is every allowed --format value.
+var Formats = []string{helptext.Text, helptext.JSON, FormatStreamJSON}
+
+// ValidateAs validates --as; it applies to claude only, other agents follow the profile's identity setting.
+func ValidateAs(as, ag string) error {
+	if as == "" {
+		return nil
+	}
+	if as != providers.IdentityAuto && as != providers.IdentityUser && as != providers.IdentitySP {
+		return fmt.Errorf("--as %q must be auto, user or sp", as)
+	}
+	if ag != "claude" {
+		return fmt.Errorf("--as applies to claude only; %s follows the profile's identity setting", ag)
+	}
+	return nil
+}
+
+// BuildAskRecord constructs the dispatch record for req, reusing jobRec's identity when resuming a job.
+func BuildAskRecord(ctx context.Context, name string, req agent.RunOptions, jobRec *job.Record, workdir string, background bool) job.Record {
+	if jobRec != nil {
+		return *jobRec // same id: a job run continues the record it was spawned from
+	}
+	rec := job.ClaimRecord(name, req, time.Now())
+	cwd := workdir
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	rec.Repo = job.RepoRoot(ctx, cwd)
+	rec.Owner = inflight.SessionOwner()
+	rec.Log = rec.LogPath()
+	if !background {
+		rec.PID = os.Getpid() // foreground run: alive while this process runs, lost only if it dies
+	}
+	return rec
 }

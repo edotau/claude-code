@@ -107,7 +107,7 @@ func (r *askRun) prelude() (int, bool) {
 	if code, err := askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools); err != nil {
 		return r.fail(err, code)
 	}
-	if r.schema, err = client.ResolveOutputSchema(f.outputSchema); err != nil {
+	if r.schema, err = ResolveOutputSchema(f.outputSchema); err != nil {
 		return r.fail(err, 2)
 	}
 	return 0, false
@@ -117,7 +117,7 @@ func (r *askRun) prelude() (int, bool) {
 func (r *askRun) selectAgent() (int, bool) {
 	f := r.f
 	var err error
-	if r.defs, err = client.ParseAgentDefs(string(f.agents), f.host); err != nil {
+	if r.defs, err = ParseAgentDefs(string(f.agents), f.host); err != nil {
 		return r.fail(err, 2)
 	}
 	r.ref = f.name
@@ -131,7 +131,7 @@ func (r *askRun) selectAgent() (int, bool) {
 	if err := askCheckCombos(r.fs, f.name, f.live, r.persona != nil, f.host, f.background, f.job, f.batchSrc, len(f.env) > 0); err != nil {
 		return r.fail(err, 2)
 	}
-	if err := client.OverlayLocal(r.fileOv, f.live, f.host); err != nil {
+	if err := OverlayLocal(r.fileOv, f.live, f.host); err != nil {
 		return r.fail(err, 2)
 	}
 	return 0, false
@@ -170,7 +170,7 @@ func (r *askRun) dispatchMode() (int, bool) {
 		}
 		o := Opts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native,
 			FollowInput: f.follow, FollowIdle: f.followIdle, RetryAgents: retryAgents}
-		ov, err := client.ResolveOverlay(r.fileOv, f.env, f.keepEnv, false)
+		ov, err := ResolveOverlay(r.fileOv, f.env, f.keepEnv, false)
 		if err != nil {
 			return r.fail(err, 2)
 		}
@@ -214,7 +214,7 @@ func (r *askRun) batchBase() agent.RunOptions {
 // resolveRecord reads the task and applies a --job or --retry record over the flags.
 func (r *askRun) resolveRecord() (int, bool) {
 	f := r.f
-	positional, err := client.AskPositional(r.fs.Args(), r.resume, &f.session)
+	positional, err := AskPositional(r.fs.Args(), r.resume, &f.session)
 	if err != nil {
 		return failAsk(f.format, f.name, err), true
 	}
@@ -230,14 +230,14 @@ func (r *askRun) resolveRecord() (int, bool) {
 			return rc, true
 		}
 	}
-	if r.ref, r.ag, err = client.AskReselect(r.ref, r.ag, &f.name, &r.persona, r.defs); err != nil {
+	if r.ref, r.ag, err = AskReselect(r.ref, r.ag, &f.name, &r.persona, r.defs); err != nil {
 		return r.fail(err, 2)
 	}
-	if err := client.OverlayLocal(r.fileOv, f.live, f.host); err != nil { // a --retry/--job record may carry a --host
+	if err := OverlayLocal(r.fileOv, f.live, f.host); err != nil { // a --retry/--job record may carry a --host
 		return r.fail(err, 2)
 	}
 	if f.outputSchema != "" { // a --retry/--job record may carry an already-resolved schema: re-resolve the flag
-		if r.schema, err = client.ResolveOutputSchema(f.outputSchema); err != nil {
+		if r.schema, err = ResolveOutputSchema(f.outputSchema); err != nil {
 			return r.fail(err, 2)
 		}
 	}
@@ -272,9 +272,9 @@ func (r *askRun) execute() int {
 	var prompt string
 	var err error
 	if f.stdinFramed {
-		framed, prompt, err = client.ReadFramedPrompt(os.Stdin)
+		framed, prompt, err = ReadFramedPrompt(os.Stdin)
 	} else {
-		prompt, err = client.ResolveAskPrompt(r.prompt)
+		prompt, err = ResolveAskPrompt(r.prompt)
 	}
 	if err != nil {
 		return failAsk(f.format, f.name, err)
@@ -295,14 +295,13 @@ func (r *askRun) execute() int {
 	return askPrepareAndRun(ctx, r.fs, r.request(prompt), r.jobRec, r.fileOv, f.env, f.keepEnv, f.as, f.format, f.name, f.background, f.native)
 }
 
+// request is batchBase plus the single-task fields.
 func (r *askRun) request(prompt string) agent.RunOptions {
 	f := r.f
-	return agent.RunOptions{Prompt: prompt, Model: f.model, Provider: f.provider, Lead: r.lead, Effort: f.effort,
-		WorkDir: f.workdir, SessionID: f.session, Tools: f.tools, ReadOnly: f.readOnly, NoTools: f.noTools, Timeout: f.timeout,
-		Attach: []string(f.attach), KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, EnableMemory: f.enableMemory, Direct: f.direct,
-		NoPersist: f.noPersist, SafeMode: f.safeMode, DebugFile: f.debugFile, SystemPrompt: f.systemPrompt,
-		AppendSystemPrompt: f.appendSystemPrompt, Env: f.env, OutputSchema: r.schema, Persona: r.persona,
-		Pack: f.pack, Agent: r.ref, Agents: r.defs, Fallback: f.fallback, Native: f.native, Host: f.host, RemoteBin: f.remoteBin, Rubric: f.rubric, Background: f.background, Permissions: r.perms}
+	o := r.batchBase()
+	o.Prompt, o.SessionID, o.Attach, o.DebugFile, o.Pack, o.Agent = prompt, f.session, []string(f.attach), f.debugFile, f.pack, r.ref
+	o.Persona, o.Fallback, o.Native, o.Host, o.RemoteBin, o.Rubric, o.Background = r.persona, f.fallback, f.native, f.host, f.remoteBin, f.rubric, f.background
+	return o
 }
 
 // askEnableOverlays turns on --overlay-debug and --overlay; it returns the exit code of a failure, else 0.
@@ -329,7 +328,7 @@ func askEnableOverlays(debugPath, overlayPath string) int {
 // askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches it or runs it and reports.
 func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *job.Record, fileOv agentconfig.Overlay,
 	env, keepEnv []string, as, format, name string, background, native bool) int {
-	ov, err := client.ResolveOverlay(fileOv, env, keepEnv, background)
+	ov, err := ResolveOverlay(fileOv, env, keepEnv, background)
 	if err != nil {
 		return failAskCode(format, name, err, 2)
 	}
@@ -469,9 +468,9 @@ func StdoutSink(format, dispatchID string) wire.Sink {
 	return wire.NewTextSink(os.Stdout)
 }
 
-// askState is the client.AskTarget plus the flag pointers --retry resets or --job clears.
+// askState is the AskTarget plus the flag pointers --retry resets or --job clears.
 type askState struct {
-	client.AskTarget
+	AskTarget
 	rubric *string
 	env    *[]string
 	lead   *string // routed lead profile resolved by resolveLead; a live holder keeps it
@@ -482,8 +481,8 @@ func loadAskJob(job, format string, s *askState, prompt *string) (rec *job.Recor
 	if job == "" {
 		return nil, 0, false
 	}
-	r, err := client.LoadJobRecord(job)
-	if errors.Is(err, client.ErrJobNotFresh) {
+	r, err := LoadJobRecord(job)
+	if errors.Is(err, ErrJobNotFresh) {
 		return nil, failAskCode(format, *s.Name, err, 2), true
 	}
 	if err != nil {

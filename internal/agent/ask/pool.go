@@ -189,15 +189,7 @@ func (b *batchRun) claim(ctx context.Context, wg *sync.WaitGroup, t Task, i int,
 	sl, err := b.lim.Reserve(ctx)
 	sctx := retry.WithBatchSlot(ctx, b.lim, sl) // settle needs the limiter to free the slot
 	if err != nil {
-		cancelled := ctx.Err() != nil
-		if cancelled {
-			err = fmt.Errorf("cancelled before start: %w", context.Canceled)
-		}
-		retry.Settle(sctx)
-		if b.o.FailFast && !cancelled {
-			b.stop() // before the next task is considered, so it never starts
-		}
-		done <- batchDone{i, taskFailure(t, err), false}
+		b.failBeforeStart(ctx, sctx, t, i, err, done, false)
 		return
 	}
 	wg.Go(func() {
@@ -209,15 +201,7 @@ func (b *batchRun) claim(ctx context.Context, wg *sync.WaitGroup, t Task, i int,
 func (b *batchRun) execute(ctx, sctx context.Context, t Task, i int, done chan<- batchDone) {
 	prepared, err := t.Prepare(ctx)
 	if err != nil {
-		cancelled := ctx.Err() != nil
-		if cancelled {
-			err = fmt.Errorf("cancelled before start: %w", context.Canceled)
-		}
-		if b.o.FailFast && !cancelled {
-			b.stop() // before Settle frees the slot, so the next task never reserves it
-		}
-		retry.Settle(sctx)
-		done <- batchDone{i, taskFailure(t, err), false}
+		b.failBeforeStart(ctx, sctx, t, i, err, done, true)
 		return
 	}
 	defer retry.Settle(sctx)
@@ -227,6 +211,27 @@ func (b *batchRun) execute(ctx, sctx context.Context, t Task, i int, done chan<-
 		ok = env.Status == wire.StatusOK && env.Error == nil
 	}
 	done <- batchDone{i, env, ok}
+}
+
+// failBeforeStart reports t as failed before it ran; stopFirst stops a FailFast batch before Settle frees the slot.
+func (b *batchRun) failBeforeStart(ctx, sctx context.Context, t Task, i int, err error, done chan<- batchDone, stopFirst bool) {
+	cancelled := ctx.Err() != nil
+	if cancelled {
+		err = fmt.Errorf("cancelled before start: %w", context.Canceled)
+	}
+	stop := func() {
+		if b.o.FailFast && !cancelled {
+			b.stop() // before the next task is considered, so it never starts
+		}
+	}
+	if stopFirst {
+		stop()
+		retry.Settle(sctx)
+	} else {
+		retry.Settle(sctx)
+		stop()
+	}
+	done <- batchDone{i, taskFailure(t, err), false}
 }
 
 // retry runs t.Retry once after a real failure and returns the retry's envelope with both attempts in Hops.

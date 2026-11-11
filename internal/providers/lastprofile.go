@@ -8,12 +8,10 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
@@ -79,8 +77,8 @@ func workspaceKey() string {
 func gitTopOr(cwd string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if out, err := proc.RunGit(ctx, cwd, "rev-parse", "--show-toplevel"); err == nil && strings.TrimSpace(out) != "" {
-		return strings.TrimSpace(out)
+	if top := paths.GitTop(ctx, cwd); top != "" {
+		return top
 	}
 	return cwd
 }

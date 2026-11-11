@@ -34,7 +34,7 @@ func Dispatch(q roles.Request, o DispatchOptions) int {
 	if err != nil {
 		return helptext.FailUsage("dispatch: %v", err)
 	}
-	if q.OutputSchema, err = client.ResolveOutputSchema(o.Schema); err != nil {
+	if q.OutputSchema, err = ResolveOutputSchema(o.Schema); err != nil {
 		return helptext.FailUsage("dispatch: %v", err)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

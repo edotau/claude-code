@@ -433,3 +433,82 @@ func (s Schema) ResolveTarget(reg *providers.Registry, sel providers.Selection, 
 
 // ErrOwnLogin means the agent should run on the credentials its own CLI stores (no harness route injected).
 var ErrOwnLogin = errors.New("agent runs on its own login")
+
+// HubEngine is one hub ladder step: an Engine that names the provider account answering it, so every dispatch of a
+// chain reads the same Result.Agent and only Result.Provider shows which account did.
+type HubEngine interface {
+	Engine
+	HubProvider() *providers.Provider
+	// WithFirstOutput returns the step failing with ErrStalled when nothing streams within d.
+	WithFirstOutput(d time.Duration) Engine
+}
+
+// errNoHub is returned when a hub route is asked for but no linked vendor registered the opencode Hub.
+var errNoHub = errors.New("no opencode hub registered: the opencode agent is not linked into this binary")
+
+// Hub is the opencode-routed dispatch ladder, registered by internal/opencode.
+type Hub struct {
+	// Start resolves the provider a hub agent's first dispatch targets (explicitProvider forces one).
+	Start func(reg *providers.Registry, agentName, explicitProvider string) (*providers.Provider, error)
+	// Dispatch builds the hub step for agentName on provider; reg resolves a provider:model override.
+	Dispatch func(agentName string, provider *providers.Provider, reg *providers.Registry) HubEngine
+	// OwnPlan reports whether an opencodeID is opencode's own plan (no registry provider, billed as a subscription).
+	OwnPlan func(opencodeID string) bool
+}
+
+var hub *Hub
+
+// IsHubAgent reports whether name is one ask routes through opencode unless --native is set. codex and
+// copilot run their own CLI first (user decision): the hub cannot pass copilot's `auto` or its pinned account.
+func IsHubAgent(name string) bool {
+	s, ok := lookupRow(name)
+	return ok && s.CLI.Hub
+}
+
+// hubLinked reports whether a linked vendor registered the opencode Hub.
+func hubLinked() bool { return hub != nil }
+
+// HubStart resolves the provider a hub agent's first dispatch targets.
+func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*providers.Provider, error) {
+	if hub == nil {
+		return nil, errNoHub
+	}
+	return hub.Start(reg, agentName, explicitProvider)
+}
+
+// NewHubDispatch builds a hub dispatch Agent for agentName on provider; reg resolves a provider:model override.
+func NewHubDispatch(agentName string, provider *providers.Provider, reg *providers.Registry) Engine {
+	return hub.Dispatch(agentName, provider, reg)
+}
+
+// hubDispatchFor maps an opencode cell "<opencodeID>/<model>" to the hub dispatch on that provider and the bare model.
+func hubDispatchFor(reg *providers.Registry, cell string) (Engine, string, error) {
+	id, model, ok := strings.Cut(cell, "/")
+	if !ok || reg == nil {
+		return nil, "", fmt.Errorf("cell %q is not <opencodeID>/<model>", cell)
+	}
+	if hub == nil {
+		return nil, "", errNoHub
+	}
+	var first *providers.Provider
+	for _, name := range reg.Names() {
+		p := reg.Providers[name]
+		if p.OpencodeID != id {
+			continue
+		}
+		if providers.CredentialPresent(p) { // rows can share an opencodeID (chatgpt, openai): the signed-in one serves it
+			return hub.Dispatch("opencode", p, reg), model, nil
+		}
+		if first == nil {
+			first = p
+		}
+	}
+	if first != nil {
+		return hub.Dispatch("opencode", first, reg), model, nil
+	}
+	// opencode's own plans (opencode-go, opencode) have no registry provider: opencode resolves them itself.
+	if hub.OwnPlan(id) {
+		return hub.Dispatch("opencode", &providers.Provider{Name: id, OpencodeID: id}, reg), model, nil
+	}
+	return nil, "", fmt.Errorf("no provider has opencodeID %q", id)
+}

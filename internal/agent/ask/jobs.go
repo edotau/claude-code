@@ -6,13 +6,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -58,10 +58,7 @@ func PrintResult(rec job.Record, format string) int {
 		return ResultExit(rec)
 	}
 	out := &textutil.ErrWriter{W: os.Stdout}
-	fmt.Fprint(out, log)
-	if log != "" && !strings.HasSuffix(log, "\n") {
-		fmt.Fprintln(out)
-	}
+	printLog(out, log)
 	if line := rec.ResultEnvelope(os.Stderr).RanOn; line != "" {
 		fmt.Fprintln(out, "ask:", line)
 	}
@@ -73,6 +70,14 @@ func PrintResult(rec job.Record, format string) int {
 		return helptext.Fail("agents result: write output: %v", out.Err)
 	}
 	return ResultExit(rec)
+}
+
+// printLog writes a job log, adding a trailing newline when it lacks one.
+func printLog(w io.Writer, log string) {
+	fmt.Fprint(w, log)
+	if log != "" && !strings.HasSuffix(log, "\n") {
+		fmt.Fprintln(w)
+	}
 }
 
 // PrintAgentResult is `<agent> result`: a job's log, session and resume hint, or with json {id, session, resume, log}.
@@ -97,10 +102,7 @@ func PrintAgentResult(name, ref, format string) int {
 		}
 		return ResultExit(rec)
 	}
-	fmt.Print(log)
-	if log != "" && !strings.HasSuffix(log, "\n") {
-		fmt.Println()
-	}
+	printLog(os.Stdout, log)
 	if rec.SessionID != "" {
 		fmt.Printf("session: %s\n", rec.SessionID)
 		PrintResumeHint(name, rec.SessionID)
@@ -163,7 +165,7 @@ func ResultExit(rec job.Record) int {
 
 // Send is `agents send`: one user turn to live session id, streamed in format; exit 1 unless the turn ends ok.
 func Send(id, task, format string) int {
-	prompt, err := client.ResolveAskPrompt(task)
+	prompt, err := ResolveAskPrompt(task)
 	if err != nil {
 		return helptext.Fail("agents send: %v", err)
 	}
