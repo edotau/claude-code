@@ -32,6 +32,9 @@ func codexBannerSection(block string) string {
 	return codexManagedBegin + "\n" + block + "\n" + codexManagedEnd + "\n"
 }
 
+// errNoBlock marks a deliberate "no banner" outcome, so the prior banner is stripped rather than kept.
+var errNoBlock = errors.New("codex: no config.toml block")
+
 func codexProviderSection(reg *providers.Registry, sel providers.Selection, existing string, out io.Writer) (string, error) {
 	ctx := context.Background()
 	target, note, err := codexSchema().ResolveTarget(reg, sel, false)
@@ -49,7 +52,7 @@ func codexProviderSection(reg *providers.Registry, sel providers.Selection, exis
 		}
 		if keys == "" {
 			fmt.Fprintf(out, "codex: skipped: %s runs on codex's own login; no config.toml block\n", target.Provider.Name)
-			return "", nil
+			return "", errNoBlock
 		}
 		fmt.Fprintf(out, "codex: %s runs on codex's own login; writing approval/sandbox keys only\n", target.Provider.Name)
 		return codexBannerSection(strings.TrimRight(keys, "\n")), nil
@@ -221,6 +224,9 @@ func readCodexConfig(home string) (path string, raw []byte, existed bool, err er
 func codexProviderConfig(reg *providers.Registry, sel providers.Selection, raw string, out io.Writer) (string, error) {
 	stripped := codexBannerRE().ReplaceAllString(raw, "") // sans any prior banner, for the user-value check
 	section, err := codexProviderSection(reg, sel, stripped, out)
+	if errors.Is(err, errNoBlock) {
+		return stripped, nil
+	}
 	if err != nil {
 		return "", err
 	}
@@ -258,5 +264,3 @@ func codexTrustAndSettings(next, hooksPath string, mergedHooks []byte) (string, 
 	}
 	return patchCodexSettings(next, prefs)
 }
-
-// writeCodexHooks writes hooks.json under a file lock, refusing when it changed since the merge read it.

@@ -24,9 +24,11 @@ func ListModels(ctx context.Context) ([]providers.ModelInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]providers.ModelInfo, len(list))
-	for i, m := range list {
-		out[i] = modelInfo(m)
+	out := make([]providers.ModelInfo, 0, len(list))
+	for _, m := range list {
+		if m.Enabled {
+			out = append(out, modelInfo(m))
+		}
 	}
 	return out, nil
 }

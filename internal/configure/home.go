@@ -2,7 +2,6 @@
 package configure
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,7 +13,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -78,65 +76,28 @@ func CodexWired(path string) bool {
 	if start < 0 {
 		return false
 	}
-	body := tomlCodeOnly(string(raw[start:end]))
-	m := codexCommandRE.FindStringSubmatch(body)
-	return m != nil && filepath.Base(cmp.Or(m[2], unquoteTOML(m[1]))) == "claude-code" &&
-		strings.Contains(body, `args = ["network", "websearch"]`)
-}
-
-// codexCommandRE captures the web_search table's command value, basic string in group 1 or literal in group 2.
-var codexCommandRE = regexp.MustCompile(`(?m)^\s*command\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'([^']*)')`)
-
-func unquoteTOML(s string) string {
-	if u, err := strconv.Unquote(`"` + s + `"`); err == nil {
-		return u
-	}
-	return s
-}
-
-// tomlCodeOnly drops comments and multiline string content so neither counts as wired.
-func tomlCodeOnly(text string) string {
-	lines := strings.Split(text, "\n")
+	var command string
+	var argsOK bool
 	state, depth := "", 0
-	for i, line := range lines {
-		lines[i] = codeLine(line, state)
+	for line := range strings.SplitSeq(string(raw[start:end]), "\n") {
+		if key, value, ok := strings.Cut(line, "="); ok && state == "" && depth == 0 { // text inside strings is no key
+			value = strings.TrimSpace(value)
+			switch strings.TrimSpace(key) {
+			case "command":
+				command, _ = agentconfig.TOMLStringValue(value)
+			case "args":
+				rest, found := strings.CutPrefix(value, codexArgs)
+				rest = strings.TrimSpace(rest)
+				argsOK = found && (rest == "" || strings.HasPrefix(rest, "#"))
+			}
+		}
 		state, depth = agentconfig.TOMLLineState(line, state, depth)
 	}
-	return strings.Join(lines, "\n")
+	return filepath.Base(command) == "claude-code" && argsOK
 }
 
-// codeLine returns the code on line, given the multiline-string state it starts in.
-func codeLine(line, state string) string {
-	if state == "" {
-		return tomlCode(line)
-	}
-	_, after, ok := strings.Cut(line, state)
-	if !ok {
-		return ""
-	}
-	return tomlCode(after)
-}
-
-// tomlCode returns line up to a '#' that sits outside a quoted string.
-func tomlCode(line string) string {
-	var quote byte
-	for i := 0; i < len(line); i++ {
-		c := line[i]
-		switch {
-		case quote == '"' && c == '\\':
-			i++
-		case quote != 0:
-			if c == quote {
-				quote = 0
-			}
-		case c == '"' || c == '\'':
-			quote = c
-		case c == '#':
-			return line[:i]
-		}
-	}
-	return line
-}
+// codexArgs is the web_search table's args value.
+const codexArgs = `["network", "websearch"]`
 
 func RegisterClaudeMCP(bin string) error {
 	return withInterrupt(func(ctx context.Context) error {

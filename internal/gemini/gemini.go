@@ -131,16 +131,13 @@ func (geminiEngine) Verify(context.Context) (providers.AuthVerdict, string) {
 }
 
 func (geminiEngine) Render(_ *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
-	d, err := reportGemini(sel, out)
-	if err != nil {
-		return d, err
-	}
+	reportGemini(sel, out)
 	gd, err := renderGeminiSettings(home, o, out)
 	if err != nil {
-		return d || gd, err
+		return gd, err
 	}
 	hd, err := renderGeminiHooks(home, o, out)
-	return d || gd || hd, err
+	return gd || hd, err
 }
 
 func (geminiEngine) ConfigPaths(home string) ([]agentconfig.LabelPath, error) {
@@ -560,17 +557,15 @@ func applyAgyResult(res *wire.Result, ev agyEvent) error {
 	return nil
 }
 
-// --- gemini: report-only. agy (the agent's binary, name unchanged) has no known settings-file
-// auth-type knob like the old gemini-cli's security.auth.selectedType, so there is nothing to render;
-// auth is the cached Google login marker at launch time (see geminiLoginProbe).
+// --- gemini: no auth-type setting to render (auth is the cached login marker, see geminiLoginProbe); guard denies
+// and hooks are rendered separately by renderGeminiSettings and renderGeminiHooks.
 
-func reportGemini(sel providers.Selection, out io.Writer) (bool, error) {
+func reportGemini(sel providers.Selection, out io.Writer) {
 	if sel.Provider.Auth.Method() == providers.AuthCLI {
 		fmt.Fprintln(out, "gemini: skipped: session provider is passthrough, not keyed")
-		return false, nil
+		return
 	}
 	fmt.Fprintln(out, "gemini: no config render; agy has no settings-auth equivalent (launch-time env/login only)")
-	return false, nil
 }
 
 // geminiRouteDetail reports agy's own GEMINI_MODEL pin (effort rides the id's own suffix) — unset

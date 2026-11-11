@@ -234,8 +234,7 @@ func isProxySessionBase(raw string) bool {
 	if err != nil || !strings.HasPrefix(u.Path, "/p/") {
 		return false
 	}
-	h := u.Hostname()
-	return h == "127.0.0.1" || h == "::1" || strings.EqualFold(h, "localhost")
+	return textutil.IsLoopbackHost(u.Hostname())
 }
 
 // sameHostPort reports whether a and b name the same host:port, so a loopback proxy on another port is not ours.
@@ -256,13 +255,19 @@ func sameEndpoint(a, b string) bool {
 		strings.TrimRight(ua.Path, "/") == strings.TrimRight(ub.Path, "/")
 }
 
-// dropHarnessCredential strips the apiKeyHelper, headers and setup-token so a foreign endpoint never gets them.
-func dropHarnessCredential(plan *agent.Plan) {
+// dropKeyHelper removes the apiKeyHelper overlay: its TTL var, the --settings pair and the overlay file.
+func dropKeyHelper(plan *agent.Plan) {
 	if len(plan.Files) > 0 && len(plan.Argv) >= 2 && plan.Argv[0] == "--settings" && plan.Argv[1] == plan.Files[0].Path {
 		plan.Argv = slices.Clone(plan.Argv[2:])
 	}
 	plan.Files = nil
-	for _, k := range []string{proc.EnvAnthropicCustomHeaders, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS", oauthKey} {
+	delete(plan.Set, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS")
+}
+
+// dropHarnessCredential strips the apiKeyHelper, headers and setup-token so a foreign endpoint never gets them.
+func dropHarnessCredential(plan *agent.Plan) {
+	dropKeyHelper(plan)
+	for _, k := range []string{proc.EnvAnthropicCustomHeaders, oauthKey} {
 		delete(plan.Set, k)
 	}
 	if !slices.Contains(plan.Keep, oauthKey) { // an inherited token must leave the child env too, not only the plan
@@ -335,10 +340,6 @@ func armedHop(p *providers.Provider, args []string) bool {
 // configureRouting wires the router base URL/headers when proxied, else the provider's own route, and
 // returns the apiKeyHelper command for the overlay.
 func configureRouting(ctx context.Context, sel providers.Selection, p *providers.Provider, passthrough, proxied bool, self string, plan *agent.Plan) (helper, settings string, err error) {
-	helper = textutil.QuoteSH(helperBin(self)) + " resolve --profile " + textutil.QuoteSH(p.Name)
-	if id := providers.IdentityFrom(ctx); id != "" {
-		helper += " --as " + textutil.QuoteSH(id)
-	}
 	for _, t := range sel.Aliases {
 		if err := providers.ClaudeCodeError(t.Provider, t.Model); err != nil {
 			return "", "", err
@@ -346,6 +347,10 @@ func configureRouting(ctx context.Context, sel providers.Selection, p *providers
 	}
 	if proxied {
 		return configureClaudeProxy(ctx, sel, p, passthrough, self, plan)
+	}
+	helper = textutil.QuoteSH(helperBin(self)) + " resolve --profile " + textutil.QuoteSH(p.Name)
+	if id := providers.IdentityFrom(ctx); id != "" {
+		helper += " --as " + textutil.QuoteSH(id)
 	}
 	if route, ok := p.Route(providers.ProtocolAnthropic); ok && route != defaultAnthropicBase {
 		plan.Set[proc.EnvAnthropicBaseURL] = route
@@ -456,7 +461,7 @@ func providerEnv(env map[string]string) map[string]string {
 	if len(env) == 0 {
 		return nil
 	}
-	custom := agent.CustomEnv()
+	custom := providers.CustomEnv()
 	out := map[string]string{}
 	for k, v := range env {
 		if _, ok := custom[k]; ok || os.Getenv(k) != "" {

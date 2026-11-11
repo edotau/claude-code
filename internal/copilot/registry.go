@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -100,7 +101,7 @@ func (rt *copilotRegistryRoute) apply(o *sdkOptions) {
 	o.Providers, o.Models, o.Model = rt.providers, rt.models, rt.ref
 	o.Token = func() (string, error) { return rt.token, nil }
 	o.GitHubToken, o.UseLoggedInUser, o.Env = "", false, nil
-	o.ChildEnv, o.ChildUnset, o.ChildUnsetPrefix = rt.home.Env, rt.home.Unset, copilotStripPrefix
+	o.ChildEnv, o.ChildUnset, o.ChildUnsetPrefix = rt.home.Env, rt.home.Unset, proc.CopilotProviderPrefix
 }
 
 // close revokes the run's token; the daemon also expires it, so a failure is not worth failing the run.
@@ -127,7 +128,6 @@ type copilotRegistryModel struct {
 	WireModel              string // the Databricks endpoint id
 	ModelID                string // copilot's catalog form, so its per-model settings apply
 	Name                   string
-	Tested                 bool
 	MaxPromptTokens        int
 	MaxContextWindowTokens int
 	MaxOutputTokens        int
@@ -176,8 +176,7 @@ func copilotBuildRegistry(profile string, p *providers.Provider, eps []CopilotEn
 		window, output := copilotCaps(providers.ContextWindow(p, ep.ID), ep.ID)
 		r.Models = append(r.Models, copilotRegistryModel{
 			ID: canonical, Provider: name, WireModel: ep.ID, ModelID: wellKnownModel(canonical), Name: ep.Name,
-			Tested: ep.Tested, MaxPromptTokens: models.PromptTokens(window, output), MaxContextWindowTokens: window,
-			MaxOutputTokens: output,
+			MaxPromptTokens: models.PromptTokens(window, output), MaxContextWindowTokens: window, MaxOutputTokens: output,
 		})
 	}
 	if len(dropped) > 0 {
@@ -241,9 +240,7 @@ func renderCopilotRegistry(r copilotRegistry, cred string) ([]byte, error) {
 		out.Providers = append(out.Providers, jp)
 	}
 	for _, m := range r.Models {
-		out.Models = append(out.Models, jsonModel{ID: m.ID, Provider: m.Provider, WireModel: m.WireModel,
-			ModelID: m.ModelID, Name: m.Name, MaxPromptTokens: m.MaxPromptTokens,
-			MaxContextWindowTokens: m.MaxContextWindowTokens, MaxOutputTokens: m.MaxOutputTokens})
+		out.Models = append(out.Models, jsonModel(m))
 	}
 	return json.MarshalIndent(out, "", "  ")
 }

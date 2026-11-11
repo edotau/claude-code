@@ -63,9 +63,16 @@ func copilotDatabricksFallback(reg *providers.Registry, detail string) agent.Rou
 }
 
 // fallbackProfiles is the Databricks fallback's try order: this session's (else claude's pinned) profile, then every
-// Databricks row.
+// Databricks row, the lead listed once.
 func fallbackProfiles(reg *providers.Registry) []string {
-	return append([]string{providers.SessionLead(nil, true)}, providers.DatabricksProfiles(reg)...)
+	lead := providers.SessionLead(nil, true)
+	names := []string{lead}
+	for _, n := range providers.DatabricksProfiles(reg) {
+		if n != lead {
+			names = append(names, n)
+		}
+	}
+	return names
 }
 
 // copilotGithubRow is the github profile copilot's own login runs on: the record's pinned row, else the first one.
@@ -105,7 +112,7 @@ func describeCopilotRoute(reg *providers.Registry) agent.RouteInfo {
 }
 
 // copilotRouteDetail reports the copilot CLI's resolved dispatch (DescribeRoute): its own GitHub login,
-// BYOK with an anthropic or gemini key, or none — names/booleans/dispatch only, never a credential. On the
+// BYOK with an anthropic key, or none — names/booleans/dispatch only, never a credential. On the
 // GitHub login dispatch it also names COPILOT_MODEL's source and the effort/context pins every launch reads.
 func copilotRouteDetail(reg *providers.Registry, selErr error) string {
 	if selErr != nil {
@@ -427,9 +434,11 @@ func copilotModelIDs() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	ids := make([]string, len(list))
-	for i, m := range list {
-		ids[i] = m.ID
+	var ids []string
+	for _, m := range list {
+		if m.Enabled {
+			ids = append(ids, m.ID)
+		}
 	}
 	return ids, nil
 }
