@@ -1,6 +1,7 @@
 package statusline
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,7 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
-// No config.json means the embedded theme; a file overlays its fields and its segments map replaces the embedded one.
+// No config.json means the embedded theme; a file overlays its fields and its segments map merges key by key.
 func TestLoadConfigOverlay(t *testing.T) {
 	hermetic(t)
 	if got := loadConfig(); !reflect.DeepEqual(got, defaultConfig()) {
@@ -22,8 +23,14 @@ func TestLoadConfigOverlay(t *testing.T) {
 		t.Fatalf("order/profileMax overlay: got %+v, want %+v", got, want)
 	}
 	writeStatuslineConfig(t, `{"segments":{"git":false}}`)
-	if got := loadConfig().Segments; !reflect.DeepEqual(got, map[string]bool{"git": false}) {
-		t.Fatalf("segments overlay = %v, want only the file's map", got)
+	wantSegs := maps.Clone(defaultConfig().Segments)
+	wantSegs["git"] = false
+	if got := loadConfig().Segments; !reflect.DeepEqual(got, wantSegs) {
+		t.Fatalf("segments overlay = %v, want the embedded map with git off", got)
+	}
+	writeStatuslineConfig(t, `{"segments":{"path":false}}`)
+	if got := loadConfig().Segments; got["proxy"] || got["session"] || !got["git"] || got["path"] {
+		t.Fatalf("one-key overlay = %v, want embedded-false segments to stay false", got)
 	}
 }
 

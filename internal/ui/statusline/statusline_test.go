@@ -399,7 +399,7 @@ func TestRunAndConfigOverride(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "state", "statusline"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := `{"style":"capsule","segments":{"session":true,"git":false,"velocity":false,"proxy":false}}`
+	cfg := `{"style":"capsule","segments":{"session":true,"duration":true,"git":false,"velocity":false,"proxy":false}}`
 	if err := os.WriteFile(filepath.Join(dir, "state", "statusline", "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}

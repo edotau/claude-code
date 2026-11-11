@@ -2,6 +2,7 @@ package statusline
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"sync"
@@ -82,9 +83,10 @@ func loadConfig() config {
 	if err := json.Unmarshal(data, &user); err != nil {
 		return cfg
 	}
-	if len(user.Segments) == 0 {
-		user.Segments = embeddedConfig().Segments
-	}
+	merged := make(map[string]bool, len(cfg.Segments)+len(user.Segments))
+	maps.Copy(merged, cfg.Segments)
+	maps.Copy(merged, user.Segments) // a key the user did not name keeps the embedded value
+	user.Segments = merged
 	if len(user.Separators) == 0 {
 		user.Separators = embeddedConfig().Separators
 	}
