@@ -1,7 +1,7 @@
+// Package source scores source files: code-quality and complexity checks plus simplify candidates, stdlib only.
 package source
 
 import (
-	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -82,8 +81,8 @@ var magicNumberDigits = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`\d{3,}`)
 })
 
-// detectLanguage mirrors quality_core.detect_language.
-func detectLanguage(path string) string {
+// DetectLanguage mirrors quality_core.detect_language.
+func DetectLanguage(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
 	for _, lang := range languageOrder {
 		if slices.Contains(Extensions[lang], ext) {
@@ -326,10 +325,17 @@ var pythonNestedClass = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`^\s*class\s+\w+`)
 })
 
-// goMethodCount counts `func (r *?Name[...]) ` receivers anywhere in content, since Go methods live outside the type.
-func goMethodCount(content, name string) int {
-	re := regexp.MustCompile(`(?m)^func\s+\(\s*(?:\w+\s+)?\*?` + regexp.QuoteMeta(name) + `(?:\[[^\]]*\])?\s*\)`)
-	return len(re.FindAllStringIndex(content, -1))
+var goReceiverPattern = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^func\s+\(\s*(?:\w+\s+)?\*?(\w+)(?:\[[^\]]*\])?\s*\)`)
+})
+
+// goMethodCounts tallies `func (r *?Name[...]) ` receivers by type name across content (methods live outside the type).
+func goMethodCounts(content string) map[string]int {
+	counts := map[string]int{}
+	for _, m := range goReceiverPattern().FindAllStringSubmatch(content, -1) {
+		counts[m[1]]++
+	}
+	return counts
 }
 
 // findClasses ports quality_core.find_classes.
@@ -342,6 +348,10 @@ func findClasses(content, language string) []ClassInfo {
 	if !ok {
 		methodPattern = methodPatterns()["python"]
 	}
+	var goMethods map[string]int
+	if language == "go" {
+		goMethods = goMethodCounts(content)
+	}
 	var out []ClassInfo
 	for _, m := range pattern.FindAllStringSubmatchIndex(content, -1) {
 		name := content[m[2]:m[3]]
@@ -349,7 +359,7 @@ func findClasses(content, language string) []ClassInfo {
 		methods := len(methodPattern.FindAllString(body, -1))
 		switch language {
 		case "go":
-			methods = goMethodCount(content, name)
+			methods = goMethods[name]
 		case "python":
 			methods = pythonMethodCount(body, methodPattern)
 		}
@@ -542,7 +552,7 @@ func round1(f float64) float64 {
 
 // Quality is the analysis behind RunQuality / analyze_file; the language is detected from the extension.
 func Quality(path string) (QualityReport, error) {
-	lang := detectLanguage(path)
+	lang := DetectLanguage(path)
 	if lang == "" {
 		return QualityReport{}, fmt.Errorf("unsupported file type: %s", filepath.Ext(path))
 	}
@@ -582,130 +592,24 @@ func QualityContent(path, content, lang string) (QualityReport, error) {
 		},
 		QualityScore:    score,
 		Grade:           getGrade(score),
-		Smells:          nonNil(smells),
-		SolidViolations: nonNil(violations),
+		Smells:          NonNil(smells),
+		SolidViolations: NonNil(violations),
 		FunctionDetails: capSlice(functions, 10),
 		ClassDetails:    capSlice(classes, 10),
 	}, nil
 }
 
-// nonNil keeps the JSON output "[]" instead of "null" for empty slices.
-func nonNil[T any](s []T) []T {
+// NonNil keeps the JSON output "[]" instead of "null" for empty slices.
+func NonNil[T any](s []T) []T {
 	if s == nil {
 		return []T{}
 	}
 	return s
 }
 
-// capSlice is nonNil plus truncation to n entries.
+// capSlice is NonNil plus truncation to n entries.
 func capSlice[T any](s []T, n int) []T {
-	return nonNil(s[:min(len(s), n)])
-}
-
-var skipParts = map[string]bool{"node_modules": true, ".git": true, "__pycache__": true, ".venv": true, "venv": true, "dist": true, "build": true}
-
-// pathHasSkippedPart mirrors `SKIP_PARTS & set(filepath.parts)`.
-func pathHasSkippedPart(path string) bool {
-	for part := range strings.SplitSeq(filepath.ToSlash(path), "/") {
-		if skipParts[part] {
-			return true
-		}
-	}
-	return false
-}
-
-// walkDir is the traversal seam; tests wrap it to count the paths a walk visits.
-var walkDir = filepath.WalkDir
-
-// walkSourceFiles calls fn for each non-skipped file under root and returns the paths the walk could not read.
-func walkSourceFiles(root string, fn func(p string)) []string {
-	var unreadable []string
-	_ = walkDir(root, func(p string, d os.DirEntry, err error) error {
-		if rel, rerr := filepath.Rel(root, p); rerr != nil || pathHasSkippedPart(rel) {
-			if d != nil && d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: skipping unreadable path %s: %v\n", p, err)
-			unreadable = append(unreadable, p)
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-		fn(p)
-		return nil
-	})
-	return unreadable
-}
-
-// analyzeDirectory ports code_quality_checker.analyze_directory.
-func analyzeDirectory(dir, language string) (directoryReport, error) {
-	var extensions []string
-	if language != "" {
-		extensions = Extensions[language]
-	} else {
-		for _, lang := range languageOrder {
-			extensions = append(extensions, Extensions[lang]...)
-		}
-	}
-
-	results, failed := walkExtensions(dir, extensions)
-	if len(results) == 0 && len(failed) > 0 {
-		return directoryReport{}, fmt.Errorf("analysis failed for %d files, e.g. %s", len(failed), failed[0])
-	}
-	if len(results) == 0 {
-		return directoryReport{}, errors.New("no supported files found")
-	}
-
-	total := 0.0
-	for _, r := range results {
-		total += float64(r.QualityScore)
-	}
-	avg := PyFloat(round1(total / float64(len(results))))
-	smells, violations := 0, 0
-	for _, r := range results {
-		smells += len(r.Smells)
-		violations += len(r.SolidViolations)
-	}
-	sort.SliceStable(results, func(i, j int) bool { return results[i].QualityScore < results[j].QualityScore })
-
-	return directoryReport{
-		Directory: dir, FilesAnalyzed: len(results), AverageScore: avg, OverallGrade: getGrade(int(avg)),
-		TotalCodeSmells: smells, TotalSolidViolations: violations, Files: results, FilesFailed: failed,
-	}, nil
-}
-
-// walkExtensions collects supported files in one traversal, retaining extension and path ordering; failed lists
-// the files whose analysis errored.
-func walkExtensions(dir string, extensions []string) (out []QualityReport, failed []string) {
-	byExtension := make(map[string][]string, len(extensions))
-	for _, ext := range extensions {
-		byExtension[ext] = nil
-	}
-	failed = walkSourceFiles(dir, func(p string) {
-		for ext := range byExtension {
-			if strings.HasSuffix(p, ext) {
-				byExtension[ext] = append(byExtension[ext], p)
-			}
-		}
-	})
-	for _, ext := range extensions {
-		matches := byExtension[ext]
-		sort.Strings(matches)
-		for _, m := range matches {
-			r, err := Quality(m)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "warning: analysis failed: %v\n", err)
-				failed = append(failed, m)
-				continue
-			}
-			out = append(out, r)
-		}
-	}
-	return out, failed
+	return NonNil(s[:min(len(s), n)])
 }
 
 // writeJSON matches Python's json.dumps(v, indent=2): ensure_ascii (\uXXXX for non-ASCII, surrogate
@@ -717,4 +621,106 @@ func writeJSON(w io.Writer, v any) error {
 	}
 	_, err = w.Write(b)
 	return err
+}
+
+// PyFloat marshals like Python's json.dumps(float): always keeps a decimal point ("100.0", not "100").
+type PyFloat float64
+
+// MarshalJSON implements json.Marshaler.
+func (v PyFloat) MarshalJSON() ([]byte, error) {
+	s := strconv.FormatFloat(float64(v), 'f', -1, 64)
+	if !strings.Contains(s, ".") {
+		s += ".0"
+	}
+	return []byte(s), nil
+}
+
+// Extensions mirrors quality_core.LANGUAGE_EXTENSIONS; map order is random, so iterate languageOrder.
+var Extensions = map[string][]string{
+	"python":     {".py"},
+	"typescript": {".ts", ".tsx"},
+	"javascript": {".js", ".jsx", ".mjs"},
+	"go":         {".go"},
+	"swift":      {".swift"},
+	"kotlin":     {".kt", ".kts"},
+}
+
+// languageOrder fixes the iteration order quality_core's dict literal gives Python (insertion order).
+var languageOrder = []string{"python", "typescript", "javascript", "go", "swift", "kotlin"}
+
+// LineMetrics is quality_core.count_lines's return shape.
+type LineMetrics struct {
+	Total   int `json:"total"`
+	Code    int `json:"code"`
+	Blank   int `json:"blank"`
+	Comment int `json:"comment"`
+}
+
+// FunctionInfo is one entry from quality_core.find_functions.
+type FunctionInfo struct {
+	Name       string `json:"name"`
+	Parameters int    `json:"parameters"`
+	Lines      int    `json:"lines"`
+	Complexity int    `json:"complexity"`
+}
+
+// ClassInfo is one entry from quality_core.find_classes.
+type ClassInfo struct {
+	Name    string `json:"name"`
+	Methods int    `json:"methods"`
+	Lines   int    `json:"lines"`
+}
+
+// Smell is one entry from quality_core.check_code_smells.
+type Smell struct {
+	Type     string `json:"type"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	Location string `json:"location"`
+}
+
+// SolidViolation is one entry from quality_core.check_solid_violations.
+type SolidViolation struct {
+	Principle string `json:"principle"`
+	Name      string `json:"name"`
+	Severity  string `json:"severity"`
+	Message   string `json:"message"`
+}
+
+// Metrics is the "metrics" object inside a QualityReport.
+type Metrics struct {
+	Lines         LineMetrics `json:"lines"`
+	Functions     int         `json:"functions"`
+	Classes       int         `json:"classes"`
+	AvgComplexity PyFloat     `json:"avg_complexity"`
+}
+
+// QualityReport is code_quality_checker.analyze_file's dict shape (field order = JSON key order).
+type QualityReport struct {
+	File            string           `json:"file"`
+	Language        string           `json:"language"`
+	Metrics         Metrics          `json:"metrics"`
+	QualityScore    int              `json:"quality_score"`
+	Grade           string           `json:"grade"`
+	Smells          []Smell          `json:"smells"`
+	SolidViolations []SolidViolation `json:"solid_violations"`
+	FunctionDetails []FunctionInfo   `json:"function_details"`
+	ClassDetails    []ClassInfo      `json:"class_details"`
+}
+
+// errorResult is the {"error": "..."} shape both scripts return on a per-file/dir failure.
+type errorResult struct {
+	Error string `json:"error"`
+}
+
+// directoryReport is code_quality_checker.analyze_directory's dict shape.
+type directoryReport struct {
+	Directory            string          `json:"directory"`
+	FilesAnalyzed        int             `json:"files_analyzed"`
+	AverageScore         PyFloat         `json:"average_score"`
+	OverallGrade         string          `json:"overall_grade"`
+	TotalCodeSmells      int             `json:"total_code_smells"`
+	TotalSolidViolations int             `json:"total_solid_violations"`
+	Files                []QualityReport `json:"files"`
+	FilesFailed          []string        `json:"files_failed,omitempty"`
 }

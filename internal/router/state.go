@@ -8,13 +8,17 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -362,10 +366,9 @@ func (e Entry) Until(now time.Time) time.Time {
 }
 
 var (
-	clockRE   = regexp.MustCompile(`try again (?:at|after) (\d{1,2}):(\d{2})\s*([ap]\.?m\.?)?`)
-	inRE      = regexp.MustCompile(`try again in (\d+)\s*(s|sec|seconds?|m|min|minutes?|h|hours?|d|days?)\b`)
-	dateRE    = regexp.MustCompile(`(?:until|resets?(?: on)?|try again (?:on|after)) (\d{4}-\d{2}-\d{2})(?:[t ](\d{2}:\d{2}(?::\d{2})?)(z|[+-]\d{2}:?\d{2})?)?`)
-	monthlyRE = regexp.MustCompile(`monthly`)
+	clockRE = regexp.MustCompile(`try again (?:at|after) (\d{1,2}):(\d{2})\s*([ap]\.?m\.?)?`)
+	inRE    = regexp.MustCompile(`try again in (\d+)\s*(s|sec|seconds?|m|min|minutes?|h|hours?|d|days?)\b`)
+	dateRE  = regexp.MustCompile(`(?:until|resets?(?: on)?|try again (?:on|after)) (\d{4}-\d{2}-\d{2})(?:[t ](\d{2}:\d{2}(?::\d{2})?)(z|[+-]\d{2}:?\d{2})?)?`)
 )
 
 // ParseReset reads when an exhausted account frees up from the failure text; ok is false when the text names none.
@@ -376,7 +379,7 @@ func ParseReset(text string, now time.Time) (time.Time, bool) {
 			return t, true
 		}
 	}
-	if monthlyRE.MatchString(low) {
+	if strings.Contains(low, "monthly") {
 		return firstOfNextMonth(now), true
 	}
 	return time.Time{}, false
@@ -524,4 +527,47 @@ func ClearSecretAuth(name string) {
 			_ = ClearProviderAuth(p.Name)
 		}
 	}
+}
+
+// CurrentLimits reads the registry and router state; any error fails open to Base.
+func CurrentLimits() inflight.Limits {
+	cpus := runtime.NumCPU()
+	reg, err := providers.Load()
+	if err != nil {
+		return inflight.ComputeLimits(nil, nil, cpus)
+	}
+	state, now := LoadState(), time.Now()
+	var available []string
+	override := map[string]int{}
+	for name, p := range reg.Providers {
+		account := ProviderAccount(name)
+		if p.Concurrency > 0 {
+			override[account] = p.Concurrency
+		}
+		if !providers.CredentialPresent(p) || state[account].Status(now) == StateExhausted {
+			continue
+		}
+		if _, marked := state.AuthMarked(account, now); marked {
+			continue
+		}
+		available = append(available, account)
+	}
+	slices.Sort(available)
+	return inflight.ComputeLimits(available, override, cpus)
+}
+
+// SessionAccount is the account this session bills: the loopback /p/<name>/ profile, else pin, else the default.
+func SessionAccount() string {
+	name := providers.SessionLead(nil, true)
+	if u, err := url.Parse(os.Getenv("ANTHROPIC_BASE_URL")); err == nil && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost") {
+		if rest, ok := strings.CutPrefix(u.Path, "/p/"); ok {
+			name, _, _ = strings.Cut(rest, "/")
+		}
+	}
+	if name == "" {
+		if reg, err := providers.Load(); err == nil {
+			name = reg.Default
+		}
+	}
+	return ProviderAccount(name)
 }

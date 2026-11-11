@@ -316,11 +316,7 @@ func (s *sessionStore) identity(ses *session) (bound, verified bool) {
 
 // profileOfPath returns <name> of /p/<name>/..., "" for any other path.
 func profileOfPath(path string) string {
-	rest, ok := strings.CutPrefix(path, "/p/")
-	if !ok {
-		return ""
-	}
-	name, _, _ := strings.Cut(rest, "/")
+	name, _, _ := parseRoute(path)
 	return name
 }
 

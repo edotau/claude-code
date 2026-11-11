@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -36,21 +35,6 @@ func Git(ctx context.Context, dir string, args ...string) (lines []string, ok bo
 		return nil, false, err
 	}
 	return strings.Split(strings.TrimSpace(out), "\n"), true, nil
-}
-
-// RepoRootOf climbs from dir's nearest existing ancestor to the first dir holding a `.git` entry, or "".
-func RepoRootOf(dir string) string {
-	for dir != "" {
-		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
-	return ""
 }
 
 // UnderDir reports whether path is dir itself or below it (both already canonical).

@@ -177,7 +177,7 @@ func gateRepo(args []string, stderr io.Writer) (repo string, help bool) {
 	if _, done := helptext.Parse(fs, args); !done {
 		return *repoFlag, false
 	}
-	if wantsHelp(args) {
+	if helptext.WantsHelp(args) {
 		return "", true
 	}
 	repo = "."
@@ -187,16 +187,6 @@ func gateRepo(args []string, stderr io.Writer) (repo string, help bool) {
 		}
 	}
 	return repo, false
-}
-
-// wantsHelp reports a -h/--help flag in args.
-func wantsHelp(args []string) bool {
-	for _, a := range args {
-		if a == "-h" || a == "-help" || a == "--help" {
-			return true
-		}
-	}
-	return false
 }
 
 func indentLines(w io.Writer, text string) {

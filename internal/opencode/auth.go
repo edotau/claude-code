@@ -354,7 +354,7 @@ func opencodeAuthFile() string { return filepath.Join(paths.OpencodeDataDir(), "
 
 // opencodeCacheFile persists probe results across processes (no credential values ever land here).
 func opencodeCacheFile() string {
-	return filepath.Join(paths.CacheDir(), "vendors", "opencode-auth.json")
+	return filepath.Join(paths.StateDir(), "vendors", "opencode-auth.json")
 }
 
 type opencodeDiskAuth struct {

@@ -226,9 +226,8 @@ type ModelInfo struct {
 }
 
 // ListModels lists p's live catalog with names/use-case/capabilities when the backend reports them.
-// The github row is listed by copilot.ListModels, not here. reg is accepted for callers that already have it in
-// hand; this lister itself does not need it.
-func ListModels(ctx context.Context, reg *Registry, p *Provider) ([]ModelInfo, error) {
+// The github row is listed by copilot.ListModels, not here.
+func ListModels(ctx context.Context, p *Provider) ([]ModelInfo, error) {
 	entries, err := liveModelEntries(ctx, p)
 	if err != nil {
 		return nil, err

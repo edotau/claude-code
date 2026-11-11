@@ -1,8 +1,8 @@
 package memory
 
-// The journaled commit transaction (plan §3.1): journal under state BEFORE any write, capture the native
+// The journaled commit transaction: journal under state BEFORE any write, capture the native
 // revisions the batch replaces, apply with preimage checks, write a tracked receipt, commit, then retire the
-// journal. A crash at any step is finished by the next call. Phase 2 adds rotation, bank regions and the catalog.
+// journal. A crash at any step is finished by the next call.
 
 import (
 	"bytes"

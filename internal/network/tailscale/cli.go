@@ -149,7 +149,7 @@ func tailscaleBin() (string, error) {
 	return "", errNoCLI
 }
 
-// Status parses `tailscale status --json`: errNoCLI without the CLI; ErrNotRunning (Local still set) when stopped.
+// Status parses `tailscale status --json`: errNoCLI without the CLI; errNotRunning (Local still set) when stopped.
 func Status(ctx context.Context) (Local, error) {
 	bin, err := tailscaleBin()
 	if err != nil {

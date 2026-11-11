@@ -3,7 +3,6 @@ package server
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -176,30 +175,23 @@ func (e *fallbackError) Unwrap() error { return e.error }
 
 // route resolves the target and walks the attempt ladder; it returns what the log line names.
 func (r *Router) route(w *statusWriter, in *http.Request, session string, count bool) (string, string, int) {
-	body, err := io.ReadAll(io.LimitReader(in.Body, maxBody+1))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "proxy: read body: "+err.Error())
+	body, ok := readBody(w, in)
+	if !ok {
 		return session, "-", 0
 	}
-	if len(body) > maxBody {
-		writeError(w, http.StatusRequestEntityTooLarge, "proxy: request body over 64MiB")
-		return session, "-", 0
-	}
-	var head struct {
-		Model string `json:"model"`
-	}
-	if err := json.Unmarshal(body, &head); err != nil || head.Model == "" {
+	model := passthroughModel(body)
+	if model == "" {
 		writeError(w, http.StatusBadRequest, "proxy: request body must be JSON with a model")
 		return session, "-", 0
 	}
 	reg, err := r.registry()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "proxy: "+err.Error())
-		return session, head.Model, 0
+		return session, model, 0
 	}
-	target, ok := resolveTarget(w, in, reg, session, head.Model)
+	target, ok := resolveTarget(w, in, reg, session, model)
 	if !ok {
-		return session, head.Model, 0
+		return session, model, 0
 	}
 	clientAuth := in.Header.Get("Authorization") != "" ||
 		r.oauthToken() != "" // the sealed token authenticates passthrough
@@ -207,7 +199,7 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 		writeError(w, http.StatusBadRequest, "proxy: "+msg)
 		return target.Provider.Name, target.Model, 0
 	}
-	clientModel := models.Strip1M(head.Model)
+	clientModel := models.Strip1M(model)
 	ladder := r.attempts(reg, target, clientAuth)
 	ladder = confineLadder(in, ladder)
 	return r.walkAttempts(w, in, body, ladder, clientModel, count)

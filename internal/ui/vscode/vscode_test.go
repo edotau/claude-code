@@ -80,8 +80,8 @@ func TestSyncMergesJSONCAndBacksUp(t *testing.T) {
 	if saved, _ := os.ReadFile(result.Backup); string(saved) != jsoncOriginal {
 		t.Fatal("backup did not preserve the original JSONC")
 	}
-	if !strings.HasPrefix(result.Backup, filepath.Join(paths.CacheDir(), "backups")) {
-		t.Errorf("backup %q, want it under CacheDir()/backups", result.Backup)
+	if !strings.HasPrefix(result.Backup, filepath.Join(paths.StateDir(), "backups")) {
+		t.Errorf("backup %q, want it under StateDir()/backups", result.Backup)
 	}
 	if siblings, _ := os.ReadDir(dir); len(siblings) != 2 {
 		t.Errorf("files beside dest = %v, want only template.json and settings.json", siblings)
@@ -202,8 +202,8 @@ func TestSyncKeybindingsAppendsTemplateEntriesPreservingUserEntryAndComment(t *t
 	if entries[1]["command"] != "workbench.action.terminal.newWithProfile" {
 		t.Errorf("template entry not appended: entries[1] = %v", entries[1])
 	}
-	if !strings.HasPrefix(result.Backup, filepath.Join(paths.CacheDir(), "backups")) {
-		t.Errorf("backup %q, want it under CacheDir()/backups", result.Backup)
+	if !strings.HasPrefix(result.Backup, filepath.Join(paths.StateDir(), "backups")) {
+		t.Errorf("backup %q, want it under StateDir()/backups", result.Backup)
 	}
 	if siblings, _ := os.ReadDir(dir); len(siblings) != 2 {
 		t.Errorf("files beside dest = %v, want only keybindings.template.json and keybindings.json", siblings)
@@ -412,7 +412,7 @@ func TestWriteGuardedRejectsSaveAfterBackup(t *testing.T) {
 func countBackups(t *testing.T) int {
 	t.Helper()
 	n := 0
-	_ = filepath.WalkDir(filepath.Join(paths.CacheDir(), "backups"), func(_ string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(filepath.Join(paths.StateDir(), "backups"), func(_ string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
 			n++
 		}

@@ -3,6 +3,7 @@ package settings
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -125,46 +126,40 @@ func splitList(input string) []string {
 	return textutil.SplitCSV(input)
 }
 
-func ladderField() RoutingField {
+func listField(key string, get func(providers.Routing) string, slot func(*providers.Routing) **[]string) RoutingField {
 	return RoutingField{
-		Key:   "opencode.ladder",
+		Key:   key,
 		Kind:  RoutingList,
-		Get:   func(r providers.Routing) string { return strings.Join(r.Opencode.LadderOrder(), ",") },
-		IsSet: func(r providers.Routing) bool { return r.Opencode.Ladder != nil },
+		Get:   get,
+		IsSet: func(r providers.Routing) bool { return *slot(&r) != nil },
 		Set: func(r *providers.Routing, input string) error {
 			if input == "" {
-				r.Opencode.Ladder = nil
+				*slot(r) = nil
 				return nil
 			}
 			l := splitList(input)
-			r.Opencode.Ladder = &l
+			*slot(r) = &l
 			return nil
 		},
 	}
 }
 
+func ladderField() RoutingField {
+	return listField("opencode.ladder",
+		func(r providers.Routing) string { return strings.Join(r.Opencode.LadderOrder(), ",") },
+		func(r *providers.Routing) **[]string { return &r.Opencode.Ladder })
+}
+
 func workRepoMarkersField() RoutingField {
-	return RoutingField{
-		Key:  "opencode.workRepoMarkers",
-		Kind: RoutingList,
-		Get: func(r providers.Routing) string {
+	return listField("opencode.workRepoMarkers",
+		func(r providers.Routing) string {
 			m := r.Opencode.Markers()
 			if len(m) == 0 {
 				return "none (free models allowed in every repo)"
 			}
 			return strings.Join(m, ",")
 		},
-		IsSet: func(r providers.Routing) bool { return r.Opencode.WorkRepoMarkers != nil },
-		Set: func(r *providers.Routing, input string) error {
-			if input == "" {
-				r.Opencode.WorkRepoMarkers = nil
-				return nil
-			}
-			l := splitList(input)
-			r.Opencode.WorkRepoMarkers = &l
-			return nil
-		},
-	}
+		func(r *providers.Routing) **[]string { return &r.Opencode.WorkRepoMarkers })
 }
 
 var freeTierValues = []string{"sonnet,haiku", "sonnet", "haiku", "none"}
@@ -189,20 +184,14 @@ func freeTiersField() RoutingField {
 		},
 		IsSet: func(r providers.Routing) bool { return r.Opencode.FreeTiers != nil },
 		Set: func(r *providers.Routing, input string) error {
-			switch input {
-			case "":
+			switch {
+			case input == "":
 				r.Opencode.FreeTiers = nil
-			case "sonnet,haiku":
-				l := []string{"sonnet", "haiku"}
-				r.Opencode.FreeTiers = &l
-			case "sonnet":
-				l := []string{"sonnet"}
-				r.Opencode.FreeTiers = &l
-			case "haiku":
-				l := []string{"haiku"}
-				r.Opencode.FreeTiers = &l
-			case "none":
+			case input == "none":
 				l := []string{}
+				r.Opencode.FreeTiers = &l
+			case slices.Contains(freeTierValues, input):
+				l := splitList(input)
 				r.Opencode.FreeTiers = &l
 			default:
 				return fmt.Errorf("opencode.freeTiers: %q, want one of %s", input, strings.Join(freeTierValues, " | "))

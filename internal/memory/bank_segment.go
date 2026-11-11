@@ -310,8 +310,8 @@ const compoundMinLen = 4
 const compoundWeight = 0.4
 
 // lookupWeighted merges exact postings (weight 1) with postings of every other indexed token containing
-// term (weight compoundWeight), deduped per doc by the stronger signal.
-func (s segView) lookupWeighted(term string) map[int]float64 {
+// term (weight compoundWeight), deduped per doc by the stronger signal; all is s.terms(), shared across a query.
+func (s segView) lookupWeighted(term string, all []string) map[int]float64 {
 	out := map[int]float64{}
 	add := func(t string, weight float64) {
 		posts, n := s.lookup(t)
@@ -325,7 +325,7 @@ func (s segView) lookupWeighted(term string) map[int]float64 {
 	}
 	add(term, 1)
 	if len(term) >= compoundMinLen {
-		for _, other := range s.terms() {
+		for _, other := range all {
 			if other != term && strings.Contains(other, term) {
 				add(other, compoundWeight)
 			}
@@ -376,8 +376,12 @@ func indexSegments(uniq map[string]int, segs []segView) (
 		ndocs += seg.Docs()
 		sumdl += seg.sumDL()
 		wt := map[int][]float64{}
+		var all []string
 		for term, j := range uniq {
-			docs := seg.lookupWeighted(term)
+			if all == nil && len(term) >= compoundMinLen {
+				all = seg.terms()
+			}
+			docs := seg.lookupWeighted(term, all)
 			df[j] += len(docs)
 			for doc, tf := range docs {
 				if wt[doc] == nil {
@@ -424,10 +428,7 @@ func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl f
 				matched++
 			}
 		}
-		id := blockMarkerID(block)
-		if id == "" {
-			id = contentRef(block)
-		}
+		id := blockRef(block, "")
 		hits = append(hits, SearchHit{
 			Score: score, Matched: matched, Bank: file.Bank,
 			File: filepath.Base(file.Path), Block: block, ID: id, Dir: ownerDir(file.Bank, file.Path),

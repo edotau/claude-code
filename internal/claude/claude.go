@@ -7,21 +7,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
+	"os"
 	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
-
-	"github.com/edotau/claude-code/internal/agent/retry"
-	"github.com/edotau/claude-code/internal/agent/wire"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
-
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // claudeEngine execs `claude -p --output-format stream-json` with the launcher's provider env and overlay.
@@ -477,4 +480,158 @@ func launcherSet(set map[string]string) []string {
 		out = append(out, k+"="+set[k])
 	}
 	return out
+}
+
+func init() {
+	agent.Register(agent.Agent{Row: row, Driver: claudeAgent, Launcher: claudeLauncher{}})
+}
+
+// row is claude's roster entry: binary, dialects, capabilities, events and launch hints.
+var row = agent.Schema{Name: "claude", CLI: agent.CLI{
+	PromptVia: agent.PromptStdin,
+	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
+		Tools: agent.Native, NoTools: agent.Native, Autonomous: agent.Native, NoPersist: agent.Native, SafeMode: agent.Native, DebugFile: agent.Native,
+		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, Env: agent.Native, OutputSchema: agent.Native, Persona: agent.Native,
+		Permissions: agent.Native},
+	Events: []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventRetry, wire.EventResult, wire.EventError},
+	Cost:   true, ConfigureHint: "run `claude-code configure agents`", LoginArgv: []string{"claude", "auth", "login"},
+}}
+
+// claudeLauncher implements Launcher over Claude: the plan's overlay is written, its env layered on the process env.
+type claudeLauncher struct{}
+
+func (claudeLauncher) Claude(ctx context.Context, o agent.ClaudeOptions, args []string) (agent.ClaudeLaunch, error) {
+	plan, err := Claude(ctx, agent.LaunchOptions{Provider: o.Provider, Model: o.Model, KeepEnv: o.KeepEnv}, args)
+	if err != nil {
+		return agent.ClaudeLaunch{}, err
+	}
+	if err := plan.WriteFiles(); err != nil {
+		return agent.ClaudeLaunch{}, err
+	}
+	return agent.ClaudeLaunch{Binary: plan.Binary, Argv: plan.Argv, Env: plan.Env(os.Environ()), Set: plan.Set}, nil
+}
+
+func (claudeEngine) NewLive() agent.LiveBackend { return &claudeLive{} }
+
+// claudeLive holds `claude --print --input-format stream-json`: one process, one user message per turn.
+type claudeLive struct {
+	prevCost float64
+	cmd      *exec.Cmd // the held child, killed by a turn's stall watch
+}
+
+func (b *claudeLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer, string, error) {
+	args := claudeArgs([]string{"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+		"--include-partial-messages"}, req)
+	cmd, tail, cl, err := claudeCmd(ctx, req, args, "")
+	b.cmd = cmd
+	return cmd, tail, cl.Set[providers.EnvSessionProfile], err
+}
+
+func (*claudeLive) WriteTurn(w io.Writer, prompt string) error {
+	return agent.WriteJSONLine(w, map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": prompt}})
+}
+
+// parse prices the turn alone: claude's total_cost_usd accumulates over the process, its token counts do not.
+// A silent child is killed after claudeIdleLimit, so a turn cannot stay busy forever.
+func (b *claudeLive) Parse(dec *bufio.Reader, sink wire.Sink, lg func(kind, text string)) (wire.Result, error) {
+	wd := newStallWatch(claudeIdleLimit, func() { _ = b.cmd.Cancel() })
+	defer wd.stop()
+	res, err := parseClaudeEvents(dec, true, wd, sink, lg)
+	if serr := wd.stalled(); serr != nil {
+		err = serr
+	}
+	total := res.Usage.CostUSD
+	res.Usage.CostUSD = max(total-b.prevCost, 0)
+	b.prevCost = max(b.prevCost, total)
+	return res, err
+}
+
+var _ agent.Authenticator = claudeAgent
+
+// AuthStatus is the claude.ai login from `claude auth status`; a failed probe sets Err (unknown, not logged out).
+func (claudeEngine) AuthStatus() providers.AuthState {
+	ok, plan, err := claudeLoginProbe()
+	if err != nil {
+		return providers.AuthState{Err: err}
+	}
+	if !ok {
+		return providers.AuthState{}
+	}
+	return providers.AuthState{Present: true, Source: "claude.ai login", Method: providers.AuthCLI, PlanHint: strings.Trim(plan, " ()")}
+}
+
+// Plan is the plan name ~/.claude.json shows ("Ultra"), else the rate limit ("Ultra", "Max 5x"), else the bare plan; offline.
+func (claudeEngine) Plan(_ context.Context, st providers.AuthState) providers.Subscription {
+	acct := providers.ClaudeAccount()
+	raw := acct.Tier()
+	if acct.PlanName != "" {
+		return providers.Subscription{Raw: raw, Name: acct.PlanName}
+	}
+	if name := providers.MaxTierName(raw); name != "" {
+		return providers.Subscription{Raw: raw, Name: name}
+	}
+	return providers.Subscription{Raw: raw, Name: textutil.Title(st.PlanHint)}
+}
+
+func (claudeEngine) Verify(context.Context) (providers.AuthVerdict, string) {
+	ok, plan, err := claudeLoginProbe()
+	switch {
+	case err != nil:
+		return providers.VerdictTransient, "claude auth status failed: " + err.Error()
+	case ok:
+		return providers.VerdictOK, strings.TrimSuffix("logged in "+strings.Trim(plan, " ()"), " ")
+	}
+	return providers.VerdictNeedsLogin, ""
+}
+
+// claudeProbeTTL is how long a logged-in `claude auth status` result is reused.
+const claudeProbeTTL = 10 * time.Second
+
+// claudeProbe is one `claude auth status` answer.
+type claudeProbe struct {
+	loggedIn bool
+	plan     string
+}
+
+// claudeProbeMemo is single-flight; only a logged-in answer is kept, so the recheck after a login sees it.
+var claudeProbeMemo paths.Memo[struct{}, claudeProbe]
+
+// claudeLoginProbe asks `claude auth status` (JSON); err != nil means unknown. Single-flight; logged-in memo 10s.
+func claudeLoginProbe() (loggedIn bool, plan string, err error) {
+	p, err := claudeProbeMemo.Do(struct{}{}, func(p claudeProbe, err error) time.Duration {
+		if err == nil && p.loggedIn {
+			return claudeProbeTTL
+		}
+		return -1
+	}, func() (claudeProbe, error) {
+		in, plan, err := runClaudeProbe()
+		return claudeProbe{in, plan}, err
+	})
+	return p.loggedIn, p.plan, err
+}
+
+// runClaudeProbe spawns `claude auth status` (≤8s) and parses its JSON.
+func runClaudeProbe() (loggedIn bool, plan string, err error) {
+	bin, err := ClaudeBinary()
+	if err != nil {
+		return false, "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
+	defer cancel()
+	probe := agent.ProbeContext(ctx, "claude") // claude's own login only
+	out, runErr := agent.ProbeCLI(probe, bin, agent.EnvSpec{Mode: agent.EnvAgent}, false, "auth", "status")
+	var st struct {
+		LoggedIn         bool   `json:"loggedIn"`
+		SubscriptionType string `json:"subscriptionType"`
+	}
+	if jerr := json.Unmarshal(out, &st); jerr != nil { // logged-out may exit nonzero but still print JSON
+		if runErr != nil {
+			return false, "", runErr
+		}
+		return false, "", jerr
+	}
+	if st.SubscriptionType != "" {
+		plan = " (" + st.SubscriptionType + ")"
+	}
+	return st.LoggedIn, plan, nil
 }

@@ -38,6 +38,20 @@ func (r *Router) authFailure(p *providers.Provider, err error) error {
 	}
 }
 
+// readBody reads the request body up to maxBody; on a read error or an oversize body it writes the error and returns false.
+func readBody(w http.ResponseWriter, in *http.Request) ([]byte, bool) {
+	body, err := io.ReadAll(io.LimitReader(in.Body, maxBody+1))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "proxy: read body: "+err.Error())
+		return nil, false
+	}
+	if len(body) > maxBody {
+		writeError(w, http.StatusRequestEntityTooLarge, "proxy: request body over 64MiB")
+		return nil, false
+	}
+	return body, true
+}
+
 // invalidToken is the AI Gateway's 400 "Invalid Token" on p; it peeks 256 bytes and leaves the body readable.
 func invalidToken(resp *http.Response, p *providers.Provider) bool {
 	if resp.StatusCode != http.StatusBadRequest {

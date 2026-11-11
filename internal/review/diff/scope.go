@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -235,16 +236,9 @@ func scopePackages(root string, files []scopeFile) ([]scopePackage, error) {
 		return nil, err
 	}
 	for _, dir := range slices.Sorted(maps.Keys(goDirs)) {
-		pkgs = append(pkgs, scopePackage{Dir: dir, Files: byDir[dir], Importers: nonNil(importers[dir])})
+		pkgs = append(pkgs, scopePackage{Dir: dir, Files: byDir[dir], Importers: source.NonNil(importers[dir])})
 	}
 	return pkgs, nil
-}
-
-func nonNil(s []string) []string {
-	if s == nil {
-		return []string{}
-	}
-	return s
 }
 
 // goImporters maps each in-repo package dir to the sorted in-repo dirs whose packages import it.

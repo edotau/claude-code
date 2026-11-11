@@ -102,7 +102,7 @@ func docsPlacementPath(ctx context.Context, in *core.Input, path string, stderr 
 
 // repoDocsPlacement gates the two shapes: a repo ROOT, and <root>/docs — the rest of the tree is the project's own.
 func repoDocsPlacement(ctx context.Context, stderr io.Writer, dir, base, abs string) int {
-	root := core.RepoRootOf(dir)
+	root, _ := paths.CheckoutOf(dir)
 	if root == "" {
 		return core.ExitProceed
 	}

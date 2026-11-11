@@ -1,4 +1,4 @@
-// agentpin.go — the Profile row every agent page carries: the profile an agent runs on, or off; plus record writes.
+// agentprofile.go — the Profile row every agent page carries: the profile an agent runs on, or off; plus record writes.
 package menu
 
 import (
@@ -108,7 +108,7 @@ func writeAgentField(d *dialog, agent, field, val string) (bool, error) {
 	return true, nil
 }
 
-// seed.go — the "Seed agent profiles" dialog: choose, per agent, the profile it runs on (or off); first run opens it.
+// Seed section — the "Seed agent profiles" dialog: choose, per agent, the profile it runs on (or off); first run opens it.
 
 const (
 	seedOff  = "off"

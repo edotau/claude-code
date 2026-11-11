@@ -6,6 +6,7 @@ package usage
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,17 +17,19 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/codex"
-
 	"github.com/edotau/claude-code/internal/network/httpx"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/ui/table"
 )
 
@@ -473,4 +476,184 @@ func commandErrorLine(out []byte, err error) string {
 		s = s[:80]
 	}
 	return s
+}
+
+// ledgerAgg is one provider+profile+model row for the API KEYS section: tokens over today / 30d / all-time.
+type ledgerAgg struct {
+	Provider string `json:"provider"` // the platform
+	Profile  string `json:"profile,omitempty"`
+	Model    string `json:"model"`
+	Today    int    `json:"today"`
+	Last30d  int    `json:"last_30d"`
+	AllTime  int    `json:"all_time"`
+}
+
+// aggregateLedger rolls entries up per provider+profile+model, sorted by provider, profile, then model.
+func aggregateLedger(entries []tokenledger.Entry, now time.Time) []ledgerAgg {
+	type key struct{ provider, profile, model string }
+	byKey := map[key]*ledgerAgg{}
+	var order []key
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()) // local midnight, not UTC
+	cutoff30 := now.Add(-30 * 24 * time.Hour)
+	for _, e := range entries {
+		k := key{e.Provider, e.ProfileName(), e.Model}
+		a, ok := byKey[k]
+		if !ok {
+			a = &ledgerAgg{Provider: e.Provider, Profile: k.profile, Model: e.Model}
+			byKey[k] = a
+			order = append(order, k)
+		}
+		total := e.Input + e.Output + e.CacheRead
+		a.AllTime += total
+		if !e.Ts.Before(cutoff30) {
+			a.Last30d += total
+		}
+		if !e.Ts.Before(today) {
+			a.Today += total
+		}
+	}
+	slices.SortFunc(order, func(a, b key) int {
+		return cmp.Or(cmp.Compare(a.provider, b.provider), cmp.Compare(a.profile, b.profile), cmp.Compare(a.model, b.model))
+	})
+	out := make([]ledgerAgg, len(order))
+	for i, k := range order {
+		out[i] = *byKey[k]
+	}
+	return out
+}
+
+// ledgerSince is the earliest entry's timestamp, used for the "ledger started <date>" empty message.
+func ledgerSince(entries []tokenledger.Entry) time.Time {
+	var since time.Time
+	for _, e := range entries {
+		if since.IsZero() || e.Ts.Before(since) {
+			since = e.Ts
+		}
+	}
+	return since
+}
+
+// humanTokens renders a token count compactly: 1.2M, 34k, 512.
+func humanTokens(n int) string {
+	switch {
+	case n >= 999_500: // %.0fk would round up to "1000k"
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.0fk", float64(n)/1_000)
+	default:
+		return strconv.Itoa(n)
+	}
+}
+
+// rowLabel is "<provider>·<profile>", the provider alone when the profile is empty or bears its name.
+func rowLabel(provider, profile string) string {
+	if provider == "" {
+		return profile
+	}
+	if profile == "" || profile == provider {
+		return provider
+	}
+	return provider + "·" + profile
+}
+
+// recordQuotaState stores the fetched rows in quota.json; a var so package tests never write the real file.
+var recordQuotaState = func(qs []quota) { recordQuotas(qs, time.Now()) }
+
+// recordQuotas keeps each account's worst window (Fable's model cap and failure rows excluded); returns how many it stored.
+func recordQuotas(qs []quota, now time.Time) int {
+	worst := map[string]quota{}
+	for _, q := range qs {
+		key := accountKey(q)
+		if key == "" || !recordable(q) {
+			continue
+		}
+		if w, ok := worst[key]; !ok || q.UsedPct > w.UsedPct {
+			worst[key] = q
+		}
+	}
+	n := 0
+	for key, q := range worst {
+		if router.Record(key, q.UsedPct, q.Window, resetTime(q), now) == nil {
+			n++
+		}
+	}
+	return n
+}
+
+// recordable is true for a windowed, ungrouped, freshly fetched row; cached rows carry no fetch time and would look fresh.
+func recordable(q quota) bool {
+	return q.Window != "" && q.Group == "" && q.Note == "" && !q.cached
+}
+
+// accountKey maps a quota row to route's account key; "" for providers the router has no column for.
+func accountKey(q quota) string {
+	switch q.Provider {
+	case "anthropic":
+		return "anthropic·ultra"
+	case "openai":
+		return "openai·chatgpt"
+	case "github":
+		if q.Account != "" {
+			reg, err := providers.Load()
+			if err != nil {
+				return "" // an unreadable registry would key the row by raw login; record nothing instead
+			}
+			return "github·" + providers.GithubAccountName(reg, q.Account)
+		}
+	}
+	return ""
+}
+
+// resetTime reads a row's reset: the UTC instant when set, else the local display forms.
+func resetTime(q quota) time.Time {
+	if t, err := time.Parse(time.RFC3339, q.ResetsAt); err == nil {
+		return t
+	}
+	for _, layout := range []string{"2006-01-02 15:04", "2006-01-02"} {
+		if t, err := time.ParseInLocation(layout, q.Resets, time.Local); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
+// RefreshAccount re-fetches one account (3 s; Anthropic's 60 s cache reused) and records it; false on no data.
+// A fetch that records nothing stamps the account checked, so picks back off for StaleAfter instead of re-fetching.
+func RefreshAccount(parent context.Context, key string) bool {
+	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
+	defer cancel()
+	var qs []quota
+	switch {
+	case key == "anthropic·ultra":
+		qs = claudeQuotas(ctx)
+	case key == "openai·chatgpt":
+		qs = openaiQuotas(ctx)
+	case strings.HasPrefix(key, "github·"):
+		reg, err := providers.Load()
+		if err != nil {
+			return false
+		}
+		qs = []quota{githubQuota(ctx, providers.GithubAccountLogin(reg, strings.TrimPrefix(key, "github·")))}
+	default:
+		return false
+	}
+	setStates(qs, warnThreshold())
+	now := time.Now()
+	if recordQuotas(qs, now) > 0 {
+		return true
+	}
+	if parent.Err() == nil { // the caller's own deadline cut the fetch short: no verdict to back off on
+		_ = router.MarkChecked(key, checkNote(qs), now)
+	}
+	return false
+}
+
+// checkNote is the first row's note, else why nothing recordable came back.
+func checkNote(qs []quota) string {
+	for _, q := range qs {
+		if q.Note != "" {
+			return q.Note
+		}
+	}
+	return "no recordable window"
 }

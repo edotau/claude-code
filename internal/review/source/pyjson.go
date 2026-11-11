@@ -7,17 +7,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"unicode/utf16"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // PyMarshalIndent matches Python's json.dumps(v, indent=2): ensure_ascii escaping and no HTML-escaping of <, >, &.
 func PyMarshalIndent(v any) ([]byte, error) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
+	compact, err := textutil.MarshalNoEscape(v)
+	if err != nil {
 		return nil, err
 	}
-	compact := bytes.TrimRight(buf.Bytes(), "\n")
 	escaped := PyEscapeNonASCII(compact)
 	var out bytes.Buffer
 	if err := json.Indent(&out, escaped, "", "  "); err != nil {

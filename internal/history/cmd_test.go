@@ -15,11 +15,11 @@ import (
 // TestHistorySnapshotFailureDoesNotReportUnchanged: a failed snapshot exits 1 and prints nothing on stdout.
 func TestHistorySnapshotFailureDoesNotReportUnchanged(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if err := os.MkdirAll(paths.CacheDir(), 0o700); err != nil {
+	if err := os.MkdirAll(paths.StateDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	// A regular file where the history repo directory belongs makes ensureRepo fail.
-	if err := os.WriteFile(filepath.Join(paths.CacheDir(), "history"), []byte("x"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(paths.StateDir(), "history"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return historySnapshot(nil) })

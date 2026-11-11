@@ -1,8 +1,5 @@
 package statusline
 
-// Each render is a fresh process, so memos live in stamp files under the state dir ("f1|f2|…"); any
-// failure falls open to a live recompute, never to a wrong bar.
-
 import (
 	"hash/fnv"
 	"os"
@@ -11,8 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 )
+
+// Each render is a fresh process, so memos live in stamp files under the state dir ("f1|f2|…"); any
+// failure falls open to a live recompute, never to a wrong bar.
 
 func stampFile(kind, key string) string {
 	h := fnv.New64a()
@@ -49,4 +50,19 @@ func freshStamp(path string, ttl time.Duration, n int) []string {
 
 func writeTimedStamp(path string, fields ...string) {
 	writeStamp(path, append([]string{strconv.FormatInt(time.Now().UnixMilli(), 10)}, fields...)...)
+}
+
+// runningTTL caps the marker + dispatch sweep at one per 3s across renders.
+const runningTTL = 3 * time.Second
+
+// runningDispatches is the live dispatch count for this session, cached for runningTTL.
+func runningDispatches(in Input) int {
+	stamp := stampFile("running", paths.StateDir()+"\x00"+in.TranscriptPath)
+	if f := freshStamp(stamp, runningTTL, 1); f != nil {
+		n, _ := strconv.Atoi(f[0])
+		return n
+	}
+	n := inflight.LiveDispatches(inflight.SessionOwner())
+	writeTimedStamp(stamp, strconv.Itoa(n))
+	return n
 }

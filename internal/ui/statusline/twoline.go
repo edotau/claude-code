@@ -1,6 +1,7 @@
 package statusline
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"strconv"
@@ -76,7 +77,7 @@ func twolineRows(v values) (row1, row2 []twoSeg) {
 	if d.auth != "" {
 		row1 = appendSep(row1, twoSeg{key: "auth", text: d.auth})
 	}
-	row1 = appendSep(row1, twoSeg{key: "model", text: dropDatabricksClaude(cmpModel(d.model, v.model)), bold: true})
+	row1 = appendSep(row1, twoSeg{key: "model", text: dropDatabricksClaude(cmp.Or(d.model, v.model)), bold: true})
 	if d.effort != "" {
 		row1 = append(row1, twoSeg{key: "effort", text: ":" + d.effort, dim: true})
 	}
@@ -107,14 +108,6 @@ func appendVelocity(row []twoSeg, adds, dels int) []twoSeg {
 		row = append(row, twoSeg{key: "del", text: "-" + strconv.Itoa(dels)})
 	}
 	return row
-}
-
-// cmpModel prefers the payload display name, else the resolved model segment.
-func cmpModel(display, fallback string) string {
-	if display != "" {
-		return display
-	}
-	return fallback
 }
 
 // appendSep appends s after a separator when row already has cells.
@@ -149,7 +142,7 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 		for _, r := range s.text {
 			rgb := ansi.GradAt(stops, float64(i)/float64(max(total-1, 1)))
 			if s.key == "sep" {
-				rgb = ansi.Hex(cmpModel(th["sep"]["fg"], "#CAD3F5"))
+				rgb = ansi.Hex(cmp.Or(th["sep"]["fg"], "#CAD3F5"))
 			} else if s.fg != "" {
 				rgb = ansi.Hex(s.fg)
 			} else if fg := th[s.key]["fg"]; fg != "" { // a palette with cell colors (minimal) sets fg with its bg

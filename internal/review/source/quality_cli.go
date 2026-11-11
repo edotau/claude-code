@@ -1,10 +1,12 @@
 package source
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -191,4 +193,110 @@ func formatPyFloat(f float64) string {
 		s += ".0"
 	}
 	return s
+}
+
+var skipParts = map[string]bool{"node_modules": true, ".git": true, "__pycache__": true, ".venv": true, "venv": true, "dist": true, "build": true}
+
+// pathHasSkippedPart mirrors `SKIP_PARTS & set(filepath.parts)`.
+func pathHasSkippedPart(path string) bool {
+	for part := range strings.SplitSeq(filepath.ToSlash(path), "/") {
+		if skipParts[part] {
+			return true
+		}
+	}
+	return false
+}
+
+// walkDir is the traversal seam; tests wrap it to count the paths a walk visits.
+var walkDir = filepath.WalkDir
+
+// walkSourceFiles calls fn for each non-skipped file under root and returns the paths the walk could not read.
+func walkSourceFiles(root string, fn func(p string)) []string {
+	var unreadable []string
+	_ = walkDir(root, func(p string, d os.DirEntry, err error) error {
+		if rel, rerr := filepath.Rel(root, p); rerr != nil || pathHasSkippedPart(rel) {
+			if d != nil && d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: skipping unreadable path %s: %v\n", p, err)
+			unreadable = append(unreadable, p)
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		fn(p)
+		return nil
+	})
+	return unreadable
+}
+
+// analyzeDirectory ports code_quality_checker.analyze_directory.
+func analyzeDirectory(dir, language string) (directoryReport, error) {
+	var extensions []string
+	if language != "" {
+		extensions = Extensions[language]
+	} else {
+		for _, lang := range languageOrder {
+			extensions = append(extensions, Extensions[lang]...)
+		}
+	}
+
+	results, failed := walkExtensions(dir, extensions)
+	if len(results) == 0 && len(failed) > 0 {
+		return directoryReport{}, fmt.Errorf("analysis failed for %d files, e.g. %s", len(failed), failed[0])
+	}
+	if len(results) == 0 {
+		return directoryReport{}, errors.New("no supported files found")
+	}
+
+	total := 0.0
+	for _, r := range results {
+		total += float64(r.QualityScore)
+	}
+	avg := PyFloat(round1(total / float64(len(results))))
+	smells, violations := 0, 0
+	for _, r := range results {
+		smells += len(r.Smells)
+		violations += len(r.SolidViolations)
+	}
+	sort.SliceStable(results, func(i, j int) bool { return results[i].QualityScore < results[j].QualityScore })
+
+	return directoryReport{
+		Directory: dir, FilesAnalyzed: len(results), AverageScore: avg, OverallGrade: getGrade(int(avg)),
+		TotalCodeSmells: smells, TotalSolidViolations: violations, Files: results, FilesFailed: failed,
+	}, nil
+}
+
+// walkExtensions collects supported files in one traversal, retaining extension and path ordering; failed lists
+// the files whose analysis errored.
+func walkExtensions(dir string, extensions []string) (out []QualityReport, failed []string) {
+	byExtension := make(map[string][]string, len(extensions))
+	for _, ext := range extensions {
+		byExtension[ext] = nil
+	}
+	failed = walkSourceFiles(dir, func(p string) {
+		for ext := range byExtension {
+			if strings.HasSuffix(p, ext) {
+				byExtension[ext] = append(byExtension[ext], p)
+			}
+		}
+	})
+	for _, ext := range extensions {
+		matches := byExtension[ext]
+		sort.Strings(matches)
+		for _, m := range matches {
+			r, err := Quality(m)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: analysis failed: %v\n", err)
+				failed = append(failed, m)
+				continue
+			}
+			out = append(out, r)
+		}
+	}
+	return out, failed
 }

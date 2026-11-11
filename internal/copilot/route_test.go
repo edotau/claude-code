@@ -216,6 +216,7 @@ func TestRegistryLaunchArgvPinsOnce(t *testing.T) {
 	copilotSettings(t, &vault.AgentRecord{Effort: "high", Context: "long_context"}, "", false)
 	setGOOS(t, "linux")
 	t.Setenv("COPILOT_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir()) // a bare Linux box (no login session) has no /run/user/<uid>
 	stubSettingsRegistry(t)
 	reg, err := providers.Load()
 	if err != nil {

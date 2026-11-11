@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/network/browser"
@@ -110,7 +111,7 @@ func retiredShimSources(t *testing.T) map[string]string {
 	sources := make(map[string]string)
 	var dirs []string
 	for _, name := range []string{"claude", "codex", "copilot", "opencode", "gemini"} {
-		vendor := paths.Vendors[name]
+		vendor := agentid.Binary(name)
 		source := vendorPATHFixture(t, vendor, "")
 		sources[name] = source
 		dirs = append(dirs, filepath.Dir(source))

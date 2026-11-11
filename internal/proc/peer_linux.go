@@ -10,19 +10,11 @@ import (
 
 // PeerUID is the uid of the process on the other end of conn (SO_PEERCRED).
 func PeerUID(conn *net.UnixConn) (uint32, error) {
-	raw, err := conn.SyscallConn()
-	if err != nil {
-		return 0, err
-	}
-	var uid uint32
-	var gerr error
-	if err := raw.Control(func(fd uintptr) {
-		var cred *unix.Ucred
-		if cred, gerr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED); gerr == nil {
-			uid = cred.Uid
+	return peerUID(conn, func(fd int) (uint32, error) {
+		cred, err := unix.GetsockoptUcred(fd, unix.SOL_SOCKET, unix.SO_PEERCRED)
+		if err != nil {
+			return 0, err
 		}
-	}); err != nil {
-		return 0, err
-	}
-	return uid, gerr
+		return cred.Uid, nil
+	})
 }

@@ -240,14 +240,6 @@ func unknownAgent(agents string) error {
 	return nil
 }
 
-func providerNames() []string {
-	reg, err := providers.Load()
-	if err != nil {
-		return nil
-	}
-	return reg.Names()
-}
-
 // agentNames are the agent CLIs `configure --agent` can scope to: the agents plus claude itself.
 func agentNames() []string { return append([]string{"claude"}, client.DefaultAgents...) }
 
@@ -268,8 +260,8 @@ func sections() []string {
 // configureSpec is the completion node for the configure verb.
 func configureSpec() *helptext.Node {
 	formatFlag := helptext.ValuedFlag("format", func() []string { return []string{helptext.Text, helptext.JSON} })
-	return &helptext.Node{Args: []func() []string{sections, providerNames}, Flags: []helptext.Flag{
-		helptext.ValuedFlag("profile", providerNames), helptext.ValuedFlag("agent", agentNames), helptext.ValuedFlag("auth", authNames), helptext.BoolFlag("dry-run"), helptext.BoolFlag("check"),
+	return &helptext.Node{Args: []func() []string{sections, providers.ProfileNames}, Flags: []helptext.Flag{
+		helptext.ValuedFlag("profile", providers.ProfileNames), helptext.ValuedFlag("agent", agentNames), helptext.ValuedFlag("auth", authNames), helptext.BoolFlag("dry-run"), helptext.BoolFlag("check"),
 		helptext.BoolFlag("restore"), helptext.BoolFlag("revert"), helptext.Plain("out"), helptext.BoolFlag("agents"), helptext.BoolFlag("list"), helptext.BoolFlag("all"),
 		helptext.BoolFlag("no-agents"), formatFlag}}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +12,23 @@ import (
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/source"
+	"github.com/edotau/claude-code/internal/textutil"
 )
+
+func roundTo(x float64, places int) float64 {
+	mult := math.Pow(10, float64(places))
+	return math.Round(x*mult) / mult
+}
+
+func pyPercent(x float64) string {
+	return fmt.Sprintf("%.0f%%", x*100)
+}
+
+// indentJSON matches Python's json.dumps(v, indent=2), see source.PyMarshalIndent.
+func indentJSON(v any) (string, error) {
+	b, err := source.PyMarshalIndent(v)
+	return string(b), err
+}
 
 var severityWeights = map[string]int{"critical": 100, "high": 75, "medium": 50, "low": 25, "info": 10}
 
@@ -84,10 +101,10 @@ type ReportMetadata struct {
 
 // QualitySummary re-derives files_analyzed/average_score/etc. in a fixed key order.
 type QualitySummary struct {
-	FilesAnalyzed        int     `json:"files_analyzed"`
-	AverageScore         pyFloat `json:"average_score"`
-	TotalCodeSmells      int     `json:"total_code_smells"`
-	TotalSolidViolations int     `json:"total_solid_violations"`
+	FilesAnalyzed        int            `json:"files_analyzed"`
+	AverageScore         source.PyFloat `json:"average_score"`
+	TotalCodeSmells      int            `json:"total_code_smells"`
+	TotalSolidViolations int            `json:"total_solid_violations"`
 }
 
 // Report is the full review_report_generator.py output shape.
@@ -215,17 +232,6 @@ func extAt(path string) string {
 	return strings.ToLower(path[idx:])
 }
 
-func languageForExt(ext string) string {
-	for lang, exts := range source.Extensions {
-		for _, e := range exts {
-			if strings.ToLower(e) == ext {
-				return lang
-			}
-		}
-	}
-	return ""
-}
-
 // runQualityChecker ports run_quality_checker: source.Quality over each changed source file.
 func runQualityChecker(repo, base, head string) (map[string]any, error) {
 	changed, err := changedSourceFiles(repo, base, head)
@@ -234,7 +240,7 @@ func runQualityChecker(repo, base, head string) (map[string]any, error) {
 	}
 	var results []map[string]any
 	for _, name := range changed {
-		lang := languageForExt(extAt(name))
+		lang := source.DetectLanguage(name)
 		content, err := headContent(repo, head, name)
 		if err != nil {
 			return nil, fmt.Errorf("read %s at %s: %w", name, head, err)
@@ -315,18 +321,6 @@ func qualityFileResults(qualityAnalysis map[string]any) []map[string]any {
 
 var verdictEmoji = map[string]string{"approve": "✅", "approve_with_suggestions": "✅", "request_changes": "⚠️", "block": "❌"}
 
-func titleWords(s string) string {
-	b := []byte(s)
-	start := true
-	for i, c := range b {
-		if start && c >= 'a' && c <= 'z' {
-			b[i] = c - ('a' - 'A')
-		}
-		start = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f'
-	}
-	return string(b)
-}
-
 func formatMarkdownReport(r Report) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "# Code Review Report")
@@ -349,7 +343,7 @@ func formatMarkdownReport(r Report) string {
 	fmt.Fprintln(&b, "| Severity | Count |")
 	fmt.Fprintln(&b, "|----------|-------|")
 	for _, sev := range severityOrder {
-		fmt.Fprintf(&b, "| %s | %d |\n", titleWords(sev), severityCount(r.Summary.IssueCounts, sev))
+		fmt.Fprintf(&b, "| %s | %d |\n", textutil.Title(sev), severityCount(r.Summary.IssueCounts, sev))
 	}
 	fmt.Fprintln(&b)
 
@@ -479,7 +473,7 @@ func formatTextReport(r Report) string {
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "--- ISSUE SUMMARY ---")
 	for _, sev := range severityOrder {
-		fmt.Fprintf(&b, "  %s: %d\n", titleWords(sev), severityCount(r.Summary.IssueCounts, sev))
+		fmt.Fprintf(&b, "  %s: %d\n", textutil.Title(sev), severityCount(r.Summary.IssueCounts, sev))
 	}
 	fmt.Fprintln(&b)
 

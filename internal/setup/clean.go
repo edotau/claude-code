@@ -1,4 +1,4 @@
-// Package clean is the explicit state sweep: `claude-code clean` applies by default and the
+// clean.go is the explicit state sweep: `claude-code clean` applies by default and the
 // age-out every target protects against is otherwise a LAZY side effect (update, hooks, install
 // each prune only their own path on their own schedule — nothing ever sweeps the rest). --dry-run
 // previews without deleting.
@@ -136,7 +136,7 @@ func daemonTargets() []target {
 		{
 			name: "settings-backups", doc: "state/harness/backups/setup/* + backups/.claude.json.backup.* (CLI), aged; the revert mirror is never swept",
 			globs: func() []string {
-				return []string{filepath.Join(paths.CacheDir(), "backups", "setup", "*"), cfgPath("backups", ".claude.json.backup.*")}
+				return []string{filepath.Join(paths.StateDir(), "backups", "setup", "*"), cfgPath("backups", ".claude.json.backup.*")}
 			}, // the rest of state/harness/backups is the only agent-config history (configure --revert)
 		},
 		{

@@ -363,17 +363,7 @@ func headOfContext(ctx context.Context, dest string) (string, error) {
 // isLockedAt stats the linked worktree's private "locked" marker directly, so Clean needs no full
 // `worktree list` round trip just to recheck one entry's lock state. Only a confirmed os.IsNotExist
 // counts as unlocked; any other stat error is an unknown state and must propagate.
-func isLockedAt(gitDir string) (bool, error) {
-	_, statErr := os.Stat(filepath.Join(gitDir, "locked"))
-	switch {
-	case statErr == nil:
-		return true, nil
-	case os.IsNotExist(statErr):
-		return false, nil
-	default:
-		return false, statErr
-	}
-}
+func isLockedAt(gitDir string) (bool, error) { return markerExists(gitDir, "locked") }
 
 // DiscardSummary is what CleanForce is about to throw away, reported before anything is removed.
 type DiscardSummary struct {
@@ -454,8 +444,7 @@ func forceBusyReason(repo *Repo, dest string) string {
 func discardSummary(repo *Repo, dest, branch string) (DiscardSummary, string) {
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
-	out, err := gitCmd(ctx, "-C", repo.Main, "symbolic-ref", "--short", "-q", "HEAD").Output()
-	target := strings.TrimSpace(string(out))
+	target, err := requireBranch(ctx, repo.Main)
 	if err != nil || target == "" {
 		return DiscardSummary{}, "cannot determine target branch: main checkout is detached or unreadable"
 	}

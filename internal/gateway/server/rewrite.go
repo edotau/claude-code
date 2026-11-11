@@ -59,13 +59,22 @@ func anthropicOrigin(route string) bool {
 	return err == nil && u.Scheme == "https" && u.User == nil && u.Host == anthropicHost
 }
 
+// parseRoute splits /p/<provider>/<rest>; rest is "" when the path has no second segment.
+func parseRoute(path string) (provider, rest string, ok bool) {
+	tail, ok := strings.CutPrefix(path, "/p/")
+	if !ok {
+		return "", "", false
+	}
+	provider, rest, _ = strings.Cut(tail, "/")
+	return provider, rest, true
+}
+
 // parsePath splits /p/<provider>/v1/messages[/count_tokens].
 func parsePath(path string) (provider string, count, ok bool) {
-	rest, ok := strings.CutPrefix(path, "/p/")
+	provider, rest, ok := parseRoute(path)
 	if !ok {
 		return "", false, false
 	}
-	provider, rest, _ = strings.Cut(rest, "/")
 	switch "/" + rest {
 	case "/v1/messages":
 		return provider, false, provider != ""

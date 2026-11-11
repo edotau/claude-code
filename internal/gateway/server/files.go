@@ -73,7 +73,7 @@ func fileScope(in *http.Request, p *providers.Provider) (string, bool) {
 
 // rewriteFiles returns body with large base64 image/document blocks swapped for file sources; body is never mutated.
 func (r *Router) rewriteFiles(in *http.Request, p *providers.Provider, route string, body []byte, count bool) []byte {
-	if count || !anthropicOrigin(route) {
+	if count || len(body) < fileMinBytes || !anthropicOrigin(route) {
 		return body
 	}
 	var m map[string]json.RawMessage

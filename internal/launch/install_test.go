@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/copilot"
 	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini route engine the prod binary links
 	"github.com/edotau/claude-code/internal/paths"
@@ -153,7 +154,7 @@ func setupCompactFixture(t *testing.T, linked []string) {
 	selfBinary = func() (string, error) { return self, nil }
 	var dirs []string
 	for _, name := range linked {
-		vendor := paths.Vendors[name]
+		vendor := agentid.Binary(name)
 		source := vendorPATHFixture(t, vendor, "")
 		dirs = append(dirs, filepath.Dir(source))
 	}

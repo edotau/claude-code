@@ -196,7 +196,10 @@ func cmdAgentsList(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if fs.NArg() > 0 || !slices.Contains([]string{helptext.Text, helptext.JSON}, *format) {
+	if err := helptext.CheckFormat(*format); err != nil {
+		return helptext.BadFormat("agents list", err)
+	}
+	if fs.NArg() > 0 {
 		fs.Usage()
 		return 2
 	}
@@ -234,7 +237,10 @@ func cmdAgentsSync(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if fs.NArg() > 0 || (*format != "text" && *format != "json") {
+	if err := helptext.CheckFormat(*format); err != nil {
+		return helptext.BadFormat("agents sync", err)
+	}
+	if fs.NArg() > 0 {
 		fs.Usage()
 		return 2
 	}
@@ -290,7 +296,10 @@ func cmdAgentsLabel(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if len(pos) != 1 || !slices.Contains([]string{helptext.Text, helptext.JSON}, *format) {
+	if err := helptext.CheckFormat(*format); err != nil {
+		return helptext.BadFormat("agents label", err)
+	}
+	if len(pos) != 1 {
 		fs.Usage()
 		return 2
 	}

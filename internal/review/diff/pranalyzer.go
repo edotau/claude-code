@@ -501,7 +501,6 @@ func printReviewOrder(w io.Writer, r PRReport) {
 
 // RunPR ports pr_analyzer.py's CLI.
 func RunPR(args []string, stdout, stderr io.Writer) int {
-	positional, flagArgs := splitPositional(args, map[string]bool{"json": true, "h": true, "help": true})
 	fs := helptext.NewFlagSet("pr", helptext.Page{
 		Usage: "claude-code review pr [<repo>] [flags]",
 		About: "Summarize a branch's changes against a base: files by category, risk, review order.",
@@ -513,8 +512,9 @@ func RunPR(args []string, stdout, stderr io.Writer) int {
 	jsonOut := fs.Bool("json", false, "Output in JSON format")
 	output := fs.String("output", "", "Write output to file")
 	fs.StringVar(output, "o", "", "shorthand for --output")
-	if code, done := helptext.Parse(fs, flagArgs); done {
-		return code
+	positional, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
 	}
 
 	repoPath, ok := resolveGitRepo(positional, stderr)
@@ -539,11 +539,11 @@ func RunPR(args []string, stdout, stderr io.Writer) int {
 	} else {
 		printPRReport(&buf, report)
 	}
-	return writeOutput(buf.String(), *output, stdout, stderr)
+	return writeOutput(buf.String(), false, *output, "Results", stdout, stderr)
 }
 
-// resolveGitRepo returns the repo's top-level dir for the first positional (default "."), reporting failures to stderr.
-func resolveGitRepo(positional []string, stderr io.Writer) (string, bool) {
+// absRepoArg returns the absolute path of the first positional (default "."), reporting failures to stderr.
+func absRepoArg(positional []string, stderr io.Writer) (string, bool) {
 	repoArg := "."
 	if len(positional) > 0 {
 		repoArg = positional[0]
@@ -551,6 +551,15 @@ func resolveGitRepo(positional []string, stderr io.Writer) (string, bool) {
 	repoPath, err := filepath.Abs(repoArg)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return "", false
+	}
+	return repoPath, true
+}
+
+// resolveGitRepo returns the repo's top-level dir for the first positional (default "."), reporting failures to stderr.
+func resolveGitRepo(positional []string, stderr io.Writer) (string, bool) {
+	repoPath, ok := absRepoArg(positional, stderr)
+	if !ok {
 		return "", false
 	}
 	top, err := runGitErr(repoPath, "rev-parse", "--show-toplevel")
@@ -561,10 +570,14 @@ func resolveGitRepo(positional []string, stderr io.Writer) (string, bool) {
 	return top, true
 }
 
-// writeOutput prints text to stdout, or writes it to the output file and confirms.
-func writeOutput(text, output string, stdout, stderr io.Writer) int {
+// writeOutput prints text (plus a newline when ln) to stdout, or writes it to the output file and confirms with label.
+func writeOutput(text string, ln bool, output, label string, stdout, stderr io.Writer) int {
 	if output == "" {
-		if _, err := fmt.Fprint(stdout, text); err != nil {
+		emit := fmt.Fprint
+		if ln {
+			emit = fmt.Fprintln
+		}
+		if _, err := emit(stdout, text); err != nil {
 			fmt.Fprintf(stderr, "Error: %v\n", err)
 			return 1
 		}
@@ -574,6 +587,6 @@ func writeOutput(text, output string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "Results written to %s\n", output)
+	fmt.Fprintf(stdout, "%s written to %s\n", label, output)
 	return 0
 }

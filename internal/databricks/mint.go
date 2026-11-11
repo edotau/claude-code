@@ -140,18 +140,24 @@ func patRow(name string) (*providers.Provider, func() error, error) {
 	return p, undo, nil
 }
 
+// overlayProviders decodes the overlay's providers rows; a missing key is an empty map.
+func overlayProviders(top map[string]json.RawMessage) (map[string]map[string]json.RawMessage, error) {
+	provs := map[string]map[string]json.RawMessage{}
+	if b, ok := top["providers"]; ok {
+		if err := json.Unmarshal(b, &provs); err != nil {
+			return nil, err
+		}
+	}
+	return provs, nil
+}
+
 // overlayAuth returns the raw auth block of name's overlay row (nil when it has none).
 func overlayAuth(name string) (json.RawMessage, error) {
 	var raw json.RawMessage
 	_, _, err := providers.UpdateOverlayDocForce(false, true, func(top map[string]json.RawMessage, _ *vault.Tx) error {
-		provs := map[string]map[string]json.RawMessage{}
-		if b, ok := top["providers"]; ok {
-			if err := json.Unmarshal(b, &provs); err != nil {
-				return err
-			}
-		}
+		provs, err := overlayProviders(top)
 		raw = provs[name]["auth"]
-		return nil
+		return err
 	})
 	return raw, err
 }

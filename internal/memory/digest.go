@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// Digest bounds (plan finding 8): raw-archive input only, one small model call, never digest-of-digest.
+// Digest bounds: raw-archive input only, one small model call, never digest-of-digest.
 const (
 	DigestFile      = "digest.md"
 	digestMaxInput  = 40 << 10
@@ -121,7 +121,7 @@ func Digest(ctx context.Context, dir, claude string) (string, error) {
 		") from the raw archive: " + strings.Join(used, ", ") + ". Raw files stay the source of truth.\n\n" + strings.Join(lines, "\n") + "\n"
 	path := filepath.Join(archiveDir(dir), DigestFile)
 	err = WithBankLock(BankLockWait, func() error {
-		prev, err := readIfExists(path)
+		snap, err := snapshotFile(path)
 		if err != nil {
 			return err
 		}
@@ -132,15 +132,7 @@ func Digest(ctx context.Context, dir, claude string) (string, error) {
 		if cerr == nil {
 			return nil
 		}
-		return errors.Join(cerr, restoreDigest(path, prev))
+		return errors.Join(cerr, snap.restore())
 	})
 	return path, err
-}
-
-// restoreDigest puts back the digest a failed commit replaced: its previous bytes, or no file when there were none.
-func restoreDigest(path string, prev []byte) error {
-	if prev == nil {
-		return os.Remove(path)
-	}
-	return paths.AtomicWrite(path, prev, 0o600)
 }

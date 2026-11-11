@@ -32,10 +32,15 @@ var CredentialRE = regexp.MustCompile(strings.Join([]string{
 // LooksSecret reports a credential-shaped value: known token prefixes or a bearer-style value; ${ENV}
 // references, file paths, and obvious placeholders are never flagged.
 func LooksSecret(val string) bool {
+	return looksSecretToken(val) || val != "" && !notCredentialShaped(val) && bearerToken.MatchString(val)
+}
+
+// looksSecretToken is LooksSecret's prefix checks without the bearer regex, which cannot match a whitespace-free run.
+func looksSecretToken(val string) bool {
 	if val == "" || notCredentialShaped(val) {
 		return false
 	}
-	return HasGitHubPrefix(val) || IsSlackToken(val) || hasAnyPrefix(val, "AKIA", "dapi", "sk-") || bearerToken.MatchString(val)
+	return HasGitHubPrefix(val) || IsSlackToken(val) || hasAnyPrefix(val, "AKIA", "dapi", "sk-")
 }
 
 // placeholderWindow is how far into a value a placeholder marker counts; later hits are random token bytes.
@@ -108,7 +113,7 @@ func RedactSecrets(s string) string {
 			i++
 			continue
 		}
-		if run := s[i:j]; LooksSecret(run) {
+		if run := s[i:j]; looksSecretToken(run) {
 			b.WriteString("REDACTED")
 		} else {
 			b.WriteString(run)

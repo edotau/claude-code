@@ -99,7 +99,7 @@ func SpawnStart() bool {
 	if !claimRestart(time.Now()) {
 		return false
 	}
-	exe, err := executable()
+	exe, err := paths.SelfBinary()
 	if err != nil {
 		return false
 	}

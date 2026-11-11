@@ -71,12 +71,12 @@ func TestLoadCatalogReadsGatewayOnlyOnGatewayWire(t *testing.T) {
 	t.Cleanup(srv.Close)
 	trustTestTLS(t, srv)
 	p := liveDbxProvider(t, srv.URL, "tok")
-	c, err := LoadCatalog(nil, p, nil)
+	c, err := LoadCatalog(p, nil)
 	if err != nil || rec.saw("/ai-gateway/anthropic/v1/models") || len(c.Gateway) != 0 || c.GatewayErr != nil {
 		t.Fatalf("serving row: paths %v, err %v, catalog:\n%s", rec.paths, err, strings.Join(c.TableLines(), "\n"))
 	}
 	p.Options.Wire = WireAIGateway
-	if _, err := LoadCatalog(nil, p, nil); err != nil || !rec.saw("/ai-gateway/anthropic/v1/models") {
+	if _, err := LoadCatalog(p, nil); err != nil || !rec.saw("/ai-gateway/anthropic/v1/models") {
 		t.Errorf("gateway-wire row: paths %v, err %v; want the gateway listing read", rec.paths, err)
 	}
 }

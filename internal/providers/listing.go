@@ -190,7 +190,7 @@ type Catalog struct {
 
 // LoadCatalog fetches p's catalog (listOwn for a provider with its own SDK, else a plain /models GET), falling
 // back to a known offline list where one exists, then the gateway's models.
-func LoadCatalog(reg *Registry, p *Provider, listOwn func(context.Context) ([]ModelInfo, error)) (Catalog, error) {
+func LoadCatalog(p *Provider, listOwn func(context.Context) ([]ModelInfo, error)) (Catalog, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	var c Catalog
@@ -198,7 +198,7 @@ func LoadCatalog(reg *Registry, p *Provider, listOwn func(context.Context) ([]Mo
 	if listOwn != nil {
 		c.Infos, err = listOwn(ctx)
 	} else {
-		c.Infos, err = ListModels(ctx, reg, p)
+		c.Infos, err = ListModels(ctx, p)
 	}
 	if err != nil {
 		if c.Infos, c.Note, err = FallbackModels(p, err); err != nil {

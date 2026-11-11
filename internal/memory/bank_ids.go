@@ -32,6 +32,17 @@ func contentRef(block string) string {
 	return contentRefPrefix + hex.EncodeToString(sum[:4])
 }
 
+// blockRef is the block's persisted id, else fallback, else its contentRef.
+func blockRef(block, fallback string) string {
+	if id := ownerID(block); id != "" {
+		return id
+	}
+	if fallback != "" {
+		return fallback
+	}
+	return contentRef(block)
+}
+
 // idFiles are the typed files whose blocks get IDs, with the prefix that starts a block.
 var idFiles = map[string]string{"decisionLog.md": "## ", "sessionHistory.md": "## ", "conventions.md": "- "}
 
@@ -280,13 +291,16 @@ func blockWithRef(p, ref string, derived bool) (found string, ok bool) {
 	return found, ok
 }
 
+var archiveName = regexp.MustCompile(`^(decisionLog|sessionHistory|conventions)-\d{4}-\d{2}\.md$`)
+
 // logicalName maps an archive file (decisionLog-2026-10.md) back to its typed file's grammar.
 func logicalName(path string) string {
 	base := filepath.Base(path)
-	for name := range idFiles {
-		if stem := strings.TrimSuffix(name, ".md"); base == name || regexp.MustCompile(`^`+stem+`-\d{4}-\d{2}\.md$`).MatchString(base) {
-			return name
-		}
+	if _, ok := idFiles[base]; ok {
+		return base
+	}
+	if m := archiveName.FindStringSubmatch(base); m != nil {
+		return m[1] + ".md"
 	}
 	return base
 }

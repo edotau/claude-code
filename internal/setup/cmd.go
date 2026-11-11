@@ -1,4 +1,4 @@
-// setup is one verb for the three setup modes: adopt an existing ~/.claude, nuke it for a fresh
+// cmd.go is one verb for the three setup modes: adopt an existing ~/.claude, nuke it for a fresh
 // start, or scope a project's own .claude/; workspace is cmdSetupWorkspace below.
 package setup
 

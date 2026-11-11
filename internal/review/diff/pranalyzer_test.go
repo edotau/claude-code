@@ -111,10 +111,10 @@ func TestWriteOutputAtomic(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "sub", "report.txt")
 	var so, se bytes.Buffer
-	if code := writeOutput("first", out, &so, &se); code != 0 {
+	if code := writeOutput("first", false, out, "Results", &so, &se); code != 0 {
 		t.Fatalf("code=%d stderr=%s", code, se.String())
 	}
-	if code := writeOutput("second", out, &so, &se); code != 0 {
+	if code := writeOutput("second", false, out, "Results", &so, &se); code != 0 {
 		t.Fatalf("code=%d stderr=%s", code, se.String())
 	}
 	if got, _ := os.ReadFile(out); string(got) != "second" {
@@ -125,7 +125,7 @@ func TestWriteOutputAtomic(t *testing.T) {
 	}
 	// a failing write (destination is a directory) reports an error and leaves the directory intact
 	bad := filepath.Join(dir, "sub")
-	if code := writeOutput("x", bad, &so, &se); code != 1 {
+	if code := writeOutput("x", false, bad, "Results", &so, &se); code != 1 {
 		t.Fatalf("want code 1, got %d", code)
 	}
 	if ents, _ := os.ReadDir(bad); len(ents) != 1 {

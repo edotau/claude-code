@@ -164,7 +164,7 @@ func simplifyTargets(paths []string) []string {
 	var files []string
 	for _, p := range paths {
 		for _, f := range collectComplexityFiles(p, exts) {
-			if key := resolvePath(f); !seen[key] && detectLanguage(f) != "" {
+			if key := resolvePath(f); !seen[key] && DetectLanguage(f) != "" {
 				seen[key] = true
 				files = append(files, f)
 			}
@@ -188,8 +188,8 @@ func analyzeSimplifyFile(path string, th ComplexityThresholds) (simplifyFile, er
 	if r != nil {
 		findings = r.Findings
 	}
-	return simplifyFile{File: path, Complexity: nonNil(findings),
-		Quality: simplifyQuality{Score: q.QualityScore, Grade: q.Grade, Smells: nonNil(q.Smells)}}, nil
+	return simplifyFile{File: path, Complexity: NonNil(findings),
+		Quality: simplifyQuality{Score: q.QualityScore, Grade: q.Grade, Smells: NonNil(q.Smells)}}, nil
 }
 
 func printSimplifyReport(w io.Writer, r simplifyReport, threshold string) {
@@ -274,7 +274,7 @@ var lineLoc = regexp.MustCompile(`line \d+`)
 
 // SimplicityFindings returns one-line complexity and quality findings present in after but not in before.
 func SimplicityFindings(path, before, after string) []string {
-	lang := detectLanguage(path)
+	lang := DetectLanguage(path)
 	if lang == "" {
 		return nil
 	}

@@ -168,12 +168,11 @@ func inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time
 	case e.Head == "":
 		e.Problems = append(e.Problems, "worktree HEAD unknown")
 	default:
-		cmd := gitCmd(ctx, "-C", repo.Main, "merge-base", "--is-ancestor", e.Head, target)
-		if runErr := cmd.Run(); runErr == nil {
-			e.Merged = true
-		} else if exitErr, ok := asExitErr(runErr); !ok || exitErr != 1 {
+		merged, runErr := isAncestor(ctx, repo.Main, e.Head, target)
+		e.Merged = merged
+		if runErr != nil {
 			e.Problems = append(e.Problems, "merge check failed: "+runErr.Error())
-		} // exit status 1 from --is-ancestor is a clean "no", not a failure
+		}
 	}
 
 	gitDir, gdErr := e.gitDir, error(nil)

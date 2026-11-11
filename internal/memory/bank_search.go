@@ -108,15 +108,15 @@ var (
 	}
 )
 
+// isSupersededTitle reports a struck-out or SUPERSEDED title line.
+func isSupersededTitle(first string) bool {
+	return strings.Contains(first, "~~") || strings.Contains(first, "SUPERSEDED")
+}
+
 // entryFromHit lifts a search hit to an Entry; a block without a persisted id gets its contentRef.
 func entryFromHit(h SearchHit) Entry {
 	first, _, _ := strings.Cut(h.Block, "\n")
-	id := blockMarkerID(h.Block)
-	if id == "" {
-		if id = h.ID; id == "" {
-			id = contentRef(h.Block)
-		}
-	}
+	id := blockRef(h.Block, h.ID)
 	typ := entryTypes[logicalName(h.File)]
 	switch {
 	case typ != "":
@@ -129,24 +129,8 @@ func entryFromHit(h SearchHit) Entry {
 	return Entry{
 		ID: id, Date: entryDate.FindString(title), Type: typ, Title: truncateLine(title),
 		Body: strings.TrimSpace(anyIDMark.ReplaceAllString(h.Block, "")), Bank: h.Bank, File: h.File,
-		Archived: h.Bank == "archive", Superseded: strings.Contains(title, "~~") || strings.Contains(title, "SUPERSEDED"),
+		Archived: h.Bank == "archive", Superseded: isSupersededTitle(title),
 	}
-}
-
-// blockMarkerID is the oldest persisted id marker outside code fences (settle stacks newer ones above it), "" if none.
-func blockMarkerID(block string) string {
-	lines := strings.Split(block, "\n")
-	fenced := fencedLines(lines)
-	id := ""
-	for i, l := range lines {
-		if fenced[i] {
-			continue
-		}
-		if m := idMarker.FindAllStringSubmatch(l, -1); len(m) > 0 {
-			id = m[len(m)-1][1]
-		}
-	}
-	return id
 }
 
 // Pointer is the one-line reference `memory search <id>` expands: id · date · title.

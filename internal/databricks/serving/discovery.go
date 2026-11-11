@@ -211,7 +211,7 @@ func Discover(ctx context.Context, p *providers.Provider, refresh bool) (Snapsho
 		old.CacheHit = true
 		return old, nil
 	}
-	infos, err := providers.ListModels(ctx, nil, p)
+	infos, err := providers.ListModels(ctx, p)
 	if err != nil {
 		return Snapshot{}, errors.New("serving endpoints discovery failed; no stale cache fallback")
 	}

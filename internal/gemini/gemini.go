@@ -234,7 +234,7 @@ func agyGatewayArg(model string) (base, arg string) {
 
 // agyGatewayBase resolves id (bare, dotted, Databricks-spelled, or effort-suffixed) to a Gemini catalog id.
 func agyGatewayBase(id string) (base, effort string, ok bool) {
-	if before, suffix, cut := strings.CutLast(id, "-"); cut && slices.Contains(agentid.NativeEfforts(agentid.Gemini), suffix) {
+	if before, suffix, ok := splitEffort(id); ok {
 		if b, _, ok := agyGatewayBase(before); ok {
 			return b, suffix, true
 		}
@@ -292,8 +292,14 @@ type agyRequest struct {
 
 // effortSuffixed reports a model id that already names its effort (gemini-3.8-flash-high).
 func effortSuffixed(model string) bool {
-	_, suffix, cut := strings.CutLast(model, "-")
-	return cut && slices.Contains(agentid.NativeEfforts(agentid.Gemini), suffix)
+	_, _, ok := splitEffort(model)
+	return ok
+}
+
+// splitEffort cuts a trailing native effort off id.
+func splitEffort(id string) (base, effort string, ok bool) {
+	base, effort, cut := strings.CutLast(id, "-")
+	return base, effort, cut && slices.Contains(agentid.NativeEfforts(agentid.Gemini), effort)
 }
 
 // agyToolLessPreamble is agy's own verified tool-less instruction (no tools-off flag exists).

@@ -6,7 +6,6 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -27,6 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/table"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
@@ -117,15 +117,11 @@ func (v values) text(key string) string {
 	return ""
 }
 
-// Run is `claude-code theme statusline [--style S]`: payload on r, rendered line(s) on w. The caller supplies fs
-// with its themed Usage (helptext imports this package, so the theming can't live here).
+// Run is `claude-code theme statusline [--style S]`: payload on r, rendered line(s) on w; fs carries the caller's Usage.
 func Run(fs *flag.FlagSet, args []string, r io.Reader, w io.Writer) int {
 	style := fs.String("style", "", "gradient|powerline|capsule|minimal|dashboard (default: config.json)")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
+	if code, done := helptext.Parse(fs, args); done {
+		return code
 	}
 	if f, ok := r.(*os.File); ok && proc.IsTerminal(f) { // nothing piped in: ReadAll would wait for Ctrl+D
 		fmt.Fprintln(os.Stderr, "claude-code: theme statusline reads Claude Code's status JSON on stdin; "+

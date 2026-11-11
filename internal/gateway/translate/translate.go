@@ -66,16 +66,27 @@ type chatUsage struct {
 	} `json:"prompt_tokens_details"`
 }
 
+// SplitCached splits a prompt count into fresh input and cache reads; a cached count outside (0, prompt] is ignored.
+func SplitCached(prompt, cached int) (input, cacheRead int) {
+	if cached > 0 && cached <= prompt {
+		return prompt - cached, cached
+	}
+	return prompt, 0
+}
+
 // anthropicUsage maps chat usage; Anthropic's input_tokens excludes cache reads.
 func anthropicUsage(u *chatUsage) map[string]any {
 	out := map[string]any{"input_tokens": 0, "output_tokens": 0}
 	if u == nil {
 		return out
 	}
-	in := u.PromptTokens
-	if d := u.PromptTokensDetails; d != nil && d.CachedTokens > 0 && d.CachedTokens <= in {
-		in -= d.CachedTokens
-		out["cache_read_input_tokens"] = d.CachedTokens
+	cached := 0
+	if d := u.PromptTokensDetails; d != nil {
+		cached = d.CachedTokens
+	}
+	in, cacheRead := SplitCached(u.PromptTokens, cached)
+	if cacheRead > 0 {
+		out["cache_read_input_tokens"] = cacheRead
 	}
 	out["input_tokens"] = in
 	out["output_tokens"] = u.CompletionTokens

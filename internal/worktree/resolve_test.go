@@ -49,7 +49,7 @@ func resolveFixtureFakeClock(t *testing.T, maxWait time.Duration) {
 
 // resolveFixtureFakeAgent installs fn as the one seam ResolveWithAgent calls instead of a real
 // `claude-code agents ask`, restoring the real var on cleanup.
-func resolveFixtureFakeAgent(t *testing.T, fn func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error)) {
+func resolveFixtureFakeAgent(t *testing.T, fn func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error)) {
 	t.Helper()
 	orig := runResolveAgent
 	runResolveAgent = fn
@@ -128,12 +128,12 @@ func TestResolveWithAgentEditOnlyMarkersRemovedControllerCommits(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
 	resolveFixtureFakeClock(t, time.Second)
-	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
+	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
 		// Only an edit — no git add/commit, matching the prompt's instruction to a sandboxed agent.
 		if err := os.WriteFile(filepath.Join(workDir, "f.txt"), []byte("resolved\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		return resolveAgentResult{}, nil
+		return askEnvelope{}, nil
 	})
 
 	op, result, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
@@ -156,7 +156,7 @@ func TestResolveWithAgentUntrackedResidueIgnoredAndPromotes(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
 	resolveFixtureFakeClock(t, time.Second)
-	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
+	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
 		if err := os.WriteFile(filepath.Join(workDir, "f.txt"), []byte("resolved\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -164,7 +164,7 @@ func TestResolveWithAgentUntrackedResidueIgnoredAndPromotes(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(workDir, "hook.cache.json"), []byte(`{"residue":true}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		return resolveAgentResult{}, nil
+		return askEnvelope{}, nil
 	})
 
 	op, result, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
@@ -246,11 +246,11 @@ func TestResolveWithAgentMarkersRemainFailsLikeTimeoutPreservingState(t *testing
 	mainBefore := headOf(main)
 	const markeredEdit = "<<<<<<< HEAD\nmain line\n=======\nfeature line\n>>>>>>> feature\n"
 	resolveFixtureFakeClock(t, time.Second)
-	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
+	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
 		if err := os.WriteFile(filepath.Join(workDir, "f.txt"), []byte(markeredEdit), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		return resolveAgentResult{}, nil
+		return askEnvelope{}, nil
 	})
 
 	op, result, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
@@ -290,14 +290,14 @@ func TestResolveWithAgentEditsUnrelatedFileRefused(t *testing.T) {
 	// git itself already tracks, not merely a new file on disk.
 	mergeFixtureWrite(t, wt, "tracked.txt", "original\n", "add tracked file")
 	resolveFixtureFakeClock(t, time.Second)
-	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
+	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
 		if err := os.WriteFile(filepath.Join(workDir, "f.txt"), []byte("resolved\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(workDir, "tracked.txt"), []byte("should not change\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		return resolveAgentResult{}, nil
+		return askEnvelope{}, nil
 	})
 
 	op, result, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
@@ -335,11 +335,11 @@ func TestResolveWithAgentAutoMergedFileAllowed(t *testing.T) {
 		t.Fatalf("Preflight: %v", err)
 	}
 	resolveFixtureFakeClock(t, time.Second)
-	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
+	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
 		if err := os.WriteFile(filepath.Join(workDir, "f.txt"), []byte("resolved\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		return resolveAgentResult{}, nil
+		return askEnvelope{}, nil
 	})
 
 	op, result, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
@@ -363,9 +363,9 @@ func TestResolveWithAgentCleanAbortNeverCommittedByController(t *testing.T) {
 	mainBefore := headOf(main)
 	sourceBefore := plan.SourceOID
 	resolveFixtureFakeClock(t, time.Second)
-	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
+	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
 		resolveFixtureRunGit(t, workDir, "merge", "--abort")
-		return resolveAgentResult{}, nil
+		return askEnvelope{}, nil
 	})
 
 	op, _, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
@@ -395,10 +395,10 @@ func TestResolveWithAgentStaleMergeCommitNeverPromoted(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
 	resolveFixtureFakeClock(t, time.Second)
-	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
+	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
 		resolveFixtureRunGit(t, workDir, "merge", "--abort")
 		resolveFixtureRunGit(t, workDir, "commit", "--allow-empty", "-m", "stale leftover commit")
-		return resolveAgentResult{}, nil
+		return askEnvelope{}, nil
 	})
 
 	op, _, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
@@ -427,13 +427,13 @@ func TestResolveWithAgentCommitsItselfFailsFreshButResumeSucceeds(t *testing.T) 
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
 	resolveFixtureFakeClock(t, time.Second)
-	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
+	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
 		if err := os.WriteFile(filepath.Join(workDir, "f.txt"), []byte("resolved\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		resolveFixtureRunGit(t, workDir, "add", "f.txt")
 		resolveFixtureRunGit(t, workDir, "commit", "--no-edit")
-		return resolveAgentResult{}, nil
+		return askEnvelope{}, nil
 	})
 
 	failedOp, result, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
@@ -450,9 +450,9 @@ func TestResolveWithAgentCommitsItselfFailsFreshButResumeSucceeds(t *testing.T) 
 	resolvedHead := headOf(wt) // the agent's own commit, already in place
 
 	// --resume: never re-invokes the agent (the fake would fail the test if called again).
-	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
+	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
 		t.Fatal("agent must never be re-invoked on --resume")
-		return resolveAgentResult{}, errors.New("unreachable")
+		return askEnvelope{}, errors.New("unreachable")
 	})
 	resumedOp, resumeResult, resumeErr := ResolveWithAgent(context.Background(), repo, plan, "claude", failedOp)
 	if resumeErr != nil {
@@ -509,9 +509,9 @@ func TestResolveWithAgentResumeRevalidatesAndCompletes(t *testing.T) {
 	resolvedHead := headOf(wt)
 
 	resolveFixtureFakeClock(t, time.Second)
-	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
+	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
 		t.Fatal("agent must never be re-invoked on --resume")
-		return resolveAgentResult{}, errors.New("unreachable")
+		return askEnvelope{}, errors.New("unreachable")
 	})
 
 	gotOp, result, err := ResolveWithAgent(context.Background(), repo, plan, op.Agent, op)
@@ -534,12 +534,12 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	resolveFixtureFakeClock(t, time.Second)
-	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
+	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
 		// Edit only — the controller (finalizeAgentResolution) stages and commits once the agent exits.
 		if err := os.WriteFile(filepath.Join(workDir, "f.txt"), []byte("resolved\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		return resolveAgentResult{}, nil
+		return askEnvelope{}, nil
 	})
 
 	_, result, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
@@ -627,11 +627,11 @@ func TestResolveWithAgentExplicitCodexFallenBackToClaudeIsMismatch(t *testing.T)
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
 	resolveFixtureFakeClock(t, time.Second)
-	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
+	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
 		if agentName != "codex" {
 			t.Fatalf("agentName = %q, want codex", agentName)
 		}
-		return resolveAgentResult{Fallback: "codex"}, nil
+		return askEnvelope{Fallback: "codex"}, nil
 	})
 
 	op, _, err := ResolveWithAgent(context.Background(), repo, plan, "codex", nil)

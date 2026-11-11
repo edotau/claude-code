@@ -28,17 +28,17 @@ var noForward = map[string]bool{
 
 // parsePassthrough splits /p/<provider>/<openai|responses|gemini>/<rest>.
 func parsePassthrough(path string) (provider, dialect, rest string, ok bool) {
-	tail, ok := strings.CutPrefix(path, "/p/")
+	provider, tail, ok := parseRoute(path)
 	if !ok {
 		return "", "", "", false
 	}
-	parts := strings.SplitN(tail, "/", 3)
-	if len(parts) < 3 || parts[0] == "" || parts[2] == "" {
+	dialect, rest, found := strings.Cut(tail, "/")
+	if !found || provider == "" || rest == "" {
 		return "", "", "", false
 	}
-	switch parts[1] {
+	switch dialect {
 	case providers.ProtocolOpenAI, providers.ProtocolResponses, providers.ProtocolGemini:
-		return parts[0], parts[1], parts[2], true
+		return provider, dialect, rest, true
 	}
 	return "", "", "", false
 }
@@ -114,17 +114,11 @@ func (r *Router) passthroughRoute(w http.ResponseWriter,
 func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *providers.Provider,
 	route, rest, query, model, dialect string, dbxGemini bool) (string, string) {
 	var extra string
-	var err error
 	var body []byte
 	geminiChat := false
 	if in.Method == http.MethodPost {
-		body, err = io.ReadAll(io.LimitReader(in.Body, maxBody+1))
-		if err != nil {
-			writeError(sw, http.StatusBadRequest, "proxy: read body: "+err.Error())
-			return model, extra
-		}
-		if len(body) > maxBody {
-			writeError(sw, http.StatusRequestEntityTooLarge, "proxy: request body over 64MiB")
+		var ok bool
+		if body, ok = readBody(sw, in); !ok {
 			return model, extra
 		}
 		model = cmp.Or(passthroughModel(body), model)
@@ -208,10 +202,7 @@ func teeUsageTail(resp *http.Response, in *http.Request, p *providers.Provider, 
 		return nil
 	}
 	tail := &tailBuffer{}
-	resp.Body = struct {
-		io.Reader
-		io.Closer
-	}{io.TeeReader(resp.Body, tail), resp.Body}
+	resp.Body = teeReadCloser{io.TeeReader(resp.Body, tail), resp.Body}
 	return tail
 }
 

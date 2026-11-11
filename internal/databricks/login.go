@@ -285,11 +285,9 @@ func checkAuthType(p *providers.Provider, authType string) error {
 
 // setOverlayAuthType writes auth.type into p's overlay row in top and returns the custom auth keys it kept.
 func setOverlayAuthType(top map[string]json.RawMessage, p *providers.Provider, authType string) ([]string, error) {
-	provs := map[string]map[string]json.RawMessage{}
-	if b, ok := top["providers"]; ok {
-		if err := json.Unmarshal(b, &provs); err != nil {
-			return nil, fmt.Errorf("vault overlay/providers: providers: %w", err)
-		}
+	provs, err := overlayProviders(top)
+	if err != nil {
+		return nil, fmt.Errorf("vault overlay/providers: providers: %w", err)
 	}
 	entry := provs[p.Name]
 	if entry == nil {

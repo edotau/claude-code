@@ -92,7 +92,7 @@ func describeCopilotRoute(reg *providers.Registry) agent.RouteInfo {
 		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteByokAnthropic, Provider: p.Name, Model: p.Models[models.Opus],
 			Reason: "BYOK via ANTHROPIC_API_KEY", OK: true}
 	}
-	s, _ := agent.LookupSchema("copilot")
+	s := copilotSchema()
 	return agent.RouteInfo{Agent: "copilot", Route: agent.RouteNone, Reason: "no route for copilot: " + s.CLI.ConfigureHint}
 }
 
