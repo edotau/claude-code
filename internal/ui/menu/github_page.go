@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -57,12 +58,32 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK, routesOK bool) {
 		d.printf("%-16s ABSENT: no usable GitHub login\n", "copilot CLI")
 	}
 
+	d.printf("%-16s %s\n", "opencode login", opencodeAccountLine(d.reg))
+
 	oc, _ := agent.LookupSchema("opencode")
 	cp, _ := agent.LookupSchema("copilot")
 	ocRoute, cpRoute := oc.DescribeRoute(d.reg), cp.DescribeRoute(d.reg)
 	printRoute(d, ocRoute)
 	printRoute(d, cpRoute)
 	return ghOK, copilotOK, ocRoute.OK && cpRoute.OK
+}
+
+// opencodeAccountLine is the GitHub account behind opencode's own Copilot sign-in in green, the other accounts dim.
+func opencodeAccountLine(reg *providers.Registry) string {
+	if !opencode.OpencodeCopilotLoginPresent() {
+		return "not signed in (Log in to OpenCode)"
+	}
+	cur := copilot.GitHubLogin(opencode.OpencodeCopilotToken())
+	if cur == "" {
+		return "signed in, account not readable"
+	}
+	parts := []string{ansi.SpanOK + cur + ansi.SpanEnd}
+	for _, a := range GitHubAccounts(reg) {
+		if a != cur {
+			parts = append(parts, ansi.SpanOff+a+ansi.SpanEnd)
+		}
+	}
+	return strings.Join(parts, "  ")
 }
 
 // githubAuthLine is the pinned GitHub account and whether gh's active account matches it.

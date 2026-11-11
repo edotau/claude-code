@@ -273,6 +273,21 @@ func OpencodeCopilotLoginPresent() bool {
 	return slices.Contains(listOpencodeLogins(), "github-copilot")
 }
 
+// OpencodeCopilotToken is the GitHub token behind opencode 1.x's own Copilot sign-in (auth.json), "" when it has none.
+func OpencodeCopilotToken() string {
+	data, err := os.ReadFile(opencodeAuthFile())
+	if err != nil {
+		return ""
+	}
+	var m map[string]struct {
+		Refresh string `json:"refresh"`
+	}
+	if json.Unmarshal(data, &m) != nil {
+		return ""
+	}
+	return m["github-copilot"].Refresh
+}
+
 // opencodeCopilotLogin runs opencode on its own Copilot sign-in: interactive is plain (ErrOwnLogin), headless pins -m.
 func opencodeCopilotLogin(model string, h *agent.Headless) ([]string, []string, error) {
 	if !OpencodeCopilotLoginPresent() {
