@@ -231,7 +231,7 @@ func TestPriceDimCheaperCreditsOutranksAtEqualHeadroom(t *testing.T) {
 	cheap := Candidate{Agent: "codex", Billing: BillCredits, Account: "openai·chatgpt", Price: Price{In: 1, Out: 1}}
 	pricey := Candidate{Agent: "gemini", Billing: BillCredits, Account: "google·antigravity", Price: Price{In: 4, Out: 4}}
 	st := State{} // both accounts unseen: headroom ties at 0.5 for each
-	scored := tb.score([]Candidate{cheap, pricey}, st)
+	scored := tb.score([]Candidate{cheap, pricey}, st, time.Time{})
 	a, b := scored[0], scored[1]
 	if a.Scores["headroom"] != b.Scores["headroom"] {
 		t.Fatalf("precondition: headroom must tie, got %v vs %v", a.Scores["headroom"], b.Scores["headroom"])

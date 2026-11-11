@@ -165,7 +165,7 @@ func (t *RouteTable) pick(
 		restG[i] = u.cs
 	}
 	flatFirst, flatRest, flatLast := slices.Concat(firstG...), slices.Concat(restG...), slices.Concat(lastG...)
-	all := t.score(slices.Concat(flatFirst, flatRest, flatLast), st)
+	all := t.score(slices.Concat(flatFirst, flatRest, flatLast), st, now)
 	nf, nr := len(flatFirst), len(flatRest)
 	firstG = regroup(firstG, all[:nf])
 	for i, g := range regroup(restG, all[nf:nf+nr]) {
@@ -450,8 +450,8 @@ func claudeLast(o PickOpts, gate func(string) ([]Candidate, bool)) [][]Candidate
 	return nil
 }
 
-// score fills each candidate's per-dimension scores and weighted total.
-func (t *RouteTable) score(cs []Candidate, st State) []Candidate {
+// score fills each candidate's per-dimension scores and weighted total, less coolingPenalty on a cooling account.
+func (t *RouteTable) score(cs []Candidate, st State, now time.Time) []Candidate {
 	sc := pickScope{State: st, Candidates: cs}
 	out := make([]Candidate, len(cs))
 	for i, c := range cs {
@@ -460,6 +460,9 @@ func (t *RouteTable) score(cs []Candidate, st State) []Candidate {
 			v := d.Score(c, sc)
 			c.Scores[d.Name()] = v
 			c.Total += t.Weights[d.Name()] * v
+		}
+		if st.accountCooling(c.Account, now) {
+			c.Total -= coolingPenalty
 		}
 		out[i] = c
 	}

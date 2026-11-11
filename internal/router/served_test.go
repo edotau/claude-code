@@ -234,3 +234,30 @@ func TestMarkUnservedExpiresAfterAnHour(t *testing.T) {
 		t.Errorf("after write Unserved = %v, want m-old pruned, m-new and m-b kept", got)
 	}
 }
+
+// WarmServed is newer-wins: an older or empty listing leaves the file alone, a newer one replaces it.
+func TestWarmServedNewerWins(t *testing.T) {
+	vaulttest.Use(t)
+	base := time.Now().UTC().Truncate(time.Second)
+	if err := WarmServed("dev", []providers.ModelInfo{{ID: "m-a", Ready: "READY"}}, base); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name  string
+		infos []providers.ModelInfo
+		at    time.Time
+		want  string // the one model id on disk afterwards
+	}{
+		{"older than the file", []providers.ModelInfo{{ID: "m-old"}}, base.Add(-time.Minute), "m-a"},
+		{"empty infos", nil, base.Add(time.Minute), "m-a"},
+		{"newer", []providers.ModelInfo{{ID: "m-new", Task: "llm/v1/chat", Ready: "READY"}}, base.Add(time.Minute), "m-new"},
+	} {
+		if err := WarmServed("dev", c.infos, c.at); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		got, ok := LoadServed("dev")
+		if !ok || len(got.Models) != 1 || got.Models[0].ID != c.want {
+			t.Errorf("%s: on disk %+v (ok=%v), want only %s", c.name, got.Models, ok, c.want)
+		}
+	}
+}

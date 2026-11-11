@@ -62,6 +62,7 @@ type Entry struct {
 	DiscoverySkip  map[string]time.Time `json:"discovery_skip,omitempty"` // "agent|entry" -> when it was marked unusable
 	Unserved       map[string]time.Time `json:"unserved,omitempty"`       // wire model -> when its endpoint was found gone
 	ModelDead      map[string]time.Time `json:"model_dead,omitempty"`     // canonical model -> quota-denied until
+	Cooling        map[string]time.Time `json:"cooling,omitempty"`        // "·" (the account) -> rate-limit hold until
 }
 
 // UnmarshalJSON also reads the pre-rename byok/byok_skip keys; the discovery keys win when both exist.
@@ -107,6 +108,7 @@ func (s State) clone() State {
 		e.DiscoverySkip = maps.Clone(e.DiscoverySkip)
 		e.Unserved = maps.Clone(e.Unserved)
 		e.ModelDead = maps.Clone(e.ModelDead)
+		e.Cooling = maps.Clone(e.Cooling)
 		out[k] = e
 	}
 	return out

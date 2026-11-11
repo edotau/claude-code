@@ -27,6 +27,7 @@ const (
 	maxBody         = 64 << 20
 	defaultCooldown = 30 * time.Second
 	maxCooldown     = 5 * time.Minute
+	coolPersistMin  = 5 * time.Second  // shorter holds stay in this process: not worth a quota.json write
 	credTTL         = 60 * time.Second // providers.CredentialPresent cache: one keyring probe per provider per TTL
 	// router.LoadState cache: quota.json is read at most once per TTL, not per request
 	authStateTTL = 5 * time.Second
@@ -49,6 +50,7 @@ type Router struct {
 	regStamp time.Time
 	cool     map[string]time.Time // provider → cooling-down until (after a 429)
 	dead     map[string]time.Time // provider:model → quota-dead until (a hard 429: the key cannot use that model)
+	deadAt   map[string]time.Time // provider:model → when its dead mark landed in quota.json
 	cred     map[string]time.Time // provider name → present-credential cache expiry (credTTL)
 	// provider name → generation, bumped on invalidate so a stale in-flight probe never resurrects it
 	credGen map[string]int
@@ -79,7 +81,7 @@ const quotaDeadFor = 30 * time.Minute
 
 func newRouter(secret string) *Router {
 	r := &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now,
-		cool: map[string]time.Time{}, dead: map[string]time.Time{}, cred: map[string]time.Time{}, credGen: map[string]int{},
+		cool: map[string]time.Time{}, dead: map[string]time.Time{}, deadAt: map[string]time.Time{}, cred: map[string]time.Time{}, credGen: map[string]int{},
 		marked: map[string]bool{}, oauth: providers.HeadlessOAuthToken}
 	r.sessions = newSessionStore(func() time.Time { return r.now() })
 	r.tags = parseRequestTags(os.Getenv(RequestTagsEnv), r.log)
@@ -263,10 +265,12 @@ func (r *Router) attempts(reg *providers.Registry, target providers.Target, clie
 		}
 	}
 	out = r.withoutAuthMarked(out)
-	now := r.now()
+	state, now := r.routeState(), r.now()
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	cooling := func(t providers.Target) bool { return now.Before(r.cool[t.Provider.Name]) }
+	cooling := func(t providers.Target) bool { // this process's hold, else one another process persisted
+		return now.Before(r.cool[t.Provider.Name]) || now.Before(state.CoolingUntil(router.ProviderAccount(t.Provider.Name)))
+	}
 	sort.SliceStable(out, func(i, j int) bool { return !cooling(out[i]) && cooling(out[j]) })
 	return out
 }
@@ -305,12 +309,18 @@ func (r *Router) withoutAuthMarked(out []providers.Target) []providers.Target {
 
 // routeState is the route state, re-read from quota.json at most once per authStateTTL; callers only read it.
 func (r *Router) routeState() router.State {
+	state, _ := r.routeStateAt()
+	return state
+}
+
+// routeStateAt is routeState plus when that state's read began.
+func (r *Router) routeStateAt() (router.State, time.Time) {
 	r.mu.Lock()
-	now, state, gen := r.now(), r.authState, r.authGen
-	fresh := state != nil && now.Sub(r.authAt) < authStateTTL
+	now, state, at, gen := r.now(), r.authState, r.authAt, r.authGen
+	fresh := state != nil && now.Sub(at) < authStateTTL
 	r.mu.Unlock()
 	if fresh {
-		return state
+		return state, at
 	}
 	state = router.LoadState() // read quota.json without holding mu
 	r.mu.Lock()
@@ -318,7 +328,7 @@ func (r *Router) routeState() router.State {
 	if r.authGen == gen {
 		r.authState, r.authAt = state, now
 	}
-	return state
+	return state, now
 }
 
 // condemn records a provider as auth-dead in the route state; best-effort, the caller moves on regardless.

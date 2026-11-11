@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -189,6 +190,9 @@ func (o *catalogOpts) sync(p *providers.Provider, dialects []string) error {
 	if err != nil {
 		return err
 	}
+	if o.apply { // a dry run writes nothing
+		warmServed(os.Stderr, p, snapshot)
+	}
 	for _, line := range catalog.SyncSummaryLines(snapshot, false) {
 		fmt.Println(line)
 	}
@@ -203,6 +207,16 @@ func (o *catalogOpts) sync(p *providers.Provider, dialects []string) error {
 		fmt.Printf("%s catalog: discovery snapshot sealed in vault\n", o.name)
 	}
 	return err
+}
+
+// warmServed hands a live serving listing to the router's served cache; a cache hit or an AI Gateway row never warms.
+func warmServed(stderr io.Writer, p *providers.Provider, snapshot serving.Snapshot) {
+	if snapshot.CacheHit || p.IsAIGateway() {
+		return
+	}
+	if err := router.WarmServed(p.Name, snapshot.Models, snapshot.DiscoveredAt); err != nil {
+		fmt.Fprintf(stderr, "catalog sync: served listing not saved: %v\n", err)
+	}
 }
 
 // writeOpencodeMenu stores next; launches rebuild their config from the menu, so nothing else is refreshed.
@@ -285,6 +299,9 @@ func syncOpencodeMenu(w io.Writer, profile string, opts catalog.SyncOptions) err
 	pl, err := catalog.MenuSync(profile, opts)
 	if err != nil {
 		return err
+	}
+	if opts.Apply { // a dry run writes nothing
+		warmServed(os.Stderr, pl.Provider, pl.Snapshot)
 	}
 	for _, line := range catalog.SyncSummaryLines(pl.Snapshot, opts.Verify) {
 		fmt.Fprintln(w, line)
