@@ -3,6 +3,7 @@ package project
 import (
 	"cmp"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -27,10 +28,24 @@ var instructionFiles = map[string]string{
 // docsPathsNote tells a vendor CLI how to resolve the relative paths CLAUDE.md names.
 const docsPathsNote = "Paths in this file are relative to `~/.claude`."
 
-// PortableCore lists the portable instruction core: root CLAUDE.md, then unscoped rules/standards/*.md sorted.
+// instructionSources are the root instruction files in lookup order: ours, the cross-agent name, copilot's old home.
+var instructionSources = []string{"CLAUDE.md", "AGENTS.md", filepath.Join(".github", "copilot-instructions.md")}
+
+// instructionSource returns the first instruction file present under root, or fs.ErrNotExist naming CLAUDE.md.
+func instructionSource(root string) (string, error) {
+	for _, name := range instructionSources {
+		p := filepath.Join(root, name)
+		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
+			return p, nil
+		}
+	}
+	return "", &fs.PathError{Op: "stat", Path: filepath.Join(root, instructionSources[0]), Err: fs.ErrNotExist}
+}
+
+// PortableCore lists the portable instruction core: the root instruction file, then unscoped rules/standards/*.md.
 func PortableCore(root string) ([]string, error) {
-	claude := filepath.Join(root, "CLAUDE.md")
-	if _, err := os.Stat(claude); err != nil {
+	claude, err := instructionSource(root)
+	if err != nil {
 		return nil, fmt.Errorf("portable core: %w", err)
 	}
 	standards, err := unscopedStandards(root)
@@ -96,12 +111,13 @@ func demoteH1(body string) string {
 
 // renderDocs renders banner + CLAUDE.md verbatim + the always-on standards + a sorted `## Agents` index at root.
 func renderDocs(root string, agents []Source) (content string, ok bool, err error) {
-	conventions, err := os.ReadFile(filepath.Join(root, "CLAUDE.md"))
-	if os.IsNotExist(err) {
+	src, err := instructionSource(root)
+	if err != nil {
 		return "", false, nil
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("read CLAUDE.md: %w", err)
+		return "", false, fmt.Errorf("read %s: %w", filepath.Base(src), err)
+	conventions, err := os.ReadFile(src)
 	}
 	standards, err := standardsSection(root)
 	if err != nil {
