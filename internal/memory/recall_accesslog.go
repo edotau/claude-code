@@ -18,7 +18,7 @@ const accessLogFile = "access.log"
 
 // Access reasons distinguishing recall injections from explicit CLI returns.
 const (
-	AccessRecall = "prompt-recall inject"
+	accessRecall = "prompt-recall inject"
 	AccessSearch = "memory search"
 	AccessShow   = "memory show"
 )

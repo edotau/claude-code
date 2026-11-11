@@ -33,19 +33,12 @@ func gitFixture(t *testing.T) string {
 		t.Skip("git not available")
 	}
 	dir := hosttest.Repo(t)
-	writeFx(t, dir, "fx.go", cleanGo)
-	writeFx(t, dir, "notes.txt", "a\n")
+	hosttest.WriteRel(t, dir, "fx.go", cleanGo)
+	hosttest.WriteRel(t, dir, "notes.txt", "a\n")
 	hosttest.In(t, dir, "add", ".")
 	hosttest.In(t, dir, "commit", "-q", "-m", "init")
 	t.Chdir(dir)
 	return dir
-}
-
-func writeFx(t *testing.T, dir, name, body string) {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func runSimplifyJSON(t *testing.T, args ...string) simplifyReport {
@@ -87,8 +80,8 @@ func assertSimplifyText(t *testing.T, f simplifyFile) {
 
 func TestRunSimplifyChangedFiles(t *testing.T) {
 	dir := gitFixture(t)
-	writeFx(t, dir, "fx.go", longGo())
-	writeFx(t, dir, "notes.txt", "changed\n")
+	hosttest.WriteRel(t, dir, "fx.go", longGo())
+	hosttest.WriteRel(t, dir, "notes.txt", "changed\n")
 
 	r := runSimplifyJSON(t, "--base", "HEAD")
 	if len(r.Files) != 1 || r.Files[0].File != "fx.go" {
@@ -110,7 +103,7 @@ func TestRunSimplifyChangedFiles(t *testing.T) {
 
 func TestRunSimplifyUntrackedAndExplicitPath(t *testing.T) {
 	dir := gitFixture(t)
-	writeFx(t, dir, "fresh.go", longGo())
+	hosttest.WriteRel(t, dir, "fresh.go", longGo())
 
 	r := runSimplifyJSON(t, "--base", "HEAD")
 	if len(r.Files) != 1 || r.Files[0].File != "fresh.go" {
@@ -125,7 +118,7 @@ func TestRunSimplifyUntrackedAndExplicitPath(t *testing.T) {
 
 func TestRunSimplifyNoSourceChanges(t *testing.T) {
 	dir := gitFixture(t)
-	writeFx(t, dir, "notes.txt", "changed\n")
+	hosttest.WriteRel(t, dir, "notes.txt", "changed\n")
 
 	var out, errb bytes.Buffer
 	if code := RunSimplify([]string{"--base", "HEAD"}, &out, &errb); code != 0 {

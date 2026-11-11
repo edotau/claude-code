@@ -2,13 +2,10 @@ package setup
 
 import (
 	"bytes"
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agentid"
@@ -51,7 +48,7 @@ func installTestBinary(t *testing.T) {
 
 func TestInstallKeepsExistingSettings(t *testing.T) {
 	hermetic(t, "")
-	codex := vendorPATHFixture(t, "codex", "")
+	codex := pathstest.FakeVendorOutsideConfig(t, "codex", "")
 	t.Setenv("PATH", filepath.Dir(codex))
 	installTestBinary(t)
 	file := settings.SettingsFile()
@@ -112,7 +109,7 @@ func retiredShimSources(t *testing.T) map[string]string {
 	var dirs []string
 	for _, name := range []string{"claude", "codex", "copilot", "opencode", "gemini"} {
 		vendor := agentid.Binary(name)
-		source := vendorPATHFixture(t, vendor, "")
+		source := pathstest.FakeVendorOutsideConfig(t, vendor, "")
 		sources[name] = source
 		dirs = append(dirs, filepath.Dir(source))
 		if err := os.Symlink("claude-code", filepath.Join(paths.BinDir(), name)); err != nil {
@@ -364,22 +361,6 @@ func hermetic(t *testing.T, userProviders string) {
 	t.Cleanup(func() { selfBinary = oldSelf })
 }
 
-func vendorPATHFixture(t *testing.T, name, body string) string {
-	t.Helper()
-	cfg := os.Getenv("CLAUDE_CONFIG_DIR")
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	bin := pathstest.FakeVendor(t, name, body)
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if name == "agy" {
-		dst := filepath.Join(filepath.Dir(bin), "agy")
-		if err := os.Rename(bin, dst); err != nil {
-			t.Fatal(err)
-		}
-		bin = dst
-	}
-	return bin
-}
-
 // TestMain runs in the hermetic host (hosttest), so no test touches the live vault or sees a vendor CLI.
 // rtkFixture installs a pinned rtk under a temp CLAUDE_CONFIG_DIR and points userBinDir at a temp dir.
 func rtkFixture(t *testing.T) (pin, userBin string) {
@@ -387,22 +368,12 @@ func rtkFixture(t *testing.T) (pin, userBin string) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(paths.RTKBinaryEnv, "")
 	pin = paths.RTKPinned()
-	writeExec(t, pin, "#!/bin/sh\necho 'rtk 1.1.0'\n")
+	hosttest.WriteExec(t, pin, "#!/bin/sh\necho 'rtk 1.1.0'\n")
 	userBin = t.TempDir()
 	orig := userBinDir
 	userBinDir = func() string { return userBin }
 	t.Cleanup(func() { userBinDir = orig })
 	return pin, userBin
-}
-
-func writeExec(t *testing.T, path, body string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
 }
 
 // Install links userBinDir/rtk to the pin like claude-code, and reports, never replaces, a real file there.
@@ -417,7 +388,7 @@ func TestLinkUserBinsLinksPinnedRTK(t *testing.T) {
 		t.Fatalf("userBin/rtk -> %q (err %v), want %q; output:\n%s", got, err, pin, out.String())
 	}
 	real := filepath.Join(t.TempDir(), "rtk")
-	writeExec(t, real, "#!/bin/sh\n")
+	hosttest.WriteExec(t, real, "#!/bin/sh\n")
 	userBin2 := filepath.Dir(real)
 	userBinDir = func() string { return userBin2 }
 	out.Reset()
@@ -438,7 +409,7 @@ func TestSeedTmuxConfSkipsNonENOENTProbeFailure(t *testing.T) {
 	t.Setenv("USERPROFILE", home) // os.UserHomeDir on windows
 	xdg := filepath.Join(home, "xdg-loop")
 	t.Setenv("XDG_CONFIG_HOME", xdg)
-	probeSymlinkLoop(t, xdg)
+	hosttest.SymlinkLoop(t, xdg)
 	var out bytes.Buffer
 	seedTmuxConf(&out, false)
 	if _, err := os.Lstat(filepath.Join(home, ".tmux.conf")); !os.IsNotExist(err) {
@@ -464,19 +435,5 @@ func TestTmuxConfPathsEmptyWithoutHomeAndSeedSkips(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cwd, ".tmux.conf")); err == nil {
 		t.Error("seedTmuxConf wrote .tmux.conf into the working directory")
-	}
-}
-
-// A loop produces a deterministic non-ENOENT probe failure even when tests run as root.
-func probeSymlinkLoop(t *testing.T, path string) {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("a self-referencing symlink (ELOOP) needs unix")
-	}
-	if err := os.Symlink(path, path); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(path); !errors.Is(err, syscall.ELOOP) {
-		t.Fatalf("fixture stat = %v, want ELOOP", err)
 	}
 }

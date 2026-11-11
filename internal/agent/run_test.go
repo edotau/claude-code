@@ -294,8 +294,7 @@ const secret = "sk-SECRET-123"
 
 // fakeJWT is an unsigned token whose iss claim is https://<iss>.
 func fakeJWT(iss string) string {
-	enc := base64.RawURLEncoding.EncodeToString
-	return enc([]byte(`{"alg":"none"}`)) + "." + enc([]byte(`{"iss":"https://`+iss+`"}`)) + ".sig"
+	return hosttest.UnsignedJWT(`{"iss":"https://` + iss + `"}`)
 }
 
 // stubEngine is the Name/Caps/Available base for runner stubs; embed it and add Run.

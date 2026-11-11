@@ -7,27 +7,27 @@ import (
 	"strings"
 )
 
-// fileKind classifies one entry of a memory dir; only KindTopic may be archived, restored or re-pointed.
+// fileKind classifies one entry of a memory dir; only kindTopic may be archived, restored or re-pointed.
 type fileKind int
 
 const (
-	KindOther        fileKind = iota // non-regular (symlink/dir), non-.md, unknown dotfile — never mutated, never a topic
-	KindTopic                        // native topic file: the only archivable kind
-	KindBank                         // one of the six typed files BY NAME, or any .md whose frontmatter says `harness_kind: bank`
-	KindNativeIndex                  // MEMORY.md
-	KindSearchable                   // SEARCHABLE.md
-	KindArchiveIndex                 // INDEX.md
-	KindCatalog                      // index.md — reserved in every memory dir (the global catalog at the store root)
+	kindOther        fileKind = iota // non-regular (symlink/dir), non-.md, unknown dotfile — never mutated, never a topic
+	kindTopic                        // native topic file: the only archivable kind
+	kindBank                         // one of the six typed files BY NAME, or any .md whose frontmatter says `harness_kind: bank`
+	kindNativeIndex                  // MEMORY.md
+	kindSearchable                   // SEARCHABLE.md
+	kindArchiveIndex                 // INDEX.md
+	kindCatalog                      // index.md — reserved in every memory dir (the global catalog at the store root)
 )
 
 var kindNames = [...]string{
-	KindOther:        "not a regular .md file",
-	KindTopic:        "topic",
-	KindBank:         "typed bank file",
-	KindNativeIndex:  "native index",
-	KindSearchable:   "searchable pointer file",
-	KindArchiveIndex: "archive index",
-	KindCatalog:      "catalog",
+	kindOther:        "not a regular .md file",
+	kindTopic:        "topic",
+	kindBank:         "typed bank file",
+	kindNativeIndex:  "native index",
+	kindSearchable:   "searchable pointer file",
+	kindArchiveIndex: "archive index",
+	kindCatalog:      "catalog",
 }
 
 func (k fileKind) String() string {
@@ -38,20 +38,20 @@ func (k fileKind) String() string {
 }
 
 // Archivable reports whether an archive/restore may move a file of this kind.
-func (k fileKind) Archivable() bool { return k == KindTopic }
+func (k fileKind) Archivable() bool { return k == kindTopic }
 
 // reservedNames maps every filename a memory dir reserves to its kind; bank files are reserved by name too.
 var reservedNames = reservedNameKinds()
 
 func reservedNameKinds() map[string]fileKind {
 	out := map[string]fileKind{
-		NativeIndexFile:        KindNativeIndex,
-		NativeSearchableFile:   KindSearchable,
-		NativeArchiveIndexFile: KindArchiveIndex,
-		CatalogFile:            KindCatalog,
+		nativeIndexFile:        kindNativeIndex,
+		nativeSearchableFile:   kindSearchable,
+		nativeArchiveIndexFile: kindArchiveIndex,
+		catalogFile:            kindCatalog,
 	}
 	for _, name := range bankFiles {
-		out[name] = KindBank
+		out[name] = kindBank
 	}
 	return out
 }
@@ -68,12 +68,12 @@ func validBareName(name string) error {
 // classifyMemoryFile is the directory-aware classification: name alone cannot tell a typed file from a topic.
 func classifyMemoryFile(dir, name string) fileKind {
 	if validBareName(name) != nil {
-		return KindOther
+		return kindOther
 	}
 	path := filepath.Join(dir, name)
 	fi, err := os.Lstat(path)
 	if err != nil || !fi.Mode().IsRegular() {
-		return KindOther
+		return kindOther
 	}
 	if k, ok := reservedNames[name]; ok {
 		return k
@@ -82,7 +82,7 @@ func classifyMemoryFile(dir, name string) fileKind {
 		return k
 	}
 	if !strings.HasSuffix(name, ".md") {
-		return KindOther
+		return kindOther
 	}
 	return classifyTopicFile(path)
 }
@@ -90,12 +90,12 @@ func classifyMemoryFile(dir, name string) fileKind {
 func classifyTopicFile(path string) fileKind {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return KindOther
+		return kindOther
 	}
 	if frontmatterValue(string(raw), "harness_kind") == "bank" {
-		return KindBank
+		return kindBank
 	}
-	return KindTopic
+	return kindTopic
 }
 
 // reservedKindFold is name's reserved kind under case folding: "activecontext.md" opens activeContext.md on APFS.
@@ -105,7 +105,7 @@ func reservedKindFold(name string) (fileKind, bool) {
 			return k, true
 		}
 	}
-	return KindOther, false
+	return kindOther, false
 }
 
 // hasExactEntry reports whether dir lists name in exactly this spelling; false means Lstat hit a case-folded twin.

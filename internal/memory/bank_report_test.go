@@ -25,7 +25,7 @@ func TestAppendReportRollsBackWhenDecisionsFail(t *testing.T) {
 				t.Fatal(err)
 			}
 			in := ReportInput{Report: "# Review\n\nUnique report body.", Decisions: []string{"Keep it."}}
-			paths, err := AppendReport(dir, "review", in)
+			paths, err := appendReport(dir, "review", in)
 			if err == nil || len(paths) != 0 {
 				t.Fatalf("failed decisions write = %v, %v; want no paths and an error", paths, err)
 			}
@@ -33,7 +33,7 @@ func TestAppendReportRollsBackWhenDecisionsFail(t *testing.T) {
 			if err := os.Remove(decisions); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := AppendReport(dir, "review", in); err != nil {
+			if _, err := appendReport(dir, "review", in); err != nil {
 				t.Fatalf("retry report: %v", err)
 			}
 			assertReportTextOccursOnce(t, report, "Unique report body.")
@@ -99,12 +99,12 @@ func TestAppendReportRejectsDecisionsLabel(t *testing.T) {
 	for _, label := range []string{"decisions", "DECISIONS", "Decisions"} {
 		t.Run(label, func(t *testing.T) {
 			dir := t.TempDir()
-			paths, err := AppendReport(dir, label, ReportInput{
+			paths, err := appendReport(dir, label, ReportInput{
 				Report:    "# Review\n\nReport body.\n",
 				Decisions: []string{"Keep reports separate from decisions."},
 			})
 			if err == nil || !strings.Contains(err.Error(), "reserved") {
-				t.Fatalf("AppendReport(%q) = %v, %v; want reserved-label error", label, paths, err)
+				t.Fatalf("appendReport(%q) = %v, %v; want reserved-label error", label, paths, err)
 			}
 			if len(paths) != 0 {
 				t.Fatalf("rejected report returned paths: %v", paths)

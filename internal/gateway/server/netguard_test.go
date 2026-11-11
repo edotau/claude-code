@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"os/exec"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -59,32 +58,29 @@ func TestGuardedClientLiteralVsResolved(t *testing.T) {
 	}
 }
 
-// resolveProxyHosts runs in a fresh subprocess per case because net/http caches proxy environment values.
+// resolveProxyHosts records the host of each scheme's proxy; the env lookup is stubbed because net/http caches it.
 func TestResolveProxyHosts(t *testing.T) {
-	if os.Getenv("GO_WANT_RESOLVEPROXYHOSTS_HELPER") == "1" {
-		hosts := resolveProxyHosts()
-		fmt.Print(hosts["proxy.corp"], " ", len(hosts))
-		return
-	}
-	clearProxyEnv := []string{"HTTP_PROXY=", "HTTPS_PROXY=", "http_proxy=", "https_proxy=", "NO_PROXY=", "no_proxy="}
 	for _, tc := range []struct {
-		name string
-		env  []string
-		want string
+		name  string
+		proxy map[string]string // request scheme -> the proxy URL the environment names for it
+		want  string
 	}{
-		{"https proxy host recorded", append(clearProxyEnv, "HTTPS_PROXY=http://proxy.corp:3128"), "true 1"},
-		{"no proxy configured", clearProxyEnv, "false 0"},
+		{"https proxy host recorded", map[string]string{"https": "http://proxy.corp:3128"}, "true 1"},
+		{"no proxy configured", nil, "false 0"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cmd := exec.Command(os.Args[0], "-test.run=^TestResolveProxyHosts$", "-test.v")
-			cmd.Env = append(append([]string{}, os.Environ()...), "GO_WANT_RESOLVEPROXYHOSTS_HELPER=1")
-			cmd.Env = append(cmd.Env, tc.env...)
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				t.Fatalf("helper process: %v\n%s", err, out)
+			old := proxyFromEnvironment
+			proxyFromEnvironment = func(req *http.Request) (*url.URL, error) {
+				raw := tc.proxy[req.URL.Scheme]
+				if raw == "" {
+					return nil, nil
+				}
+				return url.Parse(raw)
 			}
-			if !strings.Contains(string(out), tc.want) {
-				t.Errorf("resolveProxyHosts() helper output = %q, want to contain %q", out, tc.want)
+			t.Cleanup(func() { proxyFromEnvironment = old })
+			hosts := resolveProxyHosts()
+			if got := fmt.Sprint(hosts["proxy.corp"], " ", len(hosts)); got != tc.want {
+				t.Errorf("resolveProxyHosts() = %q, want %q", got, tc.want)
 			}
 		})
 	}

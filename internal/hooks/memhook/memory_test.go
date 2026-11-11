@@ -239,7 +239,7 @@ func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// session_id must be UUID-shaped: memoryContext's ResetSeen (which seeds the dedup set this test
+	// session_id must be UUID-shaped: memoryContext's resetSeen (which seeds the dedup set this test
 	// exercises) only fires for a real session id, not a bare probe/test token (memory.LooksLikeSessionID).
 	const sessionS = "44444444-4444-4444-8444-444444444444"
 	const sessionT = "55555555-5555-4555-8555-555555555555"

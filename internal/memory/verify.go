@@ -157,10 +157,10 @@ func verifyStores() ([]verifyStore, error) {
 	return stores, nil
 }
 
-// verifyOrigins avoids ReadOrigin/RepoDirs, whose legacy fallback imports rows into the vault.
+// verifyOrigins avoids readOrigin/RepoDirs, whose legacy fallback imports rows into the vault.
 func verifyOrigins() (map[string]Origin, error) {
 	out := map[string]Origin{}
-	data, err := os.ReadFile(filepath.Join(StoreDir(), CatalogFile))
+	data, err := os.ReadFile(filepath.Join(StoreDir(), catalogFile))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
@@ -272,7 +272,7 @@ func verifyClaims(store verifyStore, archives bool) ([]verifyClaim, error) {
 // fileClaims extracts the claims of one bank or topic markdown file; other kinds yield none.
 func fileClaims(store verifyStore, path string) ([]verifyClaim, error) {
 	kind := classifyMemoryFile(filepath.Dir(path), filepath.Base(path))
-	if kind != KindBank && kind != KindTopic {
+	if kind != kindBank && kind != kindTopic {
 		return nil, nil
 	}
 	data, err := os.ReadFile(path)
@@ -300,11 +300,11 @@ func verifyActive(name string) bool {
 func verifyBlocks(name, body string, kind fileKind) []string {
 	for _, base := range bankFiles {
 		if strings.HasPrefix(name, strings.TrimSuffix(base, ".md")+"-") || strings.HasSuffix(name, "-"+base) {
-			name, kind = base, KindBank
+			name, kind = base, kindBank
 			break
 		}
 	}
-	if kind == KindTopic {
+	if kind == kindTopic {
 		return []string{body}
 	}
 	header, blocks := entryBlocks(name, body)

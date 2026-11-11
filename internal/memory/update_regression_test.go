@@ -31,8 +31,8 @@ func TestUpdateSettlementFailureRecordsFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "settle:") {
 		t.Fatalf("successful agent with failed settlement returned %v, want settlement error", err)
 	}
-	result, ok := ReadUpdateResult("settle-failure")
-	if !ok || result.Status != UpdateFailed {
+	result, ok := readUpdateResult("settle-failure")
+	if !ok || result.Status != updateFailed {
 		t.Fatalf("failed settlement recorded %+v, ok=%v, want failed", result, ok)
 	}
 }
@@ -40,7 +40,7 @@ func TestUpdateSettlementFailureRecordsFailure(t *testing.T) {
 func TestReadUpdateResultRejectsInvalidTime(t *testing.T) {
 	isolatedConfig(t)
 	write(t, resultPath("invalid-time"), "status=pending\ntime=invalid\nbank_updated=false\n")
-	if result, ok := ReadUpdateResult("invalid-time"); ok {
+	if result, ok := readUpdateResult("invalid-time"); ok {
 		t.Fatalf("malformed timestamp accepted: %+v", result)
 	}
 }

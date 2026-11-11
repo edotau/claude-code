@@ -7,11 +7,14 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -189,12 +192,56 @@ func RTKBashIn(cmd string) string {
 // fakeScript writes an executable script called name into a fresh temp dir and returns its path.
 func fakeScript(t *testing.T, name, script string) string {
 	t.Helper()
-	dir := t.TempDir()
-	WriteRel(t, dir, name, script)
-	if err := os.Chmod(filepath.Join(dir, name), 0o755); err != nil {
+	p := filepath.Join(t.TempDir(), name)
+	WriteExec(t, p, script)
+	return p
+}
+
+// WriteExec writes body as an executable file at path, creating parent directories.
+func WriteExec(t *testing.T, path, body string) {
+	t.Helper()
+	WriteRel(t, filepath.Dir(path), filepath.Base(path), body)
+	if err := os.Chmod(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return filepath.Join(dir, name)
+}
+
+// SymlinkLoop makes path a self-referencing symlink: a deterministic non-ENOENT stat failure, even as root.
+func SymlinkLoop(t *testing.T, path string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("a self-referencing symlink (ELOOP) needs unix")
+	}
+	if err := os.Symlink(path, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, syscall.ELOOP) {
+		t.Fatalf("fixture stat = %v, want ELOOP", err)
+	}
+}
+
+// UnsignedJWT is an unsigned three-part token whose payload is the given JSON claims.
+func UnsignedJWT(claims string) string {
+	enc := base64.RawURLEncoding.EncodeToString
+	return enc([]byte(`{"alg":"none"}`)) + "." + enc([]byte(claims)) + ".sig"
+}
+
+// CountFiles counts the files in dir whose name starts with prefix and whose trimmed content is want.
+func CountFiles(dir, prefix, want string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), prefix) {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(dir, e.Name())); err == nil && strings.TrimSpace(string(b)) == want {
+			n++
+		}
+	}
+	return n
 }
 
 // FakeRTK installs a stub rtk (HARNESS_RTK_BIN) whose `rewrite <cmd>` prints FAKE_RTK_OUT or "rtk <cmd>".

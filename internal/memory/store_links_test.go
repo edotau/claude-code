@@ -91,11 +91,11 @@ func TestEnsureLinkStates(t *testing.T) {
 	}
 }
 
-// TestLinkNativeForNoopBeforeCutover: LinkNativeFor reports ok=false before the migration lands.
+// TestLinkNativeForNoopBeforeCutover: linkNativeFor reports ok=false before the migration lands.
 func TestLinkNativeForNoopBeforeCutover(t *testing.T) {
 	isolatedConfig(t)
-	if _, ok := LinkNativeFor(t.TempDir()); ok {
-		t.Error("LinkNativeFor before cutover must report ok=false")
+	if _, ok := linkNativeFor(t.TempDir()); ok {
+		t.Error("linkNativeFor before cutover must report ok=false")
 	}
 }
 
@@ -114,17 +114,17 @@ func TestEnsureLinkPreservesCorrectRelativeTarget(t *testing.T) {
 	}
 }
 
-// TestLinkNativeForProbesGitOnce: LinkNativeFor hands its main-checkout probe to RepoDir instead of running it twice.
+// TestLinkNativeForProbesGitOnce: linkNativeFor hands its main-checkout probe to RepoDir instead of running it twice.
 func TestLinkNativeForProbesGitOnce(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	identities.Delete(filepath.Clean(root)) // the store's creation memoized it; LinkNativeFor must resolve afresh
+	identities.Delete(filepath.Clean(root)) // the store's creation memoized it; linkNativeFor must resolve afresh
 	probes := countGitProbes(t, "--git-common-dir")
-	res, ok := LinkNativeFor(root)
+	res, ok := linkNativeFor(root)
 	if !ok || res.Target != mustRepoDir(t, root) || res.Action != "linked" {
-		t.Fatalf("LinkNativeFor = %+v, %v, want a link to the repo's store", res, ok)
+		t.Fatalf("linkNativeFor = %+v, %v, want a link to the repo's store", res, ok)
 	}
 	if *probes != 1 {
-		t.Errorf("LinkNativeFor ran the main-checkout probe %d times, want 1", *probes)
+		t.Errorf("linkNativeFor ran the main-checkout probe %d times, want 1", *probes)
 	}
 }

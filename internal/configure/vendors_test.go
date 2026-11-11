@@ -9,10 +9,8 @@ import (
 	"maps"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -50,29 +48,19 @@ func TestStopAgyEscalatesToKill(t *testing.T) {
 	}
 }
 
+// A descendant that ignores SIGINT and SIGTERM and outlives its parent shell is killed too.
 func TestStopAgyKillsStubbornDescendant(t *testing.T) {
-	if os.Getenv("CONFIGURE_DESCENDANT_HELPER") == "1" {
-		signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
-		fmt.Fprintln(os.Stdout, os.Getpid())
-		for {
-			time.Sleep(time.Hour)
-		}
-	}
 	orig := AgyStopGrace
 	AgyStopGrace = 100 * time.Millisecond
 	t.Cleanup(func() { AgyStopGrace = orig })
-	bin, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer r.Close()
 	defer w.Close()
-	cmd := exec.Command("sh", "-c", `trap 'exit 0' INT TERM; "$CONFIGURE_TEST_BINARY" -test.run=^TestStopAgyKillsStubbornDescendant$ & wait`)
-	cmd.Env = append(os.Environ(), "CONFIGURE_DESCENDANT_HELPER=1", "CONFIGURE_TEST_BINARY="+bin)
+	// The exec'd sleep keeps the shell's pid and its ignored signals: one stubborn process holding stdout.
+	cmd := exec.Command("sh", "-c", `trap 'exit 0' INT TERM; sh -c 'trap "" INT TERM; echo $$; exec sleep 3600' & wait`)
 	cmd.Stdout = w
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)

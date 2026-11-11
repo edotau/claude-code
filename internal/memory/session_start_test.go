@@ -40,24 +40,24 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 	cutoverStore(t)
 	sub := filepath.Join(repo, "sub")
 	_ = os.MkdirAll(sub, 0o755)
-	// Only UUID-shaped ids advance the chain and ResetSeen; probe ids like "probe-x" never clobber it.
+	// Only UUID-shaped ids advance the chain and resetSeen; probe ids like "probe-x" never clobber it.
 	const (
 		s0 = "00000000-0000-4000-8000-000000000000"
 		s1 = "11111111-1111-4111-8111-111111111111"
 		s2 = "22222222-2222-4222-8222-222222222222"
 	)
-	if got := sessionStartContext(t, s0, sub); got != "" || HasBank(sub) {
+	if got := sessionStartContext(t, s0, sub); got != "" || bankExists(sub) {
 		t.Errorf("a repo subdir must not be scaffolded: %q", got)
 	}
 	// the unified surface is catalog + focus only; seed a catalog so the scaffold notice has a surface to ride on
-	if err := os.WriteFile(filepath.Join(StoreDir(), CatalogFile), []byte("# Memory catalog\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(StoreDir(), catalogFile), []byte("# Memory catalog\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got := sessionStartContext(t, s1, repo)
 	if !strings.Contains(got, "Memory bank scaffolded at") {
 		t.Fatalf("auto-init surface: %q", got)
 	}
-	_ = WriteUpdateResult(s1, UpdateResult{Status: UpdateFailed, Time: time.Now(), Log: "/x.log"})
+	_ = writeUpdateResult(s1, UpdateResult{Status: updateFailed, Time: time.Now(), Log: "/x.log"})
 	got = sessionStartContext(t, s2, repo)
 	if strings.Contains(got, "scaffolded") {
 		t.Errorf("notice must not re-announce the scaffold: %q", got[:min(len(got), 500)])
@@ -126,9 +126,9 @@ func TestSessionStartLinksNativeMemoryAfterCutover(t *testing.T) {
 
 	StartSession("s1", repo, time.Now())
 
-	res, ok := LinkNativeFor(repo)
+	res, ok := linkNativeFor(repo)
 	if !ok {
-		t.Fatal("LinkNativeFor ok=false after cutover")
+		t.Fatal("linkNativeFor ok=false after cutover")
 	}
 	if res.Action != "ok" {
 		t.Errorf("link action after SessionStart = %s, want ok (already linked)", res.Action)
@@ -160,13 +160,13 @@ func TestSessionStartFirstSessionLinksScaffoldedStore(t *testing.T) {
 	StartSession("first", repo, time.Now())
 
 	dir := Dir(repo)
-	if _, err := ReadOrigin(dir); err != nil {
+	if _, err := readOrigin(dir); err != nil {
 		t.Fatalf("store %s has no .origin after the first SessionStart: %v", dir, err)
 	}
 	if strings.Contains(filepath.Base(dir), "--") {
 		t.Errorf("store key got a collision suffix on a fresh repo: %s", dir)
 	}
-	res, ok := LinkNativeFor(repo)
+	res, ok := linkNativeFor(repo)
 	if !ok || res.Action != "ok" || res.Target != dir {
 		t.Errorf("native link after first SessionStart = %+v ok=%v, want ok -> %s", res, ok, dir)
 	}
@@ -226,7 +226,7 @@ func TestSessionStartCarriesNoCatalogRows(t *testing.T) {
 	if err := os.MkdirAll(StoreDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(StoreDir(), CatalogFile), []byte(cat.String()), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(StoreDir(), catalogFile), []byte(cat.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got := StartSession("probe-x", t.TempDir(), time.Now())
@@ -263,7 +263,7 @@ func TestRecordSessionRootRepairsCorruptFile(t *testing.T) {
 	for _, bad := range []string{"relative/path\n", "\n"} {
 		path := sessionRootPath(id)
 		write(t, path, bad)
-		RecordSessionRoot(id, cwd)
+		recordSessionRoot(id, cwd)
 		got, err := os.ReadFile(path)
 		if err != nil || !strings.HasPrefix(string(got), "/") {
 			t.Fatalf("bad %q not repaired: %q, %v", bad, got, err)
@@ -296,7 +296,7 @@ func TestRecordSessionRootReportsLockTimeout(t *testing.T) {
 		}
 	})
 	ran, err := paths.TryFileLock(path+".lock", 0, func() error {
-		RecordSessionRoot(id, cwd)
+		recordSessionRoot(id, cwd)
 		return nil
 	})
 	if err != nil || !ran {
@@ -321,7 +321,7 @@ func TestRecordSessionRootKeepsValidFile(t *testing.T) {
 	const id = "11111111-2222-3333-4444-555555555555"
 	keep := canonTemp(t, t.TempDir())
 	write(t, sessionRootPath(id), keep+"\n")
-	RecordSessionRoot(id, canonTemp(t, t.TempDir()))
+	recordSessionRoot(id, canonTemp(t, t.TempDir()))
 	if got := SessionRoot(id, ""); got != keep {
 		t.Errorf("first root replaced: got %q, want %q", got, keep)
 	}
@@ -343,7 +343,7 @@ func TestRecordSessionRootRacingRepairsAgree(t *testing.T) {
 		for i, cwd := range cwds {
 			wg.Go(func() {
 				<-start
-				RecordSessionRoot(id, cwd)
+				recordSessionRoot(id, cwd)
 				seen[i] = SessionRoot(id, "")
 			})
 		}
@@ -380,7 +380,7 @@ func TestUnifiedSurfaceFocusOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(StoreDir(), CatalogFile), "# Memory catalog\n\n- proj — hook · last never -> proj/MEMORY.md\n")
+	write(t, filepath.Join(StoreDir(), catalogFile), "# Memory catalog\n\n- proj — hook · last never -> proj/MEMORY.md\n")
 	write(t, filepath.Join(dir, "activeContext.md"), "# Active Context\n\n"+
 		"## Current Focus\n\n- shipping the router\n\n"+
 		"## Open Questions\n\n- should not appear\n\n"+
@@ -392,7 +392,7 @@ func TestUnifiedSurfaceFocusOnly(t *testing.T) {
 		"## In Progress\n\n- the router\n\n"+
 		"## What's Next\n\n- should not appear\n")
 
-	s := SessionSurface(repo)
+	s := sessionSurface(repo)
 	for _, want := range []string{"other repos:", "## Current Focus", "shipping the router",
 		"## Blockers", "## Next Steps", "ship it", "## In Progress", "the router"} {
 		if !strings.Contains(s, want) {
@@ -424,11 +424,11 @@ func TestUnifiedSurfaceCarriesNoCatalogRows(t *testing.T) {
 	for i := range 200 {
 		fmt.Fprintf(&cat, "- repo-%03d — hook · last never -> repo-%03d/MEMORY.md\n", i, i)
 	}
-	write(t, filepath.Join(StoreDir(), CatalogFile), cat.String())
+	write(t, filepath.Join(StoreDir(), catalogFile), cat.String())
 	write(t, filepath.Join(dir, "activeContext.md"), "# Active Context\n\n## Current Focus\n\n- local focus\n")
 	write(t, filepath.Join(HomeBankDir(), "activeContext.md"), "# Active Context\n\n## Current Focus\n\n- home essential\n")
 
-	s := SessionSurface(repo)
+	s := sessionSurface(repo)
 	if strings.Contains(s, "repo-000") || strings.Contains(s, "repo-199") || strings.Contains(s, "MEMORY CATALOG") {
 		t.Errorf("catalog rows leaked into the surface:\n%s", s)
 	}
@@ -507,7 +507,7 @@ func TestKnowledgeIsSearchedAndCataloged(t *testing.T) {
 	initStore(t)
 	write(t, filepath.Join(knowledgeDir(HomeBankDir()), "README.md"), "# Knowledge\nzebracorn readme\n")
 	write(t, filepath.Join(knowledgeDir(HomeBankDir()), "zebra.md"), "# Zebra\nZebracorn invariant: probes never ship.\n")
-	hits := SearchBanks(t.TempDir(), "zebracorn invariant probes", 5)
+	hits := searchBanks(t.TempDir(), "zebracorn invariant probes", 5)
 	if len(hits) == 0 || hits[0].Bank != "knowledge" || hits[0].File != "zebra.md" {
 		t.Fatalf("knowledge not ranked first: %+v", hits)
 	}
@@ -534,7 +534,7 @@ func TestRepoBankKnowledgeIsCatalogedAndSearched(t *testing.T) {
 	}
 	write(t, filepath.Join(knowledgeDir(Dir(root)), "README.md"), "# Knowledge\nnarwhal readme\n")
 	write(t, filepath.Join(knowledgeDir(Dir(root)), "narwhal.md"), "# Narwhal\nNarwhalcorn invariant: tusks never ship.\n")
-	hits := SearchBanks(root, "narwhalcorn invariant tusks", 5)
+	hits := searchBanks(root, "narwhalcorn invariant tusks", 5)
 	if len(hits) == 0 || hits[0].Bank != "knowledge" || hits[0].File != "narwhal.md" {
 		t.Fatalf("repo bank knowledge not ranked first: %+v", hits)
 	}
@@ -550,7 +550,7 @@ func TestLegacyDocsKnowledgeIgnored(t *testing.T) {
 	cfg, _ := isolatedConfig(t)
 	initStore(t)
 	write(t, filepath.Join(cfg, "docs", "knowledge", "yak.md"), "# Yak\nYakcorn invariant: wool never ships.\n")
-	if hits := SearchBanks(t.TempDir(), "yakcorn invariant wool", 5); len(hits) != 0 {
+	if hits := searchBanks(t.TempDir(), "yakcorn invariant wool", 5); len(hits) != 0 {
 		t.Errorf("legacy docs/knowledge note was searched: %+v", hits)
 	}
 	c, err := BuildCatalog(time.Now())
@@ -574,14 +574,14 @@ func TestUnifiedSurfaceFallsBackWhenNativeUnlinked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(dir, NativeIndexFile), "- [Topic](topic.md) — fallback marker\n")
-	if s := SessionSurface(repo); !strings.Contains(s, "native link missing") || !strings.Contains(s, "fallback marker") {
+	write(t, filepath.Join(dir, nativeIndexFile), "- [Topic](topic.md) — fallback marker\n")
+	if s := sessionSurface(repo); !strings.Contains(s, "native link missing") || !strings.Contains(s, "fallback marker") {
 		t.Fatalf("unlinked surface lacks the MEMORY.md fallback:\n%s", s)
 	}
-	if _, ok := LinkNativeFor(repo); !ok {
-		t.Fatal("LinkNativeFor failed")
+	if _, ok := linkNativeFor(repo); !ok {
+		t.Fatal("linkNativeFor failed")
 	}
-	if s := SessionSurface(repo); strings.Contains(s, "native link missing") {
+	if s := sessionSurface(repo); strings.Contains(s, "native link missing") {
 		t.Errorf("linked surface still carries the fallback:\n%s", s)
 	}
 }
@@ -600,7 +600,7 @@ func TestSessionSurfaceRelativeNativeLink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(dir, NativeIndexFile), "unique native-only index marker\n")
+	write(t, filepath.Join(dir, nativeIndexFile), "unique native-only index marker\n")
 	link := projectsMemory(paths.ProjectSlug(root))
 	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
 		t.Fatal(err)
@@ -612,10 +612,10 @@ func TestSessionSurfaceRelativeNativeLink(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
-	if got := mustRead(t, filepath.Join(link, NativeIndexFile)); got != "unique native-only index marker\n" {
+	if got := mustRead(t, filepath.Join(link, nativeIndexFile)); got != "unique native-only index marker\n" {
 		t.Fatalf("relative native link is not readable: %q", got)
 	}
-	got := SessionSurface(root)
+	got := sessionSurface(root)
 	if strings.Contains(got, "unique native-only index marker") || strings.Contains(got, "native link missing or blocked") {
 		t.Fatalf("surface duplicated the index despite a valid relative native link: %q", got)
 	}

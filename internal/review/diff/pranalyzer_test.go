@@ -147,7 +147,7 @@ func TestAnalyzePRCommitsExcludeBaseOnly(t *testing.T) {
 	commitFile(t, repo, "a.go", "package a\n", "feat: add a")
 	hosttest.In(t, repo, "checkout", "main")
 	commitFile(t, repo, "b.go", "package b\n", "bad base only")
-	rep, err := AnalyzePR(repo, "main", "feature")
+	rep, err := analyzePR(repo, "main", "feature")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestAnalyzePRIgnoresStagedIndex(t *testing.T) {
 	hosttest.In(t, repo, "branch", "feature")
 	hosttest.WriteRel(t, repo, "staged.go", "package s\n")
 	hosttest.In(t, repo, "add", "--", "staged.go")
-	rep, err := AnalyzePR(repo, "main", "feature")
+	rep, err := analyzePR(repo, "main", "feature")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,8 +187,8 @@ func TestAnalyzePRBadRefIsError(t *testing.T) {
 				hosttest.WriteRel(t, repo, "staged.go", "package s\n")
 				hosttest.In(t, repo, "add", "--", "staged.go")
 			}
-			if rep, err := AnalyzePR(repo, tc.base, tc.head); err == nil {
-				t.Fatalf("AnalyzePR(%s, %s) = status %q, nil error; want a ref error", tc.base, tc.head, rep.Status)
+			if rep, err := analyzePR(repo, tc.base, tc.head); err == nil {
+				t.Fatalf("analyzePR(%s, %s) = status %q, nil error; want a ref error", tc.base, tc.head, rep.Status)
 			}
 			var stdout, stderr bytes.Buffer
 			if code := RunPR([]string{repo, "--base", tc.base, "--head", tc.head}, &stdout, &stderr); code != 1 || stderr.Len() == 0 {
@@ -249,7 +249,7 @@ func TestAnalyzePRPropagatesPatchFailure(t *testing.T) {
 	if err != nil || len(files) != 1 {
 		t.Fatalf("file listing must succeed before patch failure: %v, %v", files, err)
 	}
-	if _, err := AnalyzePR(repo, "main", "feature"); err == nil || !strings.Contains(err.Error(), "app.go") || !strings.Contains(err.Error(), "42") {
-		t.Fatalf("AnalyzePR error = %v, want app.go patch failure (exit 42)", err)
+	if _, err := analyzePR(repo, "main", "feature"); err == nil || !strings.Contains(err.Error(), "app.go") || !strings.Contains(err.Error(), "42") {
+		t.Fatalf("analyzePR error = %v, want app.go patch failure (exit 42)", err)
 	}
 }

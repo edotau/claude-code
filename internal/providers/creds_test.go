@@ -13,7 +13,9 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +24,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -894,5 +897,148 @@ func TestCrossCallerAgreeEnvWinsButGetPrefersVault(t *testing.T) {
 	}
 	if st := Resolve(p); st.Source != "env" {
 		t.Fatalf("Resolve(p).Source = %q, want env", st.Source)
+	}
+}
+
+// A timed-out auth command takes its whole pipeline with it: a backgrounded child must not outlive the call.
+func TestRunAuthCommandTimeoutKillsDescendants(t *testing.T) {
+	skipOffUnix(t)
+	old := authCommandTimeout
+	authCommandTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { authCommandTimeout = old })
+	pidfile := filepath.Join(t.TempDir(), "child.pid")
+	_, err := runAuthCommand(context.Background(), &Provider{Name: "slow"}, "sleep 60 & echo $! > "+pidfile+"; sleep 60")
+	if err == nil {
+		t.Fatal("a command that outlives the timeout must fail")
+	}
+	raw, rerr := os.ReadFile(pidfile)
+	if rerr != nil {
+		t.Fatalf("the descendant never started: %v", rerr)
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+	t.Cleanup(func() { killPID(pid) })
+	for range 40 {
+		if gone(t, pid) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Errorf("descendant %d still running after the auth command timed out", pid)
+}
+
+// A shell that exits before its background child must not leave the child running.
+func TestRunAuthCommandReapsChildAfterShellExits(t *testing.T) {
+	skipOffUnix(t)
+	pidfile := filepath.Join(t.TempDir(), "child.pid")
+	v, err := runAuthCommand(context.Background(), &Provider{Name: "early"},
+		"(sleep 60 >/dev/null 2>&1 & echo $! > "+pidfile+"); echo tok")
+	if err != nil || v != "tok" {
+		t.Fatalf("runAuthCommand = %q, %v; want tok", v, err)
+	}
+	raw, rerr := os.ReadFile(pidfile)
+	if rerr != nil {
+		t.Fatalf("the child never started: %v", rerr)
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+	t.Cleanup(func() { killPID(pid) })
+	for range 40 {
+		if gone(t, pid) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Errorf("child %d still running after its shell exited", pid)
+}
+
+// skipOffUnix skips auth-command process tests off unix: they run sh pipelines in a process group.
+func skipOffUnix(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("auth commands run under sh in a POSIX process group")
+	}
+}
+
+// killPID kills a leftover test child, if it is still there.
+func killPID(pid int) {
+	if p, err := os.FindProcess(pid); err == nil {
+		_ = p.Kill()
+	}
+}
+
+// gone reports whether pid has exited; a zombie counts (a slow-reaping init must not fail the test), and an
+// inspection failure fails the test rather than passing it.
+func gone(t *testing.T, pid int) bool {
+	t.Helper()
+	if !proc.Alive(pid) {
+		return true
+	}
+	out, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
+	st := strings.TrimSpace(string(out))
+	if err != nil && st == "" {
+		if !proc.Alive(pid) {
+			return true
+		}
+		if _, ok := errors.AsType[*exec.ExitError](err); !ok {
+			t.Fatalf("cannot inspect pid %d: %v", pid, err)
+		}
+		return false
+	}
+	return strings.HasPrefix(st, "Z")
+}
+
+// A background child that keeps the shell's stdout open must not delay or fail a token the shell already printed.
+func TestRunAuthCommandChildHoldingStdoutDoesNotBlock(t *testing.T) {
+	skipOffUnix(t)
+	start := time.Now()
+	v, err := runAuthCommand(context.Background(), &Provider{Name: "held"}, "sleep 60 & echo tok")
+	if err != nil || v != "tok" {
+		t.Fatalf("runAuthCommand = %q, %v; want tok", v, err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("took %s: a child holding stdout open must not wait out WaitDelay", d)
+	}
+}
+
+// A child that escapes the group with setsid and keeps stdout open must not hang the auth command.
+func TestRunAuthCommandEscapedChildDoesNotHang(t *testing.T) {
+	skipOffUnix(t)
+	setsid, err := exec.LookPath("setsid")
+	if err != nil {
+		t.Skip("setsid not on PATH")
+	}
+	old := authDrainLimit
+	authDrainLimit = 300 * time.Millisecond
+	t.Cleanup(func() { authDrainLimit = old })
+	pidfile := filepath.Join(t.TempDir(), "escaped.pid")
+	start := time.Now()
+	v, rerr := runAuthCommand(context.Background(), &Provider{Name: "escaped"},
+		setsid+" sh -c 'echo $$ > "+pidfile+"; exec sleep 60' & while [ ! -s "+pidfile+" ]; do sleep 0.05; done; echo tok")
+	if raw, err := os.ReadFile(pidfile); err == nil {
+		pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+		t.Cleanup(func() { killPID(pid) })
+	}
+	if rerr != nil || v != "tok" {
+		t.Fatalf("runAuthCommand = %q, %v; want tok", v, rerr)
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Errorf("took %s: draining must be bounded by authDrainLimit", d)
+	}
+}
+
+// Oversized stdout is rejected, not truncated into something that passes token validation.
+func TestRunAuthCommandRejectsOversizedStdout(t *testing.T) {
+	skipOffUnix(t)
+	_, err := runAuthCommand(context.Background(), &Provider{Name: "big"}, "head -c 1100000 /dev/zero | tr '\\0' a")
+	if err == nil || !strings.Contains(err.Error(), "more than") {
+		t.Fatalf("err = %v, want the size-limit error for one token over 1 MiB", err)
+	}
+}
+
+// The stderr tail survives verbose output, so the final network error still classifies the failure.
+func TestRunAuthCommandKeepsStderrTail(t *testing.T) {
+	skipOffUnix(t)
+	_, err := runAuthCommand(context.Background(), &Provider{Name: "noisy"}, "head -c 100000 /dev/zero | tr '\\0' x >&2; echo >&2; echo 'dial tcp: connection refused' >&2; exit 1")
+	if err == nil || !strings.Contains(err.Error(), "network") {
+		t.Fatalf("err = %v, want a network classification from the stderr tail", err)
 	}
 }

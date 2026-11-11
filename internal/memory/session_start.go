@@ -16,22 +16,22 @@ import (
 	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
-// hasBank is HasBank behind a seam; tests count the bank probes one start makes.
-var hasBank = HasBank
+// hasBank is bankExists behind a seam; tests count the bank probes one start makes.
+var hasBank = bankExists
 
 // StartSession records the session root, renders the note line + bank surface and advances the session chain.
 func StartSession(sessionID, cwd string, now time.Time) string {
-	RecordSessionRoot(sessionID, cwd)
+	recordSessionRoot(sessionID, cwd)
 	prefix, banked := maybeAutoInit(cwd, hasBank(cwd)) // the one bank probe; a scaffold re-probes
 	if !IsUpdateChild() {
-		LinkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
+		linkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
 	}
 	chain := filepath.Join(StateDir(), "last-session")
 	out := sessionSurfaceText(cwd, prefix, chain, sessionID, now)
 	if !IsUpdateChild() {
 		startWorkers(cwd, sessionID, now, banked)
 		// Every SessionStart (startup, resume, clear, compact) restarts what recall treats as already in context.
-		ResetSeen(sessionID, cwd, out)
+		resetSeen(sessionID, cwd, out)
 	}
 	// An update worker is never the next "previous session"; a non-UUID (probe) id must not clobber the pointer.
 	if LooksLikeSessionID(sessionID) && !IsUpdateChild() {
@@ -42,7 +42,7 @@ func StartSession(sessionID, cwd string, now time.Time) string {
 
 // sessionSurfaceText renders the start-of-session note and (when a bank exists) its surface.
 func sessionSurfaceText(cwd, prefix, chain, sessionID string, now time.Time) string {
-	if surface := SessionSurface(cwd); surface != "" {
+	if surface := sessionSurface(cwd); surface != "" {
 		note := bankLoadNote(prefix) + chainNote(chain, sessionID, now) + doctorNotice(cwd)
 		return strings.TrimSpace(note) + "\n\n" + surface
 	}
@@ -53,7 +53,7 @@ func sessionSurfaceText(cwd, prefix, chain, sessionID string, now time.Time) str
 // startWorkers launches the detached dream and catch-up sweep a start may owe; banked is cwd's bank probe.
 func startWorkers(cwd, sessionID string, now time.Time, banked bool) {
 	// The daily dream (consolidate) runs detached on Claude; never blocks launch.
-	if banked && DreamDue(cwd, now) {
+	if banked && dreamDue(cwd, now) {
 		spawn.dream(cwd)
 	}
 	// Every start sweeps for finished sessions whose update was missed, detached; the child does all the scanning.
@@ -81,7 +81,7 @@ func chainNote(chain, sessionID string, now time.Time) string {
 	if prevID != sessionID {
 		note = " Previous session id: " + prevID + " (reference for the prior session's transcript / claude --resume)."
 	}
-	if res, ok := ReadUpdateResult(prevID); ok && res.NeedsAttention(now) {
+	if res, ok := readUpdateResult(prevID); ok && res.NeedsAttention(now) {
 		hint := ""
 		if res.Log != "" {
 			hint = " (log: " + res.Log + ")"
@@ -286,8 +286,8 @@ func sessionRootFor(cwd string) string {
 	return root
 }
 
-// RecordSessionRoot preserves the first SessionStart root across resume and compaction.
-func RecordSessionRoot(sessionID, cwd string) {
+// recordSessionRoot preserves the first SessionStart root across resume and compaction.
+func recordSessionRoot(sessionID, cwd string) {
 	if !LooksLikeSessionID(sessionID) || IsUpdateChild() || SessionRoot(sessionID, "") != "" {
 		return
 	}
@@ -378,15 +378,15 @@ const (
 	homeFocusCapChars = 800
 )
 
-// SessionSurface is the session preload, capped at totalCapChars ("" when empty): root's focus sections plus the home bank's, and one pointer to the other
+// sessionSurface is the session preload, capped at totalCapChars ("" when empty): root's focus sections plus the home bank's, and one pointer to the other
 // repos (no catalog rows); Claude Code loads the repo's MEMORY.md (with its generated bank region) itself.
-func SessionSurface(root string) string {
+func sessionSurface(root string) string {
 	dir := Dir(root)
 	var parts []string
-	if _, err := os.Stat(filepath.Join(StoreDir(), CatalogFile)); err == nil {
-		parts = append(parts, "<!-- other repos: `claude-code memory search --all <terms>`; catalog "+filepath.Join(StoreDir(), CatalogFile)+" -->")
+	if _, err := os.Stat(filepath.Join(StoreDir(), catalogFile)); err == nil {
+		parts = append(parts, "<!-- other repos: `claude-code memory search --all <terms>`; catalog "+filepath.Join(StoreDir(), catalogFile)+" -->")
 	}
-	if HasBank(root) { // the header alone still names the bank when there is no focus text yet
+	if bankExists(root) { // the header alone still names the bank when there is no focus text yet
 		head := "<!-- THIS REPO (" + dir + ") — focus only; read the typed files on demand -->"
 		if focus := repoFocus(dir); len(focus) > 0 {
 			head += "\n" + strings.Join(focus, "\n\n")
@@ -399,7 +399,7 @@ func SessionSurface(root string) string {
 		}
 	}
 	if !nativeLinked(root, dir) { // Claude Code is reading another dir: carry the store's index ourselves
-		if data, err := os.ReadFile(filepath.Join(dir, NativeIndexFile)); err == nil && len(data) > 0 {
+		if data, err := os.ReadFile(filepath.Join(dir, nativeIndexFile)); err == nil && len(data) > 0 {
 			parts = append(parts, capChars("<!-- THIS REPO's MEMORY.md (native link missing or blocked) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
 		}
 	}

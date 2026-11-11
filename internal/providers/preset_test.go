@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -205,7 +206,7 @@ func TestExpansionNeverLeaksIntoOverlay(t *testing.T) {
 }
 
 func jwtExpIn(d time.Duration, iss string) string {
-	return fakeJWT(fmt.Sprintf(`{"iss":%q,"exp":%d}`, iss, time.Now().Add(d).Unix()))
+	return hosttest.UnsignedJWT(fmt.Sprintf(`{"iss":%q,"exp":%d}`, iss, time.Now().Add(d).Unix()))
 }
 
 // credProvider builds a preset provider whose commands append to a counter file, then print a crafted JWT.

@@ -18,7 +18,7 @@ import (
 	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
-// topicFiles lists dir's KindTopic files; an absent dir is empty, any other read failure is returned.
+// topicFiles lists dir's kindTopic files; an absent dir is empty, any other read failure is returned.
 func topicFiles(dir string) ([]string, error) {
 	ents, err := os.ReadDir(dir)
 	if err != nil && !os.IsNotExist(err) {
@@ -29,7 +29,7 @@ func topicFiles(dir string) ([]string, error) {
 		if err := checkReadable(dir, e); err != nil {
 			return nil, err
 		}
-		if classifyMemoryFile(dir, e.Name()) == KindTopic {
+		if classifyMemoryFile(dir, e.Name()) == kindTopic {
 			out = append(out, filepath.Join(dir, e.Name()))
 		}
 	}
@@ -37,7 +37,7 @@ func topicFiles(dir string) ([]string, error) {
 }
 
 // checkReadable fails on a regular .md entry that cannot be opened: ClassifyMemoryFile reads such a file as
-// KindOther, which would drop it from the scan without an error.
+// kindOther, which would drop it from the scan without an error.
 func checkReadable(dir string, e os.DirEntry) error {
 	if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".md") {
 		return nil
@@ -222,7 +222,7 @@ func indexLinks(index string) map[string]string {
 
 // indexedLinks is every pointer dir's store holds: the injected MEMORY.md plus the recall-only SEARCHABLE.md.
 func indexedLinks(dir, index string) (map[string]string, error) {
-	raw, err := readIfExists(filepath.Join(dir, NativeSearchableFile))
+	raw, err := readIfExists(filepath.Join(dir, nativeSearchableFile))
 	if err != nil {
 		return nil, err
 	}
@@ -273,12 +273,12 @@ func nativeStats(dir string) (nativeStoreStats, error) {
 			st.TopicBytes += fi.Size()
 		}
 	}
-	raw, err := readIfExists(filepath.Join(dir, NativeIndexFile))
+	raw, err := readIfExists(filepath.Join(dir, nativeIndexFile))
 	if err != nil {
 		return st, err
 	}
 	if err := checkBankRegion(string(raw)); err != nil {
-		return st, fmt.Errorf("%s: %w", NativeIndexFile, err)
+		return st, fmt.Errorf("%s: %w", nativeIndexFile, err)
 	}
 	st.IndexBytes = int64(len(raw))
 	st.IndexEntries = len(indexLinks(string(raw)))
@@ -419,17 +419,17 @@ var readIfExists = func(path string) ([]byte, error) {
 // stageArchive adds the archive's writes to b: the record, both indexes struck, each landed copy, then the removals.
 func stageArchive(b *nativeBatch, todo []string, ix archiveIndexes, moves []archiveMove, recorded []string) (final string, err error) {
 	if len(recorded) > 0 {
-		recRel := filepath.Join(nativeArchiveRel, NativeArchiveIndexFile)
+		recRel := filepath.Join(nativeArchiveRel, nativeArchiveIndexFile)
 		b.put(recRel, []byte(archiveIndexWith(ix.record, recorded)), ix.record)
 	}
 	if ix.index != nil {
 		if final, err = indexWithout(ix.healed, todo); err != nil {
-			return "", fmt.Errorf("%s: %w", NativeIndexFile, err)
+			return "", fmt.Errorf("%s: %w", nativeIndexFile, err)
 		}
-		b.put(NativeIndexFile, []byte(final), ix.index)
+		b.put(nativeIndexFile, []byte(final), ix.index)
 	}
 	if ix.searchable != nil {
-		if err := b.putWithout(NativeSearchableFile, string(ix.searchable), todo, ix.searchable); err != nil {
+		if err := b.putWithout(nativeSearchableFile, string(ix.searchable), todo, ix.searchable); err != nil {
 			return "", err
 		}
 	}
@@ -556,7 +556,7 @@ func reconcileLines(dir, index string, searchable []byte) (missing []string, rec
 	if err != nil {
 		return nil, nil, err
 	}
-	rec, err = readIfExists(filepath.Join(nativeArchiveDir(dir), NativeArchiveIndexFile))
+	rec, err = readIfExists(filepath.Join(nativeArchiveDir(dir), nativeArchiveIndexFile))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -578,14 +578,14 @@ func reconcileLines(dir, index string, searchable []byte) (missing []string, rec
 // healedIndex reads the store's index files once: MEMORY.md (nil when absent) healed with reconcileLines in memory;
 // a malformed or over-reserve bank region is the error that stops the caller's rewrite.
 func healedIndex(dir string) (archiveIndexes, error) {
-	raw, err := readIfExists(filepath.Join(dir, NativeIndexFile))
+	raw, err := readIfExists(filepath.Join(dir, nativeIndexFile))
 	if err != nil {
 		return archiveIndexes{}, err
 	}
 	if err := checkBankRegion(string(raw)); err != nil {
-		return archiveIndexes{}, fmt.Errorf("%s: %w", NativeIndexFile, err)
+		return archiveIndexes{}, fmt.Errorf("%s: %w", nativeIndexFile, err)
 	}
-	searchable, err := readIfExists(filepath.Join(dir, NativeSearchableFile))
+	searchable, err := readIfExists(filepath.Join(dir, nativeSearchableFile))
 	if err != nil {
 		return archiveIndexes{}, err
 	}
@@ -682,10 +682,10 @@ func nativeDirs(root string) []string {
 // Native auto-memory's MEMORY.md is injected EVERY session, so its size is a per-turn cost. SEARCHABLE.md
 // holds pointer lines moved out of that injected core — recall finds them by content, never injected.
 const (
-	NativeIndexFile        = "MEMORY.md"     // the injected index of `- [Title](topic.md) — hook` lines
-	NativeSearchableFile   = "SEARCHABLE.md" // pointer lines kept OUT of the injected index; recall finds the topics
-	NativeArchiveIndexFile = "INDEX.md"      // struck pointer lines, recorded verbatim so restore is exact
-	NativeCoreCap          = 20              // max pointer lines splitNativeIndex leaves injected in MEMORY.md
+	nativeIndexFile        = "MEMORY.md"     // the injected index of `- [Title](topic.md) — hook` lines
+	nativeSearchableFile   = "SEARCHABLE.md" // pointer lines kept OUT of the injected index; recall finds the topics
+	nativeArchiveIndexFile = "INDEX.md"      // struck pointer lines, recorded verbatim so restore is exact
+	nativeCoreCap          = 20              // max pointer lines splitNativeIndex leaves injected in MEMORY.md
 )
 
 // topicFrontmatter splits a topic file into its name, description and body; false without a closed block and a name.

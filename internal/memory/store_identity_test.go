@@ -131,7 +131,7 @@ func TestResolveHarness(t *testing.T) {
 		}
 	}
 	dir := idEnsure(t, cfg)
-	o, err := ReadOrigin(dir)
+	o, err := readOrigin(dir)
 	if err != nil || o.Key != harnessStoreKey() || o.Origin != paths.CanonDeep(cfg) {
 		t.Errorf("harness .origin = %+v, %v", o, err)
 	}
@@ -186,20 +186,20 @@ func TestEnsureRepoDirIdempotent(t *testing.T) {
 	if err != nil || got != dir {
 		t.Fatalf("EnsureRepoDir = %s, %v", got, err)
 	}
-	o, err := ReadOrigin(dir)
+	o, err := readOrigin(dir)
 	if err != nil || o.Origin != paths.CanonDeep(repo) || o.Key != "my-repo.v2" {
 		t.Fatalf("origin = %+v, %v", o, err)
 	}
 	if again, err := EnsureRepoDir(repo); err != nil || again != dir {
 		t.Fatal(err)
 	}
-	if after, err := ReadOrigin(dir); err != nil || !reflect.DeepEqual(after, o) {
+	if after, err := readOrigin(dir); err != nil || !reflect.DeepEqual(after, o) {
 		t.Errorf("second EnsureRepoDir rewrote the origin record: %+v, %v", after, err)
 	}
 	if g, err := EnsureRepoDir(t.TempDir()); err != nil || g != HomeBankDir() {
 		t.Errorf("global EnsureRepoDir = %s, %v", g, err)
 	}
-	if _, err := ReadOrigin(HomeBankDir()); err == nil {
+	if _, err := readOrigin(HomeBankDir()); err == nil {
 		t.Error("no origin record for the global tier")
 	}
 }
@@ -225,7 +225,7 @@ func TestSameBasenameCollisionExtendsHash(t *testing.T) {
 	if mustRepoDir(t, a) != da || mustRepoDir(t, b) != db {
 		t.Error("RepoDir must find both stores by origin")
 	}
-	if oa, _ := ReadOrigin(da); oa.Origin != paths.CanonDeep(a) {
+	if oa, _ := readOrigin(da); oa.Origin != paths.CanonDeep(a) {
 		t.Errorf("first store's origin was clobbered: %+v", oa)
 	}
 }
@@ -284,7 +284,7 @@ func TestAliasRoutesAndConflicts(t *testing.T) {
 	if got := mustRepoDir(t, c); got != da {
 		t.Errorf("RepoDir(aliased) = %s want %s", got, da)
 	}
-	if o, _ := ReadOrigin(da); len(o.Aliases) != 1 || o.Aliases[0] != paths.CanonDeep(c) || o.Origin != paths.CanonDeep(a) {
+	if o, _ := readOrigin(da); len(o.Aliases) != 1 || o.Aliases[0] != paths.CanonDeep(c) || o.Origin != paths.CanonDeep(a) {
 		t.Errorf("origin after alias = %+v", o)
 	}
 	if err := addOriginAlias(db, c); !errors.Is(err, errOriginConflict) {
@@ -304,9 +304,9 @@ func TestOriginReadWriteGuards(t *testing.T) {
 	os.MkdirAll(dir, 0o755)
 	o := Origin{Version: OriginVersion, Key: "one", Origin: "/src/one", Aliases: []string{"", "/x/../y", "/y"}}
 	idFatal(t, WriteOrigin(dir, o))
-	got, err := ReadOrigin(dir)
+	got, err := readOrigin(dir)
 	if err != nil || got.Origin != "/src/one" || len(got.Aliases) != 1 || got.Aliases[0] != "/y" {
-		t.Fatalf("ReadOrigin = %+v, %v", got, err)
+		t.Fatalf("readOrigin = %+v, %v", got, err)
 	}
 	if err := WriteOrigin(dir, o); err != nil {
 		t.Error("same identity must be a no-op:", err)
@@ -328,7 +328,7 @@ func TestReadOriginRejectsSymlinkedStore(t *testing.T) {
 	if err := os.Symlink(dir, link); err != nil {
 		t.Skip(err)
 	}
-	if _, err := ReadOrigin(link); err == nil {
+	if _, err := readOrigin(link); err == nil {
 		t.Error("symlinked store must be rejected")
 	}
 }
@@ -550,7 +550,7 @@ func TestRepoKeyFromOriginRemoteOrDir(t *testing.T) {
 			if want := filepath.Join(cfg, "memory", c.key); dir != want {
 				t.Fatalf("EnsureRepoDir = %s, want %s", dir, want)
 			}
-			if o, err := ReadOrigin(dir); err != nil || o.Key != c.key {
+			if o, err := readOrigin(dir); err != nil || o.Key != c.key {
 				t.Fatalf("origin = %+v, %v", o, err)
 			}
 		})
@@ -593,11 +593,11 @@ func assertBothStoresFindable(t *testing.T, a, b, da, db string) {
 	if mustRepoDir(t, a) != da || mustRepoDir(t, b) != db {
 		t.Error("RepoDir must find both stores by their own checkout path")
 	}
-	oa, err := ReadOrigin(da)
+	oa, err := readOrigin(da)
 	if err != nil || oa.Origin != paths.CanonDeep(a) {
 		t.Fatalf("first store's origin was clobbered: %+v, %v", oa, err)
 	}
-	ob, err := ReadOrigin(db)
+	ob, err := readOrigin(db)
 	if err != nil || ob.Origin != paths.CanonDeep(b) {
 		t.Fatalf("second store's origin = %+v, %v, want %s", ob, err, paths.CanonDeep(b))
 	}
@@ -637,9 +637,9 @@ func TestRepoByNamePrefersExactKey(t *testing.T) {
 	resetVaultRetry(t)
 	seedRouteStore(t, "alpha", "/src/bravo")
 	want := seedRouteStore(t, "bravo", "/other/checkout")
-	got, ok := RepoByName("bravo")
+	got, ok := repoByName("bravo")
 	if !ok || got.Key != "bravo" || got.Dir != want || got.Origin.Origin != "/other/checkout" {
-		t.Fatalf("RepoByName(bravo) = %+v, %v; want exact key bravo at %s, not alpha's origin basename", got, ok, want)
+		t.Fatalf("repoByName(bravo) = %+v, %v; want exact key bravo at %s, not alpha's origin basename", got, ok, want)
 	}
 }
 
@@ -675,18 +675,18 @@ func TestRoutedReposWholeWordMatchAndShortKeysIgnored(t *testing.T) {
 	}
 }
 
-// RepoByName folds case on the store key and, for a key that differs, on the origin's basename.
+// repoByName folds case on the store key and, for a key that differs, on the origin's basename.
 func TestRepoByNameMatchesKeyOrOriginBasename(t *testing.T) {
 	tempConfig(t)
 	resetVaultRetry(t)
 	dir := seedRouteStore(t, "alpha", "/src/Checkout-Name")
 	for _, name := range []string{"ALPHA", "checkout-name"} {
-		if e, ok := RepoByName(name); !ok || e.Dir != dir {
-			t.Errorf("RepoByName(%q) = %+v, %v; want the alpha store at %s", name, e, ok, dir)
+		if e, ok := repoByName(name); !ok || e.Dir != dir {
+			t.Errorf("repoByName(%q) = %+v, %v; want the alpha store at %s", name, e, ok, dir)
 		}
 	}
-	if e, ok := RepoByName("src"); ok {
-		t.Errorf("RepoByName(src) matched %+v; only the origin's basename routes", e)
+	if e, ok := repoByName("src"); ok {
+		t.Errorf("repoByName(src) matched %+v; only the origin's basename routes", e)
 	}
 }
 
@@ -747,7 +747,7 @@ func seedLockedCatalog(t *testing.T) Origin {
 	idMkdir(t, filepath.Join(cfg, "memory", "locked"))
 	want := Origin{Version: OriginVersion, Key: "locked", Origin: "/src/locked"}
 	row := "- locked — hook · last 2024-01-01 → locked/MEMORY.md" + catalogOriginComment(want) + "\n"
-	write(t, filepath.Join(cfg, "memory", CatalogFile), "# Memory catalog\n\n## Repos\n\n"+row)
+	write(t, filepath.Join(cfg, "memory", catalogFile), "# Memory catalog\n\n## Repos\n\n"+row)
 	return want
 }
 

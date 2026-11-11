@@ -364,32 +364,3 @@ func parseInputJSONArgs(tool, about string, args []string, stdout, stderr io.Wri
 	}
 	return input, *jsonFlag, 0, false
 }
-
-// pyRound1 replicates Python's round(x, 1) round-half-to-even at the tenths place.
-func pyRound1(x float64) float64 {
-	scaled := x * 10
-	floor := float64(int64(scaled))
-	if scaled < 0 && scaled != floor {
-		floor -= 1
-	}
-	diff := scaled - floor
-	var rounded float64
-	switch {
-	case diff < 0.5:
-		rounded = floor
-	case diff > 0.5:
-		rounded = floor + 1
-	default:
-		if int64(floor)%2 == 0 {
-			rounded = floor
-		} else {
-			rounded = floor + 1
-		}
-	}
-	return rounded / 10
-}
-
-// formatPyFloat renders a float the way Python's f-string/json.dumps would (always keep one decimal here).
-func formatPyFloat(v float64) string {
-	return fmt.Sprintf("%.1f", v)
-}

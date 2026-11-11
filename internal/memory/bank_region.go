@@ -36,9 +36,9 @@ func buildBankRegion(dir string, now time.Time) (string, error) {
 		}
 	}
 	lines := head
-	room := BankRegionMaxLines - len(head) - 2 // the end marker plus a possible "more" line
+	room := bankRegionMaxLines - len(head) - 2 // the end marker plus a possible "more" line
 	for i, e := range entries {
-		if i >= room || len(strings.Join(lines, "\n"))+len(e) > BankRegionMaxBytes-200 {
+		if i >= room || len(strings.Join(lines, "\n"))+len(e) > bankRegionMaxBytes-200 {
 			lines = append(lines, fmt.Sprintf("- … %d more entries (memory search)", len(entries)-i))
 			break
 		}
@@ -59,7 +59,7 @@ var bankDescriptions = map[string]string{
 
 // writeBankRegion replaces (or inserts at the top) dir's MEMORY.md region; bytes outside it never change.
 func writeBankRegion(dir string, now time.Time) (bool, error) {
-	path := filepath.Join(dir, NativeIndexFile)
+	path := filepath.Join(dir, nativeIndexFile)
 	raw, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return false, err
@@ -247,10 +247,10 @@ func storeHookFile(path string) string {
 const (
 	bankRegionBegin     = "<!-- bank:begin"
 	bankRegionEnd       = "<!-- bank:end -->"
-	BankRegionMaxLines  = 40
-	BankRegionMaxBytes  = 4 * 1024
-	NativeIndexMaxLines = 200
-	NativeIndexMaxBytes = 25 * 1024
+	bankRegionMaxLines  = 40
+	bankRegionMaxBytes  = 4 * 1024
+	nativeIndexMaxLines = 200
+	nativeIndexMaxBytes = 25 * 1024
 )
 
 // errBankRegion marks a MEMORY.md whose generated region cannot be located safely: a diagnostic, never a guess.
@@ -304,18 +304,18 @@ func checkBankRegion(text string) error {
 		return err
 	}
 	region := text[start:end]
-	if n := lineCount(region); n > BankRegionMaxLines || len(region) > BankRegionMaxBytes {
+	if n := lineCount(region); n > bankRegionMaxLines || len(region) > bankRegionMaxBytes {
 		return fmt.Errorf("%w: %d lines / %d bytes exceed the %d-line / %d-byte reserve",
-			errBankRegion, n, len(region), BankRegionMaxLines, BankRegionMaxBytes)
+			errBankRegion, n, len(region), bankRegionMaxLines, bankRegionMaxBytes)
 	}
 	return nil
 }
 
 // checkNativeIndexLimits reports a MEMORY.md the native loader would truncate: the whole file, region included.
 func checkNativeIndexLimits(text string) error {
-	if n := lineCount(text); n > NativeIndexMaxLines || len(text) > NativeIndexMaxBytes {
+	if n := lineCount(text); n > nativeIndexMaxLines || len(text) > nativeIndexMaxBytes {
 		return fmt.Errorf("%s: %d lines / %d bytes exceed the native load limit (%d lines / %d bytes)",
-			NativeIndexFile, n, len(text), NativeIndexMaxLines, NativeIndexMaxBytes)
+			nativeIndexFile, n, len(text), nativeIndexMaxLines, nativeIndexMaxBytes)
 	}
 	return nil
 }

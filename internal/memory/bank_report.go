@@ -26,9 +26,9 @@ var now = time.Now
 
 var labelUnsafe = regexp.MustCompile(`[^A-Za-z0-9._-]`)
 
-// AppendReport appends in's report to dir/reports/<date>-<label>.md and each decision to <date>-decisions.md.
+// appendReport appends in's report to dir/reports/<date>-<label>.md and each decision to <date>-decisions.md.
 // Both files are created when missing (the decisions file even with no decisions); it returns their paths.
-func AppendReport(dir, label string, in ReportInput) ([]string, error) {
+func appendReport(dir, label string, in ReportInput) ([]string, error) {
 	if label == "" {
 		return nil, errors.New("--label is required")
 	}
@@ -48,7 +48,7 @@ func AppendReport(dir, label string, in ReportInput) ([]string, error) {
 	return out, err
 }
 
-// appendReportLocked is AppendReport's body; the caller holds the bank lock.
+// appendReportLocked is appendReport's body; the caller holds the bank lock.
 func appendReportLocked(dir, label string, in ReportInput) ([]string, error) {
 	reports := filepath.Join(dir, "reports")
 	if err := os.MkdirAll(reports, 0o700); err != nil {

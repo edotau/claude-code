@@ -386,7 +386,7 @@ func TestParseSkipsFencedCheckboxes(t *testing.T) {
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			var ids []string
-			for _, task := range ParseBytes("p.md", []byte(c.md)).Tasks {
+			for _, task := range parseBytes("p.md", []byte(c.md)).Tasks {
 				ids = append(ids, task.ID)
 			}
 			if got := strings.Join(ids, " "); got != c.want {
@@ -442,7 +442,7 @@ func TestTickRange(t *testing.T) {
 	repo, base := tickRangeRepo(t)
 	plan := filepath.Join(t.TempDir(), "plan.md")
 	writeFile(t, plan, "- [ ] 1.1 Solo owns: internal/b/b.go\n- [ ] 1.2 Both owns: internal/a/a.go, internal/b/b.go\n- [ ] 1.3 Other owns: internal/zzz/\n")
-	commits, err := RangeCommits(context.Background(), repo, base+"..HEAD")
+	commits, err := rangeCommits(context.Background(), repo, base+"..HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -451,7 +451,7 @@ func TestTickRange(t *testing.T) {
 	}
 	assertTickDryRun(t, plan, commits)
 	assertTickApplied(t, plan, commits)
-	if _, err := RangeCommits(context.Background(), repo, "HEAD"); err == nil {
+	if _, err := rangeCommits(context.Background(), repo, "HEAD"); err == nil {
 		t.Fatal("a range without .. must be rejected")
 	}
 }
@@ -459,7 +459,7 @@ func TestTickRange(t *testing.T) {
 // assertTickDryRun checks the dry-run results and that the plan stays unwritten.
 func assertTickDryRun(t *testing.T, plan string, commits []Commit) {
 	t.Helper()
-	res, err := TickCommits(plan, commits, true)
+	res, err := tickCommits(plan, commits, true)
 	if err != nil || len(res) != 2 || len(res[0].Partial) != 1 || len(res[1].Ticked) != 2 || len(res[1].Partial) != 0 {
 		t.Fatalf("dry-run results %+v err=%v", res, err)
 	}
@@ -471,7 +471,7 @@ func assertTickDryRun(t *testing.T, plan string, commits []Commit) {
 // assertTickApplied ticks for real and checks the written plan.
 func assertTickApplied(t *testing.T, plan string, commits []Commit) {
 	t.Helper()
-	if _, err := TickCommits(plan, commits, false); err != nil {
+	if _, err := tickCommits(plan, commits, false); err != nil {
 		t.Fatal(err)
 	}
 	got := readFile(t, plan)
@@ -486,7 +486,7 @@ func TestTickCommitsUnionsRange(t *testing.T) {
 	plan := filepath.Join(t.TempDir(), "plan.md")
 	writeFile(t, plan, "- [ ] 1.1 Split owns: a.go, b.go, c.go\n")
 	commits := []Commit{{Sha: "aaa1111", Files: []string{"a.go"}}, {Sha: "bbb2222", Files: []string{"b.go"}}, {Sha: "ccc3333", Files: []string{"c.go"}}}
-	res, err := TickCommits(plan, commits, false)
+	res, err := tickCommits(plan, commits, false)
 	if err != nil || len(res) != 3 || len(res[2].Ticked) != 1 {
 		t.Fatalf("results %+v err=%v", res, err)
 	}
@@ -498,35 +498,35 @@ func TestTickCommitsUnionsRange(t *testing.T) {
 // An owns entry abbreviated against the previous one resolves to the spliced path.
 func TestCoversSplicesAbbreviatedOwns(t *testing.T) {
 	owns := []string{"skills/subagent-workflows/references/prompts.md", "references/cost-routing.md", "references/lane.md"}
-	if all, _ := Covers(owns, []string{"skills/subagent-workflows/references/prompts.md", "skills/subagent-workflows/references/cost-routing.md", "skills/subagent-workflows/references/lane.md"}); !all {
+	if all, _ := covers(owns, []string{"skills/subagent-workflows/references/prompts.md", "skills/subagent-workflows/references/cost-routing.md", "skills/subagent-workflows/references/lane.md"}); !all {
 		t.Fatal("abbreviated entry not resolved")
 	}
-	if all, _ := Covers([]string{"a/b.go", "references/x.md"}, []string{"a/b.go", "references/x.md"}); !all {
+	if all, _ := covers([]string{"a/b.go", "references/x.md"}, []string{"a/b.go", "references/x.md"}); !all {
 		t.Fatal("repo-root entry must stay as is")
 	}
 	// A bare name sits beside the previous entry; a root-level file of that exact name still matches as written.
-	if all, _ := Covers([]string{"internal/configure/configure.go", "keysmenu.go"},
+	if all, _ := covers([]string{"internal/configure/configure.go", "keysmenu.go"},
 		[]string{"internal/configure/configure.go", "internal/configure/keysmenu.go"}); !all {
 		t.Fatal("bare name not resolved against the previous entry's directory")
 	}
-	if all, _ := Covers([]string{"internal/configure/configure.go", "keysmenu.go"},
+	if all, _ := covers([]string{"internal/configure/configure.go", "keysmenu.go"},
 		[]string{"internal/configure/configure.go", "internal/other/keysmenu.go"}); all {
 		t.Fatal("bare name matched a file in another directory")
 	}
-	if all, _ := Covers([]string{"a/b.go", "Makefile"}, []string{"a/b.go", "Makefile"}); !all {
+	if all, _ := covers([]string{"a/b.go", "Makefile"}, []string{"a/b.go", "Makefile"}); !all {
 		t.Fatal("a root file named literally must stay as is")
 	}
 }
 
 // TestDirOwnsNeverComplete is the regression for a directory owns entry ticking a task on one stray file.
 func TestDirOwnsNeverComplete(t *testing.T) {
-	if all, any := Covers([]string{"internal/proxy"}, []string{"internal/proxy/x.go"}); all || !any {
+	if all, any := covers([]string{"internal/proxy"}, []string{"internal/proxy/x.go"}); all || !any {
 		t.Fatalf("dir-only owns: all=%v any=%v, want touched only", all, any)
 	}
-	if all, _ := Covers([]string{"internal/proxy/", "internal/a.go"}, []string{"internal/a.go"}); all {
+	if all, _ := covers([]string{"internal/proxy/", "internal/a.go"}, []string{"internal/a.go"}); all {
 		t.Fatal("dir entry untouched must keep the task open")
 	}
-	if all, _ := Covers([]string{"internal/proxy", "internal/a.go"}, []string{"internal/a.go", "internal/proxy/x.go"}); !all {
+	if all, _ := covers([]string{"internal/proxy", "internal/a.go"}, []string{"internal/a.go", "internal/proxy/x.go"}); !all {
 		t.Fatal("files plus touched dir should complete")
 	}
 }
@@ -601,7 +601,7 @@ func TestSelectAbbreviatedPartialOwns(t *testing.T) {
 	if plan != planPath || len(tied) != 0 {
 		t.Fatalf("partial abbreviated ownership: plan=%q tied=%v, want %q", plan, tied, planPath)
 	}
-	results, err := TickCommits(plan, commits, false)
+	results, err := tickCommits(plan, commits, false)
 	if err != nil || len(results) != 1 || len(results[0].Partial) != 1 || len(results[0].Ticked) != 0 {
 		t.Fatalf("partial annotation: results=%+v err=%v", results, err)
 	}
@@ -609,13 +609,13 @@ func TestSelectAbbreviatedPartialOwns(t *testing.T) {
 
 func TestCoversAbsoluteOwnsMatchRepoRelativeFiles(t *testing.T) {
 	files := []string{"internal/plans/tick.go"}
-	if all, any := Covers([]string{"/home/x/repo/internal/plans/tick.go"}, files); !all || !any {
+	if all, any := covers([]string{"/home/x/repo/internal/plans/tick.go"}, files); !all || !any {
 		t.Errorf("absolute file entry: all=%v any=%v, want true true", all, any)
 	}
-	if _, any := Covers([]string{"/home/x/repo/internal/plans/"}, files); !any {
+	if _, any := covers([]string{"/home/x/repo/internal/plans/"}, files); !any {
 		t.Error("absolute dir entry should cover a file under it")
 	}
-	if _, any := Covers([]string{"/home/x/repo/internal/plans/other.go"}, files); any {
+	if _, any := covers([]string{"/home/x/repo/internal/plans/other.go"}, files); any {
 		t.Error("absolute entry for a different file must not be covered")
 	}
 }

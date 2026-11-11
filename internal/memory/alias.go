@@ -107,7 +107,7 @@ func planAlias(opt AliasOptions, canon string) (aliasResult, *aliasPlan, error) 
 	}
 	tgt, ok := findStore(entries, opt.Into)
 	if !ok {
-		return aliasResult{}, nil, fmt.Errorf("unknown store key %q (see the catalog: %s)", opt.Into, filepath.Join(StoreDir(), CatalogFile))
+		return aliasResult{}, nil, fmt.Errorf("unknown store key %q (see the catalog: %s)", opt.Into, filepath.Join(StoreDir(), catalogFile))
 	}
 	if tgt.Origin.Accepts(canon) {
 		return aliasResult{}, nil, fmt.Errorf("%s already resolves to store %q", canon, tgt.Key)
@@ -204,7 +204,7 @@ func (p *aliasPlan) foldOne(path, rel string, data []byte, src, tgt repoEntry, r
 	if rerr != nil && !os.IsNotExist(rerr) {
 		return rerr
 	}
-	if rel == NativeIndexFile {
+	if rel == nativeIndexFile {
 		return p.foldNativeIndex(path, rel, string(cur), string(data), tgt, res)
 	}
 	if rerr != nil {
@@ -413,11 +413,11 @@ func (p *aliasPlan) repoint() (func() error, error) {
 		}
 		return errors.Join(errs...)
 	}
-	tPrev, tErr := ReadOrigin(p.target)
+	tPrev, tErr := readOrigin(p.target)
 	if tErr == nil {
 		undos = append(undos, func() error { return foldOrigin(p.target, tPrev, "") })
 	}
-	if sPrev, err := ReadOrigin(p.source); err == nil {
+	if sPrev, err := readOrigin(p.source); err == nil {
 		drop := "" // a target that had no row loses the folded one in the same transaction
 		if errors.Is(tErr, fs.ErrNotExist) {
 			drop = filepath.Base(p.target)

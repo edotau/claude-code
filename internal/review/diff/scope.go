@@ -120,7 +120,7 @@ func rangeFiles(repo, diffRange string, paths []string) ([]scopeFile, error) {
 		paths = []string{"."}
 	}
 	args := append([]string{"diff", "--numstat", "-z", diffRange, "--"}, paths...)
-	out, err := runGitErr(repo, args...)
+	out, err := gitInherit(repo, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestCalcCyclomaticElseIfAddsOneElseAddsNone(t *testing.T) {
@@ -102,7 +104,7 @@ func TestFindClassesPythonStopsAtModuleDefinition(t *testing.T) {
 
 func TestWalkExtensionsTracksTraversalFailures(t *testing.T) {
 	dir := t.TempDir()
-	writeFx(t, dir, "not-directory", "contents")
+	hosttest.WriteRel(t, dir, "not-directory", "contents")
 	root := filepath.Join(dir, "not-directory", "child")
 	reports, failed := walkExtensions(root, []string{".py"})
 	if len(reports) != 0 || !slices.Equal(failed, []string{root}) {

@@ -95,8 +95,8 @@ func TestMemoryRootHonorsHarnessWorktreePointer(t *testing.T) {
 	}
 	t.Chdir(other)
 	t.Setenv("CLAUDE_PROJECT_DIR", worktree)
-	if got := Root(""); got != worktree {
-		t.Fatalf("Root(\"\") = %q, want harness worktree %q (not cwd %q)", got, worktree, other)
+	if got := root(""); got != worktree {
+		t.Fatalf("root(\"\") = %q, want harness worktree %q (not cwd %q)", got, worktree, other)
 	}
 }
 
@@ -115,8 +115,8 @@ func TestMemoryRootHonorsConfigDirWorktree(t *testing.T) {
 	}
 	t.Chdir(other)
 	t.Setenv("CLAUDE_PROJECT_DIR", cfg)
-	if got := Root(""); got != cfg {
-		t.Fatalf("Root(\"\") = %q, want config worktree %q (not cwd %q)", got, cfg, other)
+	if got := root(""); got != cfg {
+		t.Fatalf("root(\"\") = %q, want config worktree %q (not cwd %q)", got, cfg, other)
 	}
 }
 
@@ -135,15 +135,15 @@ func TestMemoryRootIgnoresNonRepoProjectDir(t *testing.T) {
 	want, _ := filepath.EvalSymlinks(repo)
 
 	t.Setenv("CLAUDE_PROJECT_DIR", filepath.Dir(repo)) // the non-repo parent
-	if got, _ := filepath.EvalSymlinks(Root("")); got != want {
+	if got, _ := filepath.EvalSymlinks(root("")); got != want {
 		t.Errorf("non-repo CLAUDE_PROJECT_DIR won: got %s want %s", got, want)
 	}
 	t.Setenv("CLAUDE_PROJECT_DIR", repo) // a real repo root is honored
-	if got, _ := filepath.EvalSymlinks(Root("")); got != want {
+	if got, _ := filepath.EvalSymlinks(root("")); got != want {
 		t.Errorf("repo CLAUDE_PROJECT_DIR not honored: got %s want %s", got, want)
 	}
 	t.Setenv("CLAUDE_PROJECT_DIR", cfg) // the config dir itself is the global bank's root
-	if got := Root(""); got != cfg {
+	if got := root(""); got != cfg {
 		t.Errorf("config dir not honored: got %s", got)
 	}
 }
@@ -290,11 +290,11 @@ func TestRootProbesProjectDirOnce(t *testing.T) {
 	t.Setenv("CLAUDE_PROJECT_DIR", sub)
 	want := GitToplevel(sub)
 	probes := countGitProbes(t, "rev-parse --show-toplevel")
-	if got := Root(""); got != want || want == "" {
-		t.Fatalf("Root = %q, want the toplevel %q", got, want)
+	if got := root(""); got != want || want == "" {
+		t.Fatalf("root = %q, want the toplevel %q", got, want)
 	}
 	if *probes != 1 {
-		t.Errorf("Root ran the toplevel probe %d times, want 1", *probes)
+		t.Errorf("root ran the toplevel probe %d times, want 1", *probes)
 	}
 }
 

@@ -118,7 +118,7 @@ func TestInitNoOverwrite(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(dir, "activeContext.md")); string(b) != "mine\n" {
 		t.Error("Init overwrote an existing file")
 	}
-	if !HasBank(root) || !fileExists(filepath.Join(dir, "progress.md")) {
+	if !bankExists(root) || !fileExists(filepath.Join(dir, "progress.md")) {
 		t.Error("Init did not re-seed a missing file")
 	}
 }
@@ -146,17 +146,17 @@ func TestSearchBanksRanking(t *testing.T) {
 	write(t, filepath.Join(dir, "decisionLog.md"), "# D\n\n## 2026-01-01 — router retries on 429\n\nwhy: rate limits\n\n## 2026-01-02 — unrelated choice\n\nthe router is mentioned once\n")
 	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# C\n\n- keep commits small\n")
 	write(t, filepath.Join(dir, "archive", "sessionHistory-2025-12.md"), "# old\n\n## 2025-12-01 — 429 storm\n")
-	hits := SearchBanks(root, "the router 429", 0)
+	hits := searchBanks(root, "the router 429", 0)
 	if len(hits) != 3 || !strings.Contains(hits[0].Block, "retries on 429") || hits[0].Bank != "local" {
 		t.Fatalf("hits %+v", hits)
 	}
 	if hits[0].Title() != "2026-01-01 — router retries on 429" {
 		t.Errorf("title %q", hits[0].Title())
 	}
-	if g := SearchBanks(root, "commits", 5); len(g) != 1 || g[0].Bank != "home" {
+	if g := searchBanks(root, "commits", 5); len(g) != 1 || g[0].Bank != "home" {
 		t.Errorf("global hit %+v", g)
 	}
-	if SearchBanks(root, "the and of", 5) != nil {
+	if searchBanks(root, "the and of", 5) != nil {
 		t.Error("all-stopword query must return nothing")
 	}
 }
@@ -190,7 +190,7 @@ func assertRotated(t *testing.T, dir string) {
 	if len(kept) != sessionHistoryMaxEntries || !strings.HasPrefix(kept[0], "## entry 35") || !strings.Contains(arch, "## entry 01") || strings.Contains(arch, "## entry 06") {
 		t.Errorf("kept %d first %q archive %q", len(kept), kept[0], arch)
 	}
-	idx := mustRead(t, filepath.Join(dir, NativeIndexFile))
+	idx := mustRead(t, filepath.Join(dir, nativeIndexFile))
 	if !strings.Contains(idx, "- sessionHistory: entry 35") || strings.Contains(idx, "entry 01") {
 		t.Errorf("index %q", idx)
 	}
@@ -220,20 +220,20 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 		_, err = f.WriteString("\n## 2026-09-16 — updated-by-child\n")
 		return "fake", err
 	}
-	_ = WriteUpdateResult("11111111-1111-1111-1111-111111111111", UpdateResult{Status: UpdatePending, Time: time.Now(), Log: "/l.log"})
+	_ = writeUpdateResult("11111111-1111-1111-1111-111111111111", UpdateResult{Status: updatePending, Time: time.Now(), Log: "/l.log"})
 
 	if err := update(updateOptions{Run: ok, CWD: root, Session: "11111111-1111-1111-1111-111111111111"}); err != nil {
 		t.Fatal(err)
 	}
-	r, _ := ReadUpdateResult("11111111-1111-1111-1111-111111111111")
-	if r.Status != UpdateOK || !r.BankUpdated || r.Log != "/l.log" || r.NeedsAttention(time.Now()) {
+	r, _ := readUpdateResult("11111111-1111-1111-1111-111111111111")
+	if r.Status != updateOK || !r.BankUpdated || r.Log != "/l.log" || r.NeedsAttention(time.Now()) {
 		t.Errorf("success result %+v", r)
 	}
-	if !strings.Contains(mustRead(t, filepath.Join(dir, NativeIndexFile)), "updated-by-child") {
+	if !strings.Contains(mustRead(t, filepath.Join(dir, nativeIndexFile)), "updated-by-child") {
 		t.Error("update did not settle/index the bank")
 	}
 	assertUpdateFailure(t, root)
-	stale := UpdateResult{Status: UpdatePending, Time: time.Now().Add(-20 * time.Minute)}
+	stale := UpdateResult{Status: updatePending, Time: time.Now().Add(-20 * time.Minute)}
 	if !stale.NeedsAttention(time.Now()) {
 		t.Error("a pending result past the grace window needs attention")
 	}
@@ -246,7 +246,7 @@ func assertUpdateFailure(t *testing.T, root string) {
 	if err := update(updateOptions{Run: bad, CWD: root, Session: "s2"}); err == nil {
 		t.Error("failing agent must return an error")
 	}
-	if r, _ := ReadUpdateResult("s2"); r.Status != UpdateFailed || r.BankUpdated || !r.NeedsAttention(time.Now()) {
+	if r, _ := readUpdateResult("s2"); r.Status != updateFailed || r.BankUpdated || !r.NeedsAttention(time.Now()) {
 		t.Errorf("failure result %+v", r)
 	}
 }
@@ -261,7 +261,7 @@ func TestNativeTopicsJoinSearch(t *testing.T) {
 	write(t, filepath.Join(native, "gw.md"), "---\nname: gateway\ndescription: home gateway over ssh\n---\n\nRun the status script.\n")
 	write(t, filepath.Join(native, "MEMORY.md"), "- [gateway](gw.md) — home gateway over ssh status\n")
 	write(t, filepath.Join(native, "loose.md"), "gateway ssh status without frontmatter\n")
-	hits := SearchBanks(root, "gateway ssh status", 0)
+	hits := searchBanks(root, "gateway ssh status", 0)
 	if len(hits) != 1 || hits[0].Bank != "native" || hits[0].File != "gw.md" || hits[0].Matched != 3 {
 		t.Fatalf("want only the frontmatter topic, matching 3 terms; got %+v", hits)
 	}
@@ -274,21 +274,21 @@ func TestSeenSetTracksInjectedBlocks(t *testing.T) {
 	tempConfig(t)
 	root := t.TempDir()
 	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# C\n\n- injected rule\n  continues here\n- other rule\n")
-	ResetSeen("11111111-1111-1111-1111-111111111111", root, "<!-- surface -->\n- injected   rule\ncontinues here\n")
+	resetSeen("11111111-1111-1111-1111-111111111111", root, "<!-- surface -->\n- injected   rule\ncontinues here\n")
 	seen := seenBlocks("11111111-1111-1111-1111-111111111111")
 	if !seen[blockKey("- injected rule\n  continues here")] || seen[blockKey("- other rule")] || len(seen) != 1 {
 		t.Fatalf("seen after reset: %v", seen)
 	}
-	MarkSeen("11111111-1111-1111-1111-111111111111", []SearchHit{{Block: "- other rule"}})
+	markSeen("11111111-1111-1111-1111-111111111111", []SearchHit{{Block: "- other rule"}})
 	if !seenBlocks("11111111-1111-1111-1111-111111111111")[blockKey("- other rule")] {
-		t.Error("MarkSeen did not record the hit")
+		t.Error("markSeen did not record the hit")
 	}
-	ResetSeen("11111111-1111-1111-1111-111111111111", root, "")
+	resetSeen("11111111-1111-1111-1111-111111111111", root, "")
 	if len(seenBlocks("11111111-1111-1111-1111-111111111111")) != 0 {
 		t.Error("a SessionStart (e.g. after compact) must clear what recall injected")
 	}
 	for _, bad := range []string{"", ".."} {
-		MarkSeen(bad, []SearchHit{{Block: "x"}})
+		markSeen(bad, []SearchHit{{Block: "x"}})
 		if len(seenBlocks(bad)) != 0 {
 			t.Errorf("session id %q must be a no-op", bad)
 		}
@@ -321,7 +321,7 @@ func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
 		"## exact candidate\nAgent routing stays on the local classifier\n\n"+
 		"## unrelated entry\nnothing to do with either term\n")
 
-	hits := SearchBanks(repo, "agent routing", 0)
+	hits := searchBanks(repo, "agent routing", 0)
 	compound, compoundSeen := hitContaining(hits, "Subagent routing")
 	exact, exactSeen := hitContaining(hits, "Agent routing")
 	compoundScore, compoundMatched := compound.Score, compound.Matched
@@ -350,7 +350,7 @@ func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
 // assertHyphenatedMatchesBoth: the hyphenated query "agent-routing" matches both the compound and the exact block.
 func assertHyphenatedMatchesBoth(t *testing.T, repo string) {
 	t.Helper()
-	hyphen := SearchBanks(repo, "agent-routing", 0)
+	hyphen := searchBanks(repo, "agent-routing", 0)
 	var hyphenHitsCompound, hyphenHitsExact bool
 	for _, h := range hyphen {
 		if strings.Contains(h.Block, "Subagent routing") {
@@ -491,10 +491,10 @@ func TestDreamFailedRunRetriesAfterBackoff(t *testing.T) {
 		t.Fatal("failed agent run must return an error")
 	}
 	now := time.Now()
-	if DreamDue(root, now) {
+	if dreamDue(root, now) {
 		t.Error("a failed dream is due again at once, so every session start would rerun it")
 	}
-	if !DreamDue(root, now.Add(dreamRetry+time.Minute)) {
+	if !dreamDue(root, now.Add(dreamRetry+time.Minute)) {
 		t.Error("a failed dream is not due after its backoff")
 	}
 }

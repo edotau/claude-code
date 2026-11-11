@@ -30,8 +30,8 @@ var fileCaps = map[string]int{
 	"conventions.md":    80,
 }
 
-// HasBank reports whether any typed file exists in root's local bank.
-func HasBank(root string) bool {
+// bankExists reports whether any typed file exists in root's local bank.
+func bankExists(root string) bool {
 	dir := Dir(root)
 	for _, name := range BankFiles() {
 		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
@@ -119,8 +119,8 @@ var templates = sync.OnceValue(func() map[string]string {
 	return m
 })
 
-// CatalogFile is the reserved global catalog at the store root; BuildCatalog (Phase 2) is its only writer.
-const CatalogFile = "index.md"
+// catalogFile is the reserved global catalog at the store root; BuildCatalog (Phase 2) is its only writer.
+const catalogFile = "index.md"
 
 // storeReservedDirs are store subdirectories that are never a repo's memory dir.
 var storeReservedDirs = map[string]bool{
@@ -188,10 +188,10 @@ func Dir(root string) string {
 // isHomeBank reports whether root's local bank is the home bank (read it once, not twice).
 func isHomeBank(root string) bool { return paths.SamePath(Dir(root), HomeBankDir()) }
 
-// Root resolves --repo → $CLAUDE_PROJECT_DIR (only when it is a repo or the config dir) → git toplevel → cwd.
+// root resolves --repo → $CLAUDE_PROJECT_DIR (only when it is a repo or the config dir) → git toplevel → cwd.
 // A launcher may stamp CLAUDE_PROJECT_DIR with a non-repo parent (e.g. $HOME); honoring that attached every
 // bank verb to a junk root instead of the repo the user is standing in.
-func Root(repo string) string {
+func root(repo string) string {
 	if repo != "" {
 		abs, _ := filepath.Abs(repo)
 		return abs
@@ -223,7 +223,7 @@ var bankFiles = []string{
 	"decisionLog.md", "conventions.md", "sessionHistory.md",
 }
 
-// BankFiles exports the six typed filenames for callers outside this package (e.g. internal/history)
+// BankFiles exports the six typed filenames for callers outside this package (e.g. internal/setup)
 // that must watch them without duplicating the list.
 func BankFiles() []string { return slices.Clone(bankFiles) }
 

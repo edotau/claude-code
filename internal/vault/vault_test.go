@@ -16,11 +16,11 @@ import (
 	"go/token"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -573,42 +573,14 @@ func nestedOpen(t *testing.T, operation string) (elapsed time.Duration, nested e
 	return elapsed, nested
 }
 
-func TestVaultReaderHelper(t *testing.T) {
-	if os.Getenv("PHASE1B_READER_HELPER") != "1" {
-		return
-	}
-	ready := os.Getenv("PHASE1B_READER_READY")
-	if err := os.WriteFile(ready, []byte("ready"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	stop := os.Getenv("PHASE1B_READER_STOP")
-	deadline := time.Now().Add(10 * time.Second)
-	reads := 0
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(stop); err == nil {
-			break
-		}
-		if err := View(func(tx *Tx) error {
-			_, _ = tx.Get(Pins, "progress")
-			return nil
-		}); err != nil {
-			t.Fatalf("reader failed after %d reads: %v", reads, err)
-		}
-		reads++
-		time.Sleep(time.Millisecond)
-	}
-	if reads == 0 {
-		t.Fatal("reader did not make progress")
-	}
-}
-
+// Readers and the writer each open their own vault handle, so the file lock arbitrates them as it does processes.
 func TestMultiProcessProgress(t *testing.T) {
 	phase1bRing(t)
 	if err := Update(func(tx *Tx) error { return tx.Put(Pins, "progress", "initial") }); err != nil {
 		t.Fatal(err)
 	}
-	stop := filepath.Join(t.TempDir(), "stop")
-	children := startReaders(t, 4, stop)
+	stop := make(chan struct{})
+	readers := startReaders(4, stop)
 	latencies := make([]time.Duration, 0, 30)
 	for i := range 30 {
 		start := time.Now()
@@ -619,12 +591,10 @@ func TestMultiProcessProgress(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if err := os.WriteFile(stop, nil, 0600); err != nil {
-		t.Fatal(err)
-	}
-	for _, c := range children {
-		if err := c.cmd.Wait(); err != nil {
-			t.Errorf("reader subprocess: %v\n%s", err, c.output.String())
+	close(stop)
+	for range 4 {
+		if err := <-readers; err != nil {
+			t.Errorf("reader: %v", err)
 		}
 	}
 	slices.Sort(latencies)
@@ -635,54 +605,44 @@ func TestMultiProcessProgress(t *testing.T) {
 	}
 }
 
-// readerChild is one TestVaultReaderHelper subprocess and the file it creates once reading.
-type readerChild struct {
-	cmd    *exec.Cmd
-	output strings.Builder
-	ready  string
+// startReaders starts n goroutines reading the vault until stop closes (10s at most); each sends its outcome once.
+func startReaders(n int, stop <-chan struct{}) <-chan error {
+	var ready sync.WaitGroup
+	results := make(chan error, n)
+	for range n {
+		ready.Add(1)
+		go func() {
+			ready.Done()
+			results <- readUntil(stop, time.Now().Add(10*time.Second))
+		}()
+	}
+	ready.Wait()
+	return results
 }
 
-// startReaders starts n TestVaultReaderHelper subprocesses that read until stop exists, and waits until all are ready.
-func startReaders(t *testing.T, n int, stop string) []*readerChild {
-	t.Helper()
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	children := make([]*readerChild, n)
-	for i := range children {
-		c := &readerChild{
-			cmd:   exec.Command(executable, "-test.run=^TestVaultReaderHelper$", "-test.timeout=15s"),
-			ready: filepath.Join(t.TempDir(), "ready"),
+// readUntil reads the progress pin every millisecond until stop closes or deadline passes; it must read at least once.
+func readUntil(stop <-chan struct{}, deadline time.Time) error {
+	reads := 0
+loop:
+	for time.Now().Before(deadline) {
+		select {
+		case <-stop:
+			break loop
+		default:
 		}
-		c.cmd.Env = append(os.Environ(), "PHASE1B_READER_HELPER=1", "PHASE1B_READER_READY="+c.ready, "PHASE1B_READER_STOP="+stop)
-		c.cmd.Stdout, c.cmd.Stderr = &c.output, &c.output
-		if err := c.cmd.Start(); err != nil {
-			t.Fatal(err)
+		if err := View(func(tx *Tx) error {
+			_, _ = tx.Get(Pins, "progress")
+			return nil
+		}); err != nil {
+			return fmt.Errorf("reader failed after %d reads: %w", reads, err)
 		}
-		children[i] = c
-	}
-	deadline := time.Now().Add(10 * time.Second)
-	for _, c := range children {
-		awaitFile(t, c.ready, deadline)
-	}
-	return children
-}
-
-// awaitFile polls until path exists, failing on any other stat error or once deadline passes.
-func awaitFile(t *testing.T, path string, deadline time.Time) {
-	t.Helper()
-	for {
-		if _, err := os.Stat(path); err == nil {
-			return
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			t.Fatal(err)
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("reader subprocess never became ready")
-		}
+		reads++
 		time.Sleep(time.Millisecond)
 	}
+	if reads == 0 {
+		return errors.New("reader did not make progress")
+	}
+	return nil
 }
 
 // txOpeners are this package's own transaction-opening functions: a func literal passed as their

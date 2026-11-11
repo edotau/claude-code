@@ -544,8 +544,8 @@ func getGrade(score int) string {
 	}
 }
 
-// round1 matches Python's round(x, 1) (round-half-to-even at that digit, negligible in practice here).
-func round1(f float64) float64 {
+// Round1 matches Python's round(x, 1) (round-half-to-even at that digit, negligible in practice here).
+func Round1(f float64) float64 {
 	v, _ := strconv.ParseFloat(strconv.FormatFloat(f, 'f', 1, 64), 64)
 	return v
 }
@@ -578,7 +578,7 @@ func QualityContent(path, content, lang string) (QualityReport, error) {
 		for _, f := range functions {
 			total += f.Complexity
 		}
-		avgComplexity = PyFloat(round1(float64(total) / float64(len(functions))))
+		avgComplexity = PyFloat(Round1(float64(total) / float64(len(functions))))
 	}
 
 	return QualityReport{

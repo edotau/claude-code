@@ -20,7 +20,7 @@ func digestFixture(t *testing.T, script string) (dir, fake, digest string) {
 	if err := os.WriteFile(filepath.Join(arch, "sessionHistory-2026-10.md"), []byte("- 2026-10-01 did a thing\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	digest = filepath.Join(arch, DigestFile)
+	digest = filepath.Join(arch, digestFile)
 	if err := os.WriteFile(digest, []byte("PREVIOUS\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestDigestCommitFailureRestoresPreviousDigest(t *testing.T) {
 	dir := HomeBankDir()
 	archive := archiveDir(dir)
 	write(t, filepath.Join(archive, "sessionHistory-2026-10.md"), "- a durable archived fact\n")
-	digest := filepath.Join(archive, DigestFile)
+	digest := filepath.Join(archive, digestFile)
 	write(t, digest, "PREVIOUS\n")
 	write(t, filepath.Join(StoreDir(), ".git", "index.lock"), "held by another writer\n")
 	fake := filepath.Join(t.TempDir(), "claude")

@@ -177,7 +177,7 @@ func loadPRAnalysis(repoPath, base, head string, override map[string]any) (*PRRe
 	if override != nil {
 		return nil, override, nil
 	}
-	r, err := AnalyzePR(repoPath, base, head)
+	r, err := analyzePR(repoPath, base, head)
 	if err != nil {
 		return nil, nil, err
 	}

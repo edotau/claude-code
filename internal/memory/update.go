@@ -48,9 +48,9 @@ func warnChanged(out io.Writer, dir string, snap map[string][]byte) {
 
 // Update statuses: pending = dispatched, not yet reported.
 const (
-	UpdatePending = "pending"
-	UpdateOK      = "ok"
-	UpdateFailed  = "failed"
+	updatePending = "pending"
+	updateOK      = "ok"
+	updateFailed  = "failed"
 )
 
 // updateGrace must exceed the worker's own timeout, or a healthy long update reads as lost.
@@ -59,8 +59,8 @@ const updateGrace = 16 * time.Minute
 // updateLockWait is how long an update waits for a peer's .postupdate lock before giving up as busy.
 const updateLockWait = 5 * time.Second
 
-// UpdateTimeout bounds the headless claude run.
-const UpdateTimeout = 15 * time.Minute
+// updateTimeout bounds the headless claude run.
+const updateTimeout = 15 * time.Minute
 
 // UpdateResult is one session's update outcome (KEY=value lines on disk).
 type UpdateResult struct {
@@ -74,8 +74,8 @@ func resultPath(sessionID string) string {
 	return filepath.Join(StateDir(), "update-result-"+filepath.Base(sessionID))
 }
 
-// WriteUpdateResult persists r for sessionID; a blank id (manual run) records nothing.
-func WriteUpdateResult(sessionID string, r UpdateResult) error {
+// writeUpdateResult persists r for sessionID; a blank id (manual run) records nothing.
+func writeUpdateResult(sessionID string, r UpdateResult) error {
 	if sessionID == "" {
 		return nil
 	}
@@ -84,8 +84,8 @@ func WriteUpdateResult(sessionID string, r UpdateResult) error {
 	return paths.AtomicWrite(resultPath(sessionID), []byte(body), 0o600)
 }
 
-// ReadUpdateResult loads sessionID's result; ok=false when absent or unparseable.
-func ReadUpdateResult(sessionID string) (UpdateResult, bool) {
+// readUpdateResult loads sessionID's result; ok=false when absent or unparseable.
+func readUpdateResult(sessionID string) (UpdateResult, bool) {
 	data, err := os.ReadFile(resultPath(sessionID))
 	if err != nil {
 		return UpdateResult{}, false
@@ -106,7 +106,7 @@ func ReadUpdateResult(sessionID string) (UpdateResult, bool) {
 
 // NeedsAttention: a recorded failure, or a pending dispatch past the grace window (the worker died).
 func (r UpdateResult) NeedsAttention(now time.Time) bool {
-	return r.Status == UpdateFailed || (r.Status == UpdatePending && now.Sub(r.Time) > updateGrace)
+	return r.Status == updateFailed || (r.Status == updatePending && now.Sub(r.Time) > updateGrace)
 }
 
 // AgentFunc runs prompt on an injected agent (internal/agent imports this package) and names who answered.
@@ -254,16 +254,16 @@ type updateOptions struct {
 	CWD        string
 	Session    string
 	Historical bool          // an older session: the prompt forbids current-state files and a changed one is reported
-	Timeout    time.Duration // 0 = UpdateTimeout
+	Timeout    time.Duration // 0 = updateTimeout
 	Out        io.Writer
 }
 
 // update runs the headless narrative pass under the bank lock, settles the bank, and records the outcome.
 func update(o updateOptions) error {
 	o = updateDefaults(o)
-	prior, _ := ReadUpdateResult(o.Session)
+	prior, _ := readUpdateResult(o.Session)
 	record := func(status string, updated bool) error {
-		err := WriteUpdateResult(o.Session, UpdateResult{Status: status, Time: time.Now(), BankUpdated: updated, Log: prior.Log})
+		err := writeUpdateResult(o.Session, UpdateResult{Status: status, Time: time.Now(), BankUpdated: updated, Log: prior.Log})
 		if err != nil {
 			return fmt.Errorf("record update result: %w", err)
 		}
@@ -274,12 +274,12 @@ func update(o updateOptions) error {
 	// Bounded wait: a peer update/dream may hold this lock for minutes, and a Stop hook must not block on it.
 	ran, lockErr := paths.TryFileLock(lockPath(dir)+".lock", updateLockWait, func() error { return run.locked(o, dir) })
 	if !ran { // lock never taken: nothing ran, and settling unlocked would race the holder
-		return errors.Join(fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock"))), record(UpdateFailed, false))
+		return errors.Join(fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock"))), record(updateFailed, false))
 	}
 	if err := errors.Join(lockErr, run.runErr, run.settleErr); err != nil {
-		return errors.Join(fmt.Errorf("headless update: %w", err), record(UpdateFailed, run.updated))
+		return errors.Join(fmt.Errorf("headless update: %w", err), record(updateFailed, run.updated))
 	}
-	return record(UpdateOK, run.updated)
+	return record(updateOK, run.updated)
 }
 
 func updateDefaults(o updateOptions) updateOptions {
@@ -287,7 +287,7 @@ func updateDefaults(o updateOptions) updateOptions {
 		o.Out = io.Discard
 	}
 	if o.Timeout == 0 {
-		o.Timeout = UpdateTimeout
+		o.Timeout = updateTimeout
 	}
 	return o
 }
@@ -302,7 +302,7 @@ type updateRun struct {
 // finish settles under the writer lock and reports whether the update wrote either bank tier.
 func (r *updateRun) finish(o updateOptions, dir string) (updated bool, err error) {
 	// An update may legitimately write only the shared home bank (cross-repo facts), so watch both tiers.
-	updated = NewestMtime(dir).After(r.before) || NewestMtime(HomeBankDir()).After(r.beforeHome)
+	updated = newestMtime(dir).After(r.before) || newestMtime(HomeBankDir()).After(r.beforeHome)
 	if _, err := settleBank(o.CWD, time.Now()); err != nil {
 		return updated, fmt.Errorf("settle: %w", err)
 	}
@@ -319,7 +319,7 @@ func (r *updateRun) locked(o updateOptions, dir string) error {
 		snap := snapshotFiles(dir, currentStateFiles)
 		defer warnChanged(o.Out, dir, snap)
 	}
-	r.before, r.beforeHome = NewestMtime(dir), NewestMtime(HomeBankDir())
+	r.before, r.beforeHome = newestMtime(dir), newestMtime(HomeBankDir())
 	ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 	defer cancel()
 	r.runErr = runAgentUpdate(ctx, o)

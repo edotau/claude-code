@@ -55,14 +55,14 @@ func statBank(dir string) bankStat {
 // DefaultStaleDays is the doctor's bank-staleness horizon.
 const DefaultStaleDays = 90
 
-// DoctorNoticePath is the per-store cached doctor summary read at SessionStart.
-func DoctorNoticePath(root string) string {
+// doctorNoticePath is the per-store cached doctor summary read at SessionStart.
+func doctorNoticePath(root string) string {
 	return filepath.Join(StateDir(), "doctor-notice-"+filepath.Base(Dir(root)))
 }
 
 // doctorNotice is the cached review line for SessionStart, "" with none; a full Doctor pass is too slow for launch.
 func doctorNotice(root string) string {
-	data, err := os.ReadFile(DoctorNoticePath(root))
+	data, err := os.ReadFile(doctorNoticePath(root))
 	if err != nil {
 		return ""
 	}
@@ -88,7 +88,7 @@ func writeDoctorNotice(root string, staleDays int, now time.Time) error {
 			line += " (+" + strconv.Itoa(len(problems)-1) + " more)"
 		}
 	}
-	return paths.AtomicWrite(DoctorNoticePath(root), []byte(line), 0o600)
+	return paths.AtomicWrite(doctorNoticePath(root), []byte(line), 0o600)
 }
 
 // doctor returns advisory problems for root's local bank and the shared home bank: cap offenders,
@@ -112,7 +112,7 @@ func updateProblems(now time.Time) []string {
 	for _, rc := range readReceipts() {
 		id, r := rc.id, rc.r
 		// A lost "pending" receipt is a bug to chase whenever it happened; a plain failure ages out after a week.
-		if !r.NeedsAttention(now) || (r.Status == UpdateFailed && now.Sub(r.Time) > 7*24*time.Hour) {
+		if !r.NeedsAttention(now) || (r.Status == updateFailed && now.Sub(r.Time) > 7*24*time.Hour) {
 			continue
 		}
 		see := " — see " + r.Log
@@ -185,14 +185,14 @@ func collectBankStats() bankStats {
 		r := rc.r
 		s.Updates++
 		switch r.Status {
-		case UpdateOK:
+		case updateOK:
 			s.OK++
 			if r.BankUpdated {
 				s.BankUpdated++
 			}
-		case UpdateFailed:
+		case updateFailed:
 			s.Failed++
-		case UpdatePending:
+		case updatePending:
 			s.Pending++
 		}
 		if !r.Time.IsZero() {
@@ -308,7 +308,7 @@ func readReceipts() []receipt {
 	matches, _ := filepath.Glob(filepath.Join(StateDir(), "update-result-*"))
 	for _, p := range matches {
 		id := strings.TrimPrefix(filepath.Base(p), "update-result-")
-		if r, ok := ReadUpdateResult(id); ok {
+		if r, ok := readUpdateResult(id); ok {
 			out = append(out, receipt{id, r})
 		}
 	}

@@ -92,7 +92,7 @@ func readIndexEntry(data []byte) (key fileKey, entry indexed, rest []byte, ok bo
 		return key, entry, nil, false
 	}
 	entry.seg = segView(data[:length])
-	if key.mode > SegKnowledge || !entry.seg.Valid() {
+	if key.mode > segKnowledge || !entry.seg.Valid() {
 		return key, entry, nil, false
 	}
 	return key, entry, data[length:], true

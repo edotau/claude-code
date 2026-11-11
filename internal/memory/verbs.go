@@ -63,7 +63,7 @@ func ReportRepo(repo, label string, in ReportInput) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return AppendReport(dir, label, in)
+	return appendReport(dir, label, in)
 }
 
 // InitBank creates the repo's bank and reports where it landed, with the init procedure on a fresh template.
@@ -93,11 +93,11 @@ type IndexOptions struct {
 
 // Index settles the bank (unless MintOnly) and refreshes the embedding cache; errors carry their verb prefix.
 func Index(out, errw io.Writer, o IndexOptions) error {
-	root, err := ResolveRepo(o.Repo)
+	root, err := resolveRepo(o.Repo)
 	if err != nil {
 		return fmt.Errorf("memory index: %w", err)
 	}
-	profile := cmp.Or(EmbedProfile(), providers.SessionProfile())
+	profile := cmp.Or(embedProfile(), providers.SessionProfile())
 	if o.Reembed {
 		if err := reembedGate(profile, time.Now()); err != nil {
 			return err
@@ -139,10 +139,10 @@ func reembedGate(profile string, now time.Time) error {
 func embedIndex(out, errw io.Writer, root, profile string, reembed bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	c, err := OpenEmbedClient(ctx, profile, "")
+	c, err := openEmbedClient(ctx, profile, "")
 	if err == nil {
 		var n, total int
-		embed := EmbedEntries
+		embed := embedChanged
 		if reembed {
 			embed = reembedEntries
 		}
@@ -150,7 +150,7 @@ func embedIndex(out, errw io.Writer, root, profile string, reembed bool) {
 			fmt.Fprintf(out, "embedded %d of %d entries (%s)\n", n, total, c.Model)
 		}
 	}
-	if err != nil && !errors.Is(err, ErrEmbedValid) { // a valid cache is the normal case, not a skip
+	if err != nil && !errors.Is(err, errEmbedValid) { // a valid cache is the normal case, not a skip
 		fmt.Fprintf(errw, "memory index: embeddings skipped: %v\n", err)
 	}
 }
@@ -227,7 +227,7 @@ func RunDream(o DreamRunOptions) error {
 		fmt.Fprint(o.Out, previewDream(root).Report())
 		return nil
 	}
-	if !o.Force && !DreamDue(root, time.Now()) {
+	if !o.Force && !dreamDue(root, time.Now()) {
 		fmt.Fprintln(o.Out, "memory dream: not due")
 		return nil
 	}
@@ -236,7 +236,7 @@ func RunDream(o DreamRunOptions) error {
 
 // DigestRepo writes the repo bank's digest and returns its path.
 func DigestRepo(ctx context.Context, repo, claude string) (string, error) {
-	root, err := ResolveRepo(repo)
+	root, err := resolveRepo(repo)
 	if err != nil {
 		return "", err
 	}
@@ -273,7 +273,7 @@ type ReviewOptions struct {
 
 // ReviewReport writes doctor + stats (Notice refreshes the cached session-start notice and prints nothing).
 func ReviewReport(w io.Writer, o ReviewOptions) error {
-	root, err := ResolveRepo(o.Repo)
+	root, err := resolveRepo(o.Repo)
 	if err != nil {
 		return err
 	}
@@ -305,7 +305,7 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 
 // TimelineReport writes the n most recent bank entries, then the sessionHistory lines.
 func TimelineReport(w io.Writer, repo string, n int) error {
-	root, err := ResolveRepo(repo)
+	root, err := resolveRepo(repo)
 	if err != nil {
 		return err
 	}

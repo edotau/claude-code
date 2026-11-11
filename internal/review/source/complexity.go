@@ -146,7 +146,7 @@ func complexityContent(path, text, lang string, th ComplexityThresholds) *FileRe
 	case "python":
 		findings = append(findings, analyzePython(text, lineCount, th)...)
 	case "go":
-		findings = append(findings, analyzeGo(path, text, lineCount, th)...)
+		findings = append(findings, analyzeGo(path, text, th)...)
 	default:
 		findings = append(findings, analyzeTypescript(text, lineCount, th)...)
 	}
@@ -211,17 +211,16 @@ func collectComplexityFiles(target string, extensions []string) []string {
 	if err == nil && !info.IsDir() {
 		return []string{target}
 	}
-	extensionSet := complexityExtensionSet(extensions)
 	var files []string
 	unreadable := walkSourceFiles(target, func(p string) {
 		// Keep suffix matching: callers may request multi-part or overlapping extensions.
-		if hasComplexityExtension(p, extensionSet) {
+		if hasComplexityExtension(p, extensions) {
 			files = append(files, p)
 		}
 	})
 	// Unreadable paths below target stay in the list so the analysis reports them; a missing target stays out.
 	for _, p := range unreadable {
-		if p != target && hasComplexityExtension(p, extensionSet) {
+		if p != target && hasComplexityExtension(p, extensions) {
 			files = append(files, p)
 		}
 	}
@@ -240,7 +239,7 @@ func buildComplexitySummary(results []FileResult, threshold string) ComplexitySu
 		for _, r := range results {
 			sum += r.Score
 		}
-		avg = round1(float64(sum) / float64(len(results)))
+		avg = Round1(float64(sum) / float64(len(results)))
 	}
 	verdict := "PASS"
 	if total > 0 {
@@ -411,7 +410,7 @@ func reportNoFiles(stdout, stderr io.Writer, extensions, targets []string, jsonO
 // jsonStringLiteral renders s as a Python-style json.dumps string literal (ensure_ascii, no HTML-escaping).
 func jsonStringLiteral(s string) string {
 	b, _ := textutil.MarshalNoEscape(s) // a string literal always marshals; nothing here can fail
-	return string(PyEscapeNonASCII(b))
+	return string(pyEscapeNonASCII(b))
 }
 
 // pyListRepr mimics Python's str(list[str]): ['py', 'ts', ...] with single quotes.
@@ -423,16 +422,8 @@ func pyListRepr(items []string) string {
 	return "[" + strings.Join(quoted, ", ") + "]"
 }
 
-func complexityExtensionSet(extensions []string) map[string]struct{} {
-	set := make(map[string]struct{}, len(extensions))
+func hasComplexityExtension(path string, extensions []string) bool {
 	for _, ext := range extensions {
-		set[ext] = struct{}{}
-	}
-	return set
-}
-
-func hasComplexityExtension(path string, extensions map[string]struct{}) bool {
-	for ext := range extensions {
 		if strings.HasSuffix(path, "."+ext) {
 			return true
 		}
@@ -441,7 +432,7 @@ func hasComplexityExtension(path string, extensions map[string]struct{}) bool {
 }
 
 // analyzeGo scores Go source with go/ast; a parse error yields no findings (fail-open).
-func analyzeGo(path, text string, lineCount int, th ComplexityThresholds) []Finding {
+func analyzeGo(path, text string, th ComplexityThresholds) []Finding {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, text, parser.SkipObjectResolution)
 	if err != nil {

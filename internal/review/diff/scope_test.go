@@ -17,29 +17,18 @@ import (
 func buildScopeRepo(t *testing.T) string {
 	t.Helper()
 	dir := hosttest.Repo(t)
-	writeScopeFile(t, dir, "go.mod", "module example.com/m\n")
-	writeScopeFile(t, dir, "a/a.go", "package a\n\nfunc A() int { return 1 }\n")
-	writeScopeFile(t, dir, "b/b.go", "package b\n\nimport \"example.com/m/a\"\n\nvar _ = a.A\n")
+	hosttest.WriteRel(t, dir, "go.mod", "module example.com/m\n")
+	hosttest.WriteRel(t, dir, "a/a.go", "package a\n\nfunc A() int { return 1 }\n")
+	hosttest.WriteRel(t, dir, "b/b.go", "package b\n\nimport \"example.com/m/a\"\n\nvar _ = a.A\n")
 	hosttest.In(t, dir, "add", "-A")
 	hosttest.In(t, dir, "commit", "-q", "-m", "base")
 
-	writeScopeFile(t, dir, "a/a.go", "package a\n\nfunc A() int { return 1 }\n\nfunc B() int { return 2 }\n")
+	hosttest.WriteRel(t, dir, "a/a.go", "package a\n\nfunc A() int { return 1 }\n\nfunc B() int { return 2 }\n")
 	hosttest.In(t, dir, "mv", "b/b.go", "b/bb.go")
-	writeScopeFile(t, dir, "data/blob.bin", "\x00\x01\x02")
+	hosttest.WriteRel(t, dir, "data/blob.bin", "\x00\x01\x02")
 	hosttest.In(t, dir, "add", "-A")
 	hosttest.In(t, dir, "commit", "-q", "-m", "change")
 	return dir
-}
-
-func writeScopeFile(t *testing.T, dir, name, body string) {
-	t.Helper()
-	full := filepath.Join(dir, name)
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestRunScopeEndToEnd(t *testing.T) {
@@ -73,9 +62,9 @@ func TestScopeExplicitExcludedRoot(t *testing.T) {
 	for _, excluded := range []string{"vendor", "node_modules", ".venv", "testdata"} {
 		t.Run(excluded, func(t *testing.T) {
 			dir := t.TempDir()
-			writeScopeFile(t, dir, excluded+"/lib.go", "package lib\n")
-			writeScopeFile(t, dir, excluded+"/nested/lib.go", "package lib\n")
-			writeScopeFile(t, dir, "keep.go", "package keep\n")
+			hosttest.WriteRel(t, dir, excluded+"/lib.go", "package lib\n")
+			hosttest.WriteRel(t, dir, excluded+"/nested/lib.go", "package lib\n")
+			hosttest.WriteRel(t, dir, "keep.go", "package keep\n")
 			for _, root := range []string{excluded, excluded + "/lib.go", excluded + "/nested", "."} {
 				t.Run(root, func(t *testing.T) {
 					got, err := scopeFiles(dir, "", []string{root, "keep.go"})
@@ -95,7 +84,7 @@ func TestScopeExplicitExcludedRoot(t *testing.T) {
 func TestScopeSourceSymlinks(t *testing.T) {
 	dir := t.TempDir()
 	body := strings.Repeat("x", 1000)
-	writeScopeFile(t, dir, "real.go", body)
+	hosttest.WriteRel(t, dir, "real.go", body)
 	if err := os.Symlink("real.go", filepath.Join(dir, "alias.go")); err != nil {
 		t.Fatal(err)
 	}
@@ -181,9 +170,9 @@ func TestRunScopeEdges(t *testing.T) {
 func TestGoImportersRootPaths(t *testing.T) {
 	t.Setenv("GOWORK", "off")
 	module := func(root, pkgDir string) {
-		writeScopeFile(t, root, "go.mod", "module example.com/m\n")
-		writeScopeFile(t, root, pkgDir+"a/a.go", "package a\n")
-		writeScopeFile(t, root, pkgDir+"b/b.go", "package b\nimport _ \"example.com/m/"+pkgDir+"a\"\n")
+		hosttest.WriteRel(t, root, "go.mod", "module example.com/m\n")
+		hosttest.WriteRel(t, root, pkgDir+"a/a.go", "package a\n")
+		hosttest.WriteRel(t, root, pkgDir+"b/b.go", "package b\nimport _ \"example.com/m/"+pkgDir+"a\"\n")
 	}
 	for _, tc := range []struct {
 		name, pkgDir string

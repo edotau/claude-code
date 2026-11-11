@@ -65,7 +65,7 @@ func sweepSkip(c sweepCand, current string, now time.Time) string {
 	case !transcriptInteractive(c.path):
 		return "headless (worker/leaf/ping)"
 	}
-	if res, ok := ReadUpdateResult(c.id); ok && res.Status == UpdateOK && res.Time.After(c.mtime) {
+	if res, ok := readUpdateResult(c.id); ok && res.Status == updateOK && res.Time.After(c.mtime) {
 		return "already saved"
 	}
 	return ""
@@ -73,7 +73,7 @@ func sweepSkip(c sweepCand, current string, now time.Time) string {
 
 // sweepWhy returns why an eligible session needs saving, or "" when its edits are covered.
 func sweepWhy(c *sweepCand, now time.Time, count func(string, string) int) string {
-	res, hasResult := ReadUpdateResult(c.id)
+	res, hasResult := readUpdateResult(c.id)
 	st, hasStamp := readStamp(stampPath(c.id))
 	covered := 0
 	if hasStamp {
@@ -184,14 +184,14 @@ func runSweep(current string, now time.Time, out io.Writer) {
 			continue
 		}
 		fmt.Fprintf(out, "catchup %s (%s)\n", c.id, c.why)
-		ctx, cancel := context.WithTimeout(context.Background(), UpdateTimeout+2*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), updateTimeout+2*time.Minute)
 		started := time.Now()
 		if err := runHistoricalUpdate(ctx, self, c, out); err != nil {
 			fmt.Fprintf(out, "catchup %s: %v\n", c.id, err)
 		}
 		cancel()
 		// An older OK receipt from a previous update must not count as this run's save.
-		if res, ok := ReadUpdateResult(c.id); ok && res.Status == UpdateOK && res.Time.After(started) {
+		if res, ok := readUpdateResult(c.id); ok && res.Status == updateOK && res.Time.After(started) {
 			saved++
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini route engine the prod binary links
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -16,7 +17,7 @@ import (
 func TestStrayClaudeJSONRejectsNonENOENTStatFailure(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	probeSymlinkLoop(t, filepath.Join(home, ".claude"))
+	hosttest.SymlinkLoop(t, filepath.Join(home, ".claude"))
 	stub := filepath.Join(home, ".claude", ".claude.json")
 	ok, detail := strayClaudeJSON()
 	if ok || !strings.Contains(detail, "cannot stat "+stub) {

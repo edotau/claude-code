@@ -20,10 +20,10 @@ const maxTurns = 40
 // handoffCap is the byte budget Handoff trims the transcript to.
 const handoffCap = 64 * 1024
 
-// DefaultSource finds the newest *.jsonl Claude Code session file for cwd, under Claude Code's own
+// defaultSource finds the newest *.jsonl Claude Code session file for cwd, under Claude Code's own
 // projects/<slug> dir (ConfigDir()/projects/<slug>) — never memory.Dir, which redirects into the
 // memory store post-cutover and holds no transcripts.
-func DefaultSource(cwd string) (string, error) {
+func defaultSource(cwd string) (string, error) {
 	dir := filepath.Join(paths.ConfigDir(), "projects", paths.ProjectSlug(cwd))
 	ents, err := os.ReadDir(dir) // on error ents is empty, so newest stays ""
 	var newest string
@@ -155,8 +155,8 @@ func TransferArgs(agentName, cwd, prompt string, wait bool) []string {
 	return append(args, prompt)
 }
 
-// ValidateSource checks --source looks like a transcript: a .jsonl path that exists.
-func ValidateSource(source string) error {
+// validateSource checks --source looks like a transcript: a .jsonl path that exists.
+func validateSource(source string) error {
 	if !strings.HasSuffix(source, ".jsonl") {
 		return fmt.Errorf("--source %q: not a .jsonl file", source)
 	}
@@ -172,7 +172,7 @@ func ValidateSource(source string) error {
 // ResolveSource validates an explicit --source, or picks the newest session for cwd when source is empty.
 func ResolveSource(source, cwd string) (string, error) {
 	if source == "" {
-		return DefaultSource(cwd)
+		return defaultSource(cwd)
 	}
-	return source, ValidateSource(source)
+	return source, validateSource(source)
 }

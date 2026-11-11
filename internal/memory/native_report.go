@@ -83,11 +83,11 @@ func splitNativeReport(w io.Writer, dir string, keepLines int, apply bool) error
 		}
 		if st.IndexEntries <= keepLines {
 			fmt.Fprintf(w, "dry-run: %s already has %d pointer line%s (cap %d) — nothing to split\n",
-				NativeIndexFile, st.IndexEntries, textutil.Plural(st.IndexEntries), keepLines)
+				nativeIndexFile, st.IndexEntries, textutil.Plural(st.IndexEntries), keepLines)
 			return nil
 		}
 		fmt.Fprintf(w, "dry-run: would move %d of %d pointer lines to %s\n",
-			st.IndexEntries-keepLines, st.IndexEntries, NativeSearchableFile)
+			st.IndexEntries-keepLines, st.IndexEntries, nativeSearchableFile)
 		fmt.Fprintln(w, "re-run with --apply to move them")
 		return nil
 	}
@@ -99,7 +99,7 @@ func splitNativeReport(w io.Writer, dir string, keepLines int, apply bool) error
 		fmt.Fprintln(w, "nothing to split")
 		return nil
 	}
-	fmt.Fprintf(w, "moved %d pointer line%s from %s to %s\n", moved, textutil.Plural(moved), NativeIndexFile, NativeSearchableFile)
+	fmt.Fprintf(w, "moved %d pointer line%s from %s to %s\n", moved, textutil.Plural(moved), nativeIndexFile, nativeSearchableFile)
 	return nil
 }
 
@@ -110,13 +110,13 @@ func nativeStatsReport(w io.Writer, dir string) error {
 		return err
 	}
 	fmt.Fprintf(w, "store:     %s\n", dir)
-	fmt.Fprintf(w, "index:     %s — %d %s, %s (injected EVERY session)\n", NativeIndexFile,
+	fmt.Fprintf(w, "index:     %s — %d %s, %s (injected EVERY session)\n", nativeIndexFile,
 		st.IndexEntries, textutil.PluralWord(st.IndexEntries, "entry", "entries"), byteSize(st.IndexBytes))
 	fmt.Fprintf(w, "topics:    %d file%s, %s (read only on recall)\n", st.TopicFiles, textutil.Plural(st.TopicFiles), byteSize(st.TopicBytes))
-	if st.IndexEntries > NativeCoreCap {
+	if st.IndexEntries > nativeCoreCap {
 		fmt.Fprintf(w, "over cap:  %d pointer line%s over the %d-line injected core — `--split %d --apply` moves the rest to %s\n",
-			st.IndexEntries-NativeCoreCap, textutil.Plural(st.IndexEntries-NativeCoreCap), NativeCoreCap,
-			NativeCoreCap, NativeSearchableFile)
+			st.IndexEntries-nativeCoreCap, textutil.Plural(st.IndexEntries-nativeCoreCap), nativeCoreCap,
+			nativeCoreCap, nativeSearchableFile)
 	}
 	if len(st.Dangling) > 0 {
 		fmt.Fprintf(w, "dangling:  %d pointer%s with no topic file: %s\n", len(st.Dangling), textutil.Plural(len(st.Dangling)),

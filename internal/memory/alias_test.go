@@ -103,8 +103,8 @@ func seedAliasFold(t *testing.T, e aliasEnv) (link string) {
 	write(t, filepath.Join(e.da, "same.md"), "same\n")
 	write(t, filepath.Join(e.db, "same.md"), "same\n")
 	write(t, filepath.Join(e.db, "topic.md"), "only source topic\n")
-	write(t, filepath.Join(e.da, NativeIndexFile), "- [Shared](shared.md) — one\n")
-	write(t, filepath.Join(e.db, NativeIndexFile), "- [Shared](shared.md) — one\n- [Extra](extra.md) — two\n")
+	write(t, filepath.Join(e.da, nativeIndexFile), "- [Shared](shared.md) — one\n")
+	write(t, filepath.Join(e.db, nativeIndexFile), "- [Shared](shared.md) — one\n- [Extra](extra.md) — two\n")
 	write(t, filepath.Join(e.db, "archive", "old.md"), "old\n")
 	write(t, filepath.Join(e.db, "handoffs", "h.md"), "handoff\n")
 	write(t, filepath.Join(e.db, "reports", "r.md"), "report\n")
@@ -160,7 +160,7 @@ func assertFoldedFiles(t *testing.T, e aliasEnv) {
 		}
 	}
 	// native pointer lines appended, deduped
-	nv := aliasRead(t, filepath.Join(e.da, NativeIndexFile))
+	nv := aliasRead(t, filepath.Join(e.da, nativeIndexFile))
 	if strings.Count(nv, "[Shared]") != 1 || strings.Count(nv, "[Extra]") != 1 {
 		t.Errorf("MEMORY.md:\n%s", nv)
 	}
@@ -193,11 +193,11 @@ func assertSourceGoneAliasRecorded(t *testing.T, e aliasEnv) {
 	if pathExists(e.db) {
 		t.Errorf("source store %s not removed", e.db)
 	}
-	cat := aliasRead(t, filepath.Join(StoreDir(), CatalogFile))
+	cat := aliasRead(t, filepath.Join(StoreDir(), catalogFile))
 	if strings.Contains(cat, "- "+e.kb+" ") || !strings.Contains(cat, "- "+e.ka+" ") {
 		t.Errorf("catalog rows wrong:\n%s", cat)
 	}
-	o, err := ReadOrigin(e.da)
+	o, err := readOrigin(e.da)
 	if err != nil || !o.Accepts(e.b) {
 		t.Fatalf("origin after alias = %+v err=%v, want alias %s", o, err, e.b)
 	}
@@ -312,7 +312,7 @@ func TestAliasWithoutSeparateStoreRecordsAliasOnly(t *testing.T) {
 	if res.Source != "" {
 		t.Errorf("Source = %q, want empty", res.Source)
 	}
-	o, err := ReadOrigin(e.da)
+	o, err := readOrigin(e.da)
 	if err != nil || !o.Accepts(e.b) {
 		t.Errorf("alias not recorded in .origin (origin-only path): %+v err=%v", o, err)
 	}
@@ -340,7 +340,7 @@ func TestAliasFoldDeletesSourceVaultRow(t *testing.T) {
 	if _, ok := vaultGet(t, e.kb); ok {
 		t.Errorf("source key %q still has a vault row after folding into %q", e.kb, e.ka)
 	}
-	got, err := ReadOrigin(e.da)
+	got, err := readOrigin(e.da)
 	if err != nil || !got.Accepts(e.b) {
 		t.Errorf("target row missing the folded alias: %+v, %v", got, err)
 	}
@@ -380,7 +380,7 @@ func assertAliasLinkSwapRolledBack(t *testing.T, e aliasEnv, first string) {
 	if _, ok := vaultGet(t, e.kb); !ok {
 		t.Errorf("source row %q deleted despite the failed fold", e.kb)
 	}
-	if got, err := ReadOrigin(e.da); err != nil || got.Accepts(e.b) {
+	if got, err := readOrigin(e.da); err != nil || got.Accepts(e.b) {
 		t.Errorf("target origin kept the folded alias after rollback: %+v, %v", got, err)
 	}
 }
@@ -406,7 +406,7 @@ func TestRepointRollbackDropsFoldedRowWhenTargetHadNone(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(filepath.Dir(link), 0o755) })
-	src, err := ReadOrigin(e.db)
+	src, err := readOrigin(e.db)
 	if err != nil {
 		t.Fatal(err)
 	}

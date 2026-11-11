@@ -298,7 +298,7 @@ func TestWalkSourceFilesPrunesSkippedDirs(t *testing.T) {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		writeFx(t, filepath.Dir(p), filepath.Base(p), "x = 1\n")
+		hosttest.WriteRel(t, filepath.Dir(p), filepath.Base(p), "x = 1\n")
 	}
 	unreadableDir(t, filepath.Join(root, "node_modules"))
 	orig := walkDir

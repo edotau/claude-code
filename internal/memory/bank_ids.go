@@ -276,8 +276,8 @@ func blockWithRef(p, ref string, derived bool) (found string, ok bool) {
 	_, blocks := entryBlocks(logicalName(p), string(data))
 	if derived { // native topics and knowledge notes are indexed whole, under their own grammar
 		base := filepath.Base(p)
-		blocks = append(blocks, parseBlocks(SegNative, base, data)...)
-		blocks = append(blocks, parseBlocks(SegKnowledge, base, data)...)
+		blocks = append(blocks, parseBlocks(segNative, base, data)...)
+		blocks = append(blocks, parseBlocks(segKnowledge, base, data)...)
 	}
 	for _, b := range blocks {
 		matches := strings.Contains(b, "<!-- id:"+ref+" -->")

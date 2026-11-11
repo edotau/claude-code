@@ -9,12 +9,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // A traversal error inside an excluded directory (node_modules) is neither analyzed nor reported as a failure.
 func TestRunQualityIgnoresExcludedDirectoryTraversalError(t *testing.T) {
 	root := t.TempDir()
-	writeFx(t, root, "ok.py", "value = 1\n")
+	hosttest.WriteRel(t, root, "ok.py", "value = 1\n")
 	locked := filepath.Join(root, "node_modules")
 	if err := os.Mkdir(locked, 0o755); err != nil {
 		t.Fatal(err)
@@ -60,7 +62,7 @@ func unreadableDir(t *testing.T, parent string) string {
 func TestEmitQualityJSONReplacesWithoutTruncating(t *testing.T) {
 	dir := t.TempDir()
 	output := filepath.Join(dir, "report.json")
-	writeFx(t, dir, "report.json", "previous report")
+	hosttest.WriteRel(t, dir, "report.json", "previous report")
 	old, err := os.Open(output)
 	if err != nil {
 		t.Fatal(err)
