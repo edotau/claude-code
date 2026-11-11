@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/edotau/claude-code/internal/gateway/translate"
 	"github.com/edotau/claude-code/internal/models"
@@ -148,7 +149,7 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 		writeSendError(sw, p, err)
 		return model, ""
 	}
-	extra := passthroughDiag(resp)
+	extra := passthroughDiag(resp, len(body))
 	if resp.StatusCode == http.StatusTooManyRequests && !providers.ModelDenied(string(peekBody(resp, 64<<10))) {
 		r.coolDown(p, resp) // a passthrough 429 sinks p in this proxy's /v1/messages ladders too
 	}
@@ -366,8 +367,8 @@ func passthroughModel(body []byte) string {
 	return head.Model
 }
 
-// passthroughDiag is the log suffix: upstream request id, Retry-After and, on an error, its sanitized code.
-func passthroughDiag(resp *http.Response) string {
+// passthroughDiag is the log suffix: request id, Retry-After, request bytes and, on an error, its code and message.
+func passthroughDiag(resp *http.Response, reqBytes int) string {
 	var b strings.Builder
 	for _, k := range []string{"X-Request-Id", "X-Databricks-Request-Id", "X-Databricks-Requestid", "Request-Id"} {
 		if v := resp.Header.Get(k); v != "" {
@@ -378,21 +379,45 @@ func passthroughDiag(resp *http.Response) string {
 	if v := resp.Header.Get("Retry-After"); v != "" {
 		b.WriteString(" retry_after=" + agentToken(v))
 	}
+	if reqBytes > 0 {
+		b.WriteString(" bytes=" + strconv.Itoa(reqBytes))
+	}
 	if resp.StatusCode >= 400 {
 		peek := peekBody(resp, 64<<10)
 		var e struct {
-			Code  string `json:"error_code"`
-			Error struct {
-				Code string `json:"code"`
-				Type string `json:"type"`
+			Code    string `json:"error_code"`
+			Message string `json:"message"`
+			Error   struct {
+				Code    string `json:"code"`
+				Type    string `json:"type"`
+				Message string `json:"message"`
 			} `json:"error"`
 		}
 		_ = json.Unmarshal(peek, &e)
 		if c := cmp.Or(e.Code, e.Error.Code, e.Error.Type); c != "" {
 			b.WriteString(" err=" + agentToken(c))
 		}
+		if m := logMessage(cmp.Or(e.Message, e.Error.Message)); m != "" {
+			b.WriteString(" msg=" + m)
+		}
 	}
 	return b.String()
+}
+
+// logMessage is an upstream error message on one line: control characters dropped, capped at 160 runes.
+func logMessage(s string) string {
+	var b strings.Builder
+	n := 0
+	for _, c := range s {
+		if n == 160 {
+			break
+		}
+		if !unicode.IsControl(c) {
+			b.WriteRune(c)
+			n++
+		}
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // databricksGemini is a Databricks row's native Gemini base: its anthropic base with /gemini in place of /anthropic.
