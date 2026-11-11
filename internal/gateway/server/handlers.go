@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/subtle"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/gateway/translate"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -114,12 +116,23 @@ func (r *Router) failover(resp *http.Response, t providers.Target, last bool) (m
 	return true, hard
 }
 
-// coolDown sinks p in this process's ladders for resp's Retry-After (clamped), after a transient 429.
+// coolDown sinks p for resp's Retry-After (clamped) after a transient 429; a hold of coolPersistMin+ is also persisted.
 func (r *Router) coolDown(p *providers.Provider, resp *http.Response) {
-	d := retryAfter(resp.Header.Get("Retry-After"), r.now())
+	now := r.now()
+	d := retryAfter(resp.Header.Get("Retry-After"), now)
+	until := now.Add(d)
 	r.mu.Lock()
-	r.cool[p.Name] = r.now().Add(d)
+	r.cool[p.Name] = until
 	r.mu.Unlock()
+	if d < coolPersistMin {
+		return
+	}
+	go func() { // off the request path; a failed write is only logged
+		ran, err := router.MarkCooling(router.ProviderAccount(p.Name), until, now)
+		if err != nil || !ran {
+			fmt.Fprintf(r.log, "proxy: persist %s cooling: %v\n", p.Name, cmp.Or(err, errors.New("state lock busy")))
+		}
+	}()
 }
 
 // promptTooLong matches the upstream limit text, e.g. "prompt is too long: 1177204 tokens > 1000000 maximum".

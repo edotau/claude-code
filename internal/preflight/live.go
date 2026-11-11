@@ -364,5 +364,5 @@ func fetch(ctx context.Context, reg *providers.Registry, p *providers.Provider, 
 	for _, m := range infos {
 		s.Models = append(s.Models, router.ServedModel{ID: m.ID, Task: m.Task, Ready: m.Ready})
 	}
-	return s, router.SaveServed(s)
+	return s, router.WarmServed(p.Name, infos, now)
 }

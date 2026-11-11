@@ -178,8 +178,21 @@ func readServed(path, profile string) (servedRead, error) {
 	return servedRead{s: s, ok: true}, nil
 }
 
-// SaveServed writes s with mode 0600.
-func SaveServed(s Served) error {
+// WarmServed saves infos as profile's listing unless the file is newer or infos is empty.
+func WarmServed(profile string, infos []providers.ModelInfo, at time.Time) error {
+	if len(infos) == 0 {
+		return nil
+	}
+	s := Served{Profile: profile, FetchedAt: at.UTC()}
+	for _, m := range infos {
+		s.Models = append(s.Models, ServedModel{ID: m.ID, Task: m.Task, Ready: m.Ready})
+	}
+	// a file dated past clockSkew ahead of at is distrusted and replaced, or it would block every later warm
+	return SaveServed(s, func(cur Served) bool { return cur.FetchedAt.After(at) && cur.Fresh(at) })
+}
+
+// SaveServed writes s with mode 0600; a keep that accepts the file on disk, read under the write lock, skips the write.
+func SaveServed(s Served, keep ...func(cur Served) bool) error {
 	path := servedPath(s.Profile)
 	if path == "" {
 		return os.ErrInvalid
@@ -188,7 +201,14 @@ func SaveServed(s Served) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil { // before the lock, which creates it world-readable
 		return err
 	}
-	return paths.WithFileLock(path, func() error { return paths.WriteJSON(path, s) })
+	return paths.WithFileLock(path, func() error {
+		for _, k := range keep {
+			if cur, _ := readServed(path, s.Profile); cur.ok && k(cur.s) {
+				return nil
+			}
+		}
+		return paths.WriteJSON(path, s)
+	})
 }
 
 // Has reports whether the listing serves pin as a READY endpoint; ready is false for a listed but unready one.

@@ -63,27 +63,40 @@ func deadKey(t providers.Target) string {
 	return t.Provider.Name + ":" + router.ModelKey(t.Model)
 }
 
-// isDead reports a live mark from this process, else one persisted in quota.json (read through the cached state).
+// isDead reports a live mark from this process or quota.json; a persisted mark cleared since (a login) lifts ours.
 func (r *Router) isDead(t providers.Target) bool {
-	now := r.now()
+	now, key := r.now(), deadKey(t)
+	state, at := r.routeStateAt()
+	persisted := state.ModelDead(router.ProviderAccount(t.Provider.Name), t.Model, now)
 	r.mu.Lock()
-	dead := now.Before(r.dead[deadKey(t)])
-	r.mu.Unlock()
-	return dead || r.routeState().ModelDead(router.ProviderAccount(t.Provider.Name), t.Model, now)
+	defer r.mu.Unlock()
+	if saved, ok := r.deadAt[key]; ok && !persisted && at.After(saved) {
+		delete(r.dead, key)
+		delete(r.deadAt, key)
+	}
+	return persisted || now.Before(r.dead[key])
 }
 
 // markDead records the denial in memory and persists it off the request path; a failed write is only logged.
 func (r *Router) markDead(t providers.Target) {
 	now := r.now()
 	until := now.Add(quotaDeadFor)
+	key := deadKey(t)
 	r.mu.Lock()
-	r.dead[deadKey(t)] = until
+	r.dead[key] = until
+	delete(r.deadAt, key) // a re-mark is unpersisted again until its own write lands
 	r.mu.Unlock()
 	go func() {
 		ran, err := router.MarkModelDead(router.ProviderAccount(t.Provider.Name), t.Model, until, now)
 		if err != nil || !ran {
 			fmt.Fprintf(r.log, "proxy: persist %s %s quota-dead: %v\n", t.Provider.Name, t.Model,
 				cmp.Or(err, errors.New("state lock busy")))
+			return
 		}
+		r.mu.Lock()
+		if r.dead[key].Equal(until) {
+			r.deadAt[key] = r.now()
+		}
+		r.mu.Unlock()
 	}()
 }
