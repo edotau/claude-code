@@ -95,7 +95,7 @@ everything the native loader reads. Past a `fileCaps` limit `memory dream` archi
   is the only route to home.
 - `memory index` — regenerates the `MEMORY.md` bank region and `memory/index.md`, rotates sessionHistory, commits the
   store. **Never hand-edit generated regions.**
-- `memory review` — caps, staleness, dupes, hot/cold. `memory promote <id> --to home|rules|skill|claude-md` — `home`
+- `memory review` — caps, staleness, hot/cold. `memory promote <id> --to home|rules|skill|claude-md` — `home`
   moves the block (no link back); `rules` and `skill` print the block, target and procedure and edit nothing;
   `claude-md` does the same only inside `memory dream`'s own run and is refused anywhere else (`promoteJudgment`).
   The ladder: `skills/reflection/SKILL.md` → Promotion ladder.

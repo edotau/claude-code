@@ -85,7 +85,7 @@ pass on the drafted text (stdin; full CLI: `~/.claude/skills/evaluate-code/refer
 ## Report contract
 
 Read [`docs/templates/plan.md`](../docs/templates/plan.md) and return a plan in that shape — it is the one copy of
-the template (the plan hooks paste the same file).
+the template (the `docs-plan-gate` denial pastes the same file).
 
 **The template is a floor, not a form.** Fixed: the four headings the hooks check (`# Plan:`, `## Context`,
 `## Phases`, `## Tasks`), the tags, and the `owns:` task lines. Free: add a section the work needs (a trim table, a
