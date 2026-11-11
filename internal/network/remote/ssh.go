@@ -194,10 +194,16 @@ var freeLocalPort = func(first, last int) int {
 	return first
 }
 
+// hostBrowser, on a --host `databricks login`, opens the browser on the host instead of forwarding; never sent on.
+const hostBrowser = "--host-browser"
+
 // loginForward pins a remote `databricks login` to an exact --port with --no-browser; port 0 means no forward.
 func loginForward(args []string) ([]string, int) {
 	if len(args) < 2 || args[0] != "databricks" || args[1] != "login" {
 		return args, 0
+	}
+	if i := slices.Index(args, hostBrowser); i >= 0 {
+		return slices.Delete(slices.Clone(args), i, i+1), 0
 	}
 	flags := flagValues(args[2:])
 	for _, k := range []string{"dry-run", "h", "help"} {

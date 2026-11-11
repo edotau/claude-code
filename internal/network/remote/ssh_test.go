@@ -117,6 +117,7 @@ func TestLoginForward(t *testing.T) {
 		{"databricks login", "databricks login --port 8031 --no-browser", 8031},
 		{"databricks login --force --port=8020", "databricks login --force --port=8020 --no-browser", 8020},
 		{"databricks login --no-browser --port 9000 --paste", "databricks login --no-browser --port 9000 --paste", 9000},
+		{"databricks login --host-browser --force", "databricks login --force", 0},
 		{"databricks login --as sp", "databricks login --as sp", 0},
 		{"databricks login --dry-run", "databricks login --dry-run", 0},
 		{"databricks login --port nope", "databricks login --port nope", 0},
