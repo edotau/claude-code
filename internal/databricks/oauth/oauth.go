@@ -311,7 +311,7 @@ const (
 
 // LoginOptions tunes LoginU2M; the zero value is the interactive default.
 type LoginOptions struct {
-	// Open launches the browser; its error is ignored because LoginU2M always prints the URL to Out.
+	// Open launches the browser; its error is reported after the URL, which LoginU2M always prints to Out.
 	Open func(authURL string) error
 	// Out receives the sign-in URL and the SSH hint (default os.Stderr).
 	Out io.Writer
@@ -532,11 +532,15 @@ func LoginU2M(ctx context.Context, host string, opts LoginOptions) (Token, error
 
 	redirect := "http://localhost:" + strconv.Itoa(port)
 	authURL := authorizeURL(h, redirect, state, verifier)
+	var openErr error
 	if opts.Open != nil && !opts.NoBrowser {
-		_ = opts.Open(authURL)
+		openErr = opts.Open(authURL)
 	}
 	fmt.Fprintf(opts.Out, "Open this URL in a browser to sign in to %s:\n%s\n", h, authURL)
-	fmt.Fprint(opts.Out, forwardHint(port, opts.NoBrowser))
+	if openErr != nil {
+		fmt.Fprintf(opts.Out, "No browser opened here (%v); open the URL above yourself.\n", openErr)
+	}
+	fmt.Fprint(opts.Out, forwardHint(port, opts.NoBrowser || openErr != nil))
 	var paste <-chan string
 	if opts.Paste != nil {
 		fmt.Fprintf(opts.Out, "No forward? Paste the full redirected URL (http://localhost:%d/?code=...&state=...) and press Enter:\n", port)
