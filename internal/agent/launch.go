@@ -537,8 +537,6 @@ var _ = schemas.Register(schemas.Format{
 	Version: 1, Keep: "rewritten on every launch; Claude Code reads it, so no schema field",
 })
 
-// Folds a resolved COWORKER_OVERLAY (agentconfig) into a headless RunOptions or an interactive Plan.
-
 // OverlayIdle reports a launch the overlay changes nothing about: empty layer and no $COWORKER_OVERLAY to hide.
 func OverlayIdle(r agentconfig.Resolved) bool {
 	return len(r.Set)+len(r.Unset)+len(r.Keep) == 0 && os.Getenv(agentconfig.OverlayVar) == ""

@@ -379,7 +379,7 @@ func TestCancelDeadPIDMarksRunningRecordOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded, _ := LoadRecord(rec.ID)
-	if loaded.Status != "error" || loaded.Error != "process gone (pid reused)" {
+	if loaded.Status != "error" || loaded.Error != "process gone" {
 		t.Fatalf("loaded = %q/%q", loaded.Status, loaded.Error)
 	}
 	loaded.Error = "sentinel"

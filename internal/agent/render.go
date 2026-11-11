@@ -32,7 +32,6 @@ func PrepareConfigs(o agentconfig.RenderOptions) (*agentconfig.RenderPlan, bool,
 	p := &agentconfig.RenderPlan{}
 	o = o.Stage(p)
 	var drift bool
-	var err error
 	agents := o.Agents
 	if len(agents) == 0 {
 		agents = DefaultAgents
@@ -41,12 +40,9 @@ func PrepareConfigs(o agentconfig.RenderOptions) (*agentconfig.RenderPlan, bool,
 	if out == nil {
 		out = os.Stdout
 	}
-	home := o.Home
-	if home == "" {
-		home, err = os.UserHomeDir()
-		if err != nil {
-			return nil, false, fmt.Errorf("generate: %w", err)
-		}
+	home, err := agentconfig.HomeOr(o.Home)
+	if err != nil {
+		return nil, false, fmt.Errorf("generate: %w", err)
 	}
 	if skipConfigHomes(o) {
 		fmt.Fprintf(out, "generate: skipping agent configs (CLAUDE_CONFIG_DIR=%s is neither ~/.claude nor an install clone); pass --agents to include them\n", paths.ConfigDir())

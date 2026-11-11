@@ -22,9 +22,6 @@ import (
 // scanAllRecords is RecentRecords' n for "every record": the log itself is capped by the dispatch keep.
 const scanAllRecords = 1 << 20
 
-// markerLockWait bounds the wait for the agent-inflight lock, as the hook's writers do.
-const markerLockWait = 2 * time.Second
-
 // lostError is the Error a reaped dispatch record carries.
 const lostError = "lost: process gone"
 
@@ -164,55 +161,13 @@ func socketHolderAlive(id string) bool {
 	return err == nil && rec.Alive()
 }
 
-// reapMarkers removes the markers inflight.Liveness would prune; non-marker entries (the lock file) stay.
+// reapMarkers prints the markers inflight.Sweep removed (or would remove) and returns their count.
 func reapMarkers(dryRun bool, verb string, out io.Writer) (int, error) {
-	dir := inflight.Dir()
-	if _, err := os.Stat(dir); err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return 0, nil // no marker dir yet: nothing was ever dispatched
-		}
-		return 0, fmt.Errorf("marker dir: %w", err)
+	removed, err := inflight.Sweep(dryRun)
+	for _, name := range removed {
+		fmt.Fprintf(out, "%s marker %s\n", verb, name)
 	}
-	if dryRun {
-		return sweepMarkers(dir, dryRun, verb, out)
-	}
-	n := 0
-	sweep := func() error {
-		var err error
-		n, err = sweepMarkers(dir, dryRun, verb, out)
-		return err
-	}
-	ran, err := paths.TryFileLock(filepath.Join(dir, ".lock"), markerLockWait, sweep)
-	if err == nil && !ran {
-		err = errors.New("agent-inflight marker dir is locked; markers skipped")
-	}
-	return n, err
-}
-
-func sweepMarkers(dir string, dryRun bool, verb string, out io.Writer) (int, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return 0, err
-	}
-	live := inflight.Liveness(time.Now())
-	n := 0
-	var errs []error
-	for _, e := range entries {
-		if _, ok := inflight.Owner(e.Name()); !ok || live(e.Name()) {
-			continue
-		}
-		if !dryRun {
-			if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
-				if !errors.Is(err, fs.ErrNotExist) {
-					errs = append(errs, fmt.Errorf("marker %s: %w", e.Name(), err))
-				}
-				continue
-			}
-		}
-		fmt.Fprintf(out, "%s marker %s\n", verb, e.Name())
-		n++
-	}
-	return n, errors.Join(errs...)
+	return len(removed), err
 }
 
 // pendingAskMarker flags a Bash arg as a relay that launched `ask` and has not seen its exit line yet.

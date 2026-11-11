@@ -28,7 +28,7 @@ import (
 	usagepkg "github.com/edotau/claude-code/internal/usage"
 	"github.com/edotau/claude-code/internal/vault"
 
-	// Each vendor CLI registers its roster row and driver from its package init; the program links them all through the agents package.
+	// Each vendor CLI registers its roster row and driver from its package init; this package links them all.
 	_ "github.com/edotau/claude-code/internal/claude"
 	_ "github.com/edotau/claude-code/internal/codex"
 	_ "github.com/edotau/claude-code/internal/copilot"
@@ -227,6 +227,7 @@ func (r *askRun) resolveRecord() (int, bool) {
 			return rc, true
 		}
 	}
+	f.tools = f.tools || f.readOnly // again: a --job/--retry record or a re-parsed flag may have overridden either
 	if r.ref, r.ag, err = AskReselect(r.ref, r.ag, &f.name, &r.persona, r.defs); err != nil {
 		return r.fail(err, 2)
 	}

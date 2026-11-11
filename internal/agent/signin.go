@@ -261,8 +261,6 @@ func ValidCopilotToken(tok string) bool {
 	return false
 }
 
-// the optional Authenticator a Driver adds, and the agent-level entry points over it.
-
 // Authenticator is the optional sign-in surface a Driver adds; BaseEngine does not implement it.
 type Authenticator interface {
 	// AuthStatus is the CLI's own sign-in from local state (files, keyring, a local status command); no network.
@@ -301,8 +299,6 @@ func Verify(ctx context.Context, name string) (providers.AuthVerdict, string) {
 	}
 	return providers.VerdictTransient, "unknown sign-in " + name
 }
-
-// The shared run-and-classify helpers for a vendor CLI's sign-in and version probes.
 
 // ProbeCLI runs bin args on spec's environment; combined folds stderr into the returned output.
 func ProbeCLI(ctx context.Context, bin string, spec EnvSpec, combined bool, args ...string) ([]byte, error) {

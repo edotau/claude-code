@@ -148,16 +148,9 @@ func isReviewArgv(argv []string, rec *Record) bool {
 	return false
 }
 
-// reloadRecord refreshes rec from disk, keeping rec as is when the load fails.
-func reloadRecord(rec *Record) {
-	if latest, err := LoadRecord(rec.ID); err == nil {
-		*rec = latest
-	}
-}
-
 // failIfRunning reloads rec and marks it Status "error" with msg only if it is still "running".
 func failIfRunning(rec *Record, msg string) error {
-	reloadRecord(rec)
+	*rec = reloaded(*rec)
 	if rec.Status != "running" {
 		return nil
 	}
@@ -173,7 +166,7 @@ func Cancel(rec *Record) error {
 		return fmt.Errorf("dispatch %q has no pid to cancel", rec.ID)
 	}
 	if !proc.Alive(rec.PID) {
-		return failIfRunning(rec, "process gone (pid reused)")
+		return failIfRunning(rec, "process gone")
 	}
 	argv, err := jobArgvSettled(rec)
 	if err != nil {
@@ -333,7 +326,7 @@ func CancelJob(ctx context.Context, name, cwd, ref string) (Record, error) {
 	return rec, nil
 }
 
-// toRow derives a status Row from a dispatch record; redaction matches printDispatchLog (internal/agent/ask.go).
+// toRow derives a status Row from a dispatch record; redaction matches Record.LogLine.
 func toRow(r Record) Row {
 	status := r.Status
 	if status == "running" && !r.Alive() {

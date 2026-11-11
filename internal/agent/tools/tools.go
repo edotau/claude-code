@@ -205,7 +205,7 @@ func npmCleanupFor(ctx context.Context, w io.Writer, name, dir string, dryRun bo
 		return
 	}
 	localPath := filepath.Join(dir, name)
-	if !dryRun && FirstVersionLine(context.Background(), localPath, versionProbeTimeout) == "" {
+	if !dryRun && FirstVersionLine(ctx, localPath, versionProbeTimeout) == "" {
 		fmt.Fprintf(w, "  keep     npm-global %s (%s did not answer --version)\n", name, localPath)
 		return
 	}

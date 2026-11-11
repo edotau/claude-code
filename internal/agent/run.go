@@ -77,13 +77,17 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Pre
 			return nil, err
 		}
 	}
+	if o.Pack != nil && p.remote != nil {
+		return nil, clientUsageError{errors.New("--dirs/--files/--diff: not with --host")}
+	}
 	p.Opts = o
 	p.Record = c.record(ctx, o, claim)
 	if o.Pack != nil {
-		if p.remote != nil {
-			return nil, clientUsageError{errors.New("--dirs/--files/--diff: not with --host")}
-		}
-		if err := c.packPrompt(ctx, p); err != nil {
+		if err := c.packPrompt(ctx, p); err != nil { // the record is already claimed on disk: close it
+			p.Record.Finish(wire.Result{Agent: o.Agent, Status: wire.StatusError}, err, time.Since(p.Record.Time))
+			if serr := p.Record.Save(); serr != nil && c.Notify != nil {
+				c.Notify(fmt.Sprintf("dispatch %s record not saved, it stays at running: %v", p.Record.ID, serr))
+			}
 			return nil, err
 		}
 	}
