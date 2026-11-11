@@ -375,9 +375,9 @@ func TestCheckRunGeminiReadOnlyDenies(t *testing.T) {
 // fastDefaultBackoff shrinks DefaultPolicy's backoff for the test and restores it on cleanup.
 func fastDefaultBackoff(t *testing.T) {
 	t.Helper()
-	b, m := retry.DefaultBaseDelay, retry.DefaultMaxDelay
-	retry.DefaultBaseDelay, retry.DefaultMaxDelay = time.Millisecond, 2*time.Millisecond
-	t.Cleanup(func() { retry.DefaultBaseDelay, retry.DefaultMaxDelay = b, m })
+	b, m, f := retry.DefaultBaseDelay, retry.DefaultMaxDelay, retry.RateLimitFloor
+	retry.DefaultBaseDelay, retry.DefaultMaxDelay, retry.RateLimitFloor = time.Millisecond, 2*time.Millisecond, time.Millisecond
+	t.Cleanup(func() { retry.DefaultBaseDelay, retry.DefaultMaxDelay, retry.RateLimitFloor = b, m, f })
 }
 
 func TestRunAuthRecoveryUsesCodexPinnedProvider(t *testing.T) {
@@ -413,13 +413,13 @@ func TestResolveTargetProfileTierRewrite(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
 		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5","haiku":"claude-haiku-4-5"}}}}}`)
-	_, want, err := resolveTarget(RunOptions{Provider: "dev", Model: "opus"})
+	_, want, err := ResolveRequestTarget(RunOptions{Provider: "dev", Model: "opus"})
 	if err != nil || want.Provider == nil || want.Provider.Name != "dev" {
 		t.Fatalf("baseline --provider dev --model opus = %+v, %v", want, err)
 	}
 
 	t.Run("dev:opus equals --provider dev --model opus", func(t *testing.T) {
-		_, got, err := resolveTarget(RunOptions{Model: "dev:opus"})
+		_, got, err := ResolveRequestTarget(RunOptions{Model: "dev:opus"})
 		if err != nil || got.Provider == nil || got.Provider.Name != "dev" || got.Model != want.Model {
 			t.Errorf("dev:opus = %+v (%v), want provider dev model %q", got, err, want.Model)
 		}
@@ -428,7 +428,7 @@ func TestResolveTargetProfileTierRewrite(t *testing.T) {
 	t.Run("unknown row or non-alias is not rewritten", func(t *testing.T) { assertUnknownTargetRewrite(t, want.Model) })
 	t.Run("the explicit backend is still seen", func(t *testing.T) {
 		req := RunOptions{Model: "dev:opus"}
-		if !ExplicitBackend(req) {
+		if !explicitBackend(req) {
 			t.Error("ExplicitBackend(dev:opus) must stay true")
 		}
 		if acct, _ := explicitAccount(&fakeRunner{name: "claude"}, req); acct != "databricks·dev" {
@@ -439,8 +439,8 @@ func TestResolveTargetProfileTierRewrite(t *testing.T) {
 
 func assertFullIDTargetRewrite(t *testing.T) {
 	t.Helper()
-	_, viaSpec, err1 := resolveTarget(RunOptions{Model: "dev:claude-opus-5-5"})
-	_, viaFlags, err2 := resolveTarget(RunOptions{Provider: "dev", Model: "claude-opus-5-5"})
+	_, viaSpec, err1 := ResolveRequestTarget(RunOptions{Model: "dev:claude-opus-5-5"})
+	_, viaFlags, err2 := ResolveRequestTarget(RunOptions{Provider: "dev", Model: "claude-opus-5-5"})
 	if err1 != nil || err2 != nil || viaSpec.Provider == nil || viaSpec.Provider.Name != "dev" ||
 		viaSpec.Model != viaFlags.Model {
 		t.Errorf("spec %+v (%v) vs flags %+v (%v)", viaSpec, err1, viaFlags, err2)
@@ -449,11 +449,11 @@ func assertFullIDTargetRewrite(t *testing.T) {
 
 func assertUnknownTargetRewrite(t *testing.T, model string) {
 	t.Helper()
-	_, bad, err := resolveTarget(RunOptions{Model: "unknownrow:opus"})
+	_, bad, err := ResolveRequestTarget(RunOptions{Model: "unknownrow:opus"})
 	if err == nil && bad.Provider != nil && bad.Provider.Name == "unknownrow" {
 		t.Errorf("unknownrow:opus rewritten: %+v", bad)
 	}
-	_, nt, _ := resolveTarget(RunOptions{Model: "dev:notatier"})
+	_, nt, _ := ResolveRequestTarget(RunOptions{Model: "dev:notatier"})
 	if nt.Provider != nil && nt.Provider.Name == "dev" && nt.Model == model {
 		t.Errorf("dev:notatier rewritten to dev's opus alias: %+v", nt)
 	}
@@ -523,7 +523,7 @@ func TestResolveTargetCanonicalIDTakesTheTierPin(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
 		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5-5"}}}}}`)
 	vaulttest.SetRecord(t, "claude", "aliases.sonnet", "claude-sonnet-5")
-	_, got, err := resolveTarget(RunOptions{Provider: "dev", Model: "claude-sonnet-5-5"})
+	_, got, err := ResolveRequestTarget(RunOptions{Provider: "dev", Model: "claude-sonnet-5-5"})
 	if err != nil || got.Model != "claude-sonnet-5" {
 		t.Errorf("claude-sonnet-5-5 = %+v (%v), want the pinned claude-sonnet-5", got, err)
 	}

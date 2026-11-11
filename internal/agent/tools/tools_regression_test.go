@@ -109,7 +109,7 @@ func mutateBinForRegression(name, dst string) error {
 		}
 		return err
 	case "remove":
-		status, detail := dropLink(Tool{Name: "codex", Binary: "codex"}, dst, "missing", false)
+		status, detail := dropLink(tool{Name: "codex", Binary: "codex"}, dst, "missing", false)
 		if status != "keep" {
 			return fmt.Errorf("dropLink = %s %s, want keep", status, detail)
 		}

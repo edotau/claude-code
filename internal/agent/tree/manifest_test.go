@@ -20,8 +20,8 @@ func TestResultStatusMapsTopLevelStatusWhenResultAbsent(t *testing.T) {
 		want string
 	}{
 		{"result.status wins over a killed top-level status", workflowManifest{Result: []byte(`{"status":"green"}`), Status: "killed"}, "green"},
-		{"killed top-level maps to error when result carries no status", workflowManifest{Result: []byte(`null`), Status: "killed"}, StatusError},
-		{"completed top-level maps to finished when result carries no status", workflowManifest{Result: []byte(`null`), Status: "completed"}, StatusFinished},
+		{"killed top-level maps to error when result carries no status", workflowManifest{Result: []byte(`null`), Status: "killed"}, statusError},
+		{"completed top-level maps to finished when result carries no status", workflowManifest{Result: []byte(`null`), Status: "completed"}, statusFinished},
 		{"an unrecognized top-level status maps to nothing", workflowManifest{Result: []byte(`null`), Status: "paused"}, ""},
 		{"no result and no top-level status maps to nothing", workflowManifest{}, ""},
 	}

@@ -46,7 +46,7 @@ func ResolveSettings(agentName string, req RunOptions, t providers.Target, headl
 // newSettings is Settings for rec; an unparsable record policy layers as none (ValidateRecord reports it).
 func newSettings(agentName string, rec vault.AgentRecord, req RunOptions, t providers.Target, headless bool) Settings {
 	def, _ := policyPermissions(rec.Permissions)
-	perms, _ := ResolvePermissions(def, req.Permissions)
+	perms, _ := resolvePermissions(def, req.Permissions)
 	return Settings{Agent: agentName, Record: rec, Effort: cmp.Or(req.Effort, rec.Effort), Permissions: perms,
 		Target: t, Tools: req.Tools, ReadOnly: req.ReadOnly, Autonomous: req.Autonomous, SafeMode: req.SafeMode,
 		Headless: headless, WorkDir: req.WorkDir}

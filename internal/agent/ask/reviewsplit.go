@@ -16,14 +16,14 @@ const partOverhead = 4000
 // maxHeaderFiles caps the file names listed in a part header.
 const maxHeaderFiles = 30
 
-// Part is one chunk of a split diff: its text and the files it covers.
-type Part struct {
+// part is one chunk of a split diff: its text and the files it covers.
+type part struct {
 	Diff  []byte
 	Files []string
 }
 
 // Header is the "part i/N, files: …" line (i is 1-based) appended to the review prompt.
-func (p Part) Header(i, n int) string {
+func (p part) Header(i, n int) string {
 	files := p.Files
 	extra := 0
 	if len(files) > maxHeaderFiles {
@@ -38,20 +38,20 @@ func (p Part) Header(i, n int) string {
 
 type unit struct{ group, file, text string }
 
-// SplitDiff returns diff whole when prompt+diff fits budget, else path-grouped chunks that each fit.
-func SplitDiff(diff []byte, promptLen, budget int) []Part {
+// splitDiff returns diff whole when prompt+diff fits budget, else path-grouped chunks that each fit.
+func splitDiff(diff []byte, promptLen, budget int) []part {
 	if promptLen+len(diff) <= budget {
-		return []Part{{Diff: diff, Files: fileList(sections(string(diff)))}}
+		return []part{{Diff: diff, Files: fileList(sections(string(diff)))}}
 	}
 	limit := max(budget-promptLen-partOverhead, 1)
 	groups, byGroup := groupedUnits(diff)
 
-	var parts []Part
+	var parts []part
 	var cur []unit
 	size := 0
 	flush := func() {
 		if len(cur) > 0 {
-			parts = append(parts, Part{Diff: []byte(joinUnits(cur)), Files: fileList(cur)})
+			parts = append(parts, part{Diff: []byte(joinUnits(cur)), Files: fileList(cur)})
 		}
 		cur, size = nil, 0
 	}
@@ -248,8 +248,8 @@ const (
 // verdictRank orders the neutral review verdicts, worst highest.
 var verdictRank = map[string]int{"SHIP IT": 1, "NEEDS WORK": 2, "FIX REQUIRED": 2, "BLOCK": 3}
 
-// MergeReports folds per-part answers into one report: worst verdict first, then deduped findings per part.
-func MergeReports(adversarial bool, parts []Part, answers []string) string {
+// mergeReports folds per-part answers into one report: worst verdict first, then deduped findings per part.
+func mergeReports(adversarial bool, parts []part, answers []string) string {
 	if adversarial && len(answers) == 0 { // no part answered: nothing was reviewed, so never a clean verdict
 		return noReviewVerdict + "\n"
 	}

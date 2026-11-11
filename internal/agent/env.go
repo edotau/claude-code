@@ -55,6 +55,10 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 	if kv, ok := ctx.Value(permissionsKey{}).(string); ok { // the dispatch's policy wins over any inherited copy
 		env = append(slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, DispatchPermissionsEnv+"=") }), kv)
 	}
+	if id, ok := ctx.Value(dispatchIDKey{}).(string); ok { // marks the child so `agents reap` can find it once orphaned
+		env = append(slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, proc.DispatchIDEnv+"=") }),
+			proc.DispatchIDEnv+"="+id)
+	}
 	if s.PWD != "" {
 		env = append(env, "PWD="+s.PWD)
 	}
@@ -124,8 +128,15 @@ func withPermissionsEnv(ctx context.Context, p Permissions) context.Context {
 
 type unsetKey struct{}
 
-// WithUnsetEnv carries names every child env built under ctx drops from its inherited base (an overlay's unset).
-func WithUnsetEnv(ctx context.Context, names []string) context.Context {
+type dispatchIDKey struct{}
+
+// withDispatchID carries the dispatch record id every child env built under ctx is marked with.
+func withDispatchID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, dispatchIDKey{}, id)
+}
+
+// withUnsetEnv carries names every child env built under ctx drops from its inherited base (an overlay's unset).
+func withUnsetEnv(ctx context.Context, names []string) context.Context {
 	if len(names) == 0 {
 		return ctx
 	}
@@ -210,8 +221,8 @@ func scrubExcept(env []string, ownName string, mine, keepEnv []string) []string 
 	return proc.Drop(env, keep, slices.Collect(maps.Keys(foreign)))
 }
 
-// EnvNames are the names of KEY=VALUE entries.
-func EnvNames(env []string) []string {
+// envNames are the names of KEY=VALUE entries.
+func envNames(env []string) []string {
 	out := make([]string, len(env))
 	for i, kv := range env {
 		out[i], _, _ = strings.Cut(kv, "=")
@@ -241,8 +252,8 @@ func ChildCmd(ctx context.Context, bin string, argv, env []string, dir, stdin st
 	return cmd, tail
 }
 
-// childErr names a failed child by its stderr tail; a deadline surfaces as ctx.Err for classification.
-func childErr(ctx context.Context, name string, err error, tail *retry.TailBuffer) error {
+// ChildErr names a failed child by its stderr tail; a deadline surfaces as ctx.Err for classification.
+func ChildErr(ctx context.Context, name string, err error, tail *retry.TailBuffer) error {
 	if err == nil {
 		return nil
 	}

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -41,14 +42,14 @@ func FirstVersionLine(ctx context.Context, path string, timeout time.Duration) s
 // Named failures of Version; callers match with errors.Is.
 var (
 	ErrAgentNotInstalled = errors.New("not installed")
-	ErrVersionUnknown    = errors.New("version not recognized")
+	errVersionUnknown    = errors.New("version not recognized")
 )
 
 // versionRe picks the first dotted version in a --version line, never digits glued to a name ("gpt-5.1" stays a name).
 var versionRe = regexp.MustCompile(`(?:^|[^0-9A-Za-z.\-])v?(\d+(?:\.\d+)+)`)
 
-// ParseVersion returns the first dotted version in --version output ("codex-cli 0.155.0" -> "0.155.0"), else "".
-func ParseVersion(line string) string {
+// parseVersion returns the first dotted version in --version output ("codex-cli 0.155.0" -> "0.155.0"), else "".
+func parseVersion(line string) string {
 	if m := versionRe.FindStringSubmatch(line); m != nil {
 		return m[1]
 	}
@@ -57,30 +58,25 @@ func ParseVersion(line string) string {
 
 // Version is the installed version of the named agent's CLI, resolved as a launch resolves it (bin/ link, then PATH).
 func Version(name string) (string, error) {
-	spec, ok := agent.LookupSchema(name)
-	if !ok {
+	if _, ok := agent.LookupSchema(name); !ok {
 		return "", fmt.Errorf("unknown agent %q", name)
 	}
 	path, err := paths.AgentBin(name)
 	if err != nil {
-		bin := spec.CLI.Binary
-		if bin == "" {
-			bin = name // claude has no Binary on its row
-		}
-		if path, err = paths.LookPathReal(bin); err != nil {
+		if path, err = paths.LookPathReal(agentid.Binary(name)); err != nil {
 			return "", fmt.Errorf("%w: %v", ErrAgentNotInstalled, err)
 		}
 	}
-	return VersionAt(path)
+	return versionAt(path)
 }
 
-// VersionAt is Version for a resolved binary path; --version runs once per path+size+mtime.
-func VersionAt(path string) (string, error) {
+// versionAt is Version for a resolved binary path; --version runs once per path+size+mtime.
+func versionAt(path string) (string, error) {
 	line := versionLine(path)
-	if v := ParseVersion(line); v != "" {
+	if v := parseVersion(line); v != "" {
 		return v, nil
 	}
-	return "", fmt.Errorf("%w: %q", ErrVersionUnknown, line)
+	return "", fmt.Errorf("%w: %q", errVersionUnknown, line)
 }
 
 // VersionProblem is "" when version is in the row's bounds, else "below <min>: <reason>" or "above <max>: <reason>".
@@ -107,7 +103,7 @@ func VersionWarning(name, path string) string {
 	if !ok || (spec.MinVersion == "" && spec.MaxVersion == "") {
 		return "" // no bound: skip the probe entirely
 	}
-	v, err := VersionAt(path)
+	v, err := versionAt(path)
 	if err != nil {
 		return ""
 	}

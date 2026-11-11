@@ -24,11 +24,11 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// DispatchSchema versions the dispatch record file.
-const DispatchSchema = 1
+// dispatchSchema versions the dispatch record file.
+const dispatchSchema = 1
 
 var dispatchFormat = schemas.Register(schemas.Format{
-	Name: "dispatch-record", Owner: "internal/agent", Kind: schemas.Record, Version: DispatchSchema,
+	Name: "dispatch-record", Owner: "internal/agent", Kind: schemas.Record, Version: dispatchSchema,
 	Glob:    func() string { return filepath.Join(paths.DispatchDir(), "*.json") },
 	New:     func() any { return new(Record) },
 	Clean:   "dispatch-log",
@@ -92,16 +92,16 @@ const dispatchPruneMargin = 20
 
 // NewRecord stamps an id that sorts by time and names the agent: 20261016T210512.123-codex.
 func NewRecord(name string, req RunOptions, now time.Time) Record {
-	req.EnvNames = EnvNames(req.Env)
+	req.EnvNames = envNames(req.Env)
 	widened, _ := widenedChecked(name, req.Permissions) // a bad default fails the run itself
-	return Record{Schema: DispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
+	return Record{Schema: dispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
 		Widened: widened}
 }
 
 // widenedChecked is what p grants beyond name's default permissions; an unreadable default is returned, not hidden.
 func widenedChecked(name string, p Permissions) ([]string, error) {
 	def, err := DefaultPermissions(name)
-	_, widened := ResolvePermissions(def, p)
+	_, widened := resolvePermissions(def, p)
 	return widened, err
 }
 
@@ -149,7 +149,7 @@ func recordID(now time.Time, agent string) string {
 
 // encode is the record's JSON, schema stamped.
 func (r Record) encode() ([]byte, error) {
-	r.Schema = DispatchSchema
+	r.Schema = dispatchSchema
 	return json.MarshalIndent(r, "", "  ")
 }
 
@@ -299,6 +299,9 @@ func LoadRecord(id string) (Record, error) {
 	return readRecord(filepath.Join(paths.DispatchDir(), match[0]))
 }
 
+// AllRecords is RecentRecords' n for "every record": the log itself is capped by the dispatch keep.
+const AllRecords = 1 << 20
+
 // RecentRecords returns up to n records, newest first; an unreadable dispatch dir lists none.
 func RecentRecords(n int) []Record {
 	out, _ := ReadRecent(n)
@@ -325,12 +328,13 @@ type RunRecordedOpts struct {
 	Notify   func(string) // receives non-fatal bookkeeping failures (the record not saving)
 }
 
-// RunRecorded runs one recorded dispatch (log, event file, start, run, Finish/Save, result): one pair per id, not per dispatch.
-func RunRecorded(ctx context.Context, rec *Record, agentName string, out wire.Sink, o RunRecordedOpts,
+// runRecorded runs one recorded dispatch (log, event file, start, run, Finish/Save, result): one pair per id, not per dispatch.
+func runRecorded(ctx context.Context, rec *Record, agentName string, out wire.Sink, o RunRecordedOpts,
 	run func(context.Context, wire.Sink) (wire.Result, error)) (wire.Result, error) {
 	logSink := wire.NewLogSink(rec.LogPath())
 	defer logSink.Close() // idempotent: covers a panic in Run
 	ctx = wire.WithLog(ctx, logSink)
+	ctx = withDispatchID(ctx, rec.ID)
 	if o.Job {
 		ctx, out = wire.WithLogEvents(ctx, logSink), wire.Discard
 	}

@@ -98,7 +98,7 @@ func ErrorKind(err error) string {
 		return re.Kind
 	}
 	switch {
-	case errors.Is(err, ErrSchema):
+	case errors.Is(err, errSchema):
 		return "schema"
 	case errors.Is(err, context.DeadlineExceeded):
 		return "timeout"
@@ -195,7 +195,7 @@ type Usage struct {
 	CostUSD float64 `json:"cost_usd,omitempty"`
 }
 
-// Result is the envelope `ask --format json` prints.
+// Result is one run's outcome; NewEnvelope turns it into the Envelope that `ask --format json` prints.
 type Result struct {
 	DispatchID      string          `json:"-"`
 	Agent           string          `json:"agent"`
@@ -214,12 +214,12 @@ type Result struct {
 	FallbackReason  string          `json:"fallback_reason,omitempty"` // why the original agent was unavailable
 	Handoff         string          `json:"handoff,omitempty"`         // hand-off file written when a copilot dispatch hit its quota
 	Transport       *Transport      `json:"transport,omitempty"`       // stream health; fields an agent can't report stay absent
-	Hops            []Hop           `json:"hops,omitempty"`            // every dispatch RunWithFallback tried, in order
+	Hops            []Hop           `json:"hops,omitempty"`            // every dispatch runWithFallback tried, in order
 	Structured      json.RawMessage `json:"-"`                         // the answer as JSON satisfying RunOptions.OutputSchema
 	Recovered       []*retry.Error  // attempts that failed before the successful one, for the hop's errors
 }
 
-// Hop is one dispatch RunWithFallback tried; ErrorKind is the envelope error token, empty when the dispatch answered.
+// Hop is one dispatch runWithFallback tried; ErrorKind is the envelope error token, empty when the dispatch answered.
 type Hop struct {
 	Agent     string `json:"agent"`
 	Account   string `json:"account,omitempty"`

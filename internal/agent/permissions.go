@@ -138,9 +138,9 @@ func DefaultPermissions(name string) (Permissions, error) {
 	return Permissions{}, fmt.Errorf("%s default permissions: %w", name, err)
 }
 
-// ResolvePermissions layers defaults → role → request: rules add up, the last mode set wins, and widened names what a
+// resolvePermissions layers defaults → role → request: rules add up, the last mode set wins, and widened names what a
 // later layer grants beyond the earlier ones (D3: auto-granted unless a Deny matches, recorded). Deny never loosens.
-func ResolvePermissions(layers ...Permissions) (out Permissions, widened []string) {
+func resolvePermissions(layers ...Permissions) (out Permissions, widened []string) {
 	for i, l := range layers {
 		if i > 0 { // the first layer is the baseline the others widen
 			widened = append(widened, widening(out, l)...)

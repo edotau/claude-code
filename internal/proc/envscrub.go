@@ -15,7 +15,7 @@ const (
 	EnvCopilotProvidersConfig         = "COPILOT_PROVIDERS_CONFIG"
 	EnvClaudeConfigDir                = "CLAUDE_CONFIG_DIR"
 	EnvAnthropicAPIKey                = "ANTHROPIC_API_KEY"
-	EnvAnthropicAuthToken             = "ANTHROPIC_AUTH_TOKEN"
+	envAnthropicAuthToken             = "ANTHROPIC_AUTH_TOKEN"
 	EnvAnthropicBaseURL               = "ANTHROPIC_BASE_URL"
 	EnvAnthropicCustomHeaders         = "ANTHROPIC_CUSTOM_HEADERS"
 	EnvCopilotProviderBaseURL         = CopilotProviderPrefix + "BASE_URL"
@@ -32,7 +32,7 @@ const (
 
 // AnthropicStripEnv names inherited endpoint credentials shared by all launch scrubbers.
 var AnthropicStripEnv = []string{
-	EnvAnthropicAPIKey, EnvAnthropicAuthToken, EnvAnthropicBaseURL, EnvAnthropicCustomHeaders,
+	EnvAnthropicAPIKey, envAnthropicAuthToken, EnvAnthropicBaseURL, EnvAnthropicCustomHeaders,
 }
 
 // ScrubDeny is every inherited credential/routing var a launch never passes through (it would override its own).
@@ -71,20 +71,20 @@ func ForeignLogins(own string, keepGHToken bool) []string {
 	return out
 }
 
-// EnvKeepVar opts bare shims back into an inherited name; their argv belongs to the agent, not the harness.
-const EnvKeepVar = "HARNESS_KEEP_ENV"
+// envKeepVar opts bare shims back into an inherited name; their argv belongs to the agent, not the harness.
+const envKeepVar = "HARNESS_KEEP_ENV"
 
-// ScrubAgentOnlyDeny drops from an agent CLI child only; Claude Code keeps these so its hooks can open the vault.
-var ScrubAgentOnlyDeny = []string{"HARNESS_VAULT_KEY"}
+// scrubAgentOnlyDeny drops from an agent CLI child only; Claude Code keeps these so its hooks can open the vault.
+var scrubAgentOnlyDeny = []string{"HARNESS_VAULT_KEY"}
 
 // Scrub splits environ (KEY=VALUE entries) into kept and dropped (names only) against ScrubDeny, honoring keep.
 func Scrub(environ []string, keep map[string]bool) (kept, dropped []string) {
 	return scrub(environ, keep, ScrubDeny)
 }
 
-// ScrubAgent is Scrub plus ScrubAgentOnlyDeny: use for codex/gemini/opencode/copilot child launches.
+// ScrubAgent is Scrub plus scrubAgentOnlyDeny: use for codex/gemini/opencode/copilot child launches.
 func ScrubAgent(environ []string, keep map[string]bool) (kept, dropped []string) {
-	return scrub(environ, keep, append(slices.Clone(ScrubDeny), ScrubAgentOnlyDeny...))
+	return scrub(environ, keep, append(slices.Clone(ScrubDeny), scrubAgentOnlyDeny...))
 }
 
 // Drop returns environ without the names matching a deny glob, except those in keep.
@@ -105,9 +105,9 @@ func scrub(environ []string, keep map[string]bool, deny []string) (kept, dropped
 	return kept, dropped
 }
 
-// EnvBlocked reports whether name is one a launch never passes through (ScrubDeny, ScrubAgentOnlyDeny, anything HARNESS_*).
+// EnvBlocked reports whether name is one a launch never passes through (ScrubDeny, scrubAgentOnlyDeny, anything HARNESS_*).
 func EnvBlocked(name string) bool {
-	return strings.HasPrefix(name, "HARNESS_") || denied(name, ScrubDeny) || denied(name, ScrubAgentOnlyDeny)
+	return strings.HasPrefix(name, "HARNESS_") || denied(name, ScrubDeny) || denied(name, scrubAgentOnlyDeny)
 }
 
 // EnvKeepSet unions explicit names with HARNESS_KEEP_ENV, comma-separated.
@@ -116,7 +116,7 @@ func EnvKeepSet(names []string) map[string]bool {
 	for _, n := range names {
 		keep[n] = true
 	}
-	for n := range strings.SplitSeq(os.Getenv(EnvKeepVar), ",") {
+	for n := range strings.SplitSeq(os.Getenv(envKeepVar), ",") {
 		if n = strings.TrimSpace(n); n != "" {
 			keep[n] = true
 		}

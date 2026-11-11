@@ -244,8 +244,8 @@ func TestBuildFixtureSession(t *testing.T) {
 			t.Errorf("run = %+v, want name=gate-loop status=green", run)
 		}
 		killed := workflowByID(t, s.Workflows, "wf_fake0005-killed")
-		if killed.Name != "killed-run" || killed.Status != StatusError {
-			t.Errorf("killed run = %+v, want name=killed-run status=%s", killed, StatusError)
+		if killed.Name != "killed-run" || killed.Status != statusError {
+			t.Errorf("killed run = %+v, want name=killed-run status=%s", killed, statusError)
 		}
 		phases := phaseAgents(run)
 		for name, id := range map[string]string{"Detect": "fakewfagent001", "Gate": "fakewfagent002"} {
@@ -263,10 +263,10 @@ func TestBuildFixtureSession(t *testing.T) {
 			t.Errorf("stale-session status = %q, want idle", got)
 		}
 		byID := subs(t)
-		if got := byID["fakeagentid001"].Status; got != StatusFinished {
+		if got := byID["fakeagentid001"].Status; got != statusFinished {
 			t.Errorf("agent001 (finished:true) status = %q, want finished", got)
 		}
-		if got := byID["fakeagentid002"].Status; got != StatusRunning {
+		if got := byID["fakeagentid002"].Status; got != statusRunning {
 			t.Errorf("agent002 (finished:false, fresh mtime) status = %q, want running", got)
 		}
 	})
@@ -287,19 +287,19 @@ func TestBuildFixtureSession(t *testing.T) {
 	})
 	t.Run("journal result drives finished and error", func(t *testing.T) {
 		t.Parallel()
-		if got := mustSub(t, s, "fakewfagent002").Status; got != StatusFinished {
+		if got := mustSub(t, s, "fakewfagent002").Status; got != statusFinished {
 			t.Errorf("fakewfagent002 status = %q, want finished (journal result line, meta has no finished:true)", got)
 		}
-		if got := mustSub(t, s, "fakewfagent030").Status; got != StatusError {
+		if got := mustSub(t, s, "fakewfagent030").Status; got != statusError {
 			t.Errorf("fakewfagent030 status = %q, want error (journal result:null)", got)
 		}
 	})
 	t.Run("journal started without result stays running", func(t *testing.T) {
 		t.Parallel()
-		if got := mustSub(t, s, "fakewfagent020").Status; got != StatusRunning {
+		if got := mustSub(t, s, "fakewfagent020").Status; got != statusRunning {
 			t.Errorf("fakewfagent020 status = %q, want running (started, no result, fresh mtime)", got)
 		}
-		if got := workflowByID(t, s.Workflows, "wf_fake0003-running").Status; got != StatusRunning {
+		if got := workflowByID(t, s.Workflows, "wf_fake0003-running").Status; got != statusRunning {
 			t.Errorf("wf_fake0003-running run status = %q, want running", got)
 		}
 	})
@@ -487,7 +487,7 @@ func TestBuildRunningPrunesFinishedChildren(t *testing.T) {
 			runs = append(runs, r.ID)
 			for _, p := range r.Phases {
 				for _, a := range p.Agents {
-					if a.Status == StatusFinished || a.Status == StatusError {
+					if a.Status == statusFinished || a.Status == statusError {
 						t.Errorf("--running kept %s workflow agent %s", a.Status, a.ID)
 					}
 				}
@@ -527,7 +527,7 @@ func TestBuildRunningPrunesFinishedChildren(t *testing.T) {
 			var ids []string
 			for _, sub := range s.Subagents {
 				ids = append(ids, sub.ID)
-				if sub.Status == StatusFinished || sub.Status == StatusError {
+				if sub.Status == statusFinished || sub.Status == statusError {
 					t.Errorf("json kept %s subagent %s in %s", sub.Status, sub.ID, s.ID)
 				}
 			}
@@ -552,12 +552,12 @@ func TestSubagentGoesStaleOutsideActiveWindow(t *testing.T) {
 			}
 			s := sessionByID(t, tree, finishedSID)
 			if running {
-				if len(s.Subagents) != 1 || s.Subagents[0].ID != "fakeagentid002" || s.Subagents[0].Status != StatusStale {
+				if len(s.Subagents) != 1 || s.Subagents[0].ID != "fakeagentid002" || s.Subagents[0].Status != statusStale {
 					t.Errorf("subagents = %+v, want the stale fakeagentid002 kept", s.Subagents)
 				}
 				return
 			}
-			if got := mustSub(t, s, "fakeagentid002").Status; got != StatusStale {
+			if got := mustSub(t, s, "fakeagentid002").Status; got != statusStale {
 				t.Errorf("agent002 status = %q, want stale", got)
 			}
 		})
@@ -579,7 +579,7 @@ func TestManifestLessWorkflowRunFinishesFromJournal(t *testing.T) {
 	if run.Name != "wf_fake0002-nomanifest" {
 		t.Errorf("run.Name = %q, want the run id (no manifest to name it)", run.Name)
 	}
-	if run.Status != StatusFinished {
+	if run.Status != statusFinished {
 		t.Errorf("wf_fake0002-nomanifest status = %q, want finished (journal started==resulted, quiet past activeWindow)", run.Status)
 	}
 }

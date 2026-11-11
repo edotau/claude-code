@@ -55,9 +55,9 @@ func (m *workflowManifest) resultStatus() string {
 	}
 	switch m.Status {
 	case "killed":
-		return StatusError
+		return statusError
 	case "completed":
-		return StatusFinished
+		return statusFinished
 	}
 	return ""
 }
@@ -213,9 +213,9 @@ func applyJournalEntry(sub Subagent, j journalEntry) Subagent {
 		sub.Description = j.Label
 	}
 	if j.Resulted {
-		sub.Status = StatusFinished
+		sub.Status = statusFinished
 		if j.Errored {
-			sub.Status = StatusError
+			sub.Status = statusError
 		}
 	}
 	return sub
@@ -238,7 +238,7 @@ func workflowRunStatus(m *workflowManifest, journal map[string]journalEntry, upd
 		}
 	}
 	if started > 0 && started == resulted && now.Sub(updated) > subagentActiveWindow {
-		return StatusFinished
+		return statusFinished
 	}
-	return StatusRunning
+	return statusRunning
 }

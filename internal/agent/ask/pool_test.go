@@ -70,8 +70,8 @@ func vendorPrepare(t *testing.T, prompt string, n *atomic.Int32) func(context.Co
 }
 
 // vendorTask is a task whose first attempt runs the first prompt and whose retry, when given, runs the second.
-func vendorTask(t *testing.T, id, plan, first, retry string, prep, again *atomic.Int32) Task {
-	task := Task{ID: id, Agent: "opencode", Plan: plan, Prepare: vendorPrepare(t, first, prep)}
+func vendorTask(t *testing.T, id, plan, first, retry string, prep, again *atomic.Int32) batchTask {
+	task := batchTask{ID: id, Agent: "opencode", Plan: plan, Prepare: vendorPrepare(t, first, prep)}
 	if retry != "" {
 		task.Retry = vendorPrepare(t, retry, again)
 	}
@@ -94,15 +94,15 @@ func TestRunTasksPreparesOverlap(t *testing.T) {
 	var buf bytes.Buffer
 	done := make(chan bool, 1)
 	go func() {
-		done <- RunTasks(t.Context(), []Task{{ID: "a", Agent: "x", Prepare: prepare}, {ID: "b", Agent: "x", Prepare: prepare}},
-			PoolOptions{Jobs: 2, Out: &buf})
+		done <- runTasks(t.Context(), []batchTask{{ID: "a", Agent: "x", Prepare: prepare}, {ID: "b", Agent: "x", Prepare: prepare}},
+			poolOptions{Jobs: 2, Out: &buf})
 	}()
 	for range 2 {
 		recvWithin(t, entered, 5*time.Second, "both prepares must enter before either is released")
 	}
 	once.Do(func() { close(release) })
-	if recvWithin(t, done, 5*time.Second, "RunTasks did not finish after releasing prepares") {
-		t.Error("RunTasks returned true for prepare errors")
+	if recvWithin(t, done, 5*time.Second, "runTasks did not finish after releasing prepares") {
+		t.Error("runTasks returned true for prepare errors")
 	}
 	if envs := decodePoolEnvelopes(t, &buf); len(envs) != 2 {
 		t.Fatalf("got %d envelopes, want 2", len(envs))
@@ -114,7 +114,7 @@ func TestRunTasksPrepareErrorEnvelope(t *testing.T) {
 	for _, failFast := range []bool{false, true} {
 		t.Run(fmt.Sprintf("failFast=%v", failFast), func(t *testing.T) {
 			var secondCalls atomic.Int32
-			tasks := []Task{
+			tasks := []batchTask{
 				{ID: "a", Agent: "x", Prepare: failPrepare("boom a")},
 				{ID: "b", Agent: "x", Prepare: func(ctx context.Context) (*agent.Prepared, error) {
 					secondCalls.Add(1)
@@ -122,8 +122,8 @@ func TestRunTasksPrepareErrorEnvelope(t *testing.T) {
 				}},
 			}
 			var buf bytes.Buffer
-			if RunTasks(t.Context(), tasks, PoolOptions{ID: "batch-t", Jobs: 1, FailFast: failFast, Out: &buf}) {
-				t.Error("RunTasks returned true for prepare errors")
+			if runTasks(t.Context(), tasks, poolOptions{ID: "batch-t", Jobs: 1, FailFast: failFast, Out: &buf}) {
+				t.Error("runTasks returned true for prepare errors")
 			}
 			want := map[string]string{"a": "boom a", "b": "boom b"}
 			if failFast {
@@ -180,14 +180,14 @@ func decodePoolEnvelopes(t *testing.T, r io.Reader) []wire.Envelope {
 func TestRunTasksStampsRecordIDs(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	base := time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC)
-	mk := func(id, plan string, off int) Task {
-		return Task{ID: id, Agent: "codex", Plan: plan, Prepare: func(context.Context) (*agent.Prepared, error) {
+	mk := func(id, plan string, off int) batchTask {
+		return batchTask{ID: id, Agent: "codex", Plan: plan, Prepare: func(context.Context) (*agent.Prepared, error) {
 			rec := agent.NewRecord("codex", agent.RunOptions{Prompt: id}, base.Add(time.Duration(off)*time.Second))
 			return &agent.Prepared{Record: rec}, nil
 		}}
 	}
 	var buf bytes.Buffer
-	RunTasks(t.Context(), []Task{mk("a", "Phase 1.1", 0), mk("b", "", 1)}, PoolOptions{ID: "batch-x", Jobs: 1, Out: &buf})
+	runTasks(t.Context(), []batchTask{mk("a", "Phase 1.1", 0), mk("b", "", 1)}, poolOptions{ID: "batch-x", Jobs: 1, Out: &buf})
 	got := map[string]agent.Record{}
 	for _, r := range agent.RecentRecords(10) {
 		got[r.TaskID] = r
@@ -203,26 +203,26 @@ func TestRunTasksStampsRecordIDs(t *testing.T) {
 	}
 }
 
-// Tasks sent on More run while the batch is open; RunTasks returns only after More closes and every task ends.
+// Tasks sent on More run while the batch is open; runTasks returns only after More closes and every task ends.
 func TestRunTasksMoreClaimsTasks(t *testing.T) {
 	vendorHost(t)
 	var n atomic.Int32
-	more := make(chan Task)
+	more := make(chan batchTask)
 	var buf bytes.Buffer
 	done := make(chan bool, 1)
 	go func() {
-		done <- RunTasks(t.Context(), []Task{vendorTask(t, "a", "", "ok", "", &n, &n)}, PoolOptions{ID: "batch-m", Jobs: 1, Out: &buf, More: more})
+		done <- runTasks(t.Context(), []batchTask{vendorTask(t, "a", "", "ok", "", &n, &n)}, poolOptions{ID: "batch-m", Jobs: 1, Out: &buf, More: more})
 	}()
 	more <- vendorTask(t, "b", "", "ok", "", &n, &n)
 	more <- vendorTask(t, "c", "", "ok", "", &n, &n)
 	select {
 	case <-done:
-		t.Fatal("RunTasks returned before More was closed")
+		t.Fatal("runTasks returned before More was closed")
 	case <-time.After(300 * time.Millisecond):
 	}
 	close(more)
-	if !recvWithin(t, done, 10*time.Second, "RunTasks did not return after More closed") {
-		t.Error("RunTasks = false, want every task ok")
+	if !recvWithin(t, done, 10*time.Second, "runTasks did not return after More closed") {
+		t.Error("runTasks = false, want every task ok")
 	}
 	var ids []string
 	for _, env := range decodePoolEnvelopes(t, &buf) {
@@ -240,16 +240,16 @@ func TestRunTasksMoreClaimsTasks(t *testing.T) {
 func TestRunTasksMoreFailFastDoesNotRunPending(t *testing.T) {
 	vendorHost(t)
 	var prepA, prepB, unused atomic.Int32
-	more := make(chan Task, 1) // never closed: RunTasks must end on the cancellation alone
+	more := make(chan batchTask, 1) // never closed: runTasks must end on the cancellation alone
 	more <- vendorTask(t, "m", "", "ok", "", &prepB, &unused)
 	var buf bytes.Buffer
 	done := make(chan bool, 1)
 	go func() {
-		done <- RunTasks(t.Context(), []Task{vendorTask(t, "a", "", "FAILME", "", &prepA, &unused)},
-			PoolOptions{ID: "batch-f", Jobs: 1, FailFast: true, Out: &buf, More: more})
+		done <- runTasks(t.Context(), []batchTask{vendorTask(t, "a", "", "FAILME", "", &prepA, &unused)},
+			poolOptions{ID: "batch-f", Jobs: 1, FailFast: true, Out: &buf, More: more})
 	}()
-	if recvWithin(t, done, 10*time.Second, "RunTasks hung with More open under FailFast") {
-		t.Error("RunTasks = true, want false after the failure")
+	if recvWithin(t, done, 10*time.Second, "runTasks hung with More open under FailFast") {
+		t.Error("runTasks = true, want false after the failure")
 	}
 	if prepB.Load() != 0 {
 		t.Errorf("pending More task was prepared %d times, want 0", prepB.Load())
@@ -261,17 +261,17 @@ func TestRunTasksMoreFailFastDoesNotRunPending(t *testing.T) {
 	}
 }
 
-// runOpts runs the JSONL initial lines through RunBatch against the fake opencode vendor and returns envelopes by task id.
-func runOpts(t *testing.T, initial string, o Opts) map[string][]wire.Envelope {
+// runOpts runs the JSONL initial lines through runBatch against the fake opencode vendor and returns envelopes by task id.
+func runOpts(t *testing.T, initial string, o batchOpts) map[string][]wire.Envelope {
 	t.Helper()
-	lines, err := ReadTaskLines(strings.NewReader(initial))
+	lines, err := readTaskLines(strings.NewReader(initial))
 	if err != nil {
 		t.Fatal(err)
 	}
 	o.Jobs, o.Agent, o.Fallback = 1, "opencode", router.FallbackAgents
 	base := agent.RunOptions{Provider: "acme", Model: "acme-large", WorkDir: t.TempDir()}
 	var buf bytes.Buffer
-	id, _ := RunBatch(t.Context(), lines, o, base, false, func() *agent.Client { return agent.NewClient(nil, nil, nil) }, &buf)
+	id, _ := runBatch(t.Context(), lines, o, base, false, func() *agent.Client { return agent.NewClient(nil, nil, nil) }, &buf)
 	byID := map[string][]wire.Envelope{}
 	for _, env := range decodePoolEnvelopes(t, &buf) {
 		if env.BatchID != id {
@@ -283,10 +283,10 @@ func runOpts(t *testing.T, initial string, o Opts) map[string][]wire.Envelope {
 }
 
 // followLines feeds the given raw JSONL lines through build, as a follower would, then closes.
-func followLines(raw string, firstN int) func(context.Context, func(ParsedLine) Task) <-chan Task {
-	return func(_ context.Context, build func(ParsedLine) Task) <-chan Task {
-		out := make(chan Task, 16)
-		lines, _ := ReadTaskLines(strings.NewReader(raw))
+func followLines(raw string, firstN int) func(context.Context, func(parsedLine) batchTask) <-chan batchTask {
+	return func(_ context.Context, build func(parsedLine) batchTask) <-chan batchTask {
+		out := make(chan batchTask, 16)
+		lines, _ := readTaskLines(strings.NewReader(raw))
 		for i, l := range lines {
 			l.N = firstN + i
 			out <- build(l)
@@ -302,7 +302,7 @@ func TestRunFollowClaimsTasksAndBadLinesFailAlone(t *testing.T) {
 	follow := followLines(strings.Join([]string{
 		`{"id":"f","prompt":"ok"}`, `{"id":"a","prompt":"ok"}`, `{"id":"j"`, `{"id":"u","prompt":"ok","bogus":1}`, `{"id":"np"}`,
 		`{"id":"g","prompt":"ok"}`}, "\n")+"\n", 2)
-	got := runOpts(t, `{"id":"a","prompt":"ok"}`+"\n", Opts{Follow: follow})
+	got := runOpts(t, `{"id":"a","prompt":"ok"}`+"\n", batchOpts{Follow: follow})
 	for _, id := range []string{"f", "g"} {
 		if len(got[id]) != 1 || got[id][0].Status != wire.StatusOK {
 			t.Errorf("task %s = %+v, want one ok envelope", id, got[id])
@@ -330,17 +330,17 @@ func TestRunFollowClaimsTasksAndBadLinesFailAlone(t *testing.T) {
 func TestRunDecorateSetsRetry(t *testing.T) {
 	vendorHost(t)
 	var again atomic.Int32
-	decorate := func(task *Task) { task.Retry = vendorPrepare(t, "ok", &again) }
-	got := runOpts(t, `{"id":"a","prompt":"FAILME"}`+"\n", Opts{Decorate: decorate})
+	decorate := func(task *batchTask) { task.Retry = vendorPrepare(t, "ok", &again) }
+	got := runOpts(t, `{"id":"a","prompt":"FAILME"}`+"\n", batchOpts{Decorate: decorate})
 	if len(got["a"]) != 1 || got["a"][0].Status != wire.StatusOK || len(got["a"][0].Hops) < 2 || again.Load() != 1 {
 		t.Errorf("a = %+v retries %d, want one ok envelope with >= 2 hops after one retry", got["a"], again.Load())
 	}
 }
 
-// With neither hook set RunBatch is the plain pool: one task, one envelope, no retry.
+// With neither hook set runBatch is the plain pool: one task, one envelope, no retry.
 func TestRunWithoutHooks(t *testing.T) {
 	vendorHost(t)
-	got := runOpts(t, `{"id":"a","prompt":"FAILME"}`+"\n"+`{"id":"b","prompt":"ok"}`+"\n", Opts{})
+	got := runOpts(t, `{"id":"a","prompt":"FAILME"}`+"\n"+`{"id":"b","prompt":"ok"}`+"\n", batchOpts{})
 	if len(got["a"]) != 1 || got["a"][0].Status != wire.StatusError || len(got["a"][0].Hops) != 1 ||
 		len(got["b"]) != 1 || got["b"][0].Status != wire.StatusOK {
 		t.Errorf("envelopes = %+v, want a failed once without retry and b ok", got)
@@ -348,11 +348,11 @@ func TestRunWithoutHooks(t *testing.T) {
 }
 
 // runRetryBatch runs tasks with one job and returns the ok flag and the decoded envelopes by task id.
-func runRetryBatch(t *testing.T, o PoolOptions, tasks ...Task) (bool, map[string][]wire.Envelope) {
+func runRetryBatch(t *testing.T, o poolOptions, tasks ...batchTask) (bool, map[string][]wire.Envelope) {
 	t.Helper()
 	var buf bytes.Buffer
 	o.Out, o.ID, o.Jobs = &buf, "batch-r", 1
-	ok := RunTasks(t.Context(), tasks, o)
+	ok := runTasks(t.Context(), tasks, o)
 	byID := map[string][]wire.Envelope{}
 	for _, env := range decodePoolEnvelopes(t, &buf) {
 		byID[env.TaskID] = append(byID[env.TaskID], env)
@@ -364,7 +364,7 @@ func runRetryBatch(t *testing.T, o PoolOptions, tasks ...Task) (bool, map[string
 func TestRetryAfterFailureEmitsOneEnvelope(t *testing.T) {
 	vendorHost(t)
 	var prep, again atomic.Int32
-	_, got := runRetryBatch(t, PoolOptions{}, vendorTask(t, "a", "Phase 1.1", "FAILME", "ok", &prep, &again))
+	_, got := runRetryBatch(t, poolOptions{}, vendorTask(t, "a", "Phase 1.1", "FAILME", "ok", &prep, &again))
 	if len(got["a"]) != 1 || got["a"][0].Status != wire.StatusOK || len(got["a"][0].Hops) < 2 {
 		t.Fatalf("envelopes for a = %+v, want one ok envelope with >= 2 hops", got["a"])
 	}
@@ -386,7 +386,7 @@ func TestRetryAfterFailureEmitsOneEnvelope(t *testing.T) {
 func TestRetryAlsoFailsEmitsRetryError(t *testing.T) {
 	vendorHost(t)
 	var prep, again atomic.Int32
-	ok, got := runRetryBatch(t, PoolOptions{}, vendorTask(t, "a", "", "FAILME", "FAILME", &prep, &again))
+	ok, got := runRetryBatch(t, poolOptions{}, vendorTask(t, "a", "", "FAILME", "FAILME", &prep, &again))
 	if ok || len(got["a"]) != 1 || got["a"][0].Status != wire.StatusError || len(got["a"][0].Hops) != 2 {
 		t.Fatalf("ok=%v envelopes for a = %+v, want one error envelope with 2 hops", ok, got["a"])
 	}
@@ -401,7 +401,7 @@ func TestRetryJobsOneKeepsSlotAccounting(t *testing.T) {
 	var n, again atomic.Int32
 	done := make(chan map[string][]wire.Envelope, 1)
 	go func() {
-		_, got := runRetryBatch(t, PoolOptions{},
+		_, got := runRetryBatch(t, poolOptions{},
 			vendorTask(t, "a", "", "FAILME", "ok", &n, &again),
 			vendorTask(t, "b", "", "ok", "", &n, &n),
 			vendorTask(t, "c", "", "ok", "", &n, &n))
@@ -423,14 +423,14 @@ func TestRetrySkippedWhenNotRealFailure(t *testing.T) {
 	noHops := func(context.Context) (*agent.Prepared, error) {
 		return &agent.Prepared{Record: agent.NewRecord("opencode", agent.RunOptions{}, time.Now())}, nil
 	}
-	runRetryBatch(t, PoolOptions{},
-		Task{ID: "h", Agent: "opencode", Prepare: noHops, Retry: retry},
-		Task{ID: "p", Agent: "opencode", Prepare: failPrepare("prepare failed"), Retry: retry})
+	runRetryBatch(t, poolOptions{},
+		batchTask{ID: "h", Agent: "opencode", Prepare: noHops, Retry: retry},
+		batchTask{ID: "p", Agent: "opencode", Prepare: failPrepare("prepare failed"), Retry: retry})
 	if retried.Load() != 0 {
 		t.Errorf("Retry ran %d times for a no-hop failure and a prepare error, want 0", retried.Load())
 	}
 	var prep, again atomic.Int32
-	_, got := runRetryBatch(t, PoolOptions{FailFast: true},
+	_, got := runRetryBatch(t, poolOptions{FailFast: true},
 		vendorTask(t, "a", "", "FAILME", "ok", &prep, &again), vendorTask(t, "b", "", "ok", "", &prep, &prep))
 	if again.Load() != 0 || len(got["a"]) != 1 || got["a"][0].Status != wire.StatusError {
 		t.Errorf("FailFast: retry calls %d, a envelopes %+v, want 0 retries and a's own error", again.Load(), got["a"])
@@ -451,7 +451,7 @@ func TestRetrySkippedWhenCancelled(t *testing.T) {
 		return p, err
 	}
 	var buf bytes.Buffer
-	RunTasks(ctx, []Task{task}, PoolOptions{ID: "batch-c", Jobs: 1, Out: &buf})
+	runTasks(ctx, []batchTask{task}, poolOptions{ID: "batch-c", Jobs: 1, Out: &buf})
 	if again.Load() != 0 || len(decodePoolEnvelopes(t, &buf)) != 1 {
 		t.Errorf("retry calls = %d, want 0 and one envelope", again.Load())
 	}
@@ -460,9 +460,9 @@ func TestRetrySkippedWhenCancelled(t *testing.T) {
 // A batch task's own profile reaches the request and resolves to one dispatch, under the default --fallback all.
 func TestBatchTaskProfileIsOneDispatch(t *testing.T) {
 	profileFixture(t, "")
-	build := func(n int, profile string) Task {
-		line := ParsedLine{N: n, Task: TaskLine{Prompt: "p", Profile: profile}}
-		bt, err := BuildTask(line, Opts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, NewClient)
+	build := func(n int, profile string) batchTask {
+		line := parsedLine{N: n, Task: batchLine{Prompt: "p", Profile: profile}}
+		bt, err := buildTask(line, batchOpts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, newClient)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -478,7 +478,7 @@ func TestBatchTaskProfileIsOneDispatch(t *testing.T) {
 	}
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
-	res, err := NewClient().Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
+	res, err := newClient().Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
 	if err == nil || len(res.Hops) != 1 {
 		t.Fatalf("Exec: %d hops, err %v; want one unavailable dispatch", len(res.Hops), err)
 	}
@@ -748,7 +748,7 @@ func TestBatchHostMismatchFailsAuthBeforeExec(t *testing.T) {
 	}
 }
 
-// Every --batch task goes through RunRecorded: it leaves an <id>.events.jsonl running start to result.
+// Every --batch task goes through runRecorded: it leaves an <id>.events.jsonl running start to result.
 func TestBatchTasksWriteEventFiles(t *testing.T) {
 	cliEnv(t)
 	cliFakes(t)
@@ -924,8 +924,8 @@ func keepCaller(d agent.Dispatch) agent.Dispatch {
 }
 
 // chainTask is a batch task for taskAgent whose prepared chain wants want and tries ds in order.
-func chainTask(t *testing.T, id, taskAgent, want string, ds ...agent.Dispatch) Task {
-	return Task{ID: id, Agent: taskAgent, Req: agent.RunOptions{Prompt: "p"},
+func chainTask(t *testing.T, id, taskAgent, want string, ds ...agent.Dispatch) batchTask {
+	return batchTask{ID: id, Agent: taskAgent, Req: agent.RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (*agent.Prepared, error) {
 			rec := agent.Record{ID: "id-" + id, Agent: want, Log: filepath.Join(t.TempDir(), "l.log")}
 			return &agent.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: rec, Chain: agent.Chain{Want: want, Dispatches: ds}}, nil
@@ -933,19 +933,19 @@ func chainTask(t *testing.T, id, taskAgent, want string, ds ...agent.Dispatch) T
 }
 
 // acctTask is a batch task whose single dispatch bills account.
-func acctTask(t *testing.T, name, account string, r agent.Engine) Task {
+func acctTask(t *testing.T, name, account string, r agent.Engine) batchTask {
 	return chainTask(t, name, name, name, keepCaller(agent.Dispatch{Agent: r, Account: account}))
 }
 
 // runPool runs tasks in a fresh config dir under a 10s deadline and returns the output and the batch result.
-func runPool(t *testing.T, o PoolOptions, tasks ...Task) (string, bool) {
+func runPool(t *testing.T, o poolOptions, tasks ...batchTask) (string, bool) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var out strings.Builder
 	o.Out = &out
-	ok := RunTasks(ctx, tasks, o)
+	ok := runTasks(ctx, tasks, o)
 	return out.String(), ok
 }
 
@@ -981,7 +981,7 @@ func TestBatchCapsConcurrency(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var cur, peak atomic.Int32
-			var tasks []Task
+			var tasks []batchTask
 			for i := range retry.DefaultPerKey + 3 {
 				id := fmt.Sprintf("%s%d", c.prefix, i)
 				ag := id
@@ -991,7 +991,7 @@ func TestBatchCapsConcurrency(t *testing.T) {
 				r := gaugeRunner(ag, &cur, &peak, 60*time.Millisecond, nil)
 				tasks = append(tasks, chainTask(t, id, ag, ag, keepCaller(agent.Dispatch{Agent: r, Account: c.account})))
 			}
-			if out, ok := runPool(t, PoolOptions{Jobs: len(tasks)}, tasks...); !ok {
+			if out, ok := runPool(t, poolOptions{Jobs: len(tasks)}, tasks...); !ok {
 				t.Fatalf("batch failed: %s", out)
 			}
 			if got := int(peak.Load()); got > retry.DefaultPerKey || got < 2 {
@@ -1003,12 +1003,12 @@ func TestBatchCapsConcurrency(t *testing.T) {
 
 // A panicking agent (recovered by the batch) must give its dispatch permit back: later tasks on the account still run.
 func TestBatchPanickingDispatchesReleaseTheirPermits(t *testing.T) {
-	var tasks []Task
+	var tasks []batchTask
 	for i := range retry.DefaultPerKey + 2 {
 		name := fmt.Sprintf("p%d", i)
 		tasks = append(tasks, acctTask(t, name, "panic·acct", boomRunner(name)))
 	}
-	out, ok := runPool(t, PoolOptions{Jobs: 2}, tasks...)
+	out, ok := runPool(t, poolOptions{Jobs: 2}, tasks...)
 	if ok {
 		t.Fatal("batch reported ok although every agent panicked")
 	}
@@ -1035,14 +1035,14 @@ func TestBatchParkedTasksDoNotHoldPoolSlots(t *testing.T) {
 		})
 	}
 	n := retry.DefaultPerKey + 2
-	var tasks []Task
+	var tasks []batchTask
 	for i := range n {
 		name := fmt.Sprintf("a%d", i)
 		tasks = append(tasks, acctTask(t, name, "A·acct", waiter(name)))
 	}
 	enterB := runner("b", func(context.Context, wire.Sink) (wire.Result, error) { close(bRan); return okResult, nil })
 	tasks = append(tasks, acctTask(t, "b", "B·acct", enterB))
-	if out, ok := runPool(t, PoolOptions{Jobs: n}, tasks...); !ok {
+	if out, ok := runPool(t, poolOptions{Jobs: n}, tasks...); !ok {
 		t.Fatalf("batch failed: task b never got a pool slot while account-A tasks were parked\n%s", out)
 	}
 }
@@ -1051,7 +1051,7 @@ func TestBatchParkedTasksDoNotHoldPoolSlots(t *testing.T) {
 func TestBatchJobsCapHoldsAcrossFallbackHops(t *testing.T) {
 	const jobs = 5
 	var cur, peak atomic.Int32
-	var tasks []Task
+	var tasks []batchTask
 	for i := range 12 { // distinct task agents: the old per-key gate would cap at 4
 		name := fmt.Sprintf("f%d", i)
 		first := gaugeRunner("codex", &cur, &peak, 40*time.Millisecond, errors.New("HTTP 401 unauthorized"))
@@ -1059,7 +1059,7 @@ func TestBatchJobsCapHoldsAcrossFallbackHops(t *testing.T) {
 		tasks = append(tasks, chainTask(t, name, name, "codex",
 			keepCaller(agent.Dispatch{Agent: first, Account: "A·acct"}), agent.Dispatch{Agent: second, Account: "B·acct"}))
 	}
-	out, ok := runPool(t, PoolOptions{Jobs: jobs}, tasks...)
+	out, ok := runPool(t, poolOptions{Jobs: jobs}, tasks...)
 	if !ok {
 		t.Fatalf("batch failed: %s", out)
 	}
@@ -1075,13 +1075,13 @@ func TestBatchJobsCapHoldsAcrossFallbackHops(t *testing.T) {
 func TestBatchFailFastStopsQueuedTask(t *testing.T) {
 	cases := []struct {
 		name  string
-		first func(t *testing.T) Task
+		first func(t *testing.T) batchTask
 	}{
-		{"prepare failure", func(*testing.T) Task {
-			return Task{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"}, Prepare: failPrepare("route failed")}
+		{"prepare failure", func(*testing.T) batchTask {
+			return batchTask{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"}, Prepare: failPrepare("route failed")}
 		}},
-		{"panicking dispatch", func(t *testing.T) Task { return acctTask(t, "first", "ff·acct", boomRunner("first")) }},
-		{"empty chain", func(t *testing.T) Task { return chainTask(t, "first", "first", "first") }},
+		{"panicking dispatch", func(t *testing.T) batchTask { return acctTask(t, "first", "ff·acct", boomRunner("first")) }},
+		{"empty chain", func(t *testing.T) batchTask { return chainTask(t, "first", "first", "first") }},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -1089,7 +1089,7 @@ func TestBatchFailFastStopsQueuedTask(t *testing.T) {
 			second := acctTask(t, "second", "ff·acct", countRunner("second", &runs))
 			inner := second.Prepare
 			second.Prepare = func(ctx context.Context) (*agent.Prepared, error) { prepared.Add(1); return inner(ctx) }
-			out, ok := runPool(t, PoolOptions{Jobs: 1, FailFast: true}, c.first(t), second)
+			out, ok := runPool(t, poolOptions{Jobs: 1, FailFast: true}, c.first(t), second)
 			if ok {
 				t.Fatal("batch reported ok after a failed task")
 			}
@@ -1122,7 +1122,7 @@ func TestBatchWaitingAccountDoesNotBlockOthers(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			c.setup(t)
-			out, ok := runPool(t, PoolOptions{Jobs: c.jobs}, acctTask(t, c.id, c.acct, c.slow), acctTask(t, "free", "free·B", okRunner("free")))
+			out, ok := runPool(t, poolOptions{Jobs: c.jobs}, acctTask(t, c.id, c.acct, c.slow), acctTask(t, "free", "free·B", okRunner("free")))
 			if !ok {
 				t.Fatalf("batch failed: %s", out)
 			}
@@ -1136,8 +1136,8 @@ func TestBatchWaitingAccountDoesNotBlockOthers(t *testing.T) {
 // Without --fail-fast a Prepare error frees its slot: with Jobs=1 the next task still runs.
 func TestBatchPrepareFailureFreesSlotWithoutFailFast(t *testing.T) {
 	var runs atomic.Int32
-	first := Task{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"}, Prepare: failPrepare("route failed")}
-	out, _ := runPool(t, PoolOptions{Jobs: 1}, first, acctTask(t, "second", "pf·acct", countRunner("second", &runs)))
+	first := batchTask{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"}, Prepare: failPrepare("route failed")}
+	out, _ := runPool(t, poolOptions{Jobs: 1}, first, acctTask(t, "second", "pf·acct", countRunner("second", &runs)))
 	if runs.Load() != 1 {
 		t.Fatalf("second task ran %d times after the first task's Prepare failed, want 1:\n%s", runs.Load(), out)
 	}
@@ -1148,7 +1148,7 @@ func TestBatchPanickingDispatchDoesNotFallBack(t *testing.T) {
 	var runs atomic.Int32
 	task := chainTask(t, "t", "boom", "boom",
 		agent.Dispatch{Agent: boomRunner("boom"), Account: "boom·A"}, agent.Dispatch{Agent: countRunner("next", &runs), Account: "next·B"})
-	out, ok := runPool(t, PoolOptions{Jobs: 2}, task)
+	out, ok := runPool(t, poolOptions{Jobs: 2}, task)
 	if ok {
 		t.Fatal("batch reported ok after a panicking dispatch")
 	}
@@ -1168,7 +1168,7 @@ func TestBatchPanickingFallbackDispatchIsReported(t *testing.T) {
 	task := chainTask(t, "t", "claude", "claude",
 		agent.Dispatch{Agent: first, Account: "claude:agauth"}, agent.Dispatch{Agent: boomRunner("boom"), Account: "boom·B"})
 	var out strings.Builder
-	RunTasks(context.Background(), []Task{task}, PoolOptions{Jobs: 2, Out: &out})
+	runTasks(context.Background(), []batchTask{task}, poolOptions{Jobs: 2, Out: &out})
 	var env wire.Envelope
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &env); err != nil {
 		t.Fatalf("decode %q: %v", out.String(), err)
@@ -1181,7 +1181,7 @@ func TestBatchPanickingFallbackDispatchIsReported(t *testing.T) {
 // A dispatch whose account another task marked auth-dead while it waited for a permit does not run: it is an auth hop.
 func TestQueuedDispatchSkipsAccountMarkedAuthDead(t *testing.T) {
 	var runs atomic.Int32
-	out, _ := runPool(t, PoolOptions{Jobs: 1},
+	out, _ := runPool(t, poolOptions{Jobs: 1},
 		acctTask(t, "first", "auth·A", markRunner("first", markAuth("auth·A"))),
 		acctTask(t, "second", "auth·A", countRunner("second", &runs)))
 	if runs.Load() != 0 {
@@ -1195,7 +1195,7 @@ func TestQueuedDispatchSkipsAccountMarkedAuthDead(t *testing.T) {
 // A retry resumes after the backoff only if its account is still usable: one marked auth-dead meanwhile is skipped.
 func TestRetryRechecksAccountAfterBackoff(t *testing.T) {
 	var n atomic.Int32
-	out, _ := runPool(t, PoolOptions{Jobs: 1},
+	out, _ := runPool(t, poolOptions{Jobs: 1},
 		acctTask(t, "limited", "rate·A", rateOnceRunner("limited", &n)),
 		acctTask(t, "marker", "free·B", markRunner("marker", markAuth("rate·A"))))
 	if n.Load() != 1 {
@@ -1212,7 +1212,7 @@ func TestFirstAttemptRechecksAccountAfterCooldownIdle(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	coolOnFirstLoad(t, "late·A", 200*time.Millisecond)
 	var runs atomic.Int32
-	runPool(t, PoolOptions{Jobs: 1},
+	runPool(t, poolOptions{Jobs: 1},
 		acctTask(t, "late", "late·A", countRunner("late", &runs)),
 		acctTask(t, "marker", "free·B", markRunner("marker", markAuth("late·A"))))
 	if runs.Load() != 0 {
@@ -1220,12 +1220,12 @@ func TestFirstAttemptRechecksAccountAfterCooldownIdle(t *testing.T) {
 	}
 }
 
-// RunTasks writes one shared marker per running dispatch and removes every marker when the batch is done.
+// runTasks writes one shared marker per running dispatch and removes every marker when the batch is done.
 func TestRunBatchMarkersAppearAndClear(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const account = "shared·acct"
 	var cur, runPeak atomic.Int32
-	var tasks []Task
+	var tasks []batchTask
 	for _, name := range []string{"a", "b", "c"} {
 		r := gaugeRunner(name, &cur, &runPeak, 60*time.Millisecond, nil)
 		tasks = append(tasks, chainTask(t, name, name, name, keepCaller(agent.Dispatch{Agent: r, Account: account})))
@@ -1233,7 +1233,7 @@ func TestRunBatchMarkersAppearAndClear(t *testing.T) {
 	stop := make(chan struct{})
 	var peak atomic.Int32
 	go samplePeak(inflight.Dir(), account, 2*time.Millisecond, stop, &peak)
-	ok := RunTasks(context.Background(), tasks, PoolOptions{Jobs: 3})
+	ok := runTasks(context.Background(), tasks, poolOptions{Jobs: 3})
 	close(stop)
 	if !ok {
 		t.Fatal("batch failed")
@@ -1242,7 +1242,7 @@ func TestRunBatchMarkersAppearAndClear(t *testing.T) {
 		t.Error("no inflight markers observed while the batch ran")
 	}
 	if n := hosttest.CountFiles(inflight.Dir(), inflight.Prefix, account); n != 0 {
-		t.Errorf("%d markers remain after RunTasks returned, want 0", n)
+		t.Errorf("%d markers remain after runTasks returned, want 0", n)
 	}
 }
 

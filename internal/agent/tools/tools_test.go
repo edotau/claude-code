@@ -91,13 +91,13 @@ func isolateToolsEnv(t *testing.T, root string) (string, string) {
 
 func stubToolsInstall(t *testing.T, name string, install action) {
 	t.Helper()
-	old := Tools
-	Tools = append([]Tool(nil), Tools...)
-	t.Cleanup(func() { Tools = old })
-	for i := range Tools {
-		if Tools[i].Name == name {
-			Tools[i].Install = install
-			Tools[i].Update = nil
+	old := tools
+	tools = append([]tool(nil), tools...)
+	t.Cleanup(func() { tools = old })
+	for i := range tools {
+		if tools[i].Name == name {
+			tools[i].Install = install
+			tools[i].Update = nil
 			return
 		}
 	}
@@ -281,7 +281,7 @@ func TestInstallDir(t *testing.T) {
 	} {
 		t.Run(tc.name+"-"+strconv.FormatBool(tc.direct)+"-"+strconv.FormatBool(tc.pathCopy), func(t *testing.T) {
 			env := setupToolsTestEnv(t)
-			tool, ok := Lookup(tc.name)
+			tool, ok := lookup(tc.name)
 			if !ok {
 				t.Fatalf("Lookup(%q) failed", tc.name)
 			}
@@ -375,7 +375,7 @@ func TestStatusOneTargetIsLinkTargetOnly(t *testing.T) {
 	env := setupToolsTestEnv(t)
 	candidate := filepath.Join(env.path1, "codex")
 	writeToolsFixture(t, candidate, "#!/bin/sh\nprintf '1.0.0\\n'\n", 0o755)
-	tool, ok := Lookup("codex")
+	tool, ok := lookup("codex")
 	if !ok {
 		t.Fatal("codex tool is missing")
 	}
@@ -403,7 +403,7 @@ func TestStatusOneTargetIsLinkTargetOnly(t *testing.T) {
 func TestToolsCoverEveryAgentBinary(t *testing.T) {
 	for _, a := range agentid.All() {
 		bin := agentid.Binary(a)
-		if !slices.ContainsFunc(Tools, func(tl Tool) bool { return tl.Binary == bin }) {
+		if !slices.ContainsFunc(tools, func(tl tool) bool { return tl.Binary == bin }) {
 			t.Errorf("no Tools row for %s's binary %q", a, bin)
 		}
 	}

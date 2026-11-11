@@ -104,7 +104,7 @@ func (r *askRun) prelude() (int, bool) {
 	if code, err := askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools); err != nil {
 		return r.fail(err, code)
 	}
-	if r.schema, err = ResolveOutputSchema(f.outputSchema); err != nil {
+	if r.schema, err = resolveOutputSchema(f.outputSchema); err != nil {
 		return r.fail(err, 2)
 	}
 	return 0, false
@@ -114,7 +114,7 @@ func (r *askRun) prelude() (int, bool) {
 func (r *askRun) selectAgent() (int, bool) {
 	f := r.f
 	var err error
-	if r.defs, err = ParseAgentDefs(string(f.agents), f.host); err != nil {
+	if r.defs, err = parseAgentDefs(string(f.agents), f.host); err != nil {
 		return r.fail(err, 2)
 	}
 	r.ref = f.name
@@ -128,7 +128,7 @@ func (r *askRun) selectAgent() (int, bool) {
 	if err := askCheckCombos(r.fs, f.name, f.live, r.persona != nil, f.host, f.background, f.job, f.batchSrc, len(f.env) > 0); err != nil {
 		return r.fail(err, 2)
 	}
-	if err := OverlayLocal(r.fileOv, f.live, f.host); err != nil {
+	if err := overlayLocal(r.fileOv, f.live, f.host); err != nil {
 		return r.fail(err, 2)
 	}
 	return 0, false
@@ -165,9 +165,9 @@ func (r *askRun) dispatchMode() (int, bool) {
 		if code, done := r.resolveLead(); done { // validates --provider/--profile and sets r.lead for batchBase
 			return code, true
 		}
-		o := Opts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native,
-			FollowInput: f.follow, FollowIdle: f.followIdle, RetryAgents: retryAgents}
-		ov, err := ResolveOverlay(r.fileOv, f.env, f.keepEnv, false)
+		o := batchOpts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native,
+			FollowInput: f.follow, FollowIdle: f.followIdle, RetryAgents: retryAgents, Identity: f.as}
+		ov, err := resolveOverlay(r.fileOv, f.env, f.keepEnv, false)
 		if err != nil {
 			return r.fail(err, 2)
 		}
@@ -211,7 +211,7 @@ func (r *askRun) batchBase() agent.RunOptions {
 // resolveRecord reads the task and applies a --job or --retry record over the flags.
 func (r *askRun) resolveRecord() (int, bool) {
 	f := r.f
-	positional, err := AskPositional(r.fs.Args(), r.resume, &f.session)
+	positional, err := askPositional(r.fs.Args(), r.resume, &f.session)
 	if err != nil {
 		return failAsk(f.format, f.name, err), true
 	}
@@ -228,14 +228,14 @@ func (r *askRun) resolveRecord() (int, bool) {
 		}
 	}
 	f.tools = f.tools || f.readOnly // again: a --job/--retry record or a re-parsed flag may have overridden either
-	if r.ref, r.ag, err = AskReselect(r.ref, r.ag, &f.name, &r.persona, r.defs); err != nil {
+	if r.ref, r.ag, err = askReselect(r.ref, r.ag, &f.name, &r.persona, r.defs); err != nil {
 		return r.fail(err, 2)
 	}
-	if err := OverlayLocal(r.fileOv, f.live, f.host); err != nil { // a --retry/--job record may carry a --host
+	if err := overlayLocal(r.fileOv, f.live, f.host); err != nil { // a --retry/--job record may carry a --host
 		return r.fail(err, 2)
 	}
 	if f.outputSchema != "" { // a --retry/--job record may carry an already-resolved schema: re-resolve the flag
-		if r.schema, err = ResolveOutputSchema(f.outputSchema); err != nil {
+		if r.schema, err = resolveOutputSchema(f.outputSchema); err != nil {
 			return r.fail(err, 2)
 		}
 	}
@@ -264,15 +264,15 @@ func (r *askRun) execute() int {
 		return startLive(r.state, r.perms, f.name, f.as, f.format)
 	}
 	if r.jobRec != nil && r.jobRec.Live {
-		return agent.RunHolder(r.jobRec, NewClient().Launcher)
+		return agent.RunHolder(r.jobRec, newClient().Launcher)
 	}
 	var framed *bufio.Reader // set only for the remote end of `ask --host`
 	var prompt string
 	var err error
 	if f.stdinFramed {
-		framed, prompt, err = ReadFramedPrompt(os.Stdin)
+		framed, prompt, err = readFramedPrompt(os.Stdin)
 	} else {
-		prompt, err = ResolveAskPrompt(r.prompt)
+		prompt, err = resolveAskPrompt(r.prompt)
 	}
 	if err != nil {
 		return failAsk(f.format, f.name, err)
@@ -326,12 +326,12 @@ func askEnableOverlays(debugPath, overlayPath string) int {
 // askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches it or runs it and reports.
 func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, fileOv agentconfig.Overlay,
 	env, keepEnv []string, as, format, name string, background, native bool) int {
-	ov, err := ResolveOverlay(fileOv, env, keepEnv, background)
+	ov, err := resolveOverlay(fileOv, env, keepEnv, background)
 	if err != nil {
 		return failAskCode(format, name, err, 2)
 	}
 	req = req.ApplyOverlay(ov)
-	cl := NewClient()
+	cl := newClient()
 	ctx = providers.WithIdentity(ctx, cmp.Or(as, providers.IdentityHeadless)) // headless: a paired row tries its SP first
 	prepared, err := cl.Prepare(ctx, req, jobRec)
 	if err != nil {
@@ -411,7 +411,7 @@ func askSpawn(fs *flag.FlagSet, prepared *agent.Prepared, native bool, format, n
 	if err := agent.Spawn(&prepared.Record, backgroundExtraFlags(fs, prepared.Opts.Fallback, native)); err != nil {
 		return failAsk(format, name, failSpawn(&prepared.Record, err))
 	}
-	if err := ReportBackgroundStart(format, prepared.Record); err != nil {
+	if err := reportBackgroundStart(format, prepared.Record); err != nil {
 		return helptext.Fail("%s: job %s started; write job id: %v", name, prepared.Record.ID, err)
 	}
 	return 0
@@ -434,7 +434,7 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 	if isJob && format == helptext.Text {
 		opts.AnswerTo = os.Stdout // a --job child's stdout is the log: the full answer lands once at the end
 	}
-	res, err := client.Exec(ctx, p, StdoutSink(format, p.Record.ID), opts)
+	res, err := client.Exec(ctx, p, stdoutSink(format, p.Record.ID), opts)
 	writeErr := reportAskResult(format, res, err, res.DispatchID)
 	for _, line := range []string{wire.RanOn(res), wire.DidNotRun(res)} {
 		if line != "" {
@@ -451,8 +451,8 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 	return 0
 }
 
-// StdoutSink is the sink behind stdout for format: streamed text, nothing (json prints one envelope), or NDJSON.
-func StdoutSink(format, dispatchID string) wire.Sink {
+// stdoutSink is the sink behind stdout for format: streamed text, nothing (json prints one envelope), or NDJSON.
+func stdoutSink(format, dispatchID string) wire.Sink {
 	switch format {
 	case helptext.JSON:
 		return wire.Discard
@@ -462,9 +462,9 @@ func StdoutSink(format, dispatchID string) wire.Sink {
 	return wire.NewTextSink(os.Stdout)
 }
 
-// askState is the AskTarget plus the flag pointers --retry resets or --job clears.
+// askState is the askTarget plus the flag pointers --retry resets or --job clears.
 type askState struct {
-	AskTarget
+	askTarget
 	rubric *string
 	env    *[]string
 	lead   *string // routed lead profile resolved by resolveLead; a live holder keeps it
@@ -475,8 +475,8 @@ func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Rec
 	if job == "" {
 		return nil, 0, false
 	}
-	r, err := LoadJobRecord(job)
-	if errors.Is(err, ErrJobNotFresh) {
+	r, err := loadJobRecord(job)
+	if errors.Is(err, errJobNotFresh) {
 		return nil, failAskCode(format, *s.Name, err, 2), true
 	}
 	if err != nil {
@@ -549,8 +549,8 @@ func printDispatchLog(format string) int {
 // RouteRefresh re-fetches a stale account for a pick; a var so tests stay offline.
 var RouteRefresh = usagepkg.RefreshAccount
 
-// NewClient builds the dispatch client; RouteRefresh is the offline-able account refresh.
-func NewClient() *agent.Client {
+// newClient builds the dispatch client; RouteRefresh is the offline-able account refresh.
+func newClient() *agent.Client {
 	return agent.NewClient(router.RuleClassifier{}.Alias, RouteRefresh,
 		func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) })
 }
@@ -573,8 +573,8 @@ func backgroundExtraFlags(fs *flag.FlagSet, fallback string, native bool) []stri
 	return extra
 }
 
-// ReportBackgroundStart tells the caller how to track a detached job.
-func ReportBackgroundStart(format string, rec agent.Record) error {
+// reportBackgroundStart tells the caller how to track a detached job.
+func reportBackgroundStart(format string, rec agent.Record) error {
 	if format == helptext.JSON {
 		body, _ := json.Marshal(struct {
 			ID  string `json:"id"`
@@ -605,7 +605,7 @@ func printAskFailure(format, agentName string, err error) {
 		body, _ := json.Marshal(wire.FailureEnvelope(agentName, err))
 		_, werr = fmt.Println(string(body))
 	case agent.FormatStreamJSON:
-		werr = StdoutSink(format, "").Emit(wire.ResultEvent(wire.FailureEnvelope(agentName, err)))
+		werr = stdoutSink(format, "").Emit(wire.ResultEvent(wire.FailureEnvelope(agentName, err)))
 	}
 	if werr != nil {
 		fmt.Fprintf(os.Stderr, "ask: failure envelope not written to stdout: %v\n", werr)
@@ -653,7 +653,7 @@ func memoryRunOptions(prompt, workdir string) agent.RunOptions {
 // MemoryRunner runs background memory jobs on Claude as the logged-in user, on their pin (medium effort).
 func MemoryRunner() memory.AgentFunc {
 	return func(ctx context.Context, prompt, workdir string) (string, error) {
-		c := NewClient()
+		c := newClient()
 		c.Refresh = nil
 		c.Notify = func(m string) { fmt.Fprintln(os.Stderr, m) }
 		res, err := c.Run(ctx, memoryRunOptions(prompt, workdir), wire.NewTextSink(os.Stdout))

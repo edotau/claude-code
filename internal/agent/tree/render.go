@@ -173,13 +173,13 @@ func sessionStatusText(s Session) string {
 // statusGlyph renders a Subagent.Status as a single-character marker for a --watch-sized glance.
 func statusGlyph(status string) string {
 	switch status {
-	case StatusRunning:
+	case statusRunning:
 		return "●"
-	case StatusFinished:
+	case statusFinished:
 		return "✓"
-	case StatusError:
+	case statusError:
 		return "✗"
-	case StatusStale:
+	case statusStale:
 		return "·"
 	default:
 		return " "

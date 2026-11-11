@@ -403,7 +403,7 @@ func TestRecordKeepsRequestAndInvokedModel(t *testing.T) {
 	}}
 	req := RunOptions{Prompt: "p", Model: "gpt-6-astra"}
 	rec := NewRecord("codex", req, time.Date(2026, 10, 28, 1, 0, 0, 0, time.UTC))
-	res, err := RunWithFallback(context.Background(), chain, req, wire.Discard, nil)
+	res, err := runWithFallback(context.Background(), chain, req, wire.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -538,7 +538,7 @@ func TestReservedRecordSurvivesPrune(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	done := Record{Schema: DispatchSchema, ID: "99991231T000000.000-zz", Agent: "zz", Status: "ok"}
+	done := Record{Schema: dispatchSchema, ID: "99991231T000000.000-zz", Agent: "zz", Status: "ok"}
 	if err := done.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -595,7 +595,7 @@ func TestDispatchWritesResultBeforeFinishedRecord(t *testing.T) {
 	setConfigDir(t)
 	rec := ClaimRecord("codex", RunOptions{}, time.Now())
 	probe := &resultProbe{id: rec.ID}
-	_, err := RunRecorded(context.Background(), &rec, "codex", probe, RunRecordedOpts{},
+	_, err := runRecorded(context.Background(), &rec, "codex", probe, RunRecordedOpts{},
 		func(context.Context, wire.Sink) (wire.Result, error) {
 			return wire.Result{Agent: "codex", Status: wire.StatusOK, Answer: "hi"}, nil
 		})
@@ -655,7 +655,7 @@ func TestRunRecordedFailedStartEmitFinishesRecord(t *testing.T) {
 	setConfigDir(t)
 	rec := ClaimRecord("claude", RunOptions{}, time.Now())
 	ran := false
-	_, err := RunRecorded(context.Background(), &rec, "claude", brokenSink{}, RunRecordedOpts{},
+	_, err := runRecorded(context.Background(), &rec, "claude", brokenSink{}, RunRecordedOpts{},
 		func(context.Context, wire.Sink) (wire.Result, error) { ran = true; return wire.Result{}, nil })
 	if err == nil || ran {
 		t.Fatalf("err = %v, ran = %v; want the emit error and no run", err, ran)
@@ -736,7 +736,7 @@ func TestRunRecordedFinalAnswerWriteError(t *testing.T) {
 			setConfigDir(t)
 			rec := ClaimRecord("codex", RunOptions{}, time.Now())
 			var events collect
-			_, err := RunRecorded(context.Background(), &rec, "codex", &events,
+			_, err := runRecorded(context.Background(), &rec, "codex", &events,
 				RunRecordedOpts{AnswerTo: partialErrorWriter{want}},
 				func(context.Context, wire.Sink) (wire.Result, error) {
 					return wire.Result{Agent: "codex", Status: wire.StatusOK, Answer: "final answer"}, nil

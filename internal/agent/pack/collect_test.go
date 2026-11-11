@@ -420,7 +420,7 @@ func TestCanceledContext(t *testing.T) {
 			t.Errorf("Collect(%v) = %+v, %v, want cancellation without files", dirs, got, err)
 		}
 	}
-	if _, err := ChangedFiles(ctx, dir); !errors.Is(err, context.Canceled) {
+	if _, err := changedFiles(ctx, dir); !errors.Is(err, context.Canceled) {
 		t.Errorf("ChangedFiles error = %v, want cancellation", err)
 	}
 	if _, err := changedOrListed(ctx, Spec{Diff: true}, dir); !errors.Is(err, context.Canceled) {
@@ -439,7 +439,7 @@ func collectRun(ctx context.Context, dir string) (Context, error) {
 }
 
 func changedRun(ctx context.Context, dir string) (Context, error) {
-	_, err := ChangedFiles(ctx, dir)
+	_, err := changedFiles(ctx, dir)
 	return Context{}, err
 }
 

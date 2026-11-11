@@ -306,30 +306,11 @@ func WriteJSONLine(w io.Writer, v any) error {
 
 // The helpers below are the vendor packages' (claude, codex, gemini) reach into the dispatch internals.
 
-// ChildErr names a failed child by its stderr tail; a deadline surfaces as ctx.Err.
-func ChildErr(ctx context.Context, name string, err error, tail *retry.TailBuffer) error {
-	return childErr(ctx, name, err, tail)
-}
-
-// StatusOf maps a classified failure to the envelope status.
-func StatusOf(e *retry.Error) string { return statusOf(e) }
-
 // IsResultError reports a failed turn whose result event was consumed, so the stream sits at a turn boundary.
 func IsResultError(err error) bool {
 	_, ok := errors.AsType[wire.ResultError](err)
 	return ok
 }
-
-// ResolveRequestTarget is the registry and target req's provider and model resolve to.
-func ResolveRequestTarget(req RunOptions) (*providers.Registry, providers.Target, error) {
-	return resolveTarget(req)
-}
-
-// PersonaArgs is the claude argv for a persona.
-func PersonaArgs(p *Schema) []string { return personaArgs(p) }
-
-// SessionProvider is the session profile agentName runs on.
-func SessionProvider(agentName string) string { return sessionProvider(agentName) }
 
 // CustomEnv is the vault env bucket resolved, as a launch layers it.
 func CustomEnv() map[string]string { return customEnv() }
@@ -455,9 +436,9 @@ type Hub struct {
 
 var hub *Hub
 
-// IsHubAgent reports whether name is one ask routes through opencode unless --native is set. codex and
+// isHubAgent reports whether name is one ask routes through opencode unless --native is set. codex and
 // copilot run their own CLI first (user decision): the hub cannot pass copilot's `auto` or its pinned account.
-func IsHubAgent(name string) bool {
+func isHubAgent(name string) bool {
 	s, ok := lookupRow(name)
 	return ok && s.CLI.Hub
 }
@@ -465,16 +446,16 @@ func IsHubAgent(name string) bool {
 // hubLinked reports whether a linked vendor registered the opencode Hub.
 func hubLinked() bool { return hub != nil }
 
-// HubStart resolves the provider a hub agent's first dispatch targets.
-func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*providers.Provider, error) {
+// hubStart resolves the provider a hub agent's first dispatch targets.
+func hubStart(reg *providers.Registry, agentName, explicitProvider string) (*providers.Provider, error) {
 	if hub == nil {
 		return nil, errNoHub
 	}
 	return hub.Start(reg, agentName, explicitProvider)
 }
 
-// NewHubDispatch builds a hub dispatch Agent for agentName on provider; reg resolves a provider:model override.
-func NewHubDispatch(agentName string, provider *providers.Provider, reg *providers.Registry) Engine {
+// newHubDispatch builds a hub dispatch Agent for agentName on provider; reg resolves a provider:model override.
+func newHubDispatch(agentName string, provider *providers.Provider, reg *providers.Registry) Engine {
 	return hub.Dispatch(agentName, provider, reg)
 }
 

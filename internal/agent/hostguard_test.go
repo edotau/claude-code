@@ -127,7 +127,7 @@ func armGuardCase(t *testing.T, prof, fatal string, creds []string) {
 		t.Fatalf("guardAttempt = %v, want a pass", gerr)
 	}
 	env := EnvSpec{Mode: EnvPrescrubbed, Base: []string{"DEV_TOKEN=dapi-dev", "QA_TOKEN=dapi-qa"}}.Environ(ctx)
-	got := slices.DeleteFunc(EnvNames(env), func(n string) bool { return !strings.HasSuffix(n, "_TOKEN") })
+	got := slices.DeleteFunc(envNames(env), func(n string) bool { return !strings.HasSuffix(n, "_TOKEN") })
 	if !slices.Equal(got, creds) {
 		t.Errorf("child credential names = %v, want %v", got, creds)
 	}

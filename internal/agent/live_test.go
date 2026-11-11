@@ -49,7 +49,7 @@ func TestServeLiveRejectsAgentWithoutLive(t *testing.T) {
 // A fifth session is refused; the cap counts only live, running records.
 func TestLiveCapOfFour(t *testing.T) {
 	liveEnv(t)
-	for range MaxLiveSessions {
+	for range maxLiveSessions {
 		rec := ClaimRecord("claude", RunOptions{}, time.Now())
 		rec.Live, rec.PID = true, os.Getpid()
 		_ = rec.Save()
@@ -60,15 +60,15 @@ func TestLiveCapOfFour(t *testing.T) {
 	dead := ClaimRecord("claude", RunOptions{}, time.Now())
 	dead.Live, dead.Status = true, "ok"
 	_ = dead.Save()
-	if n, err := liveCount(); err != nil || n != MaxLiveSessions {
-		t.Errorf("liveCount = %d, %v, want %d (finished sessions do not count)", n, err, MaxLiveSessions)
+	if n, err := liveCount(); err != nil || n != maxLiveSessions {
+		t.Errorf("liveCount = %d, %v, want %d (finished sessions do not count)", n, err, maxLiveSessions)
 	}
 }
 
 // With three slots held, two contenders racing for the last one: exactly one wins, the loser is refused.
 func TestLiveSlotLastSlotGoesToExactlyOne(t *testing.T) {
 	liveEnv(t)
-	for range MaxLiveSessions - 1 {
+	for range maxLiveSessions - 1 {
 		if _, err := AcquireLiveSlot(); err != nil {
 			t.Fatal(err)
 		}
@@ -94,7 +94,7 @@ func TestLiveSlotLastSlotGoesToExactlyOne(t *testing.T) {
 func TestLiveSlotReleaseFreesIt(t *testing.T) {
 	liveEnv(t)
 	var rel []func()
-	for range MaxLiveSessions {
+	for range maxLiveSessions {
 		r, err := AcquireLiveSlot()
 		if err != nil {
 			t.Fatal(err)

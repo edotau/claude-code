@@ -114,10 +114,10 @@ func TestAttachFlagSetRejectsBinary(t *testing.T) {
 	}
 }
 
-func newAskTarget() *AskTarget {
+func newAskTarget() *askTarget {
 	s := func() *string { return new(string) }
 	b := func() *bool { return new(bool) }
-	return &AskTarget{Name: s(), Provider: s(), Model: s(), Effort: s(), Workdir: s(), Session: s(),
+	return &askTarget{Name: s(), Provider: s(), Model: s(), Effort: s(), Workdir: s(), Session: s(),
 		Tools: b(), ReadOnly: b(), NoTools: b(), Autonomous: b(), Fleet: b(), EnableMemory: b(), Direct: b(),
 		NoPersist: b(), SafeMode: b(), DebugFile: s(), SystemPrompt: s(), AppendSystemPrompt: s(), OutputSchema: s(),
 		Host: s(), RemoteBin: s(), Fallback: s(), Timeout: new(time.Duration), Attach: new([]string), KeepEnv: new([]string),
@@ -176,7 +176,7 @@ func TestResolveAskPromptBoundsStdin(t *testing.T) {
 	readerDone := make(chan struct{})
 	go func() {
 		defer close(readerDone)
-		prompt, err := ResolveAskPrompt("-")
+		prompt, err := resolveAskPrompt("-")
 		results <- result{prompt, err}
 	}()
 	t.Cleanup(func() { _ = r.Close(); <-readerDone })
@@ -184,10 +184,10 @@ func TestResolveAskPromptBoundsStdin(t *testing.T) {
 	case got := <-results:
 		want := agent.PromptTooLarge(agent.MaxPromptBytes+1, agent.MaxPromptBytes)
 		if got.prompt != "" || !errors.Is(got.err, agent.ErrPromptTooLarge) || got.err.Error() != want.Error() {
-			t.Fatalf("ResolveAskPrompt = (%q, %v), want empty prompt and %q", got.prompt, got.err, want)
+			t.Fatalf("resolveAskPrompt = (%q, %v), want empty prompt and %q", got.prompt, got.err, want)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("ResolveAskPrompt waited for EOF instead of stopping at MaxPromptBytes+1")
+		t.Fatal("resolveAskPrompt waited for EOF instead of stopping at MaxPromptBytes+1")
 	}
 }
 

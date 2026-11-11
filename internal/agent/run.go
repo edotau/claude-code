@@ -36,7 +36,7 @@ type Client struct {
 
 // NewClient accepts classification and refresh seams without depending on their CLI implementations.
 func NewClient(alias func(string) string, refresh func(context.Context, string) bool, notify func(string)) *Client {
-	return &Client{Launcher: DefaultLauncher, Alias: alias, Refresh: refresh, Notify: notify}
+	return &Client{Launcher: defaultLauncher, Alias: alias, Refresh: refresh, Notify: notify}
 }
 
 // Prepared is a routed, recorded dispatch that has not started.
@@ -69,11 +69,11 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Pre
 	if p.Chain, err = c.route(ctx, r, o); err != nil {
 		return nil, err
 	}
-	if err := RefusePersona(r.Caps(), r.Name(), o.Persona); err != nil {
+	if err := refusePersona(r.Caps(), r.Name(), o.Persona); err != nil {
 		return nil, clientUsageError{err}
 	}
 	if o.Rubric != "" {
-		if o.Prompt, err = RubricPrompt(o.Rubric, o.Prompt); err != nil {
+		if o.Prompt, err = rubricPrompt(o.Rubric, o.Prompt); err != nil {
 			return nil, err
 		}
 	}
@@ -172,7 +172,7 @@ func (c *Client) record(ctx context.Context, o RunOptions, claim *Record) Record
 	if o.Host != "" {
 		dir = ""
 	}
-	rec := BuildAskRecord(ctx, o.Agent, o, claim, dir, o.Background)
+	rec := buildAskRecord(ctx, o.Agent, o, claim, dir, o.Background)
 	rec.Request.Launcher = c.Launcher
 	if claim == nil {
 		rec.FallbackPolicy = o.Fallback
@@ -191,7 +191,7 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 	if d.Notify == nil {
 		d.Notify = c.Notify
 	}
-	ctx = WithUnsetEnv(ctx, p.Opts.Unset)
+	ctx = withUnsetEnv(ctx, p.Opts.Unset)
 	if p.pack != nil {
 		if err := p.pack.write(); err != nil {
 			res := wire.Result{Agent: p.Chain.Want, Status: wire.StatusError, DispatchID: p.Record.ID}
@@ -203,11 +203,11 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 		}
 		defer p.pack.remove()
 	}
-	res, err := RunRecorded(ctx, &p.Record, p.Chain.Want, out, d, func(ctx context.Context, sink wire.Sink) (wire.Result, error) {
+	res, err := runRecorded(ctx, &p.Record, p.Chain.Want, out, d, func(ctx context.Context, sink wire.Sink) (wire.Result, error) {
 		if p.remote != nil {
 			return p.remote.Run(ctx, p.Opts, sink)
 		}
-		return RunWithFallback(ctx, p.Chain, p.Opts, sink, d.Notify)
+		return runWithFallback(ctx, p.Chain, p.Opts, sink, d.Notify)
 	})
 	res.DispatchID = p.Record.ID
 	return res, err
@@ -304,7 +304,7 @@ func recoveryTarget(r Engine, req RunOptions) (providers.Target, bool) {
 		t, own, _, err := s.targetNote(req)
 		return t, err == nil && !own && t.Provider != nil
 	}
-	_, t, err := resolveTarget(req)
+	_, t, err := ResolveRequestTarget(req)
 	return t, err == nil && t.Provider != nil
 }
 
@@ -315,17 +315,17 @@ func checkRun(r Engine, req RunOptions) (RunOptions, error) {
 	if err != nil {
 		return req, err
 	}
-	req.Permissions, _ = ResolvePermissions(def, req.Permissions)
+	req.Permissions, _ = resolvePermissions(def, req.Permissions)
 	if req.Permissions, err = inheritPermissions(req.Permissions); err != nil {
 		return req, err
 	}
-	if err = RefusePersona(r.Caps(), r.Name(), req.Persona); err != nil {
+	if err = refusePersona(r.Caps(), r.Name(), req.Persona); err != nil {
 		return req, err
 	}
 	if req.ReadOnly && r.Caps().ReadOnly == Emulated { // the agent enforces the read-only deny rules itself
 		req.Permissions.Deny = append(slices.Clone(req.Permissions.Deny), ReadOnlyDeny...)
 	}
-	return req, RefusePermissions(r.Caps(), r.Name(), req.Permissions)
+	return req, refusePermissions(r.Caps(), r.Name(), req.Permissions)
 }
 
 type runState struct {
@@ -376,7 +376,7 @@ func (s *runState) attempt(ctx, actx context.Context, r Engine, sink wire.Sink, 
 func (s *runState) finish(name string, start time.Time, e *retry.Error, recoverErr error) (wire.Result, error) {
 	res := s.res
 	res.DurationMs = time.Since(start).Milliseconds()
-	res.Status = statusOf(e)
+	res.Status = StatusOf(e)
 	if res.Transport == nil {
 		res.Transport = &wire.Transport{}
 	}
@@ -450,8 +450,8 @@ type RunOptions struct {
 	Background                                          bool               `json:"-"`
 }
 
-// statusOf maps the classified failure to the envelope status: quota, deadline, output-then-failure, else error.
-func statusOf(e *retry.Error) string {
+// StatusOf maps the classified failure to the envelope status: quota, deadline, output-then-failure, else error.
+func StatusOf(e *retry.Error) string {
 	switch {
 	case e == nil:
 		return wire.StatusOK
@@ -572,8 +572,8 @@ func applyCaps(c Caps, req RunOptions) (out RunOptions, dropped, emulated []stri
 // ReadOnlyDeny is --read-only as deny rules for an agent whose CLI has no read-only mode (ReadOnly: Emulated).
 var ReadOnlyDeny = []Rule{{Tool: "Bash"}, {Tool: "Write"}, {Tool: "Edit"}}
 
-// RefusePermissions fails closed when req carries Deny rules (or plan mode) and the agent cannot read Permissions.
-func RefusePermissions(c Caps, agentName string, p Permissions) error {
+// refusePermissions fails closed when req carries Deny rules (or plan mode) and the agent cannot read Permissions.
+func refusePermissions(c Caps, agentName string, p Permissions) error {
 	if c.Permissions != None || (len(p.Deny) == 0 && p.Mode != "plan") {
 		return nil
 	}
@@ -673,15 +673,15 @@ func checkStructured(res *wire.Result, schema, agentName string) *retry.Error {
 	var verr error
 	if res.Structured, res.SchemaUnchecked, verr = wire.Structured(cmp.Or(string(res.Structured), res.Answer), schema); verr != nil {
 		e := &retry.Error{Kind: retry.KindFatal, Agent: agentName, Err: verr}
-		res.Status = statusOf(e)
+		res.Status = StatusOf(e)
 		return e
 	}
 	return nil
 }
 
-// resolveTarget applies --provider then --model (alias, id, or provider:model) to the registry; an id a Claude alias
+// ResolveRequestTarget applies --provider then --model (alias, id, or provider:model) to the registry; an id a Claude alias
 // currently backs takes the session's alias selection, so CLAUDE_<TIER>_MODEL pins win.
-func resolveTarget(req RunOptions) (*providers.Registry, providers.Target, error) {
+func ResolveRequestTarget(req RunOptions) (*providers.Registry, providers.Target, error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return nil, providers.Target{}, err
@@ -689,7 +689,7 @@ func resolveTarget(req RunOptions) (*providers.Registry, providers.Target, error
 	return resolveIn(reg, req)
 }
 
-// resolveIn is resolveTarget against an already loaded registry.
+// resolveIn is ResolveRequestTarget against an already loaded registry.
 func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, providers.Target, error) {
 	req = profileAliasRequest(reg, req)
 	sel, err := providers.Select(reg, cmp.Or(req.Provider, providers.SessionLead(reg, false)))
@@ -899,8 +899,8 @@ func ValidateAs(as, ag string) error {
 	return nil
 }
 
-// BuildAskRecord constructs the dispatch record for req, reusing jobRec's identity when resuming a job.
-func BuildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Record, workdir string, background bool) Record {
+// buildAskRecord constructs the dispatch record for req, reusing jobRec's identity when resuming a job.
+func buildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Record, workdir string, background bool) Record {
 	if jobRec != nil {
 		return *jobRec // same id: a job run continues the record it was spawned from
 	}

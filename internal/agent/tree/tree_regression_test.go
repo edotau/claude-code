@@ -71,7 +71,7 @@ func TestBuildRunningKeepsStaleOnlySession(t *testing.T) {
 			if kind == "workflow" {
 				subs = workflowByID(t, s.Workflows, "wf-stale").Phases[0].Agents
 			}
-			if len(subs) != 1 || subs[0].ID != "stale" || subs[0].Status != StatusStale {
+			if len(subs) != 1 || subs[0].ID != "stale" || subs[0].Status != statusStale {
 				t.Fatalf("subagents = %+v, want the unfinished stale agent retained", subs)
 			}
 		})

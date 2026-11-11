@@ -21,8 +21,8 @@ func Preamble(text string) string {
 // MaxPromptBytes keeps a prompt passed as one argv element under the kernel's 128 KiB MAX_ARG_STRLEN.
 const MaxPromptBytes = 96 << 10
 
-// RubricPrompt frames task against the review standard in file, quoted verbatim.
-func RubricPrompt(file, task string) (string, error) {
+// rubricPrompt frames task against the review standard in file, quoted verbatim.
+func rubricPrompt(file, task string) (string, error) {
 	standard, err := os.ReadFile(file)
 	if err != nil {
 		return "", fmt.Errorf("rubric: %w", err)

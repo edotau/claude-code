@@ -24,7 +24,7 @@ func TestFallbackRetrySinkFailureKeepsHops(t *testing.T) {
 		}
 		return nil
 	})
-	res, err := RunWithFallback(context.Background(), chainOf([]Engine{first, second}), RunOptions{Prompt: "p"}, sink, nil)
+	res, err := runWithFallback(context.Background(), chainOf([]Engine{first, second}), RunOptions{Prompt: "p"}, sink, nil)
 	if !errors.Is(err, rejected) {
 		t.Fatalf("fallback error = %v, want the retry sink error", err)
 	}
@@ -43,12 +43,13 @@ func TestFailFastPreservesProgressedFallback(t *testing.T) {
 	for _, message := range []string{"429 Too Many Requests", "insufficient_quota: you exceeded your current quota"} {
 		t.Run(message, func(t *testing.T) {
 			vaulttest.Use(t)
+			fastDefaultBackoff(t)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ctx = retry.WithFailFast(ctx, cancel)
 			first := &fakeRunner{name: "codex", write: "partial progress", errs: []error{errors.New(message)}}
 			second := &fakeRunner{name: "gemini", errs: []error{nil}}
-			res, err := RunWithFallback(ctx, chainOf([]Engine{first, second}), RunOptions{Prompt: "p"}, wire.Discard, nil)
+			res, err := runWithFallback(ctx, chainOf([]Engine{first, second}), RunOptions{Prompt: "p"}, wire.Discard, nil)
 			if err != nil || ctx.Err() != nil || res.Agent != "gemini" {
 				t.Fatalf("fallback = %+v, %v; context = %v; want gemini success without fail-fast cancellation", res, err, ctx.Err())
 			}
@@ -79,12 +80,13 @@ func TestRepickedRateLimitStillMarksAccount(t *testing.T) {
 	rl := &retry.Error{Kind: retry.KindRateLimit, Agent: "fake", Terminal: true, Err: errors.New("429 rate limit: max_tokens per minute exceeded")}
 	for name, repickErr := range map[string]error{"repick answers": nil, "repick fails": errors.New("boom: unrelated failure")} {
 		t.Run(name, func(t *testing.T) {
+			fastDefaultBackoff(t)
 			fallbackConfigDir(t)
 			r := &modelRunner{name: "fake", caps: Caps{Model: Native}, errs: map[string]error{"dev:m-a": rl, "dev:m-b": repickErr}}
 			c := chainOf([]Engine{r}, "dev:m-a")
 			c.Dispatches[0].keepCaller, c.Dispatches[0].Account, c.Dispatches[0].Billing = false, "openai·chatgpt", router.BillSubscription
 			c.Dispatches[0].repick = func(string) string { return "dev:m-b" }
-			_, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
+			_, err := runWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
 			if len(r.seen) != 2 || (err == nil) != (repickErr == nil) {
 				t.Fatalf("err=%v runs=%d; want the repick to run and return its own outcome", err, len(r.seen))
 			}

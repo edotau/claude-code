@@ -95,7 +95,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 		return Chain{}, router.PickResult{}, err
 	}
 	// --native opencode runs on opencode's own config first: no hub login gate, no table cell
-	pickWant, nativeLead := want, native && IsHubAgent(want)
+	pickWant, nativeLead := want, native && isHubAgent(want)
 	if nativeLead {
 		pickWant = ""
 	}
@@ -139,7 +139,7 @@ func routePickOpts(o router.PickOpts, mode string) (router.PickOpts, map[string]
 	if o.Account == nil {
 		o.Account = ResolveAccount
 	}
-	o, err := RosterPick(o)
+	o, err := rosterPick(o)
 	if err != nil {
 		return o, nil, err
 	}
@@ -150,7 +150,7 @@ func routePickOpts(o router.PickOpts, mode string) (router.PickOpts, map[string]
 func pickSkips(pick router.PickResult, nativeLead bool) []string {
 	var skipped []string
 	for _, s := range pick.Skipped {
-		if !nativeLead || !IsHubAgent(s.Agent) {
+		if !nativeLead || !isHubAgent(s.Agent) {
 			skipped = append(skipped, s.Agent+": "+s.Reason)
 		}
 	}
@@ -160,7 +160,7 @@ func pickSkips(pick router.PickResult, nativeLead bool) []string {
 // addCandidates appends a dispatch to c for each pick candidate whose cell can run, recording the rest as skipped.
 func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead bool, alias string) (Chain, error) {
 	for i, cand := range pick.Candidates {
-		if nativeLead && IsHubAgent(cand.Agent) {
+		if nativeLead && isHubAgent(cand.Agent) {
 			continue
 		}
 		cell, skip := rc.candidateCell(cand)
@@ -186,8 +186,11 @@ func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead boo
 	return c, nil
 }
 
-// otherRoute reports a candidate that is not the wanted agent's own login or pinned profile.
+// otherRoute reports a candidate that is not the wanted agent's own login, pinned profile or --route workspace.
 func (rc routeCtx) otherRoute(cand router.Candidate) bool {
+	if arm := router.ArmProfile(); arm != "" && cand.Agent == rc.want && cand.Profile == arm {
+		return false // databricks:<p> asked for this workspace: running there is not a fallback
+	}
 	if rc.lead != "" && cand.Agent == rc.want {
 		return cand.Profile != rc.lead
 	}
@@ -266,7 +269,7 @@ func LeadFor(q RouteReq) (lead string, explicit bool, err error) {
 		return q.Lead, false, nil
 	}
 	if q.Profile == "" && q.Provider == "" {
-		return "", ExplicitBackend(RunOptions{Model: q.Model}), nil
+		return "", explicitBackend(RunOptions{Model: q.Model}), nil
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -292,16 +295,16 @@ func resolveExplicit(q RouteReq) (Chain, error) {
 		if err != nil {
 			return Chain{}, err
 		}
-		if !q.Native && IsHubAgent(q.Agent) && p.OpencodeID != "" {
-			start, err := HubStart(reg, q.Agent, q.Profile)
+		if !q.Native && isHubAgent(q.Agent) && p.OpencodeID != "" {
+			start, err := hubStart(reg, q.Agent, q.Profile)
 			if err != nil {
 				return Chain{}, err
 			}
-			r = NewHubDispatch(q.Agent, start, reg)
+			r = newHubDispatch(q.Agent, start, reg)
 		}
 	}
 	chain := explicitChain(r, RunOptions{Provider: q.Profile, Model: q.Model})
-	if IsHubAgent(q.Agent) && q.Model == "" {
+	if isHubAgent(q.Agent) && q.Model == "" {
 		chain = withAlias(chain, q.AliasHint)
 	}
 	return chain, nil
@@ -381,7 +384,7 @@ func (rc routeCtx) callerOnProfile(cand router.Candidate) bool {
 // wireAgent is an agent with dialects whose profile row takes a caller's model: not claude, a hub or codex.
 func wireAgent(name string) bool {
 	s, ok := LookupSchema(name)
-	return ok && len(s.CLI.Dialects) > 0 && name != "claude" && !IsHubAgent(name) && !speaksResponses(name)
+	return ok && len(s.CLI.Dialects) > 0 && name != "claude" && !isHubAgent(name) && !speaksResponses(name)
 }
 
 // callerProfileCell runs the caller's model as cand's profile serves it, or skips the row naming why it cannot.
@@ -411,12 +414,12 @@ func ProfileServes(agentName string, p *providers.Provider, model string) (wire,
 
 // profileBacked reports a non-hub profile candidate facing an exact non-Claude model.
 func (rc routeCtx) profileBacked(cand router.Candidate) bool {
-	return rc.exact != "" && cand.Profile != "" && !IsHubAgent(cand.Agent)
+	return rc.exact != "" && cand.Profile != "" && !isHubAgent(cand.Agent)
 }
 
 // olderRow reports an older-row request that cand's own login can serve.
 func (rc routeCtx) olderRow(cand router.Candidate) bool {
-	return rc.row != "" && rc.row != rc.current && !IsHubAgent(cand.Agent) && cand.Profile == ""
+	return rc.row != "" && rc.row != rc.current && !isHubAgent(cand.Agent) && cand.Profile == ""
 }
 
 // exactCell points cell at the cell serving the exact model; skip is non-empty for a non-wanted agent with none.
@@ -491,7 +494,7 @@ func (rc routeCtx) hubOpencode(cand router.Candidate) bool {
 	if pr := rc.reg.Row(cand.Profile); pr != nil && pr.OpencodeID == "" {
 		return false // a row with no opencode id can't ride the hub; the native agent takes <profile>:<model>
 	}
-	return IsHubAgent(cand.Agent) && (!rc.native || cand.Agent != rc.want)
+	return isHubAgent(cand.Agent) && (!rc.native || cand.Agent != rc.want)
 }
 
 // dispatchAgent sets disp's agent (and model) by how cand runs: a hub dispatch or its own agent.
@@ -504,7 +507,7 @@ func (rc routeCtx) dispatchAgent(cand router.Candidate, cell router.Cell, disp D
 		if !ok {
 			bare = cell.Model
 		}
-		disp.Agent, disp.Model = watchFreeDispatch(NewHubDispatch("opencode", rc.reg.Providers[cand.Profile], rc.reg), cand.Billing), bare
+		disp.Agent, disp.Model = watchFreeDispatch(newHubDispatch("opencode", rc.reg.Providers[cand.Profile], rc.reg), cand.Billing), bare
 	case hub:
 		r, model, err := hubDispatchFor(rc.reg, cell.Model)
 		if err != nil {
@@ -577,7 +580,7 @@ func cellServing(tb *router.RouteTable, agentName, exact string) (router.Cell, b
 			return c, true
 		}
 	}
-	if !IsHubAgent(agentName) {
+	if !isHubAgent(agentName) {
 		return router.Cell{}, false
 	}
 	for _, sub := range slices.Sorted(maps.Keys(tb.OpencodeSub)) {

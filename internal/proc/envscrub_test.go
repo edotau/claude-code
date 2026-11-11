@@ -50,7 +50,7 @@ func TestScrubHonoursKeep(t *testing.T) {
 }
 
 func TestKeepSetParsesHarnessKeepEnv(t *testing.T) {
-	t.Setenv(EnvKeepVar, " DATABRICKS_HOST ,, HOME,")
+	t.Setenv(envKeepVar, " DATABRICKS_HOST ,, HOME,")
 	keep := EnvKeepSet([]string{"PATH"})
 	for _, want := range []string{"PATH", "DATABRICKS_HOST", "HOME"} {
 		if !keep[want] {
@@ -63,7 +63,7 @@ func TestKeepSetParsesHarnessKeepEnv(t *testing.T) {
 }
 
 func TestKeepSetEmpty(t *testing.T) {
-	t.Setenv(EnvKeepVar, "")
+	t.Setenv(envKeepVar, "")
 	if keep := EnvKeepSet(nil); len(keep) != 0 {
 		t.Errorf("keep = %v, want empty", keep)
 	}

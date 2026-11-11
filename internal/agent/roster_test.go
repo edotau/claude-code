@@ -384,7 +384,7 @@ func TestAgentPinsRejectUnreadableRecords(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "agent pins: vault: agent-records is corrupt") || pins != nil {
 		t.Fatalf("AgentPins = %v, %v; want no pins and the vault read error", pins, err)
 	}
-	if _, err := RosterPick(router.PickOpts{}); err == nil || !strings.Contains(err.Error(), "agent-records is corrupt") {
+	if _, err := rosterPick(router.PickOpts{}); err == nil || !strings.Contains(err.Error(), "agent-records is corrupt") {
 		t.Fatalf("RosterPick error = %v", err)
 	}
 }
@@ -460,7 +460,7 @@ func newSessFix(t *testing.T) *sessFix {
 
 func (s *sessFix) pickAgent(t *testing.T, agent string, state router.State, opts router.PickOpts) router.PickResult {
 	t.Helper()
-	opts, err := RosterPick(opts)
+	opts, err := rosterPick(opts)
 	if err != nil {
 		t.Fatal(err)
 	}

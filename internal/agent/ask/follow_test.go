@@ -39,10 +39,10 @@ func appendFile(t *testing.T, p, s string) {
 }
 
 // ids builds a task whose ID is the line's task id.
-func ids(l ParsedLine) Task { return Task{ID: l.Task.ID} }
+func ids(l parsedLine) batchTask { return batchTask{ID: l.Task.ID} }
 
 // drain collects task ids until the channel closes; false when it stays open past limit.
-func drain(ch <-chan Task, limit time.Duration) (got []string, closed bool, took time.Duration) {
+func drain(ch <-chan batchTask, limit time.Duration) (got []string, closed bool, took time.Duration) {
 	start := time.Now()
 	timer := time.NewTimer(limit)
 	defer timer.Stop()
@@ -113,7 +113,7 @@ func TestFollowerStartupEndMarkerStopsInitialAndAppendedTasks(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = w.f.Close() })
-	lines, err := ReadTaskLines(initial)
+	lines, err := readTaskLines(initial)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,12 +136,12 @@ func TestFollowerReadErrorFailsBatch(t *testing.T) {
 	if err := w.f.Close(); err != nil {
 		t.Fatal(err)
 	}
-	lines, err := ReadTaskLines(strings.NewReader(`{"id":"a","prompt":"p"}` + "\n"))
+	lines, err := readTaskLines(strings.NewReader(`{"id":"a","prompt":"p"}` + "\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	_, ok := RunBatch(t.Context(), lines, Opts{Agent: "claude", Follow: w.run}, agent.RunOptions{}, false, NewClient, &out)
+	_, ok := runBatch(t.Context(), lines, batchOpts{Agent: "claude", Follow: w.run}, agent.RunOptions{}, false, newClient, &out)
 	if ok {
 		t.Fatalf("batch succeeded after follow read failed: %s", out.String())
 	}
@@ -267,8 +267,8 @@ func TestFollowerLineNumbersCountBlankLines(t *testing.T) {
 }
 
 func TestRetryForPicksFirstOtherAgent(t *testing.T) {
-	bo := Opts{Fallback: "none"}
-	task := Task{Agent: "codex"}
+	bo := batchOpts{Fallback: "none"}
+	task := batchTask{Agent: "codex"}
 	if retryFor(task, bo, nil) != nil || retryFor(task, bo, []string{"codex"}) != nil {
 		t.Error("retryFor returned a Retry for an empty list or only the task's own agent")
 	}

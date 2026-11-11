@@ -255,7 +255,7 @@ func TestResolvePermissionsWidening(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, widened := ResolvePermissions(def, c.req)
+			got, widened := resolvePermissions(def, c.req)
 			if permsJSON(t, got) != c.want || strings.Join(widened, "; ") != c.widened {
 				t.Errorf("got %s widened %q\nwant %s widened %q", permsJSON(t, got), widened, c.want, c.widened)
 			}

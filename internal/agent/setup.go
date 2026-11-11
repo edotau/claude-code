@@ -91,8 +91,8 @@ func (s Schema) projectionCheck() Check {
 	return Check{Name: "projection", State: "ok", Detail: fmt.Sprintf("%d agent(s) at %s", len(entries), dir)}
 }
 
-// Configured is the no-network presence check: the agent binary, plus an opencode login for the cell's provider.
-func Configured(agent string, c router.Cell) error {
+// configured is the no-network presence check: the agent binary, plus an opencode login for the cell's provider.
+func configured(agent string, c router.Cell) error {
 	s, ok := LookupSchema(agent)
 	if !ok {
 		return fmt.Errorf("unknown agent %s", agent)

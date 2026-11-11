@@ -238,23 +238,23 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry
 	}
 	agentconfig.RecordOverlayDebug(name, cmd.Env)
 	if err := cmd.Start(); err != nil {
-		return res, childErr(ctx, name, err, tail)
+		return res, ChildErr(ctx, name, err, tail)
 	}
 	opts.Idle.bind(cmd.Cancel) // a silent child must not hold the run to --timeout
 	lg := wire.EventLogFor(ctx)
-	idle := &idleReader{src: EOFReader{R: stdout}, last: time.Now().UnixNano()}
+	idle := &idleReader{src: eofReader{R: stdout}, last: time.Now().UnixNano()}
 	stop := heartbeat(lg, idle, name)
 	// the parser writes formatted event lines to the dispatch log and fires onMeaningful on its first real event.
 	out, perr := parse(bufio.NewReader(idle), sink, opts.meaningful(), lg)
 	stop()
 	opts.Idle.Stop()
-	werr := ReapChild(cmd, &idle.src, perr)
+	werr := reapChild(cmd, &idle.src, perr)
 	res = withParsed(res, out)
 	if serr := opts.Idle.Err(); serr != nil {
 		return res, serr
 	}
 	if werr != nil || ctx.Err() != nil {
-		return res, childErr(ctx, name, errors.Join(werr, perr), tail)
+		return res, ChildErr(ctx, name, errors.Join(werr, perr), tail)
 	}
 	if perr == nil && res.Answer == "" && len(res.Structured) == 0 { // a structured-only answer is an answer
 		return res, EmptyAnswer(name)
@@ -265,13 +265,13 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry
 // heartbeatEvery is how long a child's stdout may stay quiet before a "still running" log line.
 var heartbeatEvery = 30 * time.Second
 
-// EOFReader wraps a child's stdout and records that it reached EOF, the cue for ReapChild.
-type EOFReader struct {
+// eofReader wraps a child's stdout and records that it reached EOF, the cue for ReapChild.
+type eofReader struct {
 	R   io.Reader
 	eof atomic.Bool
 }
 
-func (e *EOFReader) Read(p []byte) (int, error) {
+func (e *eofReader) Read(p []byte) (int, error) {
 	n, err := e.R.Read(p)
 	if err == io.EOF {
 		e.eof.Store(true)
@@ -279,8 +279,8 @@ func (e *EOFReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// ReapChild waits for cmd once its stdout was parsed; a parse error before EOF kills it, else it drains and waits.
-func ReapChild(cmd *exec.Cmd, out *EOFReader, perr error) error {
+// reapChild waits for cmd once its stdout was parsed; a parse error before EOF kills it, else it drains and waits.
+func reapChild(cmd *exec.Cmd, out *eofReader, perr error) error {
 	if perr != nil && !out.eof.Load() && cmd.Cancel != nil { // after EOF the child is exiting: killing would mask its status
 		_ = cmd.Cancel() // a dead consumer or bad stream must not leave the child running to --timeout
 	} else {
@@ -291,7 +291,7 @@ func ReapChild(cmd *exec.Cmd, out *EOFReader, perr error) error {
 
 // idleReader stamps the time of every read so heartbeat can tell a quiet stream from a busy one.
 type idleReader struct {
-	src  EOFReader
+	src  eofReader
 	last int64 // unix nanos of the last read, atomic
 }
 

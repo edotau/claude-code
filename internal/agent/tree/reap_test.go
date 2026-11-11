@@ -2,13 +2,17 @@ package tree
 
 import (
 	"bytes"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // A running claude dispatch hides the session it spawned, by its session id or by cwd + start + opening prompt;
@@ -152,5 +156,90 @@ func TestBuildDispatchesEnvelopeID(t *testing.T) {
 	got := buildDispatches(path, "", time.Now(), Activity{})
 	if len(got) != 1 || got[0].ID != "20261017T231131.948-codex" {
 		t.Fatalf("buildDispatches = %+v, want the envelope dispatch", got)
+	}
+}
+
+// orphanFixture stubs the process table, signals and clock; the returned slice collects "TERM|KILL pid" in order.
+func orphanFixture(t *testing.T, now time.Time, procs ...proc.Info) *[]string {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var sent []string
+	origList, origSig, origAlive, origNow, origSleep := listProcs, signalGroup, procAlive, reapNow, reapSleep
+	listProcs = func(string) ([]proc.Info, error) { return procs, nil }
+	signalGroup = func(pid int, sig syscall.Signal) error {
+		name := "TERM"
+		if sig == syscall.SIGKILL {
+			name = "KILL"
+		}
+		sent = append(sent, fmt.Sprintf("%s %d", name, pid))
+		return nil
+	}
+	procAlive, reapNow, reapSleep = func(int) bool { return true }, func() time.Time { return now }, func(time.Duration) {}
+	t.Cleanup(func() {
+		listProcs, signalGroup, procAlive, reapNow, reapSleep = origList, origSig, origAlive, origNow, origSleep
+	})
+	return &sent
+}
+
+// Given dispatch children in every state, When Reap sweeps, Then only a marked, group-leading, orphaned child past its
+// deadline is stopped (SIGTERM, then SIGKILL); a live dispatcher's child, a hand-started process and a young one stay.
+func TestReapStopsOnlyOrphanedDispatchChildren(t *testing.T) {
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-26 * time.Hour)
+	mk := func(pid, ppid int, mark string, start time.Time) proc.Info {
+		return proc.Info{PID: pid, PPID: ppid, PGID: pid, Start: start, Exe: "opencode", Mark: mark}
+	}
+	orphan := mk(1001, 1, "20261110T100000.000-opencode", old)
+	liveParent := mk(1002, 500, "20261110T100000.000-opencode", old)
+	byHand := mk(1003, 1, "", old)
+	young := mk(1004, 1, "20261111T115000.000-opencode", now.Add(-10*time.Minute))
+	notLeader := mk(1005, 1, "20261110T100000.000-opencode", old)
+	notLeader.PGID = 77
+	dispatcher := proc.Info{PID: 500, PPID: 1, PGID: 500, Start: old, Exe: "claude-code"}
+	sent := orphanFixture(t, now, orphan, liveParent, byHand, young, notLeader, dispatcher)
+
+	var out, errw bytes.Buffer
+	if code := Reap(true, &out, &errw); code != 0 || len(*sent) != 0 {
+		t.Fatalf("dry run: code %d, signals %v, stderr %s; want none sent", code, *sent, errw.String())
+	}
+	if !strings.Contains(out.String(), "would reap orphan opencode pid 1001") || strings.Count(out.String(), "orphan opencode") != 1 {
+		t.Errorf("dry run output = %q, want exactly the orphan 1001 listed", out.String())
+	}
+	out.Reset()
+	if code := Reap(false, &out, &errw); code != 0 {
+		t.Fatalf("Reap = %d: %s", code, errw.String())
+	}
+	if got := strings.Join(*sent, ","); got != "TERM 1001,KILL 1001" {
+		t.Errorf("signals = %q, want SIGTERM then SIGKILL to the orphan's group only", got)
+	}
+	if !strings.Contains(out.String(), "reaped 0 dispatches, 0 markers, 0 sockets, 1 orphans") {
+		t.Errorf("summary = %q, want one orphan reaped", out.String())
+	}
+}
+
+// Given an orphan whose dispatch record is still alive, or younger than its record's own timeout, Then it stays.
+func TestOrphanDeadlineFollowsTheDispatchRecord(t *testing.T) {
+	now := time.Now()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	live := agent.ClaimRecord("opencode", agent.RunOptions{}, now.Add(-2*time.Hour))
+	live.PID = os.Getpid()
+	short := agent.ClaimRecord("opencode", agent.RunOptions{Timeout: 2 * time.Minute}, now.Add(-time.Hour))
+	short.PID, short.Status = 1<<22+7, "error"
+	long := agent.ClaimRecord("opencode", agent.RunOptions{Timeout: 3 * time.Hour}, now.Add(-4*time.Hour))
+	long.PID, long.Status = 1<<22+7, "error"
+	for _, r := range []agent.Record{live, short, long} {
+		if err := r.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		id   string
+		want time.Duration
+		ok   bool
+	}{{live.ID, 0, false}, {short.ID, 2 * time.Minute, true}, {long.ID, 3 * time.Hour, true},
+		{"20200101T000000.000-opencode", agent.DefaultToolsTimeout, true}} {
+		if got, ok := orphanDeadline(c.id); got != c.want || ok != c.ok {
+			t.Errorf("orphanDeadline(%s) = %v, %v; want %v, %v", c.id, got, ok, c.want, c.ok)
+		}
 	}
 }

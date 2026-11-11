@@ -15,8 +15,8 @@ import (
 // DefaultPerKey caps concurrent dispatches on one billed account (one credential, one rate limit).
 const DefaultPerKey = 4
 
-// SharedTryClaim is the machine-wide limiter seam; tests count or stub it.
-var SharedTryClaim = inflight.TryClaim
+// sharedTryClaim is the machine-wide limiter seam; tests count or stub it.
+var sharedTryClaim = inflight.TryClaim
 
 // SharedPoll is how often a waiting dispatch re-checks the shared limiter; a var so tests can shorten it.
 var SharedPoll = 250 * time.Millisecond
@@ -39,8 +39,8 @@ type Limiter struct {
 // Slot is one prepared task's claim on a global slot until its first dispatch asks for a permit (or parks, or ends).
 type Slot struct{ settled bool }
 
-// NewLimiter is a limiter running at most jobs dispatches at once and cap per billed account.
-func NewLimiter(jobs, cap int) *Limiter {
+// newLimiter is a limiter running at most jobs dispatches at once and cap per billed account.
+func newLimiter(jobs, cap int) *Limiter {
 	l := &Limiter{jobs: jobs, cap: cap, per: map[string]int{}}
 	l.cond = sync.NewCond(&l.mu)
 	return l
@@ -91,7 +91,7 @@ func Settle(ctx context.Context) {
 
 // acquire waits for a global Slot, an account permit and one shared slot; a full shared account releases the local
 // permit before the next try, so it never holds a worker another account could use. The release func is idempotent.
-func (l *Limiter) Acquire(ctx context.Context, account string) (func(), error) {
+func (l *Limiter) acquire(ctx context.Context, account string) (func(), error) {
 	if l.limits.Total <= 0 {
 		return l.acquireLocal(ctx, account)
 	}
@@ -102,7 +102,7 @@ func (l *Limiter) Acquire(ctx context.Context, account string) (func(), error) {
 		if err != nil {
 			return nil, err
 		}
-		if ok, _ := SharedTryClaim(c, l.limits); ok {
+		if ok, _ := sharedTryClaim(c, l.limits); ok {
 			var once sync.Once
 			return func() { once.Do(func() { inflight.Release(c.Owner, c.ID); freeLocal() }) }, nil
 		}
@@ -198,12 +198,12 @@ func AcquireDispatch(ctx context.Context, account string) (release func(), err e
 	if l == nil {
 		return func() {}, nil
 	}
-	return l.Acquire(ctx, account)
+	return l.acquire(ctx, account)
 }
 
 // NewBatchLimiter is a limiter for a batch of jobs, with the shared limiter's caps read once.
 func NewBatchLimiter(jobs int) *Limiter {
-	l := NewLimiter(jobs, DefaultPerKey)
+	l := newLimiter(jobs, DefaultPerKey)
 	l.limits = router.CurrentLimits()
 	return l
 }

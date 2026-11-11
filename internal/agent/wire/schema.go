@@ -17,8 +17,8 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
-// ErrSchema marks an answer that is not JSON satisfying the requested schema; the envelope kind is "schema".
-var ErrSchema = errors.New("schema")
+// errSchema marks an answer that is not JSON satisfying the requested schema; the envelope kind is "schema".
+var errSchema = errors.New("schema")
 
 // SchemaInstruction is the one line that asks an agent without a native flag for schema-shaped JSON.
 func SchemaInstruction(schema string) string {
@@ -39,19 +39,19 @@ func Structured(answer, schema string) (raw json.RawMessage, unchecked []string,
 	span := jsonSpan(answer)
 	v, err := decodeExact(span)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: answer is not JSON: %v", ErrSchema, err)
+		return nil, nil, fmt.Errorf("%w: answer is not JSON: %v", errSchema, err)
 	}
 	sch, err := decodeExact(schema)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: unreadable schema: %v", ErrSchema, err)
+		return nil, nil, fmt.Errorf("%w: unreadable schema: %v", errSchema, err)
 	}
 	if err = schemaShape(sch); err != nil {
-		return nil, nil, fmt.Errorf("%w: malformed schema: %v", ErrSchema, err)
+		return nil, nil, fmt.Errorf("%w: malformed schema: %v", errSchema, err)
 	}
 	skipped := map[string]bool{}
 	collectUnchecked(sch, skipped)
 	if err = checkSchema("answer", v, sch); err != nil {
-		return nil, nil, fmt.Errorf("%w: %v", ErrSchema, err)
+		return nil, nil, fmt.Errorf("%w: %v", errSchema, err)
 	}
 	for k := range skipped {
 		unchecked = append(unchecked, k)

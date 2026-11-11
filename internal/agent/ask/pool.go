@@ -24,11 +24,11 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// DefaultJobs is the default pool size: min(4, GOMAXPROCS).
-func DefaultJobs() int { return min(4, runtime.GOMAXPROCS(0)) }
+// defaultJobs is the default pool size: min(4, GOMAXPROCS).
+func defaultJobs() int { return min(4, runtime.GOMAXPROCS(0)) }
 
-// Opts are the ask flags that apply to a whole --batch run; Identity is the --as value, empty when unset.
-type Opts struct {
+// batchOpts are the ask flags that apply to a whole --batch run; Identity is the --as value, empty when unset.
+type batchOpts struct {
 	Jobs            int
 	FailFast        bool
 	Agent, Fallback string
@@ -37,15 +37,15 @@ type Opts struct {
 	FollowInput     bool
 	FollowIdle      time.Duration
 	RetryAgents     []string
-	Decorate        func(*Task) // optional: called on every successfully built task
-	// Follow optionally feeds more tasks after the initial lines; ctx is cancelled when RunBatch returns.
-	Follow func(ctx context.Context, build func(ParsedLine) Task) <-chan Task
+	Decorate        func(*batchTask) // optional: called on every successfully built task
+	// Follow optionally feeds more tasks after the initial lines; ctx is cancelled when runBatch returns.
+	Follow func(ctx context.Context, build func(parsedLine) batchTask) <-chan batchTask
 }
 
-// BuildTask validates one line like the ask flags and attaches the routing step; routing waits for Prepare.
-func BuildTask(l ParsedLine, o Opts, base agent.RunOptions, timeoutSet bool, cwd string, seen map[string]bool,
-	newClient func() *agent.Client) (Task, error) {
-	t, err := ParseTask(l, o.Agent, base, timeoutSet, cwd, seen)
+// buildTask validates one line like the ask flags and attaches the routing step; routing waits for Prepare.
+func buildTask(l parsedLine, o batchOpts, base agent.RunOptions, timeoutSet bool, cwd string, seen map[string]bool,
+	newClient func() *agent.Client) (batchTask, error) {
+	t, err := parseTask(l, o.Agent, base, timeoutSet, cwd, seen)
 	if err != nil {
 		return t, err
 	}
@@ -62,8 +62,8 @@ func BuildTask(l ParsedLine, o Opts, base agent.RunOptions, timeoutSet bool, cwd
 	return t, nil
 }
 
-// RunBatch builds a task per line (a bad line fails alone, logged to os.Stderr) and runs them on the pool; true only if all ok.
-func RunBatch(ctx context.Context, lines []ParsedLine, o Opts, base agent.RunOptions, timeoutSet bool,
+// runBatch builds a task per line (a bad line fails alone, logged to os.Stderr) and runs them on the pool; true only if all ok.
+func runBatch(ctx context.Context, lines []parsedLine, o batchOpts, base agent.RunOptions, timeoutSet bool,
 	newClient func() *agent.Client, out io.Writer) (id string, ok bool) {
 	ctx = providers.WithIdentity(ctx, cmp.Or(o.Identity, providers.IdentityHeadless))
 	cwd, err := os.Getwd() // resolved once here: a pool goroutine must never fall back to the process cwd
@@ -72,8 +72,8 @@ func RunBatch(ctx context.Context, lines []ParsedLine, o Opts, base agent.RunOpt
 		return "", false
 	}
 	seen := map[string]bool{}
-	build := func(l ParsedLine) Task {
-		t, err := BuildTask(l, o, base, timeoutSet, cwd, seen, newClient)
+	build := func(l parsedLine) batchTask {
+		t, err := buildTask(l, o, base, timeoutSet, cwd, seen, newClient)
 		if err != nil {
 			t.Err = err
 			fmt.Fprintf(os.Stderr, "claude-code: ask: %v\n", err)
@@ -82,28 +82,28 @@ func RunBatch(ctx context.Context, lines []ParsedLine, o Opts, base agent.RunOpt
 		}
 		return t
 	}
-	tasks := make([]Task, 0, len(lines))
+	tasks := make([]batchTask, 0, len(lines))
 	for _, l := range lines {
 		tasks = append(tasks, build(l))
 	}
-	id = NewID()
-	po := PoolOptions{ID: id, Jobs: o.Jobs, FailFast: o.FailFast, Out: out, Log: os.Stderr}
+	id = newID()
+	po := poolOptions{ID: id, Jobs: o.Jobs, FailFast: o.FailFast, Out: out, Log: os.Stderr}
 	if o.Follow != nil {
 		fctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		po.More = o.Follow(fctx, build)
 	}
-	return id, RunTasks(ctx, tasks, po)
+	return id, runTasks(ctx, tasks, po)
 }
 
-// PoolOptions configures RunTasks; Out is read when RunTasks is called, so a swapped os.Stdout is honored.
-type PoolOptions struct {
-	ID       string      // stamped on every envelope as batch_id
-	Jobs     int         // dispatches run at once; <= 0 means DefaultJobs
-	FailFast bool        // the first failed task cancels every queued and running one
-	Out      io.Writer   // one envelope JSON per line, in completion order
-	Log      io.Writer   // per-task progress lines tagged with the task id; nil discards
-	More     <-chan Task // optional: tasks claimed as they arrive until it closes
+// poolOptions configures runTasks; Out is read when runTasks is called, so a swapped os.Stdout is honored.
+type poolOptions struct {
+	ID       string           // stamped on every envelope as batch_id
+	Jobs     int              // dispatches run at once; <= 0 means defaultJobs
+	FailFast bool             // the first failed task cancels every queued and running one
+	Out      io.Writer        // one envelope JSON per line, in completion order
+	Log      io.Writer        // per-task progress lines tagged with the task id; nil discards
+	More     <-chan batchTask // optional: tasks claimed as they arrive until it closes
 }
 
 type batchDone struct {
@@ -114,15 +114,15 @@ type batchDone struct {
 
 // batchRun is the state shared by a batch's workers: the serialized log writer, the limiter.
 type batchRun struct {
-	o    PoolOptions
+	o    poolOptions
 	logM sync.Mutex
 	lim  *retry.Limiter
 	stop func() // cancels the batch
 }
 
-// RunTasks streams one envelope per task to o.Out as each finishes; true only if every task was ok.
-func RunTasks(ctx context.Context, tasks []Task, o PoolOptions) bool {
-	jobs := max(cmp.Or(o.Jobs, DefaultJobs()), 1)
+// runTasks streams one envelope per task to o.Out as each finishes; true only if every task was ok.
+func runTasks(ctx context.Context, tasks []batchTask, o poolOptions) bool {
+	jobs := max(cmp.Or(o.Jobs, defaultJobs()), 1)
 	bctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	b := &batchRun{o: o, lim: retry.NewBatchLimiter(jobs), stop: cancel}
@@ -157,7 +157,7 @@ func RunTasks(ctx context.Context, tasks []Task, o PoolOptions) bool {
 }
 
 // feed claims the initial queue in input order, then o.More; it closes done once every claimed task has finished.
-func (b *batchRun) feed(ctx context.Context, tasks []Task, queue []int, done chan<- batchDone) {
+func (b *batchRun) feed(ctx context.Context, tasks []batchTask, queue []int, done chan<- batchDone) {
 	var wg sync.WaitGroup
 	defer func() { wg.Wait(); close(done) }()
 	for _, i := range queue {
@@ -181,7 +181,7 @@ func (b *batchRun) feed(ctx context.Context, tasks []Task, queue []int, done cha
 }
 
 // claim reserves a slot for t, then prepares and runs it in its own goroutine.
-func (b *batchRun) claim(ctx context.Context, wg *sync.WaitGroup, t Task, i int, done chan<- batchDone) {
+func (b *batchRun) claim(ctx context.Context, wg *sync.WaitGroup, t batchTask, i int, done chan<- batchDone) {
 	sl, err := b.lim.Reserve(ctx)
 	sctx := retry.WithBatchSlot(ctx, b.lim, sl) // settle needs the limiter to free the slot
 	if err != nil {
@@ -194,7 +194,7 @@ func (b *batchRun) claim(ctx context.Context, wg *sync.WaitGroup, t Task, i int,
 }
 
 // execute prepares and runs t on its reserved slot, retrying a real failure once, and reports to done.
-func (b *batchRun) execute(ctx, sctx context.Context, t Task, i int, done chan<- batchDone) {
+func (b *batchRun) execute(ctx, sctx context.Context, t batchTask, i int, done chan<- batchDone) {
 	prepared, err := t.Prepare(ctx)
 	if err != nil {
 		b.failBeforeStart(ctx, sctx, t, i, err, done, true)
@@ -210,7 +210,7 @@ func (b *batchRun) execute(ctx, sctx context.Context, t Task, i int, done chan<-
 }
 
 // failBeforeStart reports t as failed before it ran; stopFirst stops a FailFast batch before Settle frees the slot.
-func (b *batchRun) failBeforeStart(ctx, sctx context.Context, t Task, i int, err error, done chan<- batchDone, stopFirst bool) {
+func (b *batchRun) failBeforeStart(ctx, sctx context.Context, t batchTask, i int, err error, done chan<- batchDone, stopFirst bool) {
 	cancelled := ctx.Err() != nil
 	if cancelled {
 		err = fmt.Errorf("cancelled before start: %w", context.Canceled)
@@ -231,7 +231,7 @@ func (b *batchRun) failBeforeStart(ctx, sctx context.Context, t Task, i int, err
 }
 
 // retry runs t.Retry once after a real failure and returns the retry's envelope with both attempts in Hops.
-func (b *batchRun) retry(ctx context.Context, t Task, first wire.Envelope) wire.Envelope {
+func (b *batchRun) retry(ctx context.Context, t batchTask, first wire.Envelope) wire.Envelope {
 	if t.Retry == nil || ctx.Err() != nil || len(first.Hops) == 0 || !cancelsBatch(first) {
 		return first
 	}
@@ -257,7 +257,7 @@ func writeEnvelope(w io.Writer, env wire.Envelope) bool {
 }
 
 // taskFailure is the error envelope of a task that never ran.
-func taskFailure(t Task, err error) wire.Envelope {
+func taskFailure(t batchTask, err error) wire.Envelope {
 	env := wire.FailureEnvelope(t.Agent, err)
 	env.TaskID = t.ID
 	return env
@@ -277,7 +277,7 @@ func (b *batchRun) logf(id, format string, a ...any) {
 }
 
 // run executes one task with its own stream, log sink and dispatch record; a panic becomes an error envelope.
-func (b *batchRun) run(ctx context.Context, t Task, p *agent.Prepared) (env wire.Envelope, ok bool) {
+func (b *batchRun) run(ctx context.Context, t batchTask, p *agent.Prepared) (env wire.Envelope, ok bool) {
 	rec := &p.Record
 	rec.TaskID, rec.BatchID, rec.PlanTask = t.ID, b.o.ID, t.Plan
 	ctx = agent.WithBatchRun(ctx, b.lim)
@@ -323,14 +323,14 @@ func (b *batchRun) run(ctx context.Context, t Task, p *agent.Prepared) (env wire
 var batchExclusive = []string{"retry", "job", "background", "session", "log", "attach", "rubric", "debug-file"}
 
 // runAskBatch runs the JSONL tasks in src (a file, or "-" for stdin) on a bounded pool and streams one envelope per line.
-func runAskBatch(fs *flag.FlagSet, resume bool, src string, o Opts, base agent.RunOptions) int {
+func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base agent.RunOptions) int {
 	if err := checkBatchFlags(fs, resume, o); err != nil {
 		return failAskCode("text", o.Agent, err, 2)
 	}
 	return runAskBatchInput(fs, src, o, base)
 }
 
-func checkBatchFlags(fs *flag.FlagSet, resume bool, o Opts) error {
+func checkBatchFlags(fs *flag.FlagSet, resume bool, o batchOpts) error {
 	var bad error
 	if resume || fs.NArg() > 0 {
 		bad = errors.New("--batch takes tasks from the JSONL source, not a session id or a positional task")
@@ -347,7 +347,7 @@ func checkBatchFlags(fs *flag.FlagSet, resume bool, o Opts) error {
 }
 
 // checkBatchRun rejects a non-JSON --format, --follow on stdin and a --jobs below 1.
-func checkBatchRun(fs *flag.FlagSet, o Opts) error {
+func checkBatchRun(fs *flag.FlagSet, o batchOpts) error {
 	if helptext.Explicit(fs, "format") && fs.Lookup("format").Value.String() != helptext.JSON {
 		return errors.New("--batch always prints JSON envelopes; drop --format or pass --format json")
 	}
@@ -360,7 +360,7 @@ func checkBatchRun(fs *flag.FlagSet, o Opts) error {
 	return nil
 }
 
-func runAskBatchInput(fs *flag.FlagSet, src string, o Opts, base agent.RunOptions) int {
+func runAskBatchInput(fs *flag.FlagSet, src string, o batchOpts, base agent.RunOptions) int {
 	in := io.Reader(os.Stdin)
 	var fw *follower
 	if o.FollowInput {
@@ -376,7 +376,7 @@ func runAskBatchInput(fs *flag.FlagSet, src string, o Opts, base agent.RunOption
 		defer f.Close()
 		in = f
 	}
-	lines, err := ReadTaskLines(in)
+	lines, err := readTaskLines(in)
 	if err != nil {
 		return failAskCode("text", o.Agent, fmt.Errorf("--batch: %w", err), 2)
 	}
@@ -385,14 +385,11 @@ func runAskBatchInput(fs *flag.FlagSet, src string, o Opts, base agent.RunOption
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGPIPE) // a closed stdout cancels
 	defer stop()
-	if as := fs.Lookup("as"); as != nil {
-		o.Identity = as.Value.String()
-	}
-	o.Decorate = func(t *Task) { t.Retry = retryFor(*t, o, o.RetryAgents) }
+	o.Decorate = func(t *batchTask) { t.Retry = retryFor(*t, o, o.RetryAgents) }
 	if fw != nil {
 		o.Follow = fw.run
 	}
-	id, ok := RunBatch(ctx, lines, o, base, helptext.Explicit(fs, "timeout"), NewClient, os.Stdout)
+	id, ok := runBatch(ctx, lines, o, base, helptext.Explicit(fs, "timeout"), newClient, os.Stdout)
 	if !ok {
 		fmt.Fprintf(os.Stderr, "ask: %s: not every task was ok\n", id)
 		return 1

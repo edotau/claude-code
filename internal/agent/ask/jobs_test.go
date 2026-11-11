@@ -25,7 +25,7 @@ func TestResultExitRedactsError(t *testing.T) {
 	}
 	orig := os.Stderr
 	os.Stderr = w
-	rc := ResultExit(agent.Record{Status: "error", Error: "401 bad key " + key})
+	rc := resultExit(agent.Record{Status: "error", Error: "401 bad key " + key})
 	os.Stderr = orig
 	w.Close()
 	out, _ := io.ReadAll(r)

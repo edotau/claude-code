@@ -27,8 +27,8 @@ func askedSkips(reasons []string, want string) []string {
 	})
 }
 
-// RunWithFallback runs c's dispatches in turn while the previous one was unavailable; see dispatchUnavailable.
-func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sink, notify func(string)) (wire.Result, error) {
+// runWithFallback runs c's dispatches in turn while the previous one was unavailable; see dispatchUnavailable.
+func runWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sink, notify func(string)) (wire.Result, error) {
 	if sink == nil {
 		sink = wire.Discard
 	}
@@ -91,7 +91,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	release, aerr := retry.AcquireDispatch(ctx, key) // per billed account, whichever key the task was queued under
 	if aerr != nil {
 		ce := &retry.Error{Kind: retry.KindFatal, Agent: disp.Agent.Name(), Err: aerr}
-		res, err = wire.Result{Agent: ce.Agent, Status: statusOf(ce), Invoked: lreq.Model}, ce
+		res, err = wire.Result{Agent: ce.Agent, Status: StatusOf(ce), Invoked: lreq.Model}, ce
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
 	}
 	held := &retry.Permit{Account: key, Release: release,
@@ -117,7 +117,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	// another task may have marked this account dead while this dispatch waited for its permit
 	if skip := accountRefused(disp); skip != nil {
 		skip.Terminal = true // refused before it ran: the chain moves on, whichever agent this hop was
-		res, err = wire.Result{Agent: disp.Agent.Name(), Status: statusOf(skip), Invoked: lreq.Model}, skip
+		res, err = wire.Result{Agent: disp.Agent.Name(), Status: StatusOf(skip), Invoked: lreq.Model}, skip
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
 	}
 	runCtx := retry.WithPermit(withCoolKey(ctx, key), held)
@@ -334,9 +334,9 @@ func dataBlock(tag, doc string) string {
 	return "<<<" + tag + "\n" + strings.ReplaceAll(doc, tag+">>>", tag+" >>>") + "\n" + tag + ">>>"
 }
 
-// ExplicitBackend is true when --provider, or a "provider:model" --model, names a provider outright;
+// explicitBackend is true when --provider, or a "provider:model" --model, names a provider outright;
 // when the registry cannot load, any "x:y" model counts as pinned (fail closed).
-func ExplicitBackend(req RunOptions) bool {
+func explicitBackend(req RunOptions) bool {
 	if req.Provider != "" {
 		return true
 	}
@@ -401,7 +401,7 @@ func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch,
 		s.stopped = true
 		return true, nil
 	}
-	if i == 0 && ExplicitBackend(s.req) {
+	if i == 0 && explicitBackend(s.req) {
 		s.stopped = true
 		return true, nil
 	}
@@ -412,10 +412,10 @@ func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch,
 func (s *fallbackState) cancelled(i int, disp Dispatch, cerr error) error {
 	ce := &retry.Error{Kind: retry.KindFatal, Agent: disp.Agent.Name(), Err: cerr}
 	if i == 0 {
-		s.res = wire.Result{Agent: ce.Agent, Status: statusOf(ce)}
+		s.res = wire.Result{Agent: ce.Agent, Status: StatusOf(ce)}
 		return ce
 	}
-	s.err, s.res.Status, s.stopped = ce, statusOf(ce), true
+	s.err, s.res.Status, s.stopped = ce, StatusOf(ce), true
 	return nil
 }
 
@@ -444,7 +444,7 @@ func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res wire.
 	if trip == nil || err == nil || errors.Is(err, context.Canceled) {
 		return
 	}
-	if i+1 >= len(c.Dispatches) || (i == 0 && ExplicitBackend(req)) {
+	if i+1 >= len(c.Dispatches) || (i == 0 && explicitBackend(req)) {
 		trip()
 		return
 	}

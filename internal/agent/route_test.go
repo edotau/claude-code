@@ -25,7 +25,7 @@ func TestExplicitChainRecordsAndGates(t *testing.T) {
 	if len(c.Dispatches) != 1 || c.Dispatches[0].Account != "openai·openai" {
 		t.Fatalf("chain = %+v, want one dispatch on openai·openai", c)
 	}
-	if _, err := RunWithFallback(context.Background(), c, req, wire.Discard, nil); err == nil {
+	if _, err := runWithFallback(context.Background(), c, req, wire.Discard, nil); err == nil {
 		t.Fatal("the quota failure must surface")
 	}
 	if e := loadState()["openai·openai"]; e.Status(time.Now()) != router.StateExhausted {
@@ -115,7 +115,7 @@ func TestAstraModelIdentityOwnLogin(t *testing.T) {
 		t.Fatalf("first dispatch is not codex: %+v; skipped %v", c.Dispatches, c.Skipped)
 	}
 	stubs := stubDispatches(&c)
-	if _, err := RunWithFallback(ctx, c, RunOptions{Prompt: "x", Model: astra}, wire.Discard, nil); err != nil {
+	if _, err := runWithFallback(ctx, c, RunOptions{Prompt: "x", Model: astra}, wire.Discard, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(stubs[0].seen) != 1 {
@@ -322,13 +322,11 @@ var servedCand = router.Candidate{Agent: "codex", Profile: "dev", Account: "data
 // A plain 429 (no quota wording) that exhausts the retries holds the account out of the picks for 10 minutes.
 func TestRateLimitedHopMarksAccount(t *testing.T) {
 	setConfigDir(t)
-	b, m := retry.DefaultBaseDelay, retry.DefaultMaxDelay
-	retry.DefaultBaseDelay, retry.DefaultMaxDelay = time.Millisecond, 2*time.Millisecond
-	t.Cleanup(func() { retry.DefaultBaseDelay, retry.DefaultMaxDelay = b, m })
+	fastDefaultBackoff(t)
 	e429 := errors.New("rate limited: codex: exit status 1 exceeded retry limit, last status: 429 Too Many Requests")
 	codex := &fakeRunner{name: "codex", errs: []error{e429, e429, e429}, emptyAnswer: true}
 	req := RunOptions{Prompt: "p", Provider: "chatgpt"}
-	if _, err := RunWithFallback(context.Background(), explicitChain(codex, req), req, wire.Discard, nil); err == nil {
+	if _, err := runWithFallback(context.Background(), explicitChain(codex, req), req, wire.Discard, nil); err == nil {
 		t.Fatal("the 429 must surface")
 	}
 	e := loadState()["openai·chatgpt"]
@@ -337,7 +335,7 @@ func TestRateLimitedHopMarksAccount(t *testing.T) {
 	}
 	api := &fakeRunner{name: "codex", errs: []error{e429, e429, e429}, emptyAnswer: true}
 	paid := RunOptions{Prompt: "p", Provider: "openai"} // credits billing: one endpoint's 429 must not bench the account
-	_, _ = RunWithFallback(context.Background(), explicitChain(api, paid), paid, wire.Discard, nil)
+	_, _ = runWithFallback(context.Background(), explicitChain(api, paid), paid, wire.Discard, nil)
 	if e := loadState()["openai·openai"]; !e.ExhaustedUntil.IsZero() {
 		t.Fatalf("openai·openai = %+v, want no mark on a credits 429", e)
 	}
@@ -366,6 +364,18 @@ func TestOtherRouteFollowsLead(t *testing.T) {
 	}
 	if !rc.otherRoute(router.Candidate{Agent: "codex", Profile: "pin"}) {
 		t.Error("pin row under a lead not marked as another route")
+	}
+}
+
+// Under --route databricks:<p> the wanted agent on workspace <p> is the asked route, whatever its pin says.
+func TestOtherRouteFollowsArm(t *testing.T) {
+	t.Setenv(router.EnvRoute, router.RouteDatabricks+":qa")
+	rc := routeCtx{want: "opencode", pins: map[string]router.PinSpec{"opencode": {Profile: "dev"}}}
+	if rc.otherRoute(router.Candidate{Agent: "opencode", Profile: "qa"}) {
+		t.Error("the route's own workspace marked as another route")
+	}
+	if !rc.otherRoute(router.Candidate{Agent: "codex", Profile: "qa"}) || !rc.otherRoute(router.Candidate{Agent: "opencode", Profile: "prod"}) {
+		t.Error("another agent or workspace not marked as another route")
 	}
 }
 

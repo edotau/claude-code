@@ -82,15 +82,13 @@ func Transfer(name, source, note string, wait bool) int {
 	code := Cmd(transcript.TransferArgs(name, cwd, prompt, wait))
 	if code == 0 && wait {
 		if rec, _, err := agent.JobResult(context.Background(), name, cwd, ""); err == nil {
-			PrintResumeHint(name, rec.SessionID)
+			fprintResumeHint(os.Stdout, name, rec.SessionID)
 		}
 	}
 	return code
 }
 
-// PrintResumeHint prints the agent's resume command for a session; nothing when it has none.
-func PrintResumeHint(name, sessionID string) { fprintResumeHint(os.Stdout, name, sessionID) }
-
+// fprintResumeHint prints the agent's resume command for a session to w; nothing when it has none.
 func fprintResumeHint(w io.Writer, name, sessionID string) {
 	s, _ := agent.LookupSchema(name)
 	if hint := s.ResumeHint(sessionID); hint != "" {

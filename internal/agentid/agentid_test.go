@@ -56,7 +56,7 @@ func TestNativeEffort(t *testing.T) {
 		OpenCode: {pass, pass, pass, pass, pass, refuse, refuse},
 		"agy":    {refuse, refuse, refuse, refuse, refuse, refuse, refuse},
 	}
-	levels := append(Efforts(), "minimal", "bogus")
+	levels := append(efforts(), "minimal", "bogus")
 	for agent, row := range table {
 		for i, e := range levels {
 			native, clamped := NativeEffort(agent, e)

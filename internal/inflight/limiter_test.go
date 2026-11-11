@@ -216,7 +216,7 @@ func assertNoMarker(t *testing.T, sub, format string) {
 // Dispatch owner liveness: a dead owner's dispatch marker is neither counted nor allowed to survive a
 // prune; a live owner's dispatch marker counts even past TTL.
 func TestDispatchOwnerLiveness(t *testing.T) {
-	if !ProbeTrusted() {
+	if !probeTrusted() {
 		t.Skip("proc probing untrusted on this platform; TTL is the sole backstop here")
 	}
 	setupDir(t)
@@ -245,7 +245,7 @@ func TestDispatchOwnerLiveness(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(Dir(), oldName), []byte("a"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	stale := time.Now().Add(-TTL - time.Minute)
+	stale := time.Now().Add(-ttl - time.Minute)
 	if err := os.Chtimes(filepath.Join(Dir(), oldName), stale, stale); err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +349,7 @@ func writeSpawnMeta(t *testing.T, subDir, agent, id string, finished bool) {
 // and its finished agent is pruned by the same rule, whoever scans.
 func TestForeignSpawnFollowsItsOwnSession(t *testing.T) {
 	setupDir(t)
-	if !ProbeTrusted() {
+	if !probeTrusted() {
 		t.Skip("owner liveness is untrusted here")
 	}
 	helper := exec.Command("sleep", "30")
@@ -368,13 +368,13 @@ func TestForeignSpawnFollowsItsOwnSession(t *testing.T) {
 		writeFile(t, filepath.Join(sub, "agent-"+agent+".meta.json"), body)
 		writeFile(t, filepath.Join(sub, "agent-"+agent+".jsonl"), "{}\n")
 	}
-	old := time.Now().Add(-2 * TTL)
+	old := time.Now().Add(-2 * ttl)
 	for _, id := range []string{"toolu_long", "toolu_done"} {
 		path := filepath.Join(Dir(), markerName(sib, id))
 		writeFile(t, path, "a\n"+transcript)
 		setMtime(t, path, old)
 	}
-	live := Liveness(time.Now()) // the read-only rule `agents reap` and the status line use
+	live := liveness(time.Now()) // the read-only rule `agents reap` and the status line use
 	if !live(markerName(sib, "toolu_long")) || live(markerName(sib, "toolu_done")) {
 		t.Error("Liveness disagrees with the limiter on a sibling's long and finished agents")
 	}

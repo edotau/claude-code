@@ -8,19 +8,20 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/transcript"
 )
-
-// scanAllRecords is RecentRecords' n for "every record": the log itself is capped by the dispatch keep.
-const scanAllRecords = 1 << 20
 
 // lostError is the Error a reaped dispatch record carries.
 const lostError = "lost: process gone"
@@ -28,7 +29,7 @@ const lostError = "lost: process gone"
 // runningDispatches lists live dispatch jobs machine-wide (every repo, any age), newest first.
 func runningDispatches(now time.Time) []Dispatch {
 	var dispatches []Dispatch
-	for _, rec := range agent.RecentRecords(scanAllRecords) {
+	for _, rec := range agent.RecentRecords(agent.AllRecords) {
 		if !rec.Alive() {
 			continue
 		}
@@ -79,13 +80,14 @@ func matchesDispatchTitle(s Session, l Dispatch) bool {
 		strings.HasPrefix(oneLine(strings.TrimSpace(l.prompt)), strings.TrimSuffix(s.Title, "…"))
 }
 
-// Reap errors out lost running dispatches and removes dead inflight markers; dryRun only prints. Returns 1 on failure.
+// Reap errors out lost running dispatches, removes dead inflight markers and stops orphaned dispatch children;
+// dryRun only prints. Returns 1 on failure.
 func Reap(dryRun bool, out, errw io.Writer) int {
 	verb := "reaped"
 	if dryRun {
 		verb = "would reap"
 	}
-	snapshot, err := agent.ReadRecent(scanAllRecords)
+	snapshot, err := agent.ReadRecent(agent.AllRecords)
 	if err != nil {
 		fmt.Fprintln(errw, "agents reap:", err)
 		return 1
@@ -97,12 +99,13 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 		fmt.Fprintln(errw, "agents reap:", err)
 		code = 1
 	}
-	code = max(code, sockCode)
-	if records+markers+socks == 0 {
+	orphans, orphanCode := reapOrphans(dryRun, verb, out, errw)
+	code = max(code, sockCode, orphanCode)
+	if records+markers+socks+orphans == 0 {
 		fmt.Fprintln(out, "agents reap: nothing to reap")
 		return code
 	}
-	fmt.Fprintf(out, "%s %d dispatches, %d markers, %d sockets\n", verb, records, markers, socks)
+	fmt.Fprintf(out, "%s %d dispatches, %d markers, %d sockets, %d orphans\n", verb, records, markers, socks, orphans)
 	return code
 }
 
@@ -153,6 +156,99 @@ func reapSockets(dryRun bool, verb string, out, errw io.Writer) (int, int) {
 		n++
 	}
 	return n, code
+}
+
+// Seams for tests: the process table, the group signal, the liveness probe, the clock and the SIGTERM-to-SIGKILL wait.
+var (
+	listProcs   = proc.List
+	signalGroup = proc.SignalGroup
+	procAlive   = proc.Alive
+	reapNow     = time.Now
+	reapSleep   = time.Sleep
+)
+
+// orphanGrace is how long a SIGTERMed orphan gets before its group is killed.
+const orphanGrace = 3 * time.Second
+
+// orphanSlack is how far past its dispatch deadline a child may run before it counts as leaked.
+const orphanSlack = time.Minute
+
+// reapOrphans stops the children orphanedChildren finds; returns their count and 1 on a failed signal or listing.
+func reapOrphans(dryRun bool, verb string, out, errw io.Writer) (int, int) {
+	procs, err := listProcs(proc.DispatchIDEnv)
+	if err != nil {
+		fmt.Fprintf(errw, "agents reap: process table: %v\n", err)
+		return 0, 1
+	}
+	now := reapNow()
+	n, code := 0, 0
+	for _, o := range orphanedChildren(procs, now) {
+		if !dryRun {
+			if err := stopGroup(o.PID); err != nil {
+				fmt.Fprintf(errw, "agents reap: orphan pid %d: %v\n", o.PID, err)
+				code = 1
+				continue
+			}
+		}
+		fmt.Fprintf(out, "%s orphan %s pid %d (dispatch %s, up %s)\n", verb, o.Exe, o.PID, o.Mark,
+			now.Sub(o.Start).Round(time.Second))
+		n++
+	}
+	return n, code
+}
+
+// orphanedChildren picks the dispatch children (marked with the dispatch id, leading their own process group) whose
+// dispatcher is gone and that outlived the dispatch's deadline; a hand-started process carries no mark.
+func orphanedChildren(procs []proc.Info, now time.Time) []proc.Info {
+	byPID := make(map[int]proc.Info, len(procs))
+	for _, p := range procs {
+		byPID[p.PID] = p
+	}
+	var out []proc.Info
+	for _, p := range procs {
+		if p.Mark == "" || p.PGID != p.PID || !parentGone(p, byPID) {
+			continue
+		}
+		deadline, ok := orphanDeadline(p.Mark)
+		if ok && now.Sub(p.Start) > deadline+orphanSlack {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// parentGone reports whether p's parent is init or a subreaper (it was reparented) or no longer exists.
+func parentGone(p proc.Info, byPID map[int]proc.Info) bool {
+	parent, found := byPID[p.PPID]
+	return p.PPID <= 1 || !found || slices.Contains([]string{"init", "systemd", "launchd"}, parent.Exe)
+}
+
+// orphanDeadline is the longest a child of dispatch id may run (its attempt timeout); false while it is alive.
+func orphanDeadline(id string) (time.Duration, bool) {
+	rec, err := agent.LoadRecord(id)
+	switch {
+	case err != nil: // pruned: the child is older than the 200-record window
+		return agent.DefaultToolsTimeout, true
+	case rec.Alive():
+		return 0, false
+	case rec.Request.Timeout > 0:
+		return rec.Request.Timeout, true
+	case rec.Request.Tools:
+		return agent.DefaultToolsTimeout, true
+	}
+	return retry.DefaultPolicy().AttemptTimeout, true
+}
+
+// stopGroup sends pid's process group SIGTERM, then SIGKILL after orphanGrace if its leader is still there.
+func stopGroup(pid int) error {
+	if err := signalGroup(pid, syscall.SIGTERM); err != nil {
+		return err
+	}
+	reapSleep(orphanGrace)
+	if !procAlive(pid) {
+		return nil
+	}
+	return signalGroup(pid, syscall.SIGKILL)
 }
 
 // socketHolderAlive reads id's record at call time, so a session started during the reap keeps its socket.
