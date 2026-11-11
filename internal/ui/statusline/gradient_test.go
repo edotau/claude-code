@@ -148,7 +148,7 @@ func TestGradientEaseColorsAlongLine(t *testing.T) {
 	hermetic(t)
 	cfg := loadConfig()
 	cfg.Order, cfg.Segments = []string{"model"}, map[string]bool{"path": false, "velocity": false, "model": true}
-	pal := cfg.LiftPalette(theme.EmbeddedPalettes())
+	pal := cfg.LiftPalette(theme.LoadPalettes())
 	stops := cfg.Stops(pal)
 	v := values{model: strings.Repeat("m", 41)} // 41 cells: index 10, 20, 30 sit exactly ¼, ½, ¾ along
 	sgr := regexp.MustCompile(`\x1b\[1;38;2;(\d+);(\d+);(\d+)m`)

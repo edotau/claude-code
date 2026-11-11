@@ -90,21 +90,21 @@ func TestSegmentedStyles(t *testing.T) {
 		cfg := embeddedConfig()
 		cfg.Style, cfg.Order = style, []string{"provider", "model", "proxy", "context", "total", "duration"}
 		cfg.Segments = map[string]bool{"session": false} // every other segment on
-		got := plain(render(sample(), cfg, theme.EmbeddedPalettes()))
+		got := plain(render(sample(), cfg, theme.LoadPalettes()))
 		assertInOrder(t, got, parts...)
 		if prev, dup := seen[got]; dup {
 			t.Errorf("%s renders exactly like %s: %q", style, prev, got)
 		}
 		seen[got] = style
 	}
-	raw := render(sample(), embeddedConfig(), theme.EmbeddedPalettes())
+	raw := render(sample(), embeddedConfig(), theme.LoadPalettes())
 	if !regexp.MustCompile(`\x1b\[[0-9;]*mtester`).MatchString(raw) || !regexp.MustCompile(`\x1b\[[0-9;]*m~`).MatchString(raw) {
 		t.Errorf("gradient head is not painted: %q", raw)
 	}
 	cfg := embeddedConfig()
 	for charset, want := range map[string]bool{"nerd": true, "text": false} {
 		cfg.Style, cfg.Charset = "powerline", charset
-		if got := strings.Contains(render(sample(), cfg, theme.EmbeddedPalettes()), glyphArrow); got != want {
+		if got := strings.Contains(render(sample(), cfg, theme.LoadPalettes()), glyphArrow); got != want {
 			t.Errorf("%s powerline draws the arrow glyph = %v, want %v", charset, got, want)
 		}
 	}
@@ -117,7 +117,7 @@ func TestDashboardAlignsHeadersOverValues(t *testing.T) {
 	cfg.Segments = map[string]bool{"session": false} // pin columns so alignment is checked regardless of defaults
 	cfg.Dashboard.Columns = []string{"workspace", "model", "provider", "proxy", "total", "branch", "context"}
 	cfg.Dashboard.Width, cfg.Bar.Percent = 90, "after" // the row right-aligns to the configured width
-	lines := strings.Split(plain(render(sample(), cfg, theme.EmbeddedPalettes())), "\n")
+	lines := strings.Split(plain(render(sample(), cfg, theme.LoadPalettes())), "\n")
 	if len(lines) != 2 {
 		t.Fatalf("want header + value rows, got %q", lines)
 	}
@@ -147,7 +147,7 @@ func TestWidthClip(t *testing.T) {
 	for _, style := range []string{"gradient", "powerline", "dashboard"} {
 		cfg := embeddedConfig()
 		cfg.Style, cfg.Width = style, 40
-		for line := range strings.SplitSeq(render(sample(), cfg, theme.EmbeddedPalettes()), "\n") {
+		for line := range strings.SplitSeq(render(sample(), cfg, theme.LoadPalettes()), "\n") {
 			if w := visibleWidth(line); w > 40 {
 				t.Errorf("%s: width %d > 40: %q", style, w, plain(line))
 			}
@@ -159,9 +159,9 @@ func TestWidthClip(t *testing.T) {
 	for width := 16; width <= 40; width++ { // no configured width: $COLUMNS less the CLI's margin is the width
 		t.Setenv("COLUMNS", strconv.Itoa(width+ccMargin))
 		cfg := embeddedConfig()
-		got := render(sample(), cfg, theme.EmbeddedPalettes())
+		got := render(sample(), cfg, theme.LoadPalettes())
 		cfg.Width = width
-		if want := render(sample(), cfg, theme.EmbeddedPalettes()); got != want {
+		if want := render(sample(), cfg, theme.LoadPalettes()); got != want {
 			t.Errorf("COLUMNS %d renders %q, want the width-%d line %q", width+ccMargin, plain(got), width, plain(want))
 		}
 	}
@@ -600,7 +600,7 @@ func TestConfiguredGitRendersOnce(t *testing.T) {
 	cfg := embeddedConfig()
 	cfg.Style, cfg.Order = "minimal", []string{"model", "git"}
 	cfg.Segments = map[string]bool{"path": false}
-	got := plain(render(values{model: "qwen3:30b", branch: "feature-once"}, cfg, theme.EmbeddedPalettes()))
+	got := plain(render(values{model: "qwen3:30b", branch: "feature-once"}, cfg, theme.LoadPalettes()))
 	if count := strings.Count(got, "feature-once"); count != 1 {
 		t.Fatalf("branch rendered %d times, want 1: %q", count, got)
 	}
@@ -611,7 +611,7 @@ func TestDashboardPercentBeforeBar(t *testing.T) {
 	writeStatuslineConfig(t, `{"style":"dashboard","segments":{"path":false},"dashboard":{"headers":false},"bar":{"width":4,"filledGlyph":"#","emptyGlyph":".","percent":"before"}}`)
 	cfg := loadConfig()
 	cfg.Dashboard.Columns = []string{"context"}
-	got := strings.TrimSpace(plain(render(values{contextPct: 75}, cfg, theme.EmbeddedPalettes())))
+	got := strings.TrimSpace(plain(render(values{contextPct: 75}, cfg, theme.LoadPalettes())))
 	if got != "75% ###." {
 		t.Fatalf("dashboard percent before bar = %q, want 75%% ###.", got)
 	}
@@ -622,7 +622,7 @@ func TestGradientClipsOversizedSegment(t *testing.T) {
 	cfg := embeddedConfig()
 	cfg.Style, cfg.Width, cfg.Order = "gradient", 12, []string{"model"}
 	cfg.Segments = map[string]bool{"path": false}
-	got := plain(renderFit(values{model: strings.Repeat("m", 30)}, cfg, theme.EmbeddedPalettes(), cfg.Width))
+	got := plain(renderFit(values{model: strings.Repeat("m", 30)}, cfg, theme.LoadPalettes(), cfg.Width))
 	if got != strings.Repeat("m", 11)+"…" {
 		t.Fatalf("gradient width 12 = %q, want 11 model cells and ellipsis", got)
 	}
@@ -643,7 +643,7 @@ func TestRenderFitWrapsWideSegments(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := defaultConfig()
 			cfg.Style, cfg.Width, cfg.Order = "gradient", tc.width, []string{"model"}
-			got := plain(renderFit(tc.v, cfg, theme.EmbeddedPalettes(), tc.width))
+			got := plain(renderFit(tc.v, cfg, theme.LoadPalettes(), tc.width))
 			if got != tc.want {
 				t.Fatalf("wide segment wrapping = %q, want %q", got, tc.want)
 			}

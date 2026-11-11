@@ -178,7 +178,7 @@ func consumesValue(fs *flag.FlagSet, a string) bool {
 	return true
 }
 
-// removedFlags maps each flag Phase 6 removed to its hint; they stay errors, never aliases.
+// removedFlags maps each flag removed in the profile rename to its hint; they stay errors, never aliases.
 var removedFlags = map[string]string{
 	"--provider": "was renamed to --profile",
 	"--env":      "was renamed to --profile",
@@ -187,10 +187,11 @@ var removedFlags = map[string]string{
 	"--1m":       "was removed; 1M context is the base behavior on serving and first-party endpoints",
 }
 
-// RemovedFlagHint returns the error for a removed flag in args (up to "--"), or nil.
+// RemovedFlagHint returns the error for a removed flag in args, or nil; the scan stops at "--" or at the first
+// bare word that is not a flag's value (a claude subcommand such as `mcp add --env` owns the flags after it).
 func RemovedFlagHint(args []string) error {
-	for _, a := range args {
-		if a == "--" {
+	for i, a := range args {
+		if a == "--" || (!strings.HasPrefix(a, "-") && (i == 0 || !strings.HasPrefix(args[i-1], "-"))) {
 			return nil
 		}
 		name, _, _ := strings.Cut(a, "=")

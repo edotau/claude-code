@@ -1,5 +1,5 @@
-// Package statusline renders Claude Code's status line from its statusline JSON in one of five styles
-// (gradient, powerline, capsule, minimal, dashboard). It never errors: a blank payload still renders.
+// Package statusline renders Claude Code's status line from its statusline JSON in one of six styles
+// (gradient, powerline, capsule, minimal, dashboard, twoline). It never errors: a blank payload still renders.
 package statusline
 
 import (
@@ -55,15 +55,11 @@ type input struct {
 		UsedPercentage *float64 `json:"used_percentage"`
 	} `json:"context_window"`
 	RateLimits *struct {
-		FiveHour *rateWindow `json:"five_hour"`
 		SevenDay *rateWindow `json:"seven_day"`
 	} `json:"rate_limits"`
 	Effort *struct {
 		Level string `json:"level"`
 	} `json:"effort"`
-	Thinking *struct {
-		Enabled bool `json:"enabled"`
-	} `json:"thinking"`
 }
 
 // rateWindow is one rate-limit window from the statusline payload's rate_limits object.
@@ -150,7 +146,9 @@ func renderStatusline(raw []byte, style string) string {
 	if style != "" {
 		cfg.Style = style
 	}
-	cfg.Width = lineWidth(cfg)
+	if cfg.Style != "twoline" { // twoline never clips, so it skips the terminal probe
+		cfg.Width = lineWidth(cfg)
+	}
 	return renderFit(collect(in, cfg), cfg, theme.LoadPalettes(), cfg.Width)
 }
 
@@ -187,10 +185,11 @@ func renderRaw(v values, cfg config, pal theme.Palettes) string {
 	pal = cfg.LiftPalette(pal)
 	stops := cfg.Stops(pal)
 	mode := cfg.Mode()
+	if cfg.Style == "twoline" {
+		return renderTwoline(v, cfg, pal, stops, mode)
+	}
 	width := lineWidth(cfg)
 	switch cfg.Style {
-	case "twoline":
-		return renderTwoline(v, cfg, pal, stops, mode)
 	case "dashboard":
 		return renderDashboard(v, cfg, pal, stops, mode, width)
 	case "powerline", "capsule", "minimal":
@@ -276,17 +275,20 @@ func (v *values) collectRouting(in input, cfg config, provider string, routed bo
 // collectUsage fills the limits, context, total, duration, session and code-velocity segments.
 func (v *values) collectUsage(in input, cfg config, cwd, provider string) {
 	sub, limits := onSubscription(provider), cfg.seg("limits", true)
-	if limits && sub {
-		v.limits = limitsSegment(in, provider)
+	twoline := cfg.Style == "twoline"
+	if limits && sub && !twoline {
+		v.limits = limitsSegment(in)
 	}
-	if (limits || cfg.Style == "twoline") && !sub { // twoline shows the countdown whatever the limits switch
+	if (limits || twoline) && !sub { // twoline shows the countdown whatever the limits switch
 		v.auth = authSegment(provider)
 	}
-	if cfg.seg("context", true) {
-		v.contextPct = contextPct(in)
-	}
-	if cfg.seg("total", true) {
-		v.total = totalSegment(in)
+	if !cfg.gradientStyle() && !twoline { // gradient and twoline draw their own context bar and no total
+		if cfg.seg("context", true) {
+			v.contextPct = contextPct(in)
+		}
+		if cfg.seg("total", true) {
+			v.total = totalSegment(in)
+		}
 	}
 	v.duration = formatDuration(in.Cost.DurationMS)
 	if id := in.SessionID; id != "" {

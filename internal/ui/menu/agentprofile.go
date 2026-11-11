@@ -43,8 +43,6 @@ func agentPinRows(d *dialog, agent string) []billingRow {
 func agentProfileChoices(d *dialog, agent string) []string {
 	names := configure.SeedProfiles(d.reg, agent)
 	if agent == "opencode" {
-		names = slices.DeleteFunc(names, func(n string) bool { return n == opencode.OwnLogin })
-		names = slices.Insert(names, 0, opencode.OwnLogin)
 		for _, id := range providers.RouteOpencodeSubIDs {
 			if !slices.Contains(names, id) {
 				names = append(names, id)
@@ -82,9 +80,15 @@ func agentActiveOn(d *dialog, agent string) {
 	if agent == "claude" || vault.GetAgentRecord(agent).Profile != "" {
 		return
 	}
-	if profile := signInProfile(d, agent); profile != "" {
-		seedFromSignIn(d, agent, profile)
+	profile := signInProfile(d, agent)
+	if profile == "" {
+		return
 	}
+	if _, err := configure.ApplyProfile([]string{agent}, profile); err != nil {
+		d.printf("%s: %v\n", agent, err)
+		return
+	}
+	d.changed = true // the sign-in's profile is recorded; no other field changes
 }
 
 // signInProfile is the profile a sign-in to agent means: its own login's profile, "" when none is registered.
@@ -129,11 +133,6 @@ func seedLabel(agent, profile string) string {
 	return seedOff
 }
 
-// seedOwnLogin reports whether profile is agent's own sign-in (opencode's Zen id has no registry row).
-func seedOwnLogin(d *dialog, agent, profile string) bool {
-	return profile == opencode.OwnLogin || d.reg.Providers[profile].Auth.Login == agent
-}
-
 // seedDefaults is each agent's current choice; an agent with no profile set gets its own login pre-selected.
 func seedDefaults(d *dialog) map[string]string {
 	recs := vault.AgentRecords(agentpkg.RosterNames())
@@ -141,9 +140,7 @@ func seedDefaults(d *dialog) map[string]string {
 	for _, a := range seedAgents() {
 		out[a] = recs[a].Profile
 		if out[a] == "" && a != "claude" && d.reg != nil {
-			if ps := configure.SeedProfiles(d.reg, a); len(ps) > 0 && seedOwnLogin(d, a, ps[0]) {
-				out[a] = ps[0]
-			}
+			out[a] = signInProfile(d, a)
 		}
 	}
 	return out
@@ -151,7 +148,7 @@ func seedDefaults(d *dialog) map[string]string {
 
 // seedPick opens agent's picker; ok is false when dismissed.
 func seedPick(d *dialog, agent, cur string) (profile string, ok bool) {
-	return pickProfileName(d, agent, append(configure.SeedProfiles(d.reg, agent), ""), cur)
+	return pickProfileName(d, agent, agentProfileChoices(d, agent), cur)
 }
 
 // runSeed shows one row per agent and writes every choice, Profile only, when Save is picked; dismissing writes nothing.
@@ -230,13 +227,4 @@ func seedRow() homeRow {
 		}
 	}
 	return homeRow{Name: "seed agents", State: fmt.Sprintf("%d set", n), Check: "profile each agent runs on", Run: func(d *dialog) { runSeed(d) }}
-}
-
-// seedFromSignIn records profile as agent's Profile after a successful sign-in, changing no other field.
-func seedFromSignIn(d *dialog, agent, profile string) {
-	if _, err := configure.ApplyProfile([]string{agent}, profile); err != nil {
-		d.printf("%s: %v\n", agent, err)
-		return
-	}
-	d.changed = true
 }

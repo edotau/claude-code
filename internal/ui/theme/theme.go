@@ -187,7 +187,7 @@ func mergeFile(dest string, overlay map[string]any, dryRun bool) (changed bool, 
 			return false, "", fmt.Errorf("existing file: %w", err)
 		}
 	}
-	merged := deepMerge(base, overlay)
+	merged := DeepMerge(base, overlay)
 	if reflect.DeepEqual(base, merged) {
 		return false, "", nil
 	}
@@ -207,14 +207,14 @@ func confMergeFile(dest string, overlay []byte, dryRun bool) (changed bool, back
 	return writeMerged(dest, raw, mergeGhostty(raw, overlay), dryRun, 0o644)
 }
 
-// deepMerge returns a new map: base with overlay applied, nested maps merged, everything else replaced.
-func deepMerge(base, overlay map[string]any) map[string]any {
+// DeepMerge returns a new map: base with overlay applied, nested maps merged, everything else replaced.
+func DeepMerge(base, overlay map[string]any) map[string]any {
 	out := make(map[string]any, len(base)+len(overlay))
 	maps.Copy(out, base)
 	for k, v := range overlay {
 		if ov, ok := v.(map[string]any); ok {
 			if bv, ok := out[k].(map[string]any); ok {
-				out[k] = deepMerge(bv, ov)
+				out[k] = DeepMerge(bv, ov)
 				continue
 			}
 		}

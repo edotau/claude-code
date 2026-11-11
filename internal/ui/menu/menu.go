@@ -16,16 +16,16 @@ import (
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
-// row is one selectable row: Name, then State and Check in aligned columns, and what picking it does with an A.
-type row[A any] struct {
+// row is one selectable row: Name, then State and Check in aligned columns, and what picking it does with the dialog.
+type row struct {
 	Name, State, Check string
-	Run                func(A)
+	Run                func(*dialog)
 }
 
 // block is a titled group of rows.
-type block[A any] struct {
+type block struct {
 	Title string
-	Rows  []row[A]
+	Rows  []row
 }
 
 // heading is a section's title line.
@@ -74,10 +74,10 @@ func withChecks(names []string, cols [][2]string) [][2]string {
 }
 
 // rowsOf lays rows out with withChecks and returns what each one runs, in row order.
-func rowsOf[A any](rs []row[A]) ([][2]string, []func(A)) {
+func rowsOf(rs []row) ([][2]string, []func(*dialog)) {
 	names := make([]string, len(rs))
 	cols := make([][2]string, len(rs))
-	acts := make([]func(A), len(rs))
+	acts := make([]func(*dialog), len(rs))
 	for i, r := range rs {
 		names[i], cols[i], acts[i] = r.Name, [2]string{r.State, r.Check}, r.Run
 	}
@@ -85,9 +85,9 @@ func rowsOf[A any](rs []row[A]) ([][2]string, []func(A)) {
 }
 
 // sections lays each block out on its own and returns the actions of every block, in row order.
-func sections[A any](blocks []block[A]) ([]tui.Section, []func(A)) {
+func sections(blocks []block) ([]tui.Section, []func(*dialog)) {
 	var sections []tui.Section
-	var actions []func(A)
+	var actions []func(*dialog)
 	for _, b := range blocks {
 		r, a := rowsOf(b.Rows)
 		sections = append(sections, tui.Section{Title: heading(b.Title), Rows: r})

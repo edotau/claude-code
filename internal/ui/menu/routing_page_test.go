@@ -18,10 +18,10 @@ func TestRoutingRowFitsEightyColumns(t *testing.T) {
 			FreeFirstOutput: "90s",
 		},
 	}
-	orig := pickSettingsPage
-	t.Cleanup(func() { pickSettingsPage = orig })
+	orig := pickMenu
+	t.Cleanup(func() { pickMenu = orig })
 	var rows [][2]string
-	pickSettingsPage = func(_ string, secs []tui.Section, trailing [2]string, _ int) (int, error) {
+	pickMenu = func(_ string, secs []tui.Section, trailing [2]string, _ int) (int, error) {
 		for _, s := range secs {
 			rows = append(rows, s.Rows...)
 		}

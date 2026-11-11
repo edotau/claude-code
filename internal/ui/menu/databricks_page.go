@@ -380,7 +380,7 @@ func dbxIdentityApply(d *dialog, env, mode string, change, kept bool, p *provide
 	}
 	if kept && !change {
 		d.printf("SP %s · secret stored — kept\n", dbxShort(spID))
-		saveDbxIdentity(d, env, mode, spID, "", "SP and secret kept")
+		saveDbxIdentity(d, env, mode, spID, "", dbxNoteSPKept)
 		return
 	}
 	dbxIdentityPrompt(d, env, mode, p, stored)

@@ -119,8 +119,12 @@ func TestLimitsSegmentTokenVsPassthrough(t *testing.T) {
 		"openai": "", "no-such-provider": "", // no record, no subscription
 		"ultra": "7d:41%", // a subscription shows 5h/7d only, even with an expiry record
 	} {
-		if got := limitsSegment(in, session); got != want {
-			t.Errorf("limitsSegment(%s) = %q, want %q", session, got, want)
+		got := authSegment(session)
+		if onSubscription(session) {
+			got = limitsSegment(in)
+		}
+		if got != want {
+			t.Errorf("segment(%s) = %q, want %q", session, got, want)
 		}
 	}
 }
@@ -165,11 +169,11 @@ func TestLimitsSegmentKeyCommandIgnoresSubscriptionCache(t *testing.T) {
 	writeLimitsCache(t, time.Now(), 23, 41, future, future)
 	useSessions(t, &providers.Provider{Name: "dbx-key", Provider: "databricks",
 		Auth: providers.Auth{Type: providers.AuthKey, Command: "x"}})
-	if got := limitsSegment(input{}, "dbx-key"); got != "" {
+	if got := authSegment("dbx-key"); got != "" {
 		t.Errorf("no record, fresh cache: %q, want empty", got)
 	}
 	writeTokenExpiry(t, "dbx-key", time.Now().Add(42*time.Minute+30*time.Second))
-	got := limitsSegment(input{}, "dbx-key")
+	got := authSegment("dbx-key")
 	if got != "u2m:42m" || strings.Contains(got, "tok") {
 		t.Errorf("with record: %q, want u2m:42m", got)
 	}
@@ -181,11 +185,11 @@ func TestLimitsSegmentAnthropicCacheFreshVsStale(t *testing.T) {
 	future := time.Now().Add(24 * time.Hour)
 	useSessions(t, &providers.Provider{Name: "maxx", Provider: "anthropic", Auth: providers.Auth{Type: providers.AuthCLI}})
 	writeLimitsCache(t, time.Now(), 23, 41, future, future)
-	if got := limitsSegment(input{}, "maxx"); !strings.Contains(got, "7d:41%") {
+	if got := limitsSegment(input{}); !strings.Contains(got, "7d:41%") {
 		t.Errorf("fresh cache: %q, want 7d:41%%", got)
 	}
 	writeLimitsCache(t, time.Now().Add(-7*time.Hour), 23, 41, future, future)
-	if got := limitsSegment(input{}, "maxx"); got != "" {
+	if got := limitsSegment(input{}); got != "" {
 		t.Errorf("stale cache: %q, want empty", got)
 	}
 }
@@ -195,7 +199,7 @@ func TestLimitsSegmentLabelsFromRecordedMethod(t *testing.T) {
 	hermetic(t)
 	useSessions(t, &providers.Provider{Name: "dbx-sp", Provider: "databricks", Auth: providers.Auth{Type: providers.AuthOAuth}})
 	writeTokenExpiryMethod(t, "dbx-sp", time.Now().Add(42*time.Minute+30*time.Second), "m2m")
-	if got := limitsSegment(input{}, "dbx-sp"); got != "m2m:42m" {
+	if got := authSegment("dbx-sp"); got != "m2m:42m" {
 		t.Errorf("SP-minted record on an oauth row: %q, want m2m:42m", got)
 	}
 }

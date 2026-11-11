@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -42,7 +41,7 @@ func defaultKeybindingsDest() (dest string, skip bool, note string, err error) {
 	}
 }
 
-// syncKeybindings merges the embedded keybindings template into dest, a JSONC array. check mirrors Sync.
+// syncKeybindings merges the embedded keybindings template into dest, a JSONC array. check mirrors syncSettings.
 func syncKeybindings(template, dest string, check bool) (mergeResult, error) {
 	rawTemplate := defaultKeybindingsTemplate
 	if template != "" {
@@ -61,18 +60,10 @@ func syncKeybindings(template, dest string, check bool) (mergeResult, error) {
 		return mergeKeybindings(dest, overlay, true)
 	}
 	var result mergeResult
-	lock := filepath.Join(paths.StateDir(), "vscode-keybindings.lock")
-	if err := os.MkdirAll(filepath.Dir(lock), 0o700); err != nil {
-		return mergeResult{}, err
-	}
-	ran, err := paths.TryFileLock(lock, lockWait, func() error {
-		r, mergeErr := mergeKeybindings(dest, overlay, false)
-		result = r
+	err := withLock("vscode-keybindings.lock", dest, func() (mergeErr error) {
+		result, mergeErr = mergeKeybindings(dest, overlay, false)
 		return mergeErr
 	})
-	if !ran {
-		return mergeResult{}, fmt.Errorf("vscode: could not acquire a lock on %s within %s", dest, lockWait)
-	}
 	return result, err
 }
 

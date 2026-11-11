@@ -5,7 +5,6 @@ import (
 	"cmp"
 	"maps"
 	"os"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -95,7 +94,7 @@ func homeSections(d *dialog) ([]tui.Section, []func(*dialog)) {
 
 // extraSections is the tools and settings blocks; a seam so menu tests stay free of live probes.
 var extraSections = func(d *dialog) ([]tui.Section, []func(*dialog)) {
-	return sections([]block[*dialog]{{Title: "tools", Rows: toolsRows(d)}, {Title: "settings", Rows: settingsRows(d)}})
+	return sections([]block{{Title: "tools", Rows: toolsRows(d)}, {Title: "settings", Rows: settingsRows(d)}})
 }
 
 // menuRows builds one row per agent (name · mode · check) and the submenu each opens, scoped to d.o.Agent when set.
@@ -216,10 +215,13 @@ func modeLabel(d *dialog, name string, st agentState) string {
 	if !ok {
 		plans = d.reg.AgentPlans[displayLabel(name)] // "antigravity" names gemini too
 	}
-	id := rawPlanID(d, name, st)
-	plan, matched := matchPlan(plans, id)
-	if st.mode == modeNone { // a signed-out row holds no plan, whatever a "*" entry says
-		plan, matched = providers.Plan{}, false
+	id, plan, matched := "", providers.Plan{}, false
+	// a signed-out row holds no plan, whatever a "*" entry says, and needs its id only for the {id} placeholder
+	if st.mode != modeNone || strings.Contains(d.reg.AgentPlanFormat, "{id}") {
+		id = rawPlanID(d, name, st)
+	}
+	if st.mode != modeNone {
+		plan, matched = matchPlan(plans, id)
 	}
 	if !matched && d.reg.AgentPlanFormat == "" {
 		return st.label()
@@ -250,9 +252,20 @@ func matchPlan(plans []providers.Plan, id string) (providers.Plan, bool) {
 
 // glob matches s against a pattern whose only wildcard is * (any run, / included).
 func glob(pattern, s string) bool {
-	re := "^" + strings.ReplaceAll(regexp.QuoteMeta(pattern), `\*`, ".*") + "$"
-	ok, _ := regexp.MatchString(re, s)
-	return ok
+	parts := strings.Split(pattern, "*")
+	last := len(parts) - 1
+	rest, ok := strings.CutPrefix(s, parts[0])
+	if !ok || last == 0 {
+		return ok && rest == ""
+	}
+	for _, mid := range parts[1:last] {
+		i := strings.Index(rest, mid)
+		if i < 0 {
+			return false
+		}
+		rest = rest[i+len(mid):]
+	}
+	return strings.HasSuffix(rest, parts[last])
 }
 
 // withTier renders a mode with its tier when one is known: "subscription (Max 20x)".
