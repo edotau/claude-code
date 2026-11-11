@@ -74,6 +74,29 @@ func TestSplitReviewReportsMergedWriteFailure(t *testing.T) {
 	}
 }
 
+func TestReviewWithParentJobClosesRecordOnEarlyExit(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	parent := agent.NewRecord("opencode", agent.RunOptions{Prompt: "review"}, time.Now())
+	if err := parent.Save(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(reviewJobEnv, parent.ID)
+
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
+		return Review("opencode", nil, ReviewOptions{Uncommitted: true, Base: "main"})
+	})
+	if code != 1 || !strings.Contains(stderr, "at most one of") {
+		t.Fatalf("Review exit %d, stderr %q; want conflicting-scope error", code, stderr)
+	}
+	got, err := agent.LoadRecord(parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "error" || !strings.Contains(got.Error, "at most one of") || got.Progress != "" {
+		t.Fatalf("early-exit job record = %+v; want error, scope diagnostic, empty progress", got)
+	}
+}
+
 func TestAgentReviewBoundsDiffPreparation(t *testing.T) {
 	bin := t.TempDir()
 	git := filepath.Join(bin, "git")

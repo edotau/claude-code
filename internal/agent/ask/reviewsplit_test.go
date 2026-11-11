@@ -113,3 +113,16 @@ func TestMergeReportsUnjudgedPartIsNotShipIt(t *testing.T) {
 		t.Fatalf("a worse verdict from another part still wins:\n%s", out)
 	}
 }
+
+func TestMergeReportsPartialAnswersNumberAgainstFullPartCount(t *testing.T) {
+	parts := []part{{Files: []string{"a"}}, {Files: []string{"b"}}, {Files: []string{"c"}}}
+	got := mergeReports(true, parts, []string{"SHIP IT\n[LOW] a:1 — x — y", cleanVerdict})
+	for _, want := range []string{"## part 1/3", "## part 2/3", "findings across 3 parts"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("partial report missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "/2") {
+		t.Errorf("partial report numbers against answer count:\n%s", got)
+	}
+}

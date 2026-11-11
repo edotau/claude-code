@@ -111,6 +111,22 @@ func assertNpmNotRun(t *testing.T, marker string) {
 	}
 }
 
+func TestNpmCleanupForCanceledCtxKeepsNpm(t *testing.T) {
+	root := t.TempDir()
+	_, marker := isolateToolsEnv(t, root)
+	local := filepath.Join(t.TempDir(), "opencode")
+	writeToolsFixture(t, local, "#!/bin/sh\nprintf '1.0.0\\n'\n", 0o755)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	var output bytes.Buffer
+
+	npmCleanupFor(ctx, &output, "opencode", filepath.Dir(local), false)
+	if !strings.Contains(output.String(), "did not answer --version") {
+		t.Errorf("canceled version probe output = %q; want keep diagnostic", output.String())
+	}
+	assertNpmNotRun(t, marker)
+}
+
 func npmCleanupLines(output string) []string {
 	var lines []string
 	for line := range strings.SplitSeq(output, "\n") {

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -173,5 +174,52 @@ func TestRegistryRetriesLoadAfterAFailureRatherThanCachingIt(t *testing.T) {
 	}
 	if reg3 == reg1 {
 		t.Error("registry() served the stale cached registry instead of retrying Load at the same mtime")
+	}
+}
+
+func TestRegistryLoadRunsWithoutHoldingRouterMutex(t *testing.T) {
+	vaulttest.Use(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	original := loadRegistry
+	loadRegistry = func() (*providers.Registry, error) {
+		calls.Add(1)
+		entered <- struct{}{}
+		<-release
+		return &providers.Registry{}, nil
+	}
+	t.Cleanup(func() { loadRegistry = original })
+
+	r := newRouter(secret)
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := r.registry()
+		firstDone <- err
+	}()
+	<-entered
+	if !r.mu.TryLock() {
+		close(release)
+		t.Fatal("router mutex is held during registry load")
+	}
+	r.mu.Unlock()
+
+	secondStarted := make(chan struct{})
+	secondDone := make(chan error, 1)
+	go func() {
+		close(secondStarted)
+		_, err := r.registry()
+		secondDone <- err
+	}()
+	<-secondStarted
+	close(release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first registry() = %v", err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second registry() = %v", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("registry load calls = %d, want 1", got)
 	}
 }

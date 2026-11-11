@@ -27,6 +27,8 @@ import (
 // retryable statuses move to the next attempt when nothing has been written to the client yet.
 var retryable = map[int]bool{429: true, 500: true, 502: true, 503: true, 504: true, 529: true}
 
+var loadRegistry = providers.Load
+
 // authFailure condemns p when err's verdict says only a login can fix it (the router then moves on); else err as is.
 func (r *Router) authFailure(p *providers.Provider, err error) error {
 	v := providers.Verdict(err)
@@ -182,7 +184,7 @@ func (r *Router) registry() (*providers.Registry, error) {
 	if reg, ok := r.cachedRegistry(stamp); ok { // another caller loaded it while this one waited
 		return reg, nil
 	}
-	reg, err := providers.Load()
+	reg, err := loadRegistry()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err != nil {

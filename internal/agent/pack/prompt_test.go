@@ -220,3 +220,14 @@ func TestChangedFilesCancellationMentionsGit(t *testing.T) {
 		t.Fatalf("error = %v, want wrapped git cancellation", err)
 	}
 }
+
+func TestChangedFilesCancellationMessageEndsInCause(t *testing.T) {
+	root := t.TempDir()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := changedFiles(ctx, root)
+	want := "git -C " + root + " diff --name-only -z --relative HEAD: context canceled"
+	if err == nil || err.Error() != want {
+		t.Fatalf("changedFiles error = %v, want %q", err, want)
+	}
+}

@@ -181,6 +181,35 @@ func TestPickGatesBeatScore(t *testing.T) {
 	}
 }
 
+func TestPickDemotesQuotaDeadModelBehindLiveCandidates(t *testing.T) {
+	tb := testTable(t)
+	baseline := pick(tb, "sonnet", "codex", State{}, FallbackAgents)
+	if len(baseline.Candidates) == 0 || baseline.Candidates[0].Agent != "codex" {
+		t.Fatalf("baseline candidates = %+v, want codex first", baseline.Candidates)
+	}
+	first := baseline.Candidates[0]
+	dead := State{first.Account: {ModelDead: map[string]time.Time{ModelKey(first.Model): now0.Add(time.Hour)}}}
+	got := pick(tb, "sonnet", "codex", dead, FallbackAgents)
+	if len(got.Candidates) == 0 || got.Candidates[len(got.Candidates)-1].Agent != "codex" {
+		t.Errorf("quota-dead codex candidates = %+v, want codex last", got.Candidates)
+	}
+	var quotaSkip int
+	for _, skipped := range got.Skipped {
+		if skipped.Gate == GateExhausted && strings.Contains(skipped.Reason, "quota-denied") &&
+			strings.Contains(skipped.Reason, "tried last") {
+			quotaSkip++
+		}
+	}
+	if quotaSkip != 1 {
+		t.Errorf("quota-dead skips = %+v, want one tried-last quota skip", got.Skipped)
+	}
+	expired := State{first.Account: {ModelDead: map[string]time.Time{ModelKey(first.Model): now0.Add(-time.Hour)}}}
+	afterExpiry := pick(tb, "sonnet", "codex", expired, FallbackAgents)
+	if runners(afterExpiry) != runners(baseline) {
+		t.Errorf("expired-mark order = %s, want baseline order %s", runners(afterExpiry), runners(baseline))
+	}
+}
+
 func TestPickUnpinnedCopilotAndFallbackModes(t *testing.T) {
 	tb := testTable(t)
 	unpinned, _ := LoadFrom(nil, "")

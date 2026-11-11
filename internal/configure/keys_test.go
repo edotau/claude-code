@@ -447,7 +447,11 @@ func servedHarness(t *testing.T, on bool) *int {
 	t.Helper()
 	vaulttest.Use(t)
 	var n int
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/scim/v2/Me") { // the identity check, not a listing request
+			_, _ = w.Write([]byte(`{"id":"u1","active":true}`))
+			return
+		}
 		n++
 		_, _ = w.Write([]byte(`{"endpoints":[{"name":"m-a","task":"llm/v1/chat","state":{"ready":"READY"}}]}`))
 	}))
@@ -570,6 +574,39 @@ func TestTrackedSecretsListsHarnessAndCustomOnly(t *testing.T) {
 	}
 	if rows["MY_CUSTOM"] != "custom" || rows[providers.OAuthTokenEnv] == "" {
 		t.Errorf("rows = %v, want MY_CUSTOM (custom) and the setup-token", rows)
+	}
+}
+
+func TestStoreSecretAndStoreImportClearAuthMarks(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"anthropic":{
+		"clr-env":{"protocol":"anthropic","base_url":"https://e.example","auth":{"type":"key","header":"x-api-key","env":"CLR_ENV_KEY"},"models":{"opus":"m"}},
+		"clr-other":{"protocol":"anthropic","base_url":"https://o.example","auth":{"type":"key","header":"x-api-key","env":"CLR_OTHER_KEY"},"models":{"opus":"m"}}}}}`)
+	target, unrelated := router.ProviderAccount("clr-env"), router.ProviderAccount("clr-other")
+	for _, account := range []string{target, unrelated} {
+		if err := router.MarkAuth(account, "auth rejected"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	isMarked := func(account string) bool {
+		_, ok := router.LoadState().AuthMarked(account, time.Now())
+		return ok
+	}
+
+	if err := StoreSecret("CLR_ENV_KEY", "stored-secret-value"); err != nil {
+		t.Fatal(err)
+	}
+	if isMarked(target) || !isMarked(unrelated) {
+		t.Fatalf("after StoreSecret: target=%v unrelated=%v, want false/true", isMarked(target), isMarked(unrelated))
+	}
+	if err := router.MarkAuth(target, "auth rejected"); err != nil {
+		t.Fatal(err)
+	}
+	if err := StoreImport([]vault.Pair{{Name: "CLR_ENV_KEY", Value: "imported-secret-value"}}, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	if isMarked(target) || !isMarked(unrelated) {
+		t.Errorf("after StoreImport: target=%v unrelated=%v, want false/true", isMarked(target), isMarked(unrelated))
 	}
 }
 
