@@ -156,6 +156,61 @@ func TestAccessNominationsHotAndCold(t *testing.T) {
 	}
 }
 
+// A repeat same-day inject adds no line; a new day, a new entry or an explicit search still does.
+func TestLogAccessRecallInjectOncePerEntryPerDay(t *testing.T) {
+	tempConfig(t)
+	dir := t.TempDir()
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	logAccessBatch(dir, now, []string{"aa000001", "aa000001", "bb000002"}, accessRecall)
+	logAccess(dir, now.Add(time.Hour), "aa000001", accessRecall)
+	logAccess(dir, now.Add(time.Hour), "aa000001", AccessSearch)
+	logAccess(dir, now.AddDate(0, 0, 1), "aa000001", accessRecall)
+	data, _ := os.ReadFile(AccessLogPath(dir))
+	if got := strings.Count(string(data), "\n"); got != 4 {
+		t.Errorf("want 4 lines (aa+bb injects day 1, aa search, aa inject day 2), got %d:\n%s", got, data)
+	}
+}
+
+// The size-cap trim drops lines past the retention window and keeps everything inside it, however many.
+func TestMaybeTrimAccessLogDropsByAge(t *testing.T) {
+	path := filepath.Join(t.TempDir(), accessLogFile)
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	var b strings.Builder
+	b.WriteString(accessLines(now.AddDate(0, 0, -(accessRetainDays+1)), []string{"old00001"}, AccessSearch))
+	b.WriteString(accessLines(now.AddDate(0, 0, -(accessRetainDays-1)), []string{"kept0001"}, AccessSearch))
+	for range accessLogMaxByte / 40 { // a busy log of in-window lines, far past the old 2000-line cap
+		b.WriteString(accessLines(now, []string{"busy0001"}, accessRecall))
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	maybeTrimAccessLog(path, now)
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "old00001") || !strings.Contains(string(data), "kept0001") {
+		t.Error("trim must drop only lines older than the retention window")
+	}
+	if got, want := strings.Count(string(data), "busy0001"), accessLogMaxByte/40; got != want {
+		t.Errorf("in-window lines kept = %d, want %d", got, want)
+	}
+}
+
+// A busy day of repeat injects no longer evicts history: hot fires after 3 days, cold after a 90d-old log.
+func TestAccessNominationsSurviveBusyDays(t *testing.T) {
+	tempConfig(t)
+	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	dir := HomeBankDir()
+	logAccess(dir, now.AddDate(0, 0, -(coldDays+5)), "ee55ff66", accessRecall)
+	for d := range hotMinDays {
+		for range 50 {
+			logAccess(dir, now.AddDate(0, 0, -d), "aa11bb22", accessRecall)
+		}
+	}
+	joined := strings.Join(accessNominations(now), "\n")
+	if !strings.Contains(joined, "home/aa11bb22: hot") || !strings.Contains(joined, "home/ee55ff66: not recalled") {
+		t.Errorf("want hot and cold nominations, got %q", joined)
+	}
+}
+
 // An unopenable lock file degrades to a plain append: no rotate or trim runs unlocked.
 func TestLogAccessLockUnopenableAppendsOnly(t *testing.T) {
 	tempConfig(t)
