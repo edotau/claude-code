@@ -115,9 +115,9 @@ func renderDocs(root string, agents []Source) (content string, ok bool, err erro
 	if err != nil {
 		return "", false, nil
 	}
+	conventions, err := os.ReadFile(src)
 	if err != nil {
 		return "", false, fmt.Errorf("read %s: %w", filepath.Base(src), err)
-	conventions, err := os.ReadFile(src)
 	}
 	standards, err := standardsSection(root)
 	if err != nil {
