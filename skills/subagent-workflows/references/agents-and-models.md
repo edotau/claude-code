@@ -85,14 +85,15 @@ Per-call overhead, tools-off prompt "Reply with exactly: 4242", 2 runs per cell,
 - Fixed prompt, not task size, drives the cost of small legs: claude about 6.5k, opencode about 12.4k, codex about
   24.6k tokens per call. Copilot's 3 looks like a count without the prompt (unverified). Gemini was not measured.
 - Request body per call (proxy log `bytes=`; Databricks refuses on input tokens per minute per workspace), prompt
-  "Reply with exactly: 7", qa, cwd `~/.claude`, 2026-11-11, before -> after the prompt trim:
+  "Reply with exactly: 7", qa, cwd `~/.claude`, 2026-11-11, before -> after the prompt trim and the leaf tool cut
+  (headless runs drop the sub-agent and workflow tools and `request_user_input`: a leaf cannot fan out or ask):
 
 | Run | Bytes per request | Input tokens |
 | --- | --- | --- |
 | copilot tools off | 93,464 -> 29,767 | 20.4k -> 7.0k |
-| copilot `--tools` | 94,388 -> 87,054 | about 18.8k |
-| codex tools off | 112,828 -> 82,036 | 24.6k -> 17.1k |
-| codex `--tools` | about 114.5k, unchanged | 25.3k |
+| copilot `--tools` | 94,388 -> 62,245 | 20.8k -> about 14.0k |
+| codex tools off | 112,828 -> 65,049 | 24.6k -> 13.8k |
+| codex `--tools` | 114,430 -> 97,443 | 25.3k -> 22.0k |
 
 - Copilot tools off sends no tool schemas, skill or agent roots or tool-only prompt sections, and `CLAUDE.md` once
   instead of twice. Codex tools off sends no skill list, plugins or app connectors; its shell stays, so a tools-off

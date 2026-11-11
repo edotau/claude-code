@@ -89,3 +89,17 @@ func TestCodexHeadlessToolsOffTrimsPrompt(t *testing.T) {
 		t.Errorf("tools-off exec lost its read-only sandbox: %q", off)
 	}
 }
+
+// A headless exec is a leaf: it drops the sub-agent tools, request_user_input and their role text; interactive keeps all.
+func TestCodexHeadlessDropsLeafTools(t *testing.T) {
+	interactive := codexHeadless([]string{"--model", "m"}, nil)
+	for name, h := range map[string]*agent.Headless{"tools-off": {}, "tools": {Tools: true}} {
+		got := codexHeadless(nil, h)
+		for _, c := range []string{"features.multi_agent_v2.disable_native_tools=true", "tools.experimental_request_user_input.enabled=false",
+			`features.multi_agent_v2.root_agent_usage_hint_text=""`, `features.multi_agent_v2.multi_agent_mode_hint_text=""`} {
+			if !slices.Contains(got, c) || slices.Contains(interactive, c) {
+				t.Errorf("%s: %s: headless has it = %v, interactive has it = %v; want true, false", name, c, slices.Contains(got, c), slices.Contains(interactive, c))
+			}
+		}
+	}
+}

@@ -357,7 +357,7 @@ func TestAssistantCollectorSeparatesMessages(t *testing.T) {
 	}
 }
 
-// Create and resume send the same append-mode system message and discovery roots; replace mode is never used.
+// Create and resume send the same append-mode system message, roots and tool exclusions; replace mode is never used.
 func TestCreateAndResumeCarryInstructions(t *testing.T) {
 	dir := t.TempDir()
 	fields := func(session string) map[string]any {
@@ -374,15 +374,19 @@ func TestCreateAndResumeCarryInstructions(t *testing.T) {
 				if err := json.Unmarshal([]byte(params), &m); err != nil {
 					t.Fatal(err)
 				}
-				return map[string]any{"sys": m["systemMessage"], "ins": m["instructionDirectories"], "skl": m["skillDirectories"], "agt": m["agentDirectories"]}
+				return map[string]any{"sys": m["systemMessage"], "ins": m["instructionDirectories"], "skl": m["skillDirectories"], "agt": m["agentDirectories"], "exc": m["excludedTools"]}
 			}
 		}
 		t.Fatal("no session.create/resume recorded")
 		return nil
 	}
+	wantExcluded := make([]any, len(leafExcludedTools))
+	for i, tool := range leafExcludedTools {
+		wantExcluded[i] = tool
+	}
 	want := map[string]any{
 		"sys": map[string]any{"mode": "append", "content": "be brief"},
-		"ins": []any{dir}, "skl": []any{dir + "/skills"}, "agt": []any{dir + "/agents"},
+		"ins": []any{dir}, "skl": []any{dir + "/skills"}, "agt": nil, "exc": wantExcluded,
 	}
 	for name, got := range map[string]map[string]any{"create": fields(""), "resume": fields("sess-1")} {
 		if !reflect.DeepEqual(got, want) {
@@ -423,9 +427,40 @@ func TestToolsOffSessionConfigTrimsPrompt(t *testing.T) {
 	}
 	o.AllowAllTools = true
 	on := buildSessionConfig(o)
-	if on.AvailableTools != nil || len(on.SkillDirectories) != 1 || len(on.AgentDirectories) != 1 ||
+	if on.AvailableTools != nil || len(on.SkillDirectories) != 1 ||
 		on.SystemMessage == nil || on.SystemMessage.Mode != "append" || on.SystemMessage.Sections != nil {
-		t.Errorf("tools run lost tools, roots or append mode: %+v", on)
+		t.Errorf("tools run lost tools, skills or append mode: %+v", on)
+	}
+}
+
+// A headless tools run is a leaf: no sub-agent or workflow tools and no agent listing, on create and resume alike;
+// a fleet run keeps them.
+func TestToolsRunExcludesSubagentTools(t *testing.T) {
+	o := sdkOptions{AllowAllTools: true, AgentDirs: []string{"/a"}, SkillDirs: []string{"/s"}}
+	for name, cfg := range map[string]struct {
+		excluded []string
+		agents   []string
+	}{
+		"create": {buildSessionConfig(o).ExcludedTools, buildSessionConfig(o).AgentDirectories},
+		"resume": {buildResumeSessionConfig(o).ExcludedTools, buildResumeSessionConfig(o).AgentDirectories},
+	} {
+		if !slices.Equal(cfg.excluded, leafExcludedTools) || cfg.agents != nil {
+			t.Errorf("%s: excluded %v agents %v, want %v and none", name, cfg.excluded, cfg.agents, leafExcludedTools)
+		}
+	}
+	for _, tool := range []string{"task", "run_dynamic_workflow", "dynamic_workflows_manage", "write_agent", "read_agent", "list_agents"} {
+		if !slices.Contains(leafExcludedTools, tool) {
+			t.Errorf("%s is not excluded", tool)
+		}
+	}
+	for _, tool := range []string{"bash", "view", "apply_patch", "rg", "glob", "skill", "sql"} {
+		if slices.Contains(leafExcludedTools, tool) {
+			t.Errorf("%s must stay available", tool)
+		}
+	}
+	o.Fleet = true
+	if fleet := buildSessionConfig(o); fleet.ExcludedTools != nil || len(fleet.AgentDirectories) != 1 {
+		t.Errorf("fleet run lost its sub-agent tools: %v %v", fleet.ExcludedTools, fleet.AgentDirectories)
 	}
 }
 

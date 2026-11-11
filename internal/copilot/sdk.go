@@ -124,8 +124,11 @@ func buildSessionConfig(o sdkOptions) *copilot.SessionConfig {
 		cfg.SkipCustomInstructions, cfg.OrganizationCustomInstructions = new(true), &o.InlineInstructions
 		cfg.InstructionDirectories = nil
 	}
-	if !o.AllowAllTools { // every call is denied: send no tool schemas, skill or agent listings the model cannot use
+	switch {
+	case !o.AllowAllTools: // every call is denied: send no tool schemas, skill or agent listings the model cannot use
 		cfg.AvailableTools, cfg.SkillDirectories, cfg.AgentDirectories = []string{}, nil, nil
+	case !o.Fleet: // a headless leaf cannot fan out: no sub-agent or workflow tools, no agent listing only `task` reads
+		cfg.ExcludedTools, cfg.AgentDirectories = leafExcludedTools, nil
 	}
 	if o.multiProvider() {
 		cfg.Provider = nil
@@ -133,6 +136,9 @@ func buildSessionConfig(o sdkOptions) *copilot.SessionConfig {
 	}
 	return cfg
 }
+
+// leafExcludedTools are the sub-agent and workflow tools a headless leaf must not use (~20 KB of schemas per request).
+var leafExcludedTools = []string{"task", "write_agent", "read_agent", "list_agents", "run_dynamic_workflow", "dynamic_workflows_manage"}
 
 // toolOnlySections are the runtime's system-prompt sections that only teach tool use, background tasks and PR/commit
 // handling; a run with tools denied drops them (~8.6 KB per request).
@@ -177,7 +183,7 @@ func buildResumeSessionConfig(o sdkOptions) *copilot.ResumeSessionConfig {
 		WorkingDirectory: c.WorkingDirectory, Provider: c.Provider, OnPermissionRequest: c.OnPermissionRequest,
 		Memory: c.Memory, SystemMessage: c.SystemMessage, InstructionDirectories: c.InstructionDirectories,
 		SkillDirectories: c.SkillDirectories, AgentDirectories: c.AgentDirectories, Providers: c.Providers, Models: c.Models,
-		AvailableTools: c.AvailableTools, SkipCustomInstructions: c.SkipCustomInstructions,
+		AvailableTools: c.AvailableTools, ExcludedTools: c.ExcludedTools, SkipCustomInstructions: c.SkipCustomInstructions,
 		OrganizationCustomInstructions: c.OrganizationCustomInstructions,
 	}
 }
