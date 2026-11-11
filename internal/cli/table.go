@@ -137,7 +137,18 @@ func completionEngine() helptext.Engine {
 
 // cmdComplete is the hidden completion verb behind the shell shim.
 func cmdComplete(args []string) int {
-	return completionEngine().Complete(args)
+	return completionEngine().Complete(afterHost(args))
+}
+
+// afterHost drops a leading `--host <host>` (bash splits --host=<host> at the =): the rest completes as local verbs.
+func afterHost(words []string) []string {
+	if len(words) > 3 && words[0] == "--host" && words[1] == "=" {
+		return words[3:]
+	}
+	if len(words) > 2 && words[0] == "--host" {
+		return words[2:]
+	}
+	return words
 }
 
 // completionPage: bare prints the script; zsh can source it after bashcompinit.
