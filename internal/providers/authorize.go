@@ -231,6 +231,9 @@ type ModelInfo struct {
 	Gateway      bool   // listed by the AI Gateway (gatewayModels), not the serving-endpoints catalog
 }
 
+// ReadyChat reports a READY llm/v1/chat serving endpoint.
+func (m ModelInfo) ReadyChat() bool { return m.Ready == "READY" && m.Task == "llm/v1/chat" }
+
 // ListModels lists p's live catalog with names/use-case/capabilities when the backend reports them.
 // The github row is listed by copilot.ListModels, not here.
 func ListModels(ctx context.Context, p *Provider) ([]ModelInfo, error) {

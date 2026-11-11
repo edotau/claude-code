@@ -30,12 +30,13 @@ type CheckTarget struct {
 
 // CheckResult is one probe outcome; Status is ok, fail, transient or missing, Tools yes, no or "" (unknown).
 type CheckResult struct {
-	ID        string `json:"id"`
-	Status    string `json:"status"`
-	HTTP      int    `json:"http"`
-	LatencyMS int64  `json:"latency_ms"`
-	Tools     string `json:"tools"`
-	Error     string `json:"error,omitempty"`
+	ID        string    `json:"id"`
+	Status    string    `json:"status"`
+	HTTP      int       `json:"http"`
+	LatencyMS int64     `json:"latency_ms"`
+	Tools     string    `json:"tools"`
+	Error     string    `json:"error,omitempty"`
+	CheckedAt time.Time `json:"checked_at,omitzero"`
 }
 
 // CheckOptions tunes Probe; zero values mean http.DefaultClient, 4 workers and a 30s request timeout.

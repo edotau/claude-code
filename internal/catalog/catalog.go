@@ -14,7 +14,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
@@ -45,8 +44,8 @@ func Profile(agent, flag string) (*providers.Provider, error) {
 
 // Served lists p's endpoints by name: the sealed snapshot when one is remembered, else a live serving listing.
 func Served(p *providers.Provider) (map[string]providers.ModelInfo, error) {
-	infos, ok := preflight.RecallOrSpawn(p, func(m []providers.ModelInfo) bool { return len(m) > 0 },
-		func(profile string) bool { return preflight.SpawnDiscover(profile, false) })
+	infos, ok := RecallOrSpawn(p, func(m []providers.ModelInfo) bool { return len(m) > 0 },
+		func(profile string) bool { return SpawnDiscover(profile, false) })
 	if !ok {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
@@ -81,7 +80,7 @@ func usable(p *providers.Provider, served map[string]providers.ModelInfo, dialec
 	var out []providers.ModelInfo
 	for _, name := range slices.Sorted(maps.Keys(served)) {
 		info := served[name]
-		if info.Gateway || info.Ready != "READY" || info.Task != "llm/v1/chat" {
+		if info.Gateway || !info.ReadyChat() {
 			continue
 		}
 		if wire, ok, _ := providers.WireFor(p, name); ok && slices.Contains(dialects, wire) {

@@ -316,3 +316,18 @@ func TestAuthorizeStripsInboundAndSetsHeader(t *testing.T) {
 		})
 	}
 }
+
+func TestReadyChat(t *testing.T) {
+	for _, tc := range []struct {
+		info ModelInfo
+		want bool
+	}{
+		{ModelInfo{Task: "llm/v1/chat", Ready: "READY"}, true},
+		{ModelInfo{Task: "llm/v1/chat", Ready: "NOT_READY"}, false},
+		{ModelInfo{Task: "llm/v1/embeddings", Ready: "READY"}, false},
+	} {
+		if got := tc.info.ReadyChat(); got != tc.want {
+			t.Errorf("ReadyChat(%+v) = %v, want %v", tc.info, got, tc.want)
+		}
+	}
+}

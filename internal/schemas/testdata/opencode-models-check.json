@@ -1,1 +1,1 @@
-{"schema":1,"checked_at":"2026-01-02T03:04:05Z","provider":"p","results":null}
+{"schema":2,"checked_at":"2026-01-02T03:04:05Z","provider":"p","results":[{"id":"glm-5-2","status":"ok","http":200,"latency_ms":120,"tools":"yes","checked_at":"2026-01-02T03:04:05Z"}]}

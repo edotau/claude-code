@@ -1,13 +1,15 @@
-package preflight
+package catalog
 
 import (
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/databricks/serving"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -58,13 +60,6 @@ func GithubProfile(reg *providers.Registry) string {
 	return ""
 }
 
-// DiscoverAfterAuth refreshes every discover target's model list in the background after a sign-in.
-func DiscoverAfterAuth(reg *providers.Registry) {
-	for _, t := range DiscoverTargets(reg) {
-		SpawnDiscover(t, true)
-	}
-}
-
 // RecallOrSpawn is p's sealed snapshot, no network, if usable accepts it; an expired one is served and spawn refreshes it.
 func RecallOrSpawn(p *providers.Provider, usable func([]providers.ModelInfo) bool,
 	spawn func(profile string) bool) ([]providers.ModelInfo, bool) {
@@ -76,4 +71,22 @@ func RecallOrSpawn(p *providers.Provider, usable func([]providers.ModelInfo) boo
 		spawn(p.Name)
 	}
 	return snap.Models, true
+}
+
+// refreshRetry spaces detached refresh attempts, so an unreachable workspace doesn't spawn one per SessionStart.
+const refreshRetry = 15 * time.Minute
+
+// ClaimNamed takes the detached-refresh slot stamped name; false when another attempt started within refreshRetry.
+func ClaimNamed(name string, now time.Time) bool {
+	path := filepath.Join(paths.StateDir(), "preflight", name)
+	claimed := true
+	err := paths.WithFileLock(path, func() error {
+		if fi, err := os.Stat(path); err == nil && now.Sub(fi.ModTime()) < refreshRetry {
+			claimed = false
+			return nil
+		}
+		return paths.AtomicWrite(path, nil, 0o600)
+	})
+	_ = err // best effort: an unwritable stamp or lock must not stop the refresh
+	return claimed
 }
