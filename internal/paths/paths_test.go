@@ -205,6 +205,42 @@ func TestWriteBackupNumbersCollisions(t *testing.T) {
 	}
 }
 
+// WriteIfUnchanged replaces dest only while old is on disk; a mismatch leaves dest and the backups alone.
+func TestWriteIfUnchanged(t *testing.T) {
+	for _, tc := range []struct {
+		name, disk, old string // disk "" = no file
+		wantDest        string // "next" = replaced; anything else must fail as stale
+		wantBackup      string // the backup's content, "" = no backup
+	}{
+		{name: "unchanged", disk: "a", old: "a", wantDest: "next", wantBackup: "a"},
+		{name: "missing file, empty old", wantDest: "next"},
+		{name: "changed", disk: "b", old: "a", wantDest: "b"},
+		{name: "appeared", disk: "b", wantDest: "b"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			dest := filepath.Join(t.TempDir(), "cfg.json")
+			if tc.disk != "" {
+				_ = os.WriteFile(dest, []byte(tc.disk), 0o600)
+			}
+			backup, err := WriteIfUnchanged(dest, []byte(tc.old), []byte("next"), 0o600, "cfg")
+			wantErr := "<nil>"
+			if tc.wantDest != "next" {
+				wantErr = "live cfg changed under the merge (" + dest + ") — re-run to merge the newer file"
+			}
+			if fmt.Sprint(err) != wantErr {
+				t.Fatalf("err = %v, want %s", err, wantErr)
+			}
+			if got, _ := os.ReadFile(dest); string(got) != tc.wantDest {
+				t.Fatalf("dest = %q, want %q", got, tc.wantDest)
+			}
+			if b, _ := os.ReadFile(backup); string(b) != tc.wantBackup {
+				t.Fatalf("backup %q holds %q, want %q", backup, b, tc.wantBackup)
+			}
+		})
+	}
+}
+
 func TestVSCodeSettingsIsPlatformSpecific(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)        // os.UserHomeDir on unix

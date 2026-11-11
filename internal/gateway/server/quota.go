@@ -1,10 +1,13 @@
 package server
 
 import (
+	"cmp"
+	"errors"
+	"fmt"
 	"time"
 
-	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // demotion walks t's provider down the slot ladder to the first model not known to be quota-dead.
@@ -57,21 +60,30 @@ func (r *Router) invalidateCredential(name string) {
 
 // deadKey is profile:canonical-model, so marked ([1m]) and unmarked spellings of one model share a verdict.
 func deadKey(t providers.Target) string {
-	id := models.Strip1M(t.Model)
-	if c, _, ok := models.Resolve(id); ok {
-		id = c
-	}
-	return t.Provider.Name + ":" + id
+	return t.Provider.Name + ":" + router.ModelKey(t.Model)
 }
 
+// isDead reports a live mark from this process, else one persisted in quota.json (read through the cached state).
 func (r *Router) isDead(t providers.Target) bool {
+	now := r.now()
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.now().Before(r.dead[deadKey(t)])
+	dead := now.Before(r.dead[deadKey(t)])
+	r.mu.Unlock()
+	return dead || r.routeState().ModelDead(router.ProviderAccount(t.Provider.Name), t.Model, now)
 }
 
+// markDead records the denial in memory and persists it off the request path; a failed write is only logged.
 func (r *Router) markDead(t providers.Target) {
+	now := r.now()
+	until := now.Add(quotaDeadFor)
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.dead[deadKey(t)] = r.now().Add(quotaDeadFor)
+	r.dead[deadKey(t)] = until
+	r.mu.Unlock()
+	go func() {
+		ran, err := router.MarkModelDead(router.ProviderAccount(t.Provider.Name), t.Model, until, now)
+		if err != nil || !ran {
+			fmt.Fprintf(r.log, "proxy: persist %s %s quota-dead: %v\n", t.Provider.Name, t.Model,
+				cmp.Or(err, errors.New("state lock busy")))
+		}
+	}()
 }

@@ -61,6 +61,7 @@ type Entry struct {
 	Discovery      map[string]time.Time `json:"discovery,omitempty"`
 	DiscoverySkip  map[string]time.Time `json:"discovery_skip,omitempty"` // "agent|entry" -> when it was marked unusable
 	Unserved       map[string]time.Time `json:"unserved,omitempty"`       // wire model -> when its endpoint was found gone
+	ModelDead      map[string]time.Time `json:"model_dead,omitempty"`     // canonical model -> quota-denied until
 }
 
 // UnmarshalJSON also reads the pre-rename byok/byok_skip keys; the discovery keys win when both exist.
@@ -105,6 +106,7 @@ func (s State) clone() State {
 		e.Discovery = maps.Clone(e.Discovery)
 		e.DiscoverySkip = maps.Clone(e.DiscoverySkip)
 		e.Unserved = maps.Clone(e.Unserved)
+		e.ModelDead = maps.Clone(e.ModelDead)
 		out[k] = e
 	}
 	return out
@@ -291,11 +293,11 @@ func clearAuth(account string) func(State) {
 	}
 }
 
-// ClearProviderAuth drops every auth mark on provider: the router's (ProviderAccount) and each dispatch's "<provider>·<p>".
+// ClearProviderAuth drops provider's auth and model-dead marks: the router's own and each dispatch's "<provider>·<p>".
 func ClearProviderAuth(provider string) error {
 	own := ProviderAccount(provider)
 	hit := func(account string, e Entry) bool {
-		return !e.AuthAt.IsZero() && (account == own || strings.HasSuffix(account, "·"+provider))
+		return (!e.AuthAt.IsZero() || len(e.ModelDead) > 0) && (account == own || strings.HasSuffix(account, "·"+provider))
 	}
 	marked := false
 	for account, e := range LoadState() {
@@ -307,7 +309,7 @@ func ClearProviderAuth(provider string) error {
 	return Update(func(s State) {
 		for account, e := range s {
 			if hit(account, e) {
-				e.AuthReason, e.AuthAt = "", time.Time{}
+				e.AuthReason, e.AuthAt, e.ModelDead = "", time.Time{}, nil
 				s[account] = e
 			}
 		}

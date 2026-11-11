@@ -53,8 +53,8 @@ type Router struct {
 	// provider name → generation, bumped on invalidate so a stale in-flight probe never resurrects it
 	credGen map[string]int
 
-	// cached router.LoadState().AuthMarked lookup for attempts
-	authState func(account string, now time.Time) (string, bool)
+	// cached router.LoadState() for attempts: auth marks and persisted quota-dead models
+	authState router.State
 	authAt    time.Time // when authState was loaded
 	// bumped by condemn: a load begun before its mark is not cached
 	authGen int
@@ -290,10 +290,10 @@ func (r *Router) failoverLadder(reg *providers.Registry, target providers.Target
 
 // withoutAuthMarked drops targets whose provider has a live auth mark; when that empties the ladder it is kept whole.
 func (r *Router) withoutAuthMarked(out []providers.Target) []providers.Target {
-	marked, now := r.authMarks(), r.now()
+	state, now := r.routeState(), r.now()
 	kept := make([]providers.Target, 0, len(out))
 	for _, t := range out {
-		if _, ok := marked(router.ProviderAccount(t.Provider.Name), now); !ok {
+		if _, ok := state.AuthMarked(router.ProviderAccount(t.Provider.Name), now); !ok {
 			kept = append(kept, t)
 		}
 	}
@@ -303,8 +303,8 @@ func (r *Router) withoutAuthMarked(out []providers.Target) []providers.Target {
 	return kept
 }
 
-// authMarks is the route state, re-read from quota.json at most once per authStateTTL.
-func (r *Router) authMarks() func(string, time.Time) (string, bool) {
+// routeState is the route state, re-read from quota.json at most once per authStateTTL; callers only read it.
+func (r *Router) routeState() router.State {
 	r.mu.Lock()
 	now, state, gen := r.now(), r.authState, r.authGen
 	fresh := state != nil && now.Sub(r.authAt) < authStateTTL
@@ -312,7 +312,7 @@ func (r *Router) authMarks() func(string, time.Time) (string, bool) {
 	if fresh {
 		return state
 	}
-	state = router.LoadState().AuthMarked // read quota.json without holding mu
+	state = router.LoadState() // read quota.json without holding mu
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.authGen == gen {

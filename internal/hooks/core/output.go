@@ -87,17 +87,28 @@ func marshalDoc(doc map[string]any) string {
 	return string(b)
 }
 
-// Emit writes a merged Result and returns the exit code; a block with no JSON channel, or a failed stdout write, is exit 2.
-func Emit(name, event string, r Result, stdout, stderr io.Writer) int {
-	build := func(event string, r Result) string { return claudeDoc(event, r, claudeStyle{}) }
+// Dialect is how one agent reads a hook's output: its document builder and how a direct block reaches it.
+type Dialect struct {
+	Build    func(event string, r Result) string
+	JSONDeny bool // a direct block is the document on stdout with exit 0, not exit 2
+}
+
+// DialectOf is the named agent's Dialect; any other name gets Claude's.
+func DialectOf(name string) Dialect {
 	switch name {
 	case AgentCodex:
-		build = outputCodex
+		return Dialect{Build: outputCodex}
 	case AgentCopilot:
-		build = OutputCopilot
+		return Dialect{Build: OutputCopilot}
 	case AgentGemini:
-		build = OutputGemini
+		return Dialect{Build: OutputGemini, JSONDeny: true}
 	}
+	return Dialect{Build: func(event string, r Result) string { return claudeDoc(event, r, claudeStyle{}) }}
+}
+
+// Emit writes a merged Result and returns the exit code; a block with no JSON channel, or a failed stdout write, is exit 2.
+func Emit(name, event string, r Result, stdout, stderr io.Writer) int {
+	build := DialectOf(name).Build
 	if r.Stderr != "" {
 		fmt.Fprintln(stderr, r.Stderr)
 	}

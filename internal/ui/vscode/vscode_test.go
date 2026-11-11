@@ -384,8 +384,7 @@ func TestWriteGuardedRejectsSaveAfterBackup(t *testing.T) {
 	const original, saved = `{"local":1}`, `{"local":2}`
 	writeFile(t, dest, original)
 	reads := 0
-	orig := readLive
-	readLive = func(name string) ([]byte, error) {
+	t.Cleanup(paths.SwapReadLive(func(name string) ([]byte, error) {
 		if reads++; reads == 2 {
 			if n := countBackups(t); n != 1 {
 				t.Errorf("second check ran with %d backups on disk, want it after the one backup", n)
@@ -393,15 +392,14 @@ func TestWriteGuardedRejectsSaveAfterBackup(t *testing.T) {
 			writeFile(t, dest, saved)
 		}
 		return os.ReadFile(name)
-	}
-	t.Cleanup(func() { readLive = orig })
+	}))
 
 	result, err := writeGuarded(dest, "settings", []byte(original), []byte(`{"merged":true}`))
 	if err == nil || !strings.Contains(err.Error(), "changed under the merge") || result.Changed {
 		t.Fatalf("want stale-merge error after backup; got %+v, err %v", result, err)
 	}
 	if reads != 2 {
-		t.Fatalf("checkUnchanged read dest %d times, want 2", reads)
+		t.Fatalf("WriteIfUnchanged read dest %d times, want 2", reads)
 	}
 	if body, _ := os.ReadFile(dest); string(body) != saved {
 		t.Fatalf("concurrent save overwritten: got %s, want %s", body, saved)

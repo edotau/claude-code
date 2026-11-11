@@ -172,21 +172,7 @@ func replaceIfUnchanged(dest string, oldContent, newContent []byte, mode os.File
 	if beforeWrite != nil {
 		beforeWrite(dest)
 	}
-	fresh, err := os.ReadFile(dest)
-	if err != nil && !os.IsNotExist(err) {
-		return "", err
-	}
-	if !bytes.Equal(fresh, oldContent) {
-		return "", fmt.Errorf("destination changed under the merge (%s) — re-run to merge the newer file", dest)
-	}
-	var backup string
-	if len(oldContent) > 0 {
-		backup, err = paths.Backup(dest, oldContent)
-		if err != nil {
-			return "", err
-		}
-	}
-	return backup, paths.AtomicWrite(dest, newContent, mode)
+	return paths.WriteIfUnchanged(dest, oldContent, newContent, mode, "theme file")
 }
 
 // mergeFile overlays onto dest's JSON (JSONC tolerated on read); unchanged means no write, no backup.

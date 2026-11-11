@@ -346,6 +346,46 @@ func Backup(src string, data []byte) (string, error) {
 	return writeBackup(base, data)
 }
 
+// readLive is os.ReadFile for WriteIfUnchanged; tests swap it to land a foreign save between the two checks.
+var readLive = os.ReadFile
+
+// SwapReadLive replaces WriteIfUnchanged's file reader and returns the func that restores it; a test seam.
+func SwapReadLive(fn func(string) ([]byte, error)) (restore func()) {
+	orig := readLive
+	readLive = fn
+	return func() { readLive = orig }
+}
+
+// checkUnchanged errors when dest's current bytes no longer match old (a missing file reads as empty).
+func checkUnchanged(dest string, old []byte, label string) error {
+	fresh, err := readLive(dest)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if !bytes.Equal(fresh, old) {
+		return fmt.Errorf("live %s changed under the merge (%s) — re-run to merge the newer file", label, dest)
+	}
+	return nil
+}
+
+// WriteIfUnchanged backs dest up and replaces it only while old is still on disk, checked before and after the backup.
+func WriteIfUnchanged(dest string, old, next []byte, mode os.FileMode, label string) (string, error) {
+	if err := checkUnchanged(dest, old, label); err != nil {
+		return "", err
+	}
+	backup := ""
+	if len(old) > 0 {
+		var err error
+		if backup, err = Backup(dest, old); err != nil {
+			return "", err
+		}
+	}
+	if err := checkUnchanged(dest, old, label); err != nil {
+		return "", err
+	}
+	return backup, AtomicWrite(dest, next, mode)
+}
+
 // vscodeGOOS picks VSCodeSettings' platform layout; a seam so tests run every branch on any host.
 var vscodeGOOS = runtime.GOOS
 

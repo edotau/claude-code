@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
@@ -277,7 +278,7 @@ func codexModels(d *dialog, profile string) bool {
 		d.printf("codex: no profile pinned; set one on the Profile row\n")
 		return false
 	}
-	pl, err := opencode.MenuSync(profile, opencode.SyncOptions{})
+	pl, err := catalog.MenuSync(profile, catalog.SyncOptions{})
 	if err != nil {
 		d.printf("codex: %v\n", err)
 		return false
@@ -305,7 +306,7 @@ func codexModels(d *dialog, profile string) bool {
 }
 
 // sealCodexMenu seals pl and stores its merged menu, printing the failure and returning false when either step errs.
-func sealCodexMenu(d *dialog, pl opencode.SyncPlan) bool {
+func sealCodexMenu(d *dialog, pl catalog.SyncPlan) bool {
 	_, err := pl.Seal()
 	if err == nil {
 		err = providers.SetOpencodeMenu(pl.Next)

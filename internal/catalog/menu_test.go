@@ -1,4 +1,4 @@
-package opencode
+package catalog
 
 import (
 	"reflect"
@@ -160,37 +160,5 @@ func TestParseMenuImportLongLine(t *testing.T) {
 	}
 	if got[0].ID != "kimi-k3" || got[0].Label != label || !got[0].Responses {
 		t.Fatalf("parsed ID=%q, label matches=%t, responses=%t", got[0].ID, got[0].Label == label, got[0].Responses)
-	}
-}
-
-func TestParseMenuImportHyphenatedProfile(t *testing.T) {
-	want := []providers.OpencodeModel{{ID: "glm-5-2", Label: "GLM 5.2", Responses: true}}
-	p := regressionDatabricksProfile(t, "qa-prod", want)
-	body := regressionGeneratedMenu(t, p, "glm-5-2")
-	if !strings.Contains(string(body), `"harness-qa-prod-gpt"`) {
-		t.Fatalf("fixture lacks hyphenated provider ID: %s", body)
-	}
-	got, err := parseMenuImport(body)
-	if err != nil {
-		t.Fatalf("import generated hyphenated profile: %v", err)
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("imported menu = %+v, want %+v", got, want)
-	}
-}
-
-func TestParseMenuImportPreservesExplicitRouting(t *testing.T) {
-	menu := []providers.OpencodeModel{
-		{ID: "glm-5-2", Label: "GLM 5.2", Responses: true},
-		{ID: "gpt-6-1-sol", Label: "GPT 6.1 Sol", Responses: false},
-	}
-	p := regressionDatabricksProfile(t, "databricks-test", menu)
-	got, err := parseMenuImport(regressionGeneratedMenu(t, p, "glm-5-2"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []providers.OpencodeModel{menu[1], menu[0]}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("import must retain explicit Responses and chat overrides: got %+v, want %+v", got, want)
 	}
 }

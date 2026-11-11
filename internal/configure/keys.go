@@ -235,7 +235,7 @@ func ProbeCached(kt KeyTarget) (status, detail string, age time.Duration) {
 	}
 	setAt := meta[env].SetAt
 	status, detail = Probe(kt)
-	if status == "verified" || status == "rejected" {
+	if status == providers.ProbeVerified || status == providers.ProbeRejected {
 		_ = vault.RecordProbe(env, status, time.Now(), setAt) // a failed cache write leaves the live result intact
 	}
 	return status, detail, 0
@@ -363,7 +363,7 @@ func runLoginContext(ctx context.Context, argv []string) error {
 func ProbeValue(p *providers.Provider, envVar, candidate string) (status, detail string) {
 	prev, had := os.LookupEnv(envVar)
 	if err := os.Setenv(envVar, candidate); err != nil {
-		return "unreachable", fmt.Sprintf("cannot set %s for credential probe: %v", envVar, err)
+		return providers.ProbeUnreachable, fmt.Sprintf("cannot set %s for credential probe: %v", envVar, err)
 	}
 	defer func() {
 		if had {

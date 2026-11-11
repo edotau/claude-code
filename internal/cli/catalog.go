@@ -16,7 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/databricks/serving"
-	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -216,7 +215,7 @@ func writeOpencodeMenu(w io.Writer, next []providers.OpencodeModel, msg string) 
 }
 
 func listOpencodeMenu(w io.Writer, live bool, provider, format string) error {
-	rows, err := opencode.MenuRows(live, provider)
+	rows, err := catalog.MenuRows(live, provider)
 	if err != nil {
 		return err
 	}
@@ -241,7 +240,7 @@ func listOpencodeMenu(w io.Writer, live bool, provider, format string) error {
 }
 
 func addOpencodeMenu(w io.Writer, arg string, responses, responsesSet, force bool, provider string) error {
-	id, next, err := opencode.MenuAddServed(arg, responses, responsesSet, force, provider)
+	id, next, err := catalog.MenuAddServed(arg, responses, responsesSet, force, provider)
 	if err != nil {
 		return err
 	}
@@ -249,7 +248,7 @@ func addOpencodeMenu(w io.Writer, arg string, responses, responsesSet, force boo
 }
 
 func importOpencodeMenu(w io.Writer, file string, apply bool) error {
-	next, changes, err := opencode.MenuImportDiff(file)
+	next, changes, err := catalog.MenuImportDiff(file)
 	if err != nil {
 		return err
 	}
@@ -272,7 +271,7 @@ func importOpencodeMenu(w io.Writer, file string, apply bool) error {
 }
 
 func checkOpencodeMenu(w, errw io.Writer, ids []string, all bool, provider string, timeout time.Duration, format string) error {
-	results, cacheErr, err := opencode.MenuCheck(ids, all, provider, timeout)
+	results, cacheErr, err := catalog.MenuCheck(ids, all, provider, timeout)
 	if err != nil {
 		return err
 	}
@@ -282,8 +281,8 @@ func checkOpencodeMenu(w, errw io.Writer, ids []string, all bool, provider strin
 	return catalog.WriteCheck(w, results, format)
 }
 
-func syncOpencodeMenu(w io.Writer, profile string, opts opencode.SyncOptions) error {
-	pl, err := opencode.MenuSync(profile, opts)
+func syncOpencodeMenu(w io.Writer, profile string, opts catalog.SyncOptions) error {
+	pl, err := catalog.MenuSync(profile, opts)
 	if err != nil {
 		return err
 	}
@@ -462,7 +461,7 @@ func (m *opencodeOpts) sync(pos []string) int {
 	if err := opencodeSyncArgs(pos, m.apply, m.dryRun, m.provider); err != nil {
 		return m.done(err)
 	}
-	return m.done(syncOpencodeMenu(os.Stdout, m.provider, opencode.SyncOptions{Apply: m.apply, Refresh: m.refresh, Verify: m.verify}))
+	return m.done(syncOpencodeMenu(os.Stdout, m.provider, catalog.SyncOptions{Apply: m.apply, Refresh: m.refresh, Verify: m.verify}))
 }
 
 func (m *opencodeOpts) check(pos []string) int {
@@ -485,7 +484,7 @@ func (m *opencodeOpts) remove(pos []string) int {
 	if len(pos) != 1 {
 		return m.fail("usage: claude-code opencode catalog remove <id>")
 	}
-	next, ok := opencode.MenuRemove(providers.OpencodeMenu(), pos[0])
+	next, ok := catalog.MenuRemove(providers.OpencodeMenu(), pos[0])
 	if !ok {
 		return m.fail("%s is not in the menu", catalog.ID(pos[0]))
 	}
