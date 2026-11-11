@@ -89,7 +89,7 @@ static menu: routing never touches the network.
 - By hand: `ssh -L 8030:localhost:8030 <host>`, then run `claude-code databricks login --no-browser --port 8030` on
   the host.
 - `--port N` listens on exactly N and fails if another process holds it; without it the callback walks 8030 to 8050.
-- `--no-browser` opens nothing and always prints the URL and the `ssh -L` hint (not only when `SSH_CONNECTION` is set).
+- `--no-browser` opens nothing and prints the URL plus an `ssh -L` hint naming this host (none under `--host`).
 - `--paste` also reads one line from stdin: with no forward, copy the failed `http://localhost:<port>/?code=...` URL
   from the browser's address bar and paste it. Its `state` is checked; the callback and the paste race, first wins.
 - `--dry-run` with these flags prints the port and modes and opens nothing.
