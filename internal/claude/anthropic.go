@@ -9,8 +9,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/launchcli"
-
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -56,7 +54,7 @@ func ParseAnthropicArgs(args []string) (AnthropicOptions, []string, error) {
 			return o, nil, err
 		}
 	}
-	base, rest, err := launchcli.ParseArgs(kept, true)
+	base, rest, err := agent.ParseArgs(kept, true)
 	if err != nil {
 		return o, nil, err
 	}

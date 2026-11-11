@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -516,4 +517,96 @@ func (s stubEngine) Caps() agent.Caps { return agent.Caps{} }
 func (s stubEngine) Available() error { return nil }
 func (s stubEngine) Run(context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
 	return wire.Result{}, nil
+}
+
+const parityRows = `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com",` +
+	`"auth":{"type":"none"},"models":{"opus":"databricks-claude-opus-5-5"}}},` +
+	`"anthropic":{"alt":{"base_url":"https://alt.example.com","protocol":"anthropic","auth":{"type":"none"},"models":{"opus":"claude-opus-5-5"}}}}}`
+
+var codexModelArg = regexp.MustCompile(`^model="(.*)"$`)
+
+func launchModel(t *testing.T, name string, o agent.LaunchOptions) string {
+	t.Helper()
+	o.PrintEnv = true
+	plan, err := agent.LaunchPlan(context.Background(), name, o, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := plan.Set["COPILOT_MODEL"]; m != "" {
+		return m
+	}
+	for i, a := range plan.Argv {
+		if m := codexModelArg.FindStringSubmatch(a); m != nil && i > 0 && plan.Argv[i-1] == "-c" {
+			return m[1]
+		}
+		if a == "--model" && i+1 < len(plan.Argv) {
+			return plan.Argv[i+1]
+		}
+	}
+	t.Fatalf("no model in %v", plan.Argv)
+	return ""
+}
+
+func TestLaunchAndAgentAgreeOnModel(t *testing.T) {
+	cases := []struct{ agent, profile, flag string }{
+		{"codex", "dev", ""},
+		{"codex", "dev", "gpt-5.5"},
+		{"copilot", "alt", ""},
+		{"copilot", "alt", "claude-sonnet-5-5"},
+	}
+	for _, c := range cases {
+		t.Run(c.agent+"/"+c.profile+"/"+c.flag, func(t *testing.T) {
+			vaulttest.Use(t)
+			vaulttest.Put(t, vault.Overlay, "providers", parityRows)
+			pathstest.FakeVendor(t, c.agent, "")
+			pin := "databricks-gpt-6-1-sol"
+			if c.agent == "copilot" {
+				pin = "claude-haiku-5-5"
+			}
+			vaulttest.SetRecord(t, c.agent, "model", pin)
+			t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+			tg, _, err := agent.SchemaFor(c.agent).Target(agent.RunOptions{Provider: c.profile, Model: c.flag})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := launchModel(t, c.agent, agent.LaunchOptions{Provider: c.profile, Model: c.flag})
+			if got != tg.Model {
+				t.Errorf("launch %q vs agent %q", got, tg.Model)
+			}
+			if c.flag == "" && !strings.Contains(got, pin) {
+				t.Errorf("model %q ignores the pin %q", got, pin)
+			}
+		})
+	}
+}
+
+func TestVendorSignInSkipsRouting(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CLAUDE_PROFILE", "ultra") // neither codex nor gemini can use it
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("HOME", t.TempDir()) // no vendor login state on disk
+	offers := 0
+	agent.OfferConfigure = func(vendor string, reason error) bool { offers++; return false }
+	t.Cleanup(func() { agent.OfferConfigure = nil })
+	for _, c := range []struct {
+		vendor, bin string
+		args        []string
+	}{
+		{"codex", "codex", []string{"login", "--device-auth"}},
+		{"codex", "codex", []string{"logout"}},
+		{"gemini", "agy", []string{"auth", "login"}},
+	} {
+		fake := pathstest.FakeVendor(t, c.bin, "")
+		plan, err := agent.LaunchPlan(context.Background(), c.vendor, agent.LaunchOptions{}, c.args)
+		if err != nil {
+			t.Fatalf("%s %v: err = %v, want a plain sign-in launch", c.vendor, c.args, err)
+		}
+		if plan.Binary != fake || len(plan.Set) != 0 || !slices.Equal(plan.Argv[len(plan.Argv)-len(c.args):], c.args) {
+			t.Errorf("%s %v: plan = %+v, want the plain CLI with the args and no harness env", c.vendor, c.args, plan)
+		}
+	}
+	if offers != 0 {
+		t.Errorf("configure offered %d times for sign-in commands, want 0", offers)
+	}
 }

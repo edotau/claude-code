@@ -3,6 +3,7 @@ package gemini
 import (
 	"bufio"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -381,5 +384,106 @@ func TestGeminiGatewaySessionWithoutPinOrLoginIsRefused(t *testing.T) {
 	}
 	if _, _, err := resolveGemini(t, agent.RunOptions{}); err == nil || !strings.Contains(err.Error(), "Google login") {
 		t.Fatalf("err = %v, want the Google-login refusal", err)
+	}
+}
+
+// launchHermetic isolates a launch test from the host and stubs the router, with launch notices discarded.
+func launchHermetic(t *testing.T) {
+	t.Helper()
+	hosttest.HermeticEnv(t)
+	t.Cleanup(agent.StubRouter("http://127.0.0.1:4000"))
+	orig := agent.NoticeOut
+	agent.NoticeOut = io.Discard
+	t.Cleanup(func() { agent.NoticeOut = orig })
+}
+
+func TestVendorPassesThroughWhenUnroutable(t *testing.T) {
+	launchHermetic(t)
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("CLAUDE_PROFILE", "ultra") // passthrough auth: gemini cannot use it
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("HOME", t.TempDir()) // no vendor login state on disk
+	fake := pathstest.FakeVendor(t, "agy", "")
+	offers := 0
+	agent.OfferConfigure = func(vendor string, reason error) bool { offers++; return false }
+	t.Cleanup(func() { agent.OfferConfigure = nil })
+
+	plan, err := agent.LaunchPlan(context.Background(), "gemini", agent.LaunchOptions{}, []string{"-p", "hi"})
+	if err != nil {
+		t.Fatalf("expected a passthrough plan, got %v", err)
+	}
+	// gemini's own built-in vendor spec (vendorconfig defaults) still prepends --dangerously-skip-permissions.
+	wantArgv := []string{"--dangerously-skip-permissions", "-p", "hi"}
+	if plan.Binary != fake || !slices.Equal(plan.Argv, wantArgv) || len(plan.Set) != 0 {
+		t.Errorf("plan = %+v, want the plain CLI with %v prepended and no harness env", plan, wantArgv)
+	}
+	if offers != 1 {
+		t.Errorf("configure offered %d times, want 1", offers)
+	}
+	// --print-env never prompts.
+	offers = 0
+	if _, err := agent.LaunchPlan(context.Background(), "gemini", agent.LaunchOptions{PrintEnv: true}, nil); err != nil || offers != 0 {
+		t.Errorf("print-env: err=%v offers=%d", err, offers)
+	}
+}
+
+func TestConfigureDeclinedPreservesModelFlag(t *testing.T) {
+	launchHermetic(t)
+	fake := pathstest.FakeVendor(t, "agy", "")
+	const model = "gemini-3.8-flash-high"
+	o, args, err := agent.ParseArgs([]string{"--profile", "antigravity", "--model", model, "-p", "hi"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offers := 0
+	original := agent.OfferConfigure
+	agent.OfferConfigure = func(name string, reason error) bool {
+		offers++
+		if name != "gemini" || !strings.Contains(reason.Error(), "not signed in") {
+			t.Errorf("configure offer = %q, %v; want missing Gemini login", name, reason)
+		}
+		return false
+	}
+	t.Cleanup(func() { agent.OfferConfigure = original })
+	plan, err := agent.LaunchPlan(t.Context(), "gemini", o, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--dangerously-skip-permissions", "--model", model, "-p", "hi"}
+	if offers != 1 || plan.Binary != fake || len(plan.Set) != 0 || !slices.Equal(plan.Argv, want) {
+		t.Fatalf("offers=%d plan=%+v; want plain CLI with argv %v", offers, plan, want)
+	}
+}
+
+func TestConfigureRetryPreservesAgentModelPin(t *testing.T) {
+	launchHermetic(t)
+	fake := pathstest.FakeVendor(t, "agy", "")
+	const model = "gemini-3.8-flash-low"
+	vaulttest.SetRecord(t, "gemini", "model", model)
+	offers := 0
+	original := agent.OfferConfigure
+	agent.OfferConfigure = func(name string, reason error) bool {
+		offers++
+		if name != "gemini" || !strings.Contains(reason.Error(), "not signed in") {
+			t.Errorf("configure offer = %q, %v; want missing Gemini login", name, reason)
+		}
+		marker := filepath.Join(os.Getenv("HOME"), ".gemini", "antigravity-cli", "antigravity-oauth-token")
+		if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(marker, []byte("test-login"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return true
+	}
+	t.Cleanup(func() { agent.OfferConfigure = original })
+	plan, err := agent.LaunchPlan(t.Context(), "gemini", agent.LaunchOptions{Provider: "antigravity"}, []string{"-p", "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"--model", model, "--dangerously-skip-permissions", "-p", "hi"}
+	if offers != 1 || plan.Binary != fake || !slices.Equal(plan.Argv, want) {
+		t.Fatalf("offers=%d plan=%+v; want configured CLI with pinned model in argv %v", offers, plan, want)
 	}
 }

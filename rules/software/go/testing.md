@@ -23,7 +23,7 @@ paths:
 - A test lives in the package that defines its subject, as an internal test (`package foo`, never `package foo_test`),
   even when that package is elsewhere in the tree.
 - An import cycle is fixed in production code — export a `SwapX`/`StubX` seam, or move the code the importer needs into
-  its own package (`internal/agent/launchcli`) — never by keeping an external test package.
+  its own package — never by keeping an external test package.
 - A package whose tests need registry rows from importers registers fixture rows in `TestMain` and fails the binary
   when one is missing; never rely on a sibling test file linking them in.
 
