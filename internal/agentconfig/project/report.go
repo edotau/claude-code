@@ -80,8 +80,8 @@ func originOf(verb, path string) string {
 	case strings.Contains(path, "/skills/"):
 		return "skill"
 	}
-	for _, rel := range instructionFiles {
-		if filepath.Base(rel) == filepath.Base(path) {
+	for _, t := range targets {
+		if t.docs != "" && filepath.Base(t.docs) == filepath.Base(path) {
 			return "instructions"
 		}
 	}

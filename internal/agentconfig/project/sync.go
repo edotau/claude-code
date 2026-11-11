@@ -229,7 +229,7 @@ func syncProjectionAssets(out io.Writer, name, root, home, skillsDir string, age
 		// agy reads its own skills dir rather than ~/.agents/skills.
 		res.add(syncSkillLinks(out, skills, skillsDir, tg.skills(home), prune, dryRun))
 	}
-	if rel, ok := instructionFiles[name]; ok && hasDocs && mkdirUnlessDry(&res, dryRun, filepath.Dir(filepath.Join(home, rel)), Root(root, name)) {
+	if rel := tg.docs; rel != "" && hasDocs && mkdirUnlessDry(&res, dryRun, filepath.Dir(filepath.Join(home, rel)), Root(root, name)) {
 		res.record(writeProjection(out, filepath.Join(Root(root, name), filepath.Base(rel)), docs, dryRun))
 		res.record(writeOwnedFile(out, filepath.Join(home, rel), docs, dryRun))
 	}

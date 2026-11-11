@@ -101,8 +101,12 @@ func TestSyncRendersVendorInstructionFilesNotRootCopies(t *testing.T) {
 	if code := Sync(Options{Out: io.Discard}); code != 0 {
 		t.Fatalf("Sync exit = %d, want 0", code)
 	}
-	want := DocsBanner + "\n\n" + docsPathsNote + "\n\n# CLAUDE.md\n\nBody.\n\n## Agents\n\n- **demo-agent** (`sonnet`) — demo agent for the docs test.\n"
-	for vendor, rel := range instructionFiles {
+	want := docsBanner + "\n\n" + docsPathsNote + "\n\n# CLAUDE.md\n\nBody.\n\n## Agents\n\n- **demo-agent** (`sonnet`) — demo agent for the docs test.\n"
+	for vendor, tg := range targets {
+		rel := tg.docs
+		if rel == "" {
+			continue
+		}
 		dist := filepath.Join(Dir(claude, vendor), "..", filepath.Base(rel))
 		for _, p := range []string{filepath.Join(home, rel), dist} {
 			got, err := os.ReadFile(p)
@@ -158,8 +162,8 @@ func TestSyncWithoutClaudeMDSkipsInstructionRender(t *testing.T) {
 
 // The render must never target CLAUDE.md itself — that would overwrite the source with its own derivative.
 func TestInstructionFilesNeverTargetConventionsSource(t *testing.T) {
-	for vendor, rel := range instructionFiles {
-		if strings.EqualFold(filepath.Base(rel), "CLAUDE.md") {
+	for vendor, tg := range targets {
+		if rel := tg.docs; strings.EqualFold(filepath.Base(rel), "CLAUDE.md") {
 			t.Fatalf("%s instruction file is %s — the render would clobber its own source", vendor, rel)
 		}
 	}
@@ -576,7 +580,7 @@ func TestSyncRendersAlwaysOnStandardsOnly(t *testing.T) {
 	if code := Sync(Options{Out: io.Discard}); code != 0 {
 		t.Fatalf("Sync exit = %d, want 0", code)
 	}
-	raw, err := os.ReadFile(filepath.Join(home, instructionFiles["codex"]))
+	raw, err := os.ReadFile(filepath.Join(home, targets["codex"].docs))
 	if err != nil {
 		t.Fatal(err)
 	}

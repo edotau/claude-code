@@ -31,13 +31,10 @@ type profile struct {
 func defaultPath() string {
 	home, _ := os.UserHomeDir()
 	p := os.Getenv(envConfigFile)
-	switch {
-	case p == "":
+	if p == "" {
 		return filepath.Join(home, ".databrickscfg")
-	case p == "~", strings.HasPrefix(p, "~/"):
-		return paths.ExpandHome(p)
 	}
-	return p
+	return paths.ExpandHome(p)
 }
 
 // section is one [name] block with its keys; a repeated key or header merges, last value wins.

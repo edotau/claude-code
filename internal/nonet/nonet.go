@@ -16,7 +16,7 @@ var ErrRealNetwork = errors.New("test made a real network call: mock the API (ht
 
 func init() {
 	if isTestBinary(os.Args[0]) {
-		Block()
+		block()
 	}
 }
 
@@ -25,8 +25,8 @@ func isTestBinary(arg0 string) bool {
 	return strings.HasSuffix(strings.TrimSuffix(filepath.Base(arg0), ".exe"), ".test")
 }
 
-// Block swaps the default resolver for one whose DNS server dial always fails; PreferGo keeps macOS off cgo DNS.
-func Block() {
+// block swaps the default resolver for one whose DNS server dial always fails; PreferGo keeps macOS off cgo DNS.
+func block() {
 	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(_ context.Context, _, addr string) (net.Conn, error) {
 		return nil, fmt.Errorf("%w (DNS via %s)", ErrRealNetwork, addr)
 	}}

@@ -10,7 +10,7 @@ import (
 )
 
 func TestSettingsJSON(t *testing.T) {
-	b, err := SettingsJSON()
+	b, err := settingsJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,20 +34,20 @@ func TestIsHarness(t *testing.T) {
 		command string
 		want    bool
 	}{
-		{HookBin + " hook x", true},
+		{hookBin + " hook x", true},
 		{"rtk hook claude", true}, // the stale entry `rtk init -g` writes
 		{"/opt/bin/rtk hook claude", true},
 		{"rtk hook codex", false},
-		{"HARNESS_HOOK_AGENT=codex " + HookBin + " hook x", true},
-		{"HARNESS_HOOK_AGENT=vendor_2 " + HookBin + " hook x", true},
-		{"HARNESS_HOOK_VENDOR=codex " + HookBin + " hook x", true}, // the pre-rename marker
-		{"FOO=1 " + HookBin + " hook x", false},
+		{"HARNESS_HOOK_AGENT=codex " + hookBin + " hook x", true},
+		{"HARNESS_HOOK_AGENT=vendor_2 " + hookBin + " hook x", true},
+		{"HARNESS_HOOK_VENDOR=codex " + hookBin + " hook x", true}, // the pre-rename marker
+		{"FOO=1 " + hookBin + " hook x", false},
 		{"HARNESS_HOOK_AGENT=codex foreign hook", false},
-		{HookBin + "-other hook x", false},
-		{"HARNESS_HOOK_AGENT=codex " + HookBin + "-other hook x", false},
-		{"HARNESS_HOOK_AGENT= " + HookBin + " hook x", false},
-		{"HARNESS_HOOK_AGENT=codex; " + HookBin + " hook x", false},
-		{"HARNESS_HOOK_AGENT=codex FOO=1 " + HookBin + " hook x", false},
+		{hookBin + "-other hook x", false},
+		{"HARNESS_HOOK_AGENT=codex " + hookBin + "-other hook x", false},
+		{"HARNESS_HOOK_AGENT= " + hookBin + " hook x", false},
+		{"HARNESS_HOOK_AGENT=codex; " + hookBin + " hook x", false},
+		{"HARNESS_HOOK_AGENT=codex FOO=1 " + hookBin + " hook x", false},
 	} {
 		t.Run(tt.command, func(t *testing.T) {
 			if got := IsHarness(tt.command); got != tt.want {
@@ -95,7 +95,7 @@ func checkDocsPlanMirror(t *testing.T, byName map[string]EventSpec) {
 
 func checkRenderedPlanHooks(t *testing.T) {
 	t.Helper()
-	b, err := SettingsJSON()
+	b, err := settingsJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestEventsDispatcherStatusMessage(t *testing.T) {
 
 // One dispatcher entry per event, plus own entries only for Gate or Async handlers.
 func TestGroupRenderOneEntryPerEvent(t *testing.T) {
-	b, err := SettingsJSON()
+	b, err := settingsJSON()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -21,13 +21,15 @@ type projectionTarget struct {
 	home   func(home string) string  // agent agents dir under $HOME
 	render func(agent Source) string // full file content, banner included
 	skills func(home string) string  // the CLI's own skills dir when it does not read ~/.agents/skills; nil = shared
+	docs   string                    // global instruction file relative to $HOME; "" = the CLI reads none
 }
 
 // targets is every agent the sync projects agents into; skills need no per-agent table (see skills.go).
 var targets = map[string]projectionTarget{
-	agentid.Gemini:   {ext: ".md", home: sub(".gemini", "agents"), render: renderGeminiAgent, skills: geminiSkillsDir},
-	agentid.Codex:    {ext: ".toml", home: sub(".codex", "agents"), render: renderCodexAgent},
-	agentid.Copilot:  {ext: ".md", home: sub(".copilot", "agents"), render: renderCopilotAgent, skills: copilotSkillsDir},
+	agentid.Gemini: {ext: ".md", home: sub(".gemini", "agents"), render: renderGeminiAgent, skills: geminiSkillsDir, docs: filepath.Join(".gemini", "GEMINI.md")},
+	agentid.Codex:  {ext: ".toml", home: sub(".codex", "agents"), render: renderCodexAgent, docs: filepath.Join(".codex", "AGENTS.md")},
+	agentid.Copilot: {ext: ".md", home: sub(".copilot", "agents"), render: renderCopilotAgent, skills: copilotSkillsDir,
+		docs: filepath.Join(".copilot", "copilot-instructions.md")},
 	agentid.OpenCode: {ext: ".md", home: sub(".config", "opencode", "agents"), render: renderOpenCodeAgent},
 }
 
