@@ -38,7 +38,7 @@ const (
 // agentState is how an agent bills today and whether that credential checked out.
 type agentState struct {
 	mode     string                 // modeSubscription, modeAPIKey, modeNone, or a non-anthropic backend's label
-	tier     providers.Subscription // plan the sign-in reports (Name "Max 20x", "Plus", "Pro+"; Raw for agent_plans)
+	tier     providers.Subscription // plan the sign-in reports (Name "Max 20x", "Plus", "Pro+"; Raw for agentPlans)
 	verified bool
 }
 
@@ -75,11 +75,7 @@ var agentMenus = map[string]func(d *dialog) agentMenu{
 
 // pickAgent is the submenu picker seam; tests replace it.
 var pickAgent = func(d *dialog, title string, rows [][2]string, start int) (int, error) {
-	if !d.shell().TTY { // the numbered prompt prints rows raw: no span markers
-		rows = slices.Clone(rows)
-		for i := range rows {
-			rows[i][1] = ansi.Strip(rows[i][1])
-		}
+	if !d.shell().TTY { // the numbered prompt paints or strips the span markers itself
 		return d.shell().Pick(title, rows, start)
 	}
 	secs, order := agentSections(rows)
@@ -673,6 +669,7 @@ func pinCopilotProfile(d *dialog, user string) bool {
 		d.printf("copilot: %v\n", err)
 		return false
 	}
+	d.reload() // githubProfile may have added the profile to the registry
 	d.printf("%-10s runs as %s\n", "copilot", user)
 	return true
 }

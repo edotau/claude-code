@@ -269,10 +269,10 @@ func TestRoutingEOFDoesNotResetSavedOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	d, _ := newDialog("")
-	origPick, origConfirm := pickSettingsPage, saveConfirmed
-	t.Cleanup(func() { pickSettingsPage, saveConfirmed = origPick, origConfirm })
+	origPick, origConfirm := pickMenu, saveConfirmed
+	t.Cleanup(func() { pickMenu, saveConfirmed = origPick, origConfirm })
 	picks, confirms := 0, 0
-	pickSettingsPage = func(string, []tui.Section, [2]string, int) (int, error) {
+	pickMenu = func(string, []tui.Section, [2]string, int) (int, error) {
 		picks++
 		if picks == 1 {
 			return 0, nil // weights.price is a number/text prompt

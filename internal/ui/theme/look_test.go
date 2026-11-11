@@ -24,7 +24,7 @@ func TestLiftIdentityAtZero(t *testing.T) {
 	if got := (Look{}).lifted(in); got != in {
 		t.Fatalf("lift 0 changed %v to %v", in, got)
 	}
-	pal := EmbeddedPalettes()
+	pal := embeddedPalettes()
 	if got := (Look{}).LiftPalette(pal); got.Sem("dim") != pal.Sem("dim") {
 		t.Fatalf("lift 0 changed dim: %s", got.Sem("dim"))
 	}
@@ -37,15 +37,15 @@ func TestLiftKnownValues(t *testing.T) {
 			t.Errorf("%s: got %v want %v", hex, got, ansi.Hex(want))
 		}
 	}
-	pal := EmbeddedPalettes()
+	pal := embeddedPalettes()
 	if got := c.LiftPalette(pal).Sem("dim"); !near(ansi.Hex(got), c.lifted(ansi.Hex(pal.Sem("dim")))) {
 		t.Errorf("palette dim = %s", got)
 	}
 }
 
 func TestLiftGeminiStops(t *testing.T) {
-	base := Look{Gradient: "gemini"}.Stops(EmbeddedPalettes())
-	got := Look{Gradient: "gemini", Lift: 0.15}.Stops(EmbeddedPalettes())
+	base := Look{Gradient: "gemini"}.Stops(embeddedPalettes())
+	got := Look{Gradient: "gemini", Lift: 0.15}.Stops(embeddedPalettes())
 	for i := range base {
 		for ch := range base[i] {
 			if got[i][ch] < base[i][ch] || got[i][ch] > 255 {

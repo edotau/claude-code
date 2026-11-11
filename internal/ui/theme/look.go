@@ -119,9 +119,6 @@ func (p Palettes) Sem(role string) string {
 	return bakedSemantic[role]
 }
 
-// EmbeddedPalettes returns the built-in palettes, ignoring local overrides.
-func EmbeddedPalettes() Palettes { return embeddedPalettes() }
-
 // StatuslineDir holds the optional config.json / palettes.json overrides.
 func StatuslineDir() string { return filepath.Join(paths.ConfigDir(), "state", "statusline") }
 

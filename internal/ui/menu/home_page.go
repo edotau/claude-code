@@ -19,7 +19,7 @@ import (
 )
 
 // homeRow is one selectable home-page row: name, state, check, and what picking it does.
-type homeRow = row[*dialog]
+type homeRow = row
 
 func toolsRows(d *dialog) []homeRow {
 	return []homeRow{databricksRow(d), tailscaleRow(), webSearchRow()}

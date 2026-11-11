@@ -46,7 +46,7 @@ func completionDir() (string, error) {
 	return filepath.Join(dataHome, "bash-completion", "completions"), nil
 }
 
-// Install writes Script(bin) to Dir()/bin, creating the dir if needed, and returns the path.
+// Install writes Script(bin) to completionDir()/bin, creating the dir if needed, and returns the path.
 func Install(bin string) (string, error) {
 	dir, err := completionDir()
 	if err != nil {

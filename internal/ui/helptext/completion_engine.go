@@ -2,7 +2,6 @@ package helptext
 
 import (
 	"flag"
-	"fmt"
 	"slices"
 	"strings"
 )
@@ -169,9 +168,22 @@ func (e Engine) Candidates(words []string) []string {
 		cur = words[len(words)-1]
 		words = words[:len(words)-1]
 	}
+	// bash splits `--flag=val` into `--flag`, `=`, `val` and completes only the value part.
+	split := false
+	if n := len(words); cur == "=" && n > 0 && strings.HasPrefix(words[n-1], "-") {
+		cur, words, split = words[n-1]+"=", words[:n-1], true
+	} else if n >= 2 && words[n-1] == "=" && strings.HasPrefix(words[n-2], "-") {
+		cur, words, split = words[n-2]+"="+cur, words[:n-2], true
+	}
 	path, node, rest := e.knownPath(words)
 	if strings.HasPrefix(cur, "-") && strings.Contains(cur, "=") {
-		return inlineFlagCandidates(path, node, cur)
+		out := inlineFlagCandidates(path, node, cur)
+		if split {
+			for i, c := range out {
+				_, out[i], _ = strings.Cut(c, "=")
+			}
+		}
+		return out
 	}
 	var out []string
 	for _, c := range e.nextCompletionCandidates(path, node, rest, cur) {
@@ -227,14 +239,6 @@ func positionAwareCandidates(path []string, node *Node, rest []string, cur strin
 		cands = append(cands, remainingFlags(path, node, rest)...)
 	}
 	return cands
-}
-
-// Complete prints one candidate per line for the hidden shell-completion verb.
-func (e Engine) Complete(args []string) int {
-	for _, c := range e.Candidates(args) {
-		fmt.Println(c)
-	}
-	return 0
 }
 
 // Plain is a free-text flag.

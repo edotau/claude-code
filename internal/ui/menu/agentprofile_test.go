@@ -127,16 +127,15 @@ func TestSeedDismissWritesNothing(t *testing.T) {
 
 func TestSeedPickWritesProfilesOnly(t *testing.T) {
 	d, out := seedDialog(t, "")
-	// pick order in the picker: servable profiles, then the trailing off row
-	offOf := func(a string) int { return len(configure.SeedProfiles(d.reg, a)) + 1 }
+	// pick order in the picker: the off row (1), then servable profiles
 	copilotProfiles := configure.SeedProfiles(d.reg, "copilot")
 	if len(copilotProfiles) == 0 {
 		t.Skip("registry serves copilot with no profile")
 	}
 	want := copilotProfiles[0]
 	script := strings.Join([]string{
-		strconv.Itoa(seedIdx("copilot")), "1",
-		strconv.Itoa(seedIdx("codex")), strconv.Itoa(offOf("codex")),
+		strconv.Itoa(seedIdx("copilot")), "2",
+		strconv.Itoa(seedIdx("codex")), "1",
 		strconv.Itoa(len(seedAgents()) + 1),
 	}, "\n") + "\n"
 	d.br = bufio.NewReader(strings.NewReader(script))
@@ -183,7 +182,10 @@ func TestSeedFromSignInForgetsLastProfileAndSetsRecord(t *testing.T) {
 	if !strings.Contains(lastProfile(), "stale-profile") {
 		t.Fatalf("setup: last-profile.json lacks the entry: %s", lastProfile())
 	}
-	seedFromSignIn(d, "copilot", profiles[0])
+	if got := signInProfile(d, "copilot"); got != profiles[0] {
+		t.Skipf("copilot sign-in profile = %q, not %q", got, profiles[0])
+	}
+	agentActiveOn(d, "copilot")
 	if strings.Contains(lastProfile(), "stale-profile") {
 		t.Errorf("last-used profile survived sign-in: %s", lastProfile())
 	}

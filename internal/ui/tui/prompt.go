@@ -17,7 +17,7 @@ import (
 // then discards that look-ahead on the next call, losing bytes the user already typed.
 var stdinReader = bufio.NewReader(os.Stdin)
 
-// Stdin is that shared reader, for line reads outside tui (dialog.Shell.Line) that must not drop its look-ahead.
+// Stdin is that shared reader, for line reads outside tui (menu's prompts) that must not drop its look-ahead.
 func Stdin() *bufio.Reader { return stdinReader }
 
 // Confirm prints "question [Y/n] " (or "[y/N]" when def is false) and reads one line from stdin;
@@ -28,7 +28,7 @@ func Confirm(question string, def bool) bool {
 	fmt.Fprintf(os.Stdout, "%s %s ", question, yesNoHint(def))
 	line, err := stdinReader.ReadString('\n')
 	if err != nil && strings.TrimSpace(line) == "" {
-		return false // EOF or a dead stdin is a decline, as in dialog.Yes
+		return false // EOF or a dead stdin is a decline
 	}
 	line = strings.ToLower(strings.TrimSpace(line))
 	switch {
@@ -131,7 +131,7 @@ func ConfirmKey(question string, def bool) bool {
 	fmt.Fprintf(os.Stdout, "%s %s · Esc cancel ", question, yesNoHint(def))
 	for k := range t.Keys() {
 		if answer, done := confirmKey(k, def); done {
-			fmt.Fprintln(os.Stdout, map[bool]string{true: "yes", false: "no"}[answer])
+			fmt.Fprint(os.Stdout, map[bool]string{true: "yes", false: "no"}[answer], "\r\n") // raw mode: no OPOST
 			return answer
 		}
 	}

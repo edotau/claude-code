@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
 // lockWait bounds the wait for a sibling invocation; past the budget the merge errors rather than hang.
@@ -55,22 +57,27 @@ func syncSettings(template, dest, claudeHome, claudeBin string, check bool) (mer
 	// Read -> backup -> write is ONE critical section, serialized against a sibling invocation. The lock
 	// lives in harness state, never beside VS Code's own file.
 	var result mergeResult
-	lock := filepath.Join(paths.StateDir(), "vscode.lock")
-	if err := os.MkdirAll(filepath.Dir(lock), 0o700); err != nil {
-		return mergeResult{}, err
-	}
-	ran, err := paths.TryFileLock(lock, lockWait, func() error {
-		r, mergeErr := merge(dest, overlay, claudeBin+"/claude", false)
-		result = r
+	err := withLock("vscode.lock", dest, func() (mergeErr error) {
+		result, mergeErr = merge(dest, overlay, claudeBin+"/claude", false)
 		return mergeErr
 	})
+	return result, err
+}
+
+// withLock runs fn under the named harness-state lock; a lock that cannot be opened or won in time is an error.
+func withLock(name, dest string, fn func() error) error {
+	lock := filepath.Join(paths.StateDir(), name)
+	if err := os.MkdirAll(filepath.Dir(lock), 0o700); err != nil {
+		return err
+	}
+	ran, err := paths.TryFileLock(lock, lockWait, fn)
 	if !ran && err != nil {
-		return mergeResult{}, fmt.Errorf("vscode: lock %s: %w", lock, err)
+		return fmt.Errorf("vscode: lock %s: %w", lock, err)
 	}
 	if !ran {
-		return mergeResult{}, fmt.Errorf("vscode: could not acquire a lock on %s within %s", dest, lockWait)
+		return fmt.Errorf("vscode: could not acquire a lock on %s within %s", dest, lockWait)
 	}
-	return result, err
+	return err
 }
 
 func merge(dest string, overlay map[string]any, claudeWrapper string, check bool) (mergeResult, error) {
@@ -79,11 +86,11 @@ func merge(dest string, overlay map[string]any, claudeWrapper string, check bool
 	if err != nil {
 		return mergeResult{}, err
 	}
-	merged := cloneMap(base)
+	stripped := maps.Clone(base)
 	if base["claudeCode.claudeProcessWrapper"] == claudeWrapper {
-		delete(merged, "claudeCode.claudeProcessWrapper")
+		delete(stripped, "claudeCode.claudeProcessWrapper")
 	}
-	mergeInto(merged, overlay)
+	merged := theme.DeepMerge(stripped, overlay)
 	if reflect.DeepEqual(base, merged) {
 		return mergeResult{}, nil
 	}
@@ -132,32 +139,6 @@ func writeGuarded(dest, label string, rawBase, body []byte) (mergeResult, error)
 		return mergeResult{Backup: backup}, err
 	}
 	return mergeResult{Changed: true, Backup: backup}, nil
-}
-
-func cloneMap(in map[string]any) map[string]any {
-	out := make(map[string]any, len(in))
-	for key, value := range in {
-		if nested, ok := value.(map[string]any); ok {
-			out[key] = cloneMap(nested)
-		} else {
-			out[key] = value
-		}
-	}
-	return out
-}
-
-func mergeInto(base, overlay map[string]any) {
-	for key, value := range overlay {
-		if incoming, ok := value.(map[string]any); ok {
-			if current, ok := base[key].(map[string]any); ok {
-				mergeInto(current, incoming)
-				continue
-			}
-			base[key] = cloneMap(incoming)
-			continue
-		}
-		base[key] = value
-	}
 }
 
 // defaultTemplate is the tracked first-party VS Code settings template, embedded so a bare install has it.

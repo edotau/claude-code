@@ -12,12 +12,8 @@ import (
 const limitsCacheMaxAge = 15 * time.Minute
 
 // limitsSegment is "7d:N%" on the first-party subscription session only: the payload's rate_limits, else
-// internal/usage's cache file; no fresh data or a passed reset omits it. Any other session shows
-// its credential's time left ("u2m:42m", "m2m:42m") when an expiry is recorded, else "".
-func limitsSegment(in input, session string) string {
-	if !onSubscription(session) {
-		return authSegment(session)
-	}
+// internal/usage's cache file; no fresh data or a passed reset omits it. The caller checks onSubscription.
+func limitsSegment(in input) string {
 	week := limitsFromPayload(in)
 	if week < 0 {
 		week = limitsFromCache()

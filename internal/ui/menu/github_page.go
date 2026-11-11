@@ -6,14 +6,12 @@ import (
 	"maps"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/opencode"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/vault"
@@ -207,7 +205,7 @@ func runGithubAuthFlag(d *dialog) bool {
 		name = ""
 	}
 	if name != "" && !slices.Contains(valid, name) {
-		d.printf("github auth: %q is not a GitHub account gh is signed in to; valid: follow, %s\n", name, strings.Join(valid, ", "))
+		d.printf("github auth: %q is not a known GitHub account; valid: follow, %s\n", name, strings.Join(valid, ", "))
 		return false
 	}
 	if d.o.Check { // verification: pass only when the pinned account already equals name
@@ -280,15 +278,18 @@ func opencodeSignedIn() (bool, string) {
 // alias resolved to "auto", a concrete opencode_fallback (opencode's own catalog has no "auto"), then
 // writes the github-copilot overlay.
 func pickCopilotModels(d *dialog) {
-	list, ok := copilotCatalogModels(d)
-	if !ok {
+	list, err := copilotCatalog(d)
+	if err != nil {
+		d.printf("copilot models: %v\n", err)
 		return
 	}
 	ids := []string{"auto"}
 	rows := [][2]string{{"auto", "resolve automatically; needs opencode_fallback"}}
 	for _, m := range list {
-		ids = append(ids, m.ID)
-		rows = append(rows, [2]string{m.ID, m.Name})
+		if m.Enabled {
+			ids = append(ids, m.ID)
+			rows = append(rows, [2]string{m.ID, m.Name})
+		}
 	}
 
 	picks, ok := pickAliasModels(d, ids, rows)
@@ -331,30 +332,4 @@ func pickAliasModels(d *dialog, ids []string, rows [][2]string) (map[string]stri
 		picks[alias] = ids[idx]
 	}
 	return picks, true
-}
-
-// copilotCatalogModels lists the live copilot catalog, printing the reason and returning false when it is unavailable.
-func copilotCatalogModels(d *dialog) (list []copilot.SDKModel, ok bool) {
-	bin, err := paths.AgentBin("copilot")
-	if err != nil {
-		d.printf("copilot models: copilot CLI not found: %v\n", err)
-		return nil, false
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	opts := copilot.CatalogOptions(bin, copilot.CopilotToken())
-	tok, err := copilot.CopilotLaunchToken()
-	if err != nil {
-		d.printf("copilot models: %v\n", err)
-		return nil, false
-	}
-	if tok != "" {
-		opts.GitHubToken, opts.UseLoggedInUser = tok, false
-	}
-	list, err = copilot.SDKListModels(ctx, opts)
-	if err != nil {
-		d.printf("copilot models: %v\n", err)
-		return nil, false
-	}
-	return list, true
 }

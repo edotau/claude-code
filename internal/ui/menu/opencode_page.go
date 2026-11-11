@@ -87,8 +87,9 @@ func ocDetail(c opencode.OpencodeConn) string {
 func buildOpencodePage(d *dialog, ints []opencode.OpencodeIntegration, major int) opencodePage {
 	var p opencodePage
 	p.rows, p.conns = opencodeAccountRows(ints)
-	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "Set up", Detail: "sign in, verify, pin the route",
-		Section: "actions"}, run: func(d *dialog) { agentSetUp(d, "opencode") }})
+	setup := setupRow(d, "opencode")
+	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: setup.label, Detail: setup.desc, Section: "actions"},
+		run: func(*dialog) { setup.run() }})
 	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "+ Add account", Detail: "add a login with opencode auth login",
 		Section: "actions"}, run: ocAddAccount})
 	if d.reg != nil {

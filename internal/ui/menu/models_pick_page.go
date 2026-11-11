@@ -140,11 +140,11 @@ func snapshotHas(p *providers.Provider, model string) bool {
 	return slices.ContainsFunc(snap.Models, func(m providers.ModelInfo) bool { return copilotCanonicalID(m.ID) == want })
 }
 
-// copilotCatalog fetches the copilot SDK model catalog once per dialog and caches it; err is cached too,
-// so a prior failure doesn't retry (and re-spawn the runtime) on every row of the same dialog.
 // copilotCatalogFn is the catalog source (tests stub it so no copilot runtime is spawned).
 var copilotCatalogFn = copilot.Catalog
 
+// copilotCatalog reads the copilot model catalog (sealed snapshot first) once per dialog and caches it; err is cached
+// too, so a prior failure doesn't retry (and re-spawn the runtime) on every row of the same dialog.
 func copilotCatalog(d *dialog) ([]copilot.SDKModel, error) {
 	if d.copilotCatalogLoaded {
 		return d.copilotCatalog, d.copilotCatalogErr
@@ -380,7 +380,9 @@ func saveModel(d *dialog, p *providers.Provider, claude bool, alias, id string) 
 	var err error
 	switch {
 	case claude:
-		_, err = writeAgentField(d, "claude", strings.ToUpper(alias)+"_MODEL", id)
+		if _, err = writeAgentField(d, "claude", strings.ToUpper(alias)+"_MODEL", id); err == nil {
+			providers.AuditModelPin(alias, id)
+		}
 	case p.Protocol == "":
 		d.printf("model: %s is opencode's own plan; pin a profile to save a model\n", p.Name)
 		return
