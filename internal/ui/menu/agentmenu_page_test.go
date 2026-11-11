@@ -271,9 +271,10 @@ func TestAgentStateLabelAndCheck(t *testing.T) {
 	}
 }
 
-// Each codex Login pick runs its own sign-in: browser, device code, or (cancelled) nothing.
+// Each codex Login pick runs its own sign-in, then the status probe: browser, device code, or (cancelled) nothing.
 func TestCodexLoginPicksMethod(t *testing.T) {
-	for _, tc := range []struct{ in, want string }{{"1\n", "login\n"}, {"2\n", "login --device-auth\n"}, {"\n", ""}} {
+	for _, tc := range []struct{ in, want string }{{"1\n", "login\nlogin status\n"},
+		{"2\n", "login --device-auth\nlogin status\n"}, {"\n", ""}} {
 		cfg := t.TempDir()
 		t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 		log := filepath.Join(cfg, "argv")

@@ -181,14 +181,14 @@ func githubScratch(t *testing.T) {
 	}
 }
 
-func TestRunGithubLoginPrintsVendorBinError(t *testing.T) {
+func TestSignInPrintsVendorBinError(t *testing.T) {
 	githubScratch(t)
 	_, err := paths.AgentBin("copilot")
 	if err == nil {
 		t.Fatal("expected missing vendor")
 	}
 	var out bytes.Buffer
-	runGithubLogin(&dialog{out: &out}, []string{"copilot", "login"}, "copilot", copilotSignedIn)
+	signIn(&dialog{out: &out}, "copilot", []string{"copilot", "login"})
 	if want := "copilot: " + err.Error() + "\n"; out.String() != want {
 		t.Errorf("output = %q, want %q", out.String(), want)
 	}
