@@ -188,7 +188,7 @@ func TestRunGithubLoginPrintsVendorBinError(t *testing.T) {
 		t.Fatal("expected missing vendor")
 	}
 	var out bytes.Buffer
-	runGithubLogin(&dialog{out: &out}, []string{"copilot", "login"}, "copilot")
+	runGithubLogin(&dialog{out: &out}, []string{"copilot", "login"}, "copilot", copilotSignedIn)
 	if want := "copilot: " + err.Error() + "\n"; out.String() != want {
 		t.Errorf("output = %q, want %q", out.String(), want)
 	}
