@@ -26,6 +26,49 @@ var loginU2M = providers.LoginU2M
 // validU2M is the cached-login check, a var so tests need no sealed token.
 var validU2M = providers.ValidU2M
 
+// loginIn is the stdin --paste reads the redirected URL from, a var so tests inject one.
+var loginIn io.Reader = os.Stdin
+
+// headless holds the three opt-in U2M flags for logins without a local browser.
+type headless struct {
+	port      int
+	noBrowser bool
+	paste     bool
+}
+
+func (h headless) set() bool { return h.port != 0 || h.noBrowser || h.paste }
+
+// options is the oauth.LoginOptions for h: no flag set gives the interactive default.
+func (h headless) options() oauth.LoginOptions {
+	o := oauth.LoginOptions{Open: openLoginURL, Out: os.Stderr, NoBrowser: h.noBrowser}
+	if h.noBrowser {
+		o.Open = nil
+	}
+	if h.port > 0 {
+		o.Port, o.ExactPort = h.port, true
+	}
+	if h.paste {
+		o.Paste = loginIn
+	}
+	return o
+}
+
+// describe is the dry-run line for h.
+func (h headless) describe() string {
+	port := "callback port 8020 (next free port up to 8040 if busy)"
+	if h.port > 0 {
+		port = fmt.Sprintf("callback port %d (exact; error if busy)", h.port)
+	}
+	browser, paste := "on", "off"
+	if h.noBrowser {
+		browser = "off"
+	}
+	if h.paste {
+		paste = "on"
+	}
+	return fmt.Sprintf("%s; browser %s; paste %s", port, browser, paste)
+}
+
 // fail prints one error line for the verb and returns exit code 1.
 func fail(format string, a ...any) int {
 	fmt.Fprintf(os.Stderr, "claude-code databricks "+format+"\n", a...)
@@ -48,6 +91,10 @@ func login(args []string) int {
 	fs.StringVar(authType, "t", "", "shorthand for --auth-type")
 	profileName := profileFlag(fs)
 	as := fs.String("as", "", "identity: user (browser login, no SP fallback) or sp (service-principal mint, no browser)")
+	var h headless
+	fs.IntVar(&h.port, "port", 0, "exact localhost callback port to listen on, error if busy (default: 8020, next free up to 8040)")
+	fs.BoolVar(&h.noBrowser, "no-browser", false, "do not open a browser; print the URL and the ssh -L forward hint")
+	fs.BoolVar(&h.paste, "paste", false, "also accept the redirected URL pasted on stdin when the callback cannot be forwarded")
 	names, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
@@ -56,6 +103,9 @@ func login(args []string) int {
 		return usageProfile("login", names[0])
 	}
 	if code, bad := checkLoginFlags(*as, *authType); bad {
+		return code
+	}
+	if code, bad := checkHeadless(h, *as); bad {
 		return code
 	}
 	p, err := loginProfile(fs, *profileName)
@@ -67,9 +117,12 @@ func login(args []string) int {
 		return fail("login: %s: %v", p.Name, err)
 	}
 	if mode == providers.IdentitySP {
+		if code, bad := checkHeadless(h, providers.IdentitySP); bad {
+			return code
+		}
 		return loginSP(p, *dryRun)
 	}
-	return loginUser(p, mode, *dryRun, !*force && p.Auth.Method() == providers.AuthOAuth)
+	return loginUser(p, mode, h, *dryRun, !*force && p.Auth.Method() == providers.AuthOAuth)
 }
 
 // identityNote says what a browser login means for each identity login opens it for.
@@ -79,9 +132,12 @@ var identityNote = map[string]string{
 }
 
 // loginUser is the u2m browser login for identity user or auto; reuse keeps a still-valid cached login.
-func loginUser(p *providers.Provider, mode string, dryRun, reuse bool) int {
+func loginUser(p *providers.Provider, mode string, h headless, dryRun, reuse bool) int {
 	if dryRun {
 		fmt.Printf("identity %s: %s\n", mode, identityNote[mode])
+		if h.set() {
+			fmt.Println("would use " + h.describe())
+		}
 		return loginDryRun(p, reuse)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
@@ -92,7 +148,7 @@ func loginUser(p *providers.Provider, mode string, dryRun, reuse bool) int {
 			return 0
 		}
 	}
-	if err := LoginRow(ctx, p.Name, os.Stdout); err != nil {
+	if err := loginRow(ctx, p.Name, os.Stdout, h); err != nil {
 		return fail("login: %v", err)
 	}
 	return 0
@@ -175,6 +231,23 @@ func checkLoginFlags(as, authType string) (code int, bad bool) {
 	return 0, false
 }
 
+// checkHeadless rejects --port, --no-browser and --paste with identity sp; a non-oauth auth type is refused earlier.
+func checkHeadless(h headless, as string) (code int, bad bool) {
+	if h.port < 0 || h.port > 65535 {
+		fail("login: --port must be between 1 and 65535 (got %d)", h.port)
+		return 2, true
+	}
+	if !h.set() {
+		return 0, false
+	}
+	if as == providers.IdentitySP {
+		fail("login: --port, --no-browser and --paste apply to the browser login only; " +
+			"a service principal (--as sp) has no callback")
+		return 2, true
+	}
+	return 0, false
+}
+
 // loginDryRun reports what login would do for p without opening a browser or writing anything.
 func loginDryRun(p *providers.Provider, reuse bool) int {
 	if reuse {
@@ -197,6 +270,11 @@ func loginDryRun(p *providers.Provider, reuse bool) int {
 
 // LoginRow runs the u2m browser login for the named row, switching its authType to oauth first if needed.
 func LoginRow(ctx context.Context, name string, out io.Writer) error {
+	return loginRow(ctx, name, out, headless{})
+}
+
+// loginRow is LoginRow with the headless flags h.
+func loginRow(ctx context.Context, name string, out io.Writer, h headless) error {
 	reg, err := providers.Load()
 	if err != nil {
 		return err
@@ -214,7 +292,7 @@ func LoginRow(ctx context.Context, name string, out io.Writer) error {
 		switched = true
 		defer func() { rollbackHint(p.Name, was, switched) }()
 	}
-	ttl, err := loginU2M(ctx, p, oauth.LoginOptions{Open: openLoginURL, Out: os.Stderr})
+	ttl, err := loginU2M(ctx, p, h.options())
 	if err != nil {
 		return err
 	}
