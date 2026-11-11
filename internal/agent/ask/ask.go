@@ -411,11 +411,7 @@ func prepareExitCode(err error) int {
 // askSpawn detaches a prepared dispatch as a background job.
 func askSpawn(fs *flag.FlagSet, prepared *client.Prepared, native bool, format, name string) int {
 	if err := job.Spawn(&prepared.Record, backgroundExtraFlags(fs, prepared.Opts.Fallback, native)); err != nil {
-		prepared.Record.Finish(wire.Result{}, err, time.Since(prepared.Record.Time))
-		if saveErr := prepared.Record.Save(); saveErr != nil {
-			err = errors.Join(err, fmt.Errorf("save failed dispatch %s: %w", prepared.Record.ID, saveErr))
-		}
-		return failAsk(format, name, err)
+		return failAsk(format, name, failSpawn(&prepared.Record, err))
 	}
 	if err := ReportBackgroundStart(format, prepared.Record); err != nil {
 		return helptext.Fail("%s: job %s started; write job id: %v", name, prepared.Record.ID, err)

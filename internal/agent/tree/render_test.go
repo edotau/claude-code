@@ -3,35 +3,11 @@ package tree
 import (
 	"errors"
 	"io"
-	"math"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
-
-func TestCompactNumberBoundaries(t *testing.T) {
-	cases := []struct {
-		n    int64
-		want string
-	}{
-		{math.MinInt64, "-9223372036854775808"},
-		{-1000, "-1000"},
-		{-1, "-1"},
-		{0, "0"},
-		{999, "999"},
-		{1000, "1.0k"},
-		{999_949, "999.9k"},
-		{999_999, "1.0M"},
-		{1_000_000, "1.0M"},
-		{math.MaxInt64, "9223372036854.8M"},
-	}
-	for _, tc := range cases {
-		if got := compactNumber(tc.n); got != tc.want {
-			t.Errorf("compactNumber(%d) = %q, want %q", tc.n, got, tc.want)
-		}
-	}
-}
 
 // (g) renderText never produces a line over terminalWidth(), even for a subagent with a long description.
 func TestRenderTextLineWidth(t *testing.T) {

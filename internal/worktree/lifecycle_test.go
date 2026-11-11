@@ -14,53 +14,31 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-func TestCreateDefaultBranchNaming(t *testing.T) {
+func TestCreateBranchNaming(t *testing.T) {
 	t.Parallel()
-	repo := testRepo(t)
-	dest, err := Create(repo, "feature", CreateOptions{})
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct{ name, branch, preexisting, want string }{
+		{"default", "", "", "worktree-feature"},
+		{"custom", "wt/custom-name", "", "wt/custom-name"},
+		{"reuses existing", "wt/preexisting", "wt/preexisting", "wt/preexisting"},
 	}
-	cmd := exec.Command("git", "-C", dest, "branch", "--show-current")
-	cmd.Env = gitEnv()
-	out, err := cmd.Output()
-	if err != nil || strings.TrimSpace(string(out)) != "worktree-feature" {
-		t.Fatalf("branch = %q, err %v, want worktree-feature", out, err)
-	}
-}
-
-func TestCreateCustomBranchName(t *testing.T) {
-	t.Parallel()
-	repo := testRepo(t)
-	dest, err := Create(repo, "feature", CreateOptions{Branch: "wt/custom-name"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command("git", "-C", dest, "branch", "--show-current")
-	cmd.Env = gitEnv()
-	out, err := cmd.Output()
-	if err != nil || strings.TrimSpace(string(out)) != "wt/custom-name" {
-		t.Fatalf("branch = %q, err %v, want wt/custom-name", out, err)
-	}
-}
-
-func TestCreateReusesExistingBranch(t *testing.T) {
-	t.Parallel()
-	repo := testRepo(t)
-	brCmd := exec.Command("git", "-C", repo.Main, "branch", "wt/preexisting")
-	brCmd.Env = gitEnv()
-	if out, err := brCmd.CombinedOutput(); err != nil {
-		t.Fatalf("branch: %v: %s", err, out)
-	}
-	dest, err := Create(repo, "reuse", CreateOptions{Branch: "wt/preexisting"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command("git", "-C", dest, "branch", "--show-current")
-	cmd.Env = gitEnv()
-	out, err := cmd.Output()
-	if err != nil || strings.TrimSpace(string(out)) != "wt/preexisting" {
-		t.Fatalf("branch = %q, err %v, want wt/preexisting", out, err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			repo := testRepo(t)
+			if tc.preexisting != "" {
+				commitIn(t, repo.Main, "branch", tc.preexisting)
+			}
+			dest, err := Create(repo, "feature", CreateOptions{Branch: tc.branch})
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("git", "-C", dest, "branch", "--show-current")
+			cmd.Env = gitEnv()
+			out, err := cmd.Output()
+			if err != nil || strings.TrimSpace(string(out)) != tc.want {
+				t.Fatalf("branch = %q, err %v, want %s", out, err, tc.want)
+			}
+		})
 	}
 }
 
@@ -82,8 +60,7 @@ func TestCreateIdempotentResume(t *testing.T) {
 
 func TestCreateRejectsTraversalName(t *testing.T) {
 	t.Parallel()
-	repo := testRepo(t)
-	if _, err := Create(repo, "../escape", CreateOptions{}); err == nil {
+	if _, err := Create(testRepo(t), "../escape", CreateOptions{}); err == nil {
 		t.Fatal("want error for a traversal name")
 	}
 }
@@ -103,58 +80,58 @@ func TestCreateUnusualFilenames(t *testing.T) {
 	}
 }
 
-// TestCreateSpaceInNameRejectsInvalidBranch pins createBranchName's clear refusal of a name whose derived ref is invalid.
+// TestCreateSpaceInNameRejectsInvalidBranch pins createBranchName's refusal of a name whose derived ref is invalid.
 func TestCreateSpaceInNameRejectsInvalidBranch(t *testing.T) {
 	t.Parallel()
-	repo := testRepo(t)
-	_, err := Create(repo, "has space", CreateOptions{})
+	_, err := Create(testRepo(t), "has space", CreateOptions{})
 	if err == nil || !strings.Contains(err.Error(), "not a valid branch name") {
 		t.Fatalf("Create(has space) err = %v, want a 'not a valid branch name' refusal", err)
 	}
 }
 
-func TestCleanRefusesDirty(t *testing.T) {
+func TestCleanRefusals(t *testing.T) {
 	t.Parallel()
-	repo := testRepo(t)
-	dest, err := Create(repo, "dirty", CreateOptions{})
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name, want string
+		setup      func(t *testing.T, repo *Repo, dest string)
+	}{
+		{"dirty", "uncommitted", func(t *testing.T, _ *Repo, dest string) {
+			if err := os.WriteFile(filepath.Join(dest, "scratch.txt"), []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"unmerged", "not merged", func(t *testing.T, _ *Repo, dest string) {
+			commitIn(t, dest, "commit", "--allow-empty", "-q", "-m", "unmerged")
+		}},
+		{"locked", "locked", func(t *testing.T, repo *Repo, dest string) {
+			if out, err := exec.Command("git", "-C", repo.Main, "worktree", "lock", dest).CombinedOutput(); err != nil {
+				t.Fatalf("worktree lock: %v: %s", err, out)
+			}
+		}},
 	}
-	if err := os.WriteFile(filepath.Join(dest, "scratch.txt"), []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	result, err := Clean(repo, "dirty", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Removed {
-		t.Fatal("want refusal for a dirty worktree")
-	}
-	if !strings.Contains(result.Reason, "uncommitted") {
-		t.Errorf("Reason = %q, want mention of uncommitted changes", result.Reason)
-	}
-	if _, err := os.Stat(dest); err != nil {
-		t.Fatal("worktree should still exist after a refused clean")
-	}
-}
-
-func TestCleanRefusesUnmerged(t *testing.T) {
-	t.Parallel()
-	repo := testRepo(t)
-	dest, err := Create(repo, "ahead", CreateOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	commitIn(t, dest, "commit", "--allow-empty", "-q", "-m", "unmerged")
-	result, err := Clean(repo, "ahead", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Removed {
-		t.Fatal("want refusal for an unmerged worktree")
-	}
-	if !strings.Contains(result.Reason, "not merged") {
-		t.Errorf("Reason = %q, want mention of merge state", result.Reason)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			repo := testRepo(t)
+			dest, err := Create(repo, tc.name, CreateOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.setup(t, repo, dest)
+			result, err := Clean(repo, tc.name, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Removed {
+				t.Fatalf("want refusal for a %s worktree", tc.name)
+			}
+			if !strings.Contains(result.Reason, tc.want) {
+				t.Errorf("Reason = %q, want mention of %q", result.Reason, tc.want)
+			}
+			if _, err := os.Stat(dest); err != nil {
+				t.Fatal("worktree should still exist after a refused clean")
+			}
+		})
 	}
 }
 
@@ -188,7 +165,6 @@ func TestCleanDryRunThenRealRemovalRechecksAfterDirtyChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Preview says eligible while the tree is still clean.
 	preview, err := Clean(repo, "drifts", true)
 	if err != nil {
 		t.Fatal(err)
@@ -200,7 +176,7 @@ func TestCleanDryRunThenRealRemovalRechecksAfterDirtyChange(t *testing.T) {
 		t.Fatal("dry run must never remove anything")
 	}
 
-	// The tree changes between preview and the real call — the real call must recheck live, not trust the preview.
+	// The real call must recheck live after the tree drifts, not trust the preview.
 	if err := os.WriteFile(filepath.Join(dest, "scratch.txt"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -221,29 +197,6 @@ func TestCleanMissingWorktree(t *testing.T) {
 	repo := testRepo(t)
 	if _, err := Clean(repo, "never-existed", false); err == nil {
 		t.Fatal("want error for a name with no worktree on disk")
-	}
-}
-
-func TestCleanLockedRefused(t *testing.T) {
-	t.Parallel()
-	repo := testRepo(t)
-	main := repo.Main
-	dest, err := Create(repo, "locked", CreateOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out, err := exec.Command("git", "-C", main, "worktree", "lock", dest).CombinedOutput(); err != nil {
-		t.Fatalf("worktree lock: %v: %s", err, out)
-	}
-	result, err := Clean(repo, "locked", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Removed {
-		t.Fatal("want refusal for a locked worktree")
-	}
-	if !strings.Contains(result.Reason, "locked") {
-		t.Errorf("Reason = %q, want mention of lock state", result.Reason)
 	}
 }
 
@@ -298,8 +251,7 @@ func TestCleanAllPreviewThenApply(t *testing.T) {
 	}
 }
 
-// gitDirOfForTest resolves dest's own private git-dir the same way the production code does, for a
-// test that needs to drop an operation marker directly into it.
+// gitDirOfForTest resolves dest's private git-dir, for tests that drop an operation marker into it.
 func gitDirOfForTest(t *testing.T, dest string) string {
 	t.Helper()
 	cmd := exec.Command("git", "-C", dest, "rev-parse", "--path-format=absolute", "--git-dir")
@@ -311,12 +263,7 @@ func gitDirOfForTest(t *testing.T, dest string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// TestCleanRefusesPendingAutostash is the regression test for Appendix A codex-review finding #5
-// (internal/worktree/lifecycle.go:83): a pending merge that used --autostash moves the worktree's own
-// local edits into the stash and leaves MERGE_HEAD/MERGE_AUTOSTASH set — `git status --porcelain`
-// reports clean (the edits are no longer in the working tree at all), so without an explicit
-// in-progress-operation check, Clean would otherwise remove the worktree and strand the only pointer
-// to those stashed edits held in its own private git-dir.
+// TestCleanRefusesPendingAutostash: an autostash merge leaves a clean status, so Clean must check MERGE_HEAD itself.
 func TestCleanRefusesPendingAutostash(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
@@ -325,7 +272,7 @@ func TestCleanRefusesPendingAutostash(t *testing.T) {
 		t.Fatal(err)
 	}
 	gitDir := gitDirOfForTest(t, dest)
-	// Simulate an interrupted `git merge --autostash`: both markers present, working tree otherwise clean.
+	// Simulate an interrupted `git merge --autostash`: both markers present, tree clean.
 	if err := os.WriteFile(filepath.Join(gitDir, "MERGE_HEAD"), []byte(headOf(dest)+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -348,10 +295,7 @@ func TestCleanRefusesPendingAutostash(t *testing.T) {
 	}
 }
 
-// TestIsLockedPropagatesNonNotExistStatError is the regression test for Appendix A codex-review
-// finding #9's isLocked half (internal/worktree/preflight.go:239, "isLocked similarly reports
-// unlocked on inspection errors"): a stat failure that is NOT "file doesn't exist" (here, permission
-// denied on the containing directory) must propagate as an error, never be read as "unlocked".
+// TestIsLockedPropagatesNonNotExistStatError: a permission-denied stat must propagate, never read as unlocked.
 func TestIsLockedPropagatesNonNotExistStatError(t *testing.T) {
 	t.Parallel()
 	if os.Geteuid() == 0 {
@@ -374,8 +318,7 @@ func TestIsLockedPropagatesNonNotExistStatError(t *testing.T) {
 	}
 }
 
-// TestCleanRefusesInUseAndDryRunReportsIt is the regression test for the busy-cwd guard: Clean must
-// refuse a worktree InUseBy reports as busy, under both the real call and --dry-run's preview.
+// TestCleanRefusesInUseAndDryRunReportsIt: Clean refuses an InUseBy-busy worktree in both real and dry-run calls.
 func TestCleanRefusesInUseAndDryRunReportsIt(t *testing.T) {
 	repo := testRepo(t)
 	dest, err := Create(repo, "busy", CreateOptions{})
@@ -409,8 +352,7 @@ func TestCleanRefusesInUseAndDryRunReportsIt(t *testing.T) {
 	}
 }
 
-// TestCleanAllSkipsBusyEntryButRemovesOthers proves CleanAll continues past a busy refusal rather
-// than aborting the whole sweep, and still removes every other eligible entry.
+// TestCleanAllSkipsBusyEntryButRemovesOthers: a busy refusal must not abort the sweep.
 func TestCleanAllSkipsBusyEntryButRemovesOthers(t *testing.T) {
 	repo := testRepo(t)
 	busyDest, err := Create(repo, "busyall", CreateOptions{})

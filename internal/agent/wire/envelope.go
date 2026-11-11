@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -154,23 +153,12 @@ func ranOnCost(res Result) string {
 	var b strings.Builder
 	u := res.Usage
 	if n := u.InputTokens + u.CacheCreationTokens + u.CacheReadTokens + u.OutputTokens; n > 0 {
-		b.WriteString(" · " + compactCount(n) + " tok")
+		b.WriteString(" · " + textutil.CompactCount(int64(n)) + " tok")
 	}
 	if res.DurationMs > 0 {
 		b.WriteString(" · " + (time.Duration(res.DurationMs) * time.Millisecond).Round(time.Second).String())
 	}
 	return b.String()
-}
-
-// compactCount spells n as 950, 23.4k or 1.84M.
-func compactCount(n int) string {
-	switch {
-	case n >= 999_950:
-		return strconv.FormatFloat(float64(n)/1e6, 'f', 2, 64) + "M"
-	case n >= 1_000:
-		return strconv.FormatFloat(float64(n)/1e3, 'f', 1, 64) + "k"
-	}
-	return strconv.Itoa(n)
 }
 
 // DidNotRun is the "did not run" line for a dispatch that ended before any dispatch started, else "".

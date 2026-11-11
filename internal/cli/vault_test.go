@@ -26,6 +26,44 @@ import (
 	bolterrors "go.etcd.io/bbolt/errors"
 )
 
+const vaultLeakSecret = "tvly-dev-secret-leak-me-not"
+
+// vaultGetModes are the two `vault get` output shapes the multi-name and stdout-failure tests both cover.
+var vaultGetModes = []struct {
+	name  string
+	flags []string
+}{{"plain", nil}, {"export", []string{"--export"}}}
+
+func vaultRun(t *testing.T, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
+	return hosttest.CaptureOutput(t, func() int { return cmdVault(args) })
+}
+
+func withStdin(t *testing.T, content string) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.WriteString(content); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	old := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = old
+		r.Close()
+	})
+}
+
+func vaultStore(t *testing.T, name, value string) {
+	t.Helper()
+	if err := vault.Store(name, value); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Usage errors exit 2 before any write, print nothing to stdout and name the problem on stderr.
 func TestCmdVault(t *testing.T) {
 	tests := []struct {
@@ -55,12 +93,12 @@ func TestCmdVault(t *testing.T) {
 		{"get --key with a name", []string{"get", "--key", "ALPHA"}, 2, ""},
 		{"get --key --export", []string{"get", "--key", "--export"}, 2, ""},
 	}
+	vaulttest.UseFreshKey(t)
+	vaulttest.Secret(t, "ALPHA", "obviously-fake-alpha")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vaulttest.UseFreshKey(t)
-			vaulttest.Secret(t, "ALPHA", "obviously-fake-alpha")
 			withStdin(t, "obviously-fake-unused\n")
-			code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault(tt.args) })
+			code, stdout, stderr := vaultRun(t, tt.args...)
 			if code != tt.want || (code == 2 && stdout != "") || !strings.Contains(stderr, tt.stderr) {
 				t.Errorf("cmdVault(%q) = %d, stdout %q, stderr %q; want %d naming %q", tt.args, code, stdout, stderr, tt.want, tt.stderr)
 			}
@@ -78,18 +116,17 @@ func TestCmdVaultBareIsLs(t *testing.T) {
 		args []string
 		want string
 	}{{nil, `"secrets"`}, {[]string{"--format", "text"}, "AGENT"}} { // piped bare defaults to JSON
-		code, stdout, _ := hosttest.CaptureOutput(t, func() int { return cmdVault(tc.args) })
+		code, stdout, _ := vaultRun(t, tc.args...)
 		if code != 0 || strings.Contains(stdout, "COMMANDS") || !strings.Contains(stdout, tc.want) {
 			t.Errorf("vault %q = %d, want the ls table:\n%s", tc.args, code, stdout)
 		}
 	}
 }
 
-// vault edit has no flags or commands of its own; -h must print its own usage-only page, not vaultPage's
-// COMMANDS list (every other vault -h path already covers the parent page itself).
+// vault edit -h prints its own usage-only page, not vaultPage's COMMANDS list.
 func TestCmdVaultEditHelpPrintsOwnPage(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault([]string{"edit", "-h"}) })
+	code, stdout, stderr := vaultRun(t, "edit", "-h")
 	if code != 0 {
 		t.Fatalf("vault edit -h: exit %d, want 0", code)
 	}
@@ -118,41 +155,16 @@ func TestVaultVerbs(t *testing.T) {
 	}
 }
 
-func vaultTestStdin(t *testing.T, input string) {
-	t.Helper()
-	f, err := os.CreateTemp(t.TempDir(), "stdin")
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := os.Stdin
-	t.Cleanup(func() {
-		os.Stdin = old
-		f.Close()
-	})
-	if _, err := f.WriteString(input); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.Seek(0, 0); err != nil {
-		t.Fatal(err)
-	}
-	os.Stdin = f
-}
-
 func TestCmdVaultListTailscalePresenceOnly(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	for _, name := range []string{
-		"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET",
-		"TAILSCALE_API_KEY", "TAILSCALE_AUTHKEY",
+		"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET", "TAILSCALE_API_KEY", "TAILSCALE_AUTHKEY",
 	} {
 		t.Setenv(name, "")
 	}
 	const value = "known-tailscale-api-key-value"
-	if err := vault.Store("TAILSCALE_API_KEY", value); err != nil {
-		t.Fatal(err)
-	}
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdVault([]string{"ls", "--tailscale"})
-	})
+	vaultStore(t, "TAILSCALE_API_KEY", value)
+	code, stdout, stderr := vaultRun(t, "ls", "--tailscale")
 	if code != 0 {
 		t.Fatalf("vault ls --tailscale = %d, stderr = %q", code, stderr)
 	}
@@ -188,8 +200,8 @@ func TestCmdVaultSetTailscaleStoresPipedLines(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			vaulttest.UseFreshKey(t)
-			vaultTestStdin(t, tc.input)
-			code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault(tc.args) })
+			withStdin(t, tc.input)
+			code, _, stderr := vaultRun(t, tc.args...)
 			if code != 0 {
 				t.Fatalf("vault %q = %d, stderr = %q", tc.args, code, stderr)
 			}
@@ -204,21 +216,15 @@ func TestCmdVaultSetTailscaleStoresPipedLines(t *testing.T) {
 }
 
 func TestCmdVaultSetTailscaleEmptyValueFails(t *testing.T) {
-	vaulttest.UseFreshKey(t)
-	for _, tc := range []struct {
-		name  string
-		input string
-	}{
+	for _, tc := range []struct{ name, input string }{
 		{"both empty", "\n\n"},
 		{"empty id", "\nsecret-value\n"},
 		{"empty secret", "id-value\n\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			vaulttest.UseFreshKey(t)
-			vaultTestStdin(t, tc.input)
-			code, _, stderr := hosttest.CaptureOutput(t, func() int {
-				return cmdVault([]string{"set", "--tailscale"})
-			})
+			withStdin(t, tc.input)
+			code, _, stderr := vaultRun(t, "set", "--tailscale")
 			if code != 1 {
 				t.Fatalf("vault set --tailscale = %d, want 1; stderr = %q", code, stderr)
 			}
@@ -234,10 +240,9 @@ func TestCmdVaultSetTailscaleEmptyValueFails(t *testing.T) {
 
 func TestVaultSetDryRunStoresNothing(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		args  []string
-		input []string
-		want  []string
+		name        string
+		args, input []string
+		want        []string
 	}{
 		{"tailscale", []string{"set", "--tailscale", "--dry-run"}, []string{"id-value", "secret-value"},
 			[]string{"would add TAILSCALE_OAUTH_CLIENT_ID (8 chars)", "would add TAILSCALE_OAUTH_CLIENT_SECRET (12 chars)"}},
@@ -246,8 +251,8 @@ func TestVaultSetDryRunStoresNothing(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			vaulttest.UseFreshKey(t)
-			vaultTestStdin(t, strings.Join(tc.input, "\n")+"\n")
-			code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault(tc.args) })
+			withStdin(t, strings.Join(tc.input, "\n")+"\n")
+			code, stdout, stderr := vaultRun(t, tc.args...)
 			if code != 0 {
 				t.Fatalf("vault %q = %d, stderr = %q", tc.args, code, stderr)
 			}
@@ -268,27 +273,19 @@ func TestVaultSetDryRunStoresNothing(t *testing.T) {
 	}
 }
 
-// A value spanning lines (embedded \r or \n) must be refused before any write, even when it is
-// the second of a pair — vault.Store would reject it anyway, but half a pair must never land.
+// A value spanning lines must be refused before any write, even as the second of a pair: half a pair never lands.
 func TestVaultStoreTailscaleRefusesEmbeddedNewline(t *testing.T) {
+	const id, secret = "TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET"
 	for _, tc := range []struct {
 		name  string
 		pairs []tailscale.Cred
 	}{
-		{"carriage return in first", []tailscale.Cred{
-			{Name: "TAILSCALE_OAUTH_CLIENT_ID", Value: "id-\rvalue"},
-			{Name: "TAILSCALE_OAUTH_CLIENT_SECRET", Value: "secret-value"},
-		}},
-		{"newline in second", []tailscale.Cred{
-			{Name: "TAILSCALE_OAUTH_CLIENT_ID", Value: "id-value"},
-			{Name: "TAILSCALE_OAUTH_CLIENT_SECRET", Value: "secret-\nvalue"},
-		}},
+		{"carriage return in first", []tailscale.Cred{{Name: id, Value: "id-\rvalue"}, {Name: secret, Value: "secret-value"}}},
+		{"newline in second", []tailscale.Cred{{Name: id, Value: "id-value"}, {Name: secret, Value: "secret-\nvalue"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			vaulttest.UseFreshKey(t)
-			code, _, stderr := hosttest.CaptureOutput(t, func() int {
-				return vaultStoreTailscale(false, tc.pairs)
-			})
+			code, _, stderr := hosttest.CaptureOutput(t, func() int { return vaultStoreTailscale(false, tc.pairs) })
 			if code != 1 {
 				t.Fatalf("vaultStoreTailscale = %d, want 1; stderr = %q", code, stderr)
 			}
@@ -306,25 +303,21 @@ func TestVaultStoreTailscaleRefusesEmbeddedNewline(t *testing.T) {
 }
 
 func TestCmdVaultRotateSecretRefusesWithEnvSetWithoutForce(t *testing.T) {
-	dir, _ := vaulttest.UseKeyring(t)
-	_ = dir
+	vaulttest.UseKeyring(t)
 	if _, err := vault.EnsureKey(); err != nil {
 		t.Fatal(err)
 	}
-	// A key_command (rather than env) is simplest to set up at this layer: present without
-	// --force refuses, present with --force rotates.
+	// A key_command stands in for the env key: present without --force refuses, with --force rotates.
 	vaulttest.Put(t, vault.Meta, "key_command", `["/bin/true"]`)
 
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault([]string{"rotate-secret"}) })
+	code, _, stderr := vaultRun(t, "rotate-secret")
 	if code != 1 {
 		t.Fatalf("vault rotate-secret = %d, want 1; stderr = %q", code, stderr)
 	}
 	if !strings.Contains(stderr, "key_command") {
 		t.Errorf("stderr = %q, want it to name key_command", stderr)
 	}
-
-	code, _, stderr = hosttest.CaptureOutput(t, func() int { return cmdVault([]string{"rotate-secret", "--force"}) })
-	if code != 0 {
+	if code, _, stderr = vaultRun(t, "rotate-secret", "--force"); code != 0 {
 		t.Fatalf("vault rotate-secret --force = %d, want 0; stderr = %q", code, stderr)
 	}
 }
@@ -338,7 +331,7 @@ func TestVaultSetRefusesMalformedShape(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			vaulttest.UseFreshKey(t)
 			withStdin(t, tc.input)
-			code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault([]string{"set", tc.name}) })
+			code, _, stderr := vaultRun(t, "set", tc.name)
 			if code == 0 || !strings.Contains(stderr, tc.refusal) {
 				t.Fatalf("set %s: exit %d, stderr = %q, want the %q refusal", tc.name, code, stderr, tc.refusal)
 			}
@@ -354,8 +347,7 @@ func TestVaultSetCopilotTokenAcceptsValidShape(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	const tok = "gh" + "p_validshapedFAKEtoken1234567890"
 	withStdin(t, tok+"\n")
-
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault([]string{"set", "COPILOT_GITHUB_TOKEN"}) })
+	code, stdout, stderr := vaultRun(t, "set", "COPILOT_GITHUB_TOKEN")
 	if code != 0 {
 		t.Fatalf("set COPILOT_GITHUB_TOKEN exit = %d", code)
 	}
@@ -370,52 +362,19 @@ func TestVaultSetCopilotTokenAcceptsValidShape(t *testing.T) {
 	}
 }
 
-func withStdin(t *testing.T, content string) {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.WriteString(content); err != nil {
-		t.Fatal(err)
-	}
-	w.Close()
-	old := os.Stdin
-	os.Stdin = r
-	t.Cleanup(func() {
-		os.Stdin = old
-		r.Close()
-	})
-}
-
 func TestVaultStorageHelpPrintsUsage(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	for _, op := range []string{"set", "get", "delete", "import", "export"} {
-		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault([]string{op, "-h"}) })
+		code, stdout, stderr := vaultRun(t, op, "-h")
 		if code != 0 || !strings.Contains(stderr, "usage: claude-code vault "+op) || stdout != "" {
 			t.Errorf("vault %s -h: want usage + exit 0 and no op output, got exit %d", op, code)
 		}
 	}
 }
 
-// assertGetKeyRefusesTTY runs `vault get --key` with slave (a pty slave) as stdout and expects the refusal.
-func assertGetKeyRefusesTTY(t *testing.T, slave *os.File) {
-	t.Helper()
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-		old := os.Stdout
-		os.Stdout = slave
-		defer func() { os.Stdout = old }()
-		return cmdVault([]string{"get", "--key"})
-	})
-	if code != 2 || stdout != "" || !strings.Contains(stderr, "refusing") {
-		t.Fatalf("get --key on TTY: exit %d, stdout empty=%v, refusal=%v",
-			code, stdout == "", strings.Contains(stderr, "refusing"))
-	}
-}
-
 func TestCmdVaultGetKeyNonTTYDecodesToMasterKey(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault([]string{"get", "--key"}) })
+	code, stdout, stderr := vaultRun(t, "get", "--key")
 	if code != 0 {
 		t.Fatalf("vault get --key = %d, want 0; stderr empty=%v", code, stderr == "")
 	}
@@ -438,12 +397,8 @@ func TestCmdVaultGetKeyNonTTYDecodesToMasterKey(t *testing.T) {
 func TestVaultDeleteStoredSecret(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	const value = "obviously-fake-delete"
-	if err := vault.Store("VAULT_TEST_DUMMY", value); err != nil {
-		t.Fatal(err)
-	}
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdVault([]string{"delete", "VAULT_TEST_DUMMY"})
-	})
+	vaultStore(t, "VAULT_TEST_DUMMY", value)
+	code, stdout, stderr := vaultRun(t, "delete", "VAULT_TEST_DUMMY")
 	if code != 0 || len(vault.Names()) != 0 {
 		t.Fatalf("delete: exit %d, stored names=%v", code, vault.Names())
 	}
@@ -459,20 +414,16 @@ func TestVaultExportFileOnly(t *testing.T) {
 			dir := t.TempDir()
 			t.Chdir(dir)
 			const value = "obviously-fake-alpha"
-			if err := vault.Store("ALPHA", value); err != nil {
-				t.Fatal(err)
-			}
-			path := filepath.Join(dir, ".env")
-			args := []string{"export"}
+			vaultStore(t, "ALPHA", value)
+			path, args := filepath.Join(dir, ".env"), []string{"export"}
 			if explicit {
 				path = filepath.Join(dir, "export.env")
 				args = append(args, "--out", path)
 			}
 			for range 2 {
-				code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault(args) })
+				code, stdout, stderr := vaultRun(t, args...)
 				if code != 0 || stdout != "" || strings.Contains(stderr, value) {
-					t.Fatalf("export: exit %d, stdout empty=%v, leaked=%v",
-						code, stdout == "", strings.Contains(stderr, value))
+					t.Fatalf("export: exit %d, stdout empty=%v, leaked=%v", code, stdout == "", strings.Contains(stderr, value))
 				}
 			}
 			checkExportedFile(t, path, value)
@@ -505,21 +456,18 @@ func checkExportedFile(t *testing.T, path, value string) {
 
 // import - stores each valid piped NAME=value with --yes, warns per bad line by name; no --yes or nothing valid: none.
 func TestVaultImportDashFromPipe(t *testing.T) {
+	gamma := [][2]string{{"GAMMA", "obviously-fake-gamma"}}
 	for _, tc := range []struct {
 		name, refusal string
 		args          []string
 		pairs         [][2]string
 		extra, warn   string
 	}{
-		{"without --yes", "--yes", []string{"import", "-"}, [][2]string{{"GAMMA", "obviously-fake-gamma"}}, "", ""},
-		{"malformed sibling", "", []string{"import", "-", "--yes"},
-			[][2]string{{"GAMMA", "obviously-fake-gamma"}}, "not-a-pair\n", "warning: unable to parse line 2: want NAME=value"},
-		{"bad token sibling", "", []string{"import", "-", "--yes"},
-			[][2]string{{"GAMMA", "obviously-fake-gamma"}}, "GITHUB_WORK_PAT=not-a-token\n", "unable to parse GITHUB_WORK_PAT: "},
-		{"bad GitHub token", "not a GitHub token", []string{"import", "-", "--yes"},
-			[][2]string{{"GITHUB_WORK_PAT", "not-a-token"}}, "", "nothing written"},
-		{"with --yes", "", []string{"import", "-", "--yes"},
-			[][2]string{{"GAMMA", "obviously-fake-gamma"}, {"DELTA", "obviously-fake-delta"}}, "", ""},
+		{"without --yes", "--yes", []string{"import", "-"}, gamma, "", ""},
+		{"malformed sibling", "", []string{"import", "-", "--yes"}, gamma, "not-a-pair\n", "warning: unable to parse line 2: want NAME=value"},
+		{"bad token sibling", "", []string{"import", "-", "--yes"}, gamma, "GITHUB_WORK_PAT=not-a-token\n", "unable to parse GITHUB_WORK_PAT: "},
+		{"bad GitHub token", "not a GitHub token", []string{"import", "-", "--yes"}, [][2]string{{"GITHUB_WORK_PAT", "not-a-token"}}, "", "nothing written"},
+		{"with --yes", "", []string{"import", "-", "--yes"}, [][2]string{{"GAMMA", "obviously-fake-gamma"}, {"DELTA", "obviously-fake-delta"}}, "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			vaulttest.UseFreshKey(t)
@@ -528,7 +476,7 @@ func TestVaultImportDashFromPipe(t *testing.T) {
 				input.WriteString(p[0] + "=" + p[1] + "\n")
 			}
 			withStdin(t, input.String()+tc.extra)
-			code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault(tc.args) })
+			code, stdout, stderr := vaultRun(t, tc.args...)
 			if (code == 0) != (tc.refusal == "") || !strings.Contains(stderr, tc.refusal) || !strings.Contains(stderr, tc.warn) {
 				t.Fatalf("vault %q: exit %d, stderr = %q, want refusal %q, warning %q", tc.args, code, stderr, tc.refusal, tc.warn)
 			}
@@ -558,24 +506,18 @@ func checkImported(t *testing.T, pairs [][2]string, stored bool, output string) 
 }
 
 func TestVaultGetMultipleNames(t *testing.T) {
-	for _, export := range []bool{false, true} {
-		t.Run(map[bool]string{false: "plain", true: "export"}[export], func(t *testing.T) {
+	names, values := []string{"ALPHA", "BETA"}, []string{"obviously-fake-alpha", "obviously-fake-beta's-value"}
+	for _, mode := range vaultGetModes {
+		t.Run(mode.name, func(t *testing.T) {
 			vaulttest.UseFreshKey(t)
-			values := []string{"obviously-fake-alpha", "obviously-fake-beta's-value"}
-			for i, name := range []string{"ALPHA", "BETA"} {
-				if err := vault.Store(name, values[i]); err != nil {
-					t.Fatal(err)
-				}
+			for i, name := range names {
+				vaultStore(t, name, values[i])
 			}
-			args := []string{"get", "ALPHA", "BETA"}
-			if export {
-				args = append(args, "--export")
-			}
-			code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault(args) })
+			code, stdout, stderr := vaultRun(t, append([]string{"get", "ALPHA", "BETA"}, mode.flags...)...)
 			if code != 0 || stderr != "" {
 				t.Fatalf("get: exit %d, stderr empty=%v", code, stderr == "")
 			}
-			if got, want := maskGetOutput(stdout, []string{"ALPHA", "BETA"}, values, export); got != want {
+			if got, want := maskGetOutput(stdout, names, values, mode.flags != nil); got != want {
 				t.Fatal("get did not produce the expected masked NAME=value rows")
 			}
 		})
@@ -586,20 +528,12 @@ func TestVaultGetMultipleNames(t *testing.T) {
 func maskGetOutput(stdout string, names, values []string, export bool) (got, want string) {
 	var wantSb strings.Builder
 	for i, name := range names {
-		value := values[i]
+		value, prefix := values[i], ""
 		if export {
-			value = textutil.ShellQuote(value)
+			value, prefix = textutil.ShellQuote(value), "export "
 		}
 		stdout = strings.ReplaceAll(stdout, value, vault.Redact(values[i]))
-		prefix := ""
-		if export {
-			prefix = "export "
-		}
-		wantSb.WriteString(prefix)
-		wantSb.WriteString(name)
-		wantSb.WriteByte('=')
-		wantSb.WriteString(vault.Redact(values[i]))
-		wantSb.WriteByte('\n')
+		wantSb.WriteString(prefix + name + "=" + vault.Redact(values[i]) + "\n")
 	}
 	return stdout, wantSb.String()
 }
@@ -607,12 +541,8 @@ func maskGetOutput(stdout string, names, values []string, export bool) (got, wan
 func TestVaultGetMissingNamePrintsNothing(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	t.Setenv("ABSENT_VAULT_TEST_KEY", "")
-	if err := vault.Store("ALPHA", "obviously-fake-alpha"); err != nil {
-		t.Fatal(err)
-	}
-	code, stdout, _ := hosttest.CaptureOutput(t, func() int {
-		return cmdVault([]string{"get", "ALPHA", "ABSENT_VAULT_TEST_KEY"})
-	})
+	vaultStore(t, "ALPHA", "obviously-fake-alpha")
+	code, stdout, _ := vaultRun(t, "get", "ALPHA", "ABSENT_VAULT_TEST_KEY")
 	if code != 1 || stdout != "" {
 		t.Fatalf("missing get: exit %d, stdout empty=%v", code, stdout == "")
 	}
@@ -623,7 +553,17 @@ func TestVaultListSections(t *testing.T) {
 	seedVaultListFixture(t)
 	for _, format := range []string{"text", "json"} {
 		t.Run(format, func(t *testing.T) {
-			run := listRunner(t, format)
+			run := func(names ...string) string {
+				t.Helper()
+				code, stdout, _ := vaultRun(t, append([]string{"ls", "--format", format}, names...)...)
+				if code != 0 {
+					t.Fatalf("list sections %v exit %d", names, code)
+				}
+				if strings.Contains(stdout, vaultLeakSecret) {
+					t.Fatal("list leaked a raw value")
+				}
+				return stdout
+			}
 			bare := run()
 			if bare != run("all") {
 				t.Error("all differs from bare list")
@@ -637,27 +577,10 @@ func TestVaultListSections(t *testing.T) {
 		})
 	}
 	for _, names := range [][]string{{"bogus"}, {"all", "bogus"}, {"bogus", "all"}} {
-		code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault(append([]string{"ls"}, names...)) })
+		code, _, stderr := vaultRun(t, append([]string{"ls"}, names...)...)
 		if code != 2 || !strings.Contains(stderr, "bogus") {
-			t.Errorf("unknown section %v: exit %d, missing invalid-name hint=%v",
-				names, code, !strings.Contains(stderr, "bogus"))
+			t.Errorf("unknown section %v: exit %d, missing invalid-name hint=%v", names, code, !strings.Contains(stderr, "bogus"))
 		}
-	}
-}
-
-// listRunner runs `vault ls --format format <names>`, failing on a non-zero exit or a leaked raw value.
-func listRunner(t *testing.T, format string) func(names ...string) string {
-	return func(names ...string) string {
-		t.Helper()
-		args := append([]string{"ls", "--format", format}, names...)
-		code, stdout, _ := hosttest.CaptureOutput(t, func() int { return cmdVault(args) })
-		if code != 0 {
-			t.Fatalf("list sections %v exit %d", names, code)
-		}
-		if strings.Contains(stdout, "tvly-dev-secret-leak-me-not") {
-			t.Fatal("list leaked a raw value")
-		}
-		return stdout
 	}
 }
 
@@ -683,19 +606,20 @@ func checkFilteredJSON(t *testing.T, filtered, pinsOnly string) {
 // checkFilteredText asserts bare text lists sections in canonical order and the filtered text keeps only SECRETS and PINS.
 func checkFilteredText(t *testing.T, bare, filtered string) {
 	t.Helper()
+	order := []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"}
 	var headings []string
 	for line := range strings.SplitSeq(bare, "\n") {
-		if slices.Contains([]string{"SECRETS", "PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"}, line) {
+		if slices.Contains(order, line) {
 			headings = append(headings, line)
 		}
 	}
-	if !slices.Equal(headings, []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"}) {
+	if !slices.Equal(headings, order) {
 		t.Errorf("section order = %v", headings)
 	}
 	if !strings.HasPrefix(filtered, "SECRETS\n") || !strings.Contains(filtered, "\nPINS\n") {
 		t.Error("filtered sections must retain canonical order")
 	}
-	for _, head := range []string{"ENV", "PROVIDERS", "SETTINGS", "VAULT"} {
+	for _, head := range order[2:] {
 		if strings.Contains(filtered, "\n"+head+"\n") {
 			t.Errorf("filtered text includes %s", head)
 		}
@@ -712,9 +636,7 @@ func TestVaultListProviderAndVendorTables(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"opencode":{
 		"_comment":"omit-this-comment","launch":{"env":{"FAKE_ENV":"enabled"},"args":["--fake"]},
 		"future":{"enabled":true}}}}`)
-	code, stdout, _ := hosttest.CaptureOutput(t, func() int {
-		return cmdVault([]string{"ls", "providers", "routing", "agents", "--format", "text"})
-	})
+	code, stdout, _ := vaultRun(t, "ls", "providers", "routing", "agents", "--format", "text")
 	if code != 0 {
 		t.Fatalf("list tables exit %d", code)
 	}
@@ -733,7 +655,7 @@ func TestVaultListProviderAndVendorTables(t *testing.T) {
 	}
 }
 
-// TestVaultListNestedOverlayRowsPerProfileNoPlans: profiles render one row each under PROVIDER; no KIND, no PLANS.
+// Profiles render one row each under PROVIDER; no KIND, no PLANS.
 func TestVaultListNestedOverlayRowsPerProfileNoPlans(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	t.Setenv("COLUMNS", "200")
@@ -741,7 +663,7 @@ func TestVaultListNestedOverlayRowsPerProfileNoPlans(t *testing.T) {
 		"databricks":{"dev":{"auth":{"type":"none"},"models":{"opus":"o1"}},"qa":{"auth":{"type":"none"}}},
 		"local":{"ollama":null}, "github":{"empty":{}}},
 		"agentPlans":{"copilot":[{"tier":"standard","id":"fake-plan"}]}}`)
-	code, stdout, _ := hosttest.CaptureOutput(t, func() int { return cmdVault([]string{"ls", "providers", "--format", "text"}) })
+	code, stdout, _ := vaultRun(t, "ls", "providers", "--format", "text")
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -755,7 +677,7 @@ func TestVaultListNestedOverlayRowsPerProfileNoPlans(t *testing.T) {
 		t.Errorf("PLANS, KIND and all-empty columns must be hidden:\n%s", stdout)
 	}
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"local":{"ollama":null},"github":{"empty":{}}}}`)
-	_, stdout, _ = hosttest.CaptureOutput(t, func() int { return cmdVault([]string{"ls", "--format", "text"}) })
+	_, stdout, _ = vaultRun(t, "ls", "--format", "text")
 	if strings.Contains(stdout, "PROVIDERS") {
 		t.Errorf("a section with only empty/removed rows must not render:\n%s", stdout)
 	}
@@ -765,10 +687,8 @@ func TestVaultListNestedOverlayRowsPerProfileNoPlans(t *testing.T) {
 func TestVaultListShowsStoredSecretMasked(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	const val = "abcdefghijklmnopqrstuvwxyz0123"
-	if err := vault.Store("ZZ_STORE_SECRET", val); err != nil {
-		t.Fatal(err)
-	}
-	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdVault([]string{"ls", "secrets", "--format", "json"}) })
+	vaultStore(t, "ZZ_STORE_SECRET", val)
+	code, out, _ := vaultRun(t, "ls", "secrets", "--format", "json")
 	if code != 0 || strings.Contains(out, val) {
 		t.Fatalf("vault ls: %d (raw value leaked: %v)", code, strings.Contains(out, val))
 	}
@@ -802,7 +722,7 @@ func TestVaultListJSONMatchesExport(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault(args) })
+			code, stdout, stderr := vaultRun(t, args...)
 			if code != 0 {
 				t.Fatalf("vault %q = %d, stderr = %q", args, code, stderr)
 			}
@@ -813,7 +733,7 @@ func TestVaultListJSONMatchesExport(t *testing.T) {
 
 func checkVaultListJSON(t *testing.T, stdout string, exported []byte) {
 	t.Helper()
-	if strings.Contains(stdout, "tvly-dev-secret-leak-me-not") {
+	if strings.Contains(stdout, vaultLeakSecret) {
 		t.Fatal("JSON leaked a raw secret")
 	}
 	var got, want map[string]json.RawMessage
@@ -827,8 +747,7 @@ func checkVaultListJSON(t *testing.T, stdout string, exported []byte) {
 	if err := json.Unmarshal(got["secrets"], &rows); err != nil || len(rows) != 1 {
 		t.Fatal("expected one masked secret row")
 	}
-	// "routing" is derived from the providers overlay's nested routing object, not one of Export's
-	// own top-level sections; just check it decodes, then drop it before the section-by-section compare.
+	// "routing" is derived from the providers overlay, not an Export section: check it decodes, then drop it.
 	if r, ok := got["routing"]; ok {
 		var routing providers.Routing
 		if err := json.Unmarshal(r, &routing); err != nil {
@@ -877,15 +796,15 @@ func seedVaultListFixture(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "agents", `{}`)
 	vaulttest.Put(t, vault.Overlay, "settings", `{"env":{"FOO":"bar"},"flag":true}`)
 	vaulttest.Put(t, vault.Meta, "key_command", `["pass","show","x"]`)
-	vaulttest.Secret(t, "TAVILY_API_KEY", "tvly-dev-secret-leak-me-not")
+	vaulttest.Secret(t, "TAVILY_API_KEY", vaultLeakSecret)
 }
 
 // List renders providers as tables and keeps generic config rows without exposing values.
 func TestVaultListTextFixtureFlattensEverySection(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	seedVaultListFixture(t)
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault([]string{"ls", "--format", "text"}) })
-	if strings.Contains(stdout+stderr, "tvly-dev-secret-leak-me-not") {
+	code, stdout, stderr := vaultRun(t, "ls", "--format", "text")
+	if strings.Contains(stdout+stderr, vaultLeakSecret) {
 		t.Fatal("vault ls leaked a raw secret value")
 	}
 	if code != 0 {
@@ -909,27 +828,18 @@ func TestVaultListTextFixtureFlattensEverySection(t *testing.T) {
 			t.Errorf("stdout missing row %s=%s; stdout = %q", tc.key, tc.value, stdout)
 		}
 	}
-	checkAgentAndProviderTables(t, stdout)
-}
-
-// checkAgentAndProviderTables asserts text list output has an AGENT table and the fixture's provider rows.
-func checkAgentAndProviderTables(t *testing.T, stdout string) {
-	t.Helper()
 	if !strings.Contains(stdout, "AGENT\n  claude\n") || strings.Contains(stdout, "AGENTS") {
 		t.Errorf("stdout = %q, want an AGENT table with no AGENTS heading", stdout)
 	}
-	for _, row := range []string{
-		"NAME PROVIDER AUTH OPUS",
-		"custom anthropic m1", "openai openai (removed)",
-	} {
-		if !strings.Contains(strings.Join(strings.Fields(stdout), " "), row) {
+	flat := strings.Join(strings.Fields(stdout), " ")
+	for _, row := range []string{"NAME PROVIDER AUTH OPUS", "custom anthropic m1", "openai openai (removed)"} {
+		if !strings.Contains(flat, row) {
 			t.Errorf("missing provider table row %q", row)
 		}
 	}
 }
 
-// vaultTextHasRow reports whether the rendered table has a row for key with exactly value,
-// tolerant of the column-alignment padding (vaultSection pads keys to the widest in the section).
+// vaultTextHasRow reports whether stdout has a row for key with exactly value, tolerating column padding.
 func vaultTextHasRow(stdout, key, value string) bool {
 	re := regexp.MustCompile(`(?m)^  ` + regexp.QuoteMeta(key) + `\s\s+` + regexp.QuoteMeta(value) + `$`)
 	return re.MatchString(stdout)
@@ -938,12 +848,12 @@ func vaultTextHasRow(stdout, key, value string) bool {
 // A bare list hides empty sections; named sections still render (none), including absent overlay documents.
 func TestVaultListTextEmptyVaultAllSectionsNone(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault([]string{"ls", "--format", "text"}) })
+	code, stdout, stderr := vaultRun(t, "ls", "--format", "text")
 	if code != 0 || !strings.HasPrefix(stdout, "  AGENT\n  claude\n") {
 		t.Fatalf("bare vault ls = %d %q (stderr %q), want 0 and only the AGENT table", code, stdout, stderr)
 	}
 	named := append([]string{"ls"}, vaultdoc.Sections...)
-	code, stdout, stderr = hosttest.CaptureOutput(t, func() int { return cmdVault(append(named[:len(named)-1], "--format", "text")) })
+	code, stdout, stderr = vaultRun(t, append(named[:len(named)-1], "--format", "text")...)
 	if code != 0 {
 		t.Fatalf("vault ls <sections> = %d, stderr = %q", code, stderr)
 	}
@@ -952,29 +862,26 @@ func TestVaultListTextEmptyVaultAllSectionsNone(t *testing.T) {
 			t.Errorf("stdout = %q, want %s rendered as (none)", stdout, head)
 		}
 	}
-	code, stdout, _ = hosttest.CaptureOutput(t, func() int { return cmdVault([]string{"ls", "vault", "--format", "text"}) })
+	code, stdout, _ = vaultRun(t, "ls", "vault", "--format", "text")
 	if code != 0 || stdout != "VAULT\n  (none)\n" {
 		t.Errorf("vault ls vault = %d %q, want VAULT rendered as (none) when key_command is unset", code, stdout)
 	}
 }
 
-// TestVaultListTextTruncatesToWidth: a row longer than $COLUMNS is clipped to that many runes and
-// ends in the ellipsis, rather than wrapping or overflowing the terminal.
+// A row longer than $COLUMNS is clipped to that many runes and ends in the ellipsis.
 func TestVaultListTextTruncatesToWidth(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	vaulttest.Put(t, vault.Env, "LONG_ENV_NAME_FOR_WIDTH_TEST", strings.Repeat("x", 200))
 	t.Setenv("COLUMNS", "40")
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault([]string{"ls", "--format", "text"}) })
+	code, stdout, stderr := vaultRun(t, "ls", "--format", "text")
 	if code != 0 {
 		t.Fatalf("vault ls --format text = %d, stderr = %q", code, stderr)
 	}
+	found := false
 	for line := range strings.SplitSeq(stdout, "\n") {
 		if n := utf8.RuneCountInString(line); n > 40 {
 			t.Errorf("line %q is %d runes, want <= 40 (COLUMNS)", line, n)
 		}
-	}
-	found := false
-	for line := range strings.SplitSeq(stdout, "\n") {
 		if strings.Contains(line, "LONG_ENV_NAM…_WIDTH_TEST") && strings.HasSuffix(line, "…") {
 			found = true
 		}
@@ -993,10 +900,8 @@ func TestVaultSetTailscaleRollsBackSecondWrite(t *testing.T) {
 				vaulttest.Secret(t, "TAILSCALE_OAUTH_CLIENT_ID", prior)
 			}
 			blockSecretWrite(t, "TAILSCALE_OAUTH_CLIENT_SECRET")
-			vaultTestStdin(t, "replacement-id\nreplacement-secret\n")
-			code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-				return cmdVault([]string{"set", "--tailscale"})
-			})
+			withStdin(t, "replacement-id\nreplacement-secret\n")
+			code, stdout, stderr := vaultRun(t, "set", "--tailscale")
 			if code != 1 || !strings.Contains(stderr, bolterrors.ErrIncompatibleValue.Error()) {
 				t.Fatalf("second credential write: exit %d, stdout=%q, stderr=%q", code, stdout, stderr)
 			}
@@ -1050,9 +955,7 @@ func TestVaultImportFileYesSkipsTerminalConfirm(t *testing.T) {
 	if _, err := master.WriteString("n\n"); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdVault([]string{"import", path, "--yes"})
-	})
+	code, stdout, stderr := vaultRun(t, "import", path, "--yes")
 	if code != 0 || strings.Contains(stdout+stderr, "Store 1 secret") {
 		t.Fatalf("import FILE --yes prompted or failed: exit %d, stdout=%q, stderr=%q", code, stdout, stderr)
 	}
@@ -1063,14 +966,10 @@ func TestVaultImportFileYesSkipsTerminalConfirm(t *testing.T) {
 }
 
 func TestVaultGetFailsOnUnwritableStdout(t *testing.T) {
-	for _, export := range []bool{false, true} {
-		t.Run(map[bool]string{false: "plain", true: "export"}[export], func(t *testing.T) {
+	for _, mode := range vaultGetModes {
+		t.Run(mode.name, func(t *testing.T) {
 			vaulttest.UseFreshKey(t)
 			vaulttest.Secret(t, "REGRESSION_GET", "synthetic-get-value")
-			args := []string{"get", "REGRESSION_GET"}
-			if export {
-				args = append(args, "--export")
-			}
 			closed, err := os.CreateTemp(t.TempDir(), "closed-stdout")
 			if err != nil || closed.Close() != nil {
 				t.Fatal(err)
@@ -1079,7 +978,7 @@ func TestVaultGetFailsOnUnwritableStdout(t *testing.T) {
 				old := os.Stdout
 				os.Stdout = closed
 				defer func() { os.Stdout = old }()
-				return cmdVault(args)
+				return cmdVault(append([]string{"get", "REGRESSION_GET"}, mode.flags...))
 			})
 			if code != 1 || !strings.Contains(stderr, "vault get: write ") || !strings.Contains(stderr, os.ErrClosed.Error()) {
 				t.Fatalf("get with unwritable stdout: exit %d, stderr=%q", code, stderr)
@@ -1088,8 +987,17 @@ func TestVaultGetFailsOnUnwritableStdout(t *testing.T) {
 	}
 }
 
+// `vault get --key` with a pty slave as stdout is refused: the master key never goes to a terminal.
 func TestVaultGetKeyRefusesTTY(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	_, slave := proctest.PTY(t)
-	assertGetKeyRefusesTTY(t, slave)
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
+		old := os.Stdout
+		os.Stdout = slave
+		defer func() { os.Stdout = old }()
+		return cmdVault([]string{"get", "--key"})
+	})
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "refusing") {
+		t.Fatalf("get --key on TTY: exit %d, stdout empty=%v, refusal=%v", code, stdout == "", strings.Contains(stderr, "refusing"))
+	}
 }

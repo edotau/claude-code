@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -299,19 +298,7 @@ func shrink(s string, n int) string {
 
 // tokenCompact renders in/out tokens as "in=12.3k out=4.1k".
 func tokenCompact(t Tokens) string {
-	return fmt.Sprintf("in=%s out=%s", compactNumber(t.In), compactNumber(t.Out))
-}
-
-// compactNumber renders n with a k/M suffix past 1000/1e6, one decimal.
-func compactNumber(n int64) string {
-	switch {
-	case n >= 999_950: // from 999_950 %.1fk would print 1000.0k
-		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
-	case n >= 1000:
-		return fmt.Sprintf("%.1fk", float64(n)/1000)
-	default:
-		return strconv.FormatInt(n, 10)
-	}
+	return fmt.Sprintf("in=%s out=%s", textutil.CompactCount(t.In), textutil.CompactCount(t.Out))
 }
 
 // age renders how long ago t was, "-" when t is zero.

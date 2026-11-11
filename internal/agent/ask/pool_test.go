@@ -34,6 +34,18 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
+// recvWithin returns the next value on ch or fails the test with msg after d.
+func recvWithin[T any](t *testing.T, ch <-chan T, d time.Duration, msg string) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(d):
+		t.Fatal(msg)
+		panic("unreachable")
+	}
+}
+
 // vendorHost isolates the config dir, seeds a provider and installs a fake opencode that fails on a FAILME prompt.
 func vendorHost(t *testing.T) {
 	t.Helper()
@@ -68,15 +80,14 @@ func vendorTask(t *testing.T, id, plan, first, retry string, prep, again *atomic
 	return task
 }
 
+func failPrepare(msg string) func(context.Context) (*client.Prepared, error) {
+	return func(context.Context) (*client.Prepared, error) { return nil, errors.New(msg) }
+}
+
 func TestRunTasksPreparesOverlap(t *testing.T) {
 	entered, release := make(chan struct{}, 2), make(chan struct{})
-	t.Cleanup(func() {
-		select {
-		case <-release:
-		default:
-			close(release)
-		}
-	})
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
 	prepare := func(context.Context) (*client.Prepared, error) {
 		entered <- struct{}{}
 		<-release
@@ -85,80 +96,54 @@ func TestRunTasksPreparesOverlap(t *testing.T) {
 	var buf bytes.Buffer
 	done := make(chan bool, 1)
 	go func() {
-		done <- RunTasks(t.Context(), []Task{
-			{ID: "a", Agent: "x", Prepare: prepare},
-			{ID: "b", Agent: "x", Prepare: prepare},
-		}, PoolOptions{Jobs: 2, Out: &buf})
+		done <- RunTasks(t.Context(), []Task{{ID: "a", Agent: "x", Prepare: prepare}, {ID: "b", Agent: "x", Prepare: prepare}},
+			PoolOptions{Jobs: 2, Out: &buf})
 	}()
-	timer := time.NewTimer(5 * time.Second)
-	defer timer.Stop()
 	for range 2 {
-		select {
-		case <-entered:
-		case <-timer.C:
-			t.Fatal("both prepares must enter before either is released")
-		}
+		recvWithin(t, entered, 5*time.Second, "both prepares must enter before either is released")
 	}
-	close(release)
-	select {
-	case ok := <-done:
-		if ok {
-			t.Error("RunTasks returned true for prepare errors")
-		}
-	case <-timer.C:
-		t.Fatal("RunTasks did not finish after releasing prepares")
+	once.Do(func() { close(release) })
+	if recvWithin(t, done, 5*time.Second, "RunTasks did not finish after releasing prepares") {
+		t.Error("RunTasks returned true for prepare errors")
 	}
 	if envs := decodePoolEnvelopes(t, &buf); len(envs) != 2 {
 		t.Fatalf("got %d envelopes, want 2", len(envs))
 	}
 }
 
+// One error envelope per task a and b; under FailFast b is cancelled before its Prepare runs.
 func TestRunTasksPrepareErrorEnvelope(t *testing.T) {
-	var tasks []Task
-	for _, id := range []string{"a", "b"} {
-		tasks = append(tasks, Task{ID: id, Agent: "x",
-			Prepare: func(context.Context) (*client.Prepared, error) {
-				return nil, errors.New("boom " + id)
-			},
+	for _, failFast := range []bool{false, true} {
+		t.Run(fmt.Sprintf("failFast=%v", failFast), func(t *testing.T) {
+			var secondCalls atomic.Int32
+			tasks := []Task{
+				{ID: "a", Agent: "x", Prepare: failPrepare("boom a")},
+				{ID: "b", Agent: "x", Prepare: func(ctx context.Context) (*client.Prepared, error) {
+					secondCalls.Add(1)
+					return failPrepare("boom b")(ctx)
+				}},
+			}
+			var buf bytes.Buffer
+			if RunTasks(t.Context(), tasks, PoolOptions{ID: "batch-t", Jobs: 1, FailFast: failFast, Out: &buf}) {
+				t.Error("RunTasks returned true for prepare errors")
+			}
+			want := map[string]string{"a": "boom a", "b": "boom b"}
+			if failFast {
+				want["b"] = "cancelled before start"
+				if n := secondCalls.Load(); n != 0 {
+					t.Errorf("second Prepare called %d times, want 0", n)
+				}
+			}
+			checkPrepareEnvelopes(t, decodePoolEnvelopes(t, &buf), want)
 		})
 	}
-	var buf bytes.Buffer
-	if RunTasks(t.Context(), tasks, PoolOptions{ID: "batch-t", Jobs: 1, Out: &buf}) {
-		t.Error("RunTasks returned true for prepare errors")
-	}
-	checkPrepareEnvelopes(t, decodePoolEnvelopes(t, &buf), false)
 }
 
-func TestRunTasksPrepareErrorEnvelopeFailFast(t *testing.T) {
-	var secondCalls atomic.Int32
-	tasks := []Task{
-		{ID: "a", Agent: "x", Prepare: func(context.Context) (*client.Prepared, error) {
-			return nil, errors.New("boom a")
-		}},
-		{ID: "b", Agent: "x", Prepare: func(context.Context) (*client.Prepared, error) {
-			secondCalls.Add(1)
-			return nil, errors.New("boom b")
-		}},
-	}
-	var buf bytes.Buffer
-	if RunTasks(t.Context(), tasks, PoolOptions{ID: "batch-t", Jobs: 1, FailFast: true, Out: &buf}) {
-		t.Error("RunTasks returned true for a prepare error")
-	}
-	if n := secondCalls.Load(); n != 0 {
-		t.Errorf("second Prepare called %d times, want 0", n)
-	}
-	checkPrepareEnvelopes(t, decodePoolEnvelopes(t, &buf), true)
-}
-
-// checkPrepareEnvelopes asserts one error envelope per task a and b; failFast expects b cancelled before start.
-func checkPrepareEnvelopes(t *testing.T, envs []wire.Envelope, failFast bool) {
+// checkPrepareEnvelopes asserts one error envelope per task id in want, each carrying its message.
+func checkPrepareEnvelopes(t *testing.T, envs []wire.Envelope, want map[string]string) {
 	t.Helper()
-	if len(envs) != 2 {
-		t.Fatalf("got %d envelopes, want 2", len(envs))
-	}
-	want := map[string]string{"a": "boom a", "b": "boom b"}
-	if failFast {
-		want["b"] = "cancelled before start"
+	if len(envs) != len(want) {
+		t.Fatalf("got %d envelopes, want %d", len(envs), len(want))
 	}
 	for _, env := range envs {
 		msg, ok := want[env.TaskID]
@@ -167,17 +152,12 @@ func checkPrepareEnvelopes(t *testing.T, envs []wire.Envelope, failFast bool) {
 			continue
 		}
 		delete(want, env.TaskID)
-		checkPrepareEnvelope(t, env, msg)
-	}
-}
-
-func checkPrepareEnvelope(t *testing.T, env wire.Envelope, msg string) {
-	t.Helper()
-	if env.BatchID != "batch-t" || env.Status != "error" || env.Agent != "x" || env.Error == nil {
-		t.Fatalf("incorrect prepare failure envelope: %+v", env)
-	}
-	if !strings.Contains(env.Error.Message, msg) {
-		t.Errorf("task %q error message missing %q: %+v", env.TaskID, msg, env.Error)
+		if env.BatchID != "batch-t" || env.Status != "error" || env.Agent != "x" || env.Error == nil {
+			t.Fatalf("incorrect prepare failure envelope: %+v", env)
+		}
+		if !strings.Contains(env.Error.Message, msg) {
+			t.Errorf("task %q error message missing %q: %+v", env.TaskID, msg, env.Error)
+		}
 	}
 }
 
@@ -243,13 +223,8 @@ func TestRunTasksMoreClaimsTasks(t *testing.T) {
 	case <-time.After(300 * time.Millisecond):
 	}
 	close(more)
-	select {
-	case ok := <-done:
-		if !ok {
-			t.Error("RunTasks = false, want every task ok")
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("RunTasks did not return after More closed")
+	if !recvWithin(t, done, 10*time.Second, "RunTasks did not return after More closed") {
+		t.Error("RunTasks = false, want every task ok")
 	}
 	var ids []string
 	for _, env := range decodePoolEnvelopes(t, &buf) {
@@ -275,13 +250,8 @@ func TestRunTasksMoreFailFastDoesNotRunPending(t *testing.T) {
 		done <- RunTasks(t.Context(), []Task{vendorTask(t, "a", "", "FAILME", "", &prepA, &unused)},
 			PoolOptions{ID: "batch-f", Jobs: 1, FailFast: true, Out: &buf, More: more})
 	}()
-	select {
-	case ok := <-done:
-		if ok {
-			t.Error("RunTasks = true, want false after the failure")
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("RunTasks hung with More open under FailFast")
+	if recvWithin(t, done, 10*time.Second, "RunTasks hung with More open under FailFast") {
+		t.Error("RunTasks = true, want false after the failure")
 	}
 	if prepB.Load() != 0 {
 		t.Errorf("pending More task was prepared %d times, want 0", prepB.Load())
@@ -403,15 +373,14 @@ func TestRetryAfterFailureEmitsOneEnvelope(t *testing.T) {
 	if prep.Load() != 1 || again.Load() != 1 {
 		t.Errorf("prepare/retry calls = %d/%d, want 1/1", prep.Load(), again.Load())
 	}
-	var recs int
-	for _, r := range job.RecentRecords(10) {
-		recs++
+	recs := job.RecentRecords(10)
+	for _, r := range recs {
 		if r.TaskID != "a" || r.BatchID != "batch-r" || r.PlanTask != "Phase 1.1" {
 			t.Errorf("record %s = task %q batch %q plan %q", r.ID, r.TaskID, r.BatchID, r.PlanTask)
 		}
 	}
-	if recs != 2 {
-		t.Errorf("%d dispatch records, want 2 (first attempt and retry)", recs)
+	if len(recs) != 2 {
+		t.Errorf("%d dispatch records, want 2 (first attempt and retry)", len(recs))
 	}
 }
 
@@ -440,15 +409,11 @@ func TestRetryJobsOneKeepsSlotAccounting(t *testing.T) {
 			vendorTask(t, "c", "", "ok", "", &n, &n))
 		done <- got
 	}()
-	select {
-	case got := <-done:
-		for _, id := range []string{"a", "b", "c"} {
-			if len(got[id]) != 1 || got[id][0].Status != wire.StatusOK {
-				t.Errorf("task %s envelopes = %+v, want one ok", id, got[id])
-			}
+	got := recvWithin(t, done, 20*time.Second, "batch deadlocked: a retried task leaked its slot")
+	for _, id := range []string{"a", "b", "c"} {
+		if len(got[id]) != 1 || got[id][0].Status != wire.StatusOK {
+			t.Errorf("task %s envelopes = %+v, want one ok", id, got[id])
 		}
-	case <-time.After(20 * time.Second):
-		t.Fatal("batch deadlocked: a retried task leaked its slot")
 	}
 }
 
@@ -460,10 +425,9 @@ func TestRetrySkippedWhenNotRealFailure(t *testing.T) {
 	noHops := func(context.Context) (*client.Prepared, error) {
 		return &client.Prepared{Record: job.NewRecord("opencode", agent.RunOptions{}, time.Now())}, nil
 	}
-	badPrep := func(context.Context) (*client.Prepared, error) { return nil, errors.New("prepare failed") }
 	runRetryBatch(t, PoolOptions{},
 		Task{ID: "h", Agent: "opencode", Prepare: noHops, Retry: retry},
-		Task{ID: "p", Agent: "opencode", Prepare: badPrep, Retry: retry})
+		Task{ID: "p", Agent: "opencode", Prepare: failPrepare("prepare failed"), Retry: retry})
 	if retried.Load() != 0 {
 		t.Errorf("Retry ran %d times for a no-hop failure and a prepare error, want 0", retried.Load())
 	}
@@ -498,11 +462,15 @@ func TestRetrySkippedWhenCancelled(t *testing.T) {
 // A batch task's own profile reaches the request and resolves to one dispatch, under the default --fallback all.
 func TestBatchTaskProfileIsOneDispatch(t *testing.T) {
 	profileFixture(t, "")
-	line := ParsedLine{N: 1, Task: TaskLine{Prompt: "p", Profile: "acme"}}
-	bt, err := BuildTask(line, Opts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, NewClient)
-	if err != nil {
-		t.Fatal(err)
+	build := func(n int, profile string) Task {
+		line := ParsedLine{N: n, Task: TaskLine{Prompt: "p", Profile: profile}}
+		bt, err := BuildTask(line, Opts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, NewClient)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return bt
 	}
+	bt := build(1, "acme")
 	if bt.Req.Provider != "acme" {
 		t.Fatalf("task request provider = %q, want acme", bt.Req.Provider)
 	}
@@ -516,12 +484,7 @@ func TestBatchTaskProfileIsOneDispatch(t *testing.T) {
 	if err == nil || len(res.Hops) != 1 {
 		t.Fatalf("Exec: %d hops, err %v; want one unavailable dispatch", len(res.Hops), err)
 	}
-	bad := ParsedLine{N: 2, Task: TaskLine{Prompt: "p", Profile: "no-such-profile"}}
-	bt, err = BuildTask(bad, Opts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, NewClient)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := bt.Prepare(context.Background()); err == nil {
+	if _, err := build(2, "no-such-profile").Prepare(context.Background()); err == nil {
 		t.Error("unknown batch profile prepared a chain, want an error before any run")
 	}
 }
@@ -562,6 +525,20 @@ func taskLine(t *testing.T, m map[string]any) string {
 	return string(b)
 }
 
+// cliTask is a JSONL claude task with its own workdir and tools; kv pairs override fields, a nil value drops one.
+func cliTask(t *testing.T, id, prompt string, kv ...any) string {
+	t.Helper()
+	m := map[string]any{"id": id, "agent": "claude", "prompt": prompt, "workdir": t.TempDir(), "tools": true}
+	for i := 0; i < len(kv); i += 2 {
+		if kv[i+1] == nil {
+			delete(m, kv[i].(string))
+		} else {
+			m[kv[i].(string)] = kv[i+1]
+		}
+	}
+	return taskLine(t, m)
+}
+
 func errKind(e map[string]any) string {
 	if x, ok := e["error"].(map[string]any); ok {
 		s, _ := x["kind"].(string)
@@ -577,12 +554,8 @@ func TestBatchMixedStreamsEnvelopesAndExitsNonZero(t *testing.T) {
 	pathstest.FakeVendor(t, "claude", `p=$(cat); case "$p" in *SLOW*) sleep 0.3;; esac`+"\n"+
 		`printf '%s\n' '{"type":"system","subtype":"init","session_id":"sc","model":"fake-claude"}'`+"\n"+
 		`printf '%s\n' '{"type":"result","result":"hello","usage":{"input_tokens":3,"output_tokens":2}}'`)
-	file := batchFile(t,
-		taskLine(t, map[string]any{"id": "slow", "agent": "claude", "prompt": "SLOW task", "workdir": t.TempDir(), "tools": true}),
-		taskLine(t, map[string]any{"id": "fast", "agent": "claude", "prompt": "quick task", "workdir": t.TempDir(), "tools": true}),
-		taskLine(t, map[string]any{"id": "bad", "agent": "no-such-agent", "prompt": "x", "workdir": t.TempDir()}),
-		`{not json`,
-	)
+	file := batchFile(t, cliTask(t, "slow", "SLOW task"), cliTask(t, "fast", "quick task"),
+		cliTask(t, "bad", "x", "agent", "no-such-agent", "tools", nil), `{not json`)
 	code, out, stderr := runCLI(t, "ask", "--batch", file, "--jobs", "2")
 	if code == 0 {
 		t.Fatalf("exit 0 with failing tasks\nstdout: %s\nstderr: %s", out, stderr)
@@ -591,8 +564,32 @@ func TestBatchMixedStreamsEnvelopesAndExitsNonZero(t *testing.T) {
 	if len(envs) != 4 {
 		t.Fatalf("got %d envelopes, want 4 (one per input line, bad lines included)\n%s", len(envs), out)
 	}
-	byID := indexBatchEnvelopes(t, envs)
-	checkMixedBatchResults(t, byID, envs, out)
+	checkMixedBatchResults(t, indexBatchEnvelopes(t, envs), envs, out)
+}
+
+func checkMixedBatchResults(t *testing.T, byID map[string]map[string]any, envs []map[string]any, out string) {
+	t.Helper()
+	for _, id := range []string{"slow", "fast", "bad"} {
+		if byID[id] == nil {
+			t.Fatalf("no envelope tagged task_id %q\n%s", id, out)
+		}
+	}
+	for _, id := range []string{"slow", "fast"} {
+		if byID[id]["status"] != "ok" || byID[id]["answer"] != "hello" {
+			t.Errorf("task %s = %v, want status ok / answer hello", id, byID[id])
+		}
+	}
+	if byID["bad"]["status"] == "ok" || errKind(byID["bad"]) != "usage" {
+		t.Errorf("bad agent = %v, want a non-ok usage-kind envelope", byID["bad"])
+	}
+	pos := map[string]int{} // completion order: the SLOW task finishes after the fast one
+	for i, e := range envs {
+		id, _ := e["task_id"].(string)
+		pos[id] = i
+	}
+	if pos["fast"] > pos["slow"] {
+		t.Errorf("fast task printed after the slow one: streaming must be completion order\n%s", out)
+	}
 }
 
 func indexBatchEnvelopes(t *testing.T, envs []map[string]any) map[string]map[string]any {
@@ -625,41 +622,11 @@ func indexBatchEnvelopes(t *testing.T, envs []map[string]any) map[string]map[str
 	return byID
 }
 
-func checkMixedBatchResults(t *testing.T, byID map[string]map[string]any, envs []map[string]any, out string) {
-	t.Helper()
-	for _, id := range []string{"slow", "fast", "bad"} {
-		if byID[id] == nil {
-			t.Fatalf("no envelope tagged task_id %q\n%s", id, out)
-		}
-	}
-	for _, id := range []string{"slow", "fast"} {
-		if byID[id]["status"] != "ok" || byID[id]["answer"] != "hello" {
-			t.Errorf("task %s = %v, want status ok / answer hello", id, byID[id])
-		}
-	}
-	if byID["bad"]["status"] == "ok" || errKind(byID["bad"]) != "usage" {
-		t.Errorf("bad agent = %v, want a non-ok usage-kind envelope", byID["bad"])
-	}
-	// completion order: the SLOW task finishes after the fast one
-	pos := map[string]int{}
-	for i, e := range envs {
-		id, _ := e["task_id"].(string)
-		pos[id] = i
-	}
-	if pos["fast"] > pos["slow"] {
-		t.Errorf("fast task printed after the slow one: streaming must be completion order\n%s", out)
-	}
-}
-
 // All-ok batch exits 0.
 func TestBatchAllOkExitsZero(t *testing.T) {
 	cliEnv(t)
 	cliFakes(t)
-	file := batchFile(t,
-		taskLine(t, map[string]any{"id": "a", "agent": "claude", "prompt": "one", "workdir": t.TempDir(), "tools": true}),
-		taskLine(t, map[string]any{"id": "b", "agent": "claude", "prompt": "two", "workdir": t.TempDir(), "tools": true}),
-	)
-	code, out, stderr := runCLI(t, "ask", "--batch", file)
+	code, out, stderr := runCLI(t, "ask", "--batch", batchFile(t, cliTask(t, "a", "one"), cliTask(t, "b", "two")))
 	if code != 0 {
 		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
 	}
@@ -676,10 +643,7 @@ func TestBatchFailFastNeverSpawnsQueuedTask(t *testing.T) {
 	cliFakes(t)
 	pathstest.FakeVendor(t, "claude", "cat > /dev/null; echo boom >&2; exit 1")
 	marker := cliMarker(t, "opencode", `printf '%s\n' '{"type":"text","sessionID":"so","part":{"text":"hello"}}'`)
-	file := batchFile(t,
-		taskLine(t, map[string]any{"id": "first", "agent": "claude", "prompt": "fail", "workdir": t.TempDir(), "tools": true}),
-		taskLine(t, map[string]any{"id": "queued", "agent": "opencode", "prompt": "never", "workdir": t.TempDir(), "tools": true}),
-	)
+	file := batchFile(t, cliTask(t, "first", "fail"), cliTask(t, "queued", "never", "agent", "opencode"))
 	code, out, stderr := runCLI(t, "ask", "--batch", file, "--jobs", "1", "--fail-fast")
 	if code == 0 {
 		t.Fatalf("exit 0 after a fatal failure\nstdout: %s\nstderr: %s", out, stderr)
@@ -707,27 +671,33 @@ func fakeJWT(iss string) string {
 	return enc([]byte(`{"alg":"none"}`)) + "." + enc([]byte(`{"iss":"https://`+iss+`"}`)) + ".sig"
 }
 
-// Guarantee 1: concurrent tasks on two profiles; each child's env holds only its own route and token.
-func TestBatchConcurrentProfilesKeepEnvsApart(t *testing.T) {
+// profileVault isolates the CLI env and seeds anthropic profiles pa and pb on distinct local routes.
+func profileVault(t *testing.T) {
+	t.Helper()
 	skipWithoutSh(t)
 	cliEnv(t)
 	vaulttest.Use(t)
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	row := func(name, port, env, model string) string {
+		return `"` + name + `":{"protocol":"anthropic","base_url":"http://127.0.0.1:` + port + `","auth":{"type":"key","env":"` + env +
+			`"},"models":{"opus":"` + model + `","sonnet":"` + model + `","haiku":"` + model + `"}}`
+	}
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"anthropic":{`+
+		row("pa", "11111", "PA_BATCH_KEY", "m-a")+","+row("pb", "22222", "PB_BATCH_KEY", "m-b")+`}}}`)
+}
+
+// Guarantee 1: concurrent tasks on two profiles; each child's env holds only its own route and token.
+func TestBatchConcurrentProfilesKeepEnvsApart(t *testing.T) {
+	profileVault(t)
 	t.Setenv("PA_BATCH_KEY", "TOKEN-AAAA-1111")
 	t.Setenv("PB_BATCH_KEY", "TOKEN-BBBB-2222")
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"anthropic":{`+
-		`"pa":{"protocol":"anthropic","base_url":"http://127.0.0.1:11111","auth":{"type":"key","env":"PA_BATCH_KEY"},"models":{"opus":"m-a","sonnet":"m-a","haiku":"m-a"}},`+
-		`"pb":{"protocol":"anthropic","base_url":"http://127.0.0.1:22222","auth":{"type":"key","env":"PB_BATCH_KEY"},"models":{"opus":"m-b","sonnet":"m-b","haiku":"m-b"}}}}}`)
 	dump := t.TempDir()
 	// each child announces itself, then waits until both are running: proof the two really overlap
 	pathstest.FakeVendor(t, "claude", "cat > /dev/null\n"+
 		"env > "+dump+"/$$.env\ntouch "+dump+"/$$.up\n"+
 		"for i in $(seq 1 100); do [ $(ls "+dump+"/*.up 2>/dev/null | wc -l) -ge 2 ] && break; sleep 0.05; done\n"+
 		`printf '%s\n' '{"type":"result","result":"hello"}'`)
-	file := batchFile(t,
-		taskLine(t, map[string]any{"id": "a", "agent": "claude", "profile": "pa", "prompt": "x", "workdir": t.TempDir(), "tools": true}),
-		taskLine(t, map[string]any{"id": "b", "agent": "claude", "profile": "pb", "prompt": "y", "workdir": t.TempDir(), "tools": true}),
-	)
+	file := batchFile(t, cliTask(t, "a", "x", "profile", "pa"), cliTask(t, "b", "y", "profile", "pb"))
 	code, out, stderr := runCLI(t, "ask", "--batch", file, "--jobs", "2")
 	if code != 0 {
 		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
@@ -769,8 +739,7 @@ func TestBatchHostMismatchFailsAuthBeforeExec(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"hm":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net",`+
 		`"auth":{"type":"key","env":"HM_BATCH_KEY"},"models":{"opus":"databricks-claude-opus-5-5","sonnet":"databricks-claude-sonnet-5-5","haiku":"databricks-claude-haiku-4-5"}}}}}`)
 	marker := cliMarker(t, "claude", `printf '%s\n' '{"type":"result","result":"hello"}'`)
-	file := batchFile(t, taskLine(t, map[string]any{"id": "m", "agent": "claude", "profile": "hm", "prompt": "x", "workdir": t.TempDir(), "tools": true}))
-	code, out, stderr := runCLI(t, "ask", "--batch", file)
+	code, out, stderr := runCLI(t, "ask", "--batch", batchFile(t, cliTask(t, "m", "x", "profile", "hm")))
 	if code == 0 {
 		t.Fatalf("exit 0 on a host mismatch\nstdout: %s\nstderr: %s", out, stderr)
 	}
@@ -790,10 +759,7 @@ func TestBatchHostMismatchFailsAuthBeforeExec(t *testing.T) {
 func TestBatchTasksWriteEventFiles(t *testing.T) {
 	cliEnv(t)
 	cliFakes(t)
-	file := batchFile(t,
-		taskLine(t, map[string]any{"id": "one", "agent": "claude", "prompt": "p1", "workdir": t.TempDir(), "tools": true}),
-		taskLine(t, map[string]any{"id": "two", "agent": "claude", "prompt": "p2", "workdir": t.TempDir(), "tools": true}),
-	)
+	file := batchFile(t, cliTask(t, "one", "p1"), cliTask(t, "two", "p2"))
 	if code, out, stderr := runCLI(t, "ask", "--batch", file, "--jobs", "2"); code != 0 {
 		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
 	}
@@ -812,24 +778,16 @@ func TestBatchTasksWriteEventFiles(t *testing.T) {
 
 // The vault's custom env holds every profile's vars; a batch child on pa gets pa's and never pb's credential var.
 func TestBatchChildDropsOtherProfilesCustomCredentialVar(t *testing.T) {
-	skipWithoutSh(t)
-	cliEnv(t)
-	vaulttest.Use(t)
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	profileVault(t)
 	t.Setenv("PA_BATCH_KEY", "TOKEN-AAAA-1111")
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"anthropic":{`+
-		`"pa":{"protocol":"anthropic","base_url":"http://127.0.0.1:11111","auth":{"type":"key","env":"PA_BATCH_KEY"},"models":{"opus":"m-a","sonnet":"m-a","haiku":"m-a"}},`+
-		`"pb":{"protocol":"anthropic","base_url":"http://127.0.0.1:22222","auth":{"type":"key","env":"PB_BATCH_KEY"},"models":{"opus":"m-b","sonnet":"m-b","haiku":"m-b"}}}}}`)
-	if err := providers.SetCustomEnv("PB_BATCH_KEY", "PB-CUSTOM-SECRET"); err != nil {
-		t.Fatal(err)
-	}
-	if err := providers.SetCustomEnv("PA_CUSTOM_NOTE", "pa-note"); err != nil {
-		t.Fatal(err)
+	for k, v := range map[string]string{"PB_BATCH_KEY": "PB-CUSTOM-SECRET", "PA_CUSTOM_NOTE": "pa-note"} {
+		if err := providers.SetCustomEnv(k, v); err != nil {
+			t.Fatal(err)
+		}
 	}
 	dump := filepath.Join(t.TempDir(), "child.env")
 	pathstest.FakeVendor(t, "claude", "cat > /dev/null\nenv > "+dump+"\n"+`printf '%s\n' '{"type":"result","result":"hello"}'`)
-	file := batchFile(t, taskLine(t, map[string]any{"id": "a", "agent": "claude", "profile": "pa", "prompt": "x", "workdir": t.TempDir(), "tools": true}))
-	if code, out, stderr := runCLI(t, "ask", "--batch", file); code != 0 {
+	if code, out, stderr := runCLI(t, "ask", "--batch", batchFile(t, cliTask(t, "a", "x", "profile", "pa"))); code != 0 {
 		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
 	}
 	raw, err := os.ReadFile(dump)
@@ -845,8 +803,8 @@ func TestBatchChildDropsOtherProfilesCustomCredentialVar(t *testing.T) {
 	}
 }
 
-// batchPipeHelper is the child process of TestBatchClosedStdoutCancelsAndReapsChildren: it runs a real batch whose
-// stdout reader is gone, with one slow task whose fake CLI records its pid.
+// TestBatchPipeHelper is the child process of TestBatchClosedStdoutCancelsAndReapsChildren: a real batch whose stdout
+// reader is gone, with one slow task whose fake CLI records its pid.
 func TestBatchPipeHelper(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("needs unix signals and pipes")
@@ -859,10 +817,7 @@ func TestBatchPipeHelper(t *testing.T) {
 	pathstest.FakeVendor(t, "claude", `p=$(cat); case "$p" in *SLOW*) echo $$ > `+pidfile+`; sleep 60;; esac`+"\n"+
 		"for i in $(seq 1 100); do [ -s "+pidfile+" ] && break; sleep 0.05; done\n"+
 		`printf '%s\n' '{"type":"result","result":"hello"}'`)
-	file := batchFile(t,
-		taskLine(t, map[string]any{"id": "slow", "agent": "claude", "prompt": "SLOW", "workdir": t.TempDir(), "tools": true}),
-		taskLine(t, map[string]any{"id": "fast", "agent": "claude", "prompt": "quick", "workdir": t.TempDir(), "tools": true}))
-	os.Exit(Cmd([]string{"--batch", file, "--jobs", "2"}))
+	os.Exit(Cmd([]string{"--batch", batchFile(t, cliTask(t, "slow", "SLOW"), cliTask(t, "fast", "quick")), "--jobs", "2"}))
 }
 
 // A closed stdout must not kill the process with SIGPIPE: the batch cancels, exits non-zero, and its children die.
@@ -914,297 +869,328 @@ func checkBatchChildReaped(t *testing.T, pidfile string) {
 	t.Errorf("child %d is still running after the batch exited", pid)
 }
 
-type gaugeRunner struct {
-	name     string
-	cur, max *atomic.Int32
+// runFn is the body of a poolRunner.
+type runFn func(context.Context, wire.Sink) (wire.Result, error)
+
+// poolRunner is an agent.Engine whose Run is its run func.
+type poolRunner struct {
+	name string
+	run  runFn
 }
 
-func (g gaugeRunner) Name() string     { return g.name }
-func (g gaugeRunner) Caps() agent.Caps { return agent.Caps{} }
-
-func (g gaugeRunner) Available() error { return nil }
-func (g gaugeRunner) Run(context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
-	n := g.cur.Add(1)
-	for m := g.max.Load(); n > m && !g.max.CompareAndSwap(m, n); m = g.max.Load() {
-	}
-	time.Sleep(60 * time.Millisecond)
-	g.cur.Add(-1)
-	return wire.Result{Answer: "a"}, nil
+func (p poolRunner) Name() string     { return p.name }
+func (p poolRunner) Caps() agent.Caps { return agent.Caps{} }
+func (p poolRunner) Available() error { return nil }
+func (p poolRunner) Run(ctx context.Context, _ agent.RunOptions, w wire.Sink) (wire.Result, error) {
+	return p.run(ctx, w)
 }
 
-// Tasks queued under different agent names but dispatches billed to one account never run more than agent.DefaultPerKey at once.
-func TestBatchCapsConcurrencyPerBilledAccount(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	var cur, peak atomic.Int32
-	var tasks []Task
-	for i := range retry.DefaultPerKey + 3 {
-		name := fmt.Sprintf("agent%d", i)
-		r := gaugeRunner{name: name, cur: &cur, max: &peak}
-		tasks = append(tasks, Task{ID: name, Agent: name, Req: agent.RunOptions{Prompt: "p"},
-			Prepare: func(context.Context) (*client.Prepared, error) {
-				return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: job.Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}}, agent.Chain{Want: name, Dispatches: []agent.Dispatch{keepCaller(agent.Dispatch{Agent: r, Account: "shared·acct"})}}), nil
-			}})
-	}
-	var out strings.Builder
-	if !RunTasks(context.Background(), tasks, PoolOptions{Jobs: len(tasks), Out: &out}) {
-		t.Fatalf("batch failed: %s", out.String())
-	}
-	if got := int(peak.Load()); got > retry.DefaultPerKey || got < 2 {
-		t.Errorf("peak concurrent dispatches on one account = %d, want 2..%d", got, retry.DefaultPerKey)
-	}
+var okResult = wire.Result{Answer: "a"}
+
+func runner(name string, run runFn) agent.Engine { return poolRunner{name: name, run: run} }
+
+func okRunner(name string) agent.Engine {
+	return runner(name, func(context.Context, wire.Sink) (wire.Result, error) { return okResult, nil })
 }
 
-type slowRunner struct {
-	name  string
-	sleep time.Duration
-	boom  bool
-	wait  <-chan struct{} // when set, Run blocks until it closes (or ctx ends)
-	done  chan struct{}   // when set, Run closes it on entry
+func boomRunner(name string) agent.Engine {
+	return runner(name, func(context.Context, wire.Sink) (wire.Result, error) { panic("boom") })
 }
 
-func (s slowRunner) Name() string     { return s.name }
-func (s slowRunner) Caps() agent.Caps { return agent.Caps{} }
+// countRunner counts its runs.
+func countRunner(name string, runs *atomic.Int32) agent.Engine {
+	return runner(name, func(context.Context, wire.Sink) (wire.Result, error) { runs.Add(1); return okResult, nil })
+}
 
-func (s slowRunner) Available() error { return nil }
-func (s slowRunner) Run(ctx context.Context, _ agent.RunOptions, _ wire.Sink) (wire.Result, error) {
-	if s.boom {
-		panic("boom")
-	}
-	if s.done != nil {
-		close(s.done)
-	}
-	if s.wait != nil {
-		select {
-		case <-s.wait:
-		case <-ctx.Done():
-			return wire.Result{}, ctx.Err()
+// gaugeRunner records the peak concurrency on cur/peak, pauses, then answers or fails with err.
+func gaugeRunner(name string, cur, peak *atomic.Int32, pause time.Duration, err error) agent.Engine {
+	return runner(name, func(context.Context, wire.Sink) (wire.Result, error) {
+		n := cur.Add(1)
+		for m := peak.Load(); n > m && !peak.CompareAndSwap(m, n); m = peak.Load() {
 		}
-	}
-	time.Sleep(s.sleep)
-	return wire.Result{Answer: "a"}, nil
+		time.Sleep(pause)
+		cur.Add(-1)
+		if err != nil {
+			return wire.Result{}, err
+		}
+		return okResult, nil
+	})
 }
 
-// setChain gives a Prepared the routed chain the batch tests dispatch through.
-func setChain(p *client.Prepared, c agent.Chain) *client.Prepared { p.Chain = c; return p }
+// markRunner runs mark, pauses and answers.
+func markRunner(name string, mark func()) agent.Engine {
+	return runner(name, func(context.Context, wire.Sink) (wire.Result, error) {
+		mark()
+		time.Sleep(50 * time.Millisecond)
+		return okResult, nil
+	})
+}
+
+// rateOnceRunner fails its first run with a 300ms rate limit, then answers.
+func rateOnceRunner(name string, n *atomic.Int32) agent.Engine {
+	return runner(name, func(context.Context, wire.Sink) (wire.Result, error) {
+		if n.Add(1) == 1 {
+			return wire.Result{}, &retry.Error{Kind: retry.KindRateLimit, Agent: name, RetryAfter: 300 * time.Millisecond, Err: errors.New("HTTP 429")}
+		}
+		return okResult, nil
+	})
+}
+
+func markAuth(account string) func() {
+	return func() { _ = router.MarkAuth(account, "login expired") }
+}
+
+// keepCaller is d's agent and account on agent.Single's dispatch, which keeps the caller's own --model.
+func keepCaller(d agent.Dispatch) agent.Dispatch {
+	k := agent.Single(d.Agent).Dispatches[0]
+	k.Account = d.Account
+	return k
+}
+
+// chainTask is a batch task for taskAgent whose prepared chain wants want and tries ds in order.
+func chainTask(t *testing.T, id, taskAgent, want string, ds ...agent.Dispatch) Task {
+	return Task{ID: id, Agent: taskAgent, Req: agent.RunOptions{Prompt: "p"},
+		Prepare: func(context.Context) (*client.Prepared, error) {
+			rec := job.Record{ID: "id-" + id, Agent: want, Log: filepath.Join(t.TempDir(), "l.log")}
+			return &client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: rec, Chain: agent.Chain{Want: want, Dispatches: ds}}, nil
+		}}
+}
 
 // acctTask is a batch task whose single dispatch bills account.
 func acctTask(t *testing.T, name, account string, r agent.Engine) Task {
-	return Task{ID: name, Agent: name, Req: agent.RunOptions{Prompt: "p"},
-		Prepare: func(context.Context) (*client.Prepared, error) {
-			rec := job.Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}
-			return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: rec}, agent.Chain{Want: name, Dispatches: []agent.Dispatch{keepCaller(agent.Dispatch{Agent: r, Account: account})}}), nil
-		}}
+	return chainTask(t, name, name, name, keepCaller(agent.Dispatch{Agent: r, Account: account}))
+}
+
+// runPool runs tasks in a fresh config dir under a 10s deadline and returns the output and the batch result.
+func runPool(t *testing.T, o PoolOptions, tasks ...Task) (string, bool) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var out strings.Builder
+	o.Out = &out
+	ok := RunTasks(ctx, tasks, o)
+	return out.String(), ok
+}
+
+// envLine is the output line of task id, or "".
+func envLine(out, id string) string {
+	for ln := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		if strings.Contains(ln, `"task_id":"`+id+`"`) {
+			return ln
+		}
+	}
+	return ""
+}
+
+func firstLine(out string) string { first, _, _ := strings.Cut(out, "\n"); return first }
+
+// coolOnFirstLoad starts a cooldown on account the first time the agent loads router state.
+func coolOnFirstLoad(t *testing.T, account string, d time.Duration) {
+	var once sync.Once
+	t.Cleanup(agent.SwapLoadState(func(prev func() router.State) func() router.State {
+		return func() router.State {
+			once.Do(func() { retry.CoolDown(account, d) })
+			return prev()
+		}
+	}))
+}
+
+// Dispatches billed to one account, or own-login on one agent, never run more than agent.DefaultPerKey at once.
+func TestBatchCapsConcurrency(t *testing.T) {
+	cases := []struct {
+		name, prefix, account string
+		sameAgent             bool
+	}{{"billed account across agent names", "agent", "shared·acct", false}, {"own login on one agent", "own", "", true}}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var cur, peak atomic.Int32
+			var tasks []Task
+			for i := range retry.DefaultPerKey + 3 {
+				id := fmt.Sprintf("%s%d", c.prefix, i)
+				ag := id
+				if c.sameAgent {
+					ag = "opencode"
+				}
+				r := gaugeRunner(ag, &cur, &peak, 60*time.Millisecond, nil)
+				tasks = append(tasks, chainTask(t, id, ag, ag, keepCaller(agent.Dispatch{Agent: r, Account: c.account})))
+			}
+			if out, ok := runPool(t, PoolOptions{Jobs: len(tasks)}, tasks...); !ok {
+				t.Fatalf("batch failed: %s", out)
+			}
+			if got := int(peak.Load()); got > retry.DefaultPerKey || got < 2 {
+				t.Errorf("peak concurrent dispatches = %d, want 2..%d", got, retry.DefaultPerKey)
+			}
+		})
+	}
 }
 
 // A panicking agent (recovered by the batch) must give its dispatch permit back: later tasks on the account still run.
 func TestBatchPanickingDispatchesReleaseTheirPermits(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var tasks []Task
 	for i := range retry.DefaultPerKey + 2 {
 		name := fmt.Sprintf("p%d", i)
-		tasks = append(tasks, acctTask(t, name, "panic·acct", slowRunner{name: name, boom: true}))
+		tasks = append(tasks, acctTask(t, name, "panic·acct", boomRunner(name)))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	var out strings.Builder
-	if RunTasks(ctx, tasks, PoolOptions{Jobs: 2, Out: &out}) {
+	out, ok := runPool(t, PoolOptions{Jobs: 2}, tasks...)
+	if ok {
 		t.Fatal("batch reported ok although every agent panicked")
 	}
-	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-	if len(lines) != len(tasks) || strings.Contains(out.String(), "cancel") {
-		t.Fatalf("got %d envelopes (want %d, none cancelled): a lost permit blocked the account\n%s", len(lines), len(tasks), out.String())
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != len(tasks) || strings.Contains(out, "cancel") {
+		t.Fatalf("got %d envelopes (want %d, none cancelled): a lost permit blocked the account\n%s", len(lines), len(tasks), out)
 	}
-	if n := strings.Count(out.String(), "panic: boom"); n != len(tasks) {
+	if n := strings.Count(out, "panic: boom"); n != len(tasks) {
 		t.Errorf("%d envelopes name the panic, want %d", n, len(tasks))
 	}
 }
 
 // Tasks parked on a full account hold no pool slot: account-A tasks block until task b (idle account B) runs.
 func TestBatchParkedTasksDoNotHoldPoolSlots(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	bRan := make(chan struct{})
-	var tasks []Task
+	waiter := func(name string) agent.Engine {
+		return runner(name, func(ctx context.Context, _ wire.Sink) (wire.Result, error) {
+			select {
+			case <-bRan:
+			case <-ctx.Done():
+				return wire.Result{}, ctx.Err()
+			}
+			return okResult, nil
+		})
+	}
 	n := retry.DefaultPerKey + 2
+	var tasks []Task
 	for i := range n {
 		name := fmt.Sprintf("a%d", i)
-		tasks = append(tasks, acctTask(t, name, "A·acct", slowRunner{name: name, wait: bRan}))
+		tasks = append(tasks, acctTask(t, name, "A·acct", waiter(name)))
 	}
-	tasks = append(tasks, acctTask(t, "b", "B·acct", slowRunner{name: "b", done: bRan}))
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	var out strings.Builder
-	if !RunTasks(ctx, tasks, PoolOptions{Jobs: n, Out: &out}) {
-		t.Fatalf("batch failed: task b never got a pool slot while account-A tasks were parked\n%s", out.String())
+	enterB := runner("b", func(context.Context, wire.Sink) (wire.Result, error) { close(bRan); return okResult, nil })
+	tasks = append(tasks, acctTask(t, "b", "B·acct", enterB))
+	if out, ok := runPool(t, PoolOptions{Jobs: n}, tasks...); !ok {
+		t.Fatalf("batch failed: task b never got a pool slot while account-A tasks were parked\n%s", out)
 	}
-}
-
-// dispatchGauge is an agent that fails (as auth) or answers after a pause, tracking one gauge shared by every dispatch.
-type dispatchGauge struct {
-	name     string
-	fail     bool
-	cur, max *atomic.Int32
-}
-
-func (g dispatchGauge) Name() string     { return g.name }
-func (g dispatchGauge) Caps() agent.Caps { return agent.Caps{} }
-
-func (g dispatchGauge) Available() error { return nil }
-func (g dispatchGauge) Run(context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
-	n := g.cur.Add(1)
-	for m := g.max.Load(); n > m && !g.max.CompareAndSwap(m, n); m = g.max.Load() {
-	}
-	time.Sleep(40 * time.Millisecond)
-	g.cur.Add(-1)
-	if g.fail {
-		return wire.Result{}, errors.New("HTTP 401 unauthorized")
-	}
-	return wire.Result{Answer: "a"}, nil
 }
 
 // Dispatches in flight never exceed --jobs while tasks fall back from a full account A to account B.
 func TestBatchJobsCapHoldsAcrossFallbackHops(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const jobs = 5
 	var cur, peak atomic.Int32
 	var tasks []Task
-	for i := range 12 {
+	for i := range 12 { // distinct task agents: the old per-key gate would cap at 4
 		name := fmt.Sprintf("f%d", i)
-		first, second := dispatchGauge{name: "codex", fail: true, cur: &cur, max: &peak}, dispatchGauge{name: "gemini", cur: &cur, max: &peak}
-		tasks = append(tasks, Task{ID: name, Agent: name, Req: agent.RunOptions{Prompt: "p"}, // distinct keys: the old per-key gate would cap at 4
-			Prepare: func(context.Context) (*client.Prepared, error) {
-				rec := job.Record{ID: "id-" + name, Agent: "codex", Log: filepath.Join(t.TempDir(), "l.log")}
-				return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: rec}, agent.Chain{Want: "codex", Dispatches: []agent.Dispatch{
-					keepCaller(agent.Dispatch{Agent: first, Account: "A·acct"}), {Agent: second, Account: "B·acct"}}}), nil
-			}})
+		first := gaugeRunner("codex", &cur, &peak, 40*time.Millisecond, errors.New("HTTP 401 unauthorized"))
+		second := gaugeRunner("gemini", &cur, &peak, 40*time.Millisecond, nil)
+		tasks = append(tasks, chainTask(t, name, name, "codex",
+			keepCaller(agent.Dispatch{Agent: first, Account: "A·acct"}), agent.Dispatch{Agent: second, Account: "B·acct"}))
 	}
-	var out strings.Builder
-	if !RunTasks(context.Background(), tasks, PoolOptions{Jobs: jobs, Out: &out}) {
-		t.Fatalf("batch failed: %s", out.String())
+	out, ok := runPool(t, PoolOptions{Jobs: jobs}, tasks...)
+	if !ok {
+		t.Fatalf("batch failed: %s", out)
 	}
 	if got := int(peak.Load()); got > jobs || got < 2 {
 		t.Errorf("peak in-flight dispatches = %d, want 2..%d", got, jobs)
 	}
-	if n := strings.Count(out.String(), `"hops"`); n != len(tasks) {
+	if n := strings.Count(out, `"hops"`); n != len(tasks) {
 		t.Errorf("%d envelopes carry hops, want %d (every task fell back)", n, len(tasks))
 	}
 }
 
-// flagRunner counts its runs.
-type flagRunner struct {
-	name string
-	runs *atomic.Int32
-}
-
-func (f flagRunner) Name() string     { return f.name }
-func (f flagRunner) Caps() agent.Caps { return agent.Caps{} }
-
-func (f flagRunner) Available() error { return nil }
-func (f flagRunner) Run(context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
-	f.runs.Add(1)
-	return wire.Result{Answer: "a"}, nil
-}
-
-// failFastPair runs first then a second task on Jobs=1 with FailFast; the second must neither prepare nor run.
-func failFastPair(t *testing.T, first Task) {
-	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	var prepared, runs atomic.Int32
-	second := acctTask(t, "second", "ff·acct", flagRunner{name: "second", runs: &runs})
-	inner := second.Prepare
-	second.Prepare = func(ctx context.Context) (*client.Prepared, error) { prepared.Add(1); return inner(ctx) }
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	var out strings.Builder
-	if RunTasks(ctx, []Task{first, second}, PoolOptions{Jobs: 1, FailFast: true, Out: &out}) {
-		t.Fatal("batch reported ok after a failed task")
+// --fail-fast: whatever way the first task fails, the second neither prepares nor runs and reports cancelled.
+func TestBatchFailFastStopsQueuedTask(t *testing.T) {
+	cases := []struct {
+		name  string
+		first func(t *testing.T) Task
+	}{
+		{"prepare failure", func(*testing.T) Task {
+			return Task{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"}, Prepare: failPrepare("route failed")}
+		}},
+		{"panicking dispatch", func(t *testing.T) Task { return acctTask(t, "first", "ff·acct", boomRunner("first")) }},
+		{"empty chain", func(t *testing.T) Task { return chainTask(t, "first", "first", "first") }},
 	}
-	if prepared.Load() != 0 || runs.Load() != 0 {
-		t.Errorf("second task prepared %d times and ran %d times after --fail-fast tripped", prepared.Load(), runs.Load())
-	}
-	if !strings.Contains(out.String(), `"task_id":"second"`) || !strings.Contains(out.String(), "canceled") {
-		t.Errorf("second task has no cancelled envelope:\n%s", out.String())
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var prepared, runs atomic.Int32
+			second := acctTask(t, "second", "ff·acct", countRunner("second", &runs))
+			inner := second.Prepare
+			second.Prepare = func(ctx context.Context) (*client.Prepared, error) { prepared.Add(1); return inner(ctx) }
+			out, ok := runPool(t, PoolOptions{Jobs: 1, FailFast: true}, c.first(t), second)
+			if ok {
+				t.Fatal("batch reported ok after a failed task")
+			}
+			if prepared.Load() != 0 || runs.Load() != 0 {
+				t.Errorf("second task prepared %d times and ran %d times after --fail-fast tripped", prepared.Load(), runs.Load())
+			}
+			if !strings.Contains(out, `"task_id":"second"`) || !strings.Contains(out, "canceled") {
+				t.Errorf("second task has no cancelled envelope:\n%s", out)
+			}
+		})
 	}
 }
 
-// --fail-fast with a Prepare failure: the next task never spawns.
-func TestBatchFailFastPrepareFailureStopsQueuedTask(t *testing.T) {
-	failFastPair(t, Task{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"},
-		Prepare: func(context.Context) (*client.Prepared, error) { return nil, errors.New("route failed") }})
-}
-
-// --fail-fast with a panicking dispatch: the next task never spawns.
-func TestBatchFailFastPanickingDispatchStopsQueuedTask(t *testing.T) {
-	failFastPair(t, acctTask(t, "first", "ff·acct", slowRunner{name: "first", boom: true}))
-}
-
-// A task waiting out its account's cooldown holds nothing: a task on another account runs and finishes first.
-func TestBatchCoolingAccountDoesNotBlockOthers(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	retry.CoolDown("cool·A", 250*time.Millisecond)
-	tasks := []Task{
-		acctTask(t, "cooling", "cool·A", slowRunner{name: "cooling"}),
-		acctTask(t, "free", "free·B", slowRunner{name: "free"}),
+// A task waiting out a cooldown or rate-limit backoff holds no permit: a task on another account finishes first.
+func TestBatchWaitingAccountDoesNotBlockOthers(t *testing.T) {
+	var rateRuns atomic.Int32
+	cases := []struct {
+		name  string
+		jobs  int
+		setup func(t *testing.T)
+		id    string
+		slow  agent.Engine
+		acct  string
+	}{
+		{"cooling account", 2, func(*testing.T) { retry.CoolDown("cool·A", 250*time.Millisecond) }, "cooling", okRunner("cooling"), "cool·A"},
+		{"backoff after 429", 1, func(*testing.T) {}, "limited", rateOnceRunner("limited", &rateRuns), "rate·A"},
+		{"cooldown before first attempt", 1, func(t *testing.T) { coolOnFirstLoad(t, "late·A", 200*time.Millisecond) }, "late", okRunner("late"), "late·A"},
 	}
-	var out strings.Builder
-	if !RunTasks(context.Background(), tasks, PoolOptions{Jobs: 2, Out: &out}) {
-		t.Fatalf("batch failed: %s", out.String())
-	}
-	if first, _, _ := strings.Cut(out.String(), "\n"); !strings.Contains(first, `"task_id":"free"`) {
-		t.Errorf("first envelope = %s, want the free-account task", first)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			c.setup(t)
+			out, ok := runPool(t, PoolOptions{Jobs: c.jobs}, acctTask(t, c.id, c.acct, c.slow), acctTask(t, "free", "free·B", okRunner("free")))
+			if !ok {
+				t.Fatalf("batch failed: %s", out)
+			}
+			if first := firstLine(out); !strings.Contains(first, `"task_id":"free"`) {
+				t.Errorf("first envelope = %s, want the free-account task to finish first", first)
+			}
+		})
 	}
 }
 
 // Without --fail-fast a Prepare error frees its slot: with Jobs=1 the next task still runs.
 func TestBatchPrepareFailureFreesSlotWithoutFailFast(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var runs atomic.Int32
-	first := Task{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"},
-		Prepare: func(context.Context) (*client.Prepared, error) { return nil, errors.New("route failed") }}
-	second := acctTask(t, "second", "pf·acct", flagRunner{name: "second", runs: &runs})
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	var out strings.Builder
-	RunTasks(ctx, []Task{first, second}, PoolOptions{Jobs: 1, Out: &out})
+	first := Task{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"}, Prepare: failPrepare("route failed")}
+	out, _ := runPool(t, PoolOptions{Jobs: 1}, first, acctTask(t, "second", "pf·acct", countRunner("second", &runs)))
 	if runs.Load() != 1 {
-		t.Fatalf("second task ran %d times after the first task's Prepare failed, want 1:\n%s", runs.Load(), out.String())
+		t.Fatalf("second task ran %d times after the first task's Prepare failed, want 1:\n%s", runs.Load(), out)
 	}
 }
 
 // A dispatch that panics after streaming output is terminal: the fallback dispatch never runs and repeats its work.
 func TestBatchPanickingDispatchDoesNotFallBack(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var runs atomic.Int32
-	task := Task{ID: "t", Agent: "boom", Req: agent.RunOptions{Prompt: "p"},
-		Prepare: func(context.Context) (*client.Prepared, error) {
-			rec := job.Record{ID: "id-t", Agent: "boom", Log: filepath.Join(t.TempDir(), "l.log")}
-			return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: rec}, agent.Chain{Want: "boom", Dispatches: []agent.Dispatch{
-				{Agent: slowRunner{name: "boom", boom: true}, Account: "boom·A"},
-				{Agent: flagRunner{name: "next", runs: &runs}, Account: "next·B"},
-			}}), nil
-		}}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	var out strings.Builder
-	if RunTasks(ctx, []Task{task}, PoolOptions{Jobs: 2, Out: &out}) {
+	task := chainTask(t, "t", "boom", "boom",
+		agent.Dispatch{Agent: boomRunner("boom"), Account: "boom·A"}, agent.Dispatch{Agent: countRunner("next", &runs), Account: "next·B"})
+	out, ok := runPool(t, PoolOptions{Jobs: 2}, task)
+	if ok {
 		t.Fatal("batch reported ok after a panicking dispatch")
 	}
-	if runs.Load() != 0 || !strings.Contains(out.String(), "panic: boom") {
-		t.Fatalf("fallback dispatch ran %d times after a panic, want 0:\n%s", runs.Load(), out.String())
+	if runs.Load() != 0 || !strings.Contains(out, "panic: boom") {
+		t.Fatalf("fallback dispatch ran %d times after a panic, want 0:\n%s", runs.Load(), out)
 	}
 }
 
 // A fallback dispatch that panics is still reported as the fallback, with the first dispatch's failure as the reason.
 func TestBatchPanickingFallbackDispatchIsReported(t *testing.T) {
 	authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
-	first := newFailingRunner("claude", fmt.Errorf("agauth: %w", providers.ErrNeedsLogin))
-	task := Task{ID: "t", Agent: "claude", Req: agent.RunOptions{Prompt: "p"},
-		Prepare: func(context.Context) (*client.Prepared, error) {
-			rec := job.Record{ID: "id-t", Agent: "claude", Log: filepath.Join(t.TempDir(), "l.log")}
-			return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: rec}, agent.Chain{Want: "claude", Dispatches: []agent.Dispatch{
-				{Agent: first, Account: "claude:agauth"},
-				{Agent: slowRunner{name: "boom", boom: true}, Account: "boom·B"},
-			}}), nil
-		}}
+	failErr := fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)
+	first := runner("claude", func(_ context.Context, w wire.Sink) (wire.Result, error) {
+		w.Emit(wire.Event{Type: wire.EventText})
+		return wire.Result{}, failErr
+	})
+	task := chainTask(t, "t", "claude", "claude",
+		agent.Dispatch{Agent: first, Account: "claude:agauth"}, agent.Dispatch{Agent: boomRunner("boom"), Account: "boom·B"})
 	var out strings.Builder
 	RunTasks(context.Background(), []Task{task}, PoolOptions{Jobs: 2, Out: &out})
 	var env wire.Envelope
@@ -1216,123 +1202,31 @@ func TestBatchPanickingFallbackDispatchIsReported(t *testing.T) {
 	}
 }
 
-// --fail-fast: a task that fails outside any dispatch (an empty chain) still cancels before the next task is prepared.
-func TestBatchFailFastEmptyChainStopsQueuedTask(t *testing.T) {
-	failFastPair(t, Task{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"},
-		Prepare: func(context.Context) (*client.Prepared, error) {
-			return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: job.Record{ID: "id-first", Agent: "first", Log: filepath.Join(t.TempDir(), "l.log")}}, agent.Chain{Want: "first"}), nil
-		}})
-}
-
-type rateOnce struct {
-	name string
-	n    *atomic.Int32
-}
-
-func (r rateOnce) Name() string     { return r.name }
-func (r rateOnce) Caps() agent.Caps { return agent.Caps{} }
-
-func (r rateOnce) Available() error { return nil }
-func (r rateOnce) Run(context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
-	if r.n.Add(1) == 1 {
-		return wire.Result{}, &retry.Error{Kind: retry.KindRateLimit, Agent: r.name, RetryAfter: 300 * time.Millisecond, Err: errors.New("HTTP 429")}
-	}
-	return wire.Result{Answer: "a"}, nil
-}
-
-// A dispatch backing off after a 429 holds no permit: with Jobs=1 a task on another account runs during the wait.
-func TestBatchBackoffReleasesDispatchPermit(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	var n atomic.Int32
-	tasks := []Task{
-		acctTask(t, "limited", "rate·A", rateOnce{name: "limited", n: &n}),
-		acctTask(t, "free", "free·B", slowRunner{name: "free"}),
-	}
-	var out strings.Builder
-	if !RunTasks(context.Background(), tasks, PoolOptions{Jobs: 1, Out: &out}) {
-		t.Fatalf("batch failed: %s", out.String())
-	}
-	if first, _, _ := strings.Cut(out.String(), "\n"); !strings.Contains(first, `"task_id":"free"`) {
-		t.Errorf("first envelope = %s, want the free-account task to finish during the backoff", first)
-	}
-}
-
-// A cooldown that starts between the dispatch's acquire and its first attempt is waited out without the permit.
-func TestBatchFirstAttemptCooldownReleasesDispatchPermit(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	var once sync.Once
-	t.Cleanup(agent.SwapLoadState(func(prev func() router.State) func() router.State {
-		return func() router.State {
-			once.Do(func() { retry.CoolDown("late·A", 200*time.Millisecond) })
-			return prev()
-		}
-	}))
-	tasks := []Task{
-		acctTask(t, "late", "late·A", slowRunner{name: "late"}),
-		acctTask(t, "free", "free·B", slowRunner{name: "free"}),
-	}
-	var out strings.Builder
-	if !RunTasks(context.Background(), tasks, PoolOptions{Jobs: 1, Out: &out}) {
-		t.Fatalf("batch failed: %s", out.String())
-	}
-	if first, _, _ := strings.Cut(out.String(), "\n"); !strings.Contains(first, `"task_id":"free"`) {
-		t.Errorf("first envelope = %s, want the free-account task to run during the cooldown", first)
-	}
-}
-
 // A dispatch whose account another task marked auth-dead while it waited for a permit does not run: it is an auth hop.
 func TestQueuedDispatchSkipsAccountMarkedAuthDead(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var runs atomic.Int32
-	first := markingRunner{name: "first", mark: func() { _ = router.MarkAuth("auth·A", "login expired") }}
-	tasks := []Task{
-		acctTask(t, "first", "auth·A", first),
-		acctTask(t, "second", "auth·A", flagRunner{name: "second", runs: &runs}),
-	}
-	var out strings.Builder
-	RunTasks(context.Background(), tasks, PoolOptions{Jobs: 1, Out: &out})
+	out, _ := runPool(t, PoolOptions{Jobs: 1},
+		acctTask(t, "first", "auth·A", markRunner("first", markAuth("auth·A"))),
+		acctTask(t, "second", "auth·A", countRunner("second", &runs)))
 	if runs.Load() != 0 {
 		t.Errorf("the queued dispatch ran %d times on an auth-dead account", runs.Load())
 	}
-	for ln := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
-		if strings.Contains(ln, `"task_id":"second"`) && !strings.Contains(ln, `"kind":"auth"`) {
-			t.Errorf("second task's envelope = %s, want an auth error", ln)
-		}
+	if ln := envLine(out, "second"); ln != "" && !strings.Contains(ln, `"kind":"auth"`) {
+		t.Errorf("second task's envelope = %s, want an auth error", ln)
 	}
-}
-
-type markingRunner struct {
-	name string
-	mark func()
-}
-
-func (m markingRunner) Name() string     { return m.name }
-func (m markingRunner) Caps() agent.Caps { return agent.Caps{} }
-
-func (m markingRunner) Available() error { return nil }
-func (m markingRunner) Run(context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
-	m.mark()
-	time.Sleep(50 * time.Millisecond)
-	return wire.Result{Answer: "a"}, nil
 }
 
 // A retry resumes after the backoff only if its account is still usable: one marked auth-dead meanwhile is skipped.
 func TestRetryRechecksAccountAfterBackoff(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var n atomic.Int32
-	tasks := []Task{
-		acctTask(t, "limited", "rate·A", rateOnce{name: "limited", n: &n}),
-		acctTask(t, "marker", "free·B", markingRunner{name: "marker", mark: func() { _ = router.MarkAuth("rate·A", "login expired") }}),
-	}
-	var out strings.Builder
-	RunTasks(context.Background(), tasks, PoolOptions{Jobs: 1, Out: &out})
+	out, _ := runPool(t, PoolOptions{Jobs: 1},
+		acctTask(t, "limited", "rate·A", rateOnceRunner("limited", &n)),
+		acctTask(t, "marker", "free·B", markRunner("marker", markAuth("rate·A"))))
 	if n.Load() != 1 {
 		t.Errorf("the rate-limited dispatch ran %d times, want 1: its retry must not run on an auth-dead account", n.Load())
 	}
-	for ln := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
-		if strings.Contains(ln, `"task_id":"limited"`) && !strings.Contains(ln, `"kind":"auth"`) {
-			t.Errorf("limited task's envelope = %s, want an auth error", ln)
-		}
+	if ln := envLine(out, "limited"); ln != "" && !strings.Contains(ln, `"kind":"auth"`) {
+		t.Errorf("limited task's envelope = %s, want an auth error", ln)
 	}
 }
 
@@ -1340,44 +1234,13 @@ func TestRetryRechecksAccountAfterBackoff(t *testing.T) {
 // is not attempted.
 func TestFirstAttemptRechecksAccountAfterCooldownIdle(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	var once sync.Once
-	t.Cleanup(agent.SwapLoadState(func(prev func() router.State) func() router.State {
-		return func() router.State {
-			once.Do(func() { retry.CoolDown("late·A", 200*time.Millisecond) })
-			return prev()
-		}
-	}))
+	coolOnFirstLoad(t, "late·A", 200*time.Millisecond)
 	var runs atomic.Int32
-	tasks := []Task{
-		acctTask(t, "late", "late·A", flagRunner{name: "late", runs: &runs}),
-		acctTask(t, "marker", "free·B", markingRunner{name: "marker", mark: func() { _ = router.MarkAuth("late·A", "login expired") }}),
-	}
-	var out strings.Builder
-	RunTasks(context.Background(), tasks, PoolOptions{Jobs: 1, Out: &out})
+	runPool(t, PoolOptions{Jobs: 1},
+		acctTask(t, "late", "late·A", countRunner("late", &runs)),
+		acctTask(t, "marker", "free·B", markRunner("marker", markAuth("late·A"))))
 	if runs.Load() != 0 {
 		t.Errorf("the first attempt ran %d times on an account marked auth-dead during its cooldown wait", runs.Load())
-	}
-}
-
-// Own-login dispatches (no account) on one agent still share agent.DefaultPerKey, even when --jobs allows more.
-func TestBatchCapsOwnLoginDispatchesPerAgent(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	var cur, peak atomic.Int32
-	r := gaugeRunner{name: "opencode", cur: &cur, max: &peak}
-	var tasks []Task
-	for i := range retry.DefaultPerKey + 3 {
-		id := fmt.Sprintf("own%d", i)
-		tasks = append(tasks, Task{ID: id, Agent: "opencode", Req: agent.RunOptions{Prompt: "p"},
-			Prepare: func(context.Context) (*client.Prepared, error) {
-				return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: job.Record{ID: "id-" + id, Agent: "opencode", Log: filepath.Join(t.TempDir(), "l.log")}}, agent.Chain{Want: "opencode", Dispatches: []agent.Dispatch{keepCaller(agent.Dispatch{Agent: r})}}), nil
-			}})
-	}
-	var out strings.Builder
-	if !RunTasks(context.Background(), tasks, PoolOptions{Jobs: len(tasks), Out: &out}) {
-		t.Fatalf("batch failed: %s", out.String())
-	}
-	if got := int(peak.Load()); got > retry.DefaultPerKey || got < 2 {
-		t.Errorf("peak concurrent own-login dispatches = %d, want 2..%d", got, retry.DefaultPerKey)
 	}
 }
 
@@ -1388,21 +1251,18 @@ func TestRunBatchMarkersAppearAndClear(t *testing.T) {
 	var cur, runPeak atomic.Int32
 	var tasks []Task
 	for _, name := range []string{"a", "b", "c"} {
-		r := gaugeRunner{name: name, cur: &cur, max: &runPeak}
-		tasks = append(tasks, Task{ID: name, Agent: name, Req: agent.RunOptions{Prompt: "p"},
-			Prepare: func(context.Context) (*client.Prepared, error) {
-				return setChain(&client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: job.Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}}, agent.Chain{Want: name, Dispatches: []agent.Dispatch{keepCaller(agent.Dispatch{Agent: r, Account: account})}}), nil
-			}})
+		r := gaugeRunner(name, &cur, &runPeak, 60*time.Millisecond, nil)
+		tasks = append(tasks, chainTask(t, name, name, name, keepCaller(agent.Dispatch{Agent: r, Account: account})))
 	}
 	stop := make(chan struct{})
 	var peak atomic.Int32
 	go samplePeak(inflight.Dir(), account, 2*time.Millisecond, stop, &peak)
-
-	if !RunTasks(context.Background(), tasks, PoolOptions{Jobs: 3}) {
+	ok := RunTasks(context.Background(), tasks, PoolOptions{Jobs: 3})
+	close(stop)
+	if !ok {
 		t.Fatal("batch failed")
 	}
-	close(stop)
-	if got := peak.Load(); got == 0 {
+	if peak.Load() == 0 {
 		t.Error("no inflight markers observed while the batch ran")
 	}
 	if n := countAccountMarkers(inflight.Dir(), account); n != 0 {
@@ -1443,36 +1303,9 @@ func samplePeak(dir, account string, interval time.Duration, stop <-chan struct{
 	}
 }
 
-// keepCaller is d's agent and account on agent.Single's dispatch, which keeps the caller's own --model.
-func keepCaller(d agent.Dispatch) agent.Dispatch {
-	k := agent.Single(d.Agent).Dispatches[0]
-	k.Account = d.Account
-	return k
-}
-
 // authEnv seeds a default provider row in a keyring-backed vault.
 func authEnv(t *testing.T, row string) {
 	t.Helper()
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"agauth","providers":{"anthropic":{"agauth":`+row+`}}}`)
-}
-
-// failingRunner emits one empty text event, then fails with err and an empty answer.
-type failingRunner struct {
-	name string
-	err  error
-}
-
-func (f failingRunner) Name() string     { return f.name }
-func (f failingRunner) Caps() agent.Caps { return agent.Caps{} }
-
-func (f failingRunner) Available() error { return nil }
-func (f failingRunner) Run(_ context.Context, _ agent.RunOptions, w wire.Sink) (wire.Result, error) {
-	w.Emit(wire.Event{Type: wire.EventText})
-	return wire.Result{}, f.err
-}
-
-// newFailingRunner is a runner whose dispatch fails with err.
-func newFailingRunner(name string, err error) agent.Engine {
-	return failingRunner{name: name, err: err}
 }

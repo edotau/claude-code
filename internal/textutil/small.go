@@ -2,6 +2,7 @@ package textutil
 
 import (
 	"io"
+	"strconv"
 	"strings"
 )
 
@@ -24,4 +25,15 @@ func (e *ErrWriter) Write(p []byte) (int, error) {
 func LastLine(s string) string {
 	lines := strings.Split(strings.TrimRight(s, " \t\r\n"), "\n")
 	return strings.TrimSpace(lines[len(lines)-1])
+}
+
+// CompactCount spells n as 950, 94.4k, 200k or 1.2M: one decimal, a trailing ".0" dropped, millions from 999_950.
+func CompactCount(n int64) string {
+	switch {
+	case n >= 999_950: // from 999_950 %.1fk would print 1000.0k
+		return strings.TrimSuffix(strconv.FormatFloat(float64(n)/1e6, 'f', 1, 64), ".0") + "M"
+	case n >= 1000:
+		return strings.TrimSuffix(strconv.FormatFloat(float64(n)/1e3, 'f', 1, 64), ".0") + "k"
+	}
+	return strconv.FormatInt(n, 10)
 }

@@ -64,7 +64,7 @@ func PrintResult(rec job.Record, format string) int {
 	}
 	if rec.SessionID != "" {
 		fmt.Fprintf(out, "session: %s\n", rec.SessionID)
-		fmt.Fprintf(out, "resume: claude-code agents ask --agent %s --session %s\n", rec.Agent, rec.SessionID)
+		fprintResumeHint(out, rec.Agent, rec.SessionID)
 	}
 	if out.Err != nil {
 		return helptext.Fail("agents result: write output: %v", out.Err)

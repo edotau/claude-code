@@ -199,69 +199,6 @@ func (d Dispatch) same(o Dispatch) bool {
 	return d.Agent.Name() == o.Agent.Name() && d.Account == o.Account && d.Model == o.Model && d.Effort == o.Effort
 }
 
-// explicitChain is r alone on the caller's explicit backend (--provider or provider:model), carrying that backend's
-// account: a remembered exhaustion skips it without an attempt, and a quota failure is recorded on it.
-func explicitChain(r Engine, req RunOptions) Chain {
-	c := Single(r)
-	acct, billing := explicitAccount(r, req)
-	c.Dispatches[0].Account, c.Dispatches[0].Billing = acct, billing
-	if req.Model == router.DiscoveryModel {
-		reg := loadRegistryWarn()
-		c.Dispatches[0] = discoveryDispatch(c.Dispatches[0], router.Aliases[1], reg, req.Provider, false)
-	}
-	if acct == "" || acct == copilotLoginAccount() { // copilot's own gate falls back to Databricks instead
-		return c
-	}
-	now := time.Now()
-	if e := loadState()[acct]; e.Status(now) == router.StateExhausted {
-		return Chain{Want: r.Name(), Skipped: []string{r.Name() + ": " + router.ExhaustedReason(acct, e, now)}}
-	}
-	return c
-}
-
-// withAlias runs c's lone explicit dispatch on the router's alias when the caller named no model.
-func withAlias(c Chain, alias string) Chain {
-	if len(c.Dispatches) != 1 || alias == "" {
-		return c
-	}
-	disp := c.Dispatches[0]
-	disp.Model, disp.keepCaller, disp.unroutedDispatch = alias, false, false
-	c.Dispatches = []Dispatch{disp}
-	return c
-}
-
-// dispatchRequest is req for dispatch: the wanted dispatch keeps an explicit caller model; every other dispatch drops the original
-// provider and session (they belong to the dispatch that minted them) and runs its cell, the caller's --effort winning.
-func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
-	disp.discoveryNote()
-	out := req
-	if disp.unroutedDispatch {
-		return out
-	}
-	if !first {
-		out.Provider, out.SessionID = "", ""
-	}
-	if !disp.keepCaller {
-		out.Model = disp.Model
-	}
-	if out.Effort == "" {
-		out.Effort = disp.Effort
-	}
-	return armClaudeProfile(out, disp)
-}
-
-// armClaudeProfile runs a claude hop inside databricks:<p> on its "<profile>:" row; claude reads only Provider.
-func armClaudeProfile(out RunOptions, disp Dispatch) RunOptions {
-	if router.ArmProfile() == "" || disp.Agent == nil || disp.Agent.Name() != "claude" {
-		return out
-	}
-	prof, model, ok := strings.Cut(out.Model, ":")
-	if reg, err := providers.Load(); ok && err == nil && reg.Providers[prof] != nil {
-		out.Provider, out.Model = prof, model
-	}
-	return out
-}
-
 // RouteReq is one route ask: the agent, its model, the caller's route flags and what the chain is for.
 type RouteReq struct {
 	Agent, Model, AliasHint, Task string // AliasHint: the dispatch's classified alias; Task: what a preview classifies
@@ -793,4 +730,61 @@ func (disp Dispatch) discoveryNote() {
 		return
 	}
 	fmt.Fprintln(os.Stderr, disp.note)
+}
+
+// previewRoute resolves the pick through the chain `ask` runs, so each candidate carries the model it would execute;
+// a dispatch dropped after the pick (model or profile gate) moves to Skipped.
+func previewRoute(ctx context.Context, q RouteReq, lead string) (Chain, router.PickResult, error) {
+	tb, err := router.Load()
+	if err != nil {
+		return Chain{}, router.PickResult{}, err
+	}
+	hint, err := previewHint(tb, q.Model, q.Task)
+	if err != nil {
+		return Chain{}, router.PickResult{}, err
+	}
+	chain, pick, err := chainFor(ctx, q, hint, lead)
+	if err != nil {
+		return Chain{}, router.PickResult{}, err
+	}
+	return chain, previewOutcome(chain, pick), nil
+}
+
+func previewHint(tb *router.RouteTable, model, task string) (string, error) {
+	id, _, ok := models.Resolve(model)
+	if exact := ok && models.FamilyKind(id) != models.FamilyClaude; model != "" && model != router.DiscoveryModel && !exact && tb.AliasOf(model) == "" {
+		return "", fmt.Errorf("--model %q names no alias or version the table routes", model)
+	}
+	hint := tb.AliasOf(model)
+	if hint == "" && task != "" {
+		hint = router.RuleClassifier{}.Alias(task)
+	}
+	if hint == "" {
+		hint = router.Aliases[1]
+	}
+	return hint, nil
+}
+
+func previewOutcome(chain Chain, pick router.PickResult) router.PickResult {
+	res := pick
+	res.Candidates = nil
+	for _, d := range chain.Dispatches {
+		if d.rung < 1 || d.rung > len(pick.Candidates) {
+			continue
+		}
+		c := pick.Candidates[d.rung-1]
+		if c.Agent != "claude" { // the terminal claude hop keeps its cell id; dispatch passes the same row's alias
+			c.Model, c.Effort = d.Model, d.Effort
+		}
+		res.Candidates = append(res.Candidates, c)
+	}
+	res.Skipped = slices.Clone(pick.Skipped)
+	for _, s := range chain.Skipped {
+		if slices.ContainsFunc(pick.Skipped, func(k router.Skip) bool { return s == k.Agent+": "+k.Reason }) {
+			continue
+		}
+		who, why, _ := strings.Cut(s, ": ")
+		res.Skipped = append(res.Skipped, router.Skip{Agent: who, Gate: "model", Reason: why})
+	}
+	return res
 }

@@ -38,6 +38,30 @@ func captureStdout(t *testing.T, fn func()) string {
 	return stdout
 }
 
+// cfgDir points CLAUDE_CONFIG_DIR at a fresh temp dir and returns it.
+func cfgDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	return dir
+}
+
+// runAgents runs cmdAgents and returns its exit code, stdout and stderr.
+func runAgents(t *testing.T, args ...string) (int, string, string) {
+	t.Helper()
+	return hosttest.CaptureOutput(t, func() int { return cmdAgents(args) })
+}
+
+// okAgents runs cmdAgents, fails unless it exits 0, and returns stdout.
+func okAgents(t *testing.T, args ...string) string {
+	t.Helper()
+	code, stdout, stderr := runAgents(t, args...)
+	if code != 0 {
+		t.Fatalf("agents %v: exit %d, stderr=%s", args, code, stderr)
+	}
+	return stdout
+}
+
 func checkLostDispatches(t *testing.T, paths []string) {
 	t.Helper()
 	for _, p := range paths {
@@ -81,24 +105,20 @@ func TestAgentsHelpDocumentsReap(t *testing.T) {
 	if !strings.Contains(buf.String(), "  reap") {
 		t.Error("agentsPage must document reap")
 	}
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgents([]string{"reap", "-h"}) })
+	code, _, stderr := runAgents(t, "reap", "-h")
 	if code != 0 || !strings.Contains(stderr, "--dry-run") {
 		t.Errorf("agents reap help must document --dry-run: exit %d:\n%s", code, stderr)
 	}
 }
 
 func TestCmdAgentsReapDryRunChangesNothing(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cfgDir(t)
 	dead := writeDispatch(t, "20261024T000001.000-codex", "running", deadPID(t), time.Hour)
-	dir := filepath.Join(paths.StateDir(), "agents-inflight")
-	marker := filepath.Join(dir, "agent-"+strconv.Itoa(deadPID(t))+"-toolu_dead")
+	marker := filepath.Join(paths.StateDir(), "agents-inflight", "agent-"+strconv.Itoa(deadPID(t))+"-toolu_dead")
 	writeFixtureFile(t, marker, "")
 	before, _ := os.ReadFile(dead)
 
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgents([]string{"reap", "--dry-run"}) })
-	if code != 0 {
-		t.Fatalf("reap --dry-run exit %d, stderr=%s", code, stderr)
-	}
+	stdout := okAgents(t, "reap", "--dry-run")
 	if after, _ := os.ReadFile(dead); string(after) != string(before) {
 		t.Errorf("--dry-run rewrote the record:\n%s", after)
 	}
@@ -111,22 +131,22 @@ func TestCmdAgentsReapDryRunChangesNothing(t *testing.T) {
 }
 
 func TestCmdAgentsReapMarkers(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cfgDir(t)
 	dir := filepath.Join(paths.StateDir(), "agents-inflight")
 	deadM := filepath.Join(dir, "agent-"+strconv.Itoa(deadPID(t))+"-toolu_dead")
-	liveM := filepath.Join(dir, "agent-"+strconv.Itoa(os.Getpid())+"-toolu_live")
-	lock := filepath.Join(dir, ".lock")
-	stray := filepath.Join(dir, "notes.txt")
-	for _, p := range []string{deadM, liveM, lock, stray} {
+	survivors := []string{
+		filepath.Join(dir, "agent-"+strconv.Itoa(os.Getpid())+"-toolu_live"),
+		filepath.Join(dir, ".lock"),
+		filepath.Join(dir, "notes.txt"),
+	}
+	for _, p := range append([]string{deadM}, survivors...) {
 		writeFixtureFile(t, p, "")
 	}
-	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgents([]string{"reap"}) }); code != 0 {
-		t.Fatalf("reap exit %d, stderr=%s", code, stderr)
-	}
+	okAgents(t, "reap")
 	if _, err := os.Stat(deadM); !os.IsNotExist(err) {
 		t.Errorf("dead-owner marker should be removed (err=%v)", err)
 	}
-	for _, p := range []string{liveM, lock, stray} {
+	for _, p := range survivors {
 		if _, err := os.Stat(p); err != nil {
 			t.Errorf("%s must survive reap: %v", filepath.Base(p), err)
 		}
@@ -134,17 +154,14 @@ func TestCmdAgentsReapMarkers(t *testing.T) {
 }
 
 func TestCmdAgentsReapMarksLostDispatches(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cfgDir(t)
 	dead := writeDispatch(t, "20261024T000001.000-codex", "running", deadPID(t), time.Hour)
 	live := writeDispatch(t, "20261024T000002.000-codex", "running", os.Getpid(), time.Hour)
 	done := writeDispatch(t, "20261024T000003.000-codex", "ok", deadPID(t), time.Hour)
 	young := writeDispatch(t, "20261024T000004.000-codex", "running", 0, 5*time.Second)
 	old0 := writeDispatch(t, "20261024T000005.000-codex", "running", 0, 10*time.Minute)
 
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgents([]string{"reap"}) })
-	if code != 0 {
-		t.Fatalf("reap exit %d, stderr=%s", code, stderr)
-	}
+	stdout := okAgents(t, "reap")
 	checkLostDispatches(t, []string{dead, old0})
 	for _, p := range []string{live, young} {
 		if m := readDispatch(t, p); m["status"] != "running" {
@@ -160,22 +177,16 @@ func TestCmdAgentsReapMarksLostDispatches(t *testing.T) {
 }
 
 func TestCmdAgentsReapNothingToDo(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgents([]string{"reap"}) }); code != 0 {
-		t.Fatalf("reap on empty state exit %d, stderr=%s", code, stderr)
-	}
+	cfgDir(t)
+	okAgents(t, "reap")
 }
 
 // --background and -bg are a superset of the default: a running dispatch from another repo stays listed.
 func TestCmdAgentsTreeBackgroundKeepsRunningDispatches(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cfgDir(t)
 	writeDispatch(t, "20261024T000002.000-codex", "running", os.Getpid(), 72*time.Hour)
 	for _, flag := range []string{"--background", "-bg"} {
-		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgents([]string{"tree", flag, "--days", "1"}) })
-		if code != 0 {
-			t.Fatalf("%s: exit %d, stderr=%s", flag, code, stderr)
-		}
-		if !strings.Contains(stdout, "000002") {
+		if stdout := okAgents(t, "tree", flag, "--days", "1"); !strings.Contains(stdout, "000002") {
 			t.Errorf("%s dropped the running dispatch:\n%s", flag, stdout)
 		}
 	}
@@ -183,15 +194,11 @@ func TestCmdAgentsTreeBackgroundKeepsRunningDispatches(t *testing.T) {
 
 // `agents tree --format json` reads CLAUDE_CONFIG_DIR and emits the documented {sessions:[...]} schema.
 func TestCmdAgentsTreeFormatJSON(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	dir := cfgDir(t)
 	writeFixtureFile(t, filepath.Join(dir, "projects", "-Users-fake-repo", "sess0001.jsonl"),
 		`{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"hello"},"cwd":"/Users/fake/repo","gitBranch":"main"}`)
 
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgents([]string{"tree", "--days", "365", "--format", "json"}) })
-	if code != 0 {
-		t.Fatalf("agents tree --format json exit %d, stderr=%s", code, stderr)
-	}
+	stdout := okAgents(t, "tree", "--days", "365", "--format", "json")
 	var decoded struct {
 		Sessions []struct {
 			ID string `json:"id"`
@@ -205,27 +212,26 @@ func TestCmdAgentsTreeFormatJSON(t *testing.T) {
 	}
 }
 
-// agents tree rejects an unknown --format value before touching the filesystem.
-func TestCmdAgentsTreeRejectsBadFormat(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgents([]string{"tree", "--format", "xml"}) })
-	if code != 2 {
-		t.Errorf("exit = %d, want 2", code)
-	}
-	if stderr == "" {
-		t.Error("expected an error on stderr for an unknown --format value")
+// An unknown --format and a non-positive --watch --interval are refused (exit 2) instead of running.
+func TestCmdAgentsTreeRejectsBadFlags(t *testing.T) {
+	cfgDir(t)
+	for name, args := range map[string][]string{
+		"unknown format": {"tree", "--format", "xml"},
+		"interval 0":     {"tree", "--watch", "--interval", "0"},
+		"interval -1s":   {"tree", "--watch", "--interval", "-1s"},
+	} {
+		if code, _, stderr := runAgents(t, args...); code != 2 || stderr == "" {
+			t.Errorf("%s: exit %d stderr %q, want exit 2 with a message", name, code, stderr)
+		}
 	}
 }
 
 // agents tree --running lists running dispatches machine-wide, including other repos, ignoring --days.
 func TestCmdAgentsTreeRunningListsDispatchesMachineWide(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cfgDir(t)
 	writeDispatch(t, "20261024T000002.000-codex", "running", os.Getpid(), 72*time.Hour)
 	writeDispatch(t, "20261024T000003.000-codex", "ok", os.Getpid(), time.Minute)
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgents([]string{"tree", "--days", "1"}) })
-	if code != 0 {
-		t.Fatalf("exit %d, stderr=%s", code, stderr)
-	}
+	stdout := okAgents(t, "tree", "--days", "1")
 	if !strings.Contains(stdout, "000002") {
 		t.Errorf("running dispatch from another repo missing:\n%s", stdout)
 	}
@@ -234,26 +240,11 @@ func TestCmdAgentsTreeRunningListsDispatchesMachineWide(t *testing.T) {
 	}
 }
 
-// agents tree's text output (the default) renders without error when no sessions are in scope.
+// The default text output renders a message when no sessions are in scope.
 func TestCmdAgentsTreeTextNoSessions(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, stdout, _ := hosttest.CaptureOutput(t, func() int { return cmdAgents([]string{"tree"}) })
-	if code != 0 {
-		t.Fatalf("exit %d", code)
-	}
-	if stdout == "" {
+	cfgDir(t)
+	if stdout := okAgents(t, "tree"); stdout == "" {
 		t.Error("expected a \"no sessions in scope\" message on stdout")
-	}
-}
-
-// agents tree --watch rejects a zero or negative --interval instead of busy-looping.
-func TestCmdAgentsTreeWatchRejectsNonPositiveInterval(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, iv := range []string{"0", "-1s"} {
-		code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgents([]string{"tree", "--watch", "--interval", iv}) })
-		if code != 2 || stderr == "" {
-			t.Errorf("--interval %s: exit %d stderr %q, want exit 2 with a message", iv, code, stderr)
-		}
 	}
 }
 
@@ -290,37 +281,54 @@ func TestVendorSubverbsCoverContractVerbs(t *testing.T) {
 // notAVendor is an unregistered agent: every lookup rejects it in-process, so routing never reaches a vendor binary.
 const notAVendor = "zzz-not-a-vendor"
 
-// `<v> -- status` launches (generic "unknown agent"), never the status sub-verb's "<v> status:" error.
-func TestVendorVerbDoubleDashForcesPassthrough(t *testing.T) {
-	_, _, stderr := hosttest.CaptureOutput(t, func() int { return agentVerb(notAVendor, []string{"--", "status"}) })
-	if strings.Contains(stderr, notAVendor+" status:") {
-		t.Errorf("-- status reached cmdVendorStatus instead of launchVendor: %q", stderr)
-	}
-	if !strings.Contains(stderr, "unknown agent") {
-		t.Errorf("-- status stderr = %q, want agent.Vendor's \"unknown agent\" message", stderr)
+func agentVerb(name string, args []string) int { return cmdAgentVerb(name, args) }
+
+// Each sub-verb reaches its own handler (proven by that handler's message); anything else launches.
+func TestVendorVerbRouting(t *testing.T) {
+	for _, tc := range []struct {
+		name, vendor string
+		args         []string
+		code         int // -1: not asserted
+		onStdout     bool
+		prefix       bool
+		want, not    string
+	}{
+		{"double dash forces launch", notAVendor, []string{"--", "status"}, -1, false, false, "unknown agent", notAVendor + " status:"},
+		{"status", notAVendor, []string{"status"}, -1, false, false, notAVendor + " status:", ""},
+		{"result", notAVendor, []string{"result"}, -1, false, false, notAVendor + " result:", ""},
+		{"cancel", notAVendor, []string{"cancel"}, -1, false, false, notAVendor + " cancel:", ""},
+		{"tail", notAVendor, []string{"tail"}, -1, false, false, notAVendor + " tail:", ""},
+		{"bare word launches", notAVendor, []string{"--native-flag", "x"}, -1, false, false, "unknown agent", ""},
+		{"setup", notAVendor, []string{"setup"}, -1, true, false, notAVendor + "  agent  fail", ""},
+		{"resume without id", "codex", []string{"resume"}, -1, false, false, "codex resume: usage:", ""},
+		{"catalog extra arg", "codex", []string{"catalog", "unexpected"}, 2, false, false, "codex catalog: unexpected argument", ""},
+		{"catalog help", "codex", []string{"catalog", "--help"}, 0, false, true, "usage: claude-code codex catalog", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return agentVerb(tc.vendor, tc.args) })
+			got := stderr
+			if tc.onStdout {
+				got = stdout
+			}
+			if tc.code >= 0 && code != tc.code {
+				t.Errorf("exit %d, want %d (stderr %q)", code, tc.code, stderr)
+			}
+			if ok := strings.Contains(got, tc.want); tc.prefix {
+				ok = strings.HasPrefix(got, tc.want)
+				if !ok {
+					t.Errorf("output %q lacks prefix %q", got, tc.want)
+				}
+			} else if !ok {
+				t.Errorf("output %q lacks %q", got, tc.want)
+			}
+			if tc.not != "" && strings.Contains(got, tc.not) {
+				t.Errorf("output %q must not contain %q", got, tc.not)
+			}
+		})
 	}
 }
 
-// status/result/cancel/tail reach their handlers, proven by each handler's "<v> <verb>:" error prefix.
-func TestVendorVerbRoutesStatusResultCancelToCmdVendorSub(t *testing.T) {
-	for _, sub := range []string{"status", "result", "cancel", "tail"} {
-		_, _, stderr := hosttest.CaptureOutput(t, func() int { return agentVerb(notAVendor, []string{sub}) })
-		want := notAVendor + " " + sub + ":"
-		if !strings.Contains(stderr, want) {
-			t.Errorf("vendorVerb(%q, [%q]) stderr = %q, want it to contain %q", notAVendor, sub, stderr, want)
-		}
-	}
-}
-
-// A bare word that is not "--", "ask" or a sub-verb launches with args forwarded unchanged.
-func TestVendorVerbBareLaunchesEvenWhenFirstWordLooksLikeASubverb(t *testing.T) {
-	_, _, stderr := hosttest.CaptureOutput(t, func() int { return agentVerb(notAVendor, []string{"--native-flag", "x"}) })
-	if !strings.Contains(stderr, "unknown agent") {
-		t.Errorf("bare launch stderr = %q, want agent.Vendor's unknown-vendor message", stderr)
-	}
-}
-
-// TestVendorVerbHelpFlag checks that vendor help uses the shared page and exits successfully.
+// Vendor help uses the shared page and exits successfully.
 func TestVendorVerbHelpFlag(t *testing.T) {
 	for _, flagArg := range []string{"-h", "--help", "help"} {
 		code, _, stderr := hosttest.CaptureOutput(t, func() int { return agentVerb("codex", []string{flagArg}) })
@@ -347,9 +355,6 @@ func TestAgentSubPageHasNoFormatDebris(t *testing.T) {
 	}
 }
 
-// agentVerb runs AgentVerb.
-func agentVerb(name string, args []string) int { return cmdAgentVerb(name, args) }
-
 func saveResultRecord(t *testing.T, status, errMsg string) job.Record {
 	t.Helper()
 	cwd, _ := os.Getwd()
@@ -362,46 +367,33 @@ func saveResultRecord(t *testing.T, status, errMsg string) job.Record {
 	return rec
 }
 
-func TestVendorResultErrorRecordExits1(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := saveResultRecord(t, "error", "boom happened")
-	for _, args := range [][]string{{rec.ID}, {"--format", "json", rec.ID}} {
-		code, _, stderr := hosttest.CaptureOutput(t, func() int { return agentResult("codex", args) })
-		if code != 1 || !strings.Contains(stderr, "error: boom happened") {
-			t.Errorf("args %v: exit %d stderr %q, want 1 and \"error: boom happened\"", args, code, stderr)
-		}
-	}
-}
-
-func TestVendorResultOKRecordExits0(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := saveResultRecord(t, "ok", "")
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return agentResult("codex", []string{rec.ID}) })
-	if code != 0 || strings.Contains(stderr, "error:") {
-		t.Errorf("exit %d stderr %q, want 0 and no error line", code, stderr)
-	}
-}
-
-// setup reaches its handler: the report row (agent name first) lands on stdout.
-func TestVendorVerbRoutesSetupToCmdVendorSetup(t *testing.T) {
-	_, stdout, _ := hosttest.CaptureOutput(t, func() int { return agentVerb(notAVendor, []string{"setup"}) })
-	if !strings.Contains(stdout, notAVendor+"  agent  fail") {
-		t.Errorf("vendorVerb(%q, [setup]) stdout = %q, want cmdVendorSetup's report row", notAVendor, stdout)
-	}
-}
-
-// `resume` with no id fails its own usage check before ask could dispatch a real run.
-func TestVendorVerbRoutesResumeToCmdVendorResume(t *testing.T) {
-	_, _, stderr := hosttest.CaptureOutput(t, func() int { return agentVerb("codex", []string{"resume"}) })
-	if !strings.Contains(stderr, "codex resume: usage:") {
-		t.Errorf("vendorVerb(resume, no id) stderr = %q, want cmdVendorResume's usage message", stderr)
+func TestVendorResultRecordExit(t *testing.T) {
+	for _, tc := range []struct {
+		name, status, errMsg string
+		flags                []string
+		code                 int
+	}{
+		{"error record", "error", "boom happened", nil, 1},
+		{"error record json", "error", "boom happened", []string{"--format", "json"}, 1},
+		{"ok record", "ok", "", nil, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfgDir(t)
+			rec := saveResultRecord(t, tc.status, tc.errMsg)
+			args := append(slices.Clone(tc.flags), rec.ID)
+			code, _, stderr := hosttest.CaptureOutput(t, func() int { return agentResult("codex", args) })
+			if code != tc.code || strings.Contains(stderr, "error: boom happened") != (tc.code == 1) ||
+				(tc.code == 0 && strings.Contains(stderr, "error:")) {
+				t.Errorf("exit %d stderr %q, want exit %d (error line only when 1)", code, stderr, tc.code)
+			}
+		})
 	}
 }
 
 // seedTailJob saves a finished codex record whose log holds body and returns its id.
 func seedTailJob(t *testing.T, status, body string) string {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cfgDir(t)
 	cwd := t.TempDir()
 	logPath := filepath.Join(cwd, "job.log")
 	if err := os.WriteFile(logPath, []byte(body), 0o600); err != nil {
@@ -415,42 +407,29 @@ func seedTailJob(t *testing.T, status, body string) string {
 	return rec.ID
 }
 
-// TestVendorTailPrintsFinishedLog: tail <id> on a finished ok job prints its log and exits 0.
-func TestVendorTailPrintsFinishedLog(t *testing.T) {
-	id := seedTailJob(t, "ok", "line one\nline two\n")
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return agentVerb("codex", []string{"tail", id}) })
-	if code != 0 || stdout != "line one\nline two\n" {
-		t.Errorf("tail ok job = exit %d stdout %q stderr %q, want exit 0 with the log verbatim", code, stdout, stderr)
-	}
-}
-
-// TestVendorTailErrorJobExitsOne: a job that ended in error still prints its log but exits 1.
-func TestVendorTailErrorJobExitsOne(t *testing.T) {
-	id := seedTailJob(t, "error", "boom\n")
-	code, stdout, _ := hosttest.CaptureOutput(t, func() int { return agentVerb("codex", []string{"tail", id}) })
-	if code != 1 || !strings.Contains(stdout, "boom") {
-		t.Errorf("tail error job = exit %d stdout %q, want exit 1 with the log", code, stdout)
-	}
-}
-
-// TestVendorTailUnknownIDFails: an id matching no job errors with the "<v> tail:" prefix, exit 1.
-func TestVendorTailUnknownIDFails(t *testing.T) {
-	seedTailJob(t, "ok", "x\n")
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return agentVerb("codex", []string{"tail", "zzzzzzzz"}) })
-	if code != 1 || !strings.Contains(stderr, "codex tail:") {
-		t.Errorf("tail unknown id = exit %d stderr %q, want exit 1 and the \"codex tail:\" prefix", code, stderr)
-	}
-}
-
-// catalog reaches cmdVendorModels, not launchVendor, with canonical diagnostics and help.
-func TestVendorVerbRoutesCatalogToCmdVendorModels(t *testing.T) {
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return agentVerb("codex", []string{"catalog", "unexpected"}) })
-	if code != 2 || !strings.Contains(stderr, "codex catalog: unexpected argument") {
-		t.Errorf("vendorVerb(catalog): code=%d stderr=%q", code, stderr)
-	}
-	code, _, stderr = hosttest.CaptureOutput(t, func() int { return agentVerb("codex", []string{"catalog", "--help"}) })
-	if code != 0 || !strings.HasPrefix(stderr, "usage: claude-code codex catalog") {
-		t.Errorf("vendorVerb(catalog --help): code=%d stderr=%q", code, stderr)
+func TestVendorTail(t *testing.T) {
+	for _, tc := range []struct {
+		name, status, body, id string // id "" tails the seeded job
+		code                   int
+		stdout, stderr         string // stdout is exact when set, stderr a substring
+		stdoutHas              string
+	}{
+		{"finished ok job prints its log", "ok", "line one\nline two\n", "", 0, "line one\nline two\n", "", ""},
+		{"error job prints log and exits 1", "error", "boom\n", "", 1, "", "", "boom"},
+		{"unknown id fails with prefix", "ok", "x\n", "zzzzzzzz", 1, "", "codex tail:", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id := seedTailJob(t, tc.status, tc.body)
+			if tc.id != "" {
+				id = tc.id
+			}
+			code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return agentVerb("codex", []string{"tail", id}) })
+			if code != tc.code || (tc.stdout != "" && stdout != tc.stdout) || !strings.Contains(stdout, tc.stdoutHas) ||
+				!strings.Contains(stderr, tc.stderr) {
+				t.Errorf("tail = exit %d stdout %q stderr %q, want exit %d stdout %q%q stderr %q",
+					code, stdout, stderr, tc.code, tc.stdout, tc.stdoutHas, tc.stderr)
+			}
+		})
 	}
 }
 
@@ -463,35 +442,45 @@ func partArgs(n int, tail ...string) []string {
 	return append(args, tail...)
 }
 
+// Bad dispatch args exit 2 and the message names the cause where one is pinned.
 func TestDispatchUsageErrorsExit2(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	for name, args := range map[string][]string{
-		"missing task":    {"explore"},
-		"no args":         {},
-		"unknown role":    {"nonesuch", "task"},
-		"over-cap --part": partArgs(roles.MaxParts+1, "explore", "task"),
-		"bad schema":      {"--output-schema", "{not json", "fleet", "task"},
-		"schema file":     {"--output-schema", "/nonexistent/schema.json", "fleet", "task"},
+	capMsg := fmt.Sprintf("%d --part", roles.MaxParts+1)
+	for _, tc := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{"missing task", []string{"explore"}, nil},
+		{"no args", []string{}, nil},
+		{"unknown role", []string{"nonesuch", "task"}, []string{`unknown role "nonesuch"`}},
+		{"over-cap --part", partArgs(roles.MaxParts+1, "explore", "task"), []string{capMsg, fmt.Sprintf("cap is %d", roles.MaxParts)}},
+		{"bad schema", []string{"--output-schema", "{not json", "fleet", "task"}, []string{"--output-schema"}},
+		{"schema file", []string{"--output-schema", "/nonexistent/schema.json", "fleet", "task"}, nil},
 	} {
-		if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdAgentsDispatch(args) }); code != 2 {
-			t.Errorf("%s: exit %d, want 2", name, code)
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsDispatch(tc.args) })
+		if code != 2 {
+			t.Errorf("%s: exit %d, want 2", tc.name, code)
+		}
+		for _, w := range tc.want {
+			if !strings.Contains(stderr, w) {
+				t.Errorf("%s: stderr %q lacks %q", tc.name, stderr, w)
+			}
 		}
 	}
 }
 
-func TestDispatchErrorMessagesNameTheCause(t *testing.T) {
-	vaulttest.UseFreshKey(t)
-	_, _, errOut := hosttest.CaptureOutput(t, func() int { return cmdAgentsDispatch(partArgs(roles.MaxParts+1, "explore", "task")) })
-	if !strings.Contains(errOut, fmt.Sprintf("%d --part", roles.MaxParts+1)) || !strings.Contains(errOut, fmt.Sprintf("cap is %d", roles.MaxParts)) {
-		t.Errorf("part cap stderr: %q", errOut)
+// writeEvents writes evs as JSON lines to the record's events file.
+func writeEvents(t *testing.T, rec job.Record, evs []wire.Event) {
+	t.Helper()
+	var b strings.Builder
+	for _, ev := range evs {
+		line, _ := json.Marshal(ev)
+		b.Write(line)
+		b.WriteByte('\n')
 	}
-	_, _, errOut = hosttest.CaptureOutput(t, func() int { return cmdAgentsDispatch([]string{"--output-schema", "{not json", "fleet", "task"}) })
-	if !strings.Contains(errOut, "--output-schema") {
-		t.Errorf("bad schema stderr: %q", errOut)
-	}
-	_, _, errOut = hosttest.CaptureOutput(t, func() int { return cmdAgentsDispatch([]string{"nonesuch", "task"}) })
-	if !strings.Contains(errOut, `unknown role "nonesuch"`) {
-		t.Errorf("unknown role stderr: %q", errOut)
+	if err := os.WriteFile(rec.EventsPath(), []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -509,10 +498,10 @@ func checkJobTailEvents(t *testing.T, code int, out string) {
 	}
 }
 
-// seedClaudeJob saves a finished claude record with a log and, when events is non-nil, an events file.
-func seedClaudeJob(t *testing.T, at time.Time, events []wire.Event) job.Record {
+// seedClaudeJob saves a finished claude record, an hour old, with a log and no events file.
+func seedClaudeJob(t *testing.T) job.Record {
 	t.Helper()
-	rec := job.NewRecord("claude", agent.RunOptions{Prompt: "say hi"}, at)
+	rec := job.NewRecord("claude", agent.RunOptions{Prompt: "say hi"}, time.Now().Add(-time.Hour))
 	rec.Repo = t.TempDir()
 	rec.Status, rec.SessionID, rec.DurationMs = "ok", "sess-1", 42
 	if err := rec.Save(); err != nil {
@@ -521,98 +510,70 @@ func seedClaudeJob(t *testing.T, at time.Time, events []wire.Event) job.Record {
 	if err := os.WriteFile(rec.LogPath(), []byte("hi there\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if events != nil {
-		var b strings.Builder
-		for _, ev := range events {
-			line, _ := json.Marshal(ev)
-			b.Write(line)
-			b.WriteByte('\n')
-		}
-		if err := os.WriteFile(rec.EventsPath(), []byte(b.String()), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
 	return rec
 }
 
-// TestAgentsCancelNotRunning: cancel on a finished record exits non-zero.
+// jobResultJSON runs `agents result <id> --format json` and decodes the envelope.
+func jobResultJSON(t *testing.T, id string) (wire.Envelope, string) {
+	t.Helper()
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsJob("result", []string{id, "--format", "json"}) })
+	var got wire.Envelope
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil || code != 0 {
+		t.Fatalf("result json = %d %q: %v", code, stdout, err)
+	}
+	return got, stderr
+}
+
 func TestAgentsCancelNotRunning(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := seedClaudeJob(t, time.Now().Add(-time.Hour), nil)
+	cfgDir(t)
+	rec := seedClaudeJob(t)
 	if code := cmdAgentsJob("cancel", []string{rec.ID}); code == 0 {
 		t.Error("cancel of a finished job exited 0, want an error")
 	}
 }
 
-// TestAgentsJobLifecycleClaude: status/result/tail resolve a claude dispatch by id and read its events.
+// status/result/tail resolve a claude dispatch by id and read its events.
 func TestAgentsJobLifecycleClaude(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cfgDir(t)
 	env := wire.NewEnvelope(wire.Result{Agent: "claude", Answer: "from-event", SessionID: "sess-1"}, nil, "")
-	rec := seedClaudeJob(t, time.Now().Add(-time.Hour), nil)
+	rec := seedClaudeJob(t)
 	env.DispatchID = rec.ID
-	evs := []wire.Event{
+	writeEvents(t, rec, []wire.Event{
 		{Schema: 1, Seq: 0, Type: wire.EventStart},
 		{Schema: 1, Seq: 1, Type: wire.EventText, Text: "hi"},
 		{Schema: 1, Seq: 2, Type: wire.EventResult, Envelope: &env},
-	}
-	var b strings.Builder
-	for _, ev := range evs {
-		line, _ := json.Marshal(ev)
-		b.Write(line)
-		b.WriteByte('\n')
-	}
-	if err := os.WriteFile(rec.EventsPath(), []byte(b.String()), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	var code int
 	out := captureStdout(t, func() { code = cmdAgentsJob("status", []string{rec.ID}) })
 	if code != 0 || !strings.Contains(out, rec.ID) || !strings.Contains(out, "ok") {
 		t.Errorf("status = %d %q, want 0 with id and ok", code, out)
 	}
-
-	out = captureStdout(t, func() { code = cmdAgentsJob("result", []string{rec.ID, "--format", "json"}) })
-	var got wire.Envelope
-	if err := json.Unmarshal([]byte(out), &got); err != nil || code != 0 {
-		t.Fatalf("result json = %d %q: %v", code, out, err)
-	}
-	if got.Answer != "from-event" || got.DispatchID != rec.ID {
+	if got, _ := jobResultJSON(t, rec.ID); got.Answer != "from-event" || got.DispatchID != rec.ID {
 		t.Errorf("envelope = %+v, want the result event's", got)
 	}
-
 	out = captureStdout(t, func() { code = cmdAgentsJob("tail", []string{rec.ID, "--format", "json", "-f"}) })
 	checkJobTailEvents(t, code, out)
 }
 
-// TestAgentsResultJSONWithoutEvents: an old record with no events file rebuilds its envelope from record + log.
+// An old record with no events file rebuilds its envelope from record + log.
 func TestAgentsResultJSONWithoutEvents(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := seedClaudeJob(t, time.Now().Add(-time.Hour), nil)
-
-	var code int
-	out := captureStdout(t, func() { code = cmdAgentsJob("result", []string{rec.ID, "--format", "json"}) })
-	var got wire.Envelope
-	if err := json.Unmarshal([]byte(out), &got); err != nil || code != 0 {
-		t.Fatalf("result json = %d %q: %v", code, out, err)
-	}
+	cfgDir(t)
+	rec := seedClaudeJob(t)
+	got, _ := jobResultJSON(t, rec.ID)
 	if got.Answer != "hi there\n" || got.SessionID != "sess-1" || got.DispatchID != rec.ID || got.Agent != "claude" {
 		t.Errorf("rebuilt envelope = %+v, want log answer, session and id from the record", got)
 	}
 }
 
-// TestAgentsResultWarnsOnUnreadableEvents: an oversized event line warns on stderr and stdout stays a valid envelope.
+// An oversized event line warns on stderr and stdout stays a valid envelope.
 func TestAgentsResultWarnsOnUnreadableEvents(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := seedClaudeJob(t, time.Now().Add(-time.Hour), nil)
+	cfgDir(t)
+	rec := seedClaudeJob(t)
 	if err := os.WriteFile(rec.EventsPath(), []byte(strings.Repeat("x", 17<<20)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsJob("result", []string{rec.ID, "--format", "json"}) })
-	var got wire.Envelope
-	if err := json.Unmarshal([]byte(stdout), &got); err != nil || code != 0 {
-		t.Fatalf("result json = %d %q: %v", code, stdout, err)
-	}
+	got, stderr := jobResultJSON(t, rec.ID)
 	if got.Answer != "hi there\n" {
 		t.Errorf("answer = %q, want the log rebuilt into the envelope", got.Answer)
 	}
@@ -624,14 +585,7 @@ func TestAgentsResultWarnsOnUnreadableEvents(t *testing.T) {
 // labelConfig is a config dir whose agents/ defines Plan, so the dispatch type gate allows it.
 func labelConfig(t *testing.T) {
 	t.Helper()
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if err := os.MkdirAll(filepath.Join(cfg, "agents"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cfg, "agents", "Plan.md"), []byte("---\nname: Plan\n---\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeFixtureFile(t, filepath.Join(cfgDir(t), "agents", "Plan.md"), "---\nname: Plan\n---\n")
 }
 
 func TestAgentsLabelPrintsPrefix(t *testing.T) {
@@ -648,40 +602,28 @@ func TestAgentsLabelEmptyMeansNoPrefix(t *testing.T) {
 	labelConfig(t)
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 	t.Chdir(t.TempDir())
-	for _, tc := range []struct {
-		name string
-		args []string
-	}{
-		{"unknown-explore-session", []string{"Explore"}},
-		{"unknown-plan-session", []string{"Plan"}},
-	} {
+	for _, typ := range []string{"Explore", "Plan"} {
 		for _, format := range []string{"text", "json"} {
-			t.Run(tc.name+"/"+format, func(t *testing.T) {
-				args := append(append([]string{}, tc.args...), "--format", format)
-				code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsLabel(args) })
+			t.Run(typ+"/"+format, func(t *testing.T) {
+				code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsLabel([]string{typ, "--format", format}) })
 				if code != 0 || stderr != "" {
 					t.Fatalf("exit = %d, stderr = %q, want success without diagnostics", code, stderr)
 				}
-				assertEmptyLabelOutput(t, format, out)
+				if format == "text" {
+					if out != "" {
+						t.Fatalf("stdout = %q, want no prefix", out)
+					}
+					return
+				}
+				var row map[string]json.RawMessage
+				if err := json.Unmarshal([]byte(out), &row); err != nil {
+					t.Fatal(err)
+				}
+				if got := string(row["label"]); got != `""` {
+					t.Fatalf("JSON label = %s, want an empty string", got)
+				}
 			})
 		}
-	}
-}
-
-func assertEmptyLabelOutput(t *testing.T, format, out string) {
-	t.Helper()
-	if format == "json" {
-		var row map[string]json.RawMessage
-		if err := json.Unmarshal([]byte(out), &row); err != nil {
-			t.Fatal(err)
-		}
-		if got := string(row["label"]); got != `""` {
-			t.Fatalf("JSON label = %s, want an empty string", got)
-		}
-		return
-	}
-	if out != "" {
-		t.Fatalf("stdout = %q, want no prefix", out)
 	}
 }
 
@@ -702,7 +644,8 @@ func TestAgentsLabelStdoutFailure(t *testing.T) {
 	}
 }
 
-func captureFailedStdout(t *testing.T, run func() int) (int, string) {
+// requireLostOutput reruns run with a closed stdout and wants exit 1, diagnostic and the write error on stderr.
+func requireLostOutput(t *testing.T, run func() int, diagnostic string) {
 	t.Helper()
 	full := closedFile(t)
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {
@@ -711,19 +654,14 @@ func captureFailedStdout(t *testing.T, run func() int) (int, string) {
 		defer func() { os.Stdout = original }()
 		return run()
 	})
-	return code, stderr
-}
-
-func requireOutputFailure(t *testing.T, code int, stderr, diagnostic string) {
-	t.Helper()
 	if code != 1 || !strings.Contains(stderr, diagnostic) || !strings.Contains(stderr, os.ErrClosed.Error()) {
 		t.Fatalf("lost output: exit %d, stderr %q; want exit 1 with %q and write error", code, stderr, diagnostic)
 	}
 }
 
 func TestAgentsResultReportsTextWriteFailure(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := seedClaudeJob(t, time.Now().Add(-time.Hour), nil)
+	cfgDir(t)
+	rec := seedClaudeJob(t)
 	rec.Log = rec.LogPath()
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -733,21 +671,20 @@ func TestAgentsResultReportsTextWriteFailure(t *testing.T) {
 	if code != 0 || !strings.Contains(stdout, "hi there") {
 		t.Fatalf("result control: exit %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
-	code, stderr = captureFailedStdout(t, run)
-	requireOutputFailure(t, code, stderr, "agents result: write output:")
+	requireLostOutput(t, run, "agents result: write output:")
 }
 
 func TestAgentsTreeReportsJSONWriteFailure(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cfgDir(t)
 	run := func() int { return cmdAgents([]string{"tree", "--format", "json"}) }
 	code, stdout, stderr := hosttest.CaptureOutput(t, run)
 	if code != 0 || !json.Valid([]byte(stdout)) {
 		t.Fatalf("tree control: exit %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
-	code, stderr = captureFailedStdout(t, run)
-	requireOutputFailure(t, code, stderr, "agents tree:")
+	requireLostOutput(t, run, "agents tree:")
 }
 
+// serveSuccessfulLiveTurn answers one live request on listener with a result event; the channel yields its error.
 func serveSuccessfulLiveTurn(t *testing.T, listener net.Listener) <-chan error {
 	t.Helper()
 	done := make(chan error, 1)
@@ -773,6 +710,7 @@ func serveSuccessfulLiveTurn(t *testing.T, listener net.Listener) <-chan error {
 	return done
 }
 
+// liveSendFixture registers a live claude record and a unix socket for it (short path: sun_path limit).
 func liveSendFixture(t *testing.T) (job.Record, net.Listener) {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "send-")
@@ -814,74 +752,59 @@ func TestLiveSendReportsJSONWriteFailure(t *testing.T) {
 		t.Fatalf("send control: exit %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
 	done = serveSuccessfulLiveTurn(t, listener)
-	code, stderr = captureFailedStdout(t, run)
+	requireLostOutput(t, run, "agents send: write output:")
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	requireOutputFailure(t, code, stderr, "agents send: write output:")
+}
+
+// profileCmd runs agentProfile and returns its exit code, stdout and stderr.
+func profileCmd(t *testing.T, name string, args ...string) (int, string, string) {
+	t.Helper()
+	return hosttest.CaptureOutput(t, func() int { return agentProfile(name, args) })
 }
 
 func TestAgentProfileAndOnOffVerbs(t *testing.T) {
 	vaulttest.UseFreshKey(t)
+	onOff := func(name string) (int, string, string) {
+		return hosttest.CaptureOutput(t, func() int { return agentOnOff(name, false, nil) })
+	}
+	pin := func(name string) string { return providers.AgentRecord(name).Profile }
 
 	// copilot off leaves its record without a profile.
-	code, out, errOut := hosttest.CaptureOutput(t, func() int { return agentOnOff("copilot", false, nil) })
-	if code != 0 || !strings.Contains(out, "copilot: off") {
-		t.Fatalf("copilot off: code=%d out=%q err=%q", code, out, errOut)
+	if code, out, errOut := onOff("copilot"); code != 0 || !strings.Contains(out, "copilot: off") || pin("copilot") != "" {
+		t.Fatalf("copilot off: code=%d out=%q err=%q pin=%q", code, out, errOut, pin("copilot"))
 	}
-	if got := providers.AgentRecord("copilot").Profile; got != "" {
-		t.Fatalf("copilot profile = %q, want none", got)
-	}
-
 	// profile with no args reports the off state.
-	code, out, _ = hosttest.CaptureOutput(t, func() int { return agentProfile("copilot", nil) })
-	if code != 0 || !strings.Contains(out, "off") {
+	if code, out, _ := profileCmd(t, "copilot"); code != 0 || !strings.Contains(out, "off") {
 		t.Fatalf("copilot profile: code=%d out=%q", code, out)
 	}
-
-	checkCopilotProfileActivation(t)
-	checkClaudeAndCodexProfiles(t)
-}
-
-func checkCopilotProfileActivation(t *testing.T) {
-	t.Helper()
 	// on is a profile: with none recorded the agent stays off, and setting one switches it on.
-	code, _, errOut := hosttest.CaptureOutput(t, func() int { return agentProfile("copilot", []string{"personal"}) })
-	if code != 0 || !agent.AgentActive("copilot") {
+	if code, _, errOut := profileCmd(t, "copilot", "personal"); code != 0 || !agent.AgentActive("copilot") {
 		t.Fatalf("copilot profile personal: code=%d active=%v err=%q", code, agent.AgentActive("copilot"), errOut)
 	}
-	code, _, errOut = hosttest.CaptureOutput(t, func() int { return agentOnOff("copilot", false, nil) })
-	if code != 0 || agent.AgentActive("copilot") {
+	if code, _, errOut := onOff("copilot"); code != 0 || agent.AgentActive("copilot") {
 		t.Fatalf("copilot off with a profile: code=%d active=%v err=%q", code, agent.AgentActive("copilot"), errOut)
 	}
-}
-
-func checkClaudeAndCodexProfiles(t *testing.T) {
-	t.Helper()
 	// claude has no active pin.
-	code, _, errOut := hosttest.CaptureOutput(t, func() int { return agentOnOff("claude", false, nil) })
-	if code == 0 || !strings.Contains(errOut, "always on") {
+	if code, _, errOut := onOff("claude"); code == 0 || !strings.Contains(errOut, "always on") {
 		t.Fatalf("claude off: code=%d err=%q", code, errOut)
 	}
-
 	// unknown profile is refused and leaves the pin unset.
-	code, _, _ = hosttest.CaptureOutput(t, func() int { return agentProfile("codex", []string{"nosuchprofile"}) })
-	if code == 0 || providers.AgentRecord("codex").Profile != "" {
-		t.Fatalf("codex profile nosuchprofile: code=%d pin=%q", code, providers.AgentRecord("codex").Profile)
+	if code, _, _ := profileCmd(t, "codex", "nosuchprofile"); code == 0 || pin("codex") != "" {
+		t.Fatalf("codex profile nosuchprofile: code=%d pin=%q", code, pin("codex"))
 	}
-
-	code, _, errOut = hosttest.CaptureOutput(t, func() int { return agentProfile("codex", []string{"openai"}) })
-	if code != 0 || providers.AgentRecord("codex").Profile != "openai" {
-		t.Fatalf("codex profile openai: code=%d pin=%q err=%q", code, providers.AgentRecord("codex").Profile, errOut)
-	}
-
-	code, _, errOut = hosttest.CaptureOutput(t, func() int { return agentProfile("codex", []string{"--clear"}) })
-	if code != 0 || providers.AgentRecord("codex").Profile != "chatgpt" {
-		t.Fatalf("codex profile --clear: code=%d pin=%q err=%q", code, providers.AgentRecord("codex").Profile, errOut)
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{{[]string{"openai"}, "openai"}, {[]string{"--clear"}, "chatgpt"}} {
+		if code, _, errOut := profileCmd(t, "codex", tc.args...); code != 0 || pin("codex") != tc.want {
+			t.Fatalf("codex profile %v: code=%d pin=%q err=%q", tc.args, code, pin("codex"), errOut)
+		}
 	}
 }
 
-// TestVendorUsageNamesTail: every vendor's help block carries a tail row.
+// Every vendor's help block carries a tail row.
 func TestVendorUsageNamesTail(t *testing.T) {
 	for _, vendor := range agent.Names() {
 		if !strings.Contains(renderHelpPage(agentPage(vendor)), "tail") {
@@ -893,7 +816,7 @@ func TestVendorUsageNamesTail(t *testing.T) {
 // The per-vendor help names the harness profile pin and shows the NAME placeholder on the launch --profile flag.
 func TestVendorHelpHarnessProfileRows(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cfgDir(t)
 	t.Setenv("HOME", t.TempDir())
 	for _, vendor := range []string{"codex", "gemini"} {
 		text := renderHelpPage(agentPage(vendor))
@@ -904,13 +827,7 @@ func TestVendorHelpHarnessProfileRows(t *testing.T) {
 		if vendor == "codex" {
 			want += " (codex's own: -p NAME)"
 		}
-		var row string
-		for line := range strings.SplitSeq(text, "\n") {
-			if strings.Contains(line, "--profile NAME") {
-				row = line
-			}
-		}
-		if row == "" {
+		if !strings.Contains(text, "--profile NAME") {
 			t.Fatalf("%s help has no `--profile NAME` flag row:\n%s", vendor, text)
 		}
 		if !strings.Contains(strings.Join(strings.Fields(text), " "), want) {
@@ -925,8 +842,7 @@ func TestVendorHelpHarnessProfileRows(t *testing.T) {
 	}
 }
 
-// TestListAgentsRegistryLoadErrorNoPanic proves the roster survives a providers.Load() failure and no longer
-// lists the folded-in "api" agent.
+// The roster survives a providers.Load() failure and no longer lists the folded-in "api" agent.
 func TestListAgentsRegistryLoadErrorNoPanic(t *testing.T) {
 	vaulttest.Use(t)
 	t.Setenv(providers.EnvSessionProfile, "")
@@ -939,8 +855,7 @@ func TestListAgentsRegistryLoadErrorNoPanic(t *testing.T) {
 	for _, r := range rosterRows() { // must not panic despite a nil registry from the failed Load()
 		lines = append(lines, r.Line())
 	}
-	out := strings.Join(lines, "\n")
-	if !strings.Contains(out, " claude ") {
+	if out := strings.Join(lines, "\n"); !strings.Contains(out, " claude ") {
 		t.Errorf("no claude row in output:\n%s", out)
 	}
 	for _, line := range lines {
@@ -970,7 +885,7 @@ func assertCapabilitySchemaRow(t *testing.T, r capabilitySchemaRow) {
 
 // agents --format json carries each agent's binary, the cost/background/live/remote levels and its event kinds.
 func TestAgentsJSONCapabilitySchema(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cfgDir(t)
 	out, err := json.Marshal(rosterRows())
 	if err != nil {
 		t.Fatal(err)
