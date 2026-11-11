@@ -84,7 +84,7 @@ func docsPlacementPath(ctx context.Context, in *core.Input, path string, stderr 
 	if path == "" || !isMarkdownPath(path) {
 		return core.ExitProceed
 	}
-	path = resolveCWDPath(path, in.CWD)
+	path = core.AnchorPath(path, in.CWD)
 	// Canonicalize, don't just absolutize: a write spelled through a symlink would never compare
 	// equal to the realpath git reports, and would walk straight past the gate.
 	abs := core.CanonPath(path)

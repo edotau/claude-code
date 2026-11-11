@@ -7,13 +7,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -367,17 +371,7 @@ var schemaIndex = sync.OnceValue(func() map[string]Key {
 	for name, n := range doc.Properties {
 		m[name] = n.key(name, false)
 	}
-	var full struct {
-		Properties struct {
-			Env struct {
-				Properties map[string]schemaNode `json:"properties"`
-			} `json:"env"`
-		} `json:"properties"`
-	}
-	if err := json.Unmarshal(schemaJSON, &full); err != nil {
-		panic(fmt.Sprintf("settings: embedded schema env: %v", err))
-	}
-	for name, n := range full.Properties.Env.Properties {
+	for name, n := range doc.Properties["env"].Properties {
 		if _, clash := m[name]; !clash {
 			m[name] = n.key(name, true)
 		}
@@ -400,7 +394,9 @@ func (k Key) Validate(raw json.RawMessage) error {
 		return fmt.Errorf("%s: want a value, got null", k.Name)
 	}
 	if len(k.constVal) > 0 {
-		if a, errA := compactStr(raw); errA != nil || a != mustCompact(k.constVal) {
+		a, errA := compactStr(raw)
+		want, _ := compactStr(k.constVal) // a schema constant is always valid JSON
+		if errA != nil || a != want {
 			return fmt.Errorf("%s: must be %s", k.Name, k.constVal)
 		}
 	}
@@ -546,12 +542,6 @@ func (k Key) checkRange(n float64) error {
 	return nil
 }
 
-// mustCompact is compactStr for a schema constant, which is always valid JSON.
-func mustCompact(raw json.RawMessage) string {
-	c, _ := compactStr(raw)
-	return c
-}
-
 // compactStr compacts raw JSON for comparison; a missing value (nil) compacts to "".
 func compactStr(raw json.RawMessage) (string, error) {
 	if raw == nil {
@@ -569,4 +559,66 @@ func compactStr(raw json.RawMessage) (string, error) {
 		return "", err
 	}
 	return string(raw) + "\n", nil
+}
+
+// SettingsFile is the live Claude Code settings.json under the config dir.
+func SettingsFile() string { return filepath.Join(paths.ConfigDir(), "settings.json") }
+
+// SeedSettings writes Render (through transform when non-nil) to file only when file does not exist yet;
+// an existing file is never read or written.
+func SeedSettings(file string, transform func([]byte) ([]byte, error)) (seeded bool, err error) {
+	err = paths.WithFileLock(file, func() error {
+		if _, serr := os.Stat(file); !errors.Is(serr, fs.ErrNotExist) {
+			return serr
+		}
+		data, err := Render()
+		if err == nil && transform != nil {
+			data, err = transform(data)
+		}
+		if err != nil {
+			return err
+		}
+		seeded = true
+		return paths.AtomicWrite(file, data, 0o644)
+	})
+	return seeded && err == nil, err
+}
+
+// ResetSettings is the owner-run `configure --restore`: copy file to file.bak.<timestamp>, then write Render whole.
+func ResetSettings(file string) (backup string, err error) {
+	err = paths.WithFileLock(file, func() error {
+		mode := os.FileMode(0o644)
+		old, rerr := os.ReadFile(file)
+		switch {
+		case rerr == nil:
+			if fi, serr := os.Stat(file); serr == nil {
+				mode = fi.Mode().Perm()
+			}
+			backup = file + ".bak." + time.Now().Format("20060102-150405.000000000")
+			if err := writeBackup(backup, old, mode); err != nil {
+				return fmt.Errorf("backup %s: %w", file, err)
+			}
+		case !errors.Is(rerr, fs.ErrNotExist):
+			return fmt.Errorf("read %s: %w", file, rerr)
+		}
+		data, err := Render()
+		if err != nil {
+			return err
+		}
+		return paths.AtomicWrite(file, data, mode)
+	})
+	return backup, err
+}
+
+// writeBackup creates the backup exclusively so a same-instant restore never truncates an earlier one.
+func writeBackup(name string, data []byte, mode os.FileMode) error {
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }

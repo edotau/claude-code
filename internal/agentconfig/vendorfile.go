@@ -78,11 +78,8 @@ func takeSnapshot(path string) (snapshot, error) {
 	if path == "" {
 		return snapshot{}, nil
 	}
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return snapshot{path: path, absent: true}, nil
-	}
-	return snapshot{path: path, data: data}, err
+	data, existed, err := ReadExisting(path)
+	return snapshot{path: path, data: data, absent: !existed && err == nil}, err
 }
 
 // restore puts snapshots back newest first, so a failed multi-file render leaves no half-applied pair.

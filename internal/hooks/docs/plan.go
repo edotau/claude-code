@@ -39,7 +39,7 @@ func Save(in *core.Input, stderr io.Writer) int {
 	approvedText := plan     // snapshot before withTasks, to compare against the draft's current bytes below
 	plan = withTasks(plan)
 
-	draftPath := resolveCWDPath(cmp.Or(responsePath, inputPath), in.CWD)
+	draftPath := core.AnchorPath(cmp.Or(responsePath, inputPath), in.CWD)
 	dest, ok := "", false
 	if draftPath != "" {
 		dest, ok = plans.ReadRecordedDest(filepath.Base(draftPath))
@@ -72,7 +72,7 @@ func approvedPlanBytes(in *core.Input, responsePath, inputPath string, stderr io
 		}
 		if path != "" {
 			var err error
-			plan, err = os.ReadFile(resolveCWDPath(path, in.CWD))
+			plan, err = os.ReadFile(core.AnchorPath(path, in.CWD))
 			if err != nil {
 				fmt.Fprintf(stderr, "save-plan: %v\n", err)
 			}
@@ -190,17 +190,9 @@ func planTitle(plan []byte) string {
 	return paths.Slug(h, "", 60, "plan")
 }
 
-// resolveCWDPath anchors path to cwd when it isn't already absolute.
-func resolveCWDPath(path, cwd string) string {
-	if path != "" && !filepath.IsAbs(path) && cwd != "" {
-		return filepath.Join(cwd, path)
-	}
-	return path
-}
-
 // draftTarget is tool_input.file_path anchored to cwd; ok reports it names an undated draft.
 func draftTarget(in *core.Input) (path string, ok bool) {
-	path = resolveCWDPath(in.Nested("tool_input", "file_path"), in.CWD)
+	path = core.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
 	return path, isUndatedDraft(path)
 }
 
@@ -354,7 +346,7 @@ func Gate(in *core.Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool == "apply_patch" { // an Add File hunk is a first write; Update is an Edit, which the gate leaves alone
 		for path, content := range patchAdds(applyPatchText(in)) {
-			if code := gateDraft(resolveCWDPath(path, in.CWD), content, stderr); code != core.ExitProceed {
+			if code := gateDraft(core.AnchorPath(path, in.CWD), content, stderr); code != core.ExitProceed {
 				return code
 			}
 		}
@@ -363,7 +355,7 @@ func Gate(in *core.Input, stderr io.Writer) int {
 	if tool != "" && tool != "write" && tool != "create" {
 		return core.ExitProceed
 	}
-	return gateDraft(resolveCWDPath(in.Nested("tool_input", "file_path"), in.CWD), in.Nested("tool_input", "content"), stderr)
+	return gateDraft(core.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD), in.Nested("tool_input", "content"), stderr)
 }
 
 // patchAdds yields each file an apply_patch body adds, with its content (the hunk's "+" lines).

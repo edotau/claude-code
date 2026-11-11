@@ -197,10 +197,11 @@ func FromChatError(status int, body []byte) []byte {
 	if msg == "" {
 		msg = fmt.Sprintf("upstream error (status %d)", status)
 	}
-	return errorBody(status, msg)
+	return ErrorBody(status, msg)
 }
 
-func errorBody(status int, msg string) []byte {
+// ErrorBody is the Anthropic error envelope Claude Code parses.
+func ErrorBody(status int, msg string) []byte {
 	out, _ := json.Marshal(map[string]any{
 		"type":  "error",
 		"error": map[string]string{"type": errorType(status), "message": msg},

@@ -6,8 +6,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // sessionStartContext runs StartSession and returns the context it renders ("" when silent).
@@ -248,5 +251,371 @@ func TestStartSessionProbesBankOnce(t *testing.T) {
 	StartSession("00000000-0000-4000-8000-0000000000a0", root, time.Now())
 	if probes != 1 {
 		t.Fatalf("bank probes per StartSession = %d, want 1", probes)
+	}
+}
+
+// A corrupt or relative root-<id> file is replaced by the first valid root instead of lingering all session.
+func TestRecordSessionRootRepairsCorruptFile(t *testing.T) {
+	isolatedConfig(t)
+	const id = "11111111-2222-3333-4444-555555555555"
+	cwd := canonTemp(t, t.TempDir())
+	for _, bad := range []string{"relative/path\n", "\n"} {
+		path := sessionRootPath(id)
+		write(t, path, bad)
+		RecordSessionRoot(id, cwd)
+		got, err := os.ReadFile(path)
+		if err != nil || !strings.HasPrefix(string(got), "/") {
+			t.Fatalf("bad %q not repaired: %q, %v", bad, got, err)
+		}
+		if SessionRoot(id, "fallback") == "fallback" {
+			t.Errorf("SessionRoot still falls back after repairing %q", bad)
+		}
+	}
+}
+
+func TestRecordSessionRootReportsLockTimeout(t *testing.T) {
+	isolatedConfig(t)
+	orig := sessionRootLockWait
+	sessionRootLockWait = 200 * time.Millisecond
+	t.Cleanup(func() { sessionRootLockWait = orig })
+	const id = "11111111-2222-3333-4444-555555555555"
+	cwd := canonTemp(t, t.TempDir())
+	path := sessionRootPath(id)
+	write(t, path+".lock", "")
+	stderr, err := os.CreateTemp(t.TempDir(), "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stderr
+	os.Stderr = stderr
+	t.Cleanup(func() {
+		os.Stderr = original
+		if err := stderr.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	ran, err := paths.TryFileLock(path+".lock", 0, func() error {
+		RecordSessionRoot(id, cwd)
+		return nil
+	})
+	if err != nil || !ran {
+		t.Fatalf("hold session-root lock: ran=%v, err=%v", ran, err)
+	}
+	output, err := os.ReadFile(stderr.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "memory-start: record session root: " + paths.ErrLockTimeout.Error() + ": " + path + ".lock\n"
+	if string(output) != want {
+		t.Errorf("lock timeout diagnostic: got %q, want %q", output, want)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("session root must remain unwritten while locked: %v", err)
+	}
+}
+
+// A valid existing root is kept: the first root wins.
+func TestRecordSessionRootKeepsValidFile(t *testing.T) {
+	isolatedConfig(t)
+	const id = "11111111-2222-3333-4444-555555555555"
+	keep := canonTemp(t, t.TempDir())
+	write(t, sessionRootPath(id), keep+"\n")
+	RecordSessionRoot(id, canonTemp(t, t.TempDir()))
+	if got := SessionRoot(id, ""); got != keep {
+		t.Errorf("first root replaced: got %q, want %q", got, keep)
+	}
+}
+
+// Racing repairs of one corrupt root leave one root, and every caller sees that same root once it returns.
+func TestRecordSessionRootRacingRepairsAgree(t *testing.T) {
+	isolatedConfig(t)
+	const id = "11111111-2222-3333-4444-555555555555"
+	cwds := make([]string, 6)
+	for i := range cwds {
+		cwds[i] = canonTemp(t, t.TempDir())
+	}
+	for round := range 40 {
+		write(t, sessionRootPath(id), "relative/path\n")
+		seen := make([]string, len(cwds))
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i, cwd := range cwds {
+			wg.Go(func() {
+				<-start
+				RecordSessionRoot(id, cwd)
+				seen[i] = SessionRoot(id, "")
+			})
+		}
+		close(start)
+		wg.Wait()
+		final := SessionRoot(id, "")
+		for i, got := range seen {
+			if got == "" || got != final {
+				t.Fatalf("round %d: caller %d saw %q, final root %q", round, i, got, final)
+			}
+		}
+	}
+}
+
+// TestSessionRootForSkipsMainProbeOutsideRepo: a cwd git calls no work tree is not probed again for its main checkout.
+func TestSessionRootForSkipsMainProbeOutsideRepo(t *testing.T) {
+	tempConfig(t)
+	dir := canonTemp(t, t.TempDir())
+	probes := countGitProbes(t, "--git-common-dir")
+	if got := sessionRootFor(dir); got != dir {
+		t.Fatalf("sessionRootFor(%s) = %q, want the dir itself", dir, got)
+	}
+	if *probes != 0 {
+		t.Errorf("sessionRootFor ran the main-checkout probe %d times after the toplevel probe failed, want 0", *probes)
+	}
+}
+
+// The catalog leaves the surface (one pointer stays); the Parked section leaves the injected surface (with a count), the other sections stay, and recall can still find it.
+func TestUnifiedSurfaceFocusOnly(t *testing.T) {
+	isolatedConfig1(t)
+	initStore(t)
+	repo := gitRepo(t, t.TempDir(), "proj")
+	dir, err := EnsureRepoDir(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(StoreDir(), CatalogFile), "# Memory catalog\n\n- proj — hook · last never -> proj/MEMORY.md\n")
+	write(t, filepath.Join(dir, "activeContext.md"), "# Active Context\n\n"+
+		"## Current Focus\n\n- shipping the router\n\n"+
+		"## Open Questions\n\n- should not appear\n\n"+
+		"## Blockers\n\n- none\n\n"+
+		"## Next Steps\n\n- ship it\n\n"+
+		"## Parked\n\n- should not appear either\n")
+	write(t, filepath.Join(dir, "progress.md"), "# Progress\n\n"+
+		"## What Works\n\n- should not appear\n\n"+
+		"## In Progress\n\n- the router\n\n"+
+		"## What's Next\n\n- should not appear\n")
+
+	s := SessionSurface(repo)
+	for _, want := range []string{"other repos:", "## Current Focus", "shipping the router",
+		"## Blockers", "## Next Steps", "ship it", "## In Progress", "the router"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("surface missing %q:\n%s", want, s)
+		}
+	}
+	for _, absent := range []string{"Open Questions", "should not appear", "What Works", "What's Next"} {
+		if strings.Contains(s, absent) {
+			t.Errorf("surface carried an out-of-scope section (%q):\n%s", absent, s)
+		}
+	}
+	if n := len([]rune(s)); n > totalCapChars {
+		t.Errorf("unified surface %d chars > cap %d", n, totalCapChars)
+	}
+}
+
+// TestUnifiedSurfaceCarriesNoCatalogRows: a 200-repo catalog adds one pointer line and no rows, and the home
+// bank's focus rides along with this repo's.
+func TestUnifiedSurfaceCarriesNoCatalogRows(t *testing.T) {
+	isolatedConfig1(t)
+	initStore(t)
+	repo := gitRepo(t, t.TempDir(), "proj")
+	dir, err := EnsureRepoDir(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cat strings.Builder
+	cat.WriteString("# Memory catalog\n\n")
+	for i := range 200 {
+		fmt.Fprintf(&cat, "- repo-%03d — hook · last never -> repo-%03d/MEMORY.md\n", i, i)
+	}
+	write(t, filepath.Join(StoreDir(), CatalogFile), cat.String())
+	write(t, filepath.Join(dir, "activeContext.md"), "# Active Context\n\n## Current Focus\n\n- local focus\n")
+	write(t, filepath.Join(HomeBankDir(), "activeContext.md"), "# Active Context\n\n## Current Focus\n\n- home essential\n")
+
+	s := SessionSurface(repo)
+	if strings.Contains(s, "repo-000") || strings.Contains(s, "repo-199") || strings.Contains(s, "MEMORY CATALOG") {
+		t.Errorf("catalog rows leaked into the surface:\n%s", s)
+	}
+	for _, want := range []string{"other repos:", "local focus", "home essential"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("surface missing %q:\n%s", want, s)
+		}
+	}
+	if len(s) > 1200 {
+		t.Errorf("slim surface is %d bytes, want well under the old 8.5 KB cap", len(s))
+	}
+}
+
+// TestSectionBodyEdgeCases: case-insensitive heading match, an absent heading, an empty section, and the
+// last section in the file all resolve correctly.
+func TestSectionBodyEdgeCases(t *testing.T) {
+	t.Parallel()
+	text := "# Active\n\n## Current Focus\n\n- a\n- b\n\n## Blockers\n\n- none\n"
+	if got := sectionBody(text, "Current Focus"); got != "- a\n- b" {
+		t.Errorf("sectionBody = %q", got)
+	}
+	if got := sectionBody(text, "current focus"); got != "- a\n- b" {
+		t.Errorf("sectionBody must be case-insensitive, got %q", got)
+	}
+	if got := sectionBody(text, "Next Steps"); got != "" {
+		t.Errorf("an absent heading must yield \"\", got %q", got)
+	}
+	if got := sectionBody("# Active\n\n## Empty\n\n## Blockers\n\n- x\n", "Empty"); got != "" {
+		t.Errorf("an empty section must yield \"\", got %q", got)
+	}
+	if got := sectionBody(text, "Blockers"); got != "- none" {
+		t.Errorf("the last section in the file must still be captured, got %q", got)
+	}
+}
+
+// Correctness fix (mdsmith AST headings, md-spec.md): a "## " line inside a fenced code block is no
+// longer mistaken for the next heading, so the fence's full contents stay inside the section.
+func TestSectionBodyRespectsFence(t *testing.T) {
+	t.Parallel()
+	text := "# Active\n\n## Current Focus\n\n```\n## not a heading\n```\n- a\n\n## Blockers\n\n- none\n"
+	want := "```\n## not a heading\n```\n- a"
+	if got := sectionBody(text, "Current Focus"); got != want {
+		t.Errorf("sectionBody = %q, want %q (fence-aware heading scan must keep the fenced \"## \" line in-section)", got, want)
+	}
+}
+
+// TestAccessLogPathMovesToStateAfterCutover: store dirs log under state/harness/memory/access, never inside memory/.
+func TestAccessLogPathMovesToStateAfterCutover(t *testing.T) {
+	isolatedConfig(t)
+	legacy := filepath.Join(t.TempDir(), "bank")
+	if got := AccessLogPath(legacy); got != filepath.Join(legacy, accessLogFile) {
+		t.Fatalf("pre-cutover path = %s, want beside the bank", got)
+	}
+	initStore(t)
+	for dir, want := range map[string]string{
+		StoreDir():                           "home.log",
+		filepath.Join(StoreDir(), ".claude"): ".claude.log",
+		filepath.Join(StoreDir(), "repo-a"):  "repo-a.log",
+	} {
+		if got := AccessLogPath(dir); got != filepath.Join(AccessStateDir(), want) {
+			t.Errorf("AccessLogPath(%s) = %s, want %s", dir, got, want)
+		}
+	}
+	logAccess(filepath.Join(StoreDir(), "repo-a"), time.Now(), "aa11bb22", "read")
+	if _, err := os.Stat(filepath.Join(StoreDir(), "repo-a", accessLogFile)); !os.IsNotExist(err) {
+		t.Errorf("access.log written inside the store: %v", err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(AccessStateDir(), "repo-a.log")); !strings.Contains(string(data), "aa11bb22") {
+		t.Errorf("state access log missing the entry: %q", data)
+	}
+}
+
+// TestKnowledgeIsSearchedAndCataloged: memory/<bank>/knowledge notes (not its README) are search hits and catalog rows.
+func TestKnowledgeIsSearchedAndCataloged(t *testing.T) {
+	isolatedConfig(t)
+	initStore(t)
+	write(t, filepath.Join(knowledgeDir(HomeBankDir()), "README.md"), "# Knowledge\nzebracorn readme\n")
+	write(t, filepath.Join(knowledgeDir(HomeBankDir()), "zebra.md"), "# Zebra\nZebracorn invariant: probes never ship.\n")
+	hits := SearchBanks(t.TempDir(), "zebracorn invariant probes", 5)
+	if len(hits) == 0 || hits[0].Bank != "knowledge" || hits[0].File != "zebra.md" {
+		t.Fatalf("knowledge not ranked first: %+v", hits)
+	}
+	for _, h := range hits {
+		if h.File == "README.md" {
+			t.Errorf("the tier README was indexed as knowledge")
+		}
+	}
+	c, err := BuildCatalog(time.Now())
+	if err != nil || !strings.Contains(c, "## Knowledge") || !strings.Contains(c, "home/knowledge/zebra.md — Zebracorn invariant") || strings.Contains(c, "README.md —") {
+		t.Errorf("catalog knowledge section wrong (err=%v):\n%s", err, c)
+	}
+}
+
+// TestRepoBankKnowledgeIsCatalogedAndSearched: a repo bank's knowledge/*.md shows under its own key in the
+// catalog and is reachable by search, same as the home-bank tier.
+func TestRepoBankKnowledgeIsCatalogedAndSearched(t *testing.T) {
+	isolatedConfig(t)
+	initStore(t)
+	root := gitRepo(t, t.TempDir(), "narwhal")
+	dir, err := EnsureRepoDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(knowledgeDir(Dir(root)), "README.md"), "# Knowledge\nnarwhal readme\n")
+	write(t, filepath.Join(knowledgeDir(Dir(root)), "narwhal.md"), "# Narwhal\nNarwhalcorn invariant: tusks never ship.\n")
+	hits := SearchBanks(root, "narwhalcorn invariant tusks", 5)
+	if len(hits) == 0 || hits[0].Bank != "knowledge" || hits[0].File != "narwhal.md" {
+		t.Fatalf("repo bank knowledge not ranked first: %+v", hits)
+	}
+	key := filepath.Base(dir)
+	c, err := BuildCatalog(time.Now())
+	if err != nil || !strings.Contains(c, key+"/knowledge/narwhal.md — Narwhalcorn invariant") || strings.Contains(c, key+"/README.md —") {
+		t.Errorf("catalog missing repo bank knowledge row (err=%v):\n%s", err, c)
+	}
+}
+
+// TestLegacyDocsKnowledgeIgnored: a leftover <ConfigDir>/docs/knowledge tree is no longer searched or cataloged.
+func TestLegacyDocsKnowledgeIgnored(t *testing.T) {
+	cfg, _ := isolatedConfig(t)
+	initStore(t)
+	write(t, filepath.Join(cfg, "docs", "knowledge", "yak.md"), "# Yak\nYakcorn invariant: wool never ships.\n")
+	if hits := SearchBanks(t.TempDir(), "yakcorn invariant wool", 5); len(hits) != 0 {
+		t.Errorf("legacy docs/knowledge note was searched: %+v", hits)
+	}
+	c, err := BuildCatalog(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(c, "yak.md") {
+		t.Errorf("legacy docs/knowledge note leaked into the catalog:\n%s", c)
+	}
+}
+
+// TestUnifiedSurfaceFallsBackWhenNativeUnlinked: only a missing/blocked native link adds the store's MEMORY.md.
+func TestUnifiedSurfaceFallsBackWhenNativeUnlinked(t *testing.T) {
+	isolatedConfig(t)
+	initStore(t)
+	repo := canonTemp(t, t.TempDir())
+	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
+		t.Skip("git unavailable")
+	}
+	dir, err := EnsureRepoDir(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, NativeIndexFile), "- [Topic](topic.md) — fallback marker\n")
+	if s := SessionSurface(repo); !strings.Contains(s, "native link missing") || !strings.Contains(s, "fallback marker") {
+		t.Fatalf("unlinked surface lacks the MEMORY.md fallback:\n%s", s)
+	}
+	if _, ok := LinkNativeFor(repo); !ok {
+		t.Fatal("LinkNativeFor failed")
+	}
+	if s := SessionSurface(repo); strings.Contains(s, "native link missing") {
+		t.Errorf("linked surface still carries the fallback:\n%s", s)
+	}
+}
+
+func TestSectionBodyBareHeadingDoesNotPanic(t *testing.T) {
+	if got := sectionBody("## \nfoo\n## Current Focus\nbar\n", "Current Focus"); got != "bar" {
+		t.Errorf("sectionBody = %q, want %q", got, "bar")
+	}
+}
+
+func TestSessionSurfaceRelativeNativeLink(t *testing.T) {
+	isolatedConfig(t)
+	initStore(t)
+	root := paths.CanonDeep(gitRepo(t, t.TempDir(), "relative-link")) // production keys the link by the resolved path
+	dir, err := EnsureRepoDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, NativeIndexFile), "unique native-only index marker\n")
+	link := projectsMemory(paths.ProjectSlug(root))
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target, err := filepath.Rel(filepath.Dir(link), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustRead(t, filepath.Join(link, NativeIndexFile)); got != "unique native-only index marker\n" {
+		t.Fatalf("relative native link is not readable: %q", got)
+	}
+	got := SessionSurface(root)
+	if strings.Contains(got, "unique native-only index marker") || strings.Contains(got, "native link missing or blocked") {
+		t.Fatalf("surface duplicated the index despite a valid relative native link: %q", got)
 	}
 }

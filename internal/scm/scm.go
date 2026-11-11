@@ -133,3 +133,13 @@ func OriginURL(ctx context.Context) (string, error) {
 	}
 	return strings.TrimSpace(string(out)), nil
 }
+
+var digitsRe = regexp.MustCompile(`^[0-9]+$`)
+
+// checkDigits rejects a PR or comment id that is not all digits, matching the GitHub host.
+func checkDigits(what, v string) error {
+	if !digitsRe.MatchString(v) {
+		return fmt.Errorf("invalid %s %q: want digits", what, v)
+	}
+	return nil
+}

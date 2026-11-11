@@ -3,11 +3,13 @@ package catalog
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -15,7 +17,9 @@ import (
 	"unicode"
 
 	"github.com/edotau/claude-code/internal/databricks/serving"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -60,7 +64,7 @@ func Check(p *providers.Provider, targets []serving.CheckTarget, o serving.Check
 	if err != nil { // an interrupted run is neither cached nor reported as success
 		return nil, nil, err
 	}
-	SortCheckResults(results)
+	sortCheckResults(results)
 	return results, SaveCheckCache(CheckCache{CheckedAt: time.Now().UTC(), Provider: p.Name, Results: merged(p.Name, results)}), nil
 }
 
@@ -74,7 +78,7 @@ func merged(profile string, results []serving.CheckResult) []serving.CheckResult
 		byID[r.ID] = r
 	}
 	out := serving.SanitizeChecks(slices.Collect(maps.Values(byID)))
-	SortCheckResults(out)
+	sortCheckResults(out)
 	return out
 }
 
@@ -127,8 +131,8 @@ func CheckCell(cache map[string]serving.CheckResult, id string) string {
 	return r.Status
 }
 
-// CheckFamily is the id's leading letters, e.g. claude, gpt, gemini, glm, qwen.
-func CheckFamily(id string) string {
+// checkFamily is the id's leading letters, e.g. claude, gpt, gemini, glm, qwen.
+func checkFamily(id string) string {
 	id = stripSpellingPrefix(id)
 	if i := strings.IndexFunc(id, func(r rune) bool { return !unicode.IsLetter(r) }); i > 0 {
 		return id[:i]
@@ -136,10 +140,10 @@ func CheckFamily(id string) string {
 	return id
 }
 
-// SortCheckResults orders by family, then latency (non-ok last in family), then id.
-func SortCheckResults(rs []serving.CheckResult) {
+// sortCheckResults orders by family, then latency (non-ok last in family), then id.
+func sortCheckResults(rs []serving.CheckResult) {
 	slices.SortStableFunc(rs, func(a, b serving.CheckResult) int {
-		if c := cmp.Compare(CheckFamily(a.ID), CheckFamily(b.ID)); c != 0 {
+		if c := cmp.Compare(checkFamily(a.ID), checkFamily(b.ID)); c != 0 {
 			return c
 		}
 		la, lb := a.LatencyMS, b.LatencyMS
@@ -160,10 +164,63 @@ func CheckUsable(p *providers.Provider, dialects, ids []string, all bool, timeou
 	if err != nil {
 		return nil, nil, err
 	}
-	var usable []string
-	for _, info := range Usable(p, served, dialects) {
-		usable = append(usable, info.ID)
+	var usableIDs []string
+	for _, info := range usable(p, served, dialects) {
+		usableIDs = append(usableIDs, info.ID)
 	}
-	return Check(p, Targets(ids, all, served, p, usable),
+	return Check(p, Targets(ids, all, served, p, usableIDs),
 		serving.CheckOptions{ClientRoutes: true, Concurrency: 4, Timeout: timeout})
 }
+
+// CheckCache is the last check run's results, scoped to one profile and shared by every agent's catalog.
+type CheckCache struct {
+	Schema    int                   `json:"schema"`
+	CheckedAt time.Time             `json:"checked_at"`
+	Provider  string                `json:"provider"`
+	Results   []serving.CheckResult `json:"results"`
+}
+
+// CheckCachePath is state/harness/opencode-models-check.json (the name predates its sharing by every agent).
+func CheckCachePath() string { return filepath.Join(paths.StateDir(), "opencode-models-check.json") }
+
+// SaveCheckCache writes c (no secrets) with mode 0600.
+func SaveCheckCache(c CheckCache) error {
+	c.Schema = checkCacheSchema
+	b, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	path := CheckCachePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return paths.AtomicWrite(path, append(b, '\n'), 0o600)
+}
+
+// LoadCheckCache returns the cached results by id when the cache exists and belongs to provider.
+func LoadCheckCache(provider string) (map[string]serving.CheckResult, bool) {
+	b, err := os.ReadFile(CheckCachePath())
+	if err != nil {
+		return nil, false
+	}
+	var c CheckCache
+	if !schemas.DecodeOK(checkCacheFormat, b, &c) || c.Provider != provider {
+		return nil, false
+	}
+	m := make(map[string]serving.CheckResult, len(c.Results))
+	for _, r := range c.Results {
+		m[r.ID] = r
+	}
+	return m, true
+}
+
+// checkCacheSchema is the cache's current schema version; a mismatch is a cache miss, never migrated.
+const checkCacheSchema = 1
+
+// checkCacheFormat registers the shared model check cache's on-disk format.
+var checkCacheFormat = schemas.Register(schemas.Format{
+	Name: "opencode-models-check", Owner: "internal/catalog", Kind: schemas.Cache,
+	Glob:    func() string { return CheckCachePath() },
+	New:     func() any { return &CheckCache{} },
+	Version: checkCacheSchema, Keep: "rebuildable cache; a version mismatch is a miss",
+})

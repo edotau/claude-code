@@ -69,11 +69,7 @@ func Report(claudeDir, session string, days int, withQuotas bool, errw io.Writer
 	agg := scan.agg
 	agents := buildAgentsUsage(scan, session, days)
 	quotas := <-quotasCh
-	ledgerEntries, ledgerErr := readLedger()
-	if ledgerErr != nil {
-		fmt.Fprintln(errw, "usage: warning: ledger unreadable:", ledgerErr)
-	}
-	aggs := aggregateLedger(ledgerEntries, time.Now())
+	aggs, _ := loadLedger(errw)
 	return &Document{agg, quotas, aggs, resolveBilling(), agents, days}, nil
 }
 
@@ -97,7 +93,7 @@ func scanUsage(claudeDir, session string, days int, errw io.Writer) (*transcript
 		if days <= 0 {
 			days = 1
 		}
-		cutoff = time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+		cutoff = windowCutoff(days)
 		files, err = usageFilesWithinDays(claudeDir, days)
 	}
 	if err != nil {
@@ -258,11 +254,7 @@ func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
 
 	// Section 2 (PROVIDER QUOTAS) + section 3 (API KEYS): wait for the quota fetch, then print both.
 	quotas := <-quotasCh
-	ledgerEntries, ledgerErr := readLedger()
-	if ledgerErr != nil {
-		fmt.Fprintln(errw, "usage: warning: ledger unreadable:", ledgerErr)
-	}
-	aggs := aggregateLedger(ledgerEntries, time.Now())
+	aggs, ledgerEntries := loadLedger(errw)
 	printQuotas(w, quotas, show, aggs, ledgerSince(ledgerEntries))
 
 	// Section 4 (AGENTS): the aggregation above has had the whole quota round-trip to finish by now.
@@ -275,6 +267,20 @@ func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
 	// Section 5: the warn/exceeded trailer, derived from the same quotas already printed.
 	printQuotaWarnings(errw, quotas)
 	return 0
+}
+
+// loadLedger reads the ledger (warning on errw when unreadable) and returns its aggregates plus the raw entries.
+func loadLedger(errw io.Writer) ([]ledgerAgg, []tokenledger.Entry) {
+	entries, err := readLedger()
+	if err != nil {
+		fmt.Fprintln(errw, "usage: warning: ledger unreadable:", err)
+	}
+	return aggregateLedger(entries, time.Now()), entries
+}
+
+// windowCutoff is the start of a trailing window of the given days.
+func windowCutoff(days int) time.Time {
+	return time.Now().Add(-time.Duration(days) * 24 * time.Hour)
 }
 
 // startQuotaFetch launches the live provider-quota fetch on its own goroutine so it overlaps the local
@@ -339,7 +345,7 @@ func usageFilesWithinDays(claudeDir string, days int) ([]string, error) {
 			files = append(files, transcript.WorkflowAgentFiles(run)...)
 		}
 	}
-	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	cutoff := windowCutoff(days)
 	files = slices.DeleteFunc(files, func(f string) bool {
 		info, statErr := os.Stat(f)
 		return statErr != nil || info.ModTime().Before(cutoff)
@@ -354,7 +360,7 @@ func usageSessionDirsWithinDays(claudeDir string, days int) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("usage: glob %s: %w", pattern, err)
 	}
-	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	cutoff := windowCutoff(days)
 
 	var dirs []string
 	for _, dir := range candidates {

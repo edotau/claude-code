@@ -27,9 +27,6 @@ type Repo struct{ Dir string }
 // StoreRepo is the live memory store's repo.
 func StoreRepo() Repo { return Repo{Dir: StoreDir()} }
 
-// credentialPattern is doctor's and the access log's name for the shared credential shape.
-var credentialPattern = textutil.CredentialRE
-
 // prePushHook refuses every push: a guard against accidents, not an access-control boundary.
 const prePushHook = "#!/bin/sh\n# memory is local-only: refuse every push; a guard against accidents, not access control.\n" +
 	"echo 'memory: this repository is local-only; push refused' >&2\nexit 1\n"

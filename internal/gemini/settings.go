@@ -37,7 +37,7 @@ func renderGeminiSettings(home string, o agentconfig.RenderOptions, out io.Write
 		return false, nil
 	}
 	rules := agyGuardRules(cfg.Guard().Deny, out)
-	path := filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
+	path := agySettingsPath(home)
 	return agentconfig.CommitJSONObject(path, o, out, "gemini-settings", func(obj map[string]any, existed bool) bool {
 		if len(rules) == 0 && !existed {
 			return false // nothing to deny: don't create agy's settings.json just to write an empty list
@@ -165,8 +165,9 @@ func agyPermissionSettings(p agent.Permissions, guard, tools bool, cwd string, o
 		}
 	}
 	if len(unenforced) > 0 {
+		home, _ := agentconfig.HomeOr("")
 		return "", nil, fmt.Errorf("agy cannot enforce deny rule(s) %s: the permission-gate hook does not cover them in %s; run `claude-code configure --restore --agents --agent gemini`: dispatch refused",
-			strings.Join(agent.RuleStrings(unenforced), ", "), agyHooksPath())
+			strings.Join(agent.RuleStrings(unenforced), ", "), agyHooksPath(home))
 	}
 	allow, unAllow := appendAgyRules(nil, slices.Concat(p.Allow, p.Ask), cwd)
 	for _, r := range p.Ask {
@@ -219,9 +220,11 @@ func agyRule(r agent.Rule, cwd string) (string, bool) {
 }
 
 // agyHooksPath is agy's global hooks.json, where renderGeminiHooks installs the permission gate.
-func agyHooksPath() string {
-	home, _ := agentconfig.HomeOr("")
-	return filepath.Join(home, ".gemini", "config", "hooks.json")
+func agyHooksPath(home string) string { return filepath.Join(home, ".gemini", "config", "hooks.json") }
+
+// agySettingsPath is agy's settings.json, where renderGeminiSettings writes the guard denies.
+func agySettingsPath(home string) string {
+	return filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
 }
 
 // agyGateTools are the agy tools the permission gate must judge to enforce a Deny on each rule tool (none: unenforceable).
@@ -233,7 +236,8 @@ func agyGateCovers(cwd string, tools ...string) bool {
 		return false
 	}
 	command := (settings.EventSpec{Event: settings.EventPreToolUse, Name: "permission-gate"}).Command()
-	files := []string{agyHooksPath()}
+	home, _ := agentconfig.HomeOr("")
+	files := []string{agyHooksPath(home)}
 	if cwd != "" {
 		files = append(files, filepath.Join(cwd, ".agents", "hooks.json"))
 	}
@@ -280,4 +284,25 @@ func agyMatchesTool(matcher, tool string) bool {
 func isAgyGateHook(hook settings.Hook, command string) bool {
 	cmd := strings.TrimSpace(hook.Command)
 	return hook.Type == "command" && !hook.Async && (cmd == command || cmd == settings.AgentEnv+"=gemini "+command)
+}
+
+// agyHookName is the one named hook in agy's hooks.json the harness owns; every render replaces it.
+const agyHookName = "claude-code"
+
+// agyGateMatcher is the agy tool names the permission gate judges (run_command, read_file, write_file, edit_file).
+const agyGateMatcher = "run_command|read_file|write_file|edit_file"
+
+// renderGeminiHooks merges the harness's agy PreToolUse hooks into ~/.gemini/config/hooks.json, keeping every other hook.
+func renderGeminiHooks(home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
+	var hooks []any
+	for _, s := range settings.SpecsFor("gemini", "native") {
+		hooks = append(hooks, map[string]any{
+			"type": "command", "command": settings.AgentCommand("gemini", s), "timeout": s.Seconds(),
+		})
+	}
+	path := agyHooksPath(home)
+	return agentconfig.CommitJSONObject(path, o, out, "gemini-hooks", func(obj map[string]any, _ bool) bool {
+		obj[agyHookName] = map[string]any{"PreToolUse": []any{map[string]any{"matcher": agyGateMatcher, "hooks": hooks}}}
+		return true
+	})
 }

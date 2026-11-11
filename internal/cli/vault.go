@@ -70,7 +70,7 @@ func cmdVault(args []string) int {
 		return vaultList(args) // bare `vault` (or a leading flag) is `vault ls`
 	}
 	sub, args := args[0], args[1:]
-	if sub == "-h" || sub == "--help" || sub == "help" {
+	if isHelpVerb(sub) {
 		vaultPage.Fprint(os.Stdout)
 		return 0
 	}

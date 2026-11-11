@@ -232,7 +232,7 @@ func memorySubcommands(helpVerb func(string) bool) map[string]func([]string) int
 
 // cmdMemory dispatches the memory verb tree; helpVerb names the top-level verbs whose -h is read-only.
 func cmdMemory(args []string, helpVerb func(string) bool) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+	if len(args) == 0 || isHelpVerb(args[0]) {
 		memoryPage.Fprint(os.Stderr)
 		return 0
 	}

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/gateway"
+	"github.com/edotau/claude-code/internal/gateway/translate"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
@@ -135,7 +136,7 @@ func tooLong(resp *http.Response) bool {
 		return false
 	}
 	drain(resp)
-	body := errorBody(http.StatusBadRequest, string(m))
+	body := translate.ErrorBody(http.StatusBadRequest, string(m))
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 	resp.ContentLength = int64(len(body))
 	resp.Header = http.Header{"Content-Type": {"application/json"}}

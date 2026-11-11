@@ -138,7 +138,7 @@ var switchPage = helptext.Page{
 // cmdSwitch is the switch verb: it pins the session profile on every agent that can serve it.
 func cmdSwitch(args []string) int {
 	dryRun, args := helptext.ExtractBool(args, "dry-run")
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+	if len(args) == 0 || isHelpVerb(args[0]) {
 		switchUsage()
 		return 0
 	}
@@ -421,10 +421,6 @@ func providerListJSON(reg *providers.Registry, name string) int {
 	}{session, reg.Default, reg.Fallback, list})
 }
 
-func profileFlag() helptext.Flag {
-	return helptext.Flag{Name: "profile", Values: providers.ProfileNames}
-}
-
 // modelPinAliases offers "alias=" stems for --pin; the user types the model id after the "=" themselves.
 func modelPinAliases() []string {
 	out := make([]string, 0, len(models.AliasNames)+1)
@@ -436,7 +432,7 @@ func modelPinAliases() []string {
 
 // modelsSpec is the completion node for the models verb.
 func modelsSpec() *helptext.Node {
-	return &helptext.Node{Flags: []helptext.Flag{profileFlag(), helptext.BoolFlag("unpin"), helptext.BoolFlag("live"),
+	return &helptext.Node{Flags: []helptext.Flag{helptext.ValuedFlag("profile", providers.ProfileNames), helptext.BoolFlag("unpin"), helptext.BoolFlag("live"),
 		{Name: "pin", Values: modelPinAliases}, helptext.BoolFlag("dry-run"), helptext.CompletionFormatFlag()}}
 }
 
@@ -448,7 +444,7 @@ func switchSpec() *helptext.Node {
 // resolveSpec is the completion node for the resolve verb.
 func resolveSpec() *helptext.Node {
 	identities := func() []string { return []string{"auto", "user", "sp", "headless"} }
-	return &helptext.Node{Flags: []helptext.Flag{profileFlag(), helptext.BoolFlag("proxy"),
+	return &helptext.Node{Flags: []helptext.Flag{helptext.ValuedFlag("profile", providers.ProfileNames), helptext.BoolFlag("proxy"),
 		helptext.ValuedFlag("as", identities)}}
 }
 

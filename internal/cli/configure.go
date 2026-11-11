@@ -259,9 +259,8 @@ func sections() []string {
 
 // configureSpec is the completion node for the configure verb.
 func configureSpec() *helptext.Node {
-	formatFlag := helptext.ValuedFlag("format", func() []string { return []string{helptext.Text, helptext.JSON} })
 	return &helptext.Node{Args: []func() []string{sections, providers.ProfileNames}, Flags: []helptext.Flag{
 		helptext.ValuedFlag("profile", providers.ProfileNames), helptext.ValuedFlag("agent", agentNames), helptext.ValuedFlag("auth", authNames), helptext.BoolFlag("dry-run"), helptext.BoolFlag("check"),
 		helptext.BoolFlag("restore"), helptext.BoolFlag("revert"), helptext.Plain("out"), helptext.BoolFlag("agents"), helptext.BoolFlag("list"), helptext.BoolFlag("all"),
-		helptext.BoolFlag("no-agents"), formatFlag}}
+		helptext.BoolFlag("no-agents"), helptext.CompletionFormatFlag()}}
 }

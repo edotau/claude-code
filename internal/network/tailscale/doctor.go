@@ -61,8 +61,11 @@ func Credentials() []CredState {
 
 // credentialNote names the configured admin credential and, when well-formed, mints a token to confirm it works.
 func credentialNote(ctx context.Context) (note string, ok bool) {
-	cs := Credentials()
-	id, sec, api := cs[0].Present, cs[1].Present, cs[2].Present
+	present := map[string]bool{}
+	for _, c := range Credentials() {
+		present[c.Name] = c.Present
+	}
+	id, sec, api := present[oauthIDName], present[oauthSecretName], present[apiKeyName]
 	switch {
 	case id && sec:
 		return oauthNote(ctx)
@@ -76,12 +79,12 @@ func credentialNote(ctx context.Context) (note string, ok bool) {
 
 // oauthNote validates the OAuth client pair's shape, then mints a token to confirm it works.
 func oauthNote(ctx context.Context) (note string, ok bool) {
-	idVal, _, _ := vault.Get("TAILSCALE_OAUTH_CLIENT_ID")
-	secVal, _, _ := vault.Get("TAILSCALE_OAUTH_CLIENT_SECRET")
-	if err := textutil.ValidCredential("TAILSCALE_OAUTH_CLIENT_ID", idVal); err != nil {
+	idVal, _, _ := vault.Get(oauthIDName)
+	secVal, _, _ := vault.Get(oauthSecretName)
+	if err := textutil.ValidCredential(oauthIDName, idVal); err != nil {
 		return fmt.Sprintf("; TAILSCALE_OAUTH_CLIENT_ID malformed: %v", err), false
 	}
-	if err := textutil.ValidCredential("TAILSCALE_OAUTH_CLIENT_SECRET", secVal); err != nil {
+	if err := textutil.ValidCredential(oauthSecretName, secVal); err != nil {
 		return fmt.Sprintf("; TAILSCALE_OAUTH_CLIENT_SECRET malformed: %v", err), false
 	}
 	if _, err := oauthToken(apiBaseURL, idVal, secVal, http.DefaultClient)(ctx); err != nil {
@@ -93,8 +96,8 @@ func oauthNote(ctx context.Context) (note string, ok bool) {
 
 // apiKeyNote validates the API key's shape.
 func apiKeyNote() (note string, ok bool) {
-	keyVal, _, _ := vault.Get("TAILSCALE_API_KEY")
-	if err := textutil.ValidCredential("TAILSCALE_API_KEY", keyVal); err != nil {
+	keyVal, _, _ := vault.Get(apiKeyName)
+	if err := textutil.ValidCredential(apiKeyName, keyVal); err != nil {
 		return fmt.Sprintf("; TAILSCALE_API_KEY malformed: %v", err), false
 	}
 	return "; api credential TAILSCALE_API_KEY", true

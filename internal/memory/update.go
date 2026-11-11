@@ -358,17 +358,22 @@ func runAgentUpdate(ctx context.Context, o updateOptions) error {
 	return err
 }
 
+// headlessClaudeEnv marks an update child; a stored setup-token keeps it working after the interactive /login expires.
+func headlessClaudeEnv() []string {
+	env := append(os.Environ(), UpdateChildEnv+"=1")
+	if os.Getenv(providers.OAuthTokenEnv) == "" {
+		if tok := providers.HeadlessOAuthToken(); tok != "" {
+			env = append(env, providers.OAuthTokenEnv+"="+tok)
+		}
+	}
+	return env
+}
+
 // runClaudeUpdate runs `claude -p` with the update prompt, streaming to o.Out.
 func runClaudeUpdate(ctx context.Context, o updateOptions) error {
 	cmd := exec.CommandContext(ctx, o.Claude, "-p", fmt.Sprintf(updatePrompt, o.Transcript)+tagBlock(o.Transcript)+historicalBlock(o.Historical), "--max-turns", "40")
 	cmd.Dir = o.CWD
-	cmd.Env = append(os.Environ(), UpdateChildEnv+"=1")
-	// A stored setup-token keeps the unattended update working after the interactive /login session expires.
-	if os.Getenv(providers.OAuthTokenEnv) == "" {
-		if tok := providers.HeadlessOAuthToken(); tok != "" {
-			cmd.Env = append(cmd.Env, providers.OAuthTokenEnv+"="+tok)
-		}
-	}
+	cmd.Env = headlessClaudeEnv()
 	cmd.Stdout, cmd.Stderr = o.Out, o.Out
 	return cmd.Run()
 }

@@ -354,21 +354,27 @@ func countLines(ls []line, cols int) int {
 	return n
 }
 
+// grow widens [at, at+1) over n items, hi then lo each pass, while fits(lo, hi) holds.
+func grow(n, at int, fits func(lo, hi int) bool) (lo, hi int) {
+	lo, hi = at, at+1
+	for grew := true; grew; {
+		grew = false
+		if hi < n && fits(lo, hi+1) {
+			hi, grew = hi+1, true
+		}
+		if lo > 0 && fits(lo-1, hi) {
+			lo, grew = lo-1, true
+		}
+	}
+	return lo, hi
+}
+
 // window keeps the slice of ls around index at that fits in room terminal rows (at least the cursor line).
 func window(ls []line, at, room, cols int) []line {
 	if countLines(ls, cols) <= room || at >= len(ls) {
 		return ls
 	}
-	lo, hi := at, at+1
-	for grew := true; grew; {
-		grew = false
-		if hi < len(ls) && countLines(ls[lo:hi+1], cols) <= room {
-			hi, grew = hi+1, true
-		}
-		if lo > 0 && countLines(ls[lo-1:hi], cols) <= room {
-			lo, grew = lo-1, true
-		}
-	}
+	lo, hi := grow(len(ls), at, func(lo, hi int) bool { return countLines(ls[lo:hi], cols) <= room })
 	return ls[lo:hi]
 }
 

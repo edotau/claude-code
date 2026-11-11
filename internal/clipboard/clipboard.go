@@ -52,7 +52,7 @@ func runPowerShell(script string) (string, error) {
 	if _, err := exec.LookPath(ps); err != nil {
 		ps = wslPowerShell // interop left Windows off PATH (VS Code Remote-WSL terminals)
 	}
-	out, err := exec.CommandContext(ctx, ps, "-NoProfile", "-NonInteractive", "-Sta", "-Command", script).Output()
+	out, err := exec.CommandContext(ctx, ps, psCmd(script)...).Output()
 	if err != nil {
 		return "", err
 	}
@@ -120,7 +120,7 @@ func grabWSLg() (path, dim string, err error) {
 
 // savePNG writes PNG bytes to a temp file and returns its path plus "WxH".
 func savePNG(b []byte) (path, dim string, err error) {
-	cfg, err := png.DecodeConfig(bytes.NewReader(b))
+	dim, err = pngDim(b)
 	if err != nil {
 		return "", "", err
 	}
@@ -137,7 +137,16 @@ func savePNG(b []byte) (path, dim string, err error) {
 		_ = os.Remove(f.Name())
 		return "", "", err
 	}
-	return f.Name(), fmt.Sprintf("%dx%d", cfg.Width, cfg.Height), nil
+	return f.Name(), dim, nil
+}
+
+// pngDim returns the "WxH" of PNG bytes.
+func pngDim(b []byte) (string, error) {
+	cfg, err := png.DecodeConfig(bytes.NewReader(b))
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%dx%d", cfg.Width, cfg.Height), nil
 }
 
 // errNoMacImage: osascript found no PNG on the macOS clipboard.
@@ -181,12 +190,12 @@ func grabMac() (path, dim string, err error) {
 		_ = os.Remove(path)
 		return "", "", err
 	}
-	cfg, err := png.DecodeConfig(bytes.NewReader(b))
+	dim, err = pngDim(b)
 	if err != nil {
 		_ = os.Remove(path)
 		return "", "", fmt.Errorf("clipboard PNG unreadable: %w", err)
 	}
-	return path, fmt.Sprintf("%dx%d", cfg.Width, cfg.Height), nil
+	return path, dim, nil
 }
 
 // translateWin maps a Windows path to its WSL view, "" when no mount covers it.

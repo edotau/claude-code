@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // storeFixture isolates the config dir and git's global config, and sets a HOSTILE inherited git env pointing at a
@@ -425,7 +427,7 @@ func credentialNegatives() map[string]string {
 
 func TestCredentialPatternMatchesSecretShapes(t *testing.T) {
 	for name, v := range credentialPositives() {
-		if !credentialPattern.MatchString("note: " + v + " here") {
+		if !textutil.CredentialRE.MatchString("note: " + v + " here") {
 			t.Errorf("%s: secret shape not matched", name)
 		}
 	}
@@ -433,7 +435,7 @@ func TestCredentialPatternMatchesSecretShapes(t *testing.T) {
 
 func TestCredentialPatternSkipsFalsePositives(t *testing.T) {
 	for name, v := range credentialNegatives() {
-		if credentialPattern.MatchString("note: " + v + " here") {
+		if textutil.CredentialRE.MatchString("note: " + v + " here") {
 			t.Errorf("%s: %q flagged as a credential", name, v)
 		}
 	}

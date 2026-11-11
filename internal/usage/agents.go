@@ -131,7 +131,7 @@ func buildAgentsUsage(scan *transcriptScan, session string, days int) []agentUsa
 		const note = "not scoped to a claude session"
 		return []agentUsage{claudeRow, {Agent: "codex", Note: note}, {Agent: "opencode", Note: note}, {Agent: "copilot", Note: note}}
 	}
-	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	cutoff := windowCutoff(days)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 

@@ -215,9 +215,18 @@ func HasSecretErr(name string) (source string, err error) {
 
 // LookupAll resolves each name (vault, then process env); the first unset or unreadable name is the error.
 func LookupAll(names []string) ([]string, error) {
+	batch, batchErr := ReadSecrets(names) // one vault open; on error each name falls back to Lookup
 	values := make([]string, len(names))
 	for i, name := range names {
-		value, _, err := Lookup(name)
+		var value string
+		var err error
+		if v, found := batch[name]; batchErr == nil && found {
+			value = v
+		} else if batchErr == nil {
+			value = strings.TrimSpace(os.Getenv(name))
+		} else {
+			value, _, err = Lookup(name)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("%s: %v", name, err)
 		}

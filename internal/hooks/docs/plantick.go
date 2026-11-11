@@ -153,7 +153,7 @@ func candidateDir(p, base string) string {
 	if strings.HasPrefix(p, "~/") {
 		p = paths.ExpandHome(p)
 	}
-	return resolveCWDPath(p, base)
+	return core.AnchorPath(p, base)
 }
 
 // recordPartials appends "<path>\\t<plan>: <task>" lines for the Stop reminder.

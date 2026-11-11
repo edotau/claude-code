@@ -222,7 +222,7 @@ type ModelInfo struct {
 	Capabilities string // e.g. "vision · reasoning · x2"; blank when none
 	Task         string // Databricks serving endpoints only, e.g. "llm/v1/chat"
 	Ready        string // Databricks serving endpoints only, e.g. "READY"
-	Gateway      bool   // listed by the AI Gateway (GatewayModels), not the serving-endpoints catalog
+	Gateway      bool   // listed by the AI Gateway (gatewayModels), not the serving-endpoints catalog
 }
 
 // ListModels lists p's live catalog with names/use-case/capabilities when the backend reports them.
@@ -257,9 +257,9 @@ func displayName(id string) string {
 	return strings.Join(parts, " ")
 }
 
-// GatewayModels lists the Anthropic models a Databricks workspace's AI Gateway serves (display names included),
+// gatewayModels lists the Anthropic models a Databricks workspace's AI Gateway serves (display names included),
 // through DiscoverModels' pager. Non-Databricks providers return nil, nil.
-func GatewayModels(ctx context.Context, p *Provider) ([]ModelInfo, error) {
+func gatewayModels(ctx context.Context, p *Provider) ([]ModelInfo, error) {
 	host := PresetHost(p.Host)
 	if p.Preset != PresetDatabricks || host == "" {
 		return nil, nil

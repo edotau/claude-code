@@ -206,7 +206,7 @@ func LoadCatalog(p *Provider, listOwn func(context.Context) ([]ModelInfo, error)
 		}
 	}
 	if p.IsAIGateway() { // a serving row's traffic stays on /serving-endpoints: never read the AI Gateway
-		c.Gateway, c.GatewayErr = GatewayModels(ctx, p)
+		c.Gateway, c.GatewayErr = gatewayModels(ctx, p)
 	}
 	return c, nil
 }

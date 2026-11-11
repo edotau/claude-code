@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // bankStat is one bank's roll-up from a single read per typed file: newest mtime, cap offenders, unreadable files,
@@ -44,7 +45,7 @@ func statBank(dir string) bankStat {
 			s.Updated = fi.ModTime()
 		}
 		// The visible surface for commitStore's refusal to stage credential-shaped values.
-		if credentialPattern.Match(data) {
+		if textutil.CredentialRE.Match(data) {
 			s.Credentials = append(s.Credentials, name+": possible credential-shaped value — scrub before promoting")
 		}
 	}

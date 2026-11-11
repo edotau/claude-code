@@ -23,7 +23,7 @@ func TestCheckSortOrder(t *testing.T) {
 		{ID: "glm-5-3", Status: "ok", LatencyMS: 900}, {ID: "glm-5-1", Status: "ok", LatencyMS: 100},
 		{ID: "claude-x", Status: "ok", LatencyMS: 50},
 	}
-	SortCheckResults(rs)
+	sortCheckResults(rs)
 	var ids []string
 	for _, r := range rs {
 		ids = append(ids, r.ID)
@@ -35,8 +35,8 @@ func TestCheckSortOrder(t *testing.T) {
 
 func TestCheckFamily(t *testing.T) {
 	for in, want := range map[string]string{"claude-opus-5-5": "claude", "databricks-glm-5-2": "glm", "gpt-oss-120b": "gpt", "inkling": "inkling"} {
-		if got := CheckFamily(in); got != want {
-			t.Errorf("CheckFamily(%q) = %q, want %q", in, got, want)
+		if got := checkFamily(in); got != want {
+			t.Errorf("checkFamily(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

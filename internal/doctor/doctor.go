@@ -20,7 +20,7 @@ import (
 // doctorChecks is a test seam over the probing launch.DoctorChecks plus the soft, config-only MCP row.
 var doctorChecks = func() ([]launch.Check, bool) {
 	checks, ok := launch.DoctorChecks()
-	mcpOK, detail := Summary(mcpOptions(false))
+	mcpOK, detail := summary(mcpOptions(false))
 	return append(checks, launch.Check{Name: "mcp", OK: mcpOK, Detail: detail}), ok
 }
 
@@ -101,7 +101,7 @@ func runDoctor(o *doctorOpts, targets []string) int {
 		return runPrompts(o)
 	}
 	if o.mcp {
-		return Doctor(os.Stdout, mcpOptions(*o.format == helptext.JSON))
+		return doctorMCP(os.Stdout, mcpOptions(*o.format == helptext.JSON))
 	}
 	if o.scan || o.gitScan || o.all {
 		return runDoctorAudits(o, targets)
@@ -135,7 +135,7 @@ func printChecks(o *doctorOpts, checks []launch.Check, ok bool) int {
 }
 
 func runPrompts(o *doctorOpts) int {
-	checks := PromptPath(paths.ConfigDir())
+	checks := promptPath(paths.ConfigDir())
 	ok := true
 	for _, c := range checks {
 		ok = ok && c.OK
@@ -144,11 +144,11 @@ func runPrompts(o *doctorOpts) int {
 }
 
 // mcpOptions points the MCP scan at the user, project and settings scopes; every path is read-only.
-func mcpOptions(asJSON bool) Options {
+func mcpOptions(asJSON bool) options {
 	home, _ := os.UserHomeDir()
 	bin, _ := claude.ClaudeBinary() // "" on error: the scan fails OPEN on a missing claude binary
 	cwd, _ := os.Getwd()
-	return Options{
+	return options{
 		UserPath:     paths.ClaudeJSON(),
 		ProjectFiles: []string{filepath.Join(cwd, ".mcp.json")},
 		SettingsFiles: []string{

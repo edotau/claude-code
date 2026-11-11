@@ -66,10 +66,10 @@ func recordTokenExpiry(name, v, method string) {
 	_ = paths.AtomicWrite(path, b, 0o600) // temp+rename: a concurrent TokenExpiry never reads a truncated file
 }
 
-// SPExpirySuffix keys a paired row's service-principal expiry record apart from its user login's (name + suffix).
-const SPExpirySuffix = ".sp"
+// spExpirySuffix keys a paired row's service-principal expiry record apart from its user login's (name + suffix).
+const spExpirySuffix = ".sp"
 
-// TokenExpiry is the expiry the record name holds (a row's user or own credential; name+SPExpirySuffix its SP's).
+// TokenExpiry is the expiry the record name holds (a row's user or own credential; name+spExpirySuffix its SP's).
 func TokenExpiry(name string) (time.Time, bool) {
 	exp, _, _, ok := readTokenExpiry(name)
 	return exp, ok
@@ -78,7 +78,7 @@ func TokenExpiry(name string) (time.Time, bool) {
 // TokenExpiryMethod is the row's latest-minted expiry, user or SP record, plus its method ("" when it names none).
 func TokenExpiryMethod(name string) (time.Time, string, bool) {
 	exp, method, at, ok := readTokenExpiry(name)
-	if spExp, spMethod, spAt, spOK := readTokenExpiry(name + SPExpirySuffix); spOK && (!ok || spAt.After(at)) {
+	if spExp, spMethod, spAt, spOK := readTokenExpiry(name + spExpirySuffix); spOK && (!ok || spAt.After(at)) {
 		return spExp, spMethod, true
 	}
 	return exp, method, ok

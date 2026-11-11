@@ -22,6 +22,14 @@ var (
 	CommitLine = regexp.MustCompile(`(?m)^\[(?:detached HEAD|[^\]\s]+)(?: \(root-commit\))? ([0-9a-f]{7,40})\] `)
 )
 
+// AnchorPath anchors a relative path to cwd; an empty path or cwd leaves it unchanged.
+func AnchorPath(path, cwd string) string {
+	if path != "" && !filepath.IsAbs(path) && cwd != "" {
+		return filepath.Join(cwd, path)
+	}
+	return path
+}
+
 // Git runs git in dir with GIT_* scrubbed: ok=false when git itself refused; err for a missing binary or a timeout.
 func Git(ctx context.Context, dir string, args ...string) (lines []string, ok bool, err error) {
 	out, err := proc.RunGit(ctx, dir, args...)

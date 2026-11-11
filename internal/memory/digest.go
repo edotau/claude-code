@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
 )
 
 // Digest bounds: raw-archive input only, one small model call, never digest-of-digest.
@@ -79,12 +78,7 @@ func runDigestModel(ctx context.Context, dir, claude, input string) ([]string, e
 		"--tools", "", "--setting-sources", "") // untrusted archive text: no tools, no user settings
 	cmd.Dir = dir
 	cmd.WaitDelay = 5 * time.Second // a grandchild holding the pipe must not outlive the timeout
-	cmd.Env = append(os.Environ(), UpdateChildEnv+"=1")
-	if os.Getenv(providers.OAuthTokenEnv) == "" {
-		if tok := providers.HeadlessOAuthToken(); tok != "" {
-			cmd.Env = append(cmd.Env, providers.OAuthTokenEnv+"="+tok)
-		}
-	}
+	cmd.Env = headlessClaudeEnv()
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {

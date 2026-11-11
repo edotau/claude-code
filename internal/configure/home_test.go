@@ -69,7 +69,7 @@ func TestRegisterClaudeMCPWrapsExitError(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	log := filepath.Join(t.TempDir(), "calls")
 	pathstest.FakeVendor(t, "claude", `printf '%s|' "$@" >> `+log+`; echo >> `+log+`; printf 'registration failed\n'; exit 7`)
-	err := RegisterClaudeMCPContext(context.Background(), "/custom path/claude-code")
+	err := registerClaudeMCPContext(context.Background(), "/custom path/claude-code")
 	var exitErr *exec.ExitError
 	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 || !strings.Contains(err.Error(), "registration failed") ||
 		!strings.Contains(err.Error(), "claude mcp add") {
@@ -87,7 +87,7 @@ func TestRegisterClaudeMCPAddFailureKeepsExisting(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	log := filepath.Join(dir, "calls")
 	pathstest.FakeVendor(t, "claude", `echo "$2" >> `+log+`; [ "$2" = add ] && { echo locked; exit 3; }; exit 0`)
-	if err := RegisterClaudeMCPContext(context.Background(), "/bin/claude-code"); err == nil {
+	if err := registerClaudeMCPContext(context.Background(), "/bin/claude-code"); err == nil {
 		t.Fatal("want add error")
 	}
 	got, _ := os.ReadFile(log)
@@ -136,7 +136,7 @@ func TestRegisterClaudeMCPRestoresAfterReaddFailure(t *testing.T) {
 			pathstest.FakeVendor(t, "claude", mcpReaddFailureScript)
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
-			err := RegisterClaudeMCPContext(ctx, "/bin/claude-code")
+			err := registerClaudeMCPContext(ctx, "/bin/claude-code")
 			assertMCPReaddError(t, mode, err)
 			assertMCPRestored(t, original)
 		})
@@ -223,7 +223,7 @@ func registerMCPMode(t *testing.T, mode string) (string, error) {
 			t.Fatal(err)
 		}
 	}
-	return log, RegisterClaudeMCPContext(context.Background(), mcpBin)
+	return log, registerClaudeMCPContext(context.Background(), mcpBin)
 }
 
 // TestRegisterClaudeMCPContextFresh: a first registration runs add only, never remove.
@@ -257,7 +257,7 @@ func TestRegisterClaudeMCPContextRemoveFails(t *testing.T) {
 func TestRegisterClaudeMCPContextCancelAdd(t *testing.T) {
 	_, log, ready := configureCommandEnv(t, "cancel-add")
 	assertConfigureCancellation(t, ready, func(ctx context.Context) error {
-		return RegisterClaudeMCPContext(ctx, mcpBin)
+		return registerClaudeMCPContext(ctx, mcpBin)
 	})
 	assertConfigureArgv(t, log, mcpAddArgv)
 }

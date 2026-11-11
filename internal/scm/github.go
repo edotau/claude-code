@@ -138,8 +138,10 @@ func (h *GitHubHost) Create(ctx context.Context, o CreateOpts) (PR, error) {
 }
 
 func (h *GitHubHost) Checks(ctx context.Context, id, sha string) ([]Check, error) {
-	if id != "" && !digitsRe.MatchString(id) {
-		return nil, fmt.Errorf("invalid PR id %q: want digits", id)
+	if id != "" {
+		if err := checkDigits("PR id", id); err != nil {
+			return nil, err
+		}
 	}
 	if id == "" && !hexRe.MatchString(sha) {
 		return nil, fmt.Errorf("invalid sha %q: want hex", sha)

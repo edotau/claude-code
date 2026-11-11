@@ -73,16 +73,16 @@ func (d serverDef) display() string {
 	return head
 }
 
-// Def is one (server, scope) definition row.
-type Def struct {
+// def is one (server, scope) definition row.
+type def struct {
 	Server string    `json:"server"`
 	Scope  string    `json:"scope"`
 	D      serverDef `json:"def"`
 }
 
 // collectDefs reads mcpServers from the user config, project .mcp.json and settings files; bad files are noted.
-func collectDefs(userPath string, projectFiles, settingsFiles []string) ([]Def, []string) {
-	var out []Def
+func collectDefs(userPath string, projectFiles, settingsFiles []string) ([]def, []string) {
+	var out []def
 	var bad []string
 	var top struct {
 		MCPServers map[string]serverDef `json:"mcpServers"`
@@ -92,11 +92,11 @@ func collectDefs(userPath string, projectFiles, settingsFiles []string) ([]Def, 
 	}
 	if loadConfig(userPath, &top, &bad) {
 		for name, d := range top.MCPServers {
-			out = append(out, Def{name, "user", d})
+			out = append(out, def{name, "user", d})
 		}
 		for proj, p := range top.Projects {
 			for name, d := range p.MCPServers {
-				out = append(out, Def{name, "local:" + proj, d})
+				out = append(out, def{name, "local:" + proj, d})
 			}
 		}
 	}
@@ -128,8 +128,8 @@ func loadConfig(path string, doc any, bad *[]string) bool {
 
 // readFlatScoped reads a flat {"mcpServers": {...}} file (.mcp.json, settings.json), deduped by
 // resolved path, and tags each server with prefix+resolvedPath as its scope.
-func readFlatScoped(files []string, prefix string, bad *[]string) []Def {
-	var out []Def
+func readFlatScoped(files []string, prefix string, bad *[]string) []def {
+	var out []def
 	seen := map[string]bool{}
 	for _, f := range files {
 		rp := f
@@ -147,7 +147,7 @@ func readFlatScoped(files []string, prefix string, bad *[]string) []Def {
 			continue
 		}
 		for name, d := range doc.MCPServers {
-			out = append(out, Def{name, prefix + rp, d})
+			out = append(out, def{name, prefix + rp, d})
 		}
 	}
 	return out
@@ -212,17 +212,17 @@ func runHealth(claude string) healthResult {
 	return res
 }
 
-// Conflict is a server name defined in more than one scope; Real is true only when the resolved
+// conflict is a server name defined in more than one scope; Real is true only when the resolved
 // commands/urls disagree — identical definitions across scopes are benign layering.
-type Conflict struct {
+type conflict struct {
 	Server string `json:"server"`
-	Rows   []Def  `json:"rows"`
+	Rows   []def  `json:"rows"`
 	Real   bool   `json:"real"`
 }
 
 // findConflicts flags same-name defs that disagree; the comparison runs on the originals so a secret-only diff counts.
-func findConflicts(defs []Def, home string) []Conflict {
-	byName := map[string][]Def{}
+func findConflicts(defs []def, home string) []conflict {
+	byName := map[string][]def{}
 	var names []string
 	for _, d := range defs {
 		if len(byName[d.Server]) == 0 {
@@ -231,7 +231,7 @@ func findConflicts(defs []Def, home string) []Conflict {
 		byName[d.Server] = append(byName[d.Server], d)
 	}
 	sort.Strings(names)
-	var out []Conflict
+	var out []conflict
 	for _, name := range names {
 		rows := byName[name]
 		if len(rows) < 2 {
@@ -243,7 +243,7 @@ func findConflicts(defs []Def, home string) []Conflict {
 			cmd = expandArgsHome(cmd)
 			resolved[cmd] = true
 		}
-		out = append(out, Conflict{Server: name, Rows: redact(rows), Real: len(resolved) > 1})
+		out = append(out, conflict{Server: name, Rows: redact(rows), Real: len(resolved) > 1})
 	}
 	return out
 }
@@ -270,7 +270,7 @@ type SecretFinding struct {
 var queryParamSecret = regexp.MustCompile(`(?i)([?&][\w-]*(?:token|key)=)[^&\s]+`)
 
 // findSecrets scans every server's env, headers, and url for inline plaintext credentials.
-func findSecrets(defs []Def) []SecretFinding {
+func findSecrets(defs []def) []SecretFinding {
 	var out []SecretFinding
 	for _, d := range defs {
 		out = append(out, scanMap(d, "env", d.D.Env)...)
@@ -282,11 +282,11 @@ func findSecrets(defs []Def) []SecretFinding {
 	return out
 }
 
-// redact returns a copy of defs with every secret-shaped value replaced, so a Report (JSON or text)
+// redact returns a copy of defs with every secret-shaped value replaced, so a report (JSON or text)
 // never carries a credential. Run findSecrets on the ORIGINAL defs first — a redacted value no
 // longer looks like a secret, so scanning would find nothing.
-func redact(defs []Def) []Def {
-	out := make([]Def, len(defs))
+func redact(defs []def) []def {
+	out := make([]def, len(defs))
 	for i, d := range defs {
 		d.D = d.D.redacted()
 		out[i] = d
@@ -311,7 +311,7 @@ func redactArgs(args []string) []string {
 	return out
 }
 
-func scanMap(d Def, field string, m map[string]string) []SecretFinding {
+func scanMap(d def, field string, m map[string]string) []SecretFinding {
 	var keys []string
 	for k := range m {
 		keys = append(keys, k)
@@ -326,26 +326,26 @@ func scanMap(d Def, field string, m map[string]string) []SecretFinding {
 	return out
 }
 
-// Report is the full doctor result: every definition plus the three findings sections.
-type Report struct {
-	Defs      []Def           `json:"defs"`
+// report is the full doctor result: every definition plus the three findings sections.
+type report struct {
+	Defs      []def           `json:"defs"`
 	Health    healthResult    `json:"health"`
-	Conflicts []Conflict      `json:"conflicts"`
+	Conflicts []conflict      `json:"conflicts"`
 	Secrets   []SecretFinding `json:"secrets"`
 	Unscanned []string        `json:"unscanned,omitempty"` // config files that exist but could not be read or parsed
 }
 
 // ExitCode is 1 when a server failed, `claude mcp list` errored, a secret was found, or a config file was unscanned, else 0. A fail-open
 // health skip (claude not on PATH) never contributes to the exit code on its own.
-func (r Report) ExitCode() int {
+func (r report) ExitCode() int {
 	if r.Health.Failed > 0 || r.Health.Error != "" || len(r.Secrets) > 0 || len(r.Unscanned) > 0 {
 		return 1
 	}
 	return 0
 }
 
-// Options configures one Doctor run; every path is read-only.
-type Options struct {
+// options configures one Doctor run; every path is read-only.
+type options struct {
 	UserPath      string
 	ProjectFiles  []string
 	SettingsFiles []string
@@ -354,16 +354,16 @@ type Options struct {
 	JSON          bool
 }
 
-// Summary is the one-row `doctor` view of the config scan, without the ~1s live `claude mcp list` (doctor --mcp runs it).
-func Summary(o Options) (ok bool, detail string) {
+// summary is the one-row `doctor` view of the config scan, without the ~1s live `claude mcp list` (doctor --mcp runs it).
+func summary(o options) (ok bool, detail string) {
 	rep := configReport(o)
 	detail = fmt.Sprintf("%d defined, %d secrets, %d unscanned; doctor --mcp for live health",
 		len(rep.Defs), len(rep.Secrets), len(rep.Unscanned))
 	return rep.ExitCode() == 0, detail
 }
 
-// Doctor runs the full scan and writes either the human report or (Options.JSON) the Report as JSON.
-func Doctor(w io.Writer, o Options) int {
+// doctorMCP runs the full scan and writes either the human report or (options.JSON) the report as JSON.
+func doctorMCP(w io.Writer, o options) int {
 	rep := buildReport(o)
 	ew := &textutil.ErrWriter{W: w}
 	if o.JSON {
@@ -384,7 +384,7 @@ func Doctor(w io.Writer, o Options) int {
 }
 
 // printReport renders rep as the human-readable, section-per-check report.
-func printReport(w io.Writer, rep Report) {
+func printReport(w io.Writer, rep report) {
 	printDefsSection(w, rep)
 	fmt.Fprintln(w)
 	printHealthSection(w, rep.Health)
@@ -394,7 +394,7 @@ func printReport(w io.Writer, rep Report) {
 	printSecretsSection(w, rep)
 }
 
-func printDefsSection(w io.Writer, rep Report) {
+func printDefsSection(w io.Writer, rep report) {
 	fmt.Fprintln(w, "== MCP servers (all scopes) ==")
 	if len(rep.Defs) == 0 {
 		fmt.Fprintln(w, "  no MCP servers defined anywhere")
@@ -424,7 +424,7 @@ func printHealthSection(w io.Writer, h healthResult) {
 	}
 }
 
-func printConflictsSection(w io.Writer, conflicts []Conflict) {
+func printConflictsSection(w io.Writer, conflicts []conflict) {
 	fmt.Fprintln(w, "== scope conflicts (same server in >1 scope) ==")
 	if len(conflicts) == 0 {
 		fmt.Fprintln(w, "  ✓ no server defined in more than one scope")
@@ -447,7 +447,7 @@ func printConflictsSection(w io.Writer, conflicts []Conflict) {
 	}
 }
 
-func printSecretsSection(w io.Writer, rep Report) {
+func printSecretsSection(w io.Writer, rep report) {
 	fmt.Fprintln(w, "== inline credential scan (MCP env/headers/url) ==")
 	if len(rep.Secrets) == 0 && len(rep.Unscanned) == 0 {
 		fmt.Fprintln(w, "  ✓ no inline secrets found")
@@ -466,10 +466,10 @@ func printSecretsSection(w io.Writer, rep Report) {
 }
 
 // configReport collects every scope and finds inline secrets and conflicts; it runs no live health check.
-func configReport(o Options) Report {
+func configReport(o options) report {
 	defs, unscanned := collectDefs(o.UserPath, o.ProjectFiles, o.SettingsFiles)
 	secrets := findSecrets(defs) // must run before redact() — a scrubbed value no longer looks like one
-	return Report{
+	return report{
 		Defs:      redact(defs),
 		Conflicts: findConflicts(defs, o.Home),
 		Secrets:   secrets,
@@ -478,7 +478,7 @@ func configReport(o Options) Report {
 }
 
 // buildReport is configReport plus the live `claude mcp list` health.
-func buildReport(o Options) Report {
+func buildReport(o options) report {
 	rep := configReport(o)
 	rep.Health = runHealth(o.Claude)
 	if len(rep.Defs) > 0 && rep.Health.Skipped == "" && rep.Health.Error == "" && rep.Health.Connected+rep.Health.Failed == 0 {

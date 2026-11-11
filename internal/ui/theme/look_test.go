@@ -140,7 +140,7 @@ func TestLoadPalette(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			p, ok := LoadPalette(dir)
+			p, ok := loadPalette(dir)
 			if ok != c.ok {
 				t.Fatalf("ok = %v, want %v", ok, c.ok)
 			}

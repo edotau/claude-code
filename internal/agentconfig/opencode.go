@@ -3,8 +3,6 @@ package agentconfig
 import (
 	"embed"
 	"encoding/json"
-	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -107,12 +105,12 @@ func WriteOpencodeOverlay() (cfg, tui string, err error) {
 // the existing file's "theme" key and overrides the template's before writing, so a repeated overlay
 // write (every opencode launch) never clobbers a theme the owner picked after the template rendered.
 func preserveAppliedTheme(path string, template []byte) ([]byte, error) {
-	cur, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return template, nil
-	}
+	cur, existed, err := ReadExisting(path)
 	if err != nil {
 		return nil, err // never overwrite a theme the owner picked because the read failed
+	}
+	if !existed {
+		return template, nil
 	}
 	var curDoc map[string]any
 	if json.Unmarshal(cur, &curDoc) != nil {

@@ -14,7 +14,7 @@ func cmdTest(args []string) int {
 	if len(args) > 0 && args[0] == "ramdisk" {
 		return ramdisk.Run(args[1:])
 	}
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+	if len(args) == 0 || isHelpVerb(args[0]) {
 		testPage.Fprint(os.Stderr)
 		return 0
 	}

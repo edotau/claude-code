@@ -52,7 +52,7 @@ func wantsHelp(args []string) bool {
 
 // cmdReview dispatches `review <tool>`.
 func cmdReview(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+	if len(args) == 0 || isHelpVerb(args[0]) {
 		reviewPage.Fprint(os.Stdout)
 		return 0
 	}
@@ -93,7 +93,7 @@ func workflowSubPage(sub string) helptext.Page {
 
 // cmdWorkflow dispatches `workflow skeleton|lint`.
 func cmdWorkflow(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+	if len(args) == 0 || isHelpVerb(args[0]) {
 		workflowPage.Fprint(os.Stdout)
 		return 0
 	}

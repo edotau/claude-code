@@ -3,6 +3,7 @@ package launch
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"io"
@@ -452,6 +453,9 @@ func sameFile(self, target string) bool {
 	if err != nil || fi.Mode()&0o111 == 0 {
 		return false
 	}
+	if si, err := os.Stat(self); err != nil || si.Size() != fi.Size() {
+		return false
+	}
 	a, err1 := os.ReadFile(self)
 	b, err2 := os.ReadFile(target)
 	return err1 == nil && err2 == nil && bytes.Equal(a, b)
@@ -463,4 +467,59 @@ func copyBinary(src, dst string) error {
 		return err
 	}
 	return paths.AtomicWrite(dst, data, 0o755)
+}
+
+//go:embed tmux.conf
+var tmuxConf []byte
+
+// tmuxConfPaths are the files tmux reads at startup; the first is where a missing config is seeded.
+var tmuxConfPaths = func() []string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return nil
+	}
+	xdg := os.Getenv("XDG_CONFIG_HOME")
+	if xdg == "" {
+		xdg = filepath.Join(home, ".config")
+	}
+	return []string{filepath.Join(home, ".tmux.conf"), filepath.Join(xdg, "tmux", "tmux.conf")}
+}
+
+// seedTmuxConf writes the harness tmux.conf only when no tmux config exists; returns "kept", "wrote" or "" (skipped).
+func seedTmuxConf(w io.Writer, dryRun bool) string {
+	paths := tmuxConfPaths()
+	if len(paths) == 0 {
+		fmt.Fprintln(w, "tmux     skip  home directory unresolved")
+		return ""
+	}
+	for _, p := range paths {
+		_, err := os.Stat(p)
+		if err == nil {
+			fmt.Fprintf(w, "tmux     %s exists (kept)\n", p)
+			return "kept"
+		}
+		if !errors.Is(err, fs.ErrNotExist) { // unknown state: never seed over a config we could not probe
+			fmt.Fprintf(w, "tmux     skip  %v\n", err)
+			return ""
+		}
+	}
+	if dryRun {
+		fmt.Fprintf(w, "tmux     would write %s (skipped: --dry-run)\n", paths[0])
+		return ""
+	}
+	f, err := os.OpenFile(paths[0], os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644) // O_EXCL: never truncate a racing writer's config
+	if errors.Is(err, fs.ErrExist) {
+		fmt.Fprintf(w, "tmux     %s exists (kept)\n", paths[0])
+		return "kept"
+	}
+	if err == nil {
+		_, err = f.Write(tmuxConf)
+		err = errors.Join(err, f.Close())
+	}
+	if err != nil {
+		fmt.Fprintf(w, "tmux     skip  %v\n", err)
+		return ""
+	}
+	fmt.Fprintf(w, "tmux     wrote %s\n", paths[0])
+	return "wrote"
 }

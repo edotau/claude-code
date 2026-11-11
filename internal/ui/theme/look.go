@@ -252,8 +252,8 @@ func ResetConfig() (bool, error) {
 // Palette is the shared look the TUI panels inherit: Border becomes Accent, Sel becomes Selection.
 type Palette struct{ Accent, Selection ansi.RGB }
 
-// LoadPalette reads <dir>/palette.json; alpha in #RRGGBBAA is ignored. ok=false if missing, invalid or a slot is absent.
-func LoadPalette(dir string) (Palette, bool) {
+// loadPalette reads <dir>/palette.json; alpha in #RRGGBBAA is ignored. ok=false if missing, invalid or a slot is absent.
+func loadPalette(dir string) (Palette, bool) {
 	raw, err := os.ReadFile(filepath.Join(dir, "palette.json"))
 	if err != nil {
 		return Palette{}, false
@@ -285,8 +285,8 @@ var (
 	currentOK   bool
 )
 
-// Current is LoadPalette(Dir()), resolved once per process.
+// Current is loadPalette(Dir()), resolved once per process.
 func Current() (Palette, bool) {
-	currentOnce.Do(func() { currentPal, currentOK = LoadPalette(Dir()) })
+	currentOnce.Do(func() { currentPal, currentOK = loadPalette(Dir()) })
 	return currentPal, currentOK
 }

@@ -196,7 +196,7 @@ func runSweep(current string, now time.Time, out io.Writer) {
 		}
 	}
 	if saved > 0 {
-		prev, _ := strconv.Atoi(strings.TrimSpace(readFileOr(catchupDonePath())))
+		prev := catchupDoneCount()
 		_ = paths.AtomicWrite(catchupDonePath(), []byte(strconv.Itoa(prev+saved)), 0o600)
 	}
 }
@@ -208,9 +208,11 @@ var runHistoricalUpdate = func(ctx context.Context, self string, c sweepCand, ou
 	return cmd.Run()
 }
 
-func readFileOr(path string) string {
-	b, _ := os.ReadFile(path)
-	return string(b)
+// catchupDoneCount is the saved-session count in the done note; 0 when absent or unreadable.
+func catchupDoneCount() int {
+	b, _ := readIfExists(catchupDonePath())
+	n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	return n
 }
 
 // ConsumeCatchupNote is the one quiet line for a finished sweep (read once), or "" with nothing saved.
@@ -221,7 +223,7 @@ func ConsumeCatchupNote() string {
 	n := 0
 	// A running sweep holds the lock and still updates the count: leave it for the next start.
 	_, _ = paths.TryFileLock(filepath.Join(StateDir(), "catchup.lock"), 0, func() error {
-		n, _ = strconv.Atoi(strings.TrimSpace(readFileOr(catchupDonePath())))
+		n = catchupDoneCount()
 		return os.Remove(catchupDonePath())
 	})
 	switch {

@@ -18,7 +18,7 @@ func TestRedactConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := RedactConfig(string(b))
+	got := redactConfig(string(b))
 	var out map[string]any
 	if err := json.Unmarshal([]byte(got), &out); err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestRedactConfig(t *testing.T) {
 		t.Errorf("provider.options.apiKey must not be touched, got %v", apiKey)
 	}
 
-	if got := RedactConfig("{not json"); got != "{not json" {
+	if got := redactConfig("{not json"); got != "{not json" {
 		t.Errorf("malformed input must be returned unchanged, got %q", got)
 	}
 }
@@ -51,7 +51,7 @@ func TestRedactConfigProviderOptionsHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := RedactConfig(string(b))
+	got := redactConfig(string(b))
 	if strings.Contains(got, "sk-abc123") {
 		t.Errorf("secret leaked into redacted config: %s", got)
 	}
@@ -82,7 +82,7 @@ func TestRedactConfigNonSecretFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := RedactConfig(string(b))
+	got := redactConfig(string(b))
 	var out map[string]any
 	if err := json.Unmarshal([]byte(got), &out); err != nil {
 		t.Fatal(err)
@@ -96,7 +96,7 @@ func TestRedactConfigNonSecretFields(t *testing.T) {
 	}
 }
 
-// RedactConfig must blank a secret-naming .command flag's value (bare or "=" form) and a .url's whole query
+// redactConfig must blank a secret-naming .command flag's value (bare or "=" form) and a .url's whole query
 // string, while leaving non-secret flags, the bare command name, and the flag names themselves intact.
 func TestRedactConfigCommandAndURL(t *testing.T) {
 	in := map[string]any{"mcp": map[string]any{
@@ -107,7 +107,7 @@ func TestRedactConfigCommandAndURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := RedactConfig(string(b))
+	got := redactConfig(string(b))
 	for _, secret := range []string{"SECRET1", "SECRET2", "SECRET3"} {
 		if strings.Contains(got, secret) {
 			t.Errorf("%s leaked into redacted config: %s", secret, got)

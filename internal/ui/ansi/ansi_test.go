@@ -70,28 +70,28 @@ func TestToANSI256(t *testing.T) {
 		{RGB{128, 128, 128}, 244}, // mid gray → grayscale ramp
 	}
 	for _, c := range cases {
-		if got := ToANSI256(c.in); got != c.want {
-			t.Errorf("ToANSI256(%v) = %d, want %d", c.in, got, c.want)
+		if got := toANSI256(c.in); got != c.want {
+			t.Errorf("toANSI256(%v) = %d, want %d", c.in, got, c.want)
 		}
 	}
 }
 
 func TestToANSI256ExactLightGray(t *testing.T) {
-	if got := ToANSI256(RGB{238, 238, 238}); got != 255 {
-		t.Fatalf("ToANSI256({238 238 238}) = %d, want exact grayscale index 255", got)
+	if got := toANSI256(RGB{238, 238, 238}); got != 255 {
+		t.Fatalf("toANSI256({238 238 238}) = %d, want exact grayscale index 255", got)
 	}
 }
 
 func TestToANSI16Nearest(t *testing.T) {
 	// Pure red should map to a red index (1 or its bright variant 9).
-	if got := ToANSI16(RGB{255, 0, 0}); got != 1 && got != 9 {
-		t.Errorf("ToANSI16(red) = %d, want 1 or 9", got)
+	if got := toANSI16(RGB{255, 0, 0}); got != 1 && got != 9 {
+		t.Errorf("toANSI16(red) = %d, want 1 or 9", got)
 	}
-	if got := ToANSI16(RGB{0, 0, 0}); got != 0 {
-		t.Errorf("ToANSI16(black) = %d, want 0", got)
+	if got := toANSI16(RGB{0, 0, 0}); got != 0 {
+		t.Errorf("toANSI16(black) = %d, want 0", got)
 	}
-	if got := ToANSI16(RGB{255, 255, 255}); got != 15 {
-		t.Errorf("ToANSI16(white) = %d, want 15", got)
+	if got := toANSI16(RGB{255, 255, 255}); got != 15 {
+		t.Errorf("toANSI16(white) = %d, want 15", got)
 	}
 }
 
@@ -109,12 +109,12 @@ func TestFgSeqPerMode(t *testing.T) {
 		{ANSI256, RGB{128, 128, 128}, false, "\x1b[38;5;244m"},
 		{ANSI256, RGB{128, 128, 128}, true, "\x1b[1;38;5;244m"},
 		// A dim index carries no bright prefix; bold only adds the 1; attribute.
-		{ANSI16, RGB{255, 0, 0}, false, "\x1b[31m"},
-		{ANSI16, RGB{255, 0, 0}, true, "\x1b[1;31m"},
+		{"ansi16", RGB{255, 0, 0}, false, "\x1b[31m"},
+		{"ansi16", RGB{255, 0, 0}, true, "\x1b[1;31m"},
 		// Indices ≥ 8 are reached via the bright prefix, which bold already supplies — so the bold and
 		// non-bold escapes for a bright color are deliberately the same bytes.
-		{ANSI16, RGB{255, 255, 255}, false, "\x1b[1;37m"},
-		{ANSI16, RGB{255, 255, 255}, true, "\x1b[1;37m"},
+		{"ansi16", RGB{255, 255, 255}, false, "\x1b[1;37m"},
+		{"ansi16", RGB{255, 255, 255}, true, "\x1b[1;37m"},
 		{"nonsense", RGB{255, 0, 0}, false, "\x1b[31m"}, // unknown mode falls back to 16 colors
 	}
 	for _, c := range cases {
@@ -132,8 +132,8 @@ func TestBgSeqPerMode(t *testing.T) {
 	}{
 		{TrueColor, RGB{1, 2, 3}, "\x1b[48;2;1;2;3m"},
 		{ANSI256, RGB{128, 128, 128}, "\x1b[48;5;244m"},
-		{ANSI16, RGB{255, 0, 0}, "\x1b[41m"},
-		{ANSI16, RGB{255, 255, 255}, "\x1b[47m"}, // bright index folds onto its dim base
+		{"ansi16", RGB{255, 0, 0}, "\x1b[41m"},
+		{"ansi16", RGB{255, 255, 255}, "\x1b[47m"}, // bright index folds onto its dim base
 	}
 	for _, c := range cases {
 		if got := BgSeq(c.mode, c.rgb); got != c.want {

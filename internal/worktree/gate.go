@@ -243,7 +243,7 @@ func detectVerifyGate(dir string) (gate, source string) {
 		return "make test", "Makefile"
 	}
 	if paths.FileExists(filepath.Join(dir, "go.mod")) {
-		return "go build ./... && go vet ./... && go test ./...", "go.mod"
+		return fullGoGate, "go.mod"
 	}
 	if paths.FileExists(filepath.Join(dir, "pyproject.toml")) || paths.FileExists(filepath.Join(dir, "setup.cfg")) {
 		return "pytest -q", "pyproject"
