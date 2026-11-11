@@ -28,8 +28,9 @@ var instructionFiles = map[string]string{
 // docsPathsNote tells a vendor CLI how to resolve the relative paths CLAUDE.md names.
 const docsPathsNote = "Paths in this file are relative to `~/.claude`."
 
-// instructionSources are the root instruction files in lookup order: ours, the cross-agent name, copilot's old home.
-var instructionSources = []string{"CLAUDE.md", "AGENTS.md", filepath.Join(".github", "copilot-instructions.md")}
+// instructionSources are the root instruction files in lookup order: ours, the cross-agent name, then copilot's two.
+var instructionSources = []string{"CLAUDE.md", "AGENTS.md",
+	filepath.Join(".copilot", "copilot-instructions.md"), filepath.Join(".github", "copilot-instructions.md")}
 
 // instructionSource returns the first instruction file present under root, or fs.ErrNotExist naming CLAUDE.md.
 func instructionSource(root string) (string, error) {
