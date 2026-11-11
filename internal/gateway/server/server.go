@@ -114,8 +114,12 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	start := r.now()
 	sw := &statusWriter{ResponseWriter: w, rc: http.NewResponseController(w)}
 	provider, model, attempts := r.route(sw, req, session, count)
-	fmt.Fprintf(r.log, "%s %s %s %d %d %s%s\n", start.Format(time.RFC3339), provider, model, sw.status, attempts,
-		time.Since(start).Round(time.Millisecond), errDiag(sw.errBuf))
+	kind := ""
+	if count {
+		kind = " kind=count_tokens"
+	}
+	fmt.Fprintf(r.log, "%s %s %s %d %d %s%s%s\n", start.Format(time.RFC3339), provider, model, sw.status, attempts,
+		time.Since(start).Round(time.Millisecond), kind, errDiag(sw.errBuf))
 }
 
 // withLaunchIdentity puts the launch's IdentityHeader (--as, or headless) on req's context for the credential mint.
@@ -381,7 +385,8 @@ func (r *Router) oauthToken() string {
 // try runs one attempt. done=false means nothing was written and err says why (the caller may fail over).
 func (r *Router) try(w *statusWriter, in *http.Request, body []byte, t providers.Target, clientModel string,
 	count, last bool) (bool, error) {
-	if route, ok := providers.AnthropicRoute(t.Provider, t.Model); ok {
+	// Databricks serving endpoints have no count_tokens path (400 BAD_REQUEST), so the estimate is answered here.
+	if route, ok := providers.AnthropicRoute(t.Provider, t.Model); ok && (!count || t.Provider.Preset != providers.PresetDatabricks) {
 		return r.tryAnthropic(w, in, body, t, route, count, last)
 	}
 	if count {
