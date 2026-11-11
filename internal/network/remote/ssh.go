@@ -162,7 +162,11 @@ func hostArgv(host string, args []string, tty bool) ([]string, error) {
 	for i, a := range args {
 		quoted[i] = textutil.ShellQuote(a)
 	}
-	script := PathPrefix + " exec " + textutil.QuotePath(HomePath(Bin(""))) + " " + strings.Join(quoted, " ")
+	env := ""
+	if len(args) > 1 && args[0] == "databricks" && args[1] == "login" {
+		env = oauth.ViaHostEnv + "=" + textutil.ShellQuote(host) + " "
+	}
+	script := PathPrefix + " " + env + "exec " + textutil.QuotePath(HomePath(Bin(""))) + " " + strings.Join(quoted, " ")
 	return sshArgv(host, tty, false, script)
 }
 

@@ -536,11 +536,7 @@ func LoginU2M(ctx context.Context, host string, opts LoginOptions) (Token, error
 		_ = opts.Open(authURL)
 	}
 	fmt.Fprintf(opts.Out, "Open this URL in a browser to sign in to %s:\n%s\n", h, authURL)
-	if opts.NoBrowser {
-		fmt.Fprintf(opts.Out, "Forward the callback first: ssh -L %d:localhost:%d <this-host>\n", port, port)
-	} else if os.Getenv("SSH_CONNECTION") != "" {
-		fmt.Fprintf(opts.Out, "Over SSH, forward the callback first: ssh -L %d:localhost:%d <this-host>\n", port, port)
-	}
+	fmt.Fprint(opts.Out, forwardHint(port, opts.NoBrowser))
 	var paste <-chan string
 	if opts.Paste != nil {
 		fmt.Fprintf(opts.Out, "No forward? Paste the full redirected URL (http://localhost:%d/?code=...&state=...) and press Enter:\n", port)
@@ -598,4 +594,25 @@ func exchangeCode(ctx context.Context, h, code, verifier, redirect string) (Toke
 		return Token{}, fmt.Errorf("oauth: login at %s: no refresh token issued (offline_access not granted)", h)
 	}
 	return reply.token(reply.RefreshToken), nil
+}
+
+// ViaHostEnv carries the --host name into a remote login: the caller already forwards the port or opens the browser here.
+const ViaHostEnv = "HARNESS_LOGIN_VIA_HOST"
+
+// forwardHint is the line after the URL: where the browser opens under --host, else the ssh -L command naming this host.
+func forwardHint(port int, noBrowser bool) string {
+	via := os.Getenv(ViaHostEnv)
+	switch {
+	case via != "" && noBrowser:
+		return "" // the --host caller printed its own forwarding line
+	case via != "":
+		return fmt.Sprintf("Opening the browser on %s; the page can take a second.\n", via)
+	case !noBrowser && os.Getenv("SSH_CONNECTION") == "":
+		return ""
+	}
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "<this-host>"
+	}
+	return fmt.Sprintf("Forward the callback first: ssh -L %d:localhost:%d %s\n", port, port, host)
 }
