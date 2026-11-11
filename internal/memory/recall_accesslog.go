@@ -27,7 +27,7 @@ const (
 	accessEntryMax    = 120
 	accessReasonMax   = 60
 	accessLogMaxByte  = 256 << 10
-	accessLogKeep     = 2000 // newest lines kept when the size cap trims
+	accessRetainDays  = 120 // lines older than this are dropped when the size cap trims
 	accessRotateDays  = 30
 	accessGenerations = 3
 	accessLockWait    = 500 * time.Millisecond
@@ -66,20 +66,47 @@ func logAccessBatch(dir string, now time.Time, entries []string, reason string) 
 	if textutil.CredentialRE.MatchString(reason) {
 		reason = "(reason redacted — credential-shaped)"
 	}
-	lines := accessLines(now, entries, reason)
 	path := AccessLogPath(dir)
 	if !accessLogWritable(path) {
 		return
 	}
+	lines := accessLines(now, entries, reason)
 	// Rotate, trim and append under one lock: concurrent hooks and verbs must never interleave the renames.
 	write := func() error {
 		maybeRotateAccessLog(path, now)
-		maybeTrimAccessLog(path)
-		return appendAccessLines(path, lines)
+		maybeTrimAccessLog(path, now)
+		l := lines
+		if reason == accessRecall { // hot/cold count distinct days, so a repeat inject adds nothing
+			l = accessLines(now, newToday(path, now, entries), reason)
+		}
+		if l == "" {
+			return nil
+		}
+		return appendAccessLines(path, l)
 	}
 	if ran, err := paths.TryFileLock(path+".lock", accessLockWait, write); !ran && err != nil {
 		_ = appendAccessLines(path, lines) // lock file unopenable: O_APPEND only, never rotate or trim unlocked; a timeout drops it
 	}
+}
+
+// newToday drops entries (and repeats within entries) that path already holds as a recall inject on now's UTC day.
+func newToday(path string, now time.Time, entries []string) []string {
+	day := now.UTC().Format("2006-01-02")
+	seen := map[string]bool{}
+	eachLineIn(path, func(ts time.Time, entry, reason string) {
+		if reason == accessRecall && ts.UTC().Format("2006-01-02") == day {
+			seen[entry] = true
+		}
+	})
+	var fresh []string
+	for _, e := range entries {
+		key := sanitizeField(e, accessEntryMax)
+		if !seen[key] {
+			seen[key] = true
+			fresh = append(fresh, e)
+		}
+	}
+	return fresh
 }
 
 func appendAccessLines(path, lines string) error {
@@ -128,27 +155,30 @@ func sanitizeField(s string, max int) string {
 	return s
 }
 
-// maybeTrimAccessLog keeps the newest lines within half the byte cap once the full cap is exceeded.
-func maybeTrimAccessLog(path string) {
+// maybeTrimAccessLog drops lines older than accessRetainDays once the byte cap is exceeded.
+func maybeTrimAccessLog(path string, now time.Time) {
 	fi, err := os.Stat(path)
-	if err != nil || fi.Size() <= accessLogMaxByte {
+	if err != nil || fi.Size() <= accessLogMaxByte || now.IsZero() {
 		return
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
-	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	keep, size := len(lines), 0 // keep = index of the first kept (newest-tail) line
-	for keep > 0 && len(lines)-keep < accessLogKeep {
-		cost := len(lines[keep-1]) + 1
-		if size+cost > accessLogMaxByte/2 {
-			break
+	cutoff := now.AddDate(0, 0, -accessRetainDays)
+	var kept strings.Builder
+	dropped := false
+	for line := range strings.SplitSeq(strings.TrimRight(string(data), "\n"), "\n") {
+		ts, err := time.Parse(time.RFC3339, strings.SplitN(line, " -- ", 2)[0])
+		if err != nil || ts.Before(cutoff) {
+			dropped = true
+			continue
 		}
-		size += cost
-		keep--
+		kept.WriteString(line + "\n")
 	}
-	_ = paths.AtomicWrite(path, []byte(strings.Join(lines[keep:], "\n")+"\n"), 0o600)
+	if dropped {
+		_ = paths.AtomicWrite(path, []byte(kept.String()), 0o600)
+	}
 }
 
 // accessStat holds an entry's distinct in-window UTC days and newest access.
@@ -193,25 +223,30 @@ func eachAccessLine(path string, fn func(ts time.Time, entry, reason string)) {
 		if i > 0 {
 			p = fmt.Sprintf("%s.%d", path, i)
 		}
-		data, err := os.ReadFile(p)
+		eachLineIn(p, fn)
+	}
+}
+
+// eachLineIn calls fn per parsed line of the single log file p.
+func eachLineIn(p string, fn func(ts time.Time, entry, reason string)) {
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		parts := strings.SplitN(line, " -- ", 3)
+		if len(parts) < 2 {
+			continue
+		}
+		ts, err := time.Parse(time.RFC3339, parts[0])
 		if err != nil {
 			continue
 		}
-		for line := range strings.SplitSeq(string(data), "\n") {
-			parts := strings.SplitN(line, " -- ", 3)
-			if len(parts) < 2 {
-				continue
-			}
-			ts, err := time.Parse(time.RFC3339, parts[0])
-			if err != nil {
-				continue
-			}
-			reason := ""
-			if len(parts) == 3 {
-				reason = strings.TrimSpace(parts[2])
-			}
-			fn(ts, parts[1], reason)
+		reason := ""
+		if len(parts) == 3 {
+			reason = strings.TrimSpace(parts[2])
 		}
+		fn(ts, parts[1], reason)
 	}
 }
 
