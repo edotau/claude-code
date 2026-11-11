@@ -303,14 +303,23 @@ func DestRecordPath(draftBase string) string {
 	return filepath.Join(ScratchDir(), draftBase+".dest")
 }
 
-// ReadRecordedDest returns the dated file a draft was mirrored to, if one is recorded.
+// ReadRecordedDest returns the dated file a draft was mirrored to; an unreadable, emptied or malformed record is none.
 func ReadRecordedDest(draftBase string) (string, bool) {
+	dest, err := readDestRecord(draftBase)
+	return dest, err == nil && dest != ""
+}
+
+// readDestRecord is the destination a record names, "" when it is emptied (retired) or not one absolute .md path.
+func readDestRecord(draftBase string) (string, error) {
 	data, err := os.ReadFile(DestRecordPath(draftBase))
 	if err != nil {
-		return "", false
+		return "", err
 	}
 	dest := strings.TrimSpace(string(data))
-	return dest, dest != ""
+	if !filepath.IsAbs(dest) || !strings.HasSuffix(dest, ".md") || strings.ContainsAny(dest, "\r\n") {
+		return "", nil
+	}
+	return dest, nil
 }
 
 // MirrorDests lists every unapproved draft's dated mirror, so no tick ever lands on a plan still being drafted.
@@ -325,11 +334,13 @@ func MirrorDests() []string {
 		if !ok {
 			continue
 		}
-		dest, ok := ReadRecordedDest(base)
-		if !ok {
+		dest, err := readDestRecord(base)
+		if err != nil {
 			return allDatedPlans() // an unreadable record hides its mirror, so exclude every plan (fail closed)
 		}
-		out = append(out, dest)
+		if dest != "" { // an emptied or malformed record names no mirror
+			out = append(out, dest)
+		}
 	}
 	return out
 }
