@@ -43,7 +43,7 @@ func (geminiEngine) Attach(prompt string, paths []string, tools bool) (string, e
 }
 
 func (geminiEngine) Before(req agent.RunOptions, t providers.Target) providers.Target {
-	t.Model = agyModel(req, t)
+	t.Model, _ = agyModelEffort(req, t)
 	return t
 }
 
@@ -169,7 +169,7 @@ func geminiLogin(model string, h *agent.Headless) ([]string, []string, error) {
 		return nil, nil, errors.New("gemini: agy is not signed in; " + s.CLI.ConfigureHint)
 	}
 	if h != nil {
-		return nil, nil, nil // headless argv is agent.RunAgy's (prompt over stdin stream-json)
+		return nil, nil, nil // headless argv is runAgy's (prompt over stdin stream-json)
 	}
 	return nil, []string{"--model", model}, nil
 }
@@ -269,7 +269,7 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 		"AGY_LLM_GATEWAY_HEADERS=", "AGY_LLM_GATEWAY_CA_CERT=", "AGY_LLM_GATEWAY_PROXY_URL=",
 	}
 	if h != nil {
-		return env, nil, nil // headless argv is agent.RunAgy's (prompt over stdin stream-json)
+		return env, nil, nil // headless argv is runAgy's (prompt over stdin stream-json)
 	}
 	argv := []string{"--model", base} // the gateway advertises only the base id
 	if effort := agyArgEffort(base, arg); effort != "" {
@@ -580,17 +580,17 @@ func geminiRouteDetail() string {
 	return fmt.Sprintf("model=%s source=%s", cmp.Or(model, "(default)"), source)
 }
 
-// agyModel is the --model agy runs for req on t; a Databricks row gets the id its gateway mode lists.
-func agyModel(req agent.RunOptions, t providers.Target) string {
+// agyModelEffort is the --model agy runs for req on t and a gateway row's pinned effort ("" elsewhere).
+func agyModelEffort(req agent.RunOptions, t providers.Target) (model, effort string) {
 	if req.Model == "" || t.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
 		t.Model = agyDefaultModel
 	}
 	gt, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
-	if agent.GeminiGatewayRow(t.Provider) { // gateway agy lists only the base id; the effort rides --effort (agyGatewayEffort)
-		base, _ := agyGatewayArg(gt.Model)
-		return base
+	if !agent.GeminiGatewayRow(t.Provider) {
+		return gt.Model, ""
 	}
-	return gt.Model
+	base, arg := agyGatewayArg(gt.Model) // gateway agy lists only the base id; the effort rides --effort
+	return base, agyArgEffort(base, arg)
 }
 
 // agyArgEffort is the effort suffix agyGatewayArg appended to base in arg ("" when none).
@@ -598,23 +598,11 @@ func agyArgEffort(base, arg string) string {
 	return strings.TrimPrefix(strings.TrimPrefix(arg, base), "-")
 }
 
-// agyGatewayEffort is a gateway run's pinned id suffix ("" off a gateway row); RenderSettings' --effort beats it.
-func agyGatewayEffort(req agent.RunOptions, t providers.Target) string {
-	if !agent.GeminiGatewayRow(t.Provider) {
-		return ""
-	}
-	if t.Model == "" {
-		t.Model = agyDefaultModel
-	}
-	gt, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
-	base, arg := agyGatewayArg(gt.Model)
-	return agyArgEffort(base, arg)
-}
-
 // newAgyRequest is the agy run for req: only the resolved credential env carries over; agyArgv builds the argv.
 func newAgyRequest(p agent.CLIPrep, req agent.RunOptions) agyRequest {
+	model, effort := agyModelEffort(req, p.Target)
 	return agyRequest{
-		Prompt: p.Prompt, Model: agyModel(req, p.Target), Effort: agyGatewayEffort(req, p.Target), Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
+		Prompt: p.Prompt, Model: model, Effort: effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
 		DebugFile: req.DebugFile, Env: p.Env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
 		SettingsArgv: p.Argv,
 	}

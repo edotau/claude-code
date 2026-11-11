@@ -305,10 +305,11 @@ func TestAgyGatewayModelIsBaseWithEffort(t *testing.T) {
 	gw := providers.Target{Provider: &providers.Provider{Name: "dev", Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: "pat"}},
 		Model: "gemini-3.8-flash-high"}
 	req := agent.RunOptions{Model: "gemini-3.8-flash-high"}
-	if m := agyModel(req, gw); strings.HasSuffix(m, "-high") || m == "" {
+	m, e := agyModelEffort(req, gw)
+	if strings.HasSuffix(m, "-high") || m == "" {
 		t.Fatalf("gateway --model = %q, want the base id", m)
 	}
-	if e := agyGatewayEffort(req, gw); e != "high" {
+	if e != "high" {
 		t.Fatalf("gateway --effort = %q, want high", e)
 	}
 }
