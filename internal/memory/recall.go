@@ -2,8 +2,13 @@ package memory
 
 import (
 	"fmt"
+	"hash/fnv"
 	"io"
 	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -227,4 +232,297 @@ func capRecallLines(lines []string) (string, int) {
 		lines = lines[:len(lines)-1]
 	}
 	return "", 0
+}
+
+// Recall caps: under 4 distinct terms BM25 ranks noise; the total bounds the per-turn context cost.
+const (
+	recallMinTerms      = 4
+	recallQueryCapRunes = 2000
+	recallBodies        = 2 // entries injected whole; the rest ride as one-line pointers
+	recallPointers      = 3
+	recallK             = 3 // AgentRecall's pointer count
+	recallBodyCapRunes  = 380
+	recallTotalCapChars = 1500
+	recallScoreFloor    = 0.5 // keep hits within half of the top score: BM25 is unnormalised
+	// Require several content terms to exclude coincidental overlap.
+	recallMinMatched = 2
+	recallMaxMatched = 3
+	// Blend keyword relevance with normalized cosine, admitting strong semantic matches.
+	recallKeywordWeight = 0.5
+	recallCosineLow     = 0.45
+	recallCosineHigh    = 0.75
+	recallCosineAdmit   = 0.62
+	recallAccessBoost   = 0.1
+	recallAccessCap     = 5
+)
+
+// withSemanticCandidates appends cosine-only candidates (zero keyword overlap) the keyword search did not return.
+func withSemanticCandidates(ranked, extra []SearchHit) []SearchHit {
+	have := map[string]bool{}
+	for _, h := range ranked {
+		have[blockKey(h.Block)] = true
+	}
+	for _, h := range extra {
+		if !have[blockKey(h.Block)] {
+			ranked = append(ranked, h)
+		}
+	}
+	return ranked
+}
+
+// recallPick is one surviving entry with its search hit and final score.
+type recallPick struct {
+	Entry Entry
+	Hit   SearchHit
+	Score float64
+}
+
+// recallFlat is an entry's id and whole body on one line, heading and bullet marks stripped.
+func recallFlat(e Entry) string {
+	return e.ID + " · " + strings.TrimLeft(strings.Join(strings.Fields(e.Body), " "), "#- ")
+}
+
+// orderRecall sorts by final score, using type and date only for exact ties.
+func orderRecall(picks []recallPick) {
+	sort.SliceStable(picks, func(i, j int) bool {
+		if picks[i].Score != picks[j].Score {
+			return picks[i].Score > picks[j].Score
+		}
+		a, b := picks[i].Entry, picks[j].Entry
+		if a.TypeRank() != b.TypeRank() {
+			return a.TypeRank() < b.TypeRank()
+		}
+		return a.Date > b.Date // an undated entry ("") sorts last
+	})
+}
+
+// recallNeed is how many distinct query terms a hit must contain: a quarter of them, clamped.
+func recallNeed(terms []string) int {
+	return min(max(recallMinMatched, (distinctCount(terms, 0)+3)/4), recallMaxMatched)
+}
+
+// distinctCount counts the distinct tokens of at least minLen bytes.
+func distinctCount(tokens []string, minLen int) int {
+	seen := map[string]bool{}
+	for _, t := range tokens {
+		if len(t) >= minLen {
+			seen[t] = true
+		}
+	}
+	return len(seen)
+}
+
+// selectRecall consults archives only when no current entry passes the relevance gates.
+func selectRecall(seen map[string]bool, terms []string, ranked []SearchHit, sem *Semantic, semSeen bool, counts map[string]int, trace *recallTrace) []recallPick {
+	need := recallNeed(terms)
+	if trace != nil {
+		trace.candidates(ranked, need, sem)
+	}
+	for _, archived := range []bool{false, true} {
+		tierSem := sem
+		if archived {
+			tierSem = nil
+		}
+		picks, passed := pickTier(ranked, archived, need, seen, tierSem, counts, trace)
+		if len(picks) > 0 {
+			trace.selected(picks)
+			return picks
+		}
+		if passed || (semSeen && !archived) {
+			return nil
+		}
+	}
+	return nil
+}
+
+// pickTier applies the gates before access boosts, then chooses the best final scores.
+func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool, sem *Semantic, counts map[string]int, trace *recallTrace) ([]recallPick, bool) {
+	cands, top := recallTier(ranked, archived, need)
+	pool := recallPool(cands, top, need, sem, trace)
+	orderRecall(pool)
+	passed := len(pool) > 0
+	var survivors []recallPick
+	for _, c := range pool {
+		if c.Score < pool[0].Score*recallScoreFloor {
+			if trace != nil {
+				trace.outcome(blockKey(c.Hit.Block), "below floor")
+			}
+			continue
+		}
+		boost := recallAccessBoost * float64(min(counts[c.Entry.ID], recallAccessCap)) / recallAccessCap
+		trace.scores(c, boost)
+		c.Score += boost
+		survivors = append(survivors, c)
+	}
+	orderRecall(survivors)
+	var out []recallPick
+	for _, c := range survivors {
+		if key := blockKey(c.Hit.Block); seen[key] {
+			trace.outcome(key, "seen")
+			continue
+		}
+		if len(out) < recallBodies+recallPointers {
+			out = append(out, c)
+		}
+	}
+	return out, passed
+}
+
+func recallTier(ranked []SearchHit, archived bool, need int) ([]SearchHit, float64) {
+	var cands []SearchHit
+	top, topAny := 0.0, 0.0
+	for _, h := range ranked {
+		first, _, _ := strings.Cut(h.Block, "\n")
+		if (h.Bank == "archive") != archived || isSupersededTitle(first) {
+			continue
+		}
+		if topAny == 0 {
+			topAny = h.Score
+		}
+		if top == 0 && h.Matched >= need {
+			top = h.Score
+		}
+		cands = append(cands, h)
+	}
+	if top == 0 {
+		top = topAny
+	}
+	return cands, top
+}
+
+func scoreRecall(c recallPick, top float64, admitted bool, sem *Semantic) (float64, bool) {
+	kw := 0.0
+	if top > 0 {
+		kw = min(c.Hit.Score/top, 1)
+	}
+	if sem == nil {
+		return kw, admitted
+	}
+	cos, ok := sem.CosineHit(c.Hit)
+	if !ok {
+		return kw, admitted
+	} // Entries without a current vector retain their full keyword score.
+	blend := recallKeywordWeight*kw + (1-recallKeywordWeight)*min(max((cos-recallCosineLow)/(recallCosineHigh-recallCosineLow), 0), 1)
+	return blend, admitted || cos >= recallCosineAdmit
+}
+
+func recallPool(cands []SearchHit, top float64, need int, sem *Semantic, trace *recallTrace) []recallPick {
+	var pool []recallPick
+	for _, h := range cands {
+		kwOK := h.Matched >= need && h.Score >= top*recallScoreFloor
+		c := recallPick{Hit: h}
+		c.Score, kwOK = scoreRecall(c, top, kwOK, sem)
+		if !kwOK {
+			if trace != nil {
+				reason := "below floor"
+				if h.Matched < need {
+					reason = "matched too few"
+				}
+				trace.outcome(blockKey(h.Block), reason)
+			}
+			continue
+		}
+		c.Entry = entryFromHit(h)
+		if h.ID != "" {
+			c.Entry.ID = h.ID
+		}
+		trace.scores(c, 0)
+		pool = append(pool, c)
+	}
+	return pool
+}
+
+// seenMaxAge prunes per-session seen sets; a session idle this long has long since compacted or ended.
+const seenMaxAge = 7 * 24 * time.Hour
+
+// sessionIDShape matches a Claude Code session id (UUID), rejecting probe/test payloads like "probe-x".
+var sessionIDShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// LooksLikeSessionID reports whether id has the UUID shape Claude Code assigns real sessions.
+func LooksLikeSessionID(id string) bool { return sessionIDShape.MatchString(id) }
+
+// blockKey identifies a block by its whitespace-normalized text.
+func blockKey(block string) string {
+	h := fnv.New64a()
+	h.Write([]byte(strings.Join(strings.Fields(block), " ")))
+	return strconv.FormatUint(h.Sum64(), 16)
+}
+
+func seenPath(sessionID string) string {
+	id := filepath.Base(sessionID)
+	if id == "" || id == "." || id == ".." || id == string(filepath.Separator) {
+		return ""
+	}
+	return filepath.Join(StateDir(), "recall-seen", id)
+}
+
+// resetSeen restarts sessionID's seen set with every corpus block the SessionStart surface carried in full.
+func resetSeen(sessionID, root, surface string) {
+	if !LooksLikeSessionID(sessionID) {
+		return
+	}
+	p := seenPath(sessionID)
+	if p == "" {
+		return
+	}
+	pruneSeen(filepath.Dir(p))
+	flat := strings.Join(strings.Fields(surface), " ")
+	hits, err := corpusBlocks(root)
+	if err != nil {
+		return // fail-open: no corpus read, so the seen set is left as it was
+	}
+	var b strings.Builder
+	for _, h := range hits {
+		if norm := strings.Join(strings.Fields(h.Block), " "); norm != "" && strings.Contains(flat, norm) {
+			b.WriteString(blockKey(h.Block) + "\n")
+		}
+	}
+	_ = os.MkdirAll(filepath.Dir(p), 0o700)
+	_ = paths.AtomicWrite(p, []byte(b.String()), 0o600)
+}
+
+// seenBlocks returns sessionID's seen set: blocks already in the conversation's context.
+func seenBlocks(sessionID string) map[string]bool {
+	out := map[string]bool{}
+	p := seenPath(sessionID)
+	if p == "" {
+		return out
+	}
+	data, _ := os.ReadFile(p)
+	for k := range strings.FieldsSeq(string(data)) {
+		out[k] = true
+	}
+	return out
+}
+
+// markSeen appends the injected hits to sessionID's seen set; fail-open.
+func markSeen(sessionID string, hits []SearchHit) {
+	p := seenPath(sessionID)
+	if p == "" || len(hits) == 0 {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(p), 0o700)
+	f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	for _, h := range hits {
+		_, _ = f.WriteString(blockKey(h.Block) + "\n")
+	}
+}
+
+func pruneSeen(dir string) {
+	cutoff := time.Now().Add(-seenMaxAge)
+	for _, path := range []string{dir, StateDir(), filepath.Dir(compactRecordPath(""))} { // + stale compact records
+		ents, _ := os.ReadDir(path)
+		for _, e := range ents {
+			if !e.Type().IsRegular() || path == StateDir() && !prunableSessionState(e.Name()) && !staleSessionRoot(path, e.Name(), cutoff) {
+				continue
+			}
+			if fi, err := e.Info(); err == nil && fi.ModTime().Before(cutoff) {
+				_ = os.Remove(filepath.Join(path, e.Name()))
+			}
+		}
+	}
 }
