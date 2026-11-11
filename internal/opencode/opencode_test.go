@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,8 +15,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -406,5 +409,85 @@ func TestInteractiveLaunchRejectsPluginWriteFailure(t *testing.T) {
 				t.Fatalf("failed launch returned usable config: env=%v argv=%v", env, argv)
 			}
 		})
+	}
+}
+
+// launchHermetic isolates a launch test from the host and stubs the router, with launch notices discarded.
+func launchHermetic(t *testing.T) {
+	t.Helper()
+	hosttest.HermeticEnv(t)
+	t.Cleanup(agent.StubRouter("http://127.0.0.1:4000"))
+	orig := agent.NoticeOut
+	agent.NoticeOut = io.Discard
+	t.Cleanup(func() { agent.NoticeOut = orig })
+}
+
+func TestOwnLoginLaunchPreservesModelFlag(t *testing.T) {
+	const model = "opencode-go/kimi-k3.1-pro"
+	cases := []struct{ name, auth, profile string }{
+		{"pre-route", `{"opencode":{"type":"api"}}`, ""},
+		{"configure", `{"github-copilot":{"type":"oauth"}}`, "personal"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			launchHermetic(t)
+			pathstest.FakeVendor(t, "opencode", "")
+			dir := filepath.Join(os.Getenv("XDG_DATA_HOME"), "opencode")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "auth.json"), []byte(tc.auth), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			plan, err := agent.LaunchPlan(t.Context(), "opencode", agent.LaunchOptions{
+				Model: model, Provider: tc.profile, PrintEnv: true,
+			}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := []string{"--model", model}; !slices.Equal(plan.Argv, want) {
+				t.Errorf("Argv = %v, want %v", plan.Argv, want)
+			}
+		})
+	}
+}
+
+func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
+	launchHermetic(t)
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	fake := pathstest.FakeVendor(t, "opencode", "")
+
+	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"opencode":{"launch":{"env":["X_TEST=1"],"args":["--flag"]}}}}`)
+	// A sign-in subcommand takes the plain plan, the only launch that skips routing.
+	plan, err := agent.LaunchPlan(t.Context(), "opencode", agent.LaunchOptions{}, []string{"auth", "arg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Binary != fake {
+		t.Errorf("Binary = %q, want %q", plan.Binary, fake)
+	}
+	if plan.Set["X_TEST"] != "1" {
+		t.Errorf("Set[X_TEST] = %q, want 1", plan.Set["X_TEST"])
+	}
+	wantArgv := []string{"--flag", "auth", "arg"}
+	if !slices.Equal(plan.Argv, wantArgv) {
+		t.Errorf("Argv = %v, want %v (spec args prepended)", plan.Argv, wantArgv)
+	}
+
+	// No overlay: the built-in default still applies.
+	vaulttest.Put(t, vault.Overlay, "agents", "")
+	plan, err = agent.LaunchPlan(t.Context(), "opencode", agent.LaunchOptions{}, []string{"auth"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Binary != fake {
+		t.Errorf("Binary = %q, want %q", plan.Binary, fake)
+	}
+	if v, ok := plan.Set["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"]; ok {
+		t.Errorf("Set[OPENCODE_DISABLE_CLAUDE_CODE_SKILLS] = %q, want unset (opencode loads ~/.claude/skills)", v)
+	}
+	if !slices.Equal(plan.Argv, []string{"auth"}) {
+		t.Errorf("Argv = %v, want [auth] (opencode's default carries no Launch.Args)", plan.Argv)
 	}
 }

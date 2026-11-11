@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/agent/job"
-	"github.com/edotau/claude-code/internal/agent/launchplan"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/databricks"
@@ -317,7 +316,7 @@ func askEnableOverlays(debugPath, overlayPath string) int {
 		}
 	}
 	if overlayPath != "" {
-		if err := launchplan.EnableOverlay(overlayPath); err != nil {
+		if err := enableOverlay(overlayPath); err != nil {
 			fmt.Fprintln(os.Stderr, "claude-code agents ask: --overlay:", err)
 			return 2
 		}
@@ -665,4 +664,16 @@ func MemoryRunner() memory.AgentFunc {
 		}
 		return who, err
 	}
+}
+
+// enableOverlay checks path and points this process and its --job relaunches at it (absolute).
+func enableOverlay(path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	if _, err := agentconfig.LoadOverlay(abs); err != nil {
+		return err
+	}
+	return os.Setenv(agentconfig.OverlayVar, abs)
 }

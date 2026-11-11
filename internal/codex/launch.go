@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/launchcli"
-
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 
@@ -54,7 +52,7 @@ func codexProfileHint(o agent.LaunchOptions) error {
 	if _, err := os.Stat(filepath.Join(home, o.Provider+".config.toml")); err != nil {
 		return nil
 	}
-	return &launchcli.UsageError{Msg: fmt.Sprintf("claude-code codex: --profile %q is not a harness profile; "+
+	return &agent.UsageError{Msg: fmt.Sprintf("claude-code codex: --profile %q is not a harness profile; "+
 		"for codex's own config profile ($CODEX_HOME/%s.config.toml) use -p %s", o.Provider, o.Provider, o.Provider)}
 }
 

@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/launchcli"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
@@ -60,7 +59,7 @@ func dropLaunchOwned(env []string) []string {
 
 // Claude resolves a Claude Code launch.
 func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Plan, error) {
-	reg, sel, err := launchcli.SessionSelection(o, true)
+	reg, sel, err := agent.SessionSelection(o, true)
 	if err != nil {
 		return agent.Plan{}, err
 	}
@@ -81,7 +80,7 @@ func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Pl
 		plan.Unset = append(plan.Unset, proc.EnvClaudeConfigDir)
 	}
 	setModelAliasEnv(&plan, sel)
-	if err := setMainModel(&plan, sel, p, launchcli.MainAlias(o), o.Model != "" || vault.GetAgentRecord("claude").Model != ""); err != nil {
+	if err := setMainModel(&plan, sel, p, agent.MainAlias(o), o.Model != "" || vault.GetAgentRecord("claude").Model != ""); err != nil {
 		return agent.Plan{}, err
 	}
 	set1MOff(&plan, sel, p)
@@ -95,7 +94,7 @@ func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Pl
 	if err := applyOverlay(&plan, passthrough, args, helper, settings, p.Env); err != nil {
 		return agent.Plan{}, err
 	}
-	if !launchcli.IsHeadless(args) { // a headless launch renders in claudeCmd, where the request is known
+	if !agent.IsHeadless(args) { // a headless launch renders in claudeCmd, where the request is known
 		if err := renderInteractive(ctx, &plan, providers.Target{Provider: p, Model: o.Model}, args); err != nil {
 			return agent.Plan{}, err
 		}
@@ -330,7 +329,7 @@ func sessionProviders(sel providers.Selection) []*providers.Provider {
 // armedHop: a headless launch on the armed workspace uses /p/<p>; interactive stays direct (keeps Remote Control).
 func armedHop(p *providers.Provider, args []string) bool {
 	arm := router.ArmProfile()
-	return arm != "" && p.Name == arm && launchcli.IsHeadless(args)
+	return arm != "" && p.Name == arm && agent.IsHeadless(args)
 }
 
 // configureRouting wires the router base URL/headers when proxied, else the provider's own route, and
@@ -431,7 +430,7 @@ func applyOverlay(plan *agent.Plan, passthrough bool, args []string, helper, set
 		}
 	}
 	if passthrough { // no overlay: Claude Code disables subscription OAuth whenever an apiKeyHelper is set
-		if !launchcli.IsHeadless(args) {
+		if !agent.IsHeadless(args) {
 			// Remote Control refuses the inference-only setup-token; the interactive /login credential must win.
 			plan.Unset = append(plan.Unset, oauthKey)
 		} else if os.Getenv(oauthKey) == "" {
@@ -542,7 +541,7 @@ func Launch(alias string, args []string) int {
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
-	opts, rest, err := launchcli.ParseLaunchArgs(args, true)
+	opts, rest, err := agent.ParseLaunchArgs(args, true)
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
@@ -555,10 +554,10 @@ func Launch(alias string, args []string) int {
 	}
 	opts.Alias = alias
 	plan, err := Claude(providers.WithIdentity(context.Background(), as), opts, rest)
-	if err == nil && !opts.PrintEnv && !launchcli.IsHeadless(rest) {
+	if err == nil && !opts.PrintEnv && !agent.IsHeadless(rest) {
 		providers.RecordLastProfile("claude", plan.Set[providers.EnvSessionProfile])
 	}
-	return launchcli.Run("claude", plan, opts, err)
+	return agent.RunPlan("claude", plan, opts, err)
 }
 
 // bareHelp is a lone help flag; `claude mcp --help` still goes to claude so the subcommand's help is kept.
@@ -571,7 +570,7 @@ func LaunchScience(args []string) int {
 		opts.PrintEnv, args = true, args[1:]
 	}
 	plan, err := ScienceEnv(args)
-	return launchcli.Run("claude-science", plan, opts, err)
+	return agent.RunPlan("claude-science", plan, opts, err)
 }
 
 // LaunchAnthropic is first-party Claude Code with a login, OAuth token or API key; vaultSet stores a missing secret.
@@ -593,5 +592,5 @@ func LaunchAnthropic(args []string, vaultSet func(name string) int) int {
 		}
 	}
 	plan, err := Anthropic(context.Background(), o, rest, secret)
-	return launchcli.Run("claude", plan, o.LaunchOptions, err)
+	return agent.RunPlan("claude", plan, o.LaunchOptions, err)
 }
