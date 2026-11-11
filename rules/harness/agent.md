@@ -15,9 +15,10 @@ paths:
   come from a tracked overlay injected at launch (`OPENCODE_CONFIG` / `OPENCODE_TUI_CONFIG`,
   `internal/agentconfig/template/`).
 - Each agent-config overwrite keeps 5 timestamped backups; `configure --revert [--agent a]` steps back one version.
-- Codex pins live in the vault (`codex-settings` overlay) and apply to `$CODEX_HOME/config.toml`; its snapshots
-  and baseline are vault-encrypted (`settings_backups`, rotated with the key, excluded from exports), last 5 kept.
-  Provider config, hook trust and unknown native keys are preserved; an unavailable vault key aborts changed writes.
+- Codex pins live in the vault codex agent record (legacy `codex-settings` overlay read until migrated) and apply
+  to `$CODEX_HOME/config.toml`; its snapshots and baseline are vault-encrypted (`settings_backups`, rotated with
+  the key, excluded from exports), last 5 kept. Provider config, hook trust and unknown native keys are preserved;
+  an unavailable vault key aborts changed writes.
 - Hook commands rendered into `~/.codex` carry `HARNESS_HOOK_AGENT=codex`; any `HARNESS_HOOK_*` prefix counts as
   harness-owned on re-render.
 
