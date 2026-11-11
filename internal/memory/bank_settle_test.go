@@ -80,3 +80,38 @@ func TestSettleBankLockLivesUnderStateNotStore(t *testing.T) {
 		t.Error("a legacy-shaped lock file was written beside the store")
 	}
 }
+
+// fakeCredential builds a credential-shaped string at runtime; it is not a real secret.
+func fakeCredential() string { return "sk-" + "ant-api03-" + strings.Repeat("x9Y_", 6) }
+
+// TestSettleBankIgnoresAnotherReposCredentialFile: Given a credential-shaped file in another repo's memory dir, When
+// this repo settles, Then it commits and leaves that file alone; the same file in the settled dir is still refused.
+func TestSettleBankIgnoresAnotherReposCredentialFile(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	if err := StoreRepo().Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(StoreDir(), "otherrepo", "note.md")
+	write(t, other, "key: "+fakeCredential()+"\n")
+
+	if _, err := settleBank(root, time.Now()); err != nil {
+		t.Fatalf("an unrelated repo's credential-shaped file failed this repo's settle: %v", err)
+	}
+	st, err := StoreRepo().Status("otherrepo")
+	if err != nil || len(st) != 1 || st[0].Path != "otherrepo/note.md" {
+		t.Fatalf("other repo's file must stay uncommitted: %+v, %v", st, err)
+	}
+	if st, _ := StoreRepo().Status(filepath.Base(Dir(root))); len(st) != 0 {
+		t.Fatalf("this repo's settle left its own dir dirty: %+v", st)
+	}
+
+	write(t, filepath.Join(Dir(root), "leak.md"), "key: "+fakeCredential()+"\n")
+	_, err = settleBank(root, time.Now())
+	if err == nil || !strings.Contains(err.Error(), "credential-shaped content") {
+		t.Fatalf("a credential-shaped file in the settled dir must be refused, got %v", err)
+	}
+	if strings.Contains(err.Error(), fakeCredential()) {
+		t.Fatal("the refusal leaked the credential")
+	}
+}

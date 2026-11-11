@@ -265,6 +265,22 @@ func checkStageContent(abs, rel string) error {
 	return nil
 }
 
+// dropCredentialShaped returns rels without the credential-shaped files that keep does not claim, naming each such
+// path once on stderr (never its content); a nil keep claims nothing.
+func (r Repo) dropCredentialShaped(rels []string, keep func(rel string) bool) []string {
+	var clean []string
+	for _, rel := range rels {
+		if keep == nil || !keep(rel) {
+			if data, err := os.ReadFile(filepath.Join(r.Dir, rel)); err == nil && textutil.CredentialRE.Match(data) {
+				fmt.Fprintf(os.Stderr, "memory: skipping credential-shaped file %s (scrub it; it is not committed)\n", rel)
+				continue
+			}
+		}
+		clean = append(clean, rel)
+	}
+	return clean
+}
+
 // checkStaged refuses an index holding anything beyond rels: a stray `git add` (or a pathspec glob) skipped validation.
 func (r Repo) checkStaged(rels []string) error {
 	out, err := r.run("diff", "--cached", "--name-only", "--no-renames", "-z")
