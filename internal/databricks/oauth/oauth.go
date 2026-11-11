@@ -303,7 +303,7 @@ func MintM2M(ctx context.Context, host, clientID, clientSecret string) (Token, e
 
 const (
 	authorizePath = "/oidc/v1/authorize"
-	defaultPort   = 8020
+	defaultPort   = 8030
 	portSpan      = 20
 	loginTimeout  = 5 * time.Minute
 	failedPage    = "Login failed. You can close this tab."
@@ -317,7 +317,7 @@ type LoginOptions struct {
 	Out io.Writer
 	// Timeout bounds the whole login (default 5 minutes).
 	Timeout time.Duration
-	// Port is the first localhost callback port to try (default 8020, falling back upward to 8040).
+	// Port is the first localhost callback port to try (default 8030, falling back upward to 8050).
 	Port int
 	// ExactPort tries Port alone: a busy port is an error, never a walk upward.
 	ExactPort bool
