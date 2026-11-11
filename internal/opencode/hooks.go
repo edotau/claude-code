@@ -224,6 +224,12 @@ func (h *hookHost) after(res wire.Result) {
 	if res.SessionID != "" {
 		h.session = res.SessionID
 	}
+	h.mu.Lock()
+	acted := len(h.seen) > 0
+	h.mu.Unlock()
+	if !acted { // no watched tool call ran, so there is nothing to format, tick or save (about 1 s per dispatch)
+		return
+	}
 	// The child has exited, so a Block has nothing left to stop; fire has logged it.
 	_, _ = h.fire("after", settings.EventStop, "", map[string]any{"stop_hook_active": false, "harness_agent": "opencode"})
 	_, _ = h.fire("after", settings.EventSessionEnd, "", map[string]any{"reason": "other", "harness_agent": "opencode"})

@@ -101,8 +101,8 @@ func TestOpencodeAuthV2(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("OpencodeAuth() =\n%+v\nwant\n%+v", got, want)
 	}
-	if l := OpencodeLogins(); !reflect.DeepEqual(l, []string{"github-copilot", "openai"}) {
-		t.Errorf("OpencodeLogins() = %v", l)
+	if l := listOpencodeLogins(); !reflect.DeepEqual(l, []string{"github-copilot", "openai"}) {
+		t.Errorf("listOpencodeLogins() = %v", l)
 	}
 	if !OpencodeCopilotLoginPresent() {
 		t.Error("an env-backed github-copilot connection counts as a login")
@@ -119,8 +119,8 @@ func TestOpencodeAuthV2FailureFallsBackToAuthJSON(t *testing.T) {
 	if len(got) != 1 || got[0].ID != "github-copilot" {
 		t.Fatalf("fallback = %+v, want auth.json's github-copilot", got)
 	}
-	if l := OpencodeLogins(); !reflect.DeepEqual(l, []string{"github-copilot"}) {
-		t.Errorf("OpencodeLogins() = %v", l)
+	if l := listOpencodeLogins(); !reflect.DeepEqual(l, []string{"github-copilot"}) {
+		t.Errorf("listOpencodeLogins() = %v", l)
 	}
 
 	fakeOpencode(t, "2.0.32", "not json", nil)
@@ -144,7 +144,7 @@ func TestOpencodeAuthV1(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("OpencodeAuth() =\n%+v\nwant\n%+v", got, want)
 	}
-	if strings.Contains(strings.Join(OpencodeLogins(), ""), "SECRET") {
+	if strings.Contains(strings.Join(listOpencodeLogins(), ""), "SECRET") {
 		t.Error("credential values must never surface")
 	}
 	if *calls != 0 {
@@ -158,19 +158,19 @@ func TestOpencodeAuthAbsent(t *testing.T) {
 	if got != nil || err != nil {
 		t.Fatalf("no binary, no auth.json: got %v, %v; want nil, nil", got, err)
 	}
-	if OpencodeLogins() != nil {
-		t.Error("OpencodeLogins() should be nil")
+	if listOpencodeLogins() != nil {
+		t.Error("listOpencodeLogins() should be nil")
 	}
 }
 
 func TestOpencodeLoginsSameOnBothVersions(t *testing.T) {
 	data, _ := fakeOpencode(t, "1.19.3", "", nil)
 	writeAuthJSON(t, data, `{"github-copilot":{"type":"oauth"},"openai":{"type":"api"}}`)
-	v1 := OpencodeLogins()
+	v1 := listOpencodeLogins()
 	fakeOpencode(t, "2.0.32", `[{"id":"openai","name":"OpenAI","connections":[{"type":"credential","id":"c1","label":"a","method":"key"}]},
 		{"id":"github-copilot","name":"GitHub Copilot","connections":[{"type":"credential","id":"c2","label":"b","method":"oauth"}]},
 		{"id":"empty","name":"Empty","connections":[]}]`, nil)
-	v2 := OpencodeLogins()
+	v2 := listOpencodeLogins()
 	want := []string{"github-copilot", "openai"}
 	if !reflect.DeepEqual(v1, want) || !reflect.DeepEqual(v2, want) {
 		t.Fatalf("v1 = %v, v2 = %v, want %v on both", v1, v2, want)
@@ -232,12 +232,12 @@ func TestOpencodeAuthCacheAndInvalidate(t *testing.T) {
 // A 1.x auth.json rewrite (e.g. by `opencode auth login` in another terminal) misses the cache without Invalidate.
 func TestOpencodeAuthV1SeesFileChange(t *testing.T) {
 	data, _ := fakeOpencode(t, "1.19.3", "", nil)
-	if OpencodeLogins() != nil {
+	if listOpencodeLogins() != nil {
 		t.Fatal("want no logins yet")
 	}
 	writeAuthJSON(t, data, `{"anthropic":{"type":"api"}}`)
-	if l := OpencodeLogins(); !reflect.DeepEqual(l, []string{"anthropic"}) {
-		t.Fatalf("OpencodeLogins() = %v", l)
+	if l := listOpencodeLogins(); !reflect.DeepEqual(l, []string{"anthropic"}) {
+		t.Fatalf("listOpencodeLogins() = %v", l)
 	}
 }
 

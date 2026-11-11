@@ -184,7 +184,7 @@ var toolCallMarkupRE = regexp.MustCompile(`(?s)<(invoke|function_calls|antml:inv
 
 // refuseToolCallText fails a tools-off run whose whole answer is tool-call markup: the model tried to act, nothing ran.
 func refuseToolCallText(name string, req agent.RunOptions, answer string) error {
-	if (req.Tools && !req.ReadOnly) || !toolCallMarkupRE.MatchString(answer) {
+	if req.Tools || !toolCallMarkupRE.MatchString(answer) {
 		return nil
 	}
 	if rest := strings.TrimSpace(toolCallMarkupRE.ReplaceAllString(answer, "")); len(rest) > 40 {

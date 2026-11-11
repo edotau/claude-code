@@ -50,17 +50,17 @@ func TestMutateOpencodeConfigEnvPolicies(t *testing.T) {
 // absent too — precedence never borrows the unrelated openai login.
 func TestOpencodeCredentialFallsThroughWhenOnlyAnotherLoginExists(t *testing.T) {
 	data, _ := fakeOpencode(t, "1.19.3", "", nil)
-	t.Setenv(OpencodeAPIKeyEnv, "")
+	t.Setenv(opencodeAPIKeyEnv, "")
 	writeAuthJSON(t, data, `{"openai":{"type":"oauth"}}`)
-	if l := OpencodeLogins(); len(l) != 1 || l[0] != "openai" {
+	if l := listOpencodeLogins(); len(l) != 1 || l[0] != "openai" {
 		t.Fatalf("precondition: logins = %v, want only openai", l)
 	}
 	env, err := opencodeCredential("opencode-go")
 	if err == nil {
 		t.Fatalf("env = %v, want an error: the openai login must not cover an opencode-go cell", env)
 	}
-	if !strings.Contains(err.Error(), OpencodeAPIKeyEnv) {
-		t.Errorf("err = %v, want it to name %s", err, OpencodeAPIKeyEnv)
+	if !strings.Contains(err.Error(), opencodeAPIKeyEnv) {
+		t.Errorf("err = %v, want it to name %s", err, opencodeAPIKeyEnv)
 	}
 }
 
@@ -69,13 +69,13 @@ func TestOpencodeCredentialFallsThroughWhenOnlyAnotherLoginExists(t *testing.T) 
 func TestOpencodeCredentialVaultKeyOutranksMissingOwnLogin(t *testing.T) {
 	data, _ := fakeOpencode(t, "1.19.3", "", nil)
 	writeAuthJSON(t, data, `{"openai":{"type":"oauth"}}`)
-	t.Setenv(OpencodeAPIKeyEnv, "sk-test-key")
+	t.Setenv(opencodeAPIKeyEnv, "sk-test-key")
 	env, err := opencodeCredential("opencode-go")
 	if err != nil {
 		t.Fatalf("err = %v, want the vault/env key to resolve it", err)
 	}
-	if len(env) != 1 || env[0] != OpencodeAPIKeyEnv+"=sk-test-key" {
-		t.Errorf("env = %v, want [%s=sk-test-key]", env, OpencodeAPIKeyEnv)
+	if len(env) != 1 || env[0] != opencodeAPIKeyEnv+"=sk-test-key" {
+		t.Errorf("env = %v, want [%s=sk-test-key]", env, opencodeAPIKeyEnv)
 	}
 }
 
@@ -193,10 +193,10 @@ func TestParseOpenCodeEventsDecodeErrorKeepsText(t *testing.T) {
 func TestOpencodeLaunchEnvIncludesVaultCredential(t *testing.T) {
 	fakeOpencode(t, "1.19.3", "", nil)
 	vaulttest.Use(t)
-	vaulttest.Secret(t, OpencodeAPIKeyEnv, "sk-vault-only")
-	t.Setenv(OpencodeAPIKeyEnv, "")
+	vaulttest.Secret(t, opencodeAPIKeyEnv, "sk-vault-only")
+	t.Setenv(opencodeAPIKeyEnv, "")
 	env := (opencodeEngine{}).LaunchEnv()
-	if !slices.Contains(env, OpencodeAPIKeyEnv+"=sk-vault-only") {
+	if !slices.Contains(env, opencodeAPIKeyEnv+"=sk-vault-only") {
 		t.Fatalf("LaunchEnv lacks the vault credential: %v", env)
 	}
 }
@@ -215,7 +215,7 @@ func TestOpencodeLaunchEnvReportsErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			fakeOpencode(t, tc.version, "", tc.listErr)
 			vaulttest.Use(t)
-			t.Setenv(OpencodeAPIKeyEnv, "")
+			t.Setenv(opencodeAPIKeyEnv, "")
 			if err := os.MkdirAll(filepath.Join(paths.StateDir(), "opencode", "opencode.json"), 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -242,12 +242,12 @@ func TestOpencodeLaunchEnvReportsErrors(t *testing.T) {
 func TestOpencodeOwnLoginMemoKeepsUntilInvalidate(t *testing.T) {
 	fakeOpencode(t, "1.19.3", "", nil)
 	vaulttest.Use(t)
-	t.Setenv(OpencodeAPIKeyEnv, "")
+	t.Setenv(opencodeAPIKeyEnv, "")
 	InvalidateOpencodeAuth()
 	if OpencodeOwnLoginPresent() {
 		t.Fatal("precondition: no login and no key must read as absent")
 	}
-	vaulttest.Secret(t, OpencodeAPIKeyEnv, "placeholder")
+	vaulttest.Secret(t, opencodeAPIKeyEnv, "placeholder")
 	if OpencodeOwnLoginPresent() {
 		t.Error("a second call within the keep re-probed the vault; want the remembered answer")
 	}
@@ -262,7 +262,7 @@ func TestOpencodeOwnLoginMemoKeepsUntilInvalidate(t *testing.T) {
 func TestOpencodeRenderSettingsAppliesEffortAndPolicy(t *testing.T) {
 	fakeOpencode(t, "1.19.3", "", nil)
 	vaulttest.Use(t)
-	t.Setenv(OpencodeAPIKeyEnv, "")
+	t.Setenv(opencodeAPIKeyEnv, "")
 	perms, err := agent.ParsePermissions("", nil, nil, []string{"Bash(rm:*)"})
 	if err != nil {
 		t.Fatal(err)
@@ -335,7 +335,7 @@ func isolateOpencodeRouteEnv(t *testing.T) (dataHome, cfgHome string) {
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", t.TempDir())          // no real `gh`: CopilotLoginPresent's shell-out dispatch can't fire by accident
-	t.Setenv("COPILOT_HOME", t.TempDir())  // no real copilot config.json: CopilotStoredLogin reads nothing
+	t.Setenv("COPILOT_HOME", t.TempDir())  // no real copilot config.json: copilotStoredLogin reads nothing
 	t.Setenv("GH_CONFIG_DIR", t.TempDir()) // no real gh hosts.yml: GHActiveAccount reads nothing
 	for _, k := range []string{"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN"} {
 		t.Setenv(k, "")
