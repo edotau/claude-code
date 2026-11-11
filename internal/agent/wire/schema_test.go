@@ -22,8 +22,8 @@ func TestStructuredRejectsMalformedConstraints(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			raw, unchecked, err := Structured(`{}`, tc.schema)
-			if !errors.Is(err, ErrSchema) {
-				t.Fatalf("malformed schema: got raw=%s, unchecked=%v, err=%v; want ErrSchema", raw, unchecked, err)
+			if !errors.Is(err, errSchema) {
+				t.Fatalf("malformed schema: got raw=%s, unchecked=%v, err=%v; want errSchema", raw, unchecked, err)
 			}
 			if !strings.Contains(err.Error(), "malformed schema") || !strings.Contains(err.Error(), tc.reason) {
 				t.Errorf("err = %v, want malformed schema identifying %q", err, tc.reason)
@@ -37,8 +37,8 @@ func TestStructuredRejectsMalformedConstraints(t *testing.T) {
 
 func TestStructuredRequiredEmptyPropertyName(t *testing.T) {
 	const schema = `{"type":"object","required":[""]}`
-	if _, _, err := Structured(`{}`, schema); !errors.Is(err, ErrSchema) || !strings.Contains(err.Error(), `missing required key ""`) {
-		t.Fatalf("missing empty-string key: got %v, want ErrSchema identifying the key", err)
+	if _, _, err := Structured(`{}`, schema); !errors.Is(err, errSchema) || !strings.Contains(err.Error(), `missing required key ""`) {
+		t.Fatalf("missing empty-string key: got %v, want errSchema identifying the key", err)
 	}
 	const answer = `{"":null}`
 	raw, unchecked, err := Structured(answer, schema)
@@ -72,8 +72,8 @@ func TestStructuredTupleItems(t *testing.T) {
 				t.Fatalf("Structured(%s, %s): err = %v, want error = %v", tc.answer, tc.schema, err, tc.wantErr)
 			}
 			if tc.wantErr {
-				if !errors.Is(err, ErrSchema) {
-					t.Errorf("err = %v, want ErrSchema", err)
+				if !errors.Is(err, errSchema) {
+					t.Errorf("err = %v, want errSchema", err)
 				}
 				return
 			}

@@ -307,8 +307,8 @@ type Launcher interface {
 	Claude(ctx context.Context, o ClaudeOptions, args []string) (ClaudeLaunch, error)
 }
 
-// DefaultLauncher is the Launcher the one Register that supplies it installs; the Client hands it to new runs.
-var DefaultLauncher Launcher
+// defaultLauncher is the Launcher the one Register that supplies it installs; the Client hands it to new runs.
+var defaultLauncher Launcher
 
 // LaunchOptions are the harness flags consumed before passthrough.
 type LaunchOptions struct {
@@ -322,7 +322,7 @@ type LaunchOptions struct {
 	Overlay  string   // --overlay FILE; empty reads $COWORKER_OVERLAY
 }
 
-func (o *LaunchOptions) LaunchFlagSetter(name string, claude bool) func(string) {
+func (o *LaunchOptions) launchFlagSetter(name string, claude bool) func(string) {
 	fields := map[string]*string{"--profile": &o.Provider, "--model": &o.Model, "--overlay": &o.Overlay}
 	if !claude {
 		fields["-f"], fields["--file"] = &o.File, &o.File
@@ -490,8 +490,8 @@ func (p Plan) WriteFiles() error {
 	return nil
 }
 
-// RecordEnv is the env Exec hands the child, recorded to COWORKER_OVERLAY_DEBUG; --print-env calls it as a dry exec.
-func (p Plan) RecordEnv() []string {
+// recordEnv is the env Exec hands the child, recorded to COWORKER_OVERLAY_DEBUG; --print-env calls it as a dry exec.
+func (p Plan) recordEnv() []string {
 	env := p.Env(os.Environ())
 	agentconfig.RecordOverlayDebug(p.Agent, env)
 	return env
@@ -506,7 +506,7 @@ func (p Plan) Exec() error {
 	for _, w := range p.Warnings {
 		fmt.Fprintln(os.Stderr, "claude-code: warning:", w)
 	}
-	err := proc.Exec(p.Binary, p.Argv, p.RecordEnv())
+	err := proc.Exec(p.Binary, p.Argv, p.recordEnv())
 	p.execFailed()
 	return err
 }
@@ -537,8 +537,8 @@ var _ = schemas.Register(schemas.Format{
 	Version: 1, Keep: "rewritten on every launch; Claude Code reads it, so no schema field",
 })
 
-// OverlayIdle reports a launch the overlay changes nothing about: empty layer and no $COWORKER_OVERLAY to hide.
-func OverlayIdle(r agentconfig.Resolved) bool {
+// overlayIdle reports a launch the overlay changes nothing about: empty layer and no $COWORKER_OVERLAY to hide.
+func overlayIdle(r agentconfig.Resolved) bool {
 	return len(r.Set)+len(r.Unset)+len(r.Keep) == 0 && os.Getenv(agentconfig.OverlayVar) == ""
 }
 
@@ -557,8 +557,8 @@ func CheckRouteNames(route, names []string) error {
 	return nil
 }
 
-// CheckOverlay refuses an overlay that sets or unsets a name the plan's launch sets for its route.
-func (p Plan) CheckOverlay(r agentconfig.Resolved) error {
+// checkOverlay refuses an overlay that sets or unsets a name the plan's launch sets for its route.
+func (p Plan) checkOverlay(r agentconfig.Resolved) error {
 	for _, k := range slices.Sorted(maps.Keys(r.Set)) {
 		if _, own := p.Set[k]; own {
 			return fmt.Errorf("overlay set %s: set by the launch for its route; use --profile", k)
@@ -574,7 +574,7 @@ func (p Plan) CheckOverlay(r agentconfig.Resolved) error {
 
 // ApplyOverlay layers r under req's --env (the shorthand wins) and unsets $COWORKER_OVERLAY in the child (one hop).
 func (req RunOptions) ApplyOverlay(r agentconfig.Resolved) RunOptions {
-	if OverlayIdle(r) {
+	if overlayIdle(r) {
 		return req
 	}
 	env := make([]string, 0, len(r.Set)+len(req.Env))
@@ -588,9 +588,9 @@ func (req RunOptions) ApplyOverlay(r agentconfig.Resolved) RunOptions {
 	return req
 }
 
-// WithOverlay layers r over an interactive plan the way ApplyOverlay does for a headless run; the launch's own Set wins.
-func (p Plan) WithOverlay(r agentconfig.Resolved) Plan {
-	if OverlayIdle(r) {
+// withOverlay layers r over an interactive plan the way ApplyOverlay does for a headless run; the launch's own Set wins.
+func (p Plan) withOverlay(r agentconfig.Resolved) Plan {
+	if overlayIdle(r) {
 		return p
 	}
 	set := maps.Clone(r.Set)

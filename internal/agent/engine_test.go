@@ -15,7 +15,7 @@ func TestHubDispatchWithoutHubIsAnError(t *testing.T) {
 	if _, _, err := hubDispatchFor(&providers.Registry{}, "opencode-go/kimi"); !errors.Is(err, errNoHub) {
 		t.Fatalf("hubDispatchFor err = %v, want errNoHub", err)
 	}
-	if _, err := HubStart(&providers.Registry{}, "claude", ""); !errors.Is(err, errNoHub) {
-		t.Fatalf("HubStart err = %v, want errNoHub", err)
+	if _, err := hubStart(&providers.Registry{}, "claude", ""); !errors.Is(err, errNoHub) {
+		t.Fatalf("hubStart err = %v, want errNoHub", err)
 	}
 }

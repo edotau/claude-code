@@ -23,25 +23,25 @@ func TestBackoff(t *testing.T) {
 		{1, 0, time.Second}, {1, 1, 2 * time.Second}, {2, 0, 2 * time.Second}, {3, 1, 8 * time.Second},
 		{10, 0, 15 * time.Second}, {10, 1, 30 * time.Second}, {0, 0, time.Second},
 	} {
-		if got := p.Backoff(c.attempt, c.jitter); got != c.want {
+		if got := p.backoff(c.attempt, c.jitter); got != c.want {
 			t.Errorf("Backoff(%d,%v) = %v, want %v", c.attempt, c.jitter, got, c.want)
 		}
 	}
-	if got := p.Delay(time.Minute, 1, 0); got != 30*time.Second {
+	if got := p.delay(time.Minute, 1, 0); got != 30*time.Second {
 		t.Errorf("Retry-After must be capped at MaxDelay, got %v", got)
 	}
-	if got := p.Delay(5*time.Second, 3, 0); got != 5*time.Second {
+	if got := p.delay(5*time.Second, 3, 0); got != 5*time.Second {
 		t.Errorf("Retry-After must win over backoff, got %v", got)
 	}
 }
 
 func TestDelayJittersRetryAfter(t *testing.T) {
 	p := Policy{BaseDelay: 2 * time.Second, MaxDelay: 30 * time.Second}
-	lo, hi := p.Delay(5*time.Second, 1, 0), p.Delay(5*time.Second, 1, 1)
+	lo, hi := p.delay(5*time.Second, 1, 0), p.delay(5*time.Second, 1, 1)
 	if lo != 5*time.Second || hi <= lo || hi > p.MaxDelay {
 		t.Errorf("Retry-After jitter: lo=%v hi=%v, want lo=5s, lo<hi<=MaxDelay", lo, hi)
 	}
-	if got := p.Delay(time.Minute, 1, 1); got > p.MaxDelay {
+	if got := p.delay(time.Minute, 1, 1); got > p.MaxDelay {
 		t.Errorf("jittered Retry-After must stay capped at MaxDelay, got %v", got)
 	}
 }
@@ -76,6 +76,7 @@ func TestDoSharedProviderCooldown(t *testing.T) {
 }
 
 func TestDoKeepsEveryAttemptError(t *testing.T) {
+	fastRateLimitFloor(t)
 	pol := Policy{MaxAttempts: 3, BaseDelay: time.Millisecond, MaxDelay: 2 * time.Millisecond, AttemptTimeout: 50 * time.Millisecond}
 	e := Do(context.Background(), pol, func(ctx context.Context, attempt int) *Error {
 		switch attempt {
@@ -134,7 +135,9 @@ func TestClassify(t *testing.T) {
 	}
 }
 
-func fastPolicy() Policy {
+func fastPolicy(t *testing.T) Policy {
+	t.Helper()
+	fastRateLimitFloor(t)
 	return Policy{MaxAttempts: 3, BaseDelay: time.Millisecond, MaxDelay: 2 * time.Millisecond}
 }
 
@@ -159,7 +162,7 @@ func TestDo(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			p := fastPolicy()
+			p := fastPolicy(t)
 			p.Recover = c.recover
 			calls := 0
 			e := Do(context.Background(), p, func(_ context.Context, attempt int) *Error {
@@ -206,7 +209,7 @@ func TestDoMaxAttemptsZeroActsAsOne(t *testing.T) {
 }
 
 func TestDoAttemptTimeoutAndCancel(t *testing.T) {
-	p := fastPolicy()
+	p := fastPolicy(t)
 	p.AttemptTimeout = 5 * time.Millisecond
 	calls := 0
 	e := Do(context.Background(), p, func(ctx context.Context, _ int) *Error {
@@ -221,7 +224,7 @@ func TestDoAttemptTimeoutAndCancel(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	calls = 0
-	e = Do(ctx, fastPolicy(), func(context.Context, int) *Error {
+	e = Do(ctx, fastPolicy(t), func(context.Context, int) *Error {
 		calls++
 		cancel()
 		return &Error{Kind: KindTransient}
@@ -235,7 +238,7 @@ func TestDoAttemptTimeoutAndCancel(t *testing.T) {
 // that fails FAST (a 429, well inside the budget) is still an ordinary retryable transient failure —
 // only hitting the attempt's own deadline is terminal.
 func TestDoAttemptTimeoutFastTransientStillRetried(t *testing.T) {
-	p := fastPolicy()
+	p := fastPolicy(t)
 	p.AttemptTimeout = time.Minute
 	calls := 0
 	e := Do(context.Background(), p, func(context.Context, int) *Error {
@@ -249,7 +252,7 @@ func TestDoAttemptTimeoutFastTransientStillRetried(t *testing.T) {
 
 // A wait that cannot take its permit back returns the cancellation, with the earlier failure kept.
 func TestDoCancelledReacquireReturnsCancellation(t *testing.T) {
-	p := fastPolicy()
+	p := fastPolicy(t)
 	p.MaxAttempts = 3
 	p.Idle = func(_ context.Context, wait func()) error { wait(); return context.Canceled }
 	e := Do(context.Background(), p, func(context.Context, int) *Error {
@@ -366,4 +369,37 @@ func TestRetryAfterTextUnits(t *testing.T) {
 			t.Errorf("retryAfterText(%q) = %v, want %v", in, got, want)
 		}
 	}
+}
+
+func TestRetryDelayRateLimitFloor(t *testing.T) {
+	p := DefaultPolicy()
+	for range 100 {
+		got := p.retryDelay(&Error{Kind: KindRateLimit}, 1)
+		if got < 30*time.Second || got > 45*time.Second {
+			t.Fatalf("rate limit delay = %v, want [30s,45s]", got)
+		}
+	}
+}
+
+func TestRetryDelayRateLimitHint(t *testing.T) {
+	p := DefaultPolicy()
+	got := p.retryDelay(&Error{Kind: KindRateLimit, RetryAfter: time.Second}, 1)
+	if got < time.Second || got > 1250*time.Millisecond {
+		t.Fatalf("hint delay = %v, want [1s,1.25s]", got)
+	}
+}
+
+func TestRetryDelayTransientBackoff(t *testing.T) {
+	p := DefaultPolicy()
+	got := p.retryDelay(&Error{Kind: KindTransient}, 1)
+	if got < time.Second || got > 2*time.Second {
+		t.Fatalf("transient delay = %v, want [1s,2s]", got)
+	}
+}
+
+func fastRateLimitFloor(t *testing.T) {
+	t.Helper()
+	floor := RateLimitFloor
+	RateLimitFloor = time.Millisecond
+	t.Cleanup(func() { RateLimitFloor = floor })
 }

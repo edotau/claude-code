@@ -20,8 +20,8 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 )
 
-// TaskLine is one `ask --batch` JSONL task; Tools stays nil when absent so the flag default applies.
-type TaskLine struct {
+// batchLine is one `ask --batch` JSONL task; Tools stays nil when absent so the flag default applies.
+type batchLine struct {
 	ID      string `json:"id"`
 	Agent   string `json:"agent"`
 	Profile string `json:"profile"`
@@ -34,16 +34,16 @@ type TaskLine struct {
 	PlanTask string `json:"plan_task"` // optional plan task this line implements, same character rule as id
 }
 
-// ParsedLine is one non-blank input line: its 1-based number, the decoded task, or why it did not decode.
-type ParsedLine struct {
+// parsedLine is one non-blank input line: its 1-based number, the decoded task, or why it did not decode.
+type parsedLine struct {
 	N    int
-	Task TaskLine
+	Task batchLine
 	Err  error
 }
 
-// ReadTaskLines decodes JSONL tasks; a malformed line or unknown field is that line's Err, never the whole batch's.
-func ReadTaskLines(r io.Reader) ([]ParsedLine, error) {
-	var out []ParsedLine
+// readTaskLines decodes JSONL tasks; a malformed line or unknown field is that line's Err, never the whole batch's.
+func readTaskLines(r io.Reader) ([]parsedLine, error) {
+	var out []parsedLine
 	br := bufio.NewReader(r)
 	for n := 1; ; n++ {
 		line, err := br.ReadBytes('\n')
@@ -60,8 +60,8 @@ func ReadTaskLines(r io.Reader) ([]ParsedLine, error) {
 }
 
 // decodeTaskLine decodes one JSONL line that is physical line n; a bad line keeps n in its Err.
-func decodeTaskLine(line []byte, n int) ParsedLine {
-	pl := ParsedLine{N: n}
+func decodeTaskLine(line []byte, n int) parsedLine {
+	pl := parsedLine{N: n}
 	dec := json.NewDecoder(bytes.NewReader(line))
 	dec.DisallowUnknownFields()
 	if derr := dec.Decode(&pl.Task); derr != nil {
@@ -72,8 +72,8 @@ func decodeTaskLine(line []byte, n int) ParsedLine {
 	return pl
 }
 
-// Task is one scheduled task; Prepare routes it when it is about to start, and Err fails it before any run.
-type Task struct {
+// batchTask is one scheduled task; Prepare routes it when it is about to start, and Err fails it before any run.
+type batchTask struct {
 	ID      string
 	Agent   string // the agent asked for, named on a failure envelope
 	Plan    string // plan_task of the line, stamped on the dispatch record
@@ -83,14 +83,14 @@ type Task struct {
 	Err     error
 }
 
-// NewID names one batch run.
-func NewID() string {
+// newID names one batch run.
+func newID() string {
 	var b [3]byte
 	_, _ = rand.Read(b[:]) // a failed read leaves zeros: the stamp alone still names the batch
 	return "batch-" + batchNow().UTC().Format("20060102T150405.000") + "-" + hex.EncodeToString(b[:])
 }
 
-// batchNow is the clock NewID reads; a var so tests can force two batches onto one millisecond.
+// batchNow is the clock newID reads; a var so tests can force two batches onto one millisecond.
 var batchNow = time.Now
 
 var batchIDRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
@@ -98,10 +98,10 @@ var batchIDRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 // planTaskRE is batchIDRE plus the space, so a plan heading such as "Phase 1.1" is a valid plan_task.
 var planTaskRE = regexp.MustCompile(`^[A-Za-z0-9._ -]{1,64}$`)
 
-// ParseTask validates one line like the ask flags; on error the task keeps its id and agent.
-func ParseTask(l ParsedLine, agentName string, base agent.RunOptions, timeoutSet bool, cwd string,
-	seen map[string]bool) (Task, error) {
-	t := Task{ID: cmp.Or(l.Task.ID, "t"+strconv.Itoa(l.N)), Agent: cmp.Or(l.Task.Agent, agentName)}
+// parseTask validates one line like the ask flags; on error the task keeps its id and agent.
+func parseTask(l parsedLine, agentName string, base agent.RunOptions, timeoutSet bool, cwd string,
+	seen map[string]bool) (batchTask, error) {
+	t := batchTask{ID: cmp.Or(l.Task.ID, "t"+strconv.Itoa(l.N)), Agent: cmp.Or(l.Task.Agent, agentName)}
 	if l.Err != nil {
 		return t, l.Err
 	}
@@ -142,7 +142,7 @@ func ParseTask(l ParsedLine, agentName string, base agent.RunOptions, timeoutSet
 	return t, nil
 }
 
-func batchTaskLocation(l ParsedLine, req agent.RunOptions, timeoutSet bool, baseWorkdir, cwd string) (agent.RunOptions, error) {
+func batchTaskLocation(l parsedLine, req agent.RunOptions, timeoutSet bool, baseWorkdir, cwd string) (agent.RunOptions, error) {
 	switch {
 	case l.Task.Timeout != "":
 		d, err := time.ParseDuration(l.Task.Timeout)

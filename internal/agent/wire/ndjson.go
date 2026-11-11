@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// DecodeLines skips blank lines and logs non-JSON output without losing subsequent events.
-func DecodeLines(br *bufio.Reader, lg StreamLog, fn func(raw []byte) (stop bool, err error)) error {
+// decodeLines skips blank lines and logs non-JSON output without losing subsequent events.
+func decodeLines(br *bufio.Reader, lg StreamLog, fn func(raw []byte) (stop bool, err error)) error {
 	for {
 		raw, readErr := br.ReadBytes('\n')
 		raw = bytes.TrimSpace(raw)
@@ -41,7 +41,7 @@ func DecodeLines(br *bufio.Reader, lg StreamLog, fn func(raw []byte) (stop bool,
 func DecodeEvents[E any](br *bufio.Reader, lg StreamLog, label string, tick bool, onBad func(error),
 	handle func(E, *TransportTracker) (stop bool, err error)) (*Transport, error) {
 	ts := TransportTracker{Start: Clock()}
-	err := DecodeLines(br, lg, func(raw []byte) (bool, error) {
+	err := decodeLines(br, lg, func(raw []byte) (bool, error) {
 		var ev E
 		if err := json.Unmarshal(raw, &ev); err != nil {
 			err = fmt.Errorf("%s: %w", label, err)
@@ -97,7 +97,7 @@ func (t *TransportTracker) Result() *Transport {
 		FirstEventMs: t.first.Milliseconds(), MaxGapMs: t.gap.Milliseconds()}
 }
 
-// resultError is a failed turn whose result event was consumed, so the stream stays at a turn boundary.
+// ResultError is a failed turn whose result event was consumed, so the stream stays at a turn boundary.
 type ResultError struct{ error }
 
 func (e ResultError) Unwrap() error { return e.error }

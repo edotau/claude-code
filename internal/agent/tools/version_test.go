@@ -31,8 +31,8 @@ func TestParseVersion(t *testing.T) {
 		{"no version here", ""},
 		{"", ""},
 	} {
-		if got := ParseVersion(tc.in); got != tc.want {
-			t.Errorf("ParseVersion(%q) = %q, want %q", tc.in, got, tc.want)
+		if got := parseVersion(tc.in); got != tc.want {
+			t.Errorf("parseVersion(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
@@ -105,8 +105,8 @@ func TestAgentVersionAtCache(t *testing.T) {
 	bin, counter := probeFixture(t, "echo 'fake 3.2.1'")
 	resetMemo()
 	for range 2 {
-		if v, err := VersionAt(bin); err != nil || v != "3.2.1" {
-			t.Fatalf("VersionAt = %q, %v", v, err)
+		if v, err := versionAt(bin); err != nil || v != "3.2.1" {
+			t.Fatalf("versionAt = %q, %v", v, err)
 		}
 	}
 	if n := invocations(t, counter); n != 1 {
@@ -115,7 +115,7 @@ func TestAgentVersionAtCache(t *testing.T) {
 
 	// A fresh process (empty memo) is served by the disk cache.
 	resetMemo()
-	if v, _ := VersionAt(bin); v != "3.2.1" || invocations(t, counter) != 1 {
+	if v, _ := versionAt(bin); v != "3.2.1" || invocations(t, counter) != 1 {
 		t.Fatalf("disk cache missed: v=%q runs=%d", v, invocations(t, counter))
 	}
 
@@ -124,7 +124,7 @@ func TestAgentVersionAtCache(t *testing.T) {
 	if err := os.Chtimes(bin, future, future); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := VersionAt(bin); err != nil {
+	if _, err := versionAt(bin); err != nil {
 		t.Fatal(err)
 	}
 	if n := invocations(t, counter); n != 2 {
@@ -136,13 +136,13 @@ func TestAgentVersionAtFailureNotCached(t *testing.T) {
 	flag := filepath.Join(t.TempDir(), "ok")
 	bin, counter := probeFixture(t, "[ -e '"+flag+"' ] || exit 1\necho 'fake 4.0.0'")
 	resetMemo()
-	if _, err := VersionAt(bin); !errors.Is(err, ErrVersionUnknown) {
-		t.Fatalf("failing probe err = %v, want ErrVersionUnknown", err)
+	if _, err := versionAt(bin); !errors.Is(err, errVersionUnknown) {
+		t.Fatalf("failing probe err = %v, want errVersionUnknown", err)
 	}
 	if err := os.WriteFile(flag, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if v, err := VersionAt(bin); err != nil || v != "4.0.0" {
+	if v, err := versionAt(bin); err != nil || v != "4.0.0" {
 		t.Fatalf("recovered probe = %q, %v (failure was cached?)", v, err)
 	}
 	if n := invocations(t, counter); n != 2 {
@@ -159,12 +159,12 @@ func TestAgentVersionAtCorruptCacheTolerated(t *testing.T) {
 	if err := os.WriteFile(versionCacheFile(), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if v, err := VersionAt(bin); err != nil || v != "5.0.0" {
+	if v, err := versionAt(bin); err != nil || v != "5.0.0" {
 		t.Fatalf("corrupt cache: %q, %v", v, err)
 	}
 	// The probe result replaced the corrupt file with a valid cache.
 	resetMemo()
-	if v, _ := VersionAt(bin); v != "5.0.0" || invocations(t, counter) != 1 {
+	if v, _ := versionAt(bin); v != "5.0.0" || invocations(t, counter) != 1 {
 		t.Fatalf("cache not rewritten: v=%q runs=%s", v, strconv.Itoa(invocations(t, counter)))
 	}
 }
@@ -191,8 +191,8 @@ func TestAgentVersionCacheShapeMismatchIsMissThenWritesSchema1(t *testing.T) {
 			if got := readVersionCache(); len(got) != 0 {
 				t.Fatalf("readVersionCache = %v, want empty (miss)", got)
 			}
-			if v, err := VersionAt(bin); err != nil || v != "7.1.0" {
-				t.Fatalf("VersionAt = %q, %v (stale cache served?)", v, err)
+			if v, err := versionAt(bin); err != nil || v != "7.1.0" {
+				t.Fatalf("versionAt = %q, %v (stale cache served?)", v, err)
 			}
 			if n := invocations(t, counter); n != 1 {
 				t.Fatalf("probe ran %d times, want 1", n)
@@ -231,8 +231,8 @@ func TestProbedVersionLineSharesCacheAndSurvivesConcurrentWrites(t *testing.T) {
 		t.Fatalf("probe ran %d times, binary %d times; want 1, 1", calls, invocations(t, counter))
 	}
 	// The default path reads the same cache entry.
-	if v, err := VersionAt(bin); err != nil || v != "4.5.6" || invocations(t, counter) != 1 {
-		t.Fatalf("VersionAt = %q, %v after %d runs; want a cache hit", v, err, invocations(t, counter))
+	if v, err := versionAt(bin); err != nil || v != "4.5.6" || invocations(t, counter) != 1 {
+		t.Fatalf("versionAt = %q, %v after %d runs; want a cache hit", v, err, invocations(t, counter))
 	}
 
 	assertConcurrentVersionWrites(t)

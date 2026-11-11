@@ -60,10 +60,10 @@ func isEndLine(line []byte) bool {
 }
 
 // next returns the complete lines appended since the last call, numbered from the file's first line.
-func (w *follower) next() ([]ParsedLine, [][]byte, error) {
+func (w *follower) next() ([]parsedLine, [][]byte, error) {
 	b, err := io.ReadAll(w.f)
 	w.pending = append(w.pending, b...)
-	var parsed []ParsedLine
+	var parsed []parsedLine
 	var raw [][]byte
 	for {
 		i := bytes.IndexByte(w.pending, '\n')
@@ -82,8 +82,8 @@ func (w *follower) next() ([]ParsedLine, [][]byte, error) {
 }
 
 // run sends tasks built from appended lines to the returned channel until {"end":true}, idle or cancel.
-func (w *follower) run(ctx context.Context, build func(ParsedLine) Task) <-chan Task {
-	out := make(chan Task)
+func (w *follower) run(ctx context.Context, build func(parsedLine) batchTask) <-chan batchTask {
+	out := make(chan batchTask)
 	go func() {
 		defer close(out)
 		defer w.f.Close()
@@ -112,7 +112,7 @@ func (w *follower) run(ctx context.Context, build func(ParsedLine) Task) <-chan 
 }
 
 // poll sends the newly appended lines; more is false on {"end":true}, a read error (sent as a failed task) or cancel.
-func (w *follower) poll(ctx context.Context, build func(ParsedLine) Task, out chan<- Task) (sent, more bool) {
+func (w *follower) poll(ctx context.Context, build func(parsedLine) batchTask, out chan<- batchTask) (sent, more bool) {
 	lines, raw, err := w.next()
 	for i, l := range lines {
 		if isEndLine(raw[i]) {
@@ -127,7 +127,7 @@ func (w *follower) poll(ctx context.Context, build func(ParsedLine) Task, out ch
 	}
 	if err != nil {
 		select { // a Task with Err fails the batch: a read error must not look like the end of input
-		case out <- Task{Err: fmt.Errorf("--follow: %w", err)}:
+		case out <- batchTask{Err: fmt.Errorf("--follow: %w", err)}:
 		case <-ctx.Done():
 		}
 		return sent, false
@@ -136,14 +136,14 @@ func (w *follower) poll(ctx context.Context, build func(ParsedLine) Task, out ch
 }
 
 // retryFor reroutes t once to the first --retry-agent other than the agent it ran on; nil when there is none.
-func retryFor(t Task, bo Opts, agents []string) func(context.Context) (*agent.Prepared, error) {
+func retryFor(t batchTask, bo batchOpts, agents []string) func(context.Context) (*agent.Prepared, error) {
 	for _, name := range agents {
 		if name == t.Agent {
 			continue
 		}
 		req := t.Req
 		req.Agent, req.Fallback, req.Native = name, bo.Fallback, bo.Native
-		cl := NewClient()
+		cl := newClient()
 		return func(ctx context.Context) (*agent.Prepared, error) { return cl.Prepare(ctx, req, nil) }
 	}
 	return nil

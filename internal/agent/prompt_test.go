@@ -82,11 +82,11 @@ func TestRubricPrompt(t *testing.T) {
 	if err := writeFile(file, "RULE: no globals"); err != nil {
 		t.Fatal(err)
 	}
-	p, err := RubricPrompt(file, "review x.go")
+	p, err := rubricPrompt(file, "review x.go")
 	if err != nil || !strings.Contains(p, "RULE: no globals") || !strings.Contains(p, "TASK: review x.go") {
 		t.Fatalf("prompt=%q err=%v", p, err)
 	}
-	if _, err := RubricPrompt(file, strings.Repeat("x", MaxPromptBytes)); err == nil {
+	if _, err := rubricPrompt(file, strings.Repeat("x", MaxPromptBytes)); err == nil {
 		t.Error("oversize prompt must be an error, never truncated")
 	}
 }

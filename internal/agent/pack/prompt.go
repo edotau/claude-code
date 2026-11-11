@@ -57,9 +57,9 @@ func Build(ctx context.Context, s Spec, task, cwd string, budget int) (Packed, e
 	if err != nil {
 		return Packed{}, err
 	}
-	prompt, collected, dropped, err := Fit(func(c Context) string {
+	prompt, collected, dropped, err := fit(func(c Context) string {
 		if s.Index {
-			return task + "\n\n" + IndexPrompt(c)
+			return task + "\n\n" + indexPrompt(c)
 		}
 		return task
 	}, collected, budget)
@@ -67,7 +67,7 @@ func Build(ctx context.Context, s Spec, task, cwd string, budget int) (Packed, e
 		return Packed{}, err
 	}
 	p := Packed{Prompt: prompt, Files: collected}
-	if w := CoverageWarning(collected); w != "" {
+	if w := coverageWarning(collected); w != "" {
 		p.Notes = append(p.Notes, w)
 	}
 	if len(dropped) > 0 {
@@ -83,7 +83,7 @@ func changedOrListed(ctx context.Context, s Spec, cwd string) ([]string, error) 
 	if !s.Diff {
 		return files, nil
 	}
-	changed, err := ChangedFiles(ctx, cwd)
+	changed, err := changedFiles(ctx, cwd)
 	if err != nil {
 		return nil, fmt.Errorf("--diff: %w", err)
 	}
@@ -96,10 +96,10 @@ func changedOrListed(ctx context.Context, s Spec, cwd string) ([]string, error) 
 	return files, nil
 }
 
-// ChangedFiles lists tracked files changed against HEAD (staged + unstaged + untracked), which is
+// changedFiles lists tracked files changed against HEAD (staged + unstaged + untracked), which is
 // what a review run is actually about — reviewing the whole tree buries the diff. An error from either
 // git command (not found, no HEAD, not a repo, …) is returned with its stderr instead of being masked.
-func ChangedFiles(ctx context.Context, root string) ([]string, error) {
+func changedFiles(ctx context.Context, root string) ([]string, error) {
 	var all []string
 	for _, args := range [][]string{
 		// --relative matches ls-files's cwd-relative output, so a subdirectory run doesn't mix bases.
@@ -126,12 +126,12 @@ func ChangedFiles(ctx context.Context, root string) ([]string, error) {
 	return uniq, nil
 }
 
-// Fit renders the prompt, moving whole trailing files to Skipped ("prompt-cap") until it fits limit.
+// fit renders the prompt, moving whole trailing files to Skipped ("prompt-cap") until it fits limit.
 // task is rebuilt per trim so an index reflects what stays inlined; it errors if zero files still exceed limit.
-func Fit(task func(Context) string, ctx Context, limit int) (string, Context, []string, error) {
+func fit(task func(Context) string, ctx Context, limit int) (string, Context, []string, error) {
 	var dropped []string
 	for {
-		prompt := Prompt(task(ctx), ctx)
+		prompt := prompt(task(ctx), ctx)
 		excess := len(prompt) - limit
 		if excess > 0 && len(ctx.Included) == 0 {
 			return prompt, ctx, dropped, fmt.Errorf("pack: task and file inventory alone are %d bytes, over the %d byte cap", len(prompt), limit)
@@ -161,8 +161,8 @@ func promptBlock(f IncludedFile) string {
 		f.Path, f.MediaType, strconv.FormatBool(f.Truncated), f.Content)
 }
 
-// Prompt renders the context inventory + inline files + task into the prompt template.
-func Prompt(task string, ctx Context) string {
+// prompt renders the context inventory + inline files + task into the prompt template.
+func prompt(task string, ctx Context) string {
 	var inv strings.Builder
 	if len(ctx.Included) > 0 {
 		inv.WriteString("Included files:\n")
@@ -219,8 +219,8 @@ type indexLeaf struct {
 	Body  string `json:"body,omitempty"` // "inlined" | the skip reason — why the content is or isn't present
 }
 
-// Index renders ctx as a nested directory tree in JSON, including skipped files (with their reason).
-func Index(ctx Context) string {
+// index renders ctx as a nested directory tree in JSON, including skipped files (with their reason).
+func index(ctx Context) string {
 	root := map[string]any{}
 	for _, f := range ctx.Included {
 		insertPath(root, f.Path, indexLeaf{Bytes: f.Bytes, Body: "inlined"})
@@ -258,20 +258,20 @@ func insertPath(root map[string]any, path string, leaf indexLeaf) {
 	}
 }
 
-// IndexPrompt renders the index as a prompt section, framing it as a routing map, not data to summarize.
-func IndexPrompt(ctx Context) string {
+// indexPrompt renders the index as a prompt section, framing it as a routing map, not data to summarize.
+func indexPrompt(ctx Context) string {
 	var b strings.Builder
 	b.WriteString("\n## Repository index (paths only)\n\n")
 	b.WriteString("A nested map of every matched path. `body` says whether that file's contents are in this\n")
 	b.WriteString("prompt (\"inlined\") or why they are not. Use it to name exact paths; if a file you need is\n")
 	b.WriteString("listed but not inlined, say which path you need rather than guessing its contents.\n\n```json\n")
-	b.WriteString(Index(ctx))
+	b.WriteString(index(ctx))
 	b.WriteString("\n```\n")
 	return b.String()
 }
 
-// CoverageWarning is a one-line summary of what a sweep left out, with its distinct skip reasons; "" when nothing was.
-func CoverageWarning(ctx Context) string {
+// coverageWarning is a one-line summary of what a sweep left out, with its distinct skip reasons; "" when nothing was.
+func coverageWarning(ctx Context) string {
 	if len(ctx.Skipped) == 0 {
 		return ""
 	}
@@ -282,11 +282,11 @@ func CoverageWarning(ctx Context) string {
 	kb /= 1024
 	total := len(ctx.Included) + len(ctx.Skipped)
 	return fmt.Sprintf("pack: inlined %d of %d files (%d KB); skipped %d: %s",
-		len(ctx.Included), total, kb, len(ctx.Skipped), strings.Join(SortedSkipReasons(ctx), ", "))
+		len(ctx.Included), total, kb, len(ctx.Skipped), strings.Join(sortedSkipReasons(ctx), ", "))
 }
 
-// SortedSkipReasons summarizes why files were left out, so an operator can widen the right knob.
-func SortedSkipReasons(ctx Context) []string {
+// sortedSkipReasons summarizes why files were left out, so an operator can widen the right knob.
+func sortedSkipReasons(ctx Context) []string {
 	counts := map[string]int{}
 	for _, f := range ctx.Skipped {
 		counts[f.Reason]++

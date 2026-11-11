@@ -14,17 +14,17 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// TTL is the backstop for a marker whose owner cannot be probed (or parsed): it stops counting after this long.
-const TTL = 30 * time.Minute
+// ttl is the backstop for a marker whose owner cannot be probed (or parsed): it stops counting after this long.
+const ttl = 30 * time.Minute
 
 // Idle: an agent transcript silent this long stopped without a SubagentStop; it outlasts Bash's 10-minute ceiling.
 const Idle = 15 * time.Minute
 
-// Grace: how long a spawn marker may wait for its agent transcript to appear before it is abandoned.
-const Grace = 2 * time.Minute
+// grace: how long a spawn marker may wait for its agent transcript to appear before it is abandoned.
+const grace = 2 * time.Minute
 
-// Settle: how long an answered spawn with no agent meta keeps its claim before it counts as refused.
-const Settle = 10 * time.Second
+// settle: how long an answered spawn with no agent meta keeps its claim before it counts as refused.
+const settle = 10 * time.Second
 
 // Prefix starts every marker name: agent-<owner pid>-<id>; the file holds the account key, then the session transcript.
 const Prefix = "agent-"
@@ -44,9 +44,9 @@ func Owner(name string) (int, bool) {
 	return pid, true
 }
 
-// ProbeTrusted says whether proc.Alive answers here (off unix it never does): only a trusted probe may read
+// probeTrusted says whether proc.Alive answers here (off unix it never does): only a trusted probe may read
 // a silent owner as dead, otherwise TTL is the sole backstop.
-func ProbeTrusted() bool { return proc.Alive(os.Getpid()) }
+func probeTrusted() bool { return proc.Alive(os.Getpid()) }
 
 // ownerLive is the owner-level rule: a provably dead owner never counts; a batch dispatch lives with its owner; anything
 // else (or any marker when the probe is untrusted) stops counting after TTL. Self's spawn rules live in scan.
@@ -63,7 +63,7 @@ func ownerLive(name string, mod, now time.Time, trusted bool) bool {
 	if trusted && strings.HasPrefix(id, DispatchPrefix) {
 		return true
 	}
-	return now.Sub(mod) <= TTL
+	return now.Sub(mod) <= ttl
 }
 
 // CountOwned counts the live markers owned by owner without removing anything.
@@ -72,7 +72,7 @@ func CountOwned(owner int, now time.Time) int {
 	if err != nil {
 		return 0
 	}
-	live := Liveness(now)
+	live := liveness(now)
 	n := 0
 	for _, e := range entries {
 		if pid, ok := Owner(e.Name()); ok && pid == owner && live(e.Name()) {
@@ -82,8 +82,8 @@ func CountOwned(owner int, now time.Time) int {
 	return n
 }
 
-// Liveness is the limiter's own marker rule for read-only callers (status line, `agents reap`); false for a non-marker.
-func Liveness(now time.Time) func(name string) bool {
+// liveness is the limiter's own marker rule for read-only callers (status line, `agents reap`); false for a non-marker.
+func liveness(now time.Time) func(name string) bool {
 	s := newScanner(now)
 	return func(name string) bool {
 		if _, ok := Owner(name); !ok {
@@ -150,7 +150,7 @@ func LiveDispatches(owner int) int {
 	if owner == 0 { // unknown owner: other unowned records aren't ours
 		return 0
 	}
-	dir := filepath.Join(paths.StateDir(), "dispatch")
+	dir := paths.DispatchDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return 0

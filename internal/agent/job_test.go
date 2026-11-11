@@ -26,7 +26,7 @@ func sleeperScript(t *testing.T) string {
 
 func TestResolveExactID(t *testing.T) {
 	recs := []Record{{ID: "20261016T210000.000-codex"}, {ID: "20261016T210100.000-codex"}}
-	got, err := ResolveRecord(recs, "20261016T210100.000-codex", nil)
+	got, err := resolveRecord(recs, "20261016T210100.000-codex", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestResolveExactID(t *testing.T) {
 
 func TestResolveUniquePrefix(t *testing.T) {
 	recs := []Record{{ID: "20261016T210000.000-codex"}, {ID: "20261016T210100.000-gemini"}}
-	got, err := ResolveRecord(recs, "20261016T210100", nil)
+	got, err := resolveRecord(recs, "20261016T210100", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestResolveUniquePrefix(t *testing.T) {
 
 func TestResolveAmbiguousPrefixErrors(t *testing.T) {
 	recs := []Record{{ID: "20261016T210000.000-codex"}, {ID: "20261016T210000.001-codex"}}
-	if _, err := ResolveRecord(recs, "20261016T2100", nil); err == nil {
+	if _, err := resolveRecord(recs, "20261016T2100", nil); err == nil {
 		t.Error("ambiguous prefix must error")
 	}
 }
@@ -60,7 +60,7 @@ func TestResolveEmptyRefPicksNewestMatchingPred(t *testing.T) {
 		{ID: "c", Status: "ok"},
 	}
 	pred := func(r Record) bool { return r.Status == "running" }
-	got, err := ResolveRecord(recs, "", pred)
+	got, err := resolveRecord(recs, "", pred)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestResolveEmptyRefPicksNewestMatchingPred(t *testing.T) {
 
 func TestResolveNoMatchErrors(t *testing.T) {
 	recs := []Record{{ID: "a", Status: "ok"}}
-	if _, err := ResolveRecord(recs, "zzz", nil); err == nil {
+	if _, err := resolveRecord(recs, "zzz", nil); err == nil {
 		t.Error("no matching id must error")
 	}
 }
@@ -90,17 +90,17 @@ func TestListFiltersByAgentAndRepo(t *testing.T) {
 	mk("codex", "/repoB", time.Minute)
 	mk("gemini", "/repoA", 2*time.Minute)
 
-	got := List("codex", "/repoA", false)
+	got := list("codex", "/repoA", false)
 	if len(got) != 1 || got[0].Repo != "/repoA" {
 		t.Fatalf("List(codex, /repoA, false) = %+v, want 1 record from /repoA", got)
 	}
 
-	gotAll := List("codex", "/repoA", true)
+	gotAll := list("codex", "/repoA", true)
 	if len(gotAll) != 2 {
 		t.Fatalf("List(codex, /repoA, true) = %d records, want 2 (repo filter lifted)", len(gotAll))
 	}
 
-	gotOther := List("gemini", "/repoA", false)
+	gotOther := list("gemini", "/repoA", false)
 	if len(gotOther) != 1 {
 		t.Fatalf("List(gemini, /repoA, false) = %d records, want 1", len(gotOther))
 	}

@@ -99,7 +99,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.background, "background", false, "detach: log a job, print its id, exit")
 	fs.StringVar(&f.job, "job", "", "internal: run saved dispatch <id> in place")
 	fs.StringVar(&f.batchSrc, "batch", "", "run JSONL tasks from <file> or - on a pool; one envelope per line")
-	fs.IntVar(&f.jobs, "jobs", DefaultJobs(), "batch: tasks run at once")
+	fs.IntVar(&f.jobs, "jobs", defaultJobs(), "batch: tasks run at once")
 	fs.BoolVar(&f.failFast, "fail-fast", false, "batch: the first failed task cancels the rest")
 	fs.BoolVar(&f.follow, "follow", false, "batch: claim appended lines; {\"end\":true} ends")
 	fs.DurationVar(&f.followIdle, "follow-idle", 30*time.Second, "batch: --follow idle limit")
@@ -113,10 +113,10 @@ func askCheckFlags(env, keepEnv []string, format, fallback string, background bo
 	if _, err := agentconfig.FlagOverlay(env, keepEnv); err != nil { // names only: the error never carries a value
 		return 2, err
 	}
-	if err := ValidateAskFlags(format, fallback); err != nil {
+	if err := validateAskFlags(format, fallback); err != nil {
 		return 1, err
 	}
-	return 1, AskExclusive(background, job, tools, noTools)
+	return 1, askExclusive(background, job, tools, noTools)
 }
 
 // askPack builds the pack spec from --dirs/--files/--diff; nil when none is set. The tuning flags need one.
@@ -142,19 +142,11 @@ func askPack(fs *flag.FlagSet, f *askFlags) (*pack.Spec, error) {
 // askCheckCombos rejects the flag combinations that need the resolved agent.
 func askCheckCombos(fs *flag.FlagSet, name string, live, hasPersona bool, host string, background bool, job, batchSrc string, hasEnv bool) error {
 	if live {
-		if err := askLiveCombos(fs, name, hasPersona); err != nil {
+		if err := askLiveCheck(fs, name, hasPersona); err != nil {
 			return err
 		}
 	}
 	return askHostEnvCombos(host, background, job, batchSrc, hasEnv)
-}
-
-// askLiveCombos rejects --live with a persona, then checks the flags --live cannot take.
-func askLiveCombos(fs *flag.FlagSet, name string, hasPersona bool) error {
-	if hasPersona {
-		return errors.New("--live cannot run a persona (agents/<name>.md or an --agents key): use a plain vendor")
-	}
-	return askLiveCheck(fs, name)
 }
 
 // askHostEnvCombos rejects --host with --background/--job/--batch, and --env with --background.
@@ -213,8 +205,8 @@ func (a *agentsFlag) Set(s string) error {
 	return nil
 }
 
-// ValidateAskFlags checks --format and --fallback against their allowed values.
-func ValidateAskFlags(format, fallback string) error {
+// validateAskFlags checks --format and --fallback against their allowed values.
+func validateAskFlags(format, fallback string) error {
 	if !slices.Contains(agent.Formats, format) {
 		return fmt.Errorf("--format %q unknown (text|json|stream-json)", format)
 	}
@@ -224,8 +216,8 @@ func ValidateAskFlags(format, fallback string) error {
 	return nil
 }
 
-// AskExclusive rejects flag pairs that cannot be combined.
-func AskExclusive(background bool, job string, tools, noTools bool) error {
+// askExclusive rejects flag pairs that cannot be combined.
+func askExclusive(background bool, job string, tools, noTools bool) error {
 	if background && job != "" {
 		return errors.New("--background and --job are mutually exclusive")
 	}
@@ -235,8 +227,8 @@ func AskExclusive(background bool, job string, tools, noTools bool) error {
 	return nil
 }
 
-// AskPositional is the task words; on resume the first positional sets session.
-func AskPositional(positional []string, resume bool, session *string) ([]string, error) {
+// askPositional is the task words; on resume the first positional sets session.
+func askPositional(positional []string, resume bool, session *string) ([]string, error) {
 	if !resume {
 		return positional, nil
 	}
@@ -247,8 +239,8 @@ func AskPositional(positional []string, resume bool, session *string) ([]string,
 	return positional[1:], nil
 }
 
-// AskReselect re-resolves the agent after --job/--retry; it returns the new selector and agent.
-func AskReselect(ref, ag string, name *string, persona **agent.Schema, defs map[string]*agent.Schema) (string, string, error) {
+// askReselect re-resolves the agent after --job/--retry; it returns the new selector and agent.
+func askReselect(ref, ag string, name *string, persona **agent.Schema, defs map[string]*agent.Schema) (string, string, error) {
 	if *name != ag { // --job/--retry replaced the agent: resolve the record's (or re-typed) value instead
 		ref = *name
 	}
@@ -263,8 +255,8 @@ func AskReselect(ref, ag string, name *string, persona **agent.Schema, defs map[
 	return ref, rest, nil
 }
 
-// ReadFramedPrompt reads the prompt up to the NUL that ends it and returns the reader, whose remaining EOF is the cancel signal.
-func ReadFramedPrompt(in io.Reader) (*bufio.Reader, string, error) {
+// readFramedPrompt reads the prompt up to the NUL that ends it and returns the reader, whose remaining EOF is the cancel signal.
+func readFramedPrompt(in io.Reader) (*bufio.Reader, string, error) {
 	rd := bufio.NewReader(in)
 	p, err := rd.ReadString(0)
 	if err != nil {
@@ -273,8 +265,8 @@ func ReadFramedPrompt(in io.Reader) (*bufio.Reader, string, error) {
 	return rd, strings.TrimSuffix(p, "\x00"), nil
 }
 
-// ResolveAskPrompt reads stdin when the prompt is empty or the literal "-".
-func ResolveAskPrompt(prompt string) (string, error) {
+// resolveAskPrompt reads stdin when the prompt is empty or the literal "-".
+func resolveAskPrompt(prompt string) (string, error) {
 	if prompt != "" && prompt != "-" {
 		return prompt, nil
 	}
@@ -288,8 +280,8 @@ func ResolveAskPrompt(prompt string) (string, error) {
 	return string(raw), nil
 }
 
-// ResolveOutputSchema reads --output-schema as inline JSON when it starts with "{", else as a file, and checks it parses.
-func ResolveOutputSchema(arg string) (string, error) {
+// resolveOutputSchema reads --output-schema as inline JSON when it starts with "{", else as a file, and checks it parses.
+func resolveOutputSchema(arg string) (string, error) {
 	if arg == "" {
 		return "", nil
 	}
@@ -308,8 +300,8 @@ func ResolveOutputSchema(arg string) (string, error) {
 	return body, nil
 }
 
-// AskTarget bundles the ask flag pointers that a logged dispatch's request overwrites on --job/--retry.
-type AskTarget struct {
+// askTarget bundles the ask flag pointers that a logged dispatch's request overwrites on --job/--retry.
+type askTarget struct {
 	Name, Provider, Model, Effort, Workdir, Session                   *string
 	Tools, ReadOnly, NoTools, Autonomous, Fleet, EnableMemory, Direct *bool
 	NoPersist, SafeMode                                               *bool
@@ -324,7 +316,7 @@ type AskTarget struct {
 }
 
 // Apply copies a logged dispatch's request onto this ask invocation's flags; the env-names note goes to errw.
-func (t *AskTarget) Apply(rec agent.Record, errw io.Writer) {
+func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 	*t.Name, *t.Provider, *t.Model, *t.Effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
 	*t.Workdir, *t.Session, *t.Tools, *t.Timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
 	*t.Attach, *t.Autonomous, *t.Fleet, *t.EnableMemory = rec.Request.Attach, rec.Request.Autonomous, rec.Request.Fleet, rec.Request.EnableMemory
@@ -348,25 +340,25 @@ func (t *AskTarget) Apply(rec agent.Record, errw io.Writer) {
 	}
 }
 
-// ErrJobNotFresh marks a --job record that is not a fresh background job.
-var ErrJobNotFresh = errors.New("not a fresh background job")
+// errJobNotFresh marks a --job record that is not a fresh background job.
+var errJobNotFresh = errors.New("not a fresh background job")
 
-// LoadJobRecord loads a --job record for a background run continuation and claims it for this process.
-func LoadJobRecord(id string) (agent.Record, error) {
+// loadJobRecord loads a --job record for a background run continuation and claims it for this process.
+func loadJobRecord(id string) (agent.Record, error) {
 	r, err := agent.LoadRecord(id)
 	if err != nil {
 		return r, err
 	}
 	if r.Status != "running" || r.PID != 0 {
-		return r, fmt.Errorf("--job %s: record is %s (pid %d), %w", id, r.Status, r.PID, ErrJobNotFresh)
+		return r, fmt.Errorf("--job %s: record is %s (pid %d), %w", id, r.Status, r.PID, errJobNotFresh)
 	}
 	r.PID = os.Getpid()
 	return r, nil
 }
 
-// ResolveOverlay checks the --env/--keep-env shorthand and resolves the file overlay's vault refs, failing closed; a
+// resolveOverlay checks the --env/--keep-env shorthand and resolves the file overlay's vault refs, failing closed; a
 // --background parent leaves the file to its --job child, which inherits $COWORKER_OVERLAY and resolves it itself.
-func ResolveOverlay(file agentconfig.Overlay, env, keep []string, background bool) (agentconfig.Resolved, error) {
+func resolveOverlay(file agentconfig.Overlay, env, keep []string, background bool) (agentconfig.Resolved, error) {
 	if _, err := agentconfig.FlagOverlay(env, keep); err != nil {
 		return agentconfig.Resolved{}, err
 	}
@@ -376,16 +368,16 @@ func ResolveOverlay(file agentconfig.Overlay, env, keep []string, background boo
 	return agentconfig.ResolveOverlay(file)
 }
 
-// OverlayLocal refuses a file overlay on --live or --host: neither carries it, and --host would expose it to ps.
-func OverlayLocal(file agentconfig.Overlay, live bool, host string) error {
+// overlayLocal refuses a file overlay on --live or --host: neither carries it, and --host would expose it to ps.
+func overlayLocal(file agentconfig.Overlay, live bool, host string) error {
 	if !file.Empty() && (live || host != "") {
 		return errors.New("an overlay cannot reach --live or --host: run the agent locally")
 	}
 	return nil
 }
 
-// ParseAgentDefs parses --agents; --host cannot carry an inline definition.
-func ParseAgentDefs(agents, host string) (map[string]*agent.Schema, error) {
+// parseAgentDefs parses --agents; --host cannot carry an inline definition.
+func parseAgentDefs(agents, host string) (map[string]*agent.Schema, error) {
 	var defs map[string]*agent.Schema
 	if agents != "" {
 		var err error

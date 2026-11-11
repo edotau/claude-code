@@ -82,8 +82,8 @@ func (e *Error) AttemptMessage() string {
 	return one.Error()
 }
 
-// Retryable is true for rate-limit and transient failures that have not streamed output.
-func (e *Error) Retryable() bool {
+// retryable is true for rate-limit and transient failures that have not streamed output.
+func (e *Error) retryable() bool {
 	return !e.Progressed && !e.Terminal && (e.Kind == KindRateLimit || e.Kind == KindTransient || e.Kind == KindAuth)
 }
 
@@ -188,10 +188,11 @@ type Policy struct {
 	Key string
 }
 
-// DefaultBaseDelay and DefaultMaxDelay are DefaultPolicy's backoff bounds; tests shrink them.
+// Default backoff bounds and the no-hint rate-limit floor are variables so tests can shrink them.
 var (
 	DefaultBaseDelay = 2 * time.Second
-	DefaultMaxDelay  = 30 * time.Second
+	DefaultMaxDelay  = 60 * time.Second
+	RateLimitFloor   = 30 * time.Second
 )
 
 // DefaultPolicy suits slow, expensive agent runs: few attempts, real spacing.
@@ -199,8 +200,8 @@ func DefaultPolicy() Policy {
 	return Policy{MaxAttempts: 3, BaseDelay: DefaultBaseDelay, MaxDelay: DefaultMaxDelay, AttemptTimeout: 10 * time.Minute}
 }
 
-// Backoff is the equal-jitter wait after attempt (1-based); jitter in [0,1] keeps it pure for tests.
-func (p Policy) Backoff(attempt int, jitter float64) time.Duration {
+// backoff is the equal-jitter wait after attempt (1-based); jitter in [0,1] keeps it pure for tests.
+func (p Policy) backoff(attempt int, jitter float64) time.Duration {
 	window := float64(p.BaseDelay) * math.Pow(2, float64(max(attempt, 1)-1))
 	if window > float64(p.MaxDelay) || math.IsInf(window, 0) {
 		window = float64(p.MaxDelay)
@@ -208,12 +209,12 @@ func (p Policy) Backoff(attempt int, jitter float64) time.Duration {
 	return time.Duration(window/2 + jitter*window/2)
 }
 
-// Delay prefers the upstream's Retry-After plus jitter (so tasks given the same one wake apart), capped at MaxDelay.
-func (p Policy) Delay(retryAfter time.Duration, attempt int, jitter float64) time.Duration {
+// delay prefers the upstream's Retry-After plus jitter (so tasks given the same one wake apart), capped at MaxDelay.
+func (p Policy) delay(retryAfter time.Duration, attempt int, jitter float64) time.Duration {
 	if retryAfter > 0 {
 		return min(retryAfter+time.Duration(jitter*float64(min(retryAfter/4, p.BaseDelay))), p.MaxDelay)
 	}
-	return p.Backoff(attempt, jitter)
+	return p.backoff(attempt, jitter)
 }
 
 // cooldowns is when each provider key may be tried again, shared by every Do in the process.
@@ -332,7 +333,11 @@ func (p Policy) notifyRetry(last *Error, attempt int, wait time.Duration) {
 }
 
 func (p Policy) retryDelay(last *Error, attempt int) time.Duration {
-	wait := p.Delay(last.RetryAfter, attempt, rand.Float64())
+	jitter := rand.Float64()
+	wait := p.delay(last.RetryAfter, attempt, jitter)
+	if last.Kind == KindRateLimit && last.RetryAfter <= 0 {
+		wait = max(wait, RateLimitFloor+time.Duration(jitter*float64(RateLimitFloor)/2))
+	}
 	if p.Key != "" && (last.Kind == KindRateLimit || last.Kind == KindTransient) {
 		CoolDown(p.Key, wait) // Other loops back off too, even when this one gives up.
 	}
@@ -388,7 +393,7 @@ func (p Policy) terminal(ctx context.Context, last *Error, attemptErr error) boo
 
 // mayRetry reports whether last can be retried; an auth failure must first recover.
 func (p Policy) mayRetry(ctx context.Context, last *Error, attempt int) bool {
-	if !last.Retryable() || attempt == p.MaxAttempts {
+	if !last.retryable() || attempt == p.MaxAttempts {
 		return false
 	}
 	if last.Kind == KindAuth {

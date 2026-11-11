@@ -56,7 +56,7 @@ func TestSplitReviewReportsMergedWriteFailure(t *testing.T) {
 	}
 	t.Setenv(reviewJobEnv, parent.ID)
 	run := func() int {
-		return runSplitReview("opencode", nil, []Part{{Diff: []byte("test diff")}},
+		return runSplitReview("opencode", nil, []part{{Diff: []byte("test diff")}},
 			Scope{Kind: "uncommitted"}, ReviewOptions{}, reviewParent())
 	}
 	code, stdout, stderr := hosttest.CaptureOutput(t, run)

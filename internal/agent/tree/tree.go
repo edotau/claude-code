@@ -204,7 +204,7 @@ func unfinished(sub Subagent) bool { return !finished(sub) }
 
 // finished is true for a subagent with a result in: finished or error.
 func finished(sub Subagent) bool {
-	return sub.Status == StatusFinished || sub.Status == StatusError
+	return sub.Status == statusFinished || sub.Status == statusError
 }
 
 // forEachRunAgent calls fn on every agent of every phase of run.
@@ -229,7 +229,7 @@ func pruneToRunning(s Session) Session {
 			}
 		}
 		run.Phases = phases
-		if len(phases) > 0 || run.Status == StatusRunning {
+		if len(phases) > 0 || run.Status == statusRunning {
 			runs = append(runs, run)
 		}
 	}
@@ -240,10 +240,10 @@ func pruneToRunning(s Session) Session {
 const (
 	statusActive   = "active"
 	statusIdle     = "idle"
-	StatusRunning  = "running"
-	StatusFinished = "finished"
-	StatusError    = "error"
-	StatusStale    = "stale"
+	statusRunning  = "running"
+	statusFinished = "finished"
+	statusError    = "error"
+	statusStale    = "stale"
 )
 
 // sessionTranscriptsInScope lists the projects/*/<session>.jsonl files for --session, else those within --days.
@@ -379,12 +379,12 @@ func subagentIDFromPath(transcriptPath string) string {
 // subagentStatus: finished wins outright; otherwise running within subagentActiveWindow of now, else stale.
 func subagentStatus(finished bool, updated, now time.Time) string {
 	if finished {
-		return StatusFinished
+		return statusFinished
 	}
 	if !updated.IsZero() && now.Sub(updated) <= subagentActiveWindow {
-		return StatusRunning
+		return statusRunning
 	}
-	return StatusStale
+	return statusStale
 }
 
 // filterIdleSessions drops idle sessions that never dispatched a subagent or workflow run.

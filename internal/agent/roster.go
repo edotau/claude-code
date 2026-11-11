@@ -123,7 +123,7 @@ func Register(a Agent) {
 		panic("agent: row " + a.Row.Name + " registered with driver " + a.Driver.Name())
 	case !agentid.Known(a.Row.Name):
 		panic("agent: Register " + a.Row.Name + ", not a roster agent")
-	case a.Launcher != nil && DefaultLauncher != nil:
+	case a.Launcher != nil && defaultLauncher != nil:
 		panic("agent: second Launcher registered by " + a.Row.Name)
 	case a.Hub != nil && hub != nil:
 		panic("agent: second Hub registered by " + a.Row.Name)
@@ -131,7 +131,7 @@ func Register(a Agent) {
 	addRow(a.Row)
 	drivers[a.Row.Name] = a.Driver
 	if a.Launcher != nil {
-		DefaultLauncher = a.Launcher
+		defaultLauncher = a.Launcher
 	}
 	if a.Hub != nil {
 		hub = a.Hub
@@ -543,10 +543,10 @@ func ValidAgentPin(reg *providers.Registry, agent, v string) error {
 	return nil
 }
 
-// RosterPick fills o's unset Configured, Pins, CanServe and CodexModel from the roster (the router imports no agent).
-func RosterPick(o router.PickOpts) (router.PickOpts, error) {
+// rosterPick fills o's unset Configured, Pins, CanServe and CodexModel from the roster (the router imports no agent).
+func rosterPick(o router.PickOpts) (router.PickOpts, error) {
 	if o.Configured == nil {
-		o.Configured = Configured
+		o.Configured = configured
 	}
 	if o.Pins == nil {
 		pins, err := AgentPins()

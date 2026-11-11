@@ -36,7 +36,7 @@ func Review(name string, args []string, o ReviewOptions) int {
 		}
 		return helptext.Fail("%s review: %v", name, err)
 	}
-	scope, err := ParseScope(o.Uncommitted, o.Base, o.Commit, o.PR)
+	scope, err := parseScope(o.Uncommitted, o.Base, o.Commit, o.PR)
 	if err != nil {
 		return fail(err)
 	}
@@ -48,7 +48,7 @@ func Review(name string, args []string, o ReviewOptions) int {
 	if err != nil {
 		return fail(err)
 	}
-	if parts := ReviewParts(diff, o.Adversarial, o.Focus, o.Rubric); len(parts) > 1 {
+	if parts := reviewParts(diff, o.Adversarial, o.Focus, o.Rubric); len(parts) > 1 {
 		return runSplitReview(name, args, parts, scope, o, parent)
 	}
 	askArgs, cleanup, err := ReviewArgs(name, scope, diff, o.Adversarial, o.Background, o.Focus, o.Rubric, o.Model)
@@ -61,7 +61,7 @@ func Review(name string, args []string, o ReviewOptions) int {
 		return rc
 	}
 	if rc != 0 { // the diff no longer splits in the child: the one run's outcome is the job's
-		return finishSplitReview(parent, fmt.Errorf("review failed: %s", LastDispatchError(name)))
+		return finishSplitReview(parent, fmt.Errorf("review failed: %s", lastDispatchError(name)))
 	}
 	return finishSplitReview(parent, nil)
 }
@@ -84,17 +84,17 @@ func reviewParent() *agent.Record {
 func reviewDiff(cwd string, scope Scope) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), reviewDiffTimeout)
 	defer cancel()
-	return Diff(ctx, cwd, scope)
+	return diff(ctx, cwd, scope)
 }
 
 // runSplitReview runs a multi-part review: detached as one job when background, else sequentially in place.
-func runSplitReview(name string, args []string, parts []Part, scope Scope, o ReviewOptions, parent *agent.Record) int {
+func runSplitReview(name string, args []string, parts []part, scope Scope, o ReviewOptions, parent *agent.Record) int {
 	if o.Background && os.Getenv(reviewJobEnv) == "" {
 		return spawnSplitReview(name, args, len(parts))
 	}
 	answers := make([]string, 0, len(parts))
 	for i, p := range parts {
-		SetReviewProgress(parent, fmt.Sprintf("part %d/%d", i+1, len(parts)))
+		setReviewProgress(parent, fmt.Sprintf("part %d/%d", i+1, len(parts)))
 		askArgs, cleanup, err := ReviewArgs(name, scope, p.Diff, o.Adversarial, false,
 			strings.TrimSpace(o.Focus+"\n"+p.Header(i+1, len(parts))), o.Rubric, o.Model)
 		if err != nil {
@@ -105,7 +105,7 @@ func runSplitReview(name string, args []string, parts []Part, scope Scope, o Rev
 		if rc != 0 {
 			werr := printMerged(o.Adversarial, parts, answers)
 			return finishSplitReview(parent, errors.Join(
-				fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), LastDispatchError(name)), werr))
+				fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), lastDispatchError(name)), werr))
 		}
 		answers = append(answers, ans)
 	}
@@ -116,8 +116,8 @@ func runSplitReview(name string, args []string, parts []Part, scope Scope, o Rev
 }
 
 // printMerged writes the merged report of the answers so far to stdout and returns any write failure.
-func printMerged(adversarial bool, parts []Part, answers []string) error {
-	_, err := fmt.Fprint(os.Stdout, MergeReports(adversarial, parts, answers))
+func printMerged(adversarial bool, parts []part, answers []string) error {
+	_, err := fmt.Fprint(os.Stdout, mergeReports(adversarial, parts, answers))
 	return err
 }
 
@@ -129,7 +129,7 @@ func spawnSplitReview(name string, args []string, n int) int {
 	}
 	req := agent.RunOptions{Agent: name, Prompt: fmt.Sprintf("%s review split into %d parts", name, n),
 		WorkDir: cwd, Background: true}
-	rec, err := NewClient().Record(context.Background(), req, nil)
+	rec, err := newClient().Record(context.Background(), req, nil)
 	if err != nil {
 		return helptext.Fail("%s review: %v", name, err)
 	}
@@ -146,7 +146,7 @@ func spawnSplitReview(name string, args []string, n int) int {
 	if err := rec.Save(); err != nil { // records the child's pid so status can tell running from lost
 		fmt.Fprintf(os.Stderr, "%s review: job pid not recorded: %v\n", name, err)
 	}
-	if err := ReportBackgroundStart("text", rec); err != nil {
+	if err := reportBackgroundStart("text", rec); err != nil {
 		return helptext.Fail("%s review: job %s started; write job id: %v", name, rec.ID, err)
 	}
 	return 0

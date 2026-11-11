@@ -54,7 +54,7 @@ func TestParseScope(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			s, err := ParseScope(c.uncommitted, c.base, c.commit, c.pr)
+			s, err := parseScope(c.uncommitted, c.base, c.commit, c.pr)
 			if c.err != "" {
 				if err == nil || !strings.Contains(err.Error(), c.err) {
 					t.Fatalf("err = %v, want containing %q", err, c.err)
@@ -65,7 +65,7 @@ func TestParseScope(t *testing.T) {
 				t.Fatalf("unexpected err: %v", err)
 			}
 			if s.Kind != c.wantKind || s.Ref != c.wantRef {
-				t.Errorf("ParseScope = %+v, want Kind=%q Ref=%q", s, c.wantKind, c.wantRef)
+				t.Errorf("parseScope = %+v, want Kind=%q Ref=%q", s, c.wantKind, c.wantRef)
 			}
 		})
 	}
@@ -79,7 +79,7 @@ func TestDiffUncommitted(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("untracked content\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := Diff(context.Background(), dir, Scope{Kind: "uncommitted"})
+	out, err := diff(context.Background(), dir, Scope{Kind: "uncommitted"})
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestDiffUntrackedQuotedNames(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			out, err := Diff(context.Background(), dir, Scope{Kind: "uncommitted"})
+			out, err := diff(context.Background(), dir, Scope{Kind: "uncommitted"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -142,14 +142,14 @@ func TestLastDispatchErrorBeyondOtherAgentsRecentJobs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got := LastDispatchError("codex"); got != want {
+	if got := lastDispatchError("codex"); got != want {
 		t.Fatalf("newest failed codex dispatch hidden by newer jobs: got %q, want %q", got, want)
 	}
 }
 
 func TestDiffUncommittedNothingInScope(t *testing.T) {
 	dir := initRepo(t)
-	if _, err := Diff(context.Background(), dir, Scope{Kind: "uncommitted"}); err == nil || err.Error() != "nothing in scope" {
+	if _, err := diff(context.Background(), dir, Scope{Kind: "uncommitted"}); err == nil || err.Error() != "nothing in scope" {
 		t.Fatalf("err = %v, want \"nothing in scope\"", err)
 	}
 }
@@ -163,7 +163,7 @@ func TestDiffBase(t *testing.T) {
 	runGit(t, dir, "add", "a.txt")
 	runGit(t, dir, "commit", "-q", "-m", "feature work")
 
-	out, err := Diff(context.Background(), dir, Scope{Kind: "base", Ref: "main"})
+	out, err := diff(context.Background(), dir, Scope{Kind: "base", Ref: "main"})
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestDiffCommit(t *testing.T) {
 	runGit(t, dir, "commit", "-q", "-m", "second")
 	sha := strings.TrimSpace(gitOut(t, dir, "rev-parse", "HEAD"))
 
-	out, err := Diff(context.Background(), dir, Scope{Kind: "commit", Ref: sha})
+	out, err := diff(context.Background(), dir, Scope{Kind: "commit", Ref: sha})
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestDiffMergeCommitUsesFirstParent(t *testing.T) {
 		t.Fatalf("fixture must have an empty default combined diff, got %q", combined)
 	}
 
-	out, err := Diff(context.Background(), dir, Scope{Kind: "commit", Ref: sha})
+	out, err := diff(context.Background(), dir, Scope{Kind: "commit", Ref: sha})
 	if err != nil {
 		t.Fatalf("clean merge commit must remain in review scope: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestDiffPR(t *testing.T) {
 	runGit(t, dir, "add", "a.txt")
 	runGit(t, dir, "commit", "-q", "-m", "pr work")
 
-	out, err := Diff(context.Background(), dir, Scope{Kind: "pr"})
+	out, err := diff(context.Background(), dir, Scope{Kind: "pr"})
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -247,21 +247,21 @@ func TestDiffPR(t *testing.T) {
 }
 
 func TestReviewPromptAdversarialVerdictMarker(t *testing.T) {
-	p := ReviewPrompt(true, "")
+	p := reviewPrompt(true, "")
 	if !strings.Contains(p, "VERDICT: no actionable findings") {
 		t.Errorf("adversarial prompt missing its verdict marker:\n%s", p)
 	}
 }
 
 func TestReviewPromptNeutralAsksForVerdictFirst(t *testing.T) {
-	p := ReviewPrompt(false, "")
+	p := reviewPrompt(false, "")
 	if !strings.Contains(p, "SHIP IT") || !strings.Contains(p, "NEEDS WORK") || !strings.Contains(p, "BLOCK") {
 		t.Errorf("neutral prompt missing verdict vocabulary:\n%s", p)
 	}
 }
 
 func TestReviewPromptFocusAppended(t *testing.T) {
-	p := ReviewPrompt(true, "the auth module")
+	p := reviewPrompt(true, "the auth module")
 	if !strings.HasSuffix(p, "Focus: the auth module") {
 		t.Errorf("focus not appended:\n%s", p)
 	}
@@ -318,7 +318,7 @@ func TestReviewArgsShape(t *testing.T) {
 	}
 	defer cleanup()
 	assertReviewArgsPrefix(t, args)
-	if args[len(args)-1] != ReviewPrompt(false, "") {
+	if args[len(args)-1] != reviewPrompt(false, "") {
 		t.Errorf("last arg = %q, want the review prompt", args[len(args)-1])
 	}
 	for _, a := range args {
@@ -369,7 +369,7 @@ func TestReviewArgsRubricPrecedesPrompt(t *testing.T) {
 	}
 	defer cleanup()
 	n := len(args)
-	if n < 3 || args[n-3] != "--rubric" || args[n-2] != "/tmp/rubric.md" || args[n-1] != ReviewPrompt(false, "") {
+	if n < 3 || args[n-3] != "--rubric" || args[n-2] != "/tmp/rubric.md" || args[n-1] != reviewPrompt(false, "") {
 		t.Errorf("args tail = %v, want [--rubric /tmp/rubric.md <prompt>]", args[max(0, n-3):])
 	}
 }
@@ -404,7 +404,7 @@ func TestDiffInlinesUntrackedFileCapped(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "big.txt"), bytes.Repeat([]byte("z"), untrackedCap+100), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := Diff(context.Background(), dir, Scope{Kind: "uncommitted"})
+	out, err := diff(context.Background(), dir, Scope{Kind: "uncommitted"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,9 +415,9 @@ func TestDiffInlinesUntrackedFileCapped(t *testing.T) {
 
 func TestParseScopeRejectsDashRef(t *testing.T) {
 	for _, c := range []struct{ base, commit string }{{"-x", ""}, {"", "--output=f"}} {
-		_, err := ParseScope(false, c.base, c.commit, false)
+		_, err := parseScope(false, c.base, c.commit, false)
 		if err == nil || !strings.Contains(err.Error(), "must not start with -") {
-			t.Errorf("ParseScope(base=%q, commit=%q) err = %v, want the dash-ref error", c.base, c.commit, err)
+			t.Errorf("parseScope(base=%q, commit=%q) err = %v, want the dash-ref error", c.base, c.commit, err)
 		}
 	}
 }
@@ -428,7 +428,7 @@ func TestDiffOptionShapedRefIsNotAFlag(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "pwned")
 	for _, kind := range []string{"base", "commit"} {
 		ref := "--output=" + out // base form becomes --output=<out>...HEAD: a flag without --end-of-options
-		if _, err := Diff(context.Background(), dir, Scope{Kind: kind, Ref: ref}); err == nil {
+		if _, err := diff(context.Background(), dir, Scope{Kind: kind, Ref: ref}); err == nil {
 			t.Errorf("%s: Diff with option-shaped ref succeeded, want a bad-revision error", kind)
 		}
 		if m, _ := filepath.Glob(out + "*"); len(m) > 0 {
@@ -496,7 +496,7 @@ func TestDiffUntrackedTotalCapPartialFinalFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	out, err := Diff(context.Background(), dir, Scope{Kind: "uncommitted"})
+	out, err := diff(context.Background(), dir, Scope{Kind: "uncommitted"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,7 +534,7 @@ func TestDiffPRUsesOriginDefaultBranch(t *testing.T) {
 	runGit(t, dir, "checkout", "-q", "-b", "feature")
 	commitGitFile(t, dir, "one\nunpushed-on-local-main\nfeature-line\n", "feature")
 
-	out, err := Diff(context.Background(), dir, Scope{Kind: "pr"})
+	out, err := diff(context.Background(), dir, Scope{Kind: "pr"})
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -552,7 +552,7 @@ func TestDiffPRPassesEndOfOptions(t *testing.T) {
 	runGit(t, dir, "checkout", "-q", "-b", "feature")
 	commitGitFile(t, dir, "one\nfeature-line\n", "feature")
 
-	out, err := Diff(context.Background(), dir, Scope{Kind: "pr"})
+	out, err := diff(context.Background(), dir, Scope{Kind: "pr"})
 	if err != nil {
 		t.Fatalf("Diff with default branch %q: %v", "-main", err)
 	}
@@ -570,7 +570,7 @@ func TestReviewArgsModelPrecedesPrompt(t *testing.T) {
 	}
 	defer cleanup()
 	n := len(args)
-	if n < 3 || args[n-3] != "--model" || args[n-2] != "gemini-4-argon-high" || args[n-1] != ReviewPrompt(false, "") {
+	if n < 3 || args[n-3] != "--model" || args[n-2] != "gemini-4-argon-high" || args[n-1] != reviewPrompt(false, "") {
 		t.Errorf("args tail = %v, want [--model gemini-4-argon-high <prompt>]", args[max(0, n-3):])
 	}
 	none, cleanup2, err := ReviewArgs("gemini", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "", "")

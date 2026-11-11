@@ -1524,7 +1524,7 @@ func TestClientPrepareHubNativeFallback(t *testing.T) {
 	profileFixture(t, "")
 	t.Setenv("HOME", t.TempDir())
 	pathstest.FakeVendor(t, "opencode", `printf '%s\n' '{"type":"text","part":{"text":"ok"}}'`)
-	client := NewClient()
+	client := newClient()
 	for _, profile := range []string{"acme", "chatgpt"} {
 		p, err := client.Prepare(context.Background(), agent.RunOptions{
 			Agent: "opencode", Provider: profile, Prompt: "p", Fallback: router.FallbackAgents}, nil)
@@ -1552,7 +1552,7 @@ func TestClientPrepareHonorsCancellation(t *testing.T) {
 	t.Cleanup(func() { RouteRefresh = prev })
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := NewClient().Prepare(ctx, agent.RunOptions{Agent: "opencode", Prompt: "p", Fallback: router.FallbackAgents}, nil); !errors.Is(err, context.Canceled) {
+	if _, err := newClient().Prepare(ctx, agent.RunOptions{Agent: "opencode", Prompt: "p", Fallback: router.FallbackAgents}, nil); !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
 	if refreshes != 0 {
@@ -1565,7 +1565,7 @@ func TestClientPrepareProfileTakesTierSlot(t *testing.T) {
 	profileFixture(t, "")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
-	client := NewClient()
+	client := newClient()
 	for _, profile := range []string{"chatgpt", "acme"} {
 		p, err := client.Prepare(context.Background(), agent.RunOptions{
 			Agent: "opencode", Provider: profile, Prompt: "pong", Fallback: router.FallbackAgents}, nil)
@@ -1587,7 +1587,7 @@ func TestClientPrepareProfileIsOneDispatchUnderFallbackAll(t *testing.T) {
 	profileFixture(t, "")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
-	client := NewClient()
+	client := newClient()
 	for _, name := range []string{"codex", "claude", "opencode", "copilot", "gemini"} {
 		p, err := client.Prepare(context.Background(), agent.RunOptions{
 			Agent: name, Provider: "acme", Prompt: "p", Fallback: router.FallbackAll}, nil)
@@ -1623,7 +1623,7 @@ func TestReportBackgroundStartReturnsWriteError(t *testing.T) {
 	os.Stdout = w
 	t.Cleanup(func() { os.Stdout = orig; w.Close() })
 	for _, format := range []string{helptext.Text, helptext.JSON} {
-		if err := ReportBackgroundStart(format, agent.Record{ID: "j1"}); err == nil {
+		if err := reportBackgroundStart(format, agent.Record{ID: "j1"}); err == nil {
 			t.Errorf("%s: write to a closed pipe returned nil", format)
 		}
 	}

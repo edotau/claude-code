@@ -66,7 +66,7 @@ func TestChildDeadlineKillsProcessGroup(t *testing.T) {
 	defer cancel()
 	cmd, tail := ChildCmd(ctx, "/bin/sh", []string{"-c", "sleep 30 & sleep 30"}, nil, "", "", nil, false)
 	start := time.Now()
-	err := childErr(ctx, "sh", cmd.Run(), tail)
+	err := ChildErr(ctx, "sh", cmd.Run(), tail)
 	if time.Since(start) > 3*time.Second || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("grandchild outlived the deadline: took %v, err %v", time.Since(start), err)
 	}
@@ -198,7 +198,7 @@ func TestProbeContextScrubsCredentials(t *testing.T) {
 		t.Setenv(k, "SENTINEL")
 	}
 	creds := func(ctx context.Context) []string {
-		names := EnvNames(EnvSpec{Mode: EnvAgent}.Environ(ctx))
+		names := envNames(EnvSpec{Mode: EnvAgent}.Environ(ctx))
 		return slices.DeleteFunc(names, func(n string) bool { return !slices.Contains(planted, n) })
 	}
 	wants := map[string][]string{"": nil, "opencode": {"OPENCODE_API_KEY"}, "copilot": {"GH_TOKEN", "GITHUB_TOKEN"}}

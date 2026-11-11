@@ -79,7 +79,7 @@ func TestRoleExploreLegsOnePerPart(t *testing.T) {
 		t.Fatalf("want legs a,b; got %+v", legs)
 	}
 	o := legs[1].Opts
-	if o.Agent != "copilot" || !o.Tools || !o.ReadOnly || o.WorkDir != "/w" || o.Prompt != Prompt("b", true) {
+	if o.Agent != "copilot" || !o.Tools || !o.ReadOnly || o.WorkDir != "/w" || o.Prompt != prompt("b", true) {
 		t.Errorf("explore opts wrong: %+v", o)
 	}
 }
@@ -107,7 +107,7 @@ func TestRoleLegsCarryOutputSchema(t *testing.T) {
 func TestRoleExploreNoPartsUsesTask(t *testing.T) {
 	vaulttest.Use(t)
 	legs := Legs(Role{Name: "explore", Agent: "codex"}, Request{Task: "whole", Web: false})
-	if len(legs) != 1 || legs[0].Opts.Prompt != Prompt("whole", false) {
+	if len(legs) != 1 || legs[0].Opts.Prompt != prompt("whole", false) {
 		t.Fatalf("want one leg on the task; got %+v", legs)
 	}
 }
@@ -265,14 +265,14 @@ func assertContainsAll(t *testing.T, got string, substrs ...string) {
 
 // Prompt must name all five required sections, cite file:line, and carry the question verbatim.
 func TestPromptHasFiveSections(t *testing.T) {
-	got := Prompt("how does X work?", false)
+	got := prompt("how does X work?", false)
 	assertContainsAll(t, got, "Structure", "Conventions", "Dependencies", "Prior art", "Open questions",
 		"file:line", "how does X work?")
 }
 
 // web=false must omit the web-research dispatch entirely (no URL-citation instruction).
 func TestPromptOmitsWebWhenDisabled(t *testing.T) {
-	got := Prompt("q", false)
+	got := prompt("q", false)
 	if strings.Contains(got, "URL") || strings.Contains(got, "web") {
 		t.Errorf("web=false prompt must not mention web research:\n%s", got)
 	}
@@ -280,7 +280,7 @@ func TestPromptOmitsWebWhenDisabled(t *testing.T) {
 
 // web=true appends the web-research dispatch, which cites claims by URL.
 func TestPromptIncludesWebWhenEnabled(t *testing.T) {
-	got := Prompt("q", true)
+	got := prompt("q", true)
 	assertContainsAll(t, got, "web", "URL")
 }
 
@@ -336,7 +336,7 @@ func TestArgsShape(t *testing.T) {
 		t.Errorf("Args must include --workdir: %v", args)
 	}
 	last := args[len(args)-1]
-	if last != Prompt("q", false) {
+	if last != prompt("q", false) {
 		t.Errorf("Args must end with the built prompt, got %q", last)
 	}
 }
@@ -363,7 +363,7 @@ func TestExploreToolsReadOnly(t *testing.T) {
 				t.Errorf("Args --read-only = %v, want %v", got, c.wantReadOnly)
 			}
 			base := agent.RunOptions{Agent: c.vendor}
-			options, err := Options(base, "inspect the repository", false)
+			options, err := options(base, "inspect the repository", false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -384,7 +384,7 @@ func TestExploreRejectsPromptOnlyAgents(t *testing.T) {
 			if args != nil {
 				t.Fatalf("Args returned runnable arguments: %v", args)
 			}
-			_, err = Options(agent.RunOptions{Agent: vendor}, "inspect", true)
+			_, err = options(agent.RunOptions{Agent: vendor}, "inspect", true)
 			assertExploreRefusal(t, err, want)
 			r := Role{Name: "explore", Agent: vendor}
 			legs := Legs(r, Request{Task: "inspect", WorkDir: "/work", Web: true})

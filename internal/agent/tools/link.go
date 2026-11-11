@@ -27,7 +27,7 @@ type LinkResult struct {
 // for callers that render a compact summary instead of one line per agent.
 func LinkResults(names []string, dryRun bool) []LinkResult {
 	var out []LinkResult
-	for _, t := range Tools {
+	for _, t := range tools {
 		bin, ok := paths.AgentName(t.Name)
 		if !ok || (len(names) > 0 && !slices.Contains(names, t.Name)) {
 			continue
@@ -40,7 +40,7 @@ func LinkResults(names []string, dryRun bool) []LinkResult {
 
 // linkOne applies the bin/ rule to one agent: keep a regular file, else link the PATH entry, else
 // drop the link; returns the %-8s status verb and its detail text.
-func linkOne(t Tool, bin string, dryRun bool) (status, detail string) {
+func linkOne(t tool, bin string, dryRun bool) (status, detail string) {
 	dst := filepath.Join(paths.BinDir(), bin)
 	c := linkCandidate(t)
 	missing := fmt.Sprintf("%s not installed (claude-code install --tools=%s)", bin, t.Name)
@@ -57,7 +57,7 @@ func linkOne(t Tool, bin string, dryRun bool) (status, detail string) {
 }
 
 // linkExisting classifies an existing dst: keep a regular file or a matching link, else relink or drop it.
-func linkExisting(t Tool, dst, c, missing string, fi os.FileInfo, dryRun bool) (status, detail string) {
+func linkExisting(t tool, dst, c, missing string, fi os.FileInfo, dryRun bool) (status, detail string) {
 	isLink := fi.Mode()&os.ModeSymlink != 0
 	switch {
 	case fi.Mode().IsRegular():
@@ -97,7 +97,7 @@ func linkNew(dst, c string, dryRun bool) (status, detail string) {
 }
 
 // dropLink handles a link with no PATH/local-bin candidate.
-func dropLink(t Tool, dst, missing string, dryRun bool) (status, detail string) {
+func dropLink(t tool, dst, missing string, dryRun bool) (status, detail string) {
 	// A symlink to a real, executable, non-shim target is the user's own working link — keep it;
 	// only a dangling or shim-pointing link is removed.
 	if _, err := paths.AgentBin(t.Name); err == nil {
@@ -128,7 +128,7 @@ func removeUnlessFile(dst string) (kept bool, err error) {
 }
 
 // linkCandidate is the agent's PATH entry made absolute (unresolved, so self-updaters are followed), else ~/.local/bin, else "".
-func linkCandidate(t Tool) string {
+func linkCandidate(t tool) string {
 	if c, err := paths.LookPathReal(t.Binary); err == nil {
 		abs, aerr := filepath.Abs(c) // a relative PATH entry would make the symlink target resolve from bin/
 		if aerr != nil {

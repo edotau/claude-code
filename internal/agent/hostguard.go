@@ -130,7 +130,7 @@ func guardProvider(r Engine, req RunOptions) (*providers.Provider, error) {
 	if req.Provider == "" && !known {
 		return nil, nil
 	}
-	_, t, err := resolveTarget(req)
+	_, t, err := ResolveRequestTarget(req)
 	if err != nil {
 		return nil, err
 	}

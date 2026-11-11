@@ -62,14 +62,14 @@ func SigninFor(p *providers.Provider) Signin {
 
 // ValidateVaultSecret rejects a value that cannot be the named credential (shared with `vault set`).
 func ValidateVaultSecret(name, value string) error {
-	if isGitHubToken(name) && !ValidCopilotToken(value) {
+	if isGitHubToken(name) && !validCopilotToken(value) {
 		return fmt.Errorf("%s not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)", name)
 	}
 	return textutil.ValidCredential(name, value)
 }
 
-// SetSecret validates then stores one vault secret; callers clear whichever auth cache they own.
-func SetSecret(name, value string) error {
+// setSecret validates then stores one vault secret; callers clear whichever auth cache they own.
+func setSecret(name, value string) error {
 	if err := ValidateVaultSecret(name, value); err != nil {
 		return err
 	}
@@ -169,7 +169,7 @@ func (s secretSignin) Login(_ context.Context, _ io.Reader, _ io.Writer) error {
 	if v = strings.TrimSpace(v); v == "" {
 		return errors.New("empty value")
 	}
-	if err := SetSecret(name, v); err != nil {
+	if err := setSecret(name, v); err != nil {
 		return err
 	}
 	_ = router.ClearProviderAuth(s.p.Name) // best-effort: the TTL backstops a missed clear
@@ -210,7 +210,7 @@ func (noneSignin) Status() providers.AuthState {
 type cliSignin struct{ name string }
 
 func (s cliSignin) Check(ctx context.Context) (providers.AuthVerdict, string) {
-	return Verify(ctx, s.name)
+	return verify(ctx, s.name)
 }
 
 func (s cliSignin) Status() providers.AuthState { return AuthStatus(s.name) }
@@ -247,9 +247,9 @@ func runLoginCLI(ctx context.Context, name string, args []string, in io.Reader, 
 // copilotTokenPrefixes are GitHub's own token prefixes (gho_/ghp_/ghu_) plus the newer fine-grained github_pat_.
 var copilotTokenPrefixes = []string{"gho_", "ghp_", "ghu_", "github_pat_"}
 
-// ValidCopilotToken reports whether tok has the shape of a real GitHub token, rejecting an obvious
+// validCopilotToken reports whether tok has the shape of a real GitHub token, rejecting an obvious
 // typo or truncated paste before it is sealed under providers.CopilotTokenEnv.
-func ValidCopilotToken(tok string) bool {
+func validCopilotToken(tok string) bool {
 	if len(tok) < 20 {
 		return false
 	}
@@ -292,8 +292,8 @@ func AuthPlan(ctx context.Context, name string, st providers.AuthState) provider
 	return providers.Subscription{}
 }
 
-// Verify probes name's own CLI sign-in for the provider sign-in rows.
-func Verify(ctx context.Context, name string) (providers.AuthVerdict, string) {
+// verify probes name's own CLI sign-in for the provider sign-in rows.
+func verify(ctx context.Context, name string) (providers.AuthVerdict, string) {
 	if a, ok := authenticator(name); ok {
 		return a.Verify(ctx)
 	}

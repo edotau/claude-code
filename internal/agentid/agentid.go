@@ -45,13 +45,13 @@ const (
 	EffortMax    Effort = "max"
 )
 
-// Efforts is the harness scale, weakest first.
-func Efforts() []Effort { return []Effort{EffortLow, EffortMedium, EffortHigh, EffortXHigh, EffortMax} }
+// efforts is the harness scale, weakest first.
+func efforts() []Effort { return []Effort{EffortLow, EffortMedium, EffortHigh, EffortXHigh, EffortMax} }
 
 // EffortNames is Efforts as strings, for flag help and enum checks.
 func EffortNames() []string {
-	names := make([]string, 0, len(Efforts()))
-	for _, e := range Efforts() {
+	names := make([]string, 0, len(efforts()))
+	for _, e := range efforts() {
 		names = append(names, string(e))
 	}
 	return names
@@ -77,14 +77,14 @@ func NativeEffort(agent string, e Effort) (native string, clamped bool) {
 	if slices.Contains(natives, string(e)) {
 		return string(e), false
 	}
-	i := slices.Index(Efforts(), e)
+	i := slices.Index(efforts(), e)
 	if i < 0 {
 		return "", false
 	}
 	if natives == nil {
 		return string(e), false
 	}
-	for _, weaker := range slices.Backward(Efforts()[:i]) {
+	for _, weaker := range slices.Backward(efforts()[:i]) {
 		if slices.Contains(natives, string(weaker)) {
 			return string(weaker), true
 		}

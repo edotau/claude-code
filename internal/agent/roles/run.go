@@ -19,8 +19,8 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// ReportSchema versions the Report JSON.
-const ReportSchema = 1
+// reportSchema versions the Report JSON.
+const reportSchema = 1
 
 // streamLeg is the per-leg dispatch seam for Run.
 var streamLeg = (*agent.Client).Stream
@@ -43,7 +43,7 @@ type LegResult struct {
 // Run dispatches legs concurrently, host-isolated under a limit of min(jobs, 12), tagging progress lines with the label.
 func Run(ctx context.Context, c *agent.Client, r Role, legs []Leg, jobs int, progress io.Writer) Report {
 	ctx = agent.WithBatchRun(ctx, retry.NewBatchLimiter(min(jobs, MaxParts)))
-	rep := Report{Schema: ReportSchema, Role: r.Name, Agent: r.Agent, Legs: make([]LegResult, len(legs))}
+	rep := Report{Schema: reportSchema, Role: r.Name, Agent: r.Agent, Legs: make([]LegResult, len(legs))}
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	for i, leg := range legs {
@@ -180,7 +180,7 @@ func exploreLegs(base agent.RunOptions, q Request) []Leg {
 	}
 	legs := make([]Leg, 0, len(parts))
 	for _, p := range parts {
-		o, err := Options(base, p, q.Web)
+		o, err := options(base, p, q.Web)
 		leg := Leg{Label: p, Opts: o}
 		if err != nil { // keep the requested agent for the failure envelope; Options returns zeroed opts on refusal
 			leg.Opts, leg.Err = base, err.Error()
@@ -223,8 +223,8 @@ type Role struct {
 	Permissions agent.Permissions `json:"permissions,omitzero"` // the role layer, over the agent's defaults
 }
 
-// Seed is the built-in role table, replaced by the vault overlay when set.
-var Seed = []Role{
+// seed is the built-in role table, replaced by the vault overlay when set.
+var seed = []Role{
 	{Name: "explore", Agent: "copilot"}, // read-only enforced; gemini/opencode explore is refused (owner, 2026-11-09)
 	{Name: "fleet", Agent: "copilot"},
 	{Name: "compare", Agent: "opencode", Models: []string{"claude-sonnet-5-5", "gpt-6-1-sol", "gemini-3-8-flash", "kimi-k3"}},
@@ -232,7 +232,7 @@ var Seed = []Role{
 
 // Lookup finds name in the vault overlay table if set and valid, else in Seed.
 func Lookup(name string) (Role, error) {
-	table := Seed
+	table := seed
 	t, err := vaultRoles()
 	if err != nil {
 		return Role{}, err
@@ -287,8 +287,8 @@ Open questions. Stop once two more lookups wouldn't change the brief.
 
 Question: `
 
-// Prompt builds the Codebase Context Brief prompt for question; web adds the web-research dispatch.
-func Prompt(question string, web bool) string {
+// prompt builds the Codebase Context Brief prompt for question; web adds the web-research dispatch.
+func prompt(question string, web bool) string {
 	p := promptBase
 	if web {
 		p += promptWeb
@@ -328,16 +328,16 @@ func Args(agentName, cwd, question string, web, background bool) ([]string, erro
 	if background {
 		args = append(args, "--background")
 	}
-	return append(args, Prompt(question, web)), nil
+	return append(args, prompt(question, web)), nil
 }
 
-// Options returns base with the explore prompt, tools and read-only on; it refuses prompt-only agents.
-func Options(base agent.RunOptions, question string, web bool) (agent.RunOptions, error) {
+// options returns base with the explore prompt, tools and read-only on; it refuses prompt-only agents.
+func options(base agent.RunOptions, question string, web bool) (agent.RunOptions, error) {
 	if err := requireReadOnly(base.Agent); err != nil {
 		return agent.RunOptions{}, err
 	}
 	o := base
-	o.Prompt = Prompt(question, web)
+	o.Prompt = prompt(question, web)
 	if needsTools(o.Agent) {
 		o.Tools, o.ReadOnly = true, true
 	}

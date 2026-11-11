@@ -23,8 +23,8 @@ import (
 // action installs or updates one tool; w gets progress lines, dryRun prints without changing anything.
 type action func(ctx context.Context, w io.Writer, dir string, dryRun bool) error
 
-// Tool is one install-table row; nil Install = no fresh-install path, nil Update = Install is idempotent.
-type Tool struct {
+// tool is one install-table row; nil Install = no fresh-install path, nil Update = Install is idempotent.
+type tool struct {
 	Name    string
 	Binary  string // executable name, resolved via paths.LookPathReal (skips our own shims)
 	Install action
@@ -34,8 +34,8 @@ type Tool struct {
 	UserLocal bool
 }
 
-// Tools is the install table in roster order; npmPackages must cover entries that also ship via npm.
-var Tools = []Tool{
+// tools is the install table in roster order; npmPackages must cover entries that also ship via npm.
+var tools = []tool{
 	{Name: agentid.Claude, Binary: agentid.Claude, Install: installClaude, UserLocal: true},
 	{Name: agentid.Copilot, Binary: agentid.Copilot, Install: installCopilot},
 	{Name: agentid.Codex, Binary: agentid.Codex, Install: installCodex},
@@ -49,19 +49,19 @@ var Tools = []Tool{
 
 // Names lists every tool in roster order.
 func Names() []string {
-	out := make([]string, len(Tools))
-	for i, t := range Tools {
+	out := make([]string, len(tools))
+	for i, t := range tools {
 		out[i] = t.Name
 	}
 	return out
 }
 
-// Lookup returns the tool by name.
-func Lookup(name string) (Tool, bool) {
-	if i := slices.IndexFunc(Tools, func(t Tool) bool { return t.Name == name }); i >= 0 {
-		return Tools[i], true
+// lookup returns the tool by name.
+func lookup(name string) (tool, bool) {
+	if i := slices.IndexFunc(tools, func(t tool) bool { return t.Name == name }); i >= 0 {
+		return tools[i], true
 	}
-	return Tool{}, false
+	return tool{}, false
 }
 
 // Install installs/updates names (empty = all), retiring replaced npm-global copies and @google/gemini-cli.
@@ -91,20 +91,20 @@ func Install(ctx context.Context, w io.Writer, names []string, dryRun bool) erro
 }
 
 // landedDir is where runOne wrote t: codex always lands in BinDir (installCodex redirects).
-func landedDir(t Tool, dir string) string {
+func landedDir(t tool, dir string) string {
 	if t.Name == agentid.Codex {
 		return paths.BinDir()
 	}
 	return dir
 }
 
-func resolve(names []string) ([]Tool, error) {
+func resolve(names []string) ([]tool, error) {
 	if len(names) == 0 {
-		return Tools, nil
+		return tools, nil
 	}
-	sel := make([]Tool, 0, len(names))
+	sel := make([]tool, 0, len(names))
 	for _, n := range names {
-		t, ok := Lookup(n)
+		t, ok := lookup(n)
 		if !ok {
 			return nil, fmt.Errorf("unknown tool %q (%s)", n, strings.Join(Names(), ", "))
 		}
@@ -114,7 +114,7 @@ func resolve(names []string) ([]Tool, error) {
 }
 
 // runOne updates a present tool that has its own Update, else (re)runs the idempotent Install; else report-only.
-func runOne(ctx context.Context, w io.Writer, t Tool, oldPath, dir string, dryRun bool) error {
+func runOne(ctx context.Context, w io.Writer, t tool, oldPath, dir string, dryRun bool) error {
 	switch {
 	case oldPath != "" && t.Update != nil:
 		fmt.Fprintf(w, "  %-8s %s\n", "into", dir)
@@ -134,7 +134,7 @@ func runOne(ctx context.Context, w io.Writer, t Tool, oldPath, dir string, dryRu
 }
 
 // installDir: a direct bin/ install, else the existing install's dir, else bin/ for an agent, else ~/.local/bin.
-func installDir(t Tool, oldPath string) string {
+func installDir(t tool, oldPath string) string {
 	if t.UserLocal {
 		return localBinDir()
 	}
@@ -151,7 +151,7 @@ func installDir(t Tool, oldPath string) string {
 }
 
 // directInstall is BinDir/<bin> when an agent's CLI is a regular file there (a direct install), else "".
-func directInstall(t Tool) string {
+func directInstall(t tool) string {
 	bin, ok := paths.AgentName(t.Name)
 	if !ok {
 		return ""
@@ -321,7 +321,7 @@ type Status struct {
 // StatusAll reports every tool in roster order.
 func StatusAll() []Status {
 	var out []Status
-	for _, t := range Tools {
+	for _, t := range tools {
 		if t.Binary != "" { // a setup-only row (browser) has no binary to report; doctor has its own browser row
 			out = append(out, statusOne(t))
 		}
@@ -329,7 +329,7 @@ func StatusAll() []Status {
 	return out
 }
 
-func statusOne(t Tool) Status {
+func statusOne(t tool) Status {
 	s := Status{Name: t.Name, Hint: t.Hint}
 	if bin, ok := paths.AgentName(t.Name); ok {
 		s.Target = readlink(filepath.Join(paths.BinDir(), bin))

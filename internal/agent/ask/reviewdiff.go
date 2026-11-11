@@ -25,8 +25,8 @@ import (
 // base branch (base), the sha (commit), or is empty (uncommitted, pr).
 type Scope struct{ Kind, Ref string }
 
-// ParseScope validates that at most one scope flag was set; none selects uncommitted.
-func ParseScope(uncommitted bool, base, commit string, pr bool) (Scope, error) {
+// parseScope validates that at most one scope flag was set; none selects uncommitted.
+func parseScope(uncommitted bool, base, commit string, pr bool) (Scope, error) {
 	for _, ref := range []string{base, commit} {
 		if strings.HasPrefix(ref, "-") {
 			return Scope{}, fmt.Errorf("review: --base/--commit ref %q must not start with -", ref)
@@ -67,8 +67,8 @@ const untrackedTotalCap = 512 * 1024
 // binarySniff is how many leading bytes are checked for a NUL (binary) marker.
 const binarySniff = 8 * 1024
 
-// Diff materializes s's diff in cwd via proc. Empty content is an error, not an empty slice.
-func Diff(ctx context.Context, cwd string, s Scope) ([]byte, error) {
+// diff materializes s's diff in cwd via proc. Empty content is an error, not an empty slice.
+func diff(ctx context.Context, cwd string, s Scope) ([]byte, error) {
 	var out string
 	var err error
 	switch s.Kind {
@@ -195,8 +195,8 @@ MEDIUM missing tests for new behavior, brittle assumptions, unhandled edge cases
 Skepticism ON: name the hidden assumption each change depends on. No praise, no summary — findings only, one
 per line: <severity> <file:line> <issue> <fix>. If the diff is clean, say exactly: ` + cleanVerdict + `.`
 
-// ReviewPrompt returns the base review prompt, with a "Focus: " line appended when focus is set.
-func ReviewPrompt(adversarial bool, focus string) string {
+// reviewPrompt returns the base review prompt, with a "Focus: " line appended when focus is set.
+func reviewPrompt(adversarial bool, focus string) string {
 	p := reviewPromptNeutral
 	if adversarial {
 		p = reviewPromptAdversarial
@@ -236,7 +236,7 @@ func ReviewArgs(agentName string, s Scope, diff []byte, adversarial, background 
 	if model != "" {
 		args = append(args, "--model", model)
 	}
-	args = append(args, ReviewPrompt(adversarial, focus))
+	args = append(args, reviewPrompt(adversarial, focus))
 	cleanup := func() {}
 	if !background {
 		cleanup = func() { _ = os.Remove(f.Name()) } // best-effort cleanup of the review diff temp file
@@ -244,17 +244,17 @@ func ReviewArgs(agentName string, s Scope, diff []byte, adversarial, background 
 	return args, cleanup, nil
 }
 
-// ReviewParts reports the parts an oversized diff splits into (one part means the plain single call).
-func ReviewParts(diff []byte, adversarial bool, focus, rubric string) []Part {
-	promptLen := len(ReviewPrompt(adversarial, focus))
+// reviewParts reports the parts an oversized diff splits into (one part means the plain single call).
+func reviewParts(diff []byte, adversarial bool, focus, rubric string) []part {
+	promptLen := len(reviewPrompt(adversarial, focus))
 	if fi, err := os.Stat(rubric); rubric != "" && err == nil {
 		promptLen += int(fi.Size())
 	}
-	return SplitDiff(diff, promptLen, reviewBudget)
+	return splitDiff(diff, promptLen, reviewBudget)
 }
 
-// SetReviewProgress stores p on the job record, when there is one.
-func SetReviewProgress(job *agent.Record, p string) {
+// setReviewProgress stores p on the job record, when there is one.
+func setReviewProgress(job *agent.Record, p string) {
 	if job == nil {
 		return
 	}
@@ -262,9 +262,9 @@ func SetReviewProgress(job *agent.Record, p string) {
 	_ = job.Save()
 }
 
-// LastDispatchError is the newest failed dispatch's error text for agent, so a split report names the real cause.
-func LastDispatchError(name string) string {
-	for _, r := range agent.RecentRecords(1 << 20) { // every record: other agents' newer jobs must not hide this leg's failure
+// lastDispatchError is the newest failed dispatch's error text for agent, so a split report names the real cause.
+func lastDispatchError(name string) string {
+	for _, r := range agent.RecentRecords(agent.AllRecords) { // every record: other agents' newer jobs must not hide this leg's failure
 		if r.Agent == name && r.Status == "error" {
 			return textutil.PreviewRedacted(r.Error, 400)
 		}

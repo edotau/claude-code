@@ -13,7 +13,7 @@ func TestLoadSchemaRejectsInvalidTools(t *testing.T) {
 		if err := writeFile(file, "---\nname: restricted\ntools: "+tools+"\n---\nRestricted prompt.\n"); err != nil {
 			t.Fatal(err)
 		}
-		got, err := LoadSchema(file)
+		got, err := loadSchema(file)
 		if err == nil || got != nil {
 			t.Fatalf("tools: %s loaded as %+v, %v; want rejection, not inherited tools", tools, got, err)
 		}

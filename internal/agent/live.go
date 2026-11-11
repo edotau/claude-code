@@ -30,8 +30,8 @@ import (
 
 // Live-session limits and wire constants.
 const (
-	MaxLiveSessions = 4 // each idle claude node process holds roughly 200-400 MB RSS
-	DefaultLiveIdle = 10 * time.Minute
+	maxLiveSessions = 4 // each idle claude node process holds roughly 200-400 MB RSS
+	defaultLiveIdle = 10 * time.Minute
 	liveIOTimeout   = 5 * time.Second
 	statusBusy      = "busy"
 	statusRefused   = "refused"
@@ -141,7 +141,7 @@ func (s *liveSession) awaitChild(ctx context.Context, ln net.Listener, exited ch
 		cause = context.Cause(ctx)
 	case werr := <-exited:
 		exited <- werr
-		cause = fmt.Errorf("%s exited: %w", s.name, childErr(context.Background(), s.name, werr, tail))
+		cause = fmt.Errorf("%s exited: %w", s.name, ChildErr(context.Background(), s.name, werr, tail))
 	}
 	s.idle.Stop()
 	_ = ln.Close()
@@ -184,14 +184,14 @@ func (s *liveSession) release() {
 var ErrLiveBusy = errors.New("a turn is already in flight on this live session")
 
 // errLiveCap is the refusal when every live slot is taken.
-var errLiveCap = fmt.Errorf("%d live sessions already running (max %d): agents cancel one first", MaxLiveSessions, MaxLiveSessions)
+var errLiveCap = fmt.Errorf("%d live sessions already running (max %d): agents cancel one first", maxLiveSessions, maxLiveSessions)
 
 // LiveSocket is the unix socket path of live session id.
 func LiveSocket(id string) string { return filepath.Join(paths.DispatchDir(), id+wire.LiveSockSuffix) }
 
 // liveCount counts live sessions still running.
 func liveCount() (int, error) {
-	recs, err := ReadRecent(1 << 20)
+	recs, err := ReadRecent(AllRecords)
 	n := 0
 	for _, r := range recs {
 		if r.Live && r.Alive() {
@@ -207,7 +207,7 @@ func CheckLiveCap() error {
 	if err != nil {
 		return err
 	}
-	if n >= MaxLiveSessions {
+	if n >= maxLiveSessions {
 		return errLiveCap
 	}
 	return nil
@@ -221,7 +221,7 @@ func AcquireLiveSlot() (func(), error) {
 	if err := ensureDispatchDir(); err != nil {
 		return nil, err
 	}
-	for i := range MaxLiveSessions {
+	for i := range maxLiveSessions {
 		f, err := os.OpenFile(filepath.Join(paths.DispatchDir(), fmt.Sprintf("live-slot-%d", i)), os.O_CREATE|os.O_RDWR, 0o600)
 		if err != nil {
 			return nil, err
@@ -351,7 +351,7 @@ func IdleOf(req RunOptions) time.Duration {
 	if req.Timeout > 0 {
 		return req.Timeout
 	}
-	return DefaultLiveIdle
+	return defaultLiveIdle
 }
 
 // WaitLiveReady polls for the holder's socket; it gives up early when the holder's record leaves running.
@@ -502,7 +502,7 @@ func (s *liveSession) runTurn(ctx context.Context, prompt string, sink wire.Sink
 		res, err = s.be.Parse(s.dec, sink, wire.EventLogFor(ctx))
 	}
 	res.Agent, res.Provider, res.DurationMs = s.name, s.profile, time.Since(begin).Milliseconds()
-	res.Status = statusOf(retry.Classify(s.name, err, false))
+	res.Status = StatusOf(retry.Classify(s.name, err, false))
 	s.mu.Lock()
 	s.session = cmp.Or(res.SessionID, s.session)
 	s.mu.Unlock()

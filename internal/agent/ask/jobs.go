@@ -54,7 +54,7 @@ func PrintResult(rec agent.Record, format string) int {
 		if err := helptext.WriteJSON(os.Stdout, rec.ResultEnvelope(os.Stderr)); err != nil {
 			return helptext.Fail("agents result: %v", err)
 		}
-		return ResultExit(rec)
+		return resultExit(rec)
 	}
 	out := &textutil.ErrWriter{W: os.Stdout}
 	printLog(out, log)
@@ -68,7 +68,7 @@ func PrintResult(rec agent.Record, format string) int {
 	if out.Err != nil {
 		return helptext.Fail("agents result: write output: %v", out.Err)
 	}
-	return ResultExit(rec)
+	return resultExit(rec)
 }
 
 // printLog writes a job log, adding a trailing newline when it lacks one.
@@ -99,14 +99,14 @@ func PrintAgentResult(name, ref, format string) int {
 		}{rec.ID, rec.SessionID, s.ResumeHint(rec.SessionID), log}); err != nil {
 			return helptext.Fail("%s result: %v", name, err)
 		}
-		return ResultExit(rec)
+		return resultExit(rec)
 	}
 	printLog(os.Stdout, log)
 	if rec.SessionID != "" {
 		fmt.Printf("session: %s\n", rec.SessionID)
-		PrintResumeHint(name, rec.SessionID)
+		fprintResumeHint(os.Stdout, name, rec.SessionID)
 	}
-	return ResultExit(rec)
+	return resultExit(rec)
 }
 
 // TailJob prints a job's log (json: its events); exit 1 for an errored job or a followed job that was lost.
@@ -129,7 +129,7 @@ func TailJob(prefix string, rec agent.Record, format string, follow bool) int {
 		fmt.Fprintf(os.Stderr, "error: job %s is lost (process gone)\n", rec.ID)
 		return 1
 	}
-	return ResultExit(rec)
+	return resultExit(rec)
 }
 
 // CancelJob interrupts agent's job ref and prints its id (json: id, status, error).
@@ -153,8 +153,8 @@ func CancelJob(prefix, agentName, ref, format string) int {
 	return 0
 }
 
-// ResultExit reports a failed job's error on stderr and returns 1; a finished ok job returns 0.
-func ResultExit(rec agent.Record) int {
+// resultExit reports a failed job's error on stderr and returns 1; a finished ok job returns 0.
+func resultExit(rec agent.Record) int {
 	if rec.Status != "error" {
 		return 0
 	}
@@ -164,7 +164,7 @@ func ResultExit(rec agent.Record) int {
 
 // Send is `agents send`: one user turn to live session id, streamed in format; exit 1 unless the turn ends ok.
 func Send(id, task, format string) int {
-	prompt, err := ResolveAskPrompt(task)
+	prompt, err := resolveAskPrompt(task)
 	if err != nil {
 		return helptext.Fail("agents send: %v", err)
 	}
@@ -173,7 +173,7 @@ func Send(id, task, format string) int {
 	if rec, ferr := agent.Find(id); ferr == nil {
 		id = rec.ID
 	}
-	env, err := agent.SendLive(ctx, id, prompt, StdoutSink(format, id))
+	env, err := agent.SendLive(ctx, id, prompt, stdoutSink(format, id))
 	if err != nil {
 		return helptext.Fail("agents send: %v", err)
 	}
@@ -207,8 +207,11 @@ func printLiveEnvelope(env wire.Envelope, format string) error {
 var liveExclusive = []string{"background", "host", "batch", "retry", "job", "env", "attach", "no-tools", "output-schema",
 	"rubric", "log", "stdin-framed", "fallback", "native"}
 
-// askLiveCheck rejects --live with another agent, a task, or a flag that has no meaning for a held-open session.
-func askLiveCheck(fs *flag.FlagSet, name string) error {
+// askLiveCheck rejects --live with a persona, another agent, a task, or a flag a held-open session cannot honor.
+func askLiveCheck(fs *flag.FlagSet, name string, hasPersona bool) error {
+	if hasPersona {
+		return errors.New("--live cannot run a persona (agents/<name>.md or an --agents key): use a plain vendor")
+	}
 	if row, _ := agent.LookupSchema(name); !row.HasLive() {
 		return fmt.Errorf("--live is claude or gemini only, not %s", name)
 	}
@@ -244,7 +247,7 @@ func startLive(s *askState, perms agent.Permissions, name, as, format string) in
 	}
 	req := liveRequest(s, perms, name)
 	req.Identity = as
-	rec, err := NewClient().Record(context.Background(), req, nil)
+	rec, err := newClient().Record(context.Background(), req, nil)
 	if err != nil {
 		return failAsk(format, name, err)
 	}

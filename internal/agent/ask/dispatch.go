@@ -14,7 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -34,7 +33,7 @@ func Dispatch(q roles.Request, o DispatchOptions) int {
 	if err != nil {
 		return helptext.FailUsage("dispatch: %v", err)
 	}
-	if q.OutputSchema, err = ResolveOutputSchema(o.Schema); err != nil {
+	if q.OutputSchema, err = resolveOutputSchema(o.Schema); err != nil {
 		return helptext.FailUsage("dispatch: %v", err)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -44,7 +43,7 @@ func Dispatch(q roles.Request, o DispatchOptions) int {
 
 // dispatchRun builds the legs (splitting explore when no --part) and runs or detaches them.
 func dispatchRun(ctx context.Context, role roles.Role, q roles.Request, jobs int, format string, background bool) int {
-	cl := NewClient()
+	cl := newClient()
 	if role.Name == "explore" && len(q.Parts) == 0 && !background {
 		q.Parts = roles.Split(ctx, cl, q.Task)
 	}
@@ -79,11 +78,7 @@ func writeReport(rep roles.Report, format string) error {
 		_, err = fmt.Fprintln(os.Stdout, string(body))
 		return err
 	}
-	out := &textutil.ErrWriter{W: os.Stdout}
-	if err := rep.Text(out); err != nil {
-		return err
-	}
-	return out.Err
+	return rep.Text(os.Stdout)
 }
 
 // dispatchDetach spawns each leg as `ask --background` does and prints its id (one JSON line per leg with json).
@@ -145,5 +140,5 @@ func printLegID(label string, rec agent.Record, format string) error {
 	if _, err := fmt.Printf("%s\t", label); err != nil {
 		return err
 	}
-	return ReportBackgroundStart(helptext.Text, rec)
+	return reportBackgroundStart(helptext.Text, rec)
 }

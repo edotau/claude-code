@@ -22,7 +22,7 @@ func fileDiff(path string, hunks, hunkLines int) string {
 
 func TestSplitDiffSmallIsOnePart(t *testing.T) {
 	d := fileDiff("internal/a/a.go", 1, 2)
-	if parts := SplitDiff([]byte(d), 100, 10_000); len(parts) != 1 || string(parts[0].Diff) != d {
+	if parts := splitDiff([]byte(d), 100, 10_000); len(parts) != 1 || string(parts[0].Diff) != d {
 		t.Fatalf("small diff must stay whole, got %d parts", len(parts))
 	}
 }
@@ -31,7 +31,7 @@ func TestSplitDiffGroupsByDirAndFitsBudget(t *testing.T) {
 	d := fileDiff("internal/a/x.go", 1, 40) + fileDiff("internal/a/y.go", 1, 40) +
 		fileDiff("internal/b/z.go", 1, 40) + fileDiff("cmd/tool/m.go", 1, 40) + fileDiff("README.md", 1, 5)
 	budget := 100 + partOverhead + 7000
-	parts := SplitDiff([]byte(d), 100, budget)
+	parts := splitDiff([]byte(d), 100, budget)
 	if len(parts) < 3 {
 		t.Fatalf("want >=3 parts, got %d", len(parts))
 	}
@@ -50,7 +50,7 @@ func TestSplitDiffGroupsByDirAndFitsBudget(t *testing.T) {
 
 func TestSplitDiffOversizedFileSplitsOnHunks(t *testing.T) {
 	d := fileDiff("internal/a/big.go", 20, 10)
-	parts := SplitDiff([]byte(d), 100, 100+partOverhead+3000)
+	parts := splitDiff([]byte(d), 100, 100+partOverhead+3000)
 	if len(parts) < 3 {
 		t.Fatalf("want a big file cut into >=3 parts, got %d", len(parts))
 	}
@@ -62,20 +62,20 @@ func TestSplitDiffOversizedFileSplitsOnHunks(t *testing.T) {
 }
 
 func TestMergeReportsWorstVerdictAndDedup(t *testing.T) {
-	parts := []Part{{Files: []string{"a"}}, {Files: []string{"b"}}}
-	out := MergeReports(false, parts, []string{"SHIP IT\n[LOW] a:1 — x — y", "BLOCK\n[LOW] a:1 — x — y\n[HIGH] b:2 — z — w"})
+	parts := []part{{Files: []string{"a"}}, {Files: []string{"b"}}}
+	out := mergeReports(false, parts, []string{"SHIP IT\n[LOW] a:1 — x — y", "BLOCK\n[LOW] a:1 — x — y\n[HIGH] b:2 — z — w"})
 	if !strings.HasPrefix(out, "BLOCK\n") || strings.Count(out, "a:1") != 1 {
 		t.Fatalf("want BLOCK first and one a:1 line:\n%s", out)
 	}
-	adv := MergeReports(true, parts, []string{cleanVerdict, cleanVerdict})
+	adv := mergeReports(true, parts, []string{cleanVerdict, cleanVerdict})
 	if !strings.HasPrefix(adv, cleanVerdict+"\n") {
 		t.Fatalf("clean adversarial parts keep the clean verdict:\n%s", adv)
 	}
 }
 
 func TestMergeReportsFailedFirstAdversarialPart(t *testing.T) {
-	parts := []Part{{Files: []string{"a.go"}}, {Files: []string{"b.go"}}}
-	got := MergeReports(true, parts, nil)
+	parts := []part{{Files: []string{"a.go"}}, {Files: []string{"b.go"}}}
+	got := mergeReports(true, parts, nil)
 	if got != "VERDICT: no review completed\n" {
 		t.Fatalf("failed first part must not produce a clean review verdict: %q", got)
 	}
@@ -84,8 +84,8 @@ func TestMergeReportsFailedFirstAdversarialPart(t *testing.T) {
 func TestMergeReportsBlankAdversarialAnswerIsNotClean(t *testing.T) {
 	for _, answer := range []string{"", " \t\n", cleanVerdict} {
 		t.Run(fmt.Sprintf("answer=%q", answer), func(t *testing.T) {
-			parts := []Part{{Files: []string{"a.go"}}}
-			got := MergeReports(true, parts, []string{answer})
+			parts := []part{{Files: []string{"a.go"}}}
+			got := mergeReports(true, parts, []string{answer})
 			want := "VERDICT: no review completed\n"
 			marker := "(no review returned)\n"
 			if answer == cleanVerdict {
@@ -103,12 +103,12 @@ func TestMergeReportsBlankAdversarialAnswerIsNotClean(t *testing.T) {
 }
 
 func TestMergeReportsUnjudgedPartIsNotShipIt(t *testing.T) {
-	parts := []Part{{Files: []string{"a"}}, {Files: []string{"b"}}}
-	out := MergeReports(false, parts, []string{"SHIP IT\n[LOW] a:1 — x — y", ""})
+	parts := []part{{Files: []string{"a"}}, {Files: []string{"b"}}}
+	out := mergeReports(false, parts, []string{"SHIP IT\n[LOW] a:1 — x — y", ""})
 	if !strings.HasPrefix(out, "NEEDS WORK\n") {
 		t.Fatalf("an unjudged part must not merge to SHIP IT:\n%s", out)
 	}
-	out = MergeReports(false, parts, []string{"BLOCK\n[HIGH] a:1 — x — y", "no verdict here"})
+	out = mergeReports(false, parts, []string{"BLOCK\n[HIGH] a:1 — x — y", "no verdict here"})
 	if !strings.HasPrefix(out, "BLOCK\n") {
 		t.Fatalf("a worse verdict from another part still wins:\n%s", out)
 	}

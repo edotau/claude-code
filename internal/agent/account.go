@@ -18,7 +18,7 @@ func resolveAccount(agentName string, c router.Cell) (string, string) {
 	case "opencode":
 		return "", "" // the cell's provider prefix is the account; Configured gates its credential
 	case "claude":
-		_, ct, err := resolveTarget(RunOptions{Provider: providers.SessionProfile(), Model: c.Model})
+		_, ct, err := ResolveRequestTarget(RunOptions{Provider: providers.SessionProfile(), Model: c.Model})
 		if err != nil || ct.Provider == nil || ct.Provider.Auth.Method() == providers.AuthCLI {
 			return "", ""
 		}
@@ -36,15 +36,15 @@ func resolveAccount(agentName string, c router.Cell) (string, string) {
 }
 
 func billedAgentTarget(agentName, model string) providers.Target {
-	t, own, _, err := SchemaFor(agentName).targetNote(RunOptions{Provider: sessionProvider(agentName), Model: model})
+	t, own, _, err := SchemaFor(agentName).targetNote(RunOptions{Provider: SessionProvider(agentName), Model: model})
 	if err != nil || own || t.Provider == nil || t.Provider.Auth.Login == agentName {
 		return providers.Target{}
 	}
 	return t
 }
 
-// sessionProvider is the session's profile when it serves the agent, else "" (the vault pin and fallbacks decide).
-func sessionProvider(agentName string) string {
+// SessionProvider is the session's profile when it serves the agent, else "" (the vault pin and fallbacks decide).
+func SessionProvider(agentName string) string {
 	reg, err := providers.Load()
 	if err != nil {
 		return ""

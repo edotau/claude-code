@@ -12,7 +12,7 @@ import (
 func TestLoadSchemaUnknown(t *testing.T) {
 	setConfigDir(t)
 	for _, ref := range []string{"missing", "../x", "/no/such.md", "bad name"} {
-		if p, err := LoadSchema(ref); err == nil {
+		if p, err := loadSchema(ref); err == nil {
 			t.Errorf("LoadSchema(%q) = %+v, want an error", ref, p)
 		}
 	}
@@ -26,11 +26,11 @@ func TestPersonaEmptyToolsIsNotInherit(t *testing.T) {
 	if err := os.WriteFile(f, []byte("---\nname: r\ntools: []\n---\nBody.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, err := LoadSchema(f)
+	p, err := loadSchema(f)
 	if err != nil || p.Tools == nil || len(p.Tools) != 0 {
 		t.Fatalf("loaded %+v (%v), want non-nil empty Tools", p, err)
 	}
-	if args := personaArgs(p); !strings.Contains(args[1], `"tools":[]`) {
+	if args := PersonaArgs(p); !strings.Contains(args[1], `"tools":[]`) {
 		t.Errorf("--agents = %s, want tools:[]", args[1])
 	}
 	b, _ := json.Marshal(RunOptions{Persona: p})
@@ -105,11 +105,11 @@ func TestRefusePersona(t *testing.T) {
 		{"read only", emu, []string{"Read"}, true},
 		{"native never refuses", nat, []string{}, false},
 	} {
-		if err := RefusePersona(c.caps, "codex", p(c.tools)); (err != nil) != c.refuse {
+		if err := refusePersona(c.caps, "codex", p(c.tools)); (err != nil) != c.refuse {
 			t.Errorf("%s: err = %v, refuse want %v", c.name, err, c.refuse)
 		}
 	}
-	if err := RefusePersona(emu, "codex", nil); err != nil {
+	if err := refusePersona(emu, "codex", nil); err != nil {
 		t.Errorf("nil persona: %v", err)
 	}
 }

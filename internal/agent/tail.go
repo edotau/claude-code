@@ -21,11 +21,7 @@ var (
 // Tail copies ref's log (default: name's newest job in cwd's repo) to w. With follow it keeps copying until the
 // record stops being alive, printing a heartbeat line per tailBeat of silence. It returns the record as last seen.
 func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) (Record, error) {
-	if err := checkAgent(name); err != nil {
-		return Record{}, err
-	}
-	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
-	rec, err := ResolveRecord(recs, ref, nil)
+	rec, err := resolveJob(ctx, name, cwd, ref, nil)
 	if err != nil {
 		return Record{}, err
 	}

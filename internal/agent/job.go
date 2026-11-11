@@ -67,10 +67,10 @@ func SpawnArgv(rec *Record, argv, env []string) error {
 	return nil
 }
 
-// List returns dispatch records for agentName, newest first; all=false keeps only Repo==repo.
-func List(agentName, repo string, all bool) []Record {
+// list returns dispatch records for agentName, newest first; all=false keeps only Repo==repo.
+func list(agentName, repo string, all bool) []Record {
 	var out []Record
-	for _, r := range RecentRecords(1 << 20) {
+	for _, r := range RecentRecords(AllRecords) {
 		if r.Agent != agentName {
 			continue
 		}
@@ -82,8 +82,8 @@ func List(agentName, repo string, all bool) []Record {
 	return out
 }
 
-// ResolveRecord picks by exact id, unique id prefix, else the newest record matching pred.
-func ResolveRecord(recs []Record, ref string, pred func(Record) bool) (Record, error) {
+// resolveRecord picks by exact id, unique id prefix, else the newest record matching pred.
+func resolveRecord(recs []Record, ref string, pred func(Record) bool) (Record, error) {
 	if ref != "" {
 		var match []Record
 		for _, r := range recs {
@@ -275,9 +275,9 @@ func Status(ctx context.Context, name, cwd, ref string, all bool) ([]Row, error)
 	if err := checkAgent(name); err != nil {
 		return nil, err
 	}
-	recs := List(name, RepoRoot(ctx, cwd), all || ref != "")
+	recs := list(name, RepoRoot(ctx, cwd), all || ref != "")
 	if ref != "" {
-		rec, err := ResolveRecord(recs, ref, nil)
+		rec, err := resolveRecord(recs, ref, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -290,13 +290,17 @@ func Status(ctx context.Context, name, cwd, ref string, all bool) ([]Row, error)
 	return rows, nil
 }
 
+// resolveJob is resolveRecord over name's jobs; an explicit ref resolves across repos, the default stays local.
+func resolveJob(ctx context.Context, name, cwd, ref string, pred func(Record) bool) (Record, error) {
+	if err := checkAgent(name); err != nil {
+		return Record{}, err
+	}
+	return resolveRecord(list(name, RepoRoot(ctx, cwd), ref != ""), ref, pred)
+}
+
 // JobResult returns ref's record (default: newest finished) and its log text; a running match errors.
 func JobResult(ctx context.Context, name, cwd, ref string) (Record, string, error) {
-	if err := checkAgent(name); err != nil {
-		return Record{}, "", err
-	}
-	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
-	rec, err := ResolveRecord(recs, ref, func(r Record) bool { return r.Status != "running" })
+	rec, err := resolveJob(ctx, name, cwd, ref, func(r Record) bool { return r.Status != "running" })
 	if err != nil {
 		return Record{}, "", err
 	}
@@ -309,11 +313,7 @@ func JobResult(ctx context.Context, name, cwd, ref string) (Record, string, erro
 
 // CancelJob interrupts ref's job, default: the single running job for name in cwd's repo.
 func CancelJob(ctx context.Context, name, cwd, ref string) (Record, error) {
-	if err := checkAgent(name); err != nil {
-		return Record{}, err
-	}
-	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
-	rec, err := ResolveRecord(recs, ref, func(r Record) bool { return r.Alive() })
+	rec, err := resolveJob(ctx, name, cwd, ref, func(r Record) bool { return r.Alive() })
 	if err != nil {
 		return Record{}, err
 	}

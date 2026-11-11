@@ -26,8 +26,8 @@ func personaName(p *Schema) string {
 	return p.Name
 }
 
-// LoadSchema resolves ref: a bare name is <config dir>/agents/<name>.md, anything else is a file path.
-func LoadSchema(ref string) (*Schema, error) {
+// loadSchema resolves ref: a bare name is <config dir>/agents/<name>.md, anything else is a file path.
+func loadSchema(ref string) (*Schema, error) {
 	path, err := schemaPath(ref)
 	if err != nil {
 		return nil, err
@@ -171,17 +171,17 @@ func SelectAgent(ref string, agents map[string]*Schema) (agent string, def *Sche
 		if def, ok := agents[name]; ok { // the agent beats def.Agent
 			return v, def, nil
 		}
-		def, err = LoadSchema(name)
+		def, err = loadSchema(name)
 		return v, def, err
 	}
-	if def, err = LoadSchema(ref); err != nil {
+	if def, err = loadSchema(ref); err != nil {
 		return "", nil, fmt.Errorf("unknown agent %q (%s, or an agents/<name>.md definition): %w", ref, strings.Join(names, "|"), err)
 	}
 	return cmp.Or(def.Agent, "claude"), def, nil
 }
 
-// RefusePersona rejects a persona whose tool limit an emulating agent could not enforce.
-func RefusePersona(c Caps, agentName string, p *Schema) error {
+// refusePersona rejects a persona whose tool limit an emulating agent could not enforce.
+func refusePersona(c Caps, agentName string, p *Schema) error {
 	if p == nil || c.Persona != Emulated || p.Tools == nil {
 		return nil
 	}
@@ -193,8 +193,8 @@ func RefusePersona(c Caps, agentName string, p *Schema) error {
 	return nil
 }
 
-// personaArgs renders claude's `--agents '{"<name>":{…}}' --agent <name>` with only the selected persona.
-func personaArgs(p *Schema) []string {
+// PersonaArgs renders claude's `--agents '{"<name>":{…}}' --agent <name>` with only the selected persona.
+func PersonaArgs(p *Schema) []string {
 	def := map[string]any{"description": cmp.Or(p.Description, p.Name), "prompt": p.Prompt}
 	if p.Tools != nil {
 		def["tools"] = p.Tools

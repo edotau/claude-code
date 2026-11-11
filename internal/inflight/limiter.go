@@ -266,7 +266,7 @@ func sweep(dir string, dryRun bool) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	live := Liveness(time.Now())
+	live := liveness(time.Now())
 	var removed []string
 	var errs []error
 	for _, e := range entries {
@@ -294,7 +294,7 @@ type scanner struct {
 }
 
 func newScanner(now time.Time) *scanner {
-	return &scanner{now: now, trusted: ProbeTrusted(), meta: map[string]map[string]metaAgent{}}
+	return &scanner{now: now, trusted: probeTrusted(), meta: map[string]map[string]metaAgent{}}
 }
 
 // live: dispatches and markers without a session follow ownerLive; a spawn marker follows its agent's meta.json and transcript.
@@ -311,7 +311,7 @@ func (s *scanner) live(name string, mod time.Time, transcript string) bool {
 	if a, ok := s.agents(transcript)[base]; ok {
 		return s.agentLive(a, mod, transcript)
 	}
-	if s.now.Sub(mod) > Settle && s.answered(transcript, base) {
+	if s.now.Sub(mod) > settle && s.answered(transcript, base) {
 		return false // refused or failed before an agent existed; Settle covers a meta.json not yet written
 	}
 	return ownerLive(name, mod, s.now, s.trusted)
@@ -327,11 +327,11 @@ func spawnBase(id string) string {
 
 // agentLive: a spawn marker with a meta.json lives while its agent is unfinished and its transcript is fresh.
 func (s *scanner) agentLive(a metaAgent, mod time.Time, transcript string) bool {
-	if a.finished || (!s.trusted && s.now.Sub(mod) > TTL) {
+	if a.finished || (!s.trusted && s.now.Sub(mod) > ttl) {
 		return false // Claude Code marks a done agent's meta finished, SubagentStop or not
 	}
 	fi, err := os.Stat(filepath.Join(SubagentDir(transcript), "agent-"+a.id+".jsonl"))
-	missing := os.IsNotExist(err) && s.now.Sub(mod) > Grace
+	missing := os.IsNotExist(err) && s.now.Sub(mod) > grace
 	idle := err == nil && s.now.Sub(fi.ModTime()) > Idle
 	return !missing && !idle
 }

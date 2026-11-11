@@ -48,7 +48,7 @@ func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 		case a == "--print-env":
 			o.PrintEnv = true
 		default:
-			setter := o.LaunchFlagSetter(name, claude)
+			setter := o.launchFlagSetter(name, claude)
 			if setter == nil {
 				rest = append(rest, a)
 				continue
@@ -78,7 +78,7 @@ func SessionSelection(o LaunchOptions, session bool) (*providers.Registry, provi
 		return nil, providers.Selection{}, err
 	}
 	if session && o.Provider == "" { // this workspace beats the global pin, which only seeds new workspaces
-		o.Provider = LastProfile(reg, "claude")
+		o.Provider = lastProfile(reg, "claude")
 	}
 	sel, err := providers.Select(reg, o.Provider)
 	if o.Model != "" && sel.Provider != nil {
@@ -88,8 +88,8 @@ func SessionSelection(o LaunchOptions, session bool) (*providers.Registry, provi
 	return reg, sel, err
 }
 
-// LastProfile is the profile this workspace last launched agentName with, "" unless registered and usable by the agent.
-func LastProfile(reg *providers.Registry, agentName string) string {
+// lastProfile is the profile this workspace last launched agentName with, "" unless registered and usable by the agent.
+func lastProfile(reg *providers.Registry, agentName string) string {
 	name := providers.LastProfile(agentName)
 	p, err := reg.Get(name)
 	if name == "" || err != nil {
@@ -173,7 +173,7 @@ func RunPlan(name string, plan Plan, opts LaunchOptions, err error) int {
 	}
 	ov, oerr := launchOverlay(opts)
 	if oerr == nil {
-		oerr = plan.CheckOverlay(ov) // a launch-owned route name is refused, not silently overridden
+		oerr = plan.checkOverlay(ov) // a launch-owned route name is refused, not silently overridden
 	}
 	if oerr != nil {
 		if plan.OnExecFail != nil {
@@ -182,11 +182,11 @@ func RunPlan(name string, plan Plan, opts LaunchOptions, err error) int {
 		fmt.Fprintln(os.Stderr, "claude-code:", oerr)
 		return 2
 	}
-	plan = plan.WithOverlay(ov)
+	plan = plan.withOverlay(ov)
 	if opts.PrintEnv {
 		plan.Print(os.Stdout)
 		if agentconfig.OverlayDebugOn() {
-			plan.RecordEnv() // dry exec: the env Exec would hand the child
+			plan.recordEnv() // dry exec: the env Exec would hand the child
 		}
 		return 0
 	}
@@ -373,7 +373,7 @@ func lastUsedProfile(name string) string {
 		return ""
 	}
 	if reg, err := providers.Load(); err == nil {
-		return LastProfile(reg, name)
+		return lastProfile(reg, name)
 	}
 	return ""
 }
