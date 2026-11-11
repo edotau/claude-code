@@ -37,8 +37,8 @@ func hasEditToolName(line []byte) bool {
 // substantive work; memory.updateMinEdits is defined from this so the two stay in lockstep.
 const CommitEditWeight = 3
 
-// EditedFiles returns up to limit unique paths the transcript's Edit/Write tool calls touched, sorted.
-func EditedFiles(path string, limit int) ([]string, error) {
+// EditedFiles returns the unique paths the transcript's Edit/Write tool calls touched, sorted.
+func EditedFiles(path string) ([]string, error) {
 	seen := map[string]bool{}
 	err := eachEdit(path, func(p string) {
 		if p != "" {
@@ -50,16 +50,7 @@ func EditedFiles(path string, limit int) ([]string, error) {
 		out = append(out, p)
 	}
 	sort.Strings(out)
-	if len(out) > limit {
-		out = out[:limit]
-	}
 	return out, err
-}
-
-// CountEditsFrom counts complete lines from offset and returns the position after the last newline.
-func CountEditsFrom(path string, offset int64) (edits int, next int64) {
-	edits, _, next = CountWorkFrom(path, offset)
-	return edits, next
 }
 
 // CountWorkFrom counts complete lines from offset, returning edits, user turns, and next offset.

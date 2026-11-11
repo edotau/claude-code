@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -363,7 +364,7 @@ func TestOwnLoginProfilesMatchBuiltInDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range vault.LegacyAgents[1:] {
+	for _, a := range agentid.External() {
 		want := vault.OwnLoginProfiles[a]
 		if a == "opencode" {
 			if want != "zen-free" {

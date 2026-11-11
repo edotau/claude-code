@@ -442,15 +442,6 @@ func randomKey(vaultID string) (*Key, string, error) {
 	return k, value, err
 }
 
-// RotateKeyOption configures RotateKey; the zero value is the default (guarded) behavior.
-type RotateKeyOption func(*rotateKeyOpts)
-
-type rotateKeyOpts struct{ force bool }
-
-// ForceRotate bypasses the guard that refuses rotation while HARNESS_VAULT_KEY or meta/key_command
-// is set — use only once the caller has updated that source with the new key immediately after.
-func ForceRotate() RotateKeyOption { return func(o *rotateKeyOpts) { o.force = true } }
-
 // resealSecrets re-seals every secret from old to next inside t, retires old's kid, and advances meta/kid.
 func resealSecrets(t *Tx, old, next *Key) error {
 	curKid, _ := t.Get(Meta, "kid")
@@ -495,9 +486,9 @@ func resealBucket(t *Tx, bucket string, old, next *Key) error {
 }
 
 // rotateKeyLocked runs the body of RotateKey under the "<vault>.key" file lock.
-func rotateKeyLocked(o rotateKeyOpts) (oldKid, newKid string, err error) {
+func rotateKeyLocked(force bool) (oldKid, newKid string, err error) {
 	defer invalidateKey()
-	old, id, e := rotatePreflight(o)
+	old, id, e := rotatePreflight(force)
 	if old != nil {
 		oldKid = old.Kid
 	}
@@ -536,12 +527,12 @@ func rotateKeyLocked(o rotateKeyOpts) (oldKid, newKid string, err error) {
 }
 
 // rotatePreflight resolves the outgoing keyring-held key and checks meta/kid and the guard; old is nil before resolution.
-func rotatePreflight(o rotateKeyOpts) (old *Key, id string, err error) {
+func rotatePreflight(force bool) (old *Key, id string, err error) {
 	old, source, err := MasterKey()
 	if err != nil {
 		return nil, "", err
 	}
-	if source != "keyring" && (source != "env" || !o.force) { // --force rotates an env-held key; the caller updates the env
+	if source != "keyring" && (source != "env" || !force) { // --force rotates an env-held key; the caller updates the env
 		return nil, "", errors.New("vault: rotation requires a keyring-held master key")
 	}
 	id, kid, command, err := keyMeta()
@@ -551,7 +542,7 @@ func rotatePreflight(o rotateKeyOpts) (old *Key, id string, err error) {
 	if kid != "" && kid != old.Kid {
 		return old, "", ErrWrongKey
 	}
-	if err := rotateGuard(o.force, command); err != nil {
+	if err := rotateGuard(force, command); err != nil {
 		return old, "", err
 	}
 	return old, id, nil
@@ -560,14 +551,12 @@ func rotatePreflight(o rotateKeyOpts) (old *Key, id string, err error) {
 // RotateKey re-seals every secret under a new master key, retaining every key under its own kid account (R1, R2, R4).
 //
 // The new key is stored before the re-seal tx and the pointer moves after it commits, so a crash strands nothing.
-func RotateKey(opts ...RotateKeyOption) (oldKid, newKid string, err error) {
-	var o rotateKeyOpts
-	for _, opt := range opts {
-		opt(&o)
-	}
+// force bypasses the guard against rotating while HARNESS_VAULT_KEY or meta/key_command is set: update that source
+// with the new key immediately after.
+func RotateKey(force bool) (oldKid, newKid string, err error) {
 	err = paths.WithFileLock(Path()+".key", func() error {
 		var e error
-		oldKid, newKid, e = rotateKeyLocked(o)
+		oldKid, newKid, e = rotateKeyLocked(force)
 		return e
 	})
 	return

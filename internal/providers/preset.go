@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -18,7 +19,7 @@ const PresetDatabricks = "databricks"
 
 var (
 	cliProfileRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-	envKeyRE     = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+	EnvNameRE    = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`) // an env-var name; also the vault key-name shape
 	secretNameRE = regexp.MustCompile(`(^|_)(KEY|TOKEN|SECRET|PASSWORD|HEADERS|AUTH|CREDENTIALS?|PAT|BEARER)(_|$)`)
 )
 
@@ -196,14 +197,23 @@ func validateDatabricksFields(n string, p *Provider) []string {
 	return errs
 }
 
-// harnessEnvRE and harnessEnvKeys mirror launch.wipeKeys (launch imports providers, so no import); the harness owns them.
+// WipeKeys are inherited Anthropic knobs that override a Claude launch's own resolution; profile env may not set them.
+var WipeKeys = append(slices.Clone(proc.AnthropicStripEnv), []string{
+	"ANTHROPIC_MODEL",
+	"ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+	"ANTHROPIC_DEFAULT_FABLE_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL",
+	"MAX_THINKING_TOKENS", "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING",
+	"CLAUDE_CODE_DISABLE_1M_CONTEXT", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_GATEWAY",
+	"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "CLAUDE_CODE_ANTHROPIC_MODEL", "OTEL_EXPORTER_OTLP_HEADERS",
+	"OTEL_EXPORTER_OTLP_TRACES_HEADERS", "OTEL_EXPORTER_OTLP_LOGS_HEADERS", "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+	EnvSessionProfile, "CLAUDE_MODEL",
+	"CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL", "CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL",
+}...)
+
+// harnessEnvRE and harnessEnvKeys add the harness-owned names WipeKeys does not list.
 var (
 	harnessEnvRE   = regexp.MustCompile(`^(ANTHROPIC_|HARNESS_|CLAUDE_PROFILE$|CLAUDE_(MODEL|OPUS_MODEL|SONNET_MODEL|HAIKU_MODEL|FABLE_MODEL)$)`)
-	harnessEnvKeys = []string{
-		"CLAUDE_CODE_API_KEY_HELPER_TTL_MS", "CLAUDE_CODE_SUBAGENT_MODEL", "MAX_THINKING_TOKENS",
-		"CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR",
-		"CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_GATEWAY",
-	}
+	harnessEnvKeys = []string{"CLAUDE_CODE_API_KEY_HELPER_TTL_MS", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"}
 )
 
 // validateEnv checks the launch env keys: well-formed names, and none credential-shaped (secrets belong in auth).
@@ -211,11 +221,11 @@ func validateEnv(n string, env map[string]string) []string {
 	var errs []string
 	for k := range env {
 		switch {
-		case !envKeyRE.MatchString(k):
+		case !EnvNameRE.MatchString(k):
 			errs = append(errs, fmt.Sprintf("%s: env key %q must match [A-Z_][A-Z0-9_]*", n, k))
 		case IsSecretName(k):
 			errs = append(errs, fmt.Sprintf("%s: env key %q looks like a credential; secrets belong in auth", n, k))
-		case harnessEnvRE.MatchString(k) || slices.Contains(harnessEnvKeys, k):
+		case harnessEnvRE.MatchString(k) || slices.Contains(harnessEnvKeys, k) || slices.Contains(WipeKeys, k):
 			errs = append(errs, fmt.Sprintf("%s: env key %q is owned by the harness", n, k))
 		}
 	}

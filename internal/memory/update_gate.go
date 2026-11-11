@@ -398,7 +398,7 @@ func recountSubagents(matches []string, sizes map[string]int64, sidecar string, 
 			st = subFileState{} // shrank or rotated: rescan from 0
 		}
 		if sizes[m] != st.Offset {
-			delta, off := transcript.CountEditsFrom(m, st.Offset)
+			delta, _, off := transcript.CountWorkFrom(m, st.Offset)
 			st.Edits += delta
 			st.Offset = off
 		}

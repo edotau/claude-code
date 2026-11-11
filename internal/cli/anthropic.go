@@ -37,7 +37,7 @@ var anthropicPage = helptext.Page{
 	Hint:     "claude-code anthropic " + helptext.DocsFlag + " prints claude's own help.",
 }
 
-// anthropicHelp renders the page with its flag rows; the flags are parsed by claude.ParseAnthropicArgs.
+// anthropicHelp renders the page with its flag rows; the flags are parsed by claude.LaunchAnthropic.
 func anthropicHelp(w io.Writer) {
 	fs := helptext.NewFlagSet("anthropic", anthropicPage)
 	fs.Bool("oauth", false, "setup-token login; =NAME picks the vault key")

@@ -241,7 +241,7 @@ func validateOverlay(name string, raw json.RawMessage) error {
 	case name == "providers":
 		return providers.Validate(raw)
 	case name == "agents":
-		_, err := agentconfig.ParseConfig(nil, raw)
+		_, err := agentconfig.ParseConfig(raw)
 		return err
 	}
 	return errors.New("retired overlay has no effect; delete the section")
@@ -495,8 +495,8 @@ func sectionError(section string, err error) error {
 func oneLine(s string) string { return strings.NewReplacer("\n", " ", "\r", " ").Replace(s) }
 
 // RotateKey retains the old key so archived copies of this vault remain readable.
-func RotateKey(w io.Writer, opts ...vault.RotateKeyOption) error {
-	old, next, err := vault.RotateKey(opts...)
+func RotateKey(w io.Writer, force bool) error {
+	old, next, err := vault.RotateKey(force)
 	if err != nil {
 		return err
 	}

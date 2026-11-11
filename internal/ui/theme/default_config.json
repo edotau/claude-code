@@ -43,8 +43,7 @@
   },
   "separators": {
     "minor": " · ",
-    "major": " · ",
-    "git": " │ "
+    "major": " · "
   },
   "dashboard": {
     "width": 0,

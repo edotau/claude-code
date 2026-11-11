@@ -51,10 +51,10 @@ func TestRotateKeyForceAcceptsCurrentEnvKey(t *testing.T) {
 	acct := account(currentVaultID(t))
 	t.Setenv("HARNESS_VAULT_KEY", ringValue(ring, acct))
 	before := phase1bMeta(t, "kid")
-	if _, _, err := RotateKey(); err == nil {
+	if _, _, err := RotateKey(false); err == nil {
 		t.Fatal("unforced rotation accepted an env-held key")
 	}
-	oldKid, newKid, err := RotateKey(ForceRotate())
+	oldKid, newKid, err := RotateKey(true)
 	if err != nil {
 		t.Fatalf("forced rotation with current key in env: %v", err)
 	}
@@ -414,7 +414,7 @@ func startRaceWriter(t *testing.T, oldKid string) (<-chan error, *atomic.Int32) 
 // rotateWhileWriterPaused rotates past oldKid; on failure it releases and drains the writer before failing.
 func rotateWhileWriterPaused(t *testing.T, oldKid string, release func(), done <-chan error) string {
 	t.Helper()
-	_, newKid, err := RotateKey()
+	_, newKid, err := RotateKey(false)
 	if err != nil {
 		release()
 		<-done
@@ -496,7 +496,7 @@ func TestRotateRetainsOldKey(t *testing.T) {
 	acct := "vault-key/" + phase1bMeta(t, "vault_id")
 	archiveRoot, archive := archiveVault(t)
 	oldValue := ringValue(ring, acct)
-	if _, _, err := RotateKey(); err != nil {
+	if _, _, err := RotateKey(false); err != nil {
 		t.Fatal(err)
 	}
 	if retained := ringValue(ring, acct+"."+oldKid); retained != oldValue || retained == "" {
@@ -517,7 +517,7 @@ func TestRotateRetainsOldKey(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", archiveRoot)
 	phase1bRead(t, "TOKEN", "archive-value")
 	t.Setenv("CLAUDE_CONFIG_DIR", root)
-	if _, _, err := RotateKey(); err != nil {
+	if _, _, err := RotateKey(false); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", archiveRoot)
@@ -584,7 +584,7 @@ func rotateTwiceConcurrently(t *testing.T) []rotateResult {
 	for range 2 {
 		go func() {
 			<-start
-			old, next, err := RotateKey()
+			old, next, err := RotateKey(false)
 			done <- rotateResult{old, next, err}
 		}()
 	}

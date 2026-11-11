@@ -525,9 +525,9 @@ func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
 	assertCodexManagedBlock(t, codexCfg)
 	assertOpencodeOverlayOnly(t, home)
 
-	// gemini is report-only (agy has no settings-auth equivalent): it writes nothing, ever.
+	// gemini renders no auth setting (agy has none) and no ~/.gemini/settings.json; agy's own files live elsewhere.
 	agenttest.AssertNotExist(t, "gemini must write no settings.json", filepath.Join(home, ".gemini", "settings.json"))
-	if !strings.Contains(out.String(), "gemini: no config render") {
+	if !strings.Contains(out.String(), "gemini: no auth setting to render") {
 		t.Errorf("expected a gemini report-only line, got:\n%s", out.String())
 	}
 

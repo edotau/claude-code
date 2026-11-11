@@ -27,14 +27,14 @@ func TestCrossRootSequentialRotationBothDecrypt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, k1, err := RotateKey() // A: K0 -> K1
+	_, k1, err := RotateKey(false) // A: K0 -> K1
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	t.Setenv("CLAUDE_CONFIG_DIR", rootB)
 	invalidateKey()
-	_, k2, err := RotateKey() // B (still showing K0): K0 -> K2, overwriting the shared pointer
+	_, k2, err := RotateKey(false) // B (still showing K0): K0 -> K2, overwriting the shared pointer
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestRotateSurvivesCrashBeforePointerPromotion(t *testing.T) {
 	invalidateKey()
 	phase1bRead(t, "TOKEN", "committed-before-promotion")
 
-	_, gotKid, err := RotateKey()
+	_, gotKid, err := RotateKey(false)
 	if err != nil {
 		t.Fatal(err)
 	}

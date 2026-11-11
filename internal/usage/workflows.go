@@ -185,20 +185,12 @@ func inWindowResponses(resps []transcript.Response, cutoff time.Time) []transcri
 	return kept
 }
 
-// addUsage adds src's four token counts to dst.
-func addUsage(dst *transcript.ModelUsage, src transcript.ModelUsage) {
-	dst.InputTokens += src.InputTokens
-	dst.OutputTokens += src.OutputTokens
-	dst.CacheReadTokens += src.CacheReadTokens
-	dst.CacheCreationTokens += src.CacheCreationTokens
-}
-
 // addAgentToRow folds one agent transcript's summary into a phase (or run-total) row.
 func addAgentToRow(row *workflowPhaseRow, s *transcript.FileSummary) {
 	t := s.Totals()
 	row.agents++
 	row.turns += s.Turns
-	addUsage(&row.tokens, t)
+	row.tokens.Add(t)
 	if !s.First.IsZero() && (row.first.IsZero() || s.First.Before(row.first)) {
 		row.first = s.First
 	}
@@ -223,7 +215,7 @@ func addAgentToRow(row *workflowPhaseRow, s *transcript.FileSummary) {
 			seen[short] = true
 		}
 		ms.turns += s.ModelTurns[rawModel]
-		addUsage(&ms.tokens, *u)
+		ms.tokens.Add(*u)
 	}
 }
 
@@ -316,7 +308,7 @@ func printAllRunsByModel(out io.Writer, runs []*workflowRun) {
 			}
 			dst.agents += ms.agents
 			dst.turns += ms.turns
-			addUsage(&dst.tokens, ms.tokens)
+			dst.tokens.Add(ms.tokens)
 		}
 	}
 	if len(all) == 0 {

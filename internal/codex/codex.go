@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -429,7 +430,8 @@ func codex(ctx context.Context, p *providers.Provider, base, model, cred string,
 	catalog := codexCatalogArgs(ctx, p)
 	argv = append(argv, catalog...) // /model offers only ids this row serves
 	if len(catalog) == 2 {
-		env = append(env, settings.CodexCatalogEnv+"="+agentconfig.TOMLString(strings.TrimPrefix(catalog[1], "model_catalog_json=")))
+		path, _ := strconv.Unquote(strings.TrimPrefix(catalog[1], "model_catalog_json=")) // TOMLQuote output always unquotes
+		env = append(env, settings.CodexCatalogEnv+"="+path)
 	}
 	return env, codexHeadless(argv, h), nil
 }

@@ -565,7 +565,7 @@ func reportGemini(sel providers.Selection, out io.Writer) {
 		fmt.Fprintln(out, "gemini: skipped: session provider is passthrough, not keyed")
 		return
 	}
-	fmt.Fprintln(out, "gemini: no config render; agy has no settings-auth equivalent (launch-time env/login only)")
+	fmt.Fprintln(out, "gemini: no auth setting to render; agy has no settings-auth equivalent (launch-time env/login only)")
 }
 
 // geminiRouteDetail reports agy's own GEMINI_MODEL pin (effort rides the id's own suffix) — unset

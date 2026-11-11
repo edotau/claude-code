@@ -17,7 +17,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/memory"
 
-	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -160,7 +159,7 @@ func archiveAndRemove(opts nukeOpts, plan nukePlan) error {
 	}
 	fmt.Fprintf(opts.Out, "archived user content to %s\n", tarPath)
 	// The audit log lives inside Dir and is about to be removed with it: log to stderr instead.
-	fmt.Fprintf(os.Stderr, "claude-code: %s %s apply\n", audit.SetupNuke, opts.Dir)
+	fmt.Fprintf(os.Stderr, "claude-code: setup_nuke %s apply\n", opts.Dir)
 	return os.RemoveAll(opts.Dir)
 }
 

@@ -153,21 +153,6 @@ func remoteArgv(host, bin, agentName, fallback string, req RunOptions) ([]string
 	return remote.StreamArgs(host, script)
 }
 
-// remoteKind maps an envelope error token to the local failure class.
-func remoteKind(token string) retry.Kind {
-	switch token {
-	case "auth":
-		return retry.KindAuth
-	case "rate_limit":
-		return retry.KindRateLimit
-	case "transient":
-		return retry.KindTransient
-	case "quota":
-		return retry.KindQuota
-	}
-	return retry.KindFatal
-}
-
 // resultFromEnvelope is the local Result for a remote result event; dropped lists the flags the local side dropped.
 func resultFromEnvelope(env wire.Envelope, agentName string, dropped []string) wire.Result {
 	res := wire.Result{Agent: cmp.Or(env.Agent, agentName), Status: env.Status, Provider: env.Provider, Model: env.Model, Invoked: env.Invoked,
@@ -243,7 +228,7 @@ func (r remoteEngine) remoteOutcome(ctx context.Context, env *wire.Envelope, str
 	case env != nil:
 		res = resultFromEnvelope(*env, r.agent, dropped)
 		if env.Error != nil {
-			e := &retry.Error{Kind: remoteKind(env.Error.Kind), Agent: r.agent, Progressed: streamed,
+			e := &retry.Error{Kind: wire.KindOf(env.Error.Kind), Agent: r.agent, Progressed: streamed,
 				Err: wire.RemoteError{Kind: env.Error.Kind, Msg: "remote " + r.host + ": " + env.Error.Message}}
 			return res, e
 		}

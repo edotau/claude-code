@@ -3,19 +3,22 @@
 package worktree
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 func init() {
 	processesIn = scanIn
 	scanProcs = scanProcsLinux
 	procArgs = procCmdlineLinux
-	parentOf = parentOfLinux
-	commName = commOf
+	parentOf = func(pid int) (int, error) { return proc.Parent(pid), nil } // 0 ends ancestry
+	commName = func(pid int) string { return cmp.Or(proc.Comm(pid), "?") }
 }
 
 // scanProcsLinux walks /proc once; a readlink that fails (permission denied, or the process already exited)
@@ -55,30 +58,4 @@ func procCmdlineLinux(pid int) (string, error) {
 		return "", err
 	}
 	return strings.ReplaceAll(strings.TrimRight(string(b), "\x00"), "\x00", " "), nil
-}
-
-func commOf(pid int) string {
-	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
-	if err != nil {
-		return "?"
-	}
-	return strings.TrimSpace(string(b))
-}
-
-// parentOfLinux reads ppid from /proc/<pid>/stat: fields after the ')' closing the comm field are
-// state, ppid, ...
-func parentOfLinux(pid int) (int, error) {
-	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if err != nil {
-		return 0, err
-	}
-	i := strings.LastIndex(string(b), ")")
-	if i < 0 {
-		return 0, fmt.Errorf("unexpected /proc/%d/stat format", pid)
-	}
-	fields := strings.Fields(string(b)[i+1:])
-	if len(fields) < 2 {
-		return 0, fmt.Errorf("unexpected /proc/%d/stat format", pid)
-	}
-	return strconv.Atoi(fields[1])
 }

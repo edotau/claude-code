@@ -48,7 +48,7 @@ func rotateSessionHistory(dir string, now time.Time) (int, error) {
 	if len(overflow) == 0 {
 		return 0, nil
 	}
-	archive := filepath.Join(dir, "archive", "sessionHistory-"+now.Format("2006-01")+".md")
+	archive := archivePath(dir, "sessionHistory.md", now)
 	if err := appendUnarchived(archive, overflow); err != nil {
 		return 0, err // never truncate unarchived entries
 	}

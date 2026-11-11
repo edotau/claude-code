@@ -31,19 +31,6 @@ var (
 	selfBinary = paths.SelfBinary
 )
 
-// wipeKeys are inherited Anthropic knobs that would override the launch's own resolution.
-var wipeKeys = append(slices.Clone(proc.AnthropicStripEnv), []string{
-	"ANTHROPIC_MODEL",
-	"ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-	"ANTHROPIC_DEFAULT_FABLE_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL",
-	"MAX_THINKING_TOKENS", "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING",
-	"CLAUDE_CODE_DISABLE_1M_CONTEXT", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_GATEWAY",
-	"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "CLAUDE_CODE_ANTHROPIC_MODEL", "OTEL_EXPORTER_OTLP_HEADERS",
-	"OTEL_EXPORTER_OTLP_TRACES_HEADERS", "OTEL_EXPORTER_OTLP_LOGS_HEADERS", "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
-	providers.EnvSessionProfile, "CLAUDE_MODEL",
-	"CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL", "CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL",
-}...)
-
 const defaultAnthropicBase = "https://api.anthropic.com"
 
 // oauthKey survives the wipe only for cli-auth (subscription login) profiles.
@@ -53,7 +40,7 @@ const oauthKey = "CLAUDE_CODE_OAUTH_TOKEN"
 func dropLaunchOwned(env []string) []string {
 	return slices.DeleteFunc(env, func(kv string) bool {
 		k, _, _ := strings.Cut(kv, "=")
-		return k == oauthKey || slices.Contains(wipeKeys, k)
+		return k == oauthKey || slices.Contains(providers.WipeKeys, k)
 	})
 }
 
@@ -72,7 +59,7 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 	if err := refuseProvider(sel); err != nil {
 		return agent.Plan{}, err
 	}
-	plan := agent.Plan{Binary: bin, Set: map[string]string{}, Unset: append([]string(nil), wipeKeys...)}
+	plan := agent.Plan{Binary: bin, Set: map[string]string{}, Unset: append([]string(nil), providers.WipeKeys...)}
 	if !passthrough {
 		plan.Unset = append(plan.Unset, oauthKey)
 	}

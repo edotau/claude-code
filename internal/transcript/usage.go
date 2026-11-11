@@ -29,7 +29,8 @@ func (m *ModelUsage) Total() int64 {
 	return m.InputTokens + m.OutputTokens + m.CacheReadTokens + m.CacheCreationTokens
 }
 
-func (m *ModelUsage) add(o ModelUsage) {
+// Add adds o's four token counts to m.
+func (m *ModelUsage) Add(o ModelUsage) {
 	m.InputTokens += o.InputTokens
 	m.OutputTokens += o.OutputTokens
 	m.CacheReadTokens += o.CacheReadTokens
@@ -50,7 +51,7 @@ type FileSummary struct {
 func (s *FileSummary) Totals() ModelUsage {
 	var t ModelUsage
 	for _, m := range s.Models {
-		t.add(*m)
+		t.Add(*m)
 	}
 	return t
 }
@@ -132,7 +133,7 @@ func (s *FileSummary) count(r Response) {
 		m = &ModelUsage{}
 		s.Models[r.Model] = m
 	}
-	m.add(r.Usage)
+	m.Add(r.Usage)
 	s.ModelTurns[r.Model]++
 	if r.At.IsZero() {
 		return
@@ -169,7 +170,7 @@ func (a *UsageAggregate) Add(s *FileSummary) {
 			m = &ModelUsage{}
 			a.Models[model] = m
 		}
-		m.add(*u)
+		m.Add(*u)
 	}
 	for minute, n := range s.perMin {
 		a.perMin[minute] += n

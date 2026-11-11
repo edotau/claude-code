@@ -2,7 +2,6 @@ package inflight
 
 import (
 	"bytes"
-	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -425,9 +424,8 @@ func transcriptHas(path string, needle []byte) bool {
 // Base is the per-account cap on concurrent agents unless a profile's `concurrency` overrides it.
 const Base = 24
 
-// Limits are the caps: Base per account, Total across the machine, Override per account key.
+// Limits are the caps: Total across the machine, Override per account key (else Base).
 type Limits struct {
-	Base     int
 	Total    int
 	Override map[string]int
 }
@@ -437,7 +435,7 @@ func (l Limits) For(account string) int {
 	if n := l.Override[account]; n > 0 {
 		return n
 	}
-	return cmp.Or(l.Base, Base)
+	return Base
 }
 
 // ComputeLimits: Total = min(Base × max(len(available), 1), 4 × cpus); pure.
@@ -446,5 +444,5 @@ func ComputeLimits(available []string, override map[string]int, cpus int) Limits
 	if cpus > 0 {
 		total = min(total, 4*cpus)
 	}
-	return Limits{Base: Base, Total: total, Override: override}
+	return Limits{Total: total, Override: override}
 }
