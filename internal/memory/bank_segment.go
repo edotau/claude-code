@@ -3,11 +3,16 @@ package memory
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
+
+	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
 type segMode uint8
@@ -486,4 +491,105 @@ func storeFiles(e repoEntry) []corpusFile {
 		out = append(out, corpusFile{Bank: e.Key, Path: path, Mode: segNative})
 	}
 	return out
+}
+
+// reservedNames is every filename a memory dir reserves; the six typed bank files are reserved by name too.
+var reservedNames = reservedNameSet()
+
+func reservedNameSet() map[string]bool {
+	out := map[string]bool{
+		nativeIndexFile:        true,
+		nativeSearchableFile:   true,
+		nativeArchiveIndexFile: true,
+		catalogFile:            true,
+	}
+	for _, name := range bankFiles {
+		out[name] = true
+	}
+	return out
+}
+
+// reservedKindFold reports whether name is reserved under case folding ("activecontext.md" opens activeContext.md).
+func reservedKindFold(name string) bool {
+	for reserved := range reservedNames {
+		if strings.EqualFold(reserved, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasExactEntry reports whether dir lists name in exactly this spelling; false means Lstat hit a case-folded twin.
+func hasExactEntry(dir, name string) bool {
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		if e.Name() == name {
+			return true
+		}
+	}
+	return false
+}
+
+// frontmatterValue is key's value inside a closed leading `---` block; "" when absent, unclosed, or a list/map.
+func frontmatterValue(raw, key string) string {
+	lines := strings.Split(raw, "\n")
+	if strings.TrimSpace(lines[0]) != "---" {
+		return ""
+	}
+	value := ""
+	for _, line := range lines[1:] {
+		if strings.TrimSpace(line) == "---" {
+			return value
+		}
+		if v, found := strings.CutPrefix(line, key+":"); found && value == "" {
+			value = strings.Trim(strings.TrimSpace(v), `"'`)
+		}
+	}
+	return ""
+}
+
+// readIfExists reads path; an absent file is empty, any other failure is returned. A var so tests count reads.
+var readIfExists = func(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	return data, err
+}
+
+// nativeDirs lists Claude Code's auto-memory dirs recall searches: the harness's own (user-wide facts), then root's.
+func nativeDirs(root string) []string {
+	out := []string{HomeBankDir()} // native shares the repo's store dir; the home tier holds the user-wide notes
+	if d := Dir(root); !slices.Contains(out, d) {
+		out = append(out, d)
+	}
+	return out
+}
+
+// Native auto-memory file names recognised when classifying a bank directory's files.
+const (
+	nativeIndexFile        = "MEMORY.md"     // the injected index of `- [Title](topic.md) — hook` lines
+	nativeSearchableFile   = "SEARCHABLE.md" // legacy overflow file, classified only
+	nativeArchiveIndexFile = "INDEX.md"      // legacy archive index, classified only
+)
+
+// topicFrontmatter splits a topic file into its name, description and body; false without a closed block and a name.
+// The closing fence must start its own line (markdown.StripFrontMatter), so a name/description value that merely
+// contains the literal bytes "---" can't be mistaken for it.
+func topicFrontmatter(raw string) (name, desc, body string, ok bool) {
+	prefix, content := markdown.StripFrontMatter([]byte(raw))
+	if prefix == nil {
+		return "", "", "", false // an absent or unclosed block is body text, not frontmatter
+	}
+	for line := range strings.SplitSeq(string(prefix), "\n") {
+		if v, found := strings.CutPrefix(line, "name:"); found {
+			name = strings.Trim(strings.TrimSpace(v), `"'`)
+		} else if v, found := strings.CutPrefix(line, "description:"); found {
+			desc = strings.Trim(strings.TrimSpace(v), `"'`)
+		}
+	}
+	if name == "" {
+		return "", "", "", false
+	}
+	return name, desc, strings.TrimSpace(string(content)), true
 }
