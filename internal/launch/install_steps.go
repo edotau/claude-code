@@ -412,7 +412,7 @@ func linkUserBins(w io.Writer, target string, dryRun bool) error {
 	if err := linkOnPath(w, "claude-code", target, dryRun); err != nil {
 		return err
 	}
-	if rtk := paths.RTKPinned(); executableRealPath(rtk) != "" {
+	if rtk := paths.RTKPinned(); paths.ExecutableRealPath(rtk) != "" {
 		return linkOnPath(w, "rtk", rtk, dryRun)
 	}
 	return nil

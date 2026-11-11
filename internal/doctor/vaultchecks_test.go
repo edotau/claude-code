@@ -1,4 +1,4 @@
-package providers
+package doctor
 
 import (
 	"bytes"
@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -27,12 +28,12 @@ func doctorTestVault(t *testing.T) string {
 	return dir
 }
 
-func doctorTestResult(reg *Registry) (int, string) {
-	rc := ExitClean
+func doctorTestResult(reg *providers.Registry) (int, string) {
+	rc := providers.ExitClean
 	var details []string
-	for _, c := range DoctorChecks(reg) {
+	for _, c := range vaultChecks(reg) {
 		if c.Gate && !c.OK {
-			rc = ExitFindings
+			rc = providers.ExitFindings
 		}
 		details = append(details, c.Name+": "+c.Detail)
 	}
@@ -51,8 +52,8 @@ func TestDoctorMissingVaultIgnoresLegacyFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	rc, out := doctorTestResult(&Registry{})
-	if rc != ExitClean {
+	rc, out := doctorTestResult(&providers.Registry{})
+	if rc != providers.ExitClean {
 		t.Fatalf("DoctorChecks = %d, want clean: %s", rc, out)
 	}
 	for _, want := range []string{
@@ -95,8 +96,8 @@ func TestDoctorMasterKeySources(t *testing.T) {
 			if err := vault.Store("DOCTOR_KEY", value); err != nil {
 				t.Fatal(err)
 			}
-			rc, out := doctorTestResult(&Registry{})
-			if rc != ExitClean {
+			rc, out := doctorTestResult(&providers.Registry{})
+			if rc != providers.ExitClean {
 				t.Fatalf("Doctor = %d, want clean: %s", rc, out)
 			}
 			if !strings.Contains(out, "1 secret(s); master key from "+source) ||
@@ -127,8 +128,8 @@ func TestDoctorLockedVault(t *testing.T) {
 				t.Setenv("HARNESS_VAULT_KEY", "")
 				want = "keyring: unavailable"
 			}
-			rc, out := doctorTestResult(&Registry{})
-			if rc != ExitFindings {
+			rc, out := doctorTestResult(&providers.Registry{})
+			if rc != providers.ExitFindings {
 				t.Fatalf("Doctor = %d, want findings: %s", rc, out)
 			}
 			if !strings.Contains(out, "vault holds 1 secret(s) but the master key does not open it:") ||
@@ -174,8 +175,8 @@ func TestDoctorRetiredKeys(t *testing.T) {
 		{"error", "vault retired key " + kid + ": keyring: unavailable: lookup-failed"},
 	} {
 		t.Setenv("RETIRED_MODE", tc.mode)
-		rc, out := doctorTestResult(&Registry{})
-		if rc != ExitClean {
+		rc, out := doctorTestResult(&providers.Registry{})
+		if rc != providers.ExitClean {
 			t.Fatalf("Doctor = %d: %s", rc, out)
 		}
 		if !strings.Contains(out, tc.want) {
@@ -215,8 +216,8 @@ func fakeRetiredKeyTool(t *testing.T, kid string) {
 func TestDoctorUnreadableVaultIsFailure(t *testing.T) {
 	doctorTestVault(t)
 	vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(currentVaultSchema(t)+1))
-	rc, out := doctorTestResult(&Registry{})
-	if rc != ExitFindings {
+	rc, out := doctorTestResult(&providers.Registry{})
+	if rc != providers.ExitFindings {
 		t.Fatalf("Doctor = %d, want findings: %s", rc, out)
 	}
 	if !strings.Contains(out, "vault is unreadable:") || !strings.Contains(out, "schema "+strconv.Itoa(currentVaultSchema(t)+1)) {
@@ -246,8 +247,8 @@ func TestDoctorFlagsArchivePerms(t *testing.T) {
 	}
 	manifestJSON := `{"items":[{"backup":"` + strings.ReplaceAll(bak, `\`, `\\`) + `"}]}`
 	writeTestFile(t, filepath.Join(stateDir, "vault-migration.json"), manifestJSON, 0o600)
-	rc, out := doctorTestResult(&Registry{})
-	if rc != ExitFindings {
+	rc, out := doctorTestResult(&providers.Registry{})
+	if rc != providers.ExitFindings {
 		t.Fatalf("Doctor = %d, want findings: %s", rc, out)
 	}
 	if !strings.Contains(out, loose+" is 0644, want 0600 — run: chmod 600 "+loose) {
@@ -339,13 +340,13 @@ func TestDoctorPassesOnCleanStore(t *testing.T) {
 	vaulttest.Secret(t, "JIRA_TOKEN", "v")
 	vaulttest.Secret(t, "OPENA_API_KEY", "v")
 	vaulttest.Secret(t, "OPENXYZ_API_KEY", "v") // distance 3 from OPENAI_API_KEY
-	reg, err := Load()
+	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	rc, detail := doctorTestResult(reg)
-	if rc != ExitClean {
-		t.Fatalf("DoctorChecks rc = %d, want %d:\n%s", rc, ExitClean, detail)
+	if rc != providers.ExitClean {
+		t.Fatalf("DoctorChecks rc = %d, want %d:\n%s", rc, providers.ExitClean, detail)
 	}
 	if !strings.Contains(detail, "OPENA_API_KEY (did you mean OPENAI_API_KEY?)") ||
 		strings.Contains(detail, "JIRA_TOKEN (") || strings.Contains(detail, "OPENXYZ_API_KEY (") ||

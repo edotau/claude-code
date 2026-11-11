@@ -397,3 +397,20 @@ func Within(path, base string) bool {
 	}
 	return strings.HasPrefix(path, base)
 }
+
+// ExecutableRealPath is the absolute symlink-resolved path of candidate if it is an executable file, else "".
+func ExecutableRealPath(candidate string) string {
+	info, err := os.Stat(candidate)
+	if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+		return ""
+	}
+	real, err := filepath.EvalSymlinks(candidate)
+	if err != nil {
+		return ""
+	}
+	real, err = filepath.Abs(real)
+	if err != nil {
+		return ""
+	}
+	return real
+}

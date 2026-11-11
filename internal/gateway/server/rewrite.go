@@ -143,13 +143,13 @@ const (
 
 // attribute stamps the claude-code User-Agent (and tags on an AI Gateway row) and drops launcher headers.
 func (r *Router) attribute(h http.Header, in *http.Request, p *providers.Provider) {
-	gateway.StripLauncherHeaders(h)
+	StripLauncherHeaders(h)
 	for k, v := range r.headers {
 		h.Set(k, v)
 	}
 	h.Set("User-Agent", userAgent(in.Header.Get(gateway.AgentHeader)))
 	if r.tags != "" && p.IsAIGateway() {
-		h.Set(gateway.RequestTagsHeader, r.tags)
+		h.Set(RequestTagsHeader, r.tags)
 	}
 }
 
@@ -201,7 +201,7 @@ func parseRequestTags(raw string, log io.Writer) string {
 		reason = "not a JSON object of string values"
 	}
 	if reason != "" {
-		fmt.Fprintf(log, "proxy: %s ignored: %s\n", gateway.RequestTagsEnv, reason)
+		fmt.Fprintf(log, "proxy: %s ignored: %s\n", RequestTagsEnv, reason)
 		return ""
 	}
 	return raw

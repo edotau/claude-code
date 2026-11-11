@@ -2,6 +2,7 @@ package agentconfig
 
 import (
 	"encoding/json"
+	"errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -220,4 +221,147 @@ func skipQuoted(line string, i int, quote byte) int {
 		}
 	}
 	return i
+}
+
+// ErrOpenString reports a multiline string whose terminator is not in the value yet.
+var ErrOpenString = errors.New("unterminated multiline string")
+
+// tripleString parses a TOML triple-quoted string at the start of value, trimming the first newline.
+func tripleString(value string) (parsed, rest string, err error) {
+	quote := value[:3]
+	end := strings.Index(value[3:], quote)
+	if end < 0 {
+		return "", "", ErrOpenString
+	}
+	body := strings.TrimPrefix(strings.TrimPrefix(value[3:3+end], "\r"), "\n")
+	rest = value[3+end+3:]
+	if quote == "\"\"\"" {
+		body = strings.ReplaceAll(strings.ReplaceAll(body, "\r", ""), "\n", `\n`)
+		if body, err = strconv.Unquote(`"` + strings.ReplaceAll(body, `"`, `\"`) + `"`); err != nil {
+			return "", "", err
+		}
+	}
+	return body, rest, nil
+}
+
+// TOMLStringValue strictly parses one basic, literal or triple-quoted string value, allowing a trailing comment.
+func TOMLStringValue(value string) (string, error) {
+	var parsed, rest string
+	var err error
+	switch {
+	case strings.HasPrefix(value, "\"\"\"") || strings.HasPrefix(value, "'''"):
+		parsed, rest, err = tripleString(value)
+	case strings.HasPrefix(value, "'"):
+		parsed, rest, err = literalString(value)
+	default:
+		parsed, rest, err = basicString(value)
+	}
+	if err != nil {
+		return "", err
+	}
+	if rest = strings.TrimSpace(rest); rest != "" && !strings.HasPrefix(rest, "#") {
+		return "", errors.New("unexpected text after string")
+	}
+	return parsed, nil
+}
+
+// literalString parses a single-quoted TOML literal string at the start of value.
+func literalString(value string) (parsed, rest string, err error) {
+	end := strings.IndexByte(value[1:], '\'')
+	if end < 0 {
+		return "", "", errors.New("unterminated literal string")
+	}
+	return value[1 : end+1], value[end+2:], nil
+}
+
+// basicString parses a double-quoted TOML string at the start of value.
+func basicString(value string) (parsed, rest string, err error) {
+	quoted, err := strconv.QuotedPrefix(value)
+	if err != nil || !strings.HasPrefix(quoted, "\"") {
+		return "", "", errors.New("expected quoted string")
+	}
+	if parsed, err = strconv.Unquote(quoted); err != nil {
+		return "", "", err
+	}
+	return parsed, value[len(quoted):], nil
+}
+
+// TOMLTableName is the name of a `[name]` table header line, a trailing comment allowed; "" when not a header.
+func TOMLTableName(line string) string {
+	if !strings.HasPrefix(line, "[") || strings.HasPrefix(line, "[[") {
+		return ""
+	}
+	end := headerClose(line)
+	if end < 0 {
+		return ""
+	}
+	if rest := strings.TrimSpace(line[end+1:]); rest != "" && !strings.HasPrefix(rest, "#") {
+		return ""
+	}
+	return strings.TrimSpace(line[1:end])
+}
+
+// headerClose is the index of the `]` closing a table header, skipping any `]` inside quoted key parts; -1 if none.
+func headerClose(line string) int {
+	var quote byte // open key quote (" or '), 0 outside quotes
+	escaped := false
+	for i := 1; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case quote == '"' && escaped:
+			escaped = false
+		case quote == '"' && c == '\\':
+			escaped = true
+		case quote != 0 && c == quote:
+			quote = 0
+		case quote != 0:
+		case c == '"' || c == '\'':
+			quote = c
+		case c == ']':
+			return i
+		}
+	}
+	return -1
+}
+
+// SplitInlineTable splits top-level TOML inline-table commas, ignoring quoted strings.
+func SplitInlineTable(s string) []string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "{")
+	s = strings.TrimSuffix(s, "}")
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	var parts []string
+	depth, start := 0, 0
+	var quote rune // the open string delimiter (" or '), 0 outside a string
+	escaped := false
+	for i, r := range s {
+		if quote != 0 {
+			switch {
+			case escaped:
+				escaped = false
+			case r == '\\' && quote == '"':
+				escaped = true
+			case r == quote:
+				quote = 0
+			}
+			continue
+		}
+		switch r {
+		case '"', '\'':
+			quote = r
+		case '{':
+			depth++
+		case '}':
+			depth--
+		case ',':
+			if depth == 0 {
+				parts = append(parts, strings.TrimSpace(s[start:i]))
+				start = i + 1
+			}
+		}
+	}
+	return append(parts, strings.TrimSpace(s[start:]))
 }

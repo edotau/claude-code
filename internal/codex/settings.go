@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -158,9 +157,9 @@ func (c *codexScan) field(line string) error {
 		return nil
 	}
 	value = strings.TrimSpace(value)
-	parsed, err := codexSettingString(value)
+	parsed, err := agentconfig.TOMLStringValue(value)
 	switch {
-	case errors.Is(err, errOpenString):
+	case errors.Is(err, agentconfig.ErrOpenString):
 		c.pendingKey, c.pending = key, value
 	case err != nil:
 		return fmt.Errorf("codex: cannot read %s as a string", key)
@@ -172,73 +171,12 @@ func (c *codexScan) field(line string) error {
 
 // finish parses the completed multiline string.
 func (c *codexScan) finish() error {
-	parsed, err := codexSettingString(c.pending)
+	parsed, err := agentconfig.TOMLStringValue(c.pending)
 	if err != nil {
 		return fmt.Errorf("codex: cannot read %s as a string", c.pendingKey)
 	}
 	c.values[c.pendingKey], c.pendingKey = parsed, ""
 	return nil
-}
-
-var errOpenString = errors.New("unterminated multiline string")
-
-// codexTripleString parses a TOML triple-quoted string at the start of value, trimming the first newline.
-func codexTripleString(value string) (parsed, rest string, err error) {
-	quote := value[:3]
-	end := strings.Index(value[3:], quote)
-	if end < 0 {
-		return "", "", errOpenString
-	}
-	body := strings.TrimPrefix(strings.TrimPrefix(value[3:3+end], "\r"), "\n")
-	rest = value[3+end+3:]
-	if quote == "\"\"\"" {
-		body = strings.ReplaceAll(strings.ReplaceAll(body, "\r", ""), "\n", `\n`)
-		if body, err = strconv.Unquote(`"` + strings.ReplaceAll(body, `"`, `\"`) + `"`); err != nil {
-			return "", "", err
-		}
-	}
-	return body, rest, nil
-}
-
-func codexSettingString(value string) (string, error) {
-	var parsed, rest string
-	var err error
-	switch {
-	case strings.HasPrefix(value, "\"\"\"") || strings.HasPrefix(value, "'''"):
-		parsed, rest, err = codexTripleString(value)
-	case strings.HasPrefix(value, "'"):
-		parsed, rest, err = codexLiteralString(value)
-	default:
-		parsed, rest, err = codexBasicString(value)
-	}
-	if err != nil {
-		return "", err
-	}
-	if rest = strings.TrimSpace(rest); rest != "" && !strings.HasPrefix(rest, "#") {
-		return "", errors.New("unexpected text after string")
-	}
-	return parsed, nil
-}
-
-// codexLiteralString parses a single-quoted TOML literal string at the start of value.
-func codexLiteralString(value string) (parsed, rest string, err error) {
-	end := strings.IndexByte(value[1:], '\'')
-	if end < 0 {
-		return "", "", errors.New("unterminated literal string")
-	}
-	return value[1 : end+1], value[end+2:], nil
-}
-
-// codexBasicString parses a double-quoted TOML string at the start of value.
-func codexBasicString(value string) (parsed, rest string, err error) {
-	quoted, err := strconv.QuotedPrefix(value)
-	if err != nil || !strings.HasPrefix(quoted, "\"") {
-		return "", "", errors.New("expected quoted string")
-	}
-	if parsed, err = strconv.Unquote(quoted); err != nil {
-		return "", "", err
-	}
-	return parsed, value[len(quoted):], nil
 }
 
 // settingsPatch locates codex's config.toml and returns its current bytes with the saved preferences applied as next.

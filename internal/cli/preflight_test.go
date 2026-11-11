@@ -1,4 +1,4 @@
-package doctor
+package cli
 
 import (
 	"slices"
@@ -12,7 +12,7 @@ import (
 )
 
 func TestPreflightProfileWithoutLiveFails(t *testing.T) {
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Preflight([]string{"--profile", "prod"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdPreflight([]string{"--profile", "prod"}) })
 	if code == 0 || !strings.Contains(stderr, "--profile requires --live") {
 		t.Fatalf("code=%d stderr=%q, want non-zero with the --profile-requires---live message", code, stderr)
 	}
@@ -33,7 +33,7 @@ func TestPreflightLiveCorruptPinsFails(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, "{")
 
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Preflight([]string{"--live"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdPreflight([]string{"--live"}) })
 	if code == 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q, want failure when corrupt pins prevent every pong", code, stdout, stderr)
 	}
@@ -58,7 +58,7 @@ func TestPreflightDiscoverRejectsConflictingFlags(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			args := append([]string{"--discover", "doctor-conflict-test-missing"}, tc.args...)
-			code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Preflight(args) })
+			code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdPreflight(args) })
 			if code == 0 || !strings.Contains(stderr, "--discover cannot be combined with --live, --refresh or --profile") {
 				t.Fatalf("code=%d stderr=%q, want discover conflict before discovery executes", code, stderr)
 			}
@@ -69,9 +69,9 @@ func TestPreflightDiscoverRejectsConflictingFlags(t *testing.T) {
 	}
 }
 
-func TestPreflightSpecNodeListsProfileFlag(t *testing.T) {
+func TestPreflightSpecListsProfileFlag(t *testing.T) {
 	var names []string
-	for _, f := range PreflightSpecNode().Flags {
+	for _, f := range preflightSpec().Flags {
 		names = append(names, f.Name)
 	}
 	if !slices.Contains(names, "profile") {

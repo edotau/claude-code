@@ -150,7 +150,7 @@ func TestHarnessHeadersForwarded(t *testing.T) {
 
 func TestParseHeadersWarnsOnce(t *testing.T) {
 	var log strings.Builder
-	got := gateway.ParseHeaders("A: 1\nbad name: x\nAuthorization: y\nB: v\x00\n", &log)
+	got := ParseHeaders("A: 1\nbad name: x\nAuthorization: y\nB: v\x00\n", &log)
 	if len(got) != 1 || got["A"] != "1" {
 		t.Errorf("got %v", got)
 	}

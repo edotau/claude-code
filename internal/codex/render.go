@@ -154,53 +154,11 @@ func codexBlockFromArgv(argv []string) (string, error) {
 	}
 	b.WriteString("\n")
 	b.WriteString("[model_providers.claude-code]\n")
-	for _, f := range splitTopLevelInline(tableVal) {
+	for _, f := range agentconfig.SplitInlineTable(tableVal) {
 		b.WriteString(f)
 		b.WriteString("\n")
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
-}
-
-// splitTopLevelInline splits top-level TOML inline-table commas, ignoring quoted strings.
-func splitTopLevelInline(s string) []string {
-	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(s, "{")
-	s = strings.TrimSuffix(s, "}")
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return nil
-	}
-	var parts []string
-	depth, start := 0, 0
-	var quote rune // the open string delimiter (" or '), 0 outside a string
-	escaped := false
-	for i, r := range s {
-		if quote != 0 {
-			switch {
-			case escaped:
-				escaped = false
-			case r == '\\' && quote == '"':
-				escaped = true
-			case r == quote:
-				quote = 0
-			}
-			continue
-		}
-		switch r {
-		case '"', '\'':
-			quote = r
-		case '{':
-			depth++
-		case '}':
-			depth--
-		case ',':
-			if depth == 0 {
-				parts = append(parts, strings.TrimSpace(s[start:i]))
-				start = i + 1
-			}
-		}
-	}
-	return append(parts, strings.TrimSpace(s[start:]))
 }
 
 func renderCodex(reg *providers.Registry, sel providers.Selection, o agentconfig.RenderOptions, out io.Writer) (bool, error) {

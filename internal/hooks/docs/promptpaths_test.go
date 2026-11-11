@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/pathview"
 )
 
 func scanWinPaths(text string) []string {
@@ -30,7 +30,7 @@ func TestDescribeRejectsSpecialFiles(t *testing.T) {
 }
 
 // promptPathFeedback runs the hook core with res injected, so tests do not depend on the host's mounts.
-func promptPathFeedback(r io.Reader, stdout io.Writer, res *paths.Resolver) int {
+func promptPathFeedback(r io.Reader, stdout io.Writer, res *pathview.Resolver) int {
 	in := core.ParseInput(r)
 	return core.Emit(in.Agent(), "UserPromptSubmit", pathResolverResult(in, res), stdout, io.Discard)
 }
@@ -63,7 +63,7 @@ func TestPathResolverEmitsUserVisibleFeedback(t *testing.T) {
 
 	var out bytes.Buffer
 	in := strings.NewReader(`{"prompt":"look at ` + img + `"}`)
-	if code := promptPathFeedback(in, &out, paths.NewResolver(nil)); code != core.ExitProceed {
+	if code := promptPathFeedback(in, &out, pathview.NewResolver(nil)); code != core.ExitProceed {
 		t.Fatalf("exit = %d, want ExitProceed", code)
 	}
 	var got struct {
@@ -92,7 +92,7 @@ func TestPathResolverEmitsUserVisibleFeedback(t *testing.T) {
 func TestPromptPathFeedbackSilentWhenNothingToReport(t *testing.T) {
 	var out bytes.Buffer
 	in := strings.NewReader(`{"prompt":"just prose about a png in the abstract"}`)
-	promptPathFeedback(in, &out, paths.NewResolver(nil))
+	promptPathFeedback(in, &out, pathview.NewResolver(nil))
 	if out.Len() != 0 {
 		t.Errorf("expected silence, got:\n%s", out.String())
 	}
@@ -107,7 +107,7 @@ func TestPromptPathFeedbackReportsNonImageFile(t *testing.T) {
 	}
 	var out bytes.Buffer
 	in := strings.NewReader(`{"prompt":"read ` + f + `"}`)
-	promptPathFeedback(in, &out, paths.NewResolver(nil))
+	promptPathFeedback(in, &out, pathview.NewResolver(nil))
 	if !strings.Contains(out.String(), "notes.md") {
 		t.Errorf("expected the resolved path in the feedback:\n%s", out.String())
 	}
@@ -131,7 +131,7 @@ func TestPromptPathsIgnorePosixInsideForeignToken(t *testing.T) {
 	if _, err := os.Stat("/etc/hostname"); err != nil {
 		t.Skip("needs /etc/hostname")
 	}
-	res := &paths.Resolver{Home: t.TempDir()}
+	res := &pathview.Resolver{Home: t.TempDir()}
 	for _, prompt := range []string{"read ~/etc/hostname", `read "~/etc/hostname"`, "read file://nohost/etc/hostname"} {
 		if reps := collectReports(prompt, res); len(reps) != 0 {
 			t.Errorf("%q leaked %+v", prompt, reps)
@@ -149,8 +149,8 @@ func TestPromptPathsHostPathNotDrive(t *testing.T) {
 	if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	res := &paths.Resolver{Mounts: []paths.Mount{
-		{Point: dir, Kind: paths.KindNFS, Host: "nas", RemotePath: "/export/data"}}}
+	res := &pathview.Resolver{Mounts: []pathview.Mount{
+		{Point: dir, Kind: pathview.KindNFS, Host: "nas", RemotePath: "/export/data"}}}
 	var out bytes.Buffer
 	promptPathFeedback(strings.NewReader(`{"prompt":"open nas:/export/data/d/a.txt now"}`), &out, res)
 	if !strings.Contains(out.String(), f) {
@@ -195,7 +195,7 @@ func TestCollectReportsPunctuatedFilenames(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			reps := collectReports(c.text(dir), &paths.Resolver{})
+			reps := collectReports(c.text(dir), &pathview.Resolver{})
 			if len(reps) != len(c.want) {
 				t.Fatalf("reps = %+v, want %v", reps, c.want)
 			}
@@ -232,7 +232,7 @@ func TestCollectReportsFetchesClientOnlyPath(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var asked []string
 			stubBridge(t, true, func(p string) (string, error) { asked = append(asked, p); return local, nil })
-			reps := collectReports(prompt, &paths.Resolver{})
+			reps := collectReports(prompt, &pathview.Resolver{})
 			if len(reps) != 1 || reps[0].win != mac || reps[0].path != local || reps[0].err != "" {
 				t.Fatalf("reps = %+v, want one %s -> %s", reps, mac, local)
 			}
@@ -249,7 +249,7 @@ func TestCollectReportsFetchesClientOnlyPath(t *testing.T) {
 func TestCollectReportsClientFetchFailureAndGates(t *testing.T) {
 	failing := func(string) (string, error) { return "", os.ErrPermission }
 	stubBridge(t, true, failing)
-	reps := collectReports(`open /Users/me/a.png`, &paths.Resolver{})
+	reps := collectReports(`open /Users/me/a.png`, &pathview.Resolver{})
 	if len(reps) != 1 || !strings.Contains(reps[0].err, "permission") {
 		t.Fatalf("reps = %+v, want one error report", reps)
 	}
@@ -259,11 +259,11 @@ func TestCollectReportsClientFetchFailureAndGates(t *testing.T) {
 	calls := 0
 	counting := func(string) (string, error) { calls++; return "", os.ErrPermission }
 	stubBridge(t, false, counting)
-	if reps := collectReports(`open /Users/me/a.png`, &paths.Resolver{}); len(reps) != 0 || calls != 0 {
+	if reps := collectReports(`open /Users/me/a.png`, &pathview.Resolver{}); len(reps) != 0 || calls != 0 {
 		t.Errorf("bridge down: reps=%+v calls=%d, want none", reps, calls)
 	}
 	stubBridge(t, true, counting)
-	if reps := collectReports(`open /home/nobody/a.png`, &paths.Resolver{}); len(reps) != 0 || calls != 0 {
+	if reps := collectReports(`open /home/nobody/a.png`, &pathview.Resolver{}); len(reps) != 0 || calls != 0 {
 		t.Errorf("non-Mac prefix: reps=%+v calls=%d, want none", reps, calls)
 	}
 }
@@ -272,7 +272,7 @@ func TestCollectReportsClientFetchFailureAndGates(t *testing.T) {
 func TestResolvePathsReadsMountsOnlyForPathTokens(t *testing.T) {
 	calls := 0
 	orig := defaultResolver
-	defaultResolver = func() *paths.Resolver { calls++; return paths.NewResolver(nil) }
+	defaultResolver = func() *pathview.Resolver { calls++; return pathview.NewResolver(nil) }
 	t.Cleanup(func() { defaultResolver = orig })
 	if res := ResolvePaths(&core.Input{Prompt: "just prose, no path at all"}); res.Context != "" || calls != 0 {
 		t.Fatalf("path-free prompt: context=%q resolver calls=%d, want none", res.Context, calls)

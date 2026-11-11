@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -46,13 +45,15 @@ type CredState struct {
 	Present bool
 }
 
-// credentialNames is the fixed order Credentials and credentialNote report in.
-var credentialNames = providers.TailscaleNames
+// CredentialNames are the Tailscale credentials the harness stores, in the order Credentials and credentialNote report.
+var CredentialNames = []string{
+	"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET", "TAILSCALE_API_KEY", "TAILSCALE_AUTHKEY",
+}
 
 // Credentials reports presence and source for every Tailscale credential name, never a value.
 func Credentials() []CredState {
-	out := make([]CredState, len(credentialNames))
-	for i, name := range credentialNames {
+	out := make([]CredState, len(CredentialNames))
+	for i, name := range CredentialNames {
 		_, source, ok := vault.Get(name)
 		out[i] = CredState{Name: name, Source: source, Present: ok}
 	}

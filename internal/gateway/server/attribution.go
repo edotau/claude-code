@@ -1,4 +1,4 @@
-package gateway
+package server
 
 import (
 	"fmt"
@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/textproto"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/gateway"
 )
 
 // RequestTagsEnv holds a single-line JSON object of request tags sent to Databricks AI Gateway rows.
@@ -20,7 +22,7 @@ const (
 )
 
 // launcherHeaders are the proxy's own request headers; they never go upstream.
-var launcherHeaders = []string{AgentHeader, IdentityHeader, "X-Claude-Code-Session-Id", ClientHeader}
+var launcherHeaders = []string{gateway.AgentHeader, gateway.IdentityHeader, "X-Claude-Code-Session-Id", gateway.ClientHeader}
 
 // protectedHeaders can never be set from HARNESS_HEADERS: credentials, attribution, and framing.
 var protectedHeaders = map[string]bool{

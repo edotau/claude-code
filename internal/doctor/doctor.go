@@ -10,18 +10,16 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/claude"
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // doctorChecks is a test seam over the probing launch.DoctorChecks plus the soft, config-only MCP row.
-var doctorChecks = func() ([]launch.Check, bool) {
-	checks, ok := launch.DoctorChecks()
+var doctorChecks = func() ([]Check, bool) {
+	checks, ok := Checks()
 	mcpOK, detail := summary(mcpOptions(false))
-	return append(checks, launch.Check{Name: "mcp", OK: mcpOK, Detail: detail}), ok
+	return append(checks, Check{Name: "mcp", OK: mcpOK, Detail: detail}), ok
 }
 
 type doctorOpts struct {
@@ -117,16 +115,16 @@ func runDoctor(o *doctorOpts, targets []string) int {
 }
 
 // printChecks renders checks as JSON or text and returns the exit code: 1 when !ok.
-func printChecks(o *doctorOpts, checks []launch.Check, ok bool) int {
+func printChecks(o *doctorOpts, checks []Check, ok bool) int {
 	if *o.format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, struct {
-			OK     bool           `json:"ok"`
-			Checks []launch.Check `json:"checks"`
+			OK     bool    `json:"ok"`
+			Checks []Check `json:"checks"`
 		}{ok, checks}); err != nil {
 			return helptext.Fail("doctor: %v", err)
 		}
 	} else {
-		launch.PrintChecks(os.Stdout, checks)
+		PrintChecks(os.Stdout, checks)
 	}
 	if !ok {
 		return 1
@@ -166,8 +164,8 @@ func runDoctorAudits(o *doctorOpts, targets []string) int {
 		helptext.Fail("doctor: --scan, --git and --secrets print text only")
 		return 2
 	}
-	return providers.RunAudits(os.Stdout, providers.AuditOpts{Scan: o.scan || o.all, Git: o.gitScan || o.all, Vault: o.all,
-		Targets: targets, Rev: o.rev, Since: o.since, VaultDoctor: launch.VaultDoctor})
+	return RunAudits(os.Stdout, AuditOpts{Scan: o.scan || o.all, Git: o.gitScan || o.all, Vault: o.all,
+		Targets: targets, Rev: o.rev, Since: o.since})
 }
 
 // refreshServed re-lists every pinned Databricks profile's endpoints into the served-models cache.

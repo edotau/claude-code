@@ -82,8 +82,8 @@ func newRouter(secret string) *Router {
 		cool: map[string]time.Time{}, dead: map[string]time.Time{}, cred: map[string]time.Time{}, credGen: map[string]int{},
 		marked: map[string]bool{}, oauth: providers.HeadlessOAuthToken}
 	r.sessions = newSessionStore(func() time.Time { return r.now() })
-	r.tags = parseRequestTags(os.Getenv(gateway.RequestTagsEnv), r.log)
-	r.headers = gateway.ParseHeaders(os.Getenv(gateway.HeadersEnv), r.log)
+	r.tags = parseRequestTags(os.Getenv(RequestTagsEnv), r.log)
+	r.headers = ParseHeaders(os.Getenv(HeadersEnv), r.log)
 	return r
 }
 
