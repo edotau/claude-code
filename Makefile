@@ -177,7 +177,7 @@ audit: compile  ## CI gate: lint, git secrets, test, build, vuln, docs
 	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory audit-git
 	@if [ "$(SKIP_TESTS)" = 1 ]; then echo -e "$(C_NOTE)tests skipped (SKIP_TESTS=1)"; else \
-		$(BIN) test ramdisk -- $(GO) test -timeout $(GO_TEST_TIMEOUT) ./internal/memory/... ./internal/worktree/... $(PKGS) && \
+		$(BIN) test ramdisk -- $(MAKE) audit-shards && \
 		$(MAKE) --no-print-directory audit-nokeyring; fi
 	$(GO) build $(PKGS)
 	@echo -e "$(C_OK)go check passed (lint + build$(if $(filter 1,$(SKIP_TESTS)),, + test))"
@@ -190,6 +190,21 @@ audit: compile  ## CI gate: lint, git secrets, test, build, vuln, docs
 	@t=$$(mktemp); rc=0; $(BIN) help-svg --out $$t && cmp -s $$t docs/images/cli-menu.svg || rc=1; rm -f $$t; \
 		if [ $$rc -ne 0 ]; then echo "docs/images/cli-menu.svg is stale: run make help-svg"; exit 1; fi
 	@echo -e "$(C_OK)audit passed (lint/test/build + sync smoke + generated docs; vuln when installed and online)"
+
+# `go test` runs one package's tests in series, so the two slowest packages are split by test-name range (first letter
+# after Test) and run beside the rest; each package's last shard skips every range, so no test is ever dropped.
+SHARDS_memory   := ^Test[ABCD] ^Test[RS]
+SHARDS_worktree := ^Test[P] ^Test[CR]
+SHARD_PKGS      ?= $(PKGS)
+.PHONY: audit-shards
+audit-shards:  # (folded into `audit`) go test SHARD_PKGS with memory and worktree sharded; any shard failing fails the run
+	@d=$$(mktemp -d); trap 'rm -rf $$d' EXIT; n=0; all=$$($(GO) list $(SHARD_PKGS)); \
+		shard() { n=$$((n+1)); { $(GO) test -timeout $(GO_TEST_TIMEOUT) "$$@" >$$d/$$n.log 2>&1 || touch $$d/$$n.fail; } & }; \
+		rest=$$(grep -vE '/internal/(memory|worktree)$$' <<<"$$all" || true); if [ -n "$$rest" ]; then shard $$rest; fi; \
+		$(foreach p,memory worktree,if grep -qE '/internal/$(p)$$' <<<"$$all"; then \
+		$(foreach s,$(SHARDS_$(p)),shard -run '$(s)' ./internal/$(p); ) \
+		shard -skip '$(subst $(C_SP),|,$(SHARDS_$(p)))' ./internal/$(p); fi; ) \
+		wait; rc=0; for f in $$d/*.log; do cat $$f; if [ -e $${f%.log}.fail ]; then rc=1; fi; done; exit $$rc
 
 # Commits being pushed: AUDIT_GIT_RANGE (pre-push sets it), else @{u}..HEAD, else the last AUDIT_GIT_FALLBACK commits.
 AUDIT_GIT_FALLBACK ?= 20
@@ -205,7 +220,7 @@ audit-nokeyring:  # (folded into `audit`) re-test vault importers with no keyrin
 	@pkgs=$$($(GO) list -f '{{.ImportPath}} {{join .Imports " "}} {{join .TestImports " "}} {{join .XTestImports " "}}' $(PKGS) \
 		| awk '/internal\/vault( |$$)/ {print $$1}'); \
 		env -u HARNESS_VAULT_KEY -u DBUS_SESSION_BUS_ADDRESS HARNESS_KEYRING=off \
-		$(GO) test -timeout $(GO_TEST_TIMEOUT) $$pkgs
+		$(BIN) test ramdisk -- $(MAKE) audit-shards SHARD_PKGS="$$(echo $$pkgs)"
 
 # One lint per kind, each a branch of lint-% below; `make lint-<kind>` runs one.
 LINT_WHAT := go shell yaml help docs js
