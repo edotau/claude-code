@@ -97,7 +97,7 @@ func importCandidates(path string, pick bool) ([]cfgCandidate, error) {
 }
 
 func runImport(path string, cands []cfgCandidate, options importOptions, apply, fold, seal bool) int {
-	rows, plan, oldDoc, newDoc, err := previewImport(cands, options, fold)
+	rows, plan, oldDoc, newDoc, err := planImport(cands, options, fold, false, nil)
 	if err != nil {
 		return fail("import: %v", err)
 	}
@@ -118,7 +118,7 @@ func runImport(path string, cands []cfgCandidate, options importOptions, apply, 
 	if err != nil {
 		return fail("import: %v", err)
 	}
-	if rows, err = commitImport(cands, options, fold, key); err != nil {
+	if rows, _, _, _, err = planImport(cands, options, fold, true, key); err != nil {
 		return fail("import: %v", err)
 	}
 	fmt.Println("wrote profiles")
@@ -128,18 +128,8 @@ func runImport(path string, cands []cfgCandidate, options importOptions, apply, 
 	return 0
 }
 
-// previewImport plans the import and the legacy fold without writing; it returns the rows, the fold plan and both docs.
-func previewImport(cands []cfgCandidate, options importOptions, fold bool) (
-	rows []importRow, plan foldPlan, oldDoc, newDoc []byte, err error,
-) {
-	return planImport(cands, options, fold, false, nil)
-}
-
-func commitImport(cands []cfgCandidate, options importOptions, fold bool, key *vault.Key) ([]importRow, error) {
-	rows, _, _, _, err := planImport(cands, options, fold, true, key)
-	return rows, err
-}
-
+// planImport plans the import and the legacy fold, writing only when write is set; it returns the rows, the fold plan
+// and both docs.
 func planImport(cands []cfgCandidate, options importOptions, fold, write bool, key *vault.Key) (
 	rows []importRow, plan foldPlan, oldDoc, newDoc []byte, err error,
 ) {

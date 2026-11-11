@@ -27,7 +27,7 @@ const (
 	targetClaude    = "claude"
 	targetCodex     = "codex"
 	// gatewayNote is shown for gateway-wire output.
-	gatewayNote = "gateway inference is budget-denied on this account (403); serving is the working path"
+	gatewayNote = "gateway inference may be budget-denied (403) on an account; serving is the verified path"
 	authHeader  = "[model_providers.databricks.auth]"
 	helperTTL   = "300000"
 )
@@ -111,7 +111,7 @@ func checkSetPair(kv string) error {
 	if !setKeyRE.MatchString(k) {
 		return fmt.Errorf("--set %q: keys must match [A-Za-z0-9_.-]+ (a bare TOML/env key)", k)
 	}
-	if credLeaf(k) {
+	if credLeaf(k) && !strings.HasSuffix(k, "_TTL_MS") {
 		return fmt.Errorf("--set %s: credential keys are refused; auth comes from the token helper", k)
 	}
 	return nil
@@ -148,7 +148,7 @@ func tmpl(name, host string) (string, error) {
 	return strings.ReplaceAll(string(b), placeholderHost, host), err
 }
 
-// cliTokenCmd is the template's own Databricks CLI token command.
+// cliTokenCmd is the Databricks CLI token command a rendered config runs for host.
 func cliTokenCmd(host string) string {
 	return "databricks auth token --host " + host + " --output json | jq -r '.access_token'"
 }
@@ -191,7 +191,7 @@ func renderClaude(o renderOptions) (renderResult, error) {
 	if env == nil {
 		return renderResult{}, errors.New("claude template has no env block")
 	}
-	for _, k := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_USE_GATEWAY", "ANTHROPIC_AUTH_TOKEN"} {
+	for _, k := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_USE_GATEWAY"} {
 		delete(env, k)
 	}
 	if err := claudeProviderEnv(env, o); err != nil {

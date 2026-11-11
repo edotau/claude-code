@@ -236,11 +236,7 @@ func clipBody(raw []byte) string {
 		}
 		return r
 	}, strings.ToValidUTF8(string(raw), "?"))
-	s := []rune(strings.Join(strings.Fields(clean), " "))
-	if len(s) > 120 {
-		s = append(s[:120], '…')
-	}
-	return string(s)
+	return textutil.CapRunes(strings.Join(strings.Fields(clean), " "), 120, "…")
 }
 
 // token converts a reply into a Token whose Expiry is zero when the server sent no lifetime.
@@ -338,12 +334,8 @@ func (l *loopback) Close() error {
 	return err
 }
 
-func (l *loopback) Addr() net.Addr { return l.ls[0].Addr() }
-
-// listenLoopback binds 127.0.0.1 (and ::1 when the host has it) on the first free port from first to first+PortSpan.
-func listenLoopback(first int) (*loopback, int, error) { return listenPorts(first, first+PortSpan) }
-
-// listenPorts is listenLoopback over first..last; first == last is an exact port, and busy is an error naming it.
+// listenPorts binds 127.0.0.1 (and ::1 when the host has it) on the first free port from first to last; first == last
+// is an exact port, and busy is an error naming it.
 func listenPorts(first, last int) (*loopback, int, error) {
 	var lc net.ListenConfig
 	var other error // the last listen error that was not EADDRINUSE

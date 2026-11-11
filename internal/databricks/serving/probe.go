@@ -18,6 +18,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // CheckTarget is one endpoint to probe: ID is what the table shows, Wire the served endpoint name.
@@ -337,9 +338,5 @@ func readBody(ctx context.Context, resp *http.Response, timeout time.Duration) (
 
 // TruncateMsg collapses whitespace and cuts b to 160 runes for one-line diagnostics.
 func TruncateMsg(b []byte) string {
-	s := strings.Join(strings.Fields(string(b)), " ")
-	if r := []rune(s); len(r) > 160 {
-		s = string(r[:160]) + "..."
-	}
-	return s
+	return textutil.CapRunes(strings.Join(strings.Fields(string(b)), " "), 160, "...")
 }

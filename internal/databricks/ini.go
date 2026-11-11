@@ -21,12 +21,6 @@ const (
 	envConfigFile = "DATABRICKS_CONFIG_FILE"
 )
 
-type profile struct {
-	name, host, authType, clientID, clientSecret, token, accountID, workspaceID string
-	pair, env                                                                   string
-	pairSet                                                                     bool
-}
-
 // defaultPath is $DATABRICKS_CONFIG_FILE (a leading ~ expanded), else the CLI's own ~/.databrickscfg.
 func defaultPath() string {
 	home, _ := os.UserHomeDir()
@@ -204,15 +198,9 @@ func cleanValue(raw string) string {
 	return v
 }
 
-func toProfile(s *section) profile {
-	k := s.keys
-	return profile{name: s.name, host: k["host"], authType: k["auth_type"], clientID: k["client_id"],
-		clientSecret: k["client_secret"], token: k["token"], accountID: k["account_id"], workspaceID: k["workspace_id"], pair: s.pair, pairSet: s.pairSet, env: k["env"]}
-}
-
 // parse returns the named profiles (DEFAULT and __settings__ excluded), whether DEFAULT has keys, and line notes.
-func parse(text string) ([]profile, bool, []string, error) {
-	var ps []profile
+func parse(text string) ([]*section, bool, []string, error) {
+	var ps []*section
 	hasDefault := false
 	secs, notes, err := parseSections(text)
 	if err != nil {
@@ -224,13 +212,13 @@ func parse(text string) ([]profile, bool, []string, error) {
 			hasDefault = hasDefault || len(s.keys) > 0
 		case isReserved(s.name):
 		default:
-			ps = append(ps, toProfile(s))
+			ps = append(ps, s)
 		}
 	}
 	return ps, hasDefault, notes, nil
 }
 
-func load(path string) ([]profile, bool, []string, error) {
+func load(path string) ([]*section, bool, []string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, false, nil, err
@@ -296,47 +284,46 @@ func readCandidates(path string) ([]cfgCandidate, []string, error) {
 }
 
 // classifyProfile maps a profile to a row authType; an explicit auth_type wins over inference from the keys present.
-func classifyProfile(p profile) cfgCandidate {
-	c := cfgCandidate{Pair: p.pair, PairSet: p.pairSet, Env: p.env, Name: p.name, ClientID: p.clientID,
-		AccountID: p.accountID, WorkspaceID: p.workspaceID,
-		HasSecret: p.clientSecret != "" || p.token != ""}
-	host, ok := normalizeHost(p.host)
+func classifyProfile(s *section) cfgCandidate {
+	k := s.keys
+	c := cfgCandidate{Pair: s.pair, PairSet: s.pairSet, Env: k["env"], Name: s.name, ClientID: k["client_id"],
+		AccountID: k["account_id"], WorkspaceID: k["workspace_id"]}
+	host, ok := normalizeHost(k["host"])
 	c.Host = host
-	c.Auth, c.Skip = rowAuth(p, effectiveCLIAuth(p), ok)
-	if c.Auth != providers.AuthM2M && c.Auth != providers.AuthPAT {
-		c.HasSecret = false // only these two seal a secret from the file
-	}
+	c.Auth, c.Skip = rowAuth(k, effectiveCLIAuth(k), ok)
+	// only m2m seals a client_secret and pat a token from the file
+	c.HasSecret = c.Auth == providers.AuthM2M && k["client_secret"] != "" || c.Auth == providers.AuthPAT && k["token"] != ""
 	return c
 }
 
 // effectiveCLIAuth is the explicit auth_type, else inferred from the credential keys present.
-func effectiveCLIAuth(p profile) string {
+func effectiveCLIAuth(k map[string]string) string {
 	switch {
-	case p.authType != "":
-		return p.authType
-	case p.clientID != "" && p.clientSecret != "":
+	case k["auth_type"] != "":
+		return k["auth_type"]
+	case k["client_id"] != "" && k["client_secret"] != "":
 		return cliAuthM2M
-	case p.token != "":
+	case k["token"] != "":
 		return cliAuthPAT
 	}
 	return cliAuthU2M
 }
 
 // rowAuth maps a CLI auth type to a row auth, or the reason the profile is skipped.
-func rowAuth(p profile, auth string, hostOK bool) (row, skip string) {
+func rowAuth(k map[string]string, auth string, hostOK bool) (row, skip string) {
 	switch {
 	case !hostOK:
 		return "", "no usable https host"
 	case auth == cliAuthU2M:
 		return providers.AuthOAuth, ""
-	case auth == cliAuthM2M && p.clientID == "":
+	case auth == cliAuthM2M && k["client_id"] == "":
 		return "", "oauth-m2m profile without client_id"
 	case auth == cliAuthM2M:
 		return providers.AuthM2M, ""
 	case auth == cliAuthPAT:
 		return providers.AuthPAT, ""
 	}
-	return "", fmt.Sprintf("unsupported auth_type %q", p.authType)
+	return "", fmt.Sprintf("unsupported auth_type %q", k["auth_type"])
 }
 
 // normalizeHost is oauth.NormalizeHost after dropping any path, query or fragment a cfg host carries.
@@ -364,7 +351,7 @@ func readSecrets(path, name string) (cfgSecrets, error) {
 	}
 	for _, p := range ps {
 		if p.name == name {
-			return cfgSecrets{ClientSecret: p.clientSecret, Token: p.token}, nil
+			return cfgSecrets{ClientSecret: p.keys["client_secret"], Token: p.keys["token"]}, nil
 		}
 	}
 	return cfgSecrets{}, fmt.Errorf("profile %q not found", name)

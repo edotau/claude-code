@@ -188,9 +188,9 @@ func TestParseMultiLineValues(t *testing.T) {
 	if err != nil || len(ps) != 1 {
 		t.Fatalf("parse = %v, %v", ps, err)
 	}
-	p := ps[0]
-	if p.token != "ab\ncd" || p.clientSecret != "xy" || p.clientID != "p\nq" || p.host != "h" {
-		t.Errorf("profile = %+v", p)
+	k := ps[0].keys
+	if k["token"] != "ab\ncd" || k["client_secret"] != "xy" || k["client_id"] != "p\nq" || k["host"] != "h" {
+		t.Errorf("profile keys = %v", k)
 	}
 }
 

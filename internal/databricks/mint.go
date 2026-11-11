@@ -166,8 +166,8 @@ func overlayAuth(name string) (json.RawMessage, error) {
 // restoreOverlayAuth writes raw back as name's overlay auth block, or removes the block when raw is nil.
 func restoreOverlayAuth(name string, raw json.RawMessage) error {
 	_, _, err := providers.UpdateOverlayDocForce(true, true, func(top map[string]json.RawMessage, _ *vault.Tx) error {
-		provs := map[string]map[string]json.RawMessage{}
-		if err := json.Unmarshal(top["providers"], &provs); err != nil {
+		provs, err := overlayProviders(top)
+		if err != nil {
 			return err
 		}
 		entry := provs[name]

@@ -224,12 +224,13 @@ func TestLoginU2MHeadlessPrintsURL(t *testing.T) {
 }
 
 func TestCallbackBindsLoopbackOnly(t *testing.T) {
-	ln, _, err := listenLoopback(freePort(t))
+	p := freePort(t)
+	ln, _, err := listenPorts(p, p+PortSpan)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer ln.Close()
-	if ip := ln.Addr().(*net.TCPAddr).IP; !ip.IsLoopback() {
+	if ip := ln.ls[0].Addr().(*net.TCPAddr).IP; !ip.IsLoopback() {
 		t.Errorf("listener bound to %v", ip)
 	}
 }
@@ -499,7 +500,8 @@ func TestClientCredentialsRetriedAfterDrop(t *testing.T) {
 }
 
 func TestListenLoopbackBindsLoopbackOnly(t *testing.T) {
-	ln, port, err := listenLoopback(freePort(t))
+	p := freePort(t)
+	ln, port, err := listenPorts(p, p+PortSpan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -608,7 +610,7 @@ func TestNormHostRejectsUserinfoQueryFragment(t *testing.T) {
 
 // A listen failure that is not EADDRINUSE surfaces its cause instead of "busy".
 func TestListenLoopbackReportsRealCause(t *testing.T) {
-	_, _, err := listenLoopback(70000)
+	_, _, err := listenPorts(70000, 70000+PortSpan)
 	if err == nil || strings.Contains(err.Error(), "busy") {
 		t.Errorf("err = %v, want the underlying listen error", err)
 	}

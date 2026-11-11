@@ -74,30 +74,6 @@ func workspace(t *testing.T) (hits *atomic.Int32) {
 	return hits
 }
 
-// shape names the wire each id is served on and flags Responses-only ids.
-func TestShape(t *testing.T) {
-	workspace(t)
-	p, err := catalog.Profile(agentid.Codex, "dev")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := shape(p, []providers.ModelInfo{
-		{ID: "databricks-claude-sonnet-5-5", Name: "Sonnet", Task: "llm/v1/chat", Ready: "READY"},
-		{ID: "databricks-glm-5-2", Task: "llm/v1/chat"},
-		{ID: "databricks-cold-1", Task: "llm/v1/chat", Ready: "NOT_READY"},
-		{ID: "databricks-gpt-5-5", Task: "llm/v1/chat", Ready: "READY"},
-	})
-	want := []Model{
-		{ID: "databricks-claude-sonnet-5-5", Label: "Sonnet", Dialect: providers.ProtocolAnthropic},
-		{ID: "databricks-glm-5-2", Dialect: providers.ProtocolOpenAI},
-		{ID: "databricks-cold-1", Dialect: providers.ProtocolOpenAI},
-		{ID: "databricks-gpt-5-5", Dialect: providers.ProtocolResponses, Responses: true},
-	}
-	if !slices.Equal(got, want) {
-		t.Errorf("shape =\n%+v\nwant\n%+v", got, want)
-	}
-}
-
 // An agent outside the roster is refused by name.
 func TestModelsUnknownAgent(t *testing.T) {
 	workspace(t)

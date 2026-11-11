@@ -1,4 +1,4 @@
-// Package databricks launches Claude Code on Databricks model serving and runs the endpoint smoke checks.
+// Package databricks launches Claude Code on Databricks; also check, login, token, import, export, config, rescue.
 package databricks
 
 import (
@@ -171,7 +171,7 @@ func parsePlanArgs(args []string) (launchPlan, string) {
 	return p, name
 }
 
-// defaultModel is the opus alias, at 1M where the endpoint serves it, spelled the way the profile's row serves it.
+// defaultModel is the opus alias spelled the way the profile's row serves it.
 func defaultModel(reg *providers.Registry, profile string) string {
 	id := aliasID(models.Opus)
 	if reg != nil && reg.Providers[profile] != nil {
@@ -262,12 +262,12 @@ var spawnCtx = func(ctx context.Context, bin string, argv, env []string, stdin i
 
 // capture runs one prompt through the provider and returns combined stdout+stderr and the exit code;
 // a start error or timeout is appended to the output with code -1.
-func capture(self string, p launchPlan, prompt string, stdin io.Reader, extra ...string) (string, int) {
+func capture(self string, p launchPlan, prompt string, extra ...string) (string, int) {
 	var buf bytes.Buffer
 	argv := append([]string{"--profile", p.Provider, "--model", p.Model, "-p", prompt}, extra...)
 	ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
 	defer cancel()
-	code, err := spawnCtx(ctx, self, argv, childEnv(p), stdin, &buf, &buf)
+	code, err := spawnCtx(ctx, self, argv, childEnv(p), nil, &buf, &buf)
 	if err != nil {
 		fmt.Fprint(&buf, err)
 		code = -1
@@ -282,7 +282,7 @@ func capture(self string, p launchPlan, prompt string, stdin io.Reader, extra ..
 func check(self string, p launchPlan) int {
 	rc := 0
 	fmt.Printf("== smoke: %s %s\n", p.Provider, p.Model)
-	if out, code := capture(self, p, smokePrompt, nil, p.Rest...); code == 0 && textutil.LastLine(out) == "OK" {
+	if out, code := capture(self, p, smokePrompt, p.Rest...); code == 0 && textutil.LastLine(out) == "OK" {
 		fmt.Println("PASS smoke")
 	} else {
 		fmt.Printf("FAIL smoke: %s\n", tail(out, 5))
@@ -404,6 +404,9 @@ func checkAll(args []string) int {
 	}
 	names := providers.DatabricksProfiles(reg)
 	if *only != "" {
+		if reg.Providers[*only] != nil && !slices.Contains(names, *only) {
+			return fail("check: --profile %q is not a Databricks profile", *only)
+		}
 		names = []string{*only}
 	}
 	return printCheck(names, heads, checkProfiles(reg, names, *model, wires))
