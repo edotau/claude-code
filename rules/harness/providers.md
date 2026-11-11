@@ -81,8 +81,11 @@ static menu: routing never touches the network.
 
 `databricks login` (a u2m row; not `--as sp`, which rejects these flags) works without a local browser:
 
-- Over SSH: `ssh -L 8030:localhost:8030 <host>`, then run `claude-code databricks login --no-browser --port 8030` on
-  the host and open the printed URL in your own browser.
+- From another machine: `claude-code --host <host> databricks login` forwards the callback port itself (the first
+  free local port from 8030 to 8050, or exactly `--port N`), adds `--no-browser`, and closes the forward when the
+  login ends; open the printed URL in your own browser.
+- By hand: `ssh -L 8030:localhost:8030 <host>`, then run `claude-code databricks login --no-browser --port 8030` on
+  the host.
 - `--port N` listens on exactly N and fails if another process holds it; without it the callback walks 8030 to 8050.
 - `--no-browser` opens nothing and always prints the URL and the `ssh -L` hint (not only when `SSH_CONNECTION` is set).
 - `--paste` also reads one line from stdin: with no forward, copy the failed `http://localhost:<port>/?code=...` URL
