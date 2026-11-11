@@ -42,6 +42,4 @@ out of worktree-only verification. `make install` without the override still ins
 
 ## MCP
 
-`claude-code doctor --mcp` is read-only diagnosis (health, scope conflicts, inline secrets). Propose the fix
-(`claude mcp remove <name> -s <scope>`, or move the token to `${ENV}` via `claude-code vault set`); never remove or
-rotate without the user's confirmation.
+`claude-code doctor --mcp` (read-only; propose, never remove or rotate unasked): `rules/harness/network.md`.

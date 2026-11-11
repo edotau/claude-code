@@ -17,7 +17,7 @@
 | VS Code keybindings template | [`internal/ui/vscode/keybindings.template.json`](../../internal/ui/vscode/keybindings.template.json) | `claude-code theme vscode` (keybindings step) | — |
 | claude-science config | [`internal/claude/science.toml`](../../internal/claude/science.toml) | `claude-code anthropic science` (`--print-env`) | — |
 | wl-paste WSL clipboard proxy | [`internal/clipboard/wl-paste-claude.sh`](../../internal/clipboard/wl-paste-claude.sh) | `claude-code install` (`InstallProxy`, WSL only) | — |
-| Plan template | [`docs/templates/plan.md`](plan.md) (read at runtime, not embedded) | `Plan` agent; `plan-gate` and `plan-skeleton` hooks paste it | — |
+| Plan template | [`docs/templates/plan.md`](plan.md) (read at runtime, not embedded) | `Plan` agent; `docs-plan-gate` and `docs-plan-skeleton` hooks paste it | — |
 
 ## Settings — the Windows subset
 

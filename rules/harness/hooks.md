@@ -65,7 +65,7 @@ instruction sources and the Bash-deny path: `agent.md` → Skills and instructio
 | `memory-update` | Stop | Context steward first: at ≥`HARNESS_CONTEXT_STEWARD_PCT` context (default 75; `0` mutes only the prompt) it spawns a detached `claude-code memory update` and asks for a handoff then `/compact`, once per crossing and only with no background task, subagent marker or live dispatch (a dip below the threshold re-arms; never blocks Stop). Then the memory update, weighing edits and user turns (2 turns = 1 edit); with no spawn possible it blocks ≤3 times, then prints once that the update was NOT saved |
 | `format-stop` | Stop | Formats files this session edited that are still dirty and unformatted: the repo's `make format\|fmt` if it takes a per-file variable, else the pyproject python chain, else gofmt/ruff/prettier (only with a prettier config or `package.json` entry)/shfmt |
 | `review-simplicity` | PostToolUse (Write\|Edit) | Advisory, never blocks: feeds back ≤8 comment, complexity and smell findings the edit introduced (not ones already in the file) |
-| `memory-start` | SessionStart | Injects a pointer to `memory/index.md` + this repo's focus (Current Focus/Blockers/Next Steps, In Progress); repairs `projects/<slug>/memory`; also scaffolds a missing bank, spawns the daily `memory dream` when due, and spawns one detached sweep (`memory catchup`) that saves up to 3 missed interactive sessions from the last 14 days, skips live ones, and prints one quiet line at the next start; on `compact`/`clear` it also reports the compaction record and the newest handoff under 24 h old (user line and transcript) |
+| `memory-start` | SessionStart | Injects a pointer to `memory/index.md` + this repo's focus; repairs `projects/<slug>/memory`; bank scaffolding, the daily `memory dream` and the `memory catchup` sweep: `rules/workflows/memory-bank.md` → Who writes what; on `compact`/`clear` it also reports the compaction record and the newest handoff under 24 h old (user line and transcript) |
 | `paths-resolve` | UserPromptSubmit | Reports existing paths in the prompt; translates Windows ⇄ `/mnt/…` on WSL |
 | `memory-recall` | UserPromptSubmit | Injects ≤3 bank blocks matching ≥2 prompt terms (plus a repo store the prompt names); skips blocks in context; logs hits to `access.log` (the hot/cold signal for `memory review`) |
 | `codex-agent-route` · `codex-routing-result` · `codex-routing-start` · `codex-subagent-start` | codex agent events | Codex-only routing hooks; never rendered into Claude settings |
@@ -89,5 +89,5 @@ Prose is the instruction; the hook is the guarantee. Every gate:
 
 Test the block path, the evidence-release path and the fail-open cap. Probe a live guard with a script that reads
 payloads from a data file (quoted payloads in the probe command trip the guard itself) and tally allow, ask and
-block separately. Permission guardrails live in the defaults'
-`permissions` block (`ask` beats `allow`).
+block separately. Permission guardrails live in `settings.json`'s
+`permissions` block (seeded from `internal/settings/template.json`; `ask` beats `allow`).

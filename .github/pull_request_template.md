@@ -13,7 +13,7 @@
 ## Checklist
 
 - [ ] Title is a conventional commit (`feat(router): …`); breaking changes marked `!` with a `BREAKING CHANGE:` line
-- [ ] `make audit` passes locally (CI runs the same gate on ubuntu + macos)
+- [ ] `make audit` passes locally (the only gate: CI is manual-only)
 - [ ] Generated files regenerated: `make help-svg` / example goldens updated if menus or templates changed
 - [ ] New behavior has a test that fails without the change
 - [ ] Menu rows, help lines and flag text fit 80 columns

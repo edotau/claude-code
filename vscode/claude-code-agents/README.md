@@ -21,7 +21,7 @@ Agents" in the command palette.
 ## Agents Dashboard
 
 A status bar segment (right side) and an "Agents Dashboard" activity-bar view show
-`claude-code usage` at a glance — most importantly, the Claude 5-hour window's used percentage and
+`claude-code usage` at a glance — most importantly, each Claude window's used percentage and
 time until it resets. Click the status bar segment (or run "Claude Code Agents: Show Agent
 Dashboard") to open the view; "Claude Code Agents: Refresh Agents Dashboard" re-fetches on demand.
 Data comes from `claude-code usage --format json` and `claude-code configure provider --list --format json`,
@@ -34,7 +34,7 @@ number moves it further right) sets its sort order within that side; both take e
 `onDidChangeConfiguration`, no reload needed.
 
 **Billing flip**: when `usage`'s `billing.mode` is `"subscription"` (or absent), the status bar
-and view show quota percentages with reset countdowns per provider/window (Claude 5h/weekly/Fable,
+and view show quota percentages with reset countdowns per provider/window (Claude weekly/Fable,
 Antigravity's Gemini/Claude-and-GPT groups, …). When it is `"api"`, they instead show the API-key
 token ledger (`api[]`: provider, model, tokens today/last 30 days/all time) with "today" as the
 headline — no percentages.

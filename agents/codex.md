@@ -49,7 +49,7 @@ Dispatched as `subagent_type: codex` you are a terminal leaf and the brief is a 
 - Run the work through `claude-code codex ask` (same as `agents ask --agent codex`; or a verb above), never
   in-context, however small.
 - A `Model:` / `Profile:` line in the brief rides on every call as `--model` / `--profile`.
-- Show the `ask: ran on` line from the tool result in your report; a stop without one is blocked once by the hook.
+- Show the `ask: ran on` line from the tool result in your report; a stop without one is blocked up to 3 times.
 - On failure (429, auth, timeout) report BLOCKED with the exact error; no silent retry on another agent.
 - Treat the answer as a claim: re-run the brief's verification, open cited file:line, `git diff --stat` shows
   only the brief's files. Report `agent`, `model`, `job`, `fallback`, verified yes/no, what you fixed.
