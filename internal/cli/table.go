@@ -27,7 +27,7 @@ type command struct {
 	hidden  bool
 	run     func(args []string) int
 	spec    func() *helptext.Node
-	// sideEffectHelp marks a verb whose -h still acts (resolves credentials, runs a real binary): memory verify skips it.
+	// sideEffectHelp marks a verb whose -h still acts (resolves credentials, runs a real binary).
 	sideEffectHelp bool
 }
 

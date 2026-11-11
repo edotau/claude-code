@@ -1,8 +1,8 @@
 package memory
 
 // The journaled commit transaction: journal under state BEFORE any write, capture the native
-// revisions the batch replaces, apply with preimage checks, write a tracked receipt, commit, then retire the
-// journal. A crash at any step is finished by the next call.
+// revisions the batch replaces, apply with preimage checks, commit, then retire the journal.
+// A crash at any step is finished by the next call.
 
 import (
 	"bytes"
@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -34,24 +33,16 @@ type Change struct {
 	Checked  bool   // false = fresh import: whatever is there at journal time is the preimage
 }
 
-// Receipt records one applied batch; its copy under receipts/ is tracked, as a record only (no cursor recovery reads it).
+// Receipt records one applied batch; it is returned to the caller and never written.
 type Receipt struct {
-	ID           string    `json:"id"`
-	Subject      string    `json:"subject"`
-	Time         time.Time `json:"time"`
-	Commit       string    `json:"commit,omitempty"`
-	NativeCommit string    `json:"nativeCommit,omitempty"` // holds Captured and Tombstones, made before apply
-	Applied      []string  `json:"applied,omitempty"`      // written or removed by this batch
-	Skipped      []string  `json:"skipped,omitempty"`      // already at Data (or deleted and absent)
-	Divergent    []string  `json:"divergent,omitempty"`    // preimage mismatch; left untouched
-	Preexisting  []string  `json:"preexisting,omitempty"`  // dirty native paths outside the batch, swept into Commit
-	Captured     []string  `json:"captured,omitempty"`     // dirty native revisions this batch replaced
-	Tombstones   []string  `json:"tombstones,omitempty"`   // tracked facts found deleted; HEAD bytes under tombstoneDir
-	Unrecovered  []string  `json:"unrecovered,omitempty"`  // older journals that could not be finished and stay on disk
+	ID          string
+	Commit      string
+	Applied     []string // written or removed by this batch
+	Skipped     []string // already at Data (or deleted and absent)
+	Divergent   []string // preimage mismatch; left untouched
+	Preexisting []string // dirty native paths outside the batch, swept into Commit
+	Unrecovered []string // older journals that could not be finished and stay on disk
 }
-
-// tombstoneDir is where a deleted tracked fact's last committed bytes are copied: <tombstoneDir>/<journal id>/<rel>.
-const tombstoneDir = "archive/tombstones"
 
 // errDivergent accompanies a receipt when some checked changes found other bytes; what applied is committed.
 var errDivergent = errors.New("memory transaction: live bytes diverged from the journaled preimage")
@@ -135,7 +126,7 @@ func recoverEach() (skipped, err error) {
 	return skipped, nil
 }
 
-// recoverJournal replays the journal in file f, or just retires it when already complete.
+// recoverJournal replays the journal in file f.
 func recoverJournal(f string) error {
 	data, err := os.ReadFile(f)
 	if err != nil {
@@ -147,12 +138,6 @@ func recoverJournal(f string) error {
 	}
 	if j.ID == "" || j.path() != f { // the body's id names where save/retire write: it must be this file
 		return fmt.Errorf("memory journal %s: id %q does not match its file name", f, j.ID)
-	}
-	if j.State == "complete" {
-		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		return nil
 	}
 	if _, err := j.run(StoreRepo()); err != nil && !errors.Is(err, errDivergent) {
 		return err
@@ -203,9 +188,9 @@ func (j *journal) save() error {
 	return paths.AtomicWrite(j.path(), data, 0o600)
 }
 
-// run drives one journal: check, native capture, apply, receipt, commit, complete; a failed commit stays "applied".
+// run drives one journal: check, native capture, apply, commit, retire; a failed commit stays "applied".
 func (j *journal) run(repo Repo) (Receipt, error) {
-	rec := Receipt{ID: j.ID, Subject: j.Subject, Time: time.Now().UTC(), Unrecovered: j.unrecovered}
+	rec := Receipt{ID: j.ID, Unrecovered: j.unrecovered}
 	present, err := j.applyBatch(repo, &rec)
 	if err != nil {
 		return rec, err
@@ -238,21 +223,16 @@ func (j *journal) applyBatch(repo Repo, rec *Receipt) (present []string, err err
 	if err := repo.Ensure(); err != nil {
 		return nil, err
 	}
-	if err := j.discardReceipt(repo); err != nil {
-		return nil, err
-	}
-	present, missing, err := dirtyFiles(repo)
+	present, err = dirtyFiles(repo)
 	if err != nil {
 		return nil, err
 	}
-	own, missing := j.splitOwnDeletes(missing)
 	present = repo.dropCredentialShaped(present, j.touches) // an unrelated dir's credential file must not wedge this batch
-	present = append(present, own...)                       // this batch's own replayed deletions: staged with the batch, not tombstoned
 	outcomes, capture, err := j.plan(repo.Dir, present, rec)
 	if err != nil {
 		return nil, err
 	}
-	if err := j.captureNative(repo, rec, capture, missing); err != nil {
+	if err := j.captureNative(repo, capture); err != nil {
 		return nil, err
 	}
 	for i, c := range j.Changes {
@@ -270,18 +250,6 @@ func (j *journal) touches(rel string) bool {
 		t, _, _ := strings.Cut(c.Rel, "/")
 		return t == top
 	})
-}
-
-// splitOwnDeletes splits the tracked-but-missing paths into the ones this journal deletes itself and the rest.
-func (j *journal) splitOwnDeletes(missing []string) (own, other []string) {
-	for _, p := range missing {
-		if slices.ContainsFunc(j.Changes, func(c journalChange) bool { return c.Delete && c.Rel == p }) {
-			own = append(own, p)
-		} else {
-			other = append(other, p)
-		}
-	}
-	return own, other
 }
 
 // commitStage lists what the batch commit stages: applied and preexisting paths, plus skipped ones left dirty by
@@ -317,95 +285,24 @@ func (j *journal) plan(dir string, present []string, rec *Receipt) (outcomes []o
 	return outcomes, capture, nil
 }
 
-// captureNative commits, ahead of the batch, the dirty revisions it replaces plus a recovery copy of every tracked
-// fact found deleted (its deletion rides along, explained by the receipt's Tombstones rather than swept silently).
-func (j *journal) captureNative(repo Repo, rec *Receipt, capture, missing []string) error {
-	stage := append([]string{}, capture...)
-	for _, p := range missing {
-		// Never committed (a staged add that did not land) has no HEAD bytes to copy.
-		tracked, err := trackedAtHead(repo, p)
-		if err != nil {
-			return fmt.Errorf("recovery copy of %s: %w", p, err)
-		}
-		if tracked {
-			data, err := headBytes(repo, p)
-			if err != nil {
-				return fmt.Errorf("recovery copy of %s: %w", p, err)
-			}
-			copyRel := path.Join(tombstoneDir, j.ID, p)
-			if err := repo.validateRel(copyRel); err != nil {
-				return err
-			}
-			if err := paths.AtomicWrite(filepath.Join(repo.Dir, filepath.FromSlash(copyRel)), data, 0o600); err != nil {
-				return err
-			}
-			stage = append(stage, copyRel)
-		}
-		stage = append(stage, p)
-		rec.Tombstones = append(rec.Tombstones, p)
-	}
-	if len(stage) == 0 {
+// captureNative commits, ahead of the batch, the dirty revisions it replaces so the write cannot erase them.
+func (j *journal) captureNative(repo Repo, capture []string) error {
+	if len(capture) == 0 {
 		return nil
 	}
-	rec.Captured = capture
-	body := fmt.Sprintf("captured %d, tombstones %d", len(capture), len(rec.Tombstones))
-	sha, committed, err := repo.Commit(stage, "native: before "+j.Subject, body)
-	if err != nil {
-		return err
-	}
-	if committed {
-		rec.NativeCommit = sha
-	}
-	return nil
+	_, _, err := repo.Commit(capture, "native: before "+j.Subject, fmt.Sprintf("captured %d", len(capture)))
+	return err
 }
 
-// receiptRel is this journal's receipt, store-relative.
-func (j *journal) receiptRel() string { return "receipts/" + j.ID + ".json" }
-
-// discardReceipt drops the uncommitted receipt a failed earlier attempt left staged or on disk; commit rewrites it.
-// A receipt already in HEAD is history and stays.
-func (j *journal) discardReceipt(repo Repo) error {
-	rel := j.receiptRel()
-	tracked, err := trackedAtHead(repo, rel)
-	if err != nil || tracked {
-		return err
-	}
-	if _, err := repo.run("rm", "--cached", "--quiet", "--force", "--ignore-unmatch", "--", rel); err != nil {
-		return err
-	}
-	if err := os.Remove(filepath.Join(repo.Dir, filepath.FromSlash(rel))); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
-}
-
-// commit writes the receipt beside the batch and commits both; the receipt is dropped if nothing was committed.
+// commit stages the batch and commits it; Commit stays empty when nothing changed.
 func (j *journal) commit(repo Repo, rec *Receipt, stage []string) error {
-	receiptRel := j.receiptRel()
-	data, err := json.MarshalIndent(rec, "", "  ")
-	if err != nil {
-		return err
+	body := fmt.Sprintf("applied %d, skipped %d, divergent %d, preexisting %d",
+		len(rec.Applied), len(rec.Skipped), len(rec.Divergent), len(rec.Preexisting))
+	sha, committed, err := repo.Commit(stage, j.Subject, body)
+	if committed {
+		rec.Commit = sha
 	}
-	if err := repo.validateRel(receiptRel); err != nil {
-		return err
-	}
-	if err := paths.AtomicWrite(filepath.Join(repo.Dir, receiptRel), append(data, '\n'), 0o600); err != nil {
-		return err
-	}
-	body := fmt.Sprintf("applied %d, skipped %d, divergent %d, preexisting %d, captured %d, tombstones %d",
-		len(rec.Applied), len(rec.Skipped), len(rec.Divergent), len(rec.Preexisting), len(rec.Captured), len(rec.Tombstones))
-	sha, committed, err := repo.Commit(append(stage, receiptRel), j.Subject, body)
-	if err != nil {
-		return err
-	}
-	if !committed {
-		if err := os.Remove(filepath.Join(repo.Dir, receiptRel)); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		return nil
-	}
-	rec.Commit = sha
-	return nil
+	return err
 }
 
 // check reads the live bytes once and decides the change's outcome; every change is conditional on its preimage.
@@ -475,12 +372,12 @@ func (c journalChange) recordUnapplied(o outcome, rec *Receipt) bool {
 	return true
 }
 
-// dirtyFiles splits the dirty paths outside .git into present REGULAR files and tracked paths now missing;
+// dirtyFiles lists the dirty paths outside .git that are REGULAR files or now missing (a tracked deletion);
 // symlinks and other oddities are skipped and listed nowhere.
-func dirtyFiles(repo Repo) (present, missing []string, err error) {
+func dirtyFiles(repo Repo) (present []string, err error) {
 	entries, err := repo.Status()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	for _, e := range entries {
 		if e.Path == ".git" || strings.HasPrefix(e.Path, ".git/") {
@@ -489,14 +386,14 @@ func dirtyFiles(repo Repo) (present, missing []string, err error) {
 		fi, err := os.Lstat(filepath.Join(repo.Dir, e.Path))
 		switch {
 		case os.IsNotExist(err):
-			missing = append(missing, e.Path)
+			present = append(present, e.Path)
 		case err != nil:
-			return nil, nil, err
+			return nil, err
 		case fi.Mode().IsRegular():
 			present = append(present, e.Path)
 		}
 	}
-	return present, missing, nil
+	return present, nil
 }
 
 // journalSchema versions memory-journal.

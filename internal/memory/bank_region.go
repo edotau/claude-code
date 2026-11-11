@@ -104,7 +104,7 @@ func BuildCatalog(now time.Time) (string, error) {
 		fmt.Fprintf(&b, "- %s — %s · last %s → %s/MEMORY.md%s\n", e.Key, storeHook(e), when, e.Key, catalogOriginComment(e.Origin))
 	}
 	writeKnowledgeRows(&b, entries)
-	if err := writeHomeRows(&b, now); err != nil {
+	if err := writeHomeRows(&b); err != nil {
 		return "", err
 	}
 	return b.String(), nil
@@ -131,8 +131,8 @@ func writeKnowledgeRows(b *strings.Builder, entries []repoEntry) {
 }
 
 // writeHomeRows lists the home bank's index bullets and headings, capped at catalogHomeMax.
-func writeHomeRows(b *strings.Builder, now time.Time) error {
-	homeIdx, err := buildBankIndex(HomeBankDir(), now)
+func writeHomeRows(b *strings.Builder) error {
+	homeIdx, err := buildBankIndex(HomeBankDir())
 	if err != nil || homeIdx == "" {
 		return err
 	}

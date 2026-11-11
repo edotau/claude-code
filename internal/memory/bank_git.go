@@ -214,8 +214,8 @@ func (r Repo) stageRels(rels []string) error {
 	if err != nil {
 		return err
 	}
-	if len(stage) > 0 {
-		if _, err := r.run(append([]string{"add", "-A", "--"}, stage...)...); err != nil {
+	for chunk := range slices.Chunk(stage, 200) { // keeps the argv under the Windows command-line limit
+		if _, err := r.run(append([]string{"add", "-A", "--"}, chunk...)...); err != nil {
 			return err
 		}
 	}
@@ -307,7 +307,7 @@ func (r Repo) validateRel(rel string) error {
 		return bad
 	}
 	parts := strings.Split(filepath.ToSlash(rel), "/")
-	if parts[0] == ".git" || slices.Contains(parts, "..") {
+	if strings.EqualFold(parts[0], ".git") || slices.Contains(parts, "..") {
 		return bad
 	}
 	abs := r.Dir
@@ -359,28 +359,6 @@ func runGit(full []string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	return proc.RunGit(ctx, "", full...)
-}
-
-// trackedAtHead reports whether rel is in HEAD's tree; an unborn HEAD tracks nothing. Git failures are errors.
-func trackedAtHead(repo Repo, rel string) (bool, error) {
-	head, err := repo.Head()
-	if err != nil || head == "" {
-		return false, err
-	}
-	out, err := repo.run("ls-tree", "-z", "--name-only", "HEAD", "--", rel)
-	if err != nil {
-		return false, err
-	}
-	return out != "", nil
-}
-
-// headBytes is rel's content at HEAD, byte-exact: run trims trailing newlines, which would corrupt a recovery copy.
-func headBytes(repo Repo, rel string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-	defer cancel()
-	out, err := proc.RunGitRaw(ctx, "", "--git-dir="+filepath.Join(repo.Dir, ".git"), "--work-tree="+repo.Dir,
-		"cat-file", "blob", "HEAD:"+rel)
-	return []byte(out), err
 }
 
 // exitCode is the git process exit status wrapped in err, -1 when err is not an exit error.

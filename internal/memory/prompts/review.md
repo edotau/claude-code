@@ -17,8 +17,8 @@ Read in order:
 4. **Rules tiers** — `rules/standards/*.md`, `rules/workflows/*.md`
 5. **Always-on tier** — the global `~/.claude/CLAUDE.md` and the project `./CLAUDE.md`
 
-Use `Glob`/`Read`/`Grep` to inventory and cross-reference, `Bash` for `claude-code memory review`
-and `memory archive --dupes` (audit mode — never pass `--apply` here); caps: `rules/workflows/memory-bank.md` → Caps.
+Use `Glob`/`Read`/`Grep` to inventory and cross-reference, `Bash` for `claude-code memory review`;
+caps: `rules/workflows/memory-bank.md` → Caps.
 
 ## Analysis process
 

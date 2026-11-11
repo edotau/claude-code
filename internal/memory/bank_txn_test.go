@@ -41,12 +41,6 @@ func journals(t *testing.T) []string {
 	return files
 }
 
-func receipts(t *testing.T) []string {
-	t.Helper()
-	files, _ := filepath.Glob(filepath.Join(StoreDir(), "receipts", "*.json"))
-	return files
-}
-
 // commitLocked runs one batch under the writable bank lock, the shape every caller uses.
 func commitLocked(t *testing.T, subject string, changes []Change) (Receipt, error) {
 	t.Helper()
@@ -59,19 +53,7 @@ func commitLocked(t *testing.T, subject string, changes []Change) (Receipt, erro
 	return rec, err
 }
 
-// assertTrackedReceipt checks the committed receipt file mirrors rec minus its own commit sha.
-func assertTrackedReceipt(t *testing.T, rec Receipt) {
-	t.Helper()
-	var onDisk Receipt
-	if err := json.Unmarshal([]byte(readStore(t, "receipts/"+rec.ID+".json")), &onDisk); err != nil {
-		t.Fatal(err)
-	}
-	if onDisk.ID != rec.ID || onDisk.Commit != "" || len(onDisk.Applied) != 2 {
-		t.Fatalf("tracked receipt = %+v", onDisk)
-	}
-}
-
-// assertNoopBatch: a second identical batch changes no bytes, so there is no receipt and no commit.
+// assertNoopBatch: a second identical batch changes no bytes, so there is no commit.
 func assertNoopBatch(t *testing.T, first Receipt) {
 	t.Helper()
 	rec2, err := commitLocked(t, "import", []Change{{Rel: "repo/MEMORY.md", Data: []byte("- a\n"), Checked: true}})
@@ -81,12 +63,9 @@ func assertNoopBatch(t *testing.T, first Receipt) {
 	if head, _ := StoreRepo().Head(); head != first.Commit {
 		t.Fatalf("empty commit created: %s != %s", head, first.Commit)
 	}
-	if got := receipts(t); len(got) != 1 {
-		t.Fatalf("no-op batch wrote a receipt: %v", got)
-	}
 }
 
-func TestCommitChangesLockedFreshImportCommitsWithReceipt(t *testing.T) {
+func TestCommitChangesLockedFreshImportCommits(t *testing.T) {
 	store, decoy := storeFixture(t)
 	rec, err := commitLocked(t, "import", []Change{
 		{Rel: "repo/MEMORY.md", Data: []byte("- a\n")},
@@ -101,10 +80,6 @@ func TestCommitChangesLockedFreshImportCommitsWithReceipt(t *testing.T) {
 	if !strings.Contains(strings.Join(rec.Preexisting, ","), ".gitignore") {
 		t.Fatalf("seeded .gitignore must be swept as preexisting: %+v", rec.Preexisting)
 	}
-	if got := receipts(t); len(got) != 1 {
-		t.Fatalf("receipts = %v", got)
-	}
-	assertTrackedReceipt(t, rec)
 	st, _ := StoreRepo().Status()
 	if len(st) != 0 {
 		t.Fatalf("store dirty after commit: %+v", st)
@@ -278,7 +253,7 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 	if err := os.Remove(refLock); err != nil {
 		t.Fatal(err)
 	}
-	// The next batch recovers the old journal as its own commit, without a duplicate receipt.
+	// The next batch recovers the old journal as its own commit.
 	rec, err := batchLocked("next", []Change{{Rel: "r/y.md", Data: []byte("y\n")}})
 	if err != nil {
 		t.Fatal(err)
@@ -287,7 +262,7 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 	assertDecoyUntouched(t, decoy)
 }
 
-// assertRecovered checks the old journal is retired, both batches are committed with one receipt each, and the store is clean.
+// assertRecovered checks the old journal is retired, both batches are committed, and the store is clean.
 func assertRecovered(t *testing.T, rec Receipt) {
 	t.Helper()
 	if len(journals(t)) != 0 {
@@ -296,9 +271,6 @@ func assertRecovered(t *testing.T, rec Receipt) {
 	log, err := StoreRepo().Log(10)
 	if err != nil || len(log) != 2 || !strings.HasSuffix(log[0], " next") || !strings.HasSuffix(log[1], " batch") {
 		t.Fatalf("Log = %v, %v", log, err)
-	}
-	if got := receipts(t); len(got) != 2 {
-		t.Fatalf("receipts = %v, want one per batch", got)
 	}
 	if len(rec.Preexisting) != 0 {
 		t.Fatalf("recovered batch's files leaked into the next batch as preexisting: %v", rec.Preexisting)
@@ -499,9 +471,6 @@ func TestCommitChangesLockedReportsUnrecoveredOnSuccess(t *testing.T) {
 	}
 	if len(rec.Unrecovered) != 1 || !strings.Contains(rec.Unrecovered[0], "20260101-000000.000-aaaa") {
 		t.Fatalf("receipt Unrecovered = %q, want the stuck journal", rec.Unrecovered)
-	}
-	if onDisk := readStore(t, "receipts/"+rec.ID+".json"); !strings.Contains(onDisk, "20260101-000000.000-aaaa") {
-		t.Fatalf("committed receipt does not name the stuck journal:\n%s", onDisk)
 	}
 }
 

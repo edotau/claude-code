@@ -403,8 +403,8 @@ func TestMemoryUsageListsOnlyPublicVerbsAndPrivateStillDispatch(t *testing.T) {
 			t.Errorf("memoryPage missing public verb %q", v)
 		}
 	}
-	subs := memorySubcommands(nil)
-	for _, v := range []string{"search", "show", "index", "path", "digest", "fmt", "watch", "timeline", "archive", "alias"} {
+	subs := memorySubcommands()
+	for _, v := range []string{"search", "show", "index", "path", "digest", "fmt", "watch", "timeline", "alias"} {
 		if helpPageHasCommand(memoryPage, v) {
 			t.Errorf("memoryPage lists private verb %q as if public", v)
 		}
@@ -553,8 +553,6 @@ func TestMemoryCompletion(t *testing.T) {
 		words []string
 		want  []string
 	}{
-		{"verify command", []string{"memory", "ver"}, []string{"verify"}},
-		{"verify flags", []string{"memory", "verify", "--"}, []string{"--cwd", "--archives", "--all-stores"}},
 		{"review flags", []string{"memory", "review", "--"}, []string{"--candidates"}},
 		{"update flags", []string{"memory", "update", "--"}, []string{"--dry-run", "--historical"}},
 		{"dream flags", []string{"memory", "dream", "--"}, []string{"--dry-run"}},
@@ -728,7 +726,7 @@ func TestSkillVerbsArePublicCLIVerbs(t *testing.T) {
 		table = table[:end]
 	}
 	verbRe := regexp.MustCompile("^`([a-z][a-z-]*)")
-	subs := memorySubcommands(nil)
+	subs := memorySubcommands()
 	seen := map[string]bool{}
 	for line := range strings.SplitSeq(table, "\n") {
 		cells := strings.Split(line, "|")

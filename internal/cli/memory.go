@@ -26,7 +26,6 @@ var memorySubs = []memorySub{
 	{"remember", "<fact>", "append a fact to the bank (--type picks the file)"},
 	{"init", "", "create the repo's bank"},
 	{"review", "", "doctor + bank stats; --candidates adds the promotion procedure"},
-	{"verify", "", "check bank claims against local evidence; never write or fetch"},
 	{"promote", "<id> --to <target>", "move one block to home, or print it for rules|skill"},
 	{"update", "", "save the live session or --transcript; else print the procedure"},
 	{"dream", "", "consolidate the bank when due (--force, --dry-run)"},
@@ -38,7 +37,7 @@ var memoryPage = helptext.Page{
 		"update writes them. Recall and save facts, then promote the ones that hold up.",
 	Commands: memoryCommandRows(),
 	Hint: "plumbing: search, show, index, path, report, digest, fmt, watch,\n" +
-		"          catchup, timeline, archive, alias — dispatchable, off the menu above\n" +
+		"          catchup, timeline, alias — dispatchable, off the menu above\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
 
@@ -125,21 +124,6 @@ func cmdMemoryUpdate(args []string) int {
 	return 0
 }
 
-func cmdMemoryVerify(args []string, helpVerb func(string) bool) int {
-	fs := memoryFlagSet("verify")
-	cwd := fs.String("cwd", "", "project root whose bank to verify (default: cwd)")
-	archives := fs.Bool("archives", false, "include archived bank blocks and native files")
-	all := fs.Bool("all-stores", false, "verify every store, including home")
-	if code, done := memoryParseNoArgs(fs, "verify", args); done {
-		return code
-	}
-	if err := memory.Verify(os.Stdout, memory.VerifyOptions{CWD: *cwd, Archives: *archives,
-		AllStores: *all, HelpVerb: helpVerb}); err != nil {
-		return helptext.Fail("memory verify: %v", err)
-	}
-	return 0
-}
-
 func cmdMemoryDream(args []string) int {
 	fs := memoryFlagSet("dream")
 	cwd := fs.String("cwd", "", "project root whose bank to consolidate (default: cwd)")
@@ -202,14 +186,13 @@ func cmdMemoryCatchup(args []string) int {
 }
 
 // memorySubcommands dispatches both public verbs and the off-menu plumbing verbs.
-func memorySubcommands(helpVerb func(string) bool) map[string]func([]string) int {
+func memorySubcommands() map[string]func([]string) int {
 	return map[string]func([]string) int{
 		// public
 		"recall":   cmdMemoryRecall,
 		"remember": cmdMemoryRemember,
 		"init":     cmdMemoryInit,
 		"review":   cmdMemoryReview,
-		"verify":   func(args []string) int { return cmdMemoryVerify(args, helpVerb) },
 		"promote":  cmdMemoryPromote,
 		"update":   cmdMemoryUpdate,
 		"dream":    cmdMemoryDream,
@@ -224,19 +207,18 @@ func memorySubcommands(helpVerb func(string) bool) map[string]func([]string) int
 		"watch":    cmdMemoryWatch,
 		"catchup":  cmdMemoryCatchup,
 		"timeline": cmdMemoryTimeline,
-		"archive":  cmdMemoryArchive,
 		"alias":    cmdMemoryAlias,
 	}
 }
 
-// cmdMemory dispatches the memory verb tree; helpVerb names the top-level verbs whose -h is read-only.
-func cmdMemory(args []string, helpVerb func(string) bool) int {
+// cmdMemory dispatches the memory verb tree; the second parameter is vestigial (table.go still passes readOnlyHelp).
+func cmdMemory(args []string, _ func(string) bool) int {
 	if len(args) == 0 || isHelpVerb(args[0]) {
 		memoryPage.Fprint(os.Stderr)
 		return 0
 	}
 	sub := args[0]
-	h, ok := memorySubcommands(helpVerb)[sub]
+	h, ok := memorySubcommands()[sub]
 	if !ok {
 		return helptext.Fail("memory: unknown subcommand %q (claude-code memory -h lists them)", sub)
 	}
@@ -252,7 +234,6 @@ func memorySpec() *helptext.Node {
 		"init":     {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys)}},
 		"review": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.Plain("stale-days"), helptext.BoolFlag("notice"),
 			helptext.BoolFlag("brief"), helptext.BoolFlag("candidates")}},
-		"verify": {Flags: []helptext.Flag{helptext.Plain("cwd"), helptext.BoolFlag("archives"), helptext.BoolFlag("all-stores")}},
 		"promote": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys),
 			helptext.ValuedFlag("to", func() []string { return memory.PromoteTargets }), helptext.BoolFlag("dry-run")}},
 		"update": {Flags: []helptext.Flag{helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("session"),
@@ -268,9 +249,7 @@ func memorySpec() *helptext.Node {
 		"catchup":  {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("skip")}},
 		"watch":    {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
 		"timeline": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.Plain("n")}},
-		"archive": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.BoolFlag("dupes"), helptext.Plain("split"),
-			helptext.BoolFlag("apply"), helptext.BoolFlag("restore")}},
-		"alias": {Flags: []helptext.Flag{helptext.Plain("repo"), helptext.ValuedFlag("into", memory.RepoKeys), helptext.BoolFlag("dry-run")}},
+		"alias":    {Flags: []helptext.Flag{helptext.Plain("repo"), helptext.ValuedFlag("into", memory.RepoKeys), helptext.BoolFlag("dry-run")}},
 	}}
 }
 
@@ -559,38 +538,6 @@ func printAliasPlan(dryRun bool, lines []string) {
 	for _, l := range lines {
 		fmt.Println("  " + l)
 	}
-}
-
-// `memory archive` governs Claude Code's native MEMORY.md/SEARCHABLE.md pair: the cap/settle
-// machinery in internal/memory (bank_settle.go) owns the six typed bank files BY NAME, so native auto-memory — injected
-// every session, uncapped — has no verb at all otherwise.
-
-var memoryArchivePage = helptext.Page{
-	Usage: "claude-code memory archive [flags] [<topic>...]",
-	About: "Audit the native MEMORY.md store's injected cost (no writes); --apply moves named\n" +
-		"topics to or from the archive, or --split N trims MEMORY.md to N pointer lines.",
-}
-
-// cmdMemoryArchive audits the native store's injected cost by default (names + stats, no writes);
-// --apply moves named topics to/from the archive, or --split N trims MEMORY.md to N pointer lines.
-func cmdMemoryArchive(args []string) int {
-	fs := helptext.NewFlagSet("memory archive", memoryArchivePage)
-	repo := fs.String("repo", "", "project root (default: $CLAUDE_PROJECT_DIR, git toplevel, cwd)")
-	apply := fs.Bool("apply", false, "perform the moves/split (default: dry run)")
-	restore := fs.Bool("restore", false, "move the named topics back out of the archive")
-	dupes := fs.Bool("dupes", false, "report near-duplicate topic files (no writes)")
-	split := fs.Int("split", -1, "trim MEMORY.md to N pointers; move rest to SEARCHABLE.md")
-	names, err := helptext.ParseArgs(fs, args)
-	if err != nil {
-		return helptext.ExitCode(err)
-	}
-	err = memory.ArchiveReport(os.Stdout, os.Stderr, memory.ArchiveReportOptions{Dir: memory.Dir(memory.RepoRoot(*repo)),
-		Names: names, Apply: *apply, Restore: *restore, Dupes: *dupes, Split: *split})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "memory archive:", err)
-		return 1
-	}
-	return 0
 }
 
 // memoryRecallExplain prints the hook's recall selection; --explain refuses the flags that need real hits.

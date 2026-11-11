@@ -33,7 +33,6 @@ point to it, and on a disagreement the earlier one wins.
 | `remember <fact>` | Append a fact to the bank; `--type` picks the file |
 | `init` | Create the repo's bank |
 | `review` | Doctor + bank stats; `--candidates` prints the promotion-ranking procedure |
-| `verify` | Check bank claims against local evidence; never writes or fetches |
 | `promote <id> --to <target>` | Move or surface one block (`home\|rules\|skill\|claude-md`) |
 | `update` | Save the live session or `--transcript`; with neither, print the procedure |
 | `dream` | Consolidate the bank when due; `--force`, `--dry-run` |
@@ -46,7 +45,6 @@ point to it, and on a disagreement the earlier one wins.
 | `fmt` | Wrap the bank files; `--check` reports only |
 | `watch`, `catchup` | The idle watcher and the missed-session sweep that the hooks spawn |
 | `timeline` | Recent bank entries and sessionHistory |
-| `archive [--split 20 --apply]` | Move topic files out of `MEMORY.md` (`--dupes`, `--restore`); `--split N` keeps N pointers and moves the rest to `SEARCHABLE.md` |
 | `alias --repo <checkout> --into <key>` | Fold a second checkout's store into another |
 
 Which verbs print a procedure, and when: `skills/reflection/SKILL.md` → Verb table.
@@ -75,7 +73,6 @@ Typed files carry `harness_kind: bank` frontmatter. `MEMORY.md` carries a genera
 | `sessionHistory.md` | 30 entries (rotates, not a line cap) | `sessionHistoryMaxEntries` |
 | Generated bank region of `MEMORY.md` | 40 lines / 4 KB, markers included | `BankRegionMaxLines`, `BankRegionMaxBytes` |
 | Whole `MEMORY.md` (native index) | 200 lines / 25 KB | `NativeIndexMaxLines`, `NativeIndexMaxBytes` |
-| Pointer lines left injected by `archive --split` | 20 | `NativeCoreCap` |
 
 The 40-line region and the 200-line index are different things: the region is the harness's slice, the index is
 everything the native loader reads. Past a `fileCaps` limit `memory dream` archives the overflow.

@@ -19,7 +19,6 @@ import (
 const BankFmtMaxLine = 120
 
 var (
-	bankFmtFence   = regexp.MustCompile(`^\s*(` + "```" + `|~~~)`)
 	bankFmtHeading = regexp.MustCompile(`^#{1,6}\s`)
 	bankFmtComment = regexp.MustCompile(`^<!--.*-->$`)
 	bankFmtBullet  = regexp.MustCompile(`^(\s*)([-*] )(.*)$`)
@@ -179,12 +178,8 @@ func (s *bankScan) special(i int, line string) bool {
 		s.inFrontMatter = true
 	case s.inFrontMatter:
 		s.inFrontMatter = trimmed != "---"
-	case s.fence != "":
-		if fenceCloses(trimmed, s.fence) {
-			s.fence = ""
-		}
-	case bankFmtFence.MatchString(line):
-		s.fence = fenceRun(trimmed)
+	case s.fence != "" || nextFence("", trimmed) != "":
+		s.fence = nextFence(s.fence, trimmed)
 	case strings.Contains(line, "RULES:BEGIN"):
 		s.inRules = !strings.Contains(line, "RULES:END")
 	case s.inRules:
