@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // legacyVault is a schema-3 vault holding pins, migrated by the next Update.
@@ -317,13 +318,13 @@ func TestRecordWithoutNewBlocksKeepsItsBytes(t *testing.T) {
 	}
 }
 
-// cachedRecords counts the vault opens behind ReadAgentRecords and waits out the stamp cache's racy window.
+// cachedRecords counts the vault opens behind ReadAgentRecords and advances past the stamp cache's racy window.
 func cachedRecords(t *testing.T) *int {
 	t.Helper()
 	opens, orig := new(int), loadAgentRecords
 	loadAgentRecords = func() (map[string]AgentRecord, error) { *opens++; return orig() }
 	t.Cleanup(func() { loadAgentRecords = orig })
-	time.Sleep(2100 * time.Millisecond)
+	t.Cleanup(paths.SetStampNowForTest(func() time.Time { return time.Now().Add(time.Hour) }))
 	return opens
 }
 

@@ -121,7 +121,7 @@ func Argv(pid int) ([]string, error) {
 const MaxCaptureBytes = 1 << 20
 
 // ExecWaitDelay force-closes a timed-out command's pipes so surviving children cannot hold Wait open.
-const ExecWaitDelay = 2 * time.Second
+var ExecWaitDelay = 2 * time.Second
 
 // capBuffer collects writes up to max, then fails the write so the child is cut off with memory bounded.
 type capBuffer struct {

@@ -177,7 +177,7 @@ audit: compile  ## CI gate: lint, git secrets, test, build, vuln, docs
 	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory audit-git
 	@if [ "$(SKIP_TESTS)" = 1 ]; then echo -e "$(C_NOTE)tests skipped (SKIP_TESTS=1)"; else \
-		$(BIN) test ramdisk -- $(GO) test -timeout $(GO_TEST_TIMEOUT) $(PKGS) && \
+		$(BIN) test ramdisk -- $(GO) test -timeout $(GO_TEST_TIMEOUT) ./internal/memory/... ./internal/worktree/... $(PKGS) && \
 		$(MAKE) --no-print-directory audit-nokeyring; fi
 	$(GO) build $(PKGS)
 	@echo -e "$(C_OK)go check passed (lint + build$(if $(filter 1,$(SKIP_TESTS)),, + test))"

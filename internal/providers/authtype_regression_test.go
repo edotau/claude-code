@@ -122,6 +122,8 @@ func staleRow(t *testing.T, name string, left time.Duration) (*Provider, string)
 
 // A transient refresh failure rides out on a still-valid sealed access token, but never for force or under 1 minute.
 func TestTransientRefreshFallsBackToStaleAccess(t *testing.T) {
+	defer func(d time.Duration) { oauth.RetryBackoff = d }(oauth.RetryBackoff)
+	oauth.RetryBackoff = time.Millisecond
 	ctx := context.Background()
 	p, old := staleRow(t, "stale-ok", 5*time.Minute)
 	if got, err := userCredential(ctx, p, false); err != nil || got != old {
