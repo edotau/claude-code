@@ -40,6 +40,11 @@ func StartSession(sessionID, cwd string, now time.Time) string {
 	return out
 }
 
+// SessionText is StartSession's text for an audit: no scaffold, link, workers, seen reset or chain write.
+func SessionText(sessionID, cwd string, now time.Time) string {
+	return sessionSurfaceText(cwd, "", filepath.Join(StateDir(), "last-session"), sessionID, now)
+}
+
 // sessionSurfaceText renders the start-of-session note and (when a bank exists) its surface.
 func sessionSurfaceText(cwd, prefix, chain, sessionID string, now time.Time) string {
 	if surface := sessionSurface(cwd); surface != "" {

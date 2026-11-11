@@ -37,6 +37,20 @@ func Start(in *core.Input) core.Result {
 	return res
 }
 
+// StartText is Start's context for an audit (doctor --prompts): nothing is written, spawned or consumed.
+func StartText(in *core.Input) core.Result {
+	cwd := in.CWD
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	now := time.Now()
+	reg, err := loadProviders()
+	if err != nil {
+		reg = nil
+	}
+	return core.Result{Context: core.JoinContext(memory.SessionText(in.SessionID, cwd, now), preflightNotice(reg, now))}
+}
+
 // preflightNotice is the static pin check (cached listings only): one short line when something needs a fix.
 func preflightNotice(reg *providers.Registry, now time.Time) string {
 	if reg == nil {
