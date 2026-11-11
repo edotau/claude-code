@@ -263,7 +263,9 @@ func TestRecallFallsBackToKeywordOnTimeout(t *testing.T) {
 		t.Fatalf("fixture invalid: blend and keyword results are identical:\n%s", keyword)
 	}
 
-	t.Cleanup(SetEmbedRecallWait(100 * time.Millisecond))
+	prevWait := embedRecallWait
+	embedRecallWait = 100 * time.Millisecond
+	t.Cleanup(func() { embedRecallWait = prevWait })
 	useEmbedServer(t, slowVecServer(t, 10*time.Second))
 	start := time.Now()
 	got := PromptRecall("slow", cwd, prompt, io.Discard)

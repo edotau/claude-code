@@ -28,30 +28,6 @@ func permissionHandler(o SDKOptions, approved *atomic.Bool) copilot.PermissionHa
 	}
 }
 
-// PolicyVerdict evaluates a rule call through the SDK permission handler.
-func PolicyVerdict(p agent.Permissions, tools, readOnly bool, workDir string, call agent.Rule) agent.Decision {
-	o := SDKOptions{Permissions: p, AllowAllTools: tools, ReadOnlyTools: readOnly, WorkingDirectory: workDir}
-	var req copilot.PermissionRequest
-	switch call.Tool {
-	case "Bash":
-		req = rpc.PermissionRequestShell{FullCommandText: call.Arg}
-	case "Edit":
-		req = rpc.PermissionRequestWrite{FileName: call.Arg}
-	case "Read":
-		req = rpc.PermissionRequestRead{Path: call.Arg}
-	case "WebFetch":
-		req = rpc.PermissionRequestURL{URL: call.Arg}
-	default:
-		server, tool, _ := strings.Cut(strings.TrimPrefix(call.Tool, "mcp__"), "__")
-		req = rpc.PermissionRequestMCP{ServerName: server, ToolName: tool}
-	}
-	d, _ := baseHandler(o)(req, copilot.PermissionInvocation{})
-	if _, rejected := d.(*rpc.PermissionDecisionReject); rejected {
-		return agent.Deny
-	}
-	return agent.Allow
-}
-
 func baseHandler(o SDKOptions) copilot.PermissionHandlerFunc {
 	switch {
 	case !o.AllowAllTools:

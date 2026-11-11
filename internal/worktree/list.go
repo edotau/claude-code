@@ -11,8 +11,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// StaleAfter is the age threshold past which an entry's last-activity evidence marks it Stale.
-const StaleAfter = 14 * 24 * time.Hour
+// staleAfter is the age threshold past which an entry's last-activity evidence marks it Stale.
+const staleAfter = 14 * 24 * time.Hour
 
 // Entry is one worktree, from git's registration, the filesystem, or both. Flags overlap (an entry
 // can be Dirty and Stale at once); a failed inspection appends to Problems and leaves the affected
@@ -53,7 +53,7 @@ func List(repo *Repo) ([]Entry, error) {
 	for i := range entries {
 		entries[i].Orphaned = entries[i].Registered != entries[i].Exists // Prunable/Locked come from git's porcelain
 		if entries[i].Exists {
-			Inspect(repo, &entries[i], target, targetErr, now)
+			inspect(repo, &entries[i], target, targetErr, now)
 			_, entries[i].Busy = cleanBusyReason(entries[i].Path)
 		}
 	}
@@ -149,10 +149,10 @@ func unionFilesystem(repo *Repo, registered []Entry) ([]Entry, error) {
 	return registered, nil
 }
 
-// Inspect fills Dirty, Merged, Stale and activity evidence on e, which must already exist on disk.
+// inspect fills Dirty, Merged, Stale and activity evidence on e, which must already exist on disk.
 // A failed git call appends to Problems and leaves the affected field at its fail-safe default:
 // Dirty=true (never silently "clean"), Merged=false (never silently eligible for removal).
-func Inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time) {
+func inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time) {
 	e.Dirty = true
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
@@ -185,7 +185,7 @@ func Inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time
 	} else {
 		e.ActivityAt, e.ActivitySource = activity(gitDir, e.Path)
 	}
-	e.Stale = !e.ActivityAt.IsZero() && now.Sub(e.ActivityAt) > StaleAfter
+	e.Stale = !e.ActivityAt.IsZero() && now.Sub(e.ActivityAt) > staleAfter
 }
 
 // gitDirFromPath resolves a worktree's git-dir from <path>/.git: a directory, or a linked worktree's gitdir file.
@@ -232,7 +232,7 @@ func activity(gitDir, worktreePath string) (time.Time, string) {
 	return time.Time{}, ""
 }
 
-// probeTimeout bounds each read-only git/lsof/ps probe so a hung filesystem cannot block List, Inspect or Clean.
+// probeTimeout bounds each read-only git/lsof/ps probe so a hung filesystem cannot block List, inspect or Clean.
 var probeTimeout = 30 * time.Second
 
 // currentBranch is main's checked-out branch (the merge target); detached HEAD uses the OID.
@@ -249,7 +249,7 @@ func currentBranch(main string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// asExitErr extracts a process exit code, so Inspect can tell merge-base's clean "not an ancestor"
+// asExitErr extracts a process exit code, so inspect can tell merge-base's clean "not an ancestor"
 // (exit 1) apart from a real failure (anything else, including a non-ExitError like a missing binary).
 func asExitErr(err error) (int, bool) {
 	type exitCoder interface{ ExitCode() int }

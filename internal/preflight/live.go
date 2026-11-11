@@ -189,14 +189,14 @@ func RunInstallStep(ctx context.Context, w io.Writer, reg *providers.Registry, b
 	if !anyCredential(reg, ps) {
 		return nil // no credential anywhere: nothing to ping
 	}
-	start := time.Now()
-	ctx, cancel := context.WithTimeout(ctx, pongCap("opencode")) // the longest pong bounds the step
-	defer cancel()
-	rctx, rcancel := context.WithDeadline(ctx, start.Add(Budget))
+	rctx, rcancel := context.WithTimeout(ctx, Budget)
 	printRefreshErrors(w, RefreshStale(rctx, reg, ps, now, false))
 	rcancel()
 	ps = Check(reg, now)
-	pongs := pongAll(ctx, bin, livePins(ps), "", func(a string) time.Time { return start.Add(pongCap(a)) })
+	pongStart := time.Now()                                      // pongs get their own window after the refresh, not what it left over
+	ctx, cancel := context.WithTimeout(ctx, pongCap("opencode")) // the longest pong bounds the step
+	defer cancel()
+	pongs := pongAll(ctx, bin, livePins(ps), "", func(a string) time.Time { return pongStart.Add(pongCap(a)) })
 	for _, r := range pongs {
 		fmt.Fprintln(w, r.Line())
 	}

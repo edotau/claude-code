@@ -353,3 +353,21 @@ func TestDoctorPassesOnCleanStore(t *testing.T) {
 		t.Fatalf("DoctorChecks missing typo advisory, flagged a far name, or lost key source: %s", detail)
 	}
 }
+
+// Given a stored key within edit distance 2 of two known names, the suggestion is the same (sorted-first) every run.
+func TestCheckKeyNamesSuggestionIsDeterministic(t *testing.T) {
+	doctorTestVault(t)
+	if err := vault.Store("ZZ_KEY3", "v"); err != nil {
+		t.Fatal(err)
+	}
+	reg := &Registry{Providers: map[string]*Provider{
+		"a": {Name: "a", Auth: Auth{Env: "ZZ_KEY1"}},
+		"b": {Name: "b", Auth: Auth{Env: "ZZ_KEY2"}},
+	}}
+	for i := range 40 {
+		got := checkKeyNames(reg)[0].Detail
+		if want := "ZZ_KEY3 (did you mean ZZ_KEY1?)"; got != want {
+			t.Fatalf("run %d: detail = %q, want %q", i, got, want)
+		}
+	}
+}

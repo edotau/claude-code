@@ -2,6 +2,7 @@ package copilot
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -14,6 +15,30 @@ type permCase struct {
 	name string
 	req  copilot.PermissionRequest
 	want bool
+}
+
+// policyVerdict evaluates a rule call through baseHandler.
+func policyVerdict(p agent.Permissions, tools, readOnly bool, workDir string, call agent.Rule) agent.Decision {
+	o := SDKOptions{Permissions: p, AllowAllTools: tools, ReadOnlyTools: readOnly, WorkingDirectory: workDir}
+	var req copilot.PermissionRequest
+	switch call.Tool {
+	case "Bash":
+		req = rpc.PermissionRequestShell{FullCommandText: call.Arg}
+	case "Edit":
+		req = rpc.PermissionRequestWrite{FileName: call.Arg}
+	case "Read":
+		req = rpc.PermissionRequestRead{Path: call.Arg}
+	case "WebFetch":
+		req = rpc.PermissionRequestURL{URL: call.Arg}
+	default:
+		server, tool, _ := strings.Cut(strings.TrimPrefix(call.Tool, "mcp__"), "__")
+		req = rpc.PermissionRequestMCP{ServerName: server, ToolName: tool}
+	}
+	d, _ := baseHandler(o)(req, copilot.PermissionInvocation{})
+	if _, rejected := d.(*rpc.PermissionDecisionReject); rejected {
+		return agent.Deny
+	}
+	return agent.Allow
 }
 
 func TestPolicyVerdict(t *testing.T) {
@@ -54,7 +79,7 @@ func TestPolicyVerdict(t *testing.T) {
 				if tc.want[i] == 'A' {
 					want = agent.Allow
 				}
-				if got := PolicyVerdict(tc.policy, tc.tools, tc.readOnly, wd, call); got != want {
+				if got := policyVerdict(tc.policy, tc.tools, tc.readOnly, wd, call); got != want {
 					t.Errorf("%s: got %v, want %v", call, got, want)
 				}
 			}

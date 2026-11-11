@@ -34,7 +34,6 @@ var writers = map[string]string{
 	"internal/codex/codex.go:codexSchemaFile":                         unversioned("foreign: codex --output-schema temp file"),
 	"internal/agent/job/record.go:Save":                               "dispatch-record",
 	"internal/providers/lastprofile.go:writeLastProfiles":             "last-profile",
-	"internal/providers/lastprofile.go:loadLastProfiles":              unversioned("backup: the corrupt last-profile.json copied aside before it is replaced"),
 	"internal/agentconfig/overlay_debug.go:appendOverlayDebug":        unversioned("debug: COWORKER_OVERLAY_DEBUG env names + HMAC fingerprints, no values"),
 	"internal/agentconfig/overlay_debug.go:overlayDebugSalt":          unversioned("debug: the generated fingerprint salt beside the --overlay-debug file"),
 	"internal/agent/client/pack_prompt.go:write":                      unversioned("foreign: the packed context file an agy run reads, removed after the run"),
@@ -190,7 +189,7 @@ var writers = map[string]string{
 	"internal/ui/vscode/vscode.go:writeGuarded":                       unversioned("foreign: VS Code settings.json, keybindings.json and backup"),
 	"internal/worktree/ledger.go:editLedger":                          unversioned("memory-bank: worktree ledger log line and task fill"),
 	"internal/worktree/ledger.go:CloseLedger":                         unversioned("memory-bank: worktree ledger close"),
-	"internal/worktree/ledger.go:OpenLedger":                          unversioned("memory-bank: worktree ledger open"),
+	"internal/worktree/ledger.go:openLedger":                          unversioned("memory-bank: worktree ledger open"),
 	"internal/worktree/operation.go:SaveOperation":                    "worktree-merge-op",
 	"internal/worktree/seed.go:copyEnvFile":                           unversioned("text: .env copied into a new worktree"),
 }

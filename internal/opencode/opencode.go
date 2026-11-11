@@ -141,15 +141,6 @@ func opencodeHarnessWith(h *agent.Headless, url string) func(map[string]any) {
 	}
 }
 
-// opencodeHarnessConfig is opencodeHarnessWith with the plugin write warned, not returned; launches use the error path.
-func opencodeHarnessConfig(h *agent.Headless) func(map[string]any) {
-	url, err := interactivePlugin(h)
-	if err != nil {
-		fmt.Fprintln(agentconfig.CatalogWarn, "opencode:", err)
-	}
-	return opencodeHarnessWith(h, url)
-}
-
 // opencodeDatabricksModel is the default "model" the databricks split rendered into OPENCODE_CONFIG_CONTENT.
 func opencodeDatabricksModel(env []string) string {
 	var cfg struct {

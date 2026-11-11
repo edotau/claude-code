@@ -415,7 +415,7 @@ func sealedPresent(p *Provider) bool {
 
 // spPresent reports a paired service principal: its spClientId and a stored M2M secret.
 func spPresent(p *Provider) bool {
-	return p.Auth.SPClientID != "" && HasSecret(SecretName(p.provider(), p.Name, AuthM2M)) != ""
+	return p.Auth.SPClientID != "" && HasSecret(SecretName(p.Provider, p.Name, AuthM2M)) != ""
 }
 
 func orDash(s string) string {

@@ -53,7 +53,7 @@ const gateLadder = "ladder"
 
 // firstPartyAccount is a vendor's own login (providers.FirstPartyAccountKeys); a pinned "github·" account also passes.
 func firstPartyAccount(account string) bool {
-	return (strings.HasPrefix(account, "github·") && account != CopilotUnpinned) || slices.Contains(providers.FirstPartyAccountKeys, account)
+	return (strings.HasPrefix(account, "github·") && account != copilotUnpinned) || slices.Contains(providers.FirstPartyAccountKeys, account)
 }
 
 // ladderName is first-party or databricks only when HARNESS_ROUTE (`--route` sets it) asks; else default.

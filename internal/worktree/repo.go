@@ -23,18 +23,18 @@ type Repo struct {
 	CommonDir string
 }
 
-// WorktreeRoot is the one worktree home shared with native Claude Code: ~/worktrees, under the
+// worktreeRoot is the one worktree home shared with native Claude Code: ~/worktrees, under the
 // canonical home so it compares equal to the resolved paths git reports (a symlinked $HOME would otherwise
 // disown every registered worktree).
-func WorktreeRoot() string {
+func worktreeRoot() string {
 	home, _ := os.UserHomeDir()
 	home = paths.Canon(home)
 	return filepath.Join(home, "worktrees")
 }
 
-// Root is repo main's own worktree root: WorktreeRoot()/<basename of the main checkout>.
+// Root is repo main's own worktree root: worktreeRoot()/<basename of the main checkout>.
 func Root(main string) string {
-	return filepath.Join(WorktreeRoot(), filepath.Base(filepath.Clean(main)))
+	return filepath.Join(worktreeRoot(), filepath.Base(filepath.Clean(main)))
 }
 
 // gitCmd builds a git command with per-repo GIT_* environment variables scrubbed.
@@ -117,7 +117,7 @@ func checkWorktreeName(repo *Repo, name string) (string, error) {
 // rejectLiveCheckoutRoot refuses repo.Root when it canonically IS, or lives inside, repo.Main — the
 // check ownsWorktree does for an EXISTING dest, run here unconditionally so a worktree root symlinked
 // into the live checkout is rejected even before `create` would otherwise materialize a brand-new
-// directory inside it. repo.Root (or its parent, WorktreeRoot()) is resolved via its longest EXISTING
+// directory inside it. repo.Root (or its parent, worktreeRoot()) is resolved via its longest EXISTING
 // prefix — plain paths.Canon() would silently skip every symlink when repo.Root's own basename doesn't
 // exist yet, which is exactly the case on a first `create` for this repo.
 func rejectLiveCheckoutRoot(repo *Repo) error {

@@ -170,3 +170,24 @@ func TestCodexJSONAddsApplyPatchToFileWriteMatchers(t *testing.T) {
 		t.Errorf("no file-write gate selects Codex's apply_patch:\n%s", raw)
 	}
 }
+
+// A symlinked hooks.json is written through to its target; the link survives.
+func TestWriteCodexHooksFollowsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target, link := filepath.Join(dir, "real.json"), filepath.Join(dir, "hooks.json")
+	if err := os.WriteFile(target, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeCodexHooks(link, []byte("{}"), []byte(`{"a":1}`), true); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("hooks.json symlink was replaced: %v, %v", info, err)
+	}
+	if got, _ := os.ReadFile(target); string(got) != `{"a":1}` {
+		t.Errorf("target = %q, want the new hooks", got)
+	}
+}

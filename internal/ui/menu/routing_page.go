@@ -14,7 +14,7 @@ import (
 var pickSettingsPage = tui.PickSections
 
 // routingRow is the main-menu "routing" row: N overrides from default, or "vault error" on a load failure.
-func routingRow(d *dialog) homeRow {
+func routingRow() homeRow {
 	overlay, err := providers.RoutingOverlay()
 	detail := "vault error"
 	if err == nil {

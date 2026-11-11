@@ -101,8 +101,8 @@ type PinSpec struct {
 	Off            bool
 }
 
-// PickScope is what a Dimension may read: the account states and every candidate scored together.
-type PickScope struct {
+// pickScope is what a Dimension may read: the account states and every candidate scored together.
+type pickScope struct {
 	State      State
 	Candidates []Candidate
 }
@@ -110,7 +110,7 @@ type PickScope struct {
 // Dimension is one scored axis, 0–1 with 1 better; success rate, latency or alias fit can be added beside these.
 type Dimension interface {
 	Name() string
-	Score(c Candidate, s PickScope) float64
+	Score(c Candidate, s pickScope) float64
 }
 
 // Dimensions are the scored axes; table.json's weights must name exactly these.
@@ -287,11 +287,11 @@ func (t *RouteTable) gateAgent(
 func (t *RouteTable) gateAccount(
 	ctx context.Context, name string, c Cell, billing string, st State, o PickOpts, now time.Time, res *PickResult,
 ) (Candidate, bool) {
-	if c.Account == CopilotUnpinned {
+	if c.Account == copilotUnpinned {
 		res.Skipped = append(res.Skipped, Skip{name, GateAccount, "no pinned Copilot account (claude-code configure github)"})
 		return Candidate{}, false
 	}
-	if reason, marked := st.AccountAuthMarked(c.Account, now); marked {
+	if reason, marked := st.accountAuthMarked(c.Account, now); marked {
 		res.Skipped = append(res.Skipped, Skip{name, GateAuth, authSkipReason(reason, c.Account)})
 		return Candidate{}, false
 	}
@@ -447,7 +447,7 @@ func claudeLast(o PickOpts, gate func(string) ([]Candidate, bool)) [][]Candidate
 
 // score fills each candidate's per-dimension scores and weighted total.
 func (t *RouteTable) score(cs []Candidate, st State) []Candidate {
-	sc := PickScope{State: st, Candidates: cs}
+	sc := pickScope{State: st, Candidates: cs}
 	out := make([]Candidate, len(cs))
 	for i, c := range cs {
 		c.Scores = map[string]float64{}
@@ -473,7 +473,7 @@ type priceDim struct{}
 
 func (priceDim) Name() string { return "price" }
 
-func (priceDim) Score(c Candidate, s PickScope) float64 {
+func (priceDim) Score(c Candidate, s pickScope) float64 {
 	if c.Billing == BillFree {
 		return 1
 	}
@@ -497,7 +497,7 @@ type headroomDim struct{}
 
 func (headroomDim) Name() string { return "headroom" }
 
-func (headroomDim) Score(c Candidate, s PickScope) float64 { return headroom(s.State[c.Account]) }
+func (headroomDim) Score(c Candidate, s pickScope) float64 { return headroom(s.State[c.Account]) }
 
 // headroom of an unseen account is 0.5: unknown ranks below a reading known to have room.
 func headroom(e Entry) float64 {

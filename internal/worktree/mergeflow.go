@@ -54,16 +54,16 @@ func Merge(ctx context.Context, repo *Repo, req MergeRequest) (*MergeOutcome, er
 	if plan == nil {
 		return &MergeOutcome{Blocked: true}, nil
 	}
-	gate, gateSource, err := ChooseVerifyGate(plan.WorktreePath, req.Verify, req.NoVerify)
+	gate, gateSource, err := chooseVerifyGate(plan.WorktreePath, req.Verify, req.NoVerify)
 	if err != nil {
 		return nil, err
 	}
 	return applyMerge(ctx, repo, plan, req, gate, gateSource)
 }
 
-// applyMerge runs IntegrateTarget -> the gate (if any) -> Promote -> an optional clean, inside the caller's lease.
+// applyMerge runs integrateTarget -> the gate (if any) -> promote -> an optional clean, inside the caller's lease.
 func applyMerge(ctx context.Context, repo *Repo, plan *MergePlan, req MergeRequest, gate, gateSource string) (*MergeOutcome, error) {
-	integrated, err := IntegrateTarget(ctx, repo, plan)
+	integrated, err := integrateTarget(ctx, repo, plan)
 	if err != nil {
 		return nil, fmt.Errorf("integrate: %w", err)
 	}
@@ -77,7 +77,7 @@ func applyMerge(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReque
 		return nil, err
 	}
 
-	promoted, err := Promote(ctx, repo, plan)
+	promoted, err := promote(ctx, repo, plan)
 	if err != nil {
 		if promoted != nil && promoted.ResumeHint != "" {
 			fmt.Fprintln(req.Err, "  retry:", promoted.ResumeHint)
@@ -92,7 +92,7 @@ func scopeGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gat
 	if gateSource != "Makefile" || req.FullVerify || !paths.FileExists(filepath.Join(plan.WorktreePath, "go.mod")) {
 		return gate, gateSource, nil
 	}
-	scoped, pkgs, full, err := ScopedGoGate(ctx, plan.WorktreePath, plan.TargetOID)
+	scoped, pkgs, full, err := scopedGoGate(ctx, plan.WorktreePath, plan.TargetOID)
 	if err != nil {
 		return "", "", fmt.Errorf("scoped gate: %w", err)
 	}
@@ -140,7 +140,7 @@ func runGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gateS
 		return nil
 	}
 	fmt.Fprintf(req.Out, "verify: %s\n", gate)
-	if err := RunVerify(ctx, plan.WorktreePath, gate, req.Out, req.Err); err != nil {
+	if err := runVerify(ctx, plan.WorktreePath, gate, req.Out, req.Err); err != nil {
 		fmt.Fprintf(req.Err, "worktree left on disk at %s for inspection\n", plan.WorktreePath)
 		return fmt.Errorf("verify failed, not promoting: %w", err)
 	}
@@ -199,7 +199,7 @@ func resumeMerge(ctx context.Context, repo *Repo, req MergeRequest) (*MergePlan,
 
 // replanPinned re-plans a committed resolution, requiring it unblocked and the target still at the pinned ref and OID.
 func replanPinned(ctx context.Context, repo *Repo, req MergeRequest, ref, oid, blockedAfter, movedWhen string) (*MergePlan, error) {
-	fresh, err := PreflightAfterResolution(ctx, repo, req.Name, req.Target)
+	fresh, err := preflightAfterResolution(ctx, repo, req.Name, req.Target)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +216,7 @@ func replanPinned(ctx context.Context, repo *Repo, req MergeRequest, ref, oid, b
 
 // notifyConflict appends a conflict notice to the session owning the worktree's ledger; a failure only warns.
 func notifyConflict(plan *MergePlan, errOut io.Writer) {
-	s := LedgerSession(plan.WorktreePath)
+	s := ledgerSession(plan.WorktreePath)
 	if s == "" {
 		return
 	}
@@ -258,15 +258,15 @@ func issueCodes(issues []Issue) string {
 // `worktree merge` runs. It coordinates this harness's own operations only, never an external writer.
 const mergeLockFile = "worktree-merge.lock"
 
-// mergeLockWait is how long Acquire waits for the lock (when wait<=0) before ErrMergeBusy; a var so tests need not sit it out.
+// mergeLockWait is how long acquire waits for the lock (when wait<=0) before errMergeBusy; a var so tests need not sit it out.
 var mergeLockWait = 5 * time.Second
 
-// ErrMergeBusy is returned when the merge lock is not granted within the wait.
-var ErrMergeBusy = errors.New("worktree merge: another promote holds the merge lock")
+// errMergeBusy is returned when the merge lock is not granted within the wait.
+var errMergeBusy = errors.New("worktree merge: another promote holds the merge lock")
 
-// Acquire runs fn holding the one merge lock; wait<=0 means mergeLockWait. Not reentrant: fn must
-// never call Acquire itself, or a single caller would deadlock on its own held lock.
-func Acquire(wait time.Duration, fn func() error) error {
+// acquire runs fn holding the one merge lock; wait<=0 means mergeLockWait. Not reentrant: fn must
+// never call acquire itself, or a single caller would deadlock on its own held lock.
+func acquire(wait time.Duration, fn func() error) error {
 	dir := paths.StateDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -276,7 +276,7 @@ func Acquire(wait time.Duration, fn func() error) error {
 	}
 	ran, err := paths.TryFileLock(filepath.Join(dir, mergeLockFile), wait, fn)
 	if err == nil && !ran {
-		return ErrMergeBusy
+		return errMergeBusy
 	}
 	return err
 }

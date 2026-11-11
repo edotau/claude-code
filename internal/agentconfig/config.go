@@ -45,8 +45,8 @@ type Config struct {
 	records map[string]vault.AgentRecord
 }
 
-// ConfigOverlay is the user overlay (vault overlay/agents; an entry replaces the built-in whole); fs.ErrNotExist when absent.
-func ConfigOverlay() ([]byte, error) {
+// configOverlay is the user overlay (vault overlay/agents; an entry replaces the built-in whole); fs.ErrNotExist when absent.
+func configOverlay() ([]byte, error) {
 	var doc []byte
 	found := false
 	err := vault.View(func(t *vault.Tx) error {
@@ -66,7 +66,7 @@ func ConfigOverlay() ([]byte, error) {
 // configCache holds the merged config per vault.db stamp; LoadConfig hands out clones.
 var configCache paths.StampCache[*Config]
 
-// LoadConfig merges the embedded defaults with ConfigOverlay and returns defaults alone when it's absent.
+// LoadConfig merges the embedded defaults with configOverlay and returns defaults alone when it's absent.
 func LoadConfig() (*Config, error) {
 	cfg, err := configCache.Get(vault.Path(), loadConfig)
 	return cfg.Clone(), err
@@ -74,7 +74,7 @@ func LoadConfig() (*Config, error) {
 
 // loadConfig is LoadConfig's uncached merge of the vault overlay over the embedded defaults.
 func loadConfig() (*Config, error) {
-	user, err := ConfigOverlay()
+	user, err := configOverlay()
 	if errors.Is(err, fs.ErrNotExist) {
 		user = nil
 	} else if err != nil {

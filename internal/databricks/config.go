@@ -144,12 +144,12 @@ func synth(name, host, wire string) (*providers.Provider, string, error) {
 	return p, host, nil
 }
 
-func (f cfgFlags) options(target, self string) (Options, error) {
+func (f cfgFlags) options(target, self string) (renderOptions, error) {
 	p, host, err := resolve(f)
 	if err != nil {
-		return Options{}, err
+		return renderOptions{}, err
 	}
-	return Options{Target: target, Host: host, P: p, Auth: f.auth, Self: self,
+	return renderOptions{Target: target, Host: host, P: p, Auth: f.auth, Self: self,
 		Model: f.model, Set: f.set, Unset: f.unset}, nil
 }
 
@@ -162,15 +162,15 @@ func config(args []string) int {
 	target := args[0]
 	var f cfgFlags
 	fs := helptext.NewFlagSet("claude-code databricks config", configPage)
-	bind(fs, &f, AuthHarness, true)
+	bind(fs, &f, authHarness, true)
 	if code, done := helptext.Parse(fs, args[1:]); done {
 		return code
 	}
 	self, _ := os.Executable()
 	o, err := f.options(target, self)
 	if err == nil {
-		var res Result
-		if res, err = Render(o); err == nil {
+		var res renderResult
+		if res, err = renderConfig(o); err == nil {
 			return emit(f, target, res)
 		}
 	}
@@ -178,7 +178,7 @@ func config(args []string) int {
 	return 2
 }
 
-func emit(f cfgFlags, target string, res Result) int {
+func emit(f cfgFlags, target string, res renderResult) int {
 	if res.Note != "" {
 		fmt.Fprintln(os.Stderr, "note: "+res.Note)
 	}
@@ -196,7 +196,7 @@ func emit(f cfgFlags, target string, res Result) int {
 
 func configUsage() {
 	fs := helptext.NewFlagSet("claude-code databricks config", configPage)
-	bind(fs, &cfgFlags{}, AuthHarness, true)
+	bind(fs, &cfgFlags{}, authHarness, true)
 	fs.Usage()
 }
 
@@ -239,7 +239,7 @@ func rescue(args []string) int {
 	var f cfgFlags
 	var print bool
 	fs := helptext.NewFlagSet("claude-code databricks rescue", rescuePage)
-	bind(fs, &f, AuthCLI, false)
+	bind(fs, &f, authCLI, false)
 	fs.BoolVar(&print, "print", false, "print the file and command, do not run")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -274,15 +274,15 @@ func rescue(args []string) int {
 }
 
 // renderScratch renders the claude config for f and writes it to a scratch file.
-func renderScratch(f cfgFlags) (Result, string, error) {
+func renderScratch(f cfgFlags) (renderResult, string, error) {
 	self, _ := os.Executable()
-	o, err := f.options(TargetClaude, self)
+	o, err := f.options(targetClaude, self)
 	if err != nil {
-		return Result{}, "", err
+		return renderResult{}, "", err
 	}
-	res, err := Render(o)
+	res, err := renderConfig(o)
 	if err != nil {
-		return Result{}, "", err
+		return renderResult{}, "", err
 	}
 	file, err := writeScratch(res.Text)
 	return res, file, err
@@ -311,7 +311,7 @@ func writeScratch(text string) (string, error) {
 
 func rescueUsage() {
 	fs := helptext.NewFlagSet("claude-code databricks rescue", rescuePage)
-	bind(fs, &cfgFlags{}, AuthCLI, false)
+	bind(fs, &cfgFlags{}, authCLI, false)
 	fs.Bool("print", false, "print the file and command, do not run")
 	fs.Usage()
 }

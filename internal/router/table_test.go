@@ -127,8 +127,8 @@ func TestLoadFromCopilotAccountKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a := tb.Rows["copilot"]["sonnet"].Account; a != CopilotUnpinned {
-		t.Errorf("copilot account = %q, want %q when no user is pinned", a, CopilotUnpinned)
+	if a := tb.Rows["copilot"]["sonnet"].Account; a != copilotUnpinned {
+		t.Errorf("copilot account = %q, want %q when no user is pinned", a, copilotUnpinned)
 	}
 }
 

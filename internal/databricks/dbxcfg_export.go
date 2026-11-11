@@ -10,8 +10,8 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// ExportRow is one vault row rendered as a .databrickscfg section; it carries identifiers only, never a secret.
-type ExportRow struct {
+// exportRow is one vault row rendered as a .databrickscfg section; it carries identifiers only, never a secret.
+type exportRow struct {
 	Pair        string // user section named by an SP pairing signal
 	PairSet     bool
 	SecretID    string // paired user row owns this SP credential
@@ -24,15 +24,15 @@ type ExportRow struct {
 	WorkspaceID string
 }
 
-// ExportRows lists the registry's databricks preset rows with an authType; skipped explains the others.
-func ExportRows(reg *providers.Registry) (rows []ExportRow, skipped []string) {
+// exportRows lists the registry's databricks preset rows with an authType; skipped explains the others.
+func exportRows(reg *providers.Registry) (rows []exportRow, skipped []string) {
 	rows, skipped = presetRows(reg)
 	markM2MPairs(rows)
 	return appendSPRows(reg, rows), skipped
 }
 
 // presetRows is one row per exportable databricks preset provider, sorted by name.
-func presetRows(reg *providers.Registry) (rows []ExportRow, skipped []string) {
+func presetRows(reg *providers.Registry) (rows []exportRow, skipped []string) {
 	names := make([]string, 0, len(reg.Providers))
 	for n := range reg.Providers {
 		names = append(names, n)
@@ -52,14 +52,14 @@ func presetRows(reg *providers.Registry) (rows []ExportRow, skipped []string) {
 			skipped = append(skipped, n+": no https host; not exported")
 			continue
 		}
-		rows = append(rows, ExportRow{ID: n, Section: n, Host: host, Auth: p.Auth.Type, ClientID: p.Auth.ClientID,
+		rows = append(rows, exportRow{ID: n, Section: n, Host: host, Auth: p.Auth.Type, ClientID: p.Auth.ClientID,
 			AccountID: p.Auth.AccountID, WorkspaceID: p.Auth.WorkspaceID})
 	}
 	return rows, skipped
 }
 
 // markM2MPairs flags each m2m row that shares a host with an oauth row as paired.
-func markM2MPairs(rows []ExportRow) {
+func markM2MPairs(rows []exportRow) {
 	for i, r := range rows {
 		if r.Auth != providers.AuthM2M {
 			continue
@@ -74,24 +74,24 @@ func markM2MPairs(rows []ExportRow) {
 }
 
 // appendSPRows adds a paired m2m row for every oauth row that carries an spClientId.
-func appendSPRows(reg *providers.Registry, rows []ExportRow) []ExportRow {
+func appendSPRows(reg *providers.Registry, rows []exportRow) []exportRow {
 	for _, r := range rows {
 		p := reg.Providers[r.ID]
 		if r.Auth != providers.AuthOAuth || p.Auth.SPClientID == "" {
 			continue
 		}
 		section := freeSPSection(reg, rows, r.ID)
-		rows = append(rows, ExportRow{ID: section, Section: section, Host: r.Host, Auth: providers.AuthM2M,
+		rows = append(rows, exportRow{ID: section, Section: section, Host: r.Host, Auth: providers.AuthM2M,
 			ClientID: p.Auth.SPClientID, Pair: r.Section, PairSet: true, SecretID: r.ID})
 	}
 	return rows
 }
 
 // freeSPSection is the first of id-sp, id-sp-2, ... that no provider or row already uses.
-func freeSPSection(reg *providers.Registry, rows []ExportRow, id string) string {
+func freeSPSection(reg *providers.Registry, rows []exportRow, id string) string {
 	section := id + "-sp"
 	for i := 2; ; i++ {
-		if _, exists := reg.Providers[section]; !exists && !slices.ContainsFunc(rows, func(x ExportRow) bool { return x.Section == section }) {
+		if _, exists := reg.Providers[section]; !exists && !slices.ContainsFunc(rows, func(x exportRow) bool { return x.Section == section }) {
 			return section
 		}
 		section = fmt.Sprintf("%s-sp-%d", id, i)
@@ -100,8 +100,8 @@ func freeSPSection(reg *providers.Registry, rows []ExportRow, id string) string 
 
 var sectionRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
-// Rename applies id=section renames and drops rows whose section is reserved ([DEFAULT], __settings__) or malformed.
-func Rename(rows []ExportRow, rename map[string]string) (out []ExportRow, skipped []string) {
+// renameRows applies id=section renames and drops rows whose section is reserved ([DEFAULT], __settings__) or malformed.
+func renameRows(rows []exportRow, rename map[string]string) (out []exportRow, skipped []string) {
 	seen := map[string]bool{}
 	for _, r := range rows {
 		if s, ok := rename[r.Pair]; ok && r.PairSet {
@@ -126,7 +126,7 @@ func Rename(rows []ExportRow, rename map[string]string) (out []ExportRow, skippe
 }
 
 // sectionText renders one row; u2m is written as the CLI's databricks-cli, and pat names itself so it re-imports.
-func sectionText(r ExportRow) string {
+func sectionText(r exportRow) string {
 	var b strings.Builder
 	if r.PairSet {
 		pair := r.Pair
@@ -138,11 +138,11 @@ func sectionText(r ExportRow) string {
 	fmt.Fprintf(&b, "[%s]\nhost = %s\n", r.Section, r.Host)
 	switch r.Auth {
 	case providers.AuthOAuth:
-		b.WriteString("auth_type = " + CLIAuthU2M + "\n")
+		b.WriteString("auth_type = " + cliAuthU2M + "\n")
 	case providers.AuthM2M:
-		fmt.Fprintf(&b, "client_id = %s\nauth_type = %s\n", r.ClientID, CLIAuthM2M)
+		fmt.Fprintf(&b, "client_id = %s\nauth_type = %s\n", r.ClientID, cliAuthM2M)
 	case providers.AuthPAT:
-		b.WriteString("auth_type = " + CLIAuthPAT + "\n")
+		b.WriteString("auth_type = " + cliAuthPAT + "\n")
 	}
 	if r.AccountID != "" {
 		fmt.Fprintf(&b, "account_id = %s\n", r.AccountID)
@@ -153,8 +153,8 @@ func sectionText(r ExportRow) string {
 	return b.String()
 }
 
-// RenderExport is a fresh config holding rows, one section each.
-func RenderExport(rows []ExportRow) string {
+// renderExport is a fresh config holding rows, one section each.
+func renderExport(rows []exportRow) string {
 	parts := make([]string, 0, len(rows))
 	for _, r := range rows {
 		parts = append(parts, sectionText(r))
@@ -162,8 +162,8 @@ func RenderExport(rows []ExportRow) string {
 	return strings.Join(parts, "\n")
 }
 
-// Hint is the use-time line for a row: how the CLI gets the credential the file deliberately lacks.
-func Hint(r ExportRow) string {
+// rowHint is the use-time line for a row: how the CLI gets the credential the file deliberately lacks.
+func rowHint(r exportRow) string {
 	if r.SecretID != "" {
 		r.ID = r.SecretID
 	}
@@ -220,9 +220,9 @@ func splitBlocks(text string) []block {
 	return blocks
 }
 
-// Merge writes rows into existing text: every other section (and [DEFAULT]) stays verbatim. An existing
+// mergeExport writes rows into existing text: every other section (and [DEFAULT]) stays verbatim. An existing
 // section of the same name is replaced only with force, and an auth_type = databricks-cli one never is.
-func Merge(existing string, rows []ExportRow, force bool) (string, []string) {
+func mergeExport(existing string, rows []exportRow, force bool) (string, []string) {
 	have := map[string]*section{}
 	secs, _, err := parseSections(existing)
 	if err != nil {
@@ -252,7 +252,7 @@ func Merge(existing string, rows []ExportRow, force bool) (string, []string) {
 	return out, m.notes
 }
 
-// merger accumulates Merge's edits: the rewritten blocks, the sections to append and the per-row notes.
+// merger accumulates mergeExport's edits: the rewritten blocks, the sections to append and the per-row notes.
 type merger struct {
 	have     map[string]*section
 	blocks   []block
@@ -262,7 +262,7 @@ type merger struct {
 }
 
 // apply merges one row: keep reserved and databricks-cli sections, add new ones, replace only with force.
-func (m *merger) apply(r ExportRow) {
+func (m *merger) apply(r exportRow) {
 	sig, exists := m.have[r.Section]
 	if exists && sig.pairSet {
 		r.Pair, r.PairSet = sig.pair, true
@@ -273,7 +273,7 @@ func (m *merger) apply(r ExportRow) {
 	case !exists:
 		m.appended = append(m.appended, sectionText(r))
 		m.notes = append(m.notes, "add ["+r.Section+"]")
-	case sig.keys["auth_type"] == CLIAuthU2M:
+	case sig.keys["auth_type"] == cliAuthU2M:
 		m.notes = append(m.notes, "keep ["+r.Section+"]: an existing databricks-cli login section is never overwritten")
 	case !m.force:
 		m.notes = append(m.notes, "keep ["+r.Section+"]: exists (--force replaces it)")

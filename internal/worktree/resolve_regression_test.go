@@ -40,7 +40,7 @@ func TestCheckResolutionRejectsCommittedConflictMarkers(t *testing.T) {
 	op := crashedOperation(t, repo, wt, plan)
 	mergeFixtureRun(t, wt, "add", "f.txt")
 	mergeFixtureRun(t, wt, "commit", "--no-edit")
-	state, reason, err := CheckResolution(context.Background(), op, wt)
+	state, reason, err := checkResolution(context.Background(), op, wt)
 	if err != nil || state != resolutionInvalid || !strings.Contains(reason, "conflict markers") {
 		t.Fatalf("committed markers accepted: state=%v reason=%q err=%v", state, reason, err)
 	}

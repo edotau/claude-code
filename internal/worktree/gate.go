@@ -30,10 +30,10 @@ type goPkg struct {
 	TestGoFiles, XTestGoFiles                   []string
 }
 
-// ScopedGoGate builds the merge gate: build and vet everything, test the packages base...HEAD changed, every
+// scopedGoGate builds the merge gate: build and vet everything, test the packages base...HEAD changed, every
 // package that imports them (tests included, transitively) and the registry packages. full is true for a
 // go.mod/go.sum change or an unowned file that is neither markdown nor Go.
-func ScopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []string, full bool, err error) {
+func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []string, full bool, err error) {
 	out, err := runGit(ctx, dir, nil, "diff", "--name-only", "-z", base+"...HEAD")
 	if err != nil {
 		return "", nil, false, fmt.Errorf("git diff %s...HEAD: %w (%s)", base, err, gitErrorDetail(err))
@@ -222,8 +222,8 @@ func goPkgOf(dir, rel string) string {
 
 func isGoFile(e os.DirEntry) bool { return !e.IsDir() && strings.HasSuffix(e.Name(), ".go") }
 
-// ChooseVerifyGate picks the post-integration gate: noVerify skips it, an explicit verify wins, else it is detected.
-func ChooseVerifyGate(worktreePath, verify string, noVerify bool) (gate, source string, err error) {
+// chooseVerifyGate picks the post-integration gate: noVerify skips it, an explicit verify wins, else it is detected.
+func chooseVerifyGate(worktreePath, verify string, noVerify bool) (gate, source string, err error) {
 	if noVerify {
 		return "", "", nil
 	}
@@ -441,9 +441,9 @@ func stripMakeComment(line string) string {
 	return line
 }
 
-// RunVerify runs cmdStr in workDir under `bash -c 'set -o pipefail; ...'` so a failing pipeline stage fails the gate;
+// runVerify runs cmdStr in workDir under `bash -c 'set -o pipefail; ...'` so a failing pipeline stage fails the gate;
 // ctx cancellation kills it, and a nonzero exit is the one signal that stops promotion.
-func RunVerify(ctx context.Context, workDir, cmdStr string, stdout, stderr io.Writer) error {
+func runVerify(ctx context.Context, workDir, cmdStr string, stdout, stderr io.Writer) error {
 	cmd := exec.CommandContext(ctx, "bash", "-c", "set -o pipefail; "+cmdStr)
 	cmd.Dir, cmd.Env = workDir, gateEnv()
 	cmd.Stdout = stdout

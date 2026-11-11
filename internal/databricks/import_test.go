@@ -413,12 +413,12 @@ func TestImportExplicitUnpairSurvivesReplace(t *testing.T) {
 func TestSealImportedEmptySecretIsNotSealed(t *testing.T) {
 	useVaultTest(t)
 	cfg := writeCfg(t, "[pat-empty]\nhost = https://pat.example.cloud.databricks.com\ntoken = \n")
-	row := Row{ID: "pat-empty", Name: "pat-empty", Auth: providers.AuthPAT, HasSecret: true, Action: "add"}
-	name := SecretNameOf(row)
+	row := importRow{ID: "pat-empty", Name: "pat-empty", Auth: providers.AuthPAT, HasSecret: true, Action: "add"}
+	name := secretNameOf(row)
 	if name == "" {
 		t.Fatal("row has no secret name")
 	}
-	code, stdout, stderr := captureOutput(t, func() int { return sealImported(cfg, []Row{row}) })
+	code, stdout, stderr := captureOutput(t, func() int { return sealImported(cfg, []importRow{row}) })
 	if code != 1 || strings.Contains(stdout, "sealed") || !strings.Contains(stderr, "no secret in the source section") {
 		t.Fatalf("code %d stdout %q stderr %q", code, stdout, stderr)
 	}

@@ -295,11 +295,14 @@ func tierPoints(n, top, mid, low int) int {
 	return 0
 }
 
-func analyzeCommitMessages(repo, base, head string) (int, []CommitIssue) {
+func analyzeCommitMessages(repo, base, head string) (int, []CommitIssue, error) {
 	out, err := runGitErr(repo, "log", "--oneline", base+".."+head)
 	issues := []CommitIssue{}
-	if err != nil || out == "" {
-		return 0, issues
+	if err != nil {
+		return 0, nil, err
+	}
+	if out == "" {
+		return 0, issues, nil
 	}
 	commits := strings.Split(out, "\n")
 	for _, commit := range commits {
@@ -314,7 +317,7 @@ func analyzeCommitMessages(repo, base, head string) (int, []CommitIssue) {
 			issues = append(issues, CommitIssue{Commit: sha, Issue: "Commit message exceeds 72 characters"})
 		}
 	}
-	return len(commits), issues
+	return len(commits), issues, nil
 }
 
 func complexityLabel(score int) string {
@@ -351,7 +354,10 @@ func AnalyzePR(repo, base, head string) (PRReport, error) {
 	}
 	sortFilesByPriority(files)
 
-	commitCount, commitIssues := analyzeCommitMessages(repo, base, head)
+	commitCount, commitIssues, err := analyzeCommitMessages(repo, base, head)
+	if err != nil {
+		return PRReport{}, fmt.Errorf("git log %s..%s: %w", base, head, err)
+	}
 	complexity := calculateComplexityScore(files, allRisks)
 
 	totalAdditions, totalDeletions := 0, 0

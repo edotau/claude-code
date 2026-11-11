@@ -279,17 +279,6 @@ func leafAgentType(in *core.Input) string {
 	return m.AgentType
 }
 
-// requestsAgent is true when the brief asks for an external agent; `Agent: in-context` and a brief with no line do not.
-func requestsAgent(brief string) bool {
-	switch {
-	case inContextBrief(brief):
-		return false
-	case strings.Contains(brief, "Routed by agent-effort"):
-		return true
-	}
-	return agentLineRe().MatchString(brief) || briefProfile(brief) != ""
-}
-
 // externalTypes are the leaf types named for the external agent they request; the type is the request.
 var externalTypes = func() map[string]bool {
 	m := map[string]bool{}
@@ -302,19 +291,14 @@ var externalTypes = func() map[string]bool {
 // labelAgent is true for an agent a dispatch label may name (claude or an external type), and a type that carries one.
 func labelAgent(name string) bool { return name == agentid.Claude || externalTypes[name] }
 
-// pinnedAgentType is true for a leaf type whose type is the request (an external agent), whatever the brief says.
-func pinnedAgentType(t string) bool {
-	return externalTypes[t]
-}
-
 // ranOnVerdict blocks a gated leaf's stop or hand-back up to ranOnMaxBlocks times when no ran-on line was seen.
 func ranOnVerdict(in *core.Input, agentID string) (core.Result, bool) {
 	t := leafAgentType(in)
-	if !pinnedAgentType(t) { // only leaves that call an external agent: codex|copilot|gemini|opencode
+	if !externalTypes[t] { // only leaves that call an external agent: codex|copilot|gemini|opencode
 		return core.Result{}, false
 	}
 	s, err := leafBrief(in.AgentTranscriptPath)
-	if err != nil || s.ranOn || (!requestsAgent(s.brief) && !pinnedAgentType(t)) {
+	if err != nil || s.ranOn {
 		return core.Result{}, false
 	}
 	if in.StopHookActive && s.gates == 0 { // a prior block the scan cannot read: fail open rather than trap the leaf

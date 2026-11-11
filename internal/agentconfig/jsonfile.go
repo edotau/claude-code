@@ -99,13 +99,13 @@ func decodeRawEvents(raw json.RawMessage) (map[string][]json.RawMessage, error) 
 	return m, nil
 }
 
-// MergeHookEvents keeps every existing item of each event in its original relative position, dropping
+// mergeHookEvents keeps every existing item of each event in its original relative position, dropping
 // an item's harness-owned part per classify; the freshly rendered block is spliced in as a whole at the
 // position of the FIRST existing item classify found harness-owned (prepended when none was); an event
 // left with nothing is dropped. Idempotent: merging an already-merged event over the same rendered
 // content reproduces it byte-for-byte, since the rendered block is itself wholly harness-owned next time
 // round. Shared by the codex and copilot hook mergers.
-func MergeHookEvents[T any](existing, rendered map[string][]T, classify func(T) (*T, bool)) map[string][]T {
+func mergeHookEvents[T any](existing, rendered map[string][]T, classify func(T) (*T, bool)) map[string][]T {
 	merged := map[string][]T{}
 	for event, items := range existing {
 		merged[event] = spliceEvent(items, rendered[event], classify)
@@ -164,7 +164,7 @@ func MergeHooksTop(existingRaw, body []byte, classify func(json.RawMessage) (*js
 	if err != nil {
 		return nil, nil, err
 	}
-	hooksRaw, err := textutil.MarshalNoEscape(MergeHookEvents(existingHooks, renderedHooks, classify))
+	hooksRaw, err := textutil.MarshalNoEscape(mergeHookEvents(existingHooks, renderedHooks, classify))
 	if err != nil {
 		return nil, nil, err
 	}

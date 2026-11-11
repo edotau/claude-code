@@ -29,7 +29,7 @@ func settingsRows(d *dialog) []homeRow {
 	n := len(providers.CustomEnv())
 	return []homeRow{
 		{Name: "secrets", State: "vault", Check: "API keys & tokens", Run: func(d *dialog) { secretsLoop(d) }},
-		routingRow(d),
+		routingRow(),
 		{Name: "environment", State: fmt.Sprintf("%d vars", n), Check: "injected into every launch", Run: runCustomEnv},
 		seedRow(),
 	}

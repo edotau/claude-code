@@ -19,8 +19,8 @@ func TestTokensGroupOpenerAfterControlWord(t *testing.T) {
 		}
 	}
 	for _, in := range []string{"! (git commit -m x)", "then { git commit -m x; }", "if true; then (git commit -m x); fi"} {
-		if !GitCommitInvocation(in) {
-			t.Errorf("GitCommitInvocation(%q) = false", in)
+		if !gitCommitInvocation(in) {
+			t.Errorf("gitCommitInvocation(%q) = false", in)
 		}
 	}
 }

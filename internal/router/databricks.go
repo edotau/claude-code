@@ -10,8 +10,8 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// DatabricksResponses: the session/pinned profile is a signed-in Databricks row with a Responses route + catalog model.
-func DatabricksResponses(reg *providers.Registry, now time.Time, canServe func(string, *providers.Provider) bool) (profile, model string, ok bool) {
+// databricksResponses: the session/pinned profile is a signed-in Databricks row with a Responses route + catalog model.
+func databricksResponses(reg *providers.Registry, now time.Time, canServe func(string, *providers.Provider) bool) (profile, model string, ok bool) {
 	profile, p, ok := sessionDatabricks(reg, "codex", canServe)
 	if !ok {
 		return "", "", false
@@ -37,7 +37,7 @@ type pickGate struct {
 // codexHop is the model and effort codex's Databricks hops run for alias: codex's own pick respelled for the
 // profile when it serves Responses, else the profile's first Responses model.
 func (t *RouteTable) codexHop(reg *providers.Registry, alias string, o PickOpts, now time.Time) (profile, model, effort string, ok bool) {
-	profile, first, ok := DatabricksResponses(reg, now, o.canServe)
+	profile, first, ok := databricksResponses(reg, now, o.canServe)
 	if !ok {
 		return "", "", "", false
 	}
@@ -69,7 +69,7 @@ func (t *RouteTable) gateDatabricksCodex(
 		res.Skipped = append(res.Skipped, Skip{name, GateAvailable, "not configured: " + textutil.FirstLine(strings.TrimSpace(err.Error()))})
 		return Candidate{}, false
 	}
-	if reason, marked := st.AccountAuthMarked(c.Account, now); marked {
+	if reason, marked := st.accountAuthMarked(c.Account, now); marked {
 		res.Skipped = append(res.Skipped, Skip{name, GateAuth, authSkipReason(reason, c.Account)})
 		return Candidate{}, false
 	}

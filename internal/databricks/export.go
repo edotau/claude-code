@@ -42,25 +42,25 @@ func export(args []string) int {
 		return code
 	}
 	for _, r := range rows {
-		fmt.Fprintln(os.Stderr, "use: "+Hint(r))
+		fmt.Fprintln(os.Stderr, "use: "+rowHint(r))
 	}
 	return 0
 }
 
 // exportRowsFor loads the vault rows, applies --pick and --rename, reports skips, and returns the rows to write
 // (or a nonzero exit code).
-func exportRowsFor(pick bool, rename renameFlag) ([]ExportRow, int) {
+func exportRowsFor(pick bool, rename renameFlag) ([]exportRow, int) {
 	reg, err := providers.Load()
 	if err != nil {
 		return nil, fail("export: %v", err)
 	}
-	rows, skipped := ExportRows(reg)
+	rows, skipped := exportRows(reg)
 	if pick && len(rows) > 0 {
 		if rows, err = pickExport(rows); err != nil {
 			return nil, fail("export: %v", err)
 		}
 	}
-	rows, more := Rename(rows, rename)
+	rows, more := renameRows(rows, rename)
 	for _, s := range append(skipped, more...) {
 		fmt.Fprintln(os.Stderr, "skip "+s)
 	}
@@ -70,9 +70,9 @@ func exportRowsFor(pick bool, rename renameFlag) ([]ExportRow, int) {
 	return rows, 0
 }
 
-func writeExport(rows []ExportRow, out string, merge, force bool) int {
+func writeExport(rows []exportRow, out string, merge, force bool) int {
 	if !merge {
-		text := RenderExport(rows)
+		text := renderExport(rows)
 		if out == "" {
 			if _, err := io.WriteString(os.Stdout, text); err != nil {
 				return fail("export: %v", err)
@@ -86,7 +86,7 @@ func writeExport(rows []ExportRow, out string, merge, force bool) int {
 		return 0
 	}
 	if out == "" {
-		out = DefaultPath()
+		out = defaultPath()
 	}
 	var msg string
 	if err := paths.WithFileLock(out, func() error {
@@ -101,7 +101,7 @@ func writeExport(rows []ExportRow, out string, merge, force bool) int {
 }
 
 // mergeInto merges rows into the config at out (the caller holds its lock) and returns the stderr summary.
-func mergeInto(out string, rows []ExportRow, force bool) (string, error) {
+func mergeInto(out string, rows []exportRow, force bool) (string, error) {
 	old, err := os.ReadFile(out)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", err
@@ -109,7 +109,7 @@ func mergeInto(out string, rows []ExportRow, force bool) (string, error) {
 	if _, _, err := parseSections(string(old)); err != nil {
 		return "", fmt.Errorf("%s: %w", out, err)
 	}
-	text, notes := Merge(string(old), rows, force)
+	text, notes := mergeExport(string(old), rows, force)
 	msg := strings.Join(notes, "\n")
 	if len(notes) > 0 {
 		msg += "\n"
@@ -123,7 +123,7 @@ func mergeInto(out string, rows []ExportRow, force bool) (string, error) {
 	return msg + "merged into " + out + "\n", nil
 }
 
-func pickExport(rows []ExportRow) ([]ExportRow, error) {
+func pickExport(rows []exportRow) ([]exportRow, error) {
 	labels := make([][2]string, len(rows))
 	for i, r := range rows {
 		labels[i] = [2]string{r.ID, r.Auth + " " + r.Host}
@@ -132,7 +132,7 @@ func pickExport(rows []ExportRow) ([]ExportRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []ExportRow
+	var out []exportRow
 	for i, r := range rows {
 		if on[i] {
 			out = append(out, r)

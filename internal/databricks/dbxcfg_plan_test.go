@@ -49,11 +49,11 @@ func writeFixtureCfg(t *testing.T) string {
 }
 
 func TestCandidates(t *testing.T) {
-	cs, _, err := Candidates(writeFixtureCfg(t))
+	cs, _, err := readCandidates(writeFixtureCfg(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := map[string]Candidate{}
+	got := map[string]cfgCandidate{}
 	for _, c := range cs {
 		got[c.Name] = c
 	}
@@ -68,7 +68,7 @@ func TestCandidates(t *testing.T) {
 }
 
 // checkFixtureAuth checks the auth type and normalized host of the fixture's usable profiles.
-func checkFixtureAuth(t *testing.T, got map[string]Candidate) {
+func checkFixtureAuth(t *testing.T, got map[string]cfgCandidate) {
 	t.Helper()
 	want := map[string][3]string{
 		"alpha": {providers.AuthOAuth, "https://alpha.example.cloud.databricks.com", ""},
@@ -82,8 +82,8 @@ func checkFixtureAuth(t *testing.T, got map[string]Candidate) {
 	}
 }
 
-// checkNoSecretInCandidates fails when any Candidate field holds a secret value.
-func checkNoSecretInCandidates(t *testing.T, cs []Candidate) {
+// checkNoSecretInCandidates fails when any cfgCandidate field holds a secret value.
+func checkNoSecretInCandidates(t *testing.T, cs []cfgCandidate) {
 	t.Helper()
 	for _, c := range cs {
 		if strings.Contains(strings.ToLower(reflect.ValueOf(c).String()+c.Host+c.ClientID), "shh") {
@@ -94,34 +94,34 @@ func checkNoSecretInCandidates(t *testing.T, cs []Candidate) {
 
 func TestReadSecrets(t *testing.T) {
 	p := writeFixtureCfg(t)
-	s, err := ReadSecrets(p, "beta")
+	s, err := readSecrets(p, "beta")
 	if err != nil || s.ClientSecret != "shh-beta" {
 		t.Fatalf("%+v %v", s, err)
 	}
-	if _, err := ReadSecrets(p, "DEFAULT"); err == nil {
+	if _, err := readSecrets(p, "DEFAULT"); err == nil {
 		t.Fatal("DEFAULT must not be readable")
 	}
 }
 
 func TestPlan(t *testing.T) {
-	cs, _, _ := Candidates(writeFixtureCfg(t))
+	cs, _, _ := readCandidates(writeFixtureCfg(t))
 	existing := map[string]json.RawMessage{
 		"alpha": json.RawMessage(`{"auth":{"type":"oauth"}}`),
 		"beta":  json.RawMessage(`{"auth":{"type":"pat"}}`),
 	}
-	byID := func(o ImportOptions) map[string]Row {
-		m := map[string]Row{}
-		for _, r := range ImportPlan(cs, existing, o) {
+	byID := func(o importOptions) map[string]importRow {
+		m := map[string]importRow{}
+		for _, r := range importPlan(cs, existing, o) {
 			m[r.Name] = r
 		}
 		return m
 	}
-	m := byID(ImportOptions{Rename: map[string]string{"gamma": "gamma2", "bad name": "fixed"}})
+	m := byID(importOptions{Rename: map[string]string{"gamma": "gamma2", "bad name": "fixed"}})
 	if m["alpha"].Action != "skip" || m["gamma"].ID != "gamma2" || m["gamma"].Action != "add" ||
 		m["bad name"].Action != "add" || m["delta"].Action != "skip" {
 		t.Errorf("plan: %+v", m)
 	}
-	if m := byID(ImportOptions{Replace: true}); m["alpha"].Action != "replace" ||
+	if m := byID(importOptions{Replace: true}); m["alpha"].Action != "replace" ||
 		!strings.Contains(m["beta"].Reason, "never changed") || m["bad name"].Action != "skip" {
 		t.Errorf("replace plan: %+v", m)
 	}
@@ -129,14 +129,14 @@ func TestPlan(t *testing.T) {
 
 func TestApplyAndSecretName(t *testing.T) {
 	top := map[string]json.RawMessage{"default": json.RawMessage(`"x"`)}
-	rows := []Row{{Host: "https://h.example.com", Auth: providers.AuthM2M, ClientID: "c", ID: "my-sp", Action: "add"}}
-	if err := Apply(top, rows); err != nil {
+	rows := []importRow{{Host: "https://h.example.com", Auth: providers.AuthM2M, ClientID: "c", ID: "my-sp", Action: "add"}}
+	if err := applyRows(top, rows); err != nil {
 		t.Fatal(err)
 	}
 	if string(top["default"]) != `"x"` || !strings.Contains(string(top["providers"]), `"clientId":"c"`) {
 		t.Errorf("top = %v", top)
 	}
-	if n := SecretNameOf(rows[0]); n != "DATABRICKS_MY_SP_M2M" {
+	if n := secretNameOf(rows[0]); n != "DATABRICKS_MY_SP_M2M" {
 		t.Errorf("name %s", n)
 	}
 	if strings.Contains(string(top["providers"]), "secret") && strings.Contains(string(top["providers"]), "shh") {
@@ -162,7 +162,7 @@ func TestImportFollowsSectionOrder(t *testing.T) {
 	if err := os.WriteFile(p, []byte(orderCfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cs, _, err := Candidates(p)
+	cs, _, err := readCandidates(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestImportFollowsSectionOrder(t *testing.T) {
 		t.Fatalf("Candidates = %v, want section order %v", names, want)
 	}
 	top := map[string]json.RawMessage{}
-	if err := Apply(top, ImportPlan(cs, Existing(top), ImportOptions{})); err != nil {
+	if err := applyRows(top, importPlan(cs, existingRows(top), importOptions{})); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := providers.ObjectKeys(top["providers"]), []string{"prod", "dev", "qa"}; !slices.Equal(got, want) {
@@ -187,7 +187,7 @@ func TestApplyKeepsExistingRowsInPlaceAndAppendsNew(t *testing.T) {
 	if err := os.WriteFile(p, []byte(orderCfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cs, _, err := Candidates(p)
+	cs, _, err := readCandidates(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestApplyKeepsExistingRowsInPlaceAndAppendsNew(t *testing.T) {
 		"legacy": json.RawMessage(`{"preset":"databricks","host":"https://l.cloud.databricks.com"}`),
 	})
 	top := map[string]json.RawMessage{"providers": ex}
-	if err := Apply(top, ImportPlan(cs, Existing(top), ImportOptions{Replace: true})); err != nil {
+	if err := applyRows(top, importPlan(cs, existingRows(top), importOptions{Replace: true})); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := providers.ObjectKeys(top["providers"]), []string{"qa", "legacy", "prod", "dev"}; !slices.Equal(got, want) {
@@ -222,19 +222,19 @@ func TestPairingPlanSignalsAndSafety(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cs := candidatesOf(t, tc.cfg)
-			rows := ImportPlan(cs, nil, ImportOptions{Pair: tc.choices})
+			rows := importPlan(cs, nil, importOptions{Pair: tc.choices})
 			top := map[string]json.RawMessage{}
-			if err := Apply(top, rows); err != nil {
+			if err := applyRows(top, rows); err != nil {
 				t.Fatal(err)
 			}
 			var dev providers.Provider
-			if err := json.Unmarshal(Existing(top)["dev"], &dev); err != nil {
+			if err := json.Unmarshal(existingRows(top)["dev"], &dev); err != nil {
 				t.Fatal(err)
 			}
 			if dev.Auth.SPClientID != tc.want {
 				t.Fatalf("spClientId = %q, want %q", dev.Auth.SPClientID, tc.want)
 			}
-			_, standalone := Existing(top)["dev-sp"]
+			_, standalone := existingRows(top)["dev-sp"]
 			if standalone != (tc.want == "") {
 				t.Fatalf("standalone=%v; rows=%+v", standalone, rows)
 			}
@@ -260,15 +260,15 @@ func TestPairingReplacePreservesDecisionAndIdentity(t *testing.T) {
 				cfg = strings.ReplaceAll(cfg, "https://dev.", "https://new.")
 			}
 			top := map[string]json.RawMessage{"providers": json.RawMessage(`{"dev":` + tc.raw + `}`)}
-			rows := ImportPlan(candidatesOf(t, cfg), Existing(top), ImportOptions{Replace: true, Pair: map[string]string{"dev-sp": "dev"}})
+			rows := importPlan(candidatesOf(t, cfg), existingRows(top), importOptions{Replace: true, Pair: map[string]string{"dev-sp": "dev"}})
 			if tc.changeHost && rows[0].Action != "skip" {
 				t.Fatalf("host changed: %+v", rows[0])
 			}
-			if err := Apply(top, rows); err != nil {
+			if err := applyRows(top, rows); err != nil {
 				t.Fatal(err)
 			}
 			var dev providers.Provider
-			_ = json.Unmarshal(Existing(top)["dev"], &dev)
+			_ = json.Unmarshal(existingRows(top)["dev"], &dev)
 			if dev.Auth.SPClientID != tc.want || dev.Identity != "user" {
 				t.Fatalf("decision changed: %+v", dev)
 			}
@@ -278,12 +278,12 @@ func TestPairingReplacePreservesDecisionAndIdentity(t *testing.T) {
 
 func TestPairingHonorsRenamesAndSecretCollisions(t *testing.T) {
 	cs := candidatesOf(t, pairingCfg)
-	rows := ImportPlan(cs, nil, ImportOptions{Rename: map[string]string{"dev": "my-dev"}})
-	if rows[0].SPClientID != "dev-client" || SecretNameOf(rows[0]) != "DATABRICKS_MY_DEV_M2M" {
+	rows := importPlan(cs, nil, importOptions{Rename: map[string]string{"dev": "my-dev"}})
+	if rows[0].SPClientID != "dev-client" || secretNameOf(rows[0]) != "DATABRICKS_MY_DEV_M2M" {
 		t.Fatalf("renamed pairing: %+v", rows)
 	}
 	existing := map[string]json.RawMessage{"my_dev": json.RawMessage(`{"auth":{"type":"m2m","clientId":"other"}}`)}
-	rows = ImportPlan(cs, existing, ImportOptions{Rename: map[string]string{"dev": "my-dev"}})
+	rows = importPlan(cs, existing, importOptions{Rename: map[string]string{"dev": "my-dev"}})
 	if rows[0].SPClientID != "" || rows[1].Action == "skip" {
 		t.Fatalf("paired secret collision: %+v", rows)
 	}
@@ -293,30 +293,30 @@ func TestPairingExportRoundTripAndCommentMerge(t *testing.T) {
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{"dev": {
 		Preset: "databricks", Host: "https://dev.example.cloud.databricks.com", Auth: providers.Auth{Type: providers.AuthOAuth, SPClientID: "dev-client"},
 	}}}
-	rows, skipped := ExportRows(reg)
+	rows, skipped := exportRows(reg)
 	if len(rows) != 2 || len(skipped) != 0 {
 		t.Fatalf("export rows=%v skipped=%v", rows, skipped)
 	}
-	rows, skipped = Rename(rows, map[string]string{"dev": "renamed"})
+	rows, skipped = renameRows(rows, map[string]string{"dev": "renamed"})
 	if len(skipped) != 0 {
 		t.Fatal(skipped)
 	}
-	text := RenderExport(rows)
+	text := renderExport(rows)
 	if !strings.Contains(text, "# claude-code: pair=renamed\n[dev-sp]") || strings.Contains(text, "client_secret") {
 		t.Fatalf("export: %s", text)
 	}
-	plan := ImportPlan(candidatesOf(t, text), nil, ImportOptions{})
+	plan := importPlan(candidatesOf(t, text), nil, importOptions{})
 	if plan[0].SPClientID != "dev-client" || plan[1].Action != "skip" {
 		t.Fatalf("round trip: %+v", plan)
 	}
-	if !strings.Contains(Hint(rows[1]), "DATABRICKS_DEV_M2M") {
+	if !strings.Contains(rowHint(rows[1]), "DATABRICKS_DEV_M2M") {
 		t.Fatal("hint uses standalone SP's secret")
 	}
 }
 
 func TestPairingCommentSurvivesMerge(t *testing.T) {
 	existing := "[other]\nhost = https://other\nauth_type = pat\n\n# claude-code: pair=dev\n[svc]\nhost = https://dev\nclient_id = old\nauth_type = oauth-m2m\n"
-	merged, _ := Merge(existing, []ExportRow{{ID: "other", Section: "other", Host: "https://new", Auth: providers.AuthPAT}, {ID: "svc", Section: "svc", Host: "https://dev", Auth: providers.AuthM2M, ClientID: "new", Pair: "other", PairSet: true}}, true)
+	merged, _ := mergeExport(existing, []exportRow{{ID: "other", Section: "other", Host: "https://new", Auth: providers.AuthPAT}, {ID: "svc", Section: "svc", Host: "https://dev", Auth: providers.AuthM2M, ClientID: "new", Pair: "other", PairSet: true}}, true)
 	cs := candidatesOf(t, merged)
 	if len(cs) != 2 || !cs[1].PairSet || cs[1].Pair != "dev" {
 		t.Fatalf("pair comment lost during merge: %s", merged)
@@ -331,12 +331,12 @@ func TestPairingExportUnpairedStaysUnpaired(t *testing.T) {
 		"dev":    {Preset: "databricks", Host: "https://dev.example.cloud.databricks.com", Auth: providers.Auth{Type: providers.AuthOAuth}},
 		"dev-sp": {Preset: "databricks", Host: "https://dev.example.cloud.databricks.com", Auth: providers.Auth{Type: providers.AuthM2M, ClientID: "dev-client"}},
 	}}
-	rows, _ := ExportRows(reg)
-	text := RenderExport(rows)
+	rows, _ := exportRows(reg)
+	text := renderExport(rows)
 	if !strings.Contains(text, "# claude-code: pair=none\n[dev-sp]") {
 		t.Fatalf("missing unpair signal: %s", text)
 	}
-	plan := ImportPlan(candidatesOf(t, text), nil, ImportOptions{})
+	plan := importPlan(candidatesOf(t, text), nil, importOptions{})
 	if plan[0].SPClientID != "" || plan[1].Action == "skip" {
 		t.Fatalf("export paired unpaired rows: %+v", plan)
 	}
@@ -344,9 +344,9 @@ func TestPairingExportUnpairedStaysUnpaired(t *testing.T) {
 
 // A row whose auth.spClientId is not a string is unreadable: --replace skips it instead of treating it as unpaired.
 func TestImportReplaceSkipsRowWithMalformedPairing(t *testing.T) {
-	cs, _, _ := Candidates(writeFixtureCfg(t))
+	cs, _, _ := readCandidates(writeFixtureCfg(t))
 	existing := map[string]json.RawMessage{"alpha": json.RawMessage(`{"auth":{"type":"oauth","spClientId":5}}`)}
-	for _, r := range ImportPlan(cs, existing, ImportOptions{Replace: true}) {
+	for _, r := range importPlan(cs, existing, importOptions{Replace: true}) {
 		if r.Name == "alpha" && (r.Action != "skip" || !strings.Contains(r.Reason, "no readable sealed auth.type")) {
 			t.Errorf("alpha = %s %q, want a skip naming the unreadable row", r.Action, r.Reason)
 		}
@@ -365,10 +365,10 @@ func TestSealedNamesKeepsRowWithUnrelatedBadField(t *testing.T) {
 	}
 }
 
-// Apply refuses a providers value that is not an object instead of overwriting it.
+// applyRows refuses a providers value that is not an object instead of overwriting it.
 func TestApplyRejectsNonObjectProviders(t *testing.T) {
 	top := map[string]json.RawMessage{"providers": json.RawMessage(`["x"]`)}
-	if err := Apply(top, nil); err == nil {
+	if err := applyRows(top, nil); err == nil {
 		t.Error("Apply accepted a non-object providers value")
 	}
 }

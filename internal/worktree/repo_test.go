@@ -46,7 +46,7 @@ func TestResolveRepoFromMainSubdirAndLinkedWorktree(t *testing.T) {
 	if repo.Main != main {
 		t.Fatalf("Main = %q, want %q", repo.Main, main)
 	}
-	canon, _ := filepath.EvalSymlinks(home) // WorktreeRoot canonicalizes HOME
+	canon, _ := filepath.EvalSymlinks(home) // worktreeRoot canonicalizes HOME
 	wantRoot := filepath.Join(canon, "worktrees", filepath.Base(main))
 	if repo.Root != wantRoot {
 		t.Fatalf("Root = %q, want %q", repo.Root, wantRoot)
@@ -201,7 +201,7 @@ func TestRootUsesMainBasename(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	got := Root("/some/path/myrepo")
-	home, _ = filepath.EvalSymlinks(home) // WorktreeRoot canonicalizes HOME
+	home, _ = filepath.EvalSymlinks(home) // worktreeRoot canonicalizes HOME
 	want := filepath.Join(home, "worktrees", "myrepo")
 	if got != want {
 		t.Fatalf("Root = %q, want %q", got, want)
@@ -211,9 +211,9 @@ func TestRootUsesMainBasename(t *testing.T) {
 func TestWorktreeRootUnderHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	home, _ = filepath.EvalSymlinks(home) // WorktreeRoot canonicalizes HOME
-	if got, want := WorktreeRoot(), filepath.Join(home, "worktrees"); got != want {
-		t.Fatalf("WorktreeRoot = %q, want %q", got, want)
+	home, _ = filepath.EvalSymlinks(home) // worktreeRoot canonicalizes HOME
+	if got, want := worktreeRoot(), filepath.Join(home, "worktrees"); got != want {
+		t.Fatalf("worktreeRoot = %q, want %q", got, want)
 	}
 }
 

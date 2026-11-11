@@ -33,7 +33,7 @@ func TestInspectDerivesGitDirWithoutRevParse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	old := time.Now().Add(-2 * StaleAfter)
+	old := time.Now().Add(-2 * staleAfter)
 	if err := os.Chtimes(filepath.Join(gitDir, "logs", "HEAD"), old, old); err != nil {
 		t.Fatal(err)
 	}
@@ -43,9 +43,9 @@ func TestInspectDerivesGitDirWithoutRevParse(t *testing.T) {
 	e := Entry{Path: wt, Head: headOf(wt), Exists: true, Registered: true}
 	trace := filepath.Join(t.TempDir(), "git.trace")
 	t.Setenv("GIT_TRACE", trace)
-	Inspect(repo, &e, headOf(repo.Main), nil, time.Now())
+	inspect(repo, &e, headOf(repo.Main), nil, time.Now())
 	if len(e.Problems) != 0 || !e.Stale || e.ActivitySource != "reflog" {
-		t.Fatalf("Inspect must use linked checkout activity: %+v", e)
+		t.Fatalf("inspect must use linked checkout activity: %+v", e)
 	}
 	data, err := os.ReadFile(trace)
 	if err != nil {
@@ -53,7 +53,7 @@ func TestInspectDerivesGitDirWithoutRevParse(t *testing.T) {
 	}
 	requireContains(t, "inspection trace", string(data), "status --porcelain")
 	if strings.Contains(string(data), "rev-parse --path-format=absolute --git-dir") {
-		t.Fatalf("Inspect spawned a redundant git-dir lookup:\n%s", data)
+		t.Fatalf("inspect spawned a redundant git-dir lookup:\n%s", data)
 	}
 }
 
@@ -181,7 +181,7 @@ func TestListOrphanedDirectory(t *testing.T) {
 	if e.Registered {
 		t.Error("want Registered = false")
 	}
-	// Inspect never runs on a non-worktree directory; a stray dir has no git identity to classify.
+	// inspect never runs on a non-worktree directory; a stray dir has no git identity to classify.
 	if len(e.Problems) == 0 {
 		t.Error("want Problems recorded for a directory with no usable git identity")
 	}
@@ -237,7 +237,7 @@ func TestListStaleByReflogAge(t *testing.T) {
 		t.Fatalf("got %d entries, want 1", len(entries))
 	}
 	if !entries[0].Stale {
-		t.Error("want Stale = true for activity older than StaleAfter")
+		t.Error("want Stale = true for activity older than staleAfter")
 	}
 	if entries[0].ActivitySource != "reflog" {
 		t.Errorf("ActivitySource = %q, want reflog", entries[0].ActivitySource)

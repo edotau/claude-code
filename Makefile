@@ -319,6 +319,18 @@ verify: audit  ## audit + doctor + proxy status
 	@$(BIN) gateway proxy --status
 	@echo -e "$(C_OK)verify passed (audit + doctor + proxy status)"
 
+##@ Container
+IMAGE ?= claude-code-harness:latest
+.PHONY: image image-audit image-shell
+image:  ## Build the Ubuntu harness image (nested podman) from git's view of the checkout
+	IMAGE=$(IMAGE) docker/image.sh build
+
+image-audit: image  ## Run make audit inside a fresh Ubuntu container
+	IMAGE=$(IMAGE) docker/image.sh run make audit
+
+image-shell:  ## Open a shell in the built image (no rebuild)
+	IMAGE=$(IMAGE) docker/image.sh run bash
+
 ##@ Diagnostics
 .PHONY: doctor
 doctor: compile  ## Harness health checks

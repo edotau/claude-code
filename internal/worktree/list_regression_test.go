@@ -46,8 +46,8 @@ func TestActivityChoosesNewerIndex(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(gitDir, "logs"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	old := time.Now().Add(-2 * StaleAfter).Truncate(time.Second)
-	recent := old.Add(StaleAfter)
+	old := time.Now().Add(-2 * staleAfter).Truncate(time.Second)
+	recent := old.Add(staleAfter)
 	for file, stamp := range map[string]time.Time{"logs/HEAD": old, "index": recent} {
 		path := filepath.Join(gitDir, filepath.FromSlash(file))
 		regressionWriteFile(t, path, "activity\n")

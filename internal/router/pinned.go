@@ -250,8 +250,8 @@ func SkipDiscovery(agent string, p *providers.Provider, wire string) string {
 	return hit
 }
 
-// DatabricksDiscoveryPool is the seeded Discovery pool of Databricks wire ids, used when the vault overlay is unset or invalid.
-var DatabricksDiscoveryPool = []string{
+// databricksDiscoveryPool is the seeded Discovery pool of Databricks wire ids, used when the vault overlay is unset or invalid.
+var databricksDiscoveryPool = []string{
 	"databricks-grok-4-7",
 	"databricks-glm-5-3",
 	"databricks-gpt-oss-120b",
@@ -260,12 +260,12 @@ var DatabricksDiscoveryPool = []string{
 	"databricks-gpt-6-1-sol",
 }
 
-// DiscoveryPool is the Discovery model pool: the vault overlay if set and valid, else the DatabricksDiscoveryPool seed.
+// DiscoveryPool is the Discovery model pool: the vault overlay if set and valid, else the databricksDiscoveryPool seed.
 func DiscoveryPool() []string {
 	if p, ok := vaultDiscoveryPool(); ok {
 		return p
 	}
-	return slices.Clone(DatabricksDiscoveryPool)
+	return slices.Clone(databricksDiscoveryPool)
 }
 
 // poolCache holds the vault's Discovery pool overlay per vault.db stamp.

@@ -71,7 +71,7 @@ func AuthSecretName(p *Provider) string {
 	if !sealedAuth(p.Auth.Type) {
 		return ""
 	}
-	return SecretName(p.provider(), p.Name, p.Auth.Method())
+	return SecretName(p.Provider, p.Name, p.Auth.Method())
 }
 
 // KeySecretName is the vault name of a key row's static key; "" for any other row.
@@ -79,7 +79,7 @@ func KeySecretName(p *Provider) string {
 	if p.Auth.Method() != AuthKey {
 		return ""
 	}
-	return SecretName(p.provider(), p.Name, AuthKey)
+	return SecretName(p.Provider, p.Name, AuthKey)
 }
 
 // oauthValue is an oauth profile's one sealed value: the refresh and the cached access token.
@@ -409,7 +409,7 @@ func mintSP(ctx context.Context, p *Provider, force bool) (string, error) {
 	if p.Auth.SPClientID == "" {
 		return "", fmt.Errorf("%s: identity sp needs a paired service principal (auth.spClientId)", p.Name)
 	}
-	name := SecretName(p.provider(), p.Name, AuthM2M)
+	name := SecretName(p.Provider, p.Name, AuthM2M)
 	secret, access, err := clientSecrets(name)
 	if err != nil {
 		return "", fmt.Errorf("%s: vault: %w", p.Name, err)

@@ -20,8 +20,8 @@ import (
 
 // WithWorktreeLease runs fn holding the exclusive per-worktree operation lease for repo+name: the one
 // invariant serializing a resolve, an ordinary merge, and a Clean on the same worktree so they can
-// never interleave. Always acquired before Promote's own merge lock, never the reverse — Merge and the
-// CLI's merge lifecycle both nest Promote inside this lease, so that is the only nesting order that
+// never interleave. Always acquired before promote's own merge lock, never the reverse — Merge and the
+// CLI's merge lifecycle both nest promote inside this lease, so that is the only nesting order that
 // exists in this codebase and the two locks cannot deadlock against each other.
 func WithWorktreeLease(repo *Repo, name string, fn func() error) error {
 	leasePath := operationLeasePath(repo.Main, name)
@@ -111,7 +111,7 @@ func claudeCodeBin() (string, error) {
 	return exec.LookPath("claude-code")
 }
 
-// resolutionState is CheckResolution's three-way verdict: still mid-resolution, a verified clean
+// resolutionState is checkResolution's three-way verdict: still mid-resolution, a verified clean
 // commit, or a state no further waiting will fix (an abort, or a stale merge commit).
 type resolutionState int
 
@@ -130,7 +130,7 @@ const (
 // fallback-free agent-exit receipt (op.AgentExitOK) before even polling — a failed, timed-out, or still
 // running operation can never be waved through by git state alone — then skips straight to polling the
 // saved operation (for a human or an agent that committed on its own despite the instruction not to); a
-// tools-enabled agent is never re-invoked automatically, crash or not. Either way, only Promote (the
+// tools-enabled agent is never re-invoked automatically, crash or not. Either way, only promote (the
 // caller's job) commits repo.Main; this function only edits/polls the worktree and reports.
 func ResolveWithAgent(ctx context.Context, repo *Repo, plan *MergePlan, agentName string, op *Operation) (*Operation, *MergeResult, error) {
 	if op != nil {
@@ -380,7 +380,7 @@ func finalizeAgentResolution(ctx context.Context, op *Operation, worktreePath st
 		return failOperation(op, fmt.Errorf("git commit in %s: %w (%s)", worktreePath, err, firstNonEmpty(gitErrorDetail(err), string(out))))
 	}
 
-	state, reason, err := CheckResolution(ctx, op, worktreePath)
+	state, reason, err := checkResolution(ctx, op, worktreePath)
 	if err != nil {
 		return failOperation(op, err)
 	}
@@ -417,14 +417,14 @@ func agentEditsInScope(ctx context.Context, op *Operation, worktreePath string) 
 
 // pollUntilResolved is the fallback path for --resume: nothing re-invokes the agent, so this only
 // detects a human (or an agent that committed on its own despite the instruction not to) finishing the
-// job out of band. It checks CheckResolution every pollInterval until resolved, invalid, canceled, or
+// job out of band. It checks checkResolution every pollInterval until resolved, invalid, canceled, or
 // op.Deadline passes, updating and re-saving op at every terminal transition.
 func pollUntilResolved(ctx context.Context, op *Operation, worktreePath string) (*Operation, *MergeResult, error) {
 	for {
 		if err := ctx.Err(); err != nil {
 			return endOperation(op, "cancelled", fmt.Errorf("resolve: cancelled: %w", err))
 		}
-		state, reason, err := CheckResolution(ctx, op, worktreePath)
+		state, reason, err := checkResolution(ctx, op, worktreePath)
 		if err != nil {
 			return failOperation(op, err)
 		}
@@ -441,14 +441,14 @@ func pollUntilResolved(ctx context.Context, op *Operation, worktreePath string) 
 	}
 }
 
-// CheckResolution inspects worktreePath's live git state against op's pinned OIDs — the one seam both
+// checkResolution inspects worktreePath's live git state against op's pinned OIDs — the one seam both
 // the poll loop and finalizeAgentResolution's post-commit check use, so resuming or finalizing
 // revalidates exactly what a live poll would have. MERGE_HEAD still set, or any unmerged path left,
 // means the agent is still mid-resolution. Uncommitted changes once MERGE_HEAD clears, or a HEAD
 // unchanged since the agent started, means the merge was aborted rather than resolved. Both pinned
 // commits must be ancestors of the new HEAD, rejecting a stale merge commit left over from an earlier
 // aborted attempt.
-func CheckResolution(ctx context.Context, op *Operation, worktreePath string) (resolutionState, string, error) {
+func checkResolution(ctx context.Context, op *Operation, worktreePath string) (resolutionState, string, error) {
 	pending, err := resolutionMidMerge(ctx, worktreePath)
 	if err != nil {
 		return resolutionPending, "", err

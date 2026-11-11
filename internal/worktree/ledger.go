@@ -28,8 +28,8 @@ type LedgerClose struct {
 // ledgerPath is worktree name's ledger file under the repo's memory dir.
 func ledgerPath(dir, name string) string { return filepath.Join(dir, "worktrees", name+".md") }
 
-// OpenLedger creates a ledger, leaves an open ledger unchanged, or reopens a closed ledger.
-func OpenLedger(main, name string, info LedgerInfo) error {
+// openLedger creates a ledger, leaves an open ledger unchanged, or reopens a closed ledger.
+func openLedger(main, name string, info LedgerInfo) error {
 	if err := ledgerName(name); err != nil {
 		return err
 	}
@@ -280,8 +280,8 @@ func reopenInfo(repo *Repo, dest, session string) (LedgerInfo, error) {
 	return LedgerInfo{Path: dest, Branch: branch, Base: strings.TrimSpace(string(base)), BaseRef: "merge-base", Session: session}, nil
 }
 
-// LedgerSession is the session that opened (or last reopened) worktreePath's ledger; "" on any error or none.
-func LedgerSession(worktreePath string) string {
+// ledgerSession is the session that opened (or last reopened) worktreePath's ledger; "" on any error or none.
+func ledgerSession(worktreePath string) string {
 	_, _, path, found, err := locateLedger(worktreePath)
 	if err != nil || !found {
 		return ""

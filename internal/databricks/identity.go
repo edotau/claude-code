@@ -47,13 +47,13 @@ func SaveIdentity(reg *providers.Registry, env, mode, spID, secret string) error
 		if secret == "" {
 			return err
 		}
-		return errors.Join(err, RestoreSecret(name, secret, prev, hadPrev))
+		return errors.Join(err, restoreSecret(name, secret, prev, hadPrev))
 	}
 	return nil
 }
 
-// RestoreSecret puts record name back to prev (or deletes it) only while it still holds wrote; a newer value stays.
-func RestoreSecret(name, wrote, prev string, hadPrev bool) error {
+// restoreSecret puts record name back to prev (or deletes it) only while it still holds wrote; a newer value stays.
+func restoreSecret(name, wrote, prev string, hadPrev bool) error {
 	wrote = strings.TrimSpace(wrote)
 	restored := false
 	err := vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {

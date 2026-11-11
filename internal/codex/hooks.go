@@ -206,7 +206,11 @@ func codexTrustAndSettings(next, hooksPath string, mergedHooks []byte) (string, 
 
 // writeCodexHooks writes hooks.json under a file lock, refusing when it changed since the merge read it.
 func writeCodexHooks(path string, old, next []byte, existed bool) error {
-	return paths.WithFileLock(path, func() error {
+	return withCodexLock(path, func() error {
+		target, err := codexWriteTarget(path)
+		if err != nil {
+			return err
+		}
 		current, err := os.ReadFile(path)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
@@ -214,7 +218,7 @@ func writeCodexHooks(path string, old, next []byte, existed bool) error {
 		if (err == nil) != existed || !bytes.Equal(current, old) {
 			return errors.New("codex-hooks: hooks.json changed before write; retry to preserve the newer hooks")
 		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
 		if existed {
@@ -222,6 +226,6 @@ func writeCodexHooks(path string, old, next []byte, existed bool) error {
 				return err
 			}
 		}
-		return paths.AtomicWrite(path, next, 0o600)
+		return paths.AtomicWrite(target, next, 0o600)
 	})
 }

@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// Issue codes Preflight (and Promote's recheck) can append to a MergePlan; each names one condition
+// Issue codes Preflight (and promote's recheck) can append to a MergePlan; each names one condition
 // that must clear before Merge proceeds. IssueConflict is the one agent resolution acts on.
 const (
 	IssueDetachedTarget     = "detached-target"
@@ -28,7 +28,7 @@ const (
 	IssueConflict           = "conflict"
 )
 
-// Issue is one blocking condition Preflight or Promote found, named by Code; Paths names the
+// Issue is one blocking condition Preflight or promote found, named by Code; Paths names the
 // checkout(s) or conflicted files involved, Detail carries a human-readable reason.
 type Issue struct {
 	Code   string
@@ -48,7 +48,7 @@ type MergePlan struct {
 	TargetRef      string
 	TargetOID      string
 	SourceOID      string
-	IntegratedOID  string // set by IntegrateTarget; Promote refuses unless the worktree HEAD still matches
+	IntegratedOID  string // set by integrateTarget; promote refuses unless the worktree HEAD still matches
 	// AfterResolution: planned after an agent resolution, so untracked tool residue in the worktree is tolerated.
 	AfterResolution bool
 	Issues          []Issue
@@ -89,10 +89,10 @@ func Preflight(ctx context.Context, repo *Repo, name, target string) (*MergePlan
 	return preflight(ctx, repo, name, target, false)
 }
 
-// PreflightAfterResolution re-plans once an agent resolution is committed: the first Preflight proved the worktree
+// preflightAfterResolution re-plans once an agent resolution is committed: the first Preflight proved the worktree
 // held no untracked files, so any now present are the agent's tooling residue (e.g. a plugin cache) — they cannot
 // ride into the promoted commits, and Clean still keeps the worktree while they exist.
-func PreflightAfterResolution(ctx context.Context, repo *Repo, name, target string) (*MergePlan, error) {
+func preflightAfterResolution(ctx context.Context, repo *Repo, name, target string) (*MergePlan, error) {
 	return preflight(ctx, repo, name, target, true)
 }
 
@@ -334,7 +334,7 @@ func withHolders(top string, rels []string) string {
 	for i, r := range rels {
 		abs[i] = filepath.Join(root, r)
 	}
-	held, err := Holders(proc.Alive, abs)
+	held, err := holders(proc.Alive, abs)
 	out := make([]string, len(rels))
 	for i, r := range rels {
 		out[i] = r
@@ -426,7 +426,7 @@ func checkWorktreeState(ctx context.Context, path, gitDir string, trackedOnly bo
 	return checkCheckoutState(ctx, path, gitDir, probe)
 }
 
-// isDirty reports uncommitted changes in path (Preflight and Inspect share it). --untracked-files=all
+// isDirty reports uncommitted changes in path (Preflight and inspect share it). --untracked-files=all
 // overrides a repo-local status.showUntrackedFiles=no, which would otherwise hide new files from this check.
 func isDirty(ctx context.Context, path string) (bool, error) {
 	out, err := runGit(ctx, path, nil, "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=all")
@@ -485,7 +485,7 @@ func requireBranch(ctx context.Context, path string) (string, error) {
 var errDetachedHead = errors.New("HEAD is detached, not on a branch")
 
 // unrelatedHistories reports whether source and target share no common ancestor, using the same
-// exit-code contract list.go's Inspect already relies on (1 = clean "no", anything else = a failure).
+// exit-code contract list.go's inspect already relies on (1 = clean "no", anything else = a failure).
 func unrelatedHistories(ctx context.Context, repoPath, sourceOID, targetOID string) (bool, error) {
 	_, err := runGit(ctx, repoPath, nil, "merge-base", sourceOID, targetOID)
 	if err == nil {

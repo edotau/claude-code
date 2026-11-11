@@ -56,7 +56,7 @@ func importCfg(args []string) int {
 	}
 	path := *file
 	if path == "" {
-		path = DefaultPath()
+		path = defaultPath()
 	}
 	cands, err := importCandidates(path, *pick)
 	if err != nil {
@@ -64,22 +64,22 @@ func importCfg(args []string) int {
 	}
 	var existing map[string]json.RawMessage
 	if _, _, err := providers.UpdateOverlayDoc(false, func(top map[string]json.RawMessage, _ *vault.Tx) error {
-		existing = Existing(top)
+		existing = existingRows(top)
 		return nil
 	}); err != nil {
 		return fail("import: %v", err)
 	}
-	choices, err := pickPairings(cands, existing, ImportOptions{Rename: rename, Replace: *replace})
+	choices, err := pickPairings(cands, existing, importOptions{Rename: rename, Replace: *replace})
 	if err != nil {
 		return fail("import: %v", err)
 	}
-	options := ImportOptions{Rename: rename, Replace: *replace, Pair: choices}
+	options := importOptions{Rename: rename, Replace: *replace, Pair: choices}
 	return runImport(path, cands, options, *apply && !*dryRun, *fold, *seal)
 }
 
 // importCandidates lists the profiles at path, narrowed by the picker when pick is set; each parser note is a warning.
-func importCandidates(path string, pick bool) ([]Candidate, error) {
-	cands, notes, err := Candidates(path)
+func importCandidates(path string, pick bool) ([]cfgCandidate, error) {
+	cands, notes, err := readCandidates(path)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func importCandidates(path string, pick bool) ([]Candidate, error) {
 	return cands, nil
 }
 
-func runImport(path string, cands []Candidate, options ImportOptions, apply, fold, seal bool) int {
+func runImport(path string, cands []cfgCandidate, options importOptions, apply, fold, seal bool) int {
 	rows, plan, oldDoc, newDoc, err := previewImport(cands, options, fold)
 	if err != nil {
 		return fail("import: %v", err)
@@ -105,7 +105,7 @@ func runImport(path string, cands []Candidate, options ImportOptions, apply, fol
 	if !printDiff(os.Stdout, oldDoc, newDoc) {
 		fmt.Println("no changes")
 	}
-	if plan.empty() && !slices.ContainsFunc(rows, func(r Row) bool { return r.Action != "skip" }) {
+	if plan.empty() && !slices.ContainsFunc(rows, func(r importRow) bool { return r.Action != "skip" }) {
 		fmt.Println("nothing to import")
 		return 0
 	}
@@ -128,23 +128,23 @@ func runImport(path string, cands []Candidate, options ImportOptions, apply, fol
 }
 
 // previewImport plans the import and the legacy fold without writing; it returns the rows, the fold plan and both docs.
-func previewImport(cands []Candidate, options ImportOptions, fold bool) (
-	rows []Row, plan foldPlan, oldDoc, newDoc []byte, err error,
+func previewImport(cands []cfgCandidate, options importOptions, fold bool) (
+	rows []importRow, plan foldPlan, oldDoc, newDoc []byte, err error,
 ) {
 	return planImport(cands, options, fold, false, nil)
 }
 
-func commitImport(cands []Candidate, options ImportOptions, fold bool, key *vault.Key) ([]Row, error) {
+func commitImport(cands []cfgCandidate, options importOptions, fold bool, key *vault.Key) ([]importRow, error) {
 	rows, _, _, _, err := planImport(cands, options, fold, true, key)
 	return rows, err
 }
 
-func planImport(cands []Candidate, options ImportOptions, fold, write bool, key *vault.Key) (
-	rows []Row, plan foldPlan, oldDoc, newDoc []byte, err error,
+func planImport(cands []cfgCandidate, options importOptions, fold, write bool, key *vault.Key) (
+	rows []importRow, plan foldPlan, oldDoc, newDoc []byte, err error,
 ) {
 	oldDoc, newDoc, err = providers.UpdateOverlayDoc(write, func(top map[string]json.RawMessage, tx *vault.Tx) error {
-		rows = ImportPlan(cands, Existing(top), options)
-		if err := Apply(top, rows); err != nil {
+		rows = importPlan(cands, existingRows(top), options)
+		if err := applyRows(top, rows); err != nil {
 			return err
 		}
 		if fold {
@@ -158,10 +158,10 @@ func planImport(cands []Candidate, options ImportOptions, fold, write bool, key 
 }
 
 // sealImported stores each written row's client secret / PAT; the only place secrets are read.
-func sealImported(path string, rows []Row) int {
+func sealImported(path string, rows []importRow) int {
 	code := 0
 	for _, r := range rows {
-		name := SecretNameOf(r)
+		name := secretNameOf(r)
 		if r.Action == "skip" || name == "" || !r.HasSecret {
 			continue
 		}
@@ -176,12 +176,12 @@ func sealImported(path string, rows []Row) int {
 }
 
 // sealRow reads r's secret from its source profile in the config at path and stores it in the vault as name.
-func sealRow(path string, r Row, name string) error {
+func sealRow(path string, r importRow, name string) error {
 	source := r.Name
 	if r.SPProfile != "" {
 		source = r.SPProfile
 	}
-	s, err := ReadSecrets(path, source)
+	s, err := readSecrets(path, source)
 	val := s.ClientSecret
 	if r.Auth == providers.AuthPAT {
 		val = s.Token
@@ -195,7 +195,7 @@ func sealRow(path string, r Row, name string) error {
 	return err
 }
 
-func printImportTable(rows []Row) {
+func printImportTable(rows []importRow) {
 	fmt.Printf("%-32s %-10s %-46s %-6s %-7s %s\n", "PROFILE", "AUTHTYPE", "HOST", "SECRET", "ACTION", "NOTE")
 	for _, r := range rows {
 		if r.SPProfile != "" {
@@ -217,7 +217,7 @@ func printImportTable(rows []Row) {
 }
 
 // pickCandidates toggles candidates in the arrow-key picker until Done; Esc cancels.
-func pickCandidates(cands []Candidate) ([]Candidate, error) {
+func pickCandidates(cands []cfgCandidate) ([]cfgCandidate, error) {
 	labels := make([][2]string, len(cands))
 	for i, c := range cands {
 		labels[i] = [2]string{c.Name, c.Host}
@@ -226,7 +226,7 @@ func pickCandidates(cands []Candidate) ([]Candidate, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []Candidate
+	var out []cfgCandidate
 	for i, c := range cands {
 		if on[i] {
 			out = append(out, c)
@@ -273,12 +273,12 @@ func pickToggle(title, doneNote string, labels [][2]string) ([]bool, error) {
 }
 
 // pickPairings leaves the engine deterministic and only asks about unresolved same-host sets.
-func pickPairings(cands []Candidate, existing map[string]json.RawMessage, options ImportOptions) (map[string]string, error) {
+func pickPairings(cands []cfgCandidate, existing map[string]json.RawMessage, options importOptions) (map[string]string, error) {
 	choices := map[string]string{}
 	if Interactive == nil || !Interactive() {
 		return choices, nil
 	}
-	plan := ImportPlan(cands, existing, options)
+	plan := importPlan(cands, existing, options)
 	seen := map[string]bool{}
 	for _, sp := range plan {
 		if sp.Auth != providers.AuthM2M || sp.Action == "skip" || sp.PairSet || seen[sp.Host] {
@@ -297,15 +297,15 @@ func pickPairings(cands []Candidate, existing map[string]json.RawMessage, option
 }
 
 // hostPairs is every unresolved service principal × user pair on host.
-func hostPairs(plan []Row, host string) [][2]Candidate {
-	var pairs [][2]Candidate
+func hostPairs(plan []importRow, host string) [][2]cfgCandidate {
+	var pairs [][2]cfgCandidate
 	for _, principal := range plan {
 		if !openPrincipal(principal, host) {
 			continue
 		}
 		for _, u := range plan {
 			if openUser(u, host) {
-				pairs = append(pairs, [2]Candidate{principal.Candidate, u.Candidate})
+				pairs = append(pairs, [2]cfgCandidate{principal.cfgCandidate, u.cfgCandidate})
 			}
 		}
 	}
@@ -313,18 +313,18 @@ func hostPairs(plan []Row, host string) [][2]Candidate {
 }
 
 // openPrincipal is a service principal row on host that is still unpaired and not skipped.
-func openPrincipal(r Row, host string) bool {
+func openPrincipal(r importRow, host string) bool {
 	return r.Host == host && r.Auth == providers.AuthM2M && r.Action != "skip" && !r.PairSet
 }
 
 // openUser is a user (oauth) row on host that is still unpaired and not skipped.
-func openUser(r Row, host string) bool {
+func openUser(r importRow, host string) bool {
 	return r.Auth == providers.AuthOAuth && r.Action != "skip" && !r.PairingSet && r.Host == host
 }
 
 // pickHostPair asks about one host's pairs, closest name match first, and records the answer in choices.
-func pickHostPair(pairs [][2]Candidate, host string, choices map[string]string) error {
-	shared := func(p [2]Candidate) int { // name tokens the SP and user share; more first
+func pickHostPair(pairs [][2]cfgCandidate, host string, choices map[string]string) error {
+	shared := func(p [2]cfgCandidate) int { // name tokens the SP and user share; more first
 		n, user := 0, pairingTags(p[1])
 		for _, t := range pairingTags(p[0]) {
 			if slices.Contains(user, t) {

@@ -76,7 +76,7 @@ func TestServedSwitchOffKeepsStaticPick(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, model, ok := DatabricksResponses(reg, time.Now(), func(string, *providers.Provider) bool { return true }); !ok || model != "m-a" {
+	if _, model, ok := databricksResponses(reg, time.Now(), func(string, *providers.Provider) bool { return true }); !ok || model != "m-a" {
 		t.Fatalf("switch off picked %q (ok=%v), want the static m-a", model, ok)
 	}
 	on := strings.Replace(routeDbxRow, `{"providers"`, `{"routing":{"servedAware":true},"providers"`, 1)
@@ -85,7 +85,7 @@ func TestServedSwitchOffKeepsStaticPick(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, model, ok := DatabricksResponses(reg, time.Now(), func(string, *providers.Provider) bool { return true }); !ok || model != "m-b" {
+	if _, model, ok := databricksResponses(reg, time.Now(), func(string, *providers.Provider) bool { return true }); !ok || model != "m-b" {
 		t.Fatalf("switch on picked %q (ok=%v), want the served m-b", model, ok)
 	}
 }
@@ -120,7 +120,7 @@ func TestServedAbsentStaysStaticFreshEmptyServesNothing(t *testing.T) {
 	}
 }
 
-// fresh-empty listing: DatabricksResponses is not ok and codex gets no Databricks candidate.
+// fresh-empty listing: databricksResponses is not ok and codex gets no Databricks candidate.
 func TestServedFreshEmptyDropsCodexDatabricksCandidate(t *testing.T) {
 	stubServed(t, nil, listing("dev", nil))
 	accts, _ := dbxCandidates(t, "dev", []providers.OpencodeModel{respA}, nil)

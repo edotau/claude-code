@@ -29,7 +29,7 @@ func TestConfigOverlayAbsent(t *testing.T) {
 		if existing {
 			vaulttest.Put(t, vault.Env, "PLAIN", "value")
 		}
-		if _, err := ConfigOverlay(); !errors.Is(err, fs.ErrNotExist) {
+		if _, err := configOverlay(); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("OverlayDoc (existing vault %v) error = %v, want fs.ErrNotExist", existing, err)
 		}
 	}
@@ -256,12 +256,12 @@ func checkGeminiDefaults(t *testing.T, gemini AgentConfig) {
 // The overlay key is "agents"; a stale "vendors" overlay is ignored.
 func TestOverlayReadsAgentsNotVendors(t *testing.T) {
 	writeOverlay(t, `{"agents":{"opencode":{"mcp":{"allow":["only-agents"]}}}}`)
-	if doc, err := ConfigOverlay(); err != nil || !strings.Contains(string(doc), "only-agents") {
+	if doc, err := configOverlay(); err != nil || !strings.Contains(string(doc), "only-agents") {
 		t.Fatalf("OverlayDoc = %q, %v", doc, err)
 	}
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "vendors", `{"vendors":{"gemini":null}}`)
-	if _, err := ConfigOverlay(); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := configOverlay(); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("stale vendors overlay read: %v", err)
 	}
 	cfg, err := LoadConfig()

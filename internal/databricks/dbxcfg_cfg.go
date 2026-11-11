@@ -17,8 +17,8 @@ import (
 const (
 	defaultSection  = "DEFAULT"      // the CLI's fallback profile; its values never inherit into named profiles
 	settingsSection = "__settings__" // the CLI's own bookkeeping block, not a profile
-	// EnvConfigFile is the CLI's own variable, read by name only.
-	EnvConfigFile = "DATABRICKS_CONFIG_FILE"
+	// envConfigFile is the CLI's own variable, read by name only.
+	envConfigFile = "DATABRICKS_CONFIG_FILE"
 )
 
 type profile struct {
@@ -27,10 +27,10 @@ type profile struct {
 	pairSet                                                                     bool
 }
 
-// DefaultPath is $DATABRICKS_CONFIG_FILE (a leading ~ expanded), else the CLI's own ~/.databrickscfg.
-func DefaultPath() string {
+// defaultPath is $DATABRICKS_CONFIG_FILE (a leading ~ expanded), else the CLI's own ~/.databrickscfg.
+func defaultPath() string {
 	home, _ := os.UserHomeDir()
-	p := os.Getenv(EnvConfigFile)
+	p := os.Getenv(envConfigFile)
 	switch {
 	case p == "":
 		return filepath.Join(home, ".databrickscfg")
@@ -256,13 +256,13 @@ func pairingComment(line string) (string, bool) {
 
 // The .databrickscfg auth_type spellings; rows call them providers.AuthOAuth, AuthM2M and AuthPAT.
 const (
-	CLIAuthU2M = "databricks-cli"
-	CLIAuthM2M = "oauth-m2m"
-	CLIAuthPAT = "pat"
+	cliAuthU2M = "databricks-cli"
+	cliAuthM2M = "oauth-m2m"
+	cliAuthPAT = "pat"
 )
 
-// Candidate is one importable profile: identifying fields and secret PRESENCE only, structurally no secret.
-type Candidate struct {
+// cfgCandidate is one importable profile: identifying fields and secret PRESENCE only, structurally no secret.
+type cfgCandidate struct {
 	Pair        string // source user profile named by the pairing comment
 	PairSet     bool   // includes an explicit pair=none
 	Env         string // optional dev/qa/prod tag
@@ -279,19 +279,19 @@ type Candidate struct {
 // defaultOnlySkip explains why a file holding only [DEFAULT] imports nothing.
 const defaultOnlySkip = "[DEFAULT] is the CLI's fallback, never imported; copy it into a named profile"
 
-// Candidates lists path's profiles plus parser notes; DEFAULT is a skip row when alone, else a note.
-func Candidates(path string) ([]Candidate, []string, error) {
+// readCandidates lists path's profiles plus parser notes; DEFAULT is a skip row when alone, else a note.
+func readCandidates(path string) ([]cfgCandidate, []string, error) {
 	ps, hasDefault, notes, err := load(path)
 	if err != nil {
 		return nil, nil, err
 	}
-	out := make([]Candidate, 0, len(ps))
+	out := make([]cfgCandidate, 0, len(ps))
 	for _, p := range ps {
 		out = append(out, classifyProfile(p))
 	}
 	switch {
 	case len(out) == 0 && hasDefault:
-		out = append(out, Candidate{Name: defaultSection, Skip: defaultOnlySkip})
+		out = append(out, cfgCandidate{Name: defaultSection, Skip: defaultOnlySkip})
 	case hasDefault:
 		notes = append(notes, "[DEFAULT] skipped: the CLI's fallback, never imported; copy it into a named profile")
 	}
@@ -299,8 +299,8 @@ func Candidates(path string) ([]Candidate, []string, error) {
 }
 
 // classifyProfile maps a profile to a row authType; an explicit auth_type wins over inference from the keys present.
-func classifyProfile(p profile) Candidate {
-	c := Candidate{Pair: p.pair, PairSet: p.pairSet, Env: p.env, Name: p.name, ClientID: p.clientID,
+func classifyProfile(p profile) cfgCandidate {
+	c := cfgCandidate{Pair: p.pair, PairSet: p.pairSet, Env: p.env, Name: p.name, ClientID: p.clientID,
 		AccountID: p.accountID, WorkspaceID: p.workspaceID,
 		HasSecret: p.clientSecret != "" || p.token != ""}
 	host, ok := normalizeHost(p.host)
@@ -318,11 +318,11 @@ func effectiveCLIAuth(p profile) string {
 	case p.authType != "":
 		return p.authType
 	case p.clientID != "" && p.clientSecret != "":
-		return CLIAuthM2M
+		return cliAuthM2M
 	case p.token != "":
-		return CLIAuthPAT
+		return cliAuthPAT
 	}
-	return CLIAuthU2M
+	return cliAuthU2M
 }
 
 // rowAuth maps a CLI auth type to a row auth, or the reason the profile is skipped.
@@ -330,13 +330,13 @@ func rowAuth(p profile, auth string, hostOK bool) (row, skip string) {
 	switch {
 	case !hostOK:
 		return "", "no usable https host"
-	case auth == CLIAuthU2M:
+	case auth == cliAuthU2M:
 		return providers.AuthOAuth, ""
-	case auth == CLIAuthM2M && p.clientID == "":
+	case auth == cliAuthM2M && p.clientID == "":
 		return "", "oauth-m2m profile without client_id"
-	case auth == CLIAuthM2M:
+	case auth == cliAuthM2M:
 		return providers.AuthM2M, ""
-	case auth == CLIAuthPAT:
+	case auth == cliAuthPAT:
 		return providers.AuthPAT, ""
 	}
 	return "", fmt.Sprintf("unsupported auth_type %q", p.authType)
@@ -356,19 +356,19 @@ func normalizeHost(h string) (string, bool) {
 	return out, out != ""
 }
 
-// Secrets are the credential values of one profile; read only on an explicit --seal-secrets.
-type Secrets struct{ ClientSecret, Token string }
+// cfgSecrets are the credential values of one profile; read only on an explicit --seal-secrets.
+type cfgSecrets struct{ ClientSecret, Token string }
 
-// ReadSecrets returns the named profile's secrets from path; DEFAULT and __settings__ are never readable.
-func ReadSecrets(path, name string) (Secrets, error) {
+// readSecrets returns the named profile's secrets from path; DEFAULT and __settings__ are never readable.
+func readSecrets(path, name string) (cfgSecrets, error) {
 	ps, _, _, err := load(path)
 	if err != nil {
-		return Secrets{}, err
+		return cfgSecrets{}, err
 	}
 	for _, p := range ps {
 		if p.name == name {
-			return Secrets{ClientSecret: p.clientSecret, Token: p.token}, nil
+			return cfgSecrets{ClientSecret: p.clientSecret, Token: p.token}, nil
 		}
 	}
-	return Secrets{}, fmt.Errorf("profile %q not found", name)
+	return cfgSecrets{}, fmt.Errorf("profile %q not found", name)
 }

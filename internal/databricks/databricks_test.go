@@ -512,10 +512,10 @@ func TestPlanNoBetaOnlyWhenProviderEnvHasKey(t *testing.T) {
 func TestChildEnvBeta(t *testing.T) {
 	t.Setenv(betaKey, "")
 	os.Unsetenv(betaKey)
-	if slices.Contains(childEnv(Plan{NoBeta: true}), betaOff) {
+	if slices.Contains(childEnv(launchPlan{NoBeta: true}), betaOff) {
 		t.Error("NoBeta plan must not inject the opt-out")
 	}
-	if !slices.Contains(childEnv(Plan{}), betaOff) {
+	if !slices.Contains(childEnv(launchPlan{}), betaOff) {
 		t.Error("plan without NoBeta must inject the opt-out")
 	}
 }
