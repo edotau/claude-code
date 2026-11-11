@@ -13,10 +13,10 @@ import (
 
 // opencodeDatabricks is the interactive databricks launch: the curated menu split over a chat provider
 // (openai-compatible), a Responses provider (<id>-gpt, GPT-6 rejects chat tool calls) and a native Anthropic one (<id>-claude).
-func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred string, routed bool, env []string) ([]string, []string, error) { // env already holds the key
+func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred string, routed bool, env []string) ([]string, error) { // env already holds the key
 	chatBase, respBase, claudeBase, err := databricksRoutes(p, dialect, base, routed)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	chat, resp, claude, allowed, dropped := splitMenu(p, claudeBase != "")
 	if len(dropped) > 0 {
@@ -29,7 +29,7 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 	}
 	defID, err := defaultProviderID(p, id, model, claudeBase != "", chat, resp, claude, allowed)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	prov := map[string]any{
 		id + "-gpt": map[string]any{"npm": "@ai-sdk/openai", "name": "GPT (claude-code)", "options": providerOptions(p, cred, respBase, false), "models": resp},
@@ -42,9 +42,9 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 	}
 	body, err := json.Marshal(map[string]any{"$schema": "https://opencode.ai/config.json", "model": defID + "/" + model, "provider": prov})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return append(modelsDefined(env), opencodeConfigEnv+"="+string(body)), nil, nil
+	return append(modelsDefined(env), opencodeConfigEnv+"="+string(body)), nil
 }
 
 // databricksRoutes is p's chat, Responses and Claude base URLs (the last "" when p has no Anthropic route).

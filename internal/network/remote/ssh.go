@@ -1,4 +1,4 @@
-// Package remote builds the ssh argv that runs a script on another host with stdin left free for the caller.
+// Package remote runs agents in tmux sessions on another host over ssh: argv building, dispatch, list and attach.
 package remote
 
 import (

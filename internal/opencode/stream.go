@@ -180,7 +180,7 @@ func emitOpenCodeTool(sink wire.Sink, ev openCodeEvent, seen map[string]bool) er
 }
 
 // toolCallMarkupRE matches tool-call markup a model writes as text when it has no tools to call.
-var toolCallMarkupRE = regexp.MustCompile(`(?s)<(invoke|function_calls|antml:invoke)\b.*?(</(invoke|function_calls|antml:invoke)>|$)|\b_?tool_use\b`)
+var toolCallMarkupRE = regexp.MustCompile(`(?s)<(invoke|function_calls|antml:invoke)\b.*?(</(invoke|function_calls|antml:invoke)>|$)`)
 
 // refuseToolCallText fails a tools-off run whose whole answer is tool-call markup: the model tried to act, nothing ran.
 func refuseToolCallText(name string, req agent.RunOptions, answer string) error {

@@ -11,12 +11,10 @@ import (
 //go:embed catalog.json
 var catalogJSON []byte
 
-// entry is one catalog model: canonical id, display name and capabilities.
+// entry is one catalog model: canonical id and capabilities.
 type entry struct {
 	ID            string            `json:"id"`
-	Name          string            `json:"name"`
 	Version       string            `json:"version,omitempty"` // dash-separated version a dotted spelling turns into dots
-	Thinking      bool              `json:"thinking,omitempty"`
 	ResponsesOnly bool              `json:"responses_only,omitempty"`
 	ChatOnly      bool              `json:"chat_only,omitempty"`
 	WireOverride  map[string]string `json:"wire,omitempty"`  // spelling rule -> exact wire id, for exceptions
@@ -131,12 +129,6 @@ func Alias(name string) (canonical string, ok bool) {
 
 // AliasOf returns the alias a canonical id currently backs, or "" when none.
 func AliasOf(canonical string) string { return load().aliasOf[canonical] }
-
-// lookup returns the catalog entry (display name, capabilities) of a canonical id.
-func lookup(canonical string) (entry, bool) {
-	e, ok := load().byID[canonical]
-	return e, ok
-}
 
 // Limits resolves id like Resolve and returns the catalog limits; false when id is not a catalog model or
 // the catalog documents neither limit.

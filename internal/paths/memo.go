@@ -1,9 +1,13 @@
 package paths
 
 import (
+	"errors"
 	"sync"
 	"time"
 )
+
+// errMemoPanic is what runs joined to a panicking fn get.
+var errMemoPanic = errors.New("paths: memoized function panicked")
 
 // memoNow is Memo's clock; tests advance it.
 var memoNow = time.Now
@@ -59,8 +63,22 @@ func (m *Memo[K, V]) Do(key K, keep func(V, error) time.Duration, fn func() (V, 
 	m.m[key] = e
 	m.mu.Unlock()
 
+	returned := false
+	defer func() { // a panic in fn or keep must not leave the entry in flight: joiners and later calls would block
+		if returned {
+			return
+		}
+		m.mu.Lock()
+		if m.m[key] == e {
+			delete(m.m, key)
+		}
+		m.mu.Unlock()
+		e.err = errMemoPanic
+		close(e.done)
+	}()
 	v, err := fn()
 	d := keep(v, err)
+	returned = true
 
 	m.mu.Lock()
 	m.seq++

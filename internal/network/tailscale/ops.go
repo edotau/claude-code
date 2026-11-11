@@ -31,7 +31,7 @@ func resolveAuthKey(authKey, keyEnv string, stdin io.Reader) (string, error) {
 		key = strings.TrimSpace(os.Getenv(keyEnv))
 	}
 	if key == "" {
-		key, _, _ = vault.Get("TAILSCALE_AUTHKEY")
+		key, _, _ = vault.Get(authKeyName)
 	}
 	return key, nil
 }
@@ -144,7 +144,7 @@ func mintKeyAudited(ctx context.Context, expiry string, opts keyOpts) (AuthKey, 
 }
 
 // saveAuthKey seals key as TAILSCALE_AUTHKEY, the vault entry resolveAuthKey falls back to.
-func saveAuthKey(key string) error { return vault.Store("TAILSCALE_AUTHKEY", key) }
+func saveAuthKey(key string) error { return vault.Store(authKeyName, key) }
 
 // Cred is one Tailscale credential name/value pair waiting to be stored together.
 type Cred struct{ Name, Value string }

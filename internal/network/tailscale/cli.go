@@ -181,6 +181,7 @@ func Status(ctx context.Context) (Local, error) {
 			ExitNode: p.ExitNode, ExitNodeOption: p.ExitNodeOption, LastSeen: p.LastSeen,
 		})
 	}
+	slices.SortFunc(local.Peers, func(a, b peer) int { return strings.Compare(a.DNSName, b.DNSName) })
 	if raw.BackendState != "Running" {
 		return local, errNotRunning
 	}

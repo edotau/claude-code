@@ -76,15 +76,12 @@ func TestDottedOneM(t *testing.T) {
 func TestAliasAndLookup(t *testing.T) {
 	for _, a := range AliasNames {
 		id, ok := Alias(a)
-		_, found := lookup(id)
+		found := inCatalog(id)
 		if !ok || !found || AliasOf(id) != a || FamilyOf(id) != a {
 			t.Errorf("alias %s -> %q ok=%v found=%v", a, id, ok, found)
 		}
 	}
-	if e, _ := lookup("claude-opus-5-5"); e.Name == "" {
-		t.Errorf("opus entry = %+v", e)
-	}
-	if e, _ := lookup("gpt-6-1-sol"); !e.ResponsesOnly {
+	if e := load().byID["gpt-6-1-sol"]; !e.ResponsesOnly {
 		t.Errorf("gpt-6-1-sol entry = %+v", e)
 	}
 	if got := Wire("no-such-rule", "gpt-6-1-sol"); got != "gpt-6-1-sol" {

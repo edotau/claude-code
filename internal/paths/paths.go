@@ -80,15 +80,11 @@ func BinDir() string { return filepath.Join(ConfigDir(), "bin") }
 
 // BackupPath maps src to its mirrored backup location under StateDir, tagged with now; pure, no I/O.
 func BackupPath(src string, now time.Time) string {
-	var rel string
+	rel := strings.TrimPrefix(src, string(filepath.Separator))
 	if home, err := os.UserHomeDir(); err == nil {
 		if r, err := filepath.Rel(home, src); err == nil && !strings.HasPrefix(r, "..") {
 			rel = r
-		} else {
-			rel = strings.TrimPrefix(src, string(filepath.Separator))
 		}
-	} else {
-		rel = strings.TrimPrefix(src, string(filepath.Separator))
 	}
 	ts := now.Format("20060102-150405.000000000")
 	return filepath.Join(StateDir(), "backups", rel+".bak-"+ts)

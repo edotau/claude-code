@@ -4,7 +4,6 @@ package websearch
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/network/httpx"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -331,24 +331,25 @@ func tavilySearch(ctx context.Context, query string, maxResults int) (string, er
 
 // postTavilySearch POSTs body to the search endpoint under requestTimeout and returns the size-capped reply.
 func postTavilySearch(ctx context.Context, body []byte) ([]byte, error) {
-	reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+	return postTavily(ctx, requestTimeout, tavilyURL, "search", "", body, searchMaxBody)
+}
+
+// postTavily POSTs JSON body (a Bearer apiKey when set) under timeout and returns the reply capped at limit bytes.
+func postTavily(ctx context.Context, timeout time.Duration, endpoint, what, apiKey string, body []byte, limit int64) ([]byte, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, tavilyURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("could not build Tavily request (%v)", err)
+	hdr := http.Header{"Content-Type": {"application/json"}, "User-Agent": {userAgent}}
+	if apiKey != "" {
+		hdr.Set("Authorization", "Bearer "+apiKey)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", userAgent)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
+	status, raw, _, err := httpx.Do(reqCtx, httpx.Call{Client: http.DefaultClient, Method: http.MethodPost, URL: endpoint,
+		Header: hdr, Body: body, Limit: limit})
+	switch {
+	case status == 0:
 		return nil, fmt.Errorf("could not reach Tavily (%v)", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("search with Tavily failed (HTTP %d)", resp.StatusCode)
-	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, searchMaxBody))
-	if err != nil {
+	case status != http.StatusOK:
+		return nil, fmt.Errorf("%s with Tavily failed (HTTP %d)", what, status)
+	case err != nil && !errors.Is(err, httpx.ErrTooLarge): // an over-limit reply is cut, as before
 		return nil, fmt.Errorf("could not read Tavily response (%v)", err)
 	}
 	return raw, nil
@@ -372,24 +373,11 @@ var tavilyExtract = postTavilyExtract
 func postTavilyExtract(ctx context.Context, apiKey string, urls []string, depth string) (extractResponse, error) {
 	var payload extractResponse
 	body, _ := json.Marshal(map[string]any{"urls": urls, "format": "markdown", "extract_depth": depth})
-	reqCtx, cancel := context.WithTimeout(ctx, 2*requestTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, tavilyExtractURL, bytes.NewReader(body))
+	raw, err := postTavily(ctx, 2*requestTimeout, tavilyExtractURL, "extract", apiKey, body, 16<<20)
 	if err != nil {
-		return payload, fmt.Errorf("could not build Tavily request (%v)", err)
+		return payload, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("User-Agent", userAgent)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return payload, fmt.Errorf("could not reach Tavily (%v)", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return payload, fmt.Errorf("extract with Tavily failed (HTTP %d)", resp.StatusCode)
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&payload); err != nil {
+	if err := json.Unmarshal(raw, &payload); err != nil {
 		return payload, fmt.Errorf("extract with Tavily returned non-JSON payload (%v)", err)
 	}
 	return payload, nil
@@ -533,6 +521,9 @@ func renderExtract(ctx context.Context, urls []string) (string, int, error) {
 
 // extractURLs prints renderExtract's `# <url>` blocks to stdout. Exit 1 when every URL failed, else 0.
 func extractURLs(ctx context.Context, urls []string) int {
+	if len(urls) > maxExtractURLs { // Tavily rejects the whole call over its cap, as the MCP path does
+		return helptext.Fail("network websearch --extract: at most %d URLs (got %d)", maxExtractURLs, len(urls))
+	}
 	text, ok, err := renderExtract(ctx, urls)
 	if err != nil {
 		return helptext.Fail("network websearch --extract: %v", err)

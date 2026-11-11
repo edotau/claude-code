@@ -104,8 +104,7 @@ func TestWindowsPath(t *testing.T) {
 func TestParseSSHFSUserIPv6(t *testing.T) {
 	got := parseMountinfo("50 22 0:50 / /srv/ssh rw - fuse.sshfs alice@[2001:db8::1]:/work rw\n")
 	want := Mount{
-		Point: "/srv/ssh", Source: "alice@[2001:db8::1]:/work", FSType: "fuse.sshfs",
-		Kind: kindSSHFS, Host: "2001:db8::1", RemotePath: "/work",
+		Point: "/srv/ssh", Kind: kindSSHFS, Host: "2001:db8::1", RemotePath: "/work",
 	}
 	if len(got) != 1 {
 		t.Fatalf("mounts = %+v, want one SSHFS mount", got)
@@ -145,11 +144,11 @@ func TestParseMountinfo(t *testing.T) {
 		t.Errorf("opaque mounts dropped: %d entries, want 7 incl. / and /proc", len(all))
 	}
 	want := []Mount{
-		{Point: "/mnt/c", Source: `C:\`, FSType: "9p", Kind: KindDrvFS, Drive: "C", Root: "/"},
-		{Point: "/mnt/d", Source: `D:\`, FSType: "9p", Kind: KindDrvFS, Drive: "D", Root: "/"},
-		{Point: "/srv/share one", Source: "//fileserver/team/docs", FSType: "cifs", Kind: kindSMB, Host: "fileserver", RemotePath: "team/docs"},
-		{Point: "/srv/nfs", Source: "nas:/export/data", FSType: "nfs4", Kind: KindNFS, Host: "nas", RemotePath: "/export/data"},
-		{Point: "/home/u/remote", Source: "me@devbox:/work", FSType: "fuse.sshfs", Kind: kindSSHFS, Host: "devbox", RemotePath: "/work"},
+		{Point: "/mnt/c", Kind: KindDrvFS, Drive: "C", Root: "/"},
+		{Point: "/mnt/d", Kind: KindDrvFS, Drive: "D", Root: "/"},
+		{Point: "/srv/share one", Kind: kindSMB, Host: "fileserver", RemotePath: "team/docs"},
+		{Point: "/srv/nfs", Kind: KindNFS, Host: "nas", RemotePath: "/export/data"},
+		{Point: "/home/u/remote", Kind: kindSSHFS, Host: "devbox", RemotePath: "/work"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %d mounts, want %d: %+v", len(got), len(want), got)
@@ -164,10 +163,9 @@ func TestParseMountinfo(t *testing.T) {
 func TestParseDarwinMount(t *testing.T) {
 	got := classified(parseDarwinMount(darwinSample))
 	want := []Mount{
-		{Point: "/Volumes/team", Source: "//user@fileserver/team", FSType: "smbfs", Kind: kindSMB, Host: "fileserver", RemotePath: "team"},
-		{Point: "/Volumes/data", Source: "nas:/export/data", FSType: "nfs", Kind: KindNFS, Host: "nas", RemotePath: "/export/data"},
-		{Point: "/Users/u/remote", Source: "me@devbox:/work", FSType: "macfuse", Kind: kindSSHFS, Host: "devbox", RemotePath: "/work"},
-		{Point: "/Volumes/Other Share", Source: "nobody@thing:/x", FSType: "webdav", Kind: kindVolume},
+		{Point: "/Volumes/team", Kind: kindSMB, Host: "fileserver", RemotePath: "team"},
+		{Point: "/Volumes/data", Kind: KindNFS, Host: "nas", RemotePath: "/export/data"},
+		{Point: "/Users/u/remote", Kind: kindSSHFS, Host: "devbox", RemotePath: "/work"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %d mounts, want %d: %+v", len(got), len(want), got)
@@ -253,7 +251,7 @@ func TestDotDotFollowsSymlinks(t *testing.T) {
 // A tmpfs (opaque) mount inside a drive is not the drive's content: not reachable, never a guess.
 func TestOpaqueMountFencesDrive(t *testing.T) {
 	r := testResolver()
-	r.Mounts = append(r.Mounts, Mount{Point: "/mnt/c/cache", FSType: "tmpfs", Kind: kindOpaque})
+	r.Mounts = append(r.Mounts, Mount{Point: "/mnt/c/cache", Kind: kindOpaque})
 	if got, ok := r.Resolve(`C:\cache\a`); ok {
 		t.Errorf("Resolve through tmpfs = %q, want not reachable", got)
 	}
@@ -305,10 +303,10 @@ func TestResolveFallsBackToUnobscuredMount(t *testing.T) {
 	r := &Resolver{Mounts: []Mount{
 		{Point: "/a", Kind: kindSMB, Host: "srv", RemotePath: "team/docs"},
 		{Point: "/b", Kind: kindSMB, Host: "srv", RemotePath: "team"},
-		{Point: "/a/inner", FSType: "tmpfs", Kind: kindOpaque},
+		{Point: "/a/inner", Kind: kindOpaque},
 		{Point: "/mnt/c", Kind: KindDrvFS, Drive: "C", Root: "/"},
 		{Point: "/mnt/c/Users/u", Kind: KindDrvFS, Drive: "C", Root: "/Users/u"},
-		{Point: "/mnt/c/Users/u/x", FSType: "tmpfs", Kind: kindOpaque},
+		{Point: "/mnt/c/Users/u/x", Kind: kindOpaque},
 	}}
 	if got, ok := r.Resolve(`\\srv\team\docs\inner\f`); !ok || got != "/b/docs/inner/f" {
 		t.Errorf("smb fallback = %q, %v; want /b/docs/inner/f", got, ok)
@@ -355,9 +353,6 @@ func TestNinePUNCClassifiedSMB(t *testing.T) {
 	ms := parseMountinfo("50 22 0:50 / /mnt/srv rw - 9p \\134\\134fileserver\\134team rw,aname=drvfs\n")
 	if len(ms) != 1 || ms[0].Kind != kindSMB || ms[0].Host != "fileserver" || ms[0].RemotePath != "team" {
 		t.Fatalf("mounts = %+v", ms)
-	}
-	if want := `\\fileserver\team`; ms[0].Source != want {
-		t.Errorf("Mount.Source = %q, want kernel source %q", ms[0].Source, want)
 	}
 	r := &Resolver{Mounts: ms}
 	got, ok := r.Resolve(`\\fileserver\team\file`)

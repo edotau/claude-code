@@ -24,7 +24,7 @@ var opencodeLogins = listOpencodeLogins
 // one (forced, regardless of login or quota), else the first opencodeLadder entry that has a login,
 // falling back to the ladder's first entry at all so the page stays editable with no login anywhere.
 // The ladder orders opencode's own paid backends only — the free Zen catalog (opus excluded, alias- and
-// work-repo-gated) is the per-alias sub-pick's concern (route.Table.Pick), not this cross-alias provider page.
+// work-repo-gated) is the per-alias sub-pick's concern (router.RouteTable.Pick), not this cross-alias provider page.
 func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*providers.Provider, error) {
 	if explicitProvider != "" {
 		p, err := reg.Get(explicitProvider)

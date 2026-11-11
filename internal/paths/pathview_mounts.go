@@ -20,14 +20,11 @@ const (
 	kindSMB                // //server/share (cifs, smbfs)
 	KindNFS                // host:/export
 	kindSSHFS              // user@host:path
-	kindVolume             // other macOS /Volumes/<name> share
 )
 
 // Mount is one classified mount-table entry.
 type Mount struct {
 	Point      string // local mount point
-	Source     string // the remote source as the kernel reports it
-	FSType     string
 	Kind       Kind
 	Drive      string // upper-case drive letter, KindDrvFS only
 	Root       string // KindDrvFS: the drive subtree mounted here (bind mounts); "" means "/"
@@ -51,13 +48,13 @@ func Default() *Resolver {
 	return live
 }
 
-// classify turns a raw mount entry into a Mount; ok is false for filesystems that are not drvfs/remote/Volumes.
+// classify turns a raw mount entry into a Mount; ok is false for filesystems that are not drvfs/remote.
 func classify(point, source, fstype string) (Mount, bool) {
 	norm := source // WSL drvfs exposes a UNC share as `\\server\share`; classify on the forward-slash form
 	if strings.HasPrefix(source, `\\`) {
 		norm = strings.ReplaceAll(source, `\`, "/")
 	}
-	m := Mount{Point: point, Source: source, FSType: fstype}
+	m := Mount{Point: point}
 	ok := true
 	switch {
 	case isDriveSource(norm):
@@ -71,8 +68,6 @@ func classify(point, source, fstype string) (Mount, bool) {
 	case isSSHFS(norm, fstype):
 		m.Kind = kindSSHFS
 		m.Host, m.RemotePath, ok = splitHostPath(norm)
-	case strings.HasPrefix(point, "/Volumes/") && !strings.HasPrefix(norm, "/dev/"):
-		m.Kind = kindVolume
 	default:
 		ok = false
 	}
@@ -183,7 +178,7 @@ func parseMountinfo(text string) []Mount {
 		point, source := unescapeOctal(f[4]), unescapeOctal(f[sep+2])
 		m, ok := classify(point, source, f[sep+1])
 		if !ok {
-			m = Mount{Point: point, Source: source, FSType: f[sep+1], Kind: kindOpaque}
+			m = Mount{Point: point, Kind: kindOpaque}
 		}
 		out = append(out, withRoot(m, unescapeOctal(f[3])))
 	}
@@ -216,7 +211,7 @@ func parseDarwinMount(text string) []Mount {
 		fstype, _, _ := strings.Cut(rest[open+2:len(rest)-1], ",")
 		m, ok := classify(rest[:open], src, strings.TrimSpace(fstype))
 		if !ok {
-			m = Mount{Point: rest[:open], Source: src, FSType: strings.TrimSpace(fstype), Kind: kindOpaque}
+			m = Mount{Point: rest[:open], Kind: kindOpaque}
 		}
 		out = append(out, m)
 	}

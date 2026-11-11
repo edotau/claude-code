@@ -36,7 +36,7 @@ func regressionDatabricksProfile(t *testing.T, name string, menu []providers.Ope
 
 func regressionGeneratedMenu(t *testing.T, p *providers.Provider, model string) []byte {
 	t.Helper()
-	env, _, err := opencodeDatabricks(p, "harness-"+p.Name, providers.ProtocolOpenAI, p.BaseURL, agentconfig.MenuWire(p, model), "", false, nil)
+	env, err := opencodeDatabricks(p, "harness-"+p.Name, providers.ProtocolOpenAI, p.BaseURL, agentconfig.MenuWire(p, model), "", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

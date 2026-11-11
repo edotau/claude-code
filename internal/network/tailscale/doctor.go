@@ -46,9 +46,7 @@ type CredState struct {
 }
 
 // CredentialNames are the Tailscale credentials the harness stores, in the order Credentials and credentialNote report.
-var CredentialNames = []string{
-	"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET", "TAILSCALE_API_KEY", "TAILSCALE_AUTHKEY",
-}
+var CredentialNames = []string{oauthIDName, oauthSecretName, apiKeyName, authKeyName}
 
 // Credentials reports presence and source for every Tailscale credential name, never a value.
 func Credentials() []CredState {
