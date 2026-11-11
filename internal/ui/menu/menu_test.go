@@ -320,7 +320,7 @@ func TestDbxTokenActionsDescribeStoredPAT(t *testing.T) {
 	if len(f.rows) == 0 {
 		t.Fatal("no Databricks action menu rendered")
 	}
-	for _, label := range []string{"Mint now", "Copy token"} {
+	for _, label := range []string{"Token", "Copy token"} {
 		found := false
 		for _, row := range f.rows[0] {
 			if row[0] == label {
