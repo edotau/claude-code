@@ -1,6 +1,8 @@
 package statusline
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -112,7 +114,25 @@ func (w cacheWindow) pct(now time.Time) int {
 	return clampPct(int(w.Utilization + 0.5))
 }
 
-// limitsFromCache reads the 7d window from the usage cache internal/usage writes (no network); -1 means absent, stale or expired.
+// cacheOwner is the owner internal/usage stamps for the login in .credentials.json; "" when only a keychain holds it.
+func cacheOwner() string {
+	raw, err := os.ReadFile(filepath.Join(paths.ConfigDir(), ".credentials.json"))
+	if err != nil {
+		return ""
+	}
+	var c struct {
+		ClaudeAiOauth struct {
+			AccessToken string `json:"accessToken"`
+		} `json:"claudeAiOauth"`
+	}
+	if json.Unmarshal(raw, &c) != nil || c.ClaudeAiOauth.AccessToken == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(c.ClaudeAiOauth.AccessToken))
+	return hex.EncodeToString(sum[:])
+}
+
+// limitsFromCache reads internal/usage's cached 7d window (no network); -1 means absent, stale, expired or another login's.
 func limitsFromCache() int {
 	raw, err := os.ReadFile(filepath.Join(paths.StateDir(), "cache", "claude-oauth-usage.json"))
 	if err != nil {
@@ -120,10 +140,17 @@ func limitsFromCache() int {
 	}
 	var c struct {
 		FetchedAt time.Time       `json:"fetched_at"`
+		Owner     string          `json:"owner"`
 		Body      json.RawMessage `json:"body"`
 	}
 	if json.Unmarshal(raw, &c) != nil || len(c.Body) == 0 || time.Since(c.FetchedAt) > limitsCacheMaxAge {
 		return -1
+	}
+	// An unowned cache, or a login only the keychain knows (too slow to ask per render), is served as before.
+	if c.Owner != "" {
+		if cur := cacheOwner(); cur != "" && cur != c.Owner {
+			return -1
+		}
 	}
 	var b struct {
 		SevenDay cacheWindow `json:"seven_day"`
