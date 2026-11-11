@@ -216,7 +216,7 @@ type Result struct {
 	Transport       *Transport      `json:"transport,omitempty"`       // stream health; fields an agent can't report stay absent
 	Hops            []Hop           `json:"hops,omitempty"`            // every dispatch runWithFallback tried, in order
 	Structured      json.RawMessage `json:"-"`                         // the answer as JSON satisfying RunOptions.OutputSchema
-	Recovered       []*retry.Error  // attempts that failed before the successful one, for the hop's errors
+	Recovered       []*retry.Error  `json:"-"`                         // attempts that failed before the successful one, for the hop's errors
 }
 
 // Hop is one dispatch runWithFallback tried; ErrorKind is the envelope error token, empty when the dispatch answered.

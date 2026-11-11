@@ -33,15 +33,6 @@ func isJSONNull(raw json.RawMessage) bool {
 	return strings.TrimSpace(string(raw)) == "null"
 }
 
-// resultPreview renders a journal result value (string or object) as a short, one-line preview.
-func resultPreview(raw json.RawMessage) string {
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return truncate(s, 200)
-	}
-	return truncate(string(raw), 200)
-}
-
 // sessionHead is what the first ~64KB of a main transcript carries about the session itself.
 type sessionHead struct {
 	cwd, branch, title string

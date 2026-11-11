@@ -217,7 +217,7 @@ func ResultEvent(env Envelope) Event {
 		Usage: env.Usage, SessionID: env.SessionID, Envelope: &env}
 }
 
-// eventsTextCap bounds the text bytes one dispatch's event file keeps; later text events are dropped, the rest stay.
+// eventsTextCap bounds the text bytes one dispatch's event file keeps; an over-cap chunk is dropped whole.
 const eventsTextCap = 4 << 20
 
 // EventLog writes <id>.events.jsonl (0600), redacted per line and text-capped; fail-open, Emit always returns nil.

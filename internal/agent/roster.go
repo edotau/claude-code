@@ -267,7 +267,7 @@ func CanServe(name string, p *providers.Provider) bool {
 // Serves reports whether p is usable by agent: a login provider naming it, or a route on one of the dialects it speaks.
 // A non-empty model adds that the model's wire (WireFor) is one the agent speaks. why names the first thing missing.
 func Serves(agent string, p *providers.Provider, model string) (ok bool, why string) {
-	spec, known := LookupSchema(agent)
+	spec, known := lookupRow(agent)
 	if !known || !spec.External() {
 		return false, fmt.Sprintf("unknown agent %q", agent)
 	}
@@ -421,7 +421,7 @@ func VaultAgentNames(vs map[string]any) []string {
 
 // VaultAgentIsClaude reports the roster row the harness launches itself (no external binary).
 func VaultAgentIsClaude(name string) bool {
-	s, ok := LookupSchema(name)
+	s, ok := lookupRow(name)
 	return ok && !s.External()
 }
 
@@ -433,7 +433,7 @@ const (
 
 // ValidAgentActive rejects any value but on|off, and off for claude.
 func ValidAgentActive(agent, v string) error {
-	if _, ok := LookupSchema(agent); !ok {
+	if _, ok := lookupRow(agent); !ok {
 		return errUnknownAgent(agent)
 	}
 	switch v {
@@ -468,7 +468,7 @@ func AgentActive(agent string) bool {
 	if agent == agentid.Claude {
 		return true
 	}
-	if _, ok := LookupSchema(agent); !ok {
+	if _, ok := lookupRow(agent); !ok {
 		return true
 	}
 	return vault.GetAgentRecord(agent).Profile != ""
@@ -517,7 +517,7 @@ func ownLogin(loadReg func() *providers.Registry, agent, profile string) bool {
 	if profile == "" {
 		return false
 	}
-	if s, ok := LookupSchema(agent); ok && s.CLI.OwnLoginProfile != "" {
+	if s, ok := lookupRow(agent); ok && s.CLI.OwnLoginProfile != "" {
 		return profile == s.CLI.OwnLoginProfile
 	}
 	reg := loadReg()
@@ -530,7 +530,7 @@ func ownLogin(loadReg func() *providers.Registry, agent, profile string) bool {
 
 // ValidAgentPin checks v as agent's profile pin: a registry profile, or its schema's own-login id or extra pin ids.
 func ValidAgentPin(reg *providers.Registry, agent, v string) error {
-	s, ok := LookupSchema(agent)
+	s, ok := lookupRow(agent)
 	if !ok {
 		return errUnknownAgent(agent)
 	}
@@ -638,7 +638,7 @@ type capField struct {
 // capFields lists an agent's capability levels in RunOptions-flag order, named as the flags are.
 func capFields(c Caps) []capField {
 	return []capField{{"model", c.Model}, {"profile", c.Provider}, {"effort", c.Effort}, {"workdir", c.WorkDir}, {"session", c.SessionID},
-		{"tools", c.Tools}, {"no-tools", c.NoTools}, {"autonomous", c.Autonomous}, {"fleet", c.Fleet}, {"enable-memory", c.Memory},
+		{"tools", c.Tools}, {"read-only", c.ReadOnly}, {"permissions", c.Permissions}, {"no-tools", c.NoTools}, {"autonomous", c.Autonomous}, {"fleet", c.Fleet}, {"enable-memory", c.Memory},
 		{"no-persist", c.NoPersist}, {"safe-mode", c.SafeMode}, {"debug-file", c.DebugFile}, {"direct", c.Direct},
 		{"system-prompt", c.SystemPrompt}, {"append-system-prompt", c.AppendSystemPrompt}, {"env", c.Env},
 		{"output-schema", c.OutputSchema}, {"persona", c.Persona}}

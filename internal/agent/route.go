@@ -383,7 +383,7 @@ func (rc routeCtx) callerOnProfile(cand router.Candidate) bool {
 
 // wireAgent is an agent with dialects whose profile row takes a caller's model: not claude, a hub or codex.
 func wireAgent(name string) bool {
-	s, ok := LookupSchema(name)
+	s, ok := lookupRow(name)
 	return ok && len(s.CLI.Dialects) > 0 && name != "claude" && !isHubAgent(name) && !speaksResponses(name)
 }
 
@@ -436,7 +436,7 @@ func (rc routeCtx) exactCell(cand router.Candidate, cell router.Cell) (router.Ce
 
 // speaksResponses reports an agent whose schema lists the Responses dialect (codex): it needs a Responses route.
 func speaksResponses(agentName string) bool {
-	s, ok := LookupSchema(agentName)
+	s, ok := lookupRow(agentName)
 	return ok && slices.Contains(s.CLI.Dialects, providers.ProtocolResponses)
 }
 

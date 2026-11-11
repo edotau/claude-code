@@ -116,11 +116,13 @@ func resolveRecord(recs []Record, ref string, pred func(Record) bool) (Record, e
 func jobArgvSettled(rec *Record) ([]string, error) {
 	var argv []string
 	var err error
-	for range 5 {
+	for i := range 5 {
 		if argv, err = proc.Argv(rec.PID); err != nil || isOwnArgv(argv, rec) {
 			return argv, err
 		}
-		time.Sleep(100 * time.Millisecond)
+		if i < 4 {
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
 	return argv, nil
 }

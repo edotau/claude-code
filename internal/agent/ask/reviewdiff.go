@@ -154,6 +154,9 @@ func appendUntrackedWithin(b *strings.Builder, cwd, rel string, limit int) int {
 	}
 	data = data[:min(len(data), limit)] // keeps the running total within untrackedTotalCap
 	fmt.Fprintf(b, "new file: %s\n%s\n", rel, data)
+	if info.Size() > int64(len(data)) {
+		fmt.Fprintf(b, "(truncated at %d bytes)\n", len(data))
+	}
 	return len(data)
 }
 

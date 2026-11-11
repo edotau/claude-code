@@ -265,7 +265,7 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry
 // heartbeatEvery is how long a child's stdout may stay quiet before a "still running" log line.
 var heartbeatEvery = 30 * time.Second
 
-// eofReader wraps a child's stdout and records that it reached EOF, the cue for ReapChild.
+// eofReader wraps a child's stdout and records that it reached EOF, the cue for reapChild.
 type eofReader struct {
 	R   io.Reader
 	eof atomic.Bool

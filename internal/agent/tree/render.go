@@ -10,19 +10,26 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// defaultWidth is the fallback render width when COLUMNS isn't set (or isn't a usable int) — widest
-// value that still reads well in a plain terminal; --watch callers inherit the real COLUMNS instead.
+// defaultWidth is the render width when stdout is not a terminal and COLUMNS is unset.
 const defaultWidth = 120
 
-// terminalWidth reads COLUMNS (the shell exports it on an interactive tty; --watch callers inherit
-// it too), falling back to defaultWidth so a redirected/piped run still wraps sanely.
-func terminalWidth() int { return ansi.Columns(defaultWidth) }
+// terminalWidth is $COLUMNS when set, else the stdout terminal's width, else defaultWidth.
+func terminalWidth() int {
+	if n := ansi.Columns(0); n > 0 {
+		return n
+	}
+	if n, _, err := proc.Size(int(os.Stdout.Fd())); err == nil && n > 0 {
+		return n
+	}
+	return defaultWidth
+}
 
 // columnWidths sizes the type/status columns to the longest value actually in the rendered set, so
 // a table stays aligned instead of a fixed guess (e.g. "general-purpose") breaking it.

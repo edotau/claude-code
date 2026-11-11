@@ -338,7 +338,8 @@ func gitRoots(cwd string, dirs, patterns []string) []string {
 	for _, p := range patterns {
 		roots = append(roots, globBase(cwd, p))
 	}
-	return roots
+	slices.Sort(roots)
+	return slices.Compact(roots) // --diff yields one pattern per file: list each base once
 }
 
 // globBase is the directory a pattern starts in, before its first glob metacharacter, as an absolute path.
@@ -410,6 +411,9 @@ func readInclude(abs, rel string, maxFileBytes int) (IncludedFile, string, error
 	if !info.Mode().IsRegular() {
 		return IncludedFile{}, "non-regular-file", nil
 	}
+	if binaryExtensions[strings.ToLower(filepath.Ext(abs))] {
+		return IncludedFile{}, "unsupported-extension", nil
+	}
 	f, err := os.Open(abs)
 	if err != nil {
 		return IncludedFile{}, "read-error: " + err.Error(), nil
@@ -418,9 +422,6 @@ func readInclude(abs, rel string, maxFileBytes int) (IncludedFile, string, error
 	data, err := io.ReadAll(io.LimitReader(f, int64(maxFileBytes)+1))
 	if err != nil {
 		return IncludedFile{}, "read-error: " + err.Error(), nil
-	}
-	if binaryExtensions[strings.ToLower(filepath.Ext(abs))] {
-		return IncludedFile{}, "unsupported-extension", nil
 	}
 	if bytes.IndexByte(data, 0) >= 0 {
 		return IncludedFile{}, "binary-content", nil

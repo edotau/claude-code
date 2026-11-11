@@ -230,7 +230,7 @@ var seed = []Role{
 	{Name: "compare", Agent: "opencode", Models: []string{"claude-sonnet-5-5", "gpt-6-1-sol", "gemini-3-8-flash", "kimi-k3"}},
 }
 
-// Lookup finds name in the vault overlay table if set and valid, else in Seed.
+// Lookup finds name in the vault overlay table if set and valid, else in seed.
 func Lookup(name string) (Role, error) {
 	table := seed
 	t, err := vaultRoles()

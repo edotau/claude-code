@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -22,7 +23,6 @@ func Scratch(t *testing.T) string {
 	t.Helper()
 	configDir := vaulttest.Use(t)
 	home := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
 	t.Setenv("GEMINI_CLI_HOME", filepath.Join(home, ".gemini-cli-home-unused"))
 	t.Setenv("CODEX_HOME", filepath.Join(home, "codex-home-unused"))
 	// Isolated from the real machine's opencode auth.json/opencode.jsonc (ResolveTarget probes both unconditionally).
@@ -95,8 +95,8 @@ func LoadTarget(t testing.TB, provider, model string) providers.Target {
 // StubProxy stubs the router at base, its secret and session mints for the test.
 func StubProxy(t testing.TB, base, secret string) {
 	t.Helper()
-	oe, os_, om := agent.EnsureRouter, agent.RouterSecret, agent.MintSession
-	t.Cleanup(func() { agent.EnsureRouter, agent.RouterSecret, agent.MintSession = oe, os_, om })
+	oe, os_, om, op := agent.EnsureRouter, agent.RouterSecret, agent.MintSession, retry.SharedPoll
+	t.Cleanup(func() { agent.EnsureRouter, agent.RouterSecret, agent.MintSession, retry.SharedPoll = oe, os_, om, op })
 	agent.StubProxyForTest(base, secret)
 }
 

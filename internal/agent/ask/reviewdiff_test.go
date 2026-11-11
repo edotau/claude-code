@@ -503,7 +503,7 @@ func TestDiffUntrackedTotalCapPartialFinalFile(t *testing.T) {
 	if got := bytes.Count(out, []byte("Z")); got != untrackedTotalCap {
 		t.Fatalf("inlined %d content bytes, want exactly the %d-byte aggregate cap", got, untrackedTotalCap)
 	}
-	last := "new file: fi.txt\n" + strings.Repeat("Z", 1024) + "\n"
+	last := "new file: fi.txt\n" + strings.Repeat("Z", 1024) + "\n(truncated at 1024 bytes)\n"
 	if !strings.HasSuffix(string(out), last) {
 		t.Fatal("final untracked file must inline only the remaining 1 KiB, excluding its header from the content cap")
 	}

@@ -23,10 +23,9 @@ type Spec struct {
 	IndexOnly    bool     `json:"index_only,omitempty"`
 }
 
-// Packed is the built prompt, the collected files, and the lines worth telling the user (coverage, dropped files).
+// Packed is the built prompt and the lines worth telling the user (coverage, dropped files).
 type Packed struct {
 	Prompt string
-	Files  Context
 	Notes  []string
 }
 
@@ -66,7 +65,7 @@ func Build(ctx context.Context, s Spec, task, cwd string, budget int) (Packed, e
 	if err != nil {
 		return Packed{}, err
 	}
-	p := Packed{Prompt: prompt, Files: collected}
+	p := Packed{Prompt: prompt}
 	if w := coverageWarning(collected); w != "" {
 		p.Notes = append(p.Notes, w)
 	}

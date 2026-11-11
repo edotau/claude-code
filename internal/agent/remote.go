@@ -45,12 +45,8 @@ func newRemoteEngine(agentName, host, bin, fallback string) Engine {
 
 func (r remoteEngine) Name() string { return r.agent }
 
-// Caps is all-native: the remote's applyCaps does the dropping, and its envelope reports what it dropped.
-func (r remoteEngine) Caps() Caps {
-	n := Native
-	return Caps{Model: n, Provider: n, Effort: n, WorkDir: n, SessionID: n, Tools: n, NoTools: n, Autonomous: n, Memory: n,
-		NoPersist: n, SafeMode: n, Direct: n, SystemPrompt: n, AppendSystemPrompt: n, Env: n, OutputSchema: n, Persona: n, Permissions: n}
-}
+// Caps is Persona-native only: the remote's applyCaps does the dropping, and Exec calls Run directly.
+func (r remoteEngine) Caps() Caps { return Caps{Persona: Native} }
 
 func (r remoteEngine) Available() error { return nil }
 
@@ -267,7 +263,7 @@ func (r remoteEngine) remoteOutcome(ctx context.Context, env *wire.Envelope, str
 func (r remoteEngine) noResult(werr error, tail *retry.TailBuffer, streamed bool) *retry.Error {
 	detail := strings.TrimSpace(tail.String())
 	if len(detail) > 600 {
-		detail = "…" + detail[len(detail)-600:]
+		detail = "…" + strings.ToValidUTF8(detail[len(detail)-600:], "") // the cut may split a rune
 	}
 	code := -1
 	if ee, ok := errors.AsType[*exec.ExitError](werr); ok {

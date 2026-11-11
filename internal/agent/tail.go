@@ -60,8 +60,7 @@ func followLog(ctx context.Context, rec Record, f *os.File, w io.Writer) (Record
 			}
 		}
 	}
-	_, err := io.Copy(w, f) // whatever landed between the last read and the record leaving running
-	return rec, err
+	return rec, nil // the last pass reloaded before it copied, so nothing landed after it
 }
 
 // TailEvents copies rec's <id>.events.jsonl to w; with follow it waits until the record leaves running (a
@@ -101,9 +100,8 @@ func followEvents(ctx context.Context, rec Record, follow bool, w io.Writer, br 
 		if n > 0 {
 			lastOut = time.Now()
 		}
-		if !rec.Alive() { // the writer is gone: one last drain, then stop
-			_, err = copyEventLines(br, &pend, w)
-			return rec, err
+		if !rec.Alive() { // the writer is gone, and rec was reloaded before this copy
+			return rec, nil
 		}
 		if err := sleepCtx(ctx, tailPoll); err != nil {
 			return rec, err
