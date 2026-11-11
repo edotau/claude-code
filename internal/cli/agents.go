@@ -11,8 +11,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
-	"github.com/edotau/claude-code/internal/agent/client"
-	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
@@ -190,7 +188,7 @@ func cmdAgentsList(args []string) int {
 		return 2
 	}
 	if *host != "" {
-		if err := client.ListRemote(*host, remote.Bin(*remoteBin), *format, os.Stdout); err != nil {
+		if err := agent.ListRemote(*host, remote.Bin(*remoteBin), *format, os.Stdout); err != nil {
 			return helptext.Fail("%v", err)
 		}
 		return 0
@@ -364,7 +362,7 @@ func cmdAgentsJob(verb string, args []string) int {
 		fs.Usage()
 		return 2
 	}
-	rec, err := job.Find(pos[0])
+	rec, err := agent.Find(pos[0])
 	if err != nil {
 		return helptext.Fail("agents %s: %v", verb, err)
 	}
@@ -387,7 +385,7 @@ func cmdAgentsSend(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if len(pos) < 2 || !slices.Contains(client.Formats, *format) {
+	if len(pos) < 2 || !slices.Contains(agent.Formats, *format) {
 		fs.Usage()
 		return 2
 	}
@@ -646,7 +644,7 @@ func agentTail(name string, args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	return ask.TailJob(name+" tail", job.Record{Agent: name, ID: firstPositional(pos)}, helptext.Text, *follow)
+	return ask.TailJob(name+" tail", agent.Record{Agent: name, ID: firstPositional(pos)}, helptext.Text, *follow)
 }
 
 // agentResult is `<v> result [id] [--format text|json]`.

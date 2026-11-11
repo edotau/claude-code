@@ -1,23 +1,28 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -631,4 +636,410 @@ func TestApplyCapsNoneDropsSystemPrompt(t *testing.T) {
 		out.SystemPrompt != "" || out.AppendSystemPrompt != "" {
 		t.Errorf("out=%+v dropped=%v emulated=%v", out, dropped, emulated)
 	}
+}
+
+// Explicit Model/Provider/Effort beat the definition's.
+func TestResolveOverlayAndAgentsPrecedence(t *testing.T) {
+	c := &Client{}
+	defs := map[string]*Schema{"sec": {Name: "sec", Prompt: "client", Model: "cm", Profile: "cp", Effort: "low"}}
+	o := RunOptions{Agent: "sec", Agents: defs, Model: "mine", Provider: "myprov", Effort: "ultra"}
+	if err := c.resolve(&o); err != nil || o.Model != "mine" || o.Provider != "myprov" || o.Effort != "ultra" || o.Agent != "claude" {
+		t.Fatalf("explicit options lost: %+v, %v", o, err)
+	}
+	t.Run("definition defaults", func(t *testing.T) { assertDefinitionOverlay(t, c, defs) })
+	if o = (RunOptions{Agent: "ghost"}); c.resolve(&o) == nil {
+		t.Error("an unknown ref must fail resolve")
+	}
+}
+
+func assertDefinitionOverlay(t *testing.T, c *Client, defs map[string]*Schema) {
+	t.Helper()
+	o := RunOptions{Agent: "sec", Agents: defs}
+	if err := c.resolve(&o); err != nil || o.Model != "cm" || o.Provider != "cp" || o.Effort != "low" || o.Persona.Prompt != "client" {
+		t.Fatalf("definition not overlaid: %+v, %v", o, err)
+	}
+}
+
+// A definition with `model: inherit` carries no model of its own, so nothing reaches routing.
+func TestOverlayInheritModelIsNone(t *testing.T) {
+	c := &Client{}
+	o := RunOptions{Agent: "plan", Agents: map[string]*Schema{"plan": {Name: "plan", Prompt: "p", Model: "inherit"}}}
+	if err := c.resolve(&o); err != nil || o.Model != "" || o.Persona.Model != "inherit" {
+		t.Fatalf("inherit leaked into the request model: %+v, %v", o, err)
+	}
+}
+
+// Record resolves the selector to its agent but, unlike Prepare, never routes or applies the rubric.
+func TestClientRecordSkipsRouting(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	defs, err := ParseAgents(`{"sec":{"prompt":"p","agent":"codex"}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := NewClient(nil, nil, nil)
+	o := RunOptions{Agent: "sec", Agents: defs, Prompt: "x", Provider: "no-such-provider", Rubric: "/nonexistent/rubric.md"}
+	if _, err := c.Prepare(t.Context(), o, nil); err == nil {
+		t.Fatal("control: Prepare should fail on the unknown provider")
+	}
+	rec, err := c.Record(t.Context(), o, nil)
+	if err != nil || rec.Agent != "codex" {
+		t.Fatalf("Record = agent %q, err %v; want codex and no error", rec.Agent, err)
+	}
+}
+
+// setupWorkdirFixture isolates config state and makes opencode "configured" without a real login, so the
+// sub-pick's gates turn on the work-repo rule alone, not on missing credentials.
+func setupWorkdirFixture(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	pathstest.FakeVendor(t, "opencode", `printf '%s\n' '{"type":"text","part":{"text":"ok"}}'`)
+	t.Setenv("OPENCODE_API_KEY", "test-key")
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	if err := vault.SetAgentRecord("opencode", vault.AgentRecord{Profile: "zen-free"}); err != nil { // no profile = off
+		t.Fatal(err)
+	}
+}
+
+// Run keeps going when the dispatch record can't be saved, but says so through Notify instead of dropping it.
+func TestClientRunNotifiesUnsavedRecord(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("PATH", t.TempDir()) // no agent binary: the dispatch itself fails fast
+	state := filepath.Join(cfg, "state", "harness")
+	if err := os.MkdirAll(state, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, "dispatch"), nil, 0o600); err != nil { // a file where the dir goes
+		t.Fatal(err)
+	}
+	var notes []string
+	c := NewClient(nil, nil, func(s string) { notes = append(notes, s) })
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, _ = c.Run(ctx, RunOptions{Agent: "claude", Provider: "ultra", Prompt: "x"}, nil)
+	if !slices.ContainsFunc(notes, func(s string) bool { return strings.Contains(s, "record not saved before the run") }) {
+		t.Fatalf("notes = %q, want the pre-run 'record not saved' notice", notes)
+	}
+}
+
+// burstRunner emits n text events, then blocks on ctx when hold is set.
+type burstRunner struct {
+	n    int
+	hold bool
+	ctx  chan context.Context
+}
+
+func (*burstRunner) Name() string     { return "fake" }
+func (*burstRunner) Caps() Caps       { return Caps{} }
+func (*burstRunner) Available() error { return nil }
+func (b *burstRunner) Run(ctx context.Context, _ RunOptions, w wire.Sink) (wire.Result, error) {
+	for range b.n {
+		_ = w.Emit(wire.Event{Type: wire.EventText, Text: "x"})
+	}
+	if b.ctx != nil {
+		b.ctx <- ctx
+	}
+	if b.hold {
+		<-ctx.Done()
+		return wire.Result{}, context.Cause(ctx)
+	}
+	return wire.Result{Answer: "a"}, nil
+}
+
+func streamPrepared(t *testing.T, r Engine) *Prepared {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	return &Prepared{Opts: RunOptions{Agent: "fake", Prompt: "p"}, Record: ClaimRecord("fake", RunOptions{Prompt: "p"}, time.Now()), Chain: Single(r)}
+}
+
+// streamPreparedRun streams p through c.Exec, as Stream does for a RunOptions.
+func streamPreparedRun(c *Client, p *Prepared) <-chan wire.Event {
+	return c.streamWith(context.Background(), cmp.Or(p.Opts.Agent, "claude"), func(ctx context.Context, sink wire.Sink) (wire.Result, error) {
+		return c.Exec(ctx, p, sink, RunRecordedOpts{})
+	})
+}
+
+func drainEvents(ch <-chan wire.Event) (results int, last wire.Event) {
+	for ev := range ch {
+		if ev.Type == wire.EventResult {
+			results++
+		}
+		last = ev
+	}
+	return results, last
+}
+
+func waitGoroutines(t *testing.T, base int) {
+	t.Helper()
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+		if runtime.NumGoroutine() <= base {
+			return
+		}
+	}
+	t.Fatalf("goroutines = %d, want <= %d: the run leaked", runtime.NumGoroutine(), base)
+}
+
+// Given a consumer that reads nothing, When the run emits 3x the buffer, Then the run still finishes and nothing leaks.
+func TestStreamConsumerReadsNothingStillFinishes(t *testing.T) {
+	p := streamPrepared(t, &burstRunner{n: 3 * streamBuffer})
+	base := runtime.NumGoroutine()
+	ch := streamPreparedRun(&Client{}, p)
+	// Under suite load other tests' goroutines can drop the count early, so wait for the full buffer too.
+	for end := time.Now().Add(5 * time.Second); len(ch) < streamBuffer && time.Now().Before(end); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	waitGoroutines(t, base)
+	if len(ch) != streamBuffer {
+		t.Errorf("buffered = %d, want a full %d (oldest dropped)", len(ch), streamBuffer)
+	}
+}
+
+// Given a full buffer with drops, Then the stream still ends in exactly one result, as its last event.
+func TestStreamFullBufferDropsStillEndsInOneResult(t *testing.T) {
+	notes := make(chan string, 2)
+	c := &Client{Notify: func(s string) { notes <- s }}
+	ch := streamPreparedRun(c, streamPrepared(t, &burstRunner{n: 2 * streamBuffer}))
+	select { // the note fires as the run ends with nobody reading, so drops are certain
+	case <-notes:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no dropped-events note within 5s")
+	}
+	results, last := drainEvents(ch)
+	if results != 1 || last.Type != wire.EventResult {
+		t.Errorf("results = %d, last = %q, want one result last", results, last.Type)
+	}
+	if len(notes) != 0 {
+		t.Errorf("extra notes = %d, want exactly one dropped-events note", len(notes)+1)
+	}
+}
+
+// Given a consumer stalled past streamStall, Then the run's ctx is cancelled with errStreamAbandoned.
+func TestStreamStalledConsumerCancelsRun(t *testing.T) {
+	orig := streamStall
+	streamStall = 20 * time.Millisecond
+	t.Cleanup(func() { streamStall = orig })
+	r := &burstRunner{n: streamBuffer, ctx: make(chan context.Context, 1)}
+	ch := (&Client{}).streamWith(context.Background(), "fake", func(ctx context.Context, w wire.Sink) (wire.Result, error) {
+		res, err := r.Run(ctx, RunOptions{}, w)
+		for ctx.Err() == nil {
+			_ = w.Emit(wire.Event{Type: wire.EventText})
+			time.Sleep(5 * time.Millisecond)
+		}
+		return res, err
+	})
+	ctx := <-r.ctx
+	select {
+	case <-ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("ctx not cancelled by a stalled consumer")
+	}
+	if !errors.Is(context.Cause(ctx), errStreamAbandoned) {
+		t.Errorf("cause = %v, want errStreamAbandoned", context.Cause(ctx))
+	}
+	drainEvents(ch)
+}
+
+// Given Prepare fails, Then the stream carries one failure result and closes.
+func TestStreamPrepareFailureYieldsOneResult(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	ch := (&Client{}).Stream(context.Background(), RunOptions{Agent: "no-such-agent", Prompt: "p"})
+	results, last := drainEvents(ch)
+	if results != 1 || last.Type != wire.EventResult || last.Status != wire.StatusError {
+		t.Errorf("results = %d, last = %+v, want one error result", results, last)
+	}
+}
+
+// The chanSink queues no progress mark for a Client stream.
+func TestChanSinkDropsProgressMark(t *testing.T) {
+	cs := newChanSink(func(error) {})
+	_ = cs.Emit(wire.Event{Type: wire.EventProgress})
+	if len(cs.ch) != 0 {
+		t.Errorf("stream queued %d events; want none", len(cs.ch))
+	}
+}
+
+// RunOptions.Lead must reach the router pick: a lead naming no registry row is skipped by name.
+func TestClientRouteCarriesLeadToThePick(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	vaulttest.SetRecord(t, "codex", "profile", "chatgpt")
+	c := NewClient(router.RuleClassifier{}.Alias, nil, nil)
+	chain, err := c.route(t.Context(), nil, RunOptions{Agent: "codex", Prompt: "x", Lead: "no-such-row", Fallback: router.FallbackAll})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(chain.Skipped, "\n"), "no-such-row") {
+		t.Fatalf("skipped = %q, want a skip naming the lead row no-such-row", chain.Skipped)
+	}
+}
+
+// Given a pack file that cannot be written, Then Exec fails and the claimed record leaves running.
+func TestExecPackWriteFailureFinishesRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := ClaimRecord("claude", RunOptions{}, time.Now())
+	p := &Prepared{Record: rec, pack: &packFile{path: filepath.Join(t.TempDir(), "missing", "pack.md"), body: "x"}}
+	res, err := (&Client{}).Exec(context.Background(), p, wire.Discard, RunRecordedOpts{})
+	if err == nil || res.Status != wire.StatusError {
+		t.Fatalf("Exec = %v/%v, want the write error", res.Status, err)
+	}
+	got, lerr := LoadRecord(rec.ID)
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	if got.Status != "error" {
+		t.Errorf("record status = %q, want error", got.Status)
+	}
+}
+
+// Given a tracked file and a tracked .env, Prepare packs the file only and records the task, not the bytes.
+func TestPreparePacksAndKeepsRecordCompact(t *testing.T) {
+	setupWorkdirFixture(t)
+	dir := gitRepoWith(t, map[string]string{"main.go": "package main // NEEDLE-1", ".env": "TOKEN=hunter2"})
+	var notes []string
+	client := NewClient(router.RuleClassifier{}.Alias, nil, func(s string) { notes = append(notes, s) })
+	p, err := client.Prepare(context.Background(), RunOptions{Agent: "opencode", Prompt: "explain", WorkDir: dir,
+		Fallback: router.FallbackNone, Pack: &pack.Spec{Dirs: []string{"."}}}, nil)
+	if err != nil {
+		t.Fatalf("Prepare() = %v", err)
+	}
+	if !strings.Contains(p.Opts.Prompt, "NEEDLE-1") || strings.Contains(p.Opts.Prompt, "hunter2") {
+		t.Errorf("prompt must hold main.go and not .env:\n%s", p.Opts.Prompt)
+	}
+	if p.Record.Request.Prompt != "explain" || p.Record.Request.Pack == nil {
+		t.Errorf("record = %q pack=%v, want the bare task and the pack spec", p.Record.Request.Prompt, p.Record.Request.Pack)
+	}
+}
+
+func TestPrepareRefusesPackWithHost(t *testing.T) {
+	setupWorkdirFixture(t)
+	client := NewClient(router.RuleClassifier{}.Alias, nil, nil)
+	_, err := client.Prepare(context.Background(), RunOptions{Agent: "opencode", Prompt: "p", Host: "box",
+		Pack: &pack.Spec{Dirs: []string{"."}}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "--host") {
+		t.Fatalf("Prepare() = %v, want a --host refusal", err)
+	}
+}
+
+func gitRepoWith(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	names := []string{}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, name)
+	}
+	for _, args := range [][]string{{"init", "-q"}, append([]string{"add"}, names...)} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	return dir
+}
+
+// Given a lead with a 1M window and a stub on a 200K model, an n between their budgets drops only the stub.
+func TestFitChainSkipsSmallWindows(t *testing.T) {
+	lead := Dispatch{Agent: namedEngine("claude"), Model: "claude-sonnet-5-5[1m]"}
+	small := Dispatch{Agent: namedEngine("stub"), Model: "mystery-model"}
+	chain := Chain{Dispatches: []Dispatch{lead, small}}
+	lb, _ := packBudget(lead, RunOptions{}, false)
+	sb, _ := packBudget(small, RunOptions{}, false)
+	if sb >= lb {
+		t.Fatalf("fixture: small budget %d must be under lead %d", sb, lb)
+	}
+	got := fitChain(chain, (lb+sb)/2, RunOptions{})
+	if len(got.Dispatches) != 1 || len(got.Skipped) != 1 || !strings.Contains(got.Skipped[0], "stub") {
+		t.Fatalf("chain = %+v, want only the lead and a skip naming stub", got)
+	}
+	if kept := fitChain(chain, sb-1, RunOptions{}); len(kept.Dispatches) != 2 {
+		t.Errorf("a prompt under both budgets must keep both, got %+v", kept)
+	}
+}
+
+func TestPackBudgetArgvCap(t *testing.T) {
+	d := Dispatch{Agent: namedEngine("opencode"), Model: "claude-sonnet-5-5[1m]"}
+	if got, note := packBudget(d, RunOptions{}, false); got != MaxPromptBytes || !strings.Contains(note, "argv prompt cap") {
+		t.Errorf("budget = %d (%q), want MaxPromptBytes with a cap note", got, note)
+	}
+}
+
+// A PackFile lead keeps the prompt to the instruction, turns tools on, and its file never re-enters a Collect.
+func TestPackPromptFileTransport(t *testing.T) {
+	setupWorkdirFixture(t)
+	body := strings.Repeat("x", 300<<10)
+	dir := gitRepoWith(t, map[string]string{"big.txt": body, ".env": "TOKEN=hunter2"})
+	lead := Dispatch{Agent: namedEngine("gemini"), Model: "claude-sonnet-5-5[1m]"}
+	p := &Prepared{Opts: RunOptions{Prompt: "find it", WorkDir: dir, Pack: &pack.Spec{Dirs: []string{"."}, MaxFileBytes: 400 << 10}},
+		Chain: Chain{Dispatches: []Dispatch{lead}}}
+	p.Record.ID = "id1"
+	if err := NewClient(nil, nil, nil).packPrompt(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Opts.Prompt) > 1024 || !strings.Contains(p.Opts.Prompt, p.pack.path) || !p.Opts.Tools || !p.Record.Request.Tools {
+		t.Fatalf("prompt = %q tools=%v, want a short instruction naming %s with tools on", p.Opts.Prompt, p.Opts.Tools, p.pack.path)
+	}
+	if len(p.pack.body) < 300<<10 || strings.Contains(p.pack.body, "hunter2") {
+		t.Fatalf("pack body = %d bytes, want the 300 KB file and no .env", len(p.pack.body))
+	}
+	if err := p.pack.write(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := pack.Collect(context.Background(), dir, []string{"."}, nil, 100, 0, 1<<30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range got.Included {
+		if strings.HasPrefix(f.Path, ".claude-code-pack-") {
+			t.Errorf("Collect picked up the pack file %s", f.Path)
+		}
+	}
+	p.pack.remove()
+	if _, err := os.Stat(p.pack.path); !os.IsNotExist(err) {
+		t.Errorf("pack file still present after remove: %v", err)
+	}
+}
+
+// Given a gemini lead (pack read from a file with tools), --read-only keeps the run: agy enforces it with deny rules.
+func TestPackPromptKeepsReadOnlyOnFileRoute(t *testing.T) {
+	dir := gitRepoWith(t, map[string]string{"a.go": "package a"})
+	o := RunOptions{Prompt: "p", WorkDir: dir, ReadOnly: true, Pack: &pack.Spec{Dirs: []string{"."}}}
+	p := &Prepared{Opts: o, Chain: Chain{Dispatches: []Dispatch{{Agent: namedEngine("gemini")}}}}
+	if err := NewClient(router.RuleClassifier{}.Alias, nil, nil).packPrompt(context.Background(), p); err != nil {
+		t.Fatalf("packPrompt() = %v, want the read-only file route accepted", err)
+	}
+	defer p.pack.remove()
+	if !p.Opts.Tools || !p.Opts.ReadOnly {
+		t.Fatalf("opts tools=%v read-only=%v, want both on", p.Opts.Tools, p.Opts.ReadOnly)
+	}
+}
+
+// Given a relative --workdir, the file-route pack path in the prompt is absolute (the child starts inside the workdir).
+func TestPackPromptFilePathAbsoluteForRelativeWorkdir(t *testing.T) {
+	dir := gitRepoWith(t, map[string]string{"a.go": "package a"})
+	t.Chdir(dir)
+	if err := os.Mkdir("sub", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := &Prepared{Opts: RunOptions{Prompt: "p", WorkDir: "sub", Pack: &pack.Spec{Dirs: []string{"."}}},
+		Chain: Chain{Dispatches: []Dispatch{{Agent: namedEngine("gemini")}}}}
+	p.Record.ID = "id1"
+	if err := NewClient(nil, nil, nil).packPrompt(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	abs, _ := filepath.Abs("sub")
+	if want := filepath.Join(abs, pack.FilePrefix+"id1.md"); p.pack.path != want || !strings.Contains(p.Opts.Prompt, want) {
+		t.Fatalf("pack path = %q, prompt = %q, want absolute %q", p.pack.path, p.Opts.Prompt, want)
+	}
+}
+
+// namedEngine is an Engine that only has a name; the pack tests never run it.
+type namedEngine string
+
+func (s namedEngine) Name() string     { return string(s) }
+func (s namedEngine) Caps() Caps       { return Caps{} }
+func (s namedEngine) Available() error { return nil }
+func (s namedEngine) Run(context.Context, RunOptions, wire.Sink) (wire.Result, error) {
+	return wire.Result{}, nil
 }

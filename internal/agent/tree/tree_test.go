@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/job"
 	_ "github.com/edotau/claude-code/internal/claude" // the vendors register their roster rows from their own init
 	_ "github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -638,7 +637,7 @@ func (e dedupeEnv) session(t *testing.T, id, prompt string, withSub bool, mt tim
 // dispatch saves a live (this pid) running record started a minute before now.
 func (e dedupeEnv) dispatch(t *testing.T, name, workDir, repo, sessionID string) {
 	t.Helper()
-	rec := job.NewRecord(name, agent.RunOptions{Prompt: headlessPrmt, WorkDir: workDir}, e.now.Add(-time.Minute))
+	rec := agent.NewRecord(name, agent.RunOptions{Prompt: headlessPrmt, WorkDir: workDir}, e.now.Add(-time.Minute))
 	rec.PID, rec.Repo, rec.SessionID = os.Getpid(), repo, sessionID
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)

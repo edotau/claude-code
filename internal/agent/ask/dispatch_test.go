@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/client"
-	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
@@ -22,13 +20,13 @@ func TestDispatchDetachSpawnFailureFinishesRecord(t *testing.T) {
 	legs := []roles.Leg{{Label: "a", Opts: agent.RunOptions{Agent: "claude", Prompt: "p"}}}
 	var code int
 	hosttest.CaptureOutput(t, func() int {
-		code = dispatchDetach(context.Background(), client.NewClient(nil, nil, nil), legs, helptext.Text)
+		code = dispatchDetach(context.Background(), agent.NewClient(nil, nil, nil), legs, helptext.Text)
 		return code
 	})
 	if code != 1 {
 		t.Fatalf("dispatchDetach = %d, want 1", code)
 	}
-	recs := job.RecentRecords(5)
+	recs := agent.RecentRecords(5)
 	if len(recs) != 1 || recs[0].Status != "error" || recs[0].Error == "" {
 		t.Errorf("records = %+v, want one errored record with the cause", recs)
 	}

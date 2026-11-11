@@ -11,8 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/client"
-	"github.com/edotau/claude-code/internal/agent/job"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -88,7 +87,7 @@ func writeReport(rep roles.Report, format string) error {
 }
 
 // dispatchDetach spawns each leg as `ask --background` does and prints its id (one JSON line per leg with json).
-func dispatchDetach(ctx context.Context, client *client.Client, legs []roles.Leg, format string) int {
+func dispatchDetach(ctx context.Context, client *agent.Client, legs []roles.Leg, format string) int {
 	code := 0
 	for _, leg := range legs {
 		if leg.Err != "" {
@@ -108,23 +107,23 @@ func dispatchDetach(ctx context.Context, client *client.Client, legs []roles.Leg
 }
 
 // spawnLeg saves and detaches one leg; a failed spawn finishes its record so it never shows as running.
-func spawnLeg(ctx context.Context, client *client.Client, leg roles.Leg) (job.Record, error) {
+func spawnLeg(ctx context.Context, client *agent.Client, leg roles.Leg) (agent.Record, error) {
 	leg.Opts.Background = true // the saved record must not carry this short-lived process's pid
 	prepared, err := client.Prepare(ctx, leg.Opts, nil)
 	if err != nil {
-		return job.Record{}, err
+		return agent.Record{}, err
 	}
 	if err := prepared.Record.Save(); err != nil {
-		return job.Record{}, err
+		return agent.Record{}, err
 	}
-	if err := job.Spawn(&prepared.Record, nil); err != nil {
-		return job.Record{}, failSpawn(&prepared.Record, err)
+	if err := agent.Spawn(&prepared.Record, nil); err != nil {
+		return agent.Record{}, failSpawn(&prepared.Record, err)
 	}
 	return prepared.Record, nil
 }
 
 // failSpawn finishes a record whose spawn failed so it never shows as running; a failed save joins the returned error.
-func failSpawn(rec *job.Record, err error) error {
+func failSpawn(rec *agent.Record, err error) error {
 	rec.Finish(wire.Result{}, err, time.Since(rec.Time))
 	if saveErr := rec.Save(); saveErr != nil {
 		err = errors.Join(err, fmt.Errorf("save failed dispatch %s: %w", rec.ID, saveErr))
@@ -133,7 +132,7 @@ func failSpawn(rec *job.Record, err error) error {
 }
 
 // printLegID prints a detached leg's id: one JSON line, or the label and ask's background-start text.
-func printLegID(label string, rec job.Record, format string) error {
+func printLegID(label string, rec agent.Record, format string) error {
 	if format == helptext.JSON {
 		body, _ := json.Marshal(struct {
 			Label string `json:"label"`

@@ -1,4 +1,4 @@
-package job
+package agent
 
 import (
 	"context"
@@ -10,13 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/claude"
-	_ "github.com/edotau/claude-code/internal/codex"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/providers"
 )
 
 // sleeperScript writes a shell script under t.TempDir() that ignores its args and sleeps 30s.
@@ -31,7 +26,7 @@ func sleeperScript(t *testing.T) string {
 
 func TestResolveExactID(t *testing.T) {
 	recs := []Record{{ID: "20261016T210000.000-codex"}, {ID: "20261016T210100.000-codex"}}
-	got, err := Resolve(recs, "20261016T210100.000-codex", nil)
+	got, err := ResolveRecord(recs, "20261016T210100.000-codex", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +37,7 @@ func TestResolveExactID(t *testing.T) {
 
 func TestResolveUniquePrefix(t *testing.T) {
 	recs := []Record{{ID: "20261016T210000.000-codex"}, {ID: "20261016T210100.000-gemini"}}
-	got, err := Resolve(recs, "20261016T210100", nil)
+	got, err := ResolveRecord(recs, "20261016T210100", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +48,7 @@ func TestResolveUniquePrefix(t *testing.T) {
 
 func TestResolveAmbiguousPrefixErrors(t *testing.T) {
 	recs := []Record{{ID: "20261016T210000.000-codex"}, {ID: "20261016T210000.001-codex"}}
-	if _, err := Resolve(recs, "20261016T2100", nil); err == nil {
+	if _, err := ResolveRecord(recs, "20261016T2100", nil); err == nil {
 		t.Error("ambiguous prefix must error")
 	}
 }
@@ -65,7 +60,7 @@ func TestResolveEmptyRefPicksNewestMatchingPred(t *testing.T) {
 		{ID: "c", Status: "ok"},
 	}
 	pred := func(r Record) bool { return r.Status == "running" }
-	got, err := Resolve(recs, "", pred)
+	got, err := ResolveRecord(recs, "", pred)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +71,7 @@ func TestResolveEmptyRefPicksNewestMatchingPred(t *testing.T) {
 
 func TestResolveNoMatchErrors(t *testing.T) {
 	recs := []Record{{ID: "a", Status: "ok"}}
-	if _, err := Resolve(recs, "zzz", nil); err == nil {
+	if _, err := ResolveRecord(recs, "zzz", nil); err == nil {
 		t.Error("no matching id must error")
 	}
 }
@@ -85,7 +80,7 @@ func TestListFiltersByAgentAndRepo(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
 	mk := func(a, repo string, offset time.Duration) {
-		r := NewRecord(a, agent.RunOptions{Prompt: "p"}, base.Add(offset))
+		r := NewRecord(a, RunOptions{Prompt: "p"}, base.Add(offset))
 		r.Repo = repo
 		if err := r.Save(); err != nil {
 			t.Fatal(err)
@@ -118,7 +113,7 @@ func TestSpawnSetsPIDAndLogThenCancelStops(t *testing.T) {
 	executable = func() (string, error) { return script, nil }
 	defer func() { executable = old }()
 
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +168,7 @@ func assertSpawnLog(t *testing.T, path string) {
 // Spawn only sets rec.PID/Log in memory for the caller's print and must never save after cmd.Start().
 func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +216,7 @@ func TestCancelDetectsPIDReuse(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = unrelated.Process.Kill(); _ = unrelated.Wait() })
 
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	rec.PID = unrelated.Process.Pid                 // pretend the dispatch's old PID was reused by `sleep`
 	rec.Log = filepath.Join(t.TempDir(), "job.log") // a background record: Log is set
 	if err := rec.Save(); err != nil {
@@ -268,7 +263,7 @@ func TestCancelEscalatesToSIGKILL(t *testing.T) {
 	executable = func() (string, error) { return script, nil }
 	defer func() { executable = old }()
 
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +305,7 @@ func TestCancelDeadPIDReturnsNilAndMarksRecord(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	rec.PID = cmd.Process.Pid
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -326,7 +321,7 @@ func TestCancelDeadPIDReturnsNilAndMarksRecord(t *testing.T) {
 // A foreground record (Log=="") whose pid is live but not `ask --job` is never signalled or rewritten.
 func TestCancelForegroundRunErrorsWithoutWriting(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	rec.PID = os.Getpid() // the test process: alive, not a job
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -353,7 +348,7 @@ func TestCancelDeadPIDLeavesFinishedRecord(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	rec.PID, rec.Status = cmd.Process.Pid, "ok"
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -375,7 +370,7 @@ func TestCancelDeadPIDMarksRunningRecordOnce(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	rec.PID = cmd.Process.Pid
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -458,7 +453,7 @@ func TestStatusRunningAlive(t *testing.T) {
 	setConfigDir(t)
 	cwd := t.TempDir()
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "do the thing"}, base)
+	rec := NewRecord("codex", RunOptions{Prompt: "do the thing"}, base)
 	rec.Repo, rec.PID = cwd, os.Getpid()
 	fixtureRecord(t, rec)
 
@@ -483,7 +478,7 @@ func TestStatusRunningLostDeadPID(t *testing.T) {
 	setConfigDir(t)
 	cwd := t.TempDir()
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "orphaned"}, base)
+	rec := NewRecord("codex", RunOptions{Prompt: "orphaned"}, base)
 	rec.Repo, rec.PID = cwd, adapterDeadPID(t)
 	fixtureRecord(t, rec)
 
@@ -502,7 +497,7 @@ func TestResultRunningErrors(t *testing.T) {
 	setConfigDir(t)
 	cwd := t.TempDir()
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "still going"}, base)
+	rec := NewRecord("codex", RunOptions{Prompt: "still going"}, base)
 	rec.Repo, rec.PID = cwd, os.Getpid()
 	fixtureRecord(t, rec)
 
@@ -521,7 +516,7 @@ func TestResultOK(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "finished job"}, base)
+	rec := NewRecord("codex", RunOptions{Prompt: "finished job"}, base)
 	rec.Repo, rec.Status, rec.Log, rec.SessionID = cwd, "ok", logPath, "sess-1"
 	fixtureRecord(t, rec)
 
@@ -543,7 +538,7 @@ func TestCancelJobNoneRunningErrors(t *testing.T) {
 	setConfigDir(t)
 	cwd := t.TempDir()
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "already done"}, base)
+	rec := NewRecord("codex", RunOptions{Prompt: "already done"}, base)
 	rec.Repo, rec.Status = cwd, "ok"
 	fixtureRecord(t, rec)
 
@@ -559,7 +554,7 @@ func TestCancelJobAmbiguousPrefixErrors(t *testing.T) {
 	cwd := t.TempDir()
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
 	for _, suffix := range []string{"-a", "-b"} {
-		rec := NewRecord("codex", agent.RunOptions{Prompt: "dup"}, base)
+		rec := NewRecord("codex", RunOptions{Prompt: "dup"}, base)
 		rec.ID = "20261024T120000.000-codex" + suffix
 		rec.Repo, rec.PID = cwd, os.Getpid()
 		fixtureRecord(t, rec)
@@ -582,8 +577,8 @@ func TestCancelJobUnknownVendorErrors(t *testing.T) {
 // TestFindAmbiguousPrefix: a prefix shared by two dispatches errors and names the count; an exact id resolves.
 func TestFindAmbiguousPrefix(t *testing.T) {
 	setConfigDir(t)
-	a := fixtureRecord(t, NewRecord("claude", agent.RunOptions{Prompt: "a"}, time.Now().Add(-2*time.Hour)))
-	b := fixtureRecord(t, NewRecord("codex", agent.RunOptions{Prompt: "b"}, time.Now().Add(-time.Hour)))
+	a := fixtureRecord(t, NewRecord("claude", RunOptions{Prompt: "a"}, time.Now().Add(-2*time.Hour)))
+	b := fixtureRecord(t, NewRecord("codex", RunOptions{Prompt: "b"}, time.Now().Add(-time.Hour)))
 	prefix := a.ID[:4]
 	if _, err := Find(prefix); err == nil || !strings.Contains(err.Error(), "2 matches") {
 		t.Errorf("Find(%q) err = %v, want an ambiguity error", prefix, err)
@@ -601,7 +596,7 @@ func TestCancelRejectsReusedSplitReviewPID(t *testing.T) {
 			old := executable
 			executable = func() (string, error) { return sleeperScript(t), nil }
 			t.Cleanup(func() { executable = old })
-			rec := ClaimRecord("codex", agent.RunOptions{}, time.Now())
+			rec := ClaimRecord("codex", RunOptions{}, time.Now())
 			rec.Progress = "part 1/2"
 			if err := SpawnArgv(&rec, []string{"codex", "review", "--background"}, nil); err != nil {
 				t.Fatal(err)
@@ -638,20 +633,6 @@ func assertReviewUnaffected(t *testing.T, rec Record) {
 	if saved.Status != "running" || saved.Error != "" {
 		t.Errorf("Cancel rewrote unrelated review record: status=%q error=%q", saved.Status, saved.Error)
 	}
-}
-
-// TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
-func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
-
-// testLauncher stands in for launch.Launcher (agent cannot import launch): the found claude with the caller's args.
-type testLauncher struct{}
-
-func (testLauncher) Claude(_ context.Context, o agent.ClaudeOptions, args []string) (agent.ClaudeLaunch, error) {
-	bin, err := claude.ClaudeBinary()
-	if err != nil {
-		return agent.ClaudeLaunch{}, err
-	}
-	return agent.ClaudeLaunch{Binary: bin, Argv: args, Env: os.Environ(), Set: map[string]string{providers.EnvSessionProfile: o.Provider}}, nil
 }
 
 // skipOffUnix skips tests that need real POSIX process groups and signals.
@@ -767,7 +748,7 @@ func TestCancelDetachedSplitReview(t *testing.T) {
 	old := executable
 	executable = func() (string, error) { return sleeperScript(t), nil }
 	t.Cleanup(func() { executable = old })
-	rec := ClaimRecord("codex", agent.RunOptions{}, time.Now())
+	rec := ClaimRecord("codex", RunOptions{}, time.Now())
 	rec.Progress = "part 1/2"
 	if err := SpawnArgv(&rec, []string{"codex", "review", "--background"}, nil); err != nil {
 		t.Fatal(err)

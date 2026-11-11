@@ -21,8 +21,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/client"
-	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/inflight"
@@ -62,11 +60,11 @@ func vendorHost(t *testing.T) {
 }
 
 // vendorPrepare routes a real opencode dispatch for prompt and counts how often it is called.
-func vendorPrepare(t *testing.T, prompt string, n *atomic.Int32) func(context.Context) (*client.Prepared, error) {
+func vendorPrepare(t *testing.T, prompt string, n *atomic.Int32) func(context.Context) (*agent.Prepared, error) {
 	dir := t.TempDir()
-	return func(ctx context.Context) (*client.Prepared, error) {
+	return func(ctx context.Context) (*agent.Prepared, error) {
 		n.Add(1)
-		return client.NewClient(nil, nil, nil).Prepare(ctx, agent.RunOptions{Agent: "opencode", Provider: "acme",
+		return agent.NewClient(nil, nil, nil).Prepare(ctx, agent.RunOptions{Agent: "opencode", Provider: "acme",
 			Model: "acme-large", Prompt: prompt, WorkDir: dir, Fallback: router.FallbackAgents}, nil)
 	}
 }
@@ -80,15 +78,15 @@ func vendorTask(t *testing.T, id, plan, first, retry string, prep, again *atomic
 	return task
 }
 
-func failPrepare(msg string) func(context.Context) (*client.Prepared, error) {
-	return func(context.Context) (*client.Prepared, error) { return nil, errors.New(msg) }
+func failPrepare(msg string) func(context.Context) (*agent.Prepared, error) {
+	return func(context.Context) (*agent.Prepared, error) { return nil, errors.New(msg) }
 }
 
 func TestRunTasksPreparesOverlap(t *testing.T) {
 	entered, release := make(chan struct{}, 2), make(chan struct{})
 	var once sync.Once
 	t.Cleanup(func() { once.Do(func() { close(release) }) })
-	prepare := func(context.Context) (*client.Prepared, error) {
+	prepare := func(context.Context) (*agent.Prepared, error) {
 		entered <- struct{}{}
 		<-release
 		return nil, errors.New("prepare failed")
@@ -118,7 +116,7 @@ func TestRunTasksPrepareErrorEnvelope(t *testing.T) {
 			var secondCalls atomic.Int32
 			tasks := []Task{
 				{ID: "a", Agent: "x", Prepare: failPrepare("boom a")},
-				{ID: "b", Agent: "x", Prepare: func(ctx context.Context) (*client.Prepared, error) {
+				{ID: "b", Agent: "x", Prepare: func(ctx context.Context) (*agent.Prepared, error) {
 					secondCalls.Add(1)
 					return failPrepare("boom b")(ctx)
 				}},
@@ -183,15 +181,15 @@ func TestRunTasksStampsRecordIDs(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	base := time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC)
 	mk := func(id, plan string, off int) Task {
-		return Task{ID: id, Agent: "codex", Plan: plan, Prepare: func(context.Context) (*client.Prepared, error) {
-			rec := job.NewRecord("codex", agent.RunOptions{Prompt: id}, base.Add(time.Duration(off)*time.Second))
-			return &client.Prepared{Record: rec}, nil
+		return Task{ID: id, Agent: "codex", Plan: plan, Prepare: func(context.Context) (*agent.Prepared, error) {
+			rec := agent.NewRecord("codex", agent.RunOptions{Prompt: id}, base.Add(time.Duration(off)*time.Second))
+			return &agent.Prepared{Record: rec}, nil
 		}}
 	}
 	var buf bytes.Buffer
 	RunTasks(t.Context(), []Task{mk("a", "Phase 1.1", 0), mk("b", "", 1)}, PoolOptions{ID: "batch-x", Jobs: 1, Out: &buf})
-	got := map[string]job.Record{}
-	for _, r := range job.RecentRecords(10) {
+	got := map[string]agent.Record{}
+	for _, r := range agent.RecentRecords(10) {
 		got[r.TaskID] = r
 	}
 	if len(got) != 2 {
@@ -273,7 +271,7 @@ func runOpts(t *testing.T, initial string, o Opts) map[string][]wire.Envelope {
 	o.Jobs, o.Agent, o.Fallback = 1, "opencode", router.FallbackAgents
 	base := agent.RunOptions{Provider: "acme", Model: "acme-large", WorkDir: t.TempDir()}
 	var buf bytes.Buffer
-	id, _ := RunBatch(t.Context(), lines, o, base, false, func() *client.Client { return client.NewClient(nil, nil, nil) }, &buf)
+	id, _ := RunBatch(t.Context(), lines, o, base, false, func() *agent.Client { return agent.NewClient(nil, nil, nil) }, &buf)
 	byID := map[string][]wire.Envelope{}
 	for _, env := range decodePoolEnvelopes(t, &buf) {
 		if env.BatchID != id {
@@ -373,7 +371,7 @@ func TestRetryAfterFailureEmitsOneEnvelope(t *testing.T) {
 	if prep.Load() != 1 || again.Load() != 1 {
 		t.Errorf("prepare/retry calls = %d/%d, want 1/1", prep.Load(), again.Load())
 	}
-	recs := job.RecentRecords(10)
+	recs := agent.RecentRecords(10)
 	for _, r := range recs {
 		if r.TaskID != "a" || r.BatchID != "batch-r" || r.PlanTask != "Phase 1.1" {
 			t.Errorf("record %s = task %q batch %q plan %q", r.ID, r.TaskID, r.BatchID, r.PlanTask)
@@ -421,9 +419,9 @@ func TestRetryJobsOneKeepsSlotAccounting(t *testing.T) {
 func TestRetrySkippedWhenNotRealFailure(t *testing.T) {
 	vendorHost(t)
 	var retried atomic.Int32
-	retry := func(context.Context) (*client.Prepared, error) { retried.Add(1); return nil, errors.New("retry ran") }
-	noHops := func(context.Context) (*client.Prepared, error) {
-		return &client.Prepared{Record: job.NewRecord("opencode", agent.RunOptions{}, time.Now())}, nil
+	retry := func(context.Context) (*agent.Prepared, error) { retried.Add(1); return nil, errors.New("retry ran") }
+	noHops := func(context.Context) (*agent.Prepared, error) {
+		return &agent.Prepared{Record: agent.NewRecord("opencode", agent.RunOptions{}, time.Now())}, nil
 	}
 	runRetryBatch(t, PoolOptions{},
 		Task{ID: "h", Agent: "opencode", Prepare: noHops, Retry: retry},
@@ -447,7 +445,7 @@ func TestRetrySkippedWhenCancelled(t *testing.T) {
 	defer cancel()
 	task := vendorTask(t, "a", "", "FAILME", "ok", &prep, &again)
 	inner := task.Prepare
-	task.Prepare = func(c context.Context) (*client.Prepared, error) {
+	task.Prepare = func(c context.Context) (*agent.Prepared, error) {
 		p, err := inner(c)
 		cancel()
 		return p, err
@@ -480,7 +478,7 @@ func TestBatchTaskProfileIsOneDispatch(t *testing.T) {
 	}
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
-	res, err := NewClient().Exec(context.Background(), p, nil, job.RunRecordedOpts{})
+	res, err := NewClient().Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
 	if err == nil || len(res.Hops) != 1 {
 		t.Fatalf("Exec: %d hops, err %v; want one unavailable dispatch", len(res.Hops), err)
 	}
@@ -950,9 +948,9 @@ func keepCaller(d agent.Dispatch) agent.Dispatch {
 // chainTask is a batch task for taskAgent whose prepared chain wants want and tries ds in order.
 func chainTask(t *testing.T, id, taskAgent, want string, ds ...agent.Dispatch) Task {
 	return Task{ID: id, Agent: taskAgent, Req: agent.RunOptions{Prompt: "p"},
-		Prepare: func(context.Context) (*client.Prepared, error) {
-			rec := job.Record{ID: "id-" + id, Agent: want, Log: filepath.Join(t.TempDir(), "l.log")}
-			return &client.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: rec, Chain: agent.Chain{Want: want, Dispatches: ds}}, nil
+		Prepare: func(context.Context) (*agent.Prepared, error) {
+			rec := agent.Record{ID: "id-" + id, Agent: want, Log: filepath.Join(t.TempDir(), "l.log")}
+			return &agent.Prepared{Opts: agent.RunOptions{Prompt: "p"}, Record: rec, Chain: agent.Chain{Want: want, Dispatches: ds}}, nil
 		}}
 }
 
@@ -1112,7 +1110,7 @@ func TestBatchFailFastStopsQueuedTask(t *testing.T) {
 			var prepared, runs atomic.Int32
 			second := acctTask(t, "second", "ff·acct", countRunner("second", &runs))
 			inner := second.Prepare
-			second.Prepare = func(ctx context.Context) (*client.Prepared, error) { prepared.Add(1); return inner(ctx) }
+			second.Prepare = func(ctx context.Context) (*agent.Prepared, error) { prepared.Add(1); return inner(ctx) }
 			out, ok := runPool(t, PoolOptions{Jobs: 1, FailFast: true}, c.first(t), second)
 			if ok {
 				t.Fatal("batch reported ok after a failed task")

@@ -1,4 +1,4 @@
-package job
+package agent
 
 import (
 	"bufio"
@@ -25,7 +25,7 @@ func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) 
 		return Record{}, err
 	}
 	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
-	rec, err := Resolve(recs, ref, nil)
+	rec, err := ResolveRecord(recs, ref, nil)
 	if err != nil {
 		return Record{}, err
 	}

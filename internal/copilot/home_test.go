@@ -14,6 +14,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	_ "github.com/edotau/claude-code/internal/codex"
+	_ "github.com/edotau/claude-code/internal/gemini"
+	_ "github.com/edotau/claude-code/internal/opencode"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
@@ -282,5 +286,74 @@ func TestRegistryRefusalKeepsDirectHintInFallbackReason(t *testing.T) {
 	wrapped := &retry.Error{Kind: retry.KindFatal, Agent: "copilot", Err: checkCopilotRegistryOS()}
 	if got := agent.FallbackReason(wrapped); !strings.HasSuffix(got, "use --direct") {
 		t.Errorf("FallbackReason = %q, want it to end with the --direct hint", got)
+	}
+}
+
+// scratch sets CLAUDE_CONFIG_DIR to its own temp dir, a keyed provider as default (so every vendor
+// renders instead of skipping), and returns the vendor-config home dir.
+func scratch(t *testing.T) string {
+	t.Helper()
+	configDir := vaulttest.Use(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	t.Setenv("GEMINI_CLI_HOME", filepath.Join(home, ".gemini-cli-home-unused"))
+	t.Setenv("CODEX_HOME", filepath.Join(home, "codex-home-unused"))
+	// Isolated from the real machine's opencode auth.json/opencode.jsonc (ResolveTarget probes both unconditionally).
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("PATH", t.TempDir()) // no real opencode: a 2.x CLI would report its own logins instead of auth.json
+	t.Setenv("HARNESS_PROVIDER", "")
+	t.Setenv("GEMINI_API_KEY", "sk-test-gemini")
+	t.Setenv("OPENROUTER_API_KEY", "sk-test-openrouter")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Cleanup(agent.StubRouter("http://127.0.0.1:9999"))
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	overlay := `{"default": "openai"}`
+	t.Setenv("OPENAI_API_KEY", "sk-test-openai")
+	vaulttest.Put(t, vault.Overlay, "providers", overlay)
+	if err := os.MkdirAll(filepath.Join(configDir, "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "CLAUDE.md"), []byte("# CLAUDE.md\n\nfixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
+// assertNotExist reports each path that exists though it must not.
+func assertNotExist(t *testing.T, why string, ps ...string) {
+	t.Helper()
+	for _, p := range ps {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%s: %s, stat err = %v", p, why, err)
+		}
+	}
+}
+
+func TestRunMalformedCopilotHooksWritesNothing(t *testing.T) {
+	home := scratch(t)
+	hooksPath := filepath.Join(home, ".copilot", "hooks", "claude-code-harness.json")
+	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hooksPath, []byte("{not valid json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	_, err := agent.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
+	if err == nil || !strings.Contains(err.Error(), "copilot-hooks: existing file:") {
+		t.Fatalf("expected malformed Copilot hooks error, got %v\n%s", err, out.String())
+	}
+	for _, rel := range []string{
+		".codex/config.toml", ".codex/hooks.json", ".gemini/antigravity-cli/settings.json", ".copilot/settings.json",
+	} {
+		assertNotExist(t, "must not be written after a render error", filepath.Join(home, rel))
+	}
+	// opencode's staged overlay write (ahead of copilot's in DefaultAgents order) must not apply either.
+	for _, rel := range []string{"opencode.json", "tui.json"} {
+		assertNotExist(t, "opencode overlay must not be written after a later render error", filepath.Join(paths.StateDir(), "opencode", rel))
+	}
+	if strings.Contains(out.String(), ": wrote ") || strings.Contains(out.String(), ": moved ") {
+		t.Errorf("reported unapplied writes:\n%s", out.String())
 	}
 }

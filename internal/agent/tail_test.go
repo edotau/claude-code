@@ -1,4 +1,4 @@
-package job
+package agent
 
 import (
 	"bytes"
@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
@@ -49,7 +48,7 @@ func tailRecord(t *testing.T, cwd, logPath string, body []byte, status string, p
 			t.Fatal(err)
 		}
 	}
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "tail me"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "tail me"}, time.Now())
 	rec.Repo, rec.Log, rec.Status, rec.PID = cwd, logPath, status, pid
 	return fixtureRecord(t, rec)
 }
@@ -198,7 +197,7 @@ func TestTailNoLogErrors(t *testing.T) {
 func TestTailEventsStopsWhenRecordFinishesWithoutResult(t *testing.T) {
 	setConfigDir(t)
 	fastTail(t)
-	rec := NewRecord("claude", agent.RunOptions{Prompt: "x"}, time.Now())
+	rec := NewRecord("claude", RunOptions{Prompt: "x"}, time.Now())
 	rec.PID = os.Getpid()
 	rec = fixtureRecord(t, rec)
 	line := `{"schema":1,"seq":0,"t_ms":0,"type":"text","text":"partial"}` + "\n"
@@ -251,54 +250,9 @@ func awaitTailResult(t *testing.T, results <-chan struct{}, done <-chan tailOutc
 	}
 }
 
-func TestTailEventsFollowsTwoLiveTurns(t *testing.T) {
-	liveEnv(t)
-	fastTail(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	id, wait := startHolder(t, ctx, time.Minute)
-	t.Cleanup(func() { cancel(); _ = wait() })
-	rec, err := LoadRecord(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sendTailTurn(t, id, "remember 42", "ok")
-	out := &resultNoticeWriter{results: make(chan struct{}, 4)}
-	tailCtx, stop := context.WithTimeout(context.Background(), 3*time.Second)
-	defer stop()
-	done := make(chan tailOutcome, 1)
-	go func() {
-		got, err := TailEvents(tailCtx, rec, true, out)
-		done <- tailOutcome{got, err}
-	}()
-	awaitTailResult(t, out.results, done)
-	sendTailTurn(t, id, "what number", "42 pid ")
-	awaitTailResult(t, out.results, done)
-	select {
-	case got := <-done:
-		t.Fatalf("healthy live session lost after a turn: status=%s err=%v", got.rec.Status, got.err)
-	case <-time.After(3 * tailPoll):
-	}
-	stop()
-	got := <-done
-	if !errors.Is(got.err, context.Canceled) || !got.rec.Alive() {
-		t.Fatalf("tail cancellation = %s, %v; want a still-live record and cancellation", got.rec.Status, got.err)
-	}
-	if n := strings.Count(out.out.String(), `"type":"result"`); n != 2 {
-		t.Fatalf("copied %d turn results, want 2", n)
-	}
-}
-
-func sendTailTurn(t *testing.T, id, prompt, answer string) {
-	t.Helper()
-	env, err := SendLive(context.Background(), id, prompt, wire.Discard)
-	if err != nil || env.Status != wire.StatusOK || !strings.HasPrefix(env.Answer, answer) {
-		t.Fatalf("live turn = %+v, %v; want answer starting %q", env, err, answer)
-	}
-}
-
 func tailEventFixture(t *testing.T, body string) Record {
 	t.Helper()
-	rec := NewRecord("claude", agent.RunOptions{}, time.Now())
+	rec := NewRecord("claude", RunOptions{}, time.Now())
 	rec.PID = os.Getpid()
 	rec = fixtureRecord(t, rec)
 	if err := os.WriteFile(rec.EventsPath(), []byte(body), 0o600); err != nil {

@@ -13,7 +13,6 @@ import (
 	"syscall"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -25,7 +24,7 @@ func Status(prefix, agentName, ref string, all bool, format, empty string) int {
 	if err != nil {
 		return helptext.Fail("%s: %v", prefix, err)
 	}
-	rows, err := job.Status(context.Background(), agentName, cwd, ref, all)
+	rows, err := agent.Status(context.Background(), agentName, cwd, ref, all)
 	if err != nil {
 		return helptext.Fail("%s: %v", prefix, err)
 	}
@@ -42,12 +41,12 @@ func Status(prefix, agentName, ref string, all bool, format, empty string) int {
 }
 
 // PrintResult prints a dispatch's log, its ask line and resume command, or with json its envelope.
-func PrintResult(rec job.Record, format string) int {
+func PrintResult(rec agent.Record, format string) int {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return helptext.Fail("agents result: %v", err)
 	}
-	rec, log, err := job.JobResult(context.Background(), rec.Agent, cwd, rec.ID)
+	rec, log, err := agent.JobResult(context.Background(), rec.Agent, cwd, rec.ID)
 	if err != nil {
 		return helptext.Fail("agents result: %v", err)
 	}
@@ -86,7 +85,7 @@ func PrintAgentResult(name, ref, format string) int {
 	if err != nil {
 		return helptext.Fail("%s result: %v", name, err)
 	}
-	rec, log, err := job.JobResult(context.Background(), name, cwd, ref)
+	rec, log, err := agent.JobResult(context.Background(), name, cwd, ref)
 	if err != nil {
 		return helptext.Fail("%s result: %v", name, err)
 	}
@@ -111,7 +110,7 @@ func PrintAgentResult(name, ref, format string) int {
 }
 
 // TailJob prints a job's log (json: its events); exit 1 for an errored job or a followed job that was lost.
-func TailJob(prefix string, rec job.Record, format string, follow bool) int {
+func TailJob(prefix string, rec agent.Record, format string, follow bool) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	cwd, err := os.Getwd()
@@ -119,9 +118,9 @@ func TailJob(prefix string, rec job.Record, format string, follow bool) int {
 		return helptext.Fail("%s: %v", prefix, err)
 	}
 	if format == helptext.JSON {
-		rec, err = job.TailEvents(ctx, rec, follow, os.Stdout)
+		rec, err = agent.TailEvents(ctx, rec, follow, os.Stdout)
 	} else {
-		rec, err = job.Tail(ctx, rec.Agent, cwd, rec.ID, follow, os.Stdout)
+		rec, err = agent.Tail(ctx, rec.Agent, cwd, rec.ID, follow, os.Stdout)
 	}
 	if err != nil {
 		return helptext.Fail("%s: %v", prefix, err)
@@ -139,7 +138,7 @@ func CancelJob(prefix, agentName, ref, format string) int {
 	if err != nil {
 		return helptext.Fail("%s: %v", prefix, err)
 	}
-	rec, err := job.CancelJob(context.Background(), agentName, cwd, ref)
+	rec, err := agent.CancelJob(context.Background(), agentName, cwd, ref)
 	if err != nil {
 		return helptext.Fail("%s: %v", prefix, err)
 	}
@@ -155,7 +154,7 @@ func CancelJob(prefix, agentName, ref, format string) int {
 }
 
 // ResultExit reports a failed job's error on stderr and returns 1; a finished ok job returns 0.
-func ResultExit(rec job.Record) int {
+func ResultExit(rec agent.Record) int {
 	if rec.Status != "error" {
 		return 0
 	}
@@ -171,10 +170,10 @@ func Send(id, task, format string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
-	if rec, ferr := job.Find(id); ferr == nil {
+	if rec, ferr := agent.Find(id); ferr == nil {
 		id = rec.ID
 	}
-	env, err := job.SendLive(ctx, id, prompt, StdoutSink(format, id))
+	env, err := agent.SendLive(ctx, id, prompt, StdoutSink(format, id))
 	if err != nil {
 		return helptext.Fail("agents send: %v", err)
 	}
@@ -238,7 +237,7 @@ func startLive(s *askState, perms agent.Permissions, name, as, format string) in
 		err = r.Available()
 	}
 	if err == nil {
-		err = job.CheckLiveCap()
+		err = agent.CheckLiveCap()
 	}
 	if err != nil {
 		return failAsk(format, name, err)
@@ -253,10 +252,10 @@ func startLive(s *askState, perms agent.Permissions, name, as, format string) in
 	if err := rec.Save(); err != nil {
 		return failAsk(format, name, err)
 	}
-	if err := job.Spawn(&rec, nil); err != nil {
+	if err := agent.Spawn(&rec, nil); err != nil {
 		return failAsk(format, name, abandonLive(&rec, err))
 	}
-	if err := job.WaitLiveReady(rec.ID, rec.PID); err != nil {
+	if err := agent.WaitLiveReady(rec.ID, rec.PID); err != nil {
 		return failAsk(format, name, abandonLive(&rec, fmt.Errorf("live session %s did not start: %w (log: %s)", rec.ID, err, rec.Log)))
 	}
 	if format == helptext.JSON {
@@ -264,18 +263,18 @@ func startLive(s *askState, perms agent.Permissions, name, as, format string) in
 			ID     string `json:"id"`
 			Socket string `json:"socket"`
 			Log    string `json:"log"`
-		}{rec.ID, job.LiveSocket(rec.ID), rec.Log})
+		}{rec.ID, agent.LiveSocket(rec.ID), rec.Log})
 		fmt.Println(string(body))
 		return 0
 	}
-	fmt.Printf("live session %s — claude-code agents send %s \"<task>\" · agents cancel %s · idle limit %s\n", rec.ID, rec.ID, rec.ID, job.IdleOf(req))
+	fmt.Printf("live session %s — claude-code agents send %s \"<task>\" · agents cancel %s · idle limit %s\n", rec.ID, rec.ID, rec.ID, agent.IdleOf(req))
 	return 0
 }
 
 // abandonLive stops a holder that never became ready and marks its record failed; an unstoppable holder is not marked.
-func abandonLive(rec *job.Record, cause error) error {
+func abandonLive(rec *agent.Record, cause error) error {
 	if rec.PID > 0 {
-		if err := job.Cancel(rec); err != nil {
+		if err := agent.Cancel(rec); err != nil {
 			return fmt.Errorf("%w; holder pid %d still running, stop failed: %w", cause, rec.PID, err)
 		}
 	}

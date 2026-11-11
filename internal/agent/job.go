@@ -1,6 +1,6 @@
 // job.go is background-job control on top of the dispatch log (claude-code agents ask --job).
 
-package job
+package agent
 
 import (
 	"context"
@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -56,7 +55,7 @@ func SpawnArgv(rec *Record, argv, env []string) error {
 	defer logFile.Close()
 	cmd := exec.CommandContext(context.Background(), exe, argv...) // detached child must outlive this process, not any caller ctx
 	cmd.Stdout, cmd.Stderr = logFile, logFile
-	cmd.Env = (agent.EnvSpec{Mode: agent.EnvClaude, Extra: env}).Environ(context.Background())
+	cmd.Env = (EnvSpec{Mode: EnvClaude, Extra: env}).Environ(context.Background())
 	proc.Detach(cmd)
 	if err := cmd.Start(); err != nil {
 		return err
@@ -83,8 +82,8 @@ func List(agentName, repo string, all bool) []Record {
 	return out
 }
 
-// Resolve picks by exact id, unique id prefix, else the newest record matching pred.
-func Resolve(recs []Record, ref string, pred func(Record) bool) (Record, error) {
+// ResolveRecord picks by exact id, unique id prefix, else the newest record matching pred.
+func ResolveRecord(recs []Record, ref string, pred func(Record) bool) (Record, error) {
 	if ref != "" {
 		var match []Record
 		for _, r := range recs {
@@ -249,7 +248,7 @@ func Find(ref string) (Record, error) {
 
 // checkAgent errors when name is not a registered agent.
 func checkAgent(name string) error {
-	if _, ok := agent.LookupSchema(name); !ok {
+	if _, ok := LookupSchema(name); !ok {
 		return fmt.Errorf("unknown agent %q", name)
 	}
 	return nil
@@ -285,7 +284,7 @@ func Status(ctx context.Context, name, cwd, ref string, all bool) ([]Row, error)
 	}
 	recs := List(name, RepoRoot(ctx, cwd), all || ref != "")
 	if ref != "" {
-		rec, err := Resolve(recs, ref, nil)
+		rec, err := ResolveRecord(recs, ref, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -304,7 +303,7 @@ func JobResult(ctx context.Context, name, cwd, ref string) (Record, string, erro
 		return Record{}, "", err
 	}
 	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
-	rec, err := Resolve(recs, ref, func(r Record) bool { return r.Status != "running" })
+	rec, err := ResolveRecord(recs, ref, func(r Record) bool { return r.Status != "running" })
 	if err != nil {
 		return Record{}, "", err
 	}
@@ -321,7 +320,7 @@ func CancelJob(ctx context.Context, name, cwd, ref string) (Record, error) {
 		return Record{}, err
 	}
 	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
-	rec, err := Resolve(recs, ref, func(r Record) bool { return r.Alive() })
+	rec, err := ResolveRecord(recs, ref, func(r Record) bool { return r.Alive() })
 	if err != nil {
 		return Record{}, err
 	}

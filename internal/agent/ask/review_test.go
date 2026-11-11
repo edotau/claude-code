@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -51,7 +50,7 @@ func TestSplitReviewReportsMergedWriteFailure(t *testing.T) {
 	vaulttest.SetRecord(t, "opencode", "profile", "zen-free")
 	t.Setenv("OPENCODE_API_KEY", "test-key")
 	pathstest.FakeVendor(t, "opencode", `printf '%s\n' '{"type":"text","part":{"text":"SHIP IT"}}'`)
-	parent := job.NewRecord("opencode", agent.RunOptions{Prompt: "review"}, time.Now())
+	parent := agent.NewRecord("opencode", agent.RunOptions{Prompt: "review"}, time.Now())
 	if err := parent.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +65,7 @@ func TestSplitReviewReportsMergedWriteFailure(t *testing.T) {
 	}
 	code, stderr = captureFailedStdout(t, run)
 	requireOutputFailure(t, code, stderr, "review: write merged report:")
-	got, err := job.LoadRecord(parent.ID)
+	got, err := agent.LoadRecord(parent.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

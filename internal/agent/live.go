@@ -1,4 +1,4 @@
-package job
+package agent
 
 import (
 	"bufio"
@@ -19,7 +19,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -42,7 +41,7 @@ const (
 type liveSession struct {
 	rec     *Record
 	name    string
-	be      agent.LiveBackend
+	be      LiveBackend
 	stdin   io.Writer
 	dec     *bufio.Reader
 	events  *wire.EventLog
@@ -58,7 +57,7 @@ type liveSession struct {
 // ServeLive holds rec.Agent's stream-json child open behind rec's socket until idle, cancel or exit; Timeout is idle.
 func ServeLive(ctx context.Context, rec *Record) (err error) {
 	req, name := rec.Request, rec.Agent
-	row, _ := agent.LookupSchema(name)
+	row, _ := LookupSchema(name)
 	lc, ok := row.Live()
 	if !ok {
 		return fmt.Errorf("%s has no live mode (claude|gemini)", name)
@@ -69,7 +68,7 @@ func ServeLive(ctx context.Context, rec *Record) (err error) {
 		return err
 	}
 	defer release()
-	ag, err := agent.Lookup(name)
+	ag, err := Lookup(name)
 	if err == nil {
 		err = ag.Available()
 	}
@@ -90,7 +89,7 @@ func ServeLive(ctx context.Context, rec *Record) (err error) {
 }
 
 func serveChild(ctx context.Context, cancel context.CancelCauseFunc, rec *Record, name string,
-	be agent.LiveBackend, cmd *exec.Cmd, tail *retry.TailBuffer, profile string) error {
+	be LiveBackend, cmd *exec.Cmd, tail *retry.TailBuffer, profile string) error {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err
@@ -142,7 +141,7 @@ func (s *liveSession) awaitChild(ctx context.Context, ln net.Listener, exited ch
 		cause = context.Cause(ctx)
 	case werr := <-exited:
 		exited <- werr
-		cause = fmt.Errorf("%s exited: %w", s.name, agent.ChildErr(context.Background(), s.name, werr, tail))
+		cause = fmt.Errorf("%s exited: %w", s.name, ChildErr(context.Background(), s.name, werr, tail))
 	}
 	s.idle.Stop()
 	_ = ln.Close()
@@ -348,7 +347,7 @@ func refusalError(ev wire.Event) error {
 const liveReadyWait = 20 * time.Second
 
 // IdleOf is the idle limit a live session runs under: the request's timeout, else the default.
-func IdleOf(req agent.RunOptions) time.Duration {
+func IdleOf(req RunOptions) time.Duration {
 	if req.Timeout > 0 {
 		return req.Timeout
 	}
@@ -495,7 +494,7 @@ func (s *liveSession) serveConn(ctx context.Context, c net.Conn) {
 // runTurn writes one user message to the agent and relays its events up to the turn's result.
 func (s *liveSession) runTurn(ctx context.Context, prompt string, sink wire.Sink) {
 	begin := time.Now()
-	sink = agent.NewRunSink(sink, s.name)
+	sink = NewRunSink(sink, s.name)
 	_ = sink.Emit(wire.Event{Type: wire.EventStart, DispatchID: s.rec.ID, Status: "running"})
 	var res wire.Result
 	err := s.be.WriteTurn(s.stdin, prompt)
@@ -503,12 +502,12 @@ func (s *liveSession) runTurn(ctx context.Context, prompt string, sink wire.Sink
 		res, err = s.be.Parse(s.dec, sink, wire.EventLogFor(ctx))
 	}
 	res.Agent, res.Provider, res.DurationMs = s.name, s.profile, time.Since(begin).Milliseconds()
-	res.Status = agent.StatusOf(retry.Classify(s.name, err, false))
+	res.Status = StatusOf(retry.Classify(s.name, err, false))
 	s.mu.Lock()
 	s.session = cmp.Or(res.SessionID, s.session)
 	s.mu.Unlock()
 	// A lost turn result ends the session before it is freed, so a next send can't read that turn's late answer.
-	if err != nil && !agent.IsResultError(err) {
+	if err != nil && !IsResultError(err) {
 		s.cancel(fmt.Errorf("session stream broke: %w", err))
 	}
 	s.release() // before the result goes out: a client's next send must find the session free
@@ -519,7 +518,7 @@ func (s *liveSession) runTurn(ctx context.Context, prompt string, sink wire.Sink
 var serveLive = ServeLive
 
 // RunHolder is the --job child of `ask --live`: it serves rec's session until idle, cancel or the agent's exit.
-func RunHolder(rec *Record, launcher agent.Launcher) int {
+func RunHolder(rec *Record, launcher Launcher) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	rec.Request.Launcher = launcher // json:"-", so the record loaded from disk has none

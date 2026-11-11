@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/proc"
@@ -82,7 +81,7 @@ func Transfer(name, source, note string, wait bool) int {
 	}
 	code := Cmd(transcript.TransferArgs(name, cwd, prompt, wait))
 	if code == 0 && wait {
-		if rec, _, err := job.JobResult(context.Background(), name, cwd, ""); err == nil {
+		if rec, _, err := agent.JobResult(context.Background(), name, cwd, ""); err == nil {
 			PrintResumeHint(name, rec.SessionID)
 		}
 	}

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/job"
 )
 
 // Given pack flags that cannot work together or alone, askPack refuses each; valid ones build the spec the request carries.
@@ -128,13 +127,13 @@ func newAskTarget() *AskTarget {
 // A retried or backgrounded dispatch must keep --no-tools; without it the tools come back on.
 func TestApplyRecordRoundTripsNoTools(t *testing.T) {
 	s := newAskTarget()
-	s.Apply(job.Record{Agent: "claude", Request: agent.RunOptions{NoTools: true}}, io.Discard)
+	s.Apply(agent.Record{Agent: "claude", Request: agent.RunOptions{NoTools: true}}, io.Discard)
 	if !*s.NoTools || *s.Tools {
 		t.Errorf("noTools=%v tools=%v; want noTools on, tools off", *s.NoTools, *s.Tools)
 	}
 	// Negative control: a record without NoTools clears an earlier value.
 	*s.NoTools = true
-	s.Apply(job.Record{Agent: "claude", Request: agent.RunOptions{Tools: true}}, io.Discard)
+	s.Apply(agent.Record{Agent: "claude", Request: agent.RunOptions{Tools: true}}, io.Discard)
 	if *s.NoTools || !*s.Tools {
 		t.Errorf("noTools=%v tools=%v; want tools on, noTools off", *s.NoTools, *s.Tools)
 	}
@@ -143,11 +142,11 @@ func TestApplyRecordRoundTripsNoTools(t *testing.T) {
 // A replayed read-only dispatch must stay read-only; the flag default would hand it write tools.
 func TestApplyRecordRoundTripsReadOnly(t *testing.T) {
 	s := newAskTarget()
-	s.Apply(job.Record{Agent: "claude", Request: agent.RunOptions{ReadOnly: true, Tools: true}}, io.Discard)
+	s.Apply(agent.Record{Agent: "claude", Request: agent.RunOptions{ReadOnly: true, Tools: true}}, io.Discard)
 	if !*s.ReadOnly || !*s.Tools {
 		t.Errorf("readOnly=%v tools=%v; want both on", *s.ReadOnly, *s.Tools)
 	}
-	s.Apply(job.Record{Agent: "claude", Request: agent.RunOptions{Tools: true}}, io.Discard)
+	s.Apply(agent.Record{Agent: "claude", Request: agent.RunOptions{Tools: true}}, io.Discard)
 	if *s.ReadOnly {
 		t.Error("readOnly stayed on for a record without it")
 	}

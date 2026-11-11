@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	_ "github.com/edotau/claude-code/internal/claude"
@@ -355,12 +354,12 @@ func TestAgentSubPageHasNoFormatDebris(t *testing.T) {
 	}
 }
 
-func saveResultRecord(t *testing.T, status, errMsg string) job.Record {
+func saveResultRecord(t *testing.T, status, errMsg string) agent.Record {
 	t.Helper()
 	cwd, _ := os.Getwd()
-	rec := job.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
 	rec.Status, rec.Error = status, errMsg
-	rec.Repo = job.RepoRoot(context.Background(), cwd)
+	rec.Repo = agent.RepoRoot(context.Background(), cwd)
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +398,7 @@ func seedTailJob(t *testing.T, status, body string) string {
 	if err := os.WriteFile(logPath, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	rec := job.NewRecord("codex", agent.RunOptions{Prompt: "tail me"}, time.Now())
+	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "tail me"}, time.Now())
 	rec.Repo, rec.Status, rec.Log = cwd, status, logPath
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -471,7 +470,7 @@ func TestDispatchUsageErrorsExit2(t *testing.T) {
 }
 
 // writeEvents writes evs as JSON lines to the record's events file.
-func writeEvents(t *testing.T, rec job.Record, evs []wire.Event) {
+func writeEvents(t *testing.T, rec agent.Record, evs []wire.Event) {
 	t.Helper()
 	var b strings.Builder
 	for _, ev := range evs {
@@ -499,9 +498,9 @@ func checkJobTailEvents(t *testing.T, code int, out string) {
 }
 
 // seedClaudeJob saves a finished claude record, an hour old, with a log and no events file.
-func seedClaudeJob(t *testing.T) job.Record {
+func seedClaudeJob(t *testing.T) agent.Record {
 	t.Helper()
-	rec := job.NewRecord("claude", agent.RunOptions{Prompt: "say hi"}, time.Now().Add(-time.Hour))
+	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "say hi"}, time.Now().Add(-time.Hour))
 	rec.Repo = t.TempDir()
 	rec.Status, rec.SessionID, rec.DurationMs = "ok", "sess-1", 42
 	if err := rec.Save(); err != nil {
@@ -711,7 +710,7 @@ func serveSuccessfulLiveTurn(t *testing.T, listener net.Listener) <-chan error {
 }
 
 // liveSendFixture registers a live claude record and a unix socket for it (short path: sun_path limit).
-func liveSendFixture(t *testing.T) (job.Record, net.Listener) {
+func liveSendFixture(t *testing.T) (agent.Record, net.Listener) {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "send-")
 	if err != nil {
@@ -723,12 +722,12 @@ func liveSendFixture(t *testing.T) (job.Record, net.Listener) {
 		}
 	})
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	rec := job.NewRecord("claude", agent.RunOptions{Prompt: "live"}, time.Now())
+	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "live"}, time.Now())
 	rec.ID, rec.Live, rec.PID = "send-test", true, os.Getpid()
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
-	listener, err := net.Listen("unix", job.LiveSocket(rec.ID))
+	listener, err := net.Listen("unix", agent.LiveSocket(rec.ID))
 	if err != nil {
 		t.Fatal(err)
 	}

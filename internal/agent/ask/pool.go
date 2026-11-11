@@ -16,10 +16,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/job"
-
-	"github.com/edotau/claude-code/internal/agent/client"
-
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
@@ -48,7 +44,7 @@ type Opts struct {
 
 // BuildTask validates one line like the ask flags and attaches the routing step; routing waits for Prepare.
 func BuildTask(l ParsedLine, o Opts, base agent.RunOptions, timeoutSet bool, cwd string, seen map[string]bool,
-	newClient func() *client.Client) (Task, error) {
+	newClient func() *agent.Client) (Task, error) {
 	t, err := ParseTask(l, o.Agent, base, timeoutSet, cwd, seen)
 	if err != nil {
 		return t, err
@@ -56,7 +52,7 @@ func BuildTask(l ParsedLine, o Opts, base agent.RunOptions, timeoutSet bool, cwd
 	req := t.Req
 	req.Agent, req.Fallback, req.Native = t.Agent, o.Fallback, o.Native
 	cl := newClient()
-	t.Prepare = func(ctx context.Context) (*client.Prepared, error) {
+	t.Prepare = func(ctx context.Context) (*agent.Prepared, error) {
 		p, err := cl.Prepare(ctx, req, nil)
 		if err != nil {
 			return nil, fmt.Errorf("line %d: %w", l.N, err)
@@ -68,7 +64,7 @@ func BuildTask(l ParsedLine, o Opts, base agent.RunOptions, timeoutSet bool, cwd
 
 // RunBatch builds a task per line (a bad line fails alone, logged to os.Stderr) and runs them on the pool; true only if all ok.
 func RunBatch(ctx context.Context, lines []ParsedLine, o Opts, base agent.RunOptions, timeoutSet bool,
-	newClient func() *client.Client, out io.Writer) (id string, ok bool) {
+	newClient func() *agent.Client, out io.Writer) (id string, ok bool) {
 	ctx = providers.WithIdentity(ctx, cmp.Or(o.Identity, providers.IdentityHeadless))
 	cwd, err := os.Getwd() // resolved once here: a pool goroutine must never fall back to the process cwd
 	if err != nil {
@@ -281,7 +277,7 @@ func (b *batchRun) logf(id, format string, a ...any) {
 }
 
 // run executes one task with its own stream, log sink and dispatch record; a panic becomes an error envelope.
-func (b *batchRun) run(ctx context.Context, t Task, p *client.Prepared) (env wire.Envelope, ok bool) {
+func (b *batchRun) run(ctx context.Context, t Task, p *agent.Prepared) (env wire.Envelope, ok bool) {
 	rec := &p.Record
 	rec.TaskID, rec.BatchID, rec.PlanTask = t.ID, b.o.ID, t.Plan
 	ctx = agent.WithBatchRun(ctx, b.lim)
@@ -309,11 +305,11 @@ func (b *batchRun) run(ctx context.Context, t Task, p *client.Prepared) (env wir
 		b.logf(t.ID, "dispatch record %s not saved: %v", rec.ID, err)
 	}
 	notify := func(s string) { b.logf(t.ID, "%s", s) }
-	cl := client.NewClient(nil, nil, notify)
+	cl := agent.NewClient(nil, nil, notify)
 	if p.Opts.Launcher != nil {
 		cl.Launcher = p.Opts.Launcher
 	}
-	res, err := cl.Exec(ctx, p, wire.Discard, job.RunRecordedOpts{})
+	res, err := cl.Exec(ctx, p, wire.Discard, agent.RunRecordedOpts{})
 	for _, d := range res.Dropped {
 		b.logf(t.ID, "%s has no channel on the %s agent — dropped", d, res.Agent)
 	}
