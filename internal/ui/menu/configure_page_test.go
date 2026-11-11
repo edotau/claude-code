@@ -259,7 +259,11 @@ func servedHarness(t *testing.T, on bool) *int {
 	t.Helper()
 	vaulttest.Use(t)
 	var n int
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/scim/v2/Me") { // the identity check, not a listing request
+			_, _ = w.Write([]byte(`{"id":"u1","active":true}`))
+			return
+		}
 		n++
 		_, _ = w.Write([]byte(`{"endpoints":[{"name":"m-a","task":"llm/v1/chat","state":{"ready":"READY"}}]}`))
 	}))

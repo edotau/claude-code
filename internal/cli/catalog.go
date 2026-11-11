@@ -220,9 +220,6 @@ func (o *catalogOpts) sync(p *providers.Provider) error {
 		return err
 	}
 	snapshot := *res.Snapshot
-	if o.apply { // a dry run writes nothing
-		discovery.WarmServed(os.Stderr, p, snapshot)
-	}
 	for _, line := range catalog.SyncSummaryLines(snapshot, false) {
 		fmt.Println(line)
 	}
@@ -334,9 +331,6 @@ func syncOpencodeMenu(w io.Writer, profile string, refresh bool, opts catalog.Sy
 	pl, err := catalog.MenuSync(res.Provider, *res.Snapshot, opts)
 	if err != nil {
 		return err
-	}
-	if opts.Apply { // a dry run writes nothing
-		discovery.WarmServed(os.Stderr, pl.Provider, pl.Snapshot)
 	}
 	for _, line := range catalog.SyncSummaryLines(pl.Snapshot, opts.Verify) {
 		fmt.Fprintln(w, line)

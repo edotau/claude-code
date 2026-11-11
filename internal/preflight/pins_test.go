@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -31,10 +33,11 @@ func hermeticVault(t *testing.T) {
 // stubListing makes every profile list a ready and a cold endpoint, without the network.
 func stubListing(t *testing.T) {
 	t.Helper()
-	listModels = func(context.Context, *providers.Provider) ([]providers.ModelInfo, error) {
-		return []providers.ModelInfo{{ID: "good-model", Task: "llm/v1/chat", Ready: "READY"}, {ID: "cold-model", Ready: "NOT_READY"}}, nil
+	refresh = func(_ context.Context, p *providers.Provider) error {
+		return router.WarmServed(p.Name, []providers.ModelInfo{{ID: "good-model", Task: "llm/v1/chat", Ready: "READY"},
+			{ID: "cold-model", Ready: "NOT_READY"}}, time.Now())
 	}
-	t.Cleanup(func() { listModels = providers.ListModels })
+	t.Cleanup(func() { refresh = catalog.Refresh })
 }
 
 func pinAll(t *testing.T) {
