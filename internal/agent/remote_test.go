@@ -1,4 +1,4 @@
-package client
+package agent
 
 import (
 	"context"
@@ -14,8 +14,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/network/remote"
 
-	"github.com/edotau/claude-code/internal/agent"
-
 	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
@@ -28,7 +26,7 @@ func TestRemoteArgvSurvivesHostileValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	hostile := []string{"a'b", `a"b`, "$(touch " + marker + ")", "`touch " + marker + "`", "x; touch " + marker, "l1\nl2 'q' \\", "-oProxyCommand=x", "tab\there"}
-	req := agent.RunOptions{Model: hostile[0], Provider: hostile[1], Effort: hostile[2], SessionID: hostile[3], SystemPrompt: hostile[4],
+	req := RunOptions{Model: hostile[0], Provider: hostile[1], Effort: hostile[2], SessionID: hostile[3], SystemPrompt: hostile[4],
 		AppendSystemPrompt: hostile[5], OutputSchema: hostile[6], WorkDir: "/w/" + hostile[7], Env: []string{"K=" + hostile[0] + hostile[5]},
 		Timeout: time.Minute, Tools: true}
 	argv, err := remoteArgv("wks", stub, "codex", "", req)
@@ -58,14 +56,14 @@ func TestRemoteArgvSurvivesHostileValues(t *testing.T) {
 
 func TestRemoteArgvRefusals(t *testing.T) {
 	for _, host := range []string{"-oProxyCommand=x", "", "a b", "h\n"} {
-		if _, err := remoteArgv(host, "claude-code", "codex", "", agent.RunOptions{}); err == nil {
+		if _, err := remoteArgv(host, "claude-code", "codex", "", RunOptions{}); err == nil {
 			t.Errorf("host %q accepted", host)
 		}
 	}
-	if _, err := remoteArgv("h", "claude-code", "codex", "", agent.RunOptions{Model: "a\x00b"}); err == nil {
+	if _, err := remoteArgv("h", "claude-code", "codex", "", RunOptions{Model: "a\x00b"}); err == nil {
 		t.Error("NUL value accepted")
 	}
-	if _, err := remoteArgv("h", "bin\nx", "codex", "", agent.RunOptions{}); err == nil {
+	if _, err := remoteArgv("h", "bin\nx", "codex", "", RunOptions{}); err == nil {
 		t.Error("newline in remote bin accepted")
 	}
 }
@@ -110,7 +108,7 @@ func swapIdleTimer(t *testing.T) *handTimer {
 // Every remote line resets the watchdog, so an active remote is never cut off; a silent one is once the watchdog fires.
 func TestRemoteRunDeadlineIsPerActivityNotWholeRun(t *testing.T) {
 	h := swapIdleTimer(t)
-	req := agent.RunOptions{Prompt: "p", Timeout: time.Minute}
+	req := RunOptions{Prompt: "p", Timeout: time.Minute}
 	r := newRemoteEngine("codex", "fakehost", "claude-code", "")
 
 	fakeSSH(t, "for i in 1 2 3 4 5 6 7 8; do echo 'ask: transient, retrying' >&2; done\n"+
@@ -139,7 +137,7 @@ func TestRemoteRunDeadlineIsPerActivityNotWholeRun(t *testing.T) {
 
 // A persona rides the single --agent value as vendor:persona.
 func TestRemoteArgvPersonaIsOneAgentValue(t *testing.T) {
-	script, err := remoteScript("claude-code", "codex", "", agent.RunOptions{Persona: &agent.Schema{Name: "reviewer", Prompt: "x"}})
+	script, err := remoteScript("claude-code", "codex", "", RunOptions{Persona: &Schema{Name: "reviewer", Prompt: "x"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +156,7 @@ func TestRemoteScriptResolvesHarnessPath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "claude-code"), []byte("#!/bin/sh\necho resolved\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	script, err := remoteScript("claude-code", "codex", "", agent.RunOptions{})
+	script, err := remoteScript("claude-code", "codex", "", RunOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +188,7 @@ func TestRemoteHomePath(t *testing.T) {
 			t.Errorf("remote.HomePath(%q) = %q, want %q", in, got, want)
 		}
 	}
-	script, err := remoteScript("/Users/me/.local/bin/claude-code", "codex", "", agent.RunOptions{WorkDir: "/Users/me/.claude"})
+	script, err := remoteScript("/Users/me/.local/bin/claude-code", "codex", "", RunOptions{WorkDir: "/Users/me/.claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,11 +199,11 @@ func TestRemoteHomePath(t *testing.T) {
 
 // Each permission rule crosses to the remote as its own quoted argv word, so spaces in a rule cannot split it.
 func TestRemoteScriptRelaysEachPermissionRule(t *testing.T) {
-	perms, err := agent.ParsePermissions("auto", []string{"Bash(git log:*)", "Read"}, nil, []string{"Bash(rm:*)"})
+	perms, err := ParsePermissions("auto", []string{"Bash(git log:*)", "Read"}, nil, []string{"Bash(rm:*)"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	script, err := remoteScript("claude-code", "claude", "", agent.RunOptions{Permissions: perms})
+	script, err := remoteScript("claude-code", "claude", "", RunOptions{Permissions: perms})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +216,7 @@ func TestRemoteScriptRelaysEachPermissionRule(t *testing.T) {
 
 // --as must cross to the remote: dropping it silently runs the ask under the wrong identity.
 func TestRemoteScriptRelaysIdentity(t *testing.T) {
-	script, err := remoteScript("claude-code", "claude", "", agent.RunOptions{Identity: "sp"})
+	script, err := remoteScript("claude-code", "claude", "", RunOptions{Identity: "sp"})
 	if err != nil || !strings.Contains(script, " --as 'sp'") {
 		t.Fatalf("script = %s, err = %v; want --as 'sp' relayed", script, err)
 	}
@@ -227,7 +225,7 @@ func TestRemoteScriptRelaysIdentity(t *testing.T) {
 // --route must cross to the remote: ApplyRoute exports it as HARNESS_ROUTE, which ssh drops, so it ran unrouted.
 func TestRemoteScriptRelaysRoute(t *testing.T) {
 	t.Setenv("HARNESS_ROUTE", "databricks:dev")
-	script, err := remoteScript("claude-code", "codex", "", agent.RunOptions{})
+	script, err := remoteScript("claude-code", "codex", "", RunOptions{})
 	if err != nil || !strings.Contains(script, " --route 'databricks:dev'") {
 		t.Fatalf("script = %s, err = %v; want --route 'databricks:dev' relayed", script, err)
 	}
@@ -235,7 +233,7 @@ func TestRemoteScriptRelaysRoute(t *testing.T) {
 
 // --read-only must cross to the remote: bare --tools there would run with every tool enabled.
 func TestRemoteScriptRelaysReadOnly(t *testing.T) {
-	script, err := remoteScript("claude-code", "copilot", "", agent.RunOptions{Tools: true, ReadOnly: true, Fleet: true})
+	script, err := remoteScript("claude-code", "copilot", "", RunOptions{Tools: true, ReadOnly: true, Fleet: true})
 	if err != nil || !strings.Contains(script, " --read-only") || !strings.Contains(script, " --fleet") {
 		t.Fatalf("script = %s, err = %v; want --read-only and --fleet relayed", script, err)
 	}

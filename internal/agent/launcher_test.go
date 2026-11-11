@@ -305,3 +305,34 @@ func TestLaunchPlanSurfacesUnreadablePins(t *testing.T) {
 		t.Fatalf("LaunchPlan error = %v", err)
 	}
 }
+
+func TestVendorSignInSkipsRouting(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CLAUDE_PROFILE", "ultra") // neither codex nor gemini can use it
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("HOME", t.TempDir()) // no vendor login state on disk
+	offers := 0
+	OfferConfigure = func(vendor string, reason error) bool { offers++; return false }
+	t.Cleanup(func() { OfferConfigure = nil })
+	for _, c := range []struct {
+		vendor, bin string
+		args        []string
+	}{
+		{"codex", "codex", []string{"login", "--device-auth"}},
+		{"codex", "codex", []string{"logout"}},
+		{"gemini", "agy", []string{"auth", "login"}},
+	} {
+		fake := pathstest.FakeVendor(t, c.bin, "")
+		plan, err := LaunchPlan(context.Background(), c.vendor, LaunchOptions{}, c.args)
+		if err != nil {
+			t.Fatalf("%s %v: err = %v, want a plain sign-in launch", c.vendor, c.args, err)
+		}
+		if plan.Binary != fake || len(plan.Set) != 0 || !slices.Equal(plan.Argv[len(plan.Argv)-len(c.args):], c.args) {
+			t.Errorf("%s %v: plan = %+v, want the plain CLI with the args and no harness env", c.vendor, c.args, plan)
+		}
+	}
+	if offers != 0 {
+		t.Errorf("configure offered %d times for sign-in commands, want 0", offers)
+	}
+}

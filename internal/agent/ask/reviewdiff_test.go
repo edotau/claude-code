@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/hosttest"
 )
 
@@ -125,7 +124,7 @@ func TestDiffUntrackedQuotedNames(t *testing.T) {
 func TestLastDispatchErrorBeyondOtherAgentsRecentJobs(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const want = "split review part 1: provider unavailable"
-	records := []job.Record{
+	records := []agent.Record{
 		{Agent: "codex", Status: "error", Error: "older failure"},
 		{Agent: "codex", Status: "error", Error: want},
 		{Agent: "gemini", Status: "error", Error: "unrelated failure"},
@@ -137,7 +136,7 @@ func TestLastDispatchErrorBeyondOtherAgentsRecentJobs(t *testing.T) {
 	}
 	start := time.Date(2026, time.November, 8, 12, 0, 0, 0, time.UTC)
 	for i, fixture := range records {
-		rec := job.NewRecord(fixture.Agent, agent.RunOptions{}, start.Add(time.Duration(i)*time.Second))
+		rec := agent.NewRecord(fixture.Agent, agent.RunOptions{}, start.Add(time.Duration(i)*time.Second))
 		rec.Status, rec.Error = fixture.Status, fixture.Error
 		if err := rec.Save(); err != nil {
 			t.Fatal(err)

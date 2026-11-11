@@ -4,16 +4,19 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -487,3 +490,205 @@ func TestConfigureRetryPreservesAgentModelPin(t *testing.T) {
 		t.Fatalf("offers=%d plan=%+v; want configured CLI with pinned model in argv %v", offers, plan, want)
 	}
 }
+
+// socketAccepts dials rather than stats: the socket file exists a moment before the holder listens on it.
+func socketAccepts(path string) bool {
+	c, err := net.DialTimeout("unix", path, time.Second)
+	if err != nil {
+		return false
+	}
+	_ = c.Close()
+	return true
+}
+
+// liveEnv gives the test a short /tmp config dir (a unix socket path caps at 104 bytes on macOS, 108 on Linux).
+func liveEnv(t *testing.T) {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "lv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	home := filepath.Join(dir, "home") // the agy target needs a Google sign-in marker; never read the developer's
+	marker := AgyLoginMarker(home)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(paths.BinDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func startHolderAs(t *testing.T, ctx context.Context, name string, idle time.Duration) (string, func() error) {
+	t.Helper()
+	rec := agent.ClaimRecord(name, agent.RunOptions{Timeout: idle}, time.Now())
+	rec.Live, rec.PID = true, os.Getpid()
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	done, id := make(chan error, 1), rec.ID
+	go func() { done <- agent.ServeLive(ctx, &rec) }()
+	for range 200 {
+		if socketAccepts(agent.LiveSocket(id)) {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if _, err := os.Stat(agent.LiveSocket(id)); err != nil {
+		select {
+		case serveErr := <-done:
+			t.Fatalf("holder did not open its socket: %v (serve: %v)", err, serveErr)
+		default:
+			t.Fatalf("holder did not open its socket: %v", err)
+		}
+	}
+	return id, func() error { return <-done }
+}
+
+// fakeLiveAgy is a shell agy: one init, then per NDJSON turn an agent_response delta and a result whose usage is
+// cumulative over the conversation, as the real agy reports it.
+const fakeLiveAgy = `#!/bin/sh
+printf '{"event":"init","conversation_id":"c1"}\n'
+mem=none
+n=0
+while IFS= read -r line; do
+  n=$((n + 1))
+  m=$(printf '%s' "$line" | sed -n 's/.*remember \([0-9][0-9]*\).*/\1/p')
+  if [ -n "$m" ]; then mem=$m; ans=ok; else ans="$mem"; fi
+  printf '{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"%s"}}\n' "$ans"
+  printf '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"%s","usage":{"input_tokens":%d,"output_tokens":%d}}}\n' "$ans" $((n * 10)) $((n * 2))
+done
+`
+
+// An agy session keeps its conversation across turns, reports per-turn usage, refuses a concurrent send, and cancels.
+func TestLiveAgySession(t *testing.T) {
+	liveEnv(t)
+	if err := os.WriteFile(filepath.Join(paths.BinDir(), "gemini"), []byte(fakeLiveAgy), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	id, wait := startHolderAs(t, ctx, "gemini", time.Minute)
+	if _, err := os.Stat(agent.LiveSocket(id)); err != nil {
+		cancel()
+		t.Fatalf("holder did not open its socket: %v (%v)", err, wait())
+	}
+	assertAgyRecallAndUsage(t, id)
+	cancel()
+	if err := wait(); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := agent.LoadRecord(id)
+	if got.Status != "error" || got.Error != "cancelled" || got.Agent != "gemini" || got.SessionID != "c1" {
+		t.Errorf("record = %s %q agent=%s session=%q, want error cancelled gemini c1", got.Status, got.Error, got.Agent, got.SessionID)
+	}
+}
+
+func assertAgyRecallAndUsage(t *testing.T, id string) {
+	t.Helper()
+	env, err := agent.SendLive(context.Background(), id, "remember 42", wire.Discard)
+	if err != nil || env.Status != wire.StatusOK || env.Answer != "ok" || env.Agent != "gemini" {
+		t.Fatalf("turn 1 = %+v, %v", env, err)
+	}
+	env2, err := agent.SendLive(context.Background(), id, "what number", wire.Discard)
+	if err != nil || env2.Answer != "42" {
+		t.Fatalf("turn 2 = %+v, %v (the second turn must recall the first)", env2, err)
+	}
+	if env2.Usage.InputTokens != 10 || env2.Usage.OutputTokens != 2 {
+		t.Errorf("turn 2 usage = %+v, want the turn's own delta 10/2, not agy's cumulative 20/4", env2.Usage)
+	}
+}
+
+// fakeErrAgy fails the turn "fail" with an ERROR result and answers everything else.
+const fakeErrAgy = `#!/bin/sh
+printf '{"event":"init","conversation_id":"c1"}\n'
+while IFS= read -r line; do
+  case "$line" in
+    *fail*) printf '{"event":"result","result":{"conversation_id":"c1","status":"ERROR","error":"upstream failed"}}\n' ;;
+    *) printf '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"%s","usage":{"input_tokens":50,"output_tokens":5}}}\n' "$(printf '%s' "$line" | tr -d '\\"' | head -c 3000 | sed 's/.*content://')" ;;
+  esac
+done
+`
+
+func startAgy(t *testing.T, script string, req agent.RunOptions) (string, func(), func() error) {
+	t.Helper()
+	liveEnv(t)
+	if err := os.WriteFile(filepath.Join(paths.BinDir(), "gemini"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rec := agent.ClaimRecord("gemini", req, time.Now())
+	rec.Live, rec.PID = true, os.Getpid()
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- agent.ServeLive(ctx, &rec) }()
+	for range 200 {
+		if socketAccepts(agent.LiveSocket(rec.ID)) {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	return rec.ID, cancel, func() error { return <-done }
+}
+
+// An agy ERROR result fails that turn only: the session stays usable for the next one.
+func TestLiveAgyErrorResultKeepsSession(t *testing.T) {
+	id, cancel, wait := startAgy(t, fakeErrAgy, agent.RunOptions{Timeout: time.Minute})
+	defer func() { cancel(); _ = wait() }()
+	env, err := agent.SendLive(context.Background(), id, "fail now", wire.Discard)
+	if err == nil && env.Status != wire.StatusError {
+		t.Fatalf("failing turn = %+v, %v; want an error status", env, err)
+	}
+	if env2, err := agent.SendLive(context.Background(), id, "again", wire.Discard); err != nil || env2.Status != wire.StatusOK {
+		t.Fatalf("turn after an ERROR result = %+v, %v; the session must survive", env2, err)
+	}
+}
+
+// System prompts are emulated on gemini live as the one-shot path does: prepended to the first turn only.
+func TestLiveAgySystemPromptOnFirstTurn(t *testing.T) {
+	id, cancel, wait := startAgy(t, fakeErrAgy, agent.RunOptions{Timeout: time.Minute, AppendSystemPrompt: "SPEAK-FRENCH"})
+	defer func() { cancel(); _ = wait() }()
+	e1, err := agent.SendLive(context.Background(), id, "hello", wire.Discard)
+	if err != nil || !strings.Contains(e1.Answer, "SPEAK-FRENCH") {
+		t.Fatalf("turn 1 = %+v, %v; want the system prompt in the first turn", e1, err)
+	}
+	e2, err := agent.SendLive(context.Background(), id, "hello", wire.Discard)
+	if err != nil || strings.Contains(e2.Answer, "SPEAK-FRENCH") {
+		t.Fatalf("turn 2 = %+v, %v; the system prompt must not repeat", e2, err)
+	}
+}
+
+// A resumed agy conversation reports no usage for its first turn (the history is unknown), then per-turn deltas.
+func TestLiveAgyResumedUsageBaseline(t *testing.T) {
+	id, cancel, wait := startAgy(t, fakeCumAgy, agent.RunOptions{Timeout: time.Minute, SessionID: "old"})
+	defer func() { cancel(); _ = wait() }()
+	e1, err := agent.SendLive(context.Background(), id, "a", wire.Discard)
+	if err != nil {
+		t.Fatalf("first turn: %v", err)
+	}
+	if e1.Usage != nil {
+		t.Errorf("first resumed turn usage = %+v, want none (unknown), not the history", e1.Usage)
+	}
+	e2, err := agent.SendLive(context.Background(), id, "b", wire.Discard)
+	if err != nil {
+		t.Fatalf("second turn: %v", err)
+	}
+	if e2.Usage == nil || e2.Usage.InputTokens != 10 {
+		t.Errorf("second turn usage = %+v, want its own 10", e2.Usage)
+	}
+}
+
+// fakeCumAgy reports cumulative usage that starts at 1000 (a resumed conversation) and grows 10 per turn.
+const fakeCumAgy = `#!/bin/sh
+n=1000
+while IFS= read -r line; do
+  n=$((n + 10))
+  printf '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"r","usage":{"input_tokens":%d,"output_tokens":1}}}\n' "$n"
+done
+`

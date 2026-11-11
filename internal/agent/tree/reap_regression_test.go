@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/inflight"
 )
 
@@ -32,9 +31,9 @@ func reapSocketConfig(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 }
 
-func saveReapRecord(t *testing.T, pid int, at time.Time) job.Record {
+func saveReapRecord(t *testing.T, pid int, at time.Time) agent.Record {
 	t.Helper()
-	rec := job.ClaimRecord("claude", agent.RunOptions{}, at)
+	rec := agent.ClaimRecord("claude", agent.RunOptions{}, at)
 	rec.Live, rec.PID = true, pid
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -50,7 +49,7 @@ func TestReapKeepsSocketCreatedAfterRecordSnapshot(t *testing.T) {
 	out := reapWriteFunc(func(p []byte) (int, error) {
 		if strings.HasPrefix(string(p), "reaped dispatch ") {
 			rec := saveReapRecord(t, os.Getpid(), now)
-			socket = job.LiveSocket(rec.ID)
+			socket = agent.LiveSocket(rec.ID)
 			ln, err := net.Listen("unix", socket)
 			if err != nil {
 				t.Fatal(err)
@@ -79,7 +78,7 @@ func TestReapReportsRemovalFailures(t *testing.T) {
 	for _, kind := range []string{"socket", "marker"} {
 		t.Run(kind, func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			path := job.LiveSocket("orphan")
+			path := agent.LiveSocket("orphan")
 			if kind == "marker" {
 				path = filepath.Join(inflight.Dir(), "agent-2147483646-stale")
 			}

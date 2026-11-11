@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
@@ -751,7 +750,7 @@ func TestTakeAsBeatsProfileIdentity(t *testing.T) {
 	if _, _, err := providers.TakeAs([]string{"--as=bogus"}); err == nil {
 		t.Fatal("bogus accepted")
 	}
-	if err := client.ValidateAs("sp", "codex"); err == nil {
+	if err := agent.ValidateAs("sp", "codex"); err == nil {
 		t.Fatal("--as accepted for codex")
 	}
 }

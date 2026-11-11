@@ -1,4 +1,4 @@
-package client
+package agent
 
 import (
 	"bufio"
@@ -13,8 +13,6 @@ import (
 	"os/exec"
 	"strings"
 	"time"
-
-	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -41,23 +39,23 @@ var newIdleTimer = func(d time.Duration, f func()) idleTimer { return time.After
 type remoteEngine struct{ agent, host, bin, fallback string }
 
 // newRemoteEngine wraps agentName for host; bin is the remote claude-code path (see remote.Bin), fallback the remote's policy.
-func newRemoteEngine(agentName, host, bin, fallback string) agent.Engine {
+func newRemoteEngine(agentName, host, bin, fallback string) Engine {
 	return remoteEngine{agentName, host, bin, fallback}
 }
 
 func (r remoteEngine) Name() string { return r.agent }
 
 // Caps is all-native: the remote's applyCaps does the dropping, and its envelope reports what it dropped.
-func (r remoteEngine) Caps() agent.Caps {
-	n := agent.Native
-	return agent.Caps{Model: n, Provider: n, Effort: n, WorkDir: n, SessionID: n, Tools: n, NoTools: n, Autonomous: n, Memory: n,
+func (r remoteEngine) Caps() Caps {
+	n := Native
+	return Caps{Model: n, Provider: n, Effort: n, WorkDir: n, SessionID: n, Tools: n, NoTools: n, Autonomous: n, Memory: n,
 		NoPersist: n, SafeMode: n, Direct: n, SystemPrompt: n, AppendSystemPrompt: n, Env: n, OutputSchema: n, Persona: n, Permissions: n}
 }
 
 func (r remoteEngine) Available() error { return nil }
 
 // remoteDropped names the flags that mean nothing on another host.
-func remoteDropped(req agent.RunOptions) []string {
+func remoteDropped(req RunOptions) []string {
 	var out []string
 	if len(req.Attach) > 0 {
 		out = append(out, "--attach")
@@ -72,7 +70,7 @@ func remoteDropped(req agent.RunOptions) []string {
 }
 
 // remoteTarget is the --agent value the remote side resolves.
-func remoteTarget(agentName string, req agent.RunOptions) string {
+func remoteTarget(agentName string, req RunOptions) string {
 	if req.Persona != nil {
 		return agentName + ":" + req.Persona.Name
 	}
@@ -81,7 +79,7 @@ func remoteTarget(agentName string, req agent.RunOptions) string {
 
 // remoteScript is the POSIX sh line run on the remote: every element is single-quoted, the prompt is never in it.
 // --env values do ride this line, so they are visible to the remote `ps` (and, base64-wrapped, to the local one).
-func remoteScript(bin, agentName, fallback string, req agent.RunOptions) (string, error) {
+func remoteScript(bin, agentName, fallback string, req RunOptions) (string, error) {
 	if err := validateRemoteScript(bin, agentName, req); err != nil {
 		return "", err
 	}
@@ -117,9 +115,9 @@ func remoteScript(bin, agentName, fallback string, req agent.RunOptions) (string
 	opt("--mode", req.Permissions.Mode)
 	for _, set := range []struct {
 		flag  string
-		rules []agent.Rule
+		rules []Rule
 	}{{"--allow", req.Permissions.Allow}, {"--ask", req.Permissions.Ask}, {"--deny", req.Permissions.Deny}} {
-		for _, s := range agent.RuleStrings(set.rules) {
+		for _, s := range RuleStrings(set.rules) {
 			opt(set.flag, s)
 		}
 	}
@@ -135,12 +133,12 @@ func remoteScript(bin, agentName, fallback string, req agent.RunOptions) (string
 	return strings.Join(w, " "), nil
 }
 
-func validateRemoteScript(bin, agentName string, req agent.RunOptions) error {
+func validateRemoteScript(bin, agentName string, req RunOptions) error {
 	vals := []string{bin, agentName, req.Model, req.Provider, req.Effort, req.Identity, os.Getenv(router.EnvRoute), req.WorkDir, req.SessionID, req.SystemPrompt,
 		req.AppendSystemPrompt, req.OutputSchema}
 	vals = append(vals, req.Env...)
-	for _, rules := range [][]agent.Rule{req.Permissions.Allow, req.Permissions.Ask, req.Permissions.Deny} {
-		vals = append(vals, agent.RuleStrings(rules)...)
+	for _, rules := range [][]Rule{req.Permissions.Allow, req.Permissions.Ask, req.Permissions.Deny} {
+		vals = append(vals, RuleStrings(rules)...)
 	}
 	for _, v := range vals {
 		if strings.ContainsRune(v, 0) {
@@ -151,7 +149,7 @@ func validateRemoteScript(bin, agentName string, req agent.RunOptions) error {
 }
 
 // remoteArgv is the full local ssh argv for one remote ask.
-func remoteArgv(host, bin, agentName, fallback string, req agent.RunOptions) ([]string, error) {
+func remoteArgv(host, bin, agentName, fallback string, req RunOptions) ([]string, error) {
 	script, err := remoteScript(bin, agentName, fallback, req)
 	if err != nil {
 		return nil, err
@@ -193,7 +191,7 @@ func resultFromEnvelope(env wire.Envelope, agentName string, dropped []string) w
 }
 
 // Run streams the remote ask: events are re-emitted on sink, the remote result event becomes the Result.
-func (r remoteEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
+func (r remoteEngine) Run(ctx context.Context, req RunOptions, sink wire.Sink) (wire.Result, error) {
 	argv, err := remoteArgv(r.host, r.bin, r.agent, r.fallback, req)
 	if err != nil {
 		return wire.Result{Agent: r.agent, Status: wire.StatusError}, retry.Fatal(r.agent, err)
@@ -207,7 +205,7 @@ func (r remoteEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.S
 	stop := func() { cancel(nil) }
 	touch, stopWatch := remoteWatchdog(req.Timeout, cancel)
 	defer stopWatch()
-	cmd, tail := agent.ChildCmd(ctx, argv[0], argv[1:], nil, "", "", nil, false)
+	cmd, tail := ChildCmd(ctx, argv[0], argv[1:], nil, "", "", nil, false)
 	cmd.Stderr = io.MultiWriter(cmd.Stderr, touchWriter(touch)) // the remote's retry notices arrive on stderr
 	in, err := cmd.StdinPipe()
 	var out io.ReadCloser

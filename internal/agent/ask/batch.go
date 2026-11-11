@@ -17,8 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/client"
-
 	"github.com/edotau/claude-code/internal/agent"
 )
 
@@ -80,8 +78,8 @@ type Task struct {
 	Agent   string // the agent asked for, named on a failure envelope
 	Plan    string // plan_task of the line, stamped on the dispatch record
 	Req     agent.RunOptions
-	Prepare func(ctx context.Context) (*client.Prepared, error)
-	Retry   func(ctx context.Context) (*client.Prepared, error) // optional: reroutes a failed task once, same id
+	Prepare func(ctx context.Context) (*agent.Prepared, error)
+	Retry   func(ctx context.Context) (*agent.Prepared, error) // optional: reroutes a failed task once, same id
 	Err     error
 }
 
@@ -124,7 +122,7 @@ func ParseTask(l ParsedLine, agentName string, base agent.RunOptions, timeoutSet
 	}
 	req := base
 	req.Prompt, req.Provider, req.Model = tl.Prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
-	name, err := client.SelectAndOverlay(t.Agent, base.Agents, &req) // explicit line/base options win over the definition
+	name, err := agent.SelectAndOverlay(t.Agent, base.Agents, &req) // explicit line/base options win over the definition
 	if err != nil {
 		return t, fmt.Errorf("line %d: %w", l.N, err)
 	}

@@ -18,8 +18,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/client"
-	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/copilot"
@@ -89,7 +87,7 @@ func askRetryArgs(t *testing.T, dir string, tt askRetryCase) ([]string, int) {
 			}
 			opts.Permissions = p
 		}
-		rec := job.NewRecord("claude", opts, time.Now().Add(-time.Hour))
+		rec := agent.NewRecord("claude", opts, time.Now().Add(-time.Hour))
 		if err := rec.Save(); err != nil {
 			t.Fatal(err)
 		}
@@ -141,7 +139,7 @@ func TestCmdAskBadPermissionRuleNeverLaunches(t *testing.T) {
 	if code != 2 || !strings.Contains(stderr, `permission rule "Bash("`) {
 		t.Fatalf("exit = %d, stderr = %q; want 2 naming the rule", code, stderr)
 	}
-	if n := len(job.RecentRecords(2)); n != 0 {
+	if n := len(agent.RecentRecords(2)); n != 0 {
 		t.Fatalf("%d dispatch records written; the bad rule must stop before launch", n)
 	}
 }
@@ -161,7 +159,7 @@ func TestCmdAskRetryFlags(t *testing.T) {
 			if code != 1 {
 				t.Fatalf("exit = %d, want 1 for unavailable agent; stderr=%s", code, stderr)
 			}
-			records := job.RecentRecords(2)
+			records := agent.RecentRecords(2)
 			if len(records) != wantRecords {
 				t.Fatalf("records = %d, want %d; stderr=%s", len(records), wantRecords, stderr)
 			}
@@ -192,7 +190,7 @@ func TestCmdAskBackgroundAndJobMutuallyExclusive(t *testing.T) {
 // --job on a record that already finished is refused: only a fresh running, pid-less record may be run.
 func TestCmdAskJobRefusesNonFreshRecord(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := job.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
 	rec.Status = "ok"
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -239,10 +237,10 @@ func agyJobFixture(t *testing.T) {
 	pathstest.FakeVendor(t, "agy", script)
 }
 
-// runAskJobIntoLog mirrors job.Spawn: the job child's own stdout and stderr are the log file, which it returns.
+// runAskJobIntoLog mirrors agent.Spawn: the job child's own stdout and stderr are the log file, which it returns.
 func runAskJobIntoLog(t *testing.T) string {
 	t.Helper()
-	rec := job.NewRecord("gemini", agent.RunOptions{Prompt: "p", WorkDir: t.TempDir()}, time.Now())
+	rec := agent.NewRecord("gemini", agent.RunOptions{Prompt: "p", WorkDir: t.TempDir()}, time.Now())
 	rec.Log = rec.LogPath()
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -831,7 +829,7 @@ func askLoggedRequest(t *testing.T, args ...string) agent.RunOptions {
 	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(args) }); code != 1 {
 		t.Fatalf("exit = %d, want 1 for unavailable agent; stderr=%s", code, stderr)
 	}
-	return job.RecentRecords(1)[0].Request
+	return agent.RecentRecords(1)[0].Request
 }
 
 func assertTesterPersona(t *testing.T, p *agent.Schema) {
@@ -852,7 +850,7 @@ func TestAskPersonaLoadsAndRetryKeepsIt(t *testing.T) {
 	if p := ask(append(base, "--agent", "claude:"+other, "go")...).Persona; p == nil || p.Name != "other" || p.Prompt != "You are by path." {
 		t.Fatalf("path persona = %+v", p)
 	}
-	rec := job.NewRecord("claude", agent.RunOptions{Prompt: "again", Persona: p}, time.Now().Add(-time.Hour))
+	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "again", Persona: p}, time.Now().Add(-time.Hour))
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -1196,7 +1194,7 @@ func TestAskJSONStdoutFailureExitsNonzero(t *testing.T) {
 	if code != 1 || !strings.Contains(stderr, "no space left on device") {
 		t.Fatalf("full stdout: exit %d, stderr %q; want exit 1 reporting the write error", code, stderr)
 	}
-	if records := job.RecentRecords(1); len(records) != 1 || records[0].Status != "ok" {
+	if records := agent.RecentRecords(1); len(records) != 1 || records[0].Status != "ok" {
 		t.Fatalf("dispatch must succeed independently of stdout: %+v", records)
 	}
 }
@@ -1204,11 +1202,11 @@ func TestAskJSONStdoutFailureExitsNonzero(t *testing.T) {
 // Given a background spawn that fails (the test binary is never relaunched), Then the saved record leaves running.
 func TestAskSpawnFailureFinishesRecord(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := job.ClaimRecord("claude", agent.RunOptions{}, time.Now())
-	if code := askSpawn(flag.NewFlagSet("ask", flag.ContinueOnError), &client.Prepared{Record: rec}, false, helptext.Text, "claude"); code != 1 {
+	rec := agent.ClaimRecord("claude", agent.RunOptions{}, time.Now())
+	if code := askSpawn(flag.NewFlagSet("ask", flag.ContinueOnError), &agent.Prepared{Record: rec}, false, helptext.Text, "claude"); code != 1 {
 		t.Fatalf("askSpawn = %d, want 1", code)
 	}
-	got, err := job.LoadRecord(rec.ID)
+	got, err := agent.LoadRecord(rec.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1219,7 +1217,7 @@ func TestAskSpawnFailureFinishesRecord(t *testing.T) {
 
 func TestAskRetryPreservesRecordedLead(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := job.NewRecord("claude", agent.RunOptions{Prompt: "say ok", Lead: "recorded-profile"}, time.Now())
+	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "say ok", Lead: "recorded-profile"}, time.Now())
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -1534,7 +1532,7 @@ func TestClientPrepareHubNativeFallback(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Prepare(%s) = %v", profile, err)
 		}
-		res, err := client.Exec(context.Background(), p, nil, job.RunRecordedOpts{})
+		res, err := client.Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
 		if len(res.Hops) != 1 {
 			t.Fatalf("%s: want one dispatch, got %+v, err %v", profile, res.Hops, err)
 		}
@@ -1575,7 +1573,7 @@ func TestClientPrepareProfileTakesTierSlot(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res, _ := client.Exec(context.Background(), p, nil, job.RunRecordedOpts{})
+		res, _ := client.Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
 		if len(res.Hops) != 1 {
 			t.Fatalf("%s: hops = %+v, want one unavailable dispatch", profile, res.Hops)
 		}
@@ -1597,7 +1595,7 @@ func TestClientPrepareProfileIsOneDispatchUnderFallbackAll(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: Prepare = %v", name, err)
 		}
-		res, err := client.Exec(context.Background(), p, nil, job.RunRecordedOpts{})
+		res, err := client.Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
 		if err == nil || len(res.Hops) != 1 {
 			t.Errorf("%s: %d hops, err %v; want one failed dispatch without fallback", name, len(res.Hops), err)
 		}
@@ -1626,7 +1624,7 @@ func TestReportBackgroundStartReturnsWriteError(t *testing.T) {
 	os.Stdout = w
 	t.Cleanup(func() { os.Stdout = orig; w.Close() })
 	for _, format := range []string{helptext.Text, helptext.JSON} {
-		if err := ReportBackgroundStart(format, job.Record{ID: "j1"}); err == nil {
+		if err := ReportBackgroundStart(format, agent.Record{ID: "j1"}); err == nil {
 			t.Errorf("%s: write to a closed pipe returned nil", format)
 		}
 	}

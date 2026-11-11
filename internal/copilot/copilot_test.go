@@ -1,10 +1,13 @@
 package copilot
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -14,7 +17,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -471,4 +476,187 @@ func runArmedBYOK(t *testing.T) (SDKOptions, []string) {
 		t.Fatal(err)
 	}
 	return got, co.Connection.(copilot.StdioConnection).Env
+}
+
+// assertExists reports each path that is missing though it must exist.
+func assertExists(t *testing.T, why string, ps ...string) {
+	t.Helper()
+	for _, p := range ps {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s: %s: %v", p, why, err)
+		}
+	}
+}
+
+func assertCodexManagedBlock(t *testing.T, codexCfg []byte) {
+	t.Helper()
+	if !strings.Contains(string(codexCfg), "[model_providers.claude-code]") {
+		t.Errorf("codex config missing managed block:\n%s", codexCfg)
+	}
+	if !strings.Contains(string(codexCfg), "# >>> claude-code:managed:begin >>>") {
+		t.Errorf("codex config missing banner markers:\n%s", codexCfg)
+	}
+	// Top-level approval/sandbox keys from vendorconfig must precede any [table] header.
+	approvalIdx := strings.Index(string(codexCfg), "approval_policy")
+	sandboxIdx := strings.Index(string(codexCfg), "sandbox_mode")
+	firstTable := strings.Index(string(codexCfg), "[")
+	if approvalIdx < 0 || sandboxIdx < 0 {
+		t.Fatalf("codex config missing approval_policy/sandbox_mode:\n%s", codexCfg)
+	}
+	if firstTable >= 0 && (approvalIdx > firstTable || sandboxIdx > firstTable) {
+		t.Errorf("approval_policy/sandbox_mode must precede the first [table] header:\n%s", codexCfg)
+	}
+	if n := strings.Count(string(codexCfg), `cli_auth_credentials_store = "keyring"`); n != 1 {
+		t.Errorf("cli_auth_credentials_store occurs %d times, want 1:\n%s", n, codexCfg)
+	}
+}
+
+// opencode's overlay is a tracked, owner-authored template, not a per-provider render: just the pinned model/variant.
+func assertOpencodeOverlayOnly(t *testing.T, home string) {
+	t.Helper()
+	ocRaw, err := os.ReadFile(filepath.Join(paths.StateDir(), "opencode", "opencode.json"))
+	if err != nil {
+		t.Fatalf("read opencode overlay: %v", err)
+	}
+	var oc map[string]any
+	if err := json.Unmarshal(ocRaw, &oc); err != nil {
+		t.Fatalf("opencode.json not valid JSON: %v", err)
+	}
+	if _, ok := oc["model"]; !ok {
+		t.Errorf("opencode.json missing a model key: %s", ocRaw)
+	}
+	assertNotExist(t, "opencode's own ~/.config/opencode/opencode.json must not be written",
+		filepath.Join(home, ".config", "opencode", "opencode.json"))
+}
+
+func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
+	home := scratch(t)
+	var out bytes.Buffer
+	opts := agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}}
+	drift, err := agent.RenderConfigs(opts)
+	if err != nil {
+		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
+	}
+	if !drift {
+		t.Fatal("expected drift=true on first write")
+	}
+
+	codexCfg, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatalf("read codex config: %v", err)
+	}
+	assertCodexManagedBlock(t, codexCfg)
+	assertOpencodeOverlayOnly(t, home)
+
+	// gemini is report-only (agy has no settings-auth equivalent): it writes nothing, ever.
+	assertNotExist(t, "gemini must write no settings.json", filepath.Join(home, ".gemini", "settings.json"))
+	if !strings.Contains(out.String(), "gemini: no config render") {
+		t.Errorf("expected a gemini report-only line, got:\n%s", out.String())
+	}
+
+	// A second run with nothing changed must report no drift and touch no file's content.
+	var out2 bytes.Buffer
+	opts.Out = &out2
+	drift, err = agent.RenderConfigs(opts)
+	if err != nil {
+		t.Fatalf("second agent.RenderConfigs: %v", err)
+	}
+	if drift {
+		t.Fatalf("expected no drift on an idempotent second run, output:\n%s", out2.String())
+	}
+}
+
+// TestScratchConfigDirSkipsVendorWritesWithoutFlag reproduces the P0: CLAUDE_CONFIG_DIR pointed at a
+// worktree while vendor destinations stay $HOME-rooted (agentconfig.RenderOptions.Home left unset, matching production,
+// where os.UserHomeDir() resolves the real process HOME). Without --vendors nothing is written under
+// that HOME's vendor dirs; with it, writes land exactly as before.
+func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
+	scratch(t) // sets CLAUDE_CONFIG_DIR + a keyed provider overlay; its own returned Home is unused here
+	vendorHome := t.TempDir()
+	t.Setenv("HOME", vendorHome)
+	t.Setenv("CODEX_HOME", filepath.Join(vendorHome, ".codex"))
+
+	var out bytes.Buffer
+	drift, err := agent.RenderConfigs(agentconfig.RenderOptions{Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
+	if err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+	if drift {
+		t.Fatal("a skipped render must report no drift")
+	}
+	if !strings.Contains(out.String(), "skipping agent configs") {
+		t.Fatalf("expected the skip note, got:\n%s", out.String())
+	}
+	assertNotExist(t, "expected no vendor writes under the scratch HOME",
+		filepath.Join(vendorHome, ".codex"), filepath.Join(vendorHome, ".config", "opencode"),
+		filepath.Join(paths.StateDir(), "opencode"), filepath.Join(vendorHome, ".copilot"))
+
+	var out2 bytes.Buffer
+	if _, err := agent.RenderConfigs(agentconfig.RenderOptions{Out: &out2, ForceHomes: true, Agents: []string{"codex", "opencode", "copilot"}}); err != nil {
+		t.Fatalf("Run with --vendors: %v\n%s", err, out2.String())
+	}
+	assertExists(t, "--vendors must still write the vendor configs",
+		filepath.Join(vendorHome, ".codex", "config.toml"), filepath.Join(paths.StateDir(), "opencode", "opencode.json"),
+		filepath.Join(vendorHome, ".copilot", "hooks", "claude-code-harness.json"))
+}
+
+const parityRows = `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com",` +
+	`"auth":{"type":"none"},"models":{"opus":"databricks-claude-opus-5-5"}}},` +
+	`"anthropic":{"alt":{"base_url":"https://alt.example.com","protocol":"anthropic","auth":{"type":"none"},"models":{"opus":"claude-opus-5-5"}}}}}`
+
+var codexModelArg = regexp.MustCompile(`^model="(.*)"$`)
+
+func launchModel(t *testing.T, name string, o agent.LaunchOptions) string {
+	t.Helper()
+	o.PrintEnv = true
+	plan, err := agent.LaunchPlan(context.Background(), name, o, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := plan.Set["COPILOT_MODEL"]; m != "" {
+		return m
+	}
+	for i, a := range plan.Argv {
+		if m := codexModelArg.FindStringSubmatch(a); m != nil && i > 0 && plan.Argv[i-1] == "-c" {
+			return m[1]
+		}
+		if a == "--model" && i+1 < len(plan.Argv) {
+			return plan.Argv[i+1]
+		}
+	}
+	t.Fatalf("no model in %v", plan.Argv)
+	return ""
+}
+
+func TestLaunchAndAgentAgreeOnModel(t *testing.T) {
+	cases := []struct{ agent, profile, flag string }{
+		{"codex", "dev", ""},
+		{"codex", "dev", "gpt-5.5"},
+		{"copilot", "alt", ""},
+		{"copilot", "alt", "claude-sonnet-5-5"},
+	}
+	for _, c := range cases {
+		t.Run(c.agent+"/"+c.profile+"/"+c.flag, func(t *testing.T) {
+			vaulttest.Use(t)
+			vaulttest.Put(t, vault.Overlay, "providers", parityRows)
+			pathstest.FakeVendor(t, c.agent, "")
+			pin := "databricks-gpt-6-1-sol"
+			if c.agent == "copilot" {
+				pin = "claude-haiku-5-5"
+			}
+			vaulttest.SetRecord(t, c.agent, "model", pin)
+			t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+			tg, _, err := agent.SchemaFor(c.agent).Target(agent.RunOptions{Provider: c.profile, Model: c.flag})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := launchModel(t, c.agent, agent.LaunchOptions{Provider: c.profile, Model: c.flag})
+			if got != tg.Model {
+				t.Errorf("launch %q vs agent %q", got, tg.Model)
+			}
+			if c.flag == "" && !strings.Contains(got, pin) {
+				t.Errorf("model %q ignores the pin %q", got, pin)
+			}
+		})
+	}
 }

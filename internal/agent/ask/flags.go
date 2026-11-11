@@ -14,8 +14,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/client"
-	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
@@ -217,7 +215,7 @@ func (a *agentsFlag) Set(s string) error {
 
 // ValidateAskFlags checks --format and --fallback against their allowed values.
 func ValidateAskFlags(format, fallback string) error {
-	if !slices.Contains(client.Formats, format) {
+	if !slices.Contains(agent.Formats, format) {
 		return fmt.Errorf("--format %q unknown (text|json|stream-json)", format)
 	}
 	if !slices.Contains(router.FallbackModes, fallback) {
@@ -326,7 +324,7 @@ type AskTarget struct {
 }
 
 // Apply copies a logged dispatch's request onto this ask invocation's flags; the env-names note goes to errw.
-func (t *AskTarget) Apply(rec job.Record, errw io.Writer) {
+func (t *AskTarget) Apply(rec agent.Record, errw io.Writer) {
 	*t.Name, *t.Provider, *t.Model, *t.Effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
 	*t.Workdir, *t.Session, *t.Tools, *t.Timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
 	*t.Attach, *t.Autonomous, *t.Fleet, *t.EnableMemory = rec.Request.Attach, rec.Request.Autonomous, rec.Request.Fleet, rec.Request.EnableMemory
@@ -354,8 +352,8 @@ func (t *AskTarget) Apply(rec job.Record, errw io.Writer) {
 var ErrJobNotFresh = errors.New("not a fresh background job")
 
 // LoadJobRecord loads a --job record for a background run continuation and claims it for this process.
-func LoadJobRecord(id string) (job.Record, error) {
-	r, err := job.LoadRecord(id)
+func LoadJobRecord(id string) (agent.Record, error) {
+	r, err := agent.LoadRecord(id)
 	if err != nil {
 		return r, err
 	}

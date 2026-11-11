@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/providers"
@@ -24,7 +23,7 @@ import (
 const ReportSchema = 1
 
 // streamLeg is the per-leg dispatch seam for Run.
-var streamLeg = (*client.Client).Stream
+var streamLeg = (*agent.Client).Stream
 
 // Report is a role run: Status is ok (all legs ok), partial (at least one) or error (none).
 type Report struct {
@@ -42,7 +41,7 @@ type LegResult struct {
 }
 
 // Run dispatches legs concurrently, host-isolated under a limit of min(jobs, 12), tagging progress lines with the label.
-func Run(ctx context.Context, c *client.Client, r Role, legs []Leg, jobs int, progress io.Writer) Report {
+func Run(ctx context.Context, c *agent.Client, r Role, legs []Leg, jobs int, progress io.Writer) Report {
 	ctx = agent.WithBatchRun(ctx, retry.NewBatchLimiter(min(jobs, MaxParts)))
 	rep := Report{Schema: ReportSchema, Role: r.Name, Agent: r.Agent, Legs: make([]LegResult, len(legs))}
 	var wg sync.WaitGroup
@@ -57,7 +56,7 @@ func Run(ctx context.Context, c *client.Client, r Role, legs []Leg, jobs int, pr
 	return rep
 }
 
-func runLeg(ctx context.Context, c *client.Client, leg Leg, progress io.Writer, mu *sync.Mutex) LegResult {
+func runLeg(ctx context.Context, c *agent.Client, leg Leg, progress io.Writer, mu *sync.Mutex) LegResult {
 	if leg.Err != "" {
 		return LegResult{Label: leg.Label, Envelope: failed(leg, leg.Err)}
 	}

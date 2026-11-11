@@ -28,7 +28,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/memory"
 
-	"github.com/edotau/claude-code/internal/agent/job"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -391,7 +391,7 @@ func keepLiveSession(p string) bool {
 	return pidAlive(pid)
 }
 
-// dispatchKeeper protects the files of the newest job.DispatchKeep() records; an unreadable dispatch dir protects all.
+// dispatchKeeper protects the files of the newest agent.DispatchKeep() records; an unreadable dispatch dir protects all.
 func dispatchKeeper() func(string) bool {
 	var keep map[string]bool
 	var readable, checked bool
@@ -404,7 +404,7 @@ func dispatchKeeper() func(string) bool {
 	}
 }
 
-// newestDispatches returns the stems of the newest job.DispatchKeep() records in dir; false when dir is unreadable.
+// newestDispatches returns the stems of the newest agent.DispatchKeep() records in dir; false when dir is unreadable.
 func newestDispatches(dir string) (map[string]bool, bool) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -421,7 +421,7 @@ func newestDispatches(dir string) (map[string]bool, bool) {
 	}
 	sort.Strings(names) // ids lead with a UTC timestamp, so name order is age order
 	keep := map[string]bool{}
-	for i := len(names) - 1; i >= 0 && len(keep) < job.DispatchKeep(); i-- {
+	for i := len(names) - 1; i >= 0 && len(keep) < agent.DispatchKeep(); i-- {
 		keep[dispatchStem(names[i])] = true
 	}
 	return keep, true

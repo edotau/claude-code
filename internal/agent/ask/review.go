@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -65,9 +64,9 @@ func runSplitReview(name string, args []string, parts []Part, scope Scope, o Rev
 	if o.Background && os.Getenv(reviewJobEnv) == "" {
 		return spawnSplitReview(name, args, len(parts))
 	}
-	var parent *job.Record
+	var parent *agent.Record
 	if id := os.Getenv(reviewJobEnv); id != "" {
-		r, err := job.LoadRecord(id)
+		r, err := agent.LoadRecord(id)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "review: job record %s not updated: %v\n", id, err)
 		} else {
@@ -122,7 +121,7 @@ func spawnSplitReview(name string, args []string, n int) int {
 	argv := append([]string{name, "review"}, slices.DeleteFunc(slices.Clone(args), func(a string) bool {
 		return a == "--background" || a == "-background" || a == "--background=true"
 	})...)
-	if err := job.SpawnArgv(&rec, argv, []string{reviewJobEnv + "=" + rec.ID}); err != nil {
+	if err := agent.SpawnArgv(&rec, argv, []string{reviewJobEnv + "=" + rec.ID}); err != nil {
 		return helptext.Fail("%s review: %v", name, err)
 	}
 	if err := rec.Save(); err != nil { // records the child's pid so status can tell running from lost
@@ -135,7 +134,7 @@ func spawnSplitReview(name string, args []string, n int) int {
 }
 
 // finishSplitReview closes the parent job record (when any) with err's text and returns the exit code.
-func finishSplitReview(parent *job.Record, err error) int {
+func finishSplitReview(parent *agent.Record, err error) int {
 	if parent != nil {
 		parent.Progress = ""
 		parent.Finish(wire.Result{}, err, time.Since(parent.Time))

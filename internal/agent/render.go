@@ -1,4 +1,4 @@
-package client
+package agent
 
 import (
 	"fmt"
@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 
 	"github.com/edotau/claude-code/internal/agentid"
@@ -78,7 +77,7 @@ func prepareSelectedConfigs(agents []string, reg *providers.Registry, sel provid
 	}
 	var drift bool
 	for _, name := range agents {
-		d, err := agent.SchemaFor(name).Eng().Render(reg, sel, home, o, out)
+		d, err := SchemaFor(name).Eng().Render(reg, sel, home, o, out)
 		if err != nil {
 			return drift, err
 		}
@@ -111,7 +110,7 @@ func RevertConfigs(o agentconfig.RenderOptions) error {
 		out = os.Stdout
 	}
 	for _, a := range agents {
-		files, err := agent.SchemaFor(a).Eng().ConfigPaths(o.Home)
+		files, err := SchemaFor(a).Eng().ConfigPaths(o.Home)
 		if err != nil {
 			return fmt.Errorf("generate: %w", err)
 		}

@@ -17,8 +17,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/client"
-	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/databricks"
@@ -60,7 +58,7 @@ type askRun struct {
 	defs    map[string]*agent.Schema
 	fileOv  agentconfig.Overlay
 	schema  string
-	jobRec  *job.Record
+	jobRec  *agent.Record
 	prompt  string
 	state   *askState
 	perms   agent.Permissions
@@ -124,7 +122,7 @@ func (r *askRun) selectAgent() (int, bool) {
 		return r.fail(err, 2)
 	}
 	f.name = r.ag
-	if err := client.ValidateAs(f.as, f.name); err != nil { // against the resolved agent: a claude persona passes
+	if err := agent.ValidateAs(f.as, f.name); err != nil { // against the resolved agent: a claude persona passes
 		return r.fail(err, 2)
 	}
 	if err := askCheckCombos(r.fs, f.name, f.live, r.persona != nil, f.host, f.background, f.job, f.batchSrc, len(f.env) > 0); err != nil {
@@ -265,7 +263,7 @@ func (r *askRun) execute() int {
 		return startLive(r.state, r.perms, f.name, f.as, f.format)
 	}
 	if r.jobRec != nil && r.jobRec.Live {
-		return job.RunHolder(r.jobRec, NewClient().Launcher)
+		return agent.RunHolder(r.jobRec, NewClient().Launcher)
 	}
 	var framed *bufio.Reader // set only for the remote end of `ask --host`
 	var prompt string
@@ -325,7 +323,7 @@ func askEnableOverlays(debugPath, overlayPath string) int {
 }
 
 // askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches it or runs it and reports.
-func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *job.Record, fileOv agentconfig.Overlay,
+func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, fileOv agentconfig.Overlay,
 	env, keepEnv []string, as, format, name string, background, native bool) int {
 	ov, err := ResolveOverlay(fileOv, env, keepEnv, background)
 	if err != nil {
@@ -408,8 +406,8 @@ func prepareExitCode(err error) int {
 }
 
 // askSpawn detaches a prepared dispatch as a background job.
-func askSpawn(fs *flag.FlagSet, prepared *client.Prepared, native bool, format, name string) int {
-	if err := job.Spawn(&prepared.Record, backgroundExtraFlags(fs, prepared.Opts.Fallback, native)); err != nil {
+func askSpawn(fs *flag.FlagSet, prepared *agent.Prepared, native bool, format, name string) int {
+	if err := agent.Spawn(&prepared.Record, backgroundExtraFlags(fs, prepared.Opts.Fallback, native)); err != nil {
 		return failAsk(format, name, failSpawn(&prepared.Record, err))
 	}
 	if err := ReportBackgroundStart(format, prepared.Record); err != nil {
@@ -430,8 +428,8 @@ func absDebugFile(p string) string {
 }
 
 // runAskAndReport executes one prepared foreground dispatch and reports its outcome.
-func runAskAndReport(ctx context.Context, client *client.Client, p *client.Prepared, isJob bool, format string) int {
-	opts := job.RunRecordedOpts{Job: isJob}
+func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepared, isJob bool, format string) int {
+	opts := agent.RunRecordedOpts{Job: isJob}
 	if isJob && format == helptext.Text {
 		opts.AnswerTo = os.Stdout // a --job child's stdout is the log: the full answer lands once at the end
 	}
@@ -457,7 +455,7 @@ func StdoutSink(format, dispatchID string) wire.Sink {
 	switch format {
 	case helptext.JSON:
 		return wire.Discard
-	case client.FormatStreamJSON:
+	case agent.FormatStreamJSON:
 		return wire.NewJSONLSink(os.Stdout, dispatchID)
 	}
 	return wire.NewTextSink(os.Stdout)
@@ -472,7 +470,7 @@ type askState struct {
 }
 
 // loadAskJob loads a --job record for a background run continuation; rc/done are set only on an early return.
-func loadAskJob(job, format string, s *askState, prompt *string) (rec *job.Record, rc int, done bool) {
+func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Record, rc int, done bool) {
 	if job == "" {
 		return nil, 0, false
 	}
@@ -493,7 +491,7 @@ func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askS
 	if retry == "" {
 		return 0, false
 	}
-	rec, err := job.LoadRecord(retry)
+	rec, err := agent.LoadRecord(retry)
 	if err != nil {
 		return failAsk(format, *s.Name, err), true
 	}
@@ -533,7 +531,7 @@ func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askS
 
 // printDispatchLog lists recent dispatches; the prompt preview is scrubbed of credential shapes.
 func printDispatchLog(format string) int {
-	recs := job.RecentRecords(20)
+	recs := agent.RecentRecords(20)
 	if format == helptext.JSON {
 		return helptext.WriteJSONOrFail("ask", recs)
 	}
@@ -551,8 +549,8 @@ func printDispatchLog(format string) int {
 var RouteRefresh = usagepkg.RefreshAccount
 
 // NewClient builds the dispatch client; RouteRefresh is the offline-able account refresh.
-func NewClient() *client.Client {
-	return client.NewClient(router.RuleClassifier{}.Alias, RouteRefresh,
+func NewClient() *agent.Client {
+	return agent.NewClient(router.RuleClassifier{}.Alias, RouteRefresh,
 		func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) })
 }
 
@@ -575,7 +573,7 @@ func backgroundExtraFlags(fs *flag.FlagSet, fallback string, native bool) []stri
 }
 
 // ReportBackgroundStart tells the caller how to track a detached job.
-func ReportBackgroundStart(format string, rec job.Record) error {
+func ReportBackgroundStart(format string, rec agent.Record) error {
 	if format == helptext.JSON {
 		body, _ := json.Marshal(struct {
 			ID  string `json:"id"`
@@ -605,7 +603,7 @@ func printAskFailure(format, agentName string, err error) {
 	case helptext.JSON:
 		body, _ := json.Marshal(wire.FailureEnvelope(agentName, err))
 		_, werr = fmt.Println(string(body))
-	case client.FormatStreamJSON:
+	case agent.FormatStreamJSON:
 		werr = StdoutSink(format, "").Emit(wire.ResultEvent(wire.FailureEnvelope(agentName, err)))
 	}
 	if werr != nil {
@@ -627,7 +625,7 @@ func reportAskResult(format string, res wire.Result, err error, dispatchID strin
 		_, werr := fmt.Println(string(body))
 		return werr
 	}
-	if format == client.FormatStreamJSON {
+	if format == agent.FormatStreamJSON {
 		return nil // the result event already carried the envelope
 	}
 	if res.Answer != "" && !strings.HasSuffix(res.Answer, "\n") {

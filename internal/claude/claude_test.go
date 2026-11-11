@@ -2,14 +2,17 @@ package claude
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -628,4 +632,383 @@ func TestClaudeLoginProbeScrubsCredentials(t *testing.T) {
 // resetClaudeProbe drops the memo so the next claudeLoginProbe runs the binary again.
 func resetClaudeProbe() {
 	claudeProbeMemo.Drop()
+}
+
+// fakeLiveClaude is a shell claude that holds stdin open and answers each stream-json user turn with a result.
+const fakeLiveClaude = `#!/bin/sh
+mem=none
+while IFS= read -r line; do
+  p=$(printf '%s' "$line" | sed -n 's/.*"content":"\([^"]*\)".*/\1/p')
+  case "$p" in
+    remember*) mem=${p#remember }; ans=ok ;;
+    slow*) : > "$CLAUDE_CONFIG_DIR/slow-started"; while [ ! -e "$CLAUDE_CONFIG_DIR/slow-go" ]; do sleep 0.02; done; ans=slow ;;
+    boom*) printf '{"type":"error","message":"kaboom"}\n'; ans=late ;;
+    *) ans="$mem pid $$" ;;
+  esac
+  printf '{"type":"assistant","session_id":"s1","message":{"content":[{"type":"text","text":"%s"}]}}\n' "$ans"
+  printf '{"type":"result","subtype":"success","is_error":false,"result":"%s","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}\n' "$ans"
+done
+`
+
+// socketAccepts dials rather than stats: the socket file exists a moment before the holder listens on it.
+func socketAccepts(path string) bool {
+	c, err := net.DialTimeout("unix", path, time.Second)
+	if err != nil {
+		return false
+	}
+	_ = c.Close()
+	return true
+}
+
+// liveEnv gives the test a short /tmp config dir (a unix socket path caps at 104 bytes on macOS, 108 on Linux) holding the fake claude.
+func liveEnv(t *testing.T) { liveEnvScript(t, fakeLiveClaude) }
+
+func liveEnvScript(t *testing.T, script string) {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "lv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	home := filepath.Join(dir, "home") // the agy target needs a Google sign-in marker; never read the developer's
+	marker := filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token")
+	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(paths.BinDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(paths.BinDir(), "claude"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// startHolder claims a live record and runs ServeLive on it; the returned func waits for the holder and its error.
+func startHolder(t *testing.T, ctx context.Context, idle time.Duration) (string, func() error) {
+	t.Helper()
+	return startHolderAs(t, ctx, "claude", idle)
+}
+
+func startHolderAs(t *testing.T, ctx context.Context, name string, idle time.Duration) (string, func() error) {
+	t.Helper()
+	rec := agent.ClaimRecord(name, agent.RunOptions{Timeout: idle}, time.Now())
+	rec.Live, rec.PID = true, os.Getpid()
+	rec.Request.Launcher = testLauncher{}
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	done, id := make(chan error, 1), rec.ID
+	go func() { done <- agent.ServeLive(ctx, &rec) }()
+	for range 200 {
+		if socketAccepts(agent.LiveSocket(id)) {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if _, err := os.Stat(agent.LiveSocket(id)); err != nil {
+		select {
+		case serveErr := <-done:
+			t.Fatalf("holder did not open its socket: %v (serve: %v)", err, serveErr)
+		default:
+			t.Fatalf("holder did not open its socket: %v", err)
+		}
+	}
+	return id, func() error { return <-done }
+}
+
+type collect struct {
+	mu  sync.Mutex
+	got []wire.Event
+}
+
+func (c *collect) Emit(ev wire.Event) error {
+	c.mu.Lock()
+	c.got = append(c.got, ev)
+	c.mu.Unlock()
+	return nil
+}
+
+// testLauncher is the found claude with the caller's args, skipping the real launch plan.
+type testLauncher struct{}
+
+func (testLauncher) Claude(_ context.Context, o agent.ClaudeOptions, args []string) (agent.ClaudeLaunch, error) {
+	bin, err := ClaudeBinary()
+	if err != nil {
+		return agent.ClaudeLaunch{}, err
+	}
+	return agent.ClaudeLaunch{Binary: bin, Argv: args, Env: os.Environ(), Set: map[string]string{providers.EnvSessionProfile: o.Provider}}, nil
+}
+
+// Two turns recall each other on one claude process, a concurrent send is refused, and cancel ends the session.
+func TestLiveSessionTurnsRefusalAndCancel(t *testing.T) {
+	liveEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	id, wait := startHolder(t, ctx, time.Minute)
+	if info, err := os.Stat(agent.LiveSocket(id)); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("socket = %v, %v; want mode 0600", info, err)
+	}
+	assertLiveRecall(t, id)
+	slow := make(chan error, 1)
+	go func() { _, e := agent.SendLive(context.Background(), id, "slow", wire.Discard); slow <- e }()
+	started := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "slow-started")
+	for range 400 {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := agent.SendLive(context.Background(), id, "second", wire.Discard); err != agent.ErrLiveBusy {
+		t.Errorf("concurrent send = %v, want ErrLiveBusy", err)
+	}
+	if err := os.WriteFile(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "slow-go"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-slow; err != nil {
+		t.Errorf("the in-flight turn must finish: %v", err)
+	}
+	cancel()
+	assertLiveCancelled(t, id, wait)
+}
+
+func assertLiveRecall(t *testing.T, id string) {
+	t.Helper()
+	var sink collect
+	env, err := agent.SendLive(context.Background(), id, "remember 42", &sink)
+	if err != nil || env.Status != wire.StatusOK || env.Answer != "ok" {
+		t.Fatalf("turn 1 = %+v, %v", env, err)
+	}
+	if first := sink.got[0].Type; first != wire.EventStart {
+		t.Errorf("first event = %s, want start", first)
+	}
+	env2, err := agent.SendLive(context.Background(), id, "what number", wire.Discard)
+	if err != nil || !strings.HasPrefix(env2.Answer, "42 pid ") {
+		t.Fatalf("turn 2 = %+v, %v (the second turn must recall the first)", env2, err)
+	}
+}
+
+func assertLiveCancelled(t *testing.T, id string, wait func() error) {
+	t.Helper()
+	if err := wait(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(agent.LiveSocket(id)); !os.IsNotExist(err) {
+		t.Errorf("socket must be removed on exit: %v", err)
+	}
+	got, _ := agent.LoadRecord(id)
+	if got.Status != "error" || got.Error != "cancelled" {
+		t.Errorf("record = %s %q, want error cancelled", got.Status, got.Error)
+	}
+}
+
+// An idle session ends as ok after the short override; a send after that is refused as ended.
+func TestLiveIdleTimeoutEndsOK(t *testing.T) {
+	liveEnv(t)
+	id, wait := startHolder(t, context.Background(), 300*time.Millisecond)
+	if err := wait(); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := agent.LoadRecord(id); got.Status != "ok" {
+		t.Errorf("idle end status = %s, want ok", got.Status)
+	}
+	if _, err := agent.SendLive(context.Background(), id, "x", wire.Discard); err == nil || !strings.Contains(err.Error(), "ended") {
+		t.Errorf("send after idle = %v, want an ended error", err)
+	}
+}
+
+// fakeNoisyClaude writes 200 KB to stdout before it reads stdin, so an undrained stdout blocks claude and,
+// with a large prompt, the holder's stdin write too.
+const fakeNoisyClaude = `#!/bin/sh
+printf '{"type":"system","subtype":"noise","message":"%s"}\n' "$(head -c 200000 /dev/zero | tr '\0' x)"
+` + fakeLiveClaude
+
+// A large prompt sent while claude's between-turn output fills the stdout pipe must not deadlock the holder.
+func TestLiveLargePromptWithPendingOutputDoesNotDeadlock(t *testing.T) {
+	liveEnvScript(t, fakeNoisyClaude)
+	id, wait := startHolder(t, context.Background(), 300*time.Millisecond)
+	done := make(chan error, 1)
+	go func() {
+		_, err := agent.SendLive(context.Background(), id, strings.Repeat("y", 200000), wire.Discard)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("send deadlocked: stdin write blocked behind an undrained stdout")
+	}
+	if err := wait(); err != nil { // the idle timer must still run and end the session
+		t.Fatal(err)
+	}
+}
+
+// A turn that fails with a top-level error must never leave its late result to answer the next send.
+func TestLiveTurnErrorNeverLeaksIntoNextTurn(t *testing.T) {
+	liveEnv(t)
+	id, wait := startHolder(t, context.Background(), 5*time.Second)
+	if _, err := agent.SendLive(context.Background(), id, "boom", wire.Discard); err != nil {
+		t.Logf("failing turn: %v", err)
+	}
+	env, err := agent.SendLive(context.Background(), id, "remember 7", wire.Discard)
+	if err == nil && env.Answer == "late" {
+		t.Fatalf("next send got the previous turn's answer %q", env.Answer)
+	}
+	_ = wait()
+}
+
+// fakeCostClaude answers each turn with a result whose total_cost_usd accumulates 0.5 per turn, as claude's does.
+const fakeCostClaude = `#!/bin/sh
+n=0
+while IFS= read -r line; do
+  n=$((n + 1))
+  printf '{"type":"result","subtype":"success","is_error":false,"result":"r","session_id":"s1","total_cost_usd":%s,"usage":{"input_tokens":1,"output_tokens":1}}\n' "$(echo "$n" | awk '{print $1 * 0.5}')"
+done
+`
+
+// Claude's total_cost_usd accumulates over the process; each live turn must report only its own cost.
+func TestLiveClaudeCostIsPerTurn(t *testing.T) {
+	liveEnvScript(t, fakeCostClaude)
+	ctx, cancel := context.WithCancel(context.Background())
+	id, wait := startHolder(t, ctx, time.Minute)
+	defer func() { cancel(); _ = wait() }()
+	for turn := 1; turn <= 3; turn++ {
+		env, err := agent.SendLive(context.Background(), id, "x", wire.Discard)
+		if err != nil || env.Usage.CostUSD != 0.5 {
+			t.Fatalf("turn %d = cost %v, %v; want the turn's own 0.5", turn, env.Usage.CostUSD, err)
+		}
+	}
+}
+
+// fakeExitAfterResult answers the first turn with a bulky assistant line and the final result, then exits at once.
+const fakeExitAfterResult = `#!/bin/sh
+IFS= read -r line
+pad=$(head -c 400000 /dev/zero | tr '\0' x)
+printf '{"type":"assistant","session_id":"s1","message":{"content":[{"type":"text","text":"%s"}]}}\n' "$pad"
+printf '{"type":"result","subtype":"success","is_error":false,"result":"final","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}\n'
+`
+
+// The last turn's tail survives a child that exits right after writing it: Wait runs only once stdout is drained.
+func TestLiveFinalResultSurvivesImmediateChildExit(t *testing.T) {
+	for i := range 30 {
+		liveEnvScript(t, fakeExitAfterResult)
+		id, wait := startHolder(t, context.Background(), time.Minute)
+		env, err := agent.SendLive(context.Background(), id, "go", wire.Discard)
+		if err != nil || env.Answer != "final" {
+			t.Fatalf("run %d: answer %q, err %v; want the final result delivered", i, env.Answer, err)
+		}
+		_ = wait()
+	}
+}
+
+// A cancelled run still reaps the child and ends the holder: serveChild's Wait goroutine must not block forever.
+func TestLiveCancelEndsHolderAndReapsChild(t *testing.T) {
+	liveEnvScript(t, "#!/bin/sh\nexec /bin/sleep 20\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	_, wait := startHolder(t, ctx, time.Minute)
+	cancel()
+	done := make(chan error, 1)
+	go func() { done <- wait() }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("holder did not end after cancel: serveChild deadlocked on pump.done")
+	}
+}
+
+// syncBuffer is a bytes.Buffer safe for Tail writing while the test reads.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+type tailOutcome struct {
+	rec agent.Record
+	err error
+}
+
+type resultNoticeWriter struct {
+	out     syncBuffer
+	results chan struct{}
+}
+
+func (w *resultNoticeWriter) Write(p []byte) (int, error) {
+	n, err := w.out.Write(p)
+	if strings.Contains(string(p), `"type":"result"`) {
+		w.results <- struct{}{}
+	}
+	return n, err
+}
+
+func awaitTailResult(t *testing.T, results <-chan struct{}, done <-chan tailOutcome) {
+	t.Helper()
+	select {
+	case <-results:
+	case got := <-done:
+		t.Fatalf("tail ended before the next turn result: status=%s err=%v", got.rec.Status, got.err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("tail did not copy the turn result")
+	}
+}
+
+// Runs at agent's production tail cadence (250ms poll): the swap seam is unexported in package agent.
+func TestTailEventsFollowsTwoLiveTurns(t *testing.T) {
+	liveEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	id, wait := startHolder(t, ctx, time.Minute)
+	t.Cleanup(func() { cancel(); _ = wait() })
+	rec, err := agent.LoadRecord(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sendTailTurn(t, id, "remember 42", "ok")
+	out := &resultNoticeWriter{results: make(chan struct{}, 4)}
+	tailCtx, stop := context.WithTimeout(context.Background(), 3*time.Second)
+	defer stop()
+	done := make(chan tailOutcome, 1)
+	go func() {
+		got, err := agent.TailEvents(tailCtx, rec, true, out)
+		done <- tailOutcome{got, err}
+	}()
+	awaitTailResult(t, out.results, done)
+	sendTailTurn(t, id, "what number", "42 pid ")
+	awaitTailResult(t, out.results, done)
+	select {
+	case got := <-done:
+		t.Fatalf("healthy live session lost after a turn: status=%s err=%v", got.rec.Status, got.err)
+	case <-time.After(750 * time.Millisecond): // three production tail polls
+	}
+	stop()
+	got := <-done
+	if !errors.Is(got.err, context.Canceled) || !got.rec.Alive() {
+		t.Fatalf("tail cancellation = %s, %v; want a still-live record and cancellation", got.rec.Status, got.err)
+	}
+	if n := strings.Count(out.out.String(), `"type":"result"`); n != 2 {
+		t.Fatalf("copied %d turn results, want 2", n)
+	}
+}
+
+func sendTailTurn(t *testing.T, id, prompt, answer string) {
+	t.Helper()
+	env, err := agent.SendLive(context.Background(), id, prompt, wire.Discard)
+	if err != nil || env.Status != wire.StatusOK || !strings.HasPrefix(env.Answer, answer) {
+		t.Fatalf("live turn = %+v, %v; want answer starting %q", env, err, answer)
+	}
 }

@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/client"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -239,15 +238,15 @@ func renderModeConflict(restore, revert bool, section string) error {
 // unknownAgent rejects a typo the engine would skip silently.
 func unknownAgent(agents string) error {
 	for a := range strings.SplitSeq(agents, ",") {
-		if a = strings.TrimSpace(a); a != "" && !slices.Contains(client.DefaultAgents, a) {
-			return fmt.Errorf("configure: unknown --agent %q (%s)", a, strings.Join(client.DefaultAgents, "|"))
+		if a = strings.TrimSpace(a); a != "" && !slices.Contains(agent.DefaultAgents, a) {
+			return fmt.Errorf("configure: unknown --agent %q (%s)", a, strings.Join(agent.DefaultAgents, "|"))
 		}
 	}
 	return nil
 }
 
 // agentNames are the agent CLIs `configure --agent` can scope to: the agents plus claude itself.
-func agentNames() []string { return append([]string{"claude"}, client.DefaultAgents...) }
+func agentNames() []string { return append([]string{"claude"}, agent.DefaultAgents...) }
 
 // authNames are the github profiles with a login, plus "follow", for `configure github --auth`.
 func authNames() []string {

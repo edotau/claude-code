@@ -1,4 +1,4 @@
-package job
+package agent
 
 import (
 	"context"
@@ -15,7 +15,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
@@ -29,7 +28,7 @@ import (
 func TestDispatchRecordLifecycleAndPrune(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
-	r := NewRecord("codex", agent.RunOptions{Prompt: "p", Tools: true}, base)
+	r := NewRecord("codex", RunOptions{Prompt: "p", Tools: true}, base)
 	if err := r.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +52,7 @@ func assertDispatchRecordPruning(t *testing.T, base time.Time) {
 	dispatchKeep = 2
 	defer func() { dispatchKeep = old }()
 	for i := 1; i <= dispatchKeep+dispatchPruneMargin; i++ {
-		if err := NewRecord("gemini", agent.RunOptions{Prompt: "q"}, base.Add(time.Duration(i)*time.Minute)).Save(); err != nil {
+		if err := NewRecord("gemini", RunOptions{Prompt: "q"}, base.Add(time.Duration(i)*time.Minute)).Save(); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -106,7 +105,7 @@ func TestPruneDispatchesRemovesLog(t *testing.T) {
 	dispatchKeep = 1
 	defer func() { dispatchKeep = old }()
 
-	first := NewRecord("codex", agent.RunOptions{Prompt: "p"}, base)
+	first := NewRecord("codex", RunOptions{Prompt: "p"}, base)
 	if err := first.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -144,20 +143,20 @@ func TestPruneDispatchesSkipsActiveBackgroundRecord(t *testing.T) {
 
 	// active sits 2nd-oldest so the prune walk reaches it before excess is exhausted; if the active
 	// guard were missing, the walk would remove it here instead of skipping on to trigger1.
-	finished := NewRecord("codex", agent.RunOptions{Prompt: "old"}, base)
+	finished := NewRecord("codex", RunOptions{Prompt: "old"}, base)
 	finished.Status = "ok"
 	if err := finished.Save(); err != nil {
 		t.Fatal(err)
 	}
 
-	active := NewRecord("codex", agent.RunOptions{Prompt: "bg"}, base.Add(time.Minute))
+	active := NewRecord("codex", RunOptions{Prompt: "bg"}, base.Add(time.Minute))
 	active.Log = filepath.Join(paths.DispatchDir(), active.ID+".log")
 	active.PID = cmd.Process.Pid
 	if err := active.Save(); err != nil {
 		t.Fatal(err)
 	}
 
-	trigger1 := NewRecord("codex", agent.RunOptions{Prompt: "newer"}, base.Add(2*time.Minute))
+	trigger1 := NewRecord("codex", RunOptions{Prompt: "newer"}, base.Add(2*time.Minute))
 	trigger1.Status = "ok"
 	if err := trigger1.Save(); err != nil {
 		t.Fatal(err)
@@ -165,7 +164,7 @@ func TestPruneDispatchesSkipsActiveBackgroundRecord(t *testing.T) {
 
 	savePruneRecords(t, base.Add(3*time.Minute), dispatchPruneMargin-1)
 	// Cross the margin so trigger1 must be pruned in active's place.
-	trigger2 := NewRecord("codex", agent.RunOptions{Prompt: "newest"}, base.Add(time.Duration(dispatchPruneMargin+2)*time.Minute))
+	trigger2 := NewRecord("codex", RunOptions{Prompt: "newest"}, base.Add(time.Duration(dispatchPruneMargin+2)*time.Minute))
 	trigger2.Status = "ok"
 	if err := trigger2.Save(); err != nil {
 		t.Fatal(err)
@@ -203,7 +202,7 @@ func TestPruneDispatchesPrunesDeadPIDBackgroundRecord(t *testing.T) {
 		t.Fatalf("spawn a short-lived process: %v", err)
 	}
 
-	dead := NewRecord("codex", agent.RunOptions{Prompt: "bg"}, base)
+	dead := NewRecord("codex", RunOptions{Prompt: "bg"}, base)
 	dead.Log = filepath.Join(paths.DispatchDir(), dead.ID+".log")
 	dead.PID = cmd.Process.Pid // reaped, no longer alive
 	if err := dead.Save(); err != nil {
@@ -226,7 +225,7 @@ func TestPruneDispatchesPrunesForegroundRunningRecord(t *testing.T) {
 	dispatchKeep = 1
 	defer func() { dispatchKeep = old }()
 
-	fg := NewRecord("codex", agent.RunOptions{Prompt: "fg"}, base) // Status "running", Log left empty
+	fg := NewRecord("codex", RunOptions{Prompt: "fg"}, base) // Status "running", Log left empty
 	if err := fg.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -280,26 +279,26 @@ func TestPruneDispatchesKeepsAlivePID0RecordDropsStalePID0Record(t *testing.T) {
 	dispatchKeep = 2
 	defer func() { dispatchKeep = old }()
 
-	stale := NewRecord("codex", agent.RunOptions{Prompt: "stale"}, base) // PID 0, Time stays 8 days in the past: not alive
+	stale := NewRecord("codex", RunOptions{Prompt: "stale"}, base) // PID 0, Time stays 8 days in the past: not alive
 	if err := stale.Save(); err != nil {
 		t.Fatal(err)
 	}
 
 	// alive's ID sorts as 2nd-oldest (so the prune walk reaches it before excess is exhausted), but
 	// its on-disk Time is overridden to "just now" so Alive() reports it live despite Status "running".
-	alive := NewRecord("codex", agent.RunOptions{Prompt: "alive"}, base.Add(30*time.Second))
+	alive := NewRecord("codex", RunOptions{Prompt: "alive"}, base.Add(30*time.Second))
 	alive.Time = time.Now().Add(-5 * time.Second)
 	if err := alive.Save(); err != nil {
 		t.Fatal(err)
 	}
 
-	trigger1 := NewRecord("codex", agent.RunOptions{Prompt: "trigger1"}, base.Add(time.Minute))
+	trigger1 := NewRecord("codex", RunOptions{Prompt: "trigger1"}, base.Add(time.Minute))
 	trigger1.Status = "ok"
 	if err := trigger1.Save(); err != nil {
 		t.Fatal(err)
 	}
 	savePruneRecords(t, base.Add(2*time.Minute), dispatchPruneMargin-1)
-	trigger2 := NewRecord("codex", agent.RunOptions{Prompt: "trigger2"}, base.Add(time.Duration(dispatchPruneMargin+1)*time.Minute))
+	trigger2 := NewRecord("codex", RunOptions{Prompt: "trigger2"}, base.Add(time.Duration(dispatchPruneMargin+1)*time.Minute))
 	trigger2.Status = "ok"
 	if err := trigger2.Save(); err != nil {
 		t.Fatal(err)
@@ -322,7 +321,7 @@ func TestPruneDispatchesKeepsAlivePID0RecordDropsStalePID0Record(t *testing.T) {
 func savePruneRecords(t *testing.T, base time.Time, count int) {
 	t.Helper()
 	for i := range count {
-		rec := NewRecord("codex", agent.RunOptions{Prompt: "filler"}, base.Add(time.Duration(i)*time.Minute))
+		rec := NewRecord("codex", RunOptions{Prompt: "filler"}, base.Add(time.Duration(i)*time.Minute))
 		rec.Status = "ok"
 		if err := rec.Save(); err != nil {
 			t.Fatal(err)
@@ -336,7 +335,7 @@ func TestPruneDispatchesMarginBoundaryKeepsOldestActiveRecord(t *testing.T) {
 	dispatchKeep = 2
 	t.Cleanup(func() { dispatchKeep = old })
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
-	active := NewRecord("codex", agent.RunOptions{Prompt: "oldest active"}, base)
+	active := NewRecord("codex", RunOptions{Prompt: "oldest active"}, base)
 	active.PID = os.Getpid()
 	if err := active.Save(); err != nil {
 		t.Fatal(err)
@@ -377,7 +376,7 @@ func TestPruneDispatchesMarginBoundaryKeepsOldestActiveRecord(t *testing.T) {
 // A fresh --background record (running, Log set, live PID) reads back as running and Alive, not lost.
 func TestFreshBackgroundRecordReadsBackAlive(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	rec.PID, rec.Log = os.Getpid(), "job.log"
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -398,13 +397,13 @@ func TestRecordKeepsRequestAndInvokedModel(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	first := &recordRunner{name: "codex", err: &retry.Error{Kind: retry.KindQuota, Agent: "codex", Err: io.EOF}}
 	second := &recordRunner{name: "claude", res: wire.Result{Answer: "ok"}}
-	chain := agent.Chain{Want: "codex", Dispatches: []agent.Dispatch{
+	chain := Chain{Want: "codex", Dispatches: []Dispatch{
 		{Agent: first, Model: "prof:gpt-6-astra"},
 		{Agent: second, Model: "prof:claude-sonnet-5-5"},
 	}}
-	req := agent.RunOptions{Prompt: "p", Model: "gpt-6-astra"}
+	req := RunOptions{Prompt: "p", Model: "gpt-6-astra"}
 	rec := NewRecord("codex", req, time.Date(2026, 10, 28, 1, 0, 0, 0, time.UTC))
-	res, err := agent.RunWithFallback(context.Background(), chain, req, wire.Discard, nil)
+	res, err := RunWithFallback(context.Background(), chain, req, wire.Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +446,7 @@ func TestDispatchRecordSchemaStampsNewAndRejectsNewer(t *testing.T) {
 		t.Fatalf("pre-schema record: %+v, %v", got, err)
 	}
 
-	rec := NewRecord("copilot", agent.RunOptions{}, time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC))
+	rec := NewRecord("copilot", RunOptions{}, time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC))
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -485,7 +484,7 @@ func assertDispatchSchemaStamp(t *testing.T, id string) {
 func TestPrintDispatchLogPreviewCutsOnRuneBoundary(t *testing.T) {
 	// Given a prompt of 4-byte runes longer than the preview; When the log prints; Then the cut line is valid UTF-8
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := NewRecord("codex", agent.RunOptions{Prompt: strings.Repeat("😀", 100)}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: strings.Repeat("😀", 100)}, time.Now())
 	rec.Status = "ok"
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -513,7 +512,7 @@ func TestReserveIsExclusiveAcrossBatches(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range n {
 		wg.Go(func() {
-			ids[i] = ClaimRecord("codex", agent.RunOptions{Prompt: "p"}, now).ID // the one allocator every dispatch path uses
+			ids[i] = ClaimRecord("codex", RunOptions{Prompt: "p"}, now).ID // the one allocator every dispatch path uses
 		})
 	}
 	wg.Wait()
@@ -543,7 +542,7 @@ func TestReservedRecordSurvivesPrune(t *testing.T) {
 	if err := done.Save(); err != nil {
 		t.Fatal(err)
 	}
-	rec := ClaimRecord("aa", agent.RunOptions{Prompt: "p"}, time.Now())
+	rec := ClaimRecord("aa", RunOptions{Prompt: "p"}, time.Now())
 	pruneDispatches(dir) // lands between reserve and Save
 	if _, err := os.Stat(filepath.Join(dir, rec.ID+".json")); err != nil {
 		t.Errorf("the reserved record was pruned before Save: %v", err)
@@ -553,7 +552,7 @@ func TestReservedRecordSurvivesPrune(t *testing.T) {
 // task_id, batch_id and plan_task survive Save and Load; a record without them still loads.
 func TestRecordTaskBatchPlanRoundTrip(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	r := NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC))
+	r := NewRecord("codex", RunOptions{Prompt: "p"}, time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC))
 	r.TaskID, r.BatchID, r.PlanTask = "t1", "batch-x", "Phase 1.1"
 	if err := r.Save(); err != nil {
 		t.Fatal(err)
@@ -594,7 +593,7 @@ func (p *resultProbe) Emit(ev wire.Event) error {
 // A tail follower exits on a finished record, so the result event must be written before the record leaves running.
 func TestDispatchWritesResultBeforeFinishedRecord(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := ClaimRecord("codex", agent.RunOptions{}, time.Now())
+	rec := ClaimRecord("codex", RunOptions{}, time.Now())
 	probe := &resultProbe{id: rec.ID}
 	_, err := RunRecorded(context.Background(), &rec, "codex", probe, RunRecordedOpts{},
 		func(context.Context, wire.Sink) (wire.Result, error) {
@@ -614,7 +613,7 @@ func TestDispatchWritesResultBeforeFinishedRecord(t *testing.T) {
 // A codex dispatch asked at sonnet keeps the alias in the record (and so in --retry) while the answer reports the shared model.
 func TestRecordKeepsRequestedAlias(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "p", Model: "sonnet"}, time.Date(2026, 10, 28, 2, 0, 0, 0, time.UTC))
+	rec := NewRecord("codex", RunOptions{Prompt: "p", Model: "sonnet"}, time.Date(2026, 10, 28, 2, 0, 0, 0, time.UTC))
 	rec.Finish(wire.Result{Answer: "ok", Model: "gpt-6.1-sol"}, nil, time.Second)
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -637,13 +636,13 @@ type recordRunner struct {
 
 func (f *recordRunner) Name() string { return f.name }
 
-func (f *recordRunner) Caps() agent.Caps {
-	return agent.Caps{Model: agent.Native, Effort: agent.Native}
+func (f *recordRunner) Caps() Caps {
+	return Caps{Model: Native, Effort: Native}
 }
 
 func (f *recordRunner) Available() error { return nil }
 
-func (f *recordRunner) Run(context.Context, agent.RunOptions, wire.Sink) (wire.Result, error) {
+func (f *recordRunner) Run(context.Context, RunOptions, wire.Sink) (wire.Result, error) {
 	return f.res, f.err
 }
 
@@ -654,7 +653,7 @@ func (brokenSink) Emit(wire.Event) error { return errors.New("stdout closed") }
 // Given a sink whose start emit fails, Then the claimed record leaves running instead of staying a phantom.
 func TestRunRecordedFailedStartEmitFinishesRecord(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := ClaimRecord("claude", agent.RunOptions{}, time.Now())
+	rec := ClaimRecord("claude", RunOptions{}, time.Now())
 	ran := false
 	_, err := RunRecorded(context.Background(), &rec, "claude", brokenSink{}, RunRecordedOpts{},
 		func(context.Context, wire.Sink) (wire.Result, error) { ran = true; return wire.Result{}, nil })
@@ -672,7 +671,7 @@ func TestRunRecordedFailedStartEmitFinishesRecord(t *testing.T) {
 
 func TestRecordSavePersistsOwnProcessIdentity(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := ClaimRecord("codex", agent.RunOptions{}, time.Now())
+	rec := ClaimRecord("codex", RunOptions{}, time.Now())
 	rec.PID = os.Getpid()
 	want, err := proc.StartTime(rec.PID)
 	if err != nil {
@@ -700,11 +699,11 @@ func TestRecordSavePersistsOwnProcessIdentity(t *testing.T) {
 func TestNewRecordLogsWidening(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"codex":{"permission":{"defaults":{"allow":["Read"]}}}}}`)
-	p, err := agent.ParsePermissions("", []string{"Read", "Bash(touch:*)"}, nil, []string{"Bash(rm:*)"})
+	p, err := ParsePermissions("", []string{"Read", "Bash(touch:*)"}, nil, []string{"Bash(rm:*)"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "p", Permissions: p}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p", Permissions: p}, time.Now())
 	if want := []string{"allow Bash(touch:*)"}; !slices.Equal(rec.Widened, want) {
 		t.Errorf("Widened = %q, want %q", rec.Widened, want)
 	}
@@ -715,16 +714,16 @@ func TestFinishRecomputesWideningForFallbackAgent(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Put(t, vault.Overlay, "agents",
 		`{"agents":{"codex":{"permission":{"defaults":{"allow":["Read"]}}},"gemini":{"permission":{"defaults":{"deny":["Bash("]}}}}}`)
-	p, err := agent.ParsePermissions("", []string{"Read"}, nil, nil)
+	p, err := ParsePermissions("", []string{"Read"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec := NewRecord("codex", agent.RunOptions{Prompt: "p", Permissions: p}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p", Permissions: p}, time.Now())
 	rec.Finish(wire.Result{Agent: "copilot", Fallback: "codex 429"}, nil, time.Second)
 	if want := []string{"allow Read"}; !slices.Equal(rec.Widened, want) {
 		t.Errorf("Widened after fallback = %q, want %q", rec.Widened, want)
 	}
-	rec2 := NewRecord("codex", agent.RunOptions{Prompt: "p", Permissions: p}, time.Now())
+	rec2 := NewRecord("codex", RunOptions{Prompt: "p", Permissions: p}, time.Now())
 	rec2.Finish(wire.Result{Agent: "gemini", Fallback: "codex 429"}, nil, time.Second)
 	if len(rec2.Widened) != 0 {
 		t.Errorf("bad fallback default overwrote Widened: %q", rec2.Widened)
@@ -735,7 +734,7 @@ func TestRunRecordedFinalAnswerWriteError(t *testing.T) {
 	for _, want := range []error{io.ErrClosedPipe, io.ErrShortWrite} {
 		t.Run(want.Error(), func(t *testing.T) {
 			setConfigDir(t)
-			rec := ClaimRecord("codex", agent.RunOptions{}, time.Now())
+			rec := ClaimRecord("codex", RunOptions{}, time.Now())
 			var events collect
 			_, err := RunRecorded(context.Background(), &rec, "codex", &events,
 				RunRecordedOpts{AnswerTo: partialErrorWriter{want}},

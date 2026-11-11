@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/job"
+	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/paths"
 
@@ -265,7 +265,7 @@ func ReviewParts(diff []byte, adversarial bool, focus, rubric string) []Part {
 }
 
 // SetReviewProgress stores p on the job record, when there is one.
-func SetReviewProgress(job *job.Record, p string) {
+func SetReviewProgress(job *agent.Record, p string) {
 	if job == nil {
 		return
 	}
@@ -275,7 +275,7 @@ func SetReviewProgress(job *job.Record, p string) {
 
 // LastDispatchError is the newest failed dispatch's error text for agent, so a split report names the real cause.
 func LastDispatchError(name string) string {
-	for _, r := range job.RecentRecords(1 << 20) { // every record: other agents' newer jobs must not hide this leg's failure
+	for _, r := range agent.RecentRecords(1 << 20) { // every record: other agents' newer jobs must not hide this leg's failure
 		if r.Agent == name && r.Status == "error" {
 			return textutil.PreviewRedacted(r.Error, 400)
 		}

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -32,7 +31,7 @@ const lostError = "lost: process gone"
 // runningDispatches lists live dispatch jobs machine-wide (every repo, any age), newest first.
 func runningDispatches(now time.Time) []Dispatch {
 	var dispatches []Dispatch
-	for _, rec := range job.RecentRecords(scanAllRecords) {
+	for _, rec := range agent.RecentRecords(scanAllRecords) {
 		if !rec.Alive() {
 			continue
 		}
@@ -89,7 +88,7 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 	if dryRun {
 		verb = "would reap"
 	}
-	snapshot, err := job.ReadRecent(scanAllRecords)
+	snapshot, err := agent.ReadRecent(scanAllRecords)
 	if err != nil {
 		fmt.Fprintln(errw, "agents reap:", err)
 		return 1
@@ -110,13 +109,13 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 	return code
 }
 
-func reapRecords(snapshot []job.Record, dryRun bool, verb string, out, errw io.Writer) (int, int) {
+func reapRecords(snapshot []agent.Record, dryRun bool, verb string, out, errw io.Writer) (int, int) {
 	code, records := 0, 0
 	for _, rec := range snapshot {
 		if rec.Status != "running" || rec.Alive() {
 			continue
 		}
-		cur, err := job.LoadRecord(rec.ID)
+		cur, err := agent.LoadRecord(rec.ID)
 		if err != nil || cur.Status != "running" || cur.Alive() {
 			continue // the owner may have finished or started after the snapshot
 		}
@@ -161,7 +160,7 @@ func reapSockets(dryRun bool, verb string, out, errw io.Writer) (int, int) {
 
 // socketHolderAlive reads id's record at call time, so a session started during the reap keeps its socket.
 func socketHolderAlive(id string) bool {
-	rec, err := job.LoadRecord(id)
+	rec, err := agent.LoadRecord(id)
 	return err == nil && rec.Alive()
 }
 
@@ -239,7 +238,7 @@ func firstTimestamp(path string) time.Time {
 }
 
 // dispatchFromRecord renders a dispatch record; a still-running record reports its elapsed time so far.
-func dispatchFromRecord(rec job.Record, matched string, now time.Time) Dispatch {
+func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatch {
 	duration := rec.Elapsed()
 	if duration == "" && rec.Status == "running" {
 		duration = now.Sub(rec.Time).Round(time.Second).String()
@@ -256,7 +255,7 @@ func buildDispatches(transcriptPath, cwd string, now time.Time, act Activity) []
 	var dispatches []Dispatch
 	matched := map[string]bool{}
 	for _, id := range transcript.DispatchIDs(transcriptPath) {
-		rec, err := job.LoadRecord(id)
+		rec, err := agent.LoadRecord(id)
 		if err != nil {
 			continue
 		}
@@ -274,7 +273,7 @@ func buildDispatches(transcriptPath, cwd string, now time.Time, act Activity) []
 // pendingDispatch matches the newest running dispatch for this cwd that started no earlier than the subagent.
 func pendingDispatch(transcriptPath, cwd string, matched map[string]bool, now time.Time) *Dispatch {
 	start := firstTimestamp(transcriptPath)
-	for _, rec := range job.RecentRecords(50) {
+	for _, rec := range agent.RecentRecords(50) {
 		if matched[rec.ID] || rec.Status != "running" || rec.Request.WorkDir != cwd {
 			continue
 		}
