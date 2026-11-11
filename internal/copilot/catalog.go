@@ -14,7 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -308,13 +307,8 @@ func copilotRefresh(ctx context.Context, reg *providers.Registry, p *providers.P
 	}
 	snapshot := serving.Snapshot{Schema: 1, Scope: scope, DiscoveredAt: time.Now().UTC(), Models: infos,
 		CheckedAt: old.CheckedAt, Checks: old.Checks}
-	if !p.IsAIGateway() {
-		if err := router.WarmServed(p.Name, infos, snapshot.DiscoveredAt); err != nil {
-			fmt.Fprintf(os.Stderr, "copilot: %s served listing not saved: %v\n", p.Name, err)
-		}
-	}
-	if err := serving.Save(p, snapshot); err != nil {
-		fmt.Fprintf(os.Stderr, "copilot: %s discovery snapshot not saved: %v\n", p.Name, err)
+	if _, err := catalog.Seal(p, snapshot, false); err != nil {
+		fmt.Fprintf(os.Stderr, "copilot: %s discovery not saved: %v\n", p.Name, err)
 	}
 	return infos, nil
 }

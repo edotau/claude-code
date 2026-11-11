@@ -182,7 +182,7 @@ var dotenvWrite = (*os.File).WriteString
 
 // writeDotenv appends text to path without following a symlink, tightening it to 0600 first.
 func writeDotenv(path, text string) error {
-	f, err := openAppendNoFollow(path)
+	f, err := paths.OpenNoFollow(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
