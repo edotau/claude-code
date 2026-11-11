@@ -38,7 +38,7 @@ var (
 
 // Seams for H7: production runs the real hooks and sync; tests swap them for fixtures.
 var (
-	memoryStart  = memhook.Start
+	memoryStart  = memhook.StartText // side-effect free: an audit must not scaffold, spawn or consume
 	memoryRecall = memhook.Recall
 	agentsSync   = func() int { return project.Sync(project.Options{DryRun: true, Check: true, Out: io.Discard}) }
 )
