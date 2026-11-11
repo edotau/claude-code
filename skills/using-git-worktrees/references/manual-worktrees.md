@@ -10,7 +10,7 @@ mechanics for non-harness repos.
 ### The merge rule (from `internal/worktree/merge.go`)
 
 Promotion is **fast-forward only**: `Preflight` pins both OIDs and simulates with `git merge-tree`,
-`IntegrateTarget` merges the pinned target **inside the worktree** and runs the verify gate there, `Promote`
+`integrateTarget` merges the pinned target **inside the worktree** and runs the verify gate there, `promote`
 runs `git merge --ff-only` on the main checkout and refuses any OID other than the one just verified. Never a
 `--no-ff` merge commit on the live branch, never a real conflicting merge there. A predicted conflict stops
 before anything mutates unless `--resolve-agent <agent>` hands it to an agent inside the worktree.
@@ -48,8 +48,8 @@ tree unless `CLAUDE_CONFIG_DIR` points at it.
    to its package, embedders and tests naming it), their importers (tests included, transitively) and the
    registry packages (`internal/{hooks,settings,cli,schemas}`, where present); a `go.mod`/`go.sum`
    change or an unowned non-markdown file tests `./...`. `--full-verify` runs `make test` instead;
-   the full `make audit` stays the pre-push
-   gate. Preflight re-runs; a failing gate stops with the worktree untouched on disk; success promotes, ticks
+   the full `make audit` stays the gate you run before pushing.
+   Preflight re-runs; a failing gate stops with the worktree untouched on disk; success promotes, ticks
    the active plan for the promoted commits (`claude-code plan tick --range <old>..<new>`) and, unless
    `--no-clean`, cleans exactly as `clean` would. A failure
    after promotion prints a retry hint instead of leaving a merge commit; re-run step 1.

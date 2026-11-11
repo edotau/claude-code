@@ -7,7 +7,7 @@ same file; collisions surface as a red build or a commit that carries another se
 ## Before planning
 
 - List what else is live: `git status --short` (uncommitted files you didn't write), other sessions'
-  `plans/*.md`, and `ListAgents` for peers in the same checkout.
+  `plans/*.md`, and `claude-code agents tree` for peers in the same checkout.
 - Check each task's `owns:` files against that list. Registry-shaped files (`internal/schemas/ledger_test.go`,
   `internal/settings/hookspec.go`, `internal/providers/defaults.json`) are edited by every lane that adds an
   entry; assume they overlap.

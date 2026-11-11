@@ -14,7 +14,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 
 | Path | Holds |
 | --- | --- |
-| `cmd/claude-code/`, `internal/` | The binary, stdlib-first; external SDKs boxed one package each. Each verb area owns its package and `internal/cli` is the command table, menu and dispatcher importing only their `Run`/`Spec`. **Every command is `internal/cli/<verb>.go` + `<verb>_test.go`, never more**: flags and output only, its logic in the area's package (`network` is the one exception, still in `internal/network`); engines live below; a package more than one area imports stays top-level (`router`, `ledger`), one area's helper nests under it (`agent/tools`), and a provider's own code stays under that provider (`databricks/oauth`) |
+| `cmd/claude-code/`, `internal/` | The binary, stdlib-first; external SDKs boxed one package each. Each verb area owns its package and `internal/cli` is the command table, menu and dispatcher importing only their `Run`/`Spec`. **Every command is `internal/cli/<verb>.go` + `<verb>_test.go`, never more**: flags and output only, its logic in the area's package (table-wired: `databricks`, `doctor`, `network`, `usage`, `setup`); engines live below; a package more than one area imports stays top-level (`router`, `tokenledger`), one area's helper nests under it (`agent/tools`), and a provider's own code stays under that provider (`databricks/oauth`) |
 | `internal/settings/hookspec.go` · `internal/hooks/` | Hook declarations (the one authoring surface) · their handlers |
 | `internal/providers/defaults.json` | Built-in providers; the vault's provider overlay replaces them by name |
 | `state/vault.db` | The vault (untracked): pins, custom env, provider/agent overlays (`vault ls\|edit`), sealed secrets (`vault set\|get`) |
@@ -40,8 +40,8 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
    `rebase`), in the live checkout (`~/.claude`).** It is one checkout shared by parallel subagents and every live
    session; fix a commit with a new one. Default is no worktree; when to ask, the
    commands and their gotchas: `rules/standards/worktree-git.md`.
-5. **Done means pushed to the current branch (`main` by default)** — merge, `make install`, push (no pre-push gate:
-   run `make audit` yourself before pushing; CI runs it on `main`).
+5. **Done means pushed to the current branch (`main` by default)** — merge, `make install`, push (no pre-push gate,
+   manual CI: run `make audit` locally before pushing).
 
 ## Behavioral guidelines
 

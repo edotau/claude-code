@@ -1,5 +1,5 @@
-# Go correctness gate = `make audit` (gofmt/vet/test/build + generated-projection smoke), shared with .githooks/pre-push.
-# Free tier (public repo): one job per OS, module+build cache, cancel-in-progress, main + PRs only.
+# Go correctness gate = `make audit` (gofmt/vet/test/build + generated-projection smoke), the same target run locally.
+# Free tier (public repo): one job per OS, module+build cache, cancel-in-progress, manual runs only.
 # macOS is first-class (the team runs it); fail-fast off so one OS's failure still reports the other.
 name: ci
 
@@ -29,8 +29,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      # One gate, one definition: `make audit` is what the pre-push hook (.githooks/pre-push) runs locally,
-      # so CI can only fail on something the push already saw. Steps live in the Makefile, not here.
+      # One gate, one definition: `make audit` is what the owner runs locally before pushing (no pre-push hook),
+      # so CI can only fail on something that run already saw. Steps live in the Makefile, not here.
       # Pinned tool versions live in the Makefile; this also smoke-tests make install on each OS's throwaway runner.
       - name: make install DEV_TOOLS=1 (harness + govulncheck, golangci-lint, yamlfmt)
         run: make install DEV_TOOLS=1

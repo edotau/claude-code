@@ -1,4 +1,4 @@
-# Weekly update PRs for pinned dependencies; each PR runs the ci.yml gate (make audit) before it can merge.
+# Weekly update PRs for pinned dependencies; CI is manual-only, so run `make audit` on each PR locally before merging.
 version: 2
 updates:
   - package-ecosystem: gomod

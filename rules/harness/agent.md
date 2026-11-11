@@ -45,7 +45,7 @@ paths:
   the escape hatch). One hop: nested dispatches do not inherit it, `--job`/`--background`/`--batch` relaunches carry it,
   `--live` and `--host` refuse it. `--env` / `--keep-env` are its one-line shorthand (the same endpoint/proxy/TLS
   refusals; credential names in `--keep-env`, ask and interactive).
-- The agent subcommand `models` is a compatibility alias for `catalog`; top-level `claude-code models` is separate.
+- `<agent> models` is not a harness subcommand: it passes through to the vendor CLI. The catalog is `<agent> catalog`.
 - **opencode** on a Databricks row runs three providers: `<row>` (chat), `<row>-gpt` (Responses), `<row>-claude`
   (Anthropic); an off-menu `--model` is refused. An `ai-gateway` row has no openai route, so its chat models are
   left out with a note.
@@ -93,7 +93,7 @@ paths:
 - **Fake vendor binaries.** `HARNESS_AGENT_BIN_DIR` makes `paths.AgentBin` read that directory instead of `BinDir()`
   (no fallback to the real install); real vault pins still route.
 - **Deny and D3.** Deny is the hard boundary; Ask goes to the agent's own judge (opencode Ask = `--auto`). A Deny an
-  agent cannot enforce refuses the dispatch with `agent.Error{Kind: KindFatal}` naming the rule. opencode
+  agent cannot enforce refuses the dispatch with `retry.Error{Kind: retry.KindFatal}` naming the rule. opencode
   `--read-only` stays tools-off.
 - **Bash deny via `permission-gate`.** opencode's native matcher is bypassed by `bash -c "..."`, so the dispatch's
   rules ride `HARNESS_DISPATCH_PERMISSIONS` to the `permission-gate` PreToolUse module (`Decide` per segment): opencode

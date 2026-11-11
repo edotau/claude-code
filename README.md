@@ -49,7 +49,7 @@ claude-code --host <h> doctor   # any verb on a tailnet host over ssh (a login's
 
 ```bash
 claude-code configure                 # interactive menu: providers, logins/keys, models, agents; Submit seals keys
-claude-code configure models          # one page (provider|models|agents|router|github|remote|browser|codex|routing|databricks|doctor)
+claude-code configure models          # one page (provider|models|agents|github|remote|codex|routing|databricks)
 claude-code configure codex           # codex effort and verbosity (vault)
 claude-code configure --check         # report only; exit 1 if anything is unset
 claude-code configure --restore [--agents|--agent a]   # reset settings.json to the template (backup first) + agent configs
@@ -425,10 +425,10 @@ every embedded (`//go:embed`) template.
 go test ./internal/<pkg>   # while developing — only what you touched
 make fmt                   # format + auto-fix go, md, js; copilot fixes the rest (AGENT=off skips it)
 make lint                  # check only: gofmt, vet, golangci, shell, yaml, markdown, workflows
-make test                  # full gate, once before pushing (= make audit = CI)
+make test                  # full gate, once before pushing (= make audit)
 ```
 
-- `git push` runs no gate (`.githooks/pre-push` is disabled): run `make test` yourself before pushing; CI runs it on
-  `main`.
+- `git push` runs no gate (`.githooks/pre-push` is disabled) and CI is manual-only: run `make test` locally before
+  pushing.
 - `settings.json` is yours (hand-edited, untracked); install never writes an existing one:
   `rules/harness/settings-management.md`.

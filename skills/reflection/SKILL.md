@@ -12,7 +12,7 @@ user-invocable: false
 
 One store (`~/.claude/memory/<repo>/`, catalog at `memory/index.md`): `claude-code memory <verb>`
 does every mechanical step; a verb needing judgment — text a model must produce — prints its own
-embedded procedure for the live session (or the headless `memoryAgent()`) to apply.
+embedded procedure for the live session (or the headless `memory update` run) to apply.
 
 ## Promotion ladder
 

@@ -25,7 +25,7 @@ const CONDITIONS = Array.isArray(a.conditions) && a.conditions.length ? a.condit
 // ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, code-workers, code-engineer ──
 // stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others via `agents ask`.
 const COWORKERS = []
-// Unknown stage/field backstop only; value and route checks run in the dispatch-effort hook (workflowsteps.go).
+// Unknown stage/field backstop only; value and route checks run in the dispatch-effort hook (workflowlint.go).
 const stepOf = (steps, name, defaults, opt) => {
   const S_FIELDS = ['agent', 'model', 'effort', 'profile', 'provider']
   const o = opt || {}

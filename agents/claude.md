@@ -39,21 +39,17 @@ picks the mode (`review` default, `simplify`, or a build task); the rest is the 
 for the current diff against `git merge-base HEAD main`. With `--profile`/`--model`, run the work as
 `claude-code agents ask --agent claude --profile <p> --model <m> --tools "<task>"` and relay its envelope.
 
-**Headless** — `claude-code agents ask --agent claude` (the default `--agent`); read-only unless `--tools`:
+**Headless** — `claude-code agents ask --agent claude` (the default `--agent`); read-only unless `--tools`.
+Tools, guards, background, model, input and output flags:
+`skills/subagent-workflows/references/agent-verbs.md` → Headless `ask` flags. Beyond that table:
 
 | Need | Flags |
 | --- | --- |
-| Edit files / run shell | `--tools` · `--read-only` (read but never write, run shell or commit) · `--workdir <repo>` |
 | Answer only | `--no-tools` (profile answers directly; not with `--tools`) |
-| Guard the run | `--deny 'Bash(git push:*)'` · `--allow` · `--ask` · `--mode default\|auto\|plan` |
-| Long run | `--background` → `agents status <id>` · `agents tail -f <id>` · `agents result <id>` · `agents cancel <id>` |
 | Live session | `--live` (`--timeout` = idle limit) → `agents send <id> "<task>"`; one turn at a time, ≤4 sessions |
-| Model and depth | `--model <alias\|version\|wire id>` · `--effort low..max` · `--profile <p>` · `--as user\|sp` (paired Databricks) |
-| Prompt | `--system-prompt` (replace) · `--append-system-prompt` · task arg or stdin (`-`) · `--attach` · `--rubric` |
-| Output | `--format json` (envelope: `status`, `answer`, `model`, `fallback`) · `stream-json` · `--output-schema <json>` |
-| Continue | `--session <id>` · `--no-persist` keeps no session |
-| Isolation | `--safe-mode` (no hooks/plugins) · `--debug-file <path>` · `--env NAME=VALUE` · `--fallback all\|agents\|none` |
-| Remote / inline | `--host <ssh>` · `--agents <json\|file>` (inline definitions; `--agent` takes their keys) |
+| Paired Databricks identity | `--as user\|sp` |
+| Isolation | `--no-persist` keeps no session · `--safe-mode` (no hooks/plugins) · `--debug-file <path>` |
+| Inline agents | `--agents <json\|file>` (inline definitions; `--agent` takes their keys) |
 
 **What claude loads** (native, no `agents sync` projection):
 
