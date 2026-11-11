@@ -1,6 +1,7 @@
 package tree
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -294,10 +295,11 @@ func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatc
 	if duration == "" && rec.Status == "running" {
 		duration = now.Sub(rec.Time).Round(time.Second).String()
 	}
+	task, _, _ := strings.Cut(strings.TrimSpace(rec.Request.Prompt), "\n")
 	return Dispatch{
-		ID: rec.ID, Agent: rec.Agent, Provider: rec.Provider, Model: rec.Model,
+		ID: rec.ID, Agent: rec.Agent, Provider: rec.Provider, Model: cmp.Or(rec.Model, rec.Request.Model),
 		Status: rec.Status, Duration: duration, Fallback: rec.Fallback,
-		FallbackReason: rec.FallbackReason, Matched: matched,
+		FallbackReason: rec.FallbackReason, Matched: matched, Route: rec.Route, Task: task,
 	}
 }
 

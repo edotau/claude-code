@@ -68,6 +68,14 @@ func fallbackProfiles(reg *providers.Registry) []string {
 	return append([]string{providers.SessionLead(nil, true)}, providers.DatabricksProfiles(reg)...)
 }
 
+// copilotGithubRow is the github profile copilot's own login runs on: the record's pinned row, else the first one.
+func copilotGithubRow(reg *providers.Registry) (*providers.Provider, bool) {
+	if _, pin := providers.CopilotLogin(reg); pin != "" {
+		return reg.Providers[pin], true
+	}
+	return reg.LoginProfile("github", "copilot")
+}
+
 // describeCopilotRoute: 1) copilot's GitHub login on a workable pin; 2) the Databricks fallback; 3) BYOK with the
 // registry anthropic provider's key; 4) none.
 func describeCopilotRoute(reg *providers.Registry) agent.RouteInfo {
@@ -79,7 +87,7 @@ func describeCopilotRoute(reg *providers.Registry) agent.RouteInfo {
 	}
 	detail, workable := pinnedHeadroom(context.Background(), "")
 	if a, ok := copilotAuthSource(); ok && workable {
-		if p, ok := reg.LoginProfile("github", "copilot"); ok {
+		if p, ok := copilotGithubRow(reg); ok {
 			model, _ := providers.CopilotModel(reg)
 			return agent.RouteInfo{Agent: "copilot", Route: agent.RouteCopilotLogin, Provider: p.Name, Model: model,
 				Reason: "github-copilot (" + providers.AuthState{Account: a.Account, Source: a.Source}.Label() + ")", OK: true}
