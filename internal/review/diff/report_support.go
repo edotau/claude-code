@@ -201,7 +201,7 @@ func changedSourceFiles(repo, base, head string) ([]string, error) {
 	}
 	var files []string
 	for name := range strings.SplitSeq(out, "\x00") {
-		if name != "" && exts[extAt(name)] {
+		if name != "" && exts[strings.ToLower(filepath.Ext(name))] {
 			files = append(files, name)
 		}
 	}
@@ -213,14 +213,6 @@ func headContent(repo, rev, name string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	return proc.RunGitRaw(ctx, repo, "show", rev+":./"+name)
-}
-
-func extAt(path string) string {
-	idx := strings.LastIndex(path, ".")
-	if idx == -1 {
-		return ""
-	}
-	return strings.ToLower(path[idx:])
 }
 
 // runQualityChecker ports run_quality_checker: source.Quality over each changed source file.

@@ -8,15 +8,15 @@ import (
 	"strings"
 )
 
-// restoredIndex fills the injected core up to NativeCoreCap; restored pointers beyond it go to SEARCHABLE.md, recall-only.
+// restoredIndex fills the injected core up to nativeCoreCap; restored pointers beyond it go to SEARCHABLE.md, recall-only.
 func restoredIndex(b *nativeBatch, ix archiveIndexes, lines []string) string {
-	room := max(NativeCoreCap-len(indexLinks(ix.healed)), 0)
+	room := max(nativeCoreCap-len(indexLinks(ix.healed)), 0)
 	var overflow []string
 	if len(lines) > room {
 		lines, overflow = lines[:room], lines[room:]
 	}
 	if len(overflow) > 0 {
-		b.put(NativeSearchableFile, []byte(indexWithLines(string(ix.searchable), overflow)), ix.searchable)
+		b.put(nativeSearchableFile, []byte(indexWithLines(string(ix.searchable), overflow)), ix.searchable)
 	}
 	return indexWithLines(ix.healed, lines)
 }
@@ -50,7 +50,7 @@ func restoreNativeLocked(dir string, todo []string, res *nativeResult) error {
 	if err != nil {
 		return err
 	}
-	recRel, rec := filepath.Join(nativeArchiveRel, NativeArchiveIndexFile), ix.record
+	recRel, rec := filepath.Join(nativeArchiveRel, nativeArchiveIndexFile), ix.record
 	b := newNativeBatch(dir)
 	moved, archived, err := stageRestoreFiles(b, dir, todo)
 	if err != nil {
@@ -58,7 +58,7 @@ func restoreNativeLocked(dir string, todo []string, res *nativeResult) error {
 	}
 	final := restoredIndex(b, ix, linesFor(indexLinks(string(rec)), moved))
 	if ix.index != nil || final != "" { // an absent MEMORY.md stays absent when nothing is restored into it
-		b.put(NativeIndexFile, []byte(final), ix.index)
+		b.put(nativeIndexFile, []byte(final), ix.index)
 	}
 	for _, name := range todo {
 		b.del(filepath.Join(nativeArchiveRel, name), archived[name])
@@ -138,7 +138,7 @@ func splitNativeIndex(dir string, keepLines int) (int, error) {
 // the generated bank region are neither pointers nor candidates and are rewritten byte-for-byte; a malformed
 // region refuses the split. Pointers move even when native prose alone busts the loader limit — that is reported.
 func splitNativeIndexLocked(dir string, keepLines int) (int, error) {
-	indexPath := filepath.Join(dir, NativeIndexFile)
+	indexPath := filepath.Join(dir, nativeIndexFile)
 	raw, err := os.ReadFile(indexPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -147,7 +147,7 @@ func splitNativeIndexLocked(dir string, keepLines int) (int, error) {
 		return 0, err
 	}
 	if err := checkBankRegion(string(raw)); err != nil {
-		return 0, fmt.Errorf("%s: %w", NativeIndexFile, err)
+		return 0, fmt.Errorf("%s: %w", nativeIndexFile, err)
 	}
 	lines := strings.Split(string(raw), "\n")
 	pinnedCount, unpinnedIdx := pointerLines(lines, raw)
@@ -159,14 +159,14 @@ func splitNativeIndexLocked(dir string, keepLines int) (int, error) {
 	kept, overflow := partitionLines(lines, drop)
 	// One batch, SEARCHABLE.md first: a crash between the two leaves a duplicated pointer, never a lost one.
 	b := newNativeBatch(dir)
-	searchable, err := readIfExists(filepath.Join(dir, NativeSearchableFile))
+	searchable, err := readIfExists(filepath.Join(dir, nativeSearchableFile))
 	if err != nil {
 		return 0, err
 	}
-	b.put(NativeSearchableFile, []byte(indexWithLines(string(searchable), overflow)), searchable)
+	b.put(nativeSearchableFile, []byte(indexWithLines(string(searchable), overflow)), searchable)
 	trimmed := strings.Join(kept, "\n")
-	b.put(NativeIndexFile, []byte(trimmed), raw)
-	if _, err := b.commit(fmt.Sprintf("split index: %d pointer(s) to %s", len(overflow), NativeSearchableFile)); err != nil {
+	b.put(nativeIndexFile, []byte(trimmed), raw)
+	if _, err := b.commit(fmt.Sprintf("split index: %d pointer(s) to %s", len(overflow), nativeSearchableFile)); err != nil {
 		return 0, err
 	}
 	if err := checkNativeIndexLimits(trimmed); err != nil {

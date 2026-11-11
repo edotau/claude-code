@@ -22,7 +22,7 @@ func resetVaultRetry(t *testing.T) {
 }
 
 // TestOriginRoundTripsThroughVault: WriteOrigin lands a row in the vault, never a legacy file on
-// disk, and ReadOrigin returns it byte-for-byte (aliases included).
+// disk, and readOrigin returns it byte-for-byte (aliases included).
 func TestOriginRoundTripsThroughVault(t *testing.T) {
 	resetVaultRetry(t)
 	cfg := tempConfig(t)
@@ -40,9 +40,9 @@ func TestOriginRoundTripsThroughVault(t *testing.T) {
 	if raw, ok := vaultGet(t, "proj"); !ok || raw == "" {
 		t.Fatal("WriteOrigin did not write a memory_origins row")
 	}
-	got, err := ReadOrigin(dir)
+	got, err := readOrigin(dir)
 	if err != nil || !reflect.DeepEqual(got, o) {
-		t.Fatalf("ReadOrigin = %+v, %v, want %+v", got, err, o)
+		t.Fatalf("readOrigin = %+v, %v, want %+v", got, err, o)
 	}
 }
 
@@ -61,8 +61,8 @@ func TestReadOriginWorksWithoutMasterKey(t *testing.T) {
 	if err := WriteOrigin(dir, o); err != nil {
 		t.Fatalf("WriteOrigin without a master key: %v", err)
 	}
-	if got, err := ReadOrigin(dir); err != nil || got.Origin != o.Origin {
-		t.Fatalf("ReadOrigin without a master key = %+v, %v", got, err)
+	if got, err := readOrigin(dir); err != nil || got.Origin != o.Origin {
+		t.Fatalf("readOrigin without a master key = %+v, %v", got, err)
 	}
 }
 
@@ -106,8 +106,8 @@ func TestLegacyOriginFileIgnored(t *testing.T) {
 	legacyPath := filepath.Join(dir, legacyOriginFile)
 	write(t, legacyPath, `{"version":1,"key":"legacy","origin":"/src/legacy"}`)
 
-	if _, err := ReadOrigin(dir); err == nil {
-		t.Fatal("ReadOrigin imported a legacy .origin file")
+	if _, err := readOrigin(dir); err == nil {
+		t.Fatal("readOrigin imported a legacy .origin file")
 	}
 	if _, err := os.Stat(legacyPath); err != nil {
 		t.Errorf("legacy file was touched: %v", err)
@@ -151,7 +151,7 @@ func TestWriteOriginGuards(t *testing.T) {
 }
 
 // TestOriginRebuiltFromCatalogWhenRowAndFileAbsent: no vault row, no legacy file, but index.md
-// carries the origin comment on this key's catalog row — ReadOrigin rebuilds the record from it
+// carries the origin comment on this key's catalog row — readOrigin rebuilds the record from it
 // (aliases included), and the catalog file itself is left byte-for-byte unchanged.
 func TestOriginRebuiltFromCatalogWhenRowAndFileAbsent(t *testing.T) {
 	resetVaultRetry(t)
@@ -162,13 +162,13 @@ func TestOriginRebuiltFromCatalogWhenRowAndFileAbsent(t *testing.T) {
 	}
 	want := Origin{Version: OriginVersion, Key: "catkey", Origin: "/src/cat", Aliases: []string{"/alt1", "/alt2"}}
 	row := "- catkey — some-hook · last 2024-01-01 → catkey/MEMORY.md" + catalogOriginComment(want) + "\n"
-	catalogPath := filepath.Join(cfg, "memory", CatalogFile)
+	catalogPath := filepath.Join(cfg, "memory", catalogFile)
 	write(t, catalogPath, "# Memory catalog\n\n## Repos\n\n"+row)
 	before := mustRead(t, catalogPath)
 
-	got, err := ReadOrigin(dir)
+	got, err := readOrigin(dir)
 	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Fatalf("ReadOrigin (catalog fallback) = %+v, %v, want %+v", got, err, want)
+		t.Fatalf("readOrigin (catalog fallback) = %+v, %v, want %+v", got, err, want)
 	}
 	if after := mustRead(t, catalogPath); after != before {
 		t.Errorf("catalog rewritten by the fallback import:\nbefore:\n%s\nafter:\n%s", before, after)
@@ -186,7 +186,7 @@ func TestCatalogOriginCommentRoundTripsPathWithCommentCloser(t *testing.T) {
 	cfg := tempConfig(t)
 	want := Origin{Version: OriginVersion, Key: "weird", Origin: "/src/a-->b", Aliases: []string{"/alt-->c"}}
 	row := "- weird — hook · last never → weird/MEMORY.md" + catalogOriginComment(want) + "\n"
-	write(t, filepath.Join(cfg, "memory", CatalogFile), "# Memory catalog\n\n## Repos\n\n"+row)
+	write(t, filepath.Join(cfg, "memory", catalogFile), "# Memory catalog\n\n## Repos\n\n"+row)
 
 	got := catalogOrigins()["weird"]
 	if got.Origin != want.Origin || len(got.Aliases) != 1 || got.Aliases[0] != want.Aliases[0] {

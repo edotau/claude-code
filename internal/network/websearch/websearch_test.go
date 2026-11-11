@@ -813,3 +813,5 @@ func TestExtractRejectsOutputWriteFailure(t *testing.T) {
 		t.Fatal("closed stdout must return a nonzero exit code despite a successfully fetched page")
 	}
 }
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

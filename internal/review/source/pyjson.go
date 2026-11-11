@@ -17,7 +17,7 @@ func PyMarshalIndent(v any) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	escaped := PyEscapeNonASCII(compact)
+	escaped := pyEscapeNonASCII(compact)
 	var out bytes.Buffer
 	if err := json.Indent(&out, escaped, "", "  "); err != nil {
 		return nil, err
@@ -25,8 +25,8 @@ func PyMarshalIndent(v any) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// PyEscapeNonASCII matches Python's json.dumps default ensure_ascii=True (surrogate pairs above U+FFFF).
-func PyEscapeNonASCII(b []byte) []byte {
+// pyEscapeNonASCII matches Python's json.dumps default ensure_ascii=True (surrogate pairs above U+FFFF).
+func pyEscapeNonASCII(b []byte) []byte {
 	var out bytes.Buffer
 	for _, r := range string(b) {
 		if r < 0x80 {

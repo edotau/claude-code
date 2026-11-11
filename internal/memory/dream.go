@@ -85,7 +85,7 @@ func tiered(tier string, unreadable []string) []string {
 
 const dreamInterval = 24 * time.Hour
 
-// dreamRetry is how long a failed dream waits before DreamDue offers it again.
+// dreamRetry is how long a failed dream waits before dreamDue offers it again.
 const dreamRetry = 6 * time.Hour
 
 // dreamChildEnv marks a process spawned by `memory dream`'s agent run — the one context where
@@ -114,8 +114,8 @@ func dreamStamp(root string) (t time.Time, failed, ok bool) {
 	return t, rest == "failed", err == nil
 }
 
-// DreamDue: the last dream is over a day old (or never ran) and a bank changed since; a failed run is due at its backdated stamp.
-func DreamDue(cwd string, now time.Time) bool {
+// dreamDue: the last dream is over a day old (or never ran) and a bank changed since; a failed run is due at its backdated stamp.
+func dreamDue(cwd string, now time.Time) bool {
 	stamp, failed, ok := dreamStamp(cwd)
 	if ok && now.Sub(stamp) < dreamInterval {
 		return false
@@ -123,7 +123,7 @@ func DreamDue(cwd string, now time.Time) bool {
 	if ok && failed {
 		return true
 	}
-	return NewestMtime(Dir(cwd)).After(stamp) || NewestMtime(HomeBankDir()).After(stamp)
+	return newestMtime(Dir(cwd)).After(stamp) || newestMtime(HomeBankDir()).After(stamp)
 }
 
 // dreamOptions drive one consolidation.
@@ -131,7 +131,7 @@ type dreamOptions struct {
 	CWD     string
 	Run     AgentFunc
 	Out     io.Writer
-	Timeout time.Duration // 0 = UpdateTimeout
+	Timeout time.Duration // 0 = updateTimeout
 }
 
 // agentDreamPrompt frames the model-residue consolidation pass; the procedure itself is one copy,
@@ -151,7 +151,7 @@ func dream(o dreamOptions) error {
 		o.Out = io.Discard
 	}
 	if o.Timeout == 0 {
-		o.Timeout = UpdateTimeout
+		o.Timeout = updateTimeout
 	}
 	var runErr, archiveErr error
 	lockErr := paths.WithFileLock(lockPath(Dir(o.CWD)), func() error {
@@ -185,7 +185,7 @@ func dream(o dreamOptions) error {
 		fmt.Fprintln(o.Out, "memory dream:", settleErr)
 	}
 	if err := errors.Join(lockErr, runErr, archiveErr, settleErr); err != nil {
-		// backdated, so DreamDue retries in dreamRetry
+		// backdated, so dreamDue retries in dreamRetry
 		return errors.Join(err, stampDream(o.CWD, time.Now().Add(dreamRetry-dreamInterval), true))
 	}
 	return stampDream(o.CWD, time.Now(), false)

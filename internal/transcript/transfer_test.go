@@ -13,7 +13,7 @@ import (
 )
 
 // projectSessionsDir isolates CLAUDE_CONFIG_DIR and returns the <ConfigDir>/projects/<slug>/ dir
-// DefaultSource now reads directly (paths.ProjectSlug only; no memory.NativeDir/cutover redirect).
+// defaultSource now reads directly (paths.ProjectSlug only).
 func projectSessionsDir(t *testing.T, cwd string) string {
 	t.Helper()
 	cfg := t.TempDir()
@@ -48,12 +48,12 @@ func TestDefaultSourcePicksNewest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := DefaultSource(cwd)
+	got, err := defaultSource(cwd)
 	if err != nil {
-		t.Fatalf("DefaultSource: %v", err)
+		t.Fatalf("defaultSource: %v", err)
 	}
 	if got != newer {
-		t.Errorf("DefaultSource = %q, want %q", got, newer)
+		t.Errorf("defaultSource = %q, want %q", got, newer)
 	}
 }
 
@@ -76,19 +76,19 @@ func TestDefaultSourceSubsecondNewest(t *testing.T) {
 			t.Fatalf("fixture mtime = %s, want %s", info.ModTime(), mtime)
 		}
 	}
-	got, err := DefaultSource(cwd)
+	got, err := defaultSource(cwd)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != newer {
-		t.Fatalf("DefaultSource = %q, want newer subsecond session %q", got, newer)
+		t.Fatalf("defaultSource = %q, want newer subsecond session %q", got, newer)
 	}
 }
 
 func TestDefaultSourceNoSessionErrors(t *testing.T) {
 	cwd := filepath.Join(t.TempDir(), "proj")
 	projectSessionsDir(t, cwd)
-	if _, err := DefaultSource(cwd); err == nil || !strings.Contains(err.Error(), "pass --source") {
+	if _, err := defaultSource(cwd); err == nil || !strings.Contains(err.Error(), "pass --source") {
 		t.Fatalf("err = %v, want a \"pass --source\" error", err)
 	}
 }
@@ -99,7 +99,7 @@ func TestDefaultSourceMissingDirErrors(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv("HOME", home)
 	cwd := filepath.Join(t.TempDir(), "proj")
-	if _, err := DefaultSource(cwd); err == nil {
+	if _, err := defaultSource(cwd); err == nil {
 		t.Fatal("want an error when the sessions dir does not exist at all")
 	}
 }
@@ -108,14 +108,14 @@ func TestValidateSource(t *testing.T) {
 	dir := t.TempDir()
 	good := filepath.Join(dir, "session.jsonl")
 	writeJSONL(t, good, "{}\n")
-	if err := ValidateSource(good); err != nil {
-		t.Errorf("ValidateSource(existing .jsonl) = %v, want nil", err)
+	if err := validateSource(good); err != nil {
+		t.Errorf("validateSource(existing .jsonl) = %v, want nil", err)
 	}
-	if err := ValidateSource(filepath.Join(dir, "missing.jsonl")); err == nil {
-		t.Error("ValidateSource(missing file) = nil, want an error")
+	if err := validateSource(filepath.Join(dir, "missing.jsonl")); err == nil {
+		t.Error("validateSource(missing file) = nil, want an error")
 	}
-	if err := ValidateSource(filepath.Join(dir, "not-jsonl.txt")); err == nil {
-		t.Error("ValidateSource(non-.jsonl) = nil, want an error")
+	if err := validateSource(filepath.Join(dir, "not-jsonl.txt")); err == nil {
+		t.Error("validateSource(non-.jsonl) = nil, want an error")
 	}
 }
 
@@ -264,7 +264,7 @@ func TestTransferArgs(t *testing.T) {
 
 func TestProjectSessionsDirUsesPaths(t *testing.T) {
 	// sanity: projectSessionsDir's dir must actually be a subpath of paths.ConfigDir() when
-	// CLAUDE_CONFIG_DIR is set, proving the isolation env vars are the ones DefaultSource reads.
+	// CLAUDE_CONFIG_DIR is set, proving the isolation env vars are the ones defaultSource reads.
 	cwd := filepath.Join(t.TempDir(), "proj")
 	dir := projectSessionsDir(t, cwd)
 	if !strings.HasPrefix(dir, paths.ConfigDir()) {

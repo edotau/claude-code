@@ -153,7 +153,7 @@ func printFileQuality(r QualityReport, w io.Writer) {
 	fmt.Fprintf(w, "Quality Score: %d/100 (%s)\n", r.QualityScore, r.Grade)
 	fmt.Fprintf(w, "\nLines: %d (%d code, %d comments)\n", r.Metrics.Lines.Total, r.Metrics.Lines.Code, r.Metrics.Lines.Comment)
 	fmt.Fprintf(w, "Functions: %d   Classes: %d\n", r.Metrics.Functions, r.Metrics.Classes)
-	fmt.Fprintf(w, "Avg Complexity: %s\n", formatPyFloat(float64(r.Metrics.AvgComplexity)))
+	fmt.Fprintf(w, "Avg Complexity: %s\n", FormatPyFloat(float64(r.Metrics.AvgComplexity)))
 	if len(r.Smells) > 0 {
 		fmt.Fprintln(w, "\n--- CODE SMELLS ---")
 		for i, s := range r.Smells {
@@ -174,7 +174,7 @@ func printFileQuality(r QualityReport, w io.Writer) {
 func printDirQuality(d directoryReport, w io.Writer) {
 	fmt.Fprintf(w, "\nDirectory: %s\n", d.Directory)
 	fmt.Fprintf(w, "Files Analyzed: %d\n", d.FilesAnalyzed)
-	fmt.Fprintf(w, "Average Score: %s/100 (%s)\n", formatPyFloat(float64(d.AverageScore)), d.OverallGrade)
+	fmt.Fprintf(w, "Average Score: %s/100 (%s)\n", FormatPyFloat(float64(d.AverageScore)), d.OverallGrade)
 	fmt.Fprintf(w, "Total Code Smells: %d\n", d.TotalCodeSmells)
 	fmt.Fprintf(w, "Total SOLID Violations: %d\n", d.TotalSolidViolations)
 	fmt.Fprintln(w, "\n--- FILES BY QUALITY ---")
@@ -186,8 +186,8 @@ func printDirQuality(d directoryReport, w io.Writer) {
 	}
 }
 
-// formatPyFloat mimics Python's str(float): "3.2" not "3.200000", "0.0" not "0".
-func formatPyFloat(f float64) string {
+// FormatPyFloat mimics Python's str(float): "3.2" not "3.200000", "0.0" not "0".
+func FormatPyFloat(f float64) string {
 	s := fmt.Sprintf("%g", f)
 	if !strings.Contains(s, ".") && !strings.Contains(s, "e") {
 		s += ".0"
@@ -257,7 +257,7 @@ func analyzeDirectory(dir, language string) (directoryReport, error) {
 	for _, r := range results {
 		total += float64(r.QualityScore)
 	}
-	avg := PyFloat(round1(total / float64(len(results))))
+	avg := PyFloat(Round1(total / float64(len(results))))
 	smells, violations := 0, 0
 	for _, r := range results {
 		smells += len(r.Smells)

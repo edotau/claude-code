@@ -39,7 +39,7 @@ func TestClassifyMemoryFile(t *testing.T) {
 	for _, n := range bankFiles {
 		write(t, filepath.Join(dir, n), "bank body\n")
 	}
-	for _, n := range []string{NativeIndexFile, NativeSearchableFile, NativeArchiveIndexFile, CatalogFile} {
+	for _, n := range []string{nativeIndexFile, nativeSearchableFile, nativeArchiveIndexFile, catalogFile} {
 		write(t, filepath.Join(dir, n), "reserved body\n")
 	}
 	write(t, filepath.Join(dir, legacyOriginFile), "{}\n") // origin now lives in the vault; the on-disk file is an unknown dotfile
@@ -54,21 +54,21 @@ func TestClassifyMemoryFile(t *testing.T) {
 	}
 
 	cases := map[string]fileKind{
-		NativeIndexFile:        KindNativeIndex,
-		NativeSearchableFile:   KindSearchable,
-		NativeArchiveIndexFile: KindArchiveIndex,
-		CatalogFile:            KindCatalog,
-		legacyOriginFile:       KindOther,
-		"notes.md":             KindBank,
-		"topic.md":             KindTopic,
-		"link.md":              KindOther,
-		"subtree.md":           KindOther,
-		"../x":                 KindOther,
-		"a/b.md":               KindOther,
-		"":                     KindOther,
+		nativeIndexFile:        kindNativeIndex,
+		nativeSearchableFile:   kindSearchable,
+		nativeArchiveIndexFile: kindArchiveIndex,
+		catalogFile:            kindCatalog,
+		legacyOriginFile:       kindOther,
+		"notes.md":             kindBank,
+		"topic.md":             kindTopic,
+		"link.md":              kindOther,
+		"subtree.md":           kindOther,
+		"../x":                 kindOther,
+		"a/b.md":               kindOther,
+		"":                     kindOther,
 	}
 	for _, n := range bankFiles {
-		cases[n] = KindBank
+		cases[n] = kindBank
 	}
 
 	for name, want := range cases {

@@ -20,7 +20,7 @@ import (
 // legacyOriginFile is the pre-vault per-store record; it is ignored (neither imported nor removed) and only skipped.
 const legacyOriginFile = ".origin"
 
-// OriginVersion is the schema version ReadOrigin accepts.
+// OriginVersion is the schema version readOrigin accepts.
 const OriginVersion = 1
 
 // Origin ties a store directory to the canonical checkout it serves; Aliases are explicit, never inferred.
@@ -34,8 +34,8 @@ type Origin struct {
 // errOriginConflict is returned instead of ever overwriting an origin record that names a different repo.
 var errOriginConflict = errors.New("origin record exists with a different canonical origin")
 
-// ReadOrigin loads and validates dir's origin record; dir must be a real directory directly under StoreDir().
-func ReadOrigin(dir string) (Origin, error) {
+// readOrigin loads and validates dir's origin record; dir must be a real directory directly under StoreDir().
+func readOrigin(dir string) (Origin, error) {
 	key, err := originKey(dir)
 	if err != nil {
 		return Origin{}, err
@@ -193,7 +193,7 @@ func WriteOrigin(dir string, o Origin) error {
 	if err := validateOrigin(dir, o); err != nil {
 		return err
 	}
-	cur, err := ReadOrigin(dir)
+	cur, err := readOrigin(dir)
 	switch {
 	case err == nil && cur.Key == o.Key && cur.Origin == o.Origin:
 		return nil
@@ -245,7 +245,7 @@ func catalogOriginComment(o Origin) string {
 // catalogOrigins parses the origin comments of index.md's repo rows ("- <key> — …"), keyed by store key.
 func catalogOrigins() map[string]Origin {
 	out := map[string]Origin{}
-	data, err := os.ReadFile(filepath.Join(StoreDir(), CatalogFile))
+	data, err := os.ReadFile(filepath.Join(StoreDir(), catalogFile))
 	if err != nil {
 		return out
 	}

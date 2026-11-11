@@ -49,8 +49,6 @@ const dispatchIDExpr = `\d{8}T\d{6}\.\d{3}-[A-Za-z0-9._-]+`
 var dispatchIDPattern = regexp.MustCompile(
 	`ask: dispatch (` + dispatchIDExpr + `)|job (` + dispatchIDExpr + `) started|\\*"(?:id|dispatch_id)\\*":\s*\\*"(` + dispatchIDExpr + `)\\*"`)
 
-var toolResultMarker = []byte(`"tool_result"`)
-
 // DispatchIDs lists the dispatch ids a transcript's tool results printed, deduped, in first-seen order; nil if unreadable.
 func DispatchIDs(path string) []string {
 	f, err := os.Open(path)
@@ -66,7 +64,7 @@ func DispatchIDs(path string) []string {
 
 // AppendDispatchIDs adds the dispatch ids one transcript line's tool result printed that seen lacks, marking them seen.
 func AppendDispatchIDs(ids []string, seen map[string]bool, line []byte) []string {
-	if !bytes.Contains(line, toolResultMarker) {
+	if !bytes.Contains(line, toolResultKey) {
 		return ids
 	}
 	for _, m := range dispatchIDPattern.FindAllSubmatch(line, -1) {

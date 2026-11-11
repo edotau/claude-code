@@ -17,9 +17,9 @@ func TestEmbedIndexAndGateUseTheResolvedProfile(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("CLAUDE_PROFILE", "session")
 	var opened string
-	prev := OpenEmbedClient
-	t.Cleanup(func() { OpenEmbedClient = prev })
-	OpenEmbedClient = func(_ context.Context, profile, _ string) (*EmbedClient, error) {
+	prev := openEmbedClient
+	t.Cleanup(func() { openEmbedClient = prev })
+	openEmbedClient = func(_ context.Context, profile, _ string) (*EmbedClient, error) {
 		opened = profile
 		return nil, errors.New("stub")
 	}

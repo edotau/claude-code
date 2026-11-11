@@ -44,7 +44,7 @@ func TestNativeRegressionMissingIndexFindings(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "orphan.md"), "body\n")
 	write(t, filepath.Join(dir, "linked.md"), "body\n")
-	write(t, filepath.Join(dir, NativeSearchableFile), "- [Linked](linked.md)\n- [Gone](gone.md)\n")
+	write(t, filepath.Join(dir, nativeSearchableFile), "- [Linked](linked.md)\n- [Gone](gone.md)\n")
 	st, err := nativeStats(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -71,17 +71,17 @@ func TestNativeRegressionBatchRestoreCoreCap(t *testing.T) {
 		fmt.Fprintf(&core, "- [Core](%s)\n", name)
 		write(t, filepath.Join(dir, name), "body\n")
 	}
-	write(t, filepath.Join(dir, NativeIndexFile), core.String())
+	write(t, filepath.Join(dir, nativeIndexFile), core.String())
 	archive := nativeArchiveDir(dir)
 	write(t, filepath.Join(archive, "first.md"), "first body\n")
 	write(t, filepath.Join(archive, "second.md"), "second body\n")
-	write(t, filepath.Join(archive, NativeArchiveIndexFile), "- [First](first.md)\n- [Second](second.md)\n")
+	write(t, filepath.Join(archive, nativeArchiveIndexFile), "- [First](first.md)\n- [Second](second.md)\n")
 	res, err := restoreNative(dir, []string{"first", "second"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	index := mustRead(t, filepath.Join(dir, NativeIndexFile))
-	searchable := mustRead(t, filepath.Join(dir, NativeSearchableFile))
+	index := mustRead(t, filepath.Join(dir, nativeIndexFile))
+	searchable := mustRead(t, filepath.Join(dir, nativeSearchableFile))
 	if len(indexLinks(index)) != 20 || !strings.Contains(index, "(first.md)") || strings.Contains(index, "(second.md)") {
 		t.Fatalf("batch restore exceeded or underfilled core: %s", index)
 	}
@@ -118,9 +118,9 @@ func TestNativeRegressionLstatError(t *testing.T) {
 
 func TestNativeRegressionSearchableReadError(t *testing.T) {
 	dir := t.TempDir()
-	write(t, filepath.Join(dir, NativeIndexFile), "# Index\n")
+	write(t, filepath.Join(dir, nativeIndexFile), "# Index\n")
 	write(t, filepath.Join(dir, "topic.md"), "body\n")
-	if err := os.Mkdir(filepath.Join(dir, NativeSearchableFile), 0o700); err != nil {
+	if err := os.Mkdir(filepath.Join(dir, nativeSearchableFile), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	st, err := nativeStats(dir)
@@ -220,7 +220,7 @@ func TestNativeErrorRegressionRestoreMissingIndexIdenticalLive(t *testing.T) {
 	const pointer = "- [Recorded title](topic.md) — preserve this exact description"
 	write(t, filepath.Join(dir, "topic.md"), body)
 	write(t, filepath.Join(archive, "topic.md"), body)
-	write(t, filepath.Join(archive, NativeArchiveIndexFile), pointer+"\n")
+	write(t, filepath.Join(archive, nativeArchiveIndexFile), pointer+"\n")
 
 	res, err := restoreNative(dir, []string{"topic"}, true)
 	if err != nil {
@@ -229,7 +229,7 @@ func TestNativeErrorRegressionRestoreMissingIndexIdenticalLive(t *testing.T) {
 	if strings.Join(res.Restored, ",") != "topic.md" {
 		t.Fatalf("restore did not succeed: %+v", res)
 	}
-	if got := mustRead(t, filepath.Join(dir, NativeIndexFile)); strings.TrimSpace(got) != pointer {
+	if got := mustRead(t, filepath.Join(dir, nativeIndexFile)); strings.TrimSpace(got) != pointer {
 		t.Fatalf("recorded pointer lost or rewritten after identical-live restore: %q", got)
 	}
 	if got := mustRead(t, filepath.Join(dir, "topic.md")); got != body {
@@ -238,7 +238,7 @@ func TestNativeErrorRegressionRestoreMissingIndexIdenticalLive(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(archive, "topic.md")); !os.IsNotExist(err) {
 		t.Fatalf("archived copy was not removed: %v", err)
 	}
-	if got := mustRead(t, filepath.Join(archive, NativeArchiveIndexFile)); strings.Contains(got, "topic.md") {
+	if got := mustRead(t, filepath.Join(archive, nativeArchiveIndexFile)); strings.Contains(got, "topic.md") {
 		t.Fatalf("restored pointer still recorded in archive: %q", got)
 	}
 }

@@ -92,7 +92,7 @@ func historyLog(args []string) int {
 		return helptext.FailUsage("history log: -n must be >= 0, got %d", *n)
 	}
 	store := &history.Store{Dir: history.Dir()}
-	lines, err := store.Log(*n, "config")
+	lines, err := store.Log(*n)
 	if err != nil { // a failed read is not an empty history: say so, print nothing as if it were
 		fmt.Fprintf(os.Stderr, "history: config: %v\n", err)
 		return 1
@@ -127,7 +127,7 @@ func historyDiff(args []string) int {
 		rev = fs.Arg(0)
 	}
 	store := &history.Store{Dir: history.Dir()}
-	out, err := store.Diff(rev, "config")
+	out, err := store.Diff(rev)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "history:", err)
 		return 1

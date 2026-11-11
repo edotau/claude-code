@@ -68,7 +68,7 @@ func recallIndexWrite(t testing.TB, path, body string, mtime time.Time) {
 
 func (f recallIndexFixture) search(t testing.TB, query string) []SearchHit {
 	t.Helper()
-	return SearchBanks(f.root, query, 0)
+	return searchBanks(f.root, query, 0)
 }
 
 func (f recallIndexFixture) index(t testing.TB) map[fileKey]indexed {
@@ -131,7 +131,7 @@ func TestRecallIndexStatInvalidation(t *testing.T) {
 	f := newRecallIndexFixture(t)
 	before := f.search(t, "router galaxy retry")
 	index := f.persisted(t)
-	key := fileKey{f.source, SegEntries}
+	key := fileKey{f.source, segEntries}
 	old := index[key]
 	data, err := os.ReadFile(f.source)
 	if err != nil {
@@ -171,10 +171,10 @@ func TestRecallIndexRacyNotPersisted(t *testing.T) {
 			t.Fatal("racy source was not searched")
 		}
 		index := f.index(t)
-		if _, ok := index[fileKey{f.source, SegEntries}]; ok {
+		if _, ok := index[fileKey{f.source, segEntries}]; ok {
 			t.Fatal("racy source segment was persisted")
 		}
-		if _, ok := index[fileKey{f.archive, SegEntries}]; !ok {
+		if _, ok := index[fileKey{f.archive, segEntries}]; !ok {
 			t.Fatal("backdated archive segment was not persisted")
 		}
 	}
@@ -240,7 +240,7 @@ func TestRecallIndexPrunesMissing(t *testing.T) {
 	f := newRecallIndexFixture(t)
 	f.search(t, "archive storm")
 	index := f.persisted(t)
-	key := fileKey{f.archive, SegEntries}
+	key := fileKey{f.archive, segEntries}
 	if _, ok := index[key]; !ok {
 		t.Fatal("archive segment was not persisted before deletion")
 	}

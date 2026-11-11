@@ -11,8 +11,8 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// RecallPicks is the common query preparation and selection for prompt, agent and diagnostic recall.
-func RecallPicks(root, session, query string, semantic, explain bool) ([]recallPick, recallTrace) {
+// recallPicks is the common query preparation and selection for prompt, agent and diagnostic recall.
+func recallPicks(root, session, query string, semantic, explain bool) ([]recallPick, recallTrace) {
 	trace := recallTrace{Silent: true, Embeddings: "not requested", CacheAge: "not inspected"}
 	q := strings.TrimSpace(query)
 	if rs := []rune(q); len(rs) > recallQueryCapRunes {
@@ -112,8 +112,8 @@ func recallSemantic(result semanticReady, files []corpusFile, segs []segView, se
 	return withSemanticCandidates(ranked, extra), sem, semSeen, "ran"
 }
 
-// RecallContext renders the prompt recall and returns the body and pointer hits for bookkeeping.
-func RecallContext(picks []recallPick) (string, []SearchHit, []SearchHit) {
+// recallContext renders the prompt recall and returns the body and pointer hits for bookkeeping.
+func recallContext(picks []recallPick) (string, []SearchHit, []SearchHit) {
 	if len(picks) == 0 {
 		return "", nil, nil
 	}
@@ -132,8 +132,8 @@ func RecallContext(picks []recallPick) (string, []SearchHit, []SearchHit) {
 	return capChars(b.String(), recallTotalCapChars), bodies, hits
 }
 
-// RecallPointers supplies the agent adapter's limited pointer list.
-func RecallPointers(picks []recallPick) []Entry {
+// pointerEntries supplies the agent adapter's limited pointer list.
+func pointerEntries(picks []recallPick) []Entry {
 	var entries []Entry
 	for _, p := range picks[:min(recallK, len(picks))] {
 		entries = append(entries, p.Entry)
@@ -141,29 +141,29 @@ func RecallPointers(picks []recallPick) []Entry {
 	return entries
 }
 
-// RecordRecall logs and marks only the bodies delivered to the prompt.
-func RecordRecall(root, session string, bodies, hits []SearchHit) {
-	logHits(recallRoot(root), hits, AccessRecall, time.Now())
-	MarkSeen(session, bodies)
+// recordRecall logs and marks only the bodies delivered to the prompt.
+func recordRecall(root, session string, bodies, hits []SearchHit) {
+	logHits(recallRoot(root), hits, accessRecall, time.Now())
+	markSeen(session, bodies)
 }
 
 // PromptRecall is the UserPromptSubmit recall block for prompt, "" when nothing clears the floor.
 func PromptRecall(sessionID, cwd, prompt string, warn io.Writer) string {
 	root := SessionRoot(sessionID, cwd)
-	picks, trace := RecallPicks(root, sessionID, prompt, true, false)
+	picks, trace := recallPicks(root, sessionID, prompt, true, false)
 	if after, ok := strings.CutPrefix(trace.Embeddings, "keyword-only: "); ok {
 		fmt.Fprintf(warn, "memory-recall: keyword-only (%s)\n", textutil.CapRunes(after, 120, "…"))
 	}
-	context, bodies, hits := RecallContext(picks)
+	context, bodies, hits := recallContext(picks)
 	if context == "" {
 		return ""
 	}
-	RecordRecall(root, sessionID, bodies, hits)
+	recordRecall(root, sessionID, bodies, hits)
 	return context
 }
 
-// SearchBanks ranks every block of root's local, home and archive banks plus native topics; top k (0 = all).
-func SearchBanks(root, query string, k int) []SearchHit {
+// searchBanks ranks every block of root's local, home and archive banks plus native topics; top k (0 = all).
+func searchBanks(root, query string, k int) []SearchHit {
 	ranked, _, _ := searchBanksTerms(root, query, contentTerms(query), k)
 	return ranked
 }
@@ -191,11 +191,11 @@ func searchAll(query string, k int) []SearchHit {
 // SearchRepo ranks blocks for q: every store with all, else the named store or checkout (default: cwd's).
 func SearchRepo(repo string, all bool, q string, k int) ([]SearchHit, string) {
 	if all {
-		root := Root(repo)
+		root := root(repo)
 		return searchAll(q, k), root
 	}
 	root := RepoRoot(repo) // a store name from the catalog, else a checkout path
-	return SearchBanks(root, q, k), root
+	return searchBanks(root, q, k), root
 }
 
 // Agent recall previews stay short and the whole block stays under the spec's 1KB cap.
@@ -214,10 +214,10 @@ func AgentRecall(sessionID, cwd, task string) (block string, ids []string) {
 	if q == "" || strings.Contains(q, agentRecallMarker) {
 		return "", nil
 	}
-	picks, _ := RecallPicks(cwd, sessionID, q, false, false)
+	picks, _ := recallPicks(cwd, sessionID, q, false, false)
 
 	var lines []string
-	for _, e := range RecallPointers(picks) {
+	for _, e := range pointerEntries(picks) {
 		lines = append(lines, "\n- "+textutil.CapRunes(e.Pointer(), agentRecallPreviewRunes, "…"))
 		ids = append(ids, e.ID)
 	}

@@ -22,7 +22,7 @@ var gateVerdictLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.Mus
 var gateNoiseLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`Noise ratio:|Verdict:`) })
 
 func gateStagedFiles(repo string) []string {
-	out, _, err := gitInherit(repo, "diff", "--cached", "--name-only")
+	out, err := gitInherit(repo, "diff", "--cached", "--name-only")
 	if err != nil {
 		return nil
 	}
@@ -37,7 +37,7 @@ func gateStagedFiles(repo string) []string {
 
 // gateComplexityFiles lists the staged source files (added, copied, modified, renamed), as paths under repo.
 func gateComplexityFiles(repo string) []string {
-	out, _, err := gitInherit(repo, "diff", "--cached", "-z", "--name-only", "--relative", "--diff-filter=ACMR")
+	out, err := gitInherit(repo, "diff", "--cached", "-z", "--name-only", "--relative", "--diff-filter=ACMR")
 	if err != nil {
 		return nil
 	}

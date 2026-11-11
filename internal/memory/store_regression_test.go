@@ -70,7 +70,7 @@ func TestInitLeavesNoTempFile(t *testing.T) {
 	}
 }
 
-// HasBank resolves root's bank dir once, not per typed file; an unreadable origin read is never memoised.
+// bankExists resolves root's bank dir once, not per typed file; an unreadable origin read is never memoised.
 func TestHasBankResolvesDirOnce(t *testing.T) {
 	tempConfig(t)
 	resetVaultRetry(t)
@@ -82,15 +82,15 @@ func TestHasBankResolvesDirOnce(t *testing.T) {
 	originRows = func() (map[string]string, error) { reads++; return nil, errors.New("vault unreadable") }
 	t.Cleanup(func() { originRows = orig; repoDirsMemo.reset() })
 	repoDirsMemo.reset()
-	if HasBank(repo) {
-		t.Fatal("HasBank = true on a bank-less root")
+	if bankExists(repo) {
+		t.Fatal("bankExists = true on a bank-less root")
 	}
 	if reads != 1 {
-		t.Errorf("HasBank read origins %d times, want 1 (one Dir resolution)", reads)
+		t.Errorf("bankExists read origins %d times, want 1 (one Dir resolution)", reads)
 	}
 	write(t, filepath.Join(Dir(repo), "progress.md"), "# Progress\n")
-	if !HasBank(repo) {
-		t.Error("HasBank = false with a typed file in the bank")
+	if !bankExists(repo) {
+		t.Error("bankExists = false with a typed file in the bank")
 	}
 }
 

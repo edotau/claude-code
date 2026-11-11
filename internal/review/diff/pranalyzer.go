@@ -120,21 +120,11 @@ type PRReport struct {
 	ReviewOrder  []string         `json:"review_order,omitempty"`
 }
 
-func runGitErr(repo string, args ...string) (string, error) {
-	// None of this file's git output starts a line with whitespace, so proc's TrimRight equals the old TrimSpace.
-	out, _, err := gitInherit(repo, args...)
-	if err != nil {
-		return "", err
-	}
-	return out, nil
-}
-
-// gitInherit runs git in repo under a 30s timeout; timedOut reports that the deadline, not git, ended the run.
-func gitInherit(repo string, args ...string) (out string, timedOut bool, err error) {
+// gitInherit runs git in repo under a 30s timeout; no output here starts a line with whitespace (proc trims right).
+func gitInherit(repo string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	out, err = proc.RunGitInherit(ctx, repo, args...)
-	return out, ctx.Err() != nil, err
+	return proc.RunGitInherit(ctx, repo, args...)
 }
 
 // refDiff runs `git diff <opts> base...head [-- paths]`, retrying the two-dot form only when the merge-base form errors.
@@ -144,7 +134,7 @@ func refDiff(repo, base, head string, opts []string, paths ...string) (string, e
 		if len(paths) > 0 {
 			args = append(append(args, "--"), paths...)
 		}
-		return runGitErr(repo, args...)
+		return gitInherit(repo, args...)
 	}
 	out, err := run(base + "..." + head)
 	if err != nil {
@@ -296,7 +286,7 @@ func tierPoints(n, top, mid, low int) int {
 }
 
 func analyzeCommitMessages(repo, base, head string) (int, []CommitIssue, error) {
-	out, err := runGitErr(repo, "log", "--oneline", base+".."+head)
+	out, err := gitInherit(repo, "log", "--oneline", base+".."+head)
 	issues := []CommitIssue{}
 	if err != nil {
 		return 0, nil, err
@@ -335,8 +325,8 @@ func complexityLabel(score int) string {
 	}
 }
 
-// AnalyzePR ports pr_analyzer.py's analyze_pr: full complexity/risk analysis for base...head.
-func AnalyzePR(repo, base, head string) (PRReport, error) {
+// analyzePR ports pr_analyzer.py's analyze_pr: full complexity/risk analysis for base...head.
+func analyzePR(repo, base, head string) (PRReport, error) {
 	if err := checkRefs(base, head); err != nil {
 		return PRReport{}, err
 	}
@@ -522,7 +512,7 @@ func RunPR(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	report, err := AnalyzePR(repoPath, *base, *head)
+	report, err := analyzePR(repoPath, *base, *head)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
@@ -562,7 +552,7 @@ func resolveGitRepo(positional []string, stderr io.Writer) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	top, err := runGitErr(repoPath, "rev-parse", "--show-toplevel")
+	top, err := gitInherit(repoPath, "rev-parse", "--show-toplevel")
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %s is not a git repository\n", repoPath)
 		return "", false

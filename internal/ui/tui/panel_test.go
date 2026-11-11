@@ -2,8 +2,13 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // A fake key stream drives handlePickKey directly, so the panel's transitions test without a TTY.
@@ -174,5 +179,55 @@ func TestFitWindowsRowsToTerminalHeight(t *testing.T) {
 	}
 	if same := fit("", pickState{rows: rows[:3]}, 120, 12); len(same.rows) != 3 {
 		t.Errorf("a panel that fits must not be windowed")
+	}
+}
+
+// sttyOn runs stty on the terminal f, skipping where no stty exists.
+func sttyOn(t *testing.T, f *os.File, args ...string) {
+	t.Helper()
+	stty := "/bin/stty" // hosttest's PATH allowlist leaves stty out; macOS ships it here, Linux here or in /usr/bin
+	if _, err := os.Stat(stty); err != nil {
+		stty = "/usr/bin/stty"
+	}
+	if _, err := os.Stat(stty); err != nil {
+		t.Skipf("no stty: %v", err)
+	}
+	cmd := exec.Command(stty, args...)
+	cmd.Stdin = f
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("stty %v: %v: %s", args, err, out)
+	}
+}
+
+// testPickerTTY makes stdin an 80-column pty of the given height with input typed, and stdout a scratch file.
+func testPickerTTY(t *testing.T, height int, input string) {
+	t.Helper()
+	master, slave := hosttest.PTY(t)
+	sttyOn(t, slave, "rows", strconv.Itoa(height), "cols", "80")
+	out, err := os.CreateTemp(t.TempDir(), "picker-output")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { out.Close() })
+	stdin, stdout := os.Stdin, os.Stdout
+	os.Stdin, os.Stdout = slave, out
+	t.Cleanup(func() { os.Stdin, os.Stdout = stdin, stdout })
+	if _, err := master.WriteString(input); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPickEmptyOnTwoLineTerminal(t *testing.T) {
+	testPickerTTY(t, 2, "q")
+	if idx, err := Pick("", nil, 0); idx != -1 || err != nil {
+		t.Fatalf("empty Pick on 80x2 = %d, %v; want -1, nil", idx, err)
+	}
+}
+
+func TestPickClampsStartPastLastRow(t *testing.T) {
+	testPickerTTY(t, 24, "\n")
+	rows := [][2]string{{"a", ""}, {"b", ""}, {"c", ""}}
+	if idx, err := Pick("", rows, 5); idx != 2 || err != nil {
+		t.Fatalf("Pick(start=5) = %d, %v; want last row 2, nil", idx, err)
 	}
 }

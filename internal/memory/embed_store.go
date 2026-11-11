@@ -78,14 +78,14 @@ var (
 )
 
 var (
-	// ErrEmbedValid means the profile's record is inside its validity lease, so nothing was minted.
-	ErrEmbedValid = errors.New("embedding cache is still valid")
-	// ErrEmbedBusy means another session holds the minting claim.
-	ErrEmbedBusy = errors.New("another session is minting the embedding cache")
-	// ErrEmbedSuperseded means a newer record landed during the mint, so this run's vectors were discarded.
-	ErrEmbedSuperseded = errors.New("a newer mint landed first; this run's vectors were discarded")
-	// ErrReembedEarly means --reembed was asked before the override window opened.
-	ErrReembedEarly = errors.New("re-embed is not open yet")
+	// errEmbedValid means the profile's record is inside its validity lease, so nothing was minted.
+	errEmbedValid = errors.New("embedding cache is still valid")
+	// errEmbedBusy means another session holds the minting claim.
+	errEmbedBusy = errors.New("another session is minting the embedding cache")
+	// errEmbedSuperseded means a newer record landed during the mint, so this run's vectors were discarded.
+	errEmbedSuperseded = errors.New("a newer mint landed first; this run's vectors were discarded")
+	// errReembedEarly means --reembed was asked before the override window opened.
+	errReembedEarly = errors.New("re-embed is not open yet")
 )
 
 // embedDBPath is the one bbolt file holding every profile's entry-vector record, scoped like StateDir.
@@ -315,8 +315,8 @@ func (s *boltVectorStore) RefreshDue(profile string, now time.Time) bool {
 	return err == nil && due
 }
 
-// EmbedProfile is the first of the session and claude-record profiles that can embed, matching NewSemantic's order.
-func EmbedProfile() string {
+// embedProfile is the first of the session and claude-record profiles that can embed, matching NewSemantic's order.
+func embedProfile() string {
 	reg, err := providers.Load()
 	if err != nil {
 		return ""
@@ -329,8 +329,8 @@ func EmbedProfile() string {
 	return ""
 }
 
-// RefreshEmbeddings starts a detached mint at most once per claim TTL; failed launches release the slot.
-func RefreshEmbeddings(root, profile string, now time.Time) bool {
+// refreshEmbeddings starts a detached mint at most once per claim TTL; failed launches release the slot.
+func refreshEmbeddings(root, profile string, now time.Time) bool {
 	if IsUpdateChild() || !safeProfile.MatchString(profile) {
 		return false
 	}
@@ -378,11 +378,11 @@ func RefreshStaleEmbeddings(cwd string) {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	if IsUpdateChild() || !HasBank(cwd) {
+	if IsUpdateChild() || !bankExists(cwd) {
 		return
 	}
-	if profile := EmbedProfile(); profile != "" {
-		RefreshEmbeddings(cwd, profile, time.Now())
+	if profile := embedProfile(); profile != "" {
+		refreshEmbeddings(cwd, profile, time.Now())
 	}
 }
 

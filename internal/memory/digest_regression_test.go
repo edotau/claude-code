@@ -15,7 +15,7 @@ func TestDigestInputLiteralBracketConfig(t *testing.T) {
 	dir := HomeBankDir()
 	write(t, filepath.Join(archiveDir(dir), "2026-01.md"), "first archive fact")
 	write(t, filepath.Join(archiveDir(dir), "2026-02.md"), "second archive fact")
-	write(t, filepath.Join(archiveDir(dir), DigestFile), "old digest must not be summarized")
+	write(t, filepath.Join(archiveDir(dir), digestFile), "old digest must not be summarized")
 	got, used, err := digestInput(dir)
 	if err != nil {
 		t.Fatal(err)

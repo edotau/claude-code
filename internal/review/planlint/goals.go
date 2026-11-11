@@ -360,7 +360,7 @@ func analyze(text, source string) analysis {
 
 	results, total := scoreSteps(steps)
 	maxScore := len(steps) * 3
-	pct := pyRound1(float64(total) / float64(maxScore) * 100)
+	pct := reviewsource.Round1(float64(total) / float64(maxScore) * 100)
 	hasFinal := isFinalVerification(steps[len(steps)-1])
 	verdict := goalsVerdict(pct)
 	recs := goalRecommendations(results, hasFinal)
@@ -429,7 +429,7 @@ func printGoals(dst io.Writer, a analysis) error {
 	fmt.Fprintf(stdout, "Goal Verifier — %s\n", a.source)
 	pctStr := "0"
 	if !a.noPlan {
-		pctStr = formatPyFloat(a.percentage)
+		pctStr = reviewsource.FormatPyFloat(a.percentage)
 	}
 	fmt.Fprintf(stdout, "Steps: %d   Score: %d/%d (%s%%)\n", a.stepsFound, a.score, a.maxScore, pctStr)
 	fmt.Fprintf(stdout, "Verdict: %s\n\n", a.verdict)

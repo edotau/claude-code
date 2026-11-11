@@ -73,7 +73,9 @@ func Log(a Action, resource, detail string) {
 	if !a.Valid() {
 		return
 	}
-	event := Event{Schema: schemaVersion, Time: time.Now().UTC(), Action: a, Resource: scrub(resource), Detail: scrub(detail)}
+	// Every credential-shaped field is redacted so the log can never become a secret store.
+	event := Event{Schema: schemaVersion, Time: time.Now().UTC(), Action: a,
+		Resource: textutil.RedactSecrets(resource), Detail: textutil.RedactSecrets(detail)}
 	var line []byte
 	for {
 		var err error
@@ -140,9 +142,6 @@ func archiveOld(rotated string) error {
 	}
 	return nil
 }
-
-// scrub replaces every credential-shaped field so the log can never become a secret store.
-func scrub(s string) string { return textutil.RedactSecrets(s) }
 
 // Read returns events at or after since, oldest first, across every kept archive and the live file.
 func Read(since time.Time) ([]Event, error) {

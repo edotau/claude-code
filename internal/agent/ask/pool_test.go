@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -23,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
 	_ "github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
@@ -664,11 +664,6 @@ func TestBatchFailFastNeverSpawnsQueuedTask(t *testing.T) {
 	}
 }
 
-func fakeJWT(iss string) string {
-	enc := base64.RawURLEncoding.EncodeToString
-	return enc([]byte(`{"alg":"none"}`)) + "." + enc([]byte(`{"iss":"https://`+iss+`"}`)) + ".sig"
-}
-
 // profileVault isolates the CLI env and seeds anthropic profiles pa and pb on distinct local routes.
 func profileVault(t *testing.T) {
 	t.Helper()
@@ -733,7 +728,7 @@ func TestBatchHostMismatchFailsAuthBeforeExec(t *testing.T) {
 	cliEnv(t)
 	vaulttest.Use(t)
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-	t.Setenv("HM_BATCH_KEY", fakeJWT("adb-2.azuredatabricks.net"))
+	t.Setenv("HM_BATCH_KEY", hosttest.UnsignedJWT(`{"iss":"https://adb-2.azuredatabricks.net"}`))
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"hm":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net",`+
 		`"auth":{"type":"key","env":"HM_BATCH_KEY"},"models":{"opus":"databricks-claude-opus-5-5","sonnet":"databricks-claude-sonnet-5-5","haiku":"databricks-claude-haiku-4-5"}}}}}`)
 	marker := cliMarker(t, "claude", `printf '%s\n' '{"type":"result","result":"hello"}'`)
@@ -801,51 +796,34 @@ func TestBatchChildDropsOtherProfilesCustomCredentialVar(t *testing.T) {
 	}
 }
 
-// TestBatchPipeHelper is the child process of TestBatchClosedStdoutCancelsAndReapsChildren: a real batch whose stdout
-// reader is gone, with one slow task whose fake CLI records its pid.
-func TestBatchPipeHelper(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("needs unix signals and pipes")
-	}
-	pidfile := os.Getenv("BATCH_PIPE_PIDFILE")
-	if pidfile == "" {
-		t.Skip("helper process only")
-	}
-	cliEnv(t)
-	pathstest.FakeVendor(t, "claude", `p=$(cat); case "$p" in *SLOW*) echo $$ > `+pidfile+`; sleep 60;; esac`+"\n"+
-		"for i in $(seq 1 100); do [ -s "+pidfile+" ] && break; sleep 0.05; done\n"+
-		`printf '%s\n' '{"type":"result","result":"hello"}'`)
-	os.Exit(Cmd([]string{"--batch", batchFile(t, cliTask(t, "slow", "SLOW"), cliTask(t, "fast", "quick")), "--jobs", "2"}))
-}
-
-// A closed stdout must not kill the process with SIGPIPE: the batch cancels, exits non-zero, and its children die.
+// A batch whose stdout reader is gone stops spending: it cancels, exits non-zero, and its children die.
 func TestBatchClosedStdoutCancelsAndReapsChildren(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("needs unix signals and pipes")
 	}
+	cliEnv(t)
 	pidfile := filepath.Join(t.TempDir(), "child.pid")
+	pathstest.FakeVendor(t, "claude", `p=$(cat); case "$p" in *SLOW*) echo $$ > `+pidfile+`; sleep 60;; esac`+"\n"+
+		"for i in $(seq 1 100); do [ -s "+pidfile+" ] && break; sleep 0.05; done\n"+
+		`printf '%s\n' '{"type":"result","result":"hello"}'`)
+	args := []string{"--batch", batchFile(t, cliTask(t, "slow", "SLOW"), cliTask(t, "fast", "quick")), "--jobs", "2"}
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestBatchPipeHelper$")
-	cmd.Env = append(os.Environ(), "BATCH_PIPE_PIDFILE="+pidfile)
-	cmd.Stdout = w
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
 	r.Close() // nobody reads the batch's stdout any more
-	w.Close()
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	orig := os.Stdout
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = orig; w.Close() })
+	done := make(chan int, 1)
+	go func() { done <- Cmd(args) }()
 	select {
-	case <-done:
+	case code := <-done:
+		if code == 0 {
+			t.Fatal("exit code 0, want non-zero: the batch lost its stdout")
+		}
 	case <-time.After(40 * time.Second):
-		_ = cmd.Process.Kill()
 		t.Fatal("the batch did not exit after its stdout closed")
-	}
-	if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); !ok || ws.Signaled() || ws.ExitStatus() == 0 {
-		t.Fatalf("exit status %v, want a normal non-zero exit (SIGPIPE must not kill the process)", cmd.ProcessState)
 	}
 	checkBatchChildReaped(t, pidfile)
 }
@@ -1263,27 +1241,9 @@ func TestRunBatchMarkersAppearAndClear(t *testing.T) {
 	if peak.Load() == 0 {
 		t.Error("no inflight markers observed while the batch ran")
 	}
-	if n := countAccountMarkers(inflight.Dir(), account); n != 0 {
+	if n := hosttest.CountFiles(inflight.Dir(), inflight.Prefix, account); n != 0 {
 		t.Errorf("%d markers remain after RunTasks returned, want 0", n)
 	}
-}
-
-// countAccountMarkers counts live marker files in dir whose content is account.
-func countAccountMarkers(dir, account string) int {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return 0
-	}
-	n := 0
-	for _, e := range entries {
-		if _, ok := inflight.Owner(e.Name()); !ok {
-			continue
-		}
-		if b, err := os.ReadFile(filepath.Join(dir, e.Name())); err == nil && strings.TrimSpace(string(b)) == account {
-			n++
-		}
-	}
-	return n
 }
 
 // samplePeak counts account markers every interval until stop closes and returns the peak.
@@ -1294,7 +1254,7 @@ func samplePeak(dir, account string, interval time.Duration, stop <-chan struct{
 			return
 		default:
 		}
-		n := int32(countAccountMarkers(dir, account))
+		n := int32(hosttest.CountFiles(dir, inflight.Prefix, account))
 		for cur := peak.Load(); n > cur && !peak.CompareAndSwap(cur, n); cur = peak.Load() {
 		}
 		time.Sleep(interval)

@@ -67,11 +67,11 @@ func Parse(path string) (Plan, error) {
 	if err != nil {
 		return Plan{Path: path}, err
 	}
-	return ParseBytes(path, b), nil
+	return parseBytes(path, b), nil
 }
 
-// ParseBytes parses b; a checklist item runs from its bullet through its more-indented continuation lines.
-func ParseBytes(path string, b []byte) Plan {
+// parseBytes parses b; a checklist item runs from its bullet through its more-indented continuation lines.
+func parseBytes(path string, b []byte) Plan {
 	lines := strings.Split(string(b), "\n")
 	p := Plan{Path: path}
 	var open fenceOpen // the fence now open, zero when none
@@ -320,9 +320,9 @@ func isDirOwn(entry string) bool {
 	return strings.Contains(entry, "/") && !strings.Contains(base, ".") && !strings.ContainsAny(base, "*?[")
 }
 
-// Covers reports which of owns a commit's files touch: all entries and/or at least one; a directory entry never
+// covers reports which of owns a commit's files touch: all entries and/or at least one; a directory entry never
 // completes a task alone, so all needs at least one file entry.
-func Covers(owns, files []string) (all, any bool) {
+func covers(owns, files []string) (all, any bool) {
 	if len(owns) == 0 {
 		return false, false
 	}
@@ -397,7 +397,7 @@ func scorePlan(plan Plan, files []string) (s planScore) {
 		if t.Done || len(t.Owns) == 0 {
 			continue
 		}
-		if all, _ := Covers(t.Owns, files); all {
+		if all, _ := covers(t.Owns, files); all {
 			s.exact++
 			continue
 		}
@@ -574,8 +574,8 @@ func CommitFiles(ctx context.Context, dir, sha string) ([]string, error) {
 	return files, nil
 }
 
-// RangeCommits lists rng's non-merge commits oldest first, each with a 7-char sha and its changed files.
-func RangeCommits(ctx context.Context, dir, rng string) ([]Commit, error) {
+// rangeCommits lists rng's non-merge commits oldest first, each with a 7-char sha and its changed files.
+func rangeCommits(ctx context.Context, dir, rng string) ([]Commit, error) {
 	if !strings.Contains(rng, "..") || strings.HasPrefix(rng, "-") {
 		return nil, fmt.Errorf("range %q: want <a>..<b>", rng)
 	}

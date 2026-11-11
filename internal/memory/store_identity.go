@@ -276,7 +276,7 @@ func ensureOriginDir(dir string, id Identity) error {
 	if id.HomeBank {
 		return nil
 	}
-	if cur, err := ReadOrigin(dir); err == nil && cur.Accepts(id.Origin) {
+	if cur, err := readOrigin(dir); err == nil && cur.Accepts(id.Origin) {
 		return nil
 	}
 	err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: filepath.Base(dir), Origin: id.Origin})
@@ -294,7 +294,7 @@ func addOriginAlias(dir, origin string) error {
 		if err != nil {
 			return err
 		}
-		cur, err := ReadOrigin(dir)
+		cur, err := readOrigin(dir)
 		if err != nil {
 			return err
 		}
@@ -394,7 +394,7 @@ func catalogStamp(keys []string) (stamp string, stable bool) {
 	var b strings.Builder
 	b.WriteString(StoreDir() + "\x00" + strings.Join(keys, "\x00"))
 	stable = true
-	for _, p := range []string{vault.Path(), filepath.Join(StoreDir(), CatalogFile)} {
+	for _, p := range []string{vault.Path(), filepath.Join(StoreDir(), catalogFile)} {
 		fi, err := os.Stat(p)
 		if err != nil {
 			b.WriteString("\x00-")
@@ -495,8 +495,8 @@ func routeMatch(query, raw string) bool {
 	return routeWord(query, strings.ToLower(raw)) || routeWord(query, name)
 }
 
-// RepoByName is the store whose key equals name, else the store whose origin basename does, for `--repo <name>`.
-func RepoByName(name string) (repoEntry, bool) {
+// repoByName is the store whose key equals name, else the store whose origin basename does, for `--repo <name>`.
+func repoByName(name string) (repoEntry, bool) {
 	entries, _ := RepoDirs()
 	for _, e := range entries {
 		if strings.EqualFold(e.Key, name) {
@@ -536,24 +536,24 @@ func routeWordByte(c byte) bool {
 // RepoRoot resolves --repo like recall: a catalog store name maps to its origin checkout, else a path.
 func RepoRoot(repo string) string {
 	if repo == "" {
-		return Root(repo)
+		return root(repo)
 	}
-	if e, ok := RepoByName(repo); ok && e.Origin.Origin != "" {
+	if e, ok := repoByName(repo); ok && e.Origin.Origin != "" {
 		return e.Origin.Origin
 	}
-	return Root(repo)
+	return root(repo)
 }
 
-// ResolveRepo is RepoRoot that refuses a guess: "" is the current repo, else a catalog store name or an existing path.
-func ResolveRepo(repo string) (string, error) {
+// resolveRepo is RepoRoot that refuses a guess: "" is the current repo, else a catalog store name or an existing path.
+func resolveRepo(repo string) (string, error) {
 	if repo == "" {
-		return Root(""), nil
+		return root(""), nil
 	}
-	if e, ok := RepoByName(repo); ok && e.Origin.Origin != "" {
+	if e, ok := repoByName(repo); ok && e.Origin.Origin != "" {
 		return e.Origin.Origin, nil
 	}
 	if _, err := os.Stat(repo); err == nil {
-		return Root(repo), nil
+		return root(repo), nil
 	}
 	return "", fmt.Errorf("--repo %q is neither an existing path nor a known store (known stores: %s)",
 		repo, strings.Join(RepoKeys(), ", "))

@@ -501,76 +501,78 @@ func assertReimportQuiet(t *testing.T, events []audit.Event) {
 	}
 }
 
-func TestHelperEditor(t *testing.T) {
-	mode := os.Getenv("CONFIG_TEST_EDITOR")
-	if mode == "" {
-		return
+// testEditor is the $VISUAL/$EDITOR fixture: CONFIG_TEST_EDITOR picks what it does to the file in its last argument.
+const testEditor = `#!/bin/sh
+for f; do :; done
+case "$(ls -l "$f")" in
+-rw-------*) ;;
+*) echo "editor file mode is not 0600: $(ls -l "$f")" >&2; exit 4 ;;
+esac
+printf seen > "$CONFIG_TEST_EDITOR_SEEN"
+mode=$CONFIG_TEST_EDITOR
+case $mode in
+noop) exit 0 ;;
+fail) exit 3 ;;
+retry)
+	# A retry must replace the invalid file rather than try to decode it.
+	if [ -e "$CONFIG_TEST_EDITOR_RETRY" ]; then mode=pin; else printf retry > "$CONFIG_TEST_EDITOR_RETRY"; mode=bad; fi ;;
+race)
+	: > "$CONFIG_TEST_EDITOR_RACE.request"
+	while [ ! -e "$CONFIG_TEST_EDITOR_RACE.done" ]; do sleep 0.01; done ;;
+pin | bad) ;;
+*) echo "unknown editor mode $mode" >&2; exit 5 ;;
+esac
+if [ "$mode" = bad ]; then printf '{' > "$f"; else cat "$CONFIG_TEST_EDITOR_DOC" > "$f"; fi
+`
+
+// writeTestEditor installs the testEditor script and the valid doc it saves in dir, returning the script's path.
+func writeTestEditor(t *testing.T, dir string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the editor fixture is a sh script")
 	}
-	path := os.Args[len(os.Args)-1]
-	info, err := os.Stat(path)
+	raw, err := json.Marshal(Doc{Pins: map[string]string{"HARNESS_PROVIDER": "openai"}, Env: map[string]string{}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
-		t.Fatalf("editor file mode = %04o, want 0600", info.Mode().Perm())
-	}
-	if err := os.WriteFile(os.Getenv("CONFIG_TEST_EDITOR_SEEN"), []byte("seen"), 0600); err != nil {
+	doc, editor := filepath.Join(dir, "doc.json"), filepath.Join(dir, "editor")
+	if err := os.WriteFile(doc, raw, 0600); err != nil {
 		t.Fatal(err)
 	}
-	mode = helperEditorMode(t, mode)
-	raw := []byte("{")
-	if mode != "bad" {
-		// A retry must replace the invalid file rather than try to decode it.
-		d := Doc{Pins: map[string]string{"HARNESS_PROVIDER": "openai"}, Env: map[string]string{}}
-		raw, err = json.Marshal(d)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(path, raw, 0600); err != nil {
+	if err := os.WriteFile(editor, []byte(testEditor), 0700); err != nil {
 		t.Fatal(err)
 	}
-	os.Exit(0)
+	t.Setenv("CONFIG_TEST_EDITOR_DOC", doc)
+	return editor
 }
 
-// helperEditorMode runs the mode's side effect (exiting for noop/fail) and returns the mode that picks the file content.
-func helperEditorMode(t *testing.T, mode string) string {
+// raceTestEditor changes the vault while the "race" editor has the file open: it answers the script's request file.
+func raceTestEditor(t *testing.T, marker string) {
 	t.Helper()
-	switch mode {
-	case "noop":
-		os.Exit(0)
-	case "fail":
-		os.Exit(3)
-	case "retry":
-		return helperRetryMode(t)
-	case "race":
+	t.Setenv("CONFIG_TEST_EDITOR_RACE", marker)
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			if _, err := os.Stat(marker + ".request"); err == nil {
+				break
+			}
+			select {
+			case <-stop:
+				return
+			case <-time.After(time.Millisecond):
+			}
+		}
 		if err := vault.Update(func(tx *vault.Tx) error {
 			return tx.Put(vault.Pins, "HARNESS_OPUS_MODEL", "concurrent-model")
 		}); err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
-	case "pin", "bad":
-	default:
-		t.Fatalf("unknown helper editor mode %q", mode)
-	}
-	return mode
-}
-
-// helperRetryMode writes an invalid doc the first time it runs and a valid one afterwards.
-func helperRetryMode(t *testing.T) string {
-	t.Helper()
-	marker := os.Getenv("CONFIG_TEST_EDITOR_RETRY")
-	_, err := os.Stat(marker)
-	if errors.Is(err, os.ErrNotExist) {
-		if err := os.WriteFile(marker, []byte("retry"), 0600); err != nil {
-			t.Fatal(err)
+		if err := os.WriteFile(marker+".done", nil, 0600); err != nil {
+			t.Error(err)
 		}
-		return "bad"
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	return "pin"
+	}()
+	t.Cleanup(func() { close(stop); <-done })
 }
 
 func setupTestEditor(t *testing.T, mode, env string, terminal bool, answer bool) (string, *int) {
@@ -585,7 +587,10 @@ func setupTestEditor(t *testing.T, mode, env string, terminal bool, answer bool)
 	t.Setenv("CONFIG_TEST_EDITOR_RETRY", filepath.Join(tmp, "retry"))
 	t.Setenv("VISUAL", "")
 	t.Setenv("EDITOR", "")
-	t.Setenv(env, os.Args[0]+" -test.run=^TestHelperEditor$ --")
+	t.Setenv(env, writeTestEditor(t, tmp)+" --")
+	if mode == "race" {
+		raceTestEditor(t, filepath.Join(tmp, "race"))
+	}
 	if env == "VISUAL" {
 		t.Setenv("EDITOR", filepath.Join(tmp, "must-not-run"))
 	}
@@ -645,13 +650,13 @@ func TestEdit(t *testing.T) {
 			if seen, err := os.ReadFile(filepath.Join(tmp, "seen")); err != nil || string(seen) != "seen" {
 				t.Fatalf("helper did not inspect the temp file: %q, %v", seen, err)
 			}
-			assertEditEffect(t, tt.mode, err, before)
+			assertEditEffect(t, tt.mode, err, before, filepath.Join(tmp, "editor"))
 		})
 	}
 }
 
 // assertEditEffect checks what an Edit in the given helper mode did (or refused to do) to the vault.
-func assertEditEffect(t *testing.T, mode string, err error, before []byte) {
+func assertEditEffect(t *testing.T, mode string, err error, before []byte, editor string) {
 	t.Helper()
 	switch mode {
 	case "pin":
@@ -671,14 +676,14 @@ func assertEditEffect(t *testing.T, mode string, err error, before []byte) {
 		}
 	}
 	if mode == "fail" {
-		assertEditorFailureNamed(t, err)
+		assertEditorFailureNamed(t, err, editor)
 	}
 }
 
 // assertEditorFailureNamed fails unless err names the editor binary and its exit status.
-func assertEditorFailureNamed(t *testing.T, err error) {
+func assertEditorFailureNamed(t *testing.T, err error, editor string) {
 	t.Helper()
-	if err == nil || !strings.Contains(err.Error(), "editor "+os.Args[0]) || !strings.Contains(err.Error(), "exit status 3") {
+	if err == nil || !strings.Contains(err.Error(), "editor "+editor) || !strings.Contains(err.Error(), "exit status 3") {
 		t.Errorf("editor failure did not name editor and exit status: %v", err)
 	}
 }

@@ -24,28 +24,28 @@ type Commit struct {
 	Files []string
 }
 
-// TickResult is what one commit ticked or marked partly landed.
-type TickResult struct {
+// tickResult is what one commit ticked or marked partly landed.
+type tickResult struct {
 	Sha             string
 	Ticked, Partial []string
 }
 
 // Tick ticks fully covered tasks and notes partly covered ones; returns touched titles, writes only on change.
 func Tick(planPath, sha string, files []string) (ticked, partial []string, err error) {
-	results, err := TickCommits(planPath, []Commit{{Sha: sha, Files: files}}, false)
+	results, err := tickCommits(planPath, []Commit{{Sha: sha, Files: files}}, false)
 	for _, r := range results {
 		ticked, partial = r.Ticked, r.Partial
 	}
 	return ticked, partial, err
 }
 
-// TickCommits ticks per commit in order under one lock, a task completing once the range's union covers it; dryRun skips writing.
-func TickCommits(planPath string, commits []Commit, dryRun bool) (results []TickResult, err error) {
+// tickCommits ticks per commit in order under one lock, a task completing once the range's union covers it; dryRun skips writing.
+func tickCommits(planPath string, commits []Commit, dryRun bool) (results []tickResult, err error) {
 	err = editPlan(planPath, func(text string) (string, error) {
 		orig := text
 		var seen []string
 		for _, c := range commits {
-			r := TickResult{Sha: strings.TrimSpace(c.Sha)}
+			r := tickResult{Sha: strings.TrimSpace(c.Sha)}
 			seen = append(seen, c.Files...)
 			text, r.Ticked, r.Partial = tickText(planPath, text, r.Sha, c.Files, seen)
 			if len(r.Ticked)+len(r.Partial) > 0 {
@@ -63,12 +63,12 @@ func TickCommits(planPath string, commits []Commit, dryRun bool) (results []Tick
 // tickText is Tick's pure edit: ticks on seen (files so far), notes partials from this commit's files.
 func tickText(planPath, text, sha string, files, seen []string) (out string, ticked, partial []string) {
 	lines := strings.Split(text, "\n")
-	for _, t := range ParseBytes(planPath, []byte(text)).Tasks {
+	for _, t := range parseBytes(planPath, []byte(text)).Tasks {
 		if t.Done || len(t.Owns) == 0 {
 			continue
 		}
-		all, _ := Covers(t.Owns, seen)
-		_, any := Covers(t.Owns, files)
+		all, _ := covers(t.Owns, seen)
+		_, any := covers(t.Owns, files)
 		switch {
 		case all:
 			lines = removeClaims(lines, t)
@@ -108,7 +108,7 @@ func editPlan(planPath string, fn func(text string) (string, error)) error {
 // editTask applies fn to taskID's task and plan lines under the plans lock.
 func editTask(planPath, taskID string, fn func(Task, []string) []string) error {
 	return editPlan(planPath, func(text string) (string, error) {
-		t, ok := findTask(ParseBytes(planPath, []byte(text)), taskID)
+		t, ok := findTask(parseBytes(planPath, []byte(text)), taskID)
 		if !ok {
 			return "", fmt.Errorf("plans: no task %q in %s", taskID, planPath)
 		}
@@ -221,7 +221,7 @@ func findTask(p Plan, taskID string) (Task, bool) {
 
 // TickRange ticks plan (default: the one plan the range's files match) for each commit in rng; drafts are never ticked.
 func TickRange(ctx context.Context, dir, worktree, rng, plan string, drafts []string, dryRun bool, w io.Writer) error {
-	commits, err := RangeCommits(ctx, dir, rng)
+	commits, err := rangeCommits(ctx, dir, rng)
 	if err != nil {
 		return err
 	}
@@ -229,7 +229,7 @@ func TickRange(ctx context.Context, dir, worktree, rng, plan string, drafts []st
 	if err != nil || done {
 		return err
 	}
-	results, err := TickCommits(plan, commits, dryRun)
+	results, err := tickCommits(plan, commits, dryRun)
 	if err != nil {
 		return err
 	}
@@ -266,7 +266,7 @@ func pickPlan(dir, worktree, plan string, drafts []string, commits []Commit, w i
 }
 
 // printTicked writes one line per commit that ticked or partly landed tasks in base, returning the first write error.
-func printTicked(w io.Writer, results []TickResult, base string, dryRun bool) error {
+func printTicked(w io.Writer, results []tickResult, base string, dryRun bool) error {
 	verb := "ticked"
 	if dryRun {
 		verb = "would tick"
@@ -336,29 +336,16 @@ func MirrorDests() []string {
 
 // allDatedPlans lists every plan file under the plans home, the fail-closed exclusion when a record is unreadable.
 func allDatedPlans() []string {
-	root := filepath.Join(paths.ConfigDir(), "plans")
-	top, dirs := mdFiles(root)
-	var sub []string
-	for _, d := range dirs {
-		files, _ := mdFiles(d)
-		sub = append(sub, files...)
-	}
-	return append(top, sub...)
-}
-
-// mdFiles lists dir's *.md entries and its subdirectories' paths; an unreadable dir has neither.
-func mdFiles(dir string) (md, dirs []string) {
-	ents, _ := os.ReadDir(dir)
-	for _, e := range ents {
-		p := filepath.Join(dir, e.Name())
-		switch {
-		case e.IsDir():
-			dirs = append(dirs, p)
-		case strings.HasSuffix(e.Name(), ".md"):
-			md = append(md, p)
+	var out []string
+	for _, d := range Dirs(true) {
+		ents, _ := os.ReadDir(d) // an unreadable dir lists nothing
+		for _, e := range ents {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+				out = append(out, filepath.Join(d, e.Name()))
+			}
 		}
 	}
-	return md, dirs
+	return out
 }
 
 // RecordDest records dest as the dated mirror of the draft with this base name.

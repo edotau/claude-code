@@ -71,18 +71,18 @@ func TestEmbedLeaseEndToEnd(t *testing.T) {
 // (a) the first mint writes the record
 func (e *leaseEnv) firstMint() {
 	e.t.Helper()
-	n, total, err := EmbedEntries(e.ctx, e.root, e.c)
+	n, total, err := embedChanged(e.ctx, e.root, e.c)
 	rec := loadEmbedCache("fake")
 	if err != nil || n != 2 || total != 2 || e.calls != 2 || rec.MintedAt <= 0 || len(rec.Rows) != 2 {
 		e.t.Fatalf("first mint: n=%d total=%d calls=%d minted=%d rows=%d err=%v", n, total, e.calls, rec.MintedAt, len(rec.Rows), err)
 	}
 }
 
-// (b) inside validity: no endpoint call, ErrEmbedValid, record unchanged
+// (b) inside validity: no endpoint call, errEmbedValid, record unchanged
 func (e *leaseEnv) validInside() {
 	e.t.Helper()
 	rec := loadEmbedCache("fake")
-	if _, _, err := EmbedEntries(e.ctx, e.root, e.c); !errors.Is(err, ErrEmbedValid) || e.calls != 2 {
+	if _, _, err := embedChanged(e.ctx, e.root, e.c); !errors.Is(err, errEmbedValid) || e.calls != 2 {
 		e.t.Fatalf("valid record must not mint: calls=%d err=%v", e.calls, err)
 	}
 	if got := loadEmbedCache("fake"); got.MintedAt != rec.MintedAt || len(got.Rows) != 2 {
@@ -94,13 +94,13 @@ func (e *leaseEnv) validInside() {
 func (e *leaseEnv) remintAfterExpiry() {
 	e.t.Helper()
 	backdate(e.t, embedValidity-time.Minute)
-	if _, _, err := EmbedEntries(e.ctx, e.root, e.c); !errors.Is(err, ErrEmbedValid) {
+	if _, _, err := embedChanged(e.ctx, e.root, e.c); !errors.Is(err, errEmbedValid) {
 		e.t.Fatalf("59m old record must be valid: %v", err)
 	}
 	old := backdate(e.t, embedValidity+time.Second)
 	write(e.t, filepath.Join(HomeBankDir(), "decisionLog.md"), lease3Bank)
 	before := e.calls
-	if n, _, err := EmbedEntries(e.ctx, e.root, e.c); err != nil || n != 1 || e.calls != before+1 {
+	if n, _, err := embedChanged(e.ctx, e.root, e.c); err != nil || n != 1 || e.calls != before+1 {
 		e.t.Fatalf("expired record must re-mint the changed rows: n=%d calls=%d err=%v", n, e.calls-before, err)
 	}
 	if got := loadEmbedCache("fake"); got.MintedAt <= old.MintedAt {
@@ -113,7 +113,7 @@ func (e *leaseEnv) overrideWindow() {
 	e.t.Helper()
 	backdate(e.t, 51*time.Minute)
 	before := e.calls
-	if _, _, err := reembedEntries(e.ctx, e.root, e.c); !errors.Is(err, ErrReembedEarly) || e.calls != before {
+	if _, _, err := reembedEntries(e.ctx, e.root, e.c); !errors.Is(err, errReembedEarly) || e.calls != before {
 		e.t.Fatalf("51m override must be refused without a call: calls=%d err=%v", e.calls-before, err)
 	}
 	if _, open, _ := reembedWindow("fake", time.Now()); open {
@@ -156,7 +156,7 @@ func (e *leaseEnv) partialKeepsMintedAt() {
 	failing := &EmbedClient{Profile: "fake", Model: e.c.Model, Namespace: e.c.Namespace, EmbedFunc: func(context.Context, []string) ([][]float32, error) {
 		return nil, errors.New("boom")
 	}}
-	if _, _, err := EmbedEntries(e.ctx, e.root, failing); err == nil {
+	if _, _, err := embedChanged(e.ctx, e.root, failing); err == nil {
 		e.t.Fatal("want the embed error")
 	}
 	if got := loadEmbedCache("fake"); got.MintedAt != old.MintedAt {
@@ -167,13 +167,13 @@ func (e *leaseEnv) partialKeepsMintedAt() {
 // (g) NewSemantic still reads an expired record
 func (e *leaseEnv) recallReadsExpired() {
 	e.t.Helper()
-	if _, _, err := EmbedEntries(e.ctx, e.root, e.c); err != nil {
+	if _, _, err := embedChanged(e.ctx, e.root, e.c); err != nil {
 		e.t.Fatal(err)
 	}
 	backdate(e.t, 3*time.Hour)
-	prev := OpenEmbedClient
-	e.t.Cleanup(func() { OpenEmbedClient = prev })
-	OpenEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return e.c, nil }
+	prev := openEmbedClient
+	e.t.Cleanup(func() { openEmbedClient = prev })
+	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return e.c, nil }
 	e.t.Setenv("CLAUDE_PROFILE", "fake")
 	e.t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 	if _, err := NewSemantic("gamma"); err != nil {
@@ -208,13 +208,13 @@ func readClaim(t *testing.T) (exp time.Time, owner int64, ok bool) {
 	return exp, owner, ok
 }
 
-// A live claim held by someone else yields ErrEmbedBusy with no endpoint call and no commit, even with nothing pending.
+// A live claim held by someone else yields errEmbedBusy with no endpoint call and no commit, even with nothing pending.
 func TestEmbedBusyClaimBlocksEveryRun(t *testing.T) {
 	root := leaseFixture(t)
 	ctx := context.Background()
 	var calls int
 	c := leaseClient(&calls, nil)
-	if _, _, err := EmbedEntries(ctx, root, c); err != nil {
+	if _, _, err := embedChanged(ctx, root, c); err != nil {
 		t.Fatal(err)
 	}
 	other := t.TempDir() // a second root with no entries of its own: nothing is pending for it
@@ -225,8 +225,8 @@ func TestEmbedBusyClaimBlocksEveryRun(t *testing.T) {
 	}
 	before := calls
 	for name, r := range map[string]string{"pending root": root, "empty-pending root": other} {
-		if _, _, err := EmbedEntries(ctx, r, c); !errors.Is(err, ErrEmbedBusy) {
-			t.Fatalf("%s: want ErrEmbedBusy, got %v", name, err)
+		if _, _, err := embedChanged(ctx, r, c); !errors.Is(err, errEmbedBusy) {
+			t.Fatalf("%s: want errEmbedBusy, got %v", name, err)
 		}
 	}
 	assertBusyClaimUnchanged(t, calls, before, old)
@@ -261,7 +261,7 @@ func TestEmbedClaimOwnerAndExpiry(t *testing.T) {
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
 	start := time.Now().UnixNano()
-	if _, _, err := EmbedEntries(ctx, root, c); err != nil {
+	if _, _, err := embedChanged(ctx, root, c); err != nil {
 		t.Fatal(err)
 	}
 	if owner == 0 || owner >= start && owner <= time.Now().UnixNano() {
@@ -287,9 +287,9 @@ func TestEmbedSupersededIsReported(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	n, _, err := EmbedEntries(context.Background(), root, c)
-	if !errors.Is(err, ErrEmbedSuperseded) || n != 0 {
-		t.Fatalf("want ErrEmbedSuperseded and 0 embedded, got n=%d err=%v", n, err)
+	n, _, err := embedChanged(context.Background(), root, c)
+	if !errors.Is(err, errEmbedSuperseded) || n != 0 {
+		t.Fatalf("want errEmbedSuperseded and 0 embedded, got n=%d err=%v", n, err)
 	}
 	if _, _, ok := readClaim(t); ok {
 		t.Error("the claim outlived a discarded mint")
@@ -318,7 +318,7 @@ func TestEmbedCommitErrorReleasesClaim(t *testing.T) {
 		}()
 		_ = db.Update(func(*bbolt.Tx) error { return nil })
 	})
-	if _, _, err := EmbedEntries(context.Background(), root, c); err == nil {
+	if _, _, err := embedChanged(context.Background(), root, c); err == nil {
 		t.Fatal("want the commit error")
 	}
 	<-freed
@@ -332,14 +332,14 @@ func TestEmbedFutureMintedAtIsNotValid(t *testing.T) {
 	root := leaseFixture(t)
 	var calls int
 	c := leaseClient(&calls, nil)
-	if _, _, err := EmbedEntries(context.Background(), root, c); err != nil {
+	if _, _, err := embedChanged(context.Background(), root, c); err != nil {
 		t.Fatal(err)
 	}
 	backdate(t, -time.Hour)
 	if _, open, err := reembedWindow("fake", time.Now()); err != nil || !open {
 		t.Fatalf("future record must open the override: open=%v err=%v", open, err)
 	}
-	if _, _, err := EmbedEntries(context.Background(), root, c); errors.Is(err, ErrEmbedValid) || err != nil {
+	if _, _, err := embedChanged(context.Background(), root, c); errors.Is(err, errEmbedValid) || err != nil {
 		t.Fatalf("future record must mint, got %v", err)
 	}
 	if got := loadEmbedCache("fake"); got.MintedAt > time.Now().UnixNano() {
@@ -356,11 +356,11 @@ func TestEmbedNamespaceChangeIgnoresForeignLease(t *testing.T) {
 			root := leaseFixture(t)
 			var calls int
 			c := leaseClient(&calls, nil)
-			if _, _, err := EmbedEntries(context.Background(), root, c); err != nil {
+			if _, _, err := embedChanged(context.Background(), root, c); err != nil {
 				t.Fatal(err)
 			}
 			other := &EmbedClient{Profile: c.Profile, Model: change.model, Namespace: change.namespace, EmbedFunc: c.Embed}
-			n, _, err := EmbedEntries(context.Background(), root, other)
+			n, _, err := embedChanged(context.Background(), root, other)
 			if err != nil || n != 1 || calls != 2 {
 				t.Fatalf("namespace change inside lease: n=%d calls=%d err=%v", n, calls, err)
 			}
@@ -377,13 +377,13 @@ func TestEmbedDimensionMigrationLeavesRepairLeaseOpen(t *testing.T) {
 	bankFile := filepath.Join(HomeBankDir(), "decisionLog.md")
 	write(t, bankFile, lease3Bank[:strings.LastIndex(lease3Bank, "\n\n##")]+"\n")
 	ctx := context.Background()
-	if _, _, err := EmbedEntries(ctx, root, dimEmbedClient(3, nil)); err != nil {
+	if _, _, err := embedChanged(ctx, root, dimEmbedClient(3, nil)); err != nil {
 		t.Fatal(err)
 	}
 	old := backdate(t, 2*time.Hour)
 	write(t, bankFile, lease3Bank)
 	c := dimEmbedClient(2, nil)
-	n, total, err := EmbedEntries(ctx, root, c)
+	n, total, err := embedChanged(ctx, root, c)
 	if err != nil || n != 1 || total != 3 {
 		t.Fatalf("dimension migration: n=%d total=%d err=%v", n, total, err)
 	}
@@ -391,11 +391,11 @@ func TestEmbedDimensionMigrationLeavesRepairLeaseOpen(t *testing.T) {
 	if rec.MintedAt != old.MintedAt {
 		t.Fatalf("incomplete migration renewed lease: minted=%d want=%d", rec.MintedAt, old.MintedAt)
 	}
-	n, _, err = EmbedEntries(ctx, root, c)
+	n, _, err = embedChanged(ctx, root, c)
 	if err != nil || n != 2 {
 		t.Fatalf("immediate repair must embed the two dropped rows: n=%d err=%v", n, err)
 	}
-	if _, _, err := EmbedEntries(ctx, root, c); !errors.Is(err, ErrEmbedValid) {
+	if _, _, err := embedChanged(ctx, root, c); !errors.Is(err, errEmbedValid) {
 		t.Fatalf("complete repair must renew the lease: %v", err)
 	}
 }
@@ -457,8 +457,8 @@ func TestNewSemanticReadErrorFallsBackToPin(t *testing.T) {
 	if err := saveEmbedCache("dev", f); err != nil {
 		t.Fatal(err)
 	}
-	prevRead, prevOpen := readProfileCache, OpenEmbedClient
-	t.Cleanup(func() { readProfileCache, OpenEmbedClient = prevRead, prevOpen })
+	prevRead, prevOpen := readProfileCache, openEmbedClient
+	t.Cleanup(func() { readProfileCache, openEmbedClient = prevRead, prevOpen })
 	readProfileCache = func(profile string) (vectorRecord, error) {
 		if profile == "qa" {
 			return vectorRecord{}, errors.New("timeout")
@@ -466,7 +466,7 @@ func TestNewSemanticReadErrorFallsBackToPin(t *testing.T) {
 		return prevRead(profile)
 	}
 	var opened string
-	OpenEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
+	openEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
 		opened = profile
 		return &EmbedClient{Profile: profile, Model: model, Namespace: "dev|h|gte", EmbedFunc: func(context.Context, []string) ([][]float32, error) {
 			return [][]float32{{1, 0, 0}}, nil
@@ -497,9 +497,9 @@ func TestNewSemanticSuccessKeepsFreshBackoffMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	var midQuery func()
-	prev := OpenEmbedClient
-	t.Cleanup(func() { OpenEmbedClient = prev })
-	OpenEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
+	prev := openEmbedClient
+	t.Cleanup(func() { openEmbedClient = prev })
+	openEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
 		return &EmbedClient{Profile: profile, Model: model, Namespace: "fake|h|gte", EmbedFunc: func(context.Context, []string) ([][]float32, error) {
 			if midQuery != nil {
 				midQuery()
@@ -546,7 +546,7 @@ func TestEmbedCorpusReadFailureReleasesClaim(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	n, total, err := EmbedEntries(context.Background(), root, c)
+	n, total, err := embedChanged(context.Background(), root, c)
 	if !errors.Is(err, syscall.EISDIR) {
 		t.Fatalf("post-embedding corpus read must fail with EISDIR: %v", err)
 	}
@@ -560,7 +560,7 @@ func TestEmbedCorpusReadFailureReleasesClaim(t *testing.T) {
 	if err := os.Rename(backup, bankFile); err != nil {
 		t.Fatal(err)
 	}
-	n, _, err = EmbedEntries(context.Background(), root, leaseClient(&calls, nil))
+	n, _, err = embedChanged(context.Background(), root, leaseClient(&calls, nil))
 	if err != nil {
 		t.Fatalf("immediate retry after corpus repair must not retain the minting claim: %v", err)
 	}

@@ -79,15 +79,15 @@ func TestDefaultSpawnersBuildTodaysArgvAndLogs(t *testing.T) {
 			t.Errorf("launch %d = %+v; want args %q dir %q log %q env %q", i, g, w.args, w.dir, w.logRE, w.env)
 		}
 	}
-	if r, ok := ReadUpdateResult("s1"); !ok || r.Status != UpdatePending || r.Log != (*got)[0].log {
+	if r, ok := readUpdateResult("s1"); !ok || r.Status != updatePending || r.Log != (*got)[0].log {
 		t.Errorf("update result = %+v, %v; want pending with log %q", r, ok, (*got)[0].log)
 	}
 }
 
 func TestStubSpawnsCountsAndRestoresNested(t *testing.T) {
 	base := StubSpawn(t, true)
-	outer, restoreOuter := StubSpawns(true)
-	inner, restoreInner := StubSpawns(false)
+	outer, restoreOuter := stubSpawns(true)
+	inner, restoreInner := stubSpawns(false)
 	if spawn.update("", "", "") || !spawn.dream("") || !spawn.catchup("", "") || !spawn.watcher(nil, "") {
 		t.Fatal("inner stub: want update=false (ok flag), the rest true")
 	}

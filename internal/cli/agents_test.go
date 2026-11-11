@@ -114,7 +114,7 @@ func TestCmdAgentsReapDryRunChangesNothing(t *testing.T) {
 	cfgDir(t)
 	dead := writeDispatch(t, "20261024T000001.000-codex", "running", deadPID(t), time.Hour)
 	marker := filepath.Join(paths.StateDir(), "agents-inflight", "agent-"+strconv.Itoa(deadPID(t))+"-toolu_dead")
-	writeFixtureFile(t, marker, "")
+	hosttest.WriteRel(t, filepath.Dir(marker), filepath.Base(marker), "")
 	before, _ := os.ReadFile(dead)
 
 	stdout := okAgents(t, "reap", "--dry-run")
@@ -139,7 +139,7 @@ func TestCmdAgentsReapMarkers(t *testing.T) {
 		filepath.Join(dir, "notes.txt"),
 	}
 	for _, p := range append([]string{deadM}, survivors...) {
-		writeFixtureFile(t, p, "")
+		hosttest.WriteRel(t, filepath.Dir(p), filepath.Base(p), "")
 	}
 	okAgents(t, "reap")
 	if _, err := os.Stat(deadM); !os.IsNotExist(err) {
@@ -194,7 +194,7 @@ func TestCmdAgentsTreeBackgroundKeepsRunningDispatches(t *testing.T) {
 // `agents tree --format json` reads CLAUDE_CONFIG_DIR and emits the documented {sessions:[...]} schema.
 func TestCmdAgentsTreeFormatJSON(t *testing.T) {
 	dir := cfgDir(t)
-	writeFixtureFile(t, filepath.Join(dir, "projects", "-Users-fake-repo", "sess0001.jsonl"),
+	hosttest.WriteRel(t, dir, "projects/-Users-fake-repo/sess0001.jsonl",
 		`{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"hello"},"cwd":"/Users/fake/repo","gitBranch":"main"}`)
 
 	stdout := okAgents(t, "tree", "--days", "365", "--format", "json")
@@ -253,19 +253,8 @@ func writeDispatch(t *testing.T, id, status string, pid int, age time.Duration) 
 	rec := map[string]any{"id": id, "time": time.Now().Add(-age).UTC().Format(time.RFC3339Nano), "agent": "codex",
 		"request": map[string]any{}, "status": status, "pid": pid, "repo": "/some/other/repo", "duration_ms": 3000}
 	b, _ := json.Marshal(rec)
-	writeFixtureFile(t, p, string(b))
+	hosttest.WriteRel(t, filepath.Dir(p), filepath.Base(p), string(b))
 	return p
-}
-
-// writeFixtureFile creates path (with parents) holding content.
-func writeFixtureFile(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("write %s: %v", path, err)
-	}
 }
 
 // The core sub-verbs stay routed (presence, not exact membership): a renamed or dropped one silently stops routing.
@@ -584,7 +573,7 @@ func TestAgentsResultWarnsOnUnreadableEvents(t *testing.T) {
 // labelConfig is a config dir whose agents/ defines Plan, so the dispatch type gate allows it.
 func labelConfig(t *testing.T) {
 	t.Helper()
-	writeFixtureFile(t, filepath.Join(cfgDir(t), "agents", "Plan.md"), "---\nname: Plan\n---\n")
+	hosttest.WriteRel(t, cfgDir(t), "agents/Plan.md", "---\nname: Plan\n---\n")
 }
 
 func TestAgentsLabelPrintsPrefix(t *testing.T) {

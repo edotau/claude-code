@@ -105,8 +105,8 @@ func TestToolPATHCopiesAndExtras(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", scratch)
 	bin := paths.BinDir()
 	primary := pathstest.FakeVendor(t, "opencode", "echo 1.0.0")
-	aBin := vendorPATHFixture(t, "opencode", "echo 1.0.0")
-	bBin := vendorPATHFixture(t, "opencode", "echo 2.0.0")
+	aBin := pathstest.FakeVendorOutsideConfig(t, "opencode", "echo 1.0.0")
+	bBin := pathstest.FakeVendorOutsideConfig(t, "opencode", "echo 2.0.0")
 	a, b, c := filepath.Dir(aBin), filepath.Dir(bBin), filepath.Join(scratch, "C")
 	// C/opencode is a symlink to A/opencode: same real file, must dedupe.
 	if err := os.MkdirAll(c, 0o755); err != nil {
@@ -178,7 +178,7 @@ func TestDoctorVendorRows(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			doctorScratch(t)
 			t.Setenv("HOME", t.TempDir())
-			source := vendorPATHFixture(t, "opencode", "echo 1.2.3")
+			source := pathstest.FakeVendorOutsideConfig(t, "opencode", "echo 1.2.3")
 			t.Setenv("PATH", filepath.Dir(source))
 			dst := pathstest.FakeVendor(t, "opencode", "echo 4.5.6")
 			want := dst + " 4.5.6 (direct install in bin/)" + " · also on PATH: " + source + " 1.2.3"
@@ -644,7 +644,7 @@ func TestRTKDoctorStatusNamesShadow(t *testing.T) {
 	}
 	shadowDir := t.TempDir()
 	mark := filepath.Join(t.TempDir(), "ran")
-	writeExec(t, filepath.Join(shadowDir, "rtk"), "#!/bin/sh\n: > '"+mark+"'\necho 'rtk 0.42.4'\n")
+	hosttest.WriteExec(t, filepath.Join(shadowDir, "rtk"), "#!/bin/sh\n: > '"+mark+"'\necho 'rtk 0.42.4'\n")
 	sep := string(os.PathListSeparator)
 	for _, tc := range []struct {
 		name, path, want string
@@ -668,7 +668,7 @@ func TestRTKDoctorStatusNamesShadow(t *testing.T) {
 
 func TestToolDoctorRejectsLstatFailure(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	probeSymlinkLoop(t, paths.BinDir())
+	hosttest.SymlinkLoop(t, paths.BinDir())
 	entry := filepath.Join(paths.BinDir(), "opencode")
 	if _, err := os.Lstat(entry); !errors.Is(err, syscall.ELOOP) {
 		t.Fatalf("fixture Lstat = %v, want ELOOP", err)
@@ -698,20 +698,6 @@ func TestToolHealthPreservesExhaustedQuotaFailure(t *testing.T) {
 	}
 }
 
-// A loop produces a deterministic non-ENOENT probe failure even when tests run as root.
-func probeSymlinkLoop(t *testing.T, path string) {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("a self-referencing symlink (ELOOP) needs unix")
-	}
-	if err := os.Symlink(path, path); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(path); !errors.Is(err, syscall.ELOOP) {
-		t.Fatalf("fixture stat = %v, want ELOOP", err)
-	}
-}
-
 // hermetic isolates config and the env a doctor row reads; userProviders is an optional vault overlay/providers document.
 func hermetic(t *testing.T, userProviders string) {
 	t.Helper()
@@ -721,38 +707,12 @@ func hermetic(t *testing.T, userProviders string) {
 	}
 }
 
-func vendorPATHFixture(t *testing.T, name, body string) string {
-	t.Helper()
-	cfg := os.Getenv("CLAUDE_CONFIG_DIR")
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	bin := pathstest.FakeVendor(t, name, body)
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if name == "agy" {
-		dst := filepath.Join(filepath.Dir(bin), "agy")
-		if err := os.Rename(bin, dst); err != nil {
-			t.Fatal(err)
-		}
-		bin = dst
-	}
-	return bin
-}
-
 // rtkFixture installs a pinned rtk under a temp CLAUDE_CONFIG_DIR and returns it with an empty user bin dir.
 func rtkFixture(t *testing.T) (pin, userBin string) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(paths.RTKBinaryEnv, "")
 	pin = paths.RTKPinned()
-	writeExec(t, pin, "#!/bin/sh\necho 'rtk 1.1.0'\n")
+	hosttest.WriteExec(t, pin, "#!/bin/sh\necho 'rtk 1.1.0'\n")
 	return pin, t.TempDir()
-}
-
-func writeExec(t *testing.T, path, body string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
 }

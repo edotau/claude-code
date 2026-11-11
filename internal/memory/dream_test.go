@@ -37,14 +37,14 @@ func TestPersistenceFailedDreamRetriesWithOldBanks(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if got := NewestMtime(dir); got.After(old) {
+		if got := newestMtime(dir); got.After(old) {
 			t.Fatalf("bank fixture has recent mtime: %v", got)
 		}
 	}
-	if DreamDue(root, now.Add(dreamRetry-time.Minute)) {
+	if dreamDue(root, now.Add(dreamRetry-time.Minute)) {
 		t.Error("failed dream is due before six-hour backoff")
 	}
-	if !DreamDue(root, now.Add(dreamRetry+time.Minute)) {
+	if !dreamDue(root, now.Add(dreamRetry+time.Minute)) {
 		t.Error("failed dream with two-day-old banks is not due after six hours")
 	}
 }

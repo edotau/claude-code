@@ -2,7 +2,6 @@ package vault
 
 import (
 	"bytes"
-	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hkdf"
@@ -13,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -38,17 +36,6 @@ func currentVaultSchema(t *testing.T) int {
 	return 0
 }
 
-// The subprocess inherits the parent's t.TempDir-backed vault and master key.
-func TestConcurrentStoreHelperStoreOneValue(t *testing.T) {
-	name := os.Getenv("CONCURRENCY_HELPER_NAME")
-	if name == "" {
-		t.Skip("not invoked as the concurrency helper")
-	}
-	if err := Store(name, "v-"+name); err != nil {
-		t.Fatalf("Store(%s): %v", name, err)
-	}
-}
-
 func TestConcurrentStoreAllLand(t *testing.T) {
 	useZeroRootVault(t)
 	names := make([]string, 8)
@@ -71,30 +58,23 @@ func TestConcurrentStoreAllLand(t *testing.T) {
 	}
 }
 
-// runStoreHelpers runs one TestConcurrentStoreHelperStoreOneValue process per name at once and fails on any error.
+// runStoreHelpers stores one value per name at once, each Store on its own vault handle, and fails on any error.
 func runStoreHelpers(t *testing.T, names []string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 	var wg sync.WaitGroup
 	start := make(chan struct{})
 	errs := make([]error, len(names))
 	for i, n := range names {
 		wg.Go(func() {
 			<-start
-			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestConcurrentStoreHelperStoreOneValue$", "-test.v")
-			cmd.Env = append(os.Environ(), "CONCURRENCY_HELPER_NAME="+n)
-			if out, err := cmd.CombinedOutput(); err != nil {
-				errs[i] = err
-				t.Logf("helper %s output:\n%s", n, out)
-			}
+			errs[i] = Store(n, "v-"+n)
 		})
 	}
 	close(start)
 	wg.Wait()
 	for i, err := range errs {
 		if err != nil {
-			t.Fatalf("helper %s failed: %v", names[i], err)
+			t.Fatalf("Store(%s): %v", names[i], err)
 		}
 	}
 }

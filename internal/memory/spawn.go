@@ -36,7 +36,7 @@ func spawnSelf(args []string, dir, logName string, env ...string) bool {
 	return spawnDetached(self, args, dir, out, env...)
 }
 
-// spawner holds the detached-worker seams; tests swap the whole struct through StubSpawns.
+// spawner holds the detached-worker seams; tests swap the whole struct through stubSpawns.
 type spawner struct {
 	update  func(transcriptPath, cwd, sessionID string) bool
 	watcher func(args []string, cwd string) bool
@@ -54,7 +54,7 @@ func spawnUpdate(transcriptPath, cwd, sessionID string) bool {
 		return false
 	}
 	logPath := filepath.Join(StateDir(), logName)
-	_ = WriteUpdateResult(sessionID, UpdateResult{Status: UpdatePending, Time: time.Now(), Log: logPath})
+	_ = writeUpdateResult(sessionID, UpdateResult{Status: updatePending, Time: time.Now(), Log: logPath})
 	return true
 }
 
@@ -75,8 +75,8 @@ func spawnCatchup(cwd, sessionID string) bool {
 // Spawns counts the stubbed spawns tests read; atomic because the idle watcher calls its stub on its own goroutine.
 type Spawns struct{ Update, Dream, Catchup atomic.Int64 }
 
-// StubSpawns replaces every detached worker spawn (update ok-flagged, the rest succeed); restore undoes it.
-func StubSpawns(ok bool) (s *Spawns, restore func()) {
+// stubSpawns replaces every detached worker spawn (update ok-flagged, the rest succeed); restore undoes it.
+func stubSpawns(ok bool) (s *Spawns, restore func()) {
 	s = new(Spawns)
 	prev := spawn
 	spawn = spawner{
@@ -88,10 +88,10 @@ func StubSpawns(ok bool) (s *Spawns, restore func()) {
 	return s, func() { spawn = prev }
 }
 
-// StubSpawn is StubSpawns restored when tb ends; tests use it so none relaunches the test binary.
+// StubSpawn is stubSpawns restored when tb ends; tests use it so none relaunches the test binary.
 func StubSpawn(tb testing.TB, ok bool) *Spawns {
 	tb.Helper()
-	s, restore := StubSpawns(ok)
+	s, restore := stubSpawns(ok)
 	tb.Cleanup(restore)
 	return s
 }

@@ -36,8 +36,8 @@ func seenPath(sessionID string) string {
 	return filepath.Join(StateDir(), "recall-seen", id)
 }
 
-// ResetSeen restarts sessionID's seen set with every corpus block the SessionStart surface carried in full.
-func ResetSeen(sessionID, root, surface string) {
+// resetSeen restarts sessionID's seen set with every corpus block the SessionStart surface carried in full.
+func resetSeen(sessionID, root, surface string) {
 	if !LooksLikeSessionID(sessionID) {
 		return
 	}
@@ -75,8 +75,8 @@ func seenBlocks(sessionID string) map[string]bool {
 	return out
 }
 
-// MarkSeen appends the injected hits to sessionID's seen set; fail-open.
-func MarkSeen(sessionID string, hits []SearchHit) {
+// markSeen appends the injected hits to sessionID's seen set; fail-open.
+func markSeen(sessionID string, hits []SearchHit) {
 	p := seenPath(sessionID)
 	if p == "" || len(hits) == 0 {
 		return

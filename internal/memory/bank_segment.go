@@ -13,9 +13,9 @@ import (
 type segMode uint8
 
 const (
-	SegEntries segMode = iota
-	SegNative
-	SegKnowledge
+	segEntries segMode = iota
+	segNative
+	segKnowledge
 )
 
 type corpusFile struct {
@@ -28,7 +28,7 @@ func corpusFiles(root string) []corpusFile {
 	var out []corpusFile
 	banks := func(bank, dir string) {
 		for _, name := range bankFiles {
-			out = append(out, corpusFile{bank, filepath.Join(dir, name), SegEntries})
+			out = append(out, corpusFile{bank, filepath.Join(dir, name), segEntries})
 		}
 	}
 	if !isHomeBank(root) {
@@ -37,15 +37,15 @@ func corpusFiles(root string) []corpusFile {
 	banks("home", HomeBankDir())
 	archived, _ := filepath.Glob(filepath.Join(Dir(root), "archive", "*.md"))
 	for _, path := range archived {
-		out = append(out, corpusFile{"archive", path, SegEntries})
+		out = append(out, corpusFile{"archive", path, segEntries})
 	}
 	for _, dir := range nativeDirs(root) {
 		for _, path := range searchTopicFiles(dir) {
-			out = append(out, corpusFile{"native", path, SegNative})
+			out = append(out, corpusFile{"native", path, segNative})
 		}
 	}
 	for _, path := range knowledgeFiles(root) {
-		out = append(out, corpusFile{"knowledge", path, SegKnowledge})
+		out = append(out, corpusFile{"knowledge", path, segKnowledge})
 	}
 	return out
 }
@@ -80,17 +80,17 @@ func searchTopicFiles(dir string) []string {
 func parseBlocks(mode segMode, base string, data []byte) []string {
 	s := string(data)
 	switch mode {
-	case SegEntries:
+	case segEntries:
 		_, blocks := entryBlocks(base, s)
 		return blocks
-	case SegNative:
+	case segNative:
 		if frontmatterValue(s, "harness_kind") == "bank" {
 			return nil
 		}
 		if name, desc, body, ok := topicFrontmatter(s); ok {
 			return []string{name + " — " + desc + "\n" + body}
 		}
-	case SegKnowledge:
+	case segKnowledge:
 		return []string{strings.TrimSpace(stripFrontmatter(s))}
 	}
 	return nil
@@ -474,10 +474,10 @@ func routedFiles(root, query string) []corpusFile {
 func storeFiles(e repoEntry) []corpusFile {
 	var out []corpusFile
 	for _, name := range BankFiles() {
-		out = append(out, corpusFile{Bank: e.Key, Path: filepath.Join(e.Dir, name), Mode: SegEntries})
+		out = append(out, corpusFile{Bank: e.Key, Path: filepath.Join(e.Dir, name), Mode: segEntries})
 	}
 	for _, path := range searchTopicFiles(e.Dir) {
-		out = append(out, corpusFile{Bank: e.Key, Path: path, Mode: SegNative})
+		out = append(out, corpusFile{Bank: e.Key, Path: path, Mode: segNative})
 	}
 	return out
 }

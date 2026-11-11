@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -159,44 +160,24 @@ func checkPointerThenPerKid(t *testing.T, ring *specKeyring, acct, kid string) {
 	}
 }
 
-// keyCommandHelperArgv builds a key_command argv that re-execs this test binary as
-// TestKeyCommandHelperProcess instead of a POSIX shell script, so key_command tests run
-// unmodified on every OS (review's LOW #3).
-func keyCommandHelperArgv(extra ...string) []string {
-	executable, err := os.Executable()
-	if err != nil {
-		panic(err)
+// keyCommandHelperArgv is a key_command argv: a script printing $VAULT_KEY_COMMAND_VALUE, recording its arguments
+// (count, then one per line) in $VAULT_KEY_COMMAND_ARGS_FILE when that is set.
+func keyCommandHelperArgv(t *testing.T, extra ...string) []string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the key_command fixture is a sh script")
 	}
-	argv := []string{executable, "-test.run=^TestKeyCommandHelperProcess$", "-test.timeout=10s"}
-	return append(argv, extra...)
-}
-
-// TestKeyCommandHelperProcess is not a real test: run as a key_command subprocess (guarded by
-// VAULT_KEY_COMMAND_HELPER), it prints the configured key value and, if VAULT_KEY_COMMAND_ARGS_FILE
-// is set, records its own non-test-flag arguments for the caller to inspect.
-func TestKeyCommandHelperProcess(t *testing.T) {
-	if os.Getenv("VAULT_KEY_COMMAND_HELPER") != "1" {
-		return
+	script := filepath.Join(t.TempDir(), "key-command")
+	body := `#!/bin/sh
+if [ -n "$VAULT_KEY_COMMAND_ARGS_FILE" ]; then
+	{ printf '%s\n' "$#"; for a in "$@"; do printf '%s\n' "$a"; done; } > "$VAULT_KEY_COMMAND_ARGS_FILE"
+fi
+printf '%s\n' "$VAULT_KEY_COMMAND_VALUE"
+`
+	if err := os.WriteFile(script, []byte(body), 0700); err != nil {
+		t.Fatal(err)
 	}
-	var extra []string
-	for _, a := range os.Args[1:] {
-		if !strings.HasPrefix(a, "-test.") {
-			extra = append(extra, a)
-		}
-	}
-	if argsFile := os.Getenv("VAULT_KEY_COMMAND_ARGS_FILE"); argsFile != "" {
-		var b strings.Builder
-		fmt.Fprintf(&b, "%d\n", len(extra))
-		for _, a := range extra {
-			fmt.Fprintf(&b, "%s\n", a)
-		}
-		if err := os.WriteFile(argsFile, []byte(b.String()), 0600); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-	}
-	fmt.Fprintln(os.Stdout, os.Getenv("VAULT_KEY_COMMAND_VALUE"))
-	os.Exit(0)
+	return append([]string{script}, extra...)
 }
 
 // TestResolveKeyTriesCommandAfterUnavailableKeyring reproduces the review's HIGH #3 scenario: an
@@ -210,9 +191,8 @@ func TestResolveKeyTriesCommandAfterUnavailableKeyring(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("VAULT_KEY_COMMAND_HELPER", "1")
 	t.Setenv("VAULT_KEY_COMMAND_VALUE", key.raw)
-	argv, err := json.Marshal(keyCommandHelperArgv())
+	argv, err := json.Marshal(keyCommandHelperArgv(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,11 +244,10 @@ func TestKeyCommandArgvJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	argsFile := filepath.Join(t.TempDir(), "args")
-	t.Setenv("VAULT_KEY_COMMAND_HELPER", "1")
 	t.Setenv("VAULT_KEY_COMMAND_VALUE", raw)
 	t.Setenv("VAULT_KEY_COMMAND_ARGS_FILE", argsFile)
 	extra := []string{"literal;value", `has "quotes"`, `C:\Windows\style\path.exe`}
-	argv := keyCommandHelperArgv(extra...)
+	argv := keyCommandHelperArgv(t, extra...)
 	encoded, err := json.Marshal(argv)
 	if err != nil {
 		t.Fatal(err)

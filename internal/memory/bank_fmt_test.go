@@ -309,8 +309,8 @@ func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.
 	write(t, filepath.Join(repo, "archive", "sessionHistory-2026-01.md"), "# archived\nbody\n")
 	write(t, filepath.Join(repo, "handoffs", "2026-01-01-x.md"), "# handoff\nbody\n")
 	write(t, filepath.Join(repo, "reports", "review.md"), "# report\nbody\n")
-	write(t, filepath.Join(repo, NativeIndexFile), "native MEMORY.md\n")
-	write(t, filepath.Join(StoreDir(), CatalogFile), "catalog\n")
+	write(t, filepath.Join(repo, nativeIndexFile), "native MEMORY.md\n")
+	write(t, filepath.Join(StoreDir(), catalogFile), "catalog\n")
 	write(t, filepath.Join(global, "decisionLog.md"), "# decisionLog\nbody\n")
 
 	files, err := bankFmtTargets()
@@ -338,7 +338,7 @@ func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.
 			t.Errorf("bankFmtTargets missing %s", f)
 		}
 	}
-	for _, never := range []string{filepath.Join(repo, NativeIndexFile), filepath.Join(StoreDir(), CatalogFile)} {
+	for _, never := range []string{filepath.Join(repo, nativeIndexFile), filepath.Join(StoreDir(), catalogFile)} {
 		if got[never] {
 			t.Errorf("bankFmtTargets included %s, want never", never)
 		}
@@ -447,8 +447,8 @@ func TestFormatBankNativeAndCatalogUntouched(t *testing.T) {
 	typed := filepath.Join(global, "decisionLog.md")
 	write(t, typed, "# decisionLog\n\n"+longLine+"\n")
 	untouched := map[string]string{
-		filepath.Join(global, NativeIndexFile): "native MEMORY.md\n" + longLine + "\n",
-		filepath.Join(StoreDir(), CatalogFile): "catalog\n" + longLine + "\n",
+		filepath.Join(global, nativeIndexFile): "native MEMORY.md\n" + longLine + "\n",
+		filepath.Join(StoreDir(), catalogFile): "catalog\n" + longLine + "\n",
 	}
 	for p, body := range untouched {
 		write(t, p, body)

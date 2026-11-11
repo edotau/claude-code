@@ -361,8 +361,8 @@ func (x *e2eRun) assertTranscriptUpdateResult(t *testing.T, marker, session stri
 	if hist, _ := os.ReadFile(filepath.Join(x.bankDir, "sessionHistory.md")); !strings.Contains(string(hist), marker) {
 		t.Error("the fake reply's sessionHistory write is missing from the bank")
 	}
-	res, ok := ReadUpdateResult(session)
-	if !ok || res.Status != UpdateOK || !res.BankUpdated {
+	res, ok := readUpdateResult(session)
+	if !ok || res.Status != updateOK || !res.BankUpdated {
 		t.Errorf("update result = %+v ok=%v, want status ok with bank_updated", res, ok)
 	}
 }
@@ -497,7 +497,7 @@ func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 	if err := writeDoctorNotice(HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	notice := mustRead(t, DoctorNoticePath(HomeBankDir()))
+	notice := mustRead(t, doctorNoticePath(HomeBankDir()))
 	if !strings.Contains(notice, "decisionLog.md: over") {
 		t.Errorf("notice %q", notice)
 	}
@@ -506,7 +506,7 @@ func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 	if err := writeDoctorNotice(HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if notice := mustRead(t, DoctorNoticePath(HomeBankDir())); notice != "" {
+	if notice := mustRead(t, doctorNoticePath(HomeBankDir())); notice != "" {
 		t.Errorf("want an empty cached notice, got %q", notice)
 	}
 }
@@ -526,8 +526,8 @@ func TestLogAccessRedactsCredentialShapedReason(t *testing.T) {
 func TestCollectBankStatsAndTimeline(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	_ = WriteUpdateResult("s1", UpdateResult{Status: UpdateOK, Time: time.Now(), BankUpdated: true})
-	_ = WriteUpdateResult("s2", UpdateResult{Status: UpdateFailed, Time: time.Now()})
+	_ = writeUpdateResult("s1", UpdateResult{Status: updateOK, Time: time.Now(), BankUpdated: true})
+	_ = writeUpdateResult("s2", UpdateResult{Status: updateFailed, Time: time.Now()})
 	write(t, filepath.Join(Dir(root), "sessionHistory.md"), "# H\n\n## 2026-01-02 — did work\n")
 
 	s := collectBankStats()
@@ -605,7 +605,7 @@ func TestDoctorCachesUnreadableBankWarning(t *testing.T) {
 	if err := writeDoctorNotice(root, DefaultStaleDays, now); err != nil {
 		t.Fatal(err)
 	}
-	notice := mustRead(t, DoctorNoticePath(root))
+	notice := mustRead(t, doctorNoticePath(root))
 	if !strings.Contains(notice, "conventions.md:") || !strings.Contains(notice, "unreadable") {
 		t.Fatalf("cached healthy notice for an unreadable bank: %q", notice)
 	}
@@ -642,7 +642,7 @@ func TestDoctorNoticeTruncationPreservesUTF8(t *testing.T) {
 		t.Fatal(err)
 	}
 	notice := strings.Repeat("A", 196) + "中" + "国" // 202 bytes: a byte cut at 200 splits "国"
-	if err := os.WriteFile(DoctorNoticePath(""), []byte(notice), 0o600); err != nil {
+	if err := os.WriteFile(doctorNoticePath(""), []byte(notice), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got := doctorNotice("")

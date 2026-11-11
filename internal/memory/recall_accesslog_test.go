@@ -19,9 +19,9 @@ func TestAccessRotationReturnCountsAndRepoNominations(t *testing.T) {
 	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
 	home := HomeBankDir()
 	old := now.AddDate(0, 0, -(accessRotateDays + 1))
-	logAccess(home, old, "aa000001", AccessRecall)
+	logAccess(home, old, "aa000001", accessRecall)
 	logAccess(home, old, "cc000003", AccessSearch)
-	logAccess(home, now, "bb000002", AccessRecall) // the write that must rotate
+	logAccess(home, now, "bb000002", accessRecall) // the write that must rotate
 	logPath := AccessLogPath(home)
 	if _, err := os.Stat(logPath + ".1"); err != nil {
 		t.Fatalf("a first entry older than %dd did not rotate to .1: %v", accessRotateDays, err)
@@ -36,7 +36,7 @@ func TestAccessRotationReturnCountsAndRepoNominations(t *testing.T) {
 	// returnCounts: search/show returns inside the window count; recall injections and old lines never do.
 	logAccess(home, now.AddDate(0, 0, -10), "cc000003", AccessSearch)
 	logAccess(home, now.AddDate(0, 0, -5), "cc000003", AccessShow)
-	logAccess(home, now.AddDate(0, 0, -2), "cc000003", AccessRecall)
+	logAccess(home, now.AddDate(0, 0, -2), "cc000003", accessRecall)
 	counts := returnCounts([]string{home}, now)
 	if counts["cc000003"] != 2 {
 		t.Errorf("returnCounts[cc000003] = %d, want 2 (in-window search + show)", counts["cc000003"])
@@ -54,7 +54,7 @@ func assertHotNomination(t *testing.T, now time.Time) {
 	root := repoRoot(t, "proj")
 	dir := Dir(root)
 	for d := range hotMinDays {
-		logAccess(dir, now.AddDate(0, 0, -d), "dd000004", AccessRecall)
+		logAccess(dir, now.AddDate(0, 0, -d), "dd000004", accessRecall)
 	}
 	want := filepath.Base(dir) + "/dd000004: hot"
 	if !slices.ContainsFunc(accessNominations(now), func(n string) bool { return strings.HasPrefix(n, want) }) {
@@ -67,7 +67,7 @@ func TestAccessLogConcurrentRotationRotatesOnce(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
 	home := HomeBankDir()
-	logAccess(home, now.AddDate(0, 0, -(accessRotateDays+1)), "aa000001", AccessRecall)
+	logAccess(home, now.AddDate(0, 0, -(accessRotateDays+1)), "aa000001", accessRecall)
 	const writers = 16
 	var wg sync.WaitGroup
 	for i := range writers {
@@ -98,7 +98,7 @@ func TestLogHitsCreditsOwningStore(t *testing.T) {
 	write(t, filepath.Join(harness, "decisionLog.md"), "# D\n\n## 2026-01-01 — zebra local quota <!-- id:bbbb0003 -->\n\nzebra quota\n")
 
 	now := time.Now()
-	logHits(a, SearchBanks(a, "zebra quota", 0), AccessSearch, now)
+	logHits(a, searchBanks(a, "zebra quota", 0), AccessSearch, now)
 	got := returnCounts([]string{da}, now)
 	home := returnCounts([]string{HomeBankDir()}, now)
 	for _, id := range []string{"bbbb0001", "bbbb0002"} {
@@ -119,10 +119,10 @@ func TestLogHitsCreditsOwningStore(t *testing.T) {
 func TestLogAccessAndAccessStatsAt(t *testing.T) {
 	dir := t.TempDir()
 	day1 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
-	logAccess(dir, day1, "aa11bb22", AccessRecall)
-	logAccess(dir, day1.AddDate(0, 0, 1), "aa11bb22", AccessRecall)
-	logAccess(dir, day1.AddDate(0, 0, 2), "aa11bb22", AccessRecall)
-	logAccess(dir, day1, "cc33dd44", AccessRecall)
+	logAccess(dir, day1, "aa11bb22", accessRecall)
+	logAccess(dir, day1.AddDate(0, 0, 1), "aa11bb22", accessRecall)
+	logAccess(dir, day1.AddDate(0, 0, 2), "aa11bb22", accessRecall)
+	logAccess(dir, day1, "cc33dd44", accessRecall)
 
 	stats, oldest := accessStatsAt(AccessLogPath(dir), day1.AddDate(0, 0, 2), 30)
 	if oldest.IsZero() || !oldest.Equal(day1) {
@@ -141,10 +141,10 @@ func TestAccessNominationsHotAndCold(t *testing.T) {
 	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	dir := HomeBankDir()
 	for d := range 5 {
-		logAccess(dir, now.AddDate(0, 0, -d), "aa11bb22", AccessRecall)
+		logAccess(dir, now.AddDate(0, 0, -d), "aa11bb22", accessRecall)
 	}
 	// Log must cover > coldDays for a cold nomination to fire at all.
-	logAccess(dir, now.AddDate(0, 0, -(coldDays+5)), "ee55ff66", AccessRecall)
+	logAccess(dir, now.AddDate(0, 0, -(coldDays+5)), "ee55ff66", accessRecall)
 
 	noms := accessNominations(now)
 	joined := strings.Join(noms, "\n")
@@ -162,12 +162,12 @@ func TestLogAccessLockUnopenableAppendsOnly(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
 	path := AccessLogPath(dir)
-	logAccess(dir, now.AddDate(0, 0, -(accessRotateDays+1)), "aa000001", AccessRecall)
+	logAccess(dir, now.AddDate(0, 0, -(accessRotateDays+1)), "aa000001", accessRecall)
 	_ = os.Remove(path + ".lock")
 	if err := os.Mkdir(path+".lock", 0o700); err != nil { // a directory cannot be opened as the lock file
 		t.Fatal(err)
 	}
-	logAccess(dir, now, "bb000002", AccessRecall)
+	logAccess(dir, now, "bb000002", accessRecall)
 	if _, err := os.Stat(path + ".1"); err == nil {
 		t.Error("rotation ran without the lock")
 	}

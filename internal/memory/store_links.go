@@ -21,8 +21,8 @@ func projectsMemory(slug string) string {
 	return filepath.Join(paths.ConfigDir(), "projects", slug, "memory")
 }
 
-// LinkNativeFor repairs the native link for one session cwd, keyed the way Claude Code names the project.
-func LinkNativeFor(cwd string) (linkResult, bool) {
+// linkNativeFor repairs the native link for one session cwd, keyed the way Claude Code names the project.
+func linkNativeFor(cwd string) (linkResult, bool) {
 	if cwd == "" {
 		return linkResult{}, false
 	}

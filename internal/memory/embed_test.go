@@ -42,11 +42,11 @@ func fakeEmbedServer(t *testing.T, embedded *int) *EmbedClient {
 	}))
 	t.Cleanup(srv.Close)
 	return &EmbedClient{Profile: "fake", Model: "fake-gte", Namespace: "fake|h|fake-gte", EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
-		return PostEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
+		return postEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
 	}}
 }
 
-// expireEmbed ends the validity lease of profile "fake" so the next EmbedEntries may mint again.
+// expireEmbed ends the validity lease of profile "fake" so the next embedChanged may mint again.
 func expireEmbed(t *testing.T) {
 	t.Helper()
 	f := loadEmbedCache("fake")
@@ -83,16 +83,16 @@ func TestEmbedEntriesReusesCacheByContentHash(t *testing.T) {
 	var calls int
 	c := fakeEmbedServer(t, &calls)
 
-	n, total, err := EmbedEntries(context.Background(), root, c)
+	n, total, err := embedChanged(context.Background(), root, c)
 	if err != nil || n != 2 || total != 2 || calls != 2 {
 		t.Fatalf("first index: embedded %d of %d, %d texts sent, err %v", n, total, calls, err)
 	}
 	expireEmbed(t)
-	n, _, err = EmbedEntries(context.Background(), root, c)
+	n, _, err = embedChanged(context.Background(), root, c)
 	wantEmbedded(t, "unchanged entries re-embedded", n, calls, err, 0, 2)
 	write(t, bankFile, "# D\n\n## 2026-10-01 — gamma choice <!-- id:aaaa0001 -->\n\nbody one\n\n## 2026-10-02 — delta choice <!-- id:aaaa0002 -->\n\nbody two EDITED\n")
 	expireEmbed(t)
-	n, _, err = EmbedEntries(context.Background(), root, c)
+	n, _, err = embedChanged(context.Background(), root, c)
 	wantEmbedded(t, "edit must re-embed only that entry", n, calls, err, 1, 3)
 	assertSemanticCloser(t, c, root)
 }
@@ -101,8 +101,8 @@ func TestEmbedEntriesReusesCacheByContentHash(t *testing.T) {
 func assertSemanticCloser(t *testing.T, c *EmbedClient, root string) {
 	t.Helper()
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
-	OpenEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return c, nil }
-	t.Cleanup(func() { OpenEmbedClient = openDatabricksEmbed })
+	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return c, nil }
+	t.Cleanup(func() { openEmbedClient = openDatabricksEmbed })
 	sem, err := NewSemantic("gamma gamma")
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +175,7 @@ func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
 		}
 		return inner.Embed(ctx, texts)
 	}}
-	if _, _, err := EmbedEntries(context.Background(), root, outer); err != nil {
+	if _, _, err := embedChanged(context.Background(), root, outer); err != nil {
 		t.Fatal(err)
 	}
 	rows := loadEmbedCache("fake").Rows
@@ -194,17 +194,17 @@ func TestEmbedCacheNamespaceAndDimension(t *testing.T) {
 	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"), "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n")
 	var calls int
 	c := fakeEmbedServer(t, &calls)
-	if _, _, err := EmbedEntries(context.Background(), root, c); err != nil || calls != 1 {
+	if _, _, err := embedChanged(context.Background(), root, c); err != nil || calls != 1 {
 		t.Fatalf("seed: %v calls=%d", err, calls)
 	}
 	other := &EmbedClient{Profile: "fake", Model: c.Model, Namespace: "other|https://w2|fake-gte", EmbedFunc: c.Embed}
 	expireEmbed(t)
-	if n, _, err := EmbedEntries(context.Background(), root, other); err != nil || n != 1 {
+	if n, _, err := embedChanged(context.Background(), root, other); err != nil || n != 1 {
 		t.Errorf("same model name on another workspace must re-EmbedFunc: n=%d err=%v", n, err)
 	}
-	prev := OpenEmbedClient
-	t.Cleanup(func() { OpenEmbedClient = prev })
-	OpenEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return c, nil } // namespace fake, cache is "other"
+	prev := openEmbedClient
+	t.Cleanup(func() { openEmbedClient = prev })
+	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return c, nil } // namespace fake, cache is "other"
 	before := calls
 	if _, err := NewSemantic("q"); err == nil {
 		t.Error("a client from a different namespace must not score the cache")
@@ -212,7 +212,7 @@ func TestEmbedCacheNamespaceAndDimension(t *testing.T) {
 	if calls != before {
 		t.Errorf("the prompt reached the endpoint (%d texts) despite the namespace mismatch", calls-before)
 	}
-	OpenEmbedClient = func(context.Context, string, string) (*EmbedClient, error) {
+	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) {
 		return &EmbedClient{Profile: "fake", Model: other.Model, Namespace: other.Namespace, EmbedFunc: func(context.Context, []string) ([][]float32, error) {
 			return [][]float32{{1, 2, 3, 4}}, nil
 		}}, nil
@@ -257,7 +257,7 @@ func TestEmbedPruneNeverCrossesRoots(t *testing.T) {
 	if err := saveEmbedCache("fake", f); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := EmbedEntries(context.Background(), root, c); err != nil {
+	if _, _, err := embedChanged(context.Background(), root, c); err != nil {
 		t.Fatal(err)
 	}
 	rows := loadEmbedCache("fake").Rows
@@ -295,7 +295,7 @@ func TestEmbedMergeKeepsVectorMatchingCurrentContent(t *testing.T) {
 		}
 		return inner.Embed(ctx, texts)
 	}}
-	if _, _, err := EmbedEntries(context.Background(), root, outer); err != nil {
+	if _, _, err := embedChanged(context.Background(), root, outer); err != nil {
 		t.Fatal(err)
 	}
 	want := mustEntryHashes(t, root)["aaaa0001"]
@@ -399,9 +399,9 @@ func TestNewSemanticPerProfileCacheFallsBackToPin(t *testing.T) {
 		}
 	}
 	var opened []string
-	prev := OpenEmbedClient
-	t.Cleanup(func() { OpenEmbedClient = prev })
-	OpenEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
+	prev := openEmbedClient
+	t.Cleanup(func() { openEmbedClient = prev })
+	openEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
 		opened = append(opened, profile)
 		return &EmbedClient{Profile: profile, Model: model, Namespace: profile + "|h|gte", EmbedFunc: func(context.Context, []string) ([][]float32, error) {
 			return [][]float32{{1, 0, 0}}, nil
@@ -434,9 +434,9 @@ func TestNewSemanticBacksOffAfterTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	var opens atomic.Int32 // the abandoned embed goroutine still runs when the test reads it
-	prev := OpenEmbedClient
-	t.Cleanup(func() { OpenEmbedClient = prev })
-	OpenEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
+	prev := openEmbedClient
+	t.Cleanup(func() { openEmbedClient = prev })
+	openEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
 		opens.Add(1)
 		return &EmbedClient{Profile: profile, Model: model, Namespace: "fake|h|gte", EmbedFunc: func(ctx context.Context, _ []string) ([][]float32, error) {
 			<-ctx.Done()
@@ -501,7 +501,7 @@ func TestEmbedFollowsEndpointDimension(t *testing.T) {
 	c3 := "\n## 2026-10-03 — three <!-- id:aaaa0003 -->\n\nbody\n"
 	run := func(c *EmbedClient) int {
 		expireEmbed(t)
-		n, _, err := EmbedEntries(context.Background(), root, c)
+		n, _, err := embedChanged(context.Background(), root, c)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -536,7 +536,7 @@ func TestStaleEmbedRunCannotRevertDimension(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	if _, _, err := EmbedEntries(context.Background(), root, old); err != nil {
+	if _, _, err := embedChanged(context.Background(), root, old); err != nil {
 		t.Fatal(err)
 	}
 	c := loadEmbedCache("fake")
@@ -580,7 +580,7 @@ func TestPruneKeepsRowsOfEntriesAddedMidRun(t *testing.T) {
 		}
 		return inner.Embed(ctx, texts)
 	}}
-	if _, _, err := EmbedEntries(context.Background(), root, outer); err != nil {
+	if _, _, err := embedChanged(context.Background(), root, outer); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := loadEmbedCache("fake").Rows["aaaa0002"]; !ok {
@@ -607,7 +607,7 @@ func TestMixedDimensionsAreDeterministicAndReindexed(t *testing.T) {
 		"# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nb\n\n## 2026-10-02 — gamma two <!-- id:aaaa0002 -->\n\nb\n\n## 2026-10-03 — gamma three <!-- id:aaaa0003 -->\n\nb\n")
 	var calls int
 	c := fakeEmbedServer(t, &calls)
-	if n, _, err := EmbedEntries(context.Background(), root, c); err != nil || n != 3 {
+	if n, _, err := embedChanged(context.Background(), root, c); err != nil || n != 3 {
 		t.Fatalf("first index: n=%d err=%v", n, err)
 	}
 	cache := loadEmbedCache("fake")
@@ -618,7 +618,7 @@ func TestMixedDimensionsAreDeterministicAndReindexed(t *testing.T) {
 	if err := saveEmbedCache("fake", cache); err != nil {
 		t.Fatal(err)
 	}
-	if n, _, err := EmbedEntries(context.Background(), root, c); err != nil || n != 1 {
+	if n, _, err := embedChanged(context.Background(), root, c); err != nil || n != 1 {
 		t.Errorf("an obsolete-dimension row must be re-embedded alone: n=%d err=%v", n, err)
 	}
 }

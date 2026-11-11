@@ -42,11 +42,14 @@ func guardedDial(ctx context.Context, network, addr string) (net.Conn, error) {
 // proxyHosts holds the hostnames of HTTP(S)_PROXY as seen by http.ProxyFromEnvironment, resolved once at init.
 var proxyHosts = resolveProxyHosts()
 
+// proxyFromEnvironment is net/http's env lookup, which caches the env for the process; tests swap it.
+var proxyFromEnvironment = http.ProxyFromEnvironment
+
 // resolveProxyHosts reads the proxy env once; net/http caches those values, so later env changes are ignored.
 func resolveProxyHosts() map[string]bool {
 	hosts := map[string]bool{}
 	for _, scheme := range []string{"http", "https"} {
-		u, err := http.ProxyFromEnvironment(&http.Request{URL: &url.URL{Scheme: scheme}})
+		u, err := proxyFromEnvironment(&http.Request{URL: &url.URL{Scheme: scheme}})
 		if err == nil && u != nil && u.Hostname() != "" {
 			hosts[strings.ToLower(u.Hostname())] = true
 		}

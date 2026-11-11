@@ -33,7 +33,7 @@ func TestSnapshotVaultConfigAndPinDiff(t *testing.T) {
 	vaulttest.Put(t, vault.Pins, "HARNESS_OPUS_MODEL", "a")
 	files := vaultConfigFiles(t)
 	s := &Store{Dir: filepath.Join(root, "history")}
-	first, err := s.Snapshot(files, "config", "first")
+	first, err := s.Snapshot(files, "first")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestSnapshotVaultConfigAndPinDiff(t *testing.T) {
 	}
 	assertSnapshotMatchesVault(t, s, overlay)
 	vaulttest.Put(t, vault.Pins, "HARNESS_OPUS_MODEL", "b")
-	second, err := s.Snapshot(files, "config", "changed pin")
+	second, err := s.Snapshot(files, "changed pin")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestSnapshotVaultConfigAndPinDiff(t *testing.T) {
 // assertPinDiff fails unless the latest config diff shows the opus pin moving from a to b.
 func assertPinDiff(t *testing.T, s *Store) {
 	t.Helper()
-	diff, err := s.Diff("", "config")
+	diff, err := s.Diff("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func assertPinDiff(t *testing.T, s *Store) {
 func vaultConfigFiles(t *testing.T) []HistoryFile {
 	t.Helper()
 	var files []HistoryFile
-	for _, f := range ConfigFiles() {
+	for _, f := range configFiles() {
 		if f.Label == "providers.json" || f.Label == "provider.env" {
 			files = append(files, f)
 		}
@@ -108,11 +108,11 @@ func TestSnapshotReadNotExistIsAbsent(t *testing.T) {
 			write(t, path, "HARNESS_OPUS_MODEL=a\n")
 			s := &Store{Dir: filepath.Join(root, "history")}
 			files := []HistoryFile{{Label: "provider.env", Path: path}}
-			if _, err := s.Snapshot(files, "config", "first"); err != nil {
+			if _, err := s.Snapshot(files, "first"); err != nil {
 				t.Fatal(err)
 			}
 			files[0].Read = func() ([]byte, error) { return nil, readErr }
-			res, err := s.Snapshot(files, "config", "removed")
+			res, err := s.Snapshot(files, "removed")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -141,7 +141,7 @@ func TestSnapshotCreatesRepoAndCommitsWatchedFiles(t *testing.T) {
 		{Label: "missing.json", Path: filepath.Join(root, "missing.json")},
 	}
 
-	res, err := s.Snapshot(files, "config", "first")
+	res, err := s.Snapshot(files, "first")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestSnapshotCreatesRepoAndCommitsWatchedFiles(t *testing.T) {
 	}
 	assertShadowRepoHolds(t, s, "settings.json")
 
-	again, err := s.Snapshot(files, "config", "unchanged")
+	again, err := s.Snapshot(files, "unchanged")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestSnapshotSkipsCredentialShapedValueWithReason(t *testing.T) {
 	s := &Store{Dir: filepath.Join(root, "history")}
 	files := []HistoryFile{{Label: "leaky.json", Path: leaky}}
 
-	res, err := s.Snapshot(files, "config", "mixed")
+	res, err := s.Snapshot(files, "mixed")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestSnapshotSkipsCredentialShapedValueWithReason(t *testing.T) {
 	}
 }
 
-// Log must list the commits Snapshot made, newest first, scoped to the plane asked for.
+// Log must list the commits Snapshot made, newest first.
 func TestLogListsCommits(t *testing.T) {
 	root := t.TempDir()
 	cfg := filepath.Join(root, "settings.json")
@@ -209,15 +209,15 @@ func TestLogListsCommits(t *testing.T) {
 	s := &Store{Dir: filepath.Join(root, "history")}
 	files := []HistoryFile{{Label: "settings.json", Path: cfg}}
 
-	if _, err := s.Snapshot(files, "config", "one"); err != nil {
+	if _, err := s.Snapshot(files, "one"); err != nil {
 		t.Fatal(err)
 	}
 	write(t, cfg, `{"a":2}`)
-	if _, err := s.Snapshot(files, "config", "two"); err != nil {
+	if _, err := s.Snapshot(files, "two"); err != nil {
 		t.Fatal(err)
 	}
 
-	lines, err := s.Log(10, "config")
+	lines, err := s.Log(10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,15 +226,6 @@ func TestLogListsCommits(t *testing.T) {
 	}
 	if !strings.Contains(lines[0], "two") {
 		t.Errorf("newest log line %q does not name the newest note", lines[0])
-	}
-
-	// A plane with no commits yet must report an empty log, not an error.
-	memLines, err := s.Log(10, "memory")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(memLines) != 0 {
-		t.Errorf("memory plane Log = %v, want none (no memory snapshot taken)", memLines)
 	}
 }
 
@@ -256,7 +247,7 @@ func TestSnapshotIgnoresInheritedGitEnv(t *testing.T) {
 	cfg := filepath.Join(root, "settings.json")
 	write(t, cfg, `{"a":1}`)
 	s := &Store{Dir: filepath.Join(root, "history")}
-	if _, err := s.Snapshot([]HistoryFile{{Label: "settings.json", Path: cfg}}, "config", ""); err != nil {
+	if _, err := s.Snapshot([]HistoryFile{{Label: "settings.json", Path: cfg}}, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -273,13 +264,13 @@ func TestLogAndDiffOnUnbornBranch(t *testing.T) {
 	root := t.TempDir()
 	s := &Store{Dir: filepath.Join(root, "history")}
 	files := []HistoryFile{{Label: "provider.env", Path: filepath.Join(root, "absent.env")}}
-	if _, err := s.Snapshot(files, "config", "first"); err != nil {
+	if _, err := s.Snapshot(files, "first"); err != nil {
 		t.Fatal(err)
 	}
-	if lines, err := s.Log(5, "config"); err != nil || len(lines) != 0 {
+	if lines, err := s.Log(5); err != nil || len(lines) != 0 {
 		t.Fatalf("Log = %v, %v; want empty, nil", lines, err)
 	}
-	if _, err := s.Diff("", "config"); err == nil || !strings.Contains(err.Error(), "no config commits yet") {
+	if _, err := s.Diff(""); err == nil || !strings.Contains(err.Error(), "no config commits yet") {
 		t.Fatalf("Diff err = %v, want \"no config commits yet\"", err)
 	}
 }
@@ -297,10 +288,10 @@ func TestLogAndDiffSurfaceRepositoryErrors(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := &Store{Dir: dir}
-			if lines, err := s.Log(20, "config"); err == nil || len(lines) != 0 {
+			if lines, err := s.Log(20); err == nil || len(lines) != 0 {
 				t.Errorf("Log = %v, %v; want no lines and a repository error", lines, err)
 			}
-			if patch, err := s.Diff("", "config"); err == nil || patch != "" || strings.Contains(err.Error(), "no config commits yet") {
+			if patch, err := s.Diff(""); err == nil || patch != "" || strings.Contains(err.Error(), "no config commits yet") {
 				t.Errorf("Diff = %q, %v; want no patch and a repository error, not empty history", patch, err)
 			}
 		})
@@ -313,12 +304,12 @@ func TestSnapshotDropsStaleCopyWhenFileTurnsCredentialShaped(t *testing.T) {
 	write(t, live, `{"model":"opus"}`)
 	s := &Store{Dir: filepath.Join(root, "history")}
 	files := []HistoryFile{{Label: "live.json", Path: live}}
-	if _, err := s.Snapshot(files, "config", "clean"); err != nil {
+	if _, err := s.Snapshot(files, "clean"); err != nil {
 		t.Fatal(err)
 	}
 	write(t, live, `{"token":"`+"dapi"+strings.Repeat("0123456789abcdef", 2)+`"}`)
 
-	res, err := s.Snapshot(files, "config", "leaky")
+	res, err := s.Snapshot(files, "leaky")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +332,7 @@ func TestSnapshotHoldsBackMemoryGateShapes(t *testing.T) {
 		leaky := filepath.Join(root, "leaky.json")
 		write(t, leaky, `{"k":"`+v+`"}`)
 		s := &Store{Dir: filepath.Join(root, "history")}
-		res, err := s.Snapshot([]HistoryFile{{Label: "leaky.json", Path: leaky}}, "config", "x")
+		res, err := s.Snapshot([]HistoryFile{{Label: "leaky.json", Path: leaky}}, "x")
 		if err != nil {
 			t.Fatal(err)
 		}

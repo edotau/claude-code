@@ -82,8 +82,8 @@ func (c *EmbedClient) Embed(ctx context.Context, texts []string) ([][]float32, e
 	return c.EmbedFunc(ctx, texts)
 }
 
-// OpenEmbedClient builds a model client; an empty profile uses the agent record.
-var OpenEmbedClient = openDatabricksEmbed
+// openEmbedClient builds a model client; an empty profile uses the agent record.
+var openEmbedClient = openDatabricksEmbed
 
 // entryEmbedText is what an entry is embedded as: its type and body, capped.
 func entryEmbedText(e Entry) string {
@@ -118,12 +118,12 @@ func currentEntryHashes(root string) (map[string]string, error) {
 	return out, nil
 }
 
-// EmbedEntries embeds changed live entries; a valid lease returns ErrEmbedValid without minting.
-func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, total int, err error) {
+// embedChanged embeds changed live entries; a valid lease returns errEmbedValid without minting.
+func embedChanged(ctx context.Context, root string, c *EmbedClient) (embedded, total int, err error) {
 	return embedEntries(ctx, root, c, false)
 }
 
-// reembedEntries re-embeds every live entry once the override window opens, otherwise returning ErrReembedEarly.
+// reembedEntries re-embeds every live entry once the override window opens, otherwise returning errReembedEarly.
 func reembedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, total int, err error) {
 	return embedEntries(ctx, root, c, true)
 }
@@ -132,12 +132,12 @@ func reembedEntries(ctx context.Context, root string, c *EmbedClient) (embedded,
 func checkEmbedLease(rec vectorRecord, now time.Time, force bool) error {
 	if force {
 		if at, open := reembedOpensAt(rec, now); !open {
-			return fmt.Errorf("%w: opens at %s", ErrReembedEarly, at.Format("15:04"))
+			return fmt.Errorf("%w: opens at %s", errReembedEarly, at.Format("15:04"))
 		}
 		return nil
 	}
 	if embedValid(rec, now) {
-		return fmt.Errorf("%w until %s", ErrEmbedValid, mintedTime(rec).Add(embedValidity).Format("15:04"))
+		return fmt.Errorf("%w until %s", errEmbedValid, mintedTime(rec).Add(embedValidity).Format("15:04"))
 	}
 	return nil
 }
@@ -183,7 +183,7 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 		return 0, total, err
 	}
 	if !ok {
-		return 0, total, fmt.Errorf("%w until %s", ErrEmbedBusy, held.Format("15:04"))
+		return 0, total, fmt.Errorf("%w until %s", errEmbedBusy, held.Format("15:04"))
 	}
 	run := &embedRun{c: c, root: root, force: force, fresh: map[string]vectorRow{}, started: started}
 	embedded, embedErr := run.embed(ctx, c, ids, texts, hashes, blocks)
@@ -196,7 +196,7 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 	stored, cerr := run.store(owner, embedErr == nil)
 	if !stored && cerr == nil {
 		embedded = 0
-		cerr = ErrEmbedSuperseded
+		cerr = errEmbedSuperseded
 	}
 	return embedded, total, errors.Join(embedErr, cerr)
 }
@@ -486,8 +486,8 @@ func pickEmbeddingModel(infos []providers.ModelInfo) (string, bool) {
 	return "", false
 }
 
-// PostEmbeddings POSTs {"input": texts} and decodes the OpenAI-shaped {"data":[{"index","embedding"}]} reply.
-func PostEmbeddings(ctx context.Context, url string, texts []string, authorize func(http.Header) error) ([][]float32, error) {
+// postEmbeddings POSTs {"input": texts} and decodes the OpenAI-shaped {"data":[{"index","embedding"}]} reply.
+func postEmbeddings(ctx context.Context, url string, texts []string, authorize func(http.Header) error) ([][]float32, error) {
 	body, _ := json.Marshal(map[string]any{"input": texts})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -592,7 +592,7 @@ type semanticResult struct {
 }
 
 func querySemantic(ctx context.Context, profile, query string, cache vectorRecord) semanticResult {
-	c, err := OpenEmbedClient(ctx, profile, cache.Model)
+	c, err := openEmbedClient(ctx, profile, cache.Model)
 	if err != nil {
 		return semanticResult{err: err}
 	}
@@ -623,7 +623,7 @@ var routerLink = func(ctx context.Context) (base, secret string, ok bool) {
 }
 
 // embeddingModelFor picks p's embeddings endpoint from the models it serves.
-func embeddingModelFor(ctx context.Context, reg *providers.Registry, p *providers.Provider) (string, error) {
+func embeddingModelFor(ctx context.Context, p *providers.Provider) (string, error) {
 	infos, err := providers.ListModels(ctx, p)
 	if err != nil {
 		return "", err
@@ -650,7 +650,7 @@ func openDatabricksEmbed(ctx context.Context, profile, model string) (*EmbedClie
 		return nil, fmt.Errorf("profile %s is not a databricks workspace", p.Name)
 	}
 	if model == "" {
-		if model, err = embeddingModelFor(ctx, reg, p); err != nil {
+		if model, err = embeddingModelFor(ctx, p); err != nil {
 			return nil, err
 		}
 	}
@@ -664,10 +664,10 @@ func embedDatabricks(ctx context.Context, p *providers.Provider, model string, t
 	url := strings.TrimRight(p.Host, "/") + "/serving-endpoints/" + model + "/invocations"
 	if base, secret, ok := routerLink(ctx); ok { // the daemon holds the warm credential and upstream connections
 		via := base + "/p/" + p.Name + "/" + providers.ProtocolOpenAI + "/" + model + "/invocations"
-		vecs, err := PostEmbeddings(ctx, via, texts, func(h http.Header) error { h.Set(gateway.ClientHeader, secret); return nil })
+		vecs, err := postEmbeddings(ctx, via, texts, func(h http.Header) error { h.Set(gateway.ClientHeader, secret); return nil })
 		if err == nil || ctx.Err() != nil {
 			return vecs, err
 		}
 	}
-	return PostEmbeddings(ctx, url, texts, func(h http.Header) error { return providers.Authorize(ctx, p, h) })
+	return postEmbeddings(ctx, url, texts, func(h http.Header) error { return providers.Authorize(ctx, p, h) })
 }

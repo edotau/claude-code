@@ -42,7 +42,7 @@ func TestRememberFreshRepoKeepsItsStore(t *testing.T) {
 	if got := Dir(root); got != dir {
 		t.Fatalf("Remember orphaned its store: directory changed from %s to %s", dir, got)
 	}
-	origin, err := ReadOrigin(dir)
+	origin, err := readOrigin(dir)
 	if err != nil || !origin.Accepts(root) {
 		t.Fatalf("Remember did not record the repository origin: %+v, %v", origin, err)
 	}

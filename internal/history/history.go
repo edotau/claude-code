@@ -27,8 +27,8 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// HistoryFile is one watched file: Label names it inside its plane's directory of the store (unique within
-// that plane), Path is where it lives on disk.
+// HistoryFile is one watched file: Label names it inside the store's config directory (unique there),
+// Path is where it lives on disk.
 type HistoryFile struct {
 	Label, Path string
 	Read        func() ([]byte, error) // when set, replaces reading Path; absence is fs.ErrNotExist
@@ -40,7 +40,7 @@ type Store struct{ Dir string }
 // Skip records a file held back from a snapshot, with the reason a reader needs to act on it.
 type Skip struct{ Label, Reason string }
 
-// Result reports what one Snapshot call did for one plane. Commit is "" when nothing changed — the
+// Result reports what one Snapshot call did. Commit is "" when nothing changed — the
 // caller must not report a snapshot it did not take.
 type Result struct {
 	Commit  string
@@ -53,10 +53,13 @@ type Result struct {
 // reach the harness's own tracked tree.
 func Dir() string { return filepath.Join(paths.StateDir(), "history") }
 
-// ConfigFiles are the config files whose ownership is CONTESTED: a tool other than the one that last
+// plane is the store's one subdirectory and the commit-subject prefix Log/Diff filter on.
+const plane = "config"
+
+// configFiles are the config files whose ownership is CONTESTED: a tool other than the one that last
 // wrote one of these can rewrite it. The provider overlay and pins are read from the vault; its secrets
 // bucket is never read here — textutil.CredentialRE is only the backstop for a credential leaked into one of these.
-func ConfigFiles() []HistoryFile {
+func configFiles() []HistoryFile {
 	cfg := paths.ConfigDir()
 	files := []HistoryFile{
 		{Label: "settings.json", Path: filepath.Join(cfg, "settings.json")},
@@ -92,12 +95,10 @@ func agentConfigs() []HistoryFile {
 	return out
 }
 
-// Snapshot copies each of files into the store and commits iff something in THIS plane actually
-// changed. An absent file is a FACT (an agent config is often absent on a fresh box), not an error;
-// its appearance and its deletion are both recorded, so a revert stays auditable. plane names the
-// commit subject prefix ("config") and scopes the commit to just these files, so a stray
-// uncommitted change left over in the other plane never rides along.
-func (s *Store) Snapshot(files []HistoryFile, plane, note string) (Result, error) {
+// Snapshot copies each of files into the store and commits iff something actually changed. An absent
+// file is a FACT (an agent config is often absent on a fresh box), not an error; its appearance and
+// its deletion are both recorded, so a revert stays auditable.
+func (s *Store) Snapshot(files []HistoryFile, note string) (Result, error) {
 	var res Result
 	// The lock file sits beside Dir, not inside it, so `add -A` never stages it.
 	err := paths.WithFileLock(s.Dir+".snapshot", func() error {
@@ -105,16 +106,16 @@ func (s *Store) Snapshot(files []HistoryFile, plane, note string) (Result, error
 			return err
 		}
 		for _, f := range files {
-			if err := s.stageFile(f, plane, &res); err != nil {
+			if err := s.stageFile(f, &res); err != nil {
 				return err
 			}
 		}
 		sort.Strings(res.Changed)
-		dirty, err := s.dirty(plane)
+		dirty, err := s.dirty()
 		if err != nil || !dirty {
 			return err
 		}
-		commit, err := s.commit(subject(plane, res, note), body(res), plane)
+		commit, err := s.commit(subject(res, note), body(res))
 		if err != nil {
 			return err
 		}
@@ -125,7 +126,7 @@ func (s *Store) Snapshot(files []HistoryFile, plane, note string) (Result, error
 }
 
 // stageFile copies one watched file into the store (or removes it when absent), recording the outcome in res.
-func (s *Store) stageFile(f HistoryFile, plane string, res *Result) error {
+func (s *Store) stageFile(f HistoryFile, res *Result) error {
 	data, err := readFile(f)
 	dest := filepath.Join(s.Dir, plane, f.Label)
 	if err != nil {
@@ -186,8 +187,8 @@ func readFile(f HistoryFile) ([]byte, error) {
 }
 
 // subject names what moved, so `git log --oneline` alone answers "when did the opus pin change?".
-// The leading "<plane>: " is also the Log/Diff filter (git log --grep=^<plane>: ).
-func subject(plane string, r Result, note string) string {
+// The leading "config: " is also the Log/Diff filter (git log --grep=^config: ).
+func subject(r Result, note string) string {
 	what := strings.Join(r.Changed, ", ")
 	if what == "" {
 		what = "removed: " + strings.Join(r.Absent, ", ")
@@ -238,21 +239,18 @@ func (s *Store) ensureRepo() error {
 	return nil
 }
 
-// dirty reports whether plane's own subdirectory has uncommitted content (including a deletion),
-// scoped so one plane's check never sees the other plane's files.
-func (s *Store) dirty(plane string) (bool, error) {
+// dirty reports whether the config subdirectory has uncommitted content (including a deletion).
+func (s *Store) dirty() (bool, error) {
 	out, err := s.git("status", "--porcelain", "--", plane)
 	return out != "", err
 }
 
 // commit stages the whole store (a pathspec restricted to individual LABELS errors outright —
 // "pathspec did not match any file(s) known to git" — the moment one watched file has never existed
-// on disk, which every plane's first Snapshot hits for whichever files are absent) and records
-// plane's subdirectory only: `git commit -- <plane>` limits the COMMIT to that one directory even if
-// something else is sitting staged, which is what makes per-plane commits safe to interleave inside
-// one shared repo and index. The directory pathspec itself is always valid once `add -A` has staged
+// on disk, which a first Snapshot hits for whichever files are absent) and records the config
+// subdirectory only. The directory pathspec itself is always valid once `add -A` has staged
 // at least one file under it, unlike a bare filename pathspec that was never tracked.
-func (s *Store) commit(subject, body, plane string) (string, error) {
+func (s *Store) commit(subject, body string) (string, error) {
 	if _, err := s.git("add", "-A"); err != nil {
 		return "", err
 	}
@@ -287,8 +285,8 @@ func (s *Store) hasCommits() (bool, error) {
 	return false, err
 }
 
-// Log returns plane's last n commits as "<sha> <date> <subject>" lines, newest first.
-func (s *Store) Log(n int, plane string) ([]string, error) {
+// Log returns the last n config commits as "<sha> <date> <subject>" lines, newest first.
+func (s *Store) Log(n int) ([]string, error) {
 	born, err := s.hasCommits()
 	if err != nil || !born {
 		return nil, err
@@ -301,8 +299,8 @@ func (s *Store) Log(n int, plane string) ([]string, error) {
 	return strings.Split(out, "\n"), nil
 }
 
-// Diff returns one commit's patch: rev when given, else plane's newest commit.
-func (s *Store) Diff(rev, plane string) (string, error) {
+// Diff returns one commit's patch: rev when given, else the newest config commit.
+func (s *Store) Diff(rev string) (string, error) {
 	if rev == "" {
 		born, err := s.hasCommits()
 		if err != nil {
@@ -326,7 +324,7 @@ func (s *Store) Diff(rev, plane string) (string, error) {
 // SnapshotConfig records the contested config files right before a harness writer overwrites them.
 func SnapshotConfig(note string) (Result, error) {
 	s := &Store{Dir: Dir()}
-	return s.Snapshot(ConfigFiles(), "config", note)
+	return s.Snapshot(configFiles(), note)
 }
 
 // One exec seam for the store, via internal/proc. The environment handling there must never
@@ -345,7 +343,7 @@ func runGit(full []string) (string, error) {
 	return proc.RunGit(ctx, "", full...)
 }
 
-// LogEntry is one `history log` line: Store.Log formats "%h %Y-%m-%d %H:%M <plane>: <subject>".
+// LogEntry is one `history log` line: Store.Log formats "%h %Y-%m-%d %H:%M config: <subject>".
 type LogEntry struct {
 	Rev     string `json:"rev"`
 	Date    string `json:"date"`

@@ -17,6 +17,7 @@ import (
 	_ "github.com/edotau/claude-code/internal/codex"    // registers the codex engine the prod binary links
 	_ "github.com/edotau/claude-code/internal/gemini"   // registers the gemini route engine the prod binary links
 	_ "github.com/edotau/claude-code/internal/opencode" // registers the opencode engine the prod binary links
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -134,7 +135,7 @@ func setupCompactFixture(t *testing.T, linked []string) {
 	var dirs []string
 	for _, name := range linked {
 		vendor := agentid.Binary(name)
-		source := vendorPATHFixture(t, vendor, "")
+		source := pathstest.FakeVendorOutsideConfig(t, vendor, "")
 		dirs = append(dirs, filepath.Dir(source))
 	}
 	// Only git rides in from the real PATH (installGitHooks/history need it); every vendor not in

@@ -84,7 +84,7 @@ func runGitDiff(repo, diffRange string, stderr io.Writer) (string, bool) {
 	if diffRange != "" {
 		args = []string{"diff", diffRange}
 	}
-	out, _, err := gitInherit(repo, args...)
+	out, err := gitInherit(repo, args...)
 	if err != nil {
 		fmt.Fprintf(stderr, "[error] git diff failed: %v\n", err)
 		return "", false

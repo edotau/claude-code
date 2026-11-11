@@ -5,33 +5,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
 )
-
-// countAccountMarkers counts live marker files in dir whose content is account.
-func countAccountMarkers(dir, account string) int {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return 0
-	}
-	n := 0
-	for _, e := range entries {
-		if _, ok := inflight.Owner(e.Name()); !ok {
-			continue
-		}
-		if b, err := os.ReadFile(filepath.Join(dir, e.Name())); err == nil && strings.TrimSpace(string(b)) == account {
-			n++
-		}
-	}
-	return n
-}
 
 // Verify-2: 13 batch dispatches plus 5 Agent spawns on one account never exceed the shared cap of 12, every dispatch and
 // spawn finishes, and the marker dir is empty at the end. The limiter's caps lift the in-process DefaultPerKey=4
@@ -111,7 +92,7 @@ func assertAccountPeakAndMarkers(t *testing.T, account string, peak int32, capA 
 	if got := peak; got > int32(capA) {
 		t.Errorf("peak concurrent holders on %s = %d, want <= %d", account, got, capA)
 	}
-	if n := countAccountMarkers(inflight.Dir(), account); n != 0 {
+	if n := hosttest.CountFiles(inflight.Dir(), inflight.Prefix, account); n != 0 {
 		t.Errorf("%d markers for %s remain after everything released, want 0", n, account)
 	}
 	if entries, _ := os.ReadDir(inflight.Dir()); len(entries) > 0 {
@@ -157,7 +138,7 @@ func TestSharedWaitHoldsNoLocalWorker(t *testing.T) {
 	if _, err := l.Acquire(ctx, free); err == nil {
 		t.Fatal("an already-cancelled dispatch got a permit while capacity was free")
 	}
-	if n := countAccountMarkers(inflight.Dir(), full) + countAccountMarkers(inflight.Dir(), free); n != 1 {
+	if n := hosttest.CountFiles(inflight.Dir(), inflight.Prefix, full) + hosttest.CountFiles(inflight.Dir(), inflight.Prefix, free); n != 1 {
 		t.Errorf("markers = %d, want only the seed claim", n)
 	}
 }

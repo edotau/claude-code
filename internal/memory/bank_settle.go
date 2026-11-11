@@ -200,8 +200,8 @@ func restoreOnError(err error, snaps []fileSnapshot) error {
 	return fmt.Errorf("%w (write rolled back)", err)
 }
 
-// NewestMtime is the newest mtime across dir's six typed files — the "did the update write?" probe.
-func NewestMtime(dir string) time.Time {
+// newestMtime is the newest mtime across dir's six typed files — the "did the update write?" probe.
+func newestMtime(dir string) time.Time {
 	var newest time.Time
 	for _, name := range bankFiles {
 		if fi, err := os.Stat(filepath.Join(dir, name)); err == nil && fi.ModTime().After(newest) {
@@ -236,7 +236,7 @@ func writeCatalog(now time.Time) error {
 	if err != nil {
 		return err
 	}
-	return paths.AtomicWrite(filepath.Join(StoreDir(), CatalogFile), []byte(c), 0o644)
+	return paths.AtomicWrite(filepath.Join(StoreDir(), catalogFile), []byte(c), 0o644)
 }
 
 // commitStore commits every dirty path in the store (update writes + settle output) as one settle commit.
