@@ -365,7 +365,7 @@ func Summary(o Options) (ok bool, detail string) {
 // Doctor runs the full scan and writes either the human report or (Options.JSON) the Report as JSON.
 func Doctor(w io.Writer, o Options) int {
 	rep := buildReport(o)
-	ew := &errWriter{w: w}
+	ew := &textutil.ErrWriter{W: w}
 	if o.JSON {
 		b, err := json.MarshalIndent(rep, "", "  ")
 		if err != nil {
@@ -376,26 +376,11 @@ func Doctor(w io.Writer, o Options) int {
 	} else {
 		printReport(ew, rep)
 	}
-	if ew.err != nil {
-		fmt.Fprintln(os.Stderr, "doctor --mcp: could not write report:", ew.err)
+	if ew.Err != nil {
+		fmt.Fprintln(os.Stderr, "doctor --mcp: could not write report:", ew.Err)
 		return 1
 	}
 	return rep.ExitCode()
-}
-
-// errWriter keeps the first write error, so a truncated report is detected once Doctor finishes.
-type errWriter struct {
-	w   io.Writer
-	err error
-}
-
-func (e *errWriter) Write(p []byte) (int, error) {
-	if e.err != nil {
-		return 0, e.err
-	}
-	n, err := e.w.Write(p)
-	e.err = err
-	return n, err
 }
 
 // printReport renders rep as the human-readable, section-per-check report.

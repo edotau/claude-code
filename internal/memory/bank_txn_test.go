@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 func readStore(t *testing.T, rel string) string {
@@ -306,7 +308,7 @@ func TestApplyRechecksLiveBytesBeforeWrite(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	c := journalChange{Rel: "r/a.md", HasPreimage: true, PreimageSHA256: sha256Hex([]byte("v1\n")), Data: []byte("v2\n")}
+	c := journalChange{Rel: "r/a.md", HasPreimage: true, PreimageSHA256: textutil.SHA256Hex([]byte("v1\n")), Data: []byte("v2\n")}
 	repo := StoreRepo()
 	live := filepath.Join(store, "r", "a.md")
 	write(t, live, "edited after plan\n")
@@ -492,7 +494,7 @@ func TestSkippedJournalReplayDivergesOnSameFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeJournal(t, "20260101-000000.000-aaaa", map[string]any{"changes": []map[string]any{{
-		"rel": "r/seeded.md", "hasPreimage": true, "preimageSha256": sha256Hex([]byte("old\n")), "data": []byte("stale\n"),
+		"rel": "r/seeded.md", "hasPreimage": true, "preimageSha256": textutil.SHA256Hex([]byte("old\n")), "data": []byte("stale\n"),
 	}}})
 
 	_, err := commitLocked(t, "after", []Change{{Rel: "r/other.md", Data: []byte("o\n")}})

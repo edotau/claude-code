@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -276,19 +277,13 @@ func capture(self string, p launchPlan, prompt string, stdin io.Reader, extra ..
 func check(self string, p launchPlan) int {
 	rc := 0
 	fmt.Printf("== smoke: %s %s\n", p.Provider, p.Model)
-	if out, code := capture(self, p, smokePrompt, nil, p.Rest...); code == 0 && lastLine(out) == "OK" {
+	if out, code := capture(self, p, smokePrompt, nil, p.Rest...); code == 0 && textutil.LastLine(out) == "OK" {
 		fmt.Println("PASS smoke")
 	} else {
 		fmt.Printf("FAIL smoke: %s\n", tail(out, 5))
 		rc = 1
 	}
 	return rc
-}
-
-// lastLine returns the last non-empty line of s, trimmed.
-func lastLine(s string) string {
-	lines := strings.Split(strings.TrimRight(s, " \t\r\n"), "\n")
-	return strings.TrimSpace(lines[len(lines)-1])
 }
 
 // tail returns the last n lines of s, trailing newlines dropped.

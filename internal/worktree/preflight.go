@@ -356,16 +356,10 @@ func targetDirtyPaths(ctx context.Context, path string) (map[string]bool, error)
 		return nil, fmt.Errorf("git status in %s: %w", path, err)
 	}
 	dirty := make(map[string]bool)
-	fields := strings.Split(string(out), "\x00")
-	for i := 0; i < len(fields); i++ {
-		entry := fields[i]
-		if len(entry) < 4 {
-			continue
-		}
-		dirty[entry[3:]] = true
-		if strings.ContainsAny(entry[:2], "RC") && i+1 < len(fields) {
-			i++
-			dirty[fields[i]] = true
+	for _, e := range proc.StatusEntries(string(out)) {
+		dirty[e.Path] = true
+		if e.From != "" {
+			dirty[e.From] = true
 		}
 	}
 	return dirty, nil

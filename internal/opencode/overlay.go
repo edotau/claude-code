@@ -1,10 +1,8 @@
 package opencode
 
 import (
-	"errors"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 )
@@ -18,13 +16,13 @@ func renderOpenCodeOverlay(o agentconfig.RenderOptions, out io.Writer) (bool, er
 	if err != nil {
 		return false, fmt.Errorf("opencode: %w", err)
 	}
-	cfgRaw, err := readOverlay(cfgPath)
+	cfgRaw, _, err := agentconfig.ReadExisting(cfgPath)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("opencode: %w", err)
 	}
-	tuiRaw, err := readOverlay(tuiPath)
+	tuiRaw, _, err := agentconfig.ReadExisting(tuiPath)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("opencode: %w", err)
 	}
 	cfgChanged, err := agentconfig.CommitOverlayFile(cfgPath, cfgRaw, cfgBody, o, out, "opencode")
 	if err != nil {
@@ -35,13 +33,4 @@ func renderOpenCodeOverlay(o agentconfig.RenderOptions, out io.Writer) (bool, er
 		return false, err
 	}
 	return cfgChanged || tuiChanged, nil
-}
-
-// readOverlay is path's bytes, nil when absent; any other read error is returned so drift is never silent.
-func readOverlay(path string) ([]byte, error) {
-	b, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("opencode: %w", err)
-	}
-	return b, nil
 }

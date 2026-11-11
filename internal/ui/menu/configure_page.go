@@ -483,7 +483,7 @@ func confirmLeave(n int, what string) bool {
 	return n > 0 && saveConfirmed(fmt.Sprintf("Save %d %s", n, what))
 }
 
-func isStdinTTY() bool { return ansi.IsTerminal(os.Stdin) }
+func isStdinTTY() bool { return proc.IsTerminal(os.Stdin) }
 
 // runModels is the `configure models` / "Models" row entry: a pick-one menu on a terminal, the plain
 // report otherwise (--check/--dry-run/piped never open a picker that would sit waiting for a choice).

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sys/unix"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // ancestorTTYWidth is the column count of the first ancestor process attached to a terminal (0 if none).
@@ -40,9 +40,9 @@ func ttyCols(dev string) int {
 		return 0
 	}
 	defer f.Close()
-	ws, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ)
+	cols, _, err := proc.Size(int(f.Fd()))
 	if err != nil {
 		return 0
 	}
-	return int(ws.Col)
+	return cols
 }

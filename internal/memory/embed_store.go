@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/textutil"
 	"go.etcd.io/bbolt"
 )
 
@@ -385,7 +386,7 @@ func RefreshStaleEmbeddings(cwd string) {
 	}
 }
 
-func hitHash(h SearchHit) string { return textHash(h.File + "\x00" + h.Block) }
+func hitHash(h SearchHit) string { return textutil.SHA256Hex([]byte(h.File + "\x00" + h.Block)) }
 
 func newSemantic(query []float32, rows map[string]vectorRow) *Semantic {
 	s := &Semantic{query: query, rows: rows, blocks: make(map[string]string, len(rows))}

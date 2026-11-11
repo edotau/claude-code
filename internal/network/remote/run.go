@@ -8,15 +8,15 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // Seams: tests swap the process runner and the terminal check.
 var (
 	runCommand = func(c *exec.Cmd) error { return c.Run() }
-	stdinTTY   = func() bool { return ansi.IsTerminal(os.Stdin) }
+	stdinTTY   = func() bool { return proc.IsTerminal(os.Stdin) }
 )
 
 // Run is `claude-code --host <host> <verb …>`: the verb runs on host over ssh; a browser login opens on that host.

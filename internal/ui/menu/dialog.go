@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -123,7 +123,7 @@ func Yes(br *bufio.Reader) bool {
 
 // ConfirmTerminal asks question by keypress on a terminal (Enter takes def, Esc is no); non-terminal runs proceed.
 func ConfirmTerminal(question string, def bool) bool {
-	if !ansi.IsTerminal(os.Stdin) {
+	if !proc.IsTerminal(os.Stdin) {
 		return true
 	}
 	return tui.ConfirmKey(question+"?", def)

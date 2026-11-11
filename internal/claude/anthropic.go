@@ -21,7 +21,6 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -256,7 +255,7 @@ func AnthropicSecret(o AnthropicOptions, store func(name string) int) (string, e
 		return v, nil
 	}
 	missing := fmt.Errorf("%s is not in the vault; store it with `claude-code vault set %s`", o.Name, o.Name)
-	if o.PrintEnv || !tui.StdinIsTerminal() || !ansi.IsTerminal(os.Stderr) {
+	if o.PrintEnv || !tui.StdinIsTerminal() || !proc.IsTerminal(os.Stderr) {
 		return "", missing
 	}
 	if !tui.Confirm(o.Name+" is not in the vault — set it now?", true) {

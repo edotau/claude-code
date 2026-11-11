@@ -122,7 +122,7 @@ func RecallContext(picks []recallPick) (string, []SearchHit, []SearchHit) {
 	var bodies, hits []SearchHit
 	for i, p := range picks {
 		if i < recallBodies {
-			fmt.Fprintf(&b, "\n- [%s/%s] %s", p.Entry.Bank, p.Entry.File, Cut(recallFlat(p.Entry), recallBodyCapRunes))
+			fmt.Fprintf(&b, "\n- [%s/%s] %s", p.Entry.Bank, p.Entry.File, textutil.CapRunes(recallFlat(p.Entry), recallBodyCapRunes, "…"))
 			bodies = append(bodies, p.Hit)
 		} else {
 			fmt.Fprintf(&b, "\n- %s", p.Entry.Pointer())
@@ -152,7 +152,7 @@ func PromptRecall(sessionID, cwd, prompt string, warn io.Writer) string {
 	root := SessionRoot(sessionID, cwd)
 	picks, trace := RecallPicks(root, sessionID, prompt, true, false)
 	if after, ok := strings.CutPrefix(trace.Embeddings, "keyword-only: "); ok {
-		fmt.Fprintf(warn, "memory-recall: keyword-only (%s)\n", Cut(after, 120))
+		fmt.Fprintf(warn, "memory-recall: keyword-only (%s)\n", textutil.CapRunes(after, 120, "…"))
 	}
 	context, bodies, hits := RecallContext(picks)
 	if context == "" {
@@ -218,7 +218,7 @@ func AgentRecall(sessionID, cwd, task string) (block string, ids []string) {
 
 	var lines []string
 	for _, e := range RecallPointers(picks) {
-		lines = append(lines, "\n- "+Cut(e.Pointer(), agentRecallPreviewRunes))
+		lines = append(lines, "\n- "+textutil.CapRunes(e.Pointer(), agentRecallPreviewRunes, "…"))
 		ids = append(ids, e.ID)
 	}
 	block, n := capRecallLines(lines)

@@ -68,3 +68,25 @@ func runRaw(ctx context.Context, env []string, dir string, args ...string) (stri
 	}
 	return out.String(), nil
 }
+
+// StatusEntry is one `git status --porcelain=v1 -z` record; From is a rename or copy's source path.
+type StatusEntry struct{ Code, Path, From string }
+
+// StatusEntries parses `git status --porcelain=v1 -z` output; R or C in either code column marks a rename or copy.
+func StatusEntries(out string) []StatusEntry {
+	var entries []StatusEntry
+	fields := strings.Split(out, "\x00")
+	for i := 0; i < len(fields); i++ {
+		f := fields[i]
+		if len(f) < 4 {
+			continue
+		}
+		e := StatusEntry{Code: f[:2], Path: f[3:]}
+		if strings.ContainsAny(e.Code, "RC") && i+1 < len(fields) {
+			i++
+			e.From = fields[i]
+		}
+		entries = append(entries, e)
+	}
+	return entries
+}

@@ -12,9 +12,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent/launchplan"
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/tools"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/transcript"
-	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -46,7 +46,7 @@ func warnVersion(name, path string, opts agent.LaunchOptions, args []string) {
 
 // agentVersionTTY and versionWarnOut are the version warning's terminal gate and sink (tests swap them).
 var (
-	agentVersionTTY           = func() bool { return ansi.IsTerminal(os.Stderr) }
+	agentVersionTTY           = func() bool { return proc.IsTerminal(os.Stderr) }
 	versionWarnOut  io.Writer = os.Stderr
 )
 

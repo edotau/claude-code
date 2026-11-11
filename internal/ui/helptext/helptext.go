@@ -113,7 +113,7 @@ func rowsText(rows [][2]string, lw, term int) string {
 // TermWidth is w's column count when w is a terminal, 0 when piped: piped help stays complete for scripts and agents.
 func TermWidth(w io.Writer) int {
 	f, ok := w.(*os.File)
-	if !ok || !ansi.IsTerminal(f) {
+	if !ok || !proc.IsTerminal(f) {
 		return 0
 	}
 	if n := ansi.Columns(0); n > 0 {

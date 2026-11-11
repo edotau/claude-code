@@ -3,7 +3,6 @@ package serving
 import (
 	"cmp"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -135,7 +134,7 @@ const DiscoveryKeyPrefix = "model-discovery/v1/"
 
 func servingDiscoveryKey(scope Scope) string {
 	data, _ := json.Marshal(scope) // only string fields
-	return fmt.Sprintf(DiscoveryKeyPrefix+"%x", sha256.Sum256(data))
+	return DiscoveryKeyPrefix + textutil.SHA256Hex(data)
 }
 
 // SubjectKeyPrefix starts every sealed remembered-subject secret name.
@@ -150,7 +149,7 @@ func subjectKey(p *providers.Provider) (string, error) {
 	a := p.Auth
 	// only strings: a changed host, auth type or client id changes the key
 	data, _ := json.Marshal([]any{scope, a.Type, a.Header, a.Env, a.File, a.Command, a.Login, a.ClientID, a.SPClientID})
-	return fmt.Sprintf(SubjectKeyPrefix+"%x", sha256.Sum256(data)), nil
+	return SubjectKeyPrefix + textutil.SHA256Hex(data), nil
 }
 
 // RecallSubject is the subject last validated for p, read from the vault with no network; a cache-key input only.
@@ -274,7 +273,7 @@ func validatedKey(p *providers.Provider) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf(SubjectKeyPrefix+"%x", sha256.Sum256([]byte("validated\x00"+name))), nil
+	return SubjectKeyPrefix + textutil.SHA256Hex([]byte("validated\x00"+name)), nil
 }
 
 // readValidated returns the sidecar under name when it is complete and younger than identityTTL.

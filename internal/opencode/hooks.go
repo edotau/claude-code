@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -150,25 +151,18 @@ func (h *hookHost) fire(phase, event, tool string, payload map[string]any) (ctx 
 		}
 		if res.Decision != core.Allow || res.Context != "" || res.Stderr != "" {
 			h.note(phase, "event=%s tool=%s hook=%s decision=%s context_chars=%d reason=%q", event, tool, b.Spec.Name,
-				[]string{"allow", "ask", "block"}[res.Decision], len(res.Context), textutil.CapRunes(firstNonEmpty(res.Reason, res.Stderr), reasonLogRunes, "…"))
+				[]string{"allow", "ask", "block"}[res.Decision], len(res.Context), textutil.CapRunes(cmp.Or(res.Reason, res.Stderr), reasonLogRunes, "…"))
 		} else {
 			h.note(phase, "event=%s tool=%s hook=%s decision=allow", event, tool, b.Spec.Name)
 		}
 		if res.Decision == core.Block {
-			return ctx, fmt.Errorf("hook %s blocked the dispatch: %s", b.Spec.Name, firstNonEmpty(firstNonEmpty(res.Reason, res.Stderr), "no reason given"))
+			return ctx, fmt.Errorf("hook %s blocked the dispatch: %s", b.Spec.Name, cmp.Or(res.Reason, res.Stderr, "no reason given"))
 		}
 		if res.Context != "" {
 			ctx = append(ctx, res.Context)
 		}
 	}
 	return ctx, nil
-}
-
-func firstNonEmpty(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
 }
 
 // before runs SessionStart then UserPromptSubmit and returns argv with their context folded ahead of the prompt;

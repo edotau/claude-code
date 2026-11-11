@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // Columns is $COLUMNS (trimmed) when it parses to > 0, else def.
@@ -34,11 +36,8 @@ func Enabled(w io.Writer) bool {
 		return false
 	}
 	f, ok := w.(*os.File)
-	return ok && IsTerminal(f)
+	return ok && proc.IsTerminal(f)
 }
-
-// IsTerminal reports whether f is a real terminal (a termios ioctl succeeds); /dev/null and /dev/zero are not.
-func IsTerminal(f *os.File) bool { return isTTY(f) }
 
 // Style wraps s in code (one or more SGR escapes) and a reset when on; otherwise s unchanged.
 func Style(on bool, code, s string) string {

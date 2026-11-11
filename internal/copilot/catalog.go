@@ -2,8 +2,6 @@ package copilot
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -70,12 +69,6 @@ type catalogSnapshot struct {
 	Models       []SDKModel
 }
 
-// tokenHash is the hex sha256 of tok, so the sealed snapshot never holds the credential itself.
-func tokenHash(tok string) string {
-	sum := sha256.Sum256([]byte(tok))
-	return hex.EncodeToString(sum[:])
-}
-
 // readCatalogSnapshot is the sealed snapshot for auth and tok; ok is false on a miss, another account or any vault error.
 func readCatalogSnapshot(auth CopilotAuth, tok string) (catalogSnapshot, bool) {
 	raw, found, err := vault.ReadSecret(catalogRecord)
@@ -84,7 +77,7 @@ func readCatalogSnapshot(auth CopilotAuth, tok string) (catalogSnapshot, bool) {
 	}
 	var s catalogSnapshot
 	if json.Unmarshal([]byte(raw), &s) != nil || s.Schema != 1 || s.DiscoveredAt.IsZero() || len(s.Models) == 0 ||
-		s.Account != auth.Account || s.Source != auth.Source || s.TokenHash != tokenHash(tok) {
+		s.Account != auth.Account || s.Source != auth.Source || s.TokenHash != textutil.SHA256Hex([]byte(tok)) {
 		return catalogSnapshot{}, false
 	}
 	return s, true
@@ -156,7 +149,7 @@ func RefreshCatalog(ctx context.Context) ([]SDKModel, error) {
 	if !ok {
 		return list, nil
 	}
-	snap := catalogSnapshot{Schema: 1, Account: auth.Account, Source: auth.Source, TokenHash: tokenHash(tok),
+	snap := catalogSnapshot{Schema: 1, Account: auth.Account, Source: auth.Source, TokenHash: textutil.SHA256Hex([]byte(tok)),
 		DiscoveredAt: time.Now().UTC(), Models: list}
 	if err := saveCatalogSnapshot(snap); err != nil {
 		fmt.Fprintf(os.Stderr, "copilot: catalog snapshot not saved: %v\n", err)

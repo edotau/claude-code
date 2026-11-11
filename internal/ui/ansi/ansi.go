@@ -1,4 +1,4 @@
-// Package ansi renders SGR escapes in truecolor/256/16-color modes; a stdlib-only leaf with no internal imports.
+// Package ansi renders SGR escapes in truecolor/256/16-color modes; a leaf that imports only internal/proc.
 package ansi
 
 import (

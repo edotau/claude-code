@@ -83,18 +83,6 @@ func distinctCount(tokens []string, minLen int) int {
 	return len(seen)
 }
 
-// Cut truncates s to limit runes, marking the cut with an ellipsis.
-func Cut(s string, limit int) string {
-	n := 0
-	for i := range s {
-		if n == limit {
-			return s[:i] + "…"
-		}
-		n++
-	}
-	return s
-}
-
 // selectRecall consults archives only when no current entry passes the relevance gates.
 func selectRecall(sessionID string, terms []string, ranked []SearchHit, sem *Semantic, semSeen bool, counts map[string]int, trace *recallTrace) []recallPick {
 	need := recallNeed(terms)

@@ -9,6 +9,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 var editTools = map[string]bool{"Edit": true, "Write": true, "MultiEdit": true, "NotebookEdit": true}
@@ -78,7 +80,7 @@ func CountWorkFrom(path string, offset int64) (edits, turns int, next int64) {
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
 		return 0, 0, offset
 	}
-	read, _ := scanLines(f, true, func(line []byte) {
+	read, _ := textutil.ScanRawLines(f, true, func(line []byte) {
 		edits += countLineEdits(line)
 		if isUserTurnLine(line) {
 			turns++

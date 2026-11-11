@@ -252,14 +252,8 @@ func dirtySet(ctx context.Context, dir string) (string, map[string]bool, error) 
 		return "", nil, fmt.Errorf("git status in %s: %w", top, err)
 	}
 	dirty := map[string]bool{}
-	recs := strings.Split(raw, "\x00")
-	for i := 0; i < len(recs); i++ {
-		if r := recs[i]; len(r) > 3 {
-			dirty[filepath.Join(top, r[3:])] = true
-			if r[0] == 'R' || r[0] == 'C' {
-				i++ // a rename's second record is its source path
-			}
-		}
+	for _, e := range proc.StatusEntries(raw) {
+		dirty[filepath.Join(top, e.Path)] = true
 	}
 	return top, dirty, nil
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // recallCandidate records each selection gate without changing the selection.
@@ -114,7 +115,7 @@ func (t *recallTrace) selected(picks []recallPick) {
 		outcome := "over cap"
 		line := "- " + p.Entry.Pointer()
 		if i < recallBodies {
-			line = fmt.Sprintf("- [%s/%s] %s", p.Entry.Bank, p.Entry.File, Cut(recallFlat(p.Entry), recallBodyCapRunes))
+			line = fmt.Sprintf("- [%s/%s] %s", p.Entry.Bank, p.Entry.File, textutil.CapRunes(recallFlat(p.Entry), recallBodyCapRunes, "…"))
 		}
 		if strings.Contains(context, "\n"+line) {
 			outcome = "pointer"

@@ -7,7 +7,6 @@ package memory
 import (
 	"bytes"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -22,6 +21,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Change is one store-relative write or deletion; Checked makes it conditional on Preimage (nil = must not exist).
@@ -173,7 +173,7 @@ func newJournal(repo Repo, subject string, changes []Change) (*journal, error) {
 		}
 		jc := journalChange{Rel: c.Rel, Delete: c.Delete, HasPreimage: pre != nil}
 		if pre != nil {
-			jc.PreimageSHA256 = sha256Hex(pre)
+			jc.PreimageSHA256 = textutil.SHA256Hex(pre)
 		}
 		if !c.Delete {
 			jc.Data = c.Data
@@ -401,7 +401,7 @@ func (c journalChange) alreadyApplied(cur []byte, absent bool) bool {
 
 // preimageHolds reports whether the live bytes are still the change's recorded preimage (or absent when it had none).
 func (c journalChange) preimageHolds(cur []byte, absent bool) bool {
-	return !c.HasPreimage && absent || c.HasPreimage && !absent && sha256Hex(cur) == c.PreimageSHA256
+	return !c.HasPreimage && absent || c.HasPreimage && !absent && textutil.SHA256Hex(cur) == c.PreimageSHA256
 }
 
 // apply rechecks the live bytes right before mutating (native capture ran git in between) and sorts the rel into
@@ -467,11 +467,6 @@ func dirtyFiles(repo Repo) (present, missing []string, err error) {
 		}
 	}
 	return present, missing, nil
-}
-
-func sha256Hex(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
 }
 
 // journalSchema versions memory-journal.

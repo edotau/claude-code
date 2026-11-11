@@ -3,9 +3,7 @@ package memory
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // embedCacheSchema is the embedding cache's schema version; a mismatch is a miss, never migrated.
@@ -95,11 +94,6 @@ func entryEmbedText(e Entry) string {
 	return string(r)
 }
 
-func textHash(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:])
-}
-
 // freshEmbedCache is an empty cache for c's namespace.
 func freshEmbedCache(c *EmbedClient) vectorRecord {
 	return vectorRecord{Namespace: c.Namespace, Model: c.Model, Rows: map[string]vectorRow{}}
@@ -118,7 +112,7 @@ func currentEntryHashes(root string) (map[string]string, error) {
 			continue
 		}
 		if _, dup := out[e.ID]; !dup {
-			out[e.ID] = textHash(entryEmbedText(e))
+			out[e.ID] = textutil.SHA256Hex([]byte(entryEmbedText(e)))
 		}
 	}
 	return out, nil
@@ -245,7 +239,7 @@ func pendingEmbeds(root string, cache vectorRecord) (ids, texts, hashes, blocks 
 			continue
 		}
 		text := entryEmbedText(e)
-		hash := textHash(text)
+		hash := textutil.SHA256Hex([]byte(text))
 		live[e.ID] = true
 		if cacheRowCurrent(cache.Rows[e.ID], hash, hitHash(h), cacheDim) {
 			continue

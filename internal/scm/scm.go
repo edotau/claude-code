@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Host kinds.
@@ -93,17 +95,13 @@ func bitbucketRepo(host string, parts []string, isHTTP bool, remote string) (Rep
 			break
 		}
 	}
-	if !hasScm && len(parts) > 0 && isDigits(parts[0]) {
+	if !hasScm && len(parts) > 0 && textutil.IsDigits(parts[0]) {
 		parts = parts[1:]
 	}
 	if len(parts) != 2 || (isHTTP && !hasScm) {
 		return Repo{}, fmt.Errorf("remote %q is not a Bitbucket {project}/{repo} path", remote)
 	}
 	return Repo{Bitbucket, host, strings.ToUpper(parts[0]), parts[1]}, nil
-}
-
-func isDigits(s string) bool {
-	return s != "" && strings.Trim(s, "0123456789") == ""
 }
 
 // redact drops userinfo from a URL remote so credentials never reach an error message.

@@ -2,7 +2,6 @@ package codex
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/textutil"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -107,7 +107,7 @@ func catalogInputs(bin string, p *providers.Provider) ([]providers.OpencodeModel
 	if err != nil {
 		return nil, "", fmt.Errorf("cache key failed: %w", err)
 	}
-	return menu, fmt.Sprintf("%x", sha256.Sum256(rawKey)), nil
+	return menu, textutil.SHA256Hex(rawKey), nil
 }
 
 // catalogCached reports a stored catalog file whose key file matches key.

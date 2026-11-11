@@ -25,6 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -505,16 +506,9 @@ func formatsLines(done []schemas.Stale, dryRun bool) []string {
 	var out []string
 	for _, k := range order {
 		n := counts[k]
-		out = append(out, fmt.Sprintf("formats  %s %s v%d→v%d (%d %s)", verb, k.f, k.from, k.to, n, pluralFile(n)))
+		out = append(out, fmt.Sprintf("formats  %s %s v%d→v%d (%d %s)", verb, k.f, k.from, k.to, n, textutil.PluralWord(n, "file", "files")))
 	}
 	return out
-}
-
-func pluralFile(n int) string {
-	if n == 1 {
-		return "file"
-	}
-	return "files"
 }
 
 // formatsCompact migrates for real and returns an extras token ("" when nothing was stale); errors print in full.
