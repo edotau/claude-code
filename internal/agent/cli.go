@@ -32,7 +32,7 @@ func (s Schema) OwnProfile() string {
 	return s.Name
 }
 
-// Target mirrors launch.Agent: the session target if it serves the agent, else its own login or a keyed one.
+// Target picks the session target if it serves the agent, else its own login or a keyed one.
 func (s Schema) Target(req RunOptions) (providers.Target, bool, error) {
 	t, own, note, err := s.targetNote(req)
 	if note != "" {
@@ -121,7 +121,7 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 	}
 	p := CLIPrep{Target: t, Result: wire.Result{Provider: s.OwnProfile(), Model: t.Model, SessionID: req.SessionID}}
 	if !own {
-		if t.Provider == nil { // agentTargetNote can report a non-own target with no provider resolved
+		if t.Provider == nil { // targetNote can report a non-own target with no provider resolved
 			return p, retry.Fatal(name, errors.New("agent target resolved to no provider"))
 		}
 		p.Result.Provider = t.Provider.Name

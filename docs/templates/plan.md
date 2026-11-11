@@ -83,7 +83,7 @@ A phase is a group of tasks, not a unit of work: each `### Phase` section lists 
 (`skills/subagent-workflows/SKILL.md` -> Leaf types). A commit that touches every `owns:` file ticks the task
 (`docs-plan-tick`). Start with a repo path; later entries may abbreviate against the previous one: a bare name sits in
 its directory, `<dir>/<file>` drops the shared leading part (`internal/configure/a.go, b.go, ui/c.go`). E.g.:
-`- [ ] Phase 2.1 — Add --attach — leaf: opencode, Agent: opencode — owns: internal/agent/engine_cli.go`
+`- [ ] Phase 2.1 — Add --attach — leaf: opencode, Agent: opencode — owns: internal/agent/cli.go`
 
 Tick `[x]` with the commit id as each item lands (`- [x] Phase 2.1 — … (abc1234)`); this list is the recovery
 point if a session, agent or worktree is lost. Mark an item **you** when only the user can do it. For a

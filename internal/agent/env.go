@@ -1,4 +1,4 @@
-// child_env.go — the one env builder for every headless agent child: ChildCmd, claude's launch, the Copilot SDK.
+// env.go — the one env builder for every headless agent child: ChildCmd, claude's launch, the Copilot SDK.
 package agent
 
 import (

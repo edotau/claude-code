@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/launchcli"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
@@ -327,7 +326,7 @@ func TestLogEventOpenCodeFormatted(t *testing.T) {
 }
 
 // TestHubPrepareLaunchStoredRecord: a hub dispatch fails on an invalid stored opencode record naming the field and not
-// the value; a valid or absent record leaves the argv/env exactly what HeadlessLaunch renders.
+// the value; a valid or absent record applies headless launch env (not args), with route env last.
 func TestHubPrepareLaunchStoredRecord(t *testing.T) {
 	for _, tc := range []struct {
 		name, wantErr string
@@ -363,7 +362,8 @@ func TestHubPrepareLaunchStoredRecord(t *testing.T) {
 			}
 			h := agent.Headless{Prompt: "hi", Tools: true}
 			wantEnv, wantArgv := opencodeRun("opencode/m", h)
-			wantEnv, wantArgv = launchcli.HeadlessLaunch("opencode", wantEnv, wantArgv)
+			launchEnv, launchedArgv := agent.SchemaFor("opencode").ApplyLaunch(wantArgv, false)
+			wantEnv, wantArgv = agent.RouteEnvLast(launchEnv, wantEnv), launchedArgv
 			if !slices.Equal(argv, wantArgv) || !slices.Equal(env[:len(wantEnv)], wantEnv) {
 				t.Errorf("argv/env drifted:\n got %q %q\nwant %q %q", argv, env[:len(wantEnv)], wantArgv, wantEnv)
 			}

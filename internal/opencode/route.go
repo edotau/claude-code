@@ -37,7 +37,7 @@ func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selEr
 	own := OpencodeOwnLoginPresent()
 	opencodeLogin := own || OpencodeCopilotLoginPresent()
 	copilotCLILogin := agent.SchemaFor("copilot").LoginPresent()
-	pin, err := agent.PinnedProfile("opencode") // a pinned profile is what a launch uses, as engine_cli does
+	pin, err := agent.PinnedProfile("opencode") // a pinned profile is what a launch uses, as cli.go does
 	switch {
 	case err != nil:
 		selErr = err

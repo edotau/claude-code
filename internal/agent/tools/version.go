@@ -1,20 +1,47 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
 )
+
+// versionProbeTimeout bounds a `--version` call; it is not a login probe, so it is not agent.ProbeTimeout.
+const versionProbeTimeout = 5 * time.Second
+
+// firstVersionLine is FirstVersionLine under versionProbeTimeout, the probe shape ProbedVersionLine takes.
+func firstVersionLine(path string) string {
+	return FirstVersionLine(context.Background(), path, versionProbeTimeout)
+}
+
+// FirstVersionLine is the first line of `path --version`, bounded by ctx and timeout; any error is "" (best-effort).
+func FirstVersionLine(ctx context.Context, path string, timeout time.Duration) string {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "--version")
+	// a version probe gets no login or route credential
+	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(agent.ProbeContext(ctx, ""))
+	cmd.WaitDelay = 200 * time.Millisecond // lets stdout drain under load
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	line, _, _ := strings.Cut(string(out), "\n")
+	return strings.TrimSpace(line)
+}
 
 // Named failures of Version; callers match with errors.Is.
 var (
