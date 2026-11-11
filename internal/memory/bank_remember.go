@@ -31,7 +31,7 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("--type %q: want user, feedback, project, or reference", kind)
 	}
-	fact = strings.TrimSpace(fact)
+	fact = strings.Join(strings.Fields(fact), " ") // one line: a newline plus "## date — x" would stamp a second entry
 	if fact == "" {
 		return "", errors.New("empty fact")
 	}

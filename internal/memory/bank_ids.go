@@ -1,8 +1,6 @@
 package memory
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"io/fs"
 	"os"
@@ -13,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // idMarker is a block's persisted ID: assigned once at settle, carried by the block through edits and archive moves.
@@ -28,8 +27,7 @@ var derivedRef = regexp.MustCompile("^" + contentRefPrefix + "[0-9a-f]+$")
 // contentRef derives a stable, show-able reference for a block with no persisted id marker:
 // the prefix plus the first 4 bytes of sha256 over its whitespace-normalized text.
 func contentRef(block string) string {
-	sum := sha256.Sum256([]byte(strings.Join(strings.Fields(block), " ")))
-	return contentRefPrefix + hex.EncodeToString(sum[:4])
+	return contentRefPrefix + textutil.SHA256Hex([]byte(strings.Join(strings.Fields(block), " ")))[:8]
 }
 
 // blockRef is the block's persisted id, else fallback, else its contentRef.
@@ -107,7 +105,11 @@ func stampIDs(dir, name, prefix, text string, now time.Time) (string, int) {
 	lines := strings.Split(text, "\n")
 	starts := blockStarts(lines, prefix)
 	out := make([]string, 0, len(lines))
-	out = append(out, lines[:min(len(lines), first(starts, len(lines)))]...)
+	head := len(lines)
+	if len(starts) > 0 {
+		head = starts[0]
+	}
+	out = append(out, lines[:head]...)
 	for k, i := range starts {
 		end := len(lines)
 		if k+1 < len(starts) {
@@ -134,13 +136,6 @@ func blockStarts(lines []string, prefix string) []int {
 		fence = nextFence(fence, l)
 	}
 	return starts
-}
-
-func first(xs []int, def int) int {
-	if len(xs) == 0 {
-		return def
-	}
-	return xs[0]
 }
 
 // fencedLines flags each line that is a code fence or sits inside one; markers there are examples, not ids.
@@ -207,8 +202,7 @@ func lastMarker(block []string, fenced []bool) (keepLine int, keepSpan []int, to
 // freshID is the new ` <!-- id:xxxx -->` suffix for a block; idx is in the hash so identical lines never collide.
 func freshID(dir, name string, idx int, line string, now time.Time) string {
 	key := dir + "\x00" + name + "\x00" + strconv.Itoa(idx) + "\x00" + line + "\x00" + now.Format(time.RFC3339Nano)
-	sum := sha256.Sum256([]byte(key))
-	return " <!-- id:" + hex.EncodeToString(sum[:4]) + " -->"
+	return " <!-- id:" + textutil.SHA256Hex([]byte(key))[:8] + " -->"
 }
 
 // stripMarkers removes every id marker from l, except the one at keepSpan when keepHere.

@@ -432,7 +432,7 @@ func TestGoldenProbesNowNonEmpty(t *testing.T) {
 		{"models --pin", []string{"models", "--pin", ""}},
 		{"configure", []string{"configure", ""}},
 		{"network tailscale --exit-node", []string{"network", "tailscale", "--exit-node", ""}},
-		{"memory archive", []string{"memory", "archive", ""}},
+		{"memory alias", []string{"memory", "alias", ""}},
 		{"ask --agent=", []string{"agents", "ask", "--agent="}},
 	} {
 		if got := candidates(tc.words...); len(got) == 0 {
@@ -489,8 +489,8 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"history": {"snapshot", "log", "diff"},
 		"vault":   {"ls", "set", "get", "delete", "import", "export", "edit", "rotate-secret"},
 		"network": {"tailscale", "browser", "websearch", "restart", "remote"},
-		"memory": {"recall", "remember", "init", "review", "verify", "promote", "update", "dream", "search", "show",
-			"digest", "index", "path", "catchup", "watch", "timeline", "archive", "alias", "fmt", "report"},
+		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
+			"digest", "index", "path", "catchup", "watch", "timeline", "alias", "fmt", "report"},
 		"gateway":  {"proxy"},
 		"agents":   {"sync", "tree", "reap", "list", "ask", "dispatch", "label", "send", "status", "result", "tail", "cancel"},
 		"workflow": {"skeleton", "lint"},

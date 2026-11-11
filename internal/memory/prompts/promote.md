@@ -145,9 +145,8 @@ breadcrumb, unless the entry is now fully redundant with the skill (then flag it
 After the target write lands and `claude-code memory promote` runs (or the by-hand move for an
 entry under cap):
 
-1. Archive the topic file (`claude-code memory archive <topic> --apply`; `--restore` undoes it;
-   memory git keeps history) — or, if the fact shared a file with still-relevant content, edit out
-   only the promoted portion.
+1. Delete the topic file (memory git keeps its history) — or, if the fact shared a file with
+   still-relevant content, edit out only the promoted portion.
 2. Remove its index line from that project's `MEMORY.md`.
 3. Confirm the index no longer references a deleted file (no dangling links).
 4. Run `claude-code memory index`.
