@@ -152,6 +152,16 @@ func Limits(id string) (TokenLimits, bool) {
 // wirePrefixes carry no model identity on any wire spelling.
 var wirePrefixes = [...]string{"databricks-", "system.ai.", "system.ai-"}
 
+// stripWirePrefix cuts the first wire prefix s carries; ok is false (rest == s) when it has none.
+func stripWirePrefix(s string) (rest string, ok bool) {
+	for _, p := range wirePrefixes {
+		if rest, ok := strings.CutPrefix(s, p); ok {
+			return rest, true
+		}
+	}
+	return s, false
+}
+
 // Resolve maps an alias, short Claude form, canonical id or any wire spelling to the canonical id; oneM is true
 // when the input carried the client-only [1m] marker.
 func Resolve(s string) (canonical string, oneM bool, ok bool) {
@@ -181,12 +191,8 @@ func (c *catalog) lookup(s string) string {
 			return id
 		}
 	}
-	for _, p := range wirePrefixes {
-		if rest, ok := strings.CutPrefix(s, p); ok {
-			if id, ok := c.byWire[rest]; ok {
-				return id
-			}
-		}
+	if rest, ok := stripWirePrefix(s); ok {
+		return c.byWire[rest]
 	}
 	return ""
 }

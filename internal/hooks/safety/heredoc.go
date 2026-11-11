@@ -11,15 +11,25 @@ import (
 
 // dropRemoteHeredocs removes quoted-delimiter heredoc bodies fed to ssh: they run remotely, unexpanded locally.
 func dropRemoteHeredocs(cmd string) string {
+	return dropHeredocBodies(cmd, false, func(lines []string, i int) int {
+		m := heredocOp().FindStringSubmatch(lines[i])
+		if m == nil || m[4] != "" || !sshHoldsHeredoc(lines[i]) { // m[4]: bare delimiter, expanded locally
+			return -1
+		}
+		return heredocEnd(lines, i+1, m[2]+m[3]+m[4], m[1] == "-")
+	})
+}
+
+// dropHeredocBodies drops each body whose closing line bodyEnd returns (-1 keeps it); guarded keeps all when a file runs.
+func dropHeredocBodies(cmd string, guarded bool, bodyEnd func(lines []string, i int) int) string {
 	lines := strings.Split(cmd, "\n")
+	if guarded && (runsWrittenFile().MatchString(lines[0]) || heredocTail(lines)) {
+		return cmd
+	}
 	var out []string
 	for i := 0; i < len(lines); i++ {
 		out = append(out, lines[i])
-		m := heredocOp().FindStringSubmatch(lines[i])
-		if m == nil || m[4] != "" || !sshHoldsHeredoc(lines[i]) { // m[4]: bare delimiter, expanded locally
-			continue
-		}
-		if end := heredocEnd(lines, i+1, m[2]+m[3]+m[4], m[1] == "-"); end >= 0 {
+		if end := bodyEnd(lines, i); end > i {
 			i = end - 1
 		}
 	}
@@ -129,26 +139,18 @@ func inertScm(toks []string) bool {
 
 // dropInertHeredocs removes file-only heredoc bodies unless the command also runs a file.
 func dropInertHeredocs(cmd string) string {
-	lines := strings.Split(cmd, "\n")
-	if runsWrittenFile().MatchString(lines[0]) || heredocTail(lines) {
-		return cmd
-	}
-	var out []string
-	for i := 0; i < len(lines); i++ {
-		out = append(out, lines[i])
+	return dropHeredocBodies(cmd, true, func(lines []string, i int) int {
 		delim, quoted, dash, ok := inertHeredocStart(lines[i])
 		if !ok {
-			continue
+			return -1
 		}
 		end := heredocEnd(lines, i+1, delim, dash)
 		// An unquoted delimiter expands substitutions in the body, so a body holding one is not inert.
-		body := strings.Join(lines[i+1:max(end, i+1)], "\n")
-		if end < 0 || !quoted && expandsSubstitution(body) {
-			continue
+		if end < 0 || !quoted && expandsSubstitution(strings.Join(lines[i+1:end], "\n")) {
+			return -1
 		}
-		i = end - 1
-	}
-	return strings.Join(out, "\n")
+		return end
+	})
 }
 
 // heredocEnd is the index of the first line from lines[from] that closes the heredoc on delim, or -1.
@@ -215,22 +217,13 @@ var runsWrittenFile = sync.OnceValue(func() *regexp.Regexp {
 // dropDataHeredocs removes quoted-delimiter `cat > f`/`tee f` heredoc bodies so hard rule 4 never asks on text written
 // to a file; a command that also runs a file keeps every body (`cat <<'EOF' > f.sh … EOF && bash f.sh`).
 func dropDataHeredocs(cmd string) string {
-	lines := strings.Split(cmd, "\n")
-	if runsWrittenFile().MatchString(lines[0]) || heredocTail(lines) {
-		return cmd
-	}
-	var out []string
-	for i := 0; i < len(lines); i++ {
-		out = append(out, lines[i])
+	return dropHeredocBodies(cmd, true, func(lines []string, i int) int {
 		delim, ok := dataHeredocStart(lines[i])
 		if !ok {
-			continue
+			return -1
 		}
-		if end := heredocEnd(lines, i+1, delim, false); end > i {
-			i = end - 1
-		}
-	}
-	return strings.Join(out, "\n")
+		return heredocEnd(lines, i+1, delim, false)
+	})
 }
 
 // heredocTail reports any line after a heredoc's close (or any non-start line outside one) that runs a file.

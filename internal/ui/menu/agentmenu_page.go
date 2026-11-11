@@ -262,7 +262,7 @@ func codexKeyRow(d *dialog, loggedIn bool) (key billingRow, ensure func() bool) 
 		if !ensure() {
 			return false
 		}
-		if loggedIn && actionConfirmed("Switch codex from its ChatGPT login to OPENAI_API_KEY (`codex login --with-api-key`)") {
+		if loggedIn && ConfirmTerminal("Switch codex from its ChatGPT login to OPENAI_API_KEY (`codex login --with-api-key`)", false) {
 			return codexUseKey(d)
 		}
 		return true
@@ -287,7 +287,7 @@ func codexModels(d *dialog, profile string) bool {
 		d.printf("+ %s  responses=%v\n", c.Model.ID, c.Model.Responses)
 	}
 	menuNow, applied := pl.Menu, false
-	if len(pl.Changes) > 0 && actionConfirmed(fmt.Sprintf("Add %d model(s) to the menu shared with opencode and copilot", len(pl.Changes))) {
+	if len(pl.Changes) > 0 && ConfirmTerminal(fmt.Sprintf("Add %d model(s) to the menu shared with opencode and copilot", len(pl.Changes)), false) {
 		if !sealCodexMenu(d, pl) {
 			return false
 		}

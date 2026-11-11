@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // databricksResponses: the session/pinned profile is a signed-in Databricks row with a Responses route + catalog model.
@@ -66,7 +65,7 @@ func (t *RouteTable) gateDatabricksCodex(
 	c := Cell{Model: model, Effort: effort, Account: ProviderAccount(profile)}
 	name := "codex·" + c.Account
 	if err := configured("codex", c); err != nil {
-		res.Skipped = append(res.Skipped, Skip{name, GateAvailable, "not configured: " + textutil.FirstLine(strings.TrimSpace(err.Error()))})
+		skipNotConfigured(res, name, err)
 		return Candidate{}, false
 	}
 	if reason, marked := st.accountAuthMarked(c.Account, now); marked {
@@ -78,11 +77,7 @@ func (t *RouteTable) gateDatabricksCodex(
 		res.Skipped = append(res.Skipped, Skip{name, GateExhausted, ExhaustedReason(c.Account, e, now)})
 		return Candidate{}, false
 	}
-	billing := BillSubscription
-	if reg.Providers[profile].APIKeyAuth() {
-		billing = BillCredits
-	}
-	return Candidate{Agent: "codex", Cell: c, State: e.Status(now), Billing: billing, Profile: profile}, true
+	return Candidate{Agent: "codex", Cell: c, State: e.Status(now), Billing: DefaultBilling(reg.Providers[profile]), Profile: profile}, true
 }
 
 // gateCandidate gates one agent (off, pinned or unpinned); codex and copilot also offer candidates on the session profile.

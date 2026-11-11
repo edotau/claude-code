@@ -470,7 +470,8 @@ var opencodeSqliteCmd = sqliteJSON
 // copilotSqliteCmd is the Copilot CLI session-store.db exec seam; tests replace it likewise.
 var copilotSqliteCmd = sqliteJSON
 
-type opencodeTotalsRow struct {
+// sqliteTotalsRow is the window totals both stores return; copilot has no cost_usd column, so its cost stays 0.
+type sqliteTotalsRow struct {
 	Turns      int     `json:"turns"`
 	Tokens     int     `json:"tokens"`
 	CostUSD    float64 `json:"cost_usd"`
@@ -501,30 +502,39 @@ func opencodeUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	}
 
 	totalsQ, modelsQ, dailyQ := opencodeQueries(cutoff.UnixMilli())
+	return sqliteAgentUsage(ctx, "opencode", dbPath, opencodeSqliteCmd, totalsQ, modelsQ, dailyQ, func(r opencodeModelRow) agentModel {
+		return agentModel{Provider: r.Provider, Model: r.Model, Turns: r.Turns, Tokens: r.Tokens, CostUSD: r.CostUSD}
+	})
+}
 
-	totals, note := sqliteRows[opencodeTotalsRow](ctx, opencodeSqliteCmd, dbPath, totalsQ, true)
+// sqliteAgentUsage is the shared sqlite reader: totals, per-model rows (toModel maps each), then daily buckets.
+func sqliteAgentUsage[R any](
+	ctx context.Context, agent, dbPath string, run func(context.Context, string, string) ([]byte, error),
+	totalsQ, modelsQ, dailyQ string, toModel func(R) agentModel,
+) agentUsage {
+	totals, note := sqliteRows[sqliteTotalsRow](ctx, run, dbPath, totalsQ, true)
 	if note != "" {
-		return agentUsage{Agent: "opencode", Note: note}
+		return agentUsage{Agent: agent, Note: note}
 	}
 	if len(totals) == 0 || totals[0].Turns == 0 {
-		return agentUsage{Agent: "opencode", Note: "no sessions in window"}
+		return agentUsage{Agent: agent, Note: "no sessions in window"}
 	}
 
-	rows, note := sqliteRows[opencodeModelRow](ctx, opencodeSqliteCmd, dbPath, modelsQ, false)
+	rows, note := sqliteRows[R](ctx, run, dbPath, modelsQ, false)
 	if note != "" {
-		return agentUsage{Agent: "opencode", Note: note}
+		return agentUsage{Agent: agent, Note: note}
 	}
 	models := make([]agentModel, 0, len(rows))
 	for _, r := range rows {
-		models = append(models, agentModel{Provider: r.Provider, Model: r.Model, Turns: r.Turns, Tokens: r.Tokens, CostUSD: r.CostUSD})
+		models = append(models, toModel(r))
 	}
 	sortModelsByTokens(models)
 
-	daily, note := fetchDailyBuckets(ctx, dbPath, dailyQ, opencodeSqliteCmd)
+	daily, note := fetchDailyBuckets(ctx, dbPath, dailyQ, run)
 
 	t := totals[0]
 	mix := tokenMix{Input: t.Input, Output: t.Output, CacheRead: t.CacheRead, CacheWrite: t.CacheWrite}
-	return agentUsage{Agent: "opencode", Sessions: t.Session, Turns: t.Turns, Tokens: t.Tokens, CostUSD: t.CostUSD, Models: models,
+	return agentUsage{Agent: agent, Sessions: t.Session, Turns: t.Turns, Tokens: t.Tokens, CostUSD: t.CostUSD, Models: models,
 		Mix: mixPtr(mix), Daily: daily, ActiveDays: len(daily), Note: note}
 }
 
@@ -569,15 +579,6 @@ func copilotDBPath() (string, error) {
 	return filepath.Join(base, "session-store.db"), nil
 }
 
-type copilotTotalsRow struct {
-	Turns      int `json:"turns"`
-	Tokens     int `json:"tokens"`
-	Session    int `json:"sessions"`
-	Input      int `json:"input"`
-	Output     int `json:"output"`
-	CacheRead  int `json:"cache_read"`
-	CacheWrite int `json:"cache_write"`
-}
 type copilotModelRow struct {
 	Model  string `json:"model"`
 	Turns  int    `json:"turns"`
@@ -622,31 +623,10 @@ func copilotUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	dailyQ := fmt.Sprintf(`SELECT date(created_at,'localtime') AS date, %s AS tokens, COUNT(*) AS turns
 		FROM assistant_usage_events WHERE %s GROUP BY date;`, copilotTokenSum, where)
 
-	totals, note := sqliteRows[copilotTotalsRow](ctx, copilotSqliteCmd, dbPath, totalsQ, true)
-	if note != "" {
-		return agentUsage{Agent: "copilot", Note: note}
-	}
-	if len(totals) == 0 || totals[0].Turns == 0 {
-		return agentUsage{Agent: "copilot", Note: "no sessions in window"}
-	}
-
-	rows, note := sqliteRows[copilotModelRow](ctx, copilotSqliteCmd, dbPath, modelsQ, false)
-	if note != "" {
-		return agentUsage{Agent: "copilot", Note: note}
-	}
-	byModel := make([]agentModel, 0, len(rows))
-	for _, r := range rows {
+	return sqliteAgentUsage(ctx, "copilot", dbPath, copilotSqliteCmd, totalsQ, modelsQ, dailyQ, func(r copilotModelRow) agentModel {
 		prov, profile, _ := strings.Cut(copilotProvider(r), "·")
-		byModel = append(byModel, agentModel{Provider: prov, Profile: profile, Model: r.Model, Turns: r.Turns, Tokens: r.Tokens})
-	}
-	sortModelsByTokens(byModel)
-
-	daily, note := fetchDailyBuckets(ctx, dbPath, dailyQ, copilotSqliteCmd)
-
-	t := totals[0]
-	mix := tokenMix{Input: t.Input, Output: t.Output, CacheRead: t.CacheRead, CacheWrite: t.CacheWrite}
-	return agentUsage{Agent: "copilot", Sessions: t.Session, Turns: t.Turns, Tokens: t.Tokens, Models: byModel,
-		Mix: mixPtr(mix), Daily: daily, ActiveDays: len(daily), Note: note}
+		return agentModel{Provider: prov, Profile: profile, Model: r.Model, Turns: r.Turns, Tokens: r.Tokens}
+	})
 }
 
 // printAgentsSection renders one total row per agent plus an indented row per model it used.
