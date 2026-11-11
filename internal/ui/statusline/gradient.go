@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
@@ -164,7 +165,7 @@ func (b *cellBuf) pushContextBlock(v values, sepMajor string) bool {
 	b.push(bar[len(filled):], "empty")
 	b.push(fmt.Sprintf(" %d%%", int(math.Round(d.ctxPct))), "g")
 	b.pushBreakable(twoSep, "g")
-	b.push(compactTokens(d.tokens)+"/"+compactTokens(d.size), "g")
+	b.push(textutil.CompactCount(int64(d.tokens))+"/"+textutil.CompactCount(int64(d.size)), "g")
 	if v.limits != "" {
 		b.pushBreakable(" ", "g")
 		b.push(v.limits, "g") // 7d:N% on a subscription

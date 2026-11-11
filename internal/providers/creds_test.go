@@ -60,50 +60,40 @@ func putAccess(t *testing.T, p *Provider, tok string) {
 	putOAuth(t, p, ov)
 }
 
-func TestU2MSealedAccessHitMakesNoNetworkCall(t *testing.T) {
-	p, hits, _ := u2mMint(t, "ac-hit")
-	cached := jwtExpIn(time.Hour, "https://x")
-	putAccess(t, p, cached)
-	cmdCache.Delete(p.Name)
-	got, err := Credential(context.Background(), p)
-	if err != nil || got != cached {
-		t.Fatalf("Credential = %q, %v; want the sealed token", got, err)
+func TestU2MSealedAccess(t *testing.T) {
+	cases := []struct {
+		name   string
+		age    time.Duration
+		iss    string
+		force  bool
+		reMint bool
+	}{
+		{"fresh hit makes no network call", time.Hour, "https://x", false, false},
+		{"expired re-mints and re-seals", -time.Hour, "https://x", false, true},
+		{"near-expiry re-mints and re-seals", expiryMargin / 2, "https://x", false, true},
+		{"force bypasses a fresh sealed access", time.Hour, "https://old", true, true},
 	}
-	if hits.Load() != 0 {
-		t.Errorf("token server hit %d times, want 0", hits.Load())
-	}
-}
-
-func TestU2MExpiredOrNearExpiryCacheReMintsAndReSeals(t *testing.T) {
-	for name, d := range map[string]time.Duration{"expired": -time.Hour, "near-expiry": expiryMargin / 2} {
-		t.Run(name, func(t *testing.T) {
-			p, hits, minted := u2mMint(t, "ac-stale-"+name)
-			putAccess(t, p, jwtExpIn(d, "https://x"))
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p, hits, minted := u2mMint(t, "ac-"+strings.ReplaceAll(c.name, " ", "-"))
+			sealed := jwtExpIn(c.age, c.iss)
+			putAccess(t, p, sealed)
 			cmdCache.Delete(p.Name)
-			got, err := Credential(context.Background(), p)
-			if err != nil || got != minted {
-				t.Fatalf("Credential = %q, %v; want the re-minted token", got, err)
+			call, want, wantHits := Credential, sealed, int32(0)
+			if c.force {
+				call = Refresh
 			}
-			if hits.Load() != 1 {
-				t.Errorf("token server hit %d times, want 1", hits.Load())
+			if c.reMint {
+				want, wantHits = minted, 1
 			}
-			if v := sealedAccessValue(p); v != minted {
-				t.Errorf("sealed access = %q, want the re-minted token", v)
+			got, err := call(context.Background(), p)
+			if err != nil || got != want || hits.Load() != wantHits {
+				t.Fatalf("got %q, %v, hits=%d; want %q and %d hits", got, err, hits.Load(), want, wantHits)
+			}
+			if v := sealedAccessValue(p); v != want {
+				t.Errorf("sealed access = %q, want %q", v, want)
 			}
 		})
-	}
-}
-
-func TestU2MForceBypassesSealedAccess(t *testing.T) {
-	p, hits, minted := u2mMint(t, "ac-force")
-	putAccess(t, p, jwtExpIn(time.Hour, "https://old"))
-	cmdCache.Delete(p.Name)
-	got, err := Refresh(context.Background(), p)
-	if err != nil || got != minted || hits.Load() != 1 {
-		t.Fatalf("Refresh = %q, %v, hits=%d; want minted token and 1 hit", got, err, hits.Load())
-	}
-	if v := sealedAccessValue(p); v != minted {
-		t.Errorf("sealed access = %q, want the forced mint re-sealed", v)
 	}
 }
 
@@ -112,9 +102,7 @@ func TestOAuthM2MNeverWritesAccessToken(t *testing.T) {
 		return 200, map[string]any{"access_token": jwtExpIn(time.Hour, "https://x"), "expires_in": 3600}
 	})
 	p := mintRow(t, "ac-m2m", AuthM2M, "sp-client", srv.URL)
-	if err := vault.Store(AuthSecretName(p), "sp-secret"); err != nil {
-		t.Fatal(err)
-	}
+	sealFor(t, p, "sp-secret")
 	if _, err := Credential(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
@@ -177,9 +165,7 @@ func newM2MRig(t *testing.T) *m2mRig {
 		return 200, map[string]any{"access_token": "m2m-minted", "expires_in": 3600}
 	})
 	rig.p = mintRow(t, "kind-m2m-ok", AuthM2M, "sp-client", srv.URL)
-	if err := vault.Store(AuthSecretName(rig.p), "sp-secret-xyz"); err != nil {
-		t.Fatal(err)
-	}
+	sealFor(t, rig.p, "sp-secret-xyz")
 	return rig
 }
 
@@ -217,9 +203,7 @@ func TestAuthOAuthM2MRejectedHidesSecret(t *testing.T) {
 		return 401, map[string]any{"error": "invalid_client", "error_description": "Client authentication failed"}
 	})
 	p := mintRow(t, "kind-m2m-bad", AuthM2M, "sp-client", srv.URL)
-	if err := vault.Store(AuthSecretName(p), "sp-secret-xyz"); err != nil {
-		t.Fatal(err)
-	}
+	sealFor(t, p, "sp-secret-xyz")
 	_, err := Credential(context.Background(), p)
 	if err == nil || !strings.Contains(err.Error(), "invalid_client") || strings.Contains(err.Error(), "sp-secret-xyz") {
 		t.Fatalf("err = %v", err)
@@ -589,43 +573,30 @@ func lockVault(t *testing.T, name, value string) {
 func TestCredentialLockedVaultFallsThrough(t *testing.T) {
 	lockVault(t, "LOCKED_KEY", "sealed-value")
 	t.Setenv("LOCKED_KEY", "")
-	t.Run("auth.file", lockedVaultAuthFile)
-	t.Run("auth.command", lockedVaultAuthCommand)
-	t.Run("nothing else", lockedVaultNothingElse)
-	t.Run("env over locked vault", lockedVaultEnvWins)
-}
-
-func lockedVaultAuthFile(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "tok")
 	if err := os.WriteFile(file, []byte("  from-file\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	p := &Provider{Name: "lk", Auth: Auth{Type: AuthKey, Env: "LOCKED_KEY", File: file}}
-	if v, err := Credential(context.Background(), p); err != nil || v != "from-file" {
-		t.Errorf("Credential (locked vault, auth.file) = %q, %v; want from-file", v, err)
+	cases := []struct {
+		name, env, want, errHas string
+		a                       Auth
+	}{
+		{"auth.file", "", "from-file", "", Auth{File: file}},
+		{"auth.command", "", "minted-locked", "", Auth{Command: "echo minted-locked"}},
+		{"nothing else", "", "", ": no credential (vault:", Auth{}},
+		{"env over locked vault", "from-env", "from-env", "", Auth{}},
 	}
-}
-
-func lockedVaultAuthCommand(t *testing.T) {
-	p := &Provider{Name: "lk-cmd", Auth: Auth{Type: AuthKey, Env: "LOCKED_KEY", Command: "echo minted-locked"}}
-	if v, err := Credential(context.Background(), p); err != nil || v != "minted-locked" {
-		t.Errorf("Credential (locked vault, auth.command) = %q, %v; want minted-locked", v, err)
-	}
-}
-
-func lockedVaultNothingElse(t *testing.T) {
-	p := &Provider{Name: "lk-none", Auth: Auth{Type: AuthKey, Env: "LOCKED_KEY"}}
-	v, err := Credential(context.Background(), p)
-	if err == nil || v != "" || !strings.Contains(err.Error(), "lk-none: no credential (vault:") {
-		t.Errorf("Credential (locked vault, nothing else) = %q, %v; want a \"no credential (vault: …)\" error", v, err)
-	}
-}
-
-func lockedVaultEnvWins(t *testing.T) {
-	p := &Provider{Name: "lk-none", Auth: Auth{Type: AuthKey, Env: "LOCKED_KEY"}}
-	t.Setenv("LOCKED_KEY", "from-env")
-	if v, err := Credential(context.Background(), p); err != nil || v != "from-env" {
-		t.Errorf("Credential (env over a locked vault) = %q, %v; want from-env", v, err)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			c.a.Type, c.a.Env = AuthKey, "LOCKED_KEY"
+			if c.env != "" {
+				t.Setenv("LOCKED_KEY", c.env)
+			}
+			v, err := Credential(context.Background(), &Provider{Name: "lk-" + c.name, Auth: c.a})
+			if v != c.want || (err == nil) != (c.errHas == "") || err != nil && !strings.Contains(err.Error(), c.errHas) {
+				t.Errorf("Credential = %q, %v; want %q, err containing %q", v, err, c.want, c.errHas)
+			}
+		})
 	}
 }
 
@@ -646,44 +617,36 @@ func TestCredentialPresentWithoutDecrypting(t *testing.T) {
 	lockVault(t, "PRESENT_KEY", "sealed-value")
 	t.Setenv("PRESENT_KEY", "")
 	t.Setenv("ABSENT_KEY", "")
-
-	if !CredentialPresent(&Provider{Auth: Auth{Type: AuthKey, Env: "PRESENT_KEY"}}) {
-		t.Error("CredentialPresent must report a sealed vault record without opening it")
+	write := func(body string) string {
+		f := filepath.Join(t.TempDir(), "tok")
+		if err := os.WriteFile(f, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return f
 	}
-	file := filepath.Join(t.TempDir(), "tok")
-	if err := os.WriteFile(file, []byte("tok\n"), 0o600); err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		name string
+		a    Auth
+		want bool
+	}{
+		{"sealed vault record, not opened", Auth{Type: AuthKey, Env: "PRESENT_KEY"}, true},
+		{"auth.file", Auth{Type: AuthKey, Env: "ABSENT_KEY", File: write("tok\n")}, true},
+		{"blank auth.file", Auth{Type: AuthKey, Env: "ABSENT_KEY", File: write("  \n")}, false},
+		{"auth.command, not run", Auth{Type: AuthKey, Env: "ABSENT_KEY", Command: "exit 1"}, true},
+		{"nothing configured", Auth{Type: AuthKey, Env: "ABSENT_KEY"}, false},
+		{"none", Auth{Type: AuthNone}, true},
+		{"cli", Auth{Type: AuthCLI}, true},
 	}
-	if !CredentialPresent(&Provider{Auth: Auth{Type: AuthKey, Env: "ABSENT_KEY", File: file}}) {
-		t.Error("CredentialPresent must keep auth.file as a source")
-	}
-	blank := filepath.Join(t.TempDir(), "blank")
-	if err := os.WriteFile(blank, []byte("  \n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if CredentialPresent(&Provider{Auth: Auth{Type: AuthKey, Env: "ABSENT_KEY", File: blank}}) {
-		t.Error("CredentialPresent must not count a blank auth.file")
-	}
-	if !CredentialPresent(&Provider{Auth: Auth{Type: AuthKey, Env: "ABSENT_KEY", Command: "exit 1"}}) {
-		t.Error("CredentialPresent must keep auth.command as a source (without running it)")
-	}
-	if CredentialPresent(&Provider{Auth: Auth{Type: AuthKey, Env: "ABSENT_KEY"}}) {
-		t.Error("CredentialPresent with nothing configured must be false")
-	}
-	checkCredentialFreeTypesPresent(t)
-}
-
-func checkCredentialFreeTypesPresent(t *testing.T) {
-	t.Helper()
-	for _, typ := range []string{AuthNone, AuthCLI} {
-		if !CredentialPresent(&Provider{Auth: Auth{Type: typ}}) {
-			t.Errorf("CredentialPresent(%s) must be true", typ)
+	for _, c := range cases {
+		if got := CredentialPresent(&Provider{Auth: c.a}); got != c.want {
+			t.Errorf("%s: CredentialPresent = %v, want %v", c.name, got, c.want)
 		}
 	}
 }
 
 // TestRunAuthCommandFailures: malformed output is refused, failures are classified, stderr secrets are masked.
 func TestRunAuthCommandFailures(t *testing.T) {
+	t.Parallel()
 	p := &Provider{Name: "row"}
 	cases := []struct{ cmd, want, absent string }{
 		{`echo null`, "printed nothing", ""},
@@ -707,12 +670,11 @@ func TestRunAuthCommandFailures(t *testing.T) {
 }
 
 func TestRunAuthCommandTimeoutNotHeldByOrphanedPipe(t *testing.T) {
-	p := &Provider{Name: "orphan-pipe"}
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	_, err := runAuthCommand(ctx, p, `sleep 25 | cat`)
-	if err == nil {
+	if _, err := runAuthCommand(ctx, &Provider{Name: "orphan-pipe"}, `sleep 25 | cat`); err == nil {
 		t.Fatal("expected a timeout error")
 	}
 	if d := time.Since(start); d > 12*time.Second {
@@ -722,6 +684,7 @@ func TestRunAuthCommandTimeoutNotHeldByOrphanedPipe(t *testing.T) {
 
 // io.Copy into a capBuffer keeps at most max bytes, however much the helper writes.
 func TestCapBufferBoundsIOCopy(t *testing.T) {
+	t.Parallel()
 	c := &capBuffer{max: 1024}
 	n, err := io.Copy(c, io.LimitReader(zeroReader{}, 1<<20))
 	if err != nil || n != 1<<20 || len(c.Bytes()) != 1024 {
@@ -786,39 +749,33 @@ func herd(p *Provider, n int) ([]string, []error) {
 	return vals, errs
 }
 
-func TestCommandCredentialSingleFlightValue(t *testing.T) {
-	cmd, counter := countingCmd(t, "sf", "0.2", "echo shared-token")
-	p := freshProvider(t, &Provider{Name: "sf-value", Auth: Auth{Type: AuthKey, Command: cmd}})
-	vals, errs := herd(p, 20)
-	for i := range vals {
-		if errs[i] != nil || vals[i] != "shared-token" {
-			t.Fatalf("caller %d: %q, %v", i, vals[i], errs[i])
-		}
+func TestCommandCredentialSingleFlight(t *testing.T) {
+	cases := []struct{ name, tail, want, errHas string }{
+		{"value", "echo shared-token", "shared-token", ""},
+		{"shares error", "exit 3", "", "auth command failed"},
 	}
-	if c := runCount(t, counter); c != 1 {
-		t.Fatalf("auth command ran %d times, want 1", c)
-	}
-}
-
-func TestCommandCredentialSingleFlightSharesError(t *testing.T) {
-	cmd, counter := countingCmd(t, "sfe", "0.2", "exit 3")
-	p := freshProvider(t, &Provider{Name: "sf-err", Auth: Auth{Type: AuthKey, Command: cmd}})
-	_, errs := herd(p, 20)
-	for i, err := range errs {
-		if err == nil || !strings.Contains(err.Error(), "auth command failed") {
-			t.Fatalf("caller %d: want shared auth failure, got %v", i, err)
-		}
-	}
-	if c := runCount(t, counter); c != 1 {
-		t.Fatalf("failing command ran %d times, want 1", c)
-	}
-	if _, ok := cmdCache.Load(p.Name); ok {
-		t.Fatal("a failed mint must not be cached")
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cmd, counter := countingCmd(t, "sf", "0.2", c.tail)
+			p := freshProvider(t, &Provider{Name: "sf-" + c.name, Auth: Auth{Type: AuthKey, Command: cmd}})
+			vals, errs := herd(p, 20)
+			for i := range vals {
+				if vals[i] != c.want || (errs[i] == nil) != (c.errHas == "") || errs[i] != nil && !strings.Contains(errs[i].Error(), c.errHas) {
+					t.Fatalf("caller %d: %q, %v; want %q, err containing %q", i, vals[i], errs[i], c.want, c.errHas)
+				}
+			}
+			if n := runCount(t, counter); n != 1 {
+				t.Fatalf("auth command ran %d times, want 1", n)
+			}
+			if _, ok := cmdCache.Load(p.Name); ok && c.errHas != "" {
+				t.Fatal("a failed mint must not be cached")
+			}
+		})
 	}
 }
 
 func TestRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
-	cmd, counter := countingCmd(t, "rf", "1", "echo stale-token")
+	cmd, counter := countingCmd(t, "rf", "0.5", "echo stale-token")
 	forced := counter + ".forced"
 	refresh := fmt.Sprintf("echo forced >> %q; echo fresh-token", forced)
 	p := freshProvider(t, &Provider{Name: "sf-refresh",

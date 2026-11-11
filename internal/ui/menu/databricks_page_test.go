@@ -122,15 +122,16 @@ func installDbxFake(t *testing.T, f *dbxFake) {
 	dbxSchedule = func(after time.Duration, _ string) error { f.sched = append(f.sched, after); return nil }
 }
 
-func dbxEnv(t *testing.T) *dialog {
+func dbxEnv(t *testing.T) *dialog { return dbxDialog(t, dbxDoc) }
+
+// dbxDialog is a hermetic dialog over the providers overlay doc.
+func dbxDialog(t *testing.T, doc string) *dialog {
 	t.Helper()
 	vaulttest.UseKeyring(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, k := range []string{providers.EnvSessionProfile} {
-		t.Setenv(k, "")
-	}
-	vaulttest.Put(t, vault.Overlay, "providers", dbxDoc)
+	t.Setenv(providers.EnvSessionProfile, "")
+	vaulttest.Put(t, vault.Overlay, "providers", doc)
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -280,54 +281,42 @@ func TestDbxMintErrorNoTokenInOutput(t *testing.T) {
 	}
 }
 
-func TestDbxCopyReportsClear(t *testing.T) {
-	d := dbxEnv(t)
-	f := &dbxFake{}
-	installDbxFake(t, f)
-	f.picks = []int{4, -1}
-	runDatabricksEnv(d, "qa")
-	out := dbxOut(d)
-	if !strings.Contains(out, "qa · copied · clears in 30s") {
-		t.Errorf("missing clear note:\n%s", out)
-	}
-	if len(f.copied) != 1 || f.copied[0] != dbxTok {
-		t.Errorf("clipboard got %v", f.copied)
-	}
-	if len(f.sched) != 1 || f.sched[0] != 30*time.Second {
-		t.Errorf("scheduled %v", f.sched)
-	}
-	if strings.Contains(out, dbxTok) {
-		t.Errorf("token leaked:\n%s", out)
-	}
-}
-
-func TestDbxCopyNoClipboardNotesRouter(t *testing.T) {
-	d := dbxEnv(t)
-	f := &dbxFake{copyErr: fmt.Errorf("wrapped: %w", clipboard.ErrNoClipboard)}
-	installDbxFake(t, f)
-	f.picks = []int{4, -1}
-	runDatabricksEnv(d, "qa")
-	out := dbxOut(d)
-	if !strings.Contains(out, "qa: no clipboard here; the agents fetch via the proxy") {
-		t.Errorf("missing router note:\n%s", out)
-	}
-	if len(f.sched) != 0 {
-		t.Errorf("clear scheduled without a copy: %v", f.sched)
-	}
-	if strings.Contains(out, "clears in") || strings.Contains(out, dbxTok) {
-		t.Errorf("bad output:\n%s", out)
-	}
-}
-
-func TestDbxCopyOtherErrorNoSchedule(t *testing.T) {
-	d := dbxEnv(t)
-	f := &dbxFake{copyErr: errors.New("pipe broke")}
-	installDbxFake(t, f)
-	f.picks = []int{4, -1}
-	runDatabricksEnv(d, "qa")
-	out := dbxOut(d)
-	if !strings.Contains(out, "qa: copy: pipe broke") || len(f.sched) != 0 || strings.Contains(out, "via the router") {
-		t.Errorf("out=%q sched=%v", out, f.sched)
+func TestDbxCopyOutcomes(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		copyErr   error
+		want      string
+		notWant   []string
+		wantSched bool
+	}{
+		{"reports clear", nil, "qa · copied · clears in 30s", nil, true},
+		{"no clipboard notes router", fmt.Errorf("wrapped: %w", clipboard.ErrNoClipboard),
+			"qa: no clipboard here; the agents fetch via the proxy", []string{"clears in"}, false},
+		{"other error no schedule", errors.New("pipe broke"), "qa: copy: pipe broke", []string{"via the router"}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d := dbxEnv(t)
+			f := &dbxFake{copyErr: c.copyErr}
+			installDbxFake(t, f)
+			f.picks = []int{4, -1}
+			runDatabricksEnv(d, "qa")
+			out := dbxOut(d)
+			if !strings.Contains(out, c.want) || strings.Contains(out, dbxTok) {
+				t.Errorf("missing %q or token leaked:\n%s", c.want, out)
+			}
+			for _, nw := range c.notWant {
+				if strings.Contains(out, nw) {
+					t.Errorf("output has %q:\n%s", nw, out)
+				}
+			}
+			if c.wantSched {
+				if len(f.copied) != 1 || f.copied[0] != dbxTok || len(f.sched) != 1 || f.sched[0] != 30*time.Second {
+					t.Errorf("copied=%v sched=%v", f.copied, f.sched)
+				}
+			} else if len(f.sched) != 0 {
+				t.Errorf("clear scheduled without a copy: %v", f.sched)
+			}
+		})
 	}
 }
 
@@ -378,11 +367,8 @@ func TestDbxApplyAllSetsAgentProfilePins(t *testing.T) {
 	if !d.changed || !strings.Contains(dbxOut(d), "qa") {
 		t.Errorf("changed=%v out=%q", d.changed, dbxOut(d))
 	}
-	if f.rows[1][0][0] != "All agents" || len(f.rows[1]) != len(dbxAgents)+1 {
-		t.Errorf("apply rows = %v", f.rows[1])
-	}
-	if f.titles[1] != "apply qa to" {
-		t.Errorf("apply title = %q", f.titles[1])
+	if f.rows[1][0][0] != "All agents" || len(f.rows[1]) != len(dbxAgents)+1 || f.titles[1] != "apply qa to" {
+		t.Errorf("apply rows = %v title = %q", f.rows[1], f.titles[1])
 	}
 }
 
@@ -407,7 +393,7 @@ func TestDbxApplyAlreadyAppliedAndCancel(t *testing.T) {
 	d := dbxEnv(t)
 	f := &dbxFake{}
 	installDbxFake(t, f)
-	f.picks = []int{5, 2, 5, 2, 5, -1, -1} // codex twice: second is a no-op diff; then cancel the picker
+	f.picks = []int{5, 2, 5, 2, 5, -1, -1} // codex twice: second is a no-op; then cancel the picker
 	runDatabricksEnv(d, "qa")
 	if !strings.Contains(dbxOut(d), "qa: already applied") {
 		t.Errorf("missing already applied:\n%s", dbxOut(d))
@@ -473,21 +459,10 @@ func TestDbxLoginFailureReported(t *testing.T) {
 // dbxSetUpEnv is a hermetic dialog over three declared Databricks profiles (dev, qa, prod) in the current overlay shape.
 func dbxSetUpEnv(t *testing.T) *dialog {
 	t.Helper()
-	vaulttest.UseKeyring(t)
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, k := range []string{providers.EnvSessionProfile} {
-		t.Setenv(k, "")
-	}
 	row := func(n string) string {
 		return `"` + n + `":{"preset":"databricks","host":"https://` + n + `.cloud.databricks.com"}`
 	}
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+row("dev")+","+row("qa")+","+row("prod")+`}}}`)
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &dialog{reg: reg, out: &bytes.Buffer{}}
+	return dbxDialog(t, `{"providers":{"databricks":{`+row("dev")+","+row("qa")+","+row("prod")+`}}}`)
 }
 
 // dbxSetUpCase is one TestDbxSetUpOrderAndStops scenario: the failures injected and the calls and output expected.

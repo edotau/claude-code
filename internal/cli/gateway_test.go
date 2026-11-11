@@ -180,15 +180,8 @@ func TestPrintProxyStateReportsWriteError(t *testing.T) {
 // TestProxyStatusJSONReportsWriteError: a failed JSON write prints a message instead of a silent exit 1.
 func TestProxyStatusJSONReportsWriteError(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	full := closedFile(t)
-	r, w, _ := os.Pipe()
-	origOut, origErr := os.Stdout, os.Stderr
-	os.Stdout, os.Stderr = full, w
-	t.Cleanup(func() { os.Stdout, os.Stderr = origOut, origErr })
-	code := proxyStatus(context.Background(), "json")
-	w.Close()
-	msg, _ := io.ReadAll(r)
-	if code != 1 || !strings.Contains(string(msg), "gateway proxy:") {
+	code, msg := gwtStdoutFailing(t, func() int { return proxyStatus(context.Background(), "json") })
+	if code != 1 || !strings.Contains(msg, "gateway proxy:") {
 		t.Fatalf("want exit 1 with a 'gateway proxy:' message, got %d %q", code, msg)
 	}
 }
@@ -205,15 +198,8 @@ func TestGatewayHelpListsProxyRestart(t *testing.T) {
 // TestProxyStartReportsWriteError: a failed stdout write of the base URL is an exit 1, not a silent 0.
 func TestProxyStartReportsWriteError(t *testing.T) {
 	tokenDaemon(t, func(http.ResponseWriter, gateway.SessionRequest) {})
-	full := closedFile(t)
-	r, w, _ := os.Pipe()
-	origOut, origErr := os.Stdout, os.Stderr
-	os.Stdout, os.Stderr = full, w
-	t.Cleanup(func() { os.Stdout, os.Stderr = origOut, origErr })
-	code := proxyStart(context.Background())
-	w.Close()
-	msg, _ := io.ReadAll(r)
-	if code != 1 || !strings.Contains(string(msg), "gateway proxy:") {
+	code, msg := gwtStdoutFailing(t, func() int { return proxyStart(context.Background()) })
+	if code != 1 || !strings.Contains(msg, "gateway proxy:") {
 		t.Fatalf("want exit 1 with a 'gateway proxy:' message, got %d %q", code, msg)
 	}
 }
@@ -394,8 +380,7 @@ func TestRouteEndsNamesResolvedClaudeAccount(t *testing.T) {
 	}
 }
 
-// TestRouterStartHelpDoesNotStart: `gateway proxy -h` printed nothing and spawned the daemon (seen 2026-10-23 when
-// an opencode audit dispatch asked for help). The flag must print usage and leave the router alone.
+// TestRouterStartHelpDoesNotStart: `gateway proxy -h` once spawned the daemon (2026-10-23); it must print usage only.
 func TestRouterStartHelpDoesNotStart(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, args := range [][]string{{"proxy", "-h"}, {"proxy", "--help"}, {"-h"}} {
@@ -420,19 +405,11 @@ func TestRouterStrayArgumentIsAUsageError(t *testing.T) {
 
 func TestGatewayRouteRejectsStrayArgument(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, tc := range []struct {
-		name string
-		args []string
-	}{
-		{"bare", []string{"--model", "sonnet", "typo"}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdGateway(tc.args) })
-			if code != 1 || stdout != "" || !strings.Contains(stderr, `unexpected argument "typo"`) {
-				t.Fatalf("want exit 1, no route output and stray-argument error; got exit %d stdout %q stderr %q",
-					code, stdout, stderr)
-			}
-		})
+	code, stdout, stderr := hosttest.CaptureOutput(t,
+		func() int { return cmdGateway([]string{"--model", "sonnet", "typo"}) })
+	if code != 1 || stdout != "" || !strings.Contains(stderr, `unexpected argument "typo"`) {
+		t.Fatalf("want exit 1, no route output and stray-argument error; got exit %d stdout %q stderr %q",
+			code, stdout, stderr)
 	}
 }
 
@@ -558,79 +535,54 @@ func recordUsage(t *testing.T, pct float64, age time.Duration) {
 	}
 }
 
-func usedPctConfig(t *testing.T) { t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) }
-
-func TestCopilotUsedPctFreshEntryNoRefresh(t *testing.T) {
-	usedPctConfig(t)
-	recordUsage(t, 42.5, time.Minute)
-	calls := stubRefresh(t, func(string) bool { return true })
-	if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); !ok || pct != 42.5 || *calls != 0 {
-		t.Errorf("got (%v, %v), refreshes %d; want (42.5, true), 0", pct, ok, *calls)
+func TestCopilotUsedPct(t *testing.T) {
+	stale := router.StaleAfter + time.Minute
+	yes := func(*testing.T, string) bool { return true }
+	no := func(*testing.T, string) bool { return false }
+	cases := []struct {
+		name      string
+		setup     func(t *testing.T)
+		refresh   func(t *testing.T, key string) bool
+		wantPct   float64
+		wantOK    bool
+		wantCalls int // -1: not asserted
+	}{
+		{"fresh_no_refresh", func(t *testing.T) { recordUsage(t, 42.5, time.Minute) }, yes, 42.5, true, 0},
+		{"active_exhausted_is_100", func(t *testing.T) {
+			recordUsage(t, 10, time.Minute)
+			if err := router.MarkExhausted(usedPctKey, time.Now().Add(time.Hour), time.Now(), "402"); err != nil {
+				t.Fatal(err)
+			}
+		}, yes, router.ExhaustedPct, true, 0},
+		{"expired_exhausted_ignored", func(t *testing.T) {
+			now := time.Now()
+			if err := router.MarkExhausted(usedPctKey, now.Add(-time.Hour), now.Add(-2*time.Hour), "402"); err != nil {
+				t.Fatal(err)
+			}
+			recordUsage(t, 7, time.Minute)
+		}, yes, 7, true, -1},
+		{"stale_refreshes_then_reloads", func(t *testing.T) { recordUsage(t, 10, stale) },
+			func(t *testing.T, k string) bool {
+				if k != usedPctKey {
+					t.Errorf("refresh key = %q, want %q", k, usedPctKey)
+				}
+				return router.Record(usedPctKey, 61, "month", time.Now().Add(24*time.Hour), time.Now()) == nil
+			}, 61, true, 1},
+		{"stale_refresh_fails_unverified", func(t *testing.T) { recordUsage(t, 10, stale) }, no, 0, false, -1},
+		{"no_entry_refresh_fails_unverified", func(*testing.T) {}, no, 0, false, 1},
+		{"no_entry_refresh_without_record_unverified", func(*testing.T) {}, yes, 0, false, -1},
 	}
-}
-
-func TestCopilotUsedPctActiveExhaustedCountsAs100(t *testing.T) {
-	usedPctConfig(t)
-	recordUsage(t, 10, time.Minute)
-	if err := router.MarkExhausted(usedPctKey, time.Now().Add(time.Hour), time.Now(), "402"); err != nil {
-		t.Fatal(err)
-	}
-	calls := stubRefresh(t, func(string) bool { return true })
-	if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); !ok || pct != router.ExhaustedPct ||
-		*calls != 0 {
-		t.Errorf("got (%v, %v), refreshes %d; want (100, true), 0", pct, ok, *calls)
-	}
-}
-
-func TestCopilotUsedPctExpiredExhaustedIgnored(t *testing.T) {
-	usedPctConfig(t)
-	now := time.Now()
-	if err := router.MarkExhausted(usedPctKey, now.Add(-time.Hour), now.Add(-2*time.Hour), "402"); err != nil {
-		t.Fatal(err)
-	}
-	recordUsage(t, 7, time.Minute)
-	stubRefresh(t, func(string) bool { return true })
-	if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); !ok || pct != 7 {
-		t.Errorf("got (%v, %v), want (7, true)", pct, ok)
-	}
-}
-
-func TestCopilotUsedPctStaleRefreshesThenReloads(t *testing.T) {
-	usedPctConfig(t)
-	recordUsage(t, 10, router.StaleAfter+time.Minute)
-	calls := stubRefresh(t, func(k string) bool {
-		if k != usedPctKey {
-			t.Errorf("refresh key = %q, want %q", k, usedPctKey)
-		}
-		return router.Record(usedPctKey, 61, "month", time.Now().Add(24*time.Hour), time.Now()) == nil
-	})
-	if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); !ok || pct != 61 || *calls != 1 {
-		t.Errorf("got (%v, %v), refreshes %d; want (61, true), 1", pct, ok, *calls)
-	}
-}
-
-func TestCopilotUsedPctStaleRefreshFailsUnverified(t *testing.T) {
-	usedPctConfig(t)
-	recordUsage(t, 10, router.StaleAfter+time.Minute)
-	stubRefresh(t, func(string) bool { return false })
-	if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); ok || pct != 0 {
-		t.Errorf("got (%v, %v), want (0, false)", pct, ok)
-	}
-}
-
-func TestCopilotUsedPctNoEntryRefreshFailsUnverified(t *testing.T) {
-	usedPctConfig(t)
-	calls := stubRefresh(t, func(string) bool { return false })
-	if _, ok := copilot.CopilotUsedPct(context.Background(), "alice"); ok || *calls != 1 {
-		t.Errorf("ok=%v refreshes %d; want false, 1", ok, *calls)
-	}
-}
-
-func TestCopilotUsedPctNoEntryRefreshWithoutRecordUnverified(t *testing.T) {
-	usedPctConfig(t)
-	stubRefresh(t, func(string) bool { return true })
-	if _, ok := copilot.CopilotUsedPct(context.Background(), "alice"); ok {
-		t.Error("a never-seen account must stay unverified")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			tc.setup(t)
+			calls := stubRefresh(t, func(k string) bool { return tc.refresh(t, k) })
+			pct, ok := copilot.CopilotUsedPct(context.Background(), "alice")
+			if ok != tc.wantOK || pct != tc.wantPct || (tc.wantCalls >= 0 && *calls != tc.wantCalls) {
+				t.Errorf("got (%v, %v), refreshes %d; want (%v, %v), %d", pct, ok, *calls, tc.wantPct, tc.wantOK,
+					tc.wantCalls)
+			}
+		})
 	}
 }
 
@@ -727,15 +679,8 @@ func TestGatewayTokenRejectsBadArgsAndMintFailure(t *testing.T) {
 
 // TestPrintTokenWriteFailureNamesCause: a failed stdout write exits 1 with a stderr message.
 func TestPrintTokenWriteFailureNamesCause(t *testing.T) {
-	full := closedFile(t)
-	r, w, _ := os.Pipe()
-	origOut, origErr := os.Stdout, os.Stderr
-	os.Stdout, os.Stderr = full, w
-	t.Cleanup(func() { os.Stdout, os.Stderr = origOut, origErr })
-	code := printToken("cct_abc")
-	w.Close()
-	msg, _ := io.ReadAll(r)
-	if code != 1 || !strings.Contains(string(msg), "gateway token: write stdout") {
+	code, msg := gwtStdoutFailing(t, func() int { return printToken("cct_abc") })
+	if code != 1 || !strings.Contains(msg, "gateway token: write stdout") {
 		t.Fatalf("want exit 1 with a 'gateway token: write stdout' message, got %d %q", code, msg)
 	}
 }
@@ -755,25 +700,30 @@ func TestProxyLifecycleRejectsFailedStdout(t *testing.T) {
 			orig := gatewayStop
 			gatewayStop = func(context.Context) (gateway.State, error) { return gateway.State{PID: 4242}, nil }
 			t.Cleanup(func() { gatewayStop = orig })
-			closed, err := os.CreateTemp(t.TempDir(), "stdout")
-			if err != nil || closed.Close() != nil {
-				t.Fatal(err)
-			}
-			r, w, _ := os.Pipe()
-			origOut, origErr := os.Stdout, os.Stderr
-			os.Stdout, os.Stderr = closed, w
-			code := tc.run(context.Background())
-			os.Stdout, os.Stderr = origOut, origErr
-			w.Close()
-			msg, _ := io.ReadAll(r)
-			if code == 0 || !strings.Contains(string(msg), "gateway proxy: write output:") {
+			code, msg := gwtStdoutFailing(t, func() int { return tc.run(context.Background()) })
+			if code == 0 || !strings.Contains(msg, "gateway proxy: write output:") {
 				t.Fatalf("exit %d stderr %q; want nonzero with a write-output error", code, msg)
 			}
-			if tc.name == "restart" && !strings.Contains(string(msg), gateway.ErrTestBinary.Error()) {
+			if tc.name == "restart" && !strings.Contains(msg, gateway.ErrTestBinary.Error()) {
 				t.Fatalf("restart did not attempt the start after the failed write: %q", msg)
 			}
 		})
 	}
+}
+
+// gwtStdoutFailing runs fn with a dead stdout and returns its exit code and captured stderr.
+func gwtStdoutFailing(t *testing.T, fn func() int) (int, string) {
+	t.Helper()
+	full := closedFile(t)
+	r, w, _ := os.Pipe()
+	origOut, origErr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = full, w
+	t.Cleanup(func() { os.Stdout, os.Stderr = origOut, origErr })
+	code := fn()
+	os.Stdout, os.Stderr = origOut, origErr
+	w.Close()
+	msg, _ := io.ReadAll(r)
+	return code, string(msg)
 }
 
 // closedFile is a file that fails every write, standing in for a full or broken stdout on every OS.

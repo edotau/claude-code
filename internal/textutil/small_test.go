@@ -2,6 +2,7 @@ package textutil
 
 import (
 	"errors"
+	"math"
 	"strings"
 	"testing"
 )
@@ -30,6 +31,18 @@ func TestLastLine(t *testing.T) {
 	for in, want := range map[string]string{"": "", "a": "a", "a\nb\n\n": "b", "a\n  b \r\n": "b", "https://x/1\n": "https://x/1"} {
 		if got := LastLine(in); got != want {
 			t.Errorf("LastLine(%q)=%q want %q", in, got, want)
+		}
+	}
+}
+
+func TestCompactCount(t *testing.T) {
+	for n, want := range map[int64]string{
+		math.MinInt64: "-9223372036854775808", -1: "-1", 0: "0", 950: "950", 1000: "1k", 23_400: "23.4k",
+		94_400: "94.4k", 200_000: "200k", 999_949: "999.9k", 999_950: "1M", 1_200_000: "1.2M", 2_000_000: "2M",
+		math.MaxInt64: "9223372036854.8M",
+	} {
+		if got := CompactCount(n); got != want {
+			t.Errorf("CompactCount(%d) = %q, want %q", n, got, want)
 		}
 	}
 }

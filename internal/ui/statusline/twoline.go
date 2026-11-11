@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
@@ -49,17 +50,6 @@ func (d *twoData) fillContext(in Input) {
 	}
 }
 
-// compactTokens is 950, 94.4k, 200k, 1.2M.
-func compactTokens(n int) string {
-	switch {
-	case n < 1000:
-		return strconv.Itoa(n)
-	case n < 1_000_000:
-		return strings.Replace(fmt.Sprintf("%.1fk", float64(n)/1000), ".0k", "k", 1)
-	}
-	return strings.Replace(fmt.Sprintf("%.1fM", float64(n)/1e6), ".0M", "M", 1)
-}
-
 // twoBar is w cells of ━ (filled) then ─ for pct percent, rounded (p*w+50)/100.
 func twoBar(pct float64, w int) string {
 	n := (clampPct(int(pct+0.5))*w + 50) / 100
@@ -84,7 +74,7 @@ func twolineRows(v values) (row1, row2 []twoSeg) {
 	row1 = appendVelocity(row1, v.adds, v.dels)
 	if d.hasCtx {
 		row2 = appendSep(row2, twoSeg{key: "context", text: "ctx " + twoBar(d.ctxPct, 20) + fmt.Sprintf(" %d%%", int(math.Round(d.ctxPct)))})
-		row2 = appendSep(row2, twoSeg{key: "tokens", text: compactTokens(d.tokens) + "/" + compactTokens(d.size)})
+		row2 = appendSep(row2, twoSeg{key: "tokens", text: textutil.CompactCount(int64(d.tokens)) + "/" + textutil.CompactCount(int64(d.size))})
 	}
 	if d.week >= 0 {
 		row2 = appendSep(row2, twoSeg{key: "limit7d", text: fmt.Sprintf("7d %s %d%%", twoBar(float64(d.week), 10), d.week)})

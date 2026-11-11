@@ -1,22 +1,23 @@
+// Package roles runs a task by role (explore, fleet, compare): a role names an agent, legs fan out under one limit.
 package roles
 
 import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/client"
-
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // ReportSchema versions the Report JSON.
@@ -210,4 +211,136 @@ func compareLegs(r Role, base agent.RunOptions, q Request) []Leg {
 		legs = append(legs, leg)
 	}
 	return legs
+}
+
+// rolesKey is the vault Overlay entry holding the user's role table: a JSON array of Role.
+const rolesKey = "dispatch-roles"
+
+// Role maps a role name to the agent that runs it; Models is the default model set for compare.
+type Role struct {
+	Name        string            `json:"name"`
+	Agent       string            `json:"agent"`
+	Models      []string          `json:"models,omitempty"`
+	Permissions agent.Permissions `json:"permissions,omitzero"` // the role layer, over the agent's defaults
+}
+
+// Seed is the built-in role table, replaced by the vault overlay when set.
+var Seed = []Role{
+	{Name: "explore", Agent: "copilot"}, // read-only enforced; gemini/opencode explore is refused (owner, 2026-11-09)
+	{Name: "fleet", Agent: "copilot"},
+	{Name: "compare", Agent: "opencode", Models: []string{"claude-sonnet-5-5", "gpt-6-1-sol", "gemini-3-8-flash", "kimi-k3"}},
+}
+
+// Lookup finds name in the vault overlay table if set and valid, else in Seed.
+func Lookup(name string) (Role, error) {
+	table := Seed
+	t, err := vaultRoles()
+	if err != nil {
+		return Role{}, err
+	}
+	if len(t) > 0 {
+		table = t
+	}
+	names := make([]string, 0, len(table))
+	for _, r := range table {
+		if r.Name == name {
+			return r, nil
+		}
+		names = append(names, r.Name)
+	}
+	return Role{}, fmt.Errorf("unknown role %q (%s)", name, strings.Join(names, "|"))
+}
+
+// vaultRoles is the overlay table, or nil when none is set or the vault is unreadable; malformed JSON is an error.
+func vaultRoles() ([]Role, error) {
+	var out []Role
+	var perr error
+	err := vault.View(func(t *vault.Tx) error {
+		raw, ok := t.Get(vault.Overlay, rolesKey)
+		if !ok || raw == "" {
+			return nil
+		}
+		if jerr := json.Unmarshal([]byte(raw), &out); jerr != nil {
+			perr = fmt.Errorf("vault overlay %s is not a JSON array of roles: %w", rolesKey, jerr)
+		}
+		return nil
+	})
+	if err != nil || perr != nil {
+		return nil, perr
+	}
+	return out, nil
+}
+
+// promptBase is the read-only Explore brief shared by every agent; web is appended when enabled.
+const promptBase = `Read-only: never modify, create or delete a file.
+Orient first: list the directories that matter, read the README/spec for the area, then read narrowly.
+Cite file:line for every claim about the code.`
+
+// promptWeb appends the web-research dispatch, cited by URL.
+const promptWeb = `
+Then research the relevant libraries, APIs and prior art on the web, citing a URL for every claim.
+If a source can't be reached, say so instead of guessing.`
+
+// promptTail fixes the five required sections and the stopping rule.
+const promptTail = `
+Output exactly these five sections, each a few bullets: Structure, Conventions, Dependencies, Prior art,
+Open questions. Stop once two more lookups wouldn't change the brief.
+
+Question: `
+
+// Prompt builds the Codebase Context Brief prompt for question; web adds the web-research dispatch.
+func Prompt(question string, web bool) string {
+	p := promptBase
+	if web {
+		p += promptWeb
+	}
+	return p + promptTail + question
+}
+
+// needsTools reports whether the agent must run with tools on to read the repo.
+func needsTools(agentName string) bool {
+	s, ok := agent.LookupSchema(agentName)
+	return ok && s.CLI.ReadNeedsTools
+}
+
+// enforcesReadOnly reports whether the agent's own CLI enforces --read-only (not every vendor can).
+func enforcesReadOnly(agentName string) bool {
+	s, ok := agent.LookupSchema(agentName)
+	return ok && s.CLI.Caps.ReadOnly == agent.Native
+}
+
+// requireReadOnly refuses an agent that reads with tools but cannot enforce read-only (prompt-only is not enough).
+func requireReadOnly(agentName string) error {
+	if !needsTools(agentName) || enforcesReadOnly(agentName) {
+		return nil
+	}
+	return fmt.Errorf("explore on %s is read-only by prompt only; use codex or copilot (read-only enforced)", agentName)
+}
+
+// Args builds the `ask` argv for an explore run: --tools only when the agent needs it to read.
+func Args(agentName, cwd, question string, web, background bool) ([]string, error) {
+	if err := requireReadOnly(agentName); err != nil {
+		return nil, err
+	}
+	args := []string{"--agent", agentName, "--workdir", cwd}
+	if needsTools(agentName) {
+		args = append(args, "--tools", "--read-only")
+	}
+	if background {
+		args = append(args, "--background")
+	}
+	return append(args, Prompt(question, web)), nil
+}
+
+// Options returns base with the explore prompt, tools and read-only on; it refuses prompt-only agents.
+func Options(base agent.RunOptions, question string, web bool) (agent.RunOptions, error) {
+	if err := requireReadOnly(base.Agent); err != nil {
+		return agent.RunOptions{}, err
+	}
+	o := base
+	o.Prompt = Prompt(question, web)
+	if needsTools(o.Agent) {
+		o.Tools, o.ReadOnly = true, true
+	}
+	return o, nil
 }

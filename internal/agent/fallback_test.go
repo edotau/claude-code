@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,8 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// TestCodexUnavailable tables the fallback classifier: only an unreachable codex (missing binary, no
-// serving provider, or an exec failure with no answer) should fall back; everything else must not.
+// Only an unreachable non-claude dispatch (no answer, no progress, not a context or size error) falls back.
 func TestDispatchUnavailable(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	genericErr := errors.New(`exec: "codex": executable file not found in $PATH`)
@@ -60,8 +58,7 @@ func TestDispatchUnavailable(t *testing.T) {
 	}
 }
 
-// chainOf is a routed chain over rs: the first dispatch is the wanted agent keeping the caller's model, each later
-// dispatch runs models[i] (its cell).
+// chainOf routes rs: the first dispatch keeps the caller's model, later ones run models[i].
 func chainOf(rs []Engine, models ...string) Chain {
 	c := Chain{Want: rs[0].Name()}
 	for i, r := range rs {
@@ -74,8 +71,7 @@ func chainOf(rs []Engine, models ...string) Chain {
 	return c
 }
 
-// TestRunWithFallback_TimeoutAndCancelNotRetried proves the two context-based exclusions against a real
-// expiring context, since Run's own tools-on special-case only fires on an actual ctx.Err().
+// A real expiring or canceled context is final: Run's tools-on special-case only fires on an actual ctx.Err().
 func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	claude := &fakeRunner{name: "claude", errs: []error{nil}}
@@ -96,7 +92,7 @@ func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
 	}
 }
 
-// A gated-out own-login route followed by a same-agent Databricks route is a fallback; the requested route answering is not.
+// A gated-out own-login route followed by a same-agent Databricks route is a fallback.
 func TestRunWithFallbackSkippedRequestedRoute(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	codex := &fakeRunner{name: "codex", errs: []error{nil}}
@@ -125,8 +121,7 @@ func TestRunWithFallbackReasonDropsUnaskedSkips(t *testing.T) {
 	}
 }
 
-// An explicit --profile dispatch that fails with the default --fallback all never starts the next dispatch; the same failure
-// without a profile does, so the chain is built to advance.
+// An explicit --profile dispatch that fails never advances; without a profile the same chain does.
 func TestExplicitDispatchFailureDoesNotAdvance(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	run := func(provider string) (first, next *fakeRunner, err error) {
@@ -171,8 +166,6 @@ func fallbackConfigDir(t *testing.T) {
 	t.Cleanup(retry.ResetCooldowns)
 }
 
-// TestRunWithFallback wires the classifier into Run: codex failing with no answer must rerun on the
-// fallback agent with Fallback set, while a successful or excluded-class codex run must not.
 func TestRunWithFallbackFallsBackAndReportsIt(t *testing.T) {
 	fallbackConfigDir(t)
 	codex := &fakeRunner{name: "codex", errs: []error{errCodexMissing}, emptyAnswer: true}
@@ -251,22 +244,27 @@ func TestRunWithFallbackQuotaMarksAccountAndMovesOn(t *testing.T) {
 	}
 }
 
-func TestRunWithFallbackEmptyChainMeansNoFallback(t *testing.T) {
-	fallbackConfigDir(t)
-	codex := &fakeRunner{name: "codex", errs: []error{errCodexMissing}, emptyAnswer: true}
-	res, err := RunWithFallback(context.Background(), Single(codex), RunOptions{Prompt: "p"}, wire.Discard, nil)
-	if err == nil || res.Fallback != "" || res.Agent != "codex" {
-		t.Fatalf("res=%+v err=%v", res, err)
+func TestRunWithFallbackNoFallbackReported(t *testing.T) {
+	cases := []struct {
+		name      string
+		err       error
+		wantErr   bool
+		wantAgent string
+		chain     func(codex, claude *fakeRunner) Chain
+	}{
+		{"empty chain means no fallback", errCodexMissing, true, "codex", func(codex, _ *fakeRunner) Chain { return Single(codex) }},
+		{"success needs no fallback", nil, false, "codex", func(codex, claude *fakeRunner) Chain { return chainOf([]Engine{codex, claude}) }},
 	}
-}
-
-func TestRunWithFallbackSuccessNeedsNoFallback(t *testing.T) {
-	fallbackConfigDir(t)
-	codex := &fakeRunner{name: "codex", errs: []error{nil}}
-	claude := &fakeRunner{name: "claude", errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, wire.Discard, nil)
-	if err != nil || res.Fallback != "" || res.Agent != "codex" || len(claude.seen) != 0 {
-		t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fallbackConfigDir(t)
+			codex := &fakeRunner{name: "codex", errs: []error{c.err}, emptyAnswer: c.err != nil}
+			claude := &fakeRunner{name: "claude", errs: []error{nil}}
+			res, err := RunWithFallback(context.Background(), c.chain(codex, claude), RunOptions{Prompt: "p"}, wire.Discard, nil)
+			if (err != nil) != c.wantErr || res.Fallback != "" || res.Agent != c.wantAgent || len(claude.seen) != 0 {
+				t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
+			}
+		})
 	}
 }
 
@@ -364,7 +362,7 @@ func TestRunWithFallbackProgressedThen429OnNamedProfileHops(t *testing.T) {
 	}
 }
 
-// A mid-run 429 on codex prod hands the fenced partial answer to codex on the next workspace before any other agent.
+// A mid-run 429 on codex prod hands the fenced partial to codex on the next workspace first.
 func TestRunWithFallbackMidRun429HopsToSameAgentWorkspace(t *testing.T) {
 	fallbackConfigDir(t)
 	orig := gitHead
@@ -482,19 +480,16 @@ type sinkFunc func(wire.Event) error
 
 func (f sinkFunc) Emit(ev wire.Event) error { return f(ev) }
 
-// handoffRunner returns a canned Result and error per call, so a dispatch can carry a hand-off path.
+// handoffRunner returns a canned Result and error so a dispatch can carry a hand-off path.
 type handoffRunner struct {
 	name string
 	res  wire.Result
 	err  error
 }
 
-func (h *handoffRunner) Name() string { return h.name }
-
-func (h *handoffRunner) Caps() Caps { return Caps{} }
-
+func (h *handoffRunner) Name() string     { return h.name }
+func (h *handoffRunner) Caps() Caps       { return Caps{} }
 func (h *handoffRunner) Available() error { return nil }
-
 func (h *handoffRunner) Run(context.Context, RunOptions, wire.Sink) (wire.Result, error) {
 	return h.res, h.err
 }
@@ -533,7 +528,7 @@ func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 	})
 }
 
-// (4) A dispatch that wrote a hand-off hands the next dispatch the hand-off, not the bare task; an unreadable file changes nothing.
+// A hand-off replaces the bare task for the next dispatch; an unreadable file changes nothing.
 func TestRunWithFallbackNextDispatchGetsHandoff(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	quota := errors.New("402 Payment Required: You have exceeded your monthly quota")
@@ -606,7 +601,6 @@ func soleHop(t *testing.T, r *fakeRunner, req RunOptions) map[string]any {
 	return h
 }
 
-// Guarantee 3: an auth failure on hop 1 moves to hop 2, and the envelope names every hop tried.
 func assertTwoHops(t *testing.T, env map[string]any) {
 	t.Helper()
 	hops, _ := env["hops"].([]any)
@@ -638,7 +632,7 @@ func TestEnvelopeHopsNameEveryDispatchTried(t *testing.T) {
 	}
 }
 
-// A single successful dispatch, claude or any other agent answering itself, names one hop and no fallback.
+// A single successful dispatch names one hop and no fallback.
 func TestEnvelopeHopsSingleDispatch(t *testing.T) {
 	for name, build := range map[string]func(Engine) Chain{
 		"claude": Single,
@@ -831,7 +825,7 @@ func twoDispatches(first, second *fakeRunner) Chain {
 	return Chain{Want: first.Name(), Dispatches: []Dispatch{{Agent: first, Account: first.Name() + ":agauth"}, {Agent: second}}}
 }
 
-// A4+B2: a sealed-auth provider gets a Recover; its login-required failure marks the dispatch's account and moves on.
+// A sealed-auth provider gets one Recover; its login-required failure marks the account and moves on.
 func TestSealedAuthDispatchRecoversOnceThenMovesOn(t *testing.T) {
 	calls := authEnv(t, u2mNoToken)
 	first := &fakeRunner{name: "codex", errs: []error{errors.New("HTTP 401 unauthorized"), errors.New("HTTP 401 unauthorized")}, emptyAnswer: true}
@@ -925,27 +919,11 @@ type cancelAfterRun struct {
 	cancel context.CancelFunc
 }
 
-func (c cancelAfterRun) Name() string { return c.name }
-func (c cancelAfterRun) Caps() Caps   { return Caps{} }
-
+func (c cancelAfterRun) Name() string     { return c.name }
+func (c cancelAfterRun) Caps() Caps       { return Caps{} }
 func (c cancelAfterRun) Available() error { return nil }
 func (c cancelAfterRun) Run(context.Context, RunOptions, wire.Sink) (wire.Result, error) {
 	c.cancel() // the parent ctx dies at the moment the dispatch succeeds
-	return wire.Result{Answer: "a"}, nil
-}
-
-// flagRunner counts its runs.
-type flagRunner struct {
-	name string
-	runs *atomic.Int32
-}
-
-func (f flagRunner) Name() string { return f.name }
-func (f flagRunner) Caps() Caps   { return Caps{} }
-
-func (f flagRunner) Available() error { return nil }
-func (f flagRunner) Run(context.Context, RunOptions, wire.Sink) (wire.Result, error) {
-	f.runs.Add(1)
 	return wire.Result{Answer: "a"}, nil
 }
 
@@ -953,11 +931,11 @@ func (f flagRunner) Run(context.Context, RunOptions, wire.Sink) (wire.Result, er
 func TestSuccessSurvivesCancelRightAfterIt(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	var runs atomic.Int32
-	c := Chain{Want: "first", Dispatches: []Dispatch{{Agent: cancelAfterRun{name: "first", cancel: cancel}}, {Agent: flagRunner{name: "second", runs: &runs}}}}
+	second := &fakeRunner{name: "second", errs: []error{nil}}
+	c := Chain{Want: "first", Dispatches: []Dispatch{{Agent: cancelAfterRun{name: "first", cancel: cancel}}, {Agent: second}}}
 	res, err := RunWithFallback(ctx, c, RunOptions{Prompt: "p"}, wire.Discard, nil)
-	if err != nil || res.Answer != "a" || runs.Load() != 0 || len(res.Hops) != 1 {
-		t.Fatalf("res=%+v err=%v second ran %d times; want the first dispatch's answer alone", res, err, runs.Load())
+	if err != nil || res.Answer != "a" || len(second.seen) != 0 || len(res.Hops) != 1 {
+		t.Fatalf("res=%+v err=%v second ran %d times; want the first dispatch's answer alone", res, err, len(second.seen))
 	}
 }
 

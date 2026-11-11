@@ -6,17 +6,6 @@ import (
 	"testing"
 )
 
-// Given counts around the k/M boundary, Then a count that would round to 1000.0k spells as millions.
-func TestCompactCountRoundsUpIntoMillions(t *testing.T) {
-	for n, want := range map[int]string{
-		950: "950", 23_400: "23.4k", 999_949: "999.9k", 999_950: "1.00M", 999_999: "1.00M", 1_840_000: "1.84M",
-	} {
-		if got := compactCount(n); got != want {
-			t.Errorf("compactCount(%d) = %q, want %q", n, got, want)
-		}
-	}
-}
-
 // RanOn reads the answering (final) hop: a fallback run names the original agent, an own-login run says so.
 func TestRanOnFromHops(t *testing.T) {
 	fb := Result{Agent: "copilot", Model: "m2", Fallback: "codex", Hops: []Hop{
@@ -46,7 +35,7 @@ func TestRanOnCost(t *testing.T) {
 		want  string
 	}{
 		{Usage{InputTokens: 3, CacheCreationTokens: 20619, OutputTokens: 5}, 333369, " · 20.6k tok · 5m33s"},
-		{Usage{InputTokens: 812004, CacheReadTokens: 1402113, OutputTokens: 96550}, 0, " · 2.31M tok"},
+		{Usage{InputTokens: 812004, CacheReadTokens: 1402113, OutputTokens: 96550}, 0, " · 2.3M tok"},
 		{Usage{}, 1500, " · 2s"},
 		{Usage{OutputTokens: 950}, 0, " · 950 tok"},
 	}

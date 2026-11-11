@@ -92,10 +92,12 @@ func Transfer(name, source, note string, wait bool) int {
 }
 
 // PrintResumeHint prints the agent's resume command for a session; nothing when it has none.
-func PrintResumeHint(name, sessionID string) {
+func PrintResumeHint(name, sessionID string) { fprintResumeHint(os.Stdout, name, sessionID) }
+
+func fprintResumeHint(w io.Writer, name, sessionID string) {
 	s, _ := agent.LookupSchema(name)
 	if hint := s.ResumeHint(sessionID); hint != "" {
-		fmt.Printf("resume: %s\n", hint)
+		fmt.Fprintf(w, "resume: %s\n", hint)
 	}
 }
 

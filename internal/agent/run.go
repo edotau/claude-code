@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 type coolKey struct{}
@@ -420,4 +421,67 @@ func RefusePermissions(c Caps, agentName string, p Permissions) error {
 		what = "--mode plan"
 	}
 	return errors.New(agentName + " cannot enforce " + what + " yet; dispatch refused")
+}
+
+// explicitChain is r alone on the caller's explicit backend (--provider or provider:model), carrying that backend's
+// account: a remembered exhaustion skips it without an attempt, and a quota failure is recorded on it.
+func explicitChain(r Engine, req RunOptions) Chain {
+	c := Single(r)
+	acct, billing := explicitAccount(r, req)
+	c.Dispatches[0].Account, c.Dispatches[0].Billing = acct, billing
+	if req.Model == router.DiscoveryModel {
+		reg := loadRegistryWarn()
+		c.Dispatches[0] = discoveryDispatch(c.Dispatches[0], router.Aliases[1], reg, req.Provider, false)
+	}
+	if acct == "" || acct == copilotLoginAccount() { // copilot's own gate falls back to Databricks instead
+		return c
+	}
+	now := time.Now()
+	if e := loadState()[acct]; e.Status(now) == router.StateExhausted {
+		return Chain{Want: r.Name(), Skipped: []string{r.Name() + ": " + router.ExhaustedReason(acct, e, now)}}
+	}
+	return c
+}
+
+// withAlias runs c's lone explicit dispatch on the router's alias when the caller named no model.
+func withAlias(c Chain, alias string) Chain {
+	if len(c.Dispatches) != 1 || alias == "" {
+		return c
+	}
+	disp := c.Dispatches[0]
+	disp.Model, disp.keepCaller, disp.unroutedDispatch = alias, false, false
+	c.Dispatches = []Dispatch{disp}
+	return c
+}
+
+// dispatchRequest is req for dispatch: the wanted dispatch keeps an explicit caller model; every other dispatch drops the original
+// provider and session (they belong to the dispatch that minted them) and runs its cell, the caller's --effort winning.
+func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
+	disp.discoveryNote()
+	out := req
+	if disp.unroutedDispatch {
+		return out
+	}
+	if !first {
+		out.Provider, out.SessionID = "", ""
+	}
+	if !disp.keepCaller {
+		out.Model = disp.Model
+	}
+	if out.Effort == "" {
+		out.Effort = disp.Effort
+	}
+	return armClaudeProfile(out, disp)
+}
+
+// armClaudeProfile runs a claude hop inside databricks:<p> on its "<profile>:" row; claude reads only Provider.
+func armClaudeProfile(out RunOptions, disp Dispatch) RunOptions {
+	if router.ArmProfile() == "" || disp.Agent == nil || disp.Agent.Name() != "claude" {
+		return out
+	}
+	prof, model, ok := strings.Cut(out.Model, ":")
+	if reg, err := providers.Load(); ok && err == nil && reg.Providers[prof] != nil {
+		out.Provider, out.Model = prof, model
+	}
+	return out
 }

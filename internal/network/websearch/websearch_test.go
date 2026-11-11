@@ -57,7 +57,6 @@ func TestInitializeAndToolsList(t *testing.T) {
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
 		`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`,
 	)
-	// notifications/initialized yields NO response, so we expect exactly 2 responses.
 	if len(resps) != 2 {
 		t.Fatalf("got %d responses, want 2 (notification must not respond)", len(resps))
 	}
@@ -106,56 +105,69 @@ func TestToolsCallSuccess(t *testing.T) {
 	}
 }
 
-func TestToolsCallEmptyQuery(t *testing.T) {
-	srv := &server{Search: func(context.Context, string, int) (string, error) { return "x", nil }}
-	resps := drive(t, srv,
-		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"  "}}}`,
-	)
-	res, _ := resps[0]["result"].(map[string]any)
-	if res["isError"] != true {
-		t.Errorf("empty query should be a tool error, got %v", res)
+func TestServeProtocolEdges(t *testing.T) {
+	call := func(name, args string) string {
+		return `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"` + name + `","arguments":` + args + `}}`
 	}
-}
-
-func TestToolsCallSearcherError(t *testing.T) {
-	srv := &server{Search: func(context.Context, string, int) (string, error) { return "", errString("boom") }}
-	resps := drive(t, srv,
-		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"q"}}}`,
-	)
-	// A backend error is a tool error (isError=true result), not a JSON-RPC protocol error.
-	if _, isRPCErr := resps[0]["error"]; isRPCErr {
-		t.Errorf("backend error must be a tool result, not a JSON-RPC error: %v", resps[0])
+	toolErr := func(t *testing.T, r []map[string]any) map[string]any {
+		t.Helper()
+		res, _ := r[0]["result"].(map[string]any)
+		if res["isError"] != true {
+			t.Fatalf("want a tool error, got %v", r[0])
+		}
+		return res
 	}
-	res, _ := resps[0]["result"].(map[string]any)
-	if res["isError"] != true || !strings.Contains(fmt.Sprint(res["content"]), "websearch: boom") {
-		t.Errorf("searcher error should surface as an isError result prefixed websearch:, got %v", res)
-	}
-}
-
-func TestUnknownTool(t *testing.T) {
-	srv := &server{Search: func(context.Context, string, int) (string, error) { return "x", nil }}
-	resps := drive(t, srv,
-		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"nope","arguments":{}}}`,
-	)
-	if _, ok := resps[0]["error"]; !ok {
-		t.Errorf("unknown tool should be a JSON-RPC error, got %v", resps[0])
-	}
-}
-
-func TestUnknownMethodNotificationIgnored(t *testing.T) {
-	srv := &server{Search: func(context.Context, string, int) (string, error) { return "x", nil }}
-	// A notification (no id) for an unknown method must produce no response.
-	resps := drive(t, srv, `{"jsonrpc":"2.0","method":"some/notify"}`)
-	if len(resps) != 0 {
-		t.Errorf("notification should yield no response, got %v", resps)
-	}
-}
-
-func TestParseError(t *testing.T) {
-	srv := &server{}
-	resps := drive(t, srv, `{not json`)
-	if _, ok := resps[0]["error"]; !ok {
-		t.Errorf("malformed line should yield a parse error, got %v", resps[0])
+	for name, tc := range map[string]struct {
+		srv   *server
+		lines []string
+		check func(t *testing.T, r []map[string]any)
+	}{
+		"empty query is a tool error": {&server{}, []string{call("web_search", `{"query":"  "}`)},
+			func(t *testing.T, r []map[string]any) { toolErr(t, r) }},
+		"backend error is a tool result, not an RPC error": {
+			&server{Search: func(context.Context, string, int) (string, error) { return "", errString("boom") }},
+			[]string{call("web_search", `{"query":"q"}`)},
+			func(t *testing.T, r []map[string]any) {
+				if _, isRPCErr := r[0]["error"]; isRPCErr {
+					t.Errorf("backend error must be a tool result, not a JSON-RPC error: %v", r[0])
+				}
+				if res := toolErr(t, r); !strings.Contains(fmt.Sprint(res["content"]), "websearch: boom") {
+					t.Errorf("want websearch: boom prefix, got %v", res)
+				}
+			}},
+		"unknown tool is an RPC error": {&server{}, []string{call("nope", `{}`)},
+			func(t *testing.T, r []map[string]any) {
+				if _, ok := r[0]["error"]; !ok {
+					t.Errorf("unknown tool should be a JSON-RPC error, got %v", r[0])
+				}
+			}},
+		"unknown-method notification is ignored": {&server{}, []string{`{"jsonrpc":"2.0","method":"some/notify"}`},
+			func(t *testing.T, r []map[string]any) {
+				if len(r) != 0 {
+					t.Errorf("notification should yield no response, got %v", r)
+				}
+			}},
+		"malformed line is a parse error": {&server{}, []string{`{not json`},
+			func(t *testing.T, r []map[string]any) {
+				if _, ok := r[0]["error"]; !ok {
+					t.Errorf("malformed line should yield a parse error, got %v", r[0])
+				}
+			}},
+		"ping returns an empty result": {&server{}, []string{`{"jsonrpc":"2.0","id":7,"method":"ping"}`},
+			func(t *testing.T, r []map[string]any) {
+				if len(r) != 1 || r[0]["error"] != nil || r[0]["result"] == nil {
+					t.Errorf("ping = %v, want an empty result and no error", r)
+				}
+			}},
+		"tools/list notification gets no response": {&server{}, []string{
+			`{"jsonrpc":"2.0","method":"tools/list"}`, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`},
+			func(t *testing.T, r []map[string]any) {
+				if len(r) != 1 || r[0]["id"] != float64(1) {
+					t.Fatalf("got %v, want only the identified tools/list response", r)
+				}
+			}},
+	} {
+		t.Run(name, func(t *testing.T) { tc.check(t, drive(t, tc.srv, tc.lines...)) })
 	}
 }
 
@@ -180,72 +192,64 @@ func TestOneShotSuccess(t *testing.T) {
 	}
 }
 
-func TestOneShotEmptyQuery(t *testing.T) {
-	var out strings.Builder
-	search := func(context.Context, string, int) (string, error) { return "x", nil }
-	code := oneShot(context.Background(), "   ", 5, search, &out)
-	if code != 2 {
-		t.Errorf("empty query exit = %d, want 2", code)
-	}
-	if out.String() != "" {
-		t.Errorf("empty query should print nothing to out, got %q", out.String())
+func TestOneShotExitCodes(t *testing.T) {
+	ok := func(context.Context, string, int) (string, error) { return "x", nil }
+	for name, tc := range map[string]struct {
+		query   string
+		max     int
+		search  func(context.Context, string, int) (string, error)
+		want    int
+		wantOut string
+	}{
+		"empty query":    {"   ", 5, ok, 2, ""},
+		"searcher error": {"q", 5, func(context.Context, string, int) (string, error) { return "", errString("boom") }, 1, ""},
+		"zero max defaults to 5": {"q", 0, func(_ context.Context, _ string, n int) (string, error) {
+			if n != 5 {
+				t.Errorf("default max_results = %d, want 5", n)
+			}
+			return "ok", nil
+		}, 0, "ok"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var out strings.Builder
+			if code := oneShot(context.Background(), tc.query, tc.max, tc.search, &out); code != tc.want {
+				t.Errorf("exit = %d, want %d", code, tc.want)
+			}
+			if strings.TrimSpace(out.String()) != tc.wantOut {
+				t.Errorf("out = %q, want %q", out.String(), tc.wantOut)
+			}
+		})
 	}
 }
 
-func TestOneShotDefaultsMaxResults(t *testing.T) {
-	var out strings.Builder
-	oneShot(context.Background(), "q", 0, func(_ context.Context, _ string, n int) (string, error) {
-		if n != 5 {
-			t.Errorf("default max_results = %d, want 5", n)
-		}
-		return "ok", nil
-	}, &out)
-}
-
-func TestOneShotSearcherError(t *testing.T) {
-	var out strings.Builder
-	search := func(context.Context, string, int) (string, error) { return "", errString("boom") }
-	code := oneShot(context.Background(), "q", 5, search, &out)
-	if code != 1 {
-		t.Errorf("searcher error exit = %d, want 1", code)
-	}
-}
-
-// The server's ctx must reach the backend: the searcher sees the caller's cancellation.
-func TestServeThreadsContextToSearcher(t *testing.T) {
+// The caller's cancellation must reach the backend through both Serve and the one-shot entry point.
+func TestEntryPointsThreadContextToSearcher(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-
 	var seen error
-	srv := &server{Search: func(c context.Context, _ string, _ int) (string, error) {
+	search := func(c context.Context, _ string, _ int) (string, error) {
 		seen = c.Err()
-		return "text", nil
-	}}
-	var out strings.Builder
+		return "ok", nil
+	}
 	line := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"q"}}}`
-	if err := srv.Serve(ctx, strings.NewReader(line+"\n"), &out); err != nil {
-		t.Fatalf("Serve: %v", err)
-	}
-	if !errors.Is(seen, context.Canceled) {
-		t.Errorf("searcher ctx.Err() = %v, want context.Canceled", seen)
-	}
-}
-
-// The Bash/skill entry point carries the same guarantee as Serve.
-func TestOneShotThreadsContextToSearcher(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	var seen error
-	var out strings.Builder
-	if code := oneShot(ctx, "q", 5, func(c context.Context, _ string, _ int) (string, error) {
-		seen = c.Err()
-		return "ok", nil
-	}, &out); code != 0 {
-		t.Fatalf("exit code = %d, want 0", code)
-	}
-	if !errors.Is(seen, context.Canceled) {
-		t.Errorf("searcher ctx.Err() = %v, want context.Canceled", seen)
+	for name, run := range map[string]func() error{
+		"serve": func() error { return (&server{Search: search}).Serve(ctx, strings.NewReader(line+"\n"), io.Discard) },
+		"oneShot": func() error {
+			if code := oneShot(ctx, "q", 5, search, io.Discard); code != 0 {
+				return fmt.Errorf("exit code = %d, want 0", code)
+			}
+			return nil
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			seen = nil
+			if err := run(); err != nil {
+				t.Fatal(err)
+			}
+			if !errors.Is(seen, context.Canceled) {
+				t.Errorf("searcher ctx.Err() = %v, want context.Canceled", seen)
+			}
+		})
 	}
 }
 
@@ -279,16 +283,11 @@ func TestInitializeNegotiatesProtocolVersion(t *testing.T) {
 
 // TestDefaultProtocolVersionIsHonest: never advertise 2026-07-28, which this tools-only server can't serve.
 func TestDefaultProtocolVersionIsHonest(t *testing.T) {
-	if defaultProtocolVersion != "2025-11-25" {
-		t.Errorf("defaultProtocolVersion = %s, want 2025-11-25 (newest revision whose semantics we implement)",
-			defaultProtocolVersion)
-	}
-	if supportedProtocolVersions[defaultProtocolVersion] != true {
-		t.Errorf("defaultProtocolVersion %s missing from supportedProtocolVersions", defaultProtocolVersion)
+	if defaultProtocolVersion != "2025-11-25" || !supportedProtocolVersions[defaultProtocolVersion] {
+		t.Errorf("defaultProtocolVersion = %s, want 2025-11-25 and supported", defaultProtocolVersion)
 	}
 	if supportedProtocolVersions["2026-07-28"] {
-		t.Error("must not advertise 2026-07-28: stateless core, no initialize handshake, " +
-			"_meta per-request routing unimplemented")
+		t.Error("must not advertise 2026-07-28: stateless core, no initialize handshake")
 	}
 }
 
@@ -388,14 +387,6 @@ func checkEnrichSlowBounded(t *testing.T, slowURL string) {
 	}
 }
 
-func TestPingReturnsEmptyResult(t *testing.T) {
-	srv := &server{Search: func(context.Context, string, int) (string, error) { return "x", nil }}
-	resps := drive(t, srv, `{"jsonrpc":"2.0","id":7,"method":"ping"}`)
-	if len(resps) != 1 || resps[0]["error"] != nil || resps[0]["result"] == nil {
-		t.Errorf("ping = %v, want an empty result and no error", resps)
-	}
-}
-
 // allowLoopbackFetch swaps the SSRF-guarded pageClient for a plain one so httptest servers on 127.0.0.1 can be fetched.
 func allowLoopbackFetch(t *testing.T) {
 	t.Helper()
@@ -471,8 +462,6 @@ func TestFetchPageTextHonorsRobots(t *testing.T) {
 		t.Errorf("allowed page = %q, want body", got)
 	}
 }
-
-// TestRobotsUnreadableFailsClosed: a 5xx robots.txt cannot be honoured, so the page is never requested.
 
 // TestFetchPageTextTruncatedBodyKeepsSnippet: a body cut off mid-read yields "" rather than a fragment.
 func TestFetchPageTextTruncatedBodyKeepsSnippet(t *testing.T) {
@@ -551,6 +540,21 @@ func TestFetchPageTextRechecksRobotsOnRedirect(t *testing.T) {
 	}
 }
 
+// tstPage and tstFail build one extractResponse entry; the entry types are anonymous structs, aliased here.
+type tstPageRow = struct {
+	URL        string `json:"url"`
+	RawContent string `json:"raw_content"`
+}
+
+type tstFailRow = struct {
+	URL   string `json:"url"`
+	Error string `json:"error"`
+}
+
+func tstPage(url, body string) []tstPageRow { return []tstPageRow{{url, body}} }
+
+func tstFail(url, msg string) []tstFailRow { return []tstFailRow{{url, msg}} }
+
 type notFoundRT struct{}
 
 func (notFoundRT) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -570,16 +574,10 @@ func TestExtractPrintsPagesAndFailures(t *testing.T) {
 		var r extractResponse
 		for _, u := range urls {
 			if u == "https://example.com/a" || (u == "https://example.org/b" && depth == "advanced") {
-				r.Results = append(r.Results, struct {
-					URL        string `json:"url"`
-					RawContent string `json:"raw_content"`
-				}{u, "# Hello\nbody " + depth})
+				r.Results = append(r.Results, tstPage(u, "# Hello\nbody "+depth)...)
 				continue
 			}
-			r.Failed = append(r.Failed, struct {
-				URL   string `json:"url"`
-				Error string `json:"error"`
-			}{u, "Failed to fetch url"})
+			r.Failed = append(r.Failed, tstFail(u, "Failed to fetch url")...)
 		}
 		return r, nil
 	}
@@ -600,8 +598,6 @@ func TestExtractPrintsPagesAndFailures(t *testing.T) {
 		}
 	}
 }
-
-// TestExtractKeepsPagesWhenRetryFails: an advanced-depth error keeps the basic pages and marks only the retried URL.
 
 func TestExtractRefusesInternalAddresses(t *testing.T) {
 	t.Setenv(keyName, "test-key")
@@ -640,14 +636,8 @@ func TestExtractMatchesTavilyNormalisedURL(t *testing.T) {
 	t.Cleanup(func() { tavilyExtract = orig })
 	tavilyExtract = func(_ context.Context, _ string, _ []string, _ string) (extractResponse, error) {
 		var r extractResponse
-		r.Results = append(r.Results, struct {
-			URL        string `json:"url"`
-			RawContent string `json:"raw_content"`
-		}{"https://example.com/", "BODY"})
-		r.Failed = append(r.Failed, struct {
-			URL   string `json:"url"`
-			Error string `json:"error"`
-		}{"https://EXAMPLE.org", "boom"})
+		r.Results = append(r.Results, tstPage("https://example.com/", "BODY")...)
+		r.Failed = append(r.Failed, tstFail("https://EXAMPLE.org", "boom")...)
 		return r, nil
 	}
 	code, out, _ := hosttest.CaptureOutput(t, func() int {
@@ -701,16 +691,10 @@ func TestWebExtractToolReturnsMarkdownAndFailures(t *testing.T) {
 		var r extractResponse
 		for _, u := range urls {
 			if u == "https://example.com/a" {
-				r.Results = append(r.Results, struct {
-					URL        string `json:"url"`
-					RawContent string `json:"raw_content"`
-				}{u, "# Hello\nbody"})
+				r.Results = append(r.Results, tstPage(u, "# Hello\nbody")...)
 				continue
 			}
-			r.Failed = append(r.Failed, struct {
-				URL   string `json:"url"`
-				Error string `json:"error"`
-			}{u, "nope"})
+			r.Failed = append(r.Failed, tstFail(u, "nope")...)
 		}
 		return r
 	})
@@ -722,6 +706,7 @@ func TestWebExtractToolReturnsMarkdownAndFailures(t *testing.T) {
 }
 
 func TestWebExtractToolRejectsBadInput(t *testing.T) {
+	vaulttest.Use(t)
 	t.Setenv(keyName, "test-key")
 	stubExtract(t, func([]string) extractResponse { t.Error("seam called for rejected input"); return extractResponse{} })
 	many := `["` + strings.Repeat(`https://example.com/x","`, 20) + `https://example.com/y"]`
@@ -730,7 +715,13 @@ func TestWebExtractToolRejectsBadInput(t *testing.T) {
 		"empty":    {`{"urls":[]}`, "1-20 URLs (got 0)"},
 		"internal": {`{"urls":["http://192.168.1.1/","file:///etc/passwd"]}`,
 			"refusing to fetch internal address 192.168.1.1"},
+		"missing key": {`{"urls":["https://example.com/a"]}`, "TAVILY_API_KEY"},
 	} {
+		key := "test-key"
+		if name == "missing key" {
+			key = ""
+		}
+		t.Setenv(keyName, key)
 		text, isErr := extractCall(t, c.args)
 		if !isErr || !strings.Contains(text, c.want) {
 			t.Errorf("%s: isError=%v text=%q, want tool error containing %q", name, isErr, text, c.want)
@@ -738,23 +729,10 @@ func TestWebExtractToolRejectsBadInput(t *testing.T) {
 	}
 }
 
-func TestWebExtractToolMissingKeyIsToolError(t *testing.T) {
-	vaulttest.Use(t)
-	t.Setenv(keyName, "")
-	stubExtract(t, func([]string) extractResponse { t.Error("seam called without a key"); return extractResponse{} })
-	text, isErr := extractCall(t, `{"urls":["https://example.com/a"]}`)
-	if !isErr || !strings.Contains(text, "TAVILY_API_KEY") {
-		t.Errorf("isError=%v text=%q, want tool error naming TAVILY_API_KEY", isErr, text)
-	}
-}
-
 func TestExtractCLIOutputBytes(t *testing.T) {
 	t.Setenv(keyName, "test-key")
 	stubExtract(t, func(urls []string) extractResponse {
-		return extractResponse{Results: []struct {
-			URL        string `json:"url"`
-			RawContent string `json:"raw_content"`
-		}{{urls[0], "BODY"}}}
+		return extractResponse{Results: tstPage(urls[0], "BODY")}
 	})
 	code, out, _ := hosttest.CaptureOutput(t, func() int {
 		return Extract(context.Background(), []string{"https://example.com/a", "http://127.0.0.1/"})
@@ -763,19 +741,6 @@ func TestExtractCLIOutputBytes(t *testing.T) {
 		"# http://127.0.0.1/\nfailed: refusing to fetch internal address 127.0.0.1\n\n"
 	if code != 0 || out != want {
 		t.Errorf("code=%d out=%q, want %q", code, out, want)
-	}
-}
-
-func TestToolsListNotificationHasNoResponse(t *testing.T) {
-	resps := drive(t, &server{},
-		`{"jsonrpc":"2.0","method":"tools/list"}`,
-		`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`,
-	)
-	if len(resps) != 1 {
-		t.Fatalf("got %d responses, want only the identified tools/list response: %v", len(resps), resps)
-	}
-	if resps[0]["id"] != float64(1) {
-		t.Fatalf("response id = %v, want 1", resps[0]["id"])
 	}
 }
 
@@ -811,11 +776,8 @@ func TestToolsCallRejectsMalformedArguments(t *testing.T) {
 func closedTestOutput(t *testing.T) *os.File {
 	t.Helper()
 	out, err := os.CreateTemp(t.TempDir(), "output")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := out.Close(); err != nil {
-		t.Fatal(err)
+	if err != nil || out.Close() != nil {
+		t.Fatalf("closed output file: %v", err)
 	}
 	return out
 }
@@ -833,10 +795,7 @@ func TestOneShotRejectsOutputWriteFailure(t *testing.T) {
 func TestExtractRejectsOutputWriteFailure(t *testing.T) {
 	t.Setenv(keyName, "test-key")
 	stubExtract(t, func(urls []string) extractResponse {
-		return extractResponse{Results: []struct {
-			URL        string `json:"url"`
-			RawContent string `json:"raw_content"`
-		}{{urls[0], "BODY"}}}
+		return extractResponse{Results: tstPage(urls[0], "BODY")}
 	})
 	urls := []string{"https://example.com/a"}
 	_, out, _ := hosttest.CaptureOutput(t, func() int {

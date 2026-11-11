@@ -30,9 +30,49 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-// TestCompletionTopLevel: an empty partial offers every visible command (+help), never a hidden one.
+func candidates(words ...string) []string { return completionEngine().Candidates(words) }
+
+// candidatesWithin fails the test if completion hangs, which would mean it dispatched a run func.
+func candidatesWithin(t *testing.T, words ...string) []string {
+	t.Helper()
+	done := make(chan []string, 1)
+	go func() { done <- candidates(words...) }()
+	select {
+	case got := <-done:
+		return got
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Candidates(%v) hung: completion must never dispatch a run func", words)
+		return nil
+	}
+}
+
+func sortedSubwords(n *helptext.Node) []string {
+	var out []string
+	for w := range n.Sub {
+		out = append(out, w)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// vendorSubwords is "ask" plus every vendor subverb page, sorted.
+func vendorSubwords() []string {
+	out := []string{"ask"}
+	for sub := range agentSubPages {
+		out = append(out, sub)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func captureUsage(t *testing.T) string {
+	t.Helper()
+	_, out, _ := hosttest.CaptureOutput(t, func() int { usage(os.Stdout); return 0 })
+	return out
+}
+
 func TestCompletionTopLevel(t *testing.T) {
-	got := completionEngine().Candidates([]string{""})
+	got := candidates("")
 	for _, want := range []string{"memory", "doctor", "install", "help"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("top-level candidates missing %q: %v", want, got)
@@ -46,61 +86,110 @@ func TestCompletionTopLevel(t *testing.T) {
 	}
 }
 
-// TestCompletionPrefixFilter: candidates are narrowed by the partial word.
-func TestCompletionPrefixFilter(t *testing.T) {
-	if got := completionEngine().Candidates([]string{"me"}); !slices.Equal(got, []string{"memory"}) {
-		t.Errorf("candidates for %q = %v, want [memory]", "me", got)
+// TestCompletionExact: each word list completes to exactly the want list; nil means none (shell falls back to files).
+func TestCompletionExact(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		words []string
+		want  []string
+	}{
+		{"prefix filter", []string{"me"}, []string{"memory"}},
+		{"vault subcommand", []string{"vault", "s"}, []string{"set"}},
+		{"memory subcommand", []string{"memory", "rev"}, []string{"review"}},
+		{"leaf offers nothing", []string{"gateway", "route", "--task", ""}, nil},
+		{"gemini ask despite bare launcher", []string{"gemini", "a"}, []string{"ask"}},
+		{"install flags", []string{"install", "--"}, []string{"--dry-run", "--setup", "--tools", "--verbose"}},
+		{"theme flags", []string{"theme", "--"}, []string{"--palettes", "--reset"}},
+		{"doctor flags", []string{"doctor", "--"}, []string{"--audit", "--days", "--format", "--git", "--mcp", "--prompts",
+			"--range", "--refresh", "--scan", "--secrets", "--since"}},
+		{"switch values", []string{"switch", ""}, providers.ProfileNames()},
+		{"ask --agent values", []string{"agents", "ask", "--agent", ""}, engineNames()},
+		{"ask --model has no domain", []string{"agents", "ask", "--model", ""}, nil},
+		{"workflow skeleton positional", []string{"workflow", "skeleton", ""}, workflowPatterns()},
+		{"bare flag keeps prefix match", []string{"agents", "ask", "--agent"}, []string{"--agent", "--agents"}},
+		{"vendor past double dash", []string{"codex", "--", ""}, nil},
+		{"resolve-agent domain", []string{"worktree", "merge", "--resolve-agent", ""}, []string{"claude", "codex"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := candidates(tc.words...); !slices.Equal(got, tc.want) {
+				t.Errorf("%v = %v, want %v", tc.words, got, tc.want)
+			}
+		})
 	}
 }
 
-// TestCompletionSubcommands: a hand-dispatched verb completes its subcommand words (order doesn't
-// matter — they come off a map, not a table); a leaf with no args/sub/flags (gateway proxy) offers
-// nothing, so the shell falls back to filenames.
-func TestCompletionSubcommands(t *testing.T) {
-	got := completionEngine().Candidates([]string{"vault", "s"})
-	slices.Sort(got)
-	if want := []string{"set"}; !slices.Equal(got, want) {
-		t.Errorf("vault s* = %v, want %v", got, want)
-	}
-	if got := completionEngine().Candidates([]string{"memory", "rev"}); !slices.Equal(got, []string{"review"}) {
-		t.Errorf("memory rev* = %v, want [review]", got)
-	}
-	if got := completionEngine().Candidates([]string{"gateway", "route", "--task", ""}); len(got) != 0 {
-		t.Errorf("leaf command should offer no candidates, got %v", got)
-	}
-}
-
-// TestGeminiSubverbsCompleteDespiteBareLauncherGuard: gemini is a bare launcher (noComplete), but its
-// hand-dispatched ask subword are safe (in-process) and must still complete normally.
-func TestGeminiSubverbsCompleteDespiteBareLauncherGuard(t *testing.T) {
-	if got := completionEngine().Candidates([]string{"gemini", "a"}); !slices.Equal(got, []string{"ask"}) {
-		t.Errorf("gemini a* = %v, want [ask]", got)
-	}
-	if got := completionEngine().Candidates([]string{"gemini", "ask", "--"}); !slices.Contains(got, "--agent") {
-		t.Errorf("gemini ask flags = %v, missing --agent (shared with `ask`)", got)
-	}
-}
-
-// TestCompletionFlags: a partial word beginning with "-" resolves the typed path and offers its own
-// flags; a leaf with no flagsFor entry offers nothing.
-func TestCompletionFlags(t *testing.T) {
-	if got := completionEngine().Candidates([]string{"install", "--"}); !slices.Equal(got, []string{"--dry-run", "--setup", "--tools", "--verbose"}) {
-		t.Errorf("install -- = %v, want [--dry-run --setup --tools --verbose]", got)
-	}
-	if got := completionEngine().Candidates([]string{"theme", "--"}); !slices.Equal(got, []string{"--palettes", "--reset"}) {
-		t.Errorf("theme -- = %v, want [--palettes --reset]", got)
-	}
-	if got := completionEngine().Candidates([]string{"doctor", "--"}); !slices.Equal(got, []string{"--audit", "--days", "--format", "--git", "--mcp", "--prompts", "--range", "--refresh", "--scan", "--secrets", "--since"}) {
-		t.Errorf("doctor -- = %v, want [--audit --days --format --git --mcp --prompts --range --refresh --scan --secrets --since]", got)
+// TestCompletionContains: each word list offers at least the wanted candidates.
+func TestCompletionContains(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		words []string
+		want  []string
+	}{
+		{"gemini ask shares --agent", []string{"gemini", "ask", "--"}, []string{"--agent"}},
+		{"completion --install", []string{"completion", "--"}, []string{"--install"}},
+		{"usage --show", []string{"usage", "--"}, []string{"--show"}},
+		{"preflight --live", []string{"preflight", "--"}, []string{"--live"}},
+		{"configure --no-agents", []string{"configure", "--"}, []string{"--no-agents"}},
+		{"databricks --profile", []string{"databricks", "--"}, []string{"--profile"}},
+		{"clip --serve", []string{"clip", "--"}, []string{"--serve"}},
+		{"theme values", []string{"theme", ""}, append([]string{"apply", "statusline", "vscode"}, theme.GradientNames()...)},
+		{"network subverbs", []string{"network", ""}, []string{"tailscale", "browser", "websearch", "restart", "remote"}},
+		{"--flag=value", []string{"agents", "ask", "--agent=co"}, []string{"--agent=codex"}},
+		{"vendor status flag", []string{"codex", "status", "--"}, []string{"--all"}},
+		{"vendor setup flag", []string{"codex", "setup", "--"}, []string{"--format"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := candidates(tc.words...)
+			for _, want := range tc.want {
+				if !slices.Contains(got, want) {
+					t.Errorf("%v = %v, missing %q", tc.words, got, want)
+				}
+			}
+		})
 	}
 }
 
-// TestCompletionOffersHelpOnlyFlags: real flags of verbs whose spec once omitted them still complete.
-func TestCompletionOffersHelpOnlyFlags(t *testing.T) {
-	for verb, want := range map[string]string{"completion": "--install", "usage": "--show", "preflight": "--live",
-		"configure": "--no-agents", "databricks": "--profile", "clip": "--serve"} {
-		if got := completionEngine().Candidates([]string{verb, "--"}); !slices.Contains(got, want) {
-			t.Errorf("%s -- = %v, want it to offer %s", verb, got, want)
+func TestCompletionAfterBoolFlagOffersNextFlag(t *testing.T) {
+	for _, tc := range []struct {
+		words []string
+		typed string
+	}{
+		{[]string{"clean", "--dry-run", ""}, "--dry-run"},
+		{[]string{"usage", "--workflows", ""}, "--workflows"},
+		{[]string{"network", "remote", "--status", ""}, "--status"},
+	} {
+		got := candidates(tc.words...)
+		if len(got) == 0 {
+			t.Fatalf("%v offered no candidates; want the remaining flags", tc.words)
+		}
+		if slices.Contains(got, tc.typed) {
+			t.Errorf("%v: already-typed %s must not be re-offered: %v", tc.words, tc.typed, got)
+		}
+		for _, g := range got {
+			if g[0] != '-' {
+				t.Errorf("%v: expected only flags after a boolean flag, got %v", tc.words, got)
+			}
+		}
+	}
+}
+
+func TestCompletionSkipsTypedFlags(t *testing.T) {
+	got := candidates("usage", "--workflows", "--")
+	if slices.Contains(got, "--workflows") {
+		t.Errorf("typed --workflows must drop out: %v", got)
+	}
+	for _, want := range []string{"--days", "--session", "--format"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("usage --workflows -- candidates %v missing %q", got, want)
+		}
+	}
+}
+
+func TestFlagEqualsValueFormKeepsPrefix(t *testing.T) {
+	got := candidates("agents", "ask", "--agent=co")
+	for _, g := range got {
+		if !strings.HasPrefix(g, "--agent=") {
+			t.Errorf("ask --agent=co = %v, every candidate must keep the --agent= prefix", got)
 		}
 	}
 }
@@ -108,7 +197,6 @@ func TestCompletionOffersHelpOnlyFlags(t *testing.T) {
 // helpFlagRE pulls each long flag out of a FLAGS row label ("  -n, --name string  desc").
 var helpFlagRE = regexp.MustCompile(`^  (?:-[A-Za-z0-9], )?--([A-Za-z0-9][A-Za-z0-9_-]*)`)
 
-// TestCompletionMatchesHelpFlags: every spec node completes exactly the long flags its own -h lists.
 func TestCompletionMatchesHelpFlags(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	vaulttest.UseFreshKey(t)
@@ -121,11 +209,9 @@ func TestCompletionMatchesHelpFlags(t *testing.T) {
 	}
 }
 
-// helpFlagDriftExempt: spec paths whose help and completion differ, each with its one-line reason.
+// helpFlagDriftExempt maps spec paths whose help and completion differ to the reason.
 func helpFlagDriftExempt() map[string]string {
-	m := map[string]string{
-		"anthropic science": "-h is forwarded to the external claude-science CLI",
-	}
+	m := map[string]string{"anthropic science": "-h is forwarded to the external claude-science CLI"}
 	for _, v := range []string{"copilot", "codex", "gemini", "opencode"} {
 		m[v] = "bare launcher: its native flags never complete before a subword (noComplete)"
 	}
@@ -185,75 +271,7 @@ func helpLongFlags(text string) []string {
 	return out
 }
 
-// TestCompletionFlagValues: the word after a value flag completes from its domain; a flag with no
-// registered domain (--model) offers nothing (filenames fallback), not an error.
-func TestCompletionFlagValues(t *testing.T) {
-	if got := completionEngine().Candidates([]string{"switch", ""}); !slices.Equal(got, providers.ProfileNames()) {
-		t.Errorf("switch values = %v, want %v", got, providers.ProfileNames())
-	}
-	themeGot := completionEngine().Candidates([]string{"theme", ""})
-	for _, want := range append([]string{"apply", "statusline", "vscode"}, theme.GradientNames()...) {
-		if !slices.Contains(themeGot, want) {
-			t.Errorf("theme values = %v, missing %q", themeGot, want)
-		}
-	}
-	if got := completionEngine().Candidates([]string{"agents", "ask", "--agent", ""}); !slices.Equal(got, engineNames()) {
-		t.Errorf("ask --agent values = %v, want %v", got, engineNames())
-	}
-	if got := completionEngine().Candidates([]string{"agents", "ask", "--model", ""}); len(got) != 0 {
-		t.Errorf("ask --model values = %v, want none (no registered domain)", got)
-	}
-}
-
-// TestCompletionPositionals: a verb's first bare argument completes from its own static domain (hook: below).
-func TestCompletionPositionals(t *testing.T) {
-	if got := completionEngine().Candidates([]string{"workflow", "skeleton", ""}); !slices.Equal(got, workflowPatterns()) {
-		t.Errorf("workflow skeleton values = %v, want %v", got, workflowPatterns())
-	}
-}
-
-// TestCompletionAfterBoolFlagOffersNextFlag: the word after a boolean flag (no value slot) falls back
-// to the remaining flags, across three different verbs.
-func TestCompletionAfterBoolFlagOffersNextFlag(t *testing.T) {
-	for _, tc := range []struct {
-		words []string
-		typed string
-	}{
-		{[]string{"clean", "--dry-run", ""}, "--dry-run"},
-		{[]string{"usage", "--workflows", ""}, "--workflows"},
-		{[]string{"network", "remote", "--status", ""}, "--status"},
-	} {
-		got := completionEngine().Candidates(tc.words)
-		if len(got) == 0 {
-			t.Fatalf("%v offered no candidates; want the remaining flags", tc.words)
-		}
-		if slices.Contains(got, tc.typed) {
-			t.Errorf("%v: already-typed %s must not be re-offered: %v", tc.words, tc.typed, got)
-		}
-		for _, g := range got {
-			if g[0] != '-' {
-				t.Errorf("%v: expected only flags after a boolean flag, got %v", tc.words, got)
-			}
-		}
-	}
-}
-
-// TestCompletionSkipsTypedFlags: a flag already on the line is not offered again.
-func TestCompletionSkipsTypedFlags(t *testing.T) {
-	got := completionEngine().Candidates([]string{"usage", "--workflows", "--"})
-	if slices.Contains(got, "--workflows") {
-		t.Errorf("typed --workflows must drop out: %v", got)
-	}
-	for _, want := range []string{"--days", "--session", "--format"} {
-		if !slices.Contains(got, want) {
-			t.Errorf("usage --workflows -- candidates %v missing %q", got, want)
-		}
-	}
-}
-
-// TestLaunchersNeverOfferFlagsOrDispatch pins the hard rule in prose: a bare launcher verb's own
-// flags belong to a process this binary never inspects, so completing them must offer nothing — and,
-// since nothing here ever calls a command's run func, must never hang trying to launch one either.
+// TestLaunchersNeverOfferFlagsOrDispatch: a bare launcher's own flags are never ours to complete.
 func TestLaunchersNeverOfferFlagsOrDispatch(t *testing.T) {
 	for _, name := range []string{"codex", "copilot", "opencode", "gemini", "claude"} {
 		if lookup(name) == nil {
@@ -262,20 +280,12 @@ func TestLaunchersNeverOfferFlagsOrDispatch(t *testing.T) {
 		if n := specTree()[name]; n != nil && len(n.Flags) != 0 {
 			t.Errorf("specTree()[%q] must not carry its own flags (bare launcher)", name)
 		}
-		done := make(chan []string, 1)
-		go func() { done <- completionEngine().Candidates([]string{name, "--"}) }()
-		select {
-		case got := <-done:
-			if len(got) != 0 {
-				t.Errorf("completionEngine().Candidates(%q --) = %v, want none", name, got)
-			}
-		case <-time.After(2 * time.Second):
-			t.Fatalf("completionEngine().Candidates(%q --) hung — completion must never dispatch a run func", name)
+		if got := candidatesWithin(t, name, "--"); len(got) != 0 {
+			t.Errorf("Candidates(%q --) = %v, want none", name, got)
 		}
 	}
 }
 
-// TestCompleteDispatch: the hidden __complete verb prints one candidate per line.
 func TestCompleteDispatch(t *testing.T) {
 	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdComplete([]string{"me"}) })
 	if code != 0 {
@@ -298,7 +308,7 @@ func TestCompletionScriptBash(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("completion bash exit %d", code)
 	}
-	if err := writeFile(script, out, 0o644); err != nil {
+	if err := os.WriteFile(script, []byte(out), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := exec.Command(bash, "-n", script).CombinedOutput(); err != nil {
@@ -306,8 +316,7 @@ func TestCompletionScriptBash(t *testing.T) {
 	}
 	argvFile := filepath.Join(dir, "argv")
 	stub := "#!" + bash + "\nprintf '%s\\n' \"$@\" > " + textutil.ShellQuote(argvFile) + "\necho codex\n"
-	stubPath := filepath.Join(dir, "claude-code")
-	if err := writeFile(stubPath, stub, 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "claude-code"), []byte(stub), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// Only words through COMP_CWORD reach the harness, excluding words after the cursor.
@@ -317,7 +326,7 @@ func TestCompletionScriptBash(t *testing.T) {
 		`_claude_code` + "\n" +
 		`printf '%s\n' "${COMPREPLY[@]}"`
 	cmd := exec.Command(bash, "-c", drive)
-	cmd.Env = append(cmd.Environ(), "PATH="+dir+":"+currentPath())
+	cmd.Env = append(cmd.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	outb, err := cmd.Output()
@@ -330,11 +339,11 @@ func TestCompletionScriptBash(t *testing.T) {
 	if strings.TrimSpace(string(outb)) != "codex" {
 		t.Errorf("COMPREPLY = %q, want codex", outb)
 	}
-	argv, err := readFile(argvFile)
+	argv, err := os.ReadFile(argvFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Fields(argv); !slices.Equal(got, []string{"__complete", "codex", "d"}) {
+	if got := strings.Fields(string(argv)); !slices.Equal(got, []string{"__complete", "codex", "d"}) {
 		t.Errorf("completion argv = %v, want [__complete codex d]", got)
 	}
 }
@@ -352,11 +361,11 @@ func TestCompletionInstallHonorsBashCompletionUserDirOverride(t *testing.T) {
 	if !strings.Contains(out, path) {
 		t.Errorf("completion --install printed %q, want it to name %s", out, path)
 	}
-	body, err := readFile(path)
+	body, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read installed script: %v", err)
 	}
-	if !strings.Contains(body, "_claude_code()") {
+	if !strings.Contains(string(body), "_claude_code()") {
 		t.Errorf("installed file is not the completion script:\n%s", body)
 	}
 
@@ -366,53 +375,35 @@ func TestCompletionInstallHonorsBashCompletionUserDirOverride(t *testing.T) {
 	if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdCompletion([]string{"--install"}) }); code != 0 {
 		t.Fatalf("completion --install (XDG fallback) exit %d", code)
 	}
-	if _, err := readFile(filepath.Join(xdg, "bash-completion", "completions", "claude-code")); err != nil {
+	if _, err := os.Stat(filepath.Join(xdg, "bash-completion", "completions", "claude-code")); err != nil {
 		t.Errorf("XDG_DATA_HOME fallback did not install: %v", err)
 	}
 }
 
-// TestCompletionHelpExitsZeroWithoutInstalling: -h/--help prints usage and returns 0 without writing.
 func TestCompletionHelpExitsZeroWithoutInstalling(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("BASH_COMPLETION_USER_DIR", dir)
 	for _, flagArg := range []string{"-h", "--help"} {
 		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdCompletion([]string{flagArg}) })
-		out := stdout + stderr
 		if code != 0 {
 			t.Errorf("completion %s exit %d, want 0", flagArg, code)
 		}
-		if !strings.Contains(out, "usage: "+completionPage.Usage) {
+		if out := stdout + stderr; !strings.Contains(out, "usage: "+completionPage.Usage) {
 			t.Errorf("completion %s missing usage line:\n%s", flagArg, out)
 		}
 	}
-	if _, err := readFile(filepath.Join(dir, "completions", "claude-code")); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, "completions", "claude-code")); err == nil {
 		t.Error("-h/--help must not install anything")
 	}
 }
 
-// TestCompletionUnknownArgExitsTwo: an unrecognized argument is a usage error, not a silent no-op.
 func TestCompletionUnknownArgExitsTwo(t *testing.T) {
 	if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdCompletion([]string{"--bogus"}) }); code != 2 {
 		t.Errorf("completion --bogus exit %d, want 2", code)
 	}
 }
 
-// writeFile is os.WriteFile with the test's own name, kept beside the completion tests that use it.
-func writeFile(path, content string, mode os.FileMode) error {
-	return os.WriteFile(path, []byte(content), mode)
-}
-
-// currentPath is the test process's PATH, so a stub dir can be prepended without losing bash's tools.
-func currentPath() string { return os.Getenv("PATH") }
-
-// readFile returns path's contents as a string.
-func readFile(path string) (string, error) {
-	b, err := os.ReadFile(path)
-	return string(b), err
-}
-
-// isolateCompletionEnv points every on-disk domain (providers, secrets, memory repos, dispatch
-// cache, worktree root) at a fresh temp dir, so a drift test never reads this machine's real state.
+// isolateCompletionEnv points every on-disk domain at a fresh temp dir so tests never read this machine's state.
 func isolateCompletionEnv(t *testing.T) string {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -420,158 +411,74 @@ func isolateCompletionEnv(t *testing.T) string {
 	return dir
 }
 
-// TestGoldenProbesNowNonEmpty pins every probe Part 3's Facts section recorded as empty before the
-// fix — each must now return at least one candidate.
+// TestGoldenProbesNowNonEmpty: every probe once recorded as empty now returns at least one candidate.
 func TestGoldenProbesNowNonEmpty(t *testing.T) {
 	isolateCompletionEnv(t)
 	for _, tc := range []struct {
 		name  string
 		words []string
 	}{
-		{"switch openrouter ⇥", []string{"switch", "openrouter", ""}},
-		{"agents sync --agent ⇥", []string{"agents", "sync", "--agent", ""}},
-		{"ask --agent codex ⇥", []string{"agents", "ask", "--agent", "codex", ""}},
-		{"vault set ⇥", []string{"vault", "set", ""}},
-		{"models --pin ⇥", []string{"models", "--pin", ""}},
-		{"configure ⇥", []string{"configure", ""}},
-		{"network tailscale --exit-node ⇥", []string{"network", "tailscale", "--exit-node", ""}},
-		{"memory archive ⇥", []string{"memory", "archive", ""}},
-		{"ask --agent=⇥", []string{"agents", "ask", "--agent="}},
+		{"switch openrouter", []string{"switch", "openrouter", ""}},
+		{"agents sync --agent", []string{"agents", "sync", "--agent", ""}},
+		{"ask --agent codex", []string{"agents", "ask", "--agent", "codex", ""}},
+		{"vault set", []string{"vault", "set", ""}},
+		{"models --pin", []string{"models", "--pin", ""}},
+		{"configure", []string{"configure", ""}},
+		{"network tailscale --exit-node", []string{"network", "tailscale", "--exit-node", ""}},
+		{"memory archive", []string{"memory", "archive", ""}},
+		{"ask --agent=", []string{"agents", "ask", "--agent="}},
 	} {
-		if got := completionEngine().Candidates(tc.words); len(got) == 0 {
+		if got := candidates(tc.words...); len(got) == 0 {
 			t.Errorf("%s = %v, want at least one candidate", tc.name, got)
 		}
 	}
 
-	// memory search --repo ⇥ needs a seeded repo store — memoryRepoNames() reads the catalog, and an
-	// empty fixture dir legitimately has none yet.
-	storeDir := memory.StoreDir()
-	repoDir := filepath.Join(storeDir, "fixturerepo")
+	// memoryRepoNames() reads the catalog, so the repo store needs a seeded repo.
+	repoDir := filepath.Join(memory.StoreDir(), "fixturerepo")
 	if err := os.MkdirAll(repoDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := memory.WriteOrigin(repoDir, memory.Origin{Version: memory.OriginVersion, Key: "fixturerepo", Origin: "/fixture/origin"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := completionEngine().Candidates([]string{"memory", "search", "--repo", ""}); !slices.Contains(got, "fixturerepo") {
-		t.Errorf("memory search --repo ⇥ = %v, want it to contain the seeded repo %q", got, "fixturerepo")
+	if got := candidates("memory", "search", "--repo", ""); !slices.Contains(got, "fixturerepo") {
+		t.Errorf("memory search --repo = %v, want it to contain the seeded repo %q", got, "fixturerepo")
 	}
 
-	// dispatch --host ⇥ needs a fresh cache — tailscale.CachedMachineNames() never calls the network itself.
+	// CachedMachineNames never calls the network, so a written cache is enough.
 	tailscale.WriteMachinesCache([]string{"fixture-host"})
-	if got := completionEngine().Candidates([]string{"network", "remote", "--host", ""}); !slices.Equal(got, []string{"fixture-host"}) {
-		t.Errorf("dispatch --host ⇥ = %v, want [fixture-host]", got)
+	if got := candidates("network", "remote", "--host", ""); !slices.Equal(got, []string{"fixture-host"}) {
+		t.Errorf("dispatch --host = %v, want [fixture-host]", got)
 	}
 }
 
-// TestWorktreeMergeResolveAgentCompletes pins the specific probe named in the task: the resolve-agent
-// value domain is claude|codex, never a positional or sub-word collision.
-func TestWorktreeMergeResolveAgentCompletes(t *testing.T) {
-	got := completionEngine().Candidates([]string{"worktree", "merge", "--resolve-agent", ""})
-	if !slices.Equal(got, []string{"claude", "codex"}) {
-		t.Errorf("worktree merge --resolve-agent ⇥ = %v, want [claude codex]", got)
-	}
-}
-
-// TestNetworkBareOffersSubverbs pins `network ⇥`: all five sub-verbs.
-func TestNetworkBareOffersSubverbs(t *testing.T) {
-	got := completionEngine().Candidates([]string{"network", ""})
-	for _, want := range []string{"tailscale", "browser", "websearch", "restart", "remote"} {
-		if !slices.Contains(got, want) {
-			t.Errorf("network ⇥ = %v, missing %q", got, want)
-		}
-	}
-}
-
-// TestFlagEqualsValueForm: "--flag=value" completes the value and returns the whole "--flag=<cand>"
-// token, the syntax Part 3 added (Facts: "no --flag=value form").
-func TestFlagEqualsValueForm(t *testing.T) {
-	got := completionEngine().Candidates([]string{"agents", "ask", "--agent=co"})
-	if !slices.Contains(got, "--agent=codex") {
-		t.Errorf("ask --agent=co = %v, want it to contain --agent=codex", got)
-	}
-	for _, g := range got {
-		if !strings.HasPrefix(g, "--agent=") {
-			t.Errorf("ask --agent=co = %v, every candidate must keep the --agent= prefix", got)
-		}
-	}
-	// A bare flag with no "=" is untouched by the new branch.
-	if got := completionEngine().Candidates([]string{"agents", "ask", "--agent"}); !slices.Equal(got, []string{"--agent", "--agents"}) {
-		t.Errorf("ask --agent (no =) = %v, want [--agent --agents] (prefix match, no = branch)", got)
-	}
-}
-
-// TestCompletionNeverInvokesARunFunc is the construction proof behind every test in this file: build
-// a specTree whose run funcs are poisoned sentinels, and drive every verb+subword path through
-// completionEngine().Candidates — a hang or panic means something dereferenced a command's run func instead
-// of the static spec tree.
 func TestCompletionNeverInvokesARunFunc(t *testing.T) {
 	isolateCompletionEnv(t)
 	for _, c := range commands() {
-		words := []string{c.name, ""}
-		done := make(chan []string, 1)
-		go func() { done <- completionEngine().Candidates(words) }()
-		select {
-		case <-done:
-		case <-time.After(2 * time.Second):
-			t.Fatalf("completionEngine().Candidates(%v) hung — must never call a run func", words)
-		}
+		candidatesWithin(t, c.name, "")
 		for sub := range specTree()[c.name].Sub {
-			words := []string{c.name, sub, ""}
-			done := make(chan []string, 1)
-			go func() { done <- completionEngine().Candidates(words) }()
-			select {
-			case <-done:
-			case <-time.After(2 * time.Second):
-				t.Fatalf("completionEngine().Candidates(%v) hung — must never call a run func", words)
-			}
+			candidatesWithin(t, c.name, sub, "")
 		}
 	}
 }
 
-// TestVendorCompletionOffersEverySubverb: tab-completing a vendor's own bare position (`codex ⇥`)
-// offers "ask" plus every word in vendorSubverbs, for every vendor — derived off vendorSubverbs so a
-// future addition (e.g. explore) is picked up without a second hand-copied list to keep in lockstep.
+// TestVendorCompletionOffersEverySubverb: `<vendor> <tab>` offers "ask" plus every vendor subverb page.
 func TestVendorCompletionOffersEverySubverb(t *testing.T) {
-	want := []string{"ask"}
-	for sub := range agentSubPages {
-		want = append(want, sub)
-	}
-	slices.Sort(want)
+	want := vendorSubwords()
 	for _, vendor := range agent.Names() {
-		got := completionEngine().Candidates([]string{vendor, ""})
+		got := candidates(vendor, "")
 		slices.Sort(got)
 		if !slices.Equal(got, want) {
-			t.Errorf("completionEngine().Candidates([%q \"\"]) = %v, want %v", vendor, got, want)
+			t.Errorf("Candidates([%q \"\"]) = %v, want %v", vendor, got, want)
 		}
 	}
 }
 
-// TestVendorCompletionSubverbFlags: a vendor subverb's own flags complete past it, pinning two
-// representative cases (status's --all and setup's --format) against their helptext.Flag wiring.
-func TestVendorCompletionSubverbFlags(t *testing.T) {
-	if got := completionEngine().Candidates([]string{"codex", "status", "--"}); !slices.Contains(got, "--all") {
-		t.Errorf("codex status -- = %v, missing --all", got)
-	}
-	if got := completionEngine().Candidates([]string{"codex", "setup", "--"}); !slices.Contains(got, "--format") {
-		t.Errorf("codex setup -- = %v, missing --format", got)
-	}
-}
-
-// TestVendorCompletionDoesNotFollowDoubleDash: `<v> -- ⇥` is past the vendor's own (unknown) native
-// flags — it must offer nothing, not the subverb domain again (mirrors the old `run codex --` guard).
-func TestVendorCompletionDoesNotFollowDoubleDash(t *testing.T) {
-	if got := completionEngine().Candidates([]string{"codex", "--", ""}); len(got) != 0 {
-		t.Errorf("codex -- ⇥ = %v, want none (codex's own flags are not ours to know)", got)
-	}
-}
-
-// TestSpecTreeSubwordsMatchDispatch is table-driven against each verb's own hand-dispatch switch
-// (grepped from the verb's run func at the time this test was written) — a word added to the
-// switch without a matching specTree entry drifts silently otherwise.
+// TestSpecTreeSubwordsMatchDispatch: a word added to a verb's dispatch switch must get a specTree entry.
 func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	cases := map[string][]string{
+	tree := specTree()
+	for verb, want := range map[string][]string{
 		"history": {"snapshot", "log", "diff"},
 		"vault":   {"ls", "set", "get", "delete", "import", "export", "edit", "rotate-secret"},
 		"network": {"tailscale", "browser", "websearch", "restart", "remote"},
@@ -582,80 +489,30 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"workflow": {"skeleton", "lint"},
 		"theme":    {"apply", "statusline", "vscode"},
 		"worktree": {"list", "create", "merge", "clean", "clean-all", "gate"},
-	}
-	// gemini's subwords are "ask" (handled by vendorVerb's own if, not vendorSubverbs) plus every
-	// vendor subverb — derived from vendorSubverbs, not hand-copied, so a future subverb never drifts.
-	geminiWant := []string{"ask"}
-	for sub := range agentSubPages {
-		geminiWant = append(geminiWant, sub)
-	}
-	cases["gemini"] = geminiWant
-	tree := specTree()
-	for verb, want := range cases {
+		"gemini":   vendorSubwords(),
+		"review":   reviewToolNames(),
+	} {
 		node := tree[verb]
 		if node == nil {
 			t.Errorf("%s: no node in specTree()", verb)
 			continue
 		}
-		var got []string
-		for w := range node.Sub {
-			got = append(got, w)
-		}
-		slices.Sort(got)
 		slices.Sort(want)
-		if !slices.Equal(got, want) {
+		if got := sortedSubwords(node); !slices.Equal(got, want) {
 			t.Errorf("%s subwords = %v, want %v", verb, got, want)
 		}
 	}
-	checkInstallSetupSpec(t, tree)
-	checkReviewSubwordSpec(t, tree)
-}
-
-func checkInstallSetupSpec(t *testing.T, tree map[string]*helptext.Node) {
-	t.Helper()
 	// install --setup <mode> is its own sub-dispatch, nested under install's "--setup" node.
-	installNode := tree["install"]
-	if installNode == nil {
-		t.Fatal("install: no node in specTree()")
-	}
-	setupNode := installNode.Sub["--setup"]
+	setupNode := tree["install"].Sub["--setup"]
 	if setupNode == nil {
 		t.Fatal(`install: no "--setup" sub-node in specTree()`)
 	}
-	var gotSetup []string
-	for w := range setupNode.Sub {
-		gotSetup = append(gotSetup, w)
-	}
-	wantSetup := []string{"adopt", "nuke", "workspace"}
-	slices.Sort(gotSetup)
-	slices.Sort(wantSetup)
-	if !slices.Equal(gotSetup, wantSetup) {
-		t.Errorf("install --setup subwords = %v, want %v", gotSetup, wantSetup)
+	if got, want := sortedSubwords(setupNode), []string{"adopt", "nuke", "workspace"}; !slices.Equal(got, want) {
+		t.Errorf("install --setup subwords = %v, want %v", got, want)
 	}
 }
 
-func checkReviewSubwordSpec(t *testing.T, tree map[string]*helptext.Node) {
-	t.Helper()
-	// review derives its subwords from reviewTools itself (same source its dispatch switch reads),
-	// so there is no separate hand list to drift — assert the derivation is wired, not duplicate it.
-	reviewNode := tree["review"]
-	if reviewNode == nil {
-		t.Fatal("review: no node in specTree()")
-	}
-	var got []string
-	for w := range reviewNode.Sub {
-		got = append(got, w)
-	}
-	slices.Sort(got)
-	want := reviewToolNames()
-	slices.Sort(want)
-	if !slices.Equal(got, want) {
-		t.Errorf("review subwords = %v, want %v (reviewToolNames)", got, want)
-	}
-}
-
-// TestHookDomainMatchesRegistry: `hook ⇥` must offer every event settings.Registry declares, in
-// registry order — the stale-table bug Part 3 fixed (7 hard-coded names vs. 21 registered).
+// TestHookDomainMatchesRegistry: `hook <tab>` offers every event settings.Specs declares, in registry order.
 func TestHookDomainMatchesRegistry(t *testing.T) {
 	var want []string
 	for _, s := range settings.Specs() {
@@ -663,23 +520,17 @@ func TestHookDomainMatchesRegistry(t *testing.T) {
 			want = append(want, s.Event)
 		}
 	}
-	got := settings.HookEvents()
-	if !slices.Equal(got, want) {
+	if got := settings.HookEvents(); !slices.Equal(got, want) {
 		t.Errorf("settings.HookEvents() = %v, want %v (settings.Registry)", got, want)
 	}
-	if got := completionEngine().Candidates([]string{"hook", ""}); !slices.Equal(got, want) {
-		t.Errorf("hook ⇥ = %v, want every registered event %v", got, want)
+	if got := candidates("hook", ""); !slices.Equal(got, want) {
+		t.Errorf("hook = %v, want every registered event %v", got, want)
 	}
 }
 
-// TestMemoryUpdateSpecHasNoRepoFlag: update takes no --repo in its own flag.FlagSet (memoryFlagSet,
-// not memoryRepoFlagSet) — the spec must not advertise one either.
+// TestMemoryUpdateSpecHasNoRepoFlag: update takes no --repo, so the spec must not advertise one.
 func TestMemoryUpdateSpecHasNoRepoFlag(t *testing.T) {
-	memNode := specTree()["memory"]
-	if memNode == nil {
-		t.Fatal("memory: no node in specTree()")
-	}
-	node := memNode.Sub["update"]
+	node := specTree()["memory"].Sub["update"]
 	if node == nil {
 		t.Fatal("memory update: no sub-node in specTree()")
 	}
@@ -696,8 +547,7 @@ func TestRunDoesNotDispatchArgvZero(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("Run exit = %d, stderr = %q, want 0 and no error", code, stderr)
 	}
-	_, want, _ := hosttest.CaptureOutput(t, func() int { usage(os.Stdout); return 0 })
-	if stdout != want {
+	if want := captureUsage(t); stdout != want {
 		t.Errorf("Run with argv[0]=codex output = %q, want usage %q", stdout, want)
 	}
 }
@@ -765,7 +615,7 @@ func checkClaudeHiddenFromUsage(t *testing.T, stdout string) {
 	}
 }
 
-// Every group is present, every verb name is unique and every row has a summary.
+// TestMenuRowsFit: every group is present, every verb name is unique and every row has a summary.
 func TestMenuRowsFit(t *testing.T) {
 	want := map[string]bool{groupAgents: false, groupAuth: false, groupSession: false, groupDiagnostics: false, groupSettings: false}
 	names := map[string]bool{}
@@ -793,7 +643,7 @@ func TestMenuRowsFit(t *testing.T) {
 
 // Every rendered usage line fits 80 columns (barring one unbreakable word) and continuations start at the description column.
 func TestUsageRowsWrapAtDescriptionColumn(t *testing.T) {
-	_, out, _ := hosttest.CaptureOutput(t, func() int { usage(os.Stdout); return 0 })
+	out := captureUsage(t)
 	const menuWidth = 80
 	col := 2 + nameWidth
 	for line := range strings.SplitSeq(out, "\n") {
@@ -813,7 +663,6 @@ func TestUsageRowsWrapAtDescriptionColumn(t *testing.T) {
 		}
 	}
 }
-
 func menuGroup(out, group string) string {
 	i := strings.Index(out, "\n"+group+"\n")
 	if i < 0 {
@@ -825,9 +674,8 @@ func menuGroup(out, group string) string {
 	}
 	return rest
 }
-
 func TestMenuRegroupNetworkAuthMemorySession(t *testing.T) {
-	_, out, _ := hosttest.CaptureOutput(t, func() int { usage(os.Stdout); return 0 })
+	out := captureUsage(t)
 	for _, verb := range []string{"network", "vault"} {
 		if !regexp.MustCompile(`(?m)^  ` + verb + ` +\S`).MatchString(menuGroup(out, "AUTH")) {
 			t.Errorf("%s row missing from AUTH:\n%s", verb, out)
@@ -858,7 +706,7 @@ func TestOldVerbsAreUnknownCommands(t *testing.T) {
 		t.Error("switch (use's replacement) does not resolve")
 	}
 	for prefix, retired := range map[string]string{"us": "use", "tok": "token"} {
-		if got := completionEngine().Candidates([]string{prefix}); slices.Contains(got, retired) {
+		if got := candidates(prefix); slices.Contains(got, retired) {
 			t.Errorf("completing %q offers retired %q: %v", prefix, retired, got)
 		}
 	}

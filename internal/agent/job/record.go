@@ -280,7 +280,7 @@ func recordNames(dir string) ([]string, error) {
 	return names, nil
 }
 
-// LoadRecord reads one record by id; a unique id prefix is accepted.
+// LoadRecord reads one record by exact id or unique id prefix.
 func LoadRecord(id string) (Record, error) {
 	names, err := recordNames(paths.DispatchDir())
 	if err != nil {
@@ -288,6 +288,9 @@ func LoadRecord(id string) (Record, error) {
 	}
 	var match []string
 	for _, n := range names {
+		if n == id+".json" {
+			return readRecord(filepath.Join(paths.DispatchDir(), n))
+		}
 		if strings.HasPrefix(n, id) {
 			match = append(match, n)
 		}

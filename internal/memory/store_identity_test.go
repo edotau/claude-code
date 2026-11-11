@@ -30,13 +30,30 @@ func fixtureGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
+func idFatal(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func idEnsure(t *testing.T, root string) string {
+	t.Helper()
+	dir, err := EnsureRepoDir(root)
+	idFatal(t, err)
+	return dir
+}
+
+func idMkdir(t *testing.T, dir string) {
+	t.Helper()
+	idFatal(t, os.MkdirAll(dir, 0o755))
+}
+
 func TestResolveSharesWorktreeAndSubdir(t *testing.T) {
 	tempConfig(t)
 	repo := gitRepo(t, t.TempDir(), "proj")
 	sub := filepath.Join(repo, "a", "b")
-	if err := os.MkdirAll(sub, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	idMkdir(t, sub)
 	wt := filepath.Join(t.TempDir(), "wt")
 	fixtureGit(t, repo, "worktree", "add", "-q", wt)
 	want := Resolve(repo)
@@ -67,17 +84,11 @@ func mainCheckoutCases(t *testing.T) []mainCheckoutCase {
 	fixtureGit(t, base, "init", "-q", "--separate-git-dir="+filepath.Join(base, "gitdata"), separate)
 	fixtureGit(t, base, "init", "-q", "--bare", bare)
 	for _, dir := range []string{filepath.Join(repo, "sub"), filepath.Join(wt, "sub"), filepath.Join(base, "plain")} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
+		idMkdir(t, dir)
 	}
 	link := filepath.Join(base, "link")
-	if err := os.Symlink(repo, link); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(wt, wt+"-link"); err != nil {
-		t.Fatal(err)
-	}
+	idFatal(t, os.Symlink(repo, link))
+	idFatal(t, os.Symlink(wt, wt+"-link"))
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -121,31 +132,20 @@ func TestResolveHarness(t *testing.T) {
 	cfg := gitRepo(t, t.TempDir(), ".claude")
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	sub := filepath.Join(cfg, "internal", "memory")
-	if err := os.MkdirAll(sub, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	idMkdir(t, sub)
 	for _, root := range []string{cfg, sub} {
-		assertHarnessRoot(t, cfg, root)
+		id := Resolve(root)
+		if !id.Harness || id.HomeBank || id.Origin != paths.CanonDeep(cfg) {
+			t.Errorf("Resolve(%s) = %+v", root, id)
+		}
+		if dir, err := RepoDir(root); err != nil || dir != harnessStoreDir() {
+			t.Errorf("RepoDir(%s) = %s, %v", root, dir, err)
+		}
 	}
-	dir, err := EnsureRepoDir(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	dir := idEnsure(t, cfg)
 	o, err := ReadOrigin(dir)
 	if err != nil || o.Key != harnessStoreKey() || o.Origin != paths.CanonDeep(cfg) {
 		t.Errorf("harness .origin = %+v, %v", o, err)
-	}
-}
-
-// assertHarnessRoot checks root resolves to the harness identity and store dir.
-func assertHarnessRoot(t *testing.T, cfg, root string) {
-	t.Helper()
-	id := Resolve(root)
-	if !id.Harness || id.HomeBank || id.Origin != paths.CanonDeep(cfg) {
-		t.Errorf("Resolve(%s) = %+v", root, id)
-	}
-	if dir, err := RepoDir(root); err != nil || dir != harnessStoreDir() {
-		t.Errorf("RepoDir(%s) = %s, %v", root, dir, err)
 	}
 }
 
@@ -153,7 +153,6 @@ func TestResolveHarnessWorktreePointer(t *testing.T) {
 	cfg := tempConfig(t)
 	worktree := t.TempDir()
 	write(t, filepath.Join(worktree, ".git"), "gitdir: "+filepath.Join(cfg, ".git", "worktrees", "x")+"\n")
-
 	want := Resolve(cfg)
 	if got := Resolve(worktree); got != want {
 		t.Errorf("Resolve(worktree) = %+v, want main checkout identity %+v", got, want)
@@ -163,12 +162,11 @@ func TestResolveHarnessWorktreePointer(t *testing.T) {
 	}
 }
 
-// The inverse: the config dir is itself a linked worktree of another checkout.
+// The config dir is itself a linked worktree of another checkout.
 func TestResolveConfigDirWorktree(t *testing.T) {
 	main := t.TempDir()
 	cfg := tempConfig(t)
 	write(t, filepath.Join(cfg, ".git"), "gitdir: "+filepath.Join(main, ".git", "worktrees", "x")+"\n")
-
 	if got := Resolve(cfg); !got.Harness {
 		t.Errorf("Resolve(config worktree) = %+v, want harness identity", got)
 	}
@@ -210,10 +208,6 @@ func TestEnsureRepoDirIdempotent(t *testing.T) {
 	if after, err := ReadOrigin(dir); err != nil || !reflect.DeepEqual(after, o) {
 		t.Errorf("second EnsureRepoDir rewrote the origin record: %+v, %v", after, err)
 	}
-}
-
-func TestEnsureRepoDirGlobalTierHasNoOrigin(t *testing.T) {
-	tempConfig(t)
 	if g, err := EnsureRepoDir(t.TempDir()); err != nil || g != HomeBankDir() {
 		t.Errorf("global EnsureRepoDir = %s, %v", g, err)
 	}
@@ -235,14 +229,8 @@ func TestSameBasenameCollisionExtendsHash(t *testing.T) {
 	cfg := tempConfig(t)
 	a := gitRepo(t, t.TempDir(), "app")
 	b := gitRepo(t, t.TempDir(), "app")
-	da, err := EnsureRepoDir(a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db, err := EnsureRepoDir(b)
-	if err != nil {
-		t.Fatal(err)
-	}
+	da := idEnsure(t, a)
+	db := idEnsure(t, b)
 	if da != filepath.Join(cfg, "memory", "app") || !strings.HasPrefix(filepath.Base(db), "app--") || len(filepath.Base(db)) != len("app--")+8 {
 		t.Fatalf("dirs = %s, %s", da, db)
 	}
@@ -301,9 +289,7 @@ func TestAliasRoutesAndConflicts(t *testing.T) {
 	c := gitRepo(t, t.TempDir(), "gamma")
 	da, _ := EnsureRepoDir(a)
 	db, _ := EnsureRepoDir(b)
-	if err := addOriginAlias(da, c); err != nil {
-		t.Fatal(err)
-	}
+	idFatal(t, addOriginAlias(da, c))
 	if err := addOriginAlias(da, c); err != nil {
 		t.Fatal("alias add must be idempotent:", err)
 	}
@@ -329,9 +315,7 @@ func TestOriginReadWriteGuards(t *testing.T) {
 	dir := filepath.Join(cfg, "memory", "one")
 	os.MkdirAll(dir, 0o755)
 	o := Origin{Version: OriginVersion, Key: "one", Origin: "/src/one", Aliases: []string{"", "/x/../y", "/y"}}
-	if err := WriteOrigin(dir, o); err != nil {
-		t.Fatal(err)
-	}
+	idFatal(t, WriteOrigin(dir, o))
 	got, err := ReadOrigin(dir)
 	if err != nil || got.Origin != "/src/one" || len(got.Aliases) != 1 || got.Aliases[0] != "/y" {
 		t.Fatalf("ReadOrigin = %+v, %v", got, err)
@@ -351,9 +335,7 @@ func TestReadOriginRejectsSymlinkedStore(t *testing.T) {
 	cfg := tempConfig(t)
 	dir := filepath.Join(cfg, "memory", "one")
 	os.MkdirAll(dir, 0o755)
-	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: "one", Origin: "/src/one"}); err != nil {
-		t.Fatal(err)
-	}
+	idFatal(t, WriteOrigin(dir, Origin{Version: OriginVersion, Key: "one", Origin: "/src/one"}))
 	link := filepath.Join(cfg, "memory", "link")
 	if err := os.Symlink(dir, link); err != nil {
 		t.Skip(err)
@@ -363,8 +345,7 @@ func TestReadOriginRejectsSymlinkedStore(t *testing.T) {
 	}
 }
 
-// TestResolveIgnoresInheritedGitEnv proves a hostile GIT_DIR/GIT_WORK_TREE pointed at a decoy repo
-// cannot redirect identity resolution of a real repo — runGit strips every inherited GIT_* var.
+// A hostile GIT_DIR/GIT_WORK_TREE pointing at a decoy cannot redirect resolution: runGit strips inherited GIT_*.
 func TestResolveIgnoresInheritedGitEnv(t *testing.T) {
 	tempConfig(t)
 	a := gitRepo(t, t.TempDir(), "proj")
@@ -376,76 +357,49 @@ func TestResolveIgnoresInheritedGitEnv(t *testing.T) {
 	}
 }
 
-// TestAliasToHarnessStore matches the plan's required case: a hand-written .claude/.origin aliasing
-// an external checkout (~/other/claude-code) must route that checkout's RepoDir to the harness store.
+// A hand-written harness .origin aliasing an external checkout routes that checkout to the harness store.
 func TestAliasToHarnessStore(t *testing.T) {
 	cfg := gitRepo(t, t.TempDir(), ".claude")
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	ext := gitRepo(t, filepath.Join(t.TempDir(), "ext"), "claude-code")
 	dir := harnessStoreDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	idMkdir(t, dir)
 	o := Origin{Version: OriginVersion, Key: harnessStoreKey(), Origin: paths.CanonDeep(cfg), Aliases: []string{paths.CanonDeep(ext)}}
-	if err := WriteOrigin(dir, o); err != nil {
-		t.Fatal(err)
-	}
+	idFatal(t, WriteOrigin(dir, o))
 	if got := mustRepoDir(t, ext); got != dir {
 		t.Errorf("RepoDir(ext alias) = %s want %s", got, dir)
 	}
 	// addOriginAlias must refuse to hand that same origin to a different store.
 	other := gitRepo(t, t.TempDir(), "other")
-	odir, err := EnsureRepoDir(other)
-	if err != nil {
-		t.Fatal(err)
-	}
+	odir := idEnsure(t, other)
 	if err := addOriginAlias(odir, ext); !errors.Is(err, errOriginConflict) {
 		t.Errorf("claiming the harness's alias from another store must conflict, got %v", err)
 	}
 }
 
-// TestWorkspaceOriginResolvesNonGitDirAndSubdirs: a store whose .origin names a non-git directory
-// resolves that directory AND its subdirs to the workspace (never HomeBank); an unrelated non-git dir
-// has no matching store and stays HomeBank.
+// A store whose .origin names a non-git dir claims it and its subdirs; an unrelated non-git dir stays HomeBank.
 func TestWorkspaceOriginResolvesNonGitDirAndSubdirs(t *testing.T) {
 	cfg := tempConfig(t)
 	t.Setenv("HOME", t.TempDir())
 	raw := filepath.Join(t.TempDir(), "workspace")
-	if err := os.MkdirAll(raw, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	idMkdir(t, raw)
 	workspace := paths.CanonDeep(raw)
 	dir := filepath.Join(cfg, "memory", "ws")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: "ws", Origin: workspace}); err != nil {
-		t.Fatal(err)
-	}
-
+	idMkdir(t, dir)
+	idFatal(t, WriteOrigin(dir, Origin{Version: OriginVersion, Key: "ws", Origin: workspace}))
 	sub := filepath.Join(workspace, "a", "b")
-	if err := os.MkdirAll(sub, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	idMkdir(t, sub)
 	for _, root := range []string{workspace, sub} {
-		assertWorkspaceRoot(t, root, workspace, dir)
+		if id := Resolve(root); id.HomeBank || id.Origin != workspace {
+			t.Errorf("Resolve(%s) = %+v, want the workspace origin %s", root, id, workspace)
+		}
+		if got, err := RepoDir(root); err != nil || got != dir {
+			t.Errorf("RepoDir(%s) = %s, %v, want %s", root, got, err, dir)
+		}
 	}
-
 	unrelated := t.TempDir()
 	if id := Resolve(unrelated); !id.HomeBank || id.Origin != "" {
 		t.Errorf("Resolve(unrelated non-git dir) = %+v, want HomeBank", id)
-	}
-}
-
-// assertWorkspaceRoot checks root resolves to the workspace origin and its store dir.
-func assertWorkspaceRoot(t *testing.T, root, workspace, dir string) {
-	t.Helper()
-	id := Resolve(root)
-	if id.HomeBank || id.Origin != workspace {
-		t.Errorf("Resolve(%s) = %+v, want the workspace origin %s", root, id, workspace)
-	}
-	if got, err := RepoDir(root); err != nil || got != dir {
-		t.Errorf("RepoDir(%s) = %s, %v, want %s", root, got, err, dir)
 	}
 }
 
@@ -454,9 +408,7 @@ func seedJunkStores(t *testing.T, store string) {
 	t.Helper()
 	for _, k := range []string{"zeta", "alpha"} {
 		os.MkdirAll(filepath.Join(store, k), 0o755)
-		if err := WriteOrigin(filepath.Join(store, k), Origin{Version: OriginVersion, Key: k, Origin: "/src/" + k}); err != nil {
-			t.Fatal(err)
-		}
+		idFatal(t, WriteOrigin(filepath.Join(store, k), Origin{Version: OriginVersion, Key: k, Origin: "/src/" + k}))
 	}
 	os.MkdirAll(filepath.Join(store, "noorigin"), 0o755)
 	write(t, filepath.Join(store, "file.md"), "x")
@@ -492,7 +444,7 @@ func TestRepoDirsSkipsJunk(t *testing.T) {
 	}
 }
 
-// TestRepoDirsReadsOriginsOncePerStamp: a settled catalog reads the vault once; a new store is never stale.
+// A settled catalog reads the vault once; a new store is never stale.
 func TestRepoDirsReadsOriginsOncePerStamp(t *testing.T) {
 	cfg := tempConfig(t)
 	seedJunkStores(t, filepath.Join(cfg, "memory"))
@@ -515,9 +467,7 @@ func TestRepoDirsReadsOriginsOncePerStamp(t *testing.T) {
 		t.Errorf("three RepoDirs on a settled catalog read the vault %d times, want 1", reads)
 	}
 	beta := filepath.Join(cfg, "memory", "beta")
-	if err := errors.Join(os.Mkdir(beta, 0o755), WriteOrigin(beta, Origin{Version: OriginVersion, Key: "beta", Origin: "/src/beta"})); err != nil {
-		t.Fatal(err)
-	}
+	idFatal(t, errors.Join(os.Mkdir(beta, 0o755), WriteOrigin(beta, Origin{Version: OriginVersion, Key: "beta", Origin: "/src/beta"})))
 	if got, _ := RepoDirs(); len(got) != len(want)+1 {
 		t.Errorf("a store added mid-process was served stale: %+v", got)
 	}
@@ -532,9 +482,7 @@ func countRemoteLookups(t *testing.T) func() int {
 	}
 	bin, log := t.TempDir(), filepath.Join(t.TempDir(), "calls")
 	shim := "#!/bin/sh\ncase \"$*\" in *\"remote get-url\"*) echo x >> '" + log + "';; esac\nexec '" + real + "' \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(shim), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	idFatal(t, os.WriteFile(filepath.Join(bin, "git"), []byte(shim), 0o755))
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return func() int {
 		b, _ := os.ReadFile(log)
@@ -545,7 +493,7 @@ func countRemoteLookups(t *testing.T) func() int {
 // resetRemoteCache drops the memoized remotes.
 func resetRemoteCache() { remoteCache.Clear() }
 
-// TestOriginRemoteURLIsMemoized: the second lookup for one checkout (hit or miss) forks no git; the reset hook clears it.
+// The second lookup for one checkout (hit or miss) forks no git; the reset hook clears it.
 func TestOriginRemoteURLIsMemoized(t *testing.T) {
 	tempConfig(t)
 	withRemote := gitRepo(t, t.TempDir(), "has-remote")
@@ -554,7 +502,6 @@ func TestOriginRemoteURLIsMemoized(t *testing.T) {
 	resetRemoteCache()
 	t.Cleanup(resetRemoteCache)
 	calls := countRemoteLookups(t)
-
 	for _, c := range []struct{ dir, want string }{
 		{withRemote, "https://github.com/tester/memo.git"}, {noRemote, ""},
 	} {
@@ -573,7 +520,6 @@ func TestOriginRemoteURLIsMemoized(t *testing.T) {
 			t.Fatalf("second lookup of %s forked git again", c.dir)
 		}
 	}
-
 	fixtureGit(t, noRemote, "remote", "add", "origin", "https://github.com/tester/later.git")
 	if got := originRemoteURL(noRemote); got != "" {
 		t.Fatalf("cache should hide the new remote, got %q", got)
@@ -584,7 +530,6 @@ func TestOriginRemoteURLIsMemoized(t *testing.T) {
 	}
 }
 
-// TestRepoKeyFromRemote pins the basename extraction rule (spec: store re-layout §1) across URL shapes.
 func TestRepoKeyFromRemote(t *testing.T) {
 	t.Parallel()
 	cases := []struct{ url, want string }{
@@ -603,44 +548,27 @@ func TestRepoKeyFromRemote(t *testing.T) {
 	}
 }
 
-// TestRepoKeyUsesOriginRemote: a checkout whose origin remote basename differs from its dir name is keyed
-// by the remote, not the dir — the dir name must never leak into the store key when a remote exists.
-func TestRepoKeyUsesOriginRemote(t *testing.T) {
-	cfg := tempConfig(t)
-	repo := gitRepo(t, t.TempDir(), "mismatched-dirname")
-	fixtureGit(t, repo, "remote", "add", "origin", "https://github.com/tester/claude-dbx.git")
-
-	dir, err := EnsureRepoDir(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := filepath.Join(cfg, "memory", "claude-dbx")
-	if dir != want {
-		t.Fatalf("EnsureRepoDir(remote-keyed repo) = %s, want %s", dir, want)
-	}
-	o, err := ReadOrigin(dir)
-	if err != nil || o.Key != "claude-dbx" {
-		t.Fatalf("origin = %+v, %v", o, err)
-	}
-}
-
-// An origin remote that names no repo (a bare "/") keys the store by the checkout's dir name, never by "".
-func TestRepoKeyFallsBackToDirBasenameWithoutRemote(t *testing.T) {
-	cfg := tempConfig(t)
-	repo := gitRepo(t, t.TempDir(), "no-remote-repo")
-	fixtureGit(t, repo, "remote", "add", "origin", "/")
-	dir, err := EnsureRepoDir(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := filepath.Join(cfg, "memory", "no-remote-repo"); dir != want {
-		t.Fatalf("EnsureRepoDir(no-remote repo) = %s, want %s", dir, want)
+// The store key comes from the origin remote's basename, never the dir name; a remote naming no repo falls back to the dir.
+func TestRepoKeyFromOriginRemoteOrDir(t *testing.T) {
+	for _, c := range []struct{ name, dirName, remote, key string }{
+		{"remote beats dir name", "mismatched-dirname", "https://github.com/tester/claude-dbx.git", "claude-dbx"},
+		{"bare slash remote", "no-remote-repo", "/", "no-remote-repo"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := tempConfig(t)
+			repo := gitRepo(t, t.TempDir(), c.dirName)
+			fixtureGit(t, repo, "remote", "add", "origin", c.remote)
+			dir := idEnsure(t, repo)
+			if want := filepath.Join(cfg, "memory", c.key); dir != want {
+				t.Fatalf("EnsureRepoDir = %s, want %s", dir, want)
+			}
+			if o, err := ReadOrigin(dir); err != nil || o.Key != c.key {
+				t.Fatalf("origin = %+v, %v", o, err)
+			}
+		})
 	}
 }
 
-// TestSameRemoteDifferentCheckoutsDoNotShareAStore: two distinct clones (different checkout paths) that
-// share one origin remote URL resolve to the same slug, so the second must take a hash-suffixed key
-// (existing takenKeys/slugKey collision behaviour) rather than silently writing into the first's store.
 // assertCollisionKey checks db is the hash-suffixed store dir the collision logic derives from checkout.
 func assertCollisionKey(t *testing.T, db, checkout string) {
 	t.Helper()
@@ -649,11 +577,9 @@ func assertCollisionKey(t *testing.T, db, checkout string) {
 	if got := filepath.Base(db); got != wantKey {
 		t.Fatalf("second clone's key = %q, want %q (exact key the collision logic produced)", got, wantKey)
 	}
-	if !strings.HasPrefix(filepath.Base(db), "collide--") {
-		t.Fatalf("second clone's key %q lost the collision suffix", filepath.Base(db))
-	}
 }
 
+// Two clones sharing one remote URL: the second takes a hash-suffixed key, not the first's store.
 func TestSameRemoteDifferentCheckoutsDoNotShareAStore(t *testing.T) {
 	cfg := tempConfig(t)
 	const remote = "https://github.com/tester/collide.git"
@@ -661,24 +587,15 @@ func TestSameRemoteDifferentCheckoutsDoNotShareAStore(t *testing.T) {
 	fixtureGit(t, a, "remote", "add", "origin", remote)
 	b := gitRepo(t, t.TempDir(), "clone-b")
 	fixtureGit(t, b, "remote", "add", "origin", remote)
-
-	da, err := EnsureRepoDir(a)
-	if err != nil {
-		t.Fatal(err)
-	}
+	da := idEnsure(t, a)
 	if want := filepath.Join(cfg, "memory", "collide"); da != want {
 		t.Fatalf("first clone's dir = %s, want %s", da, want)
 	}
-
-	db, err := EnsureRepoDir(b)
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := idEnsure(t, b)
 	if db == da {
 		t.Fatal("second clone silently wrote into the first clone's store")
 	}
 	assertCollisionKey(t, db, b)
-
 	assertBothStoresFindable(t, a, b, da, db)
 }
 
@@ -705,7 +622,6 @@ func TestThrowawayRepoUsesLaunchingWorkspace(t *testing.T) {
 	throwawayInTests = true
 	t.Cleanup(func() { throwawayInTests = orig })
 	scratch := gitRepo(t, t.TempDir(), "p4-opencode-fix1")
-
 	t.Setenv(OriginEnv, "")
 	if id := Resolve(scratch); !id.HomeBank {
 		t.Errorf("no %s: Resolve = %+v, want the home tier", OriginEnv, id)
@@ -723,12 +639,8 @@ func TestThrowawayRepoUsesLaunchingWorkspace(t *testing.T) {
 func seedRouteStore(t *testing.T, key, origin string) string {
 	t.Helper()
 	dir := filepath.Join(StoreDir(), key)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: key, Origin: origin}); err != nil {
-		t.Fatal(err)
-	}
+	idMkdir(t, dir)
+	idFatal(t, WriteOrigin(dir, Origin{Version: OriginVersion, Key: key, Origin: origin}))
 	return dir
 }
 
@@ -737,7 +649,6 @@ func TestRepoByNamePrefersExactKey(t *testing.T) {
 	resetVaultRetry(t)
 	seedRouteStore(t, "alpha", "/src/bravo")
 	want := seedRouteStore(t, "bravo", "/other/checkout")
-
 	got, ok := RepoByName("bravo")
 	if !ok || got.Key != "bravo" || got.Dir != want || got.Origin.Origin != "/other/checkout" {
 		t.Fatalf("RepoByName(bravo) = %+v, %v; want exact key bravo at %s, not alpha's origin basename", got, ok, want)
@@ -748,18 +659,12 @@ func TestRoutedReposMatchesDottedName(t *testing.T) {
 	tempConfig(t)
 	resetVaultRetry(t)
 	want := seedRouteStore(t, ".project", "/src/.project")
-
-	got := routedRepos("check .project")
-	if len(got) != 1 {
-		t.Fatalf("routedRepos(check .project) = %+v; want exactly the dotted store", got)
-	}
-	if got[0].Key != ".project" || got[0].Dir != want {
-		t.Fatalf("routedRepos(check .project) = %+v; want .project at %s", got, want)
+	if got := routedRepos("check .project"); len(got) != 1 || got[0].Key != ".project" || got[0].Dir != want {
+		t.Fatalf("routedRepos(check .project) = %+v; want exactly .project at %s", got, want)
 	}
 }
 
-// TestRoutedReposWholeWordMatchAndShortKeysIgnored: a routed name must appear in the query as a whole
-// word; a bare substring of it, or a key under 4 chars, never matches.
+// A routed name must appear as a whole word; a substring of it, or a key under 4 chars, never matches.
 func TestRoutedReposWholeWordMatchAndShortKeysIgnored(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
@@ -771,7 +676,6 @@ func TestRoutedReposWholeWordMatchAndShortKeysIgnored(t *testing.T) {
 	if _, err := EnsureRepoDir(short); err != nil {
 		t.Fatal(err)
 	}
-
 	got := routedRepos("check Tester.GitHub.io, then deploy")
 	if len(got) != 1 || filepath.Base(got[0].Origin.Origin) != "tester.github.io" {
 		t.Fatalf("got = %+v, want exactly the tester.github.io entry", got)
@@ -803,7 +707,7 @@ const (
 	lockedReadBound   = 2500 * time.Millisecond // the ~2s vault.View timeout plus scheduling slack
 )
 
-// TestBankLockPathLocation pins the physical lock file and guards against an accidental ".lock.lock" variant.
+// Pins the physical lock file and guards against a ".lock.lock" variant.
 func TestBankLockPathLocation(t *testing.T) {
 	cfg := tempConfig(t)
 	p := BankLockPath()
@@ -822,15 +726,11 @@ func TestBankLockPathLocation(t *testing.T) {
 	}
 }
 
-// TestWithBankLockContention: another handle holding the OS file lock blocks WithBankLock out with ErrBankBusy and
-// never runs fn, then lets it through once released (flock on unix, LockFileEx on Windows).
+// A held OS file lock yields ErrBankBusy without running fn; once released fn runs.
 func TestWithBankLockContention(t *testing.T) {
 	tempConfig(t)
 	path := BankLockPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-
+	idFatal(t, os.MkdirAll(filepath.Dir(path), 0o700))
 	ran := false
 	held, err := paths.TryFileLock(path, 0, func() error {
 		return WithBankLock(10*time.Millisecond, func() error { ran = true; return nil })
@@ -844,7 +744,6 @@ func TestWithBankLockContention(t *testing.T) {
 	if ran {
 		t.Fatal("fn must not run while the bank lock is held elsewhere")
 	}
-
 	if err := WithBankLock(10*time.Millisecond, func() error { ran = true; return nil }); err != nil {
 		t.Fatalf("WithBankLock after release: %v", err)
 	}
@@ -857,22 +756,18 @@ func TestWithBankLockContention(t *testing.T) {
 func seedLockedCatalog(t *testing.T) Origin {
 	t.Helper()
 	cfg := tempConfig(t)
-	if err := os.MkdirAll(filepath.Join(cfg, "memory", "locked"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	idMkdir(t, filepath.Join(cfg, "memory", "locked"))
 	want := Origin{Version: OriginVersion, Key: "locked", Origin: "/src/locked"}
 	row := "- locked — hook · last 2024-01-01 → locked/MEMORY.md" + catalogOriginComment(want) + "\n"
 	write(t, filepath.Join(cfg, "memory", CatalogFile), "# Memory catalog\n\n## Repos\n\n"+row)
 	return want
 }
 
-// TestVaultLockedFallsBackToCatalogThenSkipsRetryFor30s: while an open vault write txn holds bbolt's real OS lock,
-// RepoDirs reads index.md, then backs off.
+// While a vault write txn holds bbolt's OS lock, RepoDirs reads index.md, then backs off.
 func TestVaultLockedFallsBackToCatalogThenSkipsRetryFor30s(t *testing.T) {
 	resetVaultRetry(t)
 	t.Cleanup(vault.SetReadLockTimeoutForTest(lockedReadTimeout))
 	want := seedLockedCatalog(t)
-
 	err := vault.Update(func(*vault.Tx) error {
 		start := time.Now()
 		entries, err := RepoDirs()

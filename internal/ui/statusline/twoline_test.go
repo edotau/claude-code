@@ -62,14 +62,6 @@ func TestTwolineCornerCases(t *testing.T) {
 	}
 }
 
-func TestCompactTokens(t *testing.T) {
-	for n, want := range map[int]string{950: "950", 94400: "94.4k", 200000: "200k", 1200000: "1.2M", 2000000: "2M"} {
-		if got := compactTokens(n); got != want {
-			t.Errorf("compactTokens(%d) = %q, want %q", n, got, want)
-		}
-	}
-}
-
 // Velocity follows row 1's model after " | ": a zero side is omitted, and both zero drops the cell and its separator.
 func TestTwolineVelocity(t *testing.T) {
 	text := func(row []twoSeg) (s string) {

@@ -62,25 +62,20 @@ func checkAuthType(t *testing.T, typ string) {
 	}
 }
 
-func TestRetiredAuthSpellingsAreRejected(t *testing.T) {
+func TestOverlayParseRules(t *testing.T) {
+	row := func(auth string) string {
+		return `{"providers":{"anthropic":{"x":{"protocol":"anthropic","base_url":"https://x.example","auth":` + auth + `}}}}`
+	}
 	for _, typ := range []string{"bearer", "u2m", "oauth-m2m", "api-key", "passthrough"} {
-		doc := `{"providers":{"anthropic":{"x":{"protocol":"anthropic","base_url":"https://x.example","auth":{"type":"` + typ + `"}}}}}`
-		if _, err := parseOverlay(t, doc); err == nil || !strings.Contains(err.Error(), "unknown") {
+		if _, err := parseOverlay(t, row(`{"type":"`+typ+`"}`)); err == nil || !strings.Contains(err.Error(), "unknown") {
 			t.Errorf("retired auth type %q: err = %v, want an unknown-type error", typ, err)
 		}
 	}
-}
-
-func TestFlatOverlayIsNotReadByTheRuntime(t *testing.T) {
 	flat := `{"providers":{"gw":{"protocol":"anthropic","base_url":"https://gw.example","auth":{"type":"none"}}}}`
 	if _, err := parseOverlay(t, flat); err == nil || !strings.Contains(err.Error(), `unknown provider "gw"`) {
-		t.Fatalf("err = %v, want the flat row refused as an unknown provider", err)
+		t.Errorf("flat row: err = %v, want it refused as an unknown provider", err)
 	}
-}
-
-func TestOneMIsIgnoredOnLoad(t *testing.T) {
-	doc := `{"providers":{"anthropic":{"x":{"protocol":"anthropic","base_url":"https://x.example","auth":{"type":"none"},"one_m":true}}}}`
-	reg, err := parseOverlay(t, doc)
+	reg, err := parseOverlay(t, strings.Replace(row(`{"type":"none"}`), `}}}}`, `,"one_m":true}}}}`, 1))
 	if err != nil {
 		t.Fatalf("one_m must not break loading: %v", err)
 	}
@@ -117,7 +112,6 @@ func kindRow(kind, clientID, _ string) *Provider {
 		Auth: Auth{Type: kind, ClientID: clientID}}
 }
 
-// validateAuthType checks the companion fields of a sealed kind, clientId injection, and account/workspace id shapes.
 func TestValidateAuthType(t *testing.T) {
 	cases := []struct{ name, kind, clientID, acct, ws, want string }{
 		{"none", "", "", "", "", ""},
@@ -188,7 +182,6 @@ func TestKindChangeRefusedWithoutForce(t *testing.T) {
 	}
 }
 
-// CredentialNames covers the sealed PAT/M2M/OAuth secret name too, so an isolating scrub drops it from other children.
 func TestCredentialNamesIncludeSealedSecret(t *testing.T) {
 	for _, kind := range []string{AuthPAT, AuthM2M, AuthOAuth} {
 		p := kindRow(kind, "", AuthKey)
@@ -207,7 +200,6 @@ func TestValidIDShape(t *testing.T) {
 	}
 }
 
-// An OAuth provider's missing-credential hint names both the databricks login and the configure Set up route.
 func TestAuthHintOAuthNamesLoginAndSetUp(t *testing.T) {
 	p := kindRow(AuthOAuth, "", "")
 	p.Name = "dbx"
@@ -222,7 +214,6 @@ func TestAuthHintOAuthNamesLoginAndSetUp(t *testing.T) {
 	}
 }
 
-// mintErr mints p against an OIDC stub answering status/body and returns the error Credential surfaces.
 func mintErr(t *testing.T, kind string, status int, body map[string]any) error {
 	t.Helper()
 	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) { return status, body })
@@ -276,7 +267,6 @@ func TestVerdictU2MWithoutSealedTokenNeedsLogin(t *testing.T) {
 	}
 }
 
-// Transport failures and timeouts say nothing about the credential: they must never condemn the account.
 func TestVerdictTransientNeverCondemns(t *testing.T) {
 	deadline, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
 	defer cancel()
@@ -328,7 +318,6 @@ func TestIsInvalidTokenResponse(t *testing.T) {
 	}
 }
 
-// spHarness seals a refresh token and an SP secret on a paired u2m row; refresh is rejected (401), M2M is counted.
 func spHarness(t *testing.T, identity string) (p *Provider, m2mCalls, refreshCalls *int, note *bytes.Buffer) {
 	t.Helper()
 	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) { return 401, map[string]any{} })
@@ -371,7 +360,6 @@ func TestIdentityAutoFallsBackToSPOnRejection(t *testing.T) {
 	}
 }
 
-// An SP mint records its expiry tagged m2m, so the statusline countdown shows on a paired oauth row.
 func TestSPMintRecordsExpiryAsM2M(t *testing.T) {
 	p, _, _, _ := spHarness(t, IdentitySP)
 	stubMintM2M(t, jwtExpIn(time.Hour, ""))
@@ -384,7 +372,6 @@ func TestSPMintRecordsExpiryAsM2M(t *testing.T) {
 	}
 }
 
-// A transient SP mint failure rides out on the sealed _ACCESS token, but never for force or under 1 minute.
 func TestTransientSPMintFallsBackToSealedAccess(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range []struct {
@@ -412,19 +399,19 @@ func TestTransientSPMintFallsBackToSealedAccess(t *testing.T) {
 	}
 }
 
-func TestIdentityUserNeverMintsSP(t *testing.T) {
-	p, m2m, _, _ := spHarness(t, IdentityUser)
-	_, err := Credential(context.Background(), p)
-	if err == nil || !strings.Contains(err.Error(), "databricks login") || *m2m != 0 {
-		t.Fatalf("err = %v, m2m calls %d", err, *m2m)
-	}
-}
-
-func TestIdentitySPSkipsUserLogin(t *testing.T) {
-	p, m2m, refresh, _ := spHarness(t, IdentitySP)
-	got, err := Credential(context.Background(), p)
-	if err != nil || got != "sp-token" || *m2m != 1 || *refresh != 0 {
-		t.Fatalf("got %q, %v (m2m %d, refresh %d)", got, err, *m2m, *refresh)
+func TestIdentityExplicitModes(t *testing.T) {
+	for _, c := range []struct {
+		identity, wantTok, wantErr string
+		wantM2M                    int
+	}{{IdentityUser, "", "databricks login", 0}, {IdentitySP, "sp-token", "", 1}} {
+		t.Run(c.identity, func(t *testing.T) {
+			p, m2m, refresh, _ := spHarness(t, c.identity)
+			got, err := Credential(context.Background(), p)
+			if c.wantErr == "" && err != nil || c.wantErr != "" && (err == nil || !strings.Contains(err.Error(), c.wantErr)) ||
+				got != c.wantTok || *m2m != c.wantM2M || c.wantErr == "" && *refresh != 0 {
+				t.Fatalf("got %q, %v (m2m %d, refresh %d)", got, err, *m2m, *refresh)
+			}
+		})
 	}
 }
 
@@ -508,7 +495,6 @@ func TestIdentityUserCannotJoinAutoSPFlight(t *testing.T) {
 	}
 }
 
-// Auto mode with no sealed user login goes straight to the paired SP: no user refresh is attempted.
 func TestIdentityAutoWithoutUserLoginSkipsRefresh(t *testing.T) {
 	p, m2m, refresh, _ := spHarness(t, "")
 	if err := vault.Delete(AuthSecretName(p)); err != nil {
@@ -524,7 +510,6 @@ func TestIdentityAutoWithoutUserLoginSkipsRefresh(t *testing.T) {
 	}
 }
 
-// A sealed SP token is served by a new process without a mint and without the fallback note; a mint notes once.
 func TestSPNoteOnlyOnMint(t *testing.T) {
 	p, m2m, _, out := spHarness(t, IdentitySP)
 	tok := jwtExpIn(time.Hour, "")
@@ -549,10 +534,8 @@ func TestSPNoteOnlyOnMint(t *testing.T) {
 	}
 }
 
-// idCreds is which credentials an identityRow stores; rejected makes the token endpoint refuse the SP (a real 401).
 type idCreds struct{ sp, user, rejected bool }
 
-// identityRow is a paired oauth row on identity with c's credentials; the user refresh and SP mint are stubbed.
 func identityRow(t *testing.T, name, identity string, c idCreds) *Provider {
 	t.Helper()
 	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
@@ -583,7 +566,6 @@ func identityRow(t *testing.T, name, identity string, c idCreds) *Provider {
 	return p
 }
 
-// resolveCell mints once on a fresh row and returns the credential used ("" on error), " fb" when a fallback was noted.
 func resolveCell(t *testing.T, ctx context.Context, name, identity string, c idCreds) string {
 	t.Helper()
 	p := identityRow(t, name, identity, c)
@@ -601,8 +583,6 @@ func resolveCell(t *testing.T, ctx context.Context, name, identity string, c idC
 	return got
 }
 
-// A dispatch on an auto row mints as the SP first and falls back to the user login with a note; an explicit identity
-// never falls back, and an interactive launch on the same row keeps auto's user-first order.
 func TestIdentityResolutionTable(t *testing.T) {
 	modes := []struct{ name, identity, as string }{
 		{"auto", IdentityAuto, ""}, {"sp", IdentitySP, ""}, {"user", IdentityUser, ""},
@@ -642,7 +622,6 @@ func patRow(host string) string {
 	return `{"preset":"databricks","host":"` + host + `","auth":{"type":"pat"}}`
 }
 
-// Two rows whose sealed secret names collide (a-b, a_b) are refused, naming both; distinct names pass.
 func TestValidateSealedSecretNameCollision(t *testing.T) {
 	for second, collides := range map[string]bool{"a_b": true, "c_d": false} {
 		doc := `{"providers":{"databricks":{"a-b":` + patRow(dbxHost) + `,"` + second + `":` + patRow(dbxHost) + `}}}`
@@ -658,7 +637,6 @@ func m2mBaseRow(base string) string {
 		`"auth":{"type":"m2m","clientId":"sp-client"}}`
 }
 
-// A sealed row on plain http is refused unless the host is loopback; https always passes.
 func TestValidateSealedHostScheme(t *testing.T) {
 	for doc, ok := range map[string]bool{
 		`{"m2m-http":` + m2mBaseRow("http://example.cloud.databricks.com") + `}`: false,
@@ -681,31 +659,24 @@ func TestAuthHostRejectsPlainHTTPNonLoopback(t *testing.T) {
 	}
 }
 
-func TestLoopbackHTTPSealedRowStillMints(t *testing.T) {
-	srv := oidcServer(t, func(_ *http.Request, _ url.Values) (int, map[string]any) {
+func TestHTTPSealedRowMint(t *testing.T) {
+	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
 		return 200, map[string]any{"access_token": "loop-minted", "expires_in": 3600}
 	})
-	p := mintRow(t, "kind-loop-http", AuthM2M, "sp-client", srv.URL)
-	if err := vault.Store(AuthSecretName(p), "sp-secret"); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := Credential(context.Background(), p); err != nil || got != "loop-minted" {
-		t.Fatalf("Credential = %q, %v", got, err)
-	}
-}
-
-func TestPlainHTTPNonLoopbackSealedRowDoesNotMint(t *testing.T) {
-	p := mintRow(t, "kind-nonloop-http", AuthM2M, "sp-client", "http://example.cloud.databricks.com")
-	if err := vault.Store(AuthSecretName(p), "sp-secret"); err != nil {
-		t.Fatal(err)
-	}
-	got, err := Credential(context.Background(), p)
-	if err == nil || got != "" || strings.Contains(err.Error(), "sp-secret") {
-		t.Fatalf("Credential = %q, %v; want an error and no token", got, err)
+	for _, c := range []struct{ name, host, want string }{
+		{"kind-loop-http", srv.URL, "loop-minted"}, {"kind-nonloop-http", "http://example.cloud.databricks.com", ""},
+	} {
+		p := mintRow(t, c.name, AuthM2M, "sp-client", c.host)
+		if err := vault.Store(AuthSecretName(p), "sp-secret"); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Credential(context.Background(), p)
+		if got != c.want || (err == nil) != (c.want != "") || err != nil && strings.Contains(err.Error(), "sp-secret") {
+			t.Errorf("%s: Credential = %q, %v", c.name, got, err)
+		}
 	}
 }
 
-// clientRow is an m2m row, or with sp a paired u2m row on identity sp, plus the vault name of its client secret.
 func clientRow(t *testing.T, sp bool) (*Provider, string) {
 	if sp {
 		p, _, _, _ := spHarness(t, IdentitySP)
@@ -718,14 +689,12 @@ func clientRow(t *testing.T, sp bool) (*Provider, string) {
 	return p, AuthSecretName(p)
 }
 
-// An m2m/sp token minted by one process is reused by the next until its client secret changes or a refresh forces it.
 func TestClientTokenSharedAcrossProcesses(t *testing.T) {
 	for _, sp := range []bool{false, true} {
 		t.Run(fmt.Sprint("sp=", sp), func(t *testing.T) { checkClientTokenSharing(t, sp) })
 	}
 }
 
-// checkClientTokenSharing runs the reuse, rotation and forced-mint steps for one client row (m2m, or paired sp).
 func checkClientTokenSharing(t *testing.T, sp bool) {
 	p, secretName := clientRow(t, sp)
 	calls, orig := 0, mintM2M
@@ -749,17 +718,11 @@ func checkClientTokenSharing(t *testing.T, sp bool) {
 	if rotated, err := Credential(ctx, p); err != nil || rotated == first || calls != 2 {
 		t.Fatalf("after secret rotation: reused=%t calls=%d err=%v; want a fresh mint", rotated == first, calls, err)
 	}
-	checkClientForcedRefresh(t, p, &calls)
-}
-
-func checkClientForcedRefresh(t *testing.T, p *Provider, calls *int) {
-	t.Helper()
-	if _, err := Refresh(context.Background(), p); err != nil || *calls != 3 {
-		t.Fatalf("Refresh: calls=%d err=%v; want a forced mint", *calls, err)
+	if _, err := Refresh(ctx, p); err != nil || calls != 3 {
+		t.Fatalf("Refresh: calls=%d err=%v; want a forced mint", calls, err)
 	}
 }
 
-// A minted token that fails the issuer check is refused before it is sealed into the shared vault.
 func TestM2MWrongIssuerTokenNotSealed(t *testing.T) {
 	p, secretName := clientRow(t, false)
 	p.Preset, p.Host = PresetDatabricks, "https://h.example.com"
@@ -773,7 +736,6 @@ func TestM2MWrongIssuerTokenNotSealed(t *testing.T) {
 	}
 }
 
-// stubMintM2M makes every M2M mint return tok for this test.
 func stubMintM2M(t *testing.T, tok string) {
 	t.Helper()
 	orig := mintM2M
@@ -792,7 +754,6 @@ func vaultHas(t *testing.T, name string) bool {
 	return found
 }
 
-// An m2m row and a paired profile cache their SP token under <PROFILE>_M2M_ACCESS, never a hash name.
 func TestM2MTokenCachedUnderProfileName(t *testing.T) {
 	for _, sp := range []bool{false, true} {
 		t.Run(fmt.Sprint("sp=", sp), func(t *testing.T) {
@@ -838,7 +799,6 @@ func TestM2MMintSweepsLegacyHashSlot(t *testing.T) {
 	}
 }
 
-// A forced u2m mint sealed by one process is adopted, with no refresh call, by another whose own token is near expiry.
 func TestForcedU2MMintAdoptedByOtherProcess(t *testing.T) {
 	p := mintRow(t, "u2m-adopt", AuthOAuth, "", "https://h.example.com")
 	if err := writeOAuth(p, oauthValue{Refresh: "rt"}); err != nil {
@@ -863,7 +823,6 @@ func TestForcedU2MMintAdoptedByOtherProcess(t *testing.T) {
 	}
 }
 
-// A forced m2m mint on one row seals only that row's slot; another row on the same principal keeps its own token.
 func TestM2MForcedMintLeavesOtherRowSlot(t *testing.T) {
 	p, nameA := clientRow(t, false)
 	nameB := nameA + "_OTHER"

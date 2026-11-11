@@ -3,6 +3,7 @@ package ask
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -117,11 +118,18 @@ func spawnLeg(ctx context.Context, client *client.Client, leg roles.Leg) (job.Re
 		return job.Record{}, err
 	}
 	if err := job.Spawn(&prepared.Record, nil); err != nil {
-		prepared.Record.Finish(wire.Result{}, err, time.Since(prepared.Record.Time))
-		_ = prepared.Record.Save()
-		return job.Record{}, err
+		return job.Record{}, failSpawn(&prepared.Record, err)
 	}
 	return prepared.Record, nil
+}
+
+// failSpawn finishes a record whose spawn failed so it never shows as running; a failed save joins the returned error.
+func failSpawn(rec *job.Record, err error) error {
+	rec.Finish(wire.Result{}, err, time.Since(rec.Time))
+	if saveErr := rec.Save(); saveErr != nil {
+		err = errors.Join(err, fmt.Errorf("save failed dispatch %s: %w", rec.ID, saveErr))
+	}
+	return err
 }
 
 // printLegID prints a detached leg's id: one JSON line, or the label and ask's background-start text.

@@ -27,8 +27,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// runAgentEffort runs the hook, returning the decoded updatedInput (nil when the hook emitted
-// nothing) and the exit code.
+// runAgentEffort returns the decoded updatedInput (nil when the hook emitted nothing) and the exit code.
 func runAgentEffort(t *testing.T, stdin string) (map[string]any, int) {
 	t.Helper()
 	var out bytes.Buffer
@@ -36,12 +35,7 @@ func runAgentEffort(t *testing.T, stdin string) (map[string]any, int) {
 	if strings.TrimSpace(out.String()) == "" {
 		return nil, code
 	}
-	var doc struct {
-		HSO struct {
-			Event        string         `json:"hookEventName"`
-			UpdatedInput map[string]any `json:"updatedInput"`
-		} `json:"hookSpecificOutput"`
-	}
+	var doc agentEffortDoc
 	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
 		t.Fatalf("emitted invalid JSON (%v): %q", err, out.String())
 	}
@@ -51,8 +45,7 @@ func runAgentEffort(t *testing.T, stdin string) (map[string]any, int) {
 	return doc.HSO.UpdatedInput, code
 }
 
-// agentEffortDoc is the full emitted payload shape, for tests asserting systemMessage and
-// additionalContext alongside updatedInput.
+// agentEffortDoc is the full emitted payload, for tests asserting systemMessage and additionalContext.
 type agentEffortDoc struct {
 	SystemMessage string `json:"systemMessage"`
 	HSO           struct {
@@ -73,10 +66,19 @@ func runAgentEffortFull(t *testing.T, stdin string) agentEffortDoc {
 	return doc
 }
 
-// TestAgentEffortSystemMessageAndContextBothPresent: R2 adds a top-level systemMessage beside the
-// existing additionalContext — neither replaces the other, and additionalContext keeps its own note.
+// effortHome points CLAUDE_CONFIG_DIR at a fresh dir (no ambient recall hit, no real roster) holding the agent specs.
+func effortHome(t *testing.T, agents ...string) string {
+	t.Helper()
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	for _, a := range agents {
+		writeAgentFile(t, cfg, a)
+	}
+	return cfg
+}
+
 func TestAgentEffortSystemMessageAndContextBothPresent(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // hermetic: no recall hit from an ambient real bank
+	effortHome(t)
 	doc := runAgentEffortFull(t, `{"tool_name":"Agent","tool_input":{"prompt":"fix the typo in the help text"}}`)
 	if want := "dispatch-effort: low → haiku (mechanical)"; doc.SystemMessage != want {
 		t.Errorf("systemMessage = %q, want %q", doc.SystemMessage, want)
@@ -89,133 +91,55 @@ func TestAgentEffortSystemMessageAndContextBothPresent(t *testing.T) {
 	}
 }
 
-// The hook must never block — it is advisory plumbing, not a gate.
+// The hook is advisory plumbing and must never block.
 func TestAgentEffortAlwaysProceeds(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // hermetic: no recall hit from an ambient real bank
-	for _, stdin := range []string{
-		``,
-		`not-json`,
-		`{}`,
-		`{"tool_name":"Agent"}`,
-		`{"tool_name":"Agent","tool_input":{}}`,
-		`{"tool_name":"Agent","tool_input":{"prompt":"fix a typo"}}`,
-	} {
+	effortHome(t)
+	for _, stdin := range []string{``, `not-json`, `{}`, `{"tool_name":"Agent"}`, `{"tool_name":"Agent","tool_input":{}}`,
+		`{"tool_name":"Agent","tool_input":{"prompt":"fix a typo"}}`} {
 		if _, code := runAgentEffort(t, stdin); code != core.ExitProceed {
 			t.Errorf("stdin %q exited %d, want ExitProceed", stdin, code)
 		}
 	}
 }
 
-func TestAgentEffortFillsUnsetModel(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // hermetic: no recall hit from an ambient real bank
-	cases := []struct{ name, prompt, wantModel string }{
-		{"low complexity -> haiku", "fix the typo in the help text", "haiku"},
-		{"medium complexity -> sonnet", "add a --verbose flag to the token command", "sonnet"},
+// wantModel "" means the dispatch must be left untouched: explicit and roster-pinned models win, other tools and
+// path-shaped types are ignored, and high complexity is pinned to sonnet rather than inheriting.
+func TestAgentEffortModelPin(t *testing.T) {
+	effortHome(t, "pinned-agent:sonnet", "inherit-agent:inherit")
+	cases := []struct{ name, stdin, wantModel string }{
+		{"low -> haiku", `{"tool_name":"Agent","tool_input":{"prompt":"fix the typo in the help text"}}`, "haiku"},
+		{"medium -> sonnet", `{"tool_name":"Agent","tool_input":{"prompt":"add a --verbose flag to the token command"}}`, "sonnet"},
+		{"high capped at sonnet", `{"tool_name":"Agent","tool_input":{"prompt":"refactor the auth ladder and migrate the hooks"}}`, "sonnet"},
+		{"explicit model wins", `{"tool_name":"Agent","tool_input":{"prompt":"fix a typo","model":"opus"}}`, ""},
+		{"inherit is unset", `{"tool_name":"Agent","tool_input":{"prompt":"fix the typo in the help text","model":"inherit"}}`, "haiku"},
+		{"other tool ignored", `{"tool_name":"Bash","tool_input":{"prompt":"fix a typo","command":"ls"}}`, ""},
+		{"Task tool filled", `{"tool_name":"Task","tool_input":{"prompt":"fix a typo"}}`, "haiku"},
+		{"empty subagent_type", `{"tool_name":"Agent","tool_input":{"prompt":"fix the typo in README","subagent_type":""}}`, "haiku"},
+		{"path-shaped type untouched", `{"tool_name":"Agent","tool_input":{"prompt":"fix a typo","subagent_type":"../etc/agents/x"}}`, ""},
+		{"roster pin wins", `{"tool_name":"Agent","tool_input":{"prompt":"fix a typo","subagent_type":"pinned-agent"}}`, ""},
+		{"roster inherit = session model", `{"tool_name":"Agent","tool_input":{"prompt":"fix a typo","subagent_type":"inherit-agent"}}`, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			in := `{"tool_name":"Agent","tool_input":{"prompt":"` + c.prompt + `"}}`
-			got, _ := runAgentEffort(t, in)
-			if got == nil {
-				t.Fatal("emitted nothing, want an updatedInput with a model")
+			got, _ := runAgentEffort(t, c.stdin)
+			if c.wantModel == "" && got != nil {
+				t.Errorf("dispatch was rewritten to %v, want untouched", got)
 			}
-			if got["model"] != c.wantModel {
-				t.Errorf("model = %v, want %q", got["model"], c.wantModel)
+			if c.wantModel != "" && (got == nil || got["model"] != c.wantModel) {
+				t.Errorf("updatedInput = %v, want model=%q", got, c.wantModel)
 			}
 		})
 	}
 }
 
-// High complexity is PINNED to sonnet, not left to inherit. Inheriting meant a verbose prompt silently
-// landed on whatever the parent session ran, which is how long audits ended up on the reasoning tier
-// with no rule naming them. Whoever genuinely wants a bigger model sets model: explicitly — that wins.
-func TestAgentEffortCapsHighAtSonnet(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // hermetic: no recall hit from an ambient real bank
-	in := `{"tool_name":"Agent","tool_input":{"prompt":"refactor the auth ladder and migrate the hooks"}}`
-	got, _ := runAgentEffort(t, in)
-	if got == nil {
-		t.Fatal("high-complexity dispatch was left to inherit the session model, want pinned model=sonnet")
-	}
-	if got["model"] != "sonnet" {
-		t.Errorf("model = %v, want \"sonnet\"", got["model"])
-	}
-}
-
-// An explicit model is a deliberate choice by whoever dispatched; the hook must not second-guess it
-// even when the prompt classifies cheap.
-func TestAgentEffortRespectsExplicitModel(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // hermetic: no recall hit from an ambient real bank
-	in := `{"tool_name":"Agent","tool_input":{"prompt":"fix a typo","model":"opus"}}`
-	if got, _ := runAgentEffort(t, in); got != nil {
-		t.Errorf("explicit model was overridden to %v, want untouched", got)
-	}
-}
-
-// The dispatch's own `model:"inherit"` is a Claude Code default, not a deliberate pin — it must be
-// treated as unset, or a spawn left at "inherit" silently ran on the parent session's model instead
-// of the classifier's cost-down tier.
-func TestAgentEffortTreatsInheritModelAsUnset(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // hermetic: no recall hit from an ambient real bank
-	in := `{"tool_name":"Agent","tool_input":{"prompt":"fix the typo in the help text","model":"inherit"}}`
-	got, _ := runAgentEffort(t, in)
-	if got == nil {
-		t.Fatal("model:\"inherit\" was left untouched, want it filled like an unset model")
-	}
-	if got["model"] != "haiku" {
-		t.Errorf("model = %v, want \"haiku\"", got["model"])
-	}
-}
-
-// A roster agent that pins a concrete model already carries its tier — defer to the frontmatter.
-// Hermetic: the roster is fabricated in a temp CLAUDE_CONFIG_DIR — reading the real repo roster
-// would pass locally (ambient CLAUDE_CONFIG_DIR = the checkout) but fail in CI (empty ~/.claude).
-func TestAgentEffortDefersToRosterPin(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", home)
-	writeAgent := func(name, model string) {
-		body := "---\nname: " + name + "\ndescription: test agent\nmodel: " + model + "\n---\nbody\n"
-		if err := os.MkdirAll(filepath.Join(home, "agents"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(home, "agents", name+".md"), []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	writeAgent("pinned-agent", "sonnet")
-	writeAgent("inherit-agent", "inherit")
-
-	pinned := `{"tool_name":"Agent","tool_input":{"prompt":"fix a typo","subagent_type":"pinned-agent"}}`
-	if got, _ := runAgentEffort(t, pinned); got != nil {
-		t.Errorf("model-pinned agent was overridden to %v, want untouched", got)
-	}
-	inherit := `{"tool_name":"Agent","tool_input":{"prompt":"fix a typo","subagent_type":"inherit-agent"}}`
-	if got, _ := runAgentEffort(t, inherit); got != nil {
-		t.Errorf("inherit-model agent was overridden to %v, want untouched (frontmatter inherit = session model)", got)
-	}
-}
-
-// updatedInput REPLACES the whole input record, so dropping a key would silently alter the dispatch.
-// This is the change's sharpest edge — assert every original key survives byte-for-byte.
+// updatedInput replaces the whole input record, so every original key must survive.
 func TestAgentEffortPreservesAllInputKeys(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // hermetic: no recall hit from an ambient real bank
-	in := `{"tool_name":"Agent","tool_input":{` +
-		`"prompt":"fix the typo in the help text",` +
-		`"description":"fix typo",` +
-		`"isolation":"worktree",` +
-		`"run_in_background":false,` +
-		`"subagent_type":"general-purpose"}}`
+	effortHome(t)
+	in := `{"tool_name":"Agent","tool_input":{"prompt":"fix the typo in the help text","description":"fix typo",` +
+		`"isolation":"worktree","run_in_background":false,"subagent_type":"general-purpose"}}`
 	got, _ := runAgentEffort(t, in)
-	if got == nil {
-		t.Fatal("emitted nothing, want an updatedInput")
-	}
-	want := map[string]any{
-		"prompt":            "fix the typo in the help text",
-		"description":       "haiku: fix typo", // labelled with the filled model
-		"isolation":         "worktree",
-		"run_in_background": false,
-		"subagent_type":     "general-purpose",
-		"model":             "haiku", // the only added key
-	}
+	want := map[string]any{"prompt": "fix the typo in the help text", "description": "haiku: fix typo", "isolation": "worktree",
+		"run_in_background": false, "subagent_type": "general-purpose", "model": "haiku"}
 	if len(got) != len(want) {
 		t.Fatalf("updatedInput has %d keys, want %d: %v", len(got), len(want), got)
 	}
@@ -226,47 +150,7 @@ func TestAgentEffortPreservesAllInputKeys(t *testing.T) {
 	}
 }
 
-// A non-spawn tool must be ignored even if the matcher is ever widened by mistake.
-func TestAgentEffortIgnoresOtherTools(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // hermetic: no recall hit from an ambient real bank
-	in := `{"tool_name":"Bash","tool_input":{"prompt":"fix a typo","command":"ls"}}`
-	if got, _ := runAgentEffort(t, in); got != nil {
-		t.Errorf("non-spawn tool was rewritten to %v, want untouched", got)
-	}
-}
-
-// The matcher is "Agent|Task" (settings.Registry), and core.SpawnTools names both — Task
-// must be filled exactly like Agent, not treated as inert.
-func TestAgentEffortFillsUnsetModelOnTaskTool(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // hermetic: no recall hit from an ambient real bank
-	in := `{"tool_name":"Task","tool_input":{"prompt":"fix a typo"}}`
-	got, _ := runAgentEffort(t, in)
-	if got == nil || got["model"] != "haiku" {
-		t.Errorf("Task-tool dispatch = %v, want model=haiku", got)
-	}
-}
-
-// With no subagent_type at all (a fresh general-purpose agent), the classifier still applies.
-func TestAgentEffortNoSubagentType(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // hermetic: no recall hit from an ambient real bank
-	in := `{"tool_name":"Agent","tool_input":{"prompt":"fix the typo in README","subagent_type":""}}`
-	got, _ := runAgentEffort(t, in)
-	if got == nil || got["model"] != "haiku" {
-		t.Errorf("model = %v, want haiku", got)
-	}
-}
-
-// A path-shaped subagent_type is not a roster name; the dispatch is left untouched rather than guessed at.
-func TestAgentEffortRefusesPathShapedSubagentType(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // hermetic: no recall hit from an ambient real bank
-	in := `{"tool_name":"Agent","tool_input":{"prompt":"fix a typo","subagent_type":"../etc/agents/x"}}`
-	if got, _ := runAgentEffort(t, in); got != nil {
-		t.Errorf("path-shaped subagent_type was rewritten to %v, want untouched", got)
-	}
-}
-
-// seedHomeRecallBlock writes n id-marked, strongly-matching home-bank blocks so AgentRecall has
-// real hits to rank; each block repeats the query terms plus padding so BM25 scores them close.
+// seedHomeRecallBlock writes n id-marked home-bank blocks repeating the query terms so BM25 scores them close.
 func seedHomeRecallBlock(t *testing.T, n int) {
 	t.Helper()
 	if err := os.MkdirAll(memory.HomeBankDir(), 0o755); err != nil {
@@ -284,94 +168,86 @@ func seedHomeRecallBlock(t *testing.T, n int) {
 
 const recallPrompt = "stage the deploy pipeline staging signoff rollout"
 
-// TestAgentEffortExplicitModelRecallAppendsPromptOnly: an explicit model still gets the recall
-// block (prompt changes), the model field is untouched, and no systemMessage/decision fires since
-// the model itself never changed.
+// recallDispatch is an Agent payload carrying prompt plus extra raw JSON fields.
+func recallDispatch(prompt, extra string) string {
+	return fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"prompt":%q%s}}`, prompt, extra)
+}
+
 func TestAgentEffortExplicitModelRecallAppendsPromptOnly(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	effortHome(t)
 	seedHomeRecallBlock(t, 1)
-	in := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"prompt":%q,"model":"opus"}}`, recallPrompt)
-	doc := runAgentEffortFull(t, in)
+	doc := runAgentEffortFull(t, recallDispatch(recallPrompt, `,"model":"opus"`))
 	if doc.HSO.UpdatedInput["model"] != "opus" {
 		t.Errorf("model = %v, want untouched \"opus\"", doc.HSO.UpdatedInput["model"])
 	}
-	prompt, _ := doc.HSO.UpdatedInput["prompt"].(string)
-	if !strings.Contains(prompt, "<memory-recall>") {
-		t.Errorf("prompt missing the recall block: %q", prompt)
+	if p, _ := doc.HSO.UpdatedInput["prompt"].(string); !strings.Contains(p, "<memory-recall>") {
+		t.Errorf("prompt missing the recall block: %q", p)
 	}
 	if doc.SystemMessage != "" {
 		t.Errorf("systemMessage = %q, want empty — the model never changed", doc.SystemMessage)
 	}
 }
 
-// TestAgentEffortNoHitsNoPinEmitsNothing: an empty bank plus an explicit model means neither
-// rewrite applies, so the hook must emit nothing at all (not an empty-but-present updatedInput).
+// An empty bank plus an explicit model means no rewrite applies: nothing is emitted.
 func TestAgentEffortNoHitsNoPinEmitsNothing(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // no bank seeded: nothing to recall
-	in := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"prompt":%q,"model":"opus"}}`, recallPrompt)
-	if got, code := runAgentEffort(t, in); got != nil || code != core.ExitProceed {
+	effortHome(t)
+	if got, code := runAgentEffort(t, recallDispatch(recallPrompt, `,"model":"opus"`)); got != nil || code != core.ExitProceed {
 		t.Errorf("updatedInput = %v code=%d, want nil/ExitProceed", got, code)
 	}
 }
 
-// TestAgentEffortRecallSkipsPromptAlreadyCarryingMarker: a prompt that already has a <memory-recall>
-// block (e.g. relayed from a parent turn) must not get a second one appended.
+// A prompt already carrying a <memory-recall> block must not get a second one.
 func TestAgentEffortRecallSkipsPromptAlreadyCarryingMarker(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	effortHome(t)
 	seedHomeRecallBlock(t, 1)
-	already := recallPrompt + "\n\n" + "<memory-recall>" + "\n- old hit\n</memory-recall>"
-	in := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"prompt":%q,"model":"opus"}}`, already)
-	got, _ := runAgentEffort(t, in)
-	if got != nil {
+	already := recallPrompt + "\n\n<memory-recall>\n- old hit\n</memory-recall>"
+	if got, _ := runAgentEffort(t, recallDispatch(already, `,"model":"opus"`)); got != nil {
 		t.Errorf("prompt already carrying a recall block was rewritten: %v", got)
 	}
 }
 
-// TestAgentEffortRecallPreservesAllInputKeysWithModelFill: the model-fill path AND the recall-append
-// path can both fire on the same dispatch, and every original key still survives alongside both edits.
+// The model fill and the recall append can both fire on one dispatch without dropping an original key.
 func TestAgentEffortRecallPreservesAllInputKeysWithModelFill(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	effortHome(t)
 	seedHomeRecallBlock(t, 1)
-	in := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{`+
-		`"prompt":%q,"description":"deploy work","isolation":"worktree",`+
-		`"run_in_background":false,"subagent_type":"general-purpose"}}`, recallPrompt)
-	got, _ := runAgentEffort(t, in)
+	got, _ := runAgentEffort(t, recallDispatch(recallPrompt,
+		`,"description":"deploy work","isolation":"worktree","run_in_background":false,"subagent_type":"general-purpose"`))
 	if got == nil {
 		t.Fatal("emitted nothing, want an updatedInput")
 	}
-	for _, k := range []string{"description", "isolation", "run_in_background", "subagent_type"} {
-		want := map[string]any{"description": "sonnet: deploy work", "isolation": "worktree", "run_in_background": false, "subagent_type": "general-purpose"}[k]
-		if got[k] != want {
-			t.Errorf("updatedInput[%q] = %v, want %v (original key dropped)", k, got[k], want)
+	want := map[string]any{"description": "sonnet: deploy work", "isolation": "worktree", "run_in_background": false, "subagent_type": "general-purpose"}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("updatedInput[%q] = %v, want %v (original key dropped)", k, got[k], v)
 		}
 	}
 	if got["model"] == nil {
 		t.Error("model was not filled alongside the recall append")
 	}
-	prompt, _ := got["prompt"].(string)
-	if !strings.Contains(prompt, "<memory-recall>") {
-		t.Errorf("prompt missing the recall block: %q", prompt)
+	if p, _ := got["prompt"].(string); !strings.Contains(p, "<memory-recall>") {
+		t.Errorf("prompt missing the recall block: %q", p)
 	}
 }
 
-// TestAgentEffortRecallEngineFailureFallsBackToTodaysBehavior: if the recall engine can't read the
-// bank (CLAUDE_CONFIG_DIR points at a file, not a directory), the hook must still fill the model and
-// never crash or block — the same fail-open contract as the decision-log write.
+// A recall engine that cannot read the bank (config dir is a file) still fills the model and never blocks.
 func TestAgentEffortRecallEngineFailureFallsBackToTodaysBehavior(t *testing.T) {
-	home := t.TempDir()
-	notADir := filepath.Join(home, "blocked")
+	notADir := filepath.Join(t.TempDir(), "blocked")
 	if err := os.WriteFile(notADir, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", notADir)
-	in := `{"tool_name":"Agent","tool_input":{"prompt":"fix the typo in the help text"}}`
-	got, code := runAgentEffort(t, in)
+	got, code := runAgentEffort(t, `{"tool_name":"Agent","tool_input":{"prompt":"fix the typo in the help text"}}`)
 	if code != core.ExitProceed {
 		t.Errorf("exit = %d, want ExitProceed despite an unreadable bank", code)
 	}
 	if got == nil || got["model"] != "haiku" {
 		t.Errorf("updatedInput = %v, want model=haiku despite the recall failure", got)
 	}
+}
+
+// effortResult runs the pin step on a payload without the emitter.
+func effortResult(payload string) core.Result {
+	return agentEffortResult(core.ParseInput(strings.NewReader(payload)))
 }
 
 // runEffortHook renders the pin step through the production PreToolUse emitter.
@@ -399,7 +275,7 @@ func TestAgentEffortAutoModeRecallRidesContextNotUpdatedInput(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	seedHomeRecallBlock(t, 2)
 	in := fmt.Sprintf(`{"tool_name":"Agent","permission_mode":"auto","tool_input":{"prompt":%q,"model":"opus"}}`, recallPrompt)
-	res := agentEffortResult(core.ParseInput(strings.NewReader(in)))
+	res := effortResult(in)
 	if res.UpdatedInput != nil {
 		t.Errorf("updatedInput = %v, want none in auto mode", res.UpdatedInput)
 	}
@@ -414,7 +290,7 @@ func labelOf(t *testing.T, subagentType, prompt, desc string) string {
 	labelCell = func(_ *dispatchRun, agent, alias string) string { return agent + "-" + alias }
 	payload := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"model":"sonnet","prompt":%q,"description":%q}}`,
 		subagentType, prompt, desc)
-	r := agentEffortResult(core.ParseInput(strings.NewReader(payload)))
+	r := effortResult(payload)
 	if r.UpdatedInput == nil {
 		return desc
 	}
@@ -505,7 +381,7 @@ func TestDispatchLabelNamesRoutedModel(t *testing.T) {
 		"Agent: codex\nreview":               "gpt-6.1-sol: review diff",
 		"Agent: claude (in-context)\nreview": "gpt-6.1-sol: review diff", // an external type runs its agent, whatever the brief
 	} {
-		r := agentEffortResult(core.ParseInput(strings.NewReader(payload(prompt))))
+		r := effortResult(payload(prompt))
 		if got, _ := r.UpdatedInput["description"].(string); got != want && (want != "review diff" || r.UpdatedInput != nil) {
 			t.Errorf("%q: label = %q, want %q", prompt, got, want)
 		}
@@ -555,16 +431,16 @@ func autoDispatch(st, desc string) string {
 func TestDispatchLabelAutoModeDeniesOnce(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	stubLabelModels(t, "", "")
-	r := agentEffortResult(core.ParseInput(strings.NewReader(autoDispatch("claude", "fix bug"))))
+	r := effortResult(autoDispatch("claude", "fix bug"))
 	if r.Decision != core.Block || r.UpdatedInput != nil || !strings.Contains(r.Reason, `"sonnet: fix bug"`) {
 		t.Fatalf("unprefixed auto dispatch = %+v, want a Block naming \"sonnet: fix bug\" and no rewrite", r)
 	}
-	r = agentEffortResult(core.ParseInput(strings.NewReader(autoDispatch("claude", "sonnet: fix bug"))))
+	r = effortResult(autoDispatch("claude", "sonnet: fix bug"))
 	if r.Decision == core.Block {
 		t.Fatalf("resend with the right prefix was blocked: %+v", r)
 	}
 	manual := strings.Replace(autoDispatch("claude", "fix bug"), `"permission_mode":"auto",`, "", 1)
-	r = agentEffortResult(core.ParseInput(strings.NewReader(manual)))
+	r = effortResult(manual)
 	if d, _ := r.UpdatedInput["description"].(string); r.Decision == core.Block || d != "sonnet: fix bug" {
 		t.Fatalf("outside auto mode = %+v, want the rewrite", r)
 	}
@@ -579,7 +455,7 @@ func TestDispatchLabelExternalTypeAndProfile(t *testing.T) {
 		"copilot": {"do it", "gpt-6.1-sol: fix bug"}, "claude": {"Profile: qa\ndo it", "databricks-qa-model: fix bug"},
 	} {
 		payload := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"model":"sonnet","prompt":%q,"description":"fix bug"}}`, st, c.prompt)
-		r := agentEffortResult(core.ParseInput(strings.NewReader(payload)))
+		r := effortResult(payload)
 		if d, _ := r.UpdatedInput["description"].(string); d != c.want {
 			t.Errorf("%s label = %q, want %q", st, d, c.want)
 		}
@@ -603,7 +479,7 @@ func TestDispatchLabelInheritUsesSessionModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := fmt.Sprintf(`{"tool_name":"Agent","transcript_path":%q,"tool_input":{"subagent_type":"claude","prompt":"do it","description":"fix bug"}}`, tx)
-	r := agentEffortResult(core.ParseInput(strings.NewReader(payload)))
+	r := effortResult(payload)
 	if d, _ := r.UpdatedInput["description"].(string); d != "claude-opus-4-7: fix bug" {
 		t.Fatalf("description = %q (result %+v), want the session model prefix", d, r)
 	}
@@ -634,7 +510,7 @@ func TestAgentEffortReadsRosterAndRegistryOnce(t *testing.T) {
 		return &providers.Registry{Providers: map[string]*providers.Provider{"dbx": {Models: map[string]string{"haiku": "dbx-haiku"}}}}, nil
 	}
 	payload := `{"tool_name":"Agent","tool_input":{"subagent_type":"worker","prompt":"Profile: dbx\nfix x","description":"fix x"}}`
-	r := agentEffortResult(core.ParseInput(strings.NewReader(payload)))
+	r := effortResult(payload)
 	if d, _ := r.UpdatedInput["description"].(string); d != "dbx-haiku: fix x" || reads != 1 || loads != 1 {
 		t.Fatalf("description %q, agent-file reads %d, registry loads %d; want \"dbx-haiku: fix x\", 1, 1", d, reads, loads)
 	}
@@ -804,7 +680,7 @@ func TestDispatchLabelExternalTypeIgnoresAgentLineWords(t *testing.T) {
 	stubLabelModels(t, "databricks-gpt-6-1-sol", "")
 	payload := `{"tool_name":"Agent","permission_mode":"auto","tool_input":{"subagent_type":"codex","model":"sonnet",` +
 		`"prompt":"Agent: codex (run via claude-code agents ask --agent codex)\nreview","description":"databricks-gpt-6-1-sol: review phase 2"}}`
-	if r := agentEffortResult(core.ParseInput(strings.NewReader(payload))); r.Decision == core.Block {
+	if r := effortResult(payload); r.Decision == core.Block {
 		t.Fatalf("correctly labelled codex dispatch was blocked: %s", r.Reason)
 	}
 }
@@ -906,7 +782,7 @@ func TestProfileBriefKeepsTypeIdempotently(t *testing.T) {
 	stubProfiles(t, []string{"dbx", "openai"}, true)
 	for _, kind := range []string{"general-purpose", "claude", "copilot"} {
 		brief := "Agent: codex\nProfile: dbx\nreview a.go"
-		res := agentEffortResult(core.ParseInput(strings.NewReader(profileSpawn(t, kind, brief))))
+		res := effortResult(profileSpawn(t, kind, brief))
 		if res.Decision == core.Block || res.UpdatedInput == nil {
 			t.Fatalf("%s: res = %+v, want an update", kind, res)
 		}
@@ -917,7 +793,7 @@ func TestProfileBriefKeepsTypeIdempotently(t *testing.T) {
 		if !strings.HasPrefix(p, "Run: claude-code agents ask --agent codex --profile dbx") || !strings.HasSuffix(p, brief) {
 			t.Errorf("%s: prompt = %q, want the Run: line then the brief", kind, p)
 		}
-		again := agentEffortResult(core.ParseInput(strings.NewReader(profileSpawn(t, "claude", p))))
+		again := effortResult(profileSpawn(t, "claude", p))
 		if q, _ := again.UpdatedInput["prompt"].(string); again.UpdatedInput != nil && q != p {
 			t.Errorf("%s: second pass changed the prompt:\n%q\nvs\n%q", kind, q, p)
 		}
@@ -947,12 +823,12 @@ func TestProfileUnknownDeniedAndRegistryFailureOpen(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	brief := "Profile: nosuch\ndo it"
 	stubProfiles(t, []string{"dbx", "openai"}, true)
-	res := agentEffortResult(core.ParseInput(strings.NewReader(profileSpawn(t, "general-purpose", brief))))
+	res := effortResult(profileSpawn(t, "general-purpose", brief))
 	if res.Decision != core.Block || !strings.Contains(res.Reason, `"nosuch"`) || !strings.Contains(res.Reason, "dbx, openai") {
 		t.Fatalf("unknown profile: res = %+v, want a Block naming nosuch and listing dbx, openai", res)
 	}
 	stubProfiles(t, nil, false)
-	res = agentEffortResult(core.ParseInput(strings.NewReader(profileSpawn(t, "general-purpose", brief))))
+	res = effortResult(profileSpawn(t, "general-purpose", brief))
 	if res.Decision == core.Block || res.UpdatedInput["subagent_type"] != "general-purpose" || !strings.HasPrefix(res.UpdatedInput["prompt"].(string), "Run: ") {
 		t.Fatalf("registry unreadable: res = %+v, want fail open and the ask command on the kept type", res)
 	}
@@ -974,18 +850,15 @@ func TestProfileLabels(t *testing.T) {
 }
 
 func TestProfileSuffixNeverDoubles(t *testing.T) {
-	task := "Profile: dbx"
-	if got := profileSuffix("codex", task); got != "codex·dbx" {
-		t.Errorf("profileSuffix = %q, want codex·dbx", got)
-	}
-	if got := profileSuffix("codex·dbx", task); got != "codex·dbx" {
-		t.Errorf("already suffixed: %q gained a second profile", got)
-	}
-	if got := profileSuffix("", task); got != "" {
-		t.Errorf("empty label became %q", got)
-	}
-	if got := profileSuffix("codex", "Agent: codex"); got != "codex" {
-		t.Errorf("no Profile: line changed the label to %q", got)
+	for _, c := range []struct{ name, label, task, want string }{
+		{"suffixed once", "codex", "Profile: dbx", "codex·dbx"},
+		{"already suffixed", "codex·dbx", "Profile: dbx", "codex·dbx"},
+		{"empty label", "", "Profile: dbx", ""},
+		{"no Profile line", "codex", "Agent: codex", "codex"},
+	} {
+		if got := profileSuffix(c.label, c.task); got != c.want {
+			t.Errorf("%s: profileSuffix(%q) = %q, want %q", c.name, c.label, got, c.want)
+		}
 	}
 }
 
@@ -1009,11 +882,11 @@ func TestArmProfileLineBlocked(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HARNESS_ROUTE", "databricks:dev")
 	stubProfiles(t, []string{"dev", "qa"}, true)
-	res := agentEffortResult(core.ParseInput(strings.NewReader(profileSpawn(t, "claude", "Agent: codex\nProfile: qa\nfix"))))
+	res := effortResult(profileSpawn(t, "claude", "Agent: codex\nProfile: qa\nfix"))
 	if res.Decision != core.Block || !strings.Contains(res.Reason, "dispatch-effort: Profile: qa conflicts with databricks:dev") {
 		t.Errorf("Profile: qa = %+v, want a Block naming databricks:dev", res)
 	}
-	res = agentEffortResult(core.ParseInput(strings.NewReader(profileSpawn(t, "claude", "Agent: codex\nProfile: dev\nfix"))))
+	res = effortResult(profileSpawn(t, "claude", "Agent: codex\nProfile: dev\nfix"))
 	if p, _ := res.UpdatedInput["prompt"].(string); res.Decision == core.Block || !strings.HasPrefix(p, "Run: claude-code agents ask --agent codex --profile dev") {
 		t.Errorf("Profile: dev = %+v, want the usual Run: rewrite", res)
 	}
@@ -1022,7 +895,7 @@ func TestArmProfileLineBlocked(t *testing.T) {
 // routeSpawn runs one dispatch of type kind with brief prompt and returns the result.
 func routeSpawn(t *testing.T, kind, prompt string) core.Result {
 	t.Helper()
-	return agentEffortResult(core.ParseInput(strings.NewReader(profileSpawn(t, kind, prompt))))
+	return effortResult(profileSpawn(t, kind, prompt))
 }
 
 // A Route: line makes each external roster leaf run `agents ask --route`, bare Route: takes the session's profile.
