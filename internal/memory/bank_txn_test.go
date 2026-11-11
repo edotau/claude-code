@@ -6,11 +6,25 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/textutil"
 )
+
+// captureStderr redirects os.Stderr to a file until the test ends; the returned func reads what was written so far.
+func captureStderr(t *testing.T) func() string {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stderr
+	os.Stderr = f
+	t.Cleanup(func() { os.Stderr = original; _ = f.Close() })
+	return func() string { return mustRead(t, f.Name()) }
+}
 
 func readStore(t *testing.T, rel string) string {
 	t.Helper()
@@ -510,5 +524,33 @@ func TestSkippedJournalReplayDivergesOnSameFile(t *testing.T) {
 	}
 	if got := readStore(t, "r/seeded.md"); got != "newer\n" {
 		t.Fatalf("stale journal clobbered the newer commit: %q", got)
+	}
+}
+
+// TestCommitChangesLockedSkipsAnotherReposCredentialFile: Given a credential-shaped file outside the batch's dirs,
+// When the batch commits, Then it succeeds, names the path once on stderr and never sweeps the file; inside, it refuses.
+func TestCommitChangesLockedSkipsAnotherReposCredentialFile(t *testing.T) {
+	storeFixture(t)
+	write(t, filepath.Join(StoreDir(), "other", "note.md"), "key: "+fakeCredential()+"\n")
+	readStderr := captureStderr(t)
+	rec, err := commitLocked(t, "import", []Change{{Rel: "r/a.md", Data: []byte("a\n")}})
+	stderr := readStderr()
+	if err != nil {
+		t.Fatalf("an unrelated credential-shaped file failed the batch: %v", err)
+	}
+	if slices.Contains(rec.Preexisting, "other/note.md") {
+		t.Fatalf("credential-shaped file swept into the batch: %+v", rec.Preexisting)
+	}
+	if n := strings.Count(stderr, "other/note.md"); n != 1 || strings.Contains(stderr, fakeCredential()) {
+		t.Fatalf("stderr must name the path once and no secret: %q", stderr)
+	}
+	if st, _ := StoreRepo().Status("other"); len(st) != 1 {
+		t.Fatalf("the skipped file must stay uncommitted: %+v", st)
+	}
+
+	write(t, filepath.Join(StoreDir(), "r", "leak.md"), "key: "+fakeCredential()+"\n")
+	if _, err := commitLocked(t, "import", []Change{{Rel: "r/b.md", Data: []byte("b\n")}}); err == nil ||
+		!strings.Contains(err.Error(), "credential-shaped content") {
+		t.Fatalf("a credential-shaped file in the batch's dir must be refused, got %v", err)
 	}
 }

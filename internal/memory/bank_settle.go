@@ -134,7 +134,7 @@ func settleBankLocked(root string, now time.Time) (rotated int, err error) {
 	if err := writeCatalog(now); err != nil {
 		return rotated, err
 	}
-	return rotated, commitStore("settle: " + filepath.Base(dirs[0]))
+	return rotated, commitStore("settle: "+filepath.Base(dirs[0]), append(storeRels(dirs), catalogFile)...)
 }
 
 // settleLocked is settleBankLocked for a writer that rolls back on its error, which names the settle.
@@ -239,19 +239,34 @@ func writeCatalog(now time.Time) error {
 	return paths.AtomicWrite(filepath.Join(StoreDir(), catalogFile), []byte(c), 0o644)
 }
 
-// commitStore commits every dirty path in the store (update writes + settle output) as one settle commit.
-func commitStore(subject string) error {
+// storeRels maps dirs to store-relative pathspecs, dropping any outside the store (an inert unresolved-store path).
+func storeRels(dirs []string) []string {
+	var rels []string
+	for _, d := range dirs {
+		if rel, err := filepath.Rel(StoreDir(), d); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+			rels = append(rels, filepath.ToSlash(rel))
+		}
+	}
+	return rels
+}
+
+// commitStore commits the dirty paths under scope (store-relative; none = the whole store) as one settle commit.
+// A credential-shaped file inside a scope is refused by Commit; with no scope it is named on stderr and skipped.
+func commitStore(subject string, scope ...string) error {
 	repo := StoreRepo()
 	if !repo.Exists() {
 		return nil
 	}
-	st, err := repo.Status()
+	st, err := repo.Status(scope...)
 	if err != nil {
 		return err
 	}
 	var rels []string
 	for _, e := range st {
 		rels = append(rels, e.Path)
+	}
+	if len(scope) == 0 {
+		rels = repo.dropCredentialShaped(rels, nil)
 	}
 	if len(rels) == 0 {
 		return nil

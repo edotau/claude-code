@@ -246,7 +246,8 @@ func (j *journal) applyBatch(repo Repo, rec *Receipt) (present []string, err err
 		return nil, err
 	}
 	own, missing := j.splitOwnDeletes(missing)
-	present = append(present, own...) // this batch's own replayed deletions: staged with the batch, not tombstoned
+	present = repo.dropCredentialShaped(present, j.touches) // an unrelated dir's credential file must not wedge this batch
+	present = append(present, own...)                       // this batch's own replayed deletions: staged with the batch, not tombstoned
 	outcomes, capture, err := j.plan(repo.Dir, present, rec)
 	if err != nil {
 		return nil, err
@@ -260,6 +261,15 @@ func (j *journal) applyBatch(repo Repo, rec *Receipt) (present []string, err err
 		}
 	}
 	return present, nil
+}
+
+// touches reports whether rel sits under a top-level dir (or is a root file) this journal changes.
+func (j *journal) touches(rel string) bool {
+	top, _, _ := strings.Cut(rel, "/")
+	return slices.ContainsFunc(j.Changes, func(c journalChange) bool {
+		t, _, _ := strings.Cut(c.Rel, "/")
+		return t == top
+	})
 }
 
 // splitOwnDeletes splits the tracked-but-missing paths into the ones this journal deletes itself and the rest.
