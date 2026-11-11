@@ -72,11 +72,13 @@ type Pong struct {
 
 // Line is the row, at most 80 columns.
 func (p Pong) Line() string {
-	state, fb := "ok", cmp.Or(p.Fallback, "none")
+	state := "ok"
 	if !p.OK {
-		state, fb = "fail", cmp.Or(p.Err, "unknown")
+		state = "fail · " + cmp.Or(p.Err, "unknown")
+	} else if p.Fallback != "" {
+		state += " · " + p.Fallback
 	}
-	s := fmt.Sprintf("pong %-8s · %s · %s · %s · %s", p.Agent, cmp.Or(p.Profile, "-"), cmp.Or(p.Model, "default"), state, fb)
+	s := fmt.Sprintf("pong     %-8s · %s · %s · %s", p.Agent, cmp.Or(p.Profile, "-"), cmp.Or(p.Model, "default"), state)
 	if r := []rune(s); len(r) > 80 {
 		s = string(r[:79]) + "…"
 	}
@@ -215,17 +217,17 @@ func profileNames(w io.Writer, reg *providers.Registry, profile string) []string
 		prov := reg.Providers[n]
 		switch {
 		case prov == nil:
-			fmt.Fprintf(w, "pong skip · %s · unknown profile\n", n)
+			fmt.Fprintf(w, "pong     skip · %s · unknown profile\n", n)
 		case prov.Preset != providers.PresetDatabricks:
-			fmt.Fprintf(w, "pong skip · %s · not a Databricks profile\n", n)
+			fmt.Fprintf(w, "pong     skip · %s · not a Databricks profile\n", n)
 		case !providers.CredentialPresent(prov):
-			fmt.Fprintf(w, "pong skip · %s · no credential\n", n)
+			fmt.Fprintf(w, "pong     skip · %s · no credential\n", n)
 		default:
 			names = append(names, n)
 		}
 	}
 	if len(names) == 0 { // a fail row makes doctor exit non-zero: no pong ran
-		fmt.Fprintf(w, "pong · fail · %s · no usable Databricks profile\n", profile)
+		fmt.Fprintf(w, "pong     fail · %s · no usable Databricks profile\n", profile)
 	}
 	return names
 }
@@ -279,7 +281,7 @@ func RefreshPinned(ctx context.Context) []error {
 // printFixRows prints one line per pin that is not OK, with its fix or detail.
 func printFixRows(w io.Writer, ps []Pin) {
 	for _, p := range notOK(ps) {
-		fmt.Fprintf(w, "%s %s: %s\n", p.Agent, p.Status, cmp.Or(p.Fix, p.Detail))
+		fmt.Fprintf(w, "pins     %s %s: %s\n", p.Agent, p.Status, cmp.Or(p.Fix, p.Detail))
 	}
 }
 
