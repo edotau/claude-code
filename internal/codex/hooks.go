@@ -21,11 +21,18 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
+// Codex clamps a SessionEnd hook to 3s; a longer one warns on every launch and never runs (observed on 0.166.0).
+const codexSessionEndMax = 3
+
 // CodexJSON renders only explicitly allowed hooks in Codex's Claude-compatible schema.
 func CodexJSON() ([]byte, error) {
 	events := map[string][]settings.MatcherGroup{}
 	for _, s := range settings.SpecsFor("codex", "native") {
-		h := settings.Hook{Type: "command", Command: settings.AgentCommand("codex", s), Timeout: s.Seconds(), Async: s.Async, StatusMessage: s.StatusMessage}
+		timeout := s.Seconds()
+		if s.Event == settings.EventSessionEnd {
+			timeout = min(timeout, codexSessionEndMax)
+		}
+		h := settings.Hook{Type: "command", Command: settings.AgentCommand("codex", s), Timeout: timeout, Async: s.Async, StatusMessage: s.StatusMessage}
 		groups, matcher := events[s.Event], codexMatcher(s.Matcher)
 		if n := len(groups); n > 0 && groups[n-1].Matcher == matcher {
 			groups[n-1].Hooks = append(groups[n-1].Hooks, h)
@@ -151,6 +158,7 @@ func codexTrustEntries(path string, mergedHooks []byte) (map[string]string, erro
 		settings.EventPreToolUse: "pre_tool_use", settings.EventPostToolUse: "post_tool_use",
 		settings.EventUserPromptSubmit: "user_prompt_submit",
 		settings.EventSessionStart:     "session_start", settings.EventSubagentStart: "subagent_start",
+		settings.EventStop: "stop", settings.EventSessionEnd: "session_end",
 	}
 	path = codexHookSourcePath(path)
 	entries := map[string]string{}

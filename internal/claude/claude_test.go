@@ -33,7 +33,7 @@ const claudeFixture = `{"type":"system","subtype":"init","session_id":"sess-1","
 {"type":"result","subtype":"success","is_error":false,"result":"Hello\nworld","session_id":"sess-1","num_turns":2,"total_cost_usd":0.01,"usage":{"input_tokens":10,"cache_read_input_tokens":90,"output_tokens":4}}
 `
 
-// parseClaudeStream reads a whole stream with no stall watch.
+// parseClaudeStream reads a whole stream with no idle watch.
 func parseClaudeStream(br *bufio.Reader, sink wire.Sink, logs ...wire.StreamLog) (wire.Result, error) {
 	return parseClaudeEvents(br, false, nil, sink, nil, logs...)
 }

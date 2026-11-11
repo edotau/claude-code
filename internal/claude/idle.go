@@ -11,19 +11,19 @@ import (
 // claudeIdleLimit is how long a claude child may emit nothing while a model response is expected; tests shorten it.
 var claudeIdleLimit = 90 * time.Second
 
-// stallWatch feeds claude's events to an agent.IdleTimeout: paused while a top-level tool runs, re-armed by every event.
-type stallWatch struct {
+// idleWatch feeds claude's events to an agent.IdleTimeout: paused while a top-level tool runs, re-armed by every event.
+type idleWatch struct {
 	*agent.IdleTimeout
 	pending int // tool_use blocks emitted and not yet answered by a tool_result; read by the parser goroutine only
 }
 
-// newStallWatch arms the idle window now; kill (nil inside RunEventStream, which binds it) runs once on expiry.
-func newStallWatch(d time.Duration, kill func()) *stallWatch {
-	return &stallWatch{IdleTimeout: agent.NewIdleTimeout("claude", d, kill)}
+// newIdleWatch arms the idle window now; kill (nil inside RunEventStream, which binds it) runs once on expiry.
+func newIdleWatch(d time.Duration, kill func()) *idleWatch {
+	return &idleWatch{IdleTimeout: agent.NewIdleTimeout("claude", d, kill)}
 }
 
 // observe records an event: it resets the window unless a tool is running, which pauses it.
-func (w *stallWatch) observe(ev claudeEvent, msg anthropic.Message) {
+func (w *idleWatch) observe(ev claudeEvent, msg anthropic.Message) {
 	if w == nil {
 		return
 	}

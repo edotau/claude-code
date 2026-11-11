@@ -66,7 +66,7 @@ func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink w
 	if err != nil {
 		return wire.Result{}, err
 	}
-	wd := newStallWatch(claudeIdleLimit, nil) // RunEventStream binds the kill once the child starts
+	wd := newIdleWatch(claudeIdleLimit, nil) // RunEventStream binds the kill once the child starts
 	parse := func(br *bufio.Reader, sink wire.Sink, spoke func(), logs ...wire.StreamLog) (wire.Result, error) {
 		return parseClaudeEvents(br, false, wd, sink, spoke, logs...)
 	}
@@ -280,7 +280,7 @@ var decodeMessage = func(raw json.RawMessage) anthropic.Message {
 	return m
 }
 
-// topMessage decodes a top-level assistant or user message, the only ones the stream state and stall watch read.
+// topMessage decodes a top-level assistant or user message, the only ones the stream state and idle watch read.
 func (ev claudeEvent) topMessage() anthropic.Message {
 	if ev.ParentToolUseID != "" || (ev.Type != "assistant" && ev.Type != "user") {
 		return anthropic.Message{}
@@ -300,7 +300,7 @@ func (ev claudeEvent) text() string {
 
 // parseClaudeEvents stops at the first result when untilResult is set, preserving buffered lines for the next turn.
 // spoke (may be nil) fires once, on the first top-level model output.
-func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *stallWatch, sink wire.Sink, spoke func(),
+func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *idleWatch, sink wire.Sink, spoke func(),
 	logs ...wire.StreamLog) (res wire.Result, _ error) {
 	lg := wire.PickLog(logs)
 	sawResult, spoken := false, spoke == nil
@@ -507,7 +507,7 @@ func (claudeEngine) NewLive() agent.LiveBackend { return &claudeLive{} }
 // claudeLive holds `claude --print --input-format stream-json`: one process, one user message per turn.
 type claudeLive struct {
 	prevCost float64
-	cmd      *exec.Cmd // the held child, killed by a turn's stall watch
+	cmd      *exec.Cmd // the held child, killed by a turn's idle watch
 }
 
 func (b *claudeLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer, string, error) {
@@ -525,7 +525,7 @@ func (*claudeLive) WriteTurn(w io.Writer, prompt string) error {
 // parse prices the turn alone: claude's total_cost_usd accumulates over the process, its token counts do not.
 // A silent child is killed after claudeIdleLimit, so a turn cannot stay busy forever.
 func (b *claudeLive) Parse(dec *bufio.Reader, sink wire.Sink, lg func(kind, text string)) (wire.Result, error) {
-	wd := newStallWatch(claudeIdleLimit, func() { _ = b.cmd.Cancel() })
+	wd := newIdleWatch(claudeIdleLimit, func() { _ = b.cmd.Cancel() })
 	defer wd.Stop()
 	res, err := parseClaudeEvents(dec, true, wd, sink, wd.Spoke, lg)
 	if serr := wd.Err(); serr != nil {

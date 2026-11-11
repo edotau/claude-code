@@ -145,11 +145,11 @@ var Registry = []Group{
 	}},
 	{Name: "memory", Events: []EventSpec{
 		// One Stop hook: context checkpoint, then the memory update; a block from either blocks.
-		{Name: "memory-update", Event: EventStop, Budget: 20 * sec, Agents: []string{"copilot"}, Hosted: []string{"opencode"}},
+		{Name: "memory-update", Event: EventStop, Budget: 20 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
 		{Name: "memory-start", Event: EventSessionStart, Budget: 10 * sec, StatusMessage: "Loading session memory", Hosted: []string{"opencode"}},
 		// Per-prompt bank recall: advisory and capped, so an empty bank costs the turn nothing.
 		{Name: "memory-recall", Event: EventUserPromptSubmit, Budget: 5 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
-		{Name: "memory-end", Event: EventSessionEnd, Budget: 15 * sec, Agents: []string{"copilot"}, Hosted: []string{"opencode"}},
+		{Name: "memory-end", Event: EventSessionEnd, Budget: 15 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
 		// Before a compaction, update edits no earlier dispatch covered (never blocks; the transcript survives).
 		{Name: "memory-compact", Event: EventPreCompact, Budget: 15 * sec},
 	}},
