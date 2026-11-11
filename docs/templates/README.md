@@ -12,7 +12,7 @@
 | Provider defaults | [`internal/providers/defaults.json`](../../internal/providers/defaults.json) | `claude-code configure provider --list`, `claude-code switch`, `claude-code models` | — |
 | Status line default config + palettes | [`internal/ui/theme/default_config.json`](../../internal/ui/theme/default_config.json), [`default_palettes.json`](../../internal/ui/theme/default_palettes.json) | `claude-code theme statusline` (invoked by `settings.json`'s `statusLine.command`) | — |
 | Agent config defaults | [`internal/agentconfig/agents.json`](../../internal/agentconfig/agents.json) | `claude-code agents sync`, `claude-code configure --restore --agents` | — |
-| tmux.conf | [`internal/launch/tmux.conf`](../../internal/launch/tmux.conf) | `claude-code install` (`seedTmuxConf`; only when no tmux config exists) | — |
+| tmux.conf | [`internal/setup/tmux.conf`](../../internal/setup/tmux.conf) | `claude-code install` (`seedTmuxConf`; only when no tmux config exists) | — |
 | VS Code machine-settings template | [`internal/ui/vscode/machine-settings.template.json`](../../internal/ui/vscode/machine-settings.template.json) | `claude-code theme vscode` | — |
 | VS Code keybindings template | [`internal/ui/vscode/keybindings.template.json`](../../internal/ui/vscode/keybindings.template.json) | `claude-code theme vscode` (keybindings step) | — |
 | claude-science config | [`internal/claude/science.toml`](../../internal/claude/science.toml) | `claude-code anthropic science` (`--print-env`) | — |
@@ -22,7 +22,7 @@
 ## Settings — the Windows subset
 
 `claude-code install` also renders a Windows-only subset of the same settings template (drops
-`hooks`/`statusLine` and any Linux-path string) via `internal/launch/windows_settings.go`'s
+`hooks`/`statusLine` and any Linux-path string) via `internal/setup/windows_settings.go`'s
 `stripWindowsOnly`, written to `%USERPROFILE%\.claude\settings.json` on WSL.
 
 ## Memory — generated, not seed templates

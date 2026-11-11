@@ -1,18 +1,21 @@
 package setup
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
 func TestMain(m *testing.M) {
 	worktree.StubProcessScanForTest()
+	agent.NoticeOut = io.Discard
 	os.Exit(hosttest.Main(m))
 }
 

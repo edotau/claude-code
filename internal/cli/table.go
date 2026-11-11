@@ -9,7 +9,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/doctor"
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/network"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
@@ -82,7 +81,7 @@ func buildCommands() []command {
 		{name: "gateway", group: groupDiagnostics, summary: "which agent + model a task routes to; the loopback proxy", run: cmdGateway, spec: gatewaySpec},
 		{name: "usage", group: groupDiagnostics, summary: "token totals, peak rate, profile quotas", run: func(a []string) int { return usagecmd.Run(a, paths.ConfigDir(), os.Stdout, os.Stderr) }, spec: usagecmd.Spec},
 		// SETTINGS
-		{name: "install", group: groupSettings, summary: "install Claude Code; seed settings.json if missing", run: func(a []string) int { return launch.RunInstall(a, setup.Run) }, spec: setup.InstallSpec},
+		{name: "install", group: groupSettings, summary: "install Claude Code; seed settings.json if missing", run: setup.RunInstall, spec: setup.InstallSpec},
 		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: func(a []string) int { return cmdConfigure(a, providerList) }, spec: configureSpec},
 		{name: "theme", group: groupSettings, summary: "palette, statusline, VS Code template, tool themes", run: cmdTheme, spec: themeSpec},
 	}, hiddenCommands()...)

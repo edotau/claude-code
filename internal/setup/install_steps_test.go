@@ -1,4 +1,4 @@
-package launch
+package setup
 
 import (
 	"bytes"
@@ -11,11 +11,9 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/clipboard"
 	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini route engine the prod binary links
-	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -393,11 +391,6 @@ func vendorPATHFixture(t *testing.T, name, body string) string {
 }
 
 // TestMain runs in the hermetic host (hosttest), so no test touches the live vault or sees a vendor CLI.
-func TestMain(m *testing.M) {
-	agent.NoticeOut = io.Discard
-	os.Exit(hosttest.Main(m))
-}
-
 // rtkFixture installs a pinned rtk under a temp CLAUDE_CONFIG_DIR and points userBinDir at a temp dir.
 func rtkFixture(t *testing.T) (pin, userBin string) {
 	t.Helper()

@@ -16,7 +16,6 @@ import (
 	_ "github.com/edotau/claude-code/internal/cli"
 	_ "github.com/edotau/claude-code/internal/gateway"
 	_ "github.com/edotau/claude-code/internal/hooks"
-	_ "github.com/edotau/claude-code/internal/launch"
 	_ "github.com/edotau/claude-code/internal/memory"
 	_ "github.com/edotau/claude-code/internal/providers"
 	_ "github.com/edotau/claude-code/internal/router"
@@ -95,10 +94,10 @@ var writers = map[string]string{
 	"internal/plans/tick.go:writePlan":                       unversioned("foreign: plan markdown in plans/"),
 	"internal/hooks/quality/stop_format.go:StopFormat":       "stop-format",
 	"internal/memory/watch.go:spawnIdleWatcher":              unversioned("marker: idle watcher claim file"),
-	"internal/launch/install_steps.go:copyBinary":            unversioned("foreign: installed binary"),
+	"internal/setup/install_steps.go:copyBinary":             unversioned("foreign: installed binary"),
 	"internal/agent/launch.go:WriteFiles":                    unversioned("per-launch 0600 files: settings-overlay row; copilot's foreign registry"),
 	"internal/claude/science.go:scienceDefaultsFile":         unversioned("foreign: science TOML defaults for a vendor"),
-	"internal/launch/install_steps.go:seedTmuxConf":          unversioned("foreign: user tmux.conf"),
+	"internal/setup/install_steps.go:seedTmuxConf":           unversioned("foreign: user tmux.conf"),
 	"internal/doctor/mcphealth.go:mcpList":                   unversioned("foreign: temp output of claude mcp list"),
 	"internal/memory/recall_accesslog.go:appendAccessLines":  unversioned("log: memory access log, text lines"),
 	"internal/memory/recall_accesslog.go:maybeTrimAccessLog": unversioned("log: memory access log trim"),
