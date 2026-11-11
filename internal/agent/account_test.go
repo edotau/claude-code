@@ -10,7 +10,7 @@ import (
 
 // codex served by an OpenAI API key bills openai·openai (credits), not the ChatGPT plan's key.
 func TestResolveAccountNamesActualBackend(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	vaulttest.SetRecord(t, "claude", "profile", "openai")
 	t.Setenv("OPENAI_API_KEY", "sk-test-not-real")
 	acct, billing := resolveAccount("codex", router.Cell{Model: "gpt-6.1-sol", Account: "codex:chatgpt"})
@@ -24,7 +24,7 @@ func TestResolveAccountNamesActualBackend(t *testing.T) {
 
 // The session's profile (env) beats the vault pin, and a codex login cell keeps its own account.
 func TestResolveAccountFollowsSessionProfile(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	vaulttest.SetRecord(t, "claude", "profile", "anthropic")
 	t.Setenv("OPENAI_API_KEY", "sk-test-not-real")
 	t.Setenv(providers.EnvSessionProfile, "openai")

@@ -683,19 +683,11 @@ func TestPrintDiscoverResultsTextWriteError(t *testing.T) {
 	}
 }
 
+// captureClosedStdout runs fn with a stdout that fails every write and returns its exit code and stderr.
 func captureClosedStdout(t *testing.T, run func() int) (int, string) {
 	t.Helper()
-	closed, err := os.CreateTemp(t.TempDir(), "stdout")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := closed.Close(); err != nil {
-		t.Fatal(err)
-	}
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		stdout := os.Stdout
-		os.Stdout = closed
-		defer func() { os.Stdout = stdout }()
+		os.Stdout = closedFile(t) // CaptureOutput puts the stream back
 		return run()
 	})
 	return code, stderr

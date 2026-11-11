@@ -26,7 +26,7 @@ import (
 
 // A record saves as running, finishes with its outcome, loads by prefix, and the log prunes the oldest.
 func TestDispatchRecordLifecycleAndPrune(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
 	r := NewRecord("codex", RunOptions{Prompt: "p", Tools: true}, base)
 	if err := r.Save(); err != nil {
@@ -99,7 +99,7 @@ func assertRecordZeroFieldsOmitted(t *testing.T) {
 
 // pruneDispatches removes the pruned record's .log alongside its .json.
 func TestPruneDispatchesRemovesLog(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
 	old := dispatchKeep
 	dispatchKeep = 1
@@ -128,7 +128,7 @@ func TestPruneDispatchesRemovesLog(t *testing.T) {
 // while older finished records are removed; a background job with a dead PID is pruned; a foreground
 // running record (Log=="") is pruned even though it is still "running".
 func TestPruneDispatchesSkipsActiveBackgroundRecord(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
 	old := dispatchKeep
 	dispatchKeep = 2
@@ -191,7 +191,7 @@ func assertBackgroundPruneRecords(t *testing.T, finished, active, trigger1, trig
 
 // A background running record whose PID is no longer alive is not "active" and gets pruned.
 func TestPruneDispatchesPrunesDeadPIDBackgroundRecord(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
 	old := dispatchKeep
 	dispatchKeep = 1
@@ -219,7 +219,7 @@ func TestPruneDispatchesPrunesDeadPIDBackgroundRecord(t *testing.T) {
 // A foreground running record (Log=="") is pruned even while Status=="running": only a background
 // job (Log set) is ever treated as active.
 func TestPruneDispatchesPrunesForegroundRunningRecord(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
 	old := dispatchKeep
 	dispatchKeep = 1
@@ -273,7 +273,7 @@ func TestRecordAlive(t *testing.T) {
 // "running" record with PID==0 whose Time is stale — proving activeRecord routes through Alive()
 // rather than only checking Log!="" or PID>0.
 func TestPruneDispatchesKeepsAlivePID0RecordDropsStalePID0Record(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
 	old := dispatchKeep
 	dispatchKeep = 2
@@ -330,7 +330,7 @@ func savePruneRecords(t *testing.T, base time.Time, count int) {
 }
 
 func TestPruneDispatchesMarginBoundaryKeepsOldestActiveRecord(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	old := dispatchKeep
 	dispatchKeep = 2
 	t.Cleanup(func() { dispatchKeep = old })
@@ -375,7 +375,7 @@ func TestPruneDispatchesMarginBoundaryKeepsOldestActiveRecord(t *testing.T) {
 
 // A fresh --background record (running, Log set, live PID) reads back as running and Alive, not lost.
 func TestFreshBackgroundRecordReadsBackAlive(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	rec.PID, rec.Log = os.Getpid(), "job.log"
 	if err := rec.Save(); err != nil {
@@ -393,7 +393,7 @@ func TestFreshBackgroundRecordReadsBackAlive(t *testing.T) {
 // The record keeps the original request, and the model a fallback hop was asked to run survives Finish even when
 // the agent reports no model; the reported Model stays empty rather than echoing the invocation.
 func TestRecordKeepsRequestAndInvokedModel(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	t.Setenv("HOME", t.TempDir())
 	first := &recordRunner{name: "codex", err: &retry.Error{Kind: retry.KindQuota, Agent: "codex", Err: io.EOF}}
 	second := &recordRunner{name: "claude", res: wire.Result{Answer: "ok"}}
@@ -438,7 +438,7 @@ func writeRawDispatch(t *testing.T, id, body string) {
 
 // TestDispatchRecordSchemaStampsNewAndRejectsNewer pins: unstamped record reads, new record is stamped 1, schema 2 is skipped/errors.
 func TestDispatchRecordSchemaStampsNewAndRejectsNewer(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	const oldID, newerID = "20260101T000000.000-codex", "20260102T000000.000-codex"
 	writeRawDispatch(t, oldID, `{"id":"`+oldID+`","time":"2026-01-01T00:00:00Z","agent":"codex","request":{},"status":"ok"}`)
 	got, err := LoadRecord(oldID)
@@ -483,7 +483,7 @@ func assertDispatchSchemaStamp(t *testing.T, id string) {
 
 func TestPrintDispatchLogPreviewCutsOnRuneBoundary(t *testing.T) {
 	// Given a prompt of 4-byte runes longer than the preview; When the log prints; Then the cut line is valid UTF-8
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	rec := NewRecord("codex", RunOptions{Prompt: strings.Repeat("😀", 100)}, time.Now())
 	rec.Status = "ok"
 	if err := rec.Save(); err != nil {
@@ -505,7 +505,7 @@ func TestPrintDispatchLogPreviewCutsOnRuneBoundary(t *testing.T) {
 
 // Two batches (separate processes in effect) stamping the same millisecond never share a record id or file.
 func TestReserveIsExclusiveAcrossBatches(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	now := time.Now()
 	const n = 8
 	ids := make([]string, n)
@@ -530,7 +530,7 @@ func TestReserveIsExclusiveAcrossBatches(t *testing.T) {
 
 // A reserved record is a complete running record from its first byte, so a concurrent prune keeps it.
 func TestReservedRecordSurvivesPrune(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	old := dispatchKeep
 	dispatchKeep = 1
 	t.Cleanup(func() { dispatchKeep = old })
@@ -551,7 +551,7 @@ func TestReservedRecordSurvivesPrune(t *testing.T) {
 
 // task_id, batch_id and plan_task survive Save and Load; a record without them still loads.
 func TestRecordTaskBatchPlanRoundTrip(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	r := NewRecord("codex", RunOptions{Prompt: "p"}, time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC))
 	r.TaskID, r.BatchID, r.PlanTask = "t1", "batch-x", "Phase 1.1"
 	if err := r.Save(); err != nil {
@@ -592,7 +592,7 @@ func (p *resultProbe) Emit(ev wire.Event) error {
 
 // A tail follower exits on a finished record, so the result event must be written before the record leaves running.
 func TestDispatchWritesResultBeforeFinishedRecord(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	rec := ClaimRecord("codex", RunOptions{}, time.Now())
 	probe := &resultProbe{id: rec.ID}
 	_, err := RunRecorded(context.Background(), &rec, "codex", probe, RunRecordedOpts{},
@@ -612,7 +612,7 @@ func TestDispatchWritesResultBeforeFinishedRecord(t *testing.T) {
 
 // A codex dispatch asked at sonnet keeps the alias in the record (and so in --retry) while the answer reports the shared model.
 func TestRecordKeepsRequestedAlias(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	rec := NewRecord("codex", RunOptions{Prompt: "p", Model: "sonnet"}, time.Date(2026, 10, 28, 2, 0, 0, 0, time.UTC))
 	rec.Finish(wire.Result{Answer: "ok", Model: "gpt-6.1-sol"}, nil, time.Second)
 	if err := rec.Save(); err != nil {
@@ -652,7 +652,7 @@ func (brokenSink) Emit(wire.Event) error { return errors.New("stdout closed") }
 
 // Given a sink whose start emit fails, Then the claimed record leaves running instead of staying a phantom.
 func TestRunRecordedFailedStartEmitFinishesRecord(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	rec := ClaimRecord("claude", RunOptions{}, time.Now())
 	ran := false
 	_, err := RunRecorded(context.Background(), &rec, "claude", brokenSink{}, RunRecordedOpts{},
@@ -670,7 +670,7 @@ func TestRunRecordedFailedStartEmitFinishesRecord(t *testing.T) {
 }
 
 func TestRecordSavePersistsOwnProcessIdentity(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	rec := ClaimRecord("codex", RunOptions{}, time.Now())
 	rec.PID = os.Getpid()
 	want, err := proc.StartTime(rec.PID)
@@ -697,7 +697,7 @@ func TestRecordSavePersistsOwnProcessIdentity(t *testing.T) {
 
 // The dispatch record logs what the request grants beyond the agent's defaults (D3), not what the defaults grant.
 func TestNewRecordLogsWidening(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"codex":{"permission":{"defaults":{"allow":["Read"]}}}}}`)
 	p, err := ParsePermissions("", []string{"Read", "Bash(touch:*)"}, nil, []string{"Bash(rm:*)"})
 	if err != nil {
@@ -711,7 +711,7 @@ func TestNewRecordLogsWidening(t *testing.T) {
 
 // A fallback run is judged against the agent that answered; an unreadable fallback default keeps the original list.
 func TestFinishRecomputesWideningForFallbackAgent(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	vaulttest.Put(t, vault.Overlay, "agents",
 		`{"agents":{"codex":{"permission":{"defaults":{"allow":["Read"]}}},"gemini":{"permission":{"defaults":{"deny":["Bash("]}}}}}`)
 	p, err := ParsePermissions("", []string{"Read"}, nil, nil)

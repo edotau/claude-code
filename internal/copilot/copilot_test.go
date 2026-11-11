@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -14,10 +15,13 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent/agenttest"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	_ "github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
@@ -275,36 +279,9 @@ func regressionWrite(t *testing.T, path, body string) {
 
 const testRouterBase = "http://127.0.0.1:9999"
 
-// stubProxy stubs the router, its secret and session mints for the test.
-func stubProxy(t *testing.T) {
-	t.Helper()
-	oe, os_, om := agent.EnsureRouter, agent.RouterSecret, agent.MintSession
-	t.Cleanup(func() { agent.EnsureRouter, agent.RouterSecret, agent.MintSession = oe, os_, om })
-	agent.StubProxyForTest(testRouterBase, "rtr-secret-xyz")
-}
-
-// loadTarget is provider's built-in row with every provider key set, under a fresh config dir.
-func loadTarget(t *testing.T, provider, model string) providers.Target {
-	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
-	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "GATEWAY_API_KEY", "ANTHROPIC_API_KEY"} {
-		t.Setenv(k, "sk-SECRET-123")
-	}
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	p, err := reg.Get(provider)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return providers.Target{Provider: p, Model: model}
-}
-
 func TestRoutedStrips1MSuffix(t *testing.T) {
-	stubProxy(t)
-	env, _, err := agent.SchemaFor("copilot").Configure(context.Background(), loadTarget(t, "anthropic", "claude-opus-5[1m]"))
+	agenttest.StubProxy(t, testRouterBase, "rtr-secret-xyz")
+	env, _, err := agent.SchemaFor("copilot").Configure(context.Background(), agenttest.LoadTarget(t, "anthropic", "claude-opus-5[1m]"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,8 +291,8 @@ func TestRoutedStrips1MSuffix(t *testing.T) {
 }
 
 func TestLaunchEnvCannotOverrideRouterBase(t *testing.T) {
-	stubProxy(t)
-	tg := loadTarget(t, "openai", "gpt-5")
+	agenttest.StubProxy(t, testRouterBase, "rtr-secret-xyz")
+	tg := agenttest.LoadTarget(t, "openai", "gpt-5")
 	vaulttest.Put(t, vault.Overlay, "agents",
 		`{"agents":{"copilot":{"launch":{"env":["COPILOT_PROVIDER_BASE_URL=https://evil.example.com","KEEP_ME=1"]}}}}`)
 	env, _, err := agent.SchemaFor("copilot").Configure(context.Background(), tg)
@@ -454,7 +431,7 @@ func byokKeyState(child []string) (keyed, leaked bool) {
 func runArmedBYOK(t *testing.T) (SDKOptions, []string) {
 	t.Helper()
 	macFallbackScratch(t)
-	stubProxy(t)
+	agenttest.StubProxy(t, testRouterBase, "rtr-secret-xyz")
 	agent.MintSession = func(context.Context, string, int) (string, error) { return "cct_ARM", nil }
 	pathstest.FakeVendor(t, "copilot", "exit 0")
 	t.Setenv(router.EnvRoute, "databricks:dbx")
@@ -478,16 +455,6 @@ func runArmedBYOK(t *testing.T) (SDKOptions, []string) {
 	return got, co.Connection.(copilot.StdioConnection).Env
 }
 
-// assertExists reports each path that is missing though it must exist.
-func assertExists(t *testing.T, why string, ps ...string) {
-	t.Helper()
-	for _, p := range ps {
-		if _, err := os.Stat(p); err != nil {
-			t.Errorf("%s: %s: %v", p, why, err)
-		}
-	}
-}
-
 func assertCodexManagedBlock(t *testing.T, codexCfg []byte) {
 	t.Helper()
 	if !strings.Contains(string(codexCfg), "[model_providers.claude-code]") {
@@ -496,7 +463,7 @@ func assertCodexManagedBlock(t *testing.T, codexCfg []byte) {
 	if !strings.Contains(string(codexCfg), "# >>> claude-code:managed:begin >>>") {
 		t.Errorf("codex config missing banner markers:\n%s", codexCfg)
 	}
-	// Top-level approval/sandbox keys from vendorconfig must precede any [table] header.
+	// Top-level approval/sandbox keys from agentconfig must precede any [table] header.
 	approvalIdx := strings.Index(string(codexCfg), "approval_policy")
 	sandboxIdx := strings.Index(string(codexCfg), "sandbox_mode")
 	firstTable := strings.Index(string(codexCfg), "[")
@@ -525,12 +492,12 @@ func assertOpencodeOverlayOnly(t *testing.T, home string) {
 	if _, ok := oc["model"]; !ok {
 		t.Errorf("opencode.json missing a model key: %s", ocRaw)
 	}
-	assertNotExist(t, "opencode's own ~/.config/opencode/opencode.json must not be written",
+	agenttest.AssertNotExist(t, "opencode's own ~/.config/opencode/opencode.json must not be written",
 		filepath.Join(home, ".config", "opencode", "opencode.json"))
 }
 
 func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	var out bytes.Buffer
 	opts := agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}}
 	drift, err := agent.RenderConfigs(opts)
@@ -549,7 +516,7 @@ func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
 	assertOpencodeOverlayOnly(t, home)
 
 	// gemini is report-only (agy has no settings-auth equivalent): it writes nothing, ever.
-	assertNotExist(t, "gemini must write no settings.json", filepath.Join(home, ".gemini", "settings.json"))
+	agenttest.AssertNotExist(t, "gemini must write no settings.json", filepath.Join(home, ".gemini", "settings.json"))
 	if !strings.Contains(out.String(), "gemini: no config render") {
 		t.Errorf("expected a gemini report-only line, got:\n%s", out.String())
 	}
@@ -571,7 +538,7 @@ func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
 // where os.UserHomeDir() resolves the real process HOME). Without --vendors nothing is written under
 // that HOME's vendor dirs; with it, writes land exactly as before.
 func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
-	scratch(t) // sets CLAUDE_CONFIG_DIR + a keyed provider overlay; its own returned Home is unused here
+	agenttest.Scratch(t) // sets CLAUDE_CONFIG_DIR + a keyed provider overlay; its own returned Home is unused here
 	vendorHome := t.TempDir()
 	t.Setenv("HOME", vendorHome)
 	t.Setenv("CODEX_HOME", filepath.Join(vendorHome, ".codex"))
@@ -587,7 +554,7 @@ func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
 	if !strings.Contains(out.String(), "skipping agent configs") {
 		t.Fatalf("expected the skip note, got:\n%s", out.String())
 	}
-	assertNotExist(t, "expected no vendor writes under the scratch HOME",
+	agenttest.AssertNotExist(t, "expected no vendor writes under the scratch HOME",
 		filepath.Join(vendorHome, ".codex"), filepath.Join(vendorHome, ".config", "opencode"),
 		filepath.Join(paths.StateDir(), "opencode"), filepath.Join(vendorHome, ".copilot"))
 
@@ -595,7 +562,7 @@ func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
 	if _, err := agent.RenderConfigs(agentconfig.RenderOptions{Out: &out2, ForceHomes: true, Agents: []string{"codex", "opencode", "copilot"}}); err != nil {
 		t.Fatalf("Run with --vendors: %v\n%s", err, out2.String())
 	}
-	assertExists(t, "--vendors must still write the vendor configs",
+	agenttest.AssertExists(t, "--vendors must still write the vendor configs",
 		filepath.Join(vendorHome, ".codex", "config.toml"), filepath.Join(paths.StateDir(), "opencode", "opencode.json"),
 		filepath.Join(vendorHome, ".copilot", "hooks", "claude-code-harness.json"))
 }
@@ -658,5 +625,160 @@ func TestLaunchAndAgentAgreeOnModel(t *testing.T) {
 				t.Errorf("model %q ignores the pin %q", got, pin)
 			}
 		})
+	}
+}
+
+const agentHdr = "X-Claude-Code-Agent"
+
+// withHeaders returns tg with the provider's own headers set.
+func withHeaders(tg providers.Target, h map[string]string) providers.Target {
+	p := *tg.Provider
+	p.Headers = h
+	tg.Provider = &p
+	return tg
+}
+
+// A direct dispatch never passes routerRoute, so it carries the provider's own headers and no agent tag.
+func TestDirectDispatchesHaveNoAgentTag(t *testing.T) {
+	vaulttest.Use(t)
+	ctx := agent.WithDirect(context.Background())
+	own := map[string]string{"X-Tenant": "t1"}
+
+	_, argv, err := agent.SchemaFor("codex").Configure(ctx, withHeaders(agenttest.LoadTarget(t, "openai", "gpt-5"), own))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if j := strings.Join(argv, "\x00"); strings.Contains(j, agentHdr) || !strings.Contains(j, "X-Tenant") {
+		t.Errorf("direct codex headers wrong: %q", argv)
+	}
+	for _, v := range []string{"opencode", "copilot"} {
+		env, _, err := agent.SchemaFor(v).Configure(ctx, withHeaders(agenttest.LoadTarget(t, "openai", "gpt-5"), own))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if j := strings.Join(env, "\x00"); strings.Contains(j, agentHdr) || !strings.Contains(j, "X-Tenant") {
+			t.Errorf("direct %s headers wrong: %q", v, env)
+		}
+	}
+}
+
+func TestRoster(t *testing.T) {
+	if got := agent.Names(); !slices.Equal(got, []string{"codex", "copilot", "gemini", "opencode"}) {
+		t.Errorf("external roster = %v, want [codex copilot gemini opencode]", got)
+	}
+}
+
+// TestLookupKnownVendors: every external vendor is a registered, external schema with an engine of its own;
+// resume, catalog and read-permission facts are pinned by TestRosterFacts.
+func TestLookupKnownVendors(t *testing.T) {
+	var engines []string
+	for _, e := range agent.Engines() {
+		engines = append(engines, e.Name())
+	}
+	for _, name := range []string{"codex", "gemini", "copilot", "opencode"} {
+		s, ok := agent.LookupSchema(name)
+		if !ok {
+			t.Errorf("LookupSchema(%q) not found", name)
+			continue
+		}
+		if s.Name != name || !s.External() {
+			t.Errorf("LookupSchema(%q) = %q, external %v", name, s.Name, s.External())
+		}
+		if !slices.Contains(engines, name) {
+			t.Errorf("schema %q has no engine", name)
+		}
+	}
+}
+
+// TestRosterPromptTransport: every uncapped row names its transport (the zero value is the capped argv),
+// and gemini's verified ceiling sits below its stdin transport.
+func TestRosterPromptTransport(t *testing.T) {
+	want := map[string]agent.PromptTransport{"claude": agent.PromptStdin, "codex": agent.PromptStdin,
+		"copilot": agent.PromptMessage, "opencode": agent.PromptArgv, "gemini": agent.PromptStdin}
+	for name, via := range want {
+		s, ok := agent.LookupSchema(name)
+		if !ok || s.CLI.PromptVia != via {
+			t.Errorf("%s PromptVia = %v (found %v), want %v", name, s.CLI.PromptVia, ok, via)
+		}
+	}
+	if agent.PromptArgv.MaxBytes() != agent.MaxPromptBytes || agent.PromptStdin.MaxBytes() != 0 {
+		t.Errorf("MaxBytes: argv %d stdin %d", agent.PromptArgv.MaxBytes(), agent.PromptStdin.MaxBytes())
+	}
+	if g, _ := agent.LookupSchema("gemini"); g.CLI.PromptMaxBytes != 100*1024 {
+		t.Errorf("gemini PromptMaxBytes = %d, want %d", g.CLI.PromptMaxBytes, 100*1024)
+	}
+}
+
+func TestRosterMatchesSpecs(t *testing.T) {
+	var names, runners []string
+	for _, s := range agent.Roster() {
+		names = append(names, s.Name)
+	}
+	if !slices.Equal(names, []string{"claude", "codex", "copilot", "gemini", "opencode"}) {
+		t.Fatalf("roster order = %v", names)
+	}
+	for _, r := range agent.Engines() {
+		runners = append(runners, r.Name())
+	}
+	for label, other := range map[string][]string{
+		"Engines": runners, "RouteAgents": slices.Clone(providers.RouteAgents),
+	} {
+		slices.Sort(other)
+		want := slices.Clone(names)
+		slices.Sort(want)
+		if !slices.Equal(other, want) {
+			t.Errorf("%s names = %v, roster names = %v", label, other, want)
+		}
+	}
+}
+
+func TestRosterFacts(t *testing.T) {
+	catalogs := map[string]agent.CLI{
+		"codex":    {ResumeFormat: "codex resume session", ModelsProvider: "openai"},
+		"gemini":   {ResumeFormat: "agy --conversation session", ModelsArgv: []string{"models"}, ReadNeedsTools: true},
+		"opencode": {ResumeFormat: "opencode run --session session", ModelsArgv: []string{"models"}, ReadNeedsTools: true},
+		"copilot":  {ResumeFormat: "copilot --resume session", ModelsProvider: "github", ReadNeedsTools: true},
+	}
+	for _, s := range agent.Roster() {
+		t.Run(s.Name, func(t *testing.T) {
+			got, ok := agent.LookupSchema(s.Name)
+			if !ok || !reflect.DeepEqual(got, s) {
+				t.Fatalf("LookupSchema(%q) = %+v, %v; want %+v", s.Name, got, ok, s)
+			}
+			if s.External() != (s.Name != "claude") {
+				t.Errorf("External() = %v", s.External())
+			}
+			assertRosterWireFacts(t, s, catalogs[s.Name])
+		})
+	}
+	if s, ok := agent.LookupSchema("unknown"); ok || !reflect.DeepEqual(s, agent.Schema{}) {
+		t.Errorf("unknown schema = %+v, %v", s, ok)
+	}
+	if (agent.Schema{}).External() {
+		t.Error("zero schema is external")
+	}
+}
+
+func assertRosterWireFacts(t *testing.T, s agent.Schema, want agent.CLI) {
+	t.Helper()
+	if s.Name == "claude" {
+		if s.CLI.Binary != "" || s.CLI.Dialects != nil || s.CLI.RouterSuffix != nil {
+			t.Errorf("claude wire facts = %+v", s.CLI)
+		}
+		return
+	}
+	if s.ResumeHint("session") != want.ResumeFormat {
+		t.Error("resume command changed")
+	}
+	if !slices.Equal(s.CLI.ModelsArgv, want.ModelsArgv) || s.CLI.ModelsProvider != want.ModelsProvider ||
+		s.CLI.ReadNeedsTools != want.ReadNeedsTools || !slices.Equal(s.CLI.ExtraUsage, want.ExtraUsage) {
+		t.Error("catalog, tools or help facts changed")
+	}
+}
+
+// Ties agentid.All to the registered roster: five agents, claude included, sorted by name.
+func TestRosterNamesAreTheFiveAgents(t *testing.T) {
+	if got := agent.RosterNames(); !slices.Equal(got, []string{"claude", "codex", "copilot", "gemini", "opencode"}) {
+		t.Errorf("RosterNames() = %v, want [claude codex copilot gemini opencode]", got)
 	}
 }

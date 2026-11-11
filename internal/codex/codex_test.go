@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent/agenttest"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
@@ -24,36 +26,6 @@ const (
 	testRouterBase   = "http://127.0.0.1:9999"
 	testRouterSecret = "rtr-secret-xyz"
 )
-
-// stubProxy stubs the router (ensure, or a fixed base when nil), its secret and session mints for the test.
-func stubProxy(t *testing.T, ensure func(context.Context) (string, error)) {
-	t.Helper()
-	oe, os_, om := agent.EnsureRouter, agent.RouterSecret, agent.MintSession
-	t.Cleanup(func() { agent.EnsureRouter, agent.RouterSecret, agent.MintSession = oe, os_, om })
-	agent.StubProxyForTest(testRouterBase, testRouterSecret)
-	if ensure != nil {
-		agent.EnsureRouter = ensure
-	}
-}
-
-// loadTarget is provider's built-in row with every provider key set, under a fresh config dir.
-func loadTarget(t *testing.T, provider, model string) providers.Target {
-	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
-	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "GATEWAY_API_KEY", "ANTHROPIC_API_KEY"} {
-		t.Setenv(k, "sk-SECRET-123")
-	}
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	p, err := reg.Get(provider)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return providers.Target{Provider: p, Model: model}
-}
 
 // The codex status line may arrive on stderr; only its first line, cut at " - ", becomes the detail.
 func TestCodexDetailFromCombinedOutput(t *testing.T) {
@@ -69,11 +41,12 @@ func TestCodexDetailFromCombinedOutput(t *testing.T) {
 }
 
 func TestAuthNoneNotRouted(t *testing.T) {
-	stubProxy(t, func(context.Context) (string, error) {
+	agenttest.StubProxy(t, testRouterBase, testRouterSecret)
+	agent.EnsureRouter = func(context.Context) (string, error) {
 		t.Error("router ensured for AuthNone")
 		return "", errors.New("x")
-	})
-	tg := loadTarget(t, "openai", "gpt-5")
+	}
+	tg := agenttest.LoadTarget(t, "openai", "gpt-5")
 	p := *tg.Provider
 	p.Auth = providers.Auth{Type: providers.AuthNone}
 	tg.Provider = &p
@@ -90,7 +63,7 @@ func TestAuthNoneNotRouted(t *testing.T) {
 func TestCodexRunFlagsAndSchemaFileCleanup(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	defer srv.Close()
-	stubProxy(t, nil)
+	agenttest.StubProxy(t, testRouterBase, testRouterSecret)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Put(t, vault.Overlay, "providers", fmt.Sprintf(`{"providers":{"openai":{"toai":{"protocol":"responses","base_url":%q,"auth":{"type":"none"},"models":{"opus":"gpt-x"}}}}}`, srv.URL+"/v1"))
 	dir := t.TempDir()
@@ -240,8 +213,8 @@ func assertFallbackModelPinAndExplicitProvider(t *testing.T, reg *providers.Regi
 
 // Interactive codex (nil Headless) carries the CODEX_EFFORT pin; headless Effort still wins.
 func TestCodexInteractiveCarriesEffortPin(t *testing.T) {
-	stubProxy(t, nil)
-	tg := loadTarget(t, "openai", "gpt-5")
+	agenttest.StubProxy(t, testRouterBase, testRouterSecret)
+	tg := agenttest.LoadTarget(t, "openai", "gpt-5")
 	vaulttest.SetRecord(t, "codex", "effort", "medium")
 	_, argv, err := agent.SchemaFor("codex").Configure(context.Background(), tg)
 	if err != nil {
@@ -311,8 +284,8 @@ func TestCodexRenderSettingsFromRecord(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			stubProxy(t, nil)
-			tg := loadTarget(t, "openai", "gpt-5")
+			agenttest.StubProxy(t, testRouterBase, testRouterSecret)
+			tg := agenttest.LoadTarget(t, "openai", "gpt-5")
 			putCodexRecord(t, c.rec)
 			c.req.Prompt = "hi"
 			env, argv, emulated := renderCodexHeadless(t, tg, c.req)
@@ -529,7 +502,7 @@ func TestCodexOwnModelTripleQuotedAndTableScoped(t *testing.T) {
 func TestCodexRunReportsEffortClamp(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	defer srv.Close()
-	stubProxy(t, nil)
+	agenttest.StubProxy(t, testRouterBase, testRouterSecret)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Put(t, vault.Overlay, "providers", fmt.Sprintf(`{"providers":{"openai":{"toai":{"protocol":"responses","base_url":%q,"auth":{"type":"none"},"models":{"opus":"gpt-x"}}}}}`, srv.URL+"/v1"))
 	putCodexRecord(t, vault.AgentRecord{Effort: "max"})
@@ -547,5 +520,55 @@ func TestCodexRunReportsEffortClamp(t *testing.T) {
 	argv, _ := os.ReadFile(argvFile)
 	if !slices.Contains(res.Emulated, "effort max→xhigh") || !strings.Contains(string(argv), `model_reasoning_effort="xhigh"`) {
 		t.Errorf("emulated = %q, argv = %q; want the max→xhigh clamp named and applied", res.Emulated, argv)
+	}
+}
+
+// attach per engine: codex folds the file inline (stdin has no live-read channel). gemini (agy)
+// inlines it too when tools are off (agy's no-tools Preamble bars it from reading @path live), but
+// appends a live @path reference once tools are on. Every other vendor (opencode included) leaves the
+// prompt untouched since it carries the attachment in its own argv instead (opencodeRun's -f).
+func TestVendorEngineAttachPrompt(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "note.txt")
+	if err := os.WriteFile(f, []byte("file-content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inline := "task\n\n<file path=" + `"` + f + `"` + ">\nfile-content\n</file>"
+	cases := []struct {
+		name   string
+		vendor string
+		tools  bool
+		want   string
+	}{
+		{"codex/tools", "codex", true, inline},
+		{"codex/no-tools", "codex", false, inline},
+		{"gemini/tools", "gemini", true, "task\n@" + f},
+		{"gemini/no-tools", "gemini", false, inline},
+		{"opencode/tools", "opencode", true, "task"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := agent.SchemaFor(c.vendor).Eng().Attach("task", []string{f}, c.tools)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != c.want {
+				t.Errorf("attach(%s, tools=%v) = %q, want %q", c.vendor, c.tools, got, c.want)
+			}
+		})
+	}
+}
+
+// A missing attachment is a fatal error for the inline path, not a silently dropped reference,
+// regardless of Tools (gemini without tools now inlines too, so it must fail the same way).
+func TestVendorEngineAttachPromptMissingPath(t *testing.T) {
+	for _, c := range []struct {
+		vendor string
+		tools  bool
+	}{
+		{"codex", true}, {"gemini", false},
+	} {
+		if _, err := agent.SchemaFor(c.vendor).Eng().Attach("task", []string{"/does/not/exist"}, c.tools); err == nil {
+			t.Fatalf("%s tools=%v: want an error for a missing attachment, got nil", c.vendor, c.tools)
+		}
 	}
 }

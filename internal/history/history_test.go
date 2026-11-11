@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -244,10 +243,10 @@ func TestLogListsCommits(t *testing.T) {
 func TestSnapshotIgnoresInheritedGitEnv(t *testing.T) {
 	decoy := hosttest.Repo(t)
 	write(t, filepath.Join(decoy, "tracked.txt"), "original\n")
-	runGitCmd(t, decoy, "add", "tracked.txt")
-	runGitCmd(t, decoy, "commit", "--quiet", "-m", "seed")
-	headBefore := runGitCmd(t, decoy, "rev-parse", "HEAD")
-	statusBefore := runGitCmd(t, decoy, "status", "--porcelain")
+	hosttest.In(t, decoy, "add", "tracked.txt")
+	hosttest.In(t, decoy, "commit", "--quiet", "-m", "seed")
+	headBefore := hosttest.In(t, decoy, "rev-parse", "HEAD")
+	statusBefore := hosttest.In(t, decoy, "status", "--porcelain")
 
 	t.Setenv("GIT_DIR", filepath.Join(decoy, ".git"))
 	t.Setenv("GIT_WORK_TREE", decoy)
@@ -261,33 +260,12 @@ func TestSnapshotIgnoresInheritedGitEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := runGitCmd(t, decoy, "rev-parse", "HEAD"); got != headBefore {
+	if got := hosttest.In(t, decoy, "rev-parse", "HEAD"); got != headBefore {
 		t.Errorf("decoy repo HEAD moved: %q -> %q", headBefore, got)
 	}
-	if got := runGitCmd(t, decoy, "status", "--porcelain"); got != statusBefore {
+	if got := hosttest.In(t, decoy, "status", "--porcelain"); got != statusBefore {
 		t.Errorf("decoy repo status changed:\n%q\n%q", statusBefore, got)
 	}
-}
-
-// runGitCmd runs git against dir directly (bypassing the package's own gitEnv sanitizing) so the
-// decoy repo probes above are not themselves affected by the inherited GIT_* vars under test — an
-// empty-valued override (GIT_DIR=) is not the same as unset and git rejects it outright.
-func runGitCmd(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	var env []string
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "GIT_") {
-			env = append(env, kv)
-		}
-	}
-	env = append(env, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = env
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, out)
-	}
-	return strings.TrimSpace(string(out))
 }
 
 // A repo with no commits (every watched file absent) must read as empty history, not a git error.

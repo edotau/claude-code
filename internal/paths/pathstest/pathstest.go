@@ -41,6 +41,50 @@ func FakeVendor(t testing.TB, name, body string) string {
 	return p
 }
 
+// FakeVendorOutsideConfig writes the fake under a throwaway config dir, so it is not in the test's own bin dir.
+func FakeVendorOutsideConfig(t testing.TB, name, body string) string {
+	t.Helper()
+	cfg := os.Getenv("CLAUDE_CONFIG_DIR")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	bin := FakeVendor(t, name, body)
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if name == "agy" {
+		dst := filepath.Join(filepath.Dir(bin), "agy")
+		if err := os.Rename(bin, dst); err != nil {
+			t.Fatal(err)
+		}
+		bin = dst
+	}
+	return bin
+}
+
+// ShortConfigDir is a /tmp config dir (a unix socket path caps at 104 bytes on macOS) with HOME and the bin dir inside.
+func ShortConfigDir(t testing.TB) (home string) {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "lv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	home = filepath.Join(dir, "home")
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(paths.BinDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
+// ReadFile reads path, failing the test on error.
+func ReadFile(t testing.TB, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", path, err)
+	}
+	return string(b)
+}
+
 // canonical returns the absolute, symlink-resolved form of p; a missing path is returned as its absolute form.
 func canonical(t testing.TB, p string) string {
 	t.Helper()

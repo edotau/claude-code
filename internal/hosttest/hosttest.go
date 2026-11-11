@@ -157,6 +157,77 @@ func HermeticEnv(t testing.TB) {
 	}
 }
 
+// TierHarness points HOME/CLAUDE_CONFIG_DIR at a temp config tree and neutralizes an ambient vendor env.
+func TierHarness(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	harness := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(harness, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", harness)
+	t.Setenv("HARNESS_HOOK_AGENT", "")
+	return harness
+}
+
+// BashPayload is a Claude-shaped Bash hook payload for cmd.
+func BashPayload(cmd string) *strings.Reader {
+	b, _ := json.Marshal(map[string]any{"tool_name": "Bash", "tool_input": map[string]string{"command": cmd}})
+	return strings.NewReader(string(b))
+}
+
+// RTKBashIn is BashPayload's JSON with the description and timeout fields an rtk rewrite must carry over.
+func RTKBashIn(cmd string) string {
+	b, _ := json.Marshal(map[string]any{
+		"tool_name":  "Bash",
+		"tool_input": map[string]any{"command": cmd, "description": "d", "timeout": 120},
+	})
+	return string(b)
+}
+
+// fakeScript writes an executable script called name into a fresh temp dir and returns its path.
+func fakeScript(t *testing.T, name, script string) string {
+	t.Helper()
+	dir := t.TempDir()
+	WriteRel(t, dir, name, script)
+	if err := os.Chmod(filepath.Join(dir, name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(dir, name)
+}
+
+// FakeRTK installs a stub rtk (HARNESS_RTK_BIN) whose `rewrite <cmd>` prints FAKE_RTK_OUT or "rtk <cmd>".
+func FakeRTK(t *testing.T) string {
+	t.Helper()
+	bin := fakeScript(t, "rtk", "#!/bin/sh\n[ \"$1\" = rewrite ] || exit 9\n"+
+		"if [ -n \"$FAKE_RTK_OUT\" ]; then printf '%s' \"$FAKE_RTK_OUT\"; else printf '%s' \"rtk $2\"; fi\n"+
+		"exit ${FAKE_RTK_EXIT:-0}\n")
+	t.Setenv("HARNESS_RTK_BIN", bin) // paths.RTKBinaryEnv; this package imports stdlib only
+	return bin
+}
+
+// FakeOpencode puts an `opencode` script running body first on PATH and returns a directory to use as cwd.
+func FakeOpencode(t *testing.T, body string) string {
+	t.Helper()
+	dir := filepath.Dir(fakeScript(t, "opencode", "#!/bin/sh\n"+body+"\n"))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return dir
+}
+
+// WriteEdits writes a Claude transcript of n Edit tool calls at path.
+func WriteEdits(t *testing.T, path string, n int) {
+	t.Helper()
+	line := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go"}}]}}` + "\n"
+	WriteRel(t, filepath.Dir(path), filepath.Base(path), strings.Repeat(line, n))
+}
+
+// WriteUserTurns writes a Claude transcript of n user turns at path.
+func WriteUserTurns(t *testing.T, path string, n int) {
+	t.Helper()
+	WriteRel(t, filepath.Dir(path), filepath.Base(path), strings.Repeat(`{"type":"user","message":{"content":"ship it"}}`+"\n", n))
+}
+
 // MainTB lets TestMain call testing.TB stubs: Cleanup is deferred until the caller runs Run's returned funcs.
 type MainTB struct {
 	testing.TB

@@ -14,9 +14,9 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/clipboard"
 	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini route engine the prod binary links
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -342,18 +342,8 @@ func TestInstallSettingsSeedsMissingAndNeverWritesExisting(t *testing.T) {
 // hermetic isolates config, pins and seams; userProviders is an optional vault overlay/providers document.
 func hermetic(t *testing.T, userProviders string) {
 	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	// Install writes completion and the wl-paste proxy under HOME/XDG; keep them out of the real home.
-	home := filepath.Join(dir, "home")
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
-	t.Setenv("BASH_COMPLETION_USER_DIR", "")
-	for _, k := range []string{providers.EnvSessionProfile, "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL",
-		"CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL", "ANTHROPIC_API_KEY", "TEST_GW_KEY"} {
-		t.Setenv(k, "")
-	}
+	hosttest.HermeticEnv(t) // install writes completion and the wl-paste proxy under HOME/XDG
+	dir := paths.ConfigDir()
 	if userProviders != "" {
 		vaulttest.Put(t, vault.Overlay, "providers", userProviders)
 	}

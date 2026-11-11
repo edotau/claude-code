@@ -1,7 +1,6 @@
 package router
 
 import (
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -113,16 +113,8 @@ func TestSkipDiscoveryReportsPersistenceFailure(t *testing.T) {
 	if err := os.MkdirAll(StatePath(), 0o700); err != nil { // a directory where quota.json belongs: reads fail
 		t.Fatal(err)
 	}
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	orig := os.Stderr
-	os.Stderr = w
-	got := SkipDiscovery("opencode", poolProvider(), "m-a")
-	os.Stderr = orig
-	w.Close()
-	out, _ := io.ReadAll(r)
+	var got string
+	_, _, out := hosttest.CaptureOutput(t, func() int { got = SkipDiscovery("opencode", poolProvider(), "m-a"); return 0 })
 	if got != "" || !strings.Contains(string(out), "could not persist model skip") {
 		t.Errorf("got %q, stderr %q; want empty result and a persistence message", got, out)
 	}

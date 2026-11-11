@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent/agenttest"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -280,7 +282,7 @@ var templateDeny = []any{"command(rm -rf /)", "command(rm -rf /*)", "command(rm 
 // renderGeminiSettings merges the spec's exact-match guard denies into agy's settings.json,
 // keeping every other key untouched; a second run is byte-identical.
 func TestGeminiSettingsMergesDenyGuardsKeepingOtherKeys(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	path := geminiSettingsPath(home)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -355,7 +357,7 @@ func checkMergedPermissions(t *testing.T, got map[string]any, raw []byte) {
 // A prefix guard rule (Bash(x:*)) is not expressible as an agy exact-match deny and is skipped;
 // ask-rules never render for agy, only deny does.
 func TestGeminiSettingsSkipsPrefixAndAskRules(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	overlay := `{"guardRules":{"deny":["Bash(git push --force:*)","Bash(rm -rf /)"],"ask":["Bash(git reset --hard:*)"]}}`
 	vaulttest.Put(t, vault.Overlay, "agents", overlay)
 
@@ -385,7 +387,7 @@ func TestGeminiSettingsSkipsPrefixAndAskRules(t *testing.T) {
 
 // A hand-broken (not valid JSON) agy settings.json is left byte-for-byte untouched, never clobbered.
 func TestGeminiSettingsLeavesInvalidJSONUntouched(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	path := geminiSettingsPath(home)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -414,7 +416,7 @@ func TestGeminiSettingsLeavesInvalidJSONUntouched(t *testing.T) {
 
 // No pre-existing agy settings.json: the file is created holding only the guard denies.
 func TestGeminiSettingsMissingFileCreatesDenyOnly(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	path := geminiSettingsPath(home)
 	if _, err := os.Stat(path); err == nil {
 		t.Fatalf("precondition: %s must not exist", path)
@@ -452,7 +454,7 @@ func TestGeminiSettingsMissingFileCreatesDenyOnly(t *testing.T) {
 func TestGeminiSettingsNullJSONUntouched(t *testing.T) {
 	for _, content := range []string{"null", "[]"} {
 		t.Run(content, func(t *testing.T) {
-			home := scratch(t)
+			home := agenttest.Scratch(t)
 			path := geminiSettingsPath(home)
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
@@ -489,7 +491,7 @@ func TestGeminiSettingsNullJSONUntouched(t *testing.T) {
 
 // An unreadable agy settings.json (here a directory) is skipped, never mistaken for a missing file and overwritten.
 func TestGeminiSettingsUnreadableIsSkipped(t *testing.T) {
-	home := scratch(t)
+	home := agenttest.Scratch(t)
 	path := geminiSettingsPath(home)
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatal(err)
@@ -504,23 +506,6 @@ func TestGeminiSettingsUnreadableIsSkipped(t *testing.T) {
 	if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
 		t.Fatalf("path was replaced: %v", err)
 	}
-}
-
-// scratch sets a hermetic CLAUDE_CONFIG_DIR with a keyed default provider and returns the vendor-config home dir.
-func scratch(t *testing.T) string {
-	t.Helper()
-	configDir := vaulttest.Use(t)
-	home := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
-	t.Setenv("PATH", t.TempDir())
-	t.Setenv("HARNESS_PROVIDER", "")
-	t.Setenv("OPENAI_API_KEY", "sk-test-openai")
-	t.Cleanup(agent.StubRouter("http://127.0.0.1:9999"))
-	vaulttest.Put(t, vault.Overlay, "providers", `{"default": "openai"}`)
-	if err := os.MkdirAll(filepath.Join(configDir, "agents"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return home
 }
 
 // The agy hook render keeps foreign hooks and replaces its own entry with one gate hook on agy's tool names.

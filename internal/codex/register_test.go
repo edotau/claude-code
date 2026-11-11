@@ -8,6 +8,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent/agenttest"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
@@ -19,7 +21,7 @@ import (
 func TestCodexRunDropsAutonomous(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	defer srv.Close()
-	stubProxy(t, nil)
+	agenttest.StubProxy(t, testRouterBase, testRouterSecret)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Put(t, vault.Overlay, "providers", fmt.Sprintf(`{"providers":{"openai":{"toai":{"protocol":"responses","base_url":%q,"auth":{"type":"none"},"models":{"opus":"gpt-x"}}}}}`, srv.URL+"/v1"))
 	// help prints no --json: codexHasJSON is cached per process and must not flip for other tests
@@ -41,7 +43,7 @@ func TestCodexRunDropsAutonomous(t *testing.T) {
 func TestCodexAgentRunEnvelopeReportsEffortClamp(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	defer srv.Close()
-	stubProxy(t, nil)
+	agenttest.StubProxy(t, testRouterBase, testRouterSecret)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Put(t, vault.Overlay, "providers", fmt.Sprintf(`{"providers":{"openai":{"toai":{"protocol":"responses","base_url":%q,"auth":{"type":"none"},"models":{"opus":"gpt-x"}}}}}`, srv.URL+"/v1"))
 	putCodexRecord(t, vault.AgentRecord{Effort: "max"})

@@ -31,9 +31,9 @@ func runProfile(t *testing.T, reg *providers.Registry, agent, answer string) str
 // The merged Profile row lists off first then the own login; picking writes the record's Profile and keeps its model.
 func TestProfileRowPicksOffAndOwnLogin(t *testing.T) {
 	reg := menuTestEnv(t)
-	vaulttest.SetRecord(t, "claude", "profile", "") // menuTestEnv's legacy pin would keep re-seeding own logins
-	putRec(t, "codex", "MODEL", "keep-me")          // a stored record: a pick must change Profile only
-	out := runProfile(t, reg, "codex", "2\n")       // 1) off  2) chatgpt
+	vaulttest.SetRecord(t, "claude", "profile", "")     // menuTestEnv's legacy pin would keep re-seeding own logins
+	vaulttest.SetRecord(t, "codex", "model", "keep-me") // a stored record: a pick must change Profile only
+	out := runProfile(t, reg, "codex", "2\n")           // 1) off  2) chatgpt
 	if !strings.Contains(out, "1) off") || !strings.Contains(out, "2) chatgpt") {
 		t.Errorf("picker = %q, want off then the own login chatgpt", out)
 	}
@@ -194,8 +194,8 @@ func TestSeedFromSignInForgetsLastProfileAndSetsRecord(t *testing.T) {
 
 func TestPinCopilotProfileEmptyRefusedKeepsPin(t *testing.T) {
 	reg := menuTestEnv(t)
-	putRec(t, "copilot", "PROFILE", "personal")
-	putRec(t, "copilot", "MODEL", "keep-model")
+	vaulttest.SetRecord(t, "copilot", "profile", "personal")
+	vaulttest.SetRecord(t, "copilot", "model", "keep-model")
 	d := &dialog{reg: reg, out: &bytes.Buffer{}}
 	if pinCopilotProfile(d, "") {
 		t.Fatalf("empty pin must be refused: %s", d.out)
@@ -228,13 +228,5 @@ func TestSaveSeedInvalidProfileWritesNothing(t *testing.T) {
 		if r.Profile != "" {
 			t.Errorf("%s persisted profile %q after a failed save", a, r.Profile)
 		}
-	}
-}
-
-// putRec sets one field of agent's vault record (a vault.AgentRecord.WithPin field name).
-func putRec(t *testing.T, agent, field, val string) {
-	t.Helper()
-	if err := vault.SetAgentRecord(agent, vault.GetAgentRecord(agent).WithPin(field, val)); err != nil {
-		t.Fatal(err)
 	}
 }

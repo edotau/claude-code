@@ -23,7 +23,7 @@ import (
 func env(t *testing.T) {
 	t.Helper()
 	vaulttest.UseKeyring(t)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	t.Setenv("HOME", t.TempDir())
 }
 

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // write is a small t.Helper wrapper around os.WriteFile for fixture setup.
@@ -264,7 +266,8 @@ func TestDoctorRejectsReportWriteFailure(t *testing.T) {
 			if out.Len() == 0 {
 				t.Fatal("clean scan must produce a report")
 			}
-			if code := doctorMCP(closedTestOutput(t), opts); code == 0 {
+			hosttest.ClosedStdout(t)
+			if code := doctorMCP(os.Stdout, opts); code == 0 {
 				t.Fatal("report write failure must return a nonzero exit code for a clean scan")
 			}
 		})
@@ -382,17 +385,4 @@ func TestDoctorTextNeverEchoesSecretsFromArgsOrHealthLines(t *testing.T) {
 			t.Errorf("text report echoed %q:\n%s", leak, out.String())
 		}
 	}
-}
-
-// closedTestOutput is an already-closed file, so every write to it fails.
-func closedTestOutput(t *testing.T) *os.File {
-	t.Helper()
-	out, err := os.CreateTemp(t.TempDir(), "output")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := out.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return out
 }

@@ -1,7 +1,6 @@
 package databricks
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -69,39 +68,6 @@ func argValue(argv []string, flag string) string {
 		}
 	}
 	return ""
-}
-
-// runCaptured runs fn with os.Stdout and os.Stderr redirected and returns the exit code and both streams.
-func runCaptured(t *testing.T, fn func() int) (int, string, string) {
-	t.Helper()
-	outR, outW, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	errR, errW, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldOut, oldErr := os.Stdout, os.Stderr
-	os.Stdout, os.Stderr = outW, errW
-	t.Cleanup(func() { os.Stdout, os.Stderr = oldOut, oldErr })
-	outCh, errCh := drain(outR), drain(errR)
-	code := fn()
-	_ = outW.Close()
-	_ = errW.Close()
-	os.Stdout, os.Stderr = oldOut, oldErr
-	return code, <-outCh, <-errCh
-}
-
-// drain reads r to EOF on a goroutine so a large write cannot block the pipe.
-func drain(r *os.File) <-chan string {
-	ch := make(chan string, 1)
-	go func() {
-		var b bytes.Buffer
-		_, _ = io.Copy(&b, r)
-		ch <- b.String()
-	}()
-	return ch
 }
 
 // threeProfiles defines three opaque Databricks profiles so the plan tests never read the real vault.
@@ -260,7 +226,7 @@ func TestRunHelpOnlyFirstOrAfterCheck(t *testing.T) {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			f := &fakeChild{}
 			useFake(t, f)
-			code, _, _ := runCaptured(t, func() int { return Run(args) })
+			code, _, _ := hosttest.CaptureOutput(t, func() int { return Run(args) })
 			if code != 0 {
 				t.Errorf("exit = %d, want 0", code)
 			}
@@ -294,7 +260,7 @@ func TestRunProfileErrorExit2(t *testing.T) {
 	seedOverlay(t, threeProfiles)
 	f := &fakeChild{}
 	useFake(t, f)
-	code, _, stderr := runCaptured(t, func() int { return Run([]string{"--profile", "staging"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--profile", "staging"}) })
 	if code != 2 {
 		t.Errorf("exit = %d, want 2", code)
 	}
@@ -347,7 +313,7 @@ func TestLaunchPropagatesExitAndStartError(t *testing.T) {
 	})
 	t.Run("start failure", func(t *testing.T) {
 		useFake(t, &fakeChild{err: os.ErrNotExist})
-		code, _, stderr := runCaptured(t, func() int { return Run([]string{"sonnet"}) })
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"sonnet"}) })
 		if code != 2 {
 			t.Errorf("exit = %d, want 2", code)
 		}
@@ -375,7 +341,7 @@ func TestCheckSmokeVerdict(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			useFake(t, &fakeChild{smoke: tt.out})
-			code, stdout, _ := runCaptured(t, func() int { return Run([]string{"check"}) })
+			code, stdout, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"check"}) })
 			if tt.wantOK {
 				if code != 0 || !strings.Contains(stdout, "PASS smoke") {
 					t.Errorf("exit %d, stdout %q; want PASS smoke and exit 0", code, stdout)
@@ -396,7 +362,7 @@ func TestRunRemovedFlagsExit2NoLaunch(t *testing.T) {
 	} {
 		f := &fakeChild{smoke: "OK\n"}
 		useFake(t, f)
-		code, stdout, stderr := runCaptured(t, func() int { return Run(args) })
+		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run(args) })
 		if code != 2 || !strings.Contains(stderr, "--") || strings.Contains(stdout, "PASS") {
 			t.Errorf("Run(%q) = %d, stdout %q, stderr %q; want exit 2 with a hint", args, code, stdout, stderr)
 		}
@@ -521,7 +487,7 @@ func useVaultTest(t *testing.T) string {
 // captureOutput runs fn with stdout/stderr captured.
 func captureOutput(t *testing.T, fn func() int) (code int, stdout, stderr string) {
 	t.Helper()
-	return runCaptured(t, fn)
+	return hosttest.CaptureOutput(t, fn)
 }
 
 // TestPlanFailsClosedOnProviderLoadError pins that an unreadable registry is an error, not a skipped profile check.
@@ -559,7 +525,7 @@ func TestCheckForwardsModelFlag(t *testing.T) {
 	seedOverlay(t, threeProfiles)
 	f := &fakeChild{smoke: "OK\n"}
 	useFake(t, f)
-	code, out, stderr := runCaptured(t, func() int {
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"check", "--profile", "bb", "--model", "sonnet"})
 	})
 	if code != 0 || !strings.Contains(out, "PASS smoke") {
@@ -641,7 +607,7 @@ func TestCheckAllAcceptsPositionalModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := "claude-opus-5-5"
-	code, out, stderr := runCaptured(t, func() int {
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"check", model, "--all", "--wire", "all", "--profile", "test-probe", "--model", "claude-haiku-4-5"})
 	})
 	if code != 0 || len(seen) != 2 {
@@ -726,11 +692,11 @@ func TestCheckProfilesConcurrentInOrder(t *testing.T) {
 func TestCheckAllDefaultsToServing(t *testing.T) {
 	seedOverlay(t, "")
 	n := probeServer(t, 0)
-	code, out, _ := runCaptured(t, func() int { return Run([]string{"check", "--all", "--profile", "p1"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"check", "--all", "--profile", "p1"}) })
 	if code != 0 || n.Load() != 1 || !strings.Contains(out, "SERVING") || strings.Contains(out, "AI-GATEWAY") {
 		t.Fatalf("exit = %d, probes = %d, stdout = %q", code, n.Load(), out)
 	}
-	if code, _, _ := runCaptured(t, func() int { return Run([]string{"check", "--all", "--wire", "bogus"}) }); code == 0 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"check", "--all", "--wire", "bogus"}) }); code == 0 {
 		t.Fatal("--wire bogus accepted")
 	}
 }

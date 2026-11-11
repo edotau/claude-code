@@ -1,5 +1,5 @@
 # Reviewable registry: name | kind | version | glob (relative to the config dir) | owner | clean:<target>|keep
-# A change here is a change to the on-disk contract; regenerate with: go test ./internal/schemas -run Golden -update
+# A change here is a change to the on-disk contract; regenerate with: go test ./internal/cli -run Golden -update
 # legacy-layout: agentversion
 # legacy-layout: audit
 # legacy-layout: claims

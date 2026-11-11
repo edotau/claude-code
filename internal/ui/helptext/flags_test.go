@@ -3,12 +3,12 @@ package helptext
 import (
 	"errors"
 	"flag"
-	"io"
-	"os"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // timeoutExplicit distinguishes a --timeout the caller typed from the flag's own zero-cost default,
@@ -40,17 +40,8 @@ func TestTimeoutExplicit(t *testing.T) {
 
 func captureStderr(t *testing.T, f func() int) (string, int) {
 	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := os.Stderr
-	os.Stderr = w
-	code := f()
-	os.Stderr = old
-	w.Close()
-	b, _ := io.ReadAll(r)
-	return string(b), code
+	code, _, stderr := hosttest.CaptureOutput(t, f)
+	return stderr, code
 }
 
 // BadFormat must print the prefixed one-line error and exit 2; Fail exits 1.

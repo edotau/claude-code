@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/copilot"
 	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini route engine the prod binary links
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -714,17 +715,7 @@ func probeSymlinkLoop(t *testing.T, path string) {
 // hermetic isolates config and the env a doctor row reads; userProviders is an optional vault overlay/providers document.
 func hermetic(t *testing.T, userProviders string) {
 	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	home := filepath.Join(dir, "home")
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
-	t.Setenv("BASH_COMPLETION_USER_DIR", "")
-	for _, k := range []string{providers.EnvSessionProfile, "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL",
-		"CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL", "ANTHROPIC_API_KEY", "TEST_GW_KEY"} {
-		t.Setenv(k, "")
-	}
+	hosttest.HermeticEnv(t) // install writes completion and the wl-paste proxy under HOME/XDG
 	if userProviders != "" {
 		vaulttest.Put(t, vault.Overlay, "providers", userProviders)
 	}

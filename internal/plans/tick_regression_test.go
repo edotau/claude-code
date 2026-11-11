@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestUnreadableMirrorRecordPreventsTick(t *testing.T) {
@@ -76,7 +78,7 @@ func TestTickRangePropagatesOutputErrors(t *testing.T) {
 			if tc.explicit != "" {
 				plan = filepath.Join(home, tc.explicit)
 			}
-			rng := base + ".." + gitT(t, repo, "rev-parse", "HEAD~2")
+			rng := base + ".." + strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "HEAD~2"))
 			var output bytes.Buffer
 			if err := TickRange(context.Background(), repo, "", rng, plan, nil, true, &output); err != nil {
 				t.Fatal(err)

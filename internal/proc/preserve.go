@@ -27,16 +27,17 @@ func IsTerminal(f *os.File) bool { return IsTerminalFD(int(f.Fd())) }
 
 // Preserve snapshots stdin's termios; the returned func restores it and re-shows the cursor (no-op off a tty).
 func Preserve() (restore func()) {
-	if !IsTerminalFD(0) {
+	in := preserveIn
+	if !IsTerminalFD(in) {
 		return func() {}
 	}
 	var saved syscall.Termios
-	if ioctlTermios(0, ioctlGet, &saved) != nil {
+	if ioctlTermios(in, ioctlGet, &saved) != nil {
 		return func() {}
 	}
-	showCursor := IsTerminalFD(1)
+	showCursor := IsTerminalFD(preserveOut)
 	return func() {
-		_ = ioctlTermios(0, ioctlSet, &saved)
+		_ = ioctlTermios(in, ioctlSet, &saved)
 		if showCursor {
 			_, _ = os.Stdout.WriteString("\x1b[?25h")
 		}

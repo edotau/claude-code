@@ -3,8 +3,6 @@ package gemini
 import (
 	"bufio"
 	"context"
-	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,9 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/agenttest"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -390,18 +389,8 @@ func TestGeminiGatewaySessionWithoutPinOrLoginIsRefused(t *testing.T) {
 	}
 }
 
-// launchHermetic isolates a launch test from the host and stubs the router, with launch notices discarded.
-func launchHermetic(t *testing.T) {
-	t.Helper()
-	hosttest.HermeticEnv(t)
-	t.Cleanup(agent.StubRouter("http://127.0.0.1:4000"))
-	orig := agent.NoticeOut
-	agent.NoticeOut = io.Discard
-	t.Cleanup(func() { agent.NoticeOut = orig })
-}
-
 func TestVendorPassesThroughWhenUnroutable(t *testing.T) {
-	launchHermetic(t)
+	agenttest.LaunchHermetic(t)
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv("CLAUDE_PROFILE", "ultra") // passthrough auth: gemini cannot use it
@@ -416,7 +405,7 @@ func TestVendorPassesThroughWhenUnroutable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected a passthrough plan, got %v", err)
 	}
-	// gemini's own built-in vendor spec (vendorconfig defaults) still prepends --dangerously-skip-permissions.
+	// gemini's own built-in vendor spec (agentconfig defaults) still prepends --dangerously-skip-permissions.
 	wantArgv := []string{"--dangerously-skip-permissions", "-p", "hi"}
 	if plan.Binary != fake || !slices.Equal(plan.Argv, wantArgv) || len(plan.Set) != 0 {
 		t.Errorf("plan = %+v, want the plain CLI with %v prepended and no harness env", plan, wantArgv)
@@ -432,7 +421,7 @@ func TestVendorPassesThroughWhenUnroutable(t *testing.T) {
 }
 
 func TestConfigureDeclinedPreservesModelFlag(t *testing.T) {
-	launchHermetic(t)
+	agenttest.LaunchHermetic(t)
 	fake := pathstest.FakeVendor(t, "agy", "")
 	const model = "gemini-3.8-flash-high"
 	o, args, err := agent.ParseArgs([]string{"--profile", "antigravity", "--model", model, "-p", "hi"}, false)
@@ -460,7 +449,7 @@ func TestConfigureDeclinedPreservesModelFlag(t *testing.T) {
 }
 
 func TestConfigureRetryPreservesAgentModelPin(t *testing.T) {
-	launchHermetic(t)
+	agenttest.LaunchHermetic(t)
 	fake := pathstest.FakeVendor(t, "agy", "")
 	const model = "gemini-3.8-flash-low"
 	vaulttest.SetRecord(t, "gemini", "model", model)
@@ -491,63 +480,17 @@ func TestConfigureRetryPreservesAgentModelPin(t *testing.T) {
 	}
 }
 
-// socketAccepts dials rather than stats: the socket file exists a moment before the holder listens on it.
-func socketAccepts(path string) bool {
-	c, err := net.DialTimeout("unix", path, time.Second)
-	if err != nil {
-		return false
-	}
-	_ = c.Close()
-	return true
-}
-
 // liveEnv gives the test a short /tmp config dir (a unix socket path caps at 104 bytes on macOS, 108 on Linux).
 func liveEnv(t *testing.T) {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "lv")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	home := filepath.Join(dir, "home") // the agy target needs a Google sign-in marker; never read the developer's
-	marker := AgyLoginMarker(home)
+	// the agy target needs a Google sign-in marker; never read the developer's
+	marker := AgyLoginMarker(pathstest.ShortConfigDir(t))
 	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(marker, []byte("test"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", home)
-	if err := os.MkdirAll(paths.BinDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func startHolderAs(t *testing.T, ctx context.Context, name string, idle time.Duration) (string, func() error) {
-	t.Helper()
-	rec := agent.ClaimRecord(name, agent.RunOptions{Timeout: idle}, time.Now())
-	rec.Live, rec.PID = true, os.Getpid()
-	if err := rec.Save(); err != nil {
-		t.Fatal(err)
-	}
-	done, id := make(chan error, 1), rec.ID
-	go func() { done <- agent.ServeLive(ctx, &rec) }()
-	for range 200 {
-		if socketAccepts(agent.LiveSocket(id)) {
-			break
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	if _, err := os.Stat(agent.LiveSocket(id)); err != nil {
-		select {
-		case serveErr := <-done:
-			t.Fatalf("holder did not open its socket: %v (serve: %v)", err, serveErr)
-		default:
-			t.Fatalf("holder did not open its socket: %v", err)
-		}
-	}
-	return id, func() error { return <-done }
 }
 
 // fakeLiveAgy is a shell agy: one init, then per NDJSON turn an agent_response delta and a result whose usage is
@@ -572,7 +515,7 @@ func TestLiveAgySession(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	id, wait := startHolderAs(t, ctx, "gemini", time.Minute)
+	id, wait := agenttest.StartHolder(t, ctx, "gemini", time.Minute, nil)
 	if _, err := os.Stat(agent.LiveSocket(id)); err != nil {
 		cancel()
 		t.Fatalf("holder did not open its socket: %v (%v)", err, wait())
@@ -629,7 +572,7 @@ func startAgy(t *testing.T, script string, req agent.RunOptions) (string, func()
 	done := make(chan error, 1)
 	go func() { done <- agent.ServeLive(ctx, &rec) }()
 	for range 200 {
-		if socketAccepts(agent.LiveSocket(rec.ID)) {
+		if agenttest.SocketAccepts(agent.LiveSocket(rec.ID)) {
 			break
 		}
 		time.Sleep(25 * time.Millisecond)

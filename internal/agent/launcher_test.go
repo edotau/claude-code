@@ -168,8 +168,8 @@ func TestAgentModelTargetPin(t *testing.T) {
 func TestPlainPlansResolveVendorBinNotPATH(t *testing.T) {
 	for _, name := range Names() {
 		t.Run(name, func(t *testing.T) {
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			source := vendorPATHFixture(t, agentid.Binary(name), "")
+			setConfigDir(t)
+			source := pathstest.FakeVendorOutsideConfig(t, agentid.Binary(name), "")
 			t.Setenv("PATH", filepath.Dir(source))
 			bin := pathstest.FakeVendor(t, name, "")
 			spec, ok := LookupSchema(name)
@@ -189,22 +189,6 @@ func TestPlainPlansResolveVendorBinNotPATH(t *testing.T) {
 			}
 		})
 	}
-}
-
-func vendorPATHFixture(t *testing.T, name, body string) string {
-	t.Helper()
-	cfg := os.Getenv("CLAUDE_CONFIG_DIR")
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	bin := pathstest.FakeVendor(t, name, body)
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if name == "agy" {
-		dst := filepath.Join(filepath.Dir(bin), "agy")
-		if err := os.Rename(bin, dst); err != nil {
-			t.Fatal(err)
-		}
-		bin = dst
-	}
-	return bin
 }
 
 func TestAgentLastProfileIsPerAgent(t *testing.T) {
@@ -307,7 +291,7 @@ func TestLaunchPlanSurfacesUnreadablePins(t *testing.T) {
 }
 
 func TestVendorSignInSkipsRouting(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	t.Setenv("CLAUDE_PROFILE", "ultra") // neither codex nor gemini can use it
 	t.Setenv("GEMINI_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")

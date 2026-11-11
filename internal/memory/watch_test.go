@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func stubWatcher(t *testing.T, ok bool) *[][]string {
@@ -61,7 +63,7 @@ func TestNewestActivityNewerSubagentFileWins(t *testing.T) {
 func TestIdleUpdateOnceDispatchesUncoveredWork(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 9)
+	hosttest.WriteEdits(t, tr, 9)
 	calls := &StubSpawn(t, true).Update
 	writeStamp(stampPath("idle"), time.Now().Add(-time.Hour), "bg", 4) // a checkpoint covered 4 of the 9
 
@@ -74,13 +76,13 @@ func TestIdleUpdateOnceDispatchesUncoveredWork(t *testing.T) {
 	if idleDispatched(tr, "idle") || calls.Load() != 1 {
 		t.Error("a second pass with everything covered must not dispatch again")
 	}
-	writeEdits(t, tr, 2)
+	hosttest.WriteEdits(t, tr, 2)
 	_ = os.Remove(stampPath("idle"))
 	if idleDispatched(tr, "idle") {
 		t.Error("under the edit floor must not dispatch")
 	}
 	var note bytes.Buffer
-	writeEdits(t, tr, 5)
+	hosttest.WriteEdits(t, tr, 5)
 	StubSpawn(t, false)
 	if _, failed := idleUpdateOnce(tr, filepath.Dir(tr), "idle2", &note); !failed || !strings.Contains(note.String(), "not spawned") {
 		t.Errorf("a failed spawn must be noted and flagged for retry: failed=%v %q", failed, note.String())
@@ -91,12 +93,12 @@ func TestIdleUpdateOnceDispatchesUncoveredWork(t *testing.T) {
 func TestIdleUpdateOnceCountsSubagentEdits(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 1)
+	hosttest.WriteEdits(t, tr, 1)
 	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
 	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 10)
+	hosttest.WriteEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 10)
 	calls := &StubSpawn(t, true).Update
 
 	if !idleDispatched(tr, "idle-sub") || calls.Load() != 1 {
@@ -106,7 +108,7 @@ func TestIdleUpdateOnceCountsSubagentEdits(t *testing.T) {
 		t.Errorf("stamp after the idle update = %+v, want bg covering 11 edits", st)
 	}
 
-	writeEdits(t, tr, 7) // 6 more main edits (1 -> 7); the subagent file is untouched
+	hosttest.WriteEdits(t, tr, 7) // 6 more main edits (1 -> 7); the subagent file is untouched
 	if !idleDispatched(tr, "idle-sub") || calls.Load() != 2 {
 		t.Fatalf("6 more main edits past the covered 11 must dispatch again (calls=%d)", calls.Load())
 	}
@@ -118,14 +120,14 @@ func TestSessionUpdateSpawnsOneIdleWatcherPerSession(t *testing.T) {
 	t.Setenv(UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
-	writeEdits(t, tr, 6)
+	hosttest.WriteEdits(t, tr, 6)
 	StubSpawn(t, true)
 	watches := stubWatcher(t, true)
 	run := func() { UpdateIfNew(UpdateRequest{SessionID: "s1", Transcript: tr, CWD: cwd}, TriggerStop, time.Now()) }
 
 	run()
 	writeStamp(stampPath("s1"), time.Now().Add(-time.Hour), "bg", 6)
-	writeEdits(t, tr, 20) // a re-arm dispatch of the same session
+	hosttest.WriteEdits(t, tr, 20) // a re-arm dispatch of the same session
 	run()
 	if len(*watches) != 1 {
 		t.Fatalf("watcher spawned %d times, want exactly once: %v", len(*watches), *watches)
@@ -142,7 +144,7 @@ func TestSessionUpdateSpawnsOneIdleWatcherPerSession(t *testing.T) {
 	failed := stubWatcher(t, false)
 	run()
 	writeStamp(stampPath("s1"), time.Now().Add(-time.Hour), "bg", 6)
-	writeEdits(t, tr, 20)
+	hosttest.WriteEdits(t, tr, 20)
 	run()
 	if len(*failed) != 2 {
 		t.Errorf("a failed watcher spawn must be retried on the next dispatch (got %d)", len(*failed))
@@ -155,7 +157,7 @@ func TestSessionUpdateSpawnsOneIdleWatcherPerSession(t *testing.T) {
 // The watcher is bound to its session process: once that pid is gone it exits on the next poll.
 func TestIdleUpdateWatchExitsWhenOwnerDies(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 6)
+	hosttest.WriteEdits(t, tr, 6)
 	prev := updateWatchPoll
 	updateWatchPoll = 5 * time.Millisecond
 	t.Cleanup(func() { updateWatchPoll = prev })
@@ -182,7 +184,7 @@ func TestIdleUpdateWatchExitsWhenOwnerDies(t *testing.T) {
 func TestIdleUpdateWatchUpdatesQuietTranscript(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 5)
+	hosttest.WriteEdits(t, tr, 5)
 	old := time.Now().Add(-time.Hour)
 	_ = os.Chtimes(tr, old, old)
 	prev := updateWatchPoll
@@ -212,13 +214,13 @@ func TestIdleUpdateWatchUpdatesQuietTranscript(t *testing.T) {
 func TestIdleUpdateWatchSkipsGlobWhileMainTranscriptFresh(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 6) // sets the main transcript's mtime to "now" as a side effect of the write
+	hosttest.WriteEdits(t, tr, 6) // sets the main transcript's mtime to "now" as a side effect of the write
 	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
 	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	agent := filepath.Join(subDir, "agent-a.jsonl")
-	writeEdits(t, agent, 9)
+	hosttest.WriteEdits(t, agent, 9)
 	prev := updateWatchPoll
 	updateWatchPoll = 5 * time.Millisecond
 	t.Cleanup(func() { updateWatchPoll = prev })
@@ -242,7 +244,7 @@ func TestIdleUpdateWatchSkipsGlobWhileMainTranscriptFresh(t *testing.T) {
 
 func TestIdleUpdateWatchRefusesBadFlags(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 6)
+	hosttest.WriteEdits(t, tr, 6)
 	var errb bytes.Buffer
 	if rc := IdleUpdateWatch(WatchOptions{Session: "x", Transcript: tr, CWD: filepath.Join(t.TempDir(), "gone"), Idle: time.Second, Stderr: &errb}); rc != 2 {
 		t.Errorf("watch with a missing cwd = %d, want 2", rc)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -164,7 +165,7 @@ func TestStopHookActiveSkipsSteward(t *testing.T) {
 // TestStopResolvesSessionRootOnce: the checkpoint and the update share one session-root read per Stop.
 func TestStopResolvesSessionRootOnce(t *testing.T) {
 	tr, payload := hookSession(t)
-	writeEdits(t, tr, 5)
+	hosttest.WriteEdits(t, tr, 5)
 	reads := 0
 	orig := sessionRoot
 	sessionRoot = func(id, cwd string) string { reads++; return orig(id, cwd) }

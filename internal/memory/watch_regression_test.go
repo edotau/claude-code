@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestIdleUpdateHoldsSessionDispatchLock(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 5)
+	hosttest.WriteEdits(t, tr, 5)
 	previous := spawn.update
 	spawn.update = func(string, string, string) bool {
 		ran, err := paths.TryFileLock(stampPath("locked-idle")+".lock", 0, func() error { return nil })
@@ -57,7 +58,7 @@ func TestWatcherRetriesStatErrors(t *testing.T) {
 	if err := os.Remove(tr); err != nil {
 		t.Fatal(err)
 	}
-	writeEdits(t, tr, 5)
+	hosttest.WriteEdits(t, tr, 5)
 	old := time.Now().Add(-time.Hour)
 	if err := os.Chtimes(tr, old, old); err != nil {
 		t.Fatal(err)

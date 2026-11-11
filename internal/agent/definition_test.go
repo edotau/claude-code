@@ -10,7 +10,7 @@ import (
 )
 
 func TestLoadSchemaUnknown(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	for _, ref := range []string{"missing", "../x", "/no/such.md", "bad name"} {
 		if p, err := LoadSchema(ref); err == nil {
 			t.Errorf("LoadSchema(%q) = %+v, want an error", ref, p)
@@ -174,7 +174,7 @@ func assertParsedAgentFields(t *testing.T, arg string, d *Schema, err error) {
 
 // SelectAgent rejects an unknown vendor prefix and an unknown bare ref, and lets the vendor beat def.Agent.
 func TestSelectAgentRejectionsAndVendorPrefix(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	agents := map[string]*Schema{"sec": {Name: "sec", Prompt: "p", Agent: "codex"}}
 	for _, ref := range []string{"nope:sec", "ghost", "codex:ghost"} {
 		if r, d, err := SelectAgent(ref, agents); err == nil {

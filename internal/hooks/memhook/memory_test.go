@@ -275,17 +275,6 @@ func agentIn(t *testing.T, payload string) *core.Input {
 	return core.ParseInput(strings.NewReader(payload))
 }
 
-// fakeOpencode puts an `opencode` script running body first on PATH and returns a directory to use as cwd.
-func fakeOpencode(t *testing.T, body string) string {
-	t.Helper()
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "opencode"), []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return dir
-}
-
 func TestAgentInputClaudePassesThrough(t *testing.T) {
 	in := agentIn(t, `{"session_id":"s9","cwd":"/r","transcript_path":"/t.jsonl"}`)
 	if out := AgentInput(in); out != in {
@@ -294,7 +283,7 @@ func TestAgentInputClaudePassesThrough(t *testing.T) {
 }
 
 func TestAgentInputFailOpenReturnsInput(t *testing.T) {
-	cwd := fakeOpencode(t, "exit 1")
+	cwd := hosttest.FakeOpencode(t, "exit 1")
 	missing := filepath.Join(t.TempDir(), "events.jsonl")
 	for name, payload := range map[string]string{
 		"opencode export fails":  `{"session_id":"ses_x2","cwd":"` + cwd + `","harness_agent":"opencode"}`,

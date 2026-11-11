@@ -3,7 +3,6 @@ package plans
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -422,27 +421,17 @@ func TestClaimFreeAndClearOwned(t *testing.T) {
 	}
 }
 
-func gitT(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
 // tickRangeRepo builds a repo with a base commit and three file commits; it returns the repo and the base sha.
 func tickRangeRepo(t *testing.T) (repo, base string) {
 	t.Helper()
 	repo = t.TempDir()
-	gitT(t, repo, "init", "-q", "-b", "main")
-	gitT(t, repo, "commit", "-q", "--allow-empty", "-m", "base")
-	base = gitT(t, repo, "rev-parse", "HEAD")
+	hosttest.In(t, repo, "init", "-q", "-b", "main")
+	hosttest.In(t, repo, "commit", "-q", "--allow-empty", "-m", "base")
+	base = strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "HEAD"))
 	for _, rel := range []string{"internal/a/a.go", "internal/b/b.go", "README.md"} {
 		writeFile(t, filepath.Join(repo, rel), "x")
-		gitT(t, repo, "add", rel)
-		gitT(t, repo, "commit", "-q", "-m", rel)
+		hosttest.In(t, repo, "add", rel)
+		hosttest.In(t, repo, "commit", "-q", "-m", rel)
 	}
 	return repo, base
 }
@@ -635,11 +624,11 @@ func TestCommitFilesPreservesLeadingNewline(t *testing.T) {
 	hermetic(t)
 	repo, _ := tickRangeRepo(t)
 	writeFile(t, filepath.Join(repo, "foo.go"), "unchanged\n")
-	gitT(t, repo, "add", "foo.go")
-	gitT(t, repo, "commit", "-q", "-m", "ordinary path")
+	hosttest.In(t, repo, "add", "foo.go")
+	hosttest.In(t, repo, "commit", "-q", "-m", "ordinary path")
 	writeFile(t, filepath.Join(repo, "\nfoo.go"), "changed\n")
-	gitT(t, repo, "add", "\nfoo.go")
-	gitT(t, repo, "commit", "-q", "-m", "newline path")
+	hosttest.In(t, repo, "add", "\nfoo.go")
+	hosttest.In(t, repo, "commit", "-q", "-m", "newline path")
 	files, err := CommitFiles(context.Background(), repo, "HEAD")
 	if err != nil {
 		t.Fatal(err)

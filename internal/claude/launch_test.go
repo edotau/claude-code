@@ -3,6 +3,7 @@ package claude
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -20,22 +21,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-func vendorPATHFixture(t *testing.T, name, body string) string {
-	t.Helper()
-	cfg := os.Getenv("CLAUDE_CONFIG_DIR")
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	bin := pathstest.FakeVendor(t, name, body)
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if name == "agy" {
-		dst := filepath.Join(filepath.Dir(bin), "agy")
-		if err := os.Rename(bin, dst); err != nil {
-			t.Fatal(err)
-		}
-		bin = dst
-	}
-	return bin
-}
-
 // hermetic isolates config, pins and seams; userProviders is an optional vault overlay/providers document.
 func hermetic(t *testing.T, userProviders string) {
 	t.Helper()
@@ -44,16 +29,9 @@ func hermetic(t *testing.T, userProviders string) {
 			t.Setenv(k, "")
 		}
 	}
-	dir := vaulttest.Use(t)
-	home := filepath.Join(dir, "home")
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
-	t.Setenv("BASH_COMPLETION_USER_DIR", "")
-	for _, k := range []string{providers.EnvSessionProfile, "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL",
-		"CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL", "ANTHROPIC_API_KEY", "TEST_GW_KEY"} {
-		t.Setenv(k, "")
-	}
+	hosttest.HermeticEnv(t)
+	vault.DisableSyncForTests()
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
 	if userProviders != "" {
 		vaulttest.Put(t, vault.Overlay, "providers", userProviders)
 	}
@@ -711,7 +689,7 @@ func TestClaudeBinaryPrefersBinDirOverVersions(t *testing.T) {
 func TestClaudeBinaryDoesNotSearchPATH(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	source := vendorPATHFixture(t, "claude", "")
+	source := pathstest.FakeVendorOutsideConfig(t, "claude", "")
 	t.Setenv("PATH", filepath.Dir(source))
 	if bin, err := ClaudeBinary(); err == nil || !strings.Contains(err.Error(), "not found in") || bin != "" {
 		t.Fatalf("ClaudeBinary = %q, %v; want not found despite PATH vendor", bin, err)

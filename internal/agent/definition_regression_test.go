@@ -7,7 +7,7 @@ import (
 )
 
 func TestLoadSchemaRejectsInvalidTools(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setConfigDir(t)
 	for _, tools := range []string{"false", "no"} {
 		file := filepath.Join(t.TempDir(), "restricted.md")
 		if err := writeFile(file, "---\nname: restricted\ntools: "+tools+"\n---\nRestricted prompt.\n"); err != nil {

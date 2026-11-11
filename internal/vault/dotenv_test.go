@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // ParseDotenv keeps NAME=value lines, trims before stripping one quote pair (R4) and reports malformed lines.
@@ -198,23 +200,11 @@ func must(b []byte, err error) []byte {
 	return b
 }
 
-// captureStderr redirects os.Stderr to a pipe for the duration of fn and returns what it wrote.
+// captureStderr returns what fn wrote to os.Stderr.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := os.Stderr
-	os.Stderr = w
-	fn()
-	os.Stderr = old
-	w.Close()
-	out, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(out)
+	_, _, stderr := hosttest.CaptureOutput(t, func() int { fn(); return 0 })
+	return stderr
 }
 
 // AppendDotenv must quote any value ParseDotenv would otherwise mis-parse, and ParseDotenv must

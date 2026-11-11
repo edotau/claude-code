@@ -1,12 +1,16 @@
 package memory
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
+)
 
 func TestFailedStopDispatchLeavesWorkForFinalHook(t *testing.T) {
 	for _, trigger := range []string{TriggerSessionEnd, TriggerPreCompact} {
 		t.Run(trigger, func(t *testing.T) {
 			u := newGateRun(t)
-			writeEdits(t, u.tr, 5)
+			hosttest.WriteEdits(t, u.tr, 5)
 			StubSpawn(t, false)
 			if g := u.stop(); !g.Blocked {
 				t.Fatalf("failed Stop dispatch gate=%+v, want block", g)
@@ -29,7 +33,7 @@ func TestFailedStopDispatchLeavesWorkForFinalHook(t *testing.T) {
 // Six user turns and zero edits block a failed Stop with 3 work units, at the first block and the re-block.
 func TestFailedStopGateCountsWorkUnits(t *testing.T) {
 	u := newGateRun(t)
-	writeUserTurns(t, u.tr, 6)
+	hosttest.WriteUserTurns(t, u.tr, 6)
 	StubSpawn(t, false)
 	for range 2 {
 		if g := u.stop(); !g.Blocked || g.Work != 3 {
