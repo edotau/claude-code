@@ -25,43 +25,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// A gate group stays on even when the vault holds a switch-off that SaveHarnessHooks would have refused.
-func TestHarnessGateGroupIgnoresSwitchOff(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HARNESS_VAULT_KEY", "0123456789abcdef0123456789abcdef")
-	err := vault.Update(func(tx *vault.Tx) error {
-		return tx.Put(vault.Overlay, "harnessHooks", `{"safety":false,"plans":false}`)
-	})
-	if err != nil {
-		t.Skipf("hermetic vault unavailable: %v", err)
-	}
-	on := enabledGroups()
-	if !on("safety", true) {
-		t.Error("gate group must ignore harnessHooks=false")
-	}
-	if on("docs", false) {
-		t.Error("non-gate group must honor harnessHooks=false, a stored plans switch read as docs")
-	}
-}
-
-// A Gate module never reads the group switches; a non-Gate module still proceeds when its group is switched off.
-func TestRunModuleGateSkipsSwitchRead(t *testing.T) {
-	flagHarness(t)
-	reads := 0
-	orig := loadHarnessHooks
-	loadHarnessHooks = func() (map[string]bool, error) { reads++; return map[string]bool{"safety": false, "docs": false}, nil }
-	t.Cleanup(func() { loadHarnessHooks = orig })
-	if code, _, _ := runFlags("PreToolUse", bashPayload("rm -rf /"), "--safety-scan"); code != core.ExitBlock || reads != 0 {
-		t.Errorf("--safety-scan: exit %d, switch reads %d; want ExitBlock and 0 reads", code, reads)
-	}
-	repo := hosttest.Repo(t)
-	payload, _ := json.Marshal(map[string]any{"tool_name": "Write", "cwd": repo,
-		"tool_input": map[string]string{"file_path": filepath.Join(repo, "NOTES.md"), "content": "# n\n"}})
-	if code, _, errb := runFlags("PreToolUse", bytes.NewReader(payload), "--docs-placement"); code != core.ExitProceed || reads != 1 {
-		t.Errorf("--docs-placement with docs off: exit %d, switch reads %d (%s); want proceed after 1 read", code, reads, errb)
-	}
-}
-
 func TestDispatchBlockingGateFailsClosedOnPanic(t *testing.T) {
 	gate := bound("gate", "Bash", time.Second, func(*core.Input) core.Result { panic("scan blew up") })
 	gate.Spec.Blocks = true
@@ -379,10 +342,9 @@ func TestCodexAgentRouteThroughRunKeepsWireShape(t *testing.T) {
 
 // stopFormatFixture is a git repo holding an unformatted mine.go plus a transcript that triggers the stop gates.
 type stopFormatFixture struct {
-	mine  string
-	ugly  string
-	stop  func(id string, active bool) (int, string)
-	reset func()
+	mine string
+	ugly string
+	stop func(id string, active bool) (int, string)
 }
 
 // newStopFormatFixture hermetically sets up the Stop event run through the checkpoint, update and format groups.
@@ -406,8 +368,7 @@ func newStopFormatFixture(t *testing.T) stopFormatFixture {
 	}
 	ugly := "package x\nfunc  F( ) {}\n"
 	mine := filepath.Join(repo, "mine.go")
-	reset := func() { _ = os.WriteFile(mine, []byte(ugly), 0o644) }
-	reset()
+	_ = os.WriteFile(mine, []byte(ugly), 0o644)
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	edit := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go"}}]}}` + "\n"
 	write := fmt.Sprintf(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":%q}}]}}`+"\n", mine)
@@ -419,13 +380,13 @@ func newStopFormatFixture(t *testing.T) stopFormatFixture {
 		code := runEvent("Stop", false, strings.NewReader(p), &out, &errb)
 		return code, errb.String() + out.String()
 	}
-	return stopFormatFixture{mine: mine, ugly: ugly, stop: stop, reset: reset}
+	return stopFormatFixture{mine: mine, ugly: ugly, stop: stop}
 }
 
-// Stop merges both memory blocks, still formats, skips only the checkpoint when active, and honors format off.
+// Stop merges both memory blocks, still formats, and skips only the checkpoint when active.
 func TestStopCombinesBlocksAndStillFormats(t *testing.T) {
 	f := newStopFormatFixture(t)
-	mine, ugly, stop, reset := f.mine, f.ugly, f.stop, f.reset
+	mine, ugly, stop := f.mine, f.ugly, f.stop
 	code, msg := stop("s1", false)
 	if code != core.ExitBlock {
 		t.Fatalf("the memory update blocks: got %d, want ExitBlock; msg=%q", code, msg)
@@ -441,17 +402,6 @@ func TestStopCombinesBlocksAndStillFormats(t *testing.T) {
 	if code != core.ExitBlock || strings.Contains(msg, "Context usage") {
 		t.Errorf("stop_hook_active must skip the checkpoint only: code=%d msg=%q", code, msg)
 	}
-
-	if err := settings.SaveHarnessHooks(map[string]bool{"format": false}); err != nil {
-		t.Skipf("hermetic vault unavailable: %v", err)
-	}
-	reset()
-	if code, msg = stop("s3", false); code != core.ExitBlock || !strings.Contains(msg, "memory update") {
-		t.Errorf("memory must still block with format off: code=%d msg=%q", code, msg)
-	}
-	if b, _ := os.ReadFile(mine); string(b) != ugly {
-		t.Error("a disabled format group must leave the file unformatted")
-	}
 }
 
 // hookAgents is every agent a hook payload can name.
@@ -464,9 +414,6 @@ func stubNatives(t *testing.T, verdicts map[string]core.Result) map[string]bool 
 		native[name] = func(*core.Input) core.Result { ran[name] = true; return verdicts[name] }
 		t.Cleanup(func() { native[name] = orig })
 	}
-	orig := loadHarnessHooks
-	loadHarnessHooks = func() (map[string]bool, error) { return nil, nil }
-	t.Cleanup(func() { loadHarnessHooks = orig })
 	return ran
 }
 

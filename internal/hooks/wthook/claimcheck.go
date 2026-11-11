@@ -647,6 +647,6 @@ func clusterHas(a string, letter byte) bool {
 // underAny reports whether p equals or sits under one of scopes.
 func underAny(p string, scopes []string) bool {
 	return slices.ContainsFunc(scopes, func(s string) bool {
-		return core.UnderDir(s, p)
+		return paths.Within(p, s)
 	})
 }

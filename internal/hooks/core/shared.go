@@ -45,11 +45,6 @@ func Git(ctx context.Context, dir string, args ...string) (lines []string, ok bo
 	return strings.Split(strings.TrimSpace(out), "\n"), true, nil
 }
 
-// UnderDir reports whether path is dir itself or below it (both already canonical).
-func UnderDir(dir, path string) bool {
-	return dir != "" && (path == dir || strings.HasPrefix(path, dir+string(filepath.Separator)))
-}
-
 // RelWithin is abs relative to root; false when abs escapes root.
 func RelWithin(root, abs string) (string, bool) {
 	rel, err := filepath.Rel(root, abs)

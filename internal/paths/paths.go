@@ -368,7 +368,7 @@ func checkUnchanged(dest string, old []byte, label string) error {
 	return nil
 }
 
-// WriteIfUnchanged backs dest up and replaces it only while old is still on disk, checked before and after the backup.
+// WriteIfUnchanged backs dest up and replaces it only while old is still on disk; a written backup's path is returned.
 func WriteIfUnchanged(dest string, old, next []byte, mode os.FileMode, label string) (string, error) {
 	if err := checkUnchanged(dest, old, label); err != nil {
 		return "", err
@@ -381,7 +381,7 @@ func WriteIfUnchanged(dest string, old, next []byte, mode os.FileMode, label str
 		}
 	}
 	if err := checkUnchanged(dest, old, label); err != nil {
-		return "", err
+		return backup, err
 	}
 	return backup, AtomicWrite(dest, next, mode)
 }

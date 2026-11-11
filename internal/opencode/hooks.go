@@ -81,12 +81,11 @@ func newHookHost(req agent.RunOptions) *hookHost {
 	return h
 }
 
-// hostedBound is the hosted hooks the vault's harnessHooks switches leave on; safeMode (--pure) keeps only the safety gate.
+// hostedBound is the hosted hooks; safeMode (--pure) keeps only the safety gate.
 func hostedBound(safeMode bool) []hooks.Bound {
-	switches, _ := settings.LoadHarnessHooks()
 	var bound []hooks.Bound
 	for _, b := range bindHooks() {
-		if on, set := switches[b.Group]; hostedHooks[b.Spec.Name] && (b.Gate || (!safeMode && (!set || on))) {
+		if hostedHooks[b.Spec.Name] && (b.Gate || !safeMode) {
 			bound = append(bound, b)
 		}
 	}

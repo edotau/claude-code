@@ -94,7 +94,7 @@ func docsPlacementPath(ctx context.Context, in *core.Input, path string, stderr 
 	}
 	// The harness's own docs/ holds only images and templates; anything else there is a retired home.
 	config := core.CanonPath(paths.ConfigDir())
-	if harnessDocs := core.CanonPath(filepath.Join(config, "docs")); core.UnderDir(harnessDocs, abs) {
+	if harnessDocs := core.CanonPath(filepath.Join(config, "docs")); paths.Within(abs, harnessDocs) {
 		return harnessDocsPlacement(ctx, stderr, config, harnessDocs, abs, base)
 	}
 	return repoDocsPlacement(ctx, stderr, dir, base, abs)
@@ -130,7 +130,7 @@ func repoDocsPlacement(ctx context.Context, stderr io.Writer, dir, base, abs str
 // harnessDocsPlacement gates a write under the harness's own docs/: images and templates and tracked files pass.
 func harnessDocsPlacement(ctx context.Context, stderr io.Writer, config, harnessDocs, abs, base string) int {
 	for _, tier := range []string{"images", "templates"} {
-		if core.UnderDir(filepath.Join(harnessDocs, tier), abs) {
+		if paths.Within(abs, filepath.Join(harnessDocs, tier)) {
 			return core.ExitProceed
 		}
 	}
@@ -163,7 +163,7 @@ func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 func blockPlacement(stderr io.Writer, base, where, root string) int {
 	plansDir := filepath.Join(paths.ConfigDir(), "plans")
 	store := memory.Dir(root)
-	if core.UnderDir(core.CanonPath(memory.StoreDir()), core.CanonPath(root)) {
+	if paths.Within(core.CanonPath(root), core.CanonPath(memory.StoreDir())) {
 		store = root // a repo inside the memory store is its own bank, not the home one
 	}
 	plansHome := plans.Home(planRepoRoot(root))

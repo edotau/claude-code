@@ -218,14 +218,11 @@ func codexTrustDigest(event, name string, group settings.MatcherGroup, hook sett
 	if event != settings.EventUserPromptSubmit && group.Matcher != "" {
 		identity["matcher"] = group.Matcher
 	}
-	var canonical bytes.Buffer
-	enc := json.NewEncoder(&canonical)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(identity); err != nil {
+	canonical, err := textutil.MarshalNoEscape(identity)
+	if err != nil {
 		return "", err
 	}
-	digest := sha256.Sum256(bytes.TrimSuffix(canonical.Bytes(), []byte{'\n'}))
-	return fmt.Sprintf("sha256:%x", digest), nil
+	return fmt.Sprintf("sha256:%x", sha256.Sum256(canonical)), nil
 }
 
 // Codex resolves the source directory through symlinks but retains the hooks.json leaf.

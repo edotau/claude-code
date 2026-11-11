@@ -363,8 +363,7 @@ clipboard — copy one there first (or its bridge is down)`.
 Declared as **groups** in `internal/settings/hookspec.go`, implemented in `internal/hooks/`; add one by
 registering it in a group and running `make install`. Settings carry one dispatcher entry per event
 (`claude-code hook <Event>`). The `safety` group (`safety-scan`: blocks destructive Bash, asks on
-intent-dependent commands) keeps its own process and cannot be turned off; only a non-gate group is switched off with
-`"<group>": false` under `harnessHooks` in the vault.
+intent-dependent commands) keeps its own process. No group can be switched off.
 
 | Group | Does |
 | --- | --- |
@@ -392,9 +391,9 @@ contracts, caps, precedence and every `memory` verb: `rules/workflows/memory-ban
 
 ## Status line
 
-`claude-code theme statusline [--style gradient|powerline|capsule|minimal|dashboard]` shows
-`<provider>·<profile> · <model>`, context % and git state, plus the 5h/weekly limits (`5h:N% 7d:N%`) or a minted
-token's time left (`oauth:42m`). Opt-in `segments`: `router`, `tokens` (`total:1.23M`, `+` while dispatches run),
+`claude-code theme statusline [--style <name>]` (`gradient`, `powerline`, `capsule`, `minimal`, `dashboard`,
+`twoline`) shows `<provider>·<profile> · <model>`, context % and git state, plus the weekly limit (`7d:N%`) or a
+minted token's time left (`oauth:42m`). Opt-in `segments`: `router`, `tokens` (`total:1.23M`, `+` while dispatches run),
 `duration`, `session`, `agents` (`N ◉`). Config: `~/.claude/state/statusline/config.json`.
 
 ## Layout

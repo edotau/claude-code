@@ -645,27 +645,6 @@ func TestRtkDispatcherBareRunsRtk(t *testing.T) {
 	}
 }
 
-// The rtk group is an ordinary toggle: harnessHooks can switch it off, while the safety gate refuses to be.
-func TestRtkGroupToggle(t *testing.T) {
-	rtkHermetic(t)
-	fakeRTK(t)
-
-	if err := settings.SaveHarnessHooks(map[string]bool{"rtk": false}); err != nil {
-		t.Fatalf("SaveHarnessHooks(rtk:false): %v", err)
-	}
-	var out, errb strings.Builder
-	if rc := runEvent(settings.EventPreToolUse, false, strings.NewReader(rtkBashIn("git status")), &out, &errb); rc != core.ExitProceed {
-		t.Fatalf("runEvent rc = %d, want ExitProceed; stderr=%q", rc, errb.String())
-	}
-	if strings.Contains(out.String(), "updatedInput") {
-		t.Errorf("rtk group switched off but dispatcher still rewrote: %s", out.String())
-	}
-
-	if err := settings.SaveHarnessHooks(map[string]bool{"safety": false}); err == nil {
-		t.Error("SaveHarnessHooks(safety:false) succeeded — a gate group must stay on")
-	}
-}
-
 // fakeRTK installs a stub rtk (HARNESS_RTK_BIN) whose `rewrite <cmd>` prints FAKE_RTK_OUT or "rtk <cmd>".
 func fakeRTK(t *testing.T) string {
 	t.Helper()
