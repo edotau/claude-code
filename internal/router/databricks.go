@@ -142,6 +142,9 @@ func (t *RouteTable) gateRow(
 	configured func(agent string, c Cell) error, res *PickResult,
 ) []Candidate {
 	scratch := &PickResult{Alias: res.Alias, Want: res.Want}
+	if quiet && model == DiscoveryModel { // a sibling row is not dispatched to: resolve its pool model without stamping
+		model = peekDiscovery(agent, pg.reg.Providers[prof], now)
+	}
 	g := t.gateProfile(ctx, pg.reg, alias, agent, prof, model, "", st, o, now, configured, scratch)
 	for _, sk := range scratch.Skipped {
 		if !quiet || sk.Gate == GateExhausted || sk.Gate == GateAuth { // a quiet row reports only real account state
@@ -156,6 +159,18 @@ func (t *RouteTable) gateRow(
 		}
 	}
 	return g
+}
+
+// peekDiscovery is pickPool's choice for p without recording it; "" when pickPool would fall back to the alias.
+func peekDiscovery(agent string, p *providers.Provider, now time.Time) string {
+	if (agent != "copilot" && agent != "opencode") || p == nil || p.Preset != providers.PresetDatabricks {
+		return ""
+	}
+	st, err := loadState()
+	if err != nil {
+		return ""
+	}
+	return leastRecent(st[ProviderAccount(p.Name)], agent, p, servedPool(p, DiscoveryPool(), now), now)
 }
 
 // gateLead puts the agent on o.Lead, then (fallback permitting) sibling workspaces, then login rows, ahead of base (base wins).
