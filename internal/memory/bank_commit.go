@@ -1,11 +1,8 @@
 package memory
 
-// The journaled commit transaction: journal under state BEFORE any write, capture the native
-// revisions the batch replaces, apply with preimage checks, commit, then retire the journal.
-// A crash at any step is finished by the next call.
-
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -13,15 +10,22 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
 )
+
+// The journaled commit transaction: journal under state BEFORE any write, capture the native
+// revisions the batch replaces, apply with preimage checks, commit, then retire the journal.
+// A crash at any step is finished by the next call.
 
 // Change is one store-relative write or deletion; the bytes present at journal time become its preimage,
 // so a replay never clobbers a later edit.
@@ -394,3 +398,354 @@ var journalFormat = schemas.Register(schemas.Format{
 	Keep:    "a pending journal is replayed by the next commit; a newer one is never replayed",
 	Migrate: schemas.SameShape,
 })
+
+// Bounded, sanitized git for the nested local memory repo at StoreDir(). Explicit --git-dir and
+// --work-tree are what keep an inherited GIT_DIR or a missing .git from retargeting the OUTER ~/.claude checkout;
+// never call bare `git -C StoreDir()` here. Shares internal/proc's sanitized env with internal/history.
+
+// Repo is the nested memory repository rooted at Dir (its work tree); .git lives directly inside it.
+type Repo struct{ Dir string }
+
+// StoreRepo is the live memory store's repo.
+func StoreRepo() Repo { return Repo{Dir: StoreDir()} }
+
+// prePushHook refuses every push: a guard against accidents, not an access-control boundary.
+const prePushHook = "#!/bin/sh\n# memory is local-only: refuse every push; a guard against accidents, not access control.\n" +
+	"echo 'memory: this repository is local-only; push refused' >&2\nexit 1\n"
+
+// storeGitignore keeps runtime beacons beside memory files out of history; locks live under state now.
+const storeGitignore = "# harness runtime beacons beside memory files — never history\n.archive*\naccess.log\n*.tmp-*\n"
+
+// Exists reports a real nested repo: <Dir>/.git is a directory (a gitdir: pointer file is a foreign worktree).
+func (r Repo) Exists() bool {
+	fi, err := os.Lstat(filepath.Join(r.Dir, ".git"))
+	return err == nil && fi.IsDir()
+}
+
+// plainDir creates the repo root and rejects a symlinked one, which could redirect the store into any repo.
+func (r Repo) plainDir() error {
+	if err := os.MkdirAll(r.Dir, 0o700); err != nil {
+		return err
+	}
+	fi, err := os.Lstat(r.Dir)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() { // a symlinked root Lstats as a link
+		return fmt.Errorf("memory repo: %s is not a plain directory (symlink?)", r.Dir)
+	}
+	return nil
+}
+
+// Ensure initializes the repo when absent and verifies its root, distinctness from the outer checkout and lack of
+// remotes BEFORE writing the pre-push guard and .gitignore, so a redirected store never receives a byte.
+func (r Repo) Ensure() error {
+	if err := r.plainDir(); err != nil {
+		return err
+	}
+	gitDir := filepath.Join(r.Dir, ".git")
+	if err := r.initIfAbsent(gitDir); err != nil {
+		return err
+	}
+	if err := r.checkRoot(gitDir); err != nil {
+		return err
+	}
+	if remotes, err := r.remotes(); err != nil {
+		return err
+	} else if len(remotes) > 0 {
+		return fmt.Errorf("memory repo is local-only but has remotes: %s", strings.Join(remotes, ", "))
+	}
+	if err := writeIfAbsent(filepath.Join(gitDir, "hooks", "pre-push"), prePushHook, 0o755); err != nil {
+		return err
+	}
+	return writeIfAbsent(filepath.Join(r.Dir, ".gitignore"), storeGitignore, 0o644)
+}
+
+func (r Repo) initIfAbsent(gitDir string) error {
+	if r.Exists() {
+		return nil
+	}
+	if _, err := os.Lstat(gitDir); err == nil {
+		return fmt.Errorf("memory repo: %s exists but is not a directory (foreign worktree?)", gitDir)
+	}
+	_, err := r.run("init", "--quiet", "--initial-branch=main")
+	return err
+}
+
+// checkRoot proves plain discovery from inside Dir lands on gitDir (not an empty .git or a parent's), that no commondir
+// file shares another repo's refs/objects, and that the enclosing checkout, if any, does not share it.
+func (r Repo) checkRoot(gitDir string) error {
+	found, err := gitOut(r.Dir, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return err
+	}
+	want := paths.CanonDeep(gitDir)
+	if paths.CanonDeep(found) != want {
+		return fmt.Errorf("memory repo: git in %s resolves to %q, not %q", r.Dir, found, gitDir)
+	}
+	common, err := gitOut(r.Dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return err
+	}
+	if paths.CanonDeep(common) != want {
+		return fmt.Errorf("memory repo: %s shares git metadata with %q (commondir)", gitDir, common)
+	}
+	outer, err := gitOut(filepath.Dir(r.Dir), "rev-parse", "--absolute-git-dir")
+	if err == nil && paths.CanonDeep(outer) == want {
+		return fmt.Errorf("memory repo: %s is the outer checkout's git dir", gitDir)
+	}
+	return nil
+}
+
+// writeIfAbsent creates path with body unless it already exists (a user's own edit is never overwritten).
+func writeIfAbsent(path, body string, mode os.FileMode) error {
+	if _, err := os.Lstat(path); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(body), mode)
+}
+
+// remotes lists configured remote names; the store must have none.
+func (r Repo) remotes() ([]string, error) {
+	out, err := r.run("remote")
+	if err != nil {
+		return nil, err
+	}
+	return splitLines(out), nil
+}
+
+// statusEntry is one porcelain v1 row: the XY code and the path (a rename reports its NEW path, then OLD as "D ").
+type statusEntry struct{ Code, Path string }
+
+// Status lists dirty paths (untracked files individually), limited to pathspecs when given.
+func (r Repo) Status(pathspecs ...string) ([]statusEntry, error) {
+	args := []string{"status", "--porcelain=v1", "-z", "--untracked-files=all"}
+	if len(pathspecs) > 0 {
+		args = append(append(args, "--"), pathspecs...)
+	}
+	out, err := r.run(args...)
+	if err != nil {
+		return nil, err
+	}
+	var entries []statusEntry
+	for _, e := range proc.StatusEntries(out) {
+		entries = append(entries, statusEntry{Code: e.Code, Path: e.Path})
+		if strings.Contains(e.Code, "R") && e.From != "" {
+			entries = append(entries, statusEntry{Code: "D ", Path: e.From}) // a rename also deletes its source
+		}
+	}
+	return entries, nil
+}
+
+// Head is the short sha of HEAD, "" when the repo has no commits yet.
+func (r Repo) Head() (string, error) {
+	out, err := r.run("rev-parse", "--verify", "--quiet", "--short", "HEAD")
+	if exitCode(err) == 1 {
+		return "", nil // --verify --quiet exits 1 only for an unborn HEAD
+	}
+	if err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
+// Commit stages exactly rels (store-relative; an absent tracked rel stages its deletion) and commits when the
+// index changed; any failure before the commit lands unstages everything. Rejections name the path only.
+func (r Repo) Commit(rels []string, subject, body string) (sha string, committed bool, err error) {
+	defer func() {
+		if err != nil && !committed {
+			_, _ = r.run("reset", "--quiet") // a stuck index would fail every later commit as "unexpected staged change"
+		}
+	}()
+	if err := r.stageRels(rels); err != nil {
+		return "", false, err
+	}
+	if _, err := r.run("diff", "--cached", "--quiet"); err == nil {
+		return "", false, nil
+	} else if exitCode(err) != 1 {
+		return "", false, err
+	}
+	args := []string{"commit", "--quiet", "-m", subject}
+	if body != "" {
+		args = append(args, "-m", body)
+	}
+	if _, err := r.run(args...); err != nil {
+		return "", false, err
+	}
+	sha, err = r.Head()
+	return sha, true, err
+}
+
+func (r Repo) stageRels(rels []string) error {
+	stage, err := r.stageable(rels)
+	if err != nil {
+		return err
+	}
+	for chunk := range slices.Chunk(stage, 200) { // keeps the argv under the Windows command-line limit
+		if _, err := r.run(append([]string{"add", "-A", "--"}, chunk...)...); err != nil {
+			return err
+		}
+	}
+	return r.checkStaged(rels)
+}
+
+// stageable validates rels and drops the absent-and-untracked ones (`add` rejects a pathspec matching nothing).
+func (r Repo) stageable(rels []string) ([]string, error) {
+	var present, absent []string
+	for _, rel := range rels {
+		if err := r.validateRel(rel); err != nil {
+			return nil, err
+		}
+		abs := filepath.Join(r.Dir, rel)
+		if _, err := os.Lstat(abs); err != nil {
+			absent = append(absent, rel)
+			continue
+		}
+		if err := checkStageContent(abs, rel); err != nil {
+			return nil, err
+		}
+		present = append(present, rel)
+	}
+	if len(absent) == 0 {
+		return present, nil
+	}
+	out, err := r.run(append([]string{"ls-files", "-z", "--"}, absent...)...)
+	if err != nil {
+		return nil, err
+	}
+	for tracked := range strings.SplitSeq(out, "\x00") {
+		if tracked != "" {
+			present = append(present, tracked)
+		}
+	}
+	return present, nil
+}
+
+func checkStageContent(abs, rel string) error {
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return err
+	}
+	if textutil.CredentialRE.Match(data) {
+		return fmt.Errorf("credential-shaped content: %s", rel)
+	}
+	return nil
+}
+
+// dropCredentialShaped returns rels without the credential-shaped files that keep does not claim, naming each such
+// path once on stderr (never its content); a nil keep claims nothing.
+func (r Repo) dropCredentialShaped(rels []string, keep func(rel string) bool) []string {
+	var clean []string
+	for _, rel := range rels {
+		if keep == nil || !keep(rel) {
+			if data, err := os.ReadFile(filepath.Join(r.Dir, rel)); err == nil && textutil.CredentialRE.Match(data) {
+				fmt.Fprintf(os.Stderr, "memory: skipping credential-shaped file %s (scrub it; it is not committed)\n", rel)
+				continue
+			}
+		}
+		clean = append(clean, rel)
+	}
+	return clean
+}
+
+// checkStaged refuses an index holding anything beyond rels: a stray `git add` (or a pathspec glob) skipped validation.
+func (r Repo) checkStaged(rels []string) error {
+	out, err := r.run("diff", "--cached", "--name-only", "--no-renames", "-z")
+	if err != nil {
+		return err
+	}
+	want := make(map[string]bool, len(rels))
+	for _, rel := range rels {
+		want[filepath.ToSlash(rel)] = true
+	}
+	for p := range strings.SplitSeq(out, "\x00") {
+		if p != "" && !want[p] {
+			return fmt.Errorf("memory repo: unexpected staged change: %s", p)
+		}
+	}
+	return nil
+}
+
+// validateRel rejects anything that is not a plain store-relative path, through plain directories only (no symlinked
+// ancestor can redirect a write outside the store), to a regular (or absent) file.
+func (r Repo) validateRel(rel string) error {
+	bad := fmt.Errorf("memory repo: invalid path %q", rel)
+	if invalidRelSyntax(rel) {
+		return bad
+	}
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	if strings.EqualFold(parts[0], ".git") || slices.Contains(parts, "..") {
+		return bad
+	}
+	abs := r.Dir
+	for i, p := range parts {
+		abs = filepath.Join(abs, p)
+		if err := checkRelPart(abs, rel, parts, i); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// invalidRelSyntax judges rel in slash form: git reports "a/b.md" on every OS, so Windows must not demand "a\\b.md".
+func invalidRelSyntax(rel string) bool {
+	s := filepath.ToSlash(rel)
+	return s == "" || s == "." || s == ".." || filepath.IsAbs(rel) || filepath.VolumeName(rel) != "" || path.IsAbs(s) ||
+		path.Clean(s) != s
+}
+
+// checkRelPart requires the i-th path element at abs to be absent, a plain directory, or (the leaf) a regular file.
+func checkRelPart(abs, rel string, parts []string, i int) error {
+	fi, err := os.Lstat(abs)
+	if err != nil {
+		return nil // absent: the write creates plain directories
+	}
+	if leaf := i == len(parts)-1; leaf && !fi.Mode().IsRegular() {
+		return fmt.Errorf("memory repo: not a regular file: %s", rel)
+	} else if !leaf && !fi.IsDir() {
+		return fmt.Errorf("memory repo: not a plain directory: %s", strings.Join(parts[:i+1], "/"))
+	}
+	return nil
+}
+
+// run executes git against this repo with explicit dirs, literal pathspecs, a throwaway identity, no signing, NO hooks
+// (core.hooksPath at /dev/null) and no global ignore file; the pre-push guard still fires for manual git.
+func (r Repo) run(args ...string) (string, error) {
+	gitDir := filepath.Join(r.Dir, ".git")
+	full := []string{"-C", r.Dir, "--git-dir=" + gitDir, "--work-tree=" + r.Dir, "--literal-pathspecs",
+		"-c", "user.name=claude-code", "-c", "user.email=claude-code@localhost",
+		"-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false",
+		"-c", "core.hooksPath=" + os.DevNull, "-c", "core.excludesFile=" + os.DevNull}
+	return runGit(append(full, args...))
+}
+
+// runGit is the one exec seam, via internal/proc: env minus every GIT_* (an inherited GIT_DIR
+// overrides --git-dir), bounded, trimming ONLY trailing newlines (porcelain carries meaning in column 0).
+// full already carries its own -C/-c flags, so dir stays "" here to avoid a duplicate -C.
+func runGit(full []string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	return proc.RunGit(ctx, "", full...)
+}
+
+// exitCode is the git process exit status wrapped in err, -1 when err is not an exit error.
+func exitCode(err error) int {
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
+		return ee.ExitCode()
+	}
+	return -1
+}
+
+// splitLines splits trimmed output into non-empty lines.
+func splitLines(out string) []string {
+	var lines []string
+	for l := range strings.SplitSeq(out, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	return lines
+}

@@ -5,9 +5,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // readFile is os.ReadFile for typed bank files; a var so tests can count how often one file is read.
@@ -176,4 +180,289 @@ func truncateLine(s string) string {
 		cut = cut[:i]
 	}
 	return cut + "…"
+}
+
+// idMarker is a block's persisted ID: assigned once at settle, carried by the block through edits and archive moves.
+var idMarker = regexp.MustCompile(`\s*<!-- id:([0-9a-f]{8}) -->`)
+
+// contentRefPrefix leads a derived (unpersisted) block reference; 'z' is never a hex digit, so it can
+// never collide with a real id marker — `show`/`recall --load` tell the two apart by this prefix.
+const contentRefPrefix = "z"
+
+// derivedRef matches a contentRef: the prefix and a non-empty run of lowercase hex digits.
+var derivedRef = regexp.MustCompile("^" + contentRefPrefix + "[0-9a-f]+$")
+
+// contentRef derives a stable, show-able reference for a block with no persisted id marker:
+// the prefix plus the first 4 bytes of sha256 over its whitespace-normalized text.
+func contentRef(block string) string {
+	return contentRefPrefix + textutil.SHA256Hex([]byte(strings.Join(strings.Fields(block), " ")))[:8]
+}
+
+// blockRef is the block's persisted id, else fallback, else its contentRef.
+func blockRef(block, fallback string) string {
+	if id := ownerID(block); id != "" {
+		return id
+	}
+	if fallback != "" {
+		return fallback
+	}
+	return contentRef(block)
+}
+
+// idFiles are the typed files whose blocks get IDs, with the prefix that starts a block.
+var idFiles = map[string]string{"decisionLog.md": "## ", "sessionHistory.md": "## ", "conventions.md": "- "}
+
+// blockID is the persisted ID on line ("" when it has none).
+func blockID(line string) string {
+	if m := idMarker.FindStringSubmatch(line); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// ownerID is the id a block answers to: its last unfenced marker, which may be wrapped or stacked below the first line.
+func ownerID(block string) string {
+	lines := strings.Split(block, "\n")
+	line, span, total := lastMarker(lines, fencedLines(lines))
+	if total == 0 {
+		return ""
+	}
+	return blockID(lines[line][span[0]:span[1]])
+}
+
+// stripID removes the ID marker for display.
+func stripID(s string) string { return idMarker.ReplaceAllString(s, "") }
+
+// assignIDs stamps every unmarked block in dir's typed files and collapses stacked markers to the oldest (the
+// last in the block); a block is judged whole because the formatter may wrap its marker onto a later line.
+// Returns how many blocks it stamped.
+func assignIDs(dir string, now time.Time) (int, error) {
+	n := 0
+	for name, prefix := range idFiles {
+		stamped, err := assignFileIDs(dir, name, prefix, now)
+		n += stamped
+		if err != nil {
+			return n, err
+		}
+	}
+	return n, nil
+}
+
+// assignFileIDs is assignIDs for one typed file; a missing file is skipped.
+func assignFileIDs(dir, name, prefix string, now time.Time) (int, error) {
+	path := filepath.Join(dir, name)
+	data, err := readFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	res, n := stampIDs(dir, name, prefix, string(data), now)
+	if res != string(data) {
+		if err := paths.AtomicWrite(path, []byte(res), 0o600); err != nil {
+			return n, err
+		}
+	}
+	return n, nil
+}
+
+// stampIDs is assignFileIDs on text in memory: the settled text and how many blocks it stamped.
+func stampIDs(dir, name, prefix, text string, now time.Time) (string, int) {
+	n := 0
+	lines := strings.Split(text, "\n")
+	starts := blockStarts(lines, prefix)
+	out := make([]string, 0, len(lines))
+	head := len(lines)
+	if len(starts) > 0 {
+		head = starts[0]
+	}
+	out = append(out, lines[:head]...)
+	for k, i := range starts {
+		end := len(lines)
+		if k+1 < len(starts) {
+			end = starts[k+1]
+		}
+		block, stamped := settleBlockID(dir, name, i, lines[i:end], now)
+		for salt := len(lines); stamped == 1 && strings.Contains(text, block[0][len(lines[i])+1:]); salt++ {
+			block, _ = settleBlockID(dir, name, salt, lines[i:end], now) // an id text already carries: redraw past its end
+		}
+		n += stamped
+		out = append(out, block...)
+	}
+	return strings.Join(out, "\n"), n
+}
+
+// blockStarts returns the index of each non-empty prefix line outside code fences.
+func blockStarts(lines []string, prefix string) []int {
+	var starts []int
+	fence := ""
+	for i, l := range lines {
+		if fence == "" && strings.HasPrefix(l, prefix) && strings.TrimSpace(strings.TrimPrefix(l, prefix)) != "" {
+			starts = append(starts, i)
+		}
+		fence = nextFence(fence, l)
+	}
+	return starts
+}
+
+// fencedLines flags each line that is a code fence or sits inside one; markers there are examples, not ids.
+func fencedLines(block []string) []bool {
+	out := make([]bool, len(block))
+	fence := ""
+	for i, l := range block {
+		next := nextFence(fence, l)
+		out[i] = fence != "" || next != ""
+		fence = next
+	}
+	return out
+}
+
+// settleBlockID leaves exactly one id marker: the oldest it already carries (the last, since settle stacks newer ones
+// above; a lone one stays where the formatter wrapped it), else a fresh one. Fenced lines are never touched.
+func settleBlockID(dir, name string, idx int, block []string, now time.Time) ([]string, int) {
+	fenced := fencedLines(block)
+	keepLine, keepSpan, total := lastMarker(block, fenced)
+	if total == 0 {
+		return append([]string{block[0] + freshID(dir, name, idx, block[0], now)}, block[1:]...), 1
+	}
+	if total == 1 {
+		return block, 0
+	}
+	kept := " " + strings.TrimSpace(block[keepLine][keepSpan[0]:keepSpan[1]])
+	out := dropMarkers(block, fenced, keepLine, keepSpan)
+	if keepLine != 0 {
+		out[0] = strings.TrimRight(out[0], " \t") + kept
+	}
+	return out, 0
+}
+
+// dropMarkers removes every id marker but the survivor; a non-first line left blank by it disappears.
+func dropMarkers(block []string, fenced []bool, keepLine int, keepSpan []int) []string {
+	out := make([]string, 0, len(block))
+	for i, l := range block {
+		if !fenced[i] && idMarker.MatchString(l) {
+			res := stripMarkers(l, i == 0 && i == keepLine, keepSpan) // a first-line survivor stays where it is
+			if strings.TrimSpace(res) == "" && i != 0 {
+				continue
+			}
+			l = res
+		}
+		out = append(out, l)
+	}
+	return out
+}
+
+// lastMarker finds the last unfenced id marker in block: its line, its span and how many markers there are.
+func lastMarker(block []string, fenced []bool) (keepLine int, keepSpan []int, total int) {
+	keepLine = -1
+	for i, l := range block {
+		if fenced[i] {
+			continue
+		}
+		for _, sp := range idMarker.FindAllStringIndex(l, -1) {
+			keepLine, keepSpan, total = i, sp, total+1
+		}
+	}
+	return keepLine, keepSpan, total
+}
+
+// freshID is the new ` <!-- id:xxxx -->` suffix for a block; idx is in the hash so identical lines never collide.
+func freshID(dir, name string, idx int, line string, now time.Time) string {
+	key := dir + "\x00" + name + "\x00" + strconv.Itoa(idx) + "\x00" + line + "\x00" + now.Format(time.RFC3339Nano)
+	return " <!-- id:" + textutil.SHA256Hex([]byte(key))[:8] + " -->"
+}
+
+// stripMarkers removes every id marker from l, except the one at keepSpan when keepHere.
+func stripMarkers(l string, keepHere bool, keepSpan []int) string {
+	var b strings.Builder
+	prev := 0
+	for _, sp := range idMarker.FindAllStringIndex(l, -1) {
+		b.WriteString(l[prev:sp[0]])
+		if keepHere && sp[0] == keepSpan[0] {
+			b.WriteString(l[sp[0]:sp[1]])
+		}
+		prev = sp[1]
+	}
+	b.WriteString(l[prev:])
+	return b.String()
+}
+
+// errNoBlock is returned when no block in the store carries the requested ID.
+var errNoBlock = errors.New("no memory block with that id")
+
+// ShowBlock finds the block carrying ref anywhere in the store (archives included); ref is either a
+// persisted `<!-- id:xxxx -->` marker or a contentRef for a block that never got one. Returns path and text.
+func ShowBlock(ref string) (string, string, error) {
+	derived := derivedRef.MatchString(ref)
+	var foundPath, foundBlock string
+	err := filepath.WalkDir(StoreDir(), func(p string, d fs.DirEntry, err error) error {
+		if foundPath != "" { // already matched: a later unreadable entry must not discard the match
+			return nil
+		}
+		if errors.Is(err, fs.ErrNotExist) { // no store yet: nothing to find
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || !strings.HasSuffix(p, ".md") {
+			return nil
+		}
+		if b, ok := blockWithRef(p, ref, derived); ok {
+			foundPath, foundBlock = p, b
+		}
+		return nil
+	})
+	if err != nil {
+		return "", "", err
+	}
+	if foundPath == "" {
+		return "", "", errNoBlock
+	}
+	return foundPath, foundBlock, nil
+}
+
+// blockWithRef returns the last block in file p carrying ref (an id marker, or a contentRef when derived).
+func blockWithRef(p, ref string, derived bool) (found string, ok bool) {
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return "", false
+	}
+	if !derived && !strings.Contains(string(data), "<!-- id:"+ref+" -->") {
+		return "", false
+	}
+	_, blocks := entryBlocks(logicalName(p), string(data))
+	if derived { // native topics and knowledge notes are indexed whole, under their own grammar
+		base := filepath.Base(p)
+		blocks = append(blocks, parseBlocks(segNative, base, data)...)
+		blocks = append(blocks, parseBlocks(segKnowledge, base, data)...)
+	}
+	for _, b := range blocks {
+		matches := strings.Contains(b, "<!-- id:"+ref+" -->")
+		if derived {
+			matches = contentRef(b) == ref
+		}
+		if matches {
+			found, ok = b, true
+		}
+	}
+	return found, ok
+}
+
+var archiveName = regexp.MustCompile(`^(decisionLog|sessionHistory|conventions)-\d{4}-\d{2}\.md$`)
+
+// logicalName maps an archive file (decisionLog-2026-10.md) back to its typed file's grammar.
+func logicalName(path string) string {
+	base := filepath.Base(path)
+	if _, ok := idFiles[base]; ok {
+		return base
+	}
+	if m := archiveName.FindStringSubmatch(base); m != nil {
+		return m[1] + ".md"
+	}
+	return base
 }
