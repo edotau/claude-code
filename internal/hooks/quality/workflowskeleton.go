@@ -8,8 +8,8 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-const skeletonUsage = "usage: workflow_skeleton.py [-h] [--name NAME]\n" +
-	"                            {evaluator,orchestrator,parallel,pipeline}\n"
+const skeletonUsage = "usage: claude-code workflow skeleton [-h] [--name NAME]\n" +
+	"                                     {evaluator,orchestrator,parallel,pipeline}\n"
 
 const noteText = "\n// ── Fill in before running ──\n" +
 	"//  • Replace *_SCHEMA with JSON Schemas (or drop the {schema:...} opt for free-text agents).\n" +
@@ -102,7 +102,7 @@ func parseSkeletonArgs(args []string, stdout, stderr io.Writer) skeletonArgs {
 		case a == "--name":
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stderr, "workflow_skeleton.py: error: argument --name: expected one argument")
+				fmt.Fprintln(stderr, "workflow skeleton: error: argument --name: expected one argument")
 				return skeletonArgs{code: 2, done: true}
 			}
 			p.name = args[i]
@@ -122,7 +122,7 @@ func parseSkeletonArgs(args []string, stdout, stderr io.Writer) skeletonArgs {
 	return p
 }
 
-// RunSkeleton is the Go entry point for workflow_skeleton.py's CLI.
+// RunSkeleton emits a JavaScript workflow skeleton for the selected pattern.
 func RunSkeleton(args []string, stdout, stderr io.Writer) int {
 	parsed := parseSkeletonArgs(args, stdout, stderr)
 	if parsed.done {
@@ -131,13 +131,13 @@ func RunSkeleton(args []string, stdout, stderr io.Writer) int {
 	name, positionals, unrecognized := parsed.name, parsed.positionals, parsed.unrecognized
 	if len(unrecognized) > 0 {
 		helptext.Fprint(stderr, skeletonUsage)
-		fmt.Fprintf(stderr, "workflow_skeleton.py: error: unrecognized arguments: %s\n", strings.Join(unrecognized, " "))
+		fmt.Fprintf(stderr, "workflow skeleton: error: unrecognized arguments: %s\n", strings.Join(unrecognized, " "))
 		return 2
 	}
 
 	if len(positionals) == 0 {
 		helptext.Fprint(stderr, skeletonUsage)
-		fmt.Fprintln(stderr, "workflow_skeleton.py: error: the following arguments are required: pattern")
+		fmt.Fprintln(stderr, "workflow skeleton: error: the following arguments are required: pattern")
 		return 2
 	}
 
@@ -145,16 +145,16 @@ func RunSkeleton(args []string, stdout, stderr io.Writer) int {
 	fn, ok := skeletonPatterns[pattern]
 	if !ok {
 		helptext.Fprint(stderr, skeletonUsage)
-		fmt.Fprintf(stderr, "workflow_skeleton.py: error: argument pattern: invalid choice: %q (choose from 'evaluator', 'orchestrator', 'parallel', 'pipeline')\n", pattern)
+		fmt.Fprintf(stderr, "workflow skeleton: error: argument pattern: invalid choice: %q (choose from 'evaluator', 'orchestrator', 'parallel', 'pipeline')\n", pattern)
 		return 2
 	}
 
 	if _, err := fmt.Fprintln(stdout, fn(name)); err != nil {
-		fmt.Fprintf(stderr, "workflow_skeleton.py: error: writing skeleton: %v\n", err)
+		fmt.Fprintf(stderr, "workflow skeleton: error: writing skeleton: %v\n", err)
 		return 1
 	}
 	if _, err := io.WriteString(stdout, noteText+"\n"); err != nil {
-		fmt.Fprintf(stderr, "workflow_skeleton.py: error: writing note: %v\n", err)
+		fmt.Fprintf(stderr, "workflow skeleton: error: writing note: %v\n", err)
 		return 1
 	}
 	return 0

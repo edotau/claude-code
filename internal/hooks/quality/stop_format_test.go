@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestStopFormatOnlySessionWrites(t *testing.T) {
@@ -67,5 +69,34 @@ func TestChangedFilesFromSubdir(t *testing.T) {
 	got := changedFiles(t.Context(), src)
 	if len(got) != 1 || got[0] != "a.go" {
 		t.Fatalf("changedFiles(src) = %v, want [a.go]", got)
+	}
+}
+
+func TestStopFormatKeepsNewestFiles(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := hosttest.Repo(t)
+	var records strings.Builder
+	newest := ""
+	for i := 0; i <= stopFormatMaxFiles; i++ {
+		name := fmt.Sprintf("%03d.go", i)
+		hosttest.WriteRel(t, repo, name, "package x\nfunc  F( ) {}\n")
+		newest = filepath.Join(repo, name)
+		at := time.Now().Add(time.Duration(i-stopFormatMaxFiles) * time.Minute)
+		if err := os.Chtimes(newest, at, at); err != nil {
+			t.Fatal(err)
+		}
+		fmt.Fprintf(&records, `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":%q}}]}}`+"\n", newest)
+	}
+	tr := filepath.Join(t.TempDir(), "edits.jsonl")
+	if err := os.WriteFile(tr, []byte(records.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	StopFormat(core.ParseInput(strings.NewReader(fmt.Sprintf(`{"cwd":%q,"transcript_path":%q}`, repo, tr))))
+	if got, err := os.ReadFile(newest); err != nil || strings.Contains(string(got), "func  F") {
+		t.Fatalf("newest file skipped: %q, %v", got, err)
+	}
+	oldest := filepath.Join(repo, "000.go")
+	if got, err := os.ReadFile(oldest); err != nil || !strings.Contains(string(got), "func  F") {
+		t.Fatalf("oldest file should be deferred: %q, %v", got, err)
 	}
 }

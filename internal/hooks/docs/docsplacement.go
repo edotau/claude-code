@@ -1,6 +1,6 @@
 // `docs-placement` — PreToolUse(Write|Edit): BLOCKS a markdown write targeting a repo ROOT, or a
 // <repo>/docs page git REFUSES to keep (ignored -> gone on a fresh clone), naming the canonical
-// docs/ path instead. Root anchors, tracked files, and this harness's own docs tree pass.
+// docs/ path instead. Root anchors, tracked files, and this harness's docs/images + docs/templates pass.
 package docs
 
 import (

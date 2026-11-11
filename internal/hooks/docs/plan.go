@@ -423,22 +423,28 @@ func Mirror(in *core.Input, stderr io.Writer) int {
 	if !ok {
 		return core.ExitProceed
 	}
-	base := filepath.Base(path)
-	dest, ok := plans.ReadRecordedDest(base)
-	if !ok {
-		dest, _ = planDestination(in.CWD, planTitle(content), content, false)
-		if err := plans.RecordDest(base, dest); err != nil {
-			fmt.Fprintf(stderr, "plan-mirror: %v\n", err) // still mirror once; the copy is the file of record
+	err := paths.WithFileLock(filepath.Join(paths.StateDir(), "plan-mirror"), func() error {
+		base := filepath.Base(path)
+		dest, ok := plans.ReadRecordedDest(base)
+		if !ok {
+			dest, _ = planDestination(in.CWD, planTitle(content), content, false)
+			if err := plans.RecordDest(base, dest); err != nil {
+				dropEmptyClaim(dest)
+				return err
+			}
 		}
-	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+			dropEmptyClaim(dest)
+			return err
+		}
+		if err := plans.WriteFile(dest, content); err != nil {
+			dropEmptyClaim(dest)
+			return err
+		}
+		return nil
+	})
+	if err != nil {
 		fmt.Fprintf(stderr, "plan-mirror: %v\n", err)
-		dropEmptyClaim(dest)
-		return core.ExitProceed
-	}
-	if err := plans.WriteFile(dest, content); err != nil {
-		fmt.Fprintf(stderr, "plan-mirror: %v\n", err)
-		dropEmptyClaim(dest)
 	}
 	return core.ExitProceed
 }
@@ -467,6 +473,8 @@ func skeletonMarker(session string) string {
 func partialFile(session string) string {
 	return filepath.Join(plans.ScratchDir(), paths.Slug(session, "", 80, "session")+".partial")
 }
+
+func partialsLock() string { return filepath.Join(plans.ScratchDir(), "partials") }
 
 // Skeleton injects the plan template on EnterPlanMode and, once per plan, on a plan-mode prompt.
 func Skeleton(in *core.Input) core.Result {
@@ -508,7 +516,7 @@ func Reminder(in *core.Input) core.Result {
 	var stderr bytes.Buffer
 	file := partialFile(in.SessionID)
 	var data []byte
-	err := paths.WithFileLock(file, func() error {
+	err := paths.WithFileLock(partialsLock(), func() error {
 		var rerr error
 		if data, rerr = os.ReadFile(file); rerr != nil {
 			return rerr

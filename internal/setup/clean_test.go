@@ -29,6 +29,36 @@ func write(t *testing.T, path, contents string) {
 	}
 }
 
+func TestCleanStalePartialLocksOnly(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stale := statePath("plans-scratch", "old.partial.lock")
+	fresh := statePath("plans-scratch", "fresh.partial.lock")
+	shared := statePath("plans-scratch", "partials.lock")
+	other := statePath("plans-scratch", "other.lock")
+	for _, path := range []string{stale, fresh, shared, other} {
+		write(t, path, "")
+		if path != fresh {
+			at := time.Now().Add(-25 * time.Hour)
+			if err := os.Chtimes(path, at, at); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	hook, err := selectTargets(targets(), "hook-state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, _, failed := pruneAgedTo(io.Discard, hook[0].globs(), time.Now().Add(-30*24*time.Hour), false, hook[0].keep)
+	if failed != 0 || len(hits) != 1 || hits[0] != stale {
+		t.Fatalf("dry run = %v, failures %d; want only %s", hits, failed, stale)
+	}
+	for _, path := range []string{stale, fresh, shared, other} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("dry run changed %s: %v", path, err)
+		}
+	}
+}
+
 // agedDebris are the seeded entries, one or more per target, that a default sweep must remove.
 var agedDebris = []string{
 	"state/harness/memory/update-20260101-000000.log",

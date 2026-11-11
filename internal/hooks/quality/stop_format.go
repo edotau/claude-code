@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -49,7 +51,7 @@ func StopFormat(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	allow := map[string]bool{}
-	edited, err := transcript.EditedFiles(in.TranscriptPath, stopFormatMaxFiles)
+	edited, err := transcript.EditedFiles(in.TranscriptPath, math.MaxInt)
 	if err != nil { // a partial scan still formats what it found
 		fmt.Fprintf(os.Stderr, "format-stop: transcript scan: %v\n", err)
 	}
@@ -76,6 +78,7 @@ func StopFormat(in *core.Input) core.Result {
 func selectForFormat(cwd string, changed []string, prev map[string]string, allow map[string]bool) ([]string, map[string]string) {
 	var eligible []string
 	carry := map[string]string{}
+	modified := map[string]time.Time{}
 	for _, rel := range changed {
 		full := filepath.Join(cwd, rel)
 		if !allow[full] {
@@ -89,10 +92,11 @@ func selectForFormat(cwd string, changed []string, prev map[string]string, allow
 			carry[full] = key
 			continue
 		}
-		if len(eligible) < stopFormatMaxFiles {
-			eligible = append(eligible, full)
-		}
+		eligible = append(eligible, full)
+		modified[full] = fi.ModTime()
 	}
+	sort.SliceStable(eligible, func(i, j int) bool { return modified[eligible[i]].After(modified[eligible[j]]) })
+	eligible = eligible[:min(len(eligible), stopFormatMaxFiles)]
 	return eligible, carry
 }
 

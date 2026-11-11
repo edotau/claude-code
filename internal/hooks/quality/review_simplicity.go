@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -97,7 +98,22 @@ func readSmallFile(path string) (string, bool) {
 }
 
 // gitShowHead runs git for gitHeadContent; a test swaps it to count calls.
-var gitShowHead = proc.RunGitRaw
+var gitShowHead = gitHeadRaw
+
+// gitHeadRaw fixes git's diagnostic locale without changing the shared process environment.
+func gitHeadRaw(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(proc.GitEnv(), "LC_ALL=C")
+	cmd.WaitDelay = proc.ExecWaitDelay
+	out, err := cmd.Output()
+	if err != nil {
+		if exit, ok := err.(*exec.ExitError); ok {
+			return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(exit.Stderr)))
+		}
+		return "", err
+	}
+	return string(out), nil
+}
 
 // gitHeadContent is the file at HEAD ("" when untracked or outside a repo); false when git failed for another reason.
 func gitHeadContent(path string) (string, bool) {
@@ -107,9 +123,8 @@ func gitHeadContent(path string) (string, bool) {
 	if err == nil {
 		return out, true
 	}
-	msg := err.Error()
-	for _, m := range []string{"not in 'HEAD'", "does not exist in 'HEAD'", "not a git repository"} {
-		if ctx.Err() == nil && strings.Contains(msg, m) {
+	for _, m := range []string{"not in 'HEAD'", "does not exist in 'HEAD'", "not a git repository", "invalid object name 'HEAD'"} {
+		if ctx.Err() == nil && strings.Contains(err.Error(), m) {
 			return "", true
 		}
 	}

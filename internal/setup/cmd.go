@@ -260,14 +260,15 @@ func RunInstall(args []string) int {
 	}
 	fs := helptext.NewFlagSet("install", helptext.Page{
 		Usage: "claude-code install [flags]\nclaude-code install --setup <mode> [flags]",
-		About: "Build-time setup: install the Claude Code CLI and agent links, then seed settings.json when it is missing. " +
-			"--tools installs only the agent CLIs; --setup migrates, wipes or scopes a .claude/ tree.",
+		About: "Build-time setup: copy claude-code into bin/, link the agent CLIs there, then seed settings.json " +
+			"when it is missing. --tools installs or updates only the tools; --setup migrates, wipes or scopes " +
+			"a .claude/ tree.",
 		Hint: "claude-code install --setup -h lists the setup modes.",
 	})
 	dry := fs.Bool("dry-run", false, "print what would change; write nothing")
 	verbose := fs.Bool("verbose", false, "print every step in full, instead of one line each")
 	var tf toolsFlag
-	fs.Var(&tf, "tools", "install CLIs only: bare = all; --tools=name,... selects tools")
+	fs.Var(&tf, "tools", "install or update tools only: bare = all, =name,... selects")
 	setupMode := fs.String("setup", "", "adopt|nuke|workspace: migrate, wipe, or scope .claude/ (first arg)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code

@@ -155,3 +155,19 @@ func TestReviewSimplicityUnsupportedSkipsGit(t *testing.T) {
 		t.Errorf(".go Write: output %q, git calls %d; want 1 new finding after 1 git call", out, calls)
 	}
 }
+
+func TestReviewSimplicityWriteWithoutEnglishGitErrors(t *testing.T) {
+	t.Setenv("LC_ALL", "de_DE.UTF-8")
+	t.Setenv("LANGUAGE", "de")
+	dir := t.TempDir()
+	hosttest.In(t, dir, "init", "-q")
+	path := filepath.Join(dir, "new.go")
+	hosttest.WriteRel(t, dir, "new.go", rsClean+"\n// first\n// second\nfunc N() {}\n")
+	if got := rsRun(t, "Write", path, "", ""); !strings.Contains(got, "1 new finding") {
+		t.Errorf("unborn HEAD: %q", got)
+	}
+	hosttest.In(t, dir, "commit", "--allow-empty", "-q", "-m", "initial")
+	if got := rsRun(t, "Write", path, "", ""); !strings.Contains(got, "1 new finding") {
+		t.Errorf("untracked path with localized git: %q", got)
+	}
+}
