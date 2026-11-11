@@ -8,19 +8,15 @@ import (
 
 // agentBanner is the first body line of every generated agent file; prune only ever touches files carrying it.
 func agentBanner(agent Source, comment func(string) string) string {
-	return comment("Synced from .claude/agents/" + agent.dirName + ".md; do not edit by hand.")
+	return comment(agentBannerText + agent.dirName + ".md; do not edit by hand.")
 }
 
 func htmlComment(s string) string { return "<!-- " + s + " -->" }
 func hashComment(s string) string { return "# " + s }
 
-// agentBody is the shared system prompt: memory section stripped, read-only note prepended when flagged.
+// agentBody is the shared system prompt: the agent body trimmed to one trailing newline.
 func agentBody(agent Source) string {
-	body := stripMemorySection(agent.body)
-	if truthy(agent.frontmatter["readonly"]) {
-		body = "**Note: this agent is read-only; do not modify files.**\n\n" + body
-	}
-	return strings.TrimRight(body, "\n") + "\n"
+	return strings.TrimRight(strings.TrimLeft(agent.body, "\n"), "\n") + "\n"
 }
 
 // renderGeminiAgent: ~/.gemini/agents/<name>.md — strict schema: name, description, and tools translated to

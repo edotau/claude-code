@@ -1,8 +1,8 @@
 // Package agentconfig is each agent CLI's spec; this header indexes every agent's allow/deny policy source.
 //
 //   - Claude Code: internal/settings/template.json `permissions` (ask/deny), seeded into a missing settings.json.
-//   - gemini: Claude's ask/deny carried over as GuardRules (templateGuardRules), opted in by
-//     agents.json `useGuardRules`; converted in internal/gemini (agyGuardRules).
+//   - gemini: Claude's deny list carried over as GuardRules (templateGuardRules), on by default unless the
+//     agent's `useGuardRules` extra is "false"; converted in internal/gemini (agyGuardRules).
 //   - codex, copilot, opencode launch knobs: agents.json (approvalPolicy, sandboxMode, launch args).
 //   - safety-scan hook: internal/hooks/safety*.go blocks destructive shapes for every agent, on top of all of the above.
 package agentconfig
@@ -25,17 +25,10 @@ import (
 //go:embed agents.json
 var defaultsJSON []byte
 
-// launchConfig is env and argv a `claude-code <agent>` launch injects, e.g. to disable a native skill
-// scanner or force allow-all; Args never rides a headless dispatch (tools-off must stay tools-off).
-type launchConfig struct {
-	Env  []string `json:"env,omitempty"`
-	Args []string `json:"args,omitempty"`
-}
-
 // agentConfig is one CLI's full spec.
 type agentConfig struct {
-	Permission permission   `json:"permission"`
-	Launch     launchConfig `json:"launch"`
+	Permission permission        `json:"permission"`
+	Launch     vault.AgentLaunch `json:"launch"`
 }
 
 // Config is the merged spec: built-in defaults plus the user's vault overlay/agents.
@@ -88,7 +81,7 @@ func (c *Config) Clone() *Config {
 	if c == nil {
 		return nil
 	}
-	out := &Config{GuardRules: c.GuardRules.clone()}
+	out := &Config{GuardRules: guardRules{Deny: slices.Clone(c.GuardRules.Deny)}}
 	if c.records != nil {
 		out.records = make(map[string]vault.AgentRecord, len(c.records))
 		for name, r := range c.records {
@@ -103,23 +96,14 @@ func cloneRecord(r vault.AgentRecord) vault.AgentRecord {
 	out := r
 	out.Aliases, out.Extras = maps.Clone(r.Aliases), maps.Clone(r.Extras)
 	if p := r.Permissions; p != nil {
-		out.Permissions = new(vault.AgentPolicy(Policy(*p).clone()))
+		c := *p
+		c.Allow, c.Ask, c.Deny = slices.Clone(p.Allow), slices.Clone(p.Ask), slices.Clone(p.Deny)
+		out.Permissions = &c
 	}
 	if l := r.Launch; l != nil {
 		out.Launch = &vault.AgentLaunch{Env: slices.Clone(l.Env), Args: slices.Clone(l.Args)}
 	}
 	return out
-}
-
-// clone returns a deep copy of g's prompt lists.
-func (g guardRules) clone() guardRules {
-	return guardRules{Ask: slices.Clone(g.Ask), Deny: slices.Clone(g.Deny)}
-}
-
-// clone returns a deep copy of p's rule lists.
-func (p Policy) clone() Policy {
-	p.Allow, p.Ask, p.Deny = slices.Clone(p.Allow), slices.Clone(p.Ask), slices.Clone(p.Deny)
-	return p
 }
 
 // ParseConfig merges base with an optional overlay document. A nil base uses the embedded defaults.
@@ -185,8 +169,8 @@ func legacyRecord(a agentConfig) vault.AgentRecord {
 		guard = "true"
 	}
 	return vault.AgentRecord{
-		Permissions: new(vault.AgentPolicy(p.Defaults)),
-		Launch:      new(vault.AgentLaunch(a.Launch)),
+		Permissions: new(p.Defaults),
+		Launch:      new(a.Launch),
 		Extras: map[string]string{extraApprovalPolicy: p.ApprovalPolicy, extraSandboxMode: p.SandboxMode,
 			extraDefaultPermissionMode: p.DefaultPermissionMode, extraUseGuardRules: guard},
 	}
@@ -252,21 +236,20 @@ func BuiltinSettings(name string) (vault.AgentRecord, error) {
 	return cloneRecord(cfg.records[name]), nil
 }
 
-// templateGuardRules reads the embedded settings template's permissions.ask/deny verbatim.
+// templateGuardRules reads the embedded settings template's permissions.deny verbatim.
 func templateGuardRules() (guardRules, error) {
 	var tpl struct {
 		Permissions struct {
-			Ask  []string `json:"ask"`
 			Deny []string `json:"deny"`
 		} `json:"permissions"`
 	}
 	if err := json.Unmarshal(settings.Template(), &tpl); err != nil {
 		return guardRules{}, fmt.Errorf("agentconfig guard rules: %w", err)
 	}
-	return guardRules{Ask: tpl.Permissions.Ask, Deny: tpl.Permissions.Deny}, nil
+	return guardRules{Deny: tpl.Permissions.Deny}, nil
 }
 
-// Guard returns the guard-rule prompts, or the zero value when Config is nil.
+// Guard returns the guard rules, or the zero value when Config is nil.
 func (c *Config) Guard() guardRules {
 	if c == nil {
 		return guardRules{}
@@ -274,19 +257,18 @@ func (c *Config) Guard() guardRules {
 	return c.GuardRules
 }
 
-// guardRules are prompts carried over into an agent opted in via Permission.UseGuardRules.
+// guardRules are the deny rules carried over into agents that honour Permission.UseGuardRules.
 type guardRules struct {
-	Ask  []string `json:"ask"`
 	Deny []string `json:"deny"`
 }
 
 // permission is one agent's approval policy: agent-native knobs only that agent's renderer consumes.
 type permission struct {
-	UseGuardRules         bool   `json:"useGuardRules,omitempty"`
-	ApprovalPolicy        string `json:"approvalPolicy,omitempty"`
-	SandboxMode           string `json:"sandboxMode,omitempty"`
-	DefaultPermissionMode string `json:"defaultPermissionMode,omitempty"`
-	Defaults              Policy `json:"defaults,omitzero"` // the agent's default dispatch policy (agent.DefaultPermissions)
+	UseGuardRules         bool              `json:"useGuardRules,omitempty"`
+	ApprovalPolicy        string            `json:"approvalPolicy,omitempty"`
+	SandboxMode           string            `json:"sandboxMode,omitempty"`
+	DefaultPermissionMode string            `json:"defaultPermissionMode,omitempty"`
+	Defaults              vault.AgentPolicy `json:"defaults,omitzero"` // the agent's default dispatch policy (agent.DefaultPermissions)
 }
 
 // Extras keys the legacy Permission knobs map to in a vault.AgentRecord.
@@ -296,11 +278,3 @@ const (
 	extraDefaultPermissionMode = "defaultPermissionMode"
 	extraUseGuardRules         = "useGuardRules"
 )
-
-// Policy is a dispatch policy in Claude Code's rule grammar, e.g. deny ["Bash(rm:*)"]; mode default, auto or plan.
-type Policy struct {
-	Mode  string   `json:"mode,omitempty"`
-	Allow []string `json:"allow,omitempty"`
-	Ask   []string `json:"ask,omitempty"`
-	Deny  []string `json:"deny,omitempty"`
-}

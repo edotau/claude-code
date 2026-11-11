@@ -1,6 +1,6 @@
-// Package project projects agents/ into every agent's native subagent dir (tracked under dist/), links skills/
-// into ~/.agents/skills (plus agy's own geminiSkillsDir), and renders each agent's global instruction file
-// (~/.codex/AGENTS.md, ~/.gemini/GEMINI.md).
+// Package project projects agents/ into every agent's native subagent dir (rendered under state/projections),
+// links skills/ into ~/.agents/skills (plus agy's and copilot's own skills dirs), and renders each agent's
+// global instruction file (~/.codex/AGENTS.md, ~/.gemini/GEMINI.md).
 package project
 
 import (

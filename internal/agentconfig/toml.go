@@ -253,11 +253,28 @@ func tripleString(value string) (parsed, rest string, err error) {
 	rest = value[3+end+3:]
 	if quote == "\"\"\"" {
 		body = strings.ReplaceAll(strings.ReplaceAll(body, "\r", ""), "\n", `\n`)
-		if body, err = strconv.Unquote(`"` + strings.ReplaceAll(body, `"`, `\"`) + `"`); err != nil {
+		if body, err = strconv.Unquote(`"` + quoteBare(body) + `"`); err != nil {
 			return "", "", err
 		}
 	}
 	return body, rest, nil
+}
+
+// quoteBare escapes each unescaped `"` in s, keeping existing backslash pairs such as `\"` intact.
+func quoteBare(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == '\\' && i+1 < len(s):
+			b.WriteString(s[i : i+2])
+			i++
+		case s[i] == '"':
+			b.WriteString(`\"`)
+		default:
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
 }
 
 // TOMLStringValue strictly parses one basic, literal or triple-quoted string value, allowing a trailing comment.
