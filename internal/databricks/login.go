@@ -138,7 +138,7 @@ func loginUser(p *providers.Provider, mode string, h headless, dryRun, reuse boo
 		if h.set() {
 			fmt.Println("would use " + h.describe())
 		}
-		return loginDryRun(p, reuse)
+		return loginDryRun(p, reuse, h.noBrowser)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
@@ -249,7 +249,7 @@ func checkHeadless(h headless, as string) (code int, bad bool) {
 }
 
 // loginDryRun reports what login would do for p without opening a browser or writing anything.
-func loginDryRun(p *providers.Provider, reuse bool) int {
+func loginDryRun(p *providers.Provider, reuse, noBrowser bool) int {
 	if reuse {
 		if exp, ok := providers.TokenExpiry(p.Name); ok && time.Until(exp) > 0 {
 			fmt.Printf("would reuse the cached token for %s; no browser\n", p.Name)
@@ -263,8 +263,11 @@ func loginDryRun(p *providers.Provider, reuse bool) int {
 		fmt.Printf("would log in to %s\n", loginHost(p))
 		return 0
 	}
-	fmt.Printf("would open a browser login for %s and seal the refresh token as %s; nothing written\n",
-		p.Name, providers.AuthSecretName(p))
+	how := "open a browser login"
+	if noBrowser {
+		how = "print the sign-in URL"
+	}
+	fmt.Printf("would %s for %s and seal the refresh token as %s; nothing written\n", how, p.Name, providers.AuthSecretName(p))
 	return 0
 }
 
