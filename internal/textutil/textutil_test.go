@@ -3,6 +3,7 @@ package textutil
 import (
 	"os"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -166,3 +167,36 @@ func TestParseRetryAfterHugeSecondsNeverNegative(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func TestSHA256Hex(t *testing.T) {
+	for in, want := range map[string]string{
+		"":    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		"abc": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+	} {
+		if got := SHA256Hex([]byte(in)); got != want {
+			t.Errorf("SHA256Hex(%q) = %s, want %s", in, got, want)
+		}
+	}
+}
+
+func TestScanRawLines(t *testing.T) {
+	cases := []struct {
+		name, in     string
+		completeOnly bool
+		want         []string
+		wantN        int64
+	}{
+		{"keeps terminators and tail", "a\r\nb\nc", false, []string{"a\r\n", "b\n", "c"}, 6},
+		{"complete only drops tail", "a\nb\nc", true, []string{"a\n", "b\n"}, 4},
+		{"empty", "", true, nil, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var got []string
+			n, err := ScanRawLines(strings.NewReader(c.in), c.completeOnly, func(l []byte) { got = append(got, string(l)) })
+			if err != nil || n != c.wantN || !slices.Equal(got, c.want) {
+				t.Errorf("got %q, %d, %v; want %q, %d", got, n, err, c.want, c.wantN)
+			}
+		})
+	}
+}
