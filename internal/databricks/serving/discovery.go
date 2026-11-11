@@ -298,7 +298,8 @@ func SanitizeChecks(checks []CheckResult) []CheckResult {
 		if c.Tools == "yes" || c.Tools == "no" {
 			tools = c.Tools
 		}
-		out = append(out, CheckResult{ID: c.ID, Status: c.Status, HTTP: c.HTTP, LatencyMS: c.LatencyMS, Tools: tools})
+		out = append(out, CheckResult{ID: c.ID, Status: c.Status, HTTP: c.HTTP, LatencyMS: c.LatencyMS, Tools: tools,
+			CheckedAt: c.CheckedAt})
 	}
 	return out
 }

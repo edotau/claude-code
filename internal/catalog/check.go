@@ -64,16 +64,29 @@ func Check(p *providers.Provider, targets []serving.CheckTarget, o serving.Check
 		return nil, nil, err
 	}
 	sortCheckResults(results)
-	return results, SaveCheckCache(CheckCache{CheckedAt: time.Now().UTC(), Provider: p.Name, Results: merged(p.Name, results)}), nil
+	now := checkNow().UTC()
+	for i := range results {
+		results[i].CheckedAt = now
+	}
+	return results, SaveCheckCache(CheckCache{CheckedAt: now, Provider: p.Name, Results: merged(p.Name, results)}), nil
 }
 
-// merged is the profile's cached results with results laid over them by id, sanitized: never raw error bodies.
+// checkNow is the check cache's clock.
+var checkNow = time.Now
+
+// checkAgeAfter is the age past which CheckCell shows how old a cached verdict is.
+const checkAgeAfter = 6 * time.Hour
+
+// merged lays results over the profile's cached ones by id (a transient never replaces an ok), sanitized.
 func merged(profile string, results []serving.CheckResult) []serving.CheckResult {
 	byID, _ := LoadCheckCache(profile)
 	if byID == nil {
 		byID = map[string]serving.CheckResult{}
 	}
 	for _, r := range results {
+		if r.Status == serving.StatusTransient && byID[r.ID].Status == "ok" {
+			continue
+		}
 		byID[r.ID] = r
 	}
 	out := serving.SanitizeChecks(slices.Collect(maps.Values(byID)))
@@ -114,20 +127,28 @@ func ColWidth(head string, n int, cell func(int) string) int {
 	return w
 }
 
-// CheckCell renders a cached probe as "ok tools", "ok no-tools", "fail 400", "missing" or "-".
+// CheckCell renders a cached probe as "ok tools", "ok no-tools", "fail 400", "missing" or "-", aged past 6h: "(3d)".
 func CheckCell(cache map[string]serving.CheckResult, id string) string {
 	r, ok := cache[id]
-	switch {
-	case !ok:
+	if !ok {
 		return "-"
-	case r.Status == "ok" && r.Tools == "no":
-		return "ok no-tools"
-	case r.Status == "ok":
-		return "ok tools"
-	case (r.Status == "fail" || r.Status == serving.StatusTransient) && r.HTTP > 0:
-		return fmt.Sprintf("%s %d", r.Status, r.HTTP)
 	}
-	return r.Status
+	cell := r.Status
+	switch {
+	case r.Status == "ok" && r.Tools == "no":
+		cell = "ok no-tools"
+	case r.Status == "ok":
+		cell = "ok tools"
+	case (r.Status == "fail" || r.Status == serving.StatusTransient) && r.HTTP > 0:
+		cell = fmt.Sprintf("%s %d", r.Status, r.HTTP)
+	}
+	if age := checkNow().Sub(r.CheckedAt); !r.CheckedAt.IsZero() && age > checkAgeAfter {
+		if age < 24*time.Hour {
+			return fmt.Sprintf("%s (%dh)", cell, int(age/time.Hour))
+		}
+		return fmt.Sprintf("%s (%dd)", cell, int(age/(24*time.Hour)))
+	}
+	return cell
 }
 
 // checkFamily is the id's leading letters, e.g. claude, gpt, gemini, glm, qwen.
@@ -206,7 +227,7 @@ func LoadCheckCache(provider string) (map[string]serving.CheckResult, bool) {
 }
 
 // checkCacheSchema is the cache's current schema version; a mismatch is a cache miss, never migrated.
-const checkCacheSchema = 1
+const checkCacheSchema = 2
 
 // checkCacheFormat registers the shared model check cache's on-disk format.
 var checkCacheFormat = schemas.Register(schemas.Format{

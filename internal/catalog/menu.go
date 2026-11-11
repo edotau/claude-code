@@ -53,7 +53,7 @@ func opencodeSyncModels(profile string, refresh bool) (*providers.Provider, serv
 func opencodeSyncIDs(infos []providers.ModelInfo) []string {
 	var ids []string
 	for _, info := range infos {
-		if info.Gateway || info.Ready != "READY" || info.Task != "llm/v1/chat" ||
+		if info.Gateway || !info.ReadyChat() ||
 			!strings.HasPrefix(info.ID, models.DatabricksPrefix) {
 			continue
 		}

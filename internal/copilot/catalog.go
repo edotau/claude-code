@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
@@ -126,8 +126,8 @@ func spawnCatalogRefresh() {
 	if err != nil {
 		return
 	}
-	if name := preflight.GithubProfile(reg); name != "" {
-		preflight.SpawnDiscover(name, false)
+	if name := catalog.GithubProfile(reg); name != "" {
+		catalog.SpawnDiscover(name, false)
 	}
 }
 
@@ -228,14 +228,14 @@ func DiscoverProfileModels(ctx context.Context, p *providers.Provider) ([]provid
 // Seams for tests: the forced relist and the detached refresh spawn.
 var (
 	copilotRelist       = relistCopilotEndpoints
-	copilotSpawnRefresh = func(profile string) bool { return preflight.SpawnDiscover(profile, false) }
+	copilotSpawnRefresh = func(profile string) bool { return catalog.SpawnDiscover(profile, false) }
 )
 
 // copilotModelInfos is a launch's read of p's models: the sealed snapshot with no network when one is remembered,
 // else the identity-checked read. An expired snapshot is served and refreshed by a detached process.
 func copilotModelInfos(ctx context.Context, reg *providers.Registry, p *providers.Provider,
 ) (infos []providers.ModelInfo, snapshot bool, err error) {
-	if infos, ok := preflight.RecallOrSpawn(p, copilotUsable, copilotSpawnRefresh); ok {
+	if infos, ok := catalog.RecallOrSpawn(p, copilotUsable, copilotSpawnRefresh); ok {
 		return infos, true, nil
 	}
 	return copilotCheckedModelInfos(ctx, reg, p)
@@ -378,7 +378,7 @@ func copilotServingChatRows(infos []providers.ModelInfo, menu []providers.Openco
 	}
 	var out []CopilotEndpoint
 	for _, info := range infos {
-		if info.Task != "llm/v1/chat" || info.Ready != "READY" {
+		if !info.ReadyChat() {
 			continue
 		}
 		tested := onMenu[info.ID] || onMenu[strings.TrimPrefix(info.ID, models.DatabricksPrefix)]

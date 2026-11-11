@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -18,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -341,25 +341,14 @@ func proxyUp() bool {
 	return json.Unmarshal(b, &st) == nil && st.PID > 0 && proc.Alive(st.PID)
 }
 
-// refreshRetry spaces detached refresh attempts, so an unreachable workspace doesn't spawn one per SessionStart.
-const refreshRetry = 15 * time.Minute
-
 // Claim takes the detached served-refresh slot; false when another attempt started within refreshRetry.
-func Claim(now time.Time) bool { return ClaimNamed("refresh-attempt", now) }
+func Claim(now time.Time) bool { return catalog.ClaimNamed("refresh-attempt", now) }
 
-// ClaimNamed takes the detached-refresh slot stamped name; false when another attempt started within refreshRetry.
-func ClaimNamed(name string, now time.Time) bool {
-	path := filepath.Join(paths.StateDir(), "preflight", name)
-	claimed := true
-	err := paths.WithFileLock(path, func() error {
-		if fi, err := os.Stat(path); err == nil && now.Sub(fi.ModTime()) < refreshRetry {
-			claimed = false
-			return nil
-		}
-		return paths.AtomicWrite(path, nil, 0o600)
-	})
-	_ = err // best effort: an unwritable stamp or lock must not stop the refresh
-	return claimed
+// DiscoverAfterAuth refreshes every discover target's model list in the background after a sign-in.
+func DiscoverAfterAuth(reg *providers.Registry) {
+	for _, t := range catalog.DiscoverTargets(reg) {
+		catalog.SpawnDiscover(t, true)
+	}
 }
 
 // listModels is the live workspace listing; a seam for tests.
