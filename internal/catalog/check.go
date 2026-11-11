@@ -22,8 +22,8 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// Targets resolves the probe set: every served chat endpoint (all), else ids (default: defaults) against served.
-func Targets(ids []string, all bool, served map[string]providers.ModelInfo, p *providers.Provider, defaults []string,
+// targets resolves the probe set: every served chat endpoint (all), else ids (default: defaults) against served.
+func targets(ids []string, all bool, served map[string]providers.ModelInfo, p *providers.Provider, defaults []string,
 ) []serving.CheckTarget {
 	var out []serving.CheckTarget
 	if all {
@@ -54,8 +54,8 @@ func Targets(ids []string, all bool, served map[string]providers.ModelInfo, p *p
 	return out
 }
 
-// Check probes targets on p, sorts the results and merges them into the cache; cacheErr is a cache write failure.
-func Check(p *providers.Provider, targets []serving.CheckTarget, o serving.CheckOptions,
+// check probes targets on p, sorts the results and merges them into the cache; cacheErr is a cache write failure.
+func check(p *providers.Provider, targets []serving.CheckTarget, o serving.CheckOptions,
 ) (results []serving.CheckResult, cacheErr, err error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -74,7 +74,7 @@ func Check(p *providers.Provider, targets []serving.CheckTarget, o serving.Check
 // checkNow is the check cache's clock.
 var checkNow = time.Now
 
-// checkAgeAfter is the age past which CheckCell shows how old a cached verdict is.
+// checkAgeAfter is the age past which checkCell shows how old a cached verdict is.
 const checkAgeAfter = 6 * time.Hour
 
 // merged lays results over the profile's cached ones by id (a transient never replaces an ok), sanitized.
@@ -127,8 +127,8 @@ func ColWidth(head string, n int, cell func(int) string) int {
 	return w
 }
 
-// CheckCell renders a cached probe as "ok tools", "ok no-tools", "fail 400", "missing" or "-", aged past 6h: "(3d)".
-func CheckCell(cache map[string]serving.CheckResult, id string) string {
+// checkCell renders a cached probe as "ok tools", "ok no-tools", "fail 400", "missing" or "-", aged past 6h: "(3d)".
+func checkCell(cache map[string]serving.CheckResult, id string) string {
 	r, ok := cache[id]
 	if !ok {
 		return "-"
@@ -180,12 +180,11 @@ func sortCheckResults(rs []serving.CheckResult) {
 // CheckUsable probes ids, else every chat endpoint in infos (all), else those usable on dialects, on client routes.
 func CheckUsable(p *providers.Provider, infos []providers.ModelInfo, dialects, ids []string, all bool, timeout time.Duration,
 ) (results []serving.CheckResult, cacheErr, err error) {
-	served := byName(infos)
 	var usableIDs []string
-	for _, info := range usable(p, served, dialects) {
+	for _, info := range UsableIn(p, infos, dialects) {
 		usableIDs = append(usableIDs, info.ID)
 	}
-	return Check(p, Targets(ids, all, served, p, usableIDs),
+	return check(p, targets(ids, all, byName(infos), p, usableIDs),
 		serving.CheckOptions{ClientRoutes: true, Concurrency: 4, Timeout: timeout})
 }
 

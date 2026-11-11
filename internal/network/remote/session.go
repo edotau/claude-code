@@ -17,8 +17,8 @@ import (
 // sshTimeout bounds one ssh round trip (start or list); attach replaces the process and has no deadline.
 const sshTimeout = 20 * time.Second
 
-// ExecArgs runs script under sh locally when local (host is this machine), else over ssh; batch forbids ssh prompts.
-func ExecArgs(host, script string, local, batch bool) ([]string, error) {
+// execArgs runs script under sh locally when local (host is this machine), else over ssh; batch forbids ssh prompts.
+func execArgs(host, script string, local, batch bool) ([]string, error) {
 	if local {
 		return []string{"sh", "-c", script}, nil
 	}
@@ -33,8 +33,8 @@ func attachArgs(host, session string, local bool) ([]string, error) {
 	return sshArgv(host, true, false, "tmux attach -t "+textutil.ShellQuote(session))
 }
 
-// AttachCommand is the attach hint printed after a dispatch: attachArgs in the readable form a person types.
-func AttachCommand(host, session string, local bool) string {
+// attachCommand is the attach hint printed after a dispatch: attachArgs in the readable form a person types.
+func attachCommand(host, session string, local bool) string {
 	if local {
 		return "tmux attach -t " + session
 	}
@@ -49,16 +49,16 @@ func sshCommand(ctx context.Context, argv []string) (*exec.Cmd, context.CancelFu
 	return cmd, cancel
 }
 
-// RunAgent runs an agent start argv over ssh under sshTimeout and returns the combined output even on error.
-func RunAgent(ctx context.Context, argv []string) ([]byte, error) {
+// runAgent runs an agent start argv over ssh under sshTimeout and returns the combined output even on error.
+func runAgent(ctx context.Context, argv []string) ([]byte, error) {
 	cmd, cancel := sshCommand(ctx, argv)
 	defer cancel()
 	return proc.CombinedOutputCapped(cmd)
 }
 
-// ListSessions lists the cc-* tmux sessions on host.
-func ListSessions(ctx context.Context, host string, local bool) ([]Session, error) {
-	argv, err := ExecArgs(host, listCommand, local, false)
+// listSessions lists the cc-* tmux sessions on host.
+func listSessions(ctx context.Context, host string, local bool) ([]Session, error) {
+	argv, err := execArgs(host, listCommand, local, false)
 	if err != nil {
 		return nil, err
 	}
@@ -75,13 +75,13 @@ func ListSessions(ctx context.Context, host string, local bool) ([]Session, erro
 	return parseSessions(string(out)), nil
 }
 
-// PollPaneStatus samples pane status once (interval <= 0) or repeatedly until Ctrl-C, calling emit per sample.
-func PollPaneStatus(
-	ctx context.Context, host string, local bool, interval time.Duration, emit func([]PaneStatus) error,
+// pollPaneStatus samples pane status once (interval <= 0) or repeatedly until Ctrl-C, calling emit per sample.
+func pollPaneStatus(
+	ctx context.Context, host string, local bool, interval time.Duration, emit func([]paneStatus) error,
 ) error {
 	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
-	var prev []PaneStatus
+	var prev []paneStatus
 	for {
 		caps, capErr := capturePanes(sigCtx, host, local, false, execRunner)
 		prev = observePanes(prev, caps, capErr, time.Now())
@@ -102,8 +102,8 @@ func PollPaneStatus(
 	}
 }
 
-// AttachSession replaces this process with an ssh attach to a tmux session on host.
-func AttachSession(host, session string, local bool) error {
+// attachSession replaces this process with an ssh attach to a tmux session on host.
+func attachSession(host, session string, local bool) error {
 	if !validName(session) {
 		return fmt.Errorf("session %q must match %s", session, nameRe().String())
 	}

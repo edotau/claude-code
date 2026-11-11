@@ -106,9 +106,9 @@ func installDbxFake(t *testing.T, f *dbxFake) {
 		f.calls = append(f.calls, "pat:"+name+":"+v)
 		return "probe ok", nil
 	}
-	dbxShell = func(*dialog) *Shell {
+	dbxShell = func(*dialog) *shell {
 		scr := &dbxScreen{f: f}
-		return &Shell{Out: scr, In: bufio.NewReader(scr)}
+		return &shell{Out: scr, In: bufio.NewReader(scr)}
 	}
 	dbxSecret = func(string, string, func(string) string) (string, error) { return f.secret, nil }
 	dbxCheckSP = func(_ context.Context, _, id, secret string) error {

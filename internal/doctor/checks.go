@@ -31,8 +31,8 @@ import (
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
-// Check is one doctor line: Hard failures make the run fail; soft ones only report.
-type Check struct {
+// check is one doctor line: Hard failures make the run fail; soft ones only report.
+type check struct {
 	Name   string `json:"name"`
 	OK     bool   `json:"ok"`
 	Hard   bool   `json:"hard,omitempty"`
@@ -40,21 +40,21 @@ type Check struct {
 }
 
 // doctorSection is one independent group of doctor rows, in order, and whether its hard checks passed.
-type doctorSection func() ([]Check, bool)
+type doctorSection func() ([]check, bool)
 
 // doctorSections run concurrently and print in this order; a var so tests can swap in fakes.
 var doctorSections = []doctorSection{
 	collect(checkBinaryHealth), collect(checkProviderHealth), collect(checkToolHealth), collect(checkHostHealth),
-	func() ([]Check, bool) { return vaultDoctorChecks(), true },
-	func() ([]Check, bool) { return []Check{formatsCheck()}, true },
+	func() ([]check, bool) { return vaultDoctorChecks(), true },
+	func() ([]check, bool) { return []check{formatsCheck()}, true },
 }
 
 // doctorWorkers caps the doctor sections probing at once.
 const doctorWorkers = 4
 
-// Checks runs every read-only health check; ok is false when any hard check failed.
-func Checks() (checks []Check, ok bool) {
-	rows := make([][]Check, len(doctorSections))
+// runChecks runs every read-only health check; ok is false when any hard check failed.
+func runChecks() (checks []check, ok bool) {
+	rows := make([][]check, len(doctorSections))
 	oks := make([]bool, len(doctorSections))
 	sem := make(chan struct{}, doctorWorkers)
 	var wg sync.WaitGroup
@@ -78,10 +78,10 @@ func Checks() (checks []Check, ok bool) {
 
 // collect runs a check-callback section into its own rows; ok is false when one of its hard checks failed.
 func collect(run func(check func(bool, bool, string, string))) doctorSection {
-	return func() (checks []Check, ok bool) {
+	return func() (checks []check, ok bool) {
 		ok = true
 		run(func(pass, hard bool, name, detail string) {
-			checks = append(checks, Check{Name: name, OK: pass, Hard: hard, Detail: detail})
+			checks = append(checks, check{Name: name, OK: pass, Hard: hard, Detail: detail})
 			if !pass && hard {
 				ok = false
 			}
@@ -165,8 +165,8 @@ const credentialProbeWorkers = 4
 var probeCredential = providers.ProbeCredential
 
 // providerCredentialChecks runs providerCredentialCheck for names concurrently and returns the rows in names order.
-func providerCredentialChecks(reg *providers.Registry, sel providers.Selection, selectErr error, names []string) []Check {
-	rows := make([]Check, len(names))
+func providerCredentialChecks(reg *providers.Registry, sel providers.Selection, selectErr error, names []string) []check {
+	rows := make([]check, len(names))
 	sem := make(chan struct{}, credentialProbeWorkers)
 	var wg sync.WaitGroup
 	for i, n := range names {
@@ -182,7 +182,7 @@ func providerCredentialChecks(reg *providers.Registry, sel providers.Selection, 
 	return rows
 }
 
-func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, selectErr error, name string) Check {
+func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, selectErr error, name string) check {
 	p := reg.Providers[name]
 	session := selectErr == nil && sel.Provider == p
 	label := p.Auth.Method()
@@ -202,7 +202,7 @@ func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, s
 	if !present && !session && !profileInUse(reg, name) {
 		present, label = true, label+" · unused"
 	}
-	return Check{Name: "credential " + name, OK: present, Hard: session, Detail: label}
+	return check{Name: "credential " + name, OK: present, Hard: session, Detail: label}
 }
 
 func alternativeCredentialLabel(name, label string) (bool, string) {
@@ -274,8 +274,8 @@ func altAuth(name string) string {
 	return ""
 }
 
-// PrintChecks writes checks as ✓/✗ lines, shared by the doctor checks so all print one format.
-func PrintChecks(w io.Writer, checks []Check) {
+// printCheckLines writes checks as ✓/✗ lines, shared by the doctor checks so all print one format.
+func printCheckLines(w io.Writer, checks []check) {
 	color := ansi.Enabled(w)
 	for _, c := range checks {
 		mark := ansi.Style(color, ansi.Green, "✓")

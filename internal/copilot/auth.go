@@ -29,8 +29,8 @@ import (
 // copilotTokenEnvs is copilot's documented env precedence (`copilot help environment`).
 var copilotTokenEnvs = []string{providers.CopilotTokenEnv, "GH_TOKEN", "GITHUB_TOKEN"}
 
-// CopilotAuth is the GitHub identity copilot authenticates as and where its credential comes from.
-type CopilotAuth struct {
+// copilotAuth is the GitHub identity copilot authenticates as and where its credential comes from.
+type copilotAuth struct {
 	Account string // GitHub login; "" when it needs a network lookup the caller skipped, or that failed
 	Source  string // srcPinned, srcActive, an env var name, or srcCopilot
 	token   string
@@ -54,50 +54,50 @@ func copilotPinLoginErr() (string, error) {
 
 // copilotAuthSource (no network): the pinned profile's gh login, a stored token, gh's active account, then
 // copilot's own order (env token, its stored login) when gh holds no account; none when the registry can't load.
-func copilotAuthSource() (CopilotAuth, bool) {
+func copilotAuthSource() (copilotAuth, bool) {
 	a, ok, err := copilotAuthSourceErr()
 	return a, ok && err == nil // an unreadable registry may hide a pin, so no other account is used
 }
 
 // copilotAuthSourceErr is copilotAuthSource plus the registry load error; for display, a load error falls through.
-func copilotAuthSourceErr() (CopilotAuth, bool, error) {
+func copilotAuthSourceErr() (copilotAuth, bool, error) {
 	pin, loadErr := copilotPinLoginErr()
 	a, ok := authSourceFor(pin)
 	return a, ok, loadErr
 }
 
 // authSourceFor resolves the source for the pinned GitHub login pin ("" = unpinned).
-func authSourceFor(pin string) (CopilotAuth, bool) {
+func authSourceFor(pin string) (copilotAuth, bool) {
 	if pin != "" { // a pinned profile with no login falls through to gh's active account
 		if slices.Contains(GHAccounts(), pin) {
-			return CopilotAuth{Account: pin, Source: srcPinned}, true
+			return copilotAuth{Account: pin, Source: srcPinned}, true
 		}
-		return CopilotAuth{}, false // a pinned account that can't be used never falls back to another one
+		return copilotAuth{}, false // a pinned account that can't be used never falls back to another one
 	}
 	if tok, src, ok := vault.Get(providers.CopilotTokenEnv); ok && src != "env" {
-		return CopilotAuth{Source: SrcStoredToken, token: strings.TrimSpace(tok)}, true
+		return copilotAuth{Source: SrcStoredToken, token: strings.TrimSpace(tok)}, true
 	}
 	if login, tok := ghActiveAccountToken(); login != "" {
-		return CopilotAuth{Account: login, Source: srcActive, token: tok}, true
+		return copilotAuth{Account: login, Source: srcActive, token: tok}, true
 	}
 	for _, k := range copilotTokenEnvs {
 		if tok := strings.TrimSpace(os.Getenv(k)); tok != "" {
-			return CopilotAuth{Source: k, token: tok}, true
+			return copilotAuth{Source: k, token: tok}, true
 		}
 	}
-	if login := CopilotStoredLogin(); login != "" {
-		return CopilotAuth{Account: login, Source: srcCopilot}, true
+	if login := copilotStoredLogin(); login != "" {
+		return copilotAuth{Account: login, Source: srcCopilot}, true
 	}
-	return CopilotAuth{}, false
+	return copilotAuth{}, false
 }
 
 // CopilotLaunchToken is the token a copilot launch injects (COPILOT_GITHUB_TOKEN for the CLI, GitHubToken for
 // the SDK), or "" to leave copilot on its own credential. It logs the source to stderr and the audit log.
-func CopilotLaunchToken() (string, error) { return CopilotLaunchTokenFor("") }
+func CopilotLaunchToken() (string, error) { return copilotLaunchTokenFor("") }
 
-// CopilotLaunchTokenFor is CopilotLaunchToken for the target GitHub row's login; "" uses the copilot record's pin.
-func CopilotLaunchTokenFor(login string) (string, error) {
-	var a CopilotAuth
+// copilotLaunchTokenFor is CopilotLaunchToken for the target GitHub row's login; "" uses the copilot record's pin.
+func copilotLaunchTokenFor(login string) (string, error) {
+	var a copilotAuth
 	var ok bool
 	if login != "" { // an explicit --profile <github row> runs on that row's gh login, never the record's or a stored token
 		a, ok = authSourceFor(login)
@@ -220,8 +220,8 @@ func pinnedHeadroom(ctx context.Context, login string) (detail string, ok bool) 
 // commentRE strips the // comment lines copilot writes at the top of config.json.
 var commentRE = regexp.MustCompile(`(?m)^[ \t]*//.*$`)
 
-// CopilotStoredLogin is lastLoggedInUser.login from copilot's config ($COPILOT_HOME or ~/.copilot), or "".
-func CopilotStoredLogin() string {
+// copilotStoredLogin is lastLoggedInUser.login from copilot's config ($COPILOT_HOME or ~/.copilot), or "".
+func copilotStoredLogin() string {
 	dir, err := paths.CopilotHome()
 	if err != nil {
 		dir = ".copilot"
@@ -459,7 +459,7 @@ func CopilotToken() string {
 }
 
 // copilotToken fetches a gh-sourced account's token; how names the command used (or why it fell back).
-func copilotToken(a CopilotAuth) (tok, how string) {
+func copilotToken(a copilotAuth) (tok, how string) {
 	how, tok = a.Source, a.token
 	if a.Source == srcPinned || a.Source == srcActive {
 		how = "gh auth token" // gh's active token came from the plain command
@@ -519,7 +519,7 @@ func (copilotEngine) Plan(_ context.Context, st providers.AuthState) providers.S
 	if account == "" && tok != "" {
 		account = GitHubLogin(tok)
 	}
-	raw := CopilotRawPlan(account, tok)
+	raw := copilotRawPlan(account, tok)
 	return providers.Subscription{Raw: raw, Name: providers.CopilotPlanName(raw), Account: account}
 }
 
@@ -535,8 +535,8 @@ var copilotTierCmd = func(ctx context.Context, token string) ([]byte, error) {
 // copilotPlanMemo holds one lookup per account, so a sign-in or account switch mid-menu re-asks.
 var copilotPlanMemo paths.Memo[string, string]
 
-// CopilotRawPlan asks GitHub which Copilot plan account holds ("individual_pro"; 3 s cap); "" when offline.
-func CopilotRawPlan(account, token string) string {
+// copilotRawPlan asks GitHub which Copilot plan account holds ("individual_pro"; 3 s cap); "" when offline.
+func copilotRawPlan(account, token string) string {
 	v, _ := copilotPlanMemo.Do(cmp.Or(account, GHActiveAccount()), keepAuth, func() (string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()

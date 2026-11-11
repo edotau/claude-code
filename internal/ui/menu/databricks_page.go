@@ -25,7 +25,7 @@ var (
 
 	dbxSetPAT = databricks.SetPAT
 
-	dbxShell = func(d *dialog) *Shell { return d.shell() }
+	dbxShell = func(d *dialog) *shell { return d.shell() }
 
 	dbxSecret = tui.SecretHint
 
@@ -86,7 +86,7 @@ func dbxIdentityBadge(reg *providers.Registry, env string) string {
 	if who != "" && who != mode {
 		label += " → " + who
 	}
-	return Checked(ok && text != "expired", label)
+	return checked(ok && text != "expired", label)
 }
 
 // dbxDur renders a remaining lifetime as Nm, or NhMMm from two hours up.
@@ -131,8 +131,8 @@ func runDatabricks(d *dialog) bool {
 
 // runDatabricksPage loops the env list until Back.
 func runDatabricksPage(d *dialog) {
-	dbxShell(d).Run("databricks", func() []ShellRow {
-		var rows []ShellRow
+	dbxShell(d).Run("databricks", func() []shellRow {
+		var rows []shellRow
 		names := dbxProfileNames(d.reg)
 		ats, texts := make([]string, len(names)), make([]string, len(names))
 		atW := 0
@@ -143,7 +143,7 @@ func runDatabricksPage(d *dialog) {
 		}
 		for i, e := range names {
 			detail := fmt.Sprintf("%-*s  %s", atW, ats[i], texts[i])
-			rows = append(rows, ShellRow{Name: e, Detail: detail, Run: func() bool {
+			rows = append(rows, shellRow{Name: e, Detail: detail, Run: func() bool {
 				runDatabricksEnv(d, e)
 				return false
 			}})
@@ -154,15 +154,15 @@ func runDatabricksPage(d *dialog) {
 
 // runDatabricksEnv is one env's action list.
 func runDatabricksEnv(d *dialog, env string) {
-	act := func(name, detail string, run func()) ShellRow {
-		return ShellRow{Name: name, Detail: detail, Run: func() bool {
+	act := func(name, detail string, run func()) shellRow {
+		return shellRow{Name: name, Detail: detail, Run: func() bool {
 			run()
 			d.reload()
 			return false
 		}}
 	}
-	dbxShell(d).Run("databricks · "+env, func() []ShellRow {
-		return []ShellRow{
+	dbxShell(d).Run("databricks · "+env, func() []shellRow {
+		return []shellRow{
 			act("Set up", "sign in, verify a token, apply to agents", func() { dbxSetUp(d, env) }),
 			act("Login", "browser sign-in (u2m)", func() { dbxDo(d, env, "login", func(c context.Context) error { return dbxLogin(c, env, d.out) }) }),
 			act("Paste PAT", "hidden input", func() { dbxPaste(d, env) }),
@@ -236,7 +236,7 @@ func dbxMintNow(d *dialog, env string, copyIt bool) {
 	d.printf("%s · copied · clears in %ds\n", env, int(clipboard.DefaultClearAfter/time.Second))
 }
 
-// dbxProfiles lists the registry's Databricks profiles.
+// dbxProfileNames lists the registry's Databricks profiles.
 func dbxProfileNames(reg *providers.Registry) []string {
 	if reg == nil {
 		return nil
@@ -335,7 +335,7 @@ func dbxIdentityMode(d *dialog, env string, p *providers.Provider, kept bool) (m
 	cur, _ := providers.ResolveIdentity(p.Identity, "")
 	rows := make([][2]string, len(modes), len(modes)+1)
 	for i, m := range modes {
-		rows[i] = [2]string{m, Mark(m == cur)}
+		rows[i] = [2]string{m, mark(m == cur)}
 	}
 	if kept {
 		rows = append(rows, [2]string{"change service principal", "new client id and secret"})

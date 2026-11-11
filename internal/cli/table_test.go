@@ -440,7 +440,7 @@ func TestGoldenProbesNowNonEmpty(t *testing.T) {
 		}
 	}
 
-	// memoryRepoNames() reads the catalog, so the repo store needs a seeded repo.
+	// memory.RepoKeys reads the catalog, so the repo store needs a seeded repo.
 	repoDir := filepath.Join(memory.StoreDir(), "fixturerepo")
 	if err := os.MkdirAll(repoDir, 0o755); err != nil {
 		t.Fatal(err)

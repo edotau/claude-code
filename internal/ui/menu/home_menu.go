@@ -24,7 +24,7 @@ import (
 var pickMenu = tui.PickSections
 
 // submitRow ends the menu: y saves the keys entered in it to the secrets manager, n discards them like Esc.
-var submitRow = EnterRow("save keys to the secrets manager and exit")
+var submitRow = enterRow("save keys to the secrets manager and exit")
 
 // runMenu is `configure`'s interactive entry with no section named: the agents, tools and settings sections;
 // picking a row runs it, then the page re-renders with fresh status, cursor kept, until Submit or Esc. --agent
@@ -42,7 +42,7 @@ func runMenu(d *dialog) (code int) {
 	start := 0
 	for {
 		sections, actions := homeSections(d)
-		idx, err := pickMenu(Heading("agents"), sections, submitRow, start)
+		idx, err := pickMenu(heading("agents"), sections, submitRow, start)
 		if err != nil {
 			discardKeys(d)
 			d.printf("configure: %v\n", err)
@@ -89,13 +89,13 @@ func homeSections(d *dialog) ([]tui.Section, []func(*dialog)) {
 	}
 	rows, actions := menuRows(d)
 	wg.Wait()
-	sections := []tui.Section{{Title: Heading("agents"), Rows: rows}}
+	sections := []tui.Section{{Title: heading("agents"), Rows: rows}}
 	return append(sections, extra...), append(actions, acts...)
 }
 
 // extraSections is the tools and settings blocks; a seam so menu tests stay free of live probes.
 var extraSections = func(d *dialog) ([]tui.Section, []func(*dialog)) {
-	return Sections([]Block[*dialog]{{Title: "tools", Rows: toolsRows(d)}, {Title: "settings", Rows: settingsRows(d)}})
+	return sections([]block[*dialog]{{Title: "tools", Rows: toolsRows(d)}, {Title: "settings", Rows: settingsRows(d)}})
 }
 
 // menuRows builds one row per agent (name · mode · check) and the submenu each opens, scoped to d.o.Agent when set.
@@ -124,7 +124,7 @@ func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
 			runAgentMenu(d, displayLabel(n), m)
 		}}
 	}
-	return RowsOf(rows)
+	return rowsOf(rows)
 }
 
 // stagedKey is one menu-entered key: the value Submit will store and the env it shadows until then.

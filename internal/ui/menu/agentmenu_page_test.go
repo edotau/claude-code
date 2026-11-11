@@ -521,7 +521,7 @@ func TestRunAgyReportsNotSignedInWhenItExitsOnItsOwn(t *testing.T) {
 }
 
 // TestRunAgyStopsOnTimeout: agy never writes the marker and never exits; runAgy must give up at
-// agySignInTimeout and stop it rather than wait forever.
+// configure.AgySignInTimeout and stop it rather than wait forever.
 func TestRunAgyStopsOnTimeout(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

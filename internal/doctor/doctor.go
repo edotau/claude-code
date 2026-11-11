@@ -16,10 +16,10 @@ import (
 )
 
 // doctorChecks is a test seam over the probing launch.DoctorChecks plus the soft, config-only MCP row.
-var doctorChecks = func() ([]Check, bool) {
-	checks, ok := Checks()
+var doctorChecks = func() ([]check, bool) {
+	checks, ok := runChecks()
 	mcpOK, detail := summary(mcpOptions(false))
-	return append(checks, Check{Name: "mcp", OK: mcpOK, Detail: detail}), ok
+	return append(checks, check{Name: "mcp", OK: mcpOK, Detail: detail}), ok
 }
 
 type doctorOpts struct {
@@ -115,16 +115,16 @@ func runDoctor(o *doctorOpts, targets []string) int {
 }
 
 // printChecks renders checks as JSON or text and returns the exit code: 1 when !ok.
-func printChecks(o *doctorOpts, checks []Check, ok bool) int {
+func printChecks(o *doctorOpts, checks []check, ok bool) int {
 	if *o.format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, struct {
 			OK     bool    `json:"ok"`
-			Checks []Check `json:"checks"`
+			Checks []check `json:"checks"`
 		}{ok, checks}); err != nil {
 			return helptext.Fail("doctor: %v", err)
 		}
 	} else {
-		PrintChecks(os.Stdout, checks)
+		printCheckLines(os.Stdout, checks)
 	}
 	if !ok {
 		return 1
@@ -164,7 +164,7 @@ func runDoctorAudits(o *doctorOpts, targets []string) int {
 		helptext.Fail("doctor: --scan, --git and --secrets print text only")
 		return 2
 	}
-	return RunAudits(os.Stdout, AuditOpts{Scan: o.scan || o.all, Git: o.gitScan || o.all, Vault: o.all,
+	return runAudits(os.Stdout, auditOpts{Scan: o.scan || o.all, Git: o.gitScan || o.all, Vault: o.all,
 		Targets: targets, Rev: o.rev, Since: o.since})
 }
 

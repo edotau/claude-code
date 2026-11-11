@@ -54,8 +54,8 @@ func science(env, args []string) (agent.Plan, error) {
 	return plan, nil
 }
 
-// ScienceEnv is science over the live environment, with the site config and pinned serve ports applied.
-func ScienceEnv(args []string) (agent.Plan, error) {
+// scienceEnv is science over the live environment, with the site config and pinned serve ports applied.
+func scienceEnv(args []string) (agent.Plan, error) {
 	port, rest, err := scienceArgs(args, scienceConfigPort(scienceTOML))
 	if err != nil {
 		return agent.Plan{}, err

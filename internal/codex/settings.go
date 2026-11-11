@@ -223,7 +223,7 @@ func LoadCodexPreferences() (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	overlay, err := LoadCodexOverlay()
+	overlay, err := readCodexOverlay()
 	if err != nil {
 		return nil, err
 	}
@@ -411,7 +411,7 @@ func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {
 }
 
 // codexRestoreSource is the latest vault backup, else the legacy plaintext one (read unless dryRun); found=false when neither.
-func codexRestoreSource(path string, dryRun bool) (backup CodexConfigBackup, source string, found bool, err error) {
+func codexRestoreSource(path string, dryRun bool) (backup codexConfigBackup, source string, found bool, err error) {
 	backup, found, err = LatestCodexBackup(path)
 	if err != nil || found {
 		return backup, "encrypted vault backup", found, err
@@ -426,7 +426,7 @@ func codexRestoreSource(path string, dryRun bool) (backup CodexConfigBackup, sou
 		if err != nil {
 			return backup, source, true, err
 		}
-		backup = CodexConfigBackup{Data: data, Existed: true}
+		backup = codexConfigBackup{Data: data, Existed: true}
 	}
 	return backup, source, true, nil
 }
@@ -444,7 +444,7 @@ func codexBackupOverlay(data []byte) (map[string]string, error) {
 }
 
 // applyCodexRestore puts the backup back on disk and resynchronizes the overlay, baseline and backup list.
-func applyCodexRestore(path string, backup CodexConfigBackup, overlay map[string]string) error {
+func applyCodexRestore(path string, backup codexConfigBackup, overlay map[string]string) error {
 	target, err := codexWriteTarget(path)
 	if err != nil {
 		return err
@@ -556,12 +556,12 @@ func loadCodexOverlay(tx *vault.Tx) (map[string]string, error) {
 	return ov, validateCodexOverlay(ov)
 }
 
-func LoadCodexOverlay() (ov map[string]string, err error) {
+func readCodexOverlay() (ov map[string]string, err error) {
 	err = vault.View(func(tx *vault.Tx) error { ov, err = loadCodexOverlay(tx); return err })
 	return
 }
 
-type CodexConfigBackup struct {
+type codexConfigBackup struct {
 	Name    string `json:"-"`
 	Path    string
 	Data    []byte
@@ -596,7 +596,7 @@ func CodexBackup(path string, raw []byte, existed bool) error {
 	}
 	prefix := "codex/" + id + "/"
 	name := prefix + now.Format("20060102T150405.000000000Z") + "-" + hex.EncodeToString(nonce[:])
-	data, err := json.Marshal(CodexConfigBackup{Path: abs, Data: raw, Existed: existed, At: now})
+	data, err := json.Marshal(codexConfigBackup{Path: abs, Data: raw, Existed: existed, At: now})
 	if err != nil {
 		return err
 	}
@@ -619,10 +619,10 @@ func CodexBackup(path string, raw []byte, existed bool) error {
 	})
 }
 
-func LatestCodexBackup(path string) (CodexConfigBackup, bool, error) {
+func LatestCodexBackup(path string) (codexConfigBackup, bool, error) {
 	abs, id, err := codexPathID(path)
 	if err != nil {
-		return CodexConfigBackup{}, false, err
+		return codexConfigBackup{}, false, err
 	}
 	prefix, name := "codex/"+id+"/", ""
 	err = vault.View(func(tx *vault.Tx) error {
@@ -634,13 +634,13 @@ func LatestCodexBackup(path string) (CodexConfigBackup, bool, error) {
 		return nil
 	})
 	if err != nil || name == "" {
-		return CodexConfigBackup{}, false, err
+		return codexConfigBackup{}, false, err
 	}
 	raw, found, err := vault.ReadSettingsBackup(name)
 	if err != nil || !found {
-		return CodexConfigBackup{}, false, err
+		return codexConfigBackup{}, false, err
 	}
-	var b CodexConfigBackup
+	var b codexConfigBackup
 	if err := json.Unmarshal([]byte(raw), &b); err != nil {
 		return b, false, fmt.Errorf("codex: invalid encrypted backup: %w", err)
 	}
@@ -666,7 +666,7 @@ func saveCodexBaseline(path string, raw []byte) error {
 	return vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error { return putCodexSealed(tx, key, "codex-baseline/"+id, raw) })
 }
 
-func LoadCodexBaseline(path string) ([]byte, error) {
+func loadCodexBaseline(path string) ([]byte, error) {
 	_, id, err := codexPathID(path)
 	if err != nil {
 		return nil, err

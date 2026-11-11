@@ -68,12 +68,12 @@ type KeyTarget struct {
 	Headless  bool                // Max plan: a setup-token is stored, so unattended runs survive /login expiry
 }
 
-// SetupTokenRE matches the long-lived token `claude setup-token` prints once the browser flow completes.
-var SetupTokenRE = regexp.MustCompile(`sk-ant-oat\d+-[A-Za-z0-9_-]{20,}`)
+// setupTokenRE matches the long-lived token `claude setup-token` prints once the browser flow completes.
+var setupTokenRE = regexp.MustCompile(`sk-ant-oat\d+-[A-Za-z0-9_-]{20,}`)
 
-// MaxPlanTarget fills the claude row for the Claude Max plan (passthrough): the interactive /login session as
+// maxPlanTarget fills the claude row for the Claude Max plan (passthrough): the interactive /login session as
 // reported by `claude auth status`, plus whether a long-lived setup-token is stored for unattended runs.
-func MaxPlanTarget(kt KeyTarget) KeyTarget {
+func maxPlanTarget(kt KeyTarget) KeyTarget {
 	kt.LoginArgv = []string{"claude", "auth", "login"}
 	kt.MintArgv = []string{"claude", "setup-token"}
 	kt.EnvVar = providers.OAuthTokenEnv
@@ -151,7 +151,7 @@ func KeyTargets(reg *providers.Registry, agentFilter string) ([]KeyTarget, error
 			EnvVar: p.Auth.Env, FixCmd: fix, Provider: p,
 		}
 		if p.Auth.Method() == providers.AuthCLI {
-			kt = MaxPlanTarget(kt)
+			kt = maxPlanTarget(kt)
 		}
 		out = append(out, kt)
 	}
@@ -294,7 +294,7 @@ func runMintContext(ctx context.Context, argv []string) (string, error) {
 	if err := runAttached(ctx, "mint token", argv, io.MultiWriter(os.Stdout, &buf)); err != nil {
 		return "", err
 	}
-	return SetupTokenRE.FindString(buf.String()), nil
+	return setupTokenRE.FindString(buf.String()), nil
 }
 
 // runAttached runs argv on the real terminal with stdout redirected, then refreshes model lists on success.
@@ -501,22 +501,12 @@ func SaveEnvEdit(name, raw, secret string) error {
 	return nil
 }
 
-// ValidateImport validates the supplied pairs; vault import calls it per pair and warns while skipping invalid pairs.
-func ValidateImport(pairs []vault.Pair) error {
-	for _, p := range pairs {
-		if err := agent.ValidateVaultSecret(p.Name, p.Value); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // ImportablePairs keeps the pairs that validate; each one that does not joins problems by name, never by value.
 func ImportablePairs(pairs []vault.Pair, problems []string) ([]vault.Pair, []string) {
 	var ok []vault.Pair
 	out := slices.Clone(problems)
 	for _, p := range pairs {
-		if err := ValidateImport([]vault.Pair{p}); err != nil {
+		if err := agent.ValidateVaultSecret(p.Name, p.Value); err != nil {
 			out = append(out, fmt.Sprintf("%s: %v", p.Name, err))
 			continue
 		}

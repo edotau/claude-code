@@ -25,14 +25,14 @@ import (
 	"github.com/github/copilot-sdk/go/rpc"
 )
 
-// DefaultClientName identifies this host in the SDK's User-Agent.
-const DefaultClientName = "claude-code"
+// defaultClientName identifies this host in the SDK's User-Agent.
+const defaultClientName = "claude-code"
 
 // denyFeedback tells the model to re-plan in prose instead of retrying a refused tool call.
 const denyFeedback = "Tool use is disabled for this headless run. Answer from the prompt alone."
 
-// SDKOptions configures one headless run. Env carries the COPILOT_PROVIDER_* BYOK block from agent.Configure.
-type SDKOptions struct {
+// sdkOptions configures one headless run. Env carries the COPILOT_PROVIDER_* BYOK block from agent.Configure.
+type sdkOptions struct {
 	CLIPath          string   // resolved copilot binary; empty is an error (never the SDK's bundled runtime)
 	Env              []string // KEY=VALUE BYOK block
 	KeepEnv          []string // names the credential scrub must not drop, from --keep-env
@@ -54,16 +54,16 @@ type SDKOptions struct {
 	InstructionDirs, SkillDirs, AgentDirs []string
 	// Providers+Models switch to the multi-provider route: Model is a provider/id of Models, Token feeds every
 	// provider's BearerTokenProvider (set by the SDK layer), and the child runs in a private login-free home.
-	Providers []CopilotRegistryProvider
-	Models    []CopilotRegistryModel
+	Providers []copilotRegistryProvider
+	Models    []copilotRegistryModel
 	Token     func() (string, error)
 	// ChildEnv is set on, and ChildUnset (exact names) plus ChildUnsetPrefix stripped from, the registry child's env.
 	ChildEnv, ChildUnset []string
 	ChildUnsetPrefix     string
 }
 
-// SDKResult is one completed turn; Model is what the runtime reports actually served it.
-type SDKResult struct {
+// sdkResult is one completed turn; Model is what the runtime reports actually served it.
+type sdkResult struct {
 	Text      string
 	SessionID string
 	Model     string
@@ -71,8 +71,8 @@ type SDKResult struct {
 	Usage     wire.Usage
 }
 
-// BuildClientOptions pins stdio at an explicit CLI path; Env on the connection is the child's complete env.
-func BuildClientOptions(ctx context.Context, o SDKOptions) (*copilot.ClientOptions, error) {
+// buildClientOptions pins stdio at an explicit CLI path; Env on the connection is the child's complete env.
+func buildClientOptions(ctx context.Context, o sdkOptions) (*copilot.ClientOptions, error) {
 	if strings.TrimSpace(o.CLIPath) == "" {
 		return nil, errors.New("copilot CLI path is empty (the SDK would run its bundled runtime instead)")
 	}
@@ -101,10 +101,10 @@ func BuildClientOptions(ctx context.Context, o SDKOptions) (*copilot.ClientOptio
 	}, nil
 }
 
-// BuildSessionConfig denies tool calls unless AllowAllTools is set.
-func BuildSessionConfig(o SDKOptions) *copilot.SessionConfig {
+// buildSessionConfig denies tool calls unless AllowAllTools is set.
+func buildSessionConfig(o sdkOptions) *copilot.SessionConfig {
 	cfg := &copilot.SessionConfig{
-		ClientName:          DefaultClientName,
+		ClientName:          defaultClientName,
 		Model:               o.Model,
 		ReasoningEffort:     o.ReasoningEffort,
 		ContextTier:         copilot.ContextTier(o.Context),
@@ -125,7 +125,7 @@ func BuildSessionConfig(o SDKOptions) *copilot.SessionConfig {
 }
 
 // systemMessage is o.System in append mode, nil when empty.
-func systemMessage(o SDKOptions) *copilot.SystemMessageConfig {
+func systemMessage(o sdkOptions) *copilot.SystemMessageConfig {
 	if strings.TrimSpace(o.System) == "" {
 		return nil
 	}
@@ -143,9 +143,9 @@ func existingDirs(dirs ...string) []string {
 	return out
 }
 
-// buildResumeSessionConfig is BuildSessionConfig's settings on client.ResumeSessionWithOptions' type.
-func buildResumeSessionConfig(o SDKOptions) *copilot.ResumeSessionConfig {
-	c := BuildSessionConfig(o)
+// buildResumeSessionConfig is buildSessionConfig's settings on client.ResumeSessionWithOptions' type.
+func buildResumeSessionConfig(o sdkOptions) *copilot.ResumeSessionConfig {
+	c := buildSessionConfig(o)
 	return &copilot.ResumeSessionConfig{
 		ClientName: c.ClientName, Model: c.Model, ReasoningEffort: c.ReasoningEffort, ContextTier: c.ContextTier,
 		WorkingDirectory: c.WorkingDirectory, Provider: c.Provider, OnPermissionRequest: c.OnPermissionRequest,
@@ -171,7 +171,7 @@ func providerFromEnv(env []string) *copilot.ProviderConfig {
 	}
 	atoi := func(key string) int { n, _ := strconv.Atoi(get(key)); return n }
 	model := get("COPILOT_MODEL")
-	modelID := WellKnownModel(model)
+	modelID := wellKnownModel(model)
 	if id := get(proc.EnvCopilotProviderModelID); id != "" {
 		modelID = id
 	}
@@ -205,9 +205,9 @@ func parseProviderHeaders(raw string) map[string]string {
 	return out
 }
 
-// WellKnownModel maps a gateway Claude id to copilot's catalog form (claude-sonnet-5.5), so the runtime applies
+// wellKnownModel maps a gateway Claude id to copilot's catalog form (claude-sonnet-5.5), so the runtime applies
 // its Claude settings (no temperature, reasoning, limits); any other id passes through unchanged.
-func WellKnownModel(id string) string {
+func wellKnownModel(id string) string {
 	canonical, _, ok := models.Resolve(id)
 	if !ok || models.FamilyKind(canonical) != models.FamilyClaude {
 		return id
@@ -230,15 +230,15 @@ type SDKModel struct {
 
 // CatalogOptions is the auth shape every catalog listing needs: a resolved launch-account token
 // (CopilotToken), or "" to fall back to the copilot CLI's own stored login.
-func CatalogOptions(cliPath, token string) SDKOptions {
+func CatalogOptions(cliPath, token string) sdkOptions {
 	if token != "" {
-		return SDKOptions{CLIPath: cliPath, GitHubToken: token}
+		return sdkOptions{CLIPath: cliPath, GitHubToken: token}
 	}
-	return SDKOptions{CLIPath: cliPath, UseLoggedInUser: true}
+	return sdkOptions{CLIPath: cliPath, UseLoggedInUser: true}
 }
 
 // listModelsFn is the injectable seam: tests fake the copilot CLI's catalog without a real GitHub login.
-var listModelsFn = func(ctx context.Context, o SDKOptions) (models []copilot.ModelInfo, err error) {
+var listModelsFn = func(ctx context.Context, o sdkOptions) (models []copilot.ModelInfo, err error) {
 	client, stopClient, err := startClient(ctx, o, &err)
 	if err != nil {
 		return nil, err
@@ -248,7 +248,7 @@ var listModelsFn = func(ctx context.Context, o SDKOptions) (models []copilot.Mod
 }
 
 // SDKListModels returns the copilot CLI's own model catalog via its logged-in GitHub session (never BYOK).
-func SDKListModels(ctx context.Context, o SDKOptions) ([]SDKModel, error) {
+func SDKListModels(ctx context.Context, o sdkOptions) ([]SDKModel, error) {
 	raw, err := listModelsFn(ctx, o)
 	if err != nil {
 		return nil, fmt.Errorf("list copilot models (sign in with `copilot` first, then retry): %w", err)
@@ -272,7 +272,7 @@ func SDKListModels(ctx context.Context, o SDKOptions) ([]SDKModel, error) {
 }
 
 // newOrResumedSession resumes o.SessionID when set, else creates a fresh session.
-func newOrResumedSession(ctx context.Context, client *copilot.Client, o SDKOptions, approved *atomic.Bool) (*copilot.Session, error) {
+func newOrResumedSession(ctx context.Context, client *copilot.Client, o sdkOptions, approved *atomic.Bool) (*copilot.Session, error) {
 	if o.multiProvider() {
 		if err := probeMultiProvider(ctx, client); err != nil {
 			return nil, err
@@ -281,7 +281,7 @@ func newOrResumedSession(ctx context.Context, client *copilot.Client, o SDKOptio
 	var session *copilot.Session
 	var err error
 	if o.SessionID == "" {
-		cfg := BuildSessionConfig(o)
+		cfg := buildSessionConfig(o)
 		cfg.OnPermissionRequest = permissionHandler(o, approved)
 		if session, err = client.CreateSession(ctx, cfg); err != nil {
 			return nil, fmt.Errorf("create session: %w", err)
@@ -302,8 +302,8 @@ func newOrResumedSession(ctx context.Context, client *copilot.Client, o SDKOptio
 }
 
 // startClient starts the runtime; the returned stop joins any stop error into *errp.
-func startClient(ctx context.Context, o SDKOptions, errp *error) (*copilot.Client, func(), error) {
-	clientOpts, err := BuildClientOptions(ctx, o)
+func startClient(ctx context.Context, o sdkOptions, errp *error) (*copilot.Client, func(), error) {
+	clientOpts, err := buildClientOptions(ctx, o)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -321,21 +321,21 @@ func startClient(ctx context.Context, o SDKOptions, errp *error) (*copilot.Clien
 	}, nil
 }
 
-// SDKAsk runs one prompt to completion; assistant events arrive on the SDK goroutine, hence the mutex.
-func SDKAsk(ctx context.Context, o SDKOptions, prompt string, images []string) (result SDKResult, err error) {
+// sdkAsk runs one prompt to completion; assistant events arrive on the SDK goroutine, hence the mutex.
+func sdkAsk(ctx context.Context, o sdkOptions, prompt string, images []string) (result sdkResult, err error) {
 	if strings.TrimSpace(prompt) == "" {
-		return SDKResult{}, errors.New("empty prompt")
+		return sdkResult{}, errors.New("empty prompt")
 	}
 	client, stopClient, err := startClient(ctx, o, &err)
 	if err != nil {
-		return SDKResult{}, err
+		return sdkResult{}, err
 	}
 	defer stopClient()
 
 	var approved atomic.Bool
 	session, err := newOrResumedSession(ctx, client, o, &approved)
 	if err != nil {
-		return SDKResult{}, err
+		return sdkResult{}, err
 	}
 	defer func() {
 		if disconnectErr := session.Disconnect(); disconnectErr != nil {
@@ -349,7 +349,7 @@ func SDKAsk(ctx context.Context, o SDKOptions, prompt string, images []string) (
 
 	sendErr := sendPrompt(ctx, session, o, prompt, images)
 	text, model, usage := col.snapshot()
-	res := SDKResult{Text: text, SessionID: session.SessionID, Model: model, ToolRan: approved.Load(), Usage: usage}
+	res := sdkResult{Text: text, SessionID: session.SessionID, Model: model, ToolRan: approved.Load(), Usage: usage}
 	if sendErr != nil { // the partial text and session id still ride back, so a caller can hand the task off
 		return res, fmt.Errorf("send prompt: %w", sendErr)
 	}
@@ -408,7 +408,7 @@ func (c *assistantCollector) snapshot() (text, model string, usage wire.Usage) {
 }
 
 // sendPrompt sends the prompt (fleet mode when asked) and waits for the turn to finish.
-func sendPrompt(ctx context.Context, session *copilot.Session, o SDKOptions, prompt string, images []string) error {
+func sendPrompt(ctx context.Context, session *copilot.Session, o sdkOptions, prompt string, images []string) error {
 	msgOpts := copilot.MessageOptions{Prompt: prompt, Attachments: fileAttachments(images)}
 	if o.Autonomous {
 		msgOpts.AgentMode = copilot.AgentModeAutopilot
@@ -447,13 +447,13 @@ func startFleet(ctx context.Context, f fleetStarter, m copilot.MessageOptions) e
 	return nil
 }
 
-// MinMultiProviderCLI is the oldest copilot CLI proven to serve SDK named providers (probed 2026-10-28).
-const MinMultiProviderCLI = "1.0.104"
+// minMultiProviderCLI is the oldest copilot CLI proven to serve SDK named providers (probed 2026-10-28).
+const minMultiProviderCLI = "1.0.104"
 
 // Named failures of the multi-provider route; callers match with errors.Is.
 var (
-	ErrNoMultiProvider  = errors.New("copilot CLI lacks named-provider support")
-	ErrUnregisteredPick = errors.New("model is not in the session registry")
+	errNoMultiProvider  = errors.New("copilot CLI lacks named-provider support")
+	errUnregisteredPick = errors.New("model is not in the session registry")
 )
 
 // registryEnv is base minus the exact unset names and any stripPrefix name, plus set.
@@ -470,7 +470,7 @@ func registryEnv(base, set, unset []string, stripPrefix string) []string {
 }
 
 // validateRegistryOptions fails closed before any runtime starts: no singular BYOK, a token source, a registered pick.
-func validateRegistryOptions(o SDKOptions) error {
+func validateRegistryOptions(o sdkOptions) error {
 	switch {
 	case o.Token == nil:
 		return errors.New("copilot registry route needs a session token source")
@@ -489,13 +489,13 @@ func validateRegistryOptions(o SDKOptions) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("%w: %q", ErrUnregisteredPick, o.Model)
+	return fmt.Errorf("%w: %q", errUnregisteredPick, o.Model)
 }
 
-func (o SDKOptions) multiProvider() bool { return len(o.Providers) > 0 || len(o.Models) > 0 }
+func (o sdkOptions) multiProvider() bool { return len(o.Providers) > 0 || len(o.Models) > 0 }
 
 // namedProviders builds the SDK providers with credentials cleared; every one's auth goes through the token callback.
-func namedProviders(o SDKOptions) ([]copilot.NamedProviderConfig, []copilot.ProviderModelConfig) {
+func namedProviders(o sdkOptions) ([]copilot.NamedProviderConfig, []copilot.ProviderModelConfig) {
 	cb := func(copilot.ProviderTokenArgs) (string, error) { return o.Token() }
 	ps := make([]copilot.NamedProviderConfig, len(o.Providers))
 	for i, p := range o.Providers {
@@ -515,23 +515,23 @@ func namedProviders(o SDKOptions) ([]copilot.NamedProviderConfig, []copilot.Prov
 func probeMultiProvider(ctx context.Context, client *copilot.Client) error {
 	st, err := client.GetStatus(ctx)
 	if err != nil {
-		return fmt.Errorf("%w: cannot read CLI version: %v", ErrNoMultiProvider, err)
+		return fmt.Errorf("%w: cannot read CLI version: %v", errNoMultiProvider, err)
 	}
-	if order, ok := textutil.CompareVersions(st.Version, MinMultiProviderCLI); !ok || order < 0 {
+	if order, ok := textutil.CompareVersions(st.Version, minMultiProviderCLI); !ok || order < 0 {
 		return fmt.Errorf("%w: CLI %q is older than %s (run `copilot update`)",
-			ErrNoMultiProvider, st.Version, MinMultiProviderCLI)
+			errNoMultiProvider, st.Version, minMultiProviderCLI)
 	}
 	return nil
 }
 
 // selectRegistered pins the session to o.Model; an unknown id errors, so a pick never falls through to GitHub.
-func selectRegistered(ctx context.Context, session *copilot.Session, o SDKOptions) error {
+func selectRegistered(ctx context.Context, session *copilot.Session, o sdkOptions) error {
 	var opts *copilot.SetModelOptions
 	if o.ReasoningEffort != "" {
 		opts = &copilot.SetModelOptions{ReasoningEffort: &o.ReasoningEffort}
 	}
 	if err := session.SetModel(ctx, o.Model, opts); err != nil {
-		return fmt.Errorf("%w: select %s: %v", ErrUnregisteredPick, o.Model, err)
+		return fmt.Errorf("%w: select %s: %v", errUnregisteredPick, o.Model, err)
 	}
 	return nil
 }

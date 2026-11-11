@@ -111,7 +111,7 @@ func (fx *ledgerLifecycle) secondClose(t *testing.T) {
 }
 
 func (fx *ledgerLifecycle) reopen(t *testing.T) {
-	if err := openLedger(fx.main, "ledgered", LedgerInfo{
+	if err := openLedger(fx.main, "ledgered", ledgerInfo{
 		Path: fx.dest, Branch: "worktree-ledgered", Base: fx.base, BaseRef: "HEAD", Session: "s2",
 	}); err != nil {
 		t.Fatal(err)

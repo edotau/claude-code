@@ -246,7 +246,7 @@ func runWSLSetupCDP(t *testing.T, tt wslCDPCase, f *fakeRun) (acts Actions, prob
 			t.Errorf("Sleep duration = %v, want 500ms", d)
 		}
 	}
-	acts = setupWSL(env, Browser{Name: "edge", DisplayName: "Microsoft Edge"})
+	acts = setupWSL(env, browser{Name: "edge", DisplayName: "Microsoft Edge"})
 	return acts, probes, sleeps
 }
 
@@ -341,7 +341,7 @@ func TestWSLSetupRegisterMCP(t *testing.T) {
 				writeRegisteredMCPConfig(t, env)
 			}
 
-			acts := setupWSL(env, Browser{Name: "edge", DisplayName: "Microsoft Edge"})
+			acts := setupWSL(env, browser{Name: "edge", DisplayName: "Microsoft Edge"})
 			if len(acts.Items) != 3 {
 				t.Fatalf("Items = %+v, want 3 actions", acts.Items)
 			}
@@ -382,7 +382,7 @@ func checkMCPRegistration(t *testing.T, registered bool, a action, f *fakeRun) {
 }
 
 func TestCDPFailureDiagnosis(t *testing.T) {
-	b := Browser{Name: "edge", DisplayName: "Microsoft Edge"}
+	b := browser{Name: "edge", DisplayName: "Microsoft Edge"}
 	mk := func(t *testing.T, pids, wslconfig string) Env {
 		env := newWSLTestEnv(t, &fakeRun{})
 		env.Run = func(string, ...string) (string, error) { return pids, nil }

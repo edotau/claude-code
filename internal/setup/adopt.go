@@ -21,20 +21,20 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
-// Clash is a git-tracked path in the source repo that already exists at the target dir.
-type Clash struct {
+// clash is a git-tracked path in the source repo that already exists at the target dir.
+type clash struct {
 	Path    string // repo-relative, slash-separated
 	Differs bool   // sha256 differs from the repo's version
 }
 
-// Clashes lists every git-tracked path in repo that already exists at dir. Untracked and ignored
+// clashes lists every git-tracked path in repo that already exists at dir. Untracked and ignored
 // paths in dir are never clashes — they are the user's own content, never the repo's business.
-func Clashes(repo, dir string) ([]Clash, error) {
+func clashes(repo, dir string) ([]clash, error) {
 	tracked, err := trackedFiles(repo)
 	if err != nil {
 		return nil, err
 	}
-	var out []Clash
+	var out []clash
 	for _, rel := range tracked {
 		target := filepath.Join(dir, rel)
 		fi, err := os.Lstat(target)
@@ -48,7 +48,7 @@ func Clashes(repo, dir string) ([]Clash, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, Clash{Path: rel, Differs: differs})
+		out = append(out, clash{Path: rel, Differs: differs})
 	}
 	return out, nil
 }
@@ -114,21 +114,21 @@ func hashFile(path string) ([]byte, error) {
 
 // Refusal errors: the cli layer maps these to exit 2 (refused), everything else to exit 1.
 var (
-	ErrAlreadyCheckout = errors.New("already a checkout: use git pull")
-	ErrNotAClone       = errors.New("not a git checkout (missing .git)")
+	errAlreadyCheckout = errors.New("already a checkout: use git pull")
+	errNotAClone       = errors.New("not a git checkout (missing .git)")
 )
 
-// AdoptOpts configures Adopt.
-type AdoptOpts struct {
+// adoptOpts configures adopt.
+type adoptOpts struct {
 	From, Into, Label string
 	DryRun            bool
 	Out               io.Writer
 }
 
-// Adopt moves a staged clone's .git into Into and restores every tracked path from the index,
+// adopt moves a staged clone's .git into Into and restores every tracked path from the index,
 // after backing up whatever at Into collides with a tracked path. Into's own runtime state
 // (projects/, sessions/, …) and any untracked user content are left exactly as they were.
-func Adopt(opts AdoptOpts) error {
+func adopt(opts adoptOpts) error {
 	if opts.Out == nil {
 		opts.Out = io.Discard
 	}
@@ -136,7 +136,7 @@ func Adopt(opts AdoptOpts) error {
 		return err
 	}
 
-	clashes, err := Clashes(opts.From, opts.Into)
+	clashes, err := clashes(opts.From, opts.Into)
 	if err != nil {
 		return err
 	}
@@ -146,7 +146,7 @@ func Adopt(opts AdoptOpts) error {
 	}
 	now := time.Now()
 	backupDir := paths.BackupDir(label, now)
-	Report(opts.Out, clashes, backupDir)
+	report(opts.Out, clashes, backupDir)
 	if opts.DryRun {
 		fmt.Fprintln(opts.Out, "dry-run: no files were changed")
 		return nil
@@ -169,18 +169,18 @@ func Adopt(opts AdoptOpts) error {
 }
 
 // adoptPreflight refuses an Into that is already a checkout and a From that is not a clone.
-func adoptPreflight(opts AdoptOpts) error {
+func adoptPreflight(opts adoptOpts) error {
 	if _, err := os.Stat(filepath.Join(opts.Into, ".git")); err == nil {
-		return ErrAlreadyCheckout
+		return errAlreadyCheckout
 	}
 	if _, err := os.Stat(filepath.Join(opts.From, ".git")); err != nil {
-		return fmt.Errorf("%s: %w", opts.From, ErrNotAClone)
+		return fmt.Errorf("%s: %w", opts.From, errNotAClone)
 	}
 	return nil
 }
 
 // backupClashes backs up every clashing path under into; no clashes means no backup.
-func backupClashes(into string, clashes []Clash, label string, now time.Time) error {
+func backupClashes(into string, clashes []clash, label string, now time.Time) error {
 	if len(clashes) == 0 {
 		return nil
 	}
@@ -188,11 +188,11 @@ func backupClashes(into string, clashes []Clash, label string, now time.Time) er
 	for i, c := range clashes {
 		relPaths[i] = c.Path
 	}
-	return Backup(into, relPaths, label, now)
+	return backup(into, relPaths, label, now)
 }
 
 // installCheckout moves the staged .git into Into and drops the stage.
-func installCheckout(opts AdoptOpts) error {
+func installCheckout(opts adoptOpts) error {
 	if err := os.MkdirAll(opts.Into, 0o755); err != nil {
 		return err
 	}
@@ -280,9 +280,9 @@ var setupFormat = schemas.Register(schemas.Format{
 	Migrate: schemas.SameShape,
 })
 
-// Backup copies each of relPaths (dir-relative, slash-separated) into paths.BackupDir(label, now),
+// backup copies each of relPaths (dir-relative, slash-separated) into paths.BackupDir(label, now),
 // preserving the file mode.
-func Backup(dir string, relPaths []string, label string, now time.Time) error {
+func backup(dir string, relPaths []string, label string, now time.Time) error {
 	dest := paths.BackupDir(label, now)
 	for _, rel := range relPaths {
 		if err := copyFile(filepath.Join(dir, rel), filepath.Join(dest, rel)); err != nil {
@@ -344,8 +344,8 @@ func copyLink(src, dst string) error {
 	return os.Symlink(target, dst)
 }
 
-// Report prints one line per clash: path, same|differs, and where it lands under backupDir.
-func Report(w io.Writer, clashes []Clash, backupDir string) {
+// report prints one line per clash: path, same|differs, and where it lands under backupDir.
+func report(w io.Writer, clashes []clash, backupDir string) {
 	fmt.Fprintf(w, "%-50s %-8s %s\n", "PATH", "STATE", "BACKUP")
 	for _, c := range clashes {
 		state := "same"

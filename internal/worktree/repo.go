@@ -62,10 +62,10 @@ func ResolveRepo(cwd string) (*Repo, error) {
 	return &Repo{Main: main, Root: Root(main), CommonDir: commonDir}, nil
 }
 
-// ResolveWorktree validates name and returns the path a worktree called name occupies under
+// resolveWorktreeBounded validates name and returns the path a worktree called name occupies under
 // repo.Root, rejecting traversal, a symlink at the destination, and a name already occupied by a
 // directory that is not actually a worktree of this repo (a foreign basename collision).
-func ResolveWorktree(repo *Repo, name string) (string, error) {
+func resolveWorktreeBounded(repo *Repo, name string) (string, error) {
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
 	return resolveWorktree(ctx, repo, name)

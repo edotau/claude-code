@@ -60,17 +60,24 @@ func GithubProfile(reg *providers.Registry) string {
 	return ""
 }
 
-// RecallOrSpawn is p's sealed snapshot, no network, if usable accepts it; an expired one is served and spawn refreshes it.
+// RecallOrSpawn is p's sealed models, no network, if usable accepts them; an expired one is served and spawn refreshes it.
 func RecallOrSpawn(p *providers.Provider, usable func([]providers.ModelInfo) bool,
 	spawn func(profile string) bool) ([]providers.ModelInfo, bool) {
+	snap, ok := recallSnapshot(p, usable, spawn)
+	return snap.Models, ok
+}
+
+// recallSnapshot is RecallOrSpawn's snapshot, so a caller can read its DiscoveredAt too.
+func recallSnapshot(p *providers.Provider, usable func([]providers.ModelInfo) bool,
+	spawn func(profile string) bool) (serving.Snapshot, bool) {
 	snap, ok := serving.Recall(p)
 	if !ok || !usable(snap.Models) {
-		return nil, false
+		return serving.Snapshot{}, false
 	}
 	if time.Since(snap.DiscoveredAt) >= serving.CacheTTL() {
 		spawn(p.Name)
 	}
-	return snap.Models, true
+	return snap, true
 }
 
 // refreshRetry spaces detached refresh attempts, so an unreachable workspace doesn't spawn one per SessionStart.

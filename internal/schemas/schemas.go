@@ -42,8 +42,8 @@ type Format struct {
 var (
 	// ErrNewer means the data was written by a newer build than this one.
 	ErrNewer = errors.New("schema is newer than this build")
-	// ErrNoMigration means an older version has no migration step to the current one.
-	ErrNoMigration = errors.New("no migration from this schema version")
+	// errNoMigration means an older version has no migration step to the current one.
+	errNoMigration = errors.New("no migration from this schema version")
 
 	mu   sync.Mutex
 	rows = map[string]Format{}
@@ -112,7 +112,7 @@ func upgrade(f Format, raw []byte) (out []byte, from int, err error) {
 	out = raw
 	for v := from; v < f.Version; v++ {
 		if f.Migrate == nil {
-			return nil, from, fmt.Errorf("%s v%d -> v%d: %w", f.Name, v, v+1, ErrNoMigration)
+			return nil, from, fmt.Errorf("%s v%d -> v%d: %w", f.Name, v, v+1, errNoMigration)
 		}
 		if out, err = f.Migrate(v, out); err != nil {
 			return nil, from, fmt.Errorf("%s v%d -> v%d: %w", f.Name, v, v+1, err)

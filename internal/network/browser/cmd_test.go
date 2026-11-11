@@ -47,7 +47,7 @@ func TestNetworkBrowserSetupOnlyFlags(t *testing.T) {
 func TestRenderText_DefaultMarkerAndProfileLine(t *testing.T) {
 	r := Report{
 		Default: "chrome",
-		Browsers: []Browser{
+		Browsers: []browser{
 			{
 				Name: "chrome", DisplayName: "Google Chrome", Family: familyChromium,
 				Installed: true, Default: true, Host: stateReady,
@@ -107,7 +107,7 @@ func (w *failingRenderWriter) Write(p []byte) (int, error) {
 }
 
 func TestRenderTextReturnsFirstWriteError(t *testing.T) {
-	r := Report{Default: "chrome", Browsers: []Browser{
+	r := Report{Default: "chrome", Browsers: []browser{
 		{Name: "chrome", Profiles: []profile{{Name: "Default"}, {Name: "Other"}}},
 		{Name: "firefox"},
 	}}

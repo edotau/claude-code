@@ -96,7 +96,7 @@ func TestNukePlanListsClassesAndSecretNamesOnly(t *testing.T) {
 	_, keyring := vaulttest.UseKeyring(t)
 	keyring.Down = true
 	t.Setenv("HARNESS_VAULT_KEY", "invalid-test-key")
-	plan, err := Plan(dir, false)
+	plan, err := planNuke(dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,9 +117,9 @@ func TestNukePlanListsClassesAndSecretNamesOnly(t *testing.T) {
 }
 
 // assertPlanClasses checks CLAUDE.md plans as tracked and skills as untracked.
-func assertPlanClasses(t *testing.T, plan NukePlan) {
+func assertPlanClasses(t *testing.T, plan nukePlan) {
 	t.Helper()
-	byName := map[string]Entry{}
+	byName := map[string]entry{}
 	for _, e := range plan.Entries {
 		byName[e.Name] = e
 	}
@@ -132,7 +132,7 @@ func assertPlanClasses(t *testing.T, plan NukePlan) {
 }
 
 // assertPlanOutputNamesOnly checks the printed plan lists secret names and never a secret value.
-func assertPlanOutputNamesOnly(t *testing.T, plan NukePlan) {
+func assertPlanOutputNamesOnly(t *testing.T, plan nukePlan) {
 	t.Helper()
 	var out bytes.Buffer
 	printPlan(&out, plan)
@@ -151,7 +151,7 @@ func TestNukePlanWithoutSecrets(t *testing.T) {
 			if withVault {
 				vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "foo")
 			}
-			plan, err := Plan(dir, false)
+			plan, err := planNuke(dir, false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -166,11 +166,11 @@ func TestNukePlanWithoutSecrets(t *testing.T) {
 }
 
 // TestNukePlanWarnsOnUnreadableVaultInsteadOfFailing: an unreadable/corrupt vault must not block the
-// nuke — Plan now reports it as VaultWarning (still archived opaquely by Nuke) rather than failing outright.
+// nuke — planNuke now reports it as VaultWarning (still archived opaquely by nuke) rather than failing outright.
 func TestNukePlanWarnsOnUnreadableVaultInsteadOfFailing(t *testing.T) {
 	dir := vaulttest.Use(t)
 	vaulttest.Put(t, vault.Meta, "schema", "999")
-	plan, err := Plan(dir, false)
+	plan, err := planNuke(dir, false)
 	if err != nil {
 		t.Fatalf("Plan = %v, want nil error (an unreadable vault becomes a warning, not a failure)", err)
 	}
@@ -182,7 +182,7 @@ func TestNukePlanWarnsOnUnreadableVaultInsteadOfFailing(t *testing.T) {
 func TestNukeApplyRefusedOnWrongConfirm(t *testing.T) {
 	dir := fixtureNukeDir(t)
 
-	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: "not-the-dir"}); err == nil {
+	if err := nuke(nukeOpts{Dir: dir, Apply: true, Confirm: "not-the-dir"}); err == nil {
 		t.Fatal("want a refusal on a mismatched confirmation")
 	}
 	if _, err := os.Stat(dir); err != nil {
@@ -216,7 +216,7 @@ func TestNukeApplyProceedsWhenVaultUnreadable(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir}); err != nil {
+	if err := nuke(nukeOpts{Dir: dir, Apply: true, Confirm: dir}); err != nil {
 		t.Fatalf("Nuke = %v, want it to proceed past an unreadable vault", err)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
@@ -232,7 +232,7 @@ func TestNukeApplyArchivesVaultNeverPlaintextSecrets(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir}); err != nil {
+	if err := nuke(nukeOpts{Dir: dir, Apply: true, Confirm: dir}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
@@ -321,7 +321,7 @@ func TestNukeKeepMemoryArchiveSet(t *testing.T) {
 				mustWrite(t, filepath.Join(dir, rel), rel+"\n")
 			}
 			mustWrite(t, filepath.Join(dir, "memory", ".git", "HEAD"), "ref: refs/heads/main\n")
-			if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: keepMemory}); err != nil {
+			if err := nuke(nukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: keepMemory}); err != nil {
 				t.Fatal(err)
 			}
 			entries := tarEntries(t, findTarball(t, home))
@@ -348,7 +348,7 @@ func TestNukePreviewShowsKeepMemorySet(t *testing.T) {
 	mustWrite(t, filepath.Join(dir, "memory", ".git", "HEAD"), "ref: refs/heads/main\n")
 	mustWrite(t, filepath.Join(dir, "plans", "2026-10-18-x.md"), "plan\n")
 	var out bytes.Buffer
-	if err := Nuke(NukeOpts{Dir: dir, KeepMemory: true, Out: &out}); err != nil {
+	if err := nuke(nukeOpts{Dir: dir, KeepMemory: true, Out: &out}); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"memory/.git/HEAD", "plans/2026-10-18-x.md", "docs/memory/bank/repo/progress.md"} {
@@ -360,7 +360,7 @@ func TestNukePreviewShowsKeepMemorySet(t *testing.T) {
 		t.Fatal("preview must not remove anything")
 	}
 	out.Reset()
-	if err := Nuke(NukeOpts{Dir: dir, KeepMemory: false, Out: &out}); err != nil {
+	if err := nuke(nukeOpts{Dir: dir, KeepMemory: false, Out: &out}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(out.String(), "memory/.git/HEAD") {
@@ -383,7 +383,7 @@ func TestNukeKeepMemorySkipsSymlinkedCandidateRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: true}); err != nil {
+	if err := nuke(nukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: true}); err != nil {
 		t.Fatal(err)
 	}
 	entries := tarEntries(t, findTarball(t, home))
@@ -430,7 +430,7 @@ func TestNukeKeepMemoryArchivesStoreSkipsSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertKeepMemoryPaths(t, got)
-	if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: true}); err != nil {
+	if err := nuke(nukeOpts{Dir: dir, Apply: true, Confirm: dir, KeepMemory: true}); err != nil {
 		t.Fatal(err)
 	}
 	entries := tarEntries(t, findTarball(t, home))
@@ -485,7 +485,7 @@ func TestKeepMemoryPathsPropagatesWalkError(t *testing.T) {
 	}
 
 	// Plan must refuse to call the archive incomplete: it reports the same error, not a partial plan.
-	if _, err := Plan(dir, true); err == nil {
+	if _, err := planNuke(dir, true); err == nil {
 		t.Fatal("Plan(dir, true) = nil error, want it to refuse an incomplete archive plan")
 	}
 }
@@ -500,8 +500,8 @@ func TestNukeRefusesRootHomeAndAncestors(t *testing.T) {
 	t.Setenv("HOME", home)
 	var out bytes.Buffer
 	for _, dir := range []string{"/", home, home + "/", parent, filepath.Join(home, "..")} {
-		if err := Nuke(NukeOpts{Dir: dir, Apply: true, Confirm: dir, Out: &out}); !errors.Is(err, ErrNotConfigDir) {
-			t.Errorf("Nuke(%q) = %v, want ErrNotConfigDir", dir, err)
+		if err := nuke(nukeOpts{Dir: dir, Apply: true, Confirm: dir, Out: &out}); !errors.Is(err, errNotConfigDir) {
+			t.Errorf("Nuke(%q) = %v, want errNotConfigDir", dir, err)
 		}
 	}
 	if _, err := os.Stat(home); err != nil {

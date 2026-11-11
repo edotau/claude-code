@@ -5,7 +5,15 @@ import (
 	"sort"
 
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
 )
+
+var _ = schemas.Register(schemas.Format{
+	Name: "projections", Owner: "internal/agentconfig/project", Kind: schemas.Derived,
+	Glob:    func() string { return filepath.Join(paths.ConfigDir(), "state", "projections", "*") },
+	Version: 1, Clean: "projections",
+})
 
 // projectionTarget is one agent CLI's native subagent surface: where it reads agents and how one is rendered.
 type projectionTarget struct {
@@ -17,9 +25,9 @@ type projectionTarget struct {
 
 // targets is every agent the sync projects agents into; skills need no per-agent table (see skills.go).
 var targets = map[string]projectionTarget{
-	agentid.Gemini:   {ext: ".md", home: sub(".gemini", "agents"), render: renderGeminiAgent, skills: GeminiSkillsDir},
+	agentid.Gemini:   {ext: ".md", home: sub(".gemini", "agents"), render: renderGeminiAgent, skills: geminiSkillsDir},
 	agentid.Codex:    {ext: ".toml", home: sub(".codex", "agents"), render: renderCodexAgent},
-	agentid.Copilot:  {ext: ".md", home: sub(".copilot", "agents"), render: renderCopilotAgent, skills: CopilotSkillsDir},
+	agentid.Copilot:  {ext: ".md", home: sub(".copilot", "agents"), render: renderCopilotAgent, skills: copilotSkillsDir},
 	agentid.OpenCode: {ext: ".md", home: sub(".config", "opencode", "agents"), render: renderOpenCodeAgent},
 }
 
@@ -47,17 +55,17 @@ func Dir(root, name string) string {
 	return filepath.Join(Root(root, name), "agents")
 }
 
-// AgentsSkillsDir is the cross-agent skills dir every CLI reads natively: $HOME/.agents/skills.
-func AgentsSkillsDir(home string) string { return filepath.Join(home, ".agents", "skills") }
+// agentsSkillsDir is the cross-agent skills dir every CLI reads natively: $HOME/.agents/skills.
+func agentsSkillsDir(home string) string { return filepath.Join(home, ".agents", "skills") }
 
-// LegacyGeminiSkillsDir is where earlier syncs projected skills; only banner-marked dirs there are ever pruned.
-func LegacyGeminiSkillsDir(home string) string { return filepath.Join(home, ".gemini", "skills") }
+// legacyGeminiSkillsDir is where earlier syncs projected skills; only banner-marked dirs there are ever pruned.
+func legacyGeminiSkillsDir(home string) string { return filepath.Join(home, ".gemini", "skills") }
 
-// GeminiSkillsDir is agy's own skills dir: unlike other agents it does not read ~/.agents/skills, so
-// the gemini agent pass links skills here too, in addition to the cross-agent AgentsSkillsDir.
-func GeminiSkillsDir(home string) string {
+// geminiSkillsDir is agy's own skills dir: unlike other agents it does not read ~/.agents/skills, so
+// the gemini agent pass links skills here too, in addition to the cross-agent agentsSkillsDir.
+func geminiSkillsDir(home string) string {
 	return filepath.Join(home, ".gemini", "antigravity-cli", "skills")
 }
 
-// CopilotSkillsDir is copilot's native skills dir; the copilot pass links skills here too, beside AgentsSkillsDir.
-func CopilotSkillsDir(home string) string { return filepath.Join(home, ".copilot", "skills") }
+// copilotSkillsDir is copilot's native skills dir; the copilot pass links skills here too, beside agentsSkillsDir.
+func copilotSkillsDir(home string) string { return filepath.Join(home, ".copilot", "skills") }

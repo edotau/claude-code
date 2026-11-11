@@ -48,8 +48,8 @@ var bakedSemantic = map[string]string{
 	"add": "#7ED37F", "del": "#E96969", "warn": "#B26A00", "danger": "#C2185B",
 }
 
-// Lifted brightens rgb toward white by the clamped lift: c + lift*(255-c) per channel.
-func (l Look) Lifted(rgb ansi.RGB) ansi.RGB {
+// lifted brightens rgb toward white by the clamped lift: c + lift*(255-c) per channel.
+func (l Look) lifted(rgb ansi.RGB) ansi.RGB {
 	f := math.Min(math.Max(l.Lift, 0), 0.6)
 	if f == 0 {
 		return rgb
@@ -70,7 +70,7 @@ func (l Look) LiftPalette(pal Palettes) Palettes {
 		sem[role] = pal.Sem(role)
 	}
 	for role, h := range sem {
-		r := l.Lifted(ansi.Hex(h))
+		r := l.lifted(ansi.Hex(h))
 		sem[role] = fmt.Sprintf("#%02X%02X%02X", r[0], r[1], r[2])
 	}
 	pal.Semantic = sem
@@ -97,7 +97,7 @@ func (l Look) Stops(pal Palettes) []ansi.RGB {
 	}
 	out := hexStops(hexes)
 	for i, rgb := range out {
-		out[i] = l.Lifted(rgb)
+		out[i] = l.lifted(rgb)
 	}
 	return out
 }

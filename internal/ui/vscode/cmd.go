@@ -7,7 +7,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-func reportMerge(label, dest string, result Result) {
+func reportMerge(label, dest string, result mergeResult) {
 	switch {
 	case !result.Changed:
 		fmt.Printf("claude-code: vscode %s in sync %s\n", label, dest)
@@ -26,7 +26,7 @@ func Run(args []string) int {
 			"Machine settings are per-box and excluded from Settings Sync.\n" +
 			"Skip keybindings on headless boxes with only ~/.vscode-server.\n" +
 			"Link the Claude Code Agents extension into the detected extensions directory."})
-	var o SyncOptions
+	var o syncOptions
 	fs.StringVar(&o.Template, "template", "", "settings template to merge (default: the one embedded in the binary)")
 	fs.StringVar(&o.Dest, "dest", "", "VS Code Machine settings.json (default: platform-detected)")
 	fs.StringVar(&o.ExtensionsDir, "extensions-dir", "", "link the Agents extension here (default: platform-detected)")
@@ -44,13 +44,13 @@ func Run(args []string) int {
 }
 
 // vscodeSync runs the merge and reports it: drift check (exit 1 on drift), dry-run preview, or apply.
-func vscodeSync(o SyncOptions, check, dryRun bool) int {
+func vscodeSync(o syncOptions, check, dryRun bool) int {
 	if check && dryRun {
 		fmt.Fprintln(os.Stderr, "claude-code: theme vscode --check and --dry-run are mutually exclusive")
 		return 2
 	}
 	o.Check = check || dryRun
-	out, err := SyncAll(o)
+	out, err := syncAll(o)
 	if err != nil {
 		return helptext.Fail("vscode: %v", err)
 	}
@@ -67,7 +67,7 @@ func vscodeSync(o SyncOptions, check, dryRun bool) int {
 }
 
 // vscodeReport formats one sync run's outcome.
-type vscodeReport struct{ Outcome }
+type vscodeReport struct{ outcome }
 
 // check prints DRIFT lines and returns 1 when anything would change, else reports in-sync and returns 0.
 func (o vscodeReport) check() int {
@@ -112,7 +112,7 @@ func (o vscodeReport) reportMerges() {
 	reportKeybindings(o.Skip, o.Note, func() { reportMerge("keybindings template", o.KbDestPath, o.KbResult) })
 }
 
-// reportKeybindings prints the skip note, or calls report, depending on whether SyncKeybindings ran.
+// reportKeybindings prints the skip note, or calls report, depending on whether syncKeybindings ran.
 func reportKeybindings(skip bool, note string, report func()) {
 	if skip {
 		fmt.Printf("claude-code: vscode keybindings skipped: %s\n", note)

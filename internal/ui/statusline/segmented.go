@@ -27,7 +27,7 @@ var fallbackTheme = map[string]map[string]string{
 	"session":   {"bg": "#2E3440", "fg": "#D8DEE9"},
 }
 
-func themeColors(cfg Config, pal theme.Palettes) map[string]map[string]string {
+func themeColors(cfg config, pal theme.Palettes) map[string]map[string]string {
 	name := cfg.PowerlineTheme
 	if name == "" {
 		name = "dark"
@@ -53,7 +53,7 @@ func segLabel(key string, v values) string {
 }
 
 // segmentOrder is the configured order minus path, plus git last when there is a branch and no configured slot.
-func segmentOrder(v values, cfg Config) []string {
+func segmentOrder(v values, cfg config) []string {
 	var order []string
 	for _, k := range cfg.Order {
 		if k != "path" && cfg.seg(k, true) {
@@ -67,7 +67,7 @@ func segmentOrder(v values, cfg Config) []string {
 }
 
 // segmentBlocks resolves each non-empty segment to its themed block.
-func segmentBlocks(v values, cfg Config, pal theme.Palettes) []block {
+func segmentBlocks(v values, cfg config, pal theme.Palettes) []block {
 	th := themeColors(cfg, pal)
 	var blocks []block
 	for _, key := range segmentOrder(v, cfg) {
@@ -85,7 +85,7 @@ func segmentBlocks(v values, cfg Config, pal theme.Palettes) []block {
 }
 
 // renderSegmented renders the powerline, capsule, or minimal style over cfg.Order, then git.
-func renderSegmented(v values, cfg Config, pal theme.Palettes, mode string) string {
+func renderSegmented(v values, cfg config, pal theme.Palettes, mode string) string {
 	blocks := segmentBlocks(v, cfg, pal)
 	if len(blocks) == 0 {
 		return ""
@@ -104,7 +104,7 @@ func renderSegmented(v values, cfg Config, pal theme.Palettes, mode string) stri
 }
 
 // renderCapsules writes each block between round caps (parentheses in the text charset), space-separated.
-func renderCapsules(out *strings.Builder, blocks []block, cfg Config, mode string) {
+func renderCapsules(out *strings.Builder, blocks []block, cfg config, mode string) {
 	capL, capR := glyphCapL, glyphCapR
 	if cfg.Charset == "text" {
 		capL, capR = "(", ")"
@@ -120,7 +120,7 @@ func renderCapsules(out *strings.Builder, blocks []block, cfg Config, mode strin
 }
 
 // renderBlocks joins powerline blocks with arrows (nerd charset) or minimal blocks with the minor separator.
-func renderBlocks(out *strings.Builder, blocks []block, cfg Config, pal theme.Palettes, mode string) {
+func renderBlocks(out *strings.Builder, blocks []block, cfg config, pal theme.Palettes, mode string) {
 	arrow := ""
 	if cfg.Style == "powerline" && cfg.Charset != "text" {
 		arrow = glyphArrow
@@ -160,7 +160,7 @@ func runeCells(s, kind string) []cell {
 }
 
 // dashboardValueCells returns (header, cells) for one column, or nil cells to drop it.
-func dashboardValueCells(col string, v values, cfg Config) (string, []cell) {
+func dashboardValueCells(col string, v values, cfg config) (string, []cell) {
 	switch col {
 	case "context":
 		filled, empty := contextBarParts(v.contextPct, cfg.Bar)
@@ -226,7 +226,7 @@ func layoutDashboard(built []builtCol, gutter, W int) (hdr, val []cell) {
 }
 
 // dashboardColumns is the configured dashboard columns, or the default five.
-func dashboardColumns(dash DashboardConfig) []string {
+func dashboardColumns(dash dashboardConfig) []string {
 	if len(dash.Columns) == 0 {
 		return []string{"workspace", "model", "provider", "branch", "context"}
 	}
@@ -234,7 +234,7 @@ func dashboardColumns(dash DashboardConfig) []string {
 }
 
 // dashboardWidth is the row width: the configured one, else the terminal width less the head indent, else 100.
-func dashboardWidth(dash DashboardConfig, width, indentW int) int {
+func dashboardWidth(dash dashboardConfig, width, indentW int) int {
 	if dash.Width > 0 {
 		return dash.Width
 	}
@@ -245,7 +245,7 @@ func dashboardWidth(dash DashboardConfig, width, indentW int) int {
 }
 
 // buildDashboardCols resolves cols to non-empty columns; the workspace column drops when a head carries the path.
-func buildDashboardCols(cols []string, v values, cfg Config, hasHead bool) []builtCol {
+func buildDashboardCols(cols []string, v values, cfg config, hasHead bool) []builtCol {
 	var built []builtCol
 	for _, c := range cols {
 		if c == "workspace" && hasHead || !cfg.seg(c, true) { // the head already carries the path; disabled drops out
@@ -259,7 +259,7 @@ func buildDashboardCols(cols []string, v values, cfg Config, hasHead bool) []bui
 }
 
 // paintDashboardValues paints the value row with the gradient, behind the head when present.
-func paintDashboardValues(val []cell, head string, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
+func paintDashboardValues(val []cell, head string, cfg config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
 	trough := troughTone(cfg.Bar)
 	total := max(len(val)-1, 1)
 	var vb strings.Builder
@@ -293,7 +293,7 @@ func paintDashboardHeaders(hdr []cell, indentW int, pal theme.Palettes, mode str
 
 // renderDashboard renders the two-line column dashboard; the head opens the value row and a same-width
 // indent keeps the header row aligned over it.
-func renderDashboard(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string, width int) string {
+func renderDashboard(v values, cfg config, pal theme.Palettes, stops []ansi.RGB, mode string, width int) string {
 	dash := cfg.Dashboard
 	gutter := dash.Gutter
 	if gutter <= 0 {
@@ -326,7 +326,7 @@ func promptUser() string {
 
 // promptHead is the segmented styles' "user:path" head: literal PS1 bold-green/bold-blue under
 // userColor "ansi", else the palette user tone and the ramp's opening stop. Gradient draws its own.
-func promptHead(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
+func promptHead(v values, cfg config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
 	if !cfg.seg("path", true) {
 		return ""
 	}
@@ -339,7 +339,7 @@ func promptHead(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode
 }
 
 // headWidth is the head's printable width, so the dashboard header row can sit over the shifted values.
-func headWidth(v values, cfg Config) int {
+func headWidth(v values, cfg config) int {
 	if !cfg.seg("path", true) {
 		return 0
 	}

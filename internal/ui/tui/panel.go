@@ -142,8 +142,8 @@ func render(title string, s pickState, color bool) string {
 		}
 		prefix, line := "  ", ansi.Status(color, muteDetail(color, row))
 		if i == s.sel {
-			prefix = AccentMark(color, "▸") + " "
-			line = Selected(color, ansi.Strip(row))
+			prefix = accentMark(color, "▸") + " "
+			line = selected(color, ansi.Strip(row))
 		}
 		b.WriteString(prefix + line + "\x1b[K\r\n")
 	}
@@ -160,7 +160,7 @@ func Pick(title string, rows [][2]string, start int) (int, error) {
 
 // pickHeads runs the picker over rows from lay(cols), re-laid per frame; the cursor skips section-title rows (heads).
 func pickHeads(title string, lay func(cols int) []string, heads map[int]bool, start int) (idx int, err error) {
-	t, err := Open()
+	t, err := openTerminal()
 	if err != nil {
 		return -1, err
 	}

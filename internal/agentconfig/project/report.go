@@ -9,16 +9,16 @@ import (
 	"strings"
 )
 
-// Row states of a SyncRow.
+// Row states of a syncRow.
 const (
-	StateCurrent   = "current"
-	StateStale     = "stale"
-	StateBlocked   = "blocked"
-	StatePreserved = "preserved-extra"
+	stateCurrent   = "current"
+	stateStale     = "stale"
+	stateBlocked   = "blocked"
+	statePreserved = "preserved-extra"
 )
 
-// SyncRow is one managed destination; it carries paths and names only, never file bodies.
-type SyncRow struct {
+// syncRow is one managed destination; it carries paths and names only, never file bodies.
+type syncRow struct {
 	Agent   string `json:"agent"`
 	Name    string `json:"name"`
 	Origin  string `json:"origin"` // agent | skill | instructions | extra
@@ -31,7 +31,7 @@ type SyncRow struct {
 // rowSink collects Sync's status as SyncRows in JSON mode; other text written to it (the summary) is dropped.
 type rowSink struct {
 	agent string
-	rows  []SyncRow
+	rows  []syncRow
 }
 
 func (s *rowSink) Write(p []byte) (int, error) { return len(p), nil }
@@ -45,10 +45,10 @@ func header(out io.Writer, name string) {
 	fmt.Fprintf(out, "== %s ==\n", name)
 }
 
-// status reports one destination: a "  VERB  path (reason)" line, or a SyncRow in JSON mode.
+// status reports one destination: a "  VERB  path (reason)" line, or a syncRow in JSON mode.
 func status(out io.Writer, verb, path, reason string) {
 	if s, ok := out.(*rowSink); ok {
-		s.rows = append(s.rows, SyncRow{Agent: s.agent, Name: logicalName(path), Origin: originOf(verb, path),
+		s.rows = append(s.rows, syncRow{Agent: s.agent, Name: logicalName(path), Origin: originOf(verb, path),
 			Path: path, State: verbStates[verb], Reason: reason, Runtime: "unverified"})
 		return
 	}
@@ -58,7 +58,7 @@ func status(out io.Writer, verb, path, reason string) {
 	fmt.Fprintf(out, "  %-5s %s%s\n", verb, path, reason)
 }
 
-// linkStatus reports a symlink destination with its target: "  VERB  path -> target", or a SyncRow in JSON mode.
+// linkStatus reports a symlink destination with its target: "  VERB  path -> target", or a syncRow in JSON mode.
 func linkStatus(out io.Writer, verb, path, target string) {
 	if _, ok := out.(*rowSink); ok {
 		status(out, verb, path, "")
@@ -68,8 +68,8 @@ func linkStatus(out io.Writer, verb, path, target string) {
 }
 
 var verbStates = map[string]string{
-	"OK": StateCurrent, "KEEP": StateBlocked, "EXTRA": StatePreserved,
-	"DRY": StateStale, "WRITE": StateStale, "LINK": StateStale, "PRUNE": StateStale,
+	"OK": stateCurrent, "KEEP": stateBlocked, "EXTRA": statePreserved,
+	"DRY": stateStale, "WRITE": stateStale, "LINK": stateStale, "PRUNE": stateStale,
 }
 
 // originOf classifies a destination by the verb and the path it sits under.
@@ -105,14 +105,14 @@ func syncJSON(opts Options) int {
 	return writeRows(w, sink.rows, code)
 }
 
-func writeRows(w io.Writer, rows []SyncRow, code int) int {
+func writeRows(w io.Writer, rows []syncRow, code int) int {
 	if rows == nil {
-		rows = []SyncRow{}
+		rows = []syncRow{}
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(struct {
-		Rows []SyncRow `json:"rows"`
+		Rows []syncRow `json:"rows"`
 	}{rows}); err != nil {
 		return 1
 	}

@@ -44,7 +44,7 @@ func operationPath(repoMain, name string) string {
 }
 
 // operationLeasePath is a separate lock file (not operationPath+".lock", to avoid colliding with
-// paths.WithFileLock's own ".lock" suffix convention) held for the full duration of one ResolveWithAgent
+// paths.WithFileLock's own ".lock" suffix convention) held for the full duration of one resolveWithAgent
 // call — fresh or resumed — so a concurrent resume can never race the still-running original.
 func operationLeasePath(repoMain, name string) string {
 	return operationPath(repoMain, name) + ".lease"

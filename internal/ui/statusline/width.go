@@ -20,7 +20,7 @@ const termWidthTTL = 5 * time.Second
 const ccMargin = 4
 
 // lineWidth is config "width", else $COLUMNS or the nearest ancestor terminal's width less ccMargin, else 0 (no clip).
-func lineWidth(cfg Config) int {
+func lineWidth(cfg config) int {
 	if cfg.Width > 0 {
 		return cfg.Width
 	}

@@ -17,26 +17,26 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// Scanner audits the config surface for inline, plaintext secrets. Findings accumulate across
+// secretScanner audits the config surface for inline, plaintext secrets. Findings accumulate across
 // files; Out receives the human-readable report. Values are never echoed, only their location.
-type Scanner struct {
+type secretScanner struct {
 	Out      io.Writer
 	Findings []string
 }
 
-func (s *Scanner) out() io.Writer {
+func (s *secretScanner) out() io.Writer {
 	if s.Out != nil {
 		return s.Out
 	}
 	return os.Stdout
 }
 
-func (s *Scanner) flag(detail string) {
+func (s *secretScanner) flag(detail string) {
 	s.Findings = append(s.Findings, detail)
 	fmt.Fprintf(s.out(), "  ⚠ %s\n", detail)
 }
 
-func (s *Scanner) ok(msg string) { fmt.Fprintf(s.out(), "  ✓ %s\n", msg) }
+func (s *secretScanner) ok(msg string) { fmt.Fprintf(s.out(), "  ✓ %s\n", msg) }
 
 // defaultScanTargets lists settings.json, settings.local.json, ~/.claude.json and .mcp.json for a scan with no paths.
 func defaultScanTargets() []string {
@@ -161,8 +161,8 @@ func marketplaceRepoPath(path []string) bool {
 	return len(path) == 4 && path[0] == "extraKnownMarketplaces" && path[2] == "source" && path[3] == "repo"
 }
 
-// ScanFile inspects JSON leaves or KEY=value lines in an explicitly supplied file; a missing file is a finding.
-func (s *Scanner) ScanFile(path string) {
+// scanFile inspects JSON leaves or KEY=value lines in an explicitly supplied file; a missing file is a finding.
+func (s *secretScanner) scanFile(path string) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		s.flag(fmt.Sprintf("%s — could not read: %v", path, err))
@@ -195,8 +195,8 @@ func (s *Scanner) ScanFile(path string) {
 	}
 }
 
-// ScanVault inspects the vault's unencrypted buckets (provider overlay, pins, custom env) for inline secrets.
-func (s *Scanner) ScanVault() {
+// scanVault inspects the vault's unencrypted buckets (provider overlay, pins, custom env) for inline secrets.
+func (s *secretScanner) scanVault() {
 	var found []string
 	err := vault.View(func(t *vault.Tx) error {
 		found = append(scanOverlayDocs(t), scanSecretBuckets(t)...)
@@ -250,18 +250,18 @@ func scanSecretBuckets(t *vault.Tx) []string {
 	return found
 }
 
-// ScanConfigs audits targets (defaultScanTargets plus the vault when empty) and prints the summary line.
-func (s *Scanner) ScanConfigs(targets []string) int {
+// scanConfigs audits targets (defaultScanTargets plus the vault when empty) and prints the summary line.
+func (s *secretScanner) scanConfigs(targets []string) int {
 	defaults := len(targets) == 0
 	if defaults {
 		targets = defaultScanTargets()
 	}
 	fmt.Fprintln(s.out(), "== config-surface credential scan ==")
 	for _, f := range targets {
-		s.ScanFile(f)
+		s.scanFile(f)
 	}
 	if defaults {
-		s.ScanVault()
+		s.scanVault()
 	}
 	if n := len(s.Findings); n > 0 {
 		fmt.Fprintf(s.out(), "doctor --scan: %d finding(s) — move inline values into the vault with `claude-code vault set`.\n", n)
@@ -271,19 +271,19 @@ func (s *Scanner) ScanConfigs(targets []string) int {
 	return providers.ExitClean
 }
 
-// AuditOpts selects the credential audits doctor --scan/--git/--secrets runs.
-type AuditOpts struct {
+// auditOpts selects the credential audits doctor --scan/--git/--secrets runs.
+type auditOpts struct {
 	Scan, Git, Vault bool
 	Targets          []string
 	Rev              string
 	Since            int
 }
 
-// RunAudits runs the requested audits in order, writing their reports to w; the worst exit wins.
-func RunAudits(w io.Writer, o AuditOpts) int {
+// runAudits runs the requested audits in order, writing their reports to w; the worst exit wins.
+func runAudits(w io.Writer, o auditOpts) int {
 	rc, sep := providers.ExitClean, ""
 	if o.Scan {
-		rc = max(rc, (&Scanner{Out: w}).ScanConfigs(o.Targets))
+		rc = max(rc, (&secretScanner{Out: w}).scanConfigs(o.Targets))
 		sep = "\n"
 	}
 	if o.Git {
@@ -297,7 +297,7 @@ func RunAudits(w io.Writer, o AuditOpts) int {
 	}
 	if o.Vault {
 		fmt.Fprint(w, sep)
-		if !PrintVault(w) {
+		if !printVault(w) {
 			rc = max(rc, providers.ExitFindings)
 		}
 	}

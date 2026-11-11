@@ -27,7 +27,7 @@ import (
 
 // Thresholds on an account's used share of its window.
 const (
-	LowPct       = 90.0
+	lowPct       = 90.0
 	ExhaustedPct = 100.0
 	StaleAfter   = 15 * time.Minute
 )
@@ -41,7 +41,7 @@ const (
 
 // Account states a pick sorts by.
 const (
-	StateOK        = "ok"
+	stateOK        = "ok"
 	StateLow       = "low"
 	StateExhausted = "exhausted"
 	StateUnknown   = "unknown"
@@ -127,15 +127,15 @@ func loadState() (State, error) {
 	return decodeState(raw)
 }
 
-// Update applies fn under the file lock; unreadable/newer state stays untouched, corrupt state keeps one backup.
-func Update(fn func(State)) error {
+// update applies fn under the file lock; unreadable/newer state stays untouched, corrupt state keeps one backup.
+func update(fn func(State)) error {
 	path := StatePath()
 	return paths.WithFileLock(path, func() error { return writeState(path, fn) })
 }
 
 var authMarkWait = 2 * time.Second // bounds a request-path auth-mark write; a var so tests need not wait
 
-// tryUpdate is Update that gives up after wait; ran=false means the lock stayed busy and nothing was written.
+// tryUpdate is update that gives up after wait; ran=false means the lock stayed busy and nothing was written.
 func tryUpdate(wait time.Duration, fn func(State)) (bool, error) {
 	path := StatePath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -197,7 +197,7 @@ func isDecodeErr(err error) bool {
 // Record stores a fetched window reading for key; an exhaustion remembered from a failure survives a lower read
 // until it expires, since a usage endpoint can lag the upstream's own verdict.
 func Record(key string, usedPct float64, window string, resetsAt, now time.Time) error {
-	return Update(func(s State) {
+	return update(func(s State) {
 		e := s[key]
 		e.UsedPct, e.Window, e.ResetsAt, e.Seen = usedPct, window, resetsAt, now
 		e.Checked, e.CheckNote = time.Time{}, ""
@@ -210,7 +210,7 @@ func Record(key string, usedPct float64, window string, resetsAt, now time.Time)
 
 // MarkChecked stamps a refresh of key that recorded no reading, so it backs off for StaleAfter; Status is untouched.
 func MarkChecked(key, note string, now time.Time) error {
-	return Update(func(s State) {
+	return update(func(s State) {
 		e := s[key]
 		e.Checked, e.CheckNote = now, note
 		s[key] = e
@@ -228,7 +228,7 @@ func (e Entry) Stale(now time.Time) bool {
 
 // MarkExhausted remembers a quota failure on key until until.
 func MarkExhausted(key string, until, now time.Time, reason string) error {
-	return Update(func(s State) {
+	return update(func(s State) {
 		e := s[key]
 		if until.After(e.ExhaustedUntil) || !e.ExhaustedUntil.After(now) { // a concurrent shorter default never wins
 			e.ExhaustedUntil, e.Reason = until, reason
@@ -238,10 +238,10 @@ func MarkExhausted(key string, until, now time.Time, reason string) error {
 	})
 }
 
-// GateAuth names the auth gate; AuthMarkTTL is how long a mark outlives a missed clear.
+// GateAuth names the auth gate; authMarkTTL is how long a mark outlives a missed clear.
 const (
 	GateAuth    = "auth"
-	AuthMarkTTL = 6 * time.Hour
+	authMarkTTL = 6 * time.Hour
 )
 
 // ProviderAccount is the account key of a registry profile: <provider>·<profile>, databricks when unregistered.
@@ -273,7 +273,7 @@ func extendHold(cur map[string]time.Time, key string, until, now time.Time) map[
 
 // MarkAuth remembers an auth rejection on account until a login, credential change or the TTL clears it.
 func MarkAuth(account, reason string) error {
-	return Update(markAuth(account, reason))
+	return update(markAuth(account, reason))
 }
 
 // TryMarkAuth is MarkAuth bounded by authMarkWait; ran=false means the lock stayed busy and no mark was written.
@@ -324,7 +324,7 @@ func ClearProviderAuth(provider string) error {
 	if !marked {
 		return nil // nothing is written when no mark exists
 	}
-	return Update(func(s State) {
+	return update(func(s State) {
 		for account, e := range s {
 			if hit(account, e) {
 				e.AuthReason, e.AuthAt, e.ModelDead = "", time.Time{}, nil
@@ -348,7 +348,7 @@ func (s State) accountAuthMarked(account string, now time.Time) (string, bool) {
 // AuthMarked reports a live (unexpired) auth mark on account and its reason.
 func (s State) AuthMarked(account string, now time.Time) (string, bool) {
 	e, ok := s[account]
-	if !ok || e.AuthAt.IsZero() || now.Sub(e.AuthAt) >= AuthMarkTTL {
+	if !ok || e.AuthAt.IsZero() || now.Sub(e.AuthAt) >= authMarkTTL {
 		return "", false
 	}
 	return e.AuthReason, true
@@ -366,15 +366,15 @@ func (e Entry) Status(now time.Time) string {
 			return StateUnknown
 		}
 	case !e.ResetsAt.After(now):
-		return StateOK
+		return stateOK
 	}
 	switch {
 	case e.UsedPct >= ExhaustedPct:
 		return StateExhausted
-	case e.UsedPct >= LowPct:
+	case e.UsedPct >= lowPct:
 		return StateLow
 	}
-	return StateOK
+	return stateOK
 }
 
 // Until is when an exhausted entry frees up: the remembered failure's expiry, else the window reset.

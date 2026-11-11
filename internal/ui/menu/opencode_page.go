@@ -218,20 +218,20 @@ func runOpencodeRow(d *dialog, r ocRow, action string) bool {
 
 // ocAccountActions is the per-credential page: Make active (2.x, not already active) and Log out; Back is the shell's.
 func ocAccountActions(d *dialog, r ocRow) {
-	var rows []ShellRow
+	var rows []shellRow
 	if sw, _ := opencodeSwitchArgv(r.in.ID, r.conn.ID); sw != nil && !r.conn.Active {
-		rows = append(rows, ShellRow{Name: "Make active", Run: func() bool { ocSwitch(d, r, sw); return true }})
+		rows = append(rows, shellRow{Name: "Make active", Run: func() bool { ocSwitch(d, r, sw); return true }})
 	}
 	if r.in.ID == "databricks" {
-		rows = append(rows, ShellRow{Name: "Set up Databricks", Run: func() bool { ocSetUpDatabricks(d); return true }})
+		rows = append(rows, shellRow{Name: "Set up Databricks", Run: func() bool { ocSetUpDatabricks(d); return true }})
 	}
-	rows = append(rows, ShellRow{Name: "Log out", Run: func() bool {
+	rows = append(rows, shellRow{Name: "Log out", Run: func() bool {
 		if confirmKey(fmt.Sprintf("Log out of %s (%s)?", r.row.Label, r.row.Detail), false) {
 			ocLogout(d, r)
 		}
 		return true
 	}})
-	d.shell().Run(r.row.Label+" · "+r.row.Detail, func() []ShellRow { return rows })
+	d.shell().Run(r.row.Label+" · "+r.row.Detail, func() []shellRow { return rows })
 }
 
 // ocSetUpDatabricks runs the Databricks set-up flow, asking for the profile only when there are several.

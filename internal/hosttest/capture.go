@@ -39,6 +39,18 @@ func CaptureOutput(t *testing.T, fn func() int) (code int, stdout, stderr string
 	return
 }
 
+// CaptureClosedStdout runs fn with os.Stdout closed, so every write to it fails, and returns the exit code and stderr.
+func CaptureClosedStdout(t *testing.T, fn func() int) (int, string) {
+	t.Helper()
+	code, _, stderr := CaptureOutput(t, func() int {
+		if err := os.Stdout.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return fn()
+	})
+	return code, stderr
+}
+
 // ClosedStdout points os.Stdout at a closed file so every write fails, until the test ends.
 func ClosedStdout(t *testing.T) {
 	t.Helper()

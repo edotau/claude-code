@@ -26,8 +26,8 @@ var setupPage = helptext.Page{
 	Hint: "claude-code install --setup <mode> -h lists that mode's flags.",
 }
 
-// Run is the `install --setup` verb.
-func Run(args []string) int {
+// run is the `install --setup` verb.
+func run(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		setupPage.Fprint(os.Stderr)
 		return 0
@@ -59,7 +59,7 @@ func cmdSetupAdopt(args []string) int {
 		fmt.Fprintln(os.Stderr, "claude-code: setup adopt: --from is required")
 		return 2
 	}
-	err := Adopt(AdoptOpts{From: *from, Into: *into, Label: *label, DryRun: *dryRun, Out: os.Stdout})
+	err := adopt(adoptOpts{From: *from, Into: *into, Label: *label, DryRun: *dryRun, Out: os.Stdout})
 	return setupExit(err, "setup adopt")
 }
 
@@ -89,11 +89,11 @@ func cmdSetupNuke(args []string) int {
 		fmt.Print("type the directory path to confirm: ")
 		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 		if err != nil && line == "" {
-			return setupExit(fmt.Errorf("%w: %v", ErrConfirmMismatch, err), "setup nuke")
+			return setupExit(fmt.Errorf("%w: %v", errConfirmMismatch, err), "setup nuke")
 		}
 		confirm = strings.TrimRight(line, "\r\n")
 	}
-	err := Nuke(NukeOpts{Dir: *dir, Apply: *apply, Confirm: confirm, KeepMemory: *keepMemory, Out: os.Stdout})
+	err := nuke(nukeOpts{Dir: *dir, Apply: *apply, Confirm: confirm, KeepMemory: *keepMemory, Out: os.Stdout})
 	return setupExit(err, "setup nuke")
 }
 
@@ -102,7 +102,7 @@ func setupExit(err error, verb string) int {
 	switch {
 	case err == nil:
 		return 0
-	case errors.Is(err, ErrAlreadyCheckout), errors.Is(err, ErrNotAClone), errors.Is(err, ErrConfirmMismatch), errors.Is(err, ErrNotConfigDir), errors.Is(err, ErrWorkspaceUsage):
+	case errors.Is(err, errAlreadyCheckout), errors.Is(err, errNotAClone), errors.Is(err, errConfirmMismatch), errors.Is(err, errNotConfigDir), errors.Is(err, errWorkspaceUsage):
 		fmt.Fprintf(os.Stderr, "claude-code: %s: %v\n", verb, err)
 		return 2
 	default:
@@ -168,13 +168,13 @@ func setupWorkspaceReadOrLink(op string, pos []string) int {
 			setupWorkspacePage.Fprint(os.Stderr)
 			return 2
 		}
-		return setupExit(WorkspaceStatus(setupWorkspaceRoot(pos), os.Stdout), "setup workspace")
+		return setupExit(workspaceStatus(setupWorkspaceRoot(pos), os.Stdout), "setup workspace")
 	}
 	if len(pos) < 2 || len(pos) > 3 {
 		setupWorkspacePage.Fprint(os.Stderr)
 		return 2
 	}
-	return setupExit(WorkspaceLink(setupWorkspaceRoot(pos[2:]), pos[0], pos[1], os.Stdout), "setup workspace")
+	return setupExit(workspaceLink(setupWorkspaceRoot(pos[2:]), pos[0], pos[1], os.Stdout), "setup workspace")
 }
 
 // setupWorkspaceInit runs init on the optional positional root.
@@ -187,7 +187,7 @@ func setupWorkspaceInit(pos []string, with string, dryRun bool) int {
 	if with != "" {
 		parts = strings.Split(with, ",")
 	}
-	return setupExit(WorkspaceInit(WorkspaceInitOpts{
+	return setupExit(workspaceInit(workspaceInitOpts{
 		Root: setupWorkspaceRoot(pos), With: parts, DryRun: dryRun, Out: os.Stdout,
 	}), "setup workspace")
 }
@@ -200,8 +200,8 @@ func setupWorkspaceRoot(pos []string) string {
 	return "."
 }
 
-// Modes lists the install --setup modes.
-func Modes() []string { return []string{"adopt", "nuke", "workspace"} }
+// modes lists the install --setup modes.
+func modes() []string { return []string{"adopt", "nuke", "workspace"} }
 
 // CleanSpec is the completion node for the clean verb.
 func CleanSpec() *helptext.Node {
@@ -212,7 +212,7 @@ func CleanSpec() *helptext.Node {
 // InstallSpec is the completion node for the install verb, with its `--setup` modes.
 func InstallSpec() *helptext.Node {
 	flag, boolFlag, valuedFlag := helptext.Plain, helptext.BoolFlag, helptext.ValuedFlag
-	return &helptext.Node{Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("verbose"), valuedFlag("tools", tools.Names), valuedFlag("setup", Modes)}, Sub: map[string]*helptext.Node{"--setup": {Sub: map[string]*helptext.Node{
+	return &helptext.Node{Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("verbose"), valuedFlag("tools", tools.Names), valuedFlag("setup", modes)}, Sub: map[string]*helptext.Node{"--setup": {Sub: map[string]*helptext.Node{
 		"adopt":     {Flags: []helptext.Flag{flag("from"), flag("into"), boolFlag("dry-run"), flag("label")}},
 		"nuke":      {Flags: []helptext.Flag{flag("dir"), boolFlag("apply"), boolFlag("keep-memory"), boolFlag("account"), boolFlag("cli")}},
 		"workspace": {Sub: map[string]*helptext.Node{"init": {Flags: []helptext.Flag{flag("with"), boolFlag("dry-run")}}, "link": {}, "status": {}}},
@@ -256,7 +256,7 @@ func isSetupArg(args []string) bool {
 // RunInstall handles install flags and delegates --setup to Run.
 func RunInstall(args []string) int {
 	if isSetupArg(args) {
-		return Run(args[1:])
+		return run(args[1:])
 	}
 	fs := helptext.NewFlagSet("install", helptext.Page{
 		Usage: "claude-code install [flags]\nclaude-code install --setup <mode> [flags]",
@@ -278,7 +278,7 @@ func RunInstall(args []string) int {
 	if tf.set {
 		return installTools(tf.names, *dry)
 	}
-	if err := Install(os.Stdout, *dry, *verbose); err != nil {
+	if err := install(os.Stdout, *dry, *verbose); err != nil {
 		return helptext.Fail("install: %v", err)
 	}
 	return 0

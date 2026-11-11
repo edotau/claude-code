@@ -38,7 +38,7 @@ func TestDecodeBasicKeys(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, n := Decode(c.buf)
+			got, n := decode(c.buf)
 			if got != c.want || n != c.n {
 				t.Errorf("Decode(%q) = %+v, %d; want %+v, %d", c.buf, got, n, c.want, c.n)
 			}
@@ -53,7 +53,7 @@ func TestDecodeIncomplete(t *testing.T) {
 		nil,         // empty buffer
 	}
 	for _, buf := range cases {
-		if _, n := Decode(buf); n != 0 {
+		if _, n := decode(buf); n != 0 {
 			t.Errorf("Decode(%v): n = %d, want 0 (need more input)", buf, n)
 		}
 	}
@@ -65,7 +65,7 @@ func TestDecodeDropsUnknown(t *testing.T) {
 		[]byte("\x1b[Z"), // CSI final byte with no mapping
 	}
 	for _, buf := range cases {
-		key, n := Decode(buf)
+		key, n := decode(buf)
 		if n == 0 {
 			t.Fatalf("Decode(%v): n = 0, want it to consume and drop", buf)
 		}
@@ -113,7 +113,7 @@ func TestOpenFailsCleanlyWithoutATTY(t *testing.T) {
 	if proc.IsTerminalFD(int(os.Stdin.Fd())) {
 		t.Skip("stdin is a TTY in this environment; the no-TTY path isn't exercised here")
 	}
-	tm, err := Open()
+	tm, err := openTerminal()
 	if err == nil {
 		tm.Close()
 		t.Fatal("Open() succeeded without a TTY on stdin")
@@ -122,7 +122,7 @@ func TestOpenFailsCleanlyWithoutATTY(t *testing.T) {
 
 // TestDecodeRightArrow: ESC [ C is Right, not dropped.
 func TestDecodeRightArrow(t *testing.T) {
-	k, n := Decode([]byte{0x1b, '[', 'C'})
+	k, n := decode([]byte{0x1b, '[', 'C'})
 	if k.Kind != KeyRight || n != 3 || k.Name() != "right" {
 		t.Fatalf("Decode(ESC [ C) = %+v,%d", k, n)
 	}
@@ -139,7 +139,7 @@ func TestTerminalCloseReportsRestoreError(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer out.Close()
-	term := Terminal{fd: -1, prev: &termState{}, out: out}
+	term := terminal{fd: -1, prev: &termState{}, out: out}
 	if err := term.Close(); !errors.Is(err, syscall.EBADF) {
 		t.Fatalf("Close = %v; want terminal restore EBADF", err)
 	}
@@ -150,7 +150,7 @@ func TestTerminalReportsInputEIO(t *testing.T) {
 	if err := slave.Close(); err != nil {
 		t.Fatal(err)
 	}
-	term := Terminal{fd: int(master.Fd()), in: master, keys: make(chan Key, 8),
+	term := terminal{fd: int(master.Fd()), in: master, keys: make(chan Key, 8),
 		stop: make(chan struct{}), done: make(chan struct{})}
 	go term.readKeys()
 	t.Cleanup(term.stopReader)

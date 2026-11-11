@@ -25,22 +25,22 @@ import (
 //go:embed agents.json
 var defaultsJSON []byte
 
-// LaunchConfig is env and argv a `claude-code <agent>` launch injects, e.g. to disable a native skill
+// launchConfig is env and argv a `claude-code <agent>` launch injects, e.g. to disable a native skill
 // scanner or force allow-all; Args never rides a headless dispatch (tools-off must stay tools-off).
-type LaunchConfig struct {
+type launchConfig struct {
 	Env  []string `json:"env,omitempty"`
 	Args []string `json:"args,omitempty"`
 }
 
-// AgentConfig is one CLI's full spec.
-type AgentConfig struct {
-	Permission Permission   `json:"permission"`
-	Launch     LaunchConfig `json:"launch"`
+// agentConfig is one CLI's full spec.
+type agentConfig struct {
+	Permission permission   `json:"permission"`
+	Launch     launchConfig `json:"launch"`
 }
 
 // Config is the merged spec: built-in defaults plus the user's vault overlay/agents.
 type Config struct {
-	GuardRules GuardRules `json:"guardRules"`
+	GuardRules guardRules `json:"guardRules"`
 	// records are the built-in records with legacy overlay entries merged; Settings reads them.
 	records map[string]vault.AgentRecord
 }
@@ -112,8 +112,8 @@ func cloneRecord(r vault.AgentRecord) vault.AgentRecord {
 }
 
 // clone returns a deep copy of g's prompt lists.
-func (g GuardRules) clone() GuardRules {
-	return GuardRules{Ask: slices.Clone(g.Ask), Deny: slices.Clone(g.Deny)}
+func (g guardRules) clone() guardRules {
+	return guardRules{Ask: slices.Clone(g.Ask), Deny: slices.Clone(g.Deny)}
 }
 
 // clone returns a deep copy of p's rule lists.
@@ -152,7 +152,7 @@ func ParseConfig(base, overlay []byte) (*Config, error) {
 func applyOverlay(cfg *Config, overlay []byte) error {
 	// Agents as json.RawMessage so a "name": null entry survives decode to signal removal.
 	var o struct {
-		GuardRules *GuardRules                `json:"guardRules"`
+		GuardRules *guardRules                `json:"guardRules"`
 		Agents     map[string]json.RawMessage `json:"agents"`
 	}
 	if err := json.Unmarshal(overlay, &o); err != nil {
@@ -166,10 +166,10 @@ func applyOverlay(cfg *Config, overlay []byte) error {
 	}
 	for name, raw := range o.Agents {
 		if raw == nil || string(raw) == "null" { // "name": null removes a built-in agent
-			cfg.records[name] = mergeRecord(cfg.records[name], legacyRecord(AgentConfig{}))
+			cfg.records[name] = mergeRecord(cfg.records[name], legacyRecord(agentConfig{}))
 			continue
 		}
-		var v AgentConfig
+		var v agentConfig
 		if err := json.Unmarshal(raw, &v); err != nil {
 			return fmt.Errorf("vault overlay/agents: agents.%s: %w", name, err)
 		}
@@ -179,7 +179,7 @@ func applyOverlay(cfg *Config, overlay []byte) error {
 }
 
 // legacyRecord is a whole-replace overlay entry as a record: both blocks set and every knob key, "" when unset.
-func legacyRecord(a AgentConfig) vault.AgentRecord {
+func legacyRecord(a agentConfig) vault.AgentRecord {
 	p, guard := a.Permission, ""
 	if p.UseGuardRules {
 		guard = "true"
@@ -253,7 +253,7 @@ func BuiltinSettings(name string) (vault.AgentRecord, error) {
 }
 
 // templateGuardRules reads the embedded settings template's permissions.ask/deny verbatim.
-func templateGuardRules() (GuardRules, error) {
+func templateGuardRules() (guardRules, error) {
 	var tpl struct {
 		Permissions struct {
 			Ask  []string `json:"ask"`
@@ -261,27 +261,27 @@ func templateGuardRules() (GuardRules, error) {
 		} `json:"permissions"`
 	}
 	if err := json.Unmarshal(settings.Template(), &tpl); err != nil {
-		return GuardRules{}, fmt.Errorf("agentconfig guard rules: %w", err)
+		return guardRules{}, fmt.Errorf("agentconfig guard rules: %w", err)
 	}
-	return GuardRules{Ask: tpl.Permissions.Ask, Deny: tpl.Permissions.Deny}, nil
+	return guardRules{Ask: tpl.Permissions.Ask, Deny: tpl.Permissions.Deny}, nil
 }
 
 // Guard returns the guard-rule prompts, or the zero value when Config is nil.
-func (c *Config) Guard() GuardRules {
+func (c *Config) Guard() guardRules {
 	if c == nil {
-		return GuardRules{}
+		return guardRules{}
 	}
 	return c.GuardRules
 }
 
-// GuardRules are prompts carried over into an agent opted in via Permission.UseGuardRules.
-type GuardRules struct {
+// guardRules are prompts carried over into an agent opted in via Permission.UseGuardRules.
+type guardRules struct {
 	Ask  []string `json:"ask"`
 	Deny []string `json:"deny"`
 }
 
-// Permission is one agent's approval policy: agent-native knobs only that agent's renderer consumes.
-type Permission struct {
+// permission is one agent's approval policy: agent-native knobs only that agent's renderer consumes.
+type permission struct {
 	UseGuardRules         bool   `json:"useGuardRules,omitempty"`
 	ApprovalPolicy        string `json:"approvalPolicy,omitempty"`
 	SandboxMode           string `json:"sandboxMode,omitempty"`

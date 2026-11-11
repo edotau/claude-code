@@ -67,7 +67,7 @@ func TestClaudeDirectLaunchPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "gw"}, []string{"-p", "hi"})
+	p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "gw"}, []string{"-p", "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func assertDirectLaunchEnv(t *testing.T, p agent.Plan, want map[string]string) {
 func TestClaudeRoutedLaunchPlan(t *testing.T) {
 	hermetic(t, `{"providers": {"openai": {"ollama": {"protocol": "openai", "base_url": "http://127.0.0.1:11434/v1",
 		"auth": {"type": "none"}, "models": {"opus": "qwen3-coder", "sonnet": "qwen3-coder", "haiku": "qwen3-coder"}}}}}`)
-	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "ollama"}, nil)
+	p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "ollama"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestClaudeRoutedLaunchCarriesIdentity(t *testing.T) {
 	hermetic(t, `{"providers": {"openai": {"ollama": {"protocol": "openai", "base_url": "http://127.0.0.1:11434/v1",
 		"auth": {"type": "none"}, "models": {"opus": "qwen3-coder", "sonnet": "qwen3-coder", "haiku": "qwen3-coder"}}}}}`)
 	ctx := providers.WithIdentity(context.Background(), providers.IdentityHeadless)
-	p, err := Claude(ctx, agent.LaunchOptions{Provider: "ollama"}, []string{"-p", "hi"})
+	p, err := claudePlan(ctx, agent.LaunchOptions{Provider: "ollama"}, []string{"-p", "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestClaudePlanPrintRedactsSecrets(t *testing.T) {
 	hermetic(t, gwProviders)
 	t.Setenv("TEST_GW_KEY", fakeToken)
 	args := []string{"-p", `{"x-key" = "` + fakeToken + `"}`}
-	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "gw"}, args)
+	p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "gw"}, args)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestClaudePlanPrintRedactsSecrets(t *testing.T) {
 
 func TestClaudeAnthropicDefaultOmitsBaseURL(t *testing.T) {
 	hermetic(t, `{"fallback": []}`)
-	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "anthropic"}, nil)
+	p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "anthropic"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestClaudeAnthropicDefaultOmitsBaseURL(t *testing.T) {
 
 func TestClaudePassthrough(t *testing.T) {
 	hermetic(t, "")
-	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "ultra"}, []string{"--resume"})
+	p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "ultra"}, []string{"--resume"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestClaudePassthrough(t *testing.T) {
 		t.Error("interactive passthrough must withhold CLAUDE_CODE_OAUTH_TOKEN")
 	}
 	t.Setenv(oauthKey, "sk-ant-oat-test")
-	h, err := Claude(context.Background(), agent.LaunchOptions{Provider: "ultra"}, []string{"-p", "hi"})
+	h, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "ultra"}, []string{"-p", "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestClaudePassthrough(t *testing.T) {
 
 func testClaudeRejectsVendorLogin(t *testing.T) {
 	t.Helper()
-	if _, err := Claude(context.Background(), agent.LaunchOptions{Provider: "chatgpt"}, nil); err == nil || !strings.Contains(err.Error(), "claude-code codex") {
+	if _, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "chatgpt"}, nil); err == nil || !strings.Contains(err.Error(), "claude-code codex") {
 		t.Errorf("a vendor-login provider must not back Claude Code: %v", err)
 	}
 }
@@ -230,7 +230,7 @@ func TestClaudeModelFlag(t *testing.T) {
 			map[string]string{"ANTHROPIC_MODEL": "claude-sonnet-5-5", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "qwen3-haiku"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p, err := Claude(context.Background(), tc.o, nil)
+			p, err := claudePlan(context.Background(), tc.o, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -273,7 +273,7 @@ func TestLaunchExportsHarnessProvider(t *testing.T) {
 		"models": {"opus": "qwen3-coder", "sonnet": "qwen3-coder", "haiku": "qwen3-coder"}}}}}`)
 	t.Setenv("TEST_GW_KEY", "secret-value")
 	for _, name := range []string{"gw", "ollama"} { // direct, routed
-		p, err := Claude(context.Background(), agent.LaunchOptions{Provider: name}, nil)
+		p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: name}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -293,7 +293,7 @@ func TestClaudeShellEndpointBeatsVault(t *testing.T) {
 	}
 	t.Setenv("ANTHROPIC_MODEL", "shell-model")
 	t.Setenv("ANTHROPIC_BASE_URL", "https://shell.example")
-	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "gw"}, []string{"-p", "hi"})
+	p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "gw"}, []string{"-p", "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestClaudeShellEndpointDropsInheritedOAuth(t *testing.T) {
 	hermetic(t, "")
 	t.Setenv("ANTHROPIC_BASE_URL", "https://shell.example")
 	t.Setenv(oauthKey, "test-inherited-oauth")
-	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "ultra"}, []string{"-p", "hi"})
+	p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "ultra"}, []string{"-p", "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +332,7 @@ func TestClaudeShellEndpointGetsNoProfileCredential(t *testing.T) {
 		"auth": {"type":"key", "env": "TEST_GW_KEY"}, "models": {"opus": "claude-opus-4-6"}}}}}`)
 	t.Setenv("TEST_GW_KEY", "k")
 	t.Setenv("ANTHROPIC_BASE_URL", "https://shell.example")
-	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "gw"}, []string{"-p", "hi"})
+	p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "gw"}, []string{"-p", "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,11 +352,11 @@ func TestAnthropicOAuthWithheldFromShellEndpoint(t *testing.T) {
 	hermetic(t, `{"fallback": [], "providers": {"anthropic": {"ultra": {"protocol": "anthropic", "provider": "anthropic",
 		"base_url": "https://api.anthropic.com", "auth": {"type":"cli"}, "models": {"opus": "claude-opus-4-6"}}}}}`)
 	t.Setenv("ANTHROPIC_BASE_URL", "https://shell.example")
-	o, rest, err := ParseAnthropicArgs([]string{"--oauth", "-p", "hi"})
+	o, rest, err := parseAnthropicArgs([]string{"--oauth", "-p", "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := Anthropic(context.Background(), o, rest, "vault-oauth-token")
+	p, err := anthropicPlan(context.Background(), o, rest, "vault-oauth-token")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -451,7 +451,7 @@ func TestClaudeInteractiveRendersRecord(t *testing.T) {
 	for _, prof := range []string{"ultra", "qa"} {
 		hermetic(t, dbx)
 		plan := func(args ...string) agent.Plan {
-			p, err := Claude(context.Background(), agent.LaunchOptions{Provider: prof}, args)
+			p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: prof}, args)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -472,13 +472,13 @@ func TestClaudeInteractiveRendersRecord(t *testing.T) {
 	}
 }
 
-// Bare `anthropic` (no --profile) goes through Claude(), so it renders the record too; a refused record is a warning.
+// Bare `anthropic` (no --profile) goes through claudePlan(), so it renders the record too; a refused record is a warning.
 func TestAnthropicRendersRecord(t *testing.T) {
 	hermetic(t, "")
 	if err := vault.SetAgentRecord("claude", vault.AgentRecord{Effort: "high"}); err != nil {
 		t.Fatal(err)
 	}
-	p, err := Anthropic(context.Background(), AnthropicOptions{}, nil, "")
+	p, err := anthropicPlan(context.Background(), anthropicOptions{}, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,7 +486,7 @@ func TestAnthropicRendersRecord(t *testing.T) {
 	if err := vault.SetAgentRecord("claude", vault.AgentRecord{Effort: "turbo"}); err != nil {
 		t.Fatal(err)
 	}
-	if p, err = Anthropic(context.Background(), AnthropicOptions{}, nil, ""); err != nil {
+	if p, err = anthropicPlan(context.Background(), anthropicOptions{}, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	checkArgv(t, "refused record", p.Argv, nil, []string{"--effort"})
@@ -505,7 +505,7 @@ func TestClaudeInteractiveRefusedRecordOneNotice(t *testing.T) {
 	orig := agent.NoticeOut
 	agent.NoticeOut = &notices
 	t.Cleanup(func() { agent.NoticeOut = orig })
-	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "ultra"}, nil)
+	p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "ultra"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -544,7 +544,7 @@ func TestClaudeArmProxyCarriesSessionToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	launch := func() agent.Plan {
-		p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "dev"}, []string{"-p", "hi"})
+		p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "dev"}, []string{"-p", "hi"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -587,7 +587,7 @@ func TestClaudeArmLaunchesMintOnce(t *testing.T) {
 	stubMint(t, func(context.Context, string, int) (string, error) { mints++; return "cct_ONCE", nil })
 	t.Setenv("HARNESS_ROUTE", "databricks:dev")
 	for range 3 {
-		p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "dev"}, []string{"-p", "hi"})
+		p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "dev"}, []string{"-p", "hi"})
 		if err != nil || p.Set[ProxyKeyEnv] != "cct_ONCE" {
 			t.Fatalf("armed launch: err %v, session token set %v", err, p.Set[ProxyKeyEnv] != "")
 		}
@@ -603,7 +603,7 @@ func TestClaudeArmHeadlessAlwaysProxied(t *testing.T) {
 		"host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
 	stubMint(t, func(context.Context, string, int) (string, error) { return "cct_ARM_dev", nil })
 	launch := func(args ...string) agent.Plan {
-		p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "dev"}, args)
+		p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "dev"}, args)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -631,7 +631,7 @@ func TestClaudeRefusesAIGatewayWire(t *testing.T) {
 	hermetic(t, `{"fallback":[],"providers":{"databricks":{"gw":{"preset":"databricks","host":"https://gw.cloud.databricks.com",
 		"auth":{"type":"pat"},"options":{"wire":"ai-gateway"}}}}}`)
 	for _, args := range [][]string{{"-p", "hi"}, nil} {
-		_, err := Claude(context.Background(), agent.LaunchOptions{Provider: "gw"}, args)
+		_, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "gw"}, args)
 		if want := "profile gw uses the AI Gateway wire; agents run on /serving-endpoints only"; err == nil || err.Error() != want {
 			t.Errorf("args %q: err = %v, want %q", args, err, want)
 		}

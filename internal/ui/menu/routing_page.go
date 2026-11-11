@@ -72,7 +72,7 @@ func reportRouting(d *dialog, r, overlay providers.Routing) bool {
 			continue
 		}
 		if m.Name() != "routing" {
-			d.println(Heading(m.Name()))
+			d.println(heading(m.Name()))
 		}
 		for _, f := range fields {
 			d.println(f.Key + "  " + f.Get(r) + "  " + routingSource(f, overlay))
@@ -90,7 +90,7 @@ func runRoutingMenu(d *dialog, r, overlay providers.Routing) bool {
 	start := 0
 	for {
 		sections, fields := routingSections(r, overlay, staged, resetKeys)
-		idx, err := pickSettingsPage("routing", sections, EnterRow("save and go back"), start)
+		idx, err := pickSettingsPage("routing", sections, enterRow("save and go back"), start)
 		if err != nil || idx < 0 || idx >= len(fields) {
 			return true
 		}
@@ -123,7 +123,7 @@ func routingSections(r, overlay providers.Routing, staged map[string]string, res
 			fields = append(fields, f)
 		}
 		if len(rows) > 0 {
-			sections = append(sections, tui.Section{Title: Heading(m.Name()), Rows: rows})
+			sections = append(sections, tui.Section{Title: heading(m.Name()), Rows: rows})
 		}
 	}
 	return sections, fields

@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
+	"io"
 	"slices"
 	"time"
 
@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // Mode is how fresh a read must be; Models turns it into each agent's own parameters.
@@ -92,17 +93,23 @@ func serve(ctx context.Context, res Result, mode Mode, dialects []string) (Resul
 		res.Models = shape(p, catalog.UsableIn(p, snap.Models, dialects))
 		return res, nil
 	}
-	served, err := catalog.Served(p)
+	infos, discoveredAt, hit, err := catalog.Served(p)
 	if err != nil {
 		return res, err
 	}
-	res.FetchedAt = time.Now().UTC()
-	if snap, ok := serving.Recall(p); ok && len(snap.Models) > 0 {
-		res.FetchedAt, res.CacheHit = snap.DiscoveredAt, true
-	}
-	res.Raw = slices.Collect(maps.Values(served))
-	res.Models = shape(p, catalog.UsableIn(p, res.Raw, dialects))
+	res.Raw, res.FetchedAt, res.CacheHit = infos, discoveredAt, hit
+	res.Models = shape(p, catalog.UsableIn(p, infos, dialects))
 	return res, nil
+}
+
+// WarmServed hands a live serving listing to the router's served cache; a cache hit or an AI Gateway row never warms.
+func WarmServed(stderr io.Writer, p *providers.Provider, snapshot serving.Snapshot) {
+	if snapshot.CacheHit || p.IsAIGateway() {
+		return
+	}
+	if err := router.WarmServed(p.Name, snapshot.Models, snapshot.DiscoveredAt); err != nil {
+		fmt.Fprintf(stderr, "catalog sync: served listing not saved: %v\n", err)
+	}
 }
 
 // shape renders infos in the common shape; Dialect is the wire p serves each id on.

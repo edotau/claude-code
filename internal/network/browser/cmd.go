@@ -129,7 +129,7 @@ func renderText(w io.Writer, r Report) error {
 	return nil
 }
 
-func renderBrowserLine(w io.Writer, b Browser) error {
+func renderBrowserLine(w io.Writer, b browser) error {
 	mark := ""
 	if b.Default {
 		mark = "  (default)"

@@ -17,9 +17,9 @@ import (
 // Status values of a Pin.
 const (
 	StatusOK       = "ok"
-	StatusUnpinned = "unpinned" // no profile resolves: the agent runs on its own login
-	StatusStale    = "stale"    // the pin names a missing profile, or the cached listing is past its TTL
-	StatusUnserved = "unserved" // the workspace does not serve the model (or the profile has no credential)
+	statusUnpinned = "unpinned" // no profile resolves: the agent runs on its own login
+	statusStale    = "stale"    // the pin names a missing profile, or the cached listing is past its TTL
+	statusUnserved = "unserved" // the workspace does not serve the model (or the profile has no credential)
 	StatusError    = "error"    // the vault could not be read; no pins were resolved
 )
 
@@ -89,7 +89,7 @@ func checkAgent(reg *providers.Registry, name string, spec router.PinSpec, sourc
 		p.Profile = "antigravity"
 	}
 	if p.Profile == "" {
-		p.ProfileSource, p.Status = "none", StatusUnpinned
+		p.ProfileSource, p.Status = "none", statusUnpinned
 		p.Detail = "own login, not Databricks"
 		p.Fix = fmt.Sprintf("claude-code %s profile %s", name, cmp.Or(session, "<profile>"))
 		return p
@@ -100,13 +100,13 @@ func checkAgent(reg *providers.Registry, name string, spec router.PinSpec, sourc
 	}
 	prov := reg.Providers[p.Profile]
 	if prov == nil {
-		p.Status, p.Detail = StatusStale, "profile "+p.Profile+" is not in the registry"
+		p.Status, p.Detail = statusStale, "profile "+p.Profile+" is not in the registry"
 		p.Fix = "claude-code configure provider --list; then claude-code " + name + " profile <profile>"
 		return p
 	}
 	p.Status = StatusOK
 	if !providers.CredentialPresent(prov) {
-		p.Status, p.Served, p.Detail = StatusUnserved, "unknown", "no credential for "+p.Profile
+		p.Status, p.Served, p.Detail = statusUnserved, "unknown", "no credential for "+p.Profile
 		p.Fix = "claude-code configure provider --list " + p.Profile
 		return p
 	}
@@ -125,7 +125,7 @@ func checkServed(p *Pin, prov *providers.Provider, name string, now time.Time) {
 		p.Detail = "workspace listing not cached"
 		p.Fix = "claude-code doctor --refresh"
 		if p.Model != "" {
-			p.Status = StatusStale
+			p.Status = statusStale
 		}
 	case p.Model == "":
 		p.Served = "n/a"
@@ -134,10 +134,10 @@ func checkServed(p *Pin, prov *providers.Provider, name string, now time.Time) {
 		p.Served = map[bool]string{true: "yes", false: "no"}[listed && ready]
 		switch {
 		case !cat.Fresh(now):
-			p.Status, p.Detail = StatusStale, "workspace listing older than 24h"
+			p.Status, p.Detail = statusStale, "workspace listing older than 24h"
 			p.Fix = "claude-code doctor --refresh"
 		case !listed || !ready:
-			p.Status = StatusUnserved
+			p.Status = statusUnserved
 			p.Detail = map[bool]string{true: "endpoint not READY", false: "not in the workspace listing"}[listed]
 			p.Fix = fmt.Sprintf("claude-code models --live --profile %s; then claude-code configure (%s model)", p.Profile, name)
 		}

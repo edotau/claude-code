@@ -96,8 +96,8 @@ func SwitchProfile(reg *providers.Registry, profile string) error {
 	return providers.ClearLastProfiles()
 }
 
-// ProfileStatus is the one-line `<agent> profile` readout: the record's profile, identity and on/off state.
-func ProfileStatus(agent string) string {
+// profileStatus is the one-line `<agent> profile` readout: the record's profile, identity and on/off state.
+func profileStatus(agent string) string {
 	line := agent + ": no profile set (launches use today's selection)"
 	if v := vault.GetAgentRecord(agent).Profile; v != "" {
 		line = fmt.Sprintf("%s: profile %s", agent, v) + providers.IdentityNote(v)
@@ -132,15 +132,15 @@ func AgentProfile(w io.Writer, name, profile string, clear bool) error {
 		}
 		fmt.Fprintf(w, "%s: profile cleared (own login)\n", name)
 	case profile == "":
-		fmt.Fprintln(w, ProfileStatus(name))
+		fmt.Fprintln(w, profileStatus(name))
 	default:
-		return SetAgentProfile(w, name, profile)
+		return setAgentProfile(w, name, profile)
 	}
 	return nil
 }
 
-// SetAgentProfile pins name to profile and prints what changed; copilot on a login-less github row gets a note.
-func SetAgentProfile(w io.Writer, name, profile string) error {
+// setAgentProfile pins name to profile and prints what changed; copilot on a login-less github row gets a note.
+func setAgentProfile(w io.Writer, name, profile string) error {
 	reg, err := providers.Load()
 	if err != nil {
 		return err

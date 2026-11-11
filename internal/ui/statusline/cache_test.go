@@ -93,7 +93,7 @@ func TestRunningCountsOwnLiveDispatchesOnly(t *testing.T) {
 				t.Skip("inflight.SessionOwner() is 0 here; owner filtering is untestable")
 			}
 			writeRunningDispatch(t, "20261024T000001.000-codex", c.pid, c.owner(owner))
-			if got := runningDispatches(Input{}); got != c.want {
+			if got := runningDispatches(input{}); got != c.want {
 				t.Errorf("dispatches = %d, want %d", got, c.want)
 			}
 		})
@@ -103,7 +103,7 @@ func TestRunningCountsOwnLiveDispatchesOnly(t *testing.T) {
 // total gains a trailing "+" only while one of this session's dispatch dispatches runs.
 func TestTotalSegmentPlusWhileDispatchRuns(t *testing.T) {
 	hermetic(t)
-	var in Input
+	var in input
 	if err := json.Unmarshal([]byte(`{"session_id":"s1","context_window":{"total_input_tokens":812}}`), &in); err != nil {
 		t.Fatal(err)
 	}

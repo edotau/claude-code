@@ -41,7 +41,7 @@ func TestInstallContinuesAfterSettingsFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	err := Install(&out, false, true)
+	err := install(&out, false, true)
 	if err == nil {
 		t.Fatal("Install with an unreadable settings.json returned nil error")
 	}
@@ -170,7 +170,7 @@ func TestInstallCompactDefaultOutputHasExactlyTheStepLines(t *testing.T) {
 				t.Setenv(windowsProfileEnv, shortTempDir(t))
 			}
 			var out bytes.Buffer
-			if err := Install(&out, false, false); err != nil {
+			if err := install(&out, false, false); err != nil {
 				t.Fatal(err)
 			}
 			var got []string
@@ -194,7 +194,7 @@ func TestInstallCompactDefaultOutputHasExactlyTheStepLines(t *testing.T) {
 func TestInstallCompactDefaultOutputLinesFitEightyColumns(t *testing.T) {
 	setupCompactFixture(t, []string{"claude", "codex", "copilot", "opencode", "gemini"})
 	var out bytes.Buffer
-	if err := Install(&out, false, false); err != nil {
+	if err := install(&out, false, false); err != nil {
 		t.Fatal(err)
 	}
 	for _, l := range splitNonEmpty(out.String()) {
@@ -214,7 +214,7 @@ func TestInstallCompactDefaultModePrintsFailingVendorAndSettingsSkipInFull(t *te
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	err := Install(&out, false, false)
+	err := install(&out, false, false)
 	if err == nil {
 		t.Fatal("Install with an unreadable settings.json returned nil error")
 	}
@@ -258,11 +258,11 @@ func normalizeVerboseOutput(out, root, self string) string {
 	return out
 }
 
-// TestInstallVerboseFlagMatchesInstallVerboseDirectly: Install(w, false, true) must route to the same
+// TestInstallVerboseFlagMatchesInstallVerboseDirectly: install(w, false, true) must route to the same
 // installVerbose pipeline called directly — the --verbose/--dry-run contract this refactor promised
 // to keep byte-identical, checked here without a stored golden (none existed before this change).
 func TestInstallVerboseFlagMatchesInstallVerboseDirectly(t *testing.T) {
-	outA, rootA, selfA := runVerboseFixture(t, func(w io.Writer) error { return Install(w, false, true) })
+	outA, rootA, selfA := runVerboseFixture(t, func(w io.Writer) error { return install(w, false, true) })
 	outB, rootB, selfB := runVerboseFixture(t, func(w io.Writer) error { return installVerbose(w, false) })
 	normA := normalizeVerboseOutput(outA, rootA, selfA)
 	normB := normalizeVerboseOutput(outB, rootB, selfB)
@@ -291,7 +291,7 @@ func assertSettingsSkipOrder(t *testing.T, verbose bool) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := Install(&out, false, verbose); err == nil {
+	if err := install(&out, false, verbose); err == nil {
 		t.Fatal("Install with an unreadable settings.json returned nil error")
 	}
 	s := out.String()

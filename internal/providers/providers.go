@@ -398,8 +398,8 @@ func (r *Registry) Names() []string {
 	return slices.Sorted(maps.Keys(r.Providers))
 }
 
-// Validate reports registry errors: unknown dialects, missing base URLs, dangling default/fallback names.
-func (r *Registry) Validate() error {
+// validate reports registry errors: unknown dialects, missing base URLs, dangling default/fallback names.
+func (r *Registry) validate() error {
 	var errs []string
 	valid := map[string]bool{ProtocolAnthropic: true, ProtocolOpenAI: true, ProtocolResponses: true, ProtocolGemini: true}
 	for _, n := range r.Names() {

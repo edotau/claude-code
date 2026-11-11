@@ -84,7 +84,7 @@ func TestResolveWorktreeRejectsTraversalAndBadNames(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
 	for _, name := range []string{"", ".", "..", "a/b", "a\\b", "../escape"} {
-		if _, err := ResolveWorktree(repo, name); err == nil {
+		if _, err := resolveWorktreeBounded(repo, name); err == nil {
 			t.Errorf("name %q: want error, got nil", name)
 		}
 	}
@@ -94,7 +94,7 @@ func TestResolveWorktreeAcceptsUnusualButSafeNames(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
 	for _, name := range []string{"has space", "dots.and.more", "unicode-éé", "UPPER-case_123"} {
-		dest, err := ResolveWorktree(repo, name)
+		dest, err := resolveWorktreeBounded(repo, name)
 		if err != nil {
 			t.Errorf("name %q: unexpected error %v", name, err)
 			continue
@@ -113,7 +113,7 @@ func TestResolveWorktreeForeignBasenameCollision(t *testing.T) {
 	if err := os.MkdirAll(foreign, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveWorktree(repo, "taken"); err == nil {
+	if _, err := resolveWorktreeBounded(repo, "taken"); err == nil {
 		t.Fatal("want collision error for a non-worktree directory occupying the name")
 	}
 }
@@ -130,7 +130,7 @@ func TestResolveWorktreeForeignRepoCollision(t *testing.T) {
 	if err := os.Rename(other, dest); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveWorktree(repo, "other"); err == nil {
+	if _, err := resolveWorktreeBounded(repo, "other"); err == nil {
 		t.Fatal("want collision error for a foreign repo occupying the name")
 	}
 }
@@ -146,7 +146,7 @@ func TestResolveWorktreeSymlinkAtDestination(t *testing.T) {
 	if err := os.Symlink(target, dest); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveWorktree(repo, "link"); err == nil {
+	if _, err := resolveWorktreeBounded(repo, "link"); err == nil {
 		t.Fatal("want error for a symlink at the destination")
 	}
 }
@@ -180,7 +180,7 @@ func TestResolveWorktreeResumesExisting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := ResolveWorktree(repo, "resume")
+	again, err := resolveWorktreeBounded(repo, "resume")
 	if err != nil {
 		t.Fatalf("ResolveWorktree on existing worktree: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestResolveWorktreeRejectsLiveCheckoutSubdirUnderSymlinkedRoot(t *testing.T
 		t.Fatal(err)
 	}
 
-	if _, err := ResolveWorktree(repo, "internal"); err == nil {
+	if _, err := resolveWorktreeBounded(repo, "internal"); err == nil {
 		t.Fatal("ResolveWorktree: want an error — the live checkout's own subdirectory must never be treated as a worktree")
 	}
 }
@@ -273,7 +273,7 @@ func TestResolveWorktreeRejectsLiveCheckoutRootForNewDestination(t *testing.T) {
 	main := gitRepo(t)
 	repo := &Repo{Main: main, Root: main} // the symlinked-root scenario, collapsed: Root(main) == main
 
-	dest, err := ResolveWorktree(repo, "brand-new-name")
+	dest, err := resolveWorktreeBounded(repo, "brand-new-name")
 	if err == nil {
 		t.Fatalf("ResolveWorktree: want an error for a nonexistent destination under the live checkout root, got dest=%q", dest)
 	}

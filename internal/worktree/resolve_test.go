@@ -15,7 +15,7 @@ import (
 
 // resolveFixtureConflictSetup builds the same divergent-edit-to-the-same-file conflict preflight_test.go
 // exercises (TestPreflightPredictsTextConflict's shape), then runs Preflight so the caller gets back a
-// plan with exactly one IssueConflict ready to hand to ResolveWithAgent.
+// plan with exactly one IssueConflict ready to hand to resolveWithAgent.
 func resolveFixtureConflictSetup(t *testing.T) (repo *Repo, main, wt string, plan *MergePlan) {
 	t.Helper()
 	repo, main, wt = preflightFixtureSetup(t)
@@ -47,7 +47,7 @@ func resolveFixtureFakeClock(t *testing.T, maxWait time.Duration) {
 	})
 }
 
-// resolveFixtureFakeAgent installs fn as the one seam ResolveWithAgent calls instead of a real
+// resolveFixtureFakeAgent installs fn as the one seam resolveWithAgent calls instead of a real
 // `claude-code agents ask`, restoring the real var on cleanup.
 func resolveFixtureFakeAgent(t *testing.T, fn func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error)) {
 	t.Helper()
@@ -136,7 +136,7 @@ func TestResolveWithAgentEditOnlyMarkersRemovedControllerCommits(t *testing.T) {
 		return askEnvelope{}, nil
 	})
 
-	op, result, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
+	op, result, err := resolveWithAgent(context.Background(), repo, plan, "claude", nil)
 	if err != nil {
 		t.Fatalf("ResolveWithAgent: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestResolveWithAgentUntrackedResidueIgnoredAndPromotes(t *testing.T) {
 		return askEnvelope{}, nil
 	})
 
-	op, result, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
+	op, result, err := resolveWithAgent(context.Background(), repo, plan, "claude", nil)
 	if err != nil {
 		t.Fatalf("ResolveWithAgent: want the untracked residue to be ignored, got error: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestResolveWithAgentUntrackedResidueIgnoredAndPromotes(t *testing.T) {
 // that they stay different. Built on a clean fast-forward merge (not a resolve) to isolate Clean's own
 // dirty check from integrateTarget's — see the KNOWN DEFECT noted in this file's package comment: a
 // residue file left behind by a real agent resolution currently makes the production merge's own
-// post-resolution integrateTarget call refuse with IssueDirtyWorktree, which this test deliberately
+// post-resolution integrateTarget call refuse with issueDirtyWorktree, which this test deliberately
 // does not exercise.
 func TestCleanRefusesWhileUntrackedResidueExists(t *testing.T) {
 	mergeFixtureLockEnv(t)
@@ -253,7 +253,7 @@ func TestResolveWithAgentMarkersRemainFailsLikeTimeoutPreservingState(t *testing
 		return askEnvelope{}, nil
 	})
 
-	op, result, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
+	op, result, err := resolveWithAgent(context.Background(), repo, plan, "claude", nil)
 	if err == nil {
 		t.Fatal("ResolveWithAgent: want an error — leftover conflict markers must never be staged or committed")
 	}
@@ -300,7 +300,7 @@ func TestResolveWithAgentEditsUnrelatedFileRefused(t *testing.T) {
 		return askEnvelope{}, nil
 	})
 
-	op, result, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
+	op, result, err := resolveWithAgent(context.Background(), repo, plan, "claude", nil)
 	if err == nil {
 		t.Fatal("ResolveWithAgent: want an error — an edit outside the conflicted paths must be refused")
 	}
@@ -342,7 +342,7 @@ func TestResolveWithAgentAutoMergedFileAllowed(t *testing.T) {
 		return askEnvelope{}, nil
 	})
 
-	op, result, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
+	op, result, err := resolveWithAgent(context.Background(), repo, plan, "claude", nil)
 	if err != nil {
 		t.Fatalf("ResolveWithAgent: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestResolveWithAgentCleanAbortNeverCommittedByController(t *testing.T) {
 		return askEnvelope{}, nil
 	})
 
-	op, _, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
+	op, _, err := resolveWithAgent(context.Background(), repo, plan, "claude", nil)
 	if err == nil {
 		t.Fatal("ResolveWithAgent: want an error for a clean abort")
 	}
@@ -401,7 +401,7 @@ func TestResolveWithAgentStaleMergeCommitNeverPromoted(t *testing.T) {
 		return askEnvelope{}, nil
 	})
 
-	op, _, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
+	op, _, err := resolveWithAgent(context.Background(), repo, plan, "claude", nil)
 	if err == nil {
 		t.Fatal("ResolveWithAgent: want an error for a stale/unrelated commit")
 	}
@@ -418,7 +418,7 @@ func TestResolveWithAgentStaleMergeCommitNeverPromoted(t *testing.T) {
 }
 
 // TestResolveWithAgentCommitsItselfFailsFreshButResumeSucceeds covers the documented fallback for an
-// agent that commits on its own despite the instruction not to (ResolveWithAgent's doc comment): the
+// agent that commits on its own despite the instruction not to (resolveWithAgent's doc comment): the
 // FRESH run fails (finalizeAgentResolution's own re-commit finds nothing staged), but the operation
 // record is preserved with AgentExitOK — a later --resume (the op != nil / polling path) never
 // re-invokes the agent and instead revalidates the already-committed state directly via
@@ -436,7 +436,7 @@ func TestResolveWithAgentCommitsItselfFailsFreshButResumeSucceeds(t *testing.T) 
 		return askEnvelope{}, nil
 	})
 
-	failedOp, result, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
+	failedOp, result, err := resolveWithAgent(context.Background(), repo, plan, "claude", nil)
 	if err == nil {
 		t.Fatal("ResolveWithAgent (fresh): want an error — the controller's own commit has nothing staged")
 	}
@@ -454,7 +454,7 @@ func TestResolveWithAgentCommitsItselfFailsFreshButResumeSucceeds(t *testing.T) 
 		t.Fatal("agent must never be re-invoked on --resume")
 		return askEnvelope{}, errors.New("unreachable")
 	})
-	resumedOp, resumeResult, resumeErr := ResolveWithAgent(context.Background(), repo, plan, "claude", failedOp)
+	resumedOp, resumeResult, resumeErr := resolveWithAgent(context.Background(), repo, plan, "claude", failedOp)
 	if resumeErr != nil {
 		t.Fatalf("ResolveWithAgent (resume): %v", resumeErr)
 	}
@@ -514,7 +514,7 @@ func TestResolveWithAgentResumeRevalidatesAndCompletes(t *testing.T) {
 		return askEnvelope{}, errors.New("unreachable")
 	})
 
-	gotOp, result, err := ResolveWithAgent(context.Background(), repo, plan, op.Agent, op)
+	gotOp, result, err := resolveWithAgent(context.Background(), repo, plan, op.Agent, op)
 	if err != nil {
 		t.Fatalf("ResolveWithAgent (resume): %v", err)
 	}
@@ -542,7 +542,7 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 		return askEnvelope{}, nil
 	})
 
-	_, result, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
+	_, result, err := resolveWithAgent(context.Background(), repo, plan, "claude", nil)
 	if err != nil {
 		t.Fatalf("ResolveWithAgent: %v", err)
 	}
@@ -576,10 +576,10 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 
 // TestWithWorktreeLeaseRefusesWhileHeldBeforeResolveRuns is the regression test for Appendix A
 // codex-review finding #3's lease half (internal/worktree/resolve.go:134), updated for the lease
-// having moved to the caller's responsibility (ResolveWithAgent itself "does no locking of its own"
+// having moved to the caller's responsibility (resolveWithAgent itself "does no locking of its own"
 // per its own doc comment): a concurrent resolve/resume/merge/clean for the same worktree must never
 // run alongside a still-active one — WithWorktreeLease must refuse outright, and its fn (here wrapping
-// ResolveWithAgent, the way cmdWorktreeMerge and Merge both call it) must never run at all.
+// resolveWithAgent, the way cmdWorktreeMerge and Merge both call it) must never run at all.
 func TestWithWorktreeLeaseRefusesWhileHeldBeforeResolveRuns(t *testing.T) {
 	t.Parallel()
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
@@ -603,7 +603,7 @@ func TestWithWorktreeLeaseRefusesWhileHeldBeforeResolveRuns(t *testing.T) {
 	resolveWasCalled := false
 	err := WithWorktreeLease(repo, filepath.Base(wt), func() error {
 		resolveWasCalled = true
-		_, _, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
+		_, _, err := resolveWithAgent(context.Background(), repo, plan, "claude", nil)
 		return err
 	})
 	if err == nil {
@@ -621,7 +621,7 @@ func TestWithWorktreeLeaseRefusesWhileHeldBeforeResolveRuns(t *testing.T) {
 }
 
 // TestResolveWithAgentExplicitCodexFallenBackToClaudeIsMismatch covers an explicitly selected Codex
-// dispatch that silently ran as Claude instead (the agent runner's own fallback) — ResolveWithAgent must
+// dispatch that silently ran as Claude instead (the agent runner's own fallback) — resolveWithAgent must
 // stop and report the mismatch rather than accept a different model's resolution as the selected one.
 func TestResolveWithAgentExplicitCodexFallenBackToClaudeIsMismatch(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
@@ -634,7 +634,7 @@ func TestResolveWithAgentExplicitCodexFallenBackToClaudeIsMismatch(t *testing.T)
 		return askEnvelope{Fallback: "codex"}, nil
 	})
 
-	op, _, err := ResolveWithAgent(context.Background(), repo, plan, "codex", nil)
+	op, _, err := resolveWithAgent(context.Background(), repo, plan, "codex", nil)
 	if err == nil {
 		t.Fatal("ResolveWithAgent: want a mismatch error on fallback")
 	}

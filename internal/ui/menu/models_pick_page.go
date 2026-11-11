@@ -87,7 +87,7 @@ func modelDesc(provider, model string, listed bool) string {
 	if model == "" {
 		return provider
 	}
-	return provider + " " + Checked(listed, cmp.Or(models.AliasOf(model), model)) // the picker aligns the badge column
+	return provider + " " + checked(listed, cmp.Or(models.AliasOf(model), model)) // the picker aligns the badge column
 }
 
 // modelListed: model is in the agent's static catalog (claude: the model catalog; others: the opencode menu or the
@@ -355,7 +355,7 @@ func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
 	for {
 		rows := make([][2]string, len(aliases))
 		for i, s := range aliases {
-			rows[i] = [2]string{s, PadTo(aliasUse[s], 42) + currentModel(d, p, claude, s)}
+			rows[i] = [2]string{s, padTo(aliasUse[s], 42) + currentModel(d, p, claude, s)}
 		}
 		idx, err := d.shell().Pick(modelTitle(name+" — model per alias", p.Provider, p.Name), rows)
 		if err != nil || idx < 0 {
@@ -464,7 +464,7 @@ func opencodeModels(opencodeID string) []string {
 	return ids
 }
 
-// catalogFn is the discovery seam over catalogForAlias; tests stub the served-model listing.
+// catalogFn is the discovery seam over configure.CatalogForAlias; tests stub the served-model listing.
 var catalogFn = configure.CatalogForAlias
 
 // modelsMenu is the session profile's alias page (aliases + Unpin all) until Back/Esc.
@@ -492,19 +492,19 @@ func offerModels(d *dialog, profile string) {
 // fresh pin shows at once.
 func modelsPage(d *dialog, sel providers.Selection, withUnpin bool) {
 	profile := sel.Provider.Name
-	d.shell().Run("models ("+profile+") — pick an alias, or Back to leave", func() []ShellRow {
+	d.shell().Run("models ("+profile+") — pick an alias, or Back to leave", func() []shellRow {
 		if cur, err := providers.Select(d.reg, profile); err == nil {
 			sel = cur
 		}
-		var rows []ShellRow
+		var rows []shellRow
 		for _, s := range models.AliasNames {
-			rows = append(rows, ShellRow{Name: s, Detail: aliasRowDetail(sel, s), Run: func() bool {
+			rows = append(rows, shellRow{Name: s, Detail: aliasRowDetail(sel, s), Run: func() bool {
 				pickModelForAlias(d, sel, s)
 				return false
 			}})
 		}
 		if withUnpin {
-			rows = append(rows, ShellRow{Name: "Unpin all", Detail: "clear every model pin", Run: func() bool {
+			rows = append(rows, shellRow{Name: "Unpin all", Detail: "clear every model pin", Run: func() bool {
 				unpinAllModels(d)
 				return false
 			}})

@@ -30,7 +30,7 @@ func TestResolveWorktreePropagatesLstatError(t *testing.T) {
 	repo := testRepo(t)
 	repo.Root = filepath.Join(t.TempDir(), "not-a-directory")
 	regressionWriteFile(t, repo.Root, "file\n")
-	dest, err := ResolveWorktree(repo, "feature")
+	dest, err := resolveWorktreeBounded(repo, "feature")
 	if !errors.Is(err, syscall.ENOTDIR) || !strings.Contains(err.Error(), "inspect") || dest != "" {
 		t.Fatalf("Lstat failure bypassed validation: dest=%q err=%v", dest, err)
 	}

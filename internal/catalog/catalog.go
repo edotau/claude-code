@@ -42,19 +42,19 @@ func Profile(agent, flag string) (*providers.Provider, error) {
 	return p, nil
 }
 
-// Served lists p's endpoints by name: the sealed snapshot when one is remembered, else a live serving listing.
-func Served(p *providers.Provider) (map[string]providers.ModelInfo, error) {
-	infos, ok := RecallOrSpawn(p, func(m []providers.ModelInfo) bool { return len(m) > 0 },
+// Served lists p's endpoints: the sealed snapshot when remembered (hit, with its time), else a live serving listing.
+func Served(p *providers.Provider) (infos []providers.ModelInfo, discoveredAt time.Time, hit bool, err error) {
+	snap, ok := recallSnapshot(p, func(m []providers.ModelInfo) bool { return len(m) > 0 },
 		func(profile string) bool { return SpawnDiscover(profile, false) })
-	if !ok {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		var err error
-		if infos, err = providers.ListModels(ctx, p); err != nil {
-			return nil, err
-		}
+	if ok {
+		return snap.Models, snap.DiscoveredAt, true, nil
 	}
-	return byName(infos), nil
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if infos, err = providers.ListModels(ctx, p); err != nil {
+		return nil, time.Time{}, false, err
+	}
+	return infos, time.Now().UTC(), false, nil
 }
 
 // byName indexes infos by endpoint name; a repeated name keeps the last row.
@@ -66,8 +66,8 @@ func byName(infos []providers.ModelInfo) map[string]providers.ModelInfo {
 	return out
 }
 
-// ServedInfo finds id on served under p's model prefix, else as written.
-func ServedInfo(served map[string]providers.ModelInfo, p *providers.Provider, id string) (providers.ModelInfo, bool) {
+// servedInfo finds id on served under p's model prefix, else as written.
+func servedInfo(served map[string]providers.ModelInfo, p *providers.Provider, id string) (providers.ModelInfo, bool) {
 	if m, ok := served[p.ModelPrefix+id]; ok {
 		return m, true
 	}
@@ -75,8 +75,9 @@ func ServedInfo(served map[string]providers.ModelInfo, p *providers.Provider, id
 	return m, ok
 }
 
-// usable keeps served's READY chat endpoints whose wire on p (providers.WireFor) is one of dialects, by name.
-func usable(p *providers.Provider, served map[string]providers.ModelInfo, dialects []string) []providers.ModelInfo {
+// UsableIn keeps infos' READY chat endpoints whose wire on p (providers.WireFor) is one of dialects, sorted by name.
+func UsableIn(p *providers.Provider, infos []providers.ModelInfo, dialects []string) []providers.ModelInfo {
+	served := byName(infos)
 	var out []providers.ModelInfo
 	for _, name := range slices.Sorted(maps.Keys(served)) {
 		info := served[name]
@@ -139,11 +140,6 @@ func WriteList(w io.Writer, profile string, rows []Row, format string) error {
 		fmt.Fprintln(w, strings.TrimRight(fmt.Sprintf("%-*s  %s", nameW, r.Name, r.Tested), " "))
 	}
 	return nil
-}
-
-// UsableIn is usable over a discovery snapshot's model rows.
-func UsableIn(p *providers.Provider, infos []providers.ModelInfo, dialects []string) []providers.ModelInfo {
-	return usable(p, byName(infos), dialects)
 }
 
 // Seal stores snapshot in the vault when it is new or freshly verified; sealed is false when skipped.

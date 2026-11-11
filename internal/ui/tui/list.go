@@ -316,7 +316,7 @@ func listRow(s listState, r ListRow, i, p int, color bool, cols, lw, dw int) (ce
 	case i == s.pendRow:
 		styled = ansi.Style(color, ansi.Red, "▸") + " " + ansi.Style(color, ansi.Red+"\x1b[7m", cells)
 	case p == s.cur:
-		styled = AccentMark(color, "▸") + " " + Selected(color, cells)
+		styled = accentMark(color, "▸") + " " + selected(color, cells)
 	case cells != full: // clipped: print exactly what countLines measured, or the wrap leaves stale frames
 		styled = "  " + cells
 	default:
@@ -337,7 +337,7 @@ func plainRowStyled(color bool, r ListRow, lw, dw int) string {
 	}
 	styled := "  " + pad(r.Label, lw)
 	if detail != "" || st != "" {
-		styled += "  " + Muted(color, detail)
+		styled += "  " + muted(color, detail)
 	}
 	if st != "" {
 		styled += "  " + st
@@ -390,7 +390,7 @@ func renderList(ls []line) string {
 // List runs a grouped, optionally searchable single-choice dialog opening on row start. A non-nil error means stdin
 // is not a terminal (Index -1), the same contract as Pick.
 func List(spec ListSpec, start int) (res ListResult, err error) {
-	t, err := Open()
+	t, err := openTerminal()
 	if err != nil {
 		return ListResult{Index: -1}, err
 	}

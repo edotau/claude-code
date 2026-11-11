@@ -16,7 +16,7 @@ import (
 )
 
 // buildDevRegistry runs the real builder over eps on a non-Databricks row, where every endpoint rides anthropic.
-func buildDevRegistry(ids ...string) CopilotRegistry {
+func buildDevRegistry(ids ...string) copilotRegistry {
 	eps := make([]CopilotEndpoint, len(ids))
 	for i, id := range ids {
 		eps[i] = CopilotEndpoint{ID: id}
@@ -31,7 +31,7 @@ func TestBuildRegistryDedupesCanonicalIDs(t *testing.T) {
 		t.Fatalf("registry = %+v, want 2 models (first spelling kept) on 1 provider", r)
 	}
 	for _, s := range []string{"claude-sonnet-5-5", "databricks-claude-sonnet-5-5", "sonnet", "dev-anthropic/claude-sonnet-5-5"} {
-		if ref, err := r.Select(CopilotChoice{Requested: []string{s}}); err != nil || ref != "dev-anthropic/claude-sonnet-5-5" {
+		if ref, err := r.Select(modelChoice{Requested: []string{s}}); err != nil || ref != "dev-anthropic/claude-sonnet-5-5" {
 			t.Errorf("Select(%q) = %q, %v; want the one sonnet model", s, ref, err)
 		}
 	}
@@ -40,20 +40,20 @@ func TestBuildRegistryDedupesCanonicalIDs(t *testing.T) {
 // Each selection failure names its sentinel; ambiguity needs two models one query matches.
 func TestRegistrySelectErrors(t *testing.T) {
 	r := buildDevRegistry("databricks-claude-sonnet-5-5", "databricks-gpt-5-5")
-	ambiguous := CopilotRegistry{Profile: "dev", Models: []CopilotRegistryModel{
+	ambiguous := copilotRegistry{Profile: "dev", Models: []copilotRegistryModel{
 		{ID: "gpt-5-5", Provider: "a", WireModel: "w"}, {ID: "gpt-5-6", Provider: "b", WireModel: "w"},
 	}}
 	for _, c := range []struct {
 		name string
-		r    CopilotRegistry
-		c    CopilotChoice
+		r    copilotRegistry
+		c    modelChoice
 		want error
 	}{
-		{"repeated", r, CopilotChoice{Requested: []string{"sonnet", "gpt-5-5"}}, ErrRepeatedSelection},
-		{"unknown", r, CopilotChoice{Requested: []string{"kimi-k3"}}, ErrUnknownModel},
-		{"pin gone", r, CopilotChoice{Pin: "kimi-k3"}, ErrSavedModelGone},
-		{"empty", CopilotRegistry{}, CopilotChoice{}, ErrNoModels},
-		{"ambiguous", ambiguous, CopilotChoice{Requested: []string{"w"}}, ErrAmbiguousModel},
+		{"repeated", r, modelChoice{Requested: []string{"sonnet", "gpt-5-5"}}, errRepeatedSelection},
+		{"unknown", r, modelChoice{Requested: []string{"kimi-k3"}}, errUnknownModel},
+		{"pin gone", r, modelChoice{Pin: "kimi-k3"}, errSavedModelGone},
+		{"empty", copilotRegistry{}, modelChoice{}, errNoModels},
+		{"ambiguous", ambiguous, modelChoice{Requested: []string{"w"}}, errAmbiguousModel},
 	} {
 		if _, err := c.r.Select(c.c); !errors.Is(err, c.want) {
 			t.Errorf("%s: err = %v, want %v", c.name, err, c.want)

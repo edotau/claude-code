@@ -53,7 +53,7 @@ func claudeMenu(d *dialog) agentMenu {
 	keyOK := fp.key()
 	tier := agent.AuthPlan(context.Background(), "claude", fp.st)
 	return agentMenu{claudeState(d, fp, cur, tier), []billingRow{
-		{"Subscription", "OAuth · plan limits · Remote Control " + Bracket(loggedIn, withTier("logged in", tier.Name), "not logged in"), modeSubscription, func() bool {
+		{"Subscription", "OAuth · plan limits · Remote Control " + bracket(loggedIn, withTier("logged in", tier.Name), "not logged in"), modeSubscription, func() bool {
 			if !loggedIn {
 				if !d.shell().Confirm("Not logged in to claude.ai — run `claude auth login` now?") {
 					return false
@@ -65,7 +65,7 @@ func claudeMenu(d *dialog) agentMenu {
 			}
 			return keepOrPin(d, cur, providers.ProfileName(d.reg.ProfileBy(anthropicProvider, providers.AuthCLI)))
 		}},
-		{"API key", "pay per token · no Remote Control " + Bracket(keyOK, "key set", "no key"), modeAPIKey, func() bool {
+		{"API key", "pay per token · no Remote Control " + bracket(keyOK, "key set", "no key"), modeAPIKey, func() bool {
 			kt := configure.KeyTarget{Label: anthropicRow, EnvVar: anthropicKeyEnv, FixCmd: "claude-code vault set " + anthropicKeyEnv,
 				Provider: fp.reg.ProfileBy(anthropicProvider, providers.AuthKey)}
 			if !ensureKey(d, kt, keyOK) {

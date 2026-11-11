@@ -71,7 +71,7 @@ type catalogSnapshot struct {
 }
 
 // readCatalogSnapshot is the sealed snapshot for auth and tok; ok is false on a miss, another account or any vault error.
-func readCatalogSnapshot(auth CopilotAuth, tok string) (catalogSnapshot, bool) {
+func readCatalogSnapshot(auth copilotAuth, tok string) (catalogSnapshot, bool) {
 	raw, found, err := vault.ReadSecret(catalogRecord)
 	if err != nil || !found {
 		return catalogSnapshot{}, false
@@ -85,7 +85,7 @@ func readCatalogSnapshot(auth CopilotAuth, tok string) (catalogSnapshot, bool) {
 }
 
 // catalogToken is auth's token for a listing; a gh-sourced account without one is an error, never another account's catalog.
-func catalogToken(auth CopilotAuth) (string, error) {
+func catalogToken(auth copilotAuth) (string, error) {
 	tok, _ := copilotToken(auth)
 	if tok == "" && (auth.Source == srcPinned || auth.Source == srcActive) {
 		return "", fmt.Errorf("copilot: no token for GitHub account %s; refusing to list another account's catalog", auth.Account)
@@ -118,7 +118,7 @@ func Catalog(ctx context.Context) ([]SDKModel, error) {
 			}
 		}
 	}
-	return RefreshCatalog(ctx)
+	return refreshCatalog(ctx)
 }
 
 // spawnCatalogRefresh starts a detached discovery for the GitHub profile, when the registry names one.
@@ -132,8 +132,8 @@ func spawnCatalogRefresh() {
 	}
 }
 
-// RefreshCatalog lists the catalog live on the launch account's token and seals it, whatever the snapshot's age.
-func RefreshCatalog(ctx context.Context) ([]SDKModel, error) {
+// refreshCatalog lists the catalog live on the launch account's token and seals it, whatever the snapshot's age.
+func refreshCatalog(ctx context.Context) ([]SDKModel, error) {
 	auth, ok := copilotAuthSource() // read once, so the listing and its seal name the same account
 	tok := ""
 	if ok {
@@ -170,7 +170,7 @@ func RefreshProfile(ctx context.Context, name string) error {
 	p := reg.Providers[name]
 	switch {
 	case isGithubProfile(p):
-		_, err = RefreshCatalog(ctx)
+		_, err = refreshCatalog(ctx)
 		return err
 	case p != nil && p.Preset == providers.PresetDatabricks:
 		_, err = relistCopilotEndpoints(ctx, reg, p)
@@ -179,8 +179,8 @@ func RefreshProfile(ctx context.Context, name string) error {
 	return fmt.Errorf("%q is not a Databricks or github profile", name)
 }
 
-// DiscoverySource is where p's models are discovered from and, when discovery cannot run, why not.
-func DiscoverySource(p *providers.Provider) (source, skip string) {
+// discoverySource is where p's models are discovered from and, when discovery cannot run, why not.
+func discoverySource(p *providers.Provider) (source, skip string) {
 	source, skip = providers.DiscoverySource(p)
 	if isGithubProfile(p) {
 		skip = profileCatalogSupport(p)
@@ -196,8 +196,8 @@ func profileCatalogSupport(p *providers.Provider) string {
 	return ""
 }
 
-// DiscoverProfileModels lists p's live models: the Copilot catalog for github rows (no pin switch), else the gateway.
-func DiscoverProfileModels(ctx context.Context, p *providers.Provider) ([]providers.ModelInfo, error) {
+// discoverProfileModels lists p's live models: the Copilot catalog for github rows (no pin switch), else the gateway.
+func discoverProfileModels(ctx context.Context, p *providers.Provider) ([]providers.ModelInfo, error) {
 	if !isGithubProfile(p) {
 		return providers.DiscoverModels(ctx, p)
 	}
@@ -435,10 +435,10 @@ type DiscoverResult struct {
 	Note         string                `json:"note,omitempty"`
 }
 
-// DiscoverPickerProfile live-discovers p's models and previews (or, with apply, appends) the saved picker additions.
-func DiscoverPickerProfile(p *providers.Provider, apply bool) DiscoverResult {
+// discoverPickerProfile live-discovers p's models and previews (or, with apply, appends) the saved picker additions.
+func discoverPickerProfile(p *providers.Provider, apply bool) DiscoverResult {
 	r := DiscoverResult{Provider: p.Provider, Profile: p.Name, Additions: []providers.ModelInfo{}, Destinations: []string{}, Status: "skipped"}
-	source, skip := DiscoverySource(p)
+	source, skip := discoverySource(p)
 	r.Source = source
 	if skip != "" {
 		r.Note = skip
@@ -446,7 +446,7 @@ func DiscoverPickerProfile(p *providers.Provider, apply bool) DiscoverResult {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	live, err := DiscoverProfileModels(ctx, p)
+	live, err := discoverProfileModels(ctx, p)
 	if err != nil {
 		r.Status = "error"
 		r.Note = err.Error() + " (no fallback saved)"
@@ -487,14 +487,14 @@ func discoverDestinations(p *providers.Provider) []string {
 	return d
 }
 
-// DiscoverPickerProfiles runs DiscoverPickerProfile over names; ok is false when one errored or none completed.
+// DiscoverPickerProfiles runs discoverPickerProfile over names; ok is false when one errored or none completed.
 func DiscoverPickerProfiles(reg *providers.Registry, names []string, apply bool) (results []DiscoverResult, ok bool) {
 	results = make([]DiscoverResult, 0, len(names))
 	ok = true
 	completed := 0
 	for _, name := range names {
 		p, _ := reg.Get(name)
-		r := DiscoverPickerProfile(p, apply)
+		r := discoverPickerProfile(p, apply)
 		if r.Status == "error" {
 			ok = false
 		}

@@ -1,4 +1,4 @@
-// GitHubHost is the Host over the gh CLI.
+// gitHubHost is the Host over the gh CLI.
 
 package scm
 
@@ -59,11 +59,11 @@ func ghError(err error, stderr string) error {
 	return fmt.Errorf("gh: %s (%v)", strings.TrimPrefix(first, "gh: "), err) // gh api already prefixes its errors
 }
 
-// GitHubHost is a GitHub repository.
-type GitHubHost struct{ Repo string }
+// gitHubHost is a GitHub repository.
+type gitHubHost struct{ Repo string }
 
 // NewGitHub binds owner/name.
-func NewGitHub(owner, name string) *GitHubHost { return &GitHubHost{Repo: owner + "/" + name} }
+func NewGitHub(owner, name string) *gitHubHost { return &gitHubHost{Repo: owner + "/" + name} }
 
 type ghPR struct {
 	Number      int                    `json:"number"`
@@ -81,7 +81,7 @@ func (r ghPR) pr() PR {
 		Author: r.Author.Login, Source: r.HeadRefName, Target: r.BaseRefName, URL: r.URL, HeadSHA: r.HeadRefOid}
 }
 
-func (h *GitHubHost) List(ctx context.Context, o ListOpts) ([]PR, error) {
+func (h *gitHubHost) List(ctx context.Context, o ListOpts) ([]PR, error) {
 	limit := o.Limit
 	if limit <= 0 {
 		limit = maxList
@@ -105,7 +105,7 @@ func (h *GitHubHost) List(ctx context.Context, o ListOpts) ([]PR, error) {
 	return prs, nil
 }
 
-func (h *GitHubHost) View(ctx context.Context, id string) (PR, error) {
+func (h *gitHubHost) View(ctx context.Context, id string) (PR, error) {
 	out, err := runGH(ctx, "", "pr", "view", id, "--repo", h.Repo, "--json", prFields)
 	if err != nil {
 		return PR{}, err
@@ -117,12 +117,12 @@ func (h *GitHubHost) View(ctx context.Context, id string) (PR, error) {
 	return r.pr(), nil
 }
 
-func (h *GitHubHost) Diff(ctx context.Context, id string) (string, error) {
+func (h *gitHubHost) Diff(ctx context.Context, id string) (string, error) {
 	out, err := runGH(ctx, "", "pr", "diff", id, "--repo", h.Repo)
 	return string(out), err
 }
 
-func (h *GitHubHost) Create(ctx context.Context, o CreateOpts) (PR, error) {
+func (h *gitHubHost) Create(ctx context.Context, o CreateOpts) (PR, error) {
 	args := []string{"pr", "create", "--repo", h.Repo, "--title", o.Title, "--body-file", "-"}
 	if o.Base != "" {
 		args = append(args, "--base", o.Base)
@@ -137,7 +137,7 @@ func (h *GitHubHost) Create(ctx context.Context, o CreateOpts) (PR, error) {
 	return h.View(ctx, textutil.LastLine(string(out)))
 }
 
-func (h *GitHubHost) Checks(ctx context.Context, id, sha string) ([]Check, error) {
+func (h *gitHubHost) Checks(ctx context.Context, id, sha string) ([]Check, error) {
 	if id != "" {
 		if err := checkDigits("PR id", id); err != nil {
 			return nil, err
@@ -187,7 +187,7 @@ func conclusionState(c string) string {
 	return "fail"
 }
 
-func (h *GitHubHost) Comment(ctx context.Context, id, body, replyTo string) error {
+func (h *gitHubHost) Comment(ctx context.Context, id, body, replyTo string) error {
 	if !digitsRe.MatchString(id) || (replyTo != "" && !digitsRe.MatchString(replyTo)) {
 		return fmt.Errorf("invalid PR id %q or reply-to %q: want digits", id, replyTo)
 	}

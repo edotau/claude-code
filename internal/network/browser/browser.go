@@ -27,7 +27,7 @@ const hostManifestName = "com.anthropic.claude_code_browser_extension.json"
 // webStoreURL is the Chrome Web Store page for the extension, opened (never fetched) by Setup.
 const webStoreURL = "https://chromewebstore.google.com/detail/" + extensionID
 
-// Family values on Browser.Family.
+// Family values on browser.Family.
 const (
 	familyChromium = "chromium"
 	familySafari   = "safari"
@@ -65,8 +65,8 @@ type controlPaths struct {
 	GUI       string `json:"gui"`       // available|not-installed|unsupported
 }
 
-// Browser is one known browser's full detection result.
-type Browser struct {
+// browser is one known browser's full detection result.
+type browser struct {
 	Name        string       `json:"name"` // chrome|edge|brave|arc|vivaldi|chromium|safari|firefox
 	DisplayName string       `json:"displayName"`
 	Family      string       `json:"family"` // chromium|safari|firefox
@@ -80,7 +80,7 @@ type Browser struct {
 
 // Report is the full `web browsers` result.
 type Report struct {
-	Browsers    []Browser `json:"browsers"`
+	Browsers    []browser `json:"browsers"`
 	Default     string    `json:"default"` // the default browser's Name, "" when unresolved
 	GeneratedAt time.Time `json:"generatedAt"`
 }

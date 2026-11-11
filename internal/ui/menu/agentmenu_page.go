@@ -96,7 +96,7 @@ var signInRows = map[string]bool{"Subscription": true, "API key": true, "Login":
 
 // agentSections groups an agent page's rows under sign-in, actions and profile; order maps a shown index to rows'.
 func agentSections(rows [][2]string) ([]tui.Section, []int) {
-	secs := []tui.Section{{Title: Heading("sign-in")}, {Title: Heading("actions")}, {Title: Heading("profile")}}
+	secs := []tui.Section{{Title: heading("sign-in")}, {Title: heading("actions")}, {Title: heading("profile")}}
 	idx := make([][]int, len(secs))
 	for i, r := range rows {
 		k := 1
@@ -200,7 +200,7 @@ func signIn(d *dialog, label string, argv []string) bool {
 // keyRow is the API key row shared by every agent: ensure (paste, probe, store) the provider's key.
 func keyRow(d *dialog, label, provider, desc string) billingRow {
 	p, ok := d.reg.KeyPresent(provider)
-	return billingRow{modeAPIKey, desc + " " + Bracket(ok, "key set", "no key"), modeAPIKey, func() bool {
+	return billingRow{modeAPIKey, desc + " " + bracket(ok, "key set", "no key"), modeAPIKey, func() bool {
 		if p == nil {
 			d.printf("%s: no %s provider registered\n", label, provider)
 			return false
@@ -242,7 +242,7 @@ func codexMenu(d *dialog) agentMenu {
 	key, ensure := codexKeyRow(d, loggedIn)
 	pinned := vault.GetAgentRecord("codex").Profile
 	return agentMenu{st, []billingRow{
-		{"Subscription", "ChatGPT login · plan limits " + Bracket(loggedIn, withTier("logged in", st.tier.Name), "not logged in"), modeSubscription, func() bool {
+		{"Subscription", "ChatGPT login · plan limits " + bracket(loggedIn, withTier("logged in", st.tier.Name), "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
 				d.printf("%-10s on its ChatGPT login (kept)\n", "codex")
 				return true
@@ -264,7 +264,7 @@ func codexKeyRow(d *dialog, loggedIn bool) (key billingRow, ensure func() bool) 
 		if !ensure() {
 			return false
 		}
-		if loggedIn && ConfirmTerminal("Switch codex from its ChatGPT login to OPENAI_API_KEY (`codex login --with-api-key`)", false) {
+		if loggedIn && confirmTerminal("Switch codex from its ChatGPT login to OPENAI_API_KEY (`codex login --with-api-key`)", false) {
 			return codexUseKey(d)
 		}
 		return true
@@ -295,7 +295,7 @@ func codexModels(d *dialog, profile string) bool {
 		d.printf("+ %s  responses=%v\n", c.Model.ID, c.Model.Responses)
 	}
 	menuNow, applied := pl.Menu, false
-	if len(pl.Changes) > 0 && ConfirmTerminal(fmt.Sprintf("Add %d model(s) to the menu shared with opencode and copilot", len(pl.Changes)), false) {
+	if len(pl.Changes) > 0 && confirmTerminal(fmt.Sprintf("Add %d model(s) to the menu shared with opencode and copilot", len(pl.Changes)), false) {
 		if !sealCodexMenu(d, pl) {
 			return false
 		}
@@ -394,7 +394,7 @@ func copilotMenu(d *dialog) agentMenu {
 		who = auth.Account + " · " + copilot.ShortSource(auth.Source)
 	}
 	rows := []billingRow{
-		{"Subscription", strings.TrimSpace("GitHub Copilot "+plan.Name) + " " + Bracket(loggedIn, who, "not logged in"), modeSubscription, func() bool {
+		{"Subscription", strings.TrimSpace("GitHub Copilot "+plan.Name) + " " + bracket(loggedIn, who, "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
 				d.printf("%-10s runs as %s (kept)\n", "copilot", auth.Label())
 				return true
@@ -405,14 +405,14 @@ func copilotMenu(d *dialog) agentMenu {
 		{"Login", "browser sign-in (copilot login)", "", func() bool {
 			return signIn(d, "copilot", []string{"copilot", "login"})
 		}},
-		{"GitHub user", "account the GitHub route uses " + Bracket(true, who, ""), "", func() bool {
+		{"GitHub user", "account the GitHub route uses " + bracket(true, who, ""), "", func() bool {
 			return pickGitHubUser(d, auth)
 		}},
 	}
 	if fb := copilotFallback(chain); fb != "" {
 		rows = append(rows, billingRow{"Fallback", fb, "", func() bool {
 			for i, s := range chain {
-				d.printf("%d. %-24s %-22s %s\n", i+1, s.Label, s.When, Bracket(s.OK, "usable", "not set up"))
+				d.printf("%d. %-24s %-22s %s\n", i+1, s.Label, s.When, bracket(s.OK, "usable", "not set up"))
 			}
 			return false
 		}})
@@ -469,7 +469,7 @@ func copilotEffortRow(d *dialog, modelID string) *billingRow {
 	cur := vault.GetAgentRecord("copilot").Effort
 	m, ok := copilotCatalogModel(d, modelID)
 	if !ok {
-		desc := "reasoning effort on every launch " + Bracket(cur != "", cur, "unset")
+		desc := "reasoning effort on every launch " + bracket(cur != "", cur, "unset")
 		r := billingRow{"Effort", desc, "", func() bool {
 			return pickCopilotPin(d, "effort", "EFFORT", copilotEffortChoices, cur)
 		}}
@@ -482,7 +482,7 @@ func copilotEffortRow(d *dialog, modelID string) *billingRow {
 	if m.DefaultEffort != "" {
 		def += " (" + m.DefaultEffort + ")"
 	}
-	desc := "reasoning effort on every launch " + Bracket(cur != "", cur, def)
+	desc := "reasoning effort on every launch " + bracket(cur != "", cur, def)
 	choices := make([][2]string, len(m.Efforts))
 	for i, e := range m.Efforts {
 		label := choiceLabel(copilotEffortChoices, e)
@@ -513,7 +513,7 @@ func copilotContextRow(d *dialog, modelID string) *billingRow {
 		return nil
 	}
 	cur := vault.GetAgentRecord("copilot").Context
-	desc := "context window on every launch " + Bracket(cur != "", choiceLabel(copilotContextChoices, cur), "auto")
+	desc := "context window on every launch " + bracket(cur != "", choiceLabel(copilotContextChoices, cur), "auto")
 	r := billingRow{"Context", desc, "", func() bool {
 		return pickCopilotPin(d, "context", "CONTEXT", copilotContextChoices, cur)
 	}}
@@ -556,9 +556,9 @@ func clearCopilotPin(d *dialog, key, cur, modelID, why string) {
 // pickCopilotPin lists "unset" plus choices (label, value); a pick pins key to that value (or clears it).
 func pickCopilotPin(d *dialog, title, key string, choices [][2]string, cur string) bool {
 	rows := make([][2]string, 0, len(choices)+1)
-	rows = append(rows, [2]string{"unset", "copilot's own default" + Mark(cur == "")})
+	rows = append(rows, [2]string{"unset", "copilot's own default" + mark(cur == "")})
 	for _, c := range choices {
-		rows = append(rows, [2]string{c[0], c[1] + Mark(c[1] == cur)})
+		rows = append(rows, [2]string{c[0], c[1] + mark(c[1] == cur)})
 	}
 	idx, err := d.shell().Pick("copilot — "+title, rows)
 	if err != nil || idx < 0 {
@@ -580,7 +580,7 @@ func copilotKeyRow(d *dialog) billingRow {
 	env := providers.CopilotTokenEnv
 	_, src, ok := vault.Get(env)
 	stored := ok && src != "env"
-	return billingRow{modeAPIKey, "GitHub token (" + env + ") " + Bracket(stored, "token set", "no token"), modeAPIKey, func() bool {
+	return billingRow{modeAPIKey, "GitHub token (" + env + ") " + bracket(stored, "token set", "no token"), modeAPIKey, func() bool {
 		kt := configure.KeyTarget{Label: "copilot", EnvVar: env, FixCmd: "claude-code vault set " + env}
 		if stored {
 			return ensureKey(d, kt, true)
@@ -691,7 +691,7 @@ func geminiMenu(d *dialog) agentMenu {
 	st, auth := ownLoginState("gemini")
 	loginSel := auth.Present
 	return agentMenu{st, []billingRow{
-		{"Subscription", "Google login via agy · plan limits " + Bracket(loginSel, "logged in", "not logged in"), modeSubscription, func() bool {
+		{"Subscription", "Google login via agy · plan limits " + bracket(loginSel, "logged in", "not logged in"), modeSubscription, func() bool {
 			if loginSel {
 				d.printf("%-10s on its Google login (kept)\n", "agy")
 				return true

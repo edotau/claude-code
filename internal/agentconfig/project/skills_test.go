@@ -15,7 +15,7 @@ func TestCopilotSkillsDirOwnership(t *testing.T) {
 	writeSource(t, claude, "agents", "demo", "demo")
 	writeSource(t, claude, "skills", "new-dir", "fresh")
 	writeSource(t, claude, "skills", "moved-new", "moved")
-	dir := CopilotSkillsDir(home)
+	dir := copilotSkillsDir(home)
 	projectWriteFile(t, filepath.Join(dir, "impeccable", "SKILL.md"), "real dir\n")
 	foreign := filepath.Join(home, "vendor", "foreign")
 	projectWriteFile(t, filepath.Join(foreign, "SKILL.md"), "vendor\n")

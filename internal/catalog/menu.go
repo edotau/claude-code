@@ -311,10 +311,10 @@ func MenuRows(p *providers.Provider, infos []providers.ModelInfo) []MenuRow {
 		r := MenuRow{ID: m.ID, Label: m.Label, Responses: m.Responses, Source: src}
 		if live {
 			r.Live = "missing"
-			if info, ok := ServedInfo(served, p, m.ID); ok {
+			if info, ok := servedInfo(served, p, m.ID); ok {
 				r.Live, r.Ready = "served", info.Ready
 			}
-			r.Check = CheckCell(cache, m.ID)
+			r.Check = checkCell(cache, m.ID)
 		}
 		rows = append(rows, r)
 	}
@@ -334,7 +334,7 @@ func MenuAddServed(arg string, responses, responsesSet, force bool,
 		if err != nil {
 			return "", nil, fmt.Errorf("cannot check %s against the workspace (--force skips): %v", id, err)
 		}
-		if _, ok := ServedInfo(byName(infos), p, id); !ok {
+		if _, ok := servedInfo(byName(infos), p, id); !ok {
 			return "", nil, fmt.Errorf("%s%s is not served by %s (--force skips the check)", p.ModelPrefix, id, p.Name)
 		}
 	}
@@ -366,8 +366,7 @@ func MenuCheck(p *providers.Provider, infos []providers.ModelInfo, ids []string,
 	for _, m := range providers.OpencodeMenu() {
 		menu = append(menu, m.ID)
 	}
-	targets := Targets(ids, all, served, p, menu)
-	return Check(p, targets, serving.CheckOptions{Concurrency: 4, Timeout: timeout})
+	return check(p, targets(ids, all, served, p, menu), serving.CheckOptions{Concurrency: 4, Timeout: timeout})
 }
 
 // SyncOptions are `opencode catalog sync`'s switches.

@@ -30,7 +30,7 @@ type twoSeg struct {
 }
 
 // collectTwoline resolves model, effort, context and 7d from the payload; auth is the collected countdown.
-func collectTwoline(in Input, auth string) twoData {
+func collectTwoline(in input, auth string) twoData {
 	d := twoData{model: in.Model.DisplayName, week: limitsFromPayload(in), auth: auth}
 	if in.Effort != nil {
 		d.effort = in.Effort.Level
@@ -40,7 +40,7 @@ func collectTwoline(in Input, auth string) twoData {
 }
 
 // fillContext sets the context facts (percent, size, used tokens) from the payload's context_window.
-func (d *twoData) fillContext(in Input) {
+func (d *twoData) fillContext(in input) {
 	if cw := in.ContextWindow; cw != nil {
 		d.hasCtx, d.size, d.tokens = true, cw.Size, cw.TotalInput
 		d.ctxPct = float64(contextPct(in))
@@ -147,7 +147,7 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 }
 
 // renderTwoline draws the two-row style, both rows left-packed so a resize clips only their ends.
-func renderTwoline(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
+func renderTwoline(v values, cfg config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
 	th := pal.Powerline[cfg.Gradient] // background blocks only with a palette that defines them (minimal)
 	row1, row2 := twolineRows(v)
 	for i := range row1 { // velocity keeps the add/del tones every style uses

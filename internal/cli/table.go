@@ -173,7 +173,7 @@ func completionHelp() {
 }
 
 // cmdCompletion prints the bash completion script (default) or, with --install, writes it to the
-// bash-completion user dir (internal/helptext.Install).
+// bash-completion user dir (internal/ui/helptext.Install).
 func cmdCompletion(args []string) int {
 	install, code, done := parseCompletionArgs(args)
 	if done {

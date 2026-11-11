@@ -45,8 +45,8 @@ func encodeScript(script string) string {
 	return `sh -c 'eval "$(printf %s ` + base64.StdEncoding.EncodeToString([]byte(script)) + ` | base64 -d)"'`
 }
 
-// ReuseEnv set to 0 or off turns off ssh connection reuse (ControlMaster) for every remote call.
-const ReuseEnv = "HARNESS_SSH_REUSE"
+// reuseEnv set to 0 or off turns off ssh connection reuse (ControlMaster) for every remote call.
+const reuseEnv = "HARNESS_SSH_REUSE"
 
 // controlPathMax keeps dir/%C (40 hex) plus ssh's 17-byte temp suffix under macOS's 104-byte socket path limit.
 const controlPathMax = 104 - 1 - 40 - 17
@@ -70,7 +70,7 @@ func defaultControlDir() string {
 
 // reuseOpts multiplexes ssh calls to one host over a master kept 10 minutes; nil when opted out or no dir.
 func reuseOpts() []string {
-	if v := strings.ToLower(os.Getenv(ReuseEnv)); v == "0" || v == "off" {
+	if v := strings.ToLower(os.Getenv(reuseEnv)); v == "0" || v == "off" {
 		return nil
 	}
 	dir := controlDir()

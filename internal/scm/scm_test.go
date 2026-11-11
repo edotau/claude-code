@@ -10,7 +10,7 @@ func TestDetectBitbucketContextPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Kind != Bitbucket || r.Owner != "PROJ" || r.Name != "repo" {
+	if r.Kind != bitbucket || r.Owner != "PROJ" || r.Name != "repo" {
 		t.Fatalf("got %+v", r)
 	}
 }
@@ -36,7 +36,7 @@ func TestDetectErrorRedactsCredentials(t *testing.T) {
 
 func TestDetectSSHHostDiffersFromBase(t *testing.T) {
 	r, err := Detect("ssh://git@ssh.bb.example.com:7999/proj/repo.git")
-	if err != nil || r.Kind != Bitbucket || r.Owner != "PROJ" || r.Name != "repo" {
+	if err != nil || r.Kind != bitbucket || r.Owner != "PROJ" || r.Name != "repo" {
 		t.Fatalf("got %+v, %v", r, err)
 	}
 }

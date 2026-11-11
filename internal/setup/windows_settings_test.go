@@ -142,7 +142,7 @@ func winSettingsPath(profile string) string {
 func TestInstallWindowsSettingsSeedsMissingKeepsExisting(t *testing.T) {
 	profile := winHermetic(t)
 	file := winSettingsPath(profile)
-	if err := InstallWindowsSettings(&bytes.Buffer{}, false); err != nil {
+	if err := installWindowsSettings(&bytes.Buffer{}, false); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(file)
@@ -156,7 +156,7 @@ func TestInstallWindowsSettingsSeedsMissingKeepsExisting(t *testing.T) {
 	existing := append([]byte{0xEF, 0xBB, 0xBF}, []byte(`{"theme":"light"}`)...)
 	writeWindowsFixture(t, file, existing)
 	var out bytes.Buffer
-	if err := InstallWindowsSettings(&out, false); err != nil {
+	if err := installWindowsSettings(&out, false); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(file); !bytes.Equal(got, existing) || !strings.Contains(out.String(), "kept (yours)") {
@@ -173,16 +173,16 @@ func brokenCmdPATH(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 }
 
-// TestInstallWindowsSettings_MissingProfileSkip proves InstallWindowsSettings prints a one-line skip
+// TestInstallWindowsSettings_MissingProfileSkip proves installWindowsSettings prints a one-line skip
 // note and returns nil, never an error, when the profile can't be resolved.
 func TestInstallWindowsSettings_MissingProfileSkip(t *testing.T) {
 	if !proc.OnWSL() {
-		t.Skip("off WSL InstallWindowsSettings is a silent no-op (TestInstallWindowsSettings_NonWSLNoop covers it)")
+		t.Skip("off WSL installWindowsSettings is a silent no-op (TestInstallWindowsSettings_NonWSLNoop covers it)")
 	}
 	hermetic(t, "")
 	brokenCmdPATH(t)
 	var out bytes.Buffer
-	if err := InstallWindowsSettings(&out, false); err != nil {
+	if err := installWindowsSettings(&out, false); err != nil {
 		t.Fatalf("err = %v, want nil (skip, not failure)", err)
 	}
 	if !bytes.Contains(out.Bytes(), []byte("skip")) {
@@ -190,7 +190,7 @@ func TestInstallWindowsSettings_MissingProfileSkip(t *testing.T) {
 	}
 }
 
-// TestInstallWindowsSettings_NonWSLNoop proves InstallWindowsSettings is silent off WSL. This dev box
+// TestInstallWindowsSettings_NonWSLNoop proves installWindowsSettings is silent off WSL. This dev box
 // is itself WSL (no seam exists to fake proc.OnWSL() false), so the assertion only runs on a genuine
 // non-WSL host; elsewhere it documents why it skips rather than asserting something unexercised.
 func TestInstallWindowsSettings_NonWSLNoop(t *testing.T) {
@@ -200,7 +200,7 @@ func TestInstallWindowsSettings_NonWSLNoop(t *testing.T) {
 		t.Skip("host is WSL; the off-WSL no-op branch has no test seam and only runs on a non-WSL host")
 	}
 	var out bytes.Buffer
-	if err := InstallWindowsSettings(&out, false); err != nil {
+	if err := installWindowsSettings(&out, false); err != nil {
 		t.Fatal(err)
 	}
 	if out.Len() != 0 {

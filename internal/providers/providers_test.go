@@ -80,11 +80,11 @@ func TestOverlayAndRoutes(t *testing.T) {
 	if _, ok := gw.Route(ProtocolGemini); ok {
 		t.Error("gemini route should be absent")
 	}
-	if err := (&Registry{Default: "nope", Providers: map[string]*Provider{}}).Validate(); err == nil {
+	if err := (&Registry{Default: "nope", Providers: map[string]*Provider{}}).validate(); err == nil {
 		t.Error("dangling default must fail validation")
 	}
 	keyedLogin := &Provider{Protocol: ProtocolOpenAI, BaseURL: "https://x", Auth: Auth{Type: AuthKey, Login: "codex"}}
-	if err := (&Registry{Providers: map[string]*Provider{"x": keyedLogin}}).Validate(); err == nil {
+	if err := (&Registry{Providers: map[string]*Provider{"x": keyedLogin}}).validate(); err == nil {
 		t.Error("auth.login without passthrough must fail validation")
 	}
 }
@@ -93,7 +93,7 @@ func TestOverlayAndRoutes(t *testing.T) {
 // opencode_fallback itself be "auto" would recreate the exact value it's supposed to replace.
 func TestValidateRejectsOpencodeFallbackAuto(t *testing.T) {
 	bad := &Provider{Protocol: ProtocolAnthropic, BaseURL: "https://x", Auth: Auth{Type: AuthKey, Header: HeaderXAPIKey, Env: "X_KEY"}, OpencodeFallback: "auto"}
-	err := (&Registry{Providers: map[string]*Provider{"x": bad}}).Validate()
+	err := (&Registry{Providers: map[string]*Provider{"x": bad}}).validate()
 	if err == nil {
 		t.Fatal("opencode_fallback: \"auto\" must fail validation")
 	}
@@ -101,7 +101,7 @@ func TestValidateRejectsOpencodeFallbackAuto(t *testing.T) {
 		t.Errorf("error = %q, want it to name the opencode_fallback=auto rule", err)
 	}
 	good := &Provider{Protocol: ProtocolAnthropic, BaseURL: "https://x", Auth: Auth{Type: AuthKey, Header: HeaderXAPIKey, Env: "X_KEY"}, OpencodeFallback: "mai-code-1.1-flash"}
-	if err := (&Registry{Providers: map[string]*Provider{"x": good}}).Validate(); err != nil {
+	if err := (&Registry{Providers: map[string]*Provider{"x": good}}).validate(); err != nil {
 		t.Errorf("a real opencode_fallback id must pass validation, got %v", err)
 	}
 }
@@ -163,7 +163,7 @@ func TestValidateOpencodeLadderNames(t *testing.T) {
 		{[]string{"openai", "ghost"}, "routing.opencode.ladder names unknown opencode sub id"},
 	} {
 		reg := &Registry{Routing: Routing{Opencode: OpencodeRouting{Ladder: &c.ladder}}, Providers: map[string]*Provider{}}
-		if err := reg.Validate(); (err == nil) != (c.want == "") || err != nil && !strings.Contains(err.Error(), c.want) {
+		if err := reg.validate(); (err == nil) != (c.want == "") || err != nil && !strings.Contains(err.Error(), c.want) {
 			t.Errorf("ladder %v: Validate = %v, want %q", c.ladder, err, c.want)
 		}
 	}
@@ -309,20 +309,20 @@ func TestStoredSecretAndCredentialOrder(t *testing.T) {
 	}
 }
 
-// TestValidateRejectsUnknownRouteTierAndAgent checks Registry.Validate catches an overlay cell naming a
+// TestValidateRejectsUnknownRouteTierAndAgent checks Registry.validate catches an overlay cell naming a
 // agent or alias outside RouteAgents/RouteAliases before it ever reaches router.LoadFrom.
 func TestValidateRejectsUnknownRouteTierAndAgent(t *testing.T) {
 	badTier := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{"opencode": {"ultra": {Model: "x"}}}}}
-	if err := badTier.Validate(); err == nil || !strings.Contains(err.Error(), "unknown alias") {
+	if err := badTier.validate(); err == nil || !strings.Contains(err.Error(), "unknown alias") {
 		t.Errorf("unknown alias: err = %v, want it to name the rule", err)
 	}
 	badAgent := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{"ghost": {"sonnet": {Model: "x"}}}}}
-	if err := badAgent.Validate(); err == nil || !strings.Contains(err.Error(), "unknown agent") {
+	if err := badAgent.validate(); err == nil || !strings.Contains(err.Error(), "unknown agent") {
 		t.Errorf("unknown agent: err = %v, want it to name the rule", err)
 	}
 }
 
-// TestValidateRejectsUnknownAccountKeyAndOpencodePrefix checks Registry.Validate catches an explicit
+// TestValidateRejectsUnknownAccountKeyAndOpencodePrefix checks Registry.validate catches an explicit
 // account_key naming no known billing entry and an opencode cell whose override model prefix has no
 // derivable billing account, while letting a "github·" dynamic key and an off-agent "/" model override
 // (no account-key rule applies outside opencode) through.
@@ -330,25 +330,25 @@ func TestValidateRejectsUnknownAccountKeyAndOpencodePrefix(t *testing.T) {
 	badAccount := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{
 		"opencode": {"sonnet": {Model: "opencode-go/y", Account: "nobody:nothing"}},
 	}}}
-	if err := badAccount.Validate(); err == nil || !strings.Contains(err.Error(), `account_key "nobody:nothing"`) {
+	if err := badAccount.validate(); err == nil || !strings.Contains(err.Error(), `account_key "nobody:nothing"`) {
 		t.Errorf("unknown account_key: err = %v, want it to name the rule", err)
 	}
 	badPrefix := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{
 		"opencode": {"sonnet": {Model: "zed/model"}},
 	}}}
-	if err := badPrefix.Validate(); err == nil || !strings.Contains(err.Error(), `model "zed/model" prefix has no known billing account`) {
+	if err := badPrefix.validate(); err == nil || !strings.Contains(err.Error(), `model "zed/model" prefix has no known billing account`) {
 		t.Errorf("unknown opencode prefix: err = %v, want it to name the rule", err)
 	}
 	copilotUser := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{
 		"opencode": {"sonnet": {Model: "github-copilot/x", Account: "github·anyuser"}},
 	}}}
-	if err := copilotUser.Validate(); err != nil {
+	if err := copilotUser.validate(); err != nil {
 		t.Errorf("github·anyuser must pass (dynamic family): %v", err)
 	}
 	offRunnerSlash := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{
 		"codex": {"sonnet": {Model: "openrouter/some-model"}},
 	}}}
-	if err := offRunnerSlash.Validate(); err != nil {
+	if err := offRunnerSlash.validate(); err != nil {
 		t.Errorf("a non-opencode \"/\" model with no account_key must pass (rule is opencode-scoped): %v", err)
 	}
 }
@@ -357,11 +357,11 @@ func TestValidateRejectsUnknownAccountKeyAndOpencodePrefix(t *testing.T) {
 // to 1 across the dimensions) fails Validate, rather than silently reaching router with a bad score.
 func TestValidateRejectsOutOfRangeRouteWeight(t *testing.T) {
 	outOfRange := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Weights: map[string]float64{"price": 1.5, "headroom": -0.5}}}
-	if err := outOfRange.Validate(); err == nil || !strings.Contains(err.Error(), "outside [0,1]") {
+	if err := outOfRange.validate(); err == nil || !strings.Contains(err.Error(), "outside [0,1]") {
 		t.Errorf("out-of-range weight: err = %v, want it to name the rule", err)
 	}
 	doesNotSum := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Weights: map[string]float64{"price": 0.2, "headroom": 0.2}}}
-	if err := doesNotSum.Validate(); err == nil || !strings.Contains(err.Error(), "sum to") {
+	if err := doesNotSum.validate(); err == nil || !strings.Contains(err.Error(), "sum to") {
 		t.Errorf("non-summing weights: err = %v, want it to name the rule", err)
 	}
 }

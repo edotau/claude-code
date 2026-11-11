@@ -30,8 +30,8 @@ import (
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
-// Input is the subset of Claude Code's statusline payload the renderer reads.
-type Input struct {
+// input is the subset of Claude Code's statusline payload the renderer reads.
+type input struct {
 	SessionID      string `json:"session_id"`
 	CWD            string `json:"cwd"`
 	TranscriptPath string `json:"transcript_path"`
@@ -131,7 +131,7 @@ func Run(fs *flag.FlagSet, args []string, r io.Reader, w io.Writer) int {
 		return 2
 	}
 	raw, err := io.ReadAll(r)
-	_, werr := fmt.Fprintln(w, Render(raw, *style)) // best-effort: render whatever was read even on a short read
+	_, werr := fmt.Fprintln(w, renderStatusline(raw, *style)) // best-effort: render whatever was read even on a short read
 	if werr != nil {
 		fmt.Fprintln(os.Stderr, "claude-code: theme statusline: write: "+werr.Error())
 		return 1
@@ -142,9 +142,9 @@ func Run(fs *flag.FlagSet, args []string, r io.Reader, w io.Writer) int {
 	return 0
 }
 
-// Render styles a statusline payload; style "" keeps the configured one.
-func Render(raw []byte, style string) string {
-	var in Input
+// renderStatusline styles a statusline payload; style "" keeps the configured one.
+func renderStatusline(raw []byte, style string) string {
+	var in input
 	_ = json.Unmarshal(raw, &in)
 	cfg := loadConfig()
 	if style != "" {
@@ -155,7 +155,7 @@ func Render(raw []byte, style string) string {
 }
 
 // renderFit tries full, then the capped profile, then no branch (velocity stays); the last pick is clipped to width.
-func renderFit(v values, cfg Config, pal theme.Palettes, width int) string {
+func renderFit(v values, cfg config, pal theme.Palettes, width int) string {
 	if cfg.gradientStyle() { // renderGradient wraps whole segments; clip only a segment wider than the line
 		return clip(renderRaw(v, cfg, pal), width)
 	}
@@ -175,7 +175,7 @@ func renderFit(v values, cfg Config, pal theme.Palettes, width int) string {
 	return render(v, cfg, pal)
 }
 
-func render(v values, cfg Config, pal theme.Palettes) string {
+func render(v values, cfg config, pal theme.Palettes) string {
 	if cfg.Style == "twoline" { // twoline is never clipped: Claude Code trims what the terminal cannot show
 		return renderRaw(v, cfg, pal)
 	}
@@ -183,7 +183,7 @@ func render(v values, cfg Config, pal theme.Palettes) string {
 }
 
 // renderRaw draws the configured style without the final clip.
-func renderRaw(v values, cfg Config, pal theme.Palettes) string {
+func renderRaw(v values, cfg config, pal theme.Palettes) string {
 	pal = cfg.LiftPalette(pal)
 	stops := cfg.Stops(pal)
 	mode := cfg.Mode()
@@ -205,10 +205,10 @@ func renderRaw(v values, cfg Config, pal theme.Palettes) string {
 }
 
 // collect resolves every enabled segment; disabled ones skip their IO.
-func collect(in Input, cfg Config) values {
+func collect(in input, cfg config) values {
 	cwd := sessionCwd(in)
 	root, worktree := checkoutOf(cwd) // the path names the repo, so it holds still across worktrees and subdirs
-	v := values{userHost: promptUser(), path: shortenDir(root)}
+	v := values{userHost: promptUser(), path: cmp.Or(paths.ShortHome(root), "~")}
 	var provider string
 	var routed bool
 	if cfg.seg("provider", true) || cfg.seg("model", true) || cfg.seg("proxy", true) || cfg.seg("limits", true) {
@@ -233,7 +233,7 @@ func collect(in Input, cfg Config) values {
 }
 
 // rawModelID is the payload's model id as sent, minus a [1m] tag and a profile prefix; a routed "⇄" label stays.
-func rawModelID(in Input, model string) string {
+func rawModelID(in input, model string) string {
 	id := models.Strip1M(strings.TrimSpace(in.Model.ID))
 	if m, ok := profileModel(id); ok {
 		id = m
@@ -245,7 +245,7 @@ func rawModelID(in Input, model string) string {
 }
 
 // sessionCwd is the session's working dir: the workspace's current dir, then the payload cwd, then the process cwd.
-func sessionCwd(in Input) string {
+func sessionCwd(in input) string {
 	cwd := in.Workspace.CurrentDir
 	if cwd == "" {
 		cwd = in.CWD
@@ -257,7 +257,7 @@ func sessionCwd(in Input) string {
 }
 
 // collectRouting fills the provider, model and proxy segments.
-func (v *values) collectRouting(in Input, cfg Config, provider string, routed bool) {
+func (v *values) collectRouting(in input, cfg config, provider string, routed bool) {
 	if cfg.seg("provider", true) {
 		v.providerFull = providerLabel(cmp.Or(provider, modelFamily(in.Model.ID)))
 		v.provider = capProfile(v.providerFull, cfg.ProfileMax)
@@ -274,7 +274,7 @@ func (v *values) collectRouting(in Input, cfg Config, provider string, routed bo
 }
 
 // collectUsage fills the limits, context, total, duration, session and code-velocity segments.
-func (v *values) collectUsage(in Input, cfg Config, cwd, provider string) {
+func (v *values) collectUsage(in input, cfg config, cwd, provider string) {
 	sub, limits := onSubscription(provider), cfg.seg("limits", true)
 	if limits && sub {
 		v.limits = limitsSegment(in, provider)
@@ -353,7 +353,7 @@ func capProfile(label string, max int) string {
 }
 
 // modelSegment is the friendly name; a cross-provider slot ("openai:gpt-5") renders "gpt-5 ⇄openai".
-func modelSegment(in Input, session string) string {
+func modelSegment(in input, session string) string {
 	id := models.Strip1M(strings.TrimSpace(in.Model.ID))
 	// Registry check: ollama tags like "qwen3:30b" carry a colon without naming a provider.
 	if prov, model, ok := strings.Cut(id, ":"); ok && prov != session && model != "" {
@@ -440,7 +440,7 @@ func proxyUp(st gateway.State) bool {
 }
 
 // contextPct prefers Claude Code's used_percentage, else the transcript's last usage over the window.
-func contextPct(in Input) int {
+func contextPct(in input) int {
 	if cw := in.ContextWindow; cw != nil && cw.UsedPercentage != nil {
 		return clampPct(int(*cw.UsedPercentage + 0.5))
 	}
@@ -455,7 +455,7 @@ func contextPct(in Input) int {
 }
 
 // contextLimit: a reported window is ground truth; exceeds_200k next; else infer from the model/env pins.
-func contextLimit(in Input, model string, used int) int {
+func contextLimit(in input, model string, used int) int {
 	if cw := in.ContextWindow; cw != nil && cw.Size > 0 {
 		return cw.Size
 	}
@@ -497,7 +497,7 @@ func clampPct(pct int) int { return max(0, min(100, pct)) }
 const velocityTTL = 5 * time.Second
 
 // codeVelocity is the uncommitted git diff (Claude Code's ledger misses Bash edits), else the ledger.
-func codeVelocity(in Input, cwd string, cfg Config) (adds, dels int) {
+func codeVelocity(in input, cwd string, cfg config) (adds, dels int) {
 	if !cfg.seg("velocity", true) {
 		return 0, 0
 	}
@@ -533,26 +533,8 @@ func formatDuration(ms int64) string {
 	return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
 }
 
-// shortenDir collapses $HOME to "~" (a sibling like /home/userx is left alone).
-func shortenDir(p string) string {
-	if p == "" {
-		return "~"
-	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return p
-	}
-	if p == home {
-		return "~"
-	}
-	if rest, ok := strings.CutPrefix(p, home+string(filepath.Separator)); ok {
-		return "~/" + rest
-	}
-	return p
-}
-
 // totalSegment is "<n>": this session's payload tokens plus its finished dispatches', "+" while a dispatch runs.
-func totalSegment(in Input) string {
+func totalSegment(in input) string {
 	n := 0
 	if cw := in.ContextWindow; cw != nil {
 		n = cw.TotalInput + cw.TotalOutput

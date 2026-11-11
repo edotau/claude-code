@@ -49,8 +49,8 @@ func DiscoverAgents(agentsDir string) ([]Source, error) {
 	return agents, nil
 }
 
-// DiscoverSkills reads skills/<dir>/SKILL.md, including symlinked dirs resolving inside skills/; skills/synced is excluded.
-func DiscoverSkills(skillsDir string) ([]Source, error) {
+// discoverSkills reads skills/<dir>/SKILL.md, including symlinked dirs resolving inside skills/; skills/synced is excluded.
+func discoverSkills(skillsDir string) ([]Source, error) {
 	return discoverSources(skillsDir, "SKILL.md")
 }
 

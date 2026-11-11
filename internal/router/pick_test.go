@@ -132,12 +132,12 @@ func TestStatusThresholds(t *testing.T) {
 		want string
 	}{
 		{Entry{}, StateUnknown},
-		{Entry{UsedPct: 50, Seen: seen}, StateOK},
+		{Entry{UsedPct: 50, Seen: seen}, stateOK},
 		{Entry{UsedPct: 90, Seen: seen}, StateLow},
 		{Entry{UsedPct: 100, Seen: seen, ResetsAt: now0.Add(time.Hour)}, StateExhausted},
-		{Entry{UsedPct: 100, Seen: seen, ResetsAt: now0.Add(-time.Hour)}, StateOK},
+		{Entry{UsedPct: 100, Seen: seen, ResetsAt: now0.Add(-time.Hour)}, stateOK},
 		{Entry{UsedPct: 5, Seen: seen, ExhaustedUntil: now0.Add(time.Hour)}, StateExhausted},
-		{Entry{UsedPct: 5, Seen: seen, ExhaustedUntil: now0.Add(-time.Hour)}, StateOK},
+		{Entry{UsedPct: 5, Seen: seen, ExhaustedUntil: now0.Add(-time.Hour)}, stateOK},
 	} {
 		if got := c.e.Status(now0); got != c.want {
 			t.Errorf("Status(%+v) = %s, want %s", c.e, got, c.want)
@@ -185,7 +185,7 @@ func TestPickUnpinnedCopilotAndFallbackModes(t *testing.T) {
 	tb := testTable(t)
 	unpinned, _ := LoadFrom(nil, "")
 	r := pick(unpinned, "opus", "copilot", State{}, FallbackAgents)
-	if r.Skipped[0].Gate != GateAccount || strings.Contains(runners(r), "claude") {
+	if r.Skipped[0].Gate != gateAccount || strings.Contains(runners(r), "claude") {
 		t.Errorf("unpinned copilot must drop at the account gate, vendors mode has no claude: %+v %s", r.Skipped, runners(r))
 	}
 	if got := runners(pick(tb, "opus", "copilot", State{}, FallbackNone)); got != "copilot" {

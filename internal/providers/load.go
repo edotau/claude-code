@@ -64,7 +64,7 @@ var loadCache paths.StampCache[*Registry]
 // Load merges the embedded defaults with the user overlay and validates the result.
 func Load() (*Registry, error) {
 	reg, err := loadCache.Get(vault.Path(), loadRegistry)
-	return reg.Clone(), err
+	return reg.clone(), err
 }
 
 // loadRegistry is Load's uncached merge of the vault overlay over the embedded defaults.
@@ -86,8 +86,8 @@ func (r *Registry) Known(profile string) error {
 	return nil
 }
 
-// Clone returns a deep copy of r; nil clones to nil.
-func (r *Registry) Clone() *Registry {
+// clone returns a deep copy of r; nil clones to nil.
+func (r *Registry) clone() *Registry {
 	if r == nil {
 		return nil
 	}
@@ -245,7 +245,7 @@ func Parse(base, overlay []byte) (*Registry, error) {
 	if legacyErr != nil {
 		return reg, legacyErr
 	}
-	return reg, reg.Validate()
+	return reg, reg.validate()
 }
 
 // legacyRoutingKeys maps a retired top-level overlay key to the routing path it moved under; Parse rejects

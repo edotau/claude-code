@@ -98,10 +98,10 @@ func runSync(opts Options) int {
 		res.add(syncProjectionAssets(out, pname, in.root, in.home, in.skillsDir, in.agents, in.skills, docs, hasDocs, dryRun, prune))
 	}
 	header(out, "skills")
-	agentsSkills := AgentsSkillsDir(in.home)
+	agentsSkills := agentsSkillsDir(in.home)
 	res.add(syncSkillLinks(out, in.skills, in.skillsDir, agentsSkills, prune, dryRun))
 	if prune {
-		res.add(pruneLegacyGeminiSkills(out, LegacyGeminiSkillsDir(in.home), dryRun))
+		res.add(pruneLegacyGeminiSkills(out, legacyGeminiSkillsDir(in.home), dryRun))
 	}
 	return finishSync(out, opts, dryRun, res)
 }
@@ -131,7 +131,7 @@ func loadSyncInputs(opts Options) (in syncInputs, code int, ok bool) {
 	if err != nil {
 		return in, syncFail(err), false
 	}
-	skills, err := DiscoverSkills(skillsDir)
+	skills, err := discoverSkills(skillsDir)
 	if err != nil {
 		return in, syncFail(err), false
 	}

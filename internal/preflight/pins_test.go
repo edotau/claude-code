@@ -63,7 +63,7 @@ func TestCheckOwnLoginIsUnpinned(t *testing.T) {
 		t.Fatalf("want codex, opencode and gemini checked, copilot off: %+v", got)
 	}
 	for _, name := range []string{"codex", "opencode"} {
-		if p := got[name]; p.Status != StatusUnpinned || p.ProfileSource != "none" || p.Profile != "" || p.Detail != "own login, not Databricks" {
+		if p := got[name]; p.Status != statusUnpinned || p.ProfileSource != "none" || p.Profile != "" || p.Detail != "own login, not Databricks" {
 			t.Errorf("%s on its own login = %+v, want unpinned with no profile", name, p)
 		}
 	}
@@ -78,7 +78,7 @@ func TestCheckPinFollowsTheListing(t *testing.T) {
 	setPins(t, map[string]string{"CODEX_MODEL": "good-model"})
 
 	ps := Check(reg, now)
-	if c := byAgent(ps)["codex"]; c.ProfileSource != "pin" || c.Status != StatusStale {
+	if c := byAgent(ps)["codex"]; c.ProfileSource != "pin" || c.Status != statusStale {
 		t.Fatalf("codex before any listing = %+v, want stale via its profile pin", c)
 	}
 	if errs := RefreshStale(context.Background(), reg, ps, now, false); len(errs) != 0 {
@@ -88,11 +88,11 @@ func TestCheckPinFollowsTheListing(t *testing.T) {
 		t.Fatalf("codex after refresh = %+v, want ok/served", c)
 	}
 	setPins(t, map[string]string{"CODEX_MODEL": "cold-model"})
-	if c := byAgent(Check(reg, now))["codex"]; c.Status != StatusUnserved || c.Detail != "endpoint not READY" {
+	if c := byAgent(Check(reg, now))["codex"]; c.Status != statusUnserved || c.Detail != "endpoint not READY" {
 		t.Fatalf("codex on an unready endpoint = %+v", c)
 	}
 	setPins(t, map[string]string{"CODEX_MODEL": "good-model"})
-	if c := byAgent(Check(reg, now.Add(25*time.Hour)))["codex"]; c.Status != StatusStale || c.Fix != "claude-code doctor --refresh" {
+	if c := byAgent(Check(reg, now.Add(25*time.Hour)))["codex"]; c.Status != statusStale || c.Fix != "claude-code doctor --refresh" {
 		t.Fatalf("codex past the TTL = %+v, want stale", c)
 	}
 }
@@ -108,14 +108,14 @@ func TestCheckUnservedAndMissingProfile(t *testing.T) {
 		t.Fatal(errs)
 	}
 	got := byAgent(Check(reg, now))
-	if c := got["copilot"]; c.Status != StatusUnserved || c.Served != "no" || !strings.Contains(c.Fix, "models --live --profile dev") {
+	if c := got["copilot"]; c.Status != statusUnserved || c.Served != "no" || !strings.Contains(c.Fix, "models --live --profile dev") {
 		t.Fatalf("copilot with a missing model = %+v, want unserved with the discovery fix", c)
 	}
 	if got["opencode"].Status != StatusOK {
 		t.Fatalf("opencode = %+v, want ok", got["opencode"])
 	}
 	setPins(t, map[string]string{"OPENCODE_PROFILE": "nope"})
-	if c := byAgent(Check(reg, now))["opencode"]; c.Status != StatusStale {
+	if c := byAgent(Check(reg, now))["opencode"]; c.Status != statusStale {
 		t.Fatalf("opencode on a missing profile = %+v, want stale", c)
 	}
 	if line := StaticLine(reg, now); !strings.Contains(line, "opencode stale") || !strings.Contains(line, "proxy not running") {
@@ -129,7 +129,7 @@ func TestCheckNoCredentialIsUnserved(t *testing.T) {
 	reg := preflightRegistry(false)
 	pinAll(t)
 	setPins(t, map[string]string{"CODEX_MODEL": "m"})
-	if c := byAgent(Check(reg, time.Now()))["codex"]; c.Status != StatusUnserved || !strings.Contains(c.Detail, "no credential for dev") {
+	if c := byAgent(Check(reg, time.Now()))["codex"]; c.Status != statusUnserved || !strings.Contains(c.Detail, "no credential for dev") {
 		t.Fatalf("codex without a credential = %+v", c)
 	}
 }

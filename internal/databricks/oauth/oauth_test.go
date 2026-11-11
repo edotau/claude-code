@@ -103,7 +103,7 @@ func TestLoginU2MSuccessAndPKCE(t *testing.T) {
 // checkAuthorizeQuery checks the authorize request's method, client, scope and loopback redirect.
 func checkAuthorizeQuery(t *testing.T, q url.Values) {
 	t.Helper()
-	if q.Get("code_challenge_method") != "S256" || q.Get("client_id") != ClientID || q.Get("scope") != "all-apis offline_access" {
+	if q.Get("code_challenge_method") != "S256" || q.Get("client_id") != clientID || q.Get("scope") != "all-apis offline_access" {
 		t.Errorf("authorize query = %v", q)
 	}
 	if !strings.HasPrefix(q.Get("redirect_uri"), "http://localhost:") {
@@ -256,7 +256,7 @@ func TestRefreshU2MRotationAndNonRotation(t *testing.T) {
 	if err != nil || tok.Access != "acc2" || tok.Refresh != "ref-new" {
 		t.Fatalf("rotated: %+v %v", tok, err)
 	}
-	if form.Get("grant_type") != "refresh_token" || form.Get("refresh_token") != "ref-old" || form.Get("client_id") != ClientID {
+	if form.Get("grant_type") != "refresh_token" || form.Get("refresh_token") != "ref-old" || form.Get("client_id") != clientID {
 		t.Errorf("form = %v", form)
 	}
 	rotate = false

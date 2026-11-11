@@ -520,24 +520,13 @@ func TestTailscaleKeylessConnectAppliesAdvertise(t *testing.T) {
 	}
 }
 
-func captureClosedStdout(t *testing.T, fn func() int) (int, string) {
-	t.Helper()
-	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		if err := os.Stdout.Close(); err != nil {
-			t.Fatal(err)
-		}
-		return fn()
-	})
-	return code, stderr
-}
-
 func TestTailscaleKeyReportsStdoutFailure(t *testing.T) {
 	hermeticTailscaleSecrets(t)
 	t.Setenv("TAILSCALE_API_KEY", "test-api-key")
 	srv := tailscaleAuthKeyServer(t, "tskey-auth-test-output")
 	defer srv.Close()
 	routeDefaultClientTo(t, srv)
-	code, stderr := captureClosedStdout(t, func() int { return Cmd([]string{"--key"}) })
+	code, stderr := hosttest.CaptureClosedStdout(t, func() int { return Cmd([]string{"--key"}) })
 	if code != 1 || !strings.Contains(stderr, "writing key to stdout") {
 		t.Fatalf("undelivered auth key: exit=%d stderr=%q", code, stderr)
 	}

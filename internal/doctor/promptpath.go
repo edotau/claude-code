@@ -44,8 +44,8 @@ var (
 )
 
 // promptPath returns one check per implemented hop for the config tree at root.
-func promptPath(root string) []Check {
-	return []Check{
+func promptPath(root string) []check {
+	return []check{
 		hop("H1 CLAUDE.md", claudeMD(root)),
 		hop("H2 rules", rules(root)),
 		hop("H3 skills", skills(root)),
@@ -56,11 +56,11 @@ func promptPath(root string) []Check {
 	}
 }
 
-func hop(name string, findings []string) Check {
+func hop(name string, findings []string) check {
 	if len(findings) == 0 {
-		return Check{Name: name, OK: true, Hard: true, Detail: "ok"}
+		return check{Name: name, OK: true, Hard: true, Detail: "ok"}
 	}
-	return Check{Name: name, Hard: true, Detail: strings.Join(findings, "\n")}
+	return check{Name: name, Hard: true, Detail: strings.Join(findings, "\n")}
 }
 
 func lines(path string) ([]string, error) {

@@ -33,7 +33,7 @@ func funcName(f any) string {
 // EnableMemory turns into SessionConfig.Memory only when set, and permissionHandler follows AllowAllTools
 // alone — a session (new or resumed) must carry both consistently.
 func TestBuildSessionConfigMemoryAndPermission(t *testing.T) {
-	cfg := BuildSessionConfig(SDKOptions{EnableMemory: true, AllowAllTools: true, Autonomous: true})
+	cfg := buildSessionConfig(sdkOptions{EnableMemory: true, AllowAllTools: true, Autonomous: true})
 	if cfg.Memory == nil || !cfg.Memory.Enabled {
 		t.Errorf("Memory = %+v, want enabled", cfg.Memory)
 	}
@@ -41,7 +41,7 @@ func TestBuildSessionConfigMemoryAndPermission(t *testing.T) {
 		t.Errorf("OnPermissionRequest = %s, want approveToolOnce (AllowAllTools+Autonomous)", funcName(cfg.OnPermissionRequest))
 	}
 
-	off := BuildSessionConfig(SDKOptions{})
+	off := buildSessionConfig(sdkOptions{})
 	if off.Memory != nil {
 		t.Errorf("Memory = %+v, want nil (EnableMemory=false)", off.Memory)
 	}
@@ -49,9 +49,9 @@ func TestBuildSessionConfigMemoryAndPermission(t *testing.T) {
 		t.Errorf("OnPermissionRequest = %s, want denyAllTools (AllowAllTools=false)", funcName(off.OnPermissionRequest))
 	}
 
-	resumed := buildResumeSessionConfig(SDKOptions{EnableMemory: true})
+	resumed := buildResumeSessionConfig(sdkOptions{EnableMemory: true})
 	if resumed.Memory == nil || !resumed.Memory.Enabled {
-		t.Errorf("resumed Memory = %+v, want enabled (mirrors BuildSessionConfig)", resumed.Memory)
+		t.Errorf("resumed Memory = %+v, want enabled (mirrors buildSessionConfig)", resumed.Memory)
 	}
 }
 
@@ -111,13 +111,13 @@ func stubListModels(t *testing.T, models []copilot.ModelInfo) {
 	t.Helper()
 	old := listModelsFn
 	t.Cleanup(func() { listModelsFn = old })
-	listModelsFn = func(ctx context.Context, o SDKOptions) ([]copilot.ModelInfo, error) { return models, nil }
+	listModelsFn = func(ctx context.Context, o sdkOptions) ([]copilot.ModelInfo, error) { return models, nil }
 }
 
 // listStubbedModels runs SDKListModels against the stub and requires want models back.
 func listStubbedModels(t *testing.T, want int) []SDKModel {
 	t.Helper()
-	got, err := SDKListModels(context.Background(), SDKOptions{CLIPath: "/fake/copilot"})
+	got, err := SDKListModels(context.Background(), sdkOptions{CLIPath: "/fake/copilot"})
 	if err != nil {
 		t.Fatalf("SDKListModels: %v", err)
 	}
@@ -262,10 +262,10 @@ func TestSDKListModelsWrapsListerError(t *testing.T) {
 	old := listModelsFn
 	defer func() { listModelsFn = old }()
 	wantErr := errors.New("rpc: not authenticated")
-	listModelsFn = func(ctx context.Context, o SDKOptions) ([]copilot.ModelInfo, error) {
+	listModelsFn = func(ctx context.Context, o sdkOptions) ([]copilot.ModelInfo, error) {
 		return nil, wantErr
 	}
-	_, err := SDKListModels(context.Background(), SDKOptions{CLIPath: "/fake/copilot"})
+	_, err := SDKListModels(context.Background(), sdkOptions{CLIPath: "/fake/copilot"})
 	if err == nil {
 		t.Fatal("SDKListModels: want error, got nil")
 	}
@@ -281,10 +281,10 @@ func TestSDKListModelsWrapsListerError(t *testing.T) {
 func TestSDKListModelsEmptyCatalog(t *testing.T) {
 	old := listModelsFn
 	defer func() { listModelsFn = old }()
-	listModelsFn = func(ctx context.Context, o SDKOptions) ([]copilot.ModelInfo, error) {
+	listModelsFn = func(ctx context.Context, o sdkOptions) ([]copilot.ModelInfo, error) {
 		return []copilot.ModelInfo{}, nil
 	}
-	got, err := SDKListModels(context.Background(), SDKOptions{CLIPath: "/fake/copilot"})
+	got, err := SDKListModels(context.Background(), sdkOptions{CLIPath: "/fake/copilot"})
 	if err != nil {
 		t.Fatalf("SDKListModels: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestSystemPromptRidesSDKNotPrompt(t *testing.T) {
 	if o.System != "be ZEBRA\n\nend with ZEBRA" {
 		t.Errorf("System = %q, want both texts", o.System)
 	}
-	if cfg := BuildSessionConfig(o); cfg.SystemMessage == nil || cfg.SystemMessage.Mode != "append" {
+	if cfg := buildSessionConfig(o); cfg.SystemMessage == nil || cfg.SystemMessage.Mode != "append" {
 		t.Errorf("SystemMessage = %+v, want append mode", cfg.SystemMessage)
 	}
 }
@@ -442,22 +442,22 @@ func removeFakeCLI() {
 
 const registryPick = "dbx-openai/gpt-5-5"
 
-// registryOpts is a valid registry-route SDKOptions aimed at the fake CLI.
-func registryOpts(t *testing.T, version, log string, known ...string) SDKOptions {
+// registryOpts is a valid registry-route sdkOptions aimed at the fake CLI.
+func registryOpts(t *testing.T, version, log string, known ...string) sdkOptions {
 	t.Helper()
-	return SDKOptions{
+	return sdkOptions{
 		CLIPath: buildFakeCLI(t), Model: registryPick,
-		Providers: []CopilotRegistryProvider{{Name: "dbx-openai", Type: "openai"}},
-		Models:    []CopilotRegistryModel{{ID: "gpt-5-5", Provider: "dbx-openai"}},
+		Providers: []copilotRegistryProvider{{Name: "dbx-openai", Type: "openai"}},
+		Models:    []copilotRegistryModel{{ID: "gpt-5-5", Provider: "dbx-openai"}},
 		Token:     func() (string, error) { return "tok", nil },
 		ChildEnv: []string{"FAKECLI_VERSION=" + version, "FAKECLI_RECORD=" + log,
 			"FAKECLI_MODELS=" + strings.Join(known, ",")},
 	}
 }
 
-func openSession(t *testing.T, o SDKOptions) (*copilot.Session, error) {
+func openSession(t *testing.T, o sdkOptions) (*copilot.Session, error) {
 	t.Helper()
-	co, err := BuildClientOptions(context.Background(), o)
+	co, err := buildClientOptions(context.Background(), o)
 	if err != nil {
 		return nil, err
 	}
@@ -477,19 +477,19 @@ func calls(t *testing.T, log string) []string {
 	return strings.Split(strings.TrimSpace(string(b)), "\n")
 }
 
-// A pick outside the registry is refused with ErrUnregisteredPick, before any process starts (SDKOptions check) and
+// A pick outside the registry is refused with errUnregisteredPick, before any process starts (sdkOptions check) and
 // when the CLI itself rejects the switch (so the pick can never silently stay on a GitHub model).
 func TestRegistryUnregisteredPick(t *testing.T) {
 	o := registryOpts(t, "1.0.104", t.TempDir()+"/log")
 	o.Model = "dbx-openai/not-registered"
-	if _, err := BuildClientOptions(context.Background(), o); !errors.Is(err, ErrUnregisteredPick) {
-		t.Fatalf("BuildClientOptions err = %v, want ErrUnregisteredPick", err)
+	if _, err := buildClientOptions(context.Background(), o); !errors.Is(err, errUnregisteredPick) {
+		t.Fatalf("buildClientOptions err = %v, want errUnregisteredPick", err)
 	}
 
 	log := t.TempDir() + "/log"
 	_, err := openSession(t, registryOpts(t, "1.0.104", log /* the CLI knows no model */))
-	if !errors.Is(err, ErrUnregisteredPick) {
-		t.Fatalf("session err = %v, want ErrUnregisteredPick from the CLI's rejection", err)
+	if !errors.Is(err, errUnregisteredPick) {
+		t.Fatalf("session err = %v, want errUnregisteredPick from the CLI's rejection", err)
 	}
 }
 
@@ -518,12 +518,12 @@ func TestRegistryResumeRepins(t *testing.T) {
 	}
 }
 
-// A CLI older than MinMultiProviderCLI is refused with an explicit error before any session is made.
+// A CLI older than minMultiProviderCLI is refused with an explicit error before any session is made.
 func TestRegistryProbeBelowMinimum(t *testing.T) {
 	log := t.TempDir() + "/log"
 	_, err := openSession(t, registryOpts(t, "1.0.103", log, registryPick))
-	if !errors.Is(err, ErrNoMultiProvider) || !strings.Contains(err.Error(), MinMultiProviderCLI) {
-		t.Fatalf("err = %v, want ErrNoMultiProvider naming %s", err, MinMultiProviderCLI)
+	if !errors.Is(err, errNoMultiProvider) || !strings.Contains(err.Error(), minMultiProviderCLI) {
+		t.Fatalf("err = %v, want errNoMultiProvider naming %s", err, minMultiProviderCLI)
 	}
 	for _, c := range calls(t, log) {
 		if strings.HasPrefix(c, "session.create") || strings.HasPrefix(c, "session.resume") {
@@ -535,12 +535,12 @@ func TestRegistryProbeBelowMinimum(t *testing.T) {
 	}
 }
 
-// One SDKAsk round trip returns the trimmed answer, usage net of cache tokens, and detaches the session.
+// One sdkAsk round trip returns the trimmed answer, usage net of cache tokens, and detaches the session.
 func TestSDKAskCollectsReplyAndDisconnects(t *testing.T) {
 	log := t.TempDir() + "/log"
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	res, err := SDKAsk(ctx, registryOpts(t, "1.0.104", log, registryPick), "hi", nil)
+	res, err := sdkAsk(ctx, registryOpts(t, "1.0.104", log, registryPick), "hi", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -551,10 +551,10 @@ func TestSDKAskCollectsReplyAndDisconnects(t *testing.T) {
 	if res.Usage != want {
 		t.Errorf("usage = %+v, want %+v", res.Usage, want)
 	}
-	// client.Stop detaches every session too, so SDKAsk's own Disconnect is the second detach.
+	// client.Stop detaches every session too, so sdkAsk's own Disconnect is the second detach.
 	detach := `session.detach {"sessionId":"` + res.SessionID + `"}`
 	if got := strings.Join(calls(t, log), "\n"); strings.Count(got, detach) != 2 {
-		t.Errorf("record = %q, want %s from SDKAsk and from client.Stop", got, detach)
+		t.Errorf("record = %q, want %s from sdkAsk and from client.Stop", got, detach)
 	}
 }
 
@@ -584,7 +584,7 @@ done
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var stopErr error
-	_, stop, err := startClient(ctx, SDKOptions{CLIPath: cli}, &stopErr)
+	_, stop, err := startClient(ctx, sdkOptions{CLIPath: cli}, &stopErr)
 	if err != nil {
 		t.Fatalf("startClient: %v", err)
 	}

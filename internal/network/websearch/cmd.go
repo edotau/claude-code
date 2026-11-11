@@ -40,7 +40,7 @@ func Cmd(args []string) int {
 		if *query != "" || fs.NArg() > 0 {
 			return helptext.FailUsage("network websearch: --extract cannot be combined with a query")
 		}
-		return Extract(context.Background(), *extract)
+		return extractURLs(context.Background(), *extract)
 	}
 	if err := joinPositionalQuery(fs, query); err != nil {
 		return helptext.FailUsage("network websearch: %v", err)

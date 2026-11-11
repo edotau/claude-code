@@ -121,7 +121,7 @@ func TestPanelLinesCountsWrappedRows(t *testing.T) {
 
 // PickBack's own index remap ("Back" row, appended at len(rows), maps to -1; every other index passes
 // through unchanged) only runs past Pick's TTY gate, so it can't be driven with a fake key stream the
-// way handlePickKey is above (no injectable seam on Open/isTerminal here). What IS testable without a
+// way handlePickKey is above (no injectable seam on openTerminal/isTerminal here). What IS testable without a
 // TTY is Pick's own documented non-TTY contract, which PickBack inherits unchanged: -1 and a non-nil
 // error, regardless of how many rows (and therefore where the synthetic Back row would land).
 func TestPickBackNonTTYReturnsMinusOneRegardlessOfRowCount(t *testing.T) {

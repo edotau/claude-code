@@ -56,7 +56,7 @@ func (r *Resolver) resolveForm(p string) (string, bool) {
 		return cleanLocal(p), true
 	}
 	if host, rp, ok := splitHostPath(p); ok && !isDrivePath(p) {
-		return r.fromRemote(host, rp, KindNFS, KindSSHFS)
+		return r.fromRemote(host, rp, KindNFS, kindSSHFS)
 	}
 	return "", false
 }
@@ -157,7 +157,7 @@ func (r *Resolver) resolveUNC(p string) (string, bool) {
 		}
 		return cleanLocal("/" + sub), true
 	}
-	return r.fromRemote(host, rest, KindSMB)
+	return r.fromRemote(host, rest, kindSMB)
 }
 
 func (r *Resolver) resolveURL(scheme, rest string) (string, bool) {
@@ -190,7 +190,7 @@ func (r *Resolver) resolveRemoteURL(scheme, rest string) (string, bool) {
 		return "", false
 	}
 	if scheme == "smb" {
-		return r.fromRemote(u.Hostname(), strings.TrimPrefix(u.Path, "/"), KindSMB)
+		return r.fromRemote(u.Hostname(), strings.TrimPrefix(u.Path, "/"), kindSMB)
 	}
 	return r.fromRemote(u.Hostname(), u.Path, KindNFS)
 }
@@ -203,8 +203,8 @@ func (r *Resolver) fromRemote(host, rp string, kinds ...Kind) (string, bool) {
 		if !slices.Contains(kinds, m.Kind) || !strings.EqualFold(m.Host, host) {
 			continue
 		}
-		if rest, ok := trimPrefixPath(rp, m.RemotePath, m.Kind == KindSMB); ok {
-			cands = append(cands, candidate{m: m, rest: rest, raw: rawRest(rp, m.RemotePath, m.Kind == KindSMB), specificity: len(m.RemotePath)})
+		if rest, ok := trimPrefixPath(rp, m.RemotePath, m.Kind == kindSMB); ok {
+			cands = append(cands, candidate{m: m, rest: rest, raw: rawRest(rp, m.RemotePath, m.Kind == kindSMB), specificity: len(m.RemotePath)})
 		}
 	}
 	return r.firstWithin(cands)

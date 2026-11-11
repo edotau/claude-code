@@ -18,7 +18,7 @@ func TestResumeRejectsCommittedOutOfScopeEdits(t *testing.T) {
 		mergeFixtureRun(t, wt, "commit", "--no-edit")
 		return askEnvelope{}, nil
 	})
-	op, result, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
+	op, result, err := resolveWithAgent(context.Background(), repo, plan, "claude", nil)
 	if err == nil || result != nil || !strings.Contains(err.Error(), "outside the conflicted paths") {
 		t.Fatalf("fresh resolution must reject committed scope violation: result=%+v err=%v", result, err)
 	}
@@ -29,7 +29,7 @@ func TestResumeRejectsCommittedOutOfScopeEdits(t *testing.T) {
 		t.Fatal("resume must not invoke the agent")
 		return askEnvelope{}, nil
 	})
-	_, result, err = ResolveWithAgent(context.Background(), repo, plan, "claude", op)
+	_, result, err = resolveWithAgent(context.Background(), repo, plan, "claude", op)
 	if err == nil || result != nil || !strings.Contains(err.Error(), "outside the conflicted paths") {
 		t.Fatalf("resume accepted the same committed scope violation: result=%+v err=%v", result, err)
 	}
@@ -55,7 +55,7 @@ func TestResolutionAllowsTrailingWhitespace(t *testing.T) {
 		}
 		return askEnvelope{}, nil
 	})
-	op, result, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
+	op, result, err := resolveWithAgent(context.Background(), repo, plan, "claude", nil)
 	if err != nil {
 		t.Fatalf("whitespace without conflict markers must resolve: %v", err)
 	}

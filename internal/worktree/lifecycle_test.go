@@ -631,7 +631,7 @@ func resolveCancelledPoll(t *testing.T, repo *Repo, plan *MergePlan, op *Operati
 	cancel() // already cancelled: the very first loop iteration's ctx.Err() check must fire
 
 	start := time.Now()
-	gotOp, result, err := ResolveWithAgent(ctx, repo, plan, "claude", op)
+	gotOp, result, err := resolveWithAgent(ctx, repo, plan, "claude", op)
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("ResolveWithAgent (resume, cancelled): want an error")
@@ -670,7 +670,7 @@ func resolveResumeAfterCancel(t *testing.T, repo *Repo, plan *MergePlan, reloade
 	mergeFixtureRun(t, wt, "add", "f.txt")
 	mergeFixtureRun(t, wt, "commit", "--no-edit")
 
-	resumedOp, resumedResult, resumeErr := ResolveWithAgent(context.Background(), repo, plan, "claude", reloaded)
+	resumedOp, resumedResult, resumeErr := resolveWithAgent(context.Background(), repo, plan, "claude", reloaded)
 	if resumeErr != nil {
 		t.Fatalf("ResolveWithAgent (resume after cancel): %v", resumeErr)
 	}

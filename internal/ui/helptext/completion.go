@@ -28,10 +28,10 @@ complete -o default -F %[2]s %[1]s
 `, bin, fn)
 }
 
-// Dir resolves bash-completion's lazy-load dir per its own convention: BASH_COMPLETION_USER_DIR (if
+// completionDir resolves bash-completion's lazy-load dir per its own convention: BASH_COMPLETION_USER_DIR (if
 // set) names the base dir directly; otherwise XDG_DATA_HOME/bash-completion, falling back to
 // ~/.local/share/bash-completion.
-func Dir() (string, error) {
+func completionDir() (string, error) {
 	if dir := os.Getenv("BASH_COMPLETION_USER_DIR"); dir != "" {
 		return filepath.Join(dir, "completions"), nil
 	}
@@ -48,7 +48,7 @@ func Dir() (string, error) {
 
 // Install writes Script(bin) to Dir()/bin, creating the dir if needed, and returns the path.
 func Install(bin string) (string, error) {
-	dir, err := Dir()
+	dir, err := completionDir()
 	if err != nil {
 		return "", err
 	}

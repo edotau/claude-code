@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 const mountinfoSample = `22 1 8:1 / / rw,relatime - ext4 /dev/sdc rw
@@ -34,9 +32,9 @@ func testResolver() *Resolver {
 		Home:   "/home/u",
 		Mounts: []Mount{
 			{Point: "/mnt/c", Kind: KindDrvFS, Drive: "C"},
-			{Point: "/srv/share one", Kind: KindSMB, Host: "fileserver", RemotePath: "team/docs"},
+			{Point: "/srv/share one", Kind: kindSMB, Host: "fileserver", RemotePath: "team/docs"},
 			{Point: "/srv/nfs", Kind: KindNFS, Host: "nas", RemotePath: "/export/data"},
-			{Point: "/home/u/remote", Kind: KindSSHFS, Host: "devbox", RemotePath: "/work"},
+			{Point: "/home/u/remote", Kind: kindSSHFS, Host: "devbox", RemotePath: "/work"},
 		},
 		LookupHome: func(n string) (string, bool) { return "/home/" + n, n == "bob" },
 	}
@@ -107,7 +105,7 @@ func TestParseSSHFSUserIPv6(t *testing.T) {
 	got := parseMountinfo("50 22 0:50 / /srv/ssh rw - fuse.sshfs alice@[2001:db8::1]:/work rw\n")
 	want := Mount{
 		Point: "/srv/ssh", Source: "alice@[2001:db8::1]:/work", FSType: "fuse.sshfs",
-		Kind: KindSSHFS, Host: "2001:db8::1", RemotePath: "/work",
+		Kind: kindSSHFS, Host: "2001:db8::1", RemotePath: "/work",
 	}
 	if len(got) != 1 {
 		t.Fatalf("mounts = %+v, want one SSHFS mount", got)
@@ -133,7 +131,7 @@ func TestResolveUnknownSlashUNC(t *testing.T) {
 func classified(ms []Mount) []Mount {
 	var out []Mount
 	for _, m := range ms {
-		if m.Kind != KindOpaque {
+		if m.Kind != kindOpaque {
 			out = append(out, m)
 		}
 	}
@@ -143,15 +141,15 @@ func classified(ms []Mount) []Mount {
 func TestParseMountinfo(t *testing.T) {
 	all := parseMountinfo(mountinfoSample)
 	got := classified(all)
-	if len(all) != 7 || all[0].Kind != KindOpaque {
+	if len(all) != 7 || all[0].Kind != kindOpaque {
 		t.Errorf("opaque mounts dropped: %d entries, want 7 incl. / and /proc", len(all))
 	}
 	want := []Mount{
 		{Point: "/mnt/c", Source: `C:\`, FSType: "9p", Kind: KindDrvFS, Drive: "C", Root: "/"},
 		{Point: "/mnt/d", Source: `D:\`, FSType: "9p", Kind: KindDrvFS, Drive: "D", Root: "/"},
-		{Point: "/srv/share one", Source: "//fileserver/team/docs", FSType: "cifs", Kind: KindSMB, Host: "fileserver", RemotePath: "team/docs"},
+		{Point: "/srv/share one", Source: "//fileserver/team/docs", FSType: "cifs", Kind: kindSMB, Host: "fileserver", RemotePath: "team/docs"},
 		{Point: "/srv/nfs", Source: "nas:/export/data", FSType: "nfs4", Kind: KindNFS, Host: "nas", RemotePath: "/export/data"},
-		{Point: "/home/u/remote", Source: "me@devbox:/work", FSType: "fuse.sshfs", Kind: KindSSHFS, Host: "devbox", RemotePath: "/work"},
+		{Point: "/home/u/remote", Source: "me@devbox:/work", FSType: "fuse.sshfs", Kind: kindSSHFS, Host: "devbox", RemotePath: "/work"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %d mounts, want %d: %+v", len(got), len(want), got)
@@ -166,10 +164,10 @@ func TestParseMountinfo(t *testing.T) {
 func TestParseDarwinMount(t *testing.T) {
 	got := classified(parseDarwinMount(darwinSample))
 	want := []Mount{
-		{Point: "/Volumes/team", Source: "//user@fileserver/team", FSType: "smbfs", Kind: KindSMB, Host: "fileserver", RemotePath: "team"},
+		{Point: "/Volumes/team", Source: "//user@fileserver/team", FSType: "smbfs", Kind: kindSMB, Host: "fileserver", RemotePath: "team"},
 		{Point: "/Volumes/data", Source: "nas:/export/data", FSType: "nfs", Kind: KindNFS, Host: "nas", RemotePath: "/export/data"},
-		{Point: "/Users/u/remote", Source: "me@devbox:/work", FSType: "macfuse", Kind: KindSSHFS, Host: "devbox", RemotePath: "/work"},
-		{Point: "/Volumes/Other Share", Source: "nobody@thing:/x", FSType: "webdav", Kind: KindVolume},
+		{Point: "/Users/u/remote", Source: "me@devbox:/work", FSType: "macfuse", Kind: kindSSHFS, Host: "devbox", RemotePath: "/work"},
+		{Point: "/Volumes/Other Share", Source: "nobody@thing:/x", FSType: "webdav", Kind: kindVolume},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %d mounts, want %d: %+v", len(got), len(want), got)
@@ -255,7 +253,7 @@ func TestDotDotFollowsSymlinks(t *testing.T) {
 // A tmpfs (opaque) mount inside a drive is not the drive's content: not reachable, never a guess.
 func TestOpaqueMountFencesDrive(t *testing.T) {
 	r := testResolver()
-	r.Mounts = append(r.Mounts, Mount{Point: "/mnt/c/cache", FSType: "tmpfs", Kind: KindOpaque})
+	r.Mounts = append(r.Mounts, Mount{Point: "/mnt/c/cache", FSType: "tmpfs", Kind: kindOpaque})
 	if got, ok := r.Resolve(`C:\cache\a`); ok {
 		t.Errorf("Resolve through tmpfs = %q, want not reachable", got)
 	}
@@ -305,12 +303,12 @@ func TestLearnDistroSurvivesStdoutHoldingChild(t *testing.T) {
 // An obscured first match must not hide another mount that exposes the same content.
 func TestResolveFallsBackToUnobscuredMount(t *testing.T) {
 	r := &Resolver{Mounts: []Mount{
-		{Point: "/a", Kind: KindSMB, Host: "srv", RemotePath: "team/docs"},
-		{Point: "/b", Kind: KindSMB, Host: "srv", RemotePath: "team"},
-		{Point: "/a/inner", FSType: "tmpfs", Kind: KindOpaque},
+		{Point: "/a", Kind: kindSMB, Host: "srv", RemotePath: "team/docs"},
+		{Point: "/b", Kind: kindSMB, Host: "srv", RemotePath: "team"},
+		{Point: "/a/inner", FSType: "tmpfs", Kind: kindOpaque},
 		{Point: "/mnt/c", Kind: KindDrvFS, Drive: "C", Root: "/"},
 		{Point: "/mnt/c/Users/u", Kind: KindDrvFS, Drive: "C", Root: "/Users/u"},
-		{Point: "/mnt/c/Users/u/x", FSType: "tmpfs", Kind: KindOpaque},
+		{Point: "/mnt/c/Users/u/x", FSType: "tmpfs", Kind: kindOpaque},
 	}}
 	if got, ok := r.Resolve(`\\srv\team\docs\inner\f`); !ok || got != "/b/docs/inner/f" {
 		t.Errorf("smb fallback = %q, %v; want /b/docs/inner/f", got, ok)
@@ -342,7 +340,7 @@ func TestRemoteDotDotFollowsLocalSymlinks(t *testing.T) {
 	want := filepath.Join(root, "real", "f")
 	cases := map[string]Mount{
 		"nas:/export/data/link/../f":     {Point: root, Kind: KindNFS, Host: "nas", RemotePath: "/export"},
-		"me@devbox:/work/data/link/../f": {Point: root, Kind: KindSSHFS, Host: "devbox", RemotePath: "/work"},
+		"me@devbox:/work/data/link/../f": {Point: root, Kind: kindSSHFS, Host: "devbox", RemotePath: "/work"},
 	}
 	for in, m := range cases {
 		r := &Resolver{Mounts: []Mount{m}}
@@ -355,7 +353,7 @@ func TestRemoteDotDotFollowsLocalSymlinks(t *testing.T) {
 
 func TestNinePUNCClassifiedSMB(t *testing.T) {
 	ms := parseMountinfo("50 22 0:50 / /mnt/srv rw - 9p \\134\\134fileserver\\134team rw,aname=drvfs\n")
-	if len(ms) != 1 || ms[0].Kind != KindSMB || ms[0].Host != "fileserver" || ms[0].RemotePath != "team" {
+	if len(ms) != 1 || ms[0].Kind != kindSMB || ms[0].Host != "fileserver" || ms[0].RemotePath != "team" {
 		t.Fatalf("mounts = %+v", ms)
 	}
 	if want := `\\fileserver\team`; ms[0].Source != want {
@@ -408,7 +406,7 @@ func TestRemoteDotDotSymlinkCannotEscapeMount(t *testing.T) {
 	}
 	r := &Resolver{Mounts: []Mount{
 		{Point: filepath.Join(root, "nas"), Kind: KindNFS, Host: "nas", RemotePath: "/export"},
-		{Point: filepath.Join(root, "other"), Kind: KindOpaque},
+		{Point: filepath.Join(root, "other"), Kind: kindOpaque},
 	}}
 	if got, ok := r.Resolve("nas:/export/link/../secret"); ok {
 		t.Errorf("Resolve escaped the mount: %q", got)

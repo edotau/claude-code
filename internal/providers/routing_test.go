@@ -222,8 +222,8 @@ func TestDatabricksLadderParses(t *testing.T) {
 		t.Fatalf("no %s ladder in defaults.json", LadderDatabricks)
 	}
 	for i, g := range rungs {
-		if errs := validateRung(reg, g.Label(), g); len(errs) > 0 {
-			t.Errorf("rung %d %s: %v", i, g.Label(), errs)
+		if errs := validateRung(reg, g.label(), g); len(errs) > 0 {
+			t.Errorf("rung %d %s: %v", i, g.label(), errs)
 		}
 	}
 }

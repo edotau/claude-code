@@ -57,7 +57,7 @@ func TestInstallKeepsExistingSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := Install(&out, true, false); err != nil {
+	if err := install(&out, true, false); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(file); string(b) != orig {
@@ -66,7 +66,7 @@ func TestInstallKeepsExistingSettings(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(filepath.Dir(file), "bin", "claude")); err == nil {
 		t.Fatal("--dry-run created vendor links")
 	}
-	if err := Install(&out, false, true); err != nil {
+	if err := install(&out, false, true); err != nil {
 		t.Fatal(err)
 	}
 	assertInstalledSettings(t, file, orig)
@@ -209,7 +209,7 @@ func TestInstallEnsuresClipboardProxy(t *testing.T) {
 	t.Setenv("HOME", scratchHome)
 	proxyPath := filepath.Join(scratchHome, ".local", "bin", "wl-paste")
 	var out bytes.Buffer
-	if err := Install(&out, false, true); err != nil {
+	if err := install(&out, false, true); err != nil {
 		t.Fatal(err)
 	}
 	if !clipboard.OnWSLKernel() {
@@ -220,7 +220,7 @@ func TestInstallEnsuresClipboardProxy(t *testing.T) {
 	}
 	assertInstalledClipboardProxy(t, proxyPath, out.String())
 	out.Reset()
-	if err := Install(&out, false, true); err != nil {
+	if err := install(&out, false, true); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "current") {

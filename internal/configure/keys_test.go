@@ -320,17 +320,17 @@ func TestMaxPlanOptionsAndSetupTokenCapture(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // no claude binary: status reads as not logged in
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
-	kt := MaxPlanTarget(KeyTarget{Label: "claude"})
+	kt := maxPlanTarget(KeyTarget{Label: "claude"})
 	if kt.Present || kt.Headless {
 		t.Fatalf("no login and no token must read absent: %+v", kt)
 	}
 	assertMaxPlanOptions(t, AuthOptions(kt))
 	out := "Opening browser...\nPaste the code here:\n\nYour token: sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789\n"
-	if got := SetupTokenRE.FindString(out); got != "sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789" {
+	if got := setupTokenRE.FindString(out); got != "sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789" {
 		t.Errorf("token capture = %q", got)
 	}
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-stored")
-	if kt := MaxPlanTarget(KeyTarget{Label: "claude"}); !kt.Present || !kt.Headless || !strings.Contains(kt.Source, "headless token") {
+	if kt := maxPlanTarget(KeyTarget{Label: "claude"}); !kt.Present || !kt.Headless || !strings.Contains(kt.Source, "headless token") {
 		t.Errorf("a stored token must read present/headless: %+v", kt)
 	}
 }

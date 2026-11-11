@@ -161,8 +161,8 @@ type MergeRequest struct {
 	AfterPromote                          func(ctx context.Context, commitRange string) error
 }
 
-// MergeOutcome is a finished merge: Blocked means the plan was refused (already shown); Clean is nil when NoClean.
-type MergeOutcome struct {
+// mergeOutcome is a finished merge: Blocked means the plan was refused (already shown); Clean is nil when NoClean.
+type mergeOutcome struct {
 	Blocked bool
 	Clean   *CleanResult
 }
@@ -177,7 +177,7 @@ func ShortOID(oid string) string {
 
 // Merge runs the non-dry-run lifecycle under the caller's worktree lease: resume-or-plan, the verify-gate decision,
 // then integrate -> verify -> promote -> clean. Errors are unprefixed; the caller adds "worktree merge: ".
-func Merge(ctx context.Context, repo *Repo, req MergeRequest) (*MergeOutcome, error) {
+func Merge(ctx context.Context, repo *Repo, req MergeRequest) (*mergeOutcome, error) {
 	var plan *MergePlan
 	var err error
 	if req.Resume {
@@ -189,7 +189,7 @@ func Merge(ctx context.Context, repo *Repo, req MergeRequest) (*MergeOutcome, er
 		return nil, err
 	}
 	if plan == nil {
-		return &MergeOutcome{Blocked: true}, nil
+		return &mergeOutcome{Blocked: true}, nil
 	}
 	gate, gateSource, err := chooseVerifyGate(plan.WorktreePath, req.Verify, req.NoVerify)
 	if err != nil {
@@ -199,7 +199,7 @@ func Merge(ctx context.Context, repo *Repo, req MergeRequest) (*MergeOutcome, er
 }
 
 // applyMerge runs integrateTarget -> the gate (if any) -> promote -> an optional clean, inside the caller's lease.
-func applyMerge(ctx context.Context, repo *Repo, plan *MergePlan, req MergeRequest, gate, gateSource string) (*MergeOutcome, error) {
+func applyMerge(ctx context.Context, repo *Repo, plan *MergePlan, req MergeRequest, gate, gateSource string) (*mergeOutcome, error) {
 	integrated, err := integrateTarget(ctx, repo, plan)
 	if err != nil {
 		return nil, fmt.Errorf("integrate: %w", err)
@@ -241,7 +241,7 @@ func scopeGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gat
 
 // afterPromote reports the promotion, ticks the plan, then cleans the worktree unless NoClean. The ledger closes
 // exactly once: by the clean (carrying the merge and branch state) or, when no removal happens, right here.
-func afterPromote(ctx context.Context, repo *Repo, plan *MergePlan, req MergeRequest, promoted, integrated *MergeResult) (*MergeOutcome, error) {
+func afterPromote(ctx context.Context, repo *Repo, plan *MergePlan, req MergeRequest, promoted, integrated *MergeResult) (*mergeOutcome, error) {
 	fmt.Fprintf(req.Out, "promoted:   %s -> %s on %s\n", ShortOID(promoted.BeforeOID), ShortOID(promoted.AfterOID), plan.TargetRef)
 	if req.AfterPromote != nil {
 		if err := req.AfterPromote(ctx, promoted.BeforeOID+".."+promoted.AfterOID); err != nil {
@@ -251,7 +251,7 @@ func afterPromote(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReq
 	closing := LedgerClose{Via: "merge", MergeSHA: promoted.AfterOID, Head: integrated.AfterOID}
 	if req.NoClean {
 		warnLedger(req.Err, CloseLedger(repo.Main, req.Name, closing))
-		return &MergeOutcome{}, nil
+		return &mergeOutcome{}, nil
 	}
 	result, err := cleanAtWith(repo, req.Name, plan.WorktreePath, false, req.Err, closing)
 	if !result.Removed {
@@ -260,7 +260,7 @@ func afterPromote(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReq
 	if err != nil {
 		return nil, fmt.Errorf("clean: %w", err)
 	}
-	return &MergeOutcome{Clean: &result}, nil
+	return &mergeOutcome{Clean: &result}, nil
 }
 
 // warnLedger reports a failed ledger close as a warning; the merge itself already landed.
@@ -285,7 +285,7 @@ func runGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gateS
 	return nil
 }
 
-// PlanOrResolve runs Preflight and shows the plan; a predicted conflict with ResolveAgent set goes to ResolveWithAgent
+// PlanOrResolve runs Preflight and shows the plan; a predicted conflict with ResolveAgent set goes to resolveWithAgent
 // and re-Preflights. A nil plan with a nil error means blocked and already shown: dry-run, no agent, or a non-conflict Issue.
 func PlanOrResolve(ctx context.Context, repo *Repo, req MergeRequest, dryRun bool) (*MergePlan, error) {
 	plan, err := Preflight(ctx, repo, req.Name, req.Target)
@@ -310,7 +310,7 @@ func PlanOrResolve(ctx context.Context, repo *Repo, req MergeRequest, dryRun boo
 // resolveConflict hands the conflicted plan to the resolve agent, then re-plans and requires the target unmoved.
 func resolveConflict(ctx context.Context, repo *Repo, plan *MergePlan, req MergeRequest) (*MergePlan, error) {
 	origTargetRef, origTargetOID := plan.TargetRef, plan.TargetOID
-	_, result, err := ResolveWithAgent(ctx, repo, plan, req.ResolveAgent, nil)
+	_, result, err := resolveWithAgent(ctx, repo, plan, req.ResolveAgent, nil)
 	if err != nil {
 		return nil, fmt.Errorf("resolve: %w", err)
 	}
@@ -326,7 +326,7 @@ func resumeMerge(ctx context.Context, repo *Repo, req MergeRequest) (*MergePlan,
 		return nil, err
 	}
 	plan := &MergePlan{WorktreePath: worktreePath}
-	_, result, err := ResolveWithAgent(ctx, repo, plan, op.Agent, op)
+	_, result, err := resolveWithAgent(ctx, repo, plan, op.Agent, op)
 	if err != nil {
 		return nil, err
 	}

@@ -50,10 +50,7 @@ func sshSocket() string {
 	return "/tmp/claude-clip-" + name + ".sock"
 }
 
-// ReadSSH returns the SSH client's clipboard PNG through the forwarded bridge socket.
-func ReadSSH() ([]byte, error) { return readSSH(sshSocket()) }
-
-// readSSH dials sock and reads one PNG; the server writes it and closes, zero bytes meaning none.
+// readSSH reads one PNG from the bridge socket sock; the server writes it and closes, zero bytes meaning none.
 func readSSH(sock string) ([]byte, error) {
 	if err := checkSocket(sock); err != nil {
 		return nil, err
@@ -98,7 +95,7 @@ func checkSocket(sock string) error {
 
 // grabSSH saves the SSH client's clipboard image as a local PNG and returns its path plus "WxH".
 func grabSSH() (path, dim string, err error) {
-	b, err := ReadSSH()
+	b, err := readSSH(sshSocket())
 	if err != nil {
 		return "", "", err
 	}

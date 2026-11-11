@@ -122,13 +122,13 @@ func TestAuthMarkExpiresAtTTL(t *testing.T) {
 	for _, c := range []struct {
 		age  time.Duration
 		want bool
-	}{{0, true}, {AuthMarkTTL - time.Second, true}, {AuthMarkTTL, false}, {AuthMarkTTL + time.Second, false}} {
+	}{{0, true}, {authMarkTTL - time.Second, true}, {authMarkTTL, false}, {authMarkTTL + time.Second, false}} {
 		if _, ok := s.AuthMarked("openai·chatgpt", at.Add(c.age)); ok != c.want {
 			t.Errorf("age %v: marked = %v, want %v", c.age, ok, c.want)
 		}
 	}
-	if AuthMarkTTL != 6*time.Hour {
-		t.Errorf("AuthMarkTTL = %v, want 6h", AuthMarkTTL)
+	if authMarkTTL != 6*time.Hour {
+		t.Errorf("authMarkTTL = %v, want 6h", authMarkTTL)
 	}
 	if _, ok := s.AuthMarked("nobody", at); ok {
 		t.Error("unknown account marked")
@@ -229,7 +229,7 @@ func TestPickSkipsAuthMarkedAccountWithReason(t *testing.T) {
 
 	// An expired mark no longer gates; an unmarked state never does.
 	for name, st := range map[string]State{
-		"expired": {"openai·chatgpt": {AuthReason: "r", AuthAt: now0.Add(-AuthMarkTTL - time.Minute)}},
+		"expired": {"openai·chatgpt": {AuthReason: "r", AuthAt: now0.Add(-authMarkTTL - time.Minute)}},
 		"cleared": {"openai·chatgpt": {UsedPct: 5, Seen: now0}},
 	} {
 		if !strings.Contains(runners(pick(tb, "sonnet", "codex", st, FallbackAgents)), "codex") {
@@ -269,7 +269,7 @@ func TestAccountAuthMarkedFallsBackToTheProviderMark(t *testing.T) {
 	s := State{
 		"databricks·dev": {AuthReason: "router mark", AuthAt: at},
 		"anthropic·qa":   {AuthReason: "own mark", AuthAt: at},
-		"anthropic·old":  {AuthReason: "own", AuthAt: at.Add(-AuthMarkTTL - time.Hour)},
+		"anthropic·old":  {AuthReason: "own", AuthAt: at.Add(-authMarkTTL - time.Hour)},
 	}
 	for _, c := range []struct {
 		account string
@@ -290,7 +290,7 @@ func TestAccountAuthMarkedFallsBackToTheProviderMark(t *testing.T) {
 			t.Errorf("accountAuthMarked(%q) = %q, %v; want %q, %v", c.account, got, ok, c.want, c.ok)
 		}
 	}
-	if _, ok := s.accountAuthMarked("anthropic·dev", at.Add(AuthMarkTTL)); ok {
+	if _, ok := s.accountAuthMarked("anthropic·dev", at.Add(authMarkTTL)); ok {
 		t.Error("an expired provider mark still gates the dispatch account")
 	}
 }
@@ -370,7 +370,7 @@ func wantEntries(t *testing.T, s State) {
 	}
 }
 
-// A v0 bare-map quota.json reads, the {schema,accounts} wrapper reads too, and Update writes the bare map back.
+// A v0 bare-map quota.json reads, the {schema,accounts} wrapper reads too, and update writes the bare map back.
 func TestQuotaV0ReadsAndStaysBareMap(t *testing.T) {
 	path := quotaFixture(t, v0Quota)
 	wantEntries(t, LoadState())
@@ -380,7 +380,7 @@ func TestQuotaV0ReadsAndStaysBareMap(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantEntries(t, LoadState())
-	if err := Update(func(State) {}); err != nil {
+	if err := update(func(State) {}); err != nil {
 		t.Fatal(err)
 	}
 	var bare map[string]Entry
@@ -389,7 +389,7 @@ func TestQuotaV0ReadsAndStaysBareMap(t *testing.T) {
 	}
 }
 
-// A newer-schema document reads as empty but Update refuses and leaves the file byte-identical.
+// A newer-schema document reads as empty but update refuses and leaves the file byte-identical.
 func TestQuotaNewerSchemaIsNotOverwritten(t *testing.T) {
 	const newer = `{"schema":2,"accounts":{"a":{"used_pct":1,"seen":"2026-10-28T10:00:00Z"}}}`
 	path := quotaFixture(t, newer)
@@ -418,7 +418,7 @@ func TestParseResetHugeNClampsToFuture(t *testing.T) {
 	}
 }
 
-// Given a quota.json written with the byok-era keys, an Update keeps them under the discovery keys; new keys win.
+// Given a quota.json written with the byok-era keys, an update keeps them under the discovery keys; new keys win.
 func TestStateKeepsLegacyByokKeys(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	old := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
@@ -437,7 +437,7 @@ func TestStateKeepsLegacyByokKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 {
-		if err := Update(func(State) {}); err != nil {
+		if err := update(func(State) {}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -500,7 +500,7 @@ func TestLoadStateCacheReturnsIndependentDiscovery(t *testing.T) {
 	}
 }
 
-// An unreadable quota.json (a directory here) must fail Update and stay untouched, not read as empty.
+// An unreadable quota.json (a directory here) must fail update and stay untouched, not read as empty.
 func TestUpdateRefusesUnreadableState(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	path := StatePath()
@@ -508,7 +508,7 @@ func TestUpdateRefusesUnreadableState(t *testing.T) {
 		t.Fatal(err)
 	}
 	called := false
-	if err := Update(func(State) { called = true }); err == nil || called {
+	if err := update(func(State) { called = true }); err == nil || called {
 		t.Fatalf("Update must fail before applying fn on an unreadable file: err=%v called=%v", err, called)
 	}
 	if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
@@ -541,7 +541,7 @@ func TestUpdateKeepsOnlyOneCorruptBackup(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := Update(func(State) {}); err != nil {
+	if err := update(func(State) {}); err != nil {
 		t.Fatal(err)
 	}
 	backups, _ := filepath.Glob(path + ".corrupt-*")

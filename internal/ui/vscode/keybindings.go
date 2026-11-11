@@ -15,13 +15,13 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// keybindingsGOOS picks DefaultKeybindingsDest's platform branch; tests swap it to run every branch on any host.
+// keybindingsGOOS picks defaultKeybindingsDest's platform branch; tests swap it to run every branch on any host.
 var keybindingsGOOS = runtime.GOOS
 
-// DefaultKeybindingsDest returns the local client's User keybindings.json. Keybindings are UI-side —
+// defaultKeybindingsDest returns the local client's User keybindings.json. Keybindings are UI-side —
 // unlike settings there is no Machine scope — so a headless box with only vscode-server has nowhere
 // to put them; skip is true and note explains why.
-func DefaultKeybindingsDest() (dest string, skip bool, note string, err error) {
+func defaultKeybindingsDest() (dest string, skip bool, note string, err error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", false, "", err
@@ -42,28 +42,28 @@ func DefaultKeybindingsDest() (dest string, skip bool, note string, err error) {
 	}
 }
 
-// SyncKeybindings merges the embedded keybindings template into dest, a JSONC array. check mirrors Sync.
-func SyncKeybindings(template, dest string, check bool) (Result, error) {
+// syncKeybindings merges the embedded keybindings template into dest, a JSONC array. check mirrors Sync.
+func syncKeybindings(template, dest string, check bool) (mergeResult, error) {
 	rawTemplate := defaultKeybindingsTemplate
 	if template != "" {
 		b, err := os.ReadFile(template)
 		if err != nil {
-			return Result{}, err
+			return mergeResult{}, err
 		}
 		rawTemplate = b
 	}
 	var overlay []map[string]any
 	if err := json.Unmarshal(textutil.StripJSONC(rawTemplate), &overlay); err != nil {
-		return Result{}, fmt.Errorf("keybindings template: %w", err)
+		return mergeResult{}, fmt.Errorf("keybindings template: %w", err)
 	}
 
 	if check {
 		return mergeKeybindings(dest, overlay, true)
 	}
-	var result Result
+	var result mergeResult
 	lock := filepath.Join(paths.StateDir(), "vscode-keybindings.lock")
 	if err := os.MkdirAll(filepath.Dir(lock), 0o700); err != nil {
-		return Result{}, err
+		return mergeResult{}, err
 	}
 	ran, err := paths.TryFileLock(lock, lockWait, func() error {
 		r, mergeErr := mergeKeybindings(dest, overlay, false)
@@ -71,27 +71,27 @@ func SyncKeybindings(template, dest string, check bool) (Result, error) {
 		return mergeErr
 	})
 	if !ran {
-		return Result{}, fmt.Errorf("vscode: could not acquire a lock on %s within %s", dest, lockWait)
+		return mergeResult{}, fmt.Errorf("vscode: could not acquire a lock on %s within %s", dest, lockWait)
 	}
 	return result, err
 }
 
-func mergeKeybindings(dest string, overlay []map[string]any, check bool) (Result, error) {
+func mergeKeybindings(dest string, overlay []map[string]any, check bool) (mergeResult, error) {
 	var base []map[string]any
 	rawBase, err := readBase(dest, "keybindings", &base)
 	if err != nil {
-		return Result{}, err
+		return mergeResult{}, err
 	}
 	merged := mergeKeybindingEntries(base, overlay)
 	if reflect.DeepEqual(base, merged) {
-		return Result{}, nil
+		return mergeResult{}, nil
 	}
 	if check {
-		return Result{Changed: true}, nil
+		return mergeResult{Changed: true}, nil
 	}
 	body, err := marshalKeybindings(merged, leadingComment(rawBase))
 	if err != nil {
-		return Result{}, err
+		return mergeResult{}, err
 	}
 	return writeGuarded(dest, "keybindings", rawBase, body)
 }

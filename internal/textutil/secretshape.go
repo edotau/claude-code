@@ -59,18 +59,18 @@ func hasAnyPrefix(v string, prefixes ...string) bool {
 	return slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(v, p) })
 }
 
-// GitHubPrefixes are every GitHub token family: OAuth, PAT, user-to-server, server-to-server, refresh, fine-grained.
-var GitHubPrefixes = []string{"gho_", "ghp_", "ghu_", "ghs_", "ghr_", "github_pat_"}
+// gitHubPrefixes are every GitHub token family: OAuth, PAT, user-to-server, server-to-server, refresh, fine-grained.
+var gitHubPrefixes = []string{"gho_", "ghp_", "ghu_", "ghs_", "ghr_", "github_pat_"}
 
 // HasGitHubPrefix reports a value starting with any GitHub token prefix.
 func HasGitHubPrefix(v string) bool {
-	return hasAnyPrefix(v, GitHubPrefixes...)
+	return hasAnyPrefix(v, gitHubPrefixes...)
 }
 
 // GitHubPattern is a regex alternation matching any GitHub token with at least minLen body characters.
 func GitHubPattern(minLen int) string {
-	alts := make([]string, len(GitHubPrefixes))
-	for i, p := range GitHubPrefixes {
+	alts := make([]string, len(gitHubPrefixes))
+	for i, p := range gitHubPrefixes {
 		alts[i] = regexp.QuoteMeta(p) + "[A-Za-z0-9_]{" + strconv.Itoa(minLen) + ",}"
 	}
 	return "(?:" + strings.Join(alts, "|") + ")"

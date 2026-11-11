@@ -257,8 +257,8 @@ func expandArgsHome(cmd string) string {
 	return strings.Join(args, " ")
 }
 
-// SecretFinding is one inline plaintext credential flagged in a server definition.
-type SecretFinding struct {
+// secretFinding is one inline plaintext credential flagged in a server definition.
+type secretFinding struct {
 	Scope  string `json:"scope"`
 	Server string `json:"server"`
 	Field  string `json:"field"` // env | headers | url
@@ -270,13 +270,13 @@ type SecretFinding struct {
 var queryParamSecret = regexp.MustCompile(`(?i)([?&][\w-]*(?:token|key)=)[^&\s]+`)
 
 // findSecrets scans every server's env, headers, and url for inline plaintext credentials.
-func findSecrets(defs []def) []SecretFinding {
-	var out []SecretFinding
+func findSecrets(defs []def) []secretFinding {
+	var out []secretFinding
 	for _, d := range defs {
 		out = append(out, scanMap(d, "env", d.D.Env)...)
 		out = append(out, scanMap(d, "headers", d.D.Headers)...)
 		if d.D.URL != "" && queryParamSecret.MatchString(d.D.URL) {
-			out = append(out, SecretFinding{Scope: d.Scope, Server: d.Server, Field: "url"})
+			out = append(out, secretFinding{Scope: d.Scope, Server: d.Server, Field: "url"})
 		}
 	}
 	return out
@@ -311,16 +311,16 @@ func redactArgs(args []string) []string {
 	return out
 }
 
-func scanMap(d def, field string, m map[string]string) []SecretFinding {
+func scanMap(d def, field string, m map[string]string) []secretFinding {
 	var keys []string
 	for k := range m {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	var out []SecretFinding
+	var out []secretFinding
 	for _, k := range keys {
 		if textutil.LooksSecret(m[k]) {
-			out = append(out, SecretFinding{Scope: d.Scope, Server: d.Server, Field: field, Key: k})
+			out = append(out, secretFinding{Scope: d.Scope, Server: d.Server, Field: field, Key: k})
 		}
 	}
 	return out
@@ -331,7 +331,7 @@ type report struct {
 	Defs      []def           `json:"defs"`
 	Health    healthResult    `json:"health"`
 	Conflicts []conflict      `json:"conflicts"`
-	Secrets   []SecretFinding `json:"secrets"`
+	Secrets   []secretFinding `json:"secrets"`
 	Unscanned []string        `json:"unscanned,omitempty"` // config files that exist but could not be read or parsed
 }
 

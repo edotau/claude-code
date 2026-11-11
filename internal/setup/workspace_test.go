@@ -39,13 +39,13 @@ func TestWorkspaceInitCreatesLayoutAndIsIdempotent(t *testing.T) {
 	root := wsRepo(t)
 	mustWrite(t, filepath.Join(root, ".claude", "settings.json"), `{"permissions":{"allow":["Bash(go test)"]}}`)
 	var out bytes.Buffer
-	if err := WorkspaceInit(WorkspaceInitOpts{Root: root, Out: &out}); err != nil {
+	if err := workspaceInit(workspaceInitOpts{Root: root, Out: &out}); err != nil {
 		t.Fatal(err)
 	}
 	assertInitLayout(t, root, out.String())
 	// A second init appends the gitignore line no twice and creates nothing.
 	out.Reset()
-	if err := WorkspaceInit(WorkspaceInitOpts{Root: root, Out: &out}); err != nil {
+	if err := workspaceInit(workspaceInitOpts{Root: root, Out: &out}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(out.String(), "create") || strings.Contains(out.String(), "append") {
@@ -80,7 +80,7 @@ func TestWorkspaceInitDryRunWritesNothing(t *testing.T) {
 	wsGlobal(t)
 	root := wsRepo(t)
 	var out bytes.Buffer
-	if err := WorkspaceInit(WorkspaceInitOpts{Root: root, DryRun: true, Out: &out}); err != nil {
+	if err := workspaceInit(workspaceInitOpts{Root: root, DryRun: true, Out: &out}); err != nil {
 		t.Fatal(err)
 	}
 	if wsExists(filepath.Join(root, ".claude")) || wsExists(filepath.Join(root, ".gitignore")) {
@@ -95,13 +95,13 @@ func TestWorkspaceInitWithSubsetAndBadPart(t *testing.T) {
 	wsGlobal(t)
 	root := wsRepo(t)
 	var out bytes.Buffer
-	if err := WorkspaceInit(WorkspaceInitOpts{Root: root, With: []string{"agents"}, Out: &out}); err != nil {
+	if err := workspaceInit(workspaceInitOpts{Root: root, With: []string{"agents"}, Out: &out}); err != nil {
 		t.Fatal(err)
 	}
 	if wsExists(filepath.Join(root, ".claude", "settings.json")) || wsExists(filepath.Join(root, ".claude", "skills")) {
 		t.Error("--with agents created more than agents/")
 	}
-	if err := WorkspaceInit(WorkspaceInitOpts{Root: root, With: []string{"hooks"}, Out: &out}); err == nil {
+	if err := workspaceInit(workspaceInitOpts{Root: root, With: []string{"hooks"}, Out: &out}); err == nil {
 		t.Error("--with hooks accepted")
 	}
 }
@@ -109,14 +109,14 @@ func TestWorkspaceInitWithSubsetAndBadPart(t *testing.T) {
 func TestWorkspaceInitRefusals(t *testing.T) {
 	cfg := wsGlobal(t)
 	var out bytes.Buffer
-	if err := WorkspaceInit(WorkspaceInitOpts{Root: t.TempDir(), Out: &out}); err == nil || !strings.Contains(err.Error(), "git toplevel") {
+	if err := workspaceInit(workspaceInitOpts{Root: t.TempDir(), Out: &out}); err == nil || !strings.Contains(err.Error(), "git toplevel") {
 		t.Errorf("non-git root: err = %v", err)
 	}
 	inside := filepath.Join(cfg, "proj")
 	if err := os.MkdirAll(inside, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := WorkspaceInit(WorkspaceInitOpts{Root: inside, Out: &out}); err == nil || !strings.Contains(err.Error(), "inside the harness") {
+	if err := workspaceInit(workspaceInitOpts{Root: inside, Out: &out}); err == nil || !strings.Contains(err.Error(), "inside the harness") {
 		t.Errorf("root inside config dir: err = %v", err)
 	}
 }
@@ -129,7 +129,7 @@ func TestWorkspaceLinkKindsAndRefusals(t *testing.T) {
 		{"agents", "a", "agents/a.md"}, {"commands", "ns:c", "commands/ns/c.md"}, {"skills", "s", "skills/s"},
 	}
 	for _, c := range cases {
-		if err := WorkspaceLink(root, c.kind, c.name, &out); err != nil {
+		if err := workspaceLink(root, c.kind, c.name, &out); err != nil {
 			t.Fatalf("link %s %s: %v", c.kind, c.name, err)
 		}
 		got, err := os.Readlink(filepath.Join(root, ".claude", c.rel))
@@ -143,16 +143,16 @@ func TestWorkspaceLinkKindsAndRefusals(t *testing.T) {
 // assertLinkRefusals checks a duplicate, a missing source, a bare command name and a traversal name are all refused.
 func assertLinkRefusals(t *testing.T, root string, out io.Writer) {
 	t.Helper()
-	if err := WorkspaceLink(root, "agents", "a", out); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if err := workspaceLink(root, "agents", "a", out); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("duplicate link: err = %v", err)
 	}
-	if err := WorkspaceLink(root, "agents", "nope", out); err == nil || !strings.Contains(err.Error(), "no global agent") {
+	if err := workspaceLink(root, "agents", "nope", out); err == nil || !strings.Contains(err.Error(), "no global agent") {
 		t.Errorf("missing source: err = %v", err)
 	}
-	if err := WorkspaceLink(root, "commands", "c", out); err == nil {
+	if err := workspaceLink(root, "commands", "c", out); err == nil {
 		t.Error("command without namespace accepted")
 	}
-	if err := WorkspaceLink(root, "agents", "../x", out); err == nil {
+	if err := workspaceLink(root, "agents", "../x", out); err == nil {
 		t.Error("traversal name accepted")
 	}
 }
@@ -161,16 +161,16 @@ func TestWorkspaceStatusClassifies(t *testing.T) {
 	wsGlobal(t)
 	root := wsRepo(t)
 	var out bytes.Buffer
-	if err := WorkspaceInit(WorkspaceInitOpts{Root: root, Out: &out}); err != nil {
+	if err := workspaceInit(workspaceInitOpts{Root: root, Out: &out}); err != nil {
 		t.Fatal(err)
 	}
-	if err := WorkspaceLink(root, "agents", "a", &out); err != nil {
+	if err := workspaceLink(root, "agents", "a", &out); err != nil {
 		t.Fatal(err)
 	}
 	mustWrite(t, filepath.Join(root, ".claude", "commands", "ns", "c.md"), "# mine\n") // same name as global
 	mustWrite(t, filepath.Join(root, ".claude", "skills", "only-here", "SKILL.md"), "# local\n")
 	out.Reset()
-	if err := WorkspaceStatus(root, &out); err != nil {
+	if err := workspaceStatus(root, &out); err != nil {
 		t.Fatal(err)
 	}
 	s := out.String()
@@ -188,16 +188,16 @@ func TestWorkspaceStatusLinkedFileKeepsSiblings(t *testing.T) {
 	wsGlobal(t)
 	root := wsRepo(t)
 	var out bytes.Buffer
-	if err := WorkspaceInit(WorkspaceInitOpts{Root: root, Out: &out}); err != nil {
+	if err := workspaceInit(workspaceInitOpts{Root: root, Out: &out}); err != nil {
 		t.Fatal(err)
 	}
-	if err := WorkspaceLink(root, "agents", "a", &out); err != nil {
+	if err := workspaceLink(root, "agents", "a", &out); err != nil {
 		t.Fatal(err)
 	}
 	mustWrite(t, filepath.Join(root, ".claude", "agents", "b.md"), "b\n")
 	mustWrite(t, filepath.Join(root, ".claude", "agents", "c.md"), "c\n")
 	out.Reset()
-	if err := WorkspaceStatus(root, &out); err != nil {
+	if err := workspaceStatus(root, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"a.md", "b.md", "c.md"} {
@@ -220,7 +220,7 @@ func TestWorkspaceInitDryRunFailsOnErrorAction(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(gi, 0o644) })
-	if err := WorkspaceInit(WorkspaceInitOpts{Root: root, DryRun: true, Out: io.Discard}); err == nil {
+	if err := workspaceInit(workspaceInitOpts{Root: root, DryRun: true, Out: io.Discard}); err == nil {
 		t.Error("dry-run returned nil for an unreadable .gitignore")
 	}
 }

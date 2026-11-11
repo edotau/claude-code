@@ -51,8 +51,8 @@ type Rung struct {
 	Models   []string `json:"models,omitempty"`
 }
 
-// Label names the rung in errors and skips: "agent/provider", "*" for an unset side.
-func (g Rung) Label() string { return cmp.Or(g.Agent, "*") + "/" + cmp.Or(g.Provider, "*") }
+// label names the rung in errors and skips: "agent/provider", "*" for an unset side.
+func (g Rung) label() string { return cmp.Or(g.Agent, "*") + "/" + cmp.Or(g.Provider, "*") }
 
 // OpencodeRouting is opencode's own sub-pick knobs: the paid-backend ladder order, the work-repo markers
 // that block zen-free, which aliases zen-free may serve, and the free dispatch's stall deadline. Ladder,
@@ -203,12 +203,12 @@ func validateLadders(r *Registry) []string {
 		}
 		seen := map[string]bool{}
 		for i, g := range r.Routing.Ladders[name] {
-			label := fmt.Sprintf("routing.ladders.%s[%d] %s", name, i, g.Label())
-			if seen[g.Label()] {
+			label := fmt.Sprintf("routing.ladders.%s[%d] %s", name, i, g.label())
+			if seen[g.label()] {
 				errs = append(errs, label+" duplicates an earlier rung")
 				continue
 			}
-			seen[g.Label()] = true
+			seen[g.label()] = true
 			errs = append(errs, validateRung(r, label, g)...)
 		}
 	}

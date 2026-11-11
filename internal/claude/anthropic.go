@@ -19,26 +19,26 @@ import (
 
 // Anthropic auth modes for the `anthropic` verb.
 const (
-	AuthLogin  = "login"     // claude.ai login (provider subscription)
-	AuthOAuth  = "oauth"     // CLAUDE_CODE_OAUTH_TOKEN from the vault
-	AuthAPIKey = "x-api-key" // provider anthropic, ANTHROPIC_API_KEY
+	authLogin  = "login"     // claude.ai login (provider subscription)
+	authOAuth  = "oauth"     // CLAUDE_CODE_OAUTH_TOKEN from the vault
+	authAPIKey = "x-api-key" // provider anthropic, ANTHROPIC_API_KEY
 )
 
 // defaultAPIKeyName is the vault key --x-api-key uses when it carries no =NAME; --oauth uses oauthKey.
 const defaultAPIKeyName = proc.EnvAnthropicAPIKey
 
-// AnthropicOptions are the launcher flags plus the verb's own auth selection.
-type AnthropicOptions struct {
+// anthropicOptions are the launcher flags plus the verb's own auth selection.
+type anthropicOptions struct {
 	agent.LaunchOptions
-	Mode string // AuthLogin | AuthOAuth | AuthAPIKey
-	Name string // vault key holding the secret ("" for AuthLogin)
+	Mode string // authLogin | authOAuth | authAPIKey
+	Name string // vault key holding the secret ("" for authLogin)
 }
 
 var envNameRE = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 
-// ParseAnthropicArgs strips --oauth[=NAME] and --x-api-key[=NAME] (a bare flag takes no value), then the shared launcher flags.
-func ParseAnthropicArgs(args []string) (AnthropicOptions, []string, error) {
-	o := AnthropicOptions{Mode: AuthLogin}
+// parseAnthropicArgs strips --oauth[=NAME] and --x-api-key[=NAME] (a bare flag takes no value), then the shared launcher flags.
+func parseAnthropicArgs(args []string) (anthropicOptions, []string, error) {
+	o := anthropicOptions{Mode: authLogin}
 	var kept []string
 	for i, a := range args {
 		if a == "--" {
@@ -58,22 +58,22 @@ func ParseAnthropicArgs(args []string) (AnthropicOptions, []string, error) {
 	if err != nil {
 		return o, nil, err
 	}
-	if base.Provider != "" && o.Mode != AuthLogin {
+	if base.Provider != "" && o.Mode != authLogin {
 		return o, nil, errors.New("--profile picks the profile's own credential; drop --oauth/--x-api-key")
 	}
 	o.LaunchOptions = base
 	return o, rest, nil
 }
 
-func applyAnthropicAuthArg(o *AnthropicOptions, name, val string, hasVal bool) error {
-	mode, def := AuthOAuth, oauthKey
+func applyAnthropicAuthArg(o *anthropicOptions, name, val string, hasVal bool) error {
+	mode, def := authOAuth, oauthKey
 	if name == "--x-api-key" {
-		mode, def = AuthAPIKey, defaultAPIKeyName
+		mode, def = authAPIKey, defaultAPIKeyName
 	}
 	if o.Mode == mode {
 		return fmt.Errorf("%s given more than once; pass it a single time", name)
 	}
-	if o.Mode != AuthLogin {
+	if o.Mode != authLogin {
 		return errors.New("--oauth and --x-api-key cannot be combined; pick one auth mode")
 	}
 	if hasVal {
@@ -94,21 +94,21 @@ func checkKeyName(flag, v string) error {
 	return nil
 }
 
-// Anthropic resolves a first-party Claude Code launch; secret is the value for the oauth and x-api-key modes.
-func Anthropic(ctx context.Context, o AnthropicOptions, args []string, secret string) (agent.Plan, error) {
+// anthropicPlan resolves a first-party Claude Code launch; secret is the value for the oauth and x-api-key modes.
+func anthropicPlan(ctx context.Context, o anthropicOptions, args []string, secret string) (agent.Plan, error) {
 	opts := o.LaunchOptions
 	reg, err := providers.Load()
 	if err != nil {
 		return agent.Plan{}, err
 	}
 	method := providers.AuthCLI
-	if o.Mode == AuthAPIKey {
+	if o.Mode == authAPIKey {
 		method = providers.AuthKey
 	}
 	if opts.Provider = anthropicProfile(reg, method); opts.Provider == "" {
 		return agent.Plan{}, fmt.Errorf("no anthropic profile with %s auth in the registry", method)
 	}
-	plan, err := Claude(ctx, opts, args)
+	plan, err := claudePlan(ctx, opts, args)
 	if err != nil || plan.ForeignBase { // a foreign shell endpoint never receives the vault secret
 		return plan, err
 	}
@@ -116,11 +116,11 @@ func Anthropic(ctx context.Context, o AnthropicOptions, args []string, secret st
 	return plan, nil
 }
 
-func applyAnthropicSecret(plan *agent.Plan, o AnthropicOptions, secret string) {
+func applyAnthropicSecret(plan *agent.Plan, o anthropicOptions, secret string) {
 	switch o.Mode {
-	case AuthOAuth:
+	case authOAuth:
 		plan.Set[oauthKey] = secret
-	case AuthAPIKey:
+	case authAPIKey:
 		// The apiKeyHelper reads the registry's env name, so carry this key directly.
 		if o.Name != defaultAPIKeyName {
 			plan.Set[defaultAPIKeyName] = secret
@@ -143,8 +143,8 @@ func anthropicProfile(reg *providers.Registry, method string) string {
 	return ""
 }
 
-// AnthropicSecret reads the mode's vault key; when it is missing and a terminal is attached, offers to store it.
-func AnthropicSecret(o AnthropicOptions, store func(name string) int) (string, error) {
+// anthropicSecret reads the mode's vault key; when it is missing and a terminal is attached, offers to store it.
+func anthropicSecret(o anthropicOptions, store func(name string) int) (string, error) {
 	if v, err := readAnthropicSecret(o); err != nil {
 		return "", fmt.Errorf("%s: %w", o.Name, err)
 	} else if v != "" {
@@ -168,16 +168,16 @@ func AnthropicSecret(o AnthropicOptions, store func(name string) int) (string, e
 	return "", missing
 }
 
-func readAnthropicSecret(o AnthropicOptions) (string, error) {
-	if o.Mode == AuthOAuth {
+func readAnthropicSecret(o anthropicOptions) (string, error) {
+	if o.Mode == authOAuth {
 		return providers.StoredSecret(o.Name), nil
 	}
 	v, _, err := vault.EffectiveSecret(o.Name)
 	return v, err
 }
 
-func storeAnthropicSecret(o AnthropicOptions, store func(name string) int) error {
-	if o.Mode == AuthOAuth && tui.Confirm("Run `claude setup-token` first to mint one?", true) {
+func storeAnthropicSecret(o anthropicOptions, store func(name string) int) error {
+	if o.Mode == authOAuth && tui.Confirm("Run `claude setup-token` first to mint one?", true) {
 		runSetupToken()
 	}
 	if code := store(o.Name); code != 0 {

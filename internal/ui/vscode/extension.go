@@ -12,15 +12,15 @@ import (
 // extensionDirName is the installed-extension folder name VS Code expects: <publisher>.<name>-<version>.
 const extensionDirName = "edotau.claude-code-agents-0.1.0"
 
-// ExtensionResult reports whether LinkExtension changed the symlink, and where it points.
-type ExtensionResult struct {
+// extensionResult reports whether linkExtension changed the symlink, and where it points.
+type extensionResult struct {
 	Changed bool
 	Target  string
 }
 
-// DefaultExtensionsDir returns ~/.vscode-server/extensions when a vscode-server install exists
+// defaultExtensionsDir returns ~/.vscode-server/extensions when a vscode-server install exists
 // (the common case on a Remote-SSH Linux box), else the desktop client's ~/.vscode/extensions.
-func DefaultExtensionsDir() (string, error) {
+func defaultExtensionsDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -31,44 +31,44 @@ func DefaultExtensionsDir() (string, error) {
 	return filepath.Join(home, ".vscode", "extensions"), nil
 }
 
-// LinkExtension symlinks <extensionsDir>/edotau.claude-code-agents-0.1.0 to the tracked extension
+// linkExtension symlinks <extensionsDir>/edotau.claude-code-agents-0.1.0 to the tracked extension
 // source under claudeHome, so a no-build-step edit to the source takes effect immediately. Idempotent:
 // a target already linked to the right source is left untouched. check=true (used by both --check
 // and --dry-run) reports what would change without touching the filesystem.
-func LinkExtension(claudeHome, extensionsDir string, check bool) (ExtensionResult, error) {
+func linkExtension(claudeHome, extensionsDir string, check bool) (extensionResult, error) {
 	source := filepath.Join(claudeHome, "vscode", "claude-code-agents")
 	target := filepath.Join(extensionsDir, extensionDirName)
 
 	// A link to a deleted source is not in sync: VS Code cannot load the extension through it.
 	if _, err := os.Stat(source); err != nil {
-		return ExtensionResult{}, fmt.Errorf("extension source: %w", err)
+		return extensionResult{}, fmt.Errorf("extension source: %w", err)
 	}
 	if current, err := os.Readlink(target); err == nil && current == source {
 		if !check {
 			if err := bumpManifestScan(source); err != nil {
-				return ExtensionResult{}, err
+				return extensionResult{}, err
 			}
 		}
-		return ExtensionResult{Changed: false, Target: target}, nil
+		return extensionResult{Changed: false, Target: target}, nil
 	}
 	if check {
-		return ExtensionResult{Changed: true, Target: target}, nil
+		return extensionResult{Changed: true, Target: target}, nil
 	}
 	if err := os.MkdirAll(extensionsDir, 0o755); err != nil {
-		return ExtensionResult{}, err
+		return extensionResult{}, err
 	}
 	if _, err := os.Lstat(target); err == nil {
 		if err := os.RemoveAll(target); err != nil {
-			return ExtensionResult{}, err
+			return extensionResult{}, err
 		}
 	}
 	if err := symlinkOrSame(source, target); err != nil {
-		return ExtensionResult{}, err
+		return extensionResult{}, err
 	}
 	if err := bumpManifestScan(source); err != nil {
-		return ExtensionResult{}, err
+		return extensionResult{}, err
 	}
-	return ExtensionResult{Changed: true, Target: target}, nil
+	return extensionResult{Changed: true, Target: target}, nil
 }
 
 // symlinkOrSame creates dst -> src; a concurrent run that already linked it to src is not an error.

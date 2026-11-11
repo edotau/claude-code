@@ -582,7 +582,7 @@ func TestExtractPrintsPagesAndFailures(t *testing.T) {
 		return r, nil
 	}
 	urls := []string{"https://example.com/a", "https://example.org/b", "https://example.net/c"}
-	code, out, _ := hosttest.CaptureOutput(t, func() int { return Extract(context.Background(), urls) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return extractURLs(context.Background(), urls) })
 	wantCalls := "basic:https://example.com/a,https://example.org/b,https://example.net/c|" +
 		"advanced:https://example.org/b,https://example.net/c"
 	if code != 0 || strings.Join(calls, "|") != wantCalls {
@@ -608,7 +608,7 @@ func TestExtractRefusesInternalAddresses(t *testing.T) {
 		return extractResponse{}, nil
 	}
 	code, out, _ := hosttest.CaptureOutput(t, func() int {
-		return Extract(context.Background(), []string{"http://127.0.0.1/", "http://192.168.1.1/", "file:///etc/passwd"})
+		return extractURLs(context.Background(), []string{"http://127.0.0.1/", "http://192.168.1.1/", "file:///etc/passwd"})
 	})
 	if code != 1 || strings.Count(out, "failed:") != 3 || !strings.Contains(out,
 		"refusing to fetch internal address 192.168.1.1") {
@@ -641,7 +641,7 @@ func TestExtractMatchesTavilyNormalisedURL(t *testing.T) {
 		return r, nil
 	}
 	code, out, _ := hosttest.CaptureOutput(t, func() int {
-		return Extract(context.Background(), []string{"https://example.com", "https://example.org"})
+		return extractURLs(context.Background(), []string{"https://example.com", "https://example.org"})
 	})
 	if code != 0 || !strings.Contains(out, "# https://example.com\nBODY") || !strings.Contains(out, "failed: boom") {
 		t.Errorf("code=%d out=%q, want body for normalised echo and failure surfaced", code, out)
@@ -735,7 +735,7 @@ func TestExtractCLIOutputBytes(t *testing.T) {
 		return extractResponse{Results: tstPage(urls[0], "BODY")}
 	})
 	code, out, _ := hosttest.CaptureOutput(t, func() int {
-		return Extract(context.Background(), []string{"https://example.com/a", "http://127.0.0.1/"})
+		return extractURLs(context.Background(), []string{"https://example.com/a", "http://127.0.0.1/"})
 	})
 	want := "# https://example.com/a\nBODY\n\n" +
 		"# http://127.0.0.1/\nfailed: refusing to fetch internal address 127.0.0.1\n\n"
@@ -799,7 +799,7 @@ func TestExtractRejectsOutputWriteFailure(t *testing.T) {
 	})
 	urls := []string{"https://example.com/a"}
 	_, out, _ := hosttest.CaptureOutput(t, func() int {
-		code := Extract(context.Background(), urls)
+		code := extractURLs(context.Background(), urls)
 		if code != 0 {
 			t.Errorf("successful extract exit = %d, want 0", code)
 		}
@@ -809,7 +809,7 @@ func TestExtractRejectsOutputWriteFailure(t *testing.T) {
 		t.Fatalf("extract output = %q, want fetched page", out)
 	}
 	hosttest.ClosedStdout(t)
-	if code := Extract(context.Background(), urls); code == 0 {
+	if code := extractURLs(context.Background(), urls); code == 0 {
 		t.Fatal("closed stdout must return a nonzero exit code despite a successfully fetched page")
 	}
 }
