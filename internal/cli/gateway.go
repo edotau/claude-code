@@ -53,8 +53,7 @@ func printProxyState(ps gateway.Status) error {
 	} else {
 		fmt.Fprintln(&buf, "fallback ", strings.Join(ps.Fallback, " → "))
 	}
-	_, err := os.Stdout.Write(buf.Bytes())
-	return err
+	return stdoutf("", "%s", buf.String())
 }
 
 // proxyOpts are `gateway proxy`'s flag values.
@@ -481,8 +480,8 @@ func mintProxyToken(profile, cfgDir string) (string, int) {
 }
 
 func printToken(token string) int {
-	if _, err := fmt.Fprintln(os.Stdout, token); err != nil {
-		fmt.Fprintf(os.Stderr, "gateway token: write stdout: %v\n", err)
+	if err := stdoutf("gateway token: write stdout", "%s\n", token); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	return 0
@@ -513,8 +512,8 @@ func proxyRestart(ctx context.Context) int {
 
 // sayCode prints one stdout line; a failed write is an error exit, never a silent 0.
 func sayCode(format string, a ...any) int {
-	if _, err := fmt.Printf(format, a...); err != nil {
-		return helptext.Fail("gateway proxy: write output: %v", err)
+	if err := stdoutf("gateway proxy: write output", format, a...); err != nil {
+		return helptext.Fail("%v", err)
 	}
 	return 0
 }

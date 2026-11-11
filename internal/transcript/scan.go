@@ -60,17 +60,21 @@ func DispatchIDs(path string) []string {
 	defer f.Close()
 	var ids []string
 	seen := map[string]bool{}
-	_ = EachLine(f, func(line []byte) {
-		if !bytes.Contains(line, toolResultMarker) {
-			return
+	_ = EachLine(f, func(line []byte) { ids = AppendDispatchIDs(ids, seen, line) })
+	return ids
+}
+
+// AppendDispatchIDs adds the dispatch ids one transcript line's tool result printed that seen lacks, marking them seen.
+func AppendDispatchIDs(ids []string, seen map[string]bool, line []byte) []string {
+	if !bytes.Contains(line, toolResultMarker) {
+		return ids
+	}
+	for _, m := range dispatchIDPattern.FindAllSubmatch(line, -1) {
+		id := string(m[1]) + string(m[2]) + string(m[3])
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
 		}
-		for _, m := range dispatchIDPattern.FindAllSubmatch(line, -1) {
-			id := string(m[1]) + string(m[2]) + string(m[3])
-			if !seen[id] {
-				seen[id] = true
-				ids = append(ids, id)
-			}
-		}
-	})
+	}
 	return ids
 }

@@ -3,6 +3,7 @@ package agentconfig
 import (
 	"encoding/json"
 	"errors"
+	"iter"
 	"slices"
 	"strconv"
 	"strings"
@@ -87,21 +88,20 @@ func InsertTopLevelTOML(raw, section string) string {
 // topLevelKeysOf returns the bare key names section assigns before its own first table header, i.e.
 // the keys an insert must not duplicate in whatever top-level text already precedes it.
 func topLevelKeysOf(section string) []string {
-	lines := strings.SplitAfter(section, "\n")
-	idx := FirstTopLevelHeaderIndex(lines)
-	if idx == -1 {
-		idx = len(lines)
-	}
 	var keys []string
-	multiline, depth := "", 0
-	for _, line := range lines[:idx] {
-		trimmed := strings.TrimSpace(line)
-		if multiline == "" && depth == 0 && trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+	for l := range tomlLines(strings.SplitAfter(section, "\n")) {
+		if !l.Top {
+			continue
+		}
+		trimmed := strings.TrimSpace(l.Text)
+		if strings.HasPrefix(trimmed, "[") {
+			break
+		}
+		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
 			if key, _, ok := strings.Cut(trimmed, "="); ok {
 				keys = append(keys, TOMLKeyName(key))
 			}
 		}
-		multiline, depth = TOMLLineState(line, multiline, depth)
 	}
 	return keys
 }
@@ -127,17 +127,13 @@ func dropTopLevelKeys(raw string, keys []string) string {
 		return raw
 	}
 	var out strings.Builder
-	multiline, depth := "", 0
 	skipping := false
-	for _, line := range strings.SplitAfter(raw, "\n") {
-		drop := skipping || (multiline == "" && depth == 0 && assignsKey(line, keys))
-		nextMultiline, nextDepth := TOMLLineState(line, multiline, depth)
-		if drop {
-			skipping = nextMultiline != "" || nextDepth > 0
+	for l := range tomlLines(strings.SplitAfter(raw, "\n")) {
+		if skipping || (l.Top && assignsKey(l.Text, keys)) {
+			skipping = l.Open
 		} else {
-			out.WriteString(line)
+			out.WriteString(l.Text)
 		}
-		multiline, depth = nextMultiline, nextDepth
 	}
 	return out.String()
 }
@@ -151,14 +147,34 @@ func assignsKey(line string, keys []string) bool {
 // FirstTopLevelHeaderIndex finds the first line whose "[" is a genuine top-level table header: outside
 // any multiline string and outside an open (possibly multiline) array; -1 when raw has none.
 func FirstTopLevelHeaderIndex(lines []string) int {
-	multiline, depth := "", 0
-	for i, line := range lines {
-		if multiline == "" && depth == 0 && strings.HasPrefix(strings.TrimSpace(line), "[") {
-			return i
+	for l := range tomlLines(lines) {
+		if l.Top && strings.HasPrefix(strings.TrimSpace(l.Text), "[") {
+			return l.Index
 		}
-		multiline, depth = TOMLLineState(line, multiline, depth)
 	}
 	return -1
+}
+
+// tomlLine is one line with its string/array state: Top before it (outside multiline strings and arrays), Open after.
+type tomlLine struct {
+	Index int
+	Text  string
+	Top   bool
+	Open  bool
+}
+
+// tomlLines yields every line in order with the multiline-string and bracket-depth state around it.
+func tomlLines(lines []string) iter.Seq[tomlLine] {
+	return func(yield func(tomlLine) bool) {
+		multiline, depth := "", 0
+		for i, text := range lines {
+			top := multiline == "" && depth == 0
+			multiline, depth = TOMLLineState(text, multiline, depth)
+			if !yield(tomlLine{Index: i, Text: text, Top: top, Open: multiline != "" || depth > 0}) {
+				return
+			}
+		}
+	}
 }
 
 // TOMLLineState extends tomlMultilineState with bracket depth, so a "["-led continuation line inside

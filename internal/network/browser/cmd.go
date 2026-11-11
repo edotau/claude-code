@@ -10,15 +10,30 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
+// browserFlags declares `network browser`'s flags on fs.
+func browserFlags(fs *flag.FlagSet) (setup *bool, name *string, dryRun *bool, format *string) {
+	setup = fs.Bool("setup", false, "repair what the harness owns for one browser and open its extension page")
+	name = fs.String("browser", "default", "chrome|edge|brave|arc|vivaldi|chromium|default (with --setup)")
+	dryRun = fs.Bool("dry-run", false, "describe the actions without running them (with --setup)")
+	format = helptext.FormatFlag(fs)
+	return
+}
+
+// Flags are the completion flags of `network browser`, derived from its FlagSet.
+func Flags() []helptext.Flag {
+	fs := helptext.NewFlagSet("network browser", helptext.Page{})
+	browserFlags(fs)
+	return helptext.FlagsOf(fs, map[string]func() []string{"browser": func() []string {
+		return []string{"chrome", "edge", "brave", "arc", "vivaldi", "chromium", "default"}
+	}})
+}
+
 // Cmd lists every installed browser's control paths and the system default; --setup repairs one.
 func Cmd(args []string) int {
 	fs := helptext.NewFlagSet("network browser", helptext.Page{Usage: "claude-code network browser [flags]",
 		About: "List every installed browser's control paths and the system default; --setup\n" +
 			"repairs what the harness owns for one and opens its extension page."})
-	setup := fs.Bool("setup", false, "repair what the harness owns for one browser and open its extension page")
-	name := fs.String("browser", "default", "chrome|edge|brave|arc|vivaldi|chromium|default (with --setup)")
-	dryRun := fs.Bool("dry-run", false, "describe the actions without running them (with --setup)")
-	format := helptext.FormatFlag(fs)
+	setup, name, dryRun, format := browserFlags(fs)
 	rest, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)

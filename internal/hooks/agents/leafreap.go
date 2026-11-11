@@ -18,7 +18,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // bgOutputPattern matches the Bash run_in_background result; Monitor results name no output path, so they are not reaped.
@@ -40,29 +39,17 @@ func init() {
 	}
 }
 
-// leafOutputFiles lists the task output files the leaf's own Bash tool results named, from its transcript.
-func leafOutputFiles(transcript string) []string {
-	f, err := os.Open(transcript)
-	if err != nil {
-		return nil
+// appendOutputFiles adds the task output files one transcript line's Bash tool results named that seen lacks.
+func appendOutputFiles(files []string, seen map[string]bool, b []byte) []string {
+	line := string(b)
+	if !strings.Contains(line, `"tool_result"`) {
+		return files
 	}
-	defer f.Close()
-	var files []string
-	seen := map[string]bool{}
-	err = textutil.EachLineErr(f, func(b []byte) {
-		line := string(b)
-		if !strings.Contains(line, `"tool_result"`) {
-			return
+	for _, m := range bgOutputPattern().FindAllStringSubmatch(line, -1) {
+		if !seen[m[1]] {
+			seen[m[1]] = true
+			files = append(files, m[1])
 		}
-		for _, m := range bgOutputPattern().FindAllStringSubmatch(line, -1) {
-			if !seen[m[1]] {
-				seen[m[1]] = true
-				files = append(files, m[1])
-			}
-		}
-	})
-	if err != nil {
-		return nil // an unreadable transcript reaps nothing
 	}
 	return files
 }
@@ -147,12 +134,12 @@ func anyGroupAlive(groups []int) bool {
 }
 
 // reapLeafBackground kills the process groups writing to the task outputs of the stopping leaf's own transcript.
-func reapLeafBackground(in *core.Input) {
+func reapLeafBackground(in *core.Input, lr leafRead) {
 	if in.AgentTranscriptPath == "" || !proc.Alive(os.Getpid()) {
 		return
 	}
 	var pids []int
-	for _, f := range leafOutputFiles(in.AgentTranscriptPath) {
+	for _, f := range lr.files {
 		pids = append(pids, reapHolders(f)...)
 	}
 	if groups := reapGroups(pids); len(groups) > 0 {

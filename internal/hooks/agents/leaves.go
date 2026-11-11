@@ -91,7 +91,7 @@ func Release(in *core.Input) core.Result {
 }
 
 // reapLeaf kills the stopping leaf's leftover background shells; set by leafreap.go where signals exist.
-var reapLeaf = func(*core.Input) {}
+var reapLeaf = func(*core.Input, leafRead) {}
 
 // Stop retires the stopping agent's claim by agent id (first stop retires; a second is a no-op).
 func Stop(in *core.Input) core.Result {
@@ -103,11 +103,12 @@ func Stop(in *core.Input) core.Result {
 	if in.AgentTranscriptPath != "" {
 		dirs = append([]string{filepath.Dir(in.AgentTranscriptPath)}, dirs...)
 	}
-	note, blocked := leafStopBlock(in, id)
+	lr := readLeaf(in.AgentTranscriptPath, leafWants(in))
+	note, blocked := leafGate(in, id, lr)
 	if blocked {
 		return note // a blocked stop retires nothing: the leaf is still running
 	}
-	reapLeaf(in)
+	reapLeaf(in, lr)
 	clearErr := docs.ClearStoppedClaim(in, dirs, id) // before the retire: it reads the same meta.json
 	for _, d := range dirs {
 		if d != "" {
@@ -131,28 +132,67 @@ var loadDispatch = func(id string) (job.Record, error) {
 	return r, err
 }
 
-// leafJobIDs lists the job ids the leaf's Bash tool results printed, in order; an unreadable transcript is an error.
-func leafJobIDs(path string) ([]string, error) {
-	if _, err := os.Stat(path); err != nil {
-		return nil, err
-	}
-	return transcript.DispatchIDs(path), nil
+// leafWant selects what one pass over a leaf transcript collects.
+type leafWant struct{ ids, brief, files bool }
+
+// leafWants is what the stop gates and the reaper read from the stopping leaf's transcript.
+func leafWants(in *core.Input) leafWant {
+	return leafWant{ids: in.Agent() == core.AgentClaude, brief: externalTypes[leafAgentType(in)], files: reapSupported}
 }
 
-// leafStopBlock returns a Block while a dispatch the stopping leaf started is alive; any error fails open.
-func leafStopBlock(in *core.Input, agentID string) (core.Result, bool) {
-	if in.Agent() != core.AgentClaude || in.AgentTranscriptPath == "" {
-		return core.Result{}, false
+// leafRead is one pass over a leaf transcript: its dispatch ids, brief scan and background output files.
+type leafRead struct {
+	ids, files []string
+	scan       leafScan
+	openErr    error // the transcript could not be opened
+	scanErr    error // reading stopped early: scan is partial and files are dropped
+}
+
+// readLeaf reads the transcript once; an empty path reads nothing and reports an open error.
+func readLeaf(path string, w leafWant) (r leafRead) {
+	if path == "" {
+		r.openErr = os.ErrNotExist
+		return r
 	}
-	ids, err := leafJobIDs(in.AgentTranscriptPath)
+	f, err := os.Open(path)
 	if err != nil {
+		r.openErr = err
+		return r
+	}
+	defer f.Close()
+	seenIDs, seenFiles := map[string]bool{}, map[string]bool{}
+	r.scanErr = textutil.EachLineErr(f, func(b []byte) {
+		if w.ids {
+			r.ids = transcript.AppendDispatchIDs(r.ids, seenIDs, b)
+		}
+		if w.files {
+			r.files = appendOutputFiles(r.files, seenFiles, b)
+		}
+		if w.brief {
+			r.scan.addLine(b)
+		}
+	})
+	if r.scanErr != nil {
+		r.files = nil // an unreadable transcript reaps nothing
+	}
+	return r
+}
+
+// leafStopBlock is leafGate over a fresh read of the leaf's transcript.
+func leafStopBlock(in *core.Input, agentID string) (core.Result, bool) {
+	return leafGate(in, agentID, readLeaf(in.AgentTranscriptPath, leafWants(in)))
+}
+
+// leafGate returns a Block while a dispatch the stopping leaf started is alive; any error fails open.
+func leafGate(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
+	if in.Agent() != core.AgentClaude || in.AgentTranscriptPath == "" || lr.openErr != nil {
 		return core.Result{}, false
 	}
-	expired, block := liveDispatchVerdict(ids, agentID)
+	expired, block := liveDispatchVerdict(lr.ids, agentID)
 	if block {
 		return expired, true
 	}
-	if res, block := ranOnVerdict(in, agentID); block || expired.SystemMessage == "" {
+	if res, block := ranOnVerdict(in, agentID, lr); block || expired.SystemMessage == "" {
 		return res, block
 	}
 	return expired, false
@@ -213,41 +253,33 @@ type leafToolResult struct {
 	Content json.RawMessage `json:"content"`
 }
 
-// leafBrief scans a leaf transcript for its first user message, tool results and hook blocks; assistant text never counts.
-func leafBrief(path string) (s leafScan, err error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return s, err
+// addLine reads one transcript line: its first user message, tool results and hook blocks; assistant text never counts.
+func (s *leafScan) addLine(b []byte) {
+	var m struct {
+		Type    string `json:"type"`
+		Message struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"message"`
 	}
-	defer f.Close()
-	err = textutil.EachLineErr(f, func(b []byte) {
-		var m struct {
-			Type    string `json:"type"`
-			Message struct {
-				Content json.RawMessage `json:"content"`
-			} `json:"message"`
+	if json.Unmarshal(b, &m) != nil || m.Type != "user" {
+		return
+	}
+	if s.brief == "" {
+		s.brief = transcript.ContentText(m.Message.Content)
+		return
+	}
+	var items []leafToolResult
+	if json.Unmarshal(m.Message.Content, &items) != nil { // a plain-text user turn: Stop/SubagentStop hook feedback
+		if text := transcript.ContentText(m.Message.Content); strings.Contains(text, "hook feedback:") && strings.Contains(text, ranOnGateMark) {
+			s.gates++
 		}
-		if json.Unmarshal(b, &m) != nil || m.Type != "user" {
-			return
+		return
+	}
+	for _, it := range items {
+		if it.Type == "tool_result" {
+			s.scanResult(it)
 		}
-		if s.brief == "" {
-			s.brief = transcript.ContentText(m.Message.Content)
-			return
-		}
-		var items []leafToolResult
-		if json.Unmarshal(m.Message.Content, &items) != nil { // a plain-text user turn: Stop/SubagentStop hook feedback
-			if text := transcript.ContentText(m.Message.Content); strings.Contains(text, "hook feedback:") && strings.Contains(text, ranOnGateMark) {
-				s.gates++
-			}
-			return
-		}
-		for _, it := range items {
-			if it.Type == "tool_result" {
-				s.scanResult(it)
-			}
-		}
-	})
-	return s, err
+	}
 }
 
 // scanResult reads one tool result: a ran-on line, a delivered hand-back, or a denied hand-back (a PreToolUse hook error).
@@ -292,13 +324,13 @@ var externalTypes = func() map[string]bool {
 func labelAgent(name string) bool { return name == agentid.Claude || externalTypes[name] }
 
 // ranOnVerdict blocks a gated leaf's stop or hand-back up to ranOnMaxBlocks times when no ran-on line was seen.
-func ranOnVerdict(in *core.Input, agentID string) (core.Result, bool) {
+func ranOnVerdict(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
 	t := leafAgentType(in)
 	if !externalTypes[t] { // only leaves that call an external agent: codex|copilot|gemini|opencode
 		return core.Result{}, false
 	}
-	s, err := leafBrief(in.AgentTranscriptPath)
-	if err != nil || s.ranOn {
+	s := lr.scan
+	if lr.scanErr != nil || s.ranOn {
 		return core.Result{}, false
 	}
 	if in.StopHookActive && s.gates == 0 { // a prior block the scan cannot read: fail open rather than trap the leaf

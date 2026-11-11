@@ -10,24 +10,37 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
+// searchFlags declares `network websearch`'s flags on fs.
+func searchFlags(fs *flag.FlagSet) (query *string, maxResults *int, extract *urlList) {
+	query = fs.String("query", "", "run one search and exit (skip the MCP server loop)")
+	maxResults = fs.Int("max-results", 5, "max results in one-shot mode")
+	extract = new(urlList)
+	fs.Var(extract, "extract", "print the page at URL as markdown (repeatable)")
+	return
+}
+
+// Flags are the completion flags of `network websearch`, derived from its FlagSet.
+func Flags() []helptext.Flag {
+	fs := helptext.NewFlagSet("network websearch", helptext.Page{})
+	searchFlags(fs)
+	return helptext.FlagsOf(fs, nil)
+}
+
 // Cmd runs the stdio MCP server when bare, or a one-shot Tavily print for a query or --query.
 func Cmd(args []string) int {
 	fs := helptext.NewFlagSet("network websearch", helptext.Page{
 		Usage: "claude-code network websearch [flags] [<query> | --extract <url>...]",
 		About: "Bare: the stdio MCP web-search server Claude Code runs. A query (or --query)\n" +
 			"prints one Tavily search and exits."})
-	query := fs.String("query", "", "run one search and exit (skip the MCP server loop)")
-	maxResults := fs.Int("max-results", 5, "max results in one-shot mode")
-	var extract urlList
-	fs.Var(&extract, "extract", "print the page at URL as markdown (repeatable)")
+	query, maxResults, extract := searchFlags(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if len(extract) > 0 {
+	if len(*extract) > 0 {
 		if *query != "" || fs.NArg() > 0 {
 			return helptext.FailUsage("network websearch: --extract cannot be combined with a query")
 		}
-		return Extract(context.Background(), extract)
+		return Extract(context.Background(), *extract)
 	}
 	if err := joinPositionalQuery(fs, query); err != nil {
 		return helptext.FailUsage("network websearch: %v", err)

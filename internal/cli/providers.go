@@ -22,10 +22,21 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
+// stdoutf writes formatted text to stdout in one write; a failure is returned, prefixed with prefix when set.
+func stdoutf(prefix, format string, a ...any) error {
+	if _, err := fmt.Fprintf(os.Stdout, format, a...); err != nil {
+		if prefix == "" {
+			return err
+		}
+		return fmt.Errorf("%s: %w", prefix, err)
+	}
+	return nil
+}
+
 // printLines prints each line of a rendered view, returning the first stdout write error.
 func printLines(lines []string) error {
 	for _, l := range lines {
-		if _, err := fmt.Fprintln(os.Stdout, l); err != nil {
+		if err := stdoutf("", "%s\n", l); err != nil {
 			return err
 		}
 	}
