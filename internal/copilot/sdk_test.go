@@ -329,7 +329,7 @@ func TestStartFleetSendsPromptAndWaits(t *testing.T) {
 	}
 }
 
-// Usage events sum across calls; the SDK's inputTokens include cache reads/writes, which agent.Usage keeps apart.
+// Usage events sum across calls; the SDK's inputTokens include cache reads/writes, which wire.Usage keeps apart.
 func TestAssistantCollectorSumsUsage(t *testing.T) {
 	n := func(v int64) *int64 { return &v }
 	var col assistantCollector

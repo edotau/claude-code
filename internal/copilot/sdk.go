@@ -417,7 +417,7 @@ func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
 	}
 }
 
-// addUsage sums one call's usage; the SDK's inputTokens include cache reads and writes, agent.Usage keeps them apart.
+// addUsage sums one call's usage; the SDK's inputTokens include cache reads and writes, wire.Usage keeps them apart.
 func (c *assistantCollector) addUsage(d *copilot.AssistantUsageData) {
 	in, out := tokenCount(d.InputTokens), tokenCount(d.OutputTokens)
 	read, write := tokenCount(d.CacheReadTokens), tokenCount(d.CacheWriteTokens)

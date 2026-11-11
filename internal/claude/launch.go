@@ -491,7 +491,7 @@ func newestInstalledClaude() string {
 	dir := filepath.Join(home, ".local", "share", "claude", "versions")
 	entries, _ := os.ReadDir(dir)
 	self, _ := paths.SelfBinary()
-	best := ""
+	best, newest := "", "0"
 	for _, e := range entries {
 		cand := filepath.Join(dir, e.Name())
 		fi, err := os.Stat(cand)
@@ -501,30 +501,11 @@ func newestInstalledClaude() string {
 		if real, _ := filepath.EvalSymlinks(cand); real == self {
 			continue
 		}
-		if best == "" || versionLess(filepath.Base(best), e.Name()) {
-			best = cand
+		if c, ok := textutil.CompareVersions(newest, e.Name()); ok && c < 0 { // a non-numeric folder name is skipped
+			best, newest = cand, e.Name()
 		}
 	}
 	return best
-}
-
-// versionLess compares dot-separated numeric fields (2.0.9 < 2.0.14).
-func versionLess(a, b string) bool {
-	as, bs := strings.Split(a, "."), strings.Split(b, ".")
-	for i := 0; i < len(as) && i < len(bs); i++ {
-		an, aerr := strconv.Atoi(as[i])
-		bn, berr := strconv.Atoi(bs[i])
-		if aerr != nil || berr != nil {
-			if as[i] != bs[i] {
-				return as[i] < bs[i]
-			}
-			continue
-		}
-		if an != bn {
-			return an < bn
-		}
-	}
-	return len(as) < len(bs)
 }
 
 // helperBin prefers the installed binary: the overlay file is shared, so a scratch build must never be baked in.
