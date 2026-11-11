@@ -507,6 +507,20 @@ func ValidateImport(pairs []vault.Pair) error {
 	return nil
 }
 
+// ImportablePairs keeps the pairs that validate; each one that does not joins problems by name, never by value.
+func ImportablePairs(pairs []vault.Pair, problems []string) ([]vault.Pair, []string) {
+	var ok []vault.Pair
+	out := slices.Clone(problems)
+	for _, p := range pairs {
+		if err := ValidateImport([]vault.Pair{p}); err != nil {
+			out = append(out, fmt.Sprintf("%s: %v", p.Name, err))
+			continue
+		}
+		ok = append(ok, p)
+	}
+	return ok, out
+}
+
 // StoreImport stores each pair in order, calling stored after each success; an error names the failing pair.
 func StoreImport(pairs []vault.Pair, stored func(name string)) error {
 	for _, p := range pairs {

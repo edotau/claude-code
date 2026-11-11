@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -241,12 +242,6 @@ func pickSubset[T any](title, doneNote string, items []T, label func(T) [2]strin
 	return out, nil
 }
 
-// Pick and Interactive are the arrow-key picker and terminal check, injected by internal/cli (see internal/cli/providers.go).
-var (
-	Pick        func(title string, rows [][2]string, start int) (int, error)
-	Interactive func() bool
-)
-
 // pickToggle is a checklist in the arrow-key picker (all checked at start); Done returns the marks, Esc cancels.
 func pickToggle(title, doneNote string, labels [][2]string) ([]bool, error) {
 	on := make([]bool, len(labels))
@@ -264,7 +259,7 @@ func pickToggle(title, doneNote string, labels [][2]string) ([]bool, error) {
 			rows = append(rows, [2]string{mark + " " + l[0], l[1]})
 		}
 		rows = append(rows, [2]string{"Done", doneNote})
-		i, err := Pick(title, rows, at)
+		i, err := tui.Pick(title, rows, at)
 		if err != nil {
 			return nil, err
 		}
@@ -281,7 +276,7 @@ func pickToggle(title, doneNote string, labels [][2]string) ([]bool, error) {
 // pickPairings leaves the engine deterministic and only asks about unresolved same-host sets.
 func pickPairings(cands []cfgCandidate, existing map[string]json.RawMessage, options importOptions) (map[string]string, error) {
 	choices := map[string]string{}
-	if Interactive == nil || !Interactive() {
+	if !tui.StdinIsTerminal() {
 		return choices, nil
 	}
 	plan := importPlan(cands, existing, options)
@@ -344,7 +339,7 @@ func pickHostPair(pairs [][2]cfgCandidate, host string, choices map[string]strin
 	for _, p := range pairs {
 		labels = append(labels, [2]string{p[1].Name + " <= SP " + p[0].Name, host})
 	}
-	at, err := Pick("Pair a service principal", labels, 0)
+	at, err := tui.Pick("Pair a service principal", labels, 0)
 	if err != nil {
 		return err
 	}
