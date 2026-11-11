@@ -79,7 +79,7 @@ func TestDiffUncommitted(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("untracked content\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := diff(context.Background(), dir, Scope{Kind: "uncommitted"})
+	out, err := diff(context.Background(), dir, diffScope{Kind: "uncommitted"})
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestDiffUntrackedQuotedNames(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			out, err := diff(context.Background(), dir, Scope{Kind: "uncommitted"})
+			out, err := diff(context.Background(), dir, diffScope{Kind: "uncommitted"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -149,7 +149,7 @@ func TestLastDispatchErrorBeyondOtherAgentsRecentJobs(t *testing.T) {
 
 func TestDiffUncommittedNothingInScope(t *testing.T) {
 	dir := initRepo(t)
-	if _, err := diff(context.Background(), dir, Scope{Kind: "uncommitted"}); err == nil || err.Error() != "nothing in scope" {
+	if _, err := diff(context.Background(), dir, diffScope{Kind: "uncommitted"}); err == nil || err.Error() != "nothing in scope" {
 		t.Fatalf("err = %v, want \"nothing in scope\"", err)
 	}
 }
@@ -163,7 +163,7 @@ func TestDiffBase(t *testing.T) {
 	runGit(t, dir, "add", "a.txt")
 	runGit(t, dir, "commit", "-q", "-m", "feature work")
 
-	out, err := diff(context.Background(), dir, Scope{Kind: "base", Ref: "main"})
+	out, err := diff(context.Background(), dir, diffScope{Kind: "base", Ref: "main"})
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestDiffCommit(t *testing.T) {
 	runGit(t, dir, "commit", "-q", "-m", "second")
 	sha := strings.TrimSpace(gitOut(t, dir, "rev-parse", "HEAD"))
 
-	out, err := diff(context.Background(), dir, Scope{Kind: "commit", Ref: sha})
+	out, err := diff(context.Background(), dir, diffScope{Kind: "commit", Ref: sha})
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestDiffMergeCommitUsesFirstParent(t *testing.T) {
 		t.Fatalf("fixture must have an empty default combined diff, got %q", combined)
 	}
 
-	out, err := diff(context.Background(), dir, Scope{Kind: "commit", Ref: sha})
+	out, err := diff(context.Background(), dir, diffScope{Kind: "commit", Ref: sha})
 	if err != nil {
 		t.Fatalf("clean merge commit must remain in review scope: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestDiffPR(t *testing.T) {
 	runGit(t, dir, "add", "a.txt")
 	runGit(t, dir, "commit", "-q", "-m", "pr work")
 
-	out, err := diff(context.Background(), dir, Scope{Kind: "pr"})
+	out, err := diff(context.Background(), dir, diffScope{Kind: "pr"})
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -267,14 +267,14 @@ func TestReviewPromptFocusAppended(t *testing.T) {
 	}
 }
 
-// ReviewArgs's temp file must survive for a detached background run, and be cleaned up immediately
+// reviewArgs's temp file must survive for a detached background run, and be cleaned up immediately
 // for a foreground run whose lifetime ends with this call.
 func TestReviewArgsCleanupLifecycle(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, background := range []bool{false, true} {
-		args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("diff content"), true, background, "", "", "")
+		args, cleanup, err := reviewArgs("codex", diffScope{Kind: "uncommitted"}, []byte("diff content"), true, background, "", "", "")
 		if err != nil {
-			t.Fatalf("ReviewArgs(background=%v): %v", background, err)
+			t.Fatalf("reviewArgs(background=%v): %v", background, err)
 		}
 		tmp := reviewAttachPath(t, args)
 		data, err := os.ReadFile(tmp)
@@ -312,12 +312,12 @@ func reviewAttachPath(t *testing.T, args []string) string {
 
 func TestReviewArgsShape(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "", "")
+	args, cleanup, err := reviewArgs("codex", diffScope{Kind: "uncommitted"}, []byte("d"), false, false, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cleanup()
-	assertReviewArgsPrefix(t, args)
+	assertreviewArgsPrefix(t, args)
 	if args[len(args)-1] != reviewPrompt(false, "") {
 		t.Errorf("last arg = %q, want the review prompt", args[len(args)-1])
 	}
@@ -328,7 +328,7 @@ func TestReviewArgsShape(t *testing.T) {
 	}
 }
 
-func assertReviewArgsPrefix(t *testing.T, args []string) {
+func assertreviewArgsPrefix(t *testing.T, args []string) {
 	t.Helper()
 	if len(args) < 6 || args[0] != "--agent" || args[1] != "codex" || args[2] != "--fallback" || args[3] != "agents" || args[4] != "--attach" {
 		t.Fatalf("args = %v, want [--agent codex --fallback agents --attach <tmp> <prompt>]", args)
@@ -337,7 +337,7 @@ func assertReviewArgsPrefix(t *testing.T, args []string) {
 
 func TestReviewArgsBackgroundFlag(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, true, "", "", "")
+	args, cleanup, err := reviewArgs("codex", diffScope{Kind: "uncommitted"}, []byte("d"), false, true, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +363,7 @@ func TestReviewArgsBackgroundFlag(t *testing.T) {
 func TestReviewArgsRubricPrecedesPrompt(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	// Given a rubric file; When args are built; Then "--rubric <f>" sits right before the trailing prompt
-	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "/tmp/rubric.md", "")
+	args, cleanup, err := reviewArgs("codex", diffScope{Kind: "uncommitted"}, []byte("d"), false, false, "", "/tmp/rubric.md", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +376,7 @@ func TestReviewArgsRubricPrecedesPrompt(t *testing.T) {
 
 func TestReviewArgsEmptyRubricEmitsNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "", "")
+	args, cleanup, err := reviewArgs("codex", diffScope{Kind: "uncommitted"}, []byte("d"), false, false, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +404,7 @@ func TestDiffInlinesUntrackedFileCapped(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "big.txt"), bytes.Repeat([]byte("z"), untrackedCap+100), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := diff(context.Background(), dir, Scope{Kind: "uncommitted"})
+	out, err := diff(context.Background(), dir, diffScope{Kind: "uncommitted"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +428,7 @@ func TestDiffOptionShapedRefIsNotAFlag(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "pwned")
 	for _, kind := range []string{"base", "commit"} {
 		ref := "--output=" + out // base form becomes --output=<out>...HEAD: a flag without --end-of-options
-		if _, err := diff(context.Background(), dir, Scope{Kind: kind, Ref: ref}); err == nil {
+		if _, err := diff(context.Background(), dir, diffScope{Kind: kind, Ref: ref}); err == nil {
 			t.Errorf("%s: Diff with option-shaped ref succeeded, want a bad-revision error", kind)
 		}
 		if m, _ := filepath.Glob(out + "*"); len(m) > 0 {
@@ -496,7 +496,7 @@ func TestDiffUntrackedTotalCapPartialFinalFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	out, err := diff(context.Background(), dir, Scope{Kind: "uncommitted"})
+	out, err := diff(context.Background(), dir, diffScope{Kind: "uncommitted"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,7 +534,7 @@ func TestDiffPRUsesOriginDefaultBranch(t *testing.T) {
 	runGit(t, dir, "checkout", "-q", "-b", "feature")
 	commitGitFile(t, dir, "one\nunpushed-on-local-main\nfeature-line\n", "feature")
 
-	out, err := diff(context.Background(), dir, Scope{Kind: "pr"})
+	out, err := diff(context.Background(), dir, diffScope{Kind: "pr"})
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -552,7 +552,7 @@ func TestDiffPRPassesEndOfOptions(t *testing.T) {
 	runGit(t, dir, "checkout", "-q", "-b", "feature")
 	commitGitFile(t, dir, "one\nfeature-line\n", "feature")
 
-	out, err := diff(context.Background(), dir, Scope{Kind: "pr"})
+	out, err := diff(context.Background(), dir, diffScope{Kind: "pr"})
 	if err != nil {
 		t.Fatalf("Diff with default branch %q: %v", "-main", err)
 	}
@@ -564,7 +564,7 @@ func TestDiffPRPassesEndOfOptions(t *testing.T) {
 func TestReviewArgsModelPrecedesPrompt(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	// Given a model; When args are built; Then "--model <m>" sits right before the trailing prompt, and "" emits none
-	args, cleanup, err := ReviewArgs("gemini", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "", "gemini-4-argon-high")
+	args, cleanup, err := reviewArgs("gemini", diffScope{Kind: "uncommitted"}, []byte("d"), false, false, "", "", "gemini-4-argon-high")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -573,7 +573,7 @@ func TestReviewArgsModelPrecedesPrompt(t *testing.T) {
 	if n < 3 || args[n-3] != "--model" || args[n-2] != "gemini-4-argon-high" || args[n-1] != reviewPrompt(false, "") {
 		t.Errorf("args tail = %v, want [--model gemini-4-argon-high <prompt>]", args[max(0, n-3):])
 	}
-	none, cleanup2, err := ReviewArgs("gemini", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "", "")
+	none, cleanup2, err := reviewArgs("gemini", diffScope{Kind: "uncommitted"}, []byte("d"), false, false, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

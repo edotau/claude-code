@@ -21,15 +21,15 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// Scope is the diff range `<v> review` acts on. Kind: uncommitted|base|commit|pr; Ref holds the
+// diffScope is the diff range `<v> review` acts on. Kind: uncommitted|base|commit|pr; Ref holds the
 // base branch (base), the sha (commit), or is empty (uncommitted, pr).
-type Scope struct{ Kind, Ref string }
+type diffScope struct{ Kind, Ref string }
 
 // parseScope validates that at most one scope flag was set; none selects uncommitted.
-func parseScope(uncommitted bool, base, commit string, pr bool) (Scope, error) {
+func parseScope(uncommitted bool, base, commit string, pr bool) (diffScope, error) {
 	for _, ref := range []string{base, commit} {
 		if strings.HasPrefix(ref, "-") {
-			return Scope{}, fmt.Errorf("review: --base/--commit ref %q must not start with -", ref)
+			return diffScope{}, fmt.Errorf("review: --base/--commit ref %q must not start with -", ref)
 		}
 	}
 	n := 0
@@ -39,17 +39,17 @@ func parseScope(uncommitted bool, base, commit string, pr bool) (Scope, error) {
 		}
 	}
 	if n > 1 {
-		return Scope{}, errors.New("review: at most one of --uncommitted, --base, --commit, --pr")
+		return diffScope{}, errors.New("review: at most one of --uncommitted, --base, --commit, --pr")
 	}
 	switch {
 	case base != "":
-		return Scope{Kind: "base", Ref: base}, nil
+		return diffScope{Kind: "base", Ref: base}, nil
 	case commit != "":
-		return Scope{Kind: "commit", Ref: commit}, nil
+		return diffScope{Kind: "commit", Ref: commit}, nil
 	case pr:
-		return Scope{Kind: "pr"}, nil
+		return diffScope{Kind: "pr"}, nil
 	default:
-		return Scope{Kind: "uncommitted"}, nil
+		return diffScope{Kind: "uncommitted"}, nil
 	}
 }
 
@@ -68,7 +68,7 @@ const untrackedTotalCap = 512 * 1024
 const binarySniff = 8 * 1024
 
 // diff materializes s's diff in cwd via proc. Empty content is an error, not an empty slice.
-func diff(ctx context.Context, cwd string, s Scope) ([]byte, error) {
+func diff(ctx context.Context, cwd string, s diffScope) ([]byte, error) {
 	var out string
 	var err error
 	switch s.Kind {
@@ -207,8 +207,8 @@ func reviewPrompt(adversarial bool, focus string) string {
 	return p
 }
 
-// ReviewArgs builds the `ask` argv for a review, attaching the diff as a temp file; cleanup removes it in foreground.
-func ReviewArgs(agentName string, s Scope, diff []byte, adversarial, background bool, focus, rubric, model string) ([]string, func(), error) {
+// reviewArgs builds the `ask` argv for a review, attaching the diff as a temp file; cleanup removes it in foreground.
+func reviewArgs(agentName string, s diffScope, diff []byte, adversarial, background bool, focus, rubric, model string) ([]string, func(), error) {
 	dir, err := paths.EnsureDispatchDir()
 	if err != nil {
 		return nil, nil, err

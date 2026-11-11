@@ -2,7 +2,6 @@ package ask
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -189,12 +188,7 @@ func Send(id, task, format string) int {
 // printLiveEnvelope writes the turn's envelope (one JSON line) or closing newline (text), returning any write failure.
 func printLiveEnvelope(env wire.Envelope, format string) error {
 	if format == helptext.JSON {
-		body, err := json.Marshal(env)
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Println(string(body))
-		return err
+		return printJSONLine(env)
 	}
 	if format == helptext.Text && env.Answer != "" && !strings.HasSuffix(env.Answer, "\n") {
 		_, err := fmt.Println()
@@ -262,12 +256,13 @@ func startLive(s *askState, perms agent.Permissions, name, as, format string) in
 		return failAsk(format, name, abandonLive(&rec, fmt.Errorf("live session %s did not start: %w (log: %s)", rec.ID, err, rec.Log)))
 	}
 	if format == helptext.JSON {
-		body, _ := json.Marshal(struct {
+		if err := printJSONLine(struct {
 			ID     string `json:"id"`
 			Socket string `json:"socket"`
 			Log    string `json:"log"`
-		}{rec.ID, agent.LiveSocket(rec.ID), rec.Log})
-		fmt.Println(string(body))
+		}{rec.ID, agent.LiveSocket(rec.ID), rec.Log}); err != nil {
+			return failAsk(format, name, err)
+		}
 		return 0
 	}
 	fmt.Printf("live session %s — claude-code agents send %s \"<task>\" · agents cancel %s · idle limit %s\n", rec.ID, rec.ID, rec.ID, agent.IdleOf(req))
