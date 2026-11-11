@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -142,13 +143,29 @@ func WriteList(w io.Writer, profile string, rows []Row, format string) error {
 	return nil
 }
 
-// Seal stores snapshot in the vault when it is new or freshly verified; sealed is false when skipped.
+// Refresh force re-lists p's endpoints and seals the result, which also warms the router's copy.
+func Refresh(ctx context.Context, p *providers.Provider) error {
+	snapshot, err := serving.Discover(ctx, p, true)
+	if err != nil {
+		return err
+	}
+	_, err = Seal(p, snapshot, false)
+	return err
+}
+
+// Seal stores snapshot in the vault when it is new or freshly verified, then copies a live listing to the router.
 func Seal(p *providers.Provider, snapshot serving.Snapshot, verified bool) (sealed bool, err error) {
 	if snapshot.CacheHit && !verified {
 		return false, nil
 	}
 	if err := serving.Save(p, snapshot); err != nil {
 		return false, err
+	}
+	if snapshot.CacheHit {
+		return true, nil
+	}
+	if err := router.WarmServed(p.Name, snapshot.Models, snapshot.DiscoveredAt); err != nil {
+		return true, fmt.Errorf("served listing not saved: %w", err)
 	}
 	return true, nil
 }

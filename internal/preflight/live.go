@@ -340,12 +340,15 @@ func DiscoverAfterAuth(reg *providers.Registry) {
 	}
 }
 
-// listModels is the live workspace listing; a seam for tests.
-var listModels = providers.ListModels
+// refresh is the serving rows' live listing into the vault snapshot and the router's copy; a seam for tests.
+var refresh = catalog.Refresh
 
-// fetch lists p's endpoints live and caches them.
+// fetch lists p's endpoints live and caches them: serving rows in the vault snapshot and the router's copy.
 func fetch(ctx context.Context, p *providers.Provider, now time.Time) error {
-	infos, err := listModels(ctx, p)
+	if !p.IsAIGateway() {
+		return refresh(ctx, p)
+	}
+	infos, err := providers.ListModels(ctx, p)
 	if err != nil {
 		return err
 	}

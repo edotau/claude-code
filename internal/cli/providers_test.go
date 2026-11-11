@@ -170,6 +170,10 @@ func dbxCLIServer(t *testing.T) (*httptest.Server, *[]string) {
 	t.Helper()
 	var got []string
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/scim/v2/Me") { // the identity check, not a listing request
+			_, _ = w.Write([]byte(`{"id":"u1","active":true}`))
+			return
+		}
 		got = append(got, r.URL.Path+"|"+r.Header.Get("Authorization"))
 		_, _ = w.Write([]byte(providersDbxListing))
 	}))

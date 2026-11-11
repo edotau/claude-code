@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -137,10 +138,10 @@ func TestInstallStepSharesBudget(t *testing.T) {
 	setPins(t, map[string]string{"CODEX_MODEL": "m"})
 	old := Budget
 	Budget = 300 * time.Millisecond
-	t.Cleanup(func() { Budget = old; listModels = providers.ListModels })
-	listModels = func(ctx context.Context, _ *providers.Provider) ([]providers.ModelInfo, error) {
+	t.Cleanup(func() { Budget = old; refresh = catalog.Refresh })
+	refresh = func(ctx context.Context, _ *providers.Provider) error {
 		<-ctx.Done()
-		return nil, ctx.Err()
+		return ctx.Err()
 	}
 	runAsk = func(ctx context.Context, _, _, _ string) (wire.Envelope, error) {
 		<-ctx.Done()
