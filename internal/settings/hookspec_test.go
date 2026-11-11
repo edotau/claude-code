@@ -77,11 +77,8 @@ func TestPlanHooksRegistered(t *testing.T) {
 func checkDocsPlacement(t *testing.T, byName map[string]EventSpec, docsCount int) {
 	t.Helper()
 	docs, ok := byName["docs-placement"]
-	if !ok || docsCount != 1 || docs.Group != "docs" || docs.Event != EventPreToolUse || docs.Matcher != "Write|Edit" || !docs.Blocks {
+	if !ok || docsCount != 1 || docs.Event != EventPreToolUse || docs.Matcher != "Write|Edit" || !docs.Blocks {
 		t.Fatalf("docs-placement = %+v, ok=%v, count=%d", docs, ok, docsCount)
-	}
-	if g, _ := GroupOf("docs-placement"); g.Gate {
-		t.Fatal("docs group is a gate group; docs-placement must run inside the dispatcher")
 	}
 }
 
@@ -175,10 +172,11 @@ func TestGroupRenderOneEntryPerEvent(t *testing.T) {
 
 func ownEntriesPerEvent() map[string]int {
 	own := map[string]int{}
-	for _, s := range Specs() {
-		g, _ := GroupOf(s.Name)
-		if !g.AgentOnly && (g.Gate || s.Async) {
-			own[s.Event]++
+	for _, g := range Registry {
+		for _, s := range g.Events {
+			if !g.AgentOnly && (g.Gate || s.Async) {
+				own[s.Event]++
+			}
 		}
 	}
 	return own
@@ -278,10 +276,8 @@ func TestSpecsFor(t *testing.T) {
 		{"copilot", "native", -1, "safety-scan", "rtk-rewrite", nil},
 		{"copilot", "native", -1, "format-stop", "memory-start", nil},
 		{"copilot", "native", -1, "memory-end", "memory-start", nil},
-		{"copilot", "sdk", len(names("copilot", "native")), "memory-recall", "rtk-rewrite", nil},
-		{"codex", "sdk", 0, "", "", nil},
-		{"opencode", "hosted", 14, "memory-end", "worktree-busy", []string{
-			"docs-placement", "docs-plan-gate", "docs-plan-mirror", "docs-plan-reminder", "docs-plan-skeleton-prompt",
+		{"opencode", "hosted", 13, "memory-end", "worktree-busy", []string{
+			"docs-placement", "docs-plan-gate", "docs-plan-mirror", "docs-plan-reminder",
 			"docs-plan-tick", "format-stop", "memory-end", "memory-recall", "memory-start", "memory-update",
 			"paths-resolve", "review-simplicity", "safety-scan"}},
 		{"opencode", "plugin", 5, "worktree-claim-check", "memory-end", nil},
@@ -310,7 +306,7 @@ func TestSpecAgentsAreRoster(t *testing.T) {
 		for _, list := range [][]string{s.Agents, s.Hosted, s.Plugin} {
 			for _, a := range list {
 				if !agentid.Known(a) {
-					t.Errorf("%s/%s names agent %q, not in agentid.All()", s.Group, s.Name, a)
+					t.Errorf("%s/%s names agent %q, not in agentid.All()", s.Event, s.Name, a)
 				}
 			}
 		}

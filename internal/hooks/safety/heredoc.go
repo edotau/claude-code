@@ -214,7 +214,7 @@ func catRedirects(toks []string) bool {
 
 // runsWrittenFile matches a command that executes a file (a shell, source, ., exec, an interpreter or chmod +x).
 var runsWrittenFile = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?m)(^|[;&|\s])(bash|sh|zsh|source|exec|python3?|node|perl|ruby)\s|(^|[;&|])\s*\.\s|chmod\s+\+?[0-7]*x`)
+	return regexp.MustCompile(`(?m)(^|[;&|\s])(bash|sh|zsh|source|exec|python3?|node|perl|ruby)\s|(^|[;&|])\s*\.[\s/]|chmod\s+[-+=,ugoarwXst0-7]*x`)
 })
 
 // dropDataHeredocs removes quoted-delimiter `cat > f`/`tee f` heredoc bodies so hard rule 4 never asks on text written

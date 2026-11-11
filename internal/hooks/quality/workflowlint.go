@@ -41,7 +41,7 @@ func WorkflowResult(in *core.Input) core.Result {
 		}
 		return workflowInline(in, script)
 	}
-	if path := paths.ExpandHome(in.Nested("tool_input", "scriptPath")); path != "" {
+	if path := core.AnchorPath(paths.ExpandHome(in.Nested("tool_input", "scriptPath")), in.CWD); path != "" {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return core.Result{} // fail open: the tool reports an unreadable scriptPath itself
@@ -60,7 +60,7 @@ func WorkflowResult(in *core.Input) core.Result {
 func workflowInline(in *core.Input, script string) core.Result {
 	model := models.AliasModel(models.EffortMedium)
 	out, amb := FillModel(script, model)
-	vals := badPinValueHits(LintPins(workflowLintName, []byte(out)))
+	vals := badPinValues(workflowLintName, out)
 	if len(amb) > 0 || len(vals) > 0 {
 		var b strings.Builder
 		b.WriteString("dispatch-effort: blocked — an unpinned leaf runs on the session model (settings" +
@@ -140,9 +140,9 @@ func workflowsDir() string {
 	return ""
 }
 
-// lintSaved returns the pin problems worth blocking on in a saved script's bytes.
+// lintSaved is the pin problems worth blocking on in a saved script (it can't be rewritten, so no effort check).
 func lintSaved(path string, data []byte) []string {
-	return withoutEffortOnly(LintPins(path, data))
+	return lintPins(path, string(data), false)
 }
 
 // blockSavedLint is the saved-script block naming path and its pin problems.
@@ -150,29 +150,6 @@ func blockSavedLint(path string, hits []string) core.Result {
 	return core.Result{Decision: core.Block, Reason: fmt.Sprintf(
 		"dispatch-effort: blocked — %d agent() pin problem(s) in %s; edit the file and re-run:\n%s",
 		len(hits), path, strings.Join(hits, "\n"))}
-}
-
-// badPinValueHits keeps only the bad-literal-value messages from a LintPins result.
-func badPinValueHits(msgs []string) []string {
-	var out []string
-	for _, m := range msgs {
-		if strings.Contains(m, "is not one of") {
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
-// withoutEffortOnly drops the missing-effort messages — a saved script can't be rewritten, so only a
-// missing model/agentType or a bad pin value is worth blocking on here.
-func withoutEffortOnly(msgs []string) []string {
-	var out []string
-	for _, m := range msgs {
-		if !strings.Contains(m, "without effort:") {
-			out = append(out, m)
-		}
-	}
-	return out
 }
 
 // filledModelLines is the line numbers FillModel actually rewrote: every missing-model/agentType hit
@@ -183,13 +160,8 @@ func filledModelLines(script string, ambiguous []string) []string {
 		skip[strings.TrimPrefix(a, "line ")] = true
 	}
 	var lines []string
-	for _, m := range LintPins(workflowLintName, []byte(script)) {
-		if !strings.Contains(m, "without model:") {
-			continue
-		}
-		rest := strings.TrimPrefix(m, workflowLintName+":")
-		line := rest[:strings.IndexByte(rest, ':')]
-		if !skip[line] {
+	for _, hit := range unpinnedAgentCalls(workflowLintName, script) {
+		if line := strings.TrimPrefix(hit, workflowLintName+":"); !skip[line] {
 			lines = append(lines, line)
 		}
 	}

@@ -244,11 +244,11 @@ func (v claimView) editCheck() core.Result {
 
 // dirtySet is dir's repo toplevel and its dirty paths (absolute, untracked included); "" top outside a repo.
 func dirtySet(ctx context.Context, dir string) (string, map[string]bool, error) {
-	out, ok, err := core.Git(ctx, dir, "rev-parse", "--show-toplevel")
-	if err != nil || !ok {
-		return "", nil, err
+	top, _ := paths.CheckoutOf(dir)
+	if top == "" {
+		return "", nil, nil
 	}
-	top := core.CanonPath(out[0])
+	top = core.CanonPath(top)
 	raw, err := proc.RunGit(ctx, top, "status", "--porcelain", "-z", "--untracked-files=all")
 	if err != nil {
 		return "", nil, fmt.Errorf("git status in %s: %w", top, err)
@@ -613,37 +613,28 @@ func stageFlag(verb, a string) (takesValue, stagesAll bool) {
 	return commitValueFlags[a] || valueCluster(a), a == "--all" || clusterHas(a, 'a')
 }
 
-// valueCluster is a short-flag cluster such as -am whose value flag is last, so the value is the next word;
-// a value flag with more letters after it (-mc) or -u/-S (-um) takes them as an attached value.
-func valueCluster(a string) bool {
-	if len(a) < 3 || a[0] != '-' || a[1] == '-' {
-		return false
+// clusterStops are the short git commit letters that take a value, attached (-u/-S) or from the next word.
+const clusterStops = "uSmFCct"
+
+// shortCluster is the letters of a short-flag cluster such as -am; "" for a long flag, a lone dash or a word.
+func shortCluster(a string) string {
+	if len(a) < 2 || a[0] != '-' || a[1] == '-' {
+		return ""
 	}
-	for i := 1; i < len(a); i++ {
-		switch {
-		case strings.IndexByte("uS", a[i]) >= 0:
-			return false
-		case strings.IndexByte("mFCct", a[i]) >= 0:
-			return i == len(a)-1
-		}
-	}
-	return false
+	return a[1:]
 }
 
-// clusterHas reports a short-flag cluster holding letter before any value-taking letter (-u/-S/-m/-F/-C/-c/-t).
+// valueCluster is a cluster such as -am whose last letter takes the next word; -mc or -um attach it instead.
+func valueCluster(a string) bool {
+	c := shortCluster(a)
+	return len(c) > 1 && strings.IndexAny(c, clusterStops) == len(c)-1 && strings.IndexByte("mFCct", c[len(c)-1]) >= 0
+}
+
+// clusterHas reports a short-flag cluster holding letter before any value-taking letter.
 func clusterHas(a string, letter byte) bool {
-	if len(a) < 2 || a[0] != '-' || a[1] == '-' {
-		return false
-	}
-	for i := 1; i < len(a); i++ {
-		if a[i] == letter {
-			return true
-		}
-		if strings.IndexByte("uSmFCct", a[i]) >= 0 {
-			return false
-		}
-	}
-	return false
+	c := shortCluster(a)
+	i, stop := strings.IndexByte(c, letter), strings.IndexAny(c, clusterStops)
+	return i >= 0 && (stop < 0 || i < stop)
 }
 
 // underAny reports whether p equals or sits under one of scopes.

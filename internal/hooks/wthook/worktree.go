@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
@@ -165,8 +166,15 @@ func newRun(ctx context.Context, in *core.Input) *hookRun {
 	return r
 }
 
+// busyScanTTL is how long the state file's mtime vouches for the last peer scan (about 300 ms of git and lsof).
+var busyScanTTL = time.Minute
+
 // busyLine returns the peer notice and any process-scan or dedupe-state error.
 func busyLine(in *core.Input, run *hookRun) (string, error) {
+	file := filepath.Join(paths.StateDir(), "worktree-busy", sessionSlug(in.SessionID))
+	if st, err := os.Stat(file); err == nil && st.Mode().IsRegular() && time.Since(st.ModTime()) < busyScanTTL {
+		return "", nil
+	}
 	c := run.checkout()
 	top, branch := c.top, c.branch
 	if top == "" {
@@ -182,12 +190,12 @@ func busyLine(in *core.Input, run *hookRun) (string, error) {
 	}
 	sort.Strings(ids)
 	key := strings.Join(ids, ",")
-	file := filepath.Join(paths.StateDir(), "worktree-busy", sessionSlug(in.SessionID))
-	if prev, _ := os.ReadFile(file); string(prev) == key {
-		return "", nil
-	}
-	if err = paths.AtomicWrite(file, []byte(key), 0o600); err != nil {
+	prev, _ := os.ReadFile(file)
+	if err = paths.AtomicWrite(file, []byte(key), 0o600); err != nil { // rewritten when unchanged: it refreshes the TTL
 		err = fmt.Errorf("write peer state %s: %w", file, err)
+	}
+	if string(prev) == key {
+		return "", err
 	}
 	if len(peers) == 0 {
 		return "", err
@@ -205,13 +213,11 @@ func CheckoutOf(ctx context.Context, cwd string) (top, branch string, nested []s
 		}
 		return strings.TrimSpace(out)
 	}
-	top = git("rev-parse", "--show-toplevel")
+	top, _ = paths.CheckoutOf(cwd)
 	if top == "" {
 		return "", "", nil
 	}
-	if real, err := filepath.EvalSymlinks(top); err == nil {
-		top = real
-	}
+	top = paths.Canon(top)
 	branch = git("rev-parse", "--abbrev-ref", "HEAD")
 	var others []string
 	for line := range strings.SplitSeq(git("worktree", "list", "--porcelain"), "\n") {
@@ -284,9 +290,9 @@ func noticeContext(ctx context.Context, in *core.Input, run *hookRun) (text, war
 
 // divergence is a checkout whose HEAD and upstream both have commits the other lacks.
 type divergence struct {
-	top, head, up, branch, upName string
-	ahead, behind                 int
-	rewritten                     bool // some commit's patch sits on both sides
+	head, up, branch, upName string
+	ahead, behind            int
+	rewritten                bool // some commit's patch sits on both sides
 }
 
 // divergedLine names a shared checkout's local/upstream divergence once per (HEAD, upstream) pair; "" otherwise.
@@ -306,8 +312,8 @@ func divergedLine(ctx context.Context, in *core.Input, run *hookRun) (string, er
 	if d.rewritten {
 		why = "a commit was rewritten; do not commit until it is reconciled"
 	}
-	return fmt.Sprintf("local %s diverged from %s (ahead %d, behind %d): %s%s", d.branch, d.upName, d.ahead, d.behind,
-		why, d.authors(ctx, in)), nil
+	return fmt.Sprintf("local %s diverged from %s (ahead %d, behind %d): %s", d.branch, d.upName, d.ahead, d.behind,
+		why), nil
 }
 
 // divergedAt reads dir's ahead/behind counts against its upstream; nil when there is no upstream or no divergence.
@@ -331,7 +337,7 @@ func divergedAt(ctx context.Context, dir string) (*divergence, error) {
 		return nil, err
 	}
 	rewritten := slices.ContainsFunc(marked, func(l string) bool { return strings.HasPrefix(l, "=") && hasPatch(ctx, ids[0], l[1:]) })
-	return &divergence{top: ids[0], head: ids[1], up: ids[2], branch: ids[3], upName: ids[4], ahead: a, behind: b,
+	return &divergence{head: ids[1], up: ids[2], branch: ids[3], upName: ids[4], ahead: a, behind: b,
 		rewritten: rewritten}, nil
 }
 
@@ -363,49 +369,4 @@ func checkoutShared(run *hookRun) (bool, error) {
 	}
 	peers, err := run.peers()
 	return len(peers) > 0, err
-}
-
-// authors names, from the claims ledger, whose commits sit on each side; "" when the ledger knows none.
-func (d *divergence) authors(ctx context.Context, in *core.Input) string {
-	byCommit := map[string]string{}
-	self := sessionSlug(in.SessionID)
-	_ = worktree.ScanClaims(claimAlive, func(pid int, slug string, c worktree.Claim) {
-		if c.Commit != "" {
-			byCommit[c.Commit] = worktree.Label(pid, slug, c.Agent)
-			if slug == self {
-				byCommit[c.Commit] = "this session"
-			}
-		}
-	})
-	if len(byCommit) == 0 {
-		return ""
-	}
-	var parts []string
-	for _, side := range [][2]string{{"ahead", d.up + ".." + d.head}, {"behind", d.head + ".." + d.up}} {
-		if who := committers(ctx, d.top, side[1], byCommit); len(who) > 0 {
-			parts = append(parts, side[0]+": "+strings.Join(who, ", "))
-		}
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return " (" + strings.Join(parts, "; ") + ")"
-}
-
-// committers maps the commits in rng (at most 50) to the claimants whose short shas prefix them.
-func committers(ctx context.Context, top, rng string, byCommit map[string]string) []string {
-	shas, ok, err := core.Git(ctx, top, "rev-list", "--max-count=50", rng)
-	if err != nil || !ok {
-		return nil
-	}
-	var who []string
-	for _, sha := range shas {
-		for short, label := range byCommit {
-			if len(short) >= 7 && strings.HasPrefix(sha, short) && !slices.Contains(who, label) {
-				who = append(who, label)
-			}
-		}
-	}
-	slices.Sort(who)
-	return who
 }

@@ -330,27 +330,6 @@ func profileApplies(st, task string) bool {
 	return briefProfile(task) != "" && !readOnlyTypes[st] && !inContextBrief(task)
 }
 
-// modeCompareRe matches a `Mode: compare` line in a brief.
-var modeCompareRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?im)^\s*Mode:\s*compare\b`) })
-
-// agentLabel is the "a → b" (relay) or "a, b" (`Mode: compare`) label the `Agent:` line earns, or "" when there is none.
-func agentLabel(st, task string) string {
-	m := agentLineRe().FindStringSubmatch(task)
-	if m == nil && briefProfile(task) == "" {
-		return ""
-	}
-	var names []string
-	for _, w := range briefAgents(task) {
-		if w != st {
-			names = append(names, w)
-		}
-	}
-	if modeCompareRe().MatchString(task) { // a compare fans out in parallel: names, not a chain
-		return profileSuffix(strings.Join(names, ", "), task)
-	}
-	return profileSuffix(strings.Join(names, " → "), task)
-}
-
 // lowerFirst lowercases desc's first letter unless its first word looks like an acronym or identifier.
 func lowerFirst(desc string) string {
 	word := strings.TrimRight(strings.Fields(desc + " x")[0], ".,:;!?")
@@ -546,7 +525,7 @@ func discoveryHint(st, task string) string {
 		return ""
 	}
 	hit := st == "copilot" || st == "opencode"
-	for _, w := range agentNameRe().FindAllString(agentLabel(st, task), -1) {
+	for _, w := range briefAgents(task) {
 		hit = hit || w == "copilot" || w == "opencode"
 	}
 	if !hit {
@@ -646,15 +625,6 @@ func routeProfile(updated map[string]any, promptField, task, p string) (note str
 		note = "dispatch-effort: Profile: " + p + " — leaf must run `" + strings.Join(cmds, "`, `") + "`."
 	}
 	return note
-}
-
-// profileSuffix appends `·<profile>` to a label unless it already ends with that name.
-func profileSuffix(label, task string) string {
-	p := briefProfile(task)
-	if p == "" || label == "" || strings.HasSuffix(label, p) {
-		return label
-	}
-	return label + "·" + p
 }
 
 var routeLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]*Route:[ \t]*(\S+)`) })

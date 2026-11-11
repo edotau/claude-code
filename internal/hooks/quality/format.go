@@ -33,10 +33,8 @@ func formatFile(path string) bool {
 	case "py":
 		return formatPython(path)
 	case "js", "jsx", "mjs", "cjs", "ts", "tsx", "json", "css", "scss", "html", "md", "yaml", "yml":
-		if !hasPrettierConfig(path) {
-			return false
-		}
-		return run("", "prettier", "--write", "--log-level", "warn", path)
+		root := prettierRoot(path)
+		return root != "" && run(root, "prettier", "--write", "--log-level", "warn", path)
 	case "sh", "bash":
 		return run("", "shfmt", "-w", path)
 	}
@@ -269,11 +267,13 @@ func pythonProject(path string) (string, map[string]bool) {
 	return root, tools
 }
 
-// resolveTool prefers the project's .venv, then PATH; "" when absent.
+// resolveTool prefers the project's .venv and node_modules/.bin, then PATH; "" when absent.
 func resolveTool(root, name string) string {
 	if root != "" {
-		if p := filepath.Join(root, ".venv", "bin", name); isExec(p) {
-			return p
+		for _, bin := range []string{filepath.Join(".venv", "bin"), filepath.Join("node_modules", ".bin")} {
+			if p := filepath.Join(root, bin, name); isExec(p) {
+				return p
+			}
 		}
 	}
 	if p, err := exec.LookPath(name); err == nil {
@@ -335,8 +335,8 @@ var prettierConfigs = []string{
 	"prettier.config.cts",
 }
 
-// hasPrettierConfig reports an ancestor (≤8 levels) with a prettier config or package.json entry (monorepo roots too).
-func hasPrettierConfig(path string) bool {
+// prettierRoot is the nearest ancestor (≤8 levels) with a prettier config or package.json entry, or "".
+func prettierRoot(path string) string {
 	return walkUp(path, func(dir string) bool {
 		for _, name := range prettierConfigs {
 			if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
@@ -344,7 +344,7 @@ func hasPrettierConfig(path string) bool {
 			}
 		}
 		return packageDeclaresPrettier(filepath.Join(dir, "package.json"))
-	}) != ""
+	})
 }
 
 // packageDeclaresPrettier reports a package.json with a "prettier" key or a prettier (dev)dependency.

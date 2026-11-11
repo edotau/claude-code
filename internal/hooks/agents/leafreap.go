@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/proc"
 )
 
 // bgOutputPattern matches the Bash run_in_background result; Monitor results name no output path, so they are not reaped.
@@ -33,18 +32,12 @@ var (
 	reapSleep   = time.Sleep
 )
 
-func init() {
-	if reapSupported {
-		reapLeaf = reapLeafBackground
-	}
-}
-
 // appendOutputFiles adds the task output files one transcript line's Bash tool results named that seen lacks.
 func appendOutputFiles(files []string, seen map[string]bool, b []byte) []string {
-	line := string(b)
-	if !strings.Contains(line, `"tool_result"`) {
+	if !bytes.Contains(b, []byte(`"tool_result"`)) {
 		return files
 	}
+	line := string(b)
 	for _, m := range bgOutputPattern().FindAllStringSubmatch(line, -1) {
 		if !seen[m[1]] {
 			seen[m[1]] = true
@@ -54,22 +47,33 @@ func appendOutputFiles(files []string, seen map[string]bool, b []byte) []string 
 	return files
 }
 
-// outputHolders returns the pids whose stdout or stderr is the given file; every error yields none.
-func outputHolders(path string) []int {
+// outputHolders returns the pids whose stdout or stderr is one of the files, in a single scan; every error yields none.
+func outputHolders(files []string) []int {
+	if len(files) == 0 {
+		return nil
+	}
 	if runtime.GOOS != "linux" {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		out, err := exec.CommandContext(ctx, "lsof", "-a", "-d", "1,2", "-t", "--", path).Output() // stdout/stderr only, like /proc
+		args := append([]string{"-a", "-d", "1,2", "-t", "--"}, files...) // stdout/stderr only, like /proc
+		out, err := exec.CommandContext(ctx, "lsof", args...).Output()
 		if err != nil && len(out) == 0 {
 			return nil
 		}
 		return parsePids(out)
 	}
+	want := map[string]bool{}
+	for _, f := range files {
+		if real, err := filepath.EvalSymlinks(f); err == nil {
+			f = real // /proc names the resolved path, so a symlinked $TMPDIR still matches
+		}
+		want[f] = true
+	}
 	var pids []int
 	for _, fd := range []string{"1", "2"} {
 		links, _ := filepath.Glob("/proc/[0-9]*/fd/" + fd)
 		for _, l := range links {
-			if dst, err := os.Readlink(l); err == nil && dst == path {
+			if dst, err := os.Readlink(l); err == nil && want[strings.TrimSuffix(dst, " (deleted)")] {
 				if pid, err := strconv.Atoi(strings.Split(l, "/")[2]); err == nil {
 					pids = append(pids, pid)
 				}
@@ -135,14 +139,10 @@ func anyGroupAlive(groups []int) bool {
 
 // reapLeafBackground kills the process groups writing to the task outputs of the stopping leaf's own transcript.
 func reapLeafBackground(in *core.Input, lr leafRead) {
-	if in.AgentTranscriptPath == "" || !proc.Alive(os.Getpid()) {
+	if in.AgentTranscriptPath == "" {
 		return
 	}
-	var pids []int
-	for _, f := range lr.files {
-		pids = append(pids, reapHolders(f)...)
-	}
-	if groups := reapGroups(pids); len(groups) > 0 {
+	if groups := reapGroups(reapHolders(lr.files)); len(groups) > 0 {
 		terminateGroups(groups)
 		fmt.Fprintf(os.Stderr, "dispatch-stop: reaped %d leftover background group(s)\n", len(groups))
 	}

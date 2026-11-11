@@ -32,8 +32,8 @@ func useClaimOwner(t *testing.T, pid int) {
 // liveOwner and deadOwner are the fake session owner pids the claims tests file under; checkerOwner runs the check.
 const liveOwner, deadOwner, checkerOwner = 100, 200, 300
 
-// TestWorktreeClaimRecordsEditsAndCommits: an Edit appends its path, a commit its sha; no session writes nothing.
-func TestWorktreeClaimRecordsEditsAndCommits(t *testing.T) {
+// TestWorktreeClaimRecordsEdits: an Edit appends its path; no session writes nothing.
+func TestWorktreeClaimRecordsEdits(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	useClaimOwner(t, liveOwner)
 	dir := core.CanonPath(t.TempDir())
@@ -44,13 +44,9 @@ func TestWorktreeClaimRecordsEditsAndCommits(t *testing.T) {
 	}
 	Claim(claimInput(t, map[string]any{"session_id": "S1", "agent_id": "leaf1", "cwd": dir,
 		"tool_name": "Edit", "tool_input": map[string]any{"file_path": "a.txt"}}))
-	Claim(claimInput(t, map[string]any{"session_id": "S1", "cwd": dir, "tool_name": "Bash",
-		"tool_input":    map[string]any{"command": "git commit -m x"},
-		"tool_response": map[string]any{"stdout": "[main 1a2b3c4] x\n 1 file changed\n"}}))
 	got := readClaims(t, claimsFile(liveOwner, "S1"))
-	want := []claim{{Schema: claimsSchema, Path: filepath.Join(dir, "a.txt"), Agent: "leaf1"},
-		{Schema: claimsSchema, Commit: "1a2b3c4"}}
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+	want := []claim{{Schema: claimsSchema, Path: filepath.Join(dir, "a.txt"), Agent: "leaf1"}}
+	if len(got) != len(want) || got[0] != want[0] {
 		t.Fatalf("claims = %+v; want %+v (ts aside)", got, want)
 	}
 }

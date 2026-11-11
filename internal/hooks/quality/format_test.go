@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 )
 
@@ -175,7 +176,7 @@ func TestFormatPythonPartialFailureRemainsRetryable(t *testing.T) {
 	if err := os.WriteFile(black, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	eligible, _ := selectForFormat(root, []string{filepath.Join("pkg", "m.py")}, stamps, map[string]bool{py: true})
+	eligible, _ := selectForFormat(root, []string{filepath.Join("pkg", "m.py")}, stamps, map[string]bool{core.CanonPath(py): true})
 	if retried := formatAll(eligible); len(retried) != 1 {
 		t.Fatal("the unchanged file must be retried and stamped once black succeeds")
 	}

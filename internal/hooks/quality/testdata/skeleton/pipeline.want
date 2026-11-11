@@ -7,8 +7,8 @@ export const meta = {
 const ITEMS = args ?? []   // pass the work-list via Workflow `args`
 const results = await pipeline(
   ITEMS,
-  (item) => agent(`Do the work for: ${JSON.stringify(item)}`, {phase: 'Work', schema: WORK_SCHEMA}),
-  (work, item) => agent(`Adversarially verify: ${work.summary}`, {phase: 'Verify', schema: VERDICT_SCHEMA})
+  (item) => agent(`Do the work for: ${JSON.stringify(item)}`, {phase: 'Work', model: 'sonnet', effort: 'medium', schema: WORK_SCHEMA}),
+  (work, item) => agent(`Adversarially verify: ${work.summary}`, {phase: 'Verify', model: 'sonnet', effort: 'medium', schema: VERDICT_SCHEMA})
     .then(v => ({...work, verdict: v})),
 )
 return results.filter(Boolean).filter(r => r.verdict?.ok)

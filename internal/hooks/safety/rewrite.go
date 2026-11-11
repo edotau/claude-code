@@ -158,7 +158,10 @@ func rewriteWarn(verb string, err error) string {
 func probeRewrite(ctx context.Context, target string, rng []string) (string, bool, int, error) {
 	dirs, ok, err := core.Git(ctx, target, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir",
 		"--git-common-dir")
-	if err != nil || !ok || len(dirs) != 3 {
+	if err == nil && ok && len(dirs) != 3 { // git before 2.31 echoes --path-format as a line
+		err = fmt.Errorf("rev-parse printed %d lines, want 3", len(dirs))
+	}
+	if err != nil || !ok {
 		return "", false, 0, err
 	}
 	top := core.CanonPath(dirs[0])

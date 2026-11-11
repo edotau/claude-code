@@ -2,7 +2,6 @@ package wthook
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,13 +16,10 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-// claim is one claims-ledger line: a file this session or leaf wrote, or a commit it made.
+// claim is one claims-ledger line: the reader's worktree.Claim stamped with the schema version.
 type claim struct {
-	Schema int    `json:"schema"`
-	Path   string `json:"path,omitempty"`
-	Commit string `json:"commit,omitempty"`
-	Agent  string `json:"agent_id,omitempty"`
-	TS     int64  `json:"ts"`
+	Schema int `json:"schema"`
+	worktree.Claim
 }
 
 // claimsSchema is the claims ledger's current schema version.
@@ -33,7 +29,7 @@ var _ = schemas.Register(schemas.Format{
 	Name: "claims", Owner: "internal/hooks/wthook", Kind: schemas.Log,
 	Glob:    func() string { return filepath.Join(worktree.ClaimsDir(), "*.jsonl") },
 	New:     func() any { return &claim{} },
-	Version: claimsSchema, Keep: "per-session edit/commit claims; the claim check removes a dead owner pid's file",
+	Version: claimsSchema, Keep: "per-session edit/stage claims; the claim check removes a dead owner pid's file",
 })
 
 // claimOwner is the session's Claude Code pid; a var seam so tests pick the owner.
@@ -47,13 +43,13 @@ func claimsFile(owner int, session string) string {
 	return filepath.Join(worktree.ClaimsDir(), fmt.Sprintf("%d-%s.jsonl", owner, sessionSlug(session)))
 }
 
-// Claim records the written path, each sha a landed `git commit` printed, and each path `git add` staged.
+// Claim records the written path and each path `git add` staged.
 func Claim(in *core.Input) core.Result {
 	if in.SessionID == "" {
 		return core.Result{}
 	}
 	p, cmd := editPath(in), in.ToolCommand()
-	bash := in.ToolName == "Bash" && (core.GitCommitCmd.MatchString(cmd) || gitStageCmd().MatchString(cmd))
+	bash := in.ToolName == "Bash" && gitStageCmd().MatchString(cmd)
 	if p == "" && !bash {
 		return core.Result{} // records nothing: skip the owner lookup, which spawns ps on macOS
 	}
@@ -62,40 +58,25 @@ func Claim(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	now := time.Now().Unix()
-	var lines []claim
+	var lines []worktree.Claim
 	if p != "" {
-		lines = append(lines, claim{Path: p, Agent: in.AgentID, TS: now})
+		lines = append(lines, worktree.Claim{Path: p, Agent: in.AgentID, TS: now})
 	} else {
-		lines = bashClaims(in, now)
+		lines = stagedClaims(in, now) // Bash and external-agent edits are claimed when staged
 	}
 	appendClaims(claimsFile(owner, in.SessionID), lines)
 	return core.Result{}
 }
 
-// bashClaims are each sha a landed `git commit` printed and each path a `git add` left staged.
-func bashClaims(in *core.Input, now int64) []claim {
-	var lines []claim
-	if core.GitCommitCmd.MatchString(in.ToolCommand()) {
-		out := cmp.Or(in.Nested("tool_response", "stdout"), in.ToolResponseText())
-		for _, m := range core.CommitLine.FindAllStringSubmatch(out, -1) {
-			lines = append(lines, claim{Commit: m[1], Agent: in.AgentID, TS: now})
-		}
-	}
-	if gitStageCmd().MatchString(in.ToolCommand()) {
-		lines = append(lines, stagedClaims(in, now)...) // Bash and external-agent edits are claimed when staged
-	}
-	return lines
-}
-
 // stagedClaims claims, for the stager, each path the command's git add invocations left staged.
-func stagedClaims(in *core.Input, now int64) []claim {
+func stagedClaims(in *core.Input, now int64) []worktree.Claim {
 	ctx, cancel := core.HookContext("worktree-claim")
 	defer cancel()
-	var out []claim
+	var out []worktree.Claim
 	shell.EachGit(in.ToolCommand(), in.CWD, func(target, verb string, args []string) bool {
 		if verb == "add" {
 			for _, p := range addedPaths(ctx, target, args) {
-				out = append(out, claim{Path: p, Agent: in.AgentID, TS: now})
+				out = append(out, worktree.Claim{Path: p, Agent: in.AgentID, TS: now})
 			}
 		}
 		return false
@@ -105,11 +86,11 @@ func stagedClaims(in *core.Input, now int64) []claim {
 
 // addedPaths are the staged paths (absolute) under one git add's pathspecs; any git error yields none.
 func addedPaths(ctx context.Context, target string, args []string) []string {
-	tops, ok, err := core.Git(ctx, target, "rev-parse", "--show-toplevel")
-	if err != nil || !ok {
+	top, _ := paths.CheckoutOf(target)
+	if top == "" {
 		return nil
 	}
-	top := core.CanonPath(tops[0])
+	top = core.CanonPath(top)
 	scopes, err := stageScopes(ctx, top, target, "add", args)
 	if err != nil {
 		return nil
@@ -128,15 +109,14 @@ func addedPaths(ctx context.Context, target string, args []string) []string {
 }
 
 // appendClaims appends lines to file under its lock; any error drops them (the ledger is advisory).
-func appendClaims(file string, lines []claim) {
+func appendClaims(file string, lines []worktree.Claim) {
 	if len(lines) == 0 {
 		return
 	}
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	for _, c := range lines {
-		c.Schema = claimsSchema
-		if enc.Encode(c) != nil {
+		if enc.Encode(claim{claimsSchema, c}) != nil {
 			return
 		}
 	}

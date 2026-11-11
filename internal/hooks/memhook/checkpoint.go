@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -126,7 +125,7 @@ func contextCheckpoint(in *core.Input) core.Result {
 // Stop runs the context checkpoint and memory update; only the memory update can block the stop.
 func Stop(in *core.Input) core.Result {
 	var hv bytes.Buffer
-	in = sessionRootInput(in) // once per Stop: the checkpoint and the update share it
+	in = AgentInput(sessionRootInput(in)) // once per Stop: the checkpoint and the update share it
 	steward := contextCheckpoint(in)
 	code, failedOpen := sessionUpdate(in, &hv)
 	r := core.ExitResult(code, hv.String())
@@ -134,11 +133,6 @@ func Stop(in *core.Input) core.Result {
 		r.SystemMessage = updateNotSaved
 	}
 	r.Context = core.JoinContext(r.Context, steward.Context)
-	r.SystemMessage = joinMessages(r.SystemMessage, steward.SystemMessage)
+	r.SystemMessage = core.JoinNonEmpty("; ", r.SystemMessage, steward.SystemMessage)
 	return r
-}
-
-// joinMessages joins the non-empty user-visible notes with "; ".
-func joinMessages(msgs ...string) string {
-	return strings.Join(slices.DeleteFunc(slices.Clone(msgs), func(m string) bool { return m == "" }), "; ")
 }

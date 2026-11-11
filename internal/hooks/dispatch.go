@@ -21,7 +21,6 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/safety"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Bound pairs a declared handler with its Runner.
@@ -128,7 +127,7 @@ func (m *dispatchMerge) add(b Bound, event string, r core.Result) {
 	if r.ExitCode != 0 {
 		r.Stderr = fmt.Sprintf("%s\n(hook exit %d)", r.Stderr, r.ExitCode)
 	}
-	m.ctx, m.sys, m.errs = appendNonEmpty(m.ctx, r.Context), appendNonEmpty(m.sys, r.SystemMessage), appendNonEmpty(m.errs, r.Stderr)
+	m.ctx, m.sys, m.errs = append(m.ctx, r.Context), append(m.sys, r.SystemMessage), append(m.errs, r.Stderr)
 	if r.UpdatedInput != nil {
 		if merged.UpdatedInput != nil {
 			m.fail(fmt.Errorf("%s/%s: second updatedInput on %s", b.Group, b.Spec.Name, event))
@@ -188,9 +187,9 @@ func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 		m.add(b, event, r)
 	}
 	drain(&wg, longest, log)
-	m.merged.Context = core.CapContext(strings.Join(m.ctx, "\n\n"))
-	m.merged.SystemMessage = strings.Join(m.sys, "; ")
-	m.merged.Stderr = strings.Join(m.errs, "\n")
+	m.merged.Context = core.CapContext(core.JoinContext(m.ctx...))
+	m.merged.SystemMessage = core.JoinNonEmpty("; ", m.sys...)
+	m.merged.Stderr = core.JoinNonEmpty("\n", m.errs...)
 	return m.merged, m.firstErr
 }
 
@@ -199,35 +198,14 @@ func unreadable(name, problem string) string {
 	return fmt.Sprintf("%s: unreadable hook payload (%s); blocked", name, problem)
 }
 
-func appendNonEmpty(list []string, s string) []string {
-	if s == "" {
-		return list
-	}
-	return append(list, s)
-}
-
-// isEvent reports whether name is a lifecycle event the dispatcher serves (`claude-code hook <Event>`).
-func isEvent(name string) bool {
-	for _, g := range settings.Registry {
-		for _, s := range g.Events {
-			if s.Event == name {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // runEvent is `hook <Event> [--all]`: run every group once, own-process modules only when all is set.
 func runEvent(event string, all bool, stdin io.Reader, stdout, stderr io.Writer) int {
 	in := core.ParseInput(stdin)
+	applies := settings.SpecsFor(in.Agent(), "native")
 	var bound []Bound
 	for _, b := range Bind() {
-		switch {
-		case b.AgentOnly && in.Agent() == core.AgentClaude:
-		case !all && (b.Gate || b.Spec.Async):
-		case in.Agent() != core.AgentClaude && !slices.Contains(b.Spec.Agents, in.Agent()):
-		default:
+		own := b.Gate || b.Spec.Async
+		if (all || !own) && slices.ContainsFunc(applies, func(s settings.EventSpec) bool { return s.Name == b.Spec.Name }) {
 			bound = append(bound, b)
 		}
 	}
@@ -251,40 +229,38 @@ func drain(wg *sync.WaitGroup, longest time.Duration, log io.Writer) {
 
 // native maps every hook module to its Runner; names must match settings.Registry.
 var native = map[string]core.Runner{
-	"safety-scan":               safety.Scan,
-	"rtk-rewrite":               safety.RTKRewrite,
-	"docs-placement":            viaStderr(docs.Placement),
-	"memory-start":              memhook.Start,
-	"memory-recall":             memhook.Recall,
-	"paths-resolve":             docs.ResolvePaths,
-	"memory-update":             memhook.Stop,
-	"review-simplicity":         quality.ReviewSimplicity,
-	"format-stop":               quality.StopFormat,
-	"memory-end":                memhook.End,
-	"dispatch-effort":           agents.Effort,
-	"codex-agent-route":         agents.CodexAgentRoute,
-	"codex-routing-start":       agents.CodexRoutingStart,
-	"codex-routing-result":      agents.CodexRoutingResult,
-	"codex-subagent-start":      agents.CodexSubagentStart,
-	"dispatch-failure":          agents.Release,
-	"dispatch-workflow":         agents.Release,
-	"docs-plan-gate":            viaStderr(docs.Gate),
-	"docs-plan-skeleton":        docs.Skeleton,
-	"docs-plan-skeleton-prompt": docs.Skeleton,
-	"docs-plan-tick":            docs.Tick,
-	"docs-plan-reminder":        docs.Reminder,
-	"docs-plan-mirror":          viaStderr(docs.Mirror),
-	"docs-plan-save":            viaStderr(docs.Save),
-	"dispatch-stop":             agents.Stop,
-	"dispatch-handback":         agents.Handback,
-	"memory-compact":            memhook.Compact,
-	"worktree-create":           wthook.Create,
-	"worktree-remove":           viaStderr(wthook.Remove),
-	"worktree-mode":             wthook.Mode,
-	"worktree-busy":             wthook.Busy,
-	"worktree-claim":            wthook.Claim,
-	"worktree-claim-check":      wthook.ClaimCheck,
-	"permission-gate":           safety.PermissionGate,
+	"safety-scan":          safety.Scan,
+	"rtk-rewrite":          safety.RTKRewrite,
+	"docs-placement":       viaStderr(docs.Placement),
+	"memory-start":         memhook.Start,
+	"memory-recall":        memhook.Recall,
+	"paths-resolve":        docs.ResolvePaths,
+	"memory-update":        memhook.Stop,
+	"review-simplicity":    quality.ReviewSimplicity,
+	"format-stop":          quality.StopFormat,
+	"memory-end":           memhook.End,
+	"dispatch-effort":      agents.Effort,
+	"codex-agent-route":    agents.CodexAgentRoute,
+	"codex-routing-start":  agents.CodexRoutingStart,
+	"codex-routing-result": agents.CodexRoutingResult,
+	"codex-subagent-start": agents.CodexSubagentStart,
+	"dispatch-failure":     agents.Release,
+	"dispatch-workflow":    agents.Release,
+	"docs-plan-gate":       viaStderr(docs.Gate),
+	"docs-plan-tick":       docs.Tick,
+	"docs-plan-reminder":   docs.Reminder,
+	"docs-plan-mirror":     viaStderr(docs.Mirror),
+	"docs-plan-save":       viaStderr(docs.Save),
+	"dispatch-stop":        agents.Stop,
+	"dispatch-handback":    agents.Handback,
+	"memory-compact":       memhook.Compact,
+	"worktree-create":      wthook.Create,
+	"worktree-remove":      viaStderr(wthook.Remove),
+	"worktree-mode":        wthook.Mode,
+	"worktree-busy":        wthook.Busy,
+	"worktree-claim":       wthook.Claim,
+	"worktree-claim-check": wthook.ClaimCheck,
+	"permission-gate":      safety.PermissionGate,
 }
 
 // gateDeadline is how long a Blocks module may run in its own process: the host's timeout less half HookMargin, so a
@@ -362,14 +338,8 @@ func runModuleDirect(name string, run core.Runner, stdin io.Reader, stdout, stde
 	if res.Decision == core.Block && specOf(name).Blocks {
 		return renderBlock(name, in.Agent(), res, stdout, stderr)
 	}
-	res.Context = textutil.CapRunes(res.Context, core.ContextCapChars, "…")
-	if !bareStdout[name] {
-		return core.Emit(in.Agent(), eventOf(name), res, stdout, stderr)
-	}
-	var out strings.Builder
-	code := core.Emit(in.Agent(), eventOf(name), res, &out, stderr)
-	_, _ = io.WriteString(stdout, strings.TrimSuffix(out.String(), "\n"))
-	return code
+	res.Context = core.CapContext(res.Context)
+	return core.Emit(in.Agent(), eventOf(name), res, stdout, stderr)
 }
 
 // renderBlock writes a gate's block for agent: exit 2 with the reason on stderr, or a JSON deny where agy needs one.
@@ -419,12 +389,6 @@ func runGated(name string, run core.Runner, in *core.Input, stderr io.Writer) (r
 	return run(in)
 }
 
-// bareStdout lists the modules whose own-process stdout never carried a trailing newline.
-var bareStdout = map[string]bool{
-	"review-simplicity": true, "docs-plan-skeleton": true, "docs-plan-skeleton-prompt": true,
-	"docs-plan-tick": true, "docs-plan-reminder": true,
-}
-
 // specOf is the hookspec entry for a module; the zero spec when unknown.
 func specOf(name string) settings.EventSpec {
 	s, _ := core.SpecOf(name)
@@ -436,7 +400,7 @@ func eventOf(name string) string { return specOf(name).Event }
 
 // RunArgs is `hook <Event> [--<module>|--all]`; an unknown event or module fails closed only when it reads as a guard.
 func RunArgs(event string, flags []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	if !isEvent(event) {
+	if !slices.Contains(settings.HookEvents(), event) {
 		return unknownHook(event, "unknown hook event", stderr)
 	}
 	switch {

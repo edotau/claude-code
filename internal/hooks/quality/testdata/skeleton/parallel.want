@@ -7,10 +7,10 @@ export const meta = {
 const TASKS = args ?? []
 phase('Fan-out')
 const found = (await parallel(TASKS.map(t => () =>
-  agent(`Investigate: ${JSON.stringify(t)}`, {schema: FINDING_SCHEMA})))).filter(Boolean)
+  agent(`Investigate: ${JSON.stringify(t)}`, {model: 'sonnet', effort: 'medium', schema: FINDING_SCHEMA})))).filter(Boolean)
 // Barrier justified: synthesis needs the FULL set (dedup/merge across all findings).
 phase('Synthesize')
-return await agent(`Synthesize these findings into one report: ${JSON.stringify(found)}`)
+return await agent(`Synthesize these findings into one report: ${JSON.stringify(found)}`, {model: 'sonnet', effort: 'medium'})
 
 // ── Fill in before running ──
 //  • Replace *_SCHEMA with JSON Schemas (or drop the {schema:...} opt for free-text agents).

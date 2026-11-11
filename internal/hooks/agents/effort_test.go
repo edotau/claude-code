@@ -834,34 +834,6 @@ func TestProfileUnknownDeniedAndRegistryFailureOpen(t *testing.T) {
 	}
 }
 
-func TestProfileLabels(t *testing.T) {
-	cases := []struct{ name, task, want string }{
-		{"single", "Agent: codex\nProfile: dbx", "codex·dbx"},
-		{"relay", "Agent: codex → copilot\nProfile: dbx", "codex → copilot·dbx"},
-		{"compare", "Agent: codex, copilot\nMode: compare\nProfile: dbx", "codex, copilot·dbx"},
-		{"default claude", "Profile: dbx\ndo it", "claude·dbx"},
-		{"no profile", "Agent: codex", "codex"},
-	}
-	for _, c := range cases {
-		if got := agentLabel("general-purpose", c.task); got != c.want {
-			t.Errorf("%s: agentLabel = %q, want %q", c.name, got, c.want)
-		}
-	}
-}
-
-func TestProfileSuffixNeverDoubles(t *testing.T) {
-	for _, c := range []struct{ name, label, task, want string }{
-		{"suffixed once", "codex", "Profile: dbx", "codex·dbx"},
-		{"already suffixed", "codex·dbx", "Profile: dbx", "codex·dbx"},
-		{"empty label", "", "Profile: dbx", ""},
-		{"no Profile line", "codex", "Agent: codex", "codex"},
-	} {
-		if got := profileSuffix(c.label, c.task); got != c.want {
-			t.Errorf("%s: profileSuffix(%q) = %q, want %q", c.name, c.label, got, c.want)
-		}
-	}
-}
-
 // Read-only types and in-context briefs keep their type and get no ask command.
 func TestProfileIgnoredForReadOnlyAndInContext(t *testing.T) {
 	stubProfiles(t, []string{"dbx"}, true)
