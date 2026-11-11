@@ -432,16 +432,16 @@ func CredentialPresent(p *Provider) bool {
 func sealedPresent(p *Provider) bool {
 	mode, _ := ResolveIdentity(p.Identity, "")
 	if p.Auth.Type == AuthOAuth && mode == IdentitySP {
-		return spPresent(p)
+		return SPPresent(p)
 	}
 	if HasSecret(AuthSecretName(p)) != "" {
 		return true
 	}
-	return p.Auth.Type == AuthOAuth && mode == IdentityAuto && spPresent(p)
+	return p.Auth.Type == AuthOAuth && mode == IdentityAuto && SPPresent(p)
 }
 
-// spPresent reports a paired service principal: its spClientId and a stored M2M secret.
-func spPresent(p *Provider) bool {
+// SPPresent reports a paired service principal: its spClientId and a stored M2M secret.
+func SPPresent(p *Provider) bool {
 	return p.Auth.SPClientID != "" && HasSecret(SecretName(p.Provider, p.Name, AuthM2M)) != ""
 }
 

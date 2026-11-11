@@ -79,7 +79,7 @@ var loginPage = helptext.Page{
 	Usage: "claude-code databricks login [--profile <name>] [flags]",
 	About: "Sign in through the browser for a profile with auth type oauth;\n" +
 		"the refresh token is sealed in the vault.\n" +
-		"Identity sp (or --as sp) opens no browser: it mints as the paired service principal.",
+		"A profile with a paired service principal mints as it, no browser; --as user forces the browser login.",
 }
 
 // login runs the u2m browser login for a provider row and seals its refresh token.
@@ -122,13 +122,16 @@ func login(args []string) int {
 		}
 		return loginSP(p, *dryRun)
 	}
+	if mode == providers.IdentityAuto && *as == "" && providers.SPPresent(p) { // paired: no browser needed, flags unused
+		return loginSP(p, *dryRun)
+	}
 	return loginUser(p, mode, h, *dryRun, !*force && p.Auth.Method() == providers.AuthOAuth)
 }
 
 // identityNote says what a browser login means for each identity login opens it for.
 var identityNote = map[string]string{
 	providers.IdentityUser: "browser login",
-	providers.IdentityAuto: "browser login; launches use it once stored (the service principal until then), dispatches the service principal first",
+	providers.IdentityAuto: "browser login (no service principal is paired); launches use it once stored",
 }
 
 // loginUser is the u2m browser login for identity user or auto; reuse keeps a still-valid cached login.
