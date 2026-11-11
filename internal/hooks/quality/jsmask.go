@@ -13,8 +13,39 @@ func skipQuoted(src string, i int, c byte) int {
 			i++
 			continue
 		}
+		if c == '`' && src[i] == '$' && i+1 < len(src) && src[i+1] == '{' {
+			i = skipInterpolation(src, i+2)
+			continue
+		}
 		if src[i] == c {
 			break
+		}
+	}
+	return i
+}
+
+// skipInterpolation skips balanced braces and nested literals inside a template's ${...}.
+func skipInterpolation(src string, i int) int {
+	depth := 1
+	for ; i < len(src); i++ {
+		switch c := src[i]; c {
+		case '\\':
+			i++
+		case '\'', '"', '`':
+			i = skipQuoted(src, i, c)
+		case '/':
+			if end := skipComment(src, i); end != i {
+				i = end
+			} else if regexAllowedAt([]byte(src), i) {
+				i = maskRegex([]byte(src), i)
+			}
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i
+			}
 		}
 	}
 	return i
@@ -58,7 +89,9 @@ func stripStrings(src string) string {
 		if c != '\'' && c != '"' && c != '`' {
 			continue
 		}
-		i = maskQuotedContent(b, i)
+		last := skipQuoted(src, i, c)
+		blankBody(b, i+1, min(last, len(b)))
+		i = last
 	}
 	return string(b)
 }
@@ -135,18 +168,4 @@ func maskComment(b []byte, i int) int {
 		}
 	}
 	return last
-}
-
-func maskQuotedContent(b []byte, i int) int {
-	c := b[i]
-	for i++; i < len(b) && b[i] != c; i++ {
-		if b[i] == '\\' {
-			i++
-			continue
-		}
-		if b[i] != '\n' {
-			b[i] = ' '
-		}
-	}
-	return i
 }

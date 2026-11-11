@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,56 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/plans"
 )
+
+func TestReminderDoesNotCreateSessionLocks(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, session := range []string{"empty", "partial"} {
+		if session == "partial" {
+			recordPartials(session, "plan", "", []string{"task"}, &bytes.Buffer{})
+		}
+		Reminder(&core.Input{SessionID: session})
+		if _, err := os.Stat(partialFile(session) + ".lock"); !os.IsNotExist(err) {
+			t.Errorf("%s left per-session lock: %v", session, err)
+		}
+	}
+}
+
+func TestMirrorConcurrentFirstWriteUsesOneDestination(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "concurrent.md", planTemplate)
+	in := core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, planTemplate)))
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 24 {
+		wg.Go(func() {
+			<-start
+			Mirror(in, &bytes.Buffer{})
+		})
+	}
+	close(start)
+	wg.Wait()
+	files, err := filepath.Glob(filepath.Join(cfg, "plans", dateStamp()+"-*.md"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("destinations = %v, %v; want exactly one", files, err)
+	}
+}
+
+func TestMirrorRecordFailureDropsClaim(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "unrecordable.md", planTemplate)
+	if err := os.MkdirAll(plans.DestRecordPath(filepath.Base(draft)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	in := core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, planTemplate)))
+	var stderr bytes.Buffer
+	Mirror(in, &stderr)
+	files, err := filepath.Glob(filepath.Join(cfg, "plans", dateStamp()+"-*.md"))
+	if err != nil || len(files) != 0 || !strings.Contains(stderr.String(), "plan-mirror:") {
+		t.Fatalf("failed record left mirrors %v, err %v, stderr %q", files, err, stderr.String())
+	}
+}
 
 // TestPlanTitleSkipsFrontMatter: planTitle parses via the mdsmith AST, so a "#"-prefixed line inside the
 // "---" front-matter fences is never mistaken for the real H1 below it (fixed from a raw line scan).

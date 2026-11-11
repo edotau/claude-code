@@ -24,8 +24,7 @@ func (w *failAtWriter) Write(p []byte) (int, error) {
 	return w.output.Write(p)
 }
 
-// golden commands (captured with python3 on PATH):
-//   python3 workflow_skeleton.py <pattern> [--name NAME]
+// Pattern goldens were captured from the retired Python generator.
 
 func readSkeletonGolden(t *testing.T, name string) string {
 	t.Helper()
@@ -84,7 +83,7 @@ func TestRunSkeletonWriteErrors(t *testing.T) {
 	}
 }
 
-// Each usage error exits 2 (argparse's code) with nothing on stdout and argparse's own error line last on stderr.
+// Each usage error exits 2 with nothing on stdout and the current command's error line last on stderr.
 func TestRunSkeletonUsageErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -101,7 +100,7 @@ func TestRunSkeletonUsageErrors(t *testing.T) {
 			code := RunSkeleton(tc.args, &stdout, &stderr)
 			lines := strings.Split(strings.TrimSpace(stderr.String()), "\n")
 			last := lines[len(lines)-1]
-			if code != 2 || stdout.Len() != 0 || !strings.HasPrefix(last, "workflow_skeleton.py: error: "+tc.want) {
+			if code != 2 || stdout.Len() != 0 || !strings.HasPrefix(last, "workflow skeleton: error: "+tc.want) {
 				t.Fatalf("RunSkeleton(%q) = %d, stdout %q, last stderr line %q; want 2, empty, error %q",
 					tc.args, code, stdout.String(), last, tc.want)
 			}

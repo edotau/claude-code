@@ -102,10 +102,11 @@ func stateTargets() []target {
 			keep: memoryStateKeeper(),
 		},
 		{
-			name: "hook-state", doc: "per-session hook flags under state/harness: checkpoint/, stop-format/, agents-inflight markers, plans-scratch/*.dest",
+			name: "hook-state", doc: "per-session hook flags and plan records; obsolete plans-scratch/*.partial.lock age out after one day",
 			globs: func() []string {
 				return []string{
 					s("checkpoint", "*"), s("plans-scratch", "*.dest"), s("stop-format", "*.json"), s("agents-inflight", "*"),
+					s("plans-scratch", "*.partial.lock"),
 				}
 			},
 		},
@@ -212,7 +213,8 @@ func Clean(args []string, out, errw io.Writer) int {
 	fs := helptext.NewFlagSet("clean", helptext.Page{
 		Usage: "claude-code clean [flags]",
 		About: "Delete caches, run dirs and backups older than --older-than. Credentials,\n" +
-			"settings and memory are never touched; --target sessions asks first.",
+			"settings and memory are never touched; --target sessions asks first.\n" +
+			"A redundant ~/.claude/.claude is also removed, at any age, unless it holds settings or files to keep.",
 	})
 	fs.SetOutput(errw)
 	want := fs.String("target", "", "comma-separated targets (default: every target except opt-in ones); --list names them")
@@ -313,6 +315,13 @@ func sweepTarget(errw io.Writer, t target, cutoff time.Time, apply bool, tot *sw
 	tot.files += len(hits)
 	tot.bytes += size
 	fmt.Fprintf(errw, "%-16s %s %d entr%s (%s)\n", t.name, removeVerb(apply), len(hits), textutil.PluralWord(len(hits), "y", "ies"), textutil.HumanBytes(size))
+	if !apply {
+		for _, path := range hits {
+			if obsoletePartialLock(path) {
+				fmt.Fprintf(errw, "  would remove %s\n", path)
+			}
+		}
+	}
 }
 
 // printSummary closes the run: the nothing-to-do line, or the reclaimed / dry-run total.
@@ -458,13 +467,23 @@ func pruneAgedTo(errw io.Writer, patterns []string, cutoff time.Time, apply bool
 	return hit, size, failed
 }
 
+func obsoletePartialLock(path string) bool {
+	return filepath.Dir(path) == statePath("plans-scratch") && strings.HasSuffix(path, ".partial.lock")
+}
+
 // pruneMatch removes (when apply) one glob match that is old enough and not protected; ok is false when it was skipped.
 func pruneMatch(m string, cutoff time.Time, apply bool, keep func(string) bool) (size int64, ok bool, err error) {
+	if strings.HasSuffix(m, ".lock") {
+		if !obsoletePartialLock(m) {
+			return 0, false, nil
+		}
+		cutoff = time.Now().Add(-24 * time.Hour)
+	}
 	mt, found := newestMTime(m)
 	if !found || !mt.Before(cutoff) {
 		return 0, false, nil
 	}
-	if strings.HasSuffix(m, ".lock") || protected(m) || (keep != nil && keep(m)) {
+	if protected(m) || (keep != nil && keep(m)) {
 		return 0, false, nil // live bookkeeping, memory stores/migration state, live sessions: never debris
 	}
 	sz := paths.DirSize(m)
