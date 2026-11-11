@@ -76,3 +76,16 @@ func TestCodexFileOverridesLongLine(t *testing.T) {
 		t.Fatalf("long config value did not round-trip as a table-qualified -c override (got %d args)", len(got))
 	}
 }
+
+// A tools-off exec drops the skill list, plugins and app connectors; a tools run keeps every one of them.
+func TestCodexHeadlessToolsOffTrimsPrompt(t *testing.T) {
+	off, on := codexHeadless(nil, &agent.Headless{}), codexHeadless(nil, &agent.Headless{Tools: true})
+	for _, c := range []string{"skills.include_instructions=false", "features.plugins=false", "features.apps=false"} {
+		if !slices.Contains(off, c) || slices.Contains(on, c) {
+			t.Errorf("%s: tools-off has it = %v, tools run has it = %v; want true, false", c, slices.Contains(off, c), slices.Contains(on, c))
+		}
+	}
+	if !slices.Contains(off, "read-only") {
+		t.Errorf("tools-off exec lost its read-only sandbox: %q", off)
+	}
+}
