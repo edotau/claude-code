@@ -306,7 +306,7 @@ var writers = map[string]string{
 	"internal/usage/budget.go:writeBudgetCache":              "gateway-budget-cache",
 	"internal/vault/vault.go:create":                         "vault",
 	"internal/agent/job.go:SpawnArgv":                        unversioned("log: vendor job log, humans only"),
-	"internal/agent/ask/reviewdiff.go:ReviewArgs":            unversioned("foreign: temp diff handed to a vendor CLI"),
+	"internal/agent/ask/reviewdiff.go:reviewArgs":            unversioned("foreign: temp diff handed to a vendor CLI"),
 	"internal/codex/catalog.go:validateCodexCatalog":         "codex-catalog",
 	"internal/codex/catalog.go:storeCodexCatalog":            "codex-catalog",
 	"internal/codex/hooks.go:writeCodexHooks":                unversioned("foreign: codex hooks.json in the vendor home"),

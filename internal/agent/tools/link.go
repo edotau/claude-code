@@ -117,7 +117,7 @@ func dropLink(t tool, dst, missing string, dryRun bool) (status, detail string) 
 
 // removeUnlessFile removes dst under the bin lock; kept=true when a direct install now occupies dst.
 func removeUnlessFile(dst string) (kept bool, err error) {
-	err = paths.WithFileLock(binLockPath(filepath.Dir(dst)), func() error {
+	err = withBinLock(filepath.Dir(dst), func() error {
 		if fi, lerr := os.Lstat(dst); lerr == nil && fi.Mode().IsRegular() {
 			kept = true
 			return nil
@@ -154,7 +154,7 @@ func readlink(p string) string {
 
 // replaceLink atomically links dst to target under the bin lock; kept=true leaves a regular file (direct install).
 func replaceLink(dst, target string) (kept bool, err error) {
-	err = paths.WithFileLock(binLockPath(filepath.Dir(dst)), func() error {
+	err = withBinLock(filepath.Dir(dst), func() error {
 		switch fi, lerr := os.Lstat(dst); {
 		case lerr == nil && fi.Mode().IsRegular():
 			kept = true

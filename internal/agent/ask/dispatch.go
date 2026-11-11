@@ -2,7 +2,6 @@ package ask
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -71,12 +70,7 @@ func dispatchRun(ctx context.Context, role roles.Role, q roles.Request, jobs int
 // writeReport prints rep to stdout as one JSON line or as text, returning any write failure.
 func writeReport(rep roles.Report, format string) error {
 	if format == helptext.JSON {
-		body, err := json.Marshal(rep)
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprintln(os.Stdout, string(body))
-		return err
+		return printJSONLine(rep)
 	}
 	return rep.Text(os.Stdout)
 }
@@ -129,13 +123,11 @@ func failSpawn(rec *agent.Record, err error) error {
 // printLegID prints a detached leg's id: one JSON line, or the label and ask's background-start text.
 func printLegID(label string, rec agent.Record, format string) error {
 	if format == helptext.JSON {
-		body, _ := json.Marshal(struct {
+		return printJSONLine(struct {
 			Label string `json:"label"`
 			ID    string `json:"id"`
 			Log   string `json:"log"`
 		}{label, rec.ID, rec.Log})
-		_, err := fmt.Fprintln(os.Stdout, string(body))
-		return err
 	}
 	if _, err := fmt.Printf("%s\t", label); err != nil {
 		return err

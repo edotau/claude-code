@@ -51,7 +51,7 @@ func Review(name string, args []string, o ReviewOptions) int {
 	if parts := reviewParts(diff, o.Adversarial, o.Focus, o.Rubric); len(parts) > 1 {
 		return runSplitReview(name, args, parts, scope, o, parent)
 	}
-	askArgs, cleanup, err := ReviewArgs(name, scope, diff, o.Adversarial, o.Background, o.Focus, o.Rubric, o.Model)
+	askArgs, cleanup, err := reviewArgs(name, scope, diff, o.Adversarial, o.Background, o.Focus, o.Rubric, o.Model)
 	if err != nil {
 		return fail(err)
 	}
@@ -81,21 +81,21 @@ func reviewParent() *agent.Record {
 }
 
 // reviewDiff materializes scope's diff in cwd under reviewDiffTimeout.
-func reviewDiff(cwd string, scope Scope) ([]byte, error) {
+func reviewDiff(cwd string, scope diffScope) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), reviewDiffTimeout)
 	defer cancel()
 	return diff(ctx, cwd, scope)
 }
 
 // runSplitReview runs a multi-part review: detached as one job when background, else sequentially in place.
-func runSplitReview(name string, args []string, parts []part, scope Scope, o ReviewOptions, parent *agent.Record) int {
+func runSplitReview(name string, args []string, parts []part, scope diffScope, o ReviewOptions, parent *agent.Record) int {
 	if o.Background && os.Getenv(reviewJobEnv) == "" {
 		return spawnSplitReview(name, args, len(parts))
 	}
 	answers := make([]string, 0, len(parts))
 	for i, p := range parts {
 		setReviewProgress(parent, fmt.Sprintf("part %d/%d", i+1, len(parts)))
-		askArgs, cleanup, err := ReviewArgs(name, scope, p.Diff, o.Adversarial, false,
+		askArgs, cleanup, err := reviewArgs(name, scope, p.Diff, o.Adversarial, false,
 			strings.TrimSpace(o.Focus+"\n"+p.Header(i+1, len(parts))), o.Rubric, o.Model)
 		if err != nil {
 			return finishSplitReview(parent, fmt.Errorf("part %d/%d: %w", i+1, len(parts), err))

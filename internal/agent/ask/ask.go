@@ -595,15 +595,23 @@ func backgroundExtraFlags(fs *flag.FlagSet, fallback string, native bool) []stri
 	return extra
 }
 
+// printJSONLine writes v to stdout as one compact JSON line.
+func printJSONLine(v any) error {
+	body, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Println(string(body))
+	return err
+}
+
 // reportBackgroundStart tells the caller how to track a detached job.
 func reportBackgroundStart(format string, rec agent.Record) error {
 	if format == helptext.JSON {
-		body, _ := json.Marshal(struct {
+		return printJSONLine(struct {
 			ID  string `json:"id"`
 			Log string `json:"log"`
 		}{rec.ID, rec.Log})
-		_, err := fmt.Println(string(body))
-		return err
 	}
 	_, err := fmt.Printf("job %s started — claude-code agents status|tail|result|cancel %s\n", rec.ID, rec.ID)
 	return err
@@ -624,8 +632,7 @@ func printAskFailure(format, agentName string, err error) {
 	var werr error
 	switch format {
 	case helptext.JSON:
-		body, _ := json.Marshal(wire.FailureEnvelope(agentName, err))
-		_, werr = fmt.Println(string(body))
+		werr = printJSONLine(wire.FailureEnvelope(agentName, err))
 	case agent.FormatStreamJSON:
 		werr = stdoutSink(format, "").Emit(wire.ResultEvent(wire.FailureEnvelope(agentName, err)))
 	}
@@ -644,9 +651,7 @@ func reportAskResult(format string, res wire.Result, err error, dispatchID strin
 		fmt.Fprintf(os.Stderr, "ask: %s has no channel on the %s agent — dropped\n", d, res.Agent)
 	}
 	if format == helptext.JSON {
-		body, _ := json.Marshal(wire.NewEnvelope(res, err, dispatchID))
-		_, werr := fmt.Println(string(body))
-		return werr
+		return printJSONLine(wire.NewEnvelope(res, err, dispatchID))
 	}
 	if format == agent.FormatStreamJSON {
 		return nil // the result event already carried the envelope
