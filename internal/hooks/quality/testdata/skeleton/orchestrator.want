@@ -7,13 +7,13 @@ export const meta = {
 phase('Plan')
 // Discover the work-list at runtime, then fan out over it (don't hardcode the shape).
 const plan = await agent(`Break down this goal into parallel-safe tasks: ${args?.goal ?? ''}`,
-                         {schema: PLAN_SCHEMA})
+                         {model: 'sonnet', effort: 'medium', schema: PLAN_SCHEMA})
 phase('Build')
 // isolation:'worktree' ONLY if tasks mutate files in parallel (else drop it — it's expensive).
 const done = await pipeline(
   plan.tasks,
-  (task) => agent(task.brief, {phase: 'Build', isolation: 'worktree', schema: RESULT_SCHEMA}),
-  (result) => agent(`Review for spec + quality: ${result.summary}`, {phase: 'Build', schema: REVIEW_SCHEMA})
+  (task) => agent(task.brief, {phase: 'Build', isolation: 'worktree', model: 'sonnet', effort: 'medium', schema: RESULT_SCHEMA}),
+  (result) => agent(`Review for spec + quality: ${result.summary}`, {phase: 'Build', model: 'sonnet', effort: 'medium', schema: REVIEW_SCHEMA})
     .then(r => ({...result, review: r})),
 )
 return done.filter(Boolean)

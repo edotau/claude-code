@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -26,15 +27,15 @@ var hardBlocks = core.LazyCompile(
 	rmRecursive+`["']?/(etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|System|Users|home|Applications|Library|Volumes|private)(/?\s|/?$|/?[)\x60"'])`,
 	rmRecursive+`["']?(\$HOME|\$\{HOME\}|~)/?(\*|\s|$|[)\x60"'])`,
 	`mkfs\.`,
-	`dd\s+.*\sof=/dev/(sd|disk|nvme|hd)`,
-	`chmod\s+-R\s+777\s+/(\s|$)`,
+	`dd\s+(.*\s)?of=/dev/r?(sd|disk|nvme|hd)`,
+	`chmod\s+-R\s+0?777\s+/(\s|$)`,
 	`python3?\s+.*-c\s+.*exec\(.*base64`,
 )
 
 // pipeBlocks match the WHOLE command text (minus inert data, see inertStripped): pipes, a fork bomb and encoded Python
 // heredocs span shell segments.
 var pipeBlocks = core.LazyCompile(
-	`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(\S*/)?(ba|z)?sh([^[:alnum:]_]|$)`,
+	`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(sudo\s+)?(\S*/)?(ba|z)?sh([^[:alnum:]_]|$)`,
 	`(^|[\s;&|({/\x60])eval\s+["']?(\$\(|\x60)\s*(\S*/)?(curl|wget)\s`,
 	`(^|[^[:alnum:]_])base64\s+(-d|-D|--decode)[^|]*\|\s*(sudo\s+)?(\S*/)?(ba|z|da|k)?sh([^[:alnum:]_]|$)`,
 	`:\(\)\s*\{[^}]*\}\s*;\s*:`,
@@ -81,7 +82,7 @@ const terminalHint = "If intentional, run it yourself in a terminal."
 
 // sqlDestructive runs against the lowercased command.
 var sqlDestructive = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(^|[^[:alnum:]_])(drop\s+database|drop\s+table|truncate\s+table)([^[:alnum:]_]|$)`)
+	return regexp.MustCompile(`(^|[^[:alnum:]_])(drop\s+(database|table|schema)|truncate\s+table|truncate\s+[a-z_"][a-z0-9_."]*\s*(;|$|cascade|["']))([^[:alnum:]_]|$)`)
 })
 
 // exfilPatterns match credential-exfiltration shapes.
@@ -148,7 +149,7 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 			return core.Block, core.SafetyMessage(in, core.Block, "looks like credential exfiltration", re.String(), terminalHint), re.String()
 		}
 	}
-	ask, askMsg, askDetail := safetyAskVerdict(in)
+	ask, askMsg, askDetail := safetyAskVerdict(in, scan)
 	if d > ask {
 		return d, askMsg + msg, detail
 	}
@@ -156,7 +157,7 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 }
 
 // safetyAskVerdict reports the first intent-dependent shape; the owner approves it on Claude, others block.
-func safetyAskVerdict(in *core.Input) (core.Decision, string, string) {
+func safetyAskVerdict(in *core.Input, scan string) (core.Decision, string, string) {
 	cmd := in.ToolCommand()
 	// The rewrite block runs first: an ask shape (`sudo git reset --hard`) must not turn a block into an ask.
 	d, msg, detail, warn := rewriteVerdict(in)
@@ -177,12 +178,12 @@ func safetyAskVerdict(in *core.Input) (core.Decision, string, string) {
 	if branch := bareForcePush(cmd, in.CWD); branch != "" {
 		return core.Ask, warn + core.SafetyMessage(in, core.Ask, forcePushWhat, "", forcePushHint), "force push of " + branch
 	}
-	d, msg, detail = askPatternVerdict(in, cmd)
+	d, msg, detail = askPatternVerdict(in, cmd, scan)
 	return d, warn + msg, detail
 }
 
 // askPatternVerdict asks on hard rule 4 git verbs, hard rule 3 footers and destructive SQL.
-func askPatternVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
+func askPatternVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string) {
 	if verb := harnessGitVerb(cmd, in.CWD); verb != "" {
 		what := "git stash/checkout/switch/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 4)"
 		if verb == shell.Uninspectable {
@@ -196,7 +197,7 @@ func askPatternVerdict(in *core.Input, cmd string) (core.Decision, string, strin
 		hint := "Rerun this commit without the Co-Authored-By / Generated-with lines; that needs no approval."
 		return core.Ask, core.SafetyMessage(in, core.Ask, what, "", hint), "attribution footer"
 	}
-	if sqlDestructive().MatchString(strings.ToLower(inertStripped(cmd))) {
+	if sqlDestructive().MatchString(strings.ToLower(scan)) {
 		hint := "Approve only if you asked for it; back up first or run it against a scratch database."
 		return core.Ask, core.SafetyMessage(in, core.Ask, "destructive SQL (DROP/TRUNCATE)", "", hint), "destructive SQL"
 	}
@@ -232,14 +233,22 @@ func gitBannedUnder(target, verb string, args []string, harness, worktrees *stri
 		return false
 	}
 	if *harness == "" {
-		*harness = core.CanonPath(paths.ConfigDir())
-		*worktrees = core.CanonPath(filepath.Join(paths.ConfigDir(), ".claude", "worktrees"))
+		*harness = foldCase(core.CanonPath(paths.ConfigDir()))
+		*worktrees = foldCase(core.CanonPath(filepath.Join(paths.ConfigDir(), ".claude", "worktrees")))
 	}
-	tp := core.CanonPath(target)
+	tp := foldCase(core.CanonPath(target))
 	if !paths.Within(tp, *harness) {
 		return false
 	}
 	return !strings.HasPrefix(tp, *worktrees+string(filepath.Separator)) // a linked worktree is its own checkout
+}
+
+// foldCase lowercases p where the filesystem is case-insensitive by default (macOS, Windows), so `.CLAUDE` matches.
+func foldCase(p string) string {
+	if runtime.GOOS == "linux" {
+		return p
+	}
+	return strings.ToLower(p)
 }
 
 // hardBlockVerdict blocks a hard shape outside inert text, asks on one only in quoted text; `<<` keeps heredoc bodies.

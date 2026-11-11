@@ -30,7 +30,7 @@ func Start(in *core.Input) core.Result {
 	}
 	if in.Source == "compact" || in.Source == "clear" {
 		if note := memory.ResumeNote(in.Source, in.SessionID, cwd, time.Now()); note != "" {
-			res.SystemMessage = joinMessages(res.SystemMessage, note)
+			res.SystemMessage = core.JoinNonEmpty("; ", res.SystemMessage, note)
 			res.Context = core.JoinContext(res.Context, note)
 		}
 	}

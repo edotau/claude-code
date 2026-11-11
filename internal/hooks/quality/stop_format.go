@@ -2,8 +2,6 @@ package quality
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -20,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
@@ -44,7 +43,7 @@ func StopFormat(in *core.Input) core.Result {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), stopFormatTimeout)
 	defer cancel()
-	stampPath := filepath.Join(paths.StateDir(), "stop-format", cwdKey(cwd)+".json")
+	stampPath := filepath.Join(paths.StateDir(), "stop-format", textutil.SHA256Hex([]byte(cwd))[:16]+".json")
 	changed := changedFiles(ctx, cwd)
 	if len(changed) == 0 {
 		_ = os.Remove(stampPath) // clean tree: drop stale stamps and skip the transcript scan
@@ -59,9 +58,7 @@ func StopFormat(in *core.Input) core.Result {
 		if !filepath.IsAbs(f) {
 			f = filepath.Join(cwd, f)
 		}
-		if abs, err := filepath.Abs(f); err == nil {
-			allow[abs] = true
-		}
+		allow[core.CanonPath(f)] = true // /var vs /private/var spellings of one file must meet in the allow set
 	}
 	if len(allow) == 0 {
 		return core.Result{}
@@ -80,7 +77,7 @@ func selectForFormat(cwd string, changed []string, prev map[string]string, allow
 	carry := map[string]string{}
 	modified := map[string]time.Time{}
 	for _, rel := range changed {
-		full := filepath.Join(cwd, rel)
+		full := core.CanonPath(filepath.Join(cwd, rel))
 		if !allow[full] {
 			continue
 		}
@@ -134,11 +131,6 @@ func formatAll(files []string) map[string]string {
 // stampKey is mtime+size: cheaper than a hash and enough to skip a no-op re-format.
 func stampKey(fi os.FileInfo) string {
 	return strconv.FormatInt(fi.ModTime().UnixNano(), 10) + ":" + strconv.FormatInt(fi.Size(), 10)
-}
-
-func cwdKey(cwd string) string {
-	sum := sha256.Sum256([]byte(cwd))
-	return hex.EncodeToString(sum[:8])
 }
 
 // stampFile is the stamp cache on disk; a v0 bare map or a newer schema decodes as an empty cache.

@@ -224,14 +224,11 @@ func TestPlanTitlePrefersSlugLine(t *testing.T) {
 	}
 }
 
-// TestWithTasksOwnTasksHeadingWithoutCheckbox characterizes CURRENT behavior: withTasks only looks for a
-// checkbox line (checkboxLine), not a "## Tasks" heading by itself — a heading with no "- [ ]" items yet
-// still gets a second "## Tasks" section appended.
+// TestWithTasksOwnTasksHeadingWithoutCheckbox: a plan's own "## Tasks" heading is kept, never doubled.
 func TestWithTasksOwnTasksHeadingWithoutCheckbox(t *testing.T) {
 	plan := "# Plan: X\n\n## Tasks\n\nsome prose, no checkbox items yet\n"
-	got := string(withTasks([]byte(plan)))
-	if strings.Count(got, "## Tasks") != 2 {
-		t.Errorf("withTasks(heading-only) = %q, want two \"## Tasks\" sections (current: heading alone doesn't count)", got)
+	if got := string(withTasks([]byte(plan))); got != plan {
+		t.Errorf("withTasks(heading-only) = %q, want the plan unchanged", got)
 	}
 }
 
@@ -316,35 +313,6 @@ func hookJSON(t *testing.T, m map[string]any) *strings.Reader {
 func runDocs(t *testing.T, run core.Runner, m map[string]any) string {
 	t.Helper()
 	return run(core.ParseInput(hookJSON(t, m))).Context
-}
-
-// Skeleton: injected on EnterPlanMode, once per plan on plan-mode prompts, re-armed by a non-plan prompt.
-func TestPlanSkeletonInjection(t *testing.T) {
-	planGroupEnv(t, true)
-	prompt := func(mode string) string {
-		return runDocs(t, Skeleton, map[string]any{
-			"hook_event_name": "UserPromptSubmit", "session_id": "s1", "permission_mode": mode, "prompt": "hello",
-		})
-	}
-	out := runDocs(t, Skeleton, map[string]any{
-		"hook_event_name": "PostToolUse", "session_id": "s1", "tool_name": "EnterPlanMode",
-	})
-	if !strings.Contains(out, "# Plan:") {
-		t.Fatalf("EnterPlanMode context = %q, want the skeleton", out)
-	}
-	if got := prompt("plan"); strings.Contains(got, "# Plan:") {
-		t.Fatalf("plan prompt after EnterPlanMode re-injected: %q", got)
-	}
-	// marker is set by the first plan-mode prompt only after a clear; a default prompt clears it
-	if got := prompt("default"); strings.Contains(got, "# Plan:") {
-		t.Fatalf("default prompt injected the skeleton: %q", got)
-	}
-	if got := prompt("plan"); !strings.Contains(got, "# Plan:") {
-		t.Fatalf("plan prompt after a default prompt = %q, want the skeleton again", got)
-	}
-	if got := prompt("plan"); strings.Contains(got, "# Plan:") {
-		t.Fatalf("second plan prompt re-injected: %q", got)
-	}
 }
 
 // plan-gate: the first template-less write to an undated draft is blocked with the skeleton; docs-placement is silent.
@@ -591,16 +559,6 @@ func TestPlanMirrorFailedRecordDefersCopy(t *testing.T) {
 	dated, err := filepath.Glob(filepath.Join(cfg, "plans", "2*.md"))
 	if err != nil || len(dated) != 0 {
 		t.Fatalf("dated copies = %v (err %v), want none until the destination can be recorded", dated, err)
-	}
-}
-
-// TestPlanSkeletonMissingTemplateReportsOnStderr: a missing template fails open but names the cause.
-func TestPlanSkeletonMissingTemplateReportsOnStderr(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	in := core.ParseInput(hookJSON(t, map[string]any{"hook_event_name": "PreToolUse", "tool_name": "EnterPlanMode"}))
-	res := Skeleton(in)
-	if res.Context != "" || !strings.Contains(res.Stderr, "plan-skeleton: ") {
-		t.Fatalf("result = %+v, want no context and a plan-skeleton diagnostic", res)
 	}
 }
 

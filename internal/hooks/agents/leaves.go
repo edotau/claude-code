@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
@@ -90,23 +91,24 @@ func Release(in *core.Input) core.Result {
 	return core.Result{}
 }
 
-// reapLeaf kills the stopping leaf's leftover background shells; set by leafreap.go where signals exist.
-var reapLeaf = func(*core.Input, leafRead) {}
+// reapLeaf kills the stopping leaf's leftover background shells; a seam for tests.
+var reapLeaf = reapLeafBackground
 
 // Stop retires the stopping agent's claim by agent id (first stop retires; a second is a no-op).
 func Stop(in *core.Input) core.Result {
-	owner, id := inflight.SessionOwner(), in.SubagentID()
-	if owner == 0 || id == "" {
+	id := in.SubagentID()
+	if id == "" {
 		return core.Result{}
+	}
+	lr := readLeaf(in.AgentTranscriptPath, leafWants(in))
+	note, blocked := leafGate(in, id, lr)
+	owner := inflight.SessionOwner()
+	if blocked || owner == 0 { // the gates need no owner; only the claim retire does
+		return note // a blocked stop retires nothing: the leaf is still running
 	}
 	dirs := []string{inflight.SubagentDir(in.TranscriptPath)}
 	if in.AgentTranscriptPath != "" {
 		dirs = append([]string{filepath.Dir(in.AgentTranscriptPath)}, dirs...)
-	}
-	lr := readLeaf(in.AgentTranscriptPath, leafWants(in))
-	note, blocked := leafGate(in, id, lr)
-	if blocked {
-		return note // a blocked stop retires nothing: the leaf is still running
 	}
 	clearErr := docs.ClearStoppedClaim(in, dirs, id) // before the retire: it reads the same meta.json
 	for _, d := range dirs {
@@ -137,7 +139,7 @@ type leafWant struct{ ids, brief, files bool }
 
 // leafWants is what the stop gates and the reaper read from the stopping leaf's transcript.
 func leafWants(in *core.Input) leafWant {
-	return leafWant{ids: in.Agent() == core.AgentClaude, brief: externalTypes[leafAgentType(in)], files: reapSupported}
+	return leafWant{ids: in.Agent() == core.AgentClaude, brief: externalTypes[leafAgentType(in)], files: true}
 }
 
 // leafRead is one pass over a leaf transcript: its dispatch ids, brief scan and background output files.
@@ -206,7 +208,7 @@ func leafGate(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
 func liveDispatchVerdict(ids []string, agentID string) (expired core.Result, block bool) {
 	for _, id := range ids {
 		rec, err := loadDispatch(id)
-		if err != nil || !inflight.DispatchAlive(rec.Status, rec.PID, rec.Time) {
+		if err != nil || !inflight.DispatchAlive(rec.Status, rec.PID, rec.Time) || pidReused(rec) {
 			continue
 		}
 		res, block := leafStopVerdict(agentID, rec)
@@ -218,6 +220,15 @@ func liveDispatchVerdict(ids []string, agentID string) (expired core.Result, blo
 		}
 	}
 	return expired, false
+}
+
+// pidReused is true when rec.PID now runs a process that started after the dispatch did; no recorded start is unknown.
+func pidReused(rec agent.Record) bool {
+	if rec.PIDStart == "" || rec.PID <= 0 {
+		return false
+	}
+	got, err := proc.StartTime(rec.PID)
+	return err == nil && got != rec.PIDStart
 }
 
 // leafStopVerdict blocks until the wait limit, then allows the stop with a visible note.
@@ -243,9 +254,9 @@ const ranOnMaxBlocks = 3
 // handedBackMark is SubagentHandback's success result: the run is over, so a later stop block cannot reopen it.
 const handedBackMark = "Report delivered to your caller"
 
-// leafScan is what the gates read from a leaf transcript: its brief, the ran-on and hand-back results, and prior gate blocks.
+// leafScan is what the gates read from a leaf transcript: the ran-on and hand-back results and prior gate blocks.
 type leafScan struct {
-	brief             string
+	seenBrief         bool
 	ranOn, handedBack bool
 	gates             int
 }
@@ -268,8 +279,8 @@ func (s *leafScan) addLine(b []byte) {
 	if json.Unmarshal(b, &m) != nil || m.Type != "user" {
 		return
 	}
-	if s.brief == "" {
-		s.brief = transcript.ContentText(m.Message.Content)
+	if !s.seenBrief { // the first user message is the brief
+		s.seenBrief = true
 		return
 	}
 	var items []leafToolResult

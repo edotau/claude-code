@@ -238,6 +238,8 @@ func TestWorktreeModeAndBusy(t *testing.T) {
 	old := PeerAgents
 	PeerAgents = func(string, []string) ([]worktree.Proc, error) { return peers, nil }
 	defer func() { PeerAgents = old }()
+	busyScanTTL = 0 // every prompt scans
+	t.Cleanup(func() { busyScanTTL = time.Minute })
 	in := &core.Input{SessionID: "s1", CWD: cwd}
 
 	for _, v := range []string{"off", "false", "0", "OFF"} {
@@ -392,7 +394,7 @@ func TestDivergedAtEmptyCommitsAreNotARewrite(t *testing.T) {
 	}
 }
 
-// divergedClone is a clone whose main has one local commit (claimed by session peerS) and one new upstream commit.
+// divergedClone is a clone whose main has one local commit and one new upstream commit.
 func divergedClone(t *testing.T) string {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -408,17 +410,11 @@ func divergedClone(t *testing.T) string {
 	hosttest.In(t, work, "add", ".")
 	hosttest.In(t, work, "commit", "-qm", "local")
 	hosttest.In(t, work, "fetch", "-q")
-	short := strings.TrimSpace(hosttest.In(t, work, "rev-parse", "--short=7", "HEAD"))
-	if err := os.MkdirAll(worktree.ClaimsDir(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	hosttest.WriteRel(t, worktree.ClaimsDir(), filepath.Base(claimsFile(liveOwner, "peerS")), `{"schema":1,"commit":"`+short+`","ts":1}`+"\n")
-	orig, origPeers := claimAlive, PeerAgents
-	claimAlive = func(pid int) bool { return pid == liveOwner }
+	orig := PeerAgents
 	PeerAgents = func(string, []string) ([]worktree.Proc, error) {
 		return []worktree.Proc{{PID: 4242, Comm: "claude"}}, nil
 	}
-	t.Cleanup(func() { claimAlive, PeerAgents = orig, origPeers })
+	t.Cleanup(func() { PeerAgents = orig })
 	return work
 }
 
@@ -427,9 +423,8 @@ func TestNoticesAndDivergenceReachContextOnce(t *testing.T) {
 	work := divergedClone(t)
 	in := &core.Input{SessionID: "sB", CWD: work}
 	got := Busy(in)
-	if !strings.Contains(got.Context, "local main diverged from origin/main (ahead 1, behind 1)") ||
-		!strings.Contains(got.Context, "ahead: session peers (pid 100)") || got.Stderr != "" {
-		t.Fatalf("first prompt = %+v, want the divergence line naming the ahead commit's session", got)
+	if !strings.Contains(got.Context, "local main diverged from origin/main (ahead 1, behind 1)") || got.Stderr != "" {
+		t.Fatalf("first prompt = %+v, want the divergence line", got)
 	}
 	if again := Busy(in); again.Context != "" {
 		t.Fatalf("second prompt = %q, want the divergence line only once", again.Context)

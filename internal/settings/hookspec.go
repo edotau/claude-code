@@ -42,7 +42,6 @@ const (
 // EventSpec declares one hook module on one event; Name is its `claude-code hook <Event> --<Name>` flag.
 type EventSpec struct {
 	Name          string
-	Group         string // set by Specs
 	Event         string
 	Matcher       string        // "" = every tool / no matcher
 	Budget        time.Duration // the handler's deadline and its share of the dispatcher's timeout
@@ -111,15 +110,12 @@ var Registry = []Group{
 	{Name: "docs", Events: []EventSpec{
 		// Markdown writes at a repo root or into an ignored docs/ page are blocked, naming the canonical home.
 		{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking doc placement", Blocks: true, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
-		// The first write to a native plan draft must carry the plan template; the denial pastes the skeleton.
+		// The first write to a native plan draft must carry the plan template; the denial pastes it.
 		{Name: "docs-plan-gate", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking plan template", Blocks: true, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
 		// Every write/edit to a native plan-mode draft is mirrored to its dated, repo-tagged file in plans/.
 		{Name: "docs-plan-mirror", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 10 * sec, Hosted: []string{"opencode"}},
 		// An approved plan is filed under plans/, tagged with its repo.
 		{Name: "docs-plan-save", Event: EventPostToolUse, Matcher: "ExitPlanMode", Budget: 10 * sec},
-		// The plan template is injected on entering plan mode and, once per plan, on a plan-mode prompt.
-		{Name: "docs-plan-skeleton", Event: EventPostToolUse, Matcher: "EnterPlanMode", Budget: 5 * sec},
-		{Name: "docs-plan-skeleton-prompt", Event: EventUserPromptSubmit, Budget: 5 * sec, Hosted: []string{"opencode"}},
 		// A landed git commit ticks the active plan's tasks whose owns: it covers; partial coverage is noted.
 		{Name: "docs-plan-tick", Event: EventPostToolUse, Matcher: "Bash", Budget: 10 * sec, Hosted: []string{"opencode"}},
 		// Commits that only partly landed a task are reported once at Stop (advisory).
@@ -178,28 +174,13 @@ var Registry = []Group{
 	}},
 }
 
-// Specs flattens Registry to its handlers in group order, each stamped with its group name.
+// Specs flattens Registry to its handlers in group order.
 func Specs() []EventSpec {
 	var out []EventSpec
 	for _, g := range Registry {
-		for _, s := range g.Events {
-			s.Group = g.Name
-			out = append(out, s)
-		}
+		out = append(out, g.Events...)
 	}
 	return out
-}
-
-// GroupOf names the group a hook module belongs to.
-func GroupOf(name string) (Group, bool) {
-	for _, g := range Registry {
-		for _, s := range g.Events {
-			if s.Name == name {
-				return g, true
-			}
-		}
-	}
-	return Group{}, false
 }
 
 // Hook and MatcherGroup are the settings.json hook schema.
@@ -312,7 +293,7 @@ func HookModules() string {
 	return strings.Join(append(lines, strings.TrimSuffix(line, "|")), "\n")
 }
 
-// SpecsFor lists the specs agentName runs on a surface: native, sdk, hosted or plugin; unknown combinations are nil.
+// SpecsFor lists the specs agentName runs on a surface: native, hosted or plugin; unknown combinations are nil.
 func SpecsFor(agentName, surface string) []EventSpec {
 	var out []EventSpec
 	for _, g := range Registry {
@@ -330,8 +311,6 @@ func specApplies(s EventSpec, agentOnly bool, agentName, surface string) bool {
 	switch surface {
 	case "native":
 		return agentName == "claude" && !agentOnly || slices.Contains(s.Agents, agentName)
-	case "sdk":
-		return agentName == "copilot" && slices.Contains(s.Agents, agentName)
 	case "hosted":
 		return slices.Contains(s.Hosted, agentName)
 	case "plugin":

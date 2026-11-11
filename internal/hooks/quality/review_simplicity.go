@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -42,7 +41,7 @@ func ReviewSimplicity(in *core.Input) core.Result {
 // editContents is the edited file's path and its content before and after this Write or Edit.
 func editContents(in *core.Input) (path, before, after string, ok bool) {
 	path = core.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
-	if path == "" || (in.ToolName != "Write" && in.ToolName != "Edit") || !reviewableSource(path) {
+	if path == "" || (in.ToolName != "Write" && in.ToolName != "Edit") || source.DetectLanguage(path) == "" {
 		return "", "", "", false
 	}
 	after, ok = readSmallFile(path)
@@ -72,17 +71,6 @@ func editBefore(in *core.Input, after string) (string, bool) {
 		n = -1
 	}
 	return strings.Replace(after, newStr, oldStr, n), true
-}
-
-// reviewableSource mirrors source.SimplicityFindings's language gate, so other files skip the read and git call.
-func reviewableSource(path string) bool {
-	ext := strings.ToLower(filepath.Ext(path))
-	for _, exts := range source.Extensions {
-		if slices.Contains(exts, ext) {
-			return true
-		}
-	}
-	return false
 }
 
 // readSmallFile returns the file's content unless it is unreadable or over simplicityMaxFile.

@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 )
@@ -37,11 +36,7 @@ func workflowDocDrift(root string) []string {
 	if err != nil {
 		return []string{savedWorkflowsDoc + ": " + err.Error()}
 	}
-	scripts, err := filepath.Glob(filepath.Join(root, "workflows", "*.js"))
-	if err != nil {
-		return []string{"workflows: " + err.Error()}
-	}
-	sort.Strings(scripts)
+	scripts := workflowScripts(root)
 	have := map[string]bool{}
 	for _, s := range scripts {
 		have[strings.TrimSuffix(filepath.Base(s), ".js")] = true
@@ -81,11 +76,7 @@ var helperBlocks = []helperBlock{
 
 // workflowHelperDrift returns one message per script that calls a block's functions with that block missing or differing.
 func workflowHelperDrift(root string) []string {
-	scripts, err := filepath.Glob(filepath.Join(root, "workflows", "*.js"))
-	if err != nil {
-		return []string{"workflows: " + err.Error()}
-	}
-	sort.Strings(scripts)
+	scripts := workflowScripts(root)
 	skills, err := skillScripts(root)
 	if err != nil {
 		return []string{"skills scripts: " + err.Error()}

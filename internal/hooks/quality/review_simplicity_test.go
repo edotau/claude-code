@@ -65,16 +65,6 @@ func TestReviewSimplicityIgnoresNonSource(t *testing.T) {
 	}
 }
 
-// rsGit runs each git argument set in dir, failing the test on the first error.
-func rsGit(t *testing.T, dir string, argSets ...[]string) {
-	t.Helper()
-	for _, a := range argSets {
-		if out, err := exec.Command("git", append([]string{"-C", dir}, a...)...).CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", a, err, out)
-		}
-	}
-}
-
 func TestReviewSimplicityWriteUsesGitHead(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -85,7 +75,8 @@ func TestReviewSimplicityWriteUsesGitHead(t *testing.T) {
 	if err := os.WriteFile(p, []byte(noisy), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	rsGit(t, dir, []string{"add", "a.go"}, []string{"commit", "-q", "-m", "x"})
+	hosttest.In(t, dir, "add", "a.go")
+	hosttest.In(t, dir, "commit", "-q", "-m", "x")
 	// Rewrite the whole file with the old block intact: only the added block is new.
 	if err := os.WriteFile(p, []byte(noisy+"\n// new one\n// new two\nfunc N() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -126,13 +117,10 @@ func TestReviewSimplicityGitFailureReportsNothing(t *testing.T) {
 	if err := os.WriteFile(p, []byte(noisy), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	rsGit(t, dir, []string{"add", "a.go"}, []string{"commit", "-q", "-m", "x"})
+	hosttest.In(t, dir, "add", "a.go")
+	hosttest.In(t, dir, "commit", "-q", "-m", "x")
 	// Corrupt the repo: delete the committed blob so `git show HEAD:./a.go` fails for a reason other than untracked.
-	sha, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD:a.go").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := strings.TrimSpace(string(sha))
+	s := strings.TrimSpace(hosttest.In(t, dir, "rev-parse", "HEAD:a.go"))
 	if err := os.Remove(filepath.Join(dir, ".git", "objects", s[:2], s[2:])); err != nil {
 		t.Fatal(err)
 	}

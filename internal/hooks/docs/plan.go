@@ -257,9 +257,10 @@ var planCloseout = []string{
 }
 
 // withTasks appends a `## Tasks` checklist when the plan has none: the recovery point if a session, agent or
-// worktree is lost. A plan that already carries `- [ ]`/`- [x]` lines is returned unchanged.
+// worktree is lost. A plan with `- [ ]`/`- [x]` lines or its own `## Tasks` heading is returned unchanged.
 func withTasks(plan []byte) []byte {
-	if checkboxLine().Match(plan) {
+	headings := planHeadings(plan)
+	if checkboxLine().Match(plan) || hasPlanHeading(headings, templateHeading{level: 2, prefix: "Tasks"}) {
 		return plan
 	}
 	var b bytes.Buffer
@@ -267,7 +268,7 @@ func withTasks(plan []byte) []byte {
 	b.WriteString("\n\n## Tasks\n\nTick `[x]` with the commit id as each item lands; this list is the recovery point if a " +
 		"session, agent or worktree is lost.\n\n")
 	items := 0
-	for _, h := range planHeadings(plan) {
+	for _, h := range headings {
 		if h.level < 2 || h.level > 4 || !taskHeadingWord().MatchString(h.text) {
 			continue
 		}
@@ -466,55 +467,19 @@ func mirrorSource(in *core.Input) (path string, content []byte, ok bool) {
 	return path, content, true
 }
 
-func skeletonMarker(session string) string {
-	return filepath.Join(plans.ScratchDir(), paths.Slug(session, "", 80, "session")+".skeleton")
-}
-
 func partialFile(session string) string {
 	return filepath.Join(plans.ScratchDir(), paths.Slug(session, "", 80, "session")+".partial")
 }
 
 func partialsLock() string { return filepath.Join(plans.ScratchDir(), "partials") }
 
-// Skeleton injects the plan template on EnterPlanMode and, once per plan, on a plan-mode prompt.
-func Skeleton(in *core.Input) core.Result {
-	var stderr bytes.Buffer
-	event := in.HookEventName
-	marker := skeletonMarker(in.SessionID)
-	if event == "UserPromptSubmit" {
-		if in.Nested("permission_mode") != "plan" {
-			if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
-				fmt.Fprintf(&stderr, "plan-skeleton: %v\n", err)
-			}
-			return core.ExitResult(core.ExitProceed, stderr.String())
-		}
-		if _, err := os.Stat(marker); err == nil {
-			return core.Result{}
-		}
-	} else if in.ToolName != "EnterPlanMode" {
-		return core.Result{}
-	}
-	sk, err := plans.Skeleton(paths.ConfigDir())
-	if err != nil {
-		fmt.Fprintf(&stderr, "plan-skeleton: %v\n", err)
-		return core.ExitResult(core.ExitProceed, stderr.String()) // no template: fail open
-	}
-	err = os.MkdirAll(plans.ScratchDir(), 0o700)
-	if err == nil {
-		err = os.WriteFile(marker, nil, 0o600)
-	}
-	if err != nil {
-		fmt.Fprintf(&stderr, "plan-skeleton: %v\n", err)
-	}
-	res := core.ExitResult(core.ExitProceed, stderr.String())
-	res.Context = "Plan format (docs/templates/plan.md) — this format replaces plan mode's suggested headings:\n" + sk
-	return res
-}
-
 // Reminder warns once at Stop about commits that only partly landed a plan task, then clears the record.
 func Reminder(in *core.Input) core.Result {
 	var stderr bytes.Buffer
 	file := partialFile(in.SessionID)
+	if _, err := os.Stat(file); err != nil { // the common Stop: no partial record, so take no lock
+		return core.Result{}
+	}
 	var data []byte
 	err := paths.WithFileLock(partialsLock(), func() error {
 		var rerr error

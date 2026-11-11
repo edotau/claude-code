@@ -15,7 +15,6 @@ const updateNotSaved = "memory update NOT saved; run `claude-code memory update`
 
 // sessionUpdate (Stop) dispatches a detached `memory update` once a session has substantive work; with no spawn possible it blocks at most updateMaxBlocks times asking for `claude-code memory update`.
 func sessionUpdate(in *core.Input, stderr io.Writer) (code int, failedOpen bool) {
-	in = AgentInput(in) // Stop already resolved the session root
 	memory.RefreshStaleEmbeddings(in.CWD)
 	if !memory.Updatable(in.SessionID, in.TranscriptPath) {
 		return core.ExitProceed, false

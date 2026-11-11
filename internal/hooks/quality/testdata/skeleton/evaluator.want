@@ -5,12 +5,12 @@ export const meta = {
 }
 
 phase('Generate')
-const draft = await agent('Produce the artifact.', {schema: DRAFT_SCHEMA})
+const draft = await agent('Produce the artifact.', {model: 'sonnet', effort: 'medium', schema: DRAFT_SCHEMA})
 phase('Verify')
 // N independent skeptics, each prompted to REFUTE; accept only if a majority can't.
 const votes = (await parallel(['correctness', 'security', 'repro'].map(lens => () =>
   agent(`Try to refute the ${lens} of: ${draft.summary}. Default refuted=true if unsure.`,
-        {schema: VERDICT_SCHEMA})))).filter(Boolean)
+        {model: 'sonnet', effort: 'medium', schema: VERDICT_SCHEMA})))).filter(Boolean)
 const accepted = votes.filter(v => !v.refuted).length >= 2
 return {draft, accepted, votes}
 

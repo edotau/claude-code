@@ -7,9 +7,6 @@ import (
 	"syscall"
 )
 
-// reapSupported: no POSIX process groups here, so reapLeaf stays a no-op.
-const reapSupported = false
-
 // errNoGroups is what the group seams return off unix; they only satisfy the build.
 var errNoGroups = errors.New("process groups are unsupported on this platform")
 

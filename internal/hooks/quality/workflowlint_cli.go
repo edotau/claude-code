@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,12 +42,7 @@ func RunWorkflowLint(args []string, stdout, stderr io.Writer) int {
 		}
 		root = args[0]
 	}
-	pattern := filepath.Join(root, "workflows", "*.js")
-	files, err := filepath.Glob(pattern)
-	if err != nil {
-		fmt.Fprintf(stderr, "workflow lint: glob %s: %v\n", pattern, err)
-		return 1
-	}
+	files := workflowScripts(root)
 	skills, err := skillScripts(root)
 	if err != nil {
 		fmt.Fprintf(stderr, "workflow lint: glob skills scripts under %s: %v\n", root, err)
@@ -54,7 +50,7 @@ func RunWorkflowLint(args []string, stdout, stderr io.Writer) int {
 	}
 	files = append(files, skills...)
 	if len(files) == 0 { // a wrong root (e.g. the workflows dir itself) must not pass as "0 clean"
-		fmt.Fprintf(stderr, "workflow lint: no scripts in %s (pass the root that contains workflows/)\n", pattern)
+		fmt.Fprintf(stderr, "workflow lint: no scripts in %s (pass the root that contains workflows/)\n", filepath.Join(root, "workflows", "*.js"))
 		return 1
 	}
 	parseHits, skipped := workflowParseDefects(readableFiles(files))
@@ -76,6 +72,15 @@ func RunWorkflowLint(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// workflowScripts is root's workflows/*.js; fs.Glob over a DirFS, so a metacharacter in root cannot empty the match.
+func workflowScripts(root string) []string {
+	rel, _ := fs.Glob(os.DirFS(root), "workflows/*.js") // the pattern is fixed, so ErrBadPattern cannot occur
+	for i, r := range rel {
+		rel[i] = filepath.Join(root, r)
+	}
+	return rel
 }
 
 // printHits writes each hit to stderr and returns how many there were.
@@ -193,19 +198,22 @@ func isWorkflowScript(f string) bool {
 }
 
 // LintPins returns every agent() pin problem in src; shared by `workflow lint` and the workflow-lint hook.
-func LintPins(name string, src []byte) []string {
-	s := string(src)
+func LintPins(name string, src []byte) []string { return lintPins(name, string(src), true) }
+
+// lintPins is LintPins; withEffort false drops the missing-effort problems.
+func lintPins(name, s string, withEffort bool) []string {
 	var out []string
 	for _, hit := range unpinnedAgentCalls(name, s) {
 		out = append(out, fmt.Sprintf("%s: agent() without model: — the leaf runs on the session tier, or on a"+
 			" built-in agentType's own tier (Explore is opus); pin model:'sonnet' even with agentType", hit))
 	}
-	for _, hit := range effortlessAgentCalls(name, s) {
-		out = append(out, fmt.Sprintf("%s: agent() without effort: — pin effort:'low' for mechanical"+
-			" leaves, 'medium' for standard, or mark // %s", hit, lintOpusOK))
+	if withEffort {
+		for _, hit := range effortlessAgentCalls(name, s) {
+			out = append(out, fmt.Sprintf("%s: agent() without effort: — pin effort:'low' for mechanical"+
+				" leaves, 'medium' for standard, or mark // %s", hit, lintOpusOK))
+		}
 	}
-	out = append(out, badPinValues(name, s)...)
-	return out
+	return append(out, badPinValues(name, s)...)
 }
 
 // unpinnedAgentCalls returns "name:line" for each agent( call missing a model: pin. agentType alone is not
@@ -244,14 +252,14 @@ var pinKeys = []string{"model", "effort"}
 // pinAllowed is the allow-list per pin key; anything else is a hit (an unknown value silently falls
 // back to the session tier rather than erroring).
 var pinAllowed = map[string]map[string]bool{
-	"model":  {"haiku": true, "sonnet": true, "opus": true, "fable": true},
-	"effort": effortAllowed(),
+	"model":  setOf(stepClaudeModels),
+	"effort": setOf(agentid.EffortNames()),
 }
 
-// effortAllowed is the harness effort scale as a set.
-func effortAllowed() map[string]bool {
+// setOf is the list as a set.
+func setOf(list []string) map[string]bool {
 	set := map[string]bool{}
-	for _, e := range agentid.EffortNames() {
+	for _, e := range list {
 		set[e] = true
 	}
 	return set

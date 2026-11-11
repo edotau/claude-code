@@ -209,15 +209,8 @@ func guardBindingProbes() map[string]bindingProbe {
 	}
 }
 
-// planBindingProbes are the plan-file hooks: each leaves its own trace (a dated copy, a save error, the skeleton).
+// planBindingProbes are the plan-file hooks: each leaves its own trace (a dated copy, a save error).
 func planBindingProbes() map[string]bindingProbe {
-	skeleton := func(payload string) bindingProbe {
-		return func(*testing.T, string) (string, func(core.Result) bool) {
-			return payload, func(r core.Result) bool {
-				return strings.HasPrefix(r.Context, "Plan format") || strings.Contains(r.Stderr, "plan-skeleton:")
-			}
-		}
-	}
 	return map[string]bindingProbe{
 		"docs-plan-mirror": func(t *testing.T, cfg string) (string, func(core.Result) bool) {
 			draft := filepath.Join(cfg, "plans", "draft.md")
@@ -233,8 +226,6 @@ func planBindingProbes() map[string]bindingProbe {
 			return `{"tool_name":"ExitPlanMode","tool_response":{"filePath":"` + filepath.Join(cfg, "absent.md") + `"}}`,
 				func(r core.Result) bool { return strings.Contains(r.Stderr, "save-plan:") }
 		},
-		"docs-plan-skeleton":        skeleton(`{"hook_event_name":"PreToolUse","tool_name":"EnterPlanMode","session_id":"s"}`),
-		"docs-plan-skeleton-prompt": skeleton(`{"hook_event_name":"UserPromptSubmit","permission_mode":"plan","session_id":"s"}`),
 	}
 }
 
@@ -332,14 +323,14 @@ func TestVendorHookFilesCallOnlyResolvableHooks(t *testing.T) {
 			t.Fatalf("%s: no hook commands rendered", name)
 		}
 		for _, m := range ms {
-			if _, ok := native[m[2]]; !ok || !isEvent(m[1]) || eventOf(m[2]) != m[1] {
+			if _, ok := native[m[2]]; !ok || !slices.Contains(settings.HookEvents(), m[1]) || eventOf(m[2]) != m[1] {
 				t.Errorf("%s hook file calls %q, which no module on that event serves", name, m[0])
 			}
 		}
 	}
 }
 
-// An oversized context on a module's own-process path is cut to the cap plus one ellipsis rune, blocks joined by a blank line.
+// An oversized context on a module's own-process path is cut to the cap plus the truncation marker, blocks joined by a blank line.
 func TestRunDirectCapsContext(t *testing.T) {
 	orig := native["memory-start"]
 	native["memory-start"] = func(*core.Input) core.Result {
@@ -354,7 +345,8 @@ func TestRunDirectCapsContext(t *testing.T) {
 		H struct{ AdditionalContext string } `json:"hookSpecificOutput"`
 	}
 	if err := json.Unmarshal([]byte(out.String()), &doc); err != nil || !strings.HasPrefix(doc.H.AdditionalContext, "a\n\nxx") ||
-		len([]rune(doc.H.AdditionalContext)) != core.ContextCapChars+1 {
+		!strings.HasSuffix(doc.H.AdditionalContext, "…truncated") ||
+		len([]rune(doc.H.AdditionalContext)) != core.ContextCapChars+len([]rune("…truncated")) {
 		t.Errorf("cap: %v len=%d", err, len([]rune(doc.H.AdditionalContext)))
 	}
 }
@@ -534,12 +526,14 @@ func rtkHermetic(t *testing.T) {
 // requireRTKGroupShape asserts the rtk group is a vendor-neutral non-gate group on PreToolUse/Bash.
 func requireRTKGroupShape(t *testing.T) {
 	t.Helper()
-	g, ok := settings.GroupOf("rtk-rewrite")
-	if !ok {
-		t.Fatal(`settings.GroupOf("rtk-rewrite") found no group`)
+	var g settings.Group
+	for _, c := range settings.Registry {
+		if c.Name == "rtk" {
+			g = c
+		}
 	}
 	if g.Name != "rtk" {
-		t.Errorf("group name = %q, want rtk", g.Name)
+		t.Fatal("no rtk group in the registry")
 	}
 	if g.Gate {
 		t.Error("rtk group must not be a gate — the safety gate is the only gate")

@@ -78,13 +78,16 @@ func stripStrings(src string) string {
 	for i := 0; i < len(b); i++ {
 		c := b[i]
 		// A comment's apostrophe ("don't") must not open a string and blank the real pin after it.
-		if c == '/' && i+1 < len(b) && (b[i+1] == '/' || b[i+1] == '*') {
-			i = maskComment(b, i)
-			continue
-		}
-		if c == '/' && regexAllowedAt(b, i) {
-			i = maskRegex(b, i)
-			continue
+		if c == '/' {
+			if end := skipComment(src, i); end != i {
+				blankBody(b, i, end+1)
+				i = end
+				continue
+			}
+			if regexAllowedAt(b, i) {
+				i = maskRegex(b, i)
+				continue
+			}
 		}
 		if c != '\'' && c != '"' && c != '`' {
 			continue
@@ -158,14 +161,4 @@ func blankBody(b []byte, from, to int) {
 			b[k] = ' '
 		}
 	}
-}
-
-func maskComment(b []byte, i int) int {
-	last := commentEnd(string(b), i) // the comment's final byte, so the caller resumes after the terminator
-	for k := i; k <= last && k < len(b); k++ {
-		if b[k] != '\n' { // keep line structure so callers can still count lines
-			b[k] = ' '
-		}
-	}
-	return last
 }

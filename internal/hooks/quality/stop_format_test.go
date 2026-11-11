@@ -21,10 +21,7 @@ func TestStopFormatOnlySessionWrites(t *testing.T) {
 		t.Skip("git not on PATH")
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	repo, _ := filepath.EvalSymlinks(t.TempDir())
-	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v %s", err, out)
-	}
+	repo := hosttest.Repo(t)
 	ugly := "package x\nfunc  F( ) {}\n"
 	mine, theirs := filepath.Join(repo, "mine.go"), filepath.Join(repo, "theirs.go")
 	_ = os.WriteFile(mine, []byte(ugly), 0o644)
@@ -56,10 +53,7 @@ func TestChangedFilesFromSubdir(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
-	repo, _ := filepath.EvalSymlinks(t.TempDir())
-	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v %s", err, out)
-	}
+	repo := hosttest.Repo(t)
 	src := filepath.Join(repo, "src")
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)

@@ -268,7 +268,7 @@ func TestCollectReportsClientFetchFailureAndGates(t *testing.T) {
 	}
 }
 
-// TestResolvePathsReadsMountsOnlyForPathTokens: a path-free prompt never builds the resolver; a path prompt still does.
+// TestResolvePathsReadsMountsOnlyForPathTokens: only a foreign-form or // token builds the mount-table resolver.
 func TestResolvePathsReadsMountsOnlyForPathTokens(t *testing.T) {
 	calls := 0
 	orig := defaultResolver
@@ -283,7 +283,7 @@ func TestResolvePathsReadsMountsOnlyForPathTokens(t *testing.T) {
 	}
 	res := ResolvePaths(&core.Input{Prompt: "read " + f + "."})
 	want := "File paths resolved from the prompt (use these for reads and @-references):\n  " + f + " (6 B)"
-	if calls != 1 || res.Context != want || !strings.Contains(res.SystemMessage, "notes.md — 6 B") {
+	if calls != 0 || res.Context != want || !strings.Contains(res.SystemMessage, "notes.md — 6 B") {
 		t.Fatalf("path prompt: calls=%d context=%q message=%q, want context %q", calls, res.Context, res.SystemMessage, want)
 	}
 }

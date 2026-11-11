@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -259,12 +260,17 @@ func pathResolverResult(in *core.Input, res *paths.Resolver) core.Result {
 // defaultResolver reads the host's mount table (macOS runs `mount`); swapped in tests.
 var defaultResolver = paths.Default
 
-// ResolvePaths binds pathResolverResult to the host's mount view, read only when the prompt holds a path token.
+// ResolvePaths binds pathResolverResult to the host's mount view, read only when a token needs the mount table.
 func ResolvePaths(in *core.Input) core.Result {
-	if len(scanWinTokens(in.Prompt)) == 0 && len(scanPosixTokens(in.Prompt)) == 0 {
+	win, posix := scanWinTokens(in.Prompt), scanPosixTokens(in.Prompt)
+	if len(win)+len(posix) == 0 {
 		return core.Result{}
 	}
-	return pathResolverResult(in, defaultResolver())
+	res := &paths.Resolver{} // a plain absolute path never consults the mount table
+	if len(win) > 0 || slices.ContainsFunc(posix, func(t pathToken) bool { return strings.HasPrefix(t.trimmed, "//") }) {
+		res = defaultResolver()
+	}
+	return pathResolverResult(in, res)
 }
 
 // foreignHead opens a non-POSIX path token: drive letter, UNC, scheme URL, ~ / ~user, or host:/path.

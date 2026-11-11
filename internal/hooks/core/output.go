@@ -178,7 +178,10 @@ func WithStderr(r Result, err error) Result {
 	return r
 }
 
-// JoinContext joins the non-empty context blocks into one additionalContext text.
-func JoinContext(blocks ...string) string {
-	return strings.Join(slices.DeleteFunc(slices.Clone(blocks), func(b string) bool { return b == "" }), "\n\n")
+// JoinNonEmpty joins the non-empty parts with sep.
+func JoinNonEmpty(sep string, parts ...string) string {
+	return strings.Join(slices.DeleteFunc(slices.Clone(parts), func(p string) bool { return p == "" }), sep)
 }
+
+// JoinContext joins the non-empty context blocks into one additionalContext text.
+func JoinContext(blocks ...string) string { return JoinNonEmpty("\n\n", blocks...) }

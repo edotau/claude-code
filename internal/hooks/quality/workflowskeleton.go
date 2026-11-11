@@ -31,8 +31,8 @@ func pipelinePattern(name string) string {
 		"\n\nconst ITEMS = args ?? []   // pass the work-list via Workflow `args`\n" +
 		"const results = await pipeline(\n" +
 		"  ITEMS,\n" +
-		"  (item) => agent(`Do the work for: ${JSON.stringify(item)}`, {phase: 'Work', schema: WORK_SCHEMA}),\n" +
-		"  (work, item) => agent(`Adversarially verify: ${work.summary}`, {phase: 'Verify', schema: VERDICT_SCHEMA})\n" +
+		"  (item) => agent(`Do the work for: ${JSON.stringify(item)}`, {phase: 'Work', model: 'sonnet', effort: 'medium', schema: WORK_SCHEMA}),\n" +
+		"  (work, item) => agent(`Adversarially verify: ${work.summary}`, {phase: 'Verify', model: 'sonnet', effort: 'medium', schema: VERDICT_SCHEMA})\n" +
 		"    .then(v => ({...work, verdict: v})),\n" +
 		")\n" +
 		"return results.filter(Boolean).filter(r => r.verdict?.ok)"
@@ -43,21 +43,21 @@ func parallelPattern(name string) string {
 		"\n\nconst TASKS = args ?? []\n" +
 		"phase('Fan-out')\n" +
 		"const found = (await parallel(TASKS.map(t => () =>\n" +
-		"  agent(`Investigate: ${JSON.stringify(t)}`, {schema: FINDING_SCHEMA})))).filter(Boolean)\n" +
+		"  agent(`Investigate: ${JSON.stringify(t)}`, {model: 'sonnet', effort: 'medium', schema: FINDING_SCHEMA})))).filter(Boolean)\n" +
 		"// Barrier justified: synthesis needs the FULL set (dedup/merge across all findings).\n" +
 		"phase('Synthesize')\n" +
-		"return await agent(`Synthesize these findings into one report: ${JSON.stringify(found)}`)"
+		"return await agent(`Synthesize these findings into one report: ${JSON.stringify(found)}`, {model: 'sonnet', effort: 'medium'})"
 }
 
 func evaluatorPattern(name string) string {
 	return metaBlock(name, "Generate, then adversarially verify before accepting", "{ title: 'Generate' }, { title: 'Verify' }") +
 		"\n\nphase('Generate')\n" +
-		"const draft = await agent('Produce the artifact.', {schema: DRAFT_SCHEMA})\n" +
+		"const draft = await agent('Produce the artifact.', {model: 'sonnet', effort: 'medium', schema: DRAFT_SCHEMA})\n" +
 		"phase('Verify')\n" +
 		"// N independent skeptics, each prompted to REFUTE; accept only if a majority can't.\n" +
 		"const votes = (await parallel(['correctness', 'security', 'repro'].map(lens => () =>\n" +
 		"  agent(`Try to refute the ${lens} of: ${draft.summary}. Default refuted=true if unsure.`,\n" +
-		"        {schema: VERDICT_SCHEMA})))).filter(Boolean)\n" +
+		"        {model: 'sonnet', effort: 'medium', schema: VERDICT_SCHEMA})))).filter(Boolean)\n" +
 		"const accepted = votes.filter(v => !v.refuted).length >= 2\n" +
 		"return {draft, accepted, votes}"
 }
@@ -67,13 +67,13 @@ func orchestratorPattern(name string) string {
 		"\n\nphase('Plan')\n" +
 		"// Discover the work-list at runtime, then fan out over it (don't hardcode the shape).\n" +
 		"const plan = await agent(`Break down this goal into parallel-safe tasks: ${args?.goal ?? ''}`,\n" +
-		"                         {schema: PLAN_SCHEMA})\n" +
+		"                         {model: 'sonnet', effort: 'medium', schema: PLAN_SCHEMA})\n" +
 		"phase('Build')\n" +
 		"// isolation:'worktree' ONLY if tasks mutate files in parallel (else drop it — it's expensive).\n" +
 		"const done = await pipeline(\n" +
 		"  plan.tasks,\n" +
-		"  (task) => agent(task.brief, {phase: 'Build', isolation: 'worktree', schema: RESULT_SCHEMA}),\n" +
-		"  (result) => agent(`Review for spec + quality: ${result.summary}`, {phase: 'Build', schema: REVIEW_SCHEMA})\n" +
+		"  (task) => agent(task.brief, {phase: 'Build', isolation: 'worktree', model: 'sonnet', effort: 'medium', schema: RESULT_SCHEMA}),\n" +
+		"  (result) => agent(`Review for spec + quality: ${result.summary}`, {phase: 'Build', model: 'sonnet', effort: 'medium', schema: REVIEW_SCHEMA})\n" +
 		"    .then(r => ({...result, review: r})),\n" +
 		")\n" +
 		"return done.filter(Boolean)"
@@ -86,7 +86,7 @@ var skeletonPatterns = map[string]func(string) string{
 	"orchestrator": orchestratorPattern,
 }
 
-// skeletonArgs is the parsed command line; code/done report an early exit (usage error or --help).
+// skeletonArgs is the parsed command line; code/done report an early exit (usage error).
 type skeletonArgs struct {
 	name                      string
 	positionals, unrecognized []string
@@ -94,7 +94,7 @@ type skeletonArgs struct {
 	done                      bool
 }
 
-func parseSkeletonArgs(args []string, stdout, stderr io.Writer) skeletonArgs {
+func parseSkeletonArgs(args []string, stderr io.Writer) skeletonArgs {
 	p := skeletonArgs{name: "new-workflow"}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -108,9 +108,6 @@ func parseSkeletonArgs(args []string, stdout, stderr io.Writer) skeletonArgs {
 			p.name = args[i]
 		case strings.HasPrefix(a, "--name="):
 			p.name = strings.TrimPrefix(a, "--name=")
-		case a == "-h" || a == "--help":
-			helptext.Fprint(stdout, skeletonUsage)
-			return skeletonArgs{done: true}
 		case strings.HasPrefix(a, "-") && a != "-":
 			p.unrecognized = append(p.unrecognized, a)
 		case len(p.positionals) == 1:
@@ -124,7 +121,7 @@ func parseSkeletonArgs(args []string, stdout, stderr io.Writer) skeletonArgs {
 
 // RunSkeleton emits a JavaScript workflow skeleton for the selected pattern.
 func RunSkeleton(args []string, stdout, stderr io.Writer) int {
-	parsed := parseSkeletonArgs(args, stdout, stderr)
+	parsed := parseSkeletonArgs(args, stderr)
 	if parsed.done {
 		return parsed.code
 	}

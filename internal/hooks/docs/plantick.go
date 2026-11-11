@@ -111,11 +111,11 @@ func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
 		if d == "" {
 			continue
 		}
-		if _, err := proc.RunGit(ctx, d, "cat-file", "-e", sha+"^{commit}"); err != nil {
+		out, err := proc.RunGit(ctx, d, "rev-parse", "HEAD", sha+"^{commit}") // fails unless d's repo holds the commit
+		if err != nil {
 			continue
 		}
-		head, err := proc.RunGit(ctx, d, "rev-parse", "HEAD")
-		if err == nil && strings.HasPrefix(strings.TrimSpace(head), sha) {
+		if strings.HasPrefix(strings.TrimSpace(out), sha) {
 			return d // linked worktrees share objects; the one whose HEAD is the commit made it
 		}
 		holders = append(holders, d)
