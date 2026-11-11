@@ -72,7 +72,7 @@ type Provider struct {
 	Env map[string]string `json:"env,omitempty"`
 	// ModelPrefix is the wire-id prefix a databricks preset derives; WireModel does not read it; SpellingRule still does.
 	ModelPrefix string `json:"modelPrefix,omitempty"`
-	// Options are a preset row's non-secret knobs (databricks: options.wire serving|gateway).
+	// Options are a preset row's non-secret knobs (databricks: options.wire serving|ai-gateway).
 	Options Options `json:"options,omitzero"`
 	// Concurrency is how many agents this profile runs at once machine-wide; 0 = inflight.Base.
 	Concurrency int `json:"concurrency,omitempty"`
@@ -338,14 +338,19 @@ func (r *Registry) KeyPresent(provider string) (*Provider, bool) {
 	return p, p != nil && CredentialPresent(p)
 }
 
-// ProfileBy is the first profile under provider signing in by method (key, cli, ...), or nil.
-func (r *Registry) ProfileBy(provider, method string) *Provider {
+// firstProfile is the first profile under provider that match accepts, or nil.
+func (r *Registry) firstProfile(provider string, match func(*Provider) bool) *Provider {
 	for _, n := range r.ProfilesOf(provider) {
-		if p := r.Providers[n]; p.Auth.Method() == method {
+		if p := r.Providers[n]; match(p) {
 			return p
 		}
 	}
 	return nil
+}
+
+// ProfileBy is the first profile under provider signing in by method (key, cli, ...), or nil.
+func (r *Registry) ProfileBy(provider, method string) *Provider {
+	return r.firstProfile(provider, func(p *Provider) bool { return p.Auth.Method() == method })
 }
 
 // ProfileName is p's name, "" for nil.
@@ -375,22 +380,14 @@ func IdentityNote(profile string) string {
 
 // LoginProfile is the first profile under provider whose Auth.Login is login.
 func (r *Registry) LoginProfile(provider, login string) (*Provider, bool) {
-	for _, n := range r.ProfilesOf(provider) {
-		if p := r.Providers[n]; p.Auth.Login == login {
-			return p, true
-		}
-	}
-	return nil, false
+	p := r.firstProfile(provider, func(p *Provider) bool { return p.Auth.Login == login })
+	return p, p != nil
 }
 
 // KeyProfile is the first profile under provider that bills on a harness-held key.
 func (r *Registry) KeyProfile(provider string) (*Provider, bool) {
-	for _, n := range r.ProfilesOf(provider) {
-		if p := r.Providers[n]; p.APIKeyAuth() {
-			return p, true
-		}
-	}
-	return nil, false
+	p := r.firstProfile(provider, (*Provider).APIKeyAuth)
+	return p, p != nil
 }
 
 // Names lists profile names, sorted.

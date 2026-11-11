@@ -45,7 +45,12 @@ func wslMount() string {
 func OpenURL(url string) error {
 	ps := filepath.Join(wslMount(), winPowerShell)
 	if _, err := os.Stat(ps); openGOOS == "darwin" || !openWSL() || err != nil {
-		return exec.CommandContext(context.Background(), Opener(), url).Start() // the opener outlives this call
+		cmd := exec.CommandContext(context.Background(), Opener(), url)
+		if err := cmd.Start(); err != nil { // the opener outlives this call
+			return err
+		}
+		go func() { _ = cmd.Wait() }() // reap it, so a long-lived menu leaves no zombie
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

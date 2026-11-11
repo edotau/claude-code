@@ -59,6 +59,7 @@ var (
 	claimWord  = regexp.MustCompile(`(?i)^(?:working|finished):`)
 	partialKey = regexp.MustCompile(`(?i)^partly landed:\s*(.*)$`)
 	ownNote    = regexp.MustCompile(`\s*\([^)]*\)\s*$`) // "cli.go (verb row only)" owns cli.go
+	ownParen   = regexp.MustCompile(`\([^)]*\)`)
 )
 
 // Parse reads and parses path's checklist.
@@ -178,7 +179,10 @@ func parseTaskText(text string) (id, title string, owns []string, sha, claim str
 	}
 	lower := strings.ToLower(cleaned)
 	if i := strings.LastIndex(lower, "owns:"); i >= 0 {
-		owns = textutil.SplitCSV(cleaned[i+len("owns:"):])
+		masked := ownParen.ReplaceAllStringFunc(cleaned[i+len("owns:"):], func(n string) string { return strings.ReplaceAll(n, ",", "\x00") })
+		for _, o := range textutil.SplitCSV(masked) { // a comma inside a "(note, more)" does not split
+			owns = append(owns, strings.ReplaceAll(o, "\x00", ","))
+		}
 	}
 	return id, title, owns, sha, claim, partial
 }

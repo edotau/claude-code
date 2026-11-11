@@ -45,8 +45,8 @@ func ParseTarget(reg *Registry, spec string, def *Provider) Target {
 	return Target{Provider: def, Model: def.WireModel(base), OneM: oneM}
 }
 
-// Select resolves the session: profile = flag → CLAUDE_PROFILE pin → registry default; each alias =
-// CLAUDE_<TIER>_MODEL → CLAUDE_MODEL → the profile's model table.
+// Select resolves the session: profile = flag → claude record profile → registry default; each alias =
+// record alias → record model → the profile's model table.
 func Select(reg *Registry, providerFlag string) (Selection, error) {
 	recs, err := agentRecords()
 	if err != nil {

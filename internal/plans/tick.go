@@ -127,11 +127,6 @@ func WriteFile(dest string, data []byte) error {
 	})
 }
 
-// writePlan is the package's one write site: atomic replace that keeps dest's mode.
-func writePlan(dest string, data []byte, mode os.FileMode) error {
-	return paths.AtomicWrite(dest, data, mode)
-}
-
 // removeClaims drops every working:/finished: comment across t's line span.
 func removeClaims(lines []string, t Task) []string {
 	for i := t.Start; i <= t.End; i++ {
@@ -183,7 +178,7 @@ func ClaimFree(planPath, taskID, text string) error {
 		return fmt.Errorf("plans: claim text must not contain %q", "-->")
 	}
 	if !strings.HasPrefix(strings.ToLower(text), "working:") {
-		return errors.New("plans: claim text must start with \"working\"")
+		return errors.New("plans: claim text must start with \"working:\"")
 	}
 	return editTask(planPath, taskID, func(t Task, lines []string) []string {
 		if t.Claim != "" {
@@ -252,7 +247,7 @@ func pickPlan(dir, worktree, plan string, drafts []string, commits []Commit, w i
 		}
 		return plan, false, nil
 	}
-	plan, tied := Select(Home(paths.MainCheckout(dir)), worktree, drafts, commits)
+	plan, tied := Select(Home(dir), worktree, drafts, commits)
 	if plan != "" {
 		return plan, false, nil
 	}
@@ -365,4 +360,9 @@ func RecordDest(draftBase, dest string) error {
 		return err
 	}
 	return paths.AtomicWrite(DestRecordPath(draftBase), []byte(dest), 0o600)
+}
+
+// writePlan is the package's one write site (the schemas registry keys on it): atomic replace keeping dest's mode.
+func writePlan(dest string, data []byte, mode os.FileMode) error {
+	return paths.AtomicWrite(dest, data, mode)
 }

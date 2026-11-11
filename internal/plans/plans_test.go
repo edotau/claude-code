@@ -194,7 +194,7 @@ func TestClaimRejections(t *testing.T) {
 		clear                       bool
 	}{
 		{"comment terminator", "2.1", "working: x --> y", "-->", false},
-		{"bad verb", "2.1", "thinking: x", "must start with \"working\"", false},
+		{"bad verb", "2.1", "thinking: x", "must start with \"working:\"", false},
 		{"unknown id", "9.9", "working: x", `no task "9.9"`, false},
 		{"unknown clear", "Nope", "", `no task "Nope"`, true},
 	} {

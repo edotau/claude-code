@@ -1,4 +1,4 @@
-// Package proc owns process replacement (launch handoff) and detached spawns.
+// Package proc owns process launch, detach, listing, signals, git exec, env scrubbing and URL opening.
 package proc
 
 import (

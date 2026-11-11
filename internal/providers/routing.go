@@ -116,10 +116,10 @@ func (r Routing) ServedAwareOn() bool {
 	return r.ServedAware != nil && *r.ServedAware
 }
 
-// ServedRoutingOn reads the overlay's servedAware switch (defaults.json never sets it); a read failure reads as off.
+// ServedRoutingOn reads the merged servedAware switch (defaults.json never sets it); a load failure reads as off.
 func ServedRoutingOn() bool {
-	ov, err := RoutingOverlay()
-	return err == nil && ov.ServedAwareOn()
+	reg, err := Load()
+	return err == nil && reg.Routing.ServedAwareOn()
 }
 
 // DefaultRouting is defaults.json's own routing object, with no overlay applied — lane B labels a resolved

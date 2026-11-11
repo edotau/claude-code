@@ -79,15 +79,13 @@ func ClaudeAccount() ClaudeOAuthAccount {
 // ProviderStatus is one provider's credential state: which source would serve it today, never the
 // value itself.
 type ProviderStatus struct {
-	Name   string
-	Type   string
 	Source string // env | vault | auth.file | command | cli | none
 	Note   string
 }
 
 // Resolve reports credential presence in env -> vault -> auth.file -> command order, without resolving a key.
 func Resolve(p *Provider) ProviderStatus {
-	st := ProviderStatus{Name: p.Name, Type: p.Auth.Type}
+	var st ProviderStatus
 	switch p.Auth.Type {
 	case AuthNone:
 		st.Source = "none"

@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -90,11 +91,16 @@ func readTokenExpiry(name string) (exp time.Time, method string, written time.Ti
 	if path == "" {
 		return
 	}
-	info, err := os.Stat(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return
 	}
-	b, err := os.ReadFile(path)
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return
+	}
+	b, err := io.ReadAll(f)
 	if err != nil {
 		return
 	}

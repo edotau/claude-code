@@ -81,7 +81,7 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 	if anthropicDialect {
 		hdr.Set("anthropic-version", "2023-06-01") // required by api.anthropic.com on every direct call
 	}
-	status, body, _, readErr := httpx.Do(ctx, httpx.Call{Client: httpClient(), URL: url, Header: hdr, Limit: 8 << 20,
+	status, body, _, readErr := httpx.Do(ctx, httpx.Call{Client: httpClient(), URL: url, Header: hdr, Limit: 8 << 20, NoRedirect: true,
 		Authorize: func(h http.Header) error { return authorizeCatalog(ctx, p, h) }})
 	if status == 0 {
 		return nil, readErr

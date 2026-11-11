@@ -14,7 +14,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/proc"
@@ -25,7 +24,7 @@ import (
 // profileTimeout caps one profile's listing refresh.
 const profileTimeout = 20 * time.Second
 
-// Budget is the wall-clock cap on the whole install step (refresh and pongs); a var for tests.
+// Budget caps the install step's listing refresh; each pong then gets its own pongCap window; a var for tests.
 var Budget = 45 * time.Second
 
 // pongCap is how long after the step starts agent's install pong may run: opencode's cold start needs twice Budget.
@@ -303,19 +302,22 @@ func StaticLine(reg *providers.Registry, now time.Time) string {
 		return ""
 	}
 	ps := Check(reg, now)
-	pins, err := agent.AgentPins()
-	if err != nil {
-		return "Preflight: " + fieldsLine(err.Error())
+	if len(ps) == 1 && ps[0].Agent == "vault" { // Check's unreadable-vault diagnostic
+		return "Preflight: " + fieldsLine(ps[0].Detail)
 	}
-	if prov := reg.Providers[pins["claude"].Profile]; len(profiles(reg, ps)) == 0 &&
-		(prov == nil || prov.Preset != providers.PresetDatabricks) {
+	dbx := profiles(reg, ps)
+	var session string // claude's row is present exactly when the session has a profile
+	if i := slices.IndexFunc(ps, func(p Pin) bool { return p.Agent == "claude" }); i >= 0 {
+		session = ps[i].Profile
+	}
+	if prov := reg.Providers[session]; len(dbx) == 0 && (prov == nil || prov.Preset != providers.PresetDatabricks) {
 		return "" // no Databricks profile in play
 	}
 	var parts []string
 	for _, p := range notOK(ps) {
 		parts = append(parts, fmt.Sprintf("%s %s (%s)", p.Agent, p.Status, cmp.Or(p.Detail, p.Profile)))
 	}
-	if len(profiles(reg, ps)) > 0 && !proxyUp() {
+	if len(dbx) > 0 && !proxyUp() {
 		parts = append([]string{"proxy not running"}, parts...)
 	}
 	if len(parts) == 0 {
