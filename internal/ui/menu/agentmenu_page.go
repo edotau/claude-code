@@ -103,7 +103,7 @@ func agentSections(rows [][2]string) ([]tui.Section, []int) {
 		switch {
 		case signInRows[r[0]]:
 			k = 0
-		case r[0] == "Profile":
+		case r[0] == "Profile", r[0] == "Model": // the model belongs to the profile it runs on
 			k = 2
 		}
 		secs[k].Rows, idx[k] = append(secs[k].Rows, r), append(idx[k], i)
@@ -643,7 +643,7 @@ func ghUserRows(gh []string, active, inUse string) [][2]string {
 	for _, u := range gh {
 		var marks []string
 		if u == active {
-			marks = append(marks, "gh active")
+			marks = append(marks, ansi.SpanOK+"gh active"+ansi.SpanEnd)
 		}
 		if u == inUse {
 			marks = append(marks, "in use")
