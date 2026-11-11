@@ -14,14 +14,13 @@ both, then `make install`. See `settings-management.md`.
 `settings.Registry` lists groups in run order: `safety`, `permission`, `rtk`, `docs`, `dispatch`, `paths`, `memory`,
 `format`, `review`, `worktree`, `codex`; `permission` and `codex` are agent-only, never in Claude settings.
 Settings carry **one dispatcher entry per event** (`hook <Event>`) matching the union of its groups' matchers; it
-reads the payload once, runs each enabled group within its budget, recovers panics and merges results. `--<module>`
-runs one module; `--all` runs every module on the event, gates included, but still skips agent-only and disabled
+reads the payload once, runs each group within its budget, recovers panics and merges results. `--<module>`
+runs one module; `--all` runs every module on the event, gates included, but still skips agent-only
 groups and applies each module's agent applicability.
 
 - **`safety` keeps its own process** (`hook PreToolUse --safety-scan`) so a hung group can never delay or skip a
-  block, and it cannot be switched off.
-- **Switches:** only a non-gate group turns off, with `"<group>": false` under `harnessHooks` in the vault overlay
-  (`claude-code vault edit`); an unknown group or a gate group (`safety`, `permission`) is rejected.
+  block.
+- **No per-group switch:** every group declared for an event runs.
 - **Agents:** codex, copilot and agy run only the modules in the table below, each as `hook <Event> --<module>`.
   None has an ask decision, so an ask blocks there.
 
@@ -64,7 +63,7 @@ instruction sources and the Bash-deny path: `agent.md` → Skills and instructio
 | `docs-plan-skeleton` / `-prompt` | PostToolUse (EnterPlanMode) / UserPromptSubmit | Injects the `docs/templates/plan.md` skeleton when plan mode starts, and once per plan on a plan-mode prompt |
 | `docs-plan-tick` / `docs-plan-reminder` | PostToolUse (Bash) / Stop | A landed commit ticks the plan tasks its `owns:` covers (`claude-code plan status`), in the newest open plan it touches (an older plan only with a live claim); `git commit -q` prints no sha, so it ticks nothing (`plan tick --range`); partly landed tasks are reported once at Stop |
 | `memory-update` | Stop | Context steward first: at ≥`HARNESS_CONTEXT_STEWARD_PCT` context (default 75; `0` mutes only the prompt) it spawns a detached `claude-code memory update` and asks for a handoff then `/compact`, once per crossing and only with no background task, subagent marker or live dispatch (a dip below the threshold re-arms; never blocks Stop). Then the memory update, weighing edits and user turns (2 turns = 1 edit); with no spawn possible it blocks ≤3 times, then prints once that the update was NOT saved |
-| `format-stop` | Stop | Formats files this session edited that are still dirty and unformatted: the repo's `make format\|fmt` if it takes a per-file variable, else the pyproject python chain, else gofmt/ruff/prettier (only with a prettier config or `package.json` entry)/shfmt; a repo with its own pre-commit switches the group off |
+| `format-stop` | Stop | Formats files this session edited that are still dirty and unformatted: the repo's `make format\|fmt` if it takes a per-file variable, else the pyproject python chain, else gofmt/ruff/prettier (only with a prettier config or `package.json` entry)/shfmt |
 | `review-simplicity` | PostToolUse (Write\|Edit) | Advisory, never blocks: feeds back ≤8 comment, complexity and smell findings the edit introduced (not ones already in the file) |
 | `memory-start` | SessionStart | Injects a pointer to `memory/index.md` + this repo's focus (Current Focus/Blockers/Next Steps, In Progress); repairs `projects/<slug>/memory`; also scaffolds a missing bank, spawns the daily `memory dream` when due, and spawns one detached sweep (`memory catchup`) that saves up to 3 missed interactive sessions from the last 14 days, skips live ones, and prints one quiet line at the next start; on `compact`/`clear` it also reports the compaction record and the newest handoff under 24 h old (user line and transcript) |
 | `paths-resolve` | UserPromptSubmit | Reports existing paths in the prompt; translates Windows ⇄ `/mnt/…` on WSL |

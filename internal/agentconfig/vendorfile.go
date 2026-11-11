@@ -492,13 +492,15 @@ func CommitJSONObject(path string, o RenderOptions, out io.Writer, label string,
 		return false, nil
 	}
 	obj := map[string]any{}
-	var before []byte
-	if existed {
+	before := []byte("{}") // a blank existing file is an empty object, as in DecodeRawObject
+	if len(bytes.TrimSpace(raw)) > 0 {
 		dec := json.NewDecoder(bytes.NewReader(raw))
 		dec.UseNumber() // numbers stay verbatim, so the equality check below never loses float precision
 		err := dec.Decode(&obj)
-		if err == nil && dec.More() {
-			err = errors.New("trailing data after the top-level value")
+		if err == nil {
+			if _, terr := dec.Token(); terr != io.EOF { // More() is false for a stray } or ]
+				err = errors.New("trailing data after the top-level value")
+			}
 		}
 		if err != nil {
 			fmt.Fprintf(out, "%s: skipped: %s is not plain JSON: %v\n", label, path, err)

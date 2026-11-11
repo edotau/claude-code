@@ -222,7 +222,7 @@ func planDestination(cwd, title string, content []byte, adopt bool) (dest string
 
 // planRepoRoot is cwd's git root; anything under the config dir (memory/<repo> is its own git repo) is the harness.
 func planRepoRoot(cwd string) string {
-	if cfg := paths.ConfigDir(); core.UnderDir(paths.Canon(cfg), paths.CanonDeep(cwd)) {
+	if cfg := paths.ConfigDir(); paths.Within(paths.CanonDeep(cwd), paths.Canon(cfg)) {
 		return cfg
 	}
 	return cmp.Or(memory.GitToplevel(cwd), cwd)

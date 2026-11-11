@@ -221,7 +221,7 @@ func gitBannedUnder(target, verb string, args []string, harness, worktrees *stri
 		*worktrees = core.CanonPath(filepath.Join(paths.ConfigDir(), ".claude", "worktrees"))
 	}
 	tp := core.CanonPath(target)
-	if tp != *harness && !strings.HasPrefix(tp, *harness+string(filepath.Separator)) {
+	if !paths.Within(tp, *harness) {
 		return false
 	}
 	return !strings.HasPrefix(tp, *worktrees+string(filepath.Separator)) // a linked worktree is its own checkout

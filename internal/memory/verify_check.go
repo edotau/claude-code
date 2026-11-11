@@ -75,11 +75,9 @@ func (v *claimVerifier) hash(token string) verifyResult {
 func (v *claimVerifier) scopedPath(token string) (string, bool) {
 	path := token
 	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
+		if path = paths.ExpandHome(path); path == token {
 			return "", false
 		}
-		path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
 	}
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(v.store.repo, path)

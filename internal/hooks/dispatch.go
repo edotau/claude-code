@@ -217,29 +217,13 @@ func isEvent(name string) bool {
 	return false
 }
 
-// loadHarnessHooks is the vault read behind enabledGroups; a test seam.
-var loadHarnessHooks = settings.LoadHarnessHooks
-
-// enabledGroups reads the user's harnessHooks switches; gate groups are never switched off, errors mean all on.
-func enabledGroups() func(group string, gate bool) bool {
-	sw, err := loadHarnessHooks()
-	if err != nil {
-		sw = nil
-	}
-	return func(group string, gate bool) bool {
-		on, set := sw[group]
-		return gate || !set || on
-	}
-}
-
-// runEvent is `hook <Event> [--all]`: run every enabled group once, own-process modules only when all is set.
+// runEvent is `hook <Event> [--all]`: run every group once, own-process modules only when all is set.
 func runEvent(event string, all bool, stdin io.Reader, stdout, stderr io.Writer) int {
 	in := core.ParseInput(stdin)
-	enabled := enabledGroups()
 	var bound []Bound
 	for _, b := range Bind() {
 		switch {
-		case b.AgentOnly && in.Agent() == core.AgentClaude, !enabled(b.Group, b.Gate):
+		case b.AgentOnly && in.Agent() == core.AgentClaude:
 		case !all && (b.Gate || b.Spec.Async):
 		case in.Agent() != core.AgentClaude && !slices.Contains(b.Spec.Agents, in.Agent()):
 		default:
@@ -376,13 +360,10 @@ func RunArgs(event string, flags []string, stdin io.Reader, stdout, stderr io.Wr
 	return 1
 }
 
-// runModule runs one module on its declared event; a group switched off in harnessHooks proceeds.
+// runModule runs one module on its declared event.
 func runModule(event, name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if _, ok := native[name]; !ok || eventOf(name) != event {
 		return unknownModule(event, name, stderr)
-	}
-	if g, found := settings.GroupOf(name); found && !g.Gate && !enabledGroups()(g.Name, g.Gate) {
-		return core.ExitProceed
 	}
 	return runDirect(name, stdin, stdout, stderr)
 }

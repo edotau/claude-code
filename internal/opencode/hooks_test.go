@@ -6,7 +6,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -38,8 +37,7 @@ func TestHostedBoundFiltersByRegistrySwitchAndSafeMode(t *testing.T) {
 			{Group: "foreign-gate", Gate: true, Spec: settings.EventSpec{Name: "not-hosted"}},
 		}
 	}
-	vaulttest.Put(t, vault.Overlay, "harnessHooks", `{"off":false,"off-gate":false}`)
-	for safe, want := range map[bool][]string{false: {"on", "off-gate"}, true: {"off-gate"}} {
+	for safe, want := range map[bool][]string{false: {"on", "off", "off-gate"}, true: {"off-gate"}} {
 		var got []string
 		for _, b := range hostedBound(safe) {
 			got = append(got, b.Group)
