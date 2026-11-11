@@ -10,15 +10,15 @@ import (
 	"github.com/edotau/claude-code/internal/gateway"
 )
 
-// RequestTagsEnv holds a single-line JSON object of request tags sent to Databricks AI Gateway rows.
-const RequestTagsEnv = "HARNESS_REQUEST_TAGS"
+// requestTagsEnv holds a single-line JSON object of request tags sent to Databricks AI Gateway rows.
+const requestTagsEnv = "HARNESS_REQUEST_TAGS"
 
-// HeadersEnv holds extra upstream request headers, one "Name: value" per line.
-const HeadersEnv = "HARNESS_HEADERS"
+// headersEnv holds extra upstream request headers, one "Name: value" per line.
+const headersEnv = "HARNESS_HEADERS"
 
 const (
 	maxHeadersBytes   = 4 << 10
-	RequestTagsHeader = "Databricks-Ai-Gateway-Request-Tags" // docs.databricks.com/aws/en/ai-gateway/usage-tracking
+	requestTagsHeader = "Databricks-Ai-Gateway-Request-Tags" // docs.databricks.com/aws/en/ai-gateway/usage-tracking
 )
 
 // launcherHeaders are the proxy's own request headers; they never go upstream.
@@ -28,17 +28,17 @@ var launcherHeaders = []string{gateway.AgentHeader, gateway.IdentityHeader, "X-C
 var protectedHeaders = map[string]bool{
 	"Authorization": true, "Proxy-Authorization": true, "X-Api-Key": true, "X-Goog-Api-Key": true, "Host": true,
 	"User-Agent": true, "Content-Length": true, "Content-Type": true, "Transfer-Encoding": true, "Connection": true,
-	"Cookie": true, textproto.CanonicalMIMEHeaderKey(RequestTagsHeader): true,
+	"Cookie": true, textproto.CanonicalMIMEHeaderKey(requestTagsHeader): true,
 }
 
-// ParseHeaders parses "Name: value" lines; invalid or protected lines are dropped with one warning, never fatal.
-func ParseHeaders(raw string, log io.Writer) map[string]string {
+// parseHeaders parses "Name: value" lines; invalid or protected lines are dropped with one warning, never fatal.
+func parseHeaders(raw string, log io.Writer) map[string]string {
 	out := map[string]string{}
 	if strings.TrimSpace(raw) == "" {
 		return out
 	}
 	if len(raw) > maxHeadersBytes {
-		fmt.Fprintf(log, "proxy: %s ignored: over 4 KiB\n", HeadersEnv)
+		fmt.Fprintf(log, "proxy: %s ignored: over 4 KiB\n", headersEnv)
 		return out
 	}
 	protected := protectedKeys()
@@ -55,7 +55,7 @@ func ParseHeaders(raw string, log io.Writer) map[string]string {
 		out[key] = val
 	}
 	if bad > 0 {
-		fmt.Fprintf(log, "proxy: %s: dropped %d invalid or protected line(s)\n", HeadersEnv, bad)
+		fmt.Fprintf(log, "proxy: %s: dropped %d invalid or protected line(s)\n", headersEnv, bad)
 	}
 	return out
 }
@@ -107,8 +107,8 @@ func validHeaderValue(s string) bool {
 	return !strings.ContainsFunc(s, func(c rune) bool { return c != '\t' && (c < 0x20 || c == 0x7f) })
 }
 
-// StripLauncherHeaders removes client-only attribution and authentication headers.
-func StripLauncherHeaders(h http.Header) {
+// stripLauncherHeaders removes client-only attribution and authentication headers.
+func stripLauncherHeaders(h http.Header) {
 	for _, k := range launcherHeaders {
 		h.Del(k)
 	}
