@@ -86,7 +86,8 @@ Prose is the instruction; the hook is the guarantee. Every gate:
 4. **Caps and fails open** — a Stop gate that can trap a session needs a cap and a visible fail-open; a
    deny-one-call gate (e.g. `docs-placement`) rejects the input and lets the model retry. Infra errors generally
    fail open; workflow stage route-preview errors block, including registry/credential failures. A blocking
-   (`Blocks`) hook that panics or times out blocks.
+   (`Blocks`) hook that panics, times out (in-process, 0.5 s before the host's timeout) or gets an empty or
+   unparseable payload blocks.
 
 Test the block path, the evidence-release path and the fail-open cap. Probe a live guard with a script that reads
 payloads from a data file (quoted payloads in the probe command trip the guard itself) and tally allow, ask and

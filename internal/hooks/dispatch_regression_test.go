@@ -53,8 +53,8 @@ func TestRunDirectPanicAdvisoryProceedsGateBlocks(t *testing.T) {
 	}
 }
 
-// unparseable are a garbled and a truncated hook payload.
-var unparseable = []string{`{not json`, `{"tool_name":"Bash","tool_input":{"command":"rm -rf /ho`}
+// unparseable are a garbled, a truncated and an empty hook payload; every host sends a JSON object on a gated event.
+var unparseable = []string{`{not json`, `{"tool_name":"Bash","tool_input":{"command":"rm -rf /ho`, ``}
 
 // `hook PreToolUse --<gate>` blocks a payload that does not parse; a non-gate module still runs and proceeds.
 func TestRunModuleGateBlocksUnparseablePayload(t *testing.T) {
@@ -75,6 +75,12 @@ func TestRunModuleGateBlocksUnparseablePayload(t *testing.T) {
 	if ran != len(unparseable) {
 		t.Errorf("rtk-rewrite ran %d times, want %d", ran, len(unparseable))
 	}
+	t.Setenv("HARNESS_HOOK_AGENT", "gemini")
+	if code, out, _ := runFlags("PreToolUse", strings.NewReader(""), "--permission-gate"); code != core.ExitProceed ||
+		!strings.Contains(out, `"deny"`) {
+		t.Errorf("gemini empty payload: exit %d stdout %q; want the JSON deny agy blocks on", code, out)
+	}
+	t.Setenv("HARNESS_HOOK_AGENT", "")
 	if code, _, errb := runFlags("PreToolUse", hosttest.BashPayload("ls -la"), "--safety-scan"); code != core.ExitProceed {
 		t.Errorf("valid ls: exit %d stderr %q, want proceed", code, errb)
 	}
@@ -288,7 +294,7 @@ func TestHookContextExpiresBeforeDispatcherBudget(t *testing.T) {
 		return core.Result{Stderr: fmt.Sprintf("failed open: %v", ctx.Err())}
 	}
 	var log bytes.Buffer
-	res, err := Dispatch([]Bound{{Group: "docs", Spec: spec, Run: run}}, spec.Event, &core.Input{ToolName: "Write"}, &log)
+	res, err := Dispatch([]Bound{{Group: "docs", Spec: spec, Run: run}}, spec.Event, core.ParseInput(strings.NewReader(`{"tool_name":"Write"}`)), &log)
 	if err != nil || res.Decision == core.Block || !strings.Contains(res.Stderr, "failed open: context deadline exceeded") {
 		t.Fatalf("got %+v err %v log %q; want the handler's own fail-open, no overrun", res, err, log.String())
 	}
@@ -672,5 +678,33 @@ func TestCodexFileWriteRunsDocGates(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// A Blocks module that outlasts its in-process deadline blocks with a retry reason, JSON-denied for agy; others never time out.
+func TestRunDirectGateOverrunBlocksNonGateWaits(t *testing.T) {
+	flagHarness(t)
+	orig := gateDeadline
+	gateDeadline = func(settings.EventSpec) time.Duration { return 50 * time.Millisecond }
+	t.Cleanup(func() { gateDeadline = orig })
+	for _, name := range []string{"safety-scan", "memory-start"} {
+		o := native[name]
+		native[name] = func(*core.Input) core.Result { time.Sleep(150 * time.Millisecond); return core.Result{} }
+		t.Cleanup(func() { native[name] = o })
+	}
+	var out, errb bytes.Buffer
+	if code := runDirect("safety-scan", hosttest.BashPayload("ls"), &out, &errb); code != core.ExitBlock ||
+		!strings.Contains(errb.String(), "safety-scan timed out; blocked, retry") {
+		t.Errorf("gate overrun: exit %d stderr %q; want ExitBlock with a retry reason", code, errb.String())
+	}
+	t.Setenv("HARNESS_HOOK_AGENT", "gemini")
+	out.Reset()
+	if code := runDirect("safety-scan", hosttest.BashPayload("ls"), &out, io.Discard); code != core.ExitProceed ||
+		!strings.Contains(out.String(), `"deny"`) {
+		t.Errorf("agy gate overrun: exit %d stdout %q; want the JSON deny", code, out.String())
+	}
+	errb.Reset()
+	if code := runDirect("memory-start", strings.NewReader(`{"session_id":"s"}`), io.Discard, &errb); code != core.ExitProceed {
+		t.Errorf("non-gate slower than the gate deadline: exit %d stderr %q; want proceed", code, errb.String())
 	}
 }
