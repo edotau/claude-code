@@ -130,6 +130,7 @@ func ParseTask(l ParsedLine, agentName string, base agent.RunOptions, timeoutSet
 	if tl.Tools != nil {
 		req.Tools = *tl.Tools
 	}
+	req.Tools = req.Tools || req.ReadOnly // read-only tools are still tools, whatever the line said
 	if req.Tools && req.NoTools {
 		return t, fmt.Errorf("line %d: tools and --no-tools are mutually exclusive", l.N)
 	}

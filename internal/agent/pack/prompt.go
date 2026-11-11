@@ -109,11 +109,11 @@ func ChangedFiles(ctx context.Context, root string) ([]string, error) {
 		out, err := proc.RunGitRaw(ctx, root, args...)
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil, fmt.Errorf("git -C %s %s: %w: ", root, strings.Join(args, " "), ctx.Err())
+				return nil, fmt.Errorf("git -C %s %s: %w", root, strings.Join(args, " "), ctx.Err())
 			}
 			return nil, err
 		}
-		all = append(all, strings.Split(string(out), "\x00")...) // -z: raw names, never quoted or newline-split
+		all = append(all, strings.Split(out, "\x00")...) // -z: raw names, never quoted or newline-split
 	}
 	seen := map[string]bool{}
 	var uniq []string
@@ -270,8 +270,7 @@ func IndexPrompt(ctx Context) string {
 	return b.String()
 }
 
-// CoverageWarning is a one-line STDOUT summary for when anything was left out of a sweep (the
-// detailed per-reason breakdown stays on STDERR via SortedSkipReasons); "" when nothing was skipped.
+// CoverageWarning is a one-line summary of what a sweep left out, with its distinct skip reasons; "" when nothing was.
 func CoverageWarning(ctx Context) string {
 	if len(ctx.Skipped) == 0 {
 		return ""

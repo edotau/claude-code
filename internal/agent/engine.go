@@ -19,7 +19,9 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-) // Driver is the per-CLI behaviour behind cliEngine and configure; a vendor registers one with Register.
+)
+
+// Driver is the per-CLI behaviour behind cliEngine and configure; a vendor registers one with Register.
 type Driver interface {
 	// Name is the roster agent the engine drives.
 	Name() string
@@ -302,7 +304,7 @@ func WriteJSONLine(w io.Writer, v any) error {
 	return err
 }
 
-// The helpers below are the live package's reach into the dispatch internals.
+// The helpers below are the vendor packages' (claude, codex, gemini) reach into the dispatch internals.
 
 // ChildErr names a failed child by its stderr tail; a deadline surfaces as ctx.Err.
 func ChildErr(ctx context.Context, name string, err error, tail *retry.TailBuffer) error {
@@ -311,11 +313,6 @@ func ChildErr(ctx context.Context, name string, err error, tail *retry.TailBuffe
 
 // StatusOf maps a classified failure to the envelope status.
 func StatusOf(e *retry.Error) string { return statusOf(e) }
-
-// NewRunSink stamps agent's name on sink's events and counts its text bytes.
-func NewRunSink(sink wire.Sink, agent string) wire.Sink {
-	return &wire.RunSink{Sink: sink, Agent: agent}
-}
 
 // IsResultError reports a failed turn whose result event was consumed, so the stream sits at a turn boundary.
 func IsResultError(err error) bool {

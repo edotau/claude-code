@@ -18,7 +18,9 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
-) // askedSkips keeps the skip reasons of the wanted agent; those of agents nobody asked for are noise.
+)
+
+// askedSkips keeps the skip reasons of the wanted agent; those of agents nobody asked for are noise.
 func askedSkips(reasons []string, want string) []string {
 	return slices.DeleteFunc(slices.Clone(reasons), func(r string) bool {
 		return !strings.HasPrefix(r, want+":") && !strings.HasPrefix(r, want+"·") && !strings.HasPrefix(r, want+" (")
@@ -435,8 +437,6 @@ func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispa
 	s.prevDispatch, s.ran = disp, i
 	return panicked
 }
-
-// The dispatch limiter: per-account and global concurrency caps, batch slots and fail-fast.
 
 // tripFailFast cancels the batch when err ends the task (no fallback follows), before the dispatch's permit is released.
 func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res wire.Result, err error) {

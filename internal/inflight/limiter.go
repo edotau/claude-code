@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"cmp"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -233,6 +236,56 @@ func scan(dir string, now time.Time, prune bool) Snapshot {
 	return snap
 }
 
+// Sweep removes every dead marker under the lock and names them in ReadDir order; dryRun only names them, unlocked.
+func Sweep(dryRun bool) ([]string, error) {
+	dir := Dir()
+	if _, err := os.Stat(dir); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil // no marker dir yet: nothing was ever dispatched
+		}
+		return nil, fmt.Errorf("marker dir: %w", err)
+	}
+	if dryRun {
+		return sweep(dir, true)
+	}
+	var removed []string
+	ran, err := paths.TryFileLock(filepath.Join(dir, ".lock"), lockWait, func() error {
+		var err error
+		removed, err = sweep(dir, false)
+		return err
+	})
+	if err == nil && !ran {
+		err = errors.New("agent-inflight marker dir is locked; markers skipped")
+	}
+	return removed, err
+}
+
+// sweep is Sweep's pass: unlike scan it also removes a marker it cannot read, and reports a failed remove.
+func sweep(dir string, dryRun bool) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	live := Liveness(time.Now())
+	var removed []string
+	var errs []error
+	for _, e := range entries {
+		if _, ok := Owner(e.Name()); !ok || live(e.Name()) {
+			continue
+		}
+		if !dryRun {
+			if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+				if !errors.Is(err, fs.ErrNotExist) {
+					errs = append(errs, fmt.Errorf("marker %s: %w", e.Name(), err))
+				}
+				continue
+			}
+		}
+		removed = append(removed, e.Name())
+	}
+	return removed, errors.Join(errs...)
+}
+
 // scanner caches each session's meta.json map across one scan.
 type scanner struct {
 	now     time.Time
@@ -355,10 +408,9 @@ const Base = 24
 
 // Limits are the caps: Base per account, Total across the machine, Override per account key.
 type Limits struct {
-	Base      int
-	Total     int
-	Available []string
-	Override  map[string]int
+	Base     int
+	Total    int
+	Override map[string]int
 }
 
 // For is the cap of one account: its override, else Base.
@@ -375,5 +427,5 @@ func ComputeLimits(available []string, override map[string]int, cpus int) Limits
 	if cpus > 0 {
 		total = min(total, 4*cpus)
 	}
-	return Limits{Base: Base, Total: total, Available: available, Override: override}
+	return Limits{Base: Base, Total: total, Override: override}
 }

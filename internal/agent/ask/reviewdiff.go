@@ -9,10 +9,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/pack"
 
 	"github.com/edotau/claude-code/internal/paths"
 
@@ -139,7 +139,7 @@ func appendUntrackedWithin(b *strings.Builder, cwd, rel string, limit int) int {
 		b.WriteString(skippedSpecialNote(rel, info))
 		return 0
 	}
-	if looksSecret(rel) {
+	if pack.SecretLike(rel) {
 		fmt.Fprintf(b, "new file: %s (credential-like name, not inlined)\n", rel)
 		return 0
 	}
@@ -155,17 +155,6 @@ func appendUntrackedWithin(b *strings.Builder, cwd, rel string, limit int) int {
 	data = data[:min(len(data), limit)] // keeps the running total within untrackedTotalCap
 	fmt.Fprintf(b, "new file: %s\n%s\n", rel, data)
 	return len(data)
-}
-
-// looksSecret reports whether an untracked file's name suggests credentials that must not reach a reviewer.
-func looksSecret(rel string) bool {
-	base := strings.ToLower(filepath.Base(rel))
-	switch {
-	case strings.HasPrefix(base, ".env"), strings.HasPrefix(base, "credentials"), strings.HasPrefix(base, "id_rsa"),
-		strings.HasPrefix(base, "id_ed25519"):
-		return true
-	}
-	return slices.Contains([]string{".pem", ".key", ".p12", ".pfx"}, filepath.Ext(base))
 }
 
 // skippedSpecialNote is the "new file" line for a symlink or other non-regular untracked file.

@@ -141,7 +141,7 @@ func (s *liveSession) awaitChild(ctx context.Context, ln net.Listener, exited ch
 		cause = context.Cause(ctx)
 	case werr := <-exited:
 		exited <- werr
-		cause = fmt.Errorf("%s exited: %w", s.name, ChildErr(context.Background(), s.name, werr, tail))
+		cause = fmt.Errorf("%s exited: %w", s.name, childErr(context.Background(), s.name, werr, tail))
 	}
 	s.idle.Stop()
 	_ = ln.Close()
@@ -494,7 +494,7 @@ func (s *liveSession) serveConn(ctx context.Context, c net.Conn) {
 // runTurn writes one user message to the agent and relays its events up to the turn's result.
 func (s *liveSession) runTurn(ctx context.Context, prompt string, sink wire.Sink) {
 	begin := time.Now()
-	sink = NewRunSink(sink, s.name)
+	sink = &wire.RunSink{Sink: sink, Agent: s.name}
 	_ = sink.Emit(wire.Event{Type: wire.EventStart, DispatchID: s.rec.ID, Status: "running"})
 	var res wire.Result
 	err := s.be.WriteTurn(s.stdin, prompt)
@@ -502,7 +502,7 @@ func (s *liveSession) runTurn(ctx context.Context, prompt string, sink wire.Sink
 		res, err = s.be.Parse(s.dec, sink, wire.EventLogFor(ctx))
 	}
 	res.Agent, res.Provider, res.DurationMs = s.name, s.profile, time.Since(begin).Milliseconds()
-	res.Status = StatusOf(retry.Classify(s.name, err, false))
+	res.Status = statusOf(retry.Classify(s.name, err, false))
 	s.mu.Lock()
 	s.session = cmp.Or(res.SessionID, s.session)
 	s.mu.Unlock()

@@ -207,7 +207,7 @@ func (a *agentsFlag) String() string { return string(*a) }
 // Placeholder names the FLAGS placeholder for agentsFlag (helptext.Placeholder).
 func (a *agentsFlag) Placeholder() string { return "JSON|FILE" }
 
-// Set accepts anything: the flag parser echoes a rejected value in its error, so RunAsk validates after Parse.
+// Set accepts anything: the flag parser echoes a rejected value in its error, so Run validates after Parse.
 func (a *agentsFlag) Set(s string) error {
 	*a = agentsFlag(s)
 	return nil

@@ -29,27 +29,55 @@ type ReviewOptions struct {
 
 // Review is `<agent> review`: review scope's diff in one run, or in parts; a detached split replays args.
 func Review(name string, args []string, o ReviewOptions) int {
+	parent := reviewParent()
+	fail := func(err error) int {
+		if parent != nil { // a detached split's child: every exit closes the job record
+			return finishSplitReview(parent, err)
+		}
+		return helptext.Fail("%s review: %v", name, err)
+	}
 	scope, err := ParseScope(o.Uncommitted, o.Base, o.Commit, o.PR)
 	if err != nil {
-		return helptext.Fail("%s review: %v", name, err)
+		return fail(err)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		return helptext.Fail("%s review: %v", name, err)
+		return fail(err)
 	}
 	diff, err := reviewDiff(cwd, scope)
 	if err != nil {
-		return helptext.Fail("%s review: %v", name, err)
+		return fail(err)
 	}
 	if parts := ReviewParts(diff, o.Adversarial, o.Focus, o.Rubric); len(parts) > 1 {
-		return runSplitReview(name, args, parts, scope, o)
+		return runSplitReview(name, args, parts, scope, o, parent)
 	}
 	askArgs, cleanup, err := ReviewArgs(name, scope, diff, o.Adversarial, o.Background, o.Focus, o.Rubric, o.Model)
 	if err != nil {
-		return helptext.Fail("%s review: %v", name, err)
+		return fail(err)
 	}
 	defer cleanup()
-	return Cmd(askArgs)
+	rc := Cmd(askArgs)
+	if parent == nil {
+		return rc
+	}
+	if rc != 0 { // the diff no longer splits in the child: the one run's outcome is the job's
+		return finishSplitReview(parent, fmt.Errorf("review failed: %s", LastDispatchError(name)))
+	}
+	return finishSplitReview(parent, nil)
+}
+
+// reviewParent loads the job record a detached split review's child reports to; nil in a foreground review.
+func reviewParent() *agent.Record {
+	id := os.Getenv(reviewJobEnv)
+	if id == "" {
+		return nil
+	}
+	r, err := agent.LoadRecord(id)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "review: job record %s not updated: %v\n", id, err)
+		return nil
+	}
+	return &r
 }
 
 // reviewDiff materializes scope's diff in cwd under reviewDiffTimeout.
@@ -60,18 +88,9 @@ func reviewDiff(cwd string, scope Scope) ([]byte, error) {
 }
 
 // runSplitReview runs a multi-part review: detached as one job when background, else sequentially in place.
-func runSplitReview(name string, args []string, parts []Part, scope Scope, o ReviewOptions) int {
+func runSplitReview(name string, args []string, parts []Part, scope Scope, o ReviewOptions, parent *agent.Record) int {
 	if o.Background && os.Getenv(reviewJobEnv) == "" {
 		return spawnSplitReview(name, args, len(parts))
-	}
-	var parent *agent.Record
-	if id := os.Getenv(reviewJobEnv); id != "" {
-		r, err := agent.LoadRecord(id)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "review: job record %s not updated: %v\n", id, err)
-		} else {
-			parent = &r
-		}
 	}
 	answers := make([]string, 0, len(parts))
 	for i, p := range parts {
@@ -84,7 +103,7 @@ func runSplitReview(name string, args []string, parts []Part, scope Scope, o Rev
 		ans, rc := captureAnswer(func() int { return Cmd(askArgs) })
 		cleanup()
 		if rc != 0 {
-			werr := printMerged(o.Adversarial, parts[:len(answers)], answers)
+			werr := printMerged(o.Adversarial, parts, answers)
 			return finishSplitReview(parent, errors.Join(
 				fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), LastDispatchError(name)), werr))
 		}

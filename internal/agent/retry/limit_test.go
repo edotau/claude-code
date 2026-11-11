@@ -40,7 +40,7 @@ func TestBatchAndSpawnsShareTheAccountCap(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const account = "shared·acct"
 	const capA = 12
-	lim := inflight.Limits{Base: capA, Total: 1000, Available: []string{account}}
+	lim := inflight.Limits{Base: capA, Total: 1000}
 
 	helper := exec.Command("sleep", "30")
 	if err := helper.Start(); err != nil {

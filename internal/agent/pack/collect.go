@@ -159,7 +159,7 @@ func (c *collector) skip(rel, reason string) {
 
 // resolvesToSecret reports whether abs, with symlinks resolved, is secret-like relative to the real cwd.
 func (c *collector) resolvesToSecret(abs string) bool {
-	return isSecretLike(relSlash(c.cwd, realPath(abs)))
+	return SecretLike(relSlash(c.cwd, realPath(abs)))
 }
 
 // preSkipReason is why rel (at abs) is skipped before reading it, or "".
@@ -167,7 +167,7 @@ func (c *collector) preSkipReason(rel, abs string) string {
 	switch {
 	case isIgnored(rel):
 		return "ignored-path"
-	case isSecretLike(rel) || c.resolvesToSecret(abs):
+	case SecretLike(rel) || c.resolvesToSecret(abs):
 		return "secret-like"
 	case len(c.out.Included) >= c.maxFiles:
 		return "max-files-exceeded"
@@ -458,15 +458,16 @@ func isIgnored(rel string) bool {
 	return false
 }
 
-// isSecretLike reports whether rel names an env file, a secrets file, a key/cert, or lives under a
-// state directory — never inlined even when explicitly matched by --files.
-func isSecretLike(rel string) bool {
-	parts := strings.Split(rel, "/")
-	base := parts[len(parts)-1]
-	if strings.HasPrefix(base, ".env") || base == "secrets.env" {
-		return true
+// SecretLike: rel names an env, secrets or credentials file, a key/cert, or sits under state/; never sent to an agent.
+func SecretLike(rel string) bool {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	base := strings.ToLower(parts[len(parts)-1])
+	for _, prefix := range []string{".env", "credentials", "id_rsa", "id_ed25519"} {
+		if strings.HasPrefix(base, prefix) {
+			return true
+		}
 	}
-	if secretExtensions[strings.ToLower(filepath.Ext(base))] || isSSHKeyName(base) {
+	if base == "secrets.env" || secretExtensions[filepath.Ext(base)] || isSSHKeyName(base) {
 		return true
 	}
 	return slices.Contains(parts, "state")
