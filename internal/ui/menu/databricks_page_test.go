@@ -212,7 +212,7 @@ func TestDbxPageRowsAndDispatch(t *testing.T) {
 	installDbxFake(t, f)
 	f.secret = dbxTok
 
-	// env list: qa -> Login, Paste PAT, Mint now, then Back out of both levels.
+	// env list: qa -> Login, Paste PAT, Token, then Back out of both levels.
 	f.picks = []int{1, 1, 2, 3, -1, -1}
 	runDatabricksPage(d)
 	want := []string{"login:qa", "pat:qa:" + dbxTok, "mint:qa"}
@@ -220,7 +220,7 @@ func TestDbxPageRowsAndDispatch(t *testing.T) {
 		t.Fatalf("calls = %v, want %v", f.calls, want)
 	}
 	if len(f.copied) != 0 {
-		t.Errorf("Mint now must not copy: %v", f.copied)
+		t.Errorf("Token must not copy: %v", f.copied)
 	}
 	assertDbxEnvRows(t, f)
 	out := dbxOut(d)
@@ -251,7 +251,7 @@ func assertDbxEnvRows(t *testing.T, f *dbxFake) {
 	for _, r := range f.rows[1] {
 		labels = append(labels, r[0])
 	}
-	if strings.Join(labels, "|") != "Set up|Login|Paste PAT|Mint now|Copy token|Apply to agents|Identity" {
+	if strings.Join(labels, "|") != "Set up|Login|Paste PAT|Token|Copy token|Apply to agents|Identity" {
 		t.Errorf("actions = %v", labels)
 	}
 }
