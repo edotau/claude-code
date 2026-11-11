@@ -36,6 +36,8 @@ func SegmentsSep(cmd string) (out, seps []string) {
 			b.WriteByte(c)
 			i++
 			c = cmd[i]
+		case c == '&' && redirectAmp(cmd, i):
+			// `2>&1`, `<&3` and `&>file` are redirections, not backgrounding
 		case strings.IndexByte(";|&\n", c) >= 0:
 			sep, end := separatorAt(cmd, i)
 			out, seps = append(out, b.String()), append(seps, sep)
@@ -46,6 +48,11 @@ func SegmentsSep(cmd string) (out, seps []string) {
 		b.WriteByte(c)
 	}
 	return append(out, b.String()), append(seps, "")
+}
+
+// redirectAmp reports a `&` that follows `>`/`<` or precedes `>`, a redirection rather than a separator.
+func redirectAmp(cmd string, i int) bool {
+	return i > 0 && (cmd[i-1] == '>' || cmd[i-1] == '<') || i+1 < len(cmd) && cmd[i+1] == '>'
 }
 
 // separatorAt is the separator starting at cmd[i] (one byte, or two when `|`/`&` follows) and its last index.

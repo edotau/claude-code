@@ -1,4 +1,4 @@
-// Package transcript reads Claude Code session transcript JSONL: the live context size and the files a session wrote.
+// Package transcript reads Claude Code session transcript JSONL: usage, edits, commits, handoff.
 package transcript
 
 import (

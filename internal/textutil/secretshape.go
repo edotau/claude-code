@@ -5,13 +5,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // bearerToken matches a bearer-style header value: the scheme plus a long opaque token.
-var bearerToken = regexp.MustCompile(`(?i)bearer\s+\S{40,}`)
+var bearerToken = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)bearer\s+\S{40,}`) })
 
 // bearerAuth captures the scheme so RedactSecrets masks only the token after it.
-var bearerAuth = regexp.MustCompile(`(?i)(bearer\s+)\S{40,}`)
+var bearerAuth = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)(bearer\s+)\S{40,}`) })
 
 // CredentialRE is the credential shape the memory commit gate and config history refuse; \b keeps sk- off kebab prose.
 var CredentialRE = regexp.MustCompile(strings.Join([]string{
@@ -32,7 +33,7 @@ var CredentialRE = regexp.MustCompile(strings.Join([]string{
 // LooksSecret reports a credential-shaped value: known token prefixes or a bearer-style value; ${ENV}
 // references, file paths, and obvious placeholders are never flagged.
 func LooksSecret(val string) bool {
-	return looksSecretToken(val) || val != "" && !notCredentialShaped(val) && bearerToken.MatchString(val)
+	return looksSecretToken(val) || val != "" && !notCredentialShaped(val) && bearerToken().MatchString(val)
 }
 
 // looksSecretToken is LooksSecret's prefix checks without the bearer regex, which cannot match a whitespace-free run.
@@ -40,7 +41,13 @@ func looksSecretToken(val string) bool {
 	if val == "" || notCredentialShaped(val) {
 		return false
 	}
-	return HasGitHubPrefix(val) || IsSlackToken(val) || hasAnyPrefix(val, "AKIA", "dapi", "sk-")
+	return HasGitHubPrefix(val) || IsSlackToken(val) || hasAnyPrefix(val, "AKIA", "dapi", "sk-") || startsCredential(val)
+}
+
+// startsCredential reports a value that begins with a full CredentialRE shape (Databricks, Tavily, Groq, JWT, ...).
+func startsCredential(val string) bool {
+	loc := CredentialRE.FindStringIndex(val)
+	return loc != nil && loc[0] == 0
 }
 
 // placeholderWindow is how far into a value a placeholder marker counts; later hits are random token bytes.
@@ -101,7 +108,7 @@ func RedactSecretMap(m map[string]string) map[string]string {
 
 // RedactSecrets replaces each credential-shaped [A-Za-z0-9_-] run and bearer token in s with REDACTED, in place.
 func RedactSecrets(s string) string {
-	s = bearerAuth.ReplaceAllString(s, "${1}REDACTED") // before the run pass, which would shorten the token
+	s = bearerAuth().ReplaceAllString(s, "${1}REDACTED") // before the run pass, which would shorten the token
 	var b strings.Builder
 	for i := 0; i < len(s); {
 		j := i

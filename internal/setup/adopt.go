@@ -1,10 +1,8 @@
-// Package setup implements the "adopt" and "nuke" setup modes shared by `install --setup`.
+// Package setup implements `install` and its `--setup` modes (adopt, nuke, workspace) and the `clean` sweep.
 package setup
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,7 +22,7 @@ import (
 // clash is a git-tracked path in the source repo that already exists at the target dir.
 type clash struct {
 	Path    string // repo-relative, slash-separated
-	Differs bool   // sha256 differs from the repo's version
+	Differs bool   // content differs from the repo's version
 }
 
 // clashes lists every git-tracked path in repo that already exists at dir. Untracked and ignored
@@ -44,26 +42,22 @@ func clashes(repo, dir string) ([]clash, error) {
 		if err != nil {
 			return nil, err
 		}
-		differs, err := clashDiffers(filepath.Join(repo, rel), target, fi)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, clash{Path: rel, Differs: differs})
+		out = append(out, clash{Path: rel, Differs: clashDiffers(filepath.Join(repo, rel), target, fi)})
 	}
 	return out, nil
 }
 
 // clashDiffers reports whether target differs from the repo's copy at src; a directory or dangling link always does.
-func clashDiffers(src, target string, fi os.FileInfo) (bool, error) {
+func clashDiffers(src, target string, fi os.FileInfo) bool {
 	if fi.IsDir() {
-		return true, nil
+		return true
 	}
 	if fi.Mode()&os.ModeSymlink != 0 {
 		if _, err := os.Stat(target); err != nil {
-			return true, nil
+			return true
 		}
 	}
-	return filesDiffer(src, target)
+	return !sameBytes(src, target) // an unreadable file counts as differing, so it is backed up
 }
 
 // trackedFiles runs `git -C repo ls-files -z` and returns repo-relative, slash-separated paths.
@@ -84,32 +78,6 @@ func splitNUL(out []byte) []string {
 		}
 	}
 	return files
-}
-
-// filesDiffer sha256-compares two files.
-func filesDiffer(a, b string) (bool, error) {
-	ah, err := hashFile(a)
-	if err != nil {
-		return false, err
-	}
-	bh, err := hashFile(b)
-	if err != nil {
-		return false, err
-	}
-	return !bytes.Equal(ah, bh), nil
-}
-
-func hashFile(path string) ([]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return nil, err
-	}
-	return h.Sum(nil), nil
 }
 
 // Refusal errors: the cli layer maps these to exit 2 (refused), everything else to exit 1.

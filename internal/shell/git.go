@@ -136,7 +136,9 @@ var footerPatterns = sync.OnceValue(func() []*regexp.Regexp {
 })
 
 // footerMention is a looser test used when a message is built by a substitution whose output cannot be seen.
-var footerMention = regexp.MustCompile(`(?i)co-authored-by|generated (with|by)`)
+var footerMention = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)co-authored-by|generated (with|by)`)
+})
 
 func hasFooter(text string) bool {
 	return slices.ContainsFunc(footerPatterns(), func(re *regexp.Regexp) bool { return re.MatchString(text) })
@@ -155,7 +157,7 @@ func AttributionFooterCommit(cmd string) bool {
 			return false
 		}
 		joined := strings.Join(args, " ")
-		return hasFooter(joined) || dynamic && strings.Contains(joined, subMask) && footerMention.MatchString(cmd)
+		return hasFooter(joined) || dynamic && strings.Contains(joined, subMask) && footerMention().MatchString(cmd)
 	})
 }
 

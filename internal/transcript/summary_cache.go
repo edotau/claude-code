@@ -69,6 +69,7 @@ type SummaryCache struct {
 	path         string
 	old, cur     map[string]summaryRow
 	hits, misses int
+	dirty        bool // a settled miss stored a row, so Save has something new to write
 }
 
 // OpenSummaryCache loads the cache at path; a missing, corrupt or other-version file reads as empty, never an error.
@@ -115,6 +116,7 @@ func (c *SummaryCache) Responses(path string) ([]Response, error) {
 	}
 	c.misses++
 	if settled {
+		c.dirty = true
 		c.cur[abs] = summaryRow{Size: size, MtimeNS: mtime, Turns: toTurnRows(resps)}
 	}
 	return resps, nil
@@ -134,7 +136,7 @@ func (c *SummaryCache) Save() error {
 			}
 		}
 		maps.Copy(rows, c.cur)
-		if c.misses == 0 && len(rows) == len(disk) {
+		if !c.dirty && len(rows) == len(disk) {
 			return nil
 		}
 		raw, err := json.Marshal(summaryCacheFile{Schema: summaryCacheSchema, Files: rows})
