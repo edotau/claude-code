@@ -2,16 +2,13 @@
 
 package proc
 
-import (
-	"syscall"
-	"unsafe"
-)
+import "golang.org/x/sys/unix"
 
 // Size is the terminal's (columns, rows) from TIOCGWINSZ.
 func Size(fd int) (int, int, error) {
-	var ws struct{ Row, Col, X, Y uint16 }
-	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws))); e != 0 {
-		return 0, 0, e
+	ws, err := unix.IoctlGetWinsize(fd, unix.TIOCGWINSZ)
+	if err != nil {
+		return 0, 0, err
 	}
 	return int(ws.Col), int(ws.Row), nil
 }

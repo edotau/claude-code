@@ -23,16 +23,6 @@ const authHint = "Bitbucket rejected the token; run `claude-code vault set BITBU
 
 const forbiddenHint = "Bitbucket denied access: the token lacks permission on this repository"
 
-var digitsRe = regexp.MustCompile(`^[0-9]+$`)
-
-// checkDigits rejects a PR or comment id that is not all digits, matching the GitHub host.
-func checkDigits(what, v string) error {
-	if !digitsRe.MatchString(v) {
-		return fmt.Errorf("invalid %s %q: want digits", what, v)
-	}
-	return nil
-}
-
 // BitbucketHost is one Data Center repository; the token is only ever sent as a bearer header.
 type BitbucketHost struct {
 	Base, Project, Repo, Token string

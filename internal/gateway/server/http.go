@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -63,28 +62,7 @@ func writeJSON(w http.ResponseWriter, status int, body []byte) {
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, errorBody(status, msg))
-}
-
-// errorBody is the Anthropic error envelope Claude Code parses.
-func errorBody(status int, msg string) []byte {
-	typ := "api_error"
-	switch status {
-	case 400, 413:
-		typ = "invalid_request_error"
-	case 401:
-		typ = "authentication_error"
-	case 403:
-		typ = "permission_error"
-	case 404:
-		typ = "not_found_error"
-	case 429:
-		typ = "rate_limit_error"
-	case 529:
-		typ = "overloaded_error"
-	}
-	b, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]string{"type": typ, "message": msg}})
-	return b
+	writeJSON(w, status, translate.ErrorBody(status, msg))
 }
 
 type statusWriter struct {

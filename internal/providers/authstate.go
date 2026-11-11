@@ -121,7 +121,7 @@ func Resolve(p *Provider) ProviderStatus {
 
 // profileSecretSource is the source of the profile's own sealed or key secret ("" when none).
 func profileSecretSource(p *Provider, st *ProviderStatus) string {
-	name := cmp.Or(AuthSecretName(p), KeySecretName(p))
+	name := cmp.Or(AuthSecretName(p), keySecretName(p))
 	if name == "" {
 		return ""
 	}

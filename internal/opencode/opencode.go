@@ -287,12 +287,12 @@ func opencodeCopilotLogin(model string, h *agent.Headless) ([]string, []string, 
 	return env, argv, nil
 }
 
-// OpencodeCopilotModelIDs resolves opencode's github-copilot route's sonnet ("model") and haiku
+// opencodeCopilotModelIDs resolves opencode's github-copilot route's sonnet ("model") and haiku
 // ("small_model") wire ids: sonnet carries the everyday coding load, haiku is the cheap alias for
 // sub-tasks; each honors CLAUDE_<SLOT>_MODEL then CLAUDE_MODEL the way providers.Select resolves a
 // session alias, rooted at the github-copilot provider instead of the session's. ok is false without a
 // registered github-copilot provider or either alias.
-func OpencodeCopilotModelIDs(reg *providers.Registry) (main, small string, ok bool) {
+func opencodeCopilotModelIDs(reg *providers.Registry) (main, small string, ok bool) {
 	p, found := reg.LoginProfile("github", "copilot")
 	if !found {
 		return "", "", false
@@ -391,7 +391,7 @@ func mutateConfigJSON(body string, lenient bool, fn func(map[string]any)) (strin
 func opencodeOverlayModels() (mainModel, smallModel string, ok bool) {
 	if !OpencodeOwnLoginPresent() && OpencodeCopilotLoginPresent() {
 		if reg, err := providers.Load(); err == nil && reg != nil {
-			if m, s, found := OpencodeCopilotModelIDs(reg); found {
+			if m, s, found := opencodeCopilotModelIDs(reg); found {
 				return "github-copilot/" + m, "github-copilot/" + s, true
 			}
 		}

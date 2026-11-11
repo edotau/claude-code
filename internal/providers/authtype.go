@@ -30,16 +30,16 @@ import (
 // ErrNeedsLogin matches (errors.Is) a u2m credential that only a fresh browser login can restore.
 var ErrNeedsLogin = errors.New("login required")
 
-// LoginRequiredError is a u2m row with no sealed refresh token or one the token endpoint rejected.
-type LoginRequiredError struct {
+// loginRequiredError is a u2m row with no sealed refresh token or one the token endpoint rejected.
+type loginRequiredError struct {
 	err error
 }
 
-func (e *LoginRequiredError) Error() string { return e.err.Error() }
-func (e *LoginRequiredError) Unwrap() error { return e.err }
+func (e *loginRequiredError) Error() string { return e.err.Error() }
+func (e *loginRequiredError) Unwrap() error { return e.err }
 
 // Is makes errors.Is(err, ErrNeedsLogin) true.
-func (e *LoginRequiredError) Is(target error) bool { return target == ErrNeedsLogin }
+func (e *loginRequiredError) Is(target error) bool { return target == ErrNeedsLogin }
 
 var secretIDRE = regexp.MustCompile(`[^A-Z0-9]+`)
 
@@ -74,8 +74,8 @@ func AuthSecretName(p *Provider) string {
 	return SecretName(p.Provider, p.Name, p.Auth.Method())
 }
 
-// KeySecretName is the vault name of a key row's static key; "" for any other row.
-func KeySecretName(p *Provider) string {
+// keySecretName is the vault name of a key row's static key; "" for any other row.
+func keySecretName(p *Provider) string {
 	if p.Auth.Method() != AuthKey {
 		return ""
 	}
@@ -391,12 +391,7 @@ var (
 	mintM2M              = oauth.MintM2M
 	spNoteOut  io.Writer = os.Stderr
 	spCache    sync.Map
-	spFlights  = &flightGroup{flights: map[string]*flight{}, cached: func(name string) (string, bool) {
-		if c, ok := spCache.Load(name); ok && time.Now().Before(c.(cached).until) {
-			return c.(cached).value, true
-		}
-		return "", false
-	}}
+	spFlights  = &flightGroup{flights: map[string]*flight{}, cached: func(name string) (string, bool) { return cacheGet(&spCache, name) }}
 )
 
 // spCredential isolates SP tokens, expiry records and flights from the user's profile key.
@@ -450,45 +445,19 @@ func clientSecrets(name string) (secret, access string, err error) {
 
 // finishSPCredential caches the SP token apart from the user profile's cache.
 func finishSPCredential(p *Provider, v string, exp time.Time) error {
-	if err := checkIssuer(p, v); err != nil {
-		return err
-	}
-	recordTokenExpiry(p.Name+SPExpirySuffix, v, AuthM2M)
-	ttl := time.Duration(p.Auth.TTL) * time.Second
-	if ttl <= 0 {
-		ttl = 5 * time.Minute
-	}
-	until := time.Now().Add(ttl)
-	if e, ok := JWTExp(v); ok && exp.IsZero() {
-		exp = time.Unix(e, 0)
-	}
-	if !exp.IsZero() && exp.Add(-expiryMargin).Before(until) {
-		until = exp.Add(-expiryMargin)
-	}
-	spCache.Store(p.Name, cached{value: v, until: until})
-	return nil
+	return cacheCredential(p, &spCache, p.Name+spExpirySuffix, AuthM2M, v, exp)
 }
 
 // staleAccess rides out a transient refresh failure on the sealed access token for one-minute cache windows.
 func staleAccess(p *Provider, err error) (string, bool) {
-	old, ok := sealedAccess(p, time.Minute)
-	if !ok {
-		return "", false
-	}
-	fmt.Fprintf(os.Stderr, "%s: refresh failed (%s); using the cached token until it expires\n", p.Name, textutil.FirstLine(err.Error()))
-	cmdCache.Store(p.Name, cached{value: old, until: time.Now().Add(time.Minute)})
-	return old, true
+	old, _ := sealedAccess(p, time.Minute)
+	return staleServe(p, &cmdCache, "refresh", old, err)
 }
 
 // staleSPAccess is staleAccess for the SP: a transient mint failure rides on the sealed _ACCESS token.
 func staleSPAccess(p *Provider, access, bind string, err error) (string, bool) {
-	old, ok := clientAccessHit(access, bind, time.Minute)
-	if !ok {
-		return "", false
-	}
-	fmt.Fprintf(os.Stderr, "%s: service principal mint failed (%s); using the cached token until it expires\n", p.Name, textutil.FirstLine(err.Error()))
-	spCache.Store(p.Name, cached{value: old, until: time.Now().Add(time.Minute)})
-	return old, true
+	old, _ := clientAccessHit(access, bind, time.Minute)
+	return staleServe(p, &spCache, "service principal mint", old, err)
 }
 
 // sealedAccess returns the sealed access token when it stays valid past margin.
@@ -498,11 +467,7 @@ func sealedAccess(p *Provider, margin time.Duration) (string, bool) {
 	if err != nil || v == "" {
 		return "", false
 	}
-	exp, ok := JWTExp(v)
-	if !ok || !time.Unix(exp, 0).Add(-margin).After(time.Now()) {
-		return "", false
-	}
-	return v, true
+	return jwtValidPast(v, margin)
 }
 
 // sealAccess caches a u2m access token beside the refresh token; a seal error is logged by name only.
@@ -645,18 +610,14 @@ func clientAccessHit(raw, bind string, margin time.Duration) (string, bool) {
 	if raw == "" || json.Unmarshal([]byte(raw), &ca) != nil || ca.Bind != bind {
 		return "", false
 	}
-	exp, ok := JWTExp(ca.Access)
-	if !ok || !time.Unix(exp, 0).Add(-margin).After(time.Now()) {
-		return "", false
-	}
-	return ca.Access, true
+	return jwtValidPast(ca.Access, margin)
 }
 
-// noSecretError is the missing-credential error; an oauth row's is a LoginRequiredError.
+// noSecretError is the missing-credential error; an oauth row's is a loginRequiredError.
 func noSecretError(p *Provider, name string) error {
 	err := fmt.Errorf("%s: no credential (%s)", p.Name, authHint(p, name))
 	if p.Auth.Type == AuthOAuth {
-		err = &LoginRequiredError{err: err}
+		err = &loginRequiredError{err: err}
 	}
 	return err
 }
@@ -667,7 +628,7 @@ func mintU2M(ctx context.Context, p *Provider, host, name, secret string) (oauth
 	if err != nil {
 		wrapped := fmt.Errorf("%s: %w (%s)", p.Name, err, authHint(p, name))
 		if oauth.IsLoginRequired(err) {
-			wrapped = &LoginRequiredError{err: wrapped}
+			wrapped = &loginRequiredError{err: wrapped}
 		}
 		return oauth.Token{}, wrapped
 	}

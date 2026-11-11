@@ -336,10 +336,7 @@ func prevNonSpace(s string, at int) int {
 
 // atKeyPosition reports whether the token at i follows the options object's `{` or a `,` (a key, not a value).
 func atKeyPosition(masked string, i int) bool {
-	j := i
-	for j > 0 && strings.ContainsRune(" \t\r\n", rune(masked[j-1])) {
-		j--
-	}
+	j := prevNonSpace(masked, i) + 1
 	return j > 0 && (masked[j-1] == '{' || masked[j-1] == ',')
 }
 
@@ -580,10 +577,7 @@ func matchingOpenParen(masked string, close int) int {
 
 // identBefore returns the identifier (dots included) that ends before at, skipping whitespace.
 func identBefore(masked string, at int) string {
-	j := at
-	for j > 0 && strings.ContainsRune(" \t\r\n", rune(masked[j-1])) {
-		j--
-	}
+	j := prevNonSpace(masked, at) + 1
 	k := j
 	for k > 0 && isIdentByte(masked[k-1]) {
 		k--
@@ -600,9 +594,7 @@ func callableBodyEnd(masked string, start, end int) int {
 		}
 		end = maskedGroupEnd(masked, end+open, '(', ')')
 	}
-	for end < len(masked) && strings.ContainsRune(" \t\r\n", rune(masked[end])) {
-		end++
-	}
+	end = skipSpaces(masked, end)
 	if end < len(masked) && masked[end] == '{' {
 		return maskedGroupEnd(masked, end, '{', '}')
 	}
@@ -779,15 +771,7 @@ func blankBody(b []byte, from, to int) {
 }
 
 func maskComment(b []byte, i int) int {
-	end := "\n"
-	if b[i+1] == '*' {
-		end = "*/"
-	}
-	j := strings.Index(string(b[i+2:]), end)
-	if j < 0 {
-		j = len(b) - i - 2
-	}
-	last := i + 2 + j + len(end) - 1 // the comment's final byte, so the caller resumes after the terminator
+	last := commentEnd(string(b), i) // the comment's final byte, so the caller resumes after the terminator
 	for k := i; k <= last && k < len(b); k++ {
 		if b[k] != '\n' { // keep line structure so callers can still count lines
 			b[k] = ' '
@@ -826,15 +810,7 @@ func splitTopLevelArgs(s string) []argSpan {
 		case '/':
 			i = skipComment(s, i)
 		case '`', '\'', '"':
-			for i++; i < len(s); i++ {
-				if s[i] == '\\' {
-					i++
-					continue
-				}
-				if s[i] == c {
-					break
-				}
-			}
+			i = skipQuoted(s, i, c)
 		case '(', '[', '{':
 			depth++
 		case ')', ']', '}':

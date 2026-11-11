@@ -8,6 +8,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -167,7 +168,7 @@ func TestRenderHasOnlySeedAndResetCallers(t *testing.T) {
 		t.Fatal(err)
 	}
 	slices.Sort(got)
-	want := []string{"internal/settings/apply.go:ResetSettings", "internal/settings/apply.go:SeedSettings"}
+	want := []string{"internal/settings/settings.go:ResetSettings", "internal/settings/settings.go:SeedSettings"}
 	if !slices.Equal(got, want) {
 		t.Errorf("Render referenced from %v, want only %v", got, want)
 	}
@@ -212,4 +213,18 @@ func refersToRender(body ast.Node, inPkg bool) bool {
 		return !found
 	})
 	return found
+}
+
+// TestWriteBackupNeverTruncatesExisting checks a second backup under the same name fails and keeps the first.
+func TestWriteBackupNeverTruncatesExisting(t *testing.T) {
+	name := filepath.Join(t.TempDir(), "settings.json.bak.x")
+	if err := writeBackup(name, []byte("first"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeBackup(name, []byte("second"), 0o644); !os.IsExist(err) {
+		t.Fatalf("second writeBackup err = %v, want exists", err)
+	}
+	if got, _ := os.ReadFile(name); string(got) != "first" {
+		t.Errorf("backup = %q, want first", got)
+	}
 }

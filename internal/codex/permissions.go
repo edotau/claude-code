@@ -265,7 +265,7 @@ func retargetedConfig(real, home string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	from, to := CodexHookSourcePath(filepath.Join(real, "hooks.json"))+":", CodexHookSourcePath(filepath.Join(home, "hooks.json"))+":"
+	from, to := codexHookSourcePath(filepath.Join(real, "hooks.json"))+":", codexHookSourcePath(filepath.Join(home, "hooks.json"))+":"
 	return []byte(strings.ReplaceAll(string(raw), from, to)), nil
 }
 
@@ -276,7 +276,7 @@ func isLink(p string) bool {
 
 // requireFileAuth errors when neither a provider key in env nor auth.json would survive a per-dispatch CODEX_HOME.
 func requireFileAuth(env []string) error {
-	if slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, CodexKeyEnv+"=") }) {
+	if slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, codexKeyEnv+"=") }) {
 		return nil
 	}
 	if _, err := os.Stat(filepath.Join(codexHome(), "auth.json")); err != nil {

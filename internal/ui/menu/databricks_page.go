@@ -134,14 +134,16 @@ func runDatabricksPage(d *dialog) {
 	dbxShell(d).Run("databricks", func() []ShellRow {
 		var rows []ShellRow
 		names := dbxProfileNames(d.reg)
+		ats, texts := make([]string, len(names)), make([]string, len(names))
 		atW := 0
-		for _, e := range names {
-			at, _, _ := dbxState(d.reg, e)
-			atW = max(atW, len(cmp.Or(at, "-")))
-		}
-		for _, e := range names {
+		for i, e := range names {
 			at, text, _ := dbxState(d.reg, e)
-			rows = append(rows, ShellRow{Name: e, Detail: fmt.Sprintf("%-*s  %s", atW, cmp.Or(at, "-"), text), Run: func() bool {
+			ats[i], texts[i] = cmp.Or(at, "-"), text
+			atW = max(atW, len(ats[i]))
+		}
+		for i, e := range names {
+			detail := fmt.Sprintf("%-*s  %s", atW, ats[i], texts[i])
+			rows = append(rows, ShellRow{Name: e, Detail: detail, Run: func() bool {
 				runDatabricksEnv(d, e)
 				return false
 			}})

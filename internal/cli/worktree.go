@@ -40,7 +40,7 @@ Makefile + go.mod: build+vet all, test changed and registry packages;
 
 // cmdWorktree dispatches the worktree verb tree.
 func cmdWorktree(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+	if len(args) == 0 || isHelpVerb(args[0]) {
 		worktreePage.Fprint(os.Stderr)
 		return 0
 	}
@@ -369,8 +369,6 @@ func printCleanResult(r worktree.CleanResult, dryRun bool) {
 	}
 }
 
-func resolveAgents() []string { return []string{agentid.Claude, agentid.Codex} }
-
 func names() []string {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -385,7 +383,7 @@ func worktreeSpec() *helptext.Node {
 		"list":   {Flags: []helptext.Flag{helptext.CompletionFormatFlag()}},
 		"create": {Flags: []helptext.Flag{helptext.Plain("branch")}},
 		"merge": {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("target"),
-			helptext.BoolFlag("no-clean"), {Name: "resolve-agent", Values: resolveAgents}, helptext.BoolFlag("resume"), helptext.Plain("verify"), helptext.BoolFlag("no-verify"), helptext.BoolFlag("full-verify")}},
+			helptext.BoolFlag("no-clean"), {Name: "resolve-agent", Values: func() []string { return []string{agentid.Claude, agentid.Codex} }}, helptext.BoolFlag("resume"), helptext.Plain("verify"), helptext.BoolFlag("no-verify"), helptext.BoolFlag("full-verify")}},
 		"clean":     {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("force")}},
 		"clean-all": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("yes")}},
 		"gate":      {Flags: []helptext.Flag{helptext.Plain("dir"), helptext.Plain("scope"), helptext.BoolFlag("lint-check"), helptext.CompletionFormatFlag()}},

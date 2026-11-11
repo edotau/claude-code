@@ -96,7 +96,7 @@ func workflowCutoff(session string, days int) time.Time {
 	if session != "" {
 		return time.Time{}
 	}
-	return time.Now().Add(-time.Duration(max(days, 1)) * 24 * time.Hour)
+	return windowCutoff(max(days, 1))
 }
 
 // recency is the run's sort key for newest-first ordering.

@@ -1,4 +1,4 @@
-// apply.go — ApplyProfile, the one action every profile change goes through: set the record, forget last-used.
+// profile.go — ApplyProfile, the one action every profile change goes through: set the record, forget last-used.
 package configure
 
 import (

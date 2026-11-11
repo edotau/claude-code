@@ -79,7 +79,7 @@ func TestCollectDefsSkipsUnreadableOrInvalid(t *testing.T) {
 // TestFindConflicts: same resolved command across scopes is benign; different commands flag real.
 func TestFindConflicts(t *testing.T) {
 	home := "/home/u"
-	benign := []Def{
+	benign := []def{
 		{"github", "user", serverDef{Command: "${HOME}/mcp/launch.sh"}},
 		{"github", "project:/x/.mcp.json", serverDef{Command: "/home/u/mcp/launch.sh"}},
 	}
@@ -88,7 +88,7 @@ func TestFindConflicts(t *testing.T) {
 		t.Fatalf("benign layering flagged real: %+v", conflicts)
 	}
 
-	real := []Def{
+	real := []def{
 		{"github", "user", serverDef{Command: "npx", Args: []string{"gh-mcp"}}},
 		{"github", "project:/x/.mcp.json", serverDef{Command: "docker", Args: []string{"run", "gh"}}},
 	}
@@ -97,7 +97,7 @@ func TestFindConflicts(t *testing.T) {
 		t.Fatalf("real conflict not flagged: %+v", conflicts)
 	}
 
-	single := []Def{{"solo", "user", serverDef{Command: "npx"}}}
+	single := []def{{"solo", "user", serverDef{Command: "npx"}}}
 	if c := findConflicts(single, home); len(c) != 0 {
 		t.Fatalf("single-scope server flagged: %+v", c)
 	}
@@ -105,7 +105,7 @@ func TestFindConflicts(t *testing.T) {
 
 // TestDoctorConflictSeesSecretArgDifference: defs differing only in a secret arg are a real conflict, shown redacted.
 func TestDoctorConflictSeesSecretArgDifference(t *testing.T) {
-	defs := []Def{
+	defs := []def{
 		{"github", "user", serverDef{Command: "gh-mcp", Args: []string{"--token", "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}},
 		{"github", "project:/x/.mcp.json", serverDef{Command: "gh-mcp", Args: []string{"--token", "ghp_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}},
 	}
@@ -123,7 +123,7 @@ func TestDoctorConflictSeesSecretArgDifference(t *testing.T) {
 // TestFindSecrets: inline tokens in env/headers/url query strings flag; ${ENV} refs, file paths, and
 // placeholders stay clean.
 func TestFindSecrets(t *testing.T) {
-	defs := []Def{
+	defs := []def{
 		{"databricks", "user", serverDef{Env: map[string]string{"DATABRICKS_TOKEN": "dapi0123456789abcdef"}}},
 		{"github", "user", serverDef{Env: map[string]string{"GITHUB_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}", "CA": "/etc/ssl/ca.pem"}}},
 		{"openai", "user", serverDef{Env: map[string]string{"KEY": "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD"}}},
@@ -149,7 +149,7 @@ func TestFindSecrets(t *testing.T) {
 
 // TestFindSecretsClean: a definition with no env/headers/url produces no findings.
 func TestFindSecretsClean(t *testing.T) {
-	defs := []Def{{"plain", "user", serverDef{Command: "npx", Args: []string{"server"}}}}
+	defs := []def{{"plain", "user", serverDef{Command: "npx", Args: []string{"server"}}}}
 	if n := findSecrets(defs); len(n) != 0 {
 		t.Fatalf("findings = %+v, want none", n)
 	}
@@ -162,7 +162,7 @@ func TestRunHealthSkipsOpenWithNoClaudeBinary(t *testing.T) {
 	if res.Skipped == "" || res.Failed != 0 || res.Connected != 0 {
 		t.Fatalf("runHealth(\"\") = %+v, want a Skipped reason and zero counts", res)
 	}
-	rep := Report{Health: res}
+	rep := report{Health: res}
 	if rep.ExitCode() != 0 {
 		t.Errorf("ExitCode = %d, want 0 (fail-open health alone must not block)", rep.ExitCode())
 	}
@@ -176,7 +176,7 @@ func TestRunHealthCountsServers(t *testing.T) {
 	if res.Connected != 1 || res.Failed != 1 {
 		t.Fatalf("runHealth = %+v, want 1 connected 1 failed", res)
 	}
-	rep := Report{Health: res}
+	rep := report{Health: res}
 	if rep.ExitCode() != 1 {
 		t.Errorf("ExitCode = %d, want 1 (a failed server)", rep.ExitCode())
 	}
@@ -233,9 +233,9 @@ fi`)
 }
 
 // TestRedactScrubsEnvHeadersAndURL: redact() must blank every secret-shaped value it is handed —
-// the Report embeds Defs verbatim, so a missed field leaks a credential straight into --json/text.
+// the report embeds Defs verbatim, so a missed field leaks a credential straight into --json/text.
 func TestRedactScrubsEnvHeadersAndURL(t *testing.T) {
-	defs := []Def{{"s", "user", serverDef{
+	defs := []def{{"s", "user", serverDef{
 		Env:     map[string]string{"TOKEN": "dapi0123456789abcdef", "CA": "/etc/ssl/ca.pem"},
 		Headers: map[string]string{"Authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		URL:     "https://example.com/sse?token=abcdef0123456789&other=1",
@@ -256,33 +256,33 @@ func TestDoctorRejectsReportWriteFailure(t *testing.T) {
 	for _, asJSON := range []bool{false, true} {
 		t.Run(fmt.Sprintf("json=%t", asJSON), func(t *testing.T) {
 			dir := t.TempDir()
-			opts := Options{UserPath: filepath.Join(dir, "missing.json"), Home: dir, JSON: asJSON}
+			opts := options{UserPath: filepath.Join(dir, "missing.json"), Home: dir, JSON: asJSON}
 			var out bytes.Buffer
-			if code := Doctor(&out, opts); code != 0 {
+			if code := doctorMCP(&out, opts); code != 0 {
 				t.Fatalf("clean scan exit = %d, want 0", code)
 			}
 			if out.Len() == 0 {
 				t.Fatal("clean scan must produce a report")
 			}
-			if code := Doctor(closedTestOutput(t), opts); code == 0 {
+			if code := doctorMCP(closedTestOutput(t), opts); code == 0 {
 				t.Fatal("report write failure must return a nonzero exit code for a clean scan")
 			}
 		})
 	}
 }
 
-// TestDoctorJSONRoundTrips: --json mode emits a Report that decodes back cleanly.
+// TestDoctorJSONRoundTrips: --json mode emits a report that decodes back cleanly.
 func TestDoctorJSONRoundTrips(t *testing.T) {
 	dir := t.TempDir()
 	userJSON := filepath.Join(dir, ".claude.json")
 	write(t, userJSON, `{"mcpServers": {"github": {"command": "npx", "args": ["gh-mcp"], "env": {"TOKEN": "sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}}`)
 
 	var out strings.Builder
-	code := Doctor(&out, Options{UserPath: userJSON, Home: dir, JSON: true})
+	code := doctorMCP(&out, options{UserPath: userJSON, Home: dir, JSON: true})
 	if code != 1 {
 		t.Fatalf("Doctor exit = %d, want 1 (inline secret)", code)
 	}
-	var rep Report
+	var rep report
 	if err := json.Unmarshal([]byte(out.String()), &rep); err != nil {
 		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
 	}
@@ -302,7 +302,7 @@ func TestDoctorTextReportNeverEchoesSecretValues(t *testing.T) {
 	write(t, userJSON, `{"mcpServers": {"github": {"command": "npx", "env": {"TOKEN": "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}}`)
 
 	var out strings.Builder
-	code := Doctor(&out, Options{UserPath: userJSON, Home: dir})
+	code := doctorMCP(&out, options{UserPath: userJSON, Home: dir})
 	if code != 1 {
 		t.Fatalf("Doctor exit = %d, want 1", code)
 	}
@@ -317,7 +317,7 @@ func TestDoctorTextReportNeverEchoesSecretValues(t *testing.T) {
 // A serverDef marshals redacted at the type, so no JSON path can forget redact(); has_secrets says one existed.
 func TestServerDefMarshalRedactsAtTheType(t *testing.T) {
 	tok := "ghp" + "_abcdefghijklmnopqrstuvwxyz0123"
-	d := Def{Server: "x", Scope: "user", D: serverDef{URL: "https://h/?token=" + tok, Env: map[string]string{"T": tok}}}
+	d := def{Server: "x", Scope: "user", D: serverDef{URL: "https://h/?token=" + tok, Env: map[string]string{"T": tok}}}
 	b, err := json.Marshal(d)
 	if err != nil {
 		t.Fatal(err)
@@ -325,18 +325,18 @@ func TestServerDefMarshalRedactsAtTheType(t *testing.T) {
 	if strings.Contains(string(b), tok) || !strings.Contains(string(b), `"has_secrets":true`) {
 		t.Errorf("marshal leaked or unflagged: %s", b)
 	}
-	if b, _ := json.Marshal(Def{D: serverDef{Command: "npx"}}); strings.Contains(string(b), "has_secrets") {
+	if b, _ := json.Marshal(def{D: serverDef{Command: "npx"}}); strings.Contains(string(b), "has_secrets") {
 		t.Errorf("clean def must not carry has_secrets: %s", b)
 	}
 }
 
 // TestExitCodeFailsOnListErrorWithNoFailedServers: a crashed or timed-out `claude mcp list` is not a clean run.
 func TestExitCodeFailsOnListErrorWithNoFailedServers(t *testing.T) {
-	rep := Report{Health: healthResult{Error: "timed out after 30s"}}
+	rep := report{Health: healthResult{Error: "timed out after 30s"}}
 	if got := rep.ExitCode(); got != 1 {
 		t.Errorf("ExitCode = %d, want 1 (health Error with Failed=0)", got)
 	}
-	if got := (Report{Health: healthResult{Skipped: "claude not on PATH"}}).ExitCode(); got != 0 {
+	if got := (report{Health: healthResult{Skipped: "claude not on PATH"}}).ExitCode(); got != 0 {
 		t.Errorf("ExitCode = %d, want 0 (fail-open skip)", got)
 	}
 }
@@ -347,7 +347,7 @@ func TestDoctorFlagsUnparseableConfig(t *testing.T) {
 	bad := filepath.Join(dir, ".mcp.json")
 	write(t, bad, `{"mcpServers": {"a": {"env": {"K": "x"},}}}`)
 	var out bytes.Buffer
-	code := Doctor(&out, Options{UserPath: filepath.Join(dir, "missing.json"), ProjectFiles: []string{bad}, Home: dir})
+	code := doctorMCP(&out, options{UserPath: filepath.Join(dir, "missing.json"), ProjectFiles: []string{bad}, Home: dir})
 	if code != 1 || !strings.Contains(out.String(), "not scanned") || strings.Contains(out.String(), "no inline secrets found") {
 		t.Fatalf("exit %d, report:\n%s", code, out.String())
 	}
@@ -356,7 +356,7 @@ func TestDoctorFlagsUnparseableConfig(t *testing.T) {
 // TestQueryParamSecretCoversKeyAndTokenSuffixes: api_key=, access_token= and apikey= URL secrets are found and redacted.
 func TestQueryParamSecretCoversKeyAndTokenSuffixes(t *testing.T) {
 	for _, q := range []string{"api_key", "access_token", "apikey", "api-key"} {
-		defs := []Def{{"s", "user", serverDef{URL: "https://h/x?" + q + "=SECRET123"}}}
+		defs := []def{{"s", "user", serverDef{URL: "https://h/x?" + q + "=SECRET123"}}}
 		if len(findSecrets(defs)) == 0 {
 			t.Errorf("%s=: no finding", q)
 		}
@@ -376,7 +376,7 @@ func TestDoctorTextNeverEchoesSecretsFromArgsOrHealthLines(t *testing.T) {
 	claude := fakeBin(t, dir, "claude", "echo 'gh: npx srv --token "+tok+" - ✔ Connected'\necho 'web: https://x.test/mcp?api_key=zzz1234 - ✘ Failed'")
 
 	var out strings.Builder
-	Doctor(&out, Options{UserPath: userJSON, Home: dir, Claude: claude})
+	doctorMCP(&out, options{UserPath: userJSON, Home: dir, Claude: claude})
 	for _, leak := range []string{"ghp_aaaa", "zzz1234"} {
 		if strings.Contains(out.String(), leak) {
 			t.Errorf("text report echoed %q:\n%s", leak, out.String())

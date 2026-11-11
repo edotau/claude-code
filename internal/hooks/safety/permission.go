@@ -148,10 +148,7 @@ func pathForms(cwd, p string) []string {
 	if p == "" {
 		return []string{""}
 	}
-	abs := p
-	if !filepath.IsAbs(p) && cwd != "" {
-		abs = filepath.Join(cwd, p)
-	}
+	abs := core.AnchorPath(p, cwd)
 	rel := relToCWD(cwd, p)
 	if rel == abs {
 		return []string{rel}

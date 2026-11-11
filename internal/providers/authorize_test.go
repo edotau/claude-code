@@ -209,9 +209,9 @@ func TestGatewayModelsPagesAndMarksGatewayRows(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	trustTestTLS(t, srv)
-	got, err := GatewayModels(context.Background(), liveDbxProvider(t, srv.URL, "tok"))
+	got, err := gatewayModels(context.Background(), liveDbxProvider(t, srv.URL, "tok"))
 	if err != nil || len(got) != 2 {
-		t.Fatalf("GatewayModels = %+v, %v; want 2 rows", got, err)
+		t.Fatalf("gatewayModels = %+v, %v; want 2 rows", got, err)
 	}
 	if got[0].Name != "Claude Opus 5" || !got[0].Gateway || got[1].Name == "" || !got[1].Gateway {
 		t.Errorf("rows = %+v", got)
@@ -219,13 +219,13 @@ func TestGatewayModelsPagesAndMarksGatewayRows(t *testing.T) {
 }
 
 func TestGatewayModelsNonDatabricksAndMissingEndpoint(t *testing.T) {
-	if got, err := GatewayModels(context.Background(), &Provider{Name: "x"}); got != nil || err != nil {
+	if got, err := gatewayModels(context.Background(), &Provider{Name: "x"}); got != nil || err != nil {
 		t.Errorf("non-databricks = %v, %v; want nil, nil", got, err)
 	}
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 404, `{}`) }))
 	t.Cleanup(srv.Close)
 	trustTestTLS(t, srv)
-	if _, err := GatewayModels(context.Background(), liveDbxProvider(t, srv.URL, "tok")); err == nil {
+	if _, err := gatewayModels(context.Background(), liveDbxProvider(t, srv.URL, "tok")); err == nil {
 		t.Error("404 listing returned no error")
 	}
 }

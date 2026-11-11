@@ -32,12 +32,19 @@ var errNoCredential = errors.New(
 // errNoDevice: no admin-API device carries any of this node's tailnet addresses.
 var errNoDevice = errors.New("could not match this node's address to a device (is it connected?)")
 
+// The admin-API credential names, stored in the vault.
+const (
+	oauthIDName     = "TAILSCALE_OAUTH_CLIENT_ID"
+	oauthSecretName = "TAILSCALE_OAUTH_CLIENT_SECRET"
+	apiKeyName      = "TAILSCALE_API_KEY"
+)
+
 // SetNames is what `vault set --tailscale` writes: the API key alone, or the OAuth id then secret.
 func SetNames(apiKey bool) []string {
 	if apiKey {
-		return []string{"TAILSCALE_API_KEY"}
+		return []string{apiKeyName}
 	}
-	return []string{"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET"}
+	return []string{oauthIDName, oauthSecretName}
 }
 
 // maxKeyDays is the largest whole-day count a time.Duration holds (about 292 years).
@@ -107,13 +114,13 @@ func NewClient() (*Client, error) {
 	// DefaultClient's transport stays the seam tests swap; only the timeout is added.
 	hc := &http.Client{Transport: http.DefaultClient.Transport, Timeout: apiTimeout}
 	c := &Client{BaseURL: apiBaseURL, HTTP: hc}
-	if id, _, ok := vault.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
-		if secret, _, ok2 := vault.Get("TAILSCALE_OAUTH_CLIENT_SECRET"); ok2 {
+	if id, _, ok := vault.Get(oauthIDName); ok {
+		if secret, _, ok2 := vault.Get(oauthSecretName); ok2 {
 			c.token = oauthToken(c.BaseURL, id, secret, c.HTTP)
 			return c, nil
 		}
 	}
-	if key, _, ok := vault.Get("TAILSCALE_API_KEY"); ok {
+	if key, _, ok := vault.Get(apiKeyName); ok {
 		c.token = func(context.Context) (string, error) { return key, nil }
 		return c, nil
 	}

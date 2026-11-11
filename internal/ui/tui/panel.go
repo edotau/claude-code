@@ -215,16 +215,7 @@ func fit(title string, s pickState, cols, h int) pickState {
 		}
 		return w
 	}
-	lo, hi := s.sel, s.sel+1
-	for grew := true; grew; {
-		grew = false
-		if hi < len(s.rows) && panelLines(title, win(lo, hi+1), cols) < h {
-			hi, grew = hi+1, true
-		}
-		if lo > 0 && panelLines(title, win(lo-1, hi), cols) < h {
-			lo, grew = lo-1, true
-		}
-	}
+	lo, hi := grow(len(s.rows), s.sel, func(lo, hi int) bool { return panelLines(title, win(lo, hi), cols) < h })
 	return win(lo, hi)
 }
 

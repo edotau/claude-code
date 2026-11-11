@@ -11,13 +11,11 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/client"
@@ -141,14 +139,14 @@ func tomlCode(line string) string {
 }
 
 func RegisterClaudeMCP(bin string) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	return RegisterClaudeMCPContext(ctx, bin)
+	return withInterrupt(func(ctx context.Context) error {
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		return registerClaudeMCPContext(ctx, bin)
+	})
 }
 
-func RegisterClaudeMCPContext(ctx context.Context, bin string) error {
+func registerClaudeMCPContext(ctx context.Context, bin string) error {
 	if err := ctxErr(ctx, "claude mcp"); err != nil {
 		return err
 	}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // accessLogFile is the append-only access trace; it never enters the injected bank.
@@ -62,7 +63,7 @@ func logAccessBatch(dir string, now time.Time, entries []string, reason string) 
 	if dir == "" || len(entries) == 0 {
 		return
 	}
-	if credentialPattern.MatchString(reason) {
+	if textutil.CredentialRE.MatchString(reason) {
 		reason = "(reason redacted — credential-shaped)"
 	}
 	lines := accessLines(now, entries, reason)

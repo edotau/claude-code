@@ -44,7 +44,7 @@ func TestUsableFiltersByAgentDialects(t *testing.T) {
 		{"gemini", nil, nil},
 	} {
 		var got []string
-		for _, info := range Usable(fixtureProvider(), fixtureServing, tc.dialects) {
+		for _, info := range usable(fixtureProvider(), fixtureServing, tc.dialects) {
 			got = append(got, info.ID)
 		}
 		if !slices.Equal(got, tc.want) {

@@ -19,6 +19,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/gemini"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -27,12 +28,15 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
+// TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
 func TestRunMintUsesInstalledVendor(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
 	const token = "sk-ant-oat01-abcdefghijklmnopqrstuv"
 	pathstest.FakeVendor(t, "claude", "printf '%s\\n' '"+token+"'")
-	got, err := RunMintContext(context.Background(), []string{"claude", "setup-token"})
+	got, err := runMintContext(context.Background(), []string{"claude", "setup-token"})
 	if err != nil || got != token {
 		t.Fatalf("mint = %q, %v; want installed vendor's token", got, err)
 	}
@@ -251,10 +255,10 @@ func runLoginMintCase(t *testing.T, action, mode string) {
 	var token string
 	run := func(ctx context.Context) error {
 		if !mint {
-			return RunLoginContext(ctx, argv)
+			return runLoginContext(ctx, argv)
 		}
 		var err error
-		token, err = RunMintContext(ctx, argv)
+		token, err = runMintContext(ctx, argv)
 		return err
 	}
 	if mode == "cancel" {

@@ -87,7 +87,7 @@ func fileCredential(p *Provider) string {
 // keyNames are the vault/env names a key row's credential may sit under: its new name, then auth.env (old/agent name).
 func keyNames(p *Provider) []string {
 	var out []string
-	if n := KeySecretName(p); n != "" {
+	if n := keySecretName(p); n != "" {
 		out = append(out, n)
 	}
 	if p.Auth.Env != "" {
@@ -131,8 +131,11 @@ type flightGroup struct {
 
 var cmdFlights = &flightGroup{flights: map[string]*flight{}, cached: cachedCommand}
 
-func cachedCommand(name string) (string, bool) {
-	if c, ok := cmdCache.Load(name); ok && time.Now().Before(c.(cached).until) {
+func cachedCommand(name string) (string, bool) { return cacheGet(&cmdCache, name) }
+
+// cacheGet returns the unexpired value cached under name.
+func cacheGet(m *sync.Map, name string) (string, bool) {
+	if c, ok := m.Load(name); ok && time.Now().Before(c.(cached).until) {
 		return c.(cached).value, true
 	}
 	return "", false
@@ -236,10 +239,15 @@ func rotateNearExpiry(p *Provider, cmd, v string) bool {
 
 // finishCredential is the shared tail of every mint: issuer check, expiry record, cache until min(ttl, exp-10m).
 func finishCredential(p *Provider, v string, exp time.Time) error {
+	return cacheCredential(p, &cmdCache, p.Name, expiryMethod(p.Auth.Method()), v, exp)
+}
+
+// cacheCredential checks the issuer, records the expiry under record and caches v in cache until min(ttl, exp-10m).
+func cacheCredential(p *Provider, cache *sync.Map, record, method, v string, exp time.Time) error {
 	if err := checkIssuer(p, v); err != nil {
 		return err
 	}
-	recordTokenExpiry(p.Name, v, expiryMethod(p.Auth.Method()))
+	recordTokenExpiry(record, v, method)
 	ttl := time.Duration(p.Auth.TTL) * time.Second
 	if ttl <= 0 {
 		ttl = 5 * time.Minute
@@ -255,8 +263,27 @@ func finishCredential(p *Provider, v string, exp time.Time) error {
 			until = e
 		}
 	}
-	cmdCache.Store(p.Name, cached{value: v, until: until})
+	cache.Store(p.Name, cached{value: v, until: until})
 	return nil
+}
+
+// jwtValidPast returns v when its JWT exp is still more than margin away.
+func jwtValidPast(v string, margin time.Duration) (string, bool) {
+	exp, ok := JWTExp(v)
+	if !ok || !time.Unix(exp, 0).Add(-margin).After(time.Now()) {
+		return "", false
+	}
+	return v, true
+}
+
+// staleServe rides out a transient mint failure on old for one minute, noting what failed.
+func staleServe(p *Provider, cache *sync.Map, what, old string, err error) (string, bool) {
+	if old == "" {
+		return "", false
+	}
+	fmt.Fprintf(os.Stderr, "%s: %s failed (%s); using the cached token until it expires\n", p.Name, what, textutil.FirstLine(err.Error()))
+	cache.Store(p.Name, cached{value: old, until: time.Now().Add(time.Minute)})
+	return old, true
 }
 
 // expiryMargin is how close to exp a command token is refreshed, and how early its cache entry ends.

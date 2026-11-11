@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -200,3 +202,103 @@ func splitTopLevelInline(s string) []string {
 	}
 	return append(parts, strings.TrimSpace(s[start:]))
 }
+
+func renderCodex(reg *providers.Registry, sel providers.Selection, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
+	body, err := CodexJSON()
+	if err != nil {
+		return false, err
+	}
+	path, raw, existed, err := readCodexConfig(o.Home)
+	if err != nil {
+		return false, err
+	}
+	next, err := codexProviderConfig(reg, sel, string(raw), out)
+	if err != nil {
+		return false, err
+	}
+
+	// Compute the hooks merge (and read the existing hooks.json) before computing trust entries or
+	// committing config.toml: trust keys must come from the real post-merge positions, and a malformed
+	// existing hooks.json must fail the whole render, not leave new trust hashes written against a
+	// hooks.json that never got merged.
+	hooksPath := filepath.Join(filepath.Dir(path), "hooks.json")
+	hooksRaw, mergedHooks, hooksExisted, err := prepareCodexHooks(hooksPath, body)
+	if err != nil {
+		return false, err
+	}
+
+	next, err = codexTrustAndSettings(next, hooksPath, mergedHooks)
+	if err != nil {
+		return false, err
+	}
+
+	return commitCodexFiles(hooksPath, hooksRaw, mergedHooks, hooksExisted, path, raw, next, existed, o, out)
+}
+
+// commitCodexFiles writes hooks.json first, so a failed hooks write leaves config.toml without trust hashes for it.
+func commitCodexFiles(hooksPath string, hooksRaw, mergedHooks []byte, hooksExisted bool,
+	path string, raw []byte, next string, existed bool, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
+	drift, err := agentconfig.CommitFile(hooksPath, hooksRaw, append(mergedHooks, '\n'), hooksExisted, o, out, "codex-hooks")
+	if err != nil {
+		return drift, err
+	}
+	d, err := agentconfig.CommitFile(path, raw, []byte(next), existed, o, out, "codex")
+	return drift || d, err
+}
+
+// readCodexConfig returns the config.toml path, its bytes and whether it existed.
+func readCodexConfig(home string) (path string, raw []byte, existed bool, err error) {
+	path, err = paths.CodexConfigPath(home)
+	if err != nil {
+		return "", nil, false, err
+	}
+	raw, existed, err = agentconfig.ReadExisting(path)
+	if err != nil {
+		return "", nil, false, fmt.Errorf("codex: %w", err)
+	}
+	return path, raw, existed, nil
+}
+
+// codexProviderConfig is raw with the provider section inserted, any prior banner removed.
+func codexProviderConfig(reg *providers.Registry, sel providers.Selection, raw string, out io.Writer) (string, error) {
+	stripped := codexBannerRE().ReplaceAllString(raw, "") // sans any prior banner, for the user-value check
+	section, err := codexProviderSection(reg, sel, stripped, out)
+	if err != nil {
+		return "", err
+	}
+	return insertCodexSection(raw, section), nil
+}
+
+func insertCodexSection(raw, section string) string {
+	if section == "" {
+		return raw
+	}
+	return agentconfig.InsertTopLevelTOML(codexBannerRE().ReplaceAllString(raw, ""), section)
+}
+
+func prepareCodexHooks(path string, body []byte) ([]byte, []byte, bool, error) {
+	raw, existed, err := agentconfig.ReadExisting(path)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("codex-hooks: %w", err)
+	}
+	merged, err := mergeCodexHooks(raw, body)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("codex-hooks: %w", err)
+	}
+	return raw, merged, existed, nil
+}
+
+func codexTrustAndSettings(next, hooksPath string, mergedHooks []byte) (string, error) {
+	entries, err := codexTrustEntries(hooksPath, mergedHooks)
+	if err != nil {
+		return "", err
+	}
+	next = mergeCodexTrust(next, entries)
+	prefs, err := LoadCodexPreferences()
+	if err != nil {
+		return "", err
+	}
+	return patchCodexSettings(next, prefs)
+}
+
+// writeCodexHooks writes hooks.json under a file lock, refusing when it changed since the merge read it.

@@ -10,10 +10,10 @@ import (
 // secretFlagRE matches a CLI flag naming a secret (--key, --api-token=..., --header, -H, ...); names are case-insensitive.
 var secretFlagRE = regexp.MustCompile(`^((?i:--?[a-z0-9_-]*(key|token|secret|password|header))(=.*)?|-H)$`)
 
-// RedactConfig blanks mcp.<name>.environment/headers values, provider.<name>.options.headers values,
+// redactConfig blanks mcp.<name>.environment/headers values, provider.<name>.options.headers values,
 // secret-flag values in .command, and the userinfo and query string of .url in an OPENCODE_CONFIG_CONTENT string;
 // returns s unchanged on any parse error.
-func RedactConfig(s string) string {
+func redactConfig(s string) string {
 	var cfg map[string]any
 	if json.Unmarshal([]byte(s), &cfg) != nil {
 		return s

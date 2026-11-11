@@ -347,11 +347,11 @@ func ghEnvOverridesToken() bool {
 	return os.Getenv("GH_TOKEN") != "" || os.Getenv("GITHUB_TOKEN") != "" || (host != "" && host != "github.com")
 }
 
-// ghAuthToken runs plain `gh auth token`; a failure, not a timeout, is errGHTokenFailed.
-func ghAuthToken() ([]byte, error) {
+// ghAuthToken runs `gh auth token` plus extra; a failure, not a timeout, is errGHTokenFailed.
+func ghAuthToken(extra ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
+	out, err := exec.CommandContext(ctx, "gh", append([]string{"auth", "token"}, extra...)...).Output()
 	if err != nil && ctx.Err() == nil {
 		return nil, errGHTokenFailed
 	}
@@ -438,18 +438,14 @@ func GHToken(account string) string {
 		stamp = fmt.Sprint(info.Size(), info.ModTime().UnixNano())
 	}
 	key := strings.Join([]string{account, dir, os.Getenv("GH_HOST"), os.Getenv("PATH"), stamp}, "\x00")
-	v, _ := ghTokenMemo.Do(key, keepAuth, func() (string, error) { return fetchGHToken(account), nil })
+	v, _ := ghTokenMemo.Do(key, keepAuth, func() (string, error) {
+		out, err := ghAuthToken("-u", account)
+		if err != nil {
+			return "", nil
+		}
+		return strings.TrimSpace(string(out)), nil
+	})
 	return v
-}
-
-func fetchGHToken(account string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "gh", "auth", "token", "-u", account).Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
 }
 
 // CopilotToken is the token copilot would run with, resolved quietly (no stderr, no audit) for catalog lookups.

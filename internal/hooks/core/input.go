@@ -221,10 +221,7 @@ func (in *Input) normalizeToolArgs() string {
 	}
 	for _, key := range []string{"file_path", "filePath", "path"} {
 		if path, _ := input[key].(string); path != "" {
-			if !filepath.IsAbs(path) && in.CWD != "" {
-				path = filepath.Join(in.CWD, path)
-			}
-			input["file_path"] = path
+			input["file_path"] = AnchorPath(path, in.CWD)
 			break
 		}
 	}

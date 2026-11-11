@@ -1,4 +1,4 @@
-// PromptPath audits the instruction path a session follows (CLAUDE.md, rules, skills, agents).
+// promptPath audits the instruction path a session follows (CLAUDE.md, rules, skills, agents).
 
 package doctor
 
@@ -42,8 +42,8 @@ var (
 	agentsSync   = func() int { return project.Sync(project.Options{DryRun: true, Check: true, Out: io.Discard}) }
 )
 
-// PromptPath returns one check per implemented hop for the config tree at root.
-func PromptPath(root string) []launch.Check {
+// promptPath returns one check per implemented hop for the config tree at root.
+func promptPath(root string) []launch.Check {
 	return []launch.Check{
 		hop("H1 CLAUDE.md", claudeMD(root)),
 		hop("H2 rules", rules(root)),

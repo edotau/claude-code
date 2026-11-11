@@ -345,7 +345,7 @@ func currentWorktreeBranch(dest string) (string, error) {
 func headOf(dest string) string {
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
-	head, _ := headOfContext(ctx, dest) // error -> "": same contract as the old standalone impl
+	head, _ := headOfContext(ctx, dest) // an error leaves head empty
 	return head
 }
 

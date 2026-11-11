@@ -90,9 +90,15 @@ func vaultVaultRows(keyCommand string) [][2]string {
 	return [][2]string{{"key_command", keyCommand}}
 }
 
+// isBlankJSON reports an absent, empty or null overlay section.
+func isBlankJSON(raw json.RawMessage) bool {
+	s := strings.TrimSpace(string(raw))
+	return s == "" || s == "null"
+}
+
 // vaultFlattenSection flattens an overlay to dotted-path rows.
 func vaultFlattenSection(raw json.RawMessage) [][2]string {
-	if s := strings.TrimSpace(string(raw)); s == "" || s == "null" {
+	if isBlankJSON(raw) {
 		return nil
 	}
 	var top any
@@ -182,7 +188,7 @@ func clipValues(rows [][2]string, width int) [][2]string {
 func vaultProvidersText(raw json.RawMessage, width int) string {
 	var b strings.Builder
 	b.WriteString("PROVIDERS\n")
-	if s := strings.TrimSpace(string(raw)); s == "" || s == "null" {
+	if isBlankJSON(raw) {
 		b.WriteString("  (none)\n")
 		return b.String()
 	}
@@ -326,7 +332,7 @@ func presetEnvs(names []string) string {
 func vaultRoutingText(raw json.RawMessage, width int) string {
 	var b strings.Builder
 	b.WriteString("ROUTING\n")
-	if s := strings.TrimSpace(string(raw)); s == "" || s == "null" {
+	if isBlankJSON(raw) {
 		b.WriteString("  (none)\n")
 		return b.String()
 	}
@@ -354,7 +360,7 @@ func vaultRoutingText(raw json.RawMessage, width int) string {
 // vaultRoutingJSON is `vault ls --format json`'s "routing" value: the providers overlay's nested
 // routing object, or null when the overlay carries none.
 func vaultRoutingJSON(providersRaw json.RawMessage) (json.RawMessage, error) {
-	if s := strings.TrimSpace(string(providersRaw)); s == "" || s == "null" {
+	if isBlankJSON(providersRaw) {
 		return json.RawMessage("null"), nil
 	}
 	var reg providers.Registry
@@ -372,7 +378,7 @@ var vaultAgentCols = []string{"PROFILE", "MODEL", "EFFORT", "CONTEXT"}
 
 // vaultOverlayAgents decodes the agents overlay: the top-level object and its "agents" map.
 func vaultOverlayAgents(raw json.RawMessage) (top, vs map[string]any, err error) {
-	if s := strings.TrimSpace(string(raw)); s != "" && s != "null" {
+	if !isBlankJSON(raw) {
 		if err = json.Unmarshal(raw, &top); err != nil {
 			return nil, nil, err
 		}

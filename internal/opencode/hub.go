@@ -88,8 +88,8 @@ type hubDispatch struct {
 	firstOutput time.Duration
 }
 
-// NewHubDispatch builds a hub dispatch Agent for agentName on provider; reg resolves a provider:model override.
-func NewHubDispatch(agentName string, provider *providers.Provider, reg *providers.Registry) agent.HubEngine {
+// newHubDispatch builds a hub dispatch Agent for agentName on provider; reg resolves a provider:model override.
+func newHubDispatch(agentName string, provider *providers.Provider, reg *providers.Registry) agent.HubEngine {
 	return hubDispatch{agent: agentName, provider: provider, reg: reg}
 }
 

@@ -102,7 +102,7 @@ func copilotOnlyOverlayRegistry(t *testing.T) *providers.Registry {
 // A copilot-only opencode launch renders github-copilot/<id> models, never an opencode-go id.
 func TestOpencodeCopilotOnlyOverlayModels(t *testing.T) {
 	reg := copilotOnlyOverlayRegistry(t)
-	main, small, ok := OpencodeCopilotModelIDs(reg)
+	main, small, ok := opencodeCopilotModelIDs(reg)
 	if !ok {
 		t.Fatal("no copilot model ids")
 	}
@@ -340,7 +340,7 @@ func isolateOpencodeRouteEnv(t *testing.T) (dataHome, cfgHome string) {
 	return dataHome, cfgHome
 }
 
-// OpencodeCopilotModelIDs swaps an "auto" alias for the provider's OpencodeFallback; a concrete id passes through.
+// opencodeCopilotModelIDs swaps an "auto" alias for the provider's OpencodeFallback; a concrete id passes through.
 func TestOpencodeCopilotModelIDsSwapsAutoForFallback(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -356,9 +356,9 @@ func TestOpencodeCopilotModelIDsSwapsAutoForFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	main, small, ok := OpencodeCopilotModelIDs(reg)
+	main, small, ok := opencodeCopilotModelIDs(reg)
 	if !ok {
-		t.Fatal("OpencodeCopilotModelIDs: ok = false")
+		t.Fatal("opencodeCopilotModelIDs: ok = false")
 	}
 	if main != "claude-sonnet-5.5" {
 		t.Errorf("main = %q, want the registry's own sonnet id unchanged", main)
@@ -377,9 +377,9 @@ func TestOpencodeCopilotModelIDsLeavesNonAutoPinUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, small, ok := OpencodeCopilotModelIDs(reg)
+	_, small, ok := opencodeCopilotModelIDs(reg)
 	if !ok {
-		t.Fatal("OpencodeCopilotModelIDs: ok = false")
+		t.Fatal("opencodeCopilotModelIDs: ok = false")
 	}
 	if small != "claude-haiku-4.5" {
 		t.Errorf("small = %q, want the pinned id unchanged (not swapped for OpencodeFallback)", small)

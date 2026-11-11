@@ -165,7 +165,7 @@ func agentsFlags(verb string) *flag.FlagSet {
 
 // cmdAgents is `claude-code agents`.
 func cmdAgents(args []string) int {
-	if len(args) == 0 || slices.Contains([]string{"-h", "--help", "help"}, args[0]) {
+	if len(args) == 0 || isHelpVerb(args[0]) {
 		agentsPage.Fprint(os.Stderr)
 		return 0
 	}
@@ -531,7 +531,7 @@ func cmdAgentVerb(name string, args []string) int {
 		return ask.Cmd(append([]string{"--agent", name}, args[1:]...))
 	case agentSubPages[args[0]] != [2]string{}:
 		return agentSub(name, args)
-	case len(args) == 1 && slices.Contains([]string{"-h", "--help", "help"}, args[0]):
+	case len(args) == 1 && isHelpVerb(args[0]):
 		agentPage(name).Fprint(os.Stderr)
 		return 0
 	case len(args) == 1 && args[0] == helptext.DocsFlag:
@@ -746,7 +746,7 @@ var hookPage = helptext.Page{
 
 // cmdHook runs one lifecycle hook.
 func cmdHook(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+	if len(args) == 0 || isHelpVerb(args[0]) {
 		hookPage.Fprint(os.Stderr)
 		return 0
 	}

@@ -258,7 +258,7 @@ func asExitErr(err error) (int, bool) {
 	return 0, false
 }
 
-// EligibleForClean mirrors the bar Clean rechecks live (lifecycle.go cleanBusyReason, cleanInspectReason);
+// EligibleForClean mirrors the bar Clean rechecks live (cleanBusyReason, cleanInspectReason);
 // list only offers the command, never acts.
 func (e Entry) EligibleForClean() bool {
 	return e.Exists && !e.Orphaned && !e.Locked && !e.Dirty && e.Merged && e.Busy == "" && len(e.Problems) == 0

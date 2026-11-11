@@ -85,7 +85,7 @@ func TestCodexApplyPermissionsSafeModeRejectsDispatchRules(t *testing.T) {
 	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: agent.Permissions{
 		Deny: []agent.Rule{{Tool: "Bash", Arg: "rm:*"}},
 	}}
-	_, _, remove, err := codexApplyPermissions(req, argv, []string{CodexKeyEnv + "=test-key"})
+	_, _, remove, err := codexApplyPermissions(req, argv, []string{codexKeyEnv + "=test-key"})
 	defer remove()
 	if err == nil || !strings.Contains(err.Error(), "--safe-mode") {
 		t.Fatalf("safe-mode deny err = %v, want an explicit refusal", err)
@@ -98,7 +98,7 @@ func TestCodexApplyPermissionsSafeModeDoesNotUseGate(t *testing.T) {
 	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: agent.Permissions{
 		Deny: []agent.Rule{{Tool: "Bash", Arg: "git * --force"}},
 	}}
-	_, _, remove, err := codexApplyPermissions(req, nil, []string{CodexKeyEnv + "=test-key"})
+	_, _, remove, err := codexApplyPermissions(req, nil, []string{codexKeyEnv + "=test-key"})
 	defer remove()
 	if err == nil || !strings.Contains(err.Error(), "Bash(git * --force)") {
 		t.Fatalf("safe-mode non-prefix deny err = %v, want the unenforceable rule named", err)
@@ -145,7 +145,7 @@ func TestCodexGateInstalled(t *testing.T) {
 func TestLinkHomeRetargetsHookTrust(t *testing.T) {
 	real, home := t.TempDir(), t.TempDir()
 	trust := func(dir string) string {
-		return `["hooks"."state"."` + CodexHookSourcePath(filepath.Join(dir, "hooks.json")) + `:pre_tool_use:0:0"]`
+		return `["hooks"."state"."` + codexHookSourcePath(filepath.Join(dir, "hooks.json")) + `:pre_tool_use:0:0"]`
 	}
 	if err := os.WriteFile(filepath.Join(real, "config.toml"), []byte(trust(real)+"\n"), 0o600); err != nil {
 		t.Fatal(err)

@@ -40,10 +40,7 @@ func ReviewSimplicity(in *core.Input) core.Result {
 
 // editContents is the edited file's path and its content before and after this Write or Edit.
 func editContents(in *core.Input) (path, before, after string, ok bool) {
-	path = in.Nested("tool_input", "file_path")
-	if path != "" && !filepath.IsAbs(path) && in.CWD != "" {
-		path = filepath.Join(in.CWD, path)
-	}
+	path = core.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
 	if path == "" || (in.ToolName != "Write" && in.ToolName != "Edit") || !reviewableSource(path) {
 		return "", "", "", false
 	}

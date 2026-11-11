@@ -413,11 +413,11 @@ func codex(ctx context.Context, p *providers.Provider, base, model, cred string,
 	}
 	var envHs [][2]string // env_http_headers: header name -> env var carrying its value
 	if cred != "" {
-		env = append(env, CodexKeyEnv+"="+cred)
+		env = append(env, codexKeyEnv+"="+cred)
 		if p.Auth.HeaderStyle() == providers.HeaderXAPIKey {
-			envHs = append(envHs, [2]string{agentconfig.TOMLQuote("x-api-key"), agentconfig.TOMLQuote(CodexKeyEnv)})
+			envHs = append(envHs, [2]string{agentconfig.TOMLQuote("x-api-key"), agentconfig.TOMLQuote(codexKeyEnv)})
 		} else {
-			fields = append(fields, [2]string{"env_key", agentconfig.TOMLQuote(CodexKeyEnv)})
+			fields = append(fields, [2]string{"env_key", agentconfig.TOMLQuote(codexKeyEnv)})
 		}
 	}
 	env, envHs, fields = codexProviderHeaders(p, env, envHs, fields)
@@ -656,8 +656,8 @@ func codexSchema() agent.Schema {
 	return s
 }
 
-// CodexKeyEnv carries the credential codex's config names (the config text names the variable, not the secret).
-const CodexKeyEnv = "HARNESS_CODEX_API_KEY"
+// codexKeyEnv carries the credential codex's config names (the config text names the variable, not the secret).
+const codexKeyEnv = "HARNESS_CODEX_API_KEY"
 
 func codexInstructionArgs(req agent.RunOptions) []string {
 	var extra []string

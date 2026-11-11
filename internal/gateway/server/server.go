@@ -456,7 +456,7 @@ func (r *Router) tryOpenAI(w *statusWriter, in *http.Request, body []byte, t pro
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		eb := translate.FromChatError(resp.StatusCode, b)
 		if eb == nil {
-			eb = errorBody(resp.StatusCode, p.Name+": "+strings.TrimSpace(string(b)))
+			eb = translate.ErrorBody(resp.StatusCode, p.Name+": "+strings.TrimSpace(string(b)))
 		}
 		writeJSON(w, resp.StatusCode, eb)
 		return true, nil

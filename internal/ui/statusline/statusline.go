@@ -162,12 +162,13 @@ func renderFit(v values, cfg Config, pal theme.Palettes, width int) string {
 		wide.provider = v.providerFull
 		short := v
 		short.branch = ""
+		var out string
 		for _, try := range []values{wide, v, short} {
-			if out := renderRaw(try, cfg, pal); longestLine(out) <= width {
+			if out = renderRaw(try, cfg, pal); longestLine(out) <= width {
 				return out
 			}
 		}
-		v = short
+		return clip(out, lineWidth(cfg)) // out is short's render; clip as render would
 	}
 	return render(v, cfg, pal)
 }

@@ -28,8 +28,8 @@ type Target struct {
 	Src  string // source file in theme/, defaults to Name+".json" if empty
 }
 
-// Targets maps each theme/<name>.json to its destination; VS Code's path is platform-specific.
-func Targets(home string) []Target {
+// targets maps each theme/<name>.json to its destination; VS Code's path is platform-specific.
+func targets(home string) []Target {
 	vs, _ := paths.VSCodeSettings()
 	cfg := os.Getenv("XDG_CONFIG_HOME")
 	if cfg == "" {
@@ -57,7 +57,7 @@ type Outcome struct {
 // Apply merges every present theme/<name>.json (or .conf) into its destination. dryRun reports without writing.
 // Keys the theme file omits are kept; a key it carries wins. Maps merge recursively for JSON; lines replace for .conf.
 func Apply(dir, home string, only []string, dryRun bool) ([]Outcome, error) {
-	targets, err := selectTargets(Targets(home), only)
+	targets, err := selectTargets(targets(home), only)
 	if err != nil {
 		return nil, err
 	}

@@ -10,7 +10,7 @@ import (
 func init() {
 	agent.Register(agent.Agent{Row: row, Driver: codexEngine{agent.NewBaseEngine("codex")}})
 	agentconfig.RegisterFileOps("codex", agentconfig.FileOps{Write: writeCodexConfig, LoadBaseline: LoadCodexBaseline,
-		SaveBaseline: SaveCodexBaseline, Revert: restoreCodexConfig})
+		SaveBaseline: saveCodexBaseline, Revert: restoreCodexConfig})
 	agentconfig.RegisterFileOps("codex-hooks", agentconfig.FileOps{Write: writeCodexHooks})
 }
 

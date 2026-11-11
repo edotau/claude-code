@@ -21,7 +21,6 @@ const (
 const (
 	TrueColor = "truecolor"
 	ANSI256   = "ansi256"
-	ANSI16    = "ansi16"
 )
 
 // ParseHex reads #RGB, #RGBA, #RRGGBB or #RRGGBBAA (# optional); alpha is 255 when absent, ok=false otherwise.
@@ -62,8 +61,8 @@ func Hex(h string) RGB {
 	return rgb
 }
 
-// ToANSI256 maps an RGB to the nearest xterm-256 index (grayscale ramp + 6×6×6 cube).
-func ToANSI256(rgb RGB) int {
+// toANSI256 maps an RGB to the nearest xterm-256 index (grayscale ramp + 6×6×6 cube).
+func toANSI256(rgb RGB) int {
 	r, g, b := rgb[0], rgb[1], rgb[2]
 	if abs(r-g) < 10 && abs(g-b) < 10 {
 		if r < 8 {
@@ -95,8 +94,8 @@ var ansi16 = []RGB{
 	{59, 142, 234}, {214, 112, 214}, {41, 184, 219}, {255, 255, 255},
 }
 
-// ToANSI16 returns the index of the nearest 16-color entry by squared RGB distance.
-func ToANSI16(rgb RGB) int {
+// toANSI16 returns the index of the nearest 16-color entry by squared RGB distance.
+func toANSI16(rgb RGB) int {
 	best, bi := math.MaxInt, 7
 	for i, c := range ansi16 {
 		d := (rgb[0]-c[0])*(rgb[0]-c[0]) + (rgb[1]-c[1])*(rgb[1]-c[1]) + (rgb[2]-c[2])*(rgb[2]-c[2])
@@ -117,9 +116,9 @@ func FgSeq(mode string, rgb RGB, bold bool) string {
 	case TrueColor:
 		return fmt.Sprintf("\x1b[%s38;2;%d;%d;%dm", b, rgb[0], rgb[1], rgb[2])
 	case ANSI256:
-		return fmt.Sprintf("\x1b[%s38;5;%dm", b, ToANSI256(rgb))
+		return fmt.Sprintf("\x1b[%s38;5;%dm", b, toANSI256(rgb))
 	default:
-		c := ToANSI16(rgb)
+		c := toANSI16(rgb)
 		base := 30 + c
 		if c >= 8 {
 			base = 30 + c - 8
@@ -138,9 +137,9 @@ func BgSeq(mode string, rgb RGB) string {
 	case TrueColor:
 		return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", rgb[0], rgb[1], rgb[2])
 	case ANSI256:
-		return fmt.Sprintf("\x1b[48;5;%dm", ToANSI256(rgb))
+		return fmt.Sprintf("\x1b[48;5;%dm", toANSI256(rgb))
 	default:
-		c := ToANSI16(rgb)
+		c := toANSI16(rgb)
 		base := 40 + c
 		if c >= 8 {
 			base = 40 + c - 8

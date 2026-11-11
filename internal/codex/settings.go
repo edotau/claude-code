@@ -2,6 +2,10 @@ package codex
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,11 +16,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
-
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -54,7 +58,7 @@ func codexSettingsSection(raw string) (start, end int, err error) {
 }
 
 func patchCodexSettings(raw string, overlay map[string]string) (string, error) {
-	if err := ValidateCodexOverlay(overlay); err != nil {
+	if err := validateCodexOverlay(overlay); err != nil {
 		return "", err
 	}
 	start, end, err := codexSettingsSection(raw)
@@ -306,7 +310,7 @@ func UpdateCodexPreferences(edit func(map[string]string) map[string]string) erro
 			return err
 		}
 		next := edit(prefs)
-		if err := ValidateCodexOverlay(next); err != nil {
+		if err := validateCodexOverlay(next); err != nil {
 			return err
 		}
 		if recEffort, _ := agentid.NativeEffort(agentid.Codex, agentid.Effort(rec.Effort)); next[codexEffortKey] != recEffort {
@@ -357,7 +361,7 @@ func ApplyCodexSettings(home string) error {
 		if err := writeCodexConfigLocked(path, old, []byte(next), existed); err != nil {
 			return err
 		}
-		return SaveCodexBaseline(path, []byte(next))
+		return saveCodexBaseline(path, []byte(next))
 	})
 }
 
@@ -458,7 +462,7 @@ func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := ValidateCodexOverlay(overlay); err != nil {
+	if err := validateCodexOverlay(overlay); err != nil {
 		return err
 	}
 	if err := applyCodexRestore(path, backup, overlay); err != nil {
@@ -517,11 +521,11 @@ func applyCodexRestore(path string, backup CodexConfigBackup, overlay map[string
 	if err := UpdateCodexPreferences(func(map[string]string) map[string]string { return overlay }); err != nil {
 		return fmt.Errorf("codex: file restored but preferences could not be synchronized: %w", err)
 	}
-	if err := SaveCodexBaseline(path, backup.Data); err != nil {
+	if err := saveCodexBaseline(path, backup.Data); err != nil {
 		return err
 	}
 	if backup.Name != "" { // legacy files are left in place
-		return ConsumeCodexBackup(backup.Name)
+		return consumeCodexBackup(backup.Name)
 	}
 	return nil
 }
@@ -566,4 +570,172 @@ func codexConfigCheck(name, path string, managed bool) agent.Check {
 		row.Detail = path + ": present; CLI and machine settings may override it"
 	}
 	return row
+}
+
+const codexOverlayKey = "codex-settings"
+
+type CodexField struct {
+	Key    string
+	Values []string
+}
+
+func CodexFields() []CodexField {
+	return []CodexField{
+		{"model_reasoning_effort", agentid.NativeEfforts(agentid.Codex)},
+		{extraVerbosity, codexVerbosities},
+	}
+}
+
+func validateCodexOverlay(ov map[string]string) error {
+	for key, value := range ov {
+		found := false
+		for _, f := range CodexFields() {
+			if f.Key == key {
+				found = true
+				if !slices.Contains(f.Values, value) {
+					return fmt.Errorf("codex: invalid value for %s", key)
+				}
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("codex: unsupported preference %s", key)
+		}
+	}
+	return nil
+}
+
+func loadCodexOverlay(tx *vault.Tx) (map[string]string, error) {
+	ov := map[string]string{}
+	if raw, ok := tx.Get(vault.Overlay, codexOverlayKey); ok {
+		if err := json.Unmarshal([]byte(raw), &ov); err != nil {
+			return nil, fmt.Errorf("codex: invalid saved preferences: %w", err)
+		}
+	}
+	if ov == nil {
+		ov = map[string]string{}
+	}
+	return ov, validateCodexOverlay(ov)
+}
+
+func LoadCodexOverlay() (ov map[string]string, err error) {
+	err = vault.View(func(tx *vault.Tx) error { ov, err = loadCodexOverlay(tx); return err })
+	return
+}
+
+type CodexConfigBackup struct {
+	Name    string `json:"-"`
+	Path    string
+	Data    []byte
+	Existed bool
+	At      time.Time
+}
+
+func codexPathID(path string) (string, string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", "", err
+	}
+	sum := sha256.Sum256([]byte(abs))
+	return abs, hex.EncodeToString(sum[:]), nil
+}
+
+func putCodexSealed(tx *vault.Tx, key *vault.Key, name string, data []byte) error {
+	return tx.PutRecordIn(vault.SettingsBackups, name, vault.Record{
+		Sealed: key.SealSettingsBackup(name, string(data)), Kid: key.Kid, SetAt: time.Now().UTC(),
+	})
+}
+
+func CodexBackup(path string, raw []byte, existed bool) error {
+	abs, id, err := codexPathID(path)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	var nonce [8]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return err
+	}
+	prefix := "codex/" + id + "/"
+	name := prefix + now.Format("20060102T150405.000000000Z") + "-" + hex.EncodeToString(nonce[:])
+	data, err := json.Marshal(CodexConfigBackup{Path: abs, Data: raw, Existed: existed, At: now})
+	if err != nil {
+		return err
+	}
+	return vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
+		if err := putCodexSealed(tx, key, name, data); err != nil {
+			return err
+		}
+		var names []string
+		for _, n := range tx.Names(vault.SettingsBackups) {
+			if strings.HasPrefix(n, prefix) {
+				names = append(names, n)
+			}
+		}
+		for _, n := range names[:max(0, len(names)-5)] {
+			if err := tx.Put(vault.SettingsBackups, n, ""); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func LatestCodexBackup(path string) (CodexConfigBackup, bool, error) {
+	abs, id, err := codexPathID(path)
+	if err != nil {
+		return CodexConfigBackup{}, false, err
+	}
+	prefix, name := "codex/"+id+"/", ""
+	err = vault.View(func(tx *vault.Tx) error {
+		for _, n := range tx.Names(vault.SettingsBackups) {
+			if strings.HasPrefix(n, prefix) {
+				name = n
+			}
+		}
+		return nil
+	})
+	if err != nil || name == "" {
+		return CodexConfigBackup{}, false, err
+	}
+	raw, found, err := vault.ReadSettingsBackup(name)
+	if err != nil || !found {
+		return CodexConfigBackup{}, false, err
+	}
+	var b CodexConfigBackup
+	if err := json.Unmarshal([]byte(raw), &b); err != nil {
+		return b, false, fmt.Errorf("codex: invalid encrypted backup: %w", err)
+	}
+	if b.Path != abs {
+		return b, false, errors.New("codex: backup path mismatch")
+	}
+	b.Name = name
+	return b, true, nil
+}
+
+func consumeCodexBackup(name string) error {
+	if !strings.HasPrefix(name, "codex/") {
+		return errors.New("codex: invalid backup name")
+	}
+	return vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.SettingsBackups, name, "") })
+}
+
+func saveCodexBaseline(path string, raw []byte) error {
+	_, id, err := codexPathID(path)
+	if err != nil {
+		return err
+	}
+	return vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error { return putCodexSealed(tx, key, "codex-baseline/"+id, raw) })
+}
+
+func LoadCodexBaseline(path string) ([]byte, error) {
+	_, id, err := codexPathID(path)
+	if err != nil {
+		return nil, err
+	}
+	raw, found, err := vault.ReadSettingsBackup("codex-baseline/" + id)
+	if err != nil || !found {
+		return nil, err
+	}
+	return []byte(raw), nil
 }

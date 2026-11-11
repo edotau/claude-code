@@ -262,9 +262,19 @@ func AfterUsing(note string) string {
 
 // RunMint tees stdout from the token-minting CLI and returns its token only when the command succeeds.
 func RunMint(argv []string) (string, error) {
+	var token string
+	err := withInterrupt(func(ctx context.Context) (err error) {
+		token, err = runMintContext(ctx, argv)
+		return err
+	})
+	return token, err
+}
+
+// withInterrupt runs fn under a context cancelled by SIGINT or SIGTERM.
+func withInterrupt(fn func(ctx context.Context) error) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return RunMintContext(ctx, argv)
+	return fn(ctx)
 }
 
 // attachedCommand is argv under ctx; cancel sends SIGINT first, and Go kills it after WaitDelay.
@@ -275,8 +285,8 @@ func attachedCommand(ctx context.Context, argv []string) *exec.Cmd {
 	return cmd
 }
 
-// RunMintContext is RunMint under ctx; the caller asks first, a stray Enter must never start a mint.
-func RunMintContext(ctx context.Context, argv []string) (string, error) {
+// runMintContext is RunMint under ctx; the caller asks first, a stray Enter must never start a mint.
+func runMintContext(ctx context.Context, argv []string) (string, error) {
 	if err := ctxErr(ctx, "mint token"); err != nil {
 		return "", err
 	}
@@ -319,9 +329,7 @@ func ctxErr(ctx context.Context, verb string) error {
 // RunLogin execs an agent's own login CLI attached to the real terminal: picking the row that leads here
 // already was the confirmation, so it runs directly rather than asking [y/N] a second time.
 func RunLogin(argv []string) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	return RunLoginContext(ctx, argv)
+	return withInterrupt(func(ctx context.Context) error { return runLoginContext(ctx, argv) })
 }
 
 // cliArgv resolves a known agent CLI in argv[0] to its installed binary path; other commands pass through.
@@ -339,7 +347,7 @@ func cliArgv(argv []string) ([]string, error) {
 	return resolved, nil
 }
 
-func RunLoginContext(ctx context.Context, argv []string) error {
+func runLoginContext(ctx context.Context, argv []string) error {
 	argv, err := cliArgv(argv)
 	if err != nil {
 		return err
@@ -492,6 +500,27 @@ func SaveEnvEdit(name, raw, secret string) error {
 	}
 	if err := providers.SetCustomEnv(name, raw); err != nil {
 		return fmt.Errorf("secret %s already sealed, env reference not saved: %w", name, err)
+	}
+	return nil
+}
+
+// ValidateImport validates the supplied pairs; vault import calls it per pair and warns while skipping invalid pairs.
+func ValidateImport(pairs []vault.Pair) error {
+	for _, p := range pairs {
+		if err := agent.ValidateVaultSecret(p.Name, p.Value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// StoreImport stores each pair in order, calling stored after each success; an error names the failing pair.
+func StoreImport(pairs []vault.Pair, stored func(name string)) error {
+	for _, p := range pairs {
+		if err := agent.SetSecret(p.Name, p.Value); err != nil {
+			return fmt.Errorf("%s: %w", p.Name, err)
+		}
+		stored(p.Name)
 	}
 	return nil
 }
