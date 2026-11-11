@@ -117,18 +117,14 @@ type Row struct {
 	Tested string `json:"tested"`
 }
 
-// List is p's endpoints usable on dialects, each with the last probe status the shared check cache holds.
-func List(p *providers.Provider, dialects []string) ([]Row, error) {
-	served, err := Served(p)
-	if err != nil {
-		return nil, err
-	}
-	cache, _ := LoadCheckCache(p.Name)
+// Rows pairs each endpoint name with the last probe status the shared check cache holds for profile.
+func Rows(profile string, names []string) []Row {
+	cache, _ := LoadCheckCache(profile)
 	var rows []Row
-	for _, info := range usable(p, served, dialects) {
-		rows = append(rows, Row{Name: info.ID, Tested: cache[ID(info.ID)].Status})
+	for _, name := range names {
+		rows = append(rows, Row{Name: name, Tested: cache[ID(name)].Status})
 	}
-	return rows, nil
+	return rows
 }
 
 // WriteList renders rows under a "<profile> serving endpoints" title as a NAME / TESTED table, or JSON.

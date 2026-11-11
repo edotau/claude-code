@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/databricks/serving"
+	"github.com/edotau/claude-code/internal/discovery"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -145,11 +146,11 @@ func (o *catalogOpts) run(ids, args []string) int {
 	case o.verb == "check":
 		return o.check(p, dialects, ids)
 	case o.verb == "sync":
-		return o.done(o.sync(p, dialects))
+		return o.done(o.sync(p))
 	case o.name == "opencode":
 		return runOpencodeMenu(append([]string{"list"}, args...))
 	}
-	return o.done(listCatalog(p, dialects, o.format))
+	return o.done(listCatalog(o.name, p, o.format))
 }
 
 func (o *catalogOpts) done(err error) int {
@@ -159,19 +160,40 @@ func (o *catalogOpts) done(err error) int {
 	return 0
 }
 
-func listCatalog(p *providers.Provider, dialects []string, format string) error {
-	rows, err := catalog.List(p, dialects)
+// syncMode is the discovery mode for a sync: --refresh always lists live.
+func syncMode(refresh bool) discovery.Mode {
+	if refresh {
+		return discovery.Refresh
+	}
+	return discovery.Verified
+}
+
+// discover runs the unified model discovery for name on profile.
+func discover(name, profile string, mode discovery.Mode) (discovery.Result, error) {
+	return discovery.Models(context.Background(), discovery.Query{Agent: name, Profile: profile, Mode: mode})
+}
+
+func listCatalog(name string, p *providers.Provider, format string) error {
+	res, err := discover(name, p.Name, discovery.Recall)
 	if err != nil {
 		return err
 	}
-	return catalog.WriteList(os.Stdout, p.Name, rows, format)
+	var names []string
+	for _, m := range res.Models {
+		names = append(names, m.ID)
+	}
+	return catalog.WriteList(os.Stdout, p.Name, catalog.Rows(p.Name, names), format)
 }
 
 func (o *catalogOpts) check(p *providers.Provider, dialects, ids []string) int {
 	if o.all && len(ids) > 0 {
 		return helptext.FailUsage("%s catalog check: --all and explicit ids are exclusive", o.name)
 	}
-	results, cacheErr, err := catalog.CheckUsable(p, dialects, ids, o.all, o.timeout)
+	res, err := discover(o.name, p.Name, discovery.Recall)
+	if err != nil {
+		return o.done(err)
+	}
+	results, cacheErr, err := catalog.CheckUsable(p, res.Raw, dialects, ids, o.all, o.timeout)
 	if err != nil {
 		return o.done(err)
 	}
@@ -182,22 +204,22 @@ func (o *catalogOpts) check(p *providers.Provider, dialects, ids []string) int {
 }
 
 // sync discovers p's endpoints and, with --apply, seals the snapshot; no menu or other state is written.
-func (o *catalogOpts) sync(p *providers.Provider, dialects []string) error {
+func (o *catalogOpts) sync(p *providers.Provider) error {
 	if o.apply && o.dryRun {
 		return errors.New("--apply and --dry-run are mutually exclusive")
 	}
-	snapshot, err := serving.Discover(context.Background(), p, o.refresh)
+	res, err := discover(o.name, p.Name, syncMode(o.refresh))
 	if err != nil {
 		return err
 	}
+	snapshot := *res.Snapshot
 	if o.apply { // a dry run writes nothing
 		warmServed(os.Stderr, p, snapshot)
 	}
 	for _, line := range catalog.SyncSummaryLines(snapshot, false) {
 		fmt.Println(line)
 	}
-	usable := catalog.UsableIn(p, snapshot.Models, dialects)
-	fmt.Printf("%s catalog sync: %d listed, %d usable by %s\n", o.name, len(snapshot.Models), len(usable), o.name)
+	fmt.Printf("%s catalog sync: %d listed, %d usable by %s\n", o.name, len(snapshot.Models), len(res.Models), o.name)
 	if !o.apply {
 		fmt.Printf("%s catalog: dry run; no discovery writes; pass --apply to seal\n", o.name)
 		return nil
@@ -229,10 +251,14 @@ func writeOpencodeMenu(w io.Writer, next []providers.OpencodeModel, msg string) 
 }
 
 func listOpencodeMenu(w io.Writer, live bool, provider, format string) error {
-	rows, err := catalog.MenuRows(live, provider)
-	if err != nil {
-		return err
+	var res discovery.Result
+	if live {
+		var err error
+		if res, err = discover("opencode", provider, discovery.Recall); err != nil {
+			return err
+		}
 	}
+	rows := catalog.MenuRows(res.Provider, res.Raw)
 	if format == helptext.JSON {
 		return helptext.WriteJSON(w, rows)
 	}
@@ -254,7 +280,11 @@ func listOpencodeMenu(w io.Writer, live bool, provider, format string) error {
 }
 
 func addOpencodeMenu(w io.Writer, arg string, responses, responsesSet, force bool, provider string) error {
-	id, next, err := catalog.MenuAddServed(arg, responses, responsesSet, force, provider)
+	id, next, err := catalog.MenuAddServed(arg, responses, responsesSet, force,
+		func() (*providers.Provider, []providers.ModelInfo, error) {
+			res, err := discover("opencode", provider, discovery.Recall)
+			return res.Provider, res.Raw, err
+		})
 	if err != nil {
 		return err
 	}
@@ -285,7 +315,11 @@ func importOpencodeMenu(w io.Writer, file string, apply bool) error {
 }
 
 func checkOpencodeMenu(w, errw io.Writer, ids []string, all bool, provider string, timeout time.Duration, format string) error {
-	results, cacheErr, err := catalog.MenuCheck(ids, all, provider, timeout)
+	res, err := discover("opencode", provider, discovery.Recall)
+	if err != nil {
+		return err
+	}
+	results, cacheErr, err := catalog.MenuCheck(res.Provider, res.Raw, ids, all, timeout)
 	if err != nil {
 		return err
 	}
@@ -295,8 +329,12 @@ func checkOpencodeMenu(w, errw io.Writer, ids []string, all bool, provider strin
 	return catalog.WriteCheck(w, results, format)
 }
 
-func syncOpencodeMenu(w io.Writer, profile string, opts catalog.SyncOptions) error {
-	pl, err := catalog.MenuSync(profile, opts)
+func syncOpencodeMenu(w io.Writer, profile string, refresh bool, opts catalog.SyncOptions) error {
+	res, err := discover("opencode", profile, syncMode(refresh))
+	if err != nil {
+		return err
+	}
+	pl, err := catalog.MenuSync(res.Provider, *res.Snapshot, opts)
 	if err != nil {
 		return err
 	}
@@ -478,7 +516,7 @@ func (m *opencodeOpts) sync(pos []string) int {
 	if err := opencodeSyncArgs(pos, m.apply, m.dryRun, m.provider); err != nil {
 		return m.done(err)
 	}
-	return m.done(syncOpencodeMenu(os.Stdout, m.provider, catalog.SyncOptions{Apply: m.apply, Refresh: m.refresh, Verify: m.verify}))
+	return m.done(syncOpencodeMenu(os.Stdout, m.provider, m.refresh, catalog.SyncOptions{Apply: m.apply, Verify: m.verify}))
 }
 
 func (m *opencodeOpts) check(pos []string) int {

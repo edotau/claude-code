@@ -177,13 +177,10 @@ func sortCheckResults(rs []serving.CheckResult) {
 	})
 }
 
-// CheckUsable probes ids, else every chat endpoint (all), else those usable on dialects, each on its client route.
-func CheckUsable(p *providers.Provider, dialects, ids []string, all bool, timeout time.Duration,
+// CheckUsable probes ids, else every chat endpoint in infos (all), else those usable on dialects, on client routes.
+func CheckUsable(p *providers.Provider, infos []providers.ModelInfo, dialects, ids []string, all bool, timeout time.Duration,
 ) (results []serving.CheckResult, cacheErr, err error) {
-	served, err := Served(p)
-	if err != nil {
-		return nil, nil, err
-	}
+	served := byName(infos)
 	var usableIDs []string
 	for _, info := range usable(p, served, dialects) {
 		usableIDs = append(usableIDs, info.ID)

@@ -17,38 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// opencodeProvider resolves the workspace profile: --profile, else the opencode pin, else the session profile.
-func opencodeProvider(name string) (*providers.Provider, error) {
-	p, err := Profile("opencode", name)
-	if err == nil && p == nil {
-		err = errors.New("no profile pinned for opencode; pass --profile")
-	}
-	return p, err
-}
-
-// opencodeServed lists the workspace's endpoints by name.
-func opencodeServed(name string) (map[string]providers.ModelInfo, *providers.Provider, error) {
-	p, err := opencodeProvider(name)
-	if err != nil {
-		return nil, nil, err
-	}
-	served, err := Served(p)
-	return served, p, err
-}
-
-// opencodeSyncModels resolves the profile; discovery validates identity before reading the sealed cache.
-func opencodeSyncModels(profile string, refresh bool) (*providers.Provider, serving.Snapshot, error) {
-	p, err := opencodeProvider(profile)
-	if errors.Is(err, ErrGateway) {
-		return nil, serving.Snapshot{}, err
-	}
-	if err != nil {
-		return nil, serving.Snapshot{}, errors.New("cannot resolve profile; check the provider configuration")
-	}
-	snapshot, err := serving.Discover(context.Background(), p, refresh)
-	return p, snapshot, err
-}
-
 // opencodeSyncIDs selects unique, losslessly spellable READY chat endpoint ids in deterministic order.
 func opencodeSyncIDs(infos []providers.ModelInfo) []string {
 	var ids []string
@@ -327,20 +295,15 @@ type MenuRow struct {
 	Check     string `json:"check,omitempty"`
 }
 
-// MenuRows lists the shared menu; live marks each entry served or missing on provider's workspace.
-func MenuRows(live bool, provider string) ([]MenuRow, error) {
+// MenuRows lists the shared menu; a non-nil p marks each entry served or missing among infos, its workspace listing.
+func MenuRows(p *providers.Provider, infos []providers.ModelInfo) []MenuRow {
 	src := "default"
 	if providers.OpencodeMenuFromVault() {
 		src = "vault"
 	}
-	var served map[string]providers.ModelInfo
-	var p *providers.Provider
+	live, served := p != nil, byName(infos)
 	var cache map[string]serving.CheckResult
 	if live {
-		var err error
-		if served, p, err = opencodeServed(provider); err != nil {
-			return nil, err
-		}
 		cache, _ = LoadCheckCache(p.Name)
 	}
 	var rows []MenuRow
@@ -355,22 +318,23 @@ func MenuRows(live bool, provider string) ([]MenuRow, error) {
 		}
 		rows = append(rows, r)
 	}
-	return rows, nil
+	return rows
 }
 
-// MenuAddServed is the menu with arg (`id[=Label]`) added; unless force, the workspace must serve the id.
-func MenuAddServed(arg string, responses, responsesSet, force bool, provider string) (id string, next []providers.OpencodeModel, err error) {
+// MenuAddServed is the menu with arg (`id[=Label]`) added; unless force, lookup's workspace listing must serve the id.
+func MenuAddServed(arg string, responses, responsesSet, force bool,
+	lookup func() (*providers.Provider, []providers.ModelInfo, error)) (id string, next []providers.OpencodeModel, err error) {
 	id, label, _ := strings.Cut(arg, "=")
 	id = ID(id)
 	if id == "" {
 		return "", nil, errors.New("empty model id")
 	}
 	if !force {
-		served, p, err := opencodeServed(provider)
+		p, infos, err := lookup()
 		if err != nil {
 			return "", nil, fmt.Errorf("cannot check %s against the workspace (--force skips): %v", id, err)
 		}
-		if _, ok := ServedInfo(served, p, id); !ok {
+		if _, ok := ServedInfo(byName(infos), p, id); !ok {
 			return "", nil, fmt.Errorf("%s%s is not served by %s (--force skips the check)", p.ModelPrefix, id, p.Name)
 		}
 	}
@@ -394,12 +358,10 @@ func MenuImportDiff(file string) (next []providers.OpencodeModel, changes []Menu
 	return next, diffMenu(providers.OpencodeMenu(), next), nil
 }
 
-// MenuCheck probes the chosen endpoints and caches the results; cacheErr is a cache write failure, not a probe one.
-func MenuCheck(ids []string, all bool, provider string, timeout time.Duration) (results []serving.CheckResult, cacheErr, err error) {
-	served, p, err := opencodeServed(provider)
-	if err != nil {
-		return nil, nil, err
-	}
+// MenuCheck probes the chosen endpoints of infos and caches the results; cacheErr is a cache write failure only.
+func MenuCheck(p *providers.Provider, infos []providers.ModelInfo, ids []string, all bool, timeout time.Duration,
+) (results []serving.CheckResult, cacheErr, err error) {
+	served := byName(infos)
 	var menu []string
 	for _, m := range providers.OpencodeMenu() {
 		menu = append(menu, m.ID)
@@ -410,9 +372,8 @@ func MenuCheck(ids []string, all bool, provider string, timeout time.Duration) (
 
 // SyncOptions are `opencode catalog sync`'s switches.
 type SyncOptions struct {
-	Apply   bool
-	Refresh bool
-	Verify  bool
+	Apply  bool
+	Verify bool
 }
 
 // SyncPlan is a discovery run merged into the shared menu; nothing is written until Seal and the caller's menu write.
@@ -427,12 +388,8 @@ type SyncPlan struct {
 	Verified bool
 }
 
-// MenuSync discovers profile's serving models and merges absent ids in; existing order, labels and Responses stay.
-func MenuSync(profile string, opts SyncOptions) (SyncPlan, error) {
-	p, snapshot, err := opencodeSyncModels(profile, opts.Refresh)
-	if err != nil {
-		return SyncPlan{}, err
-	}
+// MenuSync merges snapshot's serving models absent from the shared menu; existing order, labels and Responses stay.
+func MenuSync(p *providers.Provider, snapshot serving.Snapshot, opts SyncOptions) (SyncPlan, error) {
 	ids := opencodeSyncIDs(snapshot.Models)
 	menu := providers.OpencodeMenu()
 	if opts.Verify {
