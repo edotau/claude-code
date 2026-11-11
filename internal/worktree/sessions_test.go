@@ -29,7 +29,7 @@ func TestScanClaimsReportsLiveLedgerErrors(t *testing.T) {
 	var got []string
 	alive := func(int) bool { return true }
 	err := ScanClaims(alive, func(pid int, slug string, c Claim) {
-		got = append(got, Label(pid, slug, c.Agent)+":"+c.Path)
+		got = append(got, label(pid, slug, c.Agent)+":"+c.Path)
 	})
 	for _, want := range []error{syscall.ELOOP, syscall.EISDIR} {
 		if !errors.Is(err, want) {

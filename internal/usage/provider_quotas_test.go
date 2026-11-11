@@ -179,7 +179,7 @@ func TestSetStatesBoundaries(t *testing.T) {
 // TestSetStatesSkipsNoteRows: a row with a Note (lookup failed, unlimited, …) carries no numeric meaning —
 // setStates must leave its State empty rather than misreading a zero-value UsedPct as "ok".
 func TestSetStatesSkipsNoteRows(t *testing.T) {
-	qs := []quota{{Provider: "google", Note: googleNote}}
+	qs := []quota{{Provider: "google", Note: "quota not exposed"}}
 	setStates(qs, 80)
 	if qs[0].State != "" {
 		t.Errorf("Note row State = %q, want empty", qs[0].State)
@@ -253,7 +253,7 @@ func TestPrintQuotaWarnings(t *testing.T) {
 func TestPrintQuotasStateColumn(t *testing.T) {
 	qs := []quota{
 		{Provider: "github", Account: "me", UsedPct: 85, State: "warn"},
-		{Provider: "google", Note: googleNote},
+		{Provider: "google", Note: "quota not exposed"},
 	}
 	var out bytes.Buffer
 	printSubscriptionQuotas(&out, qs, "used")

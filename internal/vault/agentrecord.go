@@ -408,8 +408,7 @@ func UpdateAgentRecords(fn func(map[string]AgentRecord)) error {
 		if err != nil {
 			return err
 		}
-		next := maps.Clone(recs)
-		fn(next)
-		return tx.PutAgentRecords(next)
+		fn(recs)
+		return tx.PutAgentRecords(recs)
 	})
 }

@@ -106,7 +106,7 @@ func holders(alive func(int) bool, want []string) (map[string][]string, error) {
 	}
 	err := ScanClaims(alive, func(pid int, slug string, c Claim) {
 		if who, ok := set[c.Path]; ok {
-			who[Label(pid, slug, c.Agent)] = true
+			who[label(pid, slug, c.Agent)] = true
 		}
 	})
 	out := map[string][]string{}
@@ -118,8 +118,8 @@ func holders(alive func(int) bool, want []string) (map[string][]string, error) {
 	return out, err
 }
 
-// Label names a claimant from its claims file name and the line's agent id.
-func Label(pid int, slug, agent string) string {
+// label names a claimant from its claims file name and the line's agent id.
+func label(pid int, slug, agent string) string {
 	s := "session " + slug[:min(8, len(slug))] + " (pid " + strconv.Itoa(pid) + ")"
 	if agent != "" {
 		return "leaf " + agent[:min(8, len(agent))] + " of " + s
@@ -144,17 +144,17 @@ const drainMax = 5
 
 var _ = schemas.Register(schemas.Format{
 	Name: "notices", Owner: "internal/worktree", Kind: schemas.Log,
-	Glob:    func() string { return filepath.Join(Dir(), "*.jsonl") },
+	Glob:    func() string { return filepath.Join(noticesDir(), "*.jsonl") },
 	New:     func() any { return &Notice{} },
 	Version: noticeSchema, Keep: "per-session notice inboxes; Drain removes what it delivers",
 })
 
-// Dir holds one inbox per session.
-func Dir() string { return filepath.Join(paths.StateDir(), "notices") }
+// noticesDir holds one inbox per session.
+func noticesDir() string { return filepath.Join(paths.StateDir(), "notices") }
 
 // inbox is session's inbox file.
 func inbox(session string) string {
-	return filepath.Join(Dir(), paths.Slug(session, "", 80, "session")+".jsonl")
+	return filepath.Join(noticesDir(), paths.Slug(session, "", 80, "session")+".jsonl")
 }
 
 // Append adds n to session's inbox under its file lock.
