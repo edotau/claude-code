@@ -163,11 +163,16 @@ func hostArgv(host string, args []string, tty bool) ([]string, error) {
 		quoted[i] = textutil.ShellQuote(a)
 	}
 	env := ""
-	if len(args) > 1 && args[0] == "databricks" && args[1] == "login" {
+	if isLogin(args) {
 		env = oauth.ViaHostEnv + "=" + textutil.ShellQuote(host) + " "
 	}
 	script := PathPrefix + " " + env + "exec " + textutil.QuotePath(HomePath(Bin(""))) + " " + strings.Join(quoted, " ")
 	return sshArgv(host, tty, false, script)
+}
+
+// isLogin reports a remote `databricks login`, the one verb --host forwards a port or opens a browser for.
+func isLogin(args []string) bool {
+	return len(args) > 1 && args[0] == "databricks" && args[1] == "login"
 }
 
 // flagValues maps each flag in args to its =value or the next argument; presence is all a bool flag needs.
@@ -203,19 +208,15 @@ const hostBrowser = "--host-browser"
 
 // loginForward pins a remote `databricks login` to an exact --port with --no-browser; port 0 means no forward.
 func loginForward(args []string) ([]string, int) {
-	if len(args) < 2 || args[0] != "databricks" || args[1] != "login" {
+	if !isLogin(args) {
 		return args, 0
 	}
 	if i := slices.Index(args, hostBrowser); i >= 0 {
 		return slices.Delete(slices.Clone(args), i, i+1), 0
 	}
 	flags := flagValues(args[2:])
-	for _, k := range []string{"dry-run", "h", "help"} {
-		if _, ok := flags[k]; ok {
-			return args, 0
-		}
-	}
-	if flags["as"] == "sp" {
+	noBrowserRun := func(k string) bool { _, ok := flags[k]; return ok }
+	if flags["as"] == "sp" || slices.ContainsFunc([]string{"dry-run", "h", "help"}, noBrowserRun) {
 		return args, 0
 	}
 	port, out := oauth.DefaultPort, slices.Clone(args)

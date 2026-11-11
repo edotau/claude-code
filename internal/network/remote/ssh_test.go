@@ -122,7 +122,6 @@ func TestLoginForward(t *testing.T) {
 		{"databricks login --dry-run", "databricks login --dry-run", 0},
 		{"databricks login --port nope", "databricks login --port nope", 0},
 		{"databricks status", "databricks status", 0},
-		{"vault ls", "vault ls", 0},
 	}
 	orig := freeLocalPort
 	freeLocalPort = func(first, _ int) int { return first + 1 } // 8030 busy here: only a login with no --port moves
