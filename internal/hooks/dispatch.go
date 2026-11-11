@@ -87,6 +87,9 @@ func runBudgeted(b Bound, in *core.Input, wg *sync.WaitGroup) (core.Result, erro
 	if budget <= 0 {
 		budget = 5 * time.Second
 	}
+	if b.Spec.Blocks {
+		budget -= min(core.HookMargin/2, budget/2)
+	}
 	select {
 	case o := <-done:
 		return o.r, o.err
@@ -160,6 +163,7 @@ func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 	m := &dispatchMerge{log: log}
 	var wg sync.WaitGroup
 	var longest time.Duration
+	var gateFailed bool
 	match := matchers{}
 	for _, b := range bound {
 		if b.Spec.Event != event {
@@ -178,6 +182,7 @@ func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 			fmt.Fprintf(log, "hook dispatch: %s/%s %v (%s)\n", b.Group, b.Spec.Name, err, skipOrBlock[b.Spec.Blocks])
 			if b.Spec.Blocks { // a gate that could not run fails closed
 				m.merged.Decision, m.merged.Reason = core.Block, fmt.Sprintf("%s did not complete (%v); blocked", b.Spec.Name, err)
+				gateFailed = true
 			}
 			if failClosedModules[b.Spec.Name] { // exit 1, not 2: a worktree not made or not removed reports failure
 				m.merged.ExitCode = 1
@@ -186,7 +191,9 @@ func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 		}
 		m.add(b, event, r)
 	}
-	drain(&wg, longest, log)
+	if !gateFailed {
+		drain(&wg, longest, log)
+	}
 	m.merged.Context = core.CapContext(core.JoinContext(m.ctx...))
 	m.merged.SystemMessage = core.JoinNonEmpty("; ", m.sys...)
 	m.merged.Stderr = core.JoinNonEmpty("\n", m.errs...)
@@ -204,8 +211,7 @@ func runEvent(event string, all bool, stdin io.Reader, stdout, stderr io.Writer)
 	applies := settings.SpecsFor(in.Agent(), "native")
 	var bound []Bound
 	for _, b := range Bind() {
-		own := b.Gate || b.Spec.Async
-		if (all || !own) && slices.ContainsFunc(applies, func(s settings.EventSpec) bool { return s.Name == b.Spec.Name }) {
+		if (all || !b.Gate) && slices.ContainsFunc(applies, func(s settings.EventSpec) bool { return s.Name == b.Spec.Name }) {
 			bound = append(bound, b)
 		}
 	}

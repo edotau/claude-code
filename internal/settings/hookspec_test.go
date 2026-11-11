@@ -148,7 +148,7 @@ func TestEventsDispatcherStatusMessage(t *testing.T) {
 	}
 }
 
-// One dispatcher entry per event, plus own entries only for Gate or Async handlers.
+// One dispatcher entry per event, plus own entries only for Gate handlers.
 func TestGroupRenderOneEntryPerEvent(t *testing.T) {
 	b, err := settingsJSON()
 	if err != nil {
@@ -174,7 +174,7 @@ func ownEntriesPerEvent() map[string]int {
 	own := map[string]int{}
 	for _, g := range Registry {
 		for _, s := range g.Events {
-			if !g.AgentOnly && (g.Gate || s.Async) {
+			if !g.AgentOnly && g.Gate {
 				own[s.Event]++
 			}
 		}
@@ -211,7 +211,7 @@ func TestEventsRenderEverySpec(t *testing.T) {
 			continue
 		}
 		for _, s := range g.Events {
-			if g.own(s) {
+			if g.Gate {
 				if !hasOwnEntry(block[s.Event], s) {
 					t.Errorf("%s/%s: no own entry %q with matcher %q on %s", g.Name, s.Name, s.Command(), s.Matcher, s.Event)
 				}

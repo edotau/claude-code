@@ -32,7 +32,7 @@ func CodexJSON() ([]byte, error) {
 		if s.Event == settings.EventSessionEnd {
 			timeout = min(timeout, codexSessionEndMax)
 		}
-		h := settings.Hook{Type: "command", Command: settings.AgentCommand("codex", s), Timeout: timeout, Async: s.Async, StatusMessage: s.StatusMessage}
+		h := settings.Hook{Type: "command", Command: settings.AgentCommand("codex", s), Timeout: timeout, StatusMessage: s.StatusMessage}
 		groups, matcher := events[s.Event], codexMatcher(s.Matcher)
 		if n := len(groups); n > 0 && groups[n-1].Matcher == matcher {
 			groups[n-1].Hooks = append(groups[n-1].Hooks, h)

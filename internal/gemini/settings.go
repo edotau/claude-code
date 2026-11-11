@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -263,27 +262,12 @@ func agyFileRunsGate(path, command, tool string) bool {
 	}
 	for _, set := range sets {
 		for _, group := range set.PreToolUse {
-			if agyMatchesTool(group.Matcher, tool) && slices.ContainsFunc(group.Hooks, func(h settings.Hook) bool { return isAgyGateHook(h, command) }) {
+			if group.RunsGate("gemini", command, tool) {
 				return true
 			}
 		}
 	}
 	return false
-}
-
-// agyMatchesTool reports whether a hook group's matcher selects tool (empty selects all).
-func agyMatchesTool(matcher, tool string) bool {
-	if matcher == "" {
-		return true
-	}
-	re, err := regexp.Compile("^(?:" + matcher + ")$")
-	return err == nil && re.MatchString(tool)
-}
-
-// isAgyGateHook reports whether hook is the synchronous permission-gate command agy runs.
-func isAgyGateHook(hook settings.Hook, command string) bool {
-	cmd := strings.TrimSpace(hook.Command)
-	return hook.Type == "command" && !hook.Async && (cmd == command || cmd == settings.AgentEnv+"=gemini "+command)
 }
 
 // agyHookName is the one named hook in agy's hooks.json the harness owns; every render replaces it.

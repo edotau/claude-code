@@ -49,7 +49,6 @@ type EventSpec struct {
 	Agents        []string      // explicit allowlist for non-Claude sessions
 	Hosted        []string      // agents whose headless host runs the module around a run
 	Plugin        []string      // agents whose in-process plugin runs the module
-	Async         bool          // runs in the background, so it renders as its own entry, never in the dispatcher
 	StatusMessage string        // spinner text Claude Code shows while the hook runs
 }
 
@@ -71,9 +70,6 @@ type Group struct {
 	Gate      bool
 	AgentOnly bool // omitted from Claude's hook chain
 }
-
-// own reports whether a handler renders as its own settings entry instead of joining the event dispatcher.
-func (g Group) own(s EventSpec) bool { return g.Gate || s.Async }
 
 // DispatcherCommand is the one-per-event entry; it skips modules that render as their own entries.
 func DispatcherCommand(event string) string { return hookBin + " hook " + event }
@@ -197,6 +193,20 @@ type MatcherGroup struct {
 	Hooks   []Hook `json:"hooks"`
 }
 
+// RunsGate reports whether this group synchronously runs command for agent on tool.
+func (g MatcherGroup) RunsGate(agent, command, tool string) bool {
+	if g.Matcher != "" {
+		re, err := regexp.Compile("^(?:" + g.Matcher + ")$")
+		if err != nil || !re.MatchString(tool) {
+			return false
+		}
+	}
+	return slices.ContainsFunc(g.Hooks, func(h Hook) bool {
+		cmd := strings.TrimSpace(h.Command)
+		return h.Type == "command" && !h.Async && (cmd == command || cmd == AgentEnv+"="+agent+" "+command)
+	})
+}
+
 type dispatcherSlot struct {
 	matchers []string
 	any      bool // some handler has no matcher, so the entry carries none
@@ -235,8 +245,7 @@ func (d *dispatcherSlot) group(event string) MatcherGroup {
 	return mg
 }
 
-// Events renders the registry as event → entries: one dispatcher entry per event carrying the union of its groups'
-// matchers, plus one entry each for a gate group's handlers and async handlers.
+// Events renders one dispatcher per event plus separate gate entries.
 func Events() map[string][]MatcherGroup {
 	block := map[string][]MatcherGroup{}
 	disp := map[string]*dispatcherSlot{}
@@ -245,8 +254,8 @@ func Events() map[string][]MatcherGroup {
 			continue
 		}
 		for _, s := range g.Events {
-			if g.own(s) {
-				h := Hook{Type: "command", Command: s.Command(), Timeout: s.Seconds(), Async: s.Async, StatusMessage: s.StatusMessage}
+			if g.Gate {
+				h := Hook{Type: "command", Command: s.Command(), Timeout: s.Seconds(), StatusMessage: s.StatusMessage}
 				block[s.Event] = append(block[s.Event], MatcherGroup{Matcher: s.Matcher, Hooks: []Hook{h}})
 				continue
 			}
@@ -281,14 +290,23 @@ func HookEvents() []string {
 
 // HookModules wraps the module names from Specs into help lines under 80 columns.
 func HookModules() string {
-	var lines []string
-	line := "modules: "
+	var names []string
 	for _, sp := range Specs() {
-		if len(line)+len(sp.Name)+1 > 79 {
+		names = append(names, sp.Name)
+	}
+	return HookHelp("modules: ", names)
+}
+
+// HookHelp wraps hook names into help lines under 80 columns.
+func HookHelp(prefix string, names []string) string {
+	var lines []string
+	line := prefix
+	for _, name := range names {
+		if len(line)+len(name)+1 > 79 {
 			lines = append(lines, line)
 			line = "         "
 		}
-		line += sp.Name + "|"
+		line += name + "|"
 	}
 	return strings.Join(append(lines, strings.TrimSuffix(line, "|")), "\n")
 }

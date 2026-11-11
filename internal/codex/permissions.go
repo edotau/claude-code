@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -46,26 +45,11 @@ func codexGateInstalled() bool {
 	}
 	command := (settings.EventSpec{Event: settings.EventPreToolUse, Name: "permission-gate"}).Command()
 	for _, group := range config.Hooks[settings.EventPreToolUse] {
-		if matchesBash(group.Matcher) && slices.ContainsFunc(group.Hooks, func(h settings.Hook) bool { return isGateHook(h, command) }) {
+		if group.RunsGate("codex", command, "Bash") {
 			return true
 		}
 	}
 	return false
-}
-
-// matchesBash reports whether a hook group's matcher selects the Bash tool (empty selects all).
-func matchesBash(matcher string) bool {
-	if matcher == "" {
-		return true
-	}
-	re, err := regexp.Compile("^(?:" + matcher + ")$")
-	return err == nil && re.MatchString("Bash")
-}
-
-// isGateHook reports whether hook is the synchronous permission-gate command.
-func isGateHook(hook settings.Hook, command string) bool {
-	cmd := strings.TrimSpace(hook.Command)
-	return hook.Type == "command" && !hook.Async && (cmd == command || cmd == settings.AgentEnv+"=codex "+command)
 }
 
 // codexRender maps p onto codex; a Deny it cannot enforce is an error naming the rule, so nothing runs unguarded.
