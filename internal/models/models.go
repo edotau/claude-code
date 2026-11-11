@@ -96,13 +96,15 @@ func Canonical(id string) (base string, oneM bool) {
 	return id, oneM
 }
 
-// ContextWindow is 1M for a catalog Claude model or a [1m]-marked id, else 200K.
+// ContextWindow is 1M for a catalog Claude model, a Claude 5+ id the catalog does not list yet, or a [1m]-marked id.
 func ContextWindow(id string) int {
 	if Has1M(id) {
 		return ContextWindow1M
 	}
-	if canonical, _, ok := Resolve(id); ok && FamilyOf(canonical) != "" && inCatalog(canonical) {
-		return ContextWindow1M
+	if canonical, _, ok := Resolve(id); ok && FamilyOf(canonical) != "" {
+		if _, major, _, _ := ParseClaudeID(canonical); inCatalog(canonical) || major >= 5 {
+			return ContextWindow1M
+		}
 	}
 	return ContextWindowStd
 }

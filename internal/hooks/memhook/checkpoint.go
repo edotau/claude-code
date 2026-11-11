@@ -43,13 +43,17 @@ func stewardPct() (pct int, prompt bool) {
 	return n, true
 }
 
-// contextPct is the share of the model window the transcript's last turn fills.
-func contextPct(transcriptPath string) (int, bool) {
+// contextPct is the share of the window the transcript's last turn fills: Claude Code's reported size, else the model's.
+func contextPct(session, transcriptPath string) (int, bool) {
 	u, ok := transcript.LastUsage(transcriptPath)
 	if !ok {
 		return 0, false
 	}
-	return u.Tokens * 100 / transcript.Window(u.Model, u.Tokens), true
+	window := transcript.RecordedWindow(session)
+	if window < u.Tokens {
+		window = transcript.Window(u.Model, u.Tokens)
+	}
+	return u.Tokens * 100 / window, true
 }
 
 // inFlight reports background tasks, subagent markers or dispatches that a compaction would orphan.
@@ -78,7 +82,7 @@ func contextCheckpoint(in *core.Input) core.Result {
 	if in.StopHookActive || !memory.Updatable(in.SessionID, in.TranscriptPath) {
 		return core.Result{}
 	}
-	pct, ok := contextPct(in.TranscriptPath)
+	pct, ok := contextPct(in.SessionID, in.TranscriptPath)
 	if !ok {
 		return core.Result{}
 	}

@@ -301,6 +301,7 @@ var writers = map[string]string{
 	"internal/agent/tools/tools.go:installBinary":            unversioned("foreign: installed binary"),
 	"internal/agent/tools/science.go:installScienceApp":      unversioned("foreign: downloaded DMG temp file"),
 	"internal/transcript/summary_cache.go:Save":              "transcript-summary",
+	"internal/transcript/usage.go:RecordWindow":              unversioned("text: one integer, the session's context window"),
 	"internal/usage/claude.go:writeClaudeUsageCache":         "oauth-usage-cache",
 	"internal/usage/budget.go:writeBudgetCache":              "gateway-budget-cache",
 	"internal/vault/vault.go:create":                         "vault",
