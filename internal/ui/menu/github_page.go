@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -187,15 +188,16 @@ func runGithub(d *dialog) bool {
 // githubMenu loops a status report + action picker until Back/Esc; each action re-checks live state
 // before the next render, so a login that just succeeded shows "present" immediately.
 func githubMenu(d *dialog) bool {
-	login := func(name, detail, label string, argv ...string) shellRow {
-		return shellRow{Name: name, Detail: detail, Run: func() bool { runGithubLogin(d, argv, label); return false }}
+	login := func(name, detail, label string, check func() (bool, string), argv ...string) shellRow {
+		return shellRow{Name: name, Detail: detail, Run: func() bool { runGithubLogin(d, argv, label, check); return false }}
 	}
 	d.shell().Run("GitHub (opencode fallback) — pick an action", func() []shellRow {
 		githubStatusRows(d)
 		return []shellRow{
-			login("Log in to GitHub CLI", "gh auth login", "gh CLI", "gh", "auth", "login"),
-			login("Log in to Copilot", "copilot login", "copilot", "copilot", "login"),
-			login("Log in to OpenCode", "opencode auth login (choose GitHub Copilot)", "opencode", "opencode", "auth", "login"),
+			login("Log in to GitHub CLI", "gh auth login", "gh CLI", ghSignedIn, "gh", "auth", "login"),
+			login("Log in to Copilot", "copilot login", "copilot", copilotSignedIn, "copilot", "login"),
+			login("Log in to OpenCode", "opencode auth login (choose GitHub Copilot)", "opencode", opencodeSignedIn,
+				"opencode", "auth", "login"),
 			{Name: "GitHub auth", Detail: "gh's active account: pick a profile or follow gh",
 				Run: func() bool { pickGitHubAuth(d); return false }},
 			{Name: "Pick fallback models", Detail: "set github-copilot opus/sonnet/haiku for opencode",
@@ -205,13 +207,32 @@ func githubMenu(d *dialog) bool {
 	return true
 }
 
-// runGithubLogin execs argv attached to the real terminal, same contract as runLogin elsewhere in configure.
-func runGithubLogin(d *dialog, argv []string, label string) {
+// Sign-in checks, read fresh after the vendor tool exits: its exit code alone does not prove a stored login.
+func ghSignedIn() (bool, string) {
+	st := configure.GHAuthCheck()
+	return st.LoggedIn, "account " + st.Account
+}
+
+func copilotSignedIn() (bool, string) {
+	st := agent.AuthStatus("copilot")
+	return st.Present, st.Label()
+}
+
+func opencodeSignedIn() (bool, string) {
+	return opencode.OpencodeCopilotLoginPresent(), "GitHub Copilot login stored"
+}
+
+// runGithubLogin execs argv attached to the real terminal, then reports what check finds, not the exit code.
+func runGithubLogin(d *dialog, argv []string, label string, check func() (bool, string)) {
 	if err := configure.RunLogin(argv); err != nil {
 		d.printf("%s: %v\n", label, err)
 		return
 	}
-	d.printf("%s: login flow finished\n", label)
+	if ok, detail := check(); ok {
+		d.printf("%s: signed in (%s)\n", label, detail)
+		return
+	}
+	d.printf("%s: %s exited without a usable login; run it again\n", label, strings.Join(argv, " "))
 }
 
 // pickCopilotModels lists the live copilot catalog (plus the synthetic "auto" router alias), asks for an
