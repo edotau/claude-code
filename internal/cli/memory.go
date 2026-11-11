@@ -452,7 +452,7 @@ func cmdMemoryFmt(args []string) int {
 	return 0
 }
 
-// cmdMemoryReview folds the old `doctor` + `stats` verbs: same engine calls, same output blocks.
+// cmdMemoryReview runs the doctor and stats engine calls and prints both output blocks.
 func cmdMemoryReview(args []string) int {
 	fs, repo := memoryRepoFlagSet("review")
 	staleDays := fs.Int("stale-days", memory.DefaultStaleDays, "flag a bank untouched for this many days")

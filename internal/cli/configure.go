@@ -123,7 +123,7 @@ func configureAllProfile(o *configureOpts, section string, pos []string) (string
 	return pos[0], reg.Known(pos[0])
 }
 
-func configureList(o *configureOpts, section string, pos []string, format string) int {
+func configureList(section string, pos []string, format string) int {
 	if section != "provider" {
 		return helptext.Fail("configure: --list needs the provider page")
 	}
@@ -145,7 +145,7 @@ func configureRun(o *configureOpts, section string, pos []string) int {
 		return helptext.Fail("configure: %v", err)
 	}
 	if o.wantsList() {
-		return configureList(o, section, pos, *o.format)
+		return configureList(section, pos, *o.format)
 	}
 	if o.restore || o.revert {
 		return configureRender(o.restore, o.revert, section, o.agent, o.out, o.check, o.dryRun, o.agents, o.noAgents)

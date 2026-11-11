@@ -34,20 +34,25 @@ type serverDef struct {
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
+
+	hadSecrets bool // set by redacted(): a scrubbed copy no longer looks like it held a secret
 }
 
 // MarshalJSON redacts at the type: a serverDef can reach any JSON dump (report, describe, a future debug
 // verb) only with credential-shaped env/header values scrubbed and a has_secrets flag in their place.
 func (d serverDef) MarshalJSON() ([]byte, error) {
 	type plain serverDef // no MarshalJSON, so the alias cannot recurse
+	r := d.redacted()
 	return json.Marshal(struct {
 		plain
 		HasSecrets bool `json:"has_secrets,omitempty"`
-	}{plain(d.redacted()), textutil.AnySecret(d.Env) || textutil.AnySecret(d.Headers) || (d.URL != "" && queryParamSecret.MatchString(d.URL))})
+	}{plain(r), r.hadSecrets})
 }
 
 // redacted returns a copy of d with every secret-shaped env, header, arg and URL query value replaced.
 func (d serverDef) redacted() serverDef {
+	d.hadSecrets = d.hadSecrets || textutil.AnySecret(d.Env) || textutil.AnySecret(d.Headers) ||
+		(d.URL != "" && queryParamSecret.MatchString(d.URL))
 	d.Env, d.Headers, d.Args = textutil.RedactSecretMap(d.Env), textutil.RedactSecretMap(d.Headers), redactArgs(d.Args)
 	if d.URL != "" {
 		d.URL = queryParamSecret.ReplaceAllString(d.URL, "${1}REDACTED")

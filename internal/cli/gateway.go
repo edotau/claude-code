@@ -27,6 +27,10 @@ import (
 // cmdGateway dispatches the gateway verb tree.
 func cmdGateway(args []string) int {
 	if len(args) > 0 {
+		if args[0] == "help" {
+			gatewayPage.Fprint(os.Stdout)
+			return 0
+		}
 		switch args[0] {
 		case "proxy":
 			return cmdGatewayProxy(args[1:])
@@ -34,7 +38,7 @@ func cmdGateway(args []string) int {
 			return cmdGatewayToken(args[1:])
 		}
 		if !strings.HasPrefix(args[0], "-") {
-			return helptext.Fail("gateway: unknown command %q (proxy)", args[0])
+			return helptext.Fail("gateway: unknown command %q (proxy, token)", args[0])
 		}
 	}
 	return gatewayRoute(args)

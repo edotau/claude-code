@@ -72,7 +72,7 @@ func agentsSpec() *helptext.Node {
 		"send":   {Flags: []helptext.Flag{flag("format")}},
 		"status": {Flags: []helptext.Flag{formatFlag()}},
 		"result": {Flags: []helptext.Flag{formatFlag()}},
-		"tail":   {Flags: []helptext.Flag{formatFlag()}},
+		"tail":   {Flags: []helptext.Flag{boolFlag("f"), formatFlag()}},
 		"cancel": {Flags: []helptext.Flag{formatFlag()}},
 	}}
 }
@@ -162,7 +162,7 @@ func cmdAgents(args []string) int {
 	}
 	helptext.Fail("agents: unknown subcommand %q", args[0])
 	agentsPage.Fprint(os.Stderr)
-	return 1
+	return 2
 }
 
 // cmdAgentsAsk runs ask after starting a silent, unwaited reap, so orphaned dispatch children never pile up unseen.
@@ -720,7 +720,10 @@ func agentProfile(name string, args []string) int {
 
 // agentOnOff is `<v> on|off`.
 func agentOnOff(name string, on bool, args []string) int {
-	verb := map[bool]string{true: "on", false: "off"}[on]
+	verb := "off"
+	if on {
+		verb = "on"
+	}
 	fs := newAgentFlags(name, verb)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
