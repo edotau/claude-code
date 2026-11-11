@@ -83,7 +83,7 @@ func cmdVault(args []string) int {
 
 // vaultUsageErr reports a stray argument to a vault subcommand; a -h there prints the page and exits 0.
 func vaultUsageErr(sub string, args []string) int {
-	if args[0] == "-h" || args[0] == "--help" {
+	if helptext.WantsHelp(args[:1]) {
 		vaultPage.Fprint(os.Stdout)
 		return 0
 	}

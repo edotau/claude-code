@@ -12,8 +12,6 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-const menuWidth = 80
-
 var planPage = helptext.Page{
 	Usage: "claude-code plan <command> [flags]",
 	About: "Plan checklists: ticked/total per plan and live task claims.",
@@ -82,7 +80,7 @@ func printPlanSummaries(summaries []plans.Summary) {
 			rel = s.Path
 		}
 		row := fmt.Sprintf("%d/%d  %s", s.Ticked, s.Total, filepath.ToSlash(rel))
-		fmt.Println(textutil.Truncate(row, menuWidth))
+		fmt.Println(textutil.Truncate(row, 80)) // one 80-column terminal line
 		for _, c := range s.Claims {
 			fmt.Printf("  %s\n", c)
 		}

@@ -490,7 +490,7 @@ func TestProviderListTextWriteError(t *testing.T) {
 			if code != 0 || !strings.Contains(stdout, "write-error") || stderr != "" {
 				t.Fatalf("successful write: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 			}
-			code, stderr = captureClosedStdout(t, run)
+			code, stderr = hosttest.CaptureClosedStdout(t, run)
 			if code != 1 || !strings.Contains(stderr, "configure provider:") || !strings.Contains(stderr, "file already closed") {
 				t.Fatalf("failed text write: code=%d stderr=%q, want exit 1 and write diagnostic", code, stderr)
 			}
@@ -675,22 +675,12 @@ func TestPrintDiscoverResultsTextWriteError(t *testing.T) {
 			t.Fatalf("successful write: code=%d, want %d; stdout=%q stderr=%q", code, status, stdout, stderr)
 		}
 	}
-	code, stderr := captureClosedStdout(t, func() int {
+	code, stderr := hosttest.CaptureClosedStdout(t, func() int {
 		return printDiscoverResults(results, false, helptext.Text, 0)
 	})
 	if code != 1 || !strings.Contains(stderr, "models discover: cannot write text output") {
 		t.Fatalf("failed text write: code=%d stderr=%q, want exit 1 and write diagnostic", code, stderr)
 	}
-}
-
-// captureClosedStdout runs fn with a stdout that fails every write and returns its exit code and stderr.
-func captureClosedStdout(t *testing.T, run func() int) (int, string) {
-	t.Helper()
-	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		os.Stdout = closedFile(t) // CaptureOutput puts the stream back
-		return run()
-	})
-	return code, stderr
 }
 
 // useTLSTransport routes http.DefaultClient through srv's TLS client and closes srv at cleanup.

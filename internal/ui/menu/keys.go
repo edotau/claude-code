@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -362,7 +363,7 @@ func deleteSecret(d *dialog, name string) bool {
 		d.printf("staged delete of %s · Submit removes it from the vault\n", name)
 		return true
 	}
-	if err := configure.DeleteSecret(name); err != nil {
+	if err := vault.Delete(name); err != nil {
 		d.printf("%s: %v\n", name, err)
 		return false
 	}
@@ -395,7 +396,7 @@ func addCustom(d *dialog) {
 
 // storeValue writes one secret to the vault and reports it redacted; inside the menu it stages.
 func storeValue(d *dialog, name, val string) bool {
-	if err := configure.ValidateSecret(name, val); err != nil {
+	if err := agent.ValidateVaultSecret(name, val); err != nil {
 		d.printf("%v\n", err)
 		return false
 	}
@@ -457,7 +458,7 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 	}
 	d.pendingDeletes = nil
 	for _, name := range deletes {
-		if err := configure.DeleteSecret(name); err != nil {
+		if err := vault.Delete(name); err != nil {
 			d.printf("%s: not deleted: %v\n", name, err)
 			d.stageDelete(name) // stays pending: a failed delete is retried, and fails the menu, not dropped
 			continue
