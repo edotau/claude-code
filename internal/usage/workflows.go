@@ -96,7 +96,7 @@ func workflowCutoff(session string, days int) time.Time {
 	if session != "" {
 		return time.Time{}
 	}
-	return windowCutoff(max(days, 1))
+	return windowCutoff(days)
 }
 
 // recency is the run's sort key for newest-first ordering.
@@ -112,9 +112,6 @@ func (r *workflowRun) recency() time.Time {
 func workflowRunDirsForScope(claudeDir, session string, days int) ([]string, error) {
 	if session != "" {
 		return transcript.WorkflowRunDirs(filepath.Join(claudeDir, "projects", "*", session)), nil
-	}
-	if days <= 0 {
-		days = 1
 	}
 	sessionDirs, err := usageSessionDirsWithinDays(claudeDir, days)
 	if err != nil {

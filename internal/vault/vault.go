@@ -44,15 +44,6 @@ const (
 	hkdfSchema    = 2
 )
 
-// View and Update are transaction BOUNDARIES: never call View, Update, UpdateSealed, or MasterKey
-// (it opens its own View) from inside another's callback. bbolt is not reentrant across process
-// file locks, so a same-goroutine nested open blocks on the outer transaction's own flock until
-// ITS Timeout elapses and then fails with bbolt.ErrTimeout — it does not hang forever, but it is
-// never correct. Package helpers that must run inside an already-open transaction (e.g. a future
-// tx-scoped key/record read reused by UpdateSealed's callback) take the open *Tx as a parameter
-// instead of reopening the database; this is an architectural contract Go cannot enforce at
-// compile time, not a runtime-detected guarantee (no process-wide or goroutine-keyed guard is
-// maintained here — see the retired runtime.Stack-based one in git history).
 // Lock-wait bounds for bbolt opens; vars so tests can shorten them.
 var (
 	readLockTimeout  = 2 * time.Second
@@ -66,7 +57,17 @@ func SetReadLockTimeoutForTest(d time.Duration) (restore func()) {
 	return func() { readLockTimeout = saved }
 }
 
-func Path() string                  { return filepath.Join(paths.ConfigDir(), "state", "vault.db") }
+func Path() string { return filepath.Join(paths.ConfigDir(), "state", "vault.db") }
+
+// View and Update are transaction BOUNDARIES: never call View, Update, UpdateSealed, or MasterKey
+// (it opens its own View) from inside another's callback. bbolt is not reentrant across process
+// file locks, so a same-goroutine nested open blocks on the outer transaction's own flock until
+// ITS Timeout elapses and then fails with bbolt.ErrTimeout — it does not hang forever, but it is
+// never correct. Package helpers that must run inside an already-open transaction (e.g. a future
+// tx-scoped key/record read reused by UpdateSealed's callback) take the open *Tx as a parameter
+// instead of reopening the database; this is an architectural contract Go cannot enforce at
+// compile time, not a runtime-detected guarantee (no process-wide or goroutine-keyed guard is
+// maintained here — see the retired runtime.Stack-based one in git history).
 func View(fn func(*Tx) error) error { return ViewAt(Path(), fn) }
 
 func ViewAt(path string, fn func(*Tx) error) error {

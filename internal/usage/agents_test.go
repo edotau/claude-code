@@ -592,7 +592,7 @@ func TestCodexFilesystemFailuresWarn(t *testing.T) {
 				t.Fatalf("filesystem failure silently produced complete-looking totals: %+v", row)
 			}
 			var out bytes.Buffer
-			printAgentsSection(&out, []agentUsage{row}, 1)
+			printAgentsSection(&out, []agentUsage{row}, "", 1)
 			if !strings.Contains(out.String(), row.Note) {
 				t.Fatalf("partial totals warning missing from text report: %s", out.String())
 			}

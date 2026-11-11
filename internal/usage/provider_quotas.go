@@ -55,9 +55,6 @@ type quota struct {
 	cached         bool   // served from a prior fetch's cache; never recorded as a fresh observation
 }
 
-// googleNote: AI Studio keys have no quota API, and Antigravity's cloudcode-pa quota calls 403 for this client.
-const googleNote = "quota not exposed (AI Studio key; Antigravity quota endpoint denies access)"
-
 // warnThreshold parses HARNESS_USAGE_WARN_PCT as float in (0,100], default 80; invalid → 80.
 func warnThreshold() float64 {
 	v := os.Getenv("HARNESS_USAGE_WARN_PCT")
@@ -126,10 +123,13 @@ var ghAccountRE = regexp.MustCompile(`Logged in to github\.com account (\S+)`)
 func githubQuotas(ctx context.Context) []quota {
 	c := exec.CommandContext(ctx, "gh", "auth", "status", "--hostname", "github.com")
 	status, _ := c.CombinedOutput() // exits 1 when any account's token is stale; the others still list
-	var out []quota
-	for _, m := range ghAccountRE.FindAllSubmatch(status, -1) {
-		out = append(out, githubQuota(ctx, string(m[1])))
+	logins := ghAccountRE.FindAllSubmatch(status, -1)
+	out := make([]quota, len(logins))
+	var wg sync.WaitGroup
+	for i, m := range logins {
+		wg.Go(func() { out[i] = githubQuota(ctx, string(m[1])) })
 	}
+	wg.Wait()
 	if len(out) == 0 {
 		out = append(out, quota{Provider: "github", Note: "unavailable: no gh login"})
 	}
@@ -472,10 +472,7 @@ func commandErrorLine(out []byte, err error) string {
 		s = err.Error()
 	}
 	s, _, _ = strings.Cut(textutil.FirstLine(s), "\r")
-	if len(s) > 80 {
-		s = s[:80]
-	}
-	return s
+	return textutil.TruncateRunes(s, 80)
 }
 
 // ledgerAgg is one provider+profile+model row for the API KEYS section: tokens over today / 30d / all-time.

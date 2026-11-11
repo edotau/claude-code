@@ -152,12 +152,15 @@ func sortModelsByTokens(models []agentModel) {
 }
 
 // claudeAgentUsage folds the verb's own transcript scan (already scoped to the window) into an agentUsage
-// row; per-model turn counts aren't tracked at the aggregate level, so Turns stays 0.
+// row; per-model turn counts aren't tracked at the aggregate level, so only the total row carries Turns.
 func claudeAgentUsage(scan *transcriptScan, sessions int) agentUsage {
 	if scan == nil || scan.agg == nil || len(scan.agg.Models) == 0 {
 		return agentUsage{Agent: "claude", Note: "no sessions in window"}
 	}
-	var total int
+	var total, turns int
+	for _, d := range scan.daily {
+		turns += d.Turns
+	}
 	var mix tokenMix
 	models := make([]agentModel, 0, len(scan.agg.Models))
 	for name, u := range scan.agg.Models {
@@ -165,11 +168,11 @@ func claudeAgentUsage(scan *transcriptScan, sessions int) agentUsage {
 		total += tok
 		um := tokenMix{Input: int(u.InputTokens), Output: int(u.OutputTokens),
 			CacheRead: int(u.CacheReadTokens), CacheWrite: int(u.CacheCreationTokens)}
-		models = append(models, agentModel{Provider: "anthropic", Model: name, Tokens: tok, Mix: mixPtr(um)})
+		models = append(models, agentModel{Provider: providerOf(name, "anthropic"), Model: name, Tokens: tok, Mix: mixPtr(um)})
 		mix.add(um)
 	}
 	sortModelsByTokens(models)
-	return agentUsage{Agent: "claude", Sessions: sessions, Tokens: total, Models: models,
+	return agentUsage{Agent: "claude", Sessions: sessions, Turns: turns, Tokens: total, Models: models,
 		Mix: mixPtr(mix), Daily: scan.daily, ActiveDays: len(scan.daily)}
 }
 
@@ -416,7 +419,7 @@ func codexSessionFiles(ctx context.Context, dir string, cutoff time.Time) ([]str
 func addCodexModel(byModel map[string]*agentModel, s codexSessionSummary) {
 	m := byModel[s.Model]
 	if m == nil {
-		m = &agentModel{Provider: "openai", Model: s.Model}
+		m = &agentModel{Provider: providerOf(s.Model, "openai"), Model: s.Model}
 		byModel[s.Model] = m
 	}
 	m.Turns += s.Turns
@@ -586,6 +589,14 @@ type copilotModelRow struct {
 	NoCost int    `json:"no_cost"`
 }
 
+// providerOf labels a model row: databricks- endpoint ids are Databricks-routed, else the agent's own provider def.
+func providerOf(model, def string) string {
+	if strings.HasPrefix(model, models.DatabricksPrefix) {
+		return providers.GroupDatabricks
+	}
+	return def
+}
+
 // copilotProvider labels a row: all-NULL-cost databricks- models are BYOK, other costed rows are GitHub-billed.
 func copilotProvider(r copilotModelRow) string {
 	switch {
@@ -630,8 +641,16 @@ func copilotUsage(ctx context.Context, cutoff time.Time) agentUsage {
 }
 
 // printAgentsSection renders one total row per agent plus an indented row per model it used.
-func printAgentsSection(out io.Writer, agents []agentUsage, days int) {
-	fmt.Fprintf(out, "\nAGENTS (last %d days)\n", days)
+func printAgentsSection(out io.Writer, agents []agentUsage, session string, days int) {
+	window := "session " + session
+	switch {
+	case session != "":
+	case days == 1:
+		window = "last 1 day"
+	default:
+		window = fmt.Sprintf("last %d days", days)
+	}
+	fmt.Fprintf(out, "\nAGENTS (%s)\n", window)
 	r := func(w int, s string) string { return fmt.Sprintf("%*s", w, s) }
 	head := []string{"AGENT", "PROVIDER/MODEL", r(12, "TOKENS"), r(8, "TURNS"), r(8, "SESSIONS"), r(10, "COST")}
 	var rows [][]string

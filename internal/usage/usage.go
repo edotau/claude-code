@@ -58,9 +58,6 @@ type document struct {
 
 // report builds the JSON document for one window (session scopes to one id, else the last days days).
 func report(claudeDir, session string, days int, withQuotas bool, errw io.Writer) (*document, error) {
-	if session == "" && days <= 0 {
-		days = 1 // the same window scanUsage scans
-	}
 	quotasCh := startQuotaFetch(withQuotas) // overlaps the local scan below
 	scan, err := scanUsage(claudeDir, session, days, errw)
 	if err != nil {
@@ -70,6 +67,9 @@ func report(claudeDir, session string, days int, withQuotas bool, errw io.Writer
 	agents := buildAgentsUsage(scan, session, days)
 	quotas := <-quotasCh
 	aggs, _ := loadLedger(errw)
+	if session != "" {
+		days = 0 // --days is ignored with --session, so no window applies
+	}
 	return &document{agg, quotas, aggs, resolveBilling(), agents, days}, nil
 }
 
@@ -90,9 +90,6 @@ func scanUsage(claudeDir, session string, days int, errw io.Writer) (*transcript
 	if session != "" {
 		files, err = usageFilesForSession(claudeDir, session)
 	} else {
-		if days <= 0 {
-			days = 1
-		}
 		cutoff = windowCutoff(days)
 		files, err = usageFilesWithinDays(claudeDir, days)
 	}
@@ -138,13 +135,7 @@ func foldResponses(path string, resps []transcript.Response, cutoff time.Time, c
 		if day == "" {
 			continue
 		}
-		c := counts[day]
-		if c == nil {
-			c = &dayCount{}
-			counts[day] = c
-		}
-		c.tokens += int(r.Usage.Total())
-		c.turns++
+		addDayCount(counts, day, int(r.Usage.Total()), 1)
 	}
 	return kept
 }
@@ -254,7 +245,7 @@ func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
 	printQuotas(w, quotas, show, aggs, ledgerSince(ledgerEntries))
 
 	// Section 4 (AGENTS): the aggregation above has had the whole quota round-trip to finish by now.
-	printAgentsSection(w, <-agentsCh, days)
+	printAgentsSection(w, <-agentsCh, session, days)
 	if w.Err != nil {
 		fmt.Fprintln(errw, "usage: write output:", w.Err)
 		return 1
@@ -314,12 +305,10 @@ func usageFilesForSession(claudeDir, id string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("usage: glob %s: %w", pattern, err)
 	}
-	wfPattern := filepath.Join(claudeDir, "projects", "*", id, "subagents", "workflows", "*", "agent-*.jsonl")
-	wf, wfErr := filepath.Glob(wfPattern)
-	if wfErr != nil {
-		return nil, fmt.Errorf("usage: glob %s: %w", wfPattern, wfErr)
+	for _, run := range transcript.WorkflowRunDirs(filepath.Join(claudeDir, "projects", "*", id)) {
+		matches = append(matches, transcript.WorkflowAgentFiles(run)...)
 	}
-	return dedupeFiles(append(matches, wf...)), nil
+	return dedupeFiles(matches), nil
 }
 
 // usageFilesWithinDays walks every session dir's subagents/*.jsonl plus its workflow agents, keeping
@@ -378,7 +367,7 @@ func usageSessionDirsWithinDays(claudeDir string, days int) ([]string, error) {
 }
 
 // dedupeFiles sorts and uniques the scanned-file list — it drives `files scanned` as well as the
-// totals, so one path reaching AddFile twice would silently double a model's tokens.
+// totals, so one file is never summarized twice.
 func dedupeFiles(files []string) []string {
 	slices.Sort(files)
 	return slices.Compact(files)
