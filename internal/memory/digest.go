@@ -134,7 +134,7 @@ func Digest(ctx context.Context, dir, claude string) (string, error) {
 		if err := paths.AtomicWrite(path, []byte(body), 0o600); err != nil {
 			return err
 		}
-		cerr := commitStore("digest: " + filepath.Base(dir))
+		cerr := commitStore("digest: "+filepath.Base(dir), storeRels([]string{path})...)
 		if cerr == nil {
 			return nil
 		}

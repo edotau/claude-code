@@ -410,7 +410,7 @@ func assertWrappedKeepsWords(t *testing.T, target, longLine string) {
 }
 
 // TestFormatBankWritesAndCommitsOnlyOnChange: the default (non-check) pass rewrites a dirty file and
-// commits the store; a second pass with nothing left to wrap makes no new commit.
+// commits it; a second pass with nothing left to wrap makes no new commit.
 func TestFormatBankWritesAndCommitsOnlyOnChange(t *testing.T) {
 	global, _ := bankFmtRepoStore(t)
 	target := filepath.Join(global, "decisionLog.md")
@@ -429,8 +429,8 @@ func TestFormatBankWritesAndCommitsOnlyOnChange(t *testing.T) {
 	if headAfterFirst == "" {
 		t.Fatal("expected a commit after a real change, got no HEAD")
 	}
-	if st, err := StoreRepo().Status(); err != nil || len(st) != 0 {
-		t.Fatalf("store dirty after fmt commit: status=%v err=%v", st, err)
+	if st, err := StoreRepo().Status(storeRels(changed)...); err != nil || len(st) != 0 {
+		t.Fatalf("formatted file dirty after fmt commit: status=%v err=%v", st, err)
 	}
 
 	assertBankFmtNoOp(t, headAfterFirst)

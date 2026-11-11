@@ -401,7 +401,7 @@ func (p *aliasPlan) apply(now time.Time) error {
 	if err := writeCatalog(now); err != nil {
 		return err
 	}
-	return commitStore("settle: alias " + filepath.Base(p.target))
+	return commitStore("settle: alias "+filepath.Base(p.target), append(storeRels([]string{p.target, p.source}), catalogFile)...)
 }
 
 // repoint folds the origin row and swaps the links; on error it rolls back, else returns an undo for a later failure.
