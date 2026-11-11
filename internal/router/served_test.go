@@ -151,13 +151,13 @@ func TestPinnedModelSwapsUnservedPin(t *testing.T) {
 	stubServed(t, []providers.OpencodeModel{chatX, respA},
 		listing("dev", map[string]string{"m-x": "READY", "m-a": "READY"}))
 	cell := Cell{Model: "m-pin", Account: "databricks·dev"}
-	if got := pinnedModel("copilot", "sonnet", cell, p, "m-pin", time.Now()); got != "m-x" {
+	if got, _ := pinnedModel("copilot", "sonnet", cell, p, "m-pin", time.Now()); got != "m-x" {
 		t.Errorf("copilot swap = %q, want m-x (any READY)", got)
 	}
-	if got := pinnedModel("codex", "sonnet", cell, p, "m-pin", time.Now()); got != "m-a" {
+	if got, _ := pinnedModel("codex", "sonnet", cell, p, "m-pin", time.Now()); got != "m-a" {
 		t.Errorf("codex swap = %q, want m-a (Responses only)", got)
 	}
-	if got := pinnedModel("codex", "sonnet", cell, p, "m-a", time.Now()); got != "m-a" {
+	if got, _ := pinnedModel("codex", "sonnet", cell, p, "m-a", time.Now()); got != "m-a" {
 		t.Errorf("a READY pin = %q, want it kept", got)
 	}
 }

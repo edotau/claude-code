@@ -24,13 +24,13 @@ import (
 func (t *RouteTable) gatePinned(
 	ctx context.Context, reg *providers.Registry, alias, agent, pin string, spec PinSpec, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
-) ([]Candidate, bool) {
+) []Candidate {
 	if agent == "opencode" && slices.Contains(providers.RouteOpencodeSubIDs, pin) {
 		return t.gateOpencodeCandidate(ctx, alias, pin, st, o, now, configured, res)
 	}
 	if agent == "gemini" && reg != nil && !geminiRow(reg, pin) {
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google or a Databricks gateway row, not " + pin})
-		return nil, false
+		return nil
 	}
 	return t.gateProfile(ctx, reg, alias, agent, pin, spec.Model, "", st, o, now, configured, res)
 }
@@ -39,11 +39,11 @@ func (t *RouteTable) gatePinned(
 func (t *RouteTable) gateProfile(
 	ctx context.Context, reg *providers.Registry, alias, agent, pin, model, effort string, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
-) ([]Candidate, bool) {
+) []Candidate {
 	cell, ok := t.Cell(agent, alias)
 	if !ok {
 		skipNoRow(res, agent, alias)
-		return nil, false
+		return nil
 	}
 	var p *providers.Provider
 	if reg != nil {
@@ -51,25 +51,26 @@ func (t *RouteTable) gateProfile(
 	}
 	if p == nil {
 		res.Skipped = append(res.Skipped, Skip{agent, gateRow, "pinned profile " + pin + " is not in the registry"})
-		return nil, false
+		return nil
 	}
 	if !o.canServe(agent, p) || !providers.CredentialPresent(p) {
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "pinned profile " + pin + " cannot serve " + agent + " (no route or credential)"})
-		return nil, false
+		return nil
 	}
-	c := Cell{Model: pinnedModel(agent, alias, cell, p, o.modelPin(model), now), Effort: cmp.Or(effort, cell.Effort), Account: ProviderAccount(pin), Price: cell.Price}
+	pm, _ := pinnedModel(agent, alias, cell, p, o.modelPin(model), now)
+	c := Cell{Model: pm, Effort: cmp.Or(effort, cell.Effort), Account: ProviderAccount(pin), Price: cell.Price}
 	noteNotReady(res, agent, pin, model, c.Model, p)
 	if err := configured(agent, c); err != nil {
 		skipNotConfigured(res, agent, err)
-		return nil, false
+		return nil
 	}
 	billing := cmp.Or(t.Billing[c.Account], DefaultBilling(p))
 	cand, ok := t.gateAccount(ctx, agent, c, billing, st, o, now, res)
 	if !ok {
-		return nil, false
+		return nil
 	}
 	cand.Profile = pin
-	return []Candidate{cand}, true
+	return []Candidate{cand}
 }
 
 // noteNotReady records a Skip when the pinned model is spelled but swapped for another because it is not READY.
@@ -88,21 +89,39 @@ func DefaultBilling(p *providers.Provider) string {
 	return BillSubscription
 }
 
-// pinnedModel resolves the pin's model, then swaps one a fresh served listing marks not READY for the first READY one.
-func pinnedModel(agent, alias string, cell Cell, p *providers.Provider, modelPin string, now time.Time) string {
+// pinnedModel resolves the pin's model at now, then swaps one a fresh served listing marks not READY for the first
+// READY one; the second result says why a Discovery request fell back to the alias.
+func pinnedModel(agent, alias string, cell Cell, p *providers.Provider, modelPin string, now time.Time) (string, string) {
 	if modelPin == DiscoveryModel {
-		model, _ := PinnedModel(agent, alias, cell, p, modelPin)
-		return model
+		why := ""
+		switch {
+		case agent != "copilot" && agent != "opencode":
+			why = "discovery requires copilot or opencode; using alias"
+		case p == nil || p.Preset != providers.PresetDatabricks:
+			why = "discovery requires Databricks; using alias"
+		default:
+			model, err := pickPool(agent, p, DiscoveryPool(), now)
+			switch {
+			case err != nil:
+				why = "discovery state unavailable (" + stateErrClass(err) + "); using alias"
+			case model == "":
+				why = "discovery pool has no served model; using alias"
+			default:
+				return model, ""
+			}
+		}
+		model, _ := pinnedModel(agent, alias, cell, p, "", now)
+		return model, why
 	}
 	m := selectPinnedModel(agent, alias, cell, p, modelPin)
 	if p != nil && p.Preset == providers.PresetDatabricks {
 		if ready, fresh := ServedReady(p, m, now); fresh && !ready {
 			if alt, _ := ServedFirst(p, agent == "codex", now); alt != "" {
-				return alt
+				return alt, ""
 			}
 		}
 	}
-	return m
+	return m, ""
 }
 
 // selectPinnedModel: model pin if p serves it, else own-account cell, else (codex) a Responses model, else the alias.
@@ -141,24 +160,7 @@ func IsPoolModel(p *providers.Provider, model string) bool {
 
 // PinnedModel resolves a pin and reports why a Discovery request fell back to the alias.
 func PinnedModel(agent, alias string, cell Cell, p *providers.Provider, pin string) (string, string) {
-	now := time.Now()
-	if pin != DiscoveryModel {
-		return pinnedModel(agent, alias, cell, p, pin, now), ""
-	}
-	if agent != "copilot" && agent != "opencode" {
-		return pinnedModel(agent, alias, cell, p, "", now), "discovery requires copilot or opencode; using alias"
-	}
-	if p == nil || p.Preset != providers.PresetDatabricks {
-		return pinnedModel(agent, alias, cell, p, "", now), "discovery requires Databricks; using alias"
-	}
-	model, err := pickPool(agent, p, DiscoveryPool(), now)
-	if err != nil {
-		return pinnedModel(agent, alias, cell, p, "", now), "discovery state unavailable (" + stateErrClass(err) + "); using alias"
-	}
-	if model == "" {
-		return pinnedModel(agent, alias, cell, p, "", now), "discovery pool has no served model; using alias"
-	}
-	return model, ""
+	return pinnedModel(agent, alias, cell, p, pin, time.Now())
 }
 
 // stateErrClass names why update failed, for a note; the raw error carries paths, so it stays out.

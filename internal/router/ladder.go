@@ -300,7 +300,10 @@ func (l pickLadder) placeClaude(us []rungGroup) {
 	seen := make([]bool, len(l.rungs))
 	for _, u := range us {
 		if u.rung >= 0 && u.rung < len(l.rungs) {
-			best[u.rung], seen[u.rung] = max(best[u.rung], u.cs[0].Total), true
+			if t := u.cs[0].Total; !seen[u.rung] || t > best[u.rung] { // a cooling total can be negative
+				best[u.rung] = t
+			}
+			seen[u.rung] = true
 		}
 	}
 	for i := range us {

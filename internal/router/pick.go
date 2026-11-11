@@ -151,7 +151,7 @@ func (t *RouteTable) pick(
 		res.Skipped = append(res.Skipped, Skip{"registry", gateRow, "provider registry did not load, profile pins unchecked: " + err.Error()})
 	}
 	pg := &pickGate{reg: reg, held: map[string]bool{}}
-	gate := func(agent string) ([]Candidate, bool) {
+	gate := func(agent string) []Candidate {
 		return t.gateCandidate(ctx, pg, alias, agent, pins, st, o, now, configured, &res)
 	}
 	firstG, restG, lastG := t.gatherCandidates(want, o, gate)
@@ -276,18 +276,18 @@ func regroup(groups [][]Candidate, flat []Candidate) [][]Candidate {
 func (t *RouteTable) gateAgent(
 	ctx context.Context, alias, agent string, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
-) ([]Candidate, bool) {
+) []Candidate {
 	if agent == "opencode" && !t.OpencodeRowOverridden[alias] {
 		return t.gateOpencodeCandidate(ctx, alias, "", st, o, now, configured, res)
 	}
 	c, ok := t.Cell(agent, alias)
 	if !ok {
 		skipNoRow(res, agent, alias)
-		return nil, false
+		return nil
 	}
 	if err := configured(agent, c); err != nil {
 		skipNotConfigured(res, agent, err)
-		return nil, false
+		return nil
 	}
 	billing := t.Billing[c.Account]
 	if o.Account != nil {
@@ -297,9 +297,9 @@ func (t *RouteTable) gateAgent(
 	}
 	cand, ok := t.gateAccount(ctx, agent, c, billing, st, o, now, res)
 	if !ok {
-		return nil, false
+		return nil
 	}
-	return []Candidate{cand}, true
+	return []Candidate{cand}
 }
 
 // gateAccount runs a resolved cell through the copilot-pin, auth-mark, refresh and exhausted gates; name labels Skips.
@@ -337,13 +337,13 @@ func (t *RouteTable) opencodeOrder() []string {
 // gateOpencodeCandidate runs the opencode sub-pick at alias: zen-free first (skipped at opus or on a work
 // repo, BillFree), then each ladder id in order, every one gated on its own login (configured,
 // which checks the cell's model prefix) and quota. The first to clear every gate wins; a low account sorts
-// after the non-low ones while otherwise keeping this order. ok is false when every sub-candidate was skipped.
+// after the non-low ones while otherwise keeping this order. It returns nil when every sub-candidate was skipped.
 // When the winner bills free, the first surviving paid sub-candidate rides along right after it, so a stalled
 // free dispatch has a ready backup without a second opencode pick.
 func (t *RouteTable) gateOpencodeCandidate(
 	ctx context.Context, alias, only string, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
-) ([]Candidate, bool) {
+) []Candidate {
 	var ok []opencodeSub
 	order := t.opencodeOrder()
 	if only != "" {
@@ -356,13 +356,13 @@ func (t *RouteTable) gateOpencodeCandidate(
 	}
 	if len(ok) == 0 {
 		res.Skipped = append(res.Skipped, Skip{"opencode", GateAvailable, "no opencode sub-candidate passed (no login, exhausted, or free blocked)"})
-		return nil, false
+		return nil
 	}
 	slices.SortStableFunc(ok, func(a, b opencodeSub) int { return cmp.Compare(lowRank(a.state), lowRank(b.state)) })
 	w := ok[0]
 	group := []Candidate{{Agent: "opencode", Cell: w.c, State: w.state, Billing: w.billing}}
 	if only != "" {
-		return group, true
+		return group
 	}
 	if w.billing == BillFree {
 		for _, s := range ok[1:] {
@@ -372,7 +372,7 @@ func (t *RouteTable) gateOpencodeCandidate(
 			}
 		}
 	}
-	return group, true
+	return group
 }
 
 // opencodeSub is one opencode ladder entry that cleared every gate.
@@ -424,9 +424,9 @@ func (t *RouteTable) gateOpencodeSub(
 // gatherCandidates runs the wanted agent, then (unless suppressed) the other agents, then claude under
 // FallbackAll. Each gate call's group (usually one candidate, two for a free opencode winner + its paid
 // backup) stays together as one element, so a later sort over groups never splits the pair.
-func (t *RouteTable) gatherCandidates(want string, o PickOpts, gate func(string) ([]Candidate, bool)) (first, rest, last [][]Candidate) {
+func (t *RouteTable) gatherCandidates(want string, o PickOpts, gate func(string) []Candidate) (first, rest, last [][]Candidate) {
 	if want != "" {
-		if cs, ok := gate(want); ok {
+		if cs := gate(want); len(cs) > 0 {
 			first = append(first, cs)
 		}
 	}
@@ -441,12 +441,12 @@ func (t *RouteTable) gatherCandidates(want string, o PickOpts, gate func(string)
 }
 
 // gateOthers gates every table agent but want and claude, in table order.
-func gateOthers(want string, gate func(string) ([]Candidate, bool)) (rest [][]Candidate) {
+func gateOthers(want string, gate func(string) []Candidate) (rest [][]Candidate) {
 	for _, r := range TableAgents {
 		if r == want || r == "claude" {
 			continue
 		}
-		if cs, ok := gate(r); ok {
+		if cs := gate(r); len(cs) > 0 {
 			rest = append(rest, cs)
 		}
 	}
@@ -454,11 +454,11 @@ func gateOthers(want string, gate func(string) ([]Candidate, bool)) (rest [][]Ca
 }
 
 // claudeLast gates claude as the final fallback under FallbackAll (or the unset default).
-func claudeLast(o PickOpts, gate func(string) ([]Candidate, bool)) [][]Candidate {
+func claudeLast(o PickOpts, gate func(string) []Candidate) [][]Candidate {
 	if o.Fallback != FallbackAll && o.Fallback != "" {
 		return nil
 	}
-	if cs, ok := gate("claude"); ok {
+	if cs := gate("claude"); len(cs) > 0 {
 		return [][]Candidate{cs}
 	}
 	return nil

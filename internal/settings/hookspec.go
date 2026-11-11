@@ -133,7 +133,7 @@ var Registry = []Group{
 		{Name: "paths-resolve", Event: EventUserPromptSubmit, Budget: 5 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
 	}},
 	{Name: "memory", Events: []EventSpec{
-		// One Stop hook: context checkpoint, then the memory update; a block from either blocks.
+		// One Stop hook: context checkpoint, then the memory update; only the update can block.
 		{Name: "memory-update", Event: EventStop, Budget: 20 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
 		{Name: "memory-start", Event: EventSessionStart, Budget: 10 * sec, StatusMessage: "Loading session memory", Hosted: []string{"opencode"}},
 		// Per-prompt bank recall: advisory and capped, so an empty bank costs the turn nothing.
@@ -211,14 +211,12 @@ type dispatcherSlot struct {
 	matchers []string
 	any      bool // some handler has no matcher, so the entry carries none
 	seconds  int
-	n        int
 	status   string
 	nstatus  int // modules on the event that set a status; the spinner shows only when exactly one does
 	pos      int
 }
 
 func (d *dispatcherSlot) add(s EventSpec) {
-	d.n++
 	d.seconds += s.Seconds()
 	if s.StatusMessage != "" {
 		d.status, d.nstatus = s.StatusMessage, d.nstatus+1
