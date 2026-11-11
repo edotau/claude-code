@@ -124,8 +124,9 @@ const (
 // env rather than discarding an exported value, and only errors when env is empty too.
 func Lookup(name string) (value, source string, err error) {
 	v, found, err := ReadSecret(name)
+	ev, envOK := envSet(name)
 	if err != nil {
-		if ev := strings.TrimSpace(os.Getenv(name)); ev != "" {
+		if envOK {
 			return ev, "env", nil
 		}
 		return "", "", err
@@ -133,10 +134,25 @@ func Lookup(name string) (value, source string, err error) {
 	if found {
 		return v, "vault", nil
 	}
-	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
-		return v, "env", nil
+	if envOK {
+		return ev, "env", nil
 	}
 	return "", "", nil
+}
+
+// envSet returns the trimmed process env value of name and whether it is non-empty.
+func envSet(name string) (string, bool) {
+	v := strings.TrimSpace(os.Getenv(name))
+	return v, v != ""
+}
+
+// vaultHas reports whether the vault holds a sealed record for name, without resolving a master key.
+func vaultHas(name string) (found bool, err error) {
+	err = View(func(tx *Tx) error {
+		_, found = tx.Get(Secrets, name)
+		return nil
+	})
+	return found, err
 }
 
 // Get is Lookup's found-only form; a read error or empty value yields ok=false.
@@ -152,11 +168,7 @@ func Effective(name string) (value, source, shadowed string, ok bool) {
 		return "", "", "", false
 	}
 	if source == "env" {
-		var found bool
-		if err := View(func(tx *Tx) error {
-			_, found = tx.Get(Secrets, name)
-			return nil
-		}); err == nil && found {
+		if found, err := vaultHas(name); err == nil && found {
 			shadowed = "vault"
 		}
 	}
@@ -166,7 +178,7 @@ func Effective(name string) (value, source, shadowed string, ok bool) {
 // Locate computes env and vault presence using already-loaded metadata, without resolving a key.
 func Locate(name string, meta map[string]SecretMeta) (source, shadowed string) {
 	_, found := meta[name]
-	if strings.TrimSpace(os.Getenv(name)) != "" {
+	if _, ok := envSet(name); ok {
 		if found {
 			return "env", "vault"
 		}
@@ -180,7 +192,7 @@ func Locate(name string, meta map[string]SecretMeta) (source, shadowed string) {
 
 // EffectiveSecret reads the process env, then the vault, preserving vault read errors.
 func EffectiveSecret(name string) (value, source string, err error) {
-	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+	if v, ok := envSet(name); ok {
 		return v, "env", nil
 	}
 	v, found, err := ReadSecret(name)
@@ -196,14 +208,10 @@ func EffectiveSecret(name string) (value, source string, err error) {
 // HasSecretErr reports env or vault presence without resolving a master key, surfacing the vault read error for
 // callers (configure provider --list) that must not mistake an unreadable vault for "no credential".
 func HasSecretErr(name string) (source string, err error) {
-	if strings.TrimSpace(os.Getenv(name)) != "" {
+	if _, ok := envSet(name); ok {
 		return "env", nil
 	}
-	found := false
-	err = View(func(tx *Tx) error {
-		_, found = tx.Get(Secrets, name)
-		return nil
-	})
+	found, err := vaultHas(name)
 	if err != nil {
 		return "", err
 	}

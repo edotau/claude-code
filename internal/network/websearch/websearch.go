@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/network/httpx"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -675,21 +676,15 @@ func robotsBody(ctx context.Context, origin string) (string, bool) {
 func fetchRobots(ctx context.Context, origin string) (string, bool) {
 	ctx, cancel := context.WithTimeout(ctx, enrichTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, origin+"/robots.txt", nil)
-	if err != nil {
+	status, raw, _, err := httpx.Do(ctx, httpx.Call{Client: pageClient, URL: origin + "/robots.txt", Limit: 512 << 10,
+		Header: http.Header{"User-Agent": {"claude-code-websearch/" + serverVersion}}})
+	if status == 0 {
 		return "", false
 	}
-	req.Header.Set("User-Agent", "claude-code-websearch/"+serverVersion)
-	resp, err := pageClient.Do(req)
-	if err != nil {
-		return "", false
+	if status != http.StatusOK {
+		return "", status < 500
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", resp.StatusCode < 500
-	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
-	if err != nil {
+	if err != nil && !errors.Is(err, httpx.ErrTooLarge) {
 		return "", false
 	}
 	return string(raw), true

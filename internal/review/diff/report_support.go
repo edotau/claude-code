@@ -195,26 +195,17 @@ func changedSourceFiles(repo, base, head string) ([]string, error) {
 			exts[strings.ToLower(e)] = true
 		}
 	}
-	tryArgs := [][]string{{base + "..." + head}, {base, head}}
-	var lastErr error
-	for _, extra := range tryArgs {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		full := append([]string{"diff", "-z", "--name-only", "--relative", "--diff-filter=ACMR"}, extra...)
-		out, err := proc.RunGitInherit(ctx, repo, full...)
-		cancel()
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		var files []string
-		for name := range strings.SplitSeq(out, "\x00") {
-			if name != "" && exts[extAt(name)] {
-				files = append(files, name)
-			}
-		}
-		return files, nil
+	out, err := refDiff(repo, base, head, []string{"-z", "--name-only", "--relative", "--diff-filter=ACMR"})
+	if err != nil {
+		return nil, fmt.Errorf("git diff %s...%s failed, no files reviewed: %w", base, head, err)
 	}
-	return nil, fmt.Errorf("git diff %s...%s failed, no files reviewed: %w", base, head, lastErr)
+	var files []string
+	for name := range strings.SplitSeq(out, "\x00") {
+		if name != "" && exts[extAt(name)] {
+			files = append(files, name)
+		}
+	}
+	return files, nil
 }
 
 // headContent returns the bytes of the file name (relative to repo) at rev, so a score matches the reviewed commit.

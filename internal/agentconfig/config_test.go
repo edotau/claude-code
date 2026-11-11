@@ -42,15 +42,12 @@ func TestLoadMergesOverlayVendorWhole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	oc := cfg.Agent("opencode")
-	if len(oc.MCP.Allow) != 1 || oc.MCP.Allow[0] != "github" {
-		t.Errorf("opencode.MCP.Allow = %v, want [github]", oc.MCP.Allow)
-	}
-	if oc.Permission.ApprovalPolicy != "" || len(oc.Launch.Env) != 0 || len(oc.Launch.Args) != 0 {
+	oc := cfg.records["opencode"]
+	if oc.Extras[extraApprovalPolicy] != "" || len(oc.Launch.Env) != 0 || len(oc.Launch.Args) != 0 {
 		t.Errorf("opencode fields not zeroed by whole-entry overlay replace: %+v", oc)
 	}
 	// other vendors keep their defaults untouched
-	gm := cfg.Agent("gemini")
+	gm := cfg.records["gemini"]
 	wantGeminiArgs := []string{"--dangerously-skip-permissions"}
 	if !reflect.DeepEqual(gm.Launch.Args, wantGeminiArgs) {
 		t.Errorf("gemini.Launch.Args = %v, want %v (defaults preserved)", gm.Launch.Args, wantGeminiArgs)
@@ -64,13 +61,9 @@ func TestOverlayNullVendorRemovesIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := cfg.Agent("gemini")
-	want := AgentConfig{}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Vendor(\"gemini\") after null overlay = %+v, want zero value", got)
-	}
-	if _, ok := cfg.Agents["gemini"]; ok {
-		t.Error("null overlay must remove gemini from Vendors")
+	got := cfg.records["gemini"]
+	if len(got.Launch.Args) != 0 || len(got.Extras) != 0 {
+		t.Errorf("gemini record after null overlay = %+v, want knobs cleared", got)
 	}
 }
 
@@ -171,12 +164,9 @@ func TestMalformedOverlayErrors(t *testing.T) {
 	}
 }
 
-// TestVendorAndGuardAreNilSafe: a nil *Config must not panic on AgentConfig/Guard, returning zero values instead.
-func TestVendorAndGuardAreNilSafe(t *testing.T) {
+// TestGuardIsNilSafe: a nil *Config must not panic on Guard, returning the zero value instead.
+func TestGuardIsNilSafe(t *testing.T) {
 	var c *Config
-	if got := c.Agent("x"); !reflect.DeepEqual(got, AgentConfig{}) {
-		t.Errorf("nil.Agent(x) = %+v, want zero value", got)
-	}
 	if got := c.Guard(); !reflect.DeepEqual(got, GuardRules{}) {
 		t.Errorf("nil.Guard() = %+v, want zero value", got)
 	}
@@ -196,10 +186,10 @@ func loadDefaults(t *testing.T) *Config {
 // TestDefaults pins the shipped defaults.json values each vendor consumer relies on.
 func TestDefaults(t *testing.T) {
 	cfg := loadDefaults(t)
-	t.Run("codex", func(t *testing.T) { checkCodexDefaults(t, cfg.Agent("codex")) })
-	t.Run("copilot", func(t *testing.T) { checkCopilotDefaults(t, cfg.Agent("copilot")) })
-	t.Run("opencode", func(t *testing.T) { checkOpencodeDefaults(t, cfg.Agent("opencode")) })
-	t.Run("gemini", func(t *testing.T) { checkGeminiDefaults(t, cfg.Agent("gemini")) })
+	t.Run("codex", func(t *testing.T) { checkCodexDefaults(t, cfg.records["codex"]) })
+	t.Run("copilot", func(t *testing.T) { checkCopilotDefaults(t, cfg.records["copilot"]) })
+	t.Run("opencode", func(t *testing.T) { checkOpencodeDefaults(t, cfg.records["opencode"]) })
+	t.Run("gemini", func(t *testing.T) { checkGeminiDefaults(t, cfg.records["gemini"]) })
 	t.Run("guard", func(t *testing.T) {
 		g := cfg.Guard()
 		if !slices.Contains(g.Deny, "Bash(rm -rf /)") {
@@ -208,23 +198,23 @@ func TestDefaults(t *testing.T) {
 	})
 }
 
-func checkCodexDefaults(t *testing.T, codex AgentConfig) {
+func checkCodexDefaults(t *testing.T, codex vault.AgentRecord) {
 	t.Helper()
-	if codex.Permission.ApprovalPolicy != "never" {
-		t.Errorf("codex.Permission.ApprovalPolicy = %q, want never", codex.Permission.ApprovalPolicy)
+	if codex.Extras[extraApprovalPolicy] != "never" {
+		t.Errorf("codex.Permission.ApprovalPolicy = %q, want never", codex.Extras[extraApprovalPolicy])
 	}
-	if codex.Permission.SandboxMode != "danger-full-access" {
-		t.Errorf("codex.Permission.SandboxMode = %q, want danger-full-access", codex.Permission.SandboxMode)
+	if codex.Extras[extraSandboxMode] != "danger-full-access" {
+		t.Errorf("codex.Permission.SandboxMode = %q, want danger-full-access", codex.Extras[extraSandboxMode])
 	}
-	if len(codex.Launch.Args) != 0 {
+	if codex.Launch != nil && len(codex.Launch.Args) != 0 {
 		t.Errorf("codex.Launch.Args = %v, want none (config.toml carries approval/sandbox)", codex.Launch.Args)
 	}
 }
 
-func checkCopilotDefaults(t *testing.T, copilot AgentConfig) {
+func checkCopilotDefaults(t *testing.T, copilot vault.AgentRecord) {
 	t.Helper()
-	if copilot.Permission.DefaultPermissionMode != "allow-all" {
-		t.Errorf("copilot.Permission.DefaultPermissionMode = %q, want allow-all", copilot.Permission.DefaultPermissionMode)
+	if copilot.Extras[extraDefaultPermissionMode] != "allow-all" {
+		t.Errorf("copilot.Permission.DefaultPermissionMode = %q, want allow-all", copilot.Extras[extraDefaultPermissionMode])
 	}
 	wantCopilotArgs := []string{"--allow-all"}
 	if !reflect.DeepEqual(copilot.Launch.Args, wantCopilotArgs) {
@@ -232,23 +222,23 @@ func checkCopilotDefaults(t *testing.T, copilot AgentConfig) {
 	}
 }
 
-func checkOpencodeDefaults(t *testing.T, opencode AgentConfig) {
+func checkOpencodeDefaults(t *testing.T, opencode vault.AgentRecord) {
 	t.Helper()
-	if len(opencode.Launch.Env) != 0 { // opencode reads ~/.claude/skills natively, synced/ included
+	if opencode.Launch != nil && len(opencode.Launch.Env) != 0 { // opencode reads ~/.claude/skills natively, synced/ included
 		t.Errorf("opencode.Launch.Env = %v, want none", opencode.Launch.Env)
 	}
-	if len(opencode.Launch.Args) != 0 {
+	if opencode.Launch != nil && len(opencode.Launch.Args) != 0 {
 		t.Errorf("opencode.Launch.Args = %v, want none", opencode.Launch.Args)
 	}
 }
 
-func checkGeminiDefaults(t *testing.T, gemini AgentConfig) {
+func checkGeminiDefaults(t *testing.T, gemini vault.AgentRecord) {
 	t.Helper()
 	wantGeminiArgs := []string{"--dangerously-skip-permissions"}
 	if !reflect.DeepEqual(gemini.Launch.Args, wantGeminiArgs) {
 		t.Errorf("gemini.Launch.Args = %v, want %v", gemini.Launch.Args, wantGeminiArgs)
 	}
-	if !gemini.Permission.UseGuardRules {
+	if gemini.Extras[extraUseGuardRules] != "true" {
 		t.Error("gemini.Permission.UseGuardRules = false, want true")
 	}
 }
@@ -268,7 +258,7 @@ func TestOverlayReadsAgentsNotVendors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := cfg.Agents["gemini"]; !ok {
+	if _, ok := cfg.records["gemini"]; !ok {
 		t.Error("stale vendors overlay removed gemini")
 	}
 }

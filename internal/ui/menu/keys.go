@@ -98,7 +98,7 @@ func loginLine(kt configure.KeyTarget) string {
 // changeKey runs the picked credential's actions: rotate when present, set up when absent.
 func changeKey(d *dialog, kt configure.KeyTarget) bool {
 	if !kt.Present {
-		if !actionConfirmed("Set up " + kt.Label) {
+		if !ConfirmTerminal("Set up "+kt.Label, false) {
 			return false
 		}
 		return resolveKey(d, kt)
@@ -121,7 +121,7 @@ func replaceKey(d *dialog, kt configure.KeyTarget) bool {
 		d.printf("%s: env-only, not in the vault; edit where exported\n", kt.EnvVar)
 		return false
 	}
-	if !actionConfirmed("Paste a new " + kt.EnvVar + " to rotate it") {
+	if !ConfirmTerminal("Paste a new "+kt.EnvVar+" to rotate it", false) {
 		return false
 	}
 	if u := configure.ConsoleURLs[kt.EnvVar]; u != "" && d.shell().Confirm("Open "+u+" in your browser to create the new key?") {
@@ -180,7 +180,7 @@ func readAnswer(d *dialog, prompt string) (string, bool) {
 
 // runMint asks first (a stray Enter must never start a mint), then runs the token-minting CLI.
 func runMint(argv []string) (string, error) {
-	if !actionConfirmed("Run `" + strings.Join(argv, " ") + "` to mint a new token") {
+	if !ConfirmTerminal("Run `"+strings.Join(argv, " ")+"` to mint a new token", false) {
 		return "", nil
 	}
 	return configure.RunMint(argv)

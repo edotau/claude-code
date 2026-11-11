@@ -25,11 +25,6 @@ import (
 //go:embed agents.json
 var defaultsJSON []byte
 
-// MCP is the explicit allowlist an agent's config is rendered with; omitted servers aren't wired.
-type MCP struct {
-	Allow []string `json:"allow"`
-}
-
 // LaunchConfig is env and argv a `claude-code <agent>` launch injects, e.g. to disable a native skill
 // scanner or force allow-all; Args never rides a headless dispatch (tools-off must stay tools-off).
 type LaunchConfig struct {
@@ -40,14 +35,12 @@ type LaunchConfig struct {
 // AgentConfig is one CLI's full spec.
 type AgentConfig struct {
 	Permission Permission   `json:"permission"`
-	MCP        MCP          `json:"mcp"`
 	Launch     LaunchConfig `json:"launch"`
 }
 
 // Config is the merged spec: built-in defaults plus the user's vault overlay/agents.
 type Config struct {
-	GuardRules GuardRules             `json:"guardRules"`
-	Agents     map[string]AgentConfig `json:"agents"`
+	GuardRules GuardRules `json:"guardRules"`
 	// records are the built-in records with legacy overlay entries merged; Settings reads them.
 	records map[string]vault.AgentRecord
 }
@@ -96,12 +89,6 @@ func (c *Config) Clone() *Config {
 		return nil
 	}
 	out := &Config{GuardRules: c.GuardRules.clone()}
-	if c.Agents != nil {
-		out.Agents = make(map[string]AgentConfig, len(c.Agents))
-		for name, a := range c.Agents {
-			out.Agents[name] = a.clone()
-		}
-	}
 	if c.records != nil {
 		out.records = make(map[string]vault.AgentRecord, len(c.records))
 		for name, r := range c.records {
@@ -135,16 +122,6 @@ func (p Policy) clone() Policy {
 	return p
 }
 
-// clone returns a deep copy of a: permission defaults, MCP allowlist and launch env/args.
-func (a AgentConfig) clone() AgentConfig {
-	out := a
-	out.Permission.Defaults = a.Permission.Defaults.clone()
-	out.MCP.Allow = slices.Clone(a.MCP.Allow)
-	out.Launch.Env = slices.Clone(a.Launch.Env)
-	out.Launch.Args = slices.Clone(a.Launch.Args)
-	return out
-}
-
 // ParseConfig merges base with an optional overlay document. A nil base uses the embedded defaults.
 func ParseConfig(base, overlay []byte) (*Config, error) {
 	if base == nil {
@@ -157,12 +134,6 @@ func ParseConfig(base, overlay []byte) (*Config, error) {
 		return nil, fmt.Errorf("agentconfig defaults: %w", err)
 	}
 	cfg := Config{records: defaults.Agents}
-	if defaults.Agents != nil {
-		cfg.Agents = make(map[string]AgentConfig, len(defaults.Agents))
-	}
-	for name, r := range defaults.Agents {
-		cfg.Agents[name] = agentConfig(r)
-	}
 	// Built-in guard rules come from the settings template, not a hand-copied subset here.
 	guard, err := templateGuardRules()
 	if err != nil {
@@ -190,15 +161,11 @@ func applyOverlay(cfg *Config, overlay []byte) error {
 	if o.GuardRules != nil { // presence replaces wholesale, even an empty {"ask":[],"deny":[]}
 		cfg.GuardRules = *o.GuardRules
 	}
-	if cfg.Agents == nil {
-		cfg.Agents = map[string]AgentConfig{}
-	}
 	if cfg.records == nil {
 		cfg.records = map[string]vault.AgentRecord{}
 	}
 	for name, raw := range o.Agents {
 		if raw == nil || string(raw) == "null" { // "name": null removes a built-in agent
-			delete(cfg.Agents, name)
 			cfg.records[name] = mergeRecord(cfg.records[name], legacyRecord(AgentConfig{}))
 			continue
 		}
@@ -206,7 +173,6 @@ func applyOverlay(cfg *Config, overlay []byte) error {
 		if err := json.Unmarshal(raw, &v); err != nil {
 			return fmt.Errorf("vault overlay/agents: agents.%s: %w", name, err)
 		}
-		cfg.Agents[name] = v
 		cfg.records[name] = mergeRecord(cfg.records[name], legacyRecord(v))
 	}
 	return nil
@@ -224,22 +190,6 @@ func legacyRecord(a AgentConfig) vault.AgentRecord {
 		Extras: map[string]string{extraApprovalPolicy: p.ApprovalPolicy, extraSandboxMode: p.SandboxMode,
 			extraDefaultPermissionMode: p.DefaultPermissionMode, extraUseGuardRules: guard},
 	}
-}
-
-// agentConfig is a built-in record in the legacy shape cfg.Agent returns until the old types go.
-func agentConfig(r vault.AgentRecord) AgentConfig {
-	var a AgentConfig
-	if p := r.Permissions; p != nil {
-		a.Permission.Defaults = Policy(*p)
-	}
-	if l := r.Launch; l != nil {
-		a.Launch = LaunchConfig(*l)
-	}
-	a.Permission.ApprovalPolicy = r.Extras[extraApprovalPolicy]
-	a.Permission.SandboxMode = r.Extras[extraSandboxMode]
-	a.Permission.DefaultPermissionMode = r.Extras[extraDefaultPermissionMode]
-	a.Permission.UseGuardRules = r.Extras[extraUseGuardRules] == "true"
-	return a
 }
 
 // mergeRecord lays over on base: scalars and aliases when set, policy and launch whole when non-nil, extras by key.
@@ -314,14 +264,6 @@ func templateGuardRules() (GuardRules, error) {
 		return GuardRules{}, fmt.Errorf("agentconfig guard rules: %w", err)
 	}
 	return GuardRules{Ask: tpl.Permissions.Ask, Deny: tpl.Permissions.Deny}, nil
-}
-
-// Agent returns name's spec, or the zero value when Config is nil or name is unknown.
-func (c *Config) Agent(name string) AgentConfig {
-	if c == nil {
-		return AgentConfig{}
-	}
-	return c.Agents[name]
 }
 
 // Guard returns the guard-rule prompts, or the zero value when Config is nil.

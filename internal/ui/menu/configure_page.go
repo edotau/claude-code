@@ -469,11 +469,6 @@ func openBrowser(url string) {
 	}
 }
 
-// actionConfirmed asks [y/N] (Esc cancels) before a terminal run launches a mint CLI; a stray Enter must
-// never start a run that rewrites an agent's own auth settings. Non-terminal runs proceed. Sign-in itself
-// needs no second confirm — picking its menu row already was the confirmation.
-var actionConfirmed = func(question string) bool { return ConfirmTerminal(question, false) }
-
 // saveConfirmed is the one save prompt every configure page ends with: [Y/n], Enter or blank = yes, Esc = no.
 // Non-terminal runs save.
 var saveConfirmed = func(question string) bool { return ConfirmTerminal(question, true) }

@@ -83,13 +83,7 @@ func Canonical(id string) (base string, oneM bool) {
 	if strings.Contains(id, "/") {
 		return id, oneM
 	}
-	rest, stripped := id, false
-	for _, p := range wirePrefixes {
-		if strings.HasPrefix(id, p) {
-			rest, stripped = id[len(p):], true
-			break
-		}
-	}
+	rest, stripped := stripWirePrefix(id)
 	cand := rest
 	if hasFamilyDash(rest) {
 		cand = "claude-" + rest
@@ -187,12 +181,8 @@ func normID(s string) string {
 	if _, after, ok := strings.CutLast(s, "/"); ok {
 		s = after
 	}
-	for _, p := range wirePrefixes {
-		if rest, ok := strings.CutPrefix(s, p); ok {
-			return rest
-		}
-	}
-	return s
+	rest, _ := stripWirePrefix(s)
+	return rest
 }
 
 // FamilyKind classifies id by vendor family through the catalog (any spelling), falling back to the name for unlisted ids.

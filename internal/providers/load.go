@@ -263,9 +263,9 @@ func checkLegacyRoutingKeys(overlay []byte) error {
 	if len(overlay) == 0 {
 		return nil
 	}
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(overlay, &top); err != nil {
-		return fmt.Errorf("vault overlay/providers: %w", err)
+	top, err := decodeOverlayTop(string(overlay))
+	if err != nil {
+		return err
 	}
 	for _, key := range []string{"route", "routeWeights", "opencodeLadder"} {
 		if _, ok := top[key]; ok {

@@ -76,7 +76,7 @@ var writers = map[string]string{
 	"internal/memory/session_start.go:WriteCompactRecord":    unversioned("marker: per-session PreCompact record (trigger, pct, at) read once by SessionStart"),
 	"internal/hooks/agents/codex.go:appendCodexRoute":        "codex-routing",
 	"internal/hooks/wthook/claims.go:appendClaims":           "claims",
-	"internal/worktree/notices.go:Append":                    "notices",
+	"internal/worktree/sessions.go:Append":                   "notices",
 	"internal/hooks/wthook/claimcheck.go:appendIfNew":        unversioned("marker: per-session claim advisory dedupe lines"),
 	"internal/inflight/limiter.go:writeMarker":               unversioned("marker: in-flight dispatch marker (account key)"),
 	"internal/hooks/wthook/worktree.go:busyLine":             unversioned("marker: per-session worktree-busy dedupe stamp"),

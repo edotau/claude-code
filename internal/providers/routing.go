@@ -323,14 +323,9 @@ func UpdateRouting(fn func(*Routing) error) error {
 
 // routingDoc applies fn to the routing object in the stored overlay doc old and returns the validated new doc.
 func routingDoc(old string, fn func(*Routing) error) ([]byte, error) {
-	doc := map[string]json.RawMessage{}
-	if len(old) > 0 {
-		if err := json.Unmarshal([]byte(old), &doc); err != nil {
-			return nil, fmt.Errorf("vault overlay/providers: %w", err)
-		}
-	}
-	if doc == nil {
-		doc = map[string]json.RawMessage{}
+	doc, err := decodeOverlayTop(old)
+	if err != nil {
+		return nil, err
 	}
 	var r Routing
 	if b, ok := doc["routing"]; ok {
