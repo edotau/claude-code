@@ -1,25 +1,14 @@
 package project
 
 import (
-	"bytes"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
-
-	mdast "github.com/jeduden/mdsmith/pkg/goldmark/ast"
-	"github.com/jeduden/mdsmith/pkg/goldmark/parser"
-	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
-// descRes lazily compiles the package regexes: every claude-code process links crossgen via the cli table.
-var descRes = sync.OnceValue(func() (r struct {
-	example, ws *regexp.Regexp
-}) {
-	r.example = regexp.MustCompile(`(?s)<example>.*?</example>`)
-	r.ws = regexp.MustCompile(`\s+`)
-	return
-})
+// exampleRe lazily compiles the example-block regex: every claude-code process links crossgen via the cli table.
+var exampleRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?s)<example>.*?</example>`) })
 
 // firstSentence collapses a multi-line description to its first sentence.
 func firstSentence(description string) string {
@@ -32,59 +21,7 @@ func firstSentence(description string) string {
 
 // cleanDescription strips <example>...</example> blocks and collapses whitespace.
 func cleanDescription(raw string) string {
-	withoutExamples := descRes().example.ReplaceAllString(raw, "")
-	return strings.TrimSpace(descRes().ws.ReplaceAllString(withoutExamples, " "))
-}
-
-// stripMemorySection removes the first "## Memory" section (to the next level-2 heading or EOF) via the AST.
-func stripMemorySection(body string) string {
-	src := []byte(body)
-	root := markdown.ParseContext(src, parser.NewContext())
-	target := findMemoryHeading(root, src)
-	if target == nil {
-		return strings.TrimLeft(body, "\n")
-	}
-	start := lineStart(src, target.Lines().At(0).Start)
-	end := len(src)
-	if next := nextLevel2Heading(target); next != nil {
-		end = lineStart(src, next.Lines().At(0).Start) - 1
-	}
-	edited := markdown.Splice(src, []markdown.Edit{{Start: start, End: end}})
-	return strings.TrimLeft(string(edited), "\n")
-}
-
-// findMemoryHeading returns the first level-2 "Memory" heading in root, or nil.
-func findMemoryHeading(root mdast.Node, src []byte) *mdast.Heading {
-	var target *mdast.Heading
-	_ = mdast.Walk(root, func(n mdast.Node, entering bool) (mdast.WalkStatus, error) {
-		if !entering || target != nil {
-			return mdast.WalkContinue, nil
-		}
-		if h, ok := n.(*mdast.Heading); ok && h.Level == 2 && strings.TrimSpace(string(h.Lines().Value(src))) == "Memory" {
-			target = h
-			return mdast.WalkStop, nil
-		}
-		return mdast.WalkContinue, nil
-	})
-	return target
-}
-
-// nextLevel2Heading returns the first following sibling level-2 heading that has source lines, or nil.
-func nextLevel2Heading(from mdast.Node) *mdast.Heading {
-	for sib := from.NextSibling(); sib != nil; sib = sib.NextSibling() {
-		if h, ok := sib.(*mdast.Heading); ok && h.Level == 2 && h.Lines().Len() > 0 {
-			return h
-		}
-	}
-	return nil
-}
-
-// lineStart returns the byte offset of the start of the line containing pos in src.
-func lineStart(src []byte, pos int) int {
-	if i := bytes.LastIndexByte(src[:pos], '\n'); i >= 0 {
-		return i + 1
-	}
-	return 0
+	return strings.Join(strings.Fields(exampleRe().ReplaceAllString(raw, "")), " ")
 }
 
 // yamlQuote quotes a YAML string value, escaping embedded backslashes and double quotes.
@@ -129,20 +66,6 @@ func formatYAML(fields []orderedField) string {
 // buildFrontmatterFile assembles a Markdown file with YAML frontmatter.
 func buildFrontmatterFile(fields []orderedField, body string) string {
 	return "---\n" + formatYAML(fields) + "\n---\n\n" + body
-}
-
-// truthy reports whether a parsed frontmatter value is truthy (used for the `readonly` flag).
-func truthy(v any) bool {
-	switch t := v.(type) {
-	case bool:
-		return t
-	case string:
-		return t != ""
-	case int:
-		return t != 0
-	default:
-		return false
-	}
 }
 
 // toString coerces a parsed frontmatter value to its string form for emit.

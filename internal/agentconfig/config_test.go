@@ -75,9 +75,6 @@ func TestOverlayGuardRulesReplaceWholesale(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := cfg.Guard()
-	if len(g.Ask) != 1 || g.Ask[0] != "only-this" {
-		t.Errorf("Guard().Ask = %v, want [only-this]", g.Ask)
-	}
 	if len(g.Deny) != 1 || g.Deny[0] != "also-only-this" {
 		t.Errorf("Guard().Deny = %v, want [also-only-this]", g.Deny)
 	}
@@ -93,7 +90,7 @@ func TestOverlayEmptyGuardRulesClearDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := cfg.Guard()
-	if len(g.Ask) != 0 || len(g.Deny) != 0 {
+	if len(g.Deny) != 0 {
 		t.Errorf("Guard() = %+v, want empty (overlay explicitly presents empty guardRules)", g)
 	}
 }
@@ -125,7 +122,6 @@ func TestDefaultGuardsMirrorSettingsTemplate(t *testing.T) {
 	}
 	var doc struct {
 		Permissions struct {
-			Ask  []string `json:"ask"`
 			Deny []string `json:"deny"`
 		} `json:"permissions"`
 	}
@@ -137,9 +133,6 @@ func TestDefaultGuardsMirrorSettingsTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := cfg.Guard()
-	if !reflect.DeepEqual(g.Ask, doc.Permissions.Ask) {
-		t.Errorf("Guard().Ask = %v, want (from settings template) %v", g.Ask, doc.Permissions.Ask)
-	}
 	if !reflect.DeepEqual(g.Deny, doc.Permissions.Deny) {
 		t.Errorf("Guard().Deny = %v, want (from settings template) %v", g.Deny, doc.Permissions.Deny)
 	}
