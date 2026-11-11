@@ -37,7 +37,9 @@ func recallPicks(root, session, query string, semantic, explain bool) ([]recallP
 	var sem *Semantic
 	semSeen := false
 	if semantic {
-		ranked, sem, semSeen, trace.Embeddings = recallSemantic(<-ready, files, segs, seen, recallNeed(terms), ranked, tr)
+		res := <-ready
+		trace.Degraded = res.err
+		ranked, sem, semSeen, trace.Embeddings = recallSemantic(res, files, segs, seen, recallNeed(terms), ranked, tr)
 	}
 	if len(ranked) == 0 {
 		return nil, trace
@@ -136,9 +138,8 @@ func recallContext(picks []recallPick) (string, []SearchHit, []SearchHit) {
 func PromptRecall(sessionID, cwd, prompt string, warn io.Writer) string {
 	root := SessionRoot(sessionID, cwd)
 	picks, trace := recallPicks(root, sessionID, prompt, true, false)
-	after, ok := strings.CutPrefix(trace.Embeddings, "keyword-only: ")
-	if ok && os.Getenv("CLAUDE_RECALL_SEMANTIC") != "0" { // the deliberate opt-out is not a degradation
-		fmt.Fprintf(warn, "memory-recall: keyword-only (%s)\n", textutil.CapRunes(after, 120, "…"))
+	if trace.Degraded != nil && os.Getenv("CLAUDE_RECALL_SEMANTIC") != "0" { // the deliberate opt-out is not a degradation
+		fmt.Fprintf(warn, "memory-recall: keyword-only (%s)\n", textutil.CapRunes(trace.Degraded.Error(), 120, "…"))
 	}
 	context, bodies, hits := recallContext(picks)
 	if context == "" {
@@ -201,7 +202,7 @@ func AgentRecall(sessionID, cwd, task string) (block string, ids []string) {
 	if q == "" || strings.Contains(q, agentRecallMarker) {
 		return "", nil
 	}
-	picks, _ := recallPicks(cwd, sessionID, q, false, false)
+	picks, _ := recallPicks(cwd, "", q, false, false) // no seen set: the subagent has not seen what its parent did
 
 	var lines []string
 	for _, p := range picks[:min(recallK, len(picks))] {

@@ -54,7 +54,7 @@ func settledSplit(base, header string, blocks []string, capLines int) (keep, ove
 	return budgetSplit(header, blocks, capLines)
 }
 
-// archivePath is the <dir>/archive/<base>-<yyyy-mm>.md shape shared by archiveFile and rotateSessionHistory.
+// archivePath is archiveFile's <dir>/archive/<base>-<yyyy-mm>.md destination.
 func archivePath(dir, base string, now time.Time) string {
 	return filepath.Join(dir, "archive", strings.TrimSuffix(base, ".md")+"-"+now.Format("2006-01")+".md")
 }
@@ -90,8 +90,22 @@ func archiveFile(path string, capLines int, now time.Time) (moved int, err error
 		if err != nil || len(overflow) == 0 {
 			return err
 		}
-		if err := appendBlocks(archivePath(filepath.Dir(path), filepath.Base(path), now), overflow); err != nil {
+		archive := archivePath(filepath.Dir(path), filepath.Base(path), now)
+		existing, err := readFile(archive)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
+		}
+		_, held := entryBlocks(filepath.Base(path), string(existing))
+		heldSet := make(map[string]bool, len(held))
+		for _, b := range held {
+			heldSet[strings.TrimSpace(b)] = true
+		}
+		// a retry after a failed rewrite must not archive the same blocks twice
+		fresh := slices.DeleteFunc(slices.Clone(overflow), func(o string) bool { return heldSet[strings.TrimSpace(o)] })
+		if len(fresh) > 0 {
+			if err := appendBlocks(archive, fresh); err != nil {
+				return err
+			}
 		}
 		if err := paths.AtomicWrite(path, []byte(rejoin(header, keep)), 0o600); err != nil {
 			return err

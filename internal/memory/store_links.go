@@ -148,7 +148,7 @@ func nativeLinkTargets(root string) map[string]string {
 
 // brokenNativeLinks reports only dangling links and links targeting the store root.
 func brokenNativeLinks(root string) []linkResult {
-	targets := nativeLinkTargets(root)
+	var targets map[string]string // built on the first broken link: it forks git and reads the catalog
 	matches, _ := filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", "memory"))
 	var out []linkResult
 	for _, link := range matches {
@@ -159,6 +159,9 @@ func brokenNativeLinks(root string) []linkResult {
 		_, err := os.Stat(link)
 		if !errors.Is(err, fs.ErrNotExist) && !paths.SamePath(target, StoreDir()) {
 			continue
+		}
+		if targets == nil {
+			targets = nativeLinkTargets(root)
 		}
 		r := linkResult{Link: link, Action: "blocked", Detail: "cwd cannot be derived from recorded paths"}
 		if r.Target = targets[filepath.Base(filepath.Dir(link))]; r.Target != "" {

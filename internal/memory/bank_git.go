@@ -13,7 +13,6 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -168,18 +167,6 @@ func (r Repo) Head() (string, error) {
 		return "", err
 	}
 	return out, nil
-}
-
-// Log lists the n newest commits as "<sha> <date> <subject>"; nil when there are no commits.
-func (r Repo) Log(n int) ([]string, error) {
-	if head, err := r.Head(); err != nil || head == "" {
-		return nil, err
-	}
-	out, err := r.run("log", "-n", strconv.Itoa(n), "--format=%h %ad %s", "--date=short")
-	if err != nil {
-		return nil, err
-	}
-	return splitLines(out), nil
 }
 
 // Commit stages exactly rels (store-relative; an absent tracked rel stages its deletion) and commits when the

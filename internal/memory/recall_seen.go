@@ -94,10 +94,10 @@ func markSeen(sessionID string, hits []SearchHit) {
 
 func pruneSeen(dir string) {
 	cutoff := time.Now().Add(-seenMaxAge)
-	for _, path := range []string{dir, StateDir()} {
+	for _, path := range []string{dir, StateDir(), filepath.Dir(compactRecordPath(""))} { // + stale compact records
 		ents, _ := os.ReadDir(path)
 		for _, e := range ents {
-			if !e.Type().IsRegular() || path != dir && !prunableSessionState(e.Name()) && !staleSessionRoot(path, e.Name(), cutoff) {
+			if !e.Type().IsRegular() || path == StateDir() && !prunableSessionState(e.Name()) && !staleSessionRoot(path, e.Name(), cutoff) {
 				continue
 			}
 			if fi, err := e.Info(); err == nil && fi.ModTime().Before(cutoff) {

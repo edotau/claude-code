@@ -84,7 +84,7 @@ func updateIfNewLocked(r UpdateRequest, trigger string, now time.Time) (blocked 
 	if trigger == TriggerPreCompact {
 		floor = 1
 	}
-	work = countEdits(r.Transcript, countPath(r.SessionID))
+	work = CountEdits(r.SessionID, r.Transcript)
 	if work > covered && work >= floor {
 		if DispatchUpdate(r, trigger, work, now) {
 			return false, 0, false
@@ -106,7 +106,7 @@ func stampedStop(r UpdateRequest, st updateStamp, stamp string, now time.Time) (
 		if now.Sub(st.at) < updateRearmCooldown {
 			return false, 0, false // cheap gate before the whole-transcript count
 		}
-		work = countEdits(r.Transcript, countPath(r.SessionID))
+		work = CountEdits(r.SessionID, r.Transcript)
 		if work >= st.edits+updateRearmEdits {
 			DispatchUpdate(r, TriggerStop, work, now)
 		}
@@ -127,7 +127,7 @@ func stampedStop(r UpdateRequest, st updateStamp, stamp string, now time.Time) (
 		return false, 0, true // fail open: the block count cannot persist
 	}
 	// The stamp holds the covered count, not the uncovered work, so the message counts live.
-	return true, countEdits(r.Transcript, countPath(r.SessionID)), false
+	return true, CountEdits(r.SessionID, r.Transcript), false
 }
 
 // Updatable reports whether a session can be updated: ids present, not an update child, the transcript a file.

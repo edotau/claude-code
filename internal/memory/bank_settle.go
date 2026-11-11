@@ -244,8 +244,16 @@ func storeRels(dirs []string) []string {
 // A credential-shaped file inside the scope is refused by Commit.
 func commitStore(subject string, scope ...string) error {
 	repo := StoreRepo()
-	if !repo.Exists() || len(scope) == 0 {
+	if len(scope) == 0 {
 		return nil
+	}
+	if !repo.Exists() {
+		if _, err := os.Stat(repo.Dir); err != nil {
+			return nil
+		}
+		if err := repo.Ensure(); err != nil {
+			return err
+		}
 	}
 	st, err := repo.Status(scope...)
 	if err != nil {

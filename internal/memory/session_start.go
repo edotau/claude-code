@@ -22,7 +22,7 @@ var hasBank = bankExists
 // StartSession records the session root, renders the note line + bank surface and advances the session chain.
 func StartSession(sessionID, cwd string, now time.Time) string {
 	recordSessionRoot(sessionID, cwd)
-	prefix, banked := maybeAutoInit(cwd, hasBank(cwd)) // the one bank probe; a scaffold re-probes
+	prefix, banked := maybeAutoInit(cwd, hasBank(cwd)) // the gate probe; a scaffold and the surface re-probe
 	if !IsUpdateChild() {
 		linkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
 	}
@@ -372,7 +372,7 @@ func LiveTranscript(cwd, sessionID string) string {
 }
 
 // Surface caps: a character budget under hooks' 9,500-char additionalContext cap
-// (~1,000 left for the note). The index's slice is reserved so the current pair can never starve it.
+// (~1,000 left for the note); indexCapChars bounds the fallback MEMORY.md index.
 const (
 	totalCapChars = 8500
 	indexCapChars = 2500

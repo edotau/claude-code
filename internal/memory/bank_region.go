@@ -243,28 +243,25 @@ func storeHookFile(path string) string {
 }
 
 // The harness-generated region of MEMORY.md: its pointer lines are never counted, struck, moved or recorded.
-// The region is reserved 40 lines / 4 KB including markers; the native loader caps the whole index at 200 lines / 25 KB.
+// The region is reserved 40 lines / 4 KB including markers.
 const (
-	bankRegionBegin     = "<!-- bank:begin"
-	bankRegionEnd       = "<!-- bank:end -->"
-	bankRegionMaxLines  = 40
-	bankRegionMaxBytes  = 4 * 1024
-	nativeIndexMaxLines = 200
-	nativeIndexMaxBytes = 25 * 1024
+	bankRegionBegin    = "<!-- bank:begin"
+	bankRegionEnd      = "<!-- bank:end -->"
+	bankRegionMaxLines = 40
+	bankRegionMaxBytes = 4 * 1024
 )
 
 // errBankRegion marks a MEMORY.md whose generated region cannot be located safely: a diagnostic, never a guess.
 var errBankRegion = errors.New("malformed bank region")
 
-// bankRegionBounds is scanBankRegion for read-only callers; every rewrite goes through CheckBankRegion first,
-// so a malformed region reads as absent here without ever being guessed at on disk.
+// bankRegionBounds is scanBankRegion for read-only callers; a malformed region reads as absent here.
 func bankRegionBounds(text string) (start, end int) {
 	start, end, _ = scanBankRegion(text)
 	return start, end
 }
 
 // scanBankRegion is the byte range [start,end) of text's generated region, trailing newline included;
-// (-1,-1,nil) when absent, ErrBankRegion for a lone marker, several of either, or end before begin.
+// (-1,-1,nil) when absent, errBankRegion for a lone marker, several of either, or end before begin.
 func scanBankRegion(text string) (start, end int, err error) {
 	start, end = -1, -1
 	begins, ends := 0, 0
@@ -295,54 +292,4 @@ func validateBankRegionBounds(start, end, begins, ends int) (int, int, error) {
 		return -1, -1, fmt.Errorf("%w: %d begin / %d end markers, want one of each, begin first", errBankRegion, begins, ends)
 	}
 	return start, end, nil
-}
-
-// checkBankRegion gates every MEMORY.md rewrite: malformed markers or a region past its reserve reject the mutation.
-func checkBankRegion(text string) error {
-	start, end, err := scanBankRegion(text)
-	if err != nil || start < 0 {
-		return err
-	}
-	region := text[start:end]
-	if n := lineCount(region); n > bankRegionMaxLines || len(region) > bankRegionMaxBytes {
-		return fmt.Errorf("%w: %d lines / %d bytes exceed the %d-line / %d-byte reserve",
-			errBankRegion, n, len(region), bankRegionMaxLines, bankRegionMaxBytes)
-	}
-	return nil
-}
-
-// checkNativeIndexLimits reports a MEMORY.md the native loader would truncate: the whole file, region included.
-func checkNativeIndexLimits(text string) error {
-	if n := lineCount(text); n > nativeIndexMaxLines || len(text) > nativeIndexMaxBytes {
-		return fmt.Errorf("%s: %d lines / %d bytes exceed the native load limit (%d lines / %d bytes)",
-			nativeIndexFile, n, len(text), nativeIndexMaxLines, nativeIndexMaxBytes)
-	}
-	return nil
-}
-
-// outsideBankRegion is text with its generated region cut out; unchanged when there is none.
-func outsideBankRegion(text string) string {
-	start, end := bankRegionBounds(text)
-	if start < 0 {
-		return text
-	}
-	return text[:start] + text[end:]
-}
-
-// bankRegionLines is the set of line indexes (as strings.Split on "\n" numbers them) inside text's region;
-// a malformed region is an error, never an empty set, so a rewrite cannot mistake its lines for pointers.
-func bankRegionLines(text string) (map[int]bool, error) {
-	in := map[int]bool{}
-	start, end, err := scanBankRegion(text)
-	if err != nil || start < 0 {
-		return in, err
-	}
-	off := 0
-	for i, line := range strings.Split(text, "\n") {
-		if off >= start && off < end {
-			in[i] = true
-		}
-		off += len(line) + 1
-	}
-	return in, nil
 }

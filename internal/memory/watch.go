@@ -134,7 +134,7 @@ func idleUpdateOnce(tr, cwd, session string, note io.Writer) (dispatched, spawnF
 		if st, ok := readStamp(stampPath(session)); ok {
 			covered = st.edits
 		}
-		edits := countEdits(tr, countPath(session))
+		edits := CountEdits(session, tr)
 		if edits < updateMinEdits || edits <= covered {
 			return
 		}

@@ -138,7 +138,13 @@ func entriesWithPrefix(path, prefix string) ([]string, error) {
 	}
 	var out []string
 	lines := strings.Split(string(data), "\n")
+	fence := "" // marker run of the open fence; a prefixed line inside one is not an entry
 	for i, line := range lines {
+		inFence := fence != ""
+		fence = nextFence(fence, line)
+		if inFence {
+			continue
+		}
 		if rest, ok := strings.CutPrefix(line, prefix); ok {
 			e := truncateLine(stripID(rest))
 			if id := ownerID(wrappedBlock(lines, i)); id != "" {
@@ -170,12 +176,4 @@ func truncateLine(s string) string {
 		cut = cut[:i]
 	}
 	return cut + "…"
-}
-
-// lineCount counts lines in s (0 for empty) — the budget unit promote/archive split on.
-func lineCount(s string) int {
-	if s == "" {
-		return 0
-	}
-	return strings.Count(strings.TrimRight(s, "\n"), "\n") + 1
 }

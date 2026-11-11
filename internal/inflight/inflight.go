@@ -89,14 +89,8 @@ func liveness(now time.Time) func(name string) bool {
 		if _, ok := Owner(name); !ok {
 			return false
 		}
-		path := filepath.Join(Dir(), name)
-		fi, ierr := os.Stat(path)
-		b, rerr := os.ReadFile(path)
-		if ierr != nil || rerr != nil {
-			return false
-		}
-		_, transcript, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
-		return s.live(name, fi.ModTime(), transcript)
+		_, transcript, mod, ok := readMarker(Dir(), name)
+		return ok && s.live(name, mod, transcript)
 	}
 }
 

@@ -23,14 +23,12 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// Change is one store-relative write or deletion; Checked makes it conditional on Preimage (nil = must not exist).
-// Unchecked, the bytes present at journal time become the preimage, so a replay never clobbers a later edit.
+// Change is one store-relative write or deletion; the bytes present at journal time become its preimage,
+// so a replay never clobbers a later edit.
 type Change struct {
-	Rel      string // store-relative, validated like Commit
-	Data     []byte // new bytes; ignored when Delete
-	Delete   bool
-	Preimage []byte // expected current bytes; with Checked, nil means "must not exist"
-	Checked  bool   // false = fresh import: whatever is there at journal time is the preimage
+	Rel    string // store-relative, validated like Commit
+	Data   []byte // new bytes; ignored when Delete
+	Delete bool
 }
 
 // Receipt records one applied batch; it is returned to the caller and never written.
@@ -41,7 +39,6 @@ type Receipt struct {
 	Skipped     []string // already at Data (or deleted and absent)
 	Divergent   []string // preimage mismatch; left untouched
 	Preexisting []string // dirty native paths outside the batch, swept into Commit
-	Unrecovered []string // older journals that could not be finished and stay on disk
 }
 
 // errDivergent accompanies a receipt when some checked changes found other bytes; what applied is committed.
@@ -54,8 +51,6 @@ type journal struct {
 	Subject string          `json:"subject"`
 	State   string          `json:"state"`
 	Changes []journalChange `json:"changes"`
-
-	unrecovered []string // older journals recoverEach left on disk; stamped on this run's receipt, never persisted
 }
 
 type journalChange struct {
@@ -93,9 +88,6 @@ func commitChangesLocked(subject string, changes []Change) (Receipt, error) {
 	}
 	if err := j.save(); err != nil {
 		return Receipt{}, err
-	}
-	if skipped != nil {
-		j.unrecovered = strings.Split(skipped.Error(), "\n")
 	}
 	rec, err := j.run(repo)
 	if err != nil && skipped != nil { // a stuck journal stays on disk and is retried by the next commit
@@ -146,7 +138,7 @@ func recoverJournal(f string) error {
 }
 
 // newJournal records the batch: preimages as hashes, new bytes verbatim, so replay needs nothing from the caller.
-// An unchecked change hashes the live bytes (none when absent): replay then tells "not applied" from "edited since".
+// Each change hashes the live bytes (none when absent): replay then tells "not applied" from "edited since".
 func newJournal(repo Repo, subject string, changes []Change) (*journal, error) {
 	var rnd [4]byte
 	if _, err := rand.Read(rnd[:]); err != nil {
@@ -154,13 +146,9 @@ func newJournal(repo Repo, subject string, changes []Change) (*journal, error) {
 	}
 	j := &journal{ID: time.Now().UTC().Format("20060102-150405.000") + "-" + hex.EncodeToString(rnd[:]), Subject: subject, State: "pending", Schema: journalSchema}
 	for _, c := range changes {
-		pre := c.Preimage
-		if !c.Checked {
-			cur, err := os.ReadFile(filepath.Join(repo.Dir, c.Rel))
-			if err != nil && !os.IsNotExist(err) {
-				return nil, err
-			}
-			pre = cur // nil when absent
+		pre, err := os.ReadFile(filepath.Join(repo.Dir, c.Rel)) // nil when absent
+		if err != nil && !os.IsNotExist(err) {
+			return nil, err
 		}
 		jc := journalChange{Rel: c.Rel, Delete: c.Delete, HasPreimage: pre != nil}
 		if pre != nil {
@@ -190,7 +178,7 @@ func (j *journal) save() error {
 
 // run drives one journal: check, native capture, apply, commit, retire; a failed commit stays "applied".
 func (j *journal) run(repo Repo) (Receipt, error) {
-	rec := Receipt{ID: j.ID, Unrecovered: j.unrecovered}
+	rec := Receipt{ID: j.ID}
 	present, err := j.applyBatch(repo, &rec)
 	if err != nil {
 		return rec, err
