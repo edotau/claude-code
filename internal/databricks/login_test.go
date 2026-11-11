@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -328,5 +329,60 @@ func TestDbxSaveIdentityKeepsConcurrentRotationOnRowFailure(t *testing.T) {
 	}
 	if got, _, _ := vault.ReadSecret(name); got != "sp-secret-ROTATED" {
 		t.Errorf("rollback clobbered the newer secret, stored value length %d", len(got))
+	}
+}
+
+// --port, --no-browser and --paste reach the oauth options: exact port, no Open, the injected stdin.
+func TestLoginHeadlessFlagsReachOptions(t *testing.T) {
+	seedU2MRow(t)
+	stubValid(t, false)
+	in := strings.NewReader("")
+	oldIn := loginIn
+	loginIn = in
+	t.Cleanup(func() { loginIn = oldIn })
+	var got oauth.LoginOptions
+	old := loginU2M
+	loginU2M = func(_ context.Context, _ *providers.Provider, o oauth.LoginOptions) (time.Duration, error) {
+		got = o
+		return time.Minute, nil
+	}
+	t.Cleanup(func() { loginU2M = old })
+	args := []string{"-p", "dbx-u2m", "--port", "8123", "--no-browser", "--paste"}
+	if code, _, stderr := captureOutput(t, func() int { return login(args) }); code != 0 {
+		t.Fatalf("exit %d stderr %q", code, stderr)
+	}
+	if got.Port != 8123 || !got.ExactPort || !got.NoBrowser || got.Open != nil || got.Paste != io.Reader(in) {
+		t.Errorf("options = %+v", got)
+	}
+}
+
+// The three flags are U2M-only: --as sp and an identity-sp row refuse them (exit 2) and mint nothing.
+func TestLoginHeadlessFlagsRejectedForSP(t *testing.T) {
+	mints := spLoginRow(t, "sp", true, true)
+	for _, args := range [][]string{
+		{"-p", "dbx-sp", "--as", "sp", "--port", "8020"},
+		{"-p", "dbx-sp", "--no-browser"},
+	} {
+		code, _, stderr := captureOutput(t, func() int { return login(args) })
+		if code != 2 || !strings.Contains(stderr, "browser login only") {
+			t.Errorf("%v: exit %d stderr %q, want 2 and the U2M-only message", args, code, stderr)
+		}
+	}
+	if mints.Load() != 0 {
+		t.Errorf("mints = %d, want 0", mints.Load())
+	}
+}
+
+// --dry-run reports the port and modes and opens nothing.
+func TestLoginHeadlessDryRunReportsModes(t *testing.T) {
+	seedU2MRow(t)
+	calls := 0
+	fakeLogin(t, func(*providers.Provider) (time.Duration, error) { calls++; return 0, nil })
+	code, stdout, _ := captureOutput(t, func() int {
+		return login([]string{"-p", "dbx-u2m", "--dry-run", "--force", "--port", "8123", "--no-browser", "--paste"})
+	})
+	if code != 0 || calls != 0 || !strings.Contains(stdout, "callback port 8123 (exact") ||
+		!strings.Contains(stdout, "browser off; paste on") {
+		t.Errorf("exit %d calls %d stdout %q", code, calls, stdout)
 	}
 }

@@ -690,3 +690,96 @@ func TestNormalizeHost(t *testing.T) {
 		}
 	}
 }
+
+// An explicit port is tried alone: a busy one is an error naming it, never the next port up.
+func TestLoginU2MExactPortBusyDoesNotWalk(t *testing.T) {
+	held, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	port := held.Addr().(*net.TCPAddr).Port
+	_, err = LoginU2M(context.Background(), "https://example.cloud.databricks.com",
+		LoginOptions{Port: port, ExactPort: true, Out: io.Discard, Timeout: time.Second})
+	if err == nil || !strings.Contains(err.Error(), "port "+strconv.Itoa(port)) || !strings.Contains(err.Error(), "another process holds it") {
+		t.Fatalf("err = %v, want a busy error naming port %d", err, port)
+	}
+}
+
+// NoBrowser never calls Open and prints the forward hint without SSH_CONNECTION.
+func TestLoginU2MNoBrowserPrintsHintWithoutOpen(t *testing.T) {
+	t.Setenv("SSH_CONNECTION", "")
+	var out strings.Builder
+	opened := false
+	port := freePort(t)
+	_, err := LoginU2M(context.Background(), "https://example.cloud.databricks.com", LoginOptions{
+		Open: func(string) error { opened = true; return nil }, NoBrowser: true, Out: &out, Port: port, Timeout: 300 * time.Millisecond,
+	})
+	if err == nil || opened {
+		t.Fatalf("err=%v opened=%v, want a timeout and no Open", err, opened)
+	}
+	if want := fmt.Sprintf("ssh -L %d:localhost:%d", port, port); !strings.Contains(out.String(), want) ||
+		!strings.Contains(out.String(), "/oidc/v1/authorize?") {
+		t.Errorf("Out = %q, want the URL and %q", out.String(), want)
+	}
+}
+
+// pasteTap is an Out writer that answers the printed sign-in URL with a pasted redirect line on a pipe.
+type pasteTap struct {
+	pw    *io.PipeWriter
+	state func(string) string
+}
+
+func (p pasteTap) Write(b []byte) (int, error) {
+	for line := range strings.SplitSeq(string(b), "\n") {
+		if !strings.Contains(line, "/oidc/v1/authorize?") {
+			continue
+		}
+		if u, err := url.Parse(line); err == nil {
+			q := u.Query()
+			go func() {
+				_, _ = io.WriteString(p.pw, q.Get("redirect_uri")+"/?code=pasted-code&state="+p.state(q.Get("state"))+"\n")
+			}()
+		}
+	}
+	return len(b), nil
+}
+
+func pasteLogin(t *testing.T, srv *httptest.Server, state func(string) string) (Token, error) {
+	t.Helper()
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { pw.Close() })
+	return LoginU2M(context.Background(), srv.URL, LoginOptions{
+		NoBrowser: true, Out: pasteTap{pw, state}, Paste: pr, Port: freePort(t), Timeout: 10 * time.Second,
+	})
+}
+
+func TestLoginU2MPasteWithValidStateExchanges(t *testing.T) {
+	var form url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		form = r.PostForm
+		tokenJSON(w, "acc-p", "ref-p")
+	}))
+	defer srv.Close()
+	tok, err := pasteLogin(t, srv, same)
+	if err != nil || tok.Access != "acc-p" || tok.Refresh != "ref-p" {
+		t.Fatalf("tok=%+v err=%v", tok, err)
+	}
+	if form.Get("code") != "pasted-code" || !strings.HasPrefix(form.Get("redirect_uri"), "http://localhost:") {
+		t.Errorf("exchange form = %v", form)
+	}
+}
+
+func TestLoginU2MPasteWithWrongStateIsRejected(t *testing.T) {
+	var posts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { posts.Add(1); tokenJSON(w, "a", "r") }))
+	defer srv.Close()
+	_, err := pasteLogin(t, srv, func(string) string { return "forged" })
+	if err == nil || !strings.Contains(err.Error(), "wrong state") || posts.Load() != 0 {
+		t.Fatalf("err=%v posts=%d, want a wrong-state error and no exchange", err, posts.Load())
+	}
+	if strings.Contains(err.Error(), "pasted-code") || strings.Contains(err.Error(), "forged") {
+		t.Errorf("error echoes the pasted URL: %v", err)
+	}
+}

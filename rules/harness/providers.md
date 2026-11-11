@@ -76,3 +76,15 @@ static menu: routing never touches the network.
   mints) and an interactive prompt do.
 - `auto` tries the user token, then `oauth.MintM2M` on a rejection or login-required, with a one-line stderr note;
   `user` never mints the SP; `sp` mints only the SP, no browser. The SP never refreshes the user login.
+
+## Headless login
+
+`databricks login` (a u2m row; not `--as sp`, which rejects these flags) works without a local browser:
+
+- Over SSH: `ssh -L 8020:localhost:8020 <host>`, then run `claude-code databricks login --no-browser --port 8020` on
+  the host and open the printed URL in your own browser.
+- `--port N` listens on exactly N and fails if another process holds it; without it the callback walks 8020 to 8040.
+- `--no-browser` opens nothing and always prints the URL and the `ssh -L` hint (not only when `SSH_CONNECTION` is set).
+- `--paste` also reads one line from stdin: with no forward, copy the failed `http://localhost:<port>/?code=...` URL
+  from the browser's address bar and paste it. Its `state` is checked; the callback and the paste race, first wins.
+- `--dry-run` with these flags prints the port and modes and opens nothing.

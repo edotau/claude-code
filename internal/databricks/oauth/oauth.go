@@ -2,6 +2,7 @@
 package oauth
 
 import (
+	"bufio"
 	"cmp"
 	"context"
 	"crypto/rand"
@@ -318,6 +319,12 @@ type LoginOptions struct {
 	Timeout time.Duration
 	// Port is the first localhost callback port to try (default 8020, falling back upward to 8040).
 	Port int
+	// ExactPort tries Port alone: a busy port is an error, never a walk upward.
+	ExactPort bool
+	// NoBrowser never calls Open and always prints the SSH forward hint.
+	NoBrowser bool
+	// Paste, when set, also reads one pasted redirect URL from it; whichever of that and the callback comes first wins.
+	Paste io.Reader
 }
 
 // loopback serves one callback port on every loopback family the host has.
@@ -334,10 +341,13 @@ func (l *loopback) Close() error {
 func (l *loopback) Addr() net.Addr { return l.ls[0].Addr() }
 
 // listenLoopback binds 127.0.0.1 (and ::1 when the host has it) on the first free port from first to first+portSpan.
-func listenLoopback(first int) (*loopback, int, error) {
+func listenLoopback(first int) (*loopback, int, error) { return listenPorts(first, first+portSpan) }
+
+// listenPorts is listenLoopback over first..last; first == last is an exact port, and busy is an error naming it.
+func listenPorts(first, last int) (*loopback, int, error) {
 	var lc net.ListenConfig
 	var other error // the last listen error that was not EADDRINUSE
-	for port := first; port <= first+portSpan; port++ {
+	for port := first; port <= last; port++ {
 		v4, err := lc.Listen(context.Background(), "tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if err != nil {
 			if !errors.Is(err, syscall.EADDRINUSE) {
@@ -356,10 +366,16 @@ func listenLoopback(first int) (*loopback, int, error) {
 		}
 		return lb, port, nil
 	}
-	if other != nil {
-		return nil, 0, fmt.Errorf("oauth: login callback ports %d-%d on localhost: %w", first, first+portSpan, other)
+	if first == last {
+		if other != nil {
+			return nil, 0, fmt.Errorf("oauth: login callback port %d on localhost: %w", first, other)
+		}
+		return nil, 0, fmt.Errorf("oauth: login callback port %d on localhost is busy: another process holds it", first)
 	}
-	return nil, 0, fmt.Errorf("oauth: login callback ports %d-%d on localhost are busy (another login running?)", first, first+portSpan)
+	if other != nil {
+		return nil, 0, fmt.Errorf("oauth: login callback ports %d-%d on localhost: %w", first, last, other)
+	}
+	return nil, 0, fmt.Errorf("oauth: login callback ports %d-%d on localhost are busy (another login running?)", first, last)
 }
 
 // randomB64 returns n random bytes, base64url without padding.
@@ -431,21 +447,60 @@ func authorizeURL(host, redirect, state, verifier string) string {
 	}.Encode()
 }
 
-// await blocks for the browser redirect and returns its authorization code.
-func await(ctx context.Context, h string, cb *callback) (string, error) {
+// readPaste reads one line from r in the background; a closed stdin with no data sends nothing.
+func readPaste(r io.Reader) <-chan string {
+	ch := make(chan string, 1)
+	go func() {
+		if line, err := bufio.NewReader(r).ReadString('\n'); err == nil || line != "" {
+			ch <- line
+		}
+	}()
+	return ch
+}
+
+// parsePaste checks the state of a pasted redirect URL and classifies it; the text is never echoed in an error.
+func parsePaste(line, state string) (callbackResult, error) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return callbackResult{}, errors.New("nothing was pasted; expected the full redirected URL")
+	}
+	u, err := url.Parse(line)
+	if err != nil || u.RawQuery == "" {
+		return callbackResult{}, errors.New("the pasted text is not a redirected URL carrying code and state")
+	}
+	q := u.Query()
+	if subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(state)) != 1 {
+		return callbackResult{}, errors.New("the pasted URL has the wrong state; paste the redirect of this login attempt")
+	}
+	return classify(q), nil
+}
+
+// await blocks for the browser redirect or a pasted one (paste may be nil) and returns its authorization code.
+func await(ctx context.Context, h string, cb *callback, paste <-chan string) (string, error) {
 	select {
 	case res := <-cb.res:
-		if res.err != nil {
-			res.err.Host = h
-			return "", res.err
+		return codeOf(h, res)
+	case line := <-paste:
+		res, err := parsePaste(line, cb.state)
+		if err != nil {
+			return "", fmt.Errorf("oauth: login at %s: %w", h, err)
 		}
-		if res.miss {
-			return "", fmt.Errorf("oauth: login at %s: callback carried no authorization code", h)
-		}
-		return res.code, nil
+		return codeOf(h, res)
 	case <-ctx.Done():
 		return "", fmt.Errorf("oauth: login at %s: waiting for the browser callback: %w", h, ctx.Err())
 	}
+}
+
+// codeOf returns the authorization code of a redirect result, or its error.
+func codeOf(h string, res callbackResult) (string, error) {
+	if res.err != nil {
+		res.err.Host = h
+		return "", res.err
+	}
+	if res.miss {
+		return "", fmt.Errorf("oauth: login at %s: callback carried no authorization code", h)
+	}
+	return res.code, nil
 }
 
 // LoginU2M runs the browser authorization-code + PKCE flow against host and returns access and refresh tokens.
@@ -463,7 +518,11 @@ func LoginU2M(ctx context.Context, host string, opts LoginOptions) (Token, error
 	if err := errors.Join(err1, err2); err != nil {
 		return Token{}, fmt.Errorf("oauth: login at %s: %w", h, err)
 	}
-	ln, port, err := listenLoopback(opts.Port)
+	last := opts.Port + portSpan
+	if opts.ExactPort {
+		last = opts.Port
+	}
+	ln, port, err := listenPorts(opts.Port, last)
 	if err != nil {
 		return Token{}, err
 	}
@@ -473,14 +532,21 @@ func LoginU2M(ctx context.Context, host string, opts LoginOptions) (Token, error
 
 	redirect := "http://localhost:" + strconv.Itoa(port)
 	authURL := authorizeURL(h, redirect, state, verifier)
-	if opts.Open != nil {
+	if opts.Open != nil && !opts.NoBrowser {
 		_ = opts.Open(authURL)
 	}
 	fmt.Fprintf(opts.Out, "Open this URL in a browser to sign in to %s:\n%s\n", h, authURL)
-	if os.Getenv("SSH_CONNECTION") != "" {
+	if opts.NoBrowser {
+		fmt.Fprintf(opts.Out, "Forward the callback first: ssh -L %d:localhost:%d <this-host>\n", port, port)
+	} else if os.Getenv("SSH_CONNECTION") != "" {
 		fmt.Fprintf(opts.Out, "Over SSH, forward the callback first: ssh -L %d:localhost:%d <this-host>\n", port, port)
 	}
-	code, err := await(ctx, h, cb)
+	var paste <-chan string
+	if opts.Paste != nil {
+		fmt.Fprintf(opts.Out, "No forward? Paste the full redirected URL (http://localhost:%d/?code=...&state=...) and press Enter:\n", port)
+		paste = readPaste(opts.Paste)
+	}
+	code, err := await(ctx, h, cb, paste)
 	if err != nil {
 		return Token{}, err
 	}
