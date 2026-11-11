@@ -280,10 +280,10 @@ func TestSpecsFor(t *testing.T) {
 		{"copilot", "native", -1, "memory-end", "memory-start", nil},
 		{"copilot", "sdk", len(names("copilot", "native")), "memory-recall", "rtk-rewrite", nil},
 		{"codex", "sdk", 0, "", "", nil},
-		{"opencode", "hosted", 16, "memory-end", "rtk-rewrite", []string{
+		{"opencode", "hosted", 14, "memory-end", "worktree-busy", []string{
 			"docs-placement", "docs-plan-gate", "docs-plan-mirror", "docs-plan-reminder", "docs-plan-skeleton-prompt",
 			"docs-plan-tick", "format-stop", "memory-end", "memory-recall", "memory-start", "memory-update",
-			"paths-resolve", "review-simplicity", "safety-scan", "worktree-busy", "worktree-mode"}},
+			"paths-resolve", "review-simplicity", "safety-scan"}},
 		{"opencode", "plugin", 5, "worktree-claim-check", "memory-end", nil},
 		{"opencode", "native", 0, "", "", nil},
 		{"claude", "bogus", 0, "", "", nil},

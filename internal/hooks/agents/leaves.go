@@ -108,13 +108,13 @@ func Stop(in *core.Input) core.Result {
 	if blocked {
 		return note // a blocked stop retires nothing: the leaf is still running
 	}
-	reapLeaf(in, lr)
 	clearErr := docs.ClearStoppedClaim(in, dirs, id) // before the retire: it reads the same meta.json
 	for _, d := range dirs {
 		if d != "" {
 			inflight.RetireAgent(owner, d, id)
 		}
 	}
+	reapLeaf(in, lr) // last: a reap that outruns the host timeout must not strand the claim and the slot
 	return core.WithStderr(note, clearErr)
 }
 
@@ -192,8 +192,12 @@ func leafGate(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
 	if block {
 		return expired, true
 	}
-	if res, block := ranOnVerdict(in, agentID, lr); block || expired.SystemMessage == "" {
+	res, block := ranOnVerdict(in, agentID, lr)
+	if block || expired.SystemMessage == "" {
 		return res, block
+	}
+	if res.SystemMessage != "" {
+		expired.SystemMessage = res.SystemMessage + "; " + expired.SystemMessage
 	}
 	return expired, false
 }

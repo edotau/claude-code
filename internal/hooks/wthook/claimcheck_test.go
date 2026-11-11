@@ -35,10 +35,12 @@ func claimEdit(t *testing.T, repo string, owner int, session, rel string) {
 	hosttest.WriteRel(t, repo, rel, "edited by "+session+"\n")
 	Claim(claimInput(t, map[string]any{"session_id": session, "cwd": repo, "tool_name": "Edit",
 		"tool_input": map[string]any{"file_path": rel}}))
+	useClaimOwner(t, checkerOwner) // the checks that follow run as another process
 }
 
 func claimCheckOn(t *testing.T, repo, session, tool string, input map[string]any) core.Result {
 	t.Helper()
+	useClaimOwner(t, checkerOwner) // the check runs as a process other than the claimants
 	return ClaimCheck(claimInput(t, map[string]any{"session_id": session, "cwd": repo, "tool_name": tool,
 		"tool_input": input}))
 }
@@ -63,6 +65,7 @@ func TestClaimCheckGitPathspecs(t *testing.T) {
 	useClaimOwner(t, liveOwner)
 	Claim(claimInput(t, map[string]any{"session_id": "deleter", "cwd": repo, "tool_name": "Bash",
 		"tool_input": map[string]any{"command": "git add -- a.txt"}}))
+	useClaimOwner(t, checkerOwner)
 	claims, err := liveClaims(&core.Input{SessionID: "A"})
 	if err != nil || len(claims[filepath.Join(repo, "a.txt")]) != 1 {
 		t.Fatalf("staged deletion lost its claim: %v, err = %v", claims, err)
@@ -110,6 +113,26 @@ func TestClaimCheck(t *testing.T) {
 		if r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": cmd}); r.Decision != core.Allow {
 			t.Fatalf("%s: %v %q; want allow", cmd, r.Decision, r.Reason)
 		}
+	}
+}
+
+// TestClaimCheckOwnPidNewSlug: after /clear or a resume the same pid files under a new slug; that is no peer.
+func TestClaimCheckOwnPidNewSlug(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		checkPid  int
+		wantAsked bool
+	}{{"same pid, new session", liveOwner, false}, {"other pid, other session", checkerOwner, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := claimFixture(t)
+			claimEdit(t, repo, liveOwner, "OLD", "a.txt")
+			useClaimOwner(t, tc.checkPid)
+			r := ClaimCheck(claimInput(t, map[string]any{"session_id": "NEW", "cwd": repo, "tool_name": "Bash",
+				"tool_input": map[string]any{"command": "git add -A"}}))
+			if asked := r.Decision == core.Ask; asked != tc.wantAsked {
+				t.Fatalf("git add -A as pid %d: %v %q; want ask = %v", tc.checkPid, r.Decision, r.Reason, tc.wantAsked)
+			}
+		})
 	}
 }
 

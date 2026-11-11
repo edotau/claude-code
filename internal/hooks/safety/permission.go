@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 )
 
-// gateTools maps a hook tool name, Claude's, opencode's or agy's, to the rule tool Decide judges it as.
+// gateTools maps a canonical hook tool name (codex's apply_patch is Edit) to the rule tool Decide judges it as.
 var gateTools = map[string]string{
 	"bash": "Bash", "run_command": "Bash", "write": "Edit", "edit": "Edit", "multiedit": "Edit", "read": "Read",
 	"write_file": "Edit", "edit_file": "Edit", "read_file": "Read", "webfetch": "WebFetch",
@@ -34,7 +34,7 @@ func PermissionGate(in *core.Input) core.Result {
 	if in.ToolName == "" && len(p.Deny) > 0 { // unparseable or truncated stdin: the call cannot be judged
 		return noToolResult(p)
 	}
-	tool, ok := gateTools[strings.ToLower(in.ToolName)]
+	tool, ok := gateTools[strings.ToLower(in.CanonicalTool())]
 	if !ok {
 		return core.Result{}
 	}
@@ -99,7 +99,7 @@ func modeNote(p agent.Permissions) string {
 }
 
 // gateArgs are the arguments a rule matches for tool: the command, the URL, or the cwd-relative paths — one per file an
-// opencode apply_patch touches, each judged on its own.
+// apply_patch touches (opencode's patchText, codex's command/input/patch), each judged on its own.
 func gateArgs(in *core.Input, tool string) []string {
 	switch tool {
 	case "Bash":
@@ -107,9 +107,9 @@ func gateArgs(in *core.Input, tool string) []string {
 	case "WebFetch":
 		return []string{in.Nested("tool_input", "url")}
 	}
-	if patch := in.Nested("tool_input", "patchText"); patch != "" {
+	for _, key := range patchKeys {
 		var out []string
-		for _, f := range patchFiles(patch) {
+		for _, f := range patchFiles(in.Nested("tool_input", key)) {
 			out = append(out, pathForms(in.CWD, f)...)
 		}
 		if len(out) > 0 {
@@ -131,6 +131,9 @@ func patchFiles(patch string) []string {
 	}
 	return out
 }
+
+// patchKeys are the tool_input keys a patch body arrives under: opencode's, then codex's.
+var patchKeys = []string{"patchText", "patch", "input", "command"}
 
 var patchHeaders = []string{"*** Add File:", "*** Update File:", "*** Delete File:", "*** Move to:"}
 

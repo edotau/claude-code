@@ -34,6 +34,25 @@ func TestDispatchBlockingGateFailsClosedOnPanic(t *testing.T) {
 	}
 }
 
+// A panic in a module's own process: an advisory module proceeds (Go's own exit 2 would read as a block), a Blocks gate blocks.
+func TestRunDirectPanicAdvisoryProceedsGateBlocks(t *testing.T) {
+	for _, name := range []string{"memory-start", "safety-scan"} {
+		orig := native[name]
+		native[name] = func(*core.Input) core.Result { panic("module blew up") }
+		t.Cleanup(func() { native[name] = orig })
+	}
+	var out, errb bytes.Buffer
+	if code := runDirect("memory-start", strings.NewReader(`{"session_id":"s"}`), &out, &errb); code != core.ExitProceed ||
+		!strings.Contains(errb.String(), "panic: module blew up") {
+		t.Errorf("advisory panic: exit %d stderr %q; want proceed with the panic on stderr", code, errb.String())
+	}
+	errb.Reset()
+	if code := runDirect("safety-scan", hosttest.BashPayload("ls"), &out, &errb); code != core.ExitBlock ||
+		!strings.Contains(errb.String(), "panic: module blew up") {
+		t.Errorf("gate panic: exit %d stderr %q; want ExitBlock naming the panic", code, errb.String())
+	}
+}
+
 // unparseable are a garbled and a truncated hook payload.
 var unparseable = []string{`{not json`, `{"tool_name":"Bash","tool_input":{"command":"rm -rf /ho`}
 

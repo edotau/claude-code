@@ -163,8 +163,8 @@ var Registry = []Group{
 		{Name: "worktree-create", Event: EventWorktreeCreate, Budget: 60 * sec},
 		{Name: "worktree-remove", Event: EventWorktreeRemove, Budget: 30 * sec},
 		// Ask-about-a-worktree notes (silent when HARNESS_WORKTREE=off); the busy check runs every prompt, so it stays cheap.
-		{Name: "worktree-mode", Event: EventSessionStart, Budget: 5 * sec, Hosted: []string{"opencode"}},
-		{Name: "worktree-busy", Event: EventUserPromptSubmit, Budget: 5 * sec, Hosted: []string{"opencode"}},
+		{Name: "worktree-mode", Event: EventSessionStart, Budget: 5 * sec},
+		{Name: "worktree-busy", Event: EventUserPromptSubmit, Budget: 5 * sec},
 		// Each Write/Edit path (and each landed commit sha) appends to this session's claims ledger; never blocks.
 		{Name: "worktree-claim", Event: EventPostToolUse, Matcher: "Write|Edit|Bash", Budget: 5 * sec},
 		// Before an edit, notes a dirty file another live session/leaf claims; before git add/commit, asks on one.

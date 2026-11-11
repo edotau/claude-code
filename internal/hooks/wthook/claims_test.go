@@ -29,8 +29,8 @@ func useClaimOwner(t *testing.T, pid int) {
 	t.Cleanup(func() { claimOwner = orig })
 }
 
-// liveOwner and deadOwner are the fake session owner pids the claims tests file under.
-const liveOwner, deadOwner = 100, 200
+// liveOwner and deadOwner are the fake session owner pids the claims tests file under; checkerOwner runs the check.
+const liveOwner, deadOwner, checkerOwner = 100, 200, 300
 
 // TestWorktreeClaimRecordsEditsAndCommits: an Edit appends its path, a commit its sha; no session writes nothing.
 func TestWorktreeClaimRecordsEditsAndCommits(t *testing.T) {
