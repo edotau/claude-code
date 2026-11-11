@@ -176,10 +176,7 @@ func Dir(root string) string {
 	if d, err := RepoDir(root); err == nil { // one dir per repo shared with native memory; the harness is memory/claude-code
 		return d
 	}
-	switch id := Resolve(root); {
-	case id.HomeBank:
-		return HomeBankDir()
-	case id.Harness:
+	if Resolve(root).Harness { // a vault failure also resolves to the home tier, which Dir must not follow
 		return harnessStoreDir()
 	}
 	return filepath.Join(StateDir(), "unresolved-store")

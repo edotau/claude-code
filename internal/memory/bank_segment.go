@@ -78,7 +78,7 @@ func searchTopicFiles(dir string) []string {
 }
 
 func parseBlocks(mode segMode, base string, data []byte) []string {
-	s := string(data)
+	s := strings.ReplaceAll(string(data), "\r\n", "\n") // the frontmatter parsers anchor on a bare newline
 	switch mode {
 	case segEntries:
 		_, blocks := entryBlocks(base, s)

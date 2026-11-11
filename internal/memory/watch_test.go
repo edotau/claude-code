@@ -154,8 +154,10 @@ func TestSessionUpdateSpawnsOneIdleWatcherPerSession(t *testing.T) {
 	}
 }
 
-// The watcher is bound to its session process: once that pid is gone it exits on the next poll.
+// The watcher is bound to its session process: once that pid is gone it dispatches the uncovered update and exits.
 func TestIdleUpdateWatchExitsWhenOwnerDies(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	spawns := StubSpawn(t, true)
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	hosttest.WriteEdits(t, tr, 6)
 	prev := updateWatchPoll
@@ -177,6 +179,9 @@ func TestIdleUpdateWatchExitsWhenOwnerDies(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("watcher did not exit after its owner died")
+	}
+	if n := spawns.Update.Load(); n != 1 {
+		t.Errorf("final update dispatches after owner death = %d, want 1", n)
 	}
 }
 

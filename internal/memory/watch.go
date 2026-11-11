@@ -83,7 +83,8 @@ type watchLoop struct {
 // poll runs one watch iteration and reports whether the watcher should exit.
 func (w *watchLoop) poll() (exit bool) {
 	if ownerDead(w.owner) {
-		return true // session process gone: SessionEnd (or the last Stop) already had its chance
+		idleUpdateOnce(w.tr, w.cwd, w.session, w.stderr) // no SessionEnd on a crash; the stamp makes it a no-op if one ran
+		return true
 	}
 	fi, err := os.Stat(w.tr)
 	if err != nil {

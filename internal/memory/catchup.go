@@ -32,7 +32,7 @@ type sweepCand struct {
 
 func catchupDonePath() string { return filepath.Join(StateDir(), "catchup-done") }
 
-// transcriptInteractive: a person's session has entrypoint "cli"; `claude -p` workers, leaves and pings say "sdk-cli".
+// transcriptInteractive: `claude -p` workers, leaves and pings say "sdk-*"; any other entrypoint is a person.
 func transcriptInteractive(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
@@ -46,7 +46,7 @@ func transcriptInteractive(path string) bool {
 			Entrypoint string `json:"entrypoint"`
 		}
 		if json.Unmarshal(line, &rec) == nil && rec.Entrypoint != "" {
-			return rec.Entrypoint == "cli"
+			return !strings.HasPrefix(rec.Entrypoint, "sdk-")
 		}
 		if err != nil {
 			break

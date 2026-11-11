@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -148,6 +149,9 @@ func embedBase(c *EmbedClient, now time.Time, force bool) (vectorRecord, error) 
 		return vectorRecord{}, fmt.Errorf("embeddings: unsafe profile name %q", c.Profile)
 	}
 	rec, err := readEmbedCache(c.Profile)
+	if embedDBBroken(err) && quarantineEmbedDB() == nil { // a derived cache: set the damaged file aside and mint anew
+		rec, err = readEmbedCache(c.Profile)
+	}
 	if err != nil {
 		return vectorRecord{}, err
 	}
@@ -368,7 +372,9 @@ func NewSemantic(query string) (*Semantic, error) {
 	select {
 	case r := <-done:
 		if r.err != nil {
-			_ = paths.AtomicWrite(backoff, nil, 0o600)
+			if !errors.Is(r.err, errEmbedMismatch) { // a local config mismatch says nothing about the endpoint
+				_ = paths.AtomicWrite(backoff, nil, 0o600)
+			}
 			if ctx.Err() != nil {
 				return nil, fmt.Errorf("query embedding exceeded %s", embedRecallWait)
 			}
@@ -559,10 +565,12 @@ func semanticCache() (string, vectorRecord, error) {
 	var profile string
 	var cache vectorRecord
 	var readErr error
+	var tried []string
 	for _, name := range []string{providers.SessionProfile(), providers.AgentRecord("claude").Profile} {
-		if name == "" || name == profile || !safeProfile.MatchString(name) {
+		if name == "" || slices.Contains(tried, name) || !safeProfile.MatchString(name) {
 			continue
 		}
+		tried = append(tried, name)
 		c, err := readProfileCache(name)
 		if err != nil { // a locked or unreadable profile is a miss; the next one may serve
 			readErr = err
@@ -586,6 +594,9 @@ func semanticCacheMiss(readErr error) error {
 	return errors.New("no embedding cache")
 }
 
+// errEmbedMismatch marks a query that cannot use the cache (namespace or dimension): local config, not an endpoint failure.
+var errEmbedMismatch = errors.New("embedding cache mismatch")
+
 type semanticResult struct {
 	vec []float32
 	err error
@@ -597,7 +608,7 @@ func querySemantic(ctx context.Context, profile, query string, cache vectorRecor
 		return semanticResult{err: err}
 	}
 	if cache.Namespace == "" || c.Namespace != cache.Namespace { // checked first: no prompt text leaves on a mismatch
-		return semanticResult{err: errors.New("embedding cache belongs to another workspace or model")}
+		return semanticResult{err: fmt.Errorf("%w: belongs to another workspace or model", errEmbedMismatch)}
 	}
 	vecs, err := c.Embed(ctx, []string{query})
 	if err == nil && len(vecs) != 1 {
@@ -607,7 +618,7 @@ func querySemantic(ctx context.Context, profile, query string, cache vectorRecor
 		return semanticResult{err: err}
 	}
 	if !cacheDimMatches(cache, len(vecs[0])) {
-		return semanticResult{err: errors.New("embedding dimension differs from the cache")}
+		return semanticResult{err: fmt.Errorf("%w: dimension differs", errEmbedMismatch)}
 	}
 	return semanticResult{vec: normalize(vecs[0])}
 }
@@ -635,6 +646,11 @@ func embeddingModelFor(ctx context.Context, p *providers.Provider) (string, erro
 	return model, nil
 }
 
+// embedNamespace names the workspace and model a cache was embedded against.
+func embedNamespace(name, host, model string) string {
+	return name + "|" + strings.TrimRight(host, "/") + "|" + model
+}
+
 // openDatabricksEmbed is profile's embeddings client; credentials come only from providers.Authorize.
 func openDatabricksEmbed(ctx context.Context, profile, model string) (*EmbedClient, error) {
 	reg, err := providers.Load()
@@ -654,7 +670,7 @@ func openDatabricksEmbed(ctx context.Context, profile, model string) (*EmbedClie
 			return nil, err
 		}
 	}
-	ns := p.Name + "|" + strings.TrimRight(p.Host, "/") + "|" + model
+	ns := embedNamespace(p.Name, p.Host, model)
 	return &EmbedClient{Profile: p.Name, Model: model, Namespace: ns, EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
 		return embedDatabricks(ctx, p, model, texts)
 	}}, nil

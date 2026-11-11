@@ -412,7 +412,7 @@ func (v *claimVerifier) loadSymbols(claims []verifyClaim) {
 	}
 	// Listing matches short-circuits each file; grep -o repeats every pattern at every matching position.
 	out, err := verifyGit(v.store.repo, strings.Join(tokens, "\n")+"\n", "grep", "--threads=4",
-		"--no-color", "--full-name", "-I", "-w", "-l", "-z", "-F", "-f", "-", "--")
+		"--no-color", "--full-name", "-I", "-w", "-l", "-z", "-F", "-f", "-", "--", "*.go")
 	if err != nil {
 		return
 	}

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestBankFilesReturnsIndependentSlice(t *testing.T) {
@@ -115,5 +117,25 @@ func TestPersistenceCreateExclRemovesPartial(t *testing.T) {
 	}
 	if got := aliasRead(t, path); got != "retry\n" {
 		t.Errorf("retry retained partial scaffold: %q", got)
+	}
+}
+
+// Given an unreadable vault, When Dir resolves a non-git workspace, Then it is the inert path, never the home bank.
+func TestDirVaultFailureIsNotHomeBank(t *testing.T) {
+	tempConfig(t)
+	resetVaultRetry(t)
+	if _, err := EnsureRepoDir(gitRepo(t, t.TempDir(), "project")); err != nil { // a store the dead vault cannot resolve
+		t.Fatal(err)
+	}
+	orig := originRows
+	originRows = func() (map[string]string, error) { return nil, errors.New("vault unreadable") }
+	t.Cleanup(func() { originRows = orig; repoDirsMemo.reset() })
+	repoDirsMemo.reset()
+	root := canonTemp(t, t.TempDir())
+	if _, err := RepoDir(root); err == nil {
+		t.Fatal("RepoDir succeeded with an unreadable vault")
+	}
+	if got := Dir(root); paths.SamePath(got, HomeBankDir()) {
+		t.Errorf("Dir(%s) = the home bank %s on a vault failure", root, got)
 	}
 }

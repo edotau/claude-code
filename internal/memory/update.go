@@ -56,8 +56,11 @@ const (
 // updateGrace must exceed the worker's own timeout, or a healthy long update reads as lost.
 const updateGrace = 16 * time.Minute
 
-// updateLockWait is how long an update waits for a peer's .postupdate lock before giving up as busy.
-const updateLockWait = 5 * time.Second
+// updateLockWait is how long an update waits for a peer's .postupdate lock before giving up as busy; a var for tests.
+var updateLockWait = 5 * time.Second
+
+// homeLockWait is how long a worker queues for the shared home bank's lock behind another repo's agent run; a var for tests.
+var homeLockWait = 15 * time.Minute
 
 // updateTimeout bounds the headless claude run.
 const updateTimeout = 15 * time.Minute
@@ -272,14 +275,29 @@ func update(o updateOptions) error {
 	dir := Dir(o.CWD)
 	var run updateRun
 	// Bounded wait: a peer update/dream may hold this lock for minutes, and a Stop hook must not block on it.
-	ran, lockErr := paths.TryFileLock(lockPath(dir)+".lock", updateLockWait, func() error { return run.locked(o, dir) })
-	if !ran { // lock never taken: nothing ran, and settling unlocked would race the holder
+	ran, lockErr := paths.TryFileLock(lockPath(dir)+".lock", updateLockWait, func() error { return run.lockedWithHome(o, dir) })
+	if !ran || run.homeBusy { // lock never taken: nothing ran, and settling unlocked would race the holder
+		uncoverStamp(o.Session) // the dispatch stamped this work as covered; hand it back to the next trigger or sweep
 		return errors.Join(fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock"))), record(updateFailed, false))
 	}
 	if err := errors.Join(lockErr, run.runErr, run.settleErr); err != nil {
 		return errors.Join(fmt.Errorf("headless update: %w", err), record(updateFailed, run.updated))
 	}
 	return record(updateOK, run.updated)
+}
+
+// uncoverStamp resets a dispatch stamp ("bg") to zero covered edits, keeping its time so the Stop cooldown still holds.
+func uncoverStamp(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	path := stampPath(sessionID)
+	_ = paths.WithFileLock(path, func() error {
+		if st, ok := readStamp(path); ok && st.state == "bg" && st.edits > 0 {
+			return writeStamp(path, st.at, "bg", 0)
+		}
+		return nil
+	})
 }
 
 func updateDefaults(o updateOptions) updateOptions {
@@ -297,6 +315,7 @@ type updateRun struct {
 	before, beforeHome time.Time
 	runErr, settleErr  error
 	updated            bool
+	homeBusy           bool // the home bank's lock was never granted: nothing ran
 }
 
 // finish settles under the writer lock and reports whether the update wrote either bank tier.
@@ -311,6 +330,21 @@ func (r *updateRun) finish(o updateOptions, dir string) (updated bool, err error
 		fmt.Fprintln(o.Out, "memory update: doctor notice:", err)
 	}
 	return updated, nil
+}
+
+// withHomeLock runs fn under the shared home bank's lock, taken after the repo lock (the fixed order); ran=false = busy.
+func withHomeLock(dir string, fn func() error) (ran bool, err error) {
+	if paths.SamePath(dir, HomeBankDir()) {
+		return true, fn() // dir's own lock is the home lock
+	}
+	return paths.TryFileLock(lockPath(HomeBankDir())+".lock", homeLockWait, fn)
+}
+
+// lockedWithHome is locked under the home bank's lock too: the agent may edit it, and repos have separate store locks.
+func (r *updateRun) lockedWithHome(o updateOptions, dir string) error {
+	ran, err := withHomeLock(dir, func() error { return r.locked(o, dir) })
+	r.homeBusy = !ran
+	return err
 }
 
 // locked runs the agent update and its settlement under the store lock; errors ride in the run struct.

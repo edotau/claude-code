@@ -185,7 +185,7 @@ func (s *bankScan) special(i int, line string) bool {
 	case bankFmtFence.MatchString(line):
 		s.fence = fenceRun(trimmed)
 	case strings.Contains(line, "RULES:BEGIN"):
-		s.inRules = true
+		s.inRules = !strings.Contains(line, "RULES:END")
 	case s.inRules:
 		s.inRules = !strings.Contains(line, "RULES:END")
 	default:

@@ -97,3 +97,23 @@ func TestPersistenceAliasDryRunRefusesReadErrors(t *testing.T) {
 		})
 	}
 }
+
+// Given a stray file in projects/, When the plan scans project links, Then it is skipped and the real link is still found.
+func TestAliasPlanSkipsStrayFileInProjects(t *testing.T) {
+	e := newAliasEnv(t)
+	link := filepath.Join(e.cfg, "projects", "p", "memory")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(e.db, link); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(e.cfg, "projects", ".DS_Store"), "x")
+	res, err := alias(t, e, true)
+	if err != nil {
+		t.Fatalf("dry-run alias with a stray projects/.DS_Store: %v", err)
+	}
+	if res.Source != e.kb {
+		t.Errorf("source = %q, want %q", res.Source, e.kb)
+	}
+}

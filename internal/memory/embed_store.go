@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
 	"go.etcd.io/bbolt"
+	bolterrors "go.etcd.io/bbolt/errors"
 )
 
 type boltVectorStore struct{}
@@ -286,8 +288,17 @@ func (s *boltVectorStore) Release(profile string, owner int64) error {
 	return updateEmbedDB(func(tx *bbolt.Tx) error { return dropClaim(tx, profile, owner) })
 }
 
-// RefreshDue reads the mint lease and claim without taking a write lock or opening an endpoint.
-func (s *boltVectorStore) RefreshDue(profile string, now time.Time) bool {
+// embedDBBroken reports an open failure that blames the file's bytes: not a lock timeout, a permission or a missing file.
+func embedDBBroken(err error) bool {
+	return err != nil && !errors.Is(err, bolterrors.ErrTimeout) && !errors.Is(err, fs.ErrPermission) && !errors.Is(err, os.ErrNotExist)
+}
+
+// quarantineEmbedDB moves a damaged or zero-byte embeddings.db aside so the next write open creates a fresh one.
+func quarantineEmbedDB() error { return os.Rename(embedDBPath(), embedDBPath()+".damaged") }
+
+// RefreshDue reads the mint lease and claim without taking a write lock or opening an endpoint; host is the
+// profile's current endpoint host, so a record minted against another host is due even inside its lease.
+func (s *boltVectorStore) RefreshDue(profile, host string, now time.Time) bool {
 	if !safeProfile.MatchString(profile) {
 		return false
 	}
@@ -296,12 +307,13 @@ func (s *boltVectorStore) RefreshDue(profile string, now time.Time) bool {
 		return true
 	}
 	if err != nil {
-		return false
+		return embedDBBroken(err) // the spawned mint quarantines it; a busy or unreadable-by-permission file waits
 	}
 	defer db.Close()
 	due := false
 	err = db.View(func(tx *bbolt.Tx) error {
-		if embedValid(decodeEmbedMetadata(tx, profile), now) {
+		rec := decodeEmbedMetadata(tx, profile)
+		if embedValid(rec, now) && rec.Namespace == embedNamespace(profile, host, rec.Model) {
 			return nil
 		}
 		if b := tx.Bucket(embedClaimBucket); b != nil {
@@ -315,22 +327,30 @@ func (s *boltVectorStore) RefreshDue(profile string, now time.Time) bool {
 	return err == nil && due
 }
 
-// embedProfile is the first of the session and claude-record profiles that can embed, matching NewSemantic's order.
-func embedProfile() string {
+// embedProvider is the first of the session and claude-record profiles that can embed, matching NewSemantic's order.
+func embedProvider() *providers.Provider {
 	reg, err := providers.Load()
 	if err != nil {
-		return ""
+		return nil
 	}
 	for _, name := range []string{providers.SessionProfile(), providers.AgentRecord("claude").Profile} {
 		if p := reg.Providers[name]; p != nil && p.Preset == providers.PresetDatabricks {
-			return name
+			return p
 		}
+	}
+	return nil
+}
+
+// embedProfile names embedProvider's profile, "" when none can embed.
+func embedProfile() string {
+	if p := embedProvider(); p != nil {
+		return p.Name
 	}
 	return ""
 }
 
 // refreshEmbeddings starts a detached mint at most once per claim TTL; failed launches release the slot.
-func refreshEmbeddings(root, profile string, now time.Time) bool {
+func refreshEmbeddings(root, profile, host string, now time.Time) bool {
 	if IsUpdateChild() || !safeProfile.MatchString(profile) {
 		return false
 	}
@@ -346,7 +366,7 @@ func refreshEmbeddings(root, profile string, now time.Time) bool {
 		if st, err := os.Stat(stamp); err == nil && now.Sub(st.ModTime()) < embedClaimTTL {
 			return nil
 		}
-		if !vectorStore.RefreshDue(profile, now) {
+		if !vectorStore.RefreshDue(profile, host, now) {
 			return nil
 		}
 		if err := paths.AtomicWrite(stamp, nil, 0o600); err != nil {
@@ -381,8 +401,8 @@ func RefreshStaleEmbeddings(cwd string) {
 	if IsUpdateChild() || !bankExists(cwd) {
 		return
 	}
-	if profile := embedProfile(); profile != "" {
-		refreshEmbeddings(cwd, profile, time.Now())
+	if p := embedProvider(); p != nil {
+		refreshEmbeddings(cwd, p.Name, p.Host, time.Now())
 	}
 }
 

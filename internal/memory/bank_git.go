@@ -183,8 +183,13 @@ func (r Repo) Log(n int) ([]string, error) {
 }
 
 // Commit stages exactly rels (store-relative; an absent tracked rel stages its deletion) and commits when the
-// index changed. Rejections name the path only; file bytes never reach the error.
+// index changed; any failure before the commit lands unstages everything. Rejections name the path only.
 func (r Repo) Commit(rels []string, subject, body string) (sha string, committed bool, err error) {
+	defer func() {
+		if err != nil && !committed {
+			_, _ = r.run("reset", "--quiet") // a stuck index would fail every later commit as "unexpected staged change"
+		}
+	}()
 	if err := r.stageRels(rels); err != nil {
 		return "", false, err
 	}
@@ -320,14 +325,14 @@ func checkRelPart(abs, rel string, parts []string, i int) error {
 	return nil
 }
 
-// run executes git against this repo with explicit dirs, a throwaway identity, no signing and NO hooks (core.hooksPath
-// at /dev/null); the installed pre-push guard still fires for manual git, which reads the repo's own hooks dir.
+// run executes git against this repo with explicit dirs, literal pathspecs, a throwaway identity, no signing, NO hooks
+// (core.hooksPath at /dev/null) and no global ignore file; the pre-push guard still fires for manual git.
 func (r Repo) run(args ...string) (string, error) {
 	gitDir := filepath.Join(r.Dir, ".git")
-	full := []string{"-C", r.Dir, "--git-dir=" + gitDir, "--work-tree=" + r.Dir,
+	full := []string{"-C", r.Dir, "--git-dir=" + gitDir, "--work-tree=" + r.Dir, "--literal-pathspecs",
 		"-c", "user.name=claude-code", "-c", "user.email=claude-code@localhost",
 		"-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false",
-		"-c", "core.hooksPath=" + os.DevNull}
+		"-c", "core.hooksPath=" + os.DevNull, "-c", "core.excludesFile=" + os.DevNull}
 	return runGit(append(full, args...))
 }
 

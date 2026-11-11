@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -360,7 +361,7 @@ func projectLinksTo(dir string) ([]string, error) {
 	for _, e := range ents {
 		l := filepath.Join(projects, e.Name(), "memory")
 		fi, err := os.Lstat(l)
-		if os.IsNotExist(err) {
+		if os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR) { // a stray file (.DS_Store) has no memory child
 			continue
 		}
 		if err != nil {
