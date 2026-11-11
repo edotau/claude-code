@@ -117,7 +117,8 @@ func formatBankLocked(check bool) (changed []string, err error) {
 		return changed, err
 	}
 	if !check && len(changed) > 0 {
-		if err := commitStore("fmt: wrap bank lines"); err != nil {
+		scope := StoreRepo().dropCredentialShaped(storeRels(changed), nil) // fmt spans every repo's bank: skip, never wedge
+		if err := commitStore("fmt: wrap bank lines", scope...); err != nil {
 			return changed, err
 		}
 	}

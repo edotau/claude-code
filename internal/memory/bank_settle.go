@@ -239,7 +239,7 @@ func writeCatalog(now time.Time) error {
 	return paths.AtomicWrite(filepath.Join(StoreDir(), catalogFile), []byte(c), 0o644)
 }
 
-// storeRels maps dirs to store-relative pathspecs, dropping any outside the store (an inert unresolved-store path).
+// storeRels maps paths to store-relative pathspecs, dropping any outside the store (an inert unresolved-store path).
 func storeRels(dirs []string) []string {
 	var rels []string
 	for _, d := range dirs {
@@ -250,11 +250,11 @@ func storeRels(dirs []string) []string {
 	return rels
 }
 
-// commitStore commits the dirty paths under scope (store-relative; none = the whole store) as one settle commit.
-// A credential-shaped file inside a scope is refused by Commit; with no scope it is named on stderr and skipped.
+// commitStore commits the dirty paths under scope (store-relative) as one commit; no scope commits nothing.
+// A credential-shaped file inside the scope is refused by Commit.
 func commitStore(subject string, scope ...string) error {
 	repo := StoreRepo()
-	if !repo.Exists() {
+	if !repo.Exists() || len(scope) == 0 {
 		return nil
 	}
 	st, err := repo.Status(scope...)
@@ -264,9 +264,6 @@ func commitStore(subject string, scope ...string) error {
 	var rels []string
 	for _, e := range st {
 		rels = append(rels, e.Path)
-	}
-	if len(scope) == 0 {
-		rels = repo.dropCredentialShaped(rels, nil)
 	}
 	if len(rels) == 0 {
 		return nil
