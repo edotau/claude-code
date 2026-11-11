@@ -123,8 +123,8 @@ func (r *askRun) prelude() (int, bool) {
 		return r.fail(err, 2)
 	}
 	f.tools = f.tools || f.readOnly // read-only tools are still tools
-	if code, err := askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools); err != nil {
-		return r.fail(err, code)
+	if err := askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools); err != nil {
+		return r.fail(err, 2)
 	}
 	if r.schema, err = resolveOutputSchema(f.outputSchema); err != nil {
 		return r.fail(err, 2)
@@ -457,7 +457,7 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 		opts.AnswerTo = os.Stdout // a --job child's stdout is the log: the full answer lands once at the end
 	}
 	res, err := client.Exec(ctx, p, stdoutSink(format, p.Record.ID), opts)
-	writeErr := reportAskResult(format, res, err, res.DispatchID)
+	writeErr := reportAskResult(format, res, err)
 	for _, line := range []string{wire.RanOn(res), wire.DidNotRun(res)} {
 		if line != "" {
 			fmt.Fprintln(os.Stderr, "ask:", line)
@@ -642,7 +642,7 @@ func printAskFailure(format, agentName string, err error) {
 }
 
 // reportAskResult prints the outcome; it returns the stdout write error of the json envelope, else nil.
-func reportAskResult(format string, res wire.Result, err error, dispatchID string) error {
+func reportAskResult(format string, res wire.Result, err error) error {
 	for _, d := range res.Dropped {
 		if d == "--read-only (tools off)" {
 			fmt.Fprintf(os.Stderr, "ask: the %s agent runs with tools off (read-only sandbox where it has one)\n", res.Agent)
@@ -651,7 +651,7 @@ func reportAskResult(format string, res wire.Result, err error, dispatchID strin
 		fmt.Fprintf(os.Stderr, "ask: %s has no channel on the %s agent — dropped\n", d, res.Agent)
 	}
 	if format == helptext.JSON {
-		return printJSONLine(wire.NewEnvelope(res, err, dispatchID))
+		return printJSONLine(wire.NewEnvelope(res, err, res.DispatchID))
 	}
 	if format == agent.FormatStreamJSON {
 		return nil // the result event already carried the envelope

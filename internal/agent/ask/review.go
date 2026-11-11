@@ -141,7 +141,7 @@ func spawnSplitReview(name string, args []string, n int) int {
 		return a == "--background" || a == "-background" || a == "--background=true"
 	})...)
 	if err := agent.SpawnArgv(&rec, argv, []string{reviewJobEnv + "=" + rec.ID}); err != nil {
-		return helptext.Fail("%s review: %v", name, err)
+		return helptext.Fail("%s review: %v", name, failSpawn(&rec, err))
 	}
 	if err := rec.Save(); err != nil { // records the child's pid so status can tell running from lost
 		fmt.Fprintf(os.Stderr, "%s review: job pid not recorded: %v\n", name, err)

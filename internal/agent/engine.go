@@ -304,7 +304,7 @@ func WriteJSONLine(w io.Writer, v any) error {
 	return err
 }
 
-// The helpers below are the vendor packages' (claude, codex, gemini) reach into the dispatch internals.
+// The helpers below are the vendor packages' (claude, codex, gemini, opencode, copilot) reach into the dispatch internals.
 
 // IsResultError reports a failed turn whose result event was consumed, so the stream sits at a turn boundary.
 func IsResultError(err error) bool {

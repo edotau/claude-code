@@ -291,7 +291,7 @@ func cliLaunch(ctx context.Context, spec Schema, name string, o LaunchOptions, a
 
 // ownLoginPlan is the plain launch of an agent that signs in itself, printing note when show.
 func ownLoginPlan(spec Schema, args []string, note string, show bool) (Plan, error) {
-	if show {
+	if show && note != "" {
 		fmt.Fprintln(NoticeOut, note)
 	}
 	return plainPlan(spec, args)

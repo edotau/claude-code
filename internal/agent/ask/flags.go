@@ -108,15 +108,15 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.StringVar(&f.overlayDebug, "overlay-debug", "", "record each agent child's env names + salted fingerprints (never values) to <file>")
 }
 
-// askCheckFlags runs the flag checks needing no resolved agent; it returns the exit code with the error.
-func askCheckFlags(env, keepEnv []string, format, fallback string, background bool, job string, tools, noTools bool) (int, error) {
+// askCheckFlags runs the flag checks needing no resolved agent; every failure is a usage error (exit 2).
+func askCheckFlags(env, keepEnv []string, format, fallback string, background bool, job string, tools, noTools bool) error {
 	if _, err := agentconfig.FlagOverlay(env, keepEnv); err != nil { // names only: the error never carries a value
-		return 2, err
+		return err
 	}
 	if err := validateAskFlags(format, fallback); err != nil {
-		return 1, err
+		return err
 	}
-	return 1, askExclusive(background, job, tools, noTools)
+	return askExclusive(background, job, tools, noTools)
 }
 
 // askPack builds the pack spec from --dirs/--files/--diff; nil when none is set. The tuning flags need one.

@@ -22,9 +22,9 @@ type Settings struct {
 	Permissions Permissions       // ResolvePermissions(record policy, request)
 	Target      providers.Target  // the resolved profile row and model; Provider nil on the agent's own login
 
-	Tools, ReadOnly, Autonomous, SafeMode bool
-	Headless                              bool // false for an interactive launch
-	WorkDir                               string
+	Tools, Autonomous, SafeMode bool
+	Headless                    bool // false for an interactive launch
+	WorkDir                     string
 }
 
 // ResolveSettings merges agentName's checked record with req; a bad one errs with built-in Settings (none: Agent "").
@@ -48,7 +48,7 @@ func newSettings(agentName string, rec vault.AgentRecord, req RunOptions, t prov
 	def, _ := policyPermissions(rec.Permissions)
 	perms, _ := resolvePermissions(def, req.Permissions)
 	return Settings{Agent: agentName, Record: rec, Effort: cmp.Or(req.Effort, rec.Effort), Permissions: perms,
-		Target: t, Tools: req.Tools, ReadOnly: req.ReadOnly, Autonomous: req.Autonomous, SafeMode: req.SafeMode,
+		Target: t, Tools: req.Tools, Autonomous: req.Autonomous, SafeMode: req.SafeMode,
 		Headless: headless, WorkDir: req.WorkDir}
 }
 

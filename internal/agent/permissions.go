@@ -291,6 +291,9 @@ func wildcardMatches(pattern, cmd string) bool {
 // domainMatches takes a bare host or a URL and accepts the domain itself and its subdomains.
 func domainMatches(domain, target string) bool {
 	host := target
+	if !strings.Contains(target, "://") {
+		target = "//" + target // a scheme-less target keeps its path out of the host
+	}
 	if u, err := url.Parse(target); err == nil && u.Hostname() != "" {
 		host = u.Hostname()
 	}

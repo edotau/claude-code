@@ -115,12 +115,14 @@ func resolve(names []string) ([]tool, error) {
 
 // runOne updates a present tool that has its own Update, else (re)runs the idempotent Install; else report-only.
 func runOne(ctx context.Context, w io.Writer, t tool, oldPath, dir string, dryRun bool) error {
-	switch {
-	case oldPath != "" && t.Update != nil:
+	update := oldPath != "" && t.Update != nil
+	if (update || t.Install != nil) && t.Binary != "" { // binary-less tools (browser, clipboard) ignore dir
 		fmt.Fprintf(w, "  %-8s %s\n", "into", dir)
+	}
+	switch {
+	case update:
 		return t.Update(ctx, w, dir, dryRun)
 	case t.Install != nil:
-		fmt.Fprintf(w, "  %-8s %s\n", "into", dir)
 		return t.Install(ctx, w, dir, dryRun)
 	default:
 		if oldPath != "" {

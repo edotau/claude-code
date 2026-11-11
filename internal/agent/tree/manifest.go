@@ -1,7 +1,6 @@
 package tree
 
 import (
-	"bytes"
 	"cmp"
 	"encoding/json"
 	"io"
@@ -94,14 +93,12 @@ func workflowManifests(sessionDir string) map[string]*workflowManifest {
 	return out
 }
 
-// journalEntry records lifecycle state and a result preview; a null result marks a killed agent.
+// journalEntry records lifecycle state; a null result marks a killed agent.
 type journalEntry struct {
-	Label       string
-	Started     bool
-	Resulted    bool
-	Errored     bool
-	Result      string
-	ResultBytes int
+	Label    string
+	Started  bool
+	Resulted bool
+	Errored  bool
 }
 
 // journalLine is one journal.jsonl record; Result stays RawMessage so a JSON null differs from an absent field.
@@ -131,12 +128,7 @@ func readJournal(runDir string) map[string]journalEntry {
 			e.Started, e.Label = true, line.Label
 		case "result":
 			e.Resulted = true
-			if isJSONNull(line.Result) {
-				e.Errored = true
-			} else {
-				e.Result = resultPreview(line.Result)
-			}
-			e.ResultBytes = len(bytes.TrimSpace(line.Result))
+			e.Errored = e.Errored || isJSONNull(line.Result)
 		}
 		out[line.AgentID] = e
 	})

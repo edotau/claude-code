@@ -529,7 +529,11 @@ func noteStall(disp Dispatch, err error) {
 		return
 	}
 	now := time.Now()
-	reason := fmt.Sprintf("dispatch stalled (no output in %s)", firstOutputDeadline())
+	limit := firstOutputDeadline().String()
+	if _, rest, ok := strings.Cut(err.Error(), " was silent for "); ok { // the stalled engine's own window
+		limit, _, _ = strings.Cut(rest, " (")
+	}
+	reason := fmt.Sprintf("dispatch stalled (no output in %s)", limit)
 	warnHold(disp.Account, markExhausted(disp.Account, now.Add(15*time.Minute), now, reason))
 }
 

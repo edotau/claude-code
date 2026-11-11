@@ -484,9 +484,6 @@ const (
 
 func (l Level) String() string { return [...]string{"none", "emulated", "native"}[min(l, Native)] }
 
-// MarshalText renders the level as its name, so the roster JSON prints "native" rather than 2.
-func (l Level) MarshalText() ([]byte, error) { return []byte(l.String()), nil }
-
 // Engine is one agent backend.
 type Engine interface {
 	Name() string
@@ -499,25 +496,25 @@ type Engine interface {
 func Engines() []Engine {
 	var out []Engine
 	for _, s := range rows() {
-		if e, ok := mustDriver(s.Name).(Engine); ok {
-			out = append(out, e)
-		} else {
-			out = append(out, newCLIEngine(s.Name))
-		}
+		out = append(out, engineFor(s.Name))
 	}
 	return out
 }
 
+// engineFor is the registered roster agent name as an Engine: its own, else a CLI engine over its headless driver.
+func engineFor(name string) Engine {
+	if e, ok := mustDriver(name).(Engine); ok {
+		return e
+	}
+	return newCLIEngine(name)
+}
+
 // Lookup finds an agent by name.
 func Lookup(name string) (Engine, error) {
-	var names []string
-	for _, r := range Engines() {
-		if r.Name() == name {
-			return r, nil
-		}
-		names = append(names, r.Name())
+	if _, ok := lookupRow(name); ok {
+		return engineFor(name), nil
 	}
-	return nil, fmt.Errorf("unknown agent %q (%s)", name, strings.Join(names, "|"))
+	return nil, fmt.Errorf("unknown agent %q (%s)", name, strings.Join(RosterNames(), "|"))
 }
 
 // applyCaps clears fields the agent cannot honor and names each drop; Emulated flags run a harness shim here.

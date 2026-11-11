@@ -88,8 +88,8 @@ var (
 func installScienceApp(ctx context.Context, w io.Writer, dir, url string, dryRun bool) error {
 	fmt.Fprintf(w, "  download %s\n", url)
 	fmt.Fprintf(w, "  app      %s -> %s\n", strings.Join(scienceAppRoots(), " or "), scienceAppName)
-	fmt.Fprintf(w, "  link     %s -> %s/Contents/Resources/bin/claude-science\n", filepath.Join(dir, "claude-science"), scienceAppName)
 	if dryRun {
+		fmt.Fprintf(w, "  link     %s -> %s/Contents/Resources/bin/claude-science\n", filepath.Join(dir, "claude-science"), scienceAppName)
 		fmt.Fprintln(w, "  (dry-run: would download and install claude-science)")
 		return nil
 	}

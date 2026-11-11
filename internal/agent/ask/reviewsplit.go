@@ -255,7 +255,8 @@ func mergeReports(adversarial bool, parts []part, answers []string) string {
 	}
 	seen := map[string]bool{}
 	var body strings.Builder
-	worst, best, unjudged, unreviewed, total := "", 0, false, false, 0
+	short := len(answers) < len(parts) // a part that never answered was not reviewed
+	worst, best, unjudged, unreviewed, total := "", 0, short, short, 0
 	for i, ans := range answers {
 		blank := strings.TrimSpace(ans) == ""
 		unreviewed = unreviewed || blank

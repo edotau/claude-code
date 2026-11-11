@@ -1,4 +1,5 @@
 // Signin is the one check -> login -> recheck flow behind every provider kind (signin.go).
+
 package agent
 
 import (
@@ -248,7 +249,7 @@ func runLoginCLI(ctx context.Context, name string, args []string, in io.Reader, 
 var copilotTokenPrefixes = []string{"gho_", "ghp_", "ghu_", "github_pat_"}
 
 // validCopilotToken reports whether tok has the shape of a real GitHub token, rejecting an obvious
-// typo or truncated paste before it is sealed under providers.CopilotTokenEnv.
+// typo or truncated paste before it is sealed under providers.CopilotTokenEnv or a GITHUB_<P>_PAT name.
 func validCopilotToken(tok string) bool {
 	if len(tok) < 20 {
 		return false

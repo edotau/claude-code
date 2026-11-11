@@ -201,7 +201,7 @@ func liveCount() (int, error) {
 	return n, err
 }
 
-// CheckLiveCap errors when starting another session would pass MaxLiveSessions.
+// CheckLiveCap errors when starting another session would pass maxLiveSessions.
 func CheckLiveCap() error {
 	n, err := liveCount()
 	if err != nil {
@@ -216,7 +216,7 @@ func CheckLiveCap() error {
 // ensureDispatchDir creates the 0700 dispatch dir.
 func ensureDispatchDir() error { return os.MkdirAll(paths.DispatchDir(), 0o700) }
 
-// acquireLiveSlot takes one of MaxLiveSessions flock'd slot files (freed when the holder dies); the func releases it.
+// acquireLiveSlot takes one of maxLiveSessions flock'd slot files (freed when the holder dies); the func releases it.
 func acquireLiveSlot() (func(), error) {
 	if err := ensureDispatchDir(); err != nil {
 		return nil, err
