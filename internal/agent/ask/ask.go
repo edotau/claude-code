@@ -46,6 +46,22 @@ var askPage = helptext.Page{
 
 func Cmd(args []string) int { return Run(args, false) }
 
+// AgentCmd is `<agent> ask`: Cmd with --agent preset, and -h printing the page under the agent's own verb.
+func AgentCmd(name string, args []string) int {
+	return run(append([]string{"--agent", name}, args...), false, name)
+}
+
+// retargetPage points fs's -h at `<agent> ask`: its own usage line, with --agent defaulting to the agent.
+func retargetPage(fs *flag.FlagSet, name string) {
+	p := askPage
+	p.Usage = "claude-code " + name + " ask [flags] <task | ->"
+	fs.Lookup("agent").DefValue = name
+	fs.Usage = func() {
+		p.Flags = fs
+		p.Fprint(fs.Output())
+	}
+}
+
 // askRun is one ask invocation: its flags plus what the setup phases resolve.
 type askRun struct {
 	f       *askFlags
@@ -66,8 +82,14 @@ type askRun struct {
 }
 
 // Run is Cmd; resume makes the first positional the session id (`<agent> resume [flags] <id> <task>`).
-func Run(args []string, resume bool) int {
+func Run(args []string, resume bool) int { return run(args, resume, "") }
+
+// run is Run; verb names the agent whose `<agent> ask` page -h prints, "" for `agents ask`.
+func run(args []string, resume bool, verb string) int {
 	fs, f := askFlagSet()
+	if verb != "" {
+		retargetPage(fs, verb)
+	}
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}

@@ -801,15 +801,15 @@ func TestVendorUsageNamesTail(t *testing.T) {
 	}
 }
 
-// The per-vendor help names the harness profile pin and shows the NAME placeholder on the launch --profile flag.
+// The per-vendor help names the profile row and shows the NAME placeholder on the launch --profile flag.
 func TestVendorHelpHarnessProfileRows(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	cfgDir(t)
 	t.Setenv("HOME", t.TempDir())
 	for _, vendor := range []string{"codex", "gemini"} {
 		text := renderHelpPage(agentPage(vendor))
-		if !strings.Contains(text, "show or set "+vendor+"'s harness profile pin") {
-			t.Errorf("%s help lacks the harness profile pin row:\n%s", vendor, text)
+		if !strings.Contains(text, "show or set "+vendor+"'s profile; --clear = own login") {
+			t.Errorf("%s help lacks the profile row:\n%s", vendor, text)
 		}
 		want := "harness profile for this launch"
 		if vendor == "codex" {

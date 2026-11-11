@@ -50,7 +50,7 @@ var vaultPage = helptext.Page{
 		{"get", "print secret values; --export for shell, --key for master"},
 		{"delete", "remove a secret"},
 		{"import", "seal every NAME=value line of a .env file"},
-		{"export", "write secrets to ./.env (0600); --out for another path"},
+		{"export", "append secrets to ./.env (0600); --out for another path"},
 		{"edit", "pins, env and overlays in $EDITOR, one transaction"},
 		{"rotate-secret", "re-seal every secret under a new master key"},
 	},

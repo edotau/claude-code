@@ -38,7 +38,8 @@ func catalogPage(name string) helptext.Page {
 	page := helptext.Page{Usage: "claude-code " + name + " catalog [list|check|sync] [flags]", Hint: s.CLI.CatalogHint,
 		About: "On a Databricks profile (--profile, else " + name + "'s pin, else the session) bare catalog is list; " +
 			"otherwise " + name + "'s own model catalog, or a note that it has none. TESTED is the last check on " +
-			"that profile (ok, fail, transient), blank when never probed; every agent shares one check cache.",
+			"that profile (ok, fail, transient), blank when never probed; every agent shares one check cache. " +
+			"claude-code " + name + " catalog <command> -h lists each one's flags.",
 		Commands: [][2]string{
 			{"list", "READY chat endpoints " + name + " can use, with TESTED"},
 			{"check", "probe them; --all: every chat endpoint; or name ids"},
@@ -46,13 +47,21 @@ func catalogPage(name string) helptext.Page {
 		}}
 	switch {
 	case name == "opencode":
+		page.Usage = "claude-code opencode catalog [<command>] [flags]"
 		page.About = "On a Databricks profile bare catalog is list. add, remove, import and reset edit the " +
 			"menu; claude-code opencode catalog <command> -h lists each one's flags."
 		page.Commands = [][2]string{{"list", "the model menu; --live adds served/missing and last check"},
+			{"add", "add or update an entry: id[=Label]"},
+			{"remove", "drop an entry from the menu"},
+			{"import", "replace the menu from a file; --apply writes"},
+			{"reset", "fall back to the built-in menu"},
 			{"check", "probe the menu; --all: every chat endpoint; or name ids"},
 			{"sync", "discover endpoints; --apply seals, adds to the menu"}}
 	case len(s.CLI.Dialects) == 0:
-		page.About = name + " has no Databricks route: list|check|sync print a note; bare catalog is " + name + "'s own."
+		page.About = name + " has no Databricks route: bare catalog is " + name + "'s own list; list, check and " +
+			"sync only print a note."
+		page.Commands = [][2]string{{"list", "print a note: no Databricks route"}, {"check", "print a note: no Databricks route"},
+			{"sync", "print a note: no Databricks route"}}
 	}
 	return page
 }

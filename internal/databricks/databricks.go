@@ -303,8 +303,7 @@ func tail(s string, n int) string {
 // page is the `-h` text; its FLAGS rows come from the FlagSet built in usage.
 var page = helptext.Page{
 	Usage: "claude-code databricks [check|<command>] [MODEL] [flags] [args...]",
-	About: "Launch Claude Code on a Databricks profile. MODEL defaults to the opus alias at 1M context. " +
-		"check runs a smoke reply.",
+	About: "Launch Claude Code on a Databricks profile. MODEL (optional) picks the model; check runs a smoke reply.",
 	Commands: [][2]string{
 		{"check", "--all: one tiny call per profile (serving; --wire all)"},
 		{"login", "sign in: browser for oauth, a mint for an sp row"},
@@ -336,6 +335,7 @@ func usage(check bool) {
 	if check {
 		fs.Bool("all", false, "probe every Databricks profile, one tiny call each")
 		fs.String("model", aliasID(models.Haiku), "with --all: canonical model id to probe")
+		fs.String("wire", providers.WireServing, "with --all: serving, ai-gateway or all")
 	}
 	fs.Usage()
 }
@@ -581,7 +581,8 @@ func Spec() *helptext.Node {
 	profileNames := providers.ProfileNames
 	identities := func() []string { return []string{"user", "sp"} }
 	return &helptext.Node{Flags: []helptext.Flag{valuedFlag("profile", profileNames)}, Sub: map[string]*helptext.Node{
-		"check": {Flags: []helptext.Flag{boolFlag("all"), valuedFlag("profile", profileNames), flag("model")}},
+		"check": {Flags: []helptext.Flag{boolFlag("all"), valuedFlag("profile", profileNames), flag("model"),
+			valuedFlag("wire", func() []string { return []string{providers.WireServing, providers.WireAIGateway, "all"} })}},
 		"login": {Flags: []helptext.Flag{valuedFlag("profile", profileNames), flag("auth-type"), boolFlag("dry-run"), boolFlag("force"), valuedFlag("as", identities)}},
 		"mint": {Flags: []helptext.Flag{valuedFlag("profile", profileNames), boolFlag("dry-run"), boolFlag("copy"), flag("clear-after"),
 			valuedFlag("as", identities)}},

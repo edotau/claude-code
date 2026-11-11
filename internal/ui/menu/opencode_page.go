@@ -89,7 +89,7 @@ func buildOpencodePage(d *dialog, ints []opencode.OpencodeIntegration, major int
 	p.rows, p.conns = opencodeAccountRows(ints)
 	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "Set up", Detail: "sign in, verify, pin the route",
 		Section: "actions"}, run: func(d *dialog) { agentSetUp(d, "opencode") }})
-	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "+ Add account", Detail: "browser sign-in (opencode auth login)",
+	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "+ Add account", Detail: "add a login with opencode auth login",
 		Section: "actions"}, run: ocAddAccount})
 	if d.reg != nil {
 		p.rows = append(p.rows, opencodeModelAndProfileRows(d)...)
@@ -122,14 +122,14 @@ func connStatus(c opencode.OpencodeConn, routed bool) []string {
 	var status []string
 	switch {
 	case c.Kind == "env":
-		status = append(status, "environment · unset $"+c.Label+" to disconnect")
+		status = append(status, "env var")
 	case c.NeedsAuth != "":
 		status = append(status, "sign in required")
 	case c.Active:
 		status = append(status, "active")
 	}
 	if routed && c.Kind != "env" {
-		status = append(status, "used by claude-code routes")
+		status = append(status, "routed")
 	}
 	return status
 }

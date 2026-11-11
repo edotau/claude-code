@@ -24,7 +24,8 @@ func cmdTest(args []string) int {
 }
 
 var testPage = helptext.Page{
-	Usage: "claude-code test <command> [flags]",
+	Usage: "claude-code test <command>",
+	About: "Test tooling.",
 	Commands: [][2]string{
 		{"ramdisk", "run a command with TMPDIR on a throwaway RAM disk"},
 	},

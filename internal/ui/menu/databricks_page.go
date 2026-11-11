@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentid"
@@ -164,12 +165,12 @@ func runDatabricksEnv(d *dialog, env string) {
 	dbxShell(d).Run("databricks · "+env, func() []shellRow {
 		return []shellRow{
 			act("Set up", "sign in, verify a token, apply to agents", func() { dbxSetUp(d, env) }),
-			act("Login", "browser sign-in (u2m)", func() { dbxDo(d, env, "login", func(c context.Context) error { return dbxLogin(c, env, d.out) }) }),
-			act("Paste PAT", "hidden input", func() { dbxPaste(d, env) }),
-			act("Mint now", "fresh token now; a PAT profile returns its stored PAT", func() { dbxMintNow(d, env, false) }),
+			act("Login", "browser sign-in; sets the profile's auth type to oauth", func() { dbxDo(d, env, "login", func(c context.Context) error { return dbxLogin(c, env, d.out) }) }),
+			act("Paste PAT", "seal a PAT, probe it; sets the profile's auth type to pat", func() { dbxPaste(d, env) }),
+			act("Mint now", "mint a token, never shown (PAT profile: stored PAT)", func() { dbxMintNow(d, env, false) }),
 			act("Copy token", "clipboard copy, clears in 30s; PAT copies the stored PAT", func() { dbxMintNow(d, env, true) }),
-			act("Apply to agents", "repoint all four or one", func() { dbxApply(d, env) }),
-			act("Identity", "auto, user or sp; the paired service principal  "+dbxIdentityBadge(d.reg, env),
+			act("Apply to agents", "repoint "+strings.Join(dbxAgents, ", ")+": all or one", func() { dbxApply(d, env) }),
+			act("Identity", "auto, user or sp; paired service principal "+dbxIdentityBadge(d.reg, env),
 				func() { dbxIdentity(d, env) }),
 		}
 	})
@@ -281,7 +282,7 @@ func dbxApply(d *dialog, env string) {
 
 // dbxApplyPins is dbxApply's engine: cancelled when the picker was dismissed, err when the pins could not be written.
 func dbxApplyPins(d *dialog, env string) (cancelled bool, err error) {
-	rows := [][2]string{{"All agents", "pin every agent to " + env}}
+	rows := [][2]string{{"All agents", "pin " + strings.Join(dbxAgents, ", ") + " to " + env}}
 	for _, a := range dbxAgents {
 		rows = append(rows, [2]string{a, "this agent only"})
 	}

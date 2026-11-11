@@ -17,14 +17,14 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// printRoute prints one agent.DescribeRoute result: provider/model/small_model and why, never a credential.
+// printRoute prints one agent.DescribeRoute result as a line under 80 columns: provider/model, the reason only
+// on FIX; never a credential.
 func printRoute(d *dialog, ri agent.RouteInfo) {
-	status := "FIX"
-	if ri.OK {
-		status = "ok"
+	status, reason := "ok", ""
+	if !ri.OK {
+		status, reason = "FIX", strings.TrimRight("  "+ri.Reason, " ")
 	}
-	d.printf("%-9s route(%-8s) %-4s provider=%-16s model=%-24s small_model=%-20s %s\n",
-		ri.Agent, ri.Route, status, ri.Provider, ri.Model, ri.SmallModel, ri.Reason)
+	d.printf("%-9s route(%-8s) %-4s %s/%s%s\n", ri.Agent, ri.Route, status, ri.Provider, ri.Model, reason)
 }
 
 // githubStatusRows prints every github section status line and reports which are OK, for both the
@@ -198,7 +198,7 @@ func githubMenu(d *dialog) bool {
 			login("Log in to OpenCode", "opencode auth login (choose GitHub Copilot)", "opencode", "opencode", "auth", "login"),
 			{Name: "GitHub auth", Detail: "gh's active account: pick a profile or follow gh",
 				Run: func() bool { pickGitHubAuth(d); return false }},
-			{Name: "Pick fallback models", Detail: "opus/sonnet/haiku github-copilot serves to opencode",
+			{Name: "Pick fallback models", Detail: "set github-copilot opus/sonnet/haiku for opencode",
 				Run: func() bool { pickCopilotModels(d); return false }},
 		}
 	})
@@ -225,7 +225,7 @@ func pickCopilotModels(d *dialog) {
 		return
 	}
 	ids := []string{"auto"}
-	rows := [][2]string{{"auto", "proxy alias — resolve automatically (needs opencode_fallback for opencode)"}}
+	rows := [][2]string{{"auto", "resolve automatically; needs opencode_fallback"}}
 	for _, m := range list {
 		ids = append(ids, m.ID)
 		rows = append(rows, [2]string{m.ID, m.Name})

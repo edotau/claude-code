@@ -82,7 +82,7 @@ func proxyFlags() (*flag.FlagSet, *proxyOpts) {
 		"with --serve: loopback port (a busy port held by an older proxy is reclaimed; a foreign holder "+
 			"of the default port moves to a free one, recorded in proxy.json; other busy ports are an error)",
 	)
-	o.format = helptext.FormatFlag(fs)
+	o.format = fs.String("format", helptext.Text, "output: text|json (json: --status only)")
 	return fs, o
 }
 
@@ -204,7 +204,7 @@ func gatewayRoute(args []string) int {
 	want := fs.String("agent", "", "the agent asked for; it leads when it passes the gates")
 	task := fs.String("task", "", "task text the classifier reads when --model is absent")
 	fallback := fs.String("fallback", router.FallbackAll, "all, agents or none")
-	route := fs.String("route", "", "fallback ladder: default|first-party|databricks:<profile> (default: by session profile)")
+	route := fs.String("route", "", "fallback ladder: default|first-party|databricks[:<profile>] (default: by session profile)")
 	profile := fs.String("profile", "", "lead profile, or session")
 	provider := fs.String("provider", "", "lead on this provider's signed-in profile")
 	format := helptext.FormatFlag(fs)

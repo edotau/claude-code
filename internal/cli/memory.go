@@ -25,9 +25,9 @@ var memorySubs = []memorySub{
 	{"recall", "<terms>", "rank bank blocks for terms; --load appends the top bodies"},
 	{"remember", "<fact>", "append a fact to the bank (--type picks the file)"},
 	{"init", "", "create the repo's bank"},
-	{"review", "", "doctor + bank stats; --candidates prints the promotion procedure"},
+	{"review", "", "doctor + bank stats; --candidates adds the promotion procedure"},
 	{"verify", "", "check bank claims against local evidence; never write or fetch"},
-	{"promote", "<id> --to <target>", "move or surface one block (home|rules|skill|claude-md)"},
+	{"promote", "<id> --to <target>", "move one block to home, or print it for rules|skill"},
 	{"update", "", "save the live session or --transcript; else print the procedure"},
 	{"dream", "", "consolidate the bank when due (--force, --dry-run)"},
 }
@@ -55,7 +55,7 @@ func memoryCommandRows() [][2]string {
 var memoryPlumbing = map[string][2]string{
 	"search":   {"<terms>", "rank blocks for terms, with scores"},
 	"show":     {"<id>", "print one block (id from memory search or a MEMORY.md region)"},
-	"index":    {"", "settle the bank: rotate and archive over caps"},
+	"index":    {"", "settle the bank: rotate and archive over caps; refresh the embedding cache"},
 	"path":     {"", "print the bank directory"},
 	"report":   {"--label L [--file F | --stdin]", "append a report and its decisions to the bank reports/"},
 	"digest":   {"", "write the bank digest"},
@@ -479,7 +479,7 @@ func cmdMemoryReview(args []string) int {
 	staleDays := fs.Int("stale-days", memory.DefaultStaleDays, "flag a bank untouched for this many days")
 	brief := fs.Bool("brief", false, "print only the problem count, not each line")
 	notice := fs.Bool("notice", false, "refresh the cached session-start notice and print nothing")
-	candidates := fs.Bool("candidates", false, "print today's stats, then the ranking procedure")
+	candidates := fs.Bool("candidates", false, "also print the promotion-ranking procedure")
 	if code, done := memoryParseNoArgs(fs, "review", args); done {
 		return code
 	}
@@ -508,7 +508,7 @@ func cmdMemoryTimeline(args []string) int {
 // (model residue) — Go never writes those targets. `memory index` already settles caps on its own.
 func cmdMemoryPromote(args []string) int {
 	fs, repo := memoryRepoFlagSet("promote")
-	to := fs.String("to", "", "promotion target: home, rules, skill, or claude-md")
+	to := fs.String("to", "", "promotion target: home, rules or skill (claude-md: dream only)")
 	dryRun := fs.Bool("dry-run", false, "print the move without writing")
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -605,7 +605,7 @@ func memoryRecallExplain(repo, query string, conflict bool) int {
 func cmdMemoryRecall(args []string) int {
 	q := newMemoryQuery("recall", 3)
 	load := q.fs.Int("load", 0, "append the show bodies of the top N hits (4KB cap)")
-	explain := q.fs.Bool("explain", false, "explain hook recall selection and candidate scores")
+	explain := q.fs.Bool("explain", false, "explain hook recall (not with --all, --load or json)")
 	if code, done := q.parse(args); done {
 		return code
 	}

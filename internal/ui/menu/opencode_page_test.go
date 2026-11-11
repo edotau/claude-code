@@ -116,7 +116,7 @@ func TestOpencodePageRows1x(t *testing.T) {
 		{Label: "OpenAI", Detail: "OAuth", OK: true, Section: "accounts"},
 		{Label: "zed", Detail: "API key", OK: true, Section: "accounts"},
 		{Label: "Set up", Detail: "sign in, verify, pin the route", Section: "actions"},
-		{Label: "+ Add account", Detail: "browser sign-in (opencode auth login)", Section: "actions"},
+		{Label: "+ Add account", Detail: "add a login with opencode auth login", Section: "actions"},
 		{Label: "Back", Detail: "return to the previous menu"},
 	}
 	if got := rowsOfPage(p); !reflect.DeepEqual(got, want) {
@@ -139,7 +139,7 @@ func TestOpencodePageRows2x(t *testing.T) {
 	want := []tui.ListRow{
 		{Label: "GitHub Copilot", Detail: "work", Status: "active", OK: true, Section: "accounts"},
 		{Label: "GitHub Copilot", Detail: "personal", OK: true, Section: "accounts"},
-		{Label: "GitHub Copilot", Detail: "$GITHUB_TOKEN", Status: "environment · unset $GITHUB_TOKEN to disconnect", OK: true, Section: "accounts"},
+		{Label: "GitHub Copilot", Detail: "$GITHUB_TOKEN", Status: "env var", OK: true, Section: "accounts"},
 		{Label: "OpenAI", Detail: "OAuth", Status: "sign in required", OK: false, Section: "accounts"},
 	}
 	if !reflect.DeepEqual(got[:4], want) {

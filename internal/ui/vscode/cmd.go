@@ -33,7 +33,7 @@ func Run(args []string) int {
 	fs.StringVar(&o.KeybindingsTemplate, "keybindings-template", "", "keybindings template to merge (default: the one embedded in the binary)")
 	fs.StringVar(&o.KeybindingsDest, "keybindings-dest", "", "VS Code User keybindings.json (default: platform-detected)")
 	check := fs.Bool("check", false, "report drift without writing; exit 1 on drift")
-	dryRun := fs.Bool("dry-run", false, "preview the merge; write nothing")
+	dryRun := fs.Bool("dry-run", false, "preview the merge, no write (not with --check)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}

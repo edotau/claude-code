@@ -31,11 +31,14 @@ type doctorOpts struct {
 
 var doctorPage = helptext.Page{
 	Usage: "claude-code doctor [flags] [--scan [path...]]",
-	About: "Check binaries, providers, credentials and the proxy without changing anything; " +
-		"exits 1 when a check fails. --audit prints switches, pins, secret sets, safety blocks " +
-		"and proxy failovers instead. --scan, --git and --secrets audit for plaintext " +
-		"credentials instead and exit 1 on any finding. --mcp prints every MCP server's live " +
-		"health, cross-scope drift and inline secrets; exit 1 on any.",
+	About: "Check binaries, providers, credentials and the proxy; exits 1 when a hard check fails " +
+		"(claude binary, provider registry, session credential), soft rows only report. " +
+		"Changes nothing except --refresh's model cache. --audit prints the action log (profile " +
+		"switches, pins, secret sets, key use, safety blocks, failovers, tailscale and setup actions) " +
+		"instead. --scan, --git and --secrets audit for plaintext credentials instead, text only, " +
+		"and exit 1 on any finding. --mcp prints every MCP server's live health, cross-scope drift " +
+		"and inline secrets; exits 1 on a failed server, an inline secret or an unreadable config. " +
+		"--prompts audits the instruction path. The mode flags cannot be combined.",
 }
 
 func doctorFlags() (*flag.FlagSet, *doctorOpts) {
@@ -47,7 +50,7 @@ func doctorFlags() (*flag.FlagSet, *doctorOpts) {
 	fs.BoolVar(&o.gitScan, "git", false, "scan this repo's git history for committed secrets")
 	fs.IntVar(&o.since, "since", 0, "with --git or --secrets: only the last N commits (0 = all)")
 	fs.StringVar(&o.rev, "range", "", "with --git or --secrets: only this revision range, e.g. @{u}..HEAD")
-	fs.BoolVar(&o.refresh, "refresh", false, "re-list each pinned Databricks workspace's served models before the checks")
+	fs.BoolVar(&o.refresh, "refresh", false, "re-list pinned Databricks models into the cache first")
 	fs.BoolVar(&o.all, "secrets", false, "--scan, --git and the vault checks together; worst exit wins")
 	fs.BoolVar(&o.prompts, "prompts", false, "audit the CLAUDE.md, rules, skills and agents instruction path")
 	fs.BoolVar(&o.mcp, "mcp", false, "MCP server health, cross-scope drift and inline plaintext secrets")

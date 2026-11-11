@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"io"
 	"os"
 
@@ -17,15 +18,22 @@ func anthropicSpec() *helptext.Node {
 }
 
 // cmdClaude is `claude-code claude`: Claude Code on the selected profile.
-func cmdClaude(args []string) int { return claude.Launch("", args) }
+func cmdClaude(args []string) int {
+	code := claude.Launch("", args)
+	if code == 0 && len(args) == 1 && helptext.WantsHelp(args) { // claude's own help is relayed; say what the harness takes first
+		fmt.Println("\nclaude-code claude takes --profile P --model M --as user|sp --overlay F\n" +
+			"--keep-env NAMES --print-env; everything else goes to claude.")
+	}
+	return code
+}
 
 var anthropicPage = helptext.Page{
 	Usage: "claude-code anthropic [--oauth[=NAME]] [--x-api-key[=NAME]] [--model M]\n" +
 		"[--profile P] [--print-env] [--keep-env NAMES] [--overlay FILE] [args]\n" +
-		"claude-code anthropic science [--print-env] [claude-science args]",
+		"claude-code anthropic science [--print-env] [--port N] [args]",
 	About: "Claude Code on first-party Anthropic. No flag uses your claude.ai login. A bare flag takes no " +
 		"value; =NAME picks the vault key. --profile runs on that registry profile instead.",
-	Commands: [][2]string{{"science", "Claude for Life Sciences, own login (--print-env)"}},
+	Commands: [][2]string{{"science", "Claude for Life Sciences, own login; --print-env, --port N"}},
 	Hint:     "claude-code anthropic " + helptext.DocsFlag + " prints claude's own help.",
 }
 

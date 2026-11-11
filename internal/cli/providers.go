@@ -46,9 +46,11 @@ func printLines(lines []string) error {
 var modelsPage = helptext.Page{
 	Usage: "claude-code models [flags]",
 	About: "Shows which model each alias (opus, sonnet, haiku, fable) resolves to on\n" +
-		"the session profile. --pin and --unpin write the vault pins; --live lists the\n" +
-		"profile's catalog.",
-	Hint: "A CLAUDE_<ALIAS>_MODEL vault pin beats the profile's own model.",
+		"the session profile. --pin and --unpin write claude's agent record; --live\n" +
+		"lists the profile's catalog.",
+	Commands: [][2]string{{"discover", "live-list models per profile; --apply saves them"}},
+	Hint: "An alias pin on claude's agent record beats the profile's own model.\n" +
+		"claude-code models discover -h lists its flags.",
 }
 
 // cmdModels is the models verb: alias resolution, pins, the live catalog, and the discover subcommand.
@@ -139,8 +141,8 @@ func listLive(reg *providers.Registry, p *providers.Provider, format string) int
 
 var switchPage = helptext.Page{
 	Usage: "claude-code switch <profile> [flags]",
-	About: "Sets the profile on every agent that can serve it; relaunch to apply. One launch only:\n" +
-		"claude-code --profile <p>.",
+	About: "Sets the profile on claude and every other agent that is on and can serve it, and forgets last-used " +
+		"profiles; relaunch to apply. One launch only: claude-code --profile <p>.",
 	Hint: "claude-code configure provider --list shows each profile's credential state.",
 }
 
@@ -260,7 +262,7 @@ func printRecordDiff(apply func(map[string]vault.AgentRecord), notes []string) i
 var modelsDiscoverPage = helptext.Page{
 	Usage: "claude-code models discover [flags]",
 	About: "Live-discover models for one profile, or every registry profile (sorted).\nPreview by default; --apply appends sealed, profile-scoped selectable entries.\nNever removes models, changes pins/routes, or treats listing as inference proof.",
-	Hint:  "Vendor-owned native catalogs are not rewritten. /discover-models defaults to --apply.",
+	Hint:  "Vendor-owned catalogs are not rewritten. /discover-models defaults to --apply.",
 }
 
 func modelsDiscover(args []string) int {

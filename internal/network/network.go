@@ -21,10 +21,10 @@ var networkPage = helptext.Page{
 	About: "Everything that reaches past this machine: the tailnet, browsers to automate,\n" +
 		"web search and agents on tailnet hosts.",
 	Commands: [][2]string{
-		{"tailscale", "tailnet status; --machines --connect --key --exit-node --route"},
+		{"tailscale", "tailnet status; --machines --connect --key --exit-node/subnet/route"},
 		{"browser", "list automatable browsers; --setup wires one up"},
 		{"websearch", "stdio MCP web-search server; --query runs one search"},
-		{"restart", "restart running daemons on the installed binary"},
+		{"restart", "restart the loopback proxy on the installed binary"},
 		{"remote", "run an agent on a tailnet host in tmux"},
 	},
 	Hint: "claude-code network <command> -h lists that command's flags.",
@@ -55,9 +55,9 @@ func Run(args []string) int {
 
 var restartPage = helptext.Page{
 	Usage: "claude-code network restart [--dry-run] [--force] [--format text|json]",
-	About: "Restart each running harness daemon on the installed binary. Stopped\n" +
-		"daemons are skipped. Covers the proxy; the memory idle watcher is\n" +
-		"per-session and exits by itself, so it is not restarted.\n" +
+	About: "Restart the loopback proxy on the installed binary; a stopped proxy is\n" +
+		"skipped. The memory idle watcher is per-session and exits by itself, so\n" +
+		"it is not restarted.\n" +
 		"A proxy with requests in flight is skipped, exit 0, unless --force;\n" +
 		"open sessions alone do not block a restart.",
 }

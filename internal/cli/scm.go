@@ -20,7 +20,7 @@ var page = helptext.Page{
 	About: "Pull requests, CI checks and comments for the origin remote: GitHub via gh, " +
 		"Bitbucket Data Center via REST (BITBUCKET_URL in vault env, default https://<remote host>; BITBUCKET_TOKEN in vault).",
 	Commands: [][2]string{
-		{"pr", "list (--state, --author, --limit) | view <id> | diff <id> | create"},
+		{"pr", "list (--state, --author, --limit) | view|diff <id> | create --title"},
 		{"checks", "CI results of a PR <id>, or of --sha"},
 		{"comment", "comment on a PR <id> (--body-file, --reply-to)"},
 	},
@@ -96,6 +96,36 @@ type opts struct {
 	draft                                                      *bool
 }
 
+// scmVerb is one scm verb's -h page and the flags it reads; dispatch parses every verb with the full set.
+type scmVerb struct {
+	path, args, about string
+	flags             []string
+}
+
+var scmVerbs = map[string]scmVerb{
+	"list":    {"pr list", "", "List pull requests of the origin remote.", []string{"format", "state", "author", "limit"}},
+	"view":    {"pr view", " <id>", "Show one pull request.", []string{"format"}},
+	"diff":    {"pr diff", " <id>", "Print a pull request's diff.", nil},
+	"create":  {"pr create", " --title <title>", "Open a pull request on the origin remote.", []string{"format", "title", "body-file", "base", "draft"}},
+	"checks":  {"checks", " (<id> | --sha <sha>)", "Show CI check results for a PR or a commit.", []string{"format", "sha"}},
+	"comment": {"comment", " <id> --body-file <file>", "Post the file's text as a comment on a PR, or a reply (--reply-to).", []string{"body-file", "reply-to"}},
+}
+
+// verbUsage points fs's -h at the verb's page, listing only the flags it reads.
+func verbUsage(fs *flag.FlagSet, name string) {
+	v, ok := scmVerbs[name]
+	if !ok {
+		return
+	}
+	shown := helptext.NewFlagSet(fs.Name(), helptext.Page{})
+	for _, n := range v.flags {
+		f := fs.Lookup(n)
+		shown.Var(f.Value, n, f.Usage)
+	}
+	p := helptext.Page{Usage: "claude-code scm " + v.path + v.args + " [flags]", About: v.about, Flags: shown}
+	fs.Usage = func() { p.Fprint(fs.Output()) }
+}
+
 func newFlags(name string) (*flag.FlagSet, *opts) {
 	fs := helptext.NewFlagSet("scm "+name, helptext.Page{Usage: "claude-code scm " + name + " [flags]"})
 	o := &opts{format: helptext.FormatFlag(fs)}
@@ -108,6 +138,7 @@ func newFlags(name string) (*flag.FlagSet, *opts) {
 	o.draft = fs.Bool("draft", false, "create: open as a draft")
 	o.sha = fs.String("sha", "", "checks: commit instead of a PR")
 	o.replyTo = fs.String("reply-to", "", "comment: parent comment id")
+	verbUsage(fs, name)
 	return fs, o
 }
 

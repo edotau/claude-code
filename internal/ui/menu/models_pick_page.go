@@ -23,10 +23,10 @@ import (
 
 // aliasUse says in a few words what each alias is for; an alias row stays within 80 columns.
 var aliasUse = map[string]string{
-	models.Opus:   "deepest reasoning; hard multi-step work",
-	models.Sonnet: "speed + intelligence; agentic coding",
-	models.Haiku:  "fast and cheap; classify, extract, route",
-	models.Fable:  "creative and long-form writing",
+	models.Opus:   "deepest reasoning; multi-step work",
+	models.Sonnet: "balanced speed; agentic coding",
+	models.Haiku:  "fast and cheap; classify, route",
+	models.Fable:  "demanding reasoning; long-horizon",
 }
 
 // modelTarget is the account an agent's model pick applies to; claude edits the session's alias pins instead.
@@ -87,7 +87,7 @@ func modelDesc(provider, model string, listed bool) string {
 	if model == "" {
 		return provider
 	}
-	return provider + " " + checked(listed, cmp.Or(models.AliasOf(model), model)) // the picker aligns the badge column
+	return provider + " " + checked(listed, textutil.Truncate(cmp.Or(models.AliasOf(model), model), 20)) // the picker aligns the badge column
 }
 
 // modelListed: model is in the agent's static catalog (claude: the model catalog; others: the opencode menu or the
@@ -355,7 +355,7 @@ func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
 	for {
 		rows := make([][2]string, len(aliases))
 		for i, s := range aliases {
-			rows[i] = [2]string{s, padTo(aliasUse[s], 42) + currentModel(d, p, claude, s)}
+			rows[i] = [2]string{s, padTo(aliasUse[s], 36) + currentModel(d, p, claude, s)}
 		}
 		idx, err := d.shell().Pick(modelTitle(name+" — model per alias", p.Provider, p.Name), rows)
 		if err != nil || idx < 0 {
@@ -513,22 +513,21 @@ func modelsPage(d *dialog, sel providers.Selection, withUnpin bool) {
 	})
 }
 
-// aliasRowDetail is one alias row's detail: its resolved wire model and that alias's use case (the alias
-// name itself carries the family keyword UseCase matches on, so this works whatever the pinned id is).
+// aliasRowDetail is one alias row's detail: its resolved wire model and the use case of that id (General when unknown).
 func aliasRowDetail(sel providers.Selection, alias string) string {
 	id := sel.ClientModel(alias)
 	return id + " · " + models.UseCase(id, alias)
 }
 
-// modelRowDetail is a catalog row's one-line detail: name, use case, capabilities, cut to fit 80 columns.
-func modelRowDetail(m providers.ModelInfo) string {
+// modelRowDetail is a catalog row's one-line detail: name, use case, capabilities, cut to width columns.
+func modelRowDetail(m providers.ModelInfo, width int) string {
 	var parts []string
 	for _, p := range []string{m.Name, m.UseCase, m.Capabilities} {
 		if p != "" {
 			parts = append(parts, p)
 		}
 	}
-	return textutil.Truncate(strings.Join(parts, " · "), 52)
+	return textutil.Truncate(strings.Join(parts, " · "), width)
 }
 
 // pickModelForAlias lists the profile's served models (providers.ListModels; FallbackModels covers the
@@ -544,9 +543,13 @@ func pickModelForAlias(d *dialog, sel providers.Selection, alias string) {
 	if note != "" {
 		d.println(note)
 	}
+	idW := 0
+	for _, m := range infos {
+		idW = max(idW, len(m.ID))
+	}
 	rows := make([][2]string, len(infos))
 	for i, m := range infos {
-		rows[i] = [2]string{m.ID, modelRowDetail(m)}
+		rows[i] = [2]string{m.ID, modelRowDetail(m, max(78-2-idW, 20))}
 	}
 	idx, err := d.shell().Pick(alias+" — pick a model to pin", rows)
 	if err != nil || idx < 0 {

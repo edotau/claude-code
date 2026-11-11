@@ -16,12 +16,12 @@ const menuWidth = 80
 
 var planPage = helptext.Page{
 	Usage: "claude-code plan <command> [flags]",
-	About: "Plan checklists: ticked/total per plan, live task claims and partly-landed notes.",
+	About: "Plan checklists: ticked/total per plan and live task claims.",
 	Commands: [][2]string{
 		{"status", "progress per plan; --all spans every repo under the plans home"},
 		{"tick", "tick tasks covered by each commit in --range <a>..<b> (--dry-run)"},
 	},
-	Hint: "claude-code plan status -h lists its flags.",
+	Hint: "claude-code plan <command> -h lists that command's flags.",
 }
 
 // cmdPlan is the `plan` verb.
@@ -43,7 +43,8 @@ func cmdPlan(args []string) int {
 }
 
 func cmdPlanStatus(args []string) int {
-	fs := helptext.NewFlagSet("plan status", helptext.Page{Usage: "claude-code plan status [flags]"})
+	fs := helptext.NewFlagSet("plan status", helptext.Page{Usage: "claude-code plan status [flags]",
+		About: "Show ticked/total tasks and live claims per plan of this repo."})
 	all := fs.Bool("all", false, "every repo under the plans home, not just this repo's")
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
@@ -89,7 +90,8 @@ func printPlanSummaries(summaries []plans.Summary) {
 }
 
 func cmdPlanTick(args []string) int {
-	fs := helptext.NewFlagSet("plan tick", helptext.Page{Usage: "claude-code plan tick --range <a>..<b> [flags]"})
+	fs := helptext.NewFlagSet("plan tick", helptext.Page{Usage: "claude-code plan tick --range <a>..<b> [flags]",
+		About: "Tick the plan tasks that each commit in --range landed."})
 	rng := fs.String("range", "", "commits to tick, <a>..<b> as git rev-list reads it")
 	plan := fs.String("plan", "", "plan file to tick (default: the plan whose open tasks own the range's files)")
 	dryRun := fs.Bool("dry-run", false, "print what would tick without writing the plan")

@@ -68,20 +68,20 @@ func buildCommands() []command {
 		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: cmdVault, spec: vaultSpec},
 		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, remote agents", run: network.Run, spec: network.Spec},
 		// SESSION
-		{name: "switch", group: groupSession, hidden: true, summary: "pin the session profile (vault pins)", run: cmdSwitch, spec: switchSpec},
+		{name: "switch", group: groupSession, hidden: true, summary: "set the session profile on every agent that serves it", run: cmdSwitch, spec: switchSpec},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: func(args []string) int { return setup.Clean(args, os.Stdout, os.Stderr) }, spec: setup.CleanSpec},
 		{name: "history", group: groupSession, summary: "shadow git history of the config files", run: cmdHistory, spec: historySpec},
 		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: cmdWorktree, spec: worktreeSpec},
 		{name: "test", group: groupSession, hidden: true, summary: "test tooling: run a command with TMPDIR on a RAM disk", run: cmdTest, spec: testSpec},
 		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: func(a []string) int { return cmdMemory(a, readOnlyHelp) }, spec: memorySpec},
-		{name: "plan", group: groupSession, hidden: true, summary: "plan checklists: status (ticked/total, claims)", run: cmdPlan, spec: planSpec},
+		{name: "plan", group: groupSession, hidden: true, summary: "plan checklists: status (ticked/total, claims), tick", run: cmdPlan, spec: planSpec},
 		{name: "scm", group: groupSession, summary: "PRs, checks, comments on GitHub or Bitbucket DC", run: cmdScm, spec: scmSpec},
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only health checks (--audit: action log)", run: doctor.Run, spec: doctor.SpecNode},
 		{name: "gateway", group: groupDiagnostics, summary: "which agent + model a task routes to; the loopback proxy", run: cmdGateway, spec: gatewaySpec},
 		{name: "usage", group: groupDiagnostics, summary: "token totals, peak rate, profile quotas", run: func(a []string) int { return usagecmd.Run(a, paths.ConfigDir(), os.Stdout, os.Stderr) }, spec: usagecmd.Spec},
 		// SETTINGS
-		{name: "install", group: groupSettings, summary: "install Claude Code; seed settings.json if missing", run: setup.RunInstall, spec: setup.InstallSpec},
+		{name: "install", group: groupSettings, summary: "install claude-code and agent links; seed settings.json", run: setup.RunInstall, spec: setup.InstallSpec},
 		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: func(a []string) int { return cmdConfigure(a, providerList) }, spec: configureSpec},
 		{name: "theme", group: groupSettings, summary: "palette, statusline, VS Code template, tool themes", run: cmdTheme, spec: themeSpec},
 	}, hiddenCommands()...)
@@ -95,14 +95,14 @@ func readOnlyHelp(verb string) bool {
 
 func hiddenCommands() []command {
 	return []command{
-		// Hidden: dispatchable, named in the trailing note, off the menu.
+		// Hidden: dispatchable, off the menu (documented in README.md and rules/).
 		{name: "claude", hidden: true, summary: "launch Claude Code on the selected profile", run: cmdClaude, sideEffectHelp: true},
 		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f)", run: cmdMenuSVG, spec: menuSVGSpec},
 		{name: "agents", hidden: true, summary: "ask, dispatch, list, sync, tree, status: run and track agents", run: cmdAgents, spec: agentsSpec},
 		{name: "preflight", hidden: true, summary: "pin check per agent; --live runs the post-install pong round", run: cmdPreflight, spec: preflightSpec},
 		{name: "models", hidden: true, summary: "model aliases; --pin alias=model, --live", run: cmdModels, spec: modelsSpec},
-		{name: "review", hidden: true, summary: "code-review detectors: quality|complexity|diff|pr|gate", run: cmdReview, spec: reviewSpec},
-		{name: "workflow", hidden: true, summary: "skeleton <pattern> | lint (model/effort pins, meta/throw)", run: cmdWorkflow, spec: workflowSpec},
+		{name: "review", hidden: true, summary: "code-review detectors: quality, complexity, simplify, diff, pr, gate, ...", run: cmdReview, spec: reviewSpec},
+		{name: "workflow", hidden: true, summary: "skeleton <pattern> | lint (pins, meta/throw, syntax, table)", run: cmdWorkflow, spec: workflowSpec},
 		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: cmdHook, spec: hookSpec},
 		{name: "clip", hidden: true, summary: "save the Windows clipboard image as PNG; print its WSL path", run: cmdClip, spec: clipSpec},
 		{name: "clip-clear", hidden: true, summary: "clear the clipboard after a delay if it still holds a copied secret", run: cmdClipClear, spec: clipClearSpec},
@@ -272,7 +272,13 @@ func printUsage() int {
 	return 0
 }
 
-func cmdVersion([]string) int {
+var versionPage = helptext.Page{Usage: "claude-code version", About: "Print the build version."}
+
+func cmdVersion(args []string) int {
+	if len(args) > 0 && isHelpVerb(args[0]) {
+		versionPage.Fprint(os.Stderr)
+		return 0
+	}
 	fmt.Println("claude-code", textutil.BuildVersion())
 	return 0
 }

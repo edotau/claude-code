@@ -163,14 +163,14 @@ type usageOpts struct {
 func parseUsageArgs(args []string, errw io.Writer) (o usageOpts, code int, done bool) {
 	fs := helptext.NewFlagSet("usage", helptext.Page{
 		Usage: "claude-code usage [flags]",
-		About: "Token totals and peak rate across Claude Code sessions plus the codex, opencode\n" +
-			"and copilot stores, then live plan quotas per provider.",
+		About: "Token totals and peak input tokens/min across Claude Code subagent transcripts and the " +
+			"codex, opencode and copilot stores; then live plan quotas, API-key spend and a per-agent table.",
 	})
 	fs.SetOutput(errw)
 	sessionFlag := fs.String("session", "", "scope to one session id (every project dir is searched)")
-	daysFlag := fs.Int("days", 1, "select sessions modified in N days (ignored with --session)")
+	daysFlag := fs.Int("days", 1, "count the last N days (ignored with --session)")
 	formatFlag := helptext.FormatFlag(fs)
-	workflowsFlag := fs.Bool("workflows", false, "show workflow phases and model rollups, newest runs first")
+	workflowsFlag := fs.Bool("workflows", false, "workflow phases and model rollups, newest first; text only")
 	providersFlag := fs.Bool("providers", true, "append live plan quotas for every provider; =false stays offline")
 	showFlag := fs.String("show", "used", "quota column: used (default) or left; total hides the quota table")
 	if code, done := helptext.Parse(fs, args); done {
