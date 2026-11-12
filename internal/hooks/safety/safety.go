@@ -19,7 +19,7 @@ import (
 )
 
 // rmRecursive matches `rm` with any recursive flag spelling (-r, -Rf, -r -f, --recursive) and trailing operands.
-const rmRecursive = `rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(\S+\s+)*`
+const rmRecursive = `(^|[^[:alnum:]_])rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(\S+\s+)*`
 
 // hardBlocks are command shapes that are almost never intentional.
 var hardBlocks = core.LazyCompile(
@@ -55,7 +55,7 @@ const gitPushPrefix = `git\s+(((-[Cc]\s+|--(git-dir|work-tree)(=|\s+))("[^"]*"|'
 // forceFlag is a standalone --force or short-flag cluster containing f (-f, -fu, -uf).
 const forceFlag = `(--force|-[a-zA-Z]*f[a-zA-Z]*)(\s|$)`
 
-// protectedBranch is main/master as a whole refspec word: after whitespace, a quote, `:` or refs/heads/ (not feature-main).
+// protectedBranch is main/master as a whole refspec word: after space, a quote, `:` or refs/heads/ (not feature-main)
 const protectedBranch = `(.*[\s"':]|.*refs/heads/)?(main|master)["']?(\s|$)`
 
 const (
@@ -269,7 +269,7 @@ func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, 
 	return core.Allow, "", ""
 }
 
-// firstHardBlock is the first hard-block pattern any shell segment of text matches, as written or as the shell reads it.
+// firstHardBlock is the first hard-block pattern any shell segment of text matches, as written or as the shell reads it
 func firstHardBlock(text string) (string, bool) {
 	for _, seg := range shell.Segments(text) {
 		read := shellRead(seg)
@@ -291,7 +291,7 @@ func shellRead(seg string) string {
 	return strings.Join(toks, " ")
 }
 
-// cleanOperand collapses `//`, `.` and `..` in an absolute or home-relative word; a home path that climbs out reads `/`.
+// cleanOperand collapses `//`, `.` and `..` in an absolute or home-relative word; a home path climbing out reads `/`
 func cleanOperand(word string) string {
 	for _, home := range []string{"${HOME}", "$HOME", "~"} {
 		rest, ok := strings.CutPrefix(word, home)
@@ -315,11 +315,14 @@ func cleanOperand(word string) string {
 
 // bareForcePush is the protected branch a force-push names no refspec for (it updates the checked-out one), else "".
 func bareForcePush(cmd, cwd string) string {
-	if cwd == "" || !strings.Contains(cmd, "push") {
+	if !strings.Contains(cmd, "push") {
 		return ""
 	}
 	var branch string
 	shell.EachGit(dropRemoteHeredocs(cmd), cwd, func(target, verb string, args []string) bool {
+		if cwd == "" && !filepath.IsAbs(target) { // a relative target needs a cwd to resolve
+			return false
+		}
 		if verb == "push" && forcesPush(args) && !slices.Contains(args, "--tags") && impliedRefspec(args) {
 			branch = protectedHead(target)
 		}
@@ -353,12 +356,16 @@ func impliedRefspec(args []string) bool {
 	return len(words) <= 1 || (len(words) == 2 && words[1] == "HEAD")
 }
 
-// protectedHead is the branch checked out in dir when it is main or master, else "" (detached, no repo, git failed).
+// protectedHead is the branch checked out in dir when it is main or master, else "" (detached, no repo);
+// a git that cannot run or times out leaves the branch unknown, reported as protected so the push asks.
 func protectedHead(dir string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), rewriteTimeout)
 	defer cancel()
 	lines, ok, err := core.Git(ctx, dir, "symbolic-ref", "--short", "-q", "HEAD")
-	if err != nil || !ok || len(lines) != 1 || (lines[0] != "main" && lines[0] != "master") {
+	if err != nil {
+		return "an unknown branch (git failed)"
+	}
+	if !ok || len(lines) != 1 || (lines[0] != "main" && lines[0] != "master") {
 		return ""
 	}
 	return lines[0]

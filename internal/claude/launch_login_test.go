@@ -424,4 +424,13 @@ func TestOfferLoginChecksConcurrentlyPromptsInOrder(t *testing.T) {
 	}
 }
 
-// A check abandoned at the timeout is cancelled, not left running on the caller's context.
+// ctxSignin's Check blocks until its context is cancelled, then reports it on cancelled.
+type ctxSignin struct{ cancelled chan struct{} }
+
+func (c ctxSignin) Check(ctx context.Context) (providers.AuthVerdict, string) {
+	<-ctx.Done()
+	close(c.cancelled)
+	return "", ""
+}
+func (ctxSignin) Status() providers.AuthState                       { return providers.AuthState{} }
+func (ctxSignin) Login(context.Context, io.Reader, io.Writer) error { return nil }

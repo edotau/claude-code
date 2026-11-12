@@ -84,7 +84,7 @@ func serve(ctx context.Context, res ModelResult, mode ModelMode, dialects []stri
 		res.Models = shape(catalog.UsableIn(p, snap.Models, dialects))
 		return res, nil
 	}
-	infos, _, _, err := catalog.Served(p)
+	infos, _, _, err := catalog.Served(ctx, p)
 	if err != nil {
 		return res, err
 	}

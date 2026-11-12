@@ -1,4 +1,4 @@
-//go:build !darwin && !freebsd && !netbsd && !openbsd && !dragonfly && !linux
+//go:build !darwin && !freebsd && !netbsd && !linux
 
 package paths
 

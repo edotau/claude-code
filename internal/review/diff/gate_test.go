@@ -70,7 +70,7 @@ func TestRunGateStagedFiles(t *testing.T) {
 	}
 }
 
-// TestGateStagedFilesHonorsInheritedGitIndexFile proves gateStagedFiles inherits GIT_INDEX_FILE
+// TestGateStagedFilesHonorsInheritedGitIndexFile proves stagedFiles inherits GIT_INDEX_FILE
 // (via RunGitInherit) instead of stripping it (RunGit would): git itself sets GIT_INDEX_FILE to a
 // temp index while running a hook, and the gate must see what's staged in THAT index, not the real one.
 func TestGateStagedFilesHonorsInheritedGitIndexFile(t *testing.T) {
@@ -82,7 +82,10 @@ func TestGateStagedFilesHonorsInheritedGitIndexFile(t *testing.T) {
 	t.Setenv("GIT_INDEX_FILE", altIndex)
 	gitAddInherited(t, dir, "a.txt")
 
-	files := gateStagedFiles(dir)
+	files, err := stagedFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	found := false
 	for _, f := range files {
 		if f == "a.txt" {
@@ -90,7 +93,7 @@ func TestGateStagedFilesHonorsInheritedGitIndexFile(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("gateStagedFiles(dir) with GIT_INDEX_FILE=%q did not include a.txt staged in the alt index: %v", altIndex, files)
+		t.Fatalf("stagedFiles(dir) with GIT_INDEX_FILE=%q did not include a.txt staged in the alt index: %v", altIndex, files)
 	}
 }
 
@@ -166,8 +169,8 @@ func TestGateComplexityIncludesGo(t *testing.T) {
 	hosttest.WriteRel(t, repo, "app.go", "package app\n")
 	hosttest.In(t, repo, "add", "--", "app.go")
 	want := []string{filepath.Join(repo, "app.go")}
-	if got := gateComplexityFiles(repo); !reflect.DeepEqual(got, want) {
-		t.Fatalf("staged complexity files = %v, want %v", got, want)
+	if got, err := stagedSourceFiles(repo); err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("staged complexity files = %v, %v, want %v", got, err, want)
 	}
 }
 

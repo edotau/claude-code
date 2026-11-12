@@ -306,6 +306,7 @@ func codexHasJSON() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "exec", "--help")
+	cmd.WaitDelay = time.Second                                                        // a helper holding the pipe must not outlive the timeout
 	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(agent.ProbeContext(ctx, "")) // no login or route credential
 	out, runErr := cmd.CombinedOutput()
 	has := strings.Contains(string(out), "--json")
@@ -345,14 +346,13 @@ func codexSchemaFile(schema string) (string, error) {
 	return f.Name(), nil
 }
 
-// codexStrict makes every object schema OpenAI-strict (additionalProperties false, all properties required);
-// the harness still validates the answer against the caller's original schema.
+// codexStrict makes every object schema OpenAI-strict (additionalProperties false, all required); harness revalidates.
 func codexStrict(v any) any {
 	switch x := v.(type) {
 	case map[string]any:
 		codexStrictChildren(x)
 		if props, ok := x["properties"].(map[string]any); ok {
-			x["required"], x["additionalProperties"] = slices.Sorted(maps.Keys(props)), false
+			x["required"], x["additionalProperties"] = append([]string{}, slices.Sorted(maps.Keys(props))...), false // [] not null
 		} else if codexObjectType(x["type"]) {
 			if _, set := x["additionalProperties"]; !set { // an explicit map schema keeps its own value
 				x["additionalProperties"] = false
@@ -373,7 +373,7 @@ var (
 		"not", "if", "then", "else", "anyOf", "oneOf", "allOf"}
 )
 
-// codexResponsesModel swaps a model Responses cannot serve (the row's opus alias, gpt-oss) for the menu's first Responses model.
+// codexResponsesModel swaps a model Responses cannot serve (opus alias, gpt-oss) for the menu's first Responses model.
 func codexResponsesModel(p *providers.Provider, model string) string {
 	if p.Preset != providers.PresetDatabricks || providers.ResponsesServable(p, model) {
 		return model
@@ -429,7 +429,7 @@ func codex(ctx context.Context, p *providers.Provider, base, model, cred string,
 	return env, codexHeadless(argv, h), nil
 }
 
-// codexHeaderEnv names the env var that carries header k's value into codex; punctuation is hex-escaped so distinct names stay distinct.
+// codexHeaderEnv names the env var carrying header k's value into codex; punctuation is hex-escaped to stay distinct.
 func codexHeaderEnv(k string) string {
 	var b strings.Builder
 	b.WriteString("CLAUDE_CODE_CODEX_HDR_")
@@ -456,11 +456,11 @@ func codexLogin(model string, h *agent.Headless) ([]string, []string, error) {
 	return nil, codexHeadless(argv, h), nil
 }
 
-// codexHome is $CODEX_HOME or ~/.codex, where codex keeps auth.json and config.toml.
+// codexHome is $CODEX_HOME or ~/.codex, where codex keeps auth.json and config.toml; unresolvable is an unusable path.
 func codexHome() string {
 	home, err := paths.CodexHome()
 	if err != nil {
-		return ".codex" // no resolvable home: a relative path simply misses
+		return filepath.Join(os.DevNull, ".codex") // fail closed: an absolute path no file can sit under, never the cwd
 	}
 	return home
 }
@@ -536,7 +536,7 @@ var codexLeafArgs = []string{
 	"-c", `features.multi_agent_v2.root_agent_usage_hint_text=""`, "-c", `features.multi_agent_v2.multi_agent_mode_hint_text=""`,
 }
 
-// codexToolsOffArgs drop what a tools-off exec cannot use: the skill list, desktop-app plugins and ChatGPT app connectors.
+// codexToolsOffArgs drop what a tools-off exec cannot use: the skill list, desktop plugins and ChatGPT app connectors.
 var codexToolsOffArgs = []string{"-c", "skills.include_instructions=false", "-c", "features.plugins=false", "-c", "features.apps=false"}
 
 // codexNetworkEnv=1 opts codex tool runs into sandbox network (loopback test listeners); default sealed.
@@ -549,8 +549,7 @@ const codexKeychainService = "Codex Auth"
 // codexGOOS is the OS whose keyring plane the lookups below use; a seam for tests.
 var codexGOOS = runtime.GOOS
 
-// codexKeychainCmd runs the OS secret-store lookup (security on macOS, secret-tool on Linux); tests
-// replace it so none of this reaches the real keychain.
+// codexKeychainCmd runs the OS secret-store lookup (security on macOS, secret-tool on Linux); tests replace it.
 var codexKeychainCmd = func(ctx context.Context, args ...string) ([]byte, error) {
 	name := "security"
 	if codexGOOS == "linux" {
@@ -586,8 +585,7 @@ func codexAuthFile() ([]byte, bool) {
 	return b, err == nil
 }
 
-// codexKeyringAuthJSON looks up the "Codex Auth" keyring item; an item with several accounts answers
-// with the first, which is fine since codex only ever stores one ChatGPT login at a time.
+// codexKeyringAuthJSON looks up the "Codex Auth" keyring item; the first of several accounts answers (codex keeps one).
 func codexKeyringAuthJSON() (data []byte, note string) {
 	var args []string
 	switch codexGOOS {

@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,11 +29,34 @@ func ConfigDir() string {
 	if r := installRoot(); r != "" {
 		return r
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
+	if home := homeDir(); home != "" {
+		return filepath.Join(home, ".claude")
 	}
-	return filepath.Join(home, ".claude")
+	return filepath.Join(noHomeRoot(), ".claude")
+}
+
+// noHomeRoot is the homeless-process root: our own 0700 uid-named temp dir, else an unguessable one.
+var noHomeRoot = sync.OnceValue(func() string {
+	root := filepath.Join(os.TempDir(), "claude-code-"+strconv.Itoa(os.Getuid()))
+	if err := os.Mkdir(root, 0o700); err == nil || os.IsExist(err) {
+		if fi, err := os.Lstat(root); err == nil && fi.IsDir() && fi.Mode().Perm()&0o077 == 0 {
+			if uid, ok := OwnerUID(fi); ok && uid == os.Getuid() {
+				return root
+			}
+		}
+	}
+	return filepath.Join(os.TempDir(), "claude-code-"+cryptorand.Text()) // unguessable, so nothing can be pre-planted
+})
+
+// homeDir is $HOME, else the passwd entry's home (launchd, cron, minimal containers leave HOME unset); "" if neither.
+func homeDir() string {
+	if home, err := os.UserHomeDir(); err == nil {
+		return home
+	}
+	if u, err := user.Current(); err == nil {
+		return u.HomeDir
+	}
+	return ""
 }
 
 // installRoot is the clone whose bin/ holds the running binary; "" for non-clones, linked worktrees and ~/.claude.
@@ -51,7 +76,7 @@ var installRoot = sync.OnceValue(func() string {
 	if !IsDir(filepath.Join(root, ".git")) || !IsDir(filepath.Join(root, "cmd", "claude-code")) {
 		return ""
 	}
-	if home, err := os.UserHomeDir(); err == nil {
+	if home := homeDir(); home != "" {
 		if def, err := filepath.EvalSymlinks(filepath.Join(home, ".claude")); err == nil && def == root {
 			return ""
 		}
@@ -78,7 +103,7 @@ func ExportConfigDir() {
 // BinDir is the install target for the claude-code binary and its bare-name shims.
 func BinDir() string { return filepath.Join(ConfigDir(), "bin") }
 
-// BackupPath maps src to its mirrored backup location under StateDir, tagged with now; pure, no I/O.
+// BackupPath maps src to its mirrored backup location under StateDir, tagged with now; it writes nothing.
 func BackupPath(src string, now time.Time) string {
 	sep := string(filepath.Separator)
 	rel := strings.TrimPrefix(filepath.Join(sep, src), sep) // a rooted Join drops leading ".."
@@ -245,7 +270,6 @@ func TryLock(f *os.File) bool { ok, _ := tryLock(f); return ok }
 func lockPoll() time.Duration { return time.Duration(1+rand.IntN(50)) * time.Millisecond }
 
 // TryFileLock runs fn under an exclusive lock on path only if granted within wait; ran=false means fn did not run.
-// For work that must not run unserialized (counting a shared marker dir); a locking error is returned, not swallowed.
 func TryFileLock(path string, wait time.Duration, fn func() error) (ran bool, err error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -470,8 +494,8 @@ func ExpandHome(p string) string {
 
 // ConfigDirIsDefault reports whether the config directory is the current home's .claude directory.
 func ConfigDirIsDefault() bool {
-	home, err := os.UserHomeDir()
-	return err == nil && filepath.Clean(ConfigDir()) == filepath.Join(home, ".claude")
+	home := homeDir()
+	return home != "" && filepath.Clean(ConfigDir()) == filepath.Join(home, ".claude")
 }
 
 // Within reports whether path equals base or sits under it, after cleaning both (so /a/foo is not inside /a/foobar).

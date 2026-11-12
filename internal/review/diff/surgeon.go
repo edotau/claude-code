@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -47,15 +48,6 @@ type diffSurgeonResult struct {
 	FileResults     []diffFileResult `json:"file_results"`
 }
 
-// noChangesResult mirrors the shortcut dict emitted when the diff is empty.
-type noChangesResult struct {
-	Status  string `json:"status"`
-	Files   int    `json:"files"`
-	Noise   int    `json:"noise_lines"`
-	Verdict string `json:"verdict"`
-	Message string `json:"message"`
-}
-
 // Comment leaders by file extension; an unlisted or missing extension has none (conservative: not a comment).
 var (
 	hashExts   = setOf(".sh", ".bash", ".zsh", ".py", ".rb", ".yaml", ".yml", ".toml", ".pl", ".r", ".mk", ".conf", ".cfg", ".ini")
@@ -76,15 +68,17 @@ type diffFileEntry struct {
 	changes []string
 }
 
+// runGitDiff runs git diff for the staged change or diffRange; the flags pin the plain a/ b/ format against user config
 func runGitDiff(repo, diffRange string, stderr io.Writer) (string, bool) {
-	args := []string{"diff", "--cached"}
-	if err := checkRefs(diffRange); err != nil {
-		fmt.Fprintf(stderr, "[error] %v\n", err)
-		return "", false
-	}
+	rev := "--cached"
 	if diffRange != "" {
-		args = []string{"diff", diffRange}
+		if err := checkRefs(diffRange); err != nil {
+			fmt.Fprintf(stderr, "[error] %v\n", err)
+			return "", false
+		}
+		rev = diffRange
 	}
+	args := []string{"diff", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", rev}
 	out, err := gitInherit(repo, args...)
 	if err != nil {
 		fmt.Fprintf(stderr, "[error] git diff failed: %v\n", err)
@@ -136,12 +130,25 @@ func parseDiffFiles(diffText string) []*diffFileEntry {
 	return files
 }
 
-// diffFileName returns the b/ path of a "diff --git" header, or the whole line when it has none.
+// diffFileName returns the new path of a "diff --git" header: the b/ path, the quoted last path, or the last field.
 func diffFileName(line string) string {
-	if _, after, ok := strings.CutLast(line, " b/"); ok {
+	rest := strings.TrimPrefix(line, "diff --git ")
+	if strings.HasSuffix(rest, `"`) {
+		if i := strings.LastIndex(rest, ` "`); i >= 0 {
+			rest = rest[i+1:]
+		}
+		if name, err := strconv.Unquote(rest); err == nil {
+			return strings.TrimPrefix(name, "b/")
+		}
+		return strings.Trim(rest, `"`)
+	}
+	if _, after, ok := strings.CutLast(rest, " b/"); ok {
 		return after
 	}
-	return line
+	if fields := strings.Fields(rest); len(fields) > 0 {
+		return fields[len(fields)-1]
+	}
+	return rest
 }
 
 // isBodyChange reports a +/- line, excluding the ---/+++ file headers that precede the first hunk.
@@ -308,8 +315,7 @@ func printDiffReport(w io.Writer, result diffSurgeonResult) {
 	fmt.Fprint(w, "\nRecommendation: review flagged lines. Remove changes that don't trace to your task.\n")
 }
 
-// RunDiff ports diff_surgeon.py's CLI. Findings are advisory (exit 0); a bad flag or a missing
-// --file is a real usage error (exit 2 / 1 respectively).
+// RunDiff ports diff_surgeon.py's CLI. Findings are advisory (exit 0); a bad flag or a missing --file is a usage error.
 func RunDiff(args []string, stdout, stderr io.Writer) int {
 	return runDiffIn("", args, stdout, stderr)
 }
@@ -332,16 +338,17 @@ func runDiffIn(repo string, args []string, stdout, stderr io.Writer) int {
 	if exitCode != 0 {
 		return exitCode
 	}
-	if strings.TrimSpace(diffText) == "" {
-		result := noChangesResult{Status: "ok", Files: 0, Noise: 0, Verdict: "CLEAN", Message: "No diff to analyze"}
-		if *jsonOut {
-			return printJSON(stdout, stderr, result)
-		}
+	files := parseDiffFiles(diffText)
+	if strings.TrimSpace(diffText) != "" && len(files) == 0 {
+		fmt.Fprintln(stderr, "[error] no 'diff --git' file headers found: expected git diff output")
+		return 1
+	}
+	if len(files) == 0 && !*jsonOut {
 		fmt.Fprintln(stdout, "No diff to analyze. Stage changes (git add) or pass --diff.")
 		return 0
 	}
 
-	result := buildDiffResult(parseDiffFiles(diffText))
+	result := buildDiffResult(files)
 	if *jsonOut {
 		return printJSON(stdout, stderr, result)
 	}

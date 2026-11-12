@@ -42,15 +42,18 @@ func renderOpenCodeOverlay(o agentconfig.RenderOptions, out io.Writer) (bool, er
 	return cfgChanged || tuiChanged, nil
 }
 
-// opencodeRulesOn adds the portable core to cfg as `instructions`, minus CLAUDE.md, which opencode reads natively.
+// opencodeRulesOn adds the portable core to cfg as `instructions`, minus CLAUDE.md (read natively) if it's the root
 func opencodeRulesOn(cfg map[string]any) {
 	core, err := project.PortableCore(paths.ConfigDir())
 	if err != nil {
 		fmt.Fprintln(agentconfig.CatalogWarn, "opencode:", err)
 		return
 	}
-	if len(core) > 1 {
-		cfg["instructions"] = core[1:]
+	if len(core) > 0 && filepath.Base(core[0]) == "CLAUDE.md" {
+		core = core[1:]
+	}
+	if len(core) > 0 {
+		cfg["instructions"] = core
 	}
 }
 
@@ -71,7 +74,7 @@ func opencodeCommands() map[string]any {
 			continue
 		}
 		fm, body := textutil.ParseFrontmatter(string(raw))
-		if tools, _ := fm["allowed-tools"].(string); slices.Contains(textutil.SplitCSV(tools), "Agent") {
+		if slices.Contains(allowedTools(fm["allowed-tools"]), "Agent") {
 			continue
 		}
 		cmd := map[string]any{"template": body}
@@ -84,6 +87,17 @@ func opencodeCommands() map[string]any {
 		out[name] = cmd
 	}
 	return out
+}
+
+// allowedTools is a command's allowed-tools frontmatter: a comma string or a (flow or block) list.
+func allowedTools(v any) []string {
+	switch t := v.(type) {
+	case string:
+		return textutil.SplitCSV(t)
+	case []string:
+		return t
+	}
+	return nil
 }
 
 // opencodeCommandsOn adds the projected commands to cfg as opencode `command`.

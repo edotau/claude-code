@@ -1,7 +1,9 @@
 {
   "status": "ok",
-  "files": 0,
+  "files_in_diff": 0,
+  "total_change_lines": 0,
   "noise_lines": 0,
+  "noise_ratio": 0.0,
   "verdict": "CLEAN",
-  "message": "No diff to analyze"
+  "file_results": []
 }

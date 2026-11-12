@@ -331,8 +331,8 @@ func TestPeersByAddrIndexesPeersAndSelf(t *testing.T) {
 	if p := got["fd7a::2"]; !p.Online || !p.ExitNode {
 		t.Errorf("peer address = %+v, want the online exit-node peer", p)
 	}
-	if self := got["100.0.0.1"]; !self.Online || !self.ExitNode {
-		t.Errorf("self address = %+v, want Online (Running) and ExitNode from ExitNodeOption", self)
+	if self := got["100.0.0.1"]; !self.Online || self.ExitNode || !self.ExitNodeOption {
+		t.Errorf("self address = %+v, want Online (Running), ExitNodeOption and not ExitNode", self)
 	}
 	st.BackendState = "Stopped"
 	if got := peersByAddr(st)["100.0.0.1"]; got.Online {

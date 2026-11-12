@@ -3,8 +3,10 @@ package docs
 import (
 	"bytes"
 	"cmp"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"iter"
 	"os"
 	"path/filepath"
@@ -24,7 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 )
 
-// Save files an approved ExitPlanMode plan as <config>/plans/[<repo>/]<date>-<title>.md (plans/ is gitignored wholesale).
+// Save files an approved ExitPlanMode plan as <config>/plans/[<repo>/]<date>-<title>.md (plans/ is gitignored).
 // PostToolUse only fires on approval; prefer approved input text, then the response, then their scratch files.
 // When the approved plan traces back to an undated draft the plan-mirror hook already filed, its recorded
 // destination is reused (the date stays the draft's creation date) instead of minting a new one for today.
@@ -110,8 +112,7 @@ func dropEmptyClaim(dest string) {
 	}
 }
 
-// retireDraft removes the mirrored draft and its .dest record once the approved plan is filed. A draft edited after
-// approval is kept, and its record is dropped so Mirror cannot later overwrite the approved dated plan.
+// retireDraft removes the mirrored draft and its .dest record once the plan is filed; an edited draft is kept.
 func retireDraft(draftPath string, approvedText []byte, stderr io.Writer) {
 	if draftPath == "" || !isUndatedDraft(draftPath) {
 		return
@@ -134,8 +135,7 @@ func retireDraft(draftPath string, approvedText []byte, stderr io.Writer) {
 	}
 }
 
-// dropRecord removes a draft's .dest record. If removal fails it truncates the record, so Mirror reads no
-// destination and cannot write a later draft over the approved dated plan.
+// dropRecord removes a draft's .dest record, else truncates it, so Mirror cannot overwrite the approved dated plan.
 func dropRecord(record string, stderr io.Writer) {
 	err := os.Remove(record)
 	if err == nil || os.IsNotExist(err) {
@@ -147,8 +147,7 @@ func dropRecord(record string, stderr io.Writer) {
 	}
 }
 
-// planHeading is one heading's level and display text, as parsed from a plan's AST — a "#" inside a
-// fenced code block or YAML front matter never produces one, unlike a raw line/substring scan.
+// planHeading is a heading's level and text from the plan AST; a "#" in a code fence or front matter never yields one.
 type planHeading struct {
 	level int
 	text  string
@@ -300,8 +299,9 @@ func isUndatedDraft(abs string) bool {
 	if !isMarkdownPath(abs) {
 		return false
 	}
-	plansDir := filepath.Join(paths.ConfigDir(), "plans")
-	if filepath.Dir(abs) != filepath.Clean(plansDir) {
+	// Canonicalize both sides: a draft spelled through a symlink must still match the real plans dir.
+	plansDir := core.CanonPath(filepath.Join(paths.ConfigDir(), "plans"))
+	if core.CanonPath(filepath.Dir(abs)) != plansDir {
 		return false
 	}
 	return !undatedNameRe().MatchString(filepath.Base(abs))
@@ -343,6 +343,7 @@ func hasPlanHeading(headings []planHeading, want templateHeading) bool {
 
 // Gate denies the FIRST write to an undated draft under <config>/plans/ that lacks the plan
 // template's required headings (deny-one-call); the message pastes the skeleton so the retry is right.
+// Edit never blocks (it needs an existing file), so only Write, Create and apply_patch Add File matter.
 func Gate(in *core.Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool == "apply_patch" { // an Add File hunk is a first write; Update is an Edit, which the gate leaves alone
@@ -491,8 +492,14 @@ func Reminder(in *core.Input) core.Result {
 		}
 		return nil
 	})
-	if err != nil {
+	if errors.Is(err, fs.ErrNotExist) { // a peer's Stop consumed the record between the Stat and the lock
 		return core.Result{}
+	}
+	if err != nil {
+		fmt.Fprintf(&stderr, "plan-reminder: %v\n", err)
+		res := core.ExitResult(core.ExitProceed, stderr.String())
+		res.SystemMessage = "plans: could not read the partial-task record (" + err.Error() + "); kept for the next Stop"
+		return res
 	}
 	res := core.ExitResult(core.ExitProceed, stderr.String())
 	if items := stillPartial(string(data)); items != "" {

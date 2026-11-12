@@ -153,12 +153,14 @@ func (b *cellBuf) pushSep(s string) {
 	}
 }
 
-// pushContextBlock pushes the major separator and the context block; false when there is no context to show.
-func (b *cellBuf) pushContextBlock(v values, sepMajor string) bool {
+// pushContextBlock pushes the context block, led by the major separator if something precedes it; false if none.
+func (b *cellBuf) pushContextBlock(v values, sepMajor string, lead bool) bool {
 	if !v.two.hasCtx {
 		return false
 	}
-	b.pushSep(sepMajor)
+	if lead {
+		b.pushSep(sepMajor)
+	}
 	d := v.two
 	bar := twoBar(d.ctxPct, 10)
 	b.push("ctx ", "g")
@@ -200,7 +202,7 @@ func (b *cellBuf) pushMetrics(v values, cfg config) {
 			continue
 		}
 		if key == "context" {
-			emitted = b.pushContextBlock(v, sepMajor) || emitted
+			emitted = b.pushContextBlock(v, sepMajor, emitted) || emitted
 			continue
 		}
 		for _, text := range gradientTexts(v, key) {
@@ -261,8 +263,7 @@ func contextBarParts(pct int, bar barConfig) (filledPart, emptyPart string) {
 	return strings.Repeat(filled, n), strings.Repeat(empty, width-n)
 }
 
-// troughTone derives empty-bar cells from the terminal bg (not the ramp, which drags troughs dark):
-// dark lifts toward white, light toward black, by emptyContrast.
+// troughTone derives empty-bar cells from the terminal bg (not the ramp, which drags troughs dark) by emptyContrast.
 func troughTone(bar barConfig) ansi.RGB {
 	bg := bar.TerminalBg
 	if bg == "" {

@@ -70,18 +70,24 @@ func (e Entry) ProfileName() string {
 	return e.Provider
 }
 
-// TotalsBySession sums the tokens of every entry stamped with the parent session id; "" matches nothing.
+// TotalsBySession is SessionTotals with the read error dropped; callers that cache the result must use SessionTotals.
 func TotalsBySession(id string) (in, out, cacheRead int) {
+	in, out, cacheRead, _ = SessionTotals(id)
+	return in, out, cacheRead
+}
+
+// SessionTotals sums tokens of every entry stamped with the parent session id ("" matches nothing); read errors return.
+func SessionTotals(id string) (in, out, cacheRead int, err error) {
 	if id == "" {
-		return 0, 0, 0
+		return 0, 0, 0, nil
 	}
-	entries, _ := Read()
+	entries, err := Read()
 	for _, e := range entries {
 		if e.Session == id {
 			in, out, cacheRead = in+e.Input, out+e.Output, cacheRead+e.CacheRead
 		}
 	}
-	return in, out, cacheRead
+	return in, out, cacheRead, err
 }
 
 // schemaVersion is the usage ledger's current schema version.

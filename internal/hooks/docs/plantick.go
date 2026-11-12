@@ -26,7 +26,7 @@ import (
 )
 
 var gitDirArg = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\bgit\s+(?:-\S+\s+)*?-C\s+("[^"]+"|'[^']+'|\S+)`)
+	return regexp.MustCompile(`\bgit\s+(?:-c\s+(?:"[^"]*"|'[^']*'|\S+)\s+|-\S+\s+)*?-C\s+("[^"]+"|'[^']+'|\S+)`)
 })
 
 var cmdSegment = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`&&|\|\||[;|\n]`) })
@@ -104,7 +104,7 @@ func tickCommit(in *core.Input, cmd, sha string, stderr io.Writer) []string {
 	return blocks
 }
 
-// commitRepoDir is the candidate dir (commit -C args, leading cd, cwd) whose HEAD is sha, else the first whose repo holds it.
+// commitRepoDir is the candidate dir (commit -C args, leading cd, cwd) whose HEAD is sha, else the first holding it.
 func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
 	var holders []string
 	for _, d := range commitCandidates(cwd, cmd) {
@@ -126,8 +126,7 @@ func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
 	return ""
 }
 
-// commitCandidates lists the dirs a commit command may have run in: -C args, a leading cd, then cwd.
-// A relative -C is resolved against the leading cd's target (the shell's cwd for the commit), else cwd.
+// commitCandidates lists dirs a commit may have run in: -C args, a leading cd, then cwd; a relative -C uses the cd.
 func commitCandidates(cwd, cmd string) []string {
 	base, cdFound := cwd, false
 	if m := leadingCD().FindStringSubmatch(cmd); m != nil {
@@ -177,7 +176,7 @@ func recordPartials(session, plan, planPath string, tasks []string, stderr io.Wr
 }
 
 var briefTaskRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?mi)^[\s>*-]*Task:\s*(\S.*?)\s*$`)
+	return regexp.MustCompile(`(?mi)^[\s>*-]*Task:[ \t]*(\S.*?)\s*$`)
 })
 
 var nonWordRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[^\p{L}\p{N}.]+`) })
@@ -258,7 +257,7 @@ func normTask(s string) string {
 	return strings.Trim(nonWordRe().ReplaceAllString(s, " "), " .")
 }
 
-// matchBriefTask returns the one open task a `Task:` line names by id, else the one a description matches by title.
+// matchBriefTask returns the one open task a `Task:` line names (id or exact title), else the description's title match
 func matchBriefTask(p plans.Plan, brief, description string) (plans.Task, bool) {
 	if m := briefTaskRe().FindStringSubmatch(brief); m != nil {
 		return matchTaskByID(p, normTask(m[1]))

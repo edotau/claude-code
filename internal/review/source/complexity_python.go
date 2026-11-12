@@ -189,11 +189,11 @@ func pyFuncNesting(body []pyLine) int {
 	return maxDepth
 }
 
-var pyNestingPrefixes = []string{"if ", "if(", "elif ", "for ", "async for ", "while ", "try:", "try ", "with ", "async with ", "match ", "else:", "except ", "except:", "finally:"}
+var pyNestingPrefixes = []string{"if ", "if(", "elif ", "for ", "async for ", "while ", "try:", "try ", "with ", "async with ", "else:", "except ", "except:", "finally:"}
 
 func pyOpensNesting(trimmed string) bool {
-	if strings.HasPrefix(trimmed, "case ") && strings.HasSuffix(trimmed, ":") {
-		return true
+	if (strings.HasPrefix(trimmed, "case ") || strings.HasPrefix(trimmed, "match ")) && strings.HasSuffix(strings.TrimRight(trimmed, " \t"), ":") {
+		return true // soft keywords: `match = f()` is an assignment, so the trailing colon decides
 	}
 	for _, p := range pyNestingPrefixes {
 		if strings.HasPrefix(trimmed, p) {

@@ -259,9 +259,12 @@ func OnWSLKernel() bool {
 }
 
 // proxyPath is where the proxy lives: ~/.local/bin/wl-paste, ahead of /usr/bin on a normal PATH.
-func proxyPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "bin", "wl-paste")
+func proxyPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("wl-paste proxy path: %w", err)
+	}
+	return filepath.Join(home, ".local", "bin", "wl-paste"), nil
 }
 
 // proxyFileState is the proxy file's state at proxyPath.
@@ -291,13 +294,16 @@ func proxyState(path string) proxyFileState {
 	}
 }
 
-// InstallProxy writes the wl-paste proxy to proxyPath on WSL only; off WSL it is a silent no-op, and
-// a foreign file at the path is reported and left alone.
+// InstallProxy writes the wl-paste proxy to proxyPath on WSL only (else a silent no-op); a foreign file is left alone.
 func InstallProxy(w io.Writer, dryRun bool) error {
 	if !OnWSLKernel() {
 		return nil
 	}
-	return installProxyAt(w, proxyPath(), dryRun)
+	dest, err := proxyPath()
+	if err != nil {
+		return err
+	}
+	return installProxyAt(w, dest, dryRun)
 }
 
 // installProxyAt is InstallProxy without the WSL gate, writing atomically to dest.
@@ -321,8 +327,8 @@ func installProxyAt(w io.Writer, dest string, dryRun bool) error {
 	return nil
 }
 
-// DoctorDetail describes the proxy for `claude-code doctor`; ok is false only on WSL when image paste
-// would go through an unproxied wl-paste.
+// DoctorDetail describes the proxy for `claude-code doctor`; ok is false on WSL when image paste would go through
+// an unproxied wl-paste, and on macOS when the clip bridge agent is not installed or listening.
 func DoctorDetail() (ok bool, detail string) {
 	if doctorGOOS == "darwin" {
 		return launchDoctorDetail()
@@ -330,7 +336,10 @@ func DoctorDetail() (ok bool, detail string) {
 	if !OnWSLKernel() {
 		return true, "not WSL (proxy not needed)"
 	}
-	dest := proxyPath()
+	dest, err := proxyPath()
+	if err != nil {
+		return false, err.Error()
+	}
 	var base string
 	switch proxyState(dest) {
 	case proxyAbsent:

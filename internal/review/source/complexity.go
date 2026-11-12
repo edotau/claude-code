@@ -133,9 +133,9 @@ func analyzeFileComplexity(path string, th ComplexityThresholds) (*FileResult, e
 
 // complexityContent is analyzeFileComplexity over already-read text.
 func complexityContent(path, text, lang string, th ComplexityThresholds) (*FileResult, error) {
-	lineCount := len(strings.Split(text, "\n"))
-	if text != "" && strings.HasSuffix(text, "\n") {
-		lineCount-- // splitlines() drops a trailing newline's empty tail; strings.Split does not.
+	lineCount := 0
+	if text != "" { // splitlines() gives 0 lines for "" and drops a trailing newline's empty tail
+		lineCount = len(strings.Split(strings.TrimSuffix(text, "\n"), "\n"))
 	}
 
 	var findings []Finding
@@ -212,17 +212,7 @@ func functionFindings(name string, line, length, cyclo, nest int, th ComplexityT
 
 // collectComplexityFiles ports complexity_checker.collect_files (a target may be a file or a directory).
 func collectComplexityFiles(target string, extensions []string, warn io.Writer) []string {
-	info, err := os.Stat(target)
-	if err == nil && !info.IsDir() {
-		return []string{target}
-	}
-	var files []string
-	unreadable := walkSourceFiles(target, warn, func(p string) {
-		// Keep suffix matching: callers may request multi-part or overlapping extensions.
-		if hasComplexityExtension(p, extensions) {
-			files = append(files, p)
-		}
-	})
+	files, unreadable := walkComplexityFiles(target, extensions, warn)
 	// Unreadable paths below target stay in the list so the analysis reports them; a missing target stays out.
 	for _, p := range unreadable {
 		if p != target && hasComplexityExtension(p, extensions) {
@@ -230,6 +220,21 @@ func collectComplexityFiles(target string, extensions []string, warn io.Writer) 
 		}
 	}
 	return files
+}
+
+// walkComplexityFiles returns the matching files under target and every path the walk could not read.
+func walkComplexityFiles(target string, extensions []string, warn io.Writer) (files, unreadable []string) {
+	info, err := os.Stat(target)
+	if err == nil && !info.IsDir() {
+		return []string{target}, nil
+	}
+	unreadable = walkSourceFiles(target, warn, func(p string) {
+		// Keep suffix matching: callers may request multi-part or overlapping extensions.
+		if hasComplexityExtension(p, extensions) {
+			files = append(files, p)
+		}
+	})
+	return files, unreadable
 }
 
 // buildComplexitySummary ports complexity_checker.build_summary.
@@ -401,15 +406,17 @@ func gatherComplexityFiles(targets, extensions []string, warn io.Writer) []strin
 	return files
 }
 
-// analyzeComplexityFiles scores each file; failed counts files whose Go source did not parse.
+// analyzeComplexityFiles scores each file; failed counts files that could not be read or parsed.
 func analyzeComplexityFiles(files []string, th ComplexityThresholds, stderr io.Writer) (results []FileResult, failed int) {
 	for _, f := range files {
 		r, err := analyzeFileComplexity(f, th)
 		if err != nil {
-			fmt.Fprintf(stderr, "[warning] could not read %s: %v\n", f, err)
+			verb := "read"
 			if errors.Is(err, errGoSyntax) {
-				failed++
+				verb = "parse"
 			}
+			fmt.Fprintf(stderr, "[warning] could not %s %s: %v\n", verb, f, err)
+			failed++
 			continue
 		}
 		if r != nil {
@@ -491,10 +498,14 @@ func goCyclomatic(body *ast.BlockStmt) int {
 	score := 1
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch v := n.(type) {
-		case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.CommClause:
+		case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt:
 			score++
 		case *ast.CaseClause:
 			if v.List != nil { // default adds no branch
+				score++
+			}
+		case *ast.CommClause:
+			if v.Comm != nil { // select default adds no branch either
 				score++
 			}
 		case *ast.BinaryExpr:

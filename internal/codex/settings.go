@@ -153,15 +153,15 @@ func (c *codexScan) line(line, multiline string, depth int) (string, int, error)
 
 // field records a top-level "key = value" line, or starts a pending multiline string.
 func (c *codexScan) field(line string) error {
-	key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+	key, raw, ok := strings.Cut(line, "=")
 	if key = agentconfig.TOMLKeyName(key); !ok || !c.want(key) {
 		return nil
 	}
-	value = strings.TrimSpace(value)
+	value := strings.TrimSpace(raw)
 	parsed, err := agentconfig.TOMLStringValue(value)
 	switch {
 	case errors.Is(err, agentconfig.ErrOpenString):
-		c.pendingKey, c.pending = key, value
+		c.pendingKey, c.pending = key, strings.TrimLeft(raw, " \t") // keeps the line's newline
 	case err != nil:
 		return fmt.Errorf("codex: cannot read %s as a string", key)
 	default:
@@ -443,10 +443,7 @@ func applyCodexRestore(path string, backup codexConfigBackup, overlay map[string
 	if err := saveCodexBaseline(path, backup.Data); err != nil {
 		return err
 	}
-	if backup.Name != "" { // legacy files are left in place
-		return consumeCodexBackup(backup.Name)
-	}
-	return nil
+	return consumeCodexBackup(backup.Name)
 }
 
 var codexManagedPaths = func() []string {

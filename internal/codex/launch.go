@@ -39,8 +39,7 @@ func sessionFromBanner(banner string) string {
 	return ""
 }
 
-// codexProfileHint is the usage error for `codex --profile X` when X is no harness profile but codex's own
-// $CODEX_HOME/X.config.toml exists; nil otherwise.
+// codexProfileHint is the usage error for `codex --profile X` if X is no harness profile but X.config.toml exists.
 func codexProfileHint(o agent.LaunchOptions) error {
 	if o.Provider == "" || strings.ContainsAny(o.Provider, `/\`) {
 		return nil
@@ -56,8 +55,7 @@ func codexProfileHint(o agent.LaunchOptions) error {
 		"for codex's own config profile ($CODEX_HOME/%s.config.toml) use -p %s", o.Provider, o.Provider, o.Provider)}
 }
 
-// codexFileOverrides flattens a config.toml (top-level keys and [a.b] tables, one-line values) into
-// codex `-c key=value` pairs; values pass through as TOML, which codex parses itself.
+// codexFileOverrides flattens a config.toml (top-level keys, [a.b] tables, one-line values) into `-c key=value` pairs.
 func codexFileOverrides(path string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -93,7 +91,8 @@ func codexFileOverrides(path string) ([]string, error) {
 func codexOverrideValue(line, table, path string, n int) (string, error) {
 	k, v, ok := strings.Cut(line, "=")
 	v = strings.TrimSpace(v)
-	if !ok || v == "" || strings.HasSuffix(v, "[") || strings.HasSuffix(v, "{") || strings.HasPrefix(v, `"""`) {
+	if !ok || v == "" || strings.HasSuffix(v, "[") || strings.HasSuffix(v, "{") || strings.HasSuffix(v, ",") ||
+		strings.HasPrefix(v, `"""`) || strings.HasPrefix(v, "'''") {
 		return "", fmt.Errorf("-f %s:%d: want one-line `key = value`", path, n)
 	}
 	return table + strings.TrimSpace(k) + "=" + v, nil

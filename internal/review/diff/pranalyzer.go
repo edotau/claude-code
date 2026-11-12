@@ -2,6 +2,7 @@ package diff
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -257,9 +258,12 @@ func diffBodyLines(diffContent string) []string {
 	return body
 }
 
-// checkRefs rejects refs that git would parse as options (e.g. --output=FILE).
+// checkRefs rejects refs that git would parse as options (e.g. --output=FILE) and empty ones, which git reads as HEAD.
 func checkRefs(refs ...string) error {
 	for _, r := range refs {
+		if r == "" {
+			return errors.New("invalid ref: must not be empty")
+		}
 		if strings.HasPrefix(r, "-") {
 			return fmt.Errorf("invalid ref %q: must not start with '-'", r)
 		}
@@ -300,7 +304,8 @@ func tierPoints(n, top, mid, low int) int {
 }
 
 func analyzeCommitMessages(repo, base, head string) (int, []CommitIssue, error) {
-	out, err := gitInherit(repo, "log", "--oneline", base+".."+head)
+	// A custom format, not --oneline: log.decorate and color.ui would put "(HEAD -> main)" or escapes before the subject.
+	out, err := gitInherit(repo, "log", "--format=%h %s", base+".."+head)
 	issues := []CommitIssue{}
 	if err != nil {
 		return 0, nil, err
@@ -393,8 +398,7 @@ func reviewOrder(files []PRFileAnalysis) []string {
 	return order
 }
 
-// analyzeFiles fills each file's category, weight, change counts and risks in place and returns every risk found.
-// A file whose patch cannot be read fails the whole analysis instead of counting as clean.
+// analyzeFiles fills each file's category, weight, counts and risks in place; an unreadable patch fails the analysis.
 func analyzeFiles(repo, base, head string, files []PRFileAnalysis) ([]PRRisk, error) {
 	var allRisks []PRRisk
 	for i := range files {
@@ -569,7 +573,11 @@ func resolveGitRepo(positional []string, stderr io.Writer) (string, bool) {
 	}
 	top, err := gitInherit(repoPath, "rev-parse", "--show-toplevel")
 	if err != nil {
-		fmt.Fprintf(stderr, "Error: %s is not a git repository\n", repoPath)
+		if strings.Contains(err.Error(), "not a git repository (or any of the parent directories)") {
+			fmt.Fprintf(stderr, "Error: %s is not a git repository\n", repoPath)
+		} else {
+			fmt.Fprintf(stderr, "Error: cannot resolve the git repository of %s: %v\n", repoPath, err)
+		}
 		return "", false
 	}
 	return top, true

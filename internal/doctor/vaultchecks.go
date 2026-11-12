@@ -50,7 +50,7 @@ func checkVaultPerms() []vaultCheck {
 	case loosePerm(fi):
 		row.OK, row.Detail = false, fmt.Sprintf("%s is %04o, want 0600 — run: chmod 600 %s", file, fi.Mode().Perm(), file)
 	default:
-		row.Detail = file + " is 0600"
+		row.Detail = fmt.Sprintf("%s is %04o", file, fi.Mode().Perm())
 	}
 	return []vaultCheck{row}
 }
@@ -116,7 +116,10 @@ func checkKeyNames(reg *providers.Registry) []vaultCheck {
 			known[p.Auth.Env] = true
 		}
 	}
-	names := vault.Names()
+	names, err := vault.NamesErr()
+	if err != nil {
+		return []vaultCheck{{Name: "vault key names", Detail: "vault unreadable: " + err.Error()}}
+	}
 	var typos []string
 	for _, k := range names {
 		if known[k] {

@@ -194,10 +194,14 @@ func InvalidateOpencodeAuth() {
 	opencodeAuthIsSet, opencodeAuthVal, opencodeAuthErr = false, nil, nil
 	opencodeAuthGen++
 	ownLogin.Drop()
-	if _, err := os.Stat(opencodeCacheFile()); err == nil {
-		updateOpencodeDiskCache(func(c *opencodeDiskCache) { c.Auth = nil })
-	}
 	opencodeMu.Unlock()
+	if _, err := os.Stat(opencodeCacheFile()); err != nil {
+		return
+	}
+	// the disk lock can wait minutes: never under opencodeMu; a failed update drops the rebuildable cache file
+	if updateOpencodeDiskCache(func(c *opencodeDiskCache) { c.Auth = nil }) != nil {
+		_ = os.Remove(opencodeCacheFile())
+	}
 }
 
 // fileStamp is path's size+mtime, or "-" when absent, so an auth.json rewrite misses the cache.
@@ -382,13 +386,13 @@ func loadOpencodeDiskCache() opencodeDiskCache {
 	return c
 }
 
-// updateOpencodeDiskCache read-modify-writes the cache under a file lock (0600 in a 0700 dir); failures are ignored.
-func updateOpencodeDiskCache(fn func(*opencodeDiskCache)) {
+// updateOpencodeDiskCache read-modify-writes the cache under a file lock (0600 in a 0700 dir) and returns any failure.
+func updateOpencodeDiskCache(fn func(*opencodeDiskCache)) error {
 	file := opencodeCacheFile()
-	if os.MkdirAll(filepath.Dir(file), 0o700) != nil {
-		return
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		return err
 	}
-	_ = paths.WithFileLock(file, func() error {
+	return paths.WithFileLock(file, func() error {
 		c := loadOpencodeDiskCache()
 		fn(&c)
 		c.Schema = opencodeCacheSchema
@@ -420,7 +424,7 @@ func opencodeAuthV2Cached(bin string) ([]OpencodeIntegration, error) {
 	}
 	ints, err := opencodeAuthV2()
 	if err == nil && cacheable {
-		updateOpencodeDiskCache(func(c *opencodeDiskCache) { c.Auth = &opencodeDiskAuth{Bin: bin, DB: db, Integrations: ints} })
+		_ = updateOpencodeDiskCache(func(c *opencodeDiskCache) { c.Auth = &opencodeDiskAuth{Bin: bin, DB: db, Integrations: ints} }) // best effort
 	}
 	return ints, err
 }

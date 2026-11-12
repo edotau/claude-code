@@ -250,7 +250,7 @@ func TestParseKeyExpiry(t *testing.T) {
 			t.Errorf("ParseKeyExpiry(%q) = (%v, %v), want %v", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"xd", "soon", "", "-5d", "-1h"} {
+	for _, bad := range []string{"xd", "soon", "", "-5d", "-1h", "0", "0d", "0s", "500ms", "999ms"} {
 		if _, err := parseKeyExpiry(bad); err == nil {
 			t.Errorf("ParseKeyExpiry(%q) accepted", bad)
 		}

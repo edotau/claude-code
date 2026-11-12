@@ -20,10 +20,10 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// posixPathRE matches an absolute POSIX path token. Deliberately greedy-but-bounded: every hit is
-// then existence-filtered, so over-matching costs a stat, not a false report.
+// posixPathRE matches an absolute POSIX path token (group 1), not the tail of a relative path like docs/etc/hosts.
+// Deliberately greedy-but-bounded: every hit is then existence-filtered, so over-matching costs a stat.
 var posixPathRE = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`/(?:\\ |[^\s"'` + "`" + `,;:()\[\]{}])+`)
+	return regexp.MustCompile(`(?:^|[^\p{L}\p{N}_.~/])(/(?:\\ |[^\s"'` + "`" + `,;:()\[\]{}])+)`)
 })
 
 // quotedPathRE matches a double- or single-quoted absolute POSIX path, allowing spaces inside the quotes.
@@ -73,7 +73,8 @@ func scanTokens(text string, quoted, bare *regexp.Regexp, trim string) []pathTok
 		add(q, q)
 		return strings.Repeat(" ", len(m))
 	})
-	for _, m := range bare.FindAllString(blanked, -1) {
+	for _, sub := range bare.FindAllStringSubmatch(blanked, -1) {
+		m := sub[len(sub)-1] // group 1 when the pattern has a boundary group, else the whole match
 		t := m
 		if trim != "" {
 			t = strings.TrimRight(m, trim)
@@ -134,7 +135,7 @@ func collectReports(prompt string, res *paths.Resolver) []pathReport {
 	return c.reps
 }
 
-// fetchRemote pulls a /Users or /Volumes path that exists only on the SSH client and reports the local copy or the error.
+// fetchRemote pulls a /Users or /Volumes path that exists only on the SSH client; reports the local copy or the error.
 func (c *reportCollector) fetchRemote(client string) {
 	if !strings.HasPrefix(client, "/Users/") && !strings.HasPrefix(client, "/Volumes/") {
 		return

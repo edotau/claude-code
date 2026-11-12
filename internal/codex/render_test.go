@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	_ "github.com/edotau/claude-code/internal/gemini"
+	"github.com/edotau/claude-code/internal/hosttest"
 	_ "github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
@@ -143,16 +144,6 @@ func TestCodexBannerReplacesExistingTopLevelPermissionKeys(t *testing.T) {
 
 const foreignCodex = "# a hand-written line\nsome_other_key = \"keep-me\"\n\n[projects.\"/x\"]\ntrust_level = \"trusted\"\n"
 
-func writeForeign(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func assertForeignCodexKept(t *testing.T, got string) {
 	t.Helper()
 	if !strings.Contains(got, "some_other_key = \"keep-me\"") {
@@ -187,11 +178,11 @@ func assertCodexBackupKept(t *testing.T, codexPath string) {
 func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 	home := agenttest.Scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
-	writeForeign(t, codexPath, foreignCodex)
+	hosttest.WriteRel(t, "", codexPath, foreignCodex)
 	// opencode's own config is never touched: foreign content must survive byte-for-byte.
 	ocPath := filepath.Join(home, ".config", "opencode", "opencode.json")
 	foreignOC := `{"provider": {"myown": {"npm": "whatever"}}, "someForeignKey": true}`
-	writeForeign(t, ocPath, foreignOC)
+	hosttest.WriteRel(t, "", ocPath, foreignOC)
 
 	var out bytes.Buffer
 	if _, err := agent.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex", "opencode"}}); err != nil {
@@ -430,7 +421,7 @@ func revertCodex(t *testing.T, home, codexPath string) string {
 // seedCodexBackups writes current to codexPath and backs up each version in order; returns the newest backup.
 func seedCodexBackups(t *testing.T, codexPath, current string, versions ...string) codexConfigBackup {
 	t.Helper()
-	writeForeign(t, codexPath, current)
+	hosttest.WriteRel(t, "", codexPath, current)
 	for _, v := range versions {
 		if err := CodexBackup(codexPath, []byte(v), true); err != nil {
 			t.Fatal(err)

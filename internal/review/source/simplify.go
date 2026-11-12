@@ -54,7 +54,7 @@ func parseSimplifyArgs(args []string, stdout, stderr io.Writer) (simplifyArgs, i
 		About: "One advisory pass of complexity and quality checks. With no paths, " +
 			"checks the files changed since the base.",
 	})
-	base := fs.String("base", "", "diff base ref (default: merge-base with upstream, else HEAD~1)")
+	base := fs.String("base", "", "diff base ref, used only when no paths are given (default: merge-base with upstream, else HEAD~1)")
 	threshold := fs.String("threshold", "medium", "strict|medium|relaxed")
 	jsonOut := fs.Bool("json", false, "Output in JSON format")
 	if helptext.WantsHelp(args) {
@@ -138,7 +138,7 @@ func changedNames(top, base string) ([]string, error) {
 	if _, err := gitLines(top, "rev-parse", "--verify", "--quiet", base+"^{commit}"); err != nil {
 		return nil, fmt.Errorf("base %q does not exist (no upstream or previous commit?); pass --base <ref>", base)
 	}
-	names, err := gitLines(top, "diff", "--name-only", base)
+	names, err := gitLines(top, "diff", "--name-only", base, "--")
 	if err != nil {
 		return nil, fmt.Errorf("git diff %s: %w", base, err)
 	}
@@ -149,8 +149,8 @@ func changedNames(top, base string) ([]string, error) {
 	return append(names, untracked...), nil
 }
 
-// simplifyTargets expands paths (files or dirs) to supported-language files, deduplicated and sorted.
-func simplifyTargets(paths []string, warn io.Writer) []string {
+// simplifyTargets expands paths to supported-language files, deduped and sorted; an unreadable source file or directory must never read clean.
+func simplifyTargets(paths []string, warn io.Writer) (files, unreadable []string) {
 	var exts []string
 	for _, list := range Extensions {
 		for _, e := range list {
@@ -158,9 +158,14 @@ func simplifyTargets(paths []string, warn io.Writer) []string {
 		}
 	}
 	seen := map[string]bool{}
-	var files []string
 	for _, p := range paths {
-		for _, f := range collectComplexityFiles(p, exts, warn) {
+		found, bad := walkComplexityFiles(p, exts, warn)
+		for _, b := range bad {
+			if !nonSourceFile(b) {
+				unreadable = append(unreadable, b)
+			}
+		}
+		for _, f := range found {
 			if key := resolvePath(f); !seen[key] && DetectLanguage(f) != "" {
 				seen[key] = true
 				files = append(files, f)
@@ -168,7 +173,13 @@ func simplifyTargets(paths []string, warn io.Writer) []string {
 		}
 	}
 	sort.Strings(files)
-	return files
+	return files, unreadable
+}
+
+// nonSourceFile is true for an existing non-directory path of no supported language; a dir may hide source files.
+func nonSourceFile(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && !st.IsDir() && DetectLanguage(p) == ""
 }
 
 // analyzeSimplifyFile runs both checks on one file; an error means the file could not be analyzed.
@@ -251,7 +262,9 @@ func RunSimplify(args []string, stdout, stderr io.Writer) int {
 		}
 		paths = changed
 	}
-	report := analyzeSimplifyTargets(simplifyTargets(paths, stderr), complexityThresholds[parsed.threshold], stderr)
+	files, unreadable := simplifyTargets(paths, stderr)
+	report := analyzeSimplifyTargets(files, complexityThresholds[parsed.threshold], stderr)
+	report.Failed = append(report.Failed, unreadable...)
 	if parsed.jsonOut {
 		if err := writeJSON(stdout, report); err != nil {
 			fmt.Fprintf(stderr, "Error: %s\n", err)
@@ -277,11 +290,6 @@ func simplifyExit(r simplifyReport) int {
 }
 
 var lineLoc = regexp.MustCompile(`line \d+`)
-
-// SimplicityFindings returns one-line complexity and quality findings present in after but not in before.
-func SimplicityFindings(path, before, after string) []string {
-	return SimplicityFindingsWithBaseline(path, after, func() (string, bool) { return before, true })
-}
 
 // SimplicityFindingsWithBaseline loads before only when after has findings; false suppresses findings.
 func SimplicityFindingsWithBaseline(path, after string, baseline func() (string, bool)) []string {

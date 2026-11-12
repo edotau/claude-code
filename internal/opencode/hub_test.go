@@ -71,7 +71,7 @@ func hubStartRegistry(t *testing.T) *providers.Registry {
 	reg.Routing.Opencode.Ladder = &[]string{"opencode-go", "github-copilot", "openai"} // defaults.json order: Go, then Copilot, then ChatGPT
 	orig := opencodeLogins
 	t.Cleanup(func() { opencodeLogins = orig })
-	opencodeLogins = func() []string { return nil }
+	opencodeLogins = func() ([]string, error) { return nil, nil }
 	return reg
 }
 
@@ -111,14 +111,14 @@ func testHubStartLogins(t *testing.T) {
 	t.Helper()
 	reg := hubStartRegistry(t)
 	// a login further down the ladder wins over the login-less first entry.
-	opencodeLogins = func() []string { return []string{"github-copilot"} }
+	opencodeLogins = func() ([]string, error) { return []string{"github-copilot"}, nil }
 	p, err := HubStart(reg, "opencode", "")
 	if err != nil || p.Name != "github-copilot" {
 		t.Errorf("github-copilot login: p=%v err=%v, want github-copilot", p, err)
 	}
 
 	// opencode's own plan carries its own login id ("opencode", not "opencode-go") and leads the ladder.
-	opencodeLogins = func() []string { return []string{"opencode"} }
+	opencodeLogins = func() ([]string, error) { return []string{"opencode"}, nil }
 	p, err = HubStart(reg, "opencode", "")
 	if err != nil || p.OpencodeID != "opencode-go" {
 		t.Errorf("opencode-go login: p=%v err=%v, want opencode-go", p, err)

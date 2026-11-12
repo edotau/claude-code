@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -29,8 +30,7 @@ import (
 // through proc.RunGit's sanitized environment, so a snapshot taken inside a session never touches that
 // session's OWN repo.
 
-// HistoryFile is one watched file: Label names it inside the store's config directory (unique there),
-// Path is where it lives on disk.
+// HistoryFile is one watched file: Label names it in the store's config directory (unique), Path is its disk location.
 type HistoryFile struct {
 	Label, Path string
 	Read        func() ([]byte, error) // when set, replaces reading Path; absence is fs.ErrNotExist
@@ -42,8 +42,7 @@ type HistoryStore struct{ Dir string }
 // HistorySkip records a file held back from a snapshot, with the reason a reader needs to act on it.
 type HistorySkip struct{ Label, Reason string }
 
-// SnapshotResult reports what one Snapshot call did. Commit is "" when nothing changed — the
-// caller must not report a snapshot it did not take.
+// SnapshotResult reports one Snapshot call; Commit is "" when nothing changed — the caller must not report a snapshot.
 type SnapshotResult struct {
 	Commit  string
 	Changed []string
@@ -51,8 +50,7 @@ type SnapshotResult struct {
 	Skipped []HistorySkip
 }
 
-// HistoryDir is the shadow history repo's home: under the hidden cache (gitignored), so these commits never
-// reach the harness's own tracked tree.
+// HistoryDir is the shadow repo's home under the gitignored state dir, so its commits never reach the tracked tree.
 func HistoryDir() string { return filepath.Join(paths.StateDir(), "history") }
 
 // plane is the store's one subdirectory and the commit-subject prefix Log/Diff filter on.
@@ -73,10 +71,9 @@ func configFiles() []HistoryFile {
 	return append(files, agentConfigs()...)
 }
 
-// agentConfigs are the agent CLIs' own on-disk configs. claude-code itself never writes these —
-// codex and opencode take their routing via env vars / `-c` flags at launch time, never a file
-// (internal/agent/launch.go) — but the user or the agent's own `login` can, so a hand-edit here is
-// exactly the kind of contested change this history is for.
+// agentConfigs are the agent CLIs' own on-disk configs. claude-code writes the codex and gemini ones
+// (render/MCP registration) and never opencode's (routing goes via env vars / `-c` flags, internal/agent/launch.go);
+// the user or the agent's own `login` can rewrite any of them, so a change here is a contested one.
 func agentConfigs() []HistoryFile {
 	var out []HistoryFile
 	home, err := os.UserHomeDir()
@@ -113,11 +110,11 @@ func (s *HistoryStore) Snapshot(files []HistoryFile, note string) (SnapshotResul
 				return err
 			}
 		}
-		sort.Strings(res.Changed)
-		dirty, err := s.dirty()
-		if err != nil || !dirty {
+		leftover, err := s.dirtyLabels()
+		if err != nil || len(leftover) == 0 {
 			return err
 		}
+		res.Changed = mergeLeftover(res, leftover)
 		commit, err := s.commit(subject(res, note), body(res))
 		if err != nil {
 			return err
@@ -167,11 +164,11 @@ func dropStale(f HistoryFile, dest string, res *SnapshotResult) error {
 	return err
 }
 
-// stageUnreadable records a watched file that could not be read: absent (and removed from the store) or skipped.
+// stageUnreadable records a watched file that could not be read: absent or skipped, either way removed from the store.
 func stageUnreadable(f HistoryFile, dest string, readErr error, res *SnapshotResult) error {
 	if !errors.Is(readErr, fs.ErrNotExist) {
 		res.Skipped = append(res.Skipped, HistorySkip{f.Label, readErr.Error()})
-		return nil
+		return dropStale(f, dest, res)
 	}
 	res.Absent = append(res.Absent, f.Label)
 	// A file that vanished must LEAVE the store, or the log shows it as still present.
@@ -202,8 +199,7 @@ func subject(r SnapshotResult, note string) string {
 	return plane + ": " + what
 }
 
-// body records anything held back or absent, so the log answers WHY a file is missing without
-// reading the blob.
+// body records anything held back or absent, so the log answers WHY a file is missing without reading the blob.
 func body(r SnapshotResult) string {
 	var b strings.Builder
 	for _, s := range r.Skipped {
@@ -215,8 +211,7 @@ func body(r SnapshotResult) string {
 	return b.String()
 }
 
-// git runs one git command in the store, with identity and signing forced via -c: the machine's git
-// config is not this package's dependency, and a missing user.email makes `commit` fail outright.
+// git runs one git command in the store, forcing identity and signing via -c: a missing user.email would fail `commit`.
 func (s *HistoryStore) git(args ...string) (string, error) {
 	full := append([]string{
 		"-C", s.Dir,
@@ -228,8 +223,7 @@ func (s *HistoryStore) git(args ...string) (string, error) {
 	return runGit(full)
 }
 
-// ensureRepo creates the store and initializes its repo. 0700: these files describe which providers
-// and workspaces are configured even when they hold no token.
+// ensureRepo creates the store and inits its repo, 0700: these files describe configured providers and workspaces.
 func (s *HistoryStore) ensureRepo() error {
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return err
@@ -242,10 +236,31 @@ func (s *HistoryStore) ensureRepo() error {
 	return nil
 }
 
-// dirty reports whether the config subdirectory has uncommitted content (including a deletion).
-func (s *HistoryStore) dirty() (bool, error) {
-	out, err := s.git("status", "--porcelain", "--", plane)
-	return out != "", err
+// dirtyLabels lists the labels with uncommitted content in the config subdirectory (including a deletion).
+func (s *HistoryStore) dirtyLabels() ([]string, error) {
+	out, err := s.git("status", "--porcelain", "--untracked-files=all", "--", plane)
+	if err != nil || out == "" {
+		return nil, err
+	}
+	var labels []string
+	for line := range strings.SplitSeq(out, "\n") {
+		if _, label, ok := strings.Cut(line, plane+"/"); ok {
+			labels = append(labels, label)
+		}
+	}
+	return labels, nil
+}
+
+// mergeLeftover adds store changes a failed earlier commit left behind (equal to live now) to Changed, sorted.
+func mergeLeftover(r SnapshotResult, leftover []string) []string {
+	changed := slices.Clone(r.Changed)
+	for _, l := range leftover {
+		if !slices.Contains(changed, l) && !slices.Contains(r.Absent, l) {
+			changed = append(changed, l)
+		}
+	}
+	sort.Strings(changed)
+	return changed
 }
 
 // commit stages the whole store (a pathspec restricted to individual LABELS errors outright —
@@ -268,8 +283,7 @@ func (s *HistoryStore) commit(subject, body string) (string, error) {
 	return s.git("rev-parse", "--short", "HEAD")
 }
 
-// hasCommits reports whether the store has a repo with a resolvable HEAD. A missing store or an unborn
-// HEAD is "no commits"; any other failure (an unreadable .git, a corrupt HEAD) is a real error.
+// hasCommits reports whether the store has a repo with a resolvable HEAD; an unborn HEAD is "no commits", else errors.
 func (s *HistoryStore) hasCommits() (bool, error) {
 	if _, err := os.Stat(filepath.Join(s.Dir, ".git")); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -340,8 +354,7 @@ func SnapshotConfig(note string) (SnapshotResult, error) {
 // gitTimeout bounds one shadow-history git call; a var so tests need not wait it out.
 var gitTimeout = 30 * time.Second
 
-// runGit executes git via the shared proc seam. full is the complete argv after "git",
-// already carrying its own -C: dir stays "" here so proc does not add a second one.
+// runGit runs git via the shared proc seam; full already carries its own -C, so dir stays "" (no second one).
 func runGit(full []string) (string, error) {
 	// A tree walk this size is seconds at most; a hung index.lock or filesystem must not hold a hook.
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)

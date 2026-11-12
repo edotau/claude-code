@@ -32,7 +32,7 @@ func (w *idleWatch) observe(ev claudeEvent, msg anthropic.Message) {
 		case "assistant":
 			w.pending += countBlocks(msg, "tool_use")
 		case "user":
-			w.pending = max(w.pending-max(countBlocks(msg, "tool_result"), 1), 0)
+			w.pending = max(w.pending-userAnswers(msg), 0)
 		}
 	}
 	if w.pending > 0 { // a result keeps the window armed: a hang before EOF is still a stall
@@ -50,4 +50,12 @@ func countBlocks(msg anthropic.Message, typ string) (n int) {
 		}
 	}
 	return n
+}
+
+// userAnswers is the tool_results a user event answers; an undecodable one (no blocks) counts as one so pending drains.
+func userAnswers(msg anthropic.Message) int {
+	if len(msg.Content) == 0 {
+		return 1
+	}
+	return countBlocks(msg, "tool_result")
 }

@@ -27,7 +27,9 @@ const (
 	stopFormatMaxSize  = 1 << 20
 	stopFormatBudget   = 25 * time.Second
 	stopFormatTimeout  = 30 * time.Second
-	stopFormatWorkers  = 4
+	// git status gets what the format budget leaves of the 30s Stop timeout, so the two never add past it.
+	stopFormatGitTimeout = stopFormatTimeout - stopFormatBudget
+	stopFormatWorkers    = 4
 )
 
 // StopFormat formats git-dirty files this session wrote; a dirty file it never wrote is the user's and left alone.
@@ -40,10 +42,13 @@ func StopFormat(in *core.Input) core.Result {
 	if cwd == "" {
 		return core.Result{}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), stopFormatTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), stopFormatGitTimeout)
 	defer cancel()
 	stampPath := filepath.Join(paths.StateDir(), "stop-format", textutil.SHA256Hex([]byte(cwd))[:16]+".json")
 	changed := changedFiles(ctx, cwd)
+	if ctx.Err() != nil { // a git timeout is not a clean tree: keep the stamps
+		return core.Result{}
+	}
 	if len(changed) == 0 {
 		_ = os.Remove(stampPath) // clean tree: drop stale stamps and skip the transcript scan
 		return core.Result{}
@@ -96,8 +101,10 @@ func selectForFormat(cwd string, changed []string, prev map[string]string, allow
 	return eligible, carry
 }
 
-// formatAll formats files concurrently under the budget; files still running at the deadline stay unstamped.
+// formatAll formats files concurrently; files still running at the deadline stay unstamped, queued ones skip.
 func formatAll(files []string) map[string]string {
+	ctx, cancel := context.WithTimeout(context.Background(), stopFormatBudget)
+	defer cancel()
 	var mu sync.Mutex
 	out := map[string]string{}
 	sem := make(chan struct{}, stopFormatWorkers)
@@ -105,9 +112,13 @@ func formatAll(files []string) map[string]string {
 	var wg sync.WaitGroup
 	for _, f := range files {
 		wg.Go(func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			if !formatFile(f) {
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+			if ctx.Err() != nil || !formatFile(f) { // a slot freed at the deadline must not start a new formatter
 				return
 			}
 			if fi, err := os.Stat(f); err == nil {
@@ -120,7 +131,7 @@ func formatAll(files []string) map[string]string {
 	go func() { wg.Wait(); close(done) }()
 	select {
 	case <-done:
-	case <-time.After(stopFormatBudget):
+	case <-ctx.Done():
 	}
 	mu.Lock()
 	defer mu.Unlock()

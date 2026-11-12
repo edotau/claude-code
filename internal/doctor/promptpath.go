@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
 	"github.com/edotau/claude-code/internal/hooks/quality"
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 )
@@ -25,14 +26,14 @@ import (
 const claudeMDCap = 200
 
 // Probe payload for H7; the hooks only read it, the session id is a fixed name.
-const probeSession, probePrompt = "doctor-prompts-probe", "plan memory recall probe"
+const probeSession, probePrompt, probeRecallHits = "doctor-prompts-probe", "plan memory recall probe", 8
 
 var (
 	backtickPath = regexp.MustCompile("`((?:rules|skills|agents|commands|workflows|plans|internal|cmd)/[A-Za-z0-9_./-]+)`")
 	symPair      = regexp.MustCompile("`([A-Za-z_][A-Za-z0-9_.]*)` \\(`([A-Za-z0-9_./-]+\\.go)`\\)")
-	nameLine     = regexp.MustCompile(`(?m)^name:\s*(\S+)\s*$`)
-	descLine     = regexp.MustCompile(`(?m)^description:\s*\S`)
-	modelLine    = regexp.MustCompile(`(?m)^model:\s*(\S+)\s*$`)
+	nameLine     = regexp.MustCompile(`(?m)^name:[ \t]*(\S+)[ \t]*$`)
+	descLine     = regexp.MustCompile(`(?m)^description:[ \t]*\S`)
+	modelLine    = regexp.MustCompile(`(?m)^model:[ \t]*(\S+)[ \t]*$`)
 	modelOK      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`)
 	namedPath    = regexp.MustCompile("(?:^|[\\s(\\[\"'`])((?:~|/)[A-Za-z0-9._@+/~-]*[A-Za-z0-9_])")
 )
@@ -40,7 +41,7 @@ var (
 // Seams for H7: production runs the real hooks and sync; tests swap them for fixtures.
 var (
 	memoryStart  = memhook.StartText // side-effect free: an audit must not scaffold, spawn or consume
-	memoryRecall = memhook.Recall
+	memoryRecall = recallProbe
 	agentsSync   = func() int { return project.Sync(project.Options{DryRun: true, Check: true, Out: io.Discard}) }
 )
 
@@ -78,12 +79,16 @@ func claudeMD(root string) []string {
 		return []string{unreadable("CLAUDE.md", err)}
 	}
 	var out []string
-	if n := len(ls) - 1; n > claudeMDCap {
+	n := len(ls)
+	if ls[n-1] == "" { // the final element after a trailing newline is not a line
+		n--
+	}
+	if n > claudeMDCap {
 		out = append(out, fmt.Sprintf("CLAUDE.md:%d: %d lines exceeds the %d cap (fix at CLAUDE.md)", n, n, claudeMDCap))
 	}
 	for i, l := range ls {
 		for _, m := range backtickPath.FindAllStringSubmatch(l, -1) {
-			if p := strings.TrimRight(m[1], "/"); !strings.ContainsAny(p, "*<>") && !exists(root, p) && !gitIgnored(root, m[1]) {
+			if p := strings.TrimRight(m[1], "/"); !strings.ContainsAny(p, "*<>") && !paths.FileExists(filepath.Join(root, p)) && !gitIgnored(root, m[1]) {
 				out = append(out, fmt.Sprintf("CLAUDE.md:%d: `%s` does not exist (fix at CLAUDE.md)", i+1, m[1]))
 			}
 		}
@@ -93,11 +98,6 @@ func claudeMD(root string) []string {
 
 func unreadable(rel string, err error) string {
 	return fmt.Sprintf("%s:1: unreadable: %v (fix at %s)", rel, err, rel)
-}
-
-func exists(root, rel string) bool {
-	_, err := os.Stat(filepath.Join(root, rel))
-	return err == nil
 }
 
 // gitIgnored reports a path .gitignore covers (e.g. skills/synced/); keep the trailing / so dir-only patterns match.
@@ -155,25 +155,25 @@ func symbolPairs(root, rel string, ls []string, idx map[string][]string) []strin
 	return out
 }
 
-// symbolMiss says why sym is not in src (a bare name resolves through idx), or "" when a candidate contains it.
+// symbolMiss says why sym is not in src (a bare name resolves through idx), or "" if a candidate has it as a whole word
 func symbolMiss(root, src, sym string, idx map[string][]string) string {
 	var cands []string
 	switch {
 	case !strings.Contains(src, "/"):
 		cands = idx[src]
-	case exists(root, src):
+	case paths.FileExists(filepath.Join(root, src)):
 		cands = []string{filepath.Join(root, src)}
 	}
 	if len(cands) == 0 {
 		return fmt.Sprintf("`%s` does not exist", src)
 	}
-	short := sym[strings.LastIndex(sym, ".")+1:]
+	short := regexp.MustCompile(`\b` + regexp.QuoteMeta(sym[strings.LastIndex(sym, ".")+1:]) + `\b`)
 	for _, c := range cands {
 		b, err := os.ReadFile(c)
 		if err != nil {
 			return fmt.Sprintf("`%s` unreadable: %v", src, err)
 		}
-		if strings.Contains(string(b), short) {
+		if short.Match(b) {
 			return ""
 		}
 	}
@@ -208,7 +208,7 @@ func skills(root string) []string {
 			out = append(out, unreadable(rel, err))
 			continue
 		}
-		out = append(out, frontName(b, rel, dir)...)
+		out = append(out, frontName(frontMatter(b), rel, dir)...)
 	}
 	return out
 }
@@ -218,12 +218,28 @@ func isSymlink(p string) bool {
 	return err == nil && fi.Mode()&os.ModeSymlink != 0
 }
 
-func frontName(b []byte, rel, want string) []string {
-	m := nameLine.FindSubmatch(b)
+// frontMatter is the text between the opening and closing "---" lines at the top of b, or "" when there is none.
+func frontMatter(b []byte) string {
+	rest, ok := strings.CutPrefix(strings.ReplaceAll(string(b), "\r\n", "\n"), "---\n")
+	if !ok {
+		return ""
+	}
+	ls := strings.Split(rest, "\n")
+	for i, l := range ls {
+		if strings.TrimRight(l, " \t") == "---" {
+			return strings.Join(ls[:i], "\n")
+		}
+	}
+	return ""
+}
+
+// frontName checks the front-matter block head carries name: want.
+func frontName(head, rel, want string) []string {
+	m := nameLine.FindStringSubmatch(head)
 	if m == nil {
 		return []string{rel + ":1: missing name (fix at " + rel + ")"}
 	}
-	if string(m[1]) != want {
+	if m[1] != want {
 		return []string{fmt.Sprintf("%s:1: name %q != %q (fix at %s)", rel, m[1], want, rel)}
 	}
 	return nil
@@ -240,11 +256,8 @@ func agents(root string) []string {
 			out = append(out, unreadable(rel, err))
 			continue
 		}
-		out = append(out, frontName(b, rel, stem)...)
-		head := string(b)
-		if i := strings.Index(head[min(4, len(head)):], "\n---"); i >= 0 {
-			head = head[:i+4]
-		}
+		head := frontMatter(b)
+		out = append(out, frontName(head, rel, stem)...)
 		if !descLine.MatchString(head) {
 			out = append(out, rel+":1: no description (fix at "+rel+")")
 		}
@@ -298,13 +311,26 @@ func workflows(root string) []string {
 	return out
 }
 
+// recallProbe is the memory-recall text for the probe prompt, read-only: it would consume the hook's seen-state/log.
+func recallProbe(root, prompt string) (string, error) {
+	hits, _, err := memory.SearchRepo(root, false, prompt, probeRecallHits)
+	blocks := make([]string, len(hits))
+	for i, h := range hits {
+		blocks[i] = h.Block
+	}
+	return strings.Join(blocks, "\n"), err
+}
+
 // sessionPrompts runs memory-start and memory-recall on the probe payload and checks the agents projection is clean.
 func sessionPrompts(root string) []string {
 	start := &core.Input{SessionID: probeSession, CWD: root, HookEventName: "SessionStart", Source: "startup"}
-	recall := &core.Input{SessionID: probeSession, CWD: root, HookEventName: "UserPromptSubmit", Prompt: probePrompt}
 	var out []string
 	out = append(out, missingPaths("memory-start", memoryStart(start).Context)...)
-	out = append(out, missingPaths("memory-recall", memoryRecall(recall).Context)...)
+	if recall, err := memoryRecall(root, probePrompt); err != nil {
+		out = append(out, fmt.Sprintf("memory-recall:1: probe failed: %v (fix at the memory store)", err))
+	} else {
+		out = append(out, missingPaths("memory-recall", recall)...)
+	}
 	if rc := agentsSync(); rc != 0 {
 		out = append(out, fmt.Sprintf("agents sync --check exits %d: projection differs from agents/ (fix at agents/)", rc))
 	}
@@ -316,6 +342,10 @@ func missingPaths(hook, ctx string) []string {
 	var out []string
 	for _, m := range namedPath.FindAllStringSubmatch(ctx, -1) {
 		p := paths.ExpandHome(m[1])
+		if p == m[1] && (p == "~" || strings.HasPrefix(p, "~/")) {
+			out = append(out, fmt.Sprintf("%s:1: context names %s but the home directory cannot be resolved", hook, m[1]))
+			continue
+		}
 		if top, _, _ := strings.Cut(strings.TrimPrefix(p, "/"), "/"); func() bool { _, err := os.Stat("/" + top); return err != nil }() {
 			continue // a URL route like /serving-endpoints or /chat/completions, not a filesystem path
 		}

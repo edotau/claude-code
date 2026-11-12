@@ -134,15 +134,15 @@ func TestRunComplexityHelpAfterDoubleDashIsPositional(t *testing.T) {
 	}
 }
 
-func TestRunComplexityWarnsAndSkipsUnreadableFile(t *testing.T) {
+func TestRunComplexityFailsOnUnreadableFile(t *testing.T) {
 	dir := t.TempDir()
 	broken := filepath.Join(dir, "broken.go")
 	if err := os.Symlink(filepath.Join(dir, "missing.go"), broken); err != nil {
 		t.Skipf("cannot create dangling symlink: %v", err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := RunComplexity([]string{dir}, &stdout, &stderr); code != 0 {
-		t.Fatalf("exit = %d, stderr=%s", code, stderr.String())
+	if code := RunComplexity([]string{dir}, &stdout, &stderr); code != 1 {
+		t.Fatalf("exit = %d, want 1 so an unreadable file never reads as clean; stderr=%s", code, stderr.String())
 	}
 	if !bytes.Contains(stderr.Bytes(), []byte("[warning] could not read "+broken+":")) {
 		t.Fatalf("stderr = %q, want unreadable-file warning", stderr.String())

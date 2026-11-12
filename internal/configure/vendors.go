@@ -143,15 +143,14 @@ func signalAliveDescendants(pids []int, sig syscall.Signal) {
 	}
 }
 
-// ghStatus is what `gh auth status` reports: whether the binary exists, whether it is logged in, and the
-// account name — never a token (gh itself only ever prints a masked one).
+// ghStatus is what `gh auth status` reports: binary present, logged in, account name — never a token.
 type ghStatus struct {
 	Found    bool
 	LoggedIn bool
 	Account  string
 }
 
-// GHAuthCheck runs `gh auth status` (8s cap); its exit code is the verdict, gh's active account the name.
+// GHAuthCheck runs `gh auth status` (8s cap); logged in is a zero exit or an active account in hosts.yml, naming it.
 func GHAuthCheck() ghStatus {
 	bin, err := exec.LookPath("gh")
 	if err != nil {
@@ -215,15 +214,15 @@ func VerifyAgent(ctx context.Context, agent string) error {
 	return nil
 }
 
-// HasAdminCredential reports, by name only, whether a tailscale admin API credential is set.
-// Mirrors tailscale.NewClient: an OAuth pair (both halves) or an API key.
+// HasAdminCredential reports, by name only, whether a tailscale admin credential (OAuth pair or API key) is set.
 func HasAdminCredential() bool {
 	return hasSecretPresent("TAILSCALE_API_KEY") ||
 		(hasSecretPresent("TAILSCALE_OAUTH_CLIENT_ID") && hasSecretPresent("TAILSCALE_OAUTH_CLIENT_SECRET"))
 }
 
-// hasSecretPresent is presence only: no decrypt per home render.
+// hasSecretPresent is presence only: no decrypt per home render. An unreadable vault counts as present so the
+// owner is not told to re-enter a credential that may exist; the real use surfaces the vault error.
 func hasSecretPresent(name string) bool {
-	src, _ := vault.HasSecretErr(name)
-	return src != ""
+	src, err := vault.HasSecretErr(name)
+	return err != nil || src != ""
 }

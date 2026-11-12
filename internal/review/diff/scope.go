@@ -87,7 +87,7 @@ func checkScopeArgs(format, diffRange, paths string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "claude-code: %v\n", err)
 		return 2
 	}
-	if diffRange == "" && paths == "" {
+	if diffRange == "" && len(splitPaths(paths)) == 0 {
 		fmt.Fprintln(stderr, "claude-code: scope needs --range or --paths")
 		return 2
 	}

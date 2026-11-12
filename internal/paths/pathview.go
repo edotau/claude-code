@@ -46,14 +46,14 @@ func (r *Resolver) Resolve(p string) (string, bool) {
 
 // resolveForm handles the non-prefix forms of p: URL, //host UNC, POSIX absolute and host:path.
 func (r *Resolver) resolveForm(p string) (string, bool) {
-	if scheme, rest, ok := strings.Cut(p, "://"); ok {
-		return r.resolveURL(strings.ToLower(scheme), rest)
-	}
 	if strings.HasPrefix(p, "//") {
 		return r.resolveUNC(p)
 	}
 	if strings.HasPrefix(p, "/") {
 		return cleanLocal(p), true
+	}
+	if scheme, rest, ok := strings.Cut(p, "://"); ok {
+		return r.resolveURL(strings.ToLower(scheme), rest)
 	}
 	if host, rp, ok := splitHostPath(p); ok {
 		return r.fromRemote(host, rp, KindNFS, kindSSHFS)

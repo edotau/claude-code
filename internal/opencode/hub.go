@@ -18,7 +18,7 @@ import (
 )
 
 // opencodeLogins is a seam over listOpencodeLogins, so tests never shell out to opencode auth.
-var opencodeLogins = listOpencodeLogins
+var opencodeLogins = opencodeLoginsErr
 
 // HubStart resolves the provider a hub agent's first dispatch targets: explicitProvider when the caller set
 // one (forced, regardless of login or quota), else the first opencodeLadder entry that has a login,
@@ -38,6 +38,7 @@ func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*pro
 	}
 	var first *providers.Provider
 	var logins []string // probed once, on the first ladder entry that resolves
+	var probeErr error
 	probed := false
 	for _, id := range reg.Routing.Opencode.LadderOrder() {
 		p, err := opencodeLadderProvider(reg, id)
@@ -48,13 +49,17 @@ func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*pro
 			first = p
 		}
 		if !probed {
-			logins, probed = opencodeLogins(), true
+			logins, probeErr = opencodeLogins()
+			probed = true
 		}
 		if slices.Contains(logins, OpencodeCredID(p.OpencodeID)) {
 			return p, nil
 		}
 	}
 	if first != nil {
+		if len(logins) == 0 && probeErr != nil { // a failed probe is not "logged out"
+			return nil, fmt.Errorf("%s: opencode logins could not be read: %w", agentName, probeErr)
+		}
 		return first, nil
 	}
 	return nil, fmt.Errorf("%s: no opencode ladder configured (set opencodeLadder with `claude-code vault edit`)", agentName)
@@ -98,11 +103,8 @@ func (l hubDispatch) WithFirstOutput(d time.Duration) agent.Engine {
 	return l
 }
 
-// Caps mirrors cliEngine's: every RunOptions field the opencode CLI can carry.
-func (l hubDispatch) Caps() agent.Caps {
-	return agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native, Tools: agent.Native, Autonomous: agent.Native,
-		ReadOnly: agent.Emulated, SafeMode: agent.Native, Permissions: agent.Native, Direct: agent.Native, Env: agent.Native, SystemPrompt: agent.Native, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Emulated, Persona: agent.Emulated}
-}
+// Caps is the opencode schema row's capability set, so the hub engine cannot drift from it.
+func (l hubDispatch) Caps() agent.Caps { return row.CLI.Caps }
 
 // Available requires the binary and this provider's login, reporting missing logins before dispatch.
 func (l hubDispatch) Available() error {
