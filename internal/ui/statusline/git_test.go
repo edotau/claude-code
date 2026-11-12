@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestGitBranchFast(t *testing.T) {
@@ -99,9 +100,11 @@ func TestCheckoutOf(t *testing.T) {
 }
 
 func TestTreeDiffDeadlineFallsBack(t *testing.T) {
+	orig := gitDiffTimeout
+	gitDiffTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { gitDiffTimeout = orig })
 	dir := t.TempDir()
-	t.Setenv("STATUSLINE_GIT_MARKER", filepath.Join(dir, "listed"))
-	script := "#!/bin/sh\nif test -f \"$STATUSLINE_GIT_MARKER\"; then\n exec sleep 5\nfi\n: > \"$STATUSLINE_GIT_MARKER\"\n"
+	script := "#!/bin/sh\ncase \"$3\" in\n ls-files) exec sleep 5 ;;\n --no-optional-locks) printf '7\\t3\\ttracked\\n' ;;\nesac\n"
 	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}

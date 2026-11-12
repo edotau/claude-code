@@ -1,6 +1,7 @@
 package statusline
 
 import (
+	"errors"
 	"hash/fnv"
 	"os"
 	"path/filepath"
@@ -31,9 +32,19 @@ func readStamp(path string) []string {
 }
 
 func writeStamp(path string, fields ...string) {
-	if os.MkdirAll(filepath.Dir(path), 0o700) == nil {
-		_ = paths.AtomicWrite(path, []byte(strings.Join(fields, "|")), 0o600)
+	if os.MkdirAll(filepath.Dir(path), 0o700) != nil {
+		return
 	}
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return
+	}
+	defer func() { _ = os.Remove(f.Name()) }()
+	_, werr := f.WriteString(strings.Join(fields, "|"))
+	if errors.Join(werr, f.Chmod(0o600), f.Close()) != nil {
+		return
+	}
+	_ = os.Rename(f.Name(), path) // Disposable stamps need atomic visibility, not fsync durability.
 }
 
 // freshStamp returns the fields after a leading unix-ms timestamp younger than ttl, else nil.
