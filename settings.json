@@ -63,6 +63,7 @@
     ],
     "defaultMode": "auto"
   },
+  "model": "opus",
   "disableClaudeAiConnectors": true,
   "hooks": {
     "PostToolUse": [
@@ -240,6 +241,5 @@
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
   "useAutoModeDuringPlan": true,
-  "autoConnectIde": false,
-  "model": "fable"
+  "autoConnectIde": false
 }
