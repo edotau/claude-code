@@ -128,6 +128,14 @@ var (
 	flagSrc = overlaySrc{"--env", "--keep-env", "unset", flagSetRules}
 )
 
+// DispatchOverlay is a dispatch's overlay value: flag, else $COWORKER_OVERLAY, else the vault env's (top-level only).
+func DispatchOverlay(flag string) string {
+	if v := cmp.Or(flag, os.Getenv(OverlayVar)); v != "" || os.Getenv(router.EnvCoworker) != "" {
+		return v // a nested dispatch keeps only its inherited confinement
+	}
+	return strings.TrimSpace(providers.CustomEnv()[OverlayVar])
+}
+
 // LoadOverlay reads value, else $COWORKER_OVERLAY: a file path, inline JSON, or - for stdin; "" is the zero overlay.
 func LoadOverlay(value string, stdin io.Reader) (Overlay, error) {
 	value = cmp.Or(value, os.Getenv(OverlayVar))
