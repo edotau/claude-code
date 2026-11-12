@@ -398,7 +398,7 @@ func setupDoctorDetail() (ok bool, detail string) {
 func opencodeStaticKeysDetail(reg *providers.Registry) (bool, string) {
 	ints, err := opencode.OpencodeAuth()
 	if err != nil {
-		return true, "skipped: " + err.Error()
+		return false, "could not read opencode logins: " + err.Error()
 	}
 	var stale []string
 	for _, in := range ints {

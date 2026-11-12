@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -543,7 +544,7 @@ func parseAge(s string) (time.Duration, error) {
 	s = strings.TrimSpace(s)
 	if days, ok := strings.CutSuffix(s, "d"); ok {
 		n, err := strconv.Atoi(days)
-		if err != nil || n < 0 {
+		if err != nil || n < 0 || time.Duration(n) > math.MaxInt64/(24*time.Hour) {
 			return 0, fmt.Errorf("bad --older-than %q (want e.g. 30d or 12h)", s)
 		}
 		return time.Duration(n) * 24 * time.Hour, nil
