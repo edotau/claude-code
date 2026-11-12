@@ -243,9 +243,15 @@ func Run(argv []string) int {
 		return printUsage()
 	}
 	if name == remote.Flag || strings.HasPrefix(name, remote.Flag+"=") { // run a harness verb on a tailnet host over ssh
+		if rest, ok := remote.LocalArgs(remote.Flag, argv[1:]); ok { // the named host is this machine: run here
+			return Run(append(argv[:1:1], rest...))
+		}
 		return remote.Run(argv[1:])
 	}
 	if name == egressFlag || strings.HasPrefix(name, egressFlag+"=") {
+		if rest, ok := remote.LocalArgs(egressFlag, argv[1:]); ok { // this machine is the exit: no tunnel
+			return Run(append(argv[:1:1], rest...))
+		}
 		return runVia(argv)
 	}
 	if c := lookup(name); c != nil {
