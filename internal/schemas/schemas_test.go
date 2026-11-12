@@ -1,7 +1,6 @@
 package schemas
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -29,31 +28,6 @@ func hermetic(t *testing.T) string {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	return dir
-}
-
-func ledgerLines(t *testing.T, format string) []map[string]any {
-	t.Helper()
-	b, err := os.ReadFile(LedgerPath())
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		t.Fatal(err)
-	}
-	var out []map[string]any
-	for l := range strings.SplitSeq(strings.TrimSpace(string(b)), "\n") {
-		if l == "" {
-			continue
-		}
-		var m map[string]any
-		if err := json.Unmarshal([]byte(l), &m); err != nil {
-			t.Fatalf("ledger line not JSON: %q: %v", l, err)
-		}
-		if m["format"] == format {
-			out = append(out, m)
-		}
-	}
-	return out
 }
 
 func TestDecodeV0ThroughSameShapeReportsFromZero(t *testing.T) {
@@ -123,29 +97,6 @@ func TestRegisterPanicsOnDuplicateName(t *testing.T) {
 		}
 	}()
 	Register(f)
-}
-
-func TestLedgerAppendsOneJSONLineMode0600(t *testing.T) {
-	hermetic(t)
-	LogMigration("t-ledger", 0, 1, 3)
-	lines := ledgerLines(t, "t-ledger")
-	if len(lines) != 1 {
-		t.Fatalf("got %d lines, want 1", len(lines))
-	}
-	m := lines[0]
-	if m["schema"] != float64(1) || m["from"] != float64(0) || m["to"] != float64(1) || m["records"] != float64(3) {
-		t.Fatalf("line = %v", m)
-	}
-	if at, _ := m["at"].(string); at == "" {
-		t.Fatalf("missing at: %v", m)
-	}
-	st, err := os.Stat(LedgerPath())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if st.Mode().Perm() != 0o600 {
-		t.Fatalf("mode = %o, want 600", st.Mode().Perm())
-	}
 }
 
 // TestDecodeNullIsErrorNotPanic: a `null` document is rejected, never a nil-map panic.
@@ -277,7 +228,6 @@ var writers = map[string]string{
 	"internal/review/source/quality_cli.go:emitQualityJSON":    unversioned("foreign: -o output"),
 	"internal/router/state.go:writeState":                      "quota",
 	"internal/router/state.go:backupCorruptState":              unversioned("backup: the corrupt quota.json copied aside before it is replaced"),
-	"internal/schemas/schemas.go:LogMigration":                 "migrations",
 	"internal/settings/settings.go:ResetSettings":              unversioned("foreign: owner-run settings.json reset and its .bak copy"),
 	"internal/settings/settings.go:SeedSettings":               unversioned("foreign: first-setup settings.json seed, only when missing"),
 	"internal/settings/settings.go:writeBackup":                unversioned("foreign: ResetSettings' .bak copy, created exclusively"),

@@ -21,6 +21,9 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
+// TestMain runs in the hermetic host (hosttest), so an inherited COWORKER_OVERLAY or HARNESS_* pin never steers a plan.
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
 // hermetic isolates config, pins and seams; userProviders is an optional vault overlay/providers document.
 func hermetic(t *testing.T, userProviders string) {
 	t.Helper()

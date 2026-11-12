@@ -169,14 +169,8 @@ func TestReviewCommandsRejectUnknownFlag(t *testing.T) {
 	}
 }
 
-// testdataDir is this package's testdata, resolved at init (cwd = package dir) so goldens stay machine-independent.
-var testdataDir = func() string {
-	abs, _ := filepath.Abs("testdata")
-	if real, err := filepath.EvalSymlinks(abs); err == nil {
-		return real
-	}
-	return abs
-}()
+// testdataDir is testdata as RunReport prints it (Abs of cwd, symlinks kept), so goldens stay machine-independent.
+var testdataDir, _ = filepath.Abs("testdata")
 
 // expandGolden swaps the @TESTDATA@ placeholder in a golden for this checkout's testdata path.
 func expandGolden(s string) string { return strings.ReplaceAll(s, "@TESTDATA@", testdataDir) }
