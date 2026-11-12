@@ -54,7 +54,7 @@ func freshStamp(path string, ttl time.Duration, n int) []string {
 		return nil
 	}
 	ts, err := strconv.ParseInt(f[0], 10, 64)
-	if err != nil || time.Since(time.UnixMilli(ts)) >= ttl {
+	if age := time.Since(time.UnixMilli(ts)); err != nil || age < 0 || age >= ttl { // a future stamp is corrupt
 		return nil
 	}
 	return f[1:]
@@ -82,8 +82,8 @@ func ledgerTotals(session string) (in, out int) {
 			}
 		}
 	}
-	in, out, _ = tokenledger.TotalsBySession(session)
-	if statErr == nil {
+	in, out, _, err := tokenledger.SessionTotals(session)
+	if statErr == nil && err == nil { // a failed read is partial: show it, never cache it
 		writeStamp(stamp, size, mtime, strconv.Itoa(in), strconv.Itoa(out))
 	}
 	return in, out

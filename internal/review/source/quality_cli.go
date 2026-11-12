@@ -21,7 +21,7 @@ type qualityArgs struct {
 	output   string
 }
 
-// parseQualityArgs is a real FlagSet, so -h anywhere in args prints the usage page; -l/-o/-r mirror the
+// parseQualityArgs is a real FlagSet, so -h anywhere in args prints the usage page; -l/-o mirror the
 // former argparse short aliases. Explicit -h prints to stdout and exits 0; a bad flag stays on stderr, exit 2.
 func parseQualityArgs(args []string, stdout, stderr io.Writer) (qualityArgs, int, bool) {
 	fs := helptext.NewFlagSet("review quality", helptext.Page{
@@ -29,7 +29,7 @@ func parseQualityArgs(args []string, stdout, stderr io.Writer) (qualityArgs, int
 		About: "Code smells and SOLID violations in one file, or every file under a directory.",
 	})
 	jsonOut := fs.Bool("json", false, "Output in JSON format")
-	language := fs.String("language", "", "only this language when <path> is a directory (-l)")
+	language := fs.String("language", "", "only this language; a single file must match it (-l)")
 	fs.StringVar(language, "l", "", "shorthand for --language")
 	output := fs.String("output", "", "with --json: write the report to this file (-o)")
 	fs.StringVar(output, "o", "", "shorthand for --output")
@@ -46,6 +46,11 @@ func parseQualityArgs(args []string, stdout, stderr io.Writer) (qualityArgs, int
 	if len(positional) != 1 {
 		fmt.Fprintf(stderr, "review quality: expected exactly one path argument, got %d\n", len(positional))
 		fs.Usage()
+		return qualityArgs{}, 2, true
+	}
+	if _, ok := Extensions[*language]; *language != "" && !ok {
+		fmt.Fprintf(stderr, "review quality: argument --language: invalid choice: %q (choose from %s)\n",
+			*language, strings.Join(languageOrder, ", "))
 		return qualityArgs{}, 2, true
 	}
 	return qualityArgs{path: positional[0], language: *language, jsonOut: *jsonOut, output: *output}, 0, false
@@ -72,7 +77,11 @@ func RunQuality(args []string, stdout, stderr io.Writer) int {
 	target := resolvePath(parsed.path)
 	info, statErr := os.Stat(target)
 	if statErr != nil {
-		fmt.Fprintf(stderr, "Error: Path does not exist: %s\n", target)
+		if errors.Is(statErr, os.ErrNotExist) {
+			fmt.Fprintf(stderr, "Error: Path does not exist: %s\n", target)
+		} else {
+			fmt.Fprintf(stderr, "Error: cannot access %s: %v\n", target, statErr)
+		}
 		return 1
 	}
 
@@ -103,6 +112,9 @@ func qualityReportFor(target string, isDir bool, language string, warn io.Writer
 			return errorResult{Error: err.Error()}
 		}
 		return dr
+	}
+	if lang := DetectLanguage(target); language != "" && lang != language {
+		return errorResult{Error: fmt.Sprintf("%s is not a %s file", target, language)}
 	}
 	qr, err := Quality(target)
 	if err != nil {

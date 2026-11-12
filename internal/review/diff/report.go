@@ -54,7 +54,7 @@ func determineVerdict(score, criticalCount, highCount int) (string, string) {
 		return "block", "Critical issues must be resolved before merge"
 	}
 	for _, t := range verdictThresholds {
-		if score >= t.minScore && criticalCount <= t.maxCritical && (t.maxHigh < 0 || highCount <= t.maxHigh) {
+		if score >= t.minScore && (t.maxHigh < 0 || highCount <= t.maxHigh) {
 			return t.name, verdictRationales[t.name]
 		}
 	}
@@ -375,12 +375,16 @@ func resolveExistingPath(positional []string, stderr io.Writer) (string, bool) {
 func loadOverrides(prPath, qualityPath string, stderr io.Writer) (pr, quality map[string]any, code int) {
 	for _, o := range []struct {
 		path, label, flag string
+		validate          func(map[string]any) error
 		dst               *map[string]any
-	}{{prPath, "PR analysis", "--pr-analysis", &pr}, {qualityPath, "quality analysis", "--quality-analysis", &quality}} {
+	}{
+		{prPath, "PR analysis", "--pr-analysis", validatePRAnalysis, &pr},
+		{qualityPath, "quality analysis", "--quality-analysis", validateQualityAnalysis, &quality},
+	} {
 		if o.path == "" {
 			continue
 		}
-		m, err := loadJSONFile(o.path)
+		m, err := loadJSONFile(o.path, o.validate)
 		if err != nil {
 			fmt.Fprintf(stderr, "claude-code: cannot load %s from %s: %v; fix the file or drop %s to run it fresh\n", o.label, o.path, err, o.flag)
 			return nil, nil, 2

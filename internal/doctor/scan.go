@@ -1,9 +1,12 @@
 package doctor
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -14,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -57,6 +61,7 @@ func resolvedPath(p string) string {
 }
 
 // dedupExisting drops duplicates (by resolved path) and anything that doesn't exist, preserving order.
+// A path that cannot be statted for another reason stays, so the scan reports it instead of skipping it.
 func dedupExisting(files []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(files))
@@ -64,7 +69,7 @@ func dedupExisting(files []string) []string {
 		if p == "" {
 			continue
 		}
-		if _, err := os.Stat(p); err != nil {
+		if _, err := os.Stat(p); errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		rp := resolvedPath(p)
@@ -192,13 +197,31 @@ func (s *secretScanner) scanJSONLeaves(path string, doc any) {
 	})
 }
 
-// scanEnvLines flags every KEY=value line of a non-JSON file whose value looks like a secret.
+// scanEnvLines flags every KEY=value line of a non-JSON file whose value looks like a secret, in key order.
 func (s *secretScanner) scanEnvLines(path string) {
-	for k, v := range providers.ReadEnvFile(path) {
-		if providers.LooksLikeSecret(v) {
+	env := providers.ReadEnvFile(path)
+	for _, k := range slices.Sorted(maps.Keys(env)) {
+		if providers.LooksLikeSecret(env[k]) {
 			s.flag(fmt.Sprintf("%s → %s holds an inline secret", path, k))
 		}
 	}
+	if err := envScanErr(path); err != nil {
+		s.flag(fmt.Sprintf("%s — scan stopped early, later lines were not scanned: %v", path, err))
+	}
+}
+
+// envScanErr is the error that stops a line scan of path (a line over the 4 MiB cap ReadEnvFile uses), which it hides.
+func envScanErr(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
+	for sc.Scan() {
+	}
+	return sc.Err()
 }
 
 // scanVault inspects the vault's unencrypted buckets (provider overlay, pins, custom env) for inline secrets.
@@ -263,8 +286,12 @@ func (s *secretScanner) scanConfigs(targets []string) int {
 		targets = defaultScanTargets()
 	}
 	fmt.Fprintln(s.Out, "== config-surface credential scan ==")
+	scanned := map[string]bool{}
 	for _, f := range targets {
-		s.scanFile(f)
+		if rp := resolvedPath(f); !scanned[rp] {
+			scanned[rp] = true
+			s.scanFile(f)
+		}
 	}
 	if defaults {
 		s.scanVault()
@@ -285,8 +312,18 @@ type auditOpts struct {
 	Since            int
 }
 
-// runAudits runs the requested audits in order, writing their reports to w; the worst exit wins.
+// runAudits runs the requested audits in order, writing reports to w; the worst exit wins, an unwritable report fails.
 func runAudits(w io.Writer, o auditOpts) int {
+	ew := &textutil.ErrWriter{W: w}
+	rc := auditReports(ew, o)
+	if ew.Err != nil {
+		fmt.Fprintln(os.Stderr, "doctor: could not write report:", ew.Err)
+		rc = max(rc, providers.ExitFindings)
+	}
+	return rc
+}
+
+func auditReports(w io.Writer, o auditOpts) int {
 	rc, sep := providers.ExitClean, ""
 	if o.Scan {
 		rc = max(rc, (&secretScanner{Out: w}).scanConfigs(o.Targets))

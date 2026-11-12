@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -244,10 +245,7 @@ func opencodeArgv(model string, h agent.Headless) []string {
 
 // opencodeTitle is the session title: "opencode: " plus the prompt's first 40 runes on one line.
 func opencodeTitle(prompt string) string {
-	line := strings.Join(strings.Fields(prompt), " ")
-	if r := []rune(line); len(r) > 40 {
-		line = strings.TrimSpace(string(r[:40]))
-	}
+	line := textutil.TruncateRunes(strings.Join(strings.Fields(prompt), " "), 40)
 	return strings.TrimSpace("opencode: " + line)
 }
 
@@ -527,7 +525,7 @@ func (e opencodeEngine) Verify(context.Context) (providers.AuthVerdict, string) 
 	return providers.VerdictNeedsLogin, ""
 }
 
-// PreRoute prefers opencode's own login (Go/Zen, else the github-copilot one) ahead of a session provider that could serve it.
+// PreRoute prefers opencode's own login (Go/Zen, else github-copilot) ahead of a session provider that could serve it.
 func (opencodeEngine) PreRoute(reg *providers.Registry, explicit bool) (providers.Target, string, bool, error) {
 	if explicit {
 		return providers.Target{}, "", false, nil
@@ -640,8 +638,12 @@ func opencodeCredential(prefix string) (env []string, err error) {
 	if slices.Contains(logins, id) {
 		return nil, nil
 	}
-	if key := opencodeVaultKey(id); key != "" {
+	key, verr := opencodeVaultKey(id)
+	if key != "" {
 		return []string{opencodeAPIKeyEnv + "=" + key}, nil
+	}
+	if verr != nil { // a locked or corrupt vault is not "no key"
+		return nil, fmt.Errorf("opencode: %s could not be read from the vault: %w", opencodeAPIKeyEnv, verr)
 	}
 	if lerr != nil { // a failed probe is not "no login": say so rather than sending the user to re-login
 		return nil, fmt.Errorf("opencode logins could not be read: %w", lerr)
@@ -657,17 +659,25 @@ type missingCredError string
 
 func (e missingCredError) Error() string { return string(e) }
 
-// opencodeVaultKey is the vault's opencode API key for the `opencode` credential id, else "".
-func opencodeVaultKey(id string) string {
+// opencodeVaultKey is the vault's opencode API key for the `opencode` credential id, else ""; err is a failed read.
+func opencodeVaultKey(id string) (string, error) {
 	if id != "opencode" {
-		return ""
+		return "", nil
 	}
-	v, _, _ := vault.Get(opencodeAPIKeyEnv)
-	return strings.TrimSpace(v)
+	v, _, err := vault.Lookup(opencodeAPIKeyEnv)
+	return strings.TrimSpace(v), err
 }
 
-// ownLoginTTL bounds how long OpencodeOwnLoginPresent reuses an answer: one launch's route calls, not a later vault edit.
+// ownLoginTTL bounds how long OpencodeOwnLoginPresent reuses an answer: one launch's route calls, not a later edit
 const ownLoginTTL = 2 * time.Second
+
+// ownLoginKeep keeps an answer for ownLoginTTL and a failed probe not at all.
+func ownLoginKeep(_ bool, err error) time.Duration {
+	if err != nil {
+		return -1
+	}
+	return ownLoginTTL
+}
 
 // ownLoginKey is the auth state and key env an OpencodeOwnLoginPresent answer was computed under.
 type ownLoginKey struct{ key, env string }
@@ -677,9 +687,12 @@ var ownLogin paths.Memo[ownLoginKey, bool] // InvalidateOpencodeAuth drops it; a
 // OpencodeOwnLoginPresent checks stored Go/Zen login or vault key, reusing the answer for ownLoginTTL.
 func OpencodeOwnLoginPresent() bool {
 	_, _, key := opencodeAuthKeys()
-	ok, _ := ownLogin.Do(ownLoginKey{key, os.Getenv(opencodeAPIKeyEnv)}, func(bool, error) time.Duration { return ownLoginTTL },
+	ok, _ := ownLogin.Do(ownLoginKey{key, os.Getenv(opencodeAPIKeyEnv)}, ownLoginKeep,
 		func() (bool, error) {
 			_, err := opencodeCredential("opencode-go")
+			if err != nil && !errors.As(err, new(missingCredError)) {
+				return false, err // an unreadable login or vault is not an answer: do not keep it
+			}
 			return err == nil, nil
 		})
 	return ok

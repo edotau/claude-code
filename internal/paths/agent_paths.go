@@ -47,17 +47,20 @@ func CopilotHome() (string, error) {
 	return filepath.Join(home, ".copilot"), nil
 }
 
-// OpencodeDataDir is $XDG_DATA_HOME/opencode (default ~/.local/share/opencode).
+// OpencodeDataDir is $XDG_DATA_HOME/opencode (default ~/.local/share/opencode); with no home, a dir under the private noHomeRoot.
 func OpencodeDataDir() string {
 	base := os.Getenv("XDG_DATA_HOME")
 	if base == "" {
-		home, _ := os.UserHomeDir()
+		home := homeDir()
+		if home == "" {
+			return filepath.Join(noHomeRoot(), "opencode")
+		}
 		base = filepath.Join(home, ".local", "share")
 	}
 	return filepath.Join(base, "opencode")
 }
 
-// OpencodeDBPath is opencode's SQLite database; OPENCODE_DB overrides the default name, ":memory:" yields "".
+// OpencodeDBPath is opencode's SQLite database; OPENCODE_DB overrides the default name; ":memory:" yields "".
 func OpencodeDBPath() string {
 	db := os.Getenv("OPENCODE_DB")
 	switch {
@@ -87,7 +90,7 @@ func CopilotRegistryKeep(path string) bool {
 	return !ok || proc.Alive(pid) || runtime.GOOS == "windows"
 }
 
-// CopilotRegistryGlob matches registry files under the runtime dir; "" when none exists; it creates nothing.
+// CopilotRegistryGlob matches registry files under the runtime dir; "" if CopilotRuntimeDirPath errors; creates nothing
 func CopilotRegistryGlob() string {
 	dir, err := CopilotRuntimeDirPath()
 	if err != nil {

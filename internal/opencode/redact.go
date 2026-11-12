@@ -8,7 +8,7 @@ import (
 )
 
 // secretFlagRE matches secret-naming CLI flags, case-insensitively (plus -H).
-var secretFlagRE = regexp.MustCompile(`^((?i:--?[a-z0-9_-]*(key|token|secret|password|header|authorization|bearer|credential|pass))(=.*)?|-H)$`)
+var secretFlagRE = regexp.MustCompile(`^((?i:--?[a-z0-9_-]*(key|token|secret|password|header|authorization|bearer|credential|pass))(=(?s:.*))?|-H)$`)
 
 // redactConfig masks structured config secrets; parse errors leave the input unchanged.
 func redactConfig(s string) string {
@@ -103,7 +103,11 @@ func redactURLQuery(entry map[string]any) {
 		return
 	}
 	u, err := url.Parse(raw)
-	if err != nil || (u.RawQuery == "" && u.User == nil && u.Fragment == "") {
+	if err != nil { // a templated URL ("https://${HOST}/mcp?token=…") does not parse but still carries secrets
+		entry["url"] = redactRawURL(raw)
+		return
+	}
+	if u.RawQuery == "" && u.User == nil && u.Fragment == "" {
 		return
 	}
 	marker := ""
@@ -115,4 +119,19 @@ func redactURLQuery(entry map[string]any) {
 	}
 	u.RawQuery, u.User, u.Fragment, u.RawFragment = "", nil, "", ""
 	entry["url"] = u.String() + marker
+}
+
+var rawUserinfoRE = regexp.MustCompile(`^([^:/?#]*://)[^/?#]*@`)
+
+// redactRawURL is redactURLQuery's string-level form for a URL net/url rejects.
+func redactRawURL(raw string) string {
+	raw = rawUserinfoRE.ReplaceAllString(raw, "$1")
+	marker := ""
+	if i := strings.IndexByte(raw, '#'); i >= 0 {
+		raw, marker = raw[:i], "#<redacted>"
+	}
+	if i := strings.IndexByte(raw, '?'); i >= 0 {
+		raw, marker = raw[:i], "?<redacted>"+marker
+	}
+	return raw + marker
 }

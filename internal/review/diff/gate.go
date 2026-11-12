@@ -21,10 +21,11 @@ import (
 var gateVerdictLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\s+\[WARN\]|^Verdict:|^  \S.*\(score \d+/100\)$`) })
 var gateNoiseLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`Noise ratio:|Verdict:|^  \S.*:$`) })
 
-func gateStagedFiles(repo string) []string {
+// stagedFiles lists the staged paths; a git failure is an error, never an empty index.
+func stagedFiles(repo string) ([]string, error) {
 	out, err := gitInherit(repo, "diff", "--cached", "--name-only")
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var files []string
 	for line := range strings.SplitSeq(out, "\n") {
@@ -32,14 +33,14 @@ func gateStagedFiles(repo string) []string {
 			files = append(files, line)
 		}
 	}
-	return files
+	return files, nil
 }
 
-// gateComplexityFiles lists the staged source files (added, copied, modified, renamed), as paths under repo.
-func gateComplexityFiles(repo string) []string {
+// stagedSourceFiles lists the staged source files (added, copied, modified, renamed), as paths under repo.
+func stagedSourceFiles(repo string) ([]string, error) {
 	out, err := gitInherit(repo, "diff", "--cached", "-z", "--name-only", "--relative", "--diff-filter=ACMR")
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var files []string
 	for name := range strings.SplitSeq(out, "\x00") {
@@ -47,10 +48,10 @@ func gateComplexityFiles(repo string) []string {
 			files = append(files, filepath.Join(repo, name))
 		}
 	}
-	return files
+	return files, nil
 }
 
-// stagedBlob reads a path's staged content under the inherited GIT_INDEX_FILE, matching gateComplexityFiles.
+// stagedBlob reads a path's staged content under the inherited GIT_INDEX_FILE, matching stagedSourceFiles.
 func stagedBlob(repo string) func(string) ([]byte, error) {
 	return func(p string) ([]byte, error) {
 		rel, err := filepath.Rel(repo, p)
@@ -130,14 +131,21 @@ func RunGate(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	staged := gateStagedFiles(repo)
+	staged, err := stagedFiles(repo)
+	if err != nil {
+		fmt.Fprintf(stdout, "code-review gate skipped: cannot read the staged change: %v\n", err)
+		return 0
+	}
 	if len(staged) == 0 {
 		return 0
 	}
 
 	fmt.Fprintln(stdout, "--- code-review gate (advisory) ---")
 
-	changed := gateComplexityFiles(repo)
+	changed, err := stagedSourceFiles(repo)
+	if err != nil {
+		fmt.Fprintf(stdout, "[simplicity] skipped: cannot list the staged source files: %v\n", err)
+	}
 	if len(changed) > 0 {
 		fmt.Fprintln(stdout, "[simplicity] complexity_checker (medium):")
 		var buf bytes.Buffer

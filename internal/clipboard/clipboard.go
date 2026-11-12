@@ -24,7 +24,8 @@ import (
 )
 
 // clipPS saves the Windows clipboard image as a PNG (GDI+, bypassing WSLg's 32bpp BI_BITFIELDS BMP
-// that common decoders reject). Prints "OK <winpath> <W>x<H>", "NOIMAGE" or "BUSY". -Sta: MTA lacks the API.
+// that common decoders reject). Prints "OK <winpath> <W>x<H>", "NOIMAGE", "BUSY" or "SAVEFAIL".
+// -Sta: MTA lacks the API.
 const clipPS = `Add-Type -AssemblyName System.Windows.Forms,System.Drawing
 $img = $null
 for ($i = 0; $i -lt 10; $i++) { # another app holding the clipboard makes every call throw; retry briefly
@@ -34,11 +35,10 @@ for ($i = 0; $i -lt 10; $i++) { # another app holding the clipboard makes every 
 }
 if (-not $img) { Write-Output 'BUSY'; exit 0 }
 $p = Join-Path $env:TEMP ('claude-clip-' + [Guid]::NewGuid().ToString('N').Substring(0,8) + '.png')
-$img.Save($p, [System.Drawing.Imaging.ImageFormat]::Png)
+try { $img.Save($p, [System.Drawing.Imaging.ImageFormat]::Png) } catch { Write-Output 'SAVEFAIL'; exit 0 }
 Write-Output ('OK ' + $p + ' ' + $img.Width + 'x' + $img.Height)`
 
-// clipOKRE parses the success line. The path is matched lazily up to the trailing WxH so a Windows
-// temp dir containing spaces ("C:\Users\First Last\...") survives intact.
+// clipOKRE parses the success line; the path is matched lazily up to the trailing WxH so spaces in temp dirs survive.
 var clipOKRE = regexp.MustCompile(`^OK (.+?) (\d+x\d+)$`)
 
 // powershellTimeout bounds the Windows round trip so hung interop fails instead of stalling the verb.
@@ -56,7 +56,7 @@ func runPowerShell(script string) (string, error) {
 	return strings.ReplaceAll(string(out), "\r", ""), nil
 }
 
-// Grab saves the clipboard image to a PNG and returns its path plus "WxH": macOS osascript; WSLg, then PowerShell.
+// Grab saves the clipboard image to a PNG and returns its path plus "WxH": SSH bridge, osascript, WSLg, PowerShell.
 func Grab() (path, dim string, err error) {
 	if inSSH() {
 		return grabSSH() // the keyboard's machine owns the clipboard; never read the host's
@@ -217,6 +217,9 @@ func grab(onWSL func() bool, run func(string) (string, error), translate func(st
 	if line == "NOIMAGE" {
 		return "", "", errNoImage
 	}
+	if line == "SAVEFAIL" {
+		return "", "", errors.New("powershell could not save the clipboard image (is the Windows TEMP dir writable and not full?)")
+	}
 	m := clipOKRE.FindStringSubmatch(line)
 	if m == nil {
 		return "", "", fmt.Errorf("unexpected powershell output: %q", line)
@@ -254,8 +257,7 @@ type raster struct {
 	topDown               bool
 }
 
-// transcode reads a BMP from r and writes a widely-decodable BMP to w: 24bpp, BI_RGB, bottom-up,
-// rows padded to 4 bytes.
+// transcode reads a BMP from r and writes a widely-decodable BMP to w: 24bpp, BI_RGB, bottom-up, 4-byte-padded rows.
 func transcode(r io.Reader, w io.Writer) error {
 	img, err := decodeRaster(r)
 	if err != nil {
@@ -352,7 +354,7 @@ func bmpDimensions(dib []byte) (raster, error) {
 		// Catches height==0 and MinInt32, whose negation overflows back to itself.
 		return raster{}, fmt.Errorf("clipboard: invalid height %d", height)
 	}
-	if width > maxDim || int32(height) > maxDim {
+	if width > maxDim || height > maxDim {
 		return raster{}, fmt.Errorf("clipboard: dimensions %dx%d exceed the %d cap", width, height, maxDim)
 	}
 	if int64(width)*int64(height) > maxPixels {
@@ -438,15 +440,14 @@ func maskShiftWidth(mask uint32) (shift, width int) {
 	return bits.TrailingZeros32(mask), bits.OnesCount32(mask)
 }
 
-// scaleChannel extracts and rescales a channel to 8 bits — narrower masks (e.g. 5-bit 555) are
-// scaled up proportionally rather than truncated, so black stays black and white stays white.
+// scaleChannel extracts a channel and scales it to 8 bits (narrow masks like 555 proportionally), so black/white hold.
 func scaleChannel(px, mask uint32, shift, width int) byte {
 	if mask == 0 || width == 0 {
 		return 0
 	}
 	val := (px & mask) >> shift
-	maxVal := uint32(1)<<width - 1
-	return byte(val * 255 / maxVal)
+	maxVal := uint64(1)<<width - 1
+	return byte(uint64(val) * 255 / maxVal)
 }
 
 // writeBMP24 emits a BITMAPFILEHEADER + 40-byte BITMAPINFOHEADER, 24bpp BI_RGB, bottom-up. rows is
@@ -489,8 +490,7 @@ func writeBMP24(w io.Writer, width, height, stride int, rows []byte, topDown boo
 	return nil
 }
 
-// writePNG encodes a decoded raster as PNG. BGR→RGB per pixel, and a bottom-up source is read in
-// reverse so the result is never upside down.
+// writePNG encodes a raster as PNG, BGR→RGB per pixel, reading a bottom-up source in reverse so it's never upside down.
 func writePNG(w io.Writer, img raster) error {
 	out := image.NewRGBA(image.Rect(0, 0, img.width, img.height))
 	for y := 0; y < img.height; y++ {

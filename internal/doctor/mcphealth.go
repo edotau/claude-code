@@ -180,6 +180,7 @@ type healthResult struct {
 	Lines     []string `json:"lines,omitempty"`
 	Connected int      `json:"connected"`
 	Failed    int      `json:"failed"`
+	Unhealthy int      `json:"unhealthy,omitempty"` // listed but neither connected nor failed, e.g. "! Needs authentication"
 	Error     string   `json:"error,omitempty"`
 	Skipped   string   `json:"skipped,omitempty"` // fail-open reason: live health was not run
 }
@@ -197,6 +198,8 @@ func runHealth(claude string) healthResult {
 			res.Connected++
 		case strings.Contains(ln, "✘"):
 			res.Failed++
+		case serverStatusLine(ln):
+			res.Unhealthy++
 		default:
 			continue
 		}
@@ -206,6 +209,12 @@ func runHealth(claude string) healthResult {
 		res.Error = scrub(listErr.Error())
 	}
 	return res
+}
+
+// serverStatusLine reports a "<name>: <target> - <status>" server line, the way `claude mcp list` prints every server.
+func serverStatusLine(ln string) bool {
+	i := strings.LastIndex(ln, " - ")
+	return i > 0 && strings.Contains(ln[:i], ": ")
 }
 
 // conflict is a server name defined in several scopes; Real only when the resolved commands/urls disagree.
@@ -354,9 +363,9 @@ type report struct {
 	Unscanned []string        `json:"unscanned,omitempty"` // config files that exist but could not be read or parsed
 }
 
-// ExitCode is 1 on a failed server, a list error, a secret or an unscanned file; a fail-open health skip never counts.
+// ExitCode is 1 on a failed or unhealthy server, a list error, a secret or unscanned file; fail-open skips never count
 func (r report) ExitCode() int {
-	if r.Health.Failed > 0 || r.Health.Error != "" || len(r.Secrets) > 0 || len(r.Unscanned) > 0 {
+	if r.Health.Failed > 0 || r.Health.Unhealthy > 0 || r.Health.Error != "" || len(r.Secrets) > 0 || len(r.Unscanned) > 0 {
 		return 1
 	}
 	return 0
@@ -431,13 +440,18 @@ func printHealthSection(w io.Writer, h healthResult) {
 	for _, ln := range h.Lines {
 		fmt.Fprintln(w, "  "+ln)
 	}
-	switch {
-	case h.Error != "":
+	if h.Error != "" {
 		fmt.Fprintf(w, "  ⚠ `claude mcp list` failed: %s\n", h.Error)
-	case h.Failed > 0:
+		return
+	}
+	if h.Failed > 0 {
 		fmt.Fprintf(w, "  ⚠ %d server(s) failed to connect\n", h.Failed)
 		fmt.Fprintln(w, "  note: npx-launched servers can false-negative on a cold-start timeout")
-	default:
+	}
+	if h.Unhealthy > 0 {
+		fmt.Fprintf(w, "  ⚠ %d server(s) listed but not connected (see the status above)\n", h.Unhealthy)
+	}
+	if h.Failed == 0 && h.Unhealthy == 0 {
 		fmt.Fprintf(w, "  ✓ all reachable servers connected (%d)\n", h.Connected)
 	}
 }
@@ -499,7 +513,7 @@ func configReport(o options) report {
 func buildReport(o options) report {
 	rep := configReport(o)
 	rep.Health = runHealth(o.Claude)
-	if len(rep.Defs) > 0 && rep.Health.Skipped == "" && rep.Health.Error == "" && rep.Health.Connected+rep.Health.Failed == 0 {
+	if len(rep.Defs) > 0 && rep.Health.Skipped == "" && rep.Health.Error == "" && rep.Health.Connected+rep.Health.Failed+rep.Health.Unhealthy == 0 {
 		rep.Health.Error = "no server status lines recognised in `claude mcp list` output"
 	}
 	return rep

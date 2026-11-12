@@ -27,8 +27,7 @@ import (
 // lintOpusOK marks a deliberate reasoning-tier agent() call (on the line the call closes on).
 const lintOpusOK = "lint:opus-ok"
 
-// pinWindow caps the scan when a call's close paren can't be found (unbalanced string content).
-// Generous: prompt template literals routinely run into the thousands of characters.
+// pinWindow caps the scan when a call's close paren isn't found; prompt template literals run to thousands of chars.
 const pinWindow = 20000
 
 // RunWorkflowLint lints every workflows/*.js plus every skills/*/scripts/*.js that opens with `export
@@ -123,7 +122,7 @@ process.exit(bad ? 1 : 0)`
 // lookNode finds node; tests swap it to prove the visible skip.
 var lookNode = func() (string, error) { return exec.LookPath("node") }
 
-// workflowParseDefects compiles every script with node; with no node it returns a visible skip line, never a silent pass.
+// workflowParseDefects compiles every script with node; without node it returns a visible skip line, not a silent pass.
 func workflowParseDefects(files []string) (hits []string, skipped string) {
 	if len(files) == 0 {
 		return nil, ""
@@ -154,8 +153,7 @@ func isParseLine(line string, files []string) bool {
 	return slices.ContainsFunc(files, func(f string) bool { return strings.HasPrefix(line, f+": ") })
 }
 
-// skillScripts returns every skills/*/scripts/*.js under root that opens with `export const meta` (a
-// Workflow script moved out of workflows/) — other scripts under scripts/ are plain helpers, not linted.
+// skillScripts returns skills/*/scripts/*.js under root opening with `export const meta`; other scripts are helpers.
 func skillScripts(root string) []string {
 	rel, _ := fs.Glob(os.DirFS(root), "skills/*/scripts/*.js") // the pattern is fixed, so ErrBadPattern cannot occur
 	var out []string
@@ -167,24 +165,17 @@ func skillScripts(root string) []string {
 	return out
 }
 
-// isWorkflowScript reports whether f's first non-blank, non-comment line opens `export const meta`;
+// isWorkflowScript reports whether f's first code after blank lines and // or /* */ comments opens `export const meta`;
 // an unreadable file counts as one so lintScript reports it instead of skipping it.
 func isWorkflowScript(f string) bool {
 	data, err := os.ReadFile(f)
 	if err != nil {
 		return true
 	}
-	for line := range strings.SplitSeq(string(data), "\n") {
-		t := strings.TrimSpace(line)
-		if t == "" || strings.HasPrefix(t, "//") {
-			continue
-		}
-		return strings.HasPrefix(t, "export const meta")
-	}
-	return false
+	return strings.HasPrefix(skipLeadingComments(string(data)), "export const meta")
 }
 
-// LintPins returns every agent() pin problem in src; `workflow lint` uses it; the workflow-lint hook calls lintPins without the effort check.
+// LintPins returns every agent() pin problem in src, for `workflow lint`; the hook's lintPins skips the effort check.
 func LintPins(name string, src []byte) []string { return lintPins(name, string(src), true) }
 
 // lintPins is LintPins; withEffort false drops the missing-effort problems.
@@ -217,9 +208,7 @@ func effortlessAgentCalls(name, src string) []string {
 	}, true)
 }
 
-// agentCallsMissingSrc returns "name:line" for each agent() call whose option
-// window fails `pinned`. exemptMarked honors the lint:opus-ok marker; pass false for a check D1 says
-// the marker must never waive (the model/agentType pin).
+// agentCallsMissingSrc returns "name:line" per agent() call whose window fails pinned; exemptMarked honors lint:opus-ok
 func agentCallsMissingSrc(name, src string, pinned func(window string) bool, exemptMarked bool) []string {
 	var out []string
 	scanAgentCalls(src, func(_, line int, window string, marked bool) {
@@ -236,8 +225,7 @@ func agentCallsMissingSrc(name, src string, pinned func(window string) bool, exe
 // pinKeys are the two agent() pin axes validated against a literal allow-list.
 var pinKeys = []string{"model", "effort"}
 
-// pinAllowed is the allow-list per pin key; anything else is a hit (an unknown value silently falls
-// back to the session tier rather than erroring).
+// pinAllowed is the allow-list per pin key; an unknown value silently falls back to the session tier, so it is a hit.
 var pinAllowed = map[string]map[string]bool{
 	"model":  setOf(stepClaudeModels),
 	"effort": setOf(agentid.EffortNames()),
@@ -269,15 +257,10 @@ func badPinValues(name, src string) []string {
 	return out
 }
 
-// keyHit is one options-object key: at (its start, bare or quoted) and valStart (the byte after its colon).
-type keyHit struct {
-	at, valStart int
-}
-
-// topLevelKeyAt returns the bare or quoted `key:` hits sitting directly in the call's options object.
-func topLevelKeyAt(src, key string) []keyHit {
+// topLevelKeyAt returns the offset after the colon of each bare or quoted `key:` directly in the call's options object.
+func topLevelKeyAt(src, key string) []int {
 	masked := stripStrings(src)
-	var out []keyHit
+	var out []int
 	var open []int // offsets of the unclosed brackets, outermost first
 	for i := 0; i < len(masked); i++ {
 		switch c := masked[i]; c {
@@ -290,23 +273,34 @@ func topLevelKeyAt(src, key string) []keyHit {
 		case '\'', '"', '`':
 			if inOptionsObject(masked, open) && atKeyPosition(masked, i) {
 				if vs, ok := quotedKeyValue(src, masked, i, key); ok {
-					out = append(out, keyHit{i, vs})
+					out = append(out, vs)
 				}
 			}
 			i = skipQuoted(masked, i, c)
 			continue
 		}
-		if bareKeyAt(masked, open, i, key) {
-			out = append(out, keyHit{i, i + len(key) + 1})
+		if vs, ok := bareKeyValue(masked, open, i, key); ok {
+			out = append(out, vs)
 		}
 	}
 	return out
 }
 
-// bareKeyAt is an unquoted `key:` starting at masked[i] in a key position of the call's options object.
-func bareKeyAt(masked string, open []int, i int, key string) bool {
-	return inOptionsObject(masked, open) && strings.HasPrefix(masked[i:], key+":") && (i == 0 || !isIdentByte(masked[i-1])) &&
-		atKeyPosition(masked, i)
+// bareKeyValue reports whether masked[i] starts an unquoted `key :` in the options object, returning the offset after.
+func bareKeyValue(masked string, open []int, i int, key string) (int, bool) {
+	if !inOptionsObject(masked, open) || !strings.HasPrefix(masked[i:], key) || (i > 0 && isIdentByte(masked[i-1])) ||
+		!atKeyPosition(masked, i) {
+		return 0, false
+	}
+	return colonValue(masked, i+len(key))
+}
+
+// colonValue returns the offset after the colon that follows optional whitespace at i.
+func colonValue(masked string, i int) (int, bool) {
+	if j := skipSpaces(masked, i); j < len(masked) && masked[j] == ':' {
+		return j + 1, true
+	}
+	return 0, false
 }
 
 // inOptionsObject reports whether the innermost bracket is the call's options `{`: directly inside the call's `(`,
@@ -347,11 +341,7 @@ func quotedKeyValue(src, masked string, i int, key string) (int, bool) {
 	if end >= len(masked) || src[i+1:end] != key {
 		return 0, false
 	}
-	j := skipSpaces(masked, end+1)
-	if j < len(masked) && masked[j] == ':' {
-		return j + 1, true
-	}
-	return 0, false
+	return colonValue(masked, end+1)
 }
 
 // hasTopLevelKey reports whether the call window pins key in its options object (bare or quoted).
@@ -360,13 +350,8 @@ func hasTopLevelKey(src, key string) bool { return len(topLevelKeyAt(src, key)) 
 func badPinValuesForKey(name string, line int, window, key string) []string {
 	var out []string
 	masked := stripStrings(window)
-	for _, hit := range topLevelKeyAt(window, key) {
-		valStart := hit.valStart
-		valEnd := len(masked)
-		if k := strings.IndexAny(masked[valStart:], ",}\n"); k >= 0 {
-			valEnd = valStart + k
-		}
-		for _, m := range quotedLit().FindAllStringSubmatch(window[valStart:valEnd], -1) {
+	for _, valStart := range topLevelKeyAt(window, key) {
+		for _, m := range quotedLit().FindAllStringSubmatch(window[valStart:valueEnd(masked, valStart)], -1) {
 			v := m[1]
 			if v == "" {
 				v = m[2]
@@ -378,6 +363,27 @@ func badPinValuesForKey(name string, line int, window, key string) []string {
 		}
 	}
 	return out
+}
+
+// valueEnd returns where the value starting at start ends in masked: the first top-level `,` or unmatched closer.
+func valueEnd(masked string, start int) int {
+	depth := 0
+	for i := start; i < len(masked); i++ {
+		switch masked[i] {
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			if depth == 0 {
+				return i
+			}
+			depth--
+		case ',':
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return len(masked)
 }
 
 // allowedList renders pinAllowed[key] as a deterministic, sorted "a|b|c" string for a message.
@@ -621,10 +627,31 @@ func metaLiteralDefects(path, src string) []string {
 		return nil
 	}
 	meta := delimitedWindow(src, stripStrings(src), start+len("export const meta = "), '{', '}')
-	if bare := stripStrings(meta); !strings.Contains(bare, "`") && !strings.Contains(bare, "+") {
+	if !metaHasNonLiteral(stripStrings(meta)) {
 		return nil
 	}
 	return []string{fmt.Sprintf("%s:%d: meta is not a pure literal (no `+`, template literals or variables) — the registry cannot load it", path, 1+strings.Count(src[:start], "\n"))}
+}
+
+var identTokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[A-Za-z_$][A-Za-z0-9_$]*`) })
+
+// metaHasNonLiteral reports whether string-masked meta holds a `+`, a template literal, or an identifier that is
+// neither an object key nor true/false/null.
+func metaHasNonLiteral(bare string) bool {
+	if strings.ContainsAny(bare, "`+") {
+		return true
+	}
+	return slices.ContainsFunc(identTokenRe().FindAllStringIndex(bare, -1), func(loc []int) bool {
+		if loc[0] > 0 && isIdentByte(bare[loc[0]-1]) {
+			return false // the tail of a number (0xFF, 1e3), a member name or a spread
+		}
+		switch bare[loc[0]:loc[1]] {
+		case "true", "false", "null":
+			return false
+		}
+		_, isKey := colonValue(bare, loc[1])
+		return !isKey
+	})
 }
 
 // delimitedWindow returns src from open through its matching closer, counting depth on masked (stripStrings(src)).

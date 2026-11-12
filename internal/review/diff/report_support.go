@@ -34,17 +34,16 @@ func indentJSON(v any) (string, error) {
 var severityWeights = map[string]int{"critical": 100, "high": 75, "medium": 50, "low": 25, "info": 10}
 
 type verdictThreshold struct {
-	name        string
-	minScore    int
-	maxCritical int
-	maxHigh     int // -1 means unbounded (Python's float("inf"))
+	name     string
+	minScore int
+	maxHigh  int // -1 means unbounded (Python's float("inf"))
 }
 
 // verdictThresholds is checked in order; first match wins (mirrors VERDICT_THRESHOLDS dict order).
 var verdictThresholds = []verdictThreshold{
-	{"approve", 90, 0, 0},
-	{"approve_with_suggestions", 75, 0, 2},
-	{"request_changes", 50, 0, -1},
+	{"approve", 90, 0},
+	{"approve_with_suggestions", 75, 2},
+	{"request_changes", 50, -1},
 }
 
 var verdictRationales = map[string]string{
@@ -119,7 +118,8 @@ type Report struct {
 	QualitySummary *QualitySummary `json:"quality_summary,omitempty"`
 }
 
-func loadJSONFile(path string) (map[string]any, error) {
+// loadJSONFile reads a JSON object from path and refuses one the validator rejects.
+func loadJSONFile(path string, validate func(map[string]any) error) (map[string]any, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -131,7 +131,56 @@ func loadJSONFile(path string) (map[string]any, error) {
 	if m == nil {
 		return nil, errors.New("not a JSON object")
 	}
+	if err := validate(m); err != nil {
+		return nil, err
+	}
 	return m, nil
+}
+
+// validatePRAnalysis accepts pr_analyzer output: status no_changes, or analyzed with object summary and risks.
+func validatePRAnalysis(m map[string]any) error {
+	switch status := mStr(m, "status"); status {
+	case "no_changes":
+		return nil
+	case "analyzed":
+	default:
+		return fmt.Errorf(`not PR analysis output: "status" is %q, want "analyzed" or "no_changes"`, status)
+	}
+	for _, key := range []string{"summary", "risks"} {
+		if v, ok := m[key]; ok && asMap(v) == nil {
+			return fmt.Errorf("not PR analysis output: %q must be an object", key)
+		}
+	}
+	risks := mMap(m, "risks")
+	for _, sev := range severityOrder {
+		if v, ok := risks[sev]; ok {
+			if _, isList := v.([]any); !isList {
+				return fmt.Errorf("not PR analysis output: risks.%s must be an array", sev)
+			}
+		}
+	}
+	return nil
+}
+
+// validateQualityAnalysis accepts quality output: "files" an array of objects, or "file" a string (single file).
+func validateQualityAnalysis(m map[string]any) error {
+	files, ok := m["files"]
+	if !ok {
+		if _, single := m["file"].(string); single {
+			return nil
+		}
+		return errors.New(`not quality analysis output: neither "files" nor "file" is present`)
+	}
+	list, isList := files.([]any)
+	if !isList {
+		return errors.New(`not quality analysis output: "files" must be an array`)
+	}
+	for _, f := range list {
+		if asMap(f) == nil {
+			return errors.New(`not quality analysis output: every "files" entry must be an object`)
+		}
+	}
+	return nil
 }
 
 func toGenericMap(v any) map[string]any {
@@ -219,7 +268,7 @@ func headContent(repo, rev, name string) (string, error) {
 	return proc.RunGitRaw(ctx, repo, "show", rev+":./"+name)
 }
 
-// runQualityChecker ports run_quality_checker: source.Quality over each changed source file.
+// runQualityChecker ports run_quality_checker: source.QualityContent over each changed file as of the head commit.
 func runQualityChecker(repo, base, head string) (map[string]any, error) {
 	changed, err := changedSourceFiles(repo, base, head)
 	if err != nil {
@@ -361,7 +410,7 @@ func renderMarkdownChangeStats(b *strings.Builder, s *PRSummary) {
 }
 
 func renderMarkdownReviewOrder(b *strings.Builder, order []string) {
-	if order == nil {
+	if len(order) == 0 {
 		return
 	}
 	fmt.Fprintln(b, "## Suggested Review Order")

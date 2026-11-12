@@ -13,13 +13,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // toolTimeout bounds one formatter run.
 const toolTimeout = 10 * time.Second
 
-// formatFile formats one file, preferring the repo's own format target so each project formats by its
-// own config; the extension chain is the fallback. Reports whether a formatter ran cleanly.
+// formatFile formats one file via the repo's own format target if any, else the extension chain; true if clean.
 func formatFile(path string) bool {
 	if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
 		return false
@@ -47,8 +48,7 @@ var (
 	makeFormatVars    = []string{"TARGET", "FILE", "FILES", "PATHS", "SRC"}
 )
 
-// makeProvisioning matches recipe commands that BUILD an environment rather than format a file: a
-// missing .venv must not turn one edit into a multi-GB install inside the Stop hook's budget.
+// makeProvisioning matches recipe commands that BUILD an environment, not format a file (no multi-GB install in Stop).
 var makeProvisioning = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(
 		`(?i)(-m\s+venv|virtualenv|pip\s+install|uv\s+(venv|sync|pip)|npm\s+(ci|install)|poetry\s+install|conda\s+create)`)
@@ -65,21 +65,10 @@ func makeFormat(path string) bool {
 	if root == "" {
 		return false
 	}
-	makeFormatMu.Lock()
-	candidates, cached := makeFormatCache[root]
-	if !cached {
-		body, _ := os.ReadFile(filepath.Join(root, "Makefile"))
-		for _, target := range makeFormatTargets {
-			recipe := makeRecipe(string(body), target)
-			for _, name := range makeFormatVars {
-				if recipeReads(recipe, name) {
-					candidates = append(candidates, makeFormatCandidate{target, name})
-				}
-			}
-		}
-		makeFormatCache[root] = candidates
+	candidates, ok := makeFormatCandidates(root)
+	if !ok {
+		return false
 	}
-	makeFormatMu.Unlock()
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return false
@@ -90,6 +79,30 @@ func makeFormat(path string) bool {
 		}
 	}
 	return false
+}
+
+// makeFormatCandidates returns root's per-file format targets, cached per root; an unreadable Makefile is not cached.
+func makeFormatCandidates(root string) ([]makeFormatCandidate, bool) {
+	makeFormatMu.Lock()
+	defer makeFormatMu.Unlock()
+	if candidates, cached := makeFormatCache[root]; cached {
+		return candidates, true
+	}
+	body, err := os.ReadFile(filepath.Join(root, "Makefile"))
+	if err != nil {
+		return nil, false
+	}
+	var candidates []makeFormatCandidate
+	for _, target := range makeFormatTargets {
+		recipe := makeRecipe(string(body), target)
+		for _, name := range makeFormatVars {
+			if recipeReads(recipe, name) {
+				candidates = append(candidates, makeFormatCandidate{target, name})
+			}
+		}
+	}
+	makeFormatCache[root] = candidates
+	return candidates, true
 }
 
 type makeFormatCandidate struct{ target, variable string }
@@ -117,8 +130,7 @@ func makeRecipe(body, target string) string {
 	return strings.Join(recipe, "\n")
 }
 
-// isTargetLine reports whether a Makefile line declares target (`format:` / `format : deps`), excluding
-// variable assignments (`format := ...`).
+// isTargetLine reports whether a Makefile line declares target (`format:` / `format : deps`), not `format := ...`.
 func isTargetLine(line, target string) bool {
 	rest, ok := strings.CutPrefix(line, target)
 	if !ok {
@@ -197,6 +209,7 @@ func runMake(root string, timeout time.Duration, args ...string) (string, bool) 
 	defer cancel()
 	cmd := exec.CommandContext(ctx, mk, args...)
 	cmd.Dir = root
+	proc.OwnGroup(cmd)          // the timeout kills make's whole group, so a recipe's formatter cannot outlive it
 	cmd.WaitDelay = time.Second // grandchildren holding the output pipe must not outlive the timeout
 	// MAKEFLAGS from a parent make run would leak -n or a jobserver into this invocation.
 	cmd.Env = append(os.Environ(), "MAKEFLAGS=", "MFLAGS=", "MAKELEVEL=")
@@ -208,8 +221,7 @@ var toolSection = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?m)^\s*\[tool\.([A-Za-z0-9_-]+)[.\]]`)
 })
 
-// formatPython formats one .py file: the project's declared classic chain when its pyproject declares
-// any of black/isort/autoflake, else (or when none of the declared tools is installed) the ruff chain.
+// formatPython formats one .py file: the declared classic chain (black/isort/autoflake) if installed, else ruff.
 func formatPython(path string) bool {
 	root, tools := pythonProject(path)
 	if root != "" && (tools["black"] || tools["isort"] || tools["autoflake"]) {
@@ -249,8 +261,7 @@ func classicPythonChain(root, path string, tools map[string]bool) (ran, ok bool)
 	return ran, ok
 }
 
-// pythonProject walks up to the nearest pyproject.toml and reports its dir plus the [tool.*] sections it
-// declares; "" when there is none.
+// pythonProject walks up to the nearest pyproject.toml and returns its dir plus declared [tool.*] sections; "" if none.
 func pythonProject(path string) (string, map[string]bool) {
 	root := nearestDirWith(path, "pyproject.toml")
 	if root == "" {

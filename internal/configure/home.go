@@ -47,22 +47,27 @@ func ClaudeJSONWired(path string) bool {
 // codexMCPHeader recognizes the web_search table, including quoted keys and trailing comments.
 var codexMCPHeader = regexp.MustCompile(`^\[\s*(?:mcp_servers|"mcp_servers"|'mcp_servers')\s*\.\s*(?:web_search|"web_search"|'web_search')\s*\]\s*(?:#.*)?$`)
 
-// codexMCPRange locates the real table without treating multiline strings or arrays as headers.
+// codexMCPRange locates the real table without treating multiline strings or arrays as headers;
+// comment lines directly above the next header belong to that header, not to the table.
 func codexMCPRange(raw []byte) (start, end int) {
-	start, offset := -1, 0
+	start, offset, cut := -1, 0, 0
 	multiline, depth := "", 0
 	for _, line := range strings.SplitAfter(string(raw), "\n") {
 		trimmed := strings.TrimSpace(line)
-		if multiline == "" && depth == 0 && strings.HasPrefix(trimmed, "[") {
+		clean := multiline == "" && depth == 0
+		if clean && strings.HasPrefix(trimmed, "[") {
 			if start >= 0 {
-				return start, offset
+				return start, cut
 			}
 			if codexMCPHeader.MatchString(trimmed) {
 				start = offset
 			}
 		}
-		multiline, depth = agentconfig.TOMLLineState(line, multiline, depth)
 		offset += len(line)
+		if !clean || !strings.HasPrefix(trimmed, "#") {
+			cut = offset
+		}
+		multiline, depth = agentconfig.TOMLLineState(line, multiline, depth)
 	}
 	return start, len(raw)
 }

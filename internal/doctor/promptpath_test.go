@@ -1,7 +1,6 @@
 package doctor
 
 import (
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -9,20 +8,10 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 const savedDoc = "skills/subagent-workflows/references/saved-workflows.md"
-
-func writeRel(t *testing.T, root, rel, body string) {
-	t.Helper()
-	p := filepath.Join(root, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
 
 // wantOne asserts exactly one finding that contains each fragment.
 func wantOne(t *testing.T, got []string, frags ...string) {
@@ -39,81 +28,79 @@ func wantOne(t *testing.T, got []string, frags ...string) {
 
 func TestH1ClaudeMDPathsResolve(t *testing.T) {
 	root := t.TempDir()
-	writeRel(t, root, "rules/standards/quality.md", "# q\n")
-	writeRel(t, root, "CLAUDE.md", "# x\nSee `rules/standards/quality.md`.\n")
+	hosttest.WriteRel(t, root, "rules/standards/quality.md", "# q\n")
+	hosttest.WriteRel(t, root, "CLAUDE.md", "# x\nSee `rules/standards/quality.md`.\n")
 	if got := claudeMD(root); len(got) != 0 {
 		t.Fatalf("pass fixture findings = %q", got)
 	}
-	writeRel(t, root, "CLAUDE.md", "# x\n`rules/gone.md`\n")
+	hosttest.WriteRel(t, root, "CLAUDE.md", "# x\n`rules/gone.md`\n")
 	wantOne(t, claudeMD(root), "CLAUDE.md:2:", "`rules/gone.md` does not exist", "(fix at CLAUDE.md)")
 
 	// A gitignored path (local-only, absent on a fresh clone) is not a finding; an unignored one still is.
 	if err := exec.Command("git", "-C", root, "init", "-q").Run(); err != nil {
 		t.Skipf("git unavailable: %v", err)
 	}
-	writeRel(t, root, ".gitignore", "/skills/synced/\n")
-	writeRel(t, root, "CLAUDE.md", "# x\n`skills/synced/` and `rules/gone.md`\n")
+	hosttest.WriteRel(t, root, ".gitignore", "/skills/synced/\n")
+	hosttest.WriteRel(t, root, "CLAUDE.md", "# x\n`skills/synced/` and `rules/gone.md`\n")
 	wantOne(t, claudeMD(root), "`rules/gone.md` does not exist")
 }
 
 func TestH2RulesPathsAndSymbols(t *testing.T) {
 	root := t.TempDir()
-	writeRel(t, root, "internal/x/bar.go", "package x\n\nfunc foo() {}\n")
+	hosttest.WriteRel(t, root, "internal/x/bar.go", "package x\n\nfunc foo() {}\n")
 	body := "---\npaths:\n  - x\n---\nUse `foo` (`internal/x/bar.go`).\n"
-	writeRel(t, root, "rules/harness/a.md", body)
+	hosttest.WriteRel(t, root, "rules/harness/a.md", body)
 	if got := rules(root); len(got) != 0 {
 		t.Fatalf("pass fixture findings = %q", got)
 	}
-	writeRel(t, root, "rules/harness/a.md", "---\npaths:\n  - x\n---\nUse `gone` (`internal/x/bar.go`).\n")
+	hosttest.WriteRel(t, root, "rules/harness/a.md", "---\npaths:\n  - x\n---\nUse `gone` (`internal/x/bar.go`).\n")
 	wantOne(t, rules(root), "rules/harness/a.md:5:", "`gone` not found in `internal/x/bar.go`", "(fix at rules/harness/a.md)")
 }
 
-// TestH2FailsClosed: a cited .go file that exists nowhere, or an unreadable rule, is a finding, not ok.
-
 func TestH3SkillNameMatchesDir(t *testing.T) {
 	root := t.TempDir()
-	writeRel(t, root, "skills/foo/SKILL.md", "---\nname: foo\ndescription: x\n---\n")
+	hosttest.WriteRel(t, root, "skills/foo/SKILL.md", "---\nname: foo\ndescription: x\n---\n")
 	if got := skills(root); len(got) != 0 {
 		t.Fatalf("pass fixture findings = %q", got)
 	}
-	writeRel(t, root, "skills/foo/SKILL.md", "---\nname: bar\ndescription: x\n---\n")
+	hosttest.WriteRel(t, root, "skills/foo/SKILL.md", "---\nname: bar\ndescription: x\n---\n")
 	wantOne(t, skills(root), `skills/foo/SKILL.md:1: name "bar" != "foo"`, "(fix at skills/foo/SKILL.md)")
 }
 
 func TestH4PlanTemplateHasEveryHeading(t *testing.T) {
 	root := t.TempDir()
 	heads := docs.PlanTemplateHeadings()
-	writeRel(t, root, "docs/templates/plan.md", strings.Join(heads, "\n")+"\n")
+	hosttest.WriteRel(t, root, "docs/templates/plan.md", strings.Join(heads, "\n")+"\n")
 	if got := planTemplate(root); len(got) != 0 {
 		t.Fatalf("pass fixture findings = %q", got)
 	}
-	writeRel(t, root, "docs/templates/plan.md", strings.Join(heads[1:], "\n")+"\n")
+	hosttest.WriteRel(t, root, "docs/templates/plan.md", strings.Join(heads[1:], "\n")+"\n")
 	wantOne(t, planTemplate(root), `docs/templates/plan.md:1: template lacks "# Plan:"`, "(fix at docs/templates/plan.md)")
 }
 
 func TestH5SavedWorkflowsInSync(t *testing.T) {
 	root := t.TempDir()
-	writeRel(t, root, "workflows/a.js", "// a\n")
-	writeRel(t, root, savedDoc, "| Name |\n|---|\n| `a` | runs a |\n")
+	hosttest.WriteRel(t, root, "workflows/a.js", "// a\n")
+	hosttest.WriteRel(t, root, savedDoc, "| Name |\n|---|\n| `a` | runs a |\n")
 	if got := workflows(root); len(got) != 0 {
 		t.Fatalf("pass fixture findings = %q", got)
 	}
-	writeRel(t, root, savedDoc, "| Name |\n|---|\n| `a` | runs a |\n| `ghost` | gone |\n")
+	hosttest.WriteRel(t, root, savedDoc, "| Name |\n|---|\n| `a` | runs a |\n| `ghost` | gone |\n")
 	wantOne(t, workflows(root), savedDoc+":1:", "ghost has no workflows/ghost.js", "(fix at "+savedDoc+")")
 }
 
 func TestH6AgentNameStemDescriptionModel(t *testing.T) {
 	root := t.TempDir()
-	writeRel(t, root, "agents/x.md", "---\nname: x\ndescription: does things\nmodel: sonnet\n---\nbody\n")
+	hosttest.WriteRel(t, root, "agents/x.md", "---\nname: x\ndescription: does things\nmodel: sonnet\n---\nbody\n")
 	if got := agents(root); len(got) != 0 {
 		t.Fatalf("pass fixture findings = %q", got)
 	}
-	writeRel(t, root, "agents/x.md", "---\nname: y\ndescription: does things\nmodel: sonnet\n---\nbody\n")
+	hosttest.WriteRel(t, root, "agents/x.md", "---\nname: y\ndescription: does things\nmodel: sonnet\n---\nbody\n")
 	wantOne(t, agents(root), `agents/x.md:1: name "y" != "x"`, "(fix at agents/x.md)")
 }
 
 // stubSessionSeams swaps the H7 hooks and sync for fixtures and restores them after the test.
-func stubSessionSeams(t *testing.T, start, recall func(*core.Input) core.Result, sync func() int) {
+func stubSessionSeams(t *testing.T, start func(*core.Input) core.Result, recall func(root, prompt string) (string, error), sync func() int) {
 	t.Helper()
 	oStart, oRecall, oSync := memoryStart, memoryRecall, agentsSync
 	t.Cleanup(func() { memoryStart, memoryRecall, agentsSync = oStart, oRecall, oSync })
@@ -123,16 +110,16 @@ func stubSessionSeams(t *testing.T, start, recall func(*core.Input) core.Result,
 func TestH7SessionPromptsNamePathsThatExist(t *testing.T) {
 	root := t.TempDir()
 	real := filepath.Join(root, "memory.md")
-	writeRel(t, root, "memory.md", "bank\n")
+	hosttest.WriteRel(t, root, "memory.md", "bank\n")
 	ok := func(in *core.Input) core.Result { return core.Result{Context: "see " + real} }
-	stubSessionSeams(t, ok, func(*core.Input) core.Result { return core.Result{} }, func() int { return 0 })
+	stubSessionSeams(t, ok, func(string, string) (string, error) { return "", nil }, func() int { return 0 })
 	if got := sessionPrompts(root); len(got) != 0 {
 		t.Fatalf("pass fixture findings = %q", got)
 	}
 	gone := filepath.Join(root, "gone.md")
 	// A URL route (no such top-level dir) is not a path; a dead file under a real dir is.
-	stale := func(*core.Input) core.Result {
-		return core.Result{Context: "claude `/anthropic` via /serving-endpoints/anthropic; pointer " + gone}
+	stale := func(string, string) (string, error) {
+		return "claude `/anthropic` via /serving-endpoints/anthropic; pointer " + gone, nil
 	}
 	stubSessionSeams(t, ok, stale, func() int { return 0 })
 	wantOne(t, sessionPrompts(root), "memory-recall:1:", gone+" which does not exist")

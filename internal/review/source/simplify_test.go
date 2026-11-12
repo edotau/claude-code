@@ -147,6 +147,10 @@ func TestRunSimplifyBadThreshold(t *testing.T) {
 	}
 }
 
+func simplicityFindings(path, before, after string) []string {
+	return SimplicityFindingsWithBaseline(path, after, func() (string, bool) { return before, true })
+}
+
 func TestSimplicityFindings(t *testing.T) {
 	noisy := cleanGo + "\n// old prose line one\n// old prose line two\nfunc Old() int { return 1 }\n"
 	shifted := "// header\n// header2\n\n" + strings.Replace(noisy, "return a + b", "return a + b + 0", 1)
@@ -161,7 +165,7 @@ func TestSimplicityFindings(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := SimplicityFindings(c.path, c.before, c.after)
+			got := simplicityFindings(c.path, c.before, c.after)
 			if len(got) != len(c.want) {
 				t.Fatalf("got %d findings %q, want %d", len(got), got, len(c.want))
 			}
@@ -172,7 +176,7 @@ func TestSimplicityFindings(t *testing.T) {
 			}
 		})
 	}
-	if got := SimplicityFindings("fx.go", longGo(), longGo()); len(got) != 0 {
+	if got := simplicityFindings("fx.go", longGo(), longGo()); len(got) != 0 {
 		t.Errorf("identical before/after reported %q", got)
 	}
 }

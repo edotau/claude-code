@@ -131,16 +131,12 @@ func functionNameParams(groups []string) (string, string) {
 
 // findFunctions ports quality_core.find_functions; Go source that does not parse is an error, not a regex fallback.
 func findFunctions(content, language string) ([]FunctionInfo, error) {
+	if language == "go" {
+		return goFunctions(content)
+	}
 	pattern, ok := functionPatterns()[language]
 	if !ok {
 		pattern = functionPatterns()["python"]
-	}
-	var goEnds []int
-	if language == "go" {
-		var err error
-		if goEnds, err = goFunctionEnds(content); err != nil {
-			return nil, err
-		}
 	}
 	var out []FunctionInfo
 	for _, loc := range pattern.FindAllStringSubmatchIndex(content, -1) {
@@ -148,12 +144,6 @@ func findFunctions(content, language string) ([]FunctionInfo, error) {
 		params := splitParams(paramsStr)
 		matchEnd := loc[1]
 		body := functionBody(content, matchEnd, pattern)
-		for _, end := range goEnds {
-			if end > matchEnd { // ends ascend: the first one past the signature closes this func
-				body = body[:min(len(body), end-matchEnd)]
-				break
-			}
-		}
 		out = append(out, FunctionInfo{
 			Name:       name,
 			Parameters: len(params),
@@ -164,19 +154,38 @@ func findFunctions(content, language string) ([]FunctionInfo, error) {
 	return out, nil
 }
 
-func goFunctionEnds(content string) ([]int, error) {
+// goFunctions lists the declared funcs of Go source via go/ast, so comments and strings never yield phantoms.
+func goFunctions(content string) ([]FunctionInfo, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "", content, parser.SkipObjectResolution)
 	if err != nil {
 		return nil, fmt.Errorf("go syntax error: %w", err)
 	}
-	var ends []int
+	var out []FunctionInfo
 	for _, decl := range file.Decls {
-		if fn, ok := decl.(*ast.FuncDecl); ok {
-			ends = append(ends, fset.Position(fn.End()).Offset)
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok {
+			continue
 		}
+		bodyStart := fset.Position(fn.Type.Params.Closing).Offset + 1
+		body := content[bodyStart:fset.Position(fn.End()).Offset]
+		out = append(out, FunctionInfo{
+			Name:       fn.Name.Name,
+			Parameters: goParamCount(fn.Type.Params),
+			Lines:      len(strings.Split(body, "\n")),
+			Complexity: calcCyclomaticComplexity(body),
+		})
 	}
-	return ends, nil
+	return out, nil
+}
+
+// goParamCount counts parameters: one per name, one for each unnamed type.
+func goParamCount(params *ast.FieldList) int {
+	n := 0
+	for _, f := range params.List {
+		n += max(1, len(f.Names))
+	}
+	return n
 }
 
 // submatchStrings returns capture groups 1..n as strings ("" when a group did not participate).

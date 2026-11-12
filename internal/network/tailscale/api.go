@@ -63,19 +63,22 @@ func parseKeyExpiry(s string) (time.Duration, error) {
 		if int64(days) > maxKeyDays {
 			return 0, fmt.Errorf("key expiry %q overflows: at most %dd", s, maxKeyDays)
 		}
-		return time.Duration(days) * 24 * time.Hour, nil
+		return atLeastSecond(s, time.Duration(days)*24*time.Hour)
 	}
 	d, err := time.ParseDuration(s)
 	if err != nil {
 		return 0, err
 	}
-	return nonNegative(s, d)
+	return atLeastSecond(s, d)
 }
 
-// nonNegative refuses a negative expiry, which CreateAuthKey would otherwise drop for the server default.
-func nonNegative(s string, d time.Duration) (time.Duration, error) {
+// atLeastSecond refuses a negative or sub-second expiry: CreateAuthKey omits a zero expirySeconds (server default)
+func atLeastSecond(s string, d time.Duration) (time.Duration, error) {
 	if d < 0 {
 		return 0, fmt.Errorf("key expiry %q is negative", s)
+	}
+	if d < time.Second {
+		return 0, fmt.Errorf("key expiry %q is under 1s; the server would apply its default lifetime", s)
 	}
 	return d, nil
 }
@@ -202,9 +205,8 @@ type keyOpts struct {
 
 // AuthKey is a minted key; Key is a secret — callers must never log or audit its value.
 type AuthKey struct {
-	ID      string    `json:"id"`
-	Key     string    `json:"key"`
-	Expires time.Time `json:"expires"`
+	ID  string `json:"id"`
+	Key string `json:"key"`
 }
 
 // CreateAuthKey mints a tskey-auth-… key via POST /tailnet/-/keys.

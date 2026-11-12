@@ -268,12 +268,22 @@ func streamMessages(ctx context.Context, r apiRequest, w io.Writer) (wire.Usage,
 	var model string
 	stream := client.Messages.NewStreaming(ctx, params)
 	defer stream.Close()
+	stopped := false
 	for stream.Next() {
-		if err := applyMessageEvent(stream.Current().AsAny(), &res, &model, w); err != nil {
+		ev := stream.Current().AsAny()
+		_, isStop := ev.(anthropic.MessageStopEvent)
+		stopped = stopped || isStop
+		if err := applyMessageEvent(ev, &res, &model, w); err != nil {
 			return res, model, err
 		}
 	}
-	return res, model, boxSDKError(stream.Err())
+	if err := stream.Err(); err != nil {
+		return res, model, boxSDKError(err)
+	}
+	if !stopped {
+		return res, model, fmt.Errorf("messages stream ended without message_stop: %w", io.ErrUnexpectedEOF) // retries
+	}
+	return res, model, nil
 }
 
 // applyMessageEvent folds one stream event into usage and model, and writes a text delta to w.

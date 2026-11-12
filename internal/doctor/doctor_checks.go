@@ -28,7 +28,7 @@ var detectBrowsers = func() (browser.Report, error) { return browser.DetectDefau
 func strayClaudeJSON() (ok bool, detail string) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return true, "home unresolved"
+		return false, "cannot resolve the home directory to look for a stray .claude.json: " + err.Error()
 	}
 	stub := filepath.Join(home, ".claude", ".claude.json")
 	if _, err := os.Stat(stub); err != nil {

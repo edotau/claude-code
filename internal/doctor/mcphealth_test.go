@@ -14,17 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 )
 
-// write is a small t.Helper wrapper around os.WriteFile for fixture setup.
-func write(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // fakeBin writes an executable shell script named name into dir and returns its path.
 func fakeBin(t *testing.T, dir, name, script string) string {
 	t.Helper()
@@ -45,14 +34,14 @@ func TestCollectDefs(t *testing.T) {
 		t.Fatal(err)
 	}
 	userJSON := filepath.Join(dir, ".claude.json")
-	write(t, userJSON, `{
+	hosttest.WriteRel(t, "", userJSON, `{
 		"mcpServers": {"github": {"command": "npx", "args": ["gh-mcp"]}},
 		"projects": {"/repo": {"mcpServers": {"jenkins": {"command": "bash", "args": ["launch.sh"]}}}}
 	}`)
 	proj := filepath.Join(dir, ".mcp.json")
-	write(t, proj, `{"mcpServers": {"github": {"command": "npx", "args": ["gh-mcp"]}}}`)
+	hosttest.WriteRel(t, "", proj, `{"mcpServers": {"github": {"command": "npx", "args": ["gh-mcp"]}}}`)
 	settings := filepath.Join(dir, "settings.json")
-	write(t, settings, `{"mcpServers": {"sentry": {"type": "http", "url": "https://sentry.example/mcp"}}}`)
+	hosttest.WriteRel(t, "", settings, `{"mcpServers": {"sentry": {"type": "http", "url": "https://sentry.example/mcp"}}}`)
 
 	defs, _ := collectDefs(userJSON, []string{proj, proj}, []string{settings})
 	if len(defs) != 4 {
@@ -71,7 +60,7 @@ func TestCollectDefs(t *testing.T) {
 func TestCollectDefsSkipsUnreadableOrInvalid(t *testing.T) {
 	dir := t.TempDir()
 	bad := filepath.Join(dir, ".mcp.json")
-	write(t, bad, `{not json`)
+	hosttest.WriteRel(t, "", bad, `{not json`)
 	defs, _ := collectDefs(filepath.Join(dir, "missing.json"), []string{bad, filepath.Join(dir, "absent.json")}, nil)
 	if len(defs) != 0 {
 		t.Fatalf("defs = %+v, want none", defs)
@@ -278,7 +267,7 @@ func TestDoctorRejectsReportWriteFailure(t *testing.T) {
 func TestDoctorJSONRoundTrips(t *testing.T) {
 	dir := t.TempDir()
 	userJSON := filepath.Join(dir, ".claude.json")
-	write(t, userJSON, `{"mcpServers": {"github": {"command": "npx", "args": ["gh-mcp"], "env": {"TOKEN": "sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}}`)
+	hosttest.WriteRel(t, "", userJSON, `{"mcpServers": {"github": {"command": "npx", "args": ["gh-mcp"], "env": {"TOKEN": "sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}}`)
 
 	var out strings.Builder
 	code := doctorMCP(&out, options{UserPath: userJSON, Home: dir, JSON: true})
@@ -302,7 +291,7 @@ func TestDoctorJSONRoundTrips(t *testing.T) {
 func TestDoctorTextReportNeverEchoesSecretValues(t *testing.T) {
 	dir := t.TempDir()
 	userJSON := filepath.Join(dir, ".claude.json")
-	write(t, userJSON, `{"mcpServers": {"github": {"command": "npx", "env": {"TOKEN": "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}}`)
+	hosttest.WriteRel(t, "", userJSON, `{"mcpServers": {"github": {"command": "npx", "env": {"TOKEN": "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}}`)
 
 	var out strings.Builder
 	code := doctorMCP(&out, options{UserPath: userJSON, Home: dir})
@@ -348,7 +337,7 @@ func TestExitCodeFailsOnListErrorWithNoFailedServers(t *testing.T) {
 func TestDoctorFlagsUnparseableConfig(t *testing.T) {
 	dir := t.TempDir()
 	bad := filepath.Join(dir, ".mcp.json")
-	write(t, bad, `{"mcpServers": {"a": {"env": {"K": "x"},}}}`)
+	hosttest.WriteRel(t, "", bad, `{"mcpServers": {"a": {"env": {"K": "x"},}}}`)
 	var out bytes.Buffer
 	code := doctorMCP(&out, options{UserPath: filepath.Join(dir, "missing.json"), ProjectFiles: []string{bad}, Home: dir})
 	if code != 1 || !strings.Contains(out.String(), "not scanned") || strings.Contains(out.String(), "no inline secrets found") {
@@ -375,7 +364,7 @@ func TestDoctorTextNeverEchoesSecretsFromArgsOrHealthLines(t *testing.T) {
 	dir := t.TempDir()
 	const tok = "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	userJSON := filepath.Join(dir, ".claude.json")
-	write(t, userJSON, `{"mcpServers": {"gh": {"command": "npx", "args": ["srv", "--token", "`+tok+`"]}}}`)
+	hosttest.WriteRel(t, "", userJSON, `{"mcpServers": {"gh": {"command": "npx", "args": ["srv", "--token", "`+tok+`"]}}}`)
 	claude := fakeBin(t, dir, "claude", "echo 'gh: npx srv --token "+tok+" - ✔ Connected'\necho 'web: https://x.test/mcp?api_key=zzz1234 - ✘ Failed'")
 
 	var out strings.Builder

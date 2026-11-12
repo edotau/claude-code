@@ -13,14 +13,14 @@ import (
 func dropRemoteHeredocs(cmd string) string {
 	return dropHeredocBodies(cmd, false, func(lines []string, i int) int {
 		m := heredocOp().FindStringSubmatch(lines[i])
-		if m == nil || m[4] != "" || !sshHoldsHeredoc(lines[i]) { // m[4]: bare delimiter, expanded locally
+		if m == nil || m[4] != "" || strings.Contains(lines[i], "<<<") || !sshHoldsHeredoc(lines[i]) { // m[4]: bare delimiter
 			return -1
 		}
 		return heredocEnd(lines, i+1, m[2]+m[3]+m[4], m[1] == "-")
 	})
 }
 
-// dropHeredocBodies drops each body whose closing line bodyEnd returns (-1 keeps it); guarded keeps all when a file runs.
+// dropHeredocBodies drops each body whose closing line bodyEnd returns (-1 keeps it); guarded keeps all if a file runs.
 func dropHeredocBodies(cmd string, guarded bool, bodyEnd func(lines []string, i int) int) string {
 	lines := strings.Split(cmd, "\n")
 	if guarded && (runsWrittenFile().MatchString(lines[0]) || heredocTail(lines)) {
@@ -120,13 +120,13 @@ func inertGh(toks []string) bool {
 	return len(toks) > 3 && (toks[1] == "pr" || toks[1] == "issue") && slices.Contains([]string{"create", "edit", "comment"}, toks[2])
 }
 
-// inertScm: the --title of `claude-code scm pr create|comment` is data; a --body-file path or a redirect is not.
+// inertScm: the --title of `claude-code scm pr create` is data; a --body-file path or a redirect is not.
 func inertScm(toks []string) bool {
 	if len(toks) < 4 || toks[1] != "scm" || !inertEcho(toks) ||
 		slices.ContainsFunc(toks, func(t string) bool { return strings.HasPrefix(t, "--body-file") }) {
 		return false
 	}
-	return (toks[2] == "pr" && (toks[3] == "create" || toks[3] == "comment")) || toks[2] == "comment"
+	return toks[2] == "pr" && toks[3] == "create"
 }
 
 // dropInertHeredocs removes file-only heredoc bodies unless the command also runs a file.
@@ -201,9 +201,10 @@ func catRedirects(toks []string) bool {
 	return false
 }
 
-// runsWrittenFile matches a command that executes a file (a shell, source, ., exec, an interpreter or chmod +x).
+// runsWrittenFile matches a command that executes a file (a shell, source, ., exec, an interpreter or chmod +x),
+// bare, by path (/bin/bash), versioned (python3.11) or inside ( ) $( ) and backticks.
 var runsWrittenFile = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?m)(^|[;&|\s])(bash|sh|zsh|source|exec|python3?|node|perl|ruby)\s|(^|[;&|])\s*\.[\s/]|chmod\s+[-+=,ugoarwXst0-7]*x`)
+	return regexp.MustCompile(`(?m)(^|[;&|(/\x60\s])((ba|z|da|k)?sh|fish|pwsh|source|exec|python[0-9.]*|node|perl|ruby|deno|bun|php)\s|(^|[;&|])\s*\.[\s/]|chmod\s+[-+=,ugoarwXst0-7]*x`)
 })
 
 // dropDataHeredocs removes quoted-delimiter `cat > f`/`tee f` heredoc bodies so hard rule 4 never asks on text written
@@ -238,11 +239,12 @@ func heredocTail(lines []string) bool {
 	return false
 }
 
-// dataHeredocStart finds one quoted `<<'DELIM'` on a segment that is `cat > f` or `tee f`; other segments on the line
-// (`mkdir -p d && cat > d/f <<'EOF'`) are checked as usual.
+// dataHeredocStart finds one quoted `<<'DELIM'` on a `cat > f` or `tee f` segment; other segments are checked as usual.
 func dataHeredocStart(line string) (string, bool) {
 	ms := heredocOp().FindAllStringSubmatch(line, -1)
-	if len(ms) != 1 || ms[0][1] == "-" || ms[0][4] != "" {
+	// A <<< here-string has no body; `>(` / `<(` feed a process that may run the body.
+	if len(ms) != 1 || ms[0][1] == "-" || ms[0][4] != "" || strings.Contains(line, "<<<") ||
+		strings.Contains(line, ">(") || strings.Contains(line, "<(") {
 		return "", false
 	}
 	for _, seg := range shell.Segments(line) {

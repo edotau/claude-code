@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -147,19 +148,21 @@ func checkToolHealth(check func(bool, bool, string, string)) {
 
 func checkHostHealth(check func(bool, bool, string, string)) {
 	check(true, false, "in-flight", inflightDoctorDetail())
-	proxyDetail, proxyStale := proxyStatus()
-	check(!proxyStale, false, "proxy", proxyDetail)
+	proxyDetail, proxyBad := proxyStatus()
+	check(!proxyBad, false, "proxy", proxyDetail)
 	rtkOK, rtkDetail := rtkDoctorStatus()
 	check(rtkOK, false, "rtk compressor", rtkDetail)
 	tsOK, tsDetail := tailscale.Doctor(context.Background())
 	check(tsOK, false, "tailscale", tsDetail)
 	settingsErr := settings.CheckFile(settings.SettingsFile())
 	nested := setup.NestedConfig()
-	check(nested.Dir == "" || nested.OnlyWorktrees(), false, "nested config", nestedDetail(nested))
+	check(nested.Dir == "" || onlyWorktrees(nested), false, "nested config", nestedDetail(nested))
 	strayOK, strayDetail := strayClaudeJSON()
 	check(strayOK, false, "claude.json", strayDetail)
-	check(true, false, "audit (7d)", auditSummary())
-	check(true, false, "setup", setupDoctorDetail())
+	auditOK, auditDetail := auditSummary()
+	check(auditOK, false, "audit (7d)", auditDetail)
+	setupOK, setupDetail := setupDoctorDetail()
+	check(setupOK, false, "setup", setupDetail)
 	check(true, false, "browser", browserDoctorDetail())
 	clipOK, clipDetail := clipboard.DoctorDetail()
 	check(clipOK, false, "wl-paste proxy", clipDetail)
@@ -229,9 +232,13 @@ func probeCredentialLabel(p *providers.Provider, label string) (bool, string) {
 	switch status {
 	case providers.ProbeLogin:
 		if p.Auth.Login == "" { // the Claude Max login: say whether unattended runs have a token too
-			if providers.HeadlessOAuthToken() != "" {
+			set, err := headlessTokenState()
+			switch {
+			case err != nil:
+				label += " · headless token unreadable: " + err.Error()
+			case set:
 				label += " · headless token set"
-			} else {
+			default:
 				label += " · no headless token (claude-code configure → claude mints one)"
 			}
 		}
@@ -260,20 +267,34 @@ func profileInUse(reg *providers.Registry, name string, agents func() map[string
 	return false
 }
 
+// headlessTokenState reports whether the headless OAuth token is set (env, else vault); err is a vault read failure.
+func headlessTokenState() (set bool, err error) {
+	if strings.TrimSpace(os.Getenv(providers.OAuthTokenEnv)) != "" {
+		return true, nil
+	}
+	v, _, err := vault.ReadSecret(providers.OAuthTokenEnv)
+	return v != "", err
+}
+
 // altAuth names the sign-in covering a provider whose key is absent or rejected (claude's OAuth login), or "".
 func altAuth(name string) string {
 	if name != "anthropic" {
 		return ""
 	}
-	if providers.HeadlessOAuthToken() != "" {
+	set, err := headlessTokenState()
+	if set {
 		return "claude uses the OAuth token instead"
+	}
+	unreadable := ""
+	if err != nil {
+		unreadable = "; OAuth token unreadable: " + err.Error()
 	}
 	if st := agent.AuthStatus("claude"); st.Present {
 		plan := ""
 		if st.PlanHint != "" {
 			plan = " (" + st.PlanHint + ")"
 		}
-		return "claude uses the OAuth login" + plan + " instead"
+		return "claude uses the OAuth login" + plan + " instead" + unreadable
 	}
 	return ""
 }
@@ -290,27 +311,33 @@ func printCheckLines(w io.Writer, checks []check) {
 	}
 }
 
+// nestedLocalFile is the disposable "always allow" file Claude Code writes into the nested dir; clean sweeps it.
+const nestedLocalFile = "settings.local.json"
+
+// onlyWorktrees reports a nested dir holding linked worktrees and nothing but the disposable local settings file.
+func onlyWorktrees(n setup.Nested) bool {
+	n.Files = slices.DeleteFunc(slices.Clone(n.Files), func(f string) bool { return f == nestedLocalFile })
+	return n.OnlyWorktrees()
+}
+
 // nestedDetail says whether <config dir>/.claude exists and what keeps clean from removing it.
 func nestedDetail(n setup.Nested) string {
+	keep := slices.DeleteFunc(slices.Clone(n.Keep), func(k string) bool { return k == setup.KeepWorktrees })
 	switch {
 	case n.Dir == "":
 		return "none"
-	case n.OnlyWorktrees():
+	case onlyWorktrees(n):
 		return n.Dir + " holds only linked worktrees"
-	case len(n.Keep) > 0:
-		keep := slices.DeleteFunc(slices.Clone(n.Keep), func(k string) bool { return k == setup.KeepWorktrees })
+	case len(keep) > 0:
 		return n.Dir + " layers over user settings; move " + strings.Join(keep, ", ") + " into ~/.claude/settings.json first"
 	default:
 		return n.Dir + " is redundant (claude-code clean)"
 	}
 }
 
-// auditSummary counts the last week's audited actions, e.g. "2 hook_blocked, 1 provider_switch".
-func auditSummary() string {
+// auditSummary counts the last week's audited actions ("2 hook_blocked, 1 provider_switch"); a read error fails the row
+func auditSummary() (ok bool, detail string) {
 	ev, err := audit.Read(time.Now().AddDate(0, 0, -7))
-	if err != nil {
-		return err.Error()
-	}
 	sum := audit.Summary(ev)
 	var parts []string
 	for _, a := range audit.Actions {
@@ -318,10 +345,14 @@ func auditSummary() string {
 			parts = append(parts, fmt.Sprintf("%d %s", n, a))
 		}
 	}
-	if len(parts) == 0 {
-		return "no audited actions (claude-code doctor --audit)"
+	detail = "no audited actions (claude-code doctor --audit)"
+	if len(parts) > 0 {
+		detail = strings.Join(parts, ", ") + " (claude-code doctor --audit)"
 	}
-	return strings.Join(parts, ", ") + " (claude-code doctor --audit)"
+	if err != nil {
+		return false, "log unreadable, partial: " + detail + ": " + err.Error()
+	}
+	return true, detail
 }
 
 // browserDoctorDetail names the default browser and its extension state; advisory, never a failing check.
@@ -354,13 +385,16 @@ func rtkDoctorStatus() (bool, string) {
 	return false, "PATH rtk " + found + " shadows " + bin + " — run make install, or put ~/.local/bin first on PATH"
 }
 
-// setupDoctorDetail reports the last `setup adopt`, never a failing check — a fresh clone has none.
-func setupDoctorDetail() string {
-	st, ok := setup.Read()
-	if !ok {
-		return "fresh checkout (no adopt record)"
+// setupDoctorDetail reports the last `setup adopt`; a missing record is a fresh clone, an unreadable one fails.
+func setupDoctorDetail() (ok bool, detail string) {
+	if st, found := setup.Read(); found {
+		return true, fmt.Sprintf("adopted %s from %s; backup %s", st.Date.Format("2006-01-02"), st.Commit, st.BackupDir)
 	}
-	return fmt.Sprintf("adopted %s from %s; backup %s", st.Date.Format("2006-01-02"), st.Commit, st.BackupDir)
+	file := filepath.Join(paths.StateDir(), "setup.json") // setup.Read drops its error, so look at the file itself
+	if _, err := os.Stat(file); errors.Is(err, fs.ErrNotExist) {
+		return true, "fresh checkout (no adopt record)"
+	}
+	return false, file + " exists but could not be read or decoded"
 }
 
 // opencodeStaticKeysDetail flags an opencode auth.json static key the vault already supplies; names only, no values.
@@ -404,14 +438,15 @@ func opencodeProviderByID(reg *providers.Registry, id string) *providers.Provide
 	return nil
 }
 
-// proxyStatus is the running proxy's port, pid and build; stale is true when it runs an older binary than this one.
-func proxyStatus() (detail string, stale bool) {
+// proxyStatus is the running proxy's port, pid and build; bad is true when it runs an older binary than this one
+// or its proxy.json is unreadable (so the build cannot be checked).
+func proxyStatus() (detail string, bad bool) {
 	st, err := gateway.ReadState()
 	if errors.Is(err, os.ErrNotExist) {
 		return "not running", false
 	}
 	if err != nil || st.Port == 0 {
-		return "proxy.json unreadable", false
+		return "proxy.json unreadable (cannot check the running build)", true
 	}
 	h, ok := gateway.Holder(context.Background(), st.Port)
 	if !ok {

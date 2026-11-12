@@ -26,7 +26,7 @@ type codexPolicy struct {
 	unmapped []string // Allow/Ask rules codex cannot express; logged, not enforced
 }
 
-// notPrefixError is a Bash rule that is no command prefix; with the permission-gate hook installed that Deny is the hook's.
+// notPrefixError is a Bash rule that is no command prefix; with the permission-gate hook installed that Deny is its
 type notPrefixError struct{ msg string }
 
 func (e notPrefixError) Error() string { return e.msg }
@@ -186,7 +186,7 @@ func linkHome(real, home, rules string) error {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	user, err := filepath.Glob(filepath.Join(real, "rules", "*.rules"))
+	user, err := userRuleFiles(filepath.Join(real, "rules"))
 	if err != nil {
 		return err
 	}
@@ -202,6 +202,24 @@ func linkHome(real, home, rules string) error {
 		return err
 	}
 	return writeRulesDir(home, user, rules)
+}
+
+// userRuleFiles lists dir's *.rules paths; a missing dir is empty, an unreadable one an error (no Glob: it eats [ ]).
+func userRuleFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var files []string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".rules") {
+			files = append(files, filepath.Join(dir, e.Name()))
+		}
+	}
+	return files, nil
 }
 
 // writeRulesDir creates home/rules/ holding links to the user's rule files plus dispatch.rules.

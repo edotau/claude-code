@@ -11,18 +11,15 @@ type argSpan struct {
 	start, end int
 }
 
-// splitTopLevelArgs splits a call's argument-list text at top-level commas, skipping string/template
-// literals (with \-escapes), // and /* */ comments and ()[]{} nesting, so a comma in those never splits.
+// splitTopLevelArgs splits a call's argument-list text at top-level commas; stripStrings blanks string, template,
+// regex and comment bodies first, so a comma or bracket in those never splits.
 func splitTopLevelArgs(s string) []argSpan {
 	var spans []argSpan
 	depth := 0
 	start := 0
-	for i := 0; i < len(s); i++ {
-		switch c := s[i]; c {
-		case '/':
-			i = skipComment(s, i)
-		case '`', '\'', '"':
-			i = skipQuoted(s, i, c)
+	masked := stripStrings(s)
+	for i := 0; i < len(masked); i++ {
+		switch masked[i] {
 		case '(', '[', '{':
 			depth++
 		case ')', ']', '}':

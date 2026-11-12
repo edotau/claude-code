@@ -32,8 +32,7 @@ var rootAnchors = map[string]bool{
 	"contributing.md": true, "code_of_conduct.md": true, "security.md": true,
 }
 
-// Placement gates markdown writes at a repo root. Fails open on anything unclear (no path, not a
-// git repo, unreadable git state) — placement is a convention worth enforcing, never worth wedging on.
+// Placement gates markdown writes at a repo root; fails open on anything unclear — never worth wedging on.
 func Placement(in *core.Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool != "" && tool != "write" && tool != "edit" && tool != "create" && tool != "apply_patch" {
@@ -89,9 +88,6 @@ func docsPlacementPath(ctx context.Context, in *core.Input, path string, stderr 
 	// equal to the realpath git reports, and would walk straight past the gate.
 	abs := core.CanonPath(path)
 	dir, base := filepath.Dir(abs), filepath.Base(abs)
-	if rootAnchors[strings.ToLower(base)] {
-		return core.ExitProceed
-	}
 	// The harness's own docs/ holds only images and templates; anything else there is a retired home.
 	config := core.CanonPath(paths.ConfigDir())
 	if harnessDocs := core.CanonPath(filepath.Join(config, "docs")); paths.Within(abs, harnessDocs) {
@@ -112,6 +108,9 @@ func repoDocsPlacement(ctx context.Context, stderr io.Writer, dir, base, abs str
 	}
 	rel = filepath.ToSlash(rel)
 	atRoot := dir == root
+	if atRoot && rootAnchors[strings.ToLower(base)] { // anchors are exempt only at the repo root
+		return core.ExitProceed
+	}
 	inDocs := strings.HasPrefix(rel, "docs/")
 	if !atRoot && !inDocs {
 		return core.ExitProceed

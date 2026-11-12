@@ -88,9 +88,9 @@ func loadConfig() config {
 	maps.Copy(merged, cfg.Segments)
 	maps.Copy(merged, user.Segments) // a key the user did not name keeps the embedded value
 	user.Segments = merged
-	if len(user.Separators) == 0 {
-		user.Separators = embeddedConfig().Separators
-	}
+	seps := maps.Clone(cfg.Separators)
+	maps.Copy(seps, user.Separators) // a separator the user did not name keeps the embedded one
+	user.Separators = seps
 	return user
 }
 

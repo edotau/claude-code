@@ -43,14 +43,15 @@ func Profile(agent, flag string) (*providers.Provider, error) {
 	return p, nil
 }
 
-// Served lists p's endpoints: the sealed snapshot when remembered (hit, with its time), else a live serving listing.
-func Served(p *providers.Provider) (infos []providers.ModelInfo, discoveredAt time.Time, hit bool, err error) {
+// Served lists p's endpoints: the sealed snapshot when remembered (hit, with its time), else a live listing under ctx.
+func Served(ctx context.Context, p *providers.Provider) (
+	infos []providers.ModelInfo, discoveredAt time.Time, hit bool, err error) {
 	snap, ok := recallSnapshot(p, func(m []providers.ModelInfo) bool { return len(m) > 0 },
 		func(profile string) bool { return SpawnDiscover(profile, false) })
 	if ok {
 		return snap.Models, snap.DiscoveredAt, true, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	if infos, err = providers.ListModels(ctx, p); err != nil {
 		return nil, time.Time{}, false, err

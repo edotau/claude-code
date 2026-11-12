@@ -31,7 +31,7 @@ func PermissionGate(in *core.Input) core.Result {
 	if !set {
 		return core.Result{}
 	}
-	if in.ToolName == "" && len(p.Deny) > 0 { // unparseable or truncated stdin: the call cannot be judged
+	if in.ToolName == "" && (len(p.Deny) > 0 || p.Mode == "plan") { // unparseable or truncated stdin: cannot be judged
 		return noToolResult(p)
 	}
 	tool, ok := gateTools[strings.ToLower(in.CanonicalTool())]
@@ -80,7 +80,7 @@ func dispatchPolicy() (p agent.Permissions, set bool, err error) {
 	return p, true, err
 }
 
-// noToolResult refuses a call whose hook input named no tool, under a policy that has Deny rules.
+// noToolResult refuses a call whose hook input named no tool, under a policy with Deny rules or plan mode.
 func noToolResult(p agent.Permissions) core.Result {
 	return core.Result{Decision: core.Block, Reason: "permission-gate: BLOCKED — the hook input names no tool (unreadable " +
 		"or truncated payload), so the call cannot be judged\n  deny: " + strings.Join(agent.RuleStrings(p.Deny), ", ") +

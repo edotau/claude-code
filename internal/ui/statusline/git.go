@@ -30,8 +30,7 @@ func gitBranch(cwd string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// gitBranchFast walks up to .git (one gitfile indirection; detached → "HEAD"). ok=false → ask git;
-// ("", true) → no repo, without a fork.
+// gitBranchFast walks up to .git (one gitfile hop; detached → "HEAD"); ok=false → ask git; ("", true) → no repo.
 func gitBranchFast(cwd string) (string, bool) {
 	if os.Getenv("GIT_DIR") != "" {
 		return "", false
@@ -153,7 +152,7 @@ func treeDiffStat(cwd string) (adds, dels int, ok bool) {
 
 // untrackedLines counts untracked lines, stopping early once ctx expires.
 func untrackedLines(ctx context.Context, cwd string) int {
-	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "ls-files", "--others", "--exclude-standard", "-z").Output()
+	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "ls-files", "--others", "--exclude-standard", "-z", "--", ":/").Output()
 	if err != nil {
 		return 0
 	}

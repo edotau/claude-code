@@ -137,7 +137,23 @@ func set(ctx context.Context, flags ...string) error {
 	defer cancel()
 	cmd := execCommandContext(ctx, bin, append([]string{"set"}, flags...)...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	return cmd.Run()
+	return execErr(ctx, "set", cmd.Run())
+}
+
+// execErr wraps a failed CLI run with its verb, a timeout note and the CLI's captured stderr; nil stays nil.
+func execErr(ctx context.Context, verb string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		err = fmt.Errorf("timed out: %w", err)
+	}
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
+		if msg := strings.TrimSpace(string(ee.Stderr)); msg != "" {
+			err = fmt.Errorf("%w: %s", err, msg)
+		}
+	}
+	return fmt.Errorf("tailscale %s: %w", verb, err)
 }
 
 // tailscaleBin resolves the installed CLI: PATH, then on macOS the GUI app's bundled binary; errNoCLI otherwise.
@@ -164,7 +180,7 @@ func Status(ctx context.Context) (Local, error) {
 	cmd.WaitDelay = proc.ExecWaitDelay // a wrapper's child holding the pipes must not outlive the timeout
 	out, err := proc.OutputCapped(cmd)
 	if err != nil {
-		return Local{}, fmt.Errorf("tailscale status --json: %w", err)
+		return Local{}, execErr(ctx, "status --json", err)
 	}
 	var raw rawStatus
 	if err := json.Unmarshal(out, &raw); err != nil {
@@ -214,7 +230,7 @@ func connect(ctx context.Context, authKey string, exitNode bool) error {
 	defer cancel()
 	cmd := execCommandContext(ctx, bin, args...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	return cmd.Run()
+	return execErr(ctx, "up", cmd.Run())
 }
 
 // loginTimeout bounds `tailscale login`: the browser sign-in waits on the user.
@@ -313,16 +329,23 @@ func liveMachines(ctx context.Context) ([]Machine, error) {
 	if err != nil {
 		return nil, err
 	}
-	var st Local
-	statusDone := make(chan struct{})
+	var (
+		st         Local
+		stErr      error
+		statusDone = make(chan struct{})
+	)
 	go func() {
 		defer close(statusDone)
-		st, _ = Status(ctx) // best-effort online/exit-node overlay; a status error leaves the API-only view
+		st, stErr = Status(ctx)
 	}()
 	devices, err := client.Devices(ctx)
 	<-statusDone
 	if err != nil {
 		return nil, err
+	}
+	// A stopped backend or a missing CLI leaves no live status: the API devices stay offline instead of failing.
+	if stErr != nil && !errors.Is(stErr, errNotRunning) && !errors.Is(stErr, errNoCLI) {
+		return nil, fmt.Errorf("online state unavailable: %w", stErr)
 	}
 	byAddr := peersByAddr(st)
 	out := make([]Machine, 0, len(devices))
@@ -350,7 +373,7 @@ func peersByAddr(st Local) map[string]peer {
 	}
 	// This node is never in its own peer list: Running is its online state.
 	for _, a := range st.IPs {
-		byAddr[a] = peer{Online: st.BackendState == "Running", ExitNode: st.ExitNodeOption}
+		byAddr[a] = peer{Online: st.BackendState == "Running", ExitNodeOption: st.ExitNodeOption}
 	}
 	return byAddr
 }
@@ -362,7 +385,7 @@ func machinesFromStatus(ctx context.Context) ([]Machine, error) {
 		return nil, err
 	}
 	out := []Machine{{Name: st.DNSName, Addresses: st.IPs, Online: st.BackendState == "Running",
-		ExitNodeApproved: st.ExitNodeApproved, Source: "cli"}}
+		ExitNodeAdvertised: st.ExitNodeOption, ExitNodeApproved: st.ExitNodeApproved, Source: "cli"}}
 	for _, p := range st.Peers {
 		out = append(out, Machine{Name: p.DNSName, Addresses: p.IPs, OS: p.OS, Online: p.Online, LastSeen: p.LastSeen,
 			ExitNodeAdvertised: p.ExitNodeOption || p.ExitNode, Source: "cli"})

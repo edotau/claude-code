@@ -18,6 +18,9 @@ import (
 // errNoSubnetRoutes means this box advertises no subnet routes to approve.
 var errNoSubnetRoutes = errors.New("this box advertises no subnet routes; run --subnet <cidr> first")
 
+// errStdinEmpty: --auth-key - read no key from stdin; falling back to another key source would hide the mistake.
+var errStdinEmpty = errors.New("--auth-key -: stdin is empty")
+
 // errKeyEnvEmpty: --key-env named a variable that holds no key; the vault key must not stand in for it.
 var errKeyEnvEmpty = errors.New("is empty or unset")
 
@@ -29,7 +32,9 @@ func resolveAuthKey(authKey, keyEnv string, stdin io.Reader) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("reading --auth-key from stdin: %w", err)
 		}
-		key = strings.TrimSpace(string(in))
+		if key = strings.TrimSpace(string(in)); key == "" {
+			return "", errStdinEmpty
+		}
 	}
 	if key == "" && keyEnv != "" {
 		if key = strings.TrimSpace(os.Getenv(keyEnv)); key == "" {
