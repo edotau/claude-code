@@ -71,7 +71,7 @@ func notCredentialShaped(val string) bool {
 		strings.Contains(head, "PLACEHOLDER") || strings.Contains(head, "YOUR_") || strings.Contains(head, "xxx")
 }
 
-// hasAnyPrefix reports whether v starts with any of prefixes (AWS, Databricks PAT, OpenAI-style).
+// hasAnyPrefix reports whether v starts with any of prefixes.
 func hasAnyPrefix(v string, prefixes ...string) bool {
 	return slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(v, p) })
 }
