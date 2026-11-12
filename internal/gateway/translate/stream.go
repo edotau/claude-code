@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -127,12 +128,31 @@ func StreamChat(w io.Writer, flush func(), r io.Reader, clientModel string) erro
 	br := bufio.NewReader(r)
 	var f sseFrame
 	for {
-		line, readErr := br.ReadBytes('\n')
+		line, readErr := readSSELine(br)
 		if done, err := s.feed(&f, bytes.TrimRight(line, "\r\n")); err != nil || done {
 			return s.end(err)
 		}
 		if readErr != nil {
 			return s.readEnd(&f, readErr)
+		}
+	}
+}
+
+// maxSSELine caps one upstream SSE line; a longer one is an interrupted stream, not unbounded memory.
+const maxSSELine = 32 << 20
+
+var errSSELineTooLong = errors.New("upstream SSE line exceeds limit")
+
+// readSSELine is br.ReadBytes('\n') that fails with errSSELineTooLong past maxSSELine.
+func readSSELine(br *bufio.Reader) ([]byte, error) {
+	var line []byte
+	for {
+		chunk, err := br.ReadSlice('\n')
+		if line = append(line, chunk...); len(line) > maxSSELine {
+			return nil, errSSELineTooLong
+		}
+		if err != bufio.ErrBufferFull {
+			return line, err
 		}
 	}
 }

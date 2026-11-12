@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // newID returns prefix plus a random suffix; tests replace it for stable goldens.
@@ -248,7 +250,7 @@ func upstreamMessage(body []byte) string {
 		}
 	}
 	if len(text) > maxErrorText {
-		text = text[:maxErrorText]
+		text = textutil.CutBytes(text, maxErrorText)
 	}
 	return text
 }

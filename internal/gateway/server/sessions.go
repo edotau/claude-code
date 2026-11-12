@@ -123,6 +123,9 @@ func (s *sessionStore) saveLocked() error {
 	return paths.AtomicWrite(s.file, raw, 0o600)
 }
 
+// errPersist marks a mint that failed on the server's own disk write, not on the request.
+var errPersist = errors.New("persist session")
+
 // mint binds a new token to pid's current identity; a missing process is an error.
 func (s *sessionStore) mint(profile string, pid int) (string, error) {
 	if !validProfile(profile) || pid <= 0 {
@@ -154,7 +157,7 @@ func (s *sessionStore) mint(profile string, pid int) (string, error) {
 	}
 	if err := s.saveLocked(); err != nil {
 		delete(s.m, hash)
-		return "", fmt.Errorf("persist session: %w", err)
+		return "", fmt.Errorf("%w: %w", errPersist, err)
 	}
 	return tok, nil
 }
@@ -339,6 +342,11 @@ func (r *Router) serveSession(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	tok, err := r.sessions.mint(in.Profile, in.PID)
+	if errors.Is(err, errPersist) {
+		fmt.Fprintf(r.log, "proxy: session mint: %v\n", err)
+		writeError(w, http.StatusInternalServerError, "proxy: session could not be persisted")
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "proxy: session: "+err.Error())
 		return
