@@ -170,19 +170,9 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 		return 0, 0, err
 	}
 	started := now.UnixNano()
-	owner, err := newEmbedOwner()
+	owner, err := claimEmbed(ctx, c, now, force)
 	if err != nil {
 		return 0, total, err
-	}
-	held, ok, err := vectorStore.Claim(c.Profile, owner, now, embedClaimExpiry(ctx, now))
-	if err != nil {
-		return 0, total, err
-	}
-	if !ok {
-		return 0, total, fmt.Errorf("%w until %s", errEmbedBusy, held.Format("15:04"))
-	}
-	if _, err := embedBase(c, now, force); err != nil { // a mint that landed before our claim must not be paid for twice
-		return 0, total, errors.Join(err, vectorStore.Release(c.Profile, owner))
 	}
 	run := &embedRun{c: c, root: root, force: force, fresh: map[string]vectorRow{}, started: started}
 	embedded, embedErr := run.embed(ctx, ids, texts, hashes, blocks)
@@ -198,6 +188,25 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 		cerr = errEmbedSuperseded
 	}
 	return embedded, total, errors.Join(embedErr, cerr)
+}
+
+// claimEmbed takes the profile's mint claim, then rechecks the base: a mint that landed before it must not be paid twice.
+func claimEmbed(ctx context.Context, c *EmbedClient, now time.Time, force bool) (int64, error) {
+	owner, err := newEmbedOwner()
+	if err != nil {
+		return 0, err
+	}
+	held, ok, err := vectorStore.Claim(c.Profile, owner, now, embedClaimExpiry(ctx, now))
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return 0, fmt.Errorf("%w until %s", errEmbedBusy, held.Format("15:04"))
+	}
+	if _, err := embedBase(c, now, force); err != nil {
+		return 0, errors.Join(err, vectorStore.Release(c.Profile, owner))
+	}
+	return owner, nil
 }
 
 // store merges the run into the current record under owner's claim; complete starts the lease, a partial run does not.
@@ -656,16 +665,17 @@ func semanticCache(ctx context.Context) (string, vectorRecord, error) {
 			return name, c, nil
 		}
 	}
-	if pauseErr != nil {
-		return "", vectorRecord{}, pauseErr
-	}
-	if ctx.Err() != nil {
-		return "", vectorRecord{}, fmt.Errorf("query embedding exceeded %s", embedRecallWait)
-	}
-	return "", vectorRecord{}, semanticCacheMiss(readErr)
+	return "", vectorRecord{}, semanticCacheMiss(ctx, pauseErr, readErr)
 }
 
-func semanticCacheMiss(readErr error) error {
+// semanticCacheMiss is why no profile served: a backoff pause, the recall deadline, or an unreadable or absent cache.
+func semanticCacheMiss(ctx context.Context, pauseErr, readErr error) error {
+	if pauseErr != nil {
+		return pauseErr
+	}
+	if ctx.Err() != nil {
+		return fmt.Errorf("query embedding exceeded %s", embedRecallWait)
+	}
 	if readErr != nil {
 		return fmt.Errorf("embedding cache unreadable: %w", readErr)
 	}

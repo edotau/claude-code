@@ -71,8 +71,7 @@ func resolveWith(root string, main func(string) string) Identity {
 	return Identity{Origin: o, Base: filepath.Base(o)}
 }
 
-// storeIdentity maps a cwd inside the store to the repo a store dir describes, the store top to HomeBank; else ok=false.
-// Without it the store's own git repo resolves as a project named "memory".
+// storeIdentity maps a cwd inside the store to its repo (the store top to HomeBank), else ok=false.
 func storeIdentity(root string) (Identity, bool) {
 	canon, store := paths.CanonDeep(root), paths.CanonDeep(StoreDir())
 	if !paths.Within(canon, store) {
@@ -119,8 +118,7 @@ func harnessIdentity() Identity {
 	return Identity{Origin: o, Base: filepath.Base(o), Harness: true}
 }
 
-// harnessStoreKey is the store key for paths.ConfigDir() itself: the same origin-remote rule as any
-// other repo, else its basename — the harness is not special-cased for its key (spec §2).
+// harnessStoreKey is paths.ConfigDir()'s store key: the origin-remote rule of any repo, else its basename.
 func harnessStoreKey() string {
 	cfg := paths.ConfigDir()
 	if rb := repoKeyFromRemote(originRemoteURL(cfg)); rb != "" {
@@ -182,8 +180,7 @@ func (o Origin) Accepts(origin string) bool {
 	return false
 }
 
-// takenKeys reports a key as taken when it is reserved, the harness key, a known repo, or any existing
-// entry (a dir without a valid origin record is never claimed — extend the hash instead of clobbering).
+// takenKeys reports a key taken when reserved, the harness key, a known repo or any existing entry.
 func takenKeys(entries []repoEntry) func(string) (Origin, bool) {
 	return func(key string) (Origin, bool) {
 		if key == harnessStoreKey() || storeReservedDirs[key] {
@@ -217,8 +214,7 @@ func originRemoteURL(checkout string) string {
 	return out
 }
 
-// repoKeyFromRemote is the basename of a git remote URL (ssh://, git@host:, https://), trailing ".git"
-// stripped (spec: store re-layout §1); "" for an empty or unparseable url.
+// repoKeyFromRemote is a git remote URL's basename without ".git" (ssh, scp-style, https); "" if unparseable.
 func repoKeyFromRemote(url string) string {
 	url = strings.TrimSuffix(strings.TrimSpace(url), "/")
 	url = strings.TrimSuffix(url, ".git")
@@ -231,8 +227,7 @@ func repoKeyFromRemote(url string) string {
 	return url
 }
 
-// slugKey is the directory key for origin: the basename slug, or on a collision with another origin the
-// slug plus a growing SHA256 prefix of the canonical origin — never an overwrite.
+// slugKey is origin's directory key: the basename slug, or on collision the slug plus a growing SHA256 prefix.
 func slugKey(base, origin string, taken func(key string) (Origin, bool)) (string, error) {
 	slug := paths.Slug(base, "._-", 0, "repo")
 	if strings.Trim(slug, "._-") == "" {
@@ -288,8 +283,7 @@ func ensureOriginDir(dir string, id Identity) error {
 	return err
 }
 
-// addOriginAlias records origin (an existing checkout) as an alias of the store at dir; the only path
-// that rewrites an origin record, and only with the same Key+Origin.
+// addOriginAlias records origin as an alias of the store at dir; the only rewrite of an origin record, same Key+Origin.
 func addOriginAlias(dir, origin string) error {
 	return WithBankLock(BankLockWait, func() error {
 		origin, err := filepath.EvalSymlinks(filepath.Clean(origin))
@@ -387,8 +381,7 @@ func (m *catalogMemo) store(stamp string, out []repoEntry) {
 	m.stamp, m.out = stamp, slices.Clone(out)
 }
 
-// catalogStamp names RepoDirs' inputs: the store keys plus the vault's and the catalog's size and mtime.
-// stable=false while either file changed within racyWindow, where an mtime may not yet show the next write.
+// catalogStamp names RepoDirs' inputs; stable=false while a file changed within racyWindow.
 func catalogStamp(keys []string) (stamp string, stable bool) {
 	var b strings.Builder
 	b.WriteString(StoreDir())
@@ -536,30 +529,18 @@ func routeWordByte(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '-'
 }
 
-// RepoRoot resolves --repo like recall: a catalog store name maps to its origin checkout, else a path.
-func RepoRoot(repo string) string {
-	r, _ := lookupRepo(repo)
-	return r
-}
-
-// lookupRepo is repo's root and whether it was known: "" is the current repo, else a store name or an existing path.
-func lookupRepo(repo string) (string, bool) {
+// ResolveRepo maps --repo to a root: "" is the current repo, else a store name or an existing path; anything else errs.
+func ResolveRepo(repo string) (string, error) {
 	if repo == "" {
-		return root(""), true
+		return root(""), nil
 	}
 	if e, ok := repoByName(repo); ok && e.Origin.Origin != "" {
-		return e.Origin.Origin, true
+		return e.Origin.Origin, nil
 	}
-	_, err := os.Stat(repo)
-	return root(repo), err == nil
-}
-
-// resolveRepo is RepoRoot that refuses a guess: "" is the current repo, else a catalog store name or an existing path.
-func resolveRepo(repo string) (string, error) {
-	if r, ok := lookupRepo(repo); ok {
-		return r, nil
+	if _, err := os.Stat(repo); err == nil {
+		return root(repo), nil
 	}
-	return "", fmt.Errorf("--repo %q is neither an existing path nor a known store (known stores: %s)",
+	return "", fmt.Errorf("--repo %q is neither an existing path nor a known store (known stores: %s); pass a checkout path or a store name",
 		repo, strings.Join(RepoKeys(), ", "))
 }
 
@@ -648,8 +629,7 @@ var originRows = func() (map[string]string, error) {
 	return rows, nil
 }
 
-// resolveOrigins maps store keys to records: vault row, else index.md. Fallback hits become
-// rows unless the vault is unreadable, which leaves the call read-only. errs holds the misses.
+// resolveOrigins maps keys to records: vault row, else index.md; fallback hits become rows if the vault allows.
 func resolveOrigins(keys []string) (found map[string]Origin, errs map[string]error, vaultErr error) {
 	rows, verr := originRows()
 	found, errs = map[string]Origin{}, map[string]error{}
@@ -747,8 +727,7 @@ func cleanAliases(in []string) []string {
 	return out
 }
 
-// WriteOrigin records dir's origin; an existing record for the same Key+Origin is kept as is,
-// any other existing record (including an unreadable one) is never overwritten.
+// WriteOrigin records dir's origin; an existing record for the same Key+Origin is kept, any other is never overwritten.
 func WriteOrigin(dir string, o Origin) error {
 	if err := validateOrigin(dir, o); err != nil {
 		return err

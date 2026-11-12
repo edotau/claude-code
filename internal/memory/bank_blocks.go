@@ -188,15 +188,13 @@ func truncateLine(s string) string {
 // idMarker is a block's persisted ID: assigned once at settle, carried by the block through edits and archive moves.
 var idMarker = regexp.MustCompile(`\s*<!-- id:([0-9a-f]{8}) -->`)
 
-// contentRefPrefix leads a derived (unpersisted) block reference; 'z' is never a hex digit, so it can
-// never collide with a real id marker — `show`/`recall --load` tell the two apart by this prefix.
+// contentRefPrefix leads a derived block ref; 'z' is never hex, so it cannot collide with a real id marker.
 const contentRefPrefix = "z"
 
 // derivedRef matches a contentRef: the prefix and a non-empty run of lowercase hex digits.
 var derivedRef = regexp.MustCompile("^" + contentRefPrefix + "[0-9a-f]+$")
 
-// contentRef derives a stable, show-able reference for a block with no persisted id marker:
-// the prefix plus the first 4 bytes of sha256 over its whitespace-normalized text.
+// contentRef is the stable ref for an unmarked block: the prefix plus 4 bytes of sha256 of its normalized text.
 func contentRef(block string) string {
 	return contentRefPrefix + textutil.SHA256Hex([]byte(strings.Join(strings.Fields(block), " ")))[:8]
 }
@@ -236,9 +234,7 @@ func ownerID(block string) string {
 // stripID removes the ID marker for display.
 func stripID(s string) string { return idMarker.ReplaceAllString(s, "") }
 
-// assignIDs stamps every unmarked block in dir's typed files and collapses stacked markers to the oldest (the
-// last in the block); a block is judged whole because the formatter may wrap its marker onto a later line.
-// Returns how many blocks it stamped.
+// assignIDs stamps unmarked blocks and collapses stacked markers to the oldest; blocks are judged whole.
 func assignIDs(dir string, now time.Time) (int, error) {
 	n := 0
 	for name, prefix := range idFiles {
@@ -321,8 +317,7 @@ func fencedLines(block []string) []bool {
 	return out
 }
 
-// settleBlockID leaves exactly one id marker: the oldest it already carries (the last, since settle stacks newer ones
-// above; a lone one stays where the formatter wrapped it), else a fresh one. Fenced lines are never touched.
+// settleBlockID leaves one id marker (the oldest, i.e. the last, else a fresh one); fenced lines are never touched.
 func settleBlockID(dir, name string, idx int, block []string, now time.Time) ([]string, int) {
 	fenced := fencedLines(block)
 	keepLine, keepSpan, total := lastMarker(block, fenced)
@@ -394,8 +389,7 @@ func stripMarkers(l string, keepHere bool, keepSpan []int) string {
 // errNoBlock is returned when no block in the store carries the requested ID.
 var errNoBlock = errors.New("no memory block with that id")
 
-// ShowBlock finds the block carrying ref anywhere in the store (archives included); ref is either a
-// persisted `<!-- id:xxxx -->` marker or a contentRef for a block that never got one. Returns path and text.
+// ShowBlock finds the block for ref (an id marker or a contentRef) anywhere in the store, archives included.
 func ShowBlock(ref string) (string, string, error) {
 	derived := derivedRef.MatchString(ref)
 	var foundPath, foundBlock string

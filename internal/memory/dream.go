@@ -13,9 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// dreamPreview is `memory dream --dry-run`'s deterministic report: what the mechanical steps would
-// change, with no model call and no write. The judgment steps (dedup, merge, cross-pollinate) are
-// never previewed here — they need a live read, not a count.
+// dreamPreview is `memory dream --dry-run`'s deterministic report of the mechanical steps only.
 type dreamPreview struct {
 	Dir           string
 	Oversized     []string // local bank files over cap
@@ -55,8 +53,7 @@ func (p dreamPreview) Report() string {
 	return b.String()
 }
 
-// previewDream computes dreamPreview for root without writing anything — the preview a live model
-// never needs to run itself.
+// previewDream computes dreamPreview for root without writing anything.
 func previewDream(root string) dreamPreview {
 	dir := Dir(root)
 	local := statBank(dir) // one read per typed file feeds the cap, archive and rotation checks below
@@ -88,8 +85,7 @@ const dreamInterval = 24 * time.Hour
 // dreamRetry is how long a failed dream waits before dreamDue offers it again.
 const dreamRetry = 6 * time.Hour
 
-// dreamChildEnv marks a process spawned by `memory dream`'s agent run — the one context where
-// `memory promote --to claude-md` is allowed to print its gated procedure.
+// dreamChildEnv marks a process spawned by dream's agent run, where `promote --to claude-md` may print its procedure.
 const dreamChildEnv = "CLAUDE_MEMORY_DREAM_CHILD"
 
 // isDreamChild reports whether this process runs inside a dream worker (or one of its children).
@@ -134,8 +130,7 @@ type dreamOptions struct {
 	IfDue bool // re-check dreamDue once the lock is held: a racing peer may have just dreamed
 }
 
-// agentDreamPrompt frames the model-residue consolidation pass; the procedure itself is one copy,
-// embedded at prompts/dream.md.
+// agentDreamPrompt frames the consolidation pass; the procedure is one copy, embedded at prompts/dream.md.
 func agentDreamPrompt() (string, error) {
 	ref, err := Reference("dream")
 	if err != nil {
@@ -169,17 +164,21 @@ func dream(o dreamOptions) error {
 	if notDue && lockErr == nil {
 		return nil
 	}
-	// Settle after the lock is released.
-	var settleErr error
-	if _, err := settleBank(o.CWD, time.Now()); err != nil {
-		settleErr = fmt.Errorf("settle: %w", err)
-		fmt.Fprintln(o.Out, "memory dream:", settleErr)
-	}
-	if err := errors.Join(lockErr, runErr, archiveErr, settleErr); err != nil {
+	if err := errors.Join(lockErr, runErr, archiveErr, dreamSettle(o)); err != nil { // settle after the lock is released
 		// backdated, so dreamDue retries in dreamRetry
 		return errors.Join(err, stampDream(o.CWD, time.Now().Add(dreamRetry-dreamInterval), true))
 	}
 	return stampDream(o.CWD, time.Now(), false)
+}
+
+// dreamSettle settles the bank and reports a failure on o.Out as well as returning it.
+func dreamSettle(o dreamOptions) error {
+	if _, err := settleBank(o.CWD, time.Now()); err != nil {
+		settleErr := fmt.Errorf("settle: %w", err)
+		fmt.Fprintln(o.Out, "memory dream:", settleErr)
+		return settleErr
+	}
+	return nil
 }
 
 // dreamLocked archives overflow and runs the agent, both banks' locks held; it returns the agent and archive errors.

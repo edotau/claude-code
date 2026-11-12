@@ -64,9 +64,12 @@ func withStampLock(sessionID string, fn func()) {
 	}
 }
 
+// globLiteral escapes s's glob metacharacters so filepath.Glob matches them literally.
+var globLiteral = strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`).Replace
+
 // globIn is filepath.Glob(dir/pattern) with dir's own glob metacharacters matched literally.
 func globIn(dir, pattern string) []string {
-	m, _ := filepath.Glob(filepath.Join(strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`).Replace(dir), pattern))
+	m, _ := filepath.Glob(filepath.Join(globLiteral(dir), pattern))
 	return m
 }
 

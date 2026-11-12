@@ -65,8 +65,7 @@ func contentQueryTerms(tokens []string) []string {
 	return out
 }
 
-// corpusBlocks loads every searchable block (Score 0): bank entries split by file grammar, a native topic whole.
-// A file that vanished since listing is skipped; any other read error fails the whole corpus.
+// corpusBlocks loads every searchable block; a vanished file is skipped, any other read error fails the corpus.
 func corpusBlocks(root string) ([]SearchHit, error) {
 	var out []SearchHit
 	for _, f := range corpusFiles(root) {

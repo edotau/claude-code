@@ -170,8 +170,7 @@ func storeHook(e repoEntry) string {
 	return e.Key
 }
 
-// stripFrontmatter drops a leading --- … --- block; the closing fence must start its own line, so a
-// block-scalar value that merely contains the literal bytes "---" can't be mistaken for it.
+// stripFrontmatter drops a leading --- block; the closing fence must start its own line so "---" in a value is safe.
 func stripFrontmatter(s string) string {
 	_, content := markdown.StripFrontMatter([]byte(strings.ReplaceAll(s, "\r\n", "\n")))
 	return string(content)
@@ -195,8 +194,7 @@ func newestMarkdown(dir string) (time.Time, error) {
 	return newest, nil
 }
 
-// knowledgeFiles are the home bank's knowledge/*.md (cross-repo) plus root's own bank knowledge/*.md
-// (repo-specific); README.md is the tier's own doc.
+// knowledgeFiles are the home bank's knowledge/*.md plus root's own; README.md is the tier's own doc.
 func knowledgeFiles(root string) []string {
 	dirs := []string{HomeBankDir()}
 	if !isHomeBank(root) {
@@ -242,8 +240,7 @@ func storeHookFile(path string) string {
 	return filepath.Base(path)
 }
 
-// The harness-generated region of MEMORY.md: its pointer lines are never counted, struck, moved or recorded.
-// The region is reserved 40 lines / 4 KB including markers.
+// The generated MEMORY.md region: its pointer lines are never counted or moved; reserved 40 lines / 4 KB with markers.
 const (
 	bankRegionBegin    = "<!-- bank:begin"
 	bankRegionEnd      = "<!-- bank:end -->"
@@ -260,8 +257,7 @@ func bankRegionBounds(text string) (start, end int) {
 	return start, end
 }
 
-// scanBankRegion is the byte range [start,end) of text's generated region, trailing newline included;
-// (-1,-1,nil) when absent, errBankRegion for a lone marker, several of either, or end before begin.
+// scanBankRegion is the [start,end) range of the generated region; (-1,-1,nil) when absent, errBankRegion if malformed.
 func scanBankRegion(text string) (start, end int, err error) {
 	start, end = -1, -1
 	begins, ends := 0, 0

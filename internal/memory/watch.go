@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/inflight"
@@ -32,16 +33,37 @@ func spawnIdleWatcher(sessionID, transcript, cwd string) {
 		return
 	}
 	claim := watchClaimPath(sessionID)
-	f, err := os.OpenFile(claim, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
+	if !claimWatcher(claim) {
 		return // claimed by an earlier Stop (or the state dir is unwritable — the Stop gate still runs)
 	}
-	_ = f.Close()
 	args := []string{"--session", sessionID, "--transcript", transcript, "--cwd", cwd,
 		"--owner", strconv.Itoa(inflight.SessionOwner())}
 	if !spawn.watcher(args, cwd) {
 		_ = os.Remove(claim) // let the next Stop try again
 	}
+}
+
+// claimWatcher creates the claim file; one naming a dead watcher pid is a killed watcher's leftover and is retaken.
+func claimWatcher(claim string) bool {
+	for range 2 {
+		f, err := os.OpenFile(claim, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			_ = f.Close()
+			return true
+		}
+		if !watcherDead(claim) {
+			return false
+		}
+		_ = os.Remove(claim)
+	}
+	return false
+}
+
+// watcherDead reports whether the claim names a pid that is gone; an empty claim is a watcher still starting.
+func watcherDead(claim string) bool {
+	b, err := os.ReadFile(claim)
+	pid, perr := strconv.Atoi(strings.TrimSpace(string(b)))
+	return err == nil && perr == nil && ownerDead(pid)
 }
 
 // WatchOptions are `memory watch`'s parsed flags; Stderr receives its messages.
@@ -63,7 +85,9 @@ func IdleUpdateWatch(o WatchOptions) int {
 		fmt.Fprintf(stderr, "memory watch: --cwd %q is not a directory\n", o.CWD)
 		return 2
 	}
-	defer func() { _ = os.Remove(watchClaimPath(o.Session)) }() // free the claim so a later Stop can start a fresh watcher
+	// The claim holds this pid so a later Stop retakes it after a kill; the defer frees it for a fresh watcher.
+	_ = os.WriteFile(watchClaimPath(o.Session), []byte(strconv.Itoa(os.Getpid())), 0o600)
+	defer func() { _ = os.Remove(watchClaimPath(o.Session)) }()
 	w := &watchLoop{tr: o.Transcript, cwd: o.CWD, session: o.Session, idle: o.Idle, owner: o.Owner, stderr: stderr}
 	deadline := time.Now().Add(updateWatchLife)
 	for time.Now().Before(deadline) {
@@ -101,14 +125,19 @@ func (w *watchLoop) poll() (exit bool) {
 	if time.Since(latest) < w.idle || !latest.After(w.seen) {
 		return false // a subagent is still active, or already evaluated at this mtime
 	}
+	w.dispatch(latest)
+	return false
+}
+
+// dispatch runs the idle update for the activity at latest and notes it; a failed spawn is retried by the next poll.
+func (w *watchLoop) dispatch(latest time.Time) {
 	dispatched, spawnFailed := idleUpdateOnce(w.tr, w.cwd, w.session, w.stderr)
 	if !spawnFailed {
-		w.seen = latest // a failed spawn leaves seen behind so the next poll retries
+		w.seen = latest
 	}
 	if dispatched {
 		fmt.Fprintf(w.stderr, "memory watch: %s quiet for %s — final update dispatched\n", w.session, w.idle.String())
 	}
-	return false
 }
 
 // newestActivity is the newest mtime across the main and its subagent transcripts: a busy subagent keeps it live.

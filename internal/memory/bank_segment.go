@@ -315,12 +315,10 @@ func (s segView) postsValid(l segLayout) bool {
 // compoundMinLen guards compound matching against over-matching very short terms as substrings.
 const compoundMinLen = 4
 
-// compoundWeight discounts a query term matched only as part of a longer indexed token (agent -> subagent),
-// so an exact hit always outranks a compound one.
+// compoundWeight discounts a term matched only inside a longer token (agent -> subagent), so exact hits outrank.
 const compoundWeight = 0.4
 
-// lookupWeighted merges exact postings (weight 1) with postings of every other indexed token containing
-// term (weight compoundWeight), deduped per doc by the stronger signal; all is s.terms(), shared across a query.
+// lookupWeighted merges exact postings (weight 1) with compound ones (compoundWeight), deduped per doc by the stronger.
 func (s segView) lookupWeighted(term string, all []string) map[int]float64 {
 	out := map[int]float64{}
 	add := func(t string, weight float64) {
@@ -572,9 +570,7 @@ const (
 	nativeArchiveIndexFile = "INDEX.md"      // legacy archive index, classified only
 )
 
-// topicFrontmatter splits a topic file into its name, description and body; false without a closed block and a name.
-// The closing fence must start its own line (markdown.StripFrontMatter), so a name/description value that merely
-// contains the literal bytes "---" can't be mistaken for it.
+// topicFrontmatter splits a topic into name, description and body; the closing fence must start its own line.
 func topicFrontmatter(raw string) (name, desc, body string, ok bool) {
 	prefix, content := markdown.StripFrontMatter([]byte(raw))
 	if prefix == nil {

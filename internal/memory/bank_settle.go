@@ -92,12 +92,10 @@ func appendUnarchived(archive string, blocks []string) error {
 	return appendBlocks(archive, missing)
 }
 
-// lockPath serializes bank writers (the update worker's headless pass, then its settle); the
-// physical lock lives under state, namespaced per store key — never beside the committed bank.
+// lockPath serializes bank writers; the physical lock lives under state per store key, never beside the bank.
 func lockPath(dir string) string { return filepath.Join(storeLockDir(dir), ".postupdate") }
 
-// settleBank rotates root's sessionHistory, archives settled overflow in scope (no auto-promotion to home), regenerates
-// the region and catalog, and commits — all under the bank lock. Deletes nothing.
+// settleBank rotates sessionHistory, archives overflow, regenerates region and catalog, and commits, under the lock.
 func settleBank(root string, now time.Time) (rotated int, err error) {
 	err = WithBankLock(BankLockWait, func() error {
 		rotated, err = settleBankLocked(root, now)
@@ -242,8 +240,7 @@ func storeRels(dirs []string) []string {
 	return rels
 }
 
-// commitStore commits the dirty paths under scope (store-relative) as one commit; no scope commits nothing.
-// A credential-shaped file inside the scope is refused by Commit.
+// commitStore commits the dirty paths under scope as one commit (none without scope); Commit refuses credentials.
 func commitStore(subject string, scope ...string) error {
 	repo := StoreRepo()
 	if len(scope) == 0 {

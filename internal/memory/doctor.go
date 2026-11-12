@@ -15,8 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// bankStat is one bank's roll-up from a single read per typed file: newest mtime, cap offenders, unreadable files,
-// credential findings, and the bytes read (so a caller never re-reads them).
+// bankStat is one bank's roll-up from a single read per typed file, so a caller never re-reads the bytes.
 type bankStat struct {
 	Dir         string
 	Updated     time.Time
@@ -88,8 +87,7 @@ func writeDoctorNotice(root string, staleDays int, now time.Time) error {
 	return paths.AtomicWrite(doctorNoticePath(root), []byte(line), 0o600)
 }
 
-// doctor returns advisory problems for root's local bank and the shared home bank: cap offenders,
-// staleness, credential-shaped lines, and access-log nominations. Never fatal — advisory only.
+// doctor returns advisory problems for the local and home banks (caps, staleness, credentials); never fatal.
 func doctor(root string, staleDays int, now time.Time) []string {
 	var problems []string
 	if !isHomeBank(root) {
@@ -102,8 +100,7 @@ func doctor(root string, staleDays int, now time.Time) []string {
 	return append(problems, accessNominations(now)...)
 }
 
-// updateProblems surfaces receipts that need a human: a failed update, or one still "pending" past the
-// grace window (the worker died before reporting) — otherwise they pile up unreported.
+// updateProblems surfaces receipts needing a human: a failed update, or a pending one past the grace window.
 func updateProblems(now time.Time) []string {
 	var problems []string
 	for _, rc := range readReceipts() {
@@ -112,14 +109,21 @@ func updateProblems(now time.Time) []string {
 		if !r.NeedsAttention(now) || (r.Status == updateFailed && now.Sub(r.Time) > 7*24*time.Hour) {
 			continue
 		}
-		see := " — see " + r.Log
-		if _, err := os.Stat(r.Log); err != nil {
-			see = " — log swept" // session-state pruning removes old update-*.log files; don't name a dead path
-		}
 		problems = append(problems, "update "+headID(id)+" "+r.Status+" since "+r.Time.Format("2006-01-02")+
-			see+" (claude-code memory update --session "+id+")")
+			updateLogNote(r.Log)+" (claude-code memory update --session "+id+")")
 	}
 	return problems
+}
+
+// updateLogNote points at the receipt's log, says it was swept once pruned, and stays silent when none was recorded.
+func updateLogNote(log string) string {
+	if log == "" {
+		return ""
+	}
+	if _, err := os.Stat(log); err != nil {
+		return " — log swept" // session-state pruning removes old update-*.log files; don't name a dead path
+	}
+	return " — see " + log
 }
 
 // journalGrace leaves an in-flight commit's journal alone; older ones are ones recovery keeps skipping.
@@ -162,9 +166,7 @@ func bankProblems(tier string, s bankStat, staleDays int, now time.Time) []strin
 	return problems
 }
 
-// Bank stats: aggregate the update receipts already on disk into the "is the bank actually
-// working" numbers — update success rate and bank-updated rate.
-// bankStats aggregates every update receipt under StateDir().
+// bankStats aggregates every update receipt under StateDir() into update-success and bank-updated rates.
 type bankStats struct {
 	Updates     int // receipt files parsed
 	OK          int
@@ -229,16 +231,13 @@ func (s bankStats) Report() string {
 	return b.String()
 }
 
-// Session timeline: the recent-sessions recall strategy rendered from update receipts and
-// sessionHistory entries already on disk. Read-only; no new state.
-// timelineEntry is one recall row from an update receipt.
+// timelineEntry is one recall row from an update receipt (the recent-sessions strategy, read-only).
 type timelineEntry struct {
 	Time time.Time
 	Line string
 }
 
-// timeline returns the newest-first update-receipt trail (bounded by limit) plus the most recent
-// sessionHistory headings from the local then home bank (their files are newest-first already).
+// timeline returns the newest-first receipt trail (up to limit) plus recent sessionHistory headings, local then home.
 func timeline(root string, limit int) (entries []timelineEntry, sessions []string, err error) {
 	for _, rc := range readReceipts() {
 		id, r := rc.id, rc.r

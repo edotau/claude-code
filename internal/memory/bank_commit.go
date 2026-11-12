@@ -24,12 +24,9 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// The journaled commit transaction: journal under state BEFORE any write, capture the native
-// revisions the batch replaces, apply with preimage checks, commit, then retire the journal.
-// A crash at any step is finished by the next call.
+// The journaled commit: journal first, capture native revisions, apply with preimage checks, commit, retire the journal
 
-// Change is one store-relative write or deletion; the bytes present at journal time become its preimage,
-// so a replay never clobbers a later edit.
+// Change is one store-relative write or deletion; its journal-time bytes are the preimage, so replay never clobbers.
 type Change struct {
 	Rel    string // store-relative, validated like Commit
 	Data   []byte // new bytes; ignored when Delete
@@ -101,9 +98,7 @@ func commitChangesLocked(subject string, changes []Change) (Receipt, error) {
 	return rec, err
 }
 
-// recoverEach finishes every unfinished journal, oldest first, each as its own commit; a failing one is left on
-// disk (skipped) so later ones still run, and a skipped one may replay after newer commits, where its preimage
-// hashes make it diverge instead of clobber. err is a failed directory scan; skipped joins the per-journal failures.
+// recoverEach finishes every unfinished journal oldest first; a failing one is skipped and may diverge on replay.
 func recoverEach() (skipped, err error) {
 	entries, err := os.ReadDir(JournalDir())
 	if errors.Is(err, fs.ErrNotExist) {
@@ -142,8 +137,7 @@ func recoverJournal(f string) error {
 	return nil
 }
 
-// newJournal records the batch: preimages as hashes, new bytes verbatim, so replay needs nothing from the caller.
-// Each change hashes the live bytes (none when absent): replay then tells "not applied" from "edited since".
+// newJournal records preimages as hashes and new bytes verbatim, so replay tells "not applied" from "edited since".
 func newJournal(repo Repo, subject string, changes []Change) (*journal, error) {
 	var rnd [4]byte
 	if _, err := rand.Read(rnd[:]); err != nil {
@@ -245,8 +239,7 @@ func (j *journal) touches(rel string) bool {
 	})
 }
 
-// commitStage lists what the batch commit stages: applied and preexisting paths, plus skipped ones left dirty by
-// an earlier attempt of this journal (committed with no duplicate record).
+// commitStage lists the paths the batch commit stages: applied, preexisting, and skipped ones left dirty earlier.
 func commitStage(rec Receipt, present []string) []string {
 	stage := append(append([]string{}, rec.Applied...), rec.Preexisting...)
 	for _, p := range rec.Skipped {
@@ -257,8 +250,7 @@ func commitStage(rec Receipt, present []string) []string {
 	return stage
 }
 
-// plan checks every change against the live bytes and sorts the dirty files: outside the batch they are Preexisting;
-// inside it and about to be applied they hold a native revision the write would erase, so they are captured first.
+// plan checks each change against live bytes; dirty files outside the batch are Preexisting, inside it are captured.
 func (j *journal) plan(dir string, present []string, rec *Receipt) (outcomes []outcome, capture []string, err error) {
 	outcomes = make([]outcome, len(j.Changes))
 	batch := map[string]outcome{}
@@ -324,8 +316,7 @@ func (c journalChange) preimageHolds(cur []byte, absent bool) bool {
 	return !c.HasPreimage && absent || c.HasPreimage && !absent && textutil.SHA256Hex(cur) == c.PreimageSHA256
 }
 
-// apply rechecks the live bytes right before mutating (native capture ran git in between) and sorts the rel into
-// Applied, Skipped or Divergent; bytes that became applicable only after plan were never captured, so they diverge.
+// apply rechecks live bytes before mutating and sorts the rel into Applied, Skipped or Divergent.
 func (c journalChange) apply(repo Repo, planned outcome, rec *Receipt) error {
 	o, err := c.check(repo.Dir)
 	if err != nil {
@@ -365,8 +356,7 @@ func (c journalChange) recordUnapplied(o outcome, rec *Receipt) bool {
 	return true
 }
 
-// dirtyFiles lists the dirty paths outside .git that are REGULAR files or now missing (a tracked deletion);
-// symlinks and other oddities are skipped and listed nowhere.
+// dirtyFiles lists dirty regular files outside .git, or now-missing ones (a tracked deletion); oddities are skipped.
 func dirtyFiles(repo Repo) (present []string, err error) {
 	entries, err := repo.Status()
 	if err != nil {
@@ -438,8 +428,7 @@ func (r Repo) plainDir() error {
 	return nil
 }
 
-// Ensure initializes the repo when absent and verifies its root, distinctness from the outer checkout and lack of
-// remotes BEFORE writing the pre-push guard and .gitignore, so a redirected store never receives a byte.
+// Ensure inits the repo when absent and verifies root, distinctness and no remotes BEFORE writing any guard file.
 func (r Repo) Ensure() error {
 	if err := r.plainDir(); err != nil {
 		return err
@@ -480,8 +469,7 @@ func (r Repo) initIfAbsent(gitDir string) error {
 // verifiedRoots holds canonical git dirs whose checkRoot passed in this process; Ensure skips re-probing them.
 var verifiedRoots sync.Map
 
-// checkRoot proves plain discovery from inside Dir lands on gitDir (not an empty .git or a parent's), that no commondir
-// file shares another repo's refs/objects, and that the enclosing checkout, if any, does not share it.
+// checkRoot proves discovery from inside Dir lands on gitDir, with no shared commondir or enclosing checkout.
 func (r Repo) checkRoot(gitDir string) error {
 	out, err := gitOut(r.Dir, "rev-parse", "--path-format=absolute", "--absolute-git-dir", "--git-common-dir")
 	if err != nil {
@@ -557,8 +545,7 @@ func (r Repo) Head() (string, error) {
 	return out, nil
 }
 
-// Commit stages exactly rels (store-relative; an absent tracked rel stages its deletion) and commits when the
-// index changed; any failure before the commit lands unstages everything. Rejections name the path only.
+// Commit stages exactly rels and commits when the index changed; any earlier failure unstages everything.
 func (r Repo) Commit(rels []string, subject, body string) (sha string, committed bool, err error) {
 	defer func() {
 		if err != nil && !committed {
@@ -640,8 +627,7 @@ func checkStageContent(abs, rel string) error {
 	return nil
 }
 
-// dropCredentialShaped returns rels without the credential-shaped files that keep does not claim, naming each such
-// path once on stderr (never its content); a nil keep claims nothing.
+// dropCredentialShaped drops credential-shaped files that keep does not claim, naming each path once on stderr.
 func (r Repo) dropCredentialShaped(rels []string, keep func(rel string) bool) []string {
 	var clean []string
 	for _, rel := range rels {
@@ -674,8 +660,7 @@ func (r Repo) checkStaged(rels []string) error {
 	return nil
 }
 
-// validateRel rejects anything that is not a plain store-relative path, through plain directories only (no symlinked
-// ancestor can redirect a write outside the store), to a regular (or absent) file.
+// validateRel rejects any rel that is not a plain store-relative path to a regular (or absent) file.
 func (r Repo) validateRel(rel string) error {
 	bad := fmt.Errorf("memory repo: invalid path %q", rel)
 	if invalidRelSyntax(rel) {
@@ -716,8 +701,7 @@ func checkRelPart(abs, rel string, parts []string, i int) error {
 	return nil
 }
 
-// run executes git against this repo with explicit dirs, literal pathspecs, a throwaway identity, no signing, NO hooks
-// (core.hooksPath at /dev/null) and no global ignore file; the pre-push guard still fires for manual git.
+// run executes git with explicit dirs, literal pathspecs, a throwaway identity, no signing, no hooks, no global ignore.
 func (r Repo) run(args ...string) (string, error) {
 	gitDir := filepath.Join(r.Dir, ".git")
 	full := []string{"-C", r.Dir, "--git-dir=" + gitDir, "--work-tree=" + r.Dir, "--literal-pathspecs",

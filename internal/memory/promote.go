@@ -13,19 +13,16 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// archiveCaps are the per-file caps that trigger archiving on a durable bank file; the churny
-// session-state files never do.
+// archiveCaps are the per-file caps that trigger archiving on a durable file; session-state files never do.
 var archiveCaps = map[string]int{
 	"conventions.md": fileCaps["conventions.md"],
 	"decisionLog.md": fileCaps["decisionLog.md"],
 }
 
-// bottomAppended marks files whose newest entries land at the BOTTOM, so the settle split runs on
-// the reversed list; decisionLog.md is newest-first and keeps the straight split.
+// bottomAppended marks files whose newest entries are at the BOTTOM, so the split runs on the reversed list.
 var bottomAppended = map[string]bool{"conventions.md": true}
 
-// archiveOverflow moves the oldest overflow blocks of root's durable files into the same store's
-// archive/, returning how many moved. The archive stays local, so no credential gate applies.
+// archiveOverflow moves the oldest overflow blocks of root's durable files to its archive/ and returns the count.
 func archiveOverflow(root string, now time.Time) (int, error) {
 	dir := Dir(root)
 	total := 0
@@ -39,9 +36,7 @@ func archiveOverflow(root string, now time.Time) (int, error) {
 	return total, nil
 }
 
-// settledSplit splits blocks into (keep, overflow) at capLines, oldest-first into overflow.
-// Bottom-appended files split on the reversed list then restore file order, since their newest
-// entries are at the BOTTOM.
+// settledSplit splits blocks into (keep, overflow) at capLines, oldest into overflow; bottom-appended files reverse.
 func settledSplit(base, header string, blocks []string, capLines int) (keep, overflow []string) {
 	if bottomAppended[base] {
 		rev := slices.Clone(blocks)
@@ -82,8 +77,7 @@ func overflowSplit(base, body string, capLines int) (header string, keep, overfl
 	return header, keep, overflow
 }
 
-// archiveFile prunes path under the bank lock, so a concurrent append cannot land between its read and rewrite;
-// the oldest overflow is archived first so nothing is lost if the rewrite fails.
+// archiveFile prunes path under the bank lock, archiving the oldest overflow first so a failed rewrite loses nothing.
 func archiveFile(path string, capLines int, now time.Time) (moved int, err error) {
 	err = WithBankLock(BankLockWait, func() error {
 		header, keep, overflow, err := splitOverflow(path, capLines)
@@ -126,9 +120,7 @@ var promoteJudgmentTarget = map[string]string{
 	"claude-md": "CLAUDE.md Hard rules (gated: 3+ entries AND a hard prohibition)",
 }
 
-// Promote moves or surfaces block id by --to: "home" is a deterministic move (local -> home bank,
-// settled both sides); "rules"/"skill"/"claude-md" print the block and target for a human/agent to
-// apply by hand (model residue), and never edit those targets themselves.
+// Promote moves block id to home (settled both sides) or prints it with its target for a human to apply by hand.
 func Promote(root, id, to string, dryRun bool, now time.Time) (string, error) {
 	if target, ok := promoteJudgmentTarget[to]; ok {
 		return promoteJudgment(root, id, to, target)
@@ -142,8 +134,7 @@ func Promote(root, id, to string, dryRun bool, now time.Time) (string, error) {
 // afterPromoteMove runs between promote's move and its settle; tests race a rival bank-lock taker there.
 var afterPromoteMove = func() {}
 
-// promoteBlockToHome moves one id-marked block from root's local bank into the matching home-bank
-// file, preserving its id, and settles both.
+// promoteBlockToHome moves one id-marked block from root's local bank to the home file, keeping its id.
 func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, error) {
 	dir := Dir(root)
 	if isHomeBank(root) {
@@ -189,11 +180,7 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 	return fmt.Sprintf("promoted [%s] local -> home (%s)\n", id, homePath), nil
 }
 
-// promoteJudgment finds id in root's local bank (falling back to the home bank) and prints it with
-// target and the embedded judgment procedure for a human/agent to apply by hand; it is model
-// residue, so Go never writes target itself. `claude-md` is gated: it only prints inside a dream
-// run's own promote call (isDreamChild); elsewhere there is no cross-pollination check (3+ entries,
-// hard prohibition) behind it.
+// promoteJudgment prints id with its target and procedure; `claude-md` only prints inside a dream run (isDreamChild).
 func promoteJudgment(root, id, to, target string) (string, error) {
 	if to == "claude-md" && !isDreamChild() {
 		return "", fmt.Errorf("--to claude-md only runs inside `memory dream`'s cross-pollination step "+
@@ -278,8 +265,7 @@ func removeBlock(path, name, id string) error {
 	return paths.AtomicWrite(path, []byte(rejoin(header, kept)), 0o600)
 }
 
-// budgetSplit keeps blocks from the top while header+kept stays within capLines; the rest overflow.
-// blocks arrives newest-first, so walking forward keeps the newest and settles the oldest end.
+// budgetSplit keeps newest-first blocks while header+kept fits capLines; the rest overflow.
 func budgetSplit(header string, blocks []string, capLines int) (keep, overflow []string) {
 	used := logicalLineCount(header)
 	full := false
@@ -297,8 +283,7 @@ func budgetSplit(header string, blocks []string, capLines int) (keep, overflow [
 	return keep, overflow
 }
 
-// blockCost is a block's line cost including the blank separator rejoin inserts — absent only before
-// block 0 of a header-less file.
+// blockCost is a block's line cost including the blank separator rejoin inserts (none before block 0 sans header).
 func blockCost(block string, i, used int) int {
 	n := logicalLineCount(block)
 	if used > 0 || i > 0 {

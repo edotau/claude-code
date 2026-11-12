@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
@@ -35,6 +36,8 @@ var opencodeExport = func(sessionID, cwd string) ([]byte, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "opencode", "export", sessionID)
 	cmd.Dir = cwd
+	proc.OwnGroup(cmd) // the timeout kills the export's whole group, so a grandchild cannot hold the pipe open
+	cmd.WaitDelay = proc.ExecWaitDelay
 	var out bytes.Buffer
 	cmd.Stdout = &capWriter{buf: &out, max: exportMaxBytes}
 	if err := cmd.Run(); err != nil {
@@ -133,15 +136,17 @@ type codexRec struct {
 		Input     string          `json:"input"`
 		Arguments string          `json:"arguments"`
 		Output    json.RawMessage `json:"output"`
-		Content   []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
+		Content   []codexPart     `json:"content"`
 	} `json:"payload"`
 }
 
-// loadCodexRollout reads a codex rollout jsonl: patch headers in tool-call inputs are the edits, dropped when the
-// call's output starts "Script failed"; the last assistant output_text is the final text.
+// codexPart is one content part of a codex message.
+type codexPart struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+// loadCodexRollout counts a rollout's patch-header edits (not "Script failed" calls) and keeps the last assistant text.
 func loadCodexRollout(path, cwd string) (agentTranscript, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -164,22 +169,36 @@ func loadCodexRollout(path, cwd string) (agentTranscript, error) {
 		case "custom_tool_call_output", "function_call_output":
 			failed[p.CallID] = codexCallFailed(p.Output)
 		case "message":
-			for _, c := range p.Content {
-				if p.Role == "assistant" && c.Type == "output_text" && c.Text != "" {
-					b.out.FinalText = c.Text
-				}
+			if t := lastAssistantText(p.Role, p.Content); t != "" {
+				b.out.FinalText = t
 			}
 		}
 	})
+	countCodexEdits(b, order, edits, failed)
+	return b.done(), err
+}
+
+// lastAssistantText is the last non-empty output_text part of an assistant message, "" for any other role.
+func lastAssistantText(role string, parts []codexPart) string {
+	text := ""
+	for _, c := range parts {
+		if role == "assistant" && c.Type == "output_text" && c.Text != "" {
+			text = c.Text
+		}
+	}
+	return text
+}
+
+// countCodexEdits counts each call's patch paths in call order, skipping failed calls; a repeated call id counts once.
+func countCodexEdits(b *pathBuilder, order []string, edits map[string][]string, failed map[string]bool) {
 	for _, id := range order {
 		for _, e := range edits[id] {
 			if !failed[id] {
 				b.edit(e)
 			}
 		}
-		delete(edits, id) // a repeated call id counts once
+		delete(edits, id)
 	}
-	return b.done(), err
 }
 
 // codexCallFailed reports a tool output whose first text part starts "Script failed" (string or part-list output).
@@ -230,51 +249,63 @@ type copilotStart struct {
 	evs []copilotEvent
 }
 
-// copilotEventsFrom reads a Copilot events.jsonl into the loader's events. Successful tool.execution_complete
-// fileEdits are the edit source; start arguments (apply_patch text expanded per file) only when no fileEdits exist,
-// and never for a call whose completion reported success:false.
+// copilotEventsFrom reads events.jsonl: completed fileEdits, else the starts whose completion did not fail.
 func copilotEventsFrom(path, cwd string) []copilotEvent {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil
 	}
 	defer f.Close()
-	var texts, done []copilotEvent
-	var starts []copilotStart
-	failed := map[string]bool{}
-	var sawFileEdits bool
+	sc := &copilotScan{cwd: cwd, failed: map[string]bool{}}
 	_ = transcript.EachLine(f, func(line []byte) {
 		var rec copilotRec
-		if json.Unmarshal(line, &rec) != nil {
-			return
-		}
-		switch rec.Type {
-		case "assistant.message":
-			texts = append(texts, copilotEvent{Type: rec.Type, Content: rec.Data.Content})
-		case "tool.execution_start":
-			starts = append(starts, copilotStart{id: rec.Data.ToolCallID, evs: copilotToolEvents(rec.Data.ToolName, rec.Data.Arguments, cwd)})
-		case "tool.execution_complete":
-			if !rec.Data.Success {
-				if rec.Data.ToolCallID != "" {
-					failed[rec.Data.ToolCallID] = true
-				}
-				return
-			}
-			sawFileEdits = sawFileEdits || len(rec.Data.FileEdits) > 0
-			for _, fe := range rec.Data.FileEdits {
-				done = append(done, copilotEvent{Type: "tool.execution_start", ToolName: "edit", Arguments: map[string]any{"path": fe.Path}})
-			}
+		if json.Unmarshal(line, &rec) == nil {
+			sc.add(rec)
 		}
 	})
-	if sawFileEdits {
-		return append(texts, done...)
-	}
-	for _, s := range starts {
-		if !failed[s.id] {
-			texts = append(texts, s.evs...)
+	return sc.events()
+}
+
+// copilotScan accumulates an events.jsonl's messages, tool starts, completed file edits and failed call ids.
+type copilotScan struct {
+	cwd          string
+	texts, done  []copilotEvent
+	starts       []copilotStart
+	failed       map[string]bool
+	sawFileEdits bool
+}
+
+func (sc *copilotScan) add(rec copilotRec) {
+	switch rec.Type {
+	case "assistant.message":
+		sc.texts = append(sc.texts, copilotEvent{Type: rec.Type, Content: rec.Data.Content})
+	case "tool.execution_start":
+		sc.starts = append(sc.starts, copilotStart{id: rec.Data.ToolCallID, evs: copilotToolEvents(rec.Data.ToolName, rec.Data.Arguments, sc.cwd)})
+	case "tool.execution_complete":
+		if !rec.Data.Success {
+			if rec.Data.ToolCallID != "" {
+				sc.failed[rec.Data.ToolCallID] = true
+			}
+			return
+		}
+		sc.sawFileEdits = sc.sawFileEdits || len(rec.Data.FileEdits) > 0
+		for _, fe := range rec.Data.FileEdits {
+			sc.done = append(sc.done, copilotEvent{Type: "tool.execution_start", ToolName: "edit", Arguments: map[string]any{"path": fe.Path}})
 		}
 	}
-	return texts
+}
+
+// events is the messages plus the completed file edits when any exist, else the starts of calls that did not fail.
+func (sc *copilotScan) events() []copilotEvent {
+	if sc.sawFileEdits {
+		return append(sc.texts, sc.done...)
+	}
+	for _, s := range sc.starts {
+		if !sc.failed[s.id] {
+			sc.texts = append(sc.texts, s.evs...)
+		}
+	}
+	return sc.texts
 }
 
 func copilotToolEvents(tool string, raw json.RawMessage, cwd string) []copilotEvent {
