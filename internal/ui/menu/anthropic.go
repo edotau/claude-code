@@ -103,6 +103,10 @@ func claudeState(d *dialog, fp *anthropicLogin, cur string, tier providers.Subsc
 
 // keepOrPin pins name unless it is already the session provider.
 func keepOrPin(d *dialog, cur, name string) bool {
+	if name == "" {
+		d.printf("provider   no matching anthropic profile; left on %s\n", cur)
+		return false
+	}
 	if name == cur || !switchConfirmed(d, cur, name) {
 		d.printf("provider   pinned %s (kept)\n", cur)
 		return true
