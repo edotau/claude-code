@@ -39,8 +39,8 @@ func sessionFromBanner(banner string) string {
 	return ""
 }
 
-// codexProfileHint is the usage error for `codex --profile X` if X is no harness profile but X.config.toml exists.
-func codexProfileHint(o agent.LaunchOptions) error {
+// ProfileHint is the usage error for `codex --profile X` if X is no harness profile but X.config.toml exists.
+func (codexEngine) ProfileHint(o agent.LaunchOptions) error {
 	if o.Provider == "" || strings.ContainsAny(o.Provider, `/\`) {
 		return nil
 	}
@@ -98,11 +98,11 @@ func codexOverrideValue(line, table, path string, n int) (string, error) {
 	return table + strings.TrimSpace(k) + "=" + v, nil
 }
 
-// codexRouteDetail reports CODEX_MODEL/CODEX_EFFORT pins without credentials; unset uses codex defaults.
-func codexRouteDetail() string {
+// RouteDetail reports CODEX_MODEL/CODEX_EFFORT pins without credentials; unset uses codex defaults.
+func (codexEngine) RouteDetail() (string, bool) {
 	model, source := providers.CodexModel()
 	effort, _ := providers.CodexEffort()
-	return fmt.Sprintf("model=%s source=%s effort=%s", cmp.Or(model, "(default)"), source, cmp.Or(effort, "default"))
+	return fmt.Sprintf("model=%s source=%s effort=%s", cmp.Or(model, "(default)"), source, cmp.Or(effort, "default")), true
 }
 
 // codexStatus runs `codex login status` on the scrubbed agent env; tests replace it so none of it reaches the real CLI.
