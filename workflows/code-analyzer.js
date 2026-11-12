@@ -1,16 +1,16 @@
 export const meta = {
   name: 'code-analyzer',
-  description: 'Audit a change set: parallel scoped auditors → refute each finding → per-package implementer, then test agent → gate loop',
+  description: 'Audit a change set: parallel scoped auditors → refute each finding → per-package implementer, then test repair → gate loop, every editing stage numstat-measured',
   whenToUse:
-    'USE: audit before a merge or after a refactor; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: fix (default true), partition (with fix:false: return the wave plan, no edits), cap (wave width, default 8), hotspots (extra single-owner files), minFix, rounds, dimensions (replaces the lenses), focus (appended to every auditor lens), tests, gate (command override), maxIterations (gate loop cap), prior (earlier findings to skip), chunkChars (chunk size), refuteBatch (findings per skeptic), steps {scope, audit, refute, fix, test, gate, depscan} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages). COST: about 8 agent slots per run, so one run at a time. RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed, red, decisions, report, partition} plus refuted, rounds. Details: saved-workflows.md.',
+    'USE: audit before a merge or after a refactor; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: fix (default true), partition (with fix:false: return the wave plan, no edits), cap (wave width, default 8), hotspots (extra single-owner files), minFix, rounds, dimensions (replaces the lenses), focus (appended to every auditor lens), tests, gate (command override), maxIterations (gate loop cap), prior (earlier findings to skip), chunkChars (chunk size), refuteBatch (findings per skeptic), kind (audit default; consolidate swaps the lenses for duplicates, dead code, legacy and stale tests), lineBudget (shrink|neutral|free; default by kind: refactor neutral, consolidate shrink, else free; an over-budget fix gets one shrink-or-justify pass, still over exits review), steps {scope, audit, refute, fix, test, gate, depscan} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages). An unknown arg is refused at launch. Test stages repair what the fixes broke and write nothing new; every other test comes back in proposedTests. COST: about 8 agent slots per run, so one run at a time. RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed, red (fix not done, or the package\'s last gate not green), decisions, report, partition, lines (numstat per stage, per package and total, production vs test), proposedTests, over, gates} plus refuted, rounds. Details: saved-workflows.md.',
   phases: [
     { title: 'Scope', detail: 'one cheap agent per package group returns per-file sizes; the script packs them into ≤50 KB chunks' },
     { title: 'Find', detail: 'one auditor per (dimension × chunk) reading its chunk in-context — agent count scales with diff size' },
     { title: 'Refute', detail: 'one skeptic per package batch (≤6 findings); re-anchors wrong citations, defaults to refuted when the evidence is thin' },
     { title: 'Scan', detail: 'one read-only agent per package with fixable findings: files, exported, importers, hotspots' },
     { title: 'Plan', detail: 'script-only conflict graph, greedy colouring into waves ≤cap; hotspot edits go to one final task' },
-    { title: 'Fix', detail: 'waves in sequence, tasks of a wave in parallel; per package: implementer (opus only for highs), then test agent with its result' },
-    { title: 'Gate', detail: 'in-script stageGate (shared stages) over the touched packages, then re-audits what it touched for up to rounds rounds' },
+    { title: 'Fix', detail: 'waves in sequence, tasks of a wave in parallel; per package: implementer (opus only for highs), then test repair (new tests proposed, never written)' },
+    { title: 'Gate', detail: 'in-script stageGate (shared stages, check-confirmed) over the touched packages, then re-audits what it touched for up to rounds rounds' },
   ],
 }
 
@@ -50,6 +50,13 @@ const REPLACED = { auditModel: 'audit', refuteModel: 'refute', refuters: 'refute
 for (const k of Object.keys(REPLACED)) {
   if (a[k] !== undefined) return ERR(`${k} was replaced by steps.${REPLACED[k]} (plans/2026-11-03-workflow-steps.md)`)
 }
+const ARGS = ['cwd', 'paths', 'packages', 'findings', 'range', 'fix', 'partition', 'hotspots', 'cap', 'tests', 'maxIterations', 'rounds', 'prior', 'minFix', 'steps', 'profile', 'provider',
+  'dimensions', 'focus', 'chunkChars', 'refuteBatch', 'gate', 'kind', 'lineBudget']
+if (stArgs(a, ARGS)) return ERR(stArgs(a, ARGS))
+if (a.kind !== undefined && !['feature', 'refactor', 'fix', 'audit', 'consolidate'].includes(a.kind)) return ERR('args.kind must be feature|refactor|fix|audit|consolidate')
+if (a.lineBudget !== undefined && !['shrink', 'neutral', 'free'].includes(a.lineBudget)) return ERR('args.lineBudget must be shrink|neutral|free')
+const JOB = a.kind || 'audit'
+const LINE_BUDGET = a.lineBudget || (JOB === 'refactor' ? 'neutral' : JOB === 'consolidate' ? 'shrink' : 'free')
 const SRC_RE = /\.(go|py|ts|tsx|js|jsx|mjs|rs|java)$/
 const TEST_RE = /(_test\.(go|py)$|\.(test|spec)\.[a-z]+$|(^|\/)test_[^/]*\.py$|(^|\/)(tests?|__tests__|testdata|fixtures)\/)/
 // Fix-phase severity floor: default low fixes every finding (decision #54); minFix:'medium' leaves lows unfixed.
@@ -120,7 +127,7 @@ const stepOf = (steps, name, defaults, opt) => {
 }
 // ── end stepOf ──
 // ── stages: copied verbatim into code-analyzer, green-keeper-loop, code-workers, code-engineer ──
-// Shared stages, run in-script so workflow() nests one level; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?}.
+// Shared stages, run in-script so workflow() nests one level; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?, kind?, lineBudget?, seams?}.
 const ST_NEAR = 10
 const ST_GATE_MAX = 2
 const ST_TAIL = 4000 // chars of the initial gate failure carried into every fixer iteration
@@ -160,6 +167,79 @@ const ST_DETECT = {
     source: { type: 'string' },
   },
 }
+// Measured run state: numstat rows per editing stage, proposed tests, over-budget fixes, seam needs, gate results in order.
+const ST_LINES = []
+const ST_PROPOSED = []
+const ST_OVER = []
+const ST_SEAMS = []
+const ST_GATES = []
+const ST_TEST_RE = /(_test\.go$|\.test\.[jt]sx?$|(^|\/)(tests|testdata)\/)/
+const ST_BUDGET = { shrink: 0, neutral: 20 } // max production net lines per package; free has no entry
+const stOver = (ctx, net) => ST_BUDGET[ctx.lineBudget] !== undefined && net > ST_BUDGET[ctx.lineBudget]
+const ST_NUM = { type: 'object', properties: { rows: { type: 'array', items: { type: 'object', properties: { file: { type: 'string' }, added: { type: 'integer' }, deleted: { type: 'integer' } }, required: ['file', 'added', 'deleted'] } } }, required: ['rows'] }
+const ST_FIXW = { ...ST_WORK, properties: { ...ST_WORK.properties, seams: { type: 'array', items: { type: 'object', properties: { file: { type: 'string' }, need: { type: 'string' } }, required: ['file', 'need'] } } } }
+const ST_TESTW = { ...ST_WORK, properties: { ...ST_WORK.properties, proposed: { type: 'array', items: { type: 'object', properties: { case: { type: 'string' }, reason: { type: 'string' }, runtime: { type: 'string' } }, required: ['case', 'reason', 'runtime'] } } } }
+const ST_PROPOSE = ' Every other test worth adding (a regression test for a bug fix, a pin for a cost fix) stays unwritten: put it in `proposed` as {case (input → expected), reason (what it guards), runtime (expected, e.g. "<5ms")}.' +
+  ' Any test you write must run in milliseconds: no sleep, real network, vault, daemon or spawned binary; each under complexity 10.'
+// the numstat reader is always a local cheap leaf: an external relay adds a hop and a second self-report
+const ST_MEASURER = { agent: 'claude', ext: false, model: 'haiku', effort: 'low', type: {}, task: (p) => p, schema: (s) => s, done: (_l, r) => r }
+// stSnap: {file: {a, d}} from `git diff HEAD --numstat` plus untracked files, null when the reader fails.
+async function stSnap(ctx, label, paths) {
+  const ps = paths.filter((p) => p && !/\s/.test(p)).join(' ') || '.'
+  const r = await stageAsk(ctx, ST_MEASURER, 'numstat:' + label, 'Measure', 'Read-only: edit nothing. Run exactly `' + (ctx.cwd ? 'cd ' + ctx.cwd + ' && ' : '') + 'git diff HEAD --no-ext-diff --no-textconv --numstat -- ' + ps +
+    '` and `git ls-files --others --exclude-standard -- ' + ps + '`. Return one row per numstat line verbatim (file, added, deleted; a binary "-" is 0) and one row per untracked file with added = its `wc -l` count, deleted 0. Run nothing else.', ST_NUM)
+  if (!r) return null
+  const m = {}
+  for (const x of r.rows || []) m[stRel(ctx, x.file)] = { a: x.added || 0, d: x.deleted || 0 }
+  return m
+}
+// stDelta: what changed between two snapshots, split production/test per package (pkg: a dir or file -> dir); rows go to ST_LINES.
+function stDelta(stage, pkg, before, after) {
+  const zero = () => ({ add: 0, del: 0, net: 0 })
+  const tot = { stage, pkg: typeof pkg === 'string' ? pkg : '*', measured: !!(before && after), prod: zero(), test: zero(), files: [] }
+  if (!tot.measured) { ST_LINES.push(tot); return tot }
+  const rows = {}
+  for (const f of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    const b = before[f] || { a: 0, d: 0 }
+    const x = after[f] || { a: 0, d: 0 }
+    if (b.a === x.a && b.d === x.d) continue
+    const p = typeof pkg === 'string' ? pkg : pkg(f)
+    const row = (rows[p] = rows[p] || { stage, pkg: p, measured: true, prod: zero(), test: zero(), files: [] })
+    for (const r of [row, tot]) {
+      const k = ST_TEST_RE.test(f) ? r.test : r.prod
+      k.add += x.a - b.a; k.del += x.d - b.d; k.net += x.a - b.a - (x.d - b.d); r.files.push(f)
+    }
+  }
+  ST_LINES.push(...Object.values(rows))
+  return tot
+}
+// stLines folds measured rows (this run's and its children's) into per-package and total production/test lines.
+function stLines(rows) {
+  const sum = (xs, k) => xs.reduce((n, r) => ({ add: n.add + r[k].add, del: n.del + r[k].del, net: n.net + r[k].net }), { add: 0, del: 0, net: 0 })
+  const byPkg = {}
+  for (const p of [...new Set(rows.filter((r) => r.measured).map((r) => r.pkg))].sort()) { const rs = rows.filter((r) => r.measured && r.pkg === p); byPkg[p] = { prod: sum(rs, 'prod'), test: sum(rs, 'test') } }
+  const ok = rows.filter((r) => r.measured)
+  return { stages: rows, byPkg, total: { prod: sum(ok, 'prod'), test: sum(ok, 'test') }, unmeasured: rows.filter((r) => !r.measured).map((r) => r.stage + ':' + r.pkg) }
+}
+// stTail: the report's measured sections: lines table, over-budget packages, proposed tests.
+function stTail(lines, over, proposed) {
+  const c = (x) => '+' + x.add + '/-' + x.del + ' (net ' + (x.net > 0 ? '+' : '') + x.net + ')'
+  return ['', '## Lines (git diff --numstat, per package)', '| package | production | test |', '| --- | --- | --- |',
+    ...Object.entries(lines.byPkg).map(([p, v]) => '| ' + p + ' | ' + c(v.prod) + ' | ' + c(v.test) + ' |'), '| **total** | ' + c(lines.total.prod) + ' | ' + c(lines.total.test) + ' |',
+    ...(lines.unmeasured.length ? ['', 'Unmeasured (numstat reader returned nothing): ' + lines.unmeasured.join(', ')] : []),
+    ...(over.length ? ['', '## Over line budget', ...over.map((o) => '- ' + o.pkg + ': production net ' + o.net + ' under ' + o.budget + (o.why ? ' — ' + o.why : ''))] : []),
+    ...(proposed.length ? ['', '## Proposed tests (not written; the owner decides)', ...proposed.map((p) => '- ' + p.pkg + ': ' + p.case + ' — ' + p.reason + ' (' + p.runtime + ')')] : [])].join('\n')
+}
+// stGateRed: dirs whose LAST covering gate in ST_GATES (completion order) is not green; a dir no gate covers is red.
+function stGateRed(dirs) {
+  const cover = (g, d) => g.dir === '.' || g.dir === d || d.startsWith(g.dir + '/')
+  return [...new Set(dirs)].filter((d) => { const g = [...ST_GATES].reverse().find((x) => cover(x, d)); return !g || g.exit !== 'green' }).sort()
+}
+// stArgs: the first top-level arg a script does not read, as an error message ('' when every key is known).
+function stArgs(a, known) {
+  const bad = Object.keys(a).filter((k) => !known.includes(k))
+  return bad.length ? 'unknown arg ' + bad.map((k) => 'args.' + k).join(', ') + ' (known: ' + known.join('|') + ')' : ''
+}
 // stageAsk runs one stage agent; a throw becomes null (cause in ST_ERR); st.done records an external stage's ran-on.
 const ST_ERR = {}
 const stWhy = (label, msg) => (ST_ERR[label] ? msg + ': ' + ST_ERR[label] : msg)
@@ -179,8 +259,12 @@ async function stageGate(ctx, o) {
   const cmd = o.gate || o.scope.map((p) => 'go build ./' + p + '/... && go vet ./' + p + '/... && go test -count=1 ./' + p + '/...').join(' && ')
   // pipefail only matters with a pipe, and copilot's shell policy refuses the `set` prefix
   const full = '`' + (cmd.includes('|') ? 'set -o pipefail; ' : '') + cmd + '`' + (o.schemas ? '; if ' + stDiff(o.scope) + ' changes a function that writes a file and ./internal/schemas exists, also `go test -count=1 ./internal/schemas/`' : '')
-  const out = (status, exit, hist, residual) => {
+  let pre = null
+  // every result lands in ST_GATES (a run's exit reads the last gate per dir); fixer iterations are measured by numstat
+  const out = async (status, exit, hist, residual) => {
     if (status !== 'green' && hist.length) log(tag + ' still ' + status + ' after ' + hist.length + ' iteration(s); residual: ' + residual.length)
+    if (hist.length) stDelta('gate', (f) => o.scope.find((s) => f === s || f.startsWith(s + '/')) || stDir(f), pre, await stSnap(ctx, tag + ':after', o.scope))
+    ST_GATES.push(...o.scope.map((dir) => ({ dir, exit: exit === 'green' ? 'green' : 'red', label: tag })))
     return { status, exit, gate: cmd, iterations: hist.length, filesChanged: [...new Set(hist.flatMap((h) => h.filesChanged))], residual, history: hist }
   }
   const check = (label) => stageAsk(ctx, o.check, label, 'Gate', ctx.rules + ' Run and report: ' + full + '. green=true only if every command exited 0. Edit nothing.', ST_CHECK)
@@ -191,6 +275,7 @@ async function stageGate(ctx, o) {
     if (!o.max) return out('red', 'capped', [], [c ? c.output : stWhy(tag, 'gate check returned nothing')])
     first = c ? '\nInitial gate failure (before iteration 1):\n' + String(c.output).slice(-ST_TAIL) + '\n' : ''
   }
+  if (o.max) pre = o.before || (await stSnap(ctx, tag + ':before', o.scope))
   const hist = []
   for (let i = 1; i <= (o.max || 0); i++) {
     const last = hist[hist.length - 1]
@@ -219,35 +304,59 @@ async function stageGate(ctx, o) {
   const end = hist[hist.length - 1]
   return out(end ? end.status : 'red', 'capped', hist, end ? end.residual : [])
 }
-// stageFix: one implementer over confirmed findings in one package, then one guard test per behavior change.
+// stageFix: one implementer over confirmed findings in one package, measured and held to ctx.lineBudget, then the Test stage.
 async function stageFix(ctx, o) {
   const item = (f) => '- ' + stRel(ctx, f.file) + ':' + (f.line || 0) + ' (' + (f.symbol || '?') + ', ' + f.severity + (stCost(f) ? ', ' + f.kind : '') + '): ' + (f.symptom || f.title) +
     (f.scenario ? '\n  scenario: ' + f.scenario : '') + (f.evidence ? '\n  evidence: ' + f.evidence : '')
   const list = o.findings.map(item).join('\n')
-  const bugs = o.findings.filter((f) => !stCost(f))
-  const costs = o.findings.filter(stCost)
   const own = o.owns && o.owns.length ? ' You own ONLY: ' + o.owns.join(', ') + '; list any other file you would need in leftUndone.'
     : ' Edit only non-test files under ' + o.pkg + ', except a *_test.go file a finding below cites.'
-  const impl = await stageAsk(ctx, ctx.S.fix, 'fix:' + o.label, 'Fix', ctx.rules + ' Fix these confirmed defects in ' + o.pkg + ' and nothing else.' + own +
-    ' The evidence is verified: do not re-audit; first tool call: cat the cited files. The Test stage writes any requested test; that is not unfinished work, so report done. ' +
+  const merge = ctx.kind === 'consolidate' ? ' These are consolidation findings (duplicates, dead code, legacy, stale or redundant tests), not bugs: merge and delete; behaviour, messages and exit codes stay identical.' : ''
+  const seam = ctx.seams ? ' Never change an exported signature or edit outside ' + o.pkg + ': when a fix needs either, leave that part undone and list it in `seams` as {file, need}.' : ''
+  const at = o.owns && o.owns.length ? o.owns : [o.pkg]
+  const pre = await stSnap(ctx, 'pre:' + o.label, at)
+  const impl = await stageAsk(ctx, ctx.S.fix, 'fix:' + o.label, 'Fix', ctx.rules + ' Fix these confirmed ' + (merge ? 'findings' : 'defects') + ' in ' + o.pkg + ' and nothing else.' + own + merge + seam +
+    ' The evidence is verified: do not re-audit; first tool call: cat the cited files. The Test stage repairs tests; that is not unfinished work, so report done. ' +
     'Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6). Root cause first, smallest correct change, functions < 50 lines, 1-line comments. ' +
     'Grep every caller outside the package of each function you changed and report in `callers` whether any now duplicates or contradicts the new behavior (do not edit them). ' +
-    'Run the repo formatter and linter on what you touched' + (o.owns ? '' : ' (gofmt + go vet ./' + o.pkg + '/... for Go)') + '. Return `files`: every repo-relative file you changed.\n' + list, ST_WORK, o.pin)
+    'Run the repo formatter and linter on what you touched' + (o.owns ? '' : ' (gofmt + go vet ./' + o.pkg + '/... for Go)') + '. Return `files`: every repo-relative file you changed.\n' + list, ST_FIXW, o.pin)
   const done = !!(impl && impl.status === 'done')
+  for (const s of (impl && impl.seams) || []) ST_SEAMS.push({ pkg: o.pkg, file: stRel(ctx, s.file), need: s.need })
+  const b = await stBudget(ctx, o, own + '\n' + list, done, pre, at)
   const tdirs = [...new Set([o.pkg, ...((impl && impl.files) || []).map((f) => stDir(stRel(ctx, f))).filter((d) => d === o.pkg || d.startsWith(o.pkg + '/'))])]
+  // the owner's test rule: repair what the edits broke, write nothing new, propose the rest with a reason and a runtime
   const test = done && o.tests !== false ? await stageAsk(ctx, ctx.S.test, 'test:' + o.label, 'Test', ctx.rules + ' Fixes just landed in ' + o.pkg + ' (' + stDiff([o.pkg]) + '; changed: ' + (impl.files || []).join(', ') + '). ' +
-    'Repair tests the fixes break. Edit only *_test.go and testdata files directly in ' + tdirs.join(', ') + '; never another package\'s tests or shared fixtures (list any you would need in leftUndone). Each test under complexity 10. Skip comment-only and dead-code fixes. Put "n/a" in callers.' +
-    (bugs.length ? '\nWrite ONE regression test per bug fix that calls the real code and fails without the fix.\n' + bugs.map(item).join('\n') : '') +
-    (costs.length ? '\nFor each cost fix, pin the unchanged behavior it must keep: a test that calls the real code and passes before and after the fix ' +
-      '(it need not fail without it). When existing tests already pin that behavior, name them in summary and add none.\n' + costs.map(item).join('\n') : ''), ST_WORK) : null
-  const files = [...new Set([...((impl && impl.files) || []), ...((test && test.files) || [])].map((f) => stRel(ctx, f)))]
-  return { pkg: o.pkg, impl, test, done, testOk: o.tests === false || !!(test && test.status === 'done'), files }
+    'Run the tests of ' + tdirs.join(', ') + ' and repair only the tests these fixes broke. Edit only *_test.go and testdata files directly in ' + tdirs.join(', ') + '; never another package\'s tests or shared fixtures (list any you would need in leftUndone). ' +
+    'Write NO new test.' + ST_PROPOSE + ' Put "n/a" in callers.\nThe fixes:\n' + list, ST_TESTW) : null
+  for (const p of (test && test.proposed) || []) ST_PROPOSED.push({ pkg: o.pkg, ...p })
+  let snap = b.snap
+  if (test) { const s = await stSnap(ctx, 'test:' + o.label, at); stDelta('test', o.pkg, snap, s); snap = s }
+  const files = [...new Set([...((impl && impl.files) || []), ...((b.shrink && b.shrink.files) || []), ...((test && test.files) || [])].map((f) => stRel(ctx, f)))]
+  return { pkg: o.pkg, impl, test, done, testOk: o.tests === false || !!(test && test.status === 'done'), files, over: b.over, snap }
 }
-// stageRepair: stageFix, then stageGate (ctx.gate, else a Go gate) once the fix is done; unchanged code proves nothing.
+// stBudget measures the fix; over ctx.lineBudget it gets ONE shrink-or-justify iteration, still over lands in ST_OVER (never reverted).
+async function stBudget(ctx, o, task, done, pre, at) {
+  let snap = await stSnap(ctx, 'fix:' + o.label, at)
+  const fr = stDelta('fix', o.pkg, pre, snap)
+  let net = fr.prod.net
+  let shrink = null
+  if (done && fr.measured && stOver(ctx, net)) {
+    shrink = await stageAsk(ctx, ctx.S.fix, 'shrink:' + o.label, 'Fix', ctx.rules + ' Line budget ' + ctx.lineBudget + ': production net must be ≤ ' + ST_BUDGET[ctx.lineBudget] + ' lines in ' + o.pkg +
+      '; your fix measured ' + net + ' (git diff --numstat). Shrink it or justify it: cut what the fix does not need (reuse an existing helper, drop a new abstraction, delete what it made dead) and keep the fix.' +
+      ' Never revert the fix, never git checkout/restore/stash. If it cannot shrink, edit nothing and put the reason in summary.' + task, ST_WORK)
+    const s = await stSnap(ctx, 'shrink:' + o.label, at)
+    net += stDelta('shrink', o.pkg, snap, s).prod.net
+    snap = s
+  }
+  const over = done && fr.measured && stOver(ctx, net) ? { pkg: o.pkg, net, budget: ctx.lineBudget, why: (shrink && shrink.summary) || '' } : null
+  if (over) ST_OVER.push(over)
+  return { snap, shrink, over }
+}
+// stageRepair: stageFix, then stageGate (ctx.gate, else a Go gate) once the fix is done; green is the gate's, never a stage's claim.
 async function stageRepair(ctx, pkg, findings, o) {
   const fx = await stageFix(ctx, { pkg, findings, label: o.label })
-  const gate = fx.done ? await stageGate(ctx, { scope: [o.scope || pkg], check: ctx.S.gate, fix: ctx.S.fix, max: ctx.gateMax || 0, schemas: true, label: o.gate, gate: ctx.gate }) : null
-  return { ...fx, gate, green: fx.done && fx.testOk && !!gate && gate.exit === 'green', files: [...fx.files, ...(gate ? gate.filesChanged : [])] }
+  const gate = fx.done ? await stageGate(ctx, { scope: [o.scope || pkg], check: ctx.S.gate, fix: ctx.S.fix, max: ctx.gateMax || 0, schemas: true, label: o.gate, gate: ctx.gate, before: fx.snap }) : null
+  return { ...fx, gate, green: fx.done && !!gate && gate.exit === 'green', files: [...fx.files, ...(gate ? gate.filesChanged : [])] }
 }
 // stagePolish: once over a merged diff: Dedupe (2+ packages), Simplify, Review, then one stageRepair per package.
 async function stagePolish(ctx, o) {
@@ -256,20 +365,29 @@ async function stagePolish(ctx, o) {
   const scope = ' Only these files (the tree is shared; never touch or diff others): ' + files.join(' ') + '. Diff: ' + stDiff(files) + '.'
   const cut = ' Name the assumption before every cut; flag instead of cutting when it has no covering test; never cut semantic comments, error context or distinct tests; never fix bugs (flag them). ' +
     'After edits run gofmt, go vet and go test for ' + pkgs.join(', ') + '; if a test regresses, revert your own edit by hand (never git checkout/restore/stash) and flag it. ' +
+    'Your net lines (measured by git diff --numstat afterwards) must be ≤ 0: remove more than you add, or apply nothing. ' +
     'Return applied[] and flagged[] as `file:line · what · assumption`, deltaLines (net changed lines, negative = removed) and status (clean = nothing to do).'
-  const sum = (k, r) => k + ': ' + (r ? r.applied.length + ' applied, ' + r.flagged.length + ' flagged, Δ ' + r.deltaLines + ' lines (' + r.status + ')' : 'agent returned nothing')
+  // Dedupe and Simplify are held to a measured net ≤ 0 whatever the budget; over it they report partial with the number
+  let snap = await stSnap(ctx, 'polish', pkgs)
+  const held = async (k, r) => {
+    const s = await stSnap(ctx, k, pkgs)
+    const d = stDelta(k, stDir, snap, s)
+    snap = s
+    const net = d.prod.net + d.test.net
+    const out = r && d.measured && net > 0 ? { ...r, status: 'partial', measured: net } : r ? { ...r, measured: d.measured ? net : null } : r
+    lines.push(k + ': ' + (out ? out.applied.length + ' applied, ' + out.flagged.length + ' flagged, measured Δ ' + (d.measured ? net : '?') + ' lines (' + out.status + (net > 0 ? ': net must be ≤ 0' : '') + ')' : 'agent returned nothing'))
+    return out
+  }
   const lines = []
   let dedupe = null
   if (pkgs.length >= 2 && ctx.S.dedupe) {
     phase('Dedupe')
-    dedupe = await stageAsk(ctx, ctx.S.dedupe, 'dedupe', 'Dedupe', ctx.rules + ' Cross-package dedupe, the reuse angle of ' + ctx.cwd + '/skills/simplify/SKILL.md.' + scope +
-      ' Look ONLY for helpers or logic duplicated across these packages (grep siblings, `git log -S`); compare a near-duplicate with its original for behavior the copy lost, then consolidate at the original (callers import it; no new shim).' + cut, ST_SIMP)
-    lines.push(sum('dedupe', dedupe))
+    dedupe = await held('dedupe', await stageAsk(ctx, ctx.S.dedupe, 'dedupe', 'Dedupe', ctx.rules + ' Cross-package dedupe, the reuse angle of ' + ctx.cwd + '/skills/simplify/SKILL.md.' + scope +
+      ' Look ONLY for helpers or logic duplicated across these packages (grep siblings, `git log -S`); compare a near-duplicate with its original for behavior the copy lost, then consolidate at the original (callers import it; no new shim).' + cut, ST_SIMP))
   } else lines.push('dedupe skipped: ' + pkgs.length + ' package(s)')
   phase('Simplify')
-  const simplify = await stageAsk(ctx, ctx.S.simplify, 'simplify', 'Simplify', ctx.rules + ' Simplify gate (' + ctx.cwd + '/skills/simplify/SKILL.md, quality.md -> Simplify), run ONCE over the merged diff.' + scope +
-    ' Run `claude-code review simplify ' + files.join(' ') + '`, then one in-context pass (reuse, simplification, efficiency, altitude). Edit only the listed non-test files.' + cut, ST_SIMP)
-  lines.push(sum('simplify', simplify))
+  const simplify = await held('simplify', await stageAsk(ctx, ctx.S.simplify, 'simplify', 'Simplify', ctx.rules + ' Simplify gate (' + ctx.cwd + '/skills/simplify/SKILL.md, quality.md -> Simplify), run ONCE over the merged diff.' + scope +
+    ' Run `claude-code review simplify ' + files.join(' ') + '`, then one in-context pass (reuse, simplification, efficiency, altitude). Edit only the listed non-test files.' + cut, ST_SIMP))
   phase('Review')
   const rv = await stageAsk(ctx, ctx.S.review, 'review', 'Review', ctx.rules + ' Read-only: edit nothing, never run go test. Review the final diff with the ' + ctx.cwd +
     '/skills/evaluate-code/SKILL.md correctness and contract lenses (wrong results, broken invariants, changed behavior callers rely on, errors dropped).' + scope +
@@ -290,16 +408,22 @@ async function stagePolish(ctx, o) {
     const ps = keys.filter((p) => depth(p) === w)
     const rs = await parallel(ps.map((p) => async () => {
       const r = await stageRepair(ctx, p, byPkg[p], { label: 'fixall:' + p, gate: 'regate:' + p })
-      return { pkg: p, findings: byPkg[p].length, done: r.done, green: r.green, files: r.files }
+      return { pkg: p, findings: byPkg[p].length, done: r.done, green: r.green, gate: r.gate ? r.gate.exit : 'none', files: r.files }
     }))
     ps.forEach((p, i) => { byKey[p] = rs[i] })
   }
   const fixall = keys.map((p) => byKey[p]).filter(Boolean)
   for (const x of fixall) lines.push('fix-all ' + x.pkg + ': ' + (x.done ? x.findings + ' fixed' : 'NOT done') + ', gate ' + (x.green ? 'green' : 'red'))
+  // a Dedupe/Simplify edit no Fix-all re-gated gets a gate of its own (unmeasured edits: every package); its green is never assumed
+  const unknown = [dedupe, simplify].some((r) => r && r.measured === null && r.applied.length)
+  const edited = (unknown ? pkgs : [...new Set(ST_LINES.filter((r) => r.measured && /^(dedupe|simplify)$/.test(r.stage)).map((r) => r.pkg))]).filter((p) => !keys.includes(p))
+  const pg = edited.length ? await stageGate(ctx, { scope: edited, check: ctx.S.gate, fix: ctx.S.fix, max: ctx.gateMax || 0, schemas: true, label: 'polish-gate', gate: ctx.gate }) : null
+  if (pg) lines.push('polish gate ' + edited.join(', ') + ': ' + pg.exit)
   const report = ['', '## Polish', ...lines.map((l) => '- ' + l), ...findings.map((f) => '- **' + f.severity + '** `' + f.file + ':' + f.line + '` (' + f.symbol + ') — ' + f.symptom)].join('\n')
-  // a review that never ran proves nothing: every polished package stays red
-  const red = [...new Set([...fixall.filter((x) => !x.green).map((x) => x.pkg), ...open.map((f) => stDir(f.file)), ...(rv ? [] : pkgs)])]
-  return { dedupe, simplify, review: { findings, ran: !!rv }, fixall, incomplete, green: !red.length, red, files: [...new Set(fixall.flatMap((x) => x.files))], decisions: lines, report }
+  // a review that never ran proves nothing, and a MEDIUM+ finding with no owner stays open: both hold red whatever a gate says
+  const hold = [...new Set([...open.map((f) => stDir(f.file)), ...(rv ? [] : pkgs)])]
+  const red = [...new Set([...fixall.filter((x) => !x.green).map((x) => x.pkg), ...(pg && pg.exit !== 'green' ? edited : []), ...hold])]
+  return { dedupe, simplify, review: { findings, ran: !!rv }, fixall, incomplete, green: !red.length, red, hold, files: [...new Set([...fixall.flatMap((x) => x.files), ...(pg ? pg.filesChanged : [])])], decisions: lines, report }
 }
 // ── end stages ──
 
@@ -366,11 +490,16 @@ const CODE_DIMENSIONS = [
   { key: 'failure-modes', prompt: 'error handling: swallowed errors, fail-open where the comment or name promises fail-closed, exec/HTTP without a timeout or context, locks that can be skipped, partial writes' },
   { key: 'contracts', prompt: 'contract drift: help text, comments or docs that disagree with the code; flags parsed but never read; fields declared but never set; exported symbols with no caller (verify with grep)', effort: 'low', hitsOnly: true },
 ]
+// kind consolidate: the lenses look for merge-and-delete candidates, never bugs; behaviour, messages and exit codes stay identical
+const CONSOLIDATE_DIMENSIONS = [
+  { key: 'duplicates', prompt: 'consolidation candidates, not bugs: duplicated helpers or logic across files or packages, legacy paths and shims no caller needs (verify with grep)' },
+  { key: 'dead', prompt: 'consolidation candidates, not bugs: dead code with no caller (verify with grep), stale or redundant tests that pin nothing the other tests miss', effort: 'low' },
+]
 let FILES_MODE = !RANGE && PATHS.length > 0
 // A caller lens may be a bare prompt string or lack a key; both get key lens<i> (labels read find:1:undefined:7).
 const asDims = ds => ds.map((d, i) => typeof d === 'string' ? { key: 'lens' + i, prompt: d } : { ...d, key: d.key || 'lens' + i })
 const ARG_DIMS = Array.isArray(a.dimensions) && a.dimensions.length ? asDims(a.dimensions) : null
-let DIMENSIONS = ARG_DIMS || (FILES_MODE ? CODE_DIMENSIONS : DEFAULT_DIMENSIONS)
+let DIMENSIONS = ARG_DIMS || (JOB === 'consolidate' ? CONSOLIDATE_DIMENSIONS : FILES_MODE ? CODE_DIMENSIONS : DEFAULT_DIMENSIONS)
 const FOCUS = a.focus ? ` Caller focus: ${a.focus}.` : ''
 // Group packages/files ≤4 per auditor so one context holds the whole group.
 let GROUPS = []
@@ -544,7 +673,7 @@ const EXT_CAP = Math.min(CAP, 4)
 const limiter = n => { let busy = 0; const q = []; const next = () => { if (busy < n && q.length) { busy++; q.shift()() } }
   return fn => new Promise((res, rej) => { q.push(() => fn().then(res, rej).finally(() => { busy--; next() })); next() }) }
 // Fix/gate stage context: bare commands (no `cd … &&`; copilot rejects compound commands), external agents use --workdir.
-const FCTX = { cwd: CWD, cd: CWD ? `cwd: ${CWD} (external agents: ask --workdir ${CWD}). Prefix every shell command with \`cd ${CWD} &&\` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots).\n` : '', rules: SHARED_TREE, S, model: routeModel }
+const FCTX = { cwd: CWD, cd: CWD ? `cwd: ${CWD} (external agents: ask --workdir ${CWD}). Prefix every shell command with \`cd ${CWD} &&\` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots).\n` : '', rules: SHARED_TREE, S, model: routeModel, kind: JOB, lineBudget: LINE_BUDGET }
 const GATE_RULES = 'Never run git stash|checkout|reset|restore|clean|commit; never run install/deploy/release targets or edit tool config. Edit only inside scope; re-run only the gate.'
 const auditGate = S.audit.ext ? limiter(EXT_CAP) : fn => fn()
 const refuteGate = S.refute.ext ? limiter(EXT_CAP) : fn => fn()
@@ -731,12 +860,12 @@ for (let round = 1; round <= ROUNDS; round++) {
   const det = a.gate ? { gate: a.gate, source: 'args' } : await stageDetect(FCTX, S.scope, pkgs)
   phase('Gate')
   const gate = det.gate
-    ? { ...(await stageGate({ ...FCTX, rules: GATE_RULES }, { scope: pkgs, gate: det.gate, fix: S.gate, max: MAX_ITER, label: 'gate:' + round })), gateSource: det.source }
+    ? { ...(await stageGate({ ...FCTX, rules: GATE_RULES }, { scope: pkgs, gate: det.gate, check: S.scope, fix: S.gate, max: MAX_ITER, label: 'gate:' + round })), gateSource: det.source }
     : { status: 'error', exit: 'error', gate: null, gateSource: det.source, iterations: 0, filesChanged: [], residual: ['no gate detected under ' + (CWD || 'cwd') + '; pass args.gate'], history: [] }
 
   const metricsOut = { ...metrics, fixPairs: byPkg.size, gateIterations: gate ? gate.iterations : 0 }
   const out = { ...base, fixed, gate, partition, plan: planMd, metrics: metricsOut }
-  if (!gate || gate.status !== 'green' || out.fixed.some(x => x.blocked)) { rounds.push({ ...out, exit: 'blocked' }); break }
+  if (!gate || gate.exit !== 'green' || out.fixed.some(x => x.notDone)) { rounds.push({ ...out, exit: 'blocked' }); break }
   const touched = [...new Set([
     ...out.fixed.flatMap(x => [...((x.impl && x.impl.files) || []), ...((x.tests && x.tests.files) || [])]),
     ...(gate.filesChanged || []),
@@ -759,7 +888,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   SPLIT = false
   GROUPS = []
   for (let i = 0; i < Math.max(1, PKGS.length); i += 4) GROUPS.push(PKGS.slice(i, i + 4))
-  DIMENSIONS = ARG_DIMS || CODE_DIMENSIONS
+  DIMENSIONS = ARG_DIMS || (JOB === 'consolidate' ? CONSOLIDATE_DIMENSIONS : CODE_DIMENSIONS)
   TARGET = 'the code under ' + PATHS.join(', ')
   PRE = null
 }
@@ -768,8 +897,11 @@ const lastRound = rounds[rounds.length - 1] || { exit: 'error', round: 0 }
 const allConfirmed = rounds.flatMap(r => r.confirmed || [])
 const unverifiedAll = rounds.flatMap(r => r.unverified || [])
 const fixedAll = rounds.flatMap(r => r.fixed || [])
-// Red: a package whose fixer is not done, or every fixed package of a round whose gate is not green.
-const red = [...new Set(rounds.flatMap(r => (r.fixed || []).filter(x => x.notDone || x.blocked || (r.gate && r.gate.status !== 'green')).map(x => x.package)))]
+// Red: a package whose fixer is not done, or whose LAST gate (a later round's re-gate wins) is not green.
+const notDone = rounds.flatMap(r => (r.fixed || []).filter(x => x.notDone).map(x => x.package))
+const red = [...new Set([...stGateRed([...ST_GATES.map(g => g.dir), ...rounds.flatMap(r => (r.fixed || []).filter(x => x.package !== 'hotspots').map(x => x.package))]), ...notDone])].sort()
+const lines = stLines(ST_LINES)
+if (ST_OVER.length) decisions.push(`over line budget ${LINE_BUDGET}: ${ST_OVER.map(o => o.pkg + ' net ' + o.net).join(', ')}`)
 for (const r of rounds) {
   for (const x of r.fixed || []) decisions.push(`${x.notDone ? 'fix NOT done (' + (x.impl ? x.impl.status : 'no result') + ') for ' : 'fixed '}${x.findings || 0} finding(s) in ${x.package}` +
     (x.testNotDone ? ` — test stage ${x.test ? x.test.status : 'returned nothing'}` : ''))
@@ -784,10 +916,13 @@ const report = [`# code-analyzer: ${allConfirmed.length} confirmed finding(s) ov
   ...allConfirmed.map(c => `- **${c.severity}** \`${relPath(c.file)}:${c.line}\` (${c.symbol || '?'}) — ${c.title}`),
   '', `Fixed: ${fixedAll.map(f => f.package + ' (' + (f.findings || 0) + ')').join(', ') || 'none'}. Red: ${red.join(', ') || 'none'}.`,
   ...(unverifiedAll.length ? [`Unverified (refuter failed): ${unverifiedAll.map(u => relPath(u.file) + ':' + u.line).join(', ')}.`] : []),
-  ...(planOut ? ['', planOut] : [])].join('\n')
+  ...(planOut ? ['', planOut] : [])].join('\n') + (ST_LINES.length || ST_PROPOSED.length ? '\n' + stTail(lines, ST_OVER, ST_PROPOSED) : '')
+// a fix still over the line budget after its one shrink pass turns a finished run into review (failures keep their exit)
+const EXIT = STARVED && lastRound.exit !== 'error' ? 'blocked' : ST_OVER.length && ['capped', 'nothing-changed', 'dry'].includes(lastRound.exit) ? 'review' : lastRound.exit
 return {
-  ...lastRound, exit: STARVED && lastRound.exit !== 'error' ? 'blocked' : lastRound.exit, round: lastRound.round, rounds,
+  ...lastRound, exit: EXIT, round: lastRound.round, rounds,
   route: 'code-analyzer', packages: PKG_COUNT, merged: totalMerged, confirmed: allConfirmed, // every round's, not only the last re-audit's
   dropped: rounds.flatMap(r => (r.refuted || []).map(f => ({ file: relPath(f.file), line: f.line, symptom: f.title }))),
   unverified: unverifiedAll, fixed: fixedAll, red, decisions, report, partition: partitionOut, coworkers: COWORKERS,
+  lines, proposedTests: ST_PROPOSED, over: ST_OVER, gates: ST_GATES,
 }
