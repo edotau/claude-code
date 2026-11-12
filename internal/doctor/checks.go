@@ -325,7 +325,10 @@ func auditSummary() string {
 
 // browserDoctorDetail names the default browser and its extension state; advisory, never a failing check.
 func browserDoctorDetail() string {
-	rep := detectBrowsers()
+	rep, err := detectBrowsers()
+	if err != nil {
+		return "default browser not detected: " + err.Error() + " (claude-code network browser)"
+	}
 	for _, b := range rep.Browsers {
 		if b.Default {
 			return b.Name + " default, extension=" + b.Paths.Extension + " cdp=" + b.Paths.CDP + " (claude-code network browser)"

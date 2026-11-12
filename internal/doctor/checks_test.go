@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/copilot"
 	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini route engine the prod binary links
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -715,4 +716,17 @@ func rtkFixture(t *testing.T) (pin, userBin string) {
 	pin = paths.RTKPinned()
 	hosttest.WriteExec(t, pin, "#!/bin/sh\necho 'rtk 1.1.0'\n")
 	return pin, t.TempDir()
+}
+
+func TestBrowserDoctorDetailSurfacesDetectionError(t *testing.T) {
+	orig := detectBrowsers
+	t.Cleanup(func() { detectBrowsers = orig })
+	detectBrowsers = func() (browser.Report, error) { return browser.Report{}, errors.New("plutil failed") }
+	if got, want := browserDoctorDetail(), "default browser not detected: plutil failed (claude-code network browser)"; got != want {
+		t.Errorf("detection error: got %q, want %q", got, want)
+	}
+	detectBrowsers = func() (browser.Report, error) { return browser.Report{}, nil }
+	if got, want := browserDoctorDetail(), "no Chromium-family default (claude-code network browser)"; got != want {
+		t.Errorf("empty report: got %q, want %q", got, want)
+	}
 }

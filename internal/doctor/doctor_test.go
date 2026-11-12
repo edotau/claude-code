@@ -317,6 +317,6 @@ func TestDoctorRejectsConflictingModes(t *testing.T) {
 
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
 func TestMain(m *testing.M) {
-	detectBrowsers = func() browser.Report { return browser.Report{} }
+	detectBrowsers = func() (browser.Report, error) { return browser.Report{}, nil }
 	os.Exit(hosttest.Main(m))
 }
