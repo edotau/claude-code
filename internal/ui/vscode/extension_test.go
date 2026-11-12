@@ -18,11 +18,18 @@ func extensionHome(t *testing.T) string {
 	if err := os.Remove(filepath.Join(home, "probe")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(home, "vscode", "claude-code-agents"), 0o755); err != nil {
+	src := filepath.Join(home, "vscode", "claude-code-agents")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "package.json"), []byte(`{"publisher":"edotau","name":"claude-code-agents","version":"0.1.0"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return home
 }
+
+// testExtensionDir is the folder name extensionHome's manifest yields.
+const testExtensionDir = "edotau.claude-code-agents-0.1.0"
 
 func TestLinkExtensionCreatesSymlink(t *testing.T) {
 	claudeHome := extensionHome(t)
@@ -83,7 +90,7 @@ func TestLinkExtensionReplacesAStaleTarget(t *testing.T) {
 	if err := os.MkdirAll(extensionsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	stale := filepath.Join(extensionsDir, extensionDirName)
+	stale := filepath.Join(extensionsDir, testExtensionDir)
 	if err := os.Symlink(filepath.Join(t.TempDir(), "somewhere-else"), stale); err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +160,7 @@ func TestLinkExtensionPropagatesChtimesError(t *testing.T) {
 	claudeHome := extensionHome(t)
 	extensionsDir := t.TempDir()
 	source := filepath.Join(claudeHome, "vscode", "claude-code-agents")
-	if err := os.Symlink(source, filepath.Join(extensionsDir, extensionDirName)); err != nil {
+	if err := os.Symlink(source, filepath.Join(extensionsDir, testExtensionDir)); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 	injected := errors.New("chtimes refused")
