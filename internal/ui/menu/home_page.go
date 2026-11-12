@@ -50,7 +50,7 @@ func tailscaleRow() homeRow {
 	if host != "" {
 		check = host + " · " + check
 	}
-	return homeRow{Name: "tailscale", State: state, Check: check, Run: runRemote}
+	return homeRow{Name: "tailscale", State: state, Check: check, Run: runTailscale}
 }
 
 // tsStatus caches tailscale.Status (result and error) for tsStatusTTL: every render and runRemote share one call.

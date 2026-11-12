@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -214,6 +215,26 @@ func connect(ctx context.Context, authKey string, exitNode bool) error {
 	cmd := execCommandContext(ctx, bin, args...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return cmd.Run()
+}
+
+// loginTimeout bounds `tailscale login`: the browser sign-in waits on the user.
+var loginTimeout = 10 * time.Minute
+
+// Login runs `tailscale login` on in/out/errOut, so the user sees the sign-in URL, then audits the connect.
+func Login(ctx context.Context, in io.Reader, out, errOut io.Writer) error {
+	bin, err := tailscaleBin()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, loginTimeout)
+	defer cancel()
+	cmd := execCommandContext(ctx, bin, "login")
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, errOut
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	auditConnect(ctx)
+	return nil
 }
 
 // writeAuthKeyFile seals authKey into a 0600 temp file under the harness state dir for `--auth-key=file:`.

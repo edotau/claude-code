@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -133,9 +134,17 @@ func advertiseConnected(ctx context.Context, dns string) error {
 	return nil
 }
 
-// mintKeyAudited mints an auth key (mintKey) and audits the mint with its tags.
-func mintKeyAudited(ctx context.Context, expiry string, opts keyOpts) (AuthKey, error) {
-	key, err := mintKey(ctx, expiry, opts)
+// KeyOptions are a minted auth key's settings: Expiry is a Go duration or Nd, Tags a CSV of ACL tags.
+type KeyOptions struct {
+	Expiry, Tags, Description          string
+	Reusable, Ephemeral, Preauthorized bool
+}
+
+// MintKey mints an auth key through the admin API (mintKey) and audits the mint with its tags.
+func MintKey(ctx context.Context, o KeyOptions) (AuthKey, error) {
+	opts := keyOpts{Ephemeral: o.Ephemeral, Preauthorized: o.Preauthorized, Reusable: o.Reusable,
+		Tags: textutil.SplitCSV(o.Tags), Description: o.Description}
+	key, err := mintKey(ctx, o.Expiry, opts)
 	if err != nil {
 		return AuthKey{}, err
 	}
@@ -143,8 +152,32 @@ func mintKeyAudited(ctx context.Context, expiry string, opts keyOpts) (AuthKey, 
 	return key, nil
 }
 
-// saveAuthKey seals key as TAILSCALE_AUTHKEY, the vault entry resolveAuthKey falls back to.
-func saveAuthKey(key string) error { return vault.Store(authKeyName, key) }
+// SaveAuthKey seals key as TAILSCALE_AUTHKEY, the vault entry resolveAuthKey falls back to.
+func SaveAuthKey(key string) error { return vault.Store(authKeyName, key) }
+
+// ExitNode advertises (on), stops (off) or approves (approve) this box as an exit node; it returns the outcome line.
+func ExitNode(ctx context.Context, mode string) (string, error) {
+	switch mode {
+	case "on", "off":
+		if err := advertiseExitNode(ctx, mode == "on"); err != nil {
+			return "", err
+		}
+		if mode == "on" {
+			audit.Log(audit.TailscaleExitNode, "self", "enable")
+			return "tailscale: advertising as an exit node", nil
+		}
+		audit.Log(audit.TailscaleExitNode, "self", "disable")
+		return "tailscale: no longer advertising as an exit node", nil
+	case "approve":
+		dns, err := approveSelfExitNode(ctx)
+		if err != nil {
+			return "", err
+		}
+		audit.Log(audit.TailscaleExitNode, dns, "approve")
+		return "tailscale: exit-node routes approved", nil
+	}
+	return "", fmt.Errorf("exit node mode must be on, off or approve, got %q", mode)
+}
 
 // Cred is one Tailscale credential name/value pair waiting to be stored together.
 type Cred struct{ Name, Value string }
