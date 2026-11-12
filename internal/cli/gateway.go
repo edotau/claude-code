@@ -206,7 +206,7 @@ func gatewayRoute(args []string) int {
 	model := fs.String("model", "", "alias (opus) or version (opus-5-5) (default: classify --task, else sonnet)")
 	want := fs.String("agent", "", "the agent asked for; it leads when it passes the gates")
 	task := fs.String("task", "", "task text the classifier reads when --model is absent")
-	fallback := fs.String("fallback", router.FallbackAll, "all, agents or none")
+	fallback := fs.String("fallback", "", "all|agents|none (all if "+router.EnvFallback+" set, else none)")
 	route := fs.String("route", "", "fallback ladder: default|first-party|databricks[:<profile>] (default: by session profile)")
 	profile := fs.String("profile", "", "lead profile, or session")
 	provider := fs.String("provider", "", "lead on this provider's signed-in profile")
@@ -216,6 +216,9 @@ func gatewayRoute(args []string) int {
 	}
 	if fs.NArg() > 0 {
 		return helptext.Fail(name+": unexpected argument %q", fs.Arg(0))
+	}
+	if !helptext.Explicit(fs, "fallback") {
+		*fallback = router.DefaultFallback()
 	}
 	if code := checkRouteFlags(name, *route, *profile, *format, *fallback, *want); code != 0 {
 		return code
