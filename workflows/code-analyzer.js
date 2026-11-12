@@ -760,9 +760,13 @@ for (let round = 1; round <= ROUNDS; round++) {
     return Promise.all(batches.map(([pkg, fs, bi]) => {
       refuteCalls++
       const list = fs.map((f, i) => `${i}. ${f.title}\n   At: ${f.file}:${f.line}\n   Scenario: ${f.scenario}\n   Evidence: ${f.evidence}`).join('\n')
-      const brief = `Try to REFUTE each of these ${fs.length} audit finding(s) in ${pkg} against the real tree${IN} (read-only); one verdict per index.\n${list}\n\n` +
+      // A range ending before HEAD: refuters once judged the working tree and rejected true findings about the range.
+      const end = (RANGE || 'HEAD~1..HEAD').split(/\.{2,3}/).pop() || 'HEAD'
+      const at = FILES_MODE ? '' : `These findings describe the change ${RANGE || 'HEAD~1..HEAD'}: judge the code as of its end commit ${end} (git show ${end}:<path>, git grep <pattern> ${end}) wherever the working tree differs from it; later commits do not refute a finding. `
+      const brief = `Try to REFUTE each of these ${fs.length} audit finding(s) in ${pkg} against the real tree${IN} (read-only); one verdict per index.\n${list}\n\n` + at +
         `Refuted means: the code path does not do what is claimed, the scenario cannot occur, or it is already handled; quote the line that decides it. ` +
         `Default to refuted=true when the evidence does not hold up. A TRUE claim with a WRONG file or line is NOT refuted: set refuted=false and give the correct file and line. ` +
+        `That a change was deliberate, already merged or allowed by a repo rule does NOT refute a finding: only facts about the code do. ` +
         // A "no such verb" finding once survived and its fixer rewrote a correct doc; the verb was an alias spelling.
         `A claim that a verb, flag, symbol or file does NOT exist is refuted unless a tree-wide grep (alias, registration and config tables included) AND the repo's own test or CLI output both come back empty.`
       const label = `refute:${round}:${pkg.split('/').pop()}:${bi}`
