@@ -557,20 +557,30 @@ func overlayIdle(r agentconfig.Resolved) bool {
 	return len(r.Set)+len(r.Unset)+len(r.Keep) == 0 && os.Getenv(agentconfig.OverlayVar) == ""
 }
 
-// CheckRouteNames refuses a name in names that route (KEY=VALUE, before the overlay is appended) already sets.
-func CheckRouteNames(route, names []string) error {
+// CheckRouteNames refuses an overlay set or unset name that route (KEY=VALUE, before the overlay is appended) sets.
+func CheckRouteNames(route, set, unset []string) error {
 	own := map[string]bool{}
 	for _, kv := range route {
 		k, _, _ := strings.Cut(kv, "=")
 		own[k] = true
 	}
-	for _, n := range names {
-		if own[n] {
-			return fmt.Errorf("overlay set %s: set by the launch for its route; use --profile", n)
+	for _, op := range []struct {
+		verb  string
+		names []string
+	}{{"set", set}, {"unset", unset}} {
+		for _, n := range op.names {
+			if own[n] {
+				return notStartedError{fmt.Errorf("overlay %s %s: set by the launch for its route; use --profile", op.verb, n)}
+			}
 		}
 	}
 	return nil
 }
+
+// notStartedError is a launcher refusal raised before any child process starts; the attempt marks it NotStarted.
+type notStartedError struct{ error }
+
+func (e notStartedError) Unwrap() error { return e.error }
 
 // checkOverlay refuses an overlay that sets or unsets a name the plan's launch sets for its route.
 func (p Plan) checkOverlay(r agentconfig.Resolved) error {
@@ -599,7 +609,7 @@ func (req RunOptions) ApplyOverlay(r agentconfig.Resolved) RunOptions {
 	req.Env = append(env, req.Env...)
 	req.KeepEnv = slices.Concat(req.KeepEnv, r.Keep)
 	req.Unset = slices.Concat(req.Unset, r.Unset, []string{agentconfig.OverlayVar}) // Environ re-adds the confinement
-	req.OverlaySet = slices.Sorted(maps.Keys(r.Set))
+	req.OverlaySet, req.OverlayUnset = slices.Sorted(maps.Keys(r.Set)), r.Unset
 	return req
 }
 

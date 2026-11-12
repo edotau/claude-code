@@ -219,6 +219,9 @@ func (r *askRun) selectAgent() (int, bool) {
 	if err := overlayLocal(r.ov, f.live, f.host); err != nil {
 		return r.fail(err, 2)
 	}
+	if f.host != "" && f.leadProvider != "" { // the remote ask carries --profile, never a --provider lead
+		return r.fail(errors.New("--host cannot be combined with --provider: name the far side's profile with --profile"), 2)
+	}
 	return 0, false
 }
 

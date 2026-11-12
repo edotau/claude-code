@@ -180,7 +180,7 @@ func (v cliEngine) renderSettings(ctx context.Context, p *CLIPrep, req RunOption
 	if p.Env, p.Argv, p.Emulated, p.Cleanup, err = v.RenderSettings(ctx, st, p.Env, p.Argv); err != nil {
 		return err
 	}
-	return CheckRouteNames(p.Env, req.OverlaySet)
+	return CheckRouteNames(p.Env, req.OverlaySet, req.OverlayUnset)
 }
 
 func cliHeadless(s Schema, prompt string, req RunOptions) Headless {
@@ -199,6 +199,7 @@ func (v cliEngine) Run(ctx context.Context, req RunOptions, sink wire.Sink) (wir
 		defer p.Cleanup()
 	}
 	if err != nil {
+		p.Result.NotStarted = true // prepare fails before any child process starts
 		return p.Result, err
 	}
 	return v.Exec(ctx, p, req, sink)

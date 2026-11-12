@@ -176,7 +176,7 @@ func (l hubDispatch) prepareLaunch(req agent.RunOptions, model string) (string, 
 	if req.SystemPrompt != "" {
 		env, argv = opencodeSystemPrompt(env, argv, req.SystemPrompt)
 	}
-	if err := agent.CheckRouteNames(env, req.OverlaySet); err != nil {
+	if err := agent.CheckRouteNames(env, req.OverlaySet, req.OverlayUnset); err != nil {
 		return "", nil, nil, err
 	}
 	env, err = opencodeApplyPermissions(env, req)

@@ -144,7 +144,7 @@ func routeOptions(opts *sdkOptions, route *copilotRegistryRoute, env []string, r
 		route.apply(opts)
 	}
 	// the SDK child gets exactly buildClientOptions' env; its base drops foreign credentials under ctx isolation
-	if err := agent.CheckRouteNames(slices.Concat(opts.Env, opts.ChildEnv), req.OverlaySet); err != nil {
+	if err := agent.CheckRouteNames(slices.Concat(opts.Env, opts.ChildEnv), req.OverlaySet, req.OverlayUnset); err != nil {
 		return copilotFatal(err)
 	}
 	opts.Env = append(opts.Env, req.Env...) // --env goes last so it wins
