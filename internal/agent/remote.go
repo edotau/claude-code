@@ -282,7 +282,7 @@ const maxRemoteLine = 4 << 20
 func (r remoteEngine) relay(ctx context.Context, out io.Reader, sink wire.Sink, stop, touch func()) (env *wire.Envelope, streamed bool, sinkErr error) {
 	rd := bufio.NewReaderSize(out, 64<<10)
 	for {
-		line, tooLong, rerr := ReadLineCapped(rd, maxRemoteLine)
+		line, tooLong, rerr := textutil.ReadLineCapped(rd, maxRemoteLine)
 		touch()
 		if tooLong {
 			wire.LogEvent(ctx, "ssh", fmt.Sprintf("remote line over %d bytes dropped", maxRemoteLine))
