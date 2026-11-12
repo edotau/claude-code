@@ -15,11 +15,7 @@ only ([docs](https://code.claude.com/docs/en/agent-teams)); not used (#3). Subag
 15x a chat and coding has fewer parallel tasks than research
 ([multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system)).
 
-| Who holds the plan | Harness form | Use when |
-| --- | --- | --- |
-| Claude turn by turn | one leaf, parallel leaves in one message, `Plan` checklist | the next step depends on the last |
-| The script | `~/.claude/workflows/*.js` ([saved-workflows.md](saved-workflows.md)) | steps known up front, same every time |
-| A lead over peers | agent teams | never here |
+Plan ownership: `../SKILL.md` → Who holds the plan.
 
 Workflow limits (docs): 16 concurrent agents by default, 1,000 per run, no mid-run input, run a small slice first
 (`code-workers` `slice`). The dispatch cap (24 per account, 4 x CPUs machine-wide) claims one slot per `agent()` site
@@ -47,7 +43,7 @@ package p:  find(2 lenses) -> merge(file +-10 | symbol) -> rederive(blind) -> fi
 - Evidence: R9 26 agents / 2.0M tokens, yield 7.5 findings per 1M; R10 60 / 4.8M (7.1); R11 114 / 8.8M (7.0).
 - Failures and fixes: a fixer limited to its package skipped findings cited elsewhere (`d51420fb`); a blocked fixer
   plus a green gate over unchanged code read as fixed (`07f86477`); scoped gates miss cross-package breakage
-  (`16d36662` broke `internal/ui/menu`, #24): full `go build/vet/test ./...` before every push (#27).
+  (`16d36662` broke `internal/ui/menu`, #24): follow `CLAUDE.md` hard rule 5 before pushing (#27).
 
 ### Fan-out / fan-in
 
@@ -113,34 +109,18 @@ main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> in-script st
 
 - Sequential plan: per task implementer, spec review until `SPEC_COMPLIANT`, `Skill(simplify)`, quality review until
   `SHIP` ([prompts.md](prompts.md)); stop and ask when an assumption breaks. Ticks via `docs-plan-tick`.
-- Tournament: baseline the eval, send one brief verbatim to N `claude` leaves (`isolation: "worktree"`, branch
+- Tournament: after the owner approves worktree creation, baseline the eval, send one brief verbatim to N `claude`
+  leaves (`isolation: "worktree"`, branch
   `compete/<slug>/<n>`), re-measure yourself, `claude-code worktree merge` the winner, tag losers. A tie is not a win.
 
 ### Not used
 
 - Agent teams / `TeamCreate`: experimental, one per session, no nesting.
 - Loop-until-dry and the modal sweep: yield 2.2 and 2.5, retired or pre-pass only (scorecard 7-8).
-- External agents inside workflows: `stepOf` rejects `agent`/`profile` (`e1ef8731`); run them outside via
-  `claude-code agents ask --agent codex`.
+- External workflow stages and supported overrides: [saved-workflows.md](saved-workflows.md).
 - Peer-to-peer agent debate: no harness component; refute/rederive is one-way and blind.
 
-## Agent type selection
-
-| Need | Type (`subagent_type`) | Model / effort | Notes |
-| --- | --- | --- | --- |
-| Read-only scan before work | `Explore` | built-in | scope to touched dirs |
-| Design the checklist | `Plan` | `inherit` | plan only; `agents/Plan.md` |
-| In-context judge or integrator | `claude` | `inherit` | `agents/claude.md` |
-| Default leaf, one scoped task | `claude` | `sonnet` / medium | in-context |
-| Diff or plan review, other family | `codex` | pinned in agent file | verdict word |
-| Read-heavy sweep, 1M context | `gemini` | `sonnet` / low | cannot write |
-| Mechanical edits, test repair | `copilot` | `sonnet` / medium | experimental |
-| Edits on discovered models | `opencode` | `sonnet` / medium | experimental |
-| Any agent on a Databricks profile | any type + `Profile:` | per profile | blocked without its secret |
-| Workflow stage | `agent()` with `model`+`effort` | `haiku\|sonnet\|opus\|fable`, `low..max` | claude only |
-
-Escalate by lowering `effort` before changing model; after one failed high-effort Sonnet attempt re-dispatch on `opus`.
-Alias guidance: aliases or `inherit`, never dated ids on first-party use (research report; `rules/workflows/agents.md`).
+Role selection and escalation: `../SKILL.md` → Leaf types and Rules.
 
 ## Split vs merge; skill vs agent vs brief
 
@@ -185,7 +165,7 @@ Also worth knowing: `maxTurns`, `isolation: worktree`, `background`, `memory`; u
 - Re-derive blind, and treat a failed re-derivation as unverified (`222ae2b9`).
 - A fixer that is not `done` is red even when the gate passes (#33, `07f86477`).
 - Route findings to the package that owns the file (#25, `d51420fb`).
-- Scoped gates are not enough: full suite before every push (#24, #27).
+- Scoped gates can miss integration failures; release checks: `CLAUDE.md` hard rule 5 (#24, #27).
 - Revert a leaf's out-of-scope hunk (#20); a leaf never "fixes" files outside its list.
 - Pin `model` and `effort` on every stage with one verbatim `stepOf` (#29, `222ae2b9`).
 - Delete dead lanes: goal-keeper and `internal/goal` went (#8, `46da50b8`, `248e6db6`).

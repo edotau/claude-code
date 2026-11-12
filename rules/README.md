@@ -27,7 +27,8 @@ paths:
 
 ## Language overlays
 
-A `software/<lang>/<topic>.md` opens with a `> This file extends …` line linking its `standards/<topic>.md` counterpart.
+A language overlay extending a standards topic opens with a `> This file extends …` line linking its
+`standards/<topic>.md` counterpart.
 Where idioms conflict, **the language rule wins**.
 
 ## Writers and reach

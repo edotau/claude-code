@@ -23,8 +23,10 @@ Executor mechanics (account switching, the `git rm` staging gotcha): `agents/cop
 
 ## Worktrees
 
-**Default is the current branch.** Vault env `HARNESS_WORKTREE=off` means work on the current branch with no asks;
-unset (or any other value) means ask the user once, before the first change, whether to use a linked worktree, plus
+**Default is the current branch.** Vault env `HARNESS_WORKTREE=off|false|0` (case-insensitive) means work on the current
+branch with no asks;
+any other value, including unset, means ask the user once, before the first change, whether to use a linked worktree,
+plus
 when another session joins the checkout. Never create one without the user's yes; no answer means keep working in place.
 
 - Verbs (`create`, `list`, `merge`, `clean`, `clean-all`) and their flags: `skills/using-git-worktrees/SKILL.md`.

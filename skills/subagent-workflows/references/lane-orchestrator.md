@@ -1,46 +1,25 @@
 # Lane Orchestrator
 
-Many leaf-sized tasks across disjoint packages: the manager splits them into lanes; one Claude subagent per lane fans
-out leaves through `claude-code agents ask` (outside the Agent-tool cap; `ask`'s per-account cap still applies),
-verifies each in the shared tree, and commits it.
-
-| Role | Who | Does | Never |
-|---|---|---|---|
-| Manager | main session | splits lanes by disjoint packages, dispatches one `claude` leaf per lane, merges, runs the suite once with approval | edits a lane's files |
-| Lane orchestrator | that subagent | writes the lane checklist, dispatches and verifies each leaf, commits named files, ticks the box | edits outside its lane |
-| Leaf | a `claude` leaf (or an agent-named type) that requests `Agent: <x>` via `claude-code agents ask` | one checklist line, owned files only | commits or dispatches subagents |
+Many leaf-sized tasks can be grouped into lanes of disjoint files. The main session owns the lane checklists,
+dispatch, fan-in and commits; a lane is a scheduling group, not another manager subagent.
+Dispatch syntax and relay behavior: `../SKILL.md` → Leaf types. Keep leaves terminal.
 
 ## Lane plan
 
-`lanes/<lane>.md` beside the plan (`rules/harness/docs-placement.md`), holding only a checklist (line format and leaf
-size: `agents/Plan.md` → `## Tasks`; 25–40-item dispatches timed out, 5–10 finished):
+Keep `lanes/<lane>.md` beside the implementation plan (`rules/harness/docs-placement.md`). Each checklist line names
+one verifiable outcome, owned absolute paths, the selected leaf type and its dependencies. Split tasks before they
+need a nested orchestration layer. One writer per file; a later wave owns overlapping work.
 
-```markdown
-- [ ] <verb> <object> — Agent: <copilot|codex|gemini|opencode|claude> — owns: <files>
-- [x] <verb> <object> — Agent: copilot — owns: internal/foo/bar.go — a1b2c3d
-```
+## Dispatch and verify
 
-## Dispatch
+- The manager sends ready, disjoint leaves together, with a complete brief per `prompts.md`; each owns one checklist
+  line. New tests wait for the manager's live check; repairs of existing tests may run beside implementation.
+- External wrappers execute their single CLI task. The manager reads each diff, verification output and receipt;
+  checks producer/consumer seams; returns gaps to the same leaf with changed evidence.
+- Apply `rules/standards/quality.md` to the combined diff. The main session runs release checks only at the authorized
+  boundary; no leaf runs the full suite or commits.
+- The manager lands named files only when authorized, then records the resulting hash on completed checklist lines.
+  An edit-only task remains uncommitted and records checked results without a hash.
 
-Bug fixes start with the live before/after run (`testing-guidelines.md`). Run the lane's disjoint leaves as one batch,
-one JSONL line per leaf (`id`, `agent`, `profile`, `model`, `prompt`, `workdir`, `tools`, `timeout`; `profile`
-omitted = the pin, `dev|qa|prod` = the all-Databricks arm):
-
-```bash
-claude-code agents ask --batch <lane>.jsonl --jobs 12 --fallback none --autonomous --attach <lane.md> --format json \
-  > $TMPDIR/<lane>/batch.out    # one envelope per line; per-account caps and isolation apply
-```
-
-Overlapping leaves go in a later batch; new tests wait for "landed". Brief per line:
-[prompts.md#lane-leaf](prompts.md#lane-leaf), lane plan attached. A finding outside the leaf's files is a new line here
-or a note to the manager.
-
-## Verify each leaf
-
-1. In the shared tree; with the user's yes, `worktree create <name>` (at HEAD: copy the leaf's owned files in first).
-2. `go build ./... && go vet <pkgs> && go test <pkgs>` (exit code, never `| tail`), then the leaf's live check.
-3. Read the diff: assertions intact (`testing-guidelines.md` → When a test fails), none outside `owns:`, no old names;
-   a changed seam: run every consumer's tests ([Fan-in](../SKILL.md#fan-in)).
-4. `git add <new files>; git commit -m "<msg>" -- <files>` (a pathspec commit, so other lanes' staged files never ride
-   along); tick the box with the short id; `worktree clean <name>` if one was made; delete the leaf scratch.
-5. Red: retry once ([Fan-in](../SKILL.md#fan-in)) or fix a small gap in-lane; else leave it unticked.
+Explicitly requested batch scripts use `claude-code agents ask --batch` per its help. They do not bypass ownership,
+permission or per-account concurrency limits, and are not a hidden fallback for unavailable Agent-tool dispatch.

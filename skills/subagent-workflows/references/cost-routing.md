@@ -3,31 +3,28 @@
 Serves `../SKILL.md` Phase 0 (shape) and Phase 2 (dispatch). `ask`/`dispatch` bill the agent's profile: delegate when
 cheaper or wider; integration and final checks stay Claude's.
 
-## Pick by role
+## Dispatch and routing
 
-| Role | Agent | Call |
-| --- | --- | --- |
-| explore — code scan + web/deep research | `gemini` | `claude-code agents dispatch explore [--part q]… "<task>"` (≤12 parallel legs, one cited report) |
-| wide edits, scans, audits | `copilot` fleet | `claude-code agents dispatch fleet "<task>"` or `ask --agent copilot --fleet`; check `git diff --stat` after |
-| compare or find a model | `opencode` | `claude-code agents dispatch compare --models a,b "<task>"`; pool: `opencode catalog list`; `--model discovery` = router picks a rare Databricks model |
-| diff review | `codex` · `gemini` | `claude-code codex review --adversarial [--base <b>]` · `claude-code gemini review --model gemini-4-argon-high` |
-| low-severity audit fixes | `opencode` | `/opencode --profile qa --model databricks-claude-sonnet-5-5 <task>` (or `prod`; not `dev`: 429s) |
-| standard / mechanical edits | router pick | `claude-code agents ask --agent <a> --tools --fallback none --format json "<brief>"` |
-| hard reasoning, integration | Claude | stays in session |
+Agent roles and the relay contract: `../SKILL.md` → Leaf types. Manager dispatch: `CLAUDE.md` guideline 3.
+Use the root machine's pins; pass an explicit route or model only when the task calls for one. Do not pin `dev`,
+`qa`, `prod` or a personal login based on historical measurements. `claude-code gateway --agent <a>` previews the
+current pick; `claude-code <agent> catalog` lists models. Aliases come from `internal/providers/defaults.json`
+and the vault overlay, resolved by `internal/models`; `internal/router/table.json` holds price/account rows.
 
-Gemini needs `--tools` for repo or web work (else agy answers from memory); `dispatch explore` sets it. Copilot off
-Databricks uses `--model gpt-6.1-sol`; `--model discovery` needs a Databricks `Profile:`.
+### Shell roles
 
-## Run the dispatch
+For an explicitly requested script or shell task, `claude-code agents dispatch` supplies these built-in roles;
+the vault's dispatch-roles overlay may replace them:
 
-Smoke each agent once: `claude-code agents ask --agent <a> "Reply READY only."` (`agents` ✓ = binary + credential). Name
-it in the brief (`Agent: <name>`), or `Agent: claude` when the brief costs more than the work, the step needs this
-session's context, or the smoke failed. Model alias (`opus`/`sonnet`/`haiku`/`fable`): `internal/router/table.json`
-maps agent × alias → model, effort, account and price. The CLI starts cold: paste every fact plus the shared-tree line;
-opencode has ignored `--workdir` and written the live tree, so check `git diff --stat`. In a batch
-(`agents ask --batch`, `agents dispatch`, workflows) each account runs up to its cap (`inflight.Base`; a profile's
-`concurrency` overrides), the machine up to min(cap × accounts, 4 × CPUs); outside one nothing caps. Back off on
-`429`s.
+| Role | Execution |
+| --- | --- |
+| `explore` | copilot, one read-only code/web question per `--part`, up to 12 |
+| `fleet` | copilot fleet mode; inspect every changed file |
+| `compare` | opencode, one call per model in `--models a,b` |
+
+These are shell conveniences, not substitutes for visible Agent leaves. A relay runs one task; it does not invoke
+a role fan-out unless explicitly requested. `gemini` needs tools for file reads or search; use its read-only mode
+for research. An OpenCode run may write outside its intended workdir: verify the actual tree and owned files.
 
 ## Ask flags and lifecycle
 
@@ -38,11 +35,9 @@ NAME=VALUE` reaches every agent (credential-looking names refused); `--remote <h
 
 ## Fallback
 
-- **Ladder**: `routing.ladders` (`internal/providers/defaults.json`); `claude-code gateway [--agent a] [--model
-  M] [--task "<t>"]` shows the pick, scores and skip gates. Default: copilot on Databricks, then copilot on GitHub
-  (gpt-6.1-sol, gpt-6-astra) → Databricks → codex (openai) → opencode, Claude scored in after copilot;
-  `--route first-party`: copilot → codex → gemini → opencode-go. The `--agent` asked for leads when it passes the
-  gates; `--profile session|<p>` and `--provider <x>` (with `--fallback`) lead on that route and still fall back.
+- **Ladder**: `routing.ladders` in `internal/providers/defaults.json` plus vault overrides.
+  `claude-code gateway --agent <a>` shows the resolved pick and skip gates. `--route` chooses an execution arm;
+  `--profile` leads on a profile and `--fallback none` pins that call. Neither changes persistent pins.
 - **Gates**: `off` (`claude-code <agent> off`), no table row, binary/login missing, Copilot's pinned GitHub profile only
   while credits are verified < 95%, an exhausted account (100% window or a remembered `402`/quota error). **Score**:
   `0.5 × price + 0.5 × headroom`; accounts ≥90% used sort last.

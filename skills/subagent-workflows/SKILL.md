@@ -7,7 +7,7 @@ description: Run multi-agent work end to end, from picking the shape (fan-out on
 
 ## Execution mode: subagent
 
-Leaves run through the Agent tool or `claude-code agents ask`; they are terminal and never fan out, so the manager
+Dispatch follows `CLAUDE.md` guideline 3; they are terminal and never fan out, so the manager
 (the main session) is the one orchestration layer. Agent files say who a leaf is, the brief's `Method:` skill how,
 this skill when and in what order, [patterns.md](references/patterns.md) which shape: weak output means fix the
 skill, a wrong role the agent file, a wrong order this skill. Writing an agent file: `rules/workflows/agents.md`.
@@ -25,24 +25,44 @@ for a workflow and no specific one fits, run `code-engineer` (`~/.claude/workflo
 
 ## Leaf types
 
-A leaf's `subagent_type` is the agent doing the work: `claude` works in-context; `codex`, `copilot`, `gemini` and
-`opencode` request themselves via `claude-code agents ask --agent <x>` (**experimental**). Trust a request only on the
-`ran on` line its `ask` prints (`dispatch-stop` blocks a stop with none, once); keep a `claude` fallback.
+Dispatch syntax and the allowed roster: `CLAUDE.md` guideline 3. Shell `agents ask` belongs inside an external
+relay or an explicitly requested script, not a second manager dispatch path. Owner shortcuts:
+`rules/workflows/agents.md` → Slash commands.
 
-| Leaf | subagent_type | Role | Method skill | Output |
-| --- | --- | --- | --- | --- |
-| Claude | `claude` | Default: in-context Sonnet work, reasoning, integration | per brief | Status report |
-| Codex · Gemini | `codex` · `gemini` | Diff or plan review · read-heavy sweeps | `evaluate-code` | Verdict · file:line findings |
-| Copilot · opencode | `copilot` · `opencode` | Mechanical edits, test repair · edits on discovered models | per brief | Status report |
-| Databricks | any type + `Profile: <name>` | Force the agent onto a Databricks profile; the type is unchanged | per brief | Status report |
-| Explore | `Explore` | Read-only scan before any non-trivial work | none | Codebase Context Brief |
-| Plan | `Plan` | Design the checklist the leaves execute | `plans/` template | Plan file |
-| Test agent | `copilot` (TEST mode) | Repair and write tests beside the implementer | `testing-guidelines.md` | Test report |
+| Leaf | Role | Output |
+| --- | --- | --- |
+| `claude` | In-context work on the session model | Status and verification |
+| `codex` | Cross-family review, plan vetting, delegated edits | Verdict or status with evidence |
+| `copilot` | Test repair, mechanical edits, authorized LAST-MILE | Scoped results |
+| `gemini` | Read-only research and codebase sweeps | Cited findings |
+| `opencode` | Code/docs work and requested model discovery | Status and verification |
+| `Explore` | Scoped read-only scan before non-trivial work | Codebase Context Brief |
+| `Plan` | Read-only design on the session model | Plan in `docs/templates/plan.md` form |
+| `general-purpose` | Built-in general work when the named roles do not fit | Brief's requested report |
 
-The `dispatch-effort` hook prefixes the `description` with the planned model (`gpt-6.1-sol: <task>`; in auto
-mode it denies once naming the text to resend); an `inherit` agent runs at the parent's model: fan out as `claude`.
-Print the exact prefix before a dispatch with `claude-code agents label <type> --brief FILE` (add `--model` for a
-pin; a Plan or `claude` leaf needs the session model, else pass `--session-model`).
+Print the label with `claude-code agents label <type> --brief FILE`; `--model` previews a dispatch model,
+`--session-model` supplies the parent model when the transcript cannot. `claude` and `Plan` keep frontmatter
+`model: inherit`; external wrappers' frontmatter controls the relay, not the vendor model. The root machine's
+pins and per-call flags select external execution; never overwrite another machine's pins.
+
+### External relay contract
+
+This contract applies to `codex`, `copilot`, `gemini` and `opencode` wrappers in Claude Code:
+
+- Execute a leading `Run:` command once with the task appended; otherwise pick one supported CLI verb.
+  Preserve the requested agent, model, route, host and permissions. A bare task means `ask`, with tools only as
+  required. Never execute a `Run:` and then start another ask to satisfy a later recipe.
+- Put the whole cold-start brief into that call. Default a named-agent task to `--fallback none`; preserve an
+  explicitly requested policy and report any actual fallback. Keep pins unchanged.
+- A running background job is the same attempt: follow it and read its result. Do not start a duplicate ask,
+  perform a readiness smoke before every task, or repeat discovery unless the task requests it.
+- Verify returned claims with the brief's scoped check and cited files; verification is not a second model call.
+  Report missing evidence, a failed gate or dispatch error to the manager. Do not repair it in-context or silently
+  choose another agent. The manager decides whether a changed follow-up warrants another call.
+- Quote the actual `ask: ran on` receipt and job/session ids. For the stop gate and its capped failure behavior,
+  see `rules/harness/hooks.md` → `dispatch-stop`; never manufacture a receipt to release it.
+- Inside the projected vendor CLI, do the task directly; do not invoke this wrapper or recursively ask yourself.
+  The wrapper's relay model, effort and turn budget do not constrain the vendor's task reasoning.
 
 ## Workflow
 
@@ -56,12 +76,12 @@ plan (resume at the first unticked line of its `~/.claude/plans/` checklist).
 |---|---|
 | Single leaf | One `Agent` call with a brief ([prompts.md](references/prompts.md)) |
 | Parallel fan-out | `Agent` calls in one message, disjoint files ([Ownership](#handoff-contract)) |
-| Which agent, model, workspace | [agents-and-models.md](references/agents-and-models.md) (decision table, capabilities, measurements) |
-| Same question, many angles | `claude-code agents dispatch explore\|fleet\|compare` ([cost-routing.md](references/cost-routing.md)) |
+| Which agent, model, workspace | [agents-and-models.md](references/agents-and-models.md) (live sources and execution surfaces) |
+| Same question, many angles | Separate Agent leaves; shell role commands only for requested scripts ([cost-routing.md](references/cost-routing.md)) |
 | Sequential plan · tournament | [patterns.md](references/patterns.md) (every shape, its pattern and what enforces it) |
 | Many leaf-sized tasks | [Lane orchestrator](references/lane-orchestrator.md) |
 | Saved `Workflow` | `workflows/*.js`, **only when the user asks** ([saved-workflows.md](references/saved-workflows.md)) · composite templates: [composites.md](references/composites.md) |
-| Fleet scan | `claude-code agents dispatch fleet "<task>"`; check `git diff --stat` after |
+| Fleet scan | A `copilot` leaf with an explicitly requested fleet task; verify the returned diff |
 
 ### Phase 1: prepare
 
@@ -73,12 +93,28 @@ and a fan-in read.
 
 **Brief (in)** — a fresh agent can act from it alone:
 
-- `Objective:` one outcome. `Agent:` the agent requested via `ask` (omitted or `in-context` = does it itself; several
-  names = relay `a → b` unless `Mode: compare`). `Profile:` a vault profile (the dispatch keeps its type; unknown
-  names are denied). `Model:` is planned, not implemented. `Task:` the plan task id it lands (the hook claims it).
-- `Owns:` the exact files, plus "Do NOT edit <others>". `Method:` the skill to follow. `Workflow:` a saved Workflow it
-  may run, the only way a leaf starts one. `Context:` paths with lines, decisions, plan path. `Constraints:` CLAUDE.md
-  rules plus the [Shared tree](#shared-tree) line. `Acceptance:` an observable outcome. `Verify:` the scoped command.
+- `Objective:` one outcome. `Agent:` names the work agent; omit for the selected type or use `in-context` for
+  direct work. Keep it consistent with the type; request another agent from the manager rather than a hidden relay.
+- `Run:` an optional exact CLI command, preferred for explicit routing. `Model:` is not parsed by the hook:
+  put `--model` on the command instead. `Mode:`, `Owns:`, `Method:`, `Verify:` and `Acceptance:` are conventions
+  read by the leaf and fan-in, not routing hooks. `Task:` identifies a plan task for the hook's slot claim.
+- `Owns:` absolute paths and forbidden files. `Method:` the skill. `Context:` evidence, decisions and plan path.
+  `Constraints:` applicable rules and the [Shared tree](#shared-tree) line. `Verify:` a scoped command;
+  `Acceptance:` its observable outcome. `Workflow:` a saved Workflow only when the owner requested it.
+
+Legacy hook routing is supported but not needed for an ordinary dispatch:
+
+| Brief field | Current behavior |
+| --- | --- |
+| `Profile: <name>` | Validated profile, prepends `ask --profile`; ignored for `Plan`, `Explore`, `gemini` and `Agent: in-context` |
+| `Route: databricks[:<profile>]` | Prepends `ask --route` for eligible work leaves, Gemini included; `Plan`, `Explore` and in-context briefs ignore it |
+
+`--profile` leads then falls back unless `--fallback none` pins it; a brief profile does not add that flag.
+`--route` accepts `default`, `first-party` and `databricks[:<profile>|:auto]`; the brief `Route:` accepts only the
+Databricks arm and validates a named workspace. Use a leading `Run: claude-code agents ask …` (optionally with global
+`--host <h>`) and no `Profile:`/`Route:` lines to avoid their prompt rewrites in auto mode. The hook still rewrites
+some non-direct calls there; see `rules/harness/hooks.md`. `--host` runs here and tunnels Databricks requests;
+`--remote` runs the verb on the named host.
 
 **Report (out)** — a review's verdict word alone, else one Status: `DONE` · `DONE_WITH_CONCERNS` (resolve before
 review) · `NEEDS_CONTEXT` ([Return to owner](#return-to-owner)) · `BLOCKED` (change something; never resend unchanged).
@@ -133,8 +169,8 @@ outside the leaf's files, confirm a new test can fail, re-run scoped checks your
 
 ### Phase 4: finish
 
-Run the verification order in `rules/standards/quality.md`, then commit named files only (`git commit -- <paths>`, so a
-staged deletion from elsewhere is never swept in) and report to the owner.
+Run applicable checks in `rules/standards/quality.md` and stop at the requested boundary.
+Commit only when authorized, per `rules/standards/worktree-git.md`; report verified edits otherwise.
 
 #### Return to owner
 
@@ -152,8 +188,8 @@ a sibling's half-finished edit); check writes with `git diff --stat`; stage name
 
 - Decide the owner before gathering evidence, never redoing its searches. Simplify once per diff, before review, run by
   the manager; detectors (`claude-code review *`) once per pipeline.
-- Leaves never auto-fallback: after one failed high-effort Sonnet attempt re-dispatch on `opus` (a read-only sweep may
-  retry on `haiku`); lower `effort` before the model.
+- A failed leaf returns its error. The manager may retry once with changed evidence or routing; never resend an
+  unchanged failed brief. Preserve explicit agent/model choices unless the owner authorizes a change.
 
 ## Error handling
 
@@ -177,8 +213,8 @@ a sibling's half-finished edit); check writes with `git diff --stat`; stage name
 
 ## Authoring rules
 
-- Name `Agent:`, `Mode:`, `Owns:` and `Verify:` in every brief; the hooks and fan-in read them.
+- Name the work agent, owned files and scoped verification; field parsing is defined in Handoff contract.
 - One task per leaf; state inter-task dependencies so the manager orders the dispatch.
 - Paste every fact the leaf needs: the CLI starts cold and cannot see this session.
 - Specify realistic error handling: what to report on a missing credential, a red gate or a file it doesn't own.
-- Choose models in the `ask` call (`--model`), not a brief field; `Model:` is planned, not implemented.
+- Choose models in the `ask` call (`--model`), not a brief field; `Model:` is not parsed by the hook.
