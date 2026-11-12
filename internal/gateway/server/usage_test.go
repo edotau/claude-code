@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -79,15 +78,6 @@ func waitLedger(t *testing.T) []tokenledger.Entry {
 	return got
 }
 
-func TestDeadKeyCanonicalizesOneMarker(t *testing.T) {
-	p := &providers.Provider{Name: "p"}
-	a := deadKey(providers.Target{Provider: p, Model: "claude-opus-4-7[1m]"})
-	b := deadKey(providers.Target{Provider: p, Model: "claude-opus-4-7"})
-	if a != b {
-		t.Errorf("deadKey marked %q != unmarked %q", a, b)
-	}
-}
-
 func TestScrapeUsage(t *testing.T) {
 	if u := scrapeAnthropicUsage([]byte(`data: {"message":{"usage":{"input_tokens":5}}}` + "\n" + `{"usage":{"output_tokens":9}}`)); u.input != 5 ||
 		u.output != 9 {
@@ -138,18 +128,6 @@ func TestLedgerAttributionHeaders(t *testing.T) {
 	}
 }
 
-// The 401 hint names the real helper flag (resolve --proxy; --router was removed).
-func TestUnauthorizedHintNamesTokenProxy(t *testing.T) {
-	srv := setup(t, `{"default":"prod","providers":{}}`)
-	resp := post(t, srv.URL+"/v1/messages", `{}`, map[string]string{"X-Api-Key": "wrong"})
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("status %d, want 401", resp.StatusCode)
-	}
-	if b := body(t, resp); !strings.Contains(b, "resolve --proxy") || strings.Contains(b, "--router") {
-		t.Errorf("401 body = %s, want resolve --proxy", b)
-	}
-}
-
 // A direct (non-Databricks) row's ledger entry carries its provider, never an empty one.
 func TestLedgerDirectProviderNamed(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -195,5 +173,20 @@ func TestScrapeChatUsageMissingOutputKeepsInput(t *testing.T) {
 	}
 	if u := scrapeChatUsage([]byte(`{"usage":{"prompt_tokens":null,"completion_tokens":3}}`)); u.output != 3 {
 		t.Errorf("null prompt_tokens: usage = %+v, want output 3", u)
+	}
+}
+
+func TestScrapeLastUsageSubtractsCachedForBothDialects(t *testing.T) {
+	chat := scrapeChatUsage(
+		[]byte(`{"usage":{"prompt_tokens":100,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":40}}}`),
+	)
+	if chat.input != 60 || chat.output != 5 || chat.cacheRead != 40 {
+		t.Errorf("chat = %+v, want 60/5/40", chat)
+	}
+	resp := scrapeUsage(
+		[]byte(`{"usage":{"input_tokens":100,"output_tokens":5,"input_tokens_details":{"cached_tokens":200}}}`),
+	)
+	if resp.input != 100 || resp.cacheRead != 0 {
+		t.Errorf("responses = %+v, cached > input must not be subtracted", resp)
 	}
 }

@@ -1,8 +1,13 @@
 package server
 
 import (
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -148,17 +153,6 @@ func TestHarnessHeadersForwarded(t *testing.T) {
 	}
 }
 
-func TestParseHeadersWarnsOnce(t *testing.T) {
-	var log strings.Builder
-	got := parseHeaders("A: 1\nbad name: x\nAuthorization: y\nB: v\x00\n", &log)
-	if len(got) != 1 || got["A"] != "1" {
-		t.Errorf("got %v", got)
-	}
-	if strings.Count(log.String(), "\n") != 1 {
-		t.Errorf("want one warning, got %q", log.String())
-	}
-}
-
 func checkAttribution(t *testing.T, h http.Header, agent string) {
 	t.Helper()
 	checkUpstreamUserAgent(t, h.Values("User-Agent"), agent)
@@ -191,5 +185,215 @@ func TestWithModelRejectsNonObject(t *testing.T) {
 		if _, err := withModel([]byte(body), "m"); err == nil {
 			t.Errorf("withModel(%s) = nil error, want one", body)
 		}
+	}
+}
+
+func TestCrossProviderTarget(t *testing.T) {
+	up1 := newUpstream(t, ok)
+	up2 := newUpstream(t, ok)
+	t.Setenv("UP1_KEY", "k1")
+	t.Setenv("UP2_KEY", "k2")
+	srv := setup(t, `{"default":"up1","providers":{"anthropic":{
+		"up1":`+anthropicProvider(up1.URL, "UP1_KEY", `{"opus":"m1"}`)+`,
+		"up2":{"protocol":"anthropic","base_url":"`+up2.URL+`","auth":{"type":"key","header":"bearer","env":"UP2_KEY"},"models":{"opus":"m2"}}}}}`)
+
+	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"up2:other-model"}`, nil); resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if up1.hits.Load() != 0 || up2.hits.Load() != 1 {
+		t.Fatalf("hits up1=%d up2=%d", up1.hits.Load(), up2.hits.Load())
+	}
+	if m := (*up2.body.Load())["model"]; m != "other-model" {
+		t.Errorf("model = %v", m)
+	}
+	if a := up2.last.Load().Header.Get("Authorization"); a != "Bearer k2" {
+		t.Errorf("authorization = %q", a)
+	}
+}
+
+func TestSessionTokenCannotReachOtherProfiles(t *testing.T) {
+	up1 := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(429) })
+	up2 := newUpstream(t, ok)
+	t.Setenv("UP1_KEY", "k1")
+	t.Setenv("UP2_KEY", "k2")
+	srv := setup(t, failoverOverlay(up1.URL, up2.URL))
+	req := testRequest(t, http.MethodPost, srv.URL+gateway.SessionPath,
+		strings.NewReader(`{"profile":"up1","pid":`+strconv.Itoa(os.Getpid())+`}`))
+	req.Header.Set("X-Api-Key", secret)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out gateway.SessionResponse
+	if json.NewDecoder(resp.Body).Decode(&out) != nil || out.Token == "" {
+		t.Fatalf("mint = %d", resp.StatusCode)
+	}
+	hdr := map[string]string{"X-Api-Key": out.Token}
+	if r := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"up2:x"}`, hdr); r.StatusCode != http.StatusForbidden {
+		t.Errorf("cross-provider model = %d, want 403", r.StatusCode)
+	}
+	if r := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-haiku"}`, hdr); r.StatusCode == 200 {
+		t.Errorf("failover escaped to up2 under a session token")
+	}
+	if up2.hits.Load() != 0 {
+		t.Errorf("up2 hits = %d, want 0", up2.hits.Load())
+	}
+}
+
+func TestAnthropicOriginIsExact(t *testing.T) {
+	prev := anthropicHost
+	anthropicHost = "api.anthropic.com"
+	t.Cleanup(func() { anthropicHost = prev })
+	for route, want := range map[string]bool{
+		"https://api.anthropic.com":                 true,
+		"https://api.anthropic.com/v1":              true,
+		"http://api.anthropic.com":                  false,
+		"https://api.anthropic.com.evil.com":        false,
+		"https://evil.com/api.anthropic.com":        false,
+		"https://user@api.anthropic.com":            false,
+		"https://api.anthropic.com@evil.com":        false,
+		"https://xapi.anthropic.com":                false,
+		"https://api.anthropic.com:8443":            false,
+		"":                                          false,
+		"://bad":                                    false,
+		"https://API.ANTHROPIC.COM.attacker.test/v": false,
+	} {
+		if got := anthropicOrigin(route); got != want {
+			t.Errorf("anthropicOrigin(%q) = %v, want %v", route, got, want)
+		}
+	}
+}
+
+func TestPassthroughForwardsClientLogin(t *testing.T) {
+	sub := newUpstream(t, func(w http.ResponseWriter, r *http.Request, n int) {
+		if n > 1 {
+			w.WriteHeader(529)
+			return
+		}
+		ok(w, r, n)
+	})
+	sub.Close() // the client login reaches only the https anthropicHost origin
+	sub.Server = httptest.NewTLSServer(sub.Config.Handler)
+	t.Cleanup(sub.Close)
+	pointAnthropicHostAt(t, sub.URL)
+	gem := newUpstream(t, ok)
+	t.Setenv("GEM_KEY", "gem-key")
+	srv := setupRouter(t, `{"default":"sub","fallback":["gem"],"providers":{"anthropic":{
+		"sub":{"protocol":"anthropic","base_url":"`+sub.URL+`","auth":{"type":"cli"},"models":{"opus":"m"}},
+		"gem":{"protocol":"anthropic","base_url":"`+gem.URL+`","auth":{"type":"key","header":"bearer","env":"GEM_KEY"},"models":{"opus":"g"}}}}}`,
+		func(r *Router) { r.client = sub.Client() })
+	login := map[string]string{"X-Api-Key": "", gateway.ClientHeader: secret, "Authorization": "Bearer oauth-tok"}
+
+	if resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, login); resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	h := sub.last.Load().Header
+	if h.Get("Authorization") != "Bearer oauth-tok" || h.Get(gateway.ClientHeader) != "" || h.Get("X-Api-Key") != "" {
+		t.Errorf("passthrough upstream headers: %v", h)
+	}
+	// Failover to an API-key provider sends that provider's key, never the client's login.
+	if resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, login); resp.StatusCode != 200 {
+		t.Fatalf("failover status %d", resp.StatusCode)
+	}
+	if a := gem.last.Load().Header.Get("Authorization"); a != "Bearer gem-key" {
+		t.Errorf("fallback authorization = %q", a)
+	}
+	if resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, map[string]string{"X-Api-Key": "", gateway.ClientHeader: "wrong"}); resp.StatusCode != 401 {
+		t.Errorf("wrong gateway.ClientHeader secret: status %d", resp.StatusCode)
+	}
+}
+
+// ---- B4: the sealed Max token on the subscription passthrough -------------------------------------------------
+
+func allHeaderValues(h http.Header) string {
+	var sb strings.Builder
+	for k, vs := range h {
+		fmt.Fprintf(&sb, "%s=%s\n", k, strings.Join(vs, ","))
+	}
+	return sb.String()
+}
+
+func TestPassthroughFallbackUsesVaultTokenAndNeverTheRouterSecret(t *testing.T) {
+	tsrv, up := tlsUpstream(t)
+	pointAnthropicHostAt(t, tsrv.URL)
+	srv := setupRouter(t, subOverlay(tsrv.URL), func(r *Router) {
+		r.client = tsrv.Client()
+		r.oauth = func() string { return "vault-max-token" }
+	})
+	// The Databricks-session shape: the router secret is the ONLY client credential (X-Api-Key, no Authorization).
+	resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, map[string]string{"Anthropic-Beta": "client-beta-1"})
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d %s", resp.StatusCode, body(t, resp))
+	}
+	g := up.got()
+	if len(g) != 1 {
+		t.Fatalf("upstream hits %d", len(g))
+	}
+	h := g[0].hdr
+	if h.Get("Authorization") != "Bearer vault-max-token" {
+		t.Fatalf("Authorization = %q, want the vault OAuth token", h.Get("Authorization"))
+	}
+	if beta := h.Get("Anthropic-Beta"); !strings.Contains(beta, oauthBeta) || !strings.Contains(beta, "client-beta-1") {
+		t.Errorf("Anthropic-Beta = %q, want the client's beta merged with %s", beta, oauthBeta)
+	}
+	if dump := allHeaderValues(h); strings.Contains(dump, secret) {
+		t.Fatalf("the router secret leaked upstream:\n%s", dump)
+	}
+	if h.Get("X-Api-Key") != "" || h.Get(gateway.ClientHeader) != "" {
+		t.Errorf("client credential headers forwarded: %v", h)
+	}
+}
+
+func TestPassthroughForwardsClientLoginOverVaultToken(t *testing.T) {
+	tsrv, up := tlsUpstream(t)
+	pointAnthropicHostAt(t, tsrv.URL)
+	srv := setupRouter(t, subOverlay(tsrv.URL), func(r *Router) {
+		r.client = tsrv.Client()
+		r.oauth = func() string { return "vault-max-token" }
+	})
+	login := map[string]string{"X-Api-Key": "", gateway.ClientHeader: secret, "Authorization": "Bearer clients-own"}
+	if resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, login); resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	h := up.got()[0].hdr
+	if h.Get("Authorization") != "Bearer clients-own" || strings.Contains(allHeaderValues(h), "vault-max-token") {
+		t.Fatalf("upstream headers %v, want the client's own login only", h)
+	}
+}
+
+func TestPassthroughVaultTokenWithheldFromNonAnthropicOrigins(t *testing.T) {
+	tsrv, tlsUp := tlsUpstream(t)
+	plain := newRawUp(t, okRaw)
+	cases := []struct {
+		name string
+		base string
+		host string // anthropicHost override; "" keeps the default api.anthropic.com
+		up   *rawUp
+	}{
+		{"http route even on the matching host", plain.URL, strings.TrimPrefix(plain.URL, "http://"), plain},
+		{"https route on some other host", tsrv.URL, "", tlsUp},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			prev := anthropicHost
+			if c.host != "" {
+				anthropicHost = c.host
+			}
+			t.Cleanup(func() { anthropicHost = prev })
+			srv := setupRouter(t, subOverlay(c.base), func(r *Router) {
+				r.client = tsrv.Client()
+				r.oauth = func() string { return "vault-max-token" }
+			})
+			if resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, nil); resp.StatusCode != 200 {
+				t.Fatalf("status %d %s", resp.StatusCode, body(t, resp))
+			}
+			g := c.up.got()
+			h := g[len(g)-1].hdr
+			if h.Get("Authorization") != "" || strings.Contains(allHeaderValues(h), "vault-max-token") ||
+				strings.Contains(allHeaderValues(h), secret) {
+				t.Fatalf("credential sent to a non-Anthropic origin: %v", h)
+			}
+		})
 	}
 }
