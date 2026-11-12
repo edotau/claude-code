@@ -282,6 +282,7 @@ func TestDocsPlacementIgnoredDocsDir(t *testing.T) {
 		{"report nested under it", filepath.Join(ignored, "docs", "reports", "y.md"), true},
 		{"force-added page there", filepath.Join(ignored, "docs", "kept.md"), false},
 		{"root anchor still exempt", filepath.Join(ignored, "README.md"), false},
+		{"root anchor name inside it", filepath.Join(ignored, "docs", "README.md"), true},
 		{"non-docs subdir", filepath.Join(ignored, "src", "notes.md"), false},
 		{"docs dir the repo owns", filepath.Join(owned, "docs", "design.md"), false},
 		{"nested page the repo owns", filepath.Join(owned, "docs", "adr", "0001.md"), false},

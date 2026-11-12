@@ -381,3 +381,15 @@ func useWrongVaultKey(t *testing.T) {
 		func(string, string) error { return nil }))
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)))
 }
+
+// A multi-line value cannot round-trip through a .env line, so AppendDotenv refuses it and writes nothing.
+func TestAppendDotenvRefusesMultilineValue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	n, _, err := AppendDotenv(path, []Pair{{"OK", "fine"}, {"PEM", "-----BEGIN\nabc\n-----END"}})
+	if err == nil || !strings.Contains(err.Error(), "PEM") || n != 0 {
+		t.Fatalf("AppendDotenv = %d, %v; want a PEM newline error and 0 added", n, err)
+	}
+	if _, serr := os.Stat(path); !os.IsNotExist(serr) {
+		t.Fatalf("a refused export left %s behind (stat err %v)", path, serr)
+	}
+}

@@ -288,3 +288,20 @@ func TestWriteVerifiedPlanDropsEmptyClaimOnFailure(t *testing.T) {
 		t.Fatalf("empty claim left behind after failed write: stat err = %v", err)
 	}
 }
+
+// A draft written through a symlink to the config dir is still an undated draft in <config>/plans.
+func TestIsUndatedDraftThroughSymlink(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real")
+	if err := os.MkdirAll(filepath.Join(real, "plans"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", real)
+	if !isUndatedDraft(filepath.Join(link, "plans", "draft.md")) {
+		t.Error("symlink-spelled draft not recognized")
+	}
+}

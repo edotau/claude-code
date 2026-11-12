@@ -100,15 +100,16 @@ func TestRedactConfigNonSecretFields(t *testing.T) {
 // string, while leaving non-secret flags, the bare command name, and the flag names themselves intact.
 func TestRedactConfigCommandAndURL(t *testing.T) {
 	in := map[string]any{"mcp": map[string]any{
-		"x": map[string]any{"command": []any{"srv", "--api-key", "SECRET1", "--token=SECRET2", "--verbose"}},
+		"x": map[string]any{"command": []any{"srv", "--api-key", "SECRET1", "--token=SECRET2", "--verbose", "--private-key=-----BEGIN\nSECRET4\n-----END"}},
 		"y": map[string]any{"url": "https://h/p?token=SECRET3"},
+		"z": map[string]any{"url": "https://u:SECRET5@${HOST}/mcp?token=SECRET6"}, // net/url rejects the template
 	}}
 	b, err := json.Marshal(in)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := redactConfig(string(b))
-	for _, secret := range []string{"SECRET1", "SECRET2", "SECRET3"} {
+	for _, secret := range []string{"SECRET1", "SECRET2", "SECRET3", "SECRET4", "SECRET5", "SECRET6"} {
 		if strings.Contains(got, secret) {
 			t.Errorf("%s leaked into redacted config: %s", secret, got)
 		}
@@ -119,7 +120,7 @@ func TestRedactConfigCommandAndURL(t *testing.T) {
 	}
 	mcp := out["mcp"].(map[string]any)
 	cmd := mcp["x"].(map[string]any)["command"].([]any)
-	wantCmd := []any{"srv", "--api-key", "<redacted>", "--token=<redacted>", "--verbose"}
+	wantCmd := []any{"srv", "--api-key", "<redacted>", "--token=<redacted>", "--verbose", "--private-key=<redacted>"}
 	if len(cmd) != len(wantCmd) {
 		t.Fatalf("command = %v, want %v", cmd, wantCmd)
 	}
@@ -130,5 +131,8 @@ func TestRedactConfigCommandAndURL(t *testing.T) {
 	}
 	if url := mcp["y"].(map[string]any)["url"]; url != "https://h/p?<redacted>" {
 		t.Errorf("url = %v, want https://h/p?<redacted>", url)
+	}
+	if url := mcp["z"].(map[string]any)["url"]; url != "https://${HOST}/mcp?<redacted>" {
+		t.Errorf("templated url = %v, want https://${HOST}/mcp?<redacted>", url)
 	}
 }

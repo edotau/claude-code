@@ -576,3 +576,19 @@ func TestVendorEngineAttachPromptMissingPath(t *testing.T) {
 
 // TestMain runs in the hermetic host (hosttest): a dispatched leaf's own HARNESS_* environment never reaches a test.
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+// With no resolvable home, a ./.codex/auth.json under the cwd is never read as the login.
+func TestCodexHomeUnresolvableNeverReadsCwdAuth(t *testing.T) {
+	cwd := t.TempDir()
+	hosttest.WriteRel(t, cwd, ".codex/auth.json", `{"tokens":{"access_token":"planted"}}`)
+	t.Chdir(cwd)
+	t.Setenv("HOME", "")
+	t.Setenv("CODEX_HOME", "")
+	resetAuthMemos(t)
+	orig := codexKeychainCmd
+	codexKeychainCmd = func(context.Context, ...string) ([]byte, error) { return nil, errors.New("no keyring") }
+	t.Cleanup(func() { codexKeychainCmd = orig })
+	if tok, _, _ := CodexAccessToken(); tok != "" {
+		t.Fatalf("token %q came from the cwd's planted .codex/auth.json", tok)
+	}
+}

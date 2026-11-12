@@ -44,3 +44,18 @@ func TestMaskPair(t *testing.T) {
 		t.Fatalf("equal secret: %v %v", a, b)
 	}
 }
+
+// A credential is masked when its container changes type or the other side is not JSON.
+func TestPrintDiffMasksCredentialsAcrossTypeChanges(t *testing.T) {
+	for _, c := range [][2]string{
+		{`{"env":["Bearer abc123"]}`, `{"env":{"x":1}}`},
+		{`{"env":{"x":1}}`, `{"env":["Bearer abc123"]}`},
+		{"not json", `{"auth":{"api_key":"abc123"}}`},
+	} {
+		var out bytes.Buffer
+		printDiff(&out, []byte(c[0]), []byte(c[1]))
+		if strings.Contains(out.String(), "abc123") {
+			t.Errorf("credential leaked for %s -> %s:\n%s", c[0], c[1], out.String())
+		}
+	}
+}
