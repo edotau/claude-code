@@ -456,7 +456,7 @@ func TestSafetyScanHardeningInertTextDoesNotAsk(t *testing.T) {
 func TestRunsWrittenFileMatchesPathAndVersionedInterpreters(t *testing.T) {
 	for _, line := range []string{"/bin/bash /tmp/x.sh", "/usr/bin/python3 x.py", "python3.11 x.py", "(bash x.sh)",
 		"echo $(sh x.sh)", "echo `sh x.sh`", "dash x.sh", "ksh x.sh", "fish x.fish", "pwsh x.ps1", "deno x.ts", "bun x.ts", "php x.php"} {
-		if !runsWrittenFile().MatchString(line) {
+		if !core.RunsWrittenFile().MatchString(line) {
 			t.Errorf("%q: want matched as running a file", line)
 		}
 	}
@@ -472,7 +472,7 @@ func TestDropInertHeredocsKeepsBodyWhenPathedShellRunsFile(t *testing.T) {
 func TestDropDataHeredocsKeepsLinesAfterHereStringAndProcessSubstitution(t *testing.T) {
 	for _, first := range []string{"cat > f <<<'EOF'", "ssh h <<<'EOF'", "cat > >(bash) <<'EOF'"} {
 		cmd := first + "\ngit reset --hard\nEOF"
-		if got := dropRemoteHeredocs(dropDataHeredocs(cmd)); !strings.Contains(got, "git reset --hard") {
+		if got := dropRemoteHeredocs(core.DropDataHeredocs(cmd)); !strings.Contains(got, "git reset --hard") {
 			t.Errorf("%q: line after a non-heredoc was dropped: %q", first, got)
 		}
 	}

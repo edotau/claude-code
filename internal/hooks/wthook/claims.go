@@ -43,14 +43,14 @@ func claimsFile(owner int, session string) string {
 	return filepath.Join(worktree.ClaimsDir(), fmt.Sprintf("%d-%s.jsonl", owner, sessionSlug(session)))
 }
 
-// Claim records the written path and each path `git add` staged.
+// Claim records the written path (a Bash command's sed -i, redirect or tee targets too) and each path `git add` staged.
 func Claim(in *core.Input) core.Result {
 	if in.SessionID == "" {
 		return core.Result{}
 	}
-	p, cmd := editPath(in), in.ToolCommand()
-	bash := in.ToolName == "Bash" && gitStageCmd().MatchString(cmd)
-	if p == "" && !bash {
+	edits := editPaths(in)
+	staged := in.ToolName == "Bash" && gitStageCmd().MatchString(in.ToolCommand())
+	if len(edits) == 0 && !staged {
 		return core.Result{} // records nothing: skip the owner lookup, which spawns ps on macOS
 	}
 	owner := claimOwner()
@@ -59,10 +59,11 @@ func Claim(in *core.Input) core.Result {
 	}
 	now := time.Now().Unix()
 	var lines []worktree.Claim
-	if p != "" {
+	for _, p := range edits {
 		lines = append(lines, worktree.Claim{Path: p, Agent: in.AgentID, TS: now})
-	} else {
-		lines = stagedClaims(in, now) // Bash and external-agent edits are claimed when staged
+	}
+	if staged {
+		lines = append(lines, stagedClaims(in, now)...) // external-agent edits are claimed when staged
 	}
 	appendClaims(claimsFile(owner, in.SessionID), lines)
 	return core.Result{}

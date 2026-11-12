@@ -105,7 +105,7 @@ var Registry = []Group{
 	}},
 	{Name: "docs", Events: []EventSpec{
 		// Markdown writes at a repo root or into an ignored docs/ page are blocked, naming the canonical home.
-		{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking doc placement", Blocks: true, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
+		{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, StatusMessage: "Checking doc placement", Blocks: true, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
 		// The first write to a native plan draft must carry the plan template; the denial pastes it.
 		{Name: "docs-plan-gate", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking plan template", Blocks: true, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
 		// Every write/edit to a native plan-mode draft is mirrored to its dated, repo-tagged file in plans/.
@@ -158,9 +158,9 @@ var Registry = []Group{
 		{Name: "worktree-mode", Event: EventSessionStart, Budget: 5 * sec},
 		{Name: "worktree-busy", Event: EventUserPromptSubmit, Budget: 5 * sec},
 		// Each Write/Edit path (and each landed commit sha) appends to this session's claims ledger; never blocks.
-		{Name: "worktree-claim", Event: EventPostToolUse, Matcher: "Write|Edit|Bash", Budget: 5 * sec},
+		{Name: "worktree-claim", Event: EventPostToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec},
 		// Before an edit, notes a dirty file another live session/leaf claims; before git add/commit, asks on one.
-		{Name: "worktree-claim-check", Event: EventPreToolUse, Matcher: "Write|Edit|Bash", Budget: 5 * sec, Plugin: []string{"opencode"}},
+		{Name: "worktree-claim-check", Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Plugin: []string{"opencode"}},
 	}},
 	{Name: "codex", AgentOnly: true, Events: []EventSpec{
 		{Name: "codex-agent-route", Event: EventPreToolUse, Matcher: ".*spawn_agent$", Budget: 5 * sec, Agents: []string{"codex"}},
