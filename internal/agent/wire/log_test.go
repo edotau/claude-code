@@ -31,8 +31,7 @@ func loggedRun(t *testing.T, jobMode bool, fn func(ctx context.Context)) string 
 	return pathstest.ReadFile(t, path)
 }
 
-// The plain-text vendor path (codex etc.) tees stdout via teeWriter: a job carrier must not tee it, a plain
-// WithLog still must, and both keep feeding stderr/event lines.
+// A job carrier must not tee plain-text vendor stdout via teeWriter, a plain WithLog must; both feed stderr/events.
 func TestLogEventJobModeNoRawStdoutTee(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

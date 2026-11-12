@@ -1,5 +1,4 @@
-// Package agent runs one headless task on an agent (claude, codex, gemini, opencode, copilot)
-// under one retry loop; every agent returns the same Result envelope.
+// Package agent runs one headless task on an agent (claude, codex, gemini, opencode, copilot) under one retry loop.
 package agent
 
 import (
@@ -135,8 +134,7 @@ func (c *Client) Record(ctx context.Context, o RunOptions, claim *Record) (Recor
 	return c.record(ctx, o, claim), nil
 }
 
-// resolve maps o.Agent — a roster name, an agents key, vendor:name or a definition file — to its agent and
-// applies the definition's model, profile and effort under the caller's explicit options.
+// resolve maps o.Agent (roster name, agents key, vendor:name or definition file) to its agent and applies it.
 func (c *Client) resolve(o *RunOptions) error {
 	if _, ok := LookupSchema(o.Agent); ok && len(o.Agents) == 0 { // a plain roster agent, not a definition selector
 		return nil
@@ -149,8 +147,7 @@ func (c *Client) resolve(o *RunOptions) error {
 	return nil // an explicit persona (a --retry record) survives a plain roster name
 }
 
-// SelectAndOverlay resolves ref to its agent and, when it names a definition, records the persona and
-// fills the unset model, profile and effort under the options already in o.
+// SelectAndOverlay resolves ref to its agent and, for a definition, records the persona and fills unset options.
 func SelectAndOverlay(ref string, agents map[string]*Schema, o *RunOptions) (name string, err error) {
 	name, def, err := SelectAgent(ref, agents)
 	if err != nil {
@@ -324,8 +321,7 @@ func recoveryTarget(r Engine, req RunOptions) (providers.Target, bool) {
 	return t, err == nil && t.Provider != nil
 }
 
-// checkRun layers r's default permissions under the request and the outer dispatch's over it, then refuses a persona or
-// permission set r cannot honor; an emulated read-only becomes deny rules.
+// checkRun layers default permissions under the request and the outer dispatch's over it, then refuses what r can't do.
 func checkRun(r Engine, req RunOptions) (RunOptions, error) {
 	def, err := DefaultPermissions(r.Name())
 	if err != nil {
@@ -554,6 +550,9 @@ func (s *chanSink) replaceOldest(ev wire.Event) {
 // packReserveTokens is the output headroom in the prompt-cap rule: window − 32k − 10%.
 const packReserveTokens = 32_000
 
+// packBytesNum/packBytesDen is dense code's worst case (~2.4 bytes/token): a byte budget never overruns the window.
+const packBytesNum, packBytesDen = 12, 5
+
 // packFile is a pack the agent reads from the workdir instead of the prompt (CLI.PackVia == PackFile).
 type packFile struct{ path, body string }
 
@@ -571,8 +570,7 @@ func (f *packFile) write() error {
 
 func (f *packFile) remove() { _ = os.Remove(f.path) }
 
-// packBudget is the byte budget for d: its model window under the prompt-cap rule, then its transport cap
-// unless the pack travels as a file (the prompt then carries only the instruction).
+// packBudget is d's byte budget: its model window under the prompt-cap rule, then its transport cap unless a file.
 func packBudget(d Dispatch, req RunOptions, viaFile bool) (budget int, note string) {
 	s := SchemaFor(d.Agent.Name())
 	model := d.Model
@@ -584,15 +582,14 @@ func packBudget(d Dispatch, req RunOptions, viaFile bool) (budget int, note stri
 	if model == "" {
 		note = d.Agent.Name() + ": model unknown; packing to the 200K-token default window"
 	}
-	budget = pack.BudgetBytes(models.PromptTokens(models.Window(model), packReserveTokens))
+	budget = models.PromptTokens(models.Window(model), packReserveTokens) * packBytesNum / packBytesDen
 	if n := cmp.Or(s.CLI.PromptMaxBytes, s.CLI.PromptVia.MaxBytes()); n > 0 && n < budget && !viaFile {
 		budget, note = n, d.Agent.Name()+": "+s.CLI.PromptVia.String()+" prompt cap"
 	}
 	return budget, note
 }
 
-// packPrompt packs p.Opts.Pack around the task for the lead dispatch, drops later dispatches the pack would
-// not fit, and either inlines the pack in the prompt or, for a PackFile lead, stages it as a file to read.
+// packPrompt packs p.Opts.Pack for the lead, drops later dispatches it would not fit, then inlines it or stages a file.
 func (c *Client) packPrompt(ctx context.Context, p *Prepared) error {
 	o := p.Opts
 	if len(p.Chain.Dispatches) == 0 {

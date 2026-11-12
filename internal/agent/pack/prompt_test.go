@@ -10,8 +10,7 @@ import (
 	"testing"
 )
 
-// TestChangedFilesErrorsOutsideRepo: called outside a git work tree, the error mentions git rather
-// than masking the failure as an empty diff.
+// Outside a git work tree the error mentions git rather than masking the failure as an empty diff.
 func TestChangedFilesErrorsOutsideRepo(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
@@ -126,9 +125,7 @@ func TestBuildPromptEmpty(t *testing.T) {
 	}
 }
 
-// TestBuildIndexNests: a flat path list costs one token per path segment repeated on every line. A
-// nested tree collapses shared prefixes, which is what lets a whole repo fit where inlining files
-// cannot — the gemini's "max-files-exceeded" failure was exactly this budget running out.
+// A nested index collapses shared prefixes, fitting a whole repo where a flat path list (gemini max-files) cannot.
 func TestBuildIndexNests(t *testing.T) {
 	idx := index(Context{
 		Included: []IncludedFile{{Path: "internal/router/dispatch.go", Bytes: 100}},
@@ -147,9 +144,7 @@ func TestBuildIndexNests(t *testing.T) {
 	}
 }
 
-// TestIndexCoversSkippedFiles: a file that was too big to inline must STILL appear in the index.
-// Omitting it is what made the gemini answer "contents are not available" — it could not even see
-// that the file existed, so it could not ask for it by name.
+// A file too big to inline still appears in the index (omitting it made gemini answer 'contents not available').
 func TestIndexCoversSkippedFiles(t *testing.T) {
 	idx := index(Context{Skipped: []SkippedFile{{Path: "internal/router/spillpool.go", Reason: "max-files-exceeded"}}})
 	if !strings.Contains(idx, "spillpool.go") {
@@ -157,8 +152,7 @@ func TestIndexCoversSkippedFiles(t *testing.T) {
 	}
 }
 
-// TestIndexCarriesMetadata: the index is a routing aid, so each leaf needs enough to decide whether
-// the file is worth pulling — size, and whether its contents were actually included.
+// The index is a routing aid: each leaf carries its size and whether its contents were included.
 func TestIndexCarriesMetadata(t *testing.T) {
 	idx := index(Context{Included: []IncludedFile{{Path: "a/b.go", Bytes: 4096}}})
 	for _, want := range []string{"4096", "b.go"} {

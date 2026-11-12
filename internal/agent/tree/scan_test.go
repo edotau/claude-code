@@ -35,11 +35,9 @@ func TestUserTurnTextConcatenatesTextBlocks(t *testing.T) {
 	}
 }
 
-// (4) lastActivity's Arg strips both the session cwd and $HOME, for each tool shape the plan names:
-// Read/file_path, Edit/file_path, Bash/command (truncated), Grep/pattern.
+// lastActivity's Arg strips the session cwd and $HOME for Read/Edit file_path, Bash command (truncated), Grep pattern.
 func TestLastActivityStripsHomeAndCwdPerTool(t *testing.T) {
-	// Fixed, short strings (not t.TempDir()) so Bash's command truncation (60 runes) never clips the
-	// path before stripPaths gets to it — toolArg truncates, then lastActivity strips what remains.
+	// Short fixed strings (not t.TempDir()) so Bash's 60-rune truncation never clips the path before stripPaths runs.
 	const home = "/Users/fakehome"
 	const cwd = "/Users/fake/demo-repo"
 	t.Setenv("HOME", home)

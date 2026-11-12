@@ -373,7 +373,7 @@ func (l *EventLog) Close() {
 	l.f, l.sink = nil, nil
 }
 
-// Answer collects the text a stream parser decoded; each chunk is recorded before it is emitted, so a failed emit keeps it.
+// Answer collects the text a stream parser decoded; a chunk is recorded before emitting, so a failed emit keeps it.
 type Answer struct {
 	Join   string // between chunks in String: "" for deltas, a newline run for whole messages
 	chunks []string

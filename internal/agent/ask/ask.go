@@ -274,7 +274,7 @@ func recordConfinement(own, rec string) (string, error) {
 	return rec, nil
 }
 
-// parsePerms validates --allow/--ask/--deny/--mode into r.perms; it runs again once a --retry record has filled them in.
+// parsePerms validates --allow/--ask/--deny/--mode into r.perms; it reruns after a --retry record fills them.
 func (r *askRun) parsePerms() (int, bool) {
 	f := r.f
 	p, err := agent.ParsePermissions(f.permMode, f.permAllow, f.permAsk, f.permDeny)

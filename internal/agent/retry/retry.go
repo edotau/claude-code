@@ -395,8 +395,7 @@ func (p Policy) terminal(ctx context.Context, last *Error, attemptErr error) boo
 		last.Kind = KindFatal // the caller cancelled: never retry
 		return true
 	}
-	// The attempt ran out its own AttemptTimeout (not the parent ctx): retrying would just
-	// burn another full timeout for the same stuck call, so make it terminal and say so.
+	// The attempt hit its own AttemptTimeout, not the parent ctx: retrying would burn another full timeout, so it ends.
 	if p.AttemptTimeout > 0 && errors.Is(attemptErr, context.DeadlineExceeded) {
 		last.Kind = KindFatal
 		last.Err = fmt.Errorf("timed out after %s: %w", p.AttemptTimeout, last.Err)

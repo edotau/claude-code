@@ -53,7 +53,7 @@ func TestRequestedAliasSurvivesSharedModel(t *testing.T) {
 	}
 }
 
-// codexEffortAt routes a codex request at alias and returns the first dispatch's effort, which must run the shared model.
+// codexEffortAt routes a codex request at alias and returns the first dispatch's effort, which runs the shared model.
 func codexEffortAt(t *testing.T, alias string) string {
 	t.Helper()
 	c, _, err := RouteChainFor(context.Background(), "codex", alias, "sonnet", router.FallbackNone, false, router.PickOpts{Configured: allConfigured})
@@ -251,8 +251,7 @@ func TestRouteChainForCanonicalRowUsesItsCell(t *testing.T) {
 const servedRow = `{"routing":{"servedAware":%s},"providers":{"databricks":{"dev":{"preset":"databricks",` +
 	`"host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`
 
-// servedEnv seeds a hermetic vault with a signed-in Databricks row "dev", the switch on or off, a two-model Responses
-// menu and (when cache is non-nil) a fresh listing of it; it returns the loaded registry.
+// servedEnv seeds a hermetic vault with a signed-in Databricks row "dev", a two-model Responses menu and listing cache.
 func servedEnv(t *testing.T, on string, cache map[string]string) *providers.Registry {
 	t.Helper()
 	vaulttest.Use(t)
@@ -494,8 +493,7 @@ func TestProfileCellAcceptsStaticallyOnColdCache(t *testing.T) {
 	}
 }
 
-// copilotOnDev routes copilot (GitHub-pinned, model pin gpt-6.1-sol) on lead dev, a signed-in served-aware
-// Databricks row whose fresh listing has glm-5-3 NOT_READY; it returns the dev dispatches and the skips.
+// copilotOnDev routes copilot (GitHub pin gpt-6.1-sol) on served-aware dev, glm-5-3 NOT_READY; returns both.
 func copilotOnDev(t *testing.T, model string) (dev []string, skipped []string) {
 	t.Helper()
 	reg := servedEnv(t, "true", nil)

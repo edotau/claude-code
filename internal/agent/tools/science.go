@@ -163,7 +163,7 @@ func verifyScienceApp(ctx context.Context, app string) error {
 // errAppRollback marks a failed swap whose previous app could not be restored; its location is in the error text.
 var errAppRollback = errors.New("previous app could not be restored")
 
-// replaceApp ditto-copies src beside root/Claude Science.app, then renames it in; the old app stays until the swap works.
+// replaceApp ditto-copies src beside root/Claude Science.app, then renames it in; the old app stays until it works.
 func replaceApp(ctx context.Context, src, root string) (string, error) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return "", err

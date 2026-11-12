@@ -30,10 +30,7 @@ func RepoRoot(ctx context.Context, cwd string) string {
 // executable is swapped by tests.
 var executable = os.Executable
 
-// Spawn re-execs claude-code detached to run the saved record: argv ["agents","ask","--job",rec.ID] + extra;
-// stdout+stderr -> rec.Log (0600); sets rec.PID in memory for the caller's print, but never saves —
-// the caller already saved rec as "running" before calling Spawn, and the --job child saves its own
-// PID once it starts, so a post-Start save here could overwrite a fast child's finished status.
+// Spawn re-execs claude-code detached on rec; it never saves, as a post-Start save could clobber a fast child's status.
 func Spawn(rec *Record, extra []string) error {
 	return SpawnArgv(rec, append([]string{"agents", "ask", "--job", rec.ID}, extra...), nil)
 }
@@ -111,8 +108,7 @@ func resolveRecord(recs []Record, ref string, pred func(Record) bool) (Record, e
 	return Record{}, errors.New("no matching dispatch found (see claude-code agents status)")
 }
 
-// jobArgvSettled reads rec's pid argv, retrying for ~500ms while it does not match: a child spawned a moment ago
-// has forked but not yet exec'd, so /proc still shows the parent's argv.
+// jobArgvSettled reads rec's pid argv, retrying ~500ms: a forked, not yet exec'd child shows the parent's /proc argv.
 func jobArgvSettled(rec *Record) ([]string, error) {
 	var argv []string
 	var err error
@@ -137,7 +133,7 @@ func isJobArgv(argv []string, id string) bool {
 	return slices.Contains(argv, "ask") && slices.Contains(argv, "--job") && slices.Contains(argv, id)
 }
 
-// isReviewArgv reports whether argv is rec's detached split review: `<agent> review` at argv[1], or argv[2] under an interpreter.
+// isReviewArgv reports whether argv is rec's split review: `<agent> review` at argv[1], or [2] under an interpreter.
 func isReviewArgv(argv []string, rec *Record) bool {
 	if rec.Progress == "" {
 		return false

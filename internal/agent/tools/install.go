@@ -122,9 +122,7 @@ func installCopilot(ctx context.Context, w io.Writer, dir string, dryRun bool) e
 	return runInstallScript(ctx, w, dryRun, copilotInstallScriptURL, nil, []string{"PREFIX=" + filepath.Dir(dir)})
 }
 
-// opencodeMaxMajor is the highest opencode major version claude-code will link into bin/; upstream's
-// installer always fetches latest, and 2.x broke the harness opencode route (memory id:ocnodry,
-// 2026-10-20) — bump this once 2.x is verified compatible, don't just delete the check.
+// opencodeMaxMajor caps the opencode major linked into bin/ (2.x broke the route, id:ocnodry); bump once verified.
 const opencodeMaxMajor = 1
 
 // opencodeAllowMajorEnv, set non-empty, lifts the opencodeMaxMajor refusal for one install.
@@ -188,7 +186,7 @@ func restoreOpencodeAside(src, aside string, cause error) error {
 	return cause
 }
 
-// refuseOpencodeMajor blocks linking bin when its major exceeds opencodeMaxMajor; a failed or unparsable version probe is refused too.
+// refuseOpencodeMajor blocks linking bin when its major exceeds opencodeMaxMajor; an unparsable probe is refused too.
 func refuseOpencodeMajor(ctx context.Context, w io.Writer, bin string) error {
 	if os.Getenv(opencodeAllowMajorEnv) != "" {
 		return nil
@@ -377,7 +375,7 @@ func swapBinaries(w io.Writer, dir string, all []stagedBinary) error {
 	return nil
 }
 
-// rollbackBinaries restores each file to its snapshot, removing the ones that did not exist before; lock held by caller.
+// rollbackBinaries restores each file to its snapshot, removing ones that did not exist before; lock held by caller.
 func rollbackBinaries(dir string, done []priorFile) error {
 	var errs []error
 	for _, p := range done {

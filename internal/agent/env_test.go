@@ -89,8 +89,7 @@ func TestChildCmdSetsPWD(t *testing.T) {
 	}
 }
 
-// A vendor CLI child never sees HARNESS_VAULT_KEY (it would open the vault outside the harness's own
-// process); the claude agent's own child keeps it since hooks need it to read the vault.
+// A vendor CLI child never sees HARNESS_VAULT_KEY; the claude agent's own child keeps it since hooks read the vault.
 func TestChildCmdScrubsVaultKeyForVendorOnly(t *testing.T) {
 	t.Setenv("HARNESS_VAULT_KEY", "secret-value")
 	hasKey := func(env []string) bool {
@@ -168,8 +167,7 @@ func TestCredentialScrubRegistryFailure(t *testing.T) {
 	}
 }
 
-// Under batch isolation an own-login child never sees another profile's custom credential var, but keeps the
-// native var its launch sets; outside a batch nothing is scrubbed.
+// Under batch isolation an own-login child never sees another profile's credential var, but keeps its native var.
 func TestChildCmdOwnLoginDropsForeignCredentialsUnderIsolation(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"anthropic":{`+
@@ -211,8 +209,7 @@ func TestProbeContextScrubsCredentials(t *testing.T) {
 	}
 }
 
-// A hub dispatch keeps the credential its launch supplies even when another profile declares the same env name; the
-// inherited value of that name is gone.
+// A hub dispatch keeps the credential its launch supplies even when another profile declares the same env name.
 func TestChildCmdLaunchValuesSurviveIsolationScrub(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"anthropic":{`+

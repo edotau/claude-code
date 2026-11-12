@@ -263,8 +263,7 @@ func runAskJobIntoLog(t *testing.T) string {
 	return string(b)
 }
 
-// A --job run's stdout+stderr already are the log (Spawn), so the vendor child's stderr must be teed in
-// exactly once and the streamed answer must not be doubled by a second stdout tee.
+// A --job run's stdout+stderr are the log, so the vendor child's stderr is teed once and the answer not doubled.
 func TestCmdAskJobLogEachLineOnce(t *testing.T) {
 	agyJobFixture(t)
 	got := runAskJobIntoLog(t)
@@ -282,8 +281,7 @@ func TestCmdAskJobLogEachLineOnce(t *testing.T) {
 	}
 }
 
-// hostFixture installs a fake ssh (drops options+host, runs the decoded command via sh) on PATH, hermetic dirs, and
-// a fake remote bin that prints banner then the given NDJSON lines; it returns the remote bin path.
+// hostFixture installs a fake ssh on PATH and a fake remote bin printing banner then NDJSON lines; returns its path.
 func hostFixture(t *testing.T, banner string, lines []string, exit int) string {
 	t.Helper()
 	skipWithoutSh(t)
@@ -384,8 +382,7 @@ func assertDropped(t *testing.T, dropped []string, want ...string) {
 	}
 }
 
-// ask --host over a fake ssh: the remote start is dropped, events keep the remote host stamp, the local result carries
-// the remote envelope's cost/structured/emulated/session plus local drops, and the banner goes to the dispatch log.
+// ask --host over a fake ssh: remote start dropped, events keep the host stamp, envelope carried, banner logged.
 func TestAskHostRelaysRemoteStream(t *testing.T) {
 	env := wire.Envelope{Status: wire.StatusOK, Agent: "claude", Answer: "hi there", SessionID: "sess-9",
 		Usage:      &wire.Usage{InputTokens: 3, OutputTokens: 4, CostUSD: 0.0123},
@@ -636,8 +633,7 @@ func assertEventsLogMirrors(t *testing.T, evs []wire.Event, dispatchID, secret s
 	}
 }
 
-// ask --format stream-json over a fake claude: ordered start..text..tool_use..result, seq rising, the result
-// envelope answer equals the streamed text, and the on-disk events log mirrors stdout with secrets redacted.
+// ask --format stream-json over a fake claude: ordered spans, answer equals streamed text, events log mirrors stdout.
 func TestAskStreamJSONSpansEventsAndLog(t *testing.T) {
 	skipWithoutSh(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -840,7 +836,7 @@ func assertTesterPersona(t *testing.T, p *agent.Schema) {
 	}
 }
 
-// --agent vendor:persona loads agents/<name>.md or a path into the logged request, and --retry replays it without the flag.
+// --agent vendor:persona loads agents/<name>.md or a path into the logged request; --retry replays it without the flag.
 func TestAskPersonaLoadsAndRetryKeepsIt(t *testing.T) {
 	other := personaFixture(t)
 	ask := func(args ...string) agent.RunOptions { return askLoggedRequest(t, args...) }
@@ -917,7 +913,7 @@ func TestBatchFollowFlagErrors(t *testing.T) {
 	}
 }
 
-// runCLI runs `claude-code agents ask <argv>` in-process (argv[0] must be "ask") and returns exit code, stdout and stderr.
+// runCLI runs `claude-code agents ask <argv>` in-process (argv[0] is "ask"); returns exit code, stdout and stderr.
 func runCLI(t *testing.T, argv ...string) (int, string, string) {
 	t.Helper()
 	outR, outW, _ := os.Pipe()
@@ -1263,8 +1259,7 @@ func TestArmFlagRefusals(t *testing.T) {
 var armPlanted = map[string]string{"ANTHROPIC_API_KEY": "SENTINEL-anthropic", "OPENAI_API_KEY": "SENTINEL-openai",
 	"QA_WS_TOKEN": "SENTINEL-qa-ws", "DEV_WS_TOKEN": "SENTINEL-dev-ws", "COPILOT_GITHUB_TOKEN": "SENTINEL-gh"}
 
-// armLogins are agents' own-login credentials planted in the parent: a Databricks hop holds none, a first-party hop
-// only its own agent's (keyed by the dumped binary).
+// armLogins are own-login credentials planted in the parent: a Databricks hop holds none, a first-party hop its own.
 var armLogins = map[string]string{"OPENCODE_API_KEY": "opencode", "COPILOT_SDK_AUTH_TOKEN": "copilot",
 	"GITHUB_TOKEN": "copilot", "CLAUDE_CODE_OAUTH_TOKEN": "claude"}
 

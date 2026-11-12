@@ -179,8 +179,7 @@ func TestInstallOpencodeRefusesMajorV2(t *testing.T) {
 	}
 }
 
-// TestInstallOpencodeRefusalRestoresPriorBinary confirms a refusal restores the pre-existing
-// ~/.opencode/bin/opencode byte-for-byte, rather than leaving the rejected 2.x in place.
+// A refusal restores the pre-existing ~/.opencode/bin/opencode byte-for-byte rather than leaving the rejected 2.x.
 func TestInstallOpencodeRefusalRestoresPriorBinary(t *testing.T) {
 	env := setupToolsTestEnv(t)
 	priorContent := "#!/bin/sh\nprintf 'prior opencode 1.x\\n'\n"
@@ -206,8 +205,7 @@ func TestInstallOpencodeRefusalRestoresPriorBinary(t *testing.T) {
 	}
 }
 
-// TestInstallOpencodeSuccessLeavesNoAsideCopy confirms a successful install cleans up the
-// aside copy it made of the prior binary, rather than leaving it behind.
+// A successful install cleans up the aside copy it made of the prior binary.
 func TestInstallOpencodeSuccessLeavesNoAsideCopy(t *testing.T) {
 	env := setupToolsTestEnv(t)
 	priorPath := filepath.Join(env.home, ".opencode", "bin", "opencode")
@@ -225,8 +223,7 @@ func TestInstallOpencodeSuccessLeavesNoAsideCopy(t *testing.T) {
 	}
 }
 
-// TestRestoreOpencodeAsideNoAsideReturnsCauseUnchanged confirms that with no aside copy to restore,
-// the cause error passes through unchanged (not wrapped or joined).
+// With no aside copy to restore, the cause error passes through unchanged (not wrapped or joined).
 func TestRestoreOpencodeAsideNoAsideReturnsCauseUnchanged(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "opencode")
@@ -238,8 +235,7 @@ func TestRestoreOpencodeAsideNoAsideReturnsCauseUnchanged(t *testing.T) {
 	}
 }
 
-// TestRestoreOpencodeAsideRenameFailureJoinsCause confirms a failed restore-rename is joined with
-// cause, not swallowed, so a lost prior binary is never just a dropped warning.
+// A failed restore-rename is joined with cause, not swallowed, so a lost prior binary is never just a dropped warning.
 func TestRestoreOpencodeAsideRenameFailureJoinsCause(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("permission bits don't block rename the same way on windows")
@@ -283,7 +279,7 @@ func TestInstallOpencodeAllowMajorEnvOverride(t *testing.T) {
 	}
 }
 
-// TestInstallOpencodeRefusesUnknownVersion: an unparsable probe (as a timeout yields) is refused and the prior binary kept.
+// An unparsable probe (as a timeout yields) is refused and the prior binary kept.
 func TestInstallOpencodeRefusesUnknownVersion(t *testing.T) {
 	env := setupToolsTestEnv(t)
 	priorContent := "#!/bin/sh\nprintf 'prior opencode 1.x\\n'\n"
@@ -416,8 +412,7 @@ func TestInstallCodexDryRunUsesAssetFromServer(t *testing.T) {
 	}
 }
 
-// TestInstallCodexDryRunNamesBinDirForNonBinDir pins the installCopilot pattern: a dir whose
-// basename isn't "bin" must be corrected to BinDir, never installed into as given.
+// Pins the installCopilot pattern: a dir whose basename isn't "bin" is corrected to BinDir, never installed into.
 func TestInstallCodexDryRunNamesBinDirForNonBinDir(t *testing.T) {
 	setupToolsTestEnv(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -444,8 +439,7 @@ func TestInstallCodexDryRunNamesBinDirForNonBinDir(t *testing.T) {
 	}
 }
 
-// TestInstallCodexInstallsBothBinariesIntoBinDir confirms codex and its companion land as real,
-// executable regular files in BinDir, even when called with a non-BinDir dir (PATH's own dir).
+// codex and its companion land as real executable regular files in BinDir, even when called with a non-BinDir dir.
 func TestInstallCodexInstallsBothBinariesIntoBinDir(t *testing.T) {
 	setupToolsTestEnv(t)
 	codexTar := buildTarGz(t, "codex-x86_64-unknown-linux-musl", "fake-codex-elf")
@@ -609,7 +603,7 @@ func TestInstallTailscaleDryRunPerOS(t *testing.T) {
 	}
 }
 
-// The macOS app puts no tailscale on PATH: the wrapper must run the app's CLI with the caller's args, and an existing file is kept.
+// The macOS app puts no tailscale on PATH: the wrapper runs the app's CLI with the caller's args; a file stays.
 func TestLinkTailscaleCLIWrapsAppBinary(t *testing.T) {
 	setupToolsTestEnv(t)
 	app := filepath.Join(t.TempDir(), "Tailscale")

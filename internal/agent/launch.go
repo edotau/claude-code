@@ -28,7 +28,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// PinnedProfile is agent name's vault-pinned registry profile; "" when unpinned or off, an error when the pin names no row.
+// PinnedProfile is agent name's vault-pinned registry profile; "" if unpinned or off, an error if the pin names no row.
 func PinnedProfile(name string) (string, error) {
 	pins, err := AgentPins()
 	if err != nil {
@@ -105,8 +105,7 @@ func RouteEnvLast(launchEnv, env []string) []string {
 	return append(out, env...)
 }
 
-// LaunchSpec is the agent's spec env and argv prefix for an interactive launch that bypasses Configure (own login).
-// A broken overlay is best-effort and must not break the launch.
+// LaunchSpec is the agent's spec env and argv prefix for an own-login launch; a broken overlay never breaks it.
 func (s Schema) LaunchSpec() (env, argv []string) {
 	st := s.launchSettings(providers.Target{}, false)
 	env, argv, _, _, _ = s.Eng().RenderSettings(context.Background(), st, nil, nil) // the default never errs
@@ -290,16 +289,14 @@ func login(e Driver, p *providers.Provider, model string, h *Headless) ([]string
 	return e.Login(p, model, h)
 }
 
-// StubRouter points configure at base: an unstubbed Ensure would relaunch the test binary as the daemon.
-// Tests call it directly; restore undoes it.
+// StubRouter points configure at base (unstubbed Ensure would relaunch the test binary as the daemon).
 func StubRouter(base string) (restore func()) {
 	oe := EnsureRouter
 	EnsureRouter = func(context.Context) (string, error) { return base, nil }
 	return func() { EnsureRouter = oe }
 }
 
-// StubProxyForTest stubs the router, its secret and session mints for a whole test binary (call from TestMain),
-// and shortens the dispatch limiter's poll; no proxy daemon is reached or spawned.
+// StubProxyForTest stubs the router, its secret and session mints for a test binary (call from TestMain).
 func StubProxyForTest(base, secret string) {
 	EnsureRouter = func(context.Context) (string, error) { return base, nil }
 	RouterSecret = func() (string, error) { return secret, nil }
@@ -357,8 +354,7 @@ func (o *LaunchOptions) launchFlagSetter(name string, claude bool) func(string) 
 	return nil
 }
 
-// LaunchFile is a 0600 per-launch config the child reads, written by Exec just before the child starts; a file named
-// for the child's pid (copilot's registry) is swept once it exits (`claude-code clean`).
+// LaunchFile is a 0600 per-launch config Exec writes before the child starts; a pid-named one is swept on exit.
 type LaunchFile struct {
 	Path string
 	Data []byte
@@ -385,8 +381,7 @@ func (p Plan) Env(base []string) []string {
 	return p.envWith(base, customEnv())
 }
 
-// customEnv is the vault env bucket resolved (@secret refs via vault.Lookup); an unresolved ref is warned, not
-// set — a Lookup error (e.g. a locked vault) also leaves the key out of vals, so a base env value survives.
+// customEnv is the vault env bucket (@secret refs via vault.Lookup); an unresolved ref is warned and left out.
 var customEnv = func() map[string]string {
 	errored := map[string]bool{}
 	vals, missing, err := providers.ResolveCustomEnv(func(k string) (string, bool) {
@@ -448,7 +443,7 @@ func (p Plan) plainEnv(base []string) []string {
 	return spec.Environ(context.Background()) // interactive: no batch isolation
 }
 
-// envRedactors blank the secrets inside a structured env value (key -> redactor), filled by Register from the agent owning the key.
+// envRedactors blank the secrets inside a structured env value (key -> redactor), filled by Register.
 var envRedactors = map[string]func(string) string{}
 
 // Print writes the resolved launch; header values are masked since static headers may carry secrets.
@@ -483,8 +478,7 @@ func (p Plan) Print(w io.Writer) {
 	}
 }
 
-// unsetNames is every inherited var this plan drops from the real environment: the fixed Anthropic
-// wipe list plus whatever the credential scrub catches, minus anything the plan itself sets.
+// unsetNames is every inherited var this plan drops: the Anthropic wipe list plus the credential scrub, minus its sets.
 func (p Plan) unsetNames() []string {
 	names := map[string]bool{}
 	for _, k := range p.Unset {

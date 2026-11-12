@@ -17,8 +17,7 @@ import (
 // DefaultAgents is every agent generate renders when agentconfig.RenderOptions.Agents is empty.
 var DefaultAgents = []string{agentid.Codex, agentid.OpenCode, agentid.Gemini, agentid.Copilot}
 
-// RenderConfigs renders every selected agent's config and reports whether anything
-// differs from what is on disk (Check) or would be written (DryRun never writes either way).
+// RenderConfigs renders every selected agent's config and reports whether anything differs (Check) or would be written.
 func RenderConfigs(o agentconfig.RenderOptions) (bool, error) {
 	p, drift, err := PrepareConfigs(o)
 	if err != nil {
@@ -92,7 +91,7 @@ func knownAgents(agents []string) error {
 	return nil
 }
 
-// RevertConfigs restores each selected agent's files to their newest backup version, removing the restored version so a second revert steps one version further back.
+// RevertConfigs restores each selected agent's files to their newest backup, so a second revert steps one version back.
 func RevertConfigs(o agentconfig.RenderOptions) error {
 	agents := o.Agents
 	if len(agents) == 0 {

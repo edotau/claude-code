@@ -214,10 +214,7 @@ func TestEnvWithCustomLosesToSetAndUnset(t *testing.T) {
 	}
 }
 
-// TestCustomEnvLookupErrorLeavesExportedKeySurviving: a @secret ref that vault.Lookup cannot
-// resolve (locked vault, no env fallback available to Lookup itself) must be left out of custom
-// entirely, not merged in as K= — so an already-exported K carried in the base env list passes
-// through Plan.Env untouched instead of being clobbered with an empty value.
+// A @secret ref vault.Lookup cannot resolve is left out of custom, not merged as K=, so an exported K survives.
 func TestCustomEnvLookupErrorLeavesExportedKeySurviving(t *testing.T) {
 	_, kr := vaulttest.UseKeyring(t)
 	vaulttest.Secret(t, "K", "vault-value")
@@ -234,9 +231,7 @@ func TestCustomEnvLookupErrorLeavesExportedKeySurviving(t *testing.T) {
 	}
 }
 
-// TestPlanVendorScrubsVaultKeyClaudeDoesNot: a vendor child (Plan.Vendor=true, set by launch.Vendor)
-// loses HARNESS_VAULT_KEY from its inherited env; a plain (Claude Code) Plan keeps it, since the
-// Claude Code launch itself still needs the key to open the vault for hooks.
+// A vendor child (Plan.Vendor) loses HARNESS_VAULT_KEY from its inherited env; a plain Claude Code Plan keeps it.
 func TestPlanVendorScrubsVaultKeyClaudeDoesNot(t *testing.T) {
 	base := []string{"HARNESS_VAULT_KEY=topsecret", "PATH=/usr/bin"}
 
@@ -254,8 +249,7 @@ func TestPlanVendorScrubsVaultKeyClaudeDoesNot(t *testing.T) {
 	}
 }
 
-// plainEnv scrubs the base environ before Set is layered on, so a target's own addition for a denied
-// name (e.g. copilot's COPILOT_GITHUB_TOKEN) wins instead of being dropped.
+// plainEnv scrubs the base environ before Set is layered on, so a target's addition for a denied name wins.
 func TestPlanEnvTargetAdditionWinsOverDenyTable(t *testing.T) {
 	p := Plan{Set: map[string]string{"COPILOT_GITHUB_TOKEN": "own-token"}}
 	base := []string{"COPILOT_GITHUB_TOKEN=inherited", "PATH=/bin"}

@@ -31,7 +31,7 @@ type Signin interface {
 	Status() providers.AuthState
 }
 
-// Terminal and sign-in UI seams internal/cli wires at startup; the zero values refuse (no terminal, no login, no prompt).
+// Terminal and sign-in UI seams internal/cli wires at startup; the zero values refuse (no terminal, login or prompt).
 var (
 	StdinIsTerminal = func() bool { return false }
 	LoginRow        = func(context.Context, string, io.Writer) error { return errors.New("databricks sign-in is not wired") }
@@ -248,8 +248,7 @@ func runLoginCLI(ctx context.Context, name string, args []string, in io.Reader, 
 // copilotTokenPrefixes are GitHub's own token prefixes (gho_/ghp_/ghu_) plus the newer fine-grained github_pat_.
 var copilotTokenPrefixes = []string{"gho_", "ghp_", "ghu_", "github_pat_"}
 
-// validCopilotToken reports whether tok has the shape of a real GitHub token, rejecting an obvious
-// typo or truncated paste before it is sealed under providers.CopilotTokenEnv or a GITHUB_<P>_PAT name.
+// validCopilotToken reports whether tok has a real GitHub token's shape, rejecting a typo or truncated paste.
 func validCopilotToken(tok string) bool {
 	if len(tok) < 20 {
 		return false

@@ -88,8 +88,7 @@ func writeFixFixture(t *testing.T, path, body string) {
 	}
 }
 
-// Regression: the pre-change JSON schema (lastTool, no activity/dispatches) still decodes a tree built
-// after the change — new fields are additive (omitempty), never required.
+// The pre-change JSON schema (lastTool, no activity/dispatches) still decodes a new tree: new fields are additive.
 func TestJSONSchemaStillDecodesPreChangeShape(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
 	tree, err := build(claudeDir, Options{Session: "finished-session-aaaa1111", Now: pinNow(now)})

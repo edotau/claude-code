@@ -104,8 +104,7 @@ func TestLinkVendorsKeepsWorkingLinkWithoutCandidate(t *testing.T) {
 	}
 }
 
-// TestLinkVendorsRelinksSymlinkWhenNoRealCodexInstall preserves the existing behavior: with no
-// real file at BinDir()/codex, a stale symlink is replaced to point at the current PATH candidate.
+// With no real file at BinDir()/codex, a stale symlink is replaced to point at the current PATH candidate.
 func TestLinkVendorsRelinksSymlinkWhenNoRealCodexInstall(t *testing.T) {
 	env := setupToolsTestEnv(t)
 	candidate := filepath.Join(env.path1, "codex")

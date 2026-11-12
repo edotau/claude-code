@@ -14,9 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/inflight"
 )
 
-// Verify-2: 13 batch dispatches plus 5 Agent spawns on one account never exceed the shared cap of 12, every dispatch and
-// spawn finishes, and the marker dir is empty at the end. The limiter's caps lift the in-process DefaultPerKey=4
-// that runTasks uses, so the file-backed shared limiter is the binding gate.
+// 13 batch dispatches plus 5 Agent spawns on one account never exceed the shared cap of 12; the marker dir ends empty.
 func TestBatchAndSpawnsShareTheAccountCap(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const account = "shared·acct"
@@ -108,8 +106,7 @@ func assertAccountPeakAndMarkers(t *testing.T, account string, peak int32, capA 
 	}
 }
 
-// A dispatch waiting on a full shared account holds no local worker: with Jobs=1 a dispatch on a free account still runs,
-// and a cancelled wait (or a dispatch cancelled while capacity is free) leaves no marker behind.
+// A dispatch waiting on a full shared account holds no local worker; a cancelled wait leaves no marker behind.
 func TestSharedWaitHoldsNoLocalWorker(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const full, free = "full·acct", "free·acct"

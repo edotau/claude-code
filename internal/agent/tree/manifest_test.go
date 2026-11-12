@@ -10,9 +10,7 @@ import (
 	_ "github.com/edotau/claude-code/internal/codex"
 )
 
-// TestResultStatusMapsTopLevelStatusWhenResultAbsent: result.status wins outright when the script's
-// return value carries one; otherwise the manifest's own top-level status maps killed->error,
-// completed->finished; anything else (or no status at all) yields "".
+// result.status wins when the script returns one; else the manifest status maps killed->error, completed->finished.
 func TestResultStatusMapsTopLevelStatusWhenResultAbsent(t *testing.T) {
 	cases := []struct {
 		name string
@@ -34,8 +32,7 @@ func TestResultStatusMapsTopLevelStatusWhenResultAbsent(t *testing.T) {
 	}
 }
 
-// buildWorkflowRuns ties two runs with identical Updated timestamps by ID ascending, so a stable
-// sort doesn't just fall back to map-iteration (nondeterministic) order.
+// Runs with identical Updated timestamps tie-break by ID ascending, not map-iteration order.
 func TestBuildWorkflowRunsTieBreaksByID(t *testing.T) {
 	sessionDir := t.TempDir()
 	workflowsDir := filepath.Join(sessionDir, "workflows")

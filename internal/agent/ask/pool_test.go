@@ -261,7 +261,7 @@ func TestRunTasksMoreFailFastDoesNotRunPending(t *testing.T) {
 	}
 }
 
-// runOpts runs the JSONL initial lines through runBatch against the fake opencode vendor and returns envelopes by task id.
+// runOpts runs the JSONL lines through runBatch against the fake opencode vendor; returns envelopes by task id.
 func runOpts(t *testing.T, initial string, o batchOpts) map[string][]wire.Envelope {
 	t.Helper()
 	lines, err := readTaskLines(strings.NewReader(initial))
@@ -1177,8 +1177,7 @@ func TestRetryRechecksAccountAfterBackoff(t *testing.T) {
 	}
 }
 
-// A cooldown that idles the dispatch before attempt 1 is followed by a recheck: an account marked auth-dead meanwhile
-// is not attempted.
+// A cooldown that idles the dispatch before attempt 1 is followed by a recheck: an auth-dead account is not attempted.
 func TestFirstAttemptRechecksAccountAfterCooldownIdle(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	coolOnFirstLoad(t, "late·A", 200*time.Millisecond)

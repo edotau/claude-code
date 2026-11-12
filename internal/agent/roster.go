@@ -39,8 +39,7 @@ type CLI struct {
 	Dialects []string
 	// RouterSuffix is the path appended to the router session base for a wire; it covers every Dialects entry.
 	RouterSuffix map[string]string
-	// MinVersion and MaxVersion bound the CLI versions the harness is known to work with; "" = no bound.
-	// MaxVersion may end in ".x" ("1.x" = any 1.y.z). Each bound carries its one-line reason.
+	// MinVersion/MaxVersion bound the known-good CLI versions ("" = none; MaxVersion may end ".x"), each with its reason.
 	MinVersion, MinReason string
 	MaxVersion, MaxReason string
 	Caps                  Caps
@@ -112,7 +111,7 @@ var (
 	drivers    = map[string]Driver{}
 )
 
-// Register adds an agent from its init; a wiring bug (nil or mismatched Driver, duplicate name, second Launcher or Hub) panics.
+// Register adds an agent from its init; a wiring bug (nil or mismatched Driver, duplicate, second Launcher/Hub) panics.
 func Register(a Agent) {
 	registryMu.Lock()
 	defer registryMu.Unlock()
@@ -264,8 +263,7 @@ func CanServe(name string, p *providers.Provider) bool {
 	return ok
 }
 
-// Serves reports whether p is usable by agent: a login provider naming it, or a route on one of the dialects it speaks.
-// A non-empty model adds that the model's wire (WireFor) is one the agent speaks. why names the first thing missing.
+// Serves reports whether p is usable by agent: a login naming it, or a route on a dialect it speaks (and model's wire).
 func Serves(agent string, p *providers.Provider, model string) (ok bool, why string) {
 	spec, known := lookupRow(agent)
 	if !known || !spec.External() {
@@ -366,8 +364,7 @@ func AgentModelPin(agent string) string {
 	return vault.GetAgentRecord(agent).Model
 }
 
-// ResolveAgentModel is the one rule for the model an agent runs: flag > the agent's shell model env > its vault pin > Target.Model,
-// spelled for Target.Provider. A model alias the provider lacks keeps Target.Model and says so in the note.
+// ResolveAgentModel is the one model rule: flag > agent's shell env > vault pin > Target.Model, spelled per provider.
 func ResolveAgentModel(a ModelAsk) (providers.Target, string) {
 	t, p := a.Target, a.Target.Provider
 	if a.Flag == "" {
@@ -448,7 +445,7 @@ func ValidAgentActive(agent, v string) error {
 	return fmt.Errorf("active must be %q or %q, got %q", AgentOn, AgentOff, v)
 }
 
-// AgentUnbillable is why copilot has no account to bill (no GitHub login under 95%, Databricks profile or key); "" else.
+// AgentUnbillable is why copilot has no account to bill (no GitHub login, Databricks profile or key); "" else.
 func AgentUnbillable(agent string) string {
 	if agent != agentid.Copilot {
 		return ""
@@ -474,7 +471,7 @@ func AgentActive(agent string) bool {
 	return vault.GetAgentRecord(agent).Profile != ""
 }
 
-// AgentPins reads the records once and returns every agent's spec; claude's profile is the session's, else its record's.
+// AgentPins reads the records once and returns every agent's spec; claude's profile is the session's, else record's.
 func AgentPins() (map[string]router.PinSpec, error) {
 	recs, err := vault.ReadAgentRecords(RosterNames())
 	if err != nil {
@@ -512,7 +509,7 @@ func isOwnLogin(agent, profile string) (bool, error) {
 	return own, nil
 }
 
-// ownLogin reports a profile that is agent's own sign-in: its schema's OwnLoginProfile, else a row with Auth.Login == agent.
+// ownLogin reports agent's own sign-in profile: its schema's OwnLoginProfile, else a row with Auth.Login == agent.
 func ownLogin(loadReg func() *providers.Registry, agent, profile string) bool {
 	if profile == "" {
 		return false

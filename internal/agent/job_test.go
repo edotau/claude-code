@@ -164,8 +164,7 @@ func assertSpawnLog(t *testing.T, path string) {
 	}
 }
 
-// A fast child that saves its own "ok" record immediately must not have that outcome overwritten:
-// Spawn only sets rec.PID/Log in memory for the caller's print and must never save after cmd.Start().
+// A fast child that saves its own finished record must not be overwritten: Spawn never saves after cmd.Start().
 func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
 	setConfigDir(t)
 	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
@@ -174,8 +173,7 @@ func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
 	}
 	recordPath := filepath.Join(paths.DispatchDir(), rec.ID+".json")
 
-	// the fast child stands in for `claude-code agents ask --job <id>`: it saves its own finished record
-	// (by writing the record file directly) and exits almost immediately.
+	// the fast child stands in for `agents ask --job <id>`: it writes its finished record and exits at once.
 	script := filepath.Join(t.TempDir(), "fast.sh")
 	body := "#!/bin/sh\ncat > \"" + recordPath + "\" <<'EOF'\n" +
 		`{"id":"` + rec.ID + `","status":"ok","agent":"codex"}` + "\nEOF\n"
@@ -206,8 +204,7 @@ func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
 	}
 }
 
-// Cancel must verify the PID still belongs to the job it was spawned as; a reused PID (here, a live
-// unrelated process the test itself starts) must not be signalled, and the record is marked an error.
+// Cancel verifies the PID still belongs to the job; a reused PID (an unrelated live process) is not signalled.
 func TestCancelDetectsPIDReuse(t *testing.T) {
 	setConfigDir(t)
 	unrelated := exec.Command("sleep", "30")
@@ -235,9 +232,7 @@ func TestCancelDetectsPIDReuse(t *testing.T) {
 	}
 }
 
-// A child that traps and ignores SIGINT must still be ended by Cancel's SIGKILL escalation.
-// t.Parallel rules out t.Setenv, which panics when mixed with parallel subtests; CLAUDE_CONFIG_DIR
-// is saved/restored by hand instead. cancelGrace/killWait are shortened so escalation takes ~100ms.
+// A child trapping and ignoring SIGINT is still ended by Cancel's SIGKILL escalation (grace shortened).
 func TestCancelEscalatesToSIGKILL(t *testing.T) {
 	t.Parallel()
 	oldGrace, oldKillWait := cancelGrace, killWait
@@ -253,8 +248,7 @@ func TestCancelEscalatesToSIGKILL(t *testing.T) {
 		}
 	}()
 	script := filepath.Join(t.TempDir(), "trap.sh")
-	// `sleep 30 &` + `wait` (not a tail-call `sleep 30`) keeps this shell's own pid alive and
-	// trapping SIGINT instead of POSIX sh exec-optimizing the last command away.
+	// `sleep 30 &` + `wait` keeps this shell's pid alive trapping SIGINT instead of sh exec-optimizing the last command.
 	body := "#!/bin/sh\ntrap '' INT\necho ready\nsleep 30 &\nwait\n"
 	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
@@ -472,8 +466,7 @@ func TestStatusRunningAlive(t *testing.T) {
 	}
 }
 
-// TestStatusRunningLostDeadPID: a record still marked running but whose pid has exited reports "lost",
-// not "running" — this is the teeth case: rec.Alive() must actually gate the row, not just echo r.Status.
+// A record marked running whose pid exited reports "lost": rec.Alive() must gate the row, not echo r.Status.
 func TestStatusRunningLostDeadPID(t *testing.T) {
 	setConfigDir(t)
 	cwd := t.TempDir()
@@ -491,8 +484,7 @@ func TestStatusRunningLostDeadPID(t *testing.T) {
 	}
 }
 
-// TestResultRunningErrors: a still-running record, fetched by its exact id, is refused with "still running" —
-// JobResult must not hand back a log for a job that has not finished.
+// A still-running record fetched by its exact id is refused with "still running"; JobResult hands back no log for it.
 func TestResultRunningErrors(t *testing.T) {
 	setConfigDir(t)
 	cwd := t.TempDir()
@@ -532,8 +524,7 @@ func TestResultOK(t *testing.T) {
 	}
 }
 
-// TestCancelJobNoneRunningErrors: with no running job for this vendor/repo, CancelJob errors rather
-// than cancelling an unrelated finished record.
+// With no running job for this vendor/repo, CancelJob errors rather than cancelling an unrelated finished record.
 func TestCancelJobNoneRunningErrors(t *testing.T) {
 	setConfigDir(t)
 	cwd := t.TempDir()
@@ -547,8 +538,7 @@ func TestCancelJobNoneRunningErrors(t *testing.T) {
 	}
 }
 
-// TestCancelJobAmbiguousPrefixErrors: a ref prefix matching several dispatches is refused rather than
-// guessing which one to cancel.
+// A ref prefix matching several dispatches is refused rather than guessing which one to cancel.
 func TestCancelJobAmbiguousPrefixErrors(t *testing.T) {
 	setConfigDir(t)
 	cwd := t.TempDir()
@@ -643,9 +633,7 @@ func skipOffUnix(t *testing.T) {
 	}
 }
 
-// A leader in its own process group runs a second process in the foreground (same group, different pid) that traps
-// SIGINT; the marker proves interrupt(leaderPid) reaches the whole group, not just the leader pid passed in. The
-// leader's INT trap is a no-op handler, not ” (ignore): an ignored signal is inherited across exec, a handler is not.
+// interrupt(leaderPid) reaches the whole group: a foreground INT-trapping second process gets the marker.
 func TestInterruptReachesWholeProcessGroup(t *testing.T) {
 	skipOffUnix(t)
 	dir := t.TempDir()

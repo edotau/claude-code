@@ -124,9 +124,7 @@ func TestPruneDispatchesRemovesLog(t *testing.T) {
 	}
 }
 
-// An active background job (Status running, Log set, PID alive) survives the prune past dispatchKeep
-// while older finished records are removed; a background job with a dead PID is pruned; a foreground
-// running record (Log=="") is pruned even though it is still "running".
+// An active background job survives the prune past dispatchKeep; a dead-PID job and a foreground running one go.
 func TestPruneDispatchesSkipsActiveBackgroundRecord(t *testing.T) {
 	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
@@ -141,8 +139,7 @@ func TestPruneDispatchesSkipsActiveBackgroundRecord(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
 
-	// active sits 2nd-oldest so the prune walk reaches it before excess is exhausted; if the active
-	// guard were missing, the walk would remove it here instead of skipping on to trigger1.
+	// active sits 2nd-oldest so the prune walk reaches it before excess runs out; without the guard it would go.
 	finished := NewRecord("codex", RunOptions{Prompt: "old"}, base)
 	finished.Status = "ok"
 	if err := finished.Save(); err != nil {
@@ -216,8 +213,7 @@ func TestPruneDispatchesPrunesDeadPIDBackgroundRecord(t *testing.T) {
 	}
 }
 
-// A foreground running record (Log=="") is pruned even while Status=="running": only a background
-// job (Log set) is ever treated as active.
+// A foreground running record (Log=="") is pruned even while running: only a background job (Log set) is active.
 func TestPruneDispatchesPrunesForegroundRunningRecord(t *testing.T) {
 	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
@@ -237,10 +233,7 @@ func TestPruneDispatchesPrunesForegroundRunningRecord(t *testing.T) {
 	}
 }
 
-// Record.Alive table test: status gates everything; PID>0 defers to proc.Alive; PID==0 falls back
-// to a one-minute grace window on Time. Each case's assertion fails if the matching guard reverts
-// (e.g. dropping the `r.Status != "running"` check breaks the "done" case; dropping the PID==0 time
-// fallback breaks the "2 min ago" case).
+// Record.Alive: status gates everything; PID>0 defers to proc.Alive; PID==0 falls back to a one-minute grace on Time.
 func TestRecordAlive(t *testing.T) {
 	cmd := exec.Command("true")
 	if err := cmd.Run(); err != nil {
@@ -269,9 +262,7 @@ func TestRecordAlive(t *testing.T) {
 	}
 }
 
-// Prune keeps a record alive by the PID==0/recent-Time path (no PID at all) and drops a non-alive
-// "running" record with PID==0 whose Time is stale — proving activeRecord routes through Alive()
-// rather than only checking Log!="" or PID>0.
+// Prune keeps a PID==0 recent-Time record and drops a stale one, proving activeRecord routes through Alive().
 func TestPruneDispatchesKeepsAlivePID0RecordDropsStalePID0Record(t *testing.T) {
 	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
@@ -284,8 +275,7 @@ func TestPruneDispatchesKeepsAlivePID0RecordDropsStalePID0Record(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// alive's ID sorts as 2nd-oldest (so the prune walk reaches it before excess is exhausted), but
-	// its on-disk Time is overridden to "just now" so Alive() reports it live despite Status "running".
+	// alive sorts 2nd-oldest but its on-disk Time is "just now", so Alive() reports it live despite Status "running".
 	alive := NewRecord("codex", RunOptions{Prompt: "alive"}, base.Add(30*time.Second))
 	alive.Time = time.Now().Add(-5 * time.Second)
 	if err := alive.Save(); err != nil {
@@ -390,8 +380,7 @@ func TestFreshBackgroundRecordReadsBackAlive(t *testing.T) {
 	}
 }
 
-// The record keeps the original request, and the model a fallback hop was asked to run survives Finish even when
-// the agent reports no model; the reported Model stays empty rather than echoing the invocation.
+// The record keeps the original request and the model a fallback hop was asked to run; the reported Model stays empty.
 func TestRecordKeepsRequestAndInvokedModel(t *testing.T) {
 	setConfigDir(t)
 	t.Setenv("HOME", t.TempDir())
@@ -436,7 +425,7 @@ func writeRawDispatch(t *testing.T, id, body string) {
 	}
 }
 
-// TestDispatchRecordSchemaStampsNewAndRejectsNewer pins: unstamped record reads, new record is stamped 1, schema 2 is skipped/errors.
+// TestDispatchRecordSchemaStampsNewAndRejectsNewer pins: unstamped reads, new stamped 1, schema 2 skipped/errors.
 func TestDispatchRecordSchemaStampsNewAndRejectsNewer(t *testing.T) {
 	setConfigDir(t)
 	const oldID, newerID = "20260101T000000.000-codex", "20260102T000000.000-codex"
@@ -610,7 +599,7 @@ func TestDispatchWritesResultBeforeFinishedRecord(t *testing.T) {
 	}
 }
 
-// A codex dispatch asked at sonnet keeps the alias in the record (and so in --retry) while the answer reports the shared model.
+// A codex dispatch asked at sonnet keeps the alias in the record (and --retry) while the answer reports the shared one.
 func TestRecordKeepsRequestedAlias(t *testing.T) {
 	setConfigDir(t)
 	rec := NewRecord("codex", RunOptions{Prompt: "p", Model: "sonnet"}, time.Date(2026, 10, 28, 2, 0, 0, 0, time.UTC))

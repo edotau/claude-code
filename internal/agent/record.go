@@ -114,9 +114,7 @@ func ClaimRecord(agent string, req RunOptions, now time.Time) Record {
 	return claimRecord(NewRecord(agent, req, now))
 }
 
-// claimRecord gives rec an id no other dispatch, batch or process holds: it links the complete "running" record to
-// <id>.json (atomic, EEXIST if taken), bumping the millisecond stamp on a clash, so a claim is never an empty file.
-// Failures leave rec unclaimed (fail-open, like Save): the log is for replay, never a gate on the run.
+// claimRecord gives rec an unheld id by linking the running record to <id>.json (EEXIST bumps the stamp); fails open.
 func claimRecord(rec Record) Record {
 	dir := paths.DispatchDir()
 	if os.MkdirAll(dir, 0o700) != nil {
@@ -350,7 +348,7 @@ type RunRecordedOpts struct {
 	Notify   func(string) // receives non-fatal bookkeeping failures (the record not saving)
 }
 
-// runRecorded runs one recorded dispatch (log, event file, start, run, Finish/Save, result): one pair per id, not per dispatch.
+// runRecorded runs one recorded dispatch (log, event file, start, run, Finish/Save, result): one pair per id.
 func runRecorded(ctx context.Context, rec *Record, agentName string, out wire.Sink, o RunRecordedOpts,
 	run func(context.Context, wire.Sink) (wire.Result, error)) (wire.Result, error) {
 	logSink := wire.NewLogSink(rec.LogPath())

@@ -203,8 +203,7 @@ func TestCollectSkipsSecretLike(t *testing.T) {
 	}
 }
 
-// TestCollectHonoursGitIgnore: inside a git work tree, gitignored files are skipped, both
-// tracked and untracked files are included.
+// Inside a git work tree, gitignored files are skipped while tracked and untracked files are included.
 func TestCollectHonoursGitIgnore(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
@@ -317,9 +316,7 @@ func TestCollectBoundedRead(t *testing.T) {
 	}
 }
 
-// TestCollectByteBudget: many files whose combined size exceeds testBudget are capped at
-// the budget (not the file-count cap, which is set generously high here), and the overflow is recorded
-// as "budget-exceeded" rather than silently dropped.
+// Many files over testBudget are capped at the byte budget (not the file cap); overflow is "budget-exceeded".
 func TestCollectByteBudget(t *testing.T) {
 	dir := t.TempDir()
 	const perFile = 100_000
@@ -353,8 +350,7 @@ func TestCollectByteBudget(t *testing.T) {
 	}
 }
 
-// TestCollectByteBudgetUnderLimit: when the combined size is comfortably under the byte budget,
-// nothing is skipped for budget reasons — the cap must not trigger early.
+// Combined size comfortably under the byte budget skips nothing for budget reasons.
 func TestCollectByteBudgetUnderLimit(t *testing.T) {
 	dir := t.TempDir()
 	for _, n := range []string{"a.txt", "b.txt", "c.txt"} {
@@ -375,9 +371,7 @@ func TestCollectByteBudgetUnderLimit(t *testing.T) {
 	}
 }
 
-// TestCollectOrdersSourceBeforeTests: a tight byte budget that can only fit one of two same-size
-// files must keep the non-test source file over the _test.go file, even though the test file alphabetically
-// sorts first — ordering groups real source ahead of tests ahead of testdata/fixtures.
+// A tight budget fitting one of two same-size files keeps the non-test source over the alphabetically first _test.go.
 func TestCollectOrdersSourceBeforeTests(t *testing.T) {
 	dir := t.TempDir()
 	body := strings.Repeat("x", 100)

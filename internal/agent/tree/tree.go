@@ -320,7 +320,7 @@ func sessionStatus(updated, now time.Time) string {
 	return statusIdle
 }
 
-// plainSessionGlob globs projects/*/<id>.jsonl; an id with a separator or glob metacharacter is rejected, never globbed.
+// plainSessionGlob globs projects/*/<id>.jsonl; an id with a separator or glob metacharacter is rejected.
 func plainSessionGlob(claudeDir, id string) ([]string, error) {
 	if id != filepath.Base(id) || id == ".." || strings.ContainsAny(id, `*?[]\`) {
 		return nil, fmt.Errorf("agents tree: --session %q is not a plain session id", id)

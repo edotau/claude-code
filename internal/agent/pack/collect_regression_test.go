@@ -160,9 +160,7 @@ func TestCollectMixedGitAndNonGitRoots(t *testing.T) {
 	}
 }
 
-// A FIFO sitting in a scanned dir must be skipped by its directory-entry type alone (fs.DirEntry's
-// Type() comes from the readdir syscall, no open needed), never opened — opening a FIFO with no
-// writer blocks forever, so a regression here would hang the whole scan rather than just mis-skip.
+// A FIFO in a scanned dir is skipped by its dir-entry type, never opened (no writer would block the scan forever).
 func TestWalkDirsSkipsFIFO(t *testing.T) {
 	skipUnlessUnix(t)
 	dir := t.TempDir()
