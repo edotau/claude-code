@@ -126,7 +126,7 @@ func (r *askRun) config() (int, bool) {
 		}
 		return r.fail(errors.New(from+": stdin is the overlay, so give the task as an argument"), 2)
 	}
-	ov, err := agentconfig.LoadOverlay(f.overlay, os.Stdin)
+	ov, err := agentconfig.LoadOverlay(agentconfig.DispatchOverlay(f.overlay), os.Stdin)
 	if err != nil {
 		return r.fail(err, 2)
 	}

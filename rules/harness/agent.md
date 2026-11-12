@@ -39,7 +39,8 @@ paths:
   `max_turns`, `agent`, `profile`, `effort`. `--agent` also takes an `--agents` key, and a definition's `model` applies
   on every agent. With `--batch`, `--agents` covers the whole file and a line's `agent` takes the same selector; the
   retired per-line key is an error. `--host` with `--agents` exits 2. Go API: `agent.Client`, `Client.Stream`.
-- `agents ask --overlay <value>` / `gateway --overlay <value>` / `COWORKER_OVERLAY` (read when the flag is absent):
+- `agents ask --overlay <value>` / `gateway --overlay <value>` / `COWORKER_OVERLAY` (read when the flag is absent; the
+  process env first, then the vault env for a dispatch that is not nested; interactive launches never read the vault's):
   ONE keyed JSON document (`schema` 1, all keys optional; `gateway --overlay` previews only the confinement plus `model`
   and `fallback`, ignoring `effort`, `host`, `remote` and the env layer): `provider` (`anthropic`, `openai`, `github`,
   `google`, `databricks`; omitted = the agent's pin; an agent that cannot use it is refused: claude anthropic, codex

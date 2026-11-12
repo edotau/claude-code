@@ -265,7 +265,7 @@ func gatewayOverlay(fs *flag.FlagSet, value string) (agentconfig.Overlay, error)
 		}
 		return agentconfig.Overlay{}, errors.New(from + ": stdin is a terminal; pipe the JSON document in, or pass a file")
 	}
-	cfg, err := agentconfig.LoadOverlay(value, os.Stdin)
+	cfg, err := agentconfig.LoadOverlay(agentconfig.DispatchOverlay(value), os.Stdin)
 	if err == nil {
 		cfg.Fold(fs)
 	}
