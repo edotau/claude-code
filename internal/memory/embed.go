@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"math"
 	"net/http"
 	"os"
@@ -544,13 +545,30 @@ func (r *embedRun) embed(ctx context.Context, ids, texts, hashes, blocks []strin
 }
 
 // embedProfiles yields the session profile, then the claude record's when it differs; the record loads only if reached.
-func embedProfiles(yield func(string) bool) {
-	name := providers.SessionProfile()
-	if name != "" && !yield(name) {
-		return
+func embedProfiles(ctx context.Context) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		name := providers.SessionProfile()
+		if name != "" && !yield(name) {
+			return
+		}
+		if other := claudeRecordProfile(ctx); other != "" && other != name {
+			yield(other)
+		}
 	}
-	if other := providers.AgentRecord("claude").Profile; other != "" && other != name {
-		yield(other)
+}
+
+// claudeRecordProfile reads the vault record within ctx; the abandoned read ends on the vault's own timeout.
+func claudeRecordProfile(ctx context.Context) string {
+	if ctx.Err() != nil {
+		return ""
+	}
+	done := make(chan string, 1)
+	go func() { done <- providers.AgentRecord("claude").Profile }()
+	select {
+	case p := <-done:
+		return p
+	case <-ctx.Done():
+		return ""
 	}
 }
 
@@ -618,7 +636,7 @@ func profileCache(ctx context.Context, profile string) (c vectorRecord, paused b
 // semanticCache picks the first unpaused profile with a cache; a backoff marker skips a profile before any vector loads.
 func semanticCache(ctx context.Context) (string, vectorRecord, error) {
 	var readErr, pauseErr error
-	for name := range embedProfiles { // lazy: the claude record's profile loads only if the session one misses
+	for name := range embedProfiles(ctx) { // lazy: the claude record's profile loads only if the session one misses
 		if !safeProfile.MatchString(name) {
 			continue
 		}
