@@ -411,11 +411,10 @@ func TestCompletionUnknownArgExitsTwo(t *testing.T) {
 }
 
 // isolateCompletionEnv points every on-disk domain at a fresh temp dir so tests never read this machine's state.
-func isolateCompletionEnv(t *testing.T) string {
+func isolateCompletionEnv(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("HOME", dir)
-	return dir
 }
 
 // TestGoldenProbesNowNonEmpty: every probe once recorded as empty now returns at least one candidate.

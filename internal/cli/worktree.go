@@ -55,7 +55,10 @@ func cmdWorktree(args []string) int {
 	if err != nil && (len(rest) == 0 || (rest[0] != "-h" && rest[0] != "--help")) {
 		return helptext.Fail("worktree: %v", err)
 	}
-	return dispatchWorktree(repo, sub, rest)
+	if handler, ok := worktreeHandlers[sub]; ok {
+		return handler(repo, rest)
+	}
+	return unknownSub("worktree", sub, worktreePage)
 }
 
 var worktreeHandlers = map[string]func(*worktree.Repo, []string) int{
@@ -64,13 +67,6 @@ var worktreeHandlers = map[string]func(*worktree.Repo, []string) int{
 	"merge":     cmdWorktreeMerge,
 	"clean":     cmdWorktreeClean,
 	"clean-all": cmdWorktreeCleanAll,
-}
-
-func dispatchWorktree(repo *worktree.Repo, sub string, args []string) int {
-	if handler, ok := worktreeHandlers[sub]; ok {
-		return handler(repo, args)
-	}
-	return unknownSub("worktree", sub, worktreePage)
 }
 
 func cmdWorktreeList(repo *worktree.Repo, args []string) int {

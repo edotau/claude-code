@@ -319,7 +319,11 @@ func cmdVaultGet(args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if *key {
-		return vaultGetKeyOnly(names, *export)
+		if len(names) > 0 || *export {
+			fmt.Fprintln(os.Stderr, "vault get: --key takes no NAME and no --export")
+			return 2
+		}
+		return vaultGetKey()
 	}
 	if len(names) == 0 {
 		fs.Usage()
@@ -336,15 +340,6 @@ func cmdVaultGet(args []string) int {
 		return helptext.Fail("vault get: %v", err)
 	}
 	return 0
-}
-
-// vaultGetKeyOnly prints the master key; --key takes no NAME and no --export.
-func vaultGetKeyOnly(names []string, export bool) int {
-	if len(names) > 0 || export {
-		fmt.Fprintln(os.Stderr, "vault get: --key takes no NAME and no --export")
-		return 2
-	}
-	return vaultGetKey()
 }
 
 // printVaultValues prints NAME=value lines, or shell-quoted export lines; the first write error is returned.
