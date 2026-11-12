@@ -1,25 +1,16 @@
 # Agent Design Patterns (this harness)
 
 Every row maps to code this repo runs. Serves `../SKILL.md` Phase 0: pick the shape here, fill each node with a leaf
-type (below), then wire stages into a template from [composites.md](composites.md). Trial evidence:
-`memory/claude-code/reports/2026-11-07-workflow-scorecard.md` (ranking, yields) and
-`2026-11-07-workflow-trial-decisions.md`
-(decision numbers `#n` below); current-docs check: `2026-11-07-agent-design-research.md`.
+type, then wire stages into a template from [composites.md](composites.md). Commit hashes below are the evidence.
 
 ## Execution mode: subagents, plus scripts that hold the plan
 
-Agent teams are experimental (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`), one team per session, no nesting, interactive
-only ([docs](https://code.claude.com/docs/en/agent-teams)); not used (#3). Subagents may spawn subagents to depth 3
-(`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`); the harness keeps leaves terminal. Start with the simplest shape that works
-([Building effective agents](https://www.anthropic.com/engineering/building-effective-agents)); multi-agent costs about
-15x a chat and coding has fewer parallel tasks than research
-([multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system)).
-
-Plan ownership: `../SKILL.md` → Who holds the plan.
+Agent teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) are not used; the harness keeps leaves terminal. Plan
+ownership: `../SKILL.md` → Who holds the plan.
 
 Workflow limits (docs): 16 concurrent agents by default, 1,000 per run, no mid-run input, run a small slice first
-(`code-workers` `slice`). The dispatch cap (24 per account, 4 x CPUs machine-wide) claims one slot per `agent()` site
-in a script (`internal/hooks/agents/leaves.go` `Effort`).
+(`code-workers` `slice`). The dispatch cap (`rules/harness/hooks.md` → dispatch cap) claims one slot per `agent()`
+site in a script (`internal/hooks/agents/leaves.go` `Effort`).
 
 ## Patterns we run
 
@@ -41,9 +32,6 @@ package p:  find(2 lenses) -> merge(file +-10 | symbol) -> rederive(blind) -> fi
 - Code: `~/.claude/workflows/code-workers.js` (`review`, `repair`). Gate is package-scoped plus
   `internal/schemas` when a writer changed.
 - Evidence: R9 26 agents / 2.0M tokens, yield 7.5 findings per 1M; R10 60 / 4.8M (7.1); R11 114 / 8.8M (7.0).
-- Failures and fixes: a fixer limited to its package skipped findings cited elsewhere (`d51420fb`); a blocked fixer
-  plus a green gate over unchanged code read as fixed (`07f86477`); scoped gates miss cross-package breakage
-  (`16d36662` broke `internal/ui/menu`, #24): follow `CLAUDE.md` hard rule 5 before pushing (#27).
 
 ### Fan-out / fan-in
 
@@ -51,9 +39,9 @@ package p:  find(2 lenses) -> merge(file +-10 | symbol) -> rederive(blind) -> fi
 packages -> [ code-workers stream p1 | p2 | ... | pN ]  (no barrier)  -> merged report
 ```
 
-- code-workers streams each package to its fixer the moment its findings are confirmed; the older barrier shape
-  (`wf-relay2`: all reviews, then all fixes) is retired (scorecard rank 3). Finders in `code-analyzer.js` remain a
-  fan-out over (dimension x chunk) with a refute step.
+- code-workers streams each package to its fixer the moment its findings are confirmed; the barrier shape (all
+  reviews, then all fixes) is retired. Finders in `code-analyzer.js` remain a fan-out over (dimension x chunk) with a
+  refute step.
 - Manual form: `Agent` calls in one message with `Owns:` files; fan-in reads every diff and the seam between leaves
   (`../SKILL.md` Phase 3).
 - Failure: wording-based dedupe produced duplicate findings (`code-analyzer` yield 2.8 and 4.0); code-workers merges by
@@ -69,7 +57,6 @@ task -> size(TRIVIAL|LOW|MEDIUM|HIGH|EPIC) -> code-workers x<=3 | code-analyzer 
   Tiers follow `rules/workflows/master-workflow.md` Phase 0; `tier` skips sizing.
 - Specialists by model alias: Haiku sizes, gates and records; Sonnet finds, fixes and tests; `opus`/`fable` only by a
   `steps` pin.
-- Failure: untested routes (LOW/MEDIUM, implementer, EPIC) at R11; LOW route first run `2026-11-07-route-test-low.md`.
 
 ### Producer-reviewer
 
@@ -78,11 +65,8 @@ fix -> test agent writes guard test -> gate
 finder claim -> blind re-derivation from file:line + symptom -> reproduced | dropped | unverified
 ```
 
-- A re-deriver never sees the finder's reasoning; a null result is `unverified`, never refuted (`222ae2b9`).
-- Guard test: `rules/standards/testing-guidelines.md`; the old `code-engineer` lacked this stage;
-  the size-routed rewrite (renamed from `orchestrate`) has it
-  (A/B: `memory/claude-code/reports/2026-11-07-workflow-trial-decisions.md`).
-- Out-of-package fixes and owner mid-turn messages reaching workflow agents are open defects (scorecard).
+- A re-deriver never sees the finder's reasoning. Guard test: `rules/standards/testing-guidelines.md`.
+- Owner mid-turn messages reaching workflow agents is an open defect.
 
 ### Supervisor
 
@@ -90,9 +74,8 @@ finder claim -> blind re-derivation from file:line + symptom -> reproduced | dro
 main session -> Explore x3 -> Plan -> claude || copilot (test agent) -> fan-in -> verify -> commit
 ```
 
-- The main session decides, integrates and commits; leaves never dispatch, commit or run the full suite
-  (`../SKILL.md` Ownership). Run-state: `claude-code agents tree`; proof an external agent ran: `ask: ran on` line
-  (`externalTypes`, `internal/hooks/agents/leaves.go`).
+- Ownership: `../SKILL.md` → Handoff contract. Run-state: `claude-code agents tree`; proof an external agent ran:
+  `ask: ran on` line (`externalTypes`, `internal/hooks/agents/leaves.go`).
 
 ### Hierarchical
 
@@ -102,71 +85,37 @@ main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> in-script st
 ```
 
 - `code-engineer` returns its children's merged result plus tier, route, polish, files and `recorded` paths.
-  PostToolUse(Workflow) fires at launch,
-  so recording happens in-run by a final Haiku agent (`2e9a90ff`, #23).
 
 ### Sequential plan and tournament
 
 - Sequential plan: per task implementer, spec review until `SPEC_COMPLIANT`, `Skill(simplify)`, quality review until
   `SHIP` ([prompts.md](prompts.md)); stop and ask when an assumption breaks. Ticks via `docs-plan-tick`.
 - Tournament: after the owner approves worktree creation, baseline the eval, send one brief verbatim to N `claude`
-  leaves (`isolation: "worktree"`, branch
-  `compete/<slug>/<n>`), re-measure yourself, `claude-code worktree merge` the winner, tag losers. A tie is not a win.
+  leaves (`isolation: "worktree"`, branch `compete/<slug>/<n>`), re-measure yourself, `claude-code worktree merge` the
+  winner, tag losers. A tie is not a win.
 
 ### Not used
 
 - Agent teams / `TeamCreate`: experimental, one per session, no nesting.
-- Loop-until-dry and the modal sweep: yield 2.2 and 2.5, retired or pre-pass only (scorecard 7-8).
+- Loop-until-dry and the modal sweep: yield 2.2 and 2.5, retired or pre-pass only.
 - External workflow stages and supported overrides: [saved-workflows.md](saved-workflows.md).
 - Peer-to-peer agent debate: no harness component; refute/rederive is one-way and blind.
 
-Role selection and escalation: `../SKILL.md` → Leaf types and Rules.
-
 ## Split vs merge; skill vs agent vs brief
 
-- Agent file = who (role reused across sessions); skill = how (named in a brief's `Method:`); brief = this task. A
-  one-off role is a brief to `claude`.
-- Split only when expertise, tool grant or authority differs (read-only `Explore` vs editing `claude`) or several
-  shapes reuse it. Merge when two files differ only in task wording; a role that only picks another agent is that
-  agent's leaf type (`codex`, `copilot`…), not a file. Prefer few focused leaves: each costs a brief and a fan-in read.
-- Hook tables a new external-agent type must join: `rules/workflows/agents.md` → Prose instructs, hooks guarantee.
-
-## Agent definition template
-
-```markdown
----
-name: <file-stem>          # house rule: equals agents/<name>.md stem
-description: |
-  When to use it, one paragraph. NOT ambiently triggered if it is a leaf.
-model: sonnet              # alias or inherit; effort: low|medium|high|xhigh|max
-effort: medium
-tools: [Read, Grep, Glob]  # list them; a read-only role gets none that write
----
-
-# <name>
-
-## Role
-## Invocation        (agents with a slash entry)
-## Owns
-## Knows             (on-demand references; nothing loads upfront)
-## Verbs             (when it drives a CLI)
-## Hands off to
-## Procedure
-## Report contract
-## Don't
-```
-
-Also worth knowing: `maxTurns`, `isolation: worktree`, `background`, `memory`; unknown fields are silently ignored.
+Agent file vs skill vs brief, and when to split or merge a role: `rules/workflows/agents.md` → Authoring: file, skill
+or brief; the file skeleton and frontmatter are in its Agent and command files section. Hook tables a new
+external-agent type must join: same file → Prose instructs, hooks guarantee.
 
 ## Lessons from the trial
 
-- Stream per package, no barrier between review and fix (#18, `06ac070e`).
-- Record in-run, not in a hook: PostToolUse(Workflow) fires at launch (#23, `2e9a90ff`).
-- Re-derive blind, and treat a failed re-derivation as unverified (`222ae2b9`).
-- A fixer that is not `done` is red even when the gate passes (#33, `07f86477`).
-- Route findings to the package that owns the file (#25, `d51420fb`).
-- Scoped gates can miss integration failures; release checks: `CLAUDE.md` hard rule 5 (#24, #27).
-- Revert a leaf's out-of-scope hunk (#20); a leaf never "fixes" files outside its list.
-- Pin `model` and `effort` on every stage with one verbatim `stepOf` (#29, `222ae2b9`).
-- Delete dead lanes: goal-keeper and `internal/goal` went (#8, `46da50b8`, `248e6db6`).
-- Fix CRITICAL/HIGH/MEDIUM in the round, LOW to techdebt (#17).
+- Stream per package, no barrier between review and fix (`06ac070e`).
+- Record in-run, not in a hook: PostToolUse(Workflow) fires at launch (`2e9a90ff`).
+- Re-derive blind, and treat a failed re-derivation as unverified, never refuted (`222ae2b9`).
+- A fixer that is not `done` is red even when the gate passes (`07f86477`).
+- Route findings to the package that owns the file (`d51420fb`).
+- Scoped gates can miss integration failures (`16d36662` broke `internal/ui/menu`); release checks: `CLAUDE.md`
+  hard rule 5.
+- Revert a leaf's out-of-scope hunk; a leaf never "fixes" files outside its list.
+- Pin `model` and `effort` on every stage with one verbatim `stepOf` (`222ae2b9`).
+- Fix CRITICAL/HIGH/MEDIUM in the round, LOW to the tech-debt report.

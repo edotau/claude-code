@@ -1,10 +1,10 @@
 # Saved Workflows (`workflows/*.js`)
 
-Run one only when the user asks; the default dispatch is `claude` ‖ `copilot`
-(`rules/workflows/master-workflow.md` → Phase 6). Each is a deterministic template of master-workflow phases, run by
-path (`Workflow({scriptPath: "~/.claude/workflows/<name>.js", args})`; a by-name call is accepted but `dispatch-effort`
-redirects it to the `scriptPath`) or nested via `workflow(name, args)` (one level). Control flow is code, never a model
-decision; agents work in the shared tree.
+Run one only when the user asks; the default dispatch is `claude` ‖ `copilot` (`../SKILL.md` → Test agent). Each
+is a deterministic template of master-workflow phases, run by path
+(`Workflow({scriptPath: "~/.claude/workflows/<name>.js", args})`; a by-name call is accepted but `dispatch-effort`
+redirects it to the `scriptPath`) or nested via `workflow(name, args)` (one level). Control flow is code, never a
+model decision; agents work in the shared tree.
 
 | Workflow | Shape | Key args (`steps` = `{agent?, model?, effort?, profile?, provider?}`, checked and route-previewed by the `dispatch-effort` hook before the run; args `profile?`, `provider?`) |
 | --- | --- | --- |
@@ -19,18 +19,16 @@ decision; agents work in the shared tree.
   `claude-code <a> ask --fallback agents --format json [--profile <p>] [--provider <x>]`, and the stage reports
   `ran on` (with hop count) or BLOCKED (`coworkers` rows in the result). The default is the agent's pin;
   `profile`/`provider` (run args or per stage) are the Databricks-arm flag and lead instead.
-  After a 429/quota/auth failure, even mid-run, the chain runs: same model on another endpoint, GitHub copilot
-  gpt-6.1-sol, another agent, BLOCKED; an editing successor checks `git diff` first. gemini defaults to Google; a
-  named Databricks profile or the arm runs it there. A run preflights each external route once with
-  `claude-code gateway`.
+  After a 429/quota/auth failure, even mid-run, the `--fallback agents` order runs (the requested target, then the
+  agent's pin), then BLOCKED ([cost-routing.md](cost-routing.md) → Fallback); an editing successor checks `git diff`
+  first. gemini defaults to Google; a named Databricks profile or the arm runs it there. A run preflights each
+  external route once with `claude-code gateway`.
   Parser: `stepOf`, verbatim in `code-analyzer`, `green-keeper-loop`, `code-evaluator`, `code-workers` and
   `code-engineer` (enforced by `workflow lint`).
 - Stages: the `// ── stages:` block (`stageGate`, `stageDetect`, `stageFix`, `stagePolish`), verbatim in
   `code-analyzer`, `green-keeper-loop`, `code-workers` and `code-engineer` (enforced by `workflow lint`). Stages run
   in-script, so a workflow nests one level only. Shell prompts carry no `cd … &&` prefix: the agent's cwd is already
   `cwd`.
-- `code-engineer` is the size-routed rewrite, renamed from `orchestrate` on 2026-11-07 (A/B:
-  `memory/claude-code/reports/2026-11-07-workflow-trial-decisions.md`).
 - Under Claude quota pressure (`low`/`exhausted` from `claude-code gateway --agent claude`), the scripts step
   their own Claude pins down one alias (opus→sonnet→haiku), fail-open. `green-keeper-loop` takes `claudeState`
   (`ok|low|exhausted|unknown`) from its caller or reads it itself; `code-analyzer` runs its gate in-script and passes

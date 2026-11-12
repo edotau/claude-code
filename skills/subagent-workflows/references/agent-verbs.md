@@ -9,7 +9,7 @@ keeps only its own deltas. Manager dispatch is `CLAUDE.md` guideline 3; this is 
 | --- | --- | --- |
 | `claude-code <agent> [flags] [args…]` · `<agent> -- <args…>` | launch the CLI, unknown words pass through · force passthrough (shadowed names, e.g. `-- review`) | agent CLI |
 | `claude-code <agent> ask [flags] <task>` · `resume <id> <task>` | one-shot run (`--tools` edits, `--background` detaches) · continue a session | answer |
-| `claude-code <agent> review [scope] [--adversarial] [--background]` | diff review | verdict + findings |
+| `claude-code <agent> review [--base b\|--commit c\|--pr\|--uncommitted] [--adversarial] [--background] [focus…]` | diff review (default: uncommitted) | verdict + findings |
 | `claude-code <codex-or-copilot> explore [--no-web] [--background] <question>` | read-only code scan + web research | Codebase Context Brief (file:line, URLs) |
 | `claude-code <agent> transfer [--source f] [--wait] [note]` | hand this Claude session to the agent | job id, or answer |
 | `claude-code <agent> status [id] [--all]` · `result [id]` · `cancel [id]` | background jobs in this repo · a finished answer · interrupt | rows (id, status, elapsed) · answer + session id + resume cmd · `cancelled <id>` |

@@ -10,9 +10,9 @@ user-invocable: false
 
 # Reflection — The Memory Bank's Entry Point
 
-One store (`~/.claude/memory/<repo>/`, catalog at `memory/index.md`): `claude-code memory <verb>`
-does every mechanical step; a verb needing judgment — text a model must produce — prints its own
-embedded procedure for the live session (or the headless `memory update` run) to apply.
+`claude-code memory <verb>` does every mechanical step; a verb needing judgment prints its own embedded procedure for
+the live session (or the headless `memory update` run) to apply. Store layout, precedence and verbs:
+`rules/workflows/memory-bank.md`.
 
 ## Promotion ladder
 
@@ -40,5 +40,3 @@ Every verb and its flags: `rules/workflows/memory-bank.md` → Verbs. These prin
 | `dream` | the headless run hands it to the model; `--dry-run` is a deterministic preview, no model |
 
 All other verbs print no procedure.
-
-Before a non-trivial task: `claude-code memory recall <task terms>`, then `memory show <id>`.

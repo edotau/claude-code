@@ -1,75 +1,43 @@
 # Installation
 
-## Linux (mainstream distributions)
+Standard installs: <https://tailscale.com/download>, the platform app store, or on Linux the install script
+(`curl -fsSL https://tailscale.com/install.sh | sh`, then `sudo tailscale up` and open the printed auth URL). The
+script covers Ubuntu, Debian, RHEL, CentOS, Fedora, Raspberry Pi OS, Amazon Linux, openSUSE, Oracle Linux and VMware
+Photon OS.
 
-Works on Ubuntu, Debian, RHEL, CentOS, Fedora, Raspberry Pi OS, Amazon Linux, openSUSE, Oracle Linux, and VMware Photon OS.
+## Linux outside the script
 
-```bash
-curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up
-```
-
-The `tailscale up` command prints a URL to authenticate. Open it in a browser to add the device to your tailnet.
-
-### Verify installation
-
-```bash
-tailscale ip        # Shows your Tailscale IPv4 and IPv6 addresses
-tailscale status    # Shows connection status and other devices
-```
-
-### Arch Linux and NixOS
-
-These distributions have their own packages — install `tailscale` through `pacman` or your NixOS configuration respectively.
-
-### Static binaries
-
-For distributions not supported by the install script:
+- **Arch Linux / NixOS**: install `tailscale` through `pacman` or the NixOS configuration.
+- **Static binaries** (unsupported distributions):
 
 ```bash
 # Download for your architecture from https://pkgs.tailscale.com/stable/
 tar xvf tailscale_<version>_<architecture>.tgz
-
-# Start the daemon
-sudo tailscaled --state=tailscaled.state
-
-# Connect
+sudo tailscaled --state=tailscaled.state   # Start the daemon
 sudo tailscale up
 ```
 
-A systemd service file is included in the `systemd/` subdirectory of the archive.
+A systemd service file ships in the archive's `systemd/` subdirectory.
 
-## macOS
+## macOS variants
 
-Three variants are available:
+| Variant | Notes |
+|---|---|
+| Mac App Store | GUI, sandboxed, most common for personal use |
+| Standalone (GUI) | From <https://tailscale.com/download/mac>; same GUI, not sandboxed |
+| Open-source CLI (`tailscaled`) | Command-line only; **required for the Tailscale SSH server**; Funnel and Serve limits: [sharing-and-publishing.md](sharing-and-publishing.md) |
 
-1. **Mac App Store** — GUI app, sandboxed, most common for personal use
-2. **Standalone (GUI)** — Downloaded from http://tailscale.com/download, same GUI but not sandboxed
-3. **Open source CLI (`tailscaled`)** — Command-line only, required for Tailscale SSH server
-
-Download from https://tailscale.com/download/mac or the Mac App Store.
-
-For CLI access with the GUI variants, enable CLI integration in the Tailscale menu, or invoke directly:
-```bash
-/Applications/Tailscale.app/Contents/MacOS/Tailscale <command>
-```
+GUI variants reach the CLI via CLI integration or `/Applications/Tailscale.app/Contents/MacOS/Tailscale <command>`
+([cli.md](cli.md)).
 
 ## Windows
 
-Download from https://tailscale.com/download/windows or install via MSI for enterprise deployment.
+<https://tailscale.com/download/windows>, or MSI for enterprise deployment. WSL 2 is supported; refer to the Tailscale
+docs for WSL 2 instructions.
 
-WSL 2 is also supported; refer to the Tailscale docs for WSL 2 instructions.
+## Updating and uninstalling
 
-## iOS and Android
-
-Install from the Apple App Store or Google Play Store respectively. Authentication happens in-app.
-
-## Updating
-
-- **CLI**: `tailscale update`
-- **GUI apps**: Update through the app or app store
-- **Auto-update**: Configurable from the admin console or via MDM policies
-
-## Uninstalling
-
-Refer to Tailscale's uninstall documentation for platform-specific removal steps. On Linux, use your package manager (`apt remove tailscale`, `yum remove tailscale`).
+- Update: `tailscale update` (CLI), the app or app store (GUI); auto-update is configurable in the admin console or
+  via MDM.
+- Uninstall: Tailscale's uninstall docs per platform; on Linux the package manager (`apt remove tailscale`,
+  `yum remove tailscale`).

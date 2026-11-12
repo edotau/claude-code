@@ -11,7 +11,8 @@ Shared tree: never git stash/checkout/reset/restore; confirm each write with `gi
 leaf: never dispatch subagents or commit; external wrappers follow the shared relay contract.
 Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report).
 After a defect fix write ISSUE: searched P, found N. Report both as plain sentences.
-Return: status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED, Ran on: <quoted `ask: ran on …` line | `self — why`>.
+Return: status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED,
+Ran on: <quoted `ask: ran on …` line | `self — why`>.
 ```
 
 Templates list only their own lines. Reviewers inspect the artifact, never the report about it, and edit nothing; Code

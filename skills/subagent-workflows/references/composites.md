@@ -2,7 +2,6 @@
 
 The composites this harness operates from, as fill-in templates. Shapes and why: [patterns.md](patterns.md); args and
 exits: [saved-workflows.md](saved-workflows.md). Run one only when the owner asks; with no specific fit, run (A).
-Evidence: `memory/claude-code/reports/2026-11-07-workflow-scorecard.md`.
 
 Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 114 / 8.8M). code-workers estimate is
 `6 x packages + 3 x fixed packages` (the script logs it at launch) plus 2 (size, record). Dispatch cap:
@@ -24,16 +23,10 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 | Review | reviewer, `sonnet` high, read-only | that merged diff | findings | any finding (lows too) earns one Fix-all, guard test and gate per package (no second child run) | decision |
 | Record | recorder, `haiku` low | report, decisions | paths written | two files exist | the memory files |
 
-- **Args**: `cwd` and one of `task`, `packages`, `paths`, `range` (git range; bare range runs
-  code-analyzer), `skill`; optional
-  `tier`, `fix` (true), `minFix` (low), `focus`,
-  `polish` (true; false skips the one polish over the merged diff), `gate`/`gateScope`, `skill`, `label`,
-  `record:false`, `steps {size, intel, impl, plan, dedupe, simplify, review, record, child}`.
-  Exits `green|red|review|plan|error`.
+- **Args**: [saved-workflows.md](saved-workflows.md) → `code-engineer` row. Exits `green|red|review|plan|error`.
 - **Cost**: HIGH over N packages is code-workers's estimate plus 2; R10 6 packages 60 agents, R11 15 packages 114.
-- **Failure modes and guards**: sizer returns nothing, so pass `tier`; untested routes (LOW/MEDIUM/impl/EPIC) went
-  live only in `2026-11-07-route-test-low.md`; owner messages reach running agents (R8, open); classifier outage
-  blocked one fixer in R11 (reported red, re-dispatched by hand, `07f86477`).
+- **Failure modes and guards**: sizer returns nothing, so pass `tier`; owner messages reach running agents (open);
+  classifier outage blocked one fixer in R11 (reported red, re-dispatched by hand, `07f86477`).
 - **Resume and results**: relaunch with the Workflow tool's `resumeFromRunId` and the same `scriptPath`; unchanged
   `agent()` calls replay from cache (R7's fix round re-ran only 12 new agents; R8's resumed the same way). Results land
   in `$(claude-code memory path)/reports/DATE-<label>.md` and `DATE-decisions.md`.
@@ -54,13 +47,12 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 | Fix-all, Test, re-Gate | `steps.fix`, `test`, `gate` | every review finding, lows included | fixed count; guard tests; `{green}` | one cycle per package; red re-gate or unfinished fix-all = red | "fix-all: N fixed" |
 
 - **Foreign re-route**: a finding citing a file outside its finder's package is fixed after the stream by the owning
-  directory (`d51420fb`); a live re-route run is still owed (scorecard rank 2).
-- **Args**: `cwd`, `packages` or `paths`, `slice` (first N packages, a small first run), `fix`, `minFix`, `focus`,
-  `polish` (true), `steps {find, rederive, fix, test, gate, simplify, review}`.
+  directory (`d51420fb`); a live re-route run is still owed.
+- **Args**: [saved-workflows.md](saved-workflows.md) → `code-workers` row; `slice` (first N packages) for a first run.
 - **Cost**: `6 x P + 3 x fixed` (+4 per fixed package with polish: simplify, review,
   and when findings exist fix-all, test, re-gate); yield 7.0 to 7.5 confirmed findings per 1M tokens.
 - **Failure modes**: scoped gate misses cross-package breakage (`16d36662`): full suite before push; fixer blocked
-  but gate green is red (`07f86477`); an out-of-scope hunk in a fix is reverted by the supervisor (decision #20).
+  but gate green is red (`07f86477`); an out-of-scope hunk in a fix is reverted by the supervisor.
 - **Results**: returns `{exit, confirmed, dropped, unverified, fixed (each with simplify, review, fixall), red,
   decisions, report}`; direct runs record nothing, so go through (A) when the run should be filed.
 
@@ -77,9 +69,7 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 
 - **Call**: `Workflow({scriptPath: ".../code-engineer.js", args: {cwd, task: "add X", tier: "MEDIUM"}})`.
 - **Cost**: 2 + code-workers on 1 to 3 packages, about 8 to 20 agents (about 0.6M to 1.6M tokens, extrapolated).
-- **Failure modes**: code-workers only fixes bugs, so a build is the implementer's job; the old `code-engineer`
-    (one fixed chain) was rewritten as the size-routed script, renamed from `orchestrate`
-    (A/B: `memory/claude-code/reports/2026-11-07-workflow-trial-decisions.md`).
+- **Failure modes**: code-workers only fixes bugs, so a build is the implementer's job.
 - **Resume**: re-run with `paths` set to the files the implementer touched and no feature verb, which skips it.
 
 ## D. EPIC: plan draft, owner approval, rounds over package groups
@@ -93,28 +83,26 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 | Round | composite A or B per group | group packages | confirmed, fixed, red | full suite before push | report + decisions |
 | Fix leftovers | `claude` leaf | red or foreign findings | commit | per-package gate | decision row |
 
-- **Policy** (#17): fix CRITICAL/HIGH/MEDIUM in the round, LOW to `workflow-trial-techdebt.md`, no per-round ask.
-- **Cost**: R7 37 agents, R8 74, R9 26, R10 60, R11 114 (5 rounds, about 21M tokens including relay2).
-- **Failure modes**: fixing mediums before the next round left earlier gaps (#12, #15); update the scorecard after
-  each round; a plan not dated from first write (`memory/claude-code/feedback-plans-dated-template-first.md`).
-- **Resume**: continue at the first unticked plan line or the next group; reports are per round
-  (`reports/2026-11-07-r<n>-g<m>.md`).
+- **Policy**: fix CRITICAL/HIGH/MEDIUM in the round, LOW to the tech-debt report, no per-round ask.
+- **Cost**: R7 37 agents, R8 74, R9 26, R10 60, R11 114 (5 rounds, about 21M tokens).
+- **Failure modes**: leaving mediums unfixed before the next round left earlier gaps.
+- **Resume**: continue at the first unticked plan line or the next group; one report per round
+  (`reports/DATE-r<n>-g<m>.md`).
 
 ## E. Main-session supervisor loop around a workflow
 
 ```text
-launch(A|B) -> wait (never poll) -> read result -> verify diffs -> scoped gate -> full suite -> commit named files -> push
+launch(A|B) -> wait (never poll) -> read result -> verify diffs -> scoped gate -> full suite
+  -> commit named files -> push
 ```
 
 | Step | Check | Source |
 | --- | --- | --- |
-| Verify diff | `git diff --stat`; only the run's packages; revert out-of-scope hunks | decision #20 |
+| Verify diff | `git diff --stat`; only the run's packages; revert out-of-scope hunks | `../SKILL.md` → Fan-in |
 | Re-run red gates | a red package or `fixed` with status not done is re-dispatched by hand | `07f86477` |
-| Full suite | `CLAUDE.md` hard rule 5 at the authorized release boundary | #27 |
+| Full suite | `CLAUDE.md` hard rule 5 at the authorized release boundary | `16d36662` |
 | Commit | `git commit -- <paths>`, named files, no AI footer; merge, `make install` from a clean tree, push | CLAUDE.md rules 3, 5 |
-| Log | decisions and reverts to `reports/DATE-decisions.md`; scorecard row updated | `workflow-scorecard.md` |
-
-Never `git stash|checkout|reset|restore|clean` in the live tree; peers share it (CLAUDE.md rule 4).
+| Log | decisions and reverts to `reports/DATE-decisions.md` | `claude-code memory report` |
 
 ## F. code-analyzer partition: scan, plan, waves
 
@@ -125,9 +113,9 @@ graph (shared file, or an exported change imported by the other package), colour
 final single-owner task. Waves run in sequence, tasks of a wave in parallel; each fixer owns only its listed files.
 `fix:false, partition:true` returns `partition {waves, hotspotTask, edges}` and a `## Tasks` plan block, no edits.
 
-Why disjoint dirs and waves, not `isolation: 'worktree'`: the house rule is no worktree without the owner's yes
-(`rules/standards/worktree-git.md`), a worktree costs setup and a merge per writer, and package-disjoint writers
-or conflict-free waves in the shared tree give the same disjointness.
+Why disjoint dirs and waves, not `isolation: 'worktree'`: no worktree without the owner's yes
+(`rules/standards/worktree-git.md`), and conflict-free waves in the shared tree give the same disjointness without a
+setup and merge per writer.
 
 ## New composite: template
 
@@ -154,4 +142,4 @@ Returns:     {exit, route, packages, merged, confirmed, dropped, unverified, fix
 - Every `agent()` call pins `model:` and `effort:`; external-stage overrides follow `saved-workflows.md`.
 - Return the shared result shape above; `ERR(...)` for bad args; no shell state outside agents; plain JavaScript.
 - A log line with the agent estimate at launch, and a `slice` arg for the first run.
-- Run once on a small slice, add the scorecard row, then update the table and `whenToUse`.
+- Run once on a small slice, then update the table and `whenToUse`.

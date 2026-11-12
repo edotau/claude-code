@@ -1,16 +1,22 @@
 ---
 name: subagent-workflows
-description: Run multi-agent work end to end, from picking the shape (fan-out on disjoint files, sequential plan, lane orchestrator, tournament, saved Workflow), write briefs, dispatch, fan in, commit. Use for "fan this out", "dispatch agents", "write a brief", "which agent", "run the plan", "compare agents", "fix failing tests", "regression tests", "does this test have teeth", and follow-ups like "re-run the failed leaf", "only the X task again", "continue the plan", "redo with codex". Not one diff review (`/code-review`) or planning (`Plan`).
+description: >-
+  Run multi-agent work end to end, from picking the shape (fan-out on disjoint files, sequential plan, lane
+  orchestrator, tournament, saved Workflow), write briefs, dispatch, fan in, commit. Use for "fan this out",
+  "dispatch agents", "write a brief", "which agent", "run the plan", "compare agents", "fix failing tests",
+  "regression tests", "does this test have teeth", and follow-ups like "re-run the failed leaf", "only the X
+  task again", "continue the plan", "redo with codex". Not one diff review (`/code-review`) or planning
+  (`Plan`).
 ---
 
 # Subagent Workflows
 
 ## Execution mode: subagent
 
-Dispatch follows `CLAUDE.md` guideline 3; they are terminal and never fan out, so the manager
-(the main session) is the one orchestration layer. Agent files say who a leaf is, the brief's `Method:` skill how,
-this skill when and in what order, [patterns.md](references/patterns.md) which shape: weak output means fix the
-skill, a wrong role the agent file, a wrong order this skill. Writing an agent file: `rules/workflows/agents.md`.
+Dispatch, roster and labels: `CLAUDE.md` guideline 3; leaves are terminal, so the main session is the one
+orchestration layer. Agent files say who a leaf is, the brief's `Method:` skill how, this skill when and in what order,
+[patterns.md](references/patterns.md) which shape: weak output means fix the skill, a wrong role the agent file, a
+wrong order this skill. Writing an agent file: `rules/workflows/agents.md`.
 
 ## Who holds the plan
 
@@ -20,14 +26,13 @@ skill, a wrong role the agent file, a wrong order this skill. Writing an agent f
 | Agent team (experimental) | a lead over peers | peers must talk to each other; not used here |
 | Workflow | the script | the steps are known up front and must run the same every time |
 
-Source: [when to use a workflow](https://code.claude.com/docs/en/workflows#when-to-use-a-workflow). When the owner asks
-for a workflow and no specific one fits, run `code-engineer` (`~/.claude/workflows/code-engineer.js`).
+When the owner asks for a workflow and no specific one fits, run `code-engineer`
+(`~/.claude/workflows/code-engineer.js`).
 
 ## Leaf types
 
-Dispatch syntax and the allowed roster: `CLAUDE.md` guideline 3. Shell `agents ask` belongs inside an external
-relay or an explicitly requested script, not a second manager dispatch path. Owner shortcuts:
-`rules/workflows/agents.md` → Slash commands.
+Shell `agents ask` belongs inside an external relay or an explicitly requested script, not a second manager dispatch
+path. Owner shortcuts: `rules/workflows/agents.md` → Slash commands.
 
 | Leaf | Role | Output |
 | --- | --- | --- |
@@ -40,7 +45,7 @@ relay or an explicitly requested script, not a second manager dispatch path. Own
 | `Plan` | Read-only design on the session model | Plan in `docs/templates/plan.md` form |
 | `general-purpose` | Built-in general work when the named roles do not fit | Brief's requested report |
 
-Print the label with `claude-code agents label <type> --brief FILE`; `--model` previews a dispatch model,
+`claude-code agents label <type> --brief FILE` prints the label; `--model` previews a dispatch model,
 `--session-model` supplies the parent model when the transcript cannot. `claude` and `Plan` keep frontmatter
 `model: inherit`; external wrappers' frontmatter controls the relay, not the vendor model. The root machine's
 pins and per-call flags select external execution; never overwrite another machine's pins.
@@ -85,13 +90,12 @@ plan (resume at the first unticked line of its `~/.claude/plans/` checklist).
 
 ### Phase 1: prepare
 
-Give each leaf named files it owns and never share one between parallel leaves, so no write is lost. Split or merge
-leaves by expertise, independence, context load and reuse; prefer a few focused ones: each extra leaf costs a brief
-and a fan-in read.
+Give each leaf named files it owns and never share one between parallel leaves. Prefer a few focused leaves: each
+extra one costs a brief and a fan-in read.
 
 #### Handoff contract
 
-**Brief (in)** — a fresh agent can act from it alone:
+**Brief (in)** — a fresh agent can act from it alone (the CLI starts cold and cannot see this session):
 
 - `Objective:` one outcome. `Agent:` names the work agent; omit for the selected type or use `in-context` for
   direct work. Keep it consistent with the type; request another agent from the manager rather than a hidden relay.
@@ -101,6 +105,8 @@ and a fan-in read.
 - `Owns:` absolute paths and forbidden files. `Method:` the skill. `Context:` evidence, decisions and plan path.
   `Constraints:` applicable rules and the [Shared tree](#shared-tree) line. `Verify:` a scoped command;
   `Acceptance:` its observable outcome. `Workflow:` a saved Workflow only when the owner requested it.
+- State what to report on a missing credential, a red gate or a file the leaf doesn't own, and any dependency on
+  another leaf so the manager orders the dispatch.
 
 Legacy hook routing is supported but not needed for an ordinary dispatch:
 
@@ -113,12 +119,12 @@ Legacy hook routing is supported but not needed for an ordinary dispatch:
 `--route` accepts `default`, `first-party` and `databricks[:<profile>|:auto]`; the brief `Route:` accepts only the
 Databricks arm and validates a named workspace. Use a leading `Run: claude-code agents ask …` (optionally with global
 `--remote <h>`) and no `Profile:`/`Route:` lines to avoid their prompt rewrites in auto mode. The hook still rewrites
-some non-direct calls there; see `rules/harness/hooks.md`. `--remote` runs here and tunnels Databricks requests;
-`--host` runs the verb on the named host.
+some non-direct calls there; see `rules/harness/hooks.md`. `--remote` vs `--host`: `rules/harness/network.md`.
 
-**Report (out)** — a review's verdict word alone, else one Status: `DONE` · `DONE_WITH_CONCERNS` (resolve before
-review) · `NEEDS_CONTEXT` ([Return to owner](#return-to-owner)) · `BLOCKED` (change something; never resend unchanged).
-Then `Ran on:` (the `ask: ran on …` line, or `self — <why>`), files, commands with exit codes, `Acceptance:` evidence.
+**Report (out)** — a review's verdict word alone, else one Status: `DONE` · `DONE_WITH_CONCERNS` (resolve
+before review) · `NEEDS_CONTEXT` ([Return to owner](#return-to-owner)) · `BLOCKED` (change something; never resend
+unchanged). Then `Ran on:` (the `ask: ran on …` line, or `self — <why>`), files, commands with exit codes,
+`Acceptance:` evidence.
 
 **Ownership** — one writer per file, split by file not topic; one package parallelizes when each leaf creates its own
 new file and reports its API surface, and the manager makes the one integration edit. The manager owns decisions,
@@ -126,12 +132,12 @@ integration and commits; leaves never dispatch subagents, commit or run the suit
 
 ### Phase 2: dispatch
 
-Send independent leaves in one message with `run_in_background`; run sequentially when one output feeds the next.
+Independent leaves go in one message with `run_in_background`.
 
 #### Concurrency
 
-The cap is 24 per account via the dispatch hook, test agents included (`rules/harness/hooks.md` → dispatch cap).
-Parallel leaves never share a file; batch deep-context leaves (Databricks `429`) and fleet scans.
+Dispatch cap: `rules/harness/hooks.md` → (dispatch cap); test agents count against it. Batch deep-context leaves
+(Databricks `429`) and fleet scans.
 
 #### Test agent
 
@@ -156,8 +162,8 @@ its cap (3 cycles per test, 5 per task) reports and stops.
 Treat every report as a claim: read the diff and gate output, check deleted blocks (callers, `git log -S`) and edits
 outside the leaf's files, confirm a new test can fail, re-run scoped checks yourself, rebuild before trusting a binary.
 
-- When parallel leaves built both sides of a seam (flag/argv builder ↔ consumer, JSON shape ↔ reader, hook key ↔ brief
-  writer), read producer and consumer together; `go build ./...` misses a broken consumer.
+- When parallel leaves built both sides of a seam (flag/argv builder ↔ consumer, JSON shape ↔ reader, hook key ↔
+  brief writer), read producer and consumer together; `go build ./...` misses a broken consumer.
 - Disagreeing reviewers: keep both findings with their sources. Simplify once over the merged diff, then review.
 - **Saved workflow output** is a claim too: diff it against the brief's file list (revert or park edits outside it),
   rerun the gate of its last-touched package, and compare confirmed findings to fixed ones (a gap = dropped findings,
@@ -169,14 +175,13 @@ outside the leaf's files, confirm a new test can fail, re-run scoped checks your
 
 ### Phase 4: finish
 
-Run applicable checks in `rules/standards/quality.md` and stop at the requested boundary.
-Commit only when authorized, per `rules/standards/worktree-git.md`; report verified edits otherwise.
+Checks: `rules/standards/quality.md`; commits only when authorized: `rules/standards/worktree-git.md`.
 
 #### Return to owner
 
 A gap goes back to the same agent with `SendMessage` (the gap, evidence wanted, stop condition). Never poll or `sleep`:
 a long `ask` runs `--background`, then waits with `tail -f <id>` as a background Bash call
-([agent-verbs.md](references/agent-verbs.md) step 3). Re-dispatch only when the owner is gone; after a restart read
+([agent-verbs.md](references/agent-verbs.md) step 2). Re-dispatch only when the owner is gone; after a restart read
 `git status`; never relaunch a leaf the user stopped. Reports go to `$(claude-code memory path)/reports/`.
 
 ## Shared tree
@@ -186,19 +191,18 @@ a sibling's half-finished edit); check writes with `git diff --stat`; stage name
 
 ## Rules
 
-- Decide the owner before gathering evidence, never redoing its searches. Simplify once per diff, before review, run by
-  the manager; detectors (`claude-code review *`) once per pipeline.
-- A failed leaf returns its error. The manager may retry once with changed evidence or routing; never resend an
-  unchanged failed brief. Preserve explicit agent/model choices unless the owner authorizes a change.
+- Decide the owner before gathering evidence, never redoing its searches. Simplify runs once per diff, by the manager
+  (`rules/standards/quality.md` → Verification Order step 5); detectors (`claude-code review *`) once per pipeline.
+- Preserve explicit agent/model choices unless the owner authorizes a change; models go on the `ask` call
+  (`--model`), never a brief field.
 
 ## Error handling
 
 | Situation | Strategy |
 | --- | --- |
-| One leaf fails | Retry once with its failure output and a changed brief; a second failure: land the rest, name the gap |
+| One leaf fails | Retry once with its failure output and a changed brief (never resend it unchanged); a second failure: land the rest, name the gap |
 | Most leaves fail | Stop and tell the owner; the brief or plan is wrong |
 | Timeout | Keep partial results, cancel the rest |
-| Reviewers disagree | Keep both findings with their sources |
 | A leaf touched a file it didn't own | Revert that hunk, re-dispatch with the `Owns:` line sharpened |
 | External agent unavailable (credential or route missing, e.g. a Databricks profile without its M2M secret) | Report BLOCKED with the fix command; never silently do it in-context |
 | Quota pressure | Dispatches keep their model; route the work to another agent yourself ([cost-routing.md](references/cost-routing.md)) |
@@ -210,11 +214,3 @@ a sibling's half-finished edit); check writes with `git diff --stat`; stage name
   the files.
 - **Error**: a leaf fails its `Verify:` twice (second time with the failure output and a changed brief). The other
   leaves land, the report names the missing task as a gap, and nothing is silently redone in-context.
-
-## Authoring rules
-
-- Name the work agent, owned files and scoped verification; field parsing is defined in Handoff contract.
-- One task per leaf; state inter-task dependencies so the manager orders the dispatch.
-- Paste every fact the leaf needs: the CLI starts cold and cannot see this session.
-- Specify realistic error handling: what to report on a missing credential, a red gate or a file it doesn't own.
-- Choose models in the `ask` call (`--model`), not a brief field; `Model:` is not parsed by the hook.
