@@ -204,7 +204,7 @@ func serveFile(w io.Writer, home, path string) error {
 	return err
 }
 
-// allowedServePath resolves path and accepts only a regular file within the size cap, under home or a temp root.
+// allowedServePath resolves path and accepts only a regular file within the size cap, under an allow-listed root.
 func allowedServePath(home, path string) (real string, size int64, err error) {
 	if !filepath.IsAbs(path) {
 		return "", 0, errors.New("path must be absolute")
@@ -227,8 +227,11 @@ func allowedServePath(home, path string) (real string, size int64, err error) {
 	if h, err := filepath.EvalSymlinks(home); err == nil {
 		home = h
 	}
-	if !underAnyRoot(real, serveRoots(home)) || underSecretRoot(real, secretRoots(home)) {
-		return "", 0, errors.New("path is not shareable")
+	if !underAnyRoot(real, withTargets(serveRoots(home))) {
+		return "", 0, fmt.Errorf("not shareable: outside %s", strings.Join(serveRoots(home), ", "))
+	}
+	if underSecretRoot(real, secretRoots(home)) {
+		return "", 0, errors.New("not shareable: credential path")
 	}
 	return real, fi.Size(), nil
 }
@@ -243,9 +246,16 @@ func underAnyRoot(real string, roots []string) bool {
 	return false
 }
 
-// serveRoots lists the only trees a file may be served from: home and the temp roots, symlinks resolved.
+// serveHomeDirs are the user-content folders under home a file may be served from.
+var serveHomeDirs = []string{"Desktop", "Downloads", "Documents", "Pictures", "Movies", "Music"}
+
+// serveRoots lists the only trees a file may be served from: the user-content folders under home and the temp roots.
 func serveRoots(home string) []string {
-	return withTargets([]string{home, os.TempDir(), "/tmp", "/private/tmp", "/var/folders", "/private/var/folders"})
+	var roots []string
+	for _, d := range serveHomeDirs {
+		roots = append(roots, filepath.Join(home, d))
+	}
+	return append(roots, os.TempDir(), "/tmp", "/private/tmp", "/var/folders", "/private/var/folders")
 }
 
 // withTargets returns each non-empty path followed by its symlink target when that resolves.
