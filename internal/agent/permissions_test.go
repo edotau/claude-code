@@ -2,6 +2,8 @@ package agent
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -260,5 +262,23 @@ func TestResolvePermissionsWidening(t *testing.T) {
 				t.Errorf("got %s widened %q\nwant %s widened %q", permsJSON(t, got), widened, c.want, c.widened)
 			}
 		})
+	}
+}
+
+// Given a Deny Write rule spelled through a symlinked root, Then the other spelling is denied too, both ways.
+func TestPermissionPathRuleMatchesEitherSymlinkSpelling(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	for _, c := range []struct{ rule, path string }{{link, real}, {real, link}} {
+		p := mustPerms(t, "default", nil, nil, []string{"Write(" + c.rule + "/**)"})
+		if got := p.Decide("Write", c.path+"/f.txt"); got != Deny {
+			t.Errorf("rule under %s, path under %s: got %v, want Deny", c.rule, c.path, got)
+		}
+		if got := p.Decide("Write", t.TempDir()+"/f.txt"); got == Deny {
+			t.Errorf("rule under %s denied an unrelated path", c.rule)
+		}
 	}
 }
