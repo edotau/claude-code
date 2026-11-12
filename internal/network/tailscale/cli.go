@@ -263,13 +263,17 @@ func writeAuthKeyFile(authKey string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
 	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
 		_ = os.Remove(f.Name()) // best-effort cleanup; the Chmod error is already being returned
 		return "", err
 	}
-	if _, err := f.WriteString(authKey); err != nil {
-		_ = os.Remove(f.Name()) // best-effort cleanup; the write error is already being returned
+	_, err = f.WriteString(authKey)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(f.Name()) // best-effort cleanup; the write/close error is already being returned
 		return "", err
 	}
 	return f.Name(), nil

@@ -22,7 +22,8 @@ func guardedClient() *http.Client {
 	t.Proxy = egress.Proxy // a /via/<host> request's workspace calls leave through that host's tunnel
 	t.ResponseHeaderTimeout = responseHeaderTimeout
 	t.MaxIdleConnsPerHost = upstreamIdleConns
-	return &http.Client{Transport: t}
+	// a 3xx goes back to the caller: following it would dial a literal local IP past the guard
+	return &http.Client{Transport: t, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
 
 // upstreamIdleConns is the idle connections kept per workspace host: Go's default of 2 re-handshakes TLS in parallel.

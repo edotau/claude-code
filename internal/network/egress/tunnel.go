@@ -68,7 +68,11 @@ func Ensure(ctx context.Context, host string) (string, error) {
 			return err
 		}
 		addr = t.addr()
-		return writeRecord(path, t)
+		if err := writeRecord(path, t); err != nil {
+			kill(t) // an unrecorded tunnel could never be stopped
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return "", fmt.Errorf("egress host %s: %w", host, err)
@@ -164,13 +168,18 @@ func sshCause(logPath string) string {
 	return cmp.Or(strings.TrimSpace(lines[len(lines)-1]), "ssh exited before the tunnel came up")
 }
 
-// kill ends t's ssh process, only when the pid still is that tunnel: a recycled pid is left alone.
-func kill(t Tunnel) bool {
+// isTunnel reports pid t.PID still is t's ssh process: a recycled pid is not.
+func isTunnel(t Tunnel) bool {
 	if t.PID <= 0 {
 		return false
 	}
 	argv, err := proc.Argv(t.PID)
-	if err != nil || len(argv) == 0 || filepath.Base(argv[0]) != "ssh" || !slices.Contains(argv, t.addr()) {
+	return err == nil && len(argv) > 0 && filepath.Base(argv[0]) == "ssh" && slices.Contains(argv, t.addr())
+}
+
+// kill ends t's ssh process, only when the pid still is that tunnel: a recycled pid is left alone.
+func kill(t Tunnel) bool {
+	if !isTunnel(t) {
 		return false
 	}
 	p, err := os.FindProcess(t.PID)
@@ -196,7 +205,9 @@ func Stop(host string) error {
 	if !ok {
 		return nil
 	}
-	kill(t)
+	if !kill(t) && isTunnel(t) {
+		return fmt.Errorf("egress host %s: could not kill ssh pid %d", host, t.PID)
+	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("egress host %s: %w", host, err)
 	}
