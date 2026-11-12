@@ -286,18 +286,6 @@ func OpencodeCopilotToken() string {
 	return ""
 }
 
-// opencodeCopilotLogin runs opencode on its own Copilot sign-in: interactive is plain (ErrOwnLogin), headless pins -m.
-func opencodeCopilotLogin(model string, h *agent.Headless) ([]string, []string, error) {
-	if !OpencodeCopilotLoginPresent() {
-		return nil, nil, errors.New("opencode: no GitHub Copilot login in opencode's stored logins; run `opencode auth login` and choose GitHub Copilot")
-	}
-	if h == nil {
-		return nil, nil, agent.ErrOwnLogin
-	}
-	env, argv := opencodeRun("github-copilot/"+model, *h)
-	return env, argv, nil
-}
-
 // opencodeCopilotModelIDs resolves pin-aware sonnet/haiku IDs under github-copilot; false if either alias is missing.
 func opencodeCopilotModelIDs(reg *providers.Registry) (main, small string, ok bool) {
 	p, found := reg.LoginProfile("github", "copilot")
@@ -480,8 +468,14 @@ func (opencodeEngine) Login(p *providers.Provider, model string, h *agent.Headle
 	if p.Provider != "github" {
 		return nil, nil, errors.New("opencode: no subscription sign-in support")
 	}
-	model = opencodeModel(p, model)
-	return opencodeCopilotLogin(model, h)
+	if !OpencodeCopilotLoginPresent() {
+		return nil, nil, errors.New("opencode: no GitHub Copilot login in opencode's stored logins; run `opencode auth login` and choose GitHub Copilot")
+	}
+	if h == nil { // interactive runs plain on its own login; headless pins -m
+		return nil, nil, agent.ErrOwnLogin
+	}
+	env, argv = opencodeRun("github-copilot/"+opencodeModel(p, model), *h)
+	return env, argv, nil
 }
 
 func (opencodeEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) (env, argv []string, err error) {

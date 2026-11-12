@@ -2,8 +2,10 @@ package opencode
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -28,10 +30,7 @@ type opencodeEntry struct{ pattern, action string }
 
 // opencodePermission preserves rule precedence: unmatched ask uses --auto; auto allows and plan denies unlisted.
 func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
-	base := map[string]string{"auto": "allow", "plan": "deny"}[p.Mode]
-	if base == "" {
-		base = "ask"
-	}
+	base := cmp.Or(map[string]string{"auto": "allow", "plan": "deny"}[p.Mode], "ask")
 	byKey := planEntries(p.Mode)
 	sets := []struct {
 		rules  []agent.Rule
@@ -55,15 +54,10 @@ func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
 }
 
 func renderOpencodePermission(base string, byKey map[string][]opencodeEntry) json.RawMessage {
-	keys := make([]string, 0, len(byKey))
-	for k := range byKey {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
 	var b bytes.Buffer
 	b.WriteString(`{"*":`)
 	b.WriteString(quote(base))
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(byKey)) {
 		b.WriteString(",")
 		b.WriteString(quote(k))
 		b.WriteString(":")

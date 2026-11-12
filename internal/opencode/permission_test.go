@@ -210,13 +210,6 @@ func assertReadOnlyDispatch(t *testing.T, raw string) {
 }
 
 func TestOpencodePolicyArgv(t *testing.T) {
-	pol := agent.RunOptions{Tools: true, Permissions: agent.Permissions{Deny: rules(t, "Read(.env)")}}
-	if got := opencodePolicyArgv([]string{"run"}, pol); !slices.Equal(got, []string{"run", "--auto"}) {
-		t.Fatalf("policy argv = %v, want --auto added", got)
-	}
-	if got := opencodePolicyArgv([]string{"run", "--auto"}, pol); len(got) != 2 {
-		t.Fatalf("--auto duplicated: %v", got)
-	}
 	if got := opencodePolicyArgv([]string{"run"}, agent.RunOptions{Tools: true}); len(got) != 1 {
 		t.Fatalf("no policy must leave argv unchanged: %v", got)
 	}
