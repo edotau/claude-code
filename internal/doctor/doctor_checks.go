@@ -153,8 +153,7 @@ func vaultDoctorChecks() []check {
 			row.Detail += ": " + err.Error()
 		}
 	}
-	// "vault master key" repeats this row's own count/source/error; drop it here, where "vault" already
-	// shows it, but keep it in secretsDoctorChecks for printVault (doctor --secrets never prints "vault").
+	// "vault master key" repeats the "vault" row; drop it here but keep it in secretsDoctorChecks for printVault.
 	checks, _ := secretsDoctorChecks()
 	checks = slices.DeleteFunc(checks, func(c check) bool { return c.Name == "vault master key" })
 	return append([]check{row}, checks...)

@@ -33,7 +33,7 @@ var (
 	nameLine     = regexp.MustCompile(`(?m)^name:\s*(\S+)\s*$`)
 	descLine     = regexp.MustCompile(`(?m)^description:\s*\S`)
 	modelLine    = regexp.MustCompile(`(?m)^model:\s*(\S+)\s*$`)
-	modelOK      = regexp.MustCompile(`^(inherit|sonnet|opus|haiku|[A-Za-z0-9][A-Za-z0-9._:/-]*)$`)
+	modelOK      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`)
 	namedPath    = regexp.MustCompile("(?:^|[\\s(\\[\"'`])((?:~|/)[A-Za-z0-9._@+/~-]*[A-Za-z0-9_])")
 )
 
@@ -306,7 +306,7 @@ func sessionPrompts(root string) []string {
 	out = append(out, missingPaths("memory-start", memoryStart(start).Context)...)
 	out = append(out, missingPaths("memory-recall", memoryRecall(recall).Context)...)
 	if rc := agentsSync(); rc != 0 {
-		out = append(out, fmt.Sprintf("agents sync --check exits %d:1: projection differs from agents/ (fix at agents/)", rc))
+		out = append(out, fmt.Sprintf("agents sync --check exits %d: projection differs from agents/ (fix at agents/)", rc))
 	}
 	return out
 }

@@ -14,7 +14,6 @@ import (
 	"maps"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -41,8 +40,7 @@ type serverDef struct {
 	hadSecrets bool // set by redacted(): a scrubbed copy no longer looks like it held a secret
 }
 
-// MarshalJSON redacts at the type: a serverDef can reach any JSON dump (report, describe, a future debug
-// verb) only with credential-shaped env/header values scrubbed and a has_secrets flag in their place.
+// MarshalJSON redacts at the type, so no JSON dump of a serverDef carries credential-shaped env/header values.
 func (d serverDef) MarshalJSON() ([]byte, error) {
 	type plain serverDef // no MarshalJSON, so the alias cannot recurse
 	r := d.redacted()
@@ -132,16 +130,12 @@ func loadConfig(path string, doc any, bad *[]string) bool {
 	return false
 }
 
-// readFlatScoped reads a flat {"mcpServers": {...}} file (.mcp.json, settings.json), deduped by
-// resolved path, and tags each server with prefix+resolvedPath as its scope.
+// readFlatScoped reads flat {"mcpServers": {...}} files, deduped by resolved path, scoping each server prefix+path.
 func readFlatScoped(files []string, prefix string, bad *[]string) []def {
 	var out []def
 	seen := map[string]bool{}
 	for _, f := range files {
-		rp := f
-		if r, err := filepath.EvalSymlinks(f); err == nil {
-			rp = r
-		}
+		rp := resolvedPath(f)
 		if seen[rp] {
 			continue
 		}
@@ -159,10 +153,7 @@ func readFlatScoped(files []string, prefix string, bad *[]string) []def {
 	return out
 }
 
-// mcpList runs `claude mcp list`, capturing stdout+stderr through a regular FILE — never a pipe. The
-// node CLI truncates a piped stdout at a power-of-two boundary when it exits without flushing
-// (measured: 10/12 pipe reads short, 0/12 file reads), and a dropped failure line reads
-// as an all-clear.
+// mcpList runs `claude mcp list` into a regular FILE, never a pipe: node truncates piped stdout on exit (10/12 short).
 func mcpList(claude string) ([]byte, error) {
 	f, err := os.CreateTemp("", "claude-mcp-list-*.txt")
 	if err != nil {
@@ -193,8 +184,7 @@ type healthResult struct {
 	Skipped   string   `json:"skipped,omitempty"` // fail-open reason: live health was not run
 }
 
-// runHealth runs `claude mcp list` and counts connected vs failed servers. claude=="" fails OPEN
-// (reported, not treated as a Failed server) since there is nothing to connect with.
+// runHealth counts connected vs failed servers from `claude mcp list`; claude=="" fails OPEN (reported, not Failed).
 func runHealth(claude string) healthResult {
 	if claude == "" {
 		return healthResult{Skipped: "claude not on PATH"}
@@ -218,8 +208,7 @@ func runHealth(claude string) healthResult {
 	return res
 }
 
-// conflict is a server name defined in more than one scope; Real is true only when the resolved
-// commands/urls disagree — identical definitions across scopes are benign layering.
+// conflict is a server name defined in several scopes; Real only when the resolved commands/urls disagree.
 type conflict struct {
 	Server string `json:"server"`
 	Rows   []def  `json:"rows"`
@@ -271,8 +260,7 @@ type secretFinding struct {
 	Key    string `json:"key,omitempty"`
 }
 
-// queryParamSecret matches a plaintext *token=/*key= query parameter in a URL; group 1 keeps the
-// separator and param name so redact() can replace just the value.
+// queryParamSecret matches a *token=/*key= URL query parameter; group 1 keeps the name so redact() swaps the value.
 var queryParamSecret = regexp.MustCompile(`(?i)([?&][\w-]*(?:token|key)=)[^&\s]+`)
 
 // urlUserinfo matches the password of scheme://user:password@host; group 1 keeps everything before it.
@@ -300,9 +288,7 @@ func findSecrets(defs []def) []secretFinding {
 	return out
 }
 
-// redact returns a copy of defs with every secret-shaped value replaced, so a report (JSON or text)
-// never carries a credential. Run findSecrets on the ORIGINAL defs first — a redacted value no
-// longer looks like a secret, so scanning would find nothing.
+// redact copies defs with secret values replaced; run findSecrets on the ORIGINAL defs first, redacted ones scan clean.
 func redact(defs []def) []def {
 	out := make([]def, len(defs))
 	for i, d := range defs {

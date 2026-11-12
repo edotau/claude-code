@@ -53,26 +53,39 @@ var doctorSections = []doctorSection{
 // doctorWorkers caps the doctor sections probing at once.
 const doctorWorkers = 4
 
-// runChecks runs every read-only health check; ok is false when any hard check failed.
-func runChecks() (checks []check, ok bool) {
-	rows := make([][]check, len(doctorSections))
-	oks := make([]bool, len(doctorSections))
-	sem := make(chan struct{}, doctorWorkers)
+// fanOut runs fn(0..n-1) on at most workers goroutines and returns the results in index order.
+func fanOut[T any](n, workers int, fn func(i int) T) []T {
+	out := make([]T, n)
+	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
-	for i, section := range doctorSections {
+	for i := range n {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			rows[i], oks[i] = section()
+			out[i] = fn(i)
 		}()
 	}
 	wg.Wait()
+	return out
+}
+
+// sectionRows is one doctorSection's result.
+type sectionRows struct {
+	rows []check
+	ok   bool
+}
+
+// runChecks runs every read-only health check; ok is false when any hard check failed.
+func runChecks() (checks []check, ok bool) {
 	ok = true
-	for i := range rows {
-		checks = append(checks, rows[i]...)
-		ok = ok && oks[i]
+	for _, r := range fanOut(len(doctorSections), doctorWorkers, func(i int) sectionRows {
+		rows, sok := doctorSections[i]()
+		return sectionRows{rows, sok}
+	}) {
+		checks = append(checks, r.rows...)
+		ok = ok && r.ok
 	}
 	return checks, ok
 }
@@ -167,21 +180,10 @@ var probeCredential = providers.ProbeCredential
 
 // providerCredentialChecks runs providerCredentialCheck for names concurrently and returns the rows in names order.
 func providerCredentialChecks(reg *providers.Registry, sel providers.Selection, selectErr error, names []string) []check {
-	rows := make([]check, len(names))
-	sem := make(chan struct{}, credentialProbeWorkers)
 	agents := sync.OnceValue(providers.AgentRecords) // one vault read per run, not per profile
-	var wg sync.WaitGroup
-	for i, n := range names {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func() {
-			defer wg.Done()
-			defer func() { <-sem }()
-			rows[i] = providerCredentialCheck(reg, sel, selectErr, n, agents)
-		}()
-	}
-	wg.Wait()
-	return rows
+	return fanOut(len(names), credentialProbeWorkers, func(i int) check {
+		return providerCredentialCheck(reg, sel, selectErr, names[i], agents)
+	})
 }
 
 func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, selectErr error, name string,
@@ -258,8 +260,7 @@ func profileInUse(reg *providers.Registry, name string, agents func() map[string
 	return false
 }
 
-// altAuth names the sign-in that covers a provider whose own key is absent or rejected, or "" when none does:
-// claude runs on its OAuth login (or headless token) without ANTHROPIC_API_KEY.
+// altAuth names the sign-in covering a provider whose key is absent or rejected (claude's OAuth login), or "".
 func altAuth(name string) string {
 	if name != "anthropic" {
 		return ""
@@ -362,8 +363,7 @@ func setupDoctorDetail() string {
 	return fmt.Sprintf("adopted %s from %s; backup %s", st.Date.Format("2006-01-02"), st.Commit, st.BackupDir)
 }
 
-// opencodeStaticKeysDetail flags an opencode auth.json static key for a provider the harness vault
-// already supplies via the {env:} indirection — names only, never a credential value.
+// opencodeStaticKeysDetail flags an opencode auth.json static key the vault already supplies; names only, no values.
 func opencodeStaticKeysDetail(reg *providers.Registry) (bool, string) {
 	ints, err := opencode.OpencodeAuth()
 	if err != nil {
@@ -371,15 +371,8 @@ func opencodeStaticKeysDetail(reg *providers.Registry) (bool, string) {
 	}
 	var stale []string
 	for _, in := range ints {
-		p := opencodeProviderByID(reg, in.ID)
-		if p == nil || !providers.CredentialPresent(p) {
-			continue // no registry provider or no credential: auth.json duplicates nothing
-		}
-		for _, c := range in.Conns {
-			if c.Kind == "credential" && c.Method == "key" {
-				stale = append(stale, in.ID)
-				break
-			}
+		if p := opencodeProviderByID(reg, in.ID); p != nil && providers.CredentialPresent(p) && hasStaticKey(in) {
+			stale = append(stale, in.ID) // a registry provider with a credential: auth.json duplicates it
 		}
 	}
 	if len(stale) == 0 {
@@ -391,6 +384,11 @@ func opencodeStaticKeysDetail(reg *providers.Registry) (bool, string) {
 		notes[i] = fmt.Sprintf("auth.json still holds %s key; run `opencode auth logout %s`", id, id)
 	}
 	return false, strings.Join(notes, "; ")
+}
+
+// hasStaticKey reports whether in holds a static API key connection.
+func hasStaticKey(in opencode.OpencodeIntegration) bool {
+	return slices.ContainsFunc(in.Conns, func(c opencode.OpencodeConn) bool { return c.Kind == "credential" && c.Method == "key" })
 }
 
 // opencodeProviderByID finds the registry provider whose OpencodeID matches id, or nil.

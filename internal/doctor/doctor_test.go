@@ -253,15 +253,15 @@ func TestDoctorAuditJSONShape(t *testing.T) {
 	}
 }
 
-// doctor --audit --days rejects a non-positive value, same as the old `audit --days`.
+// doctor --audit --days rejects a non-positive value with exit 2 and says what to pass instead.
 func TestDoctorAuditRejectsNonPositiveDays(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--audit", "--days", "0"}) })
 	if code != 2 {
 		t.Errorf("doctor --audit --days 0 = %d, want 2", code)
 	}
-	if !strings.Contains(stderr, "usage: claude-code doctor") || !strings.Contains(stderr, "--audit") {
-		t.Errorf("stderr = %q, want the doctor usage and --audit flag", stderr)
+	if !strings.Contains(stderr, "--days must be at least 1") || !strings.Contains(stderr, "try --days 7") {
+		t.Errorf("stderr = %q, want the --days minimum and a suggested value", stderr)
 	}
 }
 

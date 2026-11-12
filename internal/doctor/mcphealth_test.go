@@ -126,7 +126,7 @@ func TestDoctorConflictSeesSecretArgDifference(t *testing.T) {
 // placeholders stay clean.
 func TestFindSecrets(t *testing.T) {
 	defs := []def{
-		{"databricks", "user", serverDef{Env: map[string]string{"DATABRICKS_TOKEN": "dapi0123456789abcdef"}}},
+		{"databricks", "user", serverDef{Env: map[string]string{"DATABRICKS_TOKEN": "dapi" + "0123456789abcdef0123456789abcdef"}}},
 		{"github", "user", serverDef{Env: map[string]string{"GITHUB_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}", "CA": "/etc/ssl/ca.pem"}}},
 		{"openai", "user", serverDef{Env: map[string]string{"KEY": "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD"}}},
 		{"slack", "user", serverDef{Env: map[string]string{"TOKEN": "xoxb-" + "1234567890" + "-abcdefghijklmnop"}}},
@@ -238,7 +238,7 @@ fi`)
 // the report embeds Defs verbatim, so a missed field leaks a credential straight into --json/text.
 func TestRedactScrubsEnvHeadersAndURL(t *testing.T) {
 	defs := []def{{"s", "user", serverDef{
-		Env:     map[string]string{"TOKEN": "dapi0123456789abcdef", "CA": "/etc/ssl/ca.pem"},
+		Env:     map[string]string{"TOKEN": "dapi" + "0123456789abcdef0123456789abcdef", "CA": "/etc/ssl/ca.pem"},
 		Headers: map[string]string{"Authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		URL:     "https://example.com/sse?token=abcdef0123456789&other=1",
 	}}}

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -56,17 +55,16 @@ func checkVaultPerms() []vaultCheck {
 	return []vaultCheck{row}
 }
 
-// checkMasterKey fails when the vault holds secrets the resolved master key cannot open, or when the
-// vault itself can't be read (locked, wrong key) — an unreadable vault must not read as "no credential".
+// checkMasterKey fails when the master key cannot open the vault's secrets or the vault is unreadable.
 func checkMasterKey() []vaultCheck {
 	row := vaultCheck{Name: "vault master key", OK: true, Gate: true}
 	count, source, err := vault.MasterKeyStatus()
 	switch {
 	case err != nil && count == 0:
-		row.OK, row.Detail = false, "vault is unreadable: "+keyErrText(err)
+		row.OK, row.Detail = false, "vault is unreadable: "+err.Error()
 		return []vaultCheck{row}
 	case err != nil:
-		row.OK, row.Detail = false, fmt.Sprintf("vault holds %d secret(s) but the master key does not open it: %s", count, keyErrText(err))
+		row.OK, row.Detail = false, fmt.Sprintf("vault holds %d secret(s) but the master key does not open it: %s", count, err)
 		return []vaultCheck{row}
 	case count == 0:
 		return nil
@@ -104,8 +102,7 @@ func checkRetiredKeys() []vaultCheck {
 	return out
 }
 
-// checkKeyNames warns about a stored key that matches no provider's auth.env — likely a typo, but
-// not necessarily wrong (a provider not yet in the registry), so this never fails the gate.
+// checkKeyNames warns about a stored key matching no provider's auth.env (likely a typo); never fails the gate.
 func checkKeyNames(reg *providers.Registry) []vaultCheck {
 	if reg == nil { // no registry to compare against: every key would read as a typo
 		return nil
@@ -166,12 +163,4 @@ func checkKeyringTool() vaultCheck {
 		return vaultCheck{Name: "keyring tool", OK: true, Detail: vault.KeyringTool() + " on PATH"}
 	}
 	return vaultCheck{Name: "keyring tool", OK: true, Detail: "none on PATH — set HARNESS_VAULT_KEY or the vault key_command"}
-}
-
-// keyCmdStderr matches the key_command stderr tail vault appends to its error; it could echo key material.
-var keyCmdStderr = regexp.MustCompile(`(?s)(key_command: [^:]*): .*`)
-
-// keyErrText is err's text with any key_command stderr withheld, safe for doctor text and JSON rows.
-func keyErrText(err error) string {
-	return keyCmdStderr.ReplaceAllString(err.Error(), "$1 (stderr withheld)")
 }
