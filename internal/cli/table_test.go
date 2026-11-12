@@ -948,6 +948,7 @@ func TestMenuGroupsAlphabetical(t *testing.T) {
 func TestMain(m *testing.M) {
 	agent.NoticeOut = io.Discard
 	agent.StubProxyForTest("http://127.0.0.1:9999", "rtr-secret-test") // the moved batch/envelope tests reach the proxy
+	agent.StubRefreshListingForTest()
 	agentconfig.SetCatalogWarn(io.Discard)
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()

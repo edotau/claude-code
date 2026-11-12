@@ -97,7 +97,7 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Pre
 
 // withDefaults fills the agent, fallback and launcher defaults and resolves o.Agent to its agent.
 func (c *Client) withDefaults(o RunOptions) (RunOptions, error) {
-	o.Agent, o.Fallback, o.Launcher = cmp.Or(o.Agent, "claude"), cmp.Or(o.Fallback, router.FallbackAll), c.Launcher
+	o.Agent, o.Fallback, o.Launcher = cmp.Or(o.Agent, "claude"), cmp.Or(o.Fallback, router.DefaultFallback()), c.Launcher
 	if o.SessionID != "" {
 		o.Fallback = router.FallbackNone
 	}

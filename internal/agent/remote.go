@@ -157,7 +157,7 @@ func remoteArgv(host, bin, agentName, fallback string, req RunOptions) ([]string
 func resultFromEnvelope(env wire.Envelope, agentName string, dropped []string) wire.Result {
 	res := wire.Result{Agent: cmp.Or(env.Agent, agentName), Status: env.Status, Provider: env.Provider, Model: env.Model, Invoked: env.Invoked,
 		SessionID: env.SessionID, Answer: env.Answer, DurationMs: env.DurationMs, Dropped: append(dropped, env.Dropped...),
-		SchemaUnchecked: env.SchemaUnchecked, Emulated: env.Emulated, FallbackReason: env.FallbackReason, Handoff: env.Handoff,
+		SchemaUnchecked: env.SchemaUnchecked, Emulated: env.Emulated, FallbackReason: env.FallbackReason, Requested: env.Requested, RequestedWhy: env.RequestedWhy, Handoff: env.Handoff,
 		Transport: env.Transport, Hops: env.Hops, Structured: env.Structured}
 	if env.Usage != nil {
 		res.Usage = *env.Usage

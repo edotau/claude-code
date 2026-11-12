@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -31,27 +32,39 @@ func TestPickArm(t *testing.T) {
 	for _, n := range []string{"dev", "prod", "qa"} {
 		reg.Providers[n] = &providers.Provider{Name: n, Preset: providers.PresetDatabricks}
 	}
-	origUsable, origLive := armUsable, armLive
-	t.Cleanup(func() { armUsable, armLive = origUsable, origLive })
+	origFindings, origCooling, origLive := armFindings, armCooling, armLive
+	t.Cleanup(func() { armFindings, armCooling, armLive = origFindings, origCooling, origLive })
+	armCooling = func(*providers.Provider, time.Time) bool { return false }
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			if err := writeArmPicks(armPicks{Schema: armPicksSchema, Picked: c.picked}); err != nil {
 				t.Fatal(err)
 			}
-			armUsable = func(p *providers.Provider) bool { return !slices.Contains(c.unusable, p.Name) }
+			armFindings = noCredential(c.unusable)
 			armLive = func([]*providers.Provider) map[string]int { return c.live }
-			got, live, err := pickArm(reg, now)
-			if err != nil || got != c.want || live != c.wantLive {
-				t.Fatalf("pickArm = %q, %d live, %v; want %q, %d live", got, live, err, c.want, c.wantLive)
+			got, live, skipped, err := pickArm(reg, "", "", now)
+			if err != nil || got != c.want || live != c.wantLive || len(skipped) != len(c.unusable) {
+				t.Fatalf("pickArm = %q, %d live, %d skipped, %v; want %q, %d live, %d skipped",
+					got, live, len(skipped), err, c.want, c.wantLive, len(c.unusable))
 			}
 			if at := readArmPicks().Picked[got]; !at.Equal(now) {
 				t.Fatalf("pick of %s stamped %v, want %v: the next tie would go to it again", got, at, now)
 			}
 		})
 	}
-	armUsable = func(*providers.Provider) bool { return false }
-	if got, _, err := pickArm(reg, now); err == nil {
+	armFindings = noCredential([]string{"dev", "prod", "qa"})
+	if got, _, _, err := pickArm(reg, "", "", now); err == nil {
 		t.Fatalf("pickArm with no usable workspace = %q, want an error", got)
+	}
+}
+
+// noCredential is an armFindings stub failing the credential check of each workspace in unusable.
+func noCredential(unusable []string) func(*providers.Provider, string, string, time.Time) []agent.Finding {
+	return func(p *providers.Provider, _, _ string, _ time.Time) []agent.Finding {
+		if slices.Contains(unusable, p.Name) {
+			return []agent.Finding{{Check: "credential", Profile: p.Name, Detail: "no stored credential for " + p.Name}}
+		}
+		return nil
 	}
 }

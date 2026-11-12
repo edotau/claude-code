@@ -37,10 +37,10 @@ func runWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 		return wire.Result{Agent: c.Want, Status: wire.StatusError, FallbackReason: strings.Join(reasons, "; ")},
 			retry.Fatal(c.Want, fmt.Errorf("no agent available: %s%s", strings.Join(reasons, "; "), switchHint(reasons)))
 	}
-	if shown := askedSkips(reasons, c.Want); len(shown) > 0 && notify != nil { // other agents' skips stay in the record
-		notify("skipped without an attempt — " + strings.Join(shown, "; "))
+	s := fallbackState{req: req, task: req.Prompt, reasons: reasons, skips: askedSkips(reasons, c.Want)}
+	if c.Dispatches[0].fallsBack(c.Want) { // a skip already moved the chain off the requested step
+		s.noteSkips(notify)
 	}
-	s := fallbackState{req: req, task: req.Prompt, reasons: reasons}
 	if len(c.Dispatches) > 1 && editing(req) { // the successor's `git log <start>..HEAD` needs the pre-dispatch HEAD
 		s.startHead = gitHead(ctx, req.WorkDir)
 	}
@@ -55,6 +55,22 @@ func runWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 	return s.attach(res), err
 }
 
+// SkippedLead opens the chain's notice of the wanted agent's skips, printed once a fallback is needed.
+const SkippedLead = "skipped without an attempt — "
+
+// noteSkips tells notify the wanted agent's skips once; other agents' skips stay in the record.
+func (s *fallbackState) noteSkips(notify func(string)) {
+	if len(s.skips) > 0 && notify != nil {
+		notify(SkippedLead + strings.Join(s.skips, "; "))
+	}
+	s.skips = nil
+}
+
+// fallsBack reports d standing in for the wanted agent: another agent, another route or the pin.
+func (d Dispatch) fallsBack(want string) bool {
+	return d.otherRoute || d.swap || d.Agent.Name() != want
+}
+
 // attach stamps the hand-off and every tried hop on res, so an error return still reports who ran.
 func (s *fallbackState) attach(res wire.Result) wire.Result {
 	res.Handoff, res.Hops = s.handoff, s.hops
@@ -67,7 +83,7 @@ func chainOutcome(c Chain, res wire.Result, err error, reasons []string, prevDis
 		err = everyHopFailed(append(reasons, hopLabel(prevDispatch)+": "+FallbackReason(err)), err)
 	}
 	d := c.Dispatches[ran]
-	if ran > 0 || d.otherRoute || d.swap || d.Agent.Name() != c.Want { // a different agent, route or the pin is a fallback
+	if ran > 0 || d.fallsBack(c.Want) { // a different agent, route or the pin is a fallback
 		hopReasons := reasons[len(c.Skipped):] // the reason names the asked agent's skips and the hops that ran, never an unasked agent's skip
 		res.Fallback, res.FallbackReason = c.Want, strings.Join(append(askedSkips(reasons[:len(c.Skipped)], c.Want), hopReasons...), "; ")
 		res.Requested, res.RequestedWhy = c.requested, strings.Join(hopReasons[:min(1, len(hopReasons))], "")
@@ -371,7 +387,8 @@ type fallbackState struct {
 	stopped      bool
 	handoff      string
 	hops         []wire.Hop
-	startHead    string // HEAD before the first dispatch, for the successor's reconcile log; "" when unknown
+	startHead    string   // HEAD before the first dispatch, for the successor's reconcile log; "" when unknown
+	skips        []string // the wanted agent's skips, noted once the chain falls back
 }
 
 // nextPrompt prefixes the cut-off note after a mid-run cut; read-only with no partial answer keeps the bare task.
@@ -396,6 +413,7 @@ func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch,
 	if i > 0 {
 		s.reasons = append(s.reasons, hopLabel(s.prevDispatch)+": "+FallbackReason(s.err))
 		s.req.Prompt = s.nextPrompt(midRun) // the git reconcile steps go to an editing successor only
+		s.noteSkips(notify)
 		if herr := announceFallback(sink, notify, s.prevDispatch, disp, s.err); herr != nil {
 			return true, herr
 		}
