@@ -139,23 +139,34 @@ func maskSlices(oa, na []any, secret bool, key string) (any, any) {
 	return oo, nn
 }
 
-// maskLeaf masks a string under a credential key or shaped like one; a differing new value is marked changed.
+// maskLeaf masks any scalar under a credential key and a string shaped like one; a differing new value is marked changed.
 func maskLeaf(o, n any, secret bool, key string) (any, any) {
 	keyed := secret || credLeaf(key)
-	os, oIsStr := o.(string)
-	ns, nIsStr := n.(string)
-	oMask := oIsStr && (keyed || credValue(os))
-	nMask := nIsStr && (keyed || credValue(ns))
+	oMask, nMask := leafMasked(o, keyed), leafMasked(n, keyed)
+	changed := oMask && nMask && o != n
 	if oMask {
 		o = redacted
 	}
 	if nMask {
 		n = redacted
-		if oMask && os != ns {
+		if changed {
 			n = redactedChanged
 		}
 	}
 	return o, n
+}
+
+// leafMasked reports a non-null scalar under a credential key, or a string that holds a credential.
+func leafMasked(v any, keyed bool) bool {
+	switch x := v.(type) {
+	case nil:
+		return false
+	case string:
+		return keyed || credValue(x)
+	case bool, float64, json.Number:
+		return keyed
+	}
+	return false
 }
 
 // normalize re-indents a parsed JSON document with sorted keys so formatting never shows as a change.

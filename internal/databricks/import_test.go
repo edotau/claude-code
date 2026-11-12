@@ -733,7 +733,7 @@ func TestPairingExportRoundTripAndCommentMerge(t *testing.T) {
 
 func TestPairingCommentSurvivesMerge(t *testing.T) {
 	existing := "[other]\nhost = https://other\nauth_type = pat\n\n# claude-code: pair=dev\n[svc]\nhost = https://dev\nclient_id = old\nauth_type = oauth-m2m\n"
-	merged, _ := mergeExport(existing, []exportRow{{ID: "other", Section: "other", Host: "https://new", Auth: providers.AuthPAT}, {ID: "svc", Section: "svc", Host: "https://dev", Auth: providers.AuthM2M, ClientID: "new", Pair: "other", PairSet: true}}, true)
+	merged, _, _ := mergeExport(existing, []exportRow{{ID: "other", Section: "other", Host: "https://new", Auth: providers.AuthPAT}, {ID: "svc", Section: "svc", Host: "https://dev", Auth: providers.AuthM2M, ClientID: "new", Pair: "other", PairSet: true}}, true)
 	cs := candidatesOf(t, merged)
 	if len(cs) != 2 || !cs[1].PairSet || cs[1].Pair != "dev" {
 		t.Fatalf("pair comment lost during merge: %s", merged)
