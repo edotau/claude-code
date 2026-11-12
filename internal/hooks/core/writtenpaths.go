@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -53,21 +54,12 @@ func appendWritten(out []string, cmd, cwd string, depth int) []string {
 		}
 		rest, _ := shell.Unwrap(toks, cwd)
 		for _, t := range append(redirectTargets(toks), commandTargets(rest)...) {
-			if p := resolveTarget(t, cwd); p != "" && !containsStr(out, p) {
+			if p := resolveTarget(t, cwd); p != "" && !slices.Contains(out, p) {
 				out = append(out, p)
 			}
 		}
 	}
 	return out
-}
-
-func containsStr(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }
 
 // resolveTarget expands ~ and a leading $HOME and anchors a relative target; "" for /dev/*, fd dups and substitutions.
@@ -172,7 +164,7 @@ func clusterFlags(a, scriptFlags string) (inPlace, takesScript bool) {
 // destinations is the `-t DIR` value, else the last operand of cp/mv/install (under it per source if a directory).
 func destinations(args []string) []string {
 	var ops []string
-	for i := 0; i < len(args); i++ {
+	for i := range len(args) {
 		a := args[i]
 		switch {
 		case a == "-t" && i+1 < len(args):
